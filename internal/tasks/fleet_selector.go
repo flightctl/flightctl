@@ -224,7 +224,8 @@ func (f FleetSelectorMatchingLogic) validateAndGetFleet(ctx context.Context, all
 	if status.Code != http.StatusOK {
 		if status.Code == http.StatusNotFound {
 			// Case 1: Fleet was deleted - recompute matching fleets for devices that had this fleet as owner
-			err := f.handleFleetDeleted(ctx, allFleetsFetcher)
+			f.log.Infof("Fleet %s was deleted, recomputing owners for devices that had this fleet as owner", f.event.InvolvedObject.Name)
+			err := f.clearFleetOwnershipFromDevices(ctx, allFleetsFetcher)
 			return FleetValidationResult{Fleet: nil, Error: err}
 		}
 		errorMsg := f.formatCriticalError("fleet selector update", fmt.Sprintf("failed to get fleet: %s", status.Message))
@@ -234,7 +235,8 @@ func (f FleetSelectorMatchingLogic) validateAndGetFleet(ctx context.Context, all
 
 	// empty selector matches no devices - treat as if fleet was deleted
 	if len(getMatchLabelsSafe(fleet)) == 0 {
-		err := f.handleFleetDeleted(ctx, allFleetsFetcher)
+		f.log.Infof("Fleet %s has empty selector (matches no devices), clearing device ownership", f.event.InvolvedObject.Name)
+		err := f.clearFleetOwnershipFromDevices(ctx, allFleetsFetcher)
 		return FleetValidationResult{Fleet: nil, Error: err}
 	}
 
@@ -269,9 +271,8 @@ func (f FleetSelectorMatchingLogic) processFleetSelectorUpdate(ctx context.Conte
 	return stats
 }
 
-// Helper method to handle fleet deletion scenarios and cleanup multiple owners conditions
-func (f FleetSelectorMatchingLogic) handleFleetDeleted(ctx context.Context, allFleetsFetcher func() ([]api.Fleet, error)) error {
-	f.log.Infof("Fleet %s was deleted, recomputing owners for devices that had this fleet as owner", f.event.InvolvedObject.Name)
+// Helper method to clear fleet ownership from devices and cleanup multiple owners conditions
+func (f FleetSelectorMatchingLogic) clearFleetOwnershipFromDevices(ctx context.Context, allFleetsFetcher func() ([]api.Fleet, error)) error {
 
 	// Get all devices that had this fleet as owner
 	listParams := api.ListDevicesParams{
