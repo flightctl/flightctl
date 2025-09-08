@@ -22,7 +22,9 @@ spec:
     spec:
       serviceAccountName: flightctl-worker
       initContainers:
+      {{- if ne .Values.db.external "enabled" }}
       {{- include "flightctl.databaseWaitInitContainer" (dict "context" . "userType" "app") | nindent 6 }}
+      {{- end }}
       containers:
         - name: flightctl-worker
           image: {{ .Values.worker.image.image }}:{{ default .Chart.AppVersion .Values.worker.image.tag }}

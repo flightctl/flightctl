@@ -170,7 +170,11 @@ Database hostname helper.
 Returns the database hostname, either from values or the default cluster service name.
 */}}
 {{- define "flightctl.dbHostname" }}
+{{- if eq .Values.db.external "enabled" -}}
+{{ .Values.db.hostname }}
+{{- else -}}
 {{- default (printf "flightctl-db.%s.svc.cluster.local" (default .Release.Namespace .Values.global.internalNamespace)) .Values.db.hostname }}
+{{- end }}
 {{- end }}
 
 {{/*
@@ -189,7 +193,7 @@ Parameters:
 {{- $timeout := .timeout | default $context.Values.dbSetup.wait.timeout | default 60 | int }}
 {{- $sleep := .sleep | default $context.Values.dbSetup.wait.sleep | default 2 | int }}
 {{- $connectionTimeout := .connectionTimeout | default $context.Values.dbSetup.wait.connectionTimeout | default 3 | int }}
-- name: wait-for-database
+- name: wait-for-database-{{ $userType }}
   image: "{{ $context.Values.dbSetup.image.image }}:{{ default $context.Chart.AppVersion $context.Values.dbSetup.image.tag }}"
   imagePullPolicy: {{ default $context.Values.global.imagePullPolicy $context.Values.dbSetup.image.pullPolicy }}
   command:
