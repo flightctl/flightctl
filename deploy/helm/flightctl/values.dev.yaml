@@ -94,20 +94,6 @@ dbSetup:
     backoffLimit: 3
     activeDeadlineSeconds: 600
 
-## @section Upgrade hooks
-## @param upgradeHooks.scaleDown.condition When to run pre-upgrade scale down job: "always", "never", or "chart" (default). "chart" runs only if helm.sh/chart changed.
-## @param upgradeHooks.scaleDown.deployments List of Deployments to scale down in order
-## @param upgradeHooks.scaleDown.timeoutSeconds Timeout in seconds to wait for rollout per Deployment
-## @param upgradeHooks.databaseMigrationDryRun Enable pre-upgrade DB migration dry-run as a hook
-upgradeHooks:
-  scaleDown:
-    condition: chart
-    deployments:
-      - flightctl-periodic
-      - flightctl-worker
-    timeoutSeconds: 120
-  databaseMigrationDryRun: true
-
 telemetryGateway:
   enabled: true
   image:
