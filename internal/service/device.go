@@ -73,7 +73,7 @@ func (h *ServiceHandler) CreateDevice(ctx context.Context, device api.Device) (*
 		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
-	common.UpdateServiceSideStatus(ctx, orgId, &device, h.store, h.log)
+	_, _ = common.UpdateServiceSideStatus(ctx, orgId, &device, h.store, h.log)
 
 	result, err := h.store.Device().Create(ctx, orgId, &device, h.callbackDeviceUpdated)
 	return result, StoreErrorToApiStatus(err, true, api.DeviceKind, device.Metadata.Name)
@@ -182,7 +182,7 @@ func (h *ServiceHandler) ReplaceDevice(ctx context.Context, name string, device 
 		return nil, api.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
 
-	common.UpdateServiceSideStatus(ctx, orgId, &device, h.store, h.log)
+	_, _ = common.UpdateServiceSideStatus(ctx, orgId, &device, h.store, h.log)
 
 	result, created, err := h.store.Device().CreateOrUpdate(ctx, orgId, &device, fieldsToUnset, isNotInternal, DeviceVerificationCallback, h.callbackDeviceUpdated)
 	return result, StoreErrorToApiStatus(err, created, api.DeviceKind, &name)
@@ -209,7 +209,7 @@ func (h *ServiceHandler) UpdateDevice(ctx context.Context, name string, device a
 		return nil, fmt.Errorf("resource name specified in metadata does not match name in path")
 	}
 
-	common.UpdateServiceSideStatus(ctx, orgId, &device, h.store, h.log)
+	_, _ = common.UpdateServiceSideStatus(ctx, orgId, &device, h.store, h.log)
 
 	return h.store.Device().Update(ctx, orgId, &device, fieldsToUnset, false, DeviceVerificationCallback, h.callbackDeviceUpdated)
 }
@@ -264,9 +264,18 @@ func (h *ServiceHandler) ReplaceDeviceStatus(ctx context.Context, name string, i
 
 	common.KeepDBDeviceStatus(&incomingDevice, deviceToStore)
 	deviceToStore.Status = incomingDevice.Status
-	common.UpdateServiceSideStatus(ctx, orgId, deviceToStore, h.store, h.log)
 
-	result, err := h.store.Device().UpdateStatus(ctx, orgId, deviceToStore, h.callbackDeviceUpdated)
+	_, annotationsChanged := common.UpdateServiceSideStatus(ctx, orgId, deviceToStore, h.store, h.log)
+
+	// Use Update() if annotations changed, otherwise use UpdateStatus()
+	var result *api.Device
+	if annotationsChanged {
+		h.log.Infof("Device %s: Annotations changed, using Update() to persist changes", *deviceToStore.Metadata.Name)
+		result, err = h.store.Device().Update(ctx, orgId, deviceToStore, nil, false, DeviceVerificationCallback, h.callbackDeviceUpdated)
+	} else {
+		h.log.Debugf("Device %s: No annotation changes, using UpdateStatus()", *deviceToStore.Metadata.Name)
+		result, err = h.store.Device().UpdateStatus(ctx, orgId, deviceToStore, h.callbackDeviceUpdated)
+	}
 	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 }
 
@@ -307,7 +316,7 @@ func (h *ServiceHandler) PatchDeviceStatus(ctx context.Context, name string, pat
 	NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
-	common.UpdateServiceSideStatus(ctx, orgId, newObj, h.store, h.log)
+	_, _ = common.UpdateServiceSideStatus(ctx, orgId, newObj, h.store, h.log)
 
 	result, err := h.store.Device().Update(ctx, orgId, newObj, nil, true, DeviceVerificationCallback, h.callbackDeviceUpdated)
 	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
@@ -352,7 +361,7 @@ func (h *ServiceHandler) PatchDevice(ctx context.Context, name string, patch api
 	NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
-	common.UpdateServiceSideStatus(ctx, orgId, newObj, h.store, h.log)
+	_, _ = common.UpdateServiceSideStatus(ctx, orgId, newObj, h.store, h.log)
 
 	result, err := h.store.Device().Update(ctx, orgId, newObj, nil, true, DeviceVerificationCallback, h.callbackDeviceUpdated)
 	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
@@ -517,7 +526,8 @@ func (h *ServiceHandler) GetDevicesSummary(ctx context.Context, params api.ListD
 
 func (h *ServiceHandler) UpdateServiceSideDeviceStatus(ctx context.Context, device api.Device) bool {
 	orgId := getOrgIdFromContext(ctx)
-	return common.UpdateServiceSideStatus(ctx, orgId, &device, h.store, h.log)
+	anyChanged, _ := common.UpdateServiceSideStatus(ctx, orgId, &device, h.store, h.log)
+	return anyChanged
 }
 
 func (h *ServiceHandler) ResumeDevices(ctx context.Context, request api.DeviceResumeRequest) (api.DeviceResumeResponse, api.Status) {

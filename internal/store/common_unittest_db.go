@@ -100,6 +100,7 @@ func setupTemplateStrategy(ctx context.Context, cfg *config.Config, dbName strin
 		return nil, fmt.Errorf("initializing data store: %w", err)
 	}
 	defer CloseDB(adminDB)
+
 	cfg.Database.Name = originalName
 
 	templateDB := os.Getenv("FLIGHTCTL_TEST_TEMPLATE_DB")
