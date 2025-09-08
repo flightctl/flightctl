@@ -24,3 +24,12 @@ data:
         static_configs:
           - targets: ['localhost:9100']
         scheme: http
+
+      - job_name: "telemetry-gateway"
+        static_configs:
+          - targets: ['flightctl-telemetry-gateway.flightctl-external.svc:9464']
+        relabel_configs:
+          - source_labels: [__address__]
+            regex: '([^:]+)(?::\d+)?'
+            target_label: instance
+            replacement: '$1'

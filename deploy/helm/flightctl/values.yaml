@@ -73,6 +73,8 @@ global:
     ui: 9000
     keycloak: 8081
     alertmanagerProxy: 8443
+    telemetryGatewayOtlp: 4317
+    telemetryGatewayProm: 9464
   gatewayPorts:
     tls: 443
     http: 80
@@ -216,3 +218,5 @@ dbSetup:
     timeout: 60
     # Default sleep interval between connection attempts
     sleep: 2
+telemetryGateway:
+  enabled: false

@@ -19,17 +19,18 @@ const (
 )
 
 type Config struct {
-	Database      *dbConfig            `json:"database,omitempty"`
-	Service       *svcConfig           `json:"service,omitempty"`
-	KV            *kvConfig            `json:"kv,omitempty"`
-	Alertmanager  *alertmanagerConfig  `json:"alertmanager,omitempty"`
-	Auth          *authConfig          `json:"auth,omitempty"`
-	Metrics       *metricsConfig       `json:"metrics,omitempty"`
-	CA            *ca.Config           `json:"ca,omitempty"`
-	Tracing       *tracingConfig       `json:"tracing,omitempty"`
-	GitOps        *gitOpsConfig        `json:"gitOps,omitempty"`
-	Periodic      *periodicConfig      `json:"periodic,omitempty"`
-	Organizations *organizationsConfig `json:"organizations,omitempty"`
+	Database         *dbConfig               `json:"database,omitempty"`
+	Service          *svcConfig              `json:"service,omitempty"`
+	KV               *kvConfig               `json:"kv,omitempty"`
+	Alertmanager     *alertmanagerConfig     `json:"alertmanager,omitempty"`
+	Auth             *authConfig             `json:"auth,omitempty"`
+	Metrics          *metricsConfig          `json:"metrics,omitempty"`
+	CA               *ca.Config              `json:"ca,omitempty"`
+	Tracing          *tracingConfig          `json:"tracing,omitempty"`
+	GitOps           *gitOpsConfig           `json:"gitOps,omitempty"`
+	Periodic         *periodicConfig         `json:"periodic,omitempty"`
+	Organizations    *organizationsConfig    `json:"organizations,omitempty"`
+	TelemetryGateway *telemetryGatewayConfig `json:"telemetrygateway,omitempty"`
 }
 
 type RateLimitConfig struct {
@@ -191,6 +192,40 @@ type organizationsConfig struct {
 	Enabled bool `json:"enabled,omitempty"`
 }
 
+type telemetryGatewayConfig struct {
+	LogLevel string                    `json:"logLevel,omitempty"`
+	TLS      telemetryGatewayTLSConfig `json:"tls,omitempty"`
+	Listen   telemetryGatewayListen    `json:"listen,omitempty"`
+	Export   *telemetryGatewayExport   `json:"export,omitempty"`
+	Forward  *telemetryGatewayForward  `json:"forward,omitempty"`
+}
+
+type telemetryGatewayTLSConfig struct {
+	CertFile string `json:"certFile,omitempty"`
+	KeyFile  string `json:"keyFile,omitempty"`
+	CACert   string `json:"caCert,omitempty"`
+}
+
+type telemetryGatewayListen struct {
+	Device string `json:"device,omitempty"`
+}
+
+type telemetryGatewayExport struct {
+	Prometheus string `json:"prometheus,omitempty"`
+}
+
+type telemetryGatewayForward struct {
+	Endpoint string                      `json:"endpoint,omitempty"`
+	TLS      *telemetryGatewayForwardTLS `json:"tls,omitempty"`
+}
+
+type telemetryGatewayForwardTLS struct {
+	InsecureSkipTlsVerify bool   `json:"insecureSkipTlsVerify,omitempty"`
+	CAFile                string `json:"caFile,omitempty"`
+	CertFile              string `json:"certFile,omitempty"`
+	KeyFile               string `json:"keyFile,omitempty"`
+}
+
 type ConfigOption func(*Config)
 
 func WithTracingEnabled() ConfigOption {
@@ -267,6 +302,17 @@ func NewDefault(opts ...ConfigOption) *Config {
 			MaxRetries: 3,
 			BaseDelay:  "500ms",
 			MaxDelay:   "10s",
+		},
+		TelemetryGateway: &telemetryGatewayConfig{
+			LogLevel: "info",
+			TLS: telemetryGatewayTLSConfig{
+				CertFile: "/etc/telemetry-gateway/certs/server.crt",
+				KeyFile:  "/etc/telemetry-gateway/certs/server.key",
+				CACert:   "/etc/telemetry-gateway/certs/ca.crt",
+			},
+			Listen: telemetryGatewayListen{Device: "0.0.0.0:4317"},
+			// Export: nil  (no Prom until explicitly set)
+			// Forward: nil (no upstream until explicitly set)
 		},
 		Metrics: &metricsConfig{
 			Enabled: true,
