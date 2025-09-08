@@ -10,9 +10,9 @@ data:
   config.yaml: |-
     database:
         hostname: {{ include "flightctl.dbHostname" . }}
-        type: {{ $.Values.db.type | quote }}
-        port: {{ $.Values.db.port }}
-        name: {{ $.Values.db.name }}
+        type: {{ required "Values.db.type is required" $.Values.db.type | quote }}
+        port: {{ required "Values.db.port is required" $.Values.db.port }}
+        name: {{ required "Values.db.name is required" $.Values.db.name }}
     service:
       alertPollingInterval: "1m"
     kv:
