@@ -83,7 +83,6 @@ ui:
 ## @param dbSetup.wait.sleep Seconds to sleep between database connection attempts
 ## @param dbSetup.migration.backoffLimit Number of retries for the migration Job on failure
 ## @param dbSetup.migration.activeDeadlineSeconds Maximum runtime in seconds for the migration Job
-## @param dbSetup.migration.dryRun.preUpgrade.enabled Run a pre-upgrade dry-run migration as a Helm hook
 dbSetup:
   image:
     image: localhost/flightctl-db-setup
@@ -94,11 +93,6 @@ dbSetup:
   migration:
     backoffLimit: 3
     activeDeadlineSeconds: 600
-    dryRun:
-      preUpgrade:
-        enabled: true
-        hookWeight: "-10"
-
 
 telemetryGateway:
   enabled: true
