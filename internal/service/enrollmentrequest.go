@@ -19,9 +19,37 @@ import (
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/tpm"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 )
+
+// resolveOrganizationID resolves an organization identifier (name or UUID) to a UUID.
+func (h *ServiceHandler) resolveOrganizationID(ctx context.Context, orgIdentifier string) (uuid.UUID, error) {
+
+	// Try to parse as UUID directly
+	if parsed, err := uuid.Parse(orgIdentifier); err == nil {
+		// Verify the organization exists
+		if _, err := h.store.Organization().GetByID(ctx, parsed); err != nil {
+			return uuid.Nil, fmt.Errorf("organization with ID %s not found: %w", orgIdentifier, err)
+		}
+		return parsed, nil
+	}
+
+	// If not a valid UUID, try to find by display name
+	orgs, err := h.store.Organization().List(ctx)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("failed to list organizations: %w", err)
+	}
+
+	for _, org := range orgs {
+		if org.DisplayName == orgIdentifier {
+			return org.ID, nil
+		}
+	}
+
+	return uuid.Nil, fmt.Errorf("organization with name or ID '%s' not found", orgIdentifier)
+}
 
 // getTPMCAPool loads the TPM CA certificates from configured paths
 func (h *ServiceHandler) getTPMCAPool() *x509.CertPool {
@@ -67,7 +95,7 @@ func (h *ServiceHandler) verifyTPMEnrollmentRequest(er *api.EnrollmentRequest, n
 	return nil
 }
 
-func approveAndSignEnrollmentRequest(ctx context.Context, ca *crypto.CAClient, enrollmentRequest *api.EnrollmentRequest, approval *api.EnrollmentRequestApprovalStatus) error {
+func (h *ServiceHandler) approveAndSignEnrollmentRequest(ctx context.Context, ca *crypto.CAClient, enrollmentRequest *api.EnrollmentRequest, approval *api.EnrollmentRequestApprovalStatus) error {
 	if enrollmentRequest == nil {
 		return errors.New("approveAndSignEnrollmentRequest: enrollmentRequest is nil")
 	}
@@ -77,7 +105,20 @@ func approveAndSignEnrollmentRequest(ctx context.Context, ca *crypto.CAClient, e
 		return fmt.Errorf("approveAndSignEnrollmentRequest: %w", err)
 	}
 
-	certData, err := signer.SignAsPEM(ctx, ca, request)
+	// Set organization context for certificate generation
+	signingCtx := ctx
+	if approval != nil && approval.Labels != nil {
+		if orgLabel, exists := (*approval.Labels)["organization"]; exists {
+			// Use the generic organization resolution function
+			targetOrgId, err := h.resolveOrganizationID(ctx, orgLabel)
+			if err != nil {
+				return fmt.Errorf("approveAndSignEnrollmentRequest: failed to resolve organization '%s': %w", orgLabel, err)
+			}
+			signingCtx = util.WithOrganizationID(ctx, targetOrgId)
+		}
+	}
+
+	certData, err := signer.SignAsPEM(signingCtx, ca, request)
 	if err != nil {
 		return fmt.Errorf("approveAndSignEnrollmentRequest: %w", err)
 	}
@@ -124,6 +165,18 @@ func addStatusIfNeeded(enrollmentRequest *api.EnrollmentRequest) {
 }
 
 func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, orgId uuid.UUID, enrollmentRequest *api.EnrollmentRequest) error {
+	// Check if the enrollment request has an organization label that specifies a different org
+	targetOrgId := orgId
+	if enrollmentRequest.Status != nil && enrollmentRequest.Status.Approval != nil && enrollmentRequest.Status.Approval.Labels != nil {
+		if orgLabel, exists := (*enrollmentRequest.Status.Approval.Labels)["organization"]; exists {
+			resolvedOrgId, err := h.resolveOrganizationID(ctx, orgLabel)
+			if err != nil {
+				return fmt.Errorf("createDeviceFromEnrollmentRequest: failed to resolve organization '%s': %w", orgLabel, err)
+			}
+			targetOrgId = resolvedOrgId
+		}
+	}
+
 	deviceStatus := api.NewDeviceStatus()
 	deviceStatus.Lifecycle = api.DeviceLifecycleStatus{Status: "Enrolled"}
 
@@ -209,9 +262,11 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 	if enrollmentRequest.Status.Approval != nil {
 		apiResource.Metadata.Labels = enrollmentRequest.Status.Approval.Labels
 	}
-	_, _ = common.UpdateServiceSideStatus(ctx, orgId, apiResource, h.store, h.log)
+	// Create organization-specific context for proper event processing
+	targetCtx := util.WithOrganizationID(ctx, targetOrgId)
+	common.UpdateServiceSideStatus(targetCtx, targetOrgId, apiResource, h.store, h.log)
 
-	_, err := h.store.Device().Create(ctx, orgId, apiResource, h.callbackDeviceUpdated)
+	_, err := h.store.Device().Create(targetCtx, targetOrgId, apiResource, h.callbackDeviceUpdated)
 	return err
 }
 
@@ -413,7 +468,7 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, name stri
 		}
 		approvalStatusToReturn = &approvalStatus
 
-		err = approveAndSignEnrollmentRequest(ctx, h.ca, enrollmentReq, &approvalStatus)
+		err = h.approveAndSignEnrollmentRequest(ctx, h.ca, enrollmentReq, &approvalStatus)
 		if err != nil {
 			status := api.StatusBadRequest(fmt.Sprintf("Error approving and signing enrollment request: %v", err.Error()))
 			h.CreateEvent(ctx, common.GetEnrollmentRequestApprovalFailedEvent(ctx, name, status, h.log))
