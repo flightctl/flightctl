@@ -891,7 +891,7 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Set first rendered config
-			_, err = devStore.UpdateRendered(ctx, orgId, "dev", firstConfig, "")
+			_, err = devStore.UpdateRendered(ctx, orgId, "dev", firstConfig, "", "hash1")
 			Expect(err).ToNot(HaveOccurred())
 
 			// Getting first rendered config
@@ -914,7 +914,7 @@ var _ = Describe("DeviceStore create", func() {
 			// Set second rendered config
 			secondConfig, err := createTestConfigProvider("this is the second config")
 			Expect(err).ToNot(HaveOccurred())
-			_, err = devStore.UpdateRendered(ctx, orgId, "dev", secondConfig, "")
+			_, err = devStore.UpdateRendered(ctx, orgId, "dev", secondConfig, "", "hash2")
 			Expect(err).ToNot(HaveOccurred())
 
 			// Passing previous renderedVersion

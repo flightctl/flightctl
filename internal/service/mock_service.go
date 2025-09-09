@@ -1309,17 +1309,17 @@ func (mr *MockServiceMockRecorder) UpdateFleetConditions(ctx, name, conditions a
 }
 
 // UpdateRenderedDevice mocks base method.
-func (m *MockService) UpdateRenderedDevice(ctx context.Context, name, renderedConfig, renderedApplications string) v1alpha1.Status {
+func (m *MockService) UpdateRenderedDevice(ctx context.Context, name, renderedConfig, renderedApplications, specHash string) v1alpha1.Status {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateRenderedDevice", ctx, name, renderedConfig, renderedApplications)
+	ret := m.ctrl.Call(m, "UpdateRenderedDevice", ctx, name, renderedConfig, renderedApplications, specHash)
 	ret0, _ := ret[0].(v1alpha1.Status)
 	return ret0
 }
 
 // UpdateRenderedDevice indicates an expected call of UpdateRenderedDevice.
-func (mr *MockServiceMockRecorder) UpdateRenderedDevice(ctx, name, renderedConfig, renderedApplications any) *gomock.Call {
+func (mr *MockServiceMockRecorder) UpdateRenderedDevice(ctx, name, renderedConfig, renderedApplications, specHash any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateRenderedDevice", reflect.TypeOf((*MockService)(nil).UpdateRenderedDevice), ctx, name, renderedConfig, renderedApplications)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateRenderedDevice", reflect.TypeOf((*MockService)(nil).UpdateRenderedDevice), ctx, name, renderedConfig, renderedApplications, specHash)
 }
 
 // UpdateServerSideDeviceStatus mocks base method.

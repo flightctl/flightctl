@@ -452,12 +452,16 @@ func (h *ServiceHandler) UpdateDeviceAnnotations(ctx context.Context, name strin
 	return StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 }
 
-func (h *ServiceHandler) UpdateRenderedDevice(ctx context.Context, name, renderedConfig, renderedApplications string) api.Status {
+func (h *ServiceHandler) UpdateRenderedDevice(ctx context.Context, name, renderedConfig, renderedApplications, specHash string) api.Status {
 	orgId := getOrgIdFromContext(ctx)
-	renderedVersion, err := h.store.Device().UpdateRendered(ctx, orgId, name, renderedConfig, renderedApplications)
+	renderedVersion, err := h.store.Device().UpdateRendered(ctx, orgId, name, renderedConfig, renderedApplications, specHash)
 	if err != nil {
 		h.log.Errorf("Failed to update rendered device %s/%s: %v", orgId, name, err)
 		return StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
+	}
+	if renderedVersion == "" {
+		h.log.Debugf("Rendered device %s/%s: no change in rendered version", orgId, name)
+		return api.StatusOK()
 	}
 	err = h.UpdateServerSideDeviceStatus(ctx, name)
 	if err != nil {

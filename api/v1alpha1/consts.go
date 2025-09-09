@@ -31,6 +31,8 @@ const (
 	DeviceAnnotationTemplateVersion = "fleet-controller/templateVersion"
 	// This annotation is populated after a device was rendered by the device-render task
 	DeviceAnnotationRenderedTemplateVersion = "fleet-controller/renderedTemplateVersion"
+	// This annotation stores the hash of the device spec that was last rendered
+	DeviceAnnotationRenderedSpecHash = "device-controller/renderedSpecHash"
 	// When this annotation is present, it means that the device has been selected for rollout in a batch
 	DeviceAnnotationSelectedForRollout = "fleet-controller/selectedForRollout"
 	DeviceAnnotationLastRolloutError   = "fleet-controller/lastRolloutError"
