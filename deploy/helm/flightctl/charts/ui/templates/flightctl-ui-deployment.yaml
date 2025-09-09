@@ -6,6 +6,7 @@ metadata:
   labels:
     app: flightctl-ui
     role: frontend
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
 spec:
   replicas: 1
   selector:
@@ -17,6 +18,7 @@ spec:
       labels:
         app: flightctl-ui
         role: frontend
+        {{- include "flightctl.standardLabels" . | nindent 8 }}
     spec:
       containers:
         - env:

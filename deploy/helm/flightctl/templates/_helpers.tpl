@@ -11,6 +11,27 @@
   {{- end }}
 {{- end }}
 
+{{- /*
+Application name helper with optional override.
+*/}}
+{{- define "flightctl.name" -}}
+{{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{- /*
+Standard Kubernetes/Helm recommended labels.
+Usage: {{- include "flightctl.standardLabels" . | nindent X }}
+*/}}
+{{- define "flightctl.standardLabels" -}}
+app.kubernetes.io/name: {{ include "flightctl.name" . }}
+helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+{{- if .Chart.AppVersion }}
+app.kubernetes.io/version: {{ .Chart.AppVersion }}
+{{- end }}
+{{- end -}}
+
 {{- define "flightctl.getOpenShiftAPIUrl" }}
   {{- if .Values.global.auth.k8s.externalOpenShiftApiUrl }}
     {{- printf .Values.global.auth.k8s.externalOpenShiftApiUrl }}

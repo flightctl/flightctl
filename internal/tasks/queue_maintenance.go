@@ -267,7 +267,7 @@ func (t *QueueMaintenanceTask) republishEventsSince(ctx context.Context, since t
 	log.WithField("since", since.Format(time.RFC3339Nano)).Info("Starting event republishing")
 
 	// Create publisher on-demand for recovery operations
-	publisher, err := t.queuesProvider.NewPublisher(ctx, consts.TaskQueue)
+	publisher, err := t.queuesProvider.NewQueueProducer(ctx, consts.TaskQueue)
 	if err != nil {
 		return fmt.Errorf("failed to create publisher for event republishing: %w", err)
 	}
@@ -359,7 +359,7 @@ func (t *QueueMaintenanceTask) republishEventsSince(ctx context.Context, since t
 }
 
 // republishSingleEvent republishes a single event to the queue using the provided publisher
-func (t *QueueMaintenanceTask) republishSingleEvent(ctx context.Context, event *api.Event, orgID uuid.UUID, publisher queues.Publisher, log logrus.FieldLogger) error {
+func (t *QueueMaintenanceTask) republishSingleEvent(ctx context.Context, event *api.Event, orgID uuid.UUID, publisher queues.QueueProducer, log logrus.FieldLogger) error {
 	// Create the event wrapper with the correct orgId
 	eventWithOrgId := worker_client.EventWithOrgId{
 		OrgId: orgID,
@@ -381,7 +381,7 @@ func (t *QueueMaintenanceTask) republishSingleEvent(ctx context.Context, event *
 	}
 
 	// Publish to the queue using the provided publisher
-	if err := publisher.Publish(ctx, eventBytes, timestamp); err != nil {
+	if err := publisher.Enqueue(ctx, eventBytes, timestamp); err != nil {
 		log.WithError(err).WithField("eventName", lo.FromPtrOr(event.Metadata.Name, "<unnamed>")).Error("Failed to publish event to queue")
 		return fmt.Errorf("failed to publish event to queue: %w", err)
 	}

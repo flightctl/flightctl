@@ -4,6 +4,7 @@ kind: Deployment
 metadata:
   labels:
     flightctl.service: flightctl-cli-artifacts
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
   name: flightctl-cli-artifacts
   namespace: {{ .Release.Namespace }}
 spec:
@@ -17,6 +18,7 @@ spec:
     metadata:
       labels:
         flightctl.service: flightctl-cli-artifacts
+        {{- include "flightctl.standardLabels" . | nindent 8 }}
     spec:
       containers:
         - name: flightctl-cli-artifacts

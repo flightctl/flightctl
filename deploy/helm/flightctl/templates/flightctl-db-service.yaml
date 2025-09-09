@@ -3,6 +3,7 @@ kind: Service
 metadata:
   labels:
     flightctl.service: flightctl-db
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
   name: flightctl-db
   namespace:  {{ default .Release.Namespace .Values.global.internalNamespace }}
 spec:

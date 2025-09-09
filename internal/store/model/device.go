@@ -156,11 +156,13 @@ func (d *Device) ToApiResource(opts ...APIResourceOption) (*api.Device, error) {
 		status = d.Status.Data
 	}
 
-	if d.ServiceConditions != nil && d.ServiceConditions.Data.Conditions != nil {
-		if status.Conditions == nil {
-			status.Conditions = []api.Condition{}
+	if !apiOpts.withoutServiceConditions {
+		if d.ServiceConditions != nil && d.ServiceConditions.Data.Conditions != nil {
+			if status.Conditions == nil {
+				status.Conditions = []api.Condition{}
+			}
+			status.Conditions = append(status.Conditions, *d.ServiceConditions.Data.Conditions...)
 		}
-		status.Conditions = append(status.Conditions, *d.ServiceConditions.Data.Conditions...)
 	}
 
 	var resourceVersion *string

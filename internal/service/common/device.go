@@ -222,7 +222,7 @@ func updateServerSideDeviceUpdatedStatus(device *api.Device, ctx context.Context
 	}
 	if !device.IsManaged() && !device.IsUpdatedToDeviceSpec() {
 		device.Status.Updated.Status = api.DeviceUpdatedStatusOutOfDate
-		baseMessage := "Device has not been updated to the latest device spec"
+		baseMessage := api.DeviceOutOfDateText
 		var errorMessage string
 
 		// Prefer update condition error if available
@@ -269,7 +269,7 @@ func updateServerSideDeviceUpdatedStatus(device *api.Device, ctx context.Context
 				}
 			}
 			if errorMessage == "" {
-				errorMessage = "Device has not yet been scheduled for update to the fleet's latest spec."
+				errorMessage = api.DeviceOutOfSyncWithFleetText
 			}
 			device.Status.Updated.Info = lo.ToPtr(errorMessage)
 		}
