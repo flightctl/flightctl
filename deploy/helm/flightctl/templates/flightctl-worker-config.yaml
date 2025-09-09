@@ -19,6 +19,9 @@ data:
     metrics:
         enabled: true
         address: ":8080"
+        systemCollector:
+            enabled: true
+            tickerInterval: 5s
         workerCollector:
             enabled: true
     {{ end }}

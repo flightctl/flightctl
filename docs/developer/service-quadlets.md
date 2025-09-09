@@ -95,11 +95,7 @@ deploy/podman/
 
 #### Static Configuration
 
-Services such as `flightctl-kv` have static files like a `redis.conf` used for any running instances of the service.  The .conf file is installed to a standardized location (more on this further below) then referenced in the `.container` file like
-
-```ini
-Volume=/usr/share/flightctl/flightctl-kv/redis.conf:/usr/local/etc/redis/redis.conf
-```
+Services such as `flightctl-kv` can have static configuration files, though the current implementation generates Redis configuration dynamically using environment variables within the container.
 
 #### Dynamic Configuration
 
