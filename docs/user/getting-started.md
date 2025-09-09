@@ -174,6 +174,127 @@ FC_API_URL=<API_URL>
 
 ```
 
+## Managing Flight Control Deployments
+
+### Upgrading Flight Control
+
+Flight Control uses Helm **pre-upgrade hooks** and a controlled sequence of steps to keep data consistent and minimize downtime:
+
+1. **Scale down selected services** — services listed in `upgradeHooks.scaleDown.deployments` are **scaled to 0 in order** for a clean shutdown.
+2. **Migration dry-run** — validates database migrations to catch issues early.
+3. **Database migration (expand-only)** — applies backward-compatible schema changes.
+4. **Service update & restart** — workloads are updated to the new spec and rolled out.
+
+Example values:
+
+```yaml
+upgradeHooks:
+  scaleDown:
+    deployments:
+      - flightctl-api
+      - flightctl-worker
+  databaseMigrationDryRun: true  # default true
+```
+
+Note: On fresh installs, migrations run as a regular Job (not a hook) to cooperate with `--wait`.
+
+Upgrade to a specific chart version of Flight Control:
+
+```bash
+helm upgrade \
+  --version <new-version> \
+  --namespace flightctl \
+  flightctl oci://quay.io/flightctl/charts/flightctl
+```
+
+**Notes:**
+
+* Consider `--atomic` so Helm waits and **automatically rolls back** if the upgrade fails.
+* Before major upgrades, back up the database and configuration to ensure a clean restore point.
+* **Preview the diff before upgrading** with the [Helm diff plugin](https://github.com/databus23/helm-diff).
+
+### Rollbacks
+
+Use rollbacks to revert to a previously successful revision if an upgrade causes issues. Use `helm history` to identify the target revision, then roll back if needed.
+
+Show release history and see failure reasons in the DESCRIPTION column:
+
+```bash
+$ helm history flightctl
+REVISION  UPDATED  STATUS    CHART          APP VERSION  DESCRIPTION
+1         ...      deployed  flightctl-x.y.z  <appver>     Install complete
+2         ...      failed    flightctl-x.y.z  <appver>     Upgrade "flightctl" failed: context deadline exceeded
+```
+
+Roll back to the previous successful revision (#1) and wait until it's healthy:
+
+```bash
+$ helm rollback flightctl 1 --wait
+Rollback was a success! Happy Helming!
+```
+
+Verify that history reflects the rollback:
+
+```bash
+$ helm history flightctl
+REVISION  UPDATED  STATUS      CHART          APP VERSION  DESCRIPTION
+1         ...      superseded  flightctl-x.y.z  <appver>     Install complete
+2         ...      failed      flightctl-x.y.z  <appver>     Upgrade "flightctl" failed: context deadline exceeded
+3         ...      deployed    flightctl-x.y.z  <appver>     Rollback to 1
+```
+
+Upgrade with automatic rollback on failure (uses `--atomic`):
+
+```bash
+$ helm upgrade --install flightctl oci://quay.io/flightctl/charts/flightctl --atomic --timeout=1m
+Error: UPGRADE FAILED: release flightctl failed, and has been rolled back due to atomic being set: context deadline exceeded
+```
+
+History shows an automatic rollback entry:
+
+```bash
+$ helm history flightctl
+REVISION  UPDATED  STATUS      CHART          APP VERSION  DESCRIPTION
+...       ...      superseded  <flightctl-x.y.z>  <appver>     Rollback to <n>
+...       ...      failed      <flightctl-x.y.z>  <appver>     Upgrade "<release>" failed: context deadline exceeded
+...       ...      deployed    <flightctl-x.y.z>  <appver>     Rollback to <n>
+```
+
+### Monitoring
+
+Use these commands to inspect the current release state, values, and installed releases.
+
+Show current release status and notes:
+
+```bash
+helm status flightctl
+```
+
+Show user-supplied values (add `--all` to include chart defaults as well):
+
+```bash
+helm get values flightctl
+helm get values flightctl --all
+```
+
+List releases and observe revision bump/status after an upgrade attempt:
+
+```bash
+$ helm list
+NAME        NAMESPACE  REVISION  UPDATED  STATUS    CHART           APP VERSION
+flightctl   ...        1         ...      deployed  flightctl-x.y.z   <appver>
+flightctl   ...        2         ...      failed    flightctl-x.y.z   <appver>
+```
+
+Review history again; failure reasons appear in DESCRIPTION:
+
+```bash
+$ helm history flightctl
+REVISION  UPDATED  STATUS   CHART          APP VERSION  DESCRIPTION
+1         ...      deployed flightctl-x.y.z  <appver>     Install complete
+2         ...      failed   flightctl-x.y.z  <appver>     Upgrade "flightctl" failed: context deadline exceeded
+```
+
 ## Installing the Flight Control CLI
 
 In a terminal, select the appropriate Flight Control CLI binary for your OS (linux or darwin) and CPU architecture (amd64 or arm64), for example:
