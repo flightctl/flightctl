@@ -526,7 +526,10 @@ func (f FleetSelectorMatchingLogic) updateDeviceOwner(ctx context.Context, devic
 	device.Metadata.Owner = newOwnerRef
 	_, status := f.serviceHandler.ReplaceDevice(ctx, *device.Metadata.Name, lo.FromPtr(device), fieldsToNil)
 
-	return service.ApiStatusToErr(status)
+	if err := service.ApiStatusToErr(status); err != nil {
+		return err
+	}
+	return f.serviceHandler.UpdateServerSideDeviceStatus(ctx, *device.Metadata.Name)
 }
 
 func (f FleetSelectorMatchingLogic) fetchAllFleets(ctx context.Context) ([]api.Fleet, error) {

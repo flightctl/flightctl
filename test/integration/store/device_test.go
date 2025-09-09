@@ -660,36 +660,6 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(*dev.Metadata.Annotations).To(HaveLen(0))
 		})
 
-		It("UpdateDeviceAnnotations console", func() {
-			firstAnnotations := map[string]string{"key1": "val1"}
-			err := devStore.UpdateAnnotations(ctx, orgId, "mydevice-1", firstAnnotations, nil)
-			Expect(err).ToNot(HaveOccurred())
-			dev, err := devStore.Get(ctx, orgId, "mydevice-1")
-			Expect(err).ToNot(HaveOccurred())
-			Expect(dev.Metadata.Annotations).ToNot(BeNil())
-			Expect(*dev.Metadata.Annotations).To(HaveLen(1))
-			Expect((*dev.Metadata.Annotations)["key1"]).To(Equal("val1"))
-
-			err = devStore.UpdateAnnotations(ctx, orgId, "mydevice-1", map[string]string{api.DeviceAnnotationConsole: "console"}, nil)
-			Expect(err).ToNot(HaveOccurred())
-			dev, err = devStore.Get(ctx, orgId, "mydevice-1")
-			Expect(err).ToNot(HaveOccurred())
-			Expect(dev.Metadata.Annotations).ToNot(BeNil())
-			Expect(*dev.Metadata.Annotations).To(HaveLen(3))
-			Expect((*dev.Metadata.Annotations)["key1"]).To(Equal("val1"))
-			Expect((*dev.Metadata.Annotations)[api.DeviceAnnotationConsole]).To(Equal("console"))
-			Expect((*dev.Metadata.Annotations)[api.DeviceAnnotationRenderedVersion]).To(Equal("1"))
-
-			err = devStore.UpdateAnnotations(ctx, orgId, "mydevice-1", nil, []string{api.DeviceAnnotationConsole})
-			Expect(err).ToNot(HaveOccurred())
-			dev, err = devStore.Get(ctx, orgId, "mydevice-1")
-			Expect(err).ToNot(HaveOccurred())
-			Expect(dev.Metadata.Annotations).ToNot(BeNil())
-			Expect(*dev.Metadata.Annotations).To(HaveLen(2))
-			Expect((*dev.Metadata.Annotations)["key1"]).To(Equal("val1"))
-			Expect((*dev.Metadata.Annotations)[api.DeviceAnnotationRenderedVersion]).To(Equal("2"))
-		})
-
 		Context("Device Resume Operations", func() {
 
 			Describe("RemoveConflictPausedAnnotation", func() {
@@ -921,7 +891,7 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Set first rendered config
-			err = devStore.UpdateRendered(ctx, orgId, "dev", firstConfig, "")
+			_, err = devStore.UpdateRendered(ctx, orgId, "dev", firstConfig, "")
 			Expect(err).ToNot(HaveOccurred())
 
 			// Getting first rendered config
@@ -944,7 +914,7 @@ var _ = Describe("DeviceStore create", func() {
 			// Set second rendered config
 			secondConfig, err := createTestConfigProvider("this is the second config")
 			Expect(err).ToNot(HaveOccurred())
-			err = devStore.UpdateRendered(ctx, orgId, "dev", secondConfig, "")
+			_, err = devStore.UpdateRendered(ctx, orgId, "dev", secondConfig, "")
 			Expect(err).ToNot(HaveOccurred())
 
 			// Passing previous renderedVersion

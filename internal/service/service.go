@@ -47,6 +47,8 @@ type Service interface {
 	CountDevicesByLabels(ctx context.Context, params api.ListDevicesParams, annotationSelector *selector.AnnotationSelector, groupBy []string) ([]map[string]any, api.Status)
 	GetDevicesSummary(ctx context.Context, params api.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (*api.DevicesSummary, api.Status)
 	UpdateServiceSideDeviceStatus(ctx context.Context, device api.Device) bool
+	SetOutOfDate(ctx context.Context, owner string) error
+	UpdateServerSideDeviceStatus(ctx context.Context, name string) error
 
 	// EnrollmentConfig
 	GetEnrollmentConfig(ctx context.Context, params api.GetEnrollmentConfigParams) (*api.EnrollmentConfig, api.Status)

@@ -9,11 +9,13 @@ import (
 	"net/http"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	agent "github.com/flightctl/flightctl/api/v1alpha1/agent"
 	server "github.com/flightctl/flightctl/internal/api/server/agent"
 	tlsmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/healthchecker"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/internal/service"
@@ -80,7 +82,9 @@ func (s *AgentServer) GetGRPCServer() *AgentGrpcServer {
 func (s *AgentServer) Run(ctx context.Context) error {
 	s.log.Println("Initializing Agent-side API server")
 
+	healthchecker.HealthChecks.Initialize(ctx, s.store, s.log)
 	publisher, err := worker_client.QueuePublisher(ctx, s.queuesProvider)
+
 	if err != nil {
 		return err
 	}
@@ -126,8 +130,45 @@ func (s *AgentServer) Run(ctx context.Context) error {
 	return nil
 }
 
+// Custom logger that logs only responses with status >= 400
+func filteredLogger(log logrus.FieldLogger) func(next http.Handler) http.Handler {
+	formatter := middleware.DefaultLogFormatter{Logger: log}
+
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
+			start := time.Now()
+
+			defer func() {
+				latency := time.Since(start)
+				status := ww.Status()
+
+				if status >= 400 {
+					entry := formatter.NewLogEntry(r)
+					entry.Write(status, ww.BytesWritten(), nil, latency, nil)
+				}
+			}()
+
+			next.ServeHTTP(ww, r)
+		})
+	}
+}
+
+func addAgentContext(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Add userID into the context
+		ctx := context.WithValue(r.Context(), consts.AgentCtxKey, "true")
+
+		// Create a new request with the updated context
+		r = r.WithContext(ctx)
+
+		// Call next handler
+		next.ServeHTTP(w, r)
+	})
+}
+
 func (s *AgentServer) prepareHTTPHandler(serviceHandler service.Service) (http.Handler, error) {
-	swagger, err := api.GetSwagger()
+	swagger, err := agent.GetSwagger()
 	if err != nil {
 		return nil, fmt.Errorf("prepareHTTPHandler: failed loading swagger spec: %w", err)
 	}
@@ -147,7 +188,8 @@ func (s *AgentServer) prepareHTTPHandler(serviceHandler service.Service) (http.H
 			s.orgResolver,
 			tlsmiddleware.CertOrgIDExtractor,
 		),
-		middleware.Logger,
+		filteredLogger(s.log),
+		addAgentContext,
 		middleware.Recoverer,
 		oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts),
 	}

@@ -9,7 +9,10 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/healthchecker"
+	"github.com/flightctl/flightctl/internal/rendered"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
@@ -323,11 +326,44 @@ func (h *ServiceHandler) PatchDeviceStatus(ctx context.Context, name string, pat
 }
 
 func (h *ServiceHandler) GetRenderedDevice(ctx context.Context, name string, params api.GetRenderedDeviceParams) (*api.Device, api.Status) {
+	var (
+		isNew             bool
+		kvRenderedVersion string
+		err               error
+	)
+
+	if _, ok := ctx.Value(consts.AgentCtxKey).(string); ok {
+		if err := healthchecker.HealthChecks.Instance().Add(ctx, getOrgIdFromContext(ctx), name); err != nil {
+			h.log.WithError(err).Errorf("failed to add healthcheck to device %s", name)
+			return nil, api.StatusInternalServerError(fmt.Sprintf("failed to add healthcheck to device %s: %v", name, err))
+		}
+	}
+
 	orgId := getOrgIdFromContext(ctx)
 
-	result, err := h.store.Device().GetRendered(ctx, orgId, name, params.KnownRenderedVersion, h.agentEndpoint)
-	if err == nil && result == nil {
-		return nil, api.StatusNoContent()
+	if params.KnownRenderedVersion != nil {
+		isNew, kvRenderedVersion, err = rendered.Bus.Instance().WaitForNewVersion(ctx, orgId, name, *params.KnownRenderedVersion)
+		if err != nil {
+			h.log.Errorf("GetRenderedDevice %s/%s: failed to wait for new rendered version: %v", orgId, name, err)
+			return nil, api.StatusInternalServerError(fmt.Sprintf("failed to wait for new rendered version: %v", err))
+		}
+		if !isNew {
+			return nil, api.StatusNoContent()
+		}
+	}
+
+	result, err := h.store.Device().GetRendered(ctx, orgId, name, nil, h.agentEndpoint)
+	if err != nil {
+		h.log.Errorf("GetRenderedDevice %s/%s: failed to get rendered device: %v", orgId, name, err)
+		return nil, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
+	}
+	newVersion := result.Version()
+	if kvRenderedVersion != "" && newVersion != "" && kvRenderedVersion != newVersion {
+		// If the rendered version in the KV store is different from the one we just fetched,
+		// we set the new version in the KV store.
+		if err = rendered.Bus.Instance().StoreAndNotify(ctx, orgId, name, newVersion); err != nil {
+			h.log.Errorf("GetRenderedDevice %s/%s: failed to set rendered version in kvstore: %v", orgId, name, err)
+		}
 	}
 	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 }
@@ -367,6 +403,26 @@ func (h *ServiceHandler) PatchDevice(ctx context.Context, name string, patch api
 	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 }
 
+func (h *ServiceHandler) SetOutOfDate(ctx context.Context, owner string) error {
+	return h.store.Device().SetOutOfDate(ctx, getOrgIdFromContext(ctx), owner)
+}
+
+func (h *ServiceHandler) UpdateServerSideDeviceStatus(ctx context.Context, name string) error {
+	orgId := getOrgIdFromContext(ctx)
+	device, err := h.store.Device().GetWithoutServiceConditions(ctx, orgId, name)
+	if err != nil {
+		return err
+	}
+	if changed, _ := common.UpdateServiceSideStatus(ctx, orgId, device, h.store, h.log); changed {
+		_, err = h.store.Device().UpdateStatus(ctx, orgId, device, h.callbackDeviceUpdated)
+		if err != nil {
+			h.log.WithError(err).Errorf("failed to update status for device %s/%s", orgId, name)
+			return err
+		}
+	}
+	return nil
+}
+
 func (h *ServiceHandler) DecommissionDevice(ctx context.Context, name string, decom api.DeviceDecommission) (*api.Device, api.Status) {
 	orgId := getOrgIdFromContext(ctx)
 
@@ -398,7 +454,21 @@ func (h *ServiceHandler) UpdateDeviceAnnotations(ctx context.Context, name strin
 
 func (h *ServiceHandler) UpdateRenderedDevice(ctx context.Context, name, renderedConfig, renderedApplications string) api.Status {
 	orgId := getOrgIdFromContext(ctx)
-	err := h.store.Device().UpdateRendered(ctx, orgId, name, renderedConfig, renderedApplications)
+	renderedVersion, err := h.store.Device().UpdateRendered(ctx, orgId, name, renderedConfig, renderedApplications)
+	if err != nil {
+		h.log.Errorf("Failed to update rendered device %s/%s: %v", orgId, name, err)
+		return StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
+	}
+	err = h.UpdateServerSideDeviceStatus(ctx, name)
+	if err != nil {
+		return StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
+	}
+
+	err = rendered.Bus.Instance().StoreAndNotify(ctx, orgId, name, renderedVersion)
+	if err != nil {
+		h.log.Errorf("Failed to publish rendered device %s/%s: %v", orgId, name, err)
+		return api.StatusInternalServerError(fmt.Sprintf("failed to publish rendered device: %v", err))
+	}
 	return StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 }
 
