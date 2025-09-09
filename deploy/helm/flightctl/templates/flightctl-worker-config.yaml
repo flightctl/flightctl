@@ -15,6 +15,13 @@ data:
     kv:
         hostname: flightctl-kv.{{ default .Release.Namespace .Values.global.internalNamespace }}.svc.cluster.local
         port: 6379
+    {{ if .Values.global.metrics.enabled }}
+    metrics:
+        enabled: true
+        address: ":8080"
+        workerCollector:
+            enabled: true
+    {{ end }}
     {{ if .Values.global.tracing.enabled }}
     tracing:
         enabled: true

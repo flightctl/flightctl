@@ -175,7 +175,7 @@ var _ = Describe("Queue Maintenance Integration Tests", func() {
 		// Note: queue maintenance task creates its own publisher as needed
 
 		// Create queue maintenance task
-		queueMaintenanceTask = tasks.NewQueueMaintenanceTask(log, mockService, provider)
+		queueMaintenanceTask = tasks.NewQueueMaintenanceTask(log, mockService, provider, nil)
 	})
 
 	AfterEach(func() {
