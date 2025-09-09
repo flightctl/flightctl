@@ -169,7 +169,7 @@ Parameters:
 {{- $sleep := .sleep | default $context.Values.dbSetup.wait.sleep | default 2 | int }}
 {{- $connectionTimeout := .connectionTimeout | default $context.Values.dbSetup.wait.connectionTimeout | default 3 | int }}
 - name: wait-for-database
-  image: "{{ $context.Values.dbSetup.image.image }}:{{ $context.Values.dbSetup.image.tag | default $context.Chart.AppVersion }}"
+  image: "{{ $context.Values.dbSetup.image.image }}:{{ default $context.Chart.AppVersion $context.Values.dbSetup.image.tag }}"
   imagePullPolicy: {{ default $context.Values.global.imagePullPolicy $context.Values.dbSetup.image.pullPolicy }}
   command:
   - /app/deploy/scripts/wait-for-database.sh
@@ -188,9 +188,9 @@ Parameters:
   - name: DB_HOST
     value: "{{ include "flightctl.dbHostname" $context }}"
   - name: DB_PORT
-    value: "{{ $context.Values.db.port | default 5432 }}"
+    value: "{{ $context.Values.db.port }}"
   - name: DB_NAME
-    value: "{{ $context.Values.db.name | default "flightctl" }}"
+    value: "{{ $context.Values.db.name }}"
   {{- if eq $userType "app" }}
   - name: DB_USER
     valueFrom:

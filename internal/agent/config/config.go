@@ -73,6 +73,8 @@ type Config struct {
 	DataDir string `json:"-"`
 
 	// SpecFetchInterval is the interval between two reads of the remote device spec
+	// This field is deprecated and will be removed in a future release. The functionality
+	// is controlled by the server rendered wait timeout.
 	SpecFetchInterval util.Duration `json:"spec-fetch-interval,omitempty"`
 	// StatusUpdateInterval is the interval between two status updates
 	StatusUpdateInterval util.Duration `json:"status-update-interval,omitempty"`

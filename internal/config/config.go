@@ -78,6 +78,7 @@ type svcConfig struct {
 	HttpMaxRequestSize     int              `json:"httpMaxRequestSize,omitempty"`
 	EventRetentionPeriod   util.Duration    `json:"eventRetentionPeriod,omitempty"`
 	AlertPollingInterval   util.Duration    `json:"alertPollingInterval,omitempty"`
+	RenderedWaitTimeout    util.Duration    `json:"renderedWaitTimeout,omitempty"`
 	RateLimit              *RateLimitConfig `json:"rateLimit,omitempty"`
 	TPMCAPaths             []string         `json:"tpmCAPaths,omitempty"`
 	HealthChecks           *healthChecks    `json:"healthChecks,omitempty"`
@@ -283,6 +284,7 @@ func NewDefault(opts ...ConfigOption) *Config {
 			HttpMaxRequestSize:     50 * 1024 * 1024,                  // 50MB
 			EventRetentionPeriod:   util.Duration(7 * 24 * time.Hour), // 1 week
 			AlertPollingInterval:   util.Duration(1 * time.Minute),
+			RenderedWaitTimeout:    util.Duration(2 * time.Minute),
 			HealthChecks: &healthChecks{
 				Enabled:          true,
 				ReadinessPath:    "/readyz",
