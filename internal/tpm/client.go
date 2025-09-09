@@ -23,12 +23,15 @@ import (
 	"github.com/google/go-tpm/tpmutil"
 )
 
-// Ensure Client implements crypto.Signer interface
-var _ crypto.Signer = (*Client)(nil)
+// Ensure client implements crypto.Signer interface
+var _ crypto.Signer = (*client)(nil)
+
+// Ensure client implements Client interface
+var _ Client = (*client)(nil)
 
 // Client represents a simplified TPM client that exposes signing capabilities
 // and attestation data for CSR generation.
-type Client struct {
+type client struct {
 	session       Session
 	log           *log.PrefixLogger
 	productModel  string
@@ -36,7 +39,7 @@ type Client struct {
 }
 
 // NewClient creates a new simplified TPM client with the given configuration.
-func NewClient(log *log.PrefixLogger, rw fileio.ReadWriter, config *agent_config.Config) (*Client, error) {
+func NewClient(log *log.PrefixLogger, rw fileio.ReadWriter, config *agent_config.Config) (Client, error) {
 	devicePath := config.TPM.DevicePath
 
 	// discover and validate TPM device
@@ -59,7 +62,7 @@ func NewClient(log *log.PrefixLogger, rw fileio.ReadWriter, config *agent_config
 
 // newClientWithConnection creates a new TPM client with the provided connection.
 // This helper function is useful for testing with simulators.
-func newClientWithConnection(conn io.ReadWriteCloser, log *log.PrefixLogger, rw fileio.ReadWriter, config *agent_config.Config, productModel, productSerial string) (*Client, error) {
+func newClientWithConnection(conn io.ReadWriteCloser, log *log.PrefixLogger, rw fileio.ReadWriter, config *agent_config.Config, productModel, productSerial string) (*client, error) {
 	// TODO: make dynamic
 	keyAlgo := ECDSA
 
@@ -68,18 +71,18 @@ func newClientWithConnection(conn io.ReadWriteCloser, log *log.PrefixLogger, rw 
 		return nil, fmt.Errorf("creating TPM session: %w", err)
 	}
 
-	client := &Client{
+	c := &client{
 		session:       session,
 		log:           log,
 		productModel:  productModel,
 		productSerial: productSerial,
 	}
 
-	return client, nil
+	return c, nil
 }
 
 // Public returns the public key corresponding to the LDevID private key.
-func (c *Client) Public() crypto.PublicKey {
+func (c *client) Public() crypto.PublicKey {
 	pub, err := c.session.GetPublicKey(LDevID)
 	if err != nil {
 		c.log.Errorf("Failed to get LDevID public key from TPM: %v", err)
@@ -98,14 +101,14 @@ func (c *Client) Public() crypto.PublicKey {
 
 // Sign implements the crypto.Signer interface using the TPM's LDevID key.
 // The rand parameter is ignored as the TPM generates its own randomness internally.
-func (c *Client) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
+func (c *client) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
 	return c.session.Sign(LDevID, digest)
 }
 
 // MakeCSR generates a TCG-CSR-IDEVID structure for enrollment requests
 // This combines standard CSR data with TPM attestation according to TCG specifications
 // This is the primary CSR generation method for TPM clients
-func (c *Client) MakeCSR(deviceName string, qualifyingData []byte) ([]byte, error) {
+func (c *client) MakeCSR(deviceName string, qualifyingData []byte) ([]byte, error) {
 	c.log.Tracef("[MakeCSR] Starting CSR generation for device: %s", deviceName)
 	defer func() { c.log.Tracef("[MakeCSR] Finished CSR generation for device: %s", deviceName) }()
 
@@ -177,19 +180,19 @@ func (c *Client) MakeCSR(deviceName string, qualifyingData []byte) ([]byte, erro
 }
 
 // GetSigner returns the crypto.Signer interface for this client
-func (c *Client) GetSigner() crypto.Signer {
+func (c *client) GetSigner() crypto.Signer {
 	return c
 }
 
 // UpdateNonce updates the nonce used for TPM operations
-func (c *Client) UpdateNonce(nonce []byte) error {
+func (c *client) UpdateNonce(nonce []byte) error {
 	// Store nonce for future use in attestation operations
 	// For now, this is a no-op as the session handles nonce internally
 	return nil
 }
 
 // VendorInfoCollector returns TPM vendor information for system info collection
-func (c *Client) VendorInfoCollector(ctx context.Context) string {
+func (c *client) VendorInfoCollector(ctx context.Context) string {
 	// Try to get EK certificate for vendor info
 	ekCert, err := c.session.GetEndorsementKeyCert()
 	if err != nil {
@@ -205,7 +208,7 @@ func (c *Client) VendorInfoCollector(ctx context.Context) string {
 }
 
 // AttestationCollector returns TPM attestation information for system info collection
-func (c *Client) AttestationCollector(ctx context.Context) string {
+func (c *client) AttestationCollector(ctx context.Context) string {
 	// Try to get LAK public key as an attestation indicator
 	_, err := c.session.GetPublicKey(LAK)
 	if err != nil {
@@ -217,7 +220,7 @@ func (c *Client) AttestationCollector(ctx context.Context) string {
 }
 
 // Clear clears any stored TPM data
-func (c *Client) Clear() error {
+func (c *client) Clear() error {
 	if c.session == nil {
 		return nil
 	}
@@ -225,11 +228,17 @@ func (c *Client) Clear() error {
 }
 
 // Close closes the TPM session.
-func (c *Client) Close(ctx context.Context) error {
+func (c *client) Close(ctx context.Context) error {
 	if c.session != nil {
 		return c.session.Close()
 	}
 	return nil
+}
+
+// SolveChallenge uses TPM2_ActivateCredential to decrypt an encrypted secret
+// and prove ownership of the credentials. This is used by clients to solve challenges.
+func (c *client) SolveChallenge(credentialBlob, encryptedSecret []byte) ([]byte, error) {
+	return c.session.SolveChallenge(credentialBlob, encryptedSecret)
 }
 
 // convertTPM2BPublicToECDSA converts a TPM2BPublic to a public key.
@@ -423,7 +432,7 @@ func readDMIFile(reader fileio.ReadWriter, fileName string) (string, error) {
 }
 
 // generateStandardCSR creates a standard X.509 CSR using the TPM's LDevID key
-func (c *Client) generateStandardCSR(deviceName string) ([]byte, error) {
+func (c *client) generateStandardCSR(deviceName string) ([]byte, error) {
 	// Determine signature algorithm based on public key type
 	var sigAlgo x509.SignatureAlgorithm
 	pubKey := c.Public()

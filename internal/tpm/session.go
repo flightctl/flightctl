@@ -9,7 +9,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/log"
-	"github.com/google/go-tpm-tools/client"
+	gotpmclient "github.com/google/go-tpm-tools/client"
 	"github.com/google/go-tpm/tpm2"
 	"github.com/google/go-tpm/tpm2/transport"
 )
@@ -20,6 +20,8 @@ const (
 	persistentHandleMin = tpm2.TPMHandle(0x81000000)
 	persistentHandleMax = tpm2.TPMHandle(0x81FFFFFF)
 	nvReadChunkSize     = uint16(1024) // Maximum chunk size for NVRead operations
+	ekRSANVIndex        = gotpmclient.EKCertNVIndexRSA
+	ekECCNVIndex        = gotpmclient.EKCertNVIndexECC
 )
 
 // tpmSession implements the Session interface
@@ -32,7 +34,6 @@ type tpmSession struct {
 
 	// Active handles
 	handles map[KeyType]*tpm2.NamedHandle
-	srk     *tpm2.NamedHandle
 }
 
 // NewSession creates a new TPM session
@@ -65,8 +66,14 @@ func (s *tpmSession) initialize() error {
 	if err != nil {
 		return fmt.Errorf("ensuring SRK: %w", err)
 	}
-	s.srk = srkHandle
 	s.handles[SRK] = srkHandle
+	// flush the SRK after initialization to free up transient space. The SRK
+	// isn't needed after loading.
+	defer func() {
+		if err := s.flushKey(SRK); err != nil {
+			s.log.Errorf("Error flushing SRK key: %v", err)
+		}
+	}()
 
 	if err := s.loadExistingKeys(); err != nil {
 		return fmt.Errorf("loading existing keys: %w", err)
@@ -95,7 +102,7 @@ func (s *tpmSession) CreateKey(keyType KeyType) (*tpm2.CreateResponse, error) {
 	}
 
 	createCmd := tpm2.Create{
-		ParentHandle: *s.srk,
+		ParentHandle: *s.handles[SRK],
 		InPublic:     tpm2.New2B(template),
 	}
 
@@ -151,7 +158,7 @@ func (s *tpmSession) LoadKey(keyType KeyType) (*tpm2.NamedHandle, error) {
 	}
 
 	loadCmd := tpm2.Load{
-		ParentHandle: *s.srk,
+		ParentHandle: *s.handles[SRK],
 		InPrivate:    *priv,
 		InPublic:     *pub,
 	}
@@ -169,6 +176,20 @@ func (s *tpmSession) LoadKey(keyType KeyType) (*tpm2.NamedHandle, error) {
 	s.handles[keyType] = handle
 	s.log.Debugf("Successfully loaded key %s into TPM, handle=0x%x", keyType, handle.Handle)
 	return handle, nil
+}
+
+func (s *tpmSession) flushKey(keyType KeyType) error {
+	handle, exists := s.handles[keyType]
+	if !exists {
+		s.log.Debugf("Key %s already flushed", keyType)
+		return nil
+	}
+
+	if err := s.flushHandle(handle); err != nil {
+		return fmt.Errorf("flushing key %s: %w", keyType, err)
+	}
+	delete(s.handles, keyType)
+	return nil
 }
 
 func (s *tpmSession) CertifyKey(keyType KeyType, qualifyingData []byte) (certifyInfo, signature []byte, err error) {
@@ -348,7 +369,6 @@ func (s *tpmSession) Clear() error {
 
 	// clear internal state
 	s.handles = make(map[KeyType]*tpm2.NamedHandle)
-	s.srk = nil
 
 	if err := s.storage.ClearPassword(); err != nil {
 		errs = append(errs, fmt.Errorf("clearing stored password: %w", err))
@@ -395,8 +415,6 @@ func (s *tpmSession) flushKeys() []error {
 		}
 		delete(s.handles, keyType)
 	}
-	// we flush the SRK above
-	s.srk = nil
 
 	return errs
 }
@@ -414,17 +432,9 @@ func (s *tpmSession) clearStoredKeys() error {
 }
 
 func (s *tpmSession) Close() error {
-	var errs []error
-
-	// flush all handles we know about
-	for keyType, handle := range s.handles {
-		if err := s.flushHandle(handle); err != nil {
-			errs = append(errs, fmt.Errorf("flushing %s handle: %w", keyType, err))
-		}
-	}
+	errs := s.flushKeys()
 
 	s.handles = make(map[KeyType]*tpm2.NamedHandle)
-	s.srk = nil
 
 	// close the TPM connection
 	if s.conn != nil {
@@ -463,11 +473,11 @@ func (s *tpmSession) isEKCertPresent(nvIndex uint32) bool {
 // detectEKAlgorithm determines the EK algorithm based on which certificate
 // exists in NVRAM, prioritizing RSA first
 func (s *tpmSession) detectEKAlgorithm() (KeyAlgorithm, error) {
-	if s.isEKCertPresent(client.EKCertNVIndexRSA) {
+	if s.isEKCertPresent(ekRSANVIndex) {
 		return RSA, nil
 	}
 
-	if s.isEKCertPresent(client.EKCertNVIndexECC) {
+	if s.isEKCertPresent(ekECCNVIndex) {
 		return ECDSA, nil
 	}
 
@@ -490,9 +500,9 @@ func (s *tpmSession) endorsementKeyCert() ([]byte, error) {
 	var nvIndex uint32
 	switch ekAlgo {
 	case RSA:
-		nvIndex = client.EKCertNVIndexRSA
+		nvIndex = ekRSANVIndex
 	case ECDSA:
-		nvIndex = client.EKCertNVIndexECC
+		nvIndex = ekECCNVIndex
 	default:
 		return nil, fmt.Errorf("unsupported EK algorithm: %s", ekAlgo)
 	}
@@ -662,20 +672,21 @@ func (s *tpmSession) ensureSRK() (*tpm2.NamedHandle, error) {
 // ensureSRKIsLoaded checks if the SRK handle is still valid in the TPM
 // and regenerates it if it was flushed by aggressive cleanup
 func (s *tpmSession) ensureSRKIsLoaded() error {
-	if s.srk == nil {
+	handle, exists := s.handles[SRK]
+	if !exists {
 		// SRK was never created, create it now
 		srkHandle, err := s.ensureSRK()
 		if err != nil {
 			return fmt.Errorf("creating SRK: %w", err)
 		}
-		s.srk = srkHandle
 		s.handles[SRK] = srkHandle
+		handle = srkHandle
 		return nil
 	}
 
 	// check if the SRK handle is still valid by trying to read its public key
 	cmd := tpm2.ReadPublic{
-		ObjectHandle: s.srk.Handle,
+		ObjectHandle: handle.Handle,
 	}
 
 	_, err := cmd.Execute(transport.FromReadWriter(s.conn))
@@ -691,7 +702,6 @@ func (s *tpmSession) ensureSRKIsLoaded() error {
 		return fmt.Errorf("regenerating SRK: %w", err)
 	}
 
-	s.srk = srkHandle
 	s.handles[SRK] = srkHandle
 
 	// clear any cached child key handles since they're now invalid too

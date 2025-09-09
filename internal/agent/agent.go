@@ -374,7 +374,7 @@ func newEnrollmentClient(cfg *agent_config.Config, log *log.PrefixLogger) (clien
 	return client.NewEnrollment(httpClient, cfg.GetEnrollmentMetricsCallback()), nil
 }
 
-func (a *Agent) tryLoadTPM(writer fileio.ReadWriter) (*tpm.Client, error) {
+func (a *Agent) tryLoadTPM(writer fileio.ReadWriter) (tpm.Client, error) {
 	if !a.config.TPM.Enabled {
 		a.log.Info("TPM device identity is disabled. Skipping TPM setup.")
 		return nil, nil

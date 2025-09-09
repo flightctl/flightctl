@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
@@ -24,7 +25,8 @@ import (
 
 const (
 	// agent banner file
-	BannerFile = "/etc/issue.d/flightctl-banner.issue"
+	BannerFile           = "/etc/issue.d/flightctl-banner.issue"
+	identityProofTimeout = 60 * time.Second
 )
 
 var (
@@ -250,6 +252,14 @@ func (m *LifecycleManager) verifyEnrollment(ctx context.Context) (bool, error) {
 		}
 	}
 	if !approved {
+		ctx, cancel := context.WithTimeout(ctx, identityProofTimeout)
+		defer cancel()
+		if err := m.identityProvider.ProveIdentity(ctx, enrollmentRequest); err != nil {
+			if errors.Is(err, identity.ErrIdentityProofFailed) {
+				return false, fmt.Errorf("proving identity: %w", err)
+			}
+			return false, nil
+		}
 		m.log.Info("Enrollment request not yet approved")
 		return false, nil
 	}
