@@ -296,6 +296,7 @@ const (
 	Add     PatchRequestOp = "add"
 	Remove  PatchRequestOp = "remove"
 	Replace PatchRequestOp = "replace"
+	Test    PatchRequestOp = "test"
 )
 
 // Defines values for ReferencedRepositoryUpdatedDetailsDetailType.
