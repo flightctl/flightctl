@@ -3,6 +3,8 @@ kind: ConfigMap
 metadata:
   name: flightctl-ui
   namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
 data:
   FLIGHTCTL_SERVER: {{ .Values.api.url | quote }}
   {{- if .Values.cliArtifacts.enabled }}

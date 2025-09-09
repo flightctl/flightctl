@@ -4,6 +4,8 @@ kind: NetworkPolicy
 metadata:
   name: allow-ui-from-router
   namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
 spec:
   ingress:
   - from:

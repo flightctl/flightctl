@@ -33,6 +33,7 @@ metadata:
   namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
   labels:
     flightctl.service: flightctl-kv
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
 spec:
   serviceName: flightctl-kv
   revisionHistoryLimit: 10
@@ -45,6 +46,7 @@ spec:
     metadata:
       labels:
         flightctl.service: flightctl-kv
+        {{- include "flightctl.standardLabels" . | nindent 8 }}
     spec:
       {{- if .Values.global.imagePullSecretName }}
       imagePullSecrets:

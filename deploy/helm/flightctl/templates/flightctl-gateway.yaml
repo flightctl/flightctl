@@ -4,6 +4,8 @@ kind: Gateway
 metadata:
   name: flightctl-gateway
   namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
 spec:
   gatewayClassName: {{ .Values.global.gatewayClass }}
   listeners:

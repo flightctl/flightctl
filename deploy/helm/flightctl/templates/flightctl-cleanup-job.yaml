@@ -7,6 +7,8 @@ kind: Job
 metadata:
   name: flightctl-cleanup-pvcs
   namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
   annotations:
     "helm.sh/hook": post-delete
     "helm.sh/hook-delete-policy": hook-succeeded
@@ -15,12 +17,13 @@ spec:
     metadata:
       labels:
         flightctl.service: pvc-cleanup
+        {{- include "flightctl.standardLabels" . | nindent 8 }}
     spec:
       serviceAccountName: flightctl-cleanup
       containers:
         - name: cleanup
-          image: {{ .Values.secretsJob.image.image }}:{{ .Values.secretsJob.image.tag }}
-          imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.secretsJob.image.pullPolicy }}
+          image: {{ .Values.clusterCli.image.image }}:{{ .Values.clusterCli.image.tag }}
+          imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.clusterCli.image.pullPolicy }}
           command: ["/bin/sh", "-c"]
           args:
             - |

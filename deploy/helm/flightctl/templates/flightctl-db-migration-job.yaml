@@ -4,11 +4,9 @@
 {{- /* Defaults applied if any key along the path is missing */ -}}
 {{- $dbSetup := default (dict) .Values.dbSetup -}}
 {{- $migration := default (dict) $dbSetup.migration -}}
-{{- $dryRun := default (dict) $migration.dryRun -}}
-{{- $preUpgrade := default (dict) $dryRun.preUpgrade -}}
+{{- $upgradeHooks := default (dict) .Values.upgradeHooks -}}
 
-{{- $dryRunEnabled := $preUpgrade.enabled -}}
-{{- $dryRunHookWeight := $preUpgrade.hookWeight -}}
+{{- $dryRunEnabled := $upgradeHooks.databaseMigrationDryRun -}}
 {{- $backoffLimit := $migration.backoffLimit -}}
 {{- $activeDeadlineSeconds := $migration.activeDeadlineSeconds -}}
 
@@ -17,7 +15,7 @@
   "context" $root
   "name" (printf "%s-dryrun" $baseName)
   "hooks" (list "pre-upgrade")
-  "hookWeight" $dryRunHookWeight
+  "hookWeight" "-10"
   "hookDeletePolicy" "before-hook-creation,hook-succeeded"
   "isDryRun" true
 ) }}

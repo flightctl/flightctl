@@ -4,6 +4,7 @@ kind: Deployment
 metadata:
   labels:
     flightctl.service: flightctl-worker
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
   name: flightctl-worker
   namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
 spec:
@@ -17,6 +18,7 @@ spec:
     metadata:
       labels:
         flightctl.service: flightctl-worker
+        {{- include "flightctl.standardLabels" . | nindent 8 }}
     spec:
       serviceAccountName: flightctl-worker
       initContainers:

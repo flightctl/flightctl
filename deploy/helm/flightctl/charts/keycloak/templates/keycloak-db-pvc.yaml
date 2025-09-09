@@ -8,6 +8,7 @@ metadata:
     kubernetes.io/reclaimPolicy: Delete
   labels:
     app: keycloak
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
     {{ if .Values.global.appCode }}
     paas.redhat.com/appcode: {{ .Values.global.appCode }}
     {{ end }}

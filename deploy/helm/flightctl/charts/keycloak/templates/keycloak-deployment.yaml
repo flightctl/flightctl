@@ -4,6 +4,8 @@ kind: Deployment
 metadata:
   name: keycloak
   namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
 spec:
   replicas: 1
   strategy:
@@ -16,6 +18,7 @@ spec:
       creationTimestamp: null
       labels:
         app: keycloak
+        {{- include "flightctl.standardLabels" . | nindent 8 }}
     spec:
       containers:
       - name: keycloak
