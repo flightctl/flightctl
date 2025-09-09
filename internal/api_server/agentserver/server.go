@@ -36,19 +36,23 @@ const (
 )
 
 type AgentServer struct {
-	log            logrus.FieldLogger
-	cfg            *config.Config
-	store          store.Store
-	ca             *crypto.CAClient
-	listener       net.Listener
-	queuesProvider queues.Provider
-	tlsConfig      *tls.Config
-	grpcServer     *AgentGrpcServer
-	orgResolver    resolvers.Resolver
+	log             logrus.FieldLogger
+	cfg             *config.Config
+	store           store.Store
+	ca              *crypto.CAClient
+	listener        net.Listener
+	queuesProvider  queues.Provider
+	tlsConfig       *tls.Config
+	agentGrpcServer *AgentGrpcServer
+	orgResolver     resolvers.Resolver
+	serviceHandler  service.Service
+	kvStore         kvstore.KVStore
+	grpcServer      *grpc.Server
 }
 
 // New returns a new instance of a flightctl server.
 func New(
+	ctx context.Context,
 	log logrus.FieldLogger,
 	cfg *config.Config,
 	st store.Store,
@@ -57,8 +61,8 @@ func New(
 	queuesProvider queues.Provider,
 	tlsConfig *tls.Config,
 	orgResolver resolvers.Resolver,
-) *AgentServer {
-	return &AgentServer{
+) (*AgentServer, error) {
+	s := &AgentServer{
 		log:            log,
 		cfg:            cfg,
 		store:          st,
@@ -66,19 +70,19 @@ func New(
 		listener:       listener,
 		queuesProvider: queuesProvider,
 		tlsConfig:      tlsConfig,
-		grpcServer:     NewAgentGrpcServer(log, cfg),
 		orgResolver:    orgResolver,
 	}
+
+	if err := s.init(ctx); err != nil {
+		s.Stop()
+		return nil, fmt.Errorf("initializing: %w", err)
+	}
+
+	return s, nil
 }
 
-func oapiErrorHandler(w http.ResponseWriter, message string, statusCode int) {
-	http.Error(w, fmt.Sprintf("API Error: %s", message), statusCode)
-}
-
-func (s *AgentServer) GetGRPCServer() *AgentGrpcServer {
-	return s.grpcServer
-}
-func (s *AgentServer) Run(ctx context.Context) error {
+// init initializes the agent server services including gRPC server
+func (s *AgentServer) init(ctx context.Context) error {
 	s.log.Println("Initializing Agent-side API server")
 
 	healthchecker.HealthChecks.Initialize(ctx, s.store, s.log)
@@ -87,23 +91,55 @@ func (s *AgentServer) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	kvStore, err := kvstore.NewKVStore(ctx, s.log, s.cfg.KV.Hostname, s.cfg.KV.Port, s.cfg.KV.Password)
+	s.kvStore, err = kvstore.NewKVStore(ctx, s.log, s.cfg.KV.Hostname, s.cfg.KV.Port, s.cfg.KV.Password)
 	if err != nil {
 		return err
 	}
 	workerClient := worker_client.NewWorkerClient(publisher, s.log)
 
-	serviceHandler := service.WrapWithTracing(
-		service.NewServiceHandler(s.store, workerClient, kvStore, s.ca, s.log, s.cfg.Service.AgentEndpointAddress, s.cfg.Service.BaseUIUrl, s.cfg.Service.TPMCAPaths, s.orgResolver))
+	s.serviceHandler = service.WrapWithTracing(
+		service.NewServiceHandler(s.store, workerClient, s.kvStore, s.ca, s.log, s.cfg.Service.AgentEndpointAddress, s.cfg.Service.BaseUIUrl, s.cfg.Service.TPMCAPaths, s.orgResolver))
 
-	httpAPIHandler, err := s.prepareHTTPHandler(serviceHandler)
+	s.agentGrpcServer = NewAgentGrpcServer(s.log, s.cfg, s.serviceHandler)
+	return nil
+}
+
+// Stop cleans up all resources
+func (s *AgentServer) Stop() {
+	if s.grpcServer != nil {
+		s.grpcServer.GracefulStop()
+	}
+	if s.kvStore != nil {
+		s.kvStore.Close()
+	}
+	if s.queuesProvider != nil {
+		s.queuesProvider.Stop()
+		s.queuesProvider.Wait()
+	}
+	if s.listener != nil {
+		_ = s.listener.Close()
+	}
+}
+
+func (s *AgentServer) GetGRPCServer() *AgentGrpcServer {
+	return s.agentGrpcServer
+}
+
+func oapiErrorHandler(w http.ResponseWriter, message string, statusCode int) {
+	http.Error(w, fmt.Sprintf("API Error: %s", message), statusCode)
+}
+
+func (s *AgentServer) Run(ctx context.Context) error {
+	s.log.Println("Starting Agent-side API server")
+
+	httpAPIHandler, err := s.prepareHTTPHandler(s.serviceHandler)
 	if err != nil {
 		return err
 	}
 
-	grpcServer := s.grpcServer.PrepareGRPCService()
+	s.grpcServer = s.agentGrpcServer.PrepareGRPCService()
 
-	handler := grpcMuxHandlerFunc(grpcServer, httpAPIHandler, s.log)
+	handler := grpcMuxHandlerFunc(s.grpcServer, httpAPIHandler, s.log)
 	srv := tlsmiddleware.NewHTTPServerWithTLSContext(handler, s.log, s.cfg.Service.AgentEndpointAddress, s.cfg)
 
 	go func() {
@@ -114,9 +150,7 @@ func (s *AgentServer) Run(ctx context.Context) error {
 
 		srv.SetKeepAlivesEnabled(false)
 		_ = srv.Shutdown(ctxTimeout)
-		kvStore.Close()
-		s.queuesProvider.Stop()
-		s.queuesProvider.Wait()
+		s.Stop()
 	}()
 
 	s.log.Printf("Listening on %s...", s.listener.Addr().String())

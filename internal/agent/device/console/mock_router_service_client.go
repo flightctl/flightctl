@@ -13,7 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
-	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
+	v1 "github.com/flightctl/flightctl/api/grpc/v1"
 	gomock "go.uber.org/mock/gomock"
 	grpc "google.golang.org/grpc"
 	metadata "google.golang.org/grpc/metadata"
@@ -43,14 +43,14 @@ func (m *MockRouterServiceClient) EXPECT() *MockRouterServiceClientMockRecorder 
 }
 
 // Stream mocks base method.
-func (m *MockRouterServiceClient) Stream(ctx context.Context, opts ...grpc.CallOption) (grpc_v1.RouterService_StreamClient, error) {
+func (m *MockRouterServiceClient) Stream(ctx context.Context, opts ...grpc.CallOption) (v1.RouterService_StreamClient, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "Stream", varargs...)
-	ret0, _ := ret[0].(grpc_v1.RouterService_StreamClient)
+	ret0, _ := ret[0].(v1.RouterService_StreamClient)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -129,10 +129,10 @@ func (mr *MockRouterService_StreamClientMockRecorder) Header() *gomock.Call {
 }
 
 // Recv mocks base method.
-func (m *MockRouterService_StreamClient) Recv() (*grpc_v1.StreamResponse, error) {
+func (m *MockRouterService_StreamClient) Recv() (*v1.StreamResponse, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Recv")
-	ret0, _ := ret[0].(*grpc_v1.StreamResponse)
+	ret0, _ := ret[0].(*v1.StreamResponse)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -158,7 +158,7 @@ func (mr *MockRouterService_StreamClientMockRecorder) RecvMsg(m any) *gomock.Cal
 }
 
 // Send mocks base method.
-func (m *MockRouterService_StreamClient) Send(arg0 *grpc_v1.StreamRequest) error {
+func (m *MockRouterService_StreamClient) Send(arg0 *v1.StreamRequest) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Send", arg0)
 	ret0, _ := ret[0].(error)
@@ -223,7 +223,7 @@ func (m *MockRouterServiceServer) EXPECT() *MockRouterServiceServerMockRecorder 
 }
 
 // Stream mocks base method.
-func (m *MockRouterServiceServer) Stream(arg0 grpc_v1.RouterService_StreamServer) error {
+func (m *MockRouterServiceServer) Stream(arg0 v1.RouterService_StreamServer) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Stream", arg0)
 	ret0, _ := ret[0].(error)
@@ -321,10 +321,10 @@ func (mr *MockRouterService_StreamServerMockRecorder) Context() *gomock.Call {
 }
 
 // Recv mocks base method.
-func (m *MockRouterService_StreamServer) Recv() (*grpc_v1.StreamRequest, error) {
+func (m *MockRouterService_StreamServer) Recv() (*v1.StreamRequest, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Recv")
-	ret0, _ := ret[0].(*grpc_v1.StreamRequest)
+	ret0, _ := ret[0].(*v1.StreamRequest)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -350,7 +350,7 @@ func (mr *MockRouterService_StreamServerMockRecorder) RecvMsg(m any) *gomock.Cal
 }
 
 // Send mocks base method.
-func (m *MockRouterService_StreamServer) Send(arg0 *grpc_v1.StreamResponse) error {
+func (m *MockRouterService_StreamServer) Send(arg0 *v1.StreamResponse) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Send", arg0)
 	ret0, _ := ret[0].(error)

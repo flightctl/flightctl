@@ -1,0 +1,66 @@
+syntax = "proto3";
+
+package flightctl.v1;
+
+option go_package = "github.com/flightctl/flightctl/api/grpc/v1/grpc-v1";
+
+// EnrollmentRequestService provides methods for TPM-based enrollment challenges.
+service EnrollmentRequestService {
+  // PerformTPMChallenge establishes a bidirectional stream to conduct the TPM challenge-response.
+  rpc PerformTPMChallenge(stream AgentTPMChallengeMessage) returns (stream ServerTPMChallengeMessage);
+}
+
+// AgentTPMChallengeMessage is a wrapper for all possible messages the agent can send.
+message AgentTPMChallengeMessage {
+  oneof payload {
+    // The first message sent by the agent to request a challenge.
+    TPMChallengeRequest challenge_request = 1;
+    // The agent's response containing the decrypted secret.
+    TPMChallengeResponse challenge_response = 2;
+  }
+}
+
+// ServerTPMChallengeMessage is a wrapper for all possible messages the service can send.
+message ServerTPMChallengeMessage {
+  oneof payload {
+    // The service's challenge containing the credential blob.
+    TPMChallenge challenge = 1;
+    // A message indicating the entire challenge was successful.
+    TPMChallengeComplete success = 2;
+    // A message indicating a failure at some point in the challenge.
+    TPMChallengeError error = 3;
+  }
+}
+
+// TPMChallengeRequest is sent by the client to initiate the challenge for a specific EnrollmentRequest.
+message TPMChallengeRequest {
+  // The name of the EnrollmentRequest resource created via the REST API.
+  string enrollment_request_name = 1;
+}
+
+// TPMChallenge is sent by the server and contains the credential blob the agent needs to solve.
+message TPMChallenge {
+  // The encrypted data blob that the agent must
+  // pass to the TPM's ActivateCredential command.
+  bytes credential_blob = 1;
+  // The encrypted secret that accompanies the credential blob.
+  bytes encrypted_secret = 2;
+}
+
+// TPMChallengeResponse contains the agent's decrypted secret.
+message TPMChallengeResponse {
+  // The raw bytes of the secret decrypted by the TPM.
+  bytes secret = 1;
+}
+
+// TPMChallengeComplete signals a successful end to the challenge.
+message TPMChallengeComplete {
+  // A human-readable success message.
+  string message = 1;
+}
+
+// TPMChallengeError signals a failure and terminates the challenge.
+message TPMChallengeError {
+  // A human-readable error message.
+  string message = 1;
+}

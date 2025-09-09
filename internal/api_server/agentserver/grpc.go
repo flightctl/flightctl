@@ -12,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/console"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/service"
 	grpcAuth "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/auth"
 	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
@@ -25,8 +26,10 @@ import (
 
 type AgentGrpcServer struct {
 	pb.UnimplementedRouterServiceServer
+	pb.UnimplementedEnrollmentRequestServiceServer
 	log            logrus.FieldLogger
 	cfg            *config.Config
+	service        service.Service
 	pendingStreams *sync.Map
 }
 
@@ -34,10 +37,12 @@ type AgentGrpcServer struct {
 func NewAgentGrpcServer(
 	log logrus.FieldLogger,
 	cfg *config.Config,
+	svc service.Service,
 ) *AgentGrpcServer {
 	return &AgentGrpcServer{
 		log:            log,
 		cfg:            cfg,
+		service:        svc,
 		pendingStreams: &sync.Map{},
 	}
 }
@@ -52,6 +57,7 @@ func (s *AgentGrpcServer) PrepareGRPCService() *grpc.Server {
 			Timeout:           20 * time.Second, // Wait 20s for client response before closing
 		}))
 	pb.RegisterRouterServiceServer(server, s)
+	pb.RegisterEnrollmentRequestServiceServer(server, s)
 	return server
 }
 

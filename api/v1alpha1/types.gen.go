@@ -52,6 +52,7 @@ const (
 	ConditionTypeDeviceSpecValid                   ConditionType = "SpecValid"
 	ConditionTypeDeviceUpdating                    ConditionType = "Updating"
 	ConditionTypeEnrollmentRequestApproved         ConditionType = "Approved"
+	ConditionTypeEnrollmentRequestTPMVerified      ConditionType = "TPMVerified"
 	ConditionTypeFleetRolloutInProgress            ConditionType = "RolloutInProgress"
 	ConditionTypeFleetValid                        ConditionType = "Valid"
 	ConditionTypeRepositoryAccessible              ConditionType = "Accessible"

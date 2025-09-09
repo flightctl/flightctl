@@ -179,7 +179,10 @@ func main() {
 	}
 	orgResolver := resolvers.BuildResolver(buildResolverOpts)
 
-	agentServer := agentserver.New(log, cfg, store, ca, agentListener, provider, agentTlsConfig, orgResolver)
+	agentserver, err := agentserver.New(ctx, log, cfg, store, ca, agentListener, provider, agentTlsConfig, orgResolver)
+	if err != nil {
+		log.Fatalf("initializing agent server: %v", err)
+	}
 
 	go func() {
 		listener, err := middleware.NewTLSListener(cfg.Service.Address, tlsConfig)
