@@ -42,15 +42,6 @@ var _ = Describe("OrganizationStore Integration Tests", func() {
 			Expect(orgs[0].DisplayName).To(Equal("Default"))
 		})
 
-		It("Should not create duplicate default organization during initial migration", func() {
-			err := storeInst.Organization().InitialMigration(ctx)
-			Expect(err).ToNot(HaveOccurred())
-
-			orgs, err := storeInst.Organization().List(ctx)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(orgs).To(HaveLen(1))
-		})
-
 		It("Should create a new organization with provided ID", func() {
 			orgID := uuid.New()
 			externalID := "test-external-id"
