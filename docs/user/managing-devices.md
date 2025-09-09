@@ -75,10 +75,17 @@ NAME                                                  ALIAS    OWNER   SYSTEM  U
 54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg  <none>   <none>  Online  Up-to-date  <none>        3 seconds ago
 ```
 
-You can see the details of this device in YAML format by running the following command:
+You can see the details of specific devices using any of these formats:
 
 ```console
+# Single device using slash format
 flightctl get device/54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg -o yaml
+
+# Single device using space format
+flightctl get device 54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg -o yaml
+
+# Multiple devices by name
+flightctl get devices device1 device2 device3
 ```
 
 The output will look similar to this:
