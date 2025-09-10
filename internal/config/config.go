@@ -138,6 +138,7 @@ type metricsConfig struct {
 	FleetCollector        *fleetCollectorConfig        `json:"fleetCollector,omitempty"`
 	RepositoryCollector   *repositoryCollectorConfig   `json:"repositoryCollector,omitempty"`
 	ResourceSyncCollector *resourceSyncCollectorConfig `json:"resourceSyncCollector,omitempty"`
+	WorkerCollector       *workerCollectorConfig       `json:"workerCollector,omitempty"`
 }
 type collectorConfig struct {
 	Enabled bool `json:"enabled,omitempty"`
@@ -171,6 +172,10 @@ type repositoryCollectorConfig struct {
 
 type resourceSyncCollectorConfig struct {
 	periodicCollectorConfig
+}
+
+type workerCollectorConfig struct {
+	collectorConfig
 }
 
 type tracingConfig struct {

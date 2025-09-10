@@ -11,23 +11,20 @@ data:
     bind 0.0.0.0 ::
     protected-mode yes
     port 6379
-    dir /var/lib/redis/data
 
     # Logging
     loglevel {{ default "warning" .Values.kv.loglevel }}
 
-    # Snapshotting configuration
-    save {{ .Values.kv.save }}
-    dbfilename dump.rdb
-
-    # AOF configuration
-    appendonly yes
-    appendfilename "appendonly.aof"
-    appendfsync everysec
+    # Disable persistence for in-memory Redis
+    save ""
+    appendonly no
+    # Prevent unbounded memory growth (values can be overridden via values.yaml)
+    maxmemory {{ default "1gb" .Values.kv.maxmemory }}
+    maxmemory-policy {{ default "allkeys-lru" .Values.kv.maxmemoryPolicy }}
 ---
-# StatefulSet for Redis
+# Deployment for Redis
 apiVersion: apps/v1
-kind: StatefulSet
+kind: Deployment
 metadata:
   name: flightctl-kv
   namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
@@ -35,13 +32,12 @@ metadata:
     flightctl.service: flightctl-kv
     {{- include "flightctl.standardLabels" . | nindent 4 }}
 spec:
-  serviceName: flightctl-kv
-  revisionHistoryLimit: 10
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       flightctl.service: flightctl-kv
-  podManagementPolicy: OrderedReady
   template:
     metadata:
       labels:
@@ -75,8 +71,6 @@ spec:
             - "--requirepass"
             - "$(REDIS_PASSWORD)"
           volumeMounts:
-            - name: flightctl-kv-data
-              mountPath: /var/lib/redis/data
             - name: flightctl-kv-config
               mountPath: /etc/redis/redis.conf
               subPath: redis.conf
@@ -84,27 +78,15 @@ spec:
             requests:
               cpu: "1000m"
               memory: "2Gi"
+          readinessProbe:
+            tcpSocket: { port: 6379 }
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket: { port: 6379 }
+            periodSeconds: 10
       volumes:
         - name: flightctl-kv-config
           configMap:
             name: flightctl-kv-config
             defaultMode: 0644
-  volumeClaimTemplates:
-    - metadata:
-        name: flightctl-kv-data
-        annotations:
-          kubernetes.io/reclaimPolicy: Delete
-        {{- if .Values.global.appCode }}
-        labels:
-          paas.redhat.com/appcode: {{ .Values.global.appCode }}
-        {{- end }}
-      spec:
-        {{- with .Values.global.storageClassName }}
-        storageClassName: {{ . }}
-        {{- end }}
-        accessModes:
-          - ReadWriteOnce
-        resources:
-          requests:
-            storage: 2Gi
 {{ end }}

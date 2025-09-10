@@ -9,6 +9,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/instrumentation/metrics/worker"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/worker_client"
@@ -26,14 +27,16 @@ type QueueMaintenanceTask struct {
 	log            logrus.FieldLogger
 	serviceHandler service.Service
 	queuesProvider queues.Provider
+	workerMetrics  *worker.WorkerCollector
 }
 
 // NewQueueMaintenanceTask creates a new queue maintenance task
-func NewQueueMaintenanceTask(log logrus.FieldLogger, serviceHandler service.Service, queuesProvider queues.Provider) *QueueMaintenanceTask {
+func NewQueueMaintenanceTask(log logrus.FieldLogger, serviceHandler service.Service, queuesProvider queues.Provider, workerMetrics *worker.WorkerCollector) *QueueMaintenanceTask {
 	return &QueueMaintenanceTask{
 		log:            log,
 		serviceHandler: serviceHandler,
 		queuesProvider: queuesProvider,
+		workerMetrics:  workerMetrics,
 	}
 }
 
@@ -122,6 +125,12 @@ func (t *QueueMaintenanceTask) processTimedOutMessages(ctx context.Context, log 
 func (t *QueueMaintenanceTask) retryFailedMessages(ctx context.Context, log logrus.FieldLogger) (int, error) {
 	return t.queuesProvider.RetryFailedMessages(ctx, consts.TaskQueue, queues.DefaultRetryConfig(), func(entryID string, body []byte, retryCount int) error {
 		log.WithField("entryID", entryID).WithField("retryCount", retryCount).Debug("Processing permanently failed message")
+
+		// Record permanent failure metric
+		if t.workerMetrics != nil {
+			t.workerMetrics.IncPermanentFailures()
+			t.workerMetrics.IncMessagesProcessed("permanent_failure")
+		}
 
 		// Try to extract the original event from the message body
 		var originalEvent api.Event

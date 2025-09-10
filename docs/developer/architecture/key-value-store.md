@@ -116,3 +116,125 @@ Note: The replay window equals “now - last persisted checkpoint”. Increase c
 - **Events**: Automatically republished from PostgreSQL database
 - **Cache Data**: Must be re-fetched from external sources (Git, HTTP, Kubernetes)
 - **Cache Invalidation**: Occurs automatically when template versions change
+
+## Redis Memory Configuration and Tuning
+
+Flight Control uses Redis as an in-memory store, which requires careful memory management to prevent unbounded growth and ensure system stability.
+
+### Memory Configuration Parameters
+
+Redis memory usage is controlled by two key parameters:
+
+| Parameter | Description | Default | Tuning Guidance |
+|-----------|-------------|---------|-----------------|
+| **maxmemory** | Total memory limit for Redis | `1gb` | Set to 70-80% of available container memory |
+| **maxmemory-policy** | Eviction policy when limit reached | `allkeys-lru` | See policy recommendations below |
+
+### Memory Eviction Policies
+
+Choose the appropriate eviction policy based on your use case:
+
+| Policy | Description | Use Case | Recommendation |
+|--------|-------------|----------|----------------|
+| **allkeys-lru** | Evict least recently used keys | General caching (default) | ✅ **Recommended** for most deployments |
+| **allkeys-lfu** | Evict least frequently used keys | Long-running caches | Good for stable workloads |
+| **volatile-lru** | Evict LRU keys with expiration | Mixed cache/queue data | Use if some keys have TTL |
+| **noeviction** | Return errors when limit reached | Critical data preservation | ❌ **Not recommended** - causes failures |
+
+### Memory Usage Patterns
+
+Understanding Redis memory usage helps with proper sizing:
+
+#### Cache Data (Primary Memory Consumer)
+- **Git repository contents**: Large files, multiple versions
+- **HTTP response data**: External API responses
+- **Kubernetes secrets**: Configuration data
+- **Template rendering results**: Processed configurations
+
+#### Queue Data (Secondary Memory Consumer)
+- **Task queue messages**: Event processing data
+- **Failed message retry queue**: Exponential backoff storage
+- **In-flight task tracking**: Processing state management
+
+#### Podman Environment Variables
+```bash
+# Set environment variables before starting containers
+export REDIS_MAXMEMORY="2gb"
+export REDIS_MAXMEMORY_POLICY="allkeys-lru"
+export REDIS_LOGLEVEL="warning"
+```
+
+### Memory Monitoring and Tuning
+
+#### Key Metrics to Monitor
+1. **Redis memory usage**: `redis-cli INFO memory`
+2. **Evicted keys count**: `redis-cli INFO stats | grep evicted`
+3. **Cache hit ratio**: Monitor cache effectiveness
+4. **Queue depth**: Monitor task processing backlog
+
+#### Tuning Guidelines
+
+**Increase memory if:**
+- High eviction rates (keys being removed frequently)
+- Cache hit ratio below 80%
+- Queue processing delays due to memory pressure
+
+**Decrease memory if:**
+- Memory usage consistently below 50%
+- System has memory constraints
+- Other services need more memory
+
+#### Memory Calculation Formula
+```
+Recommended Redis Memory = 
+  (Available Container Memory × 0.75) - 200MB
+```
+
+Where:
+- `0.75` = 75% of container memory for Redis
+- `200MB` = Buffer for Redis overhead and OS
+
+### Configuration Examples
+
+#### Helm Chart Configuration
+```yaml
+# values.yaml
+kv:
+  enabled: true
+  maxmemory: "2gb"
+  maxmemoryPolicy: "allkeys-lru"
+  loglevel: "warning"
+  resources:
+    requests:
+      memory: "2.5Gi"  # Container memory should be > maxmemory
+      cpu: "1000m"
+```
+
+#### Podman Container Configuration
+```ini
+# flightctl-kv.container
+[Container]
+Environment=REDIS_MAXMEMORY=2gb
+Environment=REDIS_MAXMEMORY_POLICY=allkeys-lru
+Environment=REDIS_LOGLEVEL=warning
+```
+
+### Troubleshooting Memory Issues
+
+#### Common Problems and Solutions
+
+**Problem**: Redis running out of memory
+```
+Error: OOM command not allowed when used memory > 'maxmemory'
+```
+**Solution**: Increase `maxmemory` or improve eviction policy
+
+**Problem**: High eviction rates
+```
+# Check eviction stats
+redis-cli INFO stats | grep evicted
+```
+**Solution**: Increase memory allocation or optimize cache usage
+
+**Problem**: Slow queue processing
+**Solution**: Monitor queue depth and increase memory if needed
