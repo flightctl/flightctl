@@ -9,8 +9,10 @@
 %define selinux_policyver 3.14.3-67
 
 Name:           flightctl
-Version:        0.10.0~main~241~gba6d2751
-Release:        1.20250910104013921016.EDM.1269.241.gba6d2751%{?dist}
+# Version and Release are automatically updated by Packit during build
+# Do not manually change these values - they will be overwritten
+Version:        0.6.0
+Release:        1%{?dist}
 Summary:        Flight Control service
 
 %gometa
@@ -18,7 +20,7 @@ Summary:        Flight Control service
 License:        Apache-2.0 AND BSD-2-Clause AND BSD-3-Clause AND ISC AND MIT
 URL:            %{gourl}
 
-Source0:        flightctl-0.10.0~main~241~gba6d2751.tar.gz
+Source0:        1%{?dist}
 
 BuildRequires:  golang
 BuildRequires:  make
@@ -399,7 +401,7 @@ echo "Flightctl Observability Stack uninstalled."
 
 %prep
 %goprep -A
-%setup -q %{forgesetupargs} -n flightctl-0.10.0~main~241~gba6d2751
+%setup -q %{forgesetupargs}
 
 %build
     # if this is a buggy version of go we need to set GOPROXY as workaround
