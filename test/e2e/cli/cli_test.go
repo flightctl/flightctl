@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
@@ -19,6 +20,7 @@ import (
 var (
 	unspecifiedResource = "Error: name must be specified when deleting"
 	resourceCreated     = `(200 OK|201 Created)`
+	deviceCountColumn   = "DEVICES"
 )
 
 // _ is a blank identifier used to ignore values or expressions, often applied to satisfy interface or assignment requirements.
@@ -461,6 +463,88 @@ var _ = Describe("cli operation", func() {
 		})
 	})
 
+	Context("Verify fleet check shows devices", func() {
+		It("Show number of devices associated with each fleet", Label("84266", "sanity"), func() {
+			harness := e2e.GetWorkerHarness()
+			testID := harness.GetTestIDFromContext()
+			fleetDevicesCount := map[string]int64{}
+
+			// Creating a fleet
+			By("Creating a fleet")
+			uniqueFleetAYAML, err := util.CreateUniqueYAMLFile("fleet.yaml", testID)
+			Expect(err).ToNot(HaveOccurred())
+			defer util.CleanupTempYAMLFile(uniqueFleetAYAML)
+
+			// Checking the fleet was created and updating in map
+			out, err := harness.ManageResource("apply", uniqueFleetAYAML)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(out).To(MatchRegexp(resourceCreated))
+			fleetA := harness.GetFleetByYaml(uniqueFleetAYAML)
+			fleetAName := *fleetA.Metadata.Name
+			fleetACount := (*fleetA.Status.DevicesSummary).Total
+			fleetDevicesCount[fleetAName] = fleetACount
+
+			// Checking if number of devices is shown
+			By("Checking if number of devices is shown")
+			notMatched, err := CheckDevicesInFleetStatus(harness, fleetDevicesCount)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(notMatched).To(BeEmpty())
+
+			// Creating a device in the same fleet
+			By("Creating a device in the same fleet")
+			uniqueDeviceYAML, err := util.CreateUniqueYAMLFile("device.yaml", testID)
+			Expect(err).ToNot(HaveOccurred())
+			defer util.CleanupTempYAMLFile(uniqueDeviceYAML)
+
+			// Checking the device was created and updating in map
+			out, err = harness.ManageResource("apply", uniqueDeviceYAML)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(out).To(MatchRegexp(resourceCreated))
+			fleetACount = (*fleetA.Status.DevicesSummary).Total
+			fleetDevicesCount[fleetAName] = fleetACount
+
+			// Checking if the number of devices is shown and changed
+			By("Checking if number of devices is shown and changed")
+			notMatched, err = CheckDevicesInFleetStatus(harness, fleetDevicesCount)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(notMatched).To(BeEmpty())
+
+			// Creating another fleet
+			By("Creating another fleet")
+			uniqueFleetBYAML, err := util.CreateUniqueYAMLFile("fleet-b.yaml", testID)
+			Expect(err).ToNot(HaveOccurred())
+			defer util.CleanupTempYAMLFile(uniqueFleetBYAML)
+
+			// Checking the fleet was created and updating in map
+			out, err = harness.ManageResource("apply", uniqueFleetBYAML)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(out).To(MatchRegexp(resourceCreated))
+			fleetB := harness.GetFleetByYaml(uniqueFleetBYAML)
+			fleetBName := *fleetB.Metadata.Name
+			fleetBCount := (*fleetB.Status.DevicesSummary).Total
+			fleetDevicesCount[fleetBName] = fleetBCount
+
+			// Checking if the number of devices is shown for both fleets
+			By("Checking if number of devices is shown for both fleets")
+			notMatched, err = CheckDevicesInFleetStatus(harness, fleetDevicesCount)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(notMatched).To(BeEmpty())
+
+			// Deleting a device from the first fleet
+			By("Deleting a device from the first fleet")
+			out, err = harness.ManageResource("delete", uniqueFleetBYAML)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring("completed"))
+			fleetACount = (*fleetA.Status.DevicesSummary).Total
+			fleetDevicesCount[fleetAName] = fleetACount
+
+			// Check if the number is changed after deletion
+			By("Checking if number of devices is shown and changed")
+			notMatched, err = CheckDevicesInFleetStatus(harness, fleetDevicesCount)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(notMatched).To(BeEmpty())
+		})
+	})
 })
 
 var _ = Describe("cli login", func() {
@@ -622,6 +706,47 @@ func GetVersionByPrefix(output, prefix string) string {
 		}
 	}
 	return ""
+}
+
+// Comparing devices count output with fleet data in map
+func CompareDeviceCountCLIOutput(output string, expected map[string]int64) []string {
+
+	var notMatched []string
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+
+	for _, line := range lines {
+		columns := strings.Fields(line)
+
+		// Skipping the first line of output containing the titles
+		if columns[4] == deviceCountColumn {
+			continue
+		}
+
+		name := columns[0]
+		strCount := columns[4]
+		count, err := strconv.ParseInt(strCount, 10, 64)
+		if err != nil {
+			notMatched = append(notMatched, name)
+			continue
+		}
+
+		// Comparing the count in output to the count in map
+		expectedCount := expected[name]
+		if count != expectedCount {
+			notMatched = append(notMatched, name)
+		}
+	}
+
+	// Making sure number of fleets (lines in output) match the number of fleets in map
+	return notMatched
+}
+
+// Checking the status of devices in fleet and devices count
+func CheckDevicesInFleetStatus(harness *e2e.Harness, fleetDevicesCount map[string]int64) ([]string, error) {
+
+	out, err := harness.CLIWithStdin("get", "fleet", "-s")
+	notMatched := CompareDeviceCountCLIOutput(out, fleetDevicesCount)
+	return notMatched, err
 }
 
 // completeFleetYaml defines a YAML template for creating a Fleet resource with specified metadata and spec configuration.
