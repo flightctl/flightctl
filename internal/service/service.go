@@ -36,7 +36,7 @@ type Service interface {
 
 	ResumeDevices(ctx context.Context, request api.DeviceResumeRequest) (api.DeviceResumeResponse, api.Status)
 	UpdateDeviceAnnotations(ctx context.Context, name string, annotations map[string]string, deleteKeys []string) api.Status
-	UpdateRenderedDevice(ctx context.Context, name, renderedConfig, renderedApplications string) api.Status
+	UpdateRenderedDevice(ctx context.Context, name, renderedConfig, renderedApplications, specHash string) api.Status
 	SetDeviceServiceConditions(ctx context.Context, name string, conditions []api.Condition) api.Status
 	OverwriteDeviceRepositoryRefs(ctx context.Context, name string, repositoryNames ...string) api.Status
 	GetDeviceRepositoryRefs(ctx context.Context, name string) (*api.RepositoryList, api.Status)

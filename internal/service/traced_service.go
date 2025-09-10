@@ -193,9 +193,9 @@ func (t *TracedService) UpdateDeviceAnnotations(ctx context.Context, name string
 	endSpan(span, st)
 	return st
 }
-func (t *TracedService) UpdateRenderedDevice(ctx context.Context, name, renderedConfig, renderedApps string) api.Status {
+func (t *TracedService) UpdateRenderedDevice(ctx context.Context, name, renderedConfig, renderedApps, specHash string) api.Status {
 	ctx, span := startSpan(ctx, "UpdateRenderedDevice")
-	st := t.inner.UpdateRenderedDevice(ctx, name, renderedConfig, renderedApps)
+	st := t.inner.UpdateRenderedDevice(ctx, name, renderedConfig, renderedApps, specHash)
 	endSpan(span, st)
 	return st
 }
