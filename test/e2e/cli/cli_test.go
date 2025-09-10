@@ -461,6 +461,86 @@ var _ = Describe("cli operation", func() {
 		})
 	})
 
+	Context("Number of devices in fleet check", func() {
+		It("Show number of devices associated with each fleet", Label("84266", "sanity"), func() {
+			// Get harness directly - no shared package-level variable
+			harness := e2e.GetWorkerHarness()
+			testID := harness.GetTestIDFromContext()
+
+			// Creating a fleet
+			By("Creating an empty fleet")
+			uniqueFleetYAML, err := util.CreateUniqueYAMLFile("fleet.yaml", testID)
+			Expect(err).ToNot(HaveOccurred())
+			defer util.CleanupTempYAMLFile(uniqueFleetYAML)
+
+			// Checking the fleet was created
+			out, err := harness.ManageResource("apply", uniqueFleetYAML)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(out).To(ContainSubstring("201 Created"))
+
+			// Check if number of devices is shown
+			By("Checking if number of devices is shown")
+			out, err = harness.CLI("get", "fleet -s | awk '{print $1, $5}' | column -t")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring("DEVICES"))
+			Expect(out).To(ContainSubstring("0"))
+
+			// Creating a device in the same fleet
+			By("Creating a device in the same fleet")
+			uniqueDeviceYAML, err := util.CreateUniqueYAMLFile("device.yaml", testID)
+			Expect(err).ToNot(HaveOccurred())
+			defer util.CleanupTempYAMLFile(uniqueDeviceYAML)
+
+			// Checking the device was created and getting its name
+			out, err = harness.ManageResource("apply", uniqueDeviceYAML)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(MatchRegexp(resourceCreated))
+			deviceOfFirstFleet := harness.GetDeviceByYaml(uniqueDeviceYAML)
+			deviceOfFirstFleetName := *deviceOfFirstFleet.Metadata.Name
+
+			// Checking if the number of devices is shown and changed
+			By("Checking if number of devices is shown and changed")
+			out, err = harness.CLI("get", "fleet -s | awk '{print $1, $5}' | column -t")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring("DEVICES"))
+			Expect(out).To(ContainSubstring("1"))
+			Expect(out).ToNot(ContainSubstring("0"))
+
+			// Create another fleet
+			By("Creating another empty fleet")
+			uniqueFleetBYAML, err := util.CreateUniqueYAMLFile("fleet-b.yaml", testID)
+			Expect(err).ToNot(HaveOccurred())
+			defer util.CleanupTempYAMLFile(uniqueFleetBYAML)
+
+			// Checking the second fleet was created
+			out, err = harness.ManageResource("apply", uniqueFleetBYAML)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(out).To(ContainSubstring("201 Created"))
+
+			// Checking if the number of devices is shown for both fleets
+			By("Checking if number of devices is shown for both fleets")
+			out, err = harness.CLI("get", "fleet -s | awk '{print $1, $5}' | column -t")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring("DEVICES"))
+			Expect(out).To(ContainSubstring("1"))
+			Expect(out).To(ContainSubstring("0"))
+
+			// Deleting a device from the first fleet
+			By("Deleting a device from the first fleet")
+			out, err = harness.CLI("delete", util.Device, deviceOfFirstFleetName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring("completed"))
+
+			// Check if the number is changed after deletion
+			By("Checking if number of devices is shown and changed")
+			out, err = harness.CLI("get", "fleet -s | awk '{print $1, $5}' | column -t")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring("DEVICES"))
+			Expect(out).To(ContainSubstring("0"))
+			Expect(out).ToNot(ContainSubstring("1"))
+		})
+	})
+
 })
 
 var _ = Describe("cli login", func() {
