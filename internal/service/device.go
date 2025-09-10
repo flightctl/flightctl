@@ -250,16 +250,19 @@ func (h *ServiceHandler) ReplaceDeviceStatus(ctx context.Context, name string, i
 	if name != *incomingDevice.Metadata.Name {
 		return nil, api.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
-	isNotInternal := !IsInternalRequest(ctx)
-	if isNotInternal {
-		incomingDevice.Status.LastSeen = time.Now()
-	}
-
 	// UpdateServiceSideStatus() needs to know the latest .metadata.annotations[device-controller/renderedVersion]
 	// that the agent does not provide or only have an outdated knowledge of
 	originalDevice, err := h.store.Device().Get(ctx, orgId, name)
 	if err != nil {
 		return nil, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
+	}
+
+	if IsAgentRequest(ctx) {
+		// Agent requests: auto-update lastSeen to current time
+		incomingDevice.Status.LastSeen = time.Now()
+	} else {
+		// User/Internal requests: ignore incoming lastSeen, preserve existing value
+		incomingDevice.Status.LastSeen = originalDevice.Status.LastSeen
 	}
 
 	deviceToStore := &api.Device{}
@@ -316,6 +319,14 @@ func (h *ServiceHandler) PatchDeviceStatus(ctx context.Context, name string, pat
 		return nil, api.StatusBadRequest("spec is immutable")
 	}
 
+	if IsAgentRequest(ctx) {
+		// Agent requests: auto-update lastSeen to current time
+		newObj.Status.LastSeen = time.Now()
+	} else {
+		// User/Internal requests: ignore incoming lastSeen, preserve existing value
+		newObj.Status.LastSeen = currentObj.Status.LastSeen
+	}
+
 	NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
@@ -332,7 +343,7 @@ func (h *ServiceHandler) GetRenderedDevice(ctx context.Context, name string, par
 		err               error
 	)
 
-	if _, ok := ctx.Value(consts.AgentCtxKey).(string); ok {
+	if _, ok := ctx.Value(consts.AgentCtxKey).(bool); ok {
 		if err := healthchecker.HealthChecks.Instance().Add(ctx, getOrgIdFromContext(ctx), name); err != nil {
 			h.log.WithError(err).Errorf("failed to add healthcheck to device %s", name)
 			return nil, api.StatusInternalServerError(fmt.Sprintf("failed to add healthcheck to device %s: %v", name, err))

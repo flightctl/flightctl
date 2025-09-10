@@ -149,7 +149,7 @@ func TestEventDeviceReplaceDeviceStatus(t *testing.T) {
 	require := require.New(t)
 
 	serviceHandler := serviceHandler()
-	ctx := context.Background()
+	ctx := context.WithValue(context.Background(), consts.AgentCtxKey, true)
 	device := prepareDevice(uuid.New(), "foo")
 
 	// Create device
@@ -181,7 +181,7 @@ func TestEventDeviceReplaceDeviceStatus(t *testing.T) {
 
 func TestEventDeviceReplaceDeviceStatus1(t *testing.T) {
 	ctx := context.Background()
-	ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
+	ctx = context.WithValue(ctx, consts.AgentCtxKey, true)
 	serviceHandler := serviceHandler()
 
 	device := prepareDevice(uuid.New(), "foo")

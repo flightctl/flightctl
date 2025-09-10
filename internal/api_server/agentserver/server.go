@@ -185,8 +185,8 @@ func filteredLogger(log logrus.FieldLogger) func(next http.Handler) http.Handler
 
 func addAgentContext(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Add userID into the context
-		ctx := context.WithValue(r.Context(), consts.AgentCtxKey, "true")
+		// Add agent context
+		ctx := context.WithValue(r.Context(), consts.AgentCtxKey, true)
 
 		// Create a new request with the updated context
 		r = r.WithContext(ctx)
