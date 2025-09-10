@@ -180,8 +180,17 @@ until flightctl approve "csr/${CSR_NAME}" >/dev/null 2>&1 || [[ $tries -ge 12 ]]
   tries=$((tries+1))
 done
 
-# Fetch issued certificate from CSR status
-CERT_B64="$(flightctl get "csr/${CSR_NAME}" -o yaml | yq '.status.certificate' || echo "")"
+# Fetch issued certificate from CSR status (retry a bit in case certificate is not yet populated)
+CERT_B64=""
+tries=0
+until [[ -n "${CERT_B64}" && "${CERT_B64}" != "null" ]] || [[ $tries -ge 5 ]]; do
+  CERT_B64="$(flightctl get "csr/${CSR_NAME}" -o yaml | yq '.status.certificate' || echo "")"
+  if [[ -z "${CERT_B64}" || "${CERT_B64}" == "null" ]]; then
+    sleep 5
+    tries=$((tries+1))
+  fi
+done
+
 if [[ -z "${CERT_B64}" || "${CERT_B64}" == "null" ]]; then
   echo "ERROR: CSR ${CSR_NAME} was not issued. Check flightctl CSR status."
   exit 1
