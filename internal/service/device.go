@@ -648,6 +648,12 @@ func (h *ServiceHandler) callbackDeviceUpdated(ctx context.Context, resourceKind
 // callbackDeviceDecommission is the device-specific callback that handles device decommission events
 func (h *ServiceHandler) callbackDeviceDecommission(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
 	h.eventHandler.HandleDeviceDecommissionEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+
+	// Add device to decommissioned devices table when decommissioning starts
+	// This callback is only called during decommission operations, so we always add the device
+	if err == nil {
+		h.decommissionedDeviceService.HandleDeviceDecommission(ctx, orgId, name)
+	}
 }
 
 // callbackDeviceDeleted is the device-specific callback that handles device deletion events

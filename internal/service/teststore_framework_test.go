@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
@@ -19,21 +20,28 @@ const statusCreatedCode = int32(http.StatusCreated)
 const statusFailedCode = int32(http.StatusInternalServerError)
 const statusBadRequestCode = int32(http.StatusBadRequest)
 const statusNotFoundCode = int32(http.StatusNotFound)
+const statusForbiddenCode = int32(http.StatusForbidden)
 
 type TestStore struct {
 	store.Store
-	devices            *DummyDevice
-	events             *DummyEvent
-	fleets             *DummyFleet
-	repositories       *DummyRepository
-	resourceSyncVals   *DummyResourceSync
-	enrollmentRequests *DummyEnrollmentRequest
-	organizations      *DummyOrganization
+	devices               *DummyDevice
+	decommissionedDevices *DummyDecommissionedDevice
+	events                *DummyEvent
+	fleets                *DummyFleet
+	repositories          *DummyRepository
+	resourceSyncVals      *DummyResourceSync
+	enrollmentRequests    *DummyEnrollmentRequest
+	organizations         *DummyOrganization
 }
 
 type DummyDevice struct {
 	store.Device
 	devices *[]api.Device
+}
+
+type DummyDecommissionedDevice struct {
+	store.DecommissionedDevice
+	decommissionedDevices *[]model.DecommissionedDevice
 }
 
 type DummyEvent struct {
@@ -72,7 +80,14 @@ func (s *TestStore) init() {
 		s.events = &DummyEvent{events: &[]api.Event{}}
 	}
 	if s.devices == nil {
-		s.devices = &DummyDevice{devices: &[]api.Device{}}
+		s.devices = &DummyDevice{
+			devices: &[]api.Device{},
+		}
+	}
+	if s.decommissionedDevices == nil {
+		s.decommissionedDevices = &DummyDecommissionedDevice{
+			decommissionedDevices: &[]model.DecommissionedDevice{},
+		}
 	}
 	if s.fleets == nil {
 		s.fleets = &DummyFleet{fleets: &[]api.Fleet{}}
@@ -99,6 +114,11 @@ func (s *TestStore) Fleet() store.Fleet {
 func (s *TestStore) Device() store.Device {
 	s.init()
 	return s.devices
+}
+
+func (s *TestStore) DecommissionedDevice() store.DecommissionedDevice {
+	s.init()
+	return s.decommissionedDevices
 }
 
 func (s *TestStore) Event() store.Event {
@@ -236,6 +256,42 @@ func (s *DummyDevice) UpdateStatus(ctx context.Context, orgId uuid.UUID, device 
 		}
 	}
 	return nil, flterrors.ErrResourceNotFound
+}
+
+// Decommissioned device methods for testing
+func (s *DummyDecommissionedDevice) CreateDecommissionedDevice(ctx context.Context, orgId uuid.UUID, deviceId string, certificateExpirationDate time.Time) error {
+	decommissionedDevice := model.DecommissionedDevice{
+		ID:                        deviceId,
+		OrgID:                     orgId,
+		CertificateExpirationDate: certificateExpirationDate,
+		DecommissionedAt:          time.Now(),
+	}
+	*s.decommissionedDevices = append(*s.decommissionedDevices, decommissionedDevice)
+	return nil
+}
+
+func (s *DummyDecommissionedDevice) GetDecommissionedDevice(ctx context.Context, orgId uuid.UUID, deviceId string) (*model.DecommissionedDevice, error) {
+	for i := range *s.decommissionedDevices {
+		device := &(*s.decommissionedDevices)[i]
+		if device.ID == deviceId && device.OrgID == orgId {
+			return device, nil
+		}
+	}
+	return nil, flterrors.ErrResourceNotFound
+}
+
+func (s *DummyDecommissionedDevice) ListDecommissionedDevices(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) ([]model.DecommissionedDevice, error) {
+	var result []model.DecommissionedDevice
+	for _, device := range *s.decommissionedDevices {
+		if device.OrgID == orgId {
+			result = append(result, device)
+		}
+	}
+	return result, nil
+}
+
+func (s *DummyDecommissionedDevice) InitialMigration(ctx context.Context) error {
+	return nil
 }
 
 // --------------------------------------> Fleet

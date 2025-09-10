@@ -61,6 +61,10 @@ func (m *MockStore) Organization() store.Organization {
 	return nil
 }
 
+func (m *MockStore) DecommissionedDevice() store.DecommissionedDevice {
+	return nil
+}
+
 func (m *MockStore) RunMigrations(context.Context) error {
 	return nil
 }

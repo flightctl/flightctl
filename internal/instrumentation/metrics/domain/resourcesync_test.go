@@ -31,12 +31,13 @@ func (m *MockResourceSyncStore) Repository() store.Repository           { return
 func (m *MockResourceSyncStore) ResourceSync() store.ResourceSync {
 	return &MockResourceSync{results: m.results}
 }
-func (m *MockResourceSyncStore) Event() store.Event                  { return nil }
-func (m *MockResourceSyncStore) Checkpoint() store.Checkpoint        { return nil }
-func (m *MockResourceSyncStore) Organization() store.Organization    { return nil }
-func (m *MockResourceSyncStore) RunMigrations(context.Context) error { return nil }
-func (m *MockResourceSyncStore) Close() error                        { return nil }
-func (m *MockResourceSyncStore) CheckHealth(context.Context) error   { return nil }
+func (m *MockResourceSyncStore) Event() store.Event                               { return nil }
+func (m *MockResourceSyncStore) Checkpoint() store.Checkpoint                     { return nil }
+func (m *MockResourceSyncStore) Organization() store.Organization                 { return nil }
+func (m *MockResourceSyncStore) DecommissionedDevice() store.DecommissionedDevice { return nil }
+func (m *MockResourceSyncStore) RunMigrations(context.Context) error              { return nil }
+func (m *MockResourceSyncStore) Close() error                                     { return nil }
+func (m *MockResourceSyncStore) CheckHealth(context.Context) error                { return nil }
 
 type MockResourceSync struct {
 	results []store.CountByResourceSyncOrgAndStatusResult

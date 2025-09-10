@@ -439,4 +439,91 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 			))
 		})
 	})
+
+	// Test decommissioned device enrollment validation
+	Context("Decommissioned device enrollment validation", func() {
+		It("should reject enrollment request for decommissioned device with 403 Forbidden", func() {
+			deviceName, csrData := GenerateDeviceNameAndCSR()
+
+			By("creating a device")
+			device := api.Device{
+				ApiVersion: "v1alpha1",
+				Kind:       "Device",
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr(deviceName),
+					Labels: &map[string]string{
+						"test": "integration",
+					},
+				},
+				Spec: &api.DeviceSpec{
+					Os: &api.DeviceOsSpec{Image: "test-image"},
+				},
+			}
+			_, status := suite.Handler.CreateDevice(suite.Ctx, device)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+
+			By("decommissioning the device")
+			decommission := api.DeviceDecommission{
+				Target: api.DeviceDecommissionTargetTypeUnenroll,
+			}
+			_, status = suite.Handler.DecommissionDevice(suite.Ctx, deviceName, decommission)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+
+			By("attempting to create enrollment request for decommissioned device")
+			er := api.EnrollmentRequest{
+				ApiVersion: "v1alpha1",
+				Kind:       "EnrollmentRequest",
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr(deviceName),
+					Labels: &map[string]string{
+						"test": "integration",
+					},
+				},
+				Spec: api.EnrollmentRequestSpec{
+					Csr: string(csrData),
+				},
+			}
+			_, status = suite.Handler.CreateEnrollmentRequest(suite.Ctx, er)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusForbidden))
+			Expect(status.Message).To(ContainSubstring("device has been decommissioned and cannot be re-enrolled"))
+		})
+
+		It("should allow enrollment request for non-decommissioned device", func() {
+			deviceName, csrData := GenerateDeviceNameAndCSR()
+
+			By("creating a device")
+			device := api.Device{
+				ApiVersion: "v1alpha1",
+				Kind:       "Device",
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr(deviceName),
+					Labels: &map[string]string{
+						"test": "integration",
+					},
+				},
+				Spec: &api.DeviceSpec{
+					Os: &api.DeviceOsSpec{Image: "test-image"},
+				},
+			}
+			_, status := suite.Handler.CreateDevice(suite.Ctx, device)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+
+			By("creating enrollment request for non-decommissioned device")
+			er := api.EnrollmentRequest{
+				ApiVersion: "v1alpha1",
+				Kind:       "EnrollmentRequest",
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr(deviceName),
+					Labels: &map[string]string{
+						"test": "integration",
+					},
+				},
+				Spec: api.EnrollmentRequestSpec{
+					Csr: string(csrData),
+				},
+			}
+			_, status = suite.Handler.CreateEnrollmentRequest(suite.Ctx, er)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+		})
+	})
 })

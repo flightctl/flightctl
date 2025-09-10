@@ -3,10 +3,12 @@ package service
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/samber/lo"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 )
 
@@ -134,4 +136,164 @@ func createTestEnrollmentRequest(require *require.Assertions, name string, statu
 	_, err := serviceHandler.store.EnrollmentRequest().Create(ctx, store.NullOrgId, &enrollmentRequest, nil)
 	require.NoError(err)
 	return &serviceHandler, ctx, enrollmentRequest
+}
+
+func TestCreateEnrollmentRequestDecommissionedDevice(t *testing.T) {
+	require := require.New(t)
+
+	// Create a test store with a decommissioned device
+	testStore := &TestStore{}
+	testStore.init()
+
+	// Add a decommissioned device to the test store
+	orgId := store.NullOrgId
+	deviceId := "decommissioned-device"
+	certExpiration := time.Now().Add(24 * time.Hour)
+	err := testStore.DecommissionedDevice().CreateDecommissionedDevice(context.Background(), orgId, deviceId, certExpiration)
+	require.NoError(err)
+
+	// Create service handler with the test store
+	serviceHandler := ServiceHandler{
+		store:                       testStore,
+		decommissionedDeviceService: NewDecommissionedDeviceService(testStore, logrus.New()),
+		log:                         logrus.New(),
+	}
+	ctx := context.Background()
+
+	// Create enrollment request for the decommissioned device
+	deviceStatus := v1alpha1.NewDeviceStatus()
+	enrollmentRequest := v1alpha1.EnrollmentRequest{
+		ApiVersion: "v1",
+		Kind:       "EnrollmentRequest",
+		Metadata: v1alpha1.ObjectMeta{
+			Name:   lo.ToPtr(deviceId),
+			Labels: &map[string]string{"labelKey": "labelValue"},
+		},
+		Spec: v1alpha1.EnrollmentRequestSpec{
+			Csr:          "TestCSR",
+			DeviceStatus: &deviceStatus,
+		},
+	}
+
+	// Try to create enrollment request - should be rejected
+	_, status := serviceHandler.CreateEnrollmentRequest(ctx, enrollmentRequest)
+	require.Equal(statusForbiddenCode, status.Code)
+	require.Equal("device has been decommissioned and cannot be re-enrolled", status.Message)
+}
+
+func TestCreateEnrollmentRequestNonDecommissionedDevice(t *testing.T) {
+	require := require.New(t)
+
+	// Create a test store (no decommissioned devices)
+	testStore := &TestStore{}
+	testStore.init()
+
+	// Create service handler with the test store
+	serviceHandler := ServiceHandler{
+		store:                       testStore,
+		decommissionedDeviceService: NewDecommissionedDeviceService(testStore, logrus.New()),
+		log:                         logrus.New(),
+	}
+	ctx := context.Background()
+
+	// Create enrollment request for a non-decommissioned device
+	deviceStatus := v1alpha1.NewDeviceStatus()
+	enrollmentRequest := v1alpha1.EnrollmentRequest{
+		ApiVersion: "v1",
+		Kind:       "EnrollmentRequest",
+		Metadata: v1alpha1.ObjectMeta{
+			Name:   lo.ToPtr("normal-device"),
+			Labels: &map[string]string{"labelKey": "labelValue"},
+		},
+		Spec: v1alpha1.EnrollmentRequestSpec{
+			Csr:          "TestCSR",
+			DeviceStatus: &deviceStatus,
+		},
+	}
+
+	// Try to create enrollment request - should succeed (no decommissioned device check failure)
+	_, status := serviceHandler.CreateEnrollmentRequest(ctx, enrollmentRequest)
+	// Note: This will fail due to CSR validation, but not due to decommissioned device check
+	// The important thing is that it doesn't fail with 403 Forbidden
+	require.NotEqual(statusForbiddenCode, status.Code)
+}
+
+func TestReplaceEnrollmentRequestDecommissionedDevice(t *testing.T) {
+	require := require.New(t)
+
+	// Create a test store with a decommissioned device
+	testStore := &TestStore{}
+	testStore.init()
+
+	// Add a decommissioned device to the test store
+	orgId := store.NullOrgId
+	deviceId := "decommissioned-device"
+	certExpiration := time.Now().Add(24 * time.Hour)
+	err := testStore.DecommissionedDevice().CreateDecommissionedDevice(context.Background(), orgId, deviceId, certExpiration)
+	require.NoError(err)
+
+	// Create service handler with the test store
+	serviceHandler := ServiceHandler{
+		store:                       testStore,
+		decommissionedDeviceService: NewDecommissionedDeviceService(testStore, logrus.New()),
+		log:                         logrus.New(),
+	}
+	ctx := context.Background()
+
+	// Create enrollment request for the decommissioned device
+	deviceStatus := v1alpha1.NewDeviceStatus()
+	enrollmentRequest := v1alpha1.EnrollmentRequest{
+		ApiVersion: "v1",
+		Kind:       "EnrollmentRequest",
+		Metadata: v1alpha1.ObjectMeta{
+			Name:   lo.ToPtr(deviceId),
+			Labels: &map[string]string{"labelKey": "labelValue"},
+		},
+		Spec: v1alpha1.EnrollmentRequestSpec{
+			Csr:          "TestCSR",
+			DeviceStatus: &deviceStatus,
+		},
+	}
+
+	// Try to replace enrollment request - should be rejected
+	_, status := serviceHandler.ReplaceEnrollmentRequest(ctx, deviceId, enrollmentRequest)
+	require.Equal(statusForbiddenCode, status.Code)
+	require.Equal("device has been decommissioned and cannot be re-enrolled", status.Message)
+}
+
+func TestReplaceEnrollmentRequestNonDecommissionedDevice(t *testing.T) {
+	require := require.New(t)
+
+	// Create a test store (no decommissioned devices)
+	testStore := &TestStore{}
+	testStore.init()
+
+	// Create service handler with the test store
+	serviceHandler := ServiceHandler{
+		store:                       testStore,
+		decommissionedDeviceService: NewDecommissionedDeviceService(testStore, logrus.New()),
+		log:                         logrus.New(),
+	}
+	ctx := context.Background()
+
+	// Create enrollment request for a non-decommissioned device
+	deviceStatus := v1alpha1.NewDeviceStatus()
+	enrollmentRequest := v1alpha1.EnrollmentRequest{
+		ApiVersion: "v1",
+		Kind:       "EnrollmentRequest",
+		Metadata: v1alpha1.ObjectMeta{
+			Name:   lo.ToPtr("normal-device"),
+			Labels: &map[string]string{"labelKey": "labelValue"},
+		},
+		Spec: v1alpha1.EnrollmentRequestSpec{
+			Csr:          "TestCSR",
+			DeviceStatus: &deviceStatus,
+		},
+	}
+
+	// Try to replace enrollment request - should succeed (no decommissioned device check failure)
+	_, status := serviceHandler.ReplaceEnrollmentRequest(ctx, "normal-device", enrollmentRequest)
+	// Note: This will fail due to other validation, but not due to decommissioned device check
+	// The important thing is that it doesn't fail with 403 Forbidden
+	require.NotEqual(statusForbiddenCode, status.Code)
 }
