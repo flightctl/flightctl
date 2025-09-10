@@ -6,6 +6,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/instrumentation/metrics/worker"
 	"github.com/flightctl/flightctl/internal/rollout/device_selection"
 	"github.com/flightctl/flightctl/internal/rollout/disruption_budget"
 	"github.com/flightctl/flightctl/internal/service"
@@ -142,6 +143,7 @@ type QueueMaintenanceExecutor struct {
 	log            logrus.FieldLogger
 	serviceHandler service.Service
 	queuesProvider queues.Provider
+	workerMetrics  *worker.WorkerCollector
 }
 
 func (e *QueueMaintenanceExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgID uuid.UUID) {
@@ -149,7 +151,7 @@ func (e *QueueMaintenanceExecutor) Execute(ctx context.Context, log logrus.Field
 
 	// Create and execute the queue maintenance task
 	// Note: Queue maintenance is system-wide, orgID is only used for context/tracing
-	task := tasks.NewQueueMaintenanceTask(e.log, e.serviceHandler, e.queuesProvider)
+	task := tasks.NewQueueMaintenanceTask(e.log, e.serviceHandler, e.queuesProvider, e.workerMetrics)
 
 	// For system-wide tasks, we don't need to pass orgID to the task itself
 	if err := task.Execute(taskCtx); err != nil {
@@ -157,7 +159,7 @@ func (e *QueueMaintenanceExecutor) Execute(ctx context.Context, log logrus.Field
 	}
 }
 
-func InitializeTaskExecutors(log logrus.FieldLogger, serviceHandler service.Service, cfg *config.Config, queuesProvider queues.Provider) map[PeriodicTaskType]PeriodicTaskExecutor {
+func InitializeTaskExecutors(log logrus.FieldLogger, serviceHandler service.Service, cfg *config.Config, queuesProvider queues.Provider, workerMetrics *worker.WorkerCollector) map[PeriodicTaskType]PeriodicTaskExecutor {
 	return map[PeriodicTaskType]PeriodicTaskExecutor{
 		PeriodicTaskTypeRepositoryTester: &RepositoryTesterExecutor{
 			log:            log.WithField("pkg", "repository-tester"),
@@ -189,6 +191,7 @@ func InitializeTaskExecutors(log logrus.FieldLogger, serviceHandler service.Serv
 			log:            log.WithField("pkg", "queue-maintenance"),
 			serviceHandler: serviceHandler,
 			queuesProvider: queuesProvider,
+			workerMetrics:  workerMetrics,
 		},
 	}
 }
