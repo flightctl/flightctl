@@ -1,7 +1,7 @@
 [Unit]
 Description=FlightCtl Prometheus Metrics Server
-After=flightctl-observability-network.service
-Wants=flightctl-observability-network.service
+After=flightctl-network.service
+Wants=flightctl-network.service
 PartOf=flightctl-observability.target
 
 [Container]
@@ -12,7 +12,7 @@ ContainerName=flightctl-prometheus
 Volume=/etc/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro,z
 Volume=/var/lib/prometheus:/prometheus:rw,z
 
-Network=flightctl-observability
+Network=flightctl
 
 [Service]
 Restart=on-failure
