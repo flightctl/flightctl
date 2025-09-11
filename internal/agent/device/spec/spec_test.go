@@ -116,11 +116,13 @@ func TestInitialize(t *testing.T) {
 	mockPolicyManager := policy.NewMockManager(ctrl)
 	log := log.NewPrefixLogger("test")
 
-	queue := newPriorityQueue(
+	cache := newCache(log)
+	queue := newQueueManager(
 		defaultSpecQueueMaxSize,
 		defaultSpecRequeueMaxRetries,
 		defaultSpecPollConfig,
 		mockPolicyManager,
+		cache,
 		log,
 	)
 
@@ -773,11 +775,13 @@ func TestRollback(t *testing.T) {
 			log := log.NewPrefixLogger("test")
 			mockPolicyManager := policy.NewMockManager(ctrl)
 			pub := publisher.New("testDevice", 10*time.Millisecond, wait.Backoff{}, log)
-			queue := newPriorityQueue(
+			cache := newCache(log)
+			queue := newQueueManager(
 				defaultSpecQueueMaxSize,
 				defaultSpecRequeueMaxRetries,
 				defaultSpecPollConfig,
 				mockPolicyManager,
+				cache,
 				log,
 			)
 			dataDir := tmpDir
