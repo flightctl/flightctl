@@ -40,6 +40,7 @@ spec:
     spec:
       restartPolicy: Never
       serviceAccountName: flightctl-db-migration
+      {{- if ne $ctx.Values.db.external "enabled" }}
       initContainers:
       {{- include "flightctl.databaseWaitInitContainer" (dict "context" $ctx "userType" "admin" "timeout" 120 "sleep" 2) | nindent 6 }}
       {{- if not $isDryRun }}
@@ -107,6 +108,7 @@ spec:
 
           echo "Database users setup completed successfully!"
       {{- end }}
+      {{- end }}
       containers:
       - name: run-migrations
         image: "{{ $ctx.Values.dbSetup.image.image }}:{{ default $ctx.Chart.AppVersion $ctx.Values.dbSetup.image.tag }}"
@@ -172,11 +174,21 @@ spec:
           {{- if not $isDryRun }}
           # Grant permissions on all existing tables to the application user
           echo "Granting permissions on existing tables to application user..."
-          # Need to get admin credentials from init container environment
-          DB_HOST="{{ include "flightctl.dbHostname" $ctx }}"
-          # Get admin credentials from the same secrets used by init container
-          export PGPASSWORD="$DB_ADMIN_PASSWORD"
-          psql -h "$DB_HOST" -p {{ $ctx.Values.db.port }} -U "$DB_ADMIN_USER" -d "{{ $ctx.Values.db.name }}" -c "SELECT grant_app_permissions_on_existing_tables();"
+          {{- if eq $ctx.Values.db.external "enabled" }}
+            export PGPASSWORD="$DB_MIGRATION_PASSWORD"
+            psql -v ON_ERROR_STOP=1 -h {{ $ctx.Values.db.hostname }} -p {{ (default 5432 $ctx.Values.db.port) }} -U "$DB_MIGRATION_USER" -d "{{ (default "flightctl" $ctx.Values.db.name) }}" -c "GRANT USAGE ON SCHEMA public TO \"${DB_APP_USER}\";"
+            psql -v ON_ERROR_STOP=1 -h {{ $ctx.Values.db.hostname }} -p {{ (default 5432 $ctx.Values.db.port) }} -U "$DB_MIGRATION_USER" -d "{{ (default "flightctl" $ctx.Values.db.name) }}" -c "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO \"${DB_APP_USER}\";"
+            psql -v ON_ERROR_STOP=1 -h {{ $ctx.Values.db.hostname }} -p {{ (default 5432 $ctx.Values.db.port) }} -U "$DB_MIGRATION_USER" -d "{{ (default "flightctl" $ctx.Values.db.name) }}" -c "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO \"${DB_APP_USER}\";"
+            # Optional but recommended: ensure future objects carry privileges
+            psql -v ON_ERROR_STOP=1 -h {{ $ctx.Values.db.hostname }} -p {{ (default 5432 $ctx.Values.db.port) }} -U "$DB_MIGRATION_USER" -d "{{ (default "flightctl" $ctx.Values.db.name) }}" -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO \"${DB_APP_USER}\";"
+            psql -v ON_ERROR_STOP=1 -h {{ $ctx.Values.db.hostname }} -p {{ (default 5432 $ctx.Values.db.port) }} -U "$DB_MIGRATION_USER" -d "{{ (default "flightctl" $ctx.Values.db.name) }}" -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO \"${DB_APP_USER}\";"
+          {{- else -}}
+            # Need to get admin credentials from init container environment
+            DB_HOST="{{ include "flightctl.dbHostname" $ctx }}"
+            # Get admin credentials from the same secrets used by init container
+            export PGPASSWORD="$DB_ADMIN_PASSWORD"
+            psql -h "$DB_HOST" -p {{ $ctx.Values.db.port }} -U "$DB_ADMIN_USER" -d "{{ $ctx.Values.db.name }}" -c "SELECT grant_app_permissions_on_existing_tables();"
+          {{- end }}
           echo "Permission granting completed successfully!"
           {{- end }}
         volumeMounts:
