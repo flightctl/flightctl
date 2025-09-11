@@ -1,0 +1,39 @@
+[Unit]
+Description=Flight Control Database Users Initialization
+PartOf=flightctl.target
+After=flightctl-db.service flightctl-db-wait.service
+Requires=flightctl-db.service flightctl-db-wait.service
+
+[Container]
+ContainerName=flightctl-db-users-init
+Image=quay.io/flightctl/flightctl-db-setup:latest
+Network=flightctl.network
+AutoUpdate=none
+Environment=DB_HOST=flightctl-db
+Environment=DB_PORT=5432
+Environment=DB_NAME=flightctl
+Environment=DB_APP_USER=flightctl_app
+Environment=DB_MIGRATION_USER=flightctl_migrator
+Environment=DB_ADMIN_USER=admin
+
+Secret=flightctl-postgresql-master-password,type=env,target=DB_ADMIN_PASSWORD
+Secret=flightctl-postgresql-migrator-password,type=env,target=DB_MIGRATION_PASSWORD
+Secret=flightctl-postgresql-user-password,type=env,target=DB_APP_PASSWORD
+
+Exec=/bin/bash -c 'set -euo pipefail; export DB_HOST DB_PORT DB_NAME DB_ADMIN_USER DB_ADMIN_PASSWORD \
+  DB_MIGRATION_USER DB_MIGRATION_PASSWORD DB_APP_USER DB_APP_PASSWORD && \
+  SQL_FILE=/tmp/setup_database_users.sql && \
+  envsubst < /app/deploy/scripts/setup_database_users.sql > "$SQL_FILE" && \
+  PGPASSWORD="$DB_ADMIN_PASSWORD" psql -v ON_ERROR_STOP=1 \
+    -h "$DB_HOST" -p "$DB_PORT" -U "$DB_ADMIN_USER" -d "$DB_NAME" -f "$SQL_FILE"'
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=flightctl.target
+
+

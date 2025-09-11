@@ -47,7 +47,6 @@ while [[ $# -gt 0 ]]; do
             echo ""
             echo "Environment variables:"
             echo "  DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD - Database connection details"
-            echo "  DB_USER_TYPE - Optional user type for logging"
             exit 0
             ;;
         --*)
@@ -88,16 +87,13 @@ fi
 # Set PGPASSWORD from DB_PASSWORD if not already set
 export PGPASSWORD="${PGPASSWORD:-${DB_PASSWORD:?DB_PASSWORD or PGPASSWORD environment variable must be set}}"
 
-# Determine user type from DB_USER_TYPE environment variable if set
-USER_TYPE="${DB_USER_TYPE:-unknown}"
-
 # Log connection details
 echo "Waiting for PostgreSQL database to be ready..."
 echo "Connection details:"
 echo "  Host: ${DB_HOST}"
 echo "  Port: ${DB_PORT}"
 echo "  Database: ${DB_NAME}"
-echo "  User: ${DB_USER} (${USER_TYPE})"
+echo "  User: ${DB_USER}"
 echo "  Timeout: ${TIMEOUT_SECONDS} seconds"
 echo "  Sleep interval: ${SLEEP_INTERVAL} seconds"
 echo "  Connection timeout: ${CONNECTION_TIMEOUT} seconds"
