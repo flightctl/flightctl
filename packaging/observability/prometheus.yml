@@ -7,10 +7,9 @@ scrape_configs:
     static_configs:
       - targets: ['localhost:9090'] # Prometheus scrapes itself (for its own internal metrics)
 
-  # UPDATED: Prometheus now only scrapes the OpenTelemetry Collector for other metrics
-  - job_name: 'opentelemetry-collector'
+  - job_name: 'flightctl-telemetry-gateway'
     static_configs:
-      - targets: ['flightctl-otel-collector:8888'] # OTel Collector's Prometheus exporter endpoint
+      - targets: ['flightctl-telemetry-gateway:9464'] # Telemetry gateway for Flight Control metrics
     relabel_configs:
       - source_labels: [__address__]
         regex: '([^:]+)(?::\d+)?'

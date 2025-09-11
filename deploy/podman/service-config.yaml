@@ -66,10 +66,17 @@ observability:
   prometheus:
     image:
 
-  otel_collector:
+  telemetry_gateway:
     image:
-    http_port:
+    prometheus_port:
     grpc_port:
+    config:
+      telemetryGateway:
+        export:
+          prometheus:
+        forward:
+          endpoint:
+
 
   userinfo_proxy:
     image:
