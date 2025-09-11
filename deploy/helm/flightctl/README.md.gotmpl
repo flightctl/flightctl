@@ -1,0 +1,143 @@
+# {{ .Name }}
+
+![Version: {{ .Version }}](https://img.shields.io/badge/Version-{{ .Version | replace "-" "--" }}-informational?style=flat-square) ![Type: {{ .Type }}](https://img.shields.io/badge/Type-{{ .Type }}-informational?style=flat-square) {{ if .AppVersion }}![AppVersion: {{ .AppVersion }}](https://img.shields.io/badge/AppVersion-{{ .AppVersion | replace "-" "--" }}-informational?style=flat-square){{ end }}
+
+{{ .Description }}
+
+{{ if .Home }}**Homepage:** <{{ .Home }}>{{ end }}
+
+{{ if .Sources }}
+**Sources:**
+{{- range .Sources }}
+- <{{ . }}>
+{{- end }}
+{{ end }}
+
+{{ if .Maintainers }}
+## Maintainers
+
+| Name | Email | Url |
+| ---- | ------ | --- |
+{{- range .Maintainers }}
+| {{ if .Name }}{{ .Name }}{{ end }} | {{ if .Email }}<{{ .Email }}>{{ end }} | {{ if .Url }}<{{ .Url }}>{{ end }} |
+{{- end }}
+{{ end }}
+
+{{ if .Dependencies }}
+## Requirements
+
+| Repository | Name | Version |
+|------------|------|---------|
+{{- range .Dependencies }}
+| {{ if .Repository }}{{ .Repository }}{{ else }}{{ .Name }}{{ end }} | {{ .Name }} | {{ .Version }} |
+{{- end }}
+{{ end }}
+
+## Installation
+
+### Install Chart
+
+```bash
+# Install with default values
+helm install my-{{ .Name }} oci://quay.io/flightctl/charts/{{ .Name }}
+
+# Install with custom values
+helm install my-{{ .Name }} oci://quay.io/flightctl/charts/{{ .Name }} -f values.yaml
+
+# Install for development environment
+helm install my-{{ .Name }} oci://quay.io/flightctl/charts/{{ .Name }} -f values.dev.yaml
+
+# Install for ACM (Advanced Cluster Management) integration
+helm install my-{{ .Name }} oci://quay.io/flightctl/charts/{{ .Name }} -f values.acm.yaml
+
+# Install in specific namespace
+helm install my-{{ .Name }} oci://quay.io/flightctl/charts/{{ .Name }} --namespace flightctl --create-namespace
+```
+
+### Upgrade Chart
+
+```bash
+helm upgrade my-{{ .Name }} oci://quay.io/flightctl/charts/{{ .Name }}
+```
+
+### Uninstall Chart
+
+```bash
+helm uninstall my-{{ .Name }}
+```
+
+## Usage
+
+After installation, {{ .Name }} will be available in your cluster. 
+
+{{ if eq .Name "flightctl" }}
+### Accessing Flight Control
+
+1. **API Access**: The Flight Control API will be available at the configured endpoint
+2. **UI Access**: If enabled, the web UI will be accessible through the configured route/ingress
+3. **Agent Connection**: Devices can connect using the agent endpoint
+
+### Configuration Examples
+
+```yaml
+# Example: Standalone deployment with custom domain
+global:
+  target: "standalone"
+  baseDomain: "flightctl.example.com"
+  auth:
+    type: "builtin"
+
+# Example: ACM integration
+global:
+  target: "acm"
+  auth:
+    type: "k8s"
+    k8s:
+      apiUrl: "https://api.cluster.example.com:6443"
+```
+{{ end }}
+
+For more detailed configuration options, see the [Values](#values) section below.
+
+{{ template "chart.valuesSection" . }}
+
+## Environment-Specific Values Files
+
+This chart includes additional values files for different deployment scenarios:
+
+### `values.dev.yaml`
+
+Development environment configuration with:
+
+- Local development settings
+- Debug configurations
+- Development-specific image tags
+
+### `values.acm.yaml`
+
+Advanced Cluster Management (ACM) integration configuration with:
+
+- ACM-specific authentication settings
+- Red Hat registry images
+- ACM integration parameters
+
+To use these files:
+
+```bash
+# Development deployment
+helm install my-flightctl oci://quay.io/flightctl/charts/flightctl -f values.dev.yaml
+
+# ACM integration deployment  
+helm install my-flightctl oci://quay.io/flightctl/charts/flightctl -f values.acm.yaml
+
+# Combine multiple values files (later files override earlier ones)
+helm install my-flightctl oci://quay.io/flightctl/charts/flightctl -f values.yaml -f values.acm.yaml -f my-custom.yaml
+```
+
+## Contributing
+
+Please read the [contributing guidelines](https://github.com/flightctl/flightctl/blob/main/CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
+
+## License
+
+This project is licensed under the Apache License 2.0 - see the [LICENSE](https://github.com/flightctl/flightctl/blob/main/LICENSE) file for details.
