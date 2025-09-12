@@ -1007,7 +1007,7 @@ func (s *DeviceStore) PrepareDevicesAfterRestore(ctx context.Context) (int64, er
 			END,
 			resource_version = COALESCE(resource_version, 0) + 1
 		WHERE deleted_at IS NULL 
-			AND (status->'lifecycle'->>'status') != 'Decommissioned'
+			AND NOT (status->'lifecycle'->>'status') IN ($4, $5)
 			AND (annotations->>$1) IS DISTINCT FROM 'true'
 	`
 
@@ -1015,6 +1015,8 @@ func (s *DeviceStore) PrepareDevicesAfterRestore(ctx context.Context) (int64, er
 		api.DeviceAnnotationAwaitingReconnect,
 		api.DeviceSummaryStatusAwaitingReconnect,
 		"Device is waiting for connection after restore",
+		api.DeviceLifecycleStatusDecommissioned,
+		api.DeviceLifecycleStatusDecommissioning,
 	)
 
 	if result.Error != nil {
