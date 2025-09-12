@@ -160,6 +160,17 @@ const (
 
 	// System-level resource name for events
 	FlightCtlSystemResourceName = "flightctl-system"
+
+	// TPM Validation Reasons
+
+	// TPMVerificationFailedReason indicates a TPM Request failed initial validation
+	TPMVerificationFailedReason = "TPMVerificationFailed"
+	// TPMChallengeRequiredReason indicates a TPM Challenge is required
+	TPMChallengeRequiredReason = "TPMChallengeRequired"
+	// TPMChallengeFailedReason indicates that a TPM Challenge attempt failed
+	TPMChallengeFailedReason = "TPMChallengeFailed"
+	// TPMChallengeSucceededReason indicates that a TPM Challenge attempt succeed
+	TPMChallengeSucceededReason = "TPMChallengeSucceeded"
 )
 
 const (

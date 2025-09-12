@@ -170,7 +170,6 @@ func authFromSpec(log *log.PrefixLogger, device *v1alpha1.DeviceSpec, authPath s
 		if err != nil {
 			return nil, false, fmt.Errorf("convert inline config provider: %v", err)
 		}
-
 		for _, file := range spec.Inline {
 			if strings.TrimSpace(file.Path) == authPath {
 				// ensure content is properly decoded
