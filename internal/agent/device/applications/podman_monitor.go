@@ -203,10 +203,12 @@ func (m *PodmanMonitor) stopMonitor() error {
 }
 
 func (m *PodmanMonitor) Stop(ctx context.Context) error {
-	if err := m.drain(ctx); err != nil {
-		return err
-	}
-	return nil
+	return m.stopMonitor()
+}
+
+func (m *PodmanMonitor) Drain(ctx context.Context) error {
+	m.log.Info("Draining application workloads for system shutdown")
+	return m.drain(ctx)
 }
 
 func (m *PodmanMonitor) getApps() []Application {

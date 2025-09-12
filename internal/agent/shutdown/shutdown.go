@@ -4,16 +4,32 @@ import (
 	"context"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
 
+	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/log"
+)
+
+const (
+	// shutdown targets
+	shutdownTarget = "shutdown.target"
+	rebootTarget   = "reboot.target"
+	poweroffTarget = "poweroff.target"
+	haltTarget     = "halt.target"
+
+	shutdownScheduledPath = "/run/systemd/shutdown/scheduled"
+	runlevelPath          = "/run/utmp"
+
+	runlevel0 = "runlevel 0"
+	runlevel6 = "runlevel 6"
 )
 
 type Manager interface {
 	Run(context.Context)
-	Shutdown(context.Context)
 	Register(string, func(context.Context) error)
 }
 
@@ -44,12 +60,12 @@ func (m *manager) Run(ctx context.Context) {
 		select {
 		case s := <-signals:
 			m.log.Infof("Agent received shutdown signal: %s", s)
-			m.Shutdown(ctx)
+			m.shutdown(ctx)
 			m.cancelFn()
 			close(signals)
 		case <-ctx.Done():
 			m.log.Infof("Context has been cancelled, shutting down.")
-			m.Shutdown(ctx)
+			m.shutdown(ctx)
 			close(signals)
 		}
 	}(ctx)
@@ -57,7 +73,7 @@ func (m *manager) Run(ctx context.Context) {
 	<-ctx.Done()
 }
 
-func (m *manager) Shutdown(ctx context.Context) {
+func (m *manager) shutdown(ctx context.Context) {
 	// ensure multiple calls to Shutdown are idempotent
 	m.once.Do(func() {
 		now := time.Now()
@@ -80,4 +96,61 @@ func (m *manager) Register(name string, fn func(context.Context) error) {
 		return
 	}
 	m.registered[name] = fn
+}
+
+// IsSystemShutdown checks if the system is shutting down or rebooting
+// by checking systemd targets and runlevels
+func IsSystemShutdown(ctx context.Context, systemdClient *client.Systemd, reader fileio.Reader, log *log.PrefixLogger) bool {
+	switch {
+	case isShuttingDownViaRunlevel(reader, log):
+		return true
+	case isShuttingDownViaSystemd(ctx, systemdClient, reader, log):
+		return true
+	default:
+		return false
+	}
+}
+
+func isShuttingDownViaSystemd(ctx context.Context, systemdClient *client.Systemd, reader fileio.Reader, log *log.PrefixLogger) bool {
+	exists, err := reader.PathExists(shutdownScheduledPath)
+	if err == nil && exists {
+		log.Info("System shutdown detected")
+		return true
+	}
+
+	shutdownTargets := []string{
+		shutdownTarget,
+		rebootTarget,
+		poweroffTarget,
+		haltTarget,
+	}
+
+	for _, target := range shutdownTargets {
+		active, err := systemdClient.IsActive(ctx, target)
+		if err != nil {
+			log.Debugf("Failed to check if %s is active: %v", target, err)
+			continue
+		}
+
+		if active {
+			log.Infof("System shutdown detected: %s is active", target)
+			return true
+		}
+	}
+
+	return false
+}
+
+func isShuttingDownViaRunlevel(reader fileio.Reader, log *log.PrefixLogger) bool {
+	runlevelBytes, err := reader.ReadFile(runlevelPath)
+	if err == nil {
+		runlevel := string(runlevelBytes)
+		// runlevel 0 = halt, 6 = reboot
+		if strings.Contains(runlevel, runlevel0) || strings.Contains(runlevel, runlevel6) {
+			log.Infof("System shutdown detected: runlevel change")
+			return true
+		}
+	}
+
+	return false
 }

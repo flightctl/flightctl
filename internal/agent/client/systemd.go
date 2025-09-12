@@ -109,3 +109,27 @@ func (s *Systemd) ListUnitsByMatchPattern(ctx context.Context, matchPatterns []s
 	out := strings.TrimSpace(stdout)
 	return out, nil
 }
+
+// IsActive checks if a systemd unit is active or activating
+func (s *Systemd) IsActive(ctx context.Context, unit string) (bool, error) {
+	execCtx, cancel := context.WithTimeout(ctx, defaultSystemctlTimeout)
+	defer cancel()
+
+	args := []string{"is-active", unit}
+	stdout, stderr, exitCode := s.exec.ExecuteWithContext(execCtx, systemctlCommand, args...)
+
+	// exit code 3 means unit is not active, which is not an error
+	if exitCode != 0 && exitCode != 3 {
+		return false, fmt.Errorf("systemctl is-active %s: %w", unit, errors.FromStderr(stderr, exitCode))
+	}
+
+	status := strings.TrimSpace(stdout)
+	switch status {
+	case "active", "activating":
+		return true, nil
+	case "inactive", "deactivating", "failed", "unknown":
+		return false, nil
+	default:
+		return false, nil
+	}
+}

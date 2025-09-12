@@ -52,8 +52,8 @@ type Manager interface {
 	BeforeUpdate(ctx context.Context, desired *v1alpha1.DeviceSpec) error
 	// AfterUpdate is called after the application has been validated and is ready to be executed.
 	AfterUpdate(ctx context.Context) error
-	// Stop halts the application running on the device.
-	Stop(ctx context.Context) error
+	// Drain gracefully stops all applications during system shutdown.
+	Drain(ctx context.Context) error
 
 	dependency.OCICollector
 	status.Exporter
