@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/lestrrat-go/jwx/v2/jwk"
@@ -67,8 +68,41 @@ func (j JWTAuth) ValidateToken(ctx context.Context, token string) error {
 }
 
 func (j JWTAuth) GetIdentity(ctx context.Context, token string) (*common.Identity, error) {
-	// TODO return filled identity information
-	return &common.Identity{}, nil
+	// Validate input
+	if token == "" || len(strings.TrimSpace(token)) == 0 {
+		return nil, fmt.Errorf("empty token provided")
+	}
+
+	// Parse the JWT token to extract claims
+	parsedToken, err := jwt.Parse([]byte(token), jwt.WithVerify(false)) // Skip verification as it's done elsewhere
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse JWT token: %w", err)
+	}
+
+	// Extract claims
+	claims, err := parsedToken.AsMap(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract claims from JWT token: %w", err)
+	}
+
+	// Build Identity from claims using common utilities
+	identity := &common.Identity{
+		Username: common.ExtractUsernameFromJWTClaims(claims),
+		UID:      common.ExtractUIDFromJWTClaims(claims),
+		Groups:   common.ExtractGroupsFromJWTClaims(claims),
+	}
+
+	// Ensure we have at least a username (fallback to UID if needed)
+	if identity.Username == "" && identity.UID != "" {
+		identity.Username = identity.UID
+	}
+
+	// Validate that we have some form of identity
+	if identity.Username == "" {
+		return nil, fmt.Errorf("no valid identity claims found in JWT token")
+	}
+
+	return identity, nil
 }
 
 func (j JWTAuth) GetAuthConfig() common.AuthConfig {
