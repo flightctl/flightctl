@@ -162,6 +162,10 @@ func (m *MockFleetStoreWrapper) Organization() store.Organization {
 	return nil
 }
 
+func (m *MockFleetStoreWrapper) DecommissionedDevice() store.DecommissionedDevice {
+	return nil
+}
+
 func (m *MockFleetStoreWrapper) RunMigrations(context.Context) error {
 	return nil
 }

@@ -847,6 +847,8 @@ When the device has completed its decommissioning steps, the `status.lifecycle.s
 flightctl delete devices/<some_device_name>
 ```
 
+**Important**: Once a device has been decommissioned, it cannot be re-enrolled. If a decommissioned device attempts to submit a new enrollment request, the request will be rejected with a 403 Forbidden error and the message "device has been decommissioned and cannot be re-enrolled". This prevents previously decommissioned devices from re-joining the fleet.
+
 ## Scheduling Updates and Downloads
 
 The Flight Control agent supports time-based scheduling for update and download operations using cron style expressions. This allows you to restrict system modifications to defined maintenance windows or operational periods.

@@ -72,6 +72,7 @@ type Device interface {
 	Count(ctx context.Context, orgId uuid.UUID, listParams ListParams) (int64, error)
 	UnmarkRolloutSelection(ctx context.Context, orgId uuid.UUID, fleetName string) error
 	MarkRolloutSelection(ctx context.Context, orgId uuid.UUID, listParams ListParams, limit *int) error
+
 	CompletionCounts(ctx context.Context, orgId uuid.UUID, owner string, templateVersion string, updateTimeout *time.Duration) ([]api.DeviceCompletionCount, error)
 	CountByLabels(ctx context.Context, orgId uuid.UUID, listParams ListParams, groupBy []string) ([]map[string]any, error)
 	Summary(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DevicesSummary, error)

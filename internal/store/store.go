@@ -21,6 +21,7 @@ var (
 
 type Store interface {
 	Device() Device
+	DecommissionedDevice() DecommissionedDevice
 	EnrollmentRequest() EnrollmentRequest
 	CertificateSigningRequest() CertificateSigningRequest
 	Fleet() Fleet
@@ -37,6 +38,7 @@ type Store interface {
 
 type DataStore struct {
 	device                    Device
+	decommissionedDevice      DecommissionedDevice
 	enrollmentRequest         EnrollmentRequest
 	certificateSigningRequest CertificateSigningRequest
 	fleet                     Fleet
@@ -53,6 +55,7 @@ type DataStore struct {
 func NewStore(db *gorm.DB, log logrus.FieldLogger) Store {
 	return &DataStore{
 		device:                    NewDevice(db, log),
+		decommissionedDevice:      NewDecommissionedDevice(db, log),
 		enrollmentRequest:         NewEnrollmentRequest(db, log),
 		certificateSigningRequest: NewCertificateSigningRequest(db, log),
 		fleet:                     NewFleet(db, log),
@@ -72,6 +75,10 @@ func (s *DataStore) Repository() Repository {
 
 func (s *DataStore) Device() Device {
 	return s.device
+}
+
+func (s *DataStore) DecommissionedDevice() DecommissionedDevice {
+	return s.decommissionedDevice
 }
 
 func (s *DataStore) EnrollmentRequest() EnrollmentRequest {
@@ -157,6 +164,9 @@ func (s *DataStore) RunMigrationWithMigrationUser(ctx context.Context, cfg *conf
 
 func (s *DataStore) RunMigrations(ctx context.Context) error {
 	if err := s.Device().InitialMigration(ctx); err != nil {
+		return err
+	}
+	if err := s.DecommissionedDevice().InitialMigration(ctx); err != nil {
 		return err
 	}
 	if err := s.EnrollmentRequest().InitialMigration(ctx); err != nil {

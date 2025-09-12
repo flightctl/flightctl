@@ -222,6 +222,17 @@ func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, er api.Enr
 	er.Status = nil
 	addStatusIfNeeded(&er)
 
+	// Check if device is in decommissioned devices table first
+	if er.Metadata.Name != nil {
+		isDecommissioned, err := h.decommissionedDeviceService.IsDeviceDecommissioned(ctx, orgId, *er.Metadata.Name)
+		if err != nil {
+			h.log.WithError(err).Debugf("Failed to check decommissioned status for device %s", *er.Metadata.Name)
+		} else if isDecommissioned {
+			// Device is in decommissioned table, reject the request
+			return nil, api.StatusForbidden("device has been decommissioned and cannot be re-enrolled")
+		}
+	}
+
 	if errs := er.Validate(); len(errs) > 0 {
 		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
@@ -281,10 +292,20 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, name stri
 	addStatusIfNeeded(&er)
 	NilOutManagedObjectMetaProperties(&er.Metadata)
 
+	// Check if device is in decommissioned devices table first
+	isDecommissioned, err := h.decommissionedDeviceService.IsDeviceDecommissioned(ctx, orgId, name)
+	if err != nil {
+		h.log.WithError(err).Debugf("Failed to check decommissioned status for device %s", name)
+	} else if isDecommissioned {
+		// Device is in decommissioned table, reject the request
+		return nil, api.StatusForbidden("device has been decommissioned and cannot be re-enrolled")
+	}
+
 	if errs := er.Validate(); len(errs) > 0 {
 		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
-	err := h.allowCreationOrUpdate(ctx, orgId, name)
+
+	err = h.allowCreationOrUpdate(ctx, orgId, name)
 	if err != nil {
 		return nil, api.StatusBadRequest(err.Error())
 	}
