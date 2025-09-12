@@ -129,10 +129,7 @@ func formatTLSErrorForGeneral(errorInfo TLSErrorInfo) string {
 			"  2. Skip certificate verification (not recommended)\n" + examplesInsecure
 
 	default:
-		return fmt.Sprintf("Cause: %s (%s)\n", errorInfo.Cause, errorInfo.RawError) +
-			"Options (choose one):\n" +
-			"  1. Provide a trusted CA certificate (recommended)\n" + examplesCA + "\n" +
-			"  2. Skip certificate verification (not recommended)\n" + examplesInsecure
+		return fmt.Sprintf("Cause: %s (%s)\n", errorInfo.Cause, errorInfo.RawError)
 	}
 }
 

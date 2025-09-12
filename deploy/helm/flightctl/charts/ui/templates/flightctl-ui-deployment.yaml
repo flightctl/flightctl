@@ -27,6 +27,11 @@ spec:
               configMapKeyRef:
                 name: flightctl-ui
                 key: FLIGHTCTL_SERVER
+          - name: FLIGHTCTL_EXTERNAL_URL
+            valueFrom:
+              configMapKeyRef:
+                name: flightctl-ui
+                key: FLIGHTCTL_EXTERNAL_URL
           {{- if .Values.cliArtifacts.enabled }}
           - name: FLIGHTCTL_CLI_ARTIFACTS_SERVER
             valueFrom:

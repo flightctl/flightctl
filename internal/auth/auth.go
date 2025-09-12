@@ -62,7 +62,7 @@ func GetConfiguredAuthType() AuthType {
 
 var configuredAuthType AuthType
 
-func initK8sAuth(cfg *config.Config, serviceUrl string, log logrus.FieldLogger) error {
+func initK8sAuth(cfg *config.Config, log logrus.FieldLogger) error {
 	apiUrl := strings.TrimSuffix(cfg.Auth.K8s.ApiUrl, "/")
 	externalOpenShiftApiUrl := strings.TrimSuffix(cfg.Auth.K8s.ExternalOpenShiftApiUrl, "/")
 	log.Infof("k8s auth enabled: %s", apiUrl)
@@ -77,7 +77,7 @@ func initK8sAuth(cfg *config.Config, serviceUrl string, log logrus.FieldLogger) 
 		return fmt.Errorf("failed to create k8s client: %w", err)
 	}
 	authZ = K8sToK8sAuth{K8sAuthZ: authz.K8sAuthZ{K8sClient: k8sClient, Namespace: cfg.Auth.K8s.RBACNs}}
-	authN, err = authn.NewK8sAuthN(k8sClient, externalOpenShiftApiUrl, serviceUrl)
+	authN, err = authn.NewK8sAuthN(k8sClient, externalOpenShiftApiUrl)
 	if err != nil {
 		return fmt.Errorf("failed to create k8s AuthN: %w", err)
 	}
@@ -107,56 +107,46 @@ func getOrgConfig(cfg *config.Config) *common.AuthOrganizationsConfig {
 	}
 }
 
-func initOIDCAuth(cfg *config.Config, serviceUrl string, log logrus.FieldLogger) error {
+func initOIDCAuth(cfg *config.Config, log logrus.FieldLogger) error {
 	oidcUrl := strings.TrimSuffix(cfg.Auth.OIDC.OIDCAuthority, "/")
 	externalOidcUrl := strings.TrimSuffix(cfg.Auth.OIDC.ExternalOIDCAuthority, "/")
 	log.Infof("OIDC auth enabled: %s", oidcUrl)
-	authZ = NewNilAuth(serviceUrl)
+	authZ = NilAuth{}
 	var err error
-	authN, err = authn.NewJWTAuth(oidcUrl, externalOidcUrl, serviceUrl, getTlsConfig(cfg), getOrgConfig(cfg))
+	authN, err = authn.NewJWTAuth(oidcUrl, externalOidcUrl, getTlsConfig(cfg), getOrgConfig(cfg))
 	if err != nil {
 		return fmt.Errorf("failed to create OIDC AuthN: %w", err)
 	}
 	return nil
 }
 
-func initAAPAuth(cfg *config.Config, serviceUrl string, log logrus.FieldLogger) error {
+func initAAPAuth(cfg *config.Config, log logrus.FieldLogger) error {
 	gatewayUrl := strings.TrimSuffix(cfg.Auth.AAP.ApiUrl, "/")
 	gatewayExternalUrl := strings.TrimSuffix(cfg.Auth.AAP.ExternalApiUrl, "/")
 	log.Infof("AAP Gateway auth enabled: %s", gatewayUrl)
-	authZ = NewNilAuth(serviceUrl)
-	authN = authn.NewAapGatewayAuth(gatewayUrl, gatewayExternalUrl, serviceUrl, getTlsConfig(cfg))
+	authZ = NilAuth{}
+	authN = authn.NewAapGatewayAuth(gatewayUrl, gatewayExternalUrl, getTlsConfig(cfg))
 	return nil
 }
 
-// getServiceUrl safely extracts the service URL from config
-func getServiceUrl(cfg *config.Config) string {
-	if cfg == nil || cfg.Service == nil || cfg.Service.BaseUrl == "" {
-		return ""
-	}
-	return strings.TrimSuffix(cfg.Service.BaseUrl, "/")
-}
-
 func InitAuth(cfg *config.Config, log logrus.FieldLogger) error {
-	serviceUrl := getServiceUrl(cfg)
-
-	if value, exists := os.LookupEnv(DisableAuthEnvKey); exists && value != "" {
+	value, exists := os.LookupEnv(DisableAuthEnvKey)
+	if exists && value != "" {
 		log.Warnln("Auth disabled")
 		configuredAuthType = AuthTypeNil
-		nilAuth := NewNilAuth(serviceUrl)
-		authZ = nilAuth
-		authN = nilAuth
-	} else if cfg != nil && cfg.Auth != nil {
+		authZ = NilAuth{}
+		authN = authZ.(AuthNMiddleware)
+	} else if cfg.Auth != nil {
 		var err error
 		if cfg.Auth.K8s != nil {
 			configuredAuthType = AuthTypeK8s
-			err = initK8sAuth(cfg, serviceUrl, log)
+			err = initK8sAuth(cfg, log)
 		} else if cfg.Auth.OIDC != nil {
 			configuredAuthType = AuthTypeOIDC
-			err = initOIDCAuth(cfg, serviceUrl, log)
+			err = initOIDCAuth(cfg, log)
 		} else if cfg.Auth.AAP != nil {
 			configuredAuthType = AuthTypeAAP
-			err = initAAPAuth(cfg, serviceUrl, log)
+			err = initAAPAuth(cfg, log)
 		}
 
 		if err != nil {

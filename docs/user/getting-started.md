@@ -251,7 +251,7 @@ flightctl login ${FC_API_URL} -t $(oc whoami -t)
 
 ### Certificate Configuration and Troubleshooting
 
-The CLI uses the host's certificate authority (CA) pool to verify the Flight Control service's identity. When certificate verification fails, the CLI provides user-friendly error messages with specific guidance for resolution.
+The CLI uses the host's certificate authority (CA) pool to verify the Flight Control service's identity. If certificate verification fails, the CLI prints the underlying error message. The tips below cover common cases and may not apply to every environment; if they don’t help, verify the API URL and certificate chain or contact your administrator.
 
 #### Common Certificate Issues
 
