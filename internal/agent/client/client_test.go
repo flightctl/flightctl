@@ -1,11 +1,17 @@
 package client
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	baseclient "github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/poll"
 	"github.com/stretchr/testify/require"
 )
 
@@ -375,4 +381,50 @@ func createDeviceSpecWithInlineConfig(providers []v1alpha1.ConfigProviderSpec) *
 	return &v1alpha1.DeviceSpec{
 		Config: &providers,
 	}
+}
+
+func TestNewFromConfigWithRetry(t *testing.T) {
+	require := require.New(t)
+	attempts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if attempts <= 2 {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, err := w.Write([]byte("Server error"))
+			require.NoError(err)
+		} else {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, err := w.Write([]byte(`{"apiVersion":"v1alpha1","kind":"Device","metadata":{"name":"test"}}`))
+			require.NoError(err)
+		}
+	}))
+	defer server.Close()
+
+	config := &baseclient.Config{
+		Service: baseclient.Service{
+			Server: server.URL,
+		},
+	}
+
+	retryConfig := poll.Config{
+		BaseDelay: 10 * time.Millisecond,
+		Factor:    2.0,
+		MaxDelay:  100 * time.Millisecond,
+		MaxSteps:  3,
+	}
+
+	log := log.NewPrefixLogger("test")
+	client, err := NewFromConfig(config, log, WithHTTPRetry(retryConfig))
+	require.NoError(err)
+	require.NotNil(client)
+
+	// trigger retries
+	ctx := context.Background()
+	resp, err := client.GetRenderedDeviceWithResponse(ctx, "test", nil)
+	require.NoError(err)
+
+	// should succeeded after 3 attempts
+	require.Equal(3, attempts)
+	require.Equal(http.StatusOK, resp.StatusCode())
 }
