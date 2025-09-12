@@ -179,7 +179,7 @@ func main() {
 	}
 	orgResolver := resolvers.BuildResolver(buildResolverOpts)
 
-	agentserver, err := agentserver.New(ctx, log, cfg, store, ca, agentListener, provider, agentTlsConfig, orgResolver)
+	agentServer, err := agentserver.New(ctx, log, cfg, store, ca, agentListener, provider, agentTlsConfig, orgResolver)
 	if err != nil {
 		log.Fatalf("initializing agent server: %v", err)
 	}

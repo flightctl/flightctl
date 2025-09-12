@@ -3,7 +3,6 @@ package agentserver
 import (
 	"context"
 	"encoding/hex"
-	"errors"
 	"net/http"
 	"testing"
 
@@ -47,14 +46,14 @@ func TestSendErrorResponse(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
 
-			mockStream := grpc_v1.NewMockEnrollmentRequestService_PerformTPMChallengeServer(ctrl)
+			mockStream := grpc_v1.NewMockEnrollment_TPMChallengeServer(ctrl)
 			server := &AgentGrpcServer{
 				log: logrus.New(),
 			}
 
-			expectedMsg := &grpc_v1.ServerTPMChallengeMessage{
-				Payload: &grpc_v1.ServerTPMChallengeMessage_Error{
-					Error: &grpc_v1.TPMChallengeError{
+			expectedMsg := &grpc_v1.ServerChallenge{
+				Payload: &grpc_v1.ServerChallenge_Error{
+					Error: &grpc_v1.ChallengeError{
 						Message: tt.message,
 					},
 				},
@@ -79,16 +78,16 @@ func TestSendErrorResponse(t *testing.T) {
 func TestReceiveAndValidateInitialRequest(t *testing.T) {
 	tests := []struct {
 		name           string
-		setupMock      func(*grpc_v1.MockEnrollmentRequestService_PerformTPMChallengeServer)
+		setupMock      func(*grpc_v1.MockEnrollment_TPMChallengeServer)
 		expectError    bool
 		expectedErrMsg string
 	}{
 		{
 			name: "Valid initial request",
-			setupMock: func(mockStream *grpc_v1.MockEnrollmentRequestService_PerformTPMChallengeServer) {
-				mockStream.EXPECT().Recv().Return(&grpc_v1.AgentTPMChallengeMessage{
-					Payload: &grpc_v1.AgentTPMChallengeMessage_ChallengeRequest{
-						ChallengeRequest: &grpc_v1.TPMChallengeRequest{
+			setupMock: func(mockStream *grpc_v1.MockEnrollment_TPMChallengeServer) {
+				mockStream.EXPECT().Recv().Return(&grpc_v1.AgentChallenge{
+					Payload: &grpc_v1.AgentChallenge_ChallengeRequest{
+						ChallengeRequest: &grpc_v1.ChallengeRequest{
 							EnrollmentRequestName: "test-enrollment-request",
 						},
 					},
@@ -98,7 +97,7 @@ func TestReceiveAndValidateInitialRequest(t *testing.T) {
 		},
 		{
 			name: "Stream receive error",
-			setupMock: func(mockStream *grpc_v1.MockEnrollmentRequestService_PerformTPMChallengeServer) {
+			setupMock: func(mockStream *grpc_v1.MockEnrollment_TPMChallengeServer) {
 				mockStream.EXPECT().Recv().Return(nil, status.Error(codes.Internal, "stream error"))
 			},
 			expectError:    true,
@@ -106,10 +105,10 @@ func TestReceiveAndValidateInitialRequest(t *testing.T) {
 		},
 		{
 			name: "Invalid message type",
-			setupMock: func(mockStream *grpc_v1.MockEnrollmentRequestService_PerformTPMChallengeServer) {
-				mockStream.EXPECT().Recv().Return(&grpc_v1.AgentTPMChallengeMessage{
-					Payload: &grpc_v1.AgentTPMChallengeMessage_ChallengeResponse{
-						ChallengeResponse: &grpc_v1.TPMChallengeResponse{},
+			setupMock: func(mockStream *grpc_v1.MockEnrollment_TPMChallengeServer) {
+				mockStream.EXPECT().Recv().Return(&grpc_v1.AgentChallenge{
+					Payload: &grpc_v1.AgentChallenge_ChallengeResponse{
+						ChallengeResponse: &grpc_v1.ChallengeResponse{},
 					},
 				}, nil)
 			},
@@ -123,7 +122,7 @@ func TestReceiveAndValidateInitialRequest(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
 
-			mockStream := grpc_v1.NewMockEnrollmentRequestService_PerformTPMChallengeServer(ctrl)
+			mockStream := grpc_v1.NewMockEnrollment_TPMChallengeServer(ctrl)
 			server := &AgentGrpcServer{
 				log: logrus.New(),
 			}
@@ -146,13 +145,13 @@ func TestValidateEnrollmentRequest(t *testing.T) {
 	tests := []struct {
 		name           string
 		enrollmentName string
-		setupMocks     func(*service.MockService, *grpc_v1.MockEnrollmentRequestService_PerformTPMChallengeServer)
+		setupMocks     func(*service.MockService, *grpc_v1.MockEnrollment_TPMChallengeServer)
 		expectError    bool
 	}{
 		{
 			name:           "Enrollment request not found",
 			enrollmentName: "non-existent-request",
-			setupMocks: func(mockService *service.MockService, mockStream *grpc_v1.MockEnrollmentRequestService_PerformTPMChallengeServer) {
+			setupMocks: func(mockService *service.MockService, mockStream *grpc_v1.MockEnrollment_TPMChallengeServer) {
 				mockService.EXPECT().GetEnrollmentRequest(gomock.Any(), "non-existent-request").Return(
 					nil, api.Status{Code: http.StatusNotFound, Message: "not found"},
 				)
@@ -163,7 +162,7 @@ func TestValidateEnrollmentRequest(t *testing.T) {
 		{
 			name:           "Send error response fails",
 			enrollmentName: "test-request",
-			setupMocks: func(mockService *service.MockService, mockStream *grpc_v1.MockEnrollmentRequestService_PerformTPMChallengeServer) {
+			setupMocks: func(mockService *service.MockService, mockStream *grpc_v1.MockEnrollment_TPMChallengeServer) {
 				mockService.EXPECT().GetEnrollmentRequest(gomock.Any(), "test-request").Return(
 					nil, api.Status{Code: http.StatusInternalServerError, Message: "server error"},
 				)
@@ -179,7 +178,7 @@ func TestValidateEnrollmentRequest(t *testing.T) {
 			defer ctrl.Finish()
 
 			mockService := service.NewMockService(ctrl)
-			mockStream := grpc_v1.NewMockEnrollmentRequestService_PerformTPMChallengeServer(ctrl)
+			mockStream := grpc_v1.NewMockEnrollment_TPMChallengeServer(ctrl)
 			server := &AgentGrpcServer{
 				service: mockService,
 				log:     logrus.New(),
@@ -204,19 +203,19 @@ func TestValidateEnrollmentRequest(t *testing.T) {
 func TestGenerateAndSendChallenge(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMocks  func(*grpc_v1.MockEnrollmentRequestService_PerformTPMChallengeServer)
+		setupMocks  func(*grpc_v1.MockEnrollment_TPMChallengeServer)
 		expectError bool
 	}{
 		{
 			name: "Send challenge fails",
-			setupMocks: func(mockStream *grpc_v1.MockEnrollmentRequestService_PerformTPMChallengeServer) {
+			setupMocks: func(mockStream *grpc_v1.MockEnrollment_TPMChallengeServer) {
 				mockStream.EXPECT().Send(gomock.Any()).Return(status.Error(codes.Internal, "stream error"))
 			},
 			expectError: true,
 		},
 		{
 			name: "Send challenge succeeds",
-			setupMocks: func(mockStream *grpc_v1.MockEnrollmentRequestService_PerformTPMChallengeServer) {
+			setupMocks: func(mockStream *grpc_v1.MockEnrollment_TPMChallengeServer) {
 				mockStream.EXPECT().Send(gomock.Any()).Return(nil)
 			},
 			expectError: false,
@@ -228,7 +227,7 @@ func TestGenerateAndSendChallenge(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
 
-			mockStream := grpc_v1.NewMockEnrollmentRequestService_PerformTPMChallengeServer(ctrl)
+			mockStream := grpc_v1.NewMockEnrollment_TPMChallengeServer(ctrl)
 			server := &AgentGrpcServer{
 				log: logrus.New(),
 			}
@@ -264,12 +263,12 @@ func TestGenerateAndSendChallenge(t *testing.T) {
 func TestPerformTPMChallenge(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMocks  func(*service.MockService, *grpc_v1.MockEnrollmentRequestService_PerformTPMChallengeServer)
+		setupMocks  func(*service.MockService, *grpc_v1.MockEnrollment_TPMChallengeServer)
 		expectError bool
 	}{
 		{
 			name: "Invalid initial request - receive error",
-			setupMocks: func(mockService *service.MockService, mockStream *grpc_v1.MockEnrollmentRequestService_PerformTPMChallengeServer) {
+			setupMocks: func(mockService *service.MockService, mockStream *grpc_v1.MockEnrollment_TPMChallengeServer) {
 				mockStream.EXPECT().Context().Return(context.Background()).AnyTimes()
 				mockStream.EXPECT().Recv().Return(nil, status.Error(codes.Internal, "stream error"))
 				mockStream.EXPECT().Send(gomock.Any()).Return(nil).AnyTimes()
@@ -278,11 +277,11 @@ func TestPerformTPMChallenge(t *testing.T) {
 		},
 		{
 			name: "Invalid message type",
-			setupMocks: func(mockService *service.MockService, mockStream *grpc_v1.MockEnrollmentRequestService_PerformTPMChallengeServer) {
+			setupMocks: func(mockService *service.MockService, mockStream *grpc_v1.MockEnrollment_TPMChallengeServer) {
 				mockStream.EXPECT().Context().Return(context.Background()).AnyTimes()
-				mockStream.EXPECT().Recv().Return(&grpc_v1.AgentTPMChallengeMessage{
-					Payload: &grpc_v1.AgentTPMChallengeMessage_ChallengeResponse{
-						ChallengeResponse: &grpc_v1.TPMChallengeResponse{},
+				mockStream.EXPECT().Recv().Return(&grpc_v1.AgentChallenge{
+					Payload: &grpc_v1.AgentChallenge_ChallengeResponse{
+						ChallengeResponse: &grpc_v1.ChallengeResponse{},
 					},
 				}, nil)
 				mockStream.EXPECT().Send(gomock.Any()).Return(nil).AnyTimes()
@@ -291,11 +290,11 @@ func TestPerformTPMChallenge(t *testing.T) {
 		},
 		{
 			name: "Empty enrollment request name",
-			setupMocks: func(mockService *service.MockService, mockStream *grpc_v1.MockEnrollmentRequestService_PerformTPMChallengeServer) {
+			setupMocks: func(mockService *service.MockService, mockStream *grpc_v1.MockEnrollment_TPMChallengeServer) {
 				mockStream.EXPECT().Context().Return(context.Background()).AnyTimes()
-				mockStream.EXPECT().Recv().Return(&grpc_v1.AgentTPMChallengeMessage{
-					Payload: &grpc_v1.AgentTPMChallengeMessage_ChallengeRequest{
-						ChallengeRequest: &grpc_v1.TPMChallengeRequest{
+				mockStream.EXPECT().Recv().Return(&grpc_v1.AgentChallenge{
+					Payload: &grpc_v1.AgentChallenge_ChallengeRequest{
+						ChallengeRequest: &grpc_v1.ChallengeRequest{
 							EnrollmentRequestName: "",
 						},
 					},
@@ -309,7 +308,7 @@ func TestPerformTPMChallenge(t *testing.T) {
 		},
 		{
 			name: "challenge verification failure",
-			setupMocks: func(mockService *service.MockService, mockStream *grpc_v1.MockEnrollmentRequestService_PerformTPMChallengeServer) {
+			setupMocks: func(mockService *service.MockService, mockStream *grpc_v1.MockEnrollment_TPMChallengeServer) {
 				ctx := context.Background()
 				enrollmentRequestName := "test-enrollment-request"
 
@@ -336,9 +335,9 @@ func TestPerformTPMChallenge(t *testing.T) {
 				mockStream.EXPECT().Context().Return(ctx).AnyTimes()
 
 				// 1. Initial challenge request from agent
-				mockStream.EXPECT().Recv().Return(&grpc_v1.AgentTPMChallengeMessage{
-					Payload: &grpc_v1.AgentTPMChallengeMessage_ChallengeRequest{
-						ChallengeRequest: &grpc_v1.TPMChallengeRequest{
+				mockStream.EXPECT().Recv().Return(&grpc_v1.AgentChallenge{
+					Payload: &grpc_v1.AgentChallenge_ChallengeRequest{
+						ChallengeRequest: &grpc_v1.ChallengeRequest{
 							EnrollmentRequestName: enrollmentRequestName,
 						},
 					},
@@ -350,7 +349,7 @@ func TestPerformTPMChallenge(t *testing.T) {
 				)
 
 				// 3. Server sends challenge to agent
-				mockStream.EXPECT().Send(gomock.Any()).DoAndReturn(func(msg *grpc_v1.ServerTPMChallengeMessage) error {
+				mockStream.EXPECT().Send(gomock.Any()).DoAndReturn(func(msg *grpc_v1.ServerChallenge) error {
 					// Verify it's a challenge message
 					require.NotNil(t, msg.GetChallenge())
 					require.NotEmpty(t, msg.GetChallenge().CredentialBlob)
@@ -362,9 +361,9 @@ func TestPerformTPMChallenge(t *testing.T) {
 				// currently secrets only exist within the PerformChallenge flow
 				// and there is no access to the secret. Since it can't be solved, the test
 				// just verifies that it's updated to failure
-				mockStream.EXPECT().Recv().Return(&grpc_v1.AgentTPMChallengeMessage{
-					Payload: &grpc_v1.AgentTPMChallengeMessage_ChallengeResponse{
-						ChallengeResponse: &grpc_v1.TPMChallengeResponse{
+				mockStream.EXPECT().Recv().Return(&grpc_v1.AgentChallenge{
+					Payload: &grpc_v1.AgentChallenge_ChallengeResponse{
+						ChallengeResponse: &grpc_v1.ChallengeResponse{
 							Secret: []byte("wrong-secret"), // This will fail verification - expected behavior
 						},
 					},
@@ -384,7 +383,7 @@ func TestPerformTPMChallenge(t *testing.T) {
 				)
 
 				// 6. Server sends error response to client
-				mockStream.EXPECT().Send(gomock.Any()).DoAndReturn(func(msg *grpc_v1.ServerTPMChallengeMessage) error {
+				mockStream.EXPECT().Send(gomock.Any()).DoAndReturn(func(msg *grpc_v1.ServerChallenge) error {
 					// Verify it's an error message
 					require.NotNil(t, msg.GetError())
 					require.Equal(t, "Challenge verification failed", msg.GetError().Message)
@@ -401,7 +400,7 @@ func TestPerformTPMChallenge(t *testing.T) {
 			defer ctrl.Finish()
 
 			mockService := service.NewMockService(ctrl)
-			mockStream := grpc_v1.NewMockEnrollmentRequestService_PerformTPMChallengeServer(ctrl)
+			mockStream := grpc_v1.NewMockEnrollment_TPMChallengeServer(ctrl)
 
 			server := &AgentGrpcServer{
 				service: mockService,
@@ -410,7 +409,7 @@ func TestPerformTPMChallenge(t *testing.T) {
 
 			tt.setupMocks(mockService, mockStream)
 
-			err := server.PerformTPMChallenge(mockStream)
+			err := server.TPMChallenge(mockStream)
 			if tt.expectError {
 				require.Error(t, err)
 			} else {
@@ -439,14 +438,14 @@ func TestReceiveAndVerifyResponse(t *testing.T) {
 			challengeSecret: []byte("correct-secret"),
 			responseSecret:  []byte("wrong-secret"),
 			expectError:     true,
-			errorType:       "challengeVerificationError",
+			errorType:       "PermissionDenied",
 		},
 		{
 			name:            "Empty response secret",
 			challengeSecret: []byte("correct-secret"),
 			responseSecret:  []byte(""),
 			expectError:     true,
-			errorType:       "challengeVerificationError",
+			errorType:       "PermissionDenied",
 		},
 	}
 
@@ -455,7 +454,7 @@ func TestReceiveAndVerifyResponse(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
 
-			mockStream := grpc_v1.NewMockEnrollmentRequestService_PerformTPMChallengeServer(ctrl)
+			mockStream := grpc_v1.NewMockEnrollment_TPMChallengeServer(ctrl)
 			server := &AgentGrpcServer{
 				log: logrus.New(),
 			}
@@ -466,9 +465,9 @@ func TestReceiveAndVerifyResponse(t *testing.T) {
 			}
 
 			// Mock stream response
-			mockStream.EXPECT().Recv().Return(&grpc_v1.AgentTPMChallengeMessage{
-				Payload: &grpc_v1.AgentTPMChallengeMessage_ChallengeResponse{
-					ChallengeResponse: &grpc_v1.TPMChallengeResponse{
+			mockStream.EXPECT().Recv().Return(&grpc_v1.AgentChallenge{
+				Payload: &grpc_v1.AgentChallenge_ChallengeResponse{
+					ChallengeResponse: &grpc_v1.ChallengeResponse{
 						Secret: tt.responseSecret,
 					},
 				},
@@ -478,9 +477,10 @@ func TestReceiveAndVerifyResponse(t *testing.T) {
 
 			if tt.expectError {
 				require.Error(t, err)
-				if tt.errorType == "challengeVerificationError" {
-					var challengeErr *challengeVerificationError
-					require.True(t, errors.As(err, &challengeErr))
+				if tt.errorType == "PermissionDenied" {
+					st, ok := status.FromError(err)
+					require.True(t, ok, "Expected gRPC status error")
+					require.Equal(t, codes.PermissionDenied, st.Code())
 				}
 			} else {
 				require.NoError(t, err)

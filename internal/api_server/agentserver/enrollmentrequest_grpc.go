@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 
 	pb "github.com/flightctl/flightctl/api/grpc/v1"
@@ -15,19 +16,65 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-type challengeVerificationError struct {
-	message string
+// classifyStreamRecvError converts stream.Recv() errors to appropriate gRPC status codes
+func classifyStreamRecvError(err error, contextMsg string) error {
+	// Client closed the stream normally
+	if errors.Is(err, io.EOF) {
+		return status.Errorf(codes.Canceled, "%s: client closed stream", contextMsg)
+	}
+
+	// Check if it's already a gRPC status error and preserve it
+	if s, ok := status.FromError(err); ok {
+		return status.Errorf(s.Code(), "%s: %s", contextMsg, s.Message())
+	}
+
+	// Check for context cancellation
+	if errors.Is(err, context.Canceled) {
+		return status.Errorf(codes.Canceled, "%s: request cancelled", contextMsg)
+	}
+
+	// Check for context deadline exceeded
+	if errors.Is(err, context.DeadlineExceeded) {
+		return status.Errorf(codes.DeadlineExceeded, "%s: request timed out", contextMsg)
+	}
+
+	// Default to internal error for unexpected cases
+	return status.Errorf(codes.Internal, "%s: unexpected error: %v", contextMsg, err)
 }
 
-func (e *challengeVerificationError) Error() string {
-	return e.message
+// wrapInternalError wraps server-side errors as gRPC Internal errors
+func wrapInternalError(err error, contextMsg string) error {
+	return status.Errorf(codes.Internal, "%s: %v", contextMsg, err)
+}
+
+// wrapValidationError wraps client input validation errors as gRPC InvalidArgument errors
+func wrapValidationError(err error, contextMsg string) error {
+	return status.Errorf(codes.InvalidArgument, "%s: %v", contextMsg, err)
+}
+
+// updateEnrollmentRequestStatus updates the enrollment request status and handles errors consistently
+func (s *AgentGrpcServer) updateEnrollmentRequestStatus(
+	ctx context.Context,
+	stream pb.Enrollment_TPMChallengeServer,
+	enrollmentRequestName string,
+	enrollmentRequest *api.EnrollmentRequest,
+	streamErrorMessage string,
+) error {
+	_, responseStatus := s.service.ReplaceEnrollmentRequestStatus(ctx, enrollmentRequestName, *enrollmentRequest)
+	if responseStatus.Code != http.StatusOK {
+		if err := s.sendErrorResponse(stream, streamErrorMessage); err != nil {
+			s.log.Errorf("Failed to send error response: %v", err)
+		}
+		return wrapInternalError(fmt.Errorf("updating enrollment request %s: %s", enrollmentRequestName, responseStatus.Message), "failed to update enrollment request status")
+	}
+	return nil
 }
 
 // sendErrorResponse sends an error response message through the stream
-func (s *AgentGrpcServer) sendErrorResponse(stream pb.EnrollmentRequestService_PerformTPMChallengeServer, message string) error {
-	errorResp := &pb.ServerTPMChallengeMessage{
-		Payload: &pb.ServerTPMChallengeMessage_Error{
-			Error: &pb.TPMChallengeError{
+func (s *AgentGrpcServer) sendErrorResponse(stream pb.Enrollment_TPMChallengeServer, message string) error {
+	errorResp := &pb.ServerChallenge{
+		Payload: &pb.ServerChallenge_Error{
+			Error: &pb.ChallengeError{
 				Message: message,
 			},
 		},
@@ -36,10 +83,10 @@ func (s *AgentGrpcServer) sendErrorResponse(stream pb.EnrollmentRequestService_P
 }
 
 // receiveAndValidateInitialRequest receives and validates the initial challenge request
-func (s *AgentGrpcServer) receiveAndValidateInitialRequest(stream pb.EnrollmentRequestService_PerformTPMChallengeServer) (string, error) {
+func (s *AgentGrpcServer) receiveAndValidateInitialRequest(stream pb.Enrollment_TPMChallengeServer) (string, error) {
 	req, err := stream.Recv()
 	if err != nil {
-		return "", status.Error(codes.Internal, "failed to receive challenge request")
+		return "", classifyStreamRecvError(err, "failed to receive challenge request")
 	}
 
 	challengeRequest := req.GetChallengeRequest()
@@ -52,13 +99,16 @@ func (s *AgentGrpcServer) receiveAndValidateInitialRequest(stream pb.EnrollmentR
 }
 
 // validateEnrollmentRequest validates the enrollment request and parses the TPM CSR
-func (s *AgentGrpcServer) validateEnrollmentRequest(ctx context.Context, stream pb.EnrollmentRequestService_PerformTPMChallengeServer, enrollmentRequestName string) (*api.EnrollmentRequest, *tpm.ParsedTCGCSR, error) {
-	enrollmentRequest, status := s.service.GetEnrollmentRequest(ctx, enrollmentRequestName)
-	if status.Code != http.StatusOK {
+func (s *AgentGrpcServer) validateEnrollmentRequest(ctx context.Context, stream pb.Enrollment_TPMChallengeServer, enrollmentRequestName string) (*api.EnrollmentRequest, *tpm.ParsedTCGCSR, error) {
+	enrollmentRequest, responseStatus := s.service.GetEnrollmentRequest(ctx, enrollmentRequestName)
+	if responseStatus.Code != http.StatusOK {
 		if err := s.sendErrorResponse(stream, fmt.Sprintf("Enrollment request not found: %s", enrollmentRequestName)); err != nil {
 			s.log.Errorf("Failed to send error response: %v", err)
 		}
-		return nil, nil, fmt.Errorf("getting enrollment request %s: %s", enrollmentRequestName, status.Message)
+		if responseStatus.Code == http.StatusNotFound {
+			return nil, nil, status.Errorf(codes.NotFound, "enrollment request not found: %s", enrollmentRequestName)
+		}
+		return nil, nil, wrapInternalError(fmt.Errorf("getting enrollment request %s: %s", enrollmentRequestName, responseStatus.Message), "failed to retrieve enrollment request")
 	}
 
 	tpmCond := api.FindStatusCondition(lo.FromPtr(enrollmentRequest.Status).Conditions, api.ConditionTypeEnrollmentRequestTPMVerified)
@@ -70,7 +120,7 @@ func (s *AgentGrpcServer) validateEnrollmentRequest(ctx context.Context, stream 
 		if err := s.sendErrorResponse(stream, errorMessage); err != nil {
 			s.log.Errorf("Failed to send error response: %v", err)
 		}
-		return nil, nil, fmt.Errorf("%s", errorMessage)
+		return nil, nil, status.Errorf(codes.FailedPrecondition, "invalid enrollment request condition state %s: %v", enrollmentRequestName, tpmCond)
 	}
 
 	csrBytes, isTPM := tpm.ParseTCGCSRBytes(enrollmentRequest.Spec.Csr)
@@ -78,7 +128,7 @@ func (s *AgentGrpcServer) validateEnrollmentRequest(ctx context.Context, stream 
 		if err := s.sendErrorResponse(stream, "Not a valid TPM CSR"); err != nil {
 			s.log.Errorf("Failed to send error response: %v", err)
 		}
-		return nil, nil, fmt.Errorf("enrollment request %s does not contain a valid TPM CSR", enrollmentRequestName)
+		return nil, nil, status.Errorf(codes.InvalidArgument, "enrollment request %s does not contain a valid TPM CSR", enrollmentRequestName)
 	}
 
 	parsed, err := tpm.ParseTCGCSR(csrBytes)
@@ -86,25 +136,25 @@ func (s *AgentGrpcServer) validateEnrollmentRequest(ctx context.Context, stream 
 		if sendErr := s.sendErrorResponse(stream, fmt.Sprintf("Not a valid TPM CSR: %v", err)); sendErr != nil {
 			s.log.Errorf("Failed to send error response: %v", sendErr)
 		}
-		return nil, nil, fmt.Errorf("parsing TCG CSR for enrollment request %s: %w", enrollmentRequestName, err)
+		return nil, nil, wrapValidationError(err, fmt.Sprintf("parsing TCG CSR for enrollment request %s", enrollmentRequestName))
 	}
 
 	return enrollmentRequest, parsed, nil
 }
 
 // generateAndSendChallenge creates a credential challenge and sends it to the client
-func (s *AgentGrpcServer) generateAndSendChallenge(stream pb.EnrollmentRequestService_PerformTPMChallengeServer, parsed *tpm.ParsedTCGCSR) (*tpm.CredentialChallenge, error) {
+func (s *AgentGrpcServer) generateAndSendChallenge(stream pb.Enrollment_TPMChallengeServer, parsed *tpm.ParsedTCGCSR) (*tpm.CredentialChallenge, error) {
 	challenge, err := tpm.CreateCredentialChallenge(parsed.CSRContents.Payload.EkCert, parsed.CSRContents.Payload.AttestPub)
 	if err != nil {
 		if sendErr := s.sendErrorResponse(stream, fmt.Sprintf("Failed to create challenge: %v", err)); sendErr != nil {
 			s.log.Errorf("Failed to send error response: %v", sendErr)
 		}
-		return nil, fmt.Errorf("creating TPM credential challenge: %w", err)
+		return nil, wrapInternalError(err, "creating TPM credential challenge")
 	}
 
-	challengeResp := &pb.ServerTPMChallengeMessage{
-		Payload: &pb.ServerTPMChallengeMessage_Challenge{
-			Challenge: &pb.TPMChallenge{
+	challengeResp := &pb.ServerChallenge{
+		Payload: &pb.ServerChallenge_Challenge{
+			Challenge: &pb.Challenge{
 				CredentialBlob:  challenge.CredentialBlob,
 				EncryptedSecret: challenge.EncryptedSecret,
 			},
@@ -112,33 +162,33 @@ func (s *AgentGrpcServer) generateAndSendChallenge(stream pb.EnrollmentRequestSe
 	}
 
 	if err := stream.Send(challengeResp); err != nil {
-		return nil, fmt.Errorf("sending challenge: %w", err)
+		return nil, wrapInternalError(err, "sending challenge")
 	}
 
 	return challenge, nil
 }
 
 // receiveAndVerifyResponse receives the challenge response and verifies the secret
-func (s *AgentGrpcServer) receiveAndVerifyResponse(stream pb.EnrollmentRequestService_PerformTPMChallengeServer, challenge *tpm.CredentialChallenge) error {
+func (s *AgentGrpcServer) receiveAndVerifyResponse(stream pb.Enrollment_TPMChallengeServer, challenge *tpm.CredentialChallenge) error {
 	responseMsg, err := stream.Recv()
 	if err != nil {
-		return status.Error(codes.Internal, "failed to receive challenge response")
+		return classifyStreamRecvError(err, "failed to receive challenge response")
 	}
 
 	challengeResponse := responseMsg.GetChallengeResponse()
 	if challengeResponse == nil {
-		return &challengeVerificationError{message: "Expected challenge response"}
+		return status.Error(codes.InvalidArgument, "Expected challenge response")
 	}
 
 	if !bytes.Equal(challengeResponse.Secret, challenge.ExpectedSecret) {
-		return &challengeVerificationError{message: "Challenge verification failed"}
+		return status.Error(codes.PermissionDenied, "Challenge verification failed")
 	}
 
 	return nil
 }
 
 // updateStatusToFailed updates the enrollment request status to failed and sends error response
-func (s *AgentGrpcServer) updateStatusToFailed(ctx context.Context, stream pb.EnrollmentRequestService_PerformTPMChallengeServer, enrollmentRequest *api.EnrollmentRequest, enrollmentRequestName string, errorMessage string) error {
+func (s *AgentGrpcServer) updateStatusToFailed(ctx context.Context, stream pb.Enrollment_TPMChallengeServer, enrollmentRequest *api.EnrollmentRequest, enrollmentRequestName string, errorMessage string) error {
 	condition := api.Condition{
 		Type:    api.ConditionTypeEnrollmentRequestTPMVerified,
 		Status:  api.ConditionStatusFalse,
@@ -147,25 +197,21 @@ func (s *AgentGrpcServer) updateStatusToFailed(ctx context.Context, stream pb.En
 	}
 	api.SetStatusCondition(&enrollmentRequest.Status.Conditions, condition)
 
-	_, status := s.service.ReplaceEnrollmentRequestStatus(ctx, enrollmentRequestName, *enrollmentRequest)
-	if status.Code != http.StatusOK {
-		if err := s.sendErrorResponse(stream, errorMessage); err != nil {
-			s.log.Errorf("Failed to send error response: %v", err)
-		}
-		return fmt.Errorf("updating enrollment request %s: %s", enrollmentRequestName, status.Message)
+	if err := s.updateEnrollmentRequestStatus(ctx, stream, enrollmentRequestName, enrollmentRequest, errorMessage); err != nil {
+		return err
 	}
 
 	// Always send error response to client when challenge verification fails
 	if err := s.sendErrorResponse(stream, errorMessage); err != nil {
 		s.log.Errorf("Failed to send error response: %v", err)
-		return fmt.Errorf("sending error response: %w", err)
+		return wrapInternalError(err, "sending error response")
 	}
 
 	return nil
 }
 
 // updateStatusAndSendSuccess updates the enrollment request status and sends success response
-func (s *AgentGrpcServer) updateStatusAndSendSuccess(ctx context.Context, stream pb.EnrollmentRequestService_PerformTPMChallengeServer, enrollmentRequest *api.EnrollmentRequest, enrollmentRequestName string) error {
+func (s *AgentGrpcServer) updateStatusAndSendSuccess(ctx context.Context, stream pb.Enrollment_TPMChallengeServer, enrollmentRequest *api.EnrollmentRequest, enrollmentRequestName string) error {
 	condition := api.Condition{
 		Type:    api.ConditionTypeEnrollmentRequestTPMVerified,
 		Status:  api.ConditionStatusTrue,
@@ -174,31 +220,27 @@ func (s *AgentGrpcServer) updateStatusAndSendSuccess(ctx context.Context, stream
 	}
 	api.SetStatusCondition(&enrollmentRequest.Status.Conditions, condition)
 
-	_, status := s.service.ReplaceEnrollmentRequestStatus(ctx, enrollmentRequestName, *enrollmentRequest)
-	if status.Code != http.StatusOK {
-		if err := s.sendErrorResponse(stream, "Failed to update enrollment status"); err != nil {
-			s.log.Errorf("Failed to send error response: %v", err)
-		}
-		return fmt.Errorf("updating enrollment request: %s status: %s", enrollmentRequestName, status.Message)
+	if err := s.updateEnrollmentRequestStatus(ctx, stream, enrollmentRequestName, enrollmentRequest, "Failed to update enrollment status"); err != nil {
+		return err
 	}
 
-	successResp := &pb.ServerTPMChallengeMessage{
-		Payload: &pb.ServerTPMChallengeMessage_Success{
-			Success: &pb.TPMChallengeComplete{
+	successResp := &pb.ServerChallenge{
+		Payload: &pb.ServerChallenge_Success{
+			Success: &pb.ChallengeComplete{
 				Message: "TPM challenge completed successfully",
 			},
 		},
 	}
 
 	if err := stream.Send(successResp); err != nil {
-		return fmt.Errorf("sending success response: %w", err)
+		return wrapInternalError(err, "sending success response")
 	}
 
 	return nil
 }
 
-// PerformTPMChallenge implements the TPM challenge-response protocol for device enrollment
-func (s *AgentGrpcServer) PerformTPMChallenge(stream pb.EnrollmentRequestService_PerformTPMChallengeServer) error {
+// TPMChallenge implements the TPM challenge-response protocol for device enrollment
+func (s *AgentGrpcServer) TPMChallenge(stream pb.Enrollment_TPMChallengeServer) error {
 	ctx := stream.Context()
 
 	enrollmentRequestName, err := s.receiveAndValidateInitialRequest(stream)
@@ -222,10 +264,10 @@ func (s *AgentGrpcServer) PerformTPMChallenge(stream pb.EnrollmentRequestService
 	}
 
 	if err := s.receiveAndVerifyResponse(stream, challenge); err != nil {
-		var challengeErr *challengeVerificationError
-		if errors.As(err, &challengeErr) {
-			s.log.Errorf("TPM challenge verification failed for enrollment request %s: %s", enrollmentRequestName, challengeErr.message)
-			return s.updateStatusToFailed(ctx, stream, enrollmentRequest, enrollmentRequestName, challengeErr.message)
+		// Check if it's a challenge verification failure (PermissionDenied or InvalidArgument)
+		if st, ok := status.FromError(err); ok && (st.Code() == codes.PermissionDenied || st.Code() == codes.InvalidArgument) {
+			s.log.Errorf("TPM challenge verification failed for enrollment request %s: %s", enrollmentRequestName, st.Message())
+			return s.updateStatusToFailed(ctx, stream, enrollmentRequest, enrollmentRequestName, st.Message())
 		}
 		s.log.Errorf("Failed to receive and verify TPM challenge response for enrollment request %s: %v", enrollmentRequestName, err)
 		return err

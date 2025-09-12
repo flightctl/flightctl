@@ -20,21 +20,21 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// AgentTPMChallengeMessage is a wrapper for all possible messages the agent can send.
-type AgentTPMChallengeMessage struct {
+// AgentChallenge is a wrapper for all possible messages the agent can send.
+type AgentChallenge struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
 	// Types that are assignable to Payload:
 	//
-	//	*AgentTPMChallengeMessage_ChallengeRequest
-	//	*AgentTPMChallengeMessage_ChallengeResponse
-	Payload isAgentTPMChallengeMessage_Payload `protobuf_oneof:"payload"`
+	//	*AgentChallenge_ChallengeRequest
+	//	*AgentChallenge_ChallengeResponse
+	Payload isAgentChallenge_Payload `protobuf_oneof:"payload"`
 }
 
-func (x *AgentTPMChallengeMessage) Reset() {
-	*x = AgentTPMChallengeMessage{}
+func (x *AgentChallenge) Reset() {
+	*x = AgentChallenge{}
 	if protoimpl.UnsafeEnabled {
 		mi := &file_enrollment_proto_msgTypes[0]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -42,13 +42,13 @@ func (x *AgentTPMChallengeMessage) Reset() {
 	}
 }
 
-func (x *AgentTPMChallengeMessage) String() string {
+func (x *AgentChallenge) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*AgentTPMChallengeMessage) ProtoMessage() {}
+func (*AgentChallenge) ProtoMessage() {}
 
-func (x *AgentTPMChallengeMessage) ProtoReflect() protoreflect.Message {
+func (x *AgentChallenge) ProtoReflect() protoreflect.Message {
 	mi := &file_enrollment_proto_msgTypes[0]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -60,66 +60,66 @@ func (x *AgentTPMChallengeMessage) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use AgentTPMChallengeMessage.ProtoReflect.Descriptor instead.
-func (*AgentTPMChallengeMessage) Descriptor() ([]byte, []int) {
+// Deprecated: Use AgentChallenge.ProtoReflect.Descriptor instead.
+func (*AgentChallenge) Descriptor() ([]byte, []int) {
 	return file_enrollment_proto_rawDescGZIP(), []int{0}
 }
 
-func (m *AgentTPMChallengeMessage) GetPayload() isAgentTPMChallengeMessage_Payload {
+func (m *AgentChallenge) GetPayload() isAgentChallenge_Payload {
 	if m != nil {
 		return m.Payload
 	}
 	return nil
 }
 
-func (x *AgentTPMChallengeMessage) GetChallengeRequest() *TPMChallengeRequest {
-	if x, ok := x.GetPayload().(*AgentTPMChallengeMessage_ChallengeRequest); ok {
+func (x *AgentChallenge) GetChallengeRequest() *ChallengeRequest {
+	if x, ok := x.GetPayload().(*AgentChallenge_ChallengeRequest); ok {
 		return x.ChallengeRequest
 	}
 	return nil
 }
 
-func (x *AgentTPMChallengeMessage) GetChallengeResponse() *TPMChallengeResponse {
-	if x, ok := x.GetPayload().(*AgentTPMChallengeMessage_ChallengeResponse); ok {
+func (x *AgentChallenge) GetChallengeResponse() *ChallengeResponse {
+	if x, ok := x.GetPayload().(*AgentChallenge_ChallengeResponse); ok {
 		return x.ChallengeResponse
 	}
 	return nil
 }
 
-type isAgentTPMChallengeMessage_Payload interface {
-	isAgentTPMChallengeMessage_Payload()
+type isAgentChallenge_Payload interface {
+	isAgentChallenge_Payload()
 }
 
-type AgentTPMChallengeMessage_ChallengeRequest struct {
+type AgentChallenge_ChallengeRequest struct {
 	// The first message sent by the agent to request a challenge.
-	ChallengeRequest *TPMChallengeRequest `protobuf:"bytes,1,opt,name=challenge_request,json=challengeRequest,proto3,oneof"`
+	ChallengeRequest *ChallengeRequest `protobuf:"bytes,1,opt,name=challenge_request,json=challengeRequest,proto3,oneof"`
 }
 
-type AgentTPMChallengeMessage_ChallengeResponse struct {
+type AgentChallenge_ChallengeResponse struct {
 	// The agent's response containing the decrypted secret.
-	ChallengeResponse *TPMChallengeResponse `protobuf:"bytes,2,opt,name=challenge_response,json=challengeResponse,proto3,oneof"`
+	ChallengeResponse *ChallengeResponse `protobuf:"bytes,2,opt,name=challenge_response,json=challengeResponse,proto3,oneof"`
 }
 
-func (*AgentTPMChallengeMessage_ChallengeRequest) isAgentTPMChallengeMessage_Payload() {}
+func (*AgentChallenge_ChallengeRequest) isAgentChallenge_Payload() {}
 
-func (*AgentTPMChallengeMessage_ChallengeResponse) isAgentTPMChallengeMessage_Payload() {}
+func (*AgentChallenge_ChallengeResponse) isAgentChallenge_Payload() {}
 
-// ServerTPMChallengeMessage is a wrapper for all possible messages the service can send.
-type ServerTPMChallengeMessage struct {
+// ServerChallenge is a wrapper for all possible messages the service can send.
+type ServerChallenge struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
 	// Types that are assignable to Payload:
 	//
-	//	*ServerTPMChallengeMessage_Challenge
-	//	*ServerTPMChallengeMessage_Success
-	//	*ServerTPMChallengeMessage_Error
-	Payload isServerTPMChallengeMessage_Payload `protobuf_oneof:"payload"`
+	//	*ServerChallenge_Challenge
+	//	*ServerChallenge_Success
+	//	*ServerChallenge_Error
+	Payload isServerChallenge_Payload `protobuf_oneof:"payload"`
 }
 
-func (x *ServerTPMChallengeMessage) Reset() {
-	*x = ServerTPMChallengeMessage{}
+func (x *ServerChallenge) Reset() {
+	*x = ServerChallenge{}
 	if protoimpl.UnsafeEnabled {
 		mi := &file_enrollment_proto_msgTypes[1]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -127,13 +127,13 @@ func (x *ServerTPMChallengeMessage) Reset() {
 	}
 }
 
-func (x *ServerTPMChallengeMessage) String() string {
+func (x *ServerChallenge) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*ServerTPMChallengeMessage) ProtoMessage() {}
+func (*ServerChallenge) ProtoMessage() {}
 
-func (x *ServerTPMChallengeMessage) ProtoReflect() protoreflect.Message {
+func (x *ServerChallenge) ProtoReflect() protoreflect.Message {
 	mi := &file_enrollment_proto_msgTypes[1]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -145,66 +145,66 @@ func (x *ServerTPMChallengeMessage) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use ServerTPMChallengeMessage.ProtoReflect.Descriptor instead.
-func (*ServerTPMChallengeMessage) Descriptor() ([]byte, []int) {
+// Deprecated: Use ServerChallenge.ProtoReflect.Descriptor instead.
+func (*ServerChallenge) Descriptor() ([]byte, []int) {
 	return file_enrollment_proto_rawDescGZIP(), []int{1}
 }
 
-func (m *ServerTPMChallengeMessage) GetPayload() isServerTPMChallengeMessage_Payload {
+func (m *ServerChallenge) GetPayload() isServerChallenge_Payload {
 	if m != nil {
 		return m.Payload
 	}
 	return nil
 }
 
-func (x *ServerTPMChallengeMessage) GetChallenge() *TPMChallenge {
-	if x, ok := x.GetPayload().(*ServerTPMChallengeMessage_Challenge); ok {
+func (x *ServerChallenge) GetChallenge() *Challenge {
+	if x, ok := x.GetPayload().(*ServerChallenge_Challenge); ok {
 		return x.Challenge
 	}
 	return nil
 }
 
-func (x *ServerTPMChallengeMessage) GetSuccess() *TPMChallengeComplete {
-	if x, ok := x.GetPayload().(*ServerTPMChallengeMessage_Success); ok {
+func (x *ServerChallenge) GetSuccess() *ChallengeComplete {
+	if x, ok := x.GetPayload().(*ServerChallenge_Success); ok {
 		return x.Success
 	}
 	return nil
 }
 
-func (x *ServerTPMChallengeMessage) GetError() *TPMChallengeError {
-	if x, ok := x.GetPayload().(*ServerTPMChallengeMessage_Error); ok {
+func (x *ServerChallenge) GetError() *ChallengeError {
+	if x, ok := x.GetPayload().(*ServerChallenge_Error); ok {
 		return x.Error
 	}
 	return nil
 }
 
-type isServerTPMChallengeMessage_Payload interface {
-	isServerTPMChallengeMessage_Payload()
+type isServerChallenge_Payload interface {
+	isServerChallenge_Payload()
 }
 
-type ServerTPMChallengeMessage_Challenge struct {
+type ServerChallenge_Challenge struct {
 	// The service's challenge containing the credential blob.
-	Challenge *TPMChallenge `protobuf:"bytes,1,opt,name=challenge,proto3,oneof"`
+	Challenge *Challenge `protobuf:"bytes,1,opt,name=challenge,proto3,oneof"`
 }
 
-type ServerTPMChallengeMessage_Success struct {
+type ServerChallenge_Success struct {
 	// A message indicating the entire challenge was successful.
-	Success *TPMChallengeComplete `protobuf:"bytes,2,opt,name=success,proto3,oneof"`
+	Success *ChallengeComplete `protobuf:"bytes,2,opt,name=success,proto3,oneof"`
 }
 
-type ServerTPMChallengeMessage_Error struct {
+type ServerChallenge_Error struct {
 	// A message indicating a failure at some point in the challenge.
-	Error *TPMChallengeError `protobuf:"bytes,3,opt,name=error,proto3,oneof"`
+	Error *ChallengeError `protobuf:"bytes,3,opt,name=error,proto3,oneof"`
 }
 
-func (*ServerTPMChallengeMessage_Challenge) isServerTPMChallengeMessage_Payload() {}
+func (*ServerChallenge_Challenge) isServerChallenge_Payload() {}
 
-func (*ServerTPMChallengeMessage_Success) isServerTPMChallengeMessage_Payload() {}
+func (*ServerChallenge_Success) isServerChallenge_Payload() {}
 
-func (*ServerTPMChallengeMessage_Error) isServerTPMChallengeMessage_Payload() {}
+func (*ServerChallenge_Error) isServerChallenge_Payload() {}
 
-// TPMChallengeRequest is sent by the client to initiate the challenge for a specific EnrollmentRequest.
-type TPMChallengeRequest struct {
+// ChallengeRequest is sent by the client to initiate the challenge for a specific EnrollmentRequest.
+type ChallengeRequest struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
@@ -213,8 +213,8 @@ type TPMChallengeRequest struct {
 	EnrollmentRequestName string `protobuf:"bytes,1,opt,name=enrollment_request_name,json=enrollmentRequestName,proto3" json:"enrollment_request_name,omitempty"`
 }
 
-func (x *TPMChallengeRequest) Reset() {
-	*x = TPMChallengeRequest{}
+func (x *ChallengeRequest) Reset() {
+	*x = ChallengeRequest{}
 	if protoimpl.UnsafeEnabled {
 		mi := &file_enrollment_proto_msgTypes[2]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -222,13 +222,13 @@ func (x *TPMChallengeRequest) Reset() {
 	}
 }
 
-func (x *TPMChallengeRequest) String() string {
+func (x *ChallengeRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*TPMChallengeRequest) ProtoMessage() {}
+func (*ChallengeRequest) ProtoMessage() {}
 
-func (x *TPMChallengeRequest) ProtoReflect() protoreflect.Message {
+func (x *ChallengeRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_enrollment_proto_msgTypes[2]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -240,20 +240,20 @@ func (x *TPMChallengeRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use TPMChallengeRequest.ProtoReflect.Descriptor instead.
-func (*TPMChallengeRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use ChallengeRequest.ProtoReflect.Descriptor instead.
+func (*ChallengeRequest) Descriptor() ([]byte, []int) {
 	return file_enrollment_proto_rawDescGZIP(), []int{2}
 }
 
-func (x *TPMChallengeRequest) GetEnrollmentRequestName() string {
+func (x *ChallengeRequest) GetEnrollmentRequestName() string {
 	if x != nil {
 		return x.EnrollmentRequestName
 	}
 	return ""
 }
 
-// TPMChallenge is sent by the server and contains the credential blob the agent needs to solve.
-type TPMChallenge struct {
+// Challenge is sent by the server and contains the credential blob the agent needs to solve.
+type Challenge struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
@@ -265,8 +265,8 @@ type TPMChallenge struct {
 	EncryptedSecret []byte `protobuf:"bytes,2,opt,name=encrypted_secret,json=encryptedSecret,proto3" json:"encrypted_secret,omitempty"`
 }
 
-func (x *TPMChallenge) Reset() {
-	*x = TPMChallenge{}
+func (x *Challenge) Reset() {
+	*x = Challenge{}
 	if protoimpl.UnsafeEnabled {
 		mi := &file_enrollment_proto_msgTypes[3]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -274,13 +274,13 @@ func (x *TPMChallenge) Reset() {
 	}
 }
 
-func (x *TPMChallenge) String() string {
+func (x *Challenge) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*TPMChallenge) ProtoMessage() {}
+func (*Challenge) ProtoMessage() {}
 
-func (x *TPMChallenge) ProtoReflect() protoreflect.Message {
+func (x *Challenge) ProtoReflect() protoreflect.Message {
 	mi := &file_enrollment_proto_msgTypes[3]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -292,27 +292,27 @@ func (x *TPMChallenge) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use TPMChallenge.ProtoReflect.Descriptor instead.
-func (*TPMChallenge) Descriptor() ([]byte, []int) {
+// Deprecated: Use Challenge.ProtoReflect.Descriptor instead.
+func (*Challenge) Descriptor() ([]byte, []int) {
 	return file_enrollment_proto_rawDescGZIP(), []int{3}
 }
 
-func (x *TPMChallenge) GetCredentialBlob() []byte {
+func (x *Challenge) GetCredentialBlob() []byte {
 	if x != nil {
 		return x.CredentialBlob
 	}
 	return nil
 }
 
-func (x *TPMChallenge) GetEncryptedSecret() []byte {
+func (x *Challenge) GetEncryptedSecret() []byte {
 	if x != nil {
 		return x.EncryptedSecret
 	}
 	return nil
 }
 
-// TPMChallengeResponse contains the agent's decrypted secret.
-type TPMChallengeResponse struct {
+// ChallengeResponse contains the agent's decrypted secret.
+type ChallengeResponse struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
@@ -321,8 +321,8 @@ type TPMChallengeResponse struct {
 	Secret []byte `protobuf:"bytes,1,opt,name=secret,proto3" json:"secret,omitempty"`
 }
 
-func (x *TPMChallengeResponse) Reset() {
-	*x = TPMChallengeResponse{}
+func (x *ChallengeResponse) Reset() {
+	*x = ChallengeResponse{}
 	if protoimpl.UnsafeEnabled {
 		mi := &file_enrollment_proto_msgTypes[4]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -330,13 +330,13 @@ func (x *TPMChallengeResponse) Reset() {
 	}
 }
 
-func (x *TPMChallengeResponse) String() string {
+func (x *ChallengeResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*TPMChallengeResponse) ProtoMessage() {}
+func (*ChallengeResponse) ProtoMessage() {}
 
-func (x *TPMChallengeResponse) ProtoReflect() protoreflect.Message {
+func (x *ChallengeResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_enrollment_proto_msgTypes[4]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -348,20 +348,20 @@ func (x *TPMChallengeResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use TPMChallengeResponse.ProtoReflect.Descriptor instead.
-func (*TPMChallengeResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use ChallengeResponse.ProtoReflect.Descriptor instead.
+func (*ChallengeResponse) Descriptor() ([]byte, []int) {
 	return file_enrollment_proto_rawDescGZIP(), []int{4}
 }
 
-func (x *TPMChallengeResponse) GetSecret() []byte {
+func (x *ChallengeResponse) GetSecret() []byte {
 	if x != nil {
 		return x.Secret
 	}
 	return nil
 }
 
-// TPMChallengeComplete signals a successful end to the challenge.
-type TPMChallengeComplete struct {
+// ChallengeComplete signals a successful end to the challenge.
+type ChallengeComplete struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
@@ -370,8 +370,8 @@ type TPMChallengeComplete struct {
 	Message string `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
 }
 
-func (x *TPMChallengeComplete) Reset() {
-	*x = TPMChallengeComplete{}
+func (x *ChallengeComplete) Reset() {
+	*x = ChallengeComplete{}
 	if protoimpl.UnsafeEnabled {
 		mi := &file_enrollment_proto_msgTypes[5]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -379,13 +379,13 @@ func (x *TPMChallengeComplete) Reset() {
 	}
 }
 
-func (x *TPMChallengeComplete) String() string {
+func (x *ChallengeComplete) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*TPMChallengeComplete) ProtoMessage() {}
+func (*ChallengeComplete) ProtoMessage() {}
 
-func (x *TPMChallengeComplete) ProtoReflect() protoreflect.Message {
+func (x *ChallengeComplete) ProtoReflect() protoreflect.Message {
 	mi := &file_enrollment_proto_msgTypes[5]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -397,20 +397,20 @@ func (x *TPMChallengeComplete) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use TPMChallengeComplete.ProtoReflect.Descriptor instead.
-func (*TPMChallengeComplete) Descriptor() ([]byte, []int) {
+// Deprecated: Use ChallengeComplete.ProtoReflect.Descriptor instead.
+func (*ChallengeComplete) Descriptor() ([]byte, []int) {
 	return file_enrollment_proto_rawDescGZIP(), []int{5}
 }
 
-func (x *TPMChallengeComplete) GetMessage() string {
+func (x *ChallengeComplete) GetMessage() string {
 	if x != nil {
 		return x.Message
 	}
 	return ""
 }
 
-// TPMChallengeError signals a failure and terminates the challenge.
-type TPMChallengeError struct {
+// ChallengeError signals a failure and terminates the challenge.
+type ChallengeError struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
@@ -419,8 +419,8 @@ type TPMChallengeError struct {
 	Message string `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
 }
 
-func (x *TPMChallengeError) Reset() {
-	*x = TPMChallengeError{}
+func (x *ChallengeError) Reset() {
+	*x = ChallengeError{}
 	if protoimpl.UnsafeEnabled {
 		mi := &file_enrollment_proto_msgTypes[6]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -428,13 +428,13 @@ func (x *TPMChallengeError) Reset() {
 	}
 }
 
-func (x *TPMChallengeError) String() string {
+func (x *ChallengeError) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*TPMChallengeError) ProtoMessage() {}
+func (*ChallengeError) ProtoMessage() {}
 
-func (x *TPMChallengeError) ProtoReflect() protoreflect.Message {
+func (x *ChallengeError) ProtoReflect() protoreflect.Message {
 	mi := &file_enrollment_proto_msgTypes[6]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -446,12 +446,12 @@ func (x *TPMChallengeError) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use TPMChallengeError.ProtoReflect.Descriptor instead.
-func (*TPMChallengeError) Descriptor() ([]byte, []int) {
+// Deprecated: Use ChallengeError.ProtoReflect.Descriptor instead.
+func (*ChallengeError) Descriptor() ([]byte, []int) {
 	return file_enrollment_proto_rawDescGZIP(), []int{6}
 }
 
-func (x *TPMChallengeError) GetMessage() string {
+func (x *ChallengeError) GetMessage() string {
 	if x != nil {
 		return x.Message
 	}
@@ -463,66 +463,60 @@ var File_enrollment_proto protoreflect.FileDescriptor
 var file_enrollment_proto_rawDesc = []byte{
 	0x0a, 0x10, 0x65, 0x6e, 0x72, 0x6f, 0x6c, 0x6c, 0x6d, 0x65, 0x6e, 0x74, 0x2e, 0x70, 0x72, 0x6f,
 	0x74, 0x6f, 0x12, 0x0c, 0x66, 0x6c, 0x69, 0x67, 0x68, 0x74, 0x63, 0x74, 0x6c, 0x2e, 0x76, 0x31,
-	0x22, 0xcc, 0x01, 0x0a, 0x18, 0x41, 0x67, 0x65, 0x6e, 0x74, 0x54, 0x50, 0x4d, 0x43, 0x68, 0x61,
-	0x6c, 0x6c, 0x65, 0x6e, 0x67, 0x65, 0x4d, 0x65, 0x73, 0x73, 0x61, 0x67, 0x65, 0x12, 0x50, 0x0a,
-	0x11, 0x63, 0x68, 0x61, 0x6c, 0x6c, 0x65, 0x6e, 0x67, 0x65, 0x5f, 0x72, 0x65, 0x71, 0x75, 0x65,
-	0x73, 0x74, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x21, 0x2e, 0x66, 0x6c, 0x69, 0x67, 0x68,
-	0x74, 0x63, 0x74, 0x6c, 0x2e, 0x76, 0x31, 0x2e, 0x54, 0x50, 0x4d, 0x43, 0x68, 0x61, 0x6c, 0x6c,
-	0x65, 0x6e, 0x67, 0x65, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x48, 0x00, 0x52, 0x10, 0x63,
-	0x68, 0x61, 0x6c, 0x6c, 0x65, 0x6e, 0x67, 0x65, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12,
-	0x53, 0x0a, 0x12, 0x63, 0x68, 0x61, 0x6c, 0x6c, 0x65, 0x6e, 0x67, 0x65, 0x5f, 0x72, 0x65, 0x73,
-	0x70, 0x6f, 0x6e, 0x73, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x22, 0x2e, 0x66, 0x6c,
-	0x69, 0x67, 0x68, 0x74, 0x63, 0x74, 0x6c, 0x2e, 0x76, 0x31, 0x2e, 0x54, 0x50, 0x4d, 0x43, 0x68,
+	0x22, 0xbc, 0x01, 0x0a, 0x0e, 0x41, 0x67, 0x65, 0x6e, 0x74, 0x43, 0x68, 0x61, 0x6c, 0x6c, 0x65,
+	0x6e, 0x67, 0x65, 0x12, 0x4d, 0x0a, 0x11, 0x63, 0x68, 0x61, 0x6c, 0x6c, 0x65, 0x6e, 0x67, 0x65,
+	0x5f, 0x72, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1e,
+	0x2e, 0x66, 0x6c, 0x69, 0x67, 0x68, 0x74, 0x63, 0x74, 0x6c, 0x2e, 0x76, 0x31, 0x2e, 0x43, 0x68,
+	0x61, 0x6c, 0x6c, 0x65, 0x6e, 0x67, 0x65, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x48, 0x00,
+	0x52, 0x10, 0x63, 0x68, 0x61, 0x6c, 0x6c, 0x65, 0x6e, 0x67, 0x65, 0x52, 0x65, 0x71, 0x75, 0x65,
+	0x73, 0x74, 0x12, 0x50, 0x0a, 0x12, 0x63, 0x68, 0x61, 0x6c, 0x6c, 0x65, 0x6e, 0x67, 0x65, 0x5f,
+	0x72, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1f,
+	0x2e, 0x66, 0x6c, 0x69, 0x67, 0x68, 0x74, 0x63, 0x74, 0x6c, 0x2e, 0x76, 0x31, 0x2e, 0x43, 0x68,
 	0x61, 0x6c, 0x6c, 0x65, 0x6e, 0x67, 0x65, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x48,
 	0x00, 0x52, 0x11, 0x63, 0x68, 0x61, 0x6c, 0x6c, 0x65, 0x6e, 0x67, 0x65, 0x52, 0x65, 0x73, 0x70,
 	0x6f, 0x6e, 0x73, 0x65, 0x42, 0x09, 0x0a, 0x07, 0x70, 0x61, 0x79, 0x6c, 0x6f, 0x61, 0x64, 0x22,
-	0xdb, 0x01, 0x0a, 0x19, 0x53, 0x65, 0x72, 0x76, 0x65, 0x72, 0x54, 0x50, 0x4d, 0x43, 0x68, 0x61,
-	0x6c, 0x6c, 0x65, 0x6e, 0x67, 0x65, 0x4d, 0x65, 0x73, 0x73, 0x61, 0x67, 0x65, 0x12, 0x3a, 0x0a,
-	0x09, 0x63, 0x68, 0x61, 0x6c, 0x6c, 0x65, 0x6e, 0x67, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b,
-	0x32, 0x1a, 0x2e, 0x66, 0x6c, 0x69, 0x67, 0x68, 0x74, 0x63, 0x74, 0x6c, 0x2e, 0x76, 0x31, 0x2e,
-	0x54, 0x50, 0x4d, 0x43, 0x68, 0x61, 0x6c, 0x6c, 0x65, 0x6e, 0x67, 0x65, 0x48, 0x00, 0x52, 0x09,
-	0x63, 0x68, 0x61, 0x6c, 0x6c, 0x65, 0x6e, 0x67, 0x65, 0x12, 0x3e, 0x0a, 0x07, 0x73, 0x75, 0x63,
-	0x63, 0x65, 0x73, 0x73, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x22, 0x2e, 0x66, 0x6c, 0x69,
-	0x67, 0x68, 0x74, 0x63, 0x74, 0x6c, 0x2e, 0x76, 0x31, 0x2e, 0x54, 0x50, 0x4d, 0x43, 0x68, 0x61,
+	0xc8, 0x01, 0x0a, 0x0f, 0x53, 0x65, 0x72, 0x76, 0x65, 0x72, 0x43, 0x68, 0x61, 0x6c, 0x6c, 0x65,
+	0x6e, 0x67, 0x65, 0x12, 0x37, 0x0a, 0x09, 0x63, 0x68, 0x61, 0x6c, 0x6c, 0x65, 0x6e, 0x67, 0x65,
+	0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x17, 0x2e, 0x66, 0x6c, 0x69, 0x67, 0x68, 0x74, 0x63,
+	0x74, 0x6c, 0x2e, 0x76, 0x31, 0x2e, 0x43, 0x68, 0x61, 0x6c, 0x6c, 0x65, 0x6e, 0x67, 0x65, 0x48,
+	0x00, 0x52, 0x09, 0x63, 0x68, 0x61, 0x6c, 0x6c, 0x65, 0x6e, 0x67, 0x65, 0x12, 0x3b, 0x0a, 0x07,
+	0x73, 0x75, 0x63, 0x63, 0x65, 0x73, 0x73, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1f, 0x2e,
+	0x66, 0x6c, 0x69, 0x67, 0x68, 0x74, 0x63, 0x74, 0x6c, 0x2e, 0x76, 0x31, 0x2e, 0x43, 0x68, 0x61,
 	0x6c, 0x6c, 0x65, 0x6e, 0x67, 0x65, 0x43, 0x6f, 0x6d, 0x70, 0x6c, 0x65, 0x74, 0x65, 0x48, 0x00,
-	0x52, 0x07, 0x73, 0x75, 0x63, 0x63, 0x65, 0x73, 0x73, 0x12, 0x37, 0x0a, 0x05, 0x65, 0x72, 0x72,
-	0x6f, 0x72, 0x18, 0x03, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1f, 0x2e, 0x66, 0x6c, 0x69, 0x67, 0x68,
-	0x74, 0x63, 0x74, 0x6c, 0x2e, 0x76, 0x31, 0x2e, 0x54, 0x50, 0x4d, 0x43, 0x68, 0x61, 0x6c, 0x6c,
-	0x65, 0x6e, 0x67, 0x65, 0x45, 0x72, 0x72, 0x6f, 0x72, 0x48, 0x00, 0x52, 0x05, 0x65, 0x72, 0x72,
-	0x6f, 0x72, 0x42, 0x09, 0x0a, 0x07, 0x70, 0x61, 0x79, 0x6c, 0x6f, 0x61, 0x64, 0x22, 0x4d, 0x0a,
-	0x13, 0x54, 0x50, 0x4d, 0x43, 0x68, 0x61, 0x6c, 0x6c, 0x65, 0x6e, 0x67, 0x65, 0x52, 0x65, 0x71,
-	0x75, 0x65, 0x73, 0x74, 0x12, 0x36, 0x0a, 0x17, 0x65, 0x6e, 0x72, 0x6f, 0x6c, 0x6c, 0x6d, 0x65,
-	0x6e, 0x74, 0x5f, 0x72, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x5f, 0x6e, 0x61, 0x6d, 0x65, 0x18,
-	0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x15, 0x65, 0x6e, 0x72, 0x6f, 0x6c, 0x6c, 0x6d, 0x65, 0x6e,
-	0x74, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x4e, 0x61, 0x6d, 0x65, 0x22, 0x62, 0x0a, 0x0c,
-	0x54, 0x50, 0x4d, 0x43, 0x68, 0x61, 0x6c, 0x6c, 0x65, 0x6e, 0x67, 0x65, 0x12, 0x27, 0x0a, 0x0f,
-	0x63, 0x72, 0x65, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x61, 0x6c, 0x5f, 0x62, 0x6c, 0x6f, 0x62, 0x18,
-	0x01, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x0e, 0x63, 0x72, 0x65, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x61,
-	0x6c, 0x42, 0x6c, 0x6f, 0x62, 0x12, 0x29, 0x0a, 0x10, 0x65, 0x6e, 0x63, 0x72, 0x79, 0x70, 0x74,
-	0x65, 0x64, 0x5f, 0x73, 0x65, 0x63, 0x72, 0x65, 0x74, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0c, 0x52,
-	0x0f, 0x65, 0x6e, 0x63, 0x72, 0x79, 0x70, 0x74, 0x65, 0x64, 0x53, 0x65, 0x63, 0x72, 0x65, 0x74,
-	0x22, 0x2e, 0x0a, 0x14, 0x54, 0x50, 0x4d, 0x43, 0x68, 0x61, 0x6c, 0x6c, 0x65, 0x6e, 0x67, 0x65,
-	0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x16, 0x0a, 0x06, 0x73, 0x65, 0x63, 0x72,
-	0x65, 0x74, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x06, 0x73, 0x65, 0x63, 0x72, 0x65, 0x74,
-	0x22, 0x30, 0x0a, 0x14, 0x54, 0x50, 0x4d, 0x43, 0x68, 0x61, 0x6c, 0x6c, 0x65, 0x6e, 0x67, 0x65,
-	0x43, 0x6f, 0x6d, 0x70, 0x6c, 0x65, 0x74, 0x65, 0x12, 0x18, 0x0a, 0x07, 0x6d, 0x65, 0x73, 0x73,
-	0x61, 0x67, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x07, 0x6d, 0x65, 0x73, 0x73, 0x61,
-	0x67, 0x65, 0x22, 0x2d, 0x0a, 0x11, 0x54, 0x50, 0x4d, 0x43, 0x68, 0x61, 0x6c, 0x6c, 0x65, 0x6e,
-	0x67, 0x65, 0x45, 0x72, 0x72, 0x6f, 0x72, 0x12, 0x18, 0x0a, 0x07, 0x6d, 0x65, 0x73, 0x73, 0x61,
-	0x67, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x07, 0x6d, 0x65, 0x73, 0x73, 0x61, 0x67,
-	0x65, 0x32, 0x86, 0x01, 0x0a, 0x18, 0x45, 0x6e, 0x72, 0x6f, 0x6c, 0x6c, 0x6d, 0x65, 0x6e, 0x74,
-	0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x53, 0x65, 0x72, 0x76, 0x69, 0x63, 0x65, 0x12, 0x6a,
-	0x0a, 0x13, 0x50, 0x65, 0x72, 0x66, 0x6f, 0x72, 0x6d, 0x54, 0x50, 0x4d, 0x43, 0x68, 0x61, 0x6c,
-	0x6c, 0x65, 0x6e, 0x67, 0x65, 0x12, 0x26, 0x2e, 0x66, 0x6c, 0x69, 0x67, 0x68, 0x74, 0x63, 0x74,
-	0x6c, 0x2e, 0x76, 0x31, 0x2e, 0x41, 0x67, 0x65, 0x6e, 0x74, 0x54, 0x50, 0x4d, 0x43, 0x68, 0x61,
-	0x6c, 0x6c, 0x65, 0x6e, 0x67, 0x65, 0x4d, 0x65, 0x73, 0x73, 0x61, 0x67, 0x65, 0x1a, 0x27, 0x2e,
-	0x66, 0x6c, 0x69, 0x67, 0x68, 0x74, 0x63, 0x74, 0x6c, 0x2e, 0x76, 0x31, 0x2e, 0x53, 0x65, 0x72,
-	0x76, 0x65, 0x72, 0x54, 0x50, 0x4d, 0x43, 0x68, 0x61, 0x6c, 0x6c, 0x65, 0x6e, 0x67, 0x65, 0x4d,
-	0x65, 0x73, 0x73, 0x61, 0x67, 0x65, 0x28, 0x01, 0x30, 0x01, 0x42, 0x34, 0x5a, 0x32, 0x67, 0x69,
-	0x74, 0x68, 0x75, 0x62, 0x2e, 0x63, 0x6f, 0x6d, 0x2f, 0x66, 0x6c, 0x69, 0x67, 0x68, 0x74, 0x63,
-	0x74, 0x6c, 0x2f, 0x66, 0x6c, 0x69, 0x67, 0x68, 0x74, 0x63, 0x74, 0x6c, 0x2f, 0x61, 0x70, 0x69,
-	0x2f, 0x67, 0x72, 0x70, 0x63, 0x2f, 0x76, 0x31, 0x2f, 0x67, 0x72, 0x70, 0x63, 0x2d, 0x76, 0x31,
-	0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
+	0x52, 0x07, 0x73, 0x75, 0x63, 0x63, 0x65, 0x73, 0x73, 0x12, 0x34, 0x0a, 0x05, 0x65, 0x72, 0x72,
+	0x6f, 0x72, 0x18, 0x03, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1c, 0x2e, 0x66, 0x6c, 0x69, 0x67, 0x68,
+	0x74, 0x63, 0x74, 0x6c, 0x2e, 0x76, 0x31, 0x2e, 0x43, 0x68, 0x61, 0x6c, 0x6c, 0x65, 0x6e, 0x67,
+	0x65, 0x45, 0x72, 0x72, 0x6f, 0x72, 0x48, 0x00, 0x52, 0x05, 0x65, 0x72, 0x72, 0x6f, 0x72, 0x42,
+	0x09, 0x0a, 0x07, 0x70, 0x61, 0x79, 0x6c, 0x6f, 0x61, 0x64, 0x22, 0x4a, 0x0a, 0x10, 0x43, 0x68,
+	0x61, 0x6c, 0x6c, 0x65, 0x6e, 0x67, 0x65, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x36,
+	0x0a, 0x17, 0x65, 0x6e, 0x72, 0x6f, 0x6c, 0x6c, 0x6d, 0x65, 0x6e, 0x74, 0x5f, 0x72, 0x65, 0x71,
+	0x75, 0x65, 0x73, 0x74, 0x5f, 0x6e, 0x61, 0x6d, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52,
+	0x15, 0x65, 0x6e, 0x72, 0x6f, 0x6c, 0x6c, 0x6d, 0x65, 0x6e, 0x74, 0x52, 0x65, 0x71, 0x75, 0x65,
+	0x73, 0x74, 0x4e, 0x61, 0x6d, 0x65, 0x22, 0x5f, 0x0a, 0x09, 0x43, 0x68, 0x61, 0x6c, 0x6c, 0x65,
+	0x6e, 0x67, 0x65, 0x12, 0x27, 0x0a, 0x0f, 0x63, 0x72, 0x65, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x61,
+	0x6c, 0x5f, 0x62, 0x6c, 0x6f, 0x62, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x0e, 0x63, 0x72,
+	0x65, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x61, 0x6c, 0x42, 0x6c, 0x6f, 0x62, 0x12, 0x29, 0x0a, 0x10,
+	0x65, 0x6e, 0x63, 0x72, 0x79, 0x70, 0x74, 0x65, 0x64, 0x5f, 0x73, 0x65, 0x63, 0x72, 0x65, 0x74,
+	0x18, 0x02, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x0f, 0x65, 0x6e, 0x63, 0x72, 0x79, 0x70, 0x74, 0x65,
+	0x64, 0x53, 0x65, 0x63, 0x72, 0x65, 0x74, 0x22, 0x2b, 0x0a, 0x11, 0x43, 0x68, 0x61, 0x6c, 0x6c,
+	0x65, 0x6e, 0x67, 0x65, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x16, 0x0a, 0x06,
+	0x73, 0x65, 0x63, 0x72, 0x65, 0x74, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x06, 0x73, 0x65,
+	0x63, 0x72, 0x65, 0x74, 0x22, 0x2d, 0x0a, 0x11, 0x43, 0x68, 0x61, 0x6c, 0x6c, 0x65, 0x6e, 0x67,
+	0x65, 0x43, 0x6f, 0x6d, 0x70, 0x6c, 0x65, 0x74, 0x65, 0x12, 0x18, 0x0a, 0x07, 0x6d, 0x65, 0x73,
+	0x73, 0x61, 0x67, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x07, 0x6d, 0x65, 0x73, 0x73,
+	0x61, 0x67, 0x65, 0x22, 0x2a, 0x0a, 0x0e, 0x43, 0x68, 0x61, 0x6c, 0x6c, 0x65, 0x6e, 0x67, 0x65,
+	0x45, 0x72, 0x72, 0x6f, 0x72, 0x12, 0x18, 0x0a, 0x07, 0x6d, 0x65, 0x73, 0x73, 0x61, 0x67, 0x65,
+	0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x07, 0x6d, 0x65, 0x73, 0x73, 0x61, 0x67, 0x65, 0x32,
+	0x5d, 0x0a, 0x0a, 0x45, 0x6e, 0x72, 0x6f, 0x6c, 0x6c, 0x6d, 0x65, 0x6e, 0x74, 0x12, 0x4f, 0x0a,
+	0x0c, 0x54, 0x50, 0x4d, 0x43, 0x68, 0x61, 0x6c, 0x6c, 0x65, 0x6e, 0x67, 0x65, 0x12, 0x1c, 0x2e,
+	0x66, 0x6c, 0x69, 0x67, 0x68, 0x74, 0x63, 0x74, 0x6c, 0x2e, 0x76, 0x31, 0x2e, 0x41, 0x67, 0x65,
+	0x6e, 0x74, 0x43, 0x68, 0x61, 0x6c, 0x6c, 0x65, 0x6e, 0x67, 0x65, 0x1a, 0x1d, 0x2e, 0x66, 0x6c,
+	0x69, 0x67, 0x68, 0x74, 0x63, 0x74, 0x6c, 0x2e, 0x76, 0x31, 0x2e, 0x53, 0x65, 0x72, 0x76, 0x65,
+	0x72, 0x43, 0x68, 0x61, 0x6c, 0x6c, 0x65, 0x6e, 0x67, 0x65, 0x28, 0x01, 0x30, 0x01, 0x42, 0x34,
+	0x5a, 0x32, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x2e, 0x63, 0x6f, 0x6d, 0x2f, 0x66, 0x6c, 0x69,
+	0x67, 0x68, 0x74, 0x63, 0x74, 0x6c, 0x2f, 0x66, 0x6c, 0x69, 0x67, 0x68, 0x74, 0x63, 0x74, 0x6c,
+	0x2f, 0x61, 0x70, 0x69, 0x2f, 0x67, 0x72, 0x70, 0x63, 0x2f, 0x76, 0x31, 0x2f, 0x67, 0x72, 0x70,
+	0x63, 0x2d, 0x76, 0x31, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
 }
 
 var (
@@ -539,22 +533,22 @@ func file_enrollment_proto_rawDescGZIP() []byte {
 
 var file_enrollment_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_enrollment_proto_goTypes = []interface{}{
-	(*AgentTPMChallengeMessage)(nil),  // 0: flightctl.v1.AgentTPMChallengeMessage
-	(*ServerTPMChallengeMessage)(nil), // 1: flightctl.v1.ServerTPMChallengeMessage
-	(*TPMChallengeRequest)(nil),       // 2: flightctl.v1.TPMChallengeRequest
-	(*TPMChallenge)(nil),              // 3: flightctl.v1.TPMChallenge
-	(*TPMChallengeResponse)(nil),      // 4: flightctl.v1.TPMChallengeResponse
-	(*TPMChallengeComplete)(nil),      // 5: flightctl.v1.TPMChallengeComplete
-	(*TPMChallengeError)(nil),         // 6: flightctl.v1.TPMChallengeError
+	(*AgentChallenge)(nil),    // 0: flightctl.v1.AgentChallenge
+	(*ServerChallenge)(nil),   // 1: flightctl.v1.ServerChallenge
+	(*ChallengeRequest)(nil),  // 2: flightctl.v1.ChallengeRequest
+	(*Challenge)(nil),         // 3: flightctl.v1.Challenge
+	(*ChallengeResponse)(nil), // 4: flightctl.v1.ChallengeResponse
+	(*ChallengeComplete)(nil), // 5: flightctl.v1.ChallengeComplete
+	(*ChallengeError)(nil),    // 6: flightctl.v1.ChallengeError
 }
 var file_enrollment_proto_depIdxs = []int32{
-	2, // 0: flightctl.v1.AgentTPMChallengeMessage.challenge_request:type_name -> flightctl.v1.TPMChallengeRequest
-	4, // 1: flightctl.v1.AgentTPMChallengeMessage.challenge_response:type_name -> flightctl.v1.TPMChallengeResponse
-	3, // 2: flightctl.v1.ServerTPMChallengeMessage.challenge:type_name -> flightctl.v1.TPMChallenge
-	5, // 3: flightctl.v1.ServerTPMChallengeMessage.success:type_name -> flightctl.v1.TPMChallengeComplete
-	6, // 4: flightctl.v1.ServerTPMChallengeMessage.error:type_name -> flightctl.v1.TPMChallengeError
-	0, // 5: flightctl.v1.EnrollmentRequestService.PerformTPMChallenge:input_type -> flightctl.v1.AgentTPMChallengeMessage
-	1, // 6: flightctl.v1.EnrollmentRequestService.PerformTPMChallenge:output_type -> flightctl.v1.ServerTPMChallengeMessage
+	2, // 0: flightctl.v1.AgentChallenge.challenge_request:type_name -> flightctl.v1.ChallengeRequest
+	4, // 1: flightctl.v1.AgentChallenge.challenge_response:type_name -> flightctl.v1.ChallengeResponse
+	3, // 2: flightctl.v1.ServerChallenge.challenge:type_name -> flightctl.v1.Challenge
+	5, // 3: flightctl.v1.ServerChallenge.success:type_name -> flightctl.v1.ChallengeComplete
+	6, // 4: flightctl.v1.ServerChallenge.error:type_name -> flightctl.v1.ChallengeError
+	0, // 5: flightctl.v1.Enrollment.TPMChallenge:input_type -> flightctl.v1.AgentChallenge
+	1, // 6: flightctl.v1.Enrollment.TPMChallenge:output_type -> flightctl.v1.ServerChallenge
 	6, // [6:7] is the sub-list for method output_type
 	5, // [5:6] is the sub-list for method input_type
 	5, // [5:5] is the sub-list for extension type_name
@@ -569,7 +563,7 @@ func file_enrollment_proto_init() {
 	}
 	if !protoimpl.UnsafeEnabled {
 		file_enrollment_proto_msgTypes[0].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*AgentTPMChallengeMessage); i {
+			switch v := v.(*AgentChallenge); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -581,7 +575,7 @@ func file_enrollment_proto_init() {
 			}
 		}
 		file_enrollment_proto_msgTypes[1].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ServerTPMChallengeMessage); i {
+			switch v := v.(*ServerChallenge); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -593,7 +587,7 @@ func file_enrollment_proto_init() {
 			}
 		}
 		file_enrollment_proto_msgTypes[2].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*TPMChallengeRequest); i {
+			switch v := v.(*ChallengeRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -605,7 +599,7 @@ func file_enrollment_proto_init() {
 			}
 		}
 		file_enrollment_proto_msgTypes[3].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*TPMChallenge); i {
+			switch v := v.(*Challenge); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -617,7 +611,7 @@ func file_enrollment_proto_init() {
 			}
 		}
 		file_enrollment_proto_msgTypes[4].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*TPMChallengeResponse); i {
+			switch v := v.(*ChallengeResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -629,7 +623,7 @@ func file_enrollment_proto_init() {
 			}
 		}
 		file_enrollment_proto_msgTypes[5].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*TPMChallengeComplete); i {
+			switch v := v.(*ChallengeComplete); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -641,7 +635,7 @@ func file_enrollment_proto_init() {
 			}
 		}
 		file_enrollment_proto_msgTypes[6].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*TPMChallengeError); i {
+			switch v := v.(*ChallengeError); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -654,13 +648,13 @@ func file_enrollment_proto_init() {
 		}
 	}
 	file_enrollment_proto_msgTypes[0].OneofWrappers = []interface{}{
-		(*AgentTPMChallengeMessage_ChallengeRequest)(nil),
-		(*AgentTPMChallengeMessage_ChallengeResponse)(nil),
+		(*AgentChallenge_ChallengeRequest)(nil),
+		(*AgentChallenge_ChallengeResponse)(nil),
 	}
 	file_enrollment_proto_msgTypes[1].OneofWrappers = []interface{}{
-		(*ServerTPMChallengeMessage_Challenge)(nil),
-		(*ServerTPMChallengeMessage_Success)(nil),
-		(*ServerTPMChallengeMessage_Error)(nil),
+		(*ServerChallenge_Challenge)(nil),
+		(*ServerChallenge_Success)(nil),
+		(*ServerChallenge_Error)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{

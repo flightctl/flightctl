@@ -18,74 +18,74 @@ import (
 	metadata "google.golang.org/grpc/metadata"
 )
 
-// MockEnrollmentRequestServiceClient is a mock of EnrollmentRequestServiceClient interface.
-type MockEnrollmentRequestServiceClient struct {
+// MockEnrollmentClient is a mock of EnrollmentClient interface.
+type MockEnrollmentClient struct {
 	ctrl     *gomock.Controller
-	recorder *MockEnrollmentRequestServiceClientMockRecorder
+	recorder *MockEnrollmentClientMockRecorder
 }
 
-// MockEnrollmentRequestServiceClientMockRecorder is the mock recorder for MockEnrollmentRequestServiceClient.
-type MockEnrollmentRequestServiceClientMockRecorder struct {
-	mock *MockEnrollmentRequestServiceClient
+// MockEnrollmentClientMockRecorder is the mock recorder for MockEnrollmentClient.
+type MockEnrollmentClientMockRecorder struct {
+	mock *MockEnrollmentClient
 }
 
-// NewMockEnrollmentRequestServiceClient creates a new mock instance.
-func NewMockEnrollmentRequestServiceClient(ctrl *gomock.Controller) *MockEnrollmentRequestServiceClient {
-	mock := &MockEnrollmentRequestServiceClient{ctrl: ctrl}
-	mock.recorder = &MockEnrollmentRequestServiceClientMockRecorder{mock}
+// NewMockEnrollmentClient creates a new mock instance.
+func NewMockEnrollmentClient(ctrl *gomock.Controller) *MockEnrollmentClient {
+	mock := &MockEnrollmentClient{ctrl: ctrl}
+	mock.recorder = &MockEnrollmentClientMockRecorder{mock}
 	return mock
 }
 
 // EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockEnrollmentRequestServiceClient) EXPECT() *MockEnrollmentRequestServiceClientMockRecorder {
+func (m *MockEnrollmentClient) EXPECT() *MockEnrollmentClientMockRecorder {
 	return m.recorder
 }
 
-// PerformTPMChallenge mocks base method.
-func (m *MockEnrollmentRequestServiceClient) PerformTPMChallenge(ctx context.Context, opts ...grpc.CallOption) (EnrollmentRequestService_PerformTPMChallengeClient, error) {
+// TPMChallenge mocks base method.
+func (m *MockEnrollmentClient) TPMChallenge(ctx context.Context, opts ...grpc.CallOption) (Enrollment_TPMChallengeClient, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
-	ret := m.ctrl.Call(m, "PerformTPMChallenge", varargs...)
-	ret0, _ := ret[0].(EnrollmentRequestService_PerformTPMChallengeClient)
+	ret := m.ctrl.Call(m, "TPMChallenge", varargs...)
+	ret0, _ := ret[0].(Enrollment_TPMChallengeClient)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// PerformTPMChallenge indicates an expected call of PerformTPMChallenge.
-func (mr *MockEnrollmentRequestServiceClientMockRecorder) PerformTPMChallenge(ctx any, opts ...any) *gomock.Call {
+// TPMChallenge indicates an expected call of TPMChallenge.
+func (mr *MockEnrollmentClientMockRecorder) TPMChallenge(ctx any, opts ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]any{ctx}, opts...)
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PerformTPMChallenge", reflect.TypeOf((*MockEnrollmentRequestServiceClient)(nil).PerformTPMChallenge), varargs...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TPMChallenge", reflect.TypeOf((*MockEnrollmentClient)(nil).TPMChallenge), varargs...)
 }
 
-// MockEnrollmentRequestService_PerformTPMChallengeClient is a mock of EnrollmentRequestService_PerformTPMChallengeClient interface.
-type MockEnrollmentRequestService_PerformTPMChallengeClient struct {
+// MockEnrollment_TPMChallengeClient is a mock of Enrollment_TPMChallengeClient interface.
+type MockEnrollment_TPMChallengeClient struct {
 	ctrl     *gomock.Controller
-	recorder *MockEnrollmentRequestService_PerformTPMChallengeClientMockRecorder
+	recorder *MockEnrollment_TPMChallengeClientMockRecorder
 }
 
-// MockEnrollmentRequestService_PerformTPMChallengeClientMockRecorder is the mock recorder for MockEnrollmentRequestService_PerformTPMChallengeClient.
-type MockEnrollmentRequestService_PerformTPMChallengeClientMockRecorder struct {
-	mock *MockEnrollmentRequestService_PerformTPMChallengeClient
+// MockEnrollment_TPMChallengeClientMockRecorder is the mock recorder for MockEnrollment_TPMChallengeClient.
+type MockEnrollment_TPMChallengeClientMockRecorder struct {
+	mock *MockEnrollment_TPMChallengeClient
 }
 
-// NewMockEnrollmentRequestService_PerformTPMChallengeClient creates a new mock instance.
-func NewMockEnrollmentRequestService_PerformTPMChallengeClient(ctrl *gomock.Controller) *MockEnrollmentRequestService_PerformTPMChallengeClient {
-	mock := &MockEnrollmentRequestService_PerformTPMChallengeClient{ctrl: ctrl}
-	mock.recorder = &MockEnrollmentRequestService_PerformTPMChallengeClientMockRecorder{mock}
+// NewMockEnrollment_TPMChallengeClient creates a new mock instance.
+func NewMockEnrollment_TPMChallengeClient(ctrl *gomock.Controller) *MockEnrollment_TPMChallengeClient {
+	mock := &MockEnrollment_TPMChallengeClient{ctrl: ctrl}
+	mock.recorder = &MockEnrollment_TPMChallengeClientMockRecorder{mock}
 	return mock
 }
 
 // EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockEnrollmentRequestService_PerformTPMChallengeClient) EXPECT() *MockEnrollmentRequestService_PerformTPMChallengeClientMockRecorder {
+func (m *MockEnrollment_TPMChallengeClient) EXPECT() *MockEnrollment_TPMChallengeClientMockRecorder {
 	return m.recorder
 }
 
 // CloseSend mocks base method.
-func (m *MockEnrollmentRequestService_PerformTPMChallengeClient) CloseSend() error {
+func (m *MockEnrollment_TPMChallengeClient) CloseSend() error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CloseSend")
 	ret0, _ := ret[0].(error)
@@ -93,13 +93,13 @@ func (m *MockEnrollmentRequestService_PerformTPMChallengeClient) CloseSend() err
 }
 
 // CloseSend indicates an expected call of CloseSend.
-func (mr *MockEnrollmentRequestService_PerformTPMChallengeClientMockRecorder) CloseSend() *gomock.Call {
+func (mr *MockEnrollment_TPMChallengeClientMockRecorder) CloseSend() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CloseSend", reflect.TypeOf((*MockEnrollmentRequestService_PerformTPMChallengeClient)(nil).CloseSend))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CloseSend", reflect.TypeOf((*MockEnrollment_TPMChallengeClient)(nil).CloseSend))
 }
 
 // Context mocks base method.
-func (m *MockEnrollmentRequestService_PerformTPMChallengeClient) Context() context.Context {
+func (m *MockEnrollment_TPMChallengeClient) Context() context.Context {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Context")
 	ret0, _ := ret[0].(context.Context)
@@ -107,13 +107,13 @@ func (m *MockEnrollmentRequestService_PerformTPMChallengeClient) Context() conte
 }
 
 // Context indicates an expected call of Context.
-func (mr *MockEnrollmentRequestService_PerformTPMChallengeClientMockRecorder) Context() *gomock.Call {
+func (mr *MockEnrollment_TPMChallengeClientMockRecorder) Context() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Context", reflect.TypeOf((*MockEnrollmentRequestService_PerformTPMChallengeClient)(nil).Context))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Context", reflect.TypeOf((*MockEnrollment_TPMChallengeClient)(nil).Context))
 }
 
 // Header mocks base method.
-func (m *MockEnrollmentRequestService_PerformTPMChallengeClient) Header() (metadata.MD, error) {
+func (m *MockEnrollment_TPMChallengeClient) Header() (metadata.MD, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Header")
 	ret0, _ := ret[0].(metadata.MD)
@@ -122,28 +122,28 @@ func (m *MockEnrollmentRequestService_PerformTPMChallengeClient) Header() (metad
 }
 
 // Header indicates an expected call of Header.
-func (mr *MockEnrollmentRequestService_PerformTPMChallengeClientMockRecorder) Header() *gomock.Call {
+func (mr *MockEnrollment_TPMChallengeClientMockRecorder) Header() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Header", reflect.TypeOf((*MockEnrollmentRequestService_PerformTPMChallengeClient)(nil).Header))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Header", reflect.TypeOf((*MockEnrollment_TPMChallengeClient)(nil).Header))
 }
 
 // Recv mocks base method.
-func (m *MockEnrollmentRequestService_PerformTPMChallengeClient) Recv() (*ServerTPMChallengeMessage, error) {
+func (m *MockEnrollment_TPMChallengeClient) Recv() (*ServerChallenge, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Recv")
-	ret0, _ := ret[0].(*ServerTPMChallengeMessage)
+	ret0, _ := ret[0].(*ServerChallenge)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // Recv indicates an expected call of Recv.
-func (mr *MockEnrollmentRequestService_PerformTPMChallengeClientMockRecorder) Recv() *gomock.Call {
+func (mr *MockEnrollment_TPMChallengeClientMockRecorder) Recv() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Recv", reflect.TypeOf((*MockEnrollmentRequestService_PerformTPMChallengeClient)(nil).Recv))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Recv", reflect.TypeOf((*MockEnrollment_TPMChallengeClient)(nil).Recv))
 }
 
 // RecvMsg mocks base method.
-func (m_2 *MockEnrollmentRequestService_PerformTPMChallengeClient) RecvMsg(m any) error {
+func (m_2 *MockEnrollment_TPMChallengeClient) RecvMsg(m any) error {
 	m_2.ctrl.T.Helper()
 	ret := m_2.ctrl.Call(m_2, "RecvMsg", m)
 	ret0, _ := ret[0].(error)
@@ -151,13 +151,13 @@ func (m_2 *MockEnrollmentRequestService_PerformTPMChallengeClient) RecvMsg(m any
 }
 
 // RecvMsg indicates an expected call of RecvMsg.
-func (mr *MockEnrollmentRequestService_PerformTPMChallengeClientMockRecorder) RecvMsg(m any) *gomock.Call {
+func (mr *MockEnrollment_TPMChallengeClientMockRecorder) RecvMsg(m any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecvMsg", reflect.TypeOf((*MockEnrollmentRequestService_PerformTPMChallengeClient)(nil).RecvMsg), m)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecvMsg", reflect.TypeOf((*MockEnrollment_TPMChallengeClient)(nil).RecvMsg), m)
 }
 
 // Send mocks base method.
-func (m *MockEnrollmentRequestService_PerformTPMChallengeClient) Send(arg0 *AgentTPMChallengeMessage) error {
+func (m *MockEnrollment_TPMChallengeClient) Send(arg0 *AgentChallenge) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Send", arg0)
 	ret0, _ := ret[0].(error)
@@ -165,13 +165,13 @@ func (m *MockEnrollmentRequestService_PerformTPMChallengeClient) Send(arg0 *Agen
 }
 
 // Send indicates an expected call of Send.
-func (mr *MockEnrollmentRequestService_PerformTPMChallengeClientMockRecorder) Send(arg0 any) *gomock.Call {
+func (mr *MockEnrollment_TPMChallengeClientMockRecorder) Send(arg0 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Send", reflect.TypeOf((*MockEnrollmentRequestService_PerformTPMChallengeClient)(nil).Send), arg0)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Send", reflect.TypeOf((*MockEnrollment_TPMChallengeClient)(nil).Send), arg0)
 }
 
 // SendMsg mocks base method.
-func (m_2 *MockEnrollmentRequestService_PerformTPMChallengeClient) SendMsg(m any) error {
+func (m_2 *MockEnrollment_TPMChallengeClient) SendMsg(m any) error {
 	m_2.ctrl.T.Helper()
 	ret := m_2.ctrl.Call(m_2, "SendMsg", m)
 	ret0, _ := ret[0].(error)
@@ -179,13 +179,13 @@ func (m_2 *MockEnrollmentRequestService_PerformTPMChallengeClient) SendMsg(m any
 }
 
 // SendMsg indicates an expected call of SendMsg.
-func (mr *MockEnrollmentRequestService_PerformTPMChallengeClientMockRecorder) SendMsg(m any) *gomock.Call {
+func (mr *MockEnrollment_TPMChallengeClientMockRecorder) SendMsg(m any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SendMsg", reflect.TypeOf((*MockEnrollmentRequestService_PerformTPMChallengeClient)(nil).SendMsg), m)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SendMsg", reflect.TypeOf((*MockEnrollment_TPMChallengeClient)(nil).SendMsg), m)
 }
 
 // Trailer mocks base method.
-func (m *MockEnrollmentRequestService_PerformTPMChallengeClient) Trailer() metadata.MD {
+func (m *MockEnrollment_TPMChallengeClient) Trailer() metadata.MD {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Trailer")
 	ret0, _ := ret[0].(metadata.MD)
@@ -193,120 +193,120 @@ func (m *MockEnrollmentRequestService_PerformTPMChallengeClient) Trailer() metad
 }
 
 // Trailer indicates an expected call of Trailer.
-func (mr *MockEnrollmentRequestService_PerformTPMChallengeClientMockRecorder) Trailer() *gomock.Call {
+func (mr *MockEnrollment_TPMChallengeClientMockRecorder) Trailer() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Trailer", reflect.TypeOf((*MockEnrollmentRequestService_PerformTPMChallengeClient)(nil).Trailer))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Trailer", reflect.TypeOf((*MockEnrollment_TPMChallengeClient)(nil).Trailer))
 }
 
-// MockEnrollmentRequestServiceServer is a mock of EnrollmentRequestServiceServer interface.
-type MockEnrollmentRequestServiceServer struct {
+// MockEnrollmentServer is a mock of EnrollmentServer interface.
+type MockEnrollmentServer struct {
 	ctrl     *gomock.Controller
-	recorder *MockEnrollmentRequestServiceServerMockRecorder
+	recorder *MockEnrollmentServerMockRecorder
 }
 
-// MockEnrollmentRequestServiceServerMockRecorder is the mock recorder for MockEnrollmentRequestServiceServer.
-type MockEnrollmentRequestServiceServerMockRecorder struct {
-	mock *MockEnrollmentRequestServiceServer
+// MockEnrollmentServerMockRecorder is the mock recorder for MockEnrollmentServer.
+type MockEnrollmentServerMockRecorder struct {
+	mock *MockEnrollmentServer
 }
 
-// NewMockEnrollmentRequestServiceServer creates a new mock instance.
-func NewMockEnrollmentRequestServiceServer(ctrl *gomock.Controller) *MockEnrollmentRequestServiceServer {
-	mock := &MockEnrollmentRequestServiceServer{ctrl: ctrl}
-	mock.recorder = &MockEnrollmentRequestServiceServerMockRecorder{mock}
+// NewMockEnrollmentServer creates a new mock instance.
+func NewMockEnrollmentServer(ctrl *gomock.Controller) *MockEnrollmentServer {
+	mock := &MockEnrollmentServer{ctrl: ctrl}
+	mock.recorder = &MockEnrollmentServerMockRecorder{mock}
 	return mock
 }
 
 // EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockEnrollmentRequestServiceServer) EXPECT() *MockEnrollmentRequestServiceServerMockRecorder {
+func (m *MockEnrollmentServer) EXPECT() *MockEnrollmentServerMockRecorder {
 	return m.recorder
 }
 
-// PerformTPMChallenge mocks base method.
-func (m *MockEnrollmentRequestServiceServer) PerformTPMChallenge(arg0 EnrollmentRequestService_PerformTPMChallengeServer) error {
+// TPMChallenge mocks base method.
+func (m *MockEnrollmentServer) TPMChallenge(arg0 Enrollment_TPMChallengeServer) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "PerformTPMChallenge", arg0)
+	ret := m.ctrl.Call(m, "TPMChallenge", arg0)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
-// PerformTPMChallenge indicates an expected call of PerformTPMChallenge.
-func (mr *MockEnrollmentRequestServiceServerMockRecorder) PerformTPMChallenge(arg0 any) *gomock.Call {
+// TPMChallenge indicates an expected call of TPMChallenge.
+func (mr *MockEnrollmentServerMockRecorder) TPMChallenge(arg0 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PerformTPMChallenge", reflect.TypeOf((*MockEnrollmentRequestServiceServer)(nil).PerformTPMChallenge), arg0)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TPMChallenge", reflect.TypeOf((*MockEnrollmentServer)(nil).TPMChallenge), arg0)
 }
 
-// mustEmbedUnimplementedEnrollmentRequestServiceServer mocks base method.
-func (m *MockEnrollmentRequestServiceServer) mustEmbedUnimplementedEnrollmentRequestServiceServer() {
+// mustEmbedUnimplementedEnrollmentServer mocks base method.
+func (m *MockEnrollmentServer) mustEmbedUnimplementedEnrollmentServer() {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "mustEmbedUnimplementedEnrollmentRequestServiceServer")
+	m.ctrl.Call(m, "mustEmbedUnimplementedEnrollmentServer")
 }
 
-// mustEmbedUnimplementedEnrollmentRequestServiceServer indicates an expected call of mustEmbedUnimplementedEnrollmentRequestServiceServer.
-func (mr *MockEnrollmentRequestServiceServerMockRecorder) mustEmbedUnimplementedEnrollmentRequestServiceServer() *gomock.Call {
+// mustEmbedUnimplementedEnrollmentServer indicates an expected call of mustEmbedUnimplementedEnrollmentServer.
+func (mr *MockEnrollmentServerMockRecorder) mustEmbedUnimplementedEnrollmentServer() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "mustEmbedUnimplementedEnrollmentRequestServiceServer", reflect.TypeOf((*MockEnrollmentRequestServiceServer)(nil).mustEmbedUnimplementedEnrollmentRequestServiceServer))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "mustEmbedUnimplementedEnrollmentServer", reflect.TypeOf((*MockEnrollmentServer)(nil).mustEmbedUnimplementedEnrollmentServer))
 }
 
-// MockUnsafeEnrollmentRequestServiceServer is a mock of UnsafeEnrollmentRequestServiceServer interface.
-type MockUnsafeEnrollmentRequestServiceServer struct {
+// MockUnsafeEnrollmentServer is a mock of UnsafeEnrollmentServer interface.
+type MockUnsafeEnrollmentServer struct {
 	ctrl     *gomock.Controller
-	recorder *MockUnsafeEnrollmentRequestServiceServerMockRecorder
+	recorder *MockUnsafeEnrollmentServerMockRecorder
 }
 
-// MockUnsafeEnrollmentRequestServiceServerMockRecorder is the mock recorder for MockUnsafeEnrollmentRequestServiceServer.
-type MockUnsafeEnrollmentRequestServiceServerMockRecorder struct {
-	mock *MockUnsafeEnrollmentRequestServiceServer
+// MockUnsafeEnrollmentServerMockRecorder is the mock recorder for MockUnsafeEnrollmentServer.
+type MockUnsafeEnrollmentServerMockRecorder struct {
+	mock *MockUnsafeEnrollmentServer
 }
 
-// NewMockUnsafeEnrollmentRequestServiceServer creates a new mock instance.
-func NewMockUnsafeEnrollmentRequestServiceServer(ctrl *gomock.Controller) *MockUnsafeEnrollmentRequestServiceServer {
-	mock := &MockUnsafeEnrollmentRequestServiceServer{ctrl: ctrl}
-	mock.recorder = &MockUnsafeEnrollmentRequestServiceServerMockRecorder{mock}
+// NewMockUnsafeEnrollmentServer creates a new mock instance.
+func NewMockUnsafeEnrollmentServer(ctrl *gomock.Controller) *MockUnsafeEnrollmentServer {
+	mock := &MockUnsafeEnrollmentServer{ctrl: ctrl}
+	mock.recorder = &MockUnsafeEnrollmentServerMockRecorder{mock}
 	return mock
 }
 
 // EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockUnsafeEnrollmentRequestServiceServer) EXPECT() *MockUnsafeEnrollmentRequestServiceServerMockRecorder {
+func (m *MockUnsafeEnrollmentServer) EXPECT() *MockUnsafeEnrollmentServerMockRecorder {
 	return m.recorder
 }
 
-// mustEmbedUnimplementedEnrollmentRequestServiceServer mocks base method.
-func (m *MockUnsafeEnrollmentRequestServiceServer) mustEmbedUnimplementedEnrollmentRequestServiceServer() {
+// mustEmbedUnimplementedEnrollmentServer mocks base method.
+func (m *MockUnsafeEnrollmentServer) mustEmbedUnimplementedEnrollmentServer() {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "mustEmbedUnimplementedEnrollmentRequestServiceServer")
+	m.ctrl.Call(m, "mustEmbedUnimplementedEnrollmentServer")
 }
 
-// mustEmbedUnimplementedEnrollmentRequestServiceServer indicates an expected call of mustEmbedUnimplementedEnrollmentRequestServiceServer.
-func (mr *MockUnsafeEnrollmentRequestServiceServerMockRecorder) mustEmbedUnimplementedEnrollmentRequestServiceServer() *gomock.Call {
+// mustEmbedUnimplementedEnrollmentServer indicates an expected call of mustEmbedUnimplementedEnrollmentServer.
+func (mr *MockUnsafeEnrollmentServerMockRecorder) mustEmbedUnimplementedEnrollmentServer() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "mustEmbedUnimplementedEnrollmentRequestServiceServer", reflect.TypeOf((*MockUnsafeEnrollmentRequestServiceServer)(nil).mustEmbedUnimplementedEnrollmentRequestServiceServer))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "mustEmbedUnimplementedEnrollmentServer", reflect.TypeOf((*MockUnsafeEnrollmentServer)(nil).mustEmbedUnimplementedEnrollmentServer))
 }
 
-// MockEnrollmentRequestService_PerformTPMChallengeServer is a mock of EnrollmentRequestService_PerformTPMChallengeServer interface.
-type MockEnrollmentRequestService_PerformTPMChallengeServer struct {
+// MockEnrollment_TPMChallengeServer is a mock of Enrollment_TPMChallengeServer interface.
+type MockEnrollment_TPMChallengeServer struct {
 	ctrl     *gomock.Controller
-	recorder *MockEnrollmentRequestService_PerformTPMChallengeServerMockRecorder
+	recorder *MockEnrollment_TPMChallengeServerMockRecorder
 }
 
-// MockEnrollmentRequestService_PerformTPMChallengeServerMockRecorder is the mock recorder for MockEnrollmentRequestService_PerformTPMChallengeServer.
-type MockEnrollmentRequestService_PerformTPMChallengeServerMockRecorder struct {
-	mock *MockEnrollmentRequestService_PerformTPMChallengeServer
+// MockEnrollment_TPMChallengeServerMockRecorder is the mock recorder for MockEnrollment_TPMChallengeServer.
+type MockEnrollment_TPMChallengeServerMockRecorder struct {
+	mock *MockEnrollment_TPMChallengeServer
 }
 
-// NewMockEnrollmentRequestService_PerformTPMChallengeServer creates a new mock instance.
-func NewMockEnrollmentRequestService_PerformTPMChallengeServer(ctrl *gomock.Controller) *MockEnrollmentRequestService_PerformTPMChallengeServer {
-	mock := &MockEnrollmentRequestService_PerformTPMChallengeServer{ctrl: ctrl}
-	mock.recorder = &MockEnrollmentRequestService_PerformTPMChallengeServerMockRecorder{mock}
+// NewMockEnrollment_TPMChallengeServer creates a new mock instance.
+func NewMockEnrollment_TPMChallengeServer(ctrl *gomock.Controller) *MockEnrollment_TPMChallengeServer {
+	mock := &MockEnrollment_TPMChallengeServer{ctrl: ctrl}
+	mock.recorder = &MockEnrollment_TPMChallengeServerMockRecorder{mock}
 	return mock
 }
 
 // EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockEnrollmentRequestService_PerformTPMChallengeServer) EXPECT() *MockEnrollmentRequestService_PerformTPMChallengeServerMockRecorder {
+func (m *MockEnrollment_TPMChallengeServer) EXPECT() *MockEnrollment_TPMChallengeServerMockRecorder {
 	return m.recorder
 }
 
 // Context mocks base method.
-func (m *MockEnrollmentRequestService_PerformTPMChallengeServer) Context() context.Context {
+func (m *MockEnrollment_TPMChallengeServer) Context() context.Context {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Context")
 	ret0, _ := ret[0].(context.Context)
@@ -314,28 +314,28 @@ func (m *MockEnrollmentRequestService_PerformTPMChallengeServer) Context() conte
 }
 
 // Context indicates an expected call of Context.
-func (mr *MockEnrollmentRequestService_PerformTPMChallengeServerMockRecorder) Context() *gomock.Call {
+func (mr *MockEnrollment_TPMChallengeServerMockRecorder) Context() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Context", reflect.TypeOf((*MockEnrollmentRequestService_PerformTPMChallengeServer)(nil).Context))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Context", reflect.TypeOf((*MockEnrollment_TPMChallengeServer)(nil).Context))
 }
 
 // Recv mocks base method.
-func (m *MockEnrollmentRequestService_PerformTPMChallengeServer) Recv() (*AgentTPMChallengeMessage, error) {
+func (m *MockEnrollment_TPMChallengeServer) Recv() (*AgentChallenge, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Recv")
-	ret0, _ := ret[0].(*AgentTPMChallengeMessage)
+	ret0, _ := ret[0].(*AgentChallenge)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // Recv indicates an expected call of Recv.
-func (mr *MockEnrollmentRequestService_PerformTPMChallengeServerMockRecorder) Recv() *gomock.Call {
+func (mr *MockEnrollment_TPMChallengeServerMockRecorder) Recv() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Recv", reflect.TypeOf((*MockEnrollmentRequestService_PerformTPMChallengeServer)(nil).Recv))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Recv", reflect.TypeOf((*MockEnrollment_TPMChallengeServer)(nil).Recv))
 }
 
 // RecvMsg mocks base method.
-func (m_2 *MockEnrollmentRequestService_PerformTPMChallengeServer) RecvMsg(m any) error {
+func (m_2 *MockEnrollment_TPMChallengeServer) RecvMsg(m any) error {
 	m_2.ctrl.T.Helper()
 	ret := m_2.ctrl.Call(m_2, "RecvMsg", m)
 	ret0, _ := ret[0].(error)
@@ -343,13 +343,13 @@ func (m_2 *MockEnrollmentRequestService_PerformTPMChallengeServer) RecvMsg(m any
 }
 
 // RecvMsg indicates an expected call of RecvMsg.
-func (mr *MockEnrollmentRequestService_PerformTPMChallengeServerMockRecorder) RecvMsg(m any) *gomock.Call {
+func (mr *MockEnrollment_TPMChallengeServerMockRecorder) RecvMsg(m any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecvMsg", reflect.TypeOf((*MockEnrollmentRequestService_PerformTPMChallengeServer)(nil).RecvMsg), m)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecvMsg", reflect.TypeOf((*MockEnrollment_TPMChallengeServer)(nil).RecvMsg), m)
 }
 
 // Send mocks base method.
-func (m *MockEnrollmentRequestService_PerformTPMChallengeServer) Send(arg0 *ServerTPMChallengeMessage) error {
+func (m *MockEnrollment_TPMChallengeServer) Send(arg0 *ServerChallenge) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Send", arg0)
 	ret0, _ := ret[0].(error)
@@ -357,13 +357,13 @@ func (m *MockEnrollmentRequestService_PerformTPMChallengeServer) Send(arg0 *Serv
 }
 
 // Send indicates an expected call of Send.
-func (mr *MockEnrollmentRequestService_PerformTPMChallengeServerMockRecorder) Send(arg0 any) *gomock.Call {
+func (mr *MockEnrollment_TPMChallengeServerMockRecorder) Send(arg0 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Send", reflect.TypeOf((*MockEnrollmentRequestService_PerformTPMChallengeServer)(nil).Send), arg0)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Send", reflect.TypeOf((*MockEnrollment_TPMChallengeServer)(nil).Send), arg0)
 }
 
 // SendHeader mocks base method.
-func (m *MockEnrollmentRequestService_PerformTPMChallengeServer) SendHeader(arg0 metadata.MD) error {
+func (m *MockEnrollment_TPMChallengeServer) SendHeader(arg0 metadata.MD) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SendHeader", arg0)
 	ret0, _ := ret[0].(error)
@@ -371,13 +371,13 @@ func (m *MockEnrollmentRequestService_PerformTPMChallengeServer) SendHeader(arg0
 }
 
 // SendHeader indicates an expected call of SendHeader.
-func (mr *MockEnrollmentRequestService_PerformTPMChallengeServerMockRecorder) SendHeader(arg0 any) *gomock.Call {
+func (mr *MockEnrollment_TPMChallengeServerMockRecorder) SendHeader(arg0 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SendHeader", reflect.TypeOf((*MockEnrollmentRequestService_PerformTPMChallengeServer)(nil).SendHeader), arg0)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SendHeader", reflect.TypeOf((*MockEnrollment_TPMChallengeServer)(nil).SendHeader), arg0)
 }
 
 // SendMsg mocks base method.
-func (m_2 *MockEnrollmentRequestService_PerformTPMChallengeServer) SendMsg(m any) error {
+func (m_2 *MockEnrollment_TPMChallengeServer) SendMsg(m any) error {
 	m_2.ctrl.T.Helper()
 	ret := m_2.ctrl.Call(m_2, "SendMsg", m)
 	ret0, _ := ret[0].(error)
@@ -385,13 +385,13 @@ func (m_2 *MockEnrollmentRequestService_PerformTPMChallengeServer) SendMsg(m any
 }
 
 // SendMsg indicates an expected call of SendMsg.
-func (mr *MockEnrollmentRequestService_PerformTPMChallengeServerMockRecorder) SendMsg(m any) *gomock.Call {
+func (mr *MockEnrollment_TPMChallengeServerMockRecorder) SendMsg(m any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SendMsg", reflect.TypeOf((*MockEnrollmentRequestService_PerformTPMChallengeServer)(nil).SendMsg), m)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SendMsg", reflect.TypeOf((*MockEnrollment_TPMChallengeServer)(nil).SendMsg), m)
 }
 
 // SetHeader mocks base method.
-func (m *MockEnrollmentRequestService_PerformTPMChallengeServer) SetHeader(arg0 metadata.MD) error {
+func (m *MockEnrollment_TPMChallengeServer) SetHeader(arg0 metadata.MD) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SetHeader", arg0)
 	ret0, _ := ret[0].(error)
@@ -399,19 +399,19 @@ func (m *MockEnrollmentRequestService_PerformTPMChallengeServer) SetHeader(arg0 
 }
 
 // SetHeader indicates an expected call of SetHeader.
-func (mr *MockEnrollmentRequestService_PerformTPMChallengeServerMockRecorder) SetHeader(arg0 any) *gomock.Call {
+func (mr *MockEnrollment_TPMChallengeServerMockRecorder) SetHeader(arg0 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetHeader", reflect.TypeOf((*MockEnrollmentRequestService_PerformTPMChallengeServer)(nil).SetHeader), arg0)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetHeader", reflect.TypeOf((*MockEnrollment_TPMChallengeServer)(nil).SetHeader), arg0)
 }
 
 // SetTrailer mocks base method.
-func (m *MockEnrollmentRequestService_PerformTPMChallengeServer) SetTrailer(arg0 metadata.MD) {
+func (m *MockEnrollment_TPMChallengeServer) SetTrailer(arg0 metadata.MD) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "SetTrailer", arg0)
 }
 
 // SetTrailer indicates an expected call of SetTrailer.
-func (mr *MockEnrollmentRequestService_PerformTPMChallengeServerMockRecorder) SetTrailer(arg0 any) *gomock.Call {
+func (mr *MockEnrollment_TPMChallengeServerMockRecorder) SetTrailer(arg0 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetTrailer", reflect.TypeOf((*MockEnrollmentRequestService_PerformTPMChallengeServer)(nil).SetTrailer), arg0)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetTrailer", reflect.TypeOf((*MockEnrollment_TPMChallengeServer)(nil).SetTrailer), arg0)
 }

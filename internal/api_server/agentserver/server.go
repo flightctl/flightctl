@@ -47,7 +47,6 @@ type AgentServer struct {
 	orgResolver     resolvers.Resolver
 	serviceHandler  service.Service
 	kvStore         kvstore.KVStore
-	grpcServer      *grpc.Server
 }
 
 // New returns a new instance of a flightctl server.
@@ -106,8 +105,8 @@ func (s *AgentServer) init(ctx context.Context) error {
 
 // Stop cleans up all resources
 func (s *AgentServer) Stop() {
-	if s.grpcServer != nil {
-		s.grpcServer.GracefulStop()
+	if s.agentGrpcServer != nil {
+		s.agentGrpcServer.Close()
 	}
 	if s.kvStore != nil {
 		s.kvStore.Close()
@@ -137,9 +136,7 @@ func (s *AgentServer) Run(ctx context.Context) error {
 		return err
 	}
 
-	s.grpcServer = s.agentGrpcServer.PrepareGRPCService()
-
-	handler := grpcMuxHandlerFunc(s.grpcServer, httpAPIHandler, s.log)
+	handler := grpcMuxHandlerFunc(s.agentGrpcServer.server, httpAPIHandler, s.log)
 	srv := tlsmiddleware.NewHTTPServerWithTLSContext(handler, s.log, s.cfg.Service.AgentEndpointAddress, s.cfg)
 
 	go func() {

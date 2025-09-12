@@ -18,120 +18,119 @@ import (
 // Requires gRPC-Go v1.32.0 or later.
 const _ = grpc.SupportPackageIsVersion7
 
-// EnrollmentRequestServiceClient is the client API for EnrollmentRequestService service.
+// EnrollmentClient is the client API for Enrollment service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
-type EnrollmentRequestServiceClient interface {
-	// PerformTPMChallenge establishes a bidirectional stream to conduct the TPM challenge-response.
-	PerformTPMChallenge(ctx context.Context, opts ...grpc.CallOption) (EnrollmentRequestService_PerformTPMChallengeClient, error)
+type EnrollmentClient interface {
+	// TPMChallenge establishes a bidirectional stream to conduct the TPM challenge-response.
+	TPMChallenge(ctx context.Context, opts ...grpc.CallOption) (Enrollment_TPMChallengeClient, error)
 }
 
-type enrollmentRequestServiceClient struct {
+type enrollmentClient struct {
 	cc grpc.ClientConnInterface
 }
 
-func NewEnrollmentRequestServiceClient(cc grpc.ClientConnInterface) EnrollmentRequestServiceClient {
-	return &enrollmentRequestServiceClient{cc}
+func NewEnrollmentClient(cc grpc.ClientConnInterface) EnrollmentClient {
+	return &enrollmentClient{cc}
 }
 
-func (c *enrollmentRequestServiceClient) PerformTPMChallenge(ctx context.Context, opts ...grpc.CallOption) (EnrollmentRequestService_PerformTPMChallengeClient, error) {
-	stream, err := c.cc.NewStream(ctx, &EnrollmentRequestService_ServiceDesc.Streams[0], "/flightctl.v1.EnrollmentRequestService/PerformTPMChallenge", opts...)
+func (c *enrollmentClient) TPMChallenge(ctx context.Context, opts ...grpc.CallOption) (Enrollment_TPMChallengeClient, error) {
+	stream, err := c.cc.NewStream(ctx, &Enrollment_ServiceDesc.Streams[0], "/flightctl.v1.Enrollment/TPMChallenge", opts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &enrollmentRequestServicePerformTPMChallengeClient{stream}
+	x := &enrollmentTPMChallengeClient{stream}
 	return x, nil
 }
 
-type EnrollmentRequestService_PerformTPMChallengeClient interface {
-	Send(*AgentTPMChallengeMessage) error
-	Recv() (*ServerTPMChallengeMessage, error)
+type Enrollment_TPMChallengeClient interface {
+	Send(*AgentChallenge) error
+	Recv() (*ServerChallenge, error)
 	grpc.ClientStream
 }
 
-type enrollmentRequestServicePerformTPMChallengeClient struct {
+type enrollmentTPMChallengeClient struct {
 	grpc.ClientStream
 }
 
-func (x *enrollmentRequestServicePerformTPMChallengeClient) Send(m *AgentTPMChallengeMessage) error {
+func (x *enrollmentTPMChallengeClient) Send(m *AgentChallenge) error {
 	return x.ClientStream.SendMsg(m)
 }
 
-func (x *enrollmentRequestServicePerformTPMChallengeClient) Recv() (*ServerTPMChallengeMessage, error) {
-	m := new(ServerTPMChallengeMessage)
+func (x *enrollmentTPMChallengeClient) Recv() (*ServerChallenge, error) {
+	m := new(ServerChallenge)
 	if err := x.ClientStream.RecvMsg(m); err != nil {
 		return nil, err
 	}
 	return m, nil
 }
 
-// EnrollmentRequestServiceServer is the server API for EnrollmentRequestService service.
-// All implementations must embed UnimplementedEnrollmentRequestServiceServer
+// EnrollmentServer is the server API for Enrollment service.
+// All implementations must embed UnimplementedEnrollmentServer
 // for forward compatibility
-type EnrollmentRequestServiceServer interface {
-	// PerformTPMChallenge establishes a bidirectional stream to conduct the TPM challenge-response.
-	PerformTPMChallenge(EnrollmentRequestService_PerformTPMChallengeServer) error
-	mustEmbedUnimplementedEnrollmentRequestServiceServer()
+type EnrollmentServer interface {
+	// TPMChallenge establishes a bidirectional stream to conduct the TPM challenge-response.
+	TPMChallenge(Enrollment_TPMChallengeServer) error
+	mustEmbedUnimplementedEnrollmentServer()
 }
 
-// UnimplementedEnrollmentRequestServiceServer must be embedded to have forward compatible implementations.
-type UnimplementedEnrollmentRequestServiceServer struct {
+// UnimplementedEnrollmentServer must be embedded to have forward compatible implementations.
+type UnimplementedEnrollmentServer struct {
 }
 
-func (UnimplementedEnrollmentRequestServiceServer) PerformTPMChallenge(EnrollmentRequestService_PerformTPMChallengeServer) error {
-	return status.Errorf(codes.Unimplemented, "method PerformTPMChallenge not implemented")
+func (UnimplementedEnrollmentServer) TPMChallenge(Enrollment_TPMChallengeServer) error {
+	return status.Errorf(codes.Unimplemented, "method TPMChallenge not implemented")
 }
-func (UnimplementedEnrollmentRequestServiceServer) mustEmbedUnimplementedEnrollmentRequestServiceServer() {
-}
+func (UnimplementedEnrollmentServer) mustEmbedUnimplementedEnrollmentServer() {}
 
-// UnsafeEnrollmentRequestServiceServer may be embedded to opt out of forward compatibility for this service.
-// Use of this interface is not recommended, as added methods to EnrollmentRequestServiceServer will
+// UnsafeEnrollmentServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to EnrollmentServer will
 // result in compilation errors.
-type UnsafeEnrollmentRequestServiceServer interface {
-	mustEmbedUnimplementedEnrollmentRequestServiceServer()
+type UnsafeEnrollmentServer interface {
+	mustEmbedUnimplementedEnrollmentServer()
 }
 
-func RegisterEnrollmentRequestServiceServer(s grpc.ServiceRegistrar, srv EnrollmentRequestServiceServer) {
-	s.RegisterService(&EnrollmentRequestService_ServiceDesc, srv)
+func RegisterEnrollmentServer(s grpc.ServiceRegistrar, srv EnrollmentServer) {
+	s.RegisterService(&Enrollment_ServiceDesc, srv)
 }
 
-func _EnrollmentRequestService_PerformTPMChallenge_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(EnrollmentRequestServiceServer).PerformTPMChallenge(&enrollmentRequestServicePerformTPMChallengeServer{stream})
+func _Enrollment_TPMChallenge_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(EnrollmentServer).TPMChallenge(&enrollmentTPMChallengeServer{stream})
 }
 
-type EnrollmentRequestService_PerformTPMChallengeServer interface {
-	Send(*ServerTPMChallengeMessage) error
-	Recv() (*AgentTPMChallengeMessage, error)
+type Enrollment_TPMChallengeServer interface {
+	Send(*ServerChallenge) error
+	Recv() (*AgentChallenge, error)
 	grpc.ServerStream
 }
 
-type enrollmentRequestServicePerformTPMChallengeServer struct {
+type enrollmentTPMChallengeServer struct {
 	grpc.ServerStream
 }
 
-func (x *enrollmentRequestServicePerformTPMChallengeServer) Send(m *ServerTPMChallengeMessage) error {
+func (x *enrollmentTPMChallengeServer) Send(m *ServerChallenge) error {
 	return x.ServerStream.SendMsg(m)
 }
 
-func (x *enrollmentRequestServicePerformTPMChallengeServer) Recv() (*AgentTPMChallengeMessage, error) {
-	m := new(AgentTPMChallengeMessage)
+func (x *enrollmentTPMChallengeServer) Recv() (*AgentChallenge, error) {
+	m := new(AgentChallenge)
 	if err := x.ServerStream.RecvMsg(m); err != nil {
 		return nil, err
 	}
 	return m, nil
 }
 
-// EnrollmentRequestService_ServiceDesc is the grpc.ServiceDesc for EnrollmentRequestService service.
+// Enrollment_ServiceDesc is the grpc.ServiceDesc for Enrollment service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
-var EnrollmentRequestService_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "flightctl.v1.EnrollmentRequestService",
-	HandlerType: (*EnrollmentRequestServiceServer)(nil),
+var Enrollment_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "flightctl.v1.Enrollment",
+	HandlerType: (*EnrollmentServer)(nil),
 	Methods:     []grpc.MethodDesc{},
 	Streams: []grpc.StreamDesc{
 		{
-			StreamName:    "PerformTPMChallenge",
-			Handler:       _EnrollmentRequestService_PerformTPMChallenge_Handler,
+			StreamName:    "TPMChallenge",
+			Handler:       _Enrollment_TPMChallenge_Handler,
 			ServerStreams: true,
 			ClientStreams: true,
 		},

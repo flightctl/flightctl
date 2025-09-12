@@ -4,42 +4,42 @@ package flightctl.v1;
 
 option go_package = "github.com/flightctl/flightctl/api/grpc/v1/grpc-v1";
 
-// EnrollmentRequestService provides methods for TPM-based enrollment challenges.
-service EnrollmentRequestService {
-  // PerformTPMChallenge establishes a bidirectional stream to conduct the TPM challenge-response.
-  rpc PerformTPMChallenge(stream AgentTPMChallengeMessage) returns (stream ServerTPMChallengeMessage);
+// Enrollment provides methods for .
+service Enrollment {
+  // TPMChallenge establishes a bidirectional stream to conduct the TPM challenge-response.
+  rpc TPMChallenge(stream AgentChallenge) returns (stream ServerChallenge);
 }
 
-// AgentTPMChallengeMessage is a wrapper for all possible messages the agent can send.
-message AgentTPMChallengeMessage {
+// AgentChallenge is a wrapper for all possible messages the agent can send.
+message AgentChallenge {
   oneof payload {
     // The first message sent by the agent to request a challenge.
-    TPMChallengeRequest challenge_request = 1;
+    ChallengeRequest challenge_request = 1;
     // The agent's response containing the decrypted secret.
-    TPMChallengeResponse challenge_response = 2;
+    ChallengeResponse challenge_response = 2;
   }
 }
 
-// ServerTPMChallengeMessage is a wrapper for all possible messages the service can send.
-message ServerTPMChallengeMessage {
+// ServerChallenge is a wrapper for all possible messages the service can send.
+message ServerChallenge {
   oneof payload {
     // The service's challenge containing the credential blob.
-    TPMChallenge challenge = 1;
+    Challenge challenge = 1;
     // A message indicating the entire challenge was successful.
-    TPMChallengeComplete success = 2;
+    ChallengeComplete success = 2;
     // A message indicating a failure at some point in the challenge.
-    TPMChallengeError error = 3;
+    ChallengeError error = 3;
   }
 }
 
-// TPMChallengeRequest is sent by the client to initiate the challenge for a specific EnrollmentRequest.
-message TPMChallengeRequest {
+// ChallengeRequest is sent by the client to initiate the challenge for a specific EnrollmentRequest.
+message ChallengeRequest {
   // The name of the EnrollmentRequest resource created via the REST API.
   string enrollment_request_name = 1;
 }
 
-// TPMChallenge is sent by the server and contains the credential blob the agent needs to solve.
-message TPMChallenge {
+// Challenge is sent by the server and contains the credential blob the agent needs to solve.
+message Challenge {
   // The encrypted data blob that the agent must
   // pass to the TPM's ActivateCredential command.
   bytes credential_blob = 1;
@@ -47,20 +47,20 @@ message TPMChallenge {
   bytes encrypted_secret = 2;
 }
 
-// TPMChallengeResponse contains the agent's decrypted secret.
-message TPMChallengeResponse {
+// ChallengeResponse contains the agent's decrypted secret.
+message ChallengeResponse {
   // The raw bytes of the secret decrypted by the TPM.
   bytes secret = 1;
 }
 
-// TPMChallengeComplete signals a successful end to the challenge.
-message TPMChallengeComplete {
+// ChallengeComplete signals a successful end to the challenge.
+message ChallengeComplete {
   // A human-readable success message.
   string message = 1;
 }
 
-// TPMChallengeError signals a failure and terminates the challenge.
-message TPMChallengeError {
+// ChallengeError signals a failure and terminates the challenge.
+message ChallengeError {
   // A human-readable error message.
   string message = 1;
 }
