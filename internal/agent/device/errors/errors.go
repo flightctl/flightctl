@@ -125,6 +125,9 @@ func IsRetryable(err error) bool {
 	case errors.Is(err, syscall.ECONNRESET):
 		// connection reset by peer is a transient network error
 		return true
+	case errors.Is(err, syscall.ENOSPC):
+		// no space left on device
+		return false
 	case errors.Is(err, ErrNoRetry):
 		return false
 	case errors.Is(err, ErrAuthenticationFailed):
@@ -186,6 +189,8 @@ func FromStderr(stderr string, exitCode int) error {
 		"unable to resolve host": ErrNetwork,
 		"network is unreachable": ErrNetwork,
 		"i/o timeout":            ErrNetwork,
+		// resources
+		"no space left on device": ErrNoRetry,
 		// context
 		"context canceled":          context.Canceled,
 		"context deadline exceeded": context.DeadlineExceeded,
@@ -193,6 +198,8 @@ func FromStderr(stderr string, exitCode int) error {
 		"short-name resolution enforced": ErrImageShortName,
 		// no such object
 		"no such object": ErrNotFound,
+		// systemd unit not found
+		"could not be found": ErrNotFound,
 	}
 	for check, err := range errMap {
 		if strings.Contains(stderr, check) {

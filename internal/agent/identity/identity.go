@@ -55,7 +55,7 @@ type Provider interface {
 	// WipeCertificateOnly securely removes only the certificate (not keys or CSR)
 	WipeCertificateOnly() error
 	// Close cleans up any resources used by the provider
-	Close(ctx context.Context) error
+	Close() error
 }
 
 // NewProvider creates an identity provider

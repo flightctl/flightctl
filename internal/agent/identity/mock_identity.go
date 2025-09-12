@@ -44,17 +44,17 @@ func (m *MockProvider) EXPECT() *MockProviderMockRecorder {
 }
 
 // Close mocks base method.
-func (m *MockProvider) Close(ctx context.Context) error {
+func (m *MockProvider) Close() error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Close", ctx)
+	ret := m.ctrl.Call(m, "Close")
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Close indicates an expected call of Close.
-func (mr *MockProviderMockRecorder) Close(ctx any) *gomock.Call {
+func (mr *MockProviderMockRecorder) Close() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockProvider)(nil).Close), ctx)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockProvider)(nil).Close))
 }
 
 // CreateGRPCClient mocks base method.

@@ -56,17 +56,17 @@ func (mr *MockClientMockRecorder) Clear() *gomock.Call {
 }
 
 // Close mocks base method.
-func (m *MockClient) Close(ctx context.Context) error {
+func (m *MockClient) Close() error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Close", ctx)
+	ret := m.ctrl.Call(m, "Close")
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Close indicates an expected call of Close.
-func (mr *MockClientMockRecorder) Close(ctx any) *gomock.Call {
+func (mr *MockClientMockRecorder) Close() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockClient)(nil).Close), ctx)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockClient)(nil).Close))
 }
 
 // GetSigner mocks base method.

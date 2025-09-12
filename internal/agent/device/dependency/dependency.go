@@ -266,6 +266,10 @@ func (m *prefetchManager) setResult(image string, err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	task := m.tasks[image]
+	if task == nil {
+		m.log.Warnf("Attempted to set result for non-existent task: %s", image)
+		return
+	}
 	task.err = err
 	task.done = true
 }

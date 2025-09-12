@@ -454,9 +454,9 @@ func (t *tpmProvider) WipeCertificateOnly() error {
 	return nil
 }
 
-func (t *tpmProvider) Close(ctx context.Context) error {
+func (t *tpmProvider) Close() error {
 	if t.client != nil {
-		return t.client.Close(ctx)
+		return t.client.Close()
 	}
 	return nil
 }
