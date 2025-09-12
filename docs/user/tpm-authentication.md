@@ -62,6 +62,20 @@ The Flight Control service needs access to the TPM manufacturer's CA certificate
 
 The Flight Control API server needs TPM manufacturer CA certificates to validate device enrollment requests.
 
+### TPM Manufacturer CA Certificates
+
+Several [well-known](https://trustedcomputinggroup.org/membership/certification/tpm-certified-products/) discrete [TPM manufacturer certificates](../../tpm-manufacturer-certs) have been downloaded for use. They are provided in PEM format to be directly compatible with Flight Control services, and contain metadata indicating their download URL and when they were downloaded.
+
+- **Infineon**
+  - [TPM Product Page](https://www.infineon.com/products/security-smart-card-solutions/optiga-embedded-security-solutions/optiga-tpm). Each product's documents were inspected and individual intermediate certificates were pulled. Root certificates were obtained via following the AIA chain in the intermediate certs.
+  - Note: [Infineon Support](https://community.infineon.com/t5/Knowledge-Base-Articles/Endorsement-key-certificate-validity-expiration-and-verification/ta-p/796521) indicates that intermediate certificates links follow a well known pattern. Manual discovery indicates that more certificates exist, however, only those directly tied to a product were included.
+- **NSING Technologies**
+  - [Revision 1 - Updated July 2024](https://nsing.com.sg/uploads/NSINGTPMEKcertificatesv1.0.pdf)
+- **Nuvoton**
+  - [Revision 2.2 - Updated Feb 2025](https://www.nuvoton.com/export/sites/nuvoton/files/security/Nuvoton_TPM_EK_Certificate_Chain_Rev2.2.pdf)
+- **STMicroelectronics**
+  - [Revision 4 - Updated April 2025](https://www.st.com/resource/en/technical_note/tn1330-st-trusted-platform-module-tpm-endorsement-key-ek-certificates-stmicroelectronics.pdf)
+
 ### Obtaining TPM CA Certificates
 
 If direct access to the device is possible, required certs can be discovered by first obtaining the Endorsement Key cert

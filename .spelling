@@ -193,6 +193,8 @@ redis-cli
 pg_isready
 renderedVersion
 quadlets
+PEM
+NSING
  - docs/user/api-resources.md
 approvedBy
 creationTimestamp
