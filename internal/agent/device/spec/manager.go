@@ -379,8 +379,26 @@ func (s *manager) getDeviceFromQueue(ctx context.Context) (*v1alpha1.Device, boo
 		return nil, true, nil
 	}
 
+	currentDesiredVersion := s.cache.getRenderedVersion(Desired)
+
+	// Skip older versions - they are outdated
+	if isOlderVersion(desired.Version(), currentDesiredVersion) {
+		s.log.Warnf("Skipping older version %s (current desired: %s) from queue", desired.Version(), currentDesiredVersion)
+
+		// Remove the obsolete item from the queue to prevent infinite reprocessing
+		version, err := stringToInt64(desired.Version())
+		if err != nil {
+			s.log.Errorf("Failed to parse version %s for queue removal: %v", desired.Version(), err)
+		} else {
+			s.queue.Remove(version)
+			s.log.Debugf("Removed obsolete version %s from queue", desired.Version())
+		}
+
+		return nil, true, nil // Signal requeue to get next item
+	}
+
 	// if this is a new version ensure we persist it to disk
-	if desired.Version() != s.cache.getRenderedVersion(Desired) {
+	if desired.Version() != currentDesiredVersion {
 		if s.isNewDesiredVersion(desired) {
 			s.log.Infof("Writing new desired rendered spec to disk version: %s", desired.Version())
 		}
@@ -536,6 +554,25 @@ func IsRollback(current *v1alpha1.Device, desired *v1alpha1.Device) bool {
 		return false
 	}
 	return currentVersion > desiredVersion
+}
+
+// isOlderVersion returns true if the new version is older than the current version.
+func isOlderVersion(newVersion, currentVersion string) bool {
+	if currentVersion == "" {
+		return false // No current version, not older
+	}
+
+	newVersionInt, err := stringToInt64(newVersion)
+	if err != nil {
+		return false // If we can't parse, assume not older
+	}
+
+	currentVersionInt, err := stringToInt64(currentVersion)
+	if err != nil {
+		return false // If we can't parse, assume not older
+	}
+
+	return newVersionInt < currentVersionInt
 }
 
 type rollbackConfig struct {
