@@ -181,6 +181,8 @@ func FromStderr(stderr string, exitCode int) error {
 		"short-name resolution enforced": ErrImageShortName,
 		// no such object
 		"no such object": ErrNotFound,
+		// systemd unit not found
+		"could not be found": ErrNotFound,
 	}
 	for check, err := range errMap {
 		if strings.Contains(stderr, check) {
