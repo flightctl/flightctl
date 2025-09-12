@@ -1413,6 +1413,220 @@ var _ = Describe("DeviceStore create", func() {
 			// Check that lastSeen is zero (not set)
 			Expect(updatedDevice.Status.LastSeen.IsZero()).To(BeTrue())
 		})
+
+		It("PrepareDevicesAfterRestore excludes decommissioned and decommissioning devices", func() {
+			// Create a decommissioning device
+			decommissioningDeviceName := "decommissioning-device"
+			decommissioningDevice := api.Device{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr(decommissioningDeviceName),
+					Annotations: &map[string]string{
+						"existing-annotation": "existing-value",
+					},
+				},
+				Spec: &api.DeviceSpec{
+					Os: &api.DeviceOsSpec{Image: "test-image"},
+					Decommissioning: &api.DeviceDecommission{
+						Target: api.DeviceDecommissionTargetTypeUnenroll,
+					},
+				},
+				Status: &api.DeviceStatus{
+					LastSeen: time.Now(),
+					Summary: api.DeviceSummaryStatus{
+						Status: api.DeviceSummaryStatusOnline,
+						Info:   lo.ToPtr("Device is online"),
+					},
+					Lifecycle: api.DeviceLifecycleStatus{
+						Status: api.DeviceLifecycleStatusDecommissioning,
+					},
+					Conditions:   []api.Condition{},
+					Applications: []api.DeviceApplicationStatus{},
+					ApplicationsSummary: api.DeviceApplicationsSummaryStatus{
+						Status: api.ApplicationsSummaryStatusUnknown,
+					},
+					Config: api.DeviceConfigStatus{
+						RenderedVersion: "test-version",
+					},
+					Integrity: api.DeviceIntegrityStatus{
+						Status: api.DeviceIntegrityStatusUnknown,
+					},
+					Resources: api.DeviceResourceStatus{
+						Cpu:    api.DeviceResourceStatusUnknown,
+						Disk:   api.DeviceResourceStatusUnknown,
+						Memory: api.DeviceResourceStatusUnknown,
+					},
+					Updated: api.DeviceUpdatedStatus{
+						Status: api.DeviceUpdatedStatusUnknown,
+					},
+				},
+			}
+
+			// Create a decommissioned device
+			decommissionedDeviceName := "decommissioned-device"
+			decommissionedDevice := api.Device{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr(decommissionedDeviceName),
+					Annotations: &map[string]string{
+						"existing-annotation": "existing-value",
+					},
+				},
+				Spec: &api.DeviceSpec{
+					Os: &api.DeviceOsSpec{Image: "test-image"},
+					Decommissioning: &api.DeviceDecommission{
+						Target: api.DeviceDecommissionTargetTypeUnenroll,
+					},
+				},
+				Status: &api.DeviceStatus{
+					LastSeen: time.Now(),
+					Summary: api.DeviceSummaryStatus{
+						Status: api.DeviceSummaryStatusOnline,
+						Info:   lo.ToPtr("Device is online"),
+					},
+					Lifecycle: api.DeviceLifecycleStatus{
+						Status: api.DeviceLifecycleStatusDecommissioned,
+					},
+					Conditions:   []api.Condition{},
+					Applications: []api.DeviceApplicationStatus{},
+					ApplicationsSummary: api.DeviceApplicationsSummaryStatus{
+						Status: api.ApplicationsSummaryStatusUnknown,
+					},
+					Config: api.DeviceConfigStatus{
+						RenderedVersion: "test-version",
+					},
+					Integrity: api.DeviceIntegrityStatus{
+						Status: api.DeviceIntegrityStatusUnknown,
+					},
+					Resources: api.DeviceResourceStatus{
+						Cpu:    api.DeviceResourceStatusUnknown,
+						Disk:   api.DeviceResourceStatusUnknown,
+						Memory: api.DeviceResourceStatusUnknown,
+					},
+					Updated: api.DeviceUpdatedStatus{
+						Status: api.DeviceUpdatedStatusUnknown,
+					},
+				},
+			}
+
+			// Create a normal device that should be updated
+			normalDeviceName := "normal-device"
+			normalDevice := api.Device{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr(normalDeviceName),
+					Annotations: &map[string]string{
+						"existing-annotation": "existing-value",
+					},
+				},
+				Spec: &api.DeviceSpec{
+					Os: &api.DeviceOsSpec{Image: "test-image"},
+				},
+				Status: &api.DeviceStatus{
+					LastSeen: time.Now(),
+					Summary: api.DeviceSummaryStatus{
+						Status: api.DeviceSummaryStatusOnline,
+						Info:   lo.ToPtr("Device is online"),
+					},
+					Lifecycle: api.DeviceLifecycleStatus{
+						Status: api.DeviceLifecycleStatusEnrolled,
+					},
+					Conditions:   []api.Condition{},
+					Applications: []api.DeviceApplicationStatus{},
+					ApplicationsSummary: api.DeviceApplicationsSummaryStatus{
+						Status: api.ApplicationsSummaryStatusUnknown,
+					},
+					Config: api.DeviceConfigStatus{
+						RenderedVersion: "test-version",
+					},
+					Integrity: api.DeviceIntegrityStatus{
+						Status: api.DeviceIntegrityStatusUnknown,
+					},
+					Resources: api.DeviceResourceStatus{
+						Cpu:    api.DeviceResourceStatusUnknown,
+						Disk:   api.DeviceResourceStatusUnknown,
+						Memory: api.DeviceResourceStatusUnknown,
+					},
+					Updated: api.DeviceUpdatedStatus{
+						Status: api.DeviceUpdatedStatusUnknown,
+					},
+				},
+			}
+
+			// Create all devices
+			_, created, err := devStore.CreateOrUpdate(ctx, orgId, &decommissioningDevice, nil, false, nil, callback)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(created).To(BeTrue())
+
+			_, created, err = devStore.CreateOrUpdate(ctx, orgId, &decommissionedDevice, nil, false, nil, callback)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(created).To(BeTrue())
+
+			_, created, err = devStore.CreateOrUpdate(ctx, orgId, &normalDevice, nil, false, nil, callback)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(created).To(BeTrue())
+
+			// Execute: Run PrepareDevicesAfterRestore
+			devicesUpdated, err := devStore.PrepareDevicesAfterRestore(ctx)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(devicesUpdated).To(BeNumerically(">=", int64(1))) // Should update at least the normal device
+
+			// Verify: Check that decommissioning device was NOT updated
+			decommissioningDeviceAfter, err := devStore.Get(ctx, orgId, decommissioningDeviceName)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Should NOT have the awaitingReconnect annotation
+			Expect(decommissioningDeviceAfter.Metadata.Annotations).ToNot(BeNil())
+			annotations := *decommissioningDeviceAfter.Metadata.Annotations
+			Expect(annotations[api.DeviceAnnotationAwaitingReconnect]).To(BeEmpty(), "Decommissioning device should NOT have awaitingReconnect annotation")
+
+			// Should preserve existing annotation
+			Expect(annotations["existing-annotation"]).To(Equal("existing-value"))
+
+			// Should NOT have lastSeen cleared
+			Expect(decommissioningDeviceAfter.Status).ToNot(BeNil())
+			Expect(decommissioningDeviceAfter.Status.LastSeen.IsZero()).To(BeFalse(), "Decommissioning device should NOT have lastSeen cleared")
+
+			// Should NOT have status summary changed
+			Expect(decommissioningDeviceAfter.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusOnline), "Decommissioning device should NOT have status summary changed")
+
+			// Verify: Check that decommissioned device was NOT updated
+			decommissionedDeviceAfter, err := devStore.Get(ctx, orgId, decommissionedDeviceName)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Should NOT have the awaitingReconnect annotation
+			Expect(decommissionedDeviceAfter.Metadata.Annotations).ToNot(BeNil())
+			annotations = *decommissionedDeviceAfter.Metadata.Annotations
+			Expect(annotations[api.DeviceAnnotationAwaitingReconnect]).To(BeEmpty(), "Decommissioned device should NOT have awaitingReconnect annotation")
+
+			// Should preserve existing annotation
+			Expect(annotations["existing-annotation"]).To(Equal("existing-value"))
+
+			// Should NOT have lastSeen cleared
+			Expect(decommissionedDeviceAfter.Status).ToNot(BeNil())
+			Expect(decommissionedDeviceAfter.Status.LastSeen.IsZero()).To(BeFalse(), "Decommissioned device should NOT have lastSeen cleared")
+
+			// Should NOT have status summary changed
+			Expect(decommissionedDeviceAfter.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusOnline), "Decommissioned device should NOT have status summary changed")
+
+			// Verify: Check that normal device WAS updated
+			normalDeviceAfter, err := devStore.Get(ctx, orgId, normalDeviceName)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Should have the awaitingReconnect annotation
+			Expect(normalDeviceAfter.Metadata.Annotations).ToNot(BeNil())
+			annotations = *normalDeviceAfter.Metadata.Annotations
+			Expect(annotations[api.DeviceAnnotationAwaitingReconnect]).To(Equal("true"), "Normal device SHOULD have awaitingReconnect annotation")
+
+			// Should preserve existing annotation
+			Expect(annotations["existing-annotation"]).To(Equal("existing-value"))
+
+			// Should have lastSeen cleared
+			Expect(normalDeviceAfter.Status).ToNot(BeNil())
+			Expect(normalDeviceAfter.Status.LastSeen.IsZero()).To(BeTrue(), "Normal device SHOULD have lastSeen cleared")
+
+			// Should have status summary changed to awaiting reconnect
+			Expect(normalDeviceAfter.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusAwaitingReconnect), "Normal device SHOULD have status summary changed to AwaitingReconnect")
+			Expect(normalDeviceAfter.Status.Summary.Info).ToNot(BeNil())
+			Expect(*normalDeviceAfter.Status.Summary.Info).To(Equal("Device is waiting for connection after restore"))
+		})
 	})
 })
 
