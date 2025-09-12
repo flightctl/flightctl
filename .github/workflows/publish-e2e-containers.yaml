@@ -35,7 +35,7 @@ jobs:
           - {name: 'sleep-app-v3', containerfile: 'test/scripts/agent-images/Containerfile-sleep-app-v3'}
     runs-on: "ubuntu-24.04"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
           fetch-tags: true
