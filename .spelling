@@ -344,3 +344,11 @@ TN1330
 - docs/user/metrics.md
 sloMax
 SLO
+- docs/user/postgresql-backup-strategy.md
+RPOs
+RPO
+Bitbucket
+GitLab
+GitHub
+Configs
+
