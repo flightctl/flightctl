@@ -52,7 +52,8 @@ func BenchmarkDeviceDisconnectedPoll(b *testing.B) {
 		mockQueueProducer.EXPECT().Enqueue(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		require.NoError(err)
-		serviceHandler := service.NewServiceHandler(dbStore, workerClient, kvStore, nil, log, "", "", []string{})
+		orgResolver := util.NewOrgResolver(cfg, dbStore.Organization(), log)
+		serviceHandler := service.NewServiceHandler(dbStore, workerClient, kvStore, nil, log, "", "", []string{}, orgResolver)
 
 		devices := generateMockDevices(deviceCount)
 		err = batchCreateDevices(ctx, db, devices, deviceCount)

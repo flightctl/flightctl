@@ -24,4 +24,6 @@ const (
 	TLSPeerCertificateCtxKey   ctxKey = "tls-peer-certificate"
 	OrganizationIDCtxKey       ctxKey = "organization-id"
 	AgentCtxKey                ctxKey = "agent"
+	TokenCtxKey                ctxKey = "token"
+	IdentityCtxKey             ctxKey = "identity"
 )

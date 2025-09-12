@@ -26,6 +26,7 @@ import (
 	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/crypto"
 	fclog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/go-chi/chi/v5"
@@ -46,9 +47,11 @@ type AlertmanagerProxy struct {
 	proxy        *httputil.ReverseProxy
 	target       *url.URL
 	authDisabled bool
+	authN        auth.AuthNMiddleware
+	authZ        auth.AuthZMiddleware
 }
 
-func NewAlertmanagerProxy(cfg *config.Config, log logrus.FieldLogger) (*AlertmanagerProxy, error) {
+func NewAlertmanagerProxy(cfg *config.Config, log logrus.FieldLogger, authN auth.AuthNMiddleware, authZ auth.AuthZMiddleware) (*AlertmanagerProxy, error) {
 	// Get alertmanager URL from environment or use default
 	alertmanagerURL := os.Getenv("ALERTMANAGER_URL")
 	if alertmanagerURL == "" {
@@ -74,6 +77,8 @@ func NewAlertmanagerProxy(cfg *config.Config, log logrus.FieldLogger) (*Alertman
 		proxy:        proxy,
 		target:       target,
 		authDisabled: authDisabled,
+		authN:        authN,
+		authZ:        authZ,
 	}, nil
 }
 
@@ -99,17 +104,17 @@ func (p *AlertmanagerProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validate token using FlightControl's auth system
-	if err := auth.GetAuthN().ValidateToken(r.Context(), token); err != nil {
+	if err := p.authN.ValidateToken(r.Context(), token); err != nil {
 		p.log.WithError(err).Error("Token validation failed")
 		http.Error(w, "Invalid token", http.StatusUnauthorized)
 		return
 	}
 
 	// Create context with token for authorization check (using proper context key)
-	ctx := context.WithValue(r.Context(), common.TokenCtxKey, token)
+	ctx := context.WithValue(r.Context(), consts.TokenCtxKey, token)
 
 	// Check if user has permission to access alerts
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, alertsResource, getAction)
+	allowed, err := p.authZ.CheckPermission(ctx, alertsResource, getAction)
 	if err != nil {
 		p.log.WithError(err).Error("Authorization check failed")
 		http.Error(w, "Authorization service unavailable", http.StatusServiceUnavailable)
@@ -197,12 +202,13 @@ func main() {
 	}
 
 	// Initialize auth system
-	if err := auth.InitAuth(cfg, logger); err != nil {
+	authN, authZ, err := auth.InitAuth(cfg, logger, nil)
+	if err != nil {
 		logger.Fatalf("Failed to initialize auth: %v", err)
 	}
 
 	// Create proxy
-	proxy, err := NewAlertmanagerProxy(cfg, logger)
+	proxy, err := NewAlertmanagerProxy(cfg, logger, authN, authZ)
 	if err != nil {
 		logger.Fatalf("Failed to create alertmanager proxy: %v", err)
 	}

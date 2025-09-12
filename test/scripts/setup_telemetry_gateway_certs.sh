@@ -87,7 +87,8 @@ need openssl
 need jq
 need yq
 
-if ! command -v flightctl >/dev/null 2>&1 && [[ -x ./bin/flightctl ]]; then
+# Default to using the flightctl binary in the bin directory
+if [[ -x ./bin/flightctl ]]; then
   PATH="$(pwd)/bin:${PATH}"
 fi
 need flightctl

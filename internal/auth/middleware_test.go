@@ -12,9 +12,17 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-var authZMiddleware = CreateAuthZMiddleware(logrus.New())(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
-}))
+func createAuthZMiddleware(authZ AuthZMiddleware) http.Handler {
+	return CreateAuthZMiddleware(authZ, logrus.New())(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+}
+
+func createAuthNMiddleware(authN AuthNMiddleware) http.Handler {
+	return CreateAuthNMiddleware(authN, logrus.New())(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+}
 
 type TestRequest struct {
 	url        string
@@ -118,8 +126,8 @@ func TestPermissionCheck(t *testing.T) {
 	for _, r := range requests {
 		for _, tc := range testCases {
 			authZMock := NewMockAuthZMiddleware(ctrl)
-			authZ = authZMock
 			authZMock.EXPECT().CheckPermission(gomock.Any(), r.resource, r.op).Return(tc.allowed, tc.err).Times(1)
+			authZMiddleware := createAuthZMiddleware(authZMock)
 
 			req := httptest.NewRequest(r.method, r.url, nil)
 			w := httptest.NewRecorder()
@@ -169,8 +177,8 @@ func TestNoPermissionCheck(t *testing.T) {
 
 	for _, r := range noCheckRequests {
 		authZMock := NewMockAuthZMiddleware(ctrl)
-		authZ = authZMock
 		authZMock.EXPECT().CheckPermission(gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+		authZMiddleware := createAuthZMiddleware(authZMock)
 
 		req := httptest.NewRequest(r.method, r.url, nil)
 		w := httptest.NewRecorder()
@@ -193,8 +201,8 @@ func TestUnsupportedMethodCheck(t *testing.T) {
 
 	for _, m := range unsupportedMethods {
 		authZMock := NewMockAuthZMiddleware(ctrl)
-		authZ = authZMock
 		authZMock.EXPECT().CheckPermission(gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+		authZMiddleware := createAuthZMiddleware(authZMock)
 
 		req := httptest.NewRequest(m, "https://fctl.io/api/v1/devices", nil)
 		w := httptest.NewRecorder()
@@ -203,10 +211,6 @@ func TestUnsupportedMethodCheck(t *testing.T) {
 		require.Equal(http.StatusBadRequest, w.Code)
 	}
 }
-
-var authNMiddleware = CreateAuthNMiddleware(logrus.New())(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
-}))
 
 type AuthNTestRequest struct {
 	url             string
@@ -251,7 +255,6 @@ func TestAuthN(t *testing.T) {
 	for _, r := range authNRequests {
 		for _, tc := range testCases {
 			authNMock := NewMockAuthNMiddleware(ctrl)
-			authN = authNMock
 
 			if r.shouldSkipCheck || !tc.withToken {
 				authNMock.EXPECT().ValidateToken(gomock.Any(), gomock.Any()).Times(0)
@@ -266,9 +269,10 @@ func TestAuthN(t *testing.T) {
 				if tc.tokenErr != nil {
 					authNMock.EXPECT().GetIdentity(gomock.Any(), gomock.Any()).Times(0)
 				} else {
-					authNMock.EXPECT().GetIdentity(gomock.Any(), "token").Return(&common.Identity{}, tc.identityErr).Times(1)
+					authNMock.EXPECT().GetIdentity(gomock.Any(), "token").Return(&common.BaseIdentity{}, tc.identityErr).Times(1)
 				}
 			}
+			authNMiddleware := createAuthNMiddleware(authNMock)
 
 			req := httptest.NewRequest(http.MethodGet, r.url, nil)
 			if tc.withToken {

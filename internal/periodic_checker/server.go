@@ -12,6 +12,8 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/org/cache"
+	"github.com/flightctl/flightctl/internal/org/resolvers"
 	"github.com/flightctl/flightctl/internal/rendered"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
@@ -76,7 +78,18 @@ func (s *Server) Run(ctx context.Context) error {
 	if err = rendered.Bus.Initialize(ctx, kvStore, queuesProvider, time.Duration(s.cfg.Service.RenderedWaitTimeout), s.log); err != nil {
 		return err
 	}
-	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(s.store, workerClient, kvStore, nil, s.log, "", "", []string{}))
+
+	orgCache := cache.NewOrganizationTTL(cache.DefaultTTL)
+	go orgCache.Start()
+	defer orgCache.Stop()
+	buildResolverOpts := resolvers.BuildResolverOptions{
+		Config: s.cfg,
+		Store:  s.store.Organization(),
+		Log:    s.log,
+		Cache:  orgCache,
+	}
+	orgResolver := resolvers.BuildResolver(buildResolverOpts)
+	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(s.store, workerClient, kvStore, nil, s.log, "", "", []string{}, orgResolver))
 
 	// Initialize the task executors
 	periodicTaskExecutors := InitializeTaskExecutors(s.log, serviceHandler, s.cfg, queuesProvider, nil)

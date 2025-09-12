@@ -23,7 +23,9 @@ import (
 	"github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/org/resolvers"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
@@ -197,8 +199,9 @@ func IsAcmInstalled() (bool, error) {
 	return false, fmt.Errorf("multiclusterhub is not in Running status")
 }
 
-// NewTestServer creates a new test server and returns the server and the listener listening on localhost's next available port.
-func NewTestApiServer(log logrus.FieldLogger, cfg *config.Config, store store.Store, ca *crypto.CAClient, serverCerts *crypto.TLSCertificateConfig, queuesProvider queues.Provider) (*apiserver.Server, net.Listener, error) {
+// NewTestApiServer creates a new test server and returns the server and the listener listening on localhost's next available port.
+func NewTestApiServer(log logrus.FieldLogger, cfg *config.Config, store store.Store, ca *crypto.CAClient, serverCerts *crypto.TLSCertificateConfig, queuesProvider queues.Provider, orgResolver resolvers.Resolver) (*apiserver.Server, net.Listener, error) {
+
 	// create a listener using the next available port
 	tlsConfig, _, err := crypto.TLSConfigForServer(ca.GetCABundleX509(), serverCerts)
 	if err != nil {
@@ -211,11 +214,11 @@ func NewTestApiServer(log logrus.FieldLogger, cfg *config.Config, store store.St
 		return nil, nil, fmt.Errorf("NewTLSListener: error creating TLS certs: %w", err)
 	}
 
-	return apiserver.New(log, cfg, store, ca, listener, queuesProvider, nil), listener, nil
+	return apiserver.New(log, cfg, store, ca, listener, queuesProvider, nil, orgResolver), listener, nil
 }
 
-// NewTestServer creates a new test server and returns the server and the listener listening on localhost's next available port.
-func NewTestAgentServer(log logrus.FieldLogger, cfg *config.Config, store store.Store, ca *crypto.CAClient, serverCerts *crypto.TLSCertificateConfig, queuesProvider queues.Provider) (*agentserver.AgentServer, net.Listener, error) {
+// NewTestAgentServer creates a new test server and returns the server and the listener listening on localhost's next available port.
+func NewTestAgentServer(log logrus.FieldLogger, cfg *config.Config, store store.Store, ca *crypto.CAClient, serverCerts *crypto.TLSCertificateConfig, queuesProvider queues.Provider, orgResolver resolvers.Resolver) (*agentserver.AgentServer, net.Listener, error) {
 	// create a listener using the next available port
 	_, tlsConfig, err := crypto.TLSConfigForServer(ca.GetCABundleX509(), serverCerts)
 	if err != nil {
@@ -228,7 +231,7 @@ func NewTestAgentServer(log logrus.FieldLogger, cfg *config.Config, store store.
 		return nil, nil, fmt.Errorf("NewTestAgentServer: error creating TLS certs: %w", err)
 	}
 
-	return agentserver.New(log, cfg, store, ca, listener, queuesProvider, tlsConfig), listener, nil
+	return agentserver.New(log, cfg, store, ca, listener, queuesProvider, tlsConfig, orgResolver), listener, nil
 }
 
 // NewTestStore creates a new test store and returns the store and the database name.
@@ -324,6 +327,36 @@ func NewBareHTTPsClient(caBundle []*x509.Certificate, clientCert *crypto.TLSCert
 
 	return httpClient, nil
 
+}
+
+type TestOrgCache struct {
+	orgs map[uuid.UUID]*model.Organization
+	mu   sync.Mutex
+}
+
+func (c *TestOrgCache) Get(id uuid.UUID) *model.Organization {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.orgs[id]
+}
+
+func (c *TestOrgCache) Set(id uuid.UUID, org *model.Organization) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.orgs[id] = org
+}
+
+func NewOrgResolver(cfg *config.Config, orgStore resolvers.OrgStore, log logrus.FieldLogger) resolvers.Resolver {
+	orgCache := &TestOrgCache{
+		orgs: make(map[uuid.UUID]*model.Organization),
+	}
+	buildResolverOpts := resolvers.BuildResolverOptions{
+		Config: cfg,
+		Store:  orgStore,
+		Log:    log,
+		Cache:  orgCache,
+	}
+	return resolvers.BuildResolver(buildResolverOpts)
 }
 
 func TestEnrollmentApproval() *v1alpha1.EnrollmentRequestApproval {

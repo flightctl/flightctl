@@ -9,7 +9,8 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
-	"github.com/flightctl/flightctl/internal/auth/common"
+	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/sirupsen/logrus"
 )
 
@@ -49,7 +50,7 @@ func stringToAction(s string) action {
 	return action(s)
 }
 
-func CreateAuthNMiddleware(log logrus.FieldLogger) func(http.Handler) http.Handler {
+func CreateAuthNMiddleware(authN AuthNMiddleware, log logrus.FieldLogger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		fn := func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path == "/api/v1/auth/config" {
@@ -68,12 +69,12 @@ func CreateAuthNMiddleware(log logrus.FieldLogger) func(http.Handler) http.Handl
 				writeResponse(w, api.StatusUnauthorized("failed to validate token"), log)
 				return
 			}
-			ctx := context.WithValue(r.Context(), common.TokenCtxKey, authToken)
+			ctx := context.WithValue(r.Context(), consts.TokenCtxKey, authToken)
 			identity, err := authN.GetIdentity(ctx, authToken)
 			if err != nil {
 				log.WithError(err).Error("failed to get identity")
 			} else {
-				ctx = context.WithValue(ctx, common.IdentityCtxKey, identity)
+				ctx = context.WithValue(ctx, consts.IdentityCtxKey, identity)
 			}
 			next.ServeHTTP(w, r.WithContext(ctx))
 		}
@@ -81,7 +82,7 @@ func CreateAuthNMiddleware(log logrus.FieldLogger) func(http.Handler) http.Handl
 	}
 }
 
-func CreateAuthZMiddleware(log logrus.FieldLogger) func(http.Handler) http.Handler {
+func CreateAuthZMiddleware(authZ AuthZMiddleware, log logrus.FieldLogger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		fn := func(w http.ResponseWriter, r *http.Request) {
 			var (
@@ -128,7 +129,7 @@ func CreateAuthZMiddleware(log logrus.FieldLogger) func(http.Handler) http.Handl
 				return
 			}
 
-			if !isAllowed(r.Context(), resource, action, w) {
+			if !isAllowed(r.Context(), authZ, log, resource, action, w) {
 				// http.Error was called in isAllowed
 				return
 			}
@@ -140,11 +141,18 @@ func CreateAuthZMiddleware(log logrus.FieldLogger) func(http.Handler) http.Handl
 	}
 }
 
-func isAllowed(ctx context.Context, resource string, action action, w http.ResponseWriter) bool {
+func isAllowed(ctx context.Context, authZ AuthZMiddleware, log logrus.FieldLogger, resource string, action action, w http.ResponseWriter) bool {
 	// Perform permission check
-	allowed, err := GetAuthZ().CheckPermission(ctx, resource, string(action))
+	allowed, err := authZ.CheckPermission(ctx, resource, string(action))
 	if err != nil {
-		http.Error(w, errAuthorizationServerUnavailable, http.StatusServiceUnavailable)
+		log.WithError(err).Error("failed to check permission")
+
+		// Check if this is a client-side error (e.g., invalid token claims)
+		if flterrors.IsClientAuthError(err) {
+			http.Error(w, errBadRequest, http.StatusBadRequest)
+		} else {
+			http.Error(w, errAuthorizationServerUnavailable, http.StatusServiceUnavailable)
+		}
 		return false
 	}
 	if allowed {

@@ -17,7 +17,7 @@ import (
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/healthchecker"
 	"github.com/flightctl/flightctl/internal/kvstore"
-	"github.com/flightctl/flightctl/internal/org"
+	"github.com/flightctl/flightctl/internal/org/resolvers"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	transport "github.com/flightctl/flightctl/internal/transport/agent"
@@ -33,7 +33,6 @@ import (
 
 const (
 	gracefulShutdownTimeout = 5 * time.Second
-	cacheExpirationTime     = 10 * time.Minute
 )
 
 type AgentServer struct {
@@ -45,7 +44,7 @@ type AgentServer struct {
 	queuesProvider queues.Provider
 	tlsConfig      *tls.Config
 	grpcServer     *AgentGrpcServer
-	orgResolver    *org.Resolver
+	orgResolver    resolvers.Resolver
 }
 
 // New returns a new instance of a flightctl server.
@@ -57,8 +56,8 @@ func New(
 	listener net.Listener,
 	queuesProvider queues.Provider,
 	tlsConfig *tls.Config,
+	orgResolver resolvers.Resolver,
 ) *AgentServer {
-	resolver := org.NewResolver(st.Organization(), cacheExpirationTime)
 	return &AgentServer{
 		log:            log,
 		cfg:            cfg,
@@ -68,7 +67,7 @@ func New(
 		queuesProvider: queuesProvider,
 		tlsConfig:      tlsConfig,
 		grpcServer:     NewAgentGrpcServer(log, cfg),
-		orgResolver:    resolver,
+		orgResolver:    orgResolver,
 	}
 }
 
@@ -95,7 +94,7 @@ func (s *AgentServer) Run(ctx context.Context) error {
 	workerClient := worker_client.NewWorkerClient(publisher, s.log)
 
 	serviceHandler := service.WrapWithTracing(
-		service.NewServiceHandler(s.store, workerClient, kvStore, s.ca, s.log, s.cfg.Service.AgentEndpointAddress, s.cfg.Service.BaseUIUrl, s.cfg.Service.TPMCAPaths))
+		service.NewServiceHandler(s.store, workerClient, kvStore, s.ca, s.log, s.cfg.Service.AgentEndpointAddress, s.cfg.Service.BaseUIUrl, s.cfg.Service.TPMCAPaths, s.orgResolver))
 
 	httpAPIHandler, err := s.prepareHTTPHandler(serviceHandler)
 	if err != nil {
@@ -115,7 +114,6 @@ func (s *AgentServer) Run(ctx context.Context) error {
 
 		srv.SetKeepAlivesEnabled(false)
 		_ = srv.Shutdown(ctxTimeout)
-		s.orgResolver.Close()
 		kvStore.Close()
 		s.queuesProvider.Stop()
 		s.queuesProvider.Wait()
