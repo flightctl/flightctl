@@ -27,6 +27,12 @@ spec:
         - name: flightctl-worker
           image: {{ .Values.worker.image.image }}:{{ default .Chart.AppVersion .Values.worker.image.tag }}
           imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.worker.image.pullPolicy }}
+          {{ if .Values.global.metrics.enabled }}
+          ports:
+            - containerPort: 8080
+              name: metrics
+              protocol: TCP
+          {{ end }}
           env:
             - name: HOME
               value: "/root"

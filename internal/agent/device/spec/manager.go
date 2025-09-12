@@ -47,11 +47,13 @@ func NewManager(
 	devicePublisher publisher.Subscription,
 	log *log.PrefixLogger,
 ) Manager {
-	queue := newPriorityQueue(
+	cache := newCache(log)
+	queue := newQueueManager(
 		defaultSpecQueueMaxSize,
 		defaultSpecRequeueMaxRetries,
 		defaultSpecPollConfig,
 		policyManager,
+		cache,
 		log,
 	)
 	return &manager{
@@ -60,7 +62,7 @@ func NewManager(
 		rollbackPath:     filepath.Join(dataDir, string(Rollback)+".json"),
 		deviceReadWriter: deviceReadWriter,
 		osClient:         osClient,
-		cache:            newCache(log),
+		cache:            cache,
 		devicePublisher:  devicePublisher,
 		policyManager:    policyManager,
 		queue:            queue,

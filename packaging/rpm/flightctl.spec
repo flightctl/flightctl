@@ -9,6 +9,8 @@
 %define selinux_policyver 3.14.3-67
 
 Name:           flightctl
+# Version and Release are automatically updated by Packit during build
+# Do not manually change these values - they will be overwritten
 Version:        0.6.0
 Release:        1%{?dist}
 Summary:        Flight Control service
@@ -599,7 +601,6 @@ rm -rf /usr/share/sosreport
     %dir %attr(0444,root,root) %{_datadir}/flightctl/flightctl-db
     %dir %attr(0444,root,root) %{_datadir}/flightctl/flightctl-db-migrate
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-db-migrate/migration-setup.sh
-    %dir %attr(0444,root,root) %{_datadir}/flightctl/flightctl-kv
     %dir %attr(0444,root,root) %{_datadir}/flightctl/flightctl-ui
     %dir %attr(0444,root,root) %{_datadir}/flightctl/flightctl-cli-artifacts
     %{_datadir}/flightctl/flightctl-api/config.yaml.template
@@ -608,7 +609,6 @@ rm -rf /usr/share/sosreport
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-api/create_aap_application.sh
     %{_datadir}/flightctl/flightctl-alert-exporter/config.yaml
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-db/enable-superuser.sh
-    %{_datadir}/flightctl/flightctl-kv/redis.conf
     %{_datadir}/flightctl/flightctl-ui/env.template
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-ui/init.sh
     %attr(0755,root,root) %{_datadir}/flightctl/init_utils.sh

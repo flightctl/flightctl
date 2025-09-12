@@ -87,6 +87,16 @@ const POLLINGLONG = "1s"
 const TIMEOUT = "5m"
 const LONGTIMEOUT = "10m"
 
+// Operation constants for RBAC testing
+const (
+	OperationCreate = "create"
+	OperationUpdate = "update"
+	OperationGet    = "get"
+	OperationList   = "list"
+	OperationDelete = "delete"
+	OperationAll    = "all"
+)
+
 type Harness struct {
 	Client    *apiclient.ClientWithResponses
 	Context   context.Context
@@ -557,6 +567,12 @@ func (h *Harness) parseImageReference(image string) (string, string) {
 
 func (h *Harness) CleanUpAllTestResources() error {
 	return h.CleanUpTestResources(util.ResourceTypes[:]...)
+}
+
+func (h *Harness) CleanUpResource(resourceType string, resourceName string) (string, error) {
+	logrus.Infof("Deleting resource %s of resource type %s", resourceName, resourceType)
+	resource := resourceType + "/" + resourceName
+	return h.CLI("delete", resource)
 }
 
 // CleanUpTestResources deletes only resources that have the test label for the current test
@@ -1440,6 +1456,35 @@ func (h *Harness) addTestLabelToResource(metadata *v1alpha1.ObjectMeta) {
 	(*metadata.Labels)["test-id"] = testID
 }
 
+// TODO: Modify addTestLabelsToYAML to include other labels and remove addLabelsToYAML
+func (h *Harness) AddLabelsToYAML(yamlContent string, addLabels map[string]string) (string, error) {
+	// Parse the YAML document
+	var resource map[string]interface{}
+	if err := yaml.Unmarshal([]byte(yamlContent), &resource); err != nil {
+		return "", fmt.Errorf("failed to parse yaml document: %w", err)
+	}
+
+	// Add labels to metadata
+	if metadata, ok := resource["metadata"].(map[string]interface{}); ok {
+		if labels, ok := metadata["labels"].(map[string]interface{}); ok {
+			for key, value := range addLabels {
+				labels[key] = value
+			}
+		} else {
+			metadata["labels"] = addLabels
+		}
+	} else {
+		resource["metadata"] = map[string]interface{}{"labels": addLabels}
+	}
+
+	// Marshal back to YAML
+	modifiedDoc, err := yaml.Marshal(resource)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal modified yaml: %w", err)
+	}
+	return string(modifiedDoc), nil
+}
+
 func (h *Harness) addTestLabelToEnrollmentApprovalRequest(approval *v1alpha1.EnrollmentRequestApproval) {
 	testID := h.GetTestIDFromContext()
 
@@ -1926,5 +1971,225 @@ func (h *Harness) CreateGitRepositoryWithContent(repoName, filePath, content str
 		}
 	}
 
+	return nil
+}
+
+// ChangeK8sContext changes the kubernetes context
+func (h *Harness) ChangeK8sContext(ctx context.Context, k8sContext string) error {
+	if !util.BinaryExistsOnPath("oc") {
+		return fmt.Errorf("oc binary not found in PATH")
+	}
+	cmd := exec.CommandContext(ctx, "oc", "config", "use-context", k8sContext)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		// Check if the error is due to context timeout
+		if ctx.Err() == context.DeadlineExceeded {
+			GinkgoWriter.Printf("❌ Failed to change K8s context to %s: context timeout\n", k8sContext)
+			return fmt.Errorf("failed to change K8s context to %s: context timeout", k8sContext)
+		}
+		GinkgoWriter.Printf("❌ Failed to change K8s context to %s: %v\n", k8sContext, err)
+		return fmt.Errorf("failed to change K8s context to %s: %w", k8sContext, err)
+	} else {
+		GinkgoWriter.Printf("✅ Changed context to %s: %s\n", k8sContext, output)
+		return nil
+	}
+}
+
+func (h *Harness) CreateResource(resourceType string) (string, string, []byte, error) {
+	uniqueResourceYAML, err := util.CreateUniqueYAMLFile(resourceType+".yaml", h.GetTestIDFromContext())
+	if err != nil {
+		return "", "", nil, err
+	}
+	defer util.CleanupTempYAMLFile(uniqueResourceYAML)
+
+	// ManageResource applies the resource to the cluster with test labels
+	applyOutput, err := h.ManageResource("apply", uniqueResourceYAML)
+	if err != nil {
+		return applyOutput, "", nil, err
+	}
+	if strings.Contains(applyOutput, "201 Created") || strings.Contains(applyOutput, "200 OK") {
+		var resource interface{}
+		var resourceName *string
+
+		switch resourceType {
+		case "device":
+			device := h.GetDeviceByYaml(uniqueResourceYAML)
+			updatedDevice, err := h.GetDevice(*device.Metadata.Name)
+			Expect(err).ToNot(HaveOccurred())
+			resource = updatedDevice
+			resourceName = updatedDevice.Metadata.Name
+		case "fleet":
+			fleet := h.GetFleetByYaml(uniqueResourceYAML)
+			updatedFleet, err := h.GetFleet(*fleet.Metadata.Name)
+			Expect(err).ToNot(HaveOccurred())
+			resource = updatedFleet
+			resourceName = updatedFleet.Metadata.Name
+		case "repository":
+			repo := h.GetRepositoryByYaml(uniqueResourceYAML)
+			updatedRepo, err := h.GetRepository(*repo.Metadata.Name)
+			Expect(err).ToNot(HaveOccurred())
+			resource = updatedRepo
+			resourceName = updatedRepo.Metadata.Name
+		default:
+			return applyOutput, "", nil, fmt.Errorf("Unsupported resource type: %s", resourceType)
+		}
+
+		// Remove resourceVersion before marshaling to avoid conflicts
+		switch resource := resource.(type) {
+		case *v1alpha1.Device:
+			resource.Metadata.ResourceVersion = nil
+		case *v1alpha1.Fleet:
+			resource.Metadata.ResourceVersion = nil
+		case *v1alpha1.Repository:
+			resource.Metadata.ResourceVersion = nil
+		}
+
+		resourceData, err := yaml.Marshal(resource)
+		if err != nil {
+			return applyOutput, "", nil, err
+		}
+		return applyOutput, *resourceName, resourceData, nil
+	} else {
+		GinkgoWriter.Printf("Apply output: %s\n", applyOutput)
+		return applyOutput, "", nil, fmt.Errorf("Failed to create a %s", resourceType)
+	}
+}
+
+// GetDefaultK8sContext returns the a K8s context with default in its name
+func (h *Harness) GetDefaultK8sContext() (string, error) {
+	cmd := exec.Command("kubectl", "config", "get-contexts", "-o", "name")
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("Failed to get contexts: %v", err)
+	}
+
+	contexts := strings.Split(strings.TrimSpace(string(output)), "\n")
+	for _, context := range contexts {
+		if strings.Contains(context, "default") {
+			GinkgoWriter.Printf("🔍 [DEBUG] Found default context: %s\n", context)
+			return context, nil
+		}
+	}
+	return "", fmt.Errorf("no context with 'default' in name found")
+}
+
+// GetK8sApiEndpoint returns the API endpoint for a given K8s context
+func (h *Harness) GetK8sApiEndpoint(ctx context.Context, k8sContext string) (string, error) {
+	if !util.BinaryExistsOnPath("oc") {
+		return "", fmt.Errorf("oc binary not found on PATH")
+	}
+	if err := h.ChangeK8sContext(ctx, k8sContext); err != nil {
+		return "", fmt.Errorf("failed to change K8s context to %s: %w", k8sContext, err)
+	}
+	cmd := exec.Command("bash", "-c", "oc whoami --show-server")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("Failed to get Kubernetes API endpoint: %v", err)
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
+// ExecuteResourceOperations tests all CRUD operations for the given resource types
+// shouldSucceed determines whether the operations are expected to succeed or fail
+func ExecuteResourceOperations(ctx context.Context, harness *Harness, resourceTypes []string, shouldSucceed bool, testLabels *map[string]string, namespace string, operations []string) error {
+	for _, resourceType := range resourceTypes {
+		By(fmt.Sprintf("Testing %s operations - should %s", resourceType, map[bool]string{true: "succeed", false: "fail"}[shouldSucceed]))
+
+		// Check if OperationAll is in the operations list
+		operationsToExecute := operations
+		for _, op := range operations {
+			if op == OperationAll {
+				operationsToExecute = []string{OperationCreate, OperationUpdate, OperationGet, OperationList, OperationDelete}
+				break
+			}
+		}
+
+		// Execute operations in the order they appear in operationsToExecute
+		var resourceName string
+		var resourceData []byte
+		var err error
+
+		for _, operation := range operationsToExecute {
+			if err = executeResourceOperation(harness, operation, resourceType, &resourceName, &resourceData, shouldSucceed, testLabels); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// executeResourceOperation handles a single operation for a resource type
+func executeResourceOperation(harness *Harness, operation, resourceType string, resourceName *string, resourceData *[]byte, shouldSucceed bool, testLabels *map[string]string) error {
+	var output string
+	var err error
+	var operationName string
+
+	switch operation {
+	case OperationCreate:
+		operationName = "creating"
+		GinkgoWriter.Printf("Testing creating a %s", resourceType)
+		output, *resourceName, *resourceData, err = harness.CreateResource(resourceType)
+	case OperationUpdate:
+		operationName = "updating"
+		GinkgoWriter.Printf("Testing updating a %s", resourceType)
+		updatedResourceData, updateErr := harness.AddLabelsToYAML(string(*resourceData), *testLabels)
+		if updateErr != nil {
+			return fmt.Errorf("failed to add labels to YAML: %w", updateErr)
+		}
+		output, err = harness.CLIWithStdin(updatedResourceData, "apply", "-f", "-")
+	case OperationGet:
+		operationName = "getting specific"
+		GinkgoWriter.Printf("Testing getting a specific %s", resourceType)
+		output, err = harness.GetResourcesByName(resourceType, *resourceName)
+	case OperationList:
+		operationName = "listing"
+		GinkgoWriter.Printf("Testing listing %s", resourceType)
+		output, err = harness.GetResourcesByName(resourceType)
+	case OperationDelete:
+		operationName = "deleting"
+		GinkgoWriter.Printf("Testing deleting a %s", resourceType)
+		output, err = harness.CLI("delete", resourceType, *resourceName)
+	default:
+		return fmt.Errorf("unknown operation: %s", operation)
+	}
+
+	return validateResourceOperationResult(operationName, resourceType, output, err, shouldSucceed)
+}
+
+// validateResourceOperationResult validates the result of an operation based on shouldSucceed flag
+func validateResourceOperationResult(operationName, resourceType, output string, err error, shouldSucceed bool) error {
+	if shouldSucceed {
+		if err != nil {
+			return fmt.Errorf("%s %s should succeed but failed: %w", operationName, resourceType, err)
+		}
+	} else {
+		if err == nil {
+			return fmt.Errorf("%s %s should fail but succeeded", operationName, resourceType)
+		}
+		if !strings.Contains(output, "403") {
+			return fmt.Errorf("%s %s should fail with error code 403, got: %s", operationName, resourceType, output)
+		}
+	}
+	return nil
+}
+
+// ExecuteReadOnlyResourceOperations tests read-only operations for the given resource types
+// shouldSucceed determines whether the operations are expected to succeed or fail
+func ExecuteReadOnlyResourceOperations(harness *Harness, resourceTypes []string, shouldSucceed bool) error {
+	for _, resourceType := range resourceTypes {
+		By(fmt.Sprintf("Testing %s operations - should %s", resourceType, map[bool]string{true: "succeed", false: "fail"}[shouldSucceed]))
+		By(fmt.Sprintf("Testing listing %s", resourceType))
+		_, err := harness.GetResourcesByName(resourceType)
+		if shouldSucceed {
+			if err != nil {
+				return fmt.Errorf("admin should be able to list %s but failed: %w", resourceType, err)
+			}
+		} else {
+			if err == nil {
+				return fmt.Errorf("listing %s should fail but succeeded", resourceType)
+			}
+
+		}
+	}
 	return nil
 }
