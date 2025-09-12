@@ -68,12 +68,16 @@ func (p *inlineProvider) OCITargets(pullSecret *client.PullSecret) ([]dependency
 
 	// extract images from inline service
 	var targets []dependency.OCIPullTarget
-	for _, svc := range spec.Services {
-		if svc.Image != "" {
+	for _, service := range spec.Services {
+		if service.Image != "" {
+			policy := v1alpha1.PullAlways
+			if service.PullPolicy != "" {
+				policy = v1alpha1.PullPolicy(service.PullPolicy)
+			}
 			targets = append(targets, dependency.OCIPullTarget{
 				Type:       dependency.OCITypeImage,
-				Reference:  svc.Image,
-				PullPolicy: v1alpha1.PullIfNotPresent,
+				Reference:  service.Image,
+				PullPolicy: policy,
 				PullSecret: pullSecret,
 			})
 		}
@@ -143,6 +147,10 @@ func (p *inlineProvider) Install(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (p *inlineProvider) Update(ctx context.Context) error {
+	return p.Install(ctx)
 }
 
 func (p *inlineProvider) writeInlineContent(appPath string, contents []v1alpha1.ApplicationContent) error {
