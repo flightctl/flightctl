@@ -129,6 +129,10 @@ func (n *publisher) pollAndPublish(ctx context.Context) {
 			n.log.Debug("No new template version from management service")
 			return
 		}
+		if errors.IsRetryable(err) {
+			n.log.Debugf("Received retryable error from management service: %v", err)
+			return
+		}
 		n.log.Errorf("Received non-retryable error from management service: %v", err)
 		return
 	}
