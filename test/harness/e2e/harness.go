@@ -2031,7 +2031,7 @@ func (h *Harness) CreateResource(resourceType string) (string, string, []byte, e
 			resource = updatedRepo
 			resourceName = updatedRepo.Metadata.Name
 		default:
-			return applyOutput, "", nil, fmt.Errorf("Unsupported resource type: %s", resourceType)
+			return applyOutput, "", nil, fmt.Errorf("unsupported resource type: %s", resourceType)
 		}
 
 		// Remove resourceVersion before marshaling to avoid conflicts
@@ -2060,7 +2060,7 @@ func (h *Harness) GetDefaultK8sContext() (string, error) {
 	cmd := exec.Command("kubectl", "config", "get-contexts", "-o", "name")
 	output, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("Failed to get contexts: %v", err)
+		return "", fmt.Errorf("failed to get contexts: %v", err)
 	}
 
 	contexts := strings.Split(strings.TrimSpace(string(output)), "\n")
@@ -2084,7 +2084,7 @@ func (h *Harness) GetK8sApiEndpoint(ctx context.Context, k8sContext string) (str
 	cmd := exec.Command("bash", "-c", "oc whoami --show-server")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("Failed to get Kubernetes API endpoint: %v", err)
+		return "", fmt.Errorf("failed to get Kubernetes API endpoint: %v", err)
 	}
 	return strings.TrimSpace(string(output)), nil
 }
@@ -2192,4 +2192,121 @@ func ExecuteReadOnlyResourceOperations(harness *Harness, resourceTypes []string,
 		}
 	}
 	return nil
+}
+
+// GetVersionsFromCLI returns client, server, and agent versions from the flightctl CLI version command
+func (h *Harness) GetVersionsFromCLI() (clientVersion, serverVersion, agentVersion string, err error) {
+	versionOutput, err := h.CLI("version")
+	if err != nil {
+		return "", "", "", fmt.Errorf("failed to get version from CLI: %w", err)
+	}
+
+	// Get client version
+	clientVersionPrefix := "Client Version:"
+	if !strings.Contains(versionOutput, clientVersionPrefix) {
+		return "", "", "", fmt.Errorf("client version not found in CLI output: %s", versionOutput)
+	}
+
+	clientVersion = h.getVersionByPrefix(versionOutput, clientVersionPrefix)
+	if clientVersion == "" {
+		return "", "", "", fmt.Errorf("failed to parse client version from CLI output")
+	}
+
+	// Get server version
+	serverVersionPrefix := "Server Version:"
+	if !strings.Contains(versionOutput, serverVersionPrefix) {
+		return "", "", "", fmt.Errorf("server version not found in CLI output: %s", versionOutput)
+	}
+
+	serverVersion = h.getVersionByPrefix(versionOutput, serverVersionPrefix)
+	if serverVersion == "" {
+		return "", "", "", fmt.Errorf("failed to parse server version from CLI output")
+	}
+
+	// Get agent version from flightctl-agent version command
+	agentVersion, err = h.GetAgentVersion()
+	if err != nil {
+		return "", "", "", fmt.Errorf("failed to get agent version: %w", err)
+	}
+
+	return clientVersion, serverVersion, agentVersion, nil
+}
+
+// GetServerVersionFromCLI returns the server version from the flightctl CLI version command
+func (h *Harness) GetServerVersionFromCLI() (string, error) {
+	_, serverVersion, _, err := h.GetVersionsFromCLI()
+	return serverVersion, err
+}
+
+// GetClientVersionFromCLI returns the client version from the flightctl CLI version command
+func (h *Harness) GetClientVersionFromCLI() (string, error) {
+	clientVersion, _, _, err := h.GetVersionsFromCLI()
+	return clientVersion, err
+}
+
+// GetAgentVersion returns the agent version from the flightctl-agent version command
+func (h *Harness) GetAgentVersion() (string, error) {
+	// Run flightctl-agent version command on the VM
+	stdout, err := h.VM.RunSSH([]string{"flightctl-agent", "version"}, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to run flightctl-agent version: %w", err)
+	}
+
+	output := stdout.String()
+	versionPrefix := "Flightctl Agent Version:"
+	if !strings.Contains(output, versionPrefix) {
+		return "", fmt.Errorf("agent version not found in output: %s", output)
+	}
+
+	// Extract version using the existing helper function
+	agentVersion := h.getVersionByPrefix(output, versionPrefix)
+	if agentVersion == "" {
+		return "", fmt.Errorf("failed to parse agent version from output")
+	}
+
+	return agentVersion, nil
+}
+
+// GetAgentVersionFromLogs returns the agent version from the flightctl-agent service logs
+func (h *Harness) GetAgentVersionFromLogs() (string, error) {
+	// Get agent logs
+	agentLogs, err := h.GetFlightctlAgentLogs()
+	if err != nil {
+		return "", fmt.Errorf("failed to get agent logs: %w", err)
+	}
+
+	// Look for version information in the logs
+	// Example log line: "System information: version=v0.9.3, go-version=go1.23.9..."
+	versionStart := strings.Index(agentLogs, "version=")
+	if versionStart == -1 {
+		return "", fmt.Errorf("version information not found in agent logs")
+	}
+
+	// Extract version from "version=v0.9.3"
+	versionStart += 8 // Skip "version="
+	versionEnd := strings.Index(agentLogs[versionStart:], ",")
+	if versionEnd == -1 {
+		versionEnd = strings.Index(agentLogs[versionStart:], " ")
+		if versionEnd == -1 {
+			versionEnd = len(agentLogs) - versionStart
+		}
+	}
+
+	agentVersion := strings.TrimSpace(agentLogs[versionStart : versionStart+versionEnd])
+	if agentVersion == "" {
+		return "", fmt.Errorf("failed to extract agent version from logs")
+	}
+
+	return agentVersion, nil
+}
+
+// getVersionByPrefix searches the output for a line starting with the given prefix
+// and returns the trimmed value following the prefix. Returns an empty string if not found.
+func (h *Harness) getVersionByPrefix(output, prefix string) string {
+	for _, line := range strings.Split(output, "\n") {
+		if strings.HasPrefix(line, prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(line, prefix))
+		}
+	}
+	return ""
 }
