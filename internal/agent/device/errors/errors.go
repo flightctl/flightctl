@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"syscall"
 
 	"github.com/flightctl/flightctl/pkg/poll"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -117,6 +118,9 @@ func IsRetryable(err error) bool {
 		return true
 	case errors.Is(err, poll.ErrMaxSteps):
 		return true
+	case errors.Is(err, syscall.ECONNRESET):
+		// connection reset by peer is a transient network error
+		return true
 	case errors.Is(err, ErrNoRetry):
 		return false
 	case errors.Is(err, ErrAuthenticationFailed):
@@ -146,6 +150,10 @@ func IsTimeoutError(err error) bool {
 	}
 
 	if wait.Interrupted(err) {
+		return true
+	}
+
+	if errors.Is(err, syscall.ETIMEDOUT) {
 		return true
 	}
 
