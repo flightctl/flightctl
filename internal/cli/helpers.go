@@ -72,6 +72,44 @@ func parseAndValidateKindName(arg string) (string, string, error) {
 	return kind, name, nil
 }
 
+// parseAndValidateKindNameFromArgs handles both "kind/name" and "kind name [name ...]" formats
+func parseAndValidateKindNameFromArgs(args []string) (string, []string, error) {
+	if len(args) == 0 {
+		return "", nil, fmt.Errorf("no arguments provided")
+	}
+
+	// Check if first argument contains a slash (TYPE/NAME format)
+	if strings.Contains(args[0], "/") {
+		if len(args) > 1 {
+			return "", nil, fmt.Errorf("cannot mix TYPE/NAME syntax with additional arguments. Use either 'get TYPE/NAME' or 'get TYPE NAME [NAME ...]'")
+		}
+		kind, name, err := parseAndValidateKindName(args[0])
+		if err != nil {
+			return "", nil, err
+		}
+		var names []string
+		if name != "" {
+			names = []string{name}
+		}
+		return kind, names, nil
+	}
+
+	// Handle TYPE NAME [NAME ...] format
+	kind := args[0]
+	kind = singular(kind)
+	kind = fullname(kind)
+	if _, ok := pluralKinds[kind]; !ok {
+		return "", nil, fmt.Errorf("invalid resource kind: %s", kind)
+	}
+
+	var names []string
+	if len(args) > 1 {
+		names = args[1:]
+	}
+
+	return kind, names, nil
+}
+
 func singular(kind string) string {
 	for singular, plural := range pluralKinds {
 		if kind == plural {
