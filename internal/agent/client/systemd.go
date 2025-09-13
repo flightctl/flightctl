@@ -80,6 +80,15 @@ func (s *Systemd) Disable(ctx context.Context, name string) error {
 	return nil
 }
 
+func (s *Systemd) Mask(ctx context.Context, name string) error {
+	args := []string{"mask", name}
+	_, stderr, exitCode := s.exec.ExecuteWithContext(ctx, systemctlCommand, args...)
+	if exitCode != 0 {
+		return fmt.Errorf("mask systemd unit: %s: %w", name, errors.FromStderr(stderr, exitCode))
+	}
+	return nil
+}
+
 func (s *Systemd) Enable(ctx context.Context, name string) error {
 	args := []string{"enable", name}
 	_, stderr, exitCode := s.exec.ExecuteWithContext(ctx, systemctlCommand, args...)
