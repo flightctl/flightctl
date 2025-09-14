@@ -101,6 +101,10 @@ global:
 
 # -- Database Configuration
 db:
+  # -- Use external PostgreSQL database instead of deploying internal one
+  # external: Set to "enabled" to use external PostgreSQL database instead of deploying internal one
+  # When enabled, configure hostname, port, name, user credentials to point to your external database
+  external: "disabled"
   # -- External database hostname (leave empty to use in-cluster PostgreSQL)
   # hostname: <set to external DB host to override cluster default>
   # -- Database port number
@@ -109,6 +113,15 @@ db:
   name: "flightctl"
   # -- Database type (currently only 'pgsql' is supported)
   type: "pgsql"
+  # -- SSL mode for database connections (disable, allow, prefer, require, verify-ca, verify-full)
+  sslmode: ""
+  # -- SSL client certificate file path
+  sslcert: ""
+  # -- SSL client key file path
+  sslkey: ""
+  # -- SSL root certificate file path (CA certificate)
+  sslrootcert: ""
+  # Internal database deployment configuration (ignored when external: "enabled")
   image:
     # -- PostgreSQL container image
     image: quay.io/sclorg/postgresql-16-c9s
@@ -122,9 +135,6 @@ db:
   user: flightctl_app
   # -- Database migration username
   migrationUser: flightctl_migrator
-  # -- Application user password (leave empty for auto-generation)
-  # password: Leave empty to auto-generate secure password, or set to use a specific password.
-  password: ""
   # -- Master user password (leave empty for auto-generation)
   # masterPassword: Leave empty to auto-generate secure password, or set to use a specific password.
   masterPassword: ""

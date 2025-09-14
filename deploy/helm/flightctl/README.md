@@ -119,7 +119,8 @@ For more detailed configuration options, see the [Values](#values) section below
 | clusterCli.image.image | string | `"quay.io/openshift/origin-cli"` | Cluster CLI container image |
 | clusterCli.image.pullPolicy | string | `""` | Image pull policy for cluster CLI container |
 | clusterCli.image.tag | string | `"4.20.0"` | Cluster CLI image tag |
-| db | object | `{"fsGroup":"","image":{"image":"quay.io/sclorg/postgresql-16-c9s","pullPolicy":"","tag":"20250214"},"masterPassword":"","masterUser":"admin","maxConnections":200,"migrationPassword":"","migrationUser":"flightctl_migrator","name":"flightctl","password":"","port":5432,"resources":{"requests":{"cpu":"512m","memory":"512Mi"}},"storage":{"size":"60Gi"},"type":"pgsql","user":"flightctl_app","userPassword":""}` | Database Configuration |
+| db | object | `{"external":"disabled","fsGroup":"","image":{"image":"quay.io/sclorg/postgresql-16-c9s","pullPolicy":"","tag":"20250214"},"masterPassword":"","masterUser":"admin","maxConnections":200,"migrationPassword":"","migrationUser":"flightctl_migrator","name":"flightctl","port":5432,"resources":{"requests":{"cpu":"512m","memory":"512Mi"}},"sslcert":"","sslkey":"","sslmode":"","sslrootcert":"","storage":{"size":"60Gi"},"type":"pgsql","user":"flightctl_app","userPassword":""}` | Database Configuration |
+| db.external | string | `"disabled"` | Use external PostgreSQL database instead of deploying internal one external: Set to "enabled" to use external PostgreSQL database instead of deploying internal one When enabled, configure hostname, port, name, user credentials to point to your external database |
 | db.fsGroup | string | `""` | File system group ID for database pod security context |
 | db.image.image | string | `"quay.io/sclorg/postgresql-16-c9s"` | PostgreSQL container image |
 | db.image.pullPolicy | string | `""` | Image pull policy for database container |
@@ -130,10 +131,13 @@ For more detailed configuration options, see the [Values](#values) section below
 | db.migrationPassword | string | `""` | Migration user password (leave empty for auto-generation) migrationPassword: Leave empty to auto-generate secure password, or set to use a specific password. |
 | db.migrationUser | string | `"flightctl_migrator"` | Database migration username |
 | db.name | string | `"flightctl"` | Database name for Flight Control |
-| db.password | string | `""` | Application user password (leave empty for auto-generation) password: Leave empty to auto-generate secure password, or set to use a specific password. |
 | db.port | int | `5432` | Database port number |
 | db.resources.requests.cpu | string | `"512m"` | CPU resource requests for database pod |
 | db.resources.requests.memory | string | `"512Mi"` | Memory resource requests for database pod |
+| db.sslcert | string | `""` | SSL client certificate file path |
+| db.sslkey | string | `""` | SSL client key file path |
+| db.sslmode | string | `""` | SSL mode for database connections (disable, allow, prefer, require, verify-ca, verify-full) |
+| db.sslrootcert | string | `""` | SSL root certificate file path (CA certificate) |
 | db.storage.size | string | `"60Gi"` | Persistent volume size for database storage |
 | db.type | string | `"pgsql"` | Database type (currently only 'pgsql' is supported) |
 | db.user | string | `"flightctl_app"` | Application database username |
