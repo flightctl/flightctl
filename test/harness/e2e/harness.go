@@ -2339,3 +2339,34 @@ func (h *Harness) getVersionByPrefix(output, prefix string) string {
 	}
 	return ""
 }
+
+// GetToken Gets the OpenShift auth token, returning it or an error.
+func (h *Harness) GetToken() (string, error) {
+	if !util.BinaryExistsOnPath("oc") {
+		return "", fmt.Errorf("oc binary not found on PATH")
+	}
+	cmd := exec.Command("oc", "whoami", "-t")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("failed to get token: %v, output: %s", err, strings.TrimSpace(string(output)))
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
+// StartAgent starts the flightctl agent on the VM.
+func (h *Harness) StartAgent() error {
+	if h.VM == nil {
+		return fmt.Errorf("VM is not initialized")
+	}
+	_, err := h.VM.RunSSH([]string{"sudo", "systemctl", "start", util.FLIGHTCTL_AGENT_SERVICE}, nil)
+	return err
+}
+
+// StopAgent stops the flightctl agent on the VM.
+func (h *Harness) StopAgent() error {
+	if h.VM == nil {
+		return fmt.Errorf("VM is not initialized")
+	}
+	_, err := h.VM.RunSSH([]string{"sudo", "systemctl", "stop", util.FLIGHTCTL_AGENT_SERVICE}, nil)
+	return err
+}

@@ -424,6 +424,47 @@ var _ = Describe("cli events operation", func() {
 				return out
 			}, "60s", "2s").Should(ContainSubstring("no application workloads defined"))
 		})
+
+		It("emits DeviceDisconnected then clears after agent restarts", Label("84692"), func() {
+			harness := e2e.GetWorkerHarness()
+
+			token, err := harness.GetToken()
+			Expect(err).ToNot(HaveOccurred())
+			token = strings.TrimSpace(token)
+
+			host, err := harness.CLI("get", "route", "flightctl-alertmanager-proxy-route",
+				"-n", "flightctl", "-o", "jsonpath={.spec.host}")
+			Expect(err).ToNot(HaveOccurred())
+			host = strings.TrimSpace(host)
+
+			countDisc := func() int {
+				cmd := fmt.Sprintf(`curl -ks -H "Authorization: Bearer %s" "https://%s/api/v2/alerts?active=true&silenced=false&inhibited=false&filter=alertname%%3DDeviceDisconnected" | jq 'length'`, token, host)
+				out, err := harness.CLI("bash", "-lc", cmd)
+				Expect(err).ToNot(HaveOccurred(), "Alertmanager query failed: %s", out)
+				var n int
+				_, _ = fmt.Sscanf(strings.TrimSpace(out), "%d", &n)
+				return n
+			}
+
+			initial := countDisc()
+
+			By("stopping flightctl-agent")
+			Expect(harness.StopAgent()).To(Succeed())
+			defer func() {
+				By("(defer) starting flightctl-agent")
+				_ = harness.StartAgent()
+			}()
+
+			By("waiting for DeviceDisconnected to appear while agent is stopped")
+			Eventually(countDisc, LONG_TIMEOUT, LONG_POLLING).Should(BeNumerically(">", initial))
+
+			By("starting flightctl-agent to reconnect")
+			Expect(harness.StartAgent()).To(Succeed())
+
+			By("waiting for DeviceDisconnected to clear")
+			Eventually(countDisc, LONG_TIMEOUT, LONG_POLLING).Should(BeNumerically("<=", initial))
+		})
+
 	})
 })
 
