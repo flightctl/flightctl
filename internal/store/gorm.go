@@ -34,15 +34,7 @@ func initDBWithUser(cfg *config.Config, log *logrus.Logger, user string, passwor
 	var dia gorm.Dialector
 
 	if cfg.Database.Type == "pgsql" {
-		dsn := fmt.Sprintf("host=%s user=%s password=%s port=%d",
-			cfg.Database.Hostname,
-			user,
-			password.Value(),
-			cfg.Database.Port,
-		)
-		if cfg.Database.Name != "" {
-			dsn = fmt.Sprintf("%s dbname=%s", dsn, cfg.Database.Name)
-		}
+		dsn := createDSN(cfg, user, password)
 		dia = postgres.Open(dsn)
 	} else {
 		dia = sqlite.Open(cfg.Database.Name)
@@ -115,6 +107,34 @@ func initDBWithUser(cfg *config.Config, log *logrus.Logger, user string, passwor
 	}
 
 	return newDB, nil
+}
+
+func createDSN(cfg *config.Config, user string, password config.SecureString) string {
+	dsn := fmt.Sprintf("host=%s user=%s password=%s port=%d",
+		cfg.Database.Hostname,
+		user,
+		password.Value(),
+		cfg.Database.Port,
+	)
+	if cfg.Database.Name != "" {
+		dsn = fmt.Sprintf("%s dbname=%s", dsn, cfg.Database.Name)
+	}
+
+	// Add SSL parameters if they are configured
+	if cfg.Database.SSLMode != "" {
+		dsn = fmt.Sprintf("%s sslmode=%s", dsn, cfg.Database.SSLMode)
+	}
+	if cfg.Database.SSLCert != "" {
+		dsn = fmt.Sprintf("%s sslcert=%s", dsn, cfg.Database.SSLCert)
+	}
+	if cfg.Database.SSLKey != "" {
+		dsn = fmt.Sprintf("%s sslkey=%s", dsn, cfg.Database.SSLKey)
+	}
+	if cfg.Database.SSLRootCert != "" {
+		dsn = fmt.Sprintf("%s sslrootcert=%s", dsn, cfg.Database.SSLRootCert)
+	}
+
+	return dsn
 }
 
 type bypassSpanCheckKey struct{}
