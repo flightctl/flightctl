@@ -53,6 +53,11 @@ type dbConfig struct {
 	// Migration user configuration for schema changes
 	MigrationUser     string       `json:"migrationUser,omitempty"`
 	MigrationPassword SecureString `json:"migrationPassword,omitempty"`
+	// SSL configuration
+	SSLMode     string `json:"sslmode,omitempty"`
+	SSLCert     string `json:"sslcert,omitempty"`
+	SSLKey      string `json:"sslkey,omitempty"`
+	SSLRootCert string `json:"sslrootcert,omitempty"`
 }
 
 type svcConfig struct {
