@@ -25,7 +25,11 @@ var _ = BeforeSuite(func() {
 
 	// Check if ACM is installed before running any tests
 	isAcmInstalled, err := util.IsAcmInstalled()
-	if err != nil || !isAcmInstalled {
+
+	if err != nil {
+		GinkgoWriter.Printf("Error while checking if ACM is installed: %s", err)
+	}
+	if !isAcmInstalled {
 		Skip("Skipping test suite because ACM is not installed.")
 	}
 })
