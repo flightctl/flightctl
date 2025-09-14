@@ -2005,9 +2005,9 @@ func (h *Harness) CreateGitRepositoryWithContent(repoName, filePath, content str
 }
 
 // ChangeK8sContext changes the kubernetes context
-func (h *Harness) ChangeK8sContext(ctx context.Context, k8sContext string) error {
+func (h *Harness) ChangeK8sContext(ctx context.Context, k8sContext string) (string, error) {
 	if !util.BinaryExistsOnPath("oc") {
-		return fmt.Errorf("oc binary not found in PATH")
+		return "", fmt.Errorf("oc binary not found in PATH")
 	}
 	cmd := exec.CommandContext(ctx, "oc", "config", "use-context", k8sContext)
 	output, err := cmd.CombinedOutput()
@@ -2015,13 +2015,13 @@ func (h *Harness) ChangeK8sContext(ctx context.Context, k8sContext string) error
 		// Check if the error is due to context timeout
 		if ctx.Err() == context.DeadlineExceeded {
 			GinkgoWriter.Printf("❌ Failed to change K8s context to %s: context timeout\n", k8sContext)
-			return fmt.Errorf("failed to change K8s context to %s: context timeout", k8sContext)
+			return string(output), fmt.Errorf("failed to change K8s context to %s: context timeout", k8sContext)
 		}
 		GinkgoWriter.Printf("❌ Failed to change K8s context to %s: %v\n", k8sContext, err)
-		return fmt.Errorf("failed to change K8s context to %s: %w", k8sContext, err)
+		return string(output), fmt.Errorf("failed to change K8s context to %s: %w", k8sContext, err)
 	} else {
 		GinkgoWriter.Printf("✅ Changed context to %s: %s\n", k8sContext, output)
-		return nil
+		return string(output), nil
 	}
 }
 
@@ -2108,7 +2108,7 @@ func (h *Harness) GetK8sApiEndpoint(ctx context.Context, k8sContext string) (str
 	if !util.BinaryExistsOnPath("oc") {
 		return "", fmt.Errorf("oc binary not found on PATH")
 	}
-	if err := h.ChangeK8sContext(ctx, k8sContext); err != nil {
+	if _, err := h.ChangeK8sContext(ctx, k8sContext); err != nil {
 		return "", fmt.Errorf("failed to change K8s context to %s: %w", k8sContext, err)
 	}
 	cmd := exec.Command("bash", "-c", "oc whoami --show-server")
