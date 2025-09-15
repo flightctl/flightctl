@@ -1,8 +1,8 @@
 [Unit]
 Description=Flight Control Periodic service
 PartOf=flightctl.target
-After=flightctl-db.service flightctl-db-migrate.service flightctl-kv.service
-Requires=flightctl-db.service flightctl-db-migrate.service flightctl-kv.service
+After=flightctl-db.service flightctl-db-migrate.service flightctl-kv.service flightctl-worker.service
+Wants=flightctl-db.service flightctl-db-migrate.service flightctl-kv.service
 
 [Container]
 ContainerName=flightctl-periodic

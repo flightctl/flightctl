@@ -2,7 +2,7 @@
 Description=Flight Control Database Users Initialization
 PartOf=flightctl.target
 After=flightctl-db.service flightctl-db-wait.service
-Requires=flightctl-db.service flightctl-db-wait.service
+Requires=flightctl-db.service 
 
 [Container]
 ContainerName=flightctl-db-users-init

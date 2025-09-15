@@ -2,7 +2,7 @@
 Description=Flight Control Worker service
 PartOf=flightctl.target
 After=flightctl-db.service flightctl-db-migrate.service flightctl-kv.service
-Requires=flightctl-db.service flightctl-db-migrate.service flightctl-kv.service
+Wants=flightctl-db.service flightctl-db-migrate.service flightctl-kv.service
 
 [Container]
 ContainerName=flightctl-worker

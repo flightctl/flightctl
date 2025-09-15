@@ -1,8 +1,7 @@
 [Unit]
 Description=Flight Control Database Wait (admin)
 PartOf=flightctl.target
-After=flightctl-db.service
-Requires=flightctl-db.service
+After=flightctl-db.service 
 
 [Container]
 ContainerName=flightctl-db-wait

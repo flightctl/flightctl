@@ -2,7 +2,7 @@
 Description=Flight Control Alert Exporter service
 PartOf=flightctl.target
 After=flightctl-db.service flightctl-db-migrate.service flightctl-kv.service flightctl-alertmanager.service
-Requires=flightctl-db.service flightctl-db-migrate.service flightctl-kv.service flightctl-alertmanager.service
+Wants=flightctl-db.service flightctl-db-migrate.service flightctl-kv.service flightctl-alertmanager.service
 
 [Container]
 ContainerName=flightctl-alert-exporter

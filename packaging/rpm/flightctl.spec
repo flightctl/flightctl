@@ -11,8 +11,8 @@
 Name:           flightctl
 # Version and Release are automatically updated by Packit during build
 # Do not manually change these values - they will be overwritten
-Version:        0.6.0
-Release:        1%{?dist}
+Version:        0.10.0~main~276~gdf8aac99
+Release:        1.20250915110304102911.rpm.upgrade.276.gdf8aac99%{?dist}
 Summary:        Flight Control service
 
 %gometa
@@ -20,7 +20,7 @@ Summary:        Flight Control service
 License:        Apache-2.0 AND BSD-2-Clause AND BSD-3-Clause AND ISC AND MIT
 URL:            %{gourl}
 
-Source0:        1%{?dist}
+Source0:        flightctl-0.10.0~main~276~gdf8aac99.tar.gz
 
 BuildRequires:  golang
 BuildRequires:  make
@@ -30,17 +30,11 @@ BuildRequires:  systemd-rpm-macros
 
 Requires: openssl
 
-# --- Restart these on upgrade (app-facing) ---
-%global flightctl_services_restart flightctl-api.service flightctl-ui.service flightctl-worker.service flightctl-alertmanager.service flightctl-alert-exporter.service flightctl-alertmanager-proxy.service flightctl-cli-artifacts.service flightctl-periodic.service
-
-# --- Hold these steady (no restart on upgrade) ---
-%global flightctl_services_hold flightctl-db.service flightctl-kv.service flightctl-db-migrate.service
-
-# --- One-shot init helpers (never restart) ---
-%global flightctl_services_oneshot flightctl-api-init.service flightctl-ui-init.service flightctl-alertmanager-proxy-init.service flightctl-cli-artifacts-init.service
-
-# Keep target separate (don't "restart" targets)
 %global flightctl_target flightctl.target
+
+# --- Restart these on upgrade  ---
+%global flightctl_services_restart flightctl-api.service flightctl-ui.service flightctl-worker.service flightctl-alertmanager.service flightctl-alert-exporter.service flightctl-alertmanager-proxy.service flightctl-cli-artifacts.service flightctl-periodic.service flightctl-db-migrate.service
+
 
 %description
 # Main package is empty and not created.
@@ -84,6 +78,7 @@ The flightctl-selinux package provides the SELinux policy modules required by th
 Summary: Flight Control services
 Requires: bash
 Requires: podman
+Requires: yq
 BuildRequires: systemd-rpm-macros
 %{?systemd_requires}
 
@@ -110,9 +105,8 @@ Requires:       /usr/sbin/semanage
 Requires:       /usr/sbin/restorecon
 Requires:       podman
 Requires:       systemd
-Requires(post): systemd, yq, gettext
-Requires(preun):systemd
-Requires(postun):systemd
+Requires(post): yq gettext
+%{?systemd_requires}
 Requires:       selinux-policy-targeted
 
 %description observability
@@ -413,7 +407,7 @@ echo "Flightctl Observability Stack uninstalled."
 
 %prep
 %goprep -A
-%setup -q %{forgesetupargs}
+%setup -q %{forgesetupargs} -n flightctl-0.10.0~main~276~gdf8aac99
 
 %build
     # if this is a buggy version of go we need to set GOPROXY as workaround
@@ -513,7 +507,7 @@ echo "Flightctl Observability Stack uninstalled."
      mkdir -p %{buildroot}/usr/lib/systemd/system # For systemd units
 
      # Install pre-upgrade helper script
-     install -Dpm 0755 deploy/scripts/pre-upgrade-dry-run.sh %{buildroot}%{_libexecdir}/flightctl/pre-upgrade-dry-run.sh
+     install -Dpm 0755 deploy/scripts/pre-upgrade-dry-run.sh %{buildroot}%{_datadir}/flightctl/pre-upgrade-dry-run.sh
 
      # Copy static configuration files (those not templated)
      install -m 0644 packaging/observability/prometheus.yml %{buildroot}/etc/prometheus/
@@ -642,7 +636,7 @@ rm -rf /usr/share/sosreport
     # Handle permissions for scripts setting host config
     %attr(0755,root,root) %{_datadir}/flightctl/init_host.sh
     %attr(0755,root,root) %{_datadir}/flightctl/secrets.sh
-    %attr(0755,root,root) %{_libexecdir}/flightctl/pre-upgrade-dry-run.sh
+    %attr(0755,root,root) %{_datadir}/flightctl/pre-upgrade-dry-run.sh
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-db-migrate/wait-for-database.sh
 
     # Files mounted to lib dir
@@ -653,27 +647,31 @@ rm -rf /usr/share/sosreport
 %pre services
 if [ "$1" -eq 2 ]; then
     IMAGE_TAG="$(echo %{version} | tr '~' '-')"
-    if [ -x "%{_libexecdir}/flightctl/pre-upgrade-dry-run.sh" ]; then
-        "%{_libexecdir}/flightctl/pre-upgrade-dry-run.sh" "$IMAGE_TAG" || :
+    echo "flightctl: running pre upgrade checks, target version $IMAGE_TAG"
+    if [ -x "%{_datadir}/flightctl/pre-upgrade-dry-run.sh" ]; then
+        IMAGE_TAG="$IMAGE_TAG" \
+        CONFIG_PATH="%{_sysconfdir}/flightctl/flightctl-api/config.yaml" \
+        "%{_datadir}/flightctl/pre-upgrade-dry-run.sh" "$IMAGE_TAG" "%{_sysconfdir}/flightctl/flightctl-api/config.yaml" || {
+            echo "flightctl: dry-run failed; aborting upgrade." >&2
+            exit 1
+        }
     else
         echo "flightctl: pre-upgrade-dry-run.sh not present; skipping."
     fi
 fi
 
 %post services
-# Quadlets become units only after reload
-/usr/bin/systemctl daemon-reload >/dev/null 2>&1 || :
 # On initial install: apply preset policy to enable/disable services based on system defaults
-%systemd_post %{flightctl_target} %{flightctl_services_restart} %{flightctl_services_hold} %{flightctl_services_oneshot}
+%systemd_post %{flightctl_target}
 
 %preun services
 # On package removal: stop and disable all services
-%systemd_preun %{flightctl_target} %{flightctl_services_restart} %{flightctl_services_hold} %{flightctl_services_oneshot}
+%systemd_preun %{flightctl_target} 
 
 %postun services
 # On upgrade: mark services for restart after transaction completes
 %systemd_postun_with_restart %{flightctl_services_restart}
-%systemd_postun %{flightctl_target} %{flightctl_services_hold} %{flightctl_services_oneshot}
+%systemd_postun %{flightctl_target}
 
 %changelog
 * Tue Jul 15 2025 Sam Batschelet <sbatsche@redhat.com> - 0.9.0-2
