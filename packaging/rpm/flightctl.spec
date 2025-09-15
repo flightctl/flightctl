@@ -11,8 +11,8 @@
 Name:           flightctl
 # Version and Release are automatically updated by Packit during build
 # Do not manually change these values - they will be overwritten
-Version:        0.10.0~main~276~gdf8aac99
-Release:        1.20250915110304102911.rpm.upgrade.276.gdf8aac99%{?dist}
+Version:        0.6.0
+Release:        1%{?dist}
 Summary:        Flight Control service
 
 %gometa
@@ -407,7 +407,7 @@ echo "Flightctl Observability Stack uninstalled."
 
 %prep
 %goprep -A
-%setup -q %{forgesetupargs} -n flightctl-0.10.0~main~276~gdf8aac99
+%setup -q %{forgesetupargs}
 
 %build
     # if this is a buggy version of go we need to set GOPROXY as workaround
@@ -645,6 +645,8 @@ rm -rf /usr/share/sosreport
 
 # Optional pre-upgrade database migration dry-run
 %pre services
+# $1 == 1 if it's an install
+# $1 == 2 if it's an upgrade
 if [ "$1" -eq 2 ]; then
     IMAGE_TAG="$(echo %{version} | tr '~' '-')"
     echo "flightctl: running pre upgrade checks, target version $IMAGE_TAG"
