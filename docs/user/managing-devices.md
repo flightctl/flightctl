@@ -181,7 +181,35 @@ NAME                                                  ALIAS    OWNER   SYSTEM  U
 54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg  <none>   <none>  Online  Up-to-date  <none>        3 seconds ago  region=eu-west-1,site=factory-berlin
 ```
 
-You can update the labels of a given device by exporting the device's current definition into a file, editing the specification to update the labels, and then applying the updated definition. To export the device's current definition into a file called `my_device.yaml`, run the `flightctl get device` command with the device's name and the `-o yaml` output flag:
+You can update the labels of a given device using one of two methods:
+
+### Method 1: Using the edit command (Recommended)
+
+The `flightctl edit` command provides a streamlined way to edit resources directly in your preferred text editor, similar to `kubectl edit`. This command automatically fetches the current resource definition, opens it in an editor, and applies your changes when you save and exit:
+
+```console
+flightctl edit device/54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg
+```
+
+This will open the device definition in your default editor (defined by `FLIGHTCTL_EDITOR`, `EDITOR` environment variables, or defaults to `vi`). You can also specify a different editor:
+
+```console
+flightctl edit device/54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg --editor=nano
+```
+
+The command supports both `TYPE/NAME` and `TYPE NAME` formats:
+
+```console
+# Both of these are equivalent:
+flightctl edit device/my-device
+flightctl edit device my-device
+```
+
+When you save and exit the editor, the command will automatically apply your changes to the server. If there are any errors (such as validation failures or conflicts), your changes will be saved to a temporary file for recovery.
+
+### Method 2: Export, edit, and apply manually
+
+Alternatively, you can update labels by exporting the device's current definition into a file, editing the specification to update the labels, and then applying the updated definition. To export the device's current definition into a file called `my_device.yaml`, run the `flightctl get device` command with the device's name and the `-o yaml` output flag:
 
 ```console
 flightctl get device/54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg -o yaml > my_device.yaml

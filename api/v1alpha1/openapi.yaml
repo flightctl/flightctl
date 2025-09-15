@@ -3664,6 +3664,7 @@ components:
               - add
               - replace
               - remove
+              - test
     Repository:
       type: object
       properties:
