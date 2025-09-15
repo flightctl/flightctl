@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -14,6 +15,7 @@ import (
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/cli/display"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/samber/lo"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -52,9 +54,9 @@ func DefaultGetOptions() *GetOptions {
 func NewCmdGet() *cobra.Command {
 	o := DefaultGetOptions()
 	cmd := &cobra.Command{
-		Use:       "get (TYPE | TYPE/NAME)",
+		Use:       "get (TYPE | TYPE/NAME | TYPE NAME [NAME ...])",
 		Short:     "Display one or many resources.",
-		Args:      cobra.ExactArgs(1),
+		Args:      cobra.MinimumNArgs(1),
 		ValidArgs: getValidResourceKinds(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := o.Complete(cmd, args); err != nil {
@@ -77,7 +79,7 @@ func (o *GetOptions) Bind(fs *pflag.FlagSet) {
 	o.GlobalOptions.Bind(fs)
 
 	fs.StringVarP(&o.LabelSelector, "selector", "l", o.LabelSelector, "Selector (label query) to filter on, supporting operators like '=', '!=', and 'in' (e.g., -l='key1=value1,key2!=value2,key3 in (value3, value4)').")
-	fs.StringVar(&o.FieldSelector, "field-selector", o.FieldSelector, "Selector (field query) to filter on, supporting operators like '=', '==', and '!=' (e.g., --field-selector='key1=value1,key2!=value2').")
+	fs.StringVar(&o.FieldSelector, "field-selector", o.FieldSelector, "Selector (field query) to filter on, supporting operators like '=', '!=', 'in', 'contains', '>', '<', etc. (e.g., --field-selector='metadata.name in (device1,device2)', --field-selector='metadata.owner=Fleet/test').")
 	fs.StringVarP(&o.Output, "output", "o", o.Output, fmt.Sprintf("Output format. One of: (%s).", strings.Join(legalOutputTypes, ", ")))
 	fs.Int32Var(&o.Limit, "limit", o.Limit, "The maximum number of results returned in the list response. If the value is 0, then the result is not limited.")
 	fs.StringVar(&o.Continue, "continue", o.Continue, "Query more results starting from the value of the 'continue' field in the previous response.")
@@ -99,19 +101,26 @@ func (o *GetOptions) Validate(args []string) error {
 		return err
 	}
 
-	kind, name, err := parseAndValidateKindName(args[0])
+	kind, names, err := parseAndValidateKindNameFromArgs(args)
 	if err != nil {
 		return err
 	}
 
+	// Validate all resource names
+	for _, resName := range names {
+		if errs := validation.ValidateResourceName(&resName); len(errs) > 0 {
+			return fmt.Errorf("invalid resource name: %s", errors.Join(errs...).Error())
+		}
+	}
+
 	validators := []func() error{
-		func() error { return o.validateSelectors(name) },
-		func() error { return o.validateSummary(kind, name) },
-		func() error { return o.validateSummaryOnly(kind, name) },
+		func() error { return o.validateSelectors(names) },
+		func() error { return o.validateSummary(kind, names) },
+		func() error { return o.validateSummaryOnly(kind, names) },
 		func() error { return o.validateTemplateVersion(kind) },
 		func() error { return o.validateOutputFormat() },
-		func() error { return o.validateRendered(kind, name) },
-		func() error { return o.validateSingleResourceRestrictions(kind, name) },
+		func() error { return o.validateRendered(kind, names) },
+		func() error { return o.validateSingleResourceRestrictions(kind, names) },
 		func() error { return o.validateLimit() },
 	}
 
@@ -123,41 +132,42 @@ func (o *GetOptions) Validate(args []string) error {
 	return nil
 }
 
-// validateSelectors ensures label/field selectors are not provided when requesting a single resource.
-func (o *GetOptions) validateSelectors(name string) error {
-	if len(name) > 0 && len(o.LabelSelector) > 0 {
-		return fmt.Errorf("cannot specify label selector when getting a single resource")
+// validateSelectors ensures label/field selectors are not provided when requesting specific resources.
+func (o *GetOptions) validateSelectors(names []string) error {
+	hasSpecificResources := len(names) > 0
+	if hasSpecificResources && len(o.LabelSelector) > 0 {
+		return fmt.Errorf("cannot specify label selector when getting specific resources")
 	}
-	if len(name) > 0 && len(o.FieldSelector) > 0 {
-		return fmt.Errorf("cannot specify field selector when getting a single resource")
+	if hasSpecificResources && len(o.FieldSelector) > 0 {
+		return fmt.Errorf("cannot specify field selector when getting specific resources")
 	}
 	return nil
 }
 
 // validateSummary validates the usage of the --summary flag.
-func (o *GetOptions) validateSummary(kind, name string) error {
+func (o *GetOptions) validateSummary(kind string, names []string) error {
 	if !o.Summary {
 		return nil
 	}
 	if kind != DeviceKind && kind != FleetKind {
 		return fmt.Errorf("'--summary' can only be specified when getting a list of devices or fleets")
 	}
-	if kind == DeviceKind && len(name) > 0 {
-		return fmt.Errorf("cannot specify '--summary' when getting a single device")
+	if kind == DeviceKind && len(names) > 0 {
+		return fmt.Errorf("cannot specify '--summary' when getting specific devices")
 	}
 	return nil
 }
 
 // validateSummaryOnly validates the usage of the --summary-only flag.
-func (o *GetOptions) validateSummaryOnly(kind, name string) error {
+func (o *GetOptions) validateSummaryOnly(kind string, names []string) error {
 	if !o.SummaryOnly {
 		return nil
 	}
 	if kind != DeviceKind {
 		return fmt.Errorf("'--summary-only' can only be specified when getting a list of devices")
 	}
-	if len(name) > 0 {
-		return fmt.Errorf("cannot specify '--summary-only' when getting a single device")
+	if len(names) > 0 {
+		return fmt.Errorf("cannot specify '--summary-only' when getting specific devices")
 	}
 	if o.Limit > 0 || len(o.Continue) > 0 {
 		return fmt.Errorf("flags '--limit' and '--continue' are not supported when '--summary-only' is specified")
@@ -182,23 +192,23 @@ func (o *GetOptions) validateOutputFormat() error {
 }
 
 // validateRendered guards the --rendered flag usage.
-func (o *GetOptions) validateRendered(kind, name string) error {
-	if o.Rendered && (kind != DeviceKind || len(name) == 0) {
+func (o *GetOptions) validateRendered(kind string, names []string) error {
+	if o.Rendered && (kind != DeviceKind || len(names) != 1) {
 		return fmt.Errorf("'--rendered' can only be used when getting a single device")
 	}
 	return nil
 }
 
 // validateSingleResourceRestrictions covers kinds that cannot be fetched individually.
-func (o *GetOptions) validateSingleResourceRestrictions(kind, name string) error {
-	if len(name) == 0 {
+func (o *GetOptions) validateSingleResourceRestrictions(kind string, names []string) error {
+	if len(names) == 0 {
 		return nil // list request – no restriction applies
 	}
 	switch kind {
 	case EventKind:
-		return fmt.Errorf("you cannot get a single event")
+		return fmt.Errorf("you cannot get individual events")
 	case OrganizationKind:
-		return fmt.Errorf("you cannot get a single organization")
+		return fmt.Errorf("you cannot get individual organizations")
 	default:
 		return nil
 	}
@@ -221,34 +231,36 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error {
 		return fmt.Errorf("creating client: %w", err)
 	}
 
-	kind, name, err := parseAndValidateKindName(args[0])
+	kind, names, err := parseAndValidateKindNameFromArgs(args)
 	if err != nil {
 		return err
 	}
 
 	formatter := display.NewFormatter(display.OutputFormat(o.Output))
-	if name == "" {
+
+	// Handle list case (no specific names)
+	if len(names) == 0 {
 		if err := o.handleList(ctx, formatter, clientWithResponses, kind); err != nil {
 			return fmt.Errorf("listing %s: %w", plural(kind), err)
 		}
-	} else {
-		if err := o.handleSingle(ctx, formatter, clientWithResponses, kind, name); err != nil {
-			return fmt.Errorf("reading %s/%s: %w", kind, name, err)
-		}
+		return nil
 	}
-	return nil
+
+	// Handle single or multiple names case
+	return o.handleMultiple(ctx, formatter, clientWithResponses, kind, names)
 }
 
-// handleSingle fetches and displays a single resource.
-func (o *GetOptions) handleSingle(ctx context.Context, formatter display.OutputFormatter, c *apiclient.ClientWithResponses, kind, name string) error {
-	response, err := o.getSingleResource(ctx, c, kind, name)
-	if err != nil {
-		return err
-	}
-	if err := validateResponse(response); err != nil {
-		return err
-	}
-	return o.displayResponse(formatter, response, kind, name)
+// handleMultiple fetches and displays multiple resources using field selector with IN operator.
+func (o *GetOptions) handleMultiple(ctx context.Context, formatter display.OutputFormatter, c *apiclient.ClientWithResponses, kind string, names []string) error {
+	// Construct field selector: metadata.name in (name1,name2,name3)
+	fieldSelector := fmt.Sprintf("metadata.name in (%s)", strings.Join(names, ","))
+
+	// Temporarily set field selector and use list functionality
+	originalFieldSelector := o.FieldSelector
+	o.FieldSelector = fieldSelector
+	defer func() { o.FieldSelector = originalFieldSelector }()
+
+	return o.handleList(ctx, formatter, c, kind)
 }
 
 func (o *GetOptions) handleList(
@@ -331,33 +343,6 @@ func (o *GetOptions) listOnce(ctx context.Context, formatter display.OutputForma
 		return response, err
 	}
 	return response, o.displayResponse(formatter, response, kind, "")
-}
-
-func (o *GetOptions) getSingleResource(ctx context.Context, c *apiclient.ClientWithResponses, kind, name string) (interface{}, error) {
-	switch kind {
-	case DeviceKind:
-		if o.Rendered {
-			return c.GetRenderedDeviceWithResponse(ctx, name, &api.GetRenderedDeviceParams{})
-		}
-		return c.GetDeviceWithResponse(ctx, name)
-	case EnrollmentRequestKind:
-		return c.GetEnrollmentRequestWithResponse(ctx, name)
-	case FleetKind:
-		params := api.GetFleetParams{
-			AddDevicesSummary: util.ToPtrWithNilDefault(o.Summary),
-		}
-		return c.GetFleetWithResponse(ctx, name, &params)
-	case TemplateVersionKind:
-		return c.GetTemplateVersionWithResponse(ctx, o.FleetName, name)
-	case RepositoryKind:
-		return c.GetRepositoryWithResponse(ctx, name)
-	case ResourceSyncKind:
-		return c.GetResourceSyncWithResponse(ctx, name)
-	case CertificateSigningRequestKind:
-		return c.GetCertificateSigningRequestWithResponse(ctx, name)
-	default:
-		return nil, fmt.Errorf("unsupported resource kind: %s", kind)
-	}
 }
 
 func (o *GetOptions) getResourceList(ctx context.Context, c *apiclient.ClientWithResponses, kind string) (interface{}, error) {
