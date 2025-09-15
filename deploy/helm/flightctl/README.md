@@ -54,7 +54,7 @@ upgradeHooks:
   databaseMigrationDryRun: true  # default true
 ```
 
-Note: On fresh installs, migrations run as a regular Job (not a hook) to cooperate with `--wait`.
+Note: On fresh installs, migrations run as a regular Job (not a hook).
 
 Basic upgrade command:
 
@@ -67,7 +67,6 @@ Upgrade to a specific chart version:
 ```bash
 helm upgrade \
   --version <new-version> \
-  --namespace flightctl \
   my-flightctl oci://quay.io/flightctl/charts/flightctl
 ```
 
