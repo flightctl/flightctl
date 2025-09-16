@@ -1,8 +1,8 @@
 [Unit]
 Description=Flight Control Alertmanager service
 PartOf=flightctl.target
-After=flightctl-db.service flightctl-db-wait.service
-Wants=flightctl-db.service flightctl-db-wait.service
+After=flightctl-db-wait.service
+Wants=flightctl-db-wait.service
 
 [Container]
 ContainerName=flightctl-alertmanager
