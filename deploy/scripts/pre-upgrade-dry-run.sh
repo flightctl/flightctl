@@ -13,6 +13,7 @@ YQ="${YQ:-$(command -v yq || echo '/usr/bin/yq')}"
 # Configuration
 DB_SETUP_IMAGE="quay.io/flightctl/flightctl-db-setup:${IMAGE_TAG}"
 INSTALL_CONFIG_FILE="/etc/flightctl/flightctl-services-install.conf"
+SERVICE_CONFIG_DIR="/etc/flightctl"
 
 # Load installation configuration file if exists
 load_install_config() {
@@ -34,40 +35,15 @@ parse_service_db_config() {
         exit 0
     fi
 
-    if [ ! -x "${YQ}" ]; then
-        echo "[flightctl] yq not found; using default database values"
-        DB_HOST="flightctl-db"
-        DB_PORT="5432"
-        DB_NAME="flightctl"
-        DB_USER="admin"
-    else
-        echo "[flightctl] parsing database config from service config: ${SERVICE_CONFIG_PATH}"
-        DB_HOST=$(${YQ} '.database.hostname // "flightctl-db"' "${SERVICE_CONFIG_PATH}")
-        DB_PORT=$(${YQ} '.database.port // 5432' "${SERVICE_CONFIG_PATH}")
-        DB_NAME=$(${YQ} '.database.name // "flightctl"' "${SERVICE_CONFIG_PATH}")
-        DB_USER=$(${YQ} '.database.user // "admin"' "${SERVICE_CONFIG_PATH}")
-    fi
+    echo "[flightctl] parsing database config from service config: ${SERVICE_CONFIG_PATH}"
+    DB_HOST=$(${YQ} '.database.hostname // "flightctl-db"' "${SERVICE_CONFIG_PATH}")
+    DB_PORT=$(${YQ} '.database.port // 5432' "${SERVICE_CONFIG_PATH}")
+    DB_NAME=$(${YQ} '.database.name // "flightctl"' "${SERVICE_CONFIG_PATH}")
+    DB_USER=${DB_USER:-$(${YQ} '.database.migrationUser // "flightctl_migrator"' "${SERVICE_CONFIG_PATH}")}
 
     echo "[flightctl] database config: host=${DB_HOST}, port=${DB_PORT}, name=${DB_NAME}, user=${DB_USER}"
 }
 
-# Check prerequisites
-check_prerequisites() {
-    if [ "${RUN_DRY_RUN}" != "1" ]; then
-        echo "[flightctl] dry-run disabled; skipping"
-        exit 0
-    fi
-
-    if [ ! -x "${PODMAN}" ]; then
-        echo "[flightctl] podman not found; skipping"
-        exit 0
-    fi
-
-    if ! "${PODMAN}" container exists flightctl-db >/dev/null 2>&1; then
-        echo "[flightctl] database container not found; skipping"
-        exit 0
-    fi
-}
 
 # Wait for database to be ready
 wait_for_database() {
@@ -78,8 +54,8 @@ wait_for_database() {
         -e DB_PORT="${DB_PORT}" \
         -e DB_NAME="${DB_NAME}" \
         -e DB_USER="${DB_USER}" \
-        --secret flightctl-postgresql-master-password,type=env,target=DB_PASSWORD \
-        -v "${SERVICE_CONFIG_PATH%/*}/service-config.yaml":/etc/flightctl/service-config.yaml:ro,z \
+        --secret flightctl-postgresql-migrator-password,type=env,target=DB_PASSWORD \
+        -v "${SERVICE_CONFIG_DIR}/service-config.yaml":/etc/flightctl/service-config.yaml:ro,z \
         "${DB_SETUP_IMAGE}" /app/deploy/scripts/wait-for-database.sh \
         --timeout="${DB_WAIT_TIMEOUT}" --sleep="${DB_WAIT_SLEEP}"; then
         echo "[flightctl] database wait failed; skipping dry-run"
@@ -92,9 +68,10 @@ run_migration_dry_run() {
     echo "[flightctl] running database migration dry-run"
 
     if "${PODMAN}" run --rm --network flightctl \
+        --secret flightctl-postgresql-migrator-password,type=env,target=DB_PASSWORD \
         --secret flightctl-postgresql-migrator-password,type=env,target=DB_MIGRATION_PASSWORD \
         -v "${SERVICE_CONFIG_PATH}":/root/.flightctl/config.yaml:ro,z \
-        -v "${SERVICE_CONFIG_PATH%/*}/service-config.yaml":/etc/flightctl/service-config.yaml:ro,z \
+        -v "${SERVICE_CONFIG_DIR}/service-config.yaml":/etc/flightctl/service-config.yaml:ro,z \
         "${DB_SETUP_IMAGE}" /usr/local/bin/flightctl-db-migrate --dry-run; then
         echo "[flightctl] dry-run completed successfully"
     else
@@ -109,8 +86,13 @@ main() {
     echo "[flightctl] using service config: ${SERVICE_CONFIG_PATH}"
 
     load_install_config
+    
+    if [ "${RUN_DRY_RUN}" != "1" ]; then
+        echo "[flightctl] dry-run disabled; skipping"
+        exit 0
+    fi
+    
     parse_service_db_config
-    check_prerequisites
     wait_for_database
     run_migration_dry_run
 }
