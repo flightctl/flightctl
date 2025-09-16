@@ -20,7 +20,7 @@ Summary:        Flight Control service
 License:        Apache-2.0 AND BSD-2-Clause AND BSD-3-Clause AND ISC AND MIT
 URL:            %{gourl}
 
-Source0:        flightctl-0.10.0~main~276~gdf8aac99.tar.gz
+Source0:        1%{?dist}
 
 BuildRequires:  golang
 BuildRequires:  make
@@ -642,7 +642,6 @@ rm -rf /usr/share/sosreport
 
     # Files mounted to lib dir
     /usr/lib/systemd/system/flightctl.target
-    # /usr/lib/systemd/system/flightctl-db-migrate.service
 
 # Optional pre-upgrade database migration dry-run
 %pre services
@@ -670,6 +669,7 @@ fi
 %preun services
 # On package removal: stop and disable all services
 %systemd_preun %{flightctl_target} 
+%systemd_preun flightctl-network.service
 
 %postun services
 # On upgrade: mark services for restart after transaction completes
