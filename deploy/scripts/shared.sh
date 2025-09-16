@@ -110,13 +110,7 @@ move_shared_files() {
     cp "${source_dir}/scripts/init_utils.sh" "${CONFIG_READONLY_DIR}/init_utils.sh"
     cp "${source_dir}/scripts/init_host.sh" "${CONFIG_READONLY_DIR}/init_host.sh"
     cp "${source_dir}/scripts/secrets.sh" "${CONFIG_READONLY_DIR}/secrets.sh"
-
-    # Copy migration helper scripts for db-migrate service
-    mkdir -p "${CONFIG_READONLY_DIR}/flightctl-db-migrate"
-    cp "${source_dir}/scripts/migration-setup.sh" "${CONFIG_READONLY_DIR}/flightctl-db-migrate/migration-setup.sh"
-    cp "${source_dir}/scripts/wait-for-database.sh" "${CONFIG_READONLY_DIR}/flightctl-db-migrate/wait-for-database.sh"
-    chmod +x "${CONFIG_READONLY_DIR}/flightctl-db-migrate/migration-setup.sh"
-    chmod +x "${CONFIG_READONLY_DIR}/flightctl-db-migrate/wait-for-database.sh"
+    
 }
 
 # Start a systemd service

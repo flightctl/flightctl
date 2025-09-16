@@ -33,7 +33,7 @@ Requires: openssl
 %global flightctl_target flightctl.target
 
 # --- Restart these on upgrade  ---
-%global flightctl_services_restart flightctl-api.service flightctl-ui.service flightctl-worker.service flightctl-alertmanager.service flightctl-alert-exporter.service flightctl-alertmanager-proxy.service flightctl-cli-artifacts.service flightctl-periodic.service flightctl-db-migrate.service
+%global flightctl_services_restart flightctl-api.service flightctl-ui.service flightctl-worker.service flightctl-alertmanager.service flightctl-alert-exporter.service flightctl-alertmanager-proxy.service flightctl-cli-artifacts.service flightctl-periodic.service flightctl-db-migrate.service flightctl-db-wait.service
 
 
 %description
@@ -506,8 +506,9 @@ echo "Flightctl Observability Stack uninstalled."
      mkdir -p %{buildroot}/usr/local/bin # For the reloader script
      mkdir -p %{buildroot}/usr/lib/systemd/system # For systemd units
 
-     # Install pre-upgrade helper script
-     install -Dpm 0755 deploy/scripts/pre-upgrade-dry-run.sh %{buildroot}%{_datadir}/flightctl/pre-upgrade-dry-run.sh
+     # Install pre-upgrade helper script to libexec
+     mkdir -p %{buildroot}%{_libexecdir}/flightctl
+     install -Dpm 0755 deploy/scripts/pre-upgrade-dry-run.sh %{buildroot}%{_libexecdir}/flightctl/pre-upgrade-dry-run.sh
 
      # Copy static configuration files (those not templated)
      install -m 0644 packaging/observability/prometheus.yml %{buildroot}/etc/prometheus/
@@ -612,8 +613,6 @@ rm -rf /usr/share/sosreport
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-api
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-alert-exporter
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-db
-    %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-db-migrate
-    %attr(0755,root,root) %{_datadir}/flightctl/flightctl-db-migrate/migration-setup.sh
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-ui
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-cli-artifacts
     %{_datadir}/flightctl/flightctl-api/config.yaml.template
@@ -636,8 +635,10 @@ rm -rf /usr/share/sosreport
     # Handle permissions for scripts setting host config
     %attr(0755,root,root) %{_datadir}/flightctl/init_host.sh
     %attr(0755,root,root) %{_datadir}/flightctl/secrets.sh
-    %attr(0755,root,root) %{_datadir}/flightctl/pre-upgrade-dry-run.sh
-    %attr(0755,root,root) %{_datadir}/flightctl/flightctl-db-migrate/wait-for-database.sh
+    
+    # flightctl-services pre upgrade checks
+    %dir %{_libexecdir}/flightctl
+    %attr(0755,root,root) %{_libexecdir}/flightctl/pre-upgrade-dry-run.sh
 
     # Files mounted to lib dir
     /usr/lib/systemd/system/flightctl.target
@@ -650,15 +651,15 @@ rm -rf /usr/share/sosreport
 if [ "$1" -eq 2 ]; then
     IMAGE_TAG="$(echo %{version} | tr '~' '-')"
     echo "flightctl: running pre upgrade checks, target version $IMAGE_TAG"
-    if [ -x "%{_datadir}/flightctl/pre-upgrade-dry-run.sh" ]; then
+    if [ -x "%{_libexecdir}/flightctl/pre-upgrade-dry-run.sh" ]; then
         IMAGE_TAG="$IMAGE_TAG" \
         CONFIG_PATH="%{_sysconfdir}/flightctl/flightctl-api/config.yaml" \
-        "%{_datadir}/flightctl/pre-upgrade-dry-run.sh" "$IMAGE_TAG" "%{_sysconfdir}/flightctl/flightctl-api/config.yaml" || {
+        "%{_libexecdir}/flightctl/pre-upgrade-dry-run.sh" "$IMAGE_TAG" "%{_sysconfdir}/flightctl/flightctl-api/config.yaml" || {
             echo "flightctl: dry-run failed; aborting upgrade." >&2
             exit 1
         }
     else
-        echo "flightctl: pre-upgrade-dry-run.sh not present; skipping."
+        echo "flightctl: pre-upgrade-dry-run.sh not found at %{_libexecdir}/flightctl; skipping."
     fi
 fi
 
