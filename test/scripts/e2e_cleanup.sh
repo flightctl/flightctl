@@ -55,13 +55,13 @@ done
 
 # Clean up temporary directories in /tmp
 echo "🔄 [Cleanup] Cleaning up temporary directories..."
-if tmp_dirs=$(find /tmp -maxdepth 1 -name "flightctl-e2e-worker-*" -type d 2>/dev/null); then
+if tmp_dirs=$(find /tmp -maxdepth 1 -name "flightctl-e2e-*" -type d 2>/dev/null); then
     if [[ -n "$tmp_dirs" ]]; then
         echo "🔍 [Cleanup] Found temporary directories:"
         echo "$tmp_dirs"
         echo "🔄 [Cleanup] Removing temporary directories..."
         # Use find with -delete for safer removal
-        if find /tmp -maxdepth 1 -name "flightctl-e2e-worker-*" -type d -exec rm -rf {} + 2>/dev/null; then
+        if find /tmp -maxdepth 1 -name "flightctl-e2e-*" -type d -exec rm -rf {} + 2>/dev/null; then
             echo "✅ [Cleanup] Successfully removed temporary directories"
         else
             echo "⚠️  [Cleanup] Failed to remove some temporary directories"

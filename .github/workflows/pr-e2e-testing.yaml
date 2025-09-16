@@ -235,6 +235,7 @@ jobs:
           GINKGO_LABEL_FILTER: ${{ inputs.label_filter || 'sanity' }}
           GINKGO_TOTAL_NODES: ${{ env.GINKGO_TOTAL_NODES }}
           GINKGO_NODE: ${{ matrix.ginkgo_node }}
+          GINKGO_WORKER_TOTAL: 2
 
       # =================================================================
       # This step now uploads logs to a unique artifact for each job

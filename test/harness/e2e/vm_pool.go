@@ -5,15 +5,44 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 
 	"github.com/flightctl/flightctl/test/harness/e2e/vm"
 )
 
+// calculatePortOffset extracts worker and proc numbers from a workerID string and calculates port offset
+// The format is workerWORKERNUM_procPROCNUM
+// Port calculation: (workerNum * 10) + procNum
+// This automatically separates main workers (1-9) from device simulation workers (10+)
+func calculatePortOffset(workerID string) int {
+	// Handle composite format: worker<VMID>_proc<GinkgoProcID>
+	parts := strings.Split(workerID, "_")
+	var workerNum, procNum int = 1, 1 // Defaults
+
+	for _, part := range parts {
+		if strings.HasPrefix(part, "worker") {
+			// Extract the number after "worker"
+			if num, err := strconv.Atoi(strings.TrimPrefix(part, "worker")); err == nil {
+				workerNum = num
+			}
+		} else if strings.HasPrefix(part, "proc") {
+			// Extract the number after "proc"
+			if num, err := strconv.Atoi(strings.TrimPrefix(part, "proc")); err == nil {
+				procNum = num
+			}
+		}
+	}
+
+	// Calculate port offset: (workerNum * 10) + procNum
+	// This automatically separates main workers (1-9) from device simulation workers (10+)
+	return (workerNum * 10) + procNum
+}
+
 // VMPool manages VMs across all test suites
 type VMPool struct {
-	vms             map[int]vm.TestVMInterface
+	vms             map[string]vm.TestVMInterface
 	mutex           sync.RWMutex
 	config          VMPoolConfig
 	sharedDiskOnce  sync.Once
@@ -36,7 +65,7 @@ var (
 func GetOrCreateVMPool(config VMPoolConfig) *VMPool {
 	poolOnce.Do(func() {
 		globalVMPool = &VMPool{
-			vms:    make(map[int]vm.TestVMInterface),
+			vms:    make(map[string]vm.TestVMInterface),
 			config: config,
 		}
 	})
@@ -46,7 +75,7 @@ func GetOrCreateVMPool(config VMPoolConfig) *VMPool {
 
 // GetVMForWorker returns a VM for the given worker ID, creating it on-demand if it doesn't exist.
 // This method supports lazy VM creation to optimize resource usage.
-func (p *VMPool) GetVMForWorker(workerID int) (vm.TestVMInterface, error) {
+func (p *VMPool) GetVMForWorker(workerID string) (vm.TestVMInterface, error) {
 	p.mutex.RLock()
 	if vm, exists := p.vms[workerID]; exists {
 		p.mutex.RUnlock()
@@ -57,7 +86,7 @@ func (p *VMPool) GetVMForWorker(workerID int) (vm.TestVMInterface, error) {
 	// Create new VM for this worker (outside of lock)
 	newVM, err := p.createVMForWorker(workerID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create VM for worker %d: %w", workerID, err)
+		return nil, fmt.Errorf("failed to create VM for worker %s: %w", workerID, err)
 	}
 
 	// Lock only when accessing the map
@@ -70,7 +99,7 @@ func (p *VMPool) GetVMForWorker(workerID int) (vm.TestVMInterface, error) {
 		// Clean up our VM and return the existing one
 		if cleanupErr := newVM.ForceDelete(); cleanupErr != nil {
 			// Log cleanup error but don't fail the operation
-			fmt.Printf("⚠️  [VMPool] Worker %d: Failed to cleanup redundant VM: %v\n", workerID, cleanupErr)
+			fmt.Printf("⚠️  [VMPool] Worker %s: Failed to cleanup redundant VM: %v\n", workerID, cleanupErr)
 		}
 		return vm, nil
 	}
@@ -80,13 +109,13 @@ func (p *VMPool) GetVMForWorker(workerID int) (vm.TestVMInterface, error) {
 }
 
 // createVMForWorker creates a new VM for the specified worker
-func (p *VMPool) createVMForWorker(workerID int) (vm.TestVMInterface, error) {
-	vmName := fmt.Sprintf("flightctl-e2e-worker-%d", workerID)
+func (p *VMPool) createVMForWorker(workerID string) (vm.TestVMInterface, error) {
+	vmName := fmt.Sprintf("flightctl-e2e-%s", workerID)
 
-	fmt.Printf("🔄 [VMPool] Worker %d: Creating VM %s\n", workerID, vmName)
+	fmt.Printf("🔄 [VMPool] Worker %s: Creating VM %s\n", workerID, vmName)
 
 	// Create worker-specific temp directory
-	workerDir := filepath.Join(p.config.TempDir, fmt.Sprintf("flightctl-e2e-worker-%d", workerID))
+	workerDir := filepath.Join(p.config.TempDir, fmt.Sprintf("flightctl-e2e-%s", workerID))
 	if err := os.MkdirAll(workerDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create worker directory: %w", err)
 	}
@@ -102,7 +131,7 @@ func (p *VMPool) createVMForWorker(workerID int) (vm.TestVMInterface, error) {
 
 	// Use sync.Once to ensure the shared base disk is created exactly once
 	p.sharedDiskOnce.Do(func() {
-		fmt.Printf("🔄 [VMPool] Worker %d: Creating shared base disk at %s\n", workerID, sharedBaseDisk)
+		fmt.Printf("🔄 [VMPool] Worker %s: Creating shared base disk at %s\n", workerID, sharedBaseDisk)
 		cmd := exec.Command("cp", "--sparse=always", p.config.BaseDiskPath, sharedBaseDisk) //nolint:gosec
 		if output, err := cmd.CombinedOutput(); err != nil {
 			p.sharedDiskError = fmt.Errorf("failed to create shared base disk: %w, output: %s", err, string(output))
@@ -112,7 +141,7 @@ func (p *VMPool) createVMForWorker(workerID int) (vm.TestVMInterface, error) {
 			p.sharedDiskError = fmt.Errorf("failed to set permissions on shared base disk: %w", err)
 			return
 		}
-		fmt.Printf("✅ [VMPool] Worker %d: Shared base disk created successfully\n", workerID)
+		fmt.Printf("✅ [VMPool] Worker %s: Shared base disk created successfully\n", workerID)
 	})
 
 	// Check if there was an error during shared disk creation
@@ -120,24 +149,24 @@ func (p *VMPool) createVMForWorker(workerID int) (vm.TestVMInterface, error) {
 		return nil, p.sharedDiskError
 	}
 
-	workerDiskPath := filepath.Join(workerDir, fmt.Sprintf("worker-%d-disk.qcow2", workerID))
+	workerDiskPath := filepath.Join(workerDir, fmt.Sprintf("worker-%s-disk.qcow2", workerID))
 
 	if _, err := os.Stat(workerDiskPath); err == nil {
-		fmt.Printf("🔄 [VMPool] Worker %d: Overlay disk already exists at %s, skipping creation\n", workerID, workerDiskPath)
+		fmt.Printf("🔄 [VMPool] Worker %s: Overlay disk already exists at %s, skipping creation\n", workerID, workerDiskPath)
 	} else {
-		fmt.Printf("🔄 [VMPool] Worker %d: Creating qcow2 overlay disk with shared backing file at %s\n", workerID, workerDiskPath)
+		fmt.Printf("🔄 [VMPool] Worker %s: Creating qcow2 overlay disk with shared backing file at %s\n", workerID, workerDiskPath)
 		cmd := exec.Command("qemu-img", "create", "-f", "qcow2", "-b", sharedBaseDisk, "-F", "qcow2", workerDiskPath)
 		if output, err := cmd.CombinedOutput(); err != nil {
-			return nil, fmt.Errorf("failed to create overlay disk for worker %d: %w, output: %s", workerID, err, string(output))
+			return nil, fmt.Errorf("failed to create overlay disk for worker %s: %w, output: %s", workerID, err, string(output))
 		}
 	}
 
 	// Ensure the copied file has the correct permissions for libvirt access
 	if err := os.Chmod(workerDiskPath, 0644); err != nil {
-		return nil, fmt.Errorf("failed to set permissions on disk copy for worker %d: %w", workerID, err)
+		return nil, fmt.Errorf("failed to set permissions on disk copy for worker %s: %w", workerID, err)
 	}
 
-	fmt.Printf("✅ [VMPool] Worker %d: Overlay disk created successfully\n", workerID)
+	fmt.Printf("✅ [VMPool] Worker %s: Overlay disk created successfully\n", workerID)
 
 	// Create VM using the worker-specific overlay disk
 	newVM, err := vm.NewVM(vm.TestVM{
@@ -146,19 +175,19 @@ func (p *VMPool) createVMForWorker(workerID int) (vm.TestVMInterface, error) {
 		DiskImagePath: workerDiskPath, // Use worker-specific overlay disk
 		VMUser:        "user",
 		SSHPassword:   "user",
-		SSHPort:       p.config.SSHPortBase + workerID,
+		SSHPort:       p.config.SSHPortBase + calculatePortOffset(workerID),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create VM: %w", err)
 	}
-	fmt.Printf("✅ [VMPool] Worker %d: VM struct created\n", workerID)
+	fmt.Printf("✅ [VMPool] Worker %s: VM struct created\n", workerID)
 
 	// Start the VM and wait for SSH to be ready
-	fmt.Printf("🔄 [VMPool] Worker %d: Starting VM and waiting for SSH\n", workerID)
+	fmt.Printf("🔄 [VMPool] Worker %s: Starting VM and waiting for SSH\n", workerID)
 	if err := newVM.RunAndWaitForSSH(); err != nil {
 		return nil, fmt.Errorf("failed to start VM: %w", err)
 	}
-	fmt.Printf("✅ [VMPool] Worker %d: VM started and SSH ready\n", workerID)
+	fmt.Printf("✅ [VMPool] Worker %s: VM started and SSH ready\n", workerID)
 
 	// Take a snapshot of the running state (VM stayso running)
 	exists, err := newVM.HasSnapshot("pristine")
@@ -166,63 +195,63 @@ func (p *VMPool) createVMForWorker(workerID int) (vm.TestVMInterface, error) {
 		return nil, fmt.Errorf("failed to check if VM has snapshot: %w", err)
 	}
 	if exists {
-		fmt.Printf("✅ [VMPool] Worker %d: Pristine snapshot already exists, skipping creation\n", workerID)
+		fmt.Printf("✅ [VMPool] Worker %s: Pristine snapshot already exists, skipping creation\n", workerID)
 		return newVM, nil
 	}
 
-	fmt.Printf("🔄 [VMPool] Worker %d: Creating pristine snapshot\n", workerID)
+	fmt.Printf("🔄 [VMPool] Worker %s: Creating pristine snapshot\n", workerID)
 	if err := newVM.CreateSnapshot("pristine"); err != nil {
 		// Clean up on failure
 		_ = newVM.ForceDelete()
 		return nil, fmt.Errorf("failed to create pristine snapshot: %w", err)
 	}
-	fmt.Printf("✅ [VMPool] Worker %d: Pristine snapshot created successfully\n", workerID)
+	fmt.Printf("✅ [VMPool] Worker %s: Pristine snapshot created successfully\n", workerID)
 
 	// VM stays running - no shutdown
-	fmt.Printf("✅ [VMPool] Worker %d: VM setup completed, VM is running\n", workerID)
+	fmt.Printf("✅ [VMPool] Worker %s: VM setup completed, VM is running\n", workerID)
 	return newVM, nil
 }
 
 // cleanupWorkerDirectory removes the entire worker directory and all its contents
-func (p *VMPool) cleanupWorkerDirectory(workerID int) {
-	workerDir := filepath.Join(p.config.TempDir, fmt.Sprintf("flightctl-e2e-worker-%d", workerID))
+func (p *VMPool) cleanupWorkerDirectory(workerID string) {
+	workerDir := filepath.Join(p.config.TempDir, fmt.Sprintf("flightctl-e2e-%s", workerID))
 	if err := os.RemoveAll(workerDir); err != nil {
-		fmt.Printf("⚠️  [VMPool] Worker %d: Failed to remove worker directory: %v\n", workerID, err)
+		fmt.Printf("⚠️  [VMPool] Worker %s: Failed to remove worker directory: %v\n", workerID, err)
 	} else {
-		fmt.Printf("✅ [VMPool] Worker %d: Worker directory cleaned up\n", workerID)
+		fmt.Printf("✅ [VMPool] Worker %s: Worker directory cleaned up\n", workerID)
 	}
 }
 
 // CleanupWorkerVM cleans up the VM for a specific worker
-func (p *VMPool) CleanupWorkerVM(workerID int) error {
+func (p *VMPool) CleanupWorkerVM(workerID string) error {
 	// Only lock for map access
 	p.mutex.Lock()
 	vm, exists := p.vms[workerID]
 	if exists {
 		delete(p.vms, workerID) // Remove from map immediately
-		fmt.Printf("🔍 [VMPool] Worker %d: VM removed from pool map (total VMs in map: %d)\n", workerID, len(p.vms))
+		fmt.Printf("🔍 [VMPool] Worker %s: VM removed from pool map (total VMs in map: %d)\n", workerID, len(p.vms))
 	} else {
-		fmt.Printf("🔍 [VMPool] Worker %d: No VM found in pool map to remove\n", workerID)
+		fmt.Printf("🔍 [VMPool] Worker %s: No VM found in pool map to remove\n", workerID)
 	}
 	p.mutex.Unlock() // 🔓 Release mutex before VM operations
 
 	if !exists {
-		fmt.Printf("✅ [VMPool] Worker %d: No VM found to cleanup\n", workerID)
+		fmt.Printf("✅ [VMPool] Worker %s: No VM found to cleanup\n", workerID)
 		return nil
 	}
 
-	fmt.Printf("🔄 [VMPool] Worker %d: Starting VM cleanup\n", workerID)
+	fmt.Printf("🔄 [VMPool] Worker %s: Starting VM cleanup\n", workerID)
 
 	// Now do VM operations without holding the mutex
 	vmExists, err := vm.Exists()
 	if err != nil {
-		fmt.Printf("⚠️  [VMPool] Worker %d: Failed to check if VM exists: %v\n", workerID, err)
+		fmt.Printf("⚠️  [VMPool] Worker %s: Failed to check if VM exists: %v\n", workerID, err)
 	}
 
 	if vmExists {
 		// VM operations that can hang - no mutex held
 		if err := vm.Shutdown(); err != nil {
-			fmt.Printf("⚠️  [VMPool] Worker %d: Failed to shutdown VM: %v\n", workerID, err)
+			fmt.Printf("⚠️  [VMPool] Worker %s: Failed to shutdown VM: %v\n", workerID, err)
 		}
 		// ... rest of cleanup
 	}
@@ -240,12 +269,12 @@ func (p *VMPool) CleanupAll() error {
 
 	var lastErr error
 	for workerID, vm := range p.vms {
-		fmt.Printf("🔄 [VMPool] Worker %d: Cleaning up VM\n", workerID)
+		fmt.Printf("🔄 [VMPool] Worker %s: Cleaning up VM\n", workerID)
 
 		// Check if VM exists before trying to clean it up
 		vmExists, err := vm.Exists()
 		if err != nil {
-			fmt.Printf("⚠️  [VMPool] Worker %d: Failed to check if VM exists: %v\n", workerID, err)
+			fmt.Printf("⚠️  [VMPool] Worker %s: Failed to check if VM exists: %v\n", workerID, err)
 		}
 
 		if vmExists {
@@ -254,22 +283,22 @@ func (p *VMPool) CleanupAll() error {
 
 			// Delete VM
 			if err := vm.ForceDelete(); err != nil {
-				fmt.Printf("⚠️  [VMPool] Worker %d: Failed to delete VM: %v\n", workerID, err)
+				fmt.Printf("⚠️  [VMPool] Worker %s: Failed to delete VM: %v\n", workerID, err)
 				if lastErr != nil {
-					lastErr = fmt.Errorf("multiple errors: %w, worker %d: %w", lastErr, workerID, err)
+					lastErr = fmt.Errorf("multiple errors: %w, worker %s: %w", lastErr, workerID, err)
 				} else {
-					lastErr = fmt.Errorf("failed to delete VM for worker %d: %w", workerID, err)
+					lastErr = fmt.Errorf("failed to delete VM for worker %s: %w", workerID, err)
 				}
 			}
 		} else {
-			fmt.Printf("ℹ️  [VMPool] Worker %d: VM no longer exists, skipping cleanup\n", workerID)
+			fmt.Printf("ℹ️  [VMPool] Worker %s: VM no longer exists, skipping cleanup\n", workerID)
 		}
 
 		// Clean up worker directory
 		p.cleanupWorkerDirectory(workerID)
 	}
 	fmt.Printf("🔍 [VMPool] Clearing VM pool map (was %d VMs)\n", len(p.vms))
-	p.vms = make(map[int]vm.TestVMInterface)
+	p.vms = make(map[string]vm.TestVMInterface)
 
 	// For external snapshots, no overlays to clean up
 	// The storage pool manager was designed for internal snapshots
@@ -308,7 +337,7 @@ func GetBaseDiskPath() (string, error) {
 
 // SetupVMForWorker is a convenience function that initializes the VM pool and returns a VM for the worker.
 // VMs are created on-demand if they don't already exist in the pool.
-func SetupVMForWorker(workerID int, tempDir string, sshPortBase int) (vm.TestVMInterface, error) {
+func SetupVMForWorker(workerID string, tempDir string, sshPortBase int) (vm.TestVMInterface, error) {
 	baseDiskPath, err := GetBaseDiskPath()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get base disk path: %w", err)
@@ -325,7 +354,7 @@ func SetupVMForWorker(workerID int, tempDir string, sshPortBase int) (vm.TestVMI
 
 // RemoveVMFromPool removes a VM from the global pool for the given worker ID
 // Note: This should be called AFTER harness.Cleanup() which handles VM destruction
-func RemoveVMFromPool(workerID int) error {
+func RemoveVMFromPool(workerID string) error {
 	if globalVMPool == nil {
 		return nil // Pool doesn't exist, nothing to remove
 	}
@@ -336,7 +365,7 @@ func RemoveVMFromPool(workerID int) error {
 	if _, exists := globalVMPool.vms[workerID]; exists {
 		// Remove from the pool (VM should already be destroyed by harness.Cleanup)
 		delete(globalVMPool.vms, workerID)
-		fmt.Printf("✅ [VMPool] Worker %d: VM removed from pool\n", workerID)
+		fmt.Printf("✅ [VMPool] Worker %s: VM removed from pool\n", workerID)
 
 		// Clean up worker directory
 		globalVMPool.cleanupWorkerDirectory(workerID)
@@ -374,7 +403,7 @@ func removeVMFromPoolByVM(targetVM vm.TestVMInterface) error {
 		if poolVM == targetVM {
 			// Remove from the pool (VM should already be destroyed by harness.Cleanup)
 			delete(globalVMPool.vms, workerID)
-			fmt.Printf("✅ [VMPool] Worker %d: VM removed from pool\n", workerID)
+			fmt.Printf("✅ [VMPool] Worker %s: VM removed from pool\n", workerID)
 
 			// Clean up worker directory
 			globalVMPool.cleanupWorkerDirectory(workerID)
