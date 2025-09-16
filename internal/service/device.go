@@ -257,9 +257,18 @@ func (h *ServiceHandler) ReplaceDeviceStatus(ctx context.Context, name string, i
 		return nil, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 	}
 
+	// Ensure statuses are non-nil before touching LastSeen
+	if incomingDevice.Status == nil {
+		ds := api.NewDeviceStatus()
+		incomingDevice.Status = &ds
+	}
+	if originalDevice.Status == nil {
+		os := api.NewDeviceStatus()
+		originalDevice.Status = &os
+	}
 	if IsAgentRequest(ctx) {
-		// Agent requests: auto-update lastSeen to current time
-		incomingDevice.Status.LastSeen = time.Now()
+		// Agent requests: auto-update lastSeen to current UTC time
+		incomingDevice.Status.LastSeen = time.Now().UTC()
 	} else {
 		// User/Internal requests: ignore incoming lastSeen, preserve existing value
 		incomingDevice.Status.LastSeen = originalDevice.Status.LastSeen
@@ -319,12 +328,20 @@ func (h *ServiceHandler) PatchDeviceStatus(ctx context.Context, name string, pat
 		return nil, api.StatusBadRequest("spec is immutable")
 	}
 
+	// Ensure newObj.Status exists before assignment
+	if newObj.Status == nil {
+		ds := api.NewDeviceStatus()
+		newObj.Status = &ds
+	}
+	// Compute preserved value safely
+	var preserved time.Time
+	if currentObj.Status != nil {
+		preserved = currentObj.Status.LastSeen
+	}
 	if IsAgentRequest(ctx) {
-		// Agent requests: auto-update lastSeen to current time
-		newObj.Status.LastSeen = time.Now()
+		newObj.Status.LastSeen = time.Now().UTC()
 	} else {
-		// User/Internal requests: ignore incoming lastSeen, preserve existing value
-		newObj.Status.LastSeen = currentObj.Status.LastSeen
+		newObj.Status.LastSeen = preserved
 	}
 
 	NilOutManagedObjectMetaProperties(&newObj.Metadata)

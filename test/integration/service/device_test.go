@@ -1,10 +1,12 @@
 package service_test
 
 import (
+	"context"
 	"strings"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/google/uuid"
@@ -149,7 +151,8 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 
 			// Update device status through the service (this simulates agent reporting back)
-			resultDevice, status := suite.Handler.ReplaceDeviceStatus(suite.Ctx, deviceName, updatedDevice)
+			agentCtx := context.WithValue(suite.Ctx, consts.AgentCtxKey, true)
+			resultDevice, status := suite.Handler.ReplaceDeviceStatus(agentCtx, deviceName, updatedDevice)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(resultDevice).ToNot(BeNil())
 			Expect(resultDevice.Status.ApplicationsSummary.Status).To(Equal(api.ApplicationsSummaryStatusError))
@@ -249,7 +252,8 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 
 			// Update device status through the service
-			resultDevice, status := suite.Handler.ReplaceDeviceStatus(suite.Ctx, deviceName, updatedDevice)
+			agentCtx := context.WithValue(suite.Ctx, consts.AgentCtxKey, true)
+			resultDevice, status := suite.Handler.ReplaceDeviceStatus(agentCtx, deviceName, updatedDevice)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(resultDevice).ToNot(BeNil())
 			Expect(resultDevice.Status.ApplicationsSummary.Status).To(Equal(api.ApplicationsSummaryStatusHealthy))
@@ -266,6 +270,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 	Context("Device resource monitor status transitions", func() {
 		It("should generate resource monitor events for problematic transitions but not for healthy startup", func() {
 			deviceName := "new-device-with-resource-issues"
+			var agentCtx context.Context
 
 			// Step 1: Create a device (without status)
 			device := api.Device{
@@ -299,7 +304,8 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 
 			// Update the device status
-			_, status = suite.Handler.ReplaceDeviceStatus(suite.Ctx, deviceName, deviceWithCriticalResources)
+			agentCtx = context.WithValue(suite.Ctx, consts.AgentCtxKey, true)
+			_, status = suite.Handler.ReplaceDeviceStatus(agentCtx, deviceName, deviceWithCriticalResources)
 			Expect(status.Code).To(Equal(int32(200)))
 
 			// Verify events were generated for CPU and Memory issues but NOT for Disk
@@ -341,7 +347,8 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 
 			// Update the device
-			_, status = suite.Handler.ReplaceDeviceStatus(suite.Ctx, deviceName, deviceWithHealthyResources)
+			agentCtx = context.WithValue(suite.Ctx, consts.AgentCtxKey, true)
+			_, status = suite.Handler.ReplaceDeviceStatus(agentCtx, deviceName, deviceWithHealthyResources)
 			Expect(status.Code).To(Equal(int32(200)))
 
 			// Verify events were generated for CPU and Memory recovery
@@ -428,7 +435,8 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 
 			// Update device status through the service
-			resultDevice, status := suite.Handler.ReplaceDeviceStatus(suite.Ctx, deviceName, updatedDevice)
+			agentCtx := context.WithValue(suite.Ctx, consts.AgentCtxKey, true)
+			resultDevice, status := suite.Handler.ReplaceDeviceStatus(agentCtx, deviceName, updatedDevice)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(resultDevice).ToNot(BeNil())
 
@@ -561,7 +569,8 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 
 			// Update the device status to online
-			resultDevice, status = suite.Handler.ReplaceDeviceStatus(suite.Ctx, deviceName, deviceWithOnlineStatus)
+			agentCtx := context.WithValue(suite.Ctx, consts.AgentCtxKey, true)
+			resultDevice, status = suite.Handler.ReplaceDeviceStatus(agentCtx, deviceName, deviceWithOnlineStatus)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(resultDevice).ToNot(BeNil())
 			Expect(resultDevice.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusOnline))
@@ -581,6 +590,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 
 		It("should generate DeviceConflictPaused event when device summary status transitions to conflict paused", func() {
 			deviceName := "device-paused-test"
+			var agentCtx context.Context
 
 			// Step 1: Create a device (without status - this will have unknown summary status)
 			device := api.Device{
@@ -640,7 +650,8 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 
 			// Update the device status to online first
-			_, status = suite.Handler.ReplaceDeviceStatus(suite.Ctx, deviceName, deviceWithOnlineStatus)
+			agentCtx = context.WithValue(suite.Ctx, consts.AgentCtxKey, true)
+			_, status = suite.Handler.ReplaceDeviceStatus(agentCtx, deviceName, deviceWithOnlineStatus)
 			Expect(status.Code).To(Equal(int32(200)))
 
 			// Step 3: Set the paused annotation first
@@ -696,7 +707,8 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 
 			// Update the device status - service should automatically set it to paused
-			resultDevice, status := suite.Handler.ReplaceDeviceStatus(suite.Ctx, deviceName, deviceWithUpdatedStatus)
+			agentCtx = context.WithValue(suite.Ctx, consts.AgentCtxKey, true)
+			resultDevice, status := suite.Handler.ReplaceDeviceStatus(agentCtx, deviceName, deviceWithUpdatedStatus)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(resultDevice).ToNot(BeNil())
 			Expect(resultDevice.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusConflictPaused))
@@ -1076,7 +1088,8 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 				}
 
 				// Save the updated device using ReplaceDeviceStatus for status updates
-				resultDevice, updateStatus := suite.Handler.ReplaceDeviceStatus(suite.Ctx, d.name, updatedDevice)
+				agentCtx := context.WithValue(suite.Ctx, consts.AgentCtxKey, true)
+				resultDevice, updateStatus := suite.Handler.ReplaceDeviceStatus(agentCtx, d.name, updatedDevice)
 				Expect(updateStatus.Code).To(Equal(int32(200)))
 				Expect(resultDevice).ToNot(BeNil())
 
