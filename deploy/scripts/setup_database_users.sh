@@ -29,8 +29,24 @@ execute_sql_command() {
         network_arg="--network flightctl"
     fi
 
+    # Build SSL environment arguments
+    local ssl_args=""
+    if [[ -n "${PGSSLMODE:-}" ]]; then
+        ssl_args="$ssl_args -e PGSSLMODE=$PGSSLMODE"
+    fi
+    if [[ -n "${PGSSLCERT:-}" ]]; then
+        ssl_args="$ssl_args -e PGSSLCERT=$PGSSLCERT"
+    fi
+    if [[ -n "${PGSSLKEY:-}" ]]; then
+        ssl_args="$ssl_args -e PGSSLKEY=$PGSSLKEY"
+    fi
+    if [[ -n "${PGSSLROOTCERT:-}" ]]; then
+        ssl_args="$ssl_args -e PGSSLROOTCERT=$PGSSLROOTCERT"
+    fi
+
     sudo podman run --rm $network_arg \
         -e PGPASSWORD="$DB_ADMIN_PASSWORD" \
+        $ssl_args \
         "$POSTGRES_IMAGE" \
         psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_ADMIN_USER" -d "$DB_NAME" -c "$sql_command"
 }
@@ -57,9 +73,25 @@ execute_sql_file() {
         network_arg="--network flightctl"
     fi
 
+    # Build SSL environment arguments
+    local ssl_args=""
+    if [[ -n "${PGSSLMODE:-}" ]]; then
+        ssl_args="$ssl_args -e PGSSLMODE=$PGSSLMODE"
+    fi
+    if [[ -n "${PGSSLCERT:-}" ]]; then
+        ssl_args="$ssl_args -e PGSSLCERT=$PGSSLCERT"
+    fi
+    if [[ -n "${PGSSLKEY:-}" ]]; then
+        ssl_args="$ssl_args -e PGSSLKEY=$PGSSLKEY"
+    fi
+    if [[ -n "${PGSSLROOTCERT:-}" ]]; then
+        ssl_args="$ssl_args -e PGSSLROOTCERT=$PGSSLROOTCERT"
+    fi
+
     # Execute the SQL file using podman with stdin
     sudo podman run --rm $network_arg \
         -e PGPASSWORD="$DB_ADMIN_PASSWORD" \
+        $ssl_args \
         -i \
         "$POSTGRES_IMAGE" \
         psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_ADMIN_USER" -d "$DB_NAME" < "$temp_sql_file"

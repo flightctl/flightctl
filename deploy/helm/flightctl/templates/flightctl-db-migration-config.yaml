@@ -12,6 +12,18 @@ data:
         name: {{ required "Values.db.name is required" $.Values.db.name }}
         user: {{ (default "flightctl_migrator" $.Values.db.migrationUser) }}
         migrationUser: {{ (default "flightctl_migrator" $.Values.db.migrationUser) }}
+        {{- if .Values.db.sslmode }}
+        sslmode: {{ .Values.db.sslmode | quote }}
+        {{- end }}
+        {{- if .Values.db.sslcert }}
+        sslcert: {{ .Values.db.sslcert | quote }}
+        {{- end }}
+        {{- if .Values.db.sslkey }}
+        sslkey: {{ .Values.db.sslkey | quote }}
+        {{- end }}
+        {{- if .Values.db.sslrootcert }}
+        sslrootcert: {{ .Values.db.sslrootcert | quote }}
+        {{- end }}
     service: {}
     {{ if .Values.global.tracing.enabled }}
     tracing:

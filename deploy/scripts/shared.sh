@@ -8,6 +8,26 @@ set -eo pipefail
 : ${QUADLET_FILES_OUTPUT_DIR:="/usr/share/containers/systemd"}
 : ${SYSTEMD_UNIT_OUTPUT_DIR:="/usr/lib/systemd/system"}
 
+# Load init utilities for YAML parsing
+# Handle different ways the script might be sourced
+if [[ -n "${BASH_SOURCE[0]}" ]]; then
+    SHARED_SCRIPT_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+else
+    SHARED_SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
+fi
+source "${SHARED_SCRIPT_DIR}"/init_utils.sh
+
+# Check if external database is enabled
+is_external_database_enabled() {
+    local config_file="${CONFIG_WRITEABLE_DIR}/service-config.yaml"
+    if [[ -f "$config_file" ]]; then
+        local external_value=$(extract_value "external" "$config_file" | grep -v "^#" | head -1)
+        [[ "$external_value" == "enabled" ]]
+    else
+        false
+    fi
+}
+
 # Render a service configuration
 # Args:
 #   $1: Service name
@@ -29,15 +49,30 @@ render_service() {
         # Process standalone container file
         cp "$container_file" "${QUADLET_FILES_OUTPUT_DIR}/flightctl-${service_name}.container"
     else
-        # Normal mode - process all container files except standalone ones
+        # Normal mode - process container files based on configuration
         mkdir -p "${QUADLET_FILES_OUTPUT_DIR}"
 
-        for container_file in "${source_dir}/flightctl-${service_name}"/*.container; do
-            if [[ -f "$container_file" ]] && [[ ! "$container_file" == *"-standalone.container" ]]; then
-                local base_filename=$(basename "$container_file")
-                cp "$container_file" "${QUADLET_FILES_OUTPUT_DIR}/${base_filename}"
+        # Special handling for database service - choose external or regular based on config
+        if [[ "$service_name" == "db" ]] && is_external_database_enabled; then
+            echo "External database enabled - using external database container"
+            local external_container="${source_dir}/flightctl-${service_name}/flightctl-${service_name}-external.container"
+            if [[ -f "$external_container" ]]; then
+                cp "$external_container" "${QUADLET_FILES_OUTPUT_DIR}/flightctl-${service_name}.container"
+            else
+                echo "Error: External database container file not found: $external_container"
+                exit 1
             fi
-        done
+        else
+            # Process regular container files except standalone and external ones
+            for container_file in "${source_dir}/flightctl-${service_name}"/*.container; do
+                if [[ -f "$container_file" ]] && 
+                   [[ ! "$container_file" == *"-standalone.container" ]] && 
+                   [[ ! "$container_file" == *"-external.container" ]]; then
+                    local base_filename=$(basename "$container_file")
+                    cp "$container_file" "${QUADLET_FILES_OUTPUT_DIR}/${base_filename}"
+                fi
+            done
+        fi
 
         # Process .service files for systemd services
         for service_file in "${source_dir}/flightctl-${service_name}"/*.service; do

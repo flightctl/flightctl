@@ -40,7 +40,7 @@ FROM registry.access.redhat.com/ubi9/ubi as certs
 # Use BuildKit cache mounts for dnf package caching
 RUN --mount=type=cache,target=/var/cache/dnf \
     --mount=type=cache,target=/var/lib/dnf \
-    dnf update --nodocs -y && dnf install ca-certificates tzdata --nodocs -y
+    dnf install ca-certificates tzdata --nodocs -y
 
 FROM registry.access.redhat.com/ubi9/ubi-micro
 WORKDIR /app
