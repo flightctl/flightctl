@@ -179,24 +179,28 @@ func (t *testProvider) Publish(ctx context.Context, payload []byte) error {
 	return nil
 }
 
-func IsAcmInstalled() (bool, error) {
+// IsAcmInstalled checks if ACM is installed and if it is running.
+// returns: isAcmInstalled, isAcmRunning, error
+func IsAcmInstalled() (bool, bool, error) {
 	if !BinaryExistsOnPath("oc") {
-		return false, fmt.Errorf("oc not found on PATH")
+		return false, false, fmt.Errorf("oc not found on PATH")
 	}
 	cmd := exec.Command("oc", "get", "multiclusterhub", "-A")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return false, fmt.Errorf("error getting multiclusterhub: %w, %s", err, string(output))
+		return false, false, fmt.Errorf("error getting multiclusterhub: %w, %s", err, string(output))
 	}
 	outputString := string(output)
 	if outputString == "error: the server doesn't have a resource type \"multiclusterhub\"" {
-		return false, fmt.Errorf("ACM is not installed: %s", outputString)
+		return false, false, fmt.Errorf("ACM is not installed: %s", outputString)
 	}
 	if strings.Contains(outputString, "Running") || strings.Contains(outputString, "Paused") {
-		logrus.Infof("The cluster has ACM installed")
-		return true, nil
+		logrus.Infof("The cluster has ACM installed and ACM is Running")
+		return true, true, nil
+	} else {
+		logrus.Infof("The cluster has ACM installed and ACM is not Running. Status: %s", outputString)
+		return true, false, nil
 	}
-	return false, fmt.Errorf("multiclusterhub is not in Running status")
 }
 
 // NewTestApiServer creates a new test server and returns the server and the listener listening on localhost's next available port.

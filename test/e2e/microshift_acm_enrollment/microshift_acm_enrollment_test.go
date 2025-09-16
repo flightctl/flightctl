@@ -19,11 +19,11 @@ var _ = Describe("Microshift cluster ACM enrollment tests", func() {
 	Describe("Test Setup", Ordered, func() {
 
 		BeforeAll(func() {
-			isAcmInstalled, err := util.IsAcmInstalled()
+			_, isAcmRunning, err := util.IsAcmInstalled()
 			if err != nil {
 				GinkgoWriter.Printf("An error happened %v\n", err)
 			}
-			if !isAcmInstalled {
+			if !isAcmRunning {
 				Skip("Skipping test suite because ACM is not installed.")
 			}
 		})
