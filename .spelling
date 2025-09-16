@@ -183,6 +183,18 @@ UEFI
 AIA
 NVRAM
 RSA
+KV
+Redis
+AwaitingReconnect
+ConflictPaused
+pg_restore
+psql
+redis-cli
+pg_isready
+renderedVersion
+quadlets
+PEM
+NSING
  - docs/user/api-resources.md
 approvedBy
 creationTimestamp
@@ -334,3 +346,36 @@ TN1330
 - docs/user/metrics.md
 sloMax
 SLO
+- docs/user/postgresql-backup-strategy.md
+RPOs
+RPO
+Bitbucket
+GitLab
+GitHub
+Configs
+- docs/user/external-database.md
+JSONB
+pg_trgm
+gin_trgm_ops
+GIN
+PL/pgSQL
+OrgID
+queryin
+trig
+roduction
+ExternalName
+baseDomain
+containe
+values.yaml
+PersistentVolumeClaim
+service-config.yaml
+service-config
+Update
+update
+yaml
+1.
+SSL/TLS
+SSL
+PL/pgSQL
+PL
+pgSQL

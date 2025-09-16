@@ -71,10 +71,10 @@ func (mr *MockAuthNMiddlewareMockRecorder) GetAuthToken(r any) *gomock.Call {
 }
 
 // GetIdentity mocks base method.
-func (m *MockAuthNMiddleware) GetIdentity(ctx context.Context, token string) (*common.Identity, error) {
+func (m *MockAuthNMiddleware) GetIdentity(ctx context.Context, token string) (common.Identity, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetIdentity", ctx, token)
-	ret0, _ := ret[0].(*common.Identity)
+	ret0, _ := ret[0].(common.Identity)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

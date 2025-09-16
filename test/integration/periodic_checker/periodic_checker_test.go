@@ -2,6 +2,7 @@ package periodic_test
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"sync"
 	"testing"
@@ -122,19 +123,21 @@ var _ = Describe("Periodic", func() {
 			Fail("No orgs found in database")
 		}
 
-		queuesProvider, err = queues.NewRedisProvider(ctx, log, "localhost", 6379, "adminpass")
+		processID := fmt.Sprintf("periodic-test-%s", uuid.New().String())
+		queuesProvider, err = queues.NewRedisProvider(ctx, log, processID, "localhost", 6379, "adminpass", queues.DefaultRetryConfig())
 		Expect(err).ToNot(HaveOccurred())
 
 		// Setup kvStore for test
 		kvStore, err = kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		Expect(err).ToNot(HaveOccurred())
 
-		queuePublisher, err := worker_client.QueuePublisher(queuesProvider)
+		queuePublisher, err := worker_client.QueuePublisher(ctx, queuesProvider)
 		Expect(err).ToNot(HaveOccurred())
 
 		// Setup worker client and service handler
 		workerClient = worker_client.NewWorkerClient(queuePublisher, log)
-		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{})
+		orgResolver := testutil.NewOrgResolver(cfg, storeInst.Organization(), log)
+		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{}, orgResolver)
 
 		channelManager, err = periodic.NewChannelManager(periodic.ChannelManagerConfig{
 			Log: log,
@@ -219,11 +222,13 @@ var _ = Describe("Periodic", func() {
 		})
 
 		It("works for multiple organizations", func() {
+			externalID2 := "external-id-2"
 			// Create a second organization
 			orgId2 := uuid.New()
 			org := &model.Organization{
 				ID:          orgId2,
 				DisplayName: "test-org-2",
+				ExternalID:  externalID2,
 			}
 			_, err := storeInst.Organization().Create(ctx, org)
 			Expect(err).ToNot(HaveOccurred())

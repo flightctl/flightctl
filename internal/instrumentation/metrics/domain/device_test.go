@@ -78,6 +78,14 @@ type MockDevice struct {
 	results []store.CountByOrgAndStatusResult
 }
 
+func (m *MockDevice) GetWithoutServiceConditions(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error) {
+	return nil, nil
+}
+
+func (m *MockDevice) Healthcheck(ctx context.Context, orgId uuid.UUID, names []string) error {
+	return nil
+}
+
 func (m *MockDevice) CountByOrgAndStatus(ctx context.Context, orgId *uuid.UUID, statusType store.DeviceStatusType, groupByFleet bool) ([]store.CountByOrgAndStatusResult, error) {
 	return m.results, nil
 }
@@ -120,8 +128,8 @@ func (m *MockDevice) GetRendered(ctx context.Context, orgId uuid.UUID, name stri
 func (m *MockDevice) UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error {
 	return nil
 }
-func (m *MockDevice) UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications string) error {
-	return nil
+func (m *MockDevice) UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string) (string, error) {
+	return "", nil
 }
 func (m *MockDevice) SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition, callback store.ServiceConditionsCallback) error {
 	return nil
@@ -156,6 +164,10 @@ func (m *MockDevice) PrepareDevicesAfterRestore(ctx context.Context) (int64, err
 }
 func (m *MockDevice) RemoveConflictPausedAnnotation(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (int64, []string, error) {
 	return 0, nil, nil
+}
+
+func (m *MockDevice) SetOutOfDate(ctx context.Context, orgId uuid.UUID, owner string) error {
+	return nil
 }
 
 func TestDeviceCollectorWithGroupByFleet(t *testing.T) {

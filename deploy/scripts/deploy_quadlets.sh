@@ -24,7 +24,7 @@ switch_to_local_images() {
     # Update db-setup image in service files to use locally built image
     db_migrate_service="${SYSTEMD_UNIT_OUTPUT_DIR}/flightctl-db-migrate.service"
     if [[ -f "$db_migrate_service" ]] && grep -q "flightctl-db-setup:" "$db_migrate_service"; then
-        sed -i "s|flightctl-db-setup:[^ ]*|flightctl-db-setup:latest|g" "$db_migrate_service"
+        sed -i "s|[^ ]*flightctl-db-setup:[^ ]*|flightctl-db-setup:latest|g" "$db_migrate_service"
         echo "Updated $db_migrate_service to use local db-setup image"
     else
         echo "Skipping $db_migrate_service (not found or no matching image reference)"
@@ -33,7 +33,7 @@ switch_to_local_images() {
     # Update db-setup image in container files to use locally built image
     db_migrate_container="${QUADLET_FILES_OUTPUT_DIR}/flightctl-db-migrate.container"
     if [[ -f "$db_migrate_container" ]] && grep -q "flightctl-db-setup:" "$db_migrate_container"; then
-        sed -i "s|flightctl-db-setup:[^ ]*|flightctl-db-setup:latest|g" "$db_migrate_container"
+        sed -i "s|[^ ]*flightctl-db-setup:[^ ]*|flightctl-db-setup:latest|g" "$db_migrate_container"
         echo "Updated $db_migrate_container to use local db-setup image"
     else
         echo "Skipping $db_migrate_container (not found or no matching image reference)"
@@ -62,18 +62,24 @@ echo "Starting all FlightCtl services via target..."
 start_service "flightctl.target"
 
 echo "Waiting for services to initialize..."
-# Wait for database to be ready first
-timeout --foreground 120s bash -c '
-    while true; do
-        if podman ps --quiet --filter "name=flightctl-db" | grep -q . && \
-           podman exec flightctl-db pg_isready -U postgres >/dev/null 2>&1; then
-            echo "Database is ready"
-            break
-        fi
-        echo "Waiting for database to become ready..."
-        sleep 3
-    done
-'
+
+# Check if we're using external database
+if is_external_database_enabled; then
+    echo "External database configured - skipping local database readiness check"
+else
+    # Wait for database to be ready first
+    timeout --foreground 120s bash -c '
+        while true; do
+            if podman ps --quiet --filter "name=flightctl-db" | grep -q . && \
+               podman exec flightctl-db pg_isready -U postgres >/dev/null 2>&1; then
+                echo "Database is ready"
+                break
+            fi
+            echo "Waiting for database to become ready..."
+            sleep 3
+        done
+    '
+fi
 
 # Wait for database migration to complete
 echo "Waiting for database migration to complete..."

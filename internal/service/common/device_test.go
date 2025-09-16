@@ -3,6 +3,7 @@ package common
 import (
 	"context"
 	"testing"
+	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/consts"
@@ -274,6 +275,136 @@ func TestUpdateServerSideDeviceAnnotations_PauseLogic(t *testing.T) {
 			} else if tt.hasWaitingAnnotation {
 				assert.Equal(t, tt.waitingAnnotationValue, (*device.Metadata.Annotations)[api.DeviceAnnotationAwaitingReconnect], "AwaitingReconnect annotation should be preserved")
 			}
+		})
+	}
+}
+
+func TestUpdateServerSideDeviceStatus_PostRestoreState(t *testing.T) {
+	// This test validates the critical post-restore state where ALL three conditions must be true:
+	// 1. awaitingReconnect annotation = "true"
+	// 2. lastSeen = zero time (cleared by restore)
+	// 3. status summary = AwaitingReconnect
+	//
+	// This ensures that after restore, the AwaitingReconnect status takes precedence over
+	// disconnection logic (which would normally trigger due to zero lastSeen time)
+
+	tests := []struct {
+		name                    string
+		hasAwaitingAnnotation   bool
+		lastSeenTime            time.Time
+		hasResourceErrors       bool
+		hasResourceDegradations bool
+		isRebooting             bool
+		expectedStatus          api.DeviceSummaryStatusType
+		expectedInfo            string
+	}{
+		{
+			name:                  "Post-restore state: annotation=true, lastSeen=zero, should be AwaitingReconnect",
+			hasAwaitingAnnotation: true,
+			lastSeenTime:          time.Time{}, // Zero time (cleared by restore)
+			expectedStatus:        api.DeviceSummaryStatusAwaitingReconnect,
+			expectedInfo:          DeviceStatusInfoAwaitingReconnect,
+		},
+		{
+			name:                  "Post-restore with resource errors: annotation should still take precedence",
+			hasAwaitingAnnotation: true,
+			lastSeenTime:          time.Time{}, // Zero time
+			hasResourceErrors:     true,
+			expectedStatus:        api.DeviceSummaryStatusAwaitingReconnect, // Should override resource errors
+			expectedInfo:          DeviceStatusInfoAwaitingReconnect,
+		},
+		{
+			name:                    "Post-restore with resource degradations: annotation should still take precedence",
+			hasAwaitingAnnotation:   true,
+			lastSeenTime:            time.Time{}, // Zero time
+			hasResourceDegradations: true,
+			expectedStatus:          api.DeviceSummaryStatusAwaitingReconnect, // Should override resource degradations
+			expectedInfo:            DeviceStatusInfoAwaitingReconnect,
+		},
+		{
+			name:                  "Post-restore with rebooting: annotation should still take precedence",
+			hasAwaitingAnnotation: true,
+			lastSeenTime:          time.Time{}, // Zero time
+			isRebooting:           true,
+			expectedStatus:        api.DeviceSummaryStatusAwaitingReconnect, // Should override rebooting
+			expectedInfo:          DeviceStatusInfoAwaitingReconnect,
+		},
+		{
+			name:                  "Without awaiting annotation: should be disconnected due to zero lastSeen",
+			hasAwaitingAnnotation: false,
+			lastSeenTime:          time.Time{},                    // Zero time
+			expectedStatus:        api.DeviceSummaryStatusUnknown, // Should be disconnected
+		},
+		{
+			name:                  "With awaiting annotation but recent lastSeen: should still be AwaitingReconnect",
+			hasAwaitingAnnotation: true,
+			lastSeenTime:          time.Now(), // Recent time
+			expectedStatus:        api.DeviceSummaryStatusAwaitingReconnect,
+			expectedInfo:          DeviceStatusInfoAwaitingReconnect,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Setup device with post-restore state
+			annotations := make(map[string]string)
+			if tt.hasAwaitingAnnotation {
+				annotations[api.DeviceAnnotationAwaitingReconnect] = "true"
+			}
+
+			device := &api.Device{
+				Metadata: api.ObjectMeta{
+					Name:        lo.ToPtr("test-device"),
+					Annotations: &annotations,
+				},
+				Status: &api.DeviceStatus{
+					LastSeen: tt.lastSeenTime,
+					Summary: api.DeviceSummaryStatus{
+						Status: api.DeviceSummaryStatusOnline, // Initial status (will be overridden)
+						Info:   lo.ToPtr("Initial info"),
+					},
+					Resources: api.DeviceResourceStatus{
+						Cpu:    api.DeviceResourceStatusHealthy,
+						Memory: api.DeviceResourceStatusHealthy,
+						Disk:   api.DeviceResourceStatusHealthy,
+					},
+					Conditions: []api.Condition{},
+				},
+			}
+
+			// Set up resource errors/degradations if needed
+			if tt.hasResourceErrors {
+				device.Status.Resources.Cpu = api.DeviceResourceStatusCritical
+			}
+			if tt.hasResourceDegradations {
+				device.Status.Resources.Memory = api.DeviceResourceStatusWarning
+			}
+
+			// Set up rebooting condition if needed
+			if tt.isRebooting {
+				rebootCondition := api.Condition{
+					Type:   api.ConditionTypeDeviceUpdating,
+					Status: api.ConditionStatusTrue,
+					Reason: string(api.UpdateStateRebooting),
+				}
+				api.SetStatusCondition(&device.Status.Conditions, rebootCondition)
+			}
+
+			// Call the function under test
+			initialStatus := device.Status.Summary.Status
+			changed := updateServerSideDeviceStatus(device)
+
+			// Verify the status was set correctly
+			assert.Equal(t, tt.expectedStatus, device.Status.Summary.Status, "Status should match expected")
+
+			if tt.expectedInfo != "" {
+				assert.NotNil(t, device.Status.Summary.Info, "Info should not be nil")
+				assert.Equal(t, tt.expectedInfo, *device.Status.Summary.Info, "Info should match expected")
+			}
+
+			// Verify changed flag is correct
+			expectedChanged := initialStatus != tt.expectedStatus
+			assert.Equal(t, expectedChanged, changed, "Changed flag should be correct")
 		})
 	}
 }

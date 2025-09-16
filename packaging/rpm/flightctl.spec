@@ -9,6 +9,8 @@
 %define selinux_policyver 3.14.3-67
 
 Name:           flightctl
+# Version and Release are automatically updated by Packit during build
+# Do not manually change these values - they will be overwritten
 Version:        0.6.0
 Release:        1%{?dist}
 Summary:        Flight Control service
@@ -409,10 +411,11 @@ echo "Flightctl Observability Stack uninstalled."
         export GOPROXY='https://proxy.golang.org,direct'
     fi
 
-    SOURCE_GIT_TAG=$(echo %{version} | tr '~' '-') \
-    SOURCE_GIT_TREE_STATE=clean \
-    SOURCE_GIT_COMMIT=$(echo %{version} | awk -F'[-~]g' '{print $2}') \
-    SOURCE_GIT_TAG_NO_V=%{version} \
+    # Prefer values injected by Makefile/CI; fall back to RPM macros when unset
+    SOURCE_GIT_TAG="%{?SOURCE_GIT_TAG:%{SOURCE_GIT_TAG}}%{!?SOURCE_GIT_TAG:%(echo "v%{version}" | tr '~' '-')}" \
+    SOURCE_GIT_TREE_STATE="%{?SOURCE_GIT_TREE_STATE:%{SOURCE_GIT_TREE_STATE}}%{!?SOURCE_GIT_TREE_STATE:clean}" \
+    SOURCE_GIT_COMMIT="%{?SOURCE_GIT_COMMIT:%{SOURCE_GIT_COMMIT}}%{!?SOURCE_GIT_COMMIT:%(echo %{version} | grep -o '[-~]g[0-9a-f]*' | sed 's/[-~]g//' || echo unknown)}" \
+    SOURCE_GIT_TAG_NO_V="%{?SOURCE_GIT_TAG_NO_V:%{SOURCE_GIT_TAG_NO_V}}%{!?SOURCE_GIT_TAG_NO_V:%{version}}" \
     %if 0%{?rhel} == 9
         %make_build build-cli build-agent
     %else
@@ -472,6 +475,10 @@ echo "Flightctl Observability Stack uninstalled."
     SYSTEMD_UNIT_OUTPUT_DIR="%{buildroot}/usr/lib/systemd/system" \
     IMAGE_TAG=$(echo %{version} | tr '~' '-') \
     deploy/scripts/install.sh
+
+    # Copy external database configuration files
+    mkdir -p %{buildroot}%{_datadir}/flightctl/flightctl-db
+    cp deploy/podman/flightctl-db/flightctl-db-external.container %{buildroot}%{_datadir}/flightctl/flightctl-db/
 
     # Copy sos report flightctl plugin
     mkdir -p %{buildroot}/usr/share/sosreport
@@ -598,7 +605,6 @@ rm -rf /usr/share/sosreport
     %dir %attr(0444,root,root) %{_datadir}/flightctl/flightctl-db
     %dir %attr(0444,root,root) %{_datadir}/flightctl/flightctl-db-migrate
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-db-migrate/migration-setup.sh
-    %dir %attr(0444,root,root) %{_datadir}/flightctl/flightctl-kv
     %dir %attr(0444,root,root) %{_datadir}/flightctl/flightctl-ui
     %dir %attr(0444,root,root) %{_datadir}/flightctl/flightctl-cli-artifacts
     %{_datadir}/flightctl/flightctl-api/config.yaml.template
@@ -607,7 +613,7 @@ rm -rf /usr/share/sosreport
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-api/create_aap_application.sh
     %{_datadir}/flightctl/flightctl-alert-exporter/config.yaml
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-db/enable-superuser.sh
-    %{_datadir}/flightctl/flightctl-kv/redis.conf
+    %{_datadir}/flightctl/flightctl-db/flightctl-db-external.container
     %{_datadir}/flightctl/flightctl-ui/env.template
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-ui/init.sh
     %attr(0755,root,root) %{_datadir}/flightctl/init_utils.sh

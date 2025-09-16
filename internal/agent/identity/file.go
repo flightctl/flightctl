@@ -94,7 +94,7 @@ func (f *fileProvider) CreateManagementClient(config *baseclient.Config, metrics
 		return nil, fmt.Errorf("management client certificate does not exist at %q - device needs re-enrollment", config.GetClientCertificatePath())
 	}
 
-	httpClient, err := client.NewFromConfig(config)
+	httpClient, err := client.NewFromConfig(config, f.log)
 	if err != nil {
 		return nil, fmt.Errorf("create management client: %w", err)
 	}

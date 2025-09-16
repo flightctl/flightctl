@@ -14,6 +14,8 @@ import (
 	"github.com/flightctl/flightctl/internal/auth/authz"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/org/resolvers"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/sirupsen/logrus"
 )
@@ -28,23 +30,12 @@ const (
 type AuthNMiddleware interface {
 	GetAuthToken(r *http.Request) (string, error)
 	ValidateToken(ctx context.Context, token string) error
-	GetIdentity(ctx context.Context, token string) (*common.Identity, error)
+	GetIdentity(ctx context.Context, token string) (common.Identity, error)
 	GetAuthConfig() common.AuthConfig
 }
 
 type AuthZMiddleware interface {
 	CheckPermission(ctx context.Context, resource string, op string) (bool, error)
-}
-
-var authZ AuthZMiddleware
-var authN AuthNMiddleware
-
-func GetAuthZ() AuthZMiddleware {
-	return authZ
-}
-
-func GetAuthN() AuthNMiddleware {
-	return authN
 }
 
 type AuthType string
@@ -62,7 +53,7 @@ func GetConfiguredAuthType() AuthType {
 
 var configuredAuthType AuthType
 
-func initK8sAuth(cfg *config.Config, log logrus.FieldLogger) error {
+func initK8sAuth(cfg *config.Config, log logrus.FieldLogger) (AuthNMiddleware, AuthZMiddleware, error) {
 	apiUrl := strings.TrimSuffix(cfg.Auth.K8s.ApiUrl, "/")
 	externalOpenShiftApiUrl := strings.TrimSuffix(cfg.Auth.K8s.ExternalOpenShiftApiUrl, "/")
 	log.Infof("k8s auth enabled: %s", apiUrl)
@@ -74,14 +65,14 @@ func initK8sAuth(cfg *config.Config, log logrus.FieldLogger) error {
 		k8sClient, err = k8sclient.NewK8SExternalClient(apiUrl, cfg.Auth.InsecureSkipTlsVerify, cfg.Auth.CACert)
 	}
 	if err != nil {
-		return fmt.Errorf("failed to create k8s client: %w", err)
+		return nil, nil, fmt.Errorf("failed to create k8s client: %w", err)
 	}
-	authZ = K8sToK8sAuth{K8sAuthZ: authz.K8sAuthZ{K8sClient: k8sClient, Namespace: cfg.Auth.K8s.RBACNs}}
-	authN, err = authn.NewK8sAuthN(k8sClient, externalOpenShiftApiUrl)
+	authZProvider := K8sToK8sAuth{K8sAuthZ: authz.K8sAuthZ{K8sClient: k8sClient, Namespace: cfg.Auth.K8s.RBACNs}}
+	authNProvider, err := authn.NewK8sAuthN(k8sClient, externalOpenShiftApiUrl)
 	if err != nil {
-		return fmt.Errorf("failed to create k8s AuthN: %w", err)
+		return nil, nil, fmt.Errorf("failed to create k8s AuthN: %w", err)
 	}
-	return nil
+	return authNProvider, authZProvider, nil
 }
 
 func getTlsConfig(cfg *config.Config) *tls.Config {
@@ -107,60 +98,64 @@ func getOrgConfig(cfg *config.Config) *common.AuthOrganizationsConfig {
 	}
 }
 
-func initOIDCAuth(cfg *config.Config, log logrus.FieldLogger) error {
+func initOIDCAuth(cfg *config.Config, log logrus.FieldLogger, orgResolver resolvers.Resolver) (AuthNMiddleware, AuthZMiddleware, error) {
 	oidcUrl := strings.TrimSuffix(cfg.Auth.OIDC.OIDCAuthority, "/")
 	externalOidcUrl := strings.TrimSuffix(cfg.Auth.OIDC.ExternalOIDCAuthority, "/")
 	log.Infof("OIDC auth enabled: %s", oidcUrl)
-	authZ = NilAuth{}
-	var err error
-	authN, err = authn.NewJWTAuth(oidcUrl, externalOidcUrl, getTlsConfig(cfg), getOrgConfig(cfg))
+	authZProvider := authz.NewJWTAuthZ(orgResolver)
+	authNProvider, err := authn.NewJWTAuth(oidcUrl, externalOidcUrl, getTlsConfig(cfg), getOrgConfig(cfg))
 	if err != nil {
-		return fmt.Errorf("failed to create OIDC AuthN: %w", err)
+		return nil, nil, fmt.Errorf("failed to create OIDC AuthN: %w", err)
 	}
-	return nil
+	return authNProvider, authZProvider, nil
 }
 
-func initAAPAuth(cfg *config.Config, log logrus.FieldLogger) error {
+func initAAPAuth(cfg *config.Config, log logrus.FieldLogger) (AuthNMiddleware, AuthZMiddleware, error) {
 	gatewayUrl := strings.TrimSuffix(cfg.Auth.AAP.ApiUrl, "/")
 	gatewayExternalUrl := strings.TrimSuffix(cfg.Auth.AAP.ExternalApiUrl, "/")
 	log.Infof("AAP Gateway auth enabled: %s", gatewayUrl)
-	authZ = NilAuth{}
-	authN = authn.NewAapGatewayAuth(gatewayUrl, gatewayExternalUrl, getTlsConfig(cfg))
-	return nil
+	authZProvider := NilAuth{}
+	authNProvider := authn.NewAapGatewayAuth(gatewayUrl, gatewayExternalUrl, getTlsConfig(cfg))
+	return authNProvider, authZProvider, nil
 }
 
-func InitAuth(cfg *config.Config, log logrus.FieldLogger) error {
+func InitAuth(cfg *config.Config, log logrus.FieldLogger, orgResolver resolvers.Resolver) (AuthNMiddleware, AuthZMiddleware, error) {
 	value, exists := os.LookupEnv(DisableAuthEnvKey)
 	if exists && value != "" {
 		log.Warnln("Auth disabled")
 		configuredAuthType = AuthTypeNil
-		authZ = NilAuth{}
-		authN = authZ.(AuthNMiddleware)
+		authNProvider := NilAuth{}
+		authZProvider := NilAuth{}
+		return authNProvider, authZProvider, nil
 	} else if cfg.Auth != nil {
+		var authNProvider AuthNMiddleware
+		var authZProvider AuthZMiddleware
 		var err error
 		if cfg.Auth.K8s != nil {
 			configuredAuthType = AuthTypeK8s
-			err = initK8sAuth(cfg, log)
+			authNProvider, authZProvider, err = initK8sAuth(cfg, log)
 		} else if cfg.Auth.OIDC != nil {
 			configuredAuthType = AuthTypeOIDC
-			err = initOIDCAuth(cfg, log)
+			authNProvider, authZProvider, err = initOIDCAuth(cfg, log, orgResolver)
 		} else if cfg.Auth.AAP != nil {
 			configuredAuthType = AuthTypeAAP
-			err = initAAPAuth(cfg, log)
+			authNProvider, authZProvider, err = initAAPAuth(cfg, log)
 		}
 
 		if err != nil {
-			return err
+			return nil, nil, err
 		}
+
+		if authNProvider == nil {
+			return nil, nil, errors.New("no authN provider defined")
+		}
+		if authZProvider == nil {
+			return nil, nil, errors.New("no authZ provider defined")
+		}
+		return authNProvider, authZProvider, nil
 	}
 
-	if authN == nil {
-		return errors.New("no authN provider defined")
-	}
-	if authZ == nil {
-		return errors.New("no authZ provider defined")
-	}
-	return nil
+	return nil, nil, errors.New("no auth configuration provided")
 }
 
 type K8sToK8sAuth struct {
@@ -168,7 +163,7 @@ type K8sToK8sAuth struct {
 }
 
 func (o K8sToK8sAuth) CheckPermission(ctx context.Context, resource string, op string) (bool, error) {
-	k8sTokenVal := ctx.Value(common.TokenCtxKey)
+	k8sTokenVal := ctx.Value(consts.TokenCtxKey)
 	if k8sTokenVal == nil {
 		return false, nil
 	}

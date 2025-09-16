@@ -13,6 +13,29 @@ import (
 	"github.com/lestrrat-go/jwx/v2/jwt"
 )
 
+const (
+	subClaim               = "sub"
+	preferredUsernameClaim = "preferred_username"
+)
+
+type TokenIdentity interface {
+	common.Identity
+	GetClaim(string) (interface{}, bool)
+}
+
+// JWTIdentity extends common.Identity with JWT-specific fields
+type JWTIdentity struct {
+	common.BaseIdentity
+	parsedToken jwt.Token
+}
+
+// Ensure JWTIdentity implements TokenIdentity
+var _ TokenIdentity = (*JWTIdentity)(nil)
+
+func (i *JWTIdentity) GetClaim(claim string) (interface{}, bool) {
+	return i.parsedToken.Get(claim)
+}
+
 type JWTAuth struct {
 	oidcAuthority         string
 	externalOIDCAuthority string
@@ -58,17 +81,46 @@ func NewJWTAuth(oidcAuthority string, externalOIDCAuthority string, clientTlsCon
 }
 
 func (j JWTAuth) ValidateToken(ctx context.Context, token string) error {
-	jwkSet, err := jwk.Fetch(ctx, j.jwksUri, jwk.WithHTTPClient(j.client))
-	if err != nil {
-		return err
-	}
-	_, err = jwt.Parse([]byte(token), jwt.WithKeySet(jwkSet), jwt.WithValidate(true))
+	_, err := j.parseAndCreateIdentity(ctx, token)
 	return err
 }
 
-func (j JWTAuth) GetIdentity(ctx context.Context, token string) (*common.Identity, error) {
-	// TODO return filled identity information
-	return &common.Identity{}, nil
+func (j JWTAuth) parseAndCreateIdentity(ctx context.Context, token string) (*JWTIdentity, error) {
+	jwkSet, err := jwk.Fetch(ctx, j.jwksUri, jwk.WithHTTPClient(j.client))
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch JWK set: %w", err)
+	}
+
+	parsedToken, err := jwt.Parse([]byte(token), jwt.WithKeySet(jwkSet), jwt.WithValidate(true))
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse JWT token: %w", err)
+	}
+
+	identity := &JWTIdentity{}
+	identity.parsedToken = parsedToken
+
+	if sub, exists := parsedToken.Get(subClaim); exists {
+		if uid, ok := sub.(string); ok {
+			identity.SetUID(uid)
+		}
+	}
+
+	if preferredUsername, exists := parsedToken.Get(preferredUsernameClaim); exists {
+		if username, ok := preferredUsername.(string); ok {
+			identity.SetUsername(username)
+		}
+	}
+
+	return identity, nil
+}
+
+func (j JWTAuth) GetIdentity(ctx context.Context, token string) (common.Identity, error) {
+	identity, err := j.parseAndCreateIdentity(ctx, token)
+	if err != nil {
+		return nil, err
+	}
+
+	return identity, nil
 }
 
 func (j JWTAuth) GetAuthConfig() common.AuthConfig {
