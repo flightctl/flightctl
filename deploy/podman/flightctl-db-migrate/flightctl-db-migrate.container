@@ -10,25 +10,20 @@ ContainerName=flightctl-db-migrate
 Image=quay.io/flightctl/flightctl-db-setup:latest
 Network=flightctl.network
 AutoUpdate=none
+Environment=DB_HOST=flightctl-db
+Environment=DB_PORT=5432
+Environment=DB_NAME=flightctl
+Environment=DB_USER=flightctl_migrator
 Environment=DB_MIGRATION_USER=flightctl_migrator
+Secret=flightctl-postgresql-migrator-password,type=env,target=DB_PASSWORD
 Secret=flightctl-postgresql-migrator-password,type=env,target=DB_MIGRATION_PASSWORD
 Volume=/etc/flightctl/flightctl-api/config.yaml:/root/.flightctl/config.yaml:ro,z
+Volume=/etc/flightctl/service-config.yaml:/etc/flightctl/service-config.yaml:ro,z
 Exec=/usr/local/bin/flightctl-db-migrate
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStartPre=/bin/bash -c 'end_time=$(($(date +%%s) + 120)); while [ $(date +%%s) -lt $end_time ] && ! podman exec flightctl-db pg_isready -U postgres >/dev/null 2>&1; do echo "Waiting for database to be ready..."; sleep 3; done'
-ExecStart=/bin/bash -c 'source /etc/flightctl/init_utils.sh; \
-  SSL_ENV=""; \
-  if SERVICE_CONFIG="/etc/flightctl/service-config.yaml"; then \
-    if SSL_MODE=$(extract_value "sslmode" "$SERVICE_CONFIG") && [ -n "$SSL_MODE" ]; then SSL_ENV="$SSL_ENV -e PGSSLMODE=$SSL_MODE"; fi; \
-    if SSL_CERT=$(extract_value "sslcert" "$SERVICE_CONFIG") && [ -n "$SSL_CERT" ]; then SSL_ENV="$SSL_ENV -e PGSSLCERT=$SSL_CERT"; fi; \
-    if SSL_KEY=$(extract_value "sslkey" "$SERVICE_CONFIG") && [ -n "$SSL_KEY" ]; then SSL_ENV="$SSL_ENV -e PGSSLKEY=$SSL_KEY"; fi; \
-    if SSL_ROOT=$(extract_value "sslrootcert" "$SERVICE_CONFIG") && [ -n "$SSL_ROOT" ]; then SSL_ENV="$SSL_ENV -e PGSSLROOTCERT=$SSL_ROOT"; fi; \
-  fi; \
-  podman run --rm --network flightctl -e DB_HOST=flightctl-db -e DB_PORT=5432 -e DB_NAME=flightctl -e DB_USER=flightctl_migrator -e DB_MIGRATION_USER=flightctl_migrator $SSL_ENV --secret flightctl-postgresql-migrator-password,type=env,target=DB_PASSWORD --secret flightctl-postgresql-migrator-password,type=env,target=DB_MIGRATION_PASSWORD -v /etc/flightctl/flightctl-api/config.yaml:/root/.flightctl/config.yaml:ro,z flightctl-db-setup:latest /usr/local/bin/flightctl-db-migrate'
-ExecStartPost=/bin/bash -c 'if podman exec flightctl-db psql -U flightctl_migrator -d flightctl -c "SELECT grant_app_permissions_on_existing_tables();" >/dev/null 2>&1; then echo "Post-migration permissions granted successfully"; else echo "Warning: Post-migration permission grant failed or function not found"; fi'
 Restart=on-failure
 RestartSec=30
 TimeoutStartSec=10m

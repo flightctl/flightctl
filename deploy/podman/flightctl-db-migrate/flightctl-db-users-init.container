@@ -32,6 +32,7 @@ Type=oneshot
 RemainAfterExit=yes
 Restart=on-failure
 RestartSec=5
+ExecCondition=/bin/sh -c 'test "$(yq ".db.external // \"disabled\"" /etc/flightctl/service-config.yaml)" != "enabled"'
 
 [Install]
 WantedBy=flightctl.target

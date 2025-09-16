@@ -87,6 +87,30 @@ fi
 # Set PGPASSWORD from DB_PASSWORD if not already set
 export PGPASSWORD="${PGPASSWORD:-${DB_PASSWORD:?DB_PASSWORD or PGPASSWORD environment variable must be set}}"
 
+# Load SSL configuration from service-config.yaml if available
+load_ssl_config() {
+    local service_config="/etc/flightctl/service-config.yaml"
+    if [ -f "$service_config" ]; then
+        # Extract SSL configuration values
+        if command -v sed >/dev/null 2>&1; then
+            # Simple sed-based extraction for SSL parameters
+            local ssl_mode=$(sed -n -E 's/^[[:space:]]*sslmode:[[:space:]]*[\"'\'']*([^\"'\''#]+)[\"'\'']*.*$/\1/p' "$service_config" | head -1)
+            local ssl_cert=$(sed -n -E 's/^[[:space:]]*sslcert:[[:space:]]*[\"'\'']*([^\"'\''#]+)[\"'\'']*.*$/\1/p' "$service_config" | head -1)
+            local ssl_key=$(sed -n -E 's/^[[:space:]]*sslkey:[[:space:]]*[\"'\'']*([^\"'\''#]+)[\"'\'']*.*$/\1/p' "$service_config" | head -1)
+            local ssl_root=$(sed -n -E 's/^[[:space:]]*sslrootcert:[[:space:]]*[\"'\'']*([^\"'\''#]+)[\"'\'']*.*$/\1/p' "$service_config" | head -1)
+
+            # Set PostgreSQL SSL environment variables if values are found
+            [ -n "$ssl_mode" ] && export PGSSLMODE="$ssl_mode"
+            [ -n "$ssl_cert" ] && export PGSSLCERT="$ssl_cert"
+            [ -n "$ssl_key" ] && export PGSSLKEY="$ssl_key"
+            [ -n "$ssl_root" ] && export PGSSLROOTCERT="$ssl_root"
+        fi
+    fi
+}
+
+# Load SSL configuration
+load_ssl_config
+
 # Log connection details
 echo "Waiting for PostgreSQL database to be ready..."
 echo "Connection details:"

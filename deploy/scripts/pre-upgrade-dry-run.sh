@@ -79,6 +79,7 @@ wait_for_database() {
         -e DB_NAME="${DB_NAME}" \
         -e DB_USER="${DB_USER}" \
         --secret flightctl-postgresql-master-password,type=env,target=DB_PASSWORD \
+        -v "${SERVICE_CONFIG_PATH%/*}/service-config.yaml":/etc/flightctl/service-config.yaml:ro,z \
         "${DB_SETUP_IMAGE}" /app/deploy/scripts/wait-for-database.sh \
         --timeout="${DB_WAIT_TIMEOUT}" --sleep="${DB_WAIT_SLEEP}"; then
         echo "[flightctl] database wait failed; skipping dry-run"
@@ -91,9 +92,9 @@ run_migration_dry_run() {
     echo "[flightctl] running database migration dry-run"
 
     if "${PODMAN}" run --rm --network flightctl \
-        -e DB_MIGRATION_USER=flightctl_migrator \
         --secret flightctl-postgresql-migrator-password,type=env,target=DB_MIGRATION_PASSWORD \
         -v "${SERVICE_CONFIG_PATH}":/root/.flightctl/config.yaml:ro,z \
+        -v "${SERVICE_CONFIG_PATH%/*}/service-config.yaml":/etc/flightctl/service-config.yaml:ro,z \
         "${DB_SETUP_IMAGE}" /usr/local/bin/flightctl-db-migrate --dry-run; then
         echo "[flightctl] dry-run completed successfully"
     else
