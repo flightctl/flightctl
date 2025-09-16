@@ -23,7 +23,7 @@ CACHE_FLAGS_TEMPLATE := --cache-from=$(REGISTRY)/$(REGISTRY_OWNER)/%
  endef
  else
  define CACHE_FLAGS_FOR_IMAGE
- 
+
  endef
  endif
 
