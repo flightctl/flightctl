@@ -198,7 +198,6 @@ func (d *deviceAuth) authenticate(state tls.ConnectionState) (CertInfo, error) {
 			d.logger.Warn("missing org ID extension",
 				zap.Int("index", i),
 				zap.String("cn", cn))
-			return CertInfo{}, fmt.Errorf("missing org ID extension")
 		}
 
 		return CertInfo{

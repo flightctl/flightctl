@@ -106,6 +106,7 @@ jobs:
           - {name: 'e2e-v7',       containerfile: 'test/scripts/agent-images/Containerfile-e2e-v7.local'}
           - {name: 'e2e-v8',       containerfile: 'test/scripts/agent-images/Containerfile-e2e-v8.local'}
           - {name: 'e2e-v9',       containerfile: 'test/scripts/agent-images/Containerfile-e2e-v9.local'}
+          - {name: 'e2e-v10',       containerfile: 'test/scripts/agent-images/Containerfile-e2e-10.local'}
           - {name: 'sleep-app-v1', containerfile: 'test/scripts/agent-images/Containerfile-sleep-app-v1'}
           - {name: 'sleep-app-v2', containerfile: 'test/scripts/agent-images/Containerfile-sleep-app-v2'}
           - {name: 'sleep-app-v3', containerfile: 'test/scripts/agent-images/Containerfile-sleep-app-v3'}
