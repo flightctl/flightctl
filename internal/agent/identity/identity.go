@@ -47,6 +47,8 @@ type Provider interface {
 	CreateGRPCClient(config *base_client.Config) (grpc_v1.RouterServiceClient, error)
 	// WipeCredentials securely removes all stored credentials (certificates and keys)
 	WipeCredentials() error
+	// WipeCertificateOnly securely removes only the certificate (not keys or CSR)
+	WipeCertificateOnly() error
 	// Close cleans up any resources used by the provider
 	Close(ctx context.Context) error
 }

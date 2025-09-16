@@ -31,26 +31,29 @@ type Publisher interface {
 }
 
 type publisher struct {
-	managementClient client.Management
-	deviceName       string
-	subscribers      []Subscription
-	lastKnownVersion string
-	interval         time.Duration
-	stopped          atomic.Bool
-	log              *log.PrefixLogger
-	backoff          wait.Backoff
-	mu               sync.Mutex
+	managementClient      client.Management
+	deviceName            string
+	subscribers           []Subscription
+	lastKnownVersion      string
+	interval              time.Duration
+	stopped               atomic.Bool
+	log                   *log.PrefixLogger
+	backoff               wait.Backoff
+	deviceNotFoundHandler func() error
+	mu                    sync.Mutex
 }
 
 func New(deviceName string,
 	interval time.Duration,
 	backoff wait.Backoff,
-	log *log.PrefixLogger) Publisher {
+	log *log.PrefixLogger,
+	deviceNotFoundHandler func() error) Publisher {
 	return &publisher{
-		deviceName: deviceName,
-		interval:   interval,
-		backoff:    backoff,
-		log:        log,
+		deviceName:            deviceName,
+		interval:              interval,
+		backoff:               backoff,
+		log:                   log,
+		deviceNotFoundHandler: deviceNotFoundHandler,
 	}
 }
 
@@ -125,6 +128,19 @@ func (n *publisher) pollAndPublish(ctx context.Context) {
 		n.log.Debugf("Dialing management API took: %v", duration)
 	}
 	if err != nil {
+		// Check for device not found error - handle certificate wiping and restart
+		if errors.Is(err, client.ErrDeviceNotFound) {
+			n.log.Warn("Device not found on management server")
+			if n.deviceNotFoundHandler != nil {
+				if handlerErr := n.deviceNotFoundHandler(); handlerErr != nil {
+					n.log.Warnf("Failed to handle device not found: %v", handlerErr)
+					return
+				}
+				n.log.Info("Successfully handled device not found - certificate wiped and agent restarted")
+			}
+			return
+		}
+
 		if errors.Is(err, errors.ErrNoContent) || errors.IsTimeoutError(err) {
 			n.log.Debug("No new template version from management service")
 			return

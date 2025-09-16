@@ -38,6 +38,12 @@ func setup(t *testing.T) *vars {
 	deviceName := "test-device"
 	ctx, cancel := context.WithCancel(context.Background())
 	mockClient := client.NewMockManagement(ctrl)
+
+	// Create a mock device not found handler
+	deviceNotFoundHandler := func() error {
+		return nil // Mock handler that always succeeds
+	}
+
 	n := &publisher{
 		managementClient: mockClient,
 		deviceName:       deviceName,
@@ -46,6 +52,7 @@ func setup(t *testing.T) *vars {
 		backoff: wait.Backoff{
 			Steps: 1,
 		},
+		deviceNotFoundHandler: deviceNotFoundHandler,
 	}
 
 	return &vars{
@@ -234,4 +241,101 @@ func TestDevicePublisher_Run(t *testing.T) {
 		// Verify that the publisher is marked as stopped
 		v.assertions.True(v.notifier.stopped.Load())
 	})
+}
+
+func TestDevicePublisher_DeviceNotFoundHandling(t *testing.T) {
+	tests := []struct {
+		name                  string
+		deviceNotFoundHandler func() error
+		mockReturnError       error
+		expectedHandlerCalled bool
+		expectedHandlerError  bool
+		description           string
+	}{
+		{
+			name: "handles device not found error successfully",
+			deviceNotFoundHandler: func() error {
+				return nil
+			},
+			mockReturnError:       client.ErrDeviceNotFound,
+			expectedHandlerCalled: true,
+			expectedHandlerError:  false,
+			description:           "Device not found handler should have been called",
+		},
+		{
+			name: "handles device not found handler error",
+			deviceNotFoundHandler: func() error {
+				return errors.New("handler failed")
+			},
+			mockReturnError:       client.ErrDeviceNotFound,
+			expectedHandlerCalled: true,
+			expectedHandlerError:  true,
+			description:           "Device not found handler should have been called even when it returns an error",
+		},
+		{
+			name:                  "handles device not found when handler is nil",
+			deviceNotFoundHandler: nil,
+			mockReturnError:       client.ErrDeviceNotFound,
+			expectedHandlerCalled: false,
+			expectedHandlerError:  false,
+			description:           "Should not panic when handler is nil",
+		},
+		{
+			name: "does not call handler for generic 404 error",
+			deviceNotFoundHandler: func() error {
+				return nil
+			},
+			mockReturnError:       nil, // Generic 404, not ErrDeviceNotFound
+			expectedHandlerCalled: false,
+			expectedHandlerError:  false,
+			description:           "Device not found handler should NOT have been called for generic 404",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := setup(t)
+			defer v.finish()
+
+			// Track if the handler was called
+			handlerCalled := false
+			var handlerError error
+
+			// Create a publisher with the test handler
+			var deviceNotFoundHandler func() error
+			if tt.deviceNotFoundHandler != nil {
+				deviceNotFoundHandler = func() error {
+					handlerCalled = true
+					handlerError = tt.deviceNotFoundHandler()
+					return handlerError
+				}
+			}
+
+			publisher := &publisher{
+				managementClient: v.mockClient,
+				deviceName:       v.deviceName,
+				log:              log.NewPrefixLogger(""),
+				interval:         time.Second,
+				backoff: wait.Backoff{
+					Steps: 1,
+				},
+				deviceNotFoundHandler: deviceNotFoundHandler,
+			}
+
+			// Mock the management client based on test case
+			v.mockClient.EXPECT().GetRenderedDevice(gomock.Any(), v.deviceName, gomock.Any()).Return(nil, http.StatusNotFound, tt.mockReturnError)
+
+			// Call pollAndPublish
+			publisher.pollAndPublish(v.ctx)
+
+			// Verify the handler behavior
+			v.assertions.Equal(tt.expectedHandlerCalled, handlerCalled, tt.description)
+
+			if tt.expectedHandlerCalled && tt.expectedHandlerError {
+				v.assertions.Error(handlerError, "Handler should have returned an error")
+			} else if tt.expectedHandlerCalled && !tt.expectedHandlerError {
+				v.assertions.NoError(handlerError, "Handler should not have returned an error")
+			}
+		})
+	}
 }
