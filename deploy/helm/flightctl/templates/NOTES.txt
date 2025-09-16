@@ -1,4 +1,6 @@
 Thank you for installing Flight Control.
+
+```
 ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣠⡔⠀⠀
 ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⣴⡾⣻⡿⠀⠀⠀
 ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣠⣴⣿⠟⢋⣾⣿⠁⠀⠀⠀
@@ -12,6 +14,8 @@ Thank you for installing Flight Control.
 ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣿⡶⠀⠀⠈⠉⠋⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
 ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⡟⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
 ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠘⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+```
+
 {{- if .Values.ui.enabled }}
 You can access the Flight Control UI at {{ include "flightctl.getUIUrl" . }}
 {{- end }}
