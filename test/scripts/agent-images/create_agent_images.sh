@@ -16,16 +16,30 @@ if is_acm_installed; then
     echo "IMAGE_LIST=${IMAGE_LIST}"
 fi
 
-# if FLIGHTCTL_RPM is not empty
-if [ -n "${FLIGHTCTL_RPM:-}" ]; then
+# if BREW_BUILD_URL is provided, download RPMs from brew registry to bin/brew-rpm
+if [ -n "${BREW_BUILD_URL:-}" ]; then
+    echo "Using BREW_BUILD_URL=${BREW_BUILD_URL} for brew registry RPMs"
+
+    # Download required RPMs using shared function
+    if ! download_brew_rpms "bin/brew-rpm" "${BREW_BUILD_URL}" "flightctl-agent-*" "flightctl-selinux*"; then
+        exit 1
+    fi
+
+    BUILD_ARGS="--build-arg=BREW_BUILD_URL=${BREW_BUILD_URL}"
+elif [ -n "${FLIGHTCTL_RPM:-}" ]; then
+    echo "Using FLIGHTCTL_RPM=${FLIGHTCTL_RPM} for custom RPM"
     RPM_COPR=$(copr_repo)
     RPM_PACKAGE=$(package_agent)
     # if the package reference includes version, we need to append the system variant, always el9 for our images
     if [[ "${RPM_PACKAGE}" != "flightctl-agent" ]]; then
         RPM_PACKAGE="${RPM_PACKAGE}.el9"
     fi
-    BUILD_ARGS="--build-arg=RPM_COPR=${RPM_COPR}"
+    BUILD_ARGS="--build-arg=FLIGHTCTL_RPM=${FLIGHTCTL_RPM}"
+    BUILD_ARGS="${BUILD_ARGS} --build-arg=RPM_COPR=${RPM_COPR}"
     BUILD_ARGS="${BUILD_ARGS} --build-arg=RPM_PACKAGE=${RPM_PACKAGE}"
+else
+    echo "No BREW_BUILD_URL or FLIGHTCTL_RPM provided, using local RPMs only"
+    BUILD_ARGS=""
 fi
 
 build_single_image() {
@@ -113,24 +127,24 @@ build_qcow2_image() {
     echo -e "\033[32mProducing qcow2 image for ${REGISTRY_ADDRESS}/flightctl-device:base \033[m"
 
     mkdir -p bin/output
-    
+
     # Check if qcow2 is already up to date
     # Also check if the touch file is newer than the qcow2 (indicating a forced rebuild)
     if [[ -f bin/output/qcow2/disk.qcow2 ]] && [[ -f bin/.e2e-agent-images ]]; then
         TOUCH_FILE_DATE=$(date -u -r bin/.e2e-agent-images "+%Y-%m-%d %H:%M:%S")
         QCOW_FILE_DATE=$(date -u -r bin/output/qcow2/disk.qcow2 "+%Y-%m-%d %H:%M:%S")
-        
+
         # Convert to timestamps for comparison
         TOUCH_TIMESTAMP=$(date -d "${TOUCH_FILE_DATE}" +%s 2>/dev/null || echo "0")
         QCOW_FILE_TIMESTAMP=$(date -d "${QCOW_FILE_DATE}" +%s 2>/dev/null || echo "0")
-        
+
         # If qcow2 is newer than the touch file, we can skip rebuilding
         if [[ ${QCOW_FILE_TIMESTAMP} -gt ${TOUCH_TIMESTAMP} ]]; then
             echo -e "\033[32mqcow2 is newer than touch file, skipping rebuild (touch: ${TOUCH_FILE_DATE}, qcow2: ${QCOW_FILE_DATE})\033[m"
             return
         fi
     fi
-    
+
     if [[ -f bin/output/qcow2/disk.qcow2 ]]; then
         # Get container image ID and creation date
         CONTAINER_ID=$(podman images --format "table {{.ID}}" --noheading ${REGISTRY_ADDRESS}/flightctl-device:base 2>/dev/null | head -1)
@@ -138,13 +152,13 @@ build_qcow2_image() {
             CONTAINER_CREATE_DATE=$(podman inspect -f '{{.Created}}' ${CONTAINER_ID} 2>/dev/null || echo "")
             if [[ -n "${CONTAINER_CREATE_DATE}" ]]; then
                 QCOW_CREATE_DATE=$(date -u -r bin/output/qcow2/disk.qcow2 "+%Y-%m-%d %H:%M:%S")
-                
+
                 # Convert dates to timestamps for proper comparison
                 # Handle the container date format: "2025-07-30 16:40:33.146810998 +0000 UTC"
                 CONTAINER_DATE_CLEAN=$(echo "${CONTAINER_CREATE_DATE}" | sed 's/\.[0-9]* +0000 UTC//')
                 CONTAINER_TIMESTAMP=$(date -d "${CONTAINER_DATE_CLEAN}" +%s 2>/dev/null || echo "0")
                 QCOW_TIMESTAMP=$(date -d "${QCOW_CREATE_DATE}" +%s 2>/dev/null || echo "0")
-                
+
                 if [[ ${QCOW_TIMESTAMP} -gt ${CONTAINER_TIMESTAMP} ]]; then
                     echo -e "\033[32mqcow2 is already up to date with the container (container: ${CONTAINER_CREATE_DATE}, qcow2: ${QCOW_CREATE_DATE})\033[m"
                     return
@@ -165,11 +179,11 @@ build_qcow2_image() {
     echo -e "\033[32mPulling ${REGISTRY_ADDRESS}/flightctl-device:base to /var/lib/containers/storage\033[m"
     sudo podman pull "${REGISTRY_ADDRESS}/flightctl-device:base"
     echo -e "\033[32m Producing qcow image for ${REGISTRY_ADDRESS}/flightctl-device:base \033[m"
-    
+
     # Create cache directories if they don't exist
     mkdir -p "$(pwd)/bin/dnf-cache"
     mkdir -p "$(pwd)/bin/osbuild-cache"
-    
+
     sudo podman run --rm \
                     -it \
                     --privileged \
