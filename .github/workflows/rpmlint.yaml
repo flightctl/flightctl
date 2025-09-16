@@ -20,7 +20,6 @@ jobs:
     steps:
       - name: Install dependencies
         run: |
-          dnf update -y
           dnf install -y rpmlint rpm-build go-rpm-macros make
 
       - uses: actions/checkout@v4
