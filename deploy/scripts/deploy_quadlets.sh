@@ -54,18 +54,24 @@ echo "Starting all FlightCtl services via target..."
 start_service "flightctl.target"
 
 echo "Waiting for services to initialize..."
-# Wait for database to be ready first
-timeout --foreground 120s bash -c '
-    while true; do
-        if podman ps --quiet --filter "name=flightctl-db" | grep -q . && \
-           podman exec flightctl-db pg_isready -U postgres >/dev/null 2>&1; then
-            echo "Database is ready"
-            break
-        fi
-        echo "Waiting for database to become ready..."
-        sleep 3
-    done
-'
+
+# Check if we're using external database
+if is_external_database_enabled; then
+    echo "External database configured - skipping local database readiness check"
+else
+    # Wait for database to be ready first
+    timeout --foreground 120s bash -c '
+        while true; do
+            if podman ps --quiet --filter "name=flightctl-db" | grep -q . && \
+               podman exec flightctl-db pg_isready -U postgres >/dev/null 2>&1; then
+                echo "Database is ready"
+                break
+            fi
+            echo "Waiting for database to become ready..."
+            sleep 3
+        done
+    '
+fi
 
 # Wait for database migration to complete
 echo "Waiting for database migration to complete..."

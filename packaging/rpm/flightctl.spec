@@ -484,6 +484,9 @@ echo "Flightctl Observability Stack uninstalled."
     IMAGE_TAG=$(echo %{version} | tr '~' '-') \
     deploy/scripts/install.sh
 
+    # Copy external database configuration files
+    mkdir -p %{buildroot}%{_datadir}/flightctl/flightctl-db
+    cp deploy/podman/flightctl-db/flightctl-db-external.container %{buildroot}%{_datadir}/flightctl/flightctl-db/
 
     # Copy sos report flightctl plugin
     mkdir -p %{buildroot}/usr/share/sosreport
@@ -621,6 +624,7 @@ rm -rf /usr/share/sosreport
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-api/create_aap_application.sh
     %{_datadir}/flightctl/flightctl-alert-exporter/config.yaml
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-db/enable-superuser.sh
+    %{_datadir}/flightctl/flightctl-db/flightctl-db-external.container
     %{_datadir}/flightctl/flightctl-ui/env.template
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-ui/init.sh
     %attr(0755,root,root) %{_datadir}/flightctl/init_utils.sh

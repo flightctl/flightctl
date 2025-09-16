@@ -3,7 +3,38 @@ set -eo pipefail
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 source "${SCRIPT_DIR}"/functions
 
-if [[ -z "${FLIGHTCTL_RPM}" ]]; then
+if [[ -n "${BREW_BUILD_URL:-}" ]]; then
+    echo -e "\e[32mInstalling the CLI from brew registry BREW_BUILD_URL: ${BREW_BUILD_URL}\e[0m"
+
+    # Download all RPMs using shared function
+    if ! download_brew_rpms "bin/brew-rpm"; then
+        exit 1
+    fi
+
+    cd bin/brew-rpm
+
+    # Find the CLI RPM (pattern: flightctl-<version>-<release>.<dist>.<arch>.rpm)
+    # Examples: flightctl-0.9.1-1.el9fc.x86_64.rpm, flightctl-0.9.0-1.fc41.x86_64.rpm
+    # Exclude: flightctl-agent*, flightctl-selinux*, flightctl-services*, flightctl-debug*, *.src.rpm
+    CLI_RPM=$(ls flightctl-*.rpm 2>/dev/null | grep -v -E "(agent|selinux|services|debug|\.src\.rpm)" | head -1)
+
+    if [[ -z "${CLI_RPM}" ]]; then
+        echo "ERROR: No flightctl CLI RPM found in brew build ${BREW_BUILD_URL}"
+        echo "Available RPMs:"
+        ls -la flightctl-*.rpm 2>/dev/null || echo "No RPMs found"
+        exit 1
+    fi
+
+    echo "Installing CLI RPM: ${CLI_RPM}"
+    sudo dnf remove -y flightctl || true
+    sudo dnf install -y "${CLI_RPM}"
+
+    # copy to our local bin directory, where the remaining of tests will consume it from
+    sudo cp /usr/bin/flightctl ../flightctl
+
+    cd - > /dev/null
+
+elif [[ -z "${FLIGHTCTL_RPM}" ]]; then
     echo -e "\e[32mCompiling the flightctl cli\e[0m"
     make build-cli
 else
@@ -32,5 +63,5 @@ else
     sudo dnf install -y "${PACKAGE_CLI}"
 
     # copy to our local bin directory, where the remaining of tests will consume it from
-    cp /usr/bin/flightctl bin/flightctl
+    sudo cp /usr/bin/flightctl bin/flightctl
 fi

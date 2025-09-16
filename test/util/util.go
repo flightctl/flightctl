@@ -186,7 +186,7 @@ func IsAcmInstalled() (bool, error) {
 	cmd := exec.Command("oc", "get", "multiclusterhub", "-A")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("error getting multiclusterhub: %w, %s", err, string(output))
 	}
 	outputString := string(output)
 	if outputString == "error: the server doesn't have a resource type \"multiclusterhub\"" {

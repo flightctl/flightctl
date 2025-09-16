@@ -28,6 +28,10 @@ db:
   port: 5432
   name: "flightctl"
   type: "pgsql"
+  sslmode: ""
+  sslcert: ""
+  sslkey: ""
+  sslrootcert: ""
 
 api:
   image:
