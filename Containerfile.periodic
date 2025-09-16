@@ -41,7 +41,7 @@ FROM registry.access.redhat.com/ubi9/ubi-minimal as certs
 # Use BuildKit cache mounts for microdnf package caching
 RUN --mount=type=cache,target=/var/cache/dnf \
     --mount=type=cache,target=/var/lib/dnf \
-    microdnf update --nodocs -y && microdnf install ca-certificates --nodocs -y
+     microdnf install ca-certificates --nodocs -y
 
 FROM registry.access.redhat.com/ubi9/ubi-micro
 WORKDIR /app
