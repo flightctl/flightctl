@@ -23,7 +23,7 @@ jobs:
       image_tags: ${{ steps.get-tags.outputs.image_tags }}
       helm_tag: ${{ steps.get-tags.outputs.helm_tag }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
           fetch-tags: true
@@ -67,7 +67,7 @@ jobs:
     runs-on: "ubuntu-24.04"
     needs: [publish-flightctl-containers, generate-tags]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup all dependencies
         uses: ./.github/actions/setup-dependencies
@@ -102,7 +102,7 @@ jobs:
     needs: [generate-tags]
     runs-on: "ubuntu-24.04"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
           fetch-tags: true

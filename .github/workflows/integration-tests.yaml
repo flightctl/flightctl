@@ -17,7 +17,7 @@ jobs:
     runs-on: "ubuntu-24.04"
     steps:
       - name: Checkout current commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -64,7 +64,7 @@ jobs:
 
       - name: Checkout baseline branch (PR base)
         if: ${{ steps.changed-files.outputs.any_changed == 'true' && github.event_name == 'pull_request' }}
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: flightctl/flightctl
           #TODO: checkout previously released version after 0.10 release

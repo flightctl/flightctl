@@ -22,7 +22,7 @@ jobs:
         run: |
           dnf install -y rpmlint rpm-build go-rpm-macros make
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Running RPM Spec Lint
         run: |
