@@ -24,7 +24,7 @@ var _ = BeforeSuite(func() {
 	Expect(err).ToNot(HaveOccurred())
 
 	// Check if ACM is installed before running any tests
-	isAcmInstalled, err := util.IsAcmInstalled()
+	isAcmInstalled, _, err := util.IsAcmInstalled()
 
 	if err != nil {
 		GinkgoWriter.Printf("Error while checking if ACM is installed: %s", err)
