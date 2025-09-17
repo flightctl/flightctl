@@ -78,9 +78,19 @@ For production deployments, enable SSL on your PostgreSQL instance and configure
 
 ## Deployment Configuration
 
-### Kubernetes (Helm)
+### Password Management
 
-#### 1. Update values.yaml
+Flight Control uses a three-tier password precedence system for database credentials:
+
+#### Password Priority Order
+
+1. **values.yaml/values.dev.yaml** (Highest Priority)
+2. **Existing Kubernetes Secrets** (Medium Priority)
+3. **Auto-generated** (Lowest Priority/Fallback)
+
+#### Password Management Options
+
+##### Option 1: Using values.yaml (Development)
 
 ```yaml
 db:
@@ -90,14 +100,49 @@ db:
   name: flightctl
   user: flightctl_app
   migrationUser: flightctl_migrator
-  # Set passwords via secrets or values
   userPassword: "your_app_password"
   migrationPassword: "your_migration_password"
-  # masterPassword only needed if Flight Control should create users automatically
   # masterPassword: "your_admin_password"  # Optional: for automatic user creation
 ```
 
+##### Option 2: Using Kubernetes Secrets (Production)
+
+```bash
+# Create secrets before installing Flight Control
+kubectl create secret generic flightctl-db-app-secret \
+  --from-literal=user=flightctl_app \
+  --from-literal=userPassword=your-secure-app-password
+
+kubectl create secret generic flightctl-db-migration-secret \
+  --from-literal=migrationUser=flightctl_migrator \
+  --from-literal=migrationPassword=your-secure-migration-password
+
+# For automatic user creation (optional)
+kubectl create secret generic flightctl-db-admin-secret \
+  --from-literal=masterUser=admin \
+  --from-literal=masterPassword=your-secure-admin-password
+```
+
+Then configure without passwords in values.yaml:
+
+```yaml
+db:
+  external: "enabled"
+  hostname: "your-postgres-hostname.example.com"
+  port: 5432
+  name: flightctl
+  user: flightctl_app
+  migrationUser: flightctl_migrator
+  # No passwords here - will use existing secrets
+```
+
+### Kubernetes (Helm)
+
+#### 1. Configure Database Connection
+
 #### 2. Deploy with Helm
+
+##### Using values.yaml (Development)
 
 ```bash
 helm install flightctl ./deploy/helm/flightctl \
@@ -107,6 +152,17 @@ helm install flightctl ./deploy/helm/flightctl \
   --set db.migrationPassword=your_migration_password
   # Add masterPassword only if you want Flight Control to create users automatically:
   # --set db.masterPassword=your_admin_password
+```
+
+##### Using Kubernetes Secrets (Production)
+
+```bash
+# First create secrets (see Password Management section above)
+# Then deploy without passwords in command line:
+helm install flightctl ./deploy/helm/flightctl \
+  --set db.external=enabled \
+  --set db.hostname=your-postgres-hostname.example.com
+  # Passwords will be automatically discovered from existing secrets
 ```
 
 #### 3. Verify Deployment
@@ -235,12 +291,25 @@ For SSL connections, you may need to:
 
 ## Security Considerations
 
-1. **Use strong passwords** for all database users
-2. **Enable SSL/TLS** for database connections in production
-3. **Restrict network access** to your database instance
-4. **Use secrets management** instead of plain-text passwords in configuration
-5. **Regular backup** your external database
-6. **Monitor database performance** and set up appropriate alerts
+### Password Security
+
+1. **Production**: Use Kubernetes secrets instead of values.yaml for passwords
+2. **Development**: values.yaml is acceptable for convenience but not for production
+3. **Strong passwords**: Use complex passwords for all database users
+4. **Password rotation**: Regularly rotate database passwords
+5. **Separate passwords**: Use different passwords for each user (admin, migration, application)
+
+### Database Security
+
+1. **Enable SSL/TLS** for database connections in production
+2. **Restrict network access** to your database instance
+3. **Use secrets management** instead of plain-text passwords in configuration
+4. **Regular backup** your external database
+5. **Monitor database performance** and set up appropriate alerts
+
+### Password Visibility Warning
+
+**Important**: Passwords set in values.yaml are visible via `helm get values` command. For production deployments, always use Kubernetes secrets to protect sensitive credentials.
 
 ## Backup and Recovery
 

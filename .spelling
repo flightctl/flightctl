@@ -379,3 +379,5 @@ SSL
 PL/pgSQL
 PL
 pgSQL
+values.yaml
+values.dev.yaml
