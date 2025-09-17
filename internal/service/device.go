@@ -11,13 +11,54 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/healthchecker"
+	"github.com/flightctl/flightctl/internal/rendered"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 )
+
+// PrepareDevicesAfterRestore performs post-restoration preparation tasks for devices
+func (h *ServiceHandler) PrepareDevicesAfterRestore(ctx context.Context) error {
+	h.log.Info("Starting post-restoration device preparation")
+
+	// 1. Drop the KV store to clear all cached data
+	h.log.Info("Clearing KV store after restoration")
+	if h.kvStore != nil {
+		if err := h.kvStore.DeleteAllKeys(ctx); err != nil {
+			h.log.WithError(err).Error("Failed to clear KV store")
+			return fmt.Errorf("failed to clear KV store: %w", err)
+		}
+		h.log.Info("KV store cleared successfully")
+	} else {
+		h.log.Warn("KV store not available, skipping clear")
+	}
+
+	// 2. Set waitForDeviceToReconnectAfterRestore annotation on all devices and unset lastSeen
+	h.log.Info("Updating device annotations and clearing lastSeen timestamps")
+
+	devicesUpdated, err := h.store.Device().PrepareDevicesAfterRestore(ctx)
+	if err != nil {
+		h.log.WithError(err).Error("Failed to prepare devices after restore")
+		return fmt.Errorf("failed to prepare devices after restore: %w", err)
+	}
+
+	h.log.Infof("Post-restoration device preparation completed successfully. Updated %d devices total.", devicesUpdated)
+
+	// Emit system restored event
+	if h.eventHandler != nil {
+		event := common.GetSystemRestoredEvent(ctx, devicesUpdated)
+		if event != nil {
+			h.eventHandler.CreateEvent(ctx, event)
+			h.log.Info("System restored event created successfully")
+		}
+	}
+	return nil
+}
 
 func (h *ServiceHandler) CreateDevice(ctx context.Context, device api.Device) (*api.Device, api.Status) {
 	if device.Spec != nil && device.Spec.Decommissioning != nil {
@@ -35,9 +76,9 @@ func (h *ServiceHandler) CreateDevice(ctx context.Context, device api.Device) (*
 		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
-	common.UpdateServiceSideStatus(ctx, orgId, &device, h.store, h.log)
+	_, _ = common.UpdateServiceSideStatus(ctx, orgId, &device, h.store, h.log)
 
-	result, err := h.store.Device().Create(ctx, orgId, &device, h.callbackManager.DeviceUpdatedCallback, h.callbackDeviceUpdated)
+	result, err := h.store.Device().Create(ctx, orgId, &device, h.callbackDeviceUpdated)
 	return result, StoreErrorToApiStatus(err, true, api.DeviceKind, device.Metadata.Name)
 }
 
@@ -144,15 +185,9 @@ func (h *ServiceHandler) ReplaceDevice(ctx context.Context, name string, device 
 		return nil, api.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
 
-	var callback store.DeviceStoreCallback = h.callbackManager.DeviceUpdatedCallback
-	delayDeviceRender, ok := ctx.Value(consts.DelayDeviceRenderCtxKey).(bool)
-	if ok && delayDeviceRender {
-		callback = h.callbackManager.DeviceUpdatedNoRenderCallback
-	}
+	_, _ = common.UpdateServiceSideStatus(ctx, orgId, &device, h.store, h.log)
 
-	common.UpdateServiceSideStatus(ctx, orgId, &device, h.store, h.log)
-
-	result, created, err := h.store.Device().CreateOrUpdate(ctx, orgId, &device, fieldsToUnset, isNotInternal, DeviceVerificationCallback, callback, h.callbackDeviceUpdated)
+	result, created, err := h.store.Device().CreateOrUpdate(ctx, orgId, &device, fieldsToUnset, isNotInternal, DeviceVerificationCallback, h.callbackDeviceUpdated)
 	return result, StoreErrorToApiStatus(err, created, api.DeviceKind, &name)
 }
 
@@ -177,20 +212,15 @@ func (h *ServiceHandler) UpdateDevice(ctx context.Context, name string, device a
 		return nil, fmt.Errorf("resource name specified in metadata does not match name in path")
 	}
 
-	var callback store.DeviceStoreCallback = h.callbackManager.DeviceUpdatedCallback
-	delayDeviceRender, ok := ctx.Value(consts.DelayDeviceRenderCtxKey).(bool)
-	if ok && delayDeviceRender {
-		callback = h.callbackManager.DeviceUpdatedNoRenderCallback
-	}
-	common.UpdateServiceSideStatus(ctx, orgId, &device, h.store, h.log)
+	_, _ = common.UpdateServiceSideStatus(ctx, orgId, &device, h.store, h.log)
 
-	return h.store.Device().Update(ctx, orgId, &device, fieldsToUnset, false, DeviceVerificationCallback, callback, h.callbackDeviceUpdated)
+	return h.store.Device().Update(ctx, orgId, &device, fieldsToUnset, false, DeviceVerificationCallback, h.callbackDeviceUpdated)
 }
 
 func (h *ServiceHandler) DeleteDevice(ctx context.Context, name string) api.Status {
 	orgId := getOrgIdFromContext(ctx)
 
-	_, err := h.store.Device().Delete(ctx, orgId, name, h.callbackManager.DeviceUpdatedCallback, h.callbackDeviceDeleted)
+	_, err := h.store.Device().Delete(ctx, orgId, name, h.callbackDeviceDeleted)
 	return StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 }
 
@@ -237,9 +267,18 @@ func (h *ServiceHandler) ReplaceDeviceStatus(ctx context.Context, name string, i
 
 	common.KeepDBDeviceStatus(&incomingDevice, deviceToStore)
 	deviceToStore.Status = incomingDevice.Status
-	common.UpdateServiceSideStatus(ctx, orgId, deviceToStore, h.store, h.log)
 
-	result, err := h.store.Device().UpdateStatus(ctx, orgId, deviceToStore, h.callbackDeviceUpdated)
+	_, annotationsChanged := common.UpdateServiceSideStatus(ctx, orgId, deviceToStore, h.store, h.log)
+
+	// Use Update() if annotations changed, otherwise use UpdateStatus()
+	var result *api.Device
+	if annotationsChanged {
+		h.log.Infof("Device %s: Annotations changed, using Update() to persist changes", *deviceToStore.Metadata.Name)
+		result, err = h.store.Device().Update(ctx, orgId, deviceToStore, nil, false, DeviceVerificationCallback, h.callbackDeviceUpdated)
+	} else {
+		h.log.Debugf("Device %s: No annotation changes, using UpdateStatus()", *deviceToStore.Metadata.Name)
+		result, err = h.store.Device().UpdateStatus(ctx, orgId, deviceToStore, h.callbackDeviceUpdated)
+	}
 	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 }
 
@@ -280,24 +319,51 @@ func (h *ServiceHandler) PatchDeviceStatus(ctx context.Context, name string, pat
 	NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
-	common.UpdateServiceSideStatus(ctx, orgId, newObj, h.store, h.log)
+	_, _ = common.UpdateServiceSideStatus(ctx, orgId, newObj, h.store, h.log)
 
-	var updateCallback func(context.Context, uuid.UUID, *api.Device, *api.Device)
-
-	if h.callbackManager != nil {
-		updateCallback = h.callbackManager.DeviceUpdatedCallback
-	}
-
-	result, err := h.store.Device().Update(ctx, orgId, newObj, nil, true, DeviceVerificationCallback, updateCallback, h.callbackDeviceUpdated)
+	result, err := h.store.Device().Update(ctx, orgId, newObj, nil, true, DeviceVerificationCallback, h.callbackDeviceUpdated)
 	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 }
 
 func (h *ServiceHandler) GetRenderedDevice(ctx context.Context, name string, params api.GetRenderedDeviceParams) (*api.Device, api.Status) {
+	var (
+		isNew             bool
+		kvRenderedVersion string
+		err               error
+	)
+
+	if _, ok := ctx.Value(consts.AgentCtxKey).(string); ok {
+		if err := healthchecker.HealthChecks.Instance().Add(ctx, getOrgIdFromContext(ctx), name); err != nil {
+			h.log.WithError(err).Errorf("failed to add healthcheck to device %s", name)
+			return nil, api.StatusInternalServerError(fmt.Sprintf("failed to add healthcheck to device %s: %v", name, err))
+		}
+	}
+
 	orgId := getOrgIdFromContext(ctx)
 
-	result, err := h.store.Device().GetRendered(ctx, orgId, name, params.KnownRenderedVersion, h.agentEndpoint)
-	if err == nil && result == nil {
-		return nil, api.StatusNoContent()
+	if params.KnownRenderedVersion != nil {
+		isNew, kvRenderedVersion, err = rendered.Bus.Instance().WaitForNewVersion(ctx, orgId, name, *params.KnownRenderedVersion)
+		if err != nil {
+			h.log.Errorf("GetRenderedDevice %s/%s: failed to wait for new rendered version: %v", orgId, name, err)
+			return nil, api.StatusInternalServerError(fmt.Sprintf("failed to wait for new rendered version: %v", err))
+		}
+		if !isNew {
+			return nil, api.StatusNoContent()
+		}
+	}
+
+	result, err := h.store.Device().GetRendered(ctx, orgId, name, nil, h.agentEndpoint)
+	if err != nil {
+		h.log.Errorf("GetRenderedDevice %s/%s: failed to get rendered device: %v", orgId, name, err)
+		return nil, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
+	}
+	newVersion := result.Version()
+	if kvRenderedVersion != "" && newVersion != "" && kvRenderedVersion != newVersion {
+		// If the rendered version in the KV store is different from the one we just fetched,
+		// we set the new version in the KV store.
+		if err = rendered.Bus.Instance().StoreAndNotify(ctx, orgId, name, newVersion); err != nil {
+			h.log.Errorf("GetRenderedDevice %s/%s: failed to set rendered version in kvstore: %v", orgId, name, err)
+		}
 	}
 	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 }
@@ -331,14 +397,30 @@ func (h *ServiceHandler) PatchDevice(ctx context.Context, name string, patch api
 	NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
-	common.UpdateServiceSideStatus(ctx, orgId, newObj, h.store, h.log)
+	_, _ = common.UpdateServiceSideStatus(ctx, orgId, newObj, h.store, h.log)
 
-	var updateCallback func(context.Context, uuid.UUID, *api.Device, *api.Device)
-	if h.callbackManager != nil {
-		updateCallback = h.callbackManager.DeviceUpdatedCallback
-	}
-	result, err := h.store.Device().Update(ctx, orgId, newObj, nil, true, DeviceVerificationCallback, updateCallback, h.callbackDeviceUpdated)
+	result, err := h.store.Device().Update(ctx, orgId, newObj, nil, true, DeviceVerificationCallback, h.callbackDeviceUpdated)
 	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
+}
+
+func (h *ServiceHandler) SetOutOfDate(ctx context.Context, owner string) error {
+	return h.store.Device().SetOutOfDate(ctx, getOrgIdFromContext(ctx), owner)
+}
+
+func (h *ServiceHandler) UpdateServerSideDeviceStatus(ctx context.Context, name string) error {
+	orgId := getOrgIdFromContext(ctx)
+	device, err := h.store.Device().GetWithoutServiceConditions(ctx, orgId, name)
+	if err != nil {
+		return err
+	}
+	if changed, _ := common.UpdateServiceSideStatus(ctx, orgId, device, h.store, h.log); changed {
+		_, err = h.store.Device().UpdateStatus(ctx, orgId, device, h.callbackDeviceUpdated)
+		if err != nil {
+			h.log.WithError(err).Errorf("failed to update status for device %s/%s", orgId, name)
+			return err
+		}
+	}
+	return nil
 }
 
 func (h *ServiceHandler) DecommissionDevice(ctx context.Context, name string, decom api.DeviceDecommission) (*api.Device, api.Status) {
@@ -359,14 +441,8 @@ func (h *ServiceHandler) DecommissionDevice(ctx context.Context, name string, de
 	deviceObj.Metadata.Owner = nil
 	deviceObj.Metadata.Labels = nil
 
-	var updateCallback func(context.Context, uuid.UUID, *api.Device, *api.Device)
-
-	if h.callbackManager != nil {
-		updateCallback = h.callbackManager.DeviceUpdatedCallback
-	}
-
 	// set the fromAPI bool to 'false', otherwise updating the spec.decommissionRequested of a device is blocked
-	result, err := h.store.Device().Update(ctx, orgId, deviceObj, []string{"status", "owner"}, false, DeviceVerificationCallback, updateCallback, h.callbackDeviceDecommission)
+	result, err := h.store.Device().Update(ctx, orgId, deviceObj, []string{"status", "owner"}, false, DeviceVerificationCallback, h.callbackDeviceDecommission)
 	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 }
 
@@ -376,9 +452,27 @@ func (h *ServiceHandler) UpdateDeviceAnnotations(ctx context.Context, name strin
 	return StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 }
 
-func (h *ServiceHandler) UpdateRenderedDevice(ctx context.Context, name, renderedConfig, renderedApplications string) api.Status {
+func (h *ServiceHandler) UpdateRenderedDevice(ctx context.Context, name, renderedConfig, renderedApplications, specHash string) api.Status {
 	orgId := getOrgIdFromContext(ctx)
-	err := h.store.Device().UpdateRendered(ctx, orgId, name, renderedConfig, renderedApplications)
+	renderedVersion, err := h.store.Device().UpdateRendered(ctx, orgId, name, renderedConfig, renderedApplications, specHash)
+	if err != nil {
+		h.log.Errorf("Failed to update rendered device %s/%s: %v", orgId, name, err)
+		return StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
+	}
+	if renderedVersion == "" {
+		h.log.Debugf("Rendered device %s/%s: no change in rendered version", orgId, name)
+		return api.StatusOK()
+	}
+	err = h.UpdateServerSideDeviceStatus(ctx, name)
+	if err != nil {
+		return StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
+	}
+
+	err = rendered.Bus.Instance().StoreAndNotify(ctx, orgId, name, renderedVersion)
+	if err != nil {
+		h.log.Errorf("Failed to publish rendered device %s/%s: %v", orgId, name, err)
+		return api.StatusInternalServerError(fmt.Sprintf("failed to publish rendered device: %v", err))
+	}
 	return StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 }
 
@@ -506,20 +600,61 @@ func (h *ServiceHandler) GetDevicesSummary(ctx context.Context, params api.ListD
 
 func (h *ServiceHandler) UpdateServiceSideDeviceStatus(ctx context.Context, device api.Device) bool {
 	orgId := getOrgIdFromContext(ctx)
-	return common.UpdateServiceSideStatus(ctx, orgId, &device, h.store, h.log)
+	anyChanged, _ := common.UpdateServiceSideStatus(ctx, orgId, &device, h.store, h.log)
+	return anyChanged
+}
+
+func (h *ServiceHandler) ResumeDevices(ctx context.Context, request api.DeviceResumeRequest) (api.DeviceResumeResponse, api.Status) {
+	orgId := getOrgIdFromContext(ctx)
+
+	h.log.Infof("ResumeDevices called with label selector: %v, field selector: %v",
+		request.LabelSelector, request.FieldSelector)
+
+	// Create list params with both label and field selectors
+	listParams, status := prepareListParams(nil, request.LabelSelector, request.FieldSelector, nil)
+	if status.Code != http.StatusOK {
+		return api.DeviceResumeResponse{}, status
+	}
+
+	// Remove conflictPaused annotation from all matching devices in a single SQL query
+	resumedCount, deviceIDs, err := h.store.Device().RemoveConflictPausedAnnotation(ctx, orgId, lo.FromPtr(listParams))
+	if err != nil {
+		var se *selector.SelectorError
+		switch {
+		case selector.AsSelectorError(err, &se):
+			return api.DeviceResumeResponse{}, api.StatusBadRequest(se.Error())
+		default:
+			return api.DeviceResumeResponse{}, api.StatusInternalServerError(fmt.Sprintf("failed to resume devices: %v", err))
+		}
+	}
+
+	h.log.Infof("Resumed %d devices: %v", resumedCount, deviceIDs)
+
+	// Emit DeviceConflictResolved events for each resumed device
+	if h.eventHandler != nil {
+		for _, deviceID := range deviceIDs {
+			event := common.GetDeviceConflictResolvedEvent(ctx, deviceID)
+			h.eventHandler.CreateEvent(ctx, event)
+		}
+		h.log.Infof("Created DeviceConflictResolved events for %d devices", len(deviceIDs))
+	}
+
+	return api.DeviceResumeResponse{
+		ResumedDevices: int(resumedCount),
+	}, api.StatusOK()
 }
 
 // callbackDeviceUpdated is the device-specific callback that handles device events
 func (h *ServiceHandler) callbackDeviceUpdated(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	h.HandleDeviceUpdatedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+	h.eventHandler.HandleDeviceUpdatedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
 }
 
 // callbackDeviceDecommission is the device-specific callback that handles device decommission events
 func (h *ServiceHandler) callbackDeviceDecommission(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	h.HandleDeviceDecommissionEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+	h.eventHandler.HandleDeviceDecommissionEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
 }
 
 // callbackDeviceDeleted is the device-specific callback that handles device deletion events
 func (h *ServiceHandler) callbackDeviceDeleted(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	h.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+	h.eventHandler.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
 }

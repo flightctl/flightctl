@@ -3,15 +3,20 @@ package e2e
 import (
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	agentcfg "github.com/flightctl/flightctl/internal/agent/config"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
+	"sigs.k8s.io/yaml"
 )
 
 func (h *Harness) GetDeviceWithStatusSystem(enrollmentID string) (*apiclient.GetDeviceResponse, error) {
@@ -337,7 +342,7 @@ func (h *Harness) WaitForDeviceNewGeneration(deviceId string, newGeneration int6
 
 	// Wait for the device to pickup the new config and report measurements on device status.
 	logrus.Infof("Waiting for the device to pick the config")
-	h.WaitForDeviceContents(deviceId, "Waiting fot the device generation",
+	h.WaitForDeviceContents(deviceId, fmt.Sprintf("Waiting fot the device generation %d", newGeneration),
 		func(device *v1alpha1.Device) bool {
 			for _, condition := range device.Status.Conditions {
 				if condition.Type == "Updating" && condition.Reason == "Updated" && condition.Status == "False" &&
@@ -486,7 +491,8 @@ func (h *Harness) SetLabelsForDevice(deviceId string, labels map[string]string) 
 			device.Metadata.Labels = nil
 			return
 		}
-		devLabels := make(map[string]string, len(labels))
+		devLabels := make(map[string]string, len(labels)+1)
+		devLabels["test-id"] = h.GetTestIDFromContext()
 		for key, value := range labels {
 			devLabels[key] = value
 		}
@@ -654,5 +660,199 @@ func (h *Harness) ResetAgent() error {
 	if err != nil {
 		return fmt.Errorf("failed to send SIGHUP to agent: %w", err)
 	}
+	return nil
+}
+
+// SetAgentConfig configures the agent by writing the configuration file.
+// This method should be called before starting the agent.
+func (h *Harness) SetAgentConfig(cfg *agentcfg.Config) error {
+	// Marshal the config to YAML
+	configBytes, err := yaml.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal agent config: %w", err)
+	}
+
+	// Write the config to the VM (using correct agent config filename)
+	stdout, err := h.VM.RunSSH([]string{
+		"sudo", "mkdir", "-p", "/etc/flightctl",
+		"&&",
+		"echo", fmt.Sprintf("'%s'", string(configBytes)),
+		"|",
+		"sudo", "tee", "/etc/flightctl/config.yaml",
+	}, nil)
+	if err != nil {
+		logrus.Errorf("Failed to write agent config: %v, stdout: %s", err, stdout)
+		return fmt.Errorf("failed to write agent config: %w", err)
+	}
+
+	return nil
+}
+
+// WaitForTPMInitialization waits for TPM hardware to be ready in the VM.
+// This should be called after VM setup but before agent configuration.
+func (h *Harness) WaitForTPMInitialization() error {
+	logrus.Info("Waiting for TPM hardware initialization...")
+	time.Sleep(20 * time.Second)
+	return nil
+}
+
+// VerifyTPMFunctionality checks that TPM device is accessible and functional.
+func (h *Harness) VerifyTPMFunctionality() error {
+	// Check TPM device presence
+	stdout, err := h.VM.RunSSH([]string{"sh", "-lc", "ls -la /dev/tpm*"}, nil)
+	if err != nil || !strings.Contains(stdout.String(), "/dev/tpm0") {
+		// Check if we're expecting TPM hardware to be available
+		realTPM := strings.ToLower(os.Getenv("FLIGHTCTL_REAL_TPM")) == "true"
+		skipTPM := strings.ToLower(os.Getenv("FLIGHTCTL_SKIP_TPM")) == "true"
+
+		if realTPM && !skipTPM {
+			// Real TPM was expected but not found
+			return fmt.Errorf("TPM device /dev/tpm0 not available (FLIGHTCTL_REAL_TPM=true but no TPM device found)")
+		}
+
+		// No TPM device found but not in real TPM mode - this is expected for CI/virtual environments
+		logrus.Info("No TPM device found (/dev/tpm0), skipping TPM hardware verification (expected in CI environments)")
+		return nil
+	}
+
+	// Test TPM functionality
+	_, _ = h.VM.RunSSH([]string{"sh", "-lc", "sudo tpm2_startup -c || true"}, nil)
+
+	_, err = h.VM.RunSSH([]string{"sudo", "tpm2_getrandom", "8"}, nil)
+	if err != nil {
+		return fmt.Errorf("TPM getrandom test failed: %w", err)
+	}
+
+	logrus.Info("TPM functionality verified successfully")
+	return nil
+}
+
+// EnableTPMForDevice configures the agent to use TPM for device identity.
+// This reads existing agent config, updates TPM settings, and writes it back.
+func (h *Harness) EnableTPMForDevice() error {
+	// Get existing agent config or create default
+	stdout, err := h.VM.RunSSH([]string{"cat", "/etc/flightctl/config.yaml"}, nil)
+	var agentConfig *agentcfg.Config
+
+	if err == nil && stdout.Len() > 0 {
+		// Parse existing config
+		agentConfig = &agentcfg.Config{}
+		err = yaml.Unmarshal(stdout.Bytes(), agentConfig)
+		if err != nil {
+			logrus.Warnf("Failed to parse existing config, using default: %v", err)
+			agentConfig = &agentcfg.Config{}
+		}
+	} else {
+		// No existing config, create new
+		agentConfig = &agentcfg.Config{}
+	}
+
+	// Configure TPM settings
+	agentConfig.TPM = agentcfg.TPM{
+		Enabled:         true,
+		DevicePath:      "/dev/tpm0",
+		StorageFilePath: filepath.Join(agentcfg.DefaultDataDir, agentcfg.DefaultTPMKeyFile),
+		AuthEnabled:     true,
+	}
+
+	// Write the updated config
+	err = h.SetAgentConfig(agentConfig)
+	if err != nil {
+		return fmt.Errorf("failed to set TPM agent config: %w", err)
+	}
+
+	logrus.Info("TPM configuration enabled for device")
+	return nil
+}
+
+// SetupDeviceWithTPM prepares a device VM with TPM functionality enabled.
+// This handles the complete TPM setup process in the correct order.
+func (h *Harness) SetupDeviceWithTPM(workerID int) error {
+	// 1. Setup VM from pool (includes agent start)
+	err := h.SetupVMFromPoolAndStartAgent(workerID)
+	if err != nil {
+		return fmt.Errorf("failed to setup VM: %w", err)
+	}
+
+	// 2. Stop agent immediately to configure TPM first
+	err = h.StopFlightCtlAgent()
+	if err != nil {
+		return fmt.Errorf("failed to stop agent: %w", err)
+	}
+
+	// 3. Wait for TPM hardware initialization
+	err = h.WaitForTPMInitialization()
+	if err != nil {
+		return fmt.Errorf("TPM initialization failed: %w", err)
+	}
+
+	// 4. Verify TPM is functional
+	err = h.VerifyTPMFunctionality()
+	if err != nil {
+		return fmt.Errorf("TPM verification failed: %w", err)
+	}
+
+	// 5. Configure agent for TPM
+	err = h.EnableTPMForDevice()
+	if err != nil {
+		return fmt.Errorf("TPM configuration failed: %w", err)
+	}
+
+	// 6. Start agent with TPM configuration
+	err = h.StartFlightCtlAgent()
+	if err != nil {
+		return fmt.Errorf("failed to start agent with TPM: %w", err)
+	}
+
+	// 7. Brief wait for agent to initialize with TPM
+	time.Sleep(10 * time.Second)
+
+	logrus.Info("Device TPM setup completed successfully")
+	return nil
+}
+
+// VerifyEnrollmentTPMAttestationData checks for TPM attestation data in enrollment request SystemInfo
+// Returns error if no TPM attestation data is found
+func (h *Harness) VerifyEnrollmentTPMAttestationData(systemInfo v1alpha1.DeviceSystemInfo) error {
+	// Look for TPM attestation data - check for either key name that might be used
+	_, hasAttestation := systemInfo.Get("attestation")
+	if !hasAttestation {
+		logrus.Infof("No 'attestation' key found, checking for other TPM-related keys...")
+		tpmVendorInfo, hasTmpVendorInfo := systemInfo.Get("tpmVendorInfo")
+		if hasTmpVendorInfo {
+			logrus.Infof("Found 'tpmVendorInfo' key: %s", tpmVendorInfo)
+			logrus.Infof("TPM attestation data found in enrollment request: %s...", tpmVendorInfo)
+			return nil
+		}
+		return errors.New("no TPM attestation data found in enrollment request")
+	}
+
+	logrus.Infof("TPM attestation data found in enrollment request")
+	return nil
+}
+
+// VerifyDeviceTPMAttestationData checks for TPM attestation data in device SystemInfo
+// Virtual TPM provides "tpmVendorInfo", real TPM provides "attestation"
+// Returns error if attestation data is missing or empty
+func (h *Harness) VerifyDeviceTPMAttestationData(device *v1alpha1.Device) error {
+	// Check for TPM vendor info in system info (virtual TPM provides tpmVendorInfo instead of full attestation)
+	tpmVendorInfo, hasTmpVendorInfo := device.Status.SystemInfo.Get("tpmVendorInfo")
+	if hasTmpVendorInfo {
+		if tpmVendorInfo == "" {
+			return fmt.Errorf("tpmVendorInfo is empty in device system info")
+		}
+		logrus.Infof("TPM vendor info found in device system info: %s", tpmVendorInfo)
+		return nil
+	}
+
+	// For real TPM devices, check for full attestation data
+	deviceAttestation, hasAttestation := device.Status.SystemInfo.Get("attestation")
+	if !hasAttestation {
+		return fmt.Errorf("no TPM attestation data found in device system info")
+	}
+	if deviceAttestation == "" {
+		return fmt.Errorf("attestation data is empty in device system info")
+	}
+	logrus.Infof("TPM attestation data found in device system info: %.50s...", deviceAttestation)
 	return nil
 }

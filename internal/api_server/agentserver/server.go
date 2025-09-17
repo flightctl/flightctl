@@ -9,17 +9,19 @@ import (
 	"net/http"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	agent "github.com/flightctl/flightctl/api/v1alpha1/agent"
 	server "github.com/flightctl/flightctl/internal/api/server/agent"
 	tlsmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/healthchecker"
 	"github.com/flightctl/flightctl/internal/kvstore"
-	"github.com/flightctl/flightctl/internal/org"
+	"github.com/flightctl/flightctl/internal/org/resolvers"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/tasks_client"
 	transport "github.com/flightctl/flightctl/internal/transport/agent"
+	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -31,23 +33,25 @@ import (
 
 const (
 	gracefulShutdownTimeout = 5 * time.Second
-	cacheExpirationTime     = 10 * time.Minute
 )
 
 type AgentServer struct {
-	log            logrus.FieldLogger
-	cfg            *config.Config
-	store          store.Store
-	ca             *crypto.CAClient
-	listener       net.Listener
-	queuesProvider queues.Provider
-	tlsConfig      *tls.Config
-	grpcServer     *AgentGrpcServer
-	orgResolver    *org.Resolver
+	log             logrus.FieldLogger
+	cfg             *config.Config
+	store           store.Store
+	ca              *crypto.CAClient
+	listener        net.Listener
+	queuesProvider  queues.Provider
+	tlsConfig       *tls.Config
+	agentGrpcServer *AgentGrpcServer
+	orgResolver     resolvers.Resolver
+	serviceHandler  service.Service
+	kvStore         kvstore.KVStore
 }
 
 // New returns a new instance of a flightctl server.
 func New(
+	ctx context.Context,
 	log logrus.FieldLogger,
 	cfg *config.Config,
 	st store.Store,
@@ -55,9 +59,9 @@ func New(
 	listener net.Listener,
 	queuesProvider queues.Provider,
 	tlsConfig *tls.Config,
-) *AgentServer {
-	resolver := org.NewResolver(st.Organization(), cacheExpirationTime)
-	return &AgentServer{
+	orgResolver resolvers.Resolver,
+) (*AgentServer, error) {
+	s := &AgentServer{
 		log:            log,
 		cfg:            cfg,
 		store:          st,
@@ -65,42 +69,74 @@ func New(
 		listener:       listener,
 		queuesProvider: queuesProvider,
 		tlsConfig:      tlsConfig,
-		grpcServer:     NewAgentGrpcServer(log, cfg),
-		orgResolver:    resolver,
+		orgResolver:    orgResolver,
 	}
+
+	if err := s.init(ctx); err != nil {
+		s.Stop()
+		return nil, fmt.Errorf("initializing: %w", err)
+	}
+
+	return s, nil
+}
+
+// init initializes the agent server services including gRPC server
+func (s *AgentServer) init(ctx context.Context) error {
+	s.log.Println("Initializing Agent-side API server")
+
+	healthchecker.HealthChecks.Initialize(ctx, s.store, s.log)
+	publisher, err := worker_client.QueuePublisher(ctx, s.queuesProvider)
+
+	if err != nil {
+		return err
+	}
+	s.kvStore, err = kvstore.NewKVStore(ctx, s.log, s.cfg.KV.Hostname, s.cfg.KV.Port, s.cfg.KV.Password)
+	if err != nil {
+		return err
+	}
+	workerClient := worker_client.NewWorkerClient(publisher, s.log)
+
+	s.serviceHandler = service.WrapWithTracing(
+		service.NewServiceHandler(s.store, workerClient, s.kvStore, s.ca, s.log, s.cfg.Service.AgentEndpointAddress, s.cfg.Service.BaseUIUrl, s.cfg.Service.TPMCAPaths, s.orgResolver))
+
+	s.agentGrpcServer = NewAgentGrpcServer(s.log, s.cfg, s.serviceHandler)
+	return nil
+}
+
+// Stop cleans up all resources
+func (s *AgentServer) Stop() {
+	if s.agentGrpcServer != nil {
+		s.agentGrpcServer.Close()
+	}
+	if s.kvStore != nil {
+		s.kvStore.Close()
+	}
+	if s.queuesProvider != nil {
+		s.queuesProvider.Stop()
+		s.queuesProvider.Wait()
+	}
+	if s.listener != nil {
+		_ = s.listener.Close()
+	}
+}
+
+func (s *AgentServer) GetGRPCServer() *AgentGrpcServer {
+	return s.agentGrpcServer
 }
 
 func oapiErrorHandler(w http.ResponseWriter, message string, statusCode int) {
 	http.Error(w, fmt.Sprintf("API Error: %s", message), statusCode)
 }
 
-func (s *AgentServer) GetGRPCServer() *AgentGrpcServer {
-	return s.grpcServer
-}
 func (s *AgentServer) Run(ctx context.Context) error {
-	s.log.Println("Initializing Agent-side API server")
+	s.log.Println("Starting Agent-side API server")
 
-	publisher, err := tasks_client.TaskQueuePublisher(s.queuesProvider)
-	if err != nil {
-		return err
-	}
-	kvStore, err := kvstore.NewKVStore(ctx, s.log, s.cfg.KV.Hostname, s.cfg.KV.Port, s.cfg.KV.Password)
-	if err != nil {
-		return err
-	}
-	callbackManager := tasks_client.NewCallbackManager(publisher, s.log)
-
-	serviceHandler := service.WrapWithTracing(
-		service.NewServiceHandler(s.store, callbackManager, kvStore, s.ca, s.log, s.cfg.Service.AgentEndpointAddress, s.cfg.Service.BaseUIUrl, s.cfg.Service.TPMCAPaths))
-
-	httpAPIHandler, err := s.prepareHTTPHandler(serviceHandler)
+	httpAPIHandler, err := s.prepareHTTPHandler(s.serviceHandler)
 	if err != nil {
 		return err
 	}
 
-	grpcServer := s.grpcServer.PrepareGRPCService()
-
-	handler := grpcMuxHandlerFunc(grpcServer, httpAPIHandler, s.log)
+	handler := grpcMuxHandlerFunc(s.agentGrpcServer.server, httpAPIHandler, s.log)
 	srv := tlsmiddleware.NewHTTPServerWithTLSContext(handler, s.log, s.cfg.Service.AgentEndpointAddress, s.cfg)
 
 	go func() {
@@ -111,7 +147,7 @@ func (s *AgentServer) Run(ctx context.Context) error {
 
 		srv.SetKeepAlivesEnabled(false)
 		_ = srv.Shutdown(ctxTimeout)
-		s.orgResolver.Close()
+		s.Stop()
 	}()
 
 	s.log.Printf("Listening on %s...", s.listener.Addr().String())
@@ -123,8 +159,45 @@ func (s *AgentServer) Run(ctx context.Context) error {
 	return nil
 }
 
+// Custom logger that logs only responses with status >= 400
+func filteredLogger(log logrus.FieldLogger) func(next http.Handler) http.Handler {
+	formatter := middleware.DefaultLogFormatter{Logger: log}
+
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
+			start := time.Now()
+
+			defer func() {
+				latency := time.Since(start)
+				status := ww.Status()
+
+				if status >= 400 {
+					entry := formatter.NewLogEntry(r)
+					entry.Write(status, ww.BytesWritten(), nil, latency, nil)
+				}
+			}()
+
+			next.ServeHTTP(ww, r)
+		})
+	}
+}
+
+func addAgentContext(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Add userID into the context
+		ctx := context.WithValue(r.Context(), consts.AgentCtxKey, "true")
+
+		// Create a new request with the updated context
+		r = r.WithContext(ctx)
+
+		// Call next handler
+		next.ServeHTTP(w, r)
+	})
+}
+
 func (s *AgentServer) prepareHTTPHandler(serviceHandler service.Service) (http.Handler, error) {
-	swagger, err := api.GetSwagger()
+	swagger, err := agent.GetSwagger()
 	if err != nil {
 		return nil, fmt.Errorf("prepareHTTPHandler: failed loading swagger spec: %w", err)
 	}
@@ -144,7 +217,8 @@ func (s *AgentServer) prepareHTTPHandler(serviceHandler service.Service) (http.H
 			s.orgResolver,
 			tlsmiddleware.CertOrgIDExtractor,
 		),
-		middleware.Logger,
+		filteredLogger(s.log),
+		addAgentContext,
 		middleware.Recoverer,
 		oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts),
 	}

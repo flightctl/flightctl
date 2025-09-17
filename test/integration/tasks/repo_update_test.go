@@ -2,7 +2,6 @@ package tasks_test
 
 import (
 	"context"
-	"encoding/json"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
@@ -11,9 +10,8 @@ import (
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks"
-	"github.com/flightctl/flightctl/internal/tasks_client"
+	"github.com/flightctl/flightctl/internal/worker_client"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
-	"github.com/flightctl/flightctl/pkg/queues"
 	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
@@ -23,49 +21,17 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-type resourceReferenceMatcher struct {
-	taskName string
-	name     string
-}
-
-func newResourceReferenceMatcher(taskName, name string) gomock.Matcher {
-	return &resourceReferenceMatcher{
-		taskName: taskName,
-		name:     name,
-	}
-}
-
-func (r *resourceReferenceMatcher) Matches(param any) bool {
-	b, ok := param.([]byte)
-	if !ok {
-		return false
-	}
-	var reference tasks_client.ResourceReference
-	if err := json.Unmarshal(b, &reference); err != nil {
-		return false
-	}
-	if r.taskName != reference.TaskName {
-		return false
-	}
-	return r.name == reference.Name || r.name == ""
-}
-
-func (r *resourceReferenceMatcher) String() string {
-	return "resource-reference-matcher"
-}
-
 var _ = Describe("RepoUpdate", func() {
 	var (
-		log             *logrus.Logger
-		ctx             context.Context
-		orgId           uuid.UUID
-		storeInst       store.Store
-		serviceHandler  service.Service
-		cfg             *config.Config
-		dbName          string
-		callbackManager tasks_client.CallbackManager
-		ctrl            *gomock.Controller
-		mockPublisher   *queues.MockPublisher
+		log            *logrus.Logger
+		ctx            context.Context
+		orgId          uuid.UUID
+		storeInst      store.Store
+		serviceHandler service.Service
+		cfg            *config.Config
+		dbName         string
+		workerClient   *worker_client.MockWorkerClient
+		ctrl           *gomock.Controller
 	)
 
 	BeforeEach(func() {
@@ -75,11 +41,11 @@ var _ = Describe("RepoUpdate", func() {
 		log = flightlog.InitLogs()
 		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(ctx, log)
 		ctrl = gomock.NewController(GinkgoT())
-		mockPublisher = queues.NewMockPublisher(ctrl)
-		callbackManager = tasks_client.NewCallbackManager(mockPublisher, log)
+		workerClient = worker_client.NewMockWorkerClient(ctrl)
 		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		Expect(err).ToNot(HaveOccurred())
-		serviceHandler = service.NewServiceHandler(storeInst, callbackManager, kvStore, nil, log, "", "", []string{})
+		orgResolver := testutil.NewOrgResolver(cfg, storeInst.Organization(), log)
+		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{}, orgResolver)
 
 		// Create 2 git config items, each to a different repo
 		err = testutil.CreateRepositories(ctx, 2, storeInst, orgId)
@@ -98,9 +64,9 @@ var _ = Describe("RepoUpdate", func() {
 		gitConfig2 := &api.GitConfigProviderSpec{
 			Name: "gitConfig2",
 		}
-		gitConfig1.GitRef.Path = "path"
-		gitConfig1.GitRef.Repository = "myrepository-2"
-		gitConfig1.GitRef.TargetRevision = "rev"
+		gitConfig2.GitRef.Path = "path"
+		gitConfig2.GitRef.Repository = "myrepository-2"
+		gitConfig2.GitRef.TargetRevision = "rev"
 		gitItem2 := api.ConfigProviderSpec{}
 		err = gitItem2.FromGitConfigProviderSpec(*gitConfig2)
 		Expect(err).ToNot(HaveOccurred())
@@ -133,12 +99,11 @@ var _ = Describe("RepoUpdate", func() {
 		}
 		fleet2.Spec.Template.Spec = api.DeviceSpec{Config: &config2}
 
-		fleetCallback := store.FleetStoreCallback(func(context.Context, uuid.UUID, *api.Fleet, *api.Fleet) {})
-		_, err = storeInst.Fleet().Create(ctx, orgId, &fleet1, fleetCallback, nil)
+		_, err = storeInst.Fleet().Create(ctx, orgId, &fleet1, nil)
 		Expect(err).ToNot(HaveOccurred())
 		err = storeInst.Fleet().OverwriteRepositoryRefs(ctx, orgId, "fleet1", "myrepository-1")
 		Expect(err).ToNot(HaveOccurred())
-		_, err = storeInst.Fleet().Create(ctx, orgId, &fleet2, fleetCallback, nil)
+		_, err = storeInst.Fleet().Create(ctx, orgId, &fleet2, nil)
 		Expect(err).ToNot(HaveOccurred())
 		err = storeInst.Fleet().OverwriteRepositoryRefs(ctx, orgId, "fleet2", "myrepository-2")
 		Expect(err).ToNot(HaveOccurred())
@@ -158,12 +123,11 @@ var _ = Describe("RepoUpdate", func() {
 			},
 		}
 
-		devCallback := store.DeviceStoreCallback(func(context.Context, uuid.UUID, *api.Device, *api.Device) {})
-		_, err = storeInst.Device().Create(ctx, orgId, &device1, devCallback, nil)
+		_, err = storeInst.Device().Create(ctx, orgId, &device1, nil)
 		Expect(err).ToNot(HaveOccurred())
 		err = storeInst.Device().OverwriteRepositoryRefs(ctx, orgId, "device1", "myrepository-1")
 		Expect(err).ToNot(HaveOccurred())
-		_, err = storeInst.Device().Create(ctx, orgId, &device2, devCallback, nil)
+		_, err = storeInst.Device().Create(ctx, orgId, &device2, nil)
 		Expect(err).ToNot(HaveOccurred())
 		err = storeInst.Device().OverwriteRepositoryRefs(ctx, orgId, "device2", "myrepository-2")
 		Expect(err).ToNot(HaveOccurred())
@@ -176,10 +140,15 @@ var _ = Describe("RepoUpdate", func() {
 
 	When("a Repository definition is updated", func() {
 		It("refreshes relevant fleets and devices", func() {
-			resourceRef := tasks_client.ResourceReference{OrgID: orgId, Name: "myrepository-1", Kind: api.RepositoryKind}
-			logic := tasks.NewRepositoryUpdateLogic(callbackManager, log, serviceHandler, resourceRef)
-			mockPublisher.EXPECT().Publish(gomock.Any(), newResourceReferenceMatcher(tasks_client.FleetValidateTask, "fleet1")).Times(1)
-			mockPublisher.EXPECT().Publish(gomock.Any(), newResourceReferenceMatcher(tasks_client.DeviceRenderTask, "device1")).Times(1)
+			event := api.Event{
+				Reason: api.EventReasonResourceUpdated,
+				InvolvedObject: api.ObjectReference{
+					Kind: api.RepositoryKind,
+					Name: "myrepository-1",
+				},
+			}
+			logic := tasks.NewRepositoryUpdateLogic(log, serviceHandler, orgId, event)
+			workerClient.EXPECT().EmitEvent(gomock.Any(), gomock.Any(), gomock.Any()).Times(2)
 			err := logic.HandleRepositoryUpdate(ctx)
 			Expect(err).ToNot(HaveOccurred())
 

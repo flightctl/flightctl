@@ -137,6 +137,10 @@ func NewPeriodicTaskPublisher(publisherConfig PeriodicTaskPublisherConfig) (*Per
 // It blocks until the context is done.
 func (p *PeriodicTaskPublisher) Run(ctx context.Context) {
 	p.log.Info("Starting periodic task publisher")
+
+	// Initialize system-wide tasks
+	p.addSystemWideTasks()
+
 	p.wg.Add(1)
 	// Start organization sync goroutine
 	go p.organizationSyncLoop(ctx)
@@ -206,7 +210,7 @@ func (p *PeriodicTaskPublisher) publishReadyTasks(ctx context.Context) {
 			break
 		}
 
-		if !p.isOrgRegistered(task.OrgID) {
+		if !p.isOrgRegistered(task.OrgID, task.TaskType) {
 			p.log.Infof("Organization %s not registered, removing associated task %s from tracking",
 				task.OrgID, task.TaskType)
 			continue
@@ -237,7 +241,13 @@ func (p *PeriodicTaskPublisher) getNextReadyTask() *ScheduledTask {
 	return heap.Pop(p.taskHeap).(*ScheduledTask)
 }
 
-func (p *PeriodicTaskPublisher) isOrgRegistered(orgID uuid.UUID) bool {
+func (p *PeriodicTaskPublisher) isOrgRegistered(orgID uuid.UUID, taskType PeriodicTaskType) bool {
+	// Check if this is a system-wide task
+	if metadata, exists := p.tasksMetadata[taskType]; exists && metadata.SystemWide {
+		return true
+	}
+
+	// For organization-specific tasks, check if the org is registered
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	_, exists := p.organizations[orgID]
@@ -331,8 +341,17 @@ func (p *PeriodicTaskPublisher) addOrganizationTasks(orgID uuid.UUID) {
 	now := time.Now()
 
 	for taskType, metadata := range p.tasksMetadata {
-		// Stagger task runs by a random amount up to 50% of the interval
-		stagger := time.Duration(rand.Intn(int(metadata.Interval / 2)))
+		// Skip system-wide tasks when adding organization-specific tasks
+		if metadata.SystemWide {
+			continue
+		}
+
+		// Stagger task runs by a random amount up to 50% of the interval (with a floor)
+		staggerRange := metadata.Interval / 2
+		if staggerRange <= 0 {
+			staggerRange = time.Millisecond
+		}
+		stagger := time.Duration(rand.Intn(int(staggerRange)))
 		nextRun := now.Add(stagger)
 
 		task := &ScheduledTask{
@@ -352,6 +371,47 @@ func (p *PeriodicTaskPublisher) addOrganizationTasks(orgID uuid.UUID) {
 	p.mu.Unlock()
 
 	p.signalWakeup()
+}
+
+// addSystemWideTasks adds system-wide tasks that run once for the entire system
+func (p *PeriodicTaskPublisher) addSystemWideTasks() {
+	tasks := make([]*ScheduledTask, 0)
+	now := time.Now()
+
+	for taskType, metadata := range p.tasksMetadata {
+		// Only add system-wide tasks
+		if !metadata.SystemWide {
+			continue
+		}
+
+		// Stagger task runs by a random amount up to 50% of the interval (with a floor)
+		staggerRange := metadata.Interval / 2
+		if staggerRange <= 0 {
+			staggerRange = time.Millisecond
+		}
+		stagger := time.Duration(rand.Intn(int(staggerRange)))
+		nextRun := now.Add(stagger)
+
+		// System-wide tasks use a special "system" orgID (nil UUID)
+		task := &ScheduledTask{
+			NextRun:  nextRun,
+			OrgID:    uuid.Nil, // Use nil UUID to indicate system-wide task
+			TaskType: taskType,
+			Interval: metadata.Interval,
+			Retries:  0,
+		}
+		tasks = append(tasks, task)
+	}
+
+	if len(tasks) > 0 {
+		p.mu.Lock()
+		for _, task := range tasks {
+			heap.Push(p.taskHeap, task)
+		}
+		p.mu.Unlock()
+
+		p.signalWakeup()
+	}
 }
 
 func (p *PeriodicTaskPublisher) diffOrganizations(currentOrgs map[uuid.UUID]struct{}) (toAdd []uuid.UUID, toRemove []uuid.UUID) {

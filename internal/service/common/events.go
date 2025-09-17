@@ -67,17 +67,12 @@ func formatDeviceMultipleOwnersResolvedMessage(resolutionType api.DeviceMultiple
 	}
 }
 
-// formatInternalTaskFailedMessage creates a standardized message for internal task failures
-func formatInternalTaskFailedMessage(resourceKind api.ResourceKind, taskType, errorMessage string) string {
-	return fmt.Sprintf("%s internal task failed: %s - %s.", resourceKind, taskType, errorMessage)
-}
-
 func getBaseEvent(ctx context.Context, resourceEvent resourceEvent) *api.Event {
 	return api.GetBaseEvent(ctx, resourceEvent.resourceKind, resourceEvent.resourceName, resourceEvent.reason, resourceEvent.message, resourceEvent.details)
 }
 
 // GetResourceCreatedOrUpdatedSuccessEvent creates an event for successful resource creation or update
-func GetResourceCreatedOrUpdatedSuccessEvent(ctx context.Context, created bool, resourceKind api.ResourceKind, resourceName string, updates *api.ResourceUpdatedDetails, log logrus.FieldLogger) *api.Event {
+func GetResourceCreatedOrUpdatedSuccessEvent(ctx context.Context, created bool, resourceKind api.ResourceKind, resourceName string, updates *api.ResourceUpdatedDetails, log logrus.FieldLogger, annotations map[string]string) *api.Event {
 	if !created && (updates == nil || len(updates.UpdatedFields) == 0) {
 		return nil
 	}
@@ -109,6 +104,7 @@ func GetResourceCreatedOrUpdatedSuccessEvent(ctx context.Context, created bool, 
 			details:      details,
 		})
 	}
+	event.Metadata.Annotations = &annotations
 
 	return event
 }
@@ -288,6 +284,17 @@ func GetDeviceSpecInvalidEvent(ctx context.Context, deviceName string, message s
 	})
 }
 
+// GetDeviceConflictResolvedEvent creates an event for device conflict being resolved
+func GetDeviceConflictResolvedEvent(ctx context.Context, deviceName string) *api.Event {
+	return getBaseEvent(ctx, resourceEvent{
+		resourceKind: api.DeviceKind,
+		resourceName: deviceName,
+		reason:       api.EventReasonDeviceConflictResolved,
+		message:      "Device conflict has been resolved and device has been resumed.",
+		details:      nil,
+	})
+}
+
 // GetFleetSpecValidEvent creates an event for fleet spec becoming valid
 func GetFleetSpecValidEvent(ctx context.Context, fleetName string) *api.Event {
 	return getBaseEvent(ctx, resourceEvent{
@@ -309,32 +316,6 @@ func GetFleetSpecInvalidEvent(ctx context.Context, fleetName string, message str
 		reason:       api.EventReasonFleetInvalid,
 		message:      msg,
 		details:      nil,
-	})
-}
-
-// GetInternalTaskFailedEvent creates an event for internal task failures
-func GetInternalTaskFailedEvent(ctx context.Context, resourceKind api.ResourceKind, resourceName string, taskType string, errorMessage string, retryCount *int, taskParameters map[string]string, log logrus.FieldLogger) *api.Event {
-	message := formatInternalTaskFailedMessage(resourceKind, taskType, errorMessage)
-
-	details := api.EventDetails{}
-	detailsStruct := api.InternalTaskFailedDetails{
-		DetailType:     api.InternalTaskFailed,
-		TaskType:       taskType,
-		ErrorMessage:   errorMessage,
-		RetryCount:     retryCount,
-		TaskParameters: &taskParameters,
-	}
-	if err := details.FromInternalTaskFailedDetails(detailsStruct); err != nil {
-		log.WithError(err).Error("Failed to serialize internal task failed event details")
-		return nil
-	}
-
-	return getBaseEvent(ctx, resourceEvent{
-		resourceKind: resourceKind,
-		resourceName: resourceName,
-		reason:       api.EventReasonInternalTaskFailed,
-		message:      message,
-		details:      &details,
 	})
 }
 
@@ -598,5 +579,17 @@ func GetReferencedRepositoryUpdatedEvent(ctx context.Context, kind api.ResourceK
 		reason:       api.EventReasonReferencedRepositoryUpdated,
 		message:      fmt.Sprintf("Referenced repository %s updated.", repositoryName),
 		details:      &eventDetails,
+	})
+}
+
+// GetSystemRestoredEvent creates an event for system restoration completion
+// Associates the event with a system-level resource using the System kind
+func GetSystemRestoredEvent(ctx context.Context, devicesUpdated int64) *api.Event {
+	return getBaseEvent(ctx, resourceEvent{
+		resourceKind: api.SystemKind,
+		resourceName: api.SystemComponentDB,
+		reason:       api.EventReasonSystemRestored,
+		message:      fmt.Sprintf("System restored successfully. Updated %d devices for post-restoration preparation.", devicesUpdated),
+		details:      nil,
 	})
 }

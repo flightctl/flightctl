@@ -16,7 +16,7 @@ import (
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/tasks_client"
+	"github.com/flightctl/flightctl/internal/worker_client"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
 	testutil "github.com/flightctl/flightctl/test/util"
@@ -51,8 +51,8 @@ var _ = Describe("Alert Exporter", func() {
 		cfg               *config.Config
 		db                *gorm.DB
 		dbName            string
-		callbackManager   tasks_client.CallbackManager
-		mockPublisher     *queues.MockPublisher
+		workerClient      worker_client.WorkerClient
+		mockProducer      *queues.MockQueueProducer
 		ctrl              *gomock.Controller
 		checkpointManager *alert_exporter.CheckpointManager
 		eventProcessor    *alert_exporter.EventProcessor
@@ -64,12 +64,13 @@ var _ = Describe("Alert Exporter", func() {
 		log = flightlog.InitLogs()
 		storeInst, cfg, dbName, db = store.PrepareDBForUnitTests(ctx, log)
 		ctrl = gomock.NewController(GinkgoT())
-		mockPublisher = queues.NewMockPublisher(ctrl)
-		callbackManager = tasks_client.NewCallbackManager(mockPublisher, log)
-		mockPublisher.EXPECT().Publish(gomock.Any(), gomock.Any()).AnyTimes()
+		mockProducer = queues.NewMockQueueProducer(ctrl)
+		workerClient = worker_client.NewWorkerClient(mockProducer, log)
+		mockProducer.EXPECT().Enqueue(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		Expect(err).ToNot(HaveOccurred())
-		serviceHandler = service.NewServiceHandler(storeInst, callbackManager, kvStore, nil, log, "", "", []string{})
+		orgResolver := testutil.NewOrgResolver(cfg, storeInst.Organization(), log)
+		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{}, orgResolver)
 		checkpointManager = alert_exporter.NewCheckpointManager(log, serviceHandler)
 		eventProcessor = alert_exporter.NewEventProcessor(log, serviceHandler)
 		alertSender = alert_exporter.NewAlertSender(log, cfg.Alertmanager.Hostname, cfg.Alertmanager.Port, cfg)

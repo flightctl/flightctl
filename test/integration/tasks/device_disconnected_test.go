@@ -12,9 +12,8 @@ import (
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks"
-	"github.com/flightctl/flightctl/internal/tasks_client"
+	"github.com/flightctl/flightctl/internal/worker_client"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
-	"github.com/flightctl/flightctl/pkg/queues"
 	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
@@ -33,8 +32,7 @@ var _ = Describe("DeviceDisconnected", func() {
 		serviceHandler   service.Service
 		cfg              *config.Config
 		dbName           string
-		callbackManager  tasks_client.CallbackManager
-		mockPublisher    *queues.MockPublisher
+		workerClient     *worker_client.MockWorkerClient
 		ctrl             *gomock.Controller
 		disconnectedTask *tasks.DeviceDisconnected
 	)
@@ -47,12 +45,11 @@ var _ = Describe("DeviceDisconnected", func() {
 		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(ctx, log)
 		deviceStore = storeInst.Device()
 		ctrl = gomock.NewController(GinkgoT())
-		mockPublisher = queues.NewMockPublisher(ctrl)
-		mockPublisher.EXPECT().Publish(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-		callbackManager = tasks_client.NewCallbackManager(mockPublisher, log)
 		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
+		workerClient = worker_client.NewMockWorkerClient(ctrl)
 		Expect(err).ToNot(HaveOccurred())
-		serviceHandler = service.NewServiceHandler(storeInst, callbackManager, kvStore, nil, log, "", "", []string{})
+		orgResolver := testutil.NewOrgResolver(cfg, storeInst.Organization(), log)
+		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{}, orgResolver)
 		disconnectedTask = tasks.NewDeviceDisconnected(log, serviceHandler)
 	})
 
@@ -122,6 +119,7 @@ var _ = Describe("DeviceDisconnected", func() {
 		})
 
 		It("should mark disconnected devices as unknown", func() {
+			workerClient.EXPECT().EmitEvent(gomock.Any(), gomock.Any(), gomock.Any()).Times(3)
 			disconnectedTask.Poll(ctx)
 
 			// Check that all devices are marked as unknown
@@ -175,6 +173,7 @@ var _ = Describe("DeviceDisconnected", func() {
 		})
 
 		It("should only mark disconnected devices as unknown", func() {
+			workerClient.EXPECT().EmitEvent(gomock.Any(), gomock.Any(), gomock.Any()).Times(3)
 			disconnectedTask.Poll(ctx)
 
 			// Check connected devices remain online
@@ -216,6 +215,7 @@ var _ = Describe("DeviceDisconnected", func() {
 		})
 
 		It("should handle devices at the disconnection threshold correctly", func() {
+			workerClient.EXPECT().EmitEvent(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 			disconnectedTask.Poll(ctx)
 
 			device, err := deviceStore.Get(ctx, orgId, "threshold-device")
@@ -252,6 +252,7 @@ var _ = Describe("DeviceDisconnected", func() {
 		})
 
 		It("should use field selector to efficiently query only disconnected devices", func() {
+			workerClient.EXPECT().EmitEvent(gomock.Any(), gomock.Any(), gomock.Any()).Times(1)
 			disconnectedTask.Poll(ctx)
 
 			// Recent device should remain online

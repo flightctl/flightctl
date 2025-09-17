@@ -9,6 +9,7 @@ import (
 	agent_config "github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/internal/agent/device"
 	"github.com/flightctl/flightctl/internal/agent/device/applications"
+	"github.com/flightctl/flightctl/internal/agent/device/certmanager"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/console"
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
@@ -99,7 +100,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	executer := &executer.CommonExecuter{}
 
 	// create enrollment client
-	enrollmentClient, err := newEnrollmentClient(a.config)
+	enrollmentClient, err := newEnrollmentClient(a.config, a.log)
 	if err != nil {
 		return err
 	}
@@ -259,6 +260,24 @@ func (a *Agent) Run(ctx context.Context) error {
 		return fmt.Errorf("bootstrap failed: %w", err)
 	}
 
+	// Initialize certificate manager
+	certManager, err := certmanager.NewManager(
+		ctx, a.log,
+		certmanager.WithBuiltins(
+			deviceName,
+			bootstrap.ManagementClient(),
+			deviceReadWriter,
+			a.config,
+		),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to initialize certificate manager: %w", err)
+	}
+
+	if err := certManager.Sync(ctx, a.config); err != nil {
+		a.log.Warnf("Failed to sync certificate manager: %v", err)
+	}
+
 	// create the gRPC client this must be done after bootstrap
 	grpcClient, err := identityProvider.CreateGRPCClient(&a.config.ManagementService.Config)
 	if err != nil {
@@ -320,6 +339,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	reloadManager.Register(agent.ReloadConfig)
 	reloadManager.Register(systemInfoManager.ReloadConfig)
 	reloadManager.Register(statusManager.ReloadCollect)
+	reloadManager.Register(certManager.Sync)
 
 	go shutdownManager.Run(ctx)
 	go reloadManager.Run(ctx)
@@ -329,8 +349,8 @@ func (a *Agent) Run(ctx context.Context) error {
 	return agent.Run(ctx)
 }
 
-func newEnrollmentClient(cfg *agent_config.Config) (client.Enrollment, error) {
-	httpClient, err := client.NewFromConfig(&cfg.EnrollmentService.Config)
+func newEnrollmentClient(cfg *agent_config.Config, log *log.PrefixLogger) (client.Enrollment, error) {
+	httpClient, err := client.NewFromConfig(&cfg.EnrollmentService.Config, log)
 	if err != nil {
 		return nil, err
 	}

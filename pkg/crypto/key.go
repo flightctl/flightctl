@@ -236,27 +236,40 @@ func ParseKeyPEM(pemKey []byte) (crypto.PrivateKey, error) {
 	return key, nil
 }
 
-func GetExtensionValue(cert *x509.Certificate, oid asn1.ObjectIdentifier) (string, error) {
-	for _, ext := range cert.Extensions {
+func GetCertificateExtensionValueAsStr(cert *x509.Certificate, oid asn1.ObjectIdentifier) (string, error) {
+	for _, ext := range append(cert.Extensions, cert.ExtraExtensions...) {
 		if ext.Id.Equal(oid) {
-			var value string
-			if _, err := asn1.Unmarshal(ext.Value, &value); err != nil {
-				return "", fmt.Errorf("failed to unmarshal extension for OID %v: %w", oid, err)
+			var s string
+			var unmarshalErr error
+			if _, unmarshalErr = asn1.Unmarshal(ext.Value, &s); unmarshalErr == nil {
+				return s, nil
 			}
-			return value, nil
+			return "", fmt.Errorf("failed to unmarshal extension for OID %v: %w", oid, unmarshalErr)
 		}
 	}
-
-	// Fallback: also check ExtraExtensions (if needed)
-	for _, ext := range cert.ExtraExtensions {
-		if ext.Id.Equal(oid) {
-			var value string
-			if _, err := asn1.Unmarshal(ext.Value, &value); err != nil {
-				return "", fmt.Errorf("failed to unmarshal extension for OID %v: %w", oid, err)
-			}
-			return value, nil
-		}
-	}
-
 	return "", flterrors.ErrExtensionNotFound
+}
+
+// ParsePEMCertificate parses a PEM-encoded certificate and returns an *x509.Certificate.
+// It validates the PEM block type and ensures the certificate is properly formatted.
+func ParsePEMCertificate(pemData []byte) (*x509.Certificate, error) {
+	if len(pemData) == 0 {
+		return nil, fmt.Errorf("empty PEM data")
+	}
+
+	block, _ := pem.Decode(pemData)
+	if block == nil {
+		return nil, fmt.Errorf("failed to decode PEM block")
+	}
+
+	if block.Type != "CERTIFICATE" {
+		return nil, fmt.Errorf("PEM block is not a certificate (type: %s)", block.Type)
+	}
+
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse certificate: %w", err)
+	}
+
+	return cert, nil
 }

@@ -33,50 +33,50 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
 
-func fleetSelectorMatching(ctx context.Context, resourceRef *tasks_client.ResourceReference, serviceHandler service.Service, callbackManager tasks_client.CallbackManager, log logrus.FieldLogger) error {
+func fleetSelectorMatching(ctx context.Context, orgId uuid.UUID, event api.Event, serviceHandler service.Service, log logrus.FieldLogger) error {
 	logic := FleetSelectorMatchingLogic{
-		callbackManager: callbackManager,
-		log:             log,
-		serviceHandler:  serviceHandler,
-		resourceRef:     *resourceRef,
-		itemsPerPage:    ItemsPerPage,
+		log:            log,
+		serviceHandler: serviceHandler,
+		orgId:          orgId,
+		event:          event,
+		itemsPerPage:   ItemsPerPage,
 	}
 
 	var err error
 
 	switch {
-	case resourceRef.Op == tasks_client.FleetSelectorMatchOpUpdate && resourceRef.Kind == api.DeviceKind:
+	case event.InvolvedObject.Kind == api.DeviceKind:
 		err = logic.DeviceLabelsUpdated(ctx)
-	case resourceRef.Op == tasks_client.FleetSelectorMatchOpUpdate && resourceRef.Kind == api.FleetKind:
+	case event.InvolvedObject.Kind == api.FleetKind:
 		err = logic.FleetSelectorUpdated(ctx)
 	default:
-		err = fmt.Errorf("FleetSelectorMatching called with unexpected kind %s and op %s", resourceRef.Kind, resourceRef.Op)
+		err = fmt.Errorf("FleetSelectorMatching called with unexpected kind %s and op %s", event.InvolvedObject.Kind, event.Reason)
 	}
 
 	return err
 }
 
 type FleetSelectorMatchingLogic struct {
-	callbackManager tasks_client.CallbackManager
-	log             logrus.FieldLogger
-	serviceHandler  service.Service
-	resourceRef     tasks_client.ResourceReference
-	itemsPerPage    int32
+	log            logrus.FieldLogger
+	serviceHandler service.Service
+	orgId          uuid.UUID
+	event          api.Event
+	itemsPerPage   int32
 }
 
-func NewFleetSelectorMatchingLogic(callbackManager tasks_client.CallbackManager, log logrus.FieldLogger, serviceHandler service.Service, resourceRef tasks_client.ResourceReference) FleetSelectorMatchingLogic {
+func NewFleetSelectorMatchingLogic(log logrus.FieldLogger, serviceHandler service.Service, orgId uuid.UUID, event api.Event) FleetSelectorMatchingLogic {
 	return FleetSelectorMatchingLogic{
-		callbackManager: callbackManager,
-		log:             log,
-		serviceHandler:  serviceHandler,
-		resourceRef:     resourceRef,
-		itemsPerPage:    ItemsPerPage,
+		log:            log,
+		serviceHandler: serviceHandler,
+		orgId:          orgId,
+		event:          event,
+		itemsPerPage:   ItemsPerPage,
 	}
 }
 
@@ -85,9 +85,9 @@ func (f *FleetSelectorMatchingLogic) SetItemsPerPage(items int32) {
 }
 
 func (f FleetSelectorMatchingLogic) DeviceLabelsUpdated(ctx context.Context) error {
-	f.log.Infof("Checking fleet owner due to device label update %s/%s", f.resourceRef.OrgID, f.resourceRef.Name)
+	f.log.Infof("Checking fleet owner due to device label update %s/%s", f.orgId, f.event.InvolvedObject.Name)
 
-	device, status := f.serviceHandler.GetDevice(ctx, f.resourceRef.Name)
+	device, status := f.serviceHandler.GetDevice(ctx, f.event.InvolvedObject.Name)
 	if status.Code != http.StatusOK {
 		if status.Code == http.StatusNotFound {
 			return nil
@@ -100,7 +100,7 @@ func (f FleetSelectorMatchingLogic) DeviceLabelsUpdated(ctx context.Context) err
 	// Get the current owner and make sure it's a fleet
 	currentOwnerFleet, isOwnerAFleet, err := getOwnerFleet(device)
 	if err != nil {
-		errorMsg := f.formatDeviceError(f.resourceRef.Name, "device labels update", fmt.Sprintf("failed to get owner fleet: %v", err))
+		errorMsg := f.formatDeviceError(f.event.InvolvedObject.Name, "device labels update", fmt.Sprintf("failed to get owner fleet: %v", err))
 		f.log.Warnf("%s", errorMsg)
 		return err
 	}
@@ -130,14 +130,14 @@ func (f FleetSelectorMatchingLogic) DeviceLabelsUpdated(ctx context.Context) err
 		if len(currentOwnerFleet) != 0 {
 			err = f.updateDeviceOwner(ctx, device, "")
 			if err != nil {
-				f.log.Warnf("Device-specific error: failed to update device owner for device %s (removing owner from %s): %v", f.resourceRef.Name, currentOwnerFleet, err)
+				f.log.Warnf("Device-specific error: failed to update device owner for device %s (removing owner from %s): %v", f.event.InvolvedObject.Name, currentOwnerFleet, err)
 				processedWithErrors = true
 			}
 		}
 		// Set MultipleOwners condition to false
 		err = f.setDeviceMultipleOwnersCondition(ctx, device, matchingFleets)
 		if err != nil {
-			f.log.Warnf("Device-specific error: failed to set multiple owners condition for device %s (no matching fleets): %v", f.resourceRef.Name, err)
+			f.log.Warnf("Device-specific error: failed to set multiple owners condition for device %s (no matching fleets): %v", f.event.InvolvedObject.Name, err)
 			processedWithErrors = true
 		}
 	case 1:
@@ -146,21 +146,21 @@ func (f FleetSelectorMatchingLogic) DeviceLabelsUpdated(ctx context.Context) err
 		if currentOwnerFleet != newOwnerFleet {
 			err = f.updateDeviceOwner(ctx, device, newOwnerFleet)
 			if err != nil {
-				f.log.Warnf("Device-specific error: failed to update device owner for device %s (from %s to %s): %v", f.resourceRef.Name, currentOwnerFleet, newOwnerFleet, err)
+				f.log.Warnf("Device-specific error: failed to update device owner for device %s (from %s to %s): %v", f.event.InvolvedObject.Name, currentOwnerFleet, newOwnerFleet, err)
 				processedWithErrors = true
 			}
 		}
 		// Set MultipleOwners condition to false
 		err = f.setDeviceMultipleOwnersCondition(ctx, device, matchingFleets)
 		if err != nil {
-			f.log.Warnf("Device-specific error: failed to set multiple owners condition for device %s (single fleet match: %s): %v", f.resourceRef.Name, newOwnerFleet, err)
+			f.log.Warnf("Device-specific error: failed to set multiple owners condition for device %s (single fleet match: %s): %v", f.event.InvolvedObject.Name, newOwnerFleet, err)
 			processedWithErrors = true
 		}
 	default:
 		// Multiple fleets match - do NOT update device owner, only set condition
 		err = f.setDeviceMultipleOwnersCondition(ctx, device, matchingFleets)
 		if err != nil {
-			f.log.Warnf("Device-specific error: failed to set multiple owners condition for device %s (multiple fleet matches: %v): %v", f.resourceRef.Name, matchingFleets, err)
+			f.log.Warnf("Device-specific error: failed to set multiple owners condition for device %s (multiple fleet matches: %v): %v", f.event.InvolvedObject.Name, matchingFleets, err)
 			processedWithErrors = true
 		}
 	}
@@ -174,7 +174,7 @@ func (f FleetSelectorMatchingLogic) DeviceLabelsUpdated(ctx context.Context) err
 // Iterate devices that match the fleet's selector and set owners/conditions as necessary
 func (f FleetSelectorMatchingLogic) FleetSelectorUpdated(ctx context.Context) error {
 	startTime := time.Now()
-	f.log.Infof("Checking fleet owner due to fleet selector update %s/%s", f.resourceRef.OrgID, f.resourceRef.Name)
+	f.log.Infof("Checking fleet owner due to fleet selector update %s/%s", f.orgId, f.event.InvolvedObject.Name)
 
 	// Setup lazy fleet fetching
 	allFleetsFetcher := f.createFleetFetcher(ctx)
@@ -220,11 +220,12 @@ type FleetValidationResult struct {
 
 // validateAndGetFleet validates the fleet exists and returns it, or handles deletion cases
 func (f FleetSelectorMatchingLogic) validateAndGetFleet(ctx context.Context, allFleetsFetcher func() ([]api.Fleet, error), startTime time.Time) FleetValidationResult {
-	fleet, status := f.serviceHandler.GetFleet(ctx, f.resourceRef.Name, api.GetFleetParams{})
+	fleet, status := f.serviceHandler.GetFleet(ctx, f.event.InvolvedObject.Name, api.GetFleetParams{})
 	if status.Code != http.StatusOK {
 		if status.Code == http.StatusNotFound {
 			// Case 1: Fleet was deleted - recompute matching fleets for devices that had this fleet as owner
-			err := f.handleFleetDeleted(ctx, allFleetsFetcher)
+			f.log.Infof("Fleet %s was deleted, recomputing owners for devices that had this fleet as owner", f.event.InvolvedObject.Name)
+			err := f.clearFleetOwnershipFromDevices(ctx, allFleetsFetcher)
 			return FleetValidationResult{Fleet: nil, Error: err}
 		}
 		errorMsg := f.formatCriticalError("fleet selector update", fmt.Sprintf("failed to get fleet: %s", status.Message))
@@ -234,7 +235,8 @@ func (f FleetSelectorMatchingLogic) validateAndGetFleet(ctx context.Context, all
 
 	// empty selector matches no devices - treat as if fleet was deleted
 	if len(getMatchLabelsSafe(fleet)) == 0 {
-		err := f.handleFleetDeleted(ctx, allFleetsFetcher)
+		f.log.Infof("Fleet %s has empty selector (matches no devices), clearing device ownership", f.event.InvolvedObject.Name)
+		err := f.clearFleetOwnershipFromDevices(ctx, allFleetsFetcher)
 		return FleetValidationResult{Fleet: nil, Error: err}
 	}
 
@@ -269,13 +271,12 @@ func (f FleetSelectorMatchingLogic) processFleetSelectorUpdate(ctx context.Conte
 	return stats
 }
 
-// Helper method to handle fleet deletion scenarios and cleanup multiple owners conditions
-func (f FleetSelectorMatchingLogic) handleFleetDeleted(ctx context.Context, allFleetsFetcher func() ([]api.Fleet, error)) error {
-	f.log.Infof("Fleet %s was deleted, recomputing owners for devices that had this fleet as owner", f.resourceRef.Name)
+// Helper method to clear fleet ownership from devices and cleanup multiple owners conditions
+func (f FleetSelectorMatchingLogic) clearFleetOwnershipFromDevices(ctx context.Context, allFleetsFetcher func() ([]api.Fleet, error)) error {
 
 	// Get all devices that had this fleet as owner
 	listParams := api.ListDevicesParams{
-		FieldSelector: lo.ToPtr(fmt.Sprintf("metadata.owner=%s", *util.SetResourceOwner(api.FleetKind, f.resourceRef.Name))),
+		FieldSelector: lo.ToPtr(fmt.Sprintf("metadata.owner=%s", *util.SetResourceOwner(api.FleetKind, f.event.InvolvedObject.Name))),
 		Limit:         lo.ToPtr(f.itemsPerPage),
 	}
 
@@ -296,7 +297,7 @@ func (f FleetSelectorMatchingLogic) handleFleetDeleted(ctx context.Context, allF
 			}
 			err = f.recomputeDeviceOwnership(ctx, &device, allFleets)
 			if err != nil {
-				f.log.Errorf("failed to recompute ownership for device %s/%s: %v", f.resourceRef.OrgID, *device.Metadata.Name, err)
+				f.log.Errorf("failed to recompute ownership for device %s/%s: %v", f.orgId, *device.Metadata.Name, err)
 				errors++
 			}
 		}
@@ -320,7 +321,7 @@ func (f FleetSelectorMatchingLogic) handleFleetDeleted(ctx context.Context, allF
 
 // Case 3: Handle devices now matching this fleet that have no owner or multipleowners condition
 func (f FleetSelectorMatchingLogic) handleDevicesMatchingFleet(ctx context.Context, fleet *api.Fleet, allFleetsFetcher func() ([]api.Fleet, error)) (int, int) {
-	f.log.Infof("Handling devices now matching fleet %s", f.resourceRef.Name)
+	f.log.Infof("Handling devices now matching fleet %s", f.event.InvolvedObject.Name)
 
 	// Get devices that match this fleet's selector
 	listParams := api.ListDevicesParams{
@@ -525,7 +526,10 @@ func (f FleetSelectorMatchingLogic) updateDeviceOwner(ctx context.Context, devic
 	device.Metadata.Owner = newOwnerRef
 	_, status := f.serviceHandler.ReplaceDevice(ctx, *device.Metadata.Name, lo.FromPtr(device), fieldsToNil)
 
-	return service.ApiStatusToErr(status)
+	if err := service.ApiStatusToErr(status); err != nil {
+		return err
+	}
+	return f.serviceHandler.UpdateServerSideDeviceStatus(ctx, *device.Metadata.Name)
 }
 
 func (f FleetSelectorMatchingLogic) fetchAllFleets(ctx context.Context) ([]api.Fleet, error) {
@@ -598,7 +602,7 @@ func (f FleetSelectorMatchingLogic) formatDeviceError(deviceName, operation, mes
 
 // Wrapper methods that return device counts and error counts
 func (f FleetSelectorMatchingLogic) handleOrphanedDevices(ctx context.Context, fleet *api.Fleet, allFleetsFetcher func() ([]api.Fleet, error)) (int, int) {
-	f.log.Infof("Handling devices previously owned by fleet %s but no longer match", f.resourceRef.Name)
+	f.log.Infof("Handling devices previously owned by fleet %s but no longer match", f.event.InvolvedObject.Name)
 
 	// Get devices owned by this fleet that no longer match its selector
 	labelsMap := getMatchLabelsSafe(fleet)
@@ -614,7 +618,7 @@ func (f FleetSelectorMatchingLogic) handleOrphanedDevices(ctx context.Context, f
 	listParams := api.ListDevicesParams{
 		Limit:         lo.ToPtr(f.itemsPerPage),
 		LabelSelector: lo.ToPtr(fmt.Sprintf("(%s) != (%s)", strings.Join(keys, ","), strings.Join(values, ","))),
-		FieldSelector: lo.ToPtr(fmt.Sprintf("metadata.owner=%s", *util.SetResourceOwner(api.FleetKind, f.resourceRef.Name))),
+		FieldSelector: lo.ToPtr(fmt.Sprintf("metadata.owner=%s", *util.SetResourceOwner(api.FleetKind, f.event.InvolvedObject.Name))),
 	}
 
 	devicesProcessed, errors := 0, 0

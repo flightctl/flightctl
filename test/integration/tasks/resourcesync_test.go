@@ -11,7 +11,7 @@ import (
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks"
-	"github.com/flightctl/flightctl/internal/tasks_client"
+	"github.com/flightctl/flightctl/internal/worker_client"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
 	testutil "github.com/flightctl/flightctl/test/util"
@@ -25,17 +25,17 @@ import (
 
 var _ = Describe("ResourceSync Task Integration Tests", func() {
 	var (
-		log             *logrus.Logger
-		ctx             context.Context
-		orgId           uuid.UUID
-		storeInst       store.Store
-		serviceHandler  service.Service
-		cfg             *config.Config
-		dbName          string
-		callbackManager tasks_client.CallbackManager
-		ctrl            *gomock.Controller
-		mockPublisher   *queues.MockPublisher
-		resourceSync    *tasks.ResourceSync
+		log               *logrus.Logger
+		ctx               context.Context
+		orgId             uuid.UUID
+		storeInst         store.Store
+		serviceHandler    service.Service
+		cfg               *config.Config
+		dbName            string
+		workerClient      worker_client.WorkerClient
+		ctrl              *gomock.Controller
+		mockQueueProducer *queues.MockQueueProducer
+		resourceSync      *tasks.ResourceSync
 	)
 
 	BeforeEach(func() {
@@ -45,15 +45,16 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 		log = flightlog.InitLogs()
 		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(ctx, log)
 		ctrl = gomock.NewController(GinkgoT())
-		mockPublisher = queues.NewMockPublisher(ctrl)
-		callbackManager = tasks_client.NewCallbackManager(mockPublisher, log)
+		mockQueueProducer = queues.NewMockQueueProducer(ctrl)
+		workerClient = worker_client.NewWorkerClient(mockQueueProducer, log)
 		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		Expect(err).ToNot(HaveOccurred())
-		serviceHandler = service.NewServiceHandler(storeInst, callbackManager, kvStore, nil, log, "", "", []string{})
-		resourceSync = tasks.NewResourceSync(callbackManager, serviceHandler, log, nil)
+		orgResolver := testutil.NewOrgResolver(cfg, storeInst.Organization(), log)
+		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{}, orgResolver)
+		resourceSync = tasks.NewResourceSync(serviceHandler, log, nil)
 
 		// Set up mock expectations for the publisher
-		mockPublisher.EXPECT().Publish(gomock.Any(), gomock.Any()).AnyTimes()
+		mockQueueProducer.EXPECT().Enqueue(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 	})
 
 	AfterEach(func() {
@@ -462,7 +463,7 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 		It("should remove ignored fields during resource parsing", func() {
 			// Create a ResourceSync with custom ignore fields
 			ignoreFields := []string{"/metadata/resourceVersion", "/metadata/labels/test-label"}
-			resourceSyncWithIgnores := tasks.NewResourceSync(callbackManager, serviceHandler, log, ignoreFields)
+			resourceSyncWithIgnores := tasks.NewResourceSync(serviceHandler, log, ignoreFields)
 
 			// Create test resources with fields that should be ignored
 			resources := []tasks.GenericResourceMap{
@@ -548,7 +549,7 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 
 		It("should not remove fields when no ignore list is provided", func() {
 			// Create a ResourceSync without ignore fields
-			resourceSyncNoIgnores := tasks.NewResourceSync(callbackManager, serviceHandler, log, nil)
+			resourceSyncNoIgnores := tasks.NewResourceSync(serviceHandler, log, nil)
 
 			// Create test resources with fields that would normally be ignored
 			resources := []tasks.GenericResourceMap{
@@ -682,7 +683,7 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 		It("should handle non-existent paths gracefully", func() {
 			// Create a ResourceSync with ignore fields that don't exist in the resource
 			ignoreFields := []string{"/metadata/nonExistentField", "/spec/nonExistentField"}
-			resourceSyncWithIgnores := tasks.NewResourceSync(callbackManager, serviceHandler, log, ignoreFields)
+			resourceSyncWithIgnores := tasks.NewResourceSync(serviceHandler, log, ignoreFields)
 
 			// Create test resources without the fields that should be ignored
 			resources := []tasks.GenericResourceMap{
@@ -726,7 +727,7 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 		It("should apply field removal during full sync process", func() {
 			// Create a ResourceSync instance with ignore fields
 			ignoreFields := []string{"/metadata/resourceVersion"}
-			resourceSyncWithIgnores := tasks.NewResourceSync(callbackManager, serviceHandler, log, ignoreFields)
+			resourceSyncWithIgnores := tasks.NewResourceSync(serviceHandler, log, ignoreFields)
 
 			// Create test resources with resourceVersion that should be removed
 			resources := []tasks.GenericResourceMap{

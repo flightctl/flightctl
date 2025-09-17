@@ -46,11 +46,14 @@ Welcome to the Flight Control user documentation.
 **Administrating Flight Control** - How to deploy and administrate a Flight Control service.
 
 * Installing and Configuring the Flight Control Service and UI
+  * [Configuring External PostgreSQL Database](external-database.md)
   * [Configuring Flight Control to use k8s auth](kubernetes-auth.md)
   * [TPM Device Authentication](tpm-authentication.md)
 * [Installing the Flight Control CLI](install-cli.md)
 * Using the Flight Control CLI
 * [Configuring the Flight Control Agent](configuring-agent.md)
+* [PostgreSQL Backup Strategy](postgresql-backup-strategy.md)
+* [Restore Operations](restore.md)
 * [Troubleshooting](troubleshooting.md)
 
 **References** - Useful references.

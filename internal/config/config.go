@@ -19,16 +19,18 @@ const (
 )
 
 type Config struct {
-	Database     *dbConfig           `json:"database,omitempty"`
-	Service      *svcConfig          `json:"service,omitempty"`
-	KV           *kvConfig           `json:"kv,omitempty"`
-	Alertmanager *alertmanagerConfig `json:"alertmanager,omitempty"`
-	Auth         *authConfig         `json:"auth,omitempty"`
-	Metrics      *metricsConfig      `json:"metrics,omitempty"`
-	CA           *ca.Config          `json:"ca,omitempty"`
-	Tracing      *tracingConfig      `json:"tracing,omitempty"`
-	GitOps       *gitOpsConfig       `json:"gitOps,omitempty"`
-	Periodic     *periodicConfig     `json:"periodic,omitempty"`
+	Database         *dbConfig               `json:"database,omitempty"`
+	Service          *svcConfig              `json:"service,omitempty"`
+	KV               *kvConfig               `json:"kv,omitempty"`
+	Alertmanager     *alertmanagerConfig     `json:"alertmanager,omitempty"`
+	Auth             *authConfig             `json:"auth,omitempty"`
+	Metrics          *metricsConfig          `json:"metrics,omitempty"`
+	CA               *ca.Config              `json:"ca,omitempty"`
+	Tracing          *tracingConfig          `json:"tracing,omitempty"`
+	GitOps           *gitOpsConfig           `json:"gitOps,omitempty"`
+	Periodic         *periodicConfig         `json:"periodic,omitempty"`
+	Organizations    *organizationsConfig    `json:"organizations,omitempty"`
+	TelemetryGateway *telemetryGatewayConfig `json:"telemetrygateway,omitempty"`
 }
 
 type RateLimitConfig struct {
@@ -51,6 +53,11 @@ type dbConfig struct {
 	// Migration user configuration for schema changes
 	MigrationUser     string       `json:"migrationUser,omitempty"`
 	MigrationPassword SecureString `json:"migrationPassword,omitempty"`
+	// SSL configuration
+	SSLMode     string `json:"sslmode,omitempty"`
+	SSLCert     string `json:"sslcert,omitempty"`
+	SSLKey      string `json:"sslkey,omitempty"`
+	SSLRootCert string `json:"sslrootcert,omitempty"`
 }
 
 type svcConfig struct {
@@ -76,8 +83,17 @@ type svcConfig struct {
 	HttpMaxRequestSize     int              `json:"httpMaxRequestSize,omitempty"`
 	EventRetentionPeriod   util.Duration    `json:"eventRetentionPeriod,omitempty"`
 	AlertPollingInterval   util.Duration    `json:"alertPollingInterval,omitempty"`
+	RenderedWaitTimeout    util.Duration    `json:"renderedWaitTimeout,omitempty"`
 	RateLimit              *RateLimitConfig `json:"rateLimit,omitempty"`
 	TPMCAPaths             []string         `json:"tpmCAPaths,omitempty"`
+	HealthChecks           *healthChecks    `json:"healthChecks,omitempty"`
+}
+
+type healthChecks struct {
+	Enabled          bool          `json:"enabled,omitempty"`
+	ReadinessPath    string        `json:"readinessPath,omitempty"`
+	LivenessPath     string        `json:"livenessPath,omitempty"`
+	ReadinessTimeout util.Duration `json:"readinessTimeout,omitempty"`
 }
 
 type kvConfig struct {
@@ -127,6 +143,7 @@ type metricsConfig struct {
 	FleetCollector        *fleetCollectorConfig        `json:"fleetCollector,omitempty"`
 	RepositoryCollector   *repositoryCollectorConfig   `json:"repositoryCollector,omitempty"`
 	ResourceSyncCollector *resourceSyncCollectorConfig `json:"resourceSyncCollector,omitempty"`
+	WorkerCollector       *workerCollectorConfig       `json:"workerCollector,omitempty"`
 }
 type collectorConfig struct {
 	Enabled bool `json:"enabled,omitempty"`
@@ -162,6 +179,10 @@ type resourceSyncCollectorConfig struct {
 	periodicCollectorConfig
 }
 
+type workerCollectorConfig struct {
+	collectorConfig
+}
+
 type tracingConfig struct {
 	Enabled  bool   `json:"enabled,omitempty"`
 	Endpoint string `json:"endpoint,omitempty"`
@@ -176,6 +197,44 @@ type gitOpsConfig struct {
 
 type periodicConfig struct {
 	Consumers int `json:"consumers,omitempty"`
+}
+
+type organizationsConfig struct {
+	Enabled bool `json:"enabled,omitempty"`
+}
+
+type telemetryGatewayConfig struct {
+	LogLevel string                    `json:"logLevel,omitempty"`
+	TLS      telemetryGatewayTLSConfig `json:"tls,omitempty"`
+	Listen   telemetryGatewayListen    `json:"listen,omitempty"`
+	Export   *telemetryGatewayExport   `json:"export,omitempty"`
+	Forward  *telemetryGatewayForward  `json:"forward,omitempty"`
+}
+
+type telemetryGatewayTLSConfig struct {
+	CertFile string `json:"certFile,omitempty"`
+	KeyFile  string `json:"keyFile,omitempty"`
+	CACert   string `json:"caCert,omitempty"`
+}
+
+type telemetryGatewayListen struct {
+	Device string `json:"device,omitempty"`
+}
+
+type telemetryGatewayExport struct {
+	Prometheus string `json:"prometheus,omitempty"`
+}
+
+type telemetryGatewayForward struct {
+	Endpoint string                      `json:"endpoint,omitempty"`
+	TLS      *telemetryGatewayForwardTLS `json:"tls,omitempty"`
+}
+
+type telemetryGatewayForwardTLS struct {
+	InsecureSkipTlsVerify bool   `json:"insecureSkipTlsVerify,omitempty"`
+	CAFile                string `json:"caFile,omitempty"`
+	CertFile              string `json:"certFile,omitempty"`
+	KeyFile               string `json:"keyFile,omitempty"`
 }
 
 type ConfigOption func(*Config)
@@ -235,6 +294,13 @@ func NewDefault(opts ...ConfigOption) *Config {
 			HttpMaxRequestSize:     50 * 1024 * 1024,                  // 50MB
 			EventRetentionPeriod:   util.Duration(7 * 24 * time.Hour), // 1 week
 			AlertPollingInterval:   util.Duration(1 * time.Minute),
+			RenderedWaitTimeout:    util.Duration(2 * time.Minute),
+			HealthChecks: &healthChecks{
+				Enabled:          true,
+				ReadinessPath:    "/readyz",
+				LivenessPath:     "/healthz",
+				ReadinessTimeout: util.Duration(2 * time.Second),
+			},
 			// Rate limiting is disabled by default - set RateLimit to enable
 		},
 		KV: &kvConfig{
@@ -248,6 +314,17 @@ func NewDefault(opts ...ConfigOption) *Config {
 			MaxRetries: 3,
 			BaseDelay:  "500ms",
 			MaxDelay:   "10s",
+		},
+		TelemetryGateway: &telemetryGatewayConfig{
+			LogLevel: "info",
+			TLS: telemetryGatewayTLSConfig{
+				CertFile: "/etc/telemetry-gateway/certs/server.crt",
+				KeyFile:  "/etc/telemetry-gateway/certs/server.key",
+				CACert:   "/etc/telemetry-gateway/certs/ca.crt",
+			},
+			Listen: telemetryGatewayListen{Device: "0.0.0.0:4317"},
+			// Export: nil  (no Prom until explicitly set)
+			// Forward: nil (no upstream until explicitly set)
 		},
 		Metrics: &metricsConfig{
 			Enabled: true,
@@ -420,6 +497,28 @@ func Validate(cfg *Config) error {
 			if _, ok := allowedGitOpsIgnoreResourceUpdates[path]; !ok {
 				return fmt.Errorf("invalid ignoreResourceUpdates value: %s", path)
 			}
+		}
+	}
+
+	if cfg.Service != nil && cfg.Service.HealthChecks != nil && cfg.Service.HealthChecks.Enabled {
+		hc := cfg.Service.HealthChecks
+		if strings.TrimSpace(hc.ReadinessPath) == "" {
+			return fmt.Errorf("readinessPath must be non-empty")
+		}
+		if !strings.HasPrefix(hc.ReadinessPath, "/") {
+			return fmt.Errorf("readinessPath must start with '/'")
+		}
+		if strings.TrimSpace(hc.LivenessPath) == "" {
+			return fmt.Errorf("livenessPath must be non-empty")
+		}
+		if !strings.HasPrefix(hc.LivenessPath, "/") {
+			return fmt.Errorf("livenessPath must start with '/'")
+		}
+		if hc.ReadinessTimeout <= 0 {
+			return fmt.Errorf("readinessTimeout must be greater than 0")
+		}
+		if hc.ReadinessPath == hc.LivenessPath {
+			return fmt.Errorf("readinessPath and livenessPath must not be identical")
 		}
 	}
 	return nil

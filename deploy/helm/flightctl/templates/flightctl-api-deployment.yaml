@@ -4,6 +4,7 @@ kind: Deployment
 metadata:
   labels:
     flightctl.service: flightctl-api
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
   name: flightctl-api
   namespace: {{ .Release.Namespace }}
 spec:
@@ -17,8 +18,11 @@ spec:
     metadata:
       labels:
         flightctl.service: flightctl-api
+        {{- include "flightctl.standardLabels" . | nindent 8 }}
     spec:
       serviceAccountName: flightctl-api
+      initContainers:
+      {{- include "flightctl.databaseWaitInitContainer" (dict "context" . "userType" "app" "timeout" 60 "sleep" 1) | nindent 6 }}
       containers:
         - name: flightctl-api
           image: {{ .Values.api.image.image }}:{{ default .Chart.AppVersion .Values.api.image.tag }}
@@ -64,6 +68,29 @@ spec:
             - containerPort: 15691
               name: db-prom-target
               protocol: TCP
+
+          {{- if .Values.api.probes.enabled }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.api.probes.readinessPath }}
+              port: service-api
+              scheme: HTTPS
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+            successThreshold: 1
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.api.probes.livenessPath }}
+              port: service-api
+              scheme: HTTPS
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 10
+            successThreshold: 1
+          {{- end }}
 
           volumeMounts:
             - mountPath: /root/.flightctl/

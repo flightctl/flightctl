@@ -21,7 +21,7 @@ func (h *ServiceHandler) CreateRepository(ctx context.Context, repository api.Re
 		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
-	result, err := h.store.Repository().Create(ctx, orgId, &repository, h.callbackManager.RepositoryUpdatedCallback, h.callbackRepositoryUpdated)
+	result, err := h.store.Repository().Create(ctx, orgId, &repository, h.callbackRepositoryUpdated)
 	return result, StoreErrorToApiStatus(err, true, api.RepositoryKind, repository.Metadata.Name)
 }
 
@@ -71,14 +71,14 @@ func (h *ServiceHandler) ReplaceRepository(ctx context.Context, name string, rep
 		return nil, api.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
 
-	result, created, err := h.store.Repository().CreateOrUpdate(ctx, orgId, &repository, h.callbackManager.RepositoryUpdatedCallback, h.callbackRepositoryUpdated)
+	result, created, err := h.store.Repository().CreateOrUpdate(ctx, orgId, &repository, h.callbackRepositoryUpdated)
 	return result, StoreErrorToApiStatus(err, created, api.RepositoryKind, &name)
 }
 
 func (h *ServiceHandler) DeleteRepository(ctx context.Context, name string) api.Status {
 	orgId := getOrgIdFromContext(ctx)
 
-	err := h.store.Repository().Delete(ctx, orgId, name, h.callbackManager.RepositoryUpdatedCallback, h.callbackRepositoryDeleted)
+	err := h.store.Repository().Delete(ctx, orgId, name, h.callbackRepositoryDeleted)
 	return StoreErrorToApiStatus(err, false, api.RepositoryKind, &name)
 }
 
@@ -107,7 +107,7 @@ func (h *ServiceHandler) PatchRepository(ctx context.Context, name string, patch
 	NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
-	result, err := h.store.Repository().Update(ctx, orgId, newObj, h.callbackManager.RepositoryUpdatedCallback, h.callbackRepositoryUpdated)
+	result, err := h.store.Repository().Update(ctx, orgId, newObj, h.callbackRepositoryUpdated)
 	return result, StoreErrorToApiStatus(err, false, api.RepositoryKind, &name)
 }
 
@@ -145,10 +145,10 @@ func (h *ServiceHandler) GetRepositoryDeviceReferences(ctx context.Context, name
 
 // callbackRepositoryUpdated is the repository-specific callback that handles repository update events
 func (h *ServiceHandler) callbackRepositoryUpdated(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	h.HandleRepositoryUpdatedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+	h.eventHandler.HandleRepositoryUpdatedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
 }
 
 // callbackRepositoryDeleted is the repository-specific callback that handles repository deletion events
 func (h *ServiceHandler) callbackRepositoryDeleted(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	h.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+	h.eventHandler.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
 }

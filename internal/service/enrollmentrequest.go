@@ -45,25 +45,20 @@ func (h *ServiceHandler) verifyTPMEnrollmentRequest(er *api.EnrollmentRequest, n
 	}
 
 	trustedRoots := h.getTPMCAPool()
+	condition := api.Condition{
+		Type:   api.ConditionTypeEnrollmentRequestTPMVerified,
+		Status: api.ConditionStatusFalse,
+	}
 	if err := tpm.VerifyTCGCSRChainOfTrustWithRoots(csrBytes, trustedRoots); err != nil {
-		condition := api.Condition{
-			Type:    "TPMVerified",
-			Status:  api.ConditionStatusFalse,
-			Reason:  "TPMVerificationFailed",
-			Message: err.Error(),
-		}
-		api.SetStatusCondition(&er.Status.Conditions, condition)
+		condition.Reason = api.TPMVerificationFailedReason
+		condition.Message = err.Error()
 		h.log.Warnf("TPM verification failed for enrollment request %s: %v", name, err)
 	} else {
-		condition := api.Condition{
-			Type:    "TPMVerified",
-			Status:  api.ConditionStatusTrue,
-			Reason:  "TPMVerificationSucceeded",
-			Message: "TPM chain of trust verified successfully",
-		}
-		api.SetStatusCondition(&er.Status.Conditions, condition)
-		h.log.Debugf("TPM verification passed for enrollment request %s", name)
+		condition.Reason = api.TPMChallengeRequiredReason
+		condition.Message = "TPM chain of trust partially verified, activate credential challenge required"
+		h.log.Debugf("TPM chain partially verified for enrollment request %s, challenge required", name)
 	}
+	api.SetStatusCondition(&er.Status.Conditions, condition)
 	return nil
 }
 
@@ -131,8 +126,8 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 	isTPMVerified := false
 	var tpmVerificationError string
 	if enrollmentRequest.Status != nil {
-		if condition := api.FindStatusCondition(enrollmentRequest.Status.Conditions, "TPMVerified"); condition != nil {
-			isTPMVerified = (condition.Status == api.ConditionStatusTrue)
+		if condition := api.FindStatusCondition(enrollmentRequest.Status.Conditions, api.ConditionTypeEnrollmentRequestTPMVerified); condition != nil {
+			isTPMVerified = condition.Status == api.ConditionStatusTrue
 			if !isTPMVerified {
 				tpmVerificationError = condition.Message
 			}
@@ -209,9 +204,9 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 	if enrollmentRequest.Status.Approval != nil {
 		apiResource.Metadata.Labels = enrollmentRequest.Status.Approval.Labels
 	}
-	common.UpdateServiceSideStatus(ctx, orgId, apiResource, h.store, h.log)
+	_, _ = common.UpdateServiceSideStatus(ctx, orgId, apiResource, h.store, h.log)
 
-	_, err := h.store.Device().Create(ctx, orgId, apiResource, h.callbackManager.DeviceUpdatedCallback, h.callbackDeviceUpdated)
+	_, err := h.store.Device().Create(ctx, orgId, apiResource, h.callbackDeviceUpdated)
 	return err
 }
 
@@ -401,8 +396,8 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, name stri
 		}
 
 		approvedBy := "unknown"
-		if identity != nil && len(identity.Username) > 0 {
-			approvedBy = identity.Username
+		if identity != nil && len(identity.GetUsername()) > 0 {
+			approvedBy = identity.GetUsername()
 		}
 
 		approvalStatus := api.EnrollmentRequestApprovalStatus{
@@ -490,15 +485,15 @@ func (h *ServiceHandler) deviceExists(ctx context.Context, name string) (bool, e
 
 // callbackEnrollmentRequestUpdated is the enrollment request-specific callback that handles enrollment request events
 func (h *ServiceHandler) callbackEnrollmentRequestUpdated(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	h.HandleEnrollmentRequestUpdatedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+	h.eventHandler.HandleEnrollmentRequestUpdatedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
 }
 
 // callbackEnrollmentRequestDeleted is the enrollment request-specific callback that handles enrollment request deletion events
 func (h *ServiceHandler) callbackEnrollmentRequestDeleted(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	h.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+	h.eventHandler.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
 }
 
 // callbackEnrollmentRequestApproved is the enrollment request-specific callback that handles enrollment request approval events
 func (h *ServiceHandler) callbackEnrollmentRequestApproved(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	h.HandleEnrollmentRequestApprovedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+	h.eventHandler.HandleEnrollmentRequestApprovedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
 }

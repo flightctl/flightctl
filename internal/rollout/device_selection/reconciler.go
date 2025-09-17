@@ -8,7 +8,6 @@ import (
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -22,16 +21,14 @@ type Reconciler interface {
 const DeviceSelectionTaskName = "rollout-device-selection"
 
 type reconciler struct {
-	serviceHandler  service.Service
-	log             logrus.FieldLogger
-	callbackManager tasks_client.CallbackManager
+	serviceHandler service.Service
+	log            logrus.FieldLogger
 }
 
-func NewReconciler(serviceHandler service.Service, callbackManager tasks_client.CallbackManager, log logrus.FieldLogger) Reconciler {
+func NewReconciler(serviceHandler service.Service, log logrus.FieldLogger) Reconciler {
 	return &reconciler{
-		serviceHandler:  serviceHandler,
-		log:             log,
-		callbackManager: callbackManager,
+		serviceHandler: serviceHandler,
+		log:            log,
 	}
 }
 
@@ -75,7 +72,6 @@ func (r *reconciler) reconcileFleet(ctx context.Context, orgId uuid.UUID, fleet 
 		if rolloutWasActive {
 
 			// Send the entire fleet for rollout
-			r.callbackManager.FleetRolloutSelectionUpdated(ctx, orgId, fleetName)
 			r.emitFleetRolloutStartedEventDueToPolicyRemoval(ctx, orgId, fleet, annotations)
 		}
 		return
@@ -147,7 +143,6 @@ func (r *reconciler) reconcileFleet(ctx context.Context, orgId uuid.UUID, fleet 
 				r.log.WithError(err).Errorf("%v/%s: OnRollout", orgId, fleetName)
 			}
 			// Send the current batch to be rolled out.
-			r.callbackManager.FleetRolloutSelectionUpdated(ctx, orgId, fleetName)
 			r.emitFleetRolloutBatchDispatchedEvent(ctx, fleet, templateVersionName)
 		}
 

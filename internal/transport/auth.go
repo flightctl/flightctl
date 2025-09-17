@@ -10,17 +10,19 @@ import (
 // (GET /api/v1/auth/config)
 func (h *TransportHandler) AuthConfig(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	authN := auth.GetAuthN()
-	if _, ok := authN.(auth.NilAuth); ok {
+	if _, ok := h.authN.(auth.NilAuth); ok {
 		SetResponse(w, nil, api.StatusAuthNotConfigured("Auth not configured"))
 		return
 	}
 
-	authConfig := authN.GetAuthConfig()
+	authConfig := h.authN.GetAuthConfig()
 
 	conf := api.AuthConfig{
 		AuthType: authConfig.Type,
 		AuthURL:  authConfig.Url,
+		AuthOrganizationsConfig: api.AuthOrganizationsConfig{
+			Enabled: authConfig.OrganizationsConfig.Enabled,
+		},
 	}
 	SetResponse(w, conf, api.StatusOK())
 }

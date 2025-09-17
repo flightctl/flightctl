@@ -30,6 +30,8 @@ var _ = Describe("FleetStore create", func() {
 		cfg       *config.Config
 		dbName    string
 		numFleets int
+		called    bool
+		callback  store.EventCallback
 	)
 
 	BeforeEach(func() {
@@ -41,6 +43,11 @@ var _ = Describe("FleetStore create", func() {
 		orgId = uuid.New()
 		err := testutil.CreateTestOrganization(ctx, storeInst, orgId)
 		Expect(err).ToNot(HaveOccurred())
+
+		called = false
+		callback = store.EventCallback(func(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
+			called = true
+		})
 
 		testutil.CreateTestFleets(ctx, 3, storeInst.Fleet(), orgId, "myfleet", false, nil)
 	})
@@ -150,21 +157,13 @@ var _ = Describe("FleetStore create", func() {
 		})
 
 		It("Delete fleet success", func() {
-			called := false
-			callback := store.FleetStoreCallback(func(context.Context, uuid.UUID, *api.Fleet, *api.Fleet) {
-				called = true
-			})
-			err := storeInst.Fleet().Delete(ctx, orgId, "myfleet-1", callback, nil)
+			err := storeInst.Fleet().Delete(ctx, orgId, "myfleet-1", callback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(called).To(BeTrue())
 		})
 
 		It("Delete fleet success when not found", func() {
-			called := false
-			callback := store.FleetStoreCallback(func(context.Context, uuid.UUID, *api.Fleet, *api.Fleet) {
-				called = true
-			})
-			err := storeInst.Fleet().Delete(ctx, orgId, "nonexistent", callback, nil)
+			err := storeInst.Fleet().Delete(ctx, orgId, "nonexistent", callback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(called).To(BeFalse())
 		})
@@ -353,11 +352,7 @@ var _ = Describe("FleetStore create", func() {
 				},
 				Status: nil,
 			}
-			called := false
-			callback := store.FleetStoreCallback(func(context.Context, uuid.UUID, *api.Fleet, *api.Fleet) {
-				called = true
-			})
-			_, created, err := storeInst.Fleet().CreateOrUpdate(ctx, orgId, &fleet, nil, true, callback, nil)
+			_, created, err := storeInst.Fleet().CreateOrUpdate(ctx, orgId, &fleet, nil, true, callback)
 			Expect(called).To(BeTrue())
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(true))
@@ -396,11 +391,7 @@ var _ = Describe("FleetStore create", func() {
 			updatedFleet.Metadata.Labels = nil
 			updatedFleet.Metadata.Annotations = nil
 
-			called := false
-			callback := store.FleetStoreCallback(func(context.Context, uuid.UUID, *api.Fleet, *api.Fleet) {
-				called = true
-			})
-			returnedFleet, created, err := storeInst.Fleet().CreateOrUpdate(ctx, orgId, updatedFleet, nil, true, callback, nil)
+			returnedFleet, created, err := storeInst.Fleet().CreateOrUpdate(ctx, orgId, updatedFleet, nil, true, callback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(BeFalse())
 			Expect(called).To(BeTrue())
@@ -423,11 +414,7 @@ var _ = Describe("FleetStore create", func() {
 			fleet.Spec.Template.Spec.Os = &api.DeviceOsSpec{Image: "my new OS"}
 			fleet.Status = nil
 
-			called := false
-			callback := store.FleetStoreCallback(func(context.Context, uuid.UUID, *api.Fleet, *api.Fleet) {
-				called = true
-			})
-			_, created, err := storeInst.Fleet().CreateOrUpdate(ctx, orgId, fleet, nil, true, callback, nil)
+			_, created, err := storeInst.Fleet().CreateOrUpdate(ctx, orgId, fleet, nil, true, callback)
 			Expect(called).To(BeTrue())
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(BeFalse())
@@ -487,11 +474,8 @@ var _ = Describe("FleetStore create", func() {
 			}
 
 			for i := 1; i <= numFleets; i++ {
-				called := false
-				callback := store.FleetStoreCallback(func(context.Context, uuid.UUID, *api.Fleet, *api.Fleet) {
-					called = true
-				})
-				err := storeInst.Fleet().Delete(ctx, orgId, fmt.Sprintf("myfleet-%d", i), callback, nil)
+				called = false
+				err := storeInst.Fleet().Delete(ctx, orgId, fmt.Sprintf("myfleet-%d", i), callback)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(called).To(BeTrue())
 			}
@@ -586,24 +570,24 @@ var _ = Describe("FleetStore create", func() {
 			Expect(repos.Items).To(HaveLen(1))
 			Expect(*(repos.Items[0]).Metadata.Name).To(Equal("myrepository-1"))
 
-			called := false
-			callback := store.FleetStoreCallback(func(context.Context, uuid.UUID, *api.Fleet, *api.Fleet) {
-				called = true
-			})
-			err = storeInst.Fleet().Delete(ctx, orgId, "myfleet-1", callback, nil)
+			err = storeInst.Fleet().Delete(ctx, orgId, "myfleet-1", callback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(called).To(BeTrue())
 		})
 
 		It("CountByRolloutStatus - with specific orgId", func() {
-			// Create fleets with different rollout statuses
+			// Create fleets with different rollout statuses using RolloutInProgress conditions
 			fleet1 := api.Fleet{
 				Metadata: api.ObjectMeta{
 					Name: lo.ToPtr("fleet-rollout-1"),
 				},
 				Status: &api.FleetStatus{
-					Rollout: &api.FleetRolloutStatus{
-						CurrentBatch: lo.ToPtr(1),
+					Conditions: []api.Condition{
+						{
+							Type:   api.ConditionTypeFleetRolloutInProgress,
+							Status: api.ConditionStatusTrue,
+							Reason: api.RolloutActiveReason,
+						},
 					},
 				},
 			}
@@ -612,8 +596,12 @@ var _ = Describe("FleetStore create", func() {
 					Name: lo.ToPtr("fleet-rollout-2"),
 				},
 				Status: &api.FleetStatus{
-					Rollout: &api.FleetRolloutStatus{
-						CurrentBatch: lo.ToPtr(2),
+					Conditions: []api.Condition{
+						{
+							Type:   api.ConditionTypeFleetRolloutInProgress,
+							Status: api.ConditionStatusFalse,
+							Reason: api.RolloutSuspendedReason,
+						},
 					},
 				},
 			}
@@ -622,17 +610,21 @@ var _ = Describe("FleetStore create", func() {
 					Name: lo.ToPtr("fleet-rollout-3"),
 				},
 				Status: &api.FleetStatus{
-					Rollout: &api.FleetRolloutStatus{
-						CurrentBatch: lo.ToPtr(1),
+					Conditions: []api.Condition{
+						{
+							Type:   api.ConditionTypeFleetRolloutInProgress,
+							Status: api.ConditionStatusTrue,
+							Reason: api.RolloutActiveReason,
+						},
 					},
 				},
 			}
 
-			_, err := storeInst.Fleet().Create(ctx, orgId, &fleet1, nil, nil)
+			_, err := storeInst.Fleet().Create(ctx, orgId, &fleet1, nil)
 			Expect(err).ToNot(HaveOccurred())
-			_, err = storeInst.Fleet().Create(ctx, orgId, &fleet2, nil, nil)
+			_, err = storeInst.Fleet().Create(ctx, orgId, &fleet2, nil)
 			Expect(err).ToNot(HaveOccurred())
-			_, err = storeInst.Fleet().Create(ctx, orgId, &fleet3, nil, nil)
+			_, err = storeInst.Fleet().Create(ctx, orgId, &fleet3, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Test with specific orgId
@@ -641,8 +633,8 @@ var _ = Describe("FleetStore create", func() {
 			Expect(results).ToNot(BeEmpty())
 
 			// Count expected results: 3 original fleets + 3 new ones = 6 total
-			// Original fleets have no rollout status (will be "none")
-			// New fleets have batch1 (2 fleets) and batch2 (1 fleet)
+			// Original fleets have no RolloutInProgress condition (will be "Inactive")
+			// New fleets have: 2 Active, 1 Suspended
 			totalCount := int64(0)
 			statusCounts := make(map[string]int64)
 			for _, result := range results {
@@ -653,9 +645,9 @@ var _ = Describe("FleetStore create", func() {
 			Expect(totalCount).To(Equal(int64(6))) // 3 original + 3 new fleets
 
 			// Check specific status counts
-			Expect(statusCounts["none"]).To(Equal(int64(3))) // Original fleets
-			Expect(statusCounts["1"]).To(Equal(int64(2)))    // fleet-rollout-1 and fleet-rollout-3 (batch 1)
-			Expect(statusCounts["2"]).To(Equal(int64(1)))    // fleet-rollout-2 (batch 2)
+			Expect(statusCounts["Inactive"]).To(Equal(int64(3)))  // Original fleets (no RolloutInProgress condition)
+			Expect(statusCounts["Active"]).To(Equal(int64(2)))    // fleet-rollout-1 and fleet-rollout-3
+			Expect(statusCounts["Suspended"]).To(Equal(int64(1))) // fleet-rollout-2
 		})
 
 		It("CountByRolloutStatus - with nil orgId (all orgs)", func() {
@@ -669,12 +661,16 @@ var _ = Describe("FleetStore create", func() {
 					Name: lo.ToPtr("other-org-fleet"),
 				},
 				Status: &api.FleetStatus{
-					Rollout: &api.FleetRolloutStatus{
-						CurrentBatch: lo.ToPtr(5),
+					Conditions: []api.Condition{
+						{
+							Type:   api.ConditionTypeFleetRolloutInProgress,
+							Status: api.ConditionStatusFalse,
+							Reason: api.RolloutWaitingReason,
+						},
 					},
 				},
 			}
-			_, err = storeInst.Fleet().Create(ctx, otherOrgId, &fleet, nil, nil)
+			_, err = storeInst.Fleet().Create(ctx, otherOrgId, &fleet, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Test with nil orgId (should get all orgs)
@@ -719,7 +715,7 @@ var _ = Describe("FleetStore create", func() {
 					},
 				},
 			}
-			_, err = storeInst.Fleet().Create(ctx, orgId, &fleet, nil, nil)
+			_, err = storeInst.Fleet().Create(ctx, orgId, &fleet, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Verify the fleet was created with the owner
@@ -733,15 +729,14 @@ var _ = Describe("FleetStore create", func() {
 			updatedFleet.Spec.Selector = &api.LabelSelector{
 				MatchLabels: &map[string]string{"key": "updated"},
 			}
-			callback := store.FleetStoreCallback(func(context.Context, uuid.UUID, *api.Fleet, *api.Fleet) {})
-			_, err = storeInst.Fleet().Update(ctx, orgId, &updatedFleet, nil, true, callback, nil)
+			_, err = storeInst.Fleet().Update(ctx, orgId, &updatedFleet, nil, true, nil)
 			Expect(err).To(HaveOccurred())
 			Expect(err).To(MatchError(flterrors.ErrUpdatingResourceWithOwnerNotAllowed))
 
 			// Try to update the fleet's labels - should fail
 			updatedFleet = *createdFleet
 			updatedFleet.Metadata.Labels = &map[string]string{"updated": "label"}
-			_, err = storeInst.Fleet().Update(ctx, orgId, &updatedFleet, nil, true, callback, nil)
+			_, err = storeInst.Fleet().Update(ctx, orgId, &updatedFleet, nil, true, nil)
 			Expect(err).To(HaveOccurred())
 			Expect(err).To(MatchError(flterrors.ErrUpdatingResourceWithOwnerNotAllowed))
 

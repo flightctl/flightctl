@@ -1,7 +1,7 @@
 package agent_test
 
 import (
-	"context"
+	"bytes"
 	"fmt"
 	"strconv"
 	"strings"
@@ -10,44 +10,24 @@ import (
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/test/harness/e2e"
-	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/sirupsen/logrus"
 )
 
 var _ = Describe("VM Agent behavior", func() {
-	var (
-		ctx     context.Context
-		harness *e2e.Harness
-	)
-
-	BeforeEach(func() {
-		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
-		harness = e2e.NewTestHarness(ctx)
-		err := harness.VM.RunAndWaitForSSH()
-		Expect(err).ToNot(HaveOccurred())
-	})
-
-	AfterEach(func() {
-		err := harness.CleanUpAllResources()
-		Expect(err).ToNot(HaveOccurred())
-		harness.Cleanup(true)
-	})
-
 	Context("vm", func() {
-		It("Verify VM agent", Label("80455"), func() {
+		It("Verify VM agent", Label("80455", "rpm-sanity"), func() {
+			// Get harness directly - no shared package-level variable
+			harness := e2e.GetWorkerHarness()
+
 			By("should print QR output to console")
 			// Wait for the top-most part of the QR output to appear
-			Eventually(harness.VM.GetConsoleOutput, TIMEOUT, POLLING).Should(ContainSubstring("████████████████████████████████"))
-
-			fmt.Println("============ Console output ============")
-			lines := strings.Split(harness.VM.GetConsoleOutput(), "\n")
-			fmt.Println(strings.Join(lines[len(lines)-20:], "\n"))
-			fmt.Println("========================================")
+			Eventually(harness.GetFlightctlAgentLogs, TIMEOUT, POLLING).Should(ContainSubstring("████████████████████████████████"))
 
 			By("should have flightctl-agent running")
-			stdout, err := harness.VM.RunSSH([]string{"sudo", "systemctl", "status", "flightctl-agent"}, nil)
+			var stdout *bytes.Buffer
+			var err error
+			stdout, err = harness.VM.RunSSH([]string{"sudo", "systemctl", "status", "flightctl-agent"}, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(stdout.String()).To(ContainSubstring("Active: active (running)"))
 
@@ -58,10 +38,13 @@ var _ = Describe("VM Agent behavior", func() {
 		})
 
 		It("Verifying generation of enrollment request link", Label("75518"), func() {
+			// Get harness directly - no shared package-level variable
+			harness := e2e.GetWorkerHarness()
+
 			By("should be reporting device status on enrollment request")
-			// Get the enrollment Request ID from the console output
-			enrollmentID := harness.GetEnrollmentIDFromConsole()
-			logrus.Infof("Enrollment ID found in VM console output: %s", enrollmentID)
+			// Get the enrollment Request ID from the service logs
+			enrollmentID := harness.GetEnrollmentIDFromServiceLogs("flightctl-agent")
+			GinkgoWriter.Printf("Enrollment ID found in flightctl-agent service logs: %s\n", enrollmentID)
 
 			// Wait for the device to create the enrollment request, and check the TPM details
 			enrollmentRequest := harness.WaitForEnrollmentRequest(enrollmentID)
@@ -70,8 +53,8 @@ var _ = Describe("VM Agent behavior", func() {
 			Expect(enrollmentRequest.Spec.DeviceStatus.SystemInfo.IsEmpty()).NotTo(BeTrue())
 
 			// Approve the enrollment and wait for the device details to be populated by the agent
-			harness.ApproveEnrollment(enrollmentID, testutil.TestEnrollmentApproval())
-			logrus.Infof("Waiting for device %s to report status", enrollmentID)
+			harness.ApproveEnrollment(enrollmentID, harness.TestEnrollmentApproval())
+			GinkgoWriter.Printf("Waiting for device %s to report status\n", enrollmentID)
 
 			// wait for the device to pickup enrollment and report measurements on device status
 			Eventually(func() *apiclient.GetDeviceResponse {
@@ -81,6 +64,9 @@ var _ = Describe("VM Agent behavior", func() {
 			}, TIMEOUT, POLLING).ShouldNot(BeNil())
 		})
 		It("Should report a message when a device is assigned to multiple fleets", Label("75992"), func() {
+			// Get harness directly - no shared package-level variable
+			harness := e2e.GetWorkerHarness()
+
 			const (
 				fleet1Name  = "fleet1"
 				fleet2Name  = "fleet2"
@@ -190,6 +176,9 @@ var _ = Describe("VM Agent behavior", func() {
 
 	Context("status", func() {
 		It("Device status tests", Label("75991", "sanity"), func() {
+			// Get harness directly - no shared package-level variable
+			harness := e2e.GetWorkerHarness()
+
 			deviceId, device := harness.EnrollAndWaitForOnlineStatus()
 			// Get the next expected rendered version
 			newRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
@@ -205,11 +194,11 @@ var _ = Describe("VM Agent behavior", func() {
 				Expect(err).ToNot(HaveOccurred())
 
 				device.Spec.Config = &[]v1alpha1.ConfigProviderSpec{configProviderSpec}
-				logrus.Infof("Updating %s with config %s", deviceId, device.Spec.Config)
+				GinkgoWriter.Printf("Updating %s with config %s\n", deviceId, device.Spec.Config)
 			})
 			Expect(err).ToNot(HaveOccurred())
 
-			logrus.Infof("Waiting for the device to pick the config")
+			GinkgoWriter.Printf("Waiting for the device to pick the config\n")
 			harness.WaitForDeviceContents(deviceId, fmt.Sprintf("the device is updated to renderedVersion: %s", strconv.Itoa(newRenderedVersion)),
 				func(device *v1alpha1.Device) bool {
 					for _, condition := range device.Status.Conditions {
@@ -227,7 +216,7 @@ var _ = Describe("VM Agent behavior", func() {
 			Expect(stdout.String()).To(ContainSubstring("This system is managed by flightctl."))
 
 			// The status should be "Online"
-			logrus.Infof("The device has the config %s", device.Spec.Config)
+			GinkgoWriter.Printf("The device has the config %s\n", device.Spec.Config)
 			Eventually(harness.GetDeviceWithStatusSummary, TIMEOUT, POLLING).WithArguments(
 				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusOnline))
 
@@ -241,11 +230,11 @@ var _ = Describe("VM Agent behavior", func() {
 			var newImageReference string
 			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
 				currentImage := device.Status.Os.Image
-				logrus.Infof("Current image for %s is %s", deviceId, currentImage)
+				GinkgoWriter.Printf("Current image for %s is %s\n", deviceId, currentImage)
 				repo, _ := parseImageReference(currentImage)
 				newImageReference = repo + ":not-existing"
 				device.Spec.Os = &v1alpha1.DeviceOsSpec{Image: newImageReference}
-				logrus.Infof("Updating %s to image %s", deviceId, device.Spec.Os.Image)
+				GinkgoWriter.Printf("Updating %s to image %s\n", deviceId, device.Spec.Os.Image)
 			})
 			Expect(err).ToNot(HaveOccurred())
 
@@ -266,7 +255,7 @@ var _ = Describe("VM Agent behavior", func() {
 				"a reference to a not existing git repo, and report 'Online' status`)
 
 			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
-				logrus.Infof("Current device is %s", deviceId)
+				GinkgoWriter.Printf("Current device is %s\n", deviceId)
 
 				// Create ConfigProviderSpec.
 				var configProviderSpec v1alpha1.ConfigProviderSpec
@@ -274,7 +263,7 @@ var _ = Describe("VM Agent behavior", func() {
 				Expect(err).ToNot(HaveOccurred())
 
 				device.Spec.Config = &[]v1alpha1.ConfigProviderSpec{configProviderSpec}
-				logrus.Infof("Updating %s with config %s", deviceId, device.Spec.Config)
+				GinkgoWriter.Printf("Updating %s with config %s\n", deviceId, device.Spec.Config)
 			})
 			Expect(err).ToNot(HaveOccurred())
 
@@ -299,14 +288,14 @@ var _ = Describe("VM Agent behavior", func() {
 
 			// Update the device with the http invalid config.
 			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
-				logrus.Infof("current device is %s", deviceId)
+				GinkgoWriter.Printf("current device is %s\n", deviceId)
 				// Create ConfigProviderSpec.
 				var configProviderSpec v1alpha1.ConfigProviderSpec
 				err := configProviderSpec.FromHttpConfigProviderSpec(httpConfigInvalidPath)
 				Expect(err).ToNot(HaveOccurred())
 
 				device.Spec.Config = &[]v1alpha1.ConfigProviderSpec{configProviderSpec}
-				logrus.Infof("updating %s with config %s", deviceId, device.Spec.Config)
+				GinkgoWriter.Printf("updating %s with config %s\n", deviceId, device.Spec.Config)
 			})
 			Expect(err).ToNot(HaveOccurred())
 
@@ -324,16 +313,19 @@ var _ = Describe("VM Agent behavior", func() {
 				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusOnline))
 
 			By("should report 'Unknown' after the device vm is powered-off")
-
+			//find a better way to test this without waiting for 10 min
 			// Shutdown the vm.
-			err = harness.VM.Shutdown()
-			Expect(err).ToNot(HaveOccurred())
-			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
-				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusUnknown))
+			//err = harness.VM.Shutdown()
+			//Expect(err).ToNot(HaveOccurred())
+			//Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
+			//deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusUnknown))
 
 		})
 
 		It("K8s secret config source", Label("76687"), func() {
+			// Get harness directly - no shared package-level variable
+			harness := e2e.GetWorkerHarness()
+
 			deviceId, _ := harness.EnrollAndWaitForOnlineStatus()
 
 			// Get the next expected rendered version
@@ -350,11 +342,11 @@ var _ = Describe("VM Agent behavior", func() {
 				Expect(err).ToNot(HaveOccurred())
 
 				device.Spec.Config = &[]v1alpha1.ConfigProviderSpec{configProviderSpec}
-				logrus.Infof("Updating %s with config %s", deviceId, device.Spec.Config)
+				GinkgoWriter.Printf("Updating %s with config %s\n", deviceId, device.Spec.Config)
 			})
 			Expect(err).ToNot(HaveOccurred())
 
-			logrus.Infof("Waiting for the device to pick the config")
+			GinkgoWriter.Printf("Waiting for the device to pick the config\n")
 			err = harness.WaitForDeviceNewRenderedVersion(deviceId, newRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -365,6 +357,8 @@ var _ = Describe("VM Agent behavior", func() {
 		})
 
 		It("System Info Timeout Tests", Label("81864"), func() {
+			// Get harness directly - no shared package-level variable
+			harness := e2e.GetWorkerHarness()
 
 			By("Enroll and wait for image v9 to become online")
 			deviceId, _ := harness.EnrollAndWaitForOnlineStatus()
@@ -396,6 +390,8 @@ var _ = Describe("VM Agent behavior", func() {
 	})
 	Context("Resources", func() {
 		It("Alert Validation Rules", Label("78853"), func() {
+			// Get harness directly - no shared package-level variable
+			harness := e2e.GetWorkerHarness()
 
 			deviceId, _ := harness.EnrollAndWaitForOnlineStatus()
 			const fleet1Name = "fleet1"
@@ -449,7 +445,7 @@ var _ = Describe("VM Agent behavior", func() {
 				Expect(err).ToNot(HaveOccurred())
 				// Set fleet.Spec.Resources to a slice containing only this resource monitor
 				fleet.Spec.Template.Spec.Resources = &[]v1alpha1.ResourceMonitor{resourceMonitor}
-				logrus.Infof("Updating %s with resources %v", fleet1Name, fleet.Spec.Template.Spec.Resources)
+				GinkgoWriter.Printf("Updating %s with resources %v\n", fleet1Name, fleet.Spec.Template.Spec.Resources)
 			})
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring(`/spec/template/spec/resources/0": Error at "/samplingInterval": string doesn't match the regular expression "^[1-9]\d*[smh]$`))

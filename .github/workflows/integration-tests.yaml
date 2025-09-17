@@ -16,28 +16,82 @@ jobs:
   integration-tests:
     runs-on: "ubuntu-24.04"
     steps:
-      - name: Checkout
+      - name: Checkout current commit
         uses: actions/checkout@v4
-
-      - uses: dorny/paths-filter@v3
-        id: filter
         with:
-          filters: |
-            notdocs:
-              - '!.spelling'
-              - '!README.md'
-              - '!docs/**'
+          fetch-depth: 0
+
+      - name: Get changed files
+        id: changed-files
+        uses: tj-actions/changed-files@v44
+        with:
+          since_last_remote_commit: 'true'
+          files_ignore: |
+            .spelling
+            README.md
+            docs/**
+            .github/**
+            examples/**
+            packaging/rpm/**
 
       - name: Setup all dependencies
-        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         uses: ./.github/actions/setup-dependencies
 
-      - name: Running Integration tests
-        if: ${{ steps.filter.outputs.notdocs == 'true' }}
-        run: make integration-test VERBOSE=true
+      - name: Build db-migrator image
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        run: |
+          set -euo pipefail
+          # Get the current commit SHA for tagging
+          COMMIT_SHA="${{ github.sha }}"
+          echo "Building db-migrator image tagged with commit: ${COMMIT_SHA}"
+
+          # Build the db-setup container with commit tag
+          sudo make flightctl-db-setup-container
+
+          # Tag the image with the commit SHA
+          sudo podman tag flightctl-db-setup:latest "flightctl-db-setup:${COMMIT_SHA}"
+
+          echo "MIGRATION_IMAGE=flightctl-db-setup:${COMMIT_SHA}" >> "$GITHUB_ENV"
+
+      - name: Running integration tests
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        run: |
+          make integration-test VERBOSE=true
         env:
           DISABLE_FIPS: true
+          FLIGHTCTL_TEST_DB_STRATEGY: template
 
+      - name: Checkout baseline branch (PR base)
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' && github.event_name == 'pull_request' }}
+        uses: actions/checkout@v4
+        with:
+          repository: flightctl/flightctl
+          #TODO: checkout previously released version after 0.10 release
+          ref: ${{ github.event.pull_request.base.ref }}
+          fetch-depth: 0
 
+      - name: Print checkout info (baseline)
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        run: |
+          set -euo pipefail
+          echo "### Baseline checkout"
+          echo
+          echo "- Repository: $(git config --get remote.origin.url)"
+          echo "- Branch: $(git rev-parse --abbrev-ref HEAD)"
+          echo "- Commit: $(git rev-parse HEAD)"
+          echo "- Subject: $(git log -1 --pretty=%s)"
+          echo "- Tags: $(git tag --points-at HEAD | tr '\n' ' ' || true)"
+          echo
+          echo "### Migration image"
+          echo
+          echo "- MIGRATION_IMAGE: ${MIGRATION_IMAGE}"
 
+      - name: Running backward compatibility tests in template mode
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        run: |
+          make integration-test VERBOSE=true
+        env:
+          DISABLE_FIPS: true
+          FLIGHTCTL_TEST_DB_STRATEGY: template
 

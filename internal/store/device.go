@@ -15,6 +15,7 @@ import (
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // DeviceStatusType represents the type of device status to query
@@ -45,22 +46,27 @@ type Device interface {
 	InitialMigration(ctx context.Context) error
 
 	// Exposed to users
-	Create(ctx context.Context, orgId uuid.UUID, device *api.Device, callback DeviceStoreCallback, eventCallback EventCallback) (*api.Device, error)
-	Update(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback DeviceStoreValidationCallback, callback DeviceStoreCallback, eventCallback EventCallback) (*api.Device, error)
-	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback DeviceStoreValidationCallback, callback DeviceStoreCallback, eventCallback EventCallback) (*api.Device, bool, error)
+	Create(ctx context.Context, orgId uuid.UUID, device *api.Device, eventCallback EventCallback) (*api.Device, error)
+	Update(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback DeviceStoreValidationCallback, eventCallback EventCallback) (*api.Device, error)
+	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback DeviceStoreValidationCallback, eventCallback EventCallback) (*api.Device, bool, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DeviceList, error)
 	Labels(ctx context.Context, orgId uuid.UUID, listParams ListParams) (api.LabelList, error)
-	Delete(ctx context.Context, orgId uuid.UUID, name string, callback DeviceStoreCallback, eventCallback EventCallback) (bool, error)
+	Delete(ctx context.Context, orgId uuid.UUID, name string, eventCallback EventCallback) (bool, error)
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, device *api.Device, eventCallback EventCallback) (*api.Device, error)
 	GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion *string, consoleGrpcEndpoint string) (*api.Device, error)
+	Healthcheck(ctx context.Context, orgId uuid.UUID, names []string) error
+	GetWithoutServiceConditions(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error)
 
 	// Used internally
 	UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error
-	UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications string) error
+	UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string) (string, error)
 	SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition, callback ServiceConditionsCallback) error
 	OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error
 	GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*api.RepositoryList, error)
+	PrepareDevicesAfterRestore(ctx context.Context) (int64, error)
+	RemoveConflictPausedAnnotation(ctx context.Context, orgId uuid.UUID, listParams ListParams) (int64, []string, error)
+	SetOutOfDate(ctx context.Context, orgId uuid.UUID, owner string) error
 
 	// Used only by rollout
 	Count(ctx context.Context, orgId uuid.UUID, listParams ListParams) (int64, error)
@@ -83,10 +89,7 @@ type DeviceStore struct {
 	genericStore *GenericStore[*model.Device, model.Device, api.Device, api.DeviceList]
 }
 
-type DeviceStoreCallback func(ctx context.Context, orgId uuid.UUID, before *api.Device, after *api.Device)
 type DeviceStoreValidationCallback func(ctx context.Context, before *api.Device, after *api.Device) error
-type DeviceStoreAllDeletedCallback func(ctx context.Context, orgId uuid.UUID)
-
 type ServiceConditionsCallback func(ctx context.Context, orgId uuid.UUID, device *api.Device, oldConditions, newConditions []api.Condition)
 
 // Make sure we conform to Device interface
@@ -299,22 +302,22 @@ func (s *DeviceStore) createDeviceLabelsTrigger(db *gorm.DB) error {
 	return nil
 }
 
-func (s *DeviceStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.Device, callback DeviceStoreCallback, eventCallback EventCallback) (*api.Device, error) {
-	device, err := s.genericStore.Create(ctx, orgId, resource, callback)
+func (s *DeviceStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.Device, eventCallback EventCallback) (*api.Device, error) {
+	device, err := s.genericStore.Create(ctx, orgId, resource)
 	name := lo.FromPtr(resource.Metadata.Name)
 	s.callEventCallback(ctx, eventCallback, orgId, name, nil, device, true, err)
 	return device, err
 }
 
-func (s *DeviceStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback DeviceStoreValidationCallback, callback DeviceStoreCallback, eventCallback EventCallback) (*api.Device, error) {
-	device, oldDevice, err := s.genericStore.Update(ctx, orgId, resource, fieldsToUnset, fromAPI, validationCallback, callback)
+func (s *DeviceStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback DeviceStoreValidationCallback, eventCallback EventCallback) (*api.Device, error) {
+	device, oldDevice, err := s.genericStore.Update(ctx, orgId, resource, fieldsToUnset, fromAPI, validationCallback)
 	name := lo.FromPtr(resource.Metadata.Name)
 	s.callEventCallback(ctx, eventCallback, orgId, name, oldDevice, device, false, err)
 	return device, err
 }
 
-func (s *DeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback DeviceStoreValidationCallback, callback DeviceStoreCallback, eventCallback EventCallback) (*api.Device, bool, error) {
-	device, oldDevice, created, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, fieldsToUnset, fromAPI, validationCallback, callback)
+func (s *DeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback DeviceStoreValidationCallback, eventCallback EventCallback) (*api.Device, bool, error) {
+	device, oldDevice, created, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, fieldsToUnset, fromAPI, validationCallback)
 	name := lo.FromPtr(resource.Metadata.Name)
 	s.callEventCallback(ctx, eventCallback, orgId, name, oldDevice, device, created, err)
 	return device, created, err
@@ -360,13 +363,14 @@ func (s *DeviceStore) Labels(ctx context.Context, orgId uuid.UUID, listParams Li
 	return labelStrings, nil
 }
 
-func (s *DeviceStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback DeviceStoreCallback, eventCallback EventCallback) (bool, error) {
+func (s *DeviceStore) Delete(ctx context.Context, orgId uuid.UUID, name string, eventCallback EventCallback) (bool, error) {
 	deleted, err := s.genericStore.Delete(
 		ctx,
 		model.Device{Resource: model.Resource{OrgID: orgId, Name: name}},
-		callback,
 		Resource{Table: "enrollment_requests", OrgID: orgId.String(), Name: name})
-	s.callEventCallback(ctx, eventCallback, orgId, name, nil, nil, false, err)
+	if deleted && eventCallback != nil {
+		s.callEventCallback(ctx, eventCallback, orgId, name, nil, nil, false, err)
+	}
 	return deleted, err
 }
 
@@ -511,7 +515,7 @@ func (s *DeviceStore) CountByLabels(ctx context.Context, orgId uuid.UUID, listPa
 
 	args := lo.Interleave(lo.ToAnySlice(groupBy), lo.Map(labelSymbols, func(s string, _ int) any { return gorm.Expr(s) }))
 	args = append(args, gorm.Expr("status -> 'summary' ->> 'status' <> 'Unknown'"), gorm.Expr("connected"))
-	args = append(args, gorm.Expr("status -> 'summary' ->> 'status' <> 'Unknown' and status -> 'config' ->> 'renderedVersion' <> COALESCE(annotations ->> ?, '')",
+	args = append(args, gorm.Expr("status -> 'summary' ->> 'status' <> 'Unknown' and status -> 'config' ->> 'renderedVersion' <> annotations ->> ?",
 		api.DeviceAnnotationRenderedVersion), gorm.Expr("busy_connected"))
 
 	query.Select(strings.Join(selectList, ","), args...)
@@ -587,22 +591,10 @@ func (s *DeviceStore) updateAnnotations(ctx context.Context, orgId uuid.UUID, na
 	}
 	existingAnnotations := util.EnsureMap(existingRecord.Annotations)
 
-	existingConsoleAnnotation := util.DefaultIfNotInMap(existingAnnotations, api.DeviceAnnotationConsole, "")
 	existingAnnotations = util.MergeLabels(existingAnnotations, annotations)
 
 	for _, deleteKey := range deleteKeys {
 		delete(existingAnnotations, deleteKey)
-	}
-	newConsoleAnnotation := util.DefaultIfNotInMap(existingAnnotations, api.DeviceAnnotationConsole, "")
-
-	// Changing the console annotation requires bumping the renderedVersion annotation
-	if existingConsoleAnnotation != newConsoleAnnotation {
-		nextRenderedVersion, err := api.GetNextDeviceRenderedVersion(existingAnnotations)
-		if err != nil {
-			return false, err
-		}
-
-		existingAnnotations[api.DeviceAnnotationRenderedVersion] = nextRenderedVersion
 	}
 
 	result = s.getDB(ctx).Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
@@ -626,23 +618,76 @@ func (s *DeviceStore) UpdateAnnotations(ctx context.Context, orgId uuid.UUID, na
 	})
 }
 
-func (s *DeviceStore) updateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications string) (retry bool, err error) {
+func (s *DeviceStore) healthcheck(ctx context.Context, orgId uuid.UUID, names []string) (bool, error) {
+	result := s.getDB(ctx).Model(&model.Device{}).Where("org_id = ? and name in (?)", orgId, names).Update(
+		"status", gorm.Expr(fmt.Sprintf(`jsonb_set(status, '{lastSeen}', '"%s"', true)`, time.Now().Format(time.RFC3339))))
+	err := ErrorFromGormError(result.Error)
+	if err != nil {
+		return strings.Contains(err.Error(), "deadlock"), err
+	}
+	if result.RowsAffected == 0 {
+		return true, flterrors.ErrNoRowsUpdated
+	}
+	return false, nil
+}
+
+func (s *DeviceStore) Healthcheck(ctx context.Context, orgId uuid.UUID, names []string) error {
+	return retryUpdate(func() (bool, error) {
+		return s.healthcheck(ctx, orgId, names)
+	})
+}
+
+func (s *DeviceStore) setOutOfDate(ctx context.Context, orgId uuid.UUID, owner string) (bool, error) {
+	err := s.getDB(ctx).Model(&model.Device{}).Where("org_id = ? AND owner = ? AND (status->'updated'->>'status' = ?)",
+		orgId, owner, api.DeviceUpdatedStatusUpToDate).Updates(map[string]any{
+		"status": gorm.Expr(`jsonb_set(jsonb_set(status, '{updated,status}', to_jsonb(?::text)),'{updated,info}', to_jsonb(?::text))`,
+			api.DeviceUpdatedStatusOutOfDate, api.DeviceOutOfSyncWithFleetText),
+		"resource_version": gorm.Expr("resource_version + 1"),
+	}).Error
+	if err != nil {
+		return strings.Contains(err.Error(), "deadlock"), ErrorFromGormError(err)
+	}
+	return false, nil
+}
+
+func (s *DeviceStore) SetOutOfDate(ctx context.Context, orgId uuid.UUID, owner string) error {
+	return retryUpdate(func() (bool, error) {
+		return s.setOutOfDate(ctx, orgId, owner)
+	})
+}
+
+func (s *DeviceStore) updateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string) (retry bool, renderedVersion string, err error) {
 	existingRecord := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
 	result := s.getDB(ctx).Take(&existingRecord)
 	if result.Error != nil {
-		return false, ErrorFromGormError(result.Error)
+		return false, "", ErrorFromGormError(result.Error)
 	}
 	existingAnnotations := util.EnsureMap(existingRecord.Annotations)
 
-	nextRenderedVersion, err := api.GetNextDeviceRenderedVersion(existingAnnotations)
-	if err != nil {
-		return false, err
+	var deviceStatus *api.DeviceStatus
+	if existingRecord.Status != nil {
+		deviceStatus = &existingRecord.Status.Data
 	}
+
+	nextRenderedVersion, err := api.GetNextDeviceRenderedVersion(existingAnnotations, deviceStatus)
+	if err != nil {
+		return false, "", err
+	}
+
+	hash := specHash
 
 	existingAnnotations[api.DeviceAnnotationRenderedVersion] = nextRenderedVersion
 	if lo.HasKey(existingAnnotations, api.DeviceAnnotationTemplateVersion) {
 		existingAnnotations[api.DeviceAnnotationRenderedTemplateVersion] = existingAnnotations[api.DeviceAnnotationTemplateVersion]
 	}
+	// Check if the rendered content has changed by comparing hashes
+	if lo.HasKey(existingAnnotations, api.DeviceAnnotationRenderedSpecHash) {
+		// if the hash is the same, we shouldn't update the rendered version
+		if existingAnnotations[api.DeviceAnnotationRenderedSpecHash] == hash {
+			return false, "", nil
+		}
+	}
+	existingAnnotations[api.DeviceAnnotationRenderedSpecHash] = hash
 
 	renderedApplicationsJSON := renderedApplications
 	if strings.TrimSpace(renderedApplications) == "" {
@@ -659,18 +704,26 @@ func (s *DeviceStore) updateRendered(ctx context.Context, orgId uuid.UUID, name,
 
 	err = ErrorFromGormError(result.Error)
 	if err != nil {
-		return strings.Contains(err.Error(), "deadlock"), err
+		return strings.Contains(err.Error(), "deadlock"), "", err
 	}
 	if result.RowsAffected == 0 {
-		return true, flterrors.ErrNoRowsUpdated
+		return true, "", flterrors.ErrNoRowsUpdated
 	}
-	return false, nil
+	return false, nextRenderedVersion, nil
 }
 
-func (s *DeviceStore) UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications string) error {
-	return retryUpdate(func() (bool, error) {
-		return s.updateRendered(ctx, orgId, name, renderedConfig, renderedApplications)
-	})
+func (s *DeviceStore) UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string) (string, error) {
+	var rv string
+
+	wrapper := func() (bool, error) {
+		var retry bool
+		var err error
+		retry, rv, err = s.updateRendered(ctx, orgId, name, renderedConfig, renderedApplications, specHash)
+		return retry, err
+	}
+
+	err := retryUpdate(wrapper)
+	return rv, err
 }
 
 func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion *string, consoleGrpcEndpoint string) (*api.Device, error) {
@@ -683,6 +736,18 @@ func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name str
 	}
 
 	return deviceModel.ToApiResource(model.WithRendered(knownRenderedVersion))
+}
+
+func (s *DeviceStore) GetWithoutServiceConditions(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error) {
+	deviceModel := model.Device{
+		Resource: model.Resource{OrgID: orgId, Name: name},
+	}
+	result := s.getDB(ctx).Take(&deviceModel)
+	if result.Error != nil {
+		return nil, ErrorFromGormError(result.Error)
+	}
+
+	return deviceModel.ToApiResource(model.WithoutServiceConditions())
 }
 
 func (s *DeviceStore) setServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition, callback ServiceConditionsCallback) (retry bool, err error) {
@@ -909,7 +974,7 @@ func (s *DeviceStore) CountByOrgAndStatus(ctx context.Context, orgId *uuid.UUID,
 	if groupByFleet {
 		selectList = append(selectList, "owner as fleet")
 	}
-	groupList := []string{"org_id", "status"}
+	groupList := []string{"org_id", statusField}
 	if groupByFleet {
 		groupList = append(groupList, "owner")
 	}
@@ -921,4 +986,85 @@ func (s *DeviceStore) CountByOrgAndStatus(ctx context.Context, orgId *uuid.UUID,
 		return nil, ErrorFromGormError(err)
 	}
 	return results, nil
+}
+
+// PrepareDevicesAfterRestore sets the waitingForConnectionAfterRestore annotation
+// on all devices, clears their lastSeen timestamps, and sets status summary using efficient SQL
+func (s *DeviceStore) PrepareDevicesAfterRestore(ctx context.Context) (int64, error) {
+	db := s.getDB(ctx)
+
+	// Use raw SQL for efficient bulk update that preserves existing annotations
+	// and properly handles the status JSON structure using || operator for merging
+	sql := `
+		UPDATE devices 
+		SET 
+			annotations = COALESCE(annotations, '{}'::jsonb) || jsonb_build_object($1::text, 'true'),
+			status = CASE 
+				WHEN status IS NOT NULL THEN 
+					(status - 'lastSeen') || jsonb_build_object('summary', jsonb_build_object('status', $2::text, 'info', $3::text))
+				ELSE 
+					jsonb_build_object('summary', jsonb_build_object('status', $2::text, 'info', $3::text))
+			END,
+			resource_version = COALESCE(resource_version, 0) + 1
+		WHERE deleted_at IS NULL 
+			AND NOT (status->'lifecycle'->>'status') IN ($4, $5)
+			AND (annotations->>$1) IS DISTINCT FROM 'true'
+	`
+
+	result := db.Exec(sql,
+		api.DeviceAnnotationAwaitingReconnect,
+		api.DeviceSummaryStatusAwaitingReconnect,
+		"Device is waiting for connection after restore",
+		api.DeviceLifecycleStatusDecommissioned,
+		api.DeviceLifecycleStatusDecommissioning,
+	)
+
+	if result.Error != nil {
+		return 0, ErrorFromGormError(result.Error)
+	}
+
+	return result.RowsAffected, nil
+}
+
+// RemoveConflictPausedAnnotation removes the conflictPaused annotation from all devices matching the selector
+// Returns the count of affected devices and their IDs
+func (s *DeviceStore) RemoveConflictPausedAnnotation(ctx context.Context, orgId uuid.UUID, listParams ListParams) (int64, []string, error) {
+	var affectedRows int64
+	var deviceIDs []string
+
+	err := retryUpdate(func() (bool, error) {
+		// Use RETURNING clause to get the names of actually updated devices
+		var updatedDevices []model.Device
+
+		query, err := ListQuery(&updatedDevices).BuildNoOrder(ctx, s.getDB(ctx), orgId, listParams)
+		if err != nil {
+			return false, err
+		}
+
+		// Only update devices that actually have the conflictPaused annotation
+		query = query.Where("annotations ? ?", gorm.Expr("?"), api.DeviceAnnotationConflictPaused)
+
+		result := query.
+			Clauses(clause.Returning{}).
+			Updates(map[string]any{
+				"annotations":      gorm.Expr("annotations - ?", api.DeviceAnnotationConflictPaused),
+				"resource_version": gorm.Expr("resource_version + 1"),
+			})
+
+		affectedRows = result.RowsAffected
+		err = ErrorFromGormError(result.Error)
+		if err != nil {
+			return strings.Contains(err.Error(), "deadlock"), err
+		}
+
+		// Extract device names from the returned devices
+		deviceIDs = make([]string, len(updatedDevices))
+		for i, device := range updatedDevices {
+			deviceIDs[i] = device.Name
+		}
+
+		return false, nil
+	})
+
+	return affectedRows, deviceIDs, err
 }

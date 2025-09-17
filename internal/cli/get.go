@@ -2,9 +2,7 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"net/http"
 	"os"
 	"reflect"
 	"slices"
@@ -275,6 +273,11 @@ func (o *GetOptions) handleList(
 func (o *GetOptions) handleListBatching(ctx context.Context, formatter display.OutputFormatter, c *apiclient.ClientWithResponses, kind string, requestedLimit int32) error {
 	var printedCount int32 = 0
 	o.Limit = 0 // Request server-side maximum (0 == capped)
+	summary := o.Summary
+	if kind == DeviceKind {
+		o.Summary = false // Disable summary for device batching, will be handled in the final output
+	}
+
 	for {
 		remaining := requestedLimit - printedCount
 		if requestedLimit > 0 && remaining <= maxRequestLimit {
@@ -305,6 +308,15 @@ func (o *GetOptions) handleListBatching(ctx context.Context, formatter display.O
 
 		o.Continue = *listMetadata.Continue
 	}
+
+	if summary && kind == DeviceKind {
+		o.Continue = ""      // Reset continue for summary output
+		o.Limit = 0          // Reset limit for summary output
+		o.SummaryOnly = true // Re-enable summary-only for the final output
+		_, err := o.listOnce(ctx, formatter, c, DeviceKind)
+		return err
+	}
+
 	return nil
 }
 
@@ -323,26 +335,19 @@ func (o *GetOptions) getSingleResource(ctx context.Context, c *apiclient.ClientW
 	switch kind {
 	case DeviceKind:
 		if o.Rendered {
-			return c.GetRenderedDeviceWithResponse(ctx, name, &api.GetRenderedDeviceParams{})
+			return GetRenderedDevice(ctx, c, name)
 		}
-		return c.GetDeviceWithResponse(ctx, name)
-	case EnrollmentRequestKind:
-		return c.GetEnrollmentRequestWithResponse(ctx, name)
+		return GetSingleResource(ctx, c, kind, name)
 	case FleetKind:
+		// FleetKind needs special handling for AddDevicesSummary parameter
 		params := api.GetFleetParams{
 			AddDevicesSummary: util.ToPtrWithNilDefault(o.Summary),
 		}
 		return c.GetFleetWithResponse(ctx, name, &params)
 	case TemplateVersionKind:
-		return c.GetTemplateVersionWithResponse(ctx, o.FleetName, name)
-	case RepositoryKind:
-		return c.GetRepositoryWithResponse(ctx, name)
-	case ResourceSyncKind:
-		return c.GetResourceSyncWithResponse(ctx, name)
-	case CertificateSigningRequestKind:
-		return c.GetCertificateSigningRequestWithResponse(ctx, name)
+		return GetTemplateVersion(ctx, c, o.FleetName, name)
 	default:
-		return nil, fmt.Errorf("unsupported resource kind: %s", kind)
+		return GetSingleResource(ctx, c, kind, name)
 	}
 }
 
@@ -420,30 +425,6 @@ func (o *GetOptions) getResourceList(ctx context.Context, c *apiclient.ClientWit
 	}
 }
 
-func validateResponse(response interface{}) error {
-	httpResponse, err := responseField[*http.Response](response, "HTTPResponse")
-	if err != nil {
-		return err
-	}
-
-	responseBody, err := responseField[[]byte](response, "Body")
-	if err != nil {
-		return err
-	}
-
-	if httpResponse.StatusCode != http.StatusOK {
-		if strings.Contains(httpResponse.Header.Get("Content-Type"), "json") {
-			var dest api.Status
-			if err := json.Unmarshal(responseBody, &dest); err != nil {
-				return fmt.Errorf("unmarshalling error: %w", err)
-			}
-			return fmt.Errorf("response status: %d, message: %s", httpResponse.StatusCode, dest.Message)
-		}
-		return fmt.Errorf("response status: %d", httpResponse.StatusCode)
-	}
-	return nil
-}
-
 func (o *GetOptions) displayResponse(formatter display.OutputFormatter, response interface{}, kind string, name string) error {
 	options := display.FormatOptions{
 		Kind:        kind,
@@ -456,7 +437,7 @@ func (o *GetOptions) displayResponse(formatter display.OutputFormatter, response
 
 	// For structured formats, use JSON200 data
 	if o.Output == string(display.JSONFormat) || o.Output == string(display.YAMLFormat) || o.Output == string(display.NameFormat) {
-		json200, err := responseField[interface{}](response, "JSON200")
+		json200, err := ExtractJSON200(response)
 		if err != nil {
 			return err
 		}
@@ -469,7 +450,7 @@ func (o *GetOptions) displayResponse(formatter display.OutputFormatter, response
 
 // getListMetadata extracts the ListMeta and the number of items from a list response.
 func getListMetadata(response interface{}) (*api.ListMeta, int, error) {
-	json200, err := responseField[interface{}](response, "JSON200")
+	json200, err := ExtractJSON200(response)
 	if err != nil {
 		return nil, 0, err
 	}

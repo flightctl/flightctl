@@ -20,6 +20,8 @@ tags:
     description: Operations on CertificateSigningRequest resources.
   - name: device
     description: Operations on Device resources.
+  - name: deviceactions
+    description: Operations for device actions.
   - name: enrollmentrequest
     description: Operations on EnrollmentRequest resources.
   - name: event
@@ -1456,6 +1458,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+
   /api/v1/devices/{name}/rendered:
     get:
       tags:
@@ -1505,6 +1508,59 @@ paths:
                 $ref: '#/components/schemas/Status'
         "409":
           description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+
+  /api/v1/deviceactions/resume:
+    post:
+      tags:
+        - deviceactions
+      description: Resume devices based on label selector and/or field selector.
+      operationId: resumeDevices
+      x-rbac:
+        resource: devices/resume
+        action: update
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceResumeRequest'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceResumeResponse'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
           content:
             application/json:
               schema:
@@ -1577,6 +1633,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+
   /api/v1/enrollmentrequests:
     get:
       tags:
@@ -3552,6 +3609,40 @@ components:
       required:
         - target
       description: Metadata about a device decommissioning request.
+
+    DeviceResumeRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        labelSelector:
+          type: string
+          description: A selector to restrict the list of devices to resume by their labels. Uses the same format as Kubernetes label selectors (e.g., "key1=value1,key2!=value2").
+        fieldSelector:
+          type: string
+          description: A selector to restrict the list of devices to resume by their fields. Uses the same format as Kubernetes field selectors (e.g., "metadata.name=device1,status.phase!=Pending").
+      anyOf:
+        - required:
+            - labelSelector
+        - required:
+            - fieldSelector
+      description: Request to resume devices based on label selector and/or field selector. At least one selector must be provided.
+      example:
+        labelSelector: "environment=production,tier=frontend"
+
+    DeviceResumeResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - resumedDevices
+      properties:
+        resumedDevices:
+          type: integer
+          description: Number of devices that were successfully resumed.
+      description: Response from resuming devices.
+      example:
+        resumedDevices: 3
+
+
     PatchRequest:
       type: array
       items:
@@ -3573,6 +3664,7 @@ components:
               - add
               - replace
               - remove
+              - test
     Repository:
       type: object
       properties:
@@ -4481,6 +4573,8 @@ components:
         - "Rebooting"
         - "PoweredOff"
         - "Unknown"
+        - "AwaitingReconnect"
+        - "ConflictPaused"
       x-enum-varnames:
         - "DeviceSummaryStatusOnline"
         - "DeviceSummaryStatusDegraded"
@@ -4488,6 +4582,8 @@ components:
         - "DeviceSummaryStatusRebooting"
         - "DeviceSummaryStatusPoweredOff"
         - "DeviceSummaryStatusUnknown"
+        - "DeviceSummaryStatusAwaitingReconnect"
+        - "DeviceSummaryStatusConflictPaused"
     DeviceUpdatedStatus:
       type: object
       description: Current status of the device update.
@@ -5180,10 +5276,23 @@ components:
         authURL:
           type: string
           description: Auth URL.
+        authOrganizationsConfig:
+          $ref: '#/components/schemas/AuthOrganizationsConfig'
       required:
         - authType
         - authURL
+        - authOrganizationsConfig
       description: Auth config.
+    AuthOrganizationsConfig:
+      type: object
+      description: Auth related organizations configuration.
+      properties:
+        enabled:
+          type: boolean
+          description: If true, support for IdP provided organizations is enabled.
+          default: false
+      required:
+        - enabled
     ListMeta:
       type: object
       properties:
@@ -5341,6 +5450,7 @@ components:
       description: Type of condition in CamelCase.
       enum:
       - 'Approved'              # EnrollmentRequest
+      - 'TPMVerified'           # EnrollmentRequest
       - 'Approved'              # CertificateSigningRequest
       - 'Denied'                # CertificateSigningRequest
       - 'Failed'                # CertificateSigningRequest
@@ -5356,6 +5466,7 @@ components:
       - 'DeviceDecommissioning' # Device
       x-enum-varnames:
       - EnrollmentRequestApproved
+      - EnrollmentRequestTPMVerified
       - CertificateSigningRequestApproved
       - CertificateSigningRequestDenied
       - CertificateSigningRequestFailed
@@ -5483,6 +5594,7 @@ components:
         - version
     Event:
       type: object
+      description: Event represents a single event that occurred in the system.
       required:
         - apiVersion
         - kind
@@ -5530,6 +5642,8 @@ components:
             - DeviceApplicationHealthy
             - DeviceDisconnected
             - DeviceIsRebooting
+            - DeviceConflictPaused
+            - DeviceConflictResolved
             - DeviceConnected
             - DeviceContentUpToDate
             - DeviceContentOutOfDate
@@ -5542,6 +5656,7 @@ components:
             - DeviceSpecValid
             - DeviceSpecInvalid
             - InternalTaskFailed
+            - InternalTaskPermanentlyFailed
             - RepositoryAccessible
             - RepositoryInaccessible
             - ReferencedRepositoryUpdated
@@ -5561,6 +5676,7 @@ components:
             - ResourceSyncParsingFailed
             - ResourceSyncSynced
             - ResourceSyncSyncFailed
+            - SystemRestored
         message:
           type: string
           description: A human-readable description of the status of this operation.
@@ -5634,6 +5750,7 @@ components:
           DeviceMultipleOwnersDetected: "#/components/schemas/DeviceMultipleOwnersDetectedDetails"
           DeviceMultipleOwnersResolved: "#/components/schemas/DeviceMultipleOwnersResolvedDetails"
           InternalTaskFailed: "#/components/schemas/InternalTaskFailedDetails"
+          InternalTaskPermanentlyFailed: "#/components/schemas/InternalTaskPermanentlyFailedDetails"
           ResourceSyncCompleted: "#/components/schemas/ResourceSyncCompletedDetails"
           ReferencedRepositoryUpdated: "#/components/schemas/ReferencedRepositoryUpdatedDetails"
           FleetRolloutStarted: "#/components/schemas/FleetRolloutStartedDetails"
@@ -5648,6 +5765,7 @@ components:
         - $ref: "#/components/schemas/DeviceMultipleOwnersDetectedDetails"
         - $ref: "#/components/schemas/DeviceMultipleOwnersResolvedDetails"
         - $ref: "#/components/schemas/InternalTaskFailedDetails"
+        - $ref: "#/components/schemas/InternalTaskPermanentlyFailedDetails"
         - $ref: "#/components/schemas/ResourceSyncCompletedDetails"
         - $ref: "#/components/schemas/ReferencedRepositoryUpdatedDetails"
         - $ref: "#/components/schemas/FleetRolloutStartedDetails"
@@ -5739,27 +5857,41 @@ components:
       type: object
       required:
         - detailType
-        - taskType
         - errorMessage
+        - originalEvent
       properties:
         detailType:
           type: string
           enum: [InternalTaskFailed]
           description: The type of detail for discriminator purposes.
-        taskType:
-          type: string
-          description: The type of internal task that failed.
         errorMessage:
           type: string
           description: The error message describing the failure.
         retryCount:
           type: integer
           description: Number of times the task has been retried.
-        taskParameters:
-          type: object
-          additionalProperties:
-            type: string
-          description: Parameters needed to retry the task.
+        originalEvent:
+          $ref: '#/components/schemas/Event'
+    InternalTaskPermanentlyFailedDetails:
+      type: object
+      required:
+        - detailType
+        - errorMessage
+        - retryCount
+        - originalEvent
+      properties:
+        detailType:
+          type: string
+          enum: [InternalTaskPermanentlyFailed]
+          description: The type of detail for discriminator purposes.
+        errorMessage:
+          type: string
+          description: The error message describing the permanent failure.
+        retryCount:
+          type: integer
+          description: Number of times the task was retried before being marked as permanently failed.
+        originalEvent:
+          $ref: '#/components/schemas/Event'
     ResourceSyncCompletedDetails:
       type: object
       required:

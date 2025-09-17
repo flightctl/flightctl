@@ -13,7 +13,7 @@ import (
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
-	"github.com/flightctl/flightctl/internal/tasks_client"
+	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/flightctl/flightctl/test/util"
@@ -47,12 +47,13 @@ func BenchmarkDeviceDisconnectedPoll(b *testing.B) {
 		dbStore, cfg, dbName, db := store.PrepareDBForUnitTests(ctx, log)
 
 		ctrl := gomock.NewController(b)
-		mockPublisher := queues.NewMockPublisher(ctrl)
-		callbackManager := tasks_client.NewCallbackManager(mockPublisher, log)
-		mockPublisher.EXPECT().Publish(gomock.Any(), gomock.Any()).AnyTimes()
+		mockQueueProducer := queues.NewMockQueueProducer(ctrl)
+		workerClient := worker_client.NewWorkerClient(mockQueueProducer, log)
+		mockQueueProducer.EXPECT().Enqueue(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		require.NoError(err)
-		serviceHandler := service.NewServiceHandler(dbStore, callbackManager, kvStore, nil, log, "", "", []string{})
+		orgResolver := util.NewOrgResolver(cfg, dbStore.Organization(), log)
+		serviceHandler := service.NewServiceHandler(dbStore, workerClient, kvStore, nil, log, "", "", []string{}, orgResolver)
 
 		devices := generateMockDevices(deviceCount)
 		err = batchCreateDevices(ctx, db, devices, deviceCount)
@@ -63,6 +64,7 @@ func BenchmarkDeviceDisconnectedPoll(b *testing.B) {
 			deviceNames[i] = fmt.Sprintf("device-%d", i)
 		}
 		cleanupFn := func() {
+			kvStore.Close()
 			dbStore.Close()
 			store.DeleteTestDB(ctx, log, cfg, dbStore, dbName)
 		}

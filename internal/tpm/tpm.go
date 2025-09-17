@@ -75,6 +75,10 @@ type Session interface {
 	GetPublicKey(keyType KeyType) (*tpm2.TPM2BPublic, error)
 	// GetEndorsementKeyCert returns the endorsement key certificate
 	GetEndorsementKeyCert() ([]byte, error)
+	// GenerateChallenge creates a credential challenge used to prove ownership
+	GenerateChallenge(secret []byte) ([]byte, []byte, error)
+	// SolveChallenge decrypts the encryptedSecret to prove ownership of the credentials
+	SolveChallenge(credentialBlob, encryptedSecret []byte) ([]byte, error)
 	// FlushAllTransientHandles aggressively flushes all transient handles
 	FlushAllTransientHandles() error
 	// Clear performs a best-effort clear of the TPM, resetting keys and auth

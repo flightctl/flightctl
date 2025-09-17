@@ -10,7 +10,9 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/rendered"
 	"github.com/flightctl/flightctl/internal/service"
+	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -52,10 +54,19 @@ func NewConsoleSessionManager(serviceHandler service.Service, log logrus.FieldLo
 	}
 }
 
+// Extracts organization ID from context with fallback to default
+func getOrgIdFromContext(ctx context.Context) uuid.UUID {
+	if orgId, ok := util.GetOrgIdFromContext(ctx); ok {
+		return orgId
+	}
+	return store.NullOrgId
+}
+
 func (m *ConsoleSessionManager) modifyAnnotations(ctx context.Context, deviceName string, updater func(value string) (string, error)) error {
 	var (
-		err      error
-		newValue string
+		err                 error
+		newValue            string
+		nextRenderedVersion string
 	)
 	for i := 0; i != 10; i++ {
 		device, status := m.serviceHandler.GetDevice(ctx, deviceName)
@@ -63,13 +74,23 @@ func (m *ConsoleSessionManager) modifyAnnotations(ctx context.Context, deviceNam
 			return service.ApiStatusToErr(status)
 		}
 		device.Metadata.Annotations = lo.ToPtr(util.EnsureMap(lo.FromPtr(device.Metadata.Annotations)))
-		value, _ := util.GetFromMap(lo.FromPtr(device.Metadata.Annotations), api.DeviceAnnotationConsole)
+
+		// Check if device is in waiting or paused state - prevent console updates
+		annotations := lo.FromPtr(device.Metadata.Annotations)
+		if waitingValue, exists := annotations[api.DeviceAnnotationAwaitingReconnect]; exists && waitingValue == "true" {
+			return fmt.Errorf("cannot update console for device %s: device is awaiting reconnection after restore", deviceName)
+		}
+		if pausedValue, exists := annotations[api.DeviceAnnotationConflictPaused]; exists && pausedValue == "true" {
+			return fmt.Errorf("cannot update console for device %s: device is paused due to conflicts", deviceName)
+		}
+
+		value, _ := util.GetFromMap(annotations, api.DeviceAnnotationConsole)
 		newValue, err = updater(value)
 		if err != nil {
 			return err
 		}
 		(*device.Metadata.Annotations)[api.DeviceAnnotationConsole] = newValue
-		nextRenderedVersion, err := api.GetNextDeviceRenderedVersion(*device.Metadata.Annotations)
+		nextRenderedVersion, err = api.GetNextDeviceRenderedVersion(*device.Metadata.Annotations, device.Status)
 		if err != nil {
 			return err
 		}
@@ -79,6 +100,9 @@ func (m *ConsoleSessionManager) modifyAnnotations(ctx context.Context, deviceNam
 		if !errors.Is(err, flterrors.ErrResourceVersionConflict) {
 			break
 		}
+	}
+	if err == nil {
+		err = rendered.Bus.Instance().StoreAndNotify(ctx, getOrgIdFromContext(ctx), deviceName, nextRenderedVersion)
 	}
 	return err
 }

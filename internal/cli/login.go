@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
@@ -52,8 +53,18 @@ func NewCmdLogin() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "login [URL] [flags]",
 		Short: "Login to flight control",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// If no arguments provided, show help
+			if len(args) == 0 {
+				return cmd.Help()
+			}
+
+			// If "help" is provided as an argument, show help
+			if args[0] == "help" {
+				return cmd.Help()
+			}
+
 			if err := o.Complete(cmd, args); err != nil {
 				return err
 			}
@@ -61,9 +72,6 @@ func NewCmdLogin() *cobra.Command {
 				return err
 			}
 			if err := o.Init(args); err != nil {
-				return err
-			}
-			if err := o.ValidateAuthProvider(args); err != nil {
 				return err
 			}
 			ctx, cancel := o.WithTimeout(cmd.Context())
@@ -106,59 +114,21 @@ func (o *LoginOptions) Complete(cmd *cobra.Command, args []string) error {
 
 func (o *LoginOptions) Init(args []string) error {
 	var err error
-	o.clientConfig, err = o.getClientConfig(args[0])
+	// Use trimmed URL for client config to handle whitespace
+	trimmedURL := strings.TrimSpace(args[0])
+	o.clientConfig, err = o.getClientConfig(trimmedURL)
 	if err != nil {
 		return err
 	}
-	o.authConfig, err = o.getAuthConfig()
-	if err != nil {
-		return fmt.Errorf("failed to get auth info: %w", err)
-	}
-	if o.authConfig == nil {
-		// auth disabled
-		return nil
-	}
-
-	if o.ClientId == "" {
-		switch o.authConfig.AuthType {
-		case common.AuthTypeK8s:
-			if o.Username != "" {
-				o.ClientId = "openshift-challenging-client"
-			} else {
-				o.ClientId = "openshift-cli-client"
-			}
-		case common.AuthTypeOIDC:
-			o.ClientId = "flightctl"
-		}
-	}
-	o.authProvider, err = client.CreateAuthProvider(client.AuthInfo{
-		AuthProvider: &client.AuthProviderConfig{
-			Name: o.authConfig.AuthType,
-			Config: map[string]string{
-				client.AuthUrlKey:      o.authConfig.AuthURL,
-				client.AuthCAFileKey:   o.AuthCAFile,
-				client.AuthClientIdKey: o.ClientId,
-			},
-		},
-	}, o.InsecureSkipVerify)
-	return err
+	return nil
 }
 
 func (o *LoginOptions) Validate(args []string) error {
 	if err := o.GlobalOptions.ValidateCmd(args); err != nil {
 		return err
 	}
-	parsedUrl, err := url.Parse(args[0])
-	if err != nil {
-		return fmt.Errorf("API URL is not a valid URL: %w", err)
-	}
-	if parsedUrl.Scheme != "https" {
-		return fmt.Errorf("the API URL must use HTTPS for secure communication. Please ensure the API URL starts with 'https://' and try again")
-	}
-	if parsedUrl.Host == "" {
-		return fmt.Errorf("API URL is not a valid URL")
-	}
 
+	// Validate authentication flag conflicts
 	if !login.StrIsEmpty(o.AccessToken) && (!login.StrIsEmpty(o.Username) || !login.StrIsEmpty(o.Password) || o.Web) {
 		return fmt.Errorf("--token cannot be used along with --username, --password or --web")
 	}
@@ -174,12 +144,59 @@ func (o *LoginOptions) Validate(args []string) error {
 	return nil
 }
 
-func (o *LoginOptions) ValidateAuthProvider(args []string) error {
-	if o.authProvider == nil {
+func (o *LoginOptions) Run(ctx context.Context, args []string) error {
+	var (
+		authCAFile string
+		err        error
+	)
+
+	// Get auth config with timeout-aware context
+	o.authConfig, err = o.getAuthConfig(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get auth info: %w", err)
+	}
+	if o.authConfig == nil {
+		// auth disabled
+		fmt.Println("Auth is disabled")
+		if err := o.clientConfig.Persist(o.ConfigFilePath); err != nil {
+			return fmt.Errorf("persisting client config: %w", err)
+		}
 		return nil
 	}
+
+	// Set up ClientId if not provided
+	if o.ClientId == "" {
+		switch o.authConfig.AuthType {
+		case common.AuthTypeK8s:
+			if o.Username != "" {
+				o.ClientId = "openshift-challenging-client"
+			} else {
+				o.ClientId = "openshift-cli-client"
+			}
+		case common.AuthTypeOIDC:
+			o.ClientId = "flightctl"
+		}
+	}
+
+	// Create auth provider
+	o.authProvider, err = client.CreateAuthProvider(client.AuthInfo{
+		AuthProvider: &client.AuthProviderConfig{
+			Name: o.authConfig.AuthType,
+			Config: map[string]string{
+				client.AuthUrlKey:      o.authConfig.AuthURL,
+				client.AuthCAFileKey:   o.AuthCAFile,
+				client.AuthClientIdKey: o.ClientId,
+			},
+		},
+		OrganizationsEnabled: o.authConfig.AuthOrganizationsConfig.Enabled,
+	}, o.InsecureSkipVerify)
+	if err != nil {
+		return fmt.Errorf("creating auth provider: %w", err)
+	}
+
+	// Validate auth provider
 	validateArgs := login.ValidateArgs{
-		ApiUrl:      args[0],
+		ApiUrl:      o.clientConfig.Service.Server,
 		ClientId:    o.ClientId,
 		AccessToken: o.AccessToken,
 		Username:    o.Username,
@@ -194,21 +211,7 @@ func (o *LoginOptions) ValidateAuthProvider(args []string) error {
 		fmt.Printf("You must obtain API token, then login via \"flightctl login %s --token=<token>\"\n", o.clientConfig.Service.Server)
 		return fmt.Errorf("must provide --token")
 	}
-	return nil
-}
 
-func (o *LoginOptions) Run(ctx context.Context, args []string) error {
-	var (
-		authCAFile string
-		err        error
-	)
-	if o.authProvider == nil {
-		fmt.Println("Auth is disabled")
-		if err := o.clientConfig.Persist(o.ConfigFilePath); err != nil {
-			return fmt.Errorf("persisting client config: %w", err)
-		}
-		return nil
-	}
 	o.clientConfig.AuthInfo.AuthProvider = &client.AuthProviderConfig{
 		Name: o.authConfig.AuthType,
 		Config: map[string]string{
@@ -265,7 +268,7 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 	return nil
 }
 
-func (o *LoginOptions) getAuthConfig() (*v1alpha1.AuthConfig, error) {
+func (o *LoginOptions) getAuthConfig(ctx context.Context) (*v1alpha1.AuthConfig, error) {
 	httpClient, err := client.NewHTTPClientFromConfig(o.clientConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create http client: %w", err)
@@ -274,9 +277,33 @@ func (o *LoginOptions) getAuthConfig() (*v1alpha1.AuthConfig, error) {
 	if err != nil {
 		return nil, fmt.Errorf("creating client: %w", err)
 	}
-	resp, err := c.AuthConfigWithResponse(context.Background())
+	resp, err := c.AuthConfigWithResponse(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get auth info: %w", err)
+		// Enhanced error handling for network issues
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "connection refused") {
+			// Add URL validation suggestions
+			validationErr := o.validateURLFormat(o.clientConfig.Service.Server)
+			if validationErr != nil {
+				return nil, fmt.Errorf("cannot connect to the API server at %s. The server may be down or not accessible. %s", o.clientConfig.Service.Server, validationErr.Error())
+			}
+			return nil, fmt.Errorf("cannot connect to the API server at %s. The server may be down or not accessible. Please verify the URL and try again", o.clientConfig.Service.Server)
+		}
+		if strings.Contains(errMsg, "no such host") || strings.Contains(errMsg, "dns") {
+			// Add URL validation suggestions
+			validationErr := o.validateURLFormat(o.clientConfig.Service.Server)
+			if validationErr != nil {
+				return nil, fmt.Errorf("cannot resolve hostname for %s. %s", o.clientConfig.Service.Server, validationErr.Error())
+			}
+			return nil, fmt.Errorf("cannot resolve hostname for %s. Please check the URL and ensure the hostname is correct", o.clientConfig.Service.Server)
+		}
+		if strings.Contains(errMsg, "timeout") || strings.Contains(errMsg, "deadline exceeded") {
+			return nil, fmt.Errorf("connection to %s timed out. Please check your network connection and try again", o.clientConfig.Service.Server)
+		}
+		if strings.Contains(errMsg, "certificate") || strings.Contains(errMsg, "tls") {
+			return nil, fmt.Errorf("TLS certificate error when connecting to %s. Provide a CA bundle with --certificate-authority=<path-to-ca.crt> or, for development only, use --insecure-skip-tls-verify", o.clientConfig.Service.Server)
+		}
+		return nil, fmt.Errorf("failed to get auth info from %s: %w", o.clientConfig.Service.Server, err)
 	}
 
 	respCode := resp.StatusCode()
@@ -286,11 +313,11 @@ func (o *LoginOptions) getAuthConfig() (*v1alpha1.AuthConfig, error) {
 	}
 
 	if respCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected response code: %v", respCode)
+		return nil, fmt.Errorf("unexpected response code %v from %s. Please verify that the API URL is correct and the server is running", respCode, o.clientConfig.Service.Server)
 	}
 
 	if resp.JSON200 == nil {
-		return nil, fmt.Errorf("unexpected response. Please verify that the API URL is correct")
+		return nil, fmt.Errorf("unexpected response from %s. Please verify that the API URL is correct and points to a valid Flight Control API server", o.clientConfig.Service.Server)
 	}
 
 	return resp.JSON200, nil
@@ -313,4 +340,49 @@ func (o *LoginOptions) getClientConfig(apiUrl string) (*client.Config, error) {
 	}
 
 	return config, nil
+}
+
+// validateURLFormat provides helpful suggestions when URL format issues are detected after failed login attempts
+func (o *LoginOptions) validateURLFormat(urlStr string) error {
+	parsedUrl, err := url.Parse(urlStr)
+	if err != nil {
+		return fmt.Errorf("%s format issue detected: %w. Please ensure the URL follows the format: https://hostname[:port]", urlStr, err)
+	}
+
+	// Check for common URL format issues that might not be caught by basic validation
+	if strings.Contains(parsedUrl.Host, "//") {
+		return fmt.Errorf("%s contains double slashes in the hostname. This is likely a formatting error. Please ensure the URL format is: https://hostname[:port]", urlStr)
+	}
+
+	// Check for path components that might indicate user error
+	if parsedUrl.Path != "" && parsedUrl.Path != "/" {
+		host := parsedUrl.Hostname()
+		correctedURL := parsedUrl.Scheme + "://" + host
+		if parsedUrl.Port() != "" {
+			correctedURL = parsedUrl.Scheme + "://" + host + ":" + parsedUrl.Port()
+		}
+		return fmt.Errorf("%s contains path component '%s' which may not be needed. Try: %s", urlStr, parsedUrl.Path, correctedURL)
+	}
+
+	// Check for query parameters that might indicate user error
+	if parsedUrl.RawQuery != "" {
+		host := parsedUrl.Hostname()
+		correctedURL := parsedUrl.Scheme + "://" + host
+		if parsedUrl.Port() != "" {
+			correctedURL = parsedUrl.Scheme + "://" + host + ":" + parsedUrl.Port()
+		}
+		return fmt.Errorf("%s contains query parameters '?%s' which may not be needed. Try: %s", urlStr, parsedUrl.RawQuery, correctedURL)
+	}
+
+	// Check for fragments that might indicate user error
+	if parsedUrl.Fragment != "" {
+		host := parsedUrl.Hostname()
+		correctedURL := parsedUrl.Scheme + "://" + host
+		if parsedUrl.Port() != "" {
+			correctedURL = parsedUrl.Scheme + "://" + host + ":" + parsedUrl.Port()
+		}
+		return fmt.Errorf("%s contains fragment '#%s' which may not be needed. Try: %s", urlStr, parsedUrl.Fragment, correctedURL)
+	}
+
+	return nil
 }

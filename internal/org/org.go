@@ -27,3 +27,10 @@ func MustParse(s string) uuid.UUID {
 	}
 	return id
 }
+
+// ExternalOrganization represents an organization as asserted by an external identity provider.
+// ID is the provider's opaque identifier (may not be a UUID).
+type ExternalOrganization struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}

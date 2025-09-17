@@ -31,6 +31,7 @@ type Store interface {
 	Checkpoint() Checkpoint
 	Organization() Organization
 	RunMigrations(context.Context) error
+	CheckHealth(context.Context) error
 	Close() error
 }
 
@@ -105,6 +106,27 @@ func (s *DataStore) Organization() Organization {
 	return s.organization
 }
 
+// CheckHealth verifies database connectivity and ensures the instance is not in recovery.
+func (s *DataStore) CheckHealth(ctx context.Context) error {
+	if s.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+	// Connectivity
+	sqlDB, err := s.db.DB()
+	if err != nil {
+		return fmt.Errorf("db handle error: %w", err)
+	}
+	if err := sqlDB.PingContext(ctx); err != nil {
+		return fmt.Errorf("db ping error: %w", err)
+	}
+	// Execute a simple query to confirm basic read capability
+	var one int
+	if err := s.db.WithContext(ctx).Raw("SELECT 1").Scan(&one).Error; err != nil {
+		return fmt.Errorf("db simple query error: %w", err)
+	}
+	return nil
+}
+
 func (s *DataStore) RunMigrationWithMigrationUser(ctx context.Context, cfg *config.Config, log *logrus.Logger) error {
 	ctx, span := tracing.StartSpan(ctx, "flightctl/store", "RunMigrationWithMigrationUser")
 	defer span.End()
@@ -114,11 +136,6 @@ func (s *DataStore) RunMigrationWithMigrationUser(ctx context.Context, cfg *conf
 	if err != nil {
 		return fmt.Errorf("failed to create migration database connection: %w", err)
 	}
-	defer func() {
-		if sqlDB, err := migrationDB.DB(); err == nil {
-			sqlDB.Close()
-		}
-	}()
 
 	// Create migration store with migration user
 	migrationStore := NewStore(migrationDB, log.WithField("pkg", "migration-store"))
@@ -241,7 +258,7 @@ func ParseContinueString(contStr *string) (*Continue, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := json.Unmarshal(sDec, &cont); err != nil {
+	if err = json.Unmarshal(sDec, &cont); err != nil {
 		return nil, err
 	}
 	if cont.Version != CurrentContinueVersion {

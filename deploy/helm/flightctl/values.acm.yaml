@@ -16,3 +16,5 @@ alertmanager:
     image: registry.redhat.io/rhacm2/prometheus-alertmanager-rhel9
     tag: v2.13.2
 
+telemetryGateway:
+  enabled: false

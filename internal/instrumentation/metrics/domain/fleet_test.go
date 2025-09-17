@@ -30,15 +30,15 @@ func (m *MockFleetStore) InitialMigration(ctx context.Context) error {
 	return nil
 }
 
-func (m *MockFleetStore) Create(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, callback store.FleetStoreCallback, callbackEvent store.EventCallback) (*api.Fleet, error) {
+func (m *MockFleetStore) Create(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, callback store.EventCallback) (*api.Fleet, error) {
 	return nil, nil
 }
 
-func (m *MockFleetStore) Update(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, fieldsToUnset []string, fromAPI bool, callback store.FleetStoreCallback, callbackEvent store.EventCallback) (*api.Fleet, error) {
+func (m *MockFleetStore) Update(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, fieldsToUnset []string, fromAPI bool, callback store.EventCallback) (*api.Fleet, error) {
 	return nil, nil
 }
 
-func (m *MockFleetStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, fieldsToUnset []string, fromAPI bool, callback store.FleetStoreCallback, callbackEvent store.EventCallback) (*api.Fleet, bool, error) {
+func (m *MockFleetStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, fieldsToUnset []string, fromAPI bool, callback store.EventCallback) (*api.Fleet, bool, error) {
 	return nil, false, nil
 }
 
@@ -70,7 +70,7 @@ func (m *MockFleetStore) List(ctx context.Context, orgId uuid.UUID, listParams s
 	return m.fleetList, nil
 }
 
-func (m *MockFleetStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback store.FleetStoreCallback, callbackEvent store.EventCallback) error {
+func (m *MockFleetStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback store.EventCallback) error {
 	return nil
 }
 
@@ -170,12 +170,16 @@ func (m *MockFleetStoreWrapper) Close() error {
 	return nil
 }
 
+func (m *MockFleetStoreWrapper) CheckHealth(context.Context) error {
+	return nil
+}
+
 func TestFleetCollector(t *testing.T) {
-	// Provide mock SQL results for org/status aggregation
+	// Provide mock SQL results for org/status aggregation using RolloutInProgress condition reasons
 	mockResults := []store.CountByRolloutStatusResult{
-		{OrgID: "org1", Status: "Ready", Count: 2},
-		{OrgID: "org1", Status: "Progressing", Count: 1},
-		{OrgID: "org2", Status: "Ready", Count: 3},
+		{OrgID: "org1", Status: "Active", Count: 2},
+		{OrgID: "org1", Status: "Suspended", Count: 1},
+		{OrgID: "org2", Status: "Inactive", Count: 3},
 	}
 
 	mockFleetStore := &MockFleetStore{
@@ -235,8 +239,8 @@ func TestFleetCollectorWithOrgFilter(t *testing.T) {
 	// Test that org filtering works correctly
 	mockFleetStore := &MockFleetStore{
 		rolloutStatusCounts: []store.CountByRolloutStatusResult{
-			{OrgID: "org1", Status: "1", Count: 1},
-			{OrgID: "org1", Status: "2", Count: 1},
+			{OrgID: "org1", Status: "Active", Count: 1},
+			{OrgID: "org1", Status: "Waiting", Count: 1},
 		},
 	}
 

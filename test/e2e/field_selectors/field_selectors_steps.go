@@ -81,7 +81,7 @@ func createDevicesWithNamePrefixAndFleet(harness *e2e.Harness, count int, namePr
 		return fmt.Errorf("fleet name cannot be empty")
 	}
 	for i := 0; i < count; i++ {
-		deviceName := fmt.Sprintf("%s%d", namePrefix, i)
+		deviceName := fmt.Sprintf("%s-%s-%d", namePrefix, harness.GetTestIDFromContext(), i)
 		device, err := resources.CreateDevice(harness, deviceName, &map[string]string{"fleet": fleetName})
 		if err != nil {
 			return fmt.Errorf("failed to create device '%s': %w", deviceName, err)
@@ -110,7 +110,7 @@ func createFleetsWithNamePrefix(harness *e2e.Harness, count int, namePrefix stri
 		return fmt.Errorf("name prefix cannot be empty")
 	}
 	for i := 0; i < count; i++ {
-		fleetName := fmt.Sprintf("%s%d", namePrefix, i)
+		fleetName := fmt.Sprintf("%s-%s-%d", namePrefix, harness.GetTestIDFromContext(), i)
 		fleet, err := resources.CreateFleet(harness, fleetName, templateImage, &map[string]string{"fleet": fleetName})
 		if err != nil {
 			return fmt.Errorf("failed to create fleet '%s': %w", fleetName, err)
@@ -128,8 +128,8 @@ func createRepositoriesWithNamePrefix(harness *e2e.Harness, count int, namePrefi
 		return fmt.Errorf("name prefix cannot be empty")
 	}
 	for i := 0; i < count; i++ {
-		repositoryName := fmt.Sprintf("%s%d", namePrefix, i)
-		repository, err := resources.CreateRepository(harness, repositoryName, repoUrl)
+		repositoryName := fmt.Sprintf("%s-%s-%d", namePrefix, harness.GetTestIDFromContext(), i)
+		repository, err := resources.CreateRepository(harness, repositoryName, repoUrl, &map[string]string{"test-id": harness.GetTestIDFromContext()})
 		if err != nil {
 			return fmt.Errorf("failed to create repository '%s': %w", repositoryName, err)
 		}
@@ -141,4 +141,29 @@ func createRepositoriesWithNamePrefix(harness *e2e.Harness, count int, namePrefi
 func contains(slice []string, item string) bool {
 	i := sort.SearchStrings(slice, item)
 	return i < len(slice) && slice[i] == item
+}
+
+// Helper functions to generate expected resource names with test-id
+func getExpectedDeviceName(harness *e2e.Harness, namePrefix string, index int) string {
+	return fmt.Sprintf("%s-%s-%d", namePrefix, harness.GetTestIDFromContext(), index)
+}
+
+func getExpectedFleetName(harness *e2e.Harness, namePrefix string, index int) string {
+	return fmt.Sprintf("%s-%s-%d", namePrefix, harness.GetTestIDFromContext(), index)
+}
+
+func getExpectedRepositoryName(harness *e2e.Harness, namePrefix string, index int) string {
+	return fmt.Sprintf("%s-%s-%d", namePrefix, harness.GetTestIDFromContext(), index)
+}
+
+// Helper function to generate values with test-id placeholders
+// Now using the readable pattern: prefix-<test-id>-number
+func generateValueWithTestID(harness *e2e.Harness, valueTemplate string) string {
+	testID := harness.GetTestIDFromContext()
+
+	// Simply replace <test-id> with actual test ID
+	// The pattern now matches exactly: device-<test-id>-1 becomes device-abc123-1
+	value := strings.ReplaceAll(valueTemplate, "<test-id>", testID)
+
+	return value
 }
