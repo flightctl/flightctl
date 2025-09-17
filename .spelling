@@ -83,6 +83,7 @@ pluggable
 Podman
 PostgreSQL
 pre-update
+pre-upgrade
 qcow2
 QEMU
 Quadlet
