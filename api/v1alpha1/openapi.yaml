@@ -1531,6 +1531,9 @@ paths:
         - deviceactions
       description: Resume devices based on label selector and/or field selector.
       operationId: resumeDevices
+      x-rbac:
+        resource: devices/resume
+        action: update
       requestBody:
         content:
           application/json:
@@ -1630,6 +1633,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+
   /api/v1/enrollmentrequests:
     get:
       tags:
@@ -3660,6 +3664,7 @@ components:
               - add
               - replace
               - remove
+              - test
     Repository:
       type: object
       properties:
@@ -5445,6 +5450,7 @@ components:
       description: Type of condition in CamelCase.
       enum:
       - 'Approved'              # EnrollmentRequest
+      - 'TPMVerified'           # EnrollmentRequest
       - 'Approved'              # CertificateSigningRequest
       - 'Denied'                # CertificateSigningRequest
       - 'Failed'                # CertificateSigningRequest
@@ -5460,6 +5466,7 @@ components:
       - 'DeviceDecommissioning' # Device
       x-enum-varnames:
       - EnrollmentRequestApproved
+      - EnrollmentRequestTPMVerified
       - CertificateSigningRequestApproved
       - CertificateSigningRequestDenied
       - CertificateSigningRequestFailed
@@ -5649,6 +5656,7 @@ components:
             - DeviceSpecValid
             - DeviceSpecInvalid
             - InternalTaskFailed
+            - InternalTaskPermanentlyFailed
             - RepositoryAccessible
             - RepositoryInaccessible
             - ReferencedRepositoryUpdated
@@ -5742,6 +5750,7 @@ components:
           DeviceMultipleOwnersDetected: "#/components/schemas/DeviceMultipleOwnersDetectedDetails"
           DeviceMultipleOwnersResolved: "#/components/schemas/DeviceMultipleOwnersResolvedDetails"
           InternalTaskFailed: "#/components/schemas/InternalTaskFailedDetails"
+          InternalTaskPermanentlyFailed: "#/components/schemas/InternalTaskPermanentlyFailedDetails"
           ResourceSyncCompleted: "#/components/schemas/ResourceSyncCompletedDetails"
           ReferencedRepositoryUpdated: "#/components/schemas/ReferencedRepositoryUpdatedDetails"
           FleetRolloutStarted: "#/components/schemas/FleetRolloutStartedDetails"
@@ -5756,6 +5765,7 @@ components:
         - $ref: "#/components/schemas/DeviceMultipleOwnersDetectedDetails"
         - $ref: "#/components/schemas/DeviceMultipleOwnersResolvedDetails"
         - $ref: "#/components/schemas/InternalTaskFailedDetails"
+        - $ref: "#/components/schemas/InternalTaskPermanentlyFailedDetails"
         - $ref: "#/components/schemas/ResourceSyncCompletedDetails"
         - $ref: "#/components/schemas/ReferencedRepositoryUpdatedDetails"
         - $ref: "#/components/schemas/FleetRolloutStartedDetails"
@@ -5860,6 +5870,26 @@ components:
         retryCount:
           type: integer
           description: Number of times the task has been retried.
+        originalEvent:
+          $ref: '#/components/schemas/Event'
+    InternalTaskPermanentlyFailedDetails:
+      type: object
+      required:
+        - detailType
+        - errorMessage
+        - retryCount
+        - originalEvent
+      properties:
+        detailType:
+          type: string
+          enum: [InternalTaskPermanentlyFailed]
+          description: The type of detail for discriminator purposes.
+        errorMessage:
+          type: string
+          description: The error message describing the permanent failure.
+        retryCount:
+          type: integer
+          description: Number of times the task was retried before being marked as permanently failed.
         originalEvent:
           $ref: '#/components/schemas/Event'
     ResourceSyncCompletedDetails:

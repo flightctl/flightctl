@@ -1,0 +1,20 @@
+{{- if eq .Values.db.external "enabled" }}
+# External database service definition
+# This creates a service that points to your external PostgreSQL database
+# Allows other components to use the same service name regardless of internal/external DB
+apiVersion: v1
+kind: Service
+metadata:
+  name: flightctl-db
+  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+  labels:
+    flightctl.service: flightctl-db-external
+spec:
+  type: ExternalName
+  externalName: {{ required "db.hostname is required when db.external is enabled" .Values.db.hostname }}
+  ports:
+  - name: postgresql
+    port: {{ .Values.db.port }}
+    targetPort: {{ .Values.db.port }}
+    protocol: TCP
+{{- end }}

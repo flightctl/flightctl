@@ -170,7 +170,7 @@ func TestDevicePublisher_pollAndNotify(t *testing.T) {
 	t.Run("poll and notify failure", func(tt *testing.T) {
 		v := setup(tt)
 		defer v.finish()
-		v.mockClient.EXPECT().GetRenderedDevice(v.ctx, gomock.Any(), gomock.Any()).Return(nil, http.StatusServiceUnavailable, specErr)
+		v.mockClient.EXPECT().GetRenderedDevice(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, http.StatusServiceUnavailable, specErr)
 		v.notifier.pollAndPublish(v.ctx)
 		_, popped, err := v.sub.TryPop()
 		require.NoError(t, err)
@@ -179,7 +179,7 @@ func TestDevicePublisher_pollAndNotify(t *testing.T) {
 	t.Run("poll and notify no content", func(tt *testing.T) {
 		v := setup(tt)
 		defer v.finish()
-		v.mockClient.EXPECT().GetRenderedDevice(v.ctx, gomock.Any(), gomock.Any()).Return(nil, http.StatusNoContent, nil)
+		v.mockClient.EXPECT().GetRenderedDevice(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, http.StatusNoContent, nil)
 		v.notifier.pollAndPublish(v.ctx)
 		_, popped, err := v.sub.TryPop()
 		require.NoError(t, err)
@@ -189,7 +189,7 @@ func TestDevicePublisher_pollAndNotify(t *testing.T) {
 		v := setup(tt)
 		defer v.finish()
 		renderedDesiredSpec := createTestRenderedDevice("flightctl-device:v2")
-		v.mockClient.EXPECT().GetRenderedDevice(v.ctx, gomock.Any(), gomock.Any()).Return(renderedDesiredSpec, 200, nil)
+		v.mockClient.EXPECT().GetRenderedDevice(gomock.Any(), gomock.Any(), gomock.Any()).Return(renderedDesiredSpec, 200, nil)
 		v.notifier.pollAndPublish(v.ctx)
 		result, popped, err := v.sub.TryPop()
 		require.NoError(t, err)

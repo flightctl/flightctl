@@ -68,10 +68,10 @@ var (
 	}
 )
 
-func UpdateServiceSideStatus(ctx context.Context, orgId uuid.UUID, device *api.Device, st store.Store, log logrus.FieldLogger) bool {
+func UpdateServiceSideStatus(ctx context.Context, orgId uuid.UUID, device *api.Device, st store.Store, log logrus.FieldLogger) (bool, bool) {
 
 	if device == nil {
-		return false
+		return false, false
 	}
 	if device.Status == nil {
 		device.Status = lo.ToPtr(api.NewDeviceStatus())
@@ -87,7 +87,9 @@ func UpdateServiceSideStatus(ctx context.Context, orgId uuid.UUID, device *api.D
 
 	lifecycleStatusChanged := updateServerSideLifecycleStatus(device)
 
-	return deviceStatusChanged || updatedStatusChanged || applicationStatusChanged || lifecycleStatusChanged || deviceAnnotationsChanged
+	anyStatusChanged := deviceStatusChanged || updatedStatusChanged || applicationStatusChanged || lifecycleStatusChanged || deviceAnnotationsChanged
+
+	return anyStatusChanged, deviceAnnotationsChanged
 }
 
 func resourcesCpu(cpu api.DeviceResourceStatusType, resourceErrors *[]string, resourceDegradations *[]string) {
@@ -119,6 +121,25 @@ func resourcesDisk(disk api.DeviceResourceStatusType, resourceErrors *[]string, 
 
 func updateServerSideDeviceStatus(device *api.Device) bool {
 	lastDeviceStatus := device.Status.Summary.Status
+
+	// Check for special annotations first - these take precedence over ALL other status checks
+	annotations := lo.FromPtr(device.Metadata.Annotations)
+
+	// AwaitingReconnect annotation takes highest precedence - overrides everything
+	if annotations[api.DeviceAnnotationAwaitingReconnect] == "true" {
+		device.Status.Summary.Status = api.DeviceSummaryStatusAwaitingReconnect
+		device.Status.Summary.Info = lo.ToPtr(DeviceStatusInfoAwaitingReconnect)
+		return device.Status.Summary.Status != lastDeviceStatus
+	}
+
+	// ConflictPaused annotation takes second highest precedence
+	if annotations[api.DeviceAnnotationConflictPaused] == "true" {
+		device.Status.Summary.Status = api.DeviceSummaryStatusConflictPaused
+		device.Status.Summary.Info = lo.ToPtr(getConflictPausedInfo(device, annotations))
+		return device.Status.Summary.Status != lastDeviceStatus
+	}
+
+	// Standard status checks follow normal priority order
 	if device.IsDisconnected(api.DeviceDisconnectedTimeout) {
 		device.Status.Summary.Status = api.DeviceSummaryStatusUnknown
 		device.Status.Summary.Info = lo.ToPtr(fmt.Sprintf("Device is disconnected (last seen more than %s).", humanize.Time(time.Now().Add(-api.DeviceDisconnectedTimeout))))
@@ -136,7 +157,6 @@ func updateServerSideDeviceStatus(device *api.Device) bool {
 	resourcesMemory(device.Status.Resources.Memory, &resourceErrors, &resourceDegradations)
 	resourcesDisk(device.Status.Resources.Disk, &resourceErrors, &resourceDegradations)
 
-	annotations := lo.FromPtr(device.Metadata.Annotations)
 	switch {
 	case len(resourceErrors) > 0:
 		device.Status.Summary.Status = api.DeviceSummaryStatusError
@@ -144,12 +164,6 @@ func updateServerSideDeviceStatus(device *api.Device) bool {
 	case len(resourceDegradations) > 0:
 		device.Status.Summary.Status = api.DeviceSummaryStatusDegraded
 		device.Status.Summary.Info = lo.ToPtr(strings.Join(resourceDegradations, ", "))
-	case annotations[api.DeviceAnnotationAwaitingReconnect] == "true":
-		device.Status.Summary.Status = api.DeviceSummaryStatusAwaitingReconnect
-		device.Status.Summary.Info = lo.ToPtr(DeviceStatusInfoAwaitingReconnect)
-	case annotations[api.DeviceAnnotationConflictPaused] == "true":
-		device.Status.Summary.Status = api.DeviceSummaryStatusConflictPaused
-		device.Status.Summary.Info = lo.ToPtr(getConflictPausedInfo(device, annotations))
 	default:
 		device.Status.Summary.Status = api.DeviceSummaryStatusOnline
 		device.Status.Summary.Info = lo.ToPtr(DeviceStatusInfoHealthy)
@@ -208,7 +222,7 @@ func updateServerSideDeviceUpdatedStatus(device *api.Device, ctx context.Context
 	}
 	if !device.IsManaged() && !device.IsUpdatedToDeviceSpec() {
 		device.Status.Updated.Status = api.DeviceUpdatedStatusOutOfDate
-		baseMessage := "Device has not been updated to the latest device spec"
+		baseMessage := api.DeviceOutOfDateText
 		var errorMessage string
 
 		// Prefer update condition error if available
@@ -255,7 +269,7 @@ func updateServerSideDeviceUpdatedStatus(device *api.Device, ctx context.Context
 				}
 			}
 			if errorMessage == "" {
-				errorMessage = "Device has not yet been scheduled for update to the fleet's latest spec."
+				errorMessage = api.DeviceOutOfSyncWithFleetText
 			}
 			device.Status.Updated.Info = lo.ToPtr(errorMessage)
 		}

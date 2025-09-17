@@ -4,12 +4,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"slices"
 	"strings"
 
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/gomega"
+	"github.com/sirupsen/logrus"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -144,4 +146,25 @@ func loginWithOpenshiftToken(harness *e2e.Harness) error {
 		return nil
 	}
 	return errors.New("failed to sign in with OpenShift token")
+}
+
+func LoginAsNonAdmin(harness *e2e.Harness, user string, password string, k8sContext string, k8sApiEndpoint string) error {
+	if !util.BinaryExistsOnPath("oc") {
+		return fmt.Errorf("oc not found on PATH")
+	}
+	loginCommand := fmt.Sprintf("oc login -u %s -p %s %s", user, password, k8sApiEndpoint)
+	cmd := exec.Command("bash", "-c", loginCommand)
+	err := cmd.Run()
+	if err != nil {
+		return fmt.Errorf("Failed to login to Kubernetes cluster as non-admin: %v", err)
+	} else {
+		logrus.Infof("✅ Logged in to Kubernetes cluster as non-admin: %s", user)
+	}
+
+	method := LoginToAPIWithToken(harness)
+	Expect(method).ToNot(Equal(AuthDisabled))
+	if method == AuthDisabled {
+		return errors.New("Login is disabled")
+	}
+	return nil
 }

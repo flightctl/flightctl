@@ -13,6 +13,21 @@ global:
       externalOidcAuthority:
       oidcClientId:
 
+db:
+  # external: Set to "enabled" to use external PostgreSQL database
+  # When enabled, set hostname, port, name to point to your external database
+  external: "disabled"  # "disabled" (default) | "enabled"
+  hostname: ""  # External DB hostname (required when external: "enabled")
+  port: 5432
+  name: flightctl
+  user: flightctl_app
+  migrationUser: flightctl_migrator
+  # SSL configuration for secure database connections
+  sslmode: ""       # SSL mode: disable, allow, prefer, require, verify-ca, verify-full
+  sslcert: ""       # Path to SSL client certificate file
+  sslkey: ""        # Path to SSL client key file
+  sslrootcert: ""   # Path to SSL root certificate file (CA certificate)
+
 service:
   # Rate limiting configuration
   rateLimit:

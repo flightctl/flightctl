@@ -1,0 +1,131 @@
+{{- /* Determine whether to render the pre-upgrade scale job */ -}}
+{{- $allDeployments := default (list) .Values.upgradeHooks.scaleDown.deployments -}}
+{{- $condition := default "chart" .Values.upgradeHooks.scaleDown.condition -}}
+{{- $deploymentsToScale := list -}}
+
+{{- if gt (len $allDeployments) 0 -}}
+  {{- if eq $condition "always" -}}
+    {{- $deploymentsToScale = $allDeployments -}}
+  {{- else if eq $condition "never" -}}
+    {{- /* leave empty */ -}}
+  {{- else -}}
+    {{- /* Default: "chart" — scale only when helm.sh/chart changed */ -}}
+    {{- $ns := default .Release.Namespace .Values.global.internalNamespace -}}
+    {{- $currentChart := printf "%s-%s" .Chart.Name (.Chart.Version | replace "+" "_") -}}
+    {{- range $d := $allDeployments -}}
+      {{- $depObj := lookup "apps/v1" "Deployment" $ns $d -}}
+      {{- $existingChart := dig "metadata" "labels" "helm.sh/chart" "" $depObj -}}
+      {{- if ne $existingChart $currentChart -}}
+        {{- $deploymentsToScale = append $deploymentsToScale $d -}}
+      {{- end -}}
+    {{- end -}}
+  {{- end -}}
+{{- end -}}
+
+{{- if gt (len $deploymentsToScale) 0 }}
+---
+# ServiceAccount and RBAC for pre-upgrade scaling
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: flightctl-upgrade
+  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-upgrade
+    "helm.sh/hook-weight": "-25"
+    "helm.sh/hook-delete-policy": before-hook-creation
+
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: flightctl-upgrade
+  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-upgrade
+    "helm.sh/hook-weight": "-24"
+    "helm.sh/hook-delete-policy": before-hook-creation
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments", "deployments/scale"]
+    verbs: ["get", "list", "patch", "update", "watch"]
+
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: flightctl-upgrade
+  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-upgrade
+    "helm.sh/hook-weight": "-23"
+    "helm.sh/hook-delete-policy": before-hook-creation
+subjects:
+  - kind: ServiceAccount
+    name: flightctl-upgrade
+    namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: flightctl-upgrade
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: flightctl-preupgrade-scale-to-zero
+  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-upgrade
+    "helm.sh/hook-weight": "-20"
+    "helm.sh/hook-delete-policy": hook-succeeded
+spec:
+  backoffLimit: 1
+  template:
+    metadata:
+      labels:
+        app: flightctl-preupgrade
+        {{- include "flightctl.standardLabels" . | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      serviceAccountName: flightctl-upgrade
+      {{- if .Values.global.imagePullSecretName }}
+      imagePullSecrets:
+        - name: {{ .Values.global.imagePullSecretName }}
+      {{- end }}
+      containers:
+        - name: scaler
+          image: {{ .Values.clusterCli.image.image }}:{{ .Values.clusterCli.image.tag }}
+          imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.clusterCli.image.pullPolicy }}
+          command: ["/bin/sh","-c"]
+          args:
+            - |
+              set -euo pipefail
+              NAMESPACE={{ default .Release.Namespace .Values.global.internalNamespace }}
+              TIMEOUT={{ default 120 .Values.upgradeHooks.scaleDown.timeoutSeconds }}
+              echo "Pre-upgrade scale to zero started in namespace: ${NAMESPACE} (timeout=${TIMEOUT}s)"
+              DEPLOYMENTS="{{- range $idx, $d := $deploymentsToScale -}}{{ if $idx }} {{ end }}{{ $d }}{{- end }}"
+              for dep in ${DEPLOYMENTS}; do
+                echo "Scaling ${dep} to 0 replicas..."
+                oc scale deployment/${dep} -n "${NAMESPACE}" --replicas=0 || true
+                echo "Waiting for ${dep} to scale down..."
+                oc rollout status deployment/${dep} -n "${NAMESPACE}" --watch=true --timeout="${TIMEOUT}s" || true
+                status=$(oc get deployment ${dep} -n "${NAMESPACE}" -o jsonpath='{.status.replicas},{.status.readyReplicas},{.status.updatedReplicas}' 2>/dev/null || echo ",,")
+                set -- $(printf "%s" "$status" | tr ',' ' ')
+                replicas=${1:-0}
+                ready=${2:-0}
+                updated=${3:-0}
+                echo "${dep} status: replicas=${replicas}, ready=${ready}, updated=${updated}"
+              done
+              echo "Scale-to-zero steps finished."
+{{- end }}
+
+

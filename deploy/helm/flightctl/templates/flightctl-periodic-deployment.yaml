@@ -4,6 +4,7 @@ kind: Deployment
 metadata:
   labels:
     flightctl.service: flightctl-periodic
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
   name: flightctl-periodic
   namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
 spec:
@@ -17,7 +18,10 @@ spec:
     metadata:
       labels:
         flightctl.service: flightctl-periodic
+        {{- include "flightctl.standardLabels" . | nindent 8 }}
     spec:
+      initContainers:
+      {{- include "flightctl.databaseWaitInitContainer" (dict "context" . "userType" "app") | nindent 6 }}
       containers:
         - name: periodic
           image: {{ .Values.periodic.image.image }}:{{ default .Chart.AppVersion .Values.periodic.image.tag }}

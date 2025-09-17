@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/instrumentation/metrics/worker"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
@@ -21,12 +23,35 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 )
 
-func dispatchTasks(serviceHandler service.Service, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore) queues.ConsumeHandler {
-	return func(ctx context.Context, payload []byte, log logrus.FieldLogger) error {
+func dispatchTasks(serviceHandler service.Service, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, workerMetrics *worker.WorkerCollector) queues.ConsumeHandler {
+	return func(ctx context.Context, payload []byte, entryID string, consumer queues.QueueConsumer, log logrus.FieldLogger) error {
+		startTime := time.Now()
+
+		// Increment in-progress counter
+		if workerMetrics != nil {
+			workerMetrics.IncMessagesInProgress()
+			defer workerMetrics.DecMessagesInProgress()
+		}
+
+		// Add timeout for the entire event processing
+		ctx, cancel := context.WithTimeout(ctx, EventProcessingTimeout)
+		defer cancel()
+
 		var eventWithOrgId worker_client.EventWithOrgId
 		if err := json.Unmarshal(payload, &eventWithOrgId); err != nil {
 			log.WithError(err).Error("failed to unmarshal consume payload")
-			return err
+			// Record unmarshal error as a permanent failure (parsing errors are not retryable)
+			if workerMetrics != nil {
+				workerMetrics.IncPermanentFailures()
+				workerMetrics.IncMessagesProcessed("permanent_failure")
+			}
+			// Complete the message successfully to remove it from queue (parsing errors are not retryable)
+			ackCtx, cancelAck := context.WithTimeout(context.Background(), AckTimeout)
+			defer cancelAck()
+			if ackErr := consumer.Complete(ackCtx, entryID, payload, nil); ackErr != nil {
+				log.WithError(ackErr).Errorf("failed to complete message %s after unmarshal error", entryID)
+			}
+			return nil // Don't return error to avoid retries
 		}
 
 		ctx, span := tracing.StartSpan(ctx, "flightctl/worker", fmt.Sprintf("%s-%s", eventWithOrgId.Event.InvolvedObject.Kind, eventWithOrgId.Event.Reason))
@@ -48,38 +73,77 @@ func dispatchTasks(serviceHandler service.Service, k8sClient k8sclient.K8SClient
 
 		if shouldRolloutFleet(ctx, eventWithOrgId.Event, log) {
 			taskName = "fleetRollout"
-			err = fleetRollout(ctx, eventWithOrgId.OrgId, eventWithOrgId.Event, serviceHandler, log)
+			err = runTaskWithMetrics(taskName, workerMetrics, func() error {
+				return fleetRollout(ctx, eventWithOrgId.OrgId, eventWithOrgId.Event, serviceHandler, log)
+			})
 			errorMessages = appendErrorMessage(errorMessages, taskName, err)
 		}
 		if shouldReconcileDeviceOwnership(ctx, eventWithOrgId.Event, log) {
 			taskName = "fleetSelectorMatching"
-			err = fleetSelectorMatching(ctx, eventWithOrgId.OrgId, eventWithOrgId.Event, serviceHandler, log)
+			err = runTaskWithMetrics(taskName, workerMetrics, func() error {
+				return fleetSelectorMatching(ctx, eventWithOrgId.OrgId, eventWithOrgId.Event, serviceHandler, log)
+			})
 			errorMessages = appendErrorMessage(errorMessages, taskName, err)
 		}
 		if shouldValidateFleet(ctx, eventWithOrgId.Event, log) {
 			taskName = "fleetValidation"
-			err = fleetValidate(ctx, eventWithOrgId.OrgId, eventWithOrgId.Event, serviceHandler, k8sClient, log)
+			err = runTaskWithMetrics(taskName, workerMetrics, func() error {
+				return fleetValidate(ctx, eventWithOrgId.OrgId, eventWithOrgId.Event, serviceHandler, k8sClient, log)
+			})
 			errorMessages = appendErrorMessage(errorMessages, taskName, err)
 		}
 		if shouldRenderDevice(ctx, eventWithOrgId.Event, log) {
 			taskName = "deviceRender"
-			err = deviceRender(ctx, eventWithOrgId.OrgId, eventWithOrgId.Event, serviceHandler, k8sClient, kvStore, log)
+			err = runTaskWithMetrics(taskName, workerMetrics, func() error {
+				return deviceRender(ctx, eventWithOrgId.OrgId, eventWithOrgId.Event, serviceHandler, k8sClient, kvStore, log)
+			})
 			errorMessages = appendErrorMessage(errorMessages, taskName, err)
 		}
 		if shouldUpdateRepositoryReferers(ctx, eventWithOrgId.Event, log) {
 			taskName = "repositoryUpdate"
-			err = repositoryUpdate(ctx, eventWithOrgId.OrgId, eventWithOrgId.Event, serviceHandler, log)
+			err = runTaskWithMetrics(taskName, workerMetrics, func() error {
+				return repositoryUpdate(ctx, eventWithOrgId.OrgId, eventWithOrgId.Event, serviceHandler, log)
+			})
 			errorMessages = appendErrorMessage(errorMessages, taskName, err)
 		}
 
 		// Emit InternalTaskFailedEvent for any unhandled task failures
 		// This serves as a safety net while preserving specific error handling within tasks
+		var returnErr error
 		if len(errorMessages) > 0 {
 			errorMessage := fmt.Sprintf("%d tasks failed during reconciliation: %s", len(errorMessages), strings.Join(errorMessages, ", "))
 			log.WithError(errors.New(errorMessage)).Error("tasks failed during reconciliation")
-			emitInternalTaskFailedEvent(ctx, errorMessage, eventWithOrgId.Event, serviceHandler)
+			// ensure emission even if processing ctx timed out
+			emitCtx, cancelEmit := context.WithTimeout(context.Background(), AckTimeout)
+			defer cancelEmit()
+			EmitInternalTaskFailedEvent(emitCtx, errorMessage, eventWithOrgId.Event, serviceHandler)
+			returnErr = errors.New(errorMessage)
 		}
-		return nil
+
+		// Complete the message processing (either successfully or after emitting failure event)
+		ackCtx, cancelAck := context.WithTimeout(context.Background(), AckTimeout)
+		defer cancelAck()
+		if err := consumer.Complete(ackCtx, entryID, payload, returnErr); err != nil {
+			log.WithError(err).Errorf("failed to complete message %s", entryID)
+			return err
+		}
+
+		// Record metrics only after successful completion
+		if workerMetrics != nil {
+			// Record processing duration
+			workerMetrics.ObserveProcessingDuration(time.Since(startTime))
+
+			if len(errorMessages) > 0 {
+				// Record message queued for retry (actual retry/permanent failure determination happens in queue maintenance)
+				workerMetrics.IncMessagesProcessed("queued_for_retry")
+			} else {
+				// Record successful processing
+				workerMetrics.IncMessagesProcessed("success")
+				workerMetrics.UpdateLastSuccessfulTask()
+			}
+		}
+
+		return returnErr
 	}
 }
 
@@ -90,35 +154,25 @@ func appendErrorMessage(errorMessages []string, taskName string, err error) []st
 	return errorMessages
 }
 
-func emitInternalTaskFailedEvent(ctx context.Context, errorMessage string, originalEvent api.Event, serviceHandler service.Service) {
-	resourceKind := api.ResourceKind(originalEvent.InvolvedObject.Kind)
-	resourceName := originalEvent.InvolvedObject.Name
-	reason := originalEvent.Reason
-	message := fmt.Sprintf("%s internal task failed: %s - %s.", resourceKind, reason, errorMessage)
-	event := api.GetBaseEvent(ctx,
-		resourceKind,
-		resourceName,
-		api.EventReasonInternalTaskFailed,
-		message,
-		nil)
-
-	details := api.EventDetails{}
-	if detailsErr := details.FromInternalTaskFailedDetails(api.InternalTaskFailedDetails{
-		ErrorMessage:  errorMessage,
-		RetryCount:    nil,
-		OriginalEvent: originalEvent,
-	}); detailsErr == nil {
-		event.Details = &details
+// runTaskWithMetrics wraps task execution with metrics collection
+func runTaskWithMetrics(name string, workerMetrics *worker.WorkerCollector, fn func() error) error {
+	start := time.Now()
+	err := fn()
+	if workerMetrics != nil {
+		workerMetrics.IncTasksByType(name)
+		workerMetrics.ObserveTaskExecutionDuration(name, time.Since(start))
 	}
-
-	// Emit the event
-	serviceHandler.CreateEvent(ctx, event)
+	return err
 }
 
 func shouldRolloutFleet(ctx context.Context, event api.Event, log logrus.FieldLogger) bool {
 	// If a devices's owner or labels were updated return true
 	if event.Reason == api.EventReasonResourceUpdated && event.InvolvedObject.Kind == api.DeviceKind {
 		return hasUpdatedFields(event.Details, log, api.Owner, api.Labels)
+	}
+
+	if event.Reason == api.EventReasonFleetRolloutBatchDispatched && event.InvolvedObject.Kind == api.FleetKind {
+		return true
 	}
 
 	// If a device was created, return true
@@ -188,13 +242,18 @@ func shouldValidateFleet(ctx context.Context, event api.Event, log logrus.FieldL
 }
 
 func shouldRenderDevice(ctx context.Context, event api.Event, log logrus.FieldLogger) bool {
-	// If a repository that the device is associated with was updated, return true
-	if event.Reason == api.EventReasonReferencedRepositoryUpdated && event.InvolvedObject.Kind == api.DeviceKind {
+	if event.InvolvedObject.Kind != api.DeviceKind {
+		return false
+	}
+
+	if lo.Contains([]api.EventReason{api.EventReasonReferencedRepositoryUpdated,
+		api.EventReasonResourceCreated,
+		api.EventReasonFleetRolloutDeviceSelected}, event.Reason) {
 		return true
 	}
 
 	// If a device spec was updated and it doesn't have the delayDeviceRender annotation equal to "true", return true
-	if event.Reason == api.EventReasonResourceUpdated && event.InvolvedObject.Kind == api.DeviceKind {
+	if event.Reason == api.EventReasonResourceUpdated {
 		if !hasUpdatedFields(event.Details, log, api.Spec) {
 			return false
 		}
@@ -206,11 +265,6 @@ func shouldRenderDevice(ctx context.Context, event api.Event, log logrus.FieldLo
 				return false
 			}
 		}
-		return true
-	}
-
-	// If a device was created, return true
-	if event.Reason == api.EventReasonResourceCreated && event.InvolvedObject.Kind == api.DeviceKind {
 		return true
 	}
 
@@ -256,14 +310,26 @@ func LaunchConsumers(ctx context.Context,
 	serviceHandler service.Service,
 	k8sClient k8sclient.K8SClient,
 	kvStore kvstore.KVStore,
-	numConsumers, threadsPerConsumer int) error {
+	numConsumers, threadsPerConsumer int,
+	workerMetrics *worker.WorkerCollector) error {
+	totalConsumers := numConsumers * threadsPerConsumer
+
+	// Set active consumers metric
+	if workerMetrics != nil {
+		workerMetrics.SetConsumersActive(float64(totalConsumers))
+		go func() {
+			<-ctx.Done()
+			workerMetrics.SetConsumersActive(0)
+		}()
+	}
+
 	for i := 0; i != numConsumers; i++ {
-		consumer, err := queuesProvider.NewConsumer(consts.TaskQueue)
+		consumer, err := queuesProvider.NewQueueConsumer(ctx, consts.TaskQueue)
 		if err != nil {
 			return err
 		}
 		for j := 0; j != threadsPerConsumer; j++ {
-			if err = consumer.Consume(ctx, dispatchTasks(serviceHandler, k8sClient, kvStore)); err != nil {
+			if err = consumer.Consume(ctx, dispatchTasks(serviceHandler, k8sClient, kvStore, workerMetrics)); err != nil {
 				return err
 			}
 		}

@@ -1,0 +1,92 @@
+{{ if .Values.kv.enabled }}
+---
+# ConfigMap for Redis configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flightctl-kv-config
+  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+data:
+  redis.conf: |-
+    bind 0.0.0.0 ::
+    protected-mode yes
+    port 6379
+
+    # Logging
+    loglevel {{ default "warning" .Values.kv.loglevel }}
+
+    # Disable persistence for in-memory Redis
+    save ""
+    appendonly no
+    # Prevent unbounded memory growth (values can be overridden via values.yaml)
+    maxmemory {{ default "1gb" .Values.kv.maxmemory }}
+    maxmemory-policy {{ default "allkeys-lru" .Values.kv.maxmemoryPolicy }}
+---
+# Deployment for Redis
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flightctl-kv
+  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+  labels:
+    flightctl.service: flightctl-kv
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      flightctl.service: flightctl-kv
+  template:
+    metadata:
+      labels:
+        flightctl.service: flightctl-kv
+        {{- include "flightctl.standardLabels" . | nindent 8 }}
+    spec:
+      {{- if .Values.global.imagePullSecretName }}
+      imagePullSecrets:
+        - name: {{ .Values.global.imagePullSecretName }}
+      {{- end }}
+      {{- if .Values.kv.fsGroup }}
+      securityContext:
+        fsGroup: {{ .Values.kv.fsGroup }}
+      {{- end }}
+      containers:
+        - name: flightctl-kv
+          image: {{ .Values.kv.image.image }}:{{ .Values.kv.image.tag }}
+          imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.kv.image.pullPolicy }}
+          ports:
+            - name: kv
+              containerPort: 6379
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-kv-secret
+                  key: password
+          command:
+            - "redis-server"
+            - "/etc/redis/redis.conf"
+            - "--requirepass"
+            - "$(REDIS_PASSWORD)"
+          volumeMounts:
+            - name: flightctl-kv-config
+              mountPath: /etc/redis/redis.conf
+              subPath: redis.conf
+          resources:
+            requests:
+              cpu: "1000m"
+              memory: "2Gi"
+          readinessProbe:
+            tcpSocket: { port: 6379 }
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket: { port: 6379 }
+            periodSeconds: 10
+      volumes:
+        - name: flightctl-kv-config
+          configMap:
+            name: flightctl-kv-config
+            defaultMode: 0644
+{{ end }}

@@ -6,6 +6,7 @@ kind: Service
 metadata:
   labels:
     flightctl.service: flightctl-alertmanager-proxy
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
   name: flightctl-alertmanager-proxy
   namespace: {{ .Release.Namespace }}
 spec:

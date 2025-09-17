@@ -63,6 +63,7 @@ COPY --from=build /app/bin/flightctl-db-migrate /usr/local/bin/flightctl-db-migr
 COPY ./deploy/scripts/setup_database_users.sh ./deploy/scripts/setup_database_users.sh
 COPY ./deploy/scripts/setup_database_users.sql ./deploy/scripts/setup_database_users.sql
 COPY ./deploy/scripts/migration-setup.sh ./deploy/scripts/migration-setup.sh
+COPY --chmod=0755 ./deploy/scripts/wait-for-database.sh ./deploy/scripts/wait-for-database.sh
 
 # Make the setup scripts executable
 RUN chmod +x ./deploy/scripts/setup_database_users.sh ./deploy/scripts/migration-setup.sh

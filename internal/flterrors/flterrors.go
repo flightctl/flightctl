@@ -41,4 +41,19 @@ var (
 
 	// certificate extensions
 	ErrExtensionNotFound = errors.New("certificate extension not found")
+
+	// authentication/authorization
+	ErrInvalidTokenClaims = errors.New("invalid token claims")
+	ErrMissingTokenClaims = errors.New("missing required token claims")
 )
+
+func IsClientAuthError(err error) bool {
+	switch {
+	case errors.Is(err, ErrInvalidTokenClaims):
+		return true
+	case errors.Is(err, ErrMissingTokenClaims):
+		return true
+	default:
+		return false
+	}
+}

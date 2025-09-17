@@ -91,27 +91,30 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 		return nil, fmt.Errorf("NewTestHarness: %w", err)
 	}
 
-	provider := testutil.NewTestProvider(serverLog)
-	// create server
+	ctx, cancel := context.WithCancel(ctx)
 
-	apiServer, listener, err := testutil.NewTestApiServer(serverLog, &serverCfg, store, ca, serverCerts, provider)
+	provider := testutil.NewTestProvider(serverLog)
+	orgResolver := testutil.NewOrgResolver(&serverCfg, store.Organization(), serverLog)
+
+	// create server
+	apiServer, listener, err := testutil.NewTestApiServer(serverLog, &serverCfg, store, ca, serverCerts, provider, orgResolver)
 	if err != nil {
+		cancel()
 		return nil, fmt.Errorf("NewTestHarness: %w", err)
 	}
 
 	ctrl := gomock.NewController(GinkgoT())
 	mockK8sClient := k8sclient.NewMockK8SClient(ctrl)
-	workerServer := workerserver.New(&serverCfg, serverLog, store, provider, mockK8sClient)
+	workerServer := workerserver.New(&serverCfg, serverLog, store, provider, mockK8sClient, nil)
 
-	agentServer, agentListener, err := testutil.NewTestAgentServer(serverLog, &serverCfg, store, ca, serverCerts, provider)
+	agentServer, agentListener, err := testutil.NewTestAgentServer(ctx, serverLog, &serverCfg, store, ca, serverCerts, provider, orgResolver)
 	if err != nil {
+		cancel()
 		return nil, fmt.Errorf("NewTestHarness: %w", err)
 	}
 
 	serverCfg.Service.Address = listener.Addr().String()
 	serverCfg.Service.AgentEndpointAddress = agentListener.Addr().String()
-
-	ctx, cancel := context.WithCancel(ctx)
 
 	// start main api server
 	go func() {

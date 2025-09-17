@@ -4,6 +4,7 @@ kind: Service
 metadata:
   labels:
     flightctl.service: flightctl-api
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
   name: flightctl-api
   namespace: {{ .Release.Namespace }}
 spec:

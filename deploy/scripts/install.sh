@@ -27,9 +27,9 @@ get_services_for_tag() {
     local services=()
 
     if [[ "$image_tag" =~ -main- ]]; then
-        services+=("api" "periodic" "worker" "cli-artifacts")
+        services+=("api" "periodic" "worker" "alert-exporter" "cli-artifacts")
     else
-        services+=("api" "periodic" "worker" "ui" "cli-artifacts")
+        services+=("api" "periodic" "worker" "alert-exporter" "ui" "cli-artifacts")
     fi
 
     echo "${services[@]}"
@@ -63,23 +63,18 @@ update_image_tags() {
         fi
     done
 
-    # Update db-setup image in service files
-    db_migrate_service="${SYSTEMD_UNIT_OUTPUT_DIR}/flightctl-db-migrate.service"
-    if [[ -f "$db_migrate_service" ]] && grep -q "flightctl-db-setup:latest" "$db_migrate_service"; then
-        sed -i "s|flightctl-db-setup:latest|flightctl-db-setup:${image_tag}|g" "$db_migrate_service"
-        echo "Updated $db_migrate_service with db-setup image tag: $image_tag"
-    else
-        echo "Skipping $db_migrate_service (not found or no matching image reference)"
-    fi
 
-    # Update db-setup image in container files
-    db_migrate_container="${QUADLET_FILES_OUTPUT_DIR}/flightctl-db-migrate.container"
-    if [[ -f "$db_migrate_container" ]] && grep -q "flightctl-db-setup:latest" "$db_migrate_container"; then
-        sed -i "s|flightctl-db-setup:latest|flightctl-db-setup:${image_tag}|g" "$db_migrate_container"
-        echo "Updated $db_migrate_container with db-setup image tag: $image_tag"
-    else
-        echo "Skipping $db_migrate_container (not found or no matching image reference)"
-    fi
+    # Update db-setup image in db-related container files
+    for f in "${QUADLET_FILES_OUTPUT_DIR}/flightctl-db-migrate.container" \
+             "${QUADLET_FILES_OUTPUT_DIR}/flightctl-db-wait.container" \
+             "${QUADLET_FILES_OUTPUT_DIR}/flightctl-db-users-init.container"; do
+        if [[ -f "$f" ]] && grep -q "flightctl-db-setup:" "$f"; then
+            sed -i "s|\(.*flightctl-db-setup:\)[^[:space:]]*|\1${image_tag}|g" "$f"
+            echo "Updated $f with db-setup image tag: $image_tag"
+        else
+            echo "Skipping $f (not found or no matching image reference)"
+        fi
+    done
 }
 
 render_files() {

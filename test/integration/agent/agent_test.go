@@ -2,15 +2,20 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ccoveille/go-safecast"
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/agent/device/certmanager/provider"
+	"github.com/flightctl/flightctl/internal/crypto/signer"
+	fccrypto "github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/flightctl/flightctl/test/harness"
 	testutil "github.com/flightctl/flightctl/test/util"
@@ -179,6 +184,96 @@ var _ = Describe("Device Agent behavior", func() {
 
 				// wait for the agent to retrieve the agent certificate from the EnrollmentRequest
 				Eventually(h.AgentDownloadedCertificate, TIMEOUT, POLLING).Should(BeTrue())
+			})
+		})
+
+		When("provisioning a CSR-managed certificate", func() {
+			It("auto-issues cert and writes files; validates CN and extensions", func(ctx context.Context) {
+				const (
+					certCNPrefix   = "test-certificate"
+					certSignerName = "flightctl.io/device-svc-client"
+				)
+
+				// prepare cert-manager config (DropInConfigProvider reads /etc/flightctl/certs.yaml)
+				csrCfg := map[string]any{
+					"signer":      certSignerName,
+					"common-name": fmt.Sprintf("%s-{{.DEVICE_ID}}", certCNPrefix),
+				}
+				csrRaw, err := json.Marshal(csrCfg)
+				Expect(err).ToNot(HaveOccurred())
+
+				storageCfg := map[string]any{
+					"cert-path": "var/lib/flightctl/certs/test.crt",
+					"key-path":  "var/lib/flightctl/certs/test.key",
+				}
+				storageRaw, err := json.Marshal(storageCfg)
+				Expect(err).ToNot(HaveOccurred())
+
+				certcfg := provider.CertificateConfig{
+					Name: certCNPrefix,
+					Provisioner: provider.ProvisionerConfig{
+						Type:   provider.ProvisionerTypeCSR,
+						Config: csrRaw,
+					},
+					Storage: provider.StorageConfig{
+						Type:   provider.StorageTypeFilesystem,
+						Config: storageRaw,
+					},
+				}
+
+				cfgBytes, err := yaml.Marshal([]provider.CertificateConfig{certcfg})
+				Expect(err).ToNot(HaveOccurred())
+
+				certsYaml := filepath.Join(h.TestDirPath, "etc", "flightctl", "certs.yaml")
+				Expect(os.MkdirAll(filepath.Dir(certsYaml), 0o755)).To(Succeed())
+				Expect(os.WriteFile(certsYaml, cfgBytes, 0o600)).To(Succeed())
+
+				dev := enrollAndWaitForDevice(h, testutil.TestEnrollmentApproval())
+				deviceName := lo.FromPtr(dev.Metadata.Name)
+
+				// wait for CSR to be created by agent
+				var csr v1alpha1.CertificateSigningRequest
+				Eventually(func() bool {
+					resp, err := h.Client.ListCertificateSigningRequestsWithResponse(h.Context, &v1alpha1.ListCertificateSigningRequestsParams{})
+					if err != nil || resp.JSON200 == nil {
+						return false
+					}
+					for _, item := range resp.JSON200.Items {
+						if item.Spec.SignerName == certSignerName && item.Metadata.Name != nil {
+							name := lo.FromPtr(item.Metadata.Name)
+							if strings.HasPrefix(name, certCNPrefix+"-") && item.Status != nil && item.Status.Certificate != nil {
+								csr = item
+								return true
+							}
+						}
+					}
+					return false
+				}, TIMEOUT, POLLING).Should(BeTrue())
+
+				certBytes := lo.FromPtr(csr.Status.Certificate)
+				parsedCert, err := fccrypto.ParsePEMCertificate(certBytes)
+				Expect(err).ToNot(HaveOccurred())
+
+				// CN should equal template with device id
+				expectedCN := fmt.Sprintf("%s-%s", certCNPrefix, deviceName)
+				Expect(parsedCert.Subject.CommonName).To(Equal(expectedCN))
+
+				// signer name extension should match device-svc-client
+				signerName, err := signer.GetSignerNameExtension(parsedCert)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(signerName).To(Equal(certSignerName))
+
+				// fingerprint extension must match the suffix of CN after last '-'
+				idx := strings.LastIndex(parsedCert.Subject.CommonName, "-")
+				Expect(idx).To(BeNumerically(">", 0))
+				cnFingerprint := parsedCert.Subject.CommonName[idx+1:]
+				fpExt, err := signer.GetDeviceFingerprintExtension(parsedCert)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(fpExt).To(Equal(cnFingerprint))
+
+				//wait for certificate files to be written by agent
+				waitForFile("var/lib/flightctl/certs/test.crt", deviceName, h.TestDirPath, nil, lo.ToPtr(0o644))
+				waitForFile("var/lib/flightctl/certs/test.key", deviceName, h.TestDirPath, nil, lo.ToPtr(0o600))
 			})
 		})
 
