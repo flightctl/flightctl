@@ -279,6 +279,35 @@ func (t *DeviceRenderLogic) renderConfigItem(ctx context.Context, configItem *ap
 	}
 }
 
+// denyUnsafeDevicePath returns an error if the given absolute device path targets
+// agent-managed or read-only directories/files that must not be written by config providers.
+// Denied roots:
+//   - /etc/flightctl
+//   - /var/lib/flightctl
+//   - /usr/lib/flightctl
+//
+// The check denies the root itself and any subpath under these roots.
+func denyUnsafeDevicePath(p string) error {
+	// Only absolute Linux paths are allowed in rendered configs
+	if p == "" || !strings.HasPrefix(p, "/") {
+		return fmt.Errorf("invalid device path (must be absolute): %q", p)
+	}
+	clean := filepath.Clean(p)
+
+	deniedRoots := []string{
+		"/etc/flightctl",
+		"/var/lib/flightctl",
+		"/usr/lib/flightctl",
+	}
+	for _, root := range deniedRoots {
+		rootClean := filepath.Clean(root)
+		if clean == rootClean || strings.HasPrefix(clean, rootClean+"/") {
+			return fmt.Errorf("unsafe device path %q: writing under %q is not allowed", p, rootClean)
+		}
+	}
+	return nil
+}
+
 func renderApplication(_ context.Context, app *api.ApplicationProviderSpec) (*string, *api.ApplicationProviderSpec, error) {
 	appType, err := app.Type()
 	if err != nil {
@@ -320,6 +349,13 @@ func (t *DeviceRenderLogic) renderGitConfig(ctx context.Context, configItem *api
 		}
 	}
 
+	// Validate all file paths produced by the git config before merging
+	for _, f := range ignition.Storage.Files {
+		if err := denyUnsafeDevicePath(f.Path); err != nil {
+			return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("invalid path from git config: %w", err)
+		}
+	}
+
 	mergedConfig := config_latest.Merge(**ignitionConfig, *ignition)
 	*ignitionConfig = &mergedConfig
 
@@ -333,6 +369,11 @@ func (t *DeviceRenderLogic) renderK8sConfig(ctx context.Context, configItem *api
 	}
 	if t.k8sClient == nil {
 		return &k8sSpec.Name, nil, fmt.Errorf("kubernetes API is not available")
+	}
+
+	// Validate mount root path before rendering files under it
+	if err := denyUnsafeDevicePath(k8sSpec.SecretRef.MountPath); err != nil {
+		return &k8sSpec.Name, nil, fmt.Errorf("invalid Kubernetes secret mountPath: %w", err)
 	}
 
 	var secretData map[string][]byte
@@ -448,6 +489,11 @@ func (t *DeviceRenderLogic) renderHttpProviderConfig(ctx context.Context, config
 	// Append the suffix only if exists (as it's optional)
 	if httpConfigProviderSpec.HttpRef.Suffix != nil {
 		repoURL = repoURL + *httpConfigProviderSpec.HttpRef.Suffix
+	}
+
+	// Validate the destination device path for HTTP provider
+	if err := denyUnsafeDevicePath(httpConfigProviderSpec.HttpRef.FilePath); err != nil {
+		return &httpConfigProviderSpec.Name, &httpConfigProviderSpec.HttpRef.Repository, fmt.Errorf("invalid HTTP filePath: %w", err)
 	}
 
 	var httpData []byte
