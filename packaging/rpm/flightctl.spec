@@ -681,6 +681,8 @@ fi
 %systemd_postun %{flightctl_target}
 
 %changelog
+* Tue Oct 8 2025 Ilya Skornyakov <iskornya@redhat.com> - 0.10.0
+- Add pre-upgrade database migration dry-run capability
 * Tue Jul 15 2025 Sam Batschelet <sbatsche@redhat.com> - 0.9.0-2
 - Improve selinux policy deps and install
 * Sun Jul 6 2025 Ori Amizur <oamizur@redhat.com> - 0.9.0-1
