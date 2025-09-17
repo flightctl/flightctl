@@ -41,29 +41,29 @@ Requires: openssl
 # Main package is empty and not created.
 # No %%files section for the main package, so it won't be built
 
-%if %{with cli}
-  %include packages/cli.spec
-%endif
+  %if %{with cli}
+    %include packages/cli.spec
+  %endif
 
-%if %{with agent}
-  %include packages/agent.spec
-%endif
+  %if %{with agent}
+    %include packages/agent.spec
+  %endif
 
-%if %{with selinux}
-  %include packages/selinux.spec
-%endif
+  %if %{with selinux}
+    %include packages/selinux.spec
+  %endif
+  
+  %if %{with services}
+    %include packages/services.spec
+  %endif
 
-%if %{with services}
-  %include packages/services.spec
-%endif
+  %if %{with otel_collector}
+    %include packages/otel-collector.spec
+  %endif
 
-%if %{with otel_collector}
-  %include packages/otel-collector.spec
-%endif
-
-%if %{with observability}
-  %include packages/observability.spec
-%endif
+  %if %{with observability}
+    %include packages/observability.spec
+  %endif
 
 %prep
   %goprep -A
