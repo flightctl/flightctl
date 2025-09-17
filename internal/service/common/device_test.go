@@ -199,7 +199,12 @@ func TestUpdateServerSideDeviceStatus_PostRestoreState(t *testing.T) {
 					Annotations: &annotations,
 				},
 				Status: &api.DeviceStatus{
-					LastSeen: tt.lastSeenTime,
+					LastSeen: func() *time.Time {
+						if tt.lastSeenTime.IsZero() {
+							return nil
+						}
+						return lo.ToPtr(tt.lastSeenTime)
+					}(),
 					Summary: api.DeviceSummaryStatus{
 						Status: api.DeviceSummaryStatusOnline, // Initial status (will be overridden)
 						Info:   lo.ToPtr("Initial info"),

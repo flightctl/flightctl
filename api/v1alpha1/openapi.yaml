@@ -1458,7 +1458,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
-
   /api/v1/devices/{name}/rendered:
     get:
       tags:
@@ -1524,7 +1523,59 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
-
+  /api/v1/devices/{name}/lastseen:
+    get:
+      tags:
+        - device
+      description: Get the last seen timestamp of the Device resource.
+      operationId: getDeviceLastSeen
+      parameters:
+        - name: name
+          in: path
+          description: The name of the Device resource to get the last seen timestamp for.
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceLastSeen'
+        "204":
+          description: No Content
+          content: {}
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
   /api/v1/deviceactions/resume:
     post:
       tags:
@@ -4383,7 +4434,6 @@ components:
         - os
         - updated
         - summary
-        - lastSeen
         - lifecycle
       properties:
         conditions:
@@ -4414,10 +4464,21 @@ components:
           $ref: "#/components/schemas/DeviceSummaryStatus"
         lastSeen:
           type: string
-          description: The last time the device was seen by the service.
+          description: "The last time the device was seen by the service (NOTE: this property is not returned by the API)."
           format: date-time
+          x-go-json-ignore: true
         lifecycle:
           $ref: '#/components/schemas/DeviceLifecycleStatus'
+    DeviceLastSeen:
+      type: object
+      description: DeviceLastSeen represents the last seen timestamp of a device.
+      required:
+        - lastSeen
+      properties:
+        lastSeen:
+          type: string
+          description: The last time the device was seen by the service.
+          format: date-time
     DeviceSystemInfo:
       required:
         - architecture

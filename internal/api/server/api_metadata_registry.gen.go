@@ -103,6 +103,11 @@ var APIMetadataMap = map[string]EndpointMetadata{
 		Resource:    "",
 		Action:      "",
 	},
+	"GET:/api/v1/devices/{name}/lastseen": {
+		OperationID: "getDeviceLastSeen",
+		Resource:    "",
+		Action:      "",
+	},
 	"GET:/api/v1/devices/{name}/rendered": {
 		OperationID: "getRenderedDevice",
 		Resource:    "",

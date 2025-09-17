@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"testing"
-	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
@@ -57,7 +56,6 @@ func makeDeviceListPage(t *testing.T, numItems int, cont *string, remaining *int
 			ApiVersion: "v1",
 			Kind:       api.DeviceKind,
 			Metadata:   api.ObjectMeta{Name: &name},
-			Status:     &api.DeviceStatus{LastSeen: time.Now()},
 		}
 	}
 
