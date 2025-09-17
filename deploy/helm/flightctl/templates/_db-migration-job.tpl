@@ -41,7 +41,8 @@ spec:
       restartPolicy: Never
       serviceAccountName: flightctl-db-migration
       initContainers:
-      {{- include "flightctl.databaseWaitInitContainer" (dict "context" $ctx "userType" "admin" "timeout" 120 "sleep" 2) | nindent 6 }}
+      {{- $userType := ternary "admin" "migration" (ne $ctx.Values.db.external "enabled") }}
+      {{- include "flightctl.databaseWaitInitContainer" (dict "context" $ctx "userType" $userType "timeout" 120 "sleep" 2) | nindent 6 }}
       {{- if ne $ctx.Values.db.external "enabled" }}
       {{- if not $isDryRun }}
       - name: setup-database-users

@@ -19,11 +19,11 @@ var _ = Describe("Microshift cluster ACM enrollment tests", func() {
 	Describe("Test Setup", Ordered, func() {
 
 		BeforeAll(func() {
-			isAcmInstalled, err := util.IsAcmInstalled()
+			_, isAcmRunning, err := util.IsAcmInstalled()
 			if err != nil {
 				GinkgoWriter.Printf("An error happened %v\n", err)
 			}
-			if !isAcmInstalled {
+			if !isAcmRunning {
 				Skip("Skipping test suite because ACM is not installed.")
 			}
 		})
@@ -137,13 +137,13 @@ var _ = Describe("Microshift cluster ACM enrollment tests", func() {
 				By("Make sure the pull-secret was injected")
 				psPath := "/etc/crio/openshift-pull-secret"
 				readyMsg := "The file was found"
-				stdout, err := harness.WaitForFileInDevice(psPath, util.TIMEOUT, util.POLLING)
+				stdout, err := harness.WaitForFileInDevice(psPath, util.TIMEOUT_5M, util.SHORT_POLLING)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(stdout.String()).To(ContainSubstring(readyMsg))
 
 				By("Wait for the kubeconfig to be in place")
 				kubeconfigPath := "/var/lib/microshift/resources/kubeadmin/kubeconfig"
-				stdout, err = harness.WaitForFileInDevice(kubeconfigPath, util.TIMEOUT, util.POLLING)
+				stdout, err = harness.WaitForFileInDevice(kubeconfigPath, util.TIMEOUT_5M, util.SHORT_POLLING)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(stdout.String()).To(ContainSubstring(readyMsg))
 

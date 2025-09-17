@@ -83,6 +83,7 @@ pluggable
 Podman
 PostgreSQL
 pre-update
+pre-upgrade
 qcow2
 QEMU
 Quadlet
@@ -379,3 +380,5 @@ SSL
 PL/pgSQL
 PL
 pgSQL
+values.yaml
+values.dev.yaml
