@@ -40,14 +40,26 @@ render_service() {
 
     # Process container files
     if [[ "$standalone" == "standalone" ]]; then
-        # Standalone mode - use only the standalone container file
         local container_file="${source_dir}/flightctl-${service_name}/flightctl-${service_name}-standalone.container"
 
         # Ensure quadlet output directory exists
         mkdir -p "${QUADLET_FILES_OUTPUT_DIR}"
 
         # Process standalone container file
-        cp "$container_file" "${QUADLET_FILES_OUTPUT_DIR}/flightctl-${service_name}.container"
+        local dest_container="${QUADLET_FILES_OUTPUT_DIR}/flightctl-${service_name}.container"
+
+        # Validate source file exists and is readable
+        if [[ ! -f "$container_file" ]]; then
+            echo "Error: Source container file does not exist: $container_file" >&2
+            exit 1
+        fi
+        if [[ ! -r "$container_file" ]]; then
+            echo "Error: Source container file is not readable: $container_file" >&2
+            exit 1
+        fi
+
+        echo "copy container: ${container_file} -> ${dest_container}"
+        install -m 644 "$container_file" "${dest_container}"
     else
         # Normal mode - process container files based on configuration
         mkdir -p "${QUADLET_FILES_OUTPUT_DIR}"
@@ -65,11 +77,20 @@ render_service() {
         else
             # Process regular container files except standalone and external ones
             for container_file in "${source_dir}/flightctl-${service_name}"/*.container; do
-                if [[ -f "$container_file" ]] && 
-                   [[ ! "$container_file" == *"-standalone.container" ]] && 
+                if [[ -f "$container_file" ]] &&
+                   [[ ! "$container_file" == *"-standalone.container" ]] &&
                    [[ ! "$container_file" == *"-external.container" ]]; then
                     local base_filename=$(basename "$container_file")
-                    cp "$container_file" "${QUADLET_FILES_OUTPUT_DIR}/${base_filename}"
+                    local dest_container="${QUADLET_FILES_OUTPUT_DIR}/${base_filename}"
+
+                    # Validate source file exists and is readable
+                    if [[ ! -r "$container_file" ]]; then
+                        echo "Error: Source container file is not readable: $container_file" >&2
+                        exit 1
+                    fi
+
+                    echo "copy container: ${container_file} -> ${dest_container}"
+                    install -m 644 "$container_file" "${dest_container}"
                 fi
             done
         fi
@@ -80,7 +101,9 @@ render_service() {
                 local base_filename=$(basename "$service_file")
                 # Guarantee target dir exists to avoid a fatal cp error
                 mkdir -p "${SYSTEMD_UNIT_OUTPUT_DIR}"
-                cp "$service_file" "${SYSTEMD_UNIT_OUTPUT_DIR}/${base_filename}"
+                local dest_service="${SYSTEMD_UNIT_OUTPUT_DIR}/${base_filename}"
+                echo "copy service: ${service_file} -> ${dest_service}"
+                cp "$service_file" "${dest_service}"
             fi
         done
     fi
@@ -90,14 +113,18 @@ render_service() {
         if [[ -f "$config_file" ]]; then
             # Ensure config output directory exists
             mkdir -p "${CONFIG_READONLY_DIR}/flightctl-${service_name}"
-            cp "$config_file" "${CONFIG_READONLY_DIR}/flightctl-${service_name}/$(basename "$config_file")"
+            local dest_config="${CONFIG_READONLY_DIR}/flightctl-${service_name}/$(basename "$config_file")"
+            echo "copy config: ${config_file} -> ${dest_config}"
+            cp "$config_file" "${dest_config}"
         fi
     done
 
     # Move any .volume file if it exists
     for volume in "${source_dir}/flightctl-${service_name}"/*.volume; do
         if [[ -f "$volume" ]]; then
-            cp "$volume" "${QUADLET_FILES_OUTPUT_DIR}"
+            local dest_volume="${QUADLET_FILES_OUTPUT_DIR}/$(basename "$volume")"
+            echo "copy volume: ${volume} -> ${dest_volume}"
+            cp "$volume" "${dest_volume}"
         fi
     done
 }
@@ -117,11 +144,7 @@ move_shared_files() {
     cp "${source_dir}/scripts/init_utils.sh" "${CONFIG_READONLY_DIR}/init_utils.sh"
     cp "${source_dir}/scripts/init_host.sh" "${CONFIG_READONLY_DIR}/init_host.sh"
     cp "${source_dir}/scripts/secrets.sh" "${CONFIG_READONLY_DIR}/secrets.sh"
-
-    # Copy migration script for db-migrate service
-    mkdir -p "${CONFIG_READONLY_DIR}/flightctl-db-migrate"
-    cp "${source_dir}/scripts/migration-setup.sh" "${CONFIG_READONLY_DIR}/flightctl-db-migrate/migration-setup.sh"
-    chmod +x "${CONFIG_READONLY_DIR}/flightctl-db-migrate/migration-setup.sh"
+    
 }
 
 # Start a systemd service

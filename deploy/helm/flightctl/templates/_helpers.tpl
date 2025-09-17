@@ -210,41 +210,41 @@ Parameters:
   env:
   - name: DB_USER_TYPE
     value: "{{ $userType }}"
-  - name: DB_HOST
+  - name: PGHOST
     value: "{{ include "flightctl.dbHostname" $context }}"
-  - name: DB_PORT
+  - name: PGPORT
     value: "{{ $context.Values.db.port }}"
-  - name: DB_NAME
+  - name: PGDATABASE
     value: "{{ $context.Values.db.name }}"
   {{- if eq $userType "app" }}
-  - name: DB_USER
+  - name: PGUSER
     valueFrom:
       secretKeyRef:
         name: flightctl-db-app-secret
         key: user
-  - name: DB_PASSWORD
+  - name: PGPASSWORD
     valueFrom:
       secretKeyRef:
         name: flightctl-db-app-secret
         key: userPassword
   {{- else if eq $userType "migration" }}
-  - name: DB_USER
+  - name: PGUSER
     valueFrom:
       secretKeyRef:
         name: flightctl-db-migration-secret
         key: migrationUser
-  - name: DB_PASSWORD
+  - name: PGPASSWORD
     valueFrom:
       secretKeyRef:
         name: flightctl-db-migration-secret
         key: migrationPassword
   {{- else if eq $userType "admin" }}
-  - name: DB_USER
+  - name: PGUSER
     valueFrom:
       secretKeyRef:
         name: flightctl-db-admin-secret
         key: masterUser
-  - name: DB_PASSWORD
+  - name: PGPASSWORD
     valueFrom:
       secretKeyRef:
         name: flightctl-db-admin-secret

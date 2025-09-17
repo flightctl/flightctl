@@ -26,10 +26,16 @@ BuildRequires:  golang
 BuildRequires:  make
 BuildRequires:  git
 BuildRequires:  openssl-devel
+BuildRequires:  systemd-rpm-macros
 
 Requires: openssl
 
-# Skip description for the main package since it won't be created
+%global flightctl_target flightctl.target
+
+# --- Restart these on upgrade  ---
+%global flightctl_services_restart flightctl-api.service flightctl-ui.service flightctl-worker.service flightctl-alertmanager.service flightctl-alert-exporter.service flightctl-alertmanager-proxy.service flightctl-cli-artifacts.service flightctl-periodic.service flightctl-db-migrate.service flightctl-db-wait.service
+
+
 %description
 # Main package is empty and not created.
 
@@ -72,6 +78,9 @@ The flightctl-selinux package provides the SELinux policy modules required by th
 Summary: Flight Control services
 Requires: bash
 Requires: podman
+Requires: yq
+BuildRequires: systemd-rpm-macros
+%{?systemd_requires}
 
 %description services
 The flightctl-services package provides installation and setup of files for running containerized Flight Control services
@@ -79,11 +88,9 @@ The flightctl-services package provides installation and setup of files for runn
 %package otel-collector
 Summary: OpenTelemetry Collector for FlightCtl
 Requires:       podman
-Requires:       systemd
 Requires:       yq
-Requires(post): systemd, yq, gettext
-Requires(preun):systemd
-Requires(postun):systemd
+Requires(post): yq gettext
+%{?systemd_requires}
 Requires:       selinux-policy-targeted
 
 %description otel-collector
@@ -98,9 +105,8 @@ Requires:       /usr/sbin/semanage
 Requires:       /usr/sbin/restorecon
 Requires:       podman
 Requires:       systemd
-Requires(post): systemd, yq, gettext
-Requires(preun):systemd
-Requires(postun):systemd
+Requires(post): yq gettext
+%{?systemd_requires}
 Requires:       selinux-policy-targeted
 
 %description observability
@@ -156,7 +162,7 @@ services to be running. This package automatically includes the flightctl-otel-c
 
 /etc/grafana/provisioning/dashboards/flightctl.yaml
 
-# The files that will be generated in %post must be listed as %ghost files.
+# The files that will be generated in %%post must be listed as %%ghost files.
 %ghost /etc/grafana/grafana.ini
 %ghost /etc/containers/systemd/flightctl-grafana.container
 %ghost /etc/containers/systemd/flightctl-prometheus.container
@@ -448,6 +454,8 @@ echo "Flightctl Observability Stack uninstalled."
     install -d %{buildroot}%{_datadir}/selinux/packages/%{selinuxtype}
     install -m644 packaging/selinux/*.bz2 %{buildroot}%{_datadir}/selinux/packages/%{selinuxtype}
 
+    install -Dpm 0644 packaging/flightctl-services-install.conf %{buildroot}%{_sysconfdir}/flightctl/flightctl-services-install.conf
+
     rm -f licenses.list
 
     find . -type f -name LICENSE -or -name License | while read LICENSE_FILE; do
@@ -497,15 +505,19 @@ echo "Flightctl Observability Stack uninstalled."
      mkdir -p %{buildroot}/var/lib/prometheus
      mkdir -p %{buildroot}/var/lib/grafana # For Grafana's data
      mkdir -p %{buildroot}/var/lib/otelcol
-     mkdir -p %{buildroot}/opt/flightctl-observability/templates # Staging for template files processed in %post
+     mkdir -p %{buildroot}/opt/flightctl-observability/templates # Staging for template files processed in %%post
      mkdir -p %{buildroot}/usr/local/bin # For the reloader script
      mkdir -p %{buildroot}/usr/lib/systemd/system # For systemd units
+
+     # Install pre-upgrade helper script to libexec
+     mkdir -p %{buildroot}%{_libexecdir}/flightctl
+     install -Dpm 0755 deploy/scripts/pre-upgrade-dry-run.sh %{buildroot}%{_libexecdir}/flightctl/pre-upgrade-dry-run.sh
 
      # Copy static configuration files (those not templated)
      install -m 0644 packaging/observability/prometheus.yml %{buildroot}/etc/prometheus/
      install -m 0644 packaging/observability/otelcol-config.yaml %{buildroot}/etc/otelcol/
 
-     # Copy template source files to a temporary staging area for processing in %post
+     # Copy template source files to a temporary staging area for processing in %%post
      install -m 0644 packaging/observability/grafana.ini.template %{buildroot}/opt/flightctl-observability/templates/
      install -m 0644 packaging/observability/flightctl-grafana.container.template %{buildroot}/opt/flightctl-observability/templates/
      install -m 0644 packaging/observability/flightctl-prometheus.container.template %{buildroot}/opt/flightctl-observability/templates/
@@ -554,7 +566,7 @@ fi
 %selinux_relabel_post -s %{selinuxtype}
 
 # File listings
-# No %files section for the main package, so it won't be built
+# No %%files section for the main package, so it won't be built
 
 %files cli -f licenses.list
     %{_bindir}/flightctl
@@ -597,16 +609,15 @@ rm -rf /usr/share/sosreport
     %dir %{_sysconfdir}/flightctl/flightctl-cli-artifacts
     %dir %{_sysconfdir}/flightctl/flightctl-alertmanager-proxy
     %config(noreplace) %{_sysconfdir}/flightctl/service-config.yaml
+    %config(noreplace) %{_sysconfdir}/flightctl/flightctl-services-install.conf
 
     # Files mounted to data dir
-    %dir %attr(0444,root,root) %{_datadir}/flightctl
-    %dir %attr(0444,root,root) %{_datadir}/flightctl/flightctl-api
-    %dir %attr(0444,root,root) %{_datadir}/flightctl/flightctl-alert-exporter
-    %dir %attr(0444,root,root) %{_datadir}/flightctl/flightctl-db
-    %dir %attr(0444,root,root) %{_datadir}/flightctl/flightctl-db-migrate
-    %attr(0755,root,root) %{_datadir}/flightctl/flightctl-db-migrate/migration-setup.sh
-    %dir %attr(0444,root,root) %{_datadir}/flightctl/flightctl-ui
-    %dir %attr(0444,root,root) %{_datadir}/flightctl/flightctl-cli-artifacts
+    %dir %attr(0755,root,root) %{_datadir}/flightctl
+    %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-api
+    %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-alert-exporter
+    %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-db
+    %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-ui
+    %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-cli-artifacts
     %{_datadir}/flightctl/flightctl-api/config.yaml.template
     %{_datadir}/flightctl/flightctl-api/env.template
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-api/init.sh
@@ -628,12 +639,50 @@ rm -rf /usr/share/sosreport
     # Handle permissions for scripts setting host config
     %attr(0755,root,root) %{_datadir}/flightctl/init_host.sh
     %attr(0755,root,root) %{_datadir}/flightctl/secrets.sh
+    
+    # flightctl-services pre upgrade checks
+    %dir %{_libexecdir}/flightctl
+    %attr(0755,root,root) %{_libexecdir}/flightctl/pre-upgrade-dry-run.sh
 
     # Files mounted to lib dir
     /usr/lib/systemd/system/flightctl.target
-    /usr/lib/systemd/system/flightctl-db-migrate.service
+
+# Optional pre-upgrade database migration dry-run
+%pre services
+# $1 == 1 if it's an install
+# $1 == 2 if it's an upgrade
+if [ "$1" -eq 2 ]; then
+    IMAGE_TAG="$(echo %{version} | tr '~' '-')"
+    echo "flightctl: running pre upgrade checks, target version $IMAGE_TAG"
+    if [ -x "%{_libexecdir}/flightctl/pre-upgrade-dry-run.sh" ]; then
+        IMAGE_TAG="$IMAGE_TAG" \
+        CONFIG_PATH="%{_sysconfdir}/flightctl/flightctl-api/config.yaml" \
+        "%{_libexecdir}/flightctl/pre-upgrade-dry-run.sh" "$IMAGE_TAG" "%{_sysconfdir}/flightctl/flightctl-api/config.yaml" || {
+            echo "flightctl: dry-run failed; aborting upgrade." >&2
+            exit 1
+        }
+    else
+        echo "flightctl: pre-upgrade-dry-run.sh not found at %{_libexecdir}/flightctl; skipping."
+    fi
+fi
+
+%post services
+# On initial install: apply preset policy to enable/disable services based on system defaults
+%systemd_post %{flightctl_target}
+
+%preun services
+# On package removal: stop and disable all services
+%systemd_preun %{flightctl_target} 
+%systemd_preun flightctl-network.service
+
+%postun services
+# On upgrade: mark services for restart after transaction completes
+%systemd_postun_with_restart %{flightctl_services_restart}
+%systemd_postun %{flightctl_target}
 
 %changelog
+* Tue Oct 8 2025 Ilya Skornyakov <iskornya@redhat.com> - 0.10.0
+- Add pre-upgrade database migration dry-run capability
 * Tue Jul 15 2025 Sam Batschelet <sbatsche@redhat.com> - 0.9.0-2
 - Improve selinux policy deps and install
 * Sun Jul 6 2025 Ori Amizur <oamizur@redhat.com> - 0.9.0-1
