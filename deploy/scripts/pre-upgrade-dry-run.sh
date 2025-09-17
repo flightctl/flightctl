@@ -40,8 +40,19 @@ parse_service_db_config() {
     DB_PORT=$(${YQ} '.database.port // 5432' "${SERVICE_CONFIG_PATH}")
     DB_NAME=$(${YQ} '.database.name // "flightctl"' "${SERVICE_CONFIG_PATH}")
     DB_USER=${DB_USER:-$(${YQ} '.database.migrationUser // "flightctl_migrator"' "${SERVICE_CONFIG_PATH}")}
+    
+    # Parse SSL configuration
+    DB_SSLMODE=$(${YQ} '.database.sslmode // ""' "${SERVICE_CONFIG_PATH}")
+    DB_SSLCERT=$(${YQ} '.database.sslcert // ""' "${SERVICE_CONFIG_PATH}")
+    DB_SSLKEY=$(${YQ} '.database.sslkey // ""' "${SERVICE_CONFIG_PATH}")
+    DB_SSLROOTCERT=$(${YQ} '.database.sslrootcert // ""' "${SERVICE_CONFIG_PATH}")
 
-    echo "[flightctl] database config: host=${DB_HOST}, port=${DB_PORT}, name=${DB_NAME}, user=${DB_USER}"
+    echo -n "[flightctl] database config: host=${DB_HOST}, port=${DB_PORT}, name=${DB_NAME}, user=${DB_USER}"
+    if [ -n "${DB_SSLMODE}" ]; then
+        echo ", sslmode=${DB_SSLMODE}"
+    else
+        echo ""
+    fi
 }
 
 
@@ -49,15 +60,25 @@ parse_service_db_config() {
 wait_for_database() {
     echo "[flightctl] waiting for database (timeout=${DB_WAIT_TIMEOUT}s sleep=${DB_WAIT_SLEEP}s)"
 
-    if ! "${PODMAN}" run --rm --network flightctl \
-        -e DB_HOST="${DB_HOST}" \
-        -e DB_PORT="${DB_PORT}" \
-        -e DB_NAME="${DB_NAME}" \
-        -e DB_USER="${DB_USER}" \
-        --secret flightctl-postgresql-migrator-password,type=env,target=DB_PASSWORD \
-        -v "${SERVICE_CONFIG_DIR}/service-config.yaml":/etc/flightctl/service-config.yaml:ro,z \
-        "${DB_SETUP_IMAGE}" /app/deploy/scripts/wait-for-database.sh \
-        --timeout="${DB_WAIT_TIMEOUT}" --sleep="${DB_WAIT_SLEEP}"; then
+    local podman_args=()
+    podman_args+=("--rm" "--network" "flightctl")
+    podman_args+=("-e" "PGHOST=${DB_HOST}")
+    podman_args+=("-e" "PGPORT=${DB_PORT}")
+    podman_args+=("-e" "PGDATABASE=${DB_NAME}")
+    podman_args+=("-e" "PGUSER=${DB_USER}")
+    
+    # Add SSL environment variables if set
+    [ -n "${DB_SSLMODE}" ] && podman_args+=("-e" "PGSSLMODE=${DB_SSLMODE}")
+    [ -n "${DB_SSLCERT}" ] && podman_args+=("-e" "PGSSLCERT=${DB_SSLCERT}")
+    [ -n "${DB_SSLKEY}" ] && podman_args+=("-e" "PGSSLKEY=${DB_SSLKEY}")
+    [ -n "${DB_SSLROOTCERT}" ] && podman_args+=("-e" "PGSSLROOTCERT=${DB_SSLROOTCERT}")
+    
+    podman_args+=("--secret" "flightctl-postgresql-migrator-password,type=env,target=PGPASSWORD")
+    podman_args+=("${DB_SETUP_IMAGE}")
+    podman_args+=("/app/deploy/scripts/wait-for-database.sh")
+    podman_args+=("--timeout=${DB_WAIT_TIMEOUT}" "--sleep=${DB_WAIT_SLEEP}")
+
+    if ! "${PODMAN}" run "${podman_args[@]}"; then
         echo "[flightctl] database wait failed; skipping dry-run"
         exit 0
     fi
@@ -84,6 +105,7 @@ run_migration_dry_run() {
 main() {
     echo "[flightctl] pre-upgrade migration dry-run (tag=${IMAGE_TAG})"
     echo "[flightctl] using service config: ${SERVICE_CONFIG_PATH}"
+    echo "[flightctl] using image: ${DB_SETUP_IMAGE}"
 
     load_install_config
     

@@ -10,10 +10,6 @@ ContainerName=flightctl-db-migrate
 Image=quay.io/flightctl/flightctl-db-setup:latest
 Network=flightctl.network
 AutoUpdate=none
-Environment=DB_HOST=flightctl-db
-Environment=DB_PORT=5432
-Environment=DB_NAME=flightctl
-Environment=DB_USER=flightctl_migrator
 Environment=DB_MIGRATION_USER=flightctl_migrator
 Secret=flightctl-postgresql-migrator-password,type=env,target=DB_PASSWORD
 Secret=flightctl-postgresql-migrator-password,type=env,target=DB_MIGRATION_PASSWORD
