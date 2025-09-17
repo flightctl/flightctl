@@ -36,7 +36,7 @@ func serviceHandler() *ServiceHandler {
 
 func prepareDevice(orgId uuid.UUID, name string) *api.Device {
 	deviceStatus := api.NewDeviceStatus()
-	deviceStatus.LastSeen = time.Now()
+	deviceStatus.LastSeen = lo.ToPtr(time.Now())
 	deviceStatus.SystemInfo = api.DeviceSystemInfo{
 		AgentVersion:    "1",
 		Architecture:    "2",
@@ -190,7 +190,7 @@ func TestEventDeviceReplaceDeviceStatus1(t *testing.T) {
 	assert.NotNil(t, result)
 
 	newDevice := prepareDevice(uuid.New(), "foo")
-	newDevice.Status.LastSeen = time.Now()
+	newDevice.Status.LastSeen = lo.ToPtr(time.Now())
 	newDevice.Status.Resources.Cpu = "Healthy"
 	newDevice.Status.Resources.Disk = "Healthy"
 	newDevice.Status.Resources.Memory = "Healthy"
@@ -335,7 +335,7 @@ func TestEventDeviceCreatedAndIsAlive(t *testing.T) {
 		{Reason: api.EventReasonDeviceConnected, Details: "Device's system resources are healthy."},
 		{Reason: api.EventReasonDeviceApplicationHealthy, Details: "Device has no application workloads defined."},
 	}...)
-	device.Status.LastSeen = time.Now()
+	device.Status.LastSeen = lo.ToPtr(time.Now())
 	device, err = serviceHandler.UpdateDevice(ctx, *device.Metadata.Name, *device, nil)
 	require.NoError(err)
 	events, _ = serviceHandler.store.Event().List(context.Background(), uuid.New(), store.ListParams{})
@@ -343,7 +343,7 @@ func TestEventDeviceCreatedAndIsAlive(t *testing.T) {
 
 	// Device I-am-alive
 	// No new expected events
-	device.Status.LastSeen = time.Now()
+	device.Status.LastSeen = lo.ToPtr(time.Now())
 	_, err = serviceHandler.UpdateDevice(ctx, *device.Metadata.Name, *device, nil)
 	require.NoError(err)
 	events, err = serviceHandler.store.Event().List(context.Background(), uuid.New(), store.ListParams{})
@@ -378,7 +378,7 @@ func TestEventDeviceUpdated(t *testing.T) {
 		Memory: api.DeviceResourceStatusHealthy,
 		Disk:   api.DeviceResourceStatusHealthy,
 	}
-	device.Status.LastSeen = time.Now()
+	device.Status.LastSeen = lo.ToPtr(time.Now())
 	device, err = serviceHandler.UpdateDevice(ctx, *device.Metadata.Name, *device, nil)
 	require.NoError(err)
 	events, err = serviceHandler.store.Event().List(context.Background(), uuid.New(), store.ListParams{})

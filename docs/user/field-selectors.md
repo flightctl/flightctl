@@ -25,7 +25,7 @@ The following table lists the fields supported for filtering for each resource k
 | Kind                            | Fields                                              |
 |---------------------------------|-----------------------------------------------------|
 | **Certificate Signing Request** | `status.certificate`                                |
-| **Device**                      | `status.summary.status`<br/>`status.applicationsSummary.status`<br/>`status.updated.status`<br/>`status.lastSeen`<br/>`status.lifecycle.status` |
+| **Device**                      | `status.summary.status`<br/>`status.applicationsSummary.status`<br/>`status.updated.status`<br/>`lastSeen`<br/>`status.lifecycle.status` |
 | **Enrollment Request**          | `status.approval.approved`<br/>`status.certificate` |
 | **Fleet**                       | `spec.template.spec.os.image`                       |
 | **Repository**                  | `spec.type`<br/>`spec.url`                          |
@@ -67,7 +67,7 @@ For example:
 ```bash
 flightctl get device --field-selector='text'
 
-Error: listing devices: 400, message: unknown or unsupported selector: unable to resolve selector name "text". Supported selectors are: [metadata.alias metadata.creationTimestamp metadata.name metadata.nameOrAlias metadata.owner status.applicationsSummary.status status.lastSeen status.summary.status status.updated.status]
+Error: listing devices: 400, message: unknown or unsupported selector: unable to resolve selector name "text". Supported selectors are: [metadata.alias metadata.creationTimestamp metadata.name metadata.nameOrAlias metadata.owner status.applicationsSummary.status lastSeen status.summary.status status.updated.status]
 ```
 
 In this example, the field `text` is not a valid field for filtering. The error message provides a list of supported fields that can be used with `--field-selector` for the `device` resource.

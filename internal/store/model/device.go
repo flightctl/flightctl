@@ -34,6 +34,9 @@ type Device struct {
 	// Timestamp when the device was rendered
 	RenderTimestamp time.Time
 
+	// The last time the device was seen by the service
+	LastSeen *time.Time `gorm:"index" selector:"lastSeen"`
+
 	// The rendered application provided by the service.
 	RenderedApplications *JSONField[*[]api.ApplicationProviderSpec] `gorm:"type:jsonb"`
 
@@ -77,6 +80,7 @@ func NewDeviceFromApiResource(resource *api.Device) (*Device, error) {
 	if status.Conditions == nil {
 		status.Conditions = []api.Condition{}
 	}
+
 	var resourceVersion *int64
 	if resource.Metadata.ResourceVersion != nil {
 		i, err := strconv.ParseInt(lo.FromPtr(resource.Metadata.ResourceVersion), 10, 64)
@@ -101,9 +105,10 @@ func NewDeviceFromApiResource(resource *api.Device) (*Device, error) {
 			Owner:           resource.Metadata.Owner,
 			ResourceVersion: resourceVersion,
 		},
-		Alias:  alias,
-		Spec:   MakeJSONField(spec),
-		Status: MakeJSONField(status),
+		Alias:    alias,
+		Spec:     MakeJSONField(spec),
+		Status:   MakeJSONField(status),
+		LastSeen: status.LastSeen,
 	}, nil
 }
 
@@ -154,6 +159,9 @@ func (d *Device) ToApiResource(opts ...APIResourceOption) (*api.Device, error) {
 	status := api.NewDeviceStatus()
 	if d.Status != nil {
 		status = d.Status.Data
+		if d.LastSeen != nil {
+			status.LastSeen = d.LastSeen
+		}
 	}
 
 	if !apiOpts.withoutServiceConditions {

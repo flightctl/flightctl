@@ -33,6 +33,7 @@ type GetOptions struct {
 	Rendered      bool
 	Summary       bool
 	SummaryOnly   bool
+	LastSeen      bool
 }
 
 func DefaultGetOptions() *GetOptions {
@@ -44,6 +45,7 @@ func DefaultGetOptions() *GetOptions {
 		Continue:      "",
 		FleetName:     "",
 		Rendered:      false,
+		LastSeen:      false,
 	}
 }
 
@@ -83,6 +85,7 @@ func (o *GetOptions) Bind(fs *pflag.FlagSet) {
 	fs.BoolVar(&o.Rendered, "rendered", false, "Return the rendered device configuration that is presented to the device (use only when getting a single device).")
 	fs.BoolVarP(&o.Summary, "summary", "s", false, "Display summary information.")
 	fs.BoolVar(&o.SummaryOnly, "summary-only", false, "Display summary information only.")
+	fs.BoolVar(&o.LastSeen, "last-seen", false, "Display the last seen timestamp for a single device.")
 }
 
 func (o *GetOptions) Complete(cmd *cobra.Command, args []string) error {
@@ -111,6 +114,7 @@ func (o *GetOptions) Validate(args []string) error {
 		func() error { return o.validateRendered(kind, name) },
 		func() error { return o.validateSingleResourceRestrictions(kind, name) },
 		func() error { return o.validateLimit() },
+		func() error { return o.validateLastSeen(kind, name) },
 	}
 
 	for _, v := range validators {
@@ -209,6 +213,17 @@ func (o *GetOptions) validateLimit() error {
 	}
 	if o.Limit > maxRequestLimit && len(o.Output) > 0 {
 		return fmt.Errorf("limit higher than %d is only supported when using table format", maxRequestLimit)
+	}
+	return nil
+}
+
+// validateLastSeen checks the usage of the --last-seen flag.
+func (o *GetOptions) validateLastSeen(kind, name string) error {
+	if o.LastSeen && (kind != DeviceKind || len(name) == 0) {
+		return fmt.Errorf("'--last-seen' can only be used when getting a single device")
+	}
+	if o.LastSeen && (o.Rendered || o.Summary || o.SummaryOnly) {
+		return fmt.Errorf("'--last-seen' cannot be combined with '--rendered', '--summary', or '--summary-only'")
 	}
 	return nil
 }
@@ -334,6 +349,9 @@ func (o *GetOptions) listOnce(ctx context.Context, formatter display.OutputForma
 func (o *GetOptions) getSingleResource(ctx context.Context, c *apiclient.ClientWithResponses, kind, name string) (interface{}, error) {
 	switch kind {
 	case DeviceKind:
+		if o.LastSeen {
+			return GetLastSeenDevice(ctx, c, name)
+		}
 		if o.Rendered {
 			return GetRenderedDevice(ctx, c, name)
 		}
