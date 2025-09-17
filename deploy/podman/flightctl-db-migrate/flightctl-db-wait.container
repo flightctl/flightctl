@@ -8,8 +8,8 @@ ContainerName=flightctl-db-wait
 Image=quay.io/flightctl/flightctl-db-setup:latest
 Network=flightctl.network
 AutoUpdate=none
-Environment=PGUSER=flightctl_app
-Secret=flightctl-postgresql-user-password,type=env,target=PGPASSWORD
+Environment=DB_USER=flightctl_app
+Secret=flightctl-postgresql-user-password,type=env,target=DB_PASSWORD
 Exec=/app/deploy/scripts/wait-for-database.sh --timeout=60 --sleep=1
 
 [Service]

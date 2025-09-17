@@ -2,9 +2,20 @@
 set -euo pipefail
 
 # Waits until a PostgreSQL database is ready for connections.
-# Uses PG* env vars and optional flags: --timeout, --sleep, --connection-timeout.
+# Uses DB_* env vars (mapped to PG* internally) and optional flags: --timeout, --sleep, --connection-timeout.
 # Optionally reads database configuration from a YAML file specified by SERVICE_CONFIG_PATH.
 # Environment variables override values from the YAML file.
+
+# Set default values for DB_* variables
+: "${DB_HOST:=flightctl-db}"
+: "${DB_PORT:=5432}"
+: "${DB_NAME:=flightctl}"
+: "${DB_USER:=}"
+: "${DB_PASSWORD:=}"
+: "${DB_SSL_MODE:=}"
+: "${DB_SSL_CERT:=}"
+: "${DB_SSL_KEY:=}"
+: "${DB_SSL_ROOT_CERT:=}"
 
 # Initialize defaults
 TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-60}"
@@ -14,30 +25,12 @@ CONNECTION_TIMEOUT="${CONNECTION_TIMEOUT:-3}"
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --timeout=*)
-            TIMEOUT_SECONDS="${1#*=}"
-            shift
-            ;;
-        --sleep=*)
-            SLEEP_INTERVAL="${1#*=}"
-            shift
-            ;;
-        --connection-timeout=*)
-            CONNECTION_TIMEOUT="${1#*=}"
-            shift
-            ;;
-        --timeout)
-            TIMEOUT_SECONDS="$2"
-            shift 2
-            ;;
-        --sleep)
-            SLEEP_INTERVAL="$2"
-            shift 2
-            ;;
-        --connection-timeout)
-            CONNECTION_TIMEOUT="$2"
-            shift 2
-            ;;
+        --timeout=*) TIMEOUT_SECONDS="${1#*=}"; shift ;;
+        --sleep=*) SLEEP_INTERVAL="${1#*=}"; shift ;;
+        --connection-timeout=*) CONNECTION_TIMEOUT="${1#*=}"; shift ;;
+        --timeout) TIMEOUT_SECONDS="$2"; shift 2 ;;
+        --sleep) SLEEP_INTERVAL="$2"; shift 2 ;;
+        --connection-timeout) CONNECTION_TIMEOUT="$2"; shift 2 ;;
         --help|-h)
             echo "Usage: $0 [--timeout=SECONDS] [--sleep=SECONDS] [--connection-timeout=SECONDS]"
             echo "Wait for PostgreSQL database to become ready"
@@ -48,26 +41,35 @@ while [[ $# -gt 0 ]]; do
             echo "  --connection-timeout=SECONDS  Connection timeout per attempt (default: 3)"
             echo ""
             echo "Environment variables:"
-            echo "  PGHOST, PGUSER, PGDATABASE, PGPASSWORD - PostgreSQL connection details (required)"
-            echo "  PGPORT - PostgreSQL port (optional, default: 5432)"
-            echo "  PGSSLMODE, PGSSLCERT, PGSSLKEY, PGSSLROOTCERT - PostgreSQL SSL configuration (optional)"
+            echo "  DB_USER, DB_PASSWORD - Database connection details (required)"
+            echo "  DB_HOST - Database hostname (optional, default: flightctl-db)"
+            echo "  DB_PORT - Database port (optional, default: 5432)"
+            echo "  DB_NAME - Database name (optional, default: flightctl)"
+            echo "  DB_SSL_MODE, DB_SSL_CERT, DB_SSL_KEY, DB_SSL_ROOT_CERT - SSL configuration (optional)"
             echo "  SERVICE_CONFIG_PATH - Path to service config YAML file (optional)"
             echo ""
             echo "Note: Environment variables override values from the service config file."
-            exit 0
-            ;;
-        --*)
-            echo "Unknown option $1" >&2
-            echo "Use --help for usage information" >&2
-            exit 1
-            ;;
-        *)
-            echo "Unknown argument: $1" >&2
-            echo "Use --help for usage information" >&2
-            exit 1
-            ;;
+            exit 0 ;;
+        --*) echo "Unknown option $1" >&2; echo "Use --help for usage information" >&2; exit 1 ;;
+        *) echo "Unknown argument: $1" >&2; echo "Use --help for usage information" >&2; exit 1 ;;
     esac
 done
+
+# Validate arguments
+if ! [[ "$TIMEOUT_SECONDS" =~ ^[0-9]+$ ]]; then
+    echo "Error: TIMEOUT_SECONDS must be a positive integer, got: $TIMEOUT_SECONDS" >&2
+    exit 1
+fi
+
+if ! [[ "$SLEEP_INTERVAL" =~ ^[0-9]+$ ]]; then
+    echo "Error: SLEEP_INTERVAL must be a positive integer, got: $SLEEP_INTERVAL" >&2
+    exit 1
+fi
+
+if ! [[ "$CONNECTION_TIMEOUT" =~ ^[0-9]+$ ]]; then
+    echo "Error: CONNECTION_TIMEOUT must be a positive integer, got: $CONNECTION_TIMEOUT" >&2
+    exit 1
+fi
 
 # Function to read value from YAML file using yq
 read_yaml_value() {
@@ -90,61 +92,41 @@ if [ -n "${SERVICE_CONFIG_PATH:-}" ]; then
     else
         echo "Loading database configuration from: $SERVICE_CONFIG_PATH"
 
-        # Read values from YAML, but only if corresponding env vars are not already set
-        : "${PGHOST:=$(read_yaml_value ".db.hostname" "$SERVICE_CONFIG_PATH")}"
-        : "${PGPORT:=$(read_yaml_value ".db.port" "$SERVICE_CONFIG_PATH")}"
-        : "${PGDATABASE:=$(read_yaml_value ".db.name" "$SERVICE_CONFIG_PATH")}"
-        : "${PGUSER:=$(read_yaml_value ".db.user" "$SERVICE_CONFIG_PATH")}"
-        : "${PGSSLMODE:=$(read_yaml_value ".db.sslmode" "$SERVICE_CONFIG_PATH")}"
-        : "${PGSSLCERT:=$(read_yaml_value ".db.sslcert" "$SERVICE_CONFIG_PATH")}"
-        : "${PGSSLKEY:=$(read_yaml_value ".db.sslkey" "$SERVICE_CONFIG_PATH")}"
-        : "${PGSSLROOTCERT:=$(read_yaml_value ".db.sslrootcert" "$SERVICE_CONFIG_PATH")}"
+        # Read values from YAML into DB_* variables if not already set
+        : "${DB_HOST:=$(read_yaml_value ".db.hostname" "$SERVICE_CONFIG_PATH")}"
+        : "${DB_PORT:=$(read_yaml_value ".db.port" "$SERVICE_CONFIG_PATH")}"
+        : "${DB_NAME:=$(read_yaml_value ".db.name" "$SERVICE_CONFIG_PATH")}"
+        : "${DB_USER:=$(read_yaml_value ".db.user" "$SERVICE_CONFIG_PATH")}"
+        : "${DB_SSL_MODE:=$(read_yaml_value ".db.sslmode" "$SERVICE_CONFIG_PATH")}"
+        : "${DB_SSL_CERT:=$(read_yaml_value ".db.sslcert" "$SERVICE_CONFIG_PATH")}"
+        : "${DB_SSL_KEY:=$(read_yaml_value ".db.sslkey" "$SERVICE_CONFIG_PATH")}"
+        : "${DB_SSL_ROOT_CERT:=$(read_yaml_value ".db.sslrootcert" "$SERVICE_CONFIG_PATH")}"
     fi
 fi
 
-# Validate arguments are numeric
-if ! [[ "$TIMEOUT_SECONDS" =~ ^[0-9]+$ ]]; then
-    echo "Error: TIMEOUT_SECONDS must be a positive integer, got: $TIMEOUT_SECONDS" >&2
-    exit 1
-fi
 
-if ! [[ "$SLEEP_INTERVAL" =~ ^[0-9]+$ ]]; then
-    echo "Error: SLEEP_INTERVAL must be a positive integer, got: $SLEEP_INTERVAL" >&2
-    exit 1
-fi
-
-if ! [[ "$CONNECTION_TIMEOUT" =~ ^[0-9]+$ ]]; then
-    echo "Error: CONNECTION_TIMEOUT must be a positive integer, got: $CONNECTION_TIMEOUT" >&2
-    exit 1
-fi
-
-# Set defaults if not provided from env or config file
-: "${PGPORT:=5432}"
-: "${PGHOST:=flightctl-db}"
-: "${PGDATABASE:=flightctl}"
-
-# Validate required environment variables
-: "${PGUSER:?PGUSER environment variable must be set}"
-: "${PGPASSWORD:?PGPASSWORD environment variable must be set}"
+# Validate required DB_* environment variables
+: "${DB_USER:?DB_USER environment variable must be set}"
+: "${DB_PASSWORD:?DB_PASSWORD environment variable must be set}"
 
 # Log connection details
 echo "Waiting for PostgreSQL database to be ready..."
 echo "Connection details:"
-echo "  Host: ${PGHOST}"
-echo "  Port: ${PGPORT}"
-echo "  Database: ${PGDATABASE}"
-echo "  User: ${PGUSER}"
+echo "  Host: ${DB_HOST}"
+echo "  Port: ${DB_PORT}"
+echo "  Database: ${DB_NAME}"
+echo "  User: ${DB_USER}"
 echo "  Timeout: ${TIMEOUT_SECONDS} seconds"
 echo "  Sleep interval: ${SLEEP_INTERVAL} seconds"
 echo "  Connection timeout: ${CONNECTION_TIMEOUT} seconds"
 
 # Log SSL configuration (non-sensitive info only)
-if [ -n "${PGSSLMODE:-}" ]; then
+if [ -n "${DB_SSL_MODE:-}" ]; then
     echo "SSL configuration:"
-    echo "  SSL Mode: ${PGSSLMODE}"
-    [ -n "${PGSSLCERT:-}" ] && echo "  SSL Certificate: configured"
-    [ -n "${PGSSLKEY:-}" ] && echo "  SSL Key: configured"
-    [ -n "${PGSSLROOTCERT:-}" ] && echo "  SSL Root Certificate: configured"
+    echo "  SSL Mode: ${DB_SSL_MODE}"
+    [ -n "${DB_SSL_CERT:-}" ] && echo "  SSL Certificate: configured"
+    [ -n "${DB_SSL_KEY:-}" ] && echo "  SSL Key: configured"
+    [ -n "${DB_SSL_ROOT_CERT:-}" ] && echo "  SSL Root Certificate: configured"
 fi
 echo ""
 
@@ -161,12 +143,12 @@ while [[ $(date +%s) -lt $end_time ]]; do
     set +e
     error_output=$(
       { timeout "${CONNECTION_TIMEOUT}" \
-          env PGHOST="$PGHOST" PGPORT="$PGPORT" PGUSER="$PGUSER" \
-              PGDATABASE="$PGDATABASE" PGPASSWORD="$PGPASSWORD" \
-              ${PGSSLMODE:+PGSSLMODE="$PGSSLMODE"} \
-              ${PGSSLCERT:+PGSSLCERT="$PGSSLCERT"} \
-              ${PGSSLKEY:+PGSSLKEY="$PGSSLKEY"} \
-              ${PGSSLROOTCERT:+PGSSLROOTCERT="$PGSSLROOTCERT"} \
+          env PGHOST="$DB_HOST" PGPORT="$DB_PORT" PGUSER="$DB_USER" \
+              PGDATABASE="$DB_NAME" PGPASSWORD="$DB_PASSWORD" \
+              ${DB_SSL_MODE:+PGSSLMODE="$DB_SSL_MODE"} \
+              ${DB_SSL_CERT:+PGSSLCERT="$DB_SSL_CERT"} \
+              ${DB_SSL_KEY:+PGSSLKEY="$DB_SSL_KEY"} \
+              ${DB_SSL_ROOT_CERT:+PGSSLROOTCERT="$DB_SSL_ROOT_CERT"} \
           psql -tAq -c "SELECT 1" >/dev/null; } 2>&1
     )
     connection_result=$?
