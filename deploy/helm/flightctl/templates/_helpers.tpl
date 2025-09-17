@@ -210,41 +210,41 @@ Parameters:
   env:
   - name: DB_USER_TYPE
     value: "{{ $userType }}"
-  - name: PGHOST
+  - name: DB_HOST
     value: "{{ include "flightctl.dbHostname" $context }}"
-  - name: PGPORT
+  - name: DB_PORT
     value: "{{ $context.Values.db.port }}"
-  - name: PGDATABASE
+  - name: DB_NAME
     value: "{{ $context.Values.db.name }}"
   {{- if eq $userType "app" }}
-  - name: PGUSER
+  - name: DB_USER
     valueFrom:
       secretKeyRef:
         name: flightctl-db-app-secret
         key: user
-  - name: PGPASSWORD
+  - name: DB_PASSWORD
     valueFrom:
       secretKeyRef:
         name: flightctl-db-app-secret
         key: userPassword
   {{- else if eq $userType "migration" }}
-  - name: PGUSER
+  - name: DB_USER
     valueFrom:
       secretKeyRef:
         name: flightctl-db-migration-secret
         key: migrationUser
-  - name: PGPASSWORD
+  - name: DB_PASSWORD
     valueFrom:
       secretKeyRef:
         name: flightctl-db-migration-secret
         key: migrationPassword
   {{- else if eq $userType "admin" }}
-  - name: PGUSER
+  - name: DB_USER
     valueFrom:
       secretKeyRef:
         name: flightctl-db-admin-secret
         key: masterUser
-  - name: PGPASSWORD
+  - name: DB_PASSWORD
     valueFrom:
       secretKeyRef:
         name: flightctl-db-admin-secret
@@ -253,19 +253,19 @@ Parameters:
   {{- fail (printf "Invalid userType '%s'. Must be one of: app, migration, admin" $userType) }}
   {{- end }}
   {{- if $context.Values.db.sslmode }}
-  - name: PGSSLMODE
+  - name: DB_SSL_MODE
     value: "{{ $context.Values.db.sslmode }}"
   {{- end }}
   {{- if $context.Values.db.sslcert }}
-  - name: PGSSLCERT
+  - name: DB_SSL_CERT
     value: "{{ $context.Values.db.sslcert }}"
   {{- end }}
   {{- if $context.Values.db.sslkey }}
-  - name: PGSSLKEY
+  - name: DB_SSL_KEY
     value: "{{ $context.Values.db.sslkey }}"
   {{- end }}
   {{- if $context.Values.db.sslrootcert }}
-  - name: PGSSLROOTCERT
+  - name: DB_SSL_ROOT_CERT
     value: "{{ $context.Values.db.sslrootcert }}"
   {{- end }}
 {{- end }}
