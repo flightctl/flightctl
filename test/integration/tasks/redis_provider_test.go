@@ -63,6 +63,13 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 					strings.HasPrefix(key, "failed_messages:") ||
 					strings.HasPrefix(key, "test-queue-") {
 					keysToDelete = append(keysToDelete, key)
+
+					// Also clean up any consumer groups for test queues
+					if strings.HasPrefix(key, "test-queue-") {
+						groupName := fmt.Sprintf("%s-group", key)
+						// Try to destroy the consumer group (ignore errors if it doesn't exist)
+						redisClient.XGroupDestroy(ctx, key, groupName)
+					}
 				}
 			}
 			if len(keysToDelete) > 0 {
@@ -805,6 +812,43 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 				count := len(messagesProcessed)
 				return count
 			}, 5*time.Second, 100*time.Millisecond).Should(Equal(3))
+
+			// Wait for in-flight tasks to be properly tracked
+			// This prevents race condition where Complete() is still executing markInFlightTaskComplete()
+			Eventually(func() bool {
+				// Check that we have the expected number of in-flight tasks
+				// We expect 3 tasks: 2 completed (message0, message2) and 1 incomplete (message1)
+				redisClient := redis.NewClient(&redis.Options{
+					Addr:     "localhost:6379",
+					Password: "adminpass",
+					DB:       0,
+				})
+				defer redisClient.Close()
+
+				tasks, err := redisClient.ZRange(ctx, "in_flight_tasks", 0, -1).Result()
+				if err != nil {
+					return false
+				}
+
+				// Should have 3 tasks total
+				if len(tasks) != 3 {
+					return false
+				}
+
+				// Count completed vs incomplete tasks
+				completedCount := 0
+				incompleteCount := 0
+				for _, task := range tasks {
+					if strings.HasSuffix(task, ":completed") {
+						completedCount++
+					} else {
+						incompleteCount++
+					}
+				}
+
+				// Should have 2 completed and 1 incomplete
+				return completedCount == 2 && incompleteCount == 1
+			}, 5*time.Second, 100*time.Millisecond).Should(BeTrue())
 
 			// Set initial checkpoint to zero to enable advancement
 			err = provider.SetCheckpointTimestamp(ctx, time.Time{})
