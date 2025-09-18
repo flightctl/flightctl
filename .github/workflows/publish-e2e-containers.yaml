@@ -71,6 +71,8 @@ jobs:
             org.flightctl.flightctl-${{ matrix.image.name }}.github.run_id=${{ github.run_id }}
             org.flightctl.flightctl-${{ matrix.image.name }}.github.sha=${{ github.sha }}
             org.flightctl.flightctl-${{ matrix.image.name }}.github.ref_name=${{ github.ref_name }}
+          build-args: |
+            REGISTRY_ADDRESS=${{ env.REGISTRY_ADDRESS }}
           extra-args: |
             --ulimit nofile=10000:10000
           containerfiles: ${{ matrix.image.containerfile }}
