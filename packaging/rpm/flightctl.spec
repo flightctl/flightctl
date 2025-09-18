@@ -674,7 +674,7 @@ cfg="%{_sysconfdir}/flightctl/flightctl-services-install.conf"
 
 if [ "$1" -eq 1 ]; then # it's a fresh install
   %{__cat} <<EOF
-[FlightCtl] Installed.
+[flightctl] Installed.
 
 Start services:
   sudo systemctl start flightctl.target
@@ -698,7 +698,7 @@ fi
 
 if [ "$1" -eq 2 ]; then # it's an upgrade
   %{__cat} <<'EOF'
-[FlightCtl] Upgraded.
+[flightctl] Upgraded.
 
 Review status:
   systemctl list-units 'flightctl*' --all

@@ -243,7 +243,7 @@ sudo systemctl start flightctl.target
 sudo systemctl enable flightctl.target # To enable starting on reboot
 ```
 
-### RPM Upgrade
+### Upgrading Flight Control Services
 
 To upgrade Flight Control services via DNF:
 
@@ -262,6 +262,21 @@ The RPM upgrade process includes:
 3. **Configuration preservation** - Existing configuration files are preserved during upgrade
 
 > **Note:** Database migration dry-run can be enabled/disabled by editing `/etc/flightctl/flightctl-services-install.conf` and setting `FLIGHTCTL_MIGRATION_DRY_RUN=1`. This is recommended to catch potential migration issues before they affect production.
+
+### Downgrading Flight Control Services
+
+To downgrade Flight Control services to the previous version:
+
+```bash
+# Simulate downgrade to validate which versions will be replaced
+sudo dnf downgrade flightctl-services --assumeno
+
+# Downgrade to the previous version
+sudo dnf downgrade flightctl-services
+
+# Or downgrade using a specific older RPM file
+sudo rpm -Uvh --oldpackage flightctl-services-<older-version>.rpm
+```
 
 ### Running the Services Container
 
