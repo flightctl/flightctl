@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -81,6 +82,7 @@ func (n *publisher) getRenderedFromManagementAPIWithRetry(
 	if renderedVersion != "" {
 		params.KnownRenderedVersion = &renderedVersion
 	}
+	n.log.Infof("Getting rendered device with version: %s", renderedVersion)
 
 	resp, statusCode, err := n.managementClient.GetRenderedDevice(ctx, n.deviceName, params)
 	if err != nil {
@@ -167,7 +169,31 @@ func (n *publisher) pollAndPublish(ctx context.Context) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
-	n.lastKnownVersion = newDesired.Version()
+	newVersion := newDesired.Version()
+	n.log.Debugf("Received rendered device with version: '%s'", newVersion)
+
+	// Parse versions with defaults
+	newVersionInt := int64(0)
+	if newVersion != "" {
+		if parsed, err := strconv.ParseInt(newVersion, 10, 64); err == nil {
+			newVersionInt = parsed
+		}
+	}
+
+	lastVersionInt := int64(0)
+	if n.lastKnownVersion != "" {
+		if parsed, err := strconv.ParseInt(n.lastKnownVersion, 10, 64); err == nil {
+			lastVersionInt = parsed
+		}
+	}
+
+	// Update if new version is greater, or if either version is empty/invalid
+	if newVersionInt > lastVersionInt {
+		n.log.Infof("Version updated from '%s' to '%s'", n.lastKnownVersion, newVersion)
+		n.lastKnownVersion = newVersion
+	} else {
+		n.log.Debugf("Version not updated (new: %d, last: %d), keeping: '%s'", newVersionInt, lastVersionInt, n.lastKnownVersion)
+	}
 
 	// notify all watchers of the new device spec
 	for _, w := range n.watchers {
