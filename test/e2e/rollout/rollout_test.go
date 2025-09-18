@@ -580,7 +580,10 @@ func (tc *TestContext) setupFleetAndDevices(context context.Context, numDevices 
 			testID := tc.harness.GetTestIDFromContext()
 			GinkgoWriter.Printf("Test ID: %s\n", testID)
 
-			vmHarness, err := e2e.NewTestHarnessWithVMPool(context, 1000+index)
+			// Create a device simulation worker ID using worker number 10+ to avoid conflicts
+			// Format: worker10_proc<deviceIndex> to avoid conflicts with main workers (worker1-9)
+			deviceWorkerID := fmt.Sprintf("worker10_proc%d", index)
+			vmHarness, err := e2e.NewTestHarnessWithVMPool(context, deviceWorkerID)
 			if err != nil {
 				errChan <- err
 				return

@@ -1,6 +1,8 @@
 package hooks
 
 import (
+	"fmt"
+	"os"
 	"testing"
 
 	"github.com/flightctl/flightctl/test/harness/e2e"
@@ -26,11 +28,16 @@ var _ = BeforeSuite(func() {
 
 var _ = BeforeEach(func() {
 	// Get the harness and context directly - no package-level variables
-	workerID := GinkgoParallelProcess()
+	workerNum := os.Getenv("GINKGO_WORKER_NUM")
+	if workerNum == "" {
+		Fail("GINKGO_WORKER_NUM environment variable is required but not set")
+	}
+	// Create composite worker ID: baseWorkerID + "_proc" + GinkgoParallelProcess()
+	workerID := fmt.Sprintf("worker%s_proc%d", workerNum, GinkgoParallelProcess())
 	harness := e2e.GetWorkerHarness()
 	suiteCtx := e2e.GetWorkerContext()
 
-	GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up test with VM from pool\n", workerID)
+	GinkgoWriter.Printf("🔄 [BeforeEach] Worker %s: Setting up test with VM from pool\n", workerID)
 
 	// Create test-specific context for proper tracing
 	ctx := testutil.StartSpecTracerForGinkgo(suiteCtx)
@@ -42,12 +49,17 @@ var _ = BeforeEach(func() {
 	err := harness.SetupVMFromPoolAndStartAgent(workerID)
 	Expect(err).ToNot(HaveOccurred())
 
-	GinkgoWriter.Printf("✅ [BeforeEach] Worker %d: Test setup completed\n", workerID)
+	GinkgoWriter.Printf("✅ [BeforeEach] Worker %s: Test setup completed\n", workerID)
 })
 
 var _ = AfterEach(func() {
-	workerID := GinkgoParallelProcess()
-	GinkgoWriter.Printf("🔄 [AfterEach] Worker %d: Cleaning up test resources\n", workerID)
+	workerNum := os.Getenv("GINKGO_WORKER_NUM")
+	if workerNum == "" {
+		Fail("GINKGO_WORKER_NUM environment variable is required but not set")
+	}
+	// Create composite worker ID: baseWorkerID + "_proc" + GinkgoParallelProcess()
+	workerID := fmt.Sprintf("worker%s_proc%d", workerNum, GinkgoParallelProcess())
+	GinkgoWriter.Printf("🔄 [AfterEach] Worker %s: Cleaning up test resources\n", workerID)
 
 	// Get the harness and context directly - no shared variables needed
 	harness := e2e.GetWorkerHarness()
