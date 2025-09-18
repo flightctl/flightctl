@@ -2,14 +2,19 @@ VMNAME ?= flightctl-device-default
 VMRAM ?= 512
 VMCPUS ?= 1
 VMDISK = /var/lib/libvirt/images/$(VMNAME).qcow2
+VMDISKSIZE_DEFAULT := 10G
+VMDISKSIZE ?= $(VMDISKSIZE_DEFAULT)
 VMWAIT ?= 0
 CONTAINER_NAME ?= flightctl-device-no-bootc:base
 
 BUILD_TYPE := bootc
 
 agent-vm: bin/output/qcow2/disk.qcow2
-	@echo "Booting Agent VM from $(VMDISK)"
+	@echo "Booting Agent VM from $(VMDISK) with disk size $(VMDISKSIZE)"
 	sudo cp bin/output/qcow2/disk.qcow2 $(VMDISK)
+	@if [ "$(VMDISKSIZE)" != "$(VMDISKSIZE_DEFAULT)" ]; then \
+		sudo qemu-img resize $(VMDISK) $(VMDISKSIZE); \
+	fi
 	sudo chown libvirt:libvirt $(VMDISK) 2>/dev/null || true
 	sudo virt-install --name $(VMNAME) \
 		--tpm backend.type=emulator,backend.version=2.0,model=tpm-tis \
