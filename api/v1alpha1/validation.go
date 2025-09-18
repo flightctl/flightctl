@@ -69,6 +69,8 @@ func (r DeviceSpec) Validate(fleetTemplate bool) []error {
 		allErrs = append(allErrs, paramErrs...)
 		if !containsParams {
 			allErrs = append(allErrs, validation.ValidateOciImageReference(&r.Os.Image, "spec.os.image")...)
+		} else {
+			allErrs = append(allErrs, validation.ValidateOciImageReferenceWithTemplates(&r.Os.Image, "spec.os.image")...)
 		}
 	}
 	if r.Config != nil {
