@@ -212,7 +212,7 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 
 		// Policy may defer update; in all cases, warn and roll back to the previous renderedVersion.
 		if errors.Is(syncErr, errors.ErrUpdatePolicyNotReady) || errors.Is(syncErr, errors.ErrDownloadPolicyNotReady) {
-			a.log.Warnf("Policy not ready for update; Attempting to rollback to previous renderedVersion: %s", current.Version())
+			a.log.Warnf("Requeuing version %s: %s", current.Version(), syncErr.Error())
 		} else {
 			a.log.Warnf("Attempting to rollback to previous renderedVersion: %s", current.Version())
 		}
