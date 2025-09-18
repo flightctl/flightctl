@@ -381,6 +381,20 @@ func (s *manager) getDeviceFromQueue(ctx context.Context) (*v1alpha1.Device, boo
 
 	// if this is a new version ensure we persist it to disk
 	if desired.Version() != s.cache.getRenderedVersion(Desired) {
+		// Guard check: ensure we don't allow older versions
+		desiredVersion, err := stringToInt64(desired.Version())
+		if err != nil {
+			return nil, false, fmt.Errorf("invalid desired version: %w", err)
+		}
+		currentDesiredVersion, err := stringToInt64(s.cache.getRenderedVersion(Desired))
+		if err != nil {
+			return nil, false, fmt.Errorf("invalid current desired version: %w", err)
+		}
+		if desiredVersion < currentDesiredVersion {
+			s.log.Errorf("Rejecting older version: %d < %d", desiredVersion, currentDesiredVersion)
+			return nil, false, fmt.Errorf("version %d is older than current desired version %d", desiredVersion, currentDesiredVersion)
+		}
+
 		if s.isNewDesiredVersion(desired) {
 			s.log.Infof("Writing new desired rendered spec to disk version: %s", desired.Version())
 		}
