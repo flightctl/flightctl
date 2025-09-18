@@ -144,6 +144,25 @@ func (f *fileProvider) WipeCredentials() error {
 	return nil
 }
 
+func (f *fileProvider) WipeCertificateOnly() error {
+	var errs []error
+
+	// Only wipe the certificate file, not the key or CSR
+	if f.clientCertPath != "" {
+		f.log.Infof("Wiping certificate file %s", f.clientCertPath)
+		if err := f.rw.OverwriteAndWipe(f.clientCertPath); err != nil {
+			errs = append(errs, fmt.Errorf("failed to wipe certificate file %s: %w", f.clientCertPath, err))
+		}
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("failed to wipe certificate: %v", errs)
+	}
+
+	f.log.Info("Successfully wiped certificate file")
+	return nil
+}
+
 func (f *fileProvider) Close(_ context.Context) error {
 	// no-op for file provider
 	return nil
