@@ -42,14 +42,14 @@ parse_service_db_config() {
     DB_USER=${DB_USER:-$(${YQ} '.database.migrationUser // "flightctl_migrator"' "${SERVICE_CONFIG_PATH}")}
     
     # Parse SSL configuration
-    DB_SSLMODE=$(${YQ} '.database.sslmode // ""' "${SERVICE_CONFIG_PATH}")
-    DB_SSLCERT=$(${YQ} '.database.sslcert // ""' "${SERVICE_CONFIG_PATH}")
-    DB_SSLKEY=$(${YQ} '.database.sslkey // ""' "${SERVICE_CONFIG_PATH}")
-    DB_SSLROOTCERT=$(${YQ} '.database.sslrootcert // ""' "${SERVICE_CONFIG_PATH}")
+    DB_SSL_MODE=$(${YQ} '.database.sslmode // ""' "${SERVICE_CONFIG_PATH}")
+    DB_SSL_CERT=$(${YQ} '.database.sslcert // ""' "${SERVICE_CONFIG_PATH}")
+    DB_SSL_KEY=$(${YQ} '.database.sslkey // ""' "${SERVICE_CONFIG_PATH}")
+    DB_SSL_ROOT_CERT=$(${YQ} '.database.sslrootcert // ""' "${SERVICE_CONFIG_PATH}")
 
     echo -n "[flightctl] database config: host=${DB_HOST}, port=${DB_PORT}, name=${DB_NAME}, user=${DB_USER}"
-    if [ -n "${DB_SSLMODE}" ]; then
-        echo ", sslmode=${DB_SSLMODE}"
+    if [ -n "${DB_SSL_MODE}" ]; then
+        echo ", sslmode=${DB_SSL_MODE}"
     else
         echo ""
     fi
@@ -62,18 +62,18 @@ wait_for_database() {
 
     local podman_args=()
     podman_args+=("--rm" "--network" "flightctl")
-    podman_args+=("-e" "PGHOST=${DB_HOST}")
-    podman_args+=("-e" "PGPORT=${DB_PORT}")
-    podman_args+=("-e" "PGDATABASE=${DB_NAME}")
-    podman_args+=("-e" "PGUSER=${DB_USER}")
-    
+    podman_args+=("-e" "DB_HOST=${DB_HOST}")
+    podman_args+=("-e" "DB_PORT=${DB_PORT}")
+    podman_args+=("-e" "DB_NAME=${DB_NAME}")
+    podman_args+=("-e" "DB_USER=${DB_USER}")
+
     # Add SSL environment variables if set
-    [ -n "${DB_SSLMODE}" ] && podman_args+=("-e" "PGSSLMODE=${DB_SSLMODE}")
-    [ -n "${DB_SSLCERT}" ] && podman_args+=("-e" "PGSSLCERT=${DB_SSLCERT}")
-    [ -n "${DB_SSLKEY}" ] && podman_args+=("-e" "PGSSLKEY=${DB_SSLKEY}")
-    [ -n "${DB_SSLROOTCERT}" ] && podman_args+=("-e" "PGSSLROOTCERT=${DB_SSLROOTCERT}")
-    
-    podman_args+=("--secret" "flightctl-postgresql-migrator-password,type=env,target=PGPASSWORD")
+    [ -n "${DB_SSL_MODE}" ] && podman_args+=("-e" "DB_SSL_MODE=${DB_SSL_MODE}")
+    [ -n "${DB_SSL_CERT}" ] && podman_args+=("-e" "DB_SSL_CERT=${DB_SSL_CERT}")
+    [ -n "${DB_SSL_KEY}" ] && podman_args+=("-e" "DB_SSL_KEY=${DB_SSL_KEY}")
+    [ -n "${DB_SSL_ROOT_CERT}" ] && podman_args+=("-e" "DB_SSL_ROOT_CERT=${DB_SSL_ROOT_CERT}")
+
+    podman_args+=("--secret" "flightctl-postgresql-migrator-password,type=env,target=DB_PASSWORD")
     podman_args+=("${DB_SETUP_IMAGE}")
     podman_args+=("/app/deploy/scripts/wait-for-database.sh")
     podman_args+=("--timeout=${DB_WAIT_TIMEOUT}" "--sleep=${DB_WAIT_SLEEP}")
