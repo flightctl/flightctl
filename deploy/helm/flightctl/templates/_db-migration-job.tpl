@@ -212,10 +212,12 @@ spec:
         - mountPath: /root/.flightctl/
           name: flightctl-db-migration-config
           readOnly: true
+        {{- include "flightctl.dbSslVolumeMounts" $ctx | nindent 8 }}
       volumes:
       - name: flightctl-db-migration-config
         configMap:
           name: flightctl-db-migration-config
+      {{- include "flightctl.dbSslVolumes" $ctx | nindent 6 }}
 {{- end }}
 
 
