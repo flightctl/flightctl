@@ -672,8 +672,8 @@ fi
 
 cfg="%{_sysconfdir}/flightctl/flightctl-services-install.conf"
 
-if [ "$1" -eq 1 ]; then
-  /usr/bin/cat <<EOF
+if [ "$1" -eq 1 ]; then # it's a fresh install
+  %{__cat} <<EOF
 [FlightCtl] Installed.
 
 Start services:
@@ -685,8 +685,8 @@ EOF
 fi
 
 # Suggest enabling migration dry-run if not set
-if [ -f "$cfg" ] && ! /usr/bin/grep -q "^FLIGHTCTL_MIGRATION_DRY_RUN=1" "$cfg"; then
-  /usr/bin/cat <<EOF
+if [ -f "$cfg" ] && ! %{__grep} -q '^[[:space:]]*FLIGHTCTL_MIGRATION_DRY_RUN=1[[:space:]]*$' "$cfg"; then
+  %{__cat} <<EOF
 Recommendation:
   A database migration dry-run before updates is currently DISABLED.
   To enable it, edit:
@@ -696,8 +696,8 @@ Recommendation:
 EOF
 fi
 
-if [ "$1" -eq 2 ]; then
-  /usr/bin/cat <<'EOF'
+if [ "$1" -eq 2 ]; then # it's an upgrade
+  %{__cat} <<'EOF'
 [FlightCtl] Upgraded.
 
 Review status:
