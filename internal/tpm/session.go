@@ -67,8 +67,9 @@ func (s *tpmSession) initialize() error {
 		return fmt.Errorf("ensuring SRK: %w", err)
 	}
 	s.handles[SRK] = srkHandle
-	// flush the SRK after initialization to free up transient space. The SRK
-	// isn't needed after loading.
+	// The SRK occupies transient space. After initialization the LAK and LDevID will be loaded
+	// into the TPM's transient memory and the SRK will no longer be needed. The SRK
+	// is flushed to free up space for other keys.
 	defer func() {
 		if err := s.flushKey(SRK); err != nil {
 			s.log.Errorf("Error flushing SRK key: %v", err)

@@ -82,13 +82,13 @@ func (t *tpmProvider) GenerateCSR(deviceName string) ([]byte, error) {
 func (t *tpmProvider) isTPMVerificationNeeded(enrollmentRequest *v1alpha1.EnrollmentRequest) bool {
 	if enrollmentRequest.Status != nil {
 		if condition := v1alpha1.FindStatusCondition(enrollmentRequest.Status.Conditions, v1alpha1.ConditionTypeEnrollmentRequestTPMVerified); condition != nil {
-			if condition.Status == v1alpha1.ConditionStatusTrue {
-				t.log.Debug("TPM already verified, skipping identity proof")
-				return false
-			}
 			// if verification of the request failed, do not perform any additional verification
 			if condition.Reason == v1alpha1.TPMVerificationFailedReason {
-				t.log.Debug("TPM verification failed failed, identity proof not allowed")
+				t.log.Debug("TPM verification failed, identity proof not allowed")
+				return false
+			}
+			if condition.Status == v1alpha1.ConditionStatusTrue {
+				t.log.Debug("TPM already verified, skipping identity proof")
 				return false
 			}
 			t.log.Debugf("TPM verification condition found but status is %s, reason: %s", condition.Status, condition.Reason)

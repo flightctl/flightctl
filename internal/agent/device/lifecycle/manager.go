@@ -252,6 +252,8 @@ func (m *LifecycleManager) verifyEnrollment(ctx context.Context) (bool, error) {
 		}
 	}
 	if !approved {
+		// While pending approval, take the time to verify the identity. The provider
+		// is responsible for determining whether proof is required
 		ctx, cancel := context.WithTimeout(ctx, identityProofTimeout)
 		defer cancel()
 		if err := m.identityProvider.ProveIdentity(ctx, enrollmentRequest); err != nil {
