@@ -76,14 +76,20 @@ func TestTpmProvider_WipeCertificateOnly(t *testing.T) {
 
 	// Create mock dependencies
 	logger := log.NewPrefixLogger("test")
+	mockRW := fileio.NewMockReadWriter(ctrl)
 
-	// Create TPM provider
-	provider := &tpmProvider{
-		certificateData: []byte("test-certificate-data"),
-		log:             logger,
-	}
+	t.Run("wipes certificate data from memory and file successfully", func(t *testing.T) {
+		// Create TPM provider with proper setup
+		provider := &tpmProvider{
+			certificateData: []byte("test-certificate-data"),
+			clientCertPath:  "/path/to/client.crt",
+			rw:              mockRW,
+			log:             logger,
+		}
 
-	t.Run("wipes certificate data from memory successfully", func(t *testing.T) {
+		// Expect file wipe to be called
+		mockRW.EXPECT().OverwriteAndWipe("/path/to/client.crt").Return(nil)
+
 		// Call WipeCertificateOnly
 		err := provider.WipeCertificateOnly()
 
@@ -98,14 +104,39 @@ func TestTpmProvider_WipeCertificateOnly(t *testing.T) {
 		// Create provider with nil certificate data
 		provider := &tpmProvider{
 			certificateData: nil, // Already nil
+			clientCertPath:  "/path/to/client.crt",
+			rw:              mockRW,
+			log:             logger,
+		}
+
+		// Expect file wipe to be called even if certificate data is nil
+		mockRW.EXPECT().OverwriteAndWipe("/path/to/client.crt").Return(nil)
+
+		// Call WipeCertificateOnly
+		err := provider.WipeCertificateOnly()
+
+		// Should succeed
+		require.NoError(err)
+		require.Nil(provider.certificateData)
+	})
+
+	t.Run("returns error when client cert path is empty", func(t *testing.T) {
+		// Create provider without client cert path
+		provider := &tpmProvider{
+			certificateData: []byte("test-certificate-data"),
+			clientCertPath:  "", // Empty path
+			rw:              mockRW,
 			log:             logger,
 		}
 
 		// Call WipeCertificateOnly
 		err := provider.WipeCertificateOnly()
 
-		// Should succeed without doing anything
-		require.NoError(err)
+		// Should return error
+		require.Error(err)
+		require.Contains(err.Error(), "client certificate path is not set")
+
+		// Certificate data should still be cleared
 		require.Nil(provider.certificateData)
 	})
 }

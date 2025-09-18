@@ -15,6 +15,7 @@ import (
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	agent_config "github.com/flightctl/flightctl/internal/agent/config"
+	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	agent_client "github.com/flightctl/flightctl/internal/api/client/agent"
 	base_client "github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/tpm"
@@ -35,18 +36,24 @@ type tpmProvider struct {
 	log             *log.PrefixLogger
 	deviceName      string
 	certificateData []byte
+	clientCertPath  string
+	rw              fileio.ReadWriter
 }
 
 // newTPMProvider creates a new TPM-based identity provider
 func newTPMProvider(
 	client tpm.Client,
 	config *agent_config.Config,
+	clientCertPath string,
+	rw fileio.ReadWriter,
 	log *log.PrefixLogger,
 ) *tpmProvider {
 	return &tpmProvider{
-		client: client,
-		config: config,
-		log:    log,
+		client:         client,
+		config:         config,
+		clientCertPath: clientCertPath,
+		rw:             rw,
+		log:            log,
 	}
 }
 
@@ -62,8 +69,22 @@ func (t *tpmProvider) Initialize(ctx context.Context) error {
 		return err
 	}
 
+	// load certificate from disk if it exists
+	exists, err := t.rw.PathExists(t.clientCertPath)
+	if err != nil {
+		t.log.Errorf("Failed to check certificate existence: %v", err)
+	} else if exists {
+		certData, err := t.rw.ReadFile(t.clientCertPath)
+		if err != nil {
+			t.log.Errorf("Failed to load certificate from disk: %v", err)
+		} else {
+			t.certificateData = certData
+			t.log.Infof("Loaded existing certificate from %s", t.clientCertPath)
+		}
+	}
+
 	if err := t.client.UpdateNonce(make([]byte, 8)); err != nil {
-		t.log.Warnf("Failed to update TPM nonce: %v", err)
+		t.log.Errorf("Failed to update TPM nonce: %v", err)
 	}
 	return nil
 }
@@ -280,12 +301,20 @@ func (t *tpmProvider) createEnrollmentGRPCClient() (grpc_v1.EnrollmentClient, fu
 }
 
 func (t *tpmProvider) StoreCertificate(certPEM []byte) error {
+	if err := t.rw.WriteFile(t.clientCertPath, certPEM, 0600); err != nil {
+		return fmt.Errorf("failed to write certificate to disk: %w", err)
+	}
 	t.certificateData = certPEM
 	return nil
 }
 
 func (t *tpmProvider) HasCertificate() bool {
-	return len(t.certificateData) > 0
+	exists, err := t.rw.PathExists(t.clientCertPath)
+	if err != nil {
+		t.log.Warnf("Failed to check certificate existence: %v", err)
+		return false
+	}
+	return exists
 }
 
 func (t *tpmProvider) createCertificate() (*tls.Certificate, error) {
@@ -386,20 +415,42 @@ func (t *tpmProvider) CreateGRPCClient(config *base_client.Config) (grpc_v1.Rout
 }
 
 func (t *tpmProvider) WipeCredentials() error {
+	var errs []error
+
 	// clear certificate data from memory
 	t.certificateData = nil
-	if err := t.client.Clear(); err != nil {
-		return fmt.Errorf("clearing TPM client: %w", err)
+
+	if t.clientCertPath != "" {
+		t.log.Infof("Wiping certificate file %s", t.clientCertPath)
+		if err := t.rw.OverwriteAndWipe(t.clientCertPath); err != nil {
+			errs = append(errs, fmt.Errorf("failed to wipe certificate file %s: %w", t.clientCertPath, err))
+		}
 	}
-	t.log.Info("Wiped TPM-stored certificate data from memory")
+
+	if err := t.client.Clear(); err != nil {
+		errs = append(errs, fmt.Errorf("clearing TPM client: %w", err))
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("failed to wipe credentials: %v", errs)
+	}
+
+	t.log.Info("Successfully wiped TPM credentials from disk and memory")
 	return nil
 }
 
 func (t *tpmProvider) WipeCertificateOnly() error {
-	// For TPM provider, only clear certificate data from memory
-	// The key and CSR remain in TPM storage
 	t.certificateData = nil
-	t.log.Info("Wiped TPM-stored certificate data from memory (key and CSR preserved)")
+	if t.clientCertPath == "" {
+		return fmt.Errorf("client certificate path is not set")
+	}
+
+	t.log.Infof("Wiping certificate file %s", t.clientCertPath)
+	if err := t.rw.OverwriteAndWipe(t.clientCertPath); err != nil {
+		return fmt.Errorf("failed to wipe certificate file %s: %w", t.clientCertPath, err)
+	}
+
+	t.log.Info("Successfully wiped certificate file")
 	return nil
 }
 
