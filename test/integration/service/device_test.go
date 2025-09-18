@@ -710,7 +710,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 
 			pausedEvent := findEventByReason(finalEvents, api.EventReasonDeviceConflictPaused)
 			Expect(pausedEvent).ToNot(BeNil(), "DeviceConflictPaused event should be generated when transitioning from Online to ConflictPaused")
-			Expect(pausedEvent.Type).To(Equal(api.Normal))
+			Expect(pausedEvent.Type).To(Equal(api.Warning))
 			Expect(pausedEvent.Message).To(ContainSubstring("Device reconciliation is paused due to a state conflict between the service and the device's agent; manual intervention is required."))
 		})
 	})

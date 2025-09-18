@@ -1,0 +1,20 @@
+FROM golangci/golangci-lint:v1.61.0
+
+# Install libvirt and TPM development packages
+USER root
+RUN apt-get update && apt-get install -y \
+    libvirt-dev \
+    pkg-config \
+    swtpm \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy go.mod and go.sum to download dependencies
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Build go-tpm-tools to generate export data
+RUN go build -o /dev/null github.com/google/go-tpm-tools/simulator
+
+# Switch back to the original user
+USER golangci-lint

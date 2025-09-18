@@ -253,19 +253,62 @@ Parameters:
   {{- fail (printf "Invalid userType '%s'. Must be one of: app, migration, admin" $userType) }}
   {{- end }}
   {{- if $context.Values.db.sslmode }}
-  - name: PGSSLMODE
+  - name: DB_SSL_MODE
     value: "{{ $context.Values.db.sslmode }}"
   {{- end }}
   {{- if $context.Values.db.sslcert }}
-  - name: PGSSLCERT
+  - name: DB_SSL_CERT
     value: "{{ $context.Values.db.sslcert }}"
   {{- end }}
   {{- if $context.Values.db.sslkey }}
-  - name: PGSSLKEY
+  - name: DB_SSL_KEY
     value: "{{ $context.Values.db.sslkey }}"
   {{- end }}
   {{- if $context.Values.db.sslrootcert }}
-  - name: PGSSLROOTCERT
+  - name: DB_SSL_ROOT_CERT
     value: "{{ $context.Values.db.sslrootcert }}"
   {{- end }}
+{{- end }}
+
+{{- /*
+SSL certificate volume mounts for database connections.
+Usage: {{- include "flightctl.dbSslVolumeMounts" . | nindent X }}
+*/}}
+{{- define "flightctl.dbSslVolumeMounts" -}}
+{{- if or .Values.db.sslConfigMap .Values.db.sslSecret }}
+- name: postgres-ssl-certs
+  mountPath: /etc/ssl/postgres
+  readOnly: true
+{{- end }}
+{{- end }}
+
+{{- /*
+SSL certificate volumes for database connections.
+Usage: {{- include "flightctl.dbSslVolumes" . | nindent X }}
+*/}}
+{{- define "flightctl.dbSslVolumes" -}}
+{{- if or .Values.db.sslConfigMap .Values.db.sslSecret }}
+- name: postgres-ssl-certs
+  projected:
+    sources:
+    {{- if .Values.db.sslConfigMap }}
+    - configMap:
+        name: {{ .Values.db.sslConfigMap }}
+        items:
+        - key: ca-cert.pem
+          path: ca-cert.pem
+          mode: 0444
+    {{- end }}
+    {{- if .Values.db.sslSecret }}
+    - secret:
+        name: {{ .Values.db.sslSecret }}
+        items:
+        - key: client-cert.pem
+          path: client-cert.pem
+          mode: 0444
+        - key: client-key.pem
+          path: client-key.pem
+          mode: 0400
+    {{- end }}
+{{- end }}
 {{- end }}
