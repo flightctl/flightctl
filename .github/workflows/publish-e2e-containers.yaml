@@ -59,6 +59,10 @@ jobs:
         run: |
           test/scripts/create_e2e_certs.sh
 
+      - name: Build RPMs
+        run: |
+          make rpm
+
       - name: Build
         id: build
         uses: redhat-actions/buildah-build@v2
