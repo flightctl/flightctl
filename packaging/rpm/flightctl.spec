@@ -670,6 +670,41 @@ fi
 # On initial install: apply preset policy to enable/disable services based on system defaults
 %systemd_post %{flightctl_target}
 
+cfg="%{_sysconfdir}/flightctl/flightctl-services-install.conf"
+
+if [ "$1" -eq 1 ]; then
+  /usr/bin/cat <<EOF
+[FlightCtl] Installed.
+
+Start services:
+  sudo systemctl start flightctl.target
+
+Check status:
+  systemctl list-units 'flightctl*' --all
+EOF
+fi
+
+# Suggest enabling migration dry-run if not set
+if [ -f "$cfg" ] && ! /usr/bin/grep -q "^FLIGHTCTL_MIGRATION_DRY_RUN=1" "$cfg"; then
+  /usr/bin/cat <<EOF
+Recommendation:
+  A database migration dry-run before updates is currently DISABLED.
+  To enable it, edit:
+    $cfg
+  and set:
+    FLIGHTCTL_MIGRATION_DRY_RUN=1
+EOF
+fi
+
+if [ "$1" -eq 2 ]; then
+  /usr/bin/cat <<'EOF'
+[FlightCtl] Upgraded.
+
+Review status:
+  systemctl list-units 'flightctl*' --all
+EOF
+fi
+
 %preun services
 # On package removal: stop and disable all services
 %systemd_preun %{flightctl_target} 
@@ -681,7 +716,7 @@ fi
 %systemd_postun %{flightctl_target}
 
 %changelog
-* Tue Oct 8 2025 Ilya Skornyakov <iskornya@redhat.com> - 0.10.0
+* Wed Oct 8 2025 Ilya Skornyakov <iskornya@redhat.com> - 0.10.0
 - Add pre-upgrade database migration dry-run capability
 * Tue Jul 15 2025 Sam Batschelet <sbatsche@redhat.com> - 0.9.0-2
 - Improve selinux policy deps and install
