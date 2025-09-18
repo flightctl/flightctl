@@ -170,6 +170,14 @@ func (m *MockDevice) SetOutOfDate(ctx context.Context, orgId uuid.UUID, owner st
 	return nil
 }
 
+func (m *MockDevice) GetAllDeviceNames(ctx context.Context, orgId uuid.UUID) ([]string, error) {
+	return nil, nil
+}
+
+func (m *MockDevice) ProcessAwaitingReconnectAnnotation(ctx context.Context, orgId uuid.UUID, deviceName string, deviceReportedVersion *string) (bool, error) {
+	return false, nil
+}
+
 func TestDeviceCollectorWithGroupByFleet(t *testing.T) {
 	// Provide mock SQL results for org/status aggregation
 	mockResults := []store.CountByOrgAndStatusResult{

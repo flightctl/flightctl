@@ -158,23 +158,34 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	policyManager := policy.NewManager(a.log)
 
+	// create spec manager first (without publisher subscription)
+	specManager := spec.NewManager(
+		a.config.DataDir,
+		policyManager,
+		deviceReadWriter,
+		osClient,
+		nil, // publisher subscription will be set later
+		a.log,
+	)
+
+	// get initial version from desired.json if it exists
+	initialVersion := ""
+	if desired, err := specManager.Read(spec.Desired); err == nil {
+		initialVersion = desired.Version()
+	}
+
+	// create device publisher with initial version
 	devicePublisher := publisher.New(deviceName,
 		time.Duration(a.config.SpecFetchInterval),
 		backoff,
 		a.log,
 		func() error {
 			return wipeCertificateAndRestart(ctx, identityProvider, executer, a.log)
-		})
+		},
+		initialVersion)
 
-	// create spec manager
-	specManager := spec.NewManager(
-		a.config.DataDir,
-		policyManager,
-		deviceReadWriter,
-		osClient,
-		devicePublisher.Subscribe(),
-		a.log,
-	)
+	// now set the publisher subscription on the spec manager
+	specManager.SetPublisherSubscription(devicePublisher.Subscribe())
 
 	// create resource manager
 	resourceManager := resource.NewManager(

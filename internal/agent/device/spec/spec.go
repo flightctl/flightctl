@@ -7,6 +7,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
+	"github.com/flightctl/flightctl/internal/agent/device/publisher"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/poll"
@@ -47,6 +48,8 @@ type Manager interface {
 	OSVersion(specType Type) string
 	// Read returns the rendered device of the specified type from disk.
 	Read(specType Type) (*v1alpha1.Device, error)
+	// SetPublisherSubscription sets the publisher subscription for the spec manager.
+	SetPublisherSubscription(subscription publisher.Subscription)
 	// Upgrade updates the current rendered spec to the desired rendered spec
 	// and resets the rollback spec.
 	Upgrade(ctx context.Context) error
