@@ -424,6 +424,62 @@ var _ = Describe("cli events operation", func() {
 				return out
 			}, "60s", "2s").Should(ContainSubstring("no application workloads defined"))
 		})
+
+		It("emits DeviceDisconnected then clears after agent restarts", Label("sanity", "84692"), func() {
+			harness := e2e.GetWorkerHarness()
+
+			token, err := harness.CLI("whoami", "-t")
+			Expect(err).ToNot(HaveOccurred())
+			token = strings.TrimSpace(token)
+
+			host, err := harness.CLI("get", "route", "flightctl-alertmanager-proxy-route",
+				"-n", "flightctl", "-o", "jsonpath={.spec.host}")
+			Expect(err).ToNot(HaveOccurred())
+			host = strings.TrimSpace(host)
+
+			countDisc := func() int {
+				cmd := fmt.Sprintf(`curl -ks -H "Authorization: Bearer %s" "https://%s/api/v2/alerts?active=true&silenced=false&inhibited=false" | jq '[.[] | select(.labels.alertname=="DeviceDisconnected")] | length'`, token, host)
+				out, err := harness.CLI("bash", "-lc", cmd)
+				if err != nil {
+					return -1
+				}
+				var n int
+				_, _ = fmt.Sscanf(strings.TrimSpace(out), "%d", &n)
+				return n
+			}
+
+			initial := countDisc()
+			GinkgoWriter.Printf("[DEBUG] Initial DeviceDisconnected count: %d\n", initial)
+
+			1
+			GinkgoWriter.Println("[DEBUG] Stopping flightctl-agent on VM")
+			_, err = harness.CLI("bash", "-lc", "sudo systemctl stop flightctl-agent")
+			Expect(err).ToNot(HaveOccurred())
+
+			defer func() {
+				GinkgoWriter.Println("[DEBUG] (defer) Starting flightctl-agent on VM")
+				_, _ = harness.CLI("bash", "-lc", "sudo systemctl start flightctl-agent")
+			}()
+
+			// Sleep long enough to exceed DeviceDisconnectedTimeout
+			time.Sleep(90 * time.Second)
+
+			// Start agent back
+			GinkgoWriter.Println("[DEBUG] Starting flightctl-agent on VM")
+			_, err = harness.CLI("bash", "-lc", "sudo systemctl start flightctl-agent")
+			Expect(err).ToNot(HaveOccurred())
+
+			By("waiting for DeviceDisconnected to appear in Alertmanager")
+			Eventually(func() int {
+				return countDisc()
+			}, LONG_TIMEOUT, LONG_POLLING).Should(BeNumerically(">", initial))
+
+			By("waiting for DeviceDisconnected to clear after reconnect")
+			Eventually(func() int {
+				return countDisc()
+			}, LONG_TIMEOUT, LONG_POLLING).Should(BeNumerically("<=", initial))
+		})
+
 	})
 })
 
