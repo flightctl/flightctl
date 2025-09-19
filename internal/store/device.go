@@ -57,6 +57,7 @@ type Device interface {
 	GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion *string, consoleGrpcEndpoint string) (*api.Device, error)
 	Healthcheck(ctx context.Context, orgId uuid.UUID, names []string) error
 	GetWithoutServiceConditions(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error)
+	GetLastSeen(ctx context.Context, orgId uuid.UUID, name string) (*time.Time, error)
 
 	// Used internally
 	UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error
@@ -619,15 +620,19 @@ func (s *DeviceStore) UpdateAnnotations(ctx context.Context, orgId uuid.UUID, na
 }
 
 func (s *DeviceStore) healthcheck(ctx context.Context, orgId uuid.UUID, names []string) (bool, error) {
-	result := s.getDB(ctx).Model(&model.Device{}).Where("org_id = ? and name in (?)", orgId, names).Update(
-		"status", gorm.Expr(fmt.Sprintf(`jsonb_set(status, '{lastSeen}', '"%s"', true)`, time.Now().Format(time.RFC3339))))
+	// Handle empty device list gracefully
+	if len(names) == 0 {
+		return false, nil
+	}
+
+	result := s.getDB(ctx).Model(&model.Device{}).Where("org_id = ? and name in (?)", orgId, names).Updates(map[string]interface{}{
+		"last_seen": time.Now().UTC(),
+	})
 	err := ErrorFromGormError(result.Error)
 	if err != nil {
 		return strings.Contains(err.Error(), "deadlock"), err
 	}
-	if result.RowsAffected == 0 {
-		return true, flterrors.ErrNoRowsUpdated
-	}
+
 	return false, nil
 }
 
@@ -748,6 +753,18 @@ func (s *DeviceStore) GetWithoutServiceConditions(ctx context.Context, orgId uui
 	}
 
 	return deviceModel.ToApiResource(model.WithoutServiceConditions())
+}
+
+func (s *DeviceStore) GetLastSeen(ctx context.Context, orgId uuid.UUID, name string) (*time.Time, error) {
+	deviceModel := model.Device{
+		Resource: model.Resource{OrgID: orgId, Name: name},
+	}
+	result := s.getDB(ctx).Take(&deviceModel)
+	if result.Error != nil {
+		return nil, ErrorFromGormError(result.Error)
+	}
+
+	return deviceModel.LastSeen, nil
 }
 
 func (s *DeviceStore) setServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition, callback ServiceConditionsCallback) (retry bool, err error) {
@@ -1001,11 +1018,12 @@ func (s *DeviceStore) PrepareDevicesAfterRestore(ctx context.Context) (int64, er
 			annotations = COALESCE(annotations, '{}'::jsonb) || jsonb_build_object($1::text, 'true'),
 			status = CASE 
 				WHEN status IS NOT NULL THEN 
-					(status - 'lastSeen') || jsonb_build_object('summary', jsonb_build_object('status', $2::text, 'info', $3::text))
+					status || jsonb_build_object('summary', jsonb_build_object('status', $2::text, 'info', $3::text))
 				ELSE 
 					jsonb_build_object('summary', jsonb_build_object('status', $2::text, 'info', $3::text))
 			END,
-			resource_version = COALESCE(resource_version, 0) + 1
+			resource_version = COALESCE(resource_version, 0) + 1,
+			last_seen = NULL
 		WHERE deleted_at IS NULL 
 			AND NOT (status->'lifecycle'->>'status') IN ($4, $5)
 			AND (annotations->>$1) IS DISTINCT FROM 'true'

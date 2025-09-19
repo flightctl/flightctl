@@ -74,8 +74,8 @@ var _ = Describe("Field Selectors Extension Operators", Label("integration", "82
 			Entry("status.applicationsSummary.status NotEquals UpToDate", "status.applicationsSummary.status", "NotEquals", "UpToDate", resourceCount),
 
 			// Last seen examples
-			Entry("status.lastSeen Equals 0001-01-01T00:00:00Z", "status.lastSeen", "Equals", "0001-01-01T00:00:00Z", resourceCount),
-			Entry("status.lastSeen NotEquals 0001-01-01T00:00:00Z", "status.lastSeen", "NotEquals", "0001-01-01T00:00:00Z", 0),
+			Entry("lastSeen Equals 0001-01-01T00:00:00Z", "lastSeen", "Equals", "0001-01-01T00:00:00Z", resourceCount),
+			Entry("lastSeen NotEquals 0001-01-01T00:00:00Z", "lastSeen", "NotEquals", "0001-01-01T00:00:00Z", 0),
 
 			// Summary status examples
 			Entry("status.summary.status Equals Unknown", "status.summary.status", "Equals", "Unknown", resourceCount),

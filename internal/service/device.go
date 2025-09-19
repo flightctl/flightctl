@@ -232,6 +232,23 @@ func (h *ServiceHandler) GetDeviceStatus(ctx context.Context, name string) (*api
 	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 }
 
+func (h *ServiceHandler) GetDeviceLastSeen(ctx context.Context, name string) (*api.DeviceLastSeen, api.Status) {
+	orgId := getOrgIdFromContext(ctx)
+
+	lastSeen, err := h.store.Device().GetLastSeen(ctx, orgId, name)
+	if err != nil {
+		return nil, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
+	}
+
+	if lastSeen == nil {
+		return nil, api.StatusNoContent()
+	}
+
+	return &api.DeviceLastSeen{
+		LastSeen: *lastSeen,
+	}, api.StatusOK()
+}
+
 func validateDeviceStatus(d *api.Device) []error {
 	allErrs := append([]error{}, validation.ValidateResourceName(d.Metadata.Name)...)
 	// TODO: implement validation of agent's status updates
@@ -252,7 +269,7 @@ func (h *ServiceHandler) ReplaceDeviceStatus(ctx context.Context, name string, i
 	}
 	isNotInternal := !IsInternalRequest(ctx)
 	if isNotInternal {
-		incomingDevice.Status.LastSeen = time.Now()
+		incomingDevice.Status.LastSeen = lo.ToPtr(time.Now())
 	}
 
 	// UpdateServiceSideStatus() needs to know the latest .metadata.annotations[device-controller/renderedVersion]

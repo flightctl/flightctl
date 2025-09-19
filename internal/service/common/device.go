@@ -206,7 +206,7 @@ func updateServerSideLifecycleStatus(device *api.Device) bool {
 
 func updateServerSideDeviceUpdatedStatus(device *api.Device, ctx context.Context, st store.Store, log logrus.FieldLogger, orgId uuid.UUID) bool {
 	lastUpdateStatus := device.Status.Updated.Status
-	if device.IsDisconnected(api.DeviceDisconnectedTimeout) && !device.Status.LastSeen.IsZero() {
+	if device.IsDisconnected(api.DeviceDisconnectedTimeout) && device.Status != nil && device.Status.LastSeen != nil && !device.Status.LastSeen.IsZero() {
 		device.Status.Updated.Status = api.DeviceUpdatedStatusUnknown
 		device.Status.Updated.Info = lo.ToPtr(fmt.Sprintf("Device is disconnected (last seen more than %s).", humanize.Time(time.Now().Add(-api.DeviceDisconnectedTimeout))))
 		return device.Status.Updated.Status != lastUpdateStatus

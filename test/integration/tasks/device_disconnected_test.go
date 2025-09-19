@@ -18,6 +18,7 @@ import (
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"go.uber.org/mock/gomock"
 )
@@ -77,7 +78,7 @@ var _ = Describe("DeviceDisconnected", func() {
 				Expect(err).ToNot(HaveOccurred())
 
 				// Set a recent last seen time
-				device.Status.LastSeen = time.Now().Add(-1 * time.Minute)
+				device.Status.LastSeen = lo.ToPtr(time.Now().Add(-1 * time.Minute))
 				device.Status.Summary.Status = api.DeviceSummaryStatusOnline
 				_, err = deviceStore.UpdateStatus(ctx, orgId, device, nil)
 				Expect(err).ToNot(HaveOccurred())
@@ -109,7 +110,7 @@ var _ = Describe("DeviceDisconnected", func() {
 				Expect(err).ToNot(HaveOccurred())
 
 				// Set an old last seen time (more than DeviceDisconnectedTimeout ago)
-				device.Status.LastSeen = time.Now().Add(-10 * time.Minute)
+				device.Status.LastSeen = lo.ToPtr(time.Now().Add(-10 * time.Minute))
 				device.Status.Summary.Status = api.DeviceSummaryStatusOnline
 				device.Status.Updated.Status = api.DeviceUpdatedStatusUpToDate
 				device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
@@ -146,7 +147,7 @@ var _ = Describe("DeviceDisconnected", func() {
 				device, err := deviceStore.Get(ctx, orgId, deviceName)
 				Expect(err).ToNot(HaveOccurred())
 
-				device.Status.LastSeen = time.Now().Add(-1 * time.Minute)
+				device.Status.LastSeen = lo.ToPtr(time.Now().Add(-1 * time.Minute))
 				device.Status.Summary.Status = api.DeviceSummaryStatusOnline
 				device.Status.Updated.Status = api.DeviceUpdatedStatusUpToDate
 				device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
@@ -163,7 +164,7 @@ var _ = Describe("DeviceDisconnected", func() {
 				device, err := deviceStore.Get(ctx, orgId, deviceName)
 				Expect(err).ToNot(HaveOccurred())
 
-				device.Status.LastSeen = time.Now().Add(-10 * time.Minute)
+				device.Status.LastSeen = lo.ToPtr(time.Now().Add(-10 * time.Minute))
 				device.Status.Summary.Status = api.DeviceSummaryStatusOnline
 				device.Status.Updated.Status = api.DeviceUpdatedStatusUpToDate
 				device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
@@ -208,7 +209,7 @@ var _ = Describe("DeviceDisconnected", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Set last seen to exactly the disconnection timeout
-			device.Status.LastSeen = time.Now().Add(-api.DeviceDisconnectedTimeout)
+			device.Status.LastSeen = lo.ToPtr(time.Now().Add(-api.DeviceDisconnectedTimeout))
 			device.Status.Summary.Status = api.DeviceSummaryStatusOnline
 			_, err = deviceStore.UpdateStatus(ctx, orgId, device, nil)
 			Expect(err).ToNot(HaveOccurred())
@@ -232,7 +233,7 @@ var _ = Describe("DeviceDisconnected", func() {
 			testutil.CreateTestDevice(ctx, deviceStore, orgId, "recent-device", nil, nil, nil)
 			recentDevice, err := deviceStore.Get(ctx, orgId, "recent-device")
 			Expect(err).ToNot(HaveOccurred())
-			recentDevice.Status.LastSeen = time.Now().Add(-1 * time.Minute)
+			recentDevice.Status.LastSeen = lo.ToPtr(time.Now().Add(-1 * time.Minute))
 			recentDevice.Status.Summary.Status = api.DeviceSummaryStatusOnline
 			recentDevice.Status.Updated.Status = api.DeviceUpdatedStatusUpToDate
 			recentDevice.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
@@ -243,7 +244,7 @@ var _ = Describe("DeviceDisconnected", func() {
 			testutil.CreateTestDevice(ctx, deviceStore, orgId, "old-device", nil, nil, nil)
 			oldDevice, err := deviceStore.Get(ctx, orgId, "old-device")
 			Expect(err).ToNot(HaveOccurred())
-			oldDevice.Status.LastSeen = time.Now().Add(-10 * time.Minute)
+			oldDevice.Status.LastSeen = lo.ToPtr(time.Now().Add(-10 * time.Minute))
 			oldDevice.Status.Summary.Status = api.DeviceSummaryStatusOnline
 			oldDevice.Status.Updated.Status = api.DeviceUpdatedStatusUpToDate
 			oldDevice.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy

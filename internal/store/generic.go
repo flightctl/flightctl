@@ -310,11 +310,18 @@ func (s *GenericStore[P, M, A, AL]) UpdateStatus(ctx context.Context, orgId uuid
 		return nil, err
 	}
 
-	result := s.getDB(ctx).Model(model).Where("org_id = ? AND name = ?", orgId, model.GetName()).Clauses(clause.Returning{}).Updates(
-		map[string]interface{}{
-			"status":           json,
-			"resource_version": gorm.Expr("resource_version + 1"),
-		})
+	// Prepare update fields
+	updateFields := map[string]interface{}{
+		"status":           json,
+		"resource_version": gorm.Expr("resource_version + 1"),
+	}
+
+	// Special handling for Device: also update the last_seen column if LastSeen is present in status
+	if deviceResource, ok := any(resource).(*api.Device); ok && deviceResource.Status != nil && deviceResource.Status.LastSeen != nil {
+		updateFields["last_seen"] = *deviceResource.Status.LastSeen
+	}
+
+	result := s.getDB(ctx).Model(model).Where("org_id = ? AND name = ?", orgId, model.GetName()).Clauses(clause.Returning{}).Updates(updateFields)
 	if err := ErrorFromGormError(result.Error); err != nil {
 		return nil, err
 	}
