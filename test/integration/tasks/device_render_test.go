@@ -2,15 +2,19 @@ package tasks_test
 
 import (
 	"context"
+	"fmt"
+	"time"
 
 	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/rendered"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/flightctl/flightctl/internal/worker_client"
+	"github.com/flightctl/flightctl/pkg/k8sclient"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
 	testutil "github.com/flightctl/flightctl/test/util"
@@ -20,7 +24,38 @@ import (
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"go.uber.org/mock/gomock"
+	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 )
+
+// Simple mock K8s client for testing path validation
+type mockK8sClient struct{}
+
+func (m *mockK8sClient) GetSecret(ctx context.Context, namespace, name string) (*corev1.Secret, error) {
+	// Return a fake secret with dummy data
+	return &corev1.Secret{
+		Data: map[string][]byte{
+			"key1": []byte("value1"),
+			"key2": []byte("value2"),
+		},
+	}, nil
+}
+
+func (m *mockK8sClient) PostCRD(ctx context.Context, crdGVK string, body []byte, opts ...k8sclient.Option) ([]byte, error) {
+	return nil, nil
+}
+
+func (m *mockK8sClient) ListRoleBindings(ctx context.Context, namespace string) (*rbacv1.RoleBindingList, error) {
+	return nil, nil
+}
+
+func (m *mockK8sClient) ListProjects(ctx context.Context, token string, opts ...k8sclient.ListProjectsOption) ([]byte, error) {
+	return nil, nil
+}
+
+func (m *mockK8sClient) ListRoleBindingsForUser(ctx context.Context, namespace, username string) ([]string, error) {
+	return nil, nil
+}
 
 var _ = Describe("DeviceRender", func() {
 	var (
@@ -42,6 +77,7 @@ var _ = Describe("DeviceRender", func() {
 		mockQueueProducer *queues.MockQueueProducer
 		ctrl              *gomock.Controller
 		kvStoreInst       kvstore.KVStore
+		queuesProvider    queues.Provider
 	)
 
 	BeforeEach(func() {
@@ -65,11 +101,104 @@ var _ = Describe("DeviceRender", func() {
 		kvStoreInst, err = kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		Expect(err).ToNot(HaveOccurred())
 		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStoreInst, nil, log, "", "", []string{})
+
+		// Initialize queues provider and rendered.Bus for successful device rendering
+		// Only initialize once (singleton pattern), subsequent calls are no-ops
+		if queuesProvider == nil {
+			processID := fmt.Sprintf("device-render-test-%s", uuid.New().String())
+			queuesProvider, err = queues.NewRedisProvider(ctx, log, processID, "localhost", 6379, api.SecureString("adminpass"), queues.DefaultRetryConfig())
+			Expect(err).ToNot(HaveOccurred())
+			err = rendered.Bus.Initialize(ctx, kvStoreInst, queuesProvider, 10*time.Second, log)
+			Expect(err).ToNot(HaveOccurred())
+		}
 	})
 
 	AfterEach(func() {
+		// Clean up Redis keys but keep connections open
+		// The queuesProvider and rendered.Bus singleton persist across all tests in this suite
+		// since singletons are meant to live for the process lifetime
+		if kvStoreInst != nil {
+			_ = kvStoreInst.DeleteAllKeys(ctx)
+		}
+
 		store.DeleteTestDB(ctx, log, cfg, storeInst, dbName)
 		ctrl.Finish()
+	})
+
+	Context("render-time path validation", func() {
+
+		Context("K8s secret derived path validation - render-time only", func() {
+			It("should validate safe derived paths at render time", func() {
+				k8sConfig := &api.KubernetesSecretProviderSpec{Name: "k8s-render-check"}
+				k8sConfig.SecretRef.Name = "test-secret"
+				k8sConfig.SecretRef.Namespace = "default"
+				k8sConfig.SecretRef.MountPath = "/etc/myapp" // Safe base path
+
+				mockK8s := &mockK8sClient{}
+
+				configProvider := api.ConfigProviderSpec{}
+				err := configProvider.FromKubernetesSecretProviderSpec(*k8sConfig)
+				Expect(err).ToNot(HaveOccurred())
+
+				testDeviceName := deviceName + "-k8s-render-" + uuid.New().String()[:8]
+				device := &api.Device{
+					Metadata: api.ObjectMeta{Name: lo.ToPtr(testDeviceName)},
+					Spec:     &api.DeviceSpec{Config: &[]api.ConfigProviderSpec{configProvider}},
+				}
+				_, err = deviceStore.Create(ctx, orgId, device, nil)
+				Expect(err).ToNot(HaveOccurred())
+
+				defer func() {
+					_, _ = deviceStore.Delete(ctx, orgId, testDeviceName, nil)
+				}()
+
+				event := api.Event{
+					Reason:         api.EventReasonResourceUpdated,
+					InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: testDeviceName},
+				}
+				logic := tasks.NewDeviceRenderLogic(log, serviceHandler, mockK8s, kvStoreInst, orgId, event)
+				err = logic.RenderDevice(ctx)
+
+				// Should succeed - safe paths pass validation
+				Expect(err).ToNot(HaveOccurred())
+			})
+
+			It("should reject unsafe derived paths at render time", func() {
+				k8sConfig := &api.KubernetesSecretProviderSpec{Name: "k8s-unsafe-render"}
+				k8sConfig.SecretRef.Name = "test-secret"
+				k8sConfig.SecretRef.Namespace = "default"
+				k8sConfig.SecretRef.MountPath = "/var/lib/flightctl" // Forbidden base path
+
+				mockK8s := &mockK8sClient{}
+
+				configProvider := api.ConfigProviderSpec{}
+				err := configProvider.FromKubernetesSecretProviderSpec(*k8sConfig)
+				Expect(err).ToNot(HaveOccurred())
+
+				testDeviceName := deviceName + "-k8s-unsafe-" + uuid.New().String()[:8]
+				device := &api.Device{
+					Metadata: api.ObjectMeta{Name: lo.ToPtr(testDeviceName)},
+					Spec:     &api.DeviceSpec{Config: &[]api.ConfigProviderSpec{configProvider}},
+				}
+				_, err = deviceStore.Create(ctx, orgId, device, nil)
+				Expect(err).ToNot(HaveOccurred())
+
+				defer func() {
+					_, _ = deviceStore.Delete(ctx, orgId, testDeviceName, nil)
+				}()
+
+				event := api.Event{
+					Reason:         api.EventReasonResourceUpdated,
+					InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: testDeviceName},
+				}
+				logic := tasks.NewDeviceRenderLogic(log, serviceHandler, mockK8s, kvStoreInst, orgId, event)
+				err = logic.RenderDevice(ctx)
+
+				// Should fail - derived paths under forbidden root are rejected
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("forbidden device path"))
+			})
+		})
 	})
 
 	Context("when device labels change with git configuration", func() {

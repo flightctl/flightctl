@@ -380,6 +380,9 @@ func (c KubernetesSecretProviderSpec) Validate(fleetTemplate bool) []error {
 	allErrs = append(allErrs, paramErrs...)
 	if !containsParams {
 		allErrs = append(allErrs, validation.ValidateFilePath(&c.SecretRef.MountPath, "spec.config[].secretRef.mountPath")...)
+		if err := validation.DenyForbiddenDevicePath(c.SecretRef.MountPath); err != nil {
+			allErrs = append(allErrs, fmt.Errorf("spec.config[].secretRef.mountPath: %w", err))
+		}
 	}
 
 	return allErrs
@@ -393,6 +396,9 @@ func (c InlineConfigProviderSpec) Validate(fleetTemplate bool) []error {
 		allErrs = append(allErrs, paramErrs...)
 		if !containsParams {
 			allErrs = append(allErrs, validation.ValidateFilePath(&c.Inline[i].Path, fmt.Sprintf("spec.config[].inline[%d].path", i))...)
+			if err := validation.DenyForbiddenDevicePath(c.Inline[i].Path); err != nil {
+				allErrs = append(allErrs, fmt.Errorf("spec.config[].inline[%d].path: %w", i, err))
+			}
 		}
 
 		allErrs = append(allErrs, validation.ValidateLinuxUserGroup(c.Inline[i].User, fmt.Sprintf("spec.config[].inline[%d].user", i))...)
@@ -427,6 +433,9 @@ func (h HttpConfigProviderSpec) Validate(fleetTemplate bool) []error {
 	allErrs = append(allErrs, paramErrs...)
 	if !containsParams {
 		allErrs = append(allErrs, validation.ValidateFilePath(&h.HttpRef.FilePath, "spec.config[].httpRef.filePath")...)
+		if err := validation.DenyForbiddenDevicePath(h.HttpRef.FilePath); err != nil {
+			allErrs = append(allErrs, fmt.Errorf("spec.config[].httpRef.filePath: %w", err))
+		}
 	}
 
 	containsParams, paramErrs = validateParametersInString(h.HttpRef.Suffix, "spec.config[].httpRef.suffix", fleetTemplate)
