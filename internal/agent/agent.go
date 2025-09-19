@@ -19,7 +19,6 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/os"
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
-	"github.com/flightctl/flightctl/internal/agent/device/publisher"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
@@ -158,21 +157,20 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	policyManager := policy.NewManager(a.log)
 
-	devicePublisher := publisher.New(deviceName,
-		time.Duration(a.config.SpecFetchInterval),
-		backoff,
-		a.log,
-		func() error {
-			return wipeCertificateAndRestart(ctx, identityProvider, executer, a.log)
-		})
+	deviceNotFoundHandler := func() error {
+		return wipeCertificateAndRestart(ctx, identityProvider, executer, a.log)
+	}
 
 	// create spec manager
 	specManager := spec.NewManager(
+		deviceName,
 		a.config.DataDir,
 		policyManager,
 		deviceReadWriter,
 		osClient,
-		devicePublisher.Subscribe(),
+		a.config.SpecFetchInterval,
+		backoff,
+		deviceNotFoundHandler,
 		a.log,
 	)
 
@@ -185,7 +183,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	hookManager := hook.NewManager(deviceReadWriter, executer, a.log)
 
 	// create application manager
-	applicationManager := applications.NewManager(
+	applicationsManager := applications.NewManager(
 		a.log,
 		deviceReadWriter,
 		podmanClient,
@@ -193,7 +191,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	)
 
 	// register the application manager with the shutdown manager
-	shutdownManager.Register("applications", applicationManager.Stop)
+	shutdownManager.Register("applications", applicationsManager.Stop)
 
 	// register identity provider with shutdown manager
 	shutdownManager.Register("identity", identityProvider.Close)
@@ -231,7 +229,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	)
 
 	// register status exporters
-	statusManager.RegisterStatusExporter(applicationManager)
+	statusManager.RegisterStatusExporter(applicationsManager)
 	statusManager.RegisterStatusExporter(systemdManager)
 	statusManager.RegisterStatusExporter(resourceManager)
 	statusManager.RegisterStatusExporter(osManager)
@@ -249,7 +247,6 @@ func (a *Agent) Run(ctx context.Context) error {
 		executer,
 		deviceReadWriter,
 		specManager,
-		devicePublisher,
 		statusManager,
 		hookManager,
 		lifecycleManager,
@@ -296,18 +293,18 @@ func (a *Agent) Run(ctx context.Context) error {
 		resourceManager,
 	)
 
-	// create console controller
-	consoleController := console.NewController(
+	// create console manager
+	consoleManager := console.NewManager(
 		grpcClient,
 		deviceName,
 		executer,
-		devicePublisher.Subscribe(),
+		specManager.Watch(),
 		a.log,
 	)
 
 	applicationsController := applications.NewController(
 		podmanClient,
-		applicationManager,
+		applicationsManager,
 		deviceReadWriter,
 		a.log,
 	)
@@ -318,8 +315,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		deviceReadWriter,
 		statusManager,
 		specManager,
-		devicePublisher,
-		applicationManager,
+		applicationsManager,
 		systemdManager,
 		a.config.SpecFetchInterval,
 		a.config.StatusUpdateInterval,
@@ -330,7 +326,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		applicationsController,
 		configController,
 		resourceController,
-		consoleController,
+		consoleManager,
 		osClient,
 		podmanClient,
 		prefetchManager,
@@ -351,6 +347,8 @@ func (a *Agent) Run(ctx context.Context) error {
 	go reloadManager.Run(ctx)
 	go resourceManager.Run(ctx)
 	go prefetchManager.Run(ctx)
+	go consoleManager.Run(ctx)
+	go specManager.Run(ctx)
 
 	return agent.Run(ctx)
 }
