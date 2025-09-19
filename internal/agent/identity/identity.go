@@ -65,18 +65,18 @@ func NewProvider(
 	config *agent_config.Config,
 	log *log.PrefixLogger,
 ) Provider {
-	if tpmClient != nil {
-		log.Info("Using TPM-based identity provider")
-		return newTPMProvider(tpmClient, config, log)
-	}
-
 	if !config.ManagementService.Config.HasCredentials() {
 		config.ManagementService.Config.AuthInfo.ClientCertificate = filepath.Join(config.DataDir, agent_config.DefaultCertsDirName, agent_config.GeneratedCertFile)
 		config.ManagementService.Config.AuthInfo.ClientKey = filepath.Join(config.DataDir, agent_config.DefaultCertsDirName, agent_config.KeyFile)
 	}
 
-	clientKeyPath := config.ManagementService.AuthInfo.ClientKey
 	clientCertPath := config.ManagementService.GetClientCertificatePath()
+	clientKeyPath := config.ManagementService.GetClientKeyPath()
+
+	if tpmClient != nil {
+		log.Info("Using TPM-based identity provider")
+		return newTPMProvider(tpmClient, config, clientCertPath, rw, log)
+	}
 
 	log.Info("Using file-based identity provider")
 	return newFileProvider(clientKeyPath, clientCertPath, rw, log)
