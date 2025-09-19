@@ -3,6 +3,7 @@ package spec
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -774,7 +775,7 @@ func TestRollback(t *testing.T) {
 			readWriter.SetRootdir(tmpDir)
 			log := log.NewPrefixLogger("test")
 			mockPolicyManager := policy.NewMockManager(ctrl)
-			pub := publisher.New("testDevice", 10*time.Millisecond, wait.Backoff{}, log)
+			pub := publisher.New("testDevice", 10*time.Millisecond, wait.Backoff{}, log, nil)
 			cache := newCache(log)
 			queue := newQueueManager(
 				defaultSpecQueueMaxSize,
@@ -928,23 +929,40 @@ func TestGetDesired(t *testing.T) {
 		{
 			name: "spec from the api response has the same Version as desired",
 			setupMocks: func(mpq *MockPriorityQueue, mrw *fileio.MockReadWriter, mc *client.MockManagement, mpm *policy.MockManager) {
-				renderedDesiredSpec := createTestRenderedDevice(image)
-				marshaledDesiredSpec, err := json.Marshal(renderedDesiredSpec)
-				require.NoError(err)
+				renderedDesiredSpec := newVersionedDevice("2") // same as cache desired version "2"
+				renderedDesiredSpec.Spec = &v1alpha1.DeviceSpec{
+					Os: &v1alpha1.DeviceOsSpec{
+						Image: image,
+					},
+				}
 
 				mpq.EXPECT().Add(gomock.Any(), gomock.Any())
 				mpq.EXPECT().Next(gomock.Any()).Return(renderedDesiredSpec, true)
-				mrw.EXPECT().WriteFile(desiredPath, marshaledDesiredSpec, gomock.Any()).Return(nil)
+				// No WriteFile expectation since version is the same, so no write should occur
 				mpm.EXPECT().Sync(gomock.Any(), gomock.Any()).Return(nil)
 				require.NoError(devicePublisher.Push(renderedDesiredSpec))
 			},
-			expectedDevice: createTestRenderedDevice(image),
-			expectedError:  nil,
+			expectedDevice: func() *v1alpha1.Device {
+				device := newVersionedDevice("2")
+				device.Spec = &v1alpha1.DeviceSpec{
+					Os: &v1alpha1.DeviceOsSpec{
+						Image: image,
+					},
+				}
+				return device
+			}(),
+			expectedError: nil,
 		},
 		{
 			name: "error when writing the desired spec fails",
 			setupMocks: func(mpq *MockPriorityQueue, mrw *fileio.MockReadWriter, mc *client.MockManagement, mpm *policy.MockManager) {
-				device := createTestRenderedDevice(image)
+				// Create a device with version "3" (newer than cache desired version "2")
+				device := newVersionedDevice("3")
+				device.Spec = &v1alpha1.DeviceSpec{
+					Os: &v1alpha1.DeviceOsSpec{
+						Image: image,
+					},
+				}
 				mpq.EXPECT().Add(gomock.Any(), gomock.Any())
 				mpq.EXPECT().Next(gomock.Any()).Return(device, true)
 				mpm.EXPECT().Sync(gomock.Any(), gomock.Any()).Return(nil)
@@ -958,6 +976,28 @@ func TestGetDesired(t *testing.T) {
 			},
 			expectedDevice: nil,
 			expectedError:  errors.ErrWritingRenderedSpec,
+		},
+		{
+			name: "rejects older version than current desired",
+			setupMocks: func(mpq *MockPriorityQueue, mrw *fileio.MockReadWriter, mc *client.MockManagement, mpm *policy.MockManager) {
+				// Mock the Read(Desired) call that happens when no new spec is consumed
+				desiredSpec := newVersionedDevice("2")
+				marshaledDesiredSpec, err := json.Marshal(desiredSpec)
+				require.NoError(err)
+				mrw.EXPECT().ReadFile(desiredPath).Return(marshaledDesiredSpec, nil)
+
+				// Create a device with version "1" (older than cache desired version "2")
+				olderDevice := newVersionedDevice("1")
+				olderDevice.Spec = &v1alpha1.DeviceSpec{
+					Os: &v1alpha1.DeviceOsSpec{
+						Image: image,
+					},
+				}
+				mpq.EXPECT().Add(gomock.Any(), gomock.Any())
+				mpq.EXPECT().Next(gomock.Any()).Return(olderDevice, true)
+			},
+			expectedDevice: nil,
+			expectedError:  fmt.Errorf("version 1 is older than current desired version 2"),
 		},
 	}
 
@@ -995,7 +1035,8 @@ func TestGetDesired(t *testing.T) {
 
 			specResult, _, err := s.GetDesired(ctx)
 			if tc.expectedError != nil {
-				require.ErrorIs(err, tc.expectedError)
+				require.Error(err)
+				require.Contains(err.Error(), tc.expectedError.Error())
 				require.Nil(specResult)
 				return
 			}

@@ -210,6 +210,13 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 			return
 		}
 
+		// Policy may defer update; in all cases, warn and roll back to the previous renderedVersion.
+		if errors.Is(syncErr, errors.ErrUpdatePolicyNotReady) || errors.Is(syncErr, errors.ErrDownloadPolicyNotReady) {
+			a.log.Warnf("Requeuing version %s: %s", current.Version(), syncErr.Error())
+		} else {
+			a.log.Warnf("Attempting to rollback to previous renderedVersion: %s", current.Version())
+		}
+
 		if err := a.rollbackDevice(ctx, current, desired, a.sync); err != nil {
 			a.log.Errorf("Rollback did not complete cleanly: %v", err)
 		}
@@ -239,7 +246,6 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 }
 
 func (a *Agent) rollbackDevice(ctx context.Context, current, desired *v1alpha1.Device, syncFn func(context.Context, *v1alpha1.Device, *v1alpha1.Device) error) error {
-	a.log.Warnf("Attempting to rollback to previous renderedVersion: %s", current.Version())
 	updateErr := a.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
 		Type:    v1alpha1.ConditionTypeDeviceUpdating,
 		Status:  v1alpha1.ConditionStatusTrue,

@@ -115,12 +115,10 @@ db:
   type: "pgsql"
   # -- SSL mode for database connections (disable, allow, prefer, require, verify-ca, verify-full)
   sslmode: ""
-  # -- SSL client certificate file path
-  sslcert: ""
-  # -- SSL client key file path
-  sslkey: ""
-  # -- SSL root certificate file path (CA certificate)
-  sslrootcert: ""
+  # -- ConfigMap containing CA certificate (automatically mounted at /etc/ssl/postgres/)
+  sslConfigMap: ""
+  # -- Secret containing client certificates (automatically mounted at /etc/ssl/postgres/)
+  sslSecret: ""
   # Internal database deployment configuration (ignored when external: "enabled")
   image:
     # -- PostgreSQL container image

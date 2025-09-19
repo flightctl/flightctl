@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math/rand"
 	"strings"
 	"time"
 
@@ -259,9 +260,11 @@ func NewBackoff() wait.Backoff {
 
 func NewPollConfig() poll.Config {
 	return poll.Config{
-		BaseDelay: 1 * time.Millisecond,
-		Factor:    1.0,
-		MaxDelay:  1 * time.Millisecond,
+		BaseDelay:    1 * time.Millisecond,
+		Factor:       1.0,
+		MaxDelay:     1 * time.Millisecond,
+		JitterFactor: 0.1,
+		Rand:         rand.New(rand.NewSource(time.Now().UnixNano())), //nolint:gosec
 	}
 }
 

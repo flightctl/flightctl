@@ -76,6 +76,8 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
 
 For production deployments, enable SSL on your PostgreSQL instance and configure appropriate connection security.
 
+See the [TLS/SSL Configuration](#tlsssl-configuration) section below for detailed setup instructions.
+
 ## Deployment Configuration
 
 ### Password Management
@@ -246,6 +248,168 @@ The migration process can use up to three different users:
 - **Migration user** (`migrationUser`): Runs schema migrations and DDL operations (required)
 - **Application user** (`user`): Used by Flight Control services for data operations (required)
 
+## TLS/SSL Configuration
+
+Flight Control supports TLS/SSL connections to external PostgreSQL databases with multiple certificate management options.
+
+### TLS/SSL Parameters
+
+Configure TLS/SSL connection parameters in your deployment configuration:
+
+```yaml
+db:
+  external: "enabled"
+  hostname: "postgres.example.com"
+  port: 5432
+  sslmode: "require"           # TLS/SSL connection mode
+  sslcert: "/etc/ssl/postgres/client-cert.pem"    # Client certificate path
+  sslkey: "/etc/ssl/postgres/client-key.pem"      # Client private key path
+  sslrootcert: "/etc/ssl/postgres/ca-cert.pem"    # CA certificate path
+```
+
+**TLS/SSL Modes:**
+
+- `disable` - No TLS/SSL (not recommended for production)
+- `allow` - TLS/SSL if available, otherwise plain connection
+- `prefer` - TLS/SSL preferred, fallback to plain connection
+- `require` - TLS/SSL required, no certificate verification
+- `verify-ca` - TLS/SSL required, verify server certificate against CA
+- `verify-full` - TLS/SSL required, verify certificate and hostname
+
+### Certificate Management Options
+
+#### Option 1: Kubernetes ConfigMap/Secret (Production)
+
+##### Step 1: Create certificate resources
+
+```bash
+# Create ConfigMap for CA certificate (public)
+kubectl create configmap postgres-ca-cert \
+  --from-file=ca-cert.pem=/path/to/ca-cert.pem
+
+# Create Secret for client certificates (private)
+kubectl create secret generic postgres-client-certs \
+  --from-file=client-cert.pem=/path/to/client-cert.pem \
+  --from-file=client-key.pem=/path/to/client-key.pem
+```
+
+##### Step 2: Configure Helm values
+
+```yaml
+db:
+  external: "enabled"
+  hostname: "postgres.example.com"
+  sslmode: "verify-ca"
+  # Reference the certificate resources
+  sslConfigMap: "postgres-ca-cert"     # ConfigMap containing CA certificate
+  sslSecret: "postgres-client-certs"   # Secret containing client certificates
+```
+
+The certificates will be automatically mounted at `/etc/ssl/postgres/` in all database-connected services.
+
+#### Option 2: Host Volume Mount (Development/Quadlet)
+
+##### Step 1: Store certificates on host
+
+```bash
+sudo mkdir -p /etc/flightctl/ssl/postgres
+sudo cp /path/to/ca-cert.pem /etc/flightctl/ssl/postgres/
+sudo cp /path/to/client-cert.pem /etc/flightctl/ssl/postgres/
+sudo cp /path/to/client-key.pem /etc/flightctl/ssl/postgres/
+sudo chmod 600 /etc/flightctl/ssl/postgres/*-key.pem
+sudo chmod 644 /etc/flightctl/ssl/postgres/*-cert.pem
+```
+
+##### Step 2: Update service-config.yaml
+
+```yaml
+db:
+  external: "enabled"
+  hostname: "postgres.example.com"
+  sslmode: "verify-ca"
+  sslcert: "/etc/ssl/postgres/client-cert.pem"
+  sslkey: "/etc/ssl/postgres/client-key.pem"
+  sslrootcert: "/etc/ssl/postgres/ca-cert.pem"
+```
+
+##### Step 3: Update quadlet container files
+
+Add the TLS/SSL certificate volume mount to each database-connected service's `.container` file. The following services connect to the database and require TLS/SSL certificates:
+
+- `deploy/podman/flightctl-api/flightctl-api.container`
+- `deploy/podman/flightctl-worker/flightctl-worker.container`
+- `deploy/podman/flightctl-periodic/flightctl-periodic.container`
+- `deploy/podman/flightctl-db-migrate/flightctl-db-migrate.container`
+
+Add this line to the `[Container]` section of each file:
+
+```ini
+Volume=/etc/flightctl/ssl/postgres:/etc/ssl/postgres:ro,Z
+```
+
+**Example for flightctl-api.container:**
+
+```ini
+[Container]
+ContainerName=flightctl-api
+Image=quay.io/flightctl/flightctl-api:latest
+# ... existing configuration ...
+Volume=/etc/flightctl/pki:/root/.flightctl/certs:rw,z
+Volume=/etc/flightctl/flightctl-api/config.yaml:/root/.flightctl/config.yaml:ro,z
+Volume=/etc/flightctl/ssl/postgres:/etc/ssl/postgres:ro,Z
+# ... rest of configuration ...
+```
+
+### TLS/SSL Certificate Generation Example
+
+For testing purposes, you can generate self-signed certificates:
+
+```bash
+# Create certificate directory
+mkdir -p ~/postgres-ssl && cd ~/postgres-ssl
+
+# Generate CA private key and certificate
+openssl genrsa -out ca-key.pem 2048
+openssl req -new -x509 -key ca-key.pem -out ca-cert.pem -days 365 \
+  -subj "/C=US/ST=State/L=City/O=Org/CN=PostgreSQL-CA"
+
+# Generate server private key and certificate
+openssl genrsa -out server-key.pem 2048
+openssl req -new -key server-key.pem -out server-req.pem \
+  -subj "/C=US/ST=State/L=City/O=Org/CN=postgres.example.com"
+openssl x509 -req -in server-req.pem -CA ca-cert.pem -CAkey ca-key.pem \
+  -out server-cert.pem -days 365 -CAcreateserial
+
+# Generate client private key and certificate
+openssl genrsa -out client-key.pem 2048
+openssl req -new -key client-key.pem -out client-req.pem \
+  -subj "/C=US/ST=State/L=City/O=Org/CN=flightctl-client"
+openssl x509 -req -in client-req.pem -CA ca-cert.pem -CAkey ca-key.pem \
+  -out client-cert.pem -days 365 -CAcreateserial
+
+# Set proper permissions
+chmod 600 *-key.pem
+chmod 644 *-cert.pem ca-cert.pem
+```
+
+### Testing TLS/SSL Connections
+
+Verify TLS/SSL connectivity to your PostgreSQL instance:
+
+```bash
+# Test with psql client
+PGPASSWORD=your_password psql \
+  -h postgres.example.com \
+  -p 5432 \
+  -U flightctl_app \
+  -d flightctl \
+  -c "SELECT ssl_is_used();" \
+  --set=sslmode=verify-ca \
+  --set=sslcert=/path/to/client-cert.pem \
+  --set=sslkey=/path/to/client-key.pem \
+  --set=sslrootcert=/path/to/ca-cert.pem
+```
+
 ## Troubleshooting
 
 ### Connection Issues
@@ -281,13 +445,24 @@ If you see permission errors, ensure:
 2. The application user has appropriate data access privileges
 3. The admin user can create other users
 
-### SSL/TLS Issues
+### TLS/SSL Issues
 
-For SSL connections, you may need to:
+**Common TLS/SSL connection problems:**
 
-1. Add SSL configuration to the database connection string
-2. Mount SSL certificates in your containers
-3. Configure `sslmode`, `sslcert`, `sslkey`, and `sslrootcert` parameters
+1. **Certificate not found errors**:
+   - Verify certificate paths match mounted locations (`/etc/ssl/postgres/`)
+   - Check that `sslConfigMap` and `sslSecret` are correctly referenced
+   - Ensure certificates are properly mounted in all database-connected services
+
+2. **TLS/SSL verification failures**:
+   - Use `sslmode: require` to skip certificate verification for testing
+   - Verify CA certificate contains the correct certificate chain
+   - Check that server certificate CN/SAN matches the hostname
+
+3. **Permission denied errors**:
+   - Ensure private key files have correct permissions (600)
+   - Verify Kubernetes secrets are properly created
+   - Check that service accounts have access to certificate resources
 
 ## Security Considerations
 
@@ -301,7 +476,7 @@ For SSL connections, you may need to:
 
 ### Database Security
 
-1. **Enable SSL/TLS** for database connections in production
+1. **Enable TLS/SSL** for database connections in production
 2. **Restrict network access** to your database instance
 3. **Use secrets management** instead of plain-text passwords in configuration
 4. **Regular backup** your external database
