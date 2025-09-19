@@ -99,7 +99,6 @@ func TestTpmSession_LoadKey(t *testing.T) {
 			keyType: LAK,
 			setupMocks: func(mockStorage *MockStorage, session *tpmSession) {
 				_, _, srkHandle := createValidTPMObjects()
-				session.srk = srkHandle
 				session.handles[SRK] = srkHandle
 				// Enable valid SRK response in mock connection
 				session.conn.(*mockReadWriteCloser).validSRK = true
@@ -114,7 +113,6 @@ func TestTpmSession_LoadKey(t *testing.T) {
 			keyType: LDevID,
 			setupMocks: func(mockStorage *MockStorage, session *tpmSession) {
 				_, _, srkHandle := createValidTPMObjects()
-				session.srk = srkHandle
 				session.handles[SRK] = srkHandle
 				// Enable valid SRK response in mock connection
 				session.conn.(*mockReadWriteCloser).validSRK = true
@@ -132,7 +130,6 @@ func TestTpmSession_LoadKey(t *testing.T) {
 			keyType: LDevID,
 			setupMocks: func(mockStorage *MockStorage, session *tpmSession) {
 				_, _, srkHandle := createValidTPMObjects()
-				session.srk = srkHandle
 				session.handles[SRK] = srkHandle
 				// Enable valid SRK response in mock connection
 				session.conn.(*mockReadWriteCloser).validSRK = true
@@ -147,7 +144,6 @@ func TestTpmSession_LoadKey(t *testing.T) {
 			keyType: LAK,
 			setupMocks: func(mockStorage *MockStorage, session *tpmSession) {
 				_, _, srkHandle := createValidTPMObjects()
-				session.srk = srkHandle
 				session.handles[SRK] = srkHandle
 				// Enable valid SRK response in mock connection
 				session.conn.(*mockReadWriteCloser).validSRK = true
@@ -161,7 +157,7 @@ func TestTpmSession_LoadKey(t *testing.T) {
 			name:    "no SRK available",
 			keyType: LDevID,
 			setupMocks: func(mockStorage *MockStorage, session *tpmSession) {
-				session.srk = nil
+				delete(session.handles, SRK)
 			},
 			wantErr: errors.New("ensuring SRK is loaded"),
 		},
@@ -230,7 +226,6 @@ func TestTpmSession_Sign(t *testing.T) {
 			setupMocks: func(mockStorage *MockStorage, session *tpmSession) {
 				// Pre-populate SRK to avoid creation attempt
 				_, _, srkHandle := createValidTPMObjects()
-				session.srk = srkHandle
 				session.handles[SRK] = srkHandle
 				// Enable valid SRK response in mock connection
 				session.conn.(*mockReadWriteCloser).validSRK = true
@@ -300,7 +295,6 @@ func TestTpmSession_CertifyKey(t *testing.T) {
 			setupMocks: func(mockStorage *MockStorage, session *tpmSession) {
 				// Pre-populate SRK to avoid creation attempt
 				_, _, srkHandle := createValidTPMObjects()
-				session.srk = srkHandle
 				session.handles[SRK] = srkHandle
 				// Enable valid SRK response in mock connection
 				session.conn.(*mockReadWriteCloser).validSRK = true
@@ -316,7 +310,6 @@ func TestTpmSession_CertifyKey(t *testing.T) {
 			setupMocks: func(mockStorage *MockStorage, session *tpmSession) {
 				// Pre-populate SRK to avoid creation attempt
 				_, _, srkHandle := createValidTPMObjects()
-				session.srk = srkHandle
 				session.handles[SRK] = srkHandle
 				// Enable valid SRK response in mock connection
 				session.conn.(*mockReadWriteCloser).validSRK = true
@@ -384,7 +377,6 @@ func TestTpmSession_GetPublicKey(t *testing.T) {
 			setupMocks: func(mockStorage *MockStorage, session *tpmSession) {
 				// Pre-populate SRK to avoid creation attempt
 				_, _, srkHandle := createValidTPMObjects()
-				session.srk = srkHandle
 				session.handles[SRK] = srkHandle
 				// Enable valid SRK response in mock connection
 				session.conn.(*mockReadWriteCloser).validSRK = true
@@ -472,7 +464,6 @@ func TestTpmSession_Close(t *testing.T) {
 
 			// After close, handles should be cleared regardless of TPM operation success
 			require.Empty(t, session.handles)
-			require.Nil(t, session.srk)
 
 			if tt.wantErr != nil {
 				require.Error(t, err)

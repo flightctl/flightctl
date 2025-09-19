@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	client "github.com/flightctl/flightctl/internal/api/client/agent"
@@ -46,10 +45,6 @@ func NewFromConfig(config *baseclient.Config, log *log.PrefixLogger, opts ...HTT
 		return nil
 	})
 	return client.NewClientWithResponses(config.Service.Server, client.WithHTTPClient(httpClient), ref)
-}
-
-func NewGRPCClientFromConfig(config *baseclient.Config) (grpc_v1.RouterServiceClient, error) {
-	return baseclient.NewGRPCClientFromConfig(config, "")
 }
 
 // Management is the client interface for managing devices.
