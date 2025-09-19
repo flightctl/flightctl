@@ -18,6 +18,9 @@ import (
 	"libvirt.org/go/libvirt"
 )
 
+// Default disk size in GB for VM instances
+const DefaultDiskSizeGB = 10
+
 //go:embed domain-template.xml
 var domainTemplate string
 
@@ -319,6 +322,12 @@ func (v *VMInLibvirt) parseDomainTemplate() (domainXML string, err error) {
 		Name            string
 		CloudInitCDRom  string
 		CloudInitSMBios string
+		DiskSize        string
+	}
+
+	diskSize := v.TestVM.DiskSizeGB
+	if diskSize <= 0 {
+		diskSize = DefaultDiskSizeGB
 	}
 
 	templateParams := TemplateParams{
@@ -326,6 +335,7 @@ func (v *VMInLibvirt) parseDomainTemplate() (domainXML string, err error) {
 		Port:          strconv.Itoa(v.TestVM.SSHPort),
 		PIDFile:       v.pidFile,
 		Name:          v.TestVM.VMName,
+		DiskSize:      strconv.Itoa(diskSize),
 	}
 
 	err = v.ParseCloudInit()
