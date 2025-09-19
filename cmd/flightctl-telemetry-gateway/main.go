@@ -50,7 +50,7 @@ func main() {
 		cancel()
 	}()
 
-	if err := tg.Run(ctx, cfg, log); err != nil {
+	if err := tg.Run(ctx, cfg); err != nil {
 		log.Fatalf("failed to create telemetry gateway: %v", err)
 	}
 }

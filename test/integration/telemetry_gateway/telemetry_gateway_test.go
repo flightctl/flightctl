@@ -5,12 +5,14 @@ import (
 	"crypto"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"math"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -20,12 +22,10 @@ import (
 	"github.com/flightctl/flightctl/internal/crypto/signer"
 	telemetrygateway "github.com/flightctl/flightctl/internal/telemetry_gateway"
 	fccrypto "github.com/flightctl/flightctl/pkg/crypto"
-	flightlog "github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/prometheus/common/expfmt"
-	"github.com/sirupsen/logrus"
 	collectormetrics "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
 	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
@@ -56,7 +56,6 @@ var _ = BeforeSuite(func() {
 var _ = Describe("Telemetry Gateway", func() {
 	var (
 		ctx      context.Context
-		log      *logrus.Logger
 		otlpAddr string
 		promAddr string
 		gwCancel context.CancelFunc
@@ -67,12 +66,12 @@ var _ = Describe("Telemetry Gateway", func() {
 		baseCfg     *config.Config
 		cfgMutators []func(*config.Config)
 		testDirPath string
+		runOpts     []telemetrygateway.Option
 	)
 
 	BeforeEach(func() {
 		var err error
 		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
-		log = flightlog.InitLogs()
 
 		testDirPath = GinkgoT().TempDir()
 
@@ -106,6 +105,9 @@ var _ = Describe("Telemetry Gateway", func() {
 		// base config + reset mutators
 		baseCfg = createConfig(serverCrt, serverKey, caPath, otlpAddr)
 		cfgMutators = nil
+		runOpts = []telemetrygateway.Option{
+			telemetrygateway.WithSkipSettingGRPCLogger(true), // kill grpclog race in tests
+		}
 	})
 
 	// Start the gateway after all mutators from nested BeforeEach have run
@@ -124,7 +126,9 @@ var _ = Describe("Telemetry Gateway", func() {
 		gwCtx, cancel := context.WithCancel(ctx)
 		gwCancel = cancel
 		gwDone = make(chan error, 1)
-		go func() { gwDone <- telemetrygateway.Run(gwCtx, &cfg, log) }()
+		go func() {
+			gwDone <- telemetrygateway.Run(gwCtx, &cfg, runOpts...)
+		}()
 
 		// wait OTLP up
 		Eventually(func() bool {
@@ -142,10 +146,14 @@ var _ = Describe("Telemetry Gateway", func() {
 			gwCancel()
 		}
 		if gwDone != nil {
-			select {
-			case <-gwDone:
-			case <-time.After(2 * time.Second):
+			var err error
+			Eventually(gwDone, 2*time.Second).Should(Receive(&err))
+			if err != nil && !errors.Is(err, context.Canceled) {
+				fmt.Fprintf(GinkgoWriter, "[gateway] exited with error: %v\n", err)
+			} else {
+				fmt.Fprintln(GinkgoWriter, "[gateway] exited cleanly")
 			}
+			Expect(err == nil || errors.Is(err, context.Canceled)).To(BeTrue())
 		}
 	})
 
@@ -288,6 +296,130 @@ var _ = Describe("Telemetry Gateway", func() {
 				select {
 				case req := <-forwardMC.ch:
 					// sanity: does it contain "test_tg_metric"?
+					for _, rm := range req.ResourceMetrics {
+						for _, sm := range rm.ScopeMetrics {
+							for _, m := range sm.Metrics {
+								if m.GetName() == "test_tg_metric" {
+									return true
+								}
+							}
+						}
+					}
+					return false
+				default:
+					return false
+				}
+			}, timeout, polling).Should(BeTrue(), "downstream collector did not receive forwarded metric")
+		})
+	})
+
+	Context("OTel config mutation via overlay", func() {
+		var (
+			forwardStop func()
+			forwardMC   *mockOTLPCollector
+		)
+
+		BeforeEach(func() {
+			// Downstream OTLP server (mutual TLS)
+			clientCAPool := x509.NewCertPool()
+			for _, c := range caClient.GetCABundleX509() {
+				clientCAPool.AddCert(c)
+			}
+			dsPriv, dsCert, err := makeKeyPairAndCSR(ctx, caClient, caClient.Cfg.ServerSvcSignerName, "svc-downstream-collector", 365)
+			Expect(err).ToNot(HaveOccurred())
+
+			endpoint, stop, mc, err := startMockCollector(dsCert, dsPriv, clientCAPool)
+			Expect(err).ToNot(HaveOccurred())
+			forwardStop, forwardMC = stop, mc
+
+			// Gateway’s client creds for forwarding
+			fwdCliPriv, fwdCliCert, err := makeKeyPairAndCSR(ctx, caClient, caClient.Cfg.DeviceSvcClientSignerName, "client-gateway-forwarder", 365)
+			Expect(err).ToNot(HaveOccurred())
+
+			caPath := filepath.Join(testDirPath, "etc", "flightctl", "certs", "ca.crt")
+			forwardCrt := filepath.Join(testDirPath, "etc", "flightctl", "certs", fmt.Sprintf("fwd-%d.crt", time.Now().UnixNano()))
+			forwardKey := filepath.Join(testDirPath, "etc", "flightctl", "certs", fmt.Sprintf("fwd-%d.key", time.Now().UnixNano()))
+			certPEM, _ := fccrypto.EncodeCertificatePEM(fwdCliCert)
+			keyPEM, _ := fccrypto.PEMEncodeKey(fwdCliPriv)
+			Expect(os.WriteFile(forwardCrt, certPEM, 0o600)).To(Succeed())
+			Expect(os.WriteFile(forwardKey, keyPEM, 0o600)).To(Succeed())
+
+			// Choose Prometheus endpoint for this test
+			promAddr = localAddr()
+			// Ensure exporter exists in base config (so build map doesn’t error);
+			// overlay will *also* set exporters and add otlp.
+			cfgMutators = append(cfgMutators, func(c *config.Config) {
+				snippet := fmt.Appendf(nil, "telemetrygateway:\n  export:\n    prometheus: %q\n", promAddr)
+				_ = yaml.Unmarshal(snippet, c)
+			})
+
+			// build the overlay
+			overlay := fmt.Sprintf(`
+			exporters:
+				otlp:
+					endpoint: %q
+					tls:
+						cert_file: %q
+						key_file:  %q
+						ca_file:   %q
+			service:
+				pipelines:
+					metrics:
+						exporters: ["prometheus","otlp"]
+			`, endpoint, forwardCrt, forwardKey, caPath)
+
+			// YAML forbids tabs; normalize: each \t -> two spaces
+			overlay = strings.ReplaceAll(overlay, "\t", "  ")
+
+			// register the overlay mutator
+			runOpts = append(runOpts, telemetrygateway.WithOTelYAMLOverlay(overlay))
+		})
+
+		AfterEach(func() {
+			if forwardStop != nil {
+				forwardStop()
+			}
+		})
+
+		It("applies the overlay and both exports & forwards metrics", func() {
+			// Device client -> gateway (mTLS)
+			clientPrivateKey, clientCert, err := makeKeyPairAndCSR(ctx, caClient, caClient.Cfg.DeviceSvcClientSignerName, "client-testdevice", 365)
+			Expect(err).ToNot(HaveOccurred())
+
+			caPool := x509.NewCertPool()
+			for _, cert := range caClient.GetCABundleX509() {
+				caPool.AddCert(cert)
+			}
+
+			tlsCfg := &tls.Config{
+				MinVersion: tls.VersionTLS12,
+				RootCAs:    caPool,
+				Certificates: []tls.Certificate{{
+					Certificate: [][]byte{clientCert.Raw},
+					PrivateKey:  clientPrivateKey,
+				}},
+				ServerName: "localhost",
+			}
+
+			creds := credentials.NewTLS(tlsCfg)
+			cc, err := grpc.NewClient(otlpAddr, grpc.WithTransportCredentials(creds))
+			Expect(err).ToNot(HaveOccurred())
+			defer cc.Close()
+
+			// First RPC drives connection
+			rpcCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
+			Expect(exportTestMetrics(rpcCtx, cc)).To(Succeed())
+
+			// Assert Prom exporter has the metric
+			Eventually(func() error {
+				return receiveTestMetrics(ctx, promAddr)
+			}, timeout, polling).Should(BeNil())
+
+			// Assert downstream collector received it via forward
+			Eventually(func() bool {
+				select {
+				case req := <-forwardMC.ch:
 					for _, rm := range req.ResourceMetrics {
 						for _, sm := range rm.ScopeMetrics {
 							for _, m := range sm.Metrics {
