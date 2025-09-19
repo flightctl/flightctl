@@ -13,6 +13,7 @@ import (
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/tpm"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
@@ -20,7 +21,7 @@ import (
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
-	gomock "go.uber.org/mock/gomock"
+	"go.uber.org/mock/gomock"
 	"gorm.io/gorm"
 )
 
@@ -53,7 +54,7 @@ func BenchmarkDeviceDisconnectedPoll(b *testing.B) {
 		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		require.NoError(err)
 		orgResolver := util.NewOrgResolver(cfg, dbStore.Organization(), log)
-		serviceHandler := service.NewServiceHandler(dbStore, workerClient, kvStore, nil, log, "", "", []string{}, orgResolver)
+		serviceHandler := service.NewServiceHandler(dbStore, workerClient, kvStore, nil, log, "", "", tpm.NewDisabledCAVerifier(), orgResolver)
 
 		devices := generateMockDevices(deviceCount)
 		err = batchCreateDevices(ctx, db, devices, deviceCount)

@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks"
+	"github.com/flightctl/flightctl/internal/tpm"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
@@ -65,7 +66,7 @@ var _ = Describe("DeviceRender", func() {
 		kvStoreInst, err = kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		Expect(err).ToNot(HaveOccurred())
 		orgResolver := testutil.NewOrgResolver(cfg, storeInst.Organization(), log)
-		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStoreInst, nil, log, "", "", []string{}, orgResolver)
+		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStoreInst, nil, log, "", "", tpm.NewDisabledCAVerifier(), orgResolver)
 	})
 
 	AfterEach(func() {

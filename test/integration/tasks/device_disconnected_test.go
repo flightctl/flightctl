@@ -12,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks"
+	"github.com/flightctl/flightctl/internal/tpm"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
@@ -49,7 +50,7 @@ var _ = Describe("DeviceDisconnected", func() {
 		workerClient = worker_client.NewMockWorkerClient(ctrl)
 		Expect(err).ToNot(HaveOccurred())
 		orgResolver := testutil.NewOrgResolver(cfg, storeInst.Organization(), log)
-		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{}, orgResolver)
+		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", tpm.NewDisabledCAVerifier(), orgResolver)
 		disconnectedTask = tasks.NewDeviceDisconnected(log, serviceHandler)
 	})
 

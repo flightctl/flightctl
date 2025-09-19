@@ -62,6 +62,20 @@ The Flight Control service needs access to the TPM manufacturer's CA certificate
 
 The Flight Control API server needs TPM manufacturer CA certificates to validate device enrollment requests.
 
+### Dynamic Certificate Refresh
+
+Flight Control supports dynamic refresh of TPM CA certificates without requiring service restarts. When certificate verification fails, the service automatically attempts to reload certificates from the configured paths. This means:
+
+- **No service restarts required**: You can update TPM CA certificates on disk and they will be picked up automatically
+- **Automatic retry**: If device enrollment fails due to missing/invalid certificates, the service will retry with refreshed certificates
+- **Rate limiting**: Certificate refreshes are rate-limited to prevent excessive disk I/O.
+
+This capability is particularly useful when:
+
+- Adding support for new TPM manufacturers
+- Updating expired intermediate certificates
+- Rotating CA certificates
+
 ### TPM Manufacturer CA Certificates
 
 Several [well-known](https://trustedcomputinggroup.org/membership/certification/tpm-certified-products/) discrete [TPM manufacturer certificates](../../tpm-manufacturer-certs) have been downloaded for use. They are provided in PEM format to be directly compatible with Flight Control services, and contain metadata indicating their download URL and when they were downloaded.
@@ -182,11 +196,8 @@ kubectl patch deployment flightctl-api -n flightctl --type='json' -p='[
 ]'
 ```
 
-1. **Wait for the deployment to roll out:**
-
-```bash
-kubectl rollout status deployment/flightctl-api -n flightctl
-```
+> [!NOTE]
+> Once the initial configuration is deployed, future TPM CA certificate updates can be made by simply updating the config. The service will load new certificates without requiring a deployment rollout:
 
 ### Standalone Deployment
 
@@ -214,6 +225,9 @@ service:
     - /etc/flightctl/tpm-cas/infineon-intermediate-ca.pem
   # ... rest of service configuration
 ```
+
+> [!NOTE]
+> After the initial configuration, you can add new TPM CA certificates to the desired directory and update the service's config file. The service will automatically detect and load new certificates when needed:
 
 > [!NOTE]
 > Different TPM manufacturers provide their CA certificates in various locations:

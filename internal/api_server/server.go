@@ -21,6 +21,7 @@ import (
 	"github.com/flightctl/flightctl/internal/org/resolvers"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/tpm"
 	"github.com/flightctl/flightctl/internal/transport"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/queues"
@@ -57,6 +58,7 @@ type Server struct {
 	queuesProvider     queues.Provider
 	consoleEndpointReg console.InternalSessionRegistration
 	orgResolver        resolvers.Resolver
+	tpmVerifier        tpm.CAVerifier
 	authN              auth.AuthNMiddleware
 	authZ              auth.AuthZMiddleware
 }
@@ -70,6 +72,7 @@ func New(
 	listener net.Listener,
 	queuesProvider queues.Provider,
 	consoleEndpointReg console.InternalSessionRegistration,
+	tpmVerifier tpm.CAVerifier,
 	orgResolver resolvers.Resolver,
 ) *Server {
 	return &Server{
@@ -80,6 +83,7 @@ func New(
 		listener:           listener,
 		queuesProvider:     queuesProvider,
 		consoleEndpointReg: consoleEndpointReg,
+		tpmVerifier:        tpmVerifier,
 		orgResolver:        orgResolver,
 	}
 }
@@ -195,12 +199,12 @@ func (s *Server) Run(ctx context.Context) error {
 	)
 
 	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(
-		s.store, workerClient, kvStore, s.ca, s.log, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl, s.cfg.Service.TPMCAPaths, s.orgResolver))
+		s.store, workerClient, kvStore, s.ca, s.log, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl, s.tpmVerifier, s.orgResolver))
 
 	// a group is a new mux copy, with its own copy of the middleware stack
 	// this one handles the OpenAPI handling of the service (excluding auth validate endpoint)
 	router.Group(func(r chi.Router) {
-		//NOTE(majopela): keeping metrics middleware separate from the rest of the middleware stack
+		// NOTE(majopela): keeping metrics middleware separate from the rest of the middleware stack
 		// to avoid issues with websocket connections
 		r.Use(oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts))
 		r.Use(authMiddewares...)

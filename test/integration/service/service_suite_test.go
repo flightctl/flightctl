@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/tpm"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
@@ -72,7 +73,7 @@ func (s *ServiceTestSuite) Setup() {
 	Expect(err).ToNot(HaveOccurred())
 
 	orgResolver := testutil.NewOrgResolver(s.cfg, s.Store.Organization(), s.Log)
-	s.Handler = service.NewServiceHandler(s.Store, s.workerClient, kvStore, s.caClient, s.Log, "", "", []string{}, orgResolver)
+	s.Handler = service.NewServiceHandler(s.Store, s.workerClient, kvStore, s.caClient, s.Log, "", "", tpm.NewDisabledCAVerifier(), orgResolver)
 }
 
 // Teardown performs common cleanup for service tests

@@ -13,6 +13,7 @@ import (
 	"github.com/flightctl/flightctl/internal/org/resolvers"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/tpm"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -91,7 +92,7 @@ func main() {
 		Cache:  orgCache,
 	}
 	orgResolver := resolvers.BuildResolver(buildResolverOpts)
-	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(store, workerClient, kvStore, nil, log, "", "", []string{}, orgResolver))
+	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(store, workerClient, kvStore, nil, log, "", "", tpm.NewDisabledCAVerifier(), orgResolver))
 
 	server := alert_exporter.New(cfg, log)
 	if err := server.Run(ctx, serviceHandler); err != nil {

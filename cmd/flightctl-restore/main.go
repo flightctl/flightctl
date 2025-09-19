@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/internal/org/resolvers"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/tpm"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/sirupsen/logrus"
 )
@@ -75,7 +76,7 @@ func main() {
 		Cache:  orgCache,
 	}
 	orgResolver := resolvers.BuildResolver(buildResolverOpts)
-	serviceHandler := service.NewServiceHandler(storeInst, nil, kvStore, nil, log, "", "", []string{}, orgResolver)
+	serviceHandler := service.NewServiceHandler(storeInst, nil, kvStore, nil, log, "", "", tpm.NewDisabledCAVerifier(), orgResolver)
 
 	log.Println("Running post-restoration device preparation")
 	if err := serviceHandler.PrepareDevicesAfterRestore(ctx); err != nil {
