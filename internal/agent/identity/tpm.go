@@ -221,6 +221,14 @@ func (t *tpmProvider) WipeCredentials() error {
 	return nil
 }
 
+func (t *tpmProvider) WipeCertificateOnly() error {
+	// For TPM provider, only clear certificate data from memory
+	// The key and CSR remain in TPM storage
+	t.certificateData = nil
+	t.log.Info("Wiped TPM-stored certificate data from memory (key and CSR preserved)")
+	return nil
+}
+
 func (t *tpmProvider) Close(ctx context.Context) error {
 	if t.client != nil {
 		return t.client.Close(ctx)
