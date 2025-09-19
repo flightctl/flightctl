@@ -11,6 +11,7 @@ import (
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks"
+	"github.com/flightctl/flightctl/internal/tpm"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
@@ -50,7 +51,7 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		Expect(err).ToNot(HaveOccurred())
 		orgResolver := testutil.NewOrgResolver(cfg, storeInst.Organization(), log)
-		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{}, orgResolver)
+		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", tpm.NewDisabledCAVerifier(), orgResolver)
 		resourceSync = tasks.NewResourceSync(serviceHandler, log, nil)
 
 		// Set up mock expectations for the publisher
