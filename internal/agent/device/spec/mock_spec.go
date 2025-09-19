@@ -15,6 +15,7 @@ import (
 
 	v1alpha1 "github.com/flightctl/flightctl/api/v1alpha1"
 	policy "github.com/flightctl/flightctl/internal/agent/device/policy"
+	publisher "github.com/flightctl/flightctl/internal/agent/device/publisher"
 	status "github.com/flightctl/flightctl/internal/agent/device/status"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -247,6 +248,18 @@ func (mr *MockManagerMockRecorder) Rollback(ctx any, opts ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]any{ctx}, opts...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Rollback", reflect.TypeOf((*MockManager)(nil).Rollback), varargs...)
+}
+
+// SetPublisherSubscription mocks base method.
+func (m *MockManager) SetPublisherSubscription(subscription publisher.Subscription) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetPublisherSubscription", subscription)
+}
+
+// SetPublisherSubscription indicates an expected call of SetPublisherSubscription.
+func (mr *MockManagerMockRecorder) SetPublisherSubscription(subscription any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetPublisherSubscription", reflect.TypeOf((*MockManager)(nil).SetPublisherSubscription), subscription)
 }
 
 // SetUpgradeFailed mocks base method.

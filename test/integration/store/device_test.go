@@ -1628,6 +1628,461 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(*normalDeviceAfter.Status.Summary.Info).To(Equal("Device is waiting for connection after restore"))
 		})
 	})
+
+	Context("ProcessAwaitingReconnectAnnotation", func() {
+		It("should return false when device has no awaiting reconnect annotation", func() {
+			// Create a device without awaiting reconnect annotation
+			deviceName := "no-awaiting-reconnect-device"
+			device := &api.Device{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr(deviceName),
+				},
+				Spec: &api.DeviceSpec{
+					Os: &api.DeviceOsSpec{Image: "test-image"},
+				},
+			}
+
+			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Process awaiting reconnect annotation - should return false
+			wasConflictPaused, err := devStore.ProcessAwaitingReconnectAnnotation(ctx, orgId, deviceName, nil)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(wasConflictPaused).To(BeFalse())
+
+			// Verify device is unchanged
+			updatedDevice, err := devStore.Get(ctx, orgId, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(updatedDevice.Metadata.Annotations).ToNot(BeNil())
+			Expect(len(*updatedDevice.Metadata.Annotations)).To(Equal(0))
+		})
+
+		It("should return false when awaiting reconnect annotation is not 'true'", func() {
+			// Create a device with awaiting reconnect annotation set to 'false'
+			deviceName := "awaiting-reconnect-false-device"
+			device := &api.Device{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr(deviceName),
+					Annotations: &map[string]string{
+						api.DeviceAnnotationAwaitingReconnect: "false",
+					},
+				},
+				Spec: &api.DeviceSpec{
+					Os: &api.DeviceOsSpec{Image: "test-image"},
+				},
+			}
+
+			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Process awaiting reconnect annotation - should return false
+			wasConflictPaused, err := devStore.ProcessAwaitingReconnectAnnotation(ctx, orgId, deviceName, nil)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(wasConflictPaused).To(BeFalse())
+
+			// Verify device is unchanged
+			updatedDevice, err := devStore.Get(ctx, orgId, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(updatedDevice.Metadata.Annotations).ToNot(BeNil())
+			Expect((*updatedDevice.Metadata.Annotations)[api.DeviceAnnotationAwaitingReconnect]).To(Equal("false"))
+		})
+
+		It("should remove awaiting reconnect annotation and set normal status when device version <= service version", func() {
+			// Create a device with awaiting reconnect annotation and service version
+			deviceName := "normal-reconnect-device"
+			device := &api.Device{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr(deviceName),
+					Annotations: &map[string]string{
+						api.DeviceAnnotationAwaitingReconnect: "true",
+						api.DeviceAnnotationRenderedVersion:   "5", // Service version
+					},
+				},
+				Spec: &api.DeviceSpec{
+					Os: &api.DeviceOsSpec{Image: "test-image"},
+				},
+				Status: &api.DeviceStatus{
+					Summary: api.DeviceSummaryStatus{
+						Status: api.DeviceSummaryStatusAwaitingReconnect,
+					},
+				},
+			}
+
+			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Process awaiting reconnect annotation with device version <= service version
+			deviceReportedVersion := "3" // Lower than service version 5
+			wasConflictPaused, err := devStore.ProcessAwaitingReconnectAnnotation(ctx, orgId, deviceName, &deviceReportedVersion)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(wasConflictPaused).To(BeFalse())
+
+			// Verify awaiting reconnect annotation was removed
+			updatedDevice, err := devStore.Get(ctx, orgId, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(updatedDevice.Metadata.Annotations).ToNot(BeNil())
+			_, hasAwaitingReconnect := (*updatedDevice.Metadata.Annotations)[api.DeviceAnnotationAwaitingReconnect]
+			Expect(hasAwaitingReconnect).To(BeFalse())
+
+			// Verify conflict paused annotation was not added
+			_, hasConflictPaused := (*updatedDevice.Metadata.Annotations)[api.DeviceAnnotationConflictPaused]
+			Expect(hasConflictPaused).To(BeFalse())
+
+			// Verify status was updated to normal
+			Expect(updatedDevice.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusOnline))
+			Expect(updatedDevice.Status.Summary.Info).ToNot(BeNil())
+			Expect(*updatedDevice.Status.Summary.Info).To(Equal("Device is up to date"))
+
+			// Verify status.config.renderedVersion was updated to device reported version
+			Expect(updatedDevice.Status.Config.RenderedVersion).To(Equal(deviceReportedVersion))
+
+			// Verify resource version was incremented
+			Expect(updatedDevice.Metadata.ResourceVersion).ToNot(BeNil())
+		})
+
+		It("should remove awaiting reconnect annotation and add conflict paused when device version > service version", func() {
+			// Create a device with awaiting reconnect annotation and service version
+			deviceName := "conflict-paused-device"
+			device := &api.Device{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr(deviceName),
+					Annotations: &map[string]string{
+						api.DeviceAnnotationAwaitingReconnect: "true",
+						api.DeviceAnnotationRenderedVersion:   "3", // Service version
+					},
+				},
+				Spec: &api.DeviceSpec{
+					Os: &api.DeviceOsSpec{Image: "test-image"},
+				},
+				Status: &api.DeviceStatus{
+					Summary: api.DeviceSummaryStatus{
+						Status: api.DeviceSummaryStatusAwaitingReconnect,
+					},
+				},
+			}
+
+			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Process awaiting reconnect annotation with device version > service version
+			deviceReportedVersion := "5" // Higher than service version 3
+			wasConflictPaused, err := devStore.ProcessAwaitingReconnectAnnotation(ctx, orgId, deviceName, &deviceReportedVersion)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(wasConflictPaused).To(BeTrue())
+
+			// Verify awaiting reconnect annotation was removed
+			updatedDevice, err := devStore.Get(ctx, orgId, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(updatedDevice.Metadata.Annotations).ToNot(BeNil())
+			_, hasAwaitingReconnect := (*updatedDevice.Metadata.Annotations)[api.DeviceAnnotationAwaitingReconnect]
+			Expect(hasAwaitingReconnect).To(BeFalse())
+
+			// Verify conflict paused annotation was added
+			conflictPausedValue, hasConflictPaused := (*updatedDevice.Metadata.Annotations)[api.DeviceAnnotationConflictPaused]
+			Expect(hasConflictPaused).To(BeTrue())
+			Expect(conflictPausedValue).To(Equal("true"))
+
+			// Verify status was updated to conflict paused with detailed info
+			Expect(updatedDevice.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusConflictPaused))
+			Expect(updatedDevice.Status.Summary.Info).ToNot(BeNil())
+			Expect(*updatedDevice.Status.Summary.Info).To(ContainSubstring("Device reconciliation is paused due to a state conflict"))
+			Expect(*updatedDevice.Status.Summary.Info).To(ContainSubstring("device reported version 5 > device version known to service 3"))
+
+			// Verify status.config.renderedVersion was updated to device reported version
+			Expect(updatedDevice.Status.Config.RenderedVersion).To(Equal(deviceReportedVersion))
+
+			// Verify resource version was incremented
+			Expect(updatedDevice.Metadata.ResourceVersion).ToNot(BeNil())
+		})
+
+		It("should handle nil device reported version gracefully", func() {
+			// Create a device with awaiting reconnect annotation and service version
+			deviceName := "nil-version-device"
+			device := &api.Device{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr(deviceName),
+					Annotations: &map[string]string{
+						api.DeviceAnnotationAwaitingReconnect: "true",
+						api.DeviceAnnotationRenderedVersion:   "5", // Service version
+					},
+				},
+				Spec: &api.DeviceSpec{
+					Os: &api.DeviceOsSpec{Image: "test-image"},
+				},
+				Status: &api.DeviceStatus{
+					Summary: api.DeviceSummaryStatus{
+						Status: api.DeviceSummaryStatusAwaitingReconnect,
+					},
+				},
+			}
+
+			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Process awaiting reconnect annotation with nil device reported version
+			wasConflictPaused, err := devStore.ProcessAwaitingReconnectAnnotation(ctx, orgId, deviceName, nil)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(wasConflictPaused).To(BeFalse()) // Should be false since device version (0) <= service version (5)
+
+			// Verify awaiting reconnect annotation was removed
+			updatedDevice, err := devStore.Get(ctx, orgId, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(updatedDevice.Metadata.Annotations).ToNot(BeNil())
+			_, hasAwaitingReconnect := (*updatedDevice.Metadata.Annotations)[api.DeviceAnnotationAwaitingReconnect]
+			Expect(hasAwaitingReconnect).To(BeFalse())
+
+			// Verify status was updated to normal
+			Expect(updatedDevice.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusOnline))
+
+			// Verify status.config.renderedVersion was updated to "0" (default for nil)
+			Expect(updatedDevice.Status.Config.RenderedVersion).To(Equal("0"))
+		})
+
+		It("should handle empty device reported version gracefully", func() {
+			// Create a device with awaiting reconnect annotation and service version
+			deviceName := "empty-version-device"
+			device := &api.Device{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr(deviceName),
+					Annotations: &map[string]string{
+						api.DeviceAnnotationAwaitingReconnect: "true",
+						api.DeviceAnnotationRenderedVersion:   "5", // Service version
+					},
+				},
+				Spec: &api.DeviceSpec{
+					Os: &api.DeviceOsSpec{Image: "test-image"},
+				},
+				Status: &api.DeviceStatus{
+					Summary: api.DeviceSummaryStatus{
+						Status: api.DeviceSummaryStatusAwaitingReconnect,
+					},
+				},
+			}
+
+			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Process awaiting reconnect annotation with empty device reported version
+			emptyVersion := ""
+			wasConflictPaused, err := devStore.ProcessAwaitingReconnectAnnotation(ctx, orgId, deviceName, &emptyVersion)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(wasConflictPaused).To(BeFalse()) // Should be false since device version (0) <= service version (5)
+
+			// Verify awaiting reconnect annotation was removed
+			updatedDevice, err := devStore.Get(ctx, orgId, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(updatedDevice.Metadata.Annotations).ToNot(BeNil())
+			_, hasAwaitingReconnect := (*updatedDevice.Metadata.Annotations)[api.DeviceAnnotationAwaitingReconnect]
+			Expect(hasAwaitingReconnect).To(BeFalse())
+
+			// Verify status was updated to normal
+			Expect(updatedDevice.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusOnline))
+
+			// Verify status.config.renderedVersion was updated to "0" (default for empty)
+			Expect(updatedDevice.Status.Config.RenderedVersion).To(Equal("0"))
+		})
+
+		It("should handle invalid device reported version gracefully", func() {
+			// Create a device with awaiting reconnect annotation and service version
+			deviceName := "invalid-version-device"
+			device := &api.Device{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr(deviceName),
+					Annotations: &map[string]string{
+						api.DeviceAnnotationAwaitingReconnect: "true",
+						api.DeviceAnnotationRenderedVersion:   "5", // Service version
+					},
+				},
+				Spec: &api.DeviceSpec{
+					Os: &api.DeviceOsSpec{Image: "test-image"},
+				},
+				Status: &api.DeviceStatus{
+					Summary: api.DeviceSummaryStatus{
+						Status: api.DeviceSummaryStatusAwaitingReconnect,
+					},
+				},
+			}
+
+			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Process awaiting reconnect annotation with invalid device reported version
+			invalidVersion := "not-a-number"
+			wasConflictPaused, err := devStore.ProcessAwaitingReconnectAnnotation(ctx, orgId, deviceName, &invalidVersion)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(wasConflictPaused).To(BeFalse()) // Should be false since device version (0) <= service version (5)
+
+			// Verify awaiting reconnect annotation was removed
+			updatedDevice, err := devStore.Get(ctx, orgId, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(updatedDevice.Metadata.Annotations).ToNot(BeNil())
+			_, hasAwaitingReconnect := (*updatedDevice.Metadata.Annotations)[api.DeviceAnnotationAwaitingReconnect]
+			Expect(hasAwaitingReconnect).To(BeFalse())
+
+			// Verify status was updated to normal
+			Expect(updatedDevice.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusOnline))
+
+			// Verify status.config.renderedVersion was updated to the original invalid value
+			Expect(updatedDevice.Status.Config.RenderedVersion).To(Equal("not-a-number"))
+		})
+
+		It("should handle missing service rendered version gracefully", func() {
+			// Create a device with awaiting reconnect annotation but no service version
+			deviceName := "no-service-version-device"
+			device := &api.Device{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr(deviceName),
+					Annotations: &map[string]string{
+						api.DeviceAnnotationAwaitingReconnect: "true",
+						// No DeviceAnnotationRenderedVersion
+					},
+				},
+				Spec: &api.DeviceSpec{
+					Os: &api.DeviceOsSpec{Image: "test-image"},
+				},
+				Status: &api.DeviceStatus{
+					Summary: api.DeviceSummaryStatus{
+						Status: api.DeviceSummaryStatusAwaitingReconnect,
+					},
+				},
+			}
+
+			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Process awaiting reconnect annotation
+			deviceReportedVersion := "5"
+			wasConflictPaused, err := devStore.ProcessAwaitingReconnectAnnotation(ctx, orgId, deviceName, &deviceReportedVersion)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(wasConflictPaused).To(BeTrue()) // Should be true since device version (5) > service version (0)
+
+			// Verify conflict paused annotation was added
+			updatedDevice, err := devStore.Get(ctx, orgId, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(updatedDevice.Metadata.Annotations).ToNot(BeNil())
+			conflictPausedValue, hasConflictPaused := (*updatedDevice.Metadata.Annotations)[api.DeviceAnnotationConflictPaused]
+			Expect(hasConflictPaused).To(BeTrue())
+			Expect(conflictPausedValue).To(Equal("true"))
+
+			// Verify status was updated to conflict paused
+			Expect(updatedDevice.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusConflictPaused))
+			Expect(updatedDevice.Status.Summary.Info).ToNot(BeNil())
+			Expect(*updatedDevice.Status.Summary.Info).To(ContainSubstring("device reported version 5 > device version known to service 0"))
+
+			// Verify status.config.renderedVersion was updated to device reported version
+			Expect(updatedDevice.Status.Config.RenderedVersion).To(Equal(deviceReportedVersion))
+		})
+
+		It("should handle invalid service rendered version gracefully", func() {
+			// Create a device with awaiting reconnect annotation and invalid service version
+			deviceName := "invalid-service-version-device"
+			device := &api.Device{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr(deviceName),
+					Annotations: &map[string]string{
+						api.DeviceAnnotationAwaitingReconnect: "true",
+						api.DeviceAnnotationRenderedVersion:   "not-a-number", // Invalid service version
+					},
+				},
+				Spec: &api.DeviceSpec{
+					Os: &api.DeviceOsSpec{Image: "test-image"},
+				},
+				Status: &api.DeviceStatus{
+					Summary: api.DeviceSummaryStatus{
+						Status: api.DeviceSummaryStatusAwaitingReconnect,
+					},
+				},
+			}
+
+			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Process awaiting reconnect annotation
+			deviceReportedVersion := "5"
+			wasConflictPaused, err := devStore.ProcessAwaitingReconnectAnnotation(ctx, orgId, deviceName, &deviceReportedVersion)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(wasConflictPaused).To(BeTrue()) // Should be true since device version (5) > service version (0)
+
+			// Verify conflict paused annotation was added
+			updatedDevice, err := devStore.Get(ctx, orgId, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(updatedDevice.Metadata.Annotations).ToNot(BeNil())
+			conflictPausedValue, hasConflictPaused := (*updatedDevice.Metadata.Annotations)[api.DeviceAnnotationConflictPaused]
+			Expect(hasConflictPaused).To(BeTrue())
+			Expect(conflictPausedValue).To(Equal("true"))
+
+			// Verify status was updated to conflict paused
+			Expect(updatedDevice.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusConflictPaused))
+			Expect(updatedDevice.Status.Summary.Info).ToNot(BeNil())
+			Expect(*updatedDevice.Status.Summary.Info).To(ContainSubstring("device reported version 5 > device version known to service 0"))
+
+			// Verify status.config.renderedVersion was updated to device reported version
+			Expect(updatedDevice.Status.Config.RenderedVersion).To(Equal(deviceReportedVersion))
+		})
+
+		It("should return error when device does not exist", func() {
+			// Try to process awaiting reconnect annotation for non-existent device
+			deviceName := "non-existent-device"
+			deviceReportedVersion := "5"
+			wasConflictPaused, err := devStore.ProcessAwaitingReconnectAnnotation(ctx, orgId, deviceName, &deviceReportedVersion)
+			Expect(err).To(HaveOccurred())
+			Expect(wasConflictPaused).To(BeFalse())
+		})
+
+		It("should preserve existing annotations when processing", func() {
+			// Create a device with awaiting reconnect annotation and other annotations
+			deviceName := "preserve-annotations-device"
+			device := &api.Device{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr(deviceName),
+					Annotations: &map[string]string{
+						api.DeviceAnnotationAwaitingReconnect: "true",
+						api.DeviceAnnotationRenderedVersion:   "3",
+						"custom-annotation":                   "custom-value",
+						"another-annotation":                  "another-value",
+					},
+				},
+				Spec: &api.DeviceSpec{
+					Os: &api.DeviceOsSpec{Image: "test-image"},
+				},
+				Status: &api.DeviceStatus{
+					Summary: api.DeviceSummaryStatus{
+						Status: api.DeviceSummaryStatusAwaitingReconnect,
+					},
+				},
+			}
+
+			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Process awaiting reconnect annotation
+			deviceReportedVersion := "5"
+			wasConflictPaused, err := devStore.ProcessAwaitingReconnectAnnotation(ctx, orgId, deviceName, &deviceReportedVersion)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(wasConflictPaused).To(BeTrue())
+
+			// Verify awaiting reconnect annotation was removed but others preserved
+			updatedDevice, err := devStore.Get(ctx, orgId, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(updatedDevice.Metadata.Annotations).ToNot(BeNil())
+			annotations := *updatedDevice.Metadata.Annotations
+
+			// Awaiting reconnect should be removed
+			_, hasAwaitingReconnect := annotations[api.DeviceAnnotationAwaitingReconnect]
+			Expect(hasAwaitingReconnect).To(BeFalse())
+
+			// Conflict paused should be added
+			Expect(annotations[api.DeviceAnnotationConflictPaused]).To(Equal("true"))
+
+			// Other annotations should be preserved
+			Expect(annotations["custom-annotation"]).To(Equal("custom-value"))
+			Expect(annotations["another-annotation"]).To(Equal("another-value"))
+			Expect(annotations[api.DeviceAnnotationRenderedVersion]).To(Equal("3"))
+
+			// Verify status.config.renderedVersion was updated to device reported version
+			Expect(updatedDevice.Status.Config.RenderedVersion).To(Equal(deviceReportedVersion))
+		})
+	})
 })
 
 func createTestConfigProvider(contents string) (string, error) {

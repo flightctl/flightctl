@@ -775,7 +775,7 @@ func TestRollback(t *testing.T) {
 			readWriter.SetRootdir(tmpDir)
 			log := log.NewPrefixLogger("test")
 			mockPolicyManager := policy.NewMockManager(ctrl)
-			pub := publisher.New("testDevice", 10*time.Millisecond, wait.Backoff{}, log, nil)
+			pub := publisher.New("testDevice", 10*time.Millisecond, wait.Backoff{}, log, nil, "")
 			cache := newCache(log)
 			queue := newQueueManager(
 				defaultSpecQueueMaxSize,

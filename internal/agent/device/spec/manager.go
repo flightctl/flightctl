@@ -300,6 +300,10 @@ func (s *manager) Read(specType Type) (*v1alpha1.Device, error) {
 	return spec, nil
 }
 
+func (s *manager) SetPublisherSubscription(subscription publisher.Subscription) {
+	s.devicePublisher = subscription
+}
+
 func (s *manager) RenderedVersion(specType Type) string {
 	return s.cache.getRenderedVersion(specType)
 }
