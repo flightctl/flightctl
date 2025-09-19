@@ -5,20 +5,23 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/os"
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
-	"github.com/flightctl/flightctl/internal/agent/device/publisher"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
+	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 var _ Manager = (*manager)(nil)
 
-// Manager is responsible for managing the rendered device spec.
+// manager is responsible for managing the rendered device spec.
 type manager struct {
 	currentPath  string
 	desiredPath  string
@@ -26,7 +29,8 @@ type manager struct {
 
 	deviceReadWriter fileio.ReadWriter
 	osClient         os.Client
-	devicePublisher  publisher.Subscription
+	publisher        Publisher
+	watcher          Watcher
 	cache            *cache
 	queue            PriorityQueue
 	policyManager    policy.Manager
@@ -40,13 +44,16 @@ type manager struct {
 // Note: This manager is designed for sequential operations only and is not
 // thread-safe.
 func NewManager(
+	deviceName string,
 	dataDir string,
 	policyManager policy.Manager,
 	deviceReadWriter fileio.ReadWriter,
 	osClient os.Client,
-	devicePublisher publisher.Subscription,
+	fetchInterval util.Duration,
+	backoff wait.Backoff,
+	deviceNotFoundHandler func() error,
 	log *log.PrefixLogger,
-) Manager {
+) *manager {
 	cache := newCache(log)
 	queue := newQueueManager(
 		defaultSpecQueueMaxSize,
@@ -56,18 +63,29 @@ func NewManager(
 		cache,
 		log,
 	)
-	return &manager{
+
+	m := &manager{
 		currentPath:      filepath.Join(dataDir, string(Current)+".json"),
 		desiredPath:      filepath.Join(dataDir, string(Desired)+".json"),
 		rollbackPath:     filepath.Join(dataDir, string(Rollback)+".json"),
 		deviceReadWriter: deviceReadWriter,
 		osClient:         osClient,
 		cache:            cache,
-		devicePublisher:  devicePublisher,
 		policyManager:    policyManager,
 		queue:            queue,
 		log:              log,
 	}
+
+	lastKnownVersion := "0"
+	if desired, err := m.Read(Desired); err == nil && desired != nil {
+		lastKnownVersion = desired.Version()
+	}
+
+	pub := newPublisher(deviceName, time.Duration(fetchInterval), backoff, lastKnownVersion, deviceNotFoundHandler, log)
+	m.publisher = pub
+	m.watcher = pub.Watch()
+
+	return m
 }
 
 func (s *manager) Initialize(ctx context.Context) error {
@@ -315,7 +333,7 @@ func (s *manager) consumeLatest(ctx context.Context) (bool, error) {
 
 	// consume all available messages from the device publisher and add them to the local queue
 	for {
-		newDesired, popped, err := s.devicePublisher.TryPop()
+		newDesired, popped, err := s.watcher.TryPop()
 		if err != nil {
 			return false, err
 		}
@@ -442,6 +460,20 @@ func (s *manager) Status(ctx context.Context, status *v1alpha1.DeviceStatus, _ .
 
 func (s *manager) CheckPolicy(ctx context.Context, policyType policy.Type, version string) error {
 	return s.queue.CheckPolicy(ctx, policyType, version)
+}
+
+func (s *manager) SetClient(client client.Management) {
+	s.publisher.SetClient(client)
+}
+
+// Watch returns a watcher to observe new device specs from the management API.
+func (s *manager) Watch() Watcher {
+	return s.publisher.Watch()
+}
+
+// Run starts the internal publisher to fetch specs from the management API.
+func (s *manager) Run(ctx context.Context) {
+	s.publisher.Run(ctx)
 }
 
 func (s *manager) write(specType Type, device *v1alpha1.Device) error {

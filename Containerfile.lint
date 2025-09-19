@@ -1,4 +1,4 @@
-FROM golangci/golangci-lint:v1.61.0
+FROM docker.io/golangci/golangci-lint:v1.61.0
 
 # Install libvirt and TPM development packages
 USER root
