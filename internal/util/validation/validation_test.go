@@ -73,6 +73,44 @@ func TestValidateRelativePath(t *testing.T) {
 	}
 }
 
+func TestDenyForbiddenDevicePath(t *testing.T) {
+	tests := []struct {
+		name    string
+		path    string
+		wantErr bool
+	}{
+		// Forbidden roots
+		{"reject /var/lib/flightctl", "/var/lib/flightctl", true},
+		{"reject /var/lib/flightctl subpath", "/var/lib/flightctl/data.txt", true},
+		{"reject /usr/lib/flightctl", "/usr/lib/flightctl/binary", true},
+		{"reject /etc/flightctl/certs", "/etc/flightctl/certs/ca.crt", true},
+		{"reject /etc/flightctl/config.yaml", "/etc/flightctl/config.yaml", true},
+		{"reject /etc/flightctl/config.yml", "/etc/flightctl/config.yml", true},
+
+		// Allowed paths
+		{"allow /etc/myapp", "/etc/myapp/config.txt", false},
+		{"allow /etc/flightctl custom", "/etc/flightctl/custom.txt", false},
+		{"allow /var/lib/myapp", "/var/lib/myapp/data", false},
+		{"allow /usr/lib/myapp", "/usr/lib/myapp/binary", false},
+
+		// Invalid paths
+		{"reject empty path", "", true},
+		{"reject relative path", "relative/path", true},
+		{"reject path with colon", "/etc/myapp:/etc/other", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := DenyForbiddenDevicePath(tt.path)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestValidateComposePath(t *testing.T) {
 	require := require.New(t)
 	tests := []struct {

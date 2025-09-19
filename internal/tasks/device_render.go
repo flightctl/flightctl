@@ -17,6 +17,7 @@ import (
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/flightctl/flightctl/pkg/ignition"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/google/uuid"
@@ -214,7 +215,7 @@ func (t *DeviceRenderLogic) renderApplications(ctx context.Context) ([]byte, err
 			pluralSuffix = "s"
 			errorPrefix = "First error"
 		}
-		return nil, fmt.Errorf("%d invalid application%s: %s. %s: %v", len(invalidApplications), pluralSuffix, strings.Join(invalidApplications, ", "), errorPrefix, firstError)
+		return nil, fmt.Errorf("%d invalid application%s: %s. %s: %w", len(invalidApplications), pluralSuffix, strings.Join(invalidApplications, ", "), errorPrefix, firstError)
 	}
 
 	renderedApplicationBytes, err := json.Marshal(renderedApplications)
@@ -262,7 +263,7 @@ func (t *DeviceRenderLogic) renderConfig(ctx context.Context) (*config_latest_ty
 			configurationStr += "s"
 			errorStr = "First error"
 		}
-		return nil, referencedRepos, fmt.Errorf("%d invalid %s: %s. %s: %v", len(invalidConfigs), configurationStr, strings.Join(invalidConfigs, ", "), errorStr, firstError)
+		return nil, referencedRepos, fmt.Errorf("%d invalid %s: %s. %s: %w", len(invalidConfigs), configurationStr, strings.Join(invalidConfigs, ", "), errorStr, firstError)
 	}
 
 	return ignitionConfig, referencedRepos, nil
@@ -333,6 +334,36 @@ func (t *DeviceRenderLogic) renderGitConfig(ctx context.Context, configItem *api
 		}
 	}
 
+	// Validate all file paths produced by the git config before merging
+	for _, f := range ignition.Storage.Files {
+		if err := validation.DenyForbiddenDevicePath(f.Path); err != nil {
+			return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("invalid path from git config: %w", err)
+		}
+	}
+	for _, dir := range ignition.Storage.Directories {
+		if err := validation.DenyForbiddenDevicePath(dir.Path); err != nil {
+			return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("invalid path from git config: %w", err)
+		}
+	}
+	for _, link := range ignition.Storage.Links {
+		if err := validation.DenyForbiddenDevicePath(link.Path); err != nil {
+			return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("invalid path from git config: %w", err)
+		}
+		// Validate symlink target to prevent bypassing forbidden path restrictions
+		if link.Target != nil {
+			var resolvedTarget string
+			if filepath.IsAbs(*link.Target) {
+				resolvedTarget = filepath.Clean(*link.Target)
+			} else {
+				// Relative target: resolve relative to link's directory
+				resolvedTarget = filepath.Clean(filepath.Join(filepath.Dir(link.Path), *link.Target))
+			}
+			if err := validation.DenyForbiddenDevicePath(resolvedTarget); err != nil {
+				return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("invalid symlink target from git config: %w", err)
+			}
+		}
+	}
+
 	mergedConfig := config_latest.Merge(**ignitionConfig, *ignition)
 	*ignitionConfig = &mergedConfig
 
@@ -400,9 +431,17 @@ func (t *DeviceRenderLogic) renderK8sConfig(ctx context.Context, configItem *api
 	if err != nil {
 		return &k8sSpec.Name, nil, fmt.Errorf("failed to create ignition wrapper: %w", err)
 	}
-	splits := filepath.SplitList(k8sSpec.SecretRef.MountPath)
+	base := filepath.Clean(k8sSpec.SecretRef.MountPath)
 	for name, contents := range secretData {
-		ignitionWrapper.SetFile(filepath.Join(append(splits, name)...), contents, 0o644, false, nil, nil)
+		// enforce filename (no path segments)
+		if name == "." || name == ".." || strings.ContainsRune(name, '/') {
+			return &k8sSpec.Name, nil, fmt.Errorf("invalid secret key %q: must be a single file name", name)
+		}
+		dest := filepath.Join(base, name)
+		if err := validation.DenyForbiddenDevicePath(dest); err != nil {
+			return &k8sSpec.Name, nil, fmt.Errorf("invalid secret-derived path %q: %w", dest, err)
+		}
+		ignitionWrapper.SetFile(dest, contents, 0o644, false, nil, nil)
 	}
 
 	*ignitionConfig = lo.ToPtr(ignitionWrapper.Merge(**ignitionConfig))
