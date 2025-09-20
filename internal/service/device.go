@@ -250,16 +250,28 @@ func (h *ServiceHandler) ReplaceDeviceStatus(ctx context.Context, name string, i
 	if name != *incomingDevice.Metadata.Name {
 		return nil, api.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
-	isNotInternal := !IsInternalRequest(ctx)
-	if isNotInternal {
-		incomingDevice.Status.LastSeen = time.Now()
-	}
-
 	// UpdateServiceSideStatus() needs to know the latest .metadata.annotations[device-controller/renderedVersion]
 	// that the agent does not provide or only have an outdated knowledge of
 	originalDevice, err := h.store.Device().Get(ctx, orgId, name)
 	if err != nil {
 		return nil, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
+	}
+
+	// Ensure statuses are non-nil before touching LastSeen
+	if incomingDevice.Status == nil {
+		ds := api.NewDeviceStatus()
+		incomingDevice.Status = &ds
+	}
+	if originalDevice.Status == nil {
+		os := api.NewDeviceStatus()
+		originalDevice.Status = &os
+	}
+	if IsAgentRequest(ctx) {
+		// Agent requests: auto-update lastSeen to current UTC time
+		incomingDevice.Status.LastSeen = time.Now().UTC()
+	} else {
+		// User/Internal requests: ignore incoming lastSeen, preserve existing value
+		incomingDevice.Status.LastSeen = originalDevice.Status.LastSeen
 	}
 
 	deviceToStore := &api.Device{}
@@ -316,6 +328,22 @@ func (h *ServiceHandler) PatchDeviceStatus(ctx context.Context, name string, pat
 		return nil, api.StatusBadRequest("spec is immutable")
 	}
 
+	// Ensure newObj.Status exists before assignment
+	if newObj.Status == nil {
+		ds := api.NewDeviceStatus()
+		newObj.Status = &ds
+	}
+	// Compute preserved value safely
+	var preserved time.Time
+	if currentObj.Status != nil {
+		preserved = currentObj.Status.LastSeen
+	}
+	if IsAgentRequest(ctx) {
+		newObj.Status.LastSeen = time.Now().UTC()
+	} else {
+		newObj.Status.LastSeen = preserved
+	}
+
 	NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
@@ -332,7 +360,7 @@ func (h *ServiceHandler) GetRenderedDevice(ctx context.Context, name string, par
 		err               error
 	)
 
-	if _, ok := ctx.Value(consts.AgentCtxKey).(string); ok {
+	if _, ok := ctx.Value(consts.AgentCtxKey).(bool); ok {
 		if err := healthchecker.HealthChecks.Instance().Add(ctx, getOrgIdFromContext(ctx), name); err != nil {
 			h.log.WithError(err).Errorf("failed to add healthcheck to device %s", name)
 			return nil, api.StatusInternalServerError(fmt.Sprintf("failed to add healthcheck to device %s: %v", name, err))

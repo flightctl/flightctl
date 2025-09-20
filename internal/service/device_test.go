@@ -363,6 +363,64 @@ func TestDeviceNonExistingResource(t *testing.T) {
 	require.Equal(api.StatusResourceNotFound("Device", "bar"), retStatus)
 }
 
+func TestDeviceReplaceStatusLastSeen(t *testing.T) {
+	require := require.New(t)
+
+	// Create test service handler
+	ts := &TestStore{}
+	serviceHandler := &ServiceHandler{
+		eventHandler: NewEventHandler(ts, &DummyWorkerClient{}, logrus.New()),
+		store:        ts,
+		workerClient: &DummyWorkerClient{},
+		log:          logrus.New(),
+	}
+
+	// Create a device with existing lastSeen value
+	deviceName := "test-device"
+	existingLastSeen := time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC)
+	originalDevice := &api.Device{
+		ApiVersion: "v1",
+		Kind:       "Device",
+		Metadata: api.ObjectMeta{
+			Name: lo.ToPtr(deviceName),
+		},
+		Status: &api.DeviceStatus{
+			LastSeen: existingLastSeen, // Set existing lastSeen value
+		},
+	}
+
+	ctx := context.Background()
+	_, err := serviceHandler.store.Device().Create(ctx, store.NullOrgId, originalDevice, nil)
+	require.NoError(err)
+
+	// Test different contexts
+	agentCtx := context.WithValue(context.Background(), consts.AgentCtxKey, true)              // Agent request (should update LastSeen)
+	userCtx := context.Background()                                                            // User request (should preserve existing)
+	internalCtx := context.WithValue(context.Background(), consts.InternalRequestCtxKey, true) // Internal (should preserve existing)
+
+	// Test 1: Agent request should auto-update LastSeen to current time
+	deviceUpdate := *originalDevice
+	result, status := serviceHandler.ReplaceDeviceStatus(agentCtx, deviceName, deviceUpdate)
+	require.Equal(int32(200), status.Code)
+	require.True(result.Status.LastSeen.After(existingLastSeen)) // Should be updated to current time
+
+	// Test 2: User request should preserve existing LastSeen (ignore sent value)
+	deviceUpdate.Status.LastSeen = time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC) // User tries to send future time
+	result, status = serviceHandler.ReplaceDeviceStatus(userCtx, deviceName, deviceUpdate)
+	require.Equal(int32(200), status.Code)
+	// Should preserve the current lastSeen (which was set by agent in Test 1), NOT use the future time sent by user
+	require.True(result.Status.LastSeen.After(existingLastSeen))                             // Should be the agent-updated time
+	require.False(result.Status.LastSeen.Equal(time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC))) // Should NOT be the user-sent future time
+
+	// Test 3: Internal request should preserve existing LastSeen (ignore sent value)
+	deviceUpdate.Status.LastSeen = time.Time{} // Internal tries to send zero time
+	result, status = serviceHandler.ReplaceDeviceStatus(internalCtx, deviceName, deviceUpdate)
+	require.Equal(int32(200), status.Code)
+	// Should preserve the current lastSeen (which was set by agent), NOT use the zero time sent by internal
+	require.True(result.Status.LastSeen.After(existingLastSeen)) // Should still be the agent-updated time
+	require.False(result.Status.LastSeen.IsZero())               // Should NOT be zero
+}
+
 func TestDeviceDisconnected(t *testing.T) {
 	require := require.New(t)
 

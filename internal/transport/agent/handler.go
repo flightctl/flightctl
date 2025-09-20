@@ -90,6 +90,7 @@ func (s *AgentTransportHandler) GetRenderedDevice(w http.ResponseWriter, r *http
 // (PUT /api/v1/devices/{name}/status)
 func (s *AgentTransportHandler) ReplaceDeviceStatus(w http.ResponseWriter, r *http.Request, name string) {
 	ctx := r.Context()
+	ctx = context.WithValue(ctx, consts.AgentCtxKey, true)
 
 	fingerprint, err := ValidateDeviceAccessFromContext(ctx, name, s.ca, s.log)
 	if err != nil {
@@ -111,6 +112,7 @@ func (s *AgentTransportHandler) ReplaceDeviceStatus(w http.ResponseWriter, r *ht
 // (PATCH) /api/v1/devices/{name}/status)
 func (s *AgentTransportHandler) PatchDeviceStatus(w http.ResponseWriter, r *http.Request, name string) {
 	ctx := r.Context()
+	ctx = context.WithValue(ctx, consts.AgentCtxKey, true)
 
 	fingerprint, err := ValidateDeviceAccessFromContext(ctx, name, s.ca, s.log)
 	if err != nil {
