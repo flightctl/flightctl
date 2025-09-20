@@ -22,7 +22,6 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/go-tpm-tools/simulator"
-	legacy "github.com/google/go-tpm/legacy/tpm2"
 	"github.com/google/go-tpm/tpm2"
 	"github.com/google/go-tpm/tpm2/transport"
 	"github.com/stretchr/testify/require"
@@ -322,7 +321,7 @@ func TestClient_Close(t *testing.T) {
 				log:     logger,
 			}
 
-			err := c.Close(context.Background())
+			err := c.Close()
 
 			if tc.expectError {
 				require.Error(t, err)
@@ -689,160 +688,6 @@ func TestResolveTPMPath(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestConvertTPMLPCRSelectionToPCRSelection(t *testing.T) {
-	testCases := []struct {
-		name     string
-		input    *tpm2.TPMLPCRSelection
-		expected legacy.PCRSelection
-	}{
-		{
-			name: "SHA256 with PCRs 0,1,2",
-			input: &tpm2.TPMLPCRSelection{
-				PCRSelections: []tpm2.TPMSPCRSelection{
-					{
-						Hash:      tpm2.TPMAlgSHA256,
-						PCRSelect: []byte{0x07}, // bits 0,1,2 set
-					},
-				},
-			},
-			expected: legacy.PCRSelection{
-				Hash: legacy.AlgSHA256,
-				PCRs: []int{0, 1, 2},
-			},
-		},
-		{
-			name: "SHA1 with PCRs 8,9,10",
-			input: &tpm2.TPMLPCRSelection{
-				PCRSelections: []tpm2.TPMSPCRSelection{
-					{
-						Hash:      tpm2.TPMAlgSHA1,
-						PCRSelect: []byte{0x00, 0x07}, // bits 8,9,10 set
-					},
-				},
-			},
-			expected: legacy.PCRSelection{
-				Hash: legacy.AlgSHA1,
-				PCRs: []int{8, 9, 10},
-			},
-		},
-		{
-			name: "empty selection",
-			input: &tpm2.TPMLPCRSelection{
-				PCRSelections: []tpm2.TPMSPCRSelection{
-					{
-						Hash:      tpm2.TPMAlgSHA256,
-						PCRSelect: []byte{0x00},
-					},
-				},
-			},
-			expected: legacy.PCRSelection{
-				Hash: legacy.AlgSHA256,
-				PCRs: nil,
-			},
-		},
-		{
-			name:     "nil input",
-			input:    nil,
-			expected: legacy.PCRSelection{},
-		},
-		{
-			name: "no PCR selections",
-			input: &tpm2.TPMLPCRSelection{
-				PCRSelections: []tpm2.TPMSPCRSelection{},
-			},
-			expected: legacy.PCRSelection{},
-		},
-		{
-			name: "unknown hash algorithm defaults to SHA256",
-			input: &tpm2.TPMLPCRSelection{
-				PCRSelections: []tpm2.TPMSPCRSelection{
-					{
-						Hash:      tpm2.TPMAlgID(999), // unknown algorithm
-						PCRSelect: []byte{0x01},       // PCR 0
-					},
-				},
-			},
-			expected: legacy.PCRSelection{
-				Hash: legacy.AlgSHA256,
-				PCRs: []int{0},
-			},
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			result := convertTPMLPCRSelectionToPCRSelection(tc.input)
-			require.Equal(t, tc.expected, result)
-		})
-	}
-}
-
-func TestCreatePCRSelection(t *testing.T) {
-	testCases := []struct {
-		name      string
-		selection [3]byte
-		expected  *tpm2.TPMLPCRSelection
-	}{
-		{
-			name:      "all PCRs selected",
-			selection: [3]byte{0xFF, 0xFF, 0xFF},
-			expected: &tpm2.TPMLPCRSelection{
-				PCRSelections: []tpm2.TPMSPCRSelection{
-					{
-						Hash:      tpm2.TPMAlgSHA256,
-						PCRSelect: []byte{0xFF, 0xFF, 0xFF},
-					},
-				},
-			},
-		},
-		{
-			name:      "first PCR only",
-			selection: [3]byte{0x01, 0x00, 0x00},
-			expected: &tpm2.TPMLPCRSelection{
-				PCRSelections: []tpm2.TPMSPCRSelection{
-					{
-						Hash:      tpm2.TPMAlgSHA256,
-						PCRSelect: []byte{0x01, 0x00, 0x00},
-					},
-				},
-			},
-		},
-		{
-			name:      "no PCRs selected",
-			selection: [3]byte{0x00, 0x00, 0x00},
-			expected: &tpm2.TPMLPCRSelection{
-				PCRSelections: []tpm2.TPMSPCRSelection{
-					{
-						Hash:      tpm2.TPMAlgSHA256,
-						PCRSelect: []byte{0x00, 0x00, 0x00},
-					},
-				},
-			},
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			result := createPCRSelection(tc.selection)
-			require.Equal(t, tc.expected, result)
-		})
-	}
-}
-
-func TestCreateFullPCRSelection(t *testing.T) {
-	expected := &tpm2.TPMLPCRSelection{
-		PCRSelections: []tpm2.TPMSPCRSelection{
-			{
-				Hash:      tpm2.TPMAlgSHA256,
-				PCRSelect: []byte{0xFF, 0xFF, 0xFF},
-			},
-		},
-	}
-
-	result := createFullPCRSelection()
-	require.Equal(t, expected, result)
 }
 
 func TestClient_SimulatorIntegration(t *testing.T) {

@@ -135,6 +135,20 @@ func (mr *MockManagerMockRecorder) CollectOCITargets(ctx, current, desired any) 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CollectOCITargets", reflect.TypeOf((*MockManager)(nil).CollectOCITargets), ctx, current, desired)
 }
 
+// Drain mocks base method.
+func (m *MockManager) Drain(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Drain", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Drain indicates an expected call of Drain.
+func (mr *MockManagerMockRecorder) Drain(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Drain", reflect.TypeOf((*MockManager)(nil).Drain), ctx)
+}
+
 // Ensure mocks base method.
 func (m *MockManager) Ensure(ctx context.Context, provider provider.Provider) error {
 	m.ctrl.T.Helper()
@@ -180,20 +194,6 @@ func (mr *MockManagerMockRecorder) Status(arg0, arg1 any, arg2 ...any) *gomock.C
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]any{arg0, arg1}, arg2...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Status", reflect.TypeOf((*MockManager)(nil).Status), varargs...)
-}
-
-// Stop mocks base method.
-func (m *MockManager) Stop(ctx context.Context) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Stop", ctx)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// Stop indicates an expected call of Stop.
-func (mr *MockManagerMockRecorder) Stop(ctx any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Stop", reflect.TypeOf((*MockManager)(nil).Stop), ctx)
 }
 
 // Update mocks base method.
