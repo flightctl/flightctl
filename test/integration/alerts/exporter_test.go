@@ -354,7 +354,7 @@ var _ = Describe("Alert Exporter", func() {
 			// This should fail with a clear database error
 			_, err = eventProcessor.ProcessLatestEvents(ctx, checkpoint, &alert_exporter.ProcessingMetrics{})
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("Failed to list events"))
+			Expect(err.Error()).To(ContainSubstring("failed to list organizations"))
 		})
 
 		It("recovers from malformed checkpoint data", func() {
