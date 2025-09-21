@@ -158,6 +158,10 @@ func (s *DummyDevice) Get(ctx context.Context, orgId uuid.UUID, name string) (*a
 	return nil, flterrors.ErrResourceNotFound
 }
 
+func (s *DummyDevice) GetWithoutServiceConditions(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error) {
+	return s.Get(ctx, orgId, name)
+}
+
 func (s *DummyDevice) Update(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, validationCallback store.DeviceStoreValidationCallback, callbackEvent store.EventCallback) (*api.Device, error) {
 	for i, dev := range *s.devices {
 		if *device.Metadata.Name == *dev.Metadata.Name {

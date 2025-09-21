@@ -114,6 +114,13 @@ func (t *TracedService) ListDevices(ctx context.Context, params api.ListDevicesP
 	return resp, st
 }
 
+func (t *TracedService) ListDisconnectedDevices(ctx context.Context, params api.ListDevicesParams, cutoffTime time.Time) (*api.DeviceList, api.Status) {
+	ctx, span := startSpan(ctx, "ListDisconnectedDevices")
+	resp, st := t.inner.ListDisconnectedDevices(ctx, params, cutoffTime)
+	endSpan(span, st)
+	return resp, st
+}
+
 func (t *TracedService) ListDevicesByServiceCondition(ctx context.Context, conditionType string, conditionStatus string, listParams store.ListParams) (*api.DeviceList, api.Status) {
 	ctx, span := startSpan(ctx, "ListDevicesByServiceCondition")
 	resp, st := t.inner.ListDevicesByServiceCondition(ctx, conditionType, conditionStatus, listParams)
