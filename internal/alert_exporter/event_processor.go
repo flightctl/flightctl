@@ -75,8 +75,8 @@ func (e *EventProcessor) ProcessLatestEvents(ctx context.Context, oldCheckpoint 
 		orgID, err := uuid.Parse(lo.FromPtr(org.Metadata.Name))
 		if err != nil {
 			logger.WithFields(logrus.Fields{
-				"org_name": lo.FromPtr(org.Metadata.Name),
-				"error":    err,
+				"org_id": lo.FromPtr(org.Metadata.Name),
+				"error":  err,
 			}).Error("Failed to parse organization ID")
 			validationErrors++
 			continue
