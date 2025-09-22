@@ -14,6 +14,7 @@ import (
 	reflect "reflect"
 
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
+	v1alpha1 "github.com/flightctl/flightctl/api/v1alpha1"
 	client "github.com/flightctl/flightctl/internal/agent/client"
 	client0 "github.com/flightctl/flightctl/internal/client"
 	gomock "go.uber.org/mock/gomock"
@@ -142,6 +143,20 @@ func (m *MockProvider) Initialize(ctx context.Context) error {
 func (mr *MockProviderMockRecorder) Initialize(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Initialize", reflect.TypeOf((*MockProvider)(nil).Initialize), ctx)
+}
+
+// ProveIdentity mocks base method.
+func (m *MockProvider) ProveIdentity(ctx context.Context, enrollmentRequest *v1alpha1.EnrollmentRequest) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ProveIdentity", ctx, enrollmentRequest)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ProveIdentity indicates an expected call of ProveIdentity.
+func (mr *MockProviderMockRecorder) ProveIdentity(ctx, enrollmentRequest any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ProveIdentity", reflect.TypeOf((*MockProvider)(nil).ProveIdentity), ctx, enrollmentRequest)
 }
 
 // StoreCertificate mocks base method.

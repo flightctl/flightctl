@@ -1,4 +1,4 @@
-package publisher
+package spec
 
 import (
 	"context"
@@ -18,22 +18,35 @@ import (
 
 const longPollTimeout = 4 * time.Minute
 
-type Subscription = *ring_buffer.RingBuffer[*v1alpha1.Device]
+// watcher wraps a ring buffer to implement the Watcher interface
+type watcher struct {
+	buffer *ring_buffer.RingBuffer[*v1alpha1.Device]
+}
 
-func NewSubscription() Subscription {
-	return ring_buffer.NewRingBuffer[*v1alpha1.Device](3)
+func newWatcher() *watcher {
+	return &watcher{
+		buffer: ring_buffer.NewRingBuffer[*v1alpha1.Device](3),
+	}
+}
+
+func (w *watcher) Pop() (*v1alpha1.Device, error) {
+	return w.buffer.Pop()
+}
+
+func (w *watcher) TryPop() (*v1alpha1.Device, bool, error) {
+	return w.buffer.TryPop()
 }
 
 type Publisher interface {
-	Run(ctx context.Context, wg *sync.WaitGroup)
-	Subscribe() Subscription
+	Run(ctx context.Context)
+	Watch() Watcher
 	SetClient(client.Management)
 }
 
 type publisher struct {
 	managementClient      client.Management
 	deviceName            string
-	subscribers           []Subscription
+	watchers              []*watcher
 	lastKnownVersion      string
 	interval              time.Duration
 	stopped               atomic.Bool
@@ -43,17 +56,19 @@ type publisher struct {
 	mu                    sync.Mutex
 }
 
-func New(deviceName string,
+func newPublisher(deviceName string,
 	interval time.Duration,
 	backoff wait.Backoff,
-	log *log.PrefixLogger,
-	deviceNotFoundHandler func() error) Publisher {
+	lastKnownVersion string,
+	deviceNotFoundHandler func() error,
+	log *log.PrefixLogger) Publisher {
 	return &publisher{
 		deviceName:            deviceName,
 		interval:              interval,
 		backoff:               backoff,
-		log:                   log,
+		lastKnownVersion:      lastKnownVersion,
 		deviceNotFoundHandler: deviceNotFoundHandler,
+		log:                   log,
 	}
 }
 
@@ -91,15 +106,15 @@ func (n *publisher) getRenderedFromManagementAPIWithRetry(
 	}
 }
 
-func (n *publisher) Subscribe() Subscription {
+func (n *publisher) Watch() Watcher {
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	sub := NewSubscription()
-	n.subscribers = append(n.subscribers, sub)
+	w := newWatcher()
+	n.watchers = append(n.watchers, w)
 	if n.stopped.Load() {
-		sub.Stop()
+		w.buffer.Stop()
 	}
-	return sub
+	return w
 }
 
 func (n *publisher) SetClient(client client.Management) {
@@ -154,16 +169,15 @@ func (n *publisher) pollAndPublish(ctx context.Context) {
 
 	n.lastKnownVersion = newDesired.Version()
 
-	// notify all subscribers of the new device spec
-	for _, sub := range n.subscribers {
-		if err := sub.Push(newDesired); err != nil {
-			n.log.Errorf("Failed to notify subscriber: %v", err)
+	// notify all watchers of the new device spec
+	for _, w := range n.watchers {
+		if err := w.buffer.Push(newDesired); err != nil {
+			n.log.Errorf("Failed to notify watcher: %v", err)
 		}
 	}
 }
 
-func (n *publisher) Run(ctx context.Context, wg *sync.WaitGroup) {
-	defer wg.Done()
+func (n *publisher) Run(ctx context.Context) {
 	defer n.stop()
 	n.log.Debug("Starting publisher")
 	ticker := time.NewTicker(n.interval)
@@ -183,7 +197,7 @@ func (n *publisher) stop() {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.stopped.Store(true)
-	for _, sub := range n.subscribers {
-		sub.Stop()
+	for _, w := range n.watchers {
+		w.buffer.Stop()
 	}
 }

@@ -14,7 +14,6 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/os"
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
-	"github.com/flightctl/flightctl/internal/agent/device/publisher"
 	"github.com/flightctl/flightctl/internal/container"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/stretchr/testify/require"
@@ -775,7 +774,7 @@ func TestRollback(t *testing.T) {
 			readWriter.SetRootdir(tmpDir)
 			log := log.NewPrefixLogger("test")
 			mockPolicyManager := policy.NewMockManager(ctrl)
-			pub := publisher.New("testDevice", 10*time.Millisecond, wait.Backoff{}, log, nil)
+			pub := newPublisher("testDevice", 10*time.Millisecond, wait.Backoff{}, "0", nil, log)
 			cache := newCache(log)
 			queue := newQueueManager(
 				defaultSpecQueueMaxSize,
@@ -794,7 +793,8 @@ func TestRollback(t *testing.T) {
 				currentPath:      filepath.Join(dataDir, string(Current)+".json"),
 				desiredPath:      filepath.Join(dataDir, string(Desired)+".json"),
 				rollbackPath:     filepath.Join(dataDir, string(Rollback)+".json"),
-				devicePublisher:  pub.Subscribe(),
+				publisher:        pub,
+				watcher:          pub.Watch(),
 				cache:            newCache(log),
 			}
 
@@ -894,7 +894,6 @@ func TestGetDesired(t *testing.T) {
 	rollbackPath := "test/rollback.json"
 	image := "flightctl-device:v2"
 	specErr := errors.New("problem with spec")
-	devicePublisher := publisher.NewSubscription()
 
 	// Define the test cases
 	testCases := []struct {
@@ -936,11 +935,13 @@ func TestGetDesired(t *testing.T) {
 					},
 				}
 
+				// Since consumeLatest returns false, it reads from disk first
+				marshaledDesiredSpec, _ := json.Marshal(renderedDesiredSpec)
+				mrw.EXPECT().ReadFile(desiredPath).Return(marshaledDesiredSpec, nil)
 				mpq.EXPECT().Add(gomock.Any(), gomock.Any())
 				mpq.EXPECT().Next(gomock.Any()).Return(renderedDesiredSpec, true)
 				// No WriteFile expectation since version is the same, so no write should occur
-				mpm.EXPECT().Sync(gomock.Any(), gomock.Any()).Return(nil)
-				require.NoError(devicePublisher.Push(renderedDesiredSpec))
+				// No Sync call since we're not consuming from subscription
 			},
 			expectedDevice: func() *v1alpha1.Device {
 				device := newVersionedDevice("2")
@@ -963,13 +964,18 @@ func TestGetDesired(t *testing.T) {
 						Image: image,
 					},
 				}
+
+				// Since consumeLatest returns false, it reads from disk first
+				oldDesiredSpec := newVersionedDevice("2")
+				marshaledOldDesiredSpec, _ := json.Marshal(oldDesiredSpec)
+				mrw.EXPECT().ReadFile(desiredPath).Return(marshaledOldDesiredSpec, nil)
+
 				mpq.EXPECT().Add(gomock.Any(), gomock.Any())
 				mpq.EXPECT().Next(gomock.Any()).Return(device, true)
-				mpm.EXPECT().Sync(gomock.Any(), gomock.Any()).Return(nil)
+				// No Sync call since we're not consuming from subscription
 
 				// API is returning a rendered version that is different from the read desired spec
-				apiResponse := newVersionedDevice("5")
-				require.NoError(devicePublisher.Push(apiResponse))
+				// Test doesn't need to push to publisher
 
 				// The difference results in a write call for the desired spec
 				mrw.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Return(specErr)
@@ -1009,6 +1015,7 @@ func TestGetDesired(t *testing.T) {
 			mockReadWriter := fileio.NewMockReadWriter(ctrl)
 			mockPriorityQueue := NewMockPriorityQueue(ctrl)
 			mockPolicyManager := policy.NewMockManager(ctrl)
+			mockWatcher := NewMockWatcher(ctrl)
 
 			log := log.NewPrefixLogger("test")
 
@@ -1019,12 +1026,14 @@ func TestGetDesired(t *testing.T) {
 				rollbackPath:     rollbackPath,
 				queue:            mockPriorityQueue,
 				cache:            newCache(log),
-				devicePublisher:  devicePublisher,
+				watcher:          mockWatcher,
 				policyManager:    mockPolicyManager,
 			}
 
 			s.cache.current.renderedVersion = "1"
 			s.cache.desired.renderedVersion = "2"
+
+			mockWatcher.EXPECT().TryPop().Return(nil, false, nil).AnyTimes()
 
 			tc.setupMocks(
 				mockPriorityQueue,

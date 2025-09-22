@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
+	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	baseclient "github.com/flightctl/flightctl/internal/client"
@@ -68,6 +69,11 @@ func (f *fileProvider) GenerateCSR(deviceName string) ([]byte, error) {
 		return nil, fmt.Errorf("private key does not implement crypto.Signer")
 	}
 	return fccrypto.MakeCSR(signer, deviceName)
+}
+
+func (f *fileProvider) ProveIdentity(ctx context.Context, enrollmentRequest *v1alpha1.EnrollmentRequest) error {
+	// no-op for file provider since identity is proven by CSR signing with private key
+	return nil
 }
 
 func (f *fileProvider) StoreCertificate(certPEM []byte) error {

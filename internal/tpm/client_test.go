@@ -21,7 +21,6 @@ import (
 	agent_config "github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/log"
-	"github.com/google/go-tpm-tools/client"
 	"github.com/google/go-tpm-tools/simulator"
 	legacy "github.com/google/go-tpm/legacy/tpm2"
 	"github.com/google/go-tpm/tpm2"
@@ -196,12 +195,12 @@ func TestClient_Public(t *testing.T) {
 
 			tc.setupMocks(mockSession)
 
-			client := &Client{
+			c := &client{
 				session: mockSession,
 				log:     logger,
 			}
 
-			pubKey := client.Public()
+			pubKey := c.Public()
 
 			if tc.expectError {
 				require.Nil(t, pubKey)
@@ -255,12 +254,12 @@ func TestClient_Sign(t *testing.T) {
 
 			tc.setupMocks(mockSession)
 
-			client := &Client{
+			c := &client{
 				session: mockSession,
 				log:     logger,
 			}
 
-			result, err := client.Sign(nil, digest, crypto.SHA256)
+			result, err := c.Sign(nil, digest, crypto.SHA256)
 
 			if tc.expectError {
 				require.Error(t, err)
@@ -318,12 +317,12 @@ func TestClient_Close(t *testing.T) {
 
 			logger := log.NewPrefixLogger("test")
 
-			client := &Client{
+			c := &client{
 				session: session,
 				log:     logger,
 			}
 
-			err := client.Close(context.Background())
+			err := c.Close(context.Background())
 
 			if tc.expectError {
 				require.Error(t, err)
@@ -1210,7 +1209,7 @@ func setupFakeRSAEKCertificate(conn io.ReadWriter) error {
 		return err
 	}
 
-	return writeEKCertToTPM(conn, tpm2.TPMHandle(client.EKCertNVIndexRSA), certDER)
+	return writeEKCertToTPM(conn, tpm2.TPMHandle(ekRSANVIndex), certDER)
 }
 
 // setupFakeECCEKCertificate sets up a fake ECDSA endorsement key certificate in the TPM simulator
@@ -1253,11 +1252,11 @@ func setupFakeECCEKCertificate(conn io.ReadWriter) error {
 		return err
 	}
 
-	return writeEKCertToTPM(conn, tpm2.TPMHandle(client.EKCertNVIndexECC), certDER)
+	return writeEKCertToTPM(conn, tpm2.TPMHandle(ekECCNVIndex), certDER)
 }
 
 // performClientOperations performs a standard set of client operations and returns the public key
-func performClientOperations(t *testing.T, c *Client, ctx context.Context, testSuffix string) crypto.PublicKey {
+func performClientOperations(t *testing.T, c *client, ctx context.Context, testSuffix string) crypto.PublicKey {
 	require := require.New(t)
 
 	// Ensure the CSR generation flow doesn't fail
@@ -1360,12 +1359,6 @@ func TestSessionGenerateChallenge(t *testing.T) {
 
 			require.NoError(err)
 
-			// we need extra memory in the sim and aren't using the LDevID for this test.
-			s, ok := c.session.(*tpmSession)
-			require.True(ok, "Not a tpm session")
-			err = s.flushHandle(s.handles[LDevID])
-			require.NoError(err)
-
 			tpmSecret := []byte("hello_world")
 
 			// Generate a challenge with TPM usage
@@ -1426,12 +1419,6 @@ func TestCreateCredential(t *testing.T) {
 			csr, err := c.MakeCSR("test-name", make([]byte, 32))
 			require.NoError(err)
 			parsed, err := ParseTCGCSR(csr)
-			require.NoError(err)
-
-			// we need extra memory in the sim and aren't using the LDevID after we generate the CSR
-			s, ok := c.session.(*tpmSession)
-			require.True(ok, "Not a tpm session")
-			err = s.flushHandle(s.handles[LDevID])
 			require.NoError(err)
 
 			challenge, err := CreateCredentialChallenge(parsed.CSRContents.Payload.EkCert, parsed.CSRContents.Payload.AttestPub)

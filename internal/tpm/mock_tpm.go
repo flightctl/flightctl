@@ -10,11 +10,150 @@
 package tpm
 
 import (
+	context "context"
+	crypto "crypto"
 	reflect "reflect"
 
 	tpm2 "github.com/google/go-tpm/tpm2"
 	gomock "go.uber.org/mock/gomock"
 )
+
+// MockClient is a mock of Client interface.
+type MockClient struct {
+	ctrl     *gomock.Controller
+	recorder *MockClientMockRecorder
+}
+
+// MockClientMockRecorder is the mock recorder for MockClient.
+type MockClientMockRecorder struct {
+	mock *MockClient
+}
+
+// NewMockClient creates a new mock instance.
+func NewMockClient(ctrl *gomock.Controller) *MockClient {
+	mock := &MockClient{ctrl: ctrl}
+	mock.recorder = &MockClientMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockClient) EXPECT() *MockClientMockRecorder {
+	return m.recorder
+}
+
+// Clear mocks base method.
+func (m *MockClient) Clear() error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Clear")
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Clear indicates an expected call of Clear.
+func (mr *MockClientMockRecorder) Clear() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Clear", reflect.TypeOf((*MockClient)(nil).Clear))
+}
+
+// Close mocks base method.
+func (m *MockClient) Close(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Close", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Close indicates an expected call of Close.
+func (mr *MockClientMockRecorder) Close(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockClient)(nil).Close), ctx)
+}
+
+// GetSigner mocks base method.
+func (m *MockClient) GetSigner() crypto.Signer {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSigner")
+	ret0, _ := ret[0].(crypto.Signer)
+	return ret0
+}
+
+// GetSigner indicates an expected call of GetSigner.
+func (mr *MockClientMockRecorder) GetSigner() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSigner", reflect.TypeOf((*MockClient)(nil).GetSigner))
+}
+
+// MakeCSR mocks base method.
+func (m *MockClient) MakeCSR(deviceName string, qualifyingData []byte) ([]byte, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MakeCSR", deviceName, qualifyingData)
+	ret0, _ := ret[0].([]byte)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// MakeCSR indicates an expected call of MakeCSR.
+func (mr *MockClientMockRecorder) MakeCSR(deviceName, qualifyingData any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MakeCSR", reflect.TypeOf((*MockClient)(nil).MakeCSR), deviceName, qualifyingData)
+}
+
+// Public mocks base method.
+func (m *MockClient) Public() crypto.PublicKey {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Public")
+	ret0, _ := ret[0].(crypto.PublicKey)
+	return ret0
+}
+
+// Public indicates an expected call of Public.
+func (mr *MockClientMockRecorder) Public() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Public", reflect.TypeOf((*MockClient)(nil).Public))
+}
+
+// SolveChallenge mocks base method.
+func (m *MockClient) SolveChallenge(credentialBlob, encryptedSecret []byte) ([]byte, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SolveChallenge", credentialBlob, encryptedSecret)
+	ret0, _ := ret[0].([]byte)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SolveChallenge indicates an expected call of SolveChallenge.
+func (mr *MockClientMockRecorder) SolveChallenge(credentialBlob, encryptedSecret any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SolveChallenge", reflect.TypeOf((*MockClient)(nil).SolveChallenge), credentialBlob, encryptedSecret)
+}
+
+// UpdateNonce mocks base method.
+func (m *MockClient) UpdateNonce(nonce []byte) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateNonce", nonce)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateNonce indicates an expected call of UpdateNonce.
+func (mr *MockClientMockRecorder) UpdateNonce(nonce any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateNonce", reflect.TypeOf((*MockClient)(nil).UpdateNonce), nonce)
+}
+
+// VendorInfoCollector mocks base method.
+func (m *MockClient) VendorInfoCollector(ctx context.Context) string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "VendorInfoCollector", ctx)
+	ret0, _ := ret[0].(string)
+	return ret0
+}
+
+// VendorInfoCollector indicates an expected call of VendorInfoCollector.
+func (mr *MockClientMockRecorder) VendorInfoCollector(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "VendorInfoCollector", reflect.TypeOf((*MockClient)(nil).VendorInfoCollector), ctx)
+}
 
 // MockStorage is a mock of Storage interface.
 type MockStorage struct {

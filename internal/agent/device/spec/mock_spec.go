@@ -14,10 +14,65 @@ import (
 	reflect "reflect"
 
 	v1alpha1 "github.com/flightctl/flightctl/api/v1alpha1"
+	client "github.com/flightctl/flightctl/internal/agent/client"
 	policy "github.com/flightctl/flightctl/internal/agent/device/policy"
 	status "github.com/flightctl/flightctl/internal/agent/device/status"
 	gomock "go.uber.org/mock/gomock"
 )
+
+// MockWatcher is a mock of Watcher interface.
+type MockWatcher struct {
+	ctrl     *gomock.Controller
+	recorder *MockWatcherMockRecorder
+}
+
+// MockWatcherMockRecorder is the mock recorder for MockWatcher.
+type MockWatcherMockRecorder struct {
+	mock *MockWatcher
+}
+
+// NewMockWatcher creates a new mock instance.
+func NewMockWatcher(ctrl *gomock.Controller) *MockWatcher {
+	mock := &MockWatcher{ctrl: ctrl}
+	mock.recorder = &MockWatcherMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockWatcher) EXPECT() *MockWatcherMockRecorder {
+	return m.recorder
+}
+
+// Pop mocks base method.
+func (m *MockWatcher) Pop() (*v1alpha1.Device, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Pop")
+	ret0, _ := ret[0].(*v1alpha1.Device)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Pop indicates an expected call of Pop.
+func (mr *MockWatcherMockRecorder) Pop() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Pop", reflect.TypeOf((*MockWatcher)(nil).Pop))
+}
+
+// TryPop mocks base method.
+func (m *MockWatcher) TryPop() (*v1alpha1.Device, bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "TryPop")
+	ret0, _ := ret[0].(*v1alpha1.Device)
+	ret1, _ := ret[1].(bool)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// TryPop indicates an expected call of TryPop.
+func (mr *MockWatcherMockRecorder) TryPop() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TryPop", reflect.TypeOf((*MockWatcher)(nil).TryPop))
+}
 
 // MockManager is a mock of Manager interface.
 type MockManager struct {
@@ -247,6 +302,18 @@ func (mr *MockManagerMockRecorder) Rollback(ctx any, opts ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]any{ctx}, opts...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Rollback", reflect.TypeOf((*MockManager)(nil).Rollback), varargs...)
+}
+
+// SetClient mocks base method.
+func (m *MockManager) SetClient(client client.Management) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetClient", client)
+}
+
+// SetClient indicates an expected call of SetClient.
+func (mr *MockManagerMockRecorder) SetClient(client any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetClient", reflect.TypeOf((*MockManager)(nil).SetClient), client)
 }
 
 // SetUpgradeFailed mocks base method.

@@ -1,11 +1,33 @@
 package tpm
 
 import (
+	"context"
+	"crypto"
 	"regexp"
 
 	legacy "github.com/google/go-tpm/legacy/tpm2"
 	"github.com/google/go-tpm/tpm2"
 )
+
+// Client defines the interface for interacting with the TPM
+type Client interface {
+	// Public returns the public key corresponding to the LDevID private key
+	Public() crypto.PublicKey
+	// MakeCSR generates a TCG-CSR-IDEVID structure for enrollment requests
+	MakeCSR(deviceName string, qualifyingData []byte) ([]byte, error)
+	// SolveChallenge uses TPM2_ActivateCredential to decrypt an encrypted secret
+	SolveChallenge(credentialBlob, encryptedSecret []byte) ([]byte, error)
+	// GetSigner returns the crypto.Signer interface for this client
+	GetSigner() crypto.Signer
+	// UpdateNonce updates the nonce used for TPM operations
+	UpdateNonce(nonce []byte) error
+	// Clear clears any stored TPM data
+	Clear() error
+	// Close closes the TPM session
+	Close(ctx context.Context) error
+	// VendorInfoCollector collects vendor information from the TPM
+	VendorInfoCollector(ctx context.Context) string
+}
 
 const (
 	MinNonceLength = 8

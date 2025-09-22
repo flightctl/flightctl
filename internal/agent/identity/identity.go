@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
+	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	agent_config "github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -26,6 +27,8 @@ var (
 	ErrNoCertificate = errors.New("no certificate available")
 	// ErrInvalidProvider indicates an invalid or unsupported provider type
 	ErrInvalidProvider = errors.New("invalid provider type")
+	// ErrIdentityProofFailed indicates a failure to prove the identity of the device
+	ErrIdentityProofFailed = errors.New("identity proof failed")
 )
 
 // Provider defines the interface for identity providers that handle device authentication.
@@ -37,6 +40,8 @@ type Provider interface {
 	GetDeviceName() (string, error)
 	// GenerateCSR creates a certificate signing request using this identity
 	GenerateCSR(deviceName string) ([]byte, error)
+	// ProveIdentity performs idempotent, provider-specific, identity verification.
+	ProveIdentity(ctx context.Context, enrollmentRequest *v1alpha1.EnrollmentRequest) error
 	// StoreCertificate stores/persists the certificate received from enrollment.
 	StoreCertificate(certPEM []byte) error
 	// HasCertificate returns true if the provider has a certificate available
@@ -55,23 +60,23 @@ type Provider interface {
 
 // NewProvider creates an identity provider
 func NewProvider(
-	tpmClient *tpm.Client,
+	tpmClient tpm.Client,
 	rw fileio.ReadWriter,
 	config *agent_config.Config,
 	log *log.PrefixLogger,
 ) Provider {
-	if tpmClient != nil {
-		log.Info("Using TPM-based identity provider")
-		return newTPMProvider(tpmClient, log)
-	}
-
 	if !config.ManagementService.Config.HasCredentials() {
 		config.ManagementService.Config.AuthInfo.ClientCertificate = filepath.Join(config.DataDir, agent_config.DefaultCertsDirName, agent_config.GeneratedCertFile)
 		config.ManagementService.Config.AuthInfo.ClientKey = filepath.Join(config.DataDir, agent_config.DefaultCertsDirName, agent_config.KeyFile)
 	}
 
-	clientKeyPath := config.ManagementService.AuthInfo.ClientKey
 	clientCertPath := config.ManagementService.GetClientCertificatePath()
+	clientKeyPath := config.ManagementService.GetClientKeyPath()
+
+	if tpmClient != nil {
+		log.Info("Using TPM-based identity provider")
+		return newTPMProvider(tpmClient, config, clientCertPath, rw, log)
+	}
 
 	log.Info("Using file-based identity provider")
 	return newFileProvider(clientKeyPath, clientCertPath, rw, log)

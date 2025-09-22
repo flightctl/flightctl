@@ -1,9 +1,8 @@
-package publisher
+package spec
 
 import (
 	"context"
 	"net/http"
-	"sync"
 	"testing"
 	"time"
 
@@ -11,7 +10,6 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/pkg/log"
-	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -25,7 +23,7 @@ type vars struct {
 	ctx        context.Context
 	cancel     context.CancelFunc
 	deviceName string
-	sub        Subscription
+	watcher    Watcher
 }
 
 func (v *vars) finish() {
@@ -63,31 +61,8 @@ func setup(t *testing.T) *vars {
 		ctx:        ctx,
 		cancel:     cancel,
 		deviceName: deviceName,
-		sub:        n.Subscribe(),
+		watcher:    n.Watch(),
 	}
-}
-
-func newVersionedDevice(version string) *v1alpha1.Device {
-	deice := &v1alpha1.Device{
-		Metadata: v1alpha1.ObjectMeta{
-			Annotations: lo.ToPtr(map[string]string{
-				v1alpha1.DeviceAnnotationRenderedVersion: version,
-			}),
-		},
-	}
-	deice.Spec = &v1alpha1.DeviceSpec{}
-	return deice
-}
-
-func createTestRenderedDevice(image string) *v1alpha1.Device {
-	device := newVersionedDevice("1")
-	spec := v1alpha1.DeviceSpec{
-		Os: &v1alpha1.DeviceOsSpec{
-			Image: image,
-		},
-	}
-	device.Spec = &spec
-	return device
 }
 
 func Test_getRenderedFromManagementAPIWithRetry(t *testing.T) {
@@ -179,7 +154,7 @@ func TestDevicePublisher_pollAndNotify(t *testing.T) {
 		defer v.finish()
 		v.mockClient.EXPECT().GetRenderedDevice(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, http.StatusServiceUnavailable, specErr)
 		v.notifier.pollAndPublish(v.ctx)
-		_, popped, err := v.sub.TryPop()
+		_, popped, err := v.watcher.TryPop()
 		require.NoError(t, err)
 		require.False(t, popped)
 	})
@@ -188,7 +163,7 @@ func TestDevicePublisher_pollAndNotify(t *testing.T) {
 		defer v.finish()
 		v.mockClient.EXPECT().GetRenderedDevice(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, http.StatusNoContent, nil)
 		v.notifier.pollAndPublish(v.ctx)
-		_, popped, err := v.sub.TryPop()
+		_, popped, err := v.watcher.TryPop()
 		require.NoError(t, err)
 		require.False(t, popped)
 	})
@@ -198,7 +173,7 @@ func TestDevicePublisher_pollAndNotify(t *testing.T) {
 		renderedDesiredSpec := createTestRenderedDevice("flightctl-device:v2")
 		v.mockClient.EXPECT().GetRenderedDevice(gomock.Any(), gomock.Any(), gomock.Any()).Return(renderedDesiredSpec, 200, nil)
 		v.notifier.pollAndPublish(v.ctx)
-		result, popped, err := v.sub.TryPop()
+		result, popped, err := v.watcher.TryPop()
 		require.NoError(t, err)
 		require.True(t, popped)
 		require.Equal(t, renderedDesiredSpec, result)
@@ -210,13 +185,14 @@ func TestDevicePublisher_Run(t *testing.T) {
 		v := setup(tt)
 		defer v.cancel()
 
-		wg := &sync.WaitGroup{}
-		wg.Add(1)
-
 		ctx, cancel := context.WithCancel(context.Background())
 
 		// Start the publisher in a goroutine
-		go v.notifier.Run(ctx, wg)
+		done := make(chan struct{})
+		go func() {
+			v.notifier.Run(ctx)
+			close(done)
+		}()
 
 		// Wait a short time to ensure it's started
 		time.Sleep(10 * time.Millisecond)
@@ -224,13 +200,7 @@ func TestDevicePublisher_Run(t *testing.T) {
 		// Cancel the context to stop the publisher
 		cancel()
 
-		// Use a timeout to avoid hanging the test if wg.Wait() doesn't return
-		done := make(chan struct{})
-		go func() {
-			wg.Wait()
-			close(done)
-		}()
-
+		// Wait for the publisher to stop with timeout
 		select {
 		case <-done:
 			// Success - the publisher stopped when context was canceled
