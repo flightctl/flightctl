@@ -292,10 +292,11 @@ For more detailed configuration options, see the [Values](#values) section below
 | global.baseDomainTls.cert | string | `""` | Certificate for the base domain wildcard certificate, it should be valid for *.${baseDomain}. This certificate is only used for non mTLS endpoints, mTLS endpoints like agent-api, etc will use different certificates. |
 | global.baseDomainTls.key | string | `""` | Key for the base domain wildcard certificate. |
 | global.clusterLevelSecretAccess | bool | `false` | Allow flightctl-worker to access secrets at the cluster level for embedding in device configs |
-| global.exposeServicesMethod | string | `"route"` | How the FCTL services should be exposed. Can be either nodePort or route |
+| global.exposeServicesMethod | string | `"route"` | How the Flight Control services should be exposed. Can be either nodePort or route |
 | global.gatewayClass | string | `""` | Gateway API class name for gateway exposure method |
 | global.gatewayPorts.http | int | `80` | HTTP port for Gateway API configuration |
 | global.gatewayPorts.tls | int | `443` | TLS port for Gateway API configuration |
+| global.generateSecrets | bool | `true` | Generate secrets when deploying Flight Control. This should be set to false if you want to provide your own secrets or when upgrading Flight Control to avoid overriding the existing secrets |
 | global.imagePullPolicy | string | `"IfNotPresent"` | Image pull policy for all containers |
 | global.imagePullSecretName | string | `""` | Name of the image pull secret for accessing private container registries |
 | global.internalNamespace | string | `""` | Namespace where internal components are deployed |
