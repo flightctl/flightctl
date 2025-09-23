@@ -19,7 +19,7 @@ type AAPGatewayUserIdentity interface {
 	IsPlatformAuditor() bool
 }
 
-// AAPGatewayIdentity extends common.Identity with AAP-specific fields
+// AAPIdentity extends common.Identity with AAP-specific fields
 type AAPIdentity struct {
 	common.BaseIdentity
 	superUser       bool

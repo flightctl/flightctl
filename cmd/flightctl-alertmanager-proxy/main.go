@@ -288,7 +288,10 @@ func main() {
 		Log:    logger,
 		Cache:  orgCache,
 	}
-	orgResolver := resolvers.BuildResolver(buildResolverOpts)
+	orgResolver, err := resolvers.BuildResolver(buildResolverOpts)
+	if err != nil {
+		logger.Fatalf("Failed to build organization resolver: %v", err)
+	}
 
 	// Initialize auth system
 	authN, authZ, err := auth.InitAuth(cfg, logger, orgResolver)
