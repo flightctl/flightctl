@@ -3,6 +3,7 @@ package applications
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
@@ -12,6 +13,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/agent/device/systeminfo"
+	"github.com/flightctl/flightctl/internal/agent/shutdown"
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
@@ -24,14 +26,17 @@ var _ Manager = (*manager)(nil)
 type manager struct {
 	podmanMonitor *PodmanMonitor
 	podmanClient  *client.Podman
+	systemdClient *client.Systemd
 	readWriter    fileio.ReadWriter
 	log           *log.PrefixLogger
+	once          sync.Once
 }
 
 func NewManager(
 	log *log.PrefixLogger,
 	readWriter fileio.ReadWriter,
 	podmanClient *client.Podman,
+	systemdClient *client.Systemd,
 	systemInfo systeminfo.Manager,
 ) Manager {
 	bootTime := systemInfo.BootTime()
@@ -39,6 +44,7 @@ func NewManager(
 		readWriter:    readWriter,
 		podmanMonitor: NewPodmanMonitor(log, podmanClient, bootTime, readWriter),
 		podmanClient:  podmanClient,
+		systemdClient: systemdClient,
 		log:           log,
 	}
 }
@@ -159,8 +165,19 @@ func (m *manager) Status(ctx context.Context, status *v1alpha1.DeviceStatus, opt
 	return nil
 }
 
-func (m *manager) Stop(ctx context.Context) error {
-	return m.podmanMonitor.Stop(ctx)
+func (m *manager) Drain(ctx context.Context) (err error) {
+	if !shutdown.IsSystemShutdown(ctx, m.systemdClient, m.readWriter, m.log) {
+		m.log.Debug("System shutdown not detected, skipping drain")
+		return nil
+	}
+
+	m.once.Do(func() {
+		err = m.podmanMonitor.Drain(ctx)
+	})
+	if err != nil {
+		return fmt.Errorf("drain workloads: %w", err)
+	}
+	return nil
 }
 
 // CollectOCITargets returns a function that collects OCI targets from applications
@@ -183,7 +200,6 @@ func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1alp
 	if err != nil {
 		return nil, fmt.Errorf("resolving pull secret: %w", err)
 	}
-	// note: cleanup is now handled by the prefetch manager after pull completes
 
 	// collect OCI targets from all providers
 	targets, err := m.collectOCITargets(providers, secret)

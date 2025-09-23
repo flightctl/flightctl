@@ -3,15 +3,20 @@ package applications
 import (
 	"context"
 	"fmt"
+	"io"
 	"os/exec"
 	"testing"
+	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/systeminfo"
+	"github.com/flightctl/flightctl/internal/agent/shutdown"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/poll"
 	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -236,6 +241,236 @@ func TestManagerRemoveApplication(t *testing.T) {
 	// Verify app is removed and monitor is stopped
 	require.False(manager.podmanMonitor.Has(id))
 	require.False(manager.podmanMonitor.isRunning())
+}
+
+func TestManagerDrain(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	testCases := []struct {
+		name              string
+		setupMocks        func(*systeminfo.MockManager, *executer.MockExecuter, *fileio.MockReadWriter)
+		expectDrainCalled bool
+	}{
+		{
+			name: "drain called when system is shutting down via scheduled file",
+			setupMocks: func(mockSystemInfo *systeminfo.MockManager, mockExec *executer.MockExecuter, mockReadWriter *fileio.MockReadWriter) {
+				mockReadWriter.EXPECT().ReadFile("/run/utmp").Return([]byte("runlevel 3"), nil)
+				mockReadWriter.EXPECT().PathExists("/run/systemd/shutdown/scheduled").Return(true, nil)
+				mockSystemInfo.EXPECT().BootTime().Return("2024-01-01T00:00:00Z")
+			},
+			expectDrainCalled: true,
+		},
+		{
+			name: "drain not called when agent is just restarting",
+			setupMocks: func(mockSystemInfo *systeminfo.MockManager, mockExec *executer.MockExecuter, mockReadWriter *fileio.MockReadWriter) {
+				mockReadWriter.EXPECT().ReadFile("/run/utmp").Return([]byte("runlevel 3"), nil)
+				mockReadWriter.EXPECT().PathExists("/run/systemd/shutdown/scheduled").Return(false, nil)
+
+				// list-jobs returns no shutdown jobs
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "list-jobs", "--no-pager", "--no-legend").Return("", "", 0)
+
+				mockSystemInfo.EXPECT().BootTime().Return("2024-01-01T00:00:00Z")
+			},
+			expectDrainCalled: false,
+		},
+		{
+			name: "drain is idempotent - multiple calls only drain once",
+			setupMocks: func(mockSystemInfo *systeminfo.MockManager, mockExec *executer.MockExecuter, mockReadWriter *fileio.MockReadWriter) {
+				mockReadWriter.EXPECT().ReadFile("/run/utmp").Return([]byte("runlevel 3"), nil)
+				mockReadWriter.EXPECT().PathExists("/run/systemd/shutdown/scheduled").Return(true, nil)
+
+				mockReadWriter.EXPECT().ReadFile("/run/utmp").Return([]byte("runlevel 3"), nil)
+				mockReadWriter.EXPECT().PathExists("/run/systemd/shutdown/scheduled").Return(true, nil)
+
+				mockSystemInfo.EXPECT().BootTime().Return("2024-01-01T00:00:00Z")
+			},
+			expectDrainCalled: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			mockSystemInfo := systeminfo.NewMockManager(ctrl)
+			mockExec := executer.NewMockExecuter(ctrl)
+			mockReadWriter := fileio.NewMockReadWriter(ctrl)
+
+			tc.setupMocks(mockSystemInfo, mockExec, mockReadWriter)
+
+			log := log.NewPrefixLogger("test")
+			systemdClient := client.NewSystemd(mockExec)
+			podmanClient := client.NewPodman(log, mockExec, mockReadWriter, poll.Config{})
+
+			manager := NewManager(log, mockReadWriter, podmanClient, systemdClient, mockSystemInfo)
+
+			ctx := context.Background()
+
+			err := manager.Drain(ctx)
+			require.NoError(err)
+
+			if tc.name == "drain is idempotent - multiple calls only drain once" {
+				err = manager.Drain(ctx)
+				require.NoError(err)
+			}
+		})
+	}
+}
+
+func TestPodmanMonitorStartStop(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockExec := executer.NewMockExecuter(ctrl)
+	mockReadWriter := fileio.NewMockReadWriter(ctrl)
+
+	reader, writer := io.Pipe()
+
+	mockReadWriter.EXPECT().PathExists(gomock.Any(), gomock.Any()).DoAndReturn(func(path string, opts ...fileio.PathExistsOption) (bool, error) {
+		return path == "/test/path/podman-compose.yaml", nil
+	}).AnyTimes()
+
+	mockExec.EXPECT().
+		ExecuteWithContextFromDir(gomock.Any(), "/test/path", "podman", []string{"compose", "-p", "test-app", "-f", "podman-compose.yaml", "up", "-d", "--no-recreate"}).
+		Return("", "", 0)
+
+	mockExec.EXPECT().
+		CommandContext(gomock.Any(), "podman", "events", "--format", "json", "--since", "2024-01-01T00:00:00Z", "--filter", "event=create", "--filter", "event=init", "--filter", "event=start", "--filter", "event=stop", "--filter", "event=die", "--filter", "event=sync", "--filter", "event=remove", "--filter", "event=exited").
+		DoAndReturn(func(ctx context.Context, cmd string, args ...string) *exec.Cmd {
+			execCmd := exec.CommandContext(ctx, "cat")
+			execCmd.Stdin = reader
+			return execCmd
+		})
+
+	log := log.NewPrefixLogger("test")
+	podmanClient := client.NewPodman(log, mockExec, mockReadWriter, poll.Config{})
+
+	monitor := NewPodmanMonitor(log, podmanClient, "2024-01-01T00:00:00Z", mockReadWriter)
+
+	volumeManager, err := provider.NewVolumeManager(log, "test-app", nil)
+	require.NoError(err)
+
+	app := &application{
+		id:      "test-app",
+		appType: v1alpha1.AppTypeCompose,
+		path:    "/test/path",
+		volume:  volumeManager,
+		status: &v1alpha1.DeviceApplicationStatus{
+			Name:   "test-app",
+			Status: v1alpha1.ApplicationStatusUnknown,
+		},
+		embedded: false,
+	}
+
+	// manage app
+	err = monitor.Ensure(app)
+	require.NoError(err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	go func() {
+		defer writer.Close()
+		// write a sync event to indicate we're ready
+		syncEvent := `{"Type":"sync","timeNano":1704067200000000000}` + "\n"
+		_, err := writer.Write([]byte(syncEvent))
+		require.NoError(err)
+
+		<-ctx.Done()
+	}()
+
+	err = monitor.ExecuteActions(ctx)
+	require.NoError(err)
+
+	require.True(monitor.isRunning())
+
+	// wait for listening monitor
+	select {
+	case <-time.After(100 * time.Millisecond):
+	case <-ctx.Done():
+		t.Fatal("Context cancelled unexpectedly")
+	}
+
+	// shutdown
+	cancel()
+
+	select {
+	case <-time.After(100 * time.Millisecond):
+	case <-time.After(1 * time.Second):
+		t.Fatal("Cleanup took too long")
+	}
+}
+
+func TestIsSystemShutdown(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	testCases := []struct {
+		name           string
+		setupMocks     func(*executer.MockExecuter, *fileio.MockReadWriter)
+		expectedResult bool
+	}{
+		{
+			name: "detects shutdown via scheduled file",
+			setupMocks: func(mockExec *executer.MockExecuter, mockReadWriter *fileio.MockReadWriter) {
+				mockReadWriter.EXPECT().ReadFile("/run/utmp").Return([]byte("runlevel 3"), nil)
+				mockReadWriter.EXPECT().PathExists("/run/systemd/shutdown/scheduled").Return(true, nil)
+			},
+			expectedResult: true,
+		},
+		{
+			name: "detects shutdown via systemd reboot target using list-jobs",
+			setupMocks: func(mockExec *executer.MockExecuter, mockReadWriter *fileio.MockReadWriter) {
+				mockReadWriter.EXPECT().ReadFile("/run/utmp").Return([]byte("runlevel 3"), nil)
+				mockReadWriter.EXPECT().PathExists("/run/systemd/shutdown/scheduled").Return(false, nil)
+				// list-jobs returns a job for reboot.target
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "list-jobs", "--no-pager", "--no-legend").Return("123 reboot.target start waiting", "", 0)
+			},
+			expectedResult: true,
+		},
+		{
+			name: "detects shutdown via runlevel 0",
+			setupMocks: func(mockExec *executer.MockExecuter, mockReadWriter *fileio.MockReadWriter) {
+				mockReadWriter.EXPECT().ReadFile("/run/utmp").Return([]byte("runlevel 0"), nil)
+			},
+			expectedResult: true,
+		},
+		{
+			name: "detects shutdown via runlevel 6",
+			setupMocks: func(mockExec *executer.MockExecuter, mockReadWriter *fileio.MockReadWriter) {
+				mockReadWriter.EXPECT().ReadFile("/run/utmp").Return([]byte("runlevel 6"), nil)
+			},
+			expectedResult: true,
+		},
+		{
+			name: "no shutdown detected",
+			setupMocks: func(mockExec *executer.MockExecuter, mockReadWriter *fileio.MockReadWriter) {
+				mockReadWriter.EXPECT().ReadFile("/run/utmp").Return([]byte("runlevel 3"), nil)
+				mockReadWriter.EXPECT().PathExists("/run/systemd/shutdown/scheduled").Return(false, nil)
+				// list-jobs returns no jobs
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "list-jobs", "--no-pager", "--no-legend").Return("", "", 0)
+			},
+			expectedResult: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			mockExec := executer.NewMockExecuter(ctrl)
+			mockReadWriter := fileio.NewMockReadWriter(ctrl)
+
+			tc.setupMocks(mockExec, mockReadWriter)
+
+			systemdClient := client.NewSystemd(mockExec)
+
+			ctx := context.Background()
+			log := log.NewPrefixLogger("test")
+
+			result := shutdown.IsSystemShutdown(ctx, systemdClient, mockReadWriter, log)
+			require.Equal(tc.expectedResult, result)
+		})
+	}
 }
 
 func mockExecPodmanEvents(mockExec *executer.MockExecuter) *gomock.Call {

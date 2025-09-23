@@ -169,7 +169,7 @@ func (f *fileProvider) WipeCertificateOnly() error {
 	return nil
 }
 
-func (f *fileProvider) Close(_ context.Context) error {
+func (f *fileProvider) Close() error {
 	// no-op for file provider
 	return nil
 }
