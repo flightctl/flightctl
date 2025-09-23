@@ -7,9 +7,6 @@ import (
 	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/rsa"
-	"crypto/x509"
-	"crypto/x509/pkix"
-	"encoding/pem"
 	"fmt"
 	"io"
 	"math/big"
@@ -18,6 +15,7 @@ import (
 
 	agent_config "github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	fccrypto "github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/go-tpm/tpm2"
 	"github.com/google/go-tpm/tpmutil"
@@ -29,10 +27,14 @@ var _ crypto.Signer = (*client)(nil)
 // Ensure client implements Client interface
 var _ Client = (*client)(nil)
 
+type connFactory func() (io.ReadWriteCloser, error)
+
 // Client represents a simplified TPM client that exposes signing capabilities
 // and attestation data for CSR generation.
 type client struct {
 	session       Session
+	connFactory   connFactory
+	sessionOpts   []SessionOption
 	log           *log.PrefixLogger
 	productModel  string
 	productSerial string
@@ -49,34 +51,51 @@ func NewClient(log *log.PrefixLogger, rw fileio.ReadWriter, config *agent_config
 	}
 
 	// open the TPM connection
-	conn, err := tpmutil.OpenTPM(tpmPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open TPM device at %s: %w", tpmPath, err)
+	connFact := func() (io.ReadWriteCloser, error) {
+		conn, err := tpmutil.OpenTPM(tpmPath)
+		if err != nil {
+			return nil, fmt.Errorf("opening TPM device at %s: %w", tpmPath, err)
+		}
+		return conn, err
 	}
 
 	// collect system identifiers
 	productModel, productSerial := getSystemIdentifiers(log, rw)
 
-	return newClientWithConnection(conn, log, rw, config, productModel, productSerial)
+	return newClientWithConnection(connFact, log, rw, config, productModel, productSerial)
 }
 
 // newClientWithConnection creates a new TPM client with the provided connection.
 // This helper function is useful for testing with simulators.
-func newClientWithConnection(conn io.ReadWriteCloser, log *log.PrefixLogger, rw fileio.ReadWriter, config *agent_config.Config, productModel, productSerial string) (*client, error) {
+func newClientWithConnection(conFact connFactory, log *log.PrefixLogger, rw fileio.ReadWriter, config *agent_config.Config, productModel, productSerial string) (*client, error) {
 	// TODO: make dynamic
 	keyAlgo := ECDSA
 
-	session, err := NewSession(conn, rw, log, config.TPM.AuthEnabled, config.TPM.StorageFilePath, keyAlgo)
+	storage := NewFileStorage(rw, config.TPM.StorageFilePath, log)
+	c := &client{
+		log:         log,
+		connFactory: conFact,
+		sessionOpts: []SessionOption{
+			WithAuth(config.TPM.AuthEnabled),
+			WithKeyAlgo(keyAlgo),
+			WithStorage(storage),
+		},
+		productModel:  productModel,
+		productSerial: productSerial,
+	}
+
+	conn, err := conFact()
+	if err != nil {
+		return nil, fmt.Errorf("connecting to TPM: %w", err)
+	}
+
+	opts := append([]SessionOption{WithInitialization()}, c.sessionOpts...)
+	session, err := NewSession(conn, log, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("creating TPM session: %w", err)
 	}
 
-	c := &client{
-		session:       session,
-		log:           log,
-		productModel:  productModel,
-		productSerial: productSerial,
-	}
+	c.session = session
 
 	return c, nil
 }
@@ -151,7 +170,7 @@ func (c *client) MakeCSR(deviceName string, qualifyingData []byte) ([]byte, erro
 
 	// First, generate a standard X.509 CSR using the TPM signer
 	c.log.Tracef("[MakeCSR] Generating standard X.509 CSR...")
-	standardCSR, err := c.generateStandardCSR(deviceName)
+	standardCSR, err := generateStandardCSR(deviceName, c.GetSigner())
 	if err != nil {
 		c.log.Errorf("[MakeCSR] Failed to generate standard CSR: %v", err)
 		return nil, fmt.Errorf("generating standard CSR: %w", err)
@@ -177,6 +196,105 @@ func (c *client) MakeCSR(deviceName string, qualifyingData []byte) ([]byte, erro
 	c.log.Tracef("[MakeCSR] Built TCG-CSR-IDEVID (%d bytes)", len(tcgCSR))
 
 	return tcgCSR, nil
+}
+
+// RemoveApplicationKey removes the associated key from storage
+func (c *client) RemoveApplicationKey(appName string) error {
+	conn, err := c.connFactory()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			c.log.Errorf("[RemoveApplicationKey] Failed to close connection: %v", err)
+		}
+	}()
+	if err != nil {
+		return fmt.Errorf("creating conn: %w", err)
+	}
+	session, err := NewSession(conn, c.log, c.sessionOpts...)
+	if err != nil {
+		return fmt.Errorf("creating session: %w", err)
+	}
+	defer func() {
+		if err := session.Close(); err != nil {
+			c.log.Errorf("[RemoveApplicationKey] Failed to close session: %v", err)
+		}
+	}()
+	return session.RemoveApplicationKey(appName)
+}
+
+// CreateApplicationKey creates a new device identity for the specified app if one doesn't exist. If it does exist
+// the existing information is simply reused. This generates as TCG CSR IDEVID bundle and a TSS2 PEM formatted file for exporting
+func (c *client) CreateApplicationKey(name string) ([]byte, []byte, error) {
+	conn, err := c.connFactory()
+	if err != nil {
+		return nil, nil, fmt.Errorf("creating conn: %w", err)
+	}
+
+	session, err := NewSession(conn, c.log, c.sessionOpts...)
+	if err != nil {
+		err = fmt.Errorf("creating session: %w", err)
+		if closeErr := conn.Close(); closeErr != nil {
+			err = fmt.Errorf("closing conn: %w", closeErr)
+		}
+		return nil, nil, err
+	}
+	defer func() {
+		if err := session.Close(); err != nil {
+			c.log.Errorf("[CreateApplicationKey] Failed to close session: %v", err)
+		}
+	}()
+
+	key, err := session.LoadApplicationKey(name)
+	if err != nil {
+		return nil, nil, fmt.Errorf("creating application key: %w", err)
+	}
+	defer func() {
+		if err := key.Close(); err != nil {
+			c.log.Errorf("[CreateApplicationKey] Failed to close key: %q: %v", name, err)
+		}
+	}()
+
+	qualifyingData := make([]byte, 32)
+	if _, err = rand.Read(qualifyingData); err != nil {
+		return nil, nil, fmt.Errorf("creating qualifying data: %w", err)
+	}
+
+	appCertifyInfo, appCertifySig, err := session.Certify(key, qualifyingData)
+	if err != nil {
+		return nil, nil, fmt.Errorf("certifying application key: %w", err)
+	}
+	lakPublicKey, err := session.GetPublicKey(LAK)
+	if err != nil {
+		return nil, nil, fmt.Errorf("getting LAK public key: %w", err)
+	}
+	lakPubBlob := tpm2.Marshal(*lakPublicKey)
+
+	standardCSR, err := generateStandardCSR(name, key)
+	if err != nil {
+		return nil, nil, fmt.Errorf("generating standard CSR: %w", err)
+	}
+	// The EK cert is not required for app identities as establishing the primary identity involves
+	// establishing a trusted LAK
+	tcgCSR, err := BuildTCGCSRIDevID(
+		standardCSR,
+		c.productModel,
+		c.productSerial,
+		nil,
+		lakPubBlob,
+		key.PublicBlob(),
+		appCertifyInfo,
+		appCertifySig,
+		key,
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("building TCG-CSR-IDEVID: %w", err)
+	}
+
+	exported, err := key.Export()
+	if err != nil {
+		return nil, nil, fmt.Errorf("exporting key: %w", err)
+	}
+
+	return tcgCSR, exported, nil
 }
 
 // GetSigner returns the crypto.Signer interface for this client
@@ -432,39 +550,10 @@ func readDMIFile(reader fileio.ReadWriter, fileName string) (string, error) {
 }
 
 // generateStandardCSR creates a standard X.509 CSR using the TPM's LDevID key
-func (c *client) generateStandardCSR(deviceName string) ([]byte, error) {
-	// Determine signature algorithm based on public key type
-	var sigAlgo x509.SignatureAlgorithm
-	pubKey := c.Public()
-	switch pubKey.(type) {
-	case *ecdsa.PublicKey:
-		sigAlgo = x509.ECDSAWithSHA256
-	case *rsa.PublicKey:
-		sigAlgo = x509.SHA256WithRSA
-	default:
-		// Use ECDSAWithSHA256 as default for TPM 2.0
-		sigAlgo = x509.ECDSAWithSHA256
-	}
-
-	// Create CSR template
-	template := &x509.CertificateRequest{
-		Subject: pkix.Name{
-			CommonName: deviceName,
-		},
-		SignatureAlgorithm: sigAlgo,
-	}
-
-	// Generate CSR using the TPM signer
-	csrDER, err := x509.CreateCertificateRequest(rand.Reader, template, c.GetSigner())
+func generateStandardCSR(deviceName string, signer crypto.Signer) ([]byte, error) {
+	csrPem, err := fccrypto.MakeCSR(signer, deviceName)
 	if err != nil {
-		return nil, fmt.Errorf("creating certificate request: %w", err)
+		return nil, fmt.Errorf("creating CSR: %w", err)
 	}
-
-	// Encode to PEM
-	csrPEM := pem.EncodeToMemory(&pem.Block{
-		Type:  "CERTIFICATE REQUEST",
-		Bytes: csrDER,
-	})
-
-	return csrPEM, nil
+	return csrPem, nil
 }
