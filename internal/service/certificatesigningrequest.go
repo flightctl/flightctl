@@ -9,7 +9,10 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/crypto/signer"
 	"github.com/flightctl/flightctl/internal/store/selector"
+	"github.com/flightctl/flightctl/internal/tpm"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 )
 
 const DefaultEnrollmentCertExpirySeconds int32 = 60 * 60 * 24 * 7 // 7 days
@@ -41,7 +44,7 @@ func (h *ServiceHandler) signApprovedCertificateSigningRequest(ctx context.Conte
 		return
 	}
 
-	request, err := newSignRequestFromCertificateSigningRequest(csr)
+	request, _, err := newSignRequestFromCertificateSigningRequest(csr)
 	if err != nil {
 		h.setCSRFailedCondition(ctx, orgId, csr, "SigningFailed", fmt.Sprintf("Failed to sign certificate: %v", err))
 		return
@@ -82,6 +85,72 @@ func (h *ServiceHandler) ListCertificateSigningRequests(ctx context.Context, par
 	}
 }
 
+func (h *ServiceHandler) verifyTPMCSRRequest(ctx context.Context, csr *api.CertificateSigningRequest) error {
+	if csr.Status == nil {
+		csr.Status = &api.CertificateSigningRequestStatus{}
+	}
+	csrBytes, isTPM := tpm.ParseTCGCSRBytes(string(csr.Spec.Request))
+	if !isTPM {
+		return fmt.Errorf("parsing TCG CSR")
+	}
+
+	orgId := getOrgIdFromContext(ctx)
+	setTPMVerifiedFalse := func(message string) {
+		api.SetStatusCondition(&csr.Status.Conditions, api.Condition{
+			Message: message,
+			Reason:  api.TPMVerificationFailedReason,
+			Status:  api.ConditionStatusFalse,
+			Type:    api.ConditionTypeCertificateSigningRequestTPMVerified,
+		})
+	}
+
+	kind, owner, err := util.GetResourceOwner(csr.Metadata.Owner)
+	if err != nil {
+		setTPMVerifiedFalse("Failed to determine resource owner")
+		return nil
+	}
+	if kind != api.DeviceKind {
+		setTPMVerifiedFalse("The CSR's owner is not a Device")
+		return nil
+	}
+	// TODO this should be retrieved from the device rather than from the ER
+	er, err := h.store.EnrollmentRequest().Get(ctx, orgId, owner)
+	if err != nil {
+		setTPMVerifiedFalse(fmt.Sprintf("Unable to find CSR's owner: %s/%s ", orgId, owner))
+		return nil
+	}
+
+	// Following checks are errors as they should be replaced with checking the device directly at which point they should
+	// just add to the condition
+	if !api.IsStatusConditionTrue(er.Status.Conditions, api.ConditionTypeEnrollmentRequestTPMVerified) {
+		return fmt.Errorf("owner %s not %s", lo.FromPtr(csr.Metadata.Owner), api.ConditionTypeEnrollmentRequestTPMVerified)
+	}
+
+	erBytes, isTPM := tpm.ParseTCGCSRBytes(er.Spec.Csr)
+	if !isTPM {
+		return fmt.Errorf("ER TCG CSR not TPM")
+	}
+
+	parsed, err := tpm.ParseTCGCSR(erBytes)
+	if err != nil {
+		return fmt.Errorf("parsing ER TCG CSR: %w", err)
+	}
+
+	if err := tpm.VerifyTCGCSRSigningChain(csrBytes, parsed.CSRContents.Payload.AttestPub); err != nil {
+		setTPMVerifiedFalse(fmt.Sprintf(err.Error()))
+		return nil
+	} else {
+		api.SetStatusCondition(&csr.Status.Conditions, api.Condition{
+			Message: "TPM chain of trust verified",
+			Reason:  "TPMVerificationSucceeded",
+			Status:  api.ConditionStatusTrue,
+			Type:    api.ConditionTypeCertificateSigningRequestTPMVerified,
+		})
+	}
+
+	return nil
+}
+
 func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, csr api.CertificateSigningRequest) (*api.CertificateSigningRequest, api.Status) {
 	orgId := getOrgIdFromContext(ctx)
 
@@ -104,13 +173,18 @@ func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, cs
 		return nil, api.StatusBadRequest(err.Error())
 	}
 
-	request, err := newSignRequestFromCertificateSigningRequest(&csr)
+	request, isTPM, err := newSignRequestFromCertificateSigningRequest(&csr)
 	if err != nil {
 		return nil, api.StatusBadRequest(err.Error())
 	}
 
 	if err := signer.Verify(ctx, h.ca, request); err != nil {
 		return nil, api.StatusBadRequest(err.Error())
+	}
+	if isTPM {
+		if err = h.verifyTPMCSRRequest(ctx, &csr); err != nil {
+			return nil, api.StatusBadRequest(err.Error())
+		}
 	}
 
 	result, err := h.store.CertificateSigningRequest().Create(ctx, orgId, &csr, h.callbackCertificateSigningRequestUpdated)
@@ -177,13 +251,18 @@ func (h *ServiceHandler) PatchCertificateSigningRequest(ctx context.Context, nam
 		return nil, api.StatusBadRequest(err.Error())
 	}
 
-	request, err := newSignRequestFromCertificateSigningRequest(newObj)
+	request, isTPM, err := newSignRequestFromCertificateSigningRequest(newObj)
 	if err != nil {
 		return nil, api.StatusBadRequest(err.Error())
 	}
 
 	if err := signer.Verify(ctx, h.ca, request); err != nil {
 		return nil, api.StatusBadRequest(err.Error())
+	}
+	if isTPM {
+		if err = h.verifyTPMCSRRequest(ctx, newObj); err != nil {
+			return nil, api.StatusBadRequest(err.Error())
+		}
 	}
 
 	result, err := h.store.CertificateSigningRequest().Update(ctx, orgId, newObj, h.callbackCertificateSigningRequestUpdated)
@@ -227,13 +306,19 @@ func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, n
 		return nil, api.StatusBadRequest(err.Error())
 	}
 
-	request, err := newSignRequestFromCertificateSigningRequest(&csr)
+	request, isTPM, err := newSignRequestFromCertificateSigningRequest(&csr)
 	if err != nil {
 		return nil, api.StatusBadRequest(err.Error())
 	}
 
 	if err := signer.Verify(ctx, h.ca, request); err != nil {
 		return nil, api.StatusBadRequest(err.Error())
+	}
+
+	if isTPM {
+		if err = h.verifyTPMCSRRequest(ctx, &csr); err != nil {
+			return nil, api.StatusBadRequest(err.Error())
+		}
 	}
 
 	result, created, err := h.store.CertificateSigningRequest().CreateOrUpdate(ctx, orgId, &csr, h.callbackCertificateSigningRequestUpdated)
@@ -269,7 +354,12 @@ func (h *ServiceHandler) UpdateCertificateSigningRequestApproval(ctx context.Con
 	if newCSR.Status == nil {
 		return nil, api.StatusBadRequest("status is required")
 	}
-	allowedConditionTypes := []api.ConditionType{api.ConditionTypeCertificateSigningRequestApproved, api.ConditionTypeCertificateSigningRequestDenied, api.ConditionTypeCertificateSigningRequestFailed}
+	allowedConditionTypes := []api.ConditionType{
+		api.ConditionTypeCertificateSigningRequestApproved,
+		api.ConditionTypeCertificateSigningRequestDenied,
+		api.ConditionTypeCertificateSigningRequestFailed,
+		api.ConditionTypeCertificateSigningRequestTPMVerified,
+	}
 	trueConditions := allowedConditionTypes
 	exclusiveConditions := []api.ConditionType{api.ConditionTypeCertificateSigningRequestApproved, api.ConditionTypeCertificateSigningRequestDenied}
 	errs := api.ValidateConditions(newCSR.Status.Conditions, allowedConditionTypes, trueConditions, exclusiveConditions)
@@ -310,8 +400,12 @@ func (h *ServiceHandler) UpdateCertificateSigningRequestApproval(ctx context.Con
 	return result, api.StatusOK()
 }
 
-func newSignRequestFromCertificateSigningRequest(csr *api.CertificateSigningRequest) (signer.SignRequest, error) {
+func newSignRequestFromCertificateSigningRequest(csr *api.CertificateSigningRequest) (signer.SignRequest, bool, error) {
 	var opts []signer.SignRequestOption
+	csrData, isTPM, err := tpm.NormalizeEnrollmentCSR(string(csr.Spec.Request))
+	if err != nil {
+		return nil, isTPM, fmt.Errorf("normalizing CSR: %w", err)
+	}
 
 	if csr.Status != nil && csr.Status.Certificate != nil {
 		opts = append(opts, signer.WithIssuedCertificateBytes(*csr.Status.Certificate))
@@ -325,7 +419,8 @@ func newSignRequestFromCertificateSigningRequest(csr *api.CertificateSigningRequ
 		opts = append(opts, signer.WithResourceName(*csr.Metadata.Name))
 	}
 
-	return signer.NewSignRequestFromBytes(csr.Spec.SignerName, csr.Spec.Request, opts...)
+	signReq, err := signer.NewSignRequestFromBytes(csr.Spec.SignerName, csrData, opts...)
+	return signReq, isTPM, err
 }
 
 // borrowed from https://github.com/kubernetes/kubernetes/blob/master/pkg/registry/certificates/certificates/strategy.go

@@ -232,3 +232,77 @@ func TestTPMProvider_ProcessChallenge(t *testing.T) {
 		})
 	}
 }
+
+func TestTPMProvider_NewExportable(t *testing.T) {
+	tests := []struct {
+		name               string
+		appName            string
+		setupMocks         func(*tpm.MockClient)
+		expectError        bool
+		expectedErrMessage string
+		expectedCSR        []byte
+		expectedKeyPEM     []byte
+	}{
+		{
+			name:    "success",
+			appName: "test-app",
+			setupMocks: func(mockClient *tpm.MockClient) {
+				mockClient.EXPECT().CreateApplicationKey("test-app").Return(
+					[]byte("test-csr-data"),
+					[]byte("test-key-pem-data"),
+					nil,
+				)
+			},
+			expectError:    false,
+			expectedCSR:    []byte("test-csr-data"),
+			expectedKeyPEM: []byte("test-key-pem-data"),
+		},
+		{
+			name:    "tpm client error",
+			appName: "failing-app",
+			setupMocks: func(mockClient *tpm.MockClient) {
+				mockClient.EXPECT().CreateApplicationKey("failing-app").Return(
+					nil,
+					nil,
+					errors.New("TPM operation failed"),
+				)
+			},
+			expectError:        true,
+			expectedErrMessage: "creating application identity: \"failing-app\": TPM operation failed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			mockClient := tpm.NewMockClient(ctrl)
+
+			provider := &tpmProvider{
+				client: mockClient,
+				log:    log.NewPrefixLogger("test"),
+			}
+
+			if tt.setupMocks != nil {
+				tt.setupMocks(mockClient)
+			}
+
+			result, err := provider.NewExportable(tt.appName)
+
+			if tt.expectError {
+				require.Error(t, err)
+				require.Nil(t, result)
+				if tt.expectedErrMessage != "" {
+					require.Contains(t, err.Error(), tt.expectedErrMessage)
+				}
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, result)
+				require.Equal(t, tt.appName, result.Name)
+				require.Equal(t, tt.expectedCSR, result.CSR)
+				require.Equal(t, tt.expectedKeyPEM, result.KeyPEM)
+			}
+		})
+	}
+}

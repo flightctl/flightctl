@@ -31,9 +31,25 @@ var (
 	ErrIdentityProofFailed = errors.New("identity proof failed")
 )
 
+type Exportable struct {
+	// Name of the identity
+	Name string
+	// CSR defines the certificate signing request. The contents may vary depending on the type of the provider
+	CSR []byte
+	// KeyPEM defines the private PEM bytes. The PEM block may vary depending on the type of the provider
+	KeyPEM []byte
+}
+
+// ExportableProvider defines the interface for providing Exportable identities
+type ExportableProvider interface {
+	// NewExportable creates an Exportable for the specified name
+	NewExportable(name string) (*Exportable, error)
+}
+
 // Provider defines the interface for identity providers that handle device authentication.
 // Different implementations can support file-based keys, TPM-based keys, or other methods.
 type Provider interface {
+	ExportableProvider
 	// Initialize sets up the provider and prepares it for use
 	Initialize(ctx context.Context) error
 	// GetDeviceName returns the device name derived from the public key

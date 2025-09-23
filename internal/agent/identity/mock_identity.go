@@ -20,6 +20,44 @@ import (
 	gomock "go.uber.org/mock/gomock"
 )
 
+// MockExportableProvider is a mock of ExportableProvider interface.
+type MockExportableProvider struct {
+	ctrl     *gomock.Controller
+	recorder *MockExportableProviderMockRecorder
+}
+
+// MockExportableProviderMockRecorder is the mock recorder for MockExportableProvider.
+type MockExportableProviderMockRecorder struct {
+	mock *MockExportableProvider
+}
+
+// NewMockExportableProvider creates a new mock instance.
+func NewMockExportableProvider(ctrl *gomock.Controller) *MockExportableProvider {
+	mock := &MockExportableProvider{ctrl: ctrl}
+	mock.recorder = &MockExportableProviderMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockExportableProvider) EXPECT() *MockExportableProviderMockRecorder {
+	return m.recorder
+}
+
+// NewExportable mocks base method.
+func (m *MockExportableProvider) NewExportable(name string) (*Exportable, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "NewExportable", name)
+	ret0, _ := ret[0].(*Exportable)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// NewExportable indicates an expected call of NewExportable.
+func (mr *MockExportableProviderMockRecorder) NewExportable(name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewExportable", reflect.TypeOf((*MockExportableProvider)(nil).NewExportable), name)
+}
+
 // MockProvider is a mock of Provider interface.
 type MockProvider struct {
 	ctrl     *gomock.Controller
@@ -143,6 +181,21 @@ func (m *MockProvider) Initialize(ctx context.Context) error {
 func (mr *MockProviderMockRecorder) Initialize(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Initialize", reflect.TypeOf((*MockProvider)(nil).Initialize), ctx)
+}
+
+// NewExportable mocks base method.
+func (m *MockProvider) NewExportable(name string) (*Exportable, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "NewExportable", name)
+	ret0, _ := ret[0].(*Exportable)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// NewExportable indicates an expected call of NewExportable.
+func (mr *MockProviderMockRecorder) NewExportable(name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewExportable", reflect.TypeOf((*MockProvider)(nil).NewExportable), name)
 }
 
 // ProveIdentity mocks base method.
