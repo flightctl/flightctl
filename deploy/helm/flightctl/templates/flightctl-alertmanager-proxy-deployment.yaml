@@ -54,6 +54,16 @@ spec:
             - name: FLIGHTCTL_DISABLE_AUTH
               value: "true"
             {{- end }}
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-db-app-secret
+                  key: userPassword
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-db-app-secret
+                  key: user
           volumeMounts:
             - mountPath: /app/certs
               name: flightctl-alertmanager-proxy-certs
@@ -65,6 +75,7 @@ spec:
               name: flightctl-config-dir
             - mountPath: /tmp
               name: tmp-dir
+            {{- include "flightctl.dbSslVolumeMounts" . | nindent 12 }}
           livenessProbe:
             httpGet:
               path: /health
@@ -110,4 +121,5 @@ spec:
           emptyDir: {}
         - name: tmp-dir
           emptyDir: {}
+        {{- include "flightctl.dbSslVolumes" . | nindent 8 }}
 {{- end }}
