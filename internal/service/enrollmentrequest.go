@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"crypto/x509"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -23,33 +22,17 @@ import (
 	"github.com/samber/lo"
 )
 
-// getTPMCAPool loads the TPM CA certificates from configured paths
-func (h *ServiceHandler) getTPMCAPool() *x509.CertPool {
-	if len(h.tpmCAPaths) == 0 {
-		return nil
-	}
-
-	roots, err := tpm.LoadCAsFromPaths(h.tpmCAPaths)
-	if err != nil {
-		h.log.Warnf("Failed to load TPM CA certificates from configured paths: %v", err)
-		return nil
-	}
-
-	return roots
-}
-
 func (h *ServiceHandler) verifyTPMEnrollmentRequest(er *api.EnrollmentRequest, name string) error {
 	csrBytes, isTPM := tpm.ParseTCGCSRBytes(er.Spec.Csr)
 	if !isTPM {
 		return fmt.Errorf("failed to parse TCG CSR")
 	}
 
-	trustedRoots := h.getTPMCAPool()
 	condition := api.Condition{
 		Type:   api.ConditionTypeEnrollmentRequestTPMVerified,
 		Status: api.ConditionStatusFalse,
 	}
-	if err := tpm.VerifyTCGCSRChainOfTrustWithRoots(csrBytes, trustedRoots); err != nil {
+	if err := h.tmpVerifier.VerifyChain(csrBytes); err != nil {
 		condition.Reason = api.TPMVerificationFailedReason
 		condition.Message = err.Error()
 		h.log.Warnf("TPM verification failed for enrollment request %s: %v", name, err)

@@ -23,6 +23,7 @@ import (
 	"github.com/flightctl/flightctl/internal/org/resolvers"
 	"github.com/flightctl/flightctl/internal/rendered"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/tpm"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
@@ -179,7 +180,17 @@ func main() {
 	}
 	orgResolver := resolvers.BuildResolver(buildResolverOpts)
 
-	agentServer, err := agentserver.New(ctx, log, cfg, store, ca, agentListener, provider, agentTlsConfig, orgResolver)
+	tpmCAPathProvider := func() ([]string, error) {
+		cfg, err := config.Load(config.ConfigFile())
+		if err != nil {
+			return nil, err
+		}
+		return cfg.Service.TPMCAPaths, nil
+	}
+
+	tpmVerifier := tpm.NewCAVerifier(ctx, cfg.Service.TPMCAPaths, tpmCAPathProvider, log)
+
+	agentServer, err := agentserver.New(ctx, log, cfg, store, ca, agentListener, provider, agentTlsConfig, tpmVerifier, orgResolver)
 	if err != nil {
 		log.Fatalf("initializing agent server: %v", err)
 	}
@@ -190,7 +201,7 @@ func main() {
 			log.Fatalf("creating listener: %s", err)
 		}
 		// we pass the grpc server for now, to let the console sessions to establish a connection in grpc
-		server := apiserver.New(log, cfg, store, ca, listener, provider, agentServer.GetGRPCServer(), orgResolver)
+		server := apiserver.New(log, cfg, store, ca, listener, provider, agentServer.GetGRPCServer(), tpmVerifier, orgResolver)
 		if err := server.Run(ctx); err != nil {
 			log.Fatalf("Error running server: %s", err)
 		}

@@ -26,6 +26,7 @@ import (
 	"github.com/flightctl/flightctl/internal/org/resolvers"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/tpm"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
@@ -220,7 +221,7 @@ func NewTestApiServer(log logrus.FieldLogger, cfg *config.Config, store store.St
 		return nil, nil, fmt.Errorf("NewTLSListener: error creating TLS certs: %w", err)
 	}
 
-	return apiserver.New(log, cfg, store, ca, listener, queuesProvider, nil, orgResolver), listener, nil
+	return apiserver.New(log, cfg, store, ca, listener, queuesProvider, nil, tpm.NewDisabledCAVerifier(), orgResolver), listener, nil
 }
 
 // NewTestAgentServer creates a new test server and returns the server and the listener listening on localhost's next available port.
@@ -237,7 +238,7 @@ func NewTestAgentServer(ctx context.Context, log logrus.FieldLogger, cfg *config
 		return nil, nil, fmt.Errorf("NewTestAgentServer: error creating TLS certs: %w", err)
 	}
 
-	agentServer, err := agentserver.New(ctx, log, cfg, store, ca, listener, queuesProvider, tlsConfig, orgResolver)
+	agentServer, err := agentserver.New(ctx, log, cfg, store, ca, listener, queuesProvider, tlsConfig, tpm.NewDisabledCAVerifier(), orgResolver)
 	if err != nil {
 		_ = listener.Close()
 		return nil, nil, fmt.Errorf("NewTestAgentServer: error creating agent server: %w", err)

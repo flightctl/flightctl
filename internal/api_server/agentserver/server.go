@@ -20,6 +20,7 @@ import (
 	"github.com/flightctl/flightctl/internal/org/resolvers"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/tpm"
 	transport "github.com/flightctl/flightctl/internal/transport/agent"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/queues"
@@ -45,6 +46,7 @@ type AgentServer struct {
 	tlsConfig       *tls.Config
 	agentGrpcServer *AgentGrpcServer
 	orgResolver     resolvers.Resolver
+	tpmVerifier     tpm.CAVerifier
 	serviceHandler  service.Service
 	kvStore         kvstore.KVStore
 }
@@ -59,6 +61,7 @@ func New(
 	listener net.Listener,
 	queuesProvider queues.Provider,
 	tlsConfig *tls.Config,
+	tpmVerifier tpm.CAVerifier,
 	orgResolver resolvers.Resolver,
 ) (*AgentServer, error) {
 	s := &AgentServer{
@@ -69,6 +72,7 @@ func New(
 		listener:       listener,
 		queuesProvider: queuesProvider,
 		tlsConfig:      tlsConfig,
+		tpmVerifier:    tpmVerifier,
 		orgResolver:    orgResolver,
 	}
 
@@ -97,7 +101,7 @@ func (s *AgentServer) init(ctx context.Context) error {
 	workerClient := worker_client.NewWorkerClient(publisher, s.log)
 
 	s.serviceHandler = service.WrapWithTracing(
-		service.NewServiceHandler(s.store, workerClient, s.kvStore, s.ca, s.log, s.cfg.Service.AgentEndpointAddress, s.cfg.Service.BaseUIUrl, s.cfg.Service.TPMCAPaths, s.orgResolver))
+		service.NewServiceHandler(s.store, workerClient, s.kvStore, s.ca, s.log, s.cfg.Service.AgentEndpointAddress, s.cfg.Service.BaseUIUrl, s.tpmVerifier, s.orgResolver))
 
 	s.agentGrpcServer = NewAgentGrpcServer(s.log, s.cfg, s.serviceHandler)
 	return nil
