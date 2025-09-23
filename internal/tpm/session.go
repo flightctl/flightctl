@@ -19,6 +19,8 @@ const (
 	transientHandleMax  = tpm2.TPMHandle(0x80FFFFFF)
 	persistentHandleMin = tpm2.TPMHandle(0x81000000)
 	persistentHandleMax = tpm2.TPMHandle(0x81FFFFFF)
+	permanentHandleMin  = tpm2.TPMHandle(0x40000000)
+	permanentHandleMax  = tpm2.TPMHandle(0x4004FFFF)
 	nvReadChunkSize     = uint16(1024) // Maximum chunk size for NVRead operations
 	ekRSANVIndex        = gotpmclient.EKCertNVIndexRSA
 	ekECCNVIndex        = gotpmclient.EKCertNVIndexECC
