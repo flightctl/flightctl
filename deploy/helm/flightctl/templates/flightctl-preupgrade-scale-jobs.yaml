@@ -103,8 +103,8 @@ spec:
       {{- end }}
       containers:
         - name: scaler
-          image: {{ .Values.clusterCli.image.image }}:{{ .Values.clusterCli.image.tag }}
-          imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.clusterCli.image.pullPolicy }}
+          image: {{ .Values.secretsJob.image.image }}:{{ .Values.secretsJob.image.tag }}
+          imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.secretsJob.image.pullPolicy }}
           command: ["/bin/sh","-c"]
           args:
             - |

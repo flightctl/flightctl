@@ -1,3 +1,4 @@
+{{- if not (eq (.Values.global).target "acm") }}
 {{- $namespaces := list .Release.Namespace }}
 {{- if .Values.global.internalNamespace }}
 {{- $namespaces = append $namespaces .Values.global.internalNamespace }}
@@ -22,8 +23,8 @@ spec:
       serviceAccountName: flightctl-cleanup
       containers:
         - name: cleanup
-          image: {{ .Values.clusterCli.image.image }}:{{ .Values.clusterCli.image.tag }}
-          imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.clusterCli.image.pullPolicy }}
+          image: {{ .Values.secretsJob.image.image }}:{{ .Values.secretsJob.image.tag }}
+          imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.secretsJob.image.pullPolicy }}
           command: ["/bin/sh", "-c"]
           args:
             - |
@@ -39,4 +40,4 @@ spec:
               echo "Cleanup completed successfully!"
               exit 0
       restartPolicy: Never
-      
+{{- end }}

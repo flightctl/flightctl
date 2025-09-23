@@ -86,8 +86,6 @@ global:
     tls: 443
     # -- HTTP port for Gateway API configuration
     http: 80
-  # -- Generate secrets when deploying Flight Control. This should be set to false if you want to provide your own secrets or when upgrading Flight Control to avoid overriding the existing secrets
-  generateSecrets: true
   # -- Image pull policy for all containers
   imagePullPolicy: IfNotPresent
   rbac:
@@ -317,15 +315,14 @@ ui:
   api:
     # -- Skip TLS verification for UI API calls
     insecureSkipTlsVerify: true
-
-# -- Cluster CLI Configuration
-clusterCli:
+# -- Secrets job configuration
+secretsJob:
   image:
-    # -- Cluster CLI container image
+    # -- Secrets job container image
     image: quay.io/openshift/origin-cli
-    # -- Cluster CLI image tag
+    # -- Secrets job image tag
     tag: "4.20.0"
-    # -- Image pull policy for cluster CLI container
+    # -- Image pull policy for Secrets job container
     pullPolicy: ""
 # -- Database Setup Configuration
 dbSetup:
