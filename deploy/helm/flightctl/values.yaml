@@ -86,9 +86,6 @@ global:
     tls: 443
     # -- HTTP port for Gateway API configuration
     http: 80
-  # -- Generate secrets when deploying Flight Control. This should be set to false if you want to provide your own secrets or when upgrading Flight Control to avoid overriding the existing secrets
-  generateSecrets: true
-  # -- Image pull policy for all containers
   imagePullPolicy: IfNotPresent
   rbac:
     # -- Create RBAC resources (roles, bindings, service accounts)
@@ -136,18 +133,6 @@ db:
   masterUser: admin
   # -- Application database username
   user: flightctl_app
-  # -- Database migration username
-  migrationUser: flightctl_migrator
-  # -- Master user password (leave empty for auto-generation)
-  # masterPassword: Leave empty to auto-generate secure password, or set to use a specific password.
-  masterPassword: ""
-  # -- Application user password (leave empty for auto-generation)
-  # userPassword: Leave empty to auto-generate secure password, or set to use a specific password.
-  userPassword: ""
-  # -- Migration user password (leave empty for auto-generation)
-  # migrationPassword: Leave empty to auto-generate secure password, or set to use a specific password.
-  migrationPassword: ""
-  # -- Maximum number of database connections
   maxConnections: 200
   storage:
     # -- Persistent volume size for database storage
@@ -171,10 +156,8 @@ kv:
     tag: "20250108"
     # -- Image pull policy for Redis container
     pullPolicy: ""
-  # -- Redis password (leave empty for auto-generation)
-  # password: Leave empty to auto-generate secure password, or set to use a specific password.
-  password: ""
-  # -- Redis log level (debug, verbose, notice, warning)
+  # Save if at least 1 key changed in 5 minutes
+  save: 300 1
   loglevel: warning
   # -- File system group ID for Redis pod security context
   fsGroup: ""

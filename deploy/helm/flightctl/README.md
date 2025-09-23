@@ -243,21 +243,13 @@ For more detailed configuration options, see the [Values](#values) section below
 | cliArtifacts.image.image | string | `"quay.io/flightctl/flightctl-cli-artifacts"` | CLI artifacts container image |
 | cliArtifacts.image.pullPolicy | string | `""` | Image pull policy for CLI artifacts container |
 | cliArtifacts.image.tag | string | `""` | CLI artifacts image tag |
-| clusterCli | object | `{"image":{"image":"quay.io/openshift/origin-cli","pullPolicy":"","tag":"4.20.0"}}` | Cluster CLI Configuration |
-| clusterCli.image.image | string | `"quay.io/openshift/origin-cli"` | Cluster CLI container image |
-| clusterCli.image.pullPolicy | string | `""` | Image pull policy for cluster CLI container |
-| clusterCli.image.tag | string | `"4.20.0"` | Cluster CLI image tag |
-| db | object | `{"external":"disabled","fsGroup":"","image":{"image":"quay.io/sclorg/postgresql-16-c9s","pullPolicy":"","tag":"20250214"},"masterPassword":"","masterUser":"admin","maxConnections":200,"migrationPassword":"","migrationUser":"flightctl_migrator","name":"flightctl","port":5432,"resources":{"requests":{"cpu":"512m","memory":"512Mi"}},"sslConfigMap":"","sslSecret":"","sslmode":"","storage":{"size":"60Gi"},"type":"pgsql","user":"flightctl_app","userPassword":""}` | Database Configuration |
+| db | object | `{"external":"disabled","fsGroup":"","image":{"image":"quay.io/sclorg/postgresql-16-c9s","pullPolicy":"","tag":"20250214"},"masterUser":"admin","maxConnections":200,"name":"flightctl","port":5432,"resources":{"requests":{"cpu":"512m","memory":"512Mi"}},"sslConfigMap":"","sslSecret":"","sslmode":"","storage":{"size":"60Gi"},"type":"pgsql","user":"flightctl_app"}` | Database Configuration |
 | db.external | string | `"disabled"` | Use external PostgreSQL database instead of deploying internal one external: Set to "enabled" to use external PostgreSQL database instead of deploying internal one When enabled, configure hostname, port, name, user credentials to point to your external database |
 | db.fsGroup | string | `""` | File system group ID for database pod security context |
 | db.image.image | string | `"quay.io/sclorg/postgresql-16-c9s"` | PostgreSQL container image |
 | db.image.pullPolicy | string | `""` | Image pull policy for database container |
 | db.image.tag | string | `"20250214"` | PostgreSQL image tag |
-| db.masterPassword | string | `""` | Master user password (leave empty for auto-generation) masterPassword: Leave empty to auto-generate secure password, or set to use a specific password. |
 | db.masterUser | string | `"admin"` | Database master/admin username |
-| db.maxConnections | int | `200` | Maximum number of database connections |
-| db.migrationPassword | string | `""` | Migration user password (leave empty for auto-generation) migrationPassword: Leave empty to auto-generate secure password, or set to use a specific password. |
-| db.migrationUser | string | `"flightctl_migrator"` | Database migration username |
 | db.name | string | `"flightctl"` | Database name for Flight Control |
 | db.port | int | `5432` | Database port number |
 | db.resources.requests.cpu | string | `"512m"` | CPU resource requests for database pod |
@@ -268,7 +260,6 @@ For more detailed configuration options, see the [Values](#values) section below
 | db.storage.size | string | `"60Gi"` | Persistent volume size for database storage |
 | db.type | string | `"pgsql"` | Database type (currently only 'pgsql' is supported) |
 | db.user | string | `"flightctl_app"` | Application database username |
-| db.userPassword | string | `""` | Application user password (leave empty for auto-generation) userPassword: Leave empty to auto-generate secure password, or set to use a specific password. |
 | dbSetup | object | `{"image":{"image":"quay.io/flightctl/flightctl-db-setup","pullPolicy":"","tag":""},"migration":{"activeDeadlineSeconds":0,"backoffLimit":2147483647},"wait":{"sleep":2,"timeout":60}}` | Database Setup Configuration |
 | dbSetup.image.image | string | `"quay.io/flightctl/flightctl-db-setup"` | Database setup container image |
 | dbSetup.image.pullPolicy | string | `""` | Image pull policy for database setup container |
@@ -298,8 +289,7 @@ For more detailed configuration options, see the [Values](#values) section below
 | global.gatewayClass | string | `""` | Gateway API class name for gateway exposure method |
 | global.gatewayPorts.http | int | `80` | HTTP port for Gateway API configuration |
 | global.gatewayPorts.tls | int | `443` | TLS port for Gateway API configuration |
-| global.generateSecrets | bool | `true` | Generate secrets when deploying Flight Control. This should be set to false if you want to provide your own secrets or when upgrading Flight Control to avoid overriding the existing secrets |
-| global.imagePullPolicy | string | `"IfNotPresent"` | Image pull policy for all containers |
+| global.imagePullPolicy | string | `"IfNotPresent"` |  |
 | global.imagePullSecretName | string | `""` | Name of the image pull secret for accessing private container registries |
 | global.internalNamespace | string | `""` | Namespace where internal components are deployed |
 | global.metrics.enabled | bool | `true` | Enable metrics exporting and service |
@@ -320,16 +310,14 @@ For more detailed configuration options, see the [Values](#values) section below
 | global.tracing.insecure | bool | `true` | Use insecure connection to tracing endpoint (development only) |
 | keycloak | object | `{"db":{"fsGroup":""}}` | Keycloak Configuration |
 | keycloak.db.fsGroup | string | `""` | File system group ID for Keycloak database pod security context |
-| kv | object | `{"enabled":true,"fsGroup":"","image":{"image":"quay.io/sclorg/redis-7-c9s","pullPolicy":"","tag":"20250108"},"loglevel":"warning","maxmemory":"1gb","maxmemoryPolicy":"allkeys-lru","password":""}` | Key-Value Store Configuration |
+| kv | object | `{"enabled":true,"fsGroup":"","image":{"image":"quay.io/sclorg/redis-7-c9s","pullPolicy":"","tag":"20250108"},"loglevel":"warning","maxmemory":"1gb","maxmemoryPolicy":"allkeys-lru","save":"300 1"}` | Key-Value Store Configuration |
 | kv.enabled | bool | `true` | Enable Redis key-value store for caching and session storage |
 | kv.fsGroup | string | `""` | File system group ID for Redis pod security context |
 | kv.image.image | string | `"quay.io/sclorg/redis-7-c9s"` | Redis container image |
 | kv.image.pullPolicy | string | `""` | Image pull policy for Redis container |
 | kv.image.tag | string | `"20250108"` | Redis image tag |
-| kv.loglevel | string | `"warning"` | Redis log level (debug, verbose, notice, warning) |
 | kv.maxmemory | string | `"1gb"` | Maximum memory usage for Redis |
 | kv.maxmemoryPolicy | string | `"allkeys-lru"` | Redis memory eviction policy |
-| kv.password | string | `""` | Redis password (leave empty for auto-generation) password: Leave empty to auto-generate secure password, or set to use a specific password. |
 | periodic | object | `{"consumers":5,"enabled":true,"image":{"image":"quay.io/flightctl/flightctl-periodic","pullPolicy":"","tag":""}}` | Periodic Configuration |
 | periodic.consumers | int | `5` | Number of periodic consumers |
 | periodic.enabled | bool | `true` | Enable Flight Control periodic service |
@@ -338,6 +326,9 @@ For more detailed configuration options, see the [Values](#values) section below
 | periodic.image.tag | string | `""` | Periodic image tag |
 | prometheus | object | `{"enabled":false}` | Prometheus Configuration |
 | prometheus.enabled | bool | `false` | Enable Prometheus deployment |
+| secretsJob.image.image | string | `"quay.io/openshift/origin-cli"` |  |
+| secretsJob.image.pullPolicy | string | `""` |  |
+| secretsJob.image.tag | string | `"4.20.0"` |  |
 | telemetryGateway | object | `{"enabled":false}` | Telemetry Gateway Configuration |
 | telemetryGateway.enabled | bool | `false` | Enable telemetry gateway service |
 | ui | object | `{"api":{"insecureSkipTlsVerify":true},"enabled":true}` | UI Configuration |
