@@ -37,9 +37,9 @@ func testResourceSyncPatch(require *require.Assertions, patch api.PatchRequest) 
 		store:        testStore,
 		log:          logrus.New(),
 	}
-	orig, status := serviceHandler.CreateResourceSync(ctx, resourceSync)
+	orig, status := serviceHandler.CreateResourceSync(ctx, store.NullOrgId, resourceSync)
 	require.Equal(statusCreatedCode, status.Code)
-	resp, status := serviceHandler.PatchResourceSync(ctx, "foo", patch)
+	resp, status := serviceHandler.PatchResourceSync(ctx, store.NullOrgId, "foo", patch)
 	require.NotEqual(statusFailedCode, status.Code)
 	event, _ := serviceHandler.store.Event().List(context.Background(), store.NullOrgId, store.ListParams{})
 	require.NotEmpty(event.Items)
@@ -72,7 +72,7 @@ func TestResourceSyncCreateWithLongNames(t *testing.T) {
 	}
 	_, err := serviceHandler.store.ResourceSync().Create(ctx, store.NullOrgId, &resourceSync, serviceHandler.callbackResourceSyncUpdated)
 	require.NoError(err)
-	_, status := serviceHandler.ReplaceResourceSync(ctx,
+	_, status := serviceHandler.ReplaceResourceSync(ctx, store.NullOrgId,
 		"01234567890123456789012345678901234567890123456789012345678901234567890123456789",
 		resourceSync,
 	)
@@ -218,7 +218,7 @@ func TestResourceSyncNonExistingResource(t *testing.T) {
 		Metadata: api.ObjectMeta{Name: lo.ToPtr("foo")},
 	}, serviceHandler.callbackResourceSyncUpdated)
 	require.NoError(err)
-	_, status := serviceHandler.PatchResourceSync(ctx, "bar", pr)
+	_, status := serviceHandler.PatchResourceSync(ctx, store.NullOrgId, "bar", pr)
 	require.Equal(statusNotFoundCode, status.Code)
 	event, _ := serviceHandler.store.Event().List(context.Background(), store.NullOrgId, store.ListParams{})
 	require.NotEmpty(event.Items)
