@@ -24,12 +24,31 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// MockKVStore implements kvstore.KVStore for testing
+type MockKVStore struct{}
+
+func (m *MockKVStore) Close() {}
+func (m *MockKVStore) SetNX(ctx context.Context, key string, value []byte) (bool, error) {
+	return true, nil
+}
+func (m *MockKVStore) SetIfGreater(ctx context.Context, key string, newVal int64) (bool, error) {
+	return true, nil
+}
+func (m *MockKVStore) Get(ctx context.Context, key string) ([]byte, error) { return nil, nil }
+func (m *MockKVStore) GetOrSetNX(ctx context.Context, key string, value []byte) ([]byte, error) {
+	return value, nil
+}
+func (m *MockKVStore) DeleteKeysForTemplateVersion(ctx context.Context, key string) error { return nil }
+func (m *MockKVStore) DeleteAllKeys(ctx context.Context) error                            { return nil }
+func (m *MockKVStore) PrintAllKeys(ctx context.Context)                                   {}
+
 func serviceHandler() *ServiceHandler {
 	testStore := &TestStore{}
 	return &ServiceHandler{
 		eventHandler: NewEventHandler(testStore, nil, logrus.New()),
 		store:        testStore,
 		workerClient: &DummyWorkerClient{},
+		kvStore:      &MockKVStore{},
 		log:          logrus.New(),
 	}
 }

@@ -85,3 +85,12 @@ type DeviceKey struct {
 func (d *DeviceKey) ComposeKey() string {
 	return fmt.Sprintf("v1/%s/device/%s", d.OrgID, d.DeviceName)
 }
+
+type AwaitingReconnectionKey struct {
+	OrgID      uuid.UUID
+	DeviceName string
+}
+
+func (a *AwaitingReconnectionKey) ComposeKey() string {
+	return fmt.Sprintf("v1/%s/device/%s/awaiting-reconnect", a.OrgID, a.DeviceName)
+}

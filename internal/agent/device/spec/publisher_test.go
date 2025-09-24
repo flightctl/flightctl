@@ -32,6 +32,10 @@ func (v *vars) finish() {
 }
 
 func setup(t *testing.T) *vars {
+	return setupWithInitialVersion(t, "")
+}
+
+func setupWithInitialVersion(t *testing.T, initialVersion string) *vars {
 	ctrl := gomock.NewController(t)
 	deviceName := "test-device"
 	ctx, cancel := context.WithCancel(context.Background())
@@ -47,6 +51,7 @@ func setup(t *testing.T) *vars {
 		deviceName:       deviceName,
 		log:              log.NewPrefixLogger(""),
 		interval:         time.Second,
+		lastKnownVersion: initialVersion,
 		backoff: wait.Backoff{
 			Steps: 1,
 		},
@@ -308,4 +313,200 @@ func TestDevicePublisher_DeviceNotFoundHandling(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestVersionComparison(t *testing.T) {
+	tests := []struct {
+		name                 string
+		initialVersion       string
+		newVersion           string
+		expectedUpdate       bool
+		expectedFinalVersion string
+		description          string
+	}{
+		{
+			name:                 "new version greater than last known",
+			initialVersion:       "5",
+			newVersion:           "10",
+			expectedUpdate:       true,
+			expectedFinalVersion: "10",
+			description:          "Should update when new version is greater",
+		},
+		{
+			name:                 "new version equal to last known",
+			initialVersion:       "5",
+			newVersion:           "5",
+			expectedUpdate:       false,
+			expectedFinalVersion: "5",
+			description:          "Should NOT update when new version equals last known",
+		},
+		{
+			name:                 "new version less than last known",
+			initialVersion:       "10",
+			newVersion:           "5",
+			expectedUpdate:       false,
+			expectedFinalVersion: "10",
+			description:          "Should NOT update when new version is less than last known",
+		},
+		{
+			name:                 "initial version empty, new version valid",
+			initialVersion:       "",
+			newVersion:           "5",
+			expectedUpdate:       true,
+			expectedFinalVersion: "5",
+			description:          "Should update when initial version is empty",
+		},
+		{
+			name:                 "initial version valid, new version empty",
+			initialVersion:       "5",
+			newVersion:           "",
+			expectedUpdate:       false,
+			expectedFinalVersion: "5",
+			description:          "Should NOT update when new version is empty (0 <= 5)",
+		},
+		{
+			name:                 "both versions empty",
+			initialVersion:       "",
+			newVersion:           "",
+			expectedUpdate:       false,
+			expectedFinalVersion: "",
+			description:          "Should NOT update when both versions are empty (0 <= 0)",
+		},
+		{
+			name:                 "initial version invalid, new version valid",
+			initialVersion:       "invalid",
+			newVersion:           "5",
+			expectedUpdate:       true,
+			expectedFinalVersion: "5",
+			description:          "Should update when initial version is invalid (parsing fails)",
+		},
+		{
+			name:                 "initial version valid, new version invalid",
+			initialVersion:       "5",
+			newVersion:           "invalid",
+			expectedUpdate:       false,
+			expectedFinalVersion: "5",
+			description:          "Should NOT update when new version is invalid (0 <= 5)",
+		},
+		{
+			name:                 "both versions invalid",
+			initialVersion:       "invalid1",
+			newVersion:           "invalid2",
+			expectedUpdate:       false,
+			expectedFinalVersion: "invalid1",
+			description:          "Should NOT update when both versions are invalid (0 <= 0)",
+		},
+		{
+			name:                 "large version numbers",
+			initialVersion:       "999999",
+			newVersion:           "1000000",
+			expectedUpdate:       true,
+			expectedFinalVersion: "1000000",
+			description:          "Should handle large version numbers correctly",
+		},
+		{
+			name:                 "zero versions",
+			initialVersion:       "0",
+			newVersion:           "0",
+			expectedUpdate:       false,
+			expectedFinalVersion: "0",
+			description:          "Should NOT update when both versions are zero (0 <= 0)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := setupWithInitialVersion(t, tt.initialVersion)
+			defer v.finish()
+
+			// Create a device with the new version
+			newDevice := newVersionedDevice(tt.newVersion)
+
+			// Mock the API call to return the new device
+			v.mockClient.EXPECT().GetRenderedDevice(gomock.Any(), v.deviceName, gomock.Any()).Return(newDevice, http.StatusOK, nil)
+
+			// Record the initial version
+			initialVersion := v.notifier.lastKnownVersion
+
+			// Call pollAndPublish
+			v.notifier.pollAndPublish(v.ctx)
+
+			// Check if the version was updated
+			if tt.expectedUpdate {
+				v.assertions.Equal(tt.expectedFinalVersion, v.notifier.lastKnownVersion, tt.description)
+			} else {
+				v.assertions.Equal(initialVersion, v.notifier.lastKnownVersion, tt.description)
+			}
+
+			// Verify that a device was published to subscribers (current implementation always publishes)
+			device, popped, err := v.watcher.TryPop()
+			v.assertions.NoError(err)
+			v.assertions.True(popped, "Expected device to be published to subscribers")
+			v.assertions.Equal(tt.newVersion, device.Version())
+		})
+	}
+}
+
+func TestVersionComparisonWithRealAPI(t *testing.T) {
+	t.Run("version comparison with actual API response", func(t *testing.T) {
+		v := setupWithInitialVersion(t, "3")
+		defer v.finish()
+
+		// Create a device with version "7" (greater than initial "3")
+		newDevice := newVersionedDevice("7")
+		v.mockClient.EXPECT().GetRenderedDevice(gomock.Any(), v.deviceName, gomock.Any()).Return(newDevice, http.StatusOK, nil)
+
+		// Call pollAndPublish
+		v.notifier.pollAndPublish(v.ctx)
+
+		// Verify version was updated
+		v.assertions.Equal("7", v.notifier.lastKnownVersion)
+
+		// Verify device was published
+		device, popped, err := v.watcher.TryPop()
+		v.assertions.NoError(err)
+		v.assertions.True(popped)
+		v.assertions.Equal("7", device.Version())
+	})
+
+	t.Run("version comparison with older version", func(t *testing.T) {
+		v := setupWithInitialVersion(t, "10")
+		defer v.finish()
+
+		// Create a device with version "5" (less than initial "10")
+		newDevice := newVersionedDevice("5")
+		v.mockClient.EXPECT().GetRenderedDevice(gomock.Any(), v.deviceName, gomock.Any()).Return(newDevice, http.StatusOK, nil)
+
+		// Call pollAndPublish
+		v.notifier.pollAndPublish(v.ctx)
+
+		// Verify version was NOT updated
+		v.assertions.Equal("10", v.notifier.lastKnownVersion)
+
+		// Verify device was published (current implementation always publishes)
+		device, popped, err := v.watcher.TryPop()
+		v.assertions.NoError(err)
+		v.assertions.True(popped)
+		v.assertions.Equal("5", device.Version())
+	})
+}
+
+func TestNewWithInitialVersion(t *testing.T) {
+	t.Run("creates publisher with initial version", func(t *testing.T) {
+		initialVersion := "42"
+		p := newPublisher("test-device", time.Second, wait.Backoff{}, initialVersion, nil, log.NewPrefixLogger(""))
+
+		publisher, ok := p.(*publisher)
+		require.True(t, ok)
+		require.Equal(t, initialVersion, publisher.lastKnownVersion)
+	})
+
+	t.Run("creates publisher with empty initial version", func(t *testing.T) {
+		initialVersion := ""
+		p := newPublisher("test-device", time.Second, wait.Backoff{}, initialVersion, nil, log.NewPrefixLogger(""))
+
+		publisher, ok := p.(*publisher)
+		require.True(t, ok)
+		require.Equal(t, initialVersion, publisher.lastKnownVersion)
+	})
 }
