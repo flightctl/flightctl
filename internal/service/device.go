@@ -87,7 +87,8 @@ func (h *ServiceHandler) PrepareDevicesAfterRestore(ctx context.Context) error {
 	if h.eventHandler != nil {
 		event := common.GetSystemRestoredEvent(ctx, devicesUpdated)
 		if event != nil {
-			h.eventHandler.CreateEvent(ctx, getOrgIdFromContext(ctx), event)
+			// No org available in this context; emit under NullOrgId explicitly
+			h.eventHandler.CreateEvent(ctx, store.NullOrgId, event)
 			h.log.Info("System restored event created successfully")
 		}
 	}
@@ -479,7 +480,7 @@ func (h *ServiceHandler) UpdateRenderedDevice(ctx context.Context, orgId uuid.UU
 func (h *ServiceHandler) SetDeviceServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) api.Status {
 	// Create callback to handle condition changes
 	callback := func(ctx context.Context, orgId uuid.UUID, device *api.Device, oldConditions, newConditions []api.Condition) {
-		h.diffAndEmitConditionEvents(ctx, device, oldConditions, newConditions)
+		h.diffAndEmitConditionEvents(ctx, orgId, device, oldConditions, newConditions)
 	}
 
 	err := h.store.Device().SetServiceConditions(ctx, orgId, name, conditions, callback)
@@ -487,7 +488,7 @@ func (h *ServiceHandler) SetDeviceServiceConditions(ctx context.Context, orgId u
 }
 
 // diffAndEmitConditionEvents compares old and new conditions and emits events for condition changes
-func (h *ServiceHandler) diffAndEmitConditionEvents(ctx context.Context, device *api.Device, oldConditions, newConditions []api.Condition) {
+func (h *ServiceHandler) diffAndEmitConditionEvents(ctx context.Context, orgId uuid.UUID, device *api.Device, oldConditions, newConditions []api.Condition) {
 	// Track condition changes for MultipleOwners
 	oldMultipleOwnersCondition := api.FindStatusCondition(oldConditions, api.ConditionTypeDeviceMultipleOwners)
 	newMultipleOwnersCondition := api.FindStatusCondition(newConditions, api.ConditionTypeDeviceMultipleOwners)
@@ -496,8 +497,9 @@ func (h *ServiceHandler) diffAndEmitConditionEvents(ctx context.Context, device 
 	multipleOwnersConditionChanged := hasConditionChanged(oldMultipleOwnersCondition, newMultipleOwnersCondition)
 
 	if multipleOwnersConditionChanged {
+		createEvent := func(c context.Context, e *api.Event) { h.CreateEvent(c, e) }
 		common.EmitMultipleOwnersEvents(ctx, device, oldMultipleOwnersCondition, newMultipleOwnersCondition,
-			h.CreateEvent, common.GetDeviceMultipleOwnersDetectedEvent, common.GetDeviceMultipleOwnersResolvedEvent,
+			createEvent, common.GetDeviceMultipleOwnersDetectedEvent, common.GetDeviceMultipleOwnersResolvedEvent,
 			h.log,
 		)
 	}
@@ -510,8 +512,9 @@ func (h *ServiceHandler) diffAndEmitConditionEvents(ctx context.Context, device 
 	specValidConditionChanged := hasConditionChanged(oldSpecValidCondition, newSpecValidCondition)
 
 	if specValidConditionChanged {
+		createEvent := func(c context.Context, e *api.Event) { h.CreateEvent(c, e) }
 		common.EmitSpecValidEvents(ctx, device, oldSpecValidCondition, newSpecValidCondition,
-			h.CreateEvent, common.GetDeviceSpecValidEvent, common.GetDeviceSpecInvalidEvent,
+			createEvent, common.GetDeviceSpecValidEvent, common.GetDeviceSpecInvalidEvent,
 			h.log)
 	}
 }
@@ -588,9 +591,8 @@ func (h *ServiceHandler) GetDevicesSummary(ctx context.Context, orgId uuid.UUID,
 	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, nil)
 }
 
-
 func (h *ServiceHandler) UpdateServiceSideDeviceStatus(ctx context.Context, orgId uuid.UUID, device api.Device) bool {
-	anyChanged, _ := common.UpdateServiceSideStatus(ctx, orgId, &device, h.store, h.log)
+	anyChanged := common.UpdateServiceSideStatus(ctx, orgId, &device, h.store, h.log)
 	return anyChanged
 }
 
@@ -622,7 +624,7 @@ func (h *ServiceHandler) ResumeDevices(ctx context.Context, orgId uuid.UUID, req
 	if h.eventHandler != nil {
 		for _, deviceID := range deviceIDs {
 			event := common.GetDeviceConflictResolvedEvent(ctx, deviceID)
-			h.eventHandler.CreateEvent(ctx, getOrgIdFromContext(ctx), event)
+			h.eventHandler.CreateEvent(ctx, orgId, event)
 		}
 		h.log.Infof("Created DeviceConflictResolved events for %d devices", len(deviceIDs))
 	}
@@ -689,7 +691,7 @@ func (h *ServiceHandler) processAwaitingReconnectIfNeeded(ctx context.Context, o
 				h.log.Infof("Device %s was moved to conflict paused state, creating event", deviceName)
 				event := common.GetDeviceConflictPausedEvent(ctx, deviceName)
 				if event != nil {
-					h.eventHandler.CreateEvent(ctx, event)
+					h.eventHandler.CreateEvent(ctx, orgId, event)
 					h.log.Infof("Successfully created conflict paused event for device %s", deviceName)
 				} else {
 					h.log.Warnf("Failed to create conflict paused event for device %s - event is nil", deviceName)

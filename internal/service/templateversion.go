@@ -20,7 +20,7 @@ func (h *ServiceHandler) CreateTemplateVersion(ctx context.Context, orgId uuid.U
 
 	result, err := h.store.TemplateVersion().Create(ctx, orgId, &templateVersion, h.callbackTemplateVersionUpdated)
 	if err == nil {
-		h.eventHandler.EmitFleetRolloutStartedEvent(ctx, lo.FromPtr(templateVersion.Metadata.Name), templateVersion.Spec.Fleet, immediateRollout)
+		h.eventHandler.EmitFleetRolloutStartedEvent(ctx, orgId, lo.FromPtr(templateVersion.Metadata.Name), templateVersion.Spec.Fleet, immediateRollout)
 	}
 	return result, StoreErrorToApiStatus(err, true, api.TemplateVersionKind, templateVersion.Metadata.Name)
 }

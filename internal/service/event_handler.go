@@ -133,10 +133,10 @@ func (h *EventHandler) HandleDeviceDecommissionEvents(ctx context.Context, _ api
 //                    Fleet Events                 //
 //////////////////////////////////////////////////////
 
-func (h *EventHandler) EmitFleetRolloutStartedEvent(ctx context.Context, templateVersionName string, fleetName string, immediateRollout bool) {
+func (h *EventHandler) EmitFleetRolloutStartedEvent(ctx context.Context, orgId uuid.UUID, templateVersionName string, fleetName string, immediateRollout bool) {
 	event := common.GetFleetRolloutStartedEvent(ctx, templateVersionName, fleetName, immediateRollout, false)
 	if event != nil {
-		h.CreateEvent(ctx, getOrgIdFromContext(ctx), event)
+		h.CreateEvent(ctx, orgId, event)
 	}
 }
 
