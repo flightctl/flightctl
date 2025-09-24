@@ -36,6 +36,8 @@ type CSRProvisionerConfig struct {
 	Usages []string `json:"usages,omitempty"`
 	// ExpirationSeconds requests a specific certificate validity duration (in seconds); signer may ignore
 	ExpirationSeconds *int32 `json:"expiration-seconds,omitempty"`
+	// IdentityType specifies the type of identity to use for this certificate ("software", "tpm", or empty for default)
+	IdentityType string `json:"identity-type,omitempty"`
 	// Additional CSR-specific configuration (future extensions)
 	Config map[string]interface{} `json:"config,omitempty"`
 }
@@ -90,8 +92,9 @@ func (p *CSRProvisioner) Provision(ctx context.Context) (bool, *x509.Certificate
 	if err != nil {
 		return false, nil, nil, fmt.Errorf("new identity: %w", err)
 	}
-	if len(id.CSR) == 0 {
-		return false, nil, nil, fmt.Errorf("provisioning CSR")
+	csr, err := id.CSR()
+	if err != nil {
+		return false, nil, nil, fmt.Errorf("create CSR: %w", err)
 	}
 
 	p.identity = id
@@ -113,7 +116,7 @@ func (p *CSRProvisioner) Provision(ctx context.Context) (bool, *x509.Certificate
 		},
 		Spec: api.CertificateSigningRequestSpec{
 			ExpirationSeconds: p.cfg.ExpirationSeconds,
-			Request:           id.CSR,
+			Request:           csr,
 			SignerName:        p.cfg.Signer,
 			Usages:            &usages,
 		},
@@ -163,9 +166,9 @@ func (p *CSRProvisioner) check(ctx context.Context) (bool, *x509.Certificate, []
 			return false, nil, nil, fmt.Errorf("failed to parse CSR PEM certificate: %w", err)
 		}
 
-		keyPEM := p.identity.KeyPEM
-		if len(keyPEM) == 0 {
-			return false, nil, nil, fmt.Errorf("empty identity key PEM")
+		keyPEM, err := p.identity.KeyPEM()
+		if err != nil {
+			return false, nil, nil, fmt.Errorf("key pem: %w", err)
 		}
 
 		return true, cert, keyPEM, nil
@@ -186,16 +189,16 @@ type CSRProvisionerFactory struct {
 	deviceName string
 	// Client for communicating with management server
 	managementClient csrClient
-	// Provider responsible for creating identities for the CSRs
-	identityProvider identity.ExportableProvider
+	// Factory responsible for creating different types of identity providers
+	identityFactory identity.ExportableFactory
 }
 
 // NewCSRProvisionerFactory creates a new CSRProvisionerFactory with the specified dependencies.
-func NewCSRProvisionerFactory(deviceName string, managementClient csrClient, identityProvider identity.ExportableProvider) *CSRProvisionerFactory {
+func NewCSRProvisionerFactory(deviceName string, managementClient csrClient, identityFactory identity.ExportableFactory) *CSRProvisionerFactory {
 	return &CSRProvisionerFactory{
 		deviceName:       deviceName,
 		managementClient: managementClient,
-		identityProvider: identityProvider,
+		identityFactory:  identityFactory,
 	}
 }
 
@@ -212,6 +215,12 @@ func (f *CSRProvisionerFactory) New(log provider.Logger, cc provider.Certificate
 	var csrConfig CSRProvisionerConfig
 	if err := json.Unmarshal(prov.Config, &csrConfig); err != nil {
 		return nil, fmt.Errorf("failed to decode CSR provisioner config for certificate %q: %w", cc.Name, err)
+	}
+
+	// Create identity provider for the specified type
+	identityProvider, err := f.identityFactory.NewExportableProvider(csrConfig.IdentityType)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create identity provider for type %q in certificate %q: %w", csrConfig.IdentityType, cc.Name, err)
 	}
 
 	commonName := csrConfig.CommonName
@@ -235,7 +244,7 @@ func (f *CSRProvisionerFactory) New(log provider.Logger, cc provider.Certificate
 
 	csrConfig.CommonName = rendered.String()
 
-	return NewCSRProvisioner(f.deviceName, f.managementClient, f.identityProvider, &csrConfig)
+	return NewCSRProvisioner(f.deviceName, f.managementClient, identityProvider, &csrConfig)
 }
 
 // Validate checks whether the provided config is valid for a CSR provisioner.
@@ -254,6 +263,10 @@ func (f *CSRProvisionerFactory) Validate(log provider.Logger, cc provider.Certif
 
 	if csrConfig.Signer == "" {
 		return fmt.Errorf("signer must be specified for CSR provisioner in certificate %q", cc.Name)
+	}
+
+	if !f.identityFactory.CanProvide(csrConfig.IdentityType) {
+		return fmt.Errorf("invalid identity type %q for certificate", cc.Name)
 	}
 
 	return nil

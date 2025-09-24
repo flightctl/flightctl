@@ -271,7 +271,7 @@ func (a *Agent) Run(ctx context.Context) error {
 			bootstrap.ManagementClient(),
 			deviceReadWriter,
 			a.config,
-			identityProvider,
+			identity.NewExportableFactory(tpmClient, a.log),
 		),
 	)
 	if err != nil {

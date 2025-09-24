@@ -95,9 +95,9 @@ func (h *ServiceHandler) verifyTPMCSRRequest(ctx context.Context, csr *api.Certi
 	}
 
 	orgId := getOrgIdFromContext(ctx)
-	setTPMVerifiedFalse := func(message string) {
+	setTPMVerifiedFalse := func(messageTemplate string, args ...any) {
 		api.SetStatusCondition(&csr.Status.Conditions, api.Condition{
-			Message: message,
+			Message: fmt.Sprintf(messageTemplate, args...),
 			Reason:  api.TPMVerificationFailedReason,
 			Status:  api.ConditionStatusFalse,
 			Type:    api.ConditionTypeCertificateSigningRequestTPMVerified,
@@ -110,43 +110,44 @@ func (h *ServiceHandler) verifyTPMCSRRequest(ctx context.Context, csr *api.Certi
 		return nil
 	}
 	if kind != api.DeviceKind {
-		setTPMVerifiedFalse("The CSR's owner is not a Device")
+		setTPMVerifiedFalse("The CSR's owner is not a %s", api.DeviceKind)
 		return nil
 	}
 	// TODO this should be retrieved from the device rather than from the ER
 	er, err := h.store.EnrollmentRequest().Get(ctx, orgId, owner)
 	if err != nil {
-		setTPMVerifiedFalse(fmt.Sprintf("Unable to find CSR's owner: %s/%s ", orgId, owner))
+		setTPMVerifiedFalse("Unable to find CSR's owner: %s/%s", orgId, owner)
 		return nil
 	}
 
-	// Following checks are errors as they should be replaced with checking the device directly at which point they should
-	// just add to the condition
-	if !api.IsStatusConditionTrue(er.Status.Conditions, api.ConditionTypeEnrollmentRequestTPMVerified) {
-		return fmt.Errorf("owner %s not %s", lo.FromPtr(csr.Metadata.Owner), api.ConditionTypeEnrollmentRequestTPMVerified)
+	notTPMBasedMessage := fmt.Sprintf("The CSR's owner %s is not TPM based.", lo.FromPtr(csr.Metadata.Owner))
+	if er.Status == nil || !api.IsStatusConditionTrue(er.Status.Conditions, api.ConditionTypeEnrollmentRequestTPMVerified) {
+		setTPMVerifiedFalse(notTPMBasedMessage)
+		return nil
 	}
 
 	erBytes, isTPM := tpm.ParseTCGCSRBytes(er.Spec.Csr)
 	if !isTPM {
-		return fmt.Errorf("ER TCG CSR not TPM")
+		setTPMVerifiedFalse(notTPMBasedMessage)
+		return nil
 	}
 
 	parsed, err := tpm.ParseTCGCSR(erBytes)
 	if err != nil {
-		return fmt.Errorf("parsing ER TCG CSR: %w", err)
+		setTPMVerifiedFalse(notTPMBasedMessage)
+		return nil
 	}
 
-	if err := tpm.VerifyTCGCSRSigningChain(csrBytes, parsed.CSRContents.Payload.AttestPub); err != nil {
-		setTPMVerifiedFalse(fmt.Sprintf(err.Error()))
+	if err = tpm.VerifyTCGCSRSigningChain(csrBytes, parsed.CSRContents.Payload.AttestPub); err != nil {
+		setTPMVerifiedFalse(err.Error())
 		return nil
-	} else {
-		api.SetStatusCondition(&csr.Status.Conditions, api.Condition{
-			Message: "TPM chain of trust verified",
-			Reason:  "TPMVerificationSucceeded",
-			Status:  api.ConditionStatusTrue,
-			Type:    api.ConditionTypeCertificateSigningRequestTPMVerified,
-		})
 	}
+	api.SetStatusCondition(&csr.Status.Conditions, api.Condition{
+		Message: "TPM chain of trust verified",
+		Reason:  "TPMVerificationSucceeded",
+		Status:  api.ConditionStatusTrue,
+		Type:    api.ConditionTypeCertificateSigningRequestTPMVerified,
+	})
 
 	return nil
 }
@@ -360,7 +361,12 @@ func (h *ServiceHandler) UpdateCertificateSigningRequestApproval(ctx context.Con
 		api.ConditionTypeCertificateSigningRequestFailed,
 		api.ConditionTypeCertificateSigningRequestTPMVerified,
 	}
-	trueConditions := allowedConditionTypes
+	// manual approving of TPMVerified false is allowed
+	trueConditions := []api.ConditionType{
+		api.ConditionTypeCertificateSigningRequestApproved,
+		api.ConditionTypeCertificateSigningRequestDenied,
+		api.ConditionTypeCertificateSigningRequestFailed,
+	}
 	exclusiveConditions := []api.ConditionType{api.ConditionTypeCertificateSigningRequestApproved, api.ConditionTypeCertificateSigningRequestDenied}
 	errs := api.ValidateConditions(newCSR.Status.Conditions, allowedConditionTypes, trueConditions, exclusiveConditions)
 	if len(errs) > 0 {

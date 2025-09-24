@@ -33,11 +33,32 @@ var (
 
 type Exportable struct {
 	// Name of the identity
-	Name string
+	name string
 	// CSR defines the certificate signing request. The contents may vary depending on the type of the provider
-	CSR []byte
+	csr []byte
 	// KeyPEM defines the private PEM bytes. The PEM block may vary depending on the type of the provider
-	KeyPEM []byte
+	keyPEM []byte
+}
+
+// Name returns the name of the Exportable
+func (e *Exportable) Name() string {
+	return e.name
+}
+
+// CSR returns the CSR associated with the Exportable or an error if not initialized
+func (e *Exportable) CSR() ([]byte, error) {
+	if len(e.csr) == 0 {
+		return nil, fmt.Errorf("CSR not initialized")
+	}
+	return e.csr, nil
+}
+
+// KeyPEM returns the PEM bytes associated with the Exportable or an error if not inialized
+func (e *Exportable) KeyPEM() ([]byte, error) {
+	if len(e.keyPEM) == 0 {
+		return nil, fmt.Errorf("KeyPEM not initialized")
+	}
+	return e.keyPEM, nil
 }
 
 // ExportableProvider defines the interface for providing Exportable identities
@@ -49,7 +70,6 @@ type ExportableProvider interface {
 // Provider defines the interface for identity providers that handle device authentication.
 // Different implementations can support file-based keys, TPM-based keys, or other methods.
 type Provider interface {
-	ExportableProvider
 	// Initialize sets up the provider and prepares it for use
 	Initialize(ctx context.Context) error
 	// GetDeviceName returns the device name derived from the public key

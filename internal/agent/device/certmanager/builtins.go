@@ -19,7 +19,7 @@ func WithBuiltins(
 	managementClient client.Management,
 	readWriter fileio.ReadWriter,
 	cfg *agent_config.Config,
-	idProvider identity.ExportableProvider,
+	idFactory identity.ExportableFactory,
 ) ManagerOption {
 	return func(cm *CertManager) error {
 		if cfg == nil {
@@ -31,8 +31,8 @@ func WithBuiltins(
 		if readWriter == nil {
 			return fmt.Errorf("nil read-writer")
 		}
-		if idProvider == nil {
-			return fmt.Errorf("nil identity provider")
+		if idFactory == nil {
+			return fmt.Errorf("nil identity factory")
 		}
 
 		// Config providers
@@ -41,7 +41,7 @@ func WithBuiltins(
 		}
 
 		// Provisioner providers
-		if err := WithProvisionerProvider(provisioner.NewCSRProvisionerFactory(deviceName, managementClient, idProvider))(cm); err != nil {
+		if err := WithProvisionerProvider(provisioner.NewCSRProvisionerFactory(deviceName, managementClient, idFactory))(cm); err != nil {
 			return err
 		}
 

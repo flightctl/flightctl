@@ -279,10 +279,7 @@ func TestTPMProvider_NewExportable(t *testing.T) {
 
 			mockClient := tpm.NewMockClient(ctrl)
 
-			provider := &tpmProvider{
-				client: mockClient,
-				log:    log.NewPrefixLogger("test"),
-			}
+			provider := newTPMExportableProvider(mockClient)
 
 			if tt.setupMocks != nil {
 				tt.setupMocks(mockClient)
@@ -299,9 +296,15 @@ func TestTPMProvider_NewExportable(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 				require.NotNil(t, result)
-				require.Equal(t, tt.appName, result.Name)
-				require.Equal(t, tt.expectedCSR, result.CSR)
-				require.Equal(t, tt.expectedKeyPEM, result.KeyPEM)
+				require.Equal(t, tt.appName, result.Name())
+
+				csr, err := result.CSR()
+				require.NoError(t, err)
+				require.Equal(t, tt.expectedCSR, csr)
+
+				keyPEM, err := result.KeyPEM()
+				require.NoError(t, err)
+				require.Equal(t, tt.expectedKeyPEM, keyPEM)
 			}
 		})
 	}

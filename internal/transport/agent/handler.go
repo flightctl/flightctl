@@ -205,8 +205,11 @@ func (s *AgentTransportHandler) CreateCertificateSigningRequest(w http.ResponseW
 		return
 	}
 
+	failedTPMVerification := api.IsStatusConditionFalse(csr.Status.Conditions, api.ConditionTypeCertificateSigningRequestTPMVerified)
+
 	// auto approve for DeviceSvcClientSignerName if it pass the signer verification we're good
-	if csr.Spec.SignerName == s.ca.Cfg.DeviceSvcClientSignerName {
+	// if tpm verification explicitly fails, a manual approval is required
+	if csr.Spec.SignerName == s.ca.Cfg.DeviceSvcClientSignerName && !failedTPMVerification {
 		if _, status := s.autoApprove(ctx, csr); status.Code != http.StatusOK {
 			status := api.StatusInternalServerError(http.StatusText(http.StatusInternalServerError))
 			transport.SetResponse(w, status, status)

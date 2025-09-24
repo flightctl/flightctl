@@ -57,6 +57,28 @@ func newTPMProvider(
 	}
 }
 
+type tpmExportableProvider struct {
+	client tpm.Client
+}
+
+func newTPMExportableProvider(client tpm.Client) *tpmExportableProvider {
+	return &tpmExportableProvider{
+		client: client,
+	}
+}
+
+func (t *tpmExportableProvider) NewExportable(name string) (*Exportable, error) {
+	csr, keyPem, err := t.client.CreateApplicationKey(name)
+	if err != nil {
+		return nil, fmt.Errorf("creating application identity: %q: %w", name, err)
+	}
+	return &Exportable{
+		name:   name,
+		csr:    csr,
+		keyPEM: keyPem,
+	}, nil
+}
+
 func (t *tpmProvider) Initialize(ctx context.Context) error {
 	publicKey := t.client.Public()
 	if publicKey == nil {
@@ -462,18 +484,6 @@ func (t *tpmProvider) WipeCertificateOnly() error {
 
 	t.log.Info("Successfully wiped certificate file")
 	return nil
-}
-
-func (t *tpmProvider) NewExportable(name string) (*Exportable, error) {
-	csr, keyPem, err := t.client.CreateApplicationKey(name)
-	if err != nil {
-		return nil, fmt.Errorf("creating application identity: %q: %w", name, err)
-	}
-	return &Exportable{
-		Name:   name,
-		CSR:    csr,
-		KeyPEM: keyPem,
-	}, nil
 }
 
 func (t *tpmProvider) Close(ctx context.Context) error {

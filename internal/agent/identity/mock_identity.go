@@ -183,21 +183,6 @@ func (mr *MockProviderMockRecorder) Initialize(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Initialize", reflect.TypeOf((*MockProvider)(nil).Initialize), ctx)
 }
 
-// NewExportable mocks base method.
-func (m *MockProvider) NewExportable(name string) (*Exportable, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "NewExportable", name)
-	ret0, _ := ret[0].(*Exportable)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// NewExportable indicates an expected call of NewExportable.
-func (mr *MockProviderMockRecorder) NewExportable(name any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewExportable", reflect.TypeOf((*MockProvider)(nil).NewExportable), name)
-}
-
 // ProveIdentity mocks base method.
 func (m *MockProvider) ProveIdentity(ctx context.Context, enrollmentRequest *v1alpha1.EnrollmentRequest) error {
 	m.ctrl.T.Helper()

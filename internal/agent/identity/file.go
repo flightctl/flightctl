@@ -40,6 +40,39 @@ func newFileProvider(
 	}
 }
 
+type softwareExportableProvider struct {
+}
+
+func newSoftwareExportableProvider() *softwareExportableProvider {
+	return &softwareExportableProvider{}
+}
+func (f *softwareExportableProvider) NewExportable(name string) (*Exportable, error) {
+	_, priv, err := fccrypto.NewKeyPair()
+	if err != nil {
+		return nil, fmt.Errorf("creating key pair: %q: %w", name, err)
+	}
+	signer, ok := priv.(crypto.Signer)
+	if !ok {
+		return nil, fmt.Errorf("expected crypto.Signer, got %T", priv)
+	}
+
+	csr, err := fccrypto.MakeCSR(signer, name)
+	if err != nil {
+		return nil, fmt.Errorf("creating CSR: %w", err)
+	}
+
+	pem, err := fccrypto.PEMEncodeKey(priv)
+	if err != nil {
+		return nil, fmt.Errorf("encoding private key: %w", err)
+	}
+
+	return &Exportable{
+		name:   name,
+		csr:    csr,
+		keyPEM: pem,
+	}, nil
+}
+
 func (f *fileProvider) Initialize(ctx context.Context) error {
 	publicKey, privateKey, _, err := fccrypto.EnsureKey(f.rw.PathFor(f.clientKeyPath))
 	if err != nil {
@@ -172,31 +205,4 @@ func (f *fileProvider) WipeCertificateOnly() error {
 func (f *fileProvider) Close(_ context.Context) error {
 	// no-op for file provider
 	return nil
-}
-
-func (f *fileProvider) NewExportable(name string) (*Exportable, error) {
-	_, priv, err := fccrypto.NewKeyPair()
-	if err != nil {
-		return nil, fmt.Errorf("creating key pair: %q: %w", name, err)
-	}
-	signer, ok := priv.(crypto.Signer)
-	if !ok {
-		return nil, fmt.Errorf("expected crypto.Signer, got %T", priv)
-	}
-
-	csr, err := fccrypto.MakeCSR(signer, name)
-	if err != nil {
-		return nil, fmt.Errorf("creating CSR: %w", err)
-	}
-
-	pem, err := fccrypto.PEMEncodeKey(priv)
-	if err != nil {
-		return nil, fmt.Errorf("encoding private key: %w", err)
-	}
-
-	return &Exportable{
-		Name:   name,
-		CSR:    csr,
-		KeyPEM: pem,
-	}, nil
 }
