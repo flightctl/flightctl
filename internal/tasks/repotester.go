@@ -6,6 +6,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/service"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
@@ -42,7 +43,8 @@ func (r *RepoTester) TestRepositories(ctx context.Context) {
 	continueToken := (*string)(nil)
 
 	for {
-		repositories, status := r.serviceHandler.ListRepositories(ctx, api.ListRepositoriesParams{
+		orgId, _ := util.GetOrgIdFromContext(ctx)
+		repositories, status := r.serviceHandler.ListRepositories(ctx, orgId, api.ListRepositoriesParams{
 			Limit:    &limit,
 			Continue: continueToken,
 		})
@@ -83,7 +85,8 @@ func (r *RepoTester) SetAccessCondition(ctx context.Context, repository *api.Rep
 	if repository.Status.Conditions == nil {
 		repository.Status.Conditions = []api.Condition{}
 	}
-	_, status := r.serviceHandler.ReplaceRepositoryStatusByError(ctx, lo.FromPtr(repository.Metadata.Name), *repository, err)
+	orgId, _ := util.GetOrgIdFromContext(ctx)
+	_, status := r.serviceHandler.ReplaceRepositoryStatusByError(ctx, orgId, lo.FromPtr(repository.Metadata.Name), *repository, err)
 
 	return service.ApiStatusToErr(status)
 }

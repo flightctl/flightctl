@@ -15,6 +15,7 @@ import (
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/go-git/go-billy/v5"
+	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	yamlutil "k8s.io/apimachinery/pkg/util/yaml"
@@ -49,8 +50,10 @@ func (r *ResourceSync) Poll(ctx context.Context) {
 	limit := int32(ItemsPerPage)
 	continueToken := (*string)(nil)
 
+	orgId, _ := util.GetOrgIdFromContext(ctx)
+
 	for {
-		resourcesyncs, status := r.serviceHandler.ListResourceSyncs(ctx, api.ListResourceSyncsParams{
+		resourcesyncs, status := r.serviceHandler.ListResourceSyncs(ctx, orgId, api.ListResourceSyncsParams{
 			Limit:    &limit,
 			Continue: continueToken,
 		})
@@ -77,6 +80,8 @@ func (r *ResourceSync) Poll(ctx context.Context) {
 func (r *ResourceSync) run(ctx context.Context, log logrus.FieldLogger, rs *api.ResourceSync) error {
 	resourceName := lo.FromPtr(rs.Metadata.Name)
 	defer r.updateResourceSyncStatus(ctx, rs)
+
+	orgId, _ := util.GetOrgIdFromContext(ctx)
 
 	// Get repository and validate accessibility
 	repo, err := r.GetRepositoryAndValidateAccess(ctx, rs)
@@ -107,7 +112,7 @@ func (r *ResourceSync) run(ctx context.Context, log logrus.FieldLogger, rs *api.
 	api.SetStatusConditionByError(&rs.Status.Conditions, api.ConditionTypeResourceSyncResourceParsed, "success", "fail", err)
 
 	// Sync fleets
-	return r.SyncFleets(ctx, log, rs, fleets, resourceName)
+	return r.SyncFleets(ctx, log, orgId, rs, fleets, resourceName)
 }
 
 // GetRepositoryAndValidateAccess gets the repository and validates it's accessible
@@ -117,7 +122,8 @@ func (r *ResourceSync) GetRepositoryAndValidateAccess(ctx context.Context, rs *a
 	}
 
 	repoName := rs.Spec.Repository
-	repo, status := r.serviceHandler.GetRepository(ctx, repoName)
+	orgId, _ := util.GetOrgIdFromContext(ctx)
+	repo, status := r.serviceHandler.GetRepository(ctx, orgId, repoName)
 	err := service.ApiStatusToErr(status)
 
 	// Ensure Status and Conditions are initialized
@@ -149,7 +155,7 @@ func (r *ResourceSync) ParseFleetsFromResources(resources []GenericResourceMap, 
 }
 
 // SyncFleets syncs the fleets to the service
-func (r *ResourceSync) SyncFleets(ctx context.Context, log logrus.FieldLogger, rs *api.ResourceSync, fleets []*api.Fleet, resourceName string) error {
+func (r *ResourceSync) SyncFleets(ctx context.Context, log logrus.FieldLogger, orgId uuid.UUID, rs *api.ResourceSync, fleets []*api.Fleet, resourceName string) error {
 	if rs == nil {
 		return fmt.Errorf("ResourceSync is nil")
 	}
@@ -165,7 +171,7 @@ func (r *ResourceSync) SyncFleets(ctx context.Context, log logrus.FieldLogger, r
 	owner := util.SetResourceOwner(api.ResourceSyncKind, resourceName)
 
 	// Validate that no fleet names conflict with fleets owned by other ResourceSyncs
-	err := r.validateFleetNameConflicts(ctx, fleets, *owner)
+	err := r.validateFleetNameConflicts(ctx, orgId, fleets, *owner)
 	if err != nil {
 		err = fmt.Errorf("resource %s: error: %w", resourceName, err)
 		log.Errorf("%v", err)
@@ -181,7 +187,7 @@ func (r *ResourceSync) SyncFleets(ctx context.Context, log logrus.FieldLogger, r
 	for {
 		var listRes *api.FleetList
 		var status api.Status
-		listRes, status = r.serviceHandler.ListFleets(ctx, listParams)
+		listRes, status = r.serviceHandler.ListFleets(ctx, orgId, listParams)
 		if status.Code != http.StatusOK {
 			err = fmt.Errorf("resource %s: failed to list owned fleets. error: %s", resourceName, status.Message)
 			log.Errorf("%v", err)
@@ -197,14 +203,14 @@ func (r *ResourceSync) SyncFleets(ctx context.Context, log logrus.FieldLogger, r
 	fleetsToRemove := fleetsDelta(fleetsPreOwned, fleets)
 
 	log.Infof("Resource %s: applying %d fleets ", resourceName, len(fleets))
-	createUpdateErr := r.createOrUpdateMultiple(ctx, fleets...)
+	createUpdateErr := r.createOrUpdateMultiple(ctx, orgId, fleets...)
 	if errors.Is(createUpdateErr, flterrors.ErrUpdatingResourceWithOwnerNotAllowed) {
 		log.Errorf("one or more fleets are managed by a different resource. %v", createUpdateErr)
 	}
 	if len(fleetsToRemove) > 0 {
 		log.Infof("Resource %s: found #%d fleets to remove. removing\n", resourceName, len(fleetsToRemove))
 		for _, fleetToRemove := range fleetsToRemove {
-			status := r.serviceHandler.DeleteFleet(ctx, fleetToRemove)
+			status := r.serviceHandler.DeleteFleet(ctx, orgId, fleetToRemove)
 			if status.Code != http.StatusOK {
 				log.Errorf("Resource %s: failed to remove old fleet %s. error: %s", resourceName, fleetToRemove, status.Message)
 				return service.ApiStatusToErr(status)
@@ -221,10 +227,10 @@ func (r *ResourceSync) SyncFleets(ctx context.Context, log logrus.FieldLogger, r
 	return createUpdateErr
 }
 
-func (r *ResourceSync) createOrUpdateMultiple(ctx context.Context, resources ...*api.Fleet) error {
+func (r *ResourceSync) createOrUpdateMultiple(ctx context.Context, orgId uuid.UUID, resources ...*api.Fleet) error {
 	var errs []error
 	for _, resource := range resources {
-		_, status := r.serviceHandler.ReplaceFleet(ctx, *resource.Metadata.Name, *resource)
+		_, status := r.serviceHandler.ReplaceFleet(ctx, orgId, *resource.Metadata.Name, *resource)
 		if status.Code != http.StatusOK && status.Code != http.StatusCreated {
 			if status.Message == flterrors.ErrUpdatingResourceWithOwnerNotAllowed.Error() {
 				errs = append(errs, errors.New("one or more fleets are managed by a different resource"))
@@ -448,7 +454,8 @@ func (r ResourceSync) parseFleets(resources []GenericResourceMap, owner *string)
 }
 
 func (r *ResourceSync) updateResourceSyncStatus(ctx context.Context, rs *api.ResourceSync) {
-	_, status := r.serviceHandler.ReplaceResourceSyncStatus(ctx, *rs.Metadata.Name, *rs)
+	orgId, _ := util.GetOrgIdFromContext(ctx)
+	_, status := r.serviceHandler.ReplaceResourceSyncStatus(ctx, orgId, *rs.Metadata.Name, *rs)
 	if status.Code != http.StatusOK {
 		r.log.Errorf("Failed to update resourcesync status for %s: %s", *rs.Metadata.Name, status.Message)
 	}
@@ -468,13 +475,13 @@ func isValidFile(filename string) bool {
 	return false
 }
 
-func (r *ResourceSync) validateFleetNameConflicts(ctx context.Context, fleets []*api.Fleet, owner string) error {
+func (r *ResourceSync) validateFleetNameConflicts(ctx context.Context, orgId uuid.UUID, fleets []*api.Fleet, owner string) error {
 	var conflictingFleets []string
 
 	for _, fleet := range fleets {
 		fleetName := *fleet.Metadata.Name
 		// Check if a fleet with this name already exists
-		existingFleet, status := r.serviceHandler.GetFleet(ctx, fleetName, api.GetFleetParams{})
+		existingFleet, status := r.serviceHandler.GetFleet(ctx, orgId, fleetName, api.GetFleetParams{})
 		if status.Code == http.StatusOK {
 			// Fleet exists - check if it's owned by a different ResourceSync
 			if existingFleet.Metadata.Owner != nil && *existingFleet.Metadata.Owner != owner {

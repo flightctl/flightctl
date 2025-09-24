@@ -59,9 +59,7 @@ func (h *ServiceHandler) signApprovedCertificateSigningRequest(ctx context.Conte
 	}
 }
 
-func (h *ServiceHandler) ListCertificateSigningRequests(ctx context.Context, params api.ListCertificateSigningRequestsParams) (*api.CertificateSigningRequestList, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) ListCertificateSigningRequests(ctx context.Context, orgId uuid.UUID, params api.ListCertificateSigningRequestsParams) (*api.CertificateSigningRequestList, api.Status) {
 	listParams, status := prepareListParams(params.Continue, params.LabelSelector, params.FieldSelector, params.Limit)
 	if status != api.StatusOK() {
 		return nil, status
@@ -82,9 +80,7 @@ func (h *ServiceHandler) ListCertificateSigningRequests(ctx context.Context, par
 	}
 }
 
-func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, csr api.CertificateSigningRequest) (*api.CertificateSigningRequest, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, csr api.CertificateSigningRequest) (*api.CertificateSigningRequest, api.Status) {
 	// don't set fields that are managed by the service for external requests
 	if !IsInternalRequest(ctx) {
 		csr.Status = nil
@@ -129,23 +125,17 @@ func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, cs
 	return result, api.StatusCreated()
 }
 
-func (h *ServiceHandler) DeleteCertificateSigningRequest(ctx context.Context, name string) api.Status {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) DeleteCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, name string) api.Status {
 	err := h.store.CertificateSigningRequest().Delete(ctx, orgId, name, h.callbackCertificateSigningRequestDeleted)
 	return StoreErrorToApiStatus(err, false, api.CertificateSigningRequestKind, &name)
 }
 
-func (h *ServiceHandler) GetCertificateSigningRequest(ctx context.Context, name string) (*api.CertificateSigningRequest, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) GetCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, name string) (*api.CertificateSigningRequest, api.Status) {
 	result, err := h.store.CertificateSigningRequest().Get(ctx, orgId, name)
 	return result, StoreErrorToApiStatus(err, false, api.CertificateSigningRequestKind, &name)
 }
 
-func (h *ServiceHandler) PatchCertificateSigningRequest(ctx context.Context, name string, patch api.PatchRequest) (*api.CertificateSigningRequest, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) PatchCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, name string, patch api.PatchRequest) (*api.CertificateSigningRequest, api.Status) {
 	currentObj, err := h.store.CertificateSigningRequest().Get(ctx, orgId, name)
 	if err != nil {
 		return nil, StoreErrorToApiStatus(err, false, api.CertificateSigningRequestKind, &name)
@@ -201,9 +191,7 @@ func (h *ServiceHandler) PatchCertificateSigningRequest(ctx context.Context, nam
 	return result, api.StatusOK()
 }
 
-func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, name string, csr api.CertificateSigningRequest) (*api.CertificateSigningRequest, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, name string, csr api.CertificateSigningRequest) (*api.CertificateSigningRequest, api.Status) {
 	// don't set fields that are managed by the service for external requests
 	if !IsInternalRequest(ctx) {
 		csr.Status = nil
@@ -252,9 +240,7 @@ func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, n
 }
 
 // NOTE: Approval currently also issues a certificate - this will change in the future based on policy
-func (h *ServiceHandler) UpdateCertificateSigningRequestApproval(ctx context.Context, name string, csr api.CertificateSigningRequest) (*api.CertificateSigningRequest, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) UpdateCertificateSigningRequestApproval(ctx context.Context, orgId uuid.UUID, name string, csr api.CertificateSigningRequest) (*api.CertificateSigningRequest, api.Status) {
 	newCSR := &csr
 	NilOutManagedObjectMetaProperties(&newCSR.Metadata)
 	if errs := newCSR.Validate(); len(errs) > 0 {

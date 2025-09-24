@@ -7,6 +7,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/service"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
@@ -48,6 +49,8 @@ func (t *DeviceDisconnected) Poll(ctx context.Context) {
 		Limit:         lo.ToPtr(int32(ItemsPerPage)),
 	}
 
+	orgId, _ := util.GetOrgIdFromContext(ctx)
+
 	totalProcessed := 0
 	for {
 		// Check for context cancellation in long-running loops
@@ -56,7 +59,7 @@ func (t *DeviceDisconnected) Poll(ctx context.Context) {
 			return
 		}
 
-		devices, status := t.serviceHandler.ListDevices(ctx, listParams, nil)
+		devices, status := t.serviceHandler.ListDevices(ctx, orgId, listParams, nil)
 		if status.Code != 200 {
 			t.log.Errorf("Failed to list devices: %s", status.Message)
 			return
@@ -75,7 +78,7 @@ func (t *DeviceDisconnected) Poll(ctx context.Context) {
 				return
 			}
 
-			_, status := t.serviceHandler.ReplaceDeviceStatus(ctx, *device.Metadata.Name, device)
+			_, status := t.serviceHandler.ReplaceDeviceStatus(ctx, orgId, *device.Metadata.Name, device)
 			if status.Code != 200 {
 				t.log.Errorf("Failed to replace device status for %s: %s", *device.Metadata.Name, status.Message)
 				continue

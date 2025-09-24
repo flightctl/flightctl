@@ -166,7 +166,7 @@ func (e *EventProcessor) processOrganizationEvents(ctx context.Context, orgID uu
 		pageLogger := logger.WithField("page_number", totalPages)
 
 		// List the events since the last checkpoint for this organization
-		events, status := e.handler.ListEvents(ctx, params)
+		events, status := e.handler.ListEvents(ctx, orgID, params)
 		if status.Code != http.StatusOK {
 			pageLogger.WithFields(logrus.Fields{
 				"status_code": status.Code,

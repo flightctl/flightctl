@@ -53,20 +53,18 @@ func (h *ServiceHandler) PrepareDevicesAfterRestore(ctx context.Context) error {
 	if h.eventHandler != nil {
 		event := common.GetSystemRestoredEvent(ctx, devicesUpdated)
 		if event != nil {
-			h.eventHandler.CreateEvent(ctx, event)
+			h.eventHandler.CreateEvent(ctx, getOrgIdFromContext(ctx), event)
 			h.log.Info("System restored event created successfully")
 		}
 	}
 	return nil
 }
 
-func (h *ServiceHandler) CreateDevice(ctx context.Context, device api.Device) (*api.Device, api.Status) {
+func (h *ServiceHandler) CreateDevice(ctx context.Context, orgId uuid.UUID, device api.Device) (*api.Device, api.Status) {
 	if device.Spec != nil && device.Spec.Decommissioning != nil {
 		h.log.WithError(flterrors.ErrDecommission).Error("attempt to create decommissioned device")
 		return nil, api.StatusBadRequest(flterrors.ErrDecommission.Error())
 	}
-
-	orgId := getOrgIdFromContext(ctx)
 
 	// don't set fields that are managed by the service
 	device.Status = nil
@@ -91,8 +89,7 @@ func convertDeviceListParams(params api.ListDevicesParams, annotationSelector *s
 	return listParams, api.StatusOK()
 }
 
-func (h *ServiceHandler) ListDevices(ctx context.Context, params api.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (*api.DeviceList, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
+func (h *ServiceHandler) ListDevices(ctx context.Context, orgId uuid.UUID, params api.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (*api.DeviceList, api.Status) {
 	storeParams, status := convertDeviceListParams(params, annotationSelector)
 	if status.Code != http.StatusOK {
 		return nil, status
@@ -141,16 +138,12 @@ func (h *ServiceHandler) ListDevices(ctx context.Context, params api.ListDevices
 	}
 }
 
-func (h *ServiceHandler) ListDevicesByServiceCondition(ctx context.Context, conditionType string, conditionStatus string, listParams store.ListParams) (*api.DeviceList, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) ListDevicesByServiceCondition(ctx context.Context, orgId uuid.UUID, conditionType string, conditionStatus string, listParams store.ListParams) (*api.DeviceList, api.Status) {
 	result, err := h.store.Device().ListDevicesByServiceCondition(ctx, orgId, conditionType, conditionStatus, listParams)
 	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, nil)
 }
 
-func (h *ServiceHandler) GetDevice(ctx context.Context, name string) (*api.Device, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) GetDevice(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, api.Status) {
 	result, err := h.store.Device().Get(ctx, orgId, name)
 	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 }
@@ -163,13 +156,11 @@ func DeviceVerificationCallback(ctx context.Context, before, after *api.Device) 
 	return nil
 }
 
-func (h *ServiceHandler) ReplaceDevice(ctx context.Context, name string, device api.Device, fieldsToUnset []string) (*api.Device, api.Status) {
+func (h *ServiceHandler) ReplaceDevice(ctx context.Context, orgId uuid.UUID, name string, device api.Device, fieldsToUnset []string) (*api.Device, api.Status) {
 	if device.Spec != nil && device.Spec.Decommissioning != nil {
 		h.log.WithError(flterrors.ErrDecommission).Error("attempt to set decommissioned status when replacing device, or to replace decommissioned device")
 		return nil, api.StatusBadRequest(flterrors.ErrDecommission.Error())
 	}
-
-	orgId := getOrgIdFromContext(ctx)
 
 	// don't overwrite fields that are managed by the service for external requests
 	isNotInternal := !IsInternalRequest(ctx)
@@ -191,13 +182,11 @@ func (h *ServiceHandler) ReplaceDevice(ctx context.Context, name string, device 
 	return result, StoreErrorToApiStatus(err, created, api.DeviceKind, &name)
 }
 
-func (h *ServiceHandler) UpdateDevice(ctx context.Context, name string, device api.Device, fieldsToUnset []string) (*api.Device, error) {
+func (h *ServiceHandler) UpdateDevice(ctx context.Context, orgId uuid.UUID, name string, device api.Device, fieldsToUnset []string) (*api.Device, error) {
 	if device.Spec != nil && device.Spec.Decommissioning != nil {
 		h.log.WithError(flterrors.ErrDecommission).Error("attempt to set decommissioned status when replacing device, or to replace decommissioned device")
 		return nil, flterrors.ErrDecommission
 	}
-
-	orgId := getOrgIdFromContext(ctx)
 
 	// don't overwrite fields that are managed by the service for external requests
 	if !IsInternalRequest(ctx) {
@@ -217,17 +206,13 @@ func (h *ServiceHandler) UpdateDevice(ctx context.Context, name string, device a
 	return h.store.Device().Update(ctx, orgId, &device, fieldsToUnset, false, DeviceVerificationCallback, h.callbackDeviceUpdated)
 }
 
-func (h *ServiceHandler) DeleteDevice(ctx context.Context, name string) api.Status {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) DeleteDevice(ctx context.Context, orgId uuid.UUID, name string) api.Status {
 	_, err := h.store.Device().Delete(ctx, orgId, name, h.callbackDeviceDeleted)
 	return StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 }
 
 // (GET /api/v1/devices/{name}/status)
-func (h *ServiceHandler) GetDeviceStatus(ctx context.Context, name string) (*api.Device, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) GetDeviceStatus(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, api.Status) {
 	result, err := h.store.Device().Get(ctx, orgId, name)
 	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 }
@@ -238,9 +223,7 @@ func validateDeviceStatus(d *api.Device) []error {
 	return allErrs
 }
 
-func (h *ServiceHandler) ReplaceDeviceStatus(ctx context.Context, name string, incomingDevice api.Device) (*api.Device, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) ReplaceDeviceStatus(ctx context.Context, orgId uuid.UUID, name string, incomingDevice api.Device) (*api.Device, api.Status) {
 	if errs := validateDeviceStatus(&incomingDevice); len(errs) > 0 {
 		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
@@ -282,9 +265,7 @@ func (h *ServiceHandler) ReplaceDeviceStatus(ctx context.Context, name string, i
 	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 }
 
-func (h *ServiceHandler) PatchDeviceStatus(ctx context.Context, name string, patch api.PatchRequest) (*api.Device, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) PatchDeviceStatus(ctx context.Context, orgId uuid.UUID, name string, patch api.PatchRequest) (*api.Device, api.Status) {
 	currentObj, err := h.store.Device().Get(ctx, orgId, name)
 	if err != nil {
 		return nil, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
@@ -325,7 +306,7 @@ func (h *ServiceHandler) PatchDeviceStatus(ctx context.Context, name string, pat
 	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 }
 
-func (h *ServiceHandler) GetRenderedDevice(ctx context.Context, name string, params api.GetRenderedDeviceParams) (*api.Device, api.Status) {
+func (h *ServiceHandler) GetRenderedDevice(ctx context.Context, orgId uuid.UUID, name string, params api.GetRenderedDeviceParams) (*api.Device, api.Status) {
 	var (
 		isNew             bool
 		kvRenderedVersion string
@@ -333,13 +314,11 @@ func (h *ServiceHandler) GetRenderedDevice(ctx context.Context, name string, par
 	)
 
 	if _, ok := ctx.Value(consts.AgentCtxKey).(string); ok {
-		if err := healthchecker.HealthChecks.Instance().Add(ctx, getOrgIdFromContext(ctx), name); err != nil {
+		if err := healthchecker.HealthChecks.Instance().Add(ctx, orgId, name); err != nil {
 			h.log.WithError(err).Errorf("failed to add healthcheck to device %s", name)
 			return nil, api.StatusInternalServerError(fmt.Sprintf("failed to add healthcheck to device %s: %v", name, err))
 		}
 	}
-
-	orgId := getOrgIdFromContext(ctx)
 
 	if params.KnownRenderedVersion != nil {
 		isNew, kvRenderedVersion, err = rendered.Bus.Instance().WaitForNewVersion(ctx, orgId, name, *params.KnownRenderedVersion)
@@ -369,9 +348,7 @@ func (h *ServiceHandler) GetRenderedDevice(ctx context.Context, name string, par
 }
 
 // Only metadata.labels and spec can be patched. If we try to patch other fields, HTTP 400 Bad Request is returned.
-func (h *ServiceHandler) PatchDevice(ctx context.Context, name string, patch api.PatchRequest) (*api.Device, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) PatchDevice(ctx context.Context, orgId uuid.UUID, name string, patch api.PatchRequest) (*api.Device, api.Status) {
 	currentObj, err := h.store.Device().Get(ctx, orgId, name)
 	if err != nil {
 		return nil, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
@@ -403,12 +380,11 @@ func (h *ServiceHandler) PatchDevice(ctx context.Context, name string, patch api
 	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 }
 
-func (h *ServiceHandler) SetOutOfDate(ctx context.Context, owner string) error {
-	return h.store.Device().SetOutOfDate(ctx, getOrgIdFromContext(ctx), owner)
+func (h *ServiceHandler) SetOutOfDate(ctx context.Context, orgId uuid.UUID, owner string) error {
+	return h.store.Device().SetOutOfDate(ctx, orgId, owner)
 }
 
-func (h *ServiceHandler) UpdateServerSideDeviceStatus(ctx context.Context, name string) error {
-	orgId := getOrgIdFromContext(ctx)
+func (h *ServiceHandler) UpdateServerSideDeviceStatus(ctx context.Context, orgId uuid.UUID, name string) error {
 	device, err := h.store.Device().GetWithoutServiceConditions(ctx, orgId, name)
 	if err != nil {
 		return err
@@ -423,9 +399,7 @@ func (h *ServiceHandler) UpdateServerSideDeviceStatus(ctx context.Context, name 
 	return nil
 }
 
-func (h *ServiceHandler) DecommissionDevice(ctx context.Context, name string, decom api.DeviceDecommission) (*api.Device, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) DecommissionDevice(ctx context.Context, orgId uuid.UUID, name string, decom api.DeviceDecommission) (*api.Device, api.Status) {
 	deviceObj, err := h.store.Device().Get(ctx, orgId, name)
 	if err != nil {
 		return nil, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
@@ -446,14 +420,12 @@ func (h *ServiceHandler) DecommissionDevice(ctx context.Context, name string, de
 	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 }
 
-func (h *ServiceHandler) UpdateDeviceAnnotations(ctx context.Context, name string, annotations map[string]string, deleteKeys []string) api.Status {
-	orgId := getOrgIdFromContext(ctx)
+func (h *ServiceHandler) UpdateDeviceAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) api.Status {
 	err := h.store.Device().UpdateAnnotations(ctx, orgId, name, annotations, deleteKeys)
 	return StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 }
 
-func (h *ServiceHandler) UpdateRenderedDevice(ctx context.Context, name, renderedConfig, renderedApplications, specHash string) api.Status {
-	orgId := getOrgIdFromContext(ctx)
+func (h *ServiceHandler) UpdateRenderedDevice(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string) api.Status {
 	renderedVersion, err := h.store.Device().UpdateRendered(ctx, orgId, name, renderedConfig, renderedApplications, specHash)
 	if err != nil {
 		h.log.Errorf("Failed to update rendered device %s/%s: %v", orgId, name, err)
@@ -463,7 +435,7 @@ func (h *ServiceHandler) UpdateRenderedDevice(ctx context.Context, name, rendere
 		h.log.Debugf("Rendered device %s/%s: no change in rendered version", orgId, name)
 		return api.StatusOK()
 	}
-	err = h.UpdateServerSideDeviceStatus(ctx, name)
+	err = h.UpdateServerSideDeviceStatus(ctx, orgId, name)
 	if err != nil {
 		return StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 	}
@@ -476,9 +448,7 @@ func (h *ServiceHandler) UpdateRenderedDevice(ctx context.Context, name, rendere
 	return StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 }
 
-func (h *ServiceHandler) SetDeviceServiceConditions(ctx context.Context, name string, conditions []api.Condition) api.Status {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) SetDeviceServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) api.Status {
 	// Create callback to handle condition changes
 	callback := func(ctx context.Context, orgId uuid.UUID, device *api.Device, oldConditions, newConditions []api.Condition) {
 		h.diffAndEmitConditionEvents(ctx, device, oldConditions, newConditions)
@@ -534,20 +504,17 @@ func hasConditionChanged(oldCondition, newCondition *api.Condition) bool {
 	return changed
 }
 
-func (h *ServiceHandler) OverwriteDeviceRepositoryRefs(ctx context.Context, name string, repositoryNames ...string) api.Status {
-	orgId := getOrgIdFromContext(ctx)
+func (h *ServiceHandler) OverwriteDeviceRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) api.Status {
 	err := h.store.Device().OverwriteRepositoryRefs(ctx, orgId, name, repositoryNames...)
 	return StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 }
 
-func (h *ServiceHandler) GetDeviceRepositoryRefs(ctx context.Context, name string) (*api.RepositoryList, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
+func (h *ServiceHandler) GetDeviceRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*api.RepositoryList, api.Status) {
 	result, err := h.store.Device().GetRepositoryRefs(ctx, orgId, name)
 	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 }
 
-func (h *ServiceHandler) CountDevices(ctx context.Context, params api.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (int64, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
+func (h *ServiceHandler) CountDevices(ctx context.Context, orgId uuid.UUID, params api.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (int64, api.Status) {
 	storeParams, status := convertDeviceListParams(params, annotationSelector)
 	if status.Code != http.StatusOK {
 		return 0, status
@@ -556,14 +523,12 @@ func (h *ServiceHandler) CountDevices(ctx context.Context, params api.ListDevice
 	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, nil)
 }
 
-func (h *ServiceHandler) UnmarkDevicesRolloutSelection(ctx context.Context, fleetName string) api.Status {
-	orgId := getOrgIdFromContext(ctx)
+func (h *ServiceHandler) UnmarkDevicesRolloutSelection(ctx context.Context, orgId uuid.UUID, fleetName string) api.Status {
 	err := h.store.Device().UnmarkRolloutSelection(ctx, orgId, fleetName)
 	return StoreErrorToApiStatus(err, false, api.DeviceKind, nil)
 }
 
-func (h *ServiceHandler) MarkDevicesRolloutSelection(ctx context.Context, params api.ListDevicesParams, annotationSelector *selector.AnnotationSelector, limit *int) api.Status {
-	orgId := getOrgIdFromContext(ctx)
+func (h *ServiceHandler) MarkDevicesRolloutSelection(ctx context.Context, orgId uuid.UUID, params api.ListDevicesParams, annotationSelector *selector.AnnotationSelector, limit *int) api.Status {
 	storeParams, status := convertDeviceListParams(params, annotationSelector)
 	if status.Code != http.StatusOK {
 		return status
@@ -572,14 +537,12 @@ func (h *ServiceHandler) MarkDevicesRolloutSelection(ctx context.Context, params
 	return StoreErrorToApiStatus(err, false, api.DeviceKind, nil)
 }
 
-func (h *ServiceHandler) GetDeviceCompletionCounts(ctx context.Context, owner string, templateVersion string, updateTimeout *time.Duration) ([]api.DeviceCompletionCount, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
+func (h *ServiceHandler) GetDeviceCompletionCounts(ctx context.Context, orgId uuid.UUID, owner string, templateVersion string, updateTimeout *time.Duration) ([]api.DeviceCompletionCount, api.Status) {
 	result, err := h.store.Device().CompletionCounts(ctx, orgId, owner, templateVersion, updateTimeout)
 	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, nil)
 }
 
-func (h *ServiceHandler) CountDevicesByLabels(ctx context.Context, params api.ListDevicesParams, annotationSelector *selector.AnnotationSelector, groupBy []string) ([]map[string]any, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
+func (h *ServiceHandler) CountDevicesByLabels(ctx context.Context, orgId uuid.UUID, params api.ListDevicesParams, annotationSelector *selector.AnnotationSelector, groupBy []string) ([]map[string]any, api.Status) {
 	storeParams, status := convertDeviceListParams(params, annotationSelector)
 	if status.Code != http.StatusOK {
 		return nil, status
@@ -588,8 +551,7 @@ func (h *ServiceHandler) CountDevicesByLabels(ctx context.Context, params api.Li
 	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, nil)
 }
 
-func (h *ServiceHandler) GetDevicesSummary(ctx context.Context, params api.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (*api.DevicesSummary, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
+func (h *ServiceHandler) GetDevicesSummary(ctx context.Context, orgId uuid.UUID, params api.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (*api.DevicesSummary, api.Status) {
 	storeParams, status := convertDeviceListParams(params, annotationSelector)
 	if status.Code != http.StatusOK {
 		return nil, status
@@ -598,15 +560,12 @@ func (h *ServiceHandler) GetDevicesSummary(ctx context.Context, params api.ListD
 	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, nil)
 }
 
-func (h *ServiceHandler) UpdateServiceSideDeviceStatus(ctx context.Context, device api.Device) bool {
-	orgId := getOrgIdFromContext(ctx)
+func (h *ServiceHandler) UpdateServiceSideDeviceStatus(ctx context.Context, orgId uuid.UUID, device api.Device) bool {
 	anyChanged, _ := common.UpdateServiceSideStatus(ctx, orgId, &device, h.store, h.log)
 	return anyChanged
 }
 
-func (h *ServiceHandler) ResumeDevices(ctx context.Context, request api.DeviceResumeRequest) (api.DeviceResumeResponse, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) ResumeDevices(ctx context.Context, orgId uuid.UUID, request api.DeviceResumeRequest) (api.DeviceResumeResponse, api.Status) {
 	h.log.Infof("ResumeDevices called with label selector: %v, field selector: %v",
 		request.LabelSelector, request.FieldSelector)
 
@@ -634,7 +593,7 @@ func (h *ServiceHandler) ResumeDevices(ctx context.Context, request api.DeviceRe
 	if h.eventHandler != nil {
 		for _, deviceID := range deviceIDs {
 			event := common.GetDeviceConflictResolvedEvent(ctx, deviceID)
-			h.eventHandler.CreateEvent(ctx, event)
+			h.eventHandler.CreateEvent(ctx, getOrgIdFromContext(ctx), event)
 		}
 		h.log.Infof("Created DeviceConflictResolved events for %d devices", len(deviceIDs))
 	}
