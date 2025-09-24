@@ -204,7 +204,7 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 	if enrollmentRequest.Status.Approval != nil {
 		apiResource.Metadata.Labels = enrollmentRequest.Status.Approval.Labels
 	}
-	_, _ = common.UpdateServiceSideStatus(ctx, orgId, apiResource, h.store, h.log)
+	_ = common.UpdateServiceSideStatus(ctx, orgId, apiResource, h.store, h.log)
 
 	_, err := h.store.Device().Create(ctx, orgId, apiResource, h.callbackDeviceUpdated)
 	return err
