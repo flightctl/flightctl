@@ -37,13 +37,7 @@ RUN --mount=type=cache,target=/opt/app-root/src/.cache/go-build \
     --mount=type=cache,target=/opt/app-root/src/go/pkg/mod \
     make build-telemetry-gateway
 
-FROM registry.access.redhat.com/ubi9/ubi-minimal as certs
-# Use BuildKit cache mounts for microdnf package caching
-RUN --mount=type=cache,target=/var/cache/dnf \
-    --mount=type=cache,target=/var/lib/dnf \
-    microdnf install ca-certificates --nodocs -y
-
-FROM registry.access.redhat.com/ubi9/ubi-micro
+FROM quay.io/flightctl/flightctl-base:9.6-1758714456
 WORKDIR /app
 LABEL \
   com.redhat.component="flightctl-telemetry-gateway-container" \
@@ -53,5 +47,4 @@ LABEL \
   name="flightctl-telemetry-gateway" \
   summary="Flight Control Edge management service, telemetry gateway"
 COPY --from=build /app/bin/flightctl-telemetry-gateway .
-COPY --from=certs /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem /etc/pki/ca-trust/extracted/pem/
 CMD ./flightctl-telemetry-gateway

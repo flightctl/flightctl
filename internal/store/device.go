@@ -59,6 +59,7 @@ type Device interface {
 	Healthcheck(ctx context.Context, orgId uuid.UUID, names []string) error
 	ProcessAwaitingReconnectAnnotation(ctx context.Context, orgId uuid.UUID, deviceName string, deviceReportedVersion *string) (bool, error)
 	GetWithoutServiceConditions(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error)
+	GetLastSeen(ctx context.Context, orgId uuid.UUID, name string) (*time.Time, error)
 
 	// Used internally
 	UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error
@@ -624,15 +625,19 @@ func (s *DeviceStore) UpdateAnnotations(ctx context.Context, orgId uuid.UUID, na
 }
 
 func (s *DeviceStore) healthcheck(ctx context.Context, orgId uuid.UUID, names []string) (bool, error) {
-	result := s.getDB(ctx).Model(&model.Device{}).Where("org_id = ? and name in (?)", orgId, names).Update(
-		"status", gorm.Expr(fmt.Sprintf(`jsonb_set(status, '{lastSeen}', '"%s"', true)`, time.Now().Format(time.RFC3339))))
+	// Handle empty device list gracefully
+	if len(names) == 0 {
+		return false, nil
+	}
+
+	result := s.getDB(ctx).Model(&model.Device{}).Where("org_id = ? and name in (?)", orgId, names).Updates(map[string]interface{}{
+		"last_seen": time.Now().UTC(),
+	})
 	err := ErrorFromGormError(result.Error)
 	if err != nil {
 		return strings.Contains(err.Error(), "deadlock"), err
 	}
-	if result.RowsAffected == 0 {
-		return true, flterrors.ErrNoRowsUpdated
-	}
+
 	return false, nil
 }
 
@@ -741,7 +746,10 @@ func (s *DeviceStore) processAwaitingReconnectAnnotation(ctx context.Context, or
 				ELSE '{}'::jsonb
 			END,
 			status = jsonb_set(
-				jsonb_set(COALESCE(status, '{}'::jsonb), '{summary}', jsonb_build_object('status', $4::text, 'info', $5::text), true),
+				jsonb_set(
+					jsonb_set(COALESCE(status, '{}'::jsonb), '{summary}', jsonb_build_object('status', $4::text, 'info', $5::text), true),
+					'{updated}', jsonb_build_object('status', $9::text), true
+				),
 				'{config,renderedVersion}', to_jsonb($8::text), true
 			),
 			resource_version = COALESCE(resource_version, 0) + 1
@@ -755,14 +763,22 @@ func (s *DeviceStore) processAwaitingReconnectAnnotation(ctx context.Context, or
 		status = string(api.DeviceSummaryStatusOnline)
 	}
 
+	// Determine updated status based on version comparison
+	var updatedStatus string
+	if deviceVersion == serviceVersion {
+		updatedStatus = string(api.DeviceUpdatedStatusUpToDate)
+	} else {
+		updatedStatus = string(api.DeviceUpdatedStatusOutOfDate)
+	}
+
 	// Prepare the device reported version for the update
 	deviceReportedVersionStr := "0"
 	if deviceReportedVersion != nil && *deviceReportedVersion != "" {
 		deviceReportedVersionStr = *deviceReportedVersion
 	}
 
-	s.log.Infof("Executing database update for device %s with status=%s, willBeConflictPaused=%t, deviceReportedVersionStr=%s",
-		deviceName, status, willBeConflictPaused, deviceReportedVersionStr)
+	s.log.Infof("Executing database update for device %s with status=%s, willBeConflictPaused=%t, deviceReportedVersionStr=%s, updatedStatus=%s",
+		deviceName, status, willBeConflictPaused, deviceReportedVersionStr, updatedStatus)
 
 	result = s.getDB(ctx).Exec(sql,
 		api.DeviceAnnotationAwaitingReconnect,
@@ -773,6 +789,7 @@ func (s *DeviceStore) processAwaitingReconnectAnnotation(ctx context.Context, or
 		orgId,
 		deviceName,
 		deviceReportedVersionStr,
+		updatedStatus,
 	)
 	err := ErrorFromGormError(result.Error)
 	if err != nil {
@@ -900,6 +917,18 @@ func (s *DeviceStore) GetWithoutServiceConditions(ctx context.Context, orgId uui
 	}
 
 	return deviceModel.ToApiResource(model.WithoutServiceConditions())
+}
+
+func (s *DeviceStore) GetLastSeen(ctx context.Context, orgId uuid.UUID, name string) (*time.Time, error) {
+	deviceModel := model.Device{
+		Resource: model.Resource{OrgID: orgId, Name: name},
+	}
+	result := s.getDB(ctx).Take(&deviceModel)
+	if result.Error != nil {
+		return nil, ErrorFromGormError(result.Error)
+	}
+
+	return deviceModel.LastSeen, nil
 }
 
 func (s *DeviceStore) setServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition, callback ServiceConditionsCallback) (retry bool, err error) {
@@ -1153,11 +1182,12 @@ func (s *DeviceStore) PrepareDevicesAfterRestore(ctx context.Context) (int64, er
 			annotations = COALESCE(annotations, '{}'::jsonb) || jsonb_build_object($1::text, 'true'),
 			status = CASE 
 				WHEN status IS NOT NULL THEN 
-					(status - 'lastSeen') || jsonb_build_object('summary', jsonb_build_object('status', $2::text, 'info', $3::text))
+					status || jsonb_build_object('summary', jsonb_build_object('status', $2::text, 'info', $3::text)) || jsonb_build_object('updated', jsonb_build_object('status', $6::text))
 				ELSE 
-					jsonb_build_object('summary', jsonb_build_object('status', $2::text, 'info', $3::text))
+					jsonb_build_object('summary', jsonb_build_object('status', $2::text, 'info', $3::text)) || jsonb_build_object('updated', jsonb_build_object('status', $6::text))
 			END,
-			resource_version = COALESCE(resource_version, 0) + 1
+			resource_version = COALESCE(resource_version, 0) + 1,
+			last_seen = NULL
 		WHERE deleted_at IS NULL 
 			AND NOT (status->'lifecycle'->>'status') IN ($4, $5)
 			AND (annotations->>$1) IS DISTINCT FROM 'true'
@@ -1169,6 +1199,7 @@ func (s *DeviceStore) PrepareDevicesAfterRestore(ctx context.Context) (int64, er
 		"Device is waiting for connection after restore",
 		api.DeviceLifecycleStatusDecommissioned,
 		api.DeviceLifecycleStatusDecommissioning,
+		api.DeviceUpdatedStatusUnknown,
 	)
 
 	if result.Error != nil {

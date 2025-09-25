@@ -217,7 +217,7 @@ The formal definition uses the following helper definitions:
 
 ```golang
 // A device is assumed disconnected if its agent hasn't sent an update for the duration of a disconnectionTimeout.
-deviceIsDisconnected := device.status.lastSeen + disconnectionTimeout < time.Now()
+deviceIsDisconnected := device.lastSeen + disconnectionTimeout < time.Now()
 
 // A device is not managed by a fleet if its owner field is unset.
 deviceIsNotManaged := len(device.metadata.owner) == 0
