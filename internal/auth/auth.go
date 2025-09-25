@@ -102,7 +102,7 @@ func initOIDCAuth(cfg *config.Config, log logrus.FieldLogger, orgResolver resolv
 	oidcUrl := strings.TrimSuffix(cfg.Auth.OIDC.OIDCAuthority, "/")
 	externalOidcUrl := strings.TrimSuffix(cfg.Auth.OIDC.ExternalOIDCAuthority, "/")
 	log.Infof("OIDC auth enabled: %s", oidcUrl)
-	authZProvider := authz.NewJWTAuthZ(orgResolver)
+	authZProvider := authz.NewOrgMembershipAuthZ(orgResolver)
 	authNProvider, err := authn.NewJWTAuth(oidcUrl, externalOidcUrl, getTlsConfig(cfg), getOrgConfig(cfg))
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create OIDC AuthN: %w", err)
@@ -110,12 +110,15 @@ func initOIDCAuth(cfg *config.Config, log logrus.FieldLogger, orgResolver resolv
 	return authNProvider, authZProvider, nil
 }
 
-func initAAPAuth(cfg *config.Config, log logrus.FieldLogger) (AuthNMiddleware, AuthZMiddleware, error) {
+func initAAPAuth(cfg *config.Config, log logrus.FieldLogger, orgResolver resolvers.Resolver) (AuthNMiddleware, AuthZMiddleware, error) {
 	gatewayUrl := strings.TrimSuffix(cfg.Auth.AAP.ApiUrl, "/")
 	gatewayExternalUrl := strings.TrimSuffix(cfg.Auth.AAP.ExternalApiUrl, "/")
 	log.Infof("AAP Gateway auth enabled: %s", gatewayUrl)
-	authZProvider := NilAuth{}
-	authNProvider := authn.NewAapGatewayAuth(gatewayUrl, gatewayExternalUrl, getTlsConfig(cfg))
+	authZProvider := authz.NewOrgMembershipAuthZ(orgResolver)
+	authNProvider, err := authn.NewAapGatewayAuth(gatewayUrl, gatewayExternalUrl, getTlsConfig(cfg))
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create AAP Gateway AuthN: %w", err)
+	}
 	return authNProvider, authZProvider, nil
 }
 
@@ -139,7 +142,7 @@ func InitAuth(cfg *config.Config, log logrus.FieldLogger, orgResolver resolvers.
 			authNProvider, authZProvider, err = initOIDCAuth(cfg, log, orgResolver)
 		} else if cfg.Auth.AAP != nil {
 			configuredAuthType = AuthTypeAAP
-			authNProvider, authZProvider, err = initAAPAuth(cfg, log)
+			authNProvider, authZProvider, err = initAAPAuth(cfg, log, orgResolver)
 		}
 
 		if err != nil {

@@ -162,7 +162,7 @@ helm uninstall my-{{ .Name }}
 
 ## Usage
 
-After installation, {{ .Name }} will be available in your cluster. 
+After installation, {{ .Name }} will be available in your cluster.
 
 {{ if eq .Name "flightctl" }}
 ### Accessing Flight Control
@@ -189,6 +189,40 @@ global:
     k8s:
       apiUrl: "https://api.cluster.example.com:6443"
 ```
+
+### TLS/SSL Certificate Configuration
+
+When using external PostgreSQL databases with TLS/SSL, Flight Control supports multiple certificate management options:
+
+#### Option 1: Kubernetes ConfigMap/Secret (Production)
+
+```bash
+# Create certificate resources
+kubectl create configmap postgres-ca-cert \
+  --from-file=ca-cert.pem=/path/to/ca-cert.pem
+
+kubectl create secret generic postgres-client-certs \
+  --from-file=client-cert.pem=/path/to/client-cert.pem \
+  --from-file=client-key.pem=/path/to/client-key.pem
+```
+
+```yaml
+# Configure in values.yaml
+db:
+  external: "enabled"
+  hostname: "postgres.example.com"
+  sslmode: "verify-ca"
+  sslConfigMap: "postgres-ca-cert"     # ConfigMap containing CA certificate
+  sslSecret: "postgres-client-certs"   # Secret containing client certificates
+```
+
+**TLS/SSL Modes:**
+- `disable` - No TLS/SSL (not recommended for production)
+- `require` - TLS/SSL required, no certificate verification
+- `verify-ca` - TLS/SSL required, verify server certificate against CA
+- `verify-full` - TLS/SSL required, verify certificate and hostname
+
+For complete TLS/SSL configuration details, see the [external database documentation](https://docs.flightctl.io/user/external-database/).
 {{ end }}
 
 For more detailed configuration options, see the [Values](#values) section below.
@@ -221,7 +255,7 @@ To use these files:
 # Development deployment
 helm install my-flightctl oci://quay.io/flightctl/charts/flightctl -f values.dev.yaml
 
-# ACM integration deployment  
+# ACM integration deployment
 helm install my-flightctl oci://quay.io/flightctl/charts/flightctl -f values.acm.yaml
 
 # Combine multiple values files (later files override earlier ones)

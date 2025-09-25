@@ -68,13 +68,25 @@ func main() {
 	orgCache := cache.NewOrganizationTTL(cache.DefaultTTL)
 	go orgCache.Start()
 	defer orgCache.Stop()
+
 	buildResolverOpts := resolvers.BuildResolverOptions{
 		Config: cfg,
 		Store:  storeInst.Organization(),
 		Log:    log,
 		Cache:  orgCache,
 	}
-	orgResolver := resolvers.BuildResolver(buildResolverOpts)
+
+	if cfg.Auth != nil && cfg.Auth.AAP != nil {
+		membershipCache := cache.NewMembershipTTL(cache.DefaultTTL)
+		go membershipCache.Start()
+		defer membershipCache.Stop()
+		buildResolverOpts.MembershipCache = membershipCache
+	}
+
+	orgResolver, err := resolvers.BuildResolver(buildResolverOpts)
+	if err != nil {
+		log.Fatalf("failed to build organization resolver: %v", err)
+	}
 	serviceHandler := service.NewServiceHandler(storeInst, nil, kvStore, nil, log, "", "", []string{}, orgResolver)
 
 	log.Println("Running post-restoration device preparation")

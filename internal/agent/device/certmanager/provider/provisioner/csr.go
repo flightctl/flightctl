@@ -3,7 +3,6 @@ package provisioner
 import (
 	"bytes"
 	"context"
-	"crypto"
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
@@ -13,6 +12,7 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/device/certmanager/provider"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
+	"github.com/flightctl/flightctl/internal/agent/identity"
 	agentapi "github.com/flightctl/flightctl/internal/api/client/agent"
 	fccrypto "github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/google/uuid"
@@ -36,6 +36,8 @@ type CSRProvisionerConfig struct {
 	Usages []string `json:"usages,omitempty"`
 	// ExpirationSeconds requests a specific certificate validity duration (in seconds); signer may ignore
 	ExpirationSeconds *int32 `json:"expiration-seconds,omitempty"`
+	// IdentityType specifies the type of identity to use for this certificate ("software", "tpm", or empty for default)
+	IdentityType string `json:"identity-type,omitempty"`
 	// Additional CSR-specific configuration (future extensions)
 	Config map[string]interface{} `json:"config,omitempty"`
 }
@@ -50,19 +52,22 @@ type CSRProvisioner struct {
 	csrClient csrClient
 	// Configuration for CSR provisioning
 	cfg *CSRProvisionerConfig
+	// Provider for creating identities
+	identityProvider identity.ExportableProvider
 
 	// Name of the CSR resource on the server
 	csrName string
-	// Generated private key for this certificate
-	privateKey crypto.Signer
+	// The identity created
+	identity *identity.Exportable
 }
 
 // NewCSRProvisioner creates a new CSR provisioner with the specified configuration.
-func NewCSRProvisioner(deviceName string, csrClient csrClient, cfg *CSRProvisionerConfig) (*CSRProvisioner, error) {
+func NewCSRProvisioner(deviceName string, csrClient csrClient, identityProvider identity.ExportableProvider, cfg *CSRProvisionerConfig) (*CSRProvisioner, error) {
 	return &CSRProvisioner{
-		deviceName: deviceName,
-		csrClient:  csrClient,
-		cfg:        cfg,
+		deviceName:       deviceName,
+		csrClient:        csrClient,
+		cfg:              cfg,
+		identityProvider: identityProvider,
 	}, nil
 }
 
@@ -83,12 +88,16 @@ func (p *CSRProvisioner) Provision(ctx context.Context) (bool, *x509.Certificate
 	p.csrName = fmt.Sprintf("%s-%s", p.cfg.CommonName, uuid.NewString()[:8])
 
 	// Generate private key and CSR using the configured CommonName (without suffix)
-	key, csr, err := generateKeyAndCSR(p.cfg.CommonName)
+	id, err := p.identityProvider.NewExportable(p.cfg.CommonName)
 	if err != nil {
-		return false, nil, nil, fmt.Errorf("generate csr: %w", err)
+		return false, nil, nil, fmt.Errorf("new identity: %w", err)
+	}
+	csr, err := id.CSR()
+	if err != nil {
+		return false, nil, nil, fmt.Errorf("create CSR: %w", err)
 	}
 
-	p.privateKey = key
+	p.identity = id
 
 	usages := []string{
 		"clientAuth",
@@ -106,7 +115,7 @@ func (p *CSRProvisioner) Provision(ctx context.Context) (bool, *x509.Certificate
 			Name: &p.csrName,
 		},
 		Spec: api.CertificateSigningRequestSpec{
-			ExpirationSeconds: p.cfg.ExpirationSeconds, // <- Use directly from your CSRProvisionerConfig
+			ExpirationSeconds: p.cfg.ExpirationSeconds,
 			Request:           csr,
 			SignerName:        p.cfg.Signer,
 			Usages:            &usages,
@@ -131,8 +140,8 @@ func (p *CSRProvisioner) check(ctx context.Context) (bool, *x509.Certificate, []
 	if p.csrName == "" {
 		return false, nil, nil, fmt.Errorf("no CSR name recorded")
 	}
-	if p.privateKey == nil {
-		return false, nil, nil, fmt.Errorf("no private key generated")
+	if p.identity == nil {
+		return false, nil, nil, fmt.Errorf("no identity generated")
 	}
 
 	csr, statusCode, err := p.csrClient.GetCertificateSigningRequest(ctx, p.csrName)
@@ -157,9 +166,9 @@ func (p *CSRProvisioner) check(ctx context.Context) (bool, *x509.Certificate, []
 			return false, nil, nil, fmt.Errorf("failed to parse CSR PEM certificate: %w", err)
 		}
 
-		keyPEM, err := fccrypto.PEMEncodeKey(p.privateKey)
+		keyPEM, err := p.identity.KeyPEM()
 		if err != nil {
-			return false, nil, nil, fmt.Errorf("failed to encode private key: %w", err)
+			return false, nil, nil, fmt.Errorf("key pem: %w", err)
 		}
 
 		return true, cert, keyPEM, nil
@@ -173,27 +182,6 @@ func (p *CSRProvisioner) check(ctx context.Context) (bool, *x509.Certificate, []
 	return false, nil, nil, nil // still pending
 }
 
-// generateKeyAndCSR generates a new private key and creates a CSR with the specified common name.
-// This is used internally by the CSR provisioner to create the initial certificate request.
-func generateKeyAndCSR(commonName string) (crypto.Signer, []byte, error) {
-	_, priv, err := fccrypto.NewKeyPair()
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to generate key pair: %w", err)
-	}
-
-	signer, ok := priv.(crypto.Signer)
-	if !ok {
-		return nil, nil, fmt.Errorf("expected crypto.Signer, got %T", priv)
-	}
-
-	csr, err := fccrypto.MakeCSR(signer, commonName)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create CSR: %w", err)
-	}
-
-	return signer, csr, nil
-}
-
 // CSRProvisionerFactory implements ProvisionerFactory for CSR-based provisioners.
 // It creates CSR provisioners with device-specific configuration and validates CSR configs.
 type CSRProvisionerFactory struct {
@@ -201,13 +189,16 @@ type CSRProvisionerFactory struct {
 	deviceName string
 	// Client for communicating with management server
 	managementClient csrClient
+	// Factory responsible for creating different types of identity providers
+	identityFactory identity.ExportableFactory
 }
 
 // NewCSRProvisionerFactory creates a new CSRProvisionerFactory with the specified dependencies.
-func NewCSRProvisionerFactory(deviceName string, managementClient csrClient) *CSRProvisionerFactory {
+func NewCSRProvisionerFactory(deviceName string, managementClient csrClient, identityFactory identity.ExportableFactory) *CSRProvisionerFactory {
 	return &CSRProvisionerFactory{
 		deviceName:       deviceName,
 		managementClient: managementClient,
+		identityFactory:  identityFactory,
 	}
 }
 
@@ -224,6 +215,12 @@ func (f *CSRProvisionerFactory) New(log provider.Logger, cc provider.Certificate
 	var csrConfig CSRProvisionerConfig
 	if err := json.Unmarshal(prov.Config, &csrConfig); err != nil {
 		return nil, fmt.Errorf("failed to decode CSR provisioner config for certificate %q: %w", cc.Name, err)
+	}
+
+	// Create identity provider for the specified type
+	identityProvider, err := f.identityFactory.NewExportableProvider(csrConfig.IdentityType)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create identity provider for type %q in certificate %q: %w", csrConfig.IdentityType, cc.Name, err)
 	}
 
 	commonName := csrConfig.CommonName
@@ -247,7 +244,7 @@ func (f *CSRProvisionerFactory) New(log provider.Logger, cc provider.Certificate
 
 	csrConfig.CommonName = rendered.String()
 
-	return NewCSRProvisioner(f.deviceName, f.managementClient, &csrConfig)
+	return NewCSRProvisioner(f.deviceName, f.managementClient, identityProvider, &csrConfig)
 }
 
 // Validate checks whether the provided config is valid for a CSR provisioner.
@@ -266,6 +263,10 @@ func (f *CSRProvisionerFactory) Validate(log provider.Logger, cc provider.Certif
 
 	if csrConfig.Signer == "" {
 		return fmt.Errorf("signer must be specified for CSR provisioner in certificate %q", cc.Name)
+	}
+
+	if !f.identityFactory.CanProvide(csrConfig.IdentityType) {
+		return fmt.Errorf("invalid identity type %q for certificate", cc.Name)
 	}
 
 	return nil

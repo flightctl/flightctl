@@ -295,6 +295,17 @@ func GetDeviceConflictResolvedEvent(ctx context.Context, deviceName string) *api
 	})
 }
 
+// GetDeviceConflictPausedEvent creates an event for device being paused due to version conflict
+func GetDeviceConflictPausedEvent(ctx context.Context, deviceName string) *api.Event {
+	return getBaseEvent(ctx, resourceEvent{
+		resourceKind: api.DeviceKind,
+		resourceName: deviceName,
+		reason:       api.EventReasonDeviceConflictPaused,
+		message:      "Device has been paused due to version conflict after reconnection.",
+		details:      nil,
+	})
+}
+
 // GetFleetSpecValidEvent creates an event for fleet spec becoming valid
 func GetFleetSpecValidEvent(ctx context.Context, fleetName string) *api.Event {
 	return getBaseEvent(ctx, resourceEvent{

@@ -94,7 +94,11 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 	ctx, cancel := context.WithCancel(ctx)
 
 	provider := testutil.NewTestProvider(serverLog)
-	orgResolver := testutil.NewOrgResolver(&serverCfg, store.Organization(), serverLog)
+	orgResolver, err := testutil.NewOrgResolver(&serverCfg, store.Organization(), serverLog)
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("NewTestHarness: %w", err)
+	}
 
 	// create server
 	apiServer, listener, err := testutil.NewTestApiServer(serverLog, &serverCfg, store, ca, serverCerts, provider, orgResolver)

@@ -21,7 +21,6 @@ import (
 	agent_config "github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/log"
-	"github.com/google/go-tpm-tools/client"
 	"github.com/google/go-tpm-tools/simulator"
 	legacy "github.com/google/go-tpm/legacy/tpm2"
 	"github.com/google/go-tpm/tpm2"
@@ -196,12 +195,12 @@ func TestClient_Public(t *testing.T) {
 
 			tc.setupMocks(mockSession)
 
-			client := &Client{
+			c := &client{
 				session: mockSession,
 				log:     logger,
 			}
 
-			pubKey := client.Public()
+			pubKey := c.Public()
 
 			if tc.expectError {
 				require.Nil(t, pubKey)
@@ -255,12 +254,12 @@ func TestClient_Sign(t *testing.T) {
 
 			tc.setupMocks(mockSession)
 
-			client := &Client{
+			c := &client{
 				session: mockSession,
 				log:     logger,
 			}
 
-			result, err := client.Sign(nil, digest, crypto.SHA256)
+			result, err := c.Sign(nil, digest, crypto.SHA256)
 
 			if tc.expectError {
 				require.Error(t, err)
@@ -318,12 +317,12 @@ func TestClient_Close(t *testing.T) {
 
 			logger := log.NewPrefixLogger("test")
 
-			client := &Client{
+			c := &client{
 				session: session,
 				log:     logger,
 			}
 
-			err := client.Close(context.Background())
+			err := c.Close(context.Background())
 
 			if tc.expectError {
 				require.Error(t, err)
@@ -875,7 +874,10 @@ func TestClient_SimulatorIntegration(t *testing.T) {
 
 			rw := fileio.NewReadWriter(fileio.WithTestRootDir(t.TempDir()))
 
-			c, err := newClientWithConnection(sim, log.NewPrefixLogger("test"), rw, &agent_config.Config{
+			connFactory := func() (io.ReadWriteCloser, error) {
+				return sim, nil
+			}
+			c, err := newClientWithConnection(connFactory, log.NewPrefixLogger("test"), rw, &agent_config.Config{
 				TPM: agent_config.TPM{
 					Enabled:         true,
 					DevicePath:      agent_config.DefaultTPMDevicePath,
@@ -897,7 +899,10 @@ func TestClient_SimulatorIntegration(t *testing.T) {
 			require.NoError(err)
 
 			// Create a new client with the same configuration
-			c2, err := newClientWithConnection(sim, log.NewPrefixLogger("test"), rw, &agent_config.Config{
+			connFactory2 := func() (io.ReadWriteCloser, error) {
+				return sim, nil
+			}
+			c2, err := newClientWithConnection(connFactory2, log.NewPrefixLogger("test"), rw, &agent_config.Config{
 				TPM: agent_config.TPM{
 					Enabled:         true,
 					DevicePath:      agent_config.DefaultTPMDevicePath,
@@ -917,7 +922,10 @@ func TestClient_SimulatorIntegration(t *testing.T) {
 			require.NoError(err)
 
 			// Create a third client to verify Clear worked - TPM hierarchy reset and storage cleared
-			c3, err := newClientWithConnection(sim, log.NewPrefixLogger("test"), rw, &agent_config.Config{
+			connFactory3 := func() (io.ReadWriteCloser, error) {
+				return sim, nil
+			}
+			c3, err := newClientWithConnection(connFactory3, log.NewPrefixLogger("test"), rw, &agent_config.Config{
 				TPM: agent_config.TPM{
 					Enabled:         true,
 					DevicePath:      agent_config.DefaultTPMDevicePath,
@@ -1210,7 +1218,7 @@ func setupFakeRSAEKCertificate(conn io.ReadWriter) error {
 		return err
 	}
 
-	return writeEKCertToTPM(conn, tpm2.TPMHandle(client.EKCertNVIndexRSA), certDER)
+	return writeEKCertToTPM(conn, tpm2.TPMHandle(ekRSANVIndex), certDER)
 }
 
 // setupFakeECCEKCertificate sets up a fake ECDSA endorsement key certificate in the TPM simulator
@@ -1253,11 +1261,11 @@ func setupFakeECCEKCertificate(conn io.ReadWriter) error {
 		return err
 	}
 
-	return writeEKCertToTPM(conn, tpm2.TPMHandle(client.EKCertNVIndexECC), certDER)
+	return writeEKCertToTPM(conn, tpm2.TPMHandle(ekECCNVIndex), certDER)
 }
 
 // performClientOperations performs a standard set of client operations and returns the public key
-func performClientOperations(t *testing.T, c *Client, ctx context.Context, testSuffix string) crypto.PublicKey {
+func performClientOperations(t *testing.T, c *client, ctx context.Context, testSuffix string) crypto.PublicKey {
 	require := require.New(t)
 
 	// Ensure the CSR generation flow doesn't fail
@@ -1349,7 +1357,10 @@ func TestSessionGenerateChallenge(t *testing.T) {
 
 			rw := fileio.NewReadWriter(fileio.WithTestRootDir(t.TempDir()))
 
-			c, err := newClientWithConnection(sim, log.NewPrefixLogger("test"), rw, &agent_config.Config{
+			connFactory := func() (io.ReadWriteCloser, error) {
+				return sim, nil
+			}
+			c, err := newClientWithConnection(connFactory, log.NewPrefixLogger("test"), rw, &agent_config.Config{
 				TPM: agent_config.TPM{
 					Enabled:         true,
 					DevicePath:      agent_config.DefaultTPMDevicePath,
@@ -1358,12 +1369,6 @@ func TestSessionGenerateChallenge(t *testing.T) {
 				},
 			}, "test-model", "test-serial")
 
-			require.NoError(err)
-
-			// we need extra memory in the sim and aren't using the LDevID for this test.
-			s, ok := c.session.(*tpmSession)
-			require.True(ok, "Not a tpm session")
-			err = s.flushHandle(s.handles[LDevID])
 			require.NoError(err)
 
 			tpmSecret := []byte("hello_world")
@@ -1412,7 +1417,10 @@ func TestCreateCredential(t *testing.T) {
 
 			rw := fileio.NewReadWriter(fileio.WithTestRootDir(t.TempDir()))
 
-			c, err := newClientWithConnection(sim, log.NewPrefixLogger("test"), rw, &agent_config.Config{
+			connFactory := func() (io.ReadWriteCloser, error) {
+				return sim, nil
+			}
+			c, err := newClientWithConnection(connFactory, log.NewPrefixLogger("test"), rw, &agent_config.Config{
 				TPM: agent_config.TPM{
 					Enabled:         true,
 					DevicePath:      agent_config.DefaultTPMDevicePath,
@@ -1426,12 +1434,6 @@ func TestCreateCredential(t *testing.T) {
 			csr, err := c.MakeCSR("test-name", make([]byte, 32))
 			require.NoError(err)
 			parsed, err := ParseTCGCSR(csr)
-			require.NoError(err)
-
-			// we need extra memory in the sim and aren't using the LDevID after we generate the CSR
-			s, ok := c.session.(*tpmSession)
-			require.True(ok, "Not a tpm session")
-			err = s.flushHandle(s.handles[LDevID])
 			require.NoError(err)
 
 			challenge, err := CreateCredentialChallenge(parsed.CSRContents.Payload.EkCert, parsed.CSRContents.Payload.AttestPub)
@@ -1448,6 +1450,103 @@ func TestCreateCredential(t *testing.T) {
 
 			// Verify the secrets match
 			require.Equal(challenge.ExpectedSecret, actualSecret, "Decrypted secret should match the original secret")
+		})
+	}
+}
+
+type simConn struct {
+	sim *simulator.Simulator
+}
+
+func (s simConn) Read(p []byte) (n int, err error) {
+	return s.sim.Read(p)
+}
+
+func (s simConn) Write(p []byte) (n int, err error) {
+	return s.sim.Write(p)
+}
+
+func (s simConn) Close() error {
+	// no-op so that the sim doesn't close
+	return nil
+}
+
+func TestClient_CreateApplicationKeys(t *testing.T) {
+	testCases := []struct {
+		name            string
+		enableOwnership bool
+	}{
+		{
+			name:            "ownership disabled",
+			enableOwnership: false,
+		},
+		{
+			name:            "ownership enabled",
+			enableOwnership: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+
+			sim, err := simulator.Get()
+			require.NoError(err)
+			defer sim.Close()
+
+			apps := []string{"app-1", "app-2"}
+
+			// Set up fake RSA endorsement key certificate in the simulator
+			err = setupFakeRSAEKCertificate(sim)
+			require.NoError(err)
+
+			rw := fileio.NewReadWriter(fileio.WithTestRootDir(t.TempDir()))
+
+			// Connection factory that properly manages the simulator connection
+			connFactory := func() (io.ReadWriteCloser, error) {
+				if err := sim.Reset(); err != nil {
+					return nil, err
+				}
+				return simConn{sim: sim}, nil
+			}
+
+			c, err := newClientWithConnection(connFactory, log.NewPrefixLogger("test"), rw, &agent_config.Config{
+				TPM: agent_config.TPM{
+					Enabled:         true,
+					DevicePath:      agent_config.DefaultTPMDevicePath,
+					StorageFilePath: agent_config.DefaultTPMKeyFile,
+					AuthEnabled:     tc.enableOwnership,
+				},
+			}, "test-model", "test-serial")
+			require.NoError(err)
+
+			for _, app := range apps {
+				// Call CreateApplicationKey
+				tcgCSR, exportedKey, err := c.CreateApplicationKey(app)
+				require.NoError(err, "CreateApplicationKey should succeed")
+
+				// Validate returned data
+				require.NotEmpty(tcgCSR, "TCG CSR should not be empty")
+				require.NotEmpty(exportedKey, "Exported key should not be empty")
+
+				// A second call shouldn't error
+				tcgCSR2, exportedKey2, err := c.CreateApplicationKey(app)
+				require.NoError(err, "CreateApplicationKey should succeed")
+
+				// similar but different
+				require.NotEqual(tcgCSR2, tcgCSR)
+				// same file should be generated
+				require.Equal(exportedKey2, exportedKey)
+
+				// Basic validation that TCG CSR is parseable
+				parsed, err := ParseTCGCSR(tcgCSR)
+				require.NoError(err, "TCG CSR should be parseable")
+				require.NotNil(parsed, "Parsed TCG CSR should not be nil")
+
+				// Test that we can clean up the application key
+				err = c.RemoveApplicationKey(app)
+				require.NoError(err, "RemoveApplicationKey should succeed")
+			}
 		})
 	}
 }

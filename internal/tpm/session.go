@@ -7,9 +7,8 @@ import (
 	"io"
 	"math/big"
 
-	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/log"
-	"github.com/google/go-tpm-tools/client"
+	gotpmclient "github.com/google/go-tpm-tools/client"
 	"github.com/google/go-tpm/tpm2"
 	"github.com/google/go-tpm/tpm2/transport"
 )
@@ -19,36 +18,74 @@ const (
 	transientHandleMax  = tpm2.TPMHandle(0x80FFFFFF)
 	persistentHandleMin = tpm2.TPMHandle(0x81000000)
 	persistentHandleMax = tpm2.TPMHandle(0x81FFFFFF)
-	nvReadChunkSize     = uint16(1024) // Maximum chunk size for NVRead operations
+	permanentHandleMin  = tpm2.TPMHandle(0x40000000)
+	permanentHandleMax  = tpm2.TPMHandle(0x4004FFFF)
+	// Table 11 of https://trustedcomputinggroup.org/wp-content/uploads/RegistryOfReservedTPM2HandlesAndLocalities_v1p1_pub.pdf
+	persistentHandleStart = tpm2.TPMHandle(0x81008000)
+	persistentHandleEnd   = tpm2.TPMHandle(0x8100FFFF)
+
+	nvReadChunkSize = uint16(1024) // Maximum chunk size for NVRead operations
+	ekRSANVIndex    = gotpmclient.EKCertNVIndexRSA
+	ekECCNVIndex    = gotpmclient.EKCertNVIndexECC
 )
 
 // tpmSession implements the Session interface
 type tpmSession struct {
-	conn        io.ReadWriteCloser
-	storage     Storage
-	log         *log.PrefixLogger
-	authEnabled bool
-	keyAlgo     KeyAlgorithm
+	conn             io.ReadWriteCloser
+	storage          Storage
+	log              *log.PrefixLogger
+	authEnabled      bool
+	shouldInitialize bool
+	keyAlgo          KeyAlgorithm
 
 	// Active handles
 	handles map[KeyType]*tpm2.NamedHandle
-	srk     *tpm2.NamedHandle
+}
+
+type SessionOption func(*tpmSession)
+
+// WithKeyAlgo sets the algorithm used for the session
+func WithKeyAlgo(keyAlgo KeyAlgorithm) SessionOption {
+	return func(s *tpmSession) {
+		s.keyAlgo = keyAlgo
+	}
+}
+
+// WithInitialization indicates that the session should initialize the device's main keys
+func WithInitialization() SessionOption {
+	return func(s *tpmSession) {
+		s.shouldInitialize = true
+	}
+}
+
+func WithAuth(authEnabled bool) SessionOption {
+	return func(s *tpmSession) {
+		s.authEnabled = authEnabled
+	}
+}
+
+func WithStorage(storage Storage) SessionOption {
+	return func(s *tpmSession) {
+		s.storage = storage
+	}
 }
 
 // NewSession creates a new TPM session
-func NewSession(conn io.ReadWriteCloser, rw fileio.ReadWriter, log *log.PrefixLogger, authEnabled bool, persistencePath string, keyAlgo KeyAlgorithm) (Session, error) {
+func NewSession(conn io.ReadWriteCloser, log *log.PrefixLogger, opts ...SessionOption) (Session, error) {
 	session := &tpmSession{
-		conn:        conn,
-		storage:     NewFileStorage(rw, persistencePath, log),
-		log:         log,
-		authEnabled: authEnabled,
-		keyAlgo:     keyAlgo,
-		handles:     make(map[KeyType]*tpm2.NamedHandle),
+		conn:    conn,
+		log:     log,
+		handles: make(map[KeyType]*tpm2.NamedHandle),
 	}
 
-	// initialize the session by ensuring SRK and setting up auth
-	if err := session.initialize(); err != nil {
-		return nil, fmt.Errorf("initializing TPM session: %w", err)
+	for _, option := range opts {
+		option(session)
+	}
+
+	if session.shouldInitialize {
+		if err := session.initialize(); err != nil {
+			return nil, fmt.Errorf("session initialization: %w", err)
+		}
 	}
 
 	return session, nil
@@ -65,8 +102,15 @@ func (s *tpmSession) initialize() error {
 	if err != nil {
 		return fmt.Errorf("ensuring SRK: %w", err)
 	}
-	s.srk = srkHandle
 	s.handles[SRK] = srkHandle
+	// The SRK occupies transient space. After initialization the LAK and LDevID will be loaded
+	// into the TPM's transient memory and the SRK will no longer be needed. The SRK
+	// is flushed to free up space for other keys.
+	defer func() {
+		if err := s.flushKey(SRK); err != nil {
+			s.log.Errorf("Error flushing SRK key: %v", err)
+		}
+	}()
 
 	if err := s.loadExistingKeys(); err != nil {
 		return fmt.Errorf("loading existing keys: %w", err)
@@ -95,7 +139,7 @@ func (s *tpmSession) CreateKey(keyType KeyType) (*tpm2.CreateResponse, error) {
 	}
 
 	createCmd := tpm2.Create{
-		ParentHandle: *s.srk,
+		ParentHandle: *s.handles[SRK],
 		InPublic:     tpm2.New2B(template),
 	}
 
@@ -109,6 +153,46 @@ func (s *tpmSession) CreateKey(keyType KeyType) (*tpm2.CreateResponse, error) {
 	}
 
 	return createRsp, nil
+}
+
+func (s *tpmSession) loadAppKey(appName string) (*exportableDeviceID, error) {
+	key, err := s.storage.GetApplicationKey(appName)
+	if err != nil {
+		return nil, fmt.Errorf("getting application key: %w", err)
+	}
+
+	pubCmd := tpm2.ReadPublic{ObjectHandle: key.ParentHandle}
+	pubRsp, err := pubCmd.Execute(transport.FromReadWriter(s.conn))
+	if err != nil {
+		return nil, fmt.Errorf("reading parent: %x public info command: %w", key.ParentHandle, err)
+	}
+
+	loadCmd := tpm2.Load{
+		ParentHandle: tpm2.AuthHandle{
+			Handle: key.ParentHandle,
+			Name:   pubRsp.Name,
+			Auth:   tpm2.PasswordAuth(nil), // todo passwords
+		},
+		InPrivate: key.Private,
+		InPublic:  key.Public,
+	}
+	loadRsp, err := loadCmd.Execute(transport.FromReadWriter(s.conn))
+	if err != nil {
+		return nil, fmt.Errorf("loading app: %w", err)
+	}
+
+	return &exportableDeviceID{
+		log:          s.log,
+		parentHandle: key.ParentHandle,
+		pub:          key.Public,
+		priv:         key.Private,
+		loadedHandle: tpm2.AuthHandle{
+			Handle: loadRsp.ObjectHandle,
+			Name:   loadRsp.Name,
+			Auth:   tpm2.PasswordAuth(nil), // todo passwords
+		},
+		conn: s.conn,
+	}, nil
 }
 
 func (s *tpmSession) LoadKey(keyType KeyType) (*tpm2.NamedHandle, error) {
@@ -151,7 +235,7 @@ func (s *tpmSession) LoadKey(keyType KeyType) (*tpm2.NamedHandle, error) {
 	}
 
 	loadCmd := tpm2.Load{
-		ParentHandle: *s.srk,
+		ParentHandle: *s.handles[SRK],
 		InPrivate:    *priv,
 		InPublic:     *pub,
 	}
@@ -171,24 +255,27 @@ func (s *tpmSession) LoadKey(keyType KeyType) (*tpm2.NamedHandle, error) {
 	return handle, nil
 }
 
-func (s *tpmSession) CertifyKey(keyType KeyType, qualifyingData []byte) (certifyInfo, signature []byte, err error) {
-	// get target handle to certify
-	targetHandle, err := s.LoadKey(keyType)
-	if err != nil {
-		return nil, nil, fmt.Errorf("loading target key: %w", err)
+func (s *tpmSession) flushKey(keyType KeyType) error {
+	handle, exists := s.handles[keyType]
+	if !exists {
+		s.log.Debugf("Key %s already flushed", keyType)
+		return nil
 	}
 
-	// determine the signing key based on what we're certifying
-	var signingHandle *tpm2.NamedHandle
-	// We don't create our keys with any auth. If that changes we need to update this
-	auth := tpm2.PasswordAuth(nil)
+	if err := s.flushHandle(handle.Handle); err != nil {
+		return fmt.Errorf("flushing key %s: %w", keyType, err)
+	}
+	delete(s.handles, keyType)
+	return nil
+}
 
+func (s *tpmSession) certifyKey(handle tpm2.AuthHandle, qualifyingData []byte) ([]byte, []byte, error) {
 	// use LAK as the signing key for all certifications
 	lakHandle, err := s.LoadKey(LAK)
 	if err != nil {
 		return nil, nil, fmt.Errorf("loading LAK for certification: %w", err)
 	}
-	signingHandle = lakHandle
+	signingHandle := lakHandle
 
 	// create signature scheme
 	sigScheme := tpm2.TPMTSigScheme{
@@ -200,15 +287,11 @@ func (s *tpmSession) CertifyKey(keyType KeyType, qualifyingData []byte) (certify
 	}
 
 	cmd := tpm2.Certify{
-		ObjectHandle: tpm2.AuthHandle{
-			Handle: targetHandle.Handle,
-			Name:   targetHandle.Name,
-			Auth:   auth,
-		},
+		ObjectHandle: handle,
 		SignHandle: tpm2.AuthHandle{
 			Handle: signingHandle.Handle,
 			Name:   signingHandle.Name,
-			Auth:   auth,
+			Auth:   tpm2.PasswordAuth(nil),
 		},
 		QualifyingData: tpm2.TPM2BData{Buffer: qualifyingData},
 		InScheme:       sigScheme,
@@ -225,14 +308,40 @@ func (s *tpmSession) CertifyKey(keyType KeyType, qualifyingData []byte) (certify
 	return certifyInfoBytes, signatureBytes, nil
 }
 
+func (s *tpmSession) CertifyKey(keyType KeyType, qualifyingData []byte) (certifyInfo, signature []byte, err error) {
+	// get target handle to certify
+	targetHandle, err := s.LoadKey(keyType)
+	if err != nil {
+		return nil, nil, fmt.Errorf("loading target key: %w", err)
+	}
+
+	return s.certifyKey(tpm2.AuthHandle{
+		Handle: targetHandle.Handle,
+		Name:   targetHandle.Name,
+		Auth:   tpm2.PasswordAuth(nil),
+	}, qualifyingData)
+}
+
+func (s *tpmSession) Certify(cert Certifiable, qualifyingData []byte) (certifyInfo, signature []byte, err error) {
+	return s.certifyKey(cert.Handle(), qualifyingData)
+}
+
 func (s *tpmSession) Sign(keyType KeyType, digest []byte) ([]byte, error) {
 	handle, err := s.LoadKey(keyType)
 	if err != nil {
 		return nil, fmt.Errorf("loading signing key: %w", err)
 	}
+	authHandel := tpm2.AuthHandle{
+		Handle: handle.Handle,
+		Name:   handle.Name,
+		Auth:   tpm2.PasswordAuth(nil),
+	}
+	return signWithKey(transport.FromReadWriter(s.conn), authHandel, digest)
+}
 
+func signWithKey(conn transport.TPM, handle tpm2.AuthHandle, digest []byte) ([]byte, error) {
 	cmd := tpm2.Sign{
-		KeyHandle: *handle,
+		KeyHandle: handle,
 		Digest: tpm2.TPM2BDigest{
 			Buffer: digest,
 		},
@@ -241,9 +350,9 @@ func (s *tpmSession) Sign(keyType KeyType, digest []byte) ([]byte, error) {
 		},
 	}
 
-	resp, err := cmd.Execute(transport.FromReadWriter(s.conn))
+	resp, err := cmd.Execute(conn)
 	if err != nil {
-		return nil, fmt.Errorf("sign command failed for %s (digest size: %d): %w", keyType, len(digest), err)
+		return nil, fmt.Errorf("sign command failed (digest size: %d): %w", len(digest), err)
 	}
 
 	// convert TPM signature to ASN.1 DER
@@ -348,7 +457,6 @@ func (s *tpmSession) Clear() error {
 
 	// clear internal state
 	s.handles = make(map[KeyType]*tpm2.NamedHandle)
-	s.srk = nil
 
 	if err := s.storage.ClearPassword(); err != nil {
 		errs = append(errs, fmt.Errorf("clearing stored password: %w", err))
@@ -390,13 +498,11 @@ func (s *tpmSession) flushKeys() []error {
 
 	// Flush all known handles
 	for keyType, handle := range s.handles {
-		if err := s.flushHandle(handle); err != nil {
+		if err := s.flushHandle(handle.Handle); err != nil {
 			errs = append(errs, fmt.Errorf("flushing %s: %w", keyType, err))
 		}
 		delete(s.handles, keyType)
 	}
-	// we flush the SRK above
-	s.srk = nil
 
 	return errs
 }
@@ -410,21 +516,15 @@ func (s *tpmSession) clearStoredKeys() error {
 		_ = s.storage.ClearKey(kt)
 	}
 
+	_ = s.storage.ClearApplicationKeys()
+
 	return nil
 }
 
 func (s *tpmSession) Close() error {
-	var errs []error
-
-	// flush all handles we know about
-	for keyType, handle := range s.handles {
-		if err := s.flushHandle(handle); err != nil {
-			errs = append(errs, fmt.Errorf("flushing %s handle: %w", keyType, err))
-		}
-	}
+	errs := s.flushKeys()
 
 	s.handles = make(map[KeyType]*tpm2.NamedHandle)
-	s.srk = nil
 
 	// close the TPM connection
 	if s.conn != nil {
@@ -463,11 +563,11 @@ func (s *tpmSession) isEKCertPresent(nvIndex uint32) bool {
 // detectEKAlgorithm determines the EK algorithm based on which certificate
 // exists in NVRAM, prioritizing RSA first
 func (s *tpmSession) detectEKAlgorithm() (KeyAlgorithm, error) {
-	if s.isEKCertPresent(client.EKCertNVIndexRSA) {
+	if s.isEKCertPresent(ekRSANVIndex) {
 		return RSA, nil
 	}
 
-	if s.isEKCertPresent(client.EKCertNVIndexECC) {
+	if s.isEKCertPresent(ekECCNVIndex) {
 		return ECDSA, nil
 	}
 
@@ -490,9 +590,9 @@ func (s *tpmSession) endorsementKeyCert() ([]byte, error) {
 	var nvIndex uint32
 	switch ekAlgo {
 	case RSA:
-		nvIndex = client.EKCertNVIndexRSA
+		nvIndex = ekRSANVIndex
 	case ECDSA:
-		nvIndex = client.EKCertNVIndexECC
+		nvIndex = ekECCNVIndex
 	default:
 		return nil, fmt.Errorf("unsupported EK algorithm: %s", ekAlgo)
 	}
@@ -630,14 +730,9 @@ func (s *tpmSession) ensureSRK() (*tpm2.NamedHandle, error) {
 		password = nil
 	}
 
-	var template tpm2.TPMTPublic
-	switch s.keyAlgo {
-	case ECDSA:
-		template = tpm2.ECCSRKTemplate
-	case RSA:
-		template = tpm2.RSASRKTemplate
-	default:
-		return nil, fmt.Errorf("unsupported key algorithm: %s", s.keyAlgo)
+	template, err := StorageKeyTemplate(s.keyAlgo)
+	if err != nil {
+		return nil, err
 	}
 
 	cmd := tpm2.CreatePrimary{
@@ -662,20 +757,21 @@ func (s *tpmSession) ensureSRK() (*tpm2.NamedHandle, error) {
 // ensureSRKIsLoaded checks if the SRK handle is still valid in the TPM
 // and regenerates it if it was flushed by aggressive cleanup
 func (s *tpmSession) ensureSRKIsLoaded() error {
-	if s.srk == nil {
+	handle, exists := s.handles[SRK]
+	if !exists {
 		// SRK was never created, create it now
 		srkHandle, err := s.ensureSRK()
 		if err != nil {
 			return fmt.Errorf("creating SRK: %w", err)
 		}
-		s.srk = srkHandle
 		s.handles[SRK] = srkHandle
+		handle = srkHandle
 		return nil
 	}
 
 	// check if the SRK handle is still valid by trying to read its public key
 	cmd := tpm2.ReadPublic{
-		ObjectHandle: s.srk.Handle,
+		ObjectHandle: handle.Handle,
 	}
 
 	_, err := cmd.Execute(transport.FromReadWriter(s.conn))
@@ -691,13 +787,12 @@ func (s *tpmSession) ensureSRKIsLoaded() error {
 		return fmt.Errorf("regenerating SRK: %w", err)
 	}
 
-	s.srk = srkHandle
 	s.handles[SRK] = srkHandle
 
 	// clear any cached child key handles since they're now invalid too
 	for keyType, handle := range s.handles {
 		if keyType != SRK {
-			_ = s.flushHandle(handle)
+			_ = s.flushHandle(handle.Handle)
 			delete(s.handles, keyType)
 		}
 	}
@@ -732,98 +827,24 @@ func (s *tpmSession) getKeyTemplate(keyType KeyType) (tpm2.TPMTPublic, error) {
 		return LDevIDTemplate(s.keyAlgo)
 	case LAK:
 		return AttestationKeyTemplate(s.keyAlgo)
+	case SRK:
+		return StorageKeyTemplate(s.keyAlgo)
 	default:
 		return tpm2.TPMTPublic{}, fmt.Errorf("unsupported key type: %s", keyType)
 	}
 }
 
-func (s *tpmSession) flushHandle(handle *tpm2.NamedHandle) error {
-	if handle == nil {
-		return nil
-	}
-
-	if handle.Handle < persistentHandleMin || handle.Handle > persistentHandleMax {
+func (s *tpmSession) flushHandle(handle tpm2.TPMHandle) error {
+	if handle >= transientHandleMin && handle <= transientHandleMax {
 		flushCmd := tpm2.FlushContext{
-			FlushHandle: handle.Handle,
+			FlushHandle: handle,
 		}
 
 		_, err := flushCmd.Execute(transport.FromReadWriter(s.conn))
 		if err != nil {
-			return fmt.Errorf("flushing context for handle 0x%x: %w", handle.Handle, err)
+			return fmt.Errorf("flushing context for handle 0x%x: %w", handle, err)
 		}
 	}
-	return nil
-}
-
-// FlushAllTransientHandles aggressively flushes all transient handles in the TPM
-// This helps clean up any handles that might have been created by go-tpm-tools or other libraries
-// It preserves handles that are actively tracked by this session
-func (s *tpmSession) FlushAllTransientHandles() error {
-	// Create a set of handles we want to preserve
-	preserveHandles := make(map[tpm2.TPMHandle]bool)
-	for _, handle := range s.handles {
-		if handle != nil {
-			preserveHandles[handle.Handle] = true
-		}
-	}
-
-	// get all loaded handles from the TPM
-	cmd := tpm2.GetCapability{
-		Capability:    tpm2.TPMCapHandles,
-		Property:      uint32(tpm2.TPMHTTransient) << 24, // transient handles start at 0x80000000
-		PropertyCount: 256,                               // maximum number of handles to retrieve
-	}
-
-	resp, err := cmd.Execute(transport.FromReadWriter(s.conn))
-	if err != nil {
-		// note: if we can't get capabilities, that's not necessarily an error
-		// the TPM might just not have any transient handles
-		s.log.Debugf("Could not get transient handles for cleanup: %v", err)
-		return nil
-	}
-
-	if resp.CapabilityData.Capability != tpm2.TPMCapHandles {
-		return nil
-	}
-
-	handles, err := resp.CapabilityData.Data.Handles()
-	if err != nil {
-		s.log.Debugf("Could not parse handle list: %v", err)
-		return nil
-	}
-
-	var flushErrors []error
-	flushedCount := 0
-	for _, handle := range handles.Handle {
-		// only flush transient handles (0x80000000 - 0x8FFFFFFF)
-		if handle >= transientHandleMin && handle <= transientHandleMax {
-			if preserveHandles[handle] {
-				s.log.Debugf("Preserving active session handle 0x%x", handle)
-				continue
-			}
-
-			flushCmd := tpm2.FlushContext{
-				FlushHandle: handle,
-			}
-
-			_, err := flushCmd.Execute(transport.FromReadWriter(s.conn))
-			if err != nil {
-				flushErrors = append(flushErrors, fmt.Errorf("flushing transient handle 0x%x: %w", handle, err))
-				continue
-			}
-			flushedCount++
-			s.log.Debugf("Flushed unused transient handle 0x%x", handle)
-		}
-	}
-
-	if flushedCount > 0 {
-		s.log.Debugf("Flushed %d unused transient handles", flushedCount)
-	}
-
-	if len(flushErrors) > 0 {
-		return fmt.Errorf("errors flushing transient handles: %v", flushErrors)
-	}
-
 	return nil
 }
 
@@ -933,7 +954,7 @@ func (s *tpmSession) GenerateChallenge(secret []byte) ([]byte, []byte, error) {
 		Handle: resp.ObjectHandle,
 		Name:   resp.Name,
 	}
-	defer func() { _ = s.flushHandle(ekHandle) }()
+	defer func() { _ = s.flushHandle(ekHandle.Handle) }()
 
 	lakHandle, err := s.LoadKey(LAK)
 	if err != nil {
@@ -991,7 +1012,7 @@ func (s *tpmSession) SolveChallenge(credentialBlob, encryptedSecret []byte) ([]b
 		Handle: resp.ObjectHandle,
 		Name:   resp.Name,
 	}
-	defer func() { _ = s.flushHandle(ekHandle) }()
+	defer func() { _ = s.flushHandle(ekHandle.Handle) }()
 
 	lakHandle, err := s.LoadKey(LAK)
 	if err != nil {
@@ -1016,4 +1037,207 @@ func (s *tpmSession) SolveChallenge(credentialBlob, encryptedSecret []byte) ([]b
 	}
 
 	return activateResp.CertInfo.Buffer, nil
+}
+
+func (s *tpmSession) findAvailablePersistentHandle() (tpm2.TPMHandle, error) {
+	cmd := tpm2.GetCapability{
+		Capability:    tpm2.TPMCapHandles,
+		Property:      uint32(persistentHandleStart),
+		PropertyCount: uint32(persistentHandleEnd - persistentHandleStart + 1),
+	}
+	resp, err := cmd.Execute(transport.FromReadWriter(s.conn))
+	if err != nil {
+		return 0, fmt.Errorf("querying persistent handles: %w", err)
+	}
+
+	handles, err := resp.CapabilityData.Data.Handles()
+	if err != nil {
+		return 0, fmt.Errorf("parsing handle capability data: %w", err)
+	}
+
+	existingHandles := make(map[tpm2.TPMHandle]bool)
+	if handles != nil {
+		for _, handle := range handles.Handle {
+			if handle >= persistentHandleStart && handle <= persistentHandleEnd {
+				existingHandles[handle] = true
+			}
+		}
+	}
+
+	for handle := persistentHandleStart; handle <= persistentHandleEnd; handle++ {
+		if !existingHandles[handle] {
+			return handle, nil
+		}
+	}
+
+	return 0, fmt.Errorf("no available persistent handles in range 0x%08X to 0x%08X", persistentHandleStart, persistentHandleEnd)
+}
+
+func (s *tpmSession) createNewAppIdentity(appName string) error {
+	// creating an app identity requires 2 slots for transient space. flush all loaded keys
+	// to create space
+	errs := s.flushKeys()
+	if len(errs) > 0 {
+		return fmt.Errorf("creating new app key: %s: %w", appName, errors.Join(errs...))
+	}
+
+	err := s.ensureSRKIsLoaded()
+	if err != nil {
+		return fmt.Errorf("ensuring SRK is loaded: %w", err)
+	}
+
+	template, err := StorageKeyTemplate(s.keyAlgo)
+	if err != nil {
+		return fmt.Errorf("storage app key template: %w", err)
+	}
+	// Create an individual storage key under the storage hierarchy for each application
+	// todo passwords
+	createCmd := tpm2.Create{
+		ParentHandle: s.handles[SRK],
+		InPublic:     tpm2.New2B(template),
+	}
+
+	createResp, err := createCmd.Execute(transport.FromReadWriter(s.conn))
+	if err != nil {
+		return fmt.Errorf("creating new app storage key: %w", err)
+	}
+
+	// Load the storage key so that it can be immediately evicted
+	loadCmd := tpm2.Load{
+		ParentHandle: s.handles[SRK],
+		InPrivate:    createResp.OutPrivate,
+		InPublic:     createResp.OutPublic,
+	}
+	loadRsp, err := loadCmd.Execute(transport.FromReadWriter(s.conn))
+	if err != nil {
+		return fmt.Errorf("loading app storage key: %w", err)
+	}
+
+	persistentHandle, err := s.findAvailablePersistentHandle()
+	if err != nil {
+		return fmt.Errorf("finding available persistent handle: %w", err)
+	}
+
+	ownerPass, err := s.getPassword()
+	if err != nil {
+		return fmt.Errorf("getting current password: %w", err)
+	}
+
+	evictCmd := tpm2.EvictControl{
+		Auth: tpm2.AuthHandle{
+			Handle: tpm2.TPMRHOwner,
+			Auth:   tpm2.PasswordAuth(ownerPass),
+		},
+		ObjectHandle: tpm2.NamedHandle{
+			Handle: loadRsp.ObjectHandle,
+			Name:   loadRsp.Name,
+		},
+		PersistentHandle: persistentHandle,
+	}
+	_, err = evictCmd.Execute(transport.FromReadWriter(s.conn))
+	if err != nil {
+		return fmt.Errorf("evicting app storage key: %w", err)
+	}
+
+	// teardown function to undo the persistence if any future step fails
+	clearPersistedKey := func(err error) error {
+		if clearErr := s.removePersistedKey(persistentHandle); clearErr != nil {
+			s.log.Errorf("Unable to roll back persisted key %x trying to create a new app identity: %s", persistentHandle, clearErr)
+			err = fmt.Errorf("removing persisted storage key: %w", clearErr)
+		}
+		return err
+	}
+
+	err = s.flushHandle(loadRsp.ObjectHandle)
+	if err != nil {
+		return clearPersistedKey(fmt.Errorf("flushing app storage key: %w", err))
+	}
+
+	// create the new identity under the handle that was just flushed
+	ldevTemplate, err := LDevIDTemplate(s.keyAlgo)
+	if err != nil {
+		return clearPersistedKey(fmt.Errorf("getting ldev template: %w", err))
+	}
+	createChildCmd := tpm2.Create{
+		ParentHandle: tpm2.AuthHandle{
+			Handle: persistentHandle,
+			Name:   loadRsp.Name,
+			Auth:   tpm2.PasswordAuth(nil), // todo need password
+		},
+		InPublic: tpm2.New2B(ldevTemplate),
+	}
+
+	createResp, err = createChildCmd.Execute(transport.FromReadWriter(s.conn))
+	if err != nil {
+		return clearPersistedKey(fmt.Errorf("creating new app identity key: %w", err))
+	}
+
+	err = s.storage.StoreApplicationKey(appName, AppKeyStoreData{
+		ParentHandle: persistentHandle,
+		Public:       createResp.OutPublic,
+		Private:      createResp.OutPrivate,
+	})
+	if err != nil {
+		return clearPersistedKey(fmt.Errorf("storing new app storage key: %w", err))
+	}
+	return nil
+}
+
+func (s *tpmSession) removePersistedKey(handle tpm2.TPMHandle) error {
+	pubCmd := tpm2.ReadPublic{ObjectHandle: handle}
+	pubRsp, err := pubCmd.Execute(transport.FromReadWriter(s.conn))
+	if err != nil {
+		return fmt.Errorf("reading public key: %w", err)
+	}
+
+	ownerPass, err := s.getPassword()
+	if err != nil {
+		return fmt.Errorf("getting current password: %w", err)
+	}
+
+	evictCmd := tpm2.EvictControl{
+		Auth:             tpm2.AuthHandle{Handle: tpm2.TPMRHOwner, Auth: tpm2.PasswordAuth(ownerPass)},
+		ObjectHandle:     tpm2.NamedHandle{Handle: handle, Name: pubRsp.Name},
+		PersistentHandle: handle,
+	}
+	_, err = evictCmd.Execute(transport.FromReadWriter(s.conn))
+	if err != nil {
+		return fmt.Errorf("evicting app storage key: %w", err)
+	}
+	return nil
+}
+
+func (s *tpmSession) LoadApplicationKey(appName string) (ExportableDeviceID, error) {
+	key, err := s.loadAppKey(appName)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			if err = s.createNewAppIdentity(appName); err != nil {
+				return nil, fmt.Errorf("creating new app identity: %w", err)
+			}
+			key, err = s.loadAppKey(appName)
+			if err != nil {
+				return nil, fmt.Errorf("loading new app identity: %w", err)
+			}
+			return key, nil
+		}
+		return nil, fmt.Errorf("loading key: %w", err)
+	}
+	return key, nil
+}
+func (s *tpmSession) RemoveApplicationKey(appName string) error {
+	handle, err := s.loadAppKey(appName)
+	if err != nil {
+		return fmt.Errorf("getting app: %w", err)
+	}
+	if err = handle.Close(); err != nil {
+		return fmt.Errorf("closing app handle: %w", err)
+	}
+	if err = s.removePersistedKey(handle.parentHandle); err != nil {
+		return fmt.Errorf("removing persisted key: %w", err)
+	}
+
+	if err = s.storage.ClearApplicationKey(appName); err != nil {
+		return fmt.Errorf("clearing app key: %w", err)
+	}
+	return nil
 }

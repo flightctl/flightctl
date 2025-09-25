@@ -10,11 +10,167 @@
 package tpm
 
 import (
+	context "context"
+	crypto "crypto"
+	io "io"
 	reflect "reflect"
 
 	tpm2 "github.com/google/go-tpm/tpm2"
 	gomock "go.uber.org/mock/gomock"
 )
+
+// MockClient is a mock of Client interface.
+type MockClient struct {
+	ctrl     *gomock.Controller
+	recorder *MockClientMockRecorder
+}
+
+// MockClientMockRecorder is the mock recorder for MockClient.
+type MockClientMockRecorder struct {
+	mock *MockClient
+}
+
+// NewMockClient creates a new mock instance.
+func NewMockClient(ctrl *gomock.Controller) *MockClient {
+	mock := &MockClient{ctrl: ctrl}
+	mock.recorder = &MockClientMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockClient) EXPECT() *MockClientMockRecorder {
+	return m.recorder
+}
+
+// Clear mocks base method.
+func (m *MockClient) Clear() error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Clear")
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Clear indicates an expected call of Clear.
+func (mr *MockClientMockRecorder) Clear() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Clear", reflect.TypeOf((*MockClient)(nil).Clear))
+}
+
+// Close mocks base method.
+func (m *MockClient) Close(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Close", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Close indicates an expected call of Close.
+func (mr *MockClientMockRecorder) Close(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockClient)(nil).Close), ctx)
+}
+
+// CreateApplicationKey mocks base method.
+func (m *MockClient) CreateApplicationKey(name string) ([]byte, []byte, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateApplicationKey", name)
+	ret0, _ := ret[0].([]byte)
+	ret1, _ := ret[1].([]byte)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// CreateApplicationKey indicates an expected call of CreateApplicationKey.
+func (mr *MockClientMockRecorder) CreateApplicationKey(name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateApplicationKey", reflect.TypeOf((*MockClient)(nil).CreateApplicationKey), name)
+}
+
+// GetSigner mocks base method.
+func (m *MockClient) GetSigner() crypto.Signer {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSigner")
+	ret0, _ := ret[0].(crypto.Signer)
+	return ret0
+}
+
+// GetSigner indicates an expected call of GetSigner.
+func (mr *MockClientMockRecorder) GetSigner() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSigner", reflect.TypeOf((*MockClient)(nil).GetSigner))
+}
+
+// MakeCSR mocks base method.
+func (m *MockClient) MakeCSR(deviceName string, qualifyingData []byte) ([]byte, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MakeCSR", deviceName, qualifyingData)
+	ret0, _ := ret[0].([]byte)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// MakeCSR indicates an expected call of MakeCSR.
+func (mr *MockClientMockRecorder) MakeCSR(deviceName, qualifyingData any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MakeCSR", reflect.TypeOf((*MockClient)(nil).MakeCSR), deviceName, qualifyingData)
+}
+
+// Public mocks base method.
+func (m *MockClient) Public() crypto.PublicKey {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Public")
+	ret0, _ := ret[0].(crypto.PublicKey)
+	return ret0
+}
+
+// Public indicates an expected call of Public.
+func (mr *MockClientMockRecorder) Public() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Public", reflect.TypeOf((*MockClient)(nil).Public))
+}
+
+// SolveChallenge mocks base method.
+func (m *MockClient) SolveChallenge(credentialBlob, encryptedSecret []byte) ([]byte, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SolveChallenge", credentialBlob, encryptedSecret)
+	ret0, _ := ret[0].([]byte)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SolveChallenge indicates an expected call of SolveChallenge.
+func (mr *MockClientMockRecorder) SolveChallenge(credentialBlob, encryptedSecret any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SolveChallenge", reflect.TypeOf((*MockClient)(nil).SolveChallenge), credentialBlob, encryptedSecret)
+}
+
+// UpdateNonce mocks base method.
+func (m *MockClient) UpdateNonce(nonce []byte) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateNonce", nonce)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateNonce indicates an expected call of UpdateNonce.
+func (mr *MockClientMockRecorder) UpdateNonce(nonce any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateNonce", reflect.TypeOf((*MockClient)(nil).UpdateNonce), nonce)
+}
+
+// VendorInfoCollector mocks base method.
+func (m *MockClient) VendorInfoCollector(ctx context.Context) string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "VendorInfoCollector", ctx)
+	ret0, _ := ret[0].(string)
+	return ret0
+}
+
+// VendorInfoCollector indicates an expected call of VendorInfoCollector.
+func (mr *MockClientMockRecorder) VendorInfoCollector(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "VendorInfoCollector", reflect.TypeOf((*MockClient)(nil).VendorInfoCollector), ctx)
+}
 
 // MockStorage is a mock of Storage interface.
 type MockStorage struct {
@@ -37,6 +193,34 @@ func NewMockStorage(ctrl *gomock.Controller) *MockStorage {
 // EXPECT returns an object that allows the caller to indicate expected use.
 func (m *MockStorage) EXPECT() *MockStorageMockRecorder {
 	return m.recorder
+}
+
+// ClearApplicationKey mocks base method.
+func (m *MockStorage) ClearApplicationKey(arg0 string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClearApplicationKey", arg0)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ClearApplicationKey indicates an expected call of ClearApplicationKey.
+func (mr *MockStorageMockRecorder) ClearApplicationKey(arg0 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearApplicationKey", reflect.TypeOf((*MockStorage)(nil).ClearApplicationKey), arg0)
+}
+
+// ClearApplicationKeys mocks base method.
+func (m *MockStorage) ClearApplicationKeys() error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClearApplicationKeys")
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ClearApplicationKeys indicates an expected call of ClearApplicationKeys.
+func (mr *MockStorageMockRecorder) ClearApplicationKeys() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearApplicationKeys", reflect.TypeOf((*MockStorage)(nil).ClearApplicationKeys))
 }
 
 // ClearKey mocks base method.
@@ -81,6 +265,21 @@ func (mr *MockStorageMockRecorder) Close() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockStorage)(nil).Close))
 }
 
+// GetApplicationKey mocks base method.
+func (m *MockStorage) GetApplicationKey(arg0 string) (*AppKeyStoreData, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetApplicationKey", arg0)
+	ret0, _ := ret[0].(*AppKeyStoreData)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetApplicationKey indicates an expected call of GetApplicationKey.
+func (mr *MockStorageMockRecorder) GetApplicationKey(arg0 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetApplicationKey", reflect.TypeOf((*MockStorage)(nil).GetApplicationKey), arg0)
+}
+
 // GetKey mocks base method.
 func (m *MockStorage) GetKey(keyType KeyType) (*tpm2.TPM2BPublic, *tpm2.TPM2BPrivate, error) {
 	m.ctrl.T.Helper()
@@ -112,6 +311,20 @@ func (mr *MockStorageMockRecorder) GetPassword() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPassword", reflect.TypeOf((*MockStorage)(nil).GetPassword))
 }
 
+// StoreApplicationKey mocks base method.
+func (m *MockStorage) StoreApplicationKey(arg0 string, arg1 AppKeyStoreData) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "StoreApplicationKey", arg0, arg1)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// StoreApplicationKey indicates an expected call of StoreApplicationKey.
+func (mr *MockStorageMockRecorder) StoreApplicationKey(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreApplicationKey", reflect.TypeOf((*MockStorage)(nil).StoreApplicationKey), arg0, arg1)
+}
+
 // StoreKey mocks base method.
 func (m *MockStorage) StoreKey(keyType KeyType, public tpm2.TPM2BPublic, private tpm2.TPM2BPrivate) error {
 	m.ctrl.T.Helper()
@@ -140,6 +353,246 @@ func (mr *MockStorageMockRecorder) StorePassword(password any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StorePassword", reflect.TypeOf((*MockStorage)(nil).StorePassword), password)
 }
 
+// MockCertifiable is a mock of Certifiable interface.
+type MockCertifiable struct {
+	ctrl     *gomock.Controller
+	recorder *MockCertifiableMockRecorder
+}
+
+// MockCertifiableMockRecorder is the mock recorder for MockCertifiable.
+type MockCertifiableMockRecorder struct {
+	mock *MockCertifiable
+}
+
+// NewMockCertifiable creates a new mock instance.
+func NewMockCertifiable(ctrl *gomock.Controller) *MockCertifiable {
+	mock := &MockCertifiable{ctrl: ctrl}
+	mock.recorder = &MockCertifiableMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockCertifiable) EXPECT() *MockCertifiableMockRecorder {
+	return m.recorder
+}
+
+// Handle mocks base method.
+func (m *MockCertifiable) Handle() tpm2.AuthHandle {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Handle")
+	ret0, _ := ret[0].(tpm2.AuthHandle)
+	return ret0
+}
+
+// Handle indicates an expected call of Handle.
+func (mr *MockCertifiableMockRecorder) Handle() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Handle", reflect.TypeOf((*MockCertifiable)(nil).Handle))
+}
+
+// MockDeviceID is a mock of DeviceID interface.
+type MockDeviceID struct {
+	ctrl     *gomock.Controller
+	recorder *MockDeviceIDMockRecorder
+}
+
+// MockDeviceIDMockRecorder is the mock recorder for MockDeviceID.
+type MockDeviceIDMockRecorder struct {
+	mock *MockDeviceID
+}
+
+// NewMockDeviceID creates a new mock instance.
+func NewMockDeviceID(ctrl *gomock.Controller) *MockDeviceID {
+	mock := &MockDeviceID{ctrl: ctrl}
+	mock.recorder = &MockDeviceIDMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockDeviceID) EXPECT() *MockDeviceIDMockRecorder {
+	return m.recorder
+}
+
+// Close mocks base method.
+func (m *MockDeviceID) Close() error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Close")
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Close indicates an expected call of Close.
+func (mr *MockDeviceIDMockRecorder) Close() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockDeviceID)(nil).Close))
+}
+
+// Handle mocks base method.
+func (m *MockDeviceID) Handle() tpm2.AuthHandle {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Handle")
+	ret0, _ := ret[0].(tpm2.AuthHandle)
+	return ret0
+}
+
+// Handle indicates an expected call of Handle.
+func (mr *MockDeviceIDMockRecorder) Handle() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Handle", reflect.TypeOf((*MockDeviceID)(nil).Handle))
+}
+
+// Public mocks base method.
+func (m *MockDeviceID) Public() crypto.PublicKey {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Public")
+	ret0, _ := ret[0].(crypto.PublicKey)
+	return ret0
+}
+
+// Public indicates an expected call of Public.
+func (mr *MockDeviceIDMockRecorder) Public() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Public", reflect.TypeOf((*MockDeviceID)(nil).Public))
+}
+
+// PublicBlob mocks base method.
+func (m *MockDeviceID) PublicBlob() []byte {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PublicBlob")
+	ret0, _ := ret[0].([]byte)
+	return ret0
+}
+
+// PublicBlob indicates an expected call of PublicBlob.
+func (mr *MockDeviceIDMockRecorder) PublicBlob() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PublicBlob", reflect.TypeOf((*MockDeviceID)(nil).PublicBlob))
+}
+
+// Sign mocks base method.
+func (m *MockDeviceID) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Sign", rand, digest, opts)
+	ret0, _ := ret[0].([]byte)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Sign indicates an expected call of Sign.
+func (mr *MockDeviceIDMockRecorder) Sign(rand, digest, opts any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Sign", reflect.TypeOf((*MockDeviceID)(nil).Sign), rand, digest, opts)
+}
+
+// MockExportableDeviceID is a mock of ExportableDeviceID interface.
+type MockExportableDeviceID struct {
+	ctrl     *gomock.Controller
+	recorder *MockExportableDeviceIDMockRecorder
+}
+
+// MockExportableDeviceIDMockRecorder is the mock recorder for MockExportableDeviceID.
+type MockExportableDeviceIDMockRecorder struct {
+	mock *MockExportableDeviceID
+}
+
+// NewMockExportableDeviceID creates a new mock instance.
+func NewMockExportableDeviceID(ctrl *gomock.Controller) *MockExportableDeviceID {
+	mock := &MockExportableDeviceID{ctrl: ctrl}
+	mock.recorder = &MockExportableDeviceIDMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockExportableDeviceID) EXPECT() *MockExportableDeviceIDMockRecorder {
+	return m.recorder
+}
+
+// Close mocks base method.
+func (m *MockExportableDeviceID) Close() error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Close")
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Close indicates an expected call of Close.
+func (mr *MockExportableDeviceIDMockRecorder) Close() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockExportableDeviceID)(nil).Close))
+}
+
+// Export mocks base method.
+func (m *MockExportableDeviceID) Export() ([]byte, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Export")
+	ret0, _ := ret[0].([]byte)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Export indicates an expected call of Export.
+func (mr *MockExportableDeviceIDMockRecorder) Export() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Export", reflect.TypeOf((*MockExportableDeviceID)(nil).Export))
+}
+
+// Handle mocks base method.
+func (m *MockExportableDeviceID) Handle() tpm2.AuthHandle {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Handle")
+	ret0, _ := ret[0].(tpm2.AuthHandle)
+	return ret0
+}
+
+// Handle indicates an expected call of Handle.
+func (mr *MockExportableDeviceIDMockRecorder) Handle() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Handle", reflect.TypeOf((*MockExportableDeviceID)(nil).Handle))
+}
+
+// Public mocks base method.
+func (m *MockExportableDeviceID) Public() crypto.PublicKey {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Public")
+	ret0, _ := ret[0].(crypto.PublicKey)
+	return ret0
+}
+
+// Public indicates an expected call of Public.
+func (mr *MockExportableDeviceIDMockRecorder) Public() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Public", reflect.TypeOf((*MockExportableDeviceID)(nil).Public))
+}
+
+// PublicBlob mocks base method.
+func (m *MockExportableDeviceID) PublicBlob() []byte {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PublicBlob")
+	ret0, _ := ret[0].([]byte)
+	return ret0
+}
+
+// PublicBlob indicates an expected call of PublicBlob.
+func (mr *MockExportableDeviceIDMockRecorder) PublicBlob() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PublicBlob", reflect.TypeOf((*MockExportableDeviceID)(nil).PublicBlob))
+}
+
+// Sign mocks base method.
+func (m *MockExportableDeviceID) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Sign", rand, digest, opts)
+	ret0, _ := ret[0].([]byte)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Sign indicates an expected call of Sign.
+func (mr *MockExportableDeviceIDMockRecorder) Sign(rand, digest, opts any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Sign", reflect.TypeOf((*MockExportableDeviceID)(nil).Sign), rand, digest, opts)
+}
+
 // MockSession is a mock of Session interface.
 type MockSession struct {
 	ctrl     *gomock.Controller
@@ -161,6 +614,22 @@ func NewMockSession(ctrl *gomock.Controller) *MockSession {
 // EXPECT returns an object that allows the caller to indicate expected use.
 func (m *MockSession) EXPECT() *MockSessionMockRecorder {
 	return m.recorder
+}
+
+// Certify mocks base method.
+func (m *MockSession) Certify(key Certifiable, qualifyingData []byte) ([]byte, []byte, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Certify", key, qualifyingData)
+	ret0, _ := ret[0].([]byte)
+	ret1, _ := ret[1].([]byte)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// Certify indicates an expected call of Certify.
+func (mr *MockSessionMockRecorder) Certify(key, qualifyingData any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Certify", reflect.TypeOf((*MockSession)(nil).Certify), key, qualifyingData)
 }
 
 // CertifyKey mocks base method.
@@ -222,20 +691,6 @@ func (mr *MockSessionMockRecorder) CreateKey(keyType any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateKey", reflect.TypeOf((*MockSession)(nil).CreateKey), keyType)
 }
 
-// FlushAllTransientHandles mocks base method.
-func (m *MockSession) FlushAllTransientHandles() error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "FlushAllTransientHandles")
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// FlushAllTransientHandles indicates an expected call of FlushAllTransientHandles.
-func (mr *MockSessionMockRecorder) FlushAllTransientHandles() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FlushAllTransientHandles", reflect.TypeOf((*MockSession)(nil).FlushAllTransientHandles))
-}
-
 // GenerateChallenge mocks base method.
 func (m *MockSession) GenerateChallenge(secret []byte) ([]byte, []byte, error) {
 	m.ctrl.T.Helper()
@@ -267,21 +722,6 @@ func (mr *MockSessionMockRecorder) GetEndorsementKeyCert() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEndorsementKeyCert", reflect.TypeOf((*MockSession)(nil).GetEndorsementKeyCert))
 }
 
-// GetHandle mocks base method.
-func (m *MockSession) GetHandle(keyType KeyType) (*tpm2.NamedHandle, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetHandle", keyType)
-	ret0, _ := ret[0].(*tpm2.NamedHandle)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetHandle indicates an expected call of GetHandle.
-func (mr *MockSessionMockRecorder) GetHandle(keyType any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetHandle", reflect.TypeOf((*MockSession)(nil).GetHandle), keyType)
-}
-
 // GetPublicKey mocks base method.
 func (m *MockSession) GetPublicKey(keyType KeyType) (*tpm2.TPM2BPublic, error) {
 	m.ctrl.T.Helper()
@@ -297,6 +737,21 @@ func (mr *MockSessionMockRecorder) GetPublicKey(keyType any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPublicKey", reflect.TypeOf((*MockSession)(nil).GetPublicKey), keyType)
 }
 
+// LoadApplicationKey mocks base method.
+func (m *MockSession) LoadApplicationKey(appName string) (ExportableDeviceID, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LoadApplicationKey", appName)
+	ret0, _ := ret[0].(ExportableDeviceID)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// LoadApplicationKey indicates an expected call of LoadApplicationKey.
+func (mr *MockSessionMockRecorder) LoadApplicationKey(appName any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LoadApplicationKey", reflect.TypeOf((*MockSession)(nil).LoadApplicationKey), appName)
+}
+
 // LoadKey mocks base method.
 func (m *MockSession) LoadKey(keyType KeyType) (*tpm2.NamedHandle, error) {
 	m.ctrl.T.Helper()
@@ -310,6 +765,20 @@ func (m *MockSession) LoadKey(keyType KeyType) (*tpm2.NamedHandle, error) {
 func (mr *MockSessionMockRecorder) LoadKey(keyType any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LoadKey", reflect.TypeOf((*MockSession)(nil).LoadKey), keyType)
+}
+
+// RemoveApplicationKey mocks base method.
+func (m *MockSession) RemoveApplicationKey(appName string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RemoveApplicationKey", appName)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RemoveApplicationKey indicates an expected call of RemoveApplicationKey.
+func (mr *MockSessionMockRecorder) RemoveApplicationKey(appName any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveApplicationKey", reflect.TypeOf((*MockSession)(nil).RemoveApplicationKey), appName)
 }
 
 // Sign mocks base method.

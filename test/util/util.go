@@ -357,7 +357,7 @@ func (c *TestOrgCache) Set(id uuid.UUID, org *model.Organization) {
 	c.orgs[id] = org
 }
 
-func NewOrgResolver(cfg *config.Config, orgStore resolvers.OrgStore, log logrus.FieldLogger) resolvers.Resolver {
+func NewOrgResolver(cfg *config.Config, orgStore resolvers.OrgStore, log logrus.FieldLogger) (resolvers.Resolver, error) {
 	orgCache := &TestOrgCache{
 		orgs: make(map[uuid.UUID]*model.Organization),
 	}
