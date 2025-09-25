@@ -250,7 +250,7 @@ var _ = Describe("Queue Maintenance Integration Tests", func() {
 
 				// Setup expectations for ListEvents calls - will be called with organization contexts
 				mockService.EXPECT().ListEvents(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
-					func(ctx context.Context, params api.ListEventsParams) (*api.EventList, api.Status) {
+					func(ctx context.Context, orgId uuid.UUID, params api.ListEventsParams) (*api.EventList, api.Status) {
 						// Get org ID from context
 						orgID, ok := util.GetOrgIdFromContext(ctx)
 						if !ok {

@@ -361,7 +361,7 @@ func TestFleetRolloutsLogic_DelayDeviceRenderPropagationThroughContext(t *testin
 				})
 
 			// Execute the key function that contains the delayDeviceRender propagation logic
-			err := logic.updateDeviceInStore(context.Background(),  device, &api.DeviceSpec{}, tt.delayDeviceRender)
+			err := logic.updateDeviceInStore(context.Background(), device, &api.DeviceSpec{}, tt.delayDeviceRender)
 
 			// Assert
 			require.NoError(t, err)

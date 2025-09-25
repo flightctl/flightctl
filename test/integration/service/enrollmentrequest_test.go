@@ -221,57 +221,57 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 				expectedERStatusMatcher types.GomegaMatcher,
 				statusMatcher types.GomegaMatcher,
 			) {
-			ctx := suite.Ctx
+				ctx := suite.Ctx
 
-			er := CreateTestER()
-			erName := lo.FromPtr(er.Metadata.Name)
+				er := CreateTestER()
+				erName := lo.FromPtr(er.Metadata.Name)
 
-			By("creating initial EnrollmentRequest")
-			created, status := suite.Handler.CreateEnrollmentRequest(ctx, suite.OrgID, er)
-			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
-			Expect(created).ToNot(BeNil())
+				By("creating initial EnrollmentRequest")
+				created, status := suite.Handler.CreateEnrollmentRequest(ctx, suite.OrgID, er)
+				Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+				Expect(created).ToNot(BeNil())
 
-			// Approve first if requested
-			var setupResult *api.EnrollmentRequest
-			if approveFirst {
-				By("approving the EnrollmentRequest first")
-				identity := authcommon.NewBaseIdentity("testuser", "", []string{})
-				ctxApproval := context.WithValue(ctx, consts.IdentityCtxKey, identity)
+				// Approve first if requested
+				var setupResult *api.EnrollmentRequest
+				if approveFirst {
+					By("approving the EnrollmentRequest first")
+					identity := authcommon.NewBaseIdentity("testuser", "", []string{})
+					ctxApproval := context.WithValue(ctx, consts.IdentityCtxKey, identity)
 
-				approval := api.EnrollmentRequestApproval{
-					Approved: true,
-					Labels:   &map[string]string{"approved": "true"},
+					approval := api.EnrollmentRequestApproval{
+						Approved: true,
+						Labels:   &map[string]string{"approved": "true"},
+					}
+
+					_, st := suite.Handler.ApproveEnrollmentRequest(ctxApproval, suite.OrgID, erName, approval)
+					Expect(st.Code).To(BeEquivalentTo(http.StatusOK))
 				}
 
-				_, st := suite.Handler.ApproveEnrollmentRequest(ctxApproval, suite.OrgID, erName, approval)
+				By("re-reading the ER to get the latest state")
+				approved, st := suite.Handler.GetEnrollmentRequest(ctx, suite.OrgID, erName)
 				Expect(st.Code).To(BeEquivalentTo(http.StatusOK))
-			}
+				setupResult = approved
 
-			By("re-reading the ER to get the latest state")
-			approved, st := suite.Handler.GetEnrollmentRequest(ctx, suite.OrgID, erName)
-			Expect(st.Code).To(BeEquivalentTo(http.StatusOK))
-			setupResult = approved
+				// Prepare status update
+				statusUpdate := statusUpdateFunc(*setupResult)
 
-			// Prepare status update
-			statusUpdate := statusUpdateFunc(*setupResult)
+				if !isExternalRequest {
+					ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
+				}
 
-			if !isExternalRequest {
-				ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
-			}
+				By("performing status update")
+				updated, st := suite.Handler.ReplaceEnrollmentRequestStatus(ctx, suite.OrgID, erName, statusUpdate)
 
-			By("performing status update")
-			updated, st := suite.Handler.ReplaceEnrollmentRequestStatus(ctx, suite.OrgID, erName, statusUpdate)
+				Expect(st.Code).To(statusMatcher)
+				if IsStatusSuccessful(&st) {
+					Expect(updated).ToNot(BeNil())
+					Expect(updated).To(expectedERStatusMatcher, "Status should match expected after update")
+				}
 
-			Expect(st.Code).To(statusMatcher)
-			if IsStatusSuccessful(&st) {
-				Expect(updated).ToNot(BeNil())
-				Expect(updated).To(expectedERStatusMatcher, "Status should match expected after update")
-			}
-
-			By("verifying persistence by reading back")
-			final, st := suite.Handler.GetEnrollmentRequestStatus(ctx, suite.OrgID, erName)
-			Expect(st.Code).To(BeEquivalentTo(http.StatusOK))
-			Expect(final).To(expectedERStatusMatcher, "Status should match expected after read back")
+				By("verifying persistence by reading back")
+				final, st := suite.Handler.GetEnrollmentRequestStatus(ctx, suite.OrgID, erName)
+				Expect(st.Code).To(BeEquivalentTo(http.StatusOK))
+				Expect(final).To(expectedERStatusMatcher, "Status should match expected after read back")
 			},
 			Entry("internal request should always succeed",
 				false, // Don't approve first

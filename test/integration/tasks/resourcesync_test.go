@@ -538,6 +538,14 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 			fleet := fleets[0]
 			Expect(*fleet.Metadata.Name).To(Equal("test-fleet"))
 			Expect(fleet.Metadata.ResourceVersion).To(BeNil())
+
+			// Check that test-label was removed but keep-label was preserved
+			Expect(fleet.Metadata.Labels).ToNot(BeNil())
+			_, hasTestLabel = (*fleet.Metadata.Labels)["test-label"]
+			Expect(hasTestLabel).To(BeFalse())
+			_, hasKeepLabel = (*fleet.Metadata.Labels)["keep-label"]
+			Expect(hasKeepLabel).To(BeTrue())
+			Expect((*fleet.Metadata.Labels)["keep-label"]).To(Equal("should-be-kept"))
 		})
 
 		It("should not remove fields when no ignore list is provided", func() {

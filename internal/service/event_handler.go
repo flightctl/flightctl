@@ -193,7 +193,7 @@ func (h *EventHandler) HandleFleetUpdatedEvents(ctx context.Context, resourceKin
 
 	// Emit fleet rollout events if applicable
 	h.emitFleetRolloutNewEvent(ctx, name, deployingTemplateVersion, oldFleet, newFleet)
-	h.emitFleetRolloutBatchCompletedEvent(ctx, name, deployingTemplateVersion, oldFleet, newFleet)
+	h.emitFleetRolloutBatchCompletedEvent(ctx, orgId, name, deployingTemplateVersion, oldFleet, newFleet)
 	h.emitFleetRolloutCompletedEvent(ctx, name, deployingTemplateVersion, oldFleet, newFleet)
 	h.emitFleetRolloutFailedEvent(ctx, name, deployingTemplateVersion, oldFleet, newFleet)
 }
@@ -205,15 +205,15 @@ func (h *EventHandler) emitFleetRolloutNewEvent(ctx context.Context, name string
 	h.CreateEvent(ctx, getOrgIdFromContext(ctx), common.GetFleetRolloutNewEvent(ctx, name))
 }
 
-func (h *EventHandler) emitFleetRolloutBatchCompletedEvent(ctx context.Context, name string, deployingTemplateVersion string, oldFleet, newFleet *api.Fleet) {
+func (h *EventHandler) emitFleetRolloutBatchCompletedEvent(ctx context.Context, orgId uuid.UUID, name string, deployingTemplateVersion string, oldFleet, newFleet *api.Fleet) {
 	batchCompleted, report := newFleet.IsRolloutBatchCompleted(oldFleet)
 	if !batchCompleted {
 		return
 	}
-	h.CreateEvent(ctx, getOrgIdFromContext(ctx), common.GetFleetRolloutBatchCompletedEvent(ctx, name, deployingTemplateVersion, report))
+	h.CreateEvent(ctx, orgId, common.GetFleetRolloutBatchCompletedEvent(ctx, name, deployingTemplateVersion, report))
 
 	if report.BatchName == api.FinalImplicitBatchName {
-		h.CreateEvent(ctx, getOrgIdFromContext(ctx), common.GetFleetRolloutCompletedEvent(ctx, name, deployingTemplateVersion))
+		h.CreateEvent(ctx, orgId, common.GetFleetRolloutCompletedEvent(ctx, name, deployingTemplateVersion))
 	}
 }
 
