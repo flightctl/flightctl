@@ -741,7 +741,10 @@ func (s *DeviceStore) processAwaitingReconnectAnnotation(ctx context.Context, or
 				ELSE '{}'::jsonb
 			END,
 			status = jsonb_set(
-				jsonb_set(COALESCE(status, '{}'::jsonb), '{summary}', jsonb_build_object('status', $4::text, 'info', $5::text), true),
+				jsonb_set(
+					jsonb_set(COALESCE(status, '{}'::jsonb), '{summary}', jsonb_build_object('status', $4::text, 'info', $5::text), true),
+					'{updated}', jsonb_build_object('status', $9::text), true
+				),
 				'{config,renderedVersion}', to_jsonb($8::text), true
 			),
 			resource_version = COALESCE(resource_version, 0) + 1
@@ -755,14 +758,22 @@ func (s *DeviceStore) processAwaitingReconnectAnnotation(ctx context.Context, or
 		status = string(api.DeviceSummaryStatusOnline)
 	}
 
+	// Determine updated status based on version comparison
+	var updatedStatus string
+	if deviceVersion == serviceVersion {
+		updatedStatus = string(api.DeviceUpdatedStatusUpToDate)
+	} else {
+		updatedStatus = string(api.DeviceUpdatedStatusOutOfDate)
+	}
+
 	// Prepare the device reported version for the update
 	deviceReportedVersionStr := "0"
 	if deviceReportedVersion != nil && *deviceReportedVersion != "" {
 		deviceReportedVersionStr = *deviceReportedVersion
 	}
 
-	s.log.Infof("Executing database update for device %s with status=%s, willBeConflictPaused=%t, deviceReportedVersionStr=%s",
-		deviceName, status, willBeConflictPaused, deviceReportedVersionStr)
+	s.log.Infof("Executing database update for device %s with status=%s, willBeConflictPaused=%t, deviceReportedVersionStr=%s, updatedStatus=%s",
+		deviceName, status, willBeConflictPaused, deviceReportedVersionStr, updatedStatus)
 
 	result = s.getDB(ctx).Exec(sql,
 		api.DeviceAnnotationAwaitingReconnect,
@@ -773,6 +784,7 @@ func (s *DeviceStore) processAwaitingReconnectAnnotation(ctx context.Context, or
 		orgId,
 		deviceName,
 		deviceReportedVersionStr,
+		updatedStatus,
 	)
 	err := ErrorFromGormError(result.Error)
 	if err != nil {
@@ -1153,9 +1165,9 @@ func (s *DeviceStore) PrepareDevicesAfterRestore(ctx context.Context) (int64, er
 			annotations = COALESCE(annotations, '{}'::jsonb) || jsonb_build_object($1::text, 'true'),
 			status = CASE 
 				WHEN status IS NOT NULL THEN 
-					(status - 'lastSeen') || jsonb_build_object('summary', jsonb_build_object('status', $2::text, 'info', $3::text))
+					(status - 'lastSeen') || jsonb_build_object('summary', jsonb_build_object('status', $2::text, 'info', $3::text)) || jsonb_build_object('updated', jsonb_build_object('status', $6::text))
 				ELSE 
-					jsonb_build_object('summary', jsonb_build_object('status', $2::text, 'info', $3::text))
+					jsonb_build_object('summary', jsonb_build_object('status', $2::text, 'info', $3::text)) || jsonb_build_object('updated', jsonb_build_object('status', $6::text))
 			END,
 			resource_version = COALESCE(resource_version, 0) + 1
 		WHERE deleted_at IS NULL 
@@ -1169,6 +1181,7 @@ func (s *DeviceStore) PrepareDevicesAfterRestore(ctx context.Context) (int64, er
 		"Device is waiting for connection after restore",
 		api.DeviceLifecycleStatusDecommissioned,
 		api.DeviceLifecycleStatusDecommissioning,
+		api.DeviceUpdatedStatusUnknown,
 	)
 
 	if result.Error != nil {
