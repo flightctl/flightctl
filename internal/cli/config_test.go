@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/client"
@@ -142,6 +143,13 @@ func TestRunSetOrganization(t *testing.T) {
 
 			if tc.wantErr {
 				require.Error(t, err)
+				if tc.arg != "" && tc.arg != tc.initialOrg {
+					if !strings.Contains(err.Error(), "failed to fetch organizations") {
+						cfg, cfgErr := client.ParseConfigFile(configPath)
+						require.NoError(t, cfgErr)
+						require.Equal(t, tc.expectedFinal, cfg.Organization)
+					}
+				}
 				return
 			}
 			require.NoError(t, err)
@@ -160,4 +168,47 @@ func TestRunSetOrganization_NoConfigFile(t *testing.T) {
 
 	err := opts.RunSetOrganization(context.Background(), []string{""})
 	require.Error(t, err)
+}
+
+func TestValidateOrganizationExists(t *testing.T) {
+	tests := []struct {
+		name           string
+		organizationId string
+		expectedError  string
+	}{
+		{
+			name:           "empty organization ID is valid",
+			organizationId: "",
+		},
+		{
+			name:           "default organization ID",
+			organizationId: "00000000-0000-0000-0000-000000000000",
+		},
+		{
+			name:           "invalid organization ID format",
+			organizationId: "invalid-org-id",
+			expectedError:  "invalid organization ID",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := DefaultConfigOptions()
+			opts.ConfigFilePath = filepath.Join(t.TempDir(), "test.yaml")
+
+			// Create a minimal valid config
+			writeTestConfig(t, opts.ConfigFilePath, "")
+
+			// Test the full RunSetOrganization function which includes both validations
+			err := opts.RunSetOrganization(context.Background(), []string{tc.organizationId})
+			if tc.expectedError != "" {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tc.expectedError)
+			} else {
+				// For empty organization ID and default organization ID, it should succeed
+				// For other valid organization IDs, it will fail due to API call in test environment
+				require.NoError(t, err)
+			}
+		})
+	}
 }

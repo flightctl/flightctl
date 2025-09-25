@@ -3,8 +3,10 @@ package cli
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/flightctl/flightctl/internal/client"
+	"github.com/flightctl/flightctl/internal/org"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
@@ -105,20 +107,25 @@ func (o *ConfigOptions) RunCurrentOrganization(ctx context.Context, args []strin
 func (o *ConfigOptions) RunSetOrganization(ctx context.Context, args []string) error {
 	organizationId := args[0]
 
+	config, err := client.ParseConfigFile(o.ConfigFilePath)
+	if err != nil {
+		return fmt.Errorf("reading config: %w", err)
+	}
+	// Check if organization is unchanged first to avoid unnecessary API calls
+	if config.Organization == organizationId {
+		fmt.Println("Current organization unchanged")
+		return nil
+	}
+
 	// Validate organization ID unless it's empty (empty string unsets the organization)
 	if organizationId != "" {
 		if err := validateOrganizationID(organizationId); err != nil {
 			return fmt.Errorf("cannot set organization: %w", err)
 		}
-	}
-
-	config, err := client.ParseConfigFile(o.ConfigFilePath)
-	if err != nil {
-		return fmt.Errorf("reading config: %w", err)
-	}
-	if config.Organization == organizationId {
-		fmt.Println("Current organization unchanged")
-		return nil
+		// Validate that the organization exists and is accessible to the user
+		if err := o.validateOrganizationExists(ctx, organizationId); err != nil {
+			return fmt.Errorf("cannot set organization: %w", err)
+		}
 	}
 
 	config.Organization = organizationId
@@ -133,4 +140,53 @@ func (o *ConfigOptions) RunSetOrganization(ctx context.Context, args []string) e
 		fmt.Printf("Current organization set to: %s\n", organizationId)
 	}
 	return nil
+}
+
+// validateOrganizationExists checks if the given organization ID exists and is accessible to the user.
+func (o *ConfigOptions) validateOrganizationExists(ctx context.Context, organizationId string) error {
+	// Empty organization ID is valid (unsets the organization).
+	if organizationId == "" || organizationId == org.DefaultID.String() {
+		return nil
+	}
+
+	// Build API client to fetch organizations.
+	c, err := o.BuildClient()
+	if err != nil {
+		return fmt.Errorf("failed to create API client: %w", err)
+	}
+
+	// Fetch user's organizations.
+	response, err := c.ListOrganizationsWithResponse(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to fetch organizations: %w", err)
+	}
+
+	// Validate the API response.
+	if response.StatusCode() != 200 || response.JSON200 == nil || response.JSON200.Items == nil {
+		return fmt.Errorf("failed to fetch organizations: invalid response (status: %d)", response.StatusCode())
+	}
+
+	orgs := make(map[string]string)
+	for _, org := range response.JSON200.Items {
+		if org.Metadata.Name != nil {
+			displayName := ""
+			if org.Spec != nil && org.Spec.DisplayName != nil {
+				displayName = fmt.Sprintf(" (%s)", *org.Spec.DisplayName)
+			}
+			orgs[*org.Metadata.Name] = fmt.Sprintf("%s%s", *org.Metadata.Name, displayName)
+		}
+	}
+
+	// Check if the organization ID exists.
+	if _, ok := orgs[organizationId]; ok {
+		return nil // Organization found and accessible.
+	}
+
+	// Organization not found - provide helpful error message.
+	availableOrgs := make([]string, 0, len(orgs))
+	for _, name := range orgs {
+		availableOrgs = append(availableOrgs, name)
+	}
+
+	return fmt.Errorf("organization %q not found - available organizations: %s", organizationId, strings.Join(availableOrgs, ", "))
 }
