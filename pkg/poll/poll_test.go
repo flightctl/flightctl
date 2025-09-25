@@ -3,6 +3,7 @@ package poll
 import (
 	"context"
 	"errors"
+	"math/rand"
 	"testing"
 	"time"
 
@@ -12,6 +13,8 @@ import (
 func TestBackoffWithContext(t *testing.T) {
 	require := require.New(t)
 	opErr := errors.New("fatal op error")
+
+	r := rand.New(rand.NewSource(0))
 
 	tests := []struct {
 		name       string
@@ -23,7 +26,7 @@ func TestBackoffWithContext(t *testing.T) {
 		{
 			name:       "immediate success",
 			ctxTimeout: 1 * time.Second,
-			config:     Config{BaseDelay: 10 * time.Millisecond, Factor: 2},
+			config:     Config{BaseDelay: 10 * time.Millisecond, Factor: 2, Rand: r},
 			operation: func() func(context.Context) (bool, error) {
 				return func(context.Context) (bool, error) {
 					return true, nil
@@ -34,7 +37,7 @@ func TestBackoffWithContext(t *testing.T) {
 		{
 			name:       "succeeds after retries",
 			ctxTimeout: 500 * time.Millisecond,
-			config:     Config{BaseDelay: 10 * time.Millisecond, Factor: 2},
+			config:     Config{BaseDelay: 10 * time.Millisecond, Factor: 2, Rand: r},
 			operation: func() func(context.Context) (bool, error) {
 				attempts := 0
 				return func(context.Context) (bool, error) {
@@ -50,7 +53,7 @@ func TestBackoffWithContext(t *testing.T) {
 		{
 			name:       "fails with permanent error",
 			ctxTimeout: 1 * time.Second,
-			config:     Config{BaseDelay: 10 * time.Millisecond, Factor: 2},
+			config:     Config{BaseDelay: 10 * time.Millisecond, Factor: 2, Rand: r},
 			operation: func() func(context.Context) (bool, error) {
 				return func(context.Context) (bool, error) {
 					return false, opErr
@@ -61,7 +64,7 @@ func TestBackoffWithContext(t *testing.T) {
 		{
 			name:       "context timeout cancels retries",
 			ctxTimeout: 50 * time.Millisecond,
-			config:     Config{BaseDelay: 30 * time.Millisecond, Factor: 2},
+			config:     Config{BaseDelay: 30 * time.Millisecond, Factor: 2, Rand: r},
 			operation: func() func(context.Context) (bool, error) {
 				return func(context.Context) (bool, error) {
 					return false, nil
@@ -83,7 +86,7 @@ func TestBackoffWithContext(t *testing.T) {
 		{
 			name:       "respects ctx timeout",
 			ctxTimeout: 500 * time.Millisecond,
-			config:     Config{BaseDelay: 30 * time.Millisecond, Factor: 2},
+			config:     Config{BaseDelay: 30 * time.Millisecond, Factor: 2, Rand: r},
 			operation: func() func(context.Context) (bool, error) {
 				return func(context.Context) (bool, error) {
 					return false, nil
@@ -98,6 +101,7 @@ func TestBackoffWithContext(t *testing.T) {
 				BaseDelay: 10 * time.Millisecond,
 				Factor:    2,
 				MaxSteps:  3,
+				Rand:      r,
 			},
 			operation: func() func(context.Context) (bool, error) {
 				return func(context.Context) (bool, error) {
@@ -114,6 +118,7 @@ func TestBackoffWithContext(t *testing.T) {
 				BaseDelay:    10 * time.Millisecond,
 				Factor:       2,
 				JitterFactor: -0.1,
+				Rand:         r,
 			},
 			operation: func() func(context.Context) (bool, error) {
 				return func(context.Context) (bool, error) {
@@ -129,6 +134,7 @@ func TestBackoffWithContext(t *testing.T) {
 				BaseDelay:    10 * time.Millisecond,
 				Factor:       2,
 				JitterFactor: 1.5,
+				Rand:         r,
 			},
 			operation: func() func(context.Context) (bool, error) {
 				return func(context.Context) (bool, error) {
@@ -161,6 +167,8 @@ func TestBackoffWithContext(t *testing.T) {
 func TestCalculateBackoffDelay(t *testing.T) {
 	require := require.New(t)
 
+	r := rand.New(rand.NewSource(0))
+
 	tests := []struct {
 		name     string
 		config   Config
@@ -184,6 +192,7 @@ func TestCalculateBackoffDelay(t *testing.T) {
 				Factor:       2,
 				MaxDelay:     100 * time.Millisecond,
 				JitterFactor: 0.1, // 10% jitter
+				Rand:         r,
 			},
 			tries: 3,
 			// Expected base: 40ms, jitter range: ±4ms, so result should be 36-44ms
