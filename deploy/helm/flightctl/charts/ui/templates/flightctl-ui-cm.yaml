@@ -3,16 +3,19 @@ kind: ConfigMap
 metadata:
   name: flightctl-ui
   namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
 data:
   FLIGHTCTL_SERVER: {{ .Values.api.url | quote }}
   {{- if .Values.cliArtifacts.enabled }}
-  FLIGHTCTL_CLI_ARTIFACTS_SERVER: {{ include "flightctl.getCliArtifactsUrl" . }}
+  FLIGHTCTL_CLI_ARTIFACTS_SERVER: {{ include "flightctl.getInternalCliArtifactsUrl" . }}
   {{- end }}
   {{- if .Values.alerts.enabled }}
   FLIGHTCTL_ALERTMANAGER_PROXY: {{ include "flightctl.getAlertManagerProxyUrl" . }}
   {{- end }}
   FLIGHTCTL_SERVER_INSECURE_SKIP_VERIFY: {{ .Values.api.insecureSkipTlsVerify | quote }}
   IS_RHEM: {{ .Values.isRHEM | quote }}
+  ORGANIZATIONS_ENABLED: {{ if and (default false ((.Values.global).organizations).enabled) (not (eq (.Values.global).target "acm")) }}"true"{{ else }}"false"{{ end }}
   AUTH_INSECURE_SKIP_VERIFY: {{ default ((.Values.global).auth).insecureSkipTlsVerify .Values.auth.insecureSkipTlsVerify | quote }}
   AUTH_CLIENT_ID: {{ .Values.auth.clientId }}
   {{- if eq (.Values.global).target "acm" }}

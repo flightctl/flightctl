@@ -1,9 +1,8 @@
 [Unit]
 Description=Flight Control API server
 PartOf=flightctl.target
-After=flightctl-db.service flightctl-db-migrate.service flightctl-kv.service flightctl-api-init.service
-Wants=flightctl-db.service flightctl-db-migrate.service flightctl-kv.service flightctl-api-init.service
-Requires=flightctl-db.service flightctl-db-migrate.service flightctl-kv.service
+After=flightctl-db-wait.service flightctl-db-migrate.service flightctl-kv.service flightctl-api-init.service
+Wants=flightctl-db-wait.service flightctl-db-migrate.service flightctl-kv.service flightctl-api-init.service
 
 [Container]
 ContainerName=flightctl-api
@@ -21,9 +20,12 @@ PublishPort=7443:7443
 Volume=/etc/flightctl/pki:/root/.flightctl/certs:rw,z
 Volume=/etc/flightctl/flightctl-api/config.yaml:/root/.flightctl/config.yaml:ro,z
 
+Ulimit=nofile=300000:300000
+
 [Service]
 Restart=always
 RestartSec=30
+LimitNOFILE=300000
 
 [Install]
 WantedBy=flightctl.target

@@ -6,6 +6,7 @@ metadata:
   labels:
     app: flightctl-ui
     role: frontend
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
 spec:
   replicas: 1
   selector:
@@ -17,6 +18,7 @@ spec:
       labels:
         app: flightctl-ui
         role: frontend
+        {{- include "flightctl.standardLabels" . | nindent 8 }}
     spec:
       containers:
         - env:
@@ -46,6 +48,11 @@ spec:
               configMapKeyRef:
                 name: flightctl-ui
                 key: FLIGHTCTL_SERVER_INSECURE_SKIP_VERIFY
+          - name: ORGANIZATIONS_ENABLED
+            valueFrom:
+              configMapKeyRef:
+                name: flightctl-ui
+                key: ORGANIZATIONS_ENABLED
           {{- if eq .Values.global.target "acm" }}
           - name: TLS_KEY
             value: /app/serving-cert/tls.key

@@ -9,13 +9,13 @@ import (
 	"strings"
 	"time"
 
-	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	client "github.com/flightctl/flightctl/internal/api/client/agent"
 	baseclient "github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/container"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/poll"
 	"github.com/flightctl/flightctl/pkg/reqid"
 	"github.com/go-chi/chi/v5/middleware"
 )
@@ -24,20 +24,27 @@ import (
 type RPCMetricsCallback func(operation string, durationSeconds float64, err error)
 
 // NewFromConfig returns a new Flight Control API client from the given config.
-func NewFromConfig(config *baseclient.Config) (*client.ClientWithResponses, error) {
+func NewFromConfig(config *baseclient.Config, log *log.PrefixLogger, opts ...HTTPClientOption) (*client.ClientWithResponses, error) {
+	options := &httpClientOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+
 	httpClient, err := baseclient.NewHTTPClientFromConfig(config)
 	if err != nil {
 		return nil, fmt.Errorf("NewFromConfig: creating HTTP client %w", err)
 	}
+
+	if options.retryConfig != nil {
+		retryTransport := NewRetryTransport(httpClient.Transport, log, *options.retryConfig)
+		httpClient.Transport = retryTransport
+	}
+
 	ref := client.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
 		req.Header.Set(middleware.RequestIDHeader, reqid.NextRequestID())
 		return nil
 	})
 	return client.NewClientWithResponses(config.Service.Server, client.WithHTTPClient(httpClient), ref)
-}
-
-func NewGRPCClientFromConfig(config *baseclient.Config) (grpc_v1.RouterServiceClient, error) {
-	return baseclient.NewGRPCClientFromConfig(config, "")
 }
 
 // Management is the client interface for managing devices.
@@ -158,7 +165,6 @@ func authFromSpec(log *log.PrefixLogger, device *v1alpha1.DeviceSpec, authPath s
 		if err != nil {
 			return nil, false, fmt.Errorf("convert inline config provider: %v", err)
 		}
-
 		for _, file := range spec.Inline {
 			if strings.TrimSpace(file.Path) == authPath {
 				// ensure content is properly decoded
@@ -196,5 +202,19 @@ func WithPullSecret(path string) ClientOption {
 func Timeout(timeout time.Duration) ClientOption {
 	return func(opts *clientOptions) {
 		opts.timeout = timeout
+	}
+}
+
+// HTTPClientOption is a functional option for configuring the HTTP client
+type HTTPClientOption func(*httpClientOptions)
+
+type httpClientOptions struct {
+	retryConfig *poll.Config
+}
+
+// WithHTTPRetry configures custom retry settings for the HTTP client
+func WithHTTPRetry(config poll.Config) HTTPClientOption {
+	return func(opts *httpClientOptions) {
+		opts.retryConfig = &config
 	}
 }

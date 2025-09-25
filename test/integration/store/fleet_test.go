@@ -576,14 +576,18 @@ var _ = Describe("FleetStore create", func() {
 		})
 
 		It("CountByRolloutStatus - with specific orgId", func() {
-			// Create fleets with different rollout statuses
+			// Create fleets with different rollout statuses using RolloutInProgress conditions
 			fleet1 := api.Fleet{
 				Metadata: api.ObjectMeta{
 					Name: lo.ToPtr("fleet-rollout-1"),
 				},
 				Status: &api.FleetStatus{
-					Rollout: &api.FleetRolloutStatus{
-						CurrentBatch: lo.ToPtr(1),
+					Conditions: []api.Condition{
+						{
+							Type:   api.ConditionTypeFleetRolloutInProgress,
+							Status: api.ConditionStatusTrue,
+							Reason: api.RolloutActiveReason,
+						},
 					},
 				},
 			}
@@ -592,8 +596,12 @@ var _ = Describe("FleetStore create", func() {
 					Name: lo.ToPtr("fleet-rollout-2"),
 				},
 				Status: &api.FleetStatus{
-					Rollout: &api.FleetRolloutStatus{
-						CurrentBatch: lo.ToPtr(2),
+					Conditions: []api.Condition{
+						{
+							Type:   api.ConditionTypeFleetRolloutInProgress,
+							Status: api.ConditionStatusFalse,
+							Reason: api.RolloutSuspendedReason,
+						},
 					},
 				},
 			}
@@ -602,8 +610,12 @@ var _ = Describe("FleetStore create", func() {
 					Name: lo.ToPtr("fleet-rollout-3"),
 				},
 				Status: &api.FleetStatus{
-					Rollout: &api.FleetRolloutStatus{
-						CurrentBatch: lo.ToPtr(1),
+					Conditions: []api.Condition{
+						{
+							Type:   api.ConditionTypeFleetRolloutInProgress,
+							Status: api.ConditionStatusTrue,
+							Reason: api.RolloutActiveReason,
+						},
 					},
 				},
 			}
@@ -621,8 +633,8 @@ var _ = Describe("FleetStore create", func() {
 			Expect(results).ToNot(BeEmpty())
 
 			// Count expected results: 3 original fleets + 3 new ones = 6 total
-			// Original fleets have no rollout status (will be "none")
-			// New fleets have batch1 (2 fleets) and batch2 (1 fleet)
+			// Original fleets have no RolloutInProgress condition (will be "Inactive")
+			// New fleets have: 2 Active, 1 Suspended
 			totalCount := int64(0)
 			statusCounts := make(map[string]int64)
 			for _, result := range results {
@@ -633,9 +645,9 @@ var _ = Describe("FleetStore create", func() {
 			Expect(totalCount).To(Equal(int64(6))) // 3 original + 3 new fleets
 
 			// Check specific status counts
-			Expect(statusCounts["none"]).To(Equal(int64(3))) // Original fleets
-			Expect(statusCounts["1"]).To(Equal(int64(2)))    // fleet-rollout-1 and fleet-rollout-3 (batch 1)
-			Expect(statusCounts["2"]).To(Equal(int64(1)))    // fleet-rollout-2 (batch 2)
+			Expect(statusCounts["Inactive"]).To(Equal(int64(3)))  // Original fleets (no RolloutInProgress condition)
+			Expect(statusCounts["Active"]).To(Equal(int64(2)))    // fleet-rollout-1 and fleet-rollout-3
+			Expect(statusCounts["Suspended"]).To(Equal(int64(1))) // fleet-rollout-2
 		})
 
 		It("CountByRolloutStatus - with nil orgId (all orgs)", func() {
@@ -649,8 +661,12 @@ var _ = Describe("FleetStore create", func() {
 					Name: lo.ToPtr("other-org-fleet"),
 				},
 				Status: &api.FleetStatus{
-					Rollout: &api.FleetRolloutStatus{
-						CurrentBatch: lo.ToPtr(5),
+					Conditions: []api.Condition{
+						{
+							Type:   api.ConditionTypeFleetRolloutInProgress,
+							Status: api.ConditionStatusFalse,
+							Reason: api.RolloutWaitingReason,
+						},
 					},
 				},
 			}

@@ -19,11 +19,11 @@ var _ = Describe("Microshift cluster ACM enrollment tests", func() {
 	Describe("Test Setup", Ordered, func() {
 
 		BeforeAll(func() {
-			isAcmInstalled, err := isAcmInstalled()
+			_, isAcmRunning, err := util.IsAcmInstalled()
 			if err != nil {
 				GinkgoWriter.Printf("An error happened %v\n", err)
 			}
-			if !isAcmInstalled {
+			if !isAcmRunning {
 				Skip("Skipping test suite because ACM is not installed.")
 			}
 		})
@@ -137,13 +137,13 @@ var _ = Describe("Microshift cluster ACM enrollment tests", func() {
 				By("Make sure the pull-secret was injected")
 				psPath := "/etc/crio/openshift-pull-secret"
 				readyMsg := "The file was found"
-				stdout, err := harness.WaitForFileInDevice(psPath, util.TIMEOUT, util.POLLING)
+				stdout, err := harness.WaitForFileInDevice(psPath, util.TIMEOUT_5M, util.SHORT_POLLING)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(stdout.String()).To(ContainSubstring(readyMsg))
 
 				By("Wait for the kubeconfig to be in place")
 				kubeconfigPath := "/var/lib/microshift/resources/kubeadmin/kubeconfig"
-				stdout, err = harness.WaitForFileInDevice(kubeconfigPath, util.TIMEOUT, util.POLLING)
+				stdout, err = harness.WaitForFileInDevice(kubeconfigPath, util.TIMEOUT_5M, util.SHORT_POLLING)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(stdout.String()).To(ContainSubstring(readyMsg))
 
@@ -321,23 +321,6 @@ func getAcmNamespace() (string, error) {
 	GinkgoWriter.Printf("This is the Acm namespace: %s\n", outputClean)
 
 	return outputClean, nil
-}
-
-func isAcmInstalled() (bool, error) {
-	cmd := exec.Command("oc", "get", "multiclusterhub", "-A")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return false, err
-	}
-	outputString := string(output)
-	if outputString == "error: the server doesn't have a resource type \"multiclusterhub\"" {
-		return false, fmt.Errorf("ACM is not installed: %s", outputString)
-	}
-	if strings.Contains(outputString, "Running") || strings.Contains(outputString, "Paused") {
-		GinkgoWriter.Printf("The cluster has ACM installed\n")
-		return true, nil
-	}
-	return false, fmt.Errorf("multiclusterhub is not in Running status")
 }
 
 func waitForMicroshiftReady(harness *e2e.Harness, kubeconfigPath string) error {

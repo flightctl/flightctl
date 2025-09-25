@@ -1458,7 +1458,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
-
   /api/v1/devices/{name}/rendered:
     get:
       tags:
@@ -1524,13 +1523,68 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
-
+  /api/v1/devices/{name}/lastseen:
+    get:
+      tags:
+        - device
+      description: Get the last seen timestamp of the Device resource.
+      operationId: getDeviceLastSeen
+      parameters:
+        - name: name
+          in: path
+          description: The name of the Device resource to get the last seen timestamp for.
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceLastSeen'
+        "204":
+          description: No Content
+          content: {}
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
   /api/v1/deviceactions/resume:
     post:
       tags:
         - deviceactions
       description: Resume devices based on label selector and/or field selector.
       operationId: resumeDevices
+      x-rbac:
+        resource: devices/resume
+        action: update
       requestBody:
         content:
           application/json:
@@ -1630,6 +1684,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+
   /api/v1/enrollmentrequests:
     get:
       tags:
@@ -3660,6 +3715,7 @@ components:
               - add
               - replace
               - remove
+              - test
     Repository:
       type: object
       properties:
@@ -4378,7 +4434,6 @@ components:
         - os
         - updated
         - summary
-        - lastSeen
         - lifecycle
       properties:
         conditions:
@@ -4409,10 +4464,21 @@ components:
           $ref: "#/components/schemas/DeviceSummaryStatus"
         lastSeen:
           type: string
-          description: The last time the device was seen by the service.
+          description: "The last time the device was seen by the service (NOTE: this property is not returned by the API)."
           format: date-time
+          x-go-json-ignore: true
         lifecycle:
           $ref: '#/components/schemas/DeviceLifecycleStatus'
+    DeviceLastSeen:
+      type: object
+      description: DeviceLastSeen represents the last seen timestamp of a device.
+      required:
+        - lastSeen
+      properties:
+        lastSeen:
+          type: string
+          description: The last time the device was seen by the service.
+          format: date-time
     DeviceSystemInfo:
       required:
         - architecture
@@ -5445,9 +5511,11 @@ components:
       description: Type of condition in CamelCase.
       enum:
       - 'Approved'              # EnrollmentRequest
+      - 'TPMVerified'           # EnrollmentRequest
       - 'Approved'              # CertificateSigningRequest
       - 'Denied'                # CertificateSigningRequest
       - 'Failed'                # CertificateSigningRequest
+      - 'TPMVerified'           # CertificateSigningRequest
       - 'Accessible'            # Repository
       - 'Accessible'            # ResourceSync
       - 'ResourceParsed'        # ResourceSync
@@ -5460,9 +5528,11 @@ components:
       - 'DeviceDecommissioning' # Device
       x-enum-varnames:
       - EnrollmentRequestApproved
+      - EnrollmentRequestTPMVerified
       - CertificateSigningRequestApproved
       - CertificateSigningRequestDenied
       - CertificateSigningRequestFailed
+      - CertificateSigningRequestTPMVerified
       - RepositoryAccessible
       - ResourceSyncAccessible
       - ResourceSyncResourceParsed
@@ -5649,6 +5719,7 @@ components:
             - DeviceSpecValid
             - DeviceSpecInvalid
             - InternalTaskFailed
+            - InternalTaskPermanentlyFailed
             - RepositoryAccessible
             - RepositoryInaccessible
             - ReferencedRepositoryUpdated
@@ -5742,6 +5813,7 @@ components:
           DeviceMultipleOwnersDetected: "#/components/schemas/DeviceMultipleOwnersDetectedDetails"
           DeviceMultipleOwnersResolved: "#/components/schemas/DeviceMultipleOwnersResolvedDetails"
           InternalTaskFailed: "#/components/schemas/InternalTaskFailedDetails"
+          InternalTaskPermanentlyFailed: "#/components/schemas/InternalTaskPermanentlyFailedDetails"
           ResourceSyncCompleted: "#/components/schemas/ResourceSyncCompletedDetails"
           ReferencedRepositoryUpdated: "#/components/schemas/ReferencedRepositoryUpdatedDetails"
           FleetRolloutStarted: "#/components/schemas/FleetRolloutStartedDetails"
@@ -5756,6 +5828,7 @@ components:
         - $ref: "#/components/schemas/DeviceMultipleOwnersDetectedDetails"
         - $ref: "#/components/schemas/DeviceMultipleOwnersResolvedDetails"
         - $ref: "#/components/schemas/InternalTaskFailedDetails"
+        - $ref: "#/components/schemas/InternalTaskPermanentlyFailedDetails"
         - $ref: "#/components/schemas/ResourceSyncCompletedDetails"
         - $ref: "#/components/schemas/ReferencedRepositoryUpdatedDetails"
         - $ref: "#/components/schemas/FleetRolloutStartedDetails"
@@ -5860,6 +5933,26 @@ components:
         retryCount:
           type: integer
           description: Number of times the task has been retried.
+        originalEvent:
+          $ref: '#/components/schemas/Event'
+    InternalTaskPermanentlyFailedDetails:
+      type: object
+      required:
+        - detailType
+        - errorMessage
+        - retryCount
+        - originalEvent
+      properties:
+        detailType:
+          type: string
+          enum: [InternalTaskPermanentlyFailed]
+          description: The type of detail for discriminator purposes.
+        errorMessage:
+          type: string
+          description: The error message describing the permanent failure.
+        retryCount:
+          type: integer
+          description: Number of times the task was retried before being marked as permanently failed.
         originalEvent:
           $ref: '#/components/schemas/Event'
     ResourceSyncCompletedDetails:

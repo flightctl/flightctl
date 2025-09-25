@@ -1,12 +1,15 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"reflect"
 	"strings"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/org"
 )
 
@@ -154,4 +157,93 @@ func responseField[T any](response interface{}, name string) (T, error) {
 	}
 
 	return fieldValue, nil
+}
+
+// GetSingleResource fetches a single resource by kind and name.
+// This function centralizes the resource fetching logic used by both get and edit commands.
+func GetSingleResource(ctx context.Context, c *apiclient.ClientWithResponses, kind, name string) (interface{}, error) {
+	switch kind {
+	case DeviceKind:
+		return c.GetDeviceWithResponse(ctx, name)
+	case EnrollmentRequestKind:
+		return c.GetEnrollmentRequestWithResponse(ctx, name)
+	case FleetKind:
+		params := api.GetFleetParams{}
+		return c.GetFleetWithResponse(ctx, name, &params)
+	case RepositoryKind:
+		return c.GetRepositoryWithResponse(ctx, name)
+	case ResourceSyncKind:
+		return c.GetResourceSyncWithResponse(ctx, name)
+	case CertificateSigningRequestKind:
+		return c.GetCertificateSigningRequestWithResponse(ctx, name)
+	default:
+		return nil, fmt.Errorf("unsupported resource kind: %s", kind)
+	}
+}
+
+// GetRenderedDevice fetches a rendered device configuration.
+func GetRenderedDevice(ctx context.Context, c *apiclient.ClientWithResponses, name string) (interface{}, error) {
+	return c.GetRenderedDeviceWithResponse(ctx, name, &api.GetRenderedDeviceParams{})
+}
+
+// GetLastSeenDevice fetches the last seen timestamp for a device.
+func GetLastSeenDevice(ctx context.Context, c *apiclient.ClientWithResponses, name string) (interface{}, error) {
+	return c.GetDeviceLastSeenWithResponse(ctx, name)
+}
+
+// GetTemplateVersion fetches a template version with the specified fleet name.
+func GetTemplateVersion(ctx context.Context, c *apiclient.ClientWithResponses, fleetName, name string) (interface{}, error) {
+	return c.GetTemplateVersionWithResponse(ctx, fleetName, name)
+}
+
+// ExtractJSON200 extracts the JSON200 data from a response after validating it.
+// This function centralizes the common pattern of validating and extracting JSON200 data.
+func ExtractJSON200(response interface{}) (interface{}, error) {
+	// Validate the response
+	if err := validateResponse(response); err != nil {
+		return nil, err
+	}
+
+	// Check if this is a 204 response (no content)
+	httpResponse, err := responseField[*http.Response](response, "HTTPResponse")
+	if err != nil {
+		return nil, err
+	}
+
+	if httpResponse.StatusCode == http.StatusNoContent {
+		return nil, nil
+	}
+
+	// Extract JSON200 data
+	json200, err := responseField[interface{}](response, "JSON200")
+	if err != nil {
+		return nil, err
+	}
+
+	return json200, nil
+}
+
+// validateResponse validates an HTTP response and returns an error if the status is not OK.
+func validateResponse(response interface{}) error {
+	httpResponse, err := responseField[*http.Response](response, "HTTPResponse")
+	if err != nil {
+		return err
+	}
+
+	responseBody, err := responseField[[]byte](response, "Body")
+	if err != nil {
+		return err
+	}
+
+	if httpResponse.StatusCode != http.StatusOK && httpResponse.StatusCode != http.StatusNoContent {
+		if strings.Contains(httpResponse.Header.Get("Content-Type"), "json") {
+			var dest api.Status
+			if err := json.Unmarshal(responseBody, &dest); err != nil {
+				return fmt.Errorf("unmarshalling error: %w", err)
+			}
+			return fmt.Errorf("response status: %d, message: %s", httpResponse.StatusCode, dest.Message)
+		}
+		return fmt.Errorf("response status: %d", httpResponse.StatusCode)
+	}
+	return nil
 }

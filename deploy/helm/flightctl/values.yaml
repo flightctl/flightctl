@@ -1,151 +1,229 @@
 
-## @section Global parameters
-## @descriptionStart This section contains parameters common to all the
-## components in the deployment, including sub-charts, ui charts, etc.
-## @descriptionEnd
-
-## @param global.target The type of Flightctl to deploy - either 'standalone' or 'acm'.
-## @param global.baseDomain Base domain to construct the FQDN for the service endpoints.
-## @param.global.baseDomainTls.cert Certificate for the base domain wildcard certificate, it should be valid for *.${baseDomain}. This certificate is only used for non mTLS endpoints, mTLS endpoints like agent-api, etc will use different certificates.
-## @param.global.baseDomainTls.key Key for the base domain wildcard certificate.
-## @param global.storageClassName Storage class name for the PVCs.
-## @param global.auth.type Type of the auth to use. Can be one of 'builtin', 'k8s', 'oidc', or 'none'
-## @param global.auth.caCert The custom CA cert.
-## @param global.auth.insecureSkipTlsVerify True if verification of authority TLS cert should be skipped.
-## @param global.auth.k8s.apiUrl API URL of k8s cluster that will be used as authentication authority
-## @param global.auth.k8s.externalOpenShiftApiUrl API URL of OpenShift cluster that can be accessed by external client to retrieve auth token
-## @param global.apiUrl is an alternative to global.auth.k8s.externalOpenShiftApiUrl with the same meaning, used by the multiclusterhub operator
-## @param global.auth.k8s.externalApiToken In case flightctl is not running within a cluster, you can provide api token
-## @param global.auth.k8s.rbacNs Namespace that should be used for the RBAC checks
-## @param global.auth.oidc.oidcAuthority The base URL for the Keycloak realm that is reachable by flightctl services. Example: https://keycloak.foo.internal/realms/flightctl
-## @param global.auth.oidc.externalOidcAuthority The base URL for the Keycloak realm that is reachable by clients. Example: https://keycloak.foo.net/realms/flightctl
-## @param global.auth.aap.apiUrl The URL of the AAP Gateway API endpoint
-## @param global.auth.aap.externalApiUrl The URL of the AAP Gateway API endpoint that is reachable by clients
-## @param global.metrics.enabled Enable metrics exporting and service
-## @param global.timestamp Timestamp to be used to trigger a new deployment, i.e. if you want pods to be restarted and pickup ":latest"
-## @param global.internalNamespace Namespace where internal components are deployed
-## @param global.clusterLevelSecretAccess Allow flightctl-worker to access secrets at the cluster level for embedding in device configs
-## @param global.appCode This is only related to deployment in Red Hat's PAAS.
-## @param global.exposeServicesMethod How the FCTL services should be exposed. Can be either nodePort or route
-## @param global.nodePorts Node port numbers for FCTL services
-## @param global.imagePullPolicy Image pull policy for all containers
-## @param global.organizations.enabled Enable IDP-provided organizations support
+# -- Global parameters
+# This section contains parameters common to all the components in the deployment, including sub-charts, ui charts, etc.
 
 global:
+  # -- The type of Flightctl to deploy - either 'standalone' or 'acm'.
   target: "standalone" # standalone, acm, aap
+  # -- Base domain to construct the FQDN for the service endpoints.
   baseDomain: ""
   baseDomainTls:
+    # -- Certificate for the base domain wildcard certificate, it should be valid for *.${baseDomain}. This certificate is only used for non mTLS endpoints, mTLS endpoints like agent-api, etc will use different certificates.
     cert: ""
+    # -- Key for the base domain wildcard certificate.
     key: ""
-  storageClassName: ""
+# -- Storage class name for the PVCs.
+# storageClassName: standard
+  # -- Name of the image pull secret for accessing private container registries
   imagePullSecretName: ""
+  # -- Alternative to global.auth.k8s.externalOpenShiftApiUrl with the same meaning, used by the multiclusterhub operator
   apiUrl: "" # alternative to global.auth.k8s.externalOpenShiftApiUrl used by multiclusterhub operator
   auth:
+    # -- Type of the auth to use. Can be one of 'builtin', 'k8s', 'oidc', or 'none'
     type: "builtin" # builtin, k8s, oidc, aap, none
+    # -- The custom CA cert.
     caCert: ""
+    # -- True if verification of authority TLS cert should be skipped.
     insecureSkipTlsVerify: false
     k8s:
+      # -- API URL of k8s cluster that will be used as authentication authority
       apiUrl: https://kubernetes.default.svc
+      # -- API URL of OpenShift cluster that can be accessed by external client to retrieve auth token
       externalOpenShiftApiUrl: ""
+      # -- In case flightctl is not running within a cluster, you can provide api token
       externalApiToken: ""
+      # -- Namespace that should be used for the RBAC checks
       rbacNs: ""
     oidc:
+      # -- The base URL for the Keycloak realm that is reachable by flightctl services. Example: https://keycloak.foo.internal/realms/flightctl
       oidcAuthority: http://keycloak:8081/realms/flightctl
+      # -- The base URL for the Keycloak realm that is reachable by clients. Example: https://keycloak.foo.net/realms/flightctl
       externalOidcAuthority: ""
     aap:
+      # -- The URL of the AAP Gateway API endpoint
       apiUrl: ""
+      # -- The URL of the AAP Gateway API endpoint that is reachable by clients
       externalApiUrl: ""
   metrics:
+    # -- Enable metrics exporting and service
     enabled: true
   tracing:
+    # -- Enable distributed tracing with OpenTelemetry
     enabled: false
+    # -- OpenTelemetry collector endpoint for trace data
     endpoint: jaeger-collector.flightctl-e2e.svc.cluster.local:4318
+    # -- Use insecure connection to tracing endpoint (development only)
     insecure: true
+  # -- Namespace where internal components are deployed
   internalNamespace: ""
+  # -- Allow flightctl-worker to access secrets at the cluster level for embedding in device configs
   clusterLevelSecretAccess: false
+  # -- This is only related to deployment in Red Hat's PAAS.
   appCode: ""
+  # -- How the Flight Control services should be exposed. Can be either nodePort or route
   exposeServicesMethod: "route" # route, nodePort, gateway
+  # -- Gateway API class name for gateway exposure method
   gatewayClass: ""
   nodePorts:
+    # -- NodePort for Flight Control API service
     api: 3443
+    # -- NodePort for CLI artifacts service
     cliArtifacts: 8090
+    # -- NodePort for agent communication service
     agent: 7443
+    # -- NodePort for web UI service
     ui: 9000
+    # -- NodePort for Keycloak service
     keycloak: 8081
+    # -- NodePort for Alertmanager proxy service
     alertmanagerProxy: 8443
+    # -- NodePort for OTLP telemetry gateway
+    telemetryGatewayOtlp: 4317
+    # -- NodePort for Prometheus telemetry gateway
+    telemetryGatewayProm: 9464
   gatewayPorts:
+    # -- TLS port for Gateway API configuration
     tls: 443
+    # -- HTTP port for Gateway API configuration
     http: 80
+  # -- Generate secrets when deploying Flight Control. This should be set to false if you want to provide your own secrets or when upgrading Flight Control to avoid overriding the existing secrets
+  generateSecrets: true
+  # -- Image pull policy for all containers
   imagePullPolicy: IfNotPresent
   rbac:
+    # -- Create RBAC resources (roles, bindings, service accounts)
     create: true
   organizations:
+    # -- Enable IDP-provided organizations support
     enabled: false
 
 
-## @section Component specific parameters
-## @descriptionStart This section provides individual parameters for each component
-## @descriptionEnd
+# -- Component specific parameters
+# This section provides individual parameters for each component
 
+# -- Database Configuration
 db:
+  # -- Use external PostgreSQL database instead of deploying internal one
+  # external: Set to "enabled" to use external PostgreSQL database instead of deploying internal one
+  # When enabled, configure hostname, port, name, user credentials to point to your external database
+  external: "disabled"
+  # -- External database hostname (leave empty to use in-cluster PostgreSQL)
+  # hostname: <set to external DB host to override cluster default>
+  # -- Database port number
+  port: 5432
+  # -- Database name for Flight Control
+  name: "flightctl"
+  # -- Database type (currently only 'pgsql' is supported)
+  type: "pgsql"
+  # -- SSL mode for database connections (disable, allow, prefer, require, verify-ca, verify-full)
+  sslmode: ""
+  # -- ConfigMap containing CA certificate (automatically mounted at /etc/ssl/postgres/)
+  sslConfigMap: ""
+  # -- Secret containing client certificates (automatically mounted at /etc/ssl/postgres/)
+  sslSecret: ""
+  # Internal database deployment configuration (ignored when external: "enabled")
   image:
+    # -- PostgreSQL container image
     image: quay.io/sclorg/postgresql-16-c9s
+    # -- PostgreSQL image tag
     tag: "20250214"
+    # -- Image pull policy for database container
     pullPolicy: ""
+  # -- Database master/admin username
   masterUser: admin
+  # -- Application database username
   user: flightctl_app
-  # password: Leave empty to auto-generate secure password, or set to use a specific password.
-  password: ""
+  # -- Database migration username
+  migrationUser: flightctl_migrator
+  # -- Master user password (leave empty for auto-generation)
   # masterPassword: Leave empty to auto-generate secure password, or set to use a specific password.
   masterPassword: ""
+  # -- Application user password (leave empty for auto-generation)
   # userPassword: Leave empty to auto-generate secure password, or set to use a specific password.
   userPassword: ""
+  # -- Migration user password (leave empty for auto-generation)
   # migrationPassword: Leave empty to auto-generate secure password, or set to use a specific password.
   migrationPassword: ""
+  # -- Maximum number of database connections
   maxConnections: 200
   storage:
+    # -- Persistent volume size for database storage
     size: "60Gi"
   resources:
     requests:
+      # -- CPU resource requests for database pod
       cpu: "512m"
+      # -- Memory resource requests for database pod
       memory: "512Mi"
+  # -- File system group ID for database pod security context
   fsGroup: ""
+# -- Key-Value Store Configuration
 kv:
+  # -- Enable Redis key-value store for caching and session storage
   enabled: true
   image:
+    # -- Redis container image
     image: quay.io/sclorg/redis-7-c9s
+    # -- Redis image tag
     tag: "20250108"
+    # -- Image pull policy for Redis container
     pullPolicy: ""
+  # -- Redis password (leave empty for auto-generation)
   # password: Leave empty to auto-generate secure password, or set to use a specific password.
   password: ""
-  # Save if at least 1 key changed in 5 minutes
-  save: 300 1
+  # -- Redis log level (debug, verbose, notice, warning)
   loglevel: warning
+  # -- File system group ID for Redis pod security context
   fsGroup: ""
+  # Memory management for in-memory Redis
+  # -- Maximum memory usage for Redis
+  maxmemory: "1gb"
+  # -- Redis memory eviction policy
+  maxmemoryPolicy: "allkeys-lru"
+# -- Alertmanager Configuration
 alertmanager:
+  # -- Enable Alertmanager for alert handling
   enabled: true
   image:
+    # -- Alertmanager container image
     image: quay.io/prometheus/alertmanager
+    # -- Alertmanager image tag
     tag: "v0.28.1"
+    # -- Image pull policy for Alertmanager container
     pullPolicy: ""
+
+# -- Keycloak Configuration
 keycloak:
   db:
+    # -- File system group ID for Keycloak database pod security context
     fsGroup: ""
+
+# -- API Server Configuration
 api:
+  # -- Enable Flight Control API server deployment
   enabled: true
   image:
+    # -- API server container image
     image: quay.io/flightctl/flightctl-api
+    # -- Image pull policy for API server container
     pullPolicy: ""
+    # -- API server image tag (leave empty to use chart appVersion)
     tag: ""
+  # -- Base URL for the web UI (used for CORS and redirects)
   baseUIUrl: "" # ui.flightctl.example.com
   # Rate limiting configuration - enabled by default for production
   rateLimit:
+    # -- Maximum requests per window for general API endpoints
     # General API rate limiting
     requests: 60
+    # -- Time window for rate limiting (e.g., "1m", "1h")
     window: "1m"
+    # -- Maximum authentication requests per auth window
     # Auth-specific rate limiting
     authRequests: 10
+    # -- Time window for authentication rate limiting
     authWindow: "1h"
+    # -- List of trusted proxy IP ranges that can set X-Forwarded-For headers
     # Trusted proxies that can set X-Forwarded-For/X-Real-IP headers
     # This should include your load balancer and UI proxy IPs
     trustedProxies:
@@ -154,54 +232,136 @@ api:
       - "192.168.0.0/16" # Example: Private network range
   # Health probes configuration
   probes:
+    # -- Enable health and readiness probes for API server
     enabled: true
+    # -- HTTP path for readiness probe
     readinessPath: /readyz
+    # -- HTTP path for liveness probe
     livenessPath: /healthz
+# -- CLI Artifacts Configuration
 cliArtifacts:
+  # -- Enable CLI artifacts service
   enabled: true
   image:
+    # -- CLI artifacts container image
     image: quay.io/flightctl/flightctl-cli-artifacts
+    # -- Image pull policy for CLI artifacts container
     pullPolicy: ""
+    # -- CLI artifacts image tag
     tag: ""
+
+# -- Worker Configuration
 worker:
+  # -- Enable Flight Control worker deployment
   enabled: true
   image:
+    # -- Worker container image
     image: quay.io/flightctl/flightctl-worker
+    # -- Image pull policy for worker container
     pullPolicy: ""
+    # -- Worker image tag
     tag: ""
+  # -- Enable secrets cluster role binding for worker
   enableSecretsClusterRoleBinding: true
+
+# -- Periodic Configuration
 periodic:
+  # -- Enable Flight Control periodic service
   enabled: true
   image:
+    # -- Periodic container image
     image: quay.io/flightctl/flightctl-periodic
+    # -- Periodic image tag
     tag: ""
+    # -- Image pull policy for periodic container
     pullPolicy: ""
+  # -- Number of periodic consumers
   consumers: 5
+
+# -- Alert Exporter Configuration
 alertExporter:
+  # -- Enable alert exporter service
   enabled: true
   image:
+    # -- Alert exporter container image
     image: quay.io/flightctl/flightctl-alert-exporter
+    # -- Alert exporter image tag
     tag: ""
+    # -- Image pull policy for alert exporter container
     pullPolicy: ""
+
+# -- Alertmanager Proxy Configuration
 alertmanagerProxy:
+  # -- Enable Alertmanager proxy service
   enabled: true
   image:
+    # -- Alertmanager proxy container image
     image: quay.io/flightctl/flightctl-alertmanager-proxy
+    # -- Alertmanager proxy image tag
     tag: ""
+    # -- Image pull policy for Alertmanager proxy container
     pullPolicy: ""
+
+# -- Prometheus Configuration
 prometheus:
+  # -- Enable Prometheus deployment
   enabled: false
+
+# -- UI Configuration
 ui:
+  # -- Enable web UI deployment
   enabled: true
   api:
+    # -- Skip TLS verification for UI API calls
     insecureSkipTlsVerify: true
-secretsJob:
+
+# -- Cluster CLI Configuration
+clusterCli:
   image:
+    # -- Cluster CLI container image
     image: quay.io/openshift/origin-cli
+    # -- Cluster CLI image tag
     tag: "4.20.0"
+    # -- Image pull policy for cluster CLI container
     pullPolicy: ""
+# -- Database Setup Configuration
 dbSetup:
   image:
+    # -- Database setup container image
     image: quay.io/flightctl/flightctl-db-setup
+    # -- Database setup image tag
     tag: ""
+    # -- Image pull policy for database setup container
     pullPolicy: ""
+  # Database wait configuration (optional)
+  wait:
+    # -- Seconds to wait for database readiness before failing
+    # Default timeout for database wait (can be overridden per deployment)
+    timeout: 60
+    # -- Seconds to sleep between database connection attempts
+    # Default sleep interval between connection attempts
+    sleep: 2
+  migration:
+    # -- Number of retries for the migration Job on failure
+    backoffLimit: 3
+    # -- Maximum runtime in seconds for the migration Job
+    activeDeadlineSeconds: 600
+
+# -- Upgrade hooks
+upgradeHooks:
+  scaleDown:
+    # -- When to run pre-upgrade scale down job: "always", "never", or "chart" (default). "chart" runs only if helm.sh/chart changed.
+    condition: chart
+    # -- List of Deployments to scale down in order
+    deployments:
+      - flightctl-periodic
+      - flightctl-worker
+    # -- Timeout in seconds to wait for rollout per Deployment
+    timeoutSeconds: 120
+  # -- Enable pre-upgrade DB migration dry-run as a hook
+  databaseMigrationDryRun: true
+
+# -- Telemetry Gateway Configuration
+telemetryGateway:
+  # -- Enable telemetry gateway service
+  enabled: false

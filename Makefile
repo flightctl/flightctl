@@ -23,7 +23,7 @@ CACHE_FLAGS_TEMPLATE := --cache-from=$(REGISTRY)/$(REGISTRY_OWNER)/%
  endef
  else
  define CACHE_FLAGS_FOR_IMAGE
- 
+
  endef
  endif
 
@@ -63,8 +63,8 @@ ifeq ($(DEBUG),true)
 	LD_FLAGS :=
 	GC_FLAGS := -gcflags "all=-N -l"
 else
-	# strip everything we can
-	LD_FLAGS := -w -s
+	# strip debug info, but keep symbols
+	LD_FLAGS := -w
 	GC_FLAGS :=
 endif
 
@@ -153,7 +153,8 @@ build: bin build-cli
 		./cmd/flightctl-alertmanager-proxy \
 		./cmd/flightctl-userinfo-proxy \
 		./cmd/flightctl-db-migrate \
-		./cmd/flightctl-restore 
+		./cmd/flightctl-restore \
+		./cmd/flightctl-telemetry-gateway
 
 bin/flightctl-agent: bin $(GO_FILES)
 	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-agent
@@ -190,6 +191,9 @@ build-alertmanager-proxy: bin
 
 build-userinfo-proxy: bin
 	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-userinfo-proxy
+
+build-telemetry-gateway: bin
+	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-telemetry-gateway
 
 build-devicesimulator: bin
 	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/devicesimulator
@@ -252,7 +256,14 @@ flightctl-userinfo-proxy-container: Containerfile.userinfo-proxy go.mod go.sum $
 		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
 		-f Containerfile.userinfo-proxy -t flightctl-userinfo-proxy:latest
 
-.PHONY: flightctl-api-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container flightctl-userinfo-proxy-container
+flightctl-telemetry-gateway-container: Containerfile.telemetry-gateway go.mod go.sum $(GO_FILES)
+	podman build $(call CACHE_FLAGS_FOR_IMAGE,flightctl-telemetry-gateway) \
+		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
+		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
+		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
+		-f Containerfile.telemetry-gateway -t flightctl-telemetry-gateway:latest
+
+.PHONY: flightctl-api-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container flightctl-userinfo-proxy-container flightctl-telemetry-gateway-container
 
 # --- Registry Operations ---
 # The login target expects REGISTRY_USER via environment variable and
@@ -277,6 +288,7 @@ push-containers: login
 	podman push flightctl-alertmanager-proxy:latest
 	podman push flightctl-cli-artifacts:latest
 	podman push flightctl-userinfo-proxy:latest
+	podman push flightctl-telemetry-gateway:latest
 
 # A convenience target to run the full CI process.
 ci-build: build-containers push-containers
@@ -295,8 +307,9 @@ clean-containers:
 	- podman rmi flightctl-alertmanager-proxy:latest || true
 	- podman rmi flightctl-cli-artifacts:latest || true
 	- podman rmi flightctl-userinfo-proxy:latest || true
+	- podman rmi flightctl-telemetry-gateway:latest || true
 
-build-containers: flightctl-api-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container flightctl-userinfo-proxy-container
+build-containers: flightctl-api-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container flightctl-userinfo-proxy-container flightctl-telemetry-gateway-container
 
 .PHONY: build-containers build-cli build-multiarch-clis
 
@@ -339,7 +352,7 @@ deb: bin/arm64 bin/amd64 bin/riscv64
 	ln -f -s packaging/debian debian
 	debuild -us -uc -b
 
-clean: clean-agent-vm clean-e2e-agent-images clean-quadlets
+clean: clean-agent-vm clean-e2e-agent-images clean-quadlets clean-swtpm-certs
 	- kind delete cluster
 	- rm -r ~/.flightctl
 	- rm -f -r $(shell uname -m)
@@ -355,15 +368,21 @@ clean-all: clean clean-containers
 clean-quadlets:
 	sudo deploy/scripts/clean_quadlets.sh
 
-.PHONY: tools flightctl-api-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-userinfo-proxy-container
+.PHONY: tools flightctl-api-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-userinfo-proxy-container flightctl-telemetry-gateway-container
 
-tools: $(GOBIN)/golangci-lint
+# Use custom golangci-lint container with libvirt support
+LINT_IMAGE := flightctl-lint:latest
+LINT_CONTAINER := podman run --rm -v $(GOBASE):/app:Z -w /app --user 0 $(LINT_IMAGE)
 
-$(GOBIN)/golangci-lint:
-	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(GOBIN) v1.61.0
+.PHONY: tools lint-image
+tools:
 
-lint: tools
-	$(GOBIN)/golangci-lint run -v
+lint-image:
+	podman build -f Containerfile.lint -t $(LINT_IMAGE)
+
+.PHONY: lint
+lint: lint-image
+	$(LINT_CONTAINER) golangci-lint run -v
 
 .PHONY: rpmlint
 rpmlint: check-rpmlint

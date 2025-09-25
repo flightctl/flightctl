@@ -4,6 +4,7 @@ kind: Deployment
 metadata:
   labels:
     flightctl.service: flightctl-worker
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
   name: flightctl-worker
   namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
 spec:
@@ -17,12 +18,21 @@ spec:
     metadata:
       labels:
         flightctl.service: flightctl-worker
+        {{- include "flightctl.standardLabels" . | nindent 8 }}
     spec:
       serviceAccountName: flightctl-worker
+      initContainers:
+      {{- include "flightctl.databaseWaitInitContainer" (dict "context" . "userType" "app") | nindent 6 }}
       containers:
         - name: flightctl-worker
           image: {{ .Values.worker.image.image }}:{{ default .Chart.AppVersion .Values.worker.image.tag }}
           imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.worker.image.pullPolicy }}
+          {{ if .Values.global.metrics.enabled }}
+          ports:
+            - containerPort: 8080
+              name: metrics
+              protocol: TCP
+          {{ end }}
           env:
             - name: HOME
               value: "/root"
@@ -52,9 +62,11 @@ spec:
               name: flightctl-worker-config
               subPath: config.yaml
               readOnly: true
+            {{- include "flightctl.dbSslVolumeMounts" . | nindent 12 }}
       restartPolicy: Always
       volumes:
         - name: flightctl-worker-config
           configMap:
             name: flightctl-worker-config
+        {{- include "flightctl.dbSslVolumes" . | nindent 8 }}
 {{ end }}

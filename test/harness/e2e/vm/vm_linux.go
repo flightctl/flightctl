@@ -18,6 +18,9 @@ import (
 	"libvirt.org/go/libvirt"
 )
 
+// Default disk size in GB for VM instances
+const DefaultDiskSizeGB = 10
+
 //go:embed domain-template.xml
 var domainTemplate string
 
@@ -319,6 +322,12 @@ func (v *VMInLibvirt) parseDomainTemplate() (domainXML string, err error) {
 		Name            string
 		CloudInitCDRom  string
 		CloudInitSMBios string
+		DiskSize        string
+	}
+
+	diskSize := v.TestVM.DiskSizeGB
+	if diskSize <= 0 {
+		diskSize = DefaultDiskSizeGB
 	}
 
 	templateParams := TemplateParams{
@@ -326,6 +335,7 @@ func (v *VMInLibvirt) parseDomainTemplate() (domainXML string, err error) {
 		Port:          strconv.Itoa(v.TestVM.SSHPort),
 		PIDFile:       v.pidFile,
 		Name:          v.TestVM.VMName,
+		DiskSize:      strconv.Itoa(diskSize),
 	}
 
 	err = v.ParseCloudInit()
@@ -576,6 +586,21 @@ func (v *VMInLibvirt) RevertToSnapshot(name string) error {
 
 	if !vmExists {
 		return fmt.Errorf("VM %s does not exist, cannot revert to snapshot", v.TestVM.VMName)
+	}
+
+	// Check if VM is running, if not start it first
+	isRunning, err := v.IsRunning()
+	if err != nil {
+		return fmt.Errorf("failed to check VM running state: %w", err)
+	}
+
+	if !isRunning {
+		logrus.Infof("VM %s is not running, starting it before revert", v.TestVM.VMName)
+		if err := v.Run(); err != nil {
+			return fmt.Errorf("failed to start VM before revert: %w", err)
+		}
+		// Wait a moment for the VM to be fully started
+		time.Sleep(2 * time.Second)
 	}
 
 	// First, pause the VM

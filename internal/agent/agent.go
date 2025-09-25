@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/agent/client"
@@ -18,7 +19,6 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/os"
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
-	"github.com/flightctl/flightctl/internal/agent/device/publisher"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
@@ -100,7 +100,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	executer := &executer.CommonExecuter{}
 
 	// create enrollment client
-	enrollmentClient, err := newEnrollmentClient(a.config)
+	enrollmentClient, err := newEnrollmentClient(a.config, a.log)
 	if err != nil {
 		return err
 	}
@@ -114,10 +114,12 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 
 	pollBackoff := poll.Config{
-		MaxDelay:  1 * time.Minute,
-		BaseDelay: 10 * time.Second,
-		Factor:    1.5,
-		MaxSteps:  a.config.PullRetrySteps,
+		MaxDelay:     1 * time.Minute,
+		BaseDelay:    10 * time.Second,
+		Factor:       1.5,
+		MaxSteps:     a.config.PullRetrySteps,
+		JitterFactor: 0.1,                                             // jitterFactor (10% jitter to prevent thundering herd)
+		Rand:         rand.New(rand.NewSource(time.Now().UnixNano())), //nolint:gosec
 	}
 
 	// create os client
@@ -155,18 +157,20 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	policyManager := policy.NewManager(a.log)
 
-	devicePublisher := publisher.New(deviceName,
-		time.Duration(a.config.SpecFetchInterval),
-		backoff,
-		a.log)
+	deviceNotFoundHandler := func() error {
+		return wipeCertificateAndRestart(ctx, identityProvider, executer, a.log)
+	}
 
 	// create spec manager
 	specManager := spec.NewManager(
+		deviceName,
 		a.config.DataDir,
 		policyManager,
 		deviceReadWriter,
 		osClient,
-		devicePublisher.Subscribe(),
+		a.config.SpecFetchInterval,
+		backoff,
+		deviceNotFoundHandler,
 		a.log,
 	)
 
@@ -179,7 +183,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	hookManager := hook.NewManager(deviceReadWriter, executer, a.log)
 
 	// create application manager
-	applicationManager := applications.NewManager(
+	applicationsManager := applications.NewManager(
 		a.log,
 		deviceReadWriter,
 		podmanClient,
@@ -187,7 +191,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	)
 
 	// register the application manager with the shutdown manager
-	shutdownManager.Register("applications", applicationManager.Stop)
+	shutdownManager.Register("applications", applicationsManager.Stop)
 
 	// register identity provider with shutdown manager
 	shutdownManager.Register("identity", identityProvider.Close)
@@ -225,7 +229,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	)
 
 	// register status exporters
-	statusManager.RegisterStatusExporter(applicationManager)
+	statusManager.RegisterStatusExporter(applicationsManager)
 	statusManager.RegisterStatusExporter(systemdManager)
 	statusManager.RegisterStatusExporter(resourceManager)
 	statusManager.RegisterStatusExporter(osManager)
@@ -243,7 +247,6 @@ func (a *Agent) Run(ctx context.Context) error {
 		executer,
 		deviceReadWriter,
 		specManager,
-		devicePublisher,
 		statusManager,
 		hookManager,
 		lifecycleManager,
@@ -268,6 +271,7 @@ func (a *Agent) Run(ctx context.Context) error {
 			bootstrap.ManagementClient(),
 			deviceReadWriter,
 			a.config,
+			identity.NewExportableFactory(tpmClient, a.log),
 		),
 	)
 	if err != nil {
@@ -290,18 +294,18 @@ func (a *Agent) Run(ctx context.Context) error {
 		resourceManager,
 	)
 
-	// create console controller
-	consoleController := console.NewController(
+	// create console manager
+	consoleManager := console.NewManager(
 		grpcClient,
 		deviceName,
 		executer,
-		devicePublisher.Subscribe(),
+		specManager.Watch(),
 		a.log,
 	)
 
 	applicationsController := applications.NewController(
 		podmanClient,
-		applicationManager,
+		applicationsManager,
 		deviceReadWriter,
 		a.log,
 	)
@@ -312,8 +316,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		deviceReadWriter,
 		statusManager,
 		specManager,
-		devicePublisher,
-		applicationManager,
+		applicationsManager,
 		systemdManager,
 		a.config.SpecFetchInterval,
 		a.config.StatusUpdateInterval,
@@ -324,7 +327,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		applicationsController,
 		configController,
 		resourceController,
-		consoleController,
+		consoleManager,
 		osClient,
 		podmanClient,
 		prefetchManager,
@@ -345,19 +348,32 @@ func (a *Agent) Run(ctx context.Context) error {
 	go reloadManager.Run(ctx)
 	go resourceManager.Run(ctx)
 	go prefetchManager.Run(ctx)
+	go consoleManager.Run(ctx)
+	go specManager.Run(ctx)
 
 	return agent.Run(ctx)
 }
 
-func newEnrollmentClient(cfg *agent_config.Config) (client.Enrollment, error) {
-	httpClient, err := client.NewFromConfig(&cfg.EnrollmentService.Config)
+func newEnrollmentClient(cfg *agent_config.Config, log *log.PrefixLogger) (client.Enrollment, error) {
+	// Create infinite retry policy for enrollment requests using same config as management client
+	// but with infinite retries (MaxSteps: 0)
+	infiniteRetryConfig := poll.Config{
+		BaseDelay:    10 * time.Second,                                // baseDelay (same as management client)
+		Factor:       1.5,                                             // factor (same as management client)
+		MaxDelay:     1 * time.Minute,                                 // maxDelay (same as management client)
+		MaxSteps:     0,                                               // maxSteps (0 means infinite retries until context timeout)
+		JitterFactor: 0.1,                                             // jitterFactor (10% jitter to prevent thundering herd)
+		Rand:         rand.New(rand.NewSource(time.Now().UnixNano())), //nolint:gosec
+	}
+
+	httpClient, err := client.NewFromConfig(&cfg.EnrollmentService.Config, log, client.WithHTTPRetry(infiniteRetryConfig))
 	if err != nil {
 		return nil, err
 	}
 	return client.NewEnrollment(httpClient, cfg.GetEnrollmentMetricsCallback()), nil
 }
 
-func (a *Agent) tryLoadTPM(writer fileio.ReadWriter) (*tpm.Client, error) {
+func (a *Agent) tryLoadTPM(writer fileio.ReadWriter) (tpm.Client, error) {
 	if !a.config.TPM.Enabled {
 		a.log.Info("TPM device identity is disabled. Skipping TPM setup.")
 		return nil, nil
@@ -368,4 +384,23 @@ func (a *Agent) tryLoadTPM(writer fileio.ReadWriter) (*tpm.Client, error) {
 		return nil, fmt.Errorf("creating TPM client: %w", err)
 	}
 	return tpmClient, nil
+}
+
+// wipeCertificateAndRestart wipes only the certificate (not keys or CSR) and restarts the flightctl-agent service
+func wipeCertificateAndRestart(ctx context.Context, identityProvider identity.Provider, executer executer.Executer, log *log.PrefixLogger) error {
+	log.Warn("Device not found on management server - wiping certificate and restarting agent")
+
+	// Wipe only the certificate, preserving keys and CSR
+	if err := identityProvider.WipeCertificateOnly(); err != nil {
+		return fmt.Errorf("failed to wipe certificate: %w", err)
+	}
+
+	// Restart the flightctl-agent service
+	systemdClient := client.NewSystemd(executer)
+	if err := systemdClient.Restart(ctx, "flightctl-agent"); err != nil {
+		return fmt.Errorf("failed to restart flightctl-agent service: %w", err)
+	}
+
+	log.Info("Successfully wiped certificate and restarted flightctl-agent service")
+	return nil
 }

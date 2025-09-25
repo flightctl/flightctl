@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -54,7 +55,7 @@ func setupMockStoreWithError(mockStore *TestStore, err error) {
 func TestListOrganizations_EmptyResult(t *testing.T) {
 	handler, mockStore := createServiceHandlerWithOrgMockStore(t)
 	setupMockStoreWithOrganizations(mockStore, []*model.Organization{})
-	ctx := context.Background()
+	ctx := context.WithValue(context.Background(), consts.InternalRequestCtxKey, true)
 
 	result, status := handler.ListOrganizations(ctx)
 
@@ -71,7 +72,7 @@ func TestListOrganizations_SingleOrganization(t *testing.T) {
 	orgID := uuid.New()
 	defaultOrg := createTestOrganizationModel(orgID, "default-external-id", "Default")
 	setupMockStoreWithOrganizations(mockStore, []*model.Organization{defaultOrg})
-	ctx := context.Background()
+	ctx := context.WithValue(context.Background(), consts.InternalRequestCtxKey, true)
 
 	expectedOrg := createExpectedAPIOrganization(orgID, "Default", "default-external-id")
 
@@ -97,7 +98,7 @@ func TestListOrganizations_MultipleOrganizations(t *testing.T) {
 
 	orgs := []*model.Organization{org1, org2}
 	setupMockStoreWithOrganizations(mockStore, orgs)
-	ctx := context.Background()
+	ctx := context.WithValue(context.Background(), consts.InternalRequestCtxKey, true)
 
 	expectedOrg1 := createExpectedAPIOrganization(orgID1, "Organization One", "external-id-1")
 	expectedOrg2 := createExpectedAPIOrganization(orgID2, "Organization Two", "external-id-2")
@@ -119,7 +120,7 @@ func TestListOrganizations_StoreError(t *testing.T) {
 	handler, mockStore := createServiceHandlerWithOrgMockStore(t)
 	testError := errors.New("database connection failed")
 	setupMockStoreWithError(mockStore, testError)
-	ctx := context.Background()
+	ctx := context.WithValue(context.Background(), consts.InternalRequestCtxKey, true)
 
 	result, status := handler.ListOrganizations(ctx)
 
@@ -131,7 +132,7 @@ func TestListOrganizations_StoreError(t *testing.T) {
 func TestListOrganizations_ResourceNotFoundError(t *testing.T) {
 	handler, mockStore := createServiceHandlerWithOrgMockStore(t)
 	setupMockStoreWithError(mockStore, flterrors.ErrResourceNotFound)
-	ctx := context.Background()
+	ctx := context.WithValue(context.Background(), consts.InternalRequestCtxKey, true)
 
 	result, status := handler.ListOrganizations(ctx)
 

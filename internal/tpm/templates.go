@@ -163,77 +163,12 @@ func AttestationKeyTemplate(keyAlgo KeyAlgorithm) (tpm2.TPMTPublic, error) {
 	}
 }
 
-// EndorsementKeyTemplate generates an Endorsement Key template based on the specified algorithm.
-// Endorsement keys are used for device identity and attestation operations.
-func EndorsementKeyTemplate(keyAlgo KeyAlgorithm) (tpm2.TPMTPublic, error) {
-	baseAttributes := tpm2.TPMAObject{
-		FixedTPM:             true,  // true = must stay in TPM
-		STClear:              false, // true = cannot be loaded after tpm2_clear
-		FixedParent:          true,  // true = can't be re-parented
-		SensitiveDataOrigin:  true,  // true = TPM generates all sensitive data during creation
-		UserWithAuth:         false, // true = pw or hmac can be used in addition to authpolicy
-		AdminWithPolicy:      false, // true = authValue cannot be used for auth (temporarily disabled for testing)
-		NoDA:                 true,  // true = there are dictionary attack protections
-		EncryptedDuplication: false, // true = there are more robust protections for duplication
-		Restricted:           true,  // true = restricted key for attestation/encryption
-		Decrypt:              true,  // true = can be used to decrypt
-		SignEncrypt:          false, // false = endorsement keys are not signing keys
-	}
-
+func StorageKeyTemplate(keyAlgo KeyAlgorithm) (tpm2.TPMTPublic, error) {
 	switch keyAlgo {
 	case ECDSA:
-		return tpm2.TPMTPublic{
-			Type:             tpm2.TPMAlgECC,
-			NameAlg:          tpm2.TPMAlgSHA256,
-			ObjectAttributes: baseAttributes,
-			Parameters: tpm2.NewTPMUPublicParms(
-				tpm2.TPMAlgECC,
-				&tpm2.TPMSECCParms{
-					Scheme: tpm2.TPMTECCScheme{
-						Scheme: tpm2.TPMAlgECDH,
-						Details: tpm2.NewTPMUAsymScheme(
-							tpm2.TPMAlgECDH,
-							&tpm2.TPMSKeySchemeECDH{HashAlg: tpm2.TPMAlgSHA256},
-						),
-					},
-					CurveID: tpm2.TPMECCNistP256,
-				},
-			),
-			Unique: tpm2.NewTPMUPublicID(
-				tpm2.TPMAlgECC,
-				&tpm2.TPMSECCPoint{
-					X: tpm2.TPM2BECCParameter{Buffer: make([]byte, 32)},
-					Y: tpm2.TPM2BECCParameter{Buffer: make([]byte, 32)},
-				},
-			),
-		}, nil
-
+		return tpm2.ECCSRKTemplate, nil
 	case RSA:
-		return tpm2.TPMTPublic{
-			Type:             tpm2.TPMAlgRSA,
-			NameAlg:          tpm2.TPMAlgSHA256,
-			ObjectAttributes: baseAttributes,
-			Parameters: tpm2.NewTPMUPublicParms(
-				tpm2.TPMAlgRSA,
-				&tpm2.TPMSRSAParms{
-					Scheme: tpm2.TPMTRSAScheme{
-						Scheme: tpm2.TPMAlgOAEP,
-						Details: tpm2.NewTPMUAsymScheme(
-							tpm2.TPMAlgOAEP,
-							&tpm2.TPMSEncSchemeOAEP{HashAlg: tpm2.TPMAlgSHA256},
-						),
-					},
-					KeyBits: 2048, // 2048-bit RSA key
-				},
-			),
-			Unique: tpm2.NewTPMUPublicID(
-				tpm2.TPMAlgRSA,
-				&tpm2.TPM2BPublicKeyRSA{
-					Buffer: make([]byte, 256), // 2048 bits = 256 bytes
-				},
-			),
-		}, nil
-
+		return tpm2.RSASRKTemplate, nil
 	default:
 		return tpm2.TPMTPublic{}, fmt.Errorf("unsupported key algorithm: %s", keyAlgo)
 	}

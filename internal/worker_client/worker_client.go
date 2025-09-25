@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/consts"
@@ -22,19 +23,19 @@ type EventWithOrgId struct {
 }
 
 type workerClient struct {
-	publisher queues.Publisher
+	publisher queues.QueueProducer
 	log       logrus.FieldLogger
 }
 
-func QueuePublisher(queuesProvider queues.Provider) (queues.Publisher, error) {
-	publisher, err := queuesProvider.NewPublisher(consts.TaskQueue)
+func QueuePublisher(ctx context.Context, queuesProvider queues.Provider) (queues.QueueProducer, error) {
+	publisher, err := queuesProvider.NewQueueProducer(ctx, consts.TaskQueue)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create publisher: %w", err)
 	}
 	return publisher, nil
 }
 
-func NewWorkerClient(publisher queues.Publisher, log logrus.FieldLogger) WorkerClient {
+func NewWorkerClient(publisher queues.QueueProducer, log logrus.FieldLogger) WorkerClient {
 	return &workerClient{
 		publisher: publisher,
 		log:       log,
@@ -57,8 +58,16 @@ func (t *workerClient) EmitEvent(ctx context.Context, orgId uuid.UUID, event *ap
 		t.log.WithError(err).Error("failed to marshal event for workers")
 		return
 	}
-	if err = t.publisher.Publish(ctx, b); err != nil {
-		t.log.WithError(err).Error("failed to publish event for workers")
+	// Use creation timestamp if available, otherwise use current time
+	var timestamp int64
+	if event.Metadata.CreationTimestamp != nil {
+		timestamp = event.Metadata.CreationTimestamp.UnixMicro()
+	} else {
+		timestamp = time.Now().UnixMicro()
+	}
+
+	if err = t.publisher.Enqueue(ctx, b, timestamp); err != nil {
+		t.log.WithError(err).Error("failed to enqueue event for workers")
 	}
 }
 
@@ -71,6 +80,7 @@ var eventReasons = map[api.EventReason]struct{}{
 	api.EventReasonReferencedRepositoryUpdated: {},
 	api.EventReasonFleetRolloutDeviceSelected:  {},
 	api.EventReasonFleetRolloutBatchDispatched: {},
+	api.EventReasonDeviceConflictResolved:      {},
 }
 
 func shouldEmitEvent(reason api.EventReason) bool {
