@@ -42,7 +42,8 @@ spec:
       serviceAccountName: flightctl-db-migration
       initContainers:
       {{- $userType := ternary "admin" "migration" (ne $ctx.Values.db.external "enabled") }}
-      {{- include "flightctl.databaseWaitInitContainer" (dict "context" $ctx "userType" $userType "timeout" 120 "sleep" 2) | nindent 6 }}
+      {{- $dbTimeout := ternary 300 120 (eq $ctx.Values.db.external "enabled") }}
+      {{- include "flightctl.databaseWaitInitContainer" (dict "context" $ctx "userType" $userType "timeout" $dbTimeout "sleep" 5) | nindent 6 }}
       {{- if ne $ctx.Values.db.external "enabled" }}
       {{- if not $isDryRun }}
       - name: setup-database-users
