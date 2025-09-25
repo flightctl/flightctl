@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -305,6 +306,9 @@ type Singleton[T any] struct {
 }
 
 func (s *Singleton[T]) Instance() *T {
+	if ret := s.value.Load(); ret != nil {
+		return ret
+	}
 	var empty T
 	return s.GetOrInit(&empty)
 }
@@ -329,4 +333,13 @@ func WithOrganizationID(ctx context.Context, orgID uuid.UUID) context.Context {
 func GetOrgIdFromContext(ctx context.Context) (uuid.UUID, bool) {
 	orgID, ok := ctx.Value(consts.OrganizationIDCtxKey).(uuid.UUID)
 	return orgID, ok
+}
+
+// GetHostname returns the system hostname, or "unknown" if it cannot be determined
+func GetHostname() string {
+	hostname, err := os.Hostname()
+	if err != nil {
+		return "unknown"
+	}
+	return hostname
 }

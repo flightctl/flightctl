@@ -2,9 +2,7 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"net/http"
 	"os"
 	"reflect"
 	"slices"
@@ -35,6 +33,7 @@ type GetOptions struct {
 	Rendered      bool
 	Summary       bool
 	SummaryOnly   bool
+	LastSeen      bool
 }
 
 func DefaultGetOptions() *GetOptions {
@@ -46,6 +45,7 @@ func DefaultGetOptions() *GetOptions {
 		Continue:      "",
 		FleetName:     "",
 		Rendered:      false,
+		LastSeen:      false,
 	}
 }
 
@@ -85,6 +85,7 @@ func (o *GetOptions) Bind(fs *pflag.FlagSet) {
 	fs.BoolVar(&o.Rendered, "rendered", false, "Return the rendered device configuration that is presented to the device (use only when getting a single device).")
 	fs.BoolVarP(&o.Summary, "summary", "s", false, "Display summary information.")
 	fs.BoolVar(&o.SummaryOnly, "summary-only", false, "Display summary information only.")
+	fs.BoolVar(&o.LastSeen, "last-seen", false, "Display the last seen timestamp for a single device.")
 }
 
 func (o *GetOptions) Complete(cmd *cobra.Command, args []string) error {
@@ -113,6 +114,7 @@ func (o *GetOptions) Validate(args []string) error {
 		func() error { return o.validateRendered(kind, name) },
 		func() error { return o.validateSingleResourceRestrictions(kind, name) },
 		func() error { return o.validateLimit() },
+		func() error { return o.validateLastSeen(kind, name) },
 	}
 
 	for _, v := range validators {
@@ -211,6 +213,21 @@ func (o *GetOptions) validateLimit() error {
 	}
 	if o.Limit > maxRequestLimit && len(o.Output) > 0 {
 		return fmt.Errorf("limit higher than %d is only supported when using table format", maxRequestLimit)
+	}
+	return nil
+}
+
+// validateLastSeen checks the usage of the --last-seen flag.
+func (o *GetOptions) validateLastSeen(kind, name string) error {
+	if o.LastSeen && (kind != DeviceKind || len(name) == 0) {
+		return fmt.Errorf("'--last-seen' can only be used when getting a single device")
+	}
+	if o.LastSeen && (o.Rendered || o.Summary || o.SummaryOnly) {
+		return fmt.Errorf("'--last-seen' cannot be combined with '--rendered', '--summary', or '--summary-only'")
+	}
+	// Name output requires metadata.name which DeviceLastSeen does not provide.
+	if o.LastSeen && o.Output == string(display.NameFormat) {
+		return fmt.Errorf("'--last-seen' does not support '-o name'")
 	}
 	return nil
 }
@@ -336,27 +353,23 @@ func (o *GetOptions) listOnce(ctx context.Context, formatter display.OutputForma
 func (o *GetOptions) getSingleResource(ctx context.Context, c *apiclient.ClientWithResponses, kind, name string) (interface{}, error) {
 	switch kind {
 	case DeviceKind:
-		if o.Rendered {
-			return c.GetRenderedDeviceWithResponse(ctx, name, &api.GetRenderedDeviceParams{})
+		if o.LastSeen {
+			return GetLastSeenDevice(ctx, c, name)
 		}
-		return c.GetDeviceWithResponse(ctx, name)
-	case EnrollmentRequestKind:
-		return c.GetEnrollmentRequestWithResponse(ctx, name)
+		if o.Rendered {
+			return GetRenderedDevice(ctx, c, name)
+		}
+		return GetSingleResource(ctx, c, kind, name)
 	case FleetKind:
+		// FleetKind needs special handling for AddDevicesSummary parameter
 		params := api.GetFleetParams{
 			AddDevicesSummary: util.ToPtrWithNilDefault(o.Summary),
 		}
 		return c.GetFleetWithResponse(ctx, name, &params)
 	case TemplateVersionKind:
-		return c.GetTemplateVersionWithResponse(ctx, o.FleetName, name)
-	case RepositoryKind:
-		return c.GetRepositoryWithResponse(ctx, name)
-	case ResourceSyncKind:
-		return c.GetResourceSyncWithResponse(ctx, name)
-	case CertificateSigningRequestKind:
-		return c.GetCertificateSigningRequestWithResponse(ctx, name)
+		return GetTemplateVersion(ctx, c, o.FleetName, name)
 	default:
-		return nil, fmt.Errorf("unsupported resource kind: %s", kind)
+		return GetSingleResource(ctx, c, kind, name)
 	}
 }
 
@@ -434,30 +447,6 @@ func (o *GetOptions) getResourceList(ctx context.Context, c *apiclient.ClientWit
 	}
 }
 
-func validateResponse(response interface{}) error {
-	httpResponse, err := responseField[*http.Response](response, "HTTPResponse")
-	if err != nil {
-		return err
-	}
-
-	responseBody, err := responseField[[]byte](response, "Body")
-	if err != nil {
-		return err
-	}
-
-	if httpResponse.StatusCode != http.StatusOK {
-		if strings.Contains(httpResponse.Header.Get("Content-Type"), "json") {
-			var dest api.Status
-			if err := json.Unmarshal(responseBody, &dest); err != nil {
-				return fmt.Errorf("unmarshalling error: %w", err)
-			}
-			return fmt.Errorf("response status: %d, message: %s", httpResponse.StatusCode, dest.Message)
-		}
-		return fmt.Errorf("response status: %d", httpResponse.StatusCode)
-	}
-	return nil
-}
-
 func (o *GetOptions) displayResponse(formatter display.OutputFormatter, response interface{}, kind string, name string) error {
 	options := display.FormatOptions{
 		Kind:        kind,
@@ -470,10 +459,17 @@ func (o *GetOptions) displayResponse(formatter display.OutputFormatter, response
 
 	// For structured formats, use JSON200 data
 	if o.Output == string(display.JSONFormat) || o.Output == string(display.YAMLFormat) || o.Output == string(display.NameFormat) {
-		json200, err := responseField[interface{}](response, "JSON200")
+		json200, err := ExtractJSON200(response)
 		if err != nil {
 			return err
 		}
+
+		// Handle 204 No Content responses with JSON/YAML outputs
+		if json200 == nil {
+			// 204 No Content: print nothing and succeed
+			return nil
+		}
+
 		return formatter.Format(json200, options)
 	}
 
@@ -483,7 +479,7 @@ func (o *GetOptions) displayResponse(formatter display.OutputFormatter, response
 
 // getListMetadata extracts the ListMeta and the number of items from a list response.
 func getListMetadata(response interface{}) (*api.ListMeta, int, error) {
-	json200, err := responseField[interface{}](response, "JSON200")
+	json200, err := ExtractJSON200(response)
 	if err != nil {
 		return nil, 0, err
 	}

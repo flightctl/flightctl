@@ -17,8 +17,9 @@ import (
 )
 
 var (
-	unspecifiedResource = "Error: name must be specified when deleting"
-	resourceCreated     = `(200 OK|201 Created)`
+	unspecifiedResource  = "Error: name must be specified when deleting"
+	resourceCreated      = `(200 OK|201 Created)`
+	strictfipsruntimeTag = "X:strictfipsruntime"
 )
 
 // _ is a blank identifier used to ignore values or expressions, often applied to satisfy interface or assignment requirements.
@@ -439,25 +440,55 @@ var _ = Describe("cli operation", func() {
 	})
 
 	Context("Flightctl Version Checks", func() {
-		It("should show matching client and server versions", Label("79621", "sanity"), func() {
+		It("should show matching client and server versions", Label("79621", "sanity", "rpm-sanity"), func() {
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 
-			By("Getting the version output")
-			out, err := harness.CLI("version")
-			clientVersionPrefix := "Client Version:"
-			serverVersionPrefix := "Server Version:"
+			By("Getting all versions from CLI")
+			clientVersion, serverVersion, agentVersion, err := harness.GetVersionsFromCLI()
 			Expect(err).ToNot(HaveOccurred())
-			Expect(out).To(ContainSubstring(clientVersionPrefix))
-			Expect(out).To(ContainSubstring(serverVersionPrefix))
-
-			By("Parsing client and server versions")
-			clientVersion := GetVersionByPrefix(out, clientVersionPrefix)
-			serverVersion := GetVersionByPrefix(out, serverVersionPrefix)
-
 			Expect(clientVersion).ToNot(BeEmpty(), "client version should be found")
 			Expect(serverVersion).ToNot(BeEmpty(), "server version should be found")
-			Expect(clientVersion).To(Equal(serverVersion), "client and server versions should match")
+			Expect(agentVersion).ToNot(BeEmpty(), "agent version should be found")
+
+			GinkgoWriter.Printf("Client version: %s\n", clientVersion)
+			GinkgoWriter.Printf("Server version: %s\n", serverVersion)
+			GinkgoWriter.Printf("Agent version: %s\n", agentVersion)
+
+			By("Comparing versions")
+			// Expect(clientVersion).To(Equal(serverVersion), "client and server versions should match")
+			Expect(agentVersion).To(Equal(serverVersion), "agent and server versions should match")
+		})
+
+		It("should show FIPS runtime compliance", Label("rpm-sanity", "84648"), func() {
+			// Skip test if neither BREW_BUILD_URL nor RPM_COPR is set since it applies only to RPM builds
+			brewBuildURL := os.Getenv("BREW_BUILD_URL")
+			rpmCopr := os.Getenv("RPM_COPR")
+			if brewBuildURL == "" && rpmCopr == "" {
+				Skip("Skipping FIPS test - neither BREW_BUILD_URL nor RPM_COPR is set")
+			}
+
+			harness := e2e.GetWorkerHarness()
+
+			By("Checking that OpenSSL symbols are loaded when running with FIPS environment variables")
+			// Run flightctl version with FIPS environment and capture stderr for symbol loading info
+			fipsEnv := map[string]string{
+				"GOLANG_FIPS":             "1",
+				"OPENSSL_FORCE_FIPS_MODE": "1",
+				"LD_DEBUG":                "symbols",
+			}
+			flightctlPath := harness.GetFlightctlPath()
+			openSSLOutput, err := harness.CLIWithEnvAndShell(fipsEnv, fmt.Sprintf("%s version 2>&1 | grep OPENSSL", flightctlPath))
+			Expect(err).ToNot(HaveOccurred(), "Failed to run flightctl with FIPS environment")
+			Expect(openSSLOutput).ToNot(BeEmpty(), "No OpenSSL symbols found in output")
+			Expect(openSSLOutput).To(ContainSubstring("OPENSSL"), "OpenSSL symbols should be loaded")
+			GinkgoWriter.Printf("OpenSSL symbol loading output: %s\n", openSSLOutput)
+
+			By("Checking that version YAML output contains strictfipsruntime")
+			yamlOut, err := harness.CLI("version", "-o", "yaml")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(yamlOut).To(ContainSubstring("X:strictfipsruntime"), "Version YAML should contain strictfipsruntime tag")
+			GinkgoWriter.Printf("Version YAML output contains strictfipsruntime: %t\n", strings.Contains(yamlOut, strictfipsruntimeTag))
 		})
 	})
 

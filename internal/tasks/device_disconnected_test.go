@@ -47,12 +47,14 @@ func BenchmarkDeviceDisconnectedPoll(b *testing.B) {
 		dbStore, cfg, dbName, db := store.PrepareDBForUnitTests(ctx, log)
 
 		ctrl := gomock.NewController(b)
-		mockPublisher := queues.NewMockPublisher(ctrl)
-		workerClient := worker_client.NewWorkerClient(mockPublisher, log)
-		mockPublisher.EXPECT().Publish(gomock.Any(), gomock.Any()).AnyTimes()
+		mockQueueProducer := queues.NewMockQueueProducer(ctrl)
+		workerClient := worker_client.NewWorkerClient(mockQueueProducer, log)
+		mockQueueProducer.EXPECT().Enqueue(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		require.NoError(err)
-		serviceHandler := service.NewServiceHandler(dbStore, workerClient, kvStore, nil, log, "", "", []string{})
+		orgResolver, err := util.NewOrgResolver(cfg, dbStore.Organization(), log)
+		require.NoError(err)
+		serviceHandler := service.NewServiceHandler(dbStore, workerClient, kvStore, nil, log, "", "", []string{}, orgResolver)
 
 		devices := generateMockDevices(deviceCount)
 		err = batchCreateDevices(ctx, db, devices, deviceCount)
@@ -63,6 +65,7 @@ func BenchmarkDeviceDisconnectedPoll(b *testing.B) {
 			deviceNames[i] = fmt.Sprintf("device-%d", i)
 		}
 		cleanupFn := func() {
+			kvStore.Close()
 			dbStore.Close()
 			store.DeleteTestDB(ctx, log, cfg, dbStore, dbName)
 		}
@@ -92,7 +95,7 @@ func benchmarkUpdateSummaryStatusBatch(ctx context.Context, b *testing.B, log *l
 
 func resetDeviceStatus(ctx context.Context, db *gorm.DB, deviceNames []string) error {
 	status := v1alpha1.NewDeviceStatus()
-	status.LastSeen = time.Now().Add(-10 * time.Minute)
+	status.LastSeen = lo.ToPtr(time.Now().Add(-10 * time.Minute))
 	status.Summary.Status = v1alpha1.DeviceSummaryStatusOnline
 	err := db.WithContext(ctx).Transaction(func(innerTx *gorm.DB) (err error) {
 		for _, name := range deviceNames {
@@ -112,7 +115,7 @@ func resetDeviceStatus(ctx context.Context, db *gorm.DB, deviceNames []string) e
 func generateMockDevices(count int) []v1alpha1.Device {
 	devices := make([]v1alpha1.Device, count)
 	status := v1alpha1.NewDeviceStatus()
-	status.LastSeen = time.Now().Add(-10 * time.Minute)
+	status.LastSeen = lo.ToPtr(time.Now().Add(-10 * time.Minute))
 	status.Summary.Status = v1alpha1.DeviceSummaryStatusOnline
 	for i := 0; i < count; i++ {
 		devices[i] = v1alpha1.Device{

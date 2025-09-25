@@ -19,6 +19,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -26,11 +27,20 @@ import (
 	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/instrumentation"
+	"github.com/flightctl/flightctl/internal/org"
+	"github.com/flightctl/flightctl/internal/org/cache"
+	"github.com/flightctl/flightctl/internal/org/resolvers"
+	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/util"
 	fclog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 const (
@@ -38,6 +48,8 @@ const (
 	defaultAlertmanagerURL = "http://localhost:9093"
 	alertsResource         = "alerts"
 	getAction              = "get"
+	healthPath             = "/health"
+	statusPath             = "/api/v2/status"
 )
 
 type AlertmanagerProxy struct {
@@ -46,9 +58,11 @@ type AlertmanagerProxy struct {
 	proxy        *httputil.ReverseProxy
 	target       *url.URL
 	authDisabled bool
+	authN        auth.AuthNMiddleware
+	authZ        auth.AuthZMiddleware
 }
 
-func NewAlertmanagerProxy(cfg *config.Config, log logrus.FieldLogger) (*AlertmanagerProxy, error) {
+func NewAlertmanagerProxy(cfg *config.Config, log logrus.FieldLogger, authN auth.AuthNMiddleware, authZ auth.AuthZMiddleware) (*AlertmanagerProxy, error) {
 	// Get alertmanager URL from environment or use default
 	alertmanagerURL := os.Getenv("ALERTMANAGER_URL")
 	if alertmanagerURL == "" {
@@ -74,12 +88,43 @@ func NewAlertmanagerProxy(cfg *config.Config, log logrus.FieldLogger) (*Alertman
 		proxy:        proxy,
 		target:       target,
 		authDisabled: authDisabled,
+		authN:        authN,
+		authZ:        authZ,
 	}, nil
+}
+
+func ensureOrgIDFilter(r *http.Request) (uuid.UUID, error) {
+	filters := r.URL.Query()["filter"]
+
+	for _, filter := range filters {
+		parts := strings.SplitN(filter, "=", 2)
+		if len(parts) == 2 {
+			key := strings.TrimSpace(parts[0])
+			value := strings.TrimSpace(parts[1])
+
+			if key == "org_id" {
+				orgID, err := uuid.Parse(value)
+				if err != nil {
+					return uuid.Nil, fmt.Errorf("invalid org_id format %s: %w", orgID, err)
+				}
+				return orgID, nil
+			}
+		}
+	}
+
+	// If no org_id filter is found, inject the default into the query
+	orgID := org.DefaultID
+
+	q := r.URL.Query()
+	q.Add("filter", fmt.Sprintf("org_id=%s", orgID.String()))
+	r.URL.RawQuery = q.Encode()
+
+	return orgID, nil
 }
 
 func (p *AlertmanagerProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Health check endpoint - doesn't require auth and doesn't depend on Alertmanager
-	if r.URL.Path == "/health" {
+	if r.URL.Path == healthPath {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("OK"))
 		return
@@ -99,17 +144,38 @@ func (p *AlertmanagerProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validate token using FlightControl's auth system
-	if err := auth.GetAuthN().ValidateToken(r.Context(), token); err != nil {
+	if err := p.authN.ValidateToken(r.Context(), token); err != nil {
 		p.log.WithError(err).Error("Token validation failed")
 		http.Error(w, "Invalid token", http.StatusUnauthorized)
 		return
 	}
 
-	// Create context with token for authorization check (using proper context key)
-	ctx := context.WithValue(r.Context(), common.TokenCtxKey, token)
+	// Status endpoint is not scoped to a specific org or user context, if the user has a valid token they can access it
+	if r.URL.Path == statusPath {
+		p.proxy.ServeHTTP(w, r)
+		return
+	}
+
+	orgID, err := ensureOrgIDFilter(r)
+	if err != nil {
+		p.log.WithError(err).Error("Failed to validate organization ID")
+		http.Error(w, "Invalid organization ID", http.StatusBadRequest)
+		return
+	}
+
+	// Create context with necessary values for authorization checks
+	ctx := context.WithValue(r.Context(), consts.TokenCtxKey, token)
+	identity, err := p.authN.GetIdentity(ctx, token)
+	if err != nil {
+		p.log.WithError(err).Error("Failed to get identity")
+		http.Error(w, "Invalid identity", http.StatusUnauthorized)
+		return
+	}
+	ctx = context.WithValue(ctx, consts.IdentityCtxKey, identity)
+	ctx = util.WithOrganizationID(ctx, orgID)
 
 	// Check if user has permission to access alerts
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, alertsResource, getAction)
+	allowed, err := p.authZ.CheckPermission(ctx, alertsResource, getAction)
 	if err != nil {
 		p.log.WithError(err).Error("Authorization check failed")
 		http.Error(w, "Authorization service unavailable", http.StatusServiceUnavailable)
@@ -196,13 +262,53 @@ func main() {
 		logger.Fatalf("failed creating TLS config: %v", err)
 	}
 
+	tracerShutdown := instrumentation.InitTracer(logger, cfg, "flightctl-alertmanager-proxy")
+	defer func() {
+		if err := tracerShutdown(ctx); err != nil {
+			logger.Fatalf("Failed to shut down tracer: %v", err)
+		}
+	}()
+
+	// Initialize data store
+	db, err := store.InitDB(cfg, logger)
+	if err != nil {
+		logger.Fatalf("Initializing data store: %v", err)
+	}
+
+	dataStore := store.NewStore(db, logger.WithField("pkg", "store"))
+	defer dataStore.Close()
+
+	orgCache := cache.NewOrganizationTTL(cache.DefaultTTL)
+	go orgCache.Start()
+	defer orgCache.Stop()
+
+	buildResolverOpts := resolvers.BuildResolverOptions{
+		Config: cfg,
+		Store:  dataStore.Organization(),
+		Log:    logger,
+		Cache:  orgCache,
+	}
+
+	if cfg.Auth != nil && cfg.Auth.AAP != nil {
+		membershipCache := cache.NewMembershipTTL(cache.DefaultTTL)
+		go membershipCache.Start()
+		defer membershipCache.Stop()
+		buildResolverOpts.MembershipCache = membershipCache
+	}
+
+	orgResolver, err := resolvers.BuildResolver(buildResolverOpts)
+	if err != nil {
+		logger.Fatalf("Failed to build organization resolver: %v", err)
+	}
+
 	// Initialize auth system
-	if err := auth.InitAuth(cfg, logger); err != nil {
+	authN, authZ, err := auth.InitAuth(cfg, logger, orgResolver)
+	if err != nil {
 		logger.Fatalf("Failed to initialize auth: %v", err)
 	}
 
 	// Create proxy
-	proxy, err := NewAlertmanagerProxy(cfg, logger)
+	proxy, err := NewAlertmanagerProxy(cfg, logger, authN, authZ)
 	if err != nil {
 		logger.Fatalf("Failed to create alertmanager proxy: %v", err)
 	}
@@ -253,8 +359,10 @@ func main() {
 
 	router.Mount("/", proxy)
 
+	// Wrap router with OpenTelemetry handler to enable tracing spans
+	handler := otelhttp.NewHandler(router, "alertmanager-proxy-http-server")
 	// Create HTTPS server using FlightControl's TLS middleware
-	server := middleware.NewHTTPServer(router, logger, proxyPort, cfg)
+	server := middleware.NewHTTPServer(handler, logger, proxyPort, cfg)
 
 	// Create TLS listener
 	listener, err := middleware.NewTLSListener(proxyPort, tlsConfig)

@@ -11,6 +11,11 @@ const (
 	// Tasks
 	TaskQueue = "task-queue"
 
+	// Checkpoints
+	CheckpointConsumerEventProcessor = "event_processor"
+	CheckpointConsumerTaskQueue      = "task_queue"
+	CheckpointKeyGlobal              = "global_checkpoint"
+
 	// Ctx
 	InternalRequestCtxKey      ctxKey = "internal-request"
 	DelayDeviceRenderCtxKey    ctxKey = "delay-device-render"
@@ -18,4 +23,7 @@ const (
 	EventActorCtxKey           ctxKey = "event-actor"
 	TLSPeerCertificateCtxKey   ctxKey = "tls-peer-certificate"
 	OrganizationIDCtxKey       ctxKey = "organization-id"
+	AgentCtxKey                ctxKey = "agent"
+	TokenCtxKey                ctxKey = "token"
+	IdentityCtxKey             ctxKey = "identity"
 )

@@ -112,6 +112,12 @@ func (t *FleetValidateLogic) CreateNewTemplateVersionIfFleetValid(ctx context.Co
 		return t.setStatus(ctx, fmt.Errorf("failed setting fleet annotation with newly-created templateVersion: %s", status.Message))
 	}
 
+	err := t.serviceHandler.SetOutOfDate(ctx, util.ResourceOwner(api.FleetKind, *fleet.Metadata.Name))
+	if err != nil {
+		// Warn only.  It is better to continue processing than to fail the fleet validation and stop rollour.
+		t.log.Warnf("failed marking devices out-of-date after new template version created: %v", err)
+	}
+
 	return t.setStatus(ctx, nil)
 }
 

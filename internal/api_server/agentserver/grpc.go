@@ -12,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/console"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/service"
 	grpcAuth "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/auth"
 	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
@@ -25,25 +26,32 @@ import (
 
 type AgentGrpcServer struct {
 	pb.UnimplementedRouterServiceServer
+	pb.UnimplementedEnrollmentServer
 	log            logrus.FieldLogger
 	cfg            *config.Config
+	service        service.Service
 	pendingStreams *sync.Map
+	server         *grpc.Server
 }
 
 // New returns a new instance of a flightctl server.
 func NewAgentGrpcServer(
 	log logrus.FieldLogger,
 	cfg *config.Config,
+	svc service.Service,
 ) *AgentGrpcServer {
-	return &AgentGrpcServer{
+	agentServer := &AgentGrpcServer{
 		log:            log,
 		cfg:            cfg,
+		service:        svc,
 		pendingStreams: &sync.Map{},
 	}
+	agentServer.prepareGRPCService()
+	return agentServer
 }
 
-func (s *AgentGrpcServer) PrepareGRPCService() *grpc.Server {
-	server := grpc.NewServer(
+func (s *AgentGrpcServer) prepareGRPCService() {
+	s.server = grpc.NewServer(
 		grpc.StatsHandler(otelgrpc.NewServerHandler()), // enables tracing
 		grpc.ChainStreamInterceptor(grpcAuth.StreamServerInterceptor(middleware.GrpcAuthMiddleware)),
 		grpc.KeepaliveParams(keepalive.ServerParameters{
@@ -51,8 +59,8 @@ func (s *AgentGrpcServer) PrepareGRPCService() *grpc.Server {
 			Time:              2 * time.Minute,  // Send keepalive ping every 2 minutes
 			Timeout:           20 * time.Second, // Wait 20s for client response before closing
 		}))
-	pb.RegisterRouterServiceServer(server, s)
-	return server
+	pb.RegisterRouterServiceServer(s.server, s)
+	pb.RegisterEnrollmentServer(s.server, s)
 }
 
 type streamCtx struct {
@@ -85,6 +93,23 @@ func (s *AgentGrpcServer) CloseSession(session *console.ConsoleSession) error {
 	s.pendingStreams.Delete(session.UUID)
 	return nil
 }
+
+func (s *AgentGrpcServer) Close() {
+	if s.server != nil {
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			s.server.GracefulStop()
+		}()
+		select {
+		case <-done:
+		case <-time.After(gracefulShutdownTimeout):
+			s.log.Warnf("gRPC graceful stop timeout. Forcing stop")
+			s.server.Stop()
+		}
+	}
+}
+
 func (s *AgentGrpcServer) Stream(stream pb.RouterService_StreamServer) error {
 	ctx := stream.Context()
 	md, ok := metadata.FromIncomingContext(ctx)

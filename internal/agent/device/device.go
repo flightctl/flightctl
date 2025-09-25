@@ -19,7 +19,6 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/os"
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
-	"github.com/flightctl/flightctl/internal/agent/device/publisher"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
@@ -36,7 +35,6 @@ type Agent struct {
 	deviceWriter           fileio.Writer
 	statusManager          status.Manager
 	specManager            spec.Manager
-	devicePublisher        publisher.Publisher
 	hookManager            hook.Manager
 	appManager             applications.Manager
 	systemdManager         systemd.Manager
@@ -46,7 +44,7 @@ type Agent struct {
 	applicationsController *applications.Controller
 	configController       *config.Controller
 	resourceController     *resource.Controller
-	consoleController      *console.ConsoleController
+	consoleManager         *console.Manager
 	osClient               os.Client
 	podmanClient           *client.Podman
 	prefetchManager        dependency.PrefetchManager
@@ -66,7 +64,6 @@ func NewAgent(
 	deviceWriter fileio.Writer,
 	statusManager status.Manager,
 	specManager spec.Manager,
-	devicePublisher publisher.Publisher,
 	appManager applications.Manager,
 	systemdManager systemd.Manager,
 	fetchSpecInterval util.Duration,
@@ -78,7 +75,7 @@ func NewAgent(
 	applicationsController *applications.Controller,
 	configController *config.Controller,
 	resourceController *resource.Controller,
-	consoleController *console.ConsoleController,
+	consoleManager *console.Manager,
 	osClient os.Client,
 	podmanClient *client.Podman,
 	prefetchManager dependency.PrefetchManager,
@@ -90,7 +87,6 @@ func NewAgent(
 		deviceWriter:           deviceWriter,
 		statusManager:          statusManager,
 		specManager:            specManager,
-		devicePublisher:        devicePublisher,
 		hookManager:            hookManager,
 		osManager:              osManager,
 		policyManager:          policyManager,
@@ -102,7 +98,7 @@ func NewAgent(
 		applicationsController: applicationsController,
 		configController:       configController,
 		resourceController:     resourceController,
-		consoleController:      consoleController,
+		consoleManager:         consoleManager,
 		osClient:               osClient,
 		podmanClient:           podmanClient,
 		prefetchManager:        prefetchManager,
@@ -114,14 +110,7 @@ func NewAgent(
 
 // Run starts the device agent reconciliation loop.
 func (a *Agent) Run(ctx context.Context) error {
-	var wg sync.WaitGroup
-	wg.Add(2)
-
-	// Goroutine to handle consoles synchronization
-	go a.consoleController.Run(ctx, &wg)
-
-	// Goroutine to handle spec notifier which reads rendered devices from the server
-	go a.devicePublisher.Run(ctx, &wg)
+	ctx, a.cancelFn = context.WithCancel(ctx)
 
 	// orchestrates periodic fetching of device specs and pushing status updates
 	engine := NewEngine(
@@ -131,9 +120,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.statusUpdate,
 	)
 
-	err := engine.Run(ctx)
-	wg.Wait()
-	return err
+	return engine.Run(ctx)
 }
 
 func (a *Agent) sync(ctx context.Context, current, desired *v1alpha1.Device) error {
@@ -210,6 +197,13 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 			return
 		}
 
+		// Policy may defer update; in all cases, warn and roll back to the previous renderedVersion.
+		if errors.Is(syncErr, errors.ErrUpdatePolicyNotReady) || errors.Is(syncErr, errors.ErrDownloadPolicyNotReady) {
+			a.log.Warnf("Requeuing version %s: %s", current.Version(), syncErr.Error())
+		} else {
+			a.log.Warnf("Attempting to rollback to previous renderedVersion: %s", current.Version())
+		}
+
 		if err := a.rollbackDevice(ctx, current, desired, a.sync); err != nil {
 			a.log.Errorf("Rollback did not complete cleanly: %v", err)
 		}
@@ -239,7 +233,6 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 }
 
 func (a *Agent) rollbackDevice(ctx context.Context, current, desired *v1alpha1.Device, syncFn func(context.Context, *v1alpha1.Device, *v1alpha1.Device) error) error {
-	a.log.Warnf("Attempting to rollback to previous renderedVersion: %s", current.Version())
 	updateErr := a.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
 		Type:    v1alpha1.ConditionTypeDeviceUpdating,
 		Status:  v1alpha1.ConditionStatusTrue,

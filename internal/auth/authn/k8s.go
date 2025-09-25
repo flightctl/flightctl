@@ -70,16 +70,12 @@ func (o K8sAuthN) GetAuthToken(r *http.Request) (string, error) {
 	return common.ExtractBearerToken(r)
 }
 
-func (o K8sAuthN) GetIdentity(ctx context.Context, token string) (*common.Identity, error) {
+func (o K8sAuthN) GetIdentity(ctx context.Context, token string) (common.Identity, error) {
 	review, err := o.loadTokenReview(ctx, token)
 	if err != nil {
 		return nil, err
 	}
-	return &common.Identity{
-		Username: review.Status.User.Username,
-		UID:      review.Status.User.UID,
-		Groups:   review.Status.User.Groups,
-	}, nil
+	return common.NewBaseIdentity(review.Status.User.Username, review.Status.User.UID, review.Status.User.Groups), nil
 }
 
 func (o K8sAuthN) GetAuthConfig() common.AuthConfig {

@@ -174,6 +174,8 @@ FC_API_URL=<API_URL>
 
 ```
 
+For managing ongoing Flight Control deployments including upgrades, rollbacks, and monitoring, refer to the [Helm Chart Documentation](../../deploy/helm/flightctl/README.md#upgrade-chart).
+
 ## Installing the Flight Control CLI
 
 In a terminal, select the appropriate Flight Control CLI binary for your OS (linux or darwin) and CPU architecture (amd64 or arm64), for example:
@@ -373,8 +375,8 @@ After the enrollment completes, you can find the device in the list of devices:
 ```console
 $ flightctl get devices
 
-NAME                                                  OWNER   SYSTEM  UPDATED     APPLICATIONS  LAST SEEN
-54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg  <none>  Online  Up-to-date  <none>        3 seconds ago
+NAME                                                  OWNER   SYSTEM  UPDATED     APPLICATIONS
+54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg  <none>  Online  Up-to-date  <none>
 ```
 
 ## Where to go from here

@@ -55,6 +55,7 @@ rules:
       - flightctl.io
     resources:
       - devices/console
+      - devices/lastseen
   - verbs:
       - get
       - list
@@ -63,6 +64,13 @@ rules:
     resources:
       - repositories
       - fleets/templateversions
+  # Device lifecycle actions (granular subresource approach)
+  - verbs:
+      - update  # Standard Kubernetes verb for resume action
+    apiGroups:
+      - flightctl.io
+    resources:
+      - devices/resume
 
 
 ---

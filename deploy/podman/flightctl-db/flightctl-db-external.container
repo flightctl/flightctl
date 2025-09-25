@@ -1,0 +1,25 @@
+# This file is used when db.external is set to "enabled" in service-config.yaml
+# It creates a placeholder container that does not run any database
+# The actual database connection parameters are configured via environment variables
+# in the API and worker containers
+
+[Unit]
+Description=External PostgreSQL Database Configuration for Flightctl
+Documentation=This unit file indicates external database usage
+PartOf=flightctl.target
+
+[Container]
+# Use a minimal container that just exits successfully
+# This ensures the target dependency is satisfied without running an actual database
+ContainerName=flightctl-db-external
+Image=quay.io/sclorg/postgresql-16-c9s:20250214
+Network=flightctl.network
+Exec=/bin/true
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/echo "Using external PostgreSQL database"
+
+[Install]
+WantedBy=flightctl.target

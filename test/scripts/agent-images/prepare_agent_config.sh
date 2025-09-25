@@ -4,6 +4,10 @@ set -e -x -o pipefail
 mkdir -p bin/agent/etc/flightctl/certs
 
 echo Requesting enrollment enrollment certificate/key and config for agent =====
+
+org_id=$(./bin/flightctl get organizations | awk 'NR==2 {print $1}')
+./bin/flightctl config set-organization "$org_id"
+
 # remove any previous CSR with the same name in case it existed
 ./bin/flightctl delete csr/client-enrollment || true
 

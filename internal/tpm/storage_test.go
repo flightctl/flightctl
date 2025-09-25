@@ -324,7 +324,7 @@ func TestFileStorageStoreKey(t *testing.T) {
 			setupTestData: func(t *testing.T, rw fileio.ReadWriter, storagePath string) {
 				// simulates a case where the file gets corrupted after write
 			},
-			wantErr: errors.New("validation failed for stored key ldevid"),
+			wantErr: errors.New("stored key ldevid"),
 		},
 	}
 

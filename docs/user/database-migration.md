@@ -136,9 +136,25 @@ The quadlet deployment includes integrated user setup and migration:
 
 Database migrations are handled by dedicated tools and jobs:
 
-- **Helm deployments**: Migration job runs automatically during install/upgrade
+- **Helm**: Install runs a regular migration Job; upgrade runs a pre-upgrade dry-run first, then the migration Job if validation succeeds
 - **Quadlet deployments**: Migration runs during the deployment script
 - **Manual deployments**: Use the `flightctl-db-migrate` command
+
+#### Helm Migration Configuration
+
+Helm upgrades use pre-upgrade hooks for migration validation and execution:
+
+```yaml
+# In values.yaml or via --set
+upgradeHooks:
+  databaseMigrationDryRun: true  # Enable pre-upgrade migration dry-run (default: true)
+```
+
+**Migration Execution Order**:
+
+1. Pre-upgrade hook: migration dry-run (validation only). Any failure aborts the upgrade.
+2. Pre-upgrade hook: actual migration (expand-only/backward-compatible).
+3. Helm applies the rest of the release changes.
 
 ### Manual Migration
 
@@ -153,6 +169,9 @@ export DB_MIGRATION_PASSWORD=<migration_password>
 
 # Run migration
 flightctl-db-migrate
+
+# Run dry-run validation only (without applying changes)
+flightctl-db-migrate --dry-run
 ```
 
 > **Note**: The migration command automatically uses the migration user credentials and runs all necessary database schema updates.
@@ -286,8 +305,9 @@ FROM (
 2. **Rotate passwords regularly** using your secret management system
 3. **Monitor database permissions** to ensure proper access restrictions
 4. **Test migrations** in non-production environments first
-5. **Review migration logs** for any permission or connectivity issues
-6. **Audit user access** - ensure services only have the minimum required credentials:
+5. **Use dry-run validation** to verify migration scripts before applying them in production
+6. **Review migration logs** for any permission or connectivity issues
+7. **Audit user access** - ensure services only have the minimum required credentials:
    - Runtime services: Only application user credentials
    - Migration operations: Only migration user credentials
    - Database setup: Only admin user credentials

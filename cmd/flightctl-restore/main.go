@@ -6,6 +6,8 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/instrumentation"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/org/cache"
+	"github.com/flightctl/flightctl/internal/org/resolvers"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -62,7 +64,30 @@ func main() {
 
 	log.Println("Creating store and service handler")
 	storeInst := store.NewStore(db, log)
-	serviceHandler := service.NewServiceHandler(storeInst, nil, kvStore, nil, log, "", "", []string{})
+
+	orgCache := cache.NewOrganizationTTL(cache.DefaultTTL)
+	go orgCache.Start()
+	defer orgCache.Stop()
+
+	buildResolverOpts := resolvers.BuildResolverOptions{
+		Config: cfg,
+		Store:  storeInst.Organization(),
+		Log:    log,
+		Cache:  orgCache,
+	}
+
+	if cfg.Auth != nil && cfg.Auth.AAP != nil {
+		membershipCache := cache.NewMembershipTTL(cache.DefaultTTL)
+		go membershipCache.Start()
+		defer membershipCache.Stop()
+		buildResolverOpts.MembershipCache = membershipCache
+	}
+
+	orgResolver, err := resolvers.BuildResolver(buildResolverOpts)
+	if err != nil {
+		log.Fatalf("failed to build organization resolver: %v", err)
+	}
+	serviceHandler := service.NewServiceHandler(storeInst, nil, kvStore, nil, log, "", "", []string{}, orgResolver)
 
 	log.Println("Running post-restoration device preparation")
 	if err := serviceHandler.PrepareDevicesAfterRestore(ctx); err != nil {

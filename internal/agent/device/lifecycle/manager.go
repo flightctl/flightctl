@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
@@ -19,12 +21,12 @@ import (
 	"github.com/skip2/go-qrcode"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/util/cert"
-	"k8s.io/klog/v2"
 )
 
 const (
 	// agent banner file
-	BannerFile = "/etc/issue.d/flightctl-banner.issue"
+	BannerFile           = "/etc/issue.d/flightctl-banner.issue"
+	identityProofTimeout = 60 * time.Second
 )
 
 var (
@@ -250,6 +252,16 @@ func (m *LifecycleManager) verifyEnrollment(ctx context.Context) (bool, error) {
 		}
 	}
 	if !approved {
+		// While pending approval, take the time to verify the identity. The provider
+		// is responsible for determining whether proof is required
+		ctx, cancel := context.WithTimeout(ctx, identityProofTimeout)
+		defer cancel()
+		if err := m.identityProvider.ProveIdentity(ctx, enrollmentRequest); err != nil {
+			if errors.Is(err, identity.ErrIdentityProofFailed) {
+				return false, fmt.Errorf("proving identity: %w", err)
+			}
+			return false, nil
+		}
 		m.log.Info("Enrollment request not yet approved")
 		return false, nil
 	}
@@ -320,42 +332,44 @@ func (m *LifecycleManager) writeQRBanner(message, url string) error {
 		return fmt.Errorf("failed to write banner to disk: %w", err)
 	}
 
-	if err := SdNotify("READY=1"); err != nil {
+	if err := m.sdNotify(); err != nil {
 		m.log.Warnf("Failed to notify systemd: %v", err)
 	}
 
-	// additionally print the banner into the output console
-	fmt.Println(buffer.String())
+	value := os.Getenv("FLIGHTCTL_DISABLE_CONSOLE_BANNER")
+	if !(strings.EqualFold(value, "true") || value == "1") {
+		fmt.Println(buffer.String())
+	}
 	return nil
 }
 
-func (b *LifecycleManager) enrollmentRequest(ctx context.Context, deviceStatus *v1alpha1.DeviceStatus) error {
+func (m *LifecycleManager) enrollmentRequest(ctx context.Context, deviceStatus *v1alpha1.DeviceStatus) error {
 	var csrString string
-	if tpm.IsTCGCSRFormat(b.enrollmentCSR) {
+	if tpm.IsTCGCSRFormat(m.enrollmentCSR) {
 		// TCG CSR is binary data, must be base64 encoded
-		b.log.Debugf("Detected TCG CSR format, base64 encoding before transmission")
-		csrString = base64.StdEncoding.EncodeToString(b.enrollmentCSR)
+		m.log.Debugf("Detected TCG CSR format, base64 encoding before transmission")
+		csrString = base64.StdEncoding.EncodeToString(m.enrollmentCSR)
 	} else {
-		csrString = string(b.enrollmentCSR)
+		csrString = string(m.enrollmentCSR)
 	}
 
 	req := v1alpha1.EnrollmentRequest{
 		ApiVersion: "v1alpha1",
 		Kind:       "EnrollmentRequest",
 		Metadata: v1alpha1.ObjectMeta{
-			Name: &b.deviceName,
+			Name: &m.deviceName,
 		},
 		Spec: v1alpha1.EnrollmentRequestSpec{
 			Csr:          csrString,
 			DeviceStatus: deviceStatus,
-			Labels:       &b.defaultLabels,
+			Labels:       &m.defaultLabels,
 		},
 	}
 
-	err := wait.ExponentialBackoffWithContext(ctx, b.backoff, func(ctx context.Context) (bool, error) {
-		_, err := b.enrollmentClient.CreateEnrollmentRequest(ctx, req)
+	err := wait.ExponentialBackoffWithContext(ctx, m.backoff, func(ctx context.Context) (bool, error) {
+		_, err := m.enrollmentClient.CreateEnrollmentRequest(ctx, req)
 		if err != nil {
-			b.log.Warnf("failed to create enrollment request: %v", err)
+			m.log.Warnf("failed to create enrollment request: %v", err)
 			return false, nil
 		}
 		return true, nil
@@ -367,7 +381,7 @@ func (b *LifecycleManager) enrollmentRequest(ctx context.Context, deviceStatus *
 	return nil
 }
 
-func SdNotify(state string) error {
+func (m *LifecycleManager) sdNotify() error {
 	socketAddr := &net.UnixAddr{
 		Name: os.Getenv("NOTIFY_SOCKET"),
 		Net:  "unixgram",
@@ -375,7 +389,7 @@ func SdNotify(state string) error {
 
 	// NOTIFY_SOCKET not set
 	if socketAddr.Name == "" {
-		klog.Warning("NOTIFY_SOCKET not set, skipping systemd notification")
+		m.log.Warning("NOTIFY_SOCKET not set, skipping systemd notification")
 		return nil
 	}
 	conn, err := net.DialUnix(socketAddr.Net, nil, socketAddr)

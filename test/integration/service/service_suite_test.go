@@ -3,6 +3,7 @@ package service_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/config/ca"
@@ -10,6 +11,7 @@ import (
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
@@ -18,6 +20,7 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
 	"go.uber.org/mock/gomock"
+	"gorm.io/gorm"
 )
 
 var suiteCtx context.Context
@@ -42,12 +45,13 @@ type ServiceTestSuite struct {
 	Handler service.Service
 
 	// Private implementation details – not needed by tests
-	cfg           *config.Config
-	dbName        string
-	ctrl          *gomock.Controller
-	mockPublisher *queues.MockPublisher
-	workerClient  worker_client.WorkerClient
-	caClient      *icrypto.CAClient
+	cfg               *config.Config
+	dbName            string
+	db                *gorm.DB
+	ctrl              *gomock.Controller
+	mockQueueProducer *queues.MockQueueProducer
+	workerClient      worker_client.WorkerClient
+	caClient          *icrypto.CAClient
 }
 
 // Setup performs common initialization for service tests
@@ -55,12 +59,12 @@ func (s *ServiceTestSuite) Setup() {
 	s.Ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
 	s.Log = flightlog.InitLogs()
 
-	s.Store, s.cfg, s.dbName, _ = store.PrepareDBForUnitTests(s.Ctx, s.Log)
+	s.Store, s.cfg, s.dbName, s.db = store.PrepareDBForUnitTests(s.Ctx, s.Log)
 
 	s.ctrl = gomock.NewController(GinkgoT())
-	s.mockPublisher = queues.NewMockPublisher(s.ctrl)
-	s.workerClient = worker_client.NewWorkerClient(s.mockPublisher, s.Log)
-	s.mockPublisher.EXPECT().Publish(gomock.Any(), gomock.Any()).AnyTimes()
+	s.mockQueueProducer = queues.NewMockQueueProducer(s.ctrl)
+	s.workerClient = worker_client.NewWorkerClient(s.mockQueueProducer, s.Log)
+	s.mockQueueProducer.EXPECT().Enqueue(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 	kvStore, err := kvstore.NewKVStore(s.Ctx, s.Log, "localhost", 6379, "adminpass")
 	Expect(err).ToNot(HaveOccurred())
@@ -71,7 +75,9 @@ func (s *ServiceTestSuite) Setup() {
 	s.caClient, _, err = icrypto.EnsureCA(caCfg)
 	Expect(err).ToNot(HaveOccurred())
 
-	s.Handler = service.NewServiceHandler(s.Store, s.workerClient, kvStore, s.caClient, s.Log, "", "", []string{})
+	orgResolver, err := testutil.NewOrgResolver(s.cfg, s.Store.Organization(), s.Log)
+	Expect(err).ToNot(HaveOccurred())
+	s.Handler = service.NewServiceHandler(s.Store, s.workerClient, kvStore, s.caClient, s.Log, "", "", []string{}, orgResolver)
 }
 
 // Teardown performs common cleanup for service tests
@@ -85,4 +91,13 @@ func (s *ServiceTestSuite) Teardown() {
 // NewServiceTestSuite creates a new test suite instance
 func NewServiceTestSuite() *ServiceTestSuite {
 	return &ServiceTestSuite{}
+}
+
+// SetDeviceLastSeen sets the lastSeen timestamp for a device directly in the database
+func (s *ServiceTestSuite) SetDeviceLastSeen(deviceName string, lastSeen time.Time) error {
+	orgId := store.NullOrgId
+	result := s.db.WithContext(s.Ctx).Model(&model.Device{}).Where("org_id = ? AND name = ?", orgId, deviceName).Updates(map[string]interface{}{
+		"last_seen": lastSeen,
+	})
+	return result.Error
 }

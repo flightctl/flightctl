@@ -4,12 +4,13 @@ apiVersion: route.openshift.io/v1
 metadata:
   name: flightctl-ui
   namespace: {{ .Release.Namespace }}
-  {{- if (.Values.global).appCode }}
   labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    {{- if (.Values.global).appCode }}
     external-exposed: 'true'
     paas.redhat.com/appcode: {{ .Values.global.appCode }}
     shard: external
-  {{ end }}
+    {{- end }}
 spec:
   {{- if .Values.baseURL }}
   host:  {{ .Values.baseURL }}

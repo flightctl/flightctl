@@ -1,0 +1,85 @@
+{{- if .Values.telemetryGateway.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    flightctl.service: flightctl-telemetry-gateway
+  name: flightctl-telemetry-gateway
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      flightctl.service: flightctl-telemetry-gateway
+  template:
+    metadata:
+      labels:
+        flightctl.service: flightctl-telemetry-gateway
+    spec:
+      containers:
+      - env:
+        - name: HOME
+          value: "/root"
+        - name: KV_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: flightctl-kv-secret
+              key: password
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: flightctl-db-app-secret
+              key: userPassword
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: flightctl-db-app-secret
+              key: user
+        image: "{{ .Values.telemetryGateway.image.image }}:{{ default .Chart.AppVersion .Values.telemetryGateway.image.tag }}"
+        imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.telemetryGateway.image.pullPolicy }}
+        name: telemetry-gateway
+        ports:
+        - containerPort: 4317
+          name: otlp
+          protocol: TCP
+        - containerPort: 9464
+          name: prometheus
+          protocol: TCP
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+        volumeMounts:
+        - mountPath: /root/.flightctl/config.yaml
+          name: flightctl-telemetry-gateway-config
+          readOnly: true
+          subPath: config.yaml
+        - mountPath: /etc/telemetry-gateway/certs/ca.crt
+          name: ca-secret
+          readOnly: true
+          subPath: ca.crt
+        - mountPath: /etc/telemetry-gateway/certs/server.crt
+          name: telemetry-gateway-tls
+          readOnly: true
+          subPath: tls.crt
+        - mountPath: /etc/telemetry-gateway/certs/server.key
+          name: telemetry-gateway-tls
+          readOnly: true
+          subPath: tls.key
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      volumes:
+      - configMap:
+          name: flightctl-telemetry-gateway-config
+        name: flightctl-telemetry-gateway-config
+      - name: ca-secret
+        secret:
+          secretName: flightctl-ca-secret
+      - name: telemetry-gateway-tls
+        secret:
+          secretName: telemetry-gateway-tls
+{{- end }}

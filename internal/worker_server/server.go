@@ -5,9 +5,14 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/instrumentation/metrics/worker"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/org/cache"
+	"github.com/flightctl/flightctl/internal/org/resolvers"
+	"github.com/flightctl/flightctl/internal/rendered"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks"
@@ -23,6 +28,7 @@ type Server struct {
 	store          store.Store
 	queuesProvider queues.Provider
 	k8sClient      k8sclient.K8SClient
+	workerMetrics  *worker.WorkerCollector
 }
 
 // New returns a new instance of a flightctl server.
@@ -32,6 +38,7 @@ func New(
 	store store.Store,
 	queuesProvider queues.Provider,
 	k8sClient k8sclient.K8SClient,
+	workerMetrics *worker.WorkerCollector,
 ) *Server {
 	return &Server{
 		cfg:            cfg,
@@ -39,12 +46,13 @@ func New(
 		store:          store,
 		queuesProvider: queuesProvider,
 		k8sClient:      k8sClient,
+		workerMetrics:  workerMetrics,
 	}
 }
 
 func (s *Server) Run(ctx context.Context) error {
 	s.log.Println("Initializing async jobs")
-	publisher, err := worker_client.QueuePublisher(s.queuesProvider)
+	publisher, err := worker_client.QueuePublisher(ctx, s.queuesProvider)
 	if err != nil {
 		s.log.WithError(err).Error("failed to create worker queue publisher")
 		return err
@@ -56,11 +64,39 @@ func (s *Server) Run(ctx context.Context) error {
 		s.log.WithError(err).Error("failed to create kvStore")
 		return err
 	}
-	workerClient := worker_client.NewWorkerClient(publisher, s.log)
-	serviceHandler := service.WrapWithTracing(
-		service.NewServiceHandler(s.store, workerClient, kvStore, nil, s.log, "", "", []string{}))
 
-	if err = tasks.LaunchConsumers(ctx, s.queuesProvider, serviceHandler, s.k8sClient, kvStore, 1, 1); err != nil {
+	workerClient := worker_client.NewWorkerClient(publisher, s.log)
+	if err = rendered.Bus.Initialize(ctx, kvStore, s.queuesProvider, time.Duration(s.cfg.Service.RenderedWaitTimeout), s.log); err != nil {
+		s.log.WithError(err).Error("failed to create rendered version manager")
+		return err
+	}
+
+	orgCache := cache.NewOrganizationTTL(cache.DefaultTTL)
+	go orgCache.Start()
+	defer orgCache.Stop()
+
+	buildResolverOpts := resolvers.BuildResolverOptions{
+		Config: s.cfg,
+		Store:  s.store.Organization(),
+		Log:    s.log,
+		Cache:  orgCache,
+	}
+
+	if s.cfg.Auth != nil && s.cfg.Auth.AAP != nil {
+		membershipCache := cache.NewMembershipTTL(cache.DefaultTTL)
+		go membershipCache.Start()
+		defer membershipCache.Stop()
+		buildResolverOpts.MembershipCache = membershipCache
+	}
+
+	orgResolver, err := resolvers.BuildResolver(buildResolverOpts)
+	if err != nil {
+		return err
+	}
+	serviceHandler := service.WrapWithTracing(
+		service.NewServiceHandler(s.store, workerClient, kvStore, nil, s.log, "", "", []string{}, orgResolver))
+
+	if err = tasks.LaunchConsumers(ctx, s.queuesProvider, serviceHandler, s.k8sClient, kvStore, 1, 1, s.workerMetrics); err != nil {
 		s.log.WithError(err).Error("failed to launch consumers")
 		return err
 	}

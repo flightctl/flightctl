@@ -28,6 +28,7 @@ type Service interface {
 	ReplaceDevice(ctx context.Context, name string, device api.Device, fieldsToUnset []string) (*api.Device, api.Status)
 	DeleteDevice(ctx context.Context, name string) api.Status
 	GetDeviceStatus(ctx context.Context, name string) (*api.Device, api.Status)
+	GetDeviceLastSeen(ctx context.Context, name string) (*api.DeviceLastSeen, api.Status)
 	ReplaceDeviceStatus(ctx context.Context, name string, device api.Device) (*api.Device, api.Status)
 	PatchDeviceStatus(ctx context.Context, name string, patch api.PatchRequest) (*api.Device, api.Status)
 	GetRenderedDevice(ctx context.Context, name string, params api.GetRenderedDeviceParams) (*api.Device, api.Status)
@@ -36,7 +37,7 @@ type Service interface {
 
 	ResumeDevices(ctx context.Context, request api.DeviceResumeRequest) (api.DeviceResumeResponse, api.Status)
 	UpdateDeviceAnnotations(ctx context.Context, name string, annotations map[string]string, deleteKeys []string) api.Status
-	UpdateRenderedDevice(ctx context.Context, name, renderedConfig, renderedApplications string) api.Status
+	UpdateRenderedDevice(ctx context.Context, name, renderedConfig, renderedApplications, specHash string) api.Status
 	SetDeviceServiceConditions(ctx context.Context, name string, conditions []api.Condition) api.Status
 	OverwriteDeviceRepositoryRefs(ctx context.Context, name string, repositoryNames ...string) api.Status
 	GetDeviceRepositoryRefs(ctx context.Context, name string) (*api.RepositoryList, api.Status)
@@ -47,6 +48,8 @@ type Service interface {
 	CountDevicesByLabels(ctx context.Context, params api.ListDevicesParams, annotationSelector *selector.AnnotationSelector, groupBy []string) ([]map[string]any, api.Status)
 	GetDevicesSummary(ctx context.Context, params api.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (*api.DevicesSummary, api.Status)
 	UpdateServiceSideDeviceStatus(ctx context.Context, device api.Device) bool
+	SetOutOfDate(ctx context.Context, owner string) error
+	UpdateServerSideDeviceStatus(ctx context.Context, name string) error
 
 	// EnrollmentConfig
 	GetEnrollmentConfig(ctx context.Context, params api.GetEnrollmentConfigParams) (*api.EnrollmentConfig, api.Status)

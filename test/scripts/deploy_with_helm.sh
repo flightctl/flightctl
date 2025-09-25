@@ -22,7 +22,7 @@ usage="[--only-db] [db-size=e2e|small-1k|medium-10k]"
 
 while true; do
   case "$1" in
-    -a|--only-db) ONLY_DB="--set api.enabled=false --set worker.enabled=false --set periodic.enabled=false --set kv.enabled=false --set alertExporter.enabled=false --set alertmanager.enabled=false" ; shift ;;
+    -a|--only-db) ONLY_DB="--set api.enabled=false --set worker.enabled=false --set periodic.enabled=false --set kv.enabled=false --set alertExporter.enabled=false --set alertmanager.enabled=false --set telemetryGateway.enabled=false" ; shift ;;
     -h|--help) echo "Usage: $0 $usage"; exit 0 ;;
     --db-size)
       db_size=$2
@@ -56,7 +56,7 @@ kubectl create namespace flightctl-e2e      --context kind-kind 2>/dev/null || t
 # if we are only deploying the database, we don't need inject the server container
 if [ -z "$ONLY_DB" ]; then
 
-  for suffix in periodic api worker alert-exporter alertmanager-proxy cli-artifacts db-setup ; do
+  for suffix in periodic api worker alert-exporter alertmanager-proxy cli-artifacts db-setup telemetry-gateway ; do
     kind_load_image localhost/flightctl-${suffix}:latest
   done
 
@@ -105,9 +105,10 @@ helm upgrade --install --namespace flightctl-external \
                   ${ONLY_DB} ${DB_SIZE_PARAMS} ${AUTH_ARGS} ${SQL_ARG} ${GATEWAY_ARGS} ${KV_ARG} ${ORGS_ARGS} flightctl \
               ./deploy/helm/flightctl/ --kube-context kind-kind
 
-kubectl rollout status statefulset flightctl-kv -n flightctl-internal -w --timeout=300s
-
 "${SCRIPT_DIR}"/wait_for_postgres.sh
+
+# Wait for Redis deployment to be ready
+kubectl rollout status deployment flightctl-kv -n flightctl-internal -w --timeout=300s --context kind-kind
 
 # Make sure the database is usable from the unit tests
 DB_POD=$(kubectl get pod -n flightctl-internal -l flightctl.service=flightctl-db --no-headers -o custom-columns=":metadata.name" --context kind-kind )
@@ -149,3 +150,13 @@ if [[ "${LOGGED_IN}" == "false" ]]; then
   exit 1
 fi
 
+org_id=$(./bin/flightctl get organizations | awk 'NR==2 {print $1}')
+./bin/flightctl config set-organization "$org_id"
+
+# Setup telemetry gateway certificates (non-blocking)
+if ! "${SCRIPT_DIR}"/setup_telemetry_gateway_certs.sh \
+  --sans "DNS:localhost,DNS:flightctl-telemetry-gateway.flightctl-external.svc,DNS:flightctl-telemetry-gateway.flightctl-external.svc.cluster.local,DNS:telemetry-gateway.${IP}.nip.io,IP:127.0.0.1" \
+  --force-rotate; then
+  echo "WARNING: Failed to setup telemetry gateway certificates. Deployment will continue without them."
+  echo "You can manually run the certificate setup later if needed."
+fi

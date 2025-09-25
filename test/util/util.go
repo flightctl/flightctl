@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"regexp"
 	"strings"
 	"sync"
@@ -22,10 +23,14 @@ import (
 	"github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/org/resolvers"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+	"github.com/onsi/gomega/types"
 	"github.com/sirupsen/logrus"
 )
 
@@ -40,27 +45,37 @@ const (
 )
 
 type testProvider struct {
-	queue   chan []byte
-	stopped atomic.Bool
-	wg      *sync.WaitGroup
-	log     logrus.FieldLogger
+	queue       chan []byte
+	pubsubQueue chan []byte
+	stopped     atomic.Bool
+	wg          *sync.WaitGroup
+	log         logrus.FieldLogger
+}
+
+func (t *testProvider) NewPubSubPublisher(_ context.Context, channelName string) (queues.PubSubPublisher, error) {
+	return t, nil
+}
+
+func (t *testProvider) NewPubSubSubscriber(_ context.Context, channelName string) (queues.PubSubSubscriber, error) {
+	return t, nil
 }
 
 func NewTestProvider(log logrus.FieldLogger) queues.Provider {
 	var wg sync.WaitGroup
 	wg.Add(1)
 	return &testProvider{
-		queue: make(chan []byte, 20),
-		wg:    &wg,
-		log:   log,
+		queue:       make(chan []byte, 20),
+		pubsubQueue: make(chan []byte, 20),
+		wg:          &wg,
+		log:         log,
 	}
 }
 
-func (t *testProvider) NewPublisher(_ string) (queues.Publisher, error) {
+func (t *testProvider) NewQueueProducer(_ context.Context, _ string) (queues.QueueProducer, error) {
 	return t, nil
 }
 
-func (t *testProvider) NewConsumer(_ string) (queues.Consumer, error) {
+func (t *testProvider) NewQueueConsumer(_ context.Context, _ string) (queues.QueueConsumer, error) {
 	return t, nil
 }
 
@@ -79,7 +94,7 @@ func (t *testProvider) CheckHealth(_ context.Context) error {
 	return nil
 }
 
-func (t *testProvider) Publish(_ context.Context, b []byte) error {
+func (t *testProvider) Enqueue(_ context.Context, b []byte, timestamp int64) error {
 	t.queue <- b
 	return nil
 }
@@ -100,7 +115,7 @@ func (t *testProvider) Consume(ctx context.Context, handler queues.ConsumeHandle
 				if !ok {
 					return
 				}
-				if err := handler(ctx, b, log); err != nil {
+				if err := handler(ctx, b, "test-entry-id", t, log); err != nil {
 					log.WithError(err).Errorf("handling message: %s", string(b))
 				}
 			}
@@ -109,8 +124,90 @@ func (t *testProvider) Consume(ctx context.Context, handler queues.ConsumeHandle
 	return nil
 }
 
-// NewTestServer creates a new test server and returns the server and the listener listening on localhost's next available port.
-func NewTestApiServer(log logrus.FieldLogger, cfg *config.Config, store store.Store, ca *crypto.CAClient, serverCerts *crypto.TLSCertificateConfig, queuesProvider queues.Provider) (*apiserver.Server, net.Listener, error) {
+func (t *testProvider) Complete(ctx context.Context, entryID string, body []byte, err error) error {
+	// For test provider, this is a no-op since we don't track in-flight messages
+	return nil
+}
+
+func (t *testProvider) ProcessTimedOutMessages(ctx context.Context, queueName string, timeout time.Duration, handler func(entryID string, body []byte) error) (int, error) {
+	// For test provider, this is a no-op since we don't track in-flight messages
+	return 0, nil
+}
+
+func (t *testProvider) RetryFailedMessages(ctx context.Context, queueName string, config queues.RetryConfig, handler func(entryID string, body []byte, retryCount int) error) (int, error) {
+	// For test provider, this is a no-op since we don't track failed messages
+	return 0, nil
+}
+
+func (t *testProvider) GetLatestProcessedTimestamp(ctx context.Context) (time.Time, error) {
+	// For test provider, return zero time since we don't track checkpoints
+	return time.Time{}, nil
+}
+
+func (t *testProvider) AdvanceCheckpointAndCleanup(ctx context.Context) error {
+	// For test provider, this is a no-op since we don't track checkpoints
+	return nil
+}
+
+func (t *testProvider) SetCheckpointTimestamp(ctx context.Context, timestamp time.Time) error {
+	// For test provider, this is a no-op since we don't track checkpoints
+	return nil
+}
+
+func (t *testProvider) Subscribe(ctx context.Context, handler queues.PubSubHandler) (queues.Subscription, error) {
+	t.wg.Add(1)
+	go func() {
+		defer t.wg.Done()
+		log := logrus.New()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case b, ok := <-t.pubsubQueue:
+				if !ok {
+					return
+				}
+				if err := handler(ctx, b, log); err != nil {
+					log.WithError(err).Errorf("handling broadcast message: %s", string(b))
+				}
+			}
+		}
+	}()
+	return t, nil
+}
+
+func (t *testProvider) Publish(ctx context.Context, payload []byte) error {
+	t.pubsubQueue <- payload
+	return nil
+}
+
+// IsAcmInstalled checks if ACM is installed and if it is running.
+// returns: isAcmInstalled, isAcmRunning, error
+func IsAcmInstalled() (bool, bool, error) {
+	if !BinaryExistsOnPath("oc") {
+		return false, false, fmt.Errorf("oc not found on PATH")
+	}
+	cmd := exec.Command("oc", "get", "multiclusterhub", "-A")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return false, false, fmt.Errorf("error getting multiclusterhub: %w, %s", err, string(output))
+	}
+	outputString := string(output)
+	if outputString == "error: the server doesn't have a resource type \"multiclusterhub\"" {
+		return false, false, fmt.Errorf("ACM is not installed: %s", outputString)
+	}
+	if strings.Contains(outputString, "Running") || strings.Contains(outputString, "Paused") {
+		logrus.Infof("The cluster has ACM installed and ACM is Running")
+		return true, true, nil
+	} else {
+		logrus.Infof("The cluster has ACM installed and ACM is not Running. Status: %s", outputString)
+		return true, false, nil
+	}
+}
+
+// NewTestApiServer creates a new test server and returns the server and the listener listening on localhost's next available port.
+func NewTestApiServer(log logrus.FieldLogger, cfg *config.Config, store store.Store, ca *crypto.CAClient, serverCerts *crypto.TLSCertificateConfig, queuesProvider queues.Provider, orgResolver resolvers.Resolver) (*apiserver.Server, net.Listener, error) {
+
 	// create a listener using the next available port
 	tlsConfig, _, err := crypto.TLSConfigForServer(ca.GetCABundleX509(), serverCerts)
 	if err != nil {
@@ -123,11 +220,11 @@ func NewTestApiServer(log logrus.FieldLogger, cfg *config.Config, store store.St
 		return nil, nil, fmt.Errorf("NewTLSListener: error creating TLS certs: %w", err)
 	}
 
-	return apiserver.New(log, cfg, store, ca, listener, queuesProvider, nil), listener, nil
+	return apiserver.New(log, cfg, store, ca, listener, queuesProvider, nil, orgResolver), listener, nil
 }
 
-// NewTestServer creates a new test server and returns the server and the listener listening on localhost's next available port.
-func NewTestAgentServer(log logrus.FieldLogger, cfg *config.Config, store store.Store, ca *crypto.CAClient, serverCerts *crypto.TLSCertificateConfig, queuesProvider queues.Provider) (*agentserver.AgentServer, net.Listener, error) {
+// NewTestAgentServer creates a new test server and returns the server and the listener listening on localhost's next available port.
+func NewTestAgentServer(ctx context.Context, log logrus.FieldLogger, cfg *config.Config, store store.Store, ca *crypto.CAClient, serverCerts *crypto.TLSCertificateConfig, queuesProvider queues.Provider, orgResolver resolvers.Resolver) (*agentserver.AgentServer, net.Listener, error) {
 	// create a listener using the next available port
 	_, tlsConfig, err := crypto.TLSConfigForServer(ca.GetCABundleX509(), serverCerts)
 	if err != nil {
@@ -140,7 +237,12 @@ func NewTestAgentServer(log logrus.FieldLogger, cfg *config.Config, store store.
 		return nil, nil, fmt.Errorf("NewTestAgentServer: error creating TLS certs: %w", err)
 	}
 
-	return agentserver.New(log, cfg, store, ca, listener, queuesProvider, tlsConfig), listener, nil
+	agentServer, err := agentserver.New(ctx, log, cfg, store, ca, listener, queuesProvider, tlsConfig, orgResolver)
+	if err != nil {
+		_ = listener.Close()
+		return nil, nil, fmt.Errorf("NewTestAgentServer: error creating agent server: %w", err)
+	}
+	return agentServer, listener, nil
 }
 
 // NewTestStore creates a new test store and returns the store and the database name.
@@ -238,6 +340,36 @@ func NewBareHTTPsClient(caBundle []*x509.Certificate, clientCert *crypto.TLSCert
 
 }
 
+type TestOrgCache struct {
+	orgs map[uuid.UUID]*model.Organization
+	mu   sync.Mutex
+}
+
+func (c *TestOrgCache) Get(id uuid.UUID) *model.Organization {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.orgs[id]
+}
+
+func (c *TestOrgCache) Set(id uuid.UUID, org *model.Organization) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.orgs[id] = org
+}
+
+func NewOrgResolver(cfg *config.Config, orgStore resolvers.OrgStore, log logrus.FieldLogger) (resolvers.Resolver, error) {
+	orgCache := &TestOrgCache{
+		orgs: make(map[uuid.UUID]*model.Organization),
+	}
+	buildResolverOpts := resolvers.BuildResolverOptions{
+		Config: cfg,
+		Store:  orgStore,
+		Log:    log,
+		Cache:  orgCache,
+	}
+	return resolvers.BuildResolver(buildResolverOpts)
+}
+
 func TestEnrollmentApproval() *v1alpha1.EnrollmentRequestApproval {
 	return &v1alpha1.EnrollmentRequestApproval{
 		Approved: true,
@@ -307,4 +439,8 @@ func RunTable[T any](cases []TestCase[T], runFunc func(T)) {
 		By("Case: " + tc.Description)
 		runFunc(tc.Params)
 	}
+}
+
+func EventuallySlow(actual any) types.AsyncAssertion {
+	return Eventually(actual).WithTimeout(LONG_TIMEOUT).WithPolling(LONG_POLLING)
 }

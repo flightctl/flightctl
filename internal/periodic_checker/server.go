@@ -3,6 +3,7 @@ package periodic
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"os"
 	"os/signal"
 	"sync"
@@ -12,11 +13,16 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/org/cache"
+	"github.com/flightctl/flightctl/internal/org/resolvers"
+	"github.com/flightctl/flightctl/internal/rendered"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/poll"
 	"github.com/flightctl/flightctl/pkg/queues"
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 )
 
@@ -47,11 +53,15 @@ func (s *Server) Run(ctx context.Context) error {
 	ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
 	defer cancel()
 
-	queuesProvider, err := queues.NewRedisProvider(ctx, s.log, s.cfg.KV.Hostname, s.cfg.KV.Port, s.cfg.KV.Password)
+	processID := fmt.Sprintf("periodic-%s-%s", util.GetHostname(), uuid.New().String())
+	queuesProvider, err := queues.NewRedisProvider(ctx, s.log, processID, s.cfg.KV.Hostname, s.cfg.KV.Port, s.cfg.KV.Password, queues.DefaultRetryConfig())
 	if err != nil {
 		return err
 	}
-	defer queuesProvider.Stop()
+	defer func() {
+		queuesProvider.Stop()
+		queuesProvider.Wait()
+	}()
 
 	kvStore, err := kvstore.NewKVStore(ctx, s.log, s.cfg.KV.Hostname, s.cfg.KV.Port, s.cfg.KV.Password)
 	if err != nil {
@@ -59,17 +69,43 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 	defer kvStore.Close()
 
-	queuePublisher, err := worker_client.QueuePublisher(queuesProvider)
+	queuePublisher, err := worker_client.QueuePublisher(ctx, queuesProvider)
 	if err != nil {
 		return err
 	}
 	defer queuePublisher.Close()
 
 	workerClient := worker_client.NewWorkerClient(queuePublisher, s.log)
-	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(s.store, workerClient, kvStore, nil, s.log, "", "", []string{}))
+	if err = rendered.Bus.Initialize(ctx, kvStore, queuesProvider, time.Duration(s.cfg.Service.RenderedWaitTimeout), s.log); err != nil {
+		return err
+	}
+
+	orgCache := cache.NewOrganizationTTL(cache.DefaultTTL)
+	go orgCache.Start()
+	defer orgCache.Stop()
+
+	buildResolverOpts := resolvers.BuildResolverOptions{
+		Config: s.cfg,
+		Store:  s.store.Organization(),
+		Log:    s.log,
+		Cache:  orgCache,
+	}
+
+	if s.cfg.Auth != nil && s.cfg.Auth.AAP != nil {
+		membershipCache := cache.NewMembershipTTL(cache.DefaultTTL)
+		go membershipCache.Start()
+		defer membershipCache.Stop()
+		buildResolverOpts.MembershipCache = membershipCache
+	}
+
+	orgResolver, err := resolvers.BuildResolver(buildResolverOpts)
+	if err != nil {
+		return err
+	}
+	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(s.store, workerClient, kvStore, nil, s.log, "", "", []string{}, orgResolver))
 
 	// Initialize the task executors
-	periodicTaskExecutors := InitializeTaskExecutors(s.log, serviceHandler, s.cfg)
+	periodicTaskExecutors := InitializeTaskExecutors(s.log, serviceHandler, s.cfg, queuesProvider, nil)
 
 	// Create channel manager for task distribution
 	channelManagerConfig := ChannelManagerConfig{
@@ -105,9 +141,11 @@ func (s *Server) Run(ctx context.Context) error {
 		TasksMetadata:  periodicTasks,
 		ChannelManager: channelManager,
 		TaskBackoff: &poll.Config{
-			BaseDelay: 100 * time.Millisecond,
-			Factor:    3,
-			MaxDelay:  10 * time.Second,
+			BaseDelay:    100 * time.Millisecond,
+			Factor:       3,
+			MaxDelay:     10 * time.Second,
+			JitterFactor: 0.1,
+			Rand:         rand.New(rand.NewSource(time.Now().UnixNano())), //nolint:gosec
 		},
 	}
 	periodicTaskPublisher, err := NewPeriodicTaskPublisher(publisherConfig)
