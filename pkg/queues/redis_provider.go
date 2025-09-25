@@ -617,7 +617,7 @@ func (r *redisQueue) consumeOnce(ctx context.Context, handler ConsumeHandler) er
 	// Retry on NOGROUP error to handle race condition where consumer group isn't ready yet
 	var msgs []redis.XStream
 	var err error
-	maxRetries := 3
+	maxRetries := 5
 	for attempt := 0; attempt < maxRetries; attempt++ {
 		msgs, err = r.client.XReadGroup(ctx, &redis.XReadGroupArgs{
 			Group:    r.groupName,
@@ -634,8 +634,13 @@ func (r *redisQueue) consumeOnce(ctx context.Context, handler ConsumeHandler) er
 			// Check if this is a NOGROUP error (consumer group doesn't exist yet)
 			if strings.Contains(err.Error(), "NOGROUP") && attempt < maxRetries-1 {
 				r.log.WithError(err).WithField("attempt", attempt+1).Debug("consumer group not ready, retrying")
-				// Wait a bit before retrying to allow group creation to propagate
-				time.Sleep(10 * time.Millisecond)
+				// Use exponential backoff for retries to allow group creation to propagate
+				// Start with 50ms and increase exponentially
+				delay := time.Duration(50*(1<<attempt)) * time.Millisecond
+				if delay > 500*time.Millisecond {
+					delay = 500 * time.Millisecond
+				}
+				time.Sleep(delay)
 				continue
 			}
 			parentSpan.RecordError(err)
