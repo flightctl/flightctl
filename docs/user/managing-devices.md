@@ -71,8 +71,8 @@ flightctl get devices
 The output will be a table similar to this:
 
 ```console
-NAME                                                  ALIAS    OWNER   SYSTEM  UPDATED     APPLICATIONS  LAST SEEN
-54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg  <none>   <none>  Online  Up-to-date  <none>        3 seconds ago
+NAME                                                  ALIAS    OWNER   SYSTEM  UPDATED     APPLICATIONS
+54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg  <none>   <none>  Online  Up-to-date  <none>
 ```
 
 You can see the details of this device in YAML format by running the following command:
@@ -165,9 +165,9 @@ flightctl get devices -o wide
 ```
 
 ```console
-NAME                                                  ALIAS    OWNER   SYSTEM  UPDATED     APPLICATIONS  LAST SEEN      LABELS
-54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg  <none>   <none>  Online  Up-to-date  <none>        3 seconds ago  region=eu-west-1,site=factory-berlin
-hnsu33339f8m5pjqrbh5ak704jjp92r95a83sd5ja8cjnsl7qnrg  <none>   <none>  Online  Up-to-date  <none>        1 minute ago   region=eu-west-1,site=factory-madrid
+NAME                                                  ALIAS    OWNER   SYSTEM  UPDATED     APPLICATIONS  LABELS
+54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg  <none>   <none>  Online  Up-to-date  <none>        region=eu-west-1,site=factory-berlin
+hnsu33339f8m5pjqrbh5ak704jjp92r95a83sd5ja8cjnsl7qnrg  <none>   <none>  Online  Up-to-date  <none>        region=eu-west-1,site=factory-madrid
 ```
 
 You can view devices in your inventory with a specific label or set of labels by using the `-l key=value` option one or more times:
@@ -177,8 +177,8 @@ flightctl get devices -l site=factory-berlin -o wide
 ```
 
 ```console
-NAME                                                  ALIAS    OWNER   SYSTEM  UPDATED     APPLICATIONS  LAST SEEN      LABELS
-54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg  <none>   <none>  Online  Up-to-date  <none>        3 seconds ago  region=eu-west-1,site=factory-berlin
+NAME                                                  ALIAS    OWNER   SYSTEM  UPDATED     APPLICATIONS  LABELS
+54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg  <none>   <none>  Online  Up-to-date  <none>        region=eu-west-1,site=factory-berlin
 ```
 
 You can update the labels of a given device using one of two methods:
@@ -238,9 +238,9 @@ flightctl apply -f my_device.yaml
 When you now view the device's labels using `flightctl get devices -o wide` once more, you should see your changes applied:
 
 ```console
-NAME                                                  ALIAS    OWNER   SYSTEM  UPDATED     APPLICATIONS  LAST SEEN      LABELS
-54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg  <none>   <none>  Online  Up-to-date  <none>        3 minutes ago  some_key=some_value,some_other_key=some_other_value
-hnsu33339f8m5pjqrbh5ak704jjp92r95a83sd5ja8cjnsl7qnrg  <none>   <none>  Online  Up-to-date  <none>        4 minutes ago  region=eu-west-1,site=factory-madrid
+NAME                                                  ALIAS    OWNER   SYSTEM  UPDATED     APPLICATIONS  LABELS
+54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg  <none>   <none>  Online  Up-to-date  <none>        some_key=some_value,some_other_key=some_other_value
+hnsu33339f8m5pjqrbh5ak704jjp92r95a83sd5ja8cjnsl7qnrg  <none>   <none>  Online  Up-to-date  <none>        region=eu-west-1,site=factory-madrid
 ```
 
 ## Updating the OS

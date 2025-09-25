@@ -384,7 +384,7 @@ func TestDeviceDisconnected(t *testing.T) {
 	// Make it disconnected
 	//device, err = serviceHandler.store.Device().Get(ctx, store.NullOrgId, *device.Metadata.Name)
 	//require.NoError(err)
-	device.Status.LastSeen = time.Now().Add(-10 * time.Minute)
+	device.Status.LastSeen = lo.ToPtr(time.Now().Add(-10 * time.Minute))
 	device.Status.Summary.Status = api.DeviceSummaryStatusOnline
 	changed := serviceHandler.UpdateServiceSideDeviceStatus(ctx, *device)
 	require.Equal(true, changed)

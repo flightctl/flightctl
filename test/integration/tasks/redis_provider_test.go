@@ -63,6 +63,13 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 					strings.HasPrefix(key, "failed_messages:") ||
 					strings.HasPrefix(key, "test-queue-") {
 					keysToDelete = append(keysToDelete, key)
+
+					// Also clean up any consumer groups for test queues
+					if strings.HasPrefix(key, "test-queue-") {
+						groupName := fmt.Sprintf("%s-group", key)
+						// Try to destroy the consumer group (ignore errors if it doesn't exist)
+						redisClient.XGroupDestroy(ctx, key, groupName)
+					}
 				}
 			}
 			if len(keysToDelete) > 0 {
@@ -806,6 +813,42 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 				return count
 			}, 5*time.Second, 100*time.Millisecond).Should(Equal(3))
 
+			// Wait for in-flight tasks to be properly tracked
+			// This prevents race condition where Complete() is still executing markInFlightTaskComplete()
+			Eventually(func() bool {
+				// Check that we have the expected number of in-flight tasks
+				// We expect 3 tasks: 2 completed (message0, message2) and 1 incomplete (message1)
+				redisClient := redis.NewClient(&redis.Options{
+					Addr:     "localhost:6379",
+					Password: "adminpass",
+					DB:       0,
+				})
+				defer redisClient.Close()
+
+				tasks, err := redisClient.ZRange(ctx, "in_flight_tasks", 0, -1).Result()
+				if err != nil {
+					return false
+				}
+
+				// Count completed vs incomplete tasks for this queue
+				completedCount := 0
+				incompleteCount := 0
+				for _, task := range tasks {
+					// only count tasks for this queue
+					if !strings.HasPrefix(task, queueName+"|") {
+						continue
+					}
+					if strings.HasSuffix(task, ":completed") {
+						completedCount++
+					} else {
+						incompleteCount++
+					}
+				}
+
+				// Should have 2 completed and 1 incomplete for this queue
+				return completedCount == 2 && incompleteCount == 1
+			}, 5*time.Second, 100*time.Millisecond).Should(BeTrue())
+
 			// Set initial checkpoint to zero to enable advancement
 			err = provider.SetCheckpointTimestamp(ctx, time.Time{})
 			Expect(err).ToNot(HaveOccurred())
@@ -996,7 +1039,11 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 			var messageProcessed int32
 			var pastMessageProcessed int32
 
-			err = consumer.Consume(ctx, func(ctx context.Context, payload []byte, entryID string, consumer queues.QueueConsumer, log logrus.FieldLogger) error {
+			// Create a separate context for the consumer to control its lifecycle
+			consumerCtx, consumerCancel := context.WithCancel(ctx)
+			defer consumerCancel()
+
+			err = consumer.Consume(consumerCtx, func(ctx context.Context, payload []byte, entryID string, consumer queues.QueueConsumer, log logrus.FieldLogger) error {
 				message := string(payload)
 				err := consumer.Complete(ctx, entryID, payload, nil)
 
@@ -1013,6 +1060,12 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 				processed := atomic.LoadInt32(&messageProcessed) == 1
 				return processed
 			}, 5*time.Second, 100*time.Millisecond).Should(BeTrue())
+
+			// Stop the consumer to prevent race conditions with checkpoint operations
+			consumerCancel()
+
+			// Wait a bit for the consumer to fully stop
+			time.Sleep(100 * time.Millisecond)
 
 			// Set initial checkpoint to zero to enable advancement
 			err = provider.SetCheckpointTimestamp(ctx, time.Time{})
@@ -1031,10 +1084,33 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 			err = publisher.Enqueue(ctx, []byte("past message"), pastTime.UnixMicro())
 			Expect(err).ToNot(HaveOccurred())
 
+			// Restart the consumer for the second message
+			consumerCtx2, consumerCancel2 := context.WithCancel(ctx)
+			defer consumerCancel2()
+
+			err = consumer.Consume(consumerCtx2, func(ctx context.Context, payload []byte, entryID string, consumer queues.QueueConsumer, log logrus.FieldLogger) error {
+				message := string(payload)
+				err := consumer.Complete(ctx, entryID, payload, nil)
+
+				if message == "future message" {
+					atomic.StoreInt32(&messageProcessed, 1)
+				} else if message == "past message" {
+					atomic.StoreInt32(&pastMessageProcessed, 1)
+				}
+				return err
+			})
+			Expect(err).ToNot(HaveOccurred())
+
 			Eventually(func() bool {
 				processed := atomic.LoadInt32(&pastMessageProcessed) == 1
 				return processed
 			}, 5*time.Second, 100*time.Millisecond).Should(BeTrue())
+
+			// Stop the consumer again
+			consumerCancel2()
+
+			// Wait a bit for the consumer to fully stop
+			time.Sleep(100 * time.Millisecond)
 
 			// Try to advance checkpoint again
 			err = provider.AdvanceCheckpointAndCleanup(ctx)

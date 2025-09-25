@@ -150,6 +150,12 @@ func (t *TracedService) GetDeviceStatus(ctx context.Context, name string) (*api.
 	endSpan(span, st)
 	return resp, st
 }
+func (t *TracedService) GetDeviceLastSeen(ctx context.Context, name string) (*api.DeviceLastSeen, api.Status) {
+	ctx, span := startSpan(ctx, "GetDeviceLastSeen")
+	resp, st := t.inner.GetDeviceLastSeen(ctx, name)
+	endSpan(span, st)
+	return resp, st
+}
 func (t *TracedService) ReplaceDeviceStatus(ctx context.Context, name string, device api.Device) (*api.Device, api.Status) {
 	ctx, span := startSpan(ctx, "ReplaceDeviceStatus")
 	resp, st := t.inner.ReplaceDeviceStatus(ctx, name, device)
