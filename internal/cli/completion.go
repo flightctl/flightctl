@@ -76,7 +76,7 @@ To load completions persistently:
 			}
 
 			// Print a small header only when writing to a terminal
-			if fi, _ := os.Stdout.Stat(); (fi.Mode() & os.ModeCharDevice) != 0 {
+			if fi, err := os.Stdout.Stat(); err == nil && (fi.Mode() & os.ModeCharDevice) != 0 {
 				switch o.Shell {
 				case "bash":
 					fmt.Fprint(os.Stdout, "# flightctl bash completion\n#\n# Installation: flightctl completion bash >> ~/.bashrc\n# Or:           flightctl completion bash | sudo tee /etc/bash_completion.d/flightctl > /dev/null\n# Load now:     source <(flightctl completion bash)\n")
