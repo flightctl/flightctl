@@ -30,6 +30,10 @@ AUTH_INSECURE_SKIP_VERIFY=$(extract_value "insecureSkipTlsVerify" "$SERVICE_CONF
 AUTH_CLIENT_ID=""
 AUTH_URL=""
 
+# Extract organizations enabled value (defaults to false if not configured)
+ORGANIZATIONS_ENABLED=$(sed -n '/^global:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n '/^[[:space:]]*organizations:/,/^[^[:space:]]/p' | sed -n '/^[[:space:]]*enabled:[[:space:]]*\([^[:space:]]*\).*/s//\1/p' | head -1)
+ORGANIZATIONS_ENABLED=${ORGANIZATIONS_ENABLED:-false}
+
 # Verify required values were found
 if [ -z "$BASE_DOMAIN" ]; then
   echo "Error: Could not find baseDomain in service config file"
@@ -54,6 +58,7 @@ sed "s|{{BASE_DOMAIN}}|${BASE_DOMAIN}|g" "$ENV_TEMPLATE" > "$ENV_OUTPUT"
 sed -i "s|{{AUTH_CLIENT_ID}}|${AUTH_CLIENT_ID}|g" "$ENV_OUTPUT"
 sed -i "s|{{INTERNAL_AUTH_URL}}|${AUTH_URL}|g" "$ENV_OUTPUT"
 sed -i "s|{{AUTH_INSECURE_SKIP_VERIFY}}|${AUTH_INSECURE_SKIP_VERIFY}|g" "$ENV_OUTPUT"
+sed -i "s|{{ORGANIZATIONS_ENABLED}}|$ORGANIZATIONS_ENABLED|g" "$ENV_OUTPUT"
 
 # Wait for certificates
 wait_for_files "$CERTS_SOURCE_PATH/server.crt" "$CERTS_SOURCE_PATH/server.key"

@@ -44,21 +44,22 @@ const (
 
 // Defines values for ConditionType.
 const (
-	ConditionTypeCertificateSigningRequestApproved ConditionType = "Approved"
-	ConditionTypeCertificateSigningRequestDenied   ConditionType = "Denied"
-	ConditionTypeCertificateSigningRequestFailed   ConditionType = "Failed"
-	ConditionTypeDeviceDecommissioning             ConditionType = "DeviceDecommissioning"
-	ConditionTypeDeviceMultipleOwners              ConditionType = "MultipleOwners"
-	ConditionTypeDeviceSpecValid                   ConditionType = "SpecValid"
-	ConditionTypeDeviceUpdating                    ConditionType = "Updating"
-	ConditionTypeEnrollmentRequestApproved         ConditionType = "Approved"
-	ConditionTypeEnrollmentRequestTPMVerified      ConditionType = "TPMVerified"
-	ConditionTypeFleetRolloutInProgress            ConditionType = "RolloutInProgress"
-	ConditionTypeFleetValid                        ConditionType = "Valid"
-	ConditionTypeRepositoryAccessible              ConditionType = "Accessible"
-	ConditionTypeResourceSyncAccessible            ConditionType = "Accessible"
-	ConditionTypeResourceSyncResourceParsed        ConditionType = "ResourceParsed"
-	ConditionTypeResourceSyncSynced                ConditionType = "Synced"
+	ConditionTypeCertificateSigningRequestApproved    ConditionType = "Approved"
+	ConditionTypeCertificateSigningRequestDenied      ConditionType = "Denied"
+	ConditionTypeCertificateSigningRequestFailed      ConditionType = "Failed"
+	ConditionTypeCertificateSigningRequestTPMVerified ConditionType = "TPMVerified"
+	ConditionTypeDeviceDecommissioning                ConditionType = "DeviceDecommissioning"
+	ConditionTypeDeviceMultipleOwners                 ConditionType = "MultipleOwners"
+	ConditionTypeDeviceSpecValid                      ConditionType = "SpecValid"
+	ConditionTypeDeviceUpdating                       ConditionType = "Updating"
+	ConditionTypeEnrollmentRequestApproved            ConditionType = "Approved"
+	ConditionTypeEnrollmentRequestTPMVerified         ConditionType = "TPMVerified"
+	ConditionTypeFleetRolloutInProgress               ConditionType = "RolloutInProgress"
+	ConditionTypeFleetValid                           ConditionType = "Valid"
+	ConditionTypeRepositoryAccessible                 ConditionType = "Accessible"
+	ConditionTypeResourceSyncAccessible               ConditionType = "Accessible"
+	ConditionTypeResourceSyncResourceParsed           ConditionType = "ResourceParsed"
+	ConditionTypeResourceSyncSynced                   ConditionType = "Synced"
 )
 
 // Defines values for DeviceDecommissionTargetType.

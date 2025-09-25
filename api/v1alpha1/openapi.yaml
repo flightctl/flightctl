@@ -5454,6 +5454,7 @@ components:
       - 'Approved'              # CertificateSigningRequest
       - 'Denied'                # CertificateSigningRequest
       - 'Failed'                # CertificateSigningRequest
+      - 'TPMVerified'           # CertificateSigningRequest
       - 'Accessible'            # Repository
       - 'Accessible'            # ResourceSync
       - 'ResourceParsed'        # ResourceSync
@@ -5470,6 +5471,7 @@ components:
       - CertificateSigningRequestApproved
       - CertificateSigningRequestDenied
       - CertificateSigningRequestFailed
+      - CertificateSigningRequestTPMVerified
       - RepositoryAccessible
       - ResourceSyncAccessible
       - ResourceSyncResourceParsed

@@ -432,6 +432,38 @@ func VerifyTCGCSRChainOfTrustWithRoots(csrData []byte, trustedRoots *x509.CertPo
 	return nil
 }
 
+// VerifyTCGCSRSigningChain verifies that the supplied CSR contains a valid TCG-CSR-IDEVID bundle that
+// is certified by the supplied key
+func VerifyTCGCSRSigningChain(csrData []byte, trustedCertifyKey []byte) error {
+	parsed, err := ParseTCGCSR(csrData)
+	if err != nil {
+		return fmt.Errorf("failed to parse TCG-CSR: %w", err)
+	}
+
+	if !parsed.IsValid {
+		return fmt.Errorf("invalid TCG-CSR: %s", parsed.ValidationError)
+	}
+
+	payload := parsed.CSRContents.Payload
+	if payload == nil {
+		return fmt.Errorf("missing payload in TCG-CSR")
+	}
+
+	if len(payload.AttestPub) == 0 {
+		return fmt.Errorf("missing attestation public key")
+	}
+
+	if len(trustedCertifyKey) == 0 || !bytes.Equal(payload.AttestPub, trustedCertifyKey) {
+		return fmt.Errorf("trusted certification key invalid")
+	}
+
+	if err = verifySigningKeyChain(payload); err != nil {
+		return fmt.Errorf("chain of trust verification failed: %w", err)
+	}
+
+	return nil
+}
+
 // Updated verifySigningKeyChain function for tcg_csr_parser.go
 func verifySigningKeyChain(payload *ParsedTCGPayload) error {
 	if len(payload.AttestPub) == 0 {
