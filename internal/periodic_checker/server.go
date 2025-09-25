@@ -83,13 +83,25 @@ func (s *Server) Run(ctx context.Context) error {
 	orgCache := cache.NewOrganizationTTL(cache.DefaultTTL)
 	go orgCache.Start()
 	defer orgCache.Stop()
+
 	buildResolverOpts := resolvers.BuildResolverOptions{
 		Config: s.cfg,
 		Store:  s.store.Organization(),
 		Log:    s.log,
 		Cache:  orgCache,
 	}
-	orgResolver := resolvers.BuildResolver(buildResolverOpts)
+
+	if s.cfg.Auth != nil && s.cfg.Auth.AAP != nil {
+		membershipCache := cache.NewMembershipTTL(cache.DefaultTTL)
+		go membershipCache.Start()
+		defer membershipCache.Stop()
+		buildResolverOpts.MembershipCache = membershipCache
+	}
+
+	orgResolver, err := resolvers.BuildResolver(buildResolverOpts)
+	if err != nil {
+		return err
+	}
 	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(s.store, workerClient, kvStore, nil, s.log, "", "", []string{}, orgResolver))
 
 	// Initialize the task executors

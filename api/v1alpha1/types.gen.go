@@ -44,21 +44,22 @@ const (
 
 // Defines values for ConditionType.
 const (
-	ConditionTypeCertificateSigningRequestApproved ConditionType = "Approved"
-	ConditionTypeCertificateSigningRequestDenied   ConditionType = "Denied"
-	ConditionTypeCertificateSigningRequestFailed   ConditionType = "Failed"
-	ConditionTypeDeviceDecommissioning             ConditionType = "DeviceDecommissioning"
-	ConditionTypeDeviceMultipleOwners              ConditionType = "MultipleOwners"
-	ConditionTypeDeviceSpecValid                   ConditionType = "SpecValid"
-	ConditionTypeDeviceUpdating                    ConditionType = "Updating"
-	ConditionTypeEnrollmentRequestApproved         ConditionType = "Approved"
-	ConditionTypeEnrollmentRequestTPMVerified      ConditionType = "TPMVerified"
-	ConditionTypeFleetRolloutInProgress            ConditionType = "RolloutInProgress"
-	ConditionTypeFleetValid                        ConditionType = "Valid"
-	ConditionTypeRepositoryAccessible              ConditionType = "Accessible"
-	ConditionTypeResourceSyncAccessible            ConditionType = "Accessible"
-	ConditionTypeResourceSyncResourceParsed        ConditionType = "ResourceParsed"
-	ConditionTypeResourceSyncSynced                ConditionType = "Synced"
+	ConditionTypeCertificateSigningRequestApproved    ConditionType = "Approved"
+	ConditionTypeCertificateSigningRequestDenied      ConditionType = "Denied"
+	ConditionTypeCertificateSigningRequestFailed      ConditionType = "Failed"
+	ConditionTypeCertificateSigningRequestTPMVerified ConditionType = "TPMVerified"
+	ConditionTypeDeviceDecommissioning                ConditionType = "DeviceDecommissioning"
+	ConditionTypeDeviceMultipleOwners                 ConditionType = "MultipleOwners"
+	ConditionTypeDeviceSpecValid                      ConditionType = "SpecValid"
+	ConditionTypeDeviceUpdating                       ConditionType = "Updating"
+	ConditionTypeEnrollmentRequestApproved            ConditionType = "Approved"
+	ConditionTypeEnrollmentRequestTPMVerified         ConditionType = "TPMVerified"
+	ConditionTypeFleetRolloutInProgress               ConditionType = "RolloutInProgress"
+	ConditionTypeFleetValid                           ConditionType = "Valid"
+	ConditionTypeRepositoryAccessible                 ConditionType = "Accessible"
+	ConditionTypeResourceSyncAccessible               ConditionType = "Accessible"
+	ConditionTypeResourceSyncResourceParsed           ConditionType = "ResourceParsed"
+	ConditionTypeResourceSyncSynced                   ConditionType = "Synced"
 )
 
 // Defines values for DeviceDecommissionTargetType.
@@ -699,6 +700,12 @@ type DeviceIntegrityStatus struct {
 // DeviceIntegrityStatusSummaryType Status of the integrity of the device.
 type DeviceIntegrityStatusSummaryType string
 
+// DeviceLastSeen DeviceLastSeen represents the last seen timestamp of a device.
+type DeviceLastSeen struct {
+	// LastSeen The last time the device was seen by the service.
+	LastSeen time.Time `json:"lastSeen"`
+}
+
 // DeviceLifecycleHookType defines model for DeviceLifecycleHookType.
 type DeviceLifecycleHookType string
 
@@ -879,8 +886,8 @@ type DeviceStatus struct {
 	// Integrity Summary status of the integrity of the device.
 	Integrity DeviceIntegrityStatus `json:"integrity"`
 
-	// LastSeen The last time the device was seen by the service.
-	LastSeen time.Time `json:"lastSeen"`
+	// LastSeen The last time the device was seen by the service (NOTE: this property is not returned by the API).
+	LastSeen *time.Time `json:"-"`
 
 	// Lifecycle Current status of the device lifecycle.
 	Lifecycle DeviceLifecycleStatus `json:"lifecycle"`

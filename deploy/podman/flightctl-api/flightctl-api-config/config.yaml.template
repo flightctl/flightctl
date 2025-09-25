@@ -23,6 +23,8 @@ service:
 kv:
   hostname: flightctl-kv
   port: 6379
+organizations:
+  enabled: {{ORGANIZATIONS_ENABLED}}
 auth:
   insecureSkipTlsVerify: {{INSECURE_SKIP_TLS_VERIFY}}
   caCert: {{AUTH_CA_CERT}}

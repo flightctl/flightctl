@@ -31,6 +31,7 @@ type TestVM struct {
 	hasCloudInit   bool
 	cloudInitArgs  string
 	MemoryFilePath string // Path for external snapshot memory file
+	DiskSizeGB     int
 }
 
 type TestVMInterface interface {

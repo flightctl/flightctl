@@ -186,6 +186,11 @@ func GetRenderedDevice(ctx context.Context, c *apiclient.ClientWithResponses, na
 	return c.GetRenderedDeviceWithResponse(ctx, name, &api.GetRenderedDeviceParams{})
 }
 
+// GetLastSeenDevice fetches the last seen timestamp for a device.
+func GetLastSeenDevice(ctx context.Context, c *apiclient.ClientWithResponses, name string) (interface{}, error) {
+	return c.GetDeviceLastSeenWithResponse(ctx, name)
+}
+
 // GetTemplateVersion fetches a template version with the specified fleet name.
 func GetTemplateVersion(ctx context.Context, c *apiclient.ClientWithResponses, fleetName, name string) (interface{}, error) {
 	return c.GetTemplateVersionWithResponse(ctx, fleetName, name)
@@ -197,6 +202,16 @@ func ExtractJSON200(response interface{}) (interface{}, error) {
 	// Validate the response
 	if err := validateResponse(response); err != nil {
 		return nil, err
+	}
+
+	// Check if this is a 204 response (no content)
+	httpResponse, err := responseField[*http.Response](response, "HTTPResponse")
+	if err != nil {
+		return nil, err
+	}
+
+	if httpResponse.StatusCode == http.StatusNoContent {
+		return nil, nil
 	}
 
 	// Extract JSON200 data
@@ -220,7 +235,7 @@ func validateResponse(response interface{}) error {
 		return err
 	}
 
-	if httpResponse.StatusCode != http.StatusOK {
+	if httpResponse.StatusCode != http.StatusOK && httpResponse.StatusCode != http.StatusNoContent {
 		if strings.Contains(httpResponse.Header.Get("Content-Type"), "json") {
 			var dest api.Status
 			if err := json.Unmarshal(responseBody, &dest); err != nil {
