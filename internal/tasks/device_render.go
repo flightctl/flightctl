@@ -285,7 +285,7 @@ func (t *DeviceRenderLogic) renderConfigItem(ctx context.Context, configItem *ap
 //   - /var/lib/flightctl (and all subpaths)
 //   - /usr/lib/flightctl (and all subpaths)
 //   - /etc/flightctl/certs (and all subpaths)
-//   - /etc/flightctl/config.yml (file itself)
+//   - /etc/flightctl/config.yaml (file itself)
 //
 // The check denies the exact file and the roots listed above and any subpath under those roots.
 func denyUnsafeDevicePath(p string) error {
@@ -312,7 +312,7 @@ func denyUnsafeDevicePath(p string) error {
 		}
 	}
 
-	etcFlightctlConfig := filepath.Clean("/etc/flightctl/config.yml")
+	etcFlightctlConfig := filepath.Clean("/etc/flightctl/config.yaml")
 	if clean == etcFlightctlConfig {
 		return fmt.Errorf("unsafe device path %q: writing %q is not allowed", p, etcFlightctlConfig)
 	}
