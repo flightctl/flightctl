@@ -14,7 +14,7 @@ func TestBackoffWithContext(t *testing.T) {
 	require := require.New(t)
 	opErr := errors.New("fatal op error")
 
-	r := rand.New(rand.NewSource(0))
+	r := rand.New(rand.NewSource(0)) //nolint:gosec
 
 	tests := []struct {
 		name       string
@@ -167,7 +167,7 @@ func TestBackoffWithContext(t *testing.T) {
 func TestCalculateBackoffDelay(t *testing.T) {
 	require := require.New(t)
 
-	r := rand.New(rand.NewSource(0))
+	r := rand.New(rand.NewSource(0)) //nolint:gosec
 
 	tests := []struct {
 		name     string
