@@ -28,7 +28,7 @@ func DefaultCompletionOptions() *CompletionOptions {
 func NewCmdCompletion() *cobra.Command {
 	o := DefaultCompletionOptions()
 	cmd := &cobra.Command{
-		Use:   "completion [bash|zsh|fish|powershell]",
+		Use:   "completion [bash|zsh|fish|powershell|pwsh]",
 		Short: "Generate shell autocompletion script",
 		Long: `Generate the autocompletion script for flightctl for the specified shell.
 
@@ -41,11 +41,11 @@ To load completions for the current session:
   - powershell:  flightctl completion powershell | Out-String | Invoke-Expression
 
 To load completions persistently:
-  - bash (Linux):      flightctl completion bash | sudo tee /etc/bash_completion.d/flightctl > /dev/null
+  - bash (Linux):          flightctl completion bash | sudo tee /etc/bash_completion.d/flightctl > /dev/null
   - bash (macOS/Homebrew): flightctl completion bash > $(brew --prefix)/etc/bash_completion.d/flightctl
-  - zsh:               flightctl completion zsh > ${ZDOTDIR:-$HOME}/.zsh/completions/_flightctl && echo 'fpath+=(${ZDOTDIR:-$HOME}/.zsh/completions); autoload -U compinit; compinit' >> ${ZDOTDIR:-$HOME}/.zshrc
-  - fish:              flightctl completion fish > ~/.config/fish/completions/flightctl.fish
-  - powershell:        flightctl completion powershell > "$HOME/.config/flightctl/completion.ps1"; Add-Content -Path $PROFILE -Value ". $HOME/.config/flightctl/completion.ps1"
+  - zsh:                   flightctl completion zsh > ${ZDOTDIR:-$HOME}/.zsh/completions/_flightctl && echo 'fpath+=(${ZDOTDIR:-$HOME}/.zsh/completions); autoload -U compinit; compinit' >> ${ZDOTDIR:-$HOME}/.zshrc
+  - fish:                  flightctl completion fish > ~/.config/fish/completions/flightctl.fish
+  - powershell:            flightctl completion powershell > "$env:USERPROFILE\Documents\PowerShell\completion.ps1"; Add-Content -Path $PROFILE -Value ". $env:USERPROFILE\Documents\PowerShell\completion.ps1"
 `,
 		Example: `  # Bash (current session)
   source <(flightctl completion bash)
@@ -76,7 +76,7 @@ To load completions persistently:
 			}
 
 			// Print a small header only when writing to a terminal
-			if fi, err := os.Stdout.Stat(); err == nil && (fi.Mode() & os.ModeCharDevice) != 0 {
+			if fi, err := os.Stdout.Stat(); err == nil && (fi.Mode()&os.ModeCharDevice) != 0 {
 				switch o.Shell {
 				case "bash":
 					fmt.Fprint(os.Stdout, "# flightctl bash completion\n#\n# Installation: flightctl completion bash >> ~/.bashrc\n# Or:           flightctl completion bash | sudo tee /etc/bash_completion.d/flightctl > /dev/null\n# Load now:     source <(flightctl completion bash)\n")
@@ -85,7 +85,7 @@ To load completions persistently:
 				case "fish":
 					fmt.Fprint(os.Stdout, "# flightctl fish completion\n#\n# Installation: flightctl completion fish > ~/.config/fish/completions/flightctl.fish\n# Load now:     flightctl completion fish | source\n")
 				case "powershell":
-					fmt.Fprint(os.Stdout, "# flightctl PowerShell completion\n#\n# Installation: flightctl completion powershell > \"$HOME/.config/flightctl/completion.ps1\"; Add-Content -Path $PROFILE -Value \". $HOME/.config/flightctl/completion.ps1\"\n# Load now:     flightctl completion powershell | Out-String | Invoke-Expression\n")
+					fmt.Fprint(os.Stdout, "# flightctl PowerShell completion\n#\n# Installation: flightctl completion powershell > \"$env:USERPROFILE\\Documents\\PowerShell\\completion.ps1\"; Add-Content -Path $PROFILE -Value \". $env:USERPROFILE\\Documents\\PowerShell\\completion.ps1\"\n# Load now:     flightctl completion powershell | Out-String | Invoke-Expression\n")
 				}
 			}
 
@@ -144,7 +144,7 @@ func (o *CompletionOptions) Validate(args []string) error {
 		}
 
 		if !validShell {
-			return fmt.Errorf("autocompletion for shell %v not supported by Cobra", args[0])
+			return fmt.Errorf("unsupported shell %q. Supported shells: bash, zsh, fish, powershell", args[0])
 		}
 	}
 
