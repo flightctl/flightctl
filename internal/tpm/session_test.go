@@ -283,8 +283,7 @@ func TestTpmSession_CertifyKey(t *testing.T) {
 				_, _, handle := createValidTPMObjects()
 				session.handles[LDevID] = handle
 				session.handles[LAK] = handle
-
-				mockStorage.EXPECT().GetPassword().Return([]byte("test-password"), nil).AnyTimes()
+				session.storagePassword = []byte("test-password")
 			},
 			wantErr: nil, // Will fail at TPM operation level in unit test
 		},
@@ -298,7 +297,7 @@ func TestTpmSession_CertifyKey(t *testing.T) {
 				session.handles[SRK] = srkHandle
 				// Enable valid SRK response in mock connection
 				session.conn.(*mockReadWriteCloser).validSRK = true
-				mockStorage.EXPECT().GetPassword().Return([]byte("test-password"), nil).AnyTimes()
+				session.storagePassword = []byte("test-password")
 				mockStorage.EXPECT().GetKey(LDevID).Return(nil, nil, errors.New("key load error"))
 			},
 			wantErr: errors.New("loading target key: getting key from storage: key load error"),
@@ -315,7 +314,7 @@ func TestTpmSession_CertifyKey(t *testing.T) {
 				session.conn.(*mockReadWriteCloser).validSRK = true
 				_, _, handle := createValidTPMObjects()
 				session.handles[LDevID] = handle
-				mockStorage.EXPECT().GetPassword().Return([]byte("test-password"), nil).AnyTimes()
+				session.storagePassword = []byte("test-password")
 				mockStorage.EXPECT().GetKey(LAK).Return(nil, nil, errors.New("LAK load error"))
 			},
 			wantErr: errors.New("loading LAK for certification: getting key from storage: LAK load error"),
@@ -482,6 +481,7 @@ func TestTpmSession_GetPassword(t *testing.T) {
 	tests := []struct {
 		name        string
 		authEnabled bool
+		password    []byte
 		setupMocks  func(*MockStorage)
 		want        []byte
 		wantErr     error
@@ -496,20 +496,18 @@ func TestTpmSession_GetPassword(t *testing.T) {
 		{
 			name:        "auth enabled with password",
 			authEnabled: true,
-			setupMocks: func(mockStorage *MockStorage) {
-				mockStorage.EXPECT().GetPassword().Return([]byte("test-password"), nil)
-			},
-			want:    []byte("test-password"),
-			wantErr: nil,
+			password:    []byte("test-password"),
+			setupMocks:  func(mockStorage *MockStorage) {},
+			want:        []byte("test-password"),
+			wantErr:     nil,
 		},
 		{
-			name:        "auth enabled with password error",
+			name:        "auth enabled without password",
 			authEnabled: true,
-			setupMocks: func(mockStorage *MockStorage) {
-				mockStorage.EXPECT().GetPassword().Return(nil, errors.New("password error"))
-			},
-			want:    nil,
-			wantErr: errors.New("password error"),
+			password:    nil,
+			setupMocks:  func(mockStorage *MockStorage) {},
+			want:        nil,
+			wantErr:     errors.New("auth enabled but no password configured"),
 		},
 	}
 
@@ -519,12 +517,13 @@ func TestTpmSession_GetPassword(t *testing.T) {
 			defer ctrl.Finish()
 
 			session := &tpmSession{
-				conn:        conn,
-				storage:     mockStorage,
-				log:         logger,
-				authEnabled: tt.authEnabled,
-				keyAlgo:     ECDSA,
-				handles:     make(map[KeyType]*tpm2.NamedHandle),
+				conn:            conn,
+				storage:         mockStorage,
+				log:             logger,
+				authEnabled:     tt.authEnabled,
+				storagePassword: tt.password,
+				keyAlgo:         ECDSA,
+				handles:         make(map[KeyType]*tpm2.NamedHandle),
 			}
 
 			if tt.setupMocks != nil {

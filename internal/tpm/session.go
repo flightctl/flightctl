@@ -1,12 +1,17 @@
 package tpm
 
 import (
+	"context"
+	"crypto/rand"
 	"encoding/asn1"
 	"errors"
 	"fmt"
 	"io"
 	"math/big"
+	"slices"
 
+	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	fccrypto "github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/flightctl/flightctl/pkg/log"
 	gotpmclient "github.com/google/go-tpm-tools/client"
 	"github.com/google/go-tpm/tpm2"
@@ -37,6 +42,8 @@ type tpmSession struct {
 	authEnabled      bool
 	shouldInitialize bool
 	keyAlgo          KeyAlgorithm
+	rw               fileio.ReadWriter
+	storagePassword  []byte // TPM storage hierarchy password
 
 	// Active handles
 	handles map[KeyType]*tpm2.NamedHandle
@@ -70,11 +77,22 @@ func WithStorage(storage Storage) SessionOption {
 	}
 }
 
+// WithPassword sets the TPM storage hierarchy password for the session
+func WithPassword(password []byte) SessionOption {
+	return func(s *tpmSession) {
+		if len(password) > 0 {
+			s.storagePassword = make([]byte, len(password))
+			copy(s.storagePassword, password)
+		}
+	}
+}
+
 // NewSession creates a new TPM session
-func NewSession(conn io.ReadWriteCloser, log *log.PrefixLogger, opts ...SessionOption) (Session, error) {
+func NewSession(conn io.ReadWriteCloser, log *log.PrefixLogger, rw fileio.ReadWriter, opts ...SessionOption) (Session, error) {
 	session := &tpmSession{
 		conn:    conn,
 		log:     log,
+		rw:      rw,
 		handles: make(map[KeyType]*tpm2.NamedHandle),
 	}
 
@@ -93,7 +111,7 @@ func NewSession(conn io.ReadWriteCloser, log *log.PrefixLogger, opts ...SessionO
 
 func (s *tpmSession) initialize() error {
 	s.log.Debug("Initializing TPM session")
-	if err := s.ensureStorageAuth(); err != nil {
+	if err := s.ensureStorageAuth(context.Background()); err != nil {
 		return fmt.Errorf("setting up storage auth: %w", err)
 	}
 
@@ -171,7 +189,7 @@ func (s *tpmSession) loadAppKey(appName string) (*exportableDeviceID, error) {
 		ParentHandle: tpm2.AuthHandle{
 			Handle: key.ParentHandle,
 			Name:   pubRsp.Name,
-			Auth:   tpm2.PasswordAuth(nil), // todo passwords
+			Auth:   tpm2.PasswordAuth(key.ParentPass),
 		},
 		InPrivate: key.Private,
 		InPublic:  key.Public,
@@ -189,7 +207,7 @@ func (s *tpmSession) loadAppKey(appName string) (*exportableDeviceID, error) {
 		loadedHandle: tpm2.AuthHandle{
 			Handle: loadRsp.ObjectHandle,
 			Name:   loadRsp.Name,
-			Auth:   tpm2.PasswordAuth(nil), // todo passwords
+			Auth:   tpm2.PasswordAuth(key.Pass),
 		},
 		conn: s.conn,
 	}, nil
@@ -457,10 +475,8 @@ func (s *tpmSession) Clear() error {
 
 	// clear internal state
 	s.handles = make(map[KeyType]*tpm2.NamedHandle)
+	s.storagePassword = nil // Clear the in-memory password
 
-	if err := s.storage.ClearPassword(); err != nil {
-		errs = append(errs, fmt.Errorf("clearing stored password: %w", err))
-	}
 	// Clear stored keys by storing empty values
 	if err := s.clearStoredKeys(); err != nil {
 		errs = append(errs, fmt.Errorf("clearing stored keys: %w", err))
@@ -472,11 +488,22 @@ func (s *tpmSession) Clear() error {
 	return nil
 }
 
+// getSessionPassword returns the in-memory session password and whether it exists
+// If auth is disabled, it returns nil, false
+func (s *tpmSession) getSessionPassword() ([]byte, bool) {
+	if !s.authEnabled {
+		return nil, false
+	}
+	if len(s.storagePassword) > 0 {
+		return s.storagePassword, true
+	}
+	return nil, false
+}
+
 func (s *tpmSession) resetStorageHierarchyPassword() error {
-	currentPassword, err := s.storage.GetPassword()
-	if err != nil {
-		// If no password is set we assume ownership isn't enabled
-		// and thus no reason to reset the password
+	currentPassword, exists := s.getSessionPassword()
+	if !exists {
+		// No password configured, nothing to reset
 		return nil
 	}
 
@@ -633,9 +660,11 @@ func (s *tpmSession) readEKCertFromNVRAM(nvIndex uint32) ([]byte, error) {
 
 	var password []byte
 	if s.authEnabled {
-		password, err = s.storage.GetPassword()
-		if err != nil {
-			return nil, fmt.Errorf("failed to read auth password: %w", err)
+		var exists bool
+		password, exists = s.getSessionPassword()
+		if !exists {
+			// No password available
+			return nil, fmt.Errorf("auth enabled but no password configured")
 		}
 	}
 
@@ -687,7 +716,7 @@ func (s *tpmSession) GetEndorsementKeyCert() ([]byte, error) {
 	return certData, nil
 }
 
-func (s *tpmSession) ensureStorageAuth() error {
+func (s *tpmSession) ensureStorageAuth(ctx context.Context) error {
 	if !s.authEnabled {
 		s.log.Info("TPM Authentication is disabled")
 		return nil
@@ -697,26 +726,52 @@ func (s *tpmSession) ensureStorageAuth() error {
 	if err != nil {
 		return fmt.Errorf("checking storage hierarchy auth status: %w", err)
 	}
+	s.log.Infof("TPM owner hierarchy auth status: isAuthSet=%v", isAuthSet)
 
-	if isAuthSet {
-		s.log.Info("TPM Authentication is enabled")
+	password, hasStoredPassword := s.getSessionPassword()
+	if hasStoredPassword {
+		s.log.Infof("Found stored TPM password (length=%d bytes)", len(password))
+	} else {
+		s.log.Info("No stored TPM password available")
+	}
+
+	// Handle the different cases
+	if isAuthSet && hasStoredPassword {
+		s.log.Info("TPM has auth set and we have a password - verifying it works")
+		if err := s.verifyStoragePassword(password); err != nil {
+			return fmt.Errorf("stored password does not work with TPM: %w", err)
+		}
+		s.log.Info("Stored password verified successfully")
 		return nil
 	}
 
-	password, err := s.generateStoragePassword()
-	if err != nil {
-		return fmt.Errorf("generating storage hierarchy password: %w", err)
+	if isAuthSet && !hasStoredPassword {
+		return fmt.Errorf("TPM has owner auth set but no password available - cannot access TPM")
 	}
 
-	// store password to disk before setting it in TPM
-	if err := s.storage.StorePassword(password); err != nil {
-		return fmt.Errorf("storing password: %w", err)
+	if !isAuthSet && hasStoredPassword {
+		s.log.Info("TPM has no auth set but we have a password - setting it on TPM")
+		if err := s.updateStorageHierarchyPassword(nil, password); err != nil {
+			return fmt.Errorf("setting storage hierarchy password: %w", err)
+		}
+		return nil
+	}
+
+	// TPM has no auth and we have no password - generate one
+	if !isAuthSet && !hasStoredPassword {
+		s.log.Info("TPM storage password not found, initializing...")
+
+		password, err = s.generateStoragePassword()
+		if err != nil {
+			return fmt.Errorf("generating storage hierarchy password: %w", err)
+		}
+		s.storagePassword = password
+
+		// Password sealing is handled by the identity layer
+		s.log.Debug("Generated new storage password - sealing handled by identity layer")
 	}
 
 	if err := s.updateStorageHierarchyPassword(nil, password); err != nil {
-		if clearErr := s.storage.ClearPassword(); clearErr != nil {
-			return fmt.Errorf("setting storage hierarchy password: %w; clearing persisted password: %v", err, clearErr)
-		}
 		return fmt.Errorf("setting storage hierarchy password: %w", err)
 	}
 
@@ -726,8 +781,11 @@ func (s *tpmSession) ensureStorageAuth() error {
 func (s *tpmSession) ensureSRK() (*tpm2.NamedHandle, error) {
 	password, err := s.getPassword()
 	if err != nil {
-		// no password, use nil (disabled)
+		// no password, use nil
 		password = nil
+		s.log.Debug("No TPM password available, using empty password")
+	} else {
+		s.log.Debugf("Using TPM password (length=%d bytes)", len(password))
 	}
 
 	template, err := StorageKeyTemplate(s.keyAlgo)
@@ -745,6 +803,13 @@ func (s *tpmSession) ensureSRK() (*tpm2.NamedHandle, error) {
 
 	resp, err := cmd.Execute(transport.FromReadWriter(s.conn))
 	if err != nil {
+		if IsTPMAuthErr(err) {
+			if password == nil {
+				return nil, fmt.Errorf("creating SRK primary failed with auth error - TPM has password set but none provided: %w", err)
+			} else {
+				return nil, fmt.Errorf("creating SRK primary failed with auth error - provided password is incorrect: %w", err)
+			}
+		}
 		return nil, fmt.Errorf("creating SRK primary: %w", err)
 	}
 
@@ -815,10 +880,14 @@ func (s *tpmSession) loadExistingKeys() error {
 }
 
 func (s *tpmSession) getPassword() ([]byte, error) {
-	if !s.authEnabled {
+	password, exists := s.getSessionPassword()
+	if !exists {
+		if s.authEnabled {
+			return nil, fmt.Errorf("auth enabled but no password configured")
+		}
 		return nil, nil
 	}
-	return s.storage.GetPassword()
+	return password, nil
 }
 
 func (s *tpmSession) getKeyTemplate(keyType KeyType) (tpm2.TPMTPublic, error) {
@@ -904,6 +973,37 @@ func (s *tpmSession) updateStorageHierarchyPassword(currentPassword, newPassword
 	_, err := changeAuthCmd.Execute(transport.FromReadWriter(s.conn))
 	if err != nil {
 		return fmt.Errorf("setting storage hierarchy password: %w", err)
+	}
+
+	return nil
+}
+
+// verifyStoragePassword verifies that the given password works with the TPM storage hierarchy
+func (s *tpmSession) verifyStoragePassword(password []byte) error {
+	template, err := StorageKeyTemplate(s.keyAlgo)
+	if err != nil {
+		return fmt.Errorf("getting storage key template: %w", err)
+	}
+
+	cmd := tpm2.CreatePrimary{
+		PrimaryHandle: tpm2.AuthHandle{
+			Handle: tpm2.TPMRHOwner,
+			Auth:   tpm2.PasswordAuth(password),
+		},
+		InPublic: tpm2.New2B(template),
+	}
+
+	resp, err := cmd.Execute(transport.FromReadWriter(s.conn))
+	if err != nil {
+		if IsTPMAuthErr(err) {
+			return fmt.Errorf("password verification failed - incorrect password: %w", err)
+		}
+		return fmt.Errorf("password verification failed: %w", err)
+	}
+
+	// flush the key immediately to free resources
+	if err := s.flushHandle(resp.ObjectHandle); err != nil {
+		s.log.Debugf("Failed to flush verification key: %v", err)
 	}
 
 	return nil
@@ -1090,11 +1190,26 @@ func (s *tpmSession) createNewAppIdentity(appName string) error {
 	if err != nil {
 		return fmt.Errorf("storage app key template: %w", err)
 	}
-	// Create an individual storage key under the storage hierarchy for each application
-	// todo passwords
+
+	// Generate unique password for this app's storage key (only when auth is enabled)
+	var tmpPass []byte
+	if s.authEnabled {
+		tmpPass = make([]byte, 32)
+		if _, err := rand.Read(tmpPass); err != nil {
+			return fmt.Errorf("generating app storage key password: %w", err)
+		}
+	}
+
 	createCmd := tpm2.Create{
 		ParentHandle: s.handles[SRK],
 		InPublic:     tpm2.New2B(template),
+		InSensitive: tpm2.TPM2BSensitiveCreate{
+			Sensitive: &tpm2.TPMSSensitiveCreate{
+				UserAuth: tpm2.TPM2BAuth{
+					Buffer: tmpPass,
+				},
+			},
+		},
 	}
 
 	createResp, err := createCmd.Execute(transport.FromReadWriter(s.conn))
@@ -1162,7 +1277,7 @@ func (s *tpmSession) createNewAppIdentity(appName string) error {
 		ParentHandle: tpm2.AuthHandle{
 			Handle: persistentHandle,
 			Name:   loadRsp.Name,
-			Auth:   tpm2.PasswordAuth(nil), // todo need password
+			Auth:   tpm2.PasswordAuth(tmpPass), // use parent storage key password
 		},
 		InPublic: tpm2.New2B(ldevTemplate),
 	}
@@ -1172,14 +1287,32 @@ func (s *tpmSession) createNewAppIdentity(appName string) error {
 		return clearPersistedKey(fmt.Errorf("creating new app identity key: %w", err))
 	}
 
+	// get storage hierarchy password for metadata storage
+	parentPass, err := s.getPassword()
+	if err != nil {
+		return clearPersistedKey(fmt.Errorf("getting storage hierarchy password: %w", err))
+	}
+
+	pass := slices.Clone(tmpPass)
+	defer fccrypto.SecureMemoryWipe(tmpPass)
+
 	err = s.storage.StoreApplicationKey(appName, AppKeyStoreData{
 		ParentHandle: persistentHandle,
+		ParentPass:   parentPass,
 		Public:       createResp.OutPublic,
 		Private:      createResp.OutPrivate,
+		Pass:         pass,
 	})
 	if err != nil {
+		// wipe sensitive data on error before returning
+		fccrypto.SecureMemoryWipe(pass)
+		if parentPass != nil {
+			fccrypto.SecureMemoryWipe(parentPass)
+		}
 		return clearPersistedKey(fmt.Errorf("storing new app storage key: %w", err))
 	}
+	// pass and parentPass are intentionally stored in the struct and will be retrieved later,
+	// so we don't wipe them on success
 	return nil
 }
 

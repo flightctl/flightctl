@@ -8,6 +8,7 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
+	"encoding/asn1"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/pem"
@@ -521,9 +522,15 @@ func verifyCertifiedKey(certifyInfo, signature, pubBlob []byte, signerKey crypto
 		return fmt.Errorf("computing TPM Name: %w", err)
 	}
 
-	// TODO: this needs to be hardened contains is a poor compare.
-	if !bytes.Contains(certifyInfo, computedName) {
-		return fmt.Errorf("certified object name not found in certify info")
+	// parse the TPM2B_ATTEST structure to extract the attested name
+	attestedName, err := extractAttestedName(certifyInfo)
+	if err != nil {
+		return fmt.Errorf("extracting attested name from certify info: %w", err)
+	}
+
+	// compare the attested name with the computed name
+	if !bytes.Equal(attestedName, computedName) {
+		return fmt.Errorf("attested name does not match computed name")
 	}
 
 	// verify the signature
@@ -552,6 +559,40 @@ func computeTPMName(pub *tpm2.TPMTPublic) ([]byte, error) {
 	binary.BigEndian.PutUint16(algPrefix, uint16(pub.NameAlg))
 
 	return append(algPrefix, digest...), nil
+}
+
+// extractAttestedName parses a TPM2B_ATTEST structure and extracts the attested object name
+// from the TPMS_CERTIFY_INFO within the TPMS_ATTEST structure
+func extractAttestedName(certifyInfo []byte) ([]byte, error) {
+	// unmarshal TPM2B_ATTEST
+	attest, err := tpm2.Unmarshal[tpm2.TPM2BAttest](certifyInfo)
+	if err != nil {
+		return nil, fmt.Errorf("unmarshalling TPM2B_ATTEST: %w", err)
+	}
+
+	// get TPMS_ATTEST contents
+	attestContents, err := attest.Contents()
+	if err != nil {
+		return nil, fmt.Errorf("extracting TPMS_ATTEST contents: %w", err)
+	}
+
+	// verify this is a certify attestation
+	if attestContents.Type != tpm2.TPMSTAttestCertify {
+		return nil, fmt.Errorf("invalid attestation type: expected TPM_ST_ATTEST_CERTIFY (0x%x), got 0x%x",
+			tpm2.TPMSTAttestCertify, attestContents.Type)
+	}
+
+	// extract the certify info from the attested union
+	certifyInfoStruct, err := attestContents.Attested.Certify()
+	if err != nil {
+		return nil, fmt.Errorf("extracting TPMS_CERTIFY_INFO from attested union: %w", err)
+	}
+	if certifyInfoStruct == nil {
+		return nil, fmt.Errorf("attested union does not contain certify info")
+	}
+
+	// return the attested object's name
+	return certifyInfoStruct.Name.Buffer, nil
 }
 
 func verifyTPM2CertifySignature(certifyInfo, signature []byte, signingPublicKey crypto.PublicKey) error {
@@ -621,29 +662,34 @@ func verifyTPM2CertifySignature(certifyInfo, signature []byte, signingPublicKey 
 	}
 }
 
-// stripSANExtensionOIDs removes the SAN Extension OID from the specified
-// cert. This method may re-assign the remaining extensions out of order.
+// removeSANFromUnhandledExtensions removes Subject Alternative Name extension OIDs from
+// the certificate's unhandled critical extensions list.
 //
-// This is necessary because the EKCert may contain additional data
-// bundled within the SAN extension. This ext is also sometimes marked
-// critical. This causes the Verify() to reject the cert because not all data
-// within a critical extension has been handled. We mark this as OK here by
-// stripping the SAN Extension OID out of UnhandledCriticalExtensions.
-func stripSANExtensionOIDs(cert *x509.Certificate) {
-	sanExtensionOID := []int{2, 5, 29, 17}
-
-	for i := 0; i < len(cert.UnhandledCriticalExtensions); i++ {
-		ext := cert.UnhandledCriticalExtensions[i]
-		if !ext.Equal(sanExtensionOID) {
-			continue
-		}
-		// Swap ext with the last index and remove it.
-		last := len(cert.UnhandledCriticalExtensions) - 1
-		cert.UnhandledCriticalExtensions[i] = cert.UnhandledCriticalExtensions[last]
-		cert.UnhandledCriticalExtensions[last] = nil // "Release" extension
-		cert.UnhandledCriticalExtensions = cert.UnhandledCriticalExtensions[:last]
-		i--
+// This is necessary because TPM Endorsement Key certificates may contain
+// additional data bundled within the SAN extension that is marked as critical.
+// When a critical extension contains unhandled data, x509.Verify() rejects the
+// certificate. By removing the SAN OID from UnhandledCriticalExtensions, we
+// indicate that we've acknowledged this extension and are allowing the verification
+// process to proceed without error.
+//
+// SAN OID is 2.5.29.17 per RFC 5280
+func removeSANFromUnhandledExtensions(cert *x509.Certificate) {
+	if cert == nil || len(cert.UnhandledCriticalExtensions) == 0 {
+		return
 	}
+
+	// SAN OID: 2.5.29.17
+	sanExtensionOID := asn1.ObjectIdentifier{2, 5, 29, 17}
+
+	// filter out unhandled SAN extensions but maintain order
+	filtered := make([]asn1.ObjectIdentifier, 0, len(cert.UnhandledCriticalExtensions))
+	for _, oid := range cert.UnhandledCriticalExtensions {
+		if !oid.Equal(sanExtensionOID) {
+			filtered = append(filtered, oid)
+		}
+	}
+
+	cert.UnhandledCriticalExtensions = filtered
 }
 
 // verifyEKCertificateChain verifies that the EK certificate chains to a trusted root CA
@@ -664,7 +710,7 @@ func verifyEKCertificateChain(ekCert *x509.Certificate, trustedRoots *x509.CertP
 	}
 
 	// strip SAN Extension OIDs for TPM certificates
-	stripSANExtensionOIDs(ekCert)
+	removeSANFromUnhandledExtensions(ekCert)
 
 	opts := x509.VerifyOptions{
 		Roots:     trustedRoots,

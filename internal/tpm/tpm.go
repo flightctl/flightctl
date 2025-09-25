@@ -3,6 +3,7 @@ package tpm
 import (
 	"context"
 	"crypto"
+	"errors"
 	"regexp"
 
 	legacy "github.com/google/go-tpm/legacy/tpm2"
@@ -89,12 +90,6 @@ type Storage interface {
 	ClearApplicationKey(string) error
 	// ClearApplicationKeys removes all application keys
 	ClearApplicationKeys() error
-	// GetPassword retrieves the stored storage hierarchy password
-	GetPassword() ([]byte, error)
-	// StorePassword stores the storage hierarchy password
-	StorePassword(password []byte) error
-	// ClearPassword removes the stored password
-	ClearPassword() error
 	// Close closes the storage and releases any resources
 	Close() error
 }
@@ -215,4 +210,21 @@ func convertTPMLPCRSelectionToPCRSelection(tpmlSelection *tpm2.TPMLPCRSelection)
 		Hash: hash,
 		PCRs: pcrs,
 	}
+}
+
+// IsTPMAuthErr checks if an error is a TPM authentication error
+// Checks for TPM_RC_BAD_AUTH (0x9a2) and TPM_RC_AUTH_FAIL (0x98e)
+func IsTPMAuthErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	// Check for TPM_RC_BAD_AUTH (0x9a2) - HMAC/policy authorization failed
+	if errors.Is(err, tpm2.TPMRCBadAuth) {
+		return true
+	}
+	// Check for TPM_RC_AUTH_FAIL (0x98e) - authorization value is not correct
+	if errors.Is(err, tpm2.TPMRCAuthFail) {
+		return true
+	}
+	return false
 }

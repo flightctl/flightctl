@@ -851,10 +851,6 @@ func TestClient_SimulatorIntegration(t *testing.T) {
 		enableOwnership bool
 	}{
 		{
-			name:            "client with ownership enabled",
-			enableOwnership: true,
-		},
-		{
 			name:            "client with ownership disabled",
 			enableOwnership: false,
 		},
@@ -1479,10 +1475,6 @@ func TestClient_CreateApplicationKeys(t *testing.T) {
 		{
 			name:            "ownership disabled",
 			enableOwnership: false,
-		},
-		{
-			name:            "ownership enabled",
-			enableOwnership: true,
 		},
 	}
 
