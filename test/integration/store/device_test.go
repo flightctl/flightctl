@@ -1369,6 +1369,9 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(device.Status.Summary.Info).ToNot(BeNil())
 			Expect(*device.Status.Summary.Info).To(Equal("Device is waiting for connection after restore"))
 
+			// Check that updated status was set to unknown
+			Expect(device.Status.Updated.Status).To(Equal(api.DeviceUpdatedStatusUnknown))
+
 			// Check that other status fields were preserved
 			Expect(device.Status.Config.RenderedVersion).To(Equal("test-version"))
 		})
@@ -1409,6 +1412,9 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(updatedDevice.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusAwaitingReconnect))
 			Expect(updatedDevice.Status.Summary.Info).ToNot(BeNil())
 			Expect(*updatedDevice.Status.Summary.Info).To(Equal("Device is waiting for connection after restore"))
+
+			// Check that updated status was set to unknown
+			Expect(updatedDevice.Status.Updated.Status).To(Equal(api.DeviceUpdatedStatusUnknown))
 
 			// Check that lastSeen is zero (not set)
 			Expect(updatedDevice.Status.LastSeen.IsZero()).To(BeTrue())
@@ -1733,6 +1739,9 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(updatedDevice.Status.Summary.Info).ToNot(BeNil())
 			Expect(*updatedDevice.Status.Summary.Info).To(Equal("Device is up to date"))
 
+			// Verify updated status was set to OutOfDate (device version 3 < service version 5)
+			Expect(updatedDevice.Status.Updated.Status).To(Equal(api.DeviceUpdatedStatusOutOfDate))
+
 			// Verify status.config.renderedVersion was updated to device reported version
 			Expect(updatedDevice.Status.Config.RenderedVersion).To(Equal(deviceReportedVersion))
 
@@ -1788,6 +1797,9 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(*updatedDevice.Status.Summary.Info).To(ContainSubstring("Device reconciliation is paused due to a state conflict"))
 			Expect(*updatedDevice.Status.Summary.Info).To(ContainSubstring("device reported version 5 > device version known to service 3"))
 
+			// Verify updated status was set to OutOfDate (device version 5 > service version 3)
+			Expect(updatedDevice.Status.Updated.Status).To(Equal(api.DeviceUpdatedStatusOutOfDate))
+
 			// Verify status.config.renderedVersion was updated to device reported version
 			Expect(updatedDevice.Status.Config.RenderedVersion).To(Equal(deviceReportedVersion))
 
@@ -1834,6 +1846,9 @@ var _ = Describe("DeviceStore create", func() {
 			// Verify status was updated to normal
 			Expect(updatedDevice.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusOnline))
 
+			// Verify updated status was set to OutOfDate (device version 0 < service version 5)
+			Expect(updatedDevice.Status.Updated.Status).To(Equal(api.DeviceUpdatedStatusOutOfDate))
+
 			// Verify status.config.renderedVersion was updated to "0" (default for nil)
 			Expect(updatedDevice.Status.Config.RenderedVersion).To(Equal("0"))
 		})
@@ -1878,6 +1893,9 @@ var _ = Describe("DeviceStore create", func() {
 			// Verify status was updated to normal
 			Expect(updatedDevice.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusOnline))
 
+			// Verify updated status was set to OutOfDate (device version 0 < service version 5)
+			Expect(updatedDevice.Status.Updated.Status).To(Equal(api.DeviceUpdatedStatusOutOfDate))
+
 			// Verify status.config.renderedVersion was updated to "0" (default for empty)
 			Expect(updatedDevice.Status.Config.RenderedVersion).To(Equal("0"))
 		})
@@ -1921,6 +1939,9 @@ var _ = Describe("DeviceStore create", func() {
 
 			// Verify status was updated to normal
 			Expect(updatedDevice.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusOnline))
+
+			// Verify updated status was set to OutOfDate (device version 0 < service version 5)
+			Expect(updatedDevice.Status.Updated.Status).To(Equal(api.DeviceUpdatedStatusOutOfDate))
 
 			// Verify status.config.renderedVersion was updated to the original invalid value
 			Expect(updatedDevice.Status.Config.RenderedVersion).To(Equal("not-a-number"))
@@ -1969,6 +1990,9 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(updatedDevice.Status.Summary.Info).ToNot(BeNil())
 			Expect(*updatedDevice.Status.Summary.Info).To(ContainSubstring("device reported version 5 > device version known to service 0"))
 
+			// Verify updated status was set to OutOfDate (device version 5 > service version 0)
+			Expect(updatedDevice.Status.Updated.Status).To(Equal(api.DeviceUpdatedStatusOutOfDate))
+
 			// Verify status.config.renderedVersion was updated to device reported version
 			Expect(updatedDevice.Status.Config.RenderedVersion).To(Equal(deviceReportedVersion))
 		})
@@ -2015,6 +2039,9 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(updatedDevice.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusConflictPaused))
 			Expect(updatedDevice.Status.Summary.Info).ToNot(BeNil())
 			Expect(*updatedDevice.Status.Summary.Info).To(ContainSubstring("device reported version 5 > device version known to service 0"))
+
+			// Verify updated status was set to OutOfDate (device version 5 > service version 0)
+			Expect(updatedDevice.Status.Updated.Status).To(Equal(api.DeviceUpdatedStatusOutOfDate))
 
 			// Verify status.config.renderedVersion was updated to device reported version
 			Expect(updatedDevice.Status.Config.RenderedVersion).To(Equal(deviceReportedVersion))
