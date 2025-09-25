@@ -71,7 +71,8 @@ func (s *ServiceTestSuite) Setup() {
 	s.caClient, _, err = icrypto.EnsureCA(caCfg)
 	Expect(err).ToNot(HaveOccurred())
 
-	orgResolver := testutil.NewOrgResolver(s.cfg, s.Store.Organization(), s.Log)
+	orgResolver, err := testutil.NewOrgResolver(s.cfg, s.Store.Organization(), s.Log)
+	Expect(err).ToNot(HaveOccurred())
 	s.Handler = service.NewServiceHandler(s.Store, s.workerClient, kvStore, s.caClient, s.Log, "", "", []string{}, orgResolver)
 }
 

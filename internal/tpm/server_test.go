@@ -460,3 +460,113 @@ func TestNormalizeEnrollmentCSR(t *testing.T) {
 		require.Contains(t, err.Error(), "failed to parse TCG CSR")
 	})
 }
+
+// createTCGCSRWithSpecificAttestationKey creates a TCG CSR with a specific attestation public key for testing
+func createTCGCSRWithSpecificAttestationKey(t *testing.T, attestationPub []byte) []byte {
+	signer := &mockTestSigner{}
+
+	tcgCSR, err := BuildTCGCSRIDevID(
+		[]byte("embedded-standard-csr"),
+		"test-model",
+		"test-serial",
+		nil,            // ekCert
+		attestationPub, // attestationPub
+		[]byte("signing-pub"),
+		[]byte("signing-certify-info"),
+		[]byte("signing-certify-signature"),
+		signer,
+	)
+	require.NoError(t, err)
+	return tcgCSR
+}
+
+// TestVerifyTCGCSRSigningChain tests the VerifyTCGCSRSigningChain function
+func TestVerifyTCGCSRSigningChain(t *testing.T) {
+	tests := []struct {
+		name                 string
+		setupCSR             func(t *testing.T) []byte
+		trustedCertifyKey    []byte
+		expectError          bool
+		expectedErrorMessage string
+	}{
+		{
+			name: "invalid CSR data - not TCG format",
+			setupCSR: func(t *testing.T) []byte {
+				return []byte("not-tcg-csr-data")
+			},
+			trustedCertifyKey:    []byte("trusted-key"),
+			expectError:          true,
+			expectedErrorMessage: "data is not in TCG-CSR-IDEVID format",
+		},
+		{
+			name: "parse failure - truncated TCG CSR",
+			setupCSR: func(t *testing.T) []byte {
+				return []byte{
+					0x01, 0x00, 0x01, 0x00, // Valid TCG version header
+					0x00, 0x00, 0x00, 0x50, // Content size (80 bytes)
+					0x00, 0x00, 0x00, 0x20, // Signature size (32 bytes)
+					// Missing actual content - will cause parsing to fail
+				}
+			},
+			trustedCertifyKey:    []byte("trusted-key"),
+			expectError:          true,
+			expectedErrorMessage: "failed to parse TCG-CSR",
+		},
+		{
+			name: "trusted key mismatch",
+			setupCSR: func(t *testing.T) []byte {
+				attestationKey := []byte("different-attestation-key")
+				return createTCGCSRWithSpecificAttestationKey(t, attestationKey)
+			},
+			trustedCertifyKey:    []byte("trusted-key"),
+			expectError:          true,
+			expectedErrorMessage: "trusted certification key invalid",
+		},
+		{
+			name: "missing attestation public key",
+			setupCSR: func(t *testing.T) []byte {
+				// Create CSR with empty attestation key
+				return createTCGCSRWithSpecificAttestationKey(t, nil)
+			},
+			trustedCertifyKey:    nil,
+			expectError:          true,
+			expectedErrorMessage: "missing attestation public key",
+		},
+		{
+			name: "empty trusted key",
+			setupCSR: func(t *testing.T) []byte {
+				return createTCGCSRWithSpecificAttestationKey(t, []byte("attestation"))
+			},
+			trustedCertifyKey:    nil,
+			expectError:          true,
+			expectedErrorMessage: "trusted certification key invalid",
+		},
+		{
+			name: "success - matching trusted key",
+			setupCSR: func(t *testing.T) []byte {
+				trustedKey := []byte("trusted-key-data")
+				return createTCGCSRWithSpecificAttestationKey(t, trustedKey)
+			},
+			trustedCertifyKey:    []byte("trusted-key-data"),
+			expectError:          true, // Will still fail on signing chain verification in this test
+			expectedErrorMessage: "chain of trust verification failed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			csrData := tt.setupCSR(t)
+
+			err := VerifyTCGCSRSigningChain(csrData, tt.trustedCertifyKey)
+
+			if tt.expectError {
+				require.Error(t, err)
+				if tt.expectedErrorMessage != "" {
+					require.Contains(t, err.Error(), tt.expectedErrorMessage)
+				}
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}

@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/certmanager/provider/provisioner"
 	"github.com/flightctl/flightctl/internal/agent/device/certmanager/provider/storage"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/identity"
 )
 
 // WithBuiltins registers the standard certificate manager providers and factories.
@@ -18,6 +19,7 @@ func WithBuiltins(
 	managementClient client.Management,
 	readWriter fileio.ReadWriter,
 	cfg *agent_config.Config,
+	idFactory identity.ExportableFactory,
 ) ManagerOption {
 	return func(cm *CertManager) error {
 		if cfg == nil {
@@ -29,6 +31,9 @@ func WithBuiltins(
 		if readWriter == nil {
 			return fmt.Errorf("nil read-writer")
 		}
+		if idFactory == nil {
+			return fmt.Errorf("nil identity factory")
+		}
 
 		// Config providers
 		if err := WithConfigProvider(config.NewDropInConfigProvider(readWriter, filepath.Join(cfg.ConfigDir, "certs.yaml")))(cm); err != nil {
@@ -36,7 +41,7 @@ func WithBuiltins(
 		}
 
 		// Provisioner providers
-		if err := WithProvisionerProvider(provisioner.NewCSRProvisionerFactory(deviceName, managementClient))(cm); err != nil {
+		if err := WithProvisionerProvider(provisioner.NewCSRProvisionerFactory(deviceName, managementClient, idFactory))(cm); err != nil {
 			return err
 		}
 

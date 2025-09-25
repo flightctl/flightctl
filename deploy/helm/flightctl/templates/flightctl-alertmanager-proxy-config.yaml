@@ -7,6 +7,23 @@ metadata:
   namespace: {{ .Release.Namespace }}
 data:
   config.yaml: |-
+    database:
+      hostname: {{ include "flightctl.dbHostname" . }}
+      type: {{ required "Values.db.type is required" $.Values.db.type | quote }}
+      port: {{ required "Values.db.port is required" $.Values.db.port }}
+      name: {{ required "Values.db.name is required" $.Values.db.name }}
+      {{- if .Values.db.sslmode }}
+      sslmode: {{ .Values.db.sslmode | quote }}
+      {{- end }}
+      {{- if .Values.db.sslcert }}
+      sslcert: {{ .Values.db.sslcert | quote }}
+      {{- end }}
+      {{- if .Values.db.sslkey }}
+      sslkey: {{ .Values.db.sslkey | quote }}
+      {{- end }}
+      {{- if .Values.db.sslrootcert }}
+      sslrootcert: {{ .Values.db.sslrootcert | quote }}
+      {{- end }}
     service:
       certStore: "/app/certs"
       {{ if and .Values.api.rateLimit (not (empty .Values.api.rateLimit)) }}
@@ -46,5 +63,13 @@ data:
         externalOidcAuthority: {{ include "flightctl.getOidcAuthorityUrl" . }}
       {{- end }}
     {{- end }}
+    organizations:
+      enabled: {{ .Values.global.organizations.enabled }}
+    {{ if .Values.global.tracing.enabled }}
+    tracing:
+        enabled: true
+        endpoint: {{ .Values.global.tracing.endpoint }}
+        insecure: {{ .Values.global.tracing.insecure }}
+    {{ end }}
 {{- end }}
 

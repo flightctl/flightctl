@@ -136,7 +136,8 @@ var _ = Describe("Periodic", func() {
 
 		// Setup worker client and service handler
 		workerClient = worker_client.NewWorkerClient(queuePublisher, log)
-		orgResolver := testutil.NewOrgResolver(cfg, storeInst.Organization(), log)
+		orgResolver, err := testutil.NewOrgResolver(cfg, storeInst.Organization(), log)
+		Expect(err).ToNot(HaveOccurred())
 		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{}, orgResolver)
 
 		channelManager, err = periodic.NewChannelManager(periodic.ChannelManagerConfig{

@@ -57,6 +57,28 @@ func newTPMProvider(
 	}
 }
 
+type tpmExportableProvider struct {
+	client tpm.Client
+}
+
+func newTPMExportableProvider(client tpm.Client) *tpmExportableProvider {
+	return &tpmExportableProvider{
+		client: client,
+	}
+}
+
+func (t *tpmExportableProvider) NewExportable(name string) (*Exportable, error) {
+	csr, keyPem, err := t.client.CreateApplicationKey(name)
+	if err != nil {
+		return nil, fmt.Errorf("creating application identity: %q: %w", name, err)
+	}
+	return &Exportable{
+		name:   name,
+		csr:    csr,
+		keyPEM: keyPem,
+	}, nil
+}
+
 func (t *tpmProvider) Initialize(ctx context.Context) error {
 	publicKey := t.client.Public()
 	if publicKey == nil {
@@ -343,21 +365,31 @@ func (t *tpmProvider) createCertificate() (*tls.Certificate, error) {
 	return tlsCert, nil
 }
 
+func normalizeManagementConfig(config *base_client.Config) (*base_client.Config, error) {
+	configCopy := config.DeepCopy()
+	// The ClientKey and ClientKeyData will never exist for the TPM. Ensure that any mention to those values are removed
+	configCopy.AuthInfo.ClientKey = ""
+	configCopy.AuthInfo.ClientKeyData = nil
+	if err := configCopy.Flatten(); err != nil {
+		return nil, fmt.Errorf("flattening config: %w", err)
+	}
+	return configCopy, nil
+}
+
 func (t *tpmProvider) CreateManagementClient(config *base_client.Config, metricsCallback client.RPCMetricsCallback) (client.Management, error) {
 	tlsCert, err := t.createCertificate()
 	if err != nil {
 		return nil, err
 	}
-	configCopy := config.DeepCopy()
-	if err := configCopy.Flatten(); err != nil {
-		return nil, err
-	}
-
 	tlsConfig := &tls.Config{
 		Certificates: []tls.Certificate{*tlsCert},
 		MinVersion:   tls.VersionTLS13,
 	}
 
+	configCopy, err := normalizeManagementConfig(config)
+	if err != nil {
+		return nil, fmt.Errorf("normalizing config: %w", err)
+	}
 	if configCopy.Service.CertificateAuthorityData != nil {
 		caCertPool := x509.NewCertPool()
 		caCertPool.AppendCertsFromPEM(configCopy.Service.CertificateAuthorityData)
@@ -400,9 +432,9 @@ func (t *tpmProvider) CreateGRPCClient(config *base_client.Config) (grpc_v1.Rout
 		return nil, err
 	}
 
-	configCopy := config.DeepCopy()
-	if err := configCopy.Flatten(); err != nil {
-		return nil, err
+	configCopy, err := normalizeManagementConfig(config)
+	if err != nil {
+		return nil, fmt.Errorf("normalizing config: %w", err)
 	}
 
 	conn, err := t.createGRPCConnection(configCopy, *tlsCert)

@@ -12,6 +12,9 @@ global:
       oidcAuthority:
       externalOidcAuthority:
       oidcClientId:
+  organizations:
+    # Enable IdP-provided organizations support
+    enabled: false
 
 db:
   # external: Set to "enabled" to use external PostgreSQL database

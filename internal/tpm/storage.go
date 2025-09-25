@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
 
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -18,15 +19,23 @@ var (
 
 // storageData represents the structure for persisted TPM data
 type storageData struct {
-	LDevID         *keyData      `json:"ldevid,omitempty"`
-	LAK            *keyData      `json:"lak,omitempty"`
-	SealedPassword *passwordData `json:"sealed_password,omitempty"`
+	LDevID          *keyData                       `json:"ldevid,omitempty"`
+	LAK             *keyData                       `json:"lak,omitempty"`
+	SealedPassword  *passwordData                  `json:"sealed_password,omitempty"`
+	ApplicationKeys map[string]*applicationKeyData `json:"app_keys,omitempty"`
 }
 
 // keyData represents persisted key information
 type keyData struct {
-	PublicBlob  string `json:"public_blob"`
-	PrivateBlob string `json:"private_blob"`
+	PublicBlob  string  `json:"public_blob"`
+	PrivateBlob string  `json:"private_blob"`
+	Password    *string `json:"password,omitempty"`
+}
+
+type applicationKeyData struct {
+	KeyData        keyData `json:"key_data,omitempty"`
+	ParentHandle   uint32  `json:"parent_handle"`
+	ParentPassword *string `json:"parent_password,omitempty"`
 }
 
 // passwordData represents persisted password information
@@ -69,6 +78,14 @@ func (k *keyData) Private() (*tpm2.TPM2BPrivate, error) {
 func (k *keyData) Update(public tpm2.TPM2BPublic, private tpm2.TPM2BPrivate) error {
 	k.PublicBlob = base64.StdEncoding.EncodeToString(tpm2.Marshal(public))
 	k.PrivateBlob = base64.StdEncoding.EncodeToString(tpm2.Marshal(private))
+	return nil
+}
+
+func (k *applicationKeyData) Update(handle tpm2.TPMHandle, public tpm2.TPM2BPublic, private tpm2.TPM2BPrivate) error {
+	if err := k.KeyData.Update(public, private); err != nil {
+		return err
+	}
+	k.ParentHandle = handle.HandleValue()
 	return nil
 }
 
@@ -120,6 +137,7 @@ func (s *storageData) Password() (*passwordData, error) {
 
 // fileStorage implements Storage interface for file-based persistence
 type fileStorage struct {
+	mu   sync.Mutex
 	rw   fileio.ReadWriter
 	path string
 	log  *log.PrefixLogger
@@ -135,6 +153,9 @@ func NewFileStorage(rw fileio.ReadWriter, path string, log *log.PrefixLogger) St
 }
 
 func (s *fileStorage) GetKey(keyType KeyType) (*tpm2.TPM2BPublic, *tpm2.TPM2BPrivate, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	data, err := s.readData()
 	if err != nil {
 		return nil, nil, err
@@ -158,7 +179,54 @@ func (s *fileStorage) GetKey(keyType KeyType) (*tpm2.TPM2BPublic, *tpm2.TPM2BPri
 	return public, private, nil
 }
 
+func (s *fileStorage) GetApplicationKey(appName string) (*AppKeyStoreData, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	data, err := s.readData()
+	if err != nil {
+		return nil, err
+	}
+
+	key, ok := data.ApplicationKeys[appName]
+	if !ok {
+		return nil, fmt.Errorf("child key %s %w", appName, ErrNotFound)
+	}
+
+	public, err := key.KeyData.Public()
+	if err != nil {
+		return nil, fmt.Errorf("public key for %s from storage: %w", appName, err)
+	}
+	private, err := key.KeyData.Private()
+	if err != nil {
+		return nil, fmt.Errorf("private key for %s from storage: %w", appName, err)
+	}
+
+	res := &AppKeyStoreData{
+		ParentHandle: tpm2.TPMHandle(key.ParentHandle),
+		Public:       *public,
+		Private:      *private,
+	}
+	if key.ParentPassword != nil {
+		res.ParentPass, err = base64.StdEncoding.DecodeString(*key.ParentPassword)
+		if err != nil {
+			return nil, fmt.Errorf("decode parent password for %s from storage: %w", appName, err)
+		}
+	}
+	if key.KeyData.Password != nil {
+		res.Pass, err = base64.StdEncoding.DecodeString(*key.KeyData.Password)
+		if err != nil {
+			return nil, fmt.Errorf("decode password for %s from storage: %w", appName, err)
+		}
+	}
+	s.log.Debugf("Successfully loaded app key %s from storage", appName)
+	return res, nil
+}
+
 func (s *fileStorage) StoreKey(keyType KeyType, public tpm2.TPM2BPublic, private tpm2.TPM2BPrivate) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	s.log.Debugf("Storing key %s to disk", keyType)
 
 	data, err := s.readData()
@@ -180,10 +248,28 @@ func (s *fileStorage) StoreKey(keyType KeyType, public tpm2.TPM2BPublic, private
 	}
 
 	// validate the key was stored correctly by attempting to read it back
-	storedPub, storedPriv, err := s.GetKey(keyType)
+	// Note: we need to re-read from disk to validate, but we already hold the lock
+	data, err = s.readData()
 	if err != nil {
-		s.log.Errorf("Failed to validate stored key %s: %v", keyType, err)
-		return fmt.Errorf("validation failed for stored key %s: %w", keyType, err)
+		s.log.Errorf("Failed to re-read data for validation of key %s: %v", keyType, err)
+		return fmt.Errorf("validation read failed for stored key %s: %w", keyType, err)
+	}
+
+	key := data.Handle(keyType)
+	if key == nil {
+		s.log.Errorf("Stored key %s not found during validation", keyType)
+		return fmt.Errorf("stored key %s not found during validation", keyType)
+	}
+
+	storedPub, err := key.Public()
+	if err != nil {
+		s.log.Errorf("Failed to validate stored public key %s: %v", keyType, err)
+		return fmt.Errorf("validation failed for stored public key %s: %w", keyType, err)
+	}
+	storedPriv, err := key.Private()
+	if err != nil {
+		s.log.Errorf("Failed to validate stored private key %s: %v", keyType, err)
+		return fmt.Errorf("validation failed for stored private key %s: %w", keyType, err)
 	}
 
 	if storedPub == nil || storedPriv == nil {
@@ -195,7 +281,42 @@ func (s *fileStorage) StoreKey(keyType KeyType, public tpm2.TPM2BPublic, private
 	return nil
 }
 
+func (s *fileStorage) StoreApplicationKey(appName string, keyData AppKeyStoreData) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.log.Debugf("Storing key %s to disk", appName)
+
+	data, err := s.readData()
+	if err != nil {
+		return fmt.Errorf("reading storage data: %w", err)
+	}
+
+	if data.ApplicationKeys == nil {
+		data.ApplicationKeys = make(map[string]*applicationKeyData)
+	}
+
+	entry, ok := data.ApplicationKeys[appName]
+	if !ok {
+		entry = &applicationKeyData{}
+		data.ApplicationKeys[appName] = entry
+	}
+
+	// TODO passwords
+	if err := entry.Update(keyData.ParentHandle, keyData.Public, keyData.Private); err != nil {
+		return fmt.Errorf("updating key data: %s : %w", appName, err)
+	}
+
+	if err := s.writeData(data); err != nil {
+		return fmt.Errorf("writing key data to disk: %w", err)
+	}
+	return nil
+}
+
 func (s *fileStorage) ClearKey(keyType KeyType) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	data, err := s.readData()
 	if err != nil {
 		return err
@@ -208,7 +329,36 @@ func (s *fileStorage) ClearKey(keyType KeyType) error {
 	return s.writeData(data)
 }
 
+func (s *fileStorage) ClearApplicationKeys() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	data, err := s.readData()
+	if err != nil {
+		return err
+	}
+	data.ApplicationKeys = make(map[string]*applicationKeyData)
+
+	return s.writeData(data)
+}
+
+func (s *fileStorage) ClearApplicationKey(appName string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	data, err := s.readData()
+	if err != nil {
+		return err
+	}
+	delete(data.ApplicationKeys, appName)
+
+	return s.writeData(data)
+}
+
 func (s *fileStorage) GetPassword() ([]byte, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	data, err := s.readData()
 	if err != nil {
 		return nil, err
@@ -234,6 +384,9 @@ func (s *fileStorage) GetPassword() ([]byte, error) {
 }
 
 func (s *fileStorage) StorePassword(newPassword []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	data, err := s.readData()
 	if err != nil {
 		return err
@@ -254,6 +407,9 @@ func (s *fileStorage) StorePassword(newPassword []byte) error {
 }
 
 func (s *fileStorage) ClearPassword() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	data, err := s.readData()
 	if err != nil {
 		return err

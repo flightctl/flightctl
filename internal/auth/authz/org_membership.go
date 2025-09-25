@@ -19,26 +19,30 @@ type MembershipChecker interface {
 	IsMemberOf(ctx context.Context, identity common.Identity, orgID uuid.UUID) (bool, error)
 }
 
-type JWTAuthZ struct {
+func isListOrganizations(resource string, op string) bool {
+	return resource == organizationsResource && op == listAction
+}
+
+type OrgMembershipAuthZ struct {
 	membershipChecker MembershipChecker
 }
 
-func NewJWTAuthZ(checker MembershipChecker) *JWTAuthZ {
-	return &JWTAuthZ{
+func NewOrgMembershipAuthZ(checker MembershipChecker) *OrgMembershipAuthZ {
+	return &OrgMembershipAuthZ{
 		membershipChecker: checker,
 	}
 }
 
-func (j *JWTAuthZ) CheckPermission(ctx context.Context, resource string, op string) (bool, error) {
+func (o *OrgMembershipAuthZ) CheckPermission(ctx context.Context, resource string, op string) (bool, error) {
 	// Do not check org membership for list operations on the organizations resource
-	if resource == organizationsResource && op == listAction {
+	if isListOrganizations(resource, op) {
 		return true, nil
 	}
 
-	return j.checkOrgMembership(ctx)
+	return o.checkOrgMembership(ctx)
 }
 
-func (j *JWTAuthZ) checkOrgMembership(ctx context.Context) (bool, error) {
+func (o *OrgMembershipAuthZ) checkOrgMembership(ctx context.Context) (bool, error) {
 	identity, err := common.GetIdentity(ctx)
 	if err != nil {
 		return false, fmt.Errorf("failed to get identity: %w", err)
@@ -49,7 +53,7 @@ func (j *JWTAuthZ) checkOrgMembership(ctx context.Context) (bool, error) {
 		return false, fmt.Errorf("org ID not found in context")
 	}
 
-	isMember, err := j.membershipChecker.IsMemberOf(ctx, identity, orgID)
+	isMember, err := o.membershipChecker.IsMemberOf(ctx, identity, orgID)
 	if err != nil {
 		return false, fmt.Errorf("failed to check org membership: %w", err)
 	}
