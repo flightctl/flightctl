@@ -37,12 +37,6 @@ RUN --mount=type=cache,target=/opt/app-root/src/.cache/go-build \
     --mount=type=cache,target=/opt/app-root/src/go/pkg/mod \
     make build-userinfo-proxy
 
-FROM registry.access.redhat.com/ubi9/ubi-minimal as certs
-# Use BuildKit cache mounts for microdnf package caching
-RUN --mount=type=cache,target=/var/cache/dnf \
-    --mount=type=cache,target=/var/lib/dnf \
-     microdnf install ca-certificates --nodocs -y
-
 FROM registry.access.redhat.com/ubi9/ubi-micro
 WORKDIR /app
 LABEL \
@@ -53,7 +47,6 @@ LABEL \
   name="flightctl-userinfo-proxy" \
   summary="Flight Control UserInfo proxy for Grafana authentication"
 COPY --from=build /app/bin/flightctl-userinfo-proxy .
-COPY --from=certs /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem /etc/pki/ca-trust/extracted/pem/
 
 EXPOSE 8080
 
