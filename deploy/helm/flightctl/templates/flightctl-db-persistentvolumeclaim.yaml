@@ -1,3 +1,4 @@
+{{- if ne .Values.db.external "enabled" }}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -10,10 +11,13 @@ metadata:
   name: flightctl-db
   namespace:  {{ default .Release.Namespace .Values.global.internalNamespace }}
 spec:
-  storageClassName: {{ .Values.global.storageClassName }}
+  {{- with .Values.global.storageClassName }}
+  storageClassName: {{ . }}
+  {{- end }}
   accessModes:
     - ReadWriteOnce
   resources:
     requests:
       storage: {{ .Values.db.storage.size }}
+{{- end }}
 

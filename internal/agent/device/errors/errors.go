@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"syscall"
 
 	"github.com/flightctl/flightctl/pkg/poll"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -95,7 +96,11 @@ var (
 
 // TODO: tighten up the retryable errors ideally all retryable errors should be explicitly defined
 func IsRetryable(err error) bool {
+	var dnsErr *net.DNSError
 	switch {
+	case errors.As(err, &dnsErr):
+		// see https://pkg.go.dev/net#DNSError
+		return dnsErr.Temporary()
 	case IsTimeoutError(err):
 		return true
 	case errors.Is(err, ErrRetryable):
@@ -116,6 +121,9 @@ func IsRetryable(err error) bool {
 		// retry the request as the error is transient.
 		return true
 	case errors.Is(err, poll.ErrMaxSteps):
+		return true
+	case errors.Is(err, syscall.ECONNRESET):
+		// connection reset by peer is a transient network error
 		return true
 	case errors.Is(err, ErrNoRetry):
 		return false
@@ -146,6 +154,10 @@ func IsTimeoutError(err error) bool {
 	}
 
 	if wait.Interrupted(err) {
+		return true
+	}
+
+	if errors.Is(err, syscall.ETIMEDOUT) {
 		return true
 	}
 

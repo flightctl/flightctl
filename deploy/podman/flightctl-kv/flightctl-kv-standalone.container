@@ -4,16 +4,13 @@ Description=Flight Control Key Value service
 [Container]
 ContainerName=flightctl-kv
 Image=docker.io/redis:7.4.1
-Exec=/bin/sh -c 'redis-server /usr/local/etc/redis/redis.conf --requirepass $${KV_PASSWORD}'
+Exec=/bin/sh -c 'mkdir -p /usr/local/etc/redis && echo "save \"\"" > /usr/local/etc/redis/redis.conf && echo "appendonly no" >> /usr/local/etc/redis/redis.conf && echo "loglevel $${REDIS_LOGLEVEL}" >> /usr/local/etc/redis/redis.conf && echo "maxmemory $${REDIS_MAXMEMORY}" >> /usr/local/etc/redis/redis.conf && echo "maxmemory-policy $${REDIS_MAXMEMORY_POLICY}" >> /usr/local/etc/redis/redis.conf && echo "requirepass $${KV_PASSWORD}" >> /usr/local/etc/redis/redis.conf && exec redis-server /usr/local/etc/redis/redis.conf'
 Secret=flightctl-kv-password,type=env,target=KV_PASSWORD
-
-# The following is necessary so that the redis user which runs the redis process inside of the container
-# can have write access to the flightctl-kv volume
-PodmanArgs="--userns=keep-id:uid=999,gid=999"
+Environment=REDIS_LOGLEVEL=warning
+Environment=REDIS_MAXMEMORY=1gb
+Environment=REDIS_MAXMEMORY_POLICY=allkeys-lru
 
 PublishPort=6379:6379
-Volume=flightctl-kv:/var/lib/redis/data:Z,U
-Volume=/usr/share/flightctl/flightctl-kv/redis.conf:/usr/local/etc/redis/redis.conf
 
 [Service]
 Type=notify

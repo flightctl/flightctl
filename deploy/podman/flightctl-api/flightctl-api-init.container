@@ -1,7 +1,7 @@
 [Unit]
 PartOf=flightctl.target
-After=flightctl-db.service
-Wants=flightctl-db.service
+After=flightctl-db-wait.service
+Wants=flightctl-db-wait.service
 
 [Container]
 Image=registry.access.redhat.com/ubi9/ubi-minimal

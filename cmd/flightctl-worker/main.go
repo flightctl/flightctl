@@ -10,6 +10,8 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/instrumentation"
+	"github.com/flightctl/flightctl/internal/instrumentation/metrics"
+	"github.com/flightctl/flightctl/internal/instrumentation/metrics/worker"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
 	workerserver "github.com/flightctl/flightctl/internal/worker_server"
@@ -72,7 +74,33 @@ func main() {
 		k8sClient = nil
 	}
 
-	server := workerserver.New(cfg, log, store, provider, k8sClient)
+	// Initialize metrics collectors
+	var workerCollector *worker.WorkerCollector
+	if cfg.Metrics != nil && cfg.Metrics.Enabled {
+		var collectors []metrics.NamedCollector
+		if cfg.Metrics.WorkerCollector != nil && cfg.Metrics.WorkerCollector.Enabled {
+			workerCollector = worker.NewWorkerCollector(ctx, log, cfg, provider)
+			collectors = append(collectors, workerCollector)
+		}
+
+		if cfg.Metrics.SystemCollector != nil && cfg.Metrics.SystemCollector.Enabled {
+			if systemMetricsCollector := metrics.NewSystemCollector(ctx, cfg); systemMetricsCollector != nil {
+				collectors = append(collectors, systemMetricsCollector)
+			}
+		}
+
+		if len(collectors) > 0 {
+			go func() {
+				metricsServer := instrumentation.NewMetricsServer(log, cfg, collectors...)
+				if err := metricsServer.Run(ctx); err != nil {
+					log.Errorf("Error running metrics server: %s", err)
+				}
+				cancel()
+			}()
+		}
+	}
+
+	server := workerserver.New(cfg, log, store, provider, k8sClient, workerCollector)
 	if err := server.Run(ctx); err != nil {
 		log.Fatalf("Error running server: %s", err)
 	}

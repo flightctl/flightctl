@@ -136,11 +136,6 @@ func (s *DataStore) RunMigrationWithMigrationUser(ctx context.Context, cfg *conf
 	if err != nil {
 		return fmt.Errorf("failed to create migration database connection: %w", err)
 	}
-	defer func() {
-		if sqlDB, err := migrationDB.DB(); err == nil {
-			sqlDB.Close()
-		}
-	}()
 
 	// Create migration store with migration user
 	migrationStore := NewStore(migrationDB, log.WithField("pkg", "migration-store"))
@@ -263,7 +258,7 @@ func ParseContinueString(contStr *string) (*Continue, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := json.Unmarshal(sDec, &cont); err != nil {
+	if err = json.Unmarshal(sDec, &cont); err != nil {
 		return nil, err
 	}
 	if cont.Version != CurrentContinueVersion {

@@ -14,6 +14,7 @@ import (
 const (
 	ItemsPerPage           = 1000
 	EventProcessingTimeout = 10 * time.Second
+	AckTimeout             = 5 * time.Second
 )
 
 var (

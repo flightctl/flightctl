@@ -2,6 +2,8 @@ package tasks
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -27,8 +29,8 @@ import (
 // by the edge device, and stores the rendered output.
 //
 // To ensure idempotency:
-// - If the device has already been rendered for the current template version (as recorded in
-//   the DeviceAnnotationRenderedTemplateVersion annotation), the task exits early.
+// - If the device spec hasn't changed (as determined by UpdateRenderedDevice), the rendered
+//   version is not bumped.
 // - The rendering process is deterministic, based on the device spec, configuration sources,
 //   and application specs.
 // - External inputs (e.g., Git repositories, HTTP endpoints, Kubernetes secrets) are frozen per
@@ -78,21 +80,37 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 		return fmt.Errorf("failed getting device %s/%s: %s", t.orgId, t.event.InvolvedObject.Name, status.Message)
 	}
 
+	// Calculate hash including device spec to detect changes
+	specHash := hashRenderedWithSpec(device.Spec)
+
 	// If device.Spec or device.Spec.Config are nil, we still want to render an empty ignition config
 	if device.Spec != nil {
 		t.deviceConfig = device.Spec.Config
 		t.applications = device.Spec.Applications
 	}
+
 	if device.Metadata.Annotations != nil {
 		annotations := lo.FromPtr(device.Metadata.Annotations)
+
+		// Don't render if the device is awaiting reconnection or paused due to conflicts after restore
 		if val, ok := annotations[api.DeviceAnnotationAwaitingReconnect]; ok {
 			if val == "true" {
-				return fmt.Errorf("device is awaiting reconnection after restore")
+				t.log.Infof("Device %s is awaiting reconnection after restore", t.event.InvolvedObject.Name)
+				return nil
 			}
 		}
 		if val, ok := annotations[api.DeviceAnnotationConflictPaused]; ok {
 			if val == "true" {
-				return fmt.Errorf("device is paused due to conflicts")
+				t.log.Infof("Device %s is paused due to conflicts", t.event.InvolvedObject.Name)
+				return nil
+			}
+		}
+
+		// Don't render if the device spec hash hasn't changed since the last render
+		if val, ok := annotations[api.DeviceAnnotationRenderedSpecHash]; ok {
+			if val == specHash {
+				t.log.Infof("Device %s spec hash hasn't changed since the last render", t.event.InvolvedObject.Name)
+				return nil
 			}
 		}
 	}
@@ -110,11 +128,6 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 			return fmt.Errorf("device has no templateversion annotation")
 		}
 		t.templateVersion = &tvString
-		renderedTemplateVersion, exists := annotations[api.DeviceAnnotationRenderedTemplateVersion]
-		if exists && tvString == renderedTemplateVersion {
-			// Skipping since this template version was already rendered
-			return nil
-		}
 	}
 
 	// TODO: remove ignition
@@ -144,7 +157,7 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 		return t.setStatus(ctx, err)
 	}
 
-	status = t.serviceHandler.UpdateRenderedDevice(ctx, t.event.InvolvedObject.Name, string(renderedConfig), string(renderedApplications))
+	status = t.serviceHandler.UpdateRenderedDevice(ctx, t.event.InvolvedObject.Name, string(renderedConfig), string(renderedApplications), specHash)
 	return t.setStatus(ctx, service.ApiStatusToErr(status))
 }
 
@@ -670,4 +683,14 @@ func ignitionConfigToRenderedConfig(ignition *config_latest_types.Config) ([]byt
 	}
 
 	return renderedConfig, nil
+}
+
+// hashRenderedWithSpec creates a hash of the device spec to detect changes
+func hashRenderedWithSpec(deviceSpec *api.DeviceSpec) string {
+	if deviceSpec == nil {
+		return ""
+	}
+	specBytes, _ := json.Marshal(deviceSpec)
+	hash := sha256.Sum256(specBytes)
+	return hex.EncodeToString(hash[:])
 }

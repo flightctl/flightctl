@@ -435,7 +435,7 @@ func (r CertificateSigningRequest) Validate() []error {
 	allErrs = append(allErrs, validation.ValidateCSRUsages(r.Spec.Usages)...)
 	allErrs = append(allErrs, validation.ValidateExpirationSeconds(r.Spec.ExpirationSeconds)...)
 	allErrs = append(allErrs, validation.ValidateSignerName(r.Spec.SignerName)...)
-	allErrs = append(allErrs, validation.ValidateCSR(r.Spec.Request)...)
+	allErrs = append(allErrs, validation.ValidateCSRWithTCGSupport(r.Spec.Request)...)
 	return allErrs
 }
 

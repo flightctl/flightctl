@@ -551,11 +551,20 @@ func (s *FleetStore) CountByRolloutStatus(ctx context.Context, orgId *uuid.UUID,
 		return nil, err
 	}
 
+	// Extract the reason from RolloutInProgress condition
+	// The status JSON structure: {"conditions": [{"type": "RolloutInProgress", "reason": "Active|Inactive|Suspended|Waiting", ...}]}
+	statusField := `COALESCE(
+		(SELECT condition->>'reason' 
+		 FROM jsonb_array_elements(status->'conditions') AS condition 
+		 WHERE condition->>'type' = 'RolloutInProgress'
+		 LIMIT 1), 
+		'Inactive'
+	)`
 	query = query.Select(
 		"org_id as org_id",
-		"COALESCE(status->'rollout'->>'currentBatch', 'none') as status",
+		statusField+" as status",
 		"COUNT(*) as count",
-	).Group("org_id, status")
+	).Group("org_id, " + statusField)
 
 	var results []CountByRolloutStatusResult
 	err = query.Scan(&results).Error

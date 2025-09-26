@@ -1,0 +1,126 @@
+name: "OpenAPI Breaking Changes Check"
+
+on:
+  pull_request:
+    paths:
+      - 'api/**/openapi.yaml'
+
+jobs:
+  oasdiff-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Checkout base branch for comparison
+        run: |
+          # TODO: checkout previously released version after 0.10 release
+          git fetch origin ${{ github.event.pull_request.base.ref }}
+          mkdir -p base-api/v1alpha1/agent
+          git show origin/${{ github.event.pull_request.base.ref }}:api/v1alpha1/openapi.yaml > base-api/v1alpha1/openapi.yaml || true
+          git show origin/${{ github.event.pull_request.base.ref }}:api/v1alpha1/agent/openapi.yaml > base-api/v1alpha1/agent/openapi.yaml || true
+
+      - name: Check if override label exists
+        id: check_override
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const labels = context.payload.pull_request.labels.map(l => l.name);
+            let hasOverride = labels.includes('breaking-change-approved');
+            
+            if (hasOverride) {
+              console.log('Breaking change override label found, verifying admin status...');
+              
+              // Verify the label was added by an admin
+              const { data: events } = await github.rest.issues.listEvents({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number
+              });
+              
+              const labelEvents = events.filter(e => 
+                e.event === 'labeled' && 
+                e.label && 
+                e.label.name === 'breaking-change-approved'
+              );
+              
+              if (labelEvents.length > 0) {
+                const lastLabelEvent = labelEvents[labelEvents.length - 1];
+                
+                // Check if user has admin permissions
+                const { data: perm } = await github.rest.repos.getCollaboratorPermissionLevel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  username: lastLabelEvent.actor.login
+                });
+                
+                const isAdmin = perm.permission === 'admin' || perm.permission === 'maintain';
+                if (!isAdmin) {
+                  core.setFailed('The breaking-change-approved label must be added by a repository admin');
+                  hasOverride = false; // Disable override if not admin
+                } else {
+                  console.log(`Override approved by admin: ${lastLabelEvent.actor.login}`);
+                }
+              } else {
+                console.log('Could not find label event history');
+                hasOverride = false;
+              }
+            }
+            
+            core.setOutput('override', hasOverride.toString());
+            console.log(`Final override status: ${hasOverride}`);
+
+      - name: Breaking Changes Check
+        if: ${{ steps.check_override.outputs.override != 'true' }}
+        run: |
+          echo "Checking for breaking API changes..."
+          echo "================================================"
+          echo ""
+
+      - name: Check breaking changes in main API
+        id: breaking_main
+        if: ${{ steps.check_override.outputs.override != 'true' }}
+        uses: oasdiff/oasdiff-action/breaking@main
+        with:
+          base: base-api/v1alpha1/openapi.yaml
+          revision: api/v1alpha1/openapi.yaml
+          fail-on: ERR
+        continue-on-error: true
+
+      - name: Check breaking changes in agent API
+        id: breaking_agent
+        if: ${{ steps.check_override.outputs.override != 'true' }}
+        uses: oasdiff/oasdiff-action/breaking@main
+        with:
+          base: base-api/v1alpha1/agent/openapi.yaml
+          revision: api/v1alpha1/agent/openapi.yaml
+          fail-on: ERR
+        continue-on-error: true
+
+      - name: Breaking Changes Summary
+        if: ${{ steps.check_override.outputs.override != 'true' && (steps.breaking_main.outcome == 'failure' || steps.breaking_agent.outcome == 'failure') }}
+        run: |
+          echo ""
+          echo "================================================"
+          echo "BREAKING CHANGES DETECTED"
+          echo "================================================"
+          echo ""
+          echo "This PR contains breaking changes to the API specification."
+          echo "See the detailed report above for specific changes."
+          echo ""
+          echo "To proceed with these changes:"
+          echo "- Have an admin add the 'breaking-change-approved' label to this PR"
+          echo ""
+          exit 1
+
+      - name: Log breaking changes override
+        if: ${{ steps.check_override.outputs.override == 'true' }}
+        run: |
+          echo "================================================"
+          echo "BREAKING CHANGES CHECK BYPASSED"
+          echo "================================================"
+          echo "The breaking-change-approved label has been applied by an admin."
+          echo "Skipping breaking changes validation."

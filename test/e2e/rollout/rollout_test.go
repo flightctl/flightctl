@@ -136,13 +136,13 @@ var _ = Describe("Rollout Policies", func() {
 			deviceSpec, err := tc.createDeviceSpec()
 			Expect(err).ToNot(HaveOccurred())
 
+			newRenderedVersion, err := tc.harness.PrepareNextDeviceVersion(tc.deviceIDs[0])
+			Expect(err).ToNot(HaveOccurred())
+
 			fleetSpec := createFleetSpecWithoutDeviceSelection(lo.ToPtr(api.Percentage(SuccessThreshold)), deviceSpec)
 			fleetSpec.RolloutPolicy.DisruptionBudget = createDisruptionBudget(2, 2, []string{})
 
 			err = tc.harness.CreateOrUpdateTestFleet(fleetName, fleetSpec)
-			Expect(err).ToNot(HaveOccurred())
-
-			newRenderedVersion, err := tc.harness.PrepareNextDeviceVersion(tc.deviceIDs[0])
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Verifying that the disruption budget is respected")

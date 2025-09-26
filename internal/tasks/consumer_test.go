@@ -2,11 +2,17 @@ package tasks
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/worker_client"
+	"github.com/flightctl/flightctl/pkg/queues"
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
 func createTestEventWithDetails(kind api.ResourceKind, reason api.EventReason, name string, details *api.EventDetails) api.Event {
@@ -414,4 +420,119 @@ func TestHasUpdatedFields(t *testing.T) {
 			assert.Equal(t, tt.expected, result, tt.description)
 		})
 	}
+}
+
+// MockConsumer implements queues.QueueConsumer for testing
+type MockConsumer struct {
+	mock.Mock
+}
+
+// Compile-time check that MockConsumer satisfies queues.QueueConsumer
+var _ queues.QueueConsumer = (*MockConsumer)(nil)
+
+func (m *MockConsumer) Consume(ctx context.Context, handler queues.ConsumeHandler) error {
+	args := m.Called(ctx, handler)
+	return args.Error(0)
+}
+
+func (m *MockConsumer) Complete(ctx context.Context, entryID string, body []byte, processingErr error) error {
+	args := m.Called(ctx, entryID, body, processingErr)
+	return args.Error(0)
+}
+
+func (m *MockConsumer) Close() {
+	m.Called()
+}
+
+func TestDispatchTasks_WithNilMetrics(t *testing.T) {
+	ctx := context.Background()
+	log := logrus.New()
+
+	mockConsumer := &MockConsumer{}
+
+	// Create a simple valid payload that won't trigger any task processing
+	orgId := uuid.New()
+	eventWithOrgId := worker_client.EventWithOrgId{
+		OrgId: orgId,
+		Event: api.Event{
+			InvolvedObject: api.ObjectReference{
+				Kind: string(api.RepositoryKind), // Repository events with this reason won't trigger tasks
+				Name: "test-repo",
+			},
+			Reason: api.EventReasonResourceDeleted, // This combination won't trigger any tasks
+		},
+	}
+	payload, err := json.Marshal(eventWithOrgId)
+	require.NoError(t, err)
+
+	// Mock consumer complete (processingErr must be nil)
+	mockConsumer.On("Complete", mock.Anything, "entry-123", payload, mock.MatchedBy(func(e error) bool { return e == nil })).Return(nil)
+
+	// Create dispatcher with nil metrics
+	handler := dispatchTasks(nil, nil, nil, nil)
+
+	// Execute handler
+	err = handler(ctx, payload, "entry-123", mockConsumer, log)
+
+	// Should not fail with nil metrics
+	assert.NoError(t, err)
+	mockConsumer.AssertExpectations(t)
+}
+
+func TestDispatchTasks_WithNilMetrics_SuccessfulProcessing(t *testing.T) {
+	ctx := context.Background()
+	log := logrus.New()
+
+	mockConsumer := &MockConsumer{}
+
+	// Create a simple valid payload that won't trigger any task processing
+	orgId := uuid.New()
+	eventWithOrgId := worker_client.EventWithOrgId{
+		OrgId: orgId,
+		Event: api.Event{
+			InvolvedObject: api.ObjectReference{
+				Kind: string(api.FleetKind), // Using FleetKind with ResourceUpdated won't trigger tasks
+				Name: "test-fleet",
+			},
+			Reason: api.EventReasonResourceUpdated,
+		},
+	}
+	payload, err := json.Marshal(eventWithOrgId)
+	require.NoError(t, err)
+
+	// Mock consumer complete (processingErr must be nil)
+	mockConsumer.On("Complete", mock.Anything, "entry-123", payload, mock.MatchedBy(func(e error) bool { return e == nil })).Return(nil)
+
+	// Create dispatcher with nil metrics
+	handler := dispatchTasks(nil, nil, nil, nil)
+
+	// Execute handler
+	err = handler(ctx, payload, "entry-123", mockConsumer, log)
+
+	// Should complete successfully
+	assert.NoError(t, err)
+	mockConsumer.AssertExpectations(t)
+}
+
+func TestDispatchTasks_WithNilMetrics_InvalidPayload(t *testing.T) {
+	ctx := context.Background()
+	log := logrus.New()
+
+	mockConsumer := &MockConsumer{}
+
+	// Invalid JSON payload
+	payload := []byte("invalid json")
+
+	// Mock consumer complete - should complete successfully (no error) for parsing failures
+	mockConsumer.On("Complete", mock.Anything, "entry-123", payload, nil).Return(nil)
+
+	// Create dispatcher with nil metrics
+	handler := dispatchTasks(nil, nil, nil, nil)
+
+	// Execute handler
+	err := handler(ctx, payload, "entry-123", mockConsumer, log)
+
+	// Should return no error (parsing errors are not retryable)
+	assert.NoError(t, err)
+	mockConsumer.AssertExpectations(t)
 }

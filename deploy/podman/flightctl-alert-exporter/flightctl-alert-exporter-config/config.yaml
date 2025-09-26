@@ -4,6 +4,11 @@ database:
   port: 5432
   name: flightctl
   user: admin
+  # SSL parameters (uncomment and configure as needed)
+  # sslmode: ""
+  # sslcert: ""
+  # sslkey: ""
+  # sslrootcert: ""
 
 service: {}
 

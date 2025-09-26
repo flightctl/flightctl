@@ -306,6 +306,9 @@ type Singleton[T any] struct {
 }
 
 func (s *Singleton[T]) Instance() *T {
+	if ret := s.value.Load(); ret != nil {
+		return ret
+	}
 	var empty T
 	return s.GetOrInit(&empty)
 }

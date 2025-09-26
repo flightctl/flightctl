@@ -1,0 +1,39 @@
+{{- if .Values.telemetryGateway.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: flightctl-telemetry-gateway
+  namespace: {{ .Release.Namespace }}
+  labels:
+    flightctl.service: flightctl-telemetry-gateway
+spec:
+  {{- $expose := include "flightctl.getServiceExposeMethod" . -}}
+  {{- $otlpNP := (index .Values.global.nodePorts "telemetryGatewayOtlp" | default "") -}}
+  {{- $promNP := (index .Values.global.nodePorts "telemetryGatewayProm" | default "") -}}
+  {{- $wantNodePort := and (eq $expose "nodePort") (or $otlpNP $promNP) -}}
+  {{- if $wantNodePort }}
+  type: NodePort
+  {{- else }}
+  type: ClusterIP
+  {{- end }}
+  selector:
+    flightctl.service: flightctl-telemetry-gateway
+  ports:
+    - name: otlp
+      port: 4317
+      targetPort: otlp
+      protocol: TCP
+      appProtocol: grpc
+      {{- if and $wantNodePort $otlpNP }}
+      nodePort: {{ $otlpNP }}
+      {{- end }}
+    - name: prometheus
+      port: 9464
+      targetPort: prometheus
+      protocol: TCP
+      appProtocol: http
+      {{- if and $wantNodePort $promNP }}
+      nodePort: {{ $promNP }}
+      {{- end }}
+{{- end }}

@@ -1,8 +1,10 @@
+{{- if ne .Values.db.external "enabled" }}
 apiVersion: v1
 kind: Service
 metadata:
   labels:
     flightctl.service: flightctl-db
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
   name: flightctl-db
   namespace:  {{ default .Release.Namespace .Values.global.internalNamespace }}
 spec:
@@ -18,3 +20,4 @@ spec:
       {{- end }}
   selector:
     flightctl.service: flightctl-db
+{{- end }}

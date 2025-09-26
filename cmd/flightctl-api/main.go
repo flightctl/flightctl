@@ -18,6 +18,10 @@ import (
 	"github.com/flightctl/flightctl/internal/instrumentation"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/domain"
+	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/org/cache"
+	"github.com/flightctl/flightctl/internal/org/resolvers"
+	"github.com/flightctl/flightctl/internal/rendered"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -146,13 +150,50 @@ func main() {
 		log.Fatalf("failed connecting to Redis queue: %v", err)
 	}
 
+	kvStore, err := kvstore.NewKVStore(ctx, log, cfg.KV.Hostname, cfg.KV.Port, cfg.KV.Password)
+	if err != nil {
+		log.Fatalf("creating kvstore: %v", err)
+	}
+	if err = rendered.Bus.Initialize(ctx, kvStore, provider, time.Duration(cfg.Service.RenderedWaitTimeout), log); err != nil {
+		log.Fatalf("creating rendered version manager: %v", err)
+	}
+	if err = rendered.Bus.Instance().Start(ctx); err != nil {
+		log.Fatalf("starting rendered version manager: %v", err)
+	}
+
 	// create the agent service listener as tcp (combined HTTP+gRPC)
 	agentListener, err := net.Listen("tcp", cfg.Service.AgentEndpointAddress)
 	if err != nil {
 		log.Fatalf("creating listener: %s", err)
 	}
 
-	agentserver := agentserver.New(log, cfg, store, ca, agentListener, provider, agentTlsConfig)
+	orgCache := cache.NewOrganizationTTL(cache.DefaultTTL)
+	go orgCache.Start()
+	defer orgCache.Stop()
+
+	buildResolverOpts := resolvers.BuildResolverOptions{
+		Config: cfg,
+		Store:  store.Organization(),
+		Log:    log,
+		Cache:  orgCache,
+	}
+
+	if cfg.Auth != nil && cfg.Auth.AAP != nil {
+		membershipCache := cache.NewMembershipTTL(cache.DefaultTTL)
+		go membershipCache.Start()
+		defer membershipCache.Stop()
+		buildResolverOpts.MembershipCache = membershipCache
+	}
+
+	orgResolver, err := resolvers.BuildResolver(buildResolverOpts)
+	if err != nil {
+		log.Fatalf("failed to build organization resolver: %v", err)
+	}
+
+	agentServer, err := agentserver.New(ctx, log, cfg, store, ca, agentListener, provider, agentTlsConfig, orgResolver)
+	if err != nil {
+		log.Fatalf("initializing agent server: %v", err)
+	}
 
 	go func() {
 		listener, err := middleware.NewTLSListener(cfg.Service.Address, tlsConfig)
@@ -160,7 +201,7 @@ func main() {
 			log.Fatalf("creating listener: %s", err)
 		}
 		// we pass the grpc server for now, to let the console sessions to establish a connection in grpc
-		server := apiserver.New(log, cfg, store, ca, listener, provider, agentserver.GetGRPCServer())
+		server := apiserver.New(log, cfg, store, ca, listener, provider, agentServer.GetGRPCServer(), orgResolver)
 		if err := server.Run(ctx); err != nil {
 			log.Fatalf("Error running server: %s", err)
 		}
@@ -168,7 +209,7 @@ func main() {
 	}()
 
 	go func() {
-		if err := agentserver.Run(ctx); err != nil {
+		if err := agentServer.Run(ctx); err != nil {
 			log.Fatalf("Error running server: %s", err)
 		}
 		cancel()

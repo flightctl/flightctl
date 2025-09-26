@@ -3,7 +3,7 @@ REPORTS ?= $(ROOT_DIR)/reports
 GO_TEST_FORMAT = pkgname
 GO_TESTING_FLAGS= -count=1 -race $(GO_BUILD_FLAGS)
 
-GO_UNITTEST_DIRS 		= ./internal/... ./api/...
+GO_UNITTEST_DIRS 		= ./internal/... ./api/... ./pkg/...
 GO_INTEGRATIONTEST_DIRS ?= ./test/integration/...
 GO_E2E_DIRS 			= ./test/e2e/...
 
@@ -22,6 +22,7 @@ endif
 GO_TEST_FLAGS := 			 --format=$(GO_TEST_FORMAT) --junitfile $(REPORTS)/junit_unit_test.xml $(GOTEST_PUBLISH_FLAGS)
 GO_TEST_INTEGRATION_FLAGS := --format=$(GO_TEST_FORMAT) --junitfile $(REPORTS)/junit_integration_test.xml $(GOTEST_PUBLISH_FLAGS)
 KUBECONFIG_PATH = '/home/kni/clusterconfigs/auth/kubeconfig'
+TEMP_SWTPM_CERT_DIR := bin/tmp/swtpm-certs
 
 _integration_test: $(REPORTS)
 	go run -modfile=tools/go.mod gotest.tools/gotestsum $(GO_TEST_INTEGRATION_FLAGS) -- $(GO_INTEGRATIONTEST_FLAGS) -timeout $(TIMEOUT) || ($(MAKE) _collect_junit && /bin/false)
@@ -108,8 +109,8 @@ _run_template_migration:
 	  echo "##################################################"; \
 	  echo "Running database migration & template creation using: $$img"; \
 	  echo "##################################################"; \
-	  sudo env MIGRATION_IMAGE="$$img" CREATE_TEMPLATE=true \
-	    test/scripts/run_migration.sh \
+	  sudo -E env MIGRATION_IMAGE="$$img" CREATE_TEMPLATE=true \
+    test/scripts/run_migration.sh \
 	'
 
 deploy-e2e-extras: bin/.ssh/id_rsa.pub bin/e2e-certs/ca.pem
@@ -164,7 +165,15 @@ run-test: unit-test run-integration-test
 bin/e2e-certs/ca.pem bin/.ssh/id_rsa.pub:
 	test/scripts/create_e2e_certs.sh
 
+prepare-swtpm-certs:
+	@mkdir -p $(TEMP_SWTPM_CERT_DIR)
+	# swtpm-localca may require root access so setup a directory in which the current user has access to
+	@sudo sh -c 'if ls /var/lib/swtpm-localca/*cert.pem >/dev/null 2>&1; then cp /var/lib/swtpm-localca/*cert.pem $(abspath $(TEMP_SWTPM_CERT_DIR))/; else echo "No swtpm certificates found - they may not be generated yet"; exit 1; fi'
+	@sudo chown -R $(shell id -u):$(shell id -g) $(TEMP_SWTPM_CERT_DIR)
+	test/scripts/add-certs-to-deployment.sh $(TEMP_SWTPM_CERT_DIR)
 
+clean-swtpm-certs:
+	rm -rf $(TEMP_SWTPM_CERT_DIR)
 
 .PHONY: test run-test git-server-container
 
@@ -178,4 +187,4 @@ $(REPORTS)/unit-coverage.out:
 $(REPORTS)/integration-coverage.out:
 	$(MAKE) integration-test || true
 
-.PHONY: unit-test prepare-integration-test integration-test run-integration-test view-coverage prepare-e2e-test deploy-e2e-ocp-test-vm _wait_for_db _run_template_migration _ensure_db_setup_image
+.PHONY: unit-test prepare-integration-test integration-test run-integration-test view-coverage prepare-e2e-test deploy-e2e-ocp-test-vm _wait_for_db _run_template_migration _ensure_db_setup_image prepare-swtpm-certs clean-swtpm-certs

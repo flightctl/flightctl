@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -55,15 +56,20 @@ type Device interface {
 	Delete(ctx context.Context, orgId uuid.UUID, name string, eventCallback EventCallback) (bool, error)
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, device *api.Device, eventCallback EventCallback) (*api.Device, error)
 	GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion *string, consoleGrpcEndpoint string) (*api.Device, error)
+	Healthcheck(ctx context.Context, orgId uuid.UUID, names []string) error
+	ProcessAwaitingReconnectAnnotation(ctx context.Context, orgId uuid.UUID, deviceName string, deviceReportedVersion *string) (bool, error)
+	GetWithoutServiceConditions(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error)
+	GetLastSeen(ctx context.Context, orgId uuid.UUID, name string) (*time.Time, error)
 
 	// Used internally
 	UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error
-	UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications string) error
+	UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string) (string, error)
 	SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition, callback ServiceConditionsCallback) error
 	OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error
 	GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*api.RepositoryList, error)
 	PrepareDevicesAfterRestore(ctx context.Context) (int64, error)
 	RemoveConflictPausedAnnotation(ctx context.Context, orgId uuid.UUID, listParams ListParams) (int64, []string, error)
+	SetOutOfDate(ctx context.Context, orgId uuid.UUID, owner string) error
 
 	// Used only by rollout
 	Count(ctx context.Context, orgId uuid.UUID, listParams ListParams) (int64, error)
@@ -79,6 +85,9 @@ type Device interface {
 	// Used by tests
 	SetIntegrationTestCreateOrUpdateCallback(IntegrationTestCallback)
 	CountByOrgAndStatus(ctx context.Context, orgId *uuid.UUID, statusType DeviceStatusType, groupByFleet bool) ([]CountByOrgAndStatusResult, error)
+
+	// Used for restoration
+	GetAllDeviceNames(ctx context.Context, orgId uuid.UUID) ([]string, error)
 }
 type DeviceStore struct {
 	dbHandler    *gorm.DB
@@ -512,7 +521,7 @@ func (s *DeviceStore) CountByLabels(ctx context.Context, orgId uuid.UUID, listPa
 
 	args := lo.Interleave(lo.ToAnySlice(groupBy), lo.Map(labelSymbols, func(s string, _ int) any { return gorm.Expr(s) }))
 	args = append(args, gorm.Expr("status -> 'summary' ->> 'status' <> 'Unknown'"), gorm.Expr("connected"))
-	args = append(args, gorm.Expr("status -> 'summary' ->> 'status' <> 'Unknown' and status -> 'config' ->> 'renderedVersion' <> COALESCE(annotations ->> ?, '')",
+	args = append(args, gorm.Expr("status -> 'summary' ->> 'status' <> 'Unknown' and status -> 'config' ->> 'renderedVersion' <> annotations ->> ?",
 		api.DeviceAnnotationRenderedVersion), gorm.Expr("busy_connected"))
 
 	query.Select(strings.Join(selectList, ","), args...)
@@ -588,27 +597,10 @@ func (s *DeviceStore) updateAnnotations(ctx context.Context, orgId uuid.UUID, na
 	}
 	existingAnnotations := util.EnsureMap(existingRecord.Annotations)
 
-	existingConsoleAnnotation := util.DefaultIfNotInMap(existingAnnotations, api.DeviceAnnotationConsole, "")
 	existingAnnotations = util.MergeLabels(existingAnnotations, annotations)
 
 	for _, deleteKey := range deleteKeys {
 		delete(existingAnnotations, deleteKey)
-	}
-	newConsoleAnnotation := util.DefaultIfNotInMap(existingAnnotations, api.DeviceAnnotationConsole, "")
-
-	// Changing the console annotation requires bumping the renderedVersion annotation
-	if existingConsoleAnnotation != newConsoleAnnotation {
-		var deviceStatus *api.DeviceStatus
-		if existingRecord.Status != nil {
-			deviceStatus = &existingRecord.Status.Data
-		}
-
-		nextRenderedVersion, err := api.GetNextDeviceRenderedVersion(existingAnnotations, deviceStatus)
-		if err != nil {
-			return false, err
-		}
-
-		existingAnnotations[api.DeviceAnnotationRenderedVersion] = nextRenderedVersion
 	}
 
 	result = s.getDB(ctx).Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
@@ -632,11 +624,212 @@ func (s *DeviceStore) UpdateAnnotations(ctx context.Context, orgId uuid.UUID, na
 	})
 }
 
-func (s *DeviceStore) updateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications string) (retry bool, err error) {
+func (s *DeviceStore) healthcheck(ctx context.Context, orgId uuid.UUID, names []string) (bool, error) {
+	// Handle empty device list gracefully
+	if len(names) == 0 {
+		return false, nil
+	}
+
+	result := s.getDB(ctx).Model(&model.Device{}).Where("org_id = ? and name in (?)", orgId, names).Updates(map[string]interface{}{
+		"last_seen": time.Now().UTC(),
+	})
+	err := ErrorFromGormError(result.Error)
+	if err != nil {
+		return strings.Contains(err.Error(), "deadlock"), err
+	}
+
+	return false, nil
+}
+
+func (s *DeviceStore) Healthcheck(ctx context.Context, orgId uuid.UUID, names []string) error {
+	return retryUpdate(func() (bool, error) {
+		return s.healthcheck(ctx, orgId, names)
+	})
+}
+
+// ProcessAwaitingReconnectAnnotation processes the AwaitingReconnect annotation for a specific device
+// This is called from GetRenderedDevice when a device connects and has the awaiting-reconnect annotation
+// Returns true if the device was moved to conflict paused state, false otherwise
+func (s *DeviceStore) ProcessAwaitingReconnectAnnotation(ctx context.Context, orgId uuid.UUID, deviceName string, deviceReportedVersion *string) (bool, error) {
+	var wasConflictPaused bool
+	err := retryUpdate(func() (bool, error) {
+		var retry bool
+		var err error
+		retry, wasConflictPaused, err = s.processAwaitingReconnectAnnotation(ctx, orgId, deviceName, deviceReportedVersion)
+		return retry, err
+	})
+	return wasConflictPaused, err
+}
+
+func (s *DeviceStore) processAwaitingReconnectAnnotation(ctx context.Context, orgId uuid.UUID, deviceName string, deviceReportedVersion *string) (bool, bool, error) {
+	s.log.Infof("Starting processAwaitingReconnectAnnotation for device %s (orgId: %s)", deviceName, orgId)
+
+	// First, get the device to check its current annotations
+	var device model.Device
+	result := s.getDB(ctx).Where("org_id = ? and name = ?", orgId, deviceName).First(&device)
+	if result.Error != nil {
+		s.log.WithError(result.Error).Errorf("Failed to fetch device %s from database", deviceName)
+		return strings.Contains(result.Error.Error(), "deadlock"), false, ErrorFromGormError(result.Error)
+	}
+	s.log.Infof("Successfully fetched device %s from database", deviceName)
+
+	// Check if device has awaiting reconnect annotation
+	annotations := util.EnsureMap(device.Annotations)
+	waitingAnnotation, hasWaitingAnnotation := annotations[api.DeviceAnnotationAwaitingReconnect]
+	s.log.Infof("Device %s awaiting reconnect annotation: hasAnnotation=%t, value=%s", deviceName, hasWaitingAnnotation, waitingAnnotation)
+
+	if !hasWaitingAnnotation || waitingAnnotation != "true" {
+		s.log.Infof("Device %s does not have awaiting reconnect annotation or value is not 'true', skipping processing", deviceName)
+		return false, false, nil // No awaiting reconnect annotation, nothing to do
+	}
+
+	// Get device-reported version from params (what the device thinks its current version is)
+	var deviceVersion int64 = 0
+	deviceVersionStr := "0"
+	if deviceReportedVersion != nil && *deviceReportedVersion != "" {
+		var err error
+		deviceVersion, err = strconv.ParseInt(*deviceReportedVersion, 10, 64)
+		if err != nil {
+			s.log.Warnf("Failed to parse device reported version '%s' for device %s: %v", *deviceReportedVersion, deviceName, err)
+			// Ignore parsing errors, use default value 0
+			deviceVersionStr = "0"
+		} else {
+			s.log.Infof("Successfully parsed device reported version '%s' to %d for device %s", *deviceReportedVersion, deviceVersion, deviceName)
+			deviceVersionStr = *deviceReportedVersion
+		}
+	} else {
+		s.log.Infof("No device reported version provided for device %s, using default 0", deviceName)
+	}
+
+	// Get service version from annotations
+	var serviceVersion int64 = 0
+	serviceVersionStr := "not found"
+	if serviceVersionStrFromAnnotation, hasServiceVersion := annotations[api.DeviceAnnotationRenderedVersion]; hasServiceVersion {
+		serviceVersionStr = serviceVersionStrFromAnnotation
+		var err error
+		serviceVersion, err = strconv.ParseInt(serviceVersionStrFromAnnotation, 10, 64)
+		if err != nil {
+			s.log.Warnf("Failed to parse service version '%s' for device %s: %v", serviceVersionStrFromAnnotation, deviceName, err)
+			// Ignore parsing errors, use default value 0
+		} else {
+			s.log.Infof("Successfully parsed service version '%s' to %d for device %s", serviceVersionStrFromAnnotation, serviceVersion, deviceName)
+		}
+	} else {
+		s.log.Infof("No service version annotation found for device %s, using default 0", deviceName)
+	}
+
+	// Track whether device will be moved to conflict paused state
+	willBeConflictPaused := deviceVersion > serviceVersion
+	s.log.Infof("Version comparison for device %s: deviceVersion=%d (from '%s'), serviceVersion=%d (from '%s'), willBeConflictPaused=%t",
+		deviceName, deviceVersion, deviceVersionStr, serviceVersion, serviceVersionStr, willBeConflictPaused)
+
+	// Generate detailed conflict paused info message
+	var infoMessage string
+	if willBeConflictPaused {
+		deviceVersionDisplay := "unknown"
+		if deviceReportedVersion != nil && *deviceReportedVersion != "" {
+			deviceVersionDisplay = *deviceReportedVersion
+		}
+		infoMessage = fmt.Sprintf("Device reconciliation is paused due to a state conflict between the service and the device's agent; manual intervention is required. (device reported version %s > device version known to service %d)", deviceVersionDisplay, serviceVersion)
+		s.log.Infof("Device %s will be moved to conflict paused state: %s", deviceName, infoMessage)
+	} else {
+		infoMessage = "Device is up to date"
+		s.log.Infof("Device %s is up to date, will be set to online status", deviceName)
+	}
+
+	// Use raw SQL with parameterized queries to avoid JSON path syntax issues
+	sql := `
+		UPDATE devices 
+		SET 
+			annotations = (annotations - $1) || CASE 
+				WHEN $2 THEN jsonb_build_object($3::text, 'true')
+				ELSE '{}'::jsonb
+			END,
+			status = jsonb_set(
+				jsonb_set(
+					jsonb_set(COALESCE(status, '{}'::jsonb), '{summary}', jsonb_build_object('status', $4::text, 'info', $5::text), true),
+					'{updated}', jsonb_build_object('status', $9::text), true
+				),
+				'{config,renderedVersion}', to_jsonb($8::text), true
+			),
+			resource_version = COALESCE(resource_version, 0) + 1
+		WHERE org_id = $6 AND name = $7 AND deleted_at IS NULL
+	`
+
+	var status string
+	if willBeConflictPaused {
+		status = string(api.DeviceSummaryStatusConflictPaused)
+	} else {
+		status = string(api.DeviceSummaryStatusOnline)
+	}
+
+	// Determine updated status based on version comparison
+	var updatedStatus string
+	if deviceVersion == serviceVersion {
+		updatedStatus = string(api.DeviceUpdatedStatusUpToDate)
+	} else {
+		updatedStatus = string(api.DeviceUpdatedStatusOutOfDate)
+	}
+
+	// Prepare the device reported version for the update
+	deviceReportedVersionStr := "0"
+	if deviceReportedVersion != nil && *deviceReportedVersion != "" {
+		deviceReportedVersionStr = *deviceReportedVersion
+	}
+
+	s.log.Infof("Executing database update for device %s with status=%s, willBeConflictPaused=%t, deviceReportedVersionStr=%s, updatedStatus=%s",
+		deviceName, status, willBeConflictPaused, deviceReportedVersionStr, updatedStatus)
+
+	result = s.getDB(ctx).Exec(sql,
+		api.DeviceAnnotationAwaitingReconnect,
+		willBeConflictPaused,
+		api.DeviceAnnotationConflictPaused,
+		status,
+		infoMessage,
+		orgId,
+		deviceName,
+		deviceReportedVersionStr,
+		updatedStatus,
+	)
+	err := ErrorFromGormError(result.Error)
+	if err != nil {
+		s.log.WithError(err).Errorf("Failed to update device %s in database", deviceName)
+		return strings.Contains(err.Error(), "deadlock"), false, err
+	}
+	if result.RowsAffected == 0 {
+		s.log.Warnf("No rows were updated for device %s - device may have been deleted or modified concurrently", deviceName)
+		return true, false, flterrors.ErrNoRowsUpdated
+	}
+
+	s.log.Infof("Successfully updated device %s in database: rowsAffected=%d, willBeConflictPaused=%t",
+		deviceName, result.RowsAffected, willBeConflictPaused)
+	return false, willBeConflictPaused, nil
+}
+
+func (s *DeviceStore) setOutOfDate(ctx context.Context, orgId uuid.UUID, owner string) (bool, error) {
+	err := s.getDB(ctx).Model(&model.Device{}).Where("org_id = ? AND owner = ? AND (status->'updated'->>'status' = ?)",
+		orgId, owner, api.DeviceUpdatedStatusUpToDate).Updates(map[string]any{
+		"status": gorm.Expr(`jsonb_set(jsonb_set(status, '{updated,status}', to_jsonb(?::text)),'{updated,info}', to_jsonb(?::text))`,
+			api.DeviceUpdatedStatusOutOfDate, api.DeviceOutOfSyncWithFleetText),
+		"resource_version": gorm.Expr("resource_version + 1"),
+	}).Error
+	if err != nil {
+		return strings.Contains(err.Error(), "deadlock"), ErrorFromGormError(err)
+	}
+	return false, nil
+}
+
+func (s *DeviceStore) SetOutOfDate(ctx context.Context, orgId uuid.UUID, owner string) error {
+	return retryUpdate(func() (bool, error) {
+		return s.setOutOfDate(ctx, orgId, owner)
+	})
+}
+
+func (s *DeviceStore) updateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string) (retry bool, renderedVersion string, err error) {
 	existingRecord := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
 	result := s.getDB(ctx).Take(&existingRecord)
 	if result.Error != nil {
-		return false, ErrorFromGormError(result.Error)
+		return false, "", ErrorFromGormError(result.Error)
 	}
 	existingAnnotations := util.EnsureMap(existingRecord.Annotations)
 
@@ -647,13 +840,23 @@ func (s *DeviceStore) updateRendered(ctx context.Context, orgId uuid.UUID, name,
 
 	nextRenderedVersion, err := api.GetNextDeviceRenderedVersion(existingAnnotations, deviceStatus)
 	if err != nil {
-		return false, err
+		return false, "", err
 	}
+
+	hash := specHash
 
 	existingAnnotations[api.DeviceAnnotationRenderedVersion] = nextRenderedVersion
 	if lo.HasKey(existingAnnotations, api.DeviceAnnotationTemplateVersion) {
 		existingAnnotations[api.DeviceAnnotationRenderedTemplateVersion] = existingAnnotations[api.DeviceAnnotationTemplateVersion]
 	}
+	// Check if the rendered content has changed by comparing hashes
+	if lo.HasKey(existingAnnotations, api.DeviceAnnotationRenderedSpecHash) {
+		// if the hash is the same, we shouldn't update the rendered version
+		if existingAnnotations[api.DeviceAnnotationRenderedSpecHash] == hash {
+			return false, "", nil
+		}
+	}
+	existingAnnotations[api.DeviceAnnotationRenderedSpecHash] = hash
 
 	renderedApplicationsJSON := renderedApplications
 	if strings.TrimSpace(renderedApplications) == "" {
@@ -670,18 +873,26 @@ func (s *DeviceStore) updateRendered(ctx context.Context, orgId uuid.UUID, name,
 
 	err = ErrorFromGormError(result.Error)
 	if err != nil {
-		return strings.Contains(err.Error(), "deadlock"), err
+		return strings.Contains(err.Error(), "deadlock"), "", err
 	}
 	if result.RowsAffected == 0 {
-		return true, flterrors.ErrNoRowsUpdated
+		return true, "", flterrors.ErrNoRowsUpdated
 	}
-	return false, nil
+	return false, nextRenderedVersion, nil
 }
 
-func (s *DeviceStore) UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications string) error {
-	return retryUpdate(func() (bool, error) {
-		return s.updateRendered(ctx, orgId, name, renderedConfig, renderedApplications)
-	})
+func (s *DeviceStore) UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string) (string, error) {
+	var rv string
+
+	wrapper := func() (bool, error) {
+		var retry bool
+		var err error
+		retry, rv, err = s.updateRendered(ctx, orgId, name, renderedConfig, renderedApplications, specHash)
+		return retry, err
+	}
+
+	err := retryUpdate(wrapper)
+	return rv, err
 }
 
 func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion *string, consoleGrpcEndpoint string) (*api.Device, error) {
@@ -694,6 +905,30 @@ func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name str
 	}
 
 	return deviceModel.ToApiResource(model.WithRendered(knownRenderedVersion))
+}
+
+func (s *DeviceStore) GetWithoutServiceConditions(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error) {
+	deviceModel := model.Device{
+		Resource: model.Resource{OrgID: orgId, Name: name},
+	}
+	result := s.getDB(ctx).Take(&deviceModel)
+	if result.Error != nil {
+		return nil, ErrorFromGormError(result.Error)
+	}
+
+	return deviceModel.ToApiResource(model.WithoutServiceConditions())
+}
+
+func (s *DeviceStore) GetLastSeen(ctx context.Context, orgId uuid.UUID, name string) (*time.Time, error) {
+	deviceModel := model.Device{
+		Resource: model.Resource{OrgID: orgId, Name: name},
+	}
+	result := s.getDB(ctx).Take(&deviceModel)
+	if result.Error != nil {
+		return nil, ErrorFromGormError(result.Error)
+	}
+
+	return deviceModel.LastSeen, nil
 }
 
 func (s *DeviceStore) setServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition, callback ServiceConditionsCallback) (retry bool, err error) {
@@ -920,7 +1155,7 @@ func (s *DeviceStore) CountByOrgAndStatus(ctx context.Context, orgId *uuid.UUID,
 	if groupByFleet {
 		selectList = append(selectList, "owner as fleet")
 	}
-	groupList := []string{"org_id", "status"}
+	groupList := []string{"org_id", statusField}
 	if groupByFleet {
 		groupList = append(groupList, "owner")
 	}
@@ -947,13 +1182,14 @@ func (s *DeviceStore) PrepareDevicesAfterRestore(ctx context.Context) (int64, er
 			annotations = COALESCE(annotations, '{}'::jsonb) || jsonb_build_object($1::text, 'true'),
 			status = CASE 
 				WHEN status IS NOT NULL THEN 
-					(status - 'lastSeen') || jsonb_build_object('summary', jsonb_build_object('status', $2::text, 'info', $3::text))
+					status || jsonb_build_object('summary', jsonb_build_object('status', $2::text, 'info', $3::text)) || jsonb_build_object('updated', jsonb_build_object('status', $6::text))
 				ELSE 
-					jsonb_build_object('summary', jsonb_build_object('status', $2::text, 'info', $3::text))
+					jsonb_build_object('summary', jsonb_build_object('status', $2::text, 'info', $3::text)) || jsonb_build_object('updated', jsonb_build_object('status', $6::text))
 			END,
-			resource_version = COALESCE(resource_version, 0) + 1
+			resource_version = COALESCE(resource_version, 0) + 1,
+			last_seen = NULL
 		WHERE deleted_at IS NULL 
-			AND (status->'lifecycle'->>'status') != 'Decommissioned'
+			AND NOT (status->'lifecycle'->>'status') IN ($4, $5)
 			AND (annotations->>$1) IS DISTINCT FROM 'true'
 	`
 
@@ -961,6 +1197,9 @@ func (s *DeviceStore) PrepareDevicesAfterRestore(ctx context.Context) (int64, er
 		api.DeviceAnnotationAwaitingReconnect,
 		api.DeviceSummaryStatusAwaitingReconnect,
 		"Device is waiting for connection after restore",
+		api.DeviceLifecycleStatusDecommissioned,
+		api.DeviceLifecycleStatusDecommissioning,
+		api.DeviceUpdatedStatusUnknown,
 	)
 
 	if result.Error != nil {
@@ -991,7 +1230,7 @@ func (s *DeviceStore) RemoveConflictPausedAnnotation(ctx context.Context, orgId 
 		result := query.
 			Clauses(clause.Returning{}).
 			Updates(map[string]any{
-				"annotations":      gorm.Expr("annotations - ?", api.DeviceAnnotationConflictPaused),
+				"annotations":      gorm.Expr("annotations - ? - ?", api.DeviceAnnotationConflictPaused, api.DeviceAnnotationRenderedSpecHash),
 				"resource_version": gorm.Expr("resource_version + 1"),
 			})
 
@@ -1011,4 +1250,21 @@ func (s *DeviceStore) RemoveConflictPausedAnnotation(ctx context.Context, orgId 
 	})
 
 	return affectedRows, deviceIDs, err
+}
+
+// GetAllDeviceNames returns all device names for a given organization
+// This is used for restoration to add awaiting reconnection keys
+func (s *DeviceStore) GetAllDeviceNames(ctx context.Context, orgId uuid.UUID) ([]string, error) {
+	var deviceNames []string
+
+	// Use raw SQL for efficiency - we only need the device names
+	err := s.getDB(ctx).Model(&model.Device{}).
+		Where("org_id = ? AND deleted_at IS NULL", orgId).
+		Pluck("name", &deviceNames).Error
+
+	if err != nil {
+		return nil, ErrorFromGormError(err)
+	}
+
+	return deviceNames, nil
 }

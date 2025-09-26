@@ -3,6 +3,7 @@ kind: Service
 metadata:
   labels:
     flightctl.service: flightctl-kv
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
   name: flightctl-kv
   namespace:  {{ default .Release.Namespace .Values.global.internalNamespace }}
 spec:

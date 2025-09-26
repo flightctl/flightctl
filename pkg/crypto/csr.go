@@ -13,11 +13,62 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"net"
+	urlpkg "net/url"
 
 	"github.com/flightctl/flightctl/internal/flterrors"
 )
 
-func MakeCSR(privateKey crypto.Signer, subjectName string) ([]byte, error) {
+// CSROption allows callers to customize the x509.CertificateRequest template
+// before the CSR is created.
+type CSROption func(*x509.CertificateRequest) error
+
+// WithSubject overrides the Subject for the CSR.
+func WithSubject(subject pkix.Name) CSROption {
+	return func(t *x509.CertificateRequest) error {
+		t.Subject = subject
+		return nil
+	}
+}
+
+// WithDNSNames sets one or more DNS SANs on the CSR.
+func WithDNSNames(names ...string) CSROption {
+	return func(t *x509.CertificateRequest) error {
+		t.DNSNames = append([]string{}, names...)
+		return nil
+	}
+}
+
+// WithIPAddresses sets one or more IP SANs on the CSR.
+func WithIPAddresses(ips ...net.IP) CSROption {
+	return func(t *x509.CertificateRequest) error {
+		t.IPAddresses = append([]net.IP{}, ips...)
+		return nil
+	}
+}
+
+// WithURIs sets one or more URI SANs on the CSR.
+func WithURIs(uris ...*urlpkg.URL) CSROption {
+	return func(t *x509.CertificateRequest) error {
+		t.URIs = append([]*urlpkg.URL{}, uris...)
+		return nil
+	}
+}
+
+// WithExtraExtension adds a non-critical extra extension (value ASN.1-encoded string).
+func WithExtraExtension(oid asn1.ObjectIdentifier, value string) CSROption {
+	return func(t *x509.CertificateRequest) error {
+		enc, err := asn1.Marshal(value)
+		if err != nil {
+			return fmt.Errorf("marshal extension for OID %v: %w", oid, err)
+		}
+		t.ExtraExtensions = append(t.ExtraExtensions, pkix.Extension{Id: oid, Critical: false, Value: enc})
+		return nil
+	}
+}
+
+// MakeCSR creates a PEM-encoded CSR using the provided private key,
+func MakeCSR(privateKey crypto.Signer, subjectName string, opts ...CSROption) ([]byte, error) {
 	algo, err := selectSignatureAlgorithm(privateKey)
 	if err != nil {
 		return nil, fmt.Errorf("selecting signature algorithm: %w", err)
@@ -26,6 +77,15 @@ func MakeCSR(privateKey crypto.Signer, subjectName string) ([]byte, error) {
 	template := &x509.CertificateRequest{
 		Subject:            pkix.Name{CommonName: subjectName},
 		SignatureAlgorithm: algo,
+	}
+
+	for _, opt := range opts {
+		if opt == nil {
+			continue
+		}
+		if err := opt(template); err != nil {
+			return nil, err
+		}
 	}
 
 	csrDER, err := x509.CreateCertificateRequest(rand.Reader, template, privateKey)

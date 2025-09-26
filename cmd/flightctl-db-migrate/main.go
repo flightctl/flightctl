@@ -47,7 +47,7 @@ func main() {
 
 	tracerShutdown := instrumentation.InitTracer(log, cfg, "flightctl-db-migrate")
 	defer func() {
-		if err := tracerShutdown(ctx); err != nil {
+		if err = tracerShutdown(ctx); err != nil {
 			log.WithError(err).Fatal("failed to shut down tracer")
 		}
 	}()
@@ -76,9 +76,9 @@ func main() {
 		log.Info("Running database migrations with migration user")
 	}
 	// Run all schema changes atomically so that a failure leaves the DB unchanged.
-	if err := migrationDB.Transaction(func(tx *gorm.DB) error {
+	if err = migrationDB.Transaction(func(tx *gorm.DB) error {
 		// Create a temporary store bound to the transaction and run migrations
-		if err := store.NewStore(tx, log.WithFields(logrus.Fields{
+		if err = store.NewStore(tx, log.WithFields(logrus.Fields{
 			"pkg":     "migration-store-tx",
 			"dry_run": *dryRun,
 		})).RunMigrations(ctx); err != nil {

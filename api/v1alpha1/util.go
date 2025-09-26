@@ -452,6 +452,7 @@ var warningReasons = map[EventReason]struct{}{
 	EventReasonDeviceDiskCritical:              {},
 	EventReasonDeviceDiskWarning:               {},
 	EventReasonDeviceDisconnected:              {},
+	EventReasonDeviceConflictPaused:            {},
 	EventReasonDeviceSpecInvalid:               {},
 	EventReasonFleetInvalid:                    {},
 	EventReasonDeviceMultipleOwnersDetected:    {},

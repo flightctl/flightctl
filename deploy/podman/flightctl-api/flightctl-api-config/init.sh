@@ -48,6 +48,10 @@ RATE_LIMIT_WINDOW=${RATE_LIMIT_WINDOW:-1m}
 RATE_LIMIT_AUTH_REQUESTS=${RATE_LIMIT_AUTH_REQUESTS:-10}
 RATE_LIMIT_AUTH_WINDOW=${RATE_LIMIT_AUTH_WINDOW:-1h}
 
+# Extract organizations enabled value (defaults to false if not configured)
+ORGANIZATIONS_ENABLED=$(sed -n '/^global:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n '/^[[:space:]]*organizations:/,/^[^[:space:]]/p' | sed -n '/^[[:space:]]*enabled:[[:space:]]*\([^[:space:]]*\).*/s//\1/p' | head -1)
+ORGANIZATIONS_ENABLED=${ORGANIZATIONS_ENABLED:-false}
+
 # Verify required values were found
 if [ -z "$BASE_DOMAIN" ]; then
   echo "Error: Could not find baseDomain in service config file"
@@ -117,6 +121,7 @@ sed -e "s|{{BASE_DOMAIN}}|$BASE_DOMAIN|g" \
     -e "s|{{RATE_LIMIT_WINDOW}}|$RATE_LIMIT_WINDOW|g" \
     -e "s|{{RATE_LIMIT_AUTH_REQUESTS}}|$RATE_LIMIT_AUTH_REQUESTS|g" \
     -e "s|{{RATE_LIMIT_AUTH_WINDOW}}|$RATE_LIMIT_AUTH_WINDOW|g" \
+    -e "s|{{ORGANIZATIONS_ENABLED}}|$ORGANIZATIONS_ENABLED|g" \
     "${AUTH_SED_CMDS[@]}" \
     "$CONFIG_TEMPLATE" > "$CONFIG_OUTPUT"
 

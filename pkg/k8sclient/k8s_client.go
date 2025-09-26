@@ -11,6 +11,8 @@ import (
 )
 
 const (
+	defaultBurst         = 1000
+	defaultQPS           = 500
 	externalApiTokenPath = "/var/flightctl/k8s/token" //nolint:gosec
 )
 
@@ -28,7 +30,8 @@ func NewK8SClient() (K8SClient, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create in-cluster config: %w", err)
 	}
-
+	config.Burst = defaultBurst
+	config.QPS = defaultQPS
 	return newClient(config)
 }
 
@@ -39,6 +42,8 @@ func NewK8SExternalClient(apiUrl string, insecure bool, caCert string) (K8SClien
 			Insecure: insecure,
 			CAData:   []byte(caCert),
 		},
+		Burst:           defaultBurst,
+		QPS:             defaultQPS,
 		BearerTokenFile: externalApiTokenPath,
 	}
 

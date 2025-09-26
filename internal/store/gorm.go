@@ -14,7 +14,6 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/otel/trace/noop"
 	"gorm.io/driver/postgres"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 	"gorm.io/plugin/opentelemetry/tracing"
@@ -33,20 +32,13 @@ func InitMigrationDB(cfg *config.Config, log *logrus.Logger) (*gorm.DB, error) {
 func initDBWithUser(cfg *config.Config, log *logrus.Logger, user string, password config.SecureString) (*gorm.DB, error) {
 	var dia gorm.Dialector
 
-	if cfg.Database.Type == "pgsql" {
-		dsn := fmt.Sprintf("host=%s user=%s password=%s port=%d",
-			cfg.Database.Hostname,
-			user,
-			password.Value(),
-			cfg.Database.Port,
-		)
-		if cfg.Database.Name != "" {
-			dsn = fmt.Sprintf("%s dbname=%s", dsn, cfg.Database.Name)
-		}
-		dia = postgres.Open(dsn)
-	} else {
-		dia = sqlite.Open(cfg.Database.Name)
+	if cfg.Database.Type != "pgsql" {
+		errString := fmt.Sprintf("failed to connect database %s: only PostgreSQL is supported", cfg.Database.Type)
+		klog.Fatal(errString)
+		return nil, errors.New(errString)
 	}
+	dsn := createDSN(cfg, user, password)
+	dia = postgres.Open(dsn)
 
 	newLogger := logger.New(
 		log,
@@ -86,17 +78,14 @@ func initDBWithUser(cfg *config.Config, log *logrus.Logger, user string, passwor
 	sqlDB.SetMaxIdleConns(10)
 	sqlDB.SetMaxOpenConns(100)
 
-	if cfg.Database.Type == "pgsql" {
-		var minorVersion string
-		if result := newDB.Raw("SELECT version()").Scan(&minorVersion); result.Error != nil {
-			klog.Infoln(result.Error.Error())
-			return nil, result.Error
-		}
-
-		klog.Infof("PostgreSQL information: '%s'", minorVersion)
+	var serverVersion string
+	if res := newDB.Raw("SHOW server_version").Scan(&serverVersion); res.Error != nil {
+		klog.Warningf("could not read PostgreSQL version (continuing): %v", res.Error)
+	} else {
+		klog.Infof("PostgreSQL server_version: %s", serverVersion)
 	}
 
-	if err := newDB.Use(NewTraceContextEnforcer()); err != nil {
+	if err = newDB.Use(NewTraceContextEnforcer()); err != nil {
 		klog.Fatalf("failed to register OpenTelemetry GORM plugin: %v", err)
 		return nil, err
 	}
@@ -109,12 +98,40 @@ func initDBWithUser(cfg *config.Config, log *logrus.Logger, user string, passwor
 		traceOpts = append(traceOpts, tracing.WithoutQueryVariables())
 	}
 
-	if err := newDB.Use(tracing.NewPlugin(traceOpts...)); err != nil {
+	if err = newDB.Use(tracing.NewPlugin(traceOpts...)); err != nil {
 		klog.Fatalf("failed to register OpenTelemetry GORM plugin: %v", err)
 		return nil, err
 	}
 
 	return newDB, nil
+}
+
+func createDSN(cfg *config.Config, user string, password config.SecureString) string {
+	dsn := fmt.Sprintf("host=%s user=%s password=%s port=%d",
+		cfg.Database.Hostname,
+		user,
+		password.Value(),
+		cfg.Database.Port,
+	)
+	if cfg.Database.Name != "" {
+		dsn = fmt.Sprintf("%s dbname=%s", dsn, cfg.Database.Name)
+	}
+
+	// Add SSL parameters if they are configured
+	if cfg.Database.SSLMode != "" {
+		dsn = fmt.Sprintf("%s sslmode=%s", dsn, cfg.Database.SSLMode)
+	}
+	if cfg.Database.SSLCert != "" {
+		dsn = fmt.Sprintf("%s sslcert=%s", dsn, cfg.Database.SSLCert)
+	}
+	if cfg.Database.SSLKey != "" {
+		dsn = fmt.Sprintf("%s sslkey=%s", dsn, cfg.Database.SSLKey)
+	}
+	if cfg.Database.SSLRootCert != "" {
+		dsn = fmt.Sprintf("%s sslrootcert=%s", dsn, cfg.Database.SSLRootCert)
+	}
+
+	return dsn
 }
 
 type bypassSpanCheckKey struct{}

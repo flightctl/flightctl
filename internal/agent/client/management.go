@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
@@ -14,7 +15,8 @@ import (
 var _ Management = (*management)(nil)
 
 var (
-	ErrEmptyResponse = errors.New("empty response")
+	ErrEmptyResponse  = errors.New("empty response")
+	ErrDeviceNotFound = errors.New("device not found - certificate should be wiped and agent restarted")
 )
 
 func NewManagement(
@@ -89,6 +91,7 @@ func (m *management) PatchDeviceStatus(ctx context.Context, name string, patch v
 // and the response code is returned which should be evaluated but the caller.
 func (m *management) GetRenderedDevice(ctx context.Context, name string, params *v1alpha1.GetRenderedDeviceParams, rcb ...client.RequestEditorFn) (*v1alpha1.Device, int, error) {
 	start := time.Now()
+
 	resp, err := m.client.GetRenderedDeviceWithResponse(ctx, name, params, rcb...)
 
 	if m.rpcMetricsCallbackFunc != nil {
@@ -104,6 +107,21 @@ func (m *management) GetRenderedDevice(ctx context.Context, name string, params 
 
 	if resp.JSON200 != nil {
 		return resp.JSON200, resp.StatusCode(), nil
+	}
+
+	// Check for 404 device not found - only if body contains specific content
+	if resp.StatusCode() == http.StatusNotFound {
+		// Check the response body for specific device not found content
+		// The generated client already reads the body into resp.Body
+		if len(resp.Body) > 0 {
+			// Check for the exact device not found error pattern from the server
+			// Server returns: "Device of name \"<device-name>\" not found"
+			if strings.Contains(string(resp.Body), "Device of name") && strings.Contains(string(resp.Body), "not found") {
+				return nil, resp.StatusCode(), ErrDeviceNotFound
+			}
+		}
+		// 404 but not the specific device not found case - return generic 404
+		return nil, resp.StatusCode(), nil
 	}
 
 	// since there is no JSON204 to return, we have to let the caller evaluate

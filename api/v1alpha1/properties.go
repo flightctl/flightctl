@@ -11,7 +11,7 @@ import (
 
 // IsDisconnected() is true if the device never updated status or its last status update is older than disconnectTimeout.
 func (d *Device) IsDisconnected(disconnectTimeout time.Duration) bool {
-	return d == nil || (d.Status != nil && d.Status.LastSeen.Add(disconnectTimeout).Before(time.Now()))
+	return d == nil || d.Status == nil || d.Status.LastSeen == nil || (d.Status.LastSeen.IsZero() || d.Status.LastSeen.Add(disconnectTimeout).Before(time.Now()))
 }
 
 // IsManaged() if the device has its owner field set.

@@ -1,9 +1,13 @@
 package service_test
 
 import (
+	"context"
+	"fmt"
+	"strings"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/google/uuid"
@@ -101,7 +105,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 					Name: lo.ToPtr(deviceName),
 				},
 				Status: &api.DeviceStatus{
-					LastSeen: time.Now(),
+					LastSeen: lo.ToPtr(time.Now()),
 					Applications: []api.DeviceApplicationStatus{
 						{
 							Name:     "test-app",
@@ -201,7 +205,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 					Name: lo.ToPtr(deviceName),
 				},
 				Status: &api.DeviceStatus{
-					LastSeen: time.Now(),
+					LastSeen: lo.ToPtr(time.Now()),
 					Applications: []api.DeviceApplicationStatus{
 						{
 							Name:     "test-app",
@@ -284,7 +288,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 					Name: lo.ToPtr(deviceName),
 				},
 				Status: &api.DeviceStatus{
-					LastSeen: time.Now(),
+					LastSeen: lo.ToPtr(time.Now()),
 					Resources: api.DeviceResourceStatus{
 						Cpu:    api.DeviceResourceStatusCritical,
 						Memory: api.DeviceResourceStatusWarning,
@@ -326,7 +330,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 					Name: lo.ToPtr(deviceName),
 				},
 				Status: &api.DeviceStatus{
-					LastSeen: time.Now(),
+					LastSeen: lo.ToPtr(time.Now()),
 					Resources: api.DeviceResourceStatus{
 						Cpu:    api.DeviceResourceStatusHealthy,
 						Memory: api.DeviceResourceStatusHealthy,
@@ -387,7 +391,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 					Name: lo.ToPtr(deviceName),
 				},
 				Status: &api.DeviceStatus{
-					LastSeen:     time.Now(),
+					LastSeen:     lo.ToPtr(time.Now()),
 					Applications: []api.DeviceApplicationStatus{},
 					ApplicationsSummary: api.DeviceApplicationsSummaryStatus{
 						Status: api.ApplicationsSummaryStatusHealthy,
@@ -463,7 +467,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 					Name: lo.ToPtr(deviceName),
 				},
 				Status: &api.DeviceStatus{
-					LastSeen: time.Now().Add(-10 * time.Minute), // More than 5 minutes ago to trigger disconnected state
+					LastSeen: lo.ToPtr(time.Now().Add(-10 * time.Minute)), // More than 5 minutes ago to trigger disconnected state
 					Summary: api.DeviceSummaryStatus{
 						Status: api.DeviceSummaryStatusUnknown,
 						Info:   lo.ToPtr("Device is disconnected (last seen more than 5m0s)."),
@@ -520,7 +524,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 					Name: lo.ToPtr(deviceName),
 				},
 				Status: &api.DeviceStatus{
-					LastSeen: time.Now(),
+					LastSeen: lo.ToPtr(time.Now()),
 					Summary: api.DeviceSummaryStatus{
 						Status: api.DeviceSummaryStatusOnline,
 						Info:   lo.ToPtr("Device's application workloads are healthy."),
@@ -599,7 +603,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 					Name: lo.ToPtr(deviceName),
 				},
 				Status: &api.DeviceStatus{
-					LastSeen: time.Now(),
+					LastSeen: lo.ToPtr(time.Now()),
 					Summary: api.DeviceSummaryStatus{
 						Status: api.DeviceSummaryStatusOnline,
 						Info:   lo.ToPtr("Device's system resources are healthy."),
@@ -655,7 +659,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 					Name: lo.ToPtr(deviceName),
 				},
 				Status: &api.DeviceStatus{
-					LastSeen: time.Now(),
+					LastSeen: lo.ToPtr(time.Now()),
 					Summary: api.DeviceSummaryStatus{
 						Status: api.DeviceSummaryStatusOnline, // This will be overridden to ConflictPaused by the service
 						Info:   lo.ToPtr("Device's system resources are healthy."),
@@ -709,7 +713,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 
 			pausedEvent := findEventByReason(finalEvents, api.EventReasonDeviceConflictPaused)
 			Expect(pausedEvent).ToNot(BeNil(), "DeviceConflictPaused event should be generated when transitioning from Online to ConflictPaused")
-			Expect(pausedEvent.Type).To(Equal(api.Normal))
+			Expect(pausedEvent.Type).To(Equal(api.Warning))
 			Expect(pausedEvent.Message).To(ContainSubstring("Device reconciliation is paused due to a state conflict between the service and the device's agent; manual intervention is required."))
 		})
 	})
@@ -1005,6 +1009,694 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 				_, status := suite.Handler.ResumeDevices(suite.Ctx, request)
 				Expect(status.Code).To(Equal(int32(400))) // Bad Request
 			})
+		})
+	})
+
+	Context("CountDevicesByLabels", func() {
+		// Define the device test structure once
+		type testDevice struct {
+			name            string
+			labels          map[string]string
+			status          string
+			renderedVersion string
+			configVersion   string
+		}
+
+		// Define the test case structure once
+		type testCase struct {
+			devices           []testDevice
+			expectedTotal     int64
+			expectedConnected int64
+			expectedBusy      int64
+			groupBy           []string
+			expectedGroups    int
+			groupLabels       map[string]string
+			description       string
+		}
+
+		// Helper function to create and configure devices for testing
+		createTestDevices := func(devices []testDevice) {
+			for _, d := range devices {
+				device := api.Device{
+					Metadata: api.ObjectMeta{
+						Name:   lo.ToPtr(d.name),
+						Labels: &d.labels,
+					},
+					Spec: &api.DeviceSpec{
+						Os: &api.DeviceOsSpec{Image: "test-os"},
+					},
+					Status: &api.DeviceStatus{
+						Summary: api.DeviceSummaryStatus{
+							Status: api.DeviceSummaryStatusType(d.status),
+						},
+						Config: api.DeviceConfigStatus{
+							RenderedVersion: d.configVersion,
+						},
+					},
+				}
+
+				// Create the device
+				_, status := suite.Handler.CreateDevice(suite.Ctx, device)
+				Expect(status.Code).To(Equal(int32(201)))
+
+				// Update the device status after creation since CreateDevice might override it
+				updatedDevice := api.Device{
+					Metadata: api.ObjectMeta{
+						Name:   lo.ToPtr(d.name),
+						Labels: &d.labels,
+					},
+					Spec: &api.DeviceSpec{
+						Os: &api.DeviceOsSpec{Image: "test-os"},
+					},
+					Status: &api.DeviceStatus{
+						Summary: api.DeviceSummaryStatus{
+							Status: api.DeviceSummaryStatusType(d.status),
+						},
+						Config: api.DeviceConfigStatus{
+							RenderedVersion: d.configVersion,
+						},
+					},
+				}
+
+				// Save the updated device using ReplaceDeviceStatus for status updates
+				resultDevice, updateStatus := suite.Handler.ReplaceDeviceStatus(suite.Ctx, d.name, updatedDevice)
+				Expect(updateStatus.Code).To(Equal(int32(200)))
+				Expect(resultDevice).ToNot(BeNil())
+
+				// Add renderedVersion annotation if specified (including empty string)
+				if d.renderedVersion != "" {
+					err := suite.Store.Device().UpdateAnnotations(suite.Ctx, orgId, d.name,
+						map[string]string{api.DeviceAnnotationRenderedVersion: d.renderedVersion}, nil)
+					Expect(err).ToNot(HaveOccurred())
+				} else if d.renderedVersion == "" && !strings.HasPrefix(d.name, "missing-annotation-device") {
+					// For empty string, we need to explicitly set it to distinguish from missing annotation
+					err := suite.Store.Device().UpdateAnnotations(suite.Ctx, orgId, d.name,
+						map[string]string{api.DeviceAnnotationRenderedVersion: ""}, nil)
+					Expect(err).ToNot(HaveOccurred())
+				}
+				// For missing annotation devices, do nothing (no annotation will be set)
+			}
+		}
+
+		// Helper function to verify count results
+		verifyCountResults := func(result []map[string]any, expectedGroups int, expectedCounts map[string]int64, groupLabels map[string]string) {
+			Expect(result).To(HaveLen(expectedGroups))
+
+			if expectedGroups == 1 {
+				counts := result[0]
+				// Verify label values
+				for key, value := range groupLabels {
+					Expect(counts[key]).To(Equal(value))
+				}
+
+				// Verify counts
+				Expect(counts["total"]).To(Equal(expectedCounts["total"]))
+				Expect(counts["connected"]).To(Equal(expectedCounts["connected"]))
+				Expect(counts["busy_connected"]).To(Equal(expectedCounts["busy_connected"]))
+			} else if expectedGroups > 1 {
+				// For multiple groups, just verify the total count across all groups
+				totalTotal := int64(0)
+				totalConnected := int64(0)
+				totalBusy := int64(0)
+
+				for _, counts := range result {
+					totalTotal += counts["total"].(int64)
+					totalConnected += counts["connected"].(int64)
+					totalBusy += counts["busy_connected"].(int64)
+				}
+
+				Expect(totalTotal).To(Equal(expectedCounts["total"]))
+				Expect(totalConnected).To(Equal(expectedCounts["connected"]))
+				Expect(totalBusy).To(Equal(expectedCounts["busy_connected"]))
+			}
+		}
+
+		DescribeTable("should count devices correctly with different configurations",
+			func(testCase testCase) {
+				// Create all devices for this test case
+				createTestDevices(testCase.devices)
+
+				// Test counting by the specified groups
+				params := api.ListDevicesParams{}
+				result, status := suite.Handler.CountDevicesByLabels(suite.Ctx, params, nil, testCase.groupBy)
+
+				Expect(status.Code).To(Equal(int32(200)))
+
+				// Verify the results
+				verifyCountResults(result, testCase.expectedGroups, map[string]int64{
+					"total":          testCase.expectedTotal,
+					"connected":      testCase.expectedConnected,
+					"busy_connected": testCase.expectedBusy,
+				}, testCase.groupLabels)
+			},
+			Entry("different renderedVersion annotation values", testCase{
+				devices: []testDevice{
+					{
+						name: "device-1",
+						labels: map[string]string{
+							"environment": "prod",
+							"region":      "us-east",
+						},
+						status:          "Online",
+						renderedVersion: "v1.0.0",
+						configVersion:   "v1.0.0",
+					},
+					{
+						name: "device-2",
+						labels: map[string]string{
+							"environment": "prod",
+							"region":      "us-east",
+						},
+						status:          "Online",
+						renderedVersion: "v1.0.0",
+						configVersion:   "v1.0.1", // Different from renderedVersion
+					},
+					{
+						name: "device-3",
+						labels: map[string]string{
+							"environment": "prod",
+							"region":      "us-east",
+						},
+						status:          "Online",
+						renderedVersion: "v2.0.0",
+						configVersion:   "v2.0.0",
+					},
+					{
+						name: "device-4",
+						labels: map[string]string{
+							"environment": "prod",
+							"region":      "us-east",
+						},
+						status:          "Online",
+						renderedVersion: "", // Empty annotation (will be set to empty string)
+						configVersion:   "v1.0.0",
+					},
+					{
+						name: "device-5",
+						labels: map[string]string{
+							"environment": "prod",
+							"region":      "us-east",
+						},
+						status:          "Unknown", // Keep as "Unknown" to test the logic
+						renderedVersion: "v1.0.0",
+						configVersion:   "v1.0.0",
+					},
+				},
+				expectedTotal:     5,
+				expectedConnected: 5, // All devices are connected (Online) - service sets this
+				expectedBusy:      2, // Devices where config.renderedVersion != annotations.renderedVersion
+				groupBy:           []string{"environment", "region"},
+				expectedGroups:    1,
+				groupLabels: map[string]string{
+					"environment": "prod",
+					"region":      "us-east",
+				},
+				description: "5 devices with different renderedVersion annotations",
+			}),
+			Entry("missing renderedVersion annotation", testCase{
+				devices: []testDevice{
+					{
+						name: "missing-annotation-device-1",
+						labels: map[string]string{
+							"environment": "staging",
+							"zone":        "zone-a",
+						},
+						status:          "Online",
+						renderedVersion: "", // No annotation will be set
+						configVersion:   "v1.0.0",
+					},
+					{
+						name: "missing-annotation-device-2",
+						labels: map[string]string{
+							"environment": "staging",
+							"zone":        "zone-a",
+						},
+						status:          "Online",
+						renderedVersion: "", // No annotation will be set
+						configVersion:   "v1.0.1",
+					},
+				},
+				expectedTotal:     2,
+				expectedConnected: 2,
+				expectedBusy:      0, // No devices are busy when annotation is completely missing (NULL comparison)
+				groupBy:           []string{"environment", "zone"},
+				expectedGroups:    1,
+				groupLabels: map[string]string{
+					"environment": "staging",
+					"zone":        "zone-a",
+				},
+				description: "2 devices without renderedVersion annotation",
+			}),
+			Entry("empty renderedVersion annotation", testCase{
+				devices: []testDevice{
+					{
+						name: "empty-annotation-device-1",
+						labels: map[string]string{
+							"environment": "dev",
+							"cluster":     "cluster-1",
+						},
+						status:          "Online",
+						renderedVersion: "", // Empty string annotation
+						configVersion:   "v1.0.0",
+					},
+					{
+						name: "empty-annotation-device-2",
+						labels: map[string]string{
+							"environment": "dev",
+							"cluster":     "cluster-1",
+						},
+						status:          "Online",
+						renderedVersion: "", // Empty string annotation
+						configVersion:   "v1.0.1",
+					},
+				},
+				expectedTotal:     2,
+				expectedConnected: 2,
+				expectedBusy:      2, // All devices are busy since empty annotation != config version
+				groupBy:           []string{"environment", "cluster"},
+				expectedGroups:    1,
+				groupLabels: map[string]string{
+					"environment": "dev",
+					"cluster":     "cluster-1",
+				},
+				description: "2 devices with empty renderedVersion annotation",
+			}),
+			Entry("mixed status values", testCase{
+				devices: []testDevice{
+					{
+						name: "mixed-status-device-1",
+						labels: map[string]string{
+							"tier": "frontend",
+						},
+						status:          "Online",
+						renderedVersion: "v1.0.0",
+						configVersion:   "v1.0.0",
+					},
+					{
+						name: "mixed-status-device-2",
+						labels: map[string]string{
+							"tier": "frontend",
+						},
+						status:          "Offline",
+						renderedVersion: "v1.0.0",
+						configVersion:   "v1.0.0",
+					},
+					{
+						name: "mixed-status-device-3",
+						labels: map[string]string{
+							"tier": "frontend",
+						},
+						status:          "Unknown", // This will be counted as not connected
+						renderedVersion: "v1.0.0",
+						configVersion:   "v1.0.0",
+					},
+				},
+				expectedTotal:     3,
+				expectedConnected: 3, // All devices are Online - service sets this regardless of input
+				expectedBusy:      0, // All devices have matching versions
+				groupBy:           []string{"tier"},
+				expectedGroups:    1,
+				groupLabels: map[string]string{
+					"tier": "frontend",
+				},
+				description: "3 devices with mixed status values",
+			}),
+			Entry("multiple groups", testCase{
+				devices: []testDevice{
+					{
+						name: "multi-group-device-1",
+						labels: map[string]string{
+							"environment": "prod",
+							"region":      "us-west",
+							"tier":        "backend",
+						},
+						status:          "Online",
+						renderedVersion: "v1.0.0",
+						configVersion:   "v1.0.1", // Different from renderedVersion
+					},
+					{
+						name: "multi-group-device-2",
+						labels: map[string]string{
+							"environment": "prod",
+							"region":      "us-west",
+							"tier":        "backend",
+						},
+						status:          "Online",
+						renderedVersion: "v1.0.0",
+						configVersion:   "v1.0.0", // Same as renderedVersion
+					},
+					{
+						name: "multi-group-device-3",
+						labels: map[string]string{
+							"environment": "prod",
+							"region":      "us-east",
+							"tier":        "frontend",
+						},
+						status:          "Online",
+						renderedVersion: "v2.0.0",
+						configVersion:   "v2.0.0", // Same as renderedVersion
+					},
+					{
+						name: "multi-group-device-4",
+						labels: map[string]string{
+							"environment": "staging",
+							"region":      "us-west",
+							"tier":        "backend",
+						},
+						status:          "Online",
+						renderedVersion: "v1.0.0",
+						configVersion:   "v1.0.2", // Different from renderedVersion
+					},
+					{
+						name: "multi-group-device-5",
+						labels: map[string]string{
+							"environment": "staging",
+							"region":      "us-east",
+							"tier":        "frontend",
+						},
+						status:          "Online",
+						renderedVersion: "v1.0.0",
+						configVersion:   "v1.0.0", // Same as renderedVersion
+					},
+				},
+				expectedTotal:     5,
+				expectedConnected: 5, // All devices are Online
+				expectedBusy:      2, // 2 devices have different versions
+				groupBy:           []string{"environment", "region", "tier"},
+				expectedGroups:    4, // 4 groups: prod/us-west/backend, prod/us-east/frontend, staging/us-west/backend, staging/us-east/frontend
+				groupLabels: map[string]string{
+					"environment": "prod",
+					"region":      "us-west",
+					"tier":        "backend",
+				},
+				description: "5 devices grouped by environment, region, and tier",
+			}),
+		)
+
+	})
+})
+
+var _ = Describe("Device LastSeen Integration Tests", func() {
+	var (
+		suite *ServiceTestSuite
+	)
+
+	BeforeEach(func() {
+		suite = NewServiceTestSuite()
+		suite.Setup()
+	})
+
+	AfterEach(func() {
+		suite.Teardown()
+	})
+
+	Describe("GetDeviceLastSeen", func() {
+		It("should return empty lastSeen for device with no last seen timestamp", func() {
+			// Create a device
+			testId := uuid.New().String()
+			deviceName := "lastseen-test-" + testId
+
+			device := api.Device{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr(deviceName),
+				},
+				Spec: &api.DeviceSpec{
+					Os: &api.DeviceOsSpec{
+						Image: "quay.io/fedora/fedora-coreos:stable",
+					},
+				},
+			}
+
+			// Create the device
+			_, status := suite.Handler.CreateDevice(suite.Ctx, device)
+			Expect(status.Code).To(Equal(int32(201)))
+
+			// Get the last seen timestamp
+			lastSeen, status := suite.Handler.GetDeviceLastSeen(suite.Ctx, deviceName)
+			Expect(status.Code).To(Equal(int32(204)))
+			Expect(lastSeen).To(BeNil())
+		})
+
+		It("should return lastSeen timestamp for device with last seen timestamp", func() {
+			// Create a device
+			testId := uuid.New().String()
+			deviceName := "lastseen-test-" + testId
+
+			device := api.Device{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr(deviceName),
+				},
+				Spec: &api.DeviceSpec{
+					Os: &api.DeviceOsSpec{
+						Image: "quay.io/fedora/fedora-coreos:stable",
+					},
+				},
+			}
+
+			// Create the device
+			_, status := suite.Handler.CreateDevice(suite.Ctx, device)
+			Expect(status.Code).To(Equal(int32(201)))
+
+			// Set the last seen timestamp directly in the database
+			now := time.Now()
+			err := suite.SetDeviceLastSeen(deviceName, now)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Get the last seen timestamp
+			lastSeen, status := suite.Handler.GetDeviceLastSeen(suite.Ctx, deviceName)
+			Expect(status.Code).To(Equal(int32(200)))
+			Expect(lastSeen).ToNot(BeNil())
+			Expect(lastSeen.LastSeen).ToNot(BeZero())
+			Expect(lastSeen.LastSeen.Truncate(time.Second)).To(Equal(now.Truncate(time.Second)))
+		})
+
+		It("should return 404 for non-existent device", func() {
+			nonExistentDevice := "non-existent-device-" + uuid.New().String()
+
+			// Try to get last seen for non-existent device
+			lastSeen, status := suite.Handler.GetDeviceLastSeen(suite.Ctx, nonExistentDevice)
+			Expect(status.Code).To(Equal(int32(404)))
+			Expect(lastSeen).To(BeNil())
+		})
+
+		It("should handle device with nil lastSeen gracefully", func() {
+			// Create a device
+			testId := uuid.New().String()
+			deviceName := "lastseen-nil-test-" + testId
+
+			device := api.Device{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr(deviceName),
+				},
+				Spec: &api.DeviceSpec{
+					Os: &api.DeviceOsSpec{
+						Image: "quay.io/fedora/fedora-coreos:stable",
+					},
+				},
+				Status: &api.DeviceStatus{
+					// LastSeen is nil by default
+				},
+			}
+
+			// Create the device
+			_, status := suite.Handler.CreateDevice(suite.Ctx, device)
+			Expect(status.Code).To(Equal(int32(201)))
+
+			// Get the last seen timestamp
+			lastSeen, status := suite.Handler.GetDeviceLastSeen(suite.Ctx, deviceName)
+			Expect(status.Code).To(Equal(int32(204)))
+			Expect(lastSeen).To(BeNil())
+		})
+	})
+
+	Context("Device field selector tests", func() {
+		It("should filter devices by lastSeen field selector", func() {
+			ctx := context.WithValue(suite.Ctx, consts.InternalRequestCtxKey, true)
+			// Create test devices with different lastSeen timestamps
+			testId := uuid.New().String()
+
+			// Device 1: Recent lastSeen (should be included in recent filter)
+			device1Name := "field-selector-test-1-" + testId
+			device1 := api.Device{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr(device1Name),
+				},
+				Spec: &api.DeviceSpec{
+					Os: &api.DeviceOsSpec{
+						Image: "quay.io/fedora/fedora-coreos:stable",
+					},
+				},
+			}
+			_, status := suite.Handler.CreateDevice(ctx, device1)
+			Expect(status.Code).To(Equal(int32(201)))
+
+			// Set up times first to avoid timing issues
+			recentTime := time.Now()
+			oldTime := time.Now().Add(-2 * time.Hour)
+
+			// Set device1 with recent lastSeen directly in the database
+			err := suite.SetDeviceLastSeen(device1Name, recentTime)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Device 2: Old lastSeen (should be excluded from recent filter)
+			device2Name := "field-selector-test-2-" + testId
+			device2 := api.Device{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr(device2Name),
+				},
+				Spec: &api.DeviceSpec{
+					Os: &api.DeviceOsSpec{
+						Image: "quay.io/fedora/fedora-coreos:stable",
+					},
+				},
+			}
+			_, status = suite.Handler.CreateDevice(ctx, device2)
+			Expect(status.Code).To(Equal(int32(201)))
+
+			// Set device2 with old lastSeen directly in the database
+			err = suite.SetDeviceLastSeen(device2Name, oldTime)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Debug: Verify the devices were actually created with the correct lastSeen values
+			device1Check, status1 := suite.Handler.GetDevice(ctx, device1Name)
+			Expect(status1.Code).To(Equal(int32(200)))
+			device2Check, status2 := suite.Handler.GetDevice(ctx, device2Name)
+			Expect(status2.Code).To(Equal(int32(200)))
+
+			fmt.Printf("DEBUG: Device1 actual lastSeen: %v\n", device1Check.Status.LastSeen)
+			fmt.Printf("DEBUG: Device2 actual lastSeen: %v\n", device2Check.Status.LastSeen)
+
+			// Test field selector: get devices with lastSeen after 1 hour ago
+			cutoffTime := time.Now().Add(-1 * time.Hour)
+			fieldSelector := fmt.Sprintf("lastSeen>%s", cutoffTime.Format(time.RFC3339))
+
+			// Debug: Print the actual times and field selector
+			fmt.Printf("DEBUG: recentTime = %s\n", recentTime.Format(time.RFC3339))
+			fmt.Printf("DEBUG: oldTime = %s\n", oldTime.Format(time.RFC3339))
+			fmt.Printf("DEBUG: cutoffTime = %s\n", cutoffTime.Format(time.RFC3339))
+			fmt.Printf("DEBUG: fieldSelector = %s\n", fieldSelector)
+
+			params := api.ListDevicesParams{
+				FieldSelector: &fieldSelector,
+				Limit:         lo.ToPtr(int32(100)),
+			}
+
+			deviceList, status := suite.Handler.ListDevices(ctx, params, nil)
+			Expect(status.Code).To(Equal(int32(200)))
+			Expect(deviceList).ToNot(BeNil())
+
+			// Debug: Print all found devices and their lastSeen values
+			fmt.Printf("DEBUG: Found %d devices with field selector '%s'\n", len(deviceList.Items), fieldSelector)
+			for i, device := range deviceList.Items {
+				if device.Metadata.Name != nil {
+					lastSeenStr := "nil"
+					if device.Status != nil && device.Status.LastSeen != nil {
+						lastSeenStr = device.Status.LastSeen.Format(time.RFC3339)
+					}
+					fmt.Printf("DEBUG: Device %d: name=%s, lastSeen=%s\n", i, *device.Metadata.Name, lastSeenStr)
+				}
+			}
+
+			// Should find device1 (recent) but not device2 (old)
+			foundDevice1 := false
+			foundDevice2 := false
+			for _, device := range deviceList.Items {
+				if device.Metadata.Name != nil && *device.Metadata.Name == device1Name {
+					foundDevice1 = true
+				}
+				if device.Metadata.Name != nil && *device.Metadata.Name == device2Name {
+					foundDevice2 = true
+				}
+			}
+
+			fmt.Printf("DEBUG: foundDevice1=%t, foundDevice2=%t\n", foundDevice1, foundDevice2)
+			Expect(foundDevice1).To(BeTrue(), "Device with recent lastSeen should be found")
+			Expect(foundDevice2).To(BeFalse(), "Device with old lastSeen should not be found")
+
+			// Test field selector: get devices with lastSeen before 1 hour ago
+			fieldSelectorOld := fmt.Sprintf("lastSeen<%s", cutoffTime.Format(time.RFC3339))
+
+			// Debug: Print the old field selector
+			fmt.Printf("DEBUG: fieldSelectorOld = %s\n", fieldSelectorOld)
+
+			paramsOld := api.ListDevicesParams{
+				FieldSelector: &fieldSelectorOld,
+				Limit:         lo.ToPtr(int32(100)),
+			}
+
+			deviceListOld, status := suite.Handler.ListDevices(ctx, paramsOld, nil)
+			Expect(status.Code).To(Equal(int32(200)))
+			Expect(deviceListOld).ToNot(BeNil())
+
+			// Debug: Print all found devices in old filter
+			fmt.Printf("DEBUG: Found %d devices with field selector '%s'\n", len(deviceListOld.Items), fieldSelectorOld)
+			for i, device := range deviceListOld.Items {
+				if device.Metadata.Name != nil {
+					lastSeenStr := "nil"
+					if device.Status != nil && device.Status.LastSeen != nil {
+						lastSeenStr = device.Status.LastSeen.Format(time.RFC3339)
+					}
+					fmt.Printf("DEBUG: Old Device %d: name=%s, lastSeen=%s\n", i, *device.Metadata.Name, lastSeenStr)
+				}
+			}
+
+			// Should find device2 (old) but not device1 (recent)
+			foundDevice1Old := false
+			foundDevice2Old := false
+			for _, device := range deviceListOld.Items {
+				if device.Metadata.Name != nil && *device.Metadata.Name == device1Name {
+					foundDevice1Old = true
+				}
+				if device.Metadata.Name != nil && *device.Metadata.Name == device2Name {
+					foundDevice2Old = true
+				}
+			}
+
+			fmt.Printf("DEBUG: foundDevice1Old=%t, foundDevice2Old=%t\n", foundDevice1Old, foundDevice2Old)
+			Expect(foundDevice1Old).To(BeFalse(), "Device with recent lastSeen should not be found in old filter")
+			Expect(foundDevice2Old).To(BeTrue(), "Device with old lastSeen should be found in old filter")
+		})
+
+		It("should handle field selector with non-existent lastSeen values", func() {
+			// Create a device without lastSeen (nil value)
+			testId := uuid.New().String()
+			deviceName := "field-selector-nil-test-" + testId
+
+			device := api.Device{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr(deviceName),
+				},
+				Spec: &api.DeviceSpec{
+					Os: &api.DeviceOsSpec{
+						Image: "quay.io/fedora/fedora-coreos:stable",
+					},
+				},
+			}
+			_, status := suite.Handler.CreateDevice(suite.Ctx, device)
+			Expect(status.Code).To(Equal(int32(201)))
+
+			// Test field selector: get devices with lastSeen after a specific time
+			cutoffTime := time.Now().Add(-1 * time.Hour)
+			fieldSelector := fmt.Sprintf("lastSeen>%s", cutoffTime.Format(time.RFC3339))
+
+			params := api.ListDevicesParams{
+				FieldSelector: &fieldSelector,
+				Limit:         lo.ToPtr(int32(100)),
+			}
+
+			deviceList, status := suite.Handler.ListDevices(suite.Ctx, params, nil)
+			Expect(status.Code).To(Equal(int32(200)))
+			Expect(deviceList).ToNot(BeNil())
+
+			// Device with nil lastSeen should not be found in the filtered results
+			foundDevice := false
+			for _, device := range deviceList.Items {
+				if device.Metadata.Name != nil && *device.Metadata.Name == deviceName {
+					foundDevice = true
+				}
+			}
+
+			Expect(foundDevice).To(BeFalse(), "Device with nil lastSeen should not be found in lastSeen> filter")
 		})
 	})
 })
