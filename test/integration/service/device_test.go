@@ -1427,7 +1427,7 @@ var _ = Describe("Device LastSeen Integration Tests", func() {
 			}
 
 			// Create the device
-			_, status := suite.Handler.CreateDevice(suite.Ctx, device)
+			_, status := suite.Handler.CreateDevice(suite.Ctx, suite.OrgID, device)
 			Expect(status.Code).To(Equal(int32(201)))
 
 			// Get the last seen timestamp
@@ -1453,7 +1453,7 @@ var _ = Describe("Device LastSeen Integration Tests", func() {
 			}
 
 			// Create the device
-			_, status := suite.Handler.CreateDevice(suite.Ctx, device)
+			_, status := suite.Handler.CreateDevice(suite.Ctx, suite.OrgID, device)
 			Expect(status.Code).To(Equal(int32(201)))
 
 			// Set the last seen timestamp directly in the database
@@ -1498,7 +1498,7 @@ var _ = Describe("Device LastSeen Integration Tests", func() {
 			}
 
 			// Create the device
-			_, status := suite.Handler.CreateDevice(suite.Ctx, device)
+			_, status := suite.Handler.CreateDevice(suite.Ctx, suite.OrgID, device)
 			Expect(status.Code).To(Equal(int32(201)))
 
 			// Get the last seen timestamp
@@ -1526,7 +1526,7 @@ var _ = Describe("Device LastSeen Integration Tests", func() {
 					},
 				},
 			}
-			_, status := suite.Handler.CreateDevice(ctx, device1)
+			_, status := suite.Handler.CreateDevice(ctx, suite.OrgID, device1)
 			Expect(status.Code).To(Equal(int32(201)))
 
 			// Set up times first to avoid timing issues
@@ -1549,7 +1549,7 @@ var _ = Describe("Device LastSeen Integration Tests", func() {
 					},
 				},
 			}
-			_, status = suite.Handler.CreateDevice(ctx, device2)
+			_, status = suite.Handler.CreateDevice(ctx, suite.OrgID, device2)
 			Expect(status.Code).To(Equal(int32(201)))
 
 			// Set device2 with old lastSeen directly in the database
@@ -1557,9 +1557,9 @@ var _ = Describe("Device LastSeen Integration Tests", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Debug: Verify the devices were actually created with the correct lastSeen values
-			device1Check, status1 := suite.Handler.GetDevice(ctx, device1Name)
+			device1Check, status1 := suite.Handler.GetDevice(ctx, suite.OrgID, device1Name)
 			Expect(status1.Code).To(Equal(int32(200)))
-			device2Check, status2 := suite.Handler.GetDevice(ctx, device2Name)
+			device2Check, status2 := suite.Handler.GetDevice(ctx, suite.OrgID, device2Name)
 			Expect(status2.Code).To(Equal(int32(200)))
 
 			fmt.Printf("DEBUG: Device1 actual lastSeen: %v\n", device1Check.Status.LastSeen)
@@ -1580,7 +1580,7 @@ var _ = Describe("Device LastSeen Integration Tests", func() {
 				Limit:         lo.ToPtr(int32(100)),
 			}
 
-			deviceList, status := suite.Handler.ListDevices(ctx, params, nil)
+			deviceList, status := suite.Handler.ListDevices(ctx, suite.OrgID, params, nil)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(deviceList).ToNot(BeNil())
 
@@ -1623,7 +1623,7 @@ var _ = Describe("Device LastSeen Integration Tests", func() {
 				Limit:         lo.ToPtr(int32(100)),
 			}
 
-			deviceListOld, status := suite.Handler.ListDevices(ctx, paramsOld, nil)
+			deviceListOld, status := suite.Handler.ListDevices(ctx, suite.OrgID, paramsOld, nil)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(deviceListOld).ToNot(BeNil())
 
@@ -1671,7 +1671,7 @@ var _ = Describe("Device LastSeen Integration Tests", func() {
 					},
 				},
 			}
-			_, status := suite.Handler.CreateDevice(suite.Ctx, device)
+			_, status := suite.Handler.CreateDevice(suite.Ctx, suite.OrgID, device)
 			Expect(status.Code).To(Equal(int32(201)))
 
 			// Test field selector: get devices with lastSeen after a specific time
@@ -1683,7 +1683,7 @@ var _ = Describe("Device LastSeen Integration Tests", func() {
 				Limit:         lo.ToPtr(int32(100)),
 			}
 
-			deviceList, status := suite.Handler.ListDevices(suite.Ctx, params, nil)
+			deviceList, status := suite.Handler.ListDevices(suite.Ctx, suite.OrgID, params, nil)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(deviceList).ToNot(BeNil())
 

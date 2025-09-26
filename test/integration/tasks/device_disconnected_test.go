@@ -77,7 +77,7 @@ var _ = Describe("DeviceDisconnected", func() {
 
 	Context("when there are no devices", func() {
 		It("should complete successfully without errors", func() {
-			disconnectedTask.Poll(ctx)
+			disconnectedTask.Poll(ctx, orgId)
 			// Should not panic or error
 		})
 	})
@@ -106,7 +106,7 @@ var _ = Describe("DeviceDisconnected", func() {
 		})
 
 		It("should not mark connected devices as unknown", func() {
-			disconnectedTask.Poll(ctx)
+			disconnectedTask.Poll(ctx, orgId)
 
 			// Check that all devices remain online
 			for i := 1; i <= 3; i++ {
@@ -145,7 +145,7 @@ var _ = Describe("DeviceDisconnected", func() {
 
 		It("should mark disconnected devices as unknown", func() {
 			workerClient.EXPECT().EmitEvent(gomock.Any(), gomock.Any(), gomock.Any()).Times(3)
-			disconnectedTask.Poll(ctx)
+			disconnectedTask.Poll(ctx, orgId)
 
 			// Check that all devices are marked as unknown
 			for i := 1; i <= 3; i++ {
@@ -207,7 +207,7 @@ var _ = Describe("DeviceDisconnected", func() {
 
 		It("should only mark disconnected devices as unknown", func() {
 			workerClient.EXPECT().EmitEvent(gomock.Any(), gomock.Any(), gomock.Any()).Times(3)
-			disconnectedTask.Poll(ctx)
+			disconnectedTask.Poll(ctx, orgId)
 
 			// Check connected devices remain online
 			for i := 1; i <= 2; i++ {
@@ -253,7 +253,7 @@ var _ = Describe("DeviceDisconnected", func() {
 
 		It("should handle devices at the disconnection threshold correctly", func() {
 			workerClient.EXPECT().EmitEvent(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
-			disconnectedTask.Poll(ctx)
+			disconnectedTask.Poll(ctx, orgId)
 
 			device, err := deviceStore.Get(ctx, orgId, "threshold-device")
 			Expect(err).ToNot(HaveOccurred())
@@ -298,7 +298,7 @@ var _ = Describe("DeviceDisconnected", func() {
 
 		It("should use field selector to efficiently query only disconnected devices", func() {
 			workerClient.EXPECT().EmitEvent(gomock.Any(), gomock.Any(), gomock.Any()).Times(1)
-			disconnectedTask.Poll(ctx)
+			disconnectedTask.Poll(ctx, orgId)
 
 			// Recent device should remain online
 			recentDevice, err := deviceStore.Get(ctx, orgId, "recent-device")
