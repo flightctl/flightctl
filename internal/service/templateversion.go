@@ -13,24 +13,20 @@ import (
 	"github.com/samber/lo"
 )
 
-func (h *ServiceHandler) CreateTemplateVersion(ctx context.Context, templateVersion api.TemplateVersion, immediateRollout bool) (*api.TemplateVersion, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) CreateTemplateVersion(ctx context.Context, orgId uuid.UUID, templateVersion api.TemplateVersion, immediateRollout bool) (*api.TemplateVersion, api.Status) {
 	if errs := templateVersion.Validate(); len(errs) > 0 {
 		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
 	result, err := h.store.TemplateVersion().Create(ctx, orgId, &templateVersion, h.callbackTemplateVersionUpdated)
 	if err == nil {
-		h.eventHandler.EmitFleetRolloutStartedEvent(ctx, lo.FromPtr(templateVersion.Metadata.Name), templateVersion.Spec.Fleet, immediateRollout)
+		h.eventHandler.EmitFleetRolloutStartedEvent(ctx, orgId, lo.FromPtr(templateVersion.Metadata.Name), templateVersion.Spec.Fleet, immediateRollout)
 	}
 	return result, StoreErrorToApiStatus(err, true, api.TemplateVersionKind, templateVersion.Metadata.Name)
 }
 
-func (h *ServiceHandler) ListTemplateVersions(ctx context.Context, fleet string, params api.ListTemplateVersionsParams) (*api.TemplateVersionList, api.Status) {
+func (h *ServiceHandler) ListTemplateVersions(ctx context.Context, orgId uuid.UUID, fleet string, params api.ListTemplateVersionsParams) (*api.TemplateVersionList, api.Status) {
 	var err error
-
-	orgId := getOrgIdFromContext(ctx)
 
 	listParams, status := prepareListParams(params.Continue, params.LabelSelector, params.FieldSelector, params.Limit)
 	if status != api.StatusOK() {
@@ -71,16 +67,12 @@ func (h *ServiceHandler) ListTemplateVersions(ctx context.Context, fleet string,
 	}
 }
 
-func (h *ServiceHandler) GetTemplateVersion(ctx context.Context, fleet string, name string) (*api.TemplateVersion, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) GetTemplateVersion(ctx context.Context, orgId uuid.UUID, fleet string, name string) (*api.TemplateVersion, api.Status) {
 	result, err := h.store.TemplateVersion().Get(ctx, orgId, fleet, name)
 	return result, StoreErrorToApiStatus(err, false, api.TemplateVersionKind, &name)
 }
 
-func (h *ServiceHandler) DeleteTemplateVersion(ctx context.Context, fleet string, name string) api.Status {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) DeleteTemplateVersion(ctx context.Context, orgId uuid.UUID, fleet string, name string) api.Status {
 	tvkey := kvstore.TemplateVersionKey{OrgID: orgId, Fleet: fleet, TemplateVersion: name}
 	err := h.kvStore.DeleteKeysForTemplateVersion(ctx, tvkey.ComposeKey())
 	if err != nil {
@@ -91,9 +83,7 @@ func (h *ServiceHandler) DeleteTemplateVersion(ctx context.Context, fleet string
 	return StoreErrorToApiStatus(err, false, api.TemplateVersionKind, &name)
 }
 
-func (h *ServiceHandler) GetLatestTemplateVersion(ctx context.Context, fleet string) (*api.TemplateVersion, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) GetLatestTemplateVersion(ctx context.Context, orgId uuid.UUID, fleet string) (*api.TemplateVersion, api.Status) {
 	result, err := h.store.TemplateVersion().GetLatest(ctx, orgId, fleet)
 	return result, StoreErrorToApiStatus(err, false, api.TemplateVersionKind, nil)
 }

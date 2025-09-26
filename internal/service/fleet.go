@@ -12,9 +12,7 @@ import (
 	"github.com/google/uuid"
 )
 
-func (h *ServiceHandler) CreateFleet(ctx context.Context, fleet api.Fleet) (*api.Fleet, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) CreateFleet(ctx context.Context, orgId uuid.UUID, fleet api.Fleet) (*api.Fleet, api.Status) {
 	// don't set fields that are managed by the service
 	fleet.Status = nil
 	NilOutManagedObjectMetaProperties(&fleet.Metadata)
@@ -30,9 +28,7 @@ func (h *ServiceHandler) CreateFleet(ctx context.Context, fleet api.Fleet) (*api
 	return result, StoreErrorToApiStatus(err, true, api.FleetKind, fleet.Metadata.Name)
 }
 
-func (h *ServiceHandler) ListFleets(ctx context.Context, params api.ListFleetsParams) (*api.FleetList, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) ListFleets(ctx context.Context, orgId uuid.UUID, params api.ListFleetsParams) (*api.FleetList, api.Status) {
 	listParams, status := prepareListParams(params.Continue, params.LabelSelector, params.FieldSelector, params.Limit)
 	if status != api.StatusOK() {
 		return nil, status
@@ -53,16 +49,12 @@ func (h *ServiceHandler) ListFleets(ctx context.Context, params api.ListFleetsPa
 	}
 }
 
-func (h *ServiceHandler) GetFleet(ctx context.Context, name string, params api.GetFleetParams) (*api.Fleet, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) GetFleet(ctx context.Context, orgId uuid.UUID, name string, params api.GetFleetParams) (*api.Fleet, api.Status) {
 	result, err := h.store.Fleet().Get(ctx, orgId, name, store.GetWithDeviceSummary(util.DefaultBoolIfNil(params.AddDevicesSummary, false)))
 	return result, StoreErrorToApiStatus(err, false, api.FleetKind, &name)
 }
 
-func (h *ServiceHandler) ReplaceFleet(ctx context.Context, name string, fleet api.Fleet) (*api.Fleet, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) ReplaceFleet(ctx context.Context, orgId uuid.UUID, name string, fleet api.Fleet) (*api.Fleet, api.Status) {
 	// don't overwrite fields that are managed by the service
 	isInternal := IsInternalRequest(ctx)
 	if !isInternal {
@@ -84,9 +76,7 @@ func (h *ServiceHandler) ReplaceFleet(ctx context.Context, name string, fleet ap
 	return result, StoreErrorToApiStatus(err, created, api.FleetKind, &name)
 }
 
-func (h *ServiceHandler) DeleteFleet(ctx context.Context, name string) api.Status {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) DeleteFleet(ctx context.Context, orgId uuid.UUID, name string) api.Status {
 	f, err := h.store.Fleet().Get(ctx, orgId, name)
 	if err != nil {
 		if errors.Is(err, flterrors.ErrResourceNotFound) {
@@ -103,24 +93,18 @@ func (h *ServiceHandler) DeleteFleet(ctx context.Context, name string) api.Statu
 	return StoreErrorToApiStatus(err, false, api.FleetKind, &name)
 }
 
-func (h *ServiceHandler) GetFleetStatus(ctx context.Context, name string) (*api.Fleet, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) GetFleetStatus(ctx context.Context, orgId uuid.UUID, name string) (*api.Fleet, api.Status) {
 	result, err := h.store.Fleet().Get(ctx, orgId, name)
 	return result, StoreErrorToApiStatus(err, false, api.FleetKind, &name)
 }
 
-func (h *ServiceHandler) ReplaceFleetStatus(ctx context.Context, name string, fleet api.Fleet) (*api.Fleet, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) ReplaceFleetStatus(ctx context.Context, orgId uuid.UUID, name string, fleet api.Fleet) (*api.Fleet, api.Status) {
 	result, err := h.store.Fleet().UpdateStatus(ctx, orgId, &fleet)
 	return result, StoreErrorToApiStatus(err, false, api.FleetKind, &name)
 }
 
 // Only metadata.labels and spec can be patched. If we try to patch other fields, HTTP 400 Bad Request is returned.
-func (h *ServiceHandler) PatchFleet(ctx context.Context, name string, patch api.PatchRequest) (*api.Fleet, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) PatchFleet(ctx context.Context, orgId uuid.UUID, name string, patch api.PatchRequest) (*api.Fleet, api.Status) {
 	currentObj, err := h.store.Fleet().Get(ctx, orgId, name)
 	if err != nil {
 		return nil, StoreErrorToApiStatus(err, false, api.FleetKind, &name)
@@ -147,43 +131,32 @@ func (h *ServiceHandler) PatchFleet(ctx context.Context, name string, patch api.
 	return result, StoreErrorToApiStatus(err, false, api.FleetKind, &name)
 }
 
-func (h *ServiceHandler) ListFleetRolloutDeviceSelection(ctx context.Context) (*api.FleetList, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) ListFleetRolloutDeviceSelection(ctx context.Context, orgId uuid.UUID) (*api.FleetList, api.Status) {
 	result, err := h.store.Fleet().ListRolloutDeviceSelection(ctx, orgId)
 	return result, StoreErrorToApiStatus(err, false, api.FleetKind, nil)
 }
 
-func (h *ServiceHandler) ListDisruptionBudgetFleets(ctx context.Context) (*api.FleetList, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) ListDisruptionBudgetFleets(ctx context.Context, orgId uuid.UUID) (*api.FleetList, api.Status) {
 	result, err := h.store.Fleet().ListDisruptionBudgetFleets(ctx, orgId)
 	return result, StoreErrorToApiStatus(err, false, api.FleetKind, nil)
 }
 
-func (h *ServiceHandler) UpdateFleetConditions(ctx context.Context, name string, conditions []api.Condition) api.Status {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) UpdateFleetConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []api.Condition) api.Status {
 	err := h.store.Fleet().UpdateConditions(ctx, orgId, name, conditions, h.callbackFleetUpdated)
 	return StoreErrorToApiStatus(err, false, api.FleetKind, &name)
 }
 
-func (h *ServiceHandler) UpdateFleetAnnotations(ctx context.Context, name string, annotations map[string]string, deleteKeys []string) api.Status {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) UpdateFleetAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) api.Status {
 	err := h.store.Fleet().UpdateAnnotations(ctx, orgId, name, annotations, deleteKeys, h.callbackFleetUpdated)
 	return StoreErrorToApiStatus(err, false, api.FleetKind, &name)
 }
 
-func (h *ServiceHandler) OverwriteFleetRepositoryRefs(ctx context.Context, name string, repositoryNames ...string) api.Status {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) OverwriteFleetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) api.Status {
 	err := h.store.Fleet().OverwriteRepositoryRefs(ctx, orgId, name, repositoryNames...)
 	return StoreErrorToApiStatus(err, false, api.FleetKind, &name)
 }
 
-func (h *ServiceHandler) GetFleetRepositoryRefs(ctx context.Context, name string) (*api.RepositoryList, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
+func (h *ServiceHandler) GetFleetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*api.RepositoryList, api.Status) {
 	result, err := h.store.Fleet().GetRepositoryRefs(ctx, orgId, name)
 	return result, StoreErrorToApiStatus(err, false, api.FleetKind, &name)
 }

@@ -102,7 +102,7 @@ type DeviceDisconnectedExecutor struct {
 func (e *DeviceDisconnectedExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgID uuid.UUID) {
 	taskCtx := createTaskContext(ctx, PeriodicTaskTypeDeviceDisconnected, orgID)
 	deviceDisconnected := tasks.NewDeviceDisconnected(e.log, e.serviceHandler)
-	deviceDisconnected.Poll(taskCtx)
+	deviceDisconnected.Poll(taskCtx, orgID)
 }
 
 type RolloutDeviceSelectionExecutor struct {
