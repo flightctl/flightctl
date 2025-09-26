@@ -292,6 +292,47 @@ func (t *DeviceRenderLogic) renderConfigItem(ctx context.Context, configItem *ap
 	}
 }
 
+// denyUnsafeDevicePath returns an error if the given absolute device path targets
+// agent-managed or read-only directories/files that must not be written by config providers.
+// Denied paths:
+//   - /var/lib/flightctl (and all subpaths)
+//   - /usr/lib/flightctl (and all subpaths)
+//   - /etc/flightctl/certs (and all subpaths)
+//   - /etc/flightctl/config.yaml (file itself)
+//
+// The check denies the exact file and the roots listed above and any subpath under those roots.
+func denyUnsafeDevicePath(p string) error {
+	// Only single absolute Linux paths are allowed in rendered configs
+	if p == "" || !filepath.IsAbs(p) {
+		return fmt.Errorf("invalid device path (must be absolute): %q", p)
+	}
+	// Reject PATH-like lists which could alter semantics downstream
+	if strings.ContainsRune(p, ':') {
+		return fmt.Errorf("invalid device path (must not contain ':'): %q", p)
+	}
+	clean := filepath.Clean(p)
+
+	// Always-denied roots
+	deniedRoots := []string{
+		"/var/lib/flightctl",
+		"/usr/lib/flightctl",
+		"/etc/flightctl/certs",
+	}
+
+	for _, root := range deniedRoots {
+		if clean == root || strings.HasPrefix(clean, root+"/") {
+			return fmt.Errorf("unsafe device path %q: writing under %q is not allowed", p, root)
+		}
+	}
+
+	etcFlightctlConfig := filepath.Clean("/etc/flightctl/config.yaml")
+	if clean == etcFlightctlConfig {
+		return fmt.Errorf("unsafe device path %q: writing %q is not allowed", p, etcFlightctlConfig)
+	}
+
+	return nil
+}
+
 func renderApplication(_ context.Context, app *api.ApplicationProviderSpec) (*string, *api.ApplicationProviderSpec, error) {
 	appType, err := app.Type()
 	if err != nil {
@@ -333,6 +374,13 @@ func (t *DeviceRenderLogic) renderGitConfig(ctx context.Context, configItem *api
 		}
 	}
 
+	// Validate all file paths produced by the git config before merging
+	for _, f := range ignition.Storage.Files {
+		if err := denyUnsafeDevicePath(f.Path); err != nil {
+			return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("invalid path from git config: %w", err)
+		}
+	}
+
 	mergedConfig := config_latest.Merge(**ignitionConfig, *ignition)
 	*ignitionConfig = &mergedConfig
 
@@ -346,6 +394,11 @@ func (t *DeviceRenderLogic) renderK8sConfig(ctx context.Context, configItem *api
 	}
 	if t.k8sClient == nil {
 		return &k8sSpec.Name, nil, fmt.Errorf("kubernetes API is not available")
+	}
+
+	// Validate mount root path before rendering files under it
+	if err := denyUnsafeDevicePath(k8sSpec.SecretRef.MountPath); err != nil {
+		return &k8sSpec.Name, nil, fmt.Errorf("invalid Kubernetes secret mountPath: %w", err)
 	}
 
 	var secretData map[string][]byte
@@ -400,9 +453,17 @@ func (t *DeviceRenderLogic) renderK8sConfig(ctx context.Context, configItem *api
 	if err != nil {
 		return &k8sSpec.Name, nil, fmt.Errorf("failed to create ignition wrapper: %w", err)
 	}
-	splits := filepath.SplitList(k8sSpec.SecretRef.MountPath)
+	base := filepath.Clean(k8sSpec.SecretRef.MountPath)
 	for name, contents := range secretData {
-		ignitionWrapper.SetFile(filepath.Join(append(splits, name)...), contents, 0o644, false, nil, nil)
+		// enforce filename (no path segments)
+		if name == "." || name == ".." || strings.ContainsRune(name, '/') {
+			return &k8sSpec.Name, nil, fmt.Errorf("invalid secret key %q: must be a single file name", name)
+		}
+		dest := filepath.Join(base, name)
+		if err := denyUnsafeDevicePath(dest); err != nil {
+			return &k8sSpec.Name, nil, fmt.Errorf("invalid secret-derived path %q: %w", dest, err)
+		}
+		ignitionWrapper.SetFile(dest, contents, 0o644, false, nil, nil)
 	}
 
 	*ignitionConfig = lo.ToPtr(ignitionWrapper.Merge(**ignitionConfig))
@@ -421,6 +482,10 @@ func (t *DeviceRenderLogic) renderInlineConfig(configItem *api.ConfigProviderSpe
 	}
 
 	for _, file := range inlineSpec.Inline {
+		// validate destination path
+		if err := denyUnsafeDevicePath(file.Path); err != nil {
+			return &inlineSpec.Name, nil, fmt.Errorf("invalid inline file path %q: %w", file.Path, err)
+		}
 		mode := 0o644
 		if file.Mode != nil {
 			mode = *file.Mode
@@ -461,6 +526,11 @@ func (t *DeviceRenderLogic) renderHttpProviderConfig(ctx context.Context, config
 	// Append the suffix only if exists (as it's optional)
 	if httpConfigProviderSpec.HttpRef.Suffix != nil {
 		repoURL = repoURL + *httpConfigProviderSpec.HttpRef.Suffix
+	}
+
+	// Validate the destination device path for HTTP provider
+	if err := denyUnsafeDevicePath(httpConfigProviderSpec.HttpRef.FilePath); err != nil {
+		return &httpConfigProviderSpec.Name, &httpConfigProviderSpec.HttpRef.Repository, fmt.Errorf("invalid HTTP filePath: %w", err)
 	}
 
 	var httpData []byte
