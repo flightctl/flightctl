@@ -337,15 +337,20 @@ dbSetup:
   wait:
     # -- Seconds to wait for database readiness before failing
     # Default timeout for database wait (can be overridden per deployment)
+    # Note: Migration jobs use longer timeouts (120s internal, 300s external)
     timeout: 60
     # -- Seconds to sleep between database connection attempts
     # Default sleep interval between connection attempts
     sleep: 2
+    # -- Connection timeout for individual database connection attempts
+    connectionTimeout: 3
   migration:
     # -- Number of retries for the migration Job on failure
-    backoffLimit: 3
+    # Increased for external database scenarios which may be less reliable
+    backoffLimit: 5
     # -- Maximum runtime in seconds for the migration Job
-    activeDeadlineSeconds: 600
+    # Extended timeout to account for external database latency
+    activeDeadlineSeconds: 900
 
 # -- Upgrade hooks
 upgradeHooks:
