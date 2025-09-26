@@ -769,7 +769,7 @@ func (h *Harness) EnableTPMForDevice() error {
 // This handles the complete TPM setup process in the correct order.
 func (h *Harness) SetupDeviceWithTPM(workerID int) error {
 	// 1. Setup VM from pool (includes agent start)
-	err := h.SetupVMFromPoolAndStartAgent(workerID)
+	err := h.SetupVMFromPoolAndStartAgent(strconv.Itoa(workerID))
 	if err != nil {
 		return fmt.Errorf("failed to setup VM: %w", err)
 	}

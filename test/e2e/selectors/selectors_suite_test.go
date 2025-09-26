@@ -1,6 +1,8 @@
 package selectors
 
 import (
+	"fmt"
+	"os"
 	"testing"
 	"time"
 
@@ -37,7 +39,13 @@ var _ = BeforeSuite(func() {
 
 var _ = BeforeEach(func() {
 	// Get the harness and context directly - no package-level variables
-	workerID := GinkgoParallelProcess()
+	// Get base worker ID from environment variable
+	workerNum := os.Getenv("GINKGO_WORKER_NUM")
+	if workerNum == "" {
+		Fail("GINKGO_WORKER_NUM environment variable is required but not set")
+	}
+	// Create composite worker ID: baseWorkerID + "_proc" + GinkgoParallelProcess()
+	workerID := fmt.Sprintf("worker%s_proc%d", workerNum, GinkgoParallelProcess())
 	harness := e2e.GetWorkerHarness()
 	suiteCtx := e2e.GetWorkerContext()
 
@@ -57,7 +65,13 @@ var _ = BeforeEach(func() {
 })
 
 var _ = AfterEach(func() {
-	workerID := GinkgoParallelProcess()
+	// Get base worker ID from environment variable
+	workerNum := os.Getenv("GINKGO_WORKER_NUM")
+	if workerNum == "" {
+		Fail("GINKGO_WORKER_NUM environment variable is required but not set")
+	}
+	// Create composite worker ID: baseWorkerID + "_proc" + GinkgoParallelProcess()
+	workerID := fmt.Sprintf("worker%s_proc%d", workerNum, GinkgoParallelProcess())
 	GinkgoWriter.Printf("🔄 [AfterEach] Worker %d: Cleaning up test resources\n", workerID)
 
 	// Get the harness and context directly - no shared variables needed

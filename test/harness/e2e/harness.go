@@ -1319,7 +1319,7 @@ func NewTestHarnessWithoutVM(ctx context.Context) (*Harness, error) {
 
 // NewTestHarnessWithVMPool creates a new test harness with VM pool management.
 // This centralizes the VM pool logic that was previously duplicated in individual tests.
-func NewTestHarnessWithVMPool(ctx context.Context, workerID int) (*Harness, error) {
+func NewTestHarnessWithVMPool(ctx context.Context, workerID string) (*Harness, error) {
 	startTime := time.Now()
 
 	baseDir, err := client.DefaultFlightctlClientConfigPath()
@@ -1369,11 +1369,11 @@ func NewTestHarnessWithVMPool(ctx context.Context, workerID int) (*Harness, erro
 
 // GetVMFromPool retrieves a VM from the pool for the given worker ID.
 // VMs are created on-demand if they don't already exist in the pool.
-func (h *Harness) GetVMFromPool(workerID int) (vm.TestVMInterface, error) {
+func (h *Harness) GetVMFromPool(workerID string) (vm.TestVMInterface, error) {
 	// Get VM from the global pool (created on-demand if needed)
 	testVM, err := SetupVMForWorker(workerID, os.TempDir(), 2233)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get VM from pool for worker %d: %w", workerID, err)
+		return nil, fmt.Errorf("failed to get VM from pool for worker %s: %w", workerID, err)
 	}
 
 	// Set the VM in the harness (one-to-one relationship)
@@ -1384,7 +1384,7 @@ func (h *Harness) GetVMFromPool(workerID int) (vm.TestVMInterface, error) {
 
 // SetupVMFromPoolAndStartAgent sets up a VM from the pool, reverts to pristine snapshot,
 // and starts the agent. This is useful for tests that use the VM pool pattern.
-func (h *Harness) SetupVMFromPoolAndStartAgent(workerID int) error {
+func (h *Harness) SetupVMFromPoolAndStartAgent(workerID string) error {
 	// Get VM from pool (created on-demand if needed)
 	testVM, err := h.GetVMFromPool(workerID)
 	if err != nil {
