@@ -44,7 +44,7 @@ const (
 	AuthTypeNil  AuthType = "nil"
 	AuthTypeK8s  AuthType = "k8s"
 	AuthTypeOIDC AuthType = "oidc"
-	AuthTypeAAP  AuthType = "aap"
+	AuthTypeAAP  AuthType = "AAPGateway"
 )
 
 func GetConfiguredAuthType() AuthType {
