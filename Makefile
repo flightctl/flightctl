@@ -63,8 +63,8 @@ ifeq ($(DEBUG),true)
 	LD_FLAGS :=
 	GC_FLAGS := -gcflags "all=-N -l"
 else
-	# strip everything we can
-	LD_FLAGS := -w -s
+	# strip debug info, but keep symbols
+	LD_FLAGS := -w
 	GC_FLAGS :=
 endif
 

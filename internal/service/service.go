@@ -28,6 +28,7 @@ type Service interface {
 	ReplaceDevice(ctx context.Context, name string, device api.Device, fieldsToUnset []string) (*api.Device, api.Status)
 	DeleteDevice(ctx context.Context, name string) api.Status
 	GetDeviceStatus(ctx context.Context, name string) (*api.Device, api.Status)
+	GetDeviceLastSeen(ctx context.Context, name string) (*api.DeviceLastSeen, api.Status)
 	ReplaceDeviceStatus(ctx context.Context, name string, device api.Device) (*api.Device, api.Status)
 	PatchDeviceStatus(ctx context.Context, name string, patch api.PatchRequest) (*api.Device, api.Status)
 	GetRenderedDevice(ctx context.Context, name string, params api.GetRenderedDeviceParams) (*api.Device, api.Status)
