@@ -5,7 +5,7 @@ metadata:
   namespace: {{ .Release.Namespace }}
 data:
   FLIGHTCTL_SERVER: {{ .Values.api.url | quote }}
-  FLIGHTCTL_EXTERNAL_URL: {{- if eq (include "flightctl.getServiceExposeMethod" .) "nodePort" }}https://api.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.nodePorts.api }}/{{- else if and (eq (include "flightctl.getServiceExposeMethod" .) "gateway") (not (eq (int .Values.global.gatewayPorts.tls) 443)) }}https://api.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.gatewayPorts.tls }}/{{- else }}https://api.{{ include "flightctl.getBaseDomain" . }}/{{- end }}
+  FLIGHTCTL_EXTERNAL_URL: {{ include "flightctl.getApiUrl" . }}
   {{- if .Values.cliArtifacts.enabled }}
   FLIGHTCTL_CLI_ARTIFACTS_SERVER: {{ include "flightctl.getCliArtifactsUrl" . }}
   {{- end }}
