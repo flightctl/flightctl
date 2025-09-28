@@ -204,18 +204,39 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 	if enrollmentRequest.Status.Approval != nil {
 		apiResource.Metadata.Labels = enrollmentRequest.Status.Approval.Labels
 	}
+
+	// Transfer awaitingReconnect annotation from enrollment request to device if present
+	if enrollmentRequest.Metadata.Annotations != nil {
+		if awaitingReconnect, exists := (*enrollmentRequest.Metadata.Annotations)[api.DeviceAnnotationAwaitingReconnect]; exists && awaitingReconnect == "true" {
+			if apiResource.Metadata.Annotations == nil {
+				apiResource.Metadata.Annotations = &map[string]string{}
+			}
+			(*apiResource.Metadata.Annotations)[api.DeviceAnnotationAwaitingReconnect] = "true"
+
+			// Set device status to awaiting reconnection
+			deviceStatus.Summary = api.DeviceSummaryStatus{
+				Status: api.DeviceSummaryStatusAwaitingReconnect,
+				Info:   lo.ToPtr(common.DeviceStatusInfoAwaitingReconnect),
+			}
+		}
+	}
 	_ = common.UpdateServiceSideStatus(ctx, orgId, apiResource, h.store, h.log)
 
-	_, err := h.store.Device().Create(ctx, orgId, apiResource, h.callbackDeviceUpdated)
+	_, _, err := h.store.Device().CreateOrUpdate(ctx, orgId, apiResource, nil, false, nil, h.callbackDeviceUpdated)
 	return err
 }
 
 func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, er api.EnrollmentRequest) (*api.EnrollmentRequest, api.Status) {
 	orgId := getOrgIdFromContext(ctx)
-
-	// don't set fields that are managed by the service
 	er.Status = nil
-	addStatusIfNeeded(&er)
+
+	// don't set fields that are managed by the service for external requests
+	if !IsInternalRequest(ctx) {
+		NilOutManagedObjectMetaProperties(&er.Metadata)
+	} else {
+		// For internal requests, only clear status but preserve annotations
+		addStatusIfNeeded(&er)
+	}
 
 	if errs := er.Validate(); len(errs) > 0 {
 		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
@@ -234,7 +255,9 @@ func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, er api.Enr
 		}
 	}
 
-	result, err := h.store.EnrollmentRequest().Create(ctx, orgId, &er, h.callbackEnrollmentRequestUpdated)
+	// Use fromAPI=false for internal requests to preserve annotations
+	fromAPI := !IsInternalRequest(ctx)
+	result, err := h.store.EnrollmentRequest().CreateWithFromAPI(ctx, orgId, &er, fromAPI, h.callbackEnrollmentRequestUpdated)
 	return result, StoreErrorToApiStatus(err, true, api.EnrollmentRequestKind, er.Metadata.Name)
 }
 

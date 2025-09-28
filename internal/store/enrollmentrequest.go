@@ -15,12 +15,14 @@ type EnrollmentRequest interface {
 	InitialMigration(ctx context.Context) error
 
 	Create(ctx context.Context, orgId uuid.UUID, req *api.EnrollmentRequest, callbackEvent EventCallback) (*api.EnrollmentRequest, error)
+	CreateWithFromAPI(ctx context.Context, orgId uuid.UUID, req *api.EnrollmentRequest, fromAPI bool, callbackEvent EventCallback) (*api.EnrollmentRequest, error)
 	Update(ctx context.Context, orgId uuid.UUID, req *api.EnrollmentRequest, callbackEvent EventCallback) (*api.EnrollmentRequest, error)
 	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, enrollmentrequest *api.EnrollmentRequest, callbackEvent EventCallback) (*api.EnrollmentRequest, bool, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.EnrollmentRequest, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.EnrollmentRequestList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string, callbackEvent EventCallback) error
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, enrollmentrequest *api.EnrollmentRequest, callbackEvent EventCallback) (*api.EnrollmentRequest, error)
+	PrepareEnrollmentRequestsAfterRestore(ctx context.Context) (int64, error)
 }
 
 type EnrollmentRequestStore struct {
@@ -90,6 +92,12 @@ func (s *EnrollmentRequestStore) Create(ctx context.Context, orgId uuid.UUID, re
 	return er, err
 }
 
+func (s *EnrollmentRequestStore) CreateWithFromAPI(ctx context.Context, orgId uuid.UUID, resource *api.EnrollmentRequest, fromAPI bool, eventCallback EventCallback) (*api.EnrollmentRequest, error) {
+	er, _, _, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, fromAPI, nil)
+	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), nil, er, true, err)
+	return er, err
+}
+
 func (s *EnrollmentRequestStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.EnrollmentRequest, eventCallback EventCallback) (*api.EnrollmentRequest, error) {
 	newEr, oldEr, err := s.genericStore.Update(ctx, orgId, resource, nil, true, nil)
 	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), oldEr, newEr, false, err)
@@ -122,4 +130,32 @@ func (s *EnrollmentRequestStore) UpdateStatus(ctx context.Context, orgId uuid.UU
 	newEr, err := s.genericStore.UpdateStatus(ctx, orgId, resource)
 	s.eventCallbackCaller(ctx, callbackEvent, orgId, lo.FromPtr(resource.Metadata.Name), resource, newEr, false, err)
 	return newEr, err
+}
+
+// PrepareEnrollmentRequestsAfterRestore sets the awaitingReconnection annotation
+// on all non-approved enrollment requests using efficient SQL
+func (s *EnrollmentRequestStore) PrepareEnrollmentRequestsAfterRestore(ctx context.Context) (int64, error) {
+	db := s.getDB(ctx)
+
+	// Use raw SQL for efficient bulk update that preserves existing annotations
+	// and only updates non-approved enrollment requests
+	// Check for approval using the status.approval.approved field
+	// Handle cases where approval field might be NULL or not exist
+	sql := `
+		UPDATE enrollment_requests 
+		SET 
+			annotations = COALESCE(annotations, '{}'::jsonb) || jsonb_build_object($1::text, 'true'),
+			resource_version = COALESCE(resource_version, 0) + 1
+		WHERE deleted_at IS NULL 
+			AND (status->'approval'->>'approved' IS NULL OR status->'approval'->>'approved' != 'true')
+			AND (annotations->>$1) IS DISTINCT FROM 'true'
+	`
+
+	result := db.Exec(sql, api.DeviceAnnotationAwaitingReconnect)
+
+	if result.Error != nil {
+		return 0, ErrorFromGormError(result.Error)
+	}
+
+	return result.RowsAffected, nil
 }

@@ -48,7 +48,16 @@ func (h *ServiceHandler) PrepareDevicesAfterRestore(ctx context.Context) error {
 		return fmt.Errorf("failed to prepare devices after restore: %w", err)
 	}
 
-	// 3. Add awaiting reconnection keys for all devices across all organizations
+	// 3. Set awaitingReconnection annotation on all non-approved enrollment requests
+	h.log.Info("Updating enrollment request annotations for non-approved requests")
+
+	enrollmentRequestsUpdated, err := h.store.EnrollmentRequest().PrepareEnrollmentRequestsAfterRestore(ctx)
+	if err != nil {
+		h.log.WithError(err).Error("Failed to prepare enrollment requests after restore")
+		return fmt.Errorf("failed to prepare enrollment requests after restore: %w", err)
+	}
+
+	// 4. Add awaiting reconnection keys for all devices across all organizations
 	organizations, err := h.store.Organization().List(ctx)
 	if err != nil {
 		h.log.WithError(err).Error("Failed to get organizations for awaiting reconnection keys")
@@ -81,7 +90,7 @@ func (h *ServiceHandler) PrepareDevicesAfterRestore(ctx context.Context) error {
 		}
 	}
 
-	h.log.Infof("Post-restoration device preparation completed successfully. Updated %d devices total. Added %d awaiting reconnection keys across %d organizations.", devicesUpdated, awaitingReconnectionKeysAdded, len(organizations))
+	h.log.Infof("Post-restoration device preparation completed successfully. Updated %d devices, %d enrollment requests. Added %d awaiting reconnection keys across %d organizations.", devicesUpdated, enrollmentRequestsUpdated, awaitingReconnectionKeysAdded, len(organizations))
 
 	// Emit system restored event
 	if h.eventHandler != nil {
