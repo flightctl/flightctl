@@ -4,6 +4,7 @@ import (
 	"context"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -93,7 +94,14 @@ func (s *EnrollmentRequestStore) Create(ctx context.Context, orgId uuid.UUID, re
 }
 
 func (s *EnrollmentRequestStore) CreateWithFromAPI(ctx context.Context, orgId uuid.UUID, resource *api.EnrollmentRequest, fromAPI bool, eventCallback EventCallback) (*api.EnrollmentRequest, error) {
-	er, _, _, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, fromAPI, nil)
+	// Use CreateOrUpdate with a custom validation callback that ensures create-only behavior
+	er, _, _, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, fromAPI, func(ctx context.Context, before, after *api.EnrollmentRequest) error {
+		// If there's an existing resource, return an error to enforce create-only behavior
+		if before != nil {
+			return flterrors.ErrDuplicateName
+		}
+		return nil
+	})
 	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), nil, er, true, err)
 	return er, err
 }

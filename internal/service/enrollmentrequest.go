@@ -15,10 +15,12 @@ import (
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/crypto/signer"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/tpm"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 )
@@ -218,24 +220,51 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 				Status: api.DeviceSummaryStatusAwaitingReconnect,
 				Info:   lo.ToPtr(common.DeviceStatusInfoAwaitingReconnect),
 			}
+			// Add awaiting reconnection key to KV store
+			key := kvstore.AwaitingReconnectionKey{
+				OrgID:      orgId,
+				DeviceName: name,
+			}
+			keyStr := key.ComposeKey()
+			_, err := h.kvStore.SetNX(ctx, keyStr, []byte("true"))
+			if err != nil {
+				h.log.WithError(err).Errorf("Failed to add awaiting reconnection key for device %s in org %s", name, orgId)
+			}
 		}
 	}
 	_ = common.UpdateServiceSideStatus(ctx, orgId, apiResource, h.store, h.log)
 
-	_, _, err := h.store.Device().CreateOrUpdate(ctx, orgId, apiResource, nil, false, nil, h.callbackDeviceUpdated)
+	_, _, err := h.store.Device().CreateOrUpdate(ctx, orgId, apiResource, nil, false, func(ctx context.Context, before *api.Device, after *api.Device) error {
+		// Prevent overwriting existing devices during enrollment request approval
+		if before != nil {
+			return fmt.Errorf("device %s already exists and cannot be overwritten during enrollment request approval", *after.Metadata.Name)
+		}
+		return nil
+	}, func(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
+		// Only invoke callback on success
+		if err == nil {
+			h.callbackDeviceUpdated(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+		}
+	})
 	return err
 }
 
 func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, er api.EnrollmentRequest) (*api.EnrollmentRequest, api.Status) {
 	orgId := getOrgIdFromContext(ctx)
 	er.Status = nil
+	addStatusIfNeeded(&er)
 
 	// don't set fields that are managed by the service for external requests
 	if !IsInternalRequest(ctx) {
 		NilOutManagedObjectMetaProperties(&er.Metadata)
-	} else {
-		// For internal requests, only clear status but preserve annotations
-		addStatusIfNeeded(&er)
+	}
+
+	// Check if knownRenderedVersion is provided and not "0", add awaitingReconnect annotation
+	if er.Spec.KnownRenderedVersion != nil && *er.Spec.KnownRenderedVersion != "" && *er.Spec.KnownRenderedVersion != "0" {
+		annotations := util.EnsureMap(lo.FromPtr(er.Metadata.Annotations))
+		annotations[api.DeviceAnnotationAwaitingReconnect] = "true"
+		er.Metadata.Annotations = &annotations
+		h.log.Infof("Adding awaitingReconnect annotation for knownRenderedVersion: %s", *er.Spec.KnownRenderedVersion)
 	}
 
 	if errs := er.Validate(); len(errs) > 0 {
@@ -256,8 +285,7 @@ func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, er api.Enr
 	}
 
 	// Use fromAPI=false for internal requests to preserve annotations
-	fromAPI := !IsInternalRequest(ctx)
-	result, err := h.store.EnrollmentRequest().CreateWithFromAPI(ctx, orgId, &er, fromAPI, h.callbackEnrollmentRequestUpdated)
+	result, err := h.store.EnrollmentRequest().CreateWithFromAPI(ctx, orgId, &er, false, h.callbackEnrollmentRequestUpdated)
 	return result, StoreErrorToApiStatus(err, true, api.EnrollmentRequestKind, er.Metadata.Name)
 }
 
