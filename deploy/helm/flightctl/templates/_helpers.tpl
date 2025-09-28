@@ -268,6 +268,8 @@ Parameters:
   - name: DB_SSL_ROOT_CERT
     value: "{{ $context.Values.db.sslrootcert }}"
   {{- end }}
+  volumeMounts:
+  {{- include "flightctl.dbSslVolumeMounts" $context | nindent 2 }}
 {{- end }}
 
 {{- /*
