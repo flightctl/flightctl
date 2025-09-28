@@ -11,6 +11,7 @@ import (
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
@@ -20,6 +21,7 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
 	"go.uber.org/mock/gomock"
+	"gorm.io/gorm"
 )
 
 var _ = Describe("DeviceDisconnected", func() {
@@ -32,9 +34,11 @@ var _ = Describe("DeviceDisconnected", func() {
 		serviceHandler   service.Service
 		cfg              *config.Config
 		dbName           string
+		db               *gorm.DB
 		workerClient     *worker_client.MockWorkerClient
 		ctrl             *gomock.Controller
 		disconnectedTask *tasks.DeviceDisconnected
+		kvStore          kvstore.KVStore
 	)
 
 	BeforeEach(func() {
@@ -42,10 +46,11 @@ var _ = Describe("DeviceDisconnected", func() {
 		ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
 		orgId = store.NullOrgId
 		log = flightlog.InitLogs()
-		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(ctx, log)
+		storeInst, cfg, dbName, db = store.PrepareDBForUnitTests(ctx, log)
 		deviceStore = storeInst.Device()
 		ctrl = gomock.NewController(GinkgoT())
-		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
+		var err error
+		kvStore, err = kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		workerClient = worker_client.NewMockWorkerClient(ctrl)
 		Expect(err).ToNot(HaveOccurred())
 		orgResolver, err := testutil.NewOrgResolver(cfg, storeInst.Organization(), log)
@@ -54,7 +59,18 @@ var _ = Describe("DeviceDisconnected", func() {
 		disconnectedTask = tasks.NewDeviceDisconnected(log, serviceHandler)
 	})
 
+	// Helper function to set device lastSeen directly in the database
+	setDeviceLastSeen := func(deviceName string, lastSeen time.Time) error {
+		result := db.WithContext(ctx).Model(&model.Device{}).Where("org_id = ? AND name = ?", orgId, deviceName).Updates(map[string]interface{}{
+			"last_seen": lastSeen,
+		})
+		return result.Error
+	}
+
 	AfterEach(func() {
+		if kvStore != nil {
+			kvStore.Close()
+		}
 		store.DeleteTestDB(ctx, log, cfg, storeInst, dbName)
 		ctrl.Finish()
 	})
@@ -77,10 +93,14 @@ var _ = Describe("DeviceDisconnected", func() {
 				device, err := deviceStore.Get(ctx, orgId, deviceName)
 				Expect(err).ToNot(HaveOccurred())
 
-				// Set a recent last seen time
-				device.Status.LastSeen = time.Now().Add(-1 * time.Minute)
+				// Set device status to online
 				device.Status.Summary.Status = api.DeviceSummaryStatusOnline
 				_, err = deviceStore.UpdateStatus(ctx, orgId, device, nil)
+				Expect(err).ToNot(HaveOccurred())
+
+				// Set a recent last seen time directly in the database
+				recentTime := time.Now().Add(-1 * time.Minute)
+				err = setDeviceLastSeen(deviceName, recentTime)
 				Expect(err).ToNot(HaveOccurred())
 			}
 		})
@@ -109,12 +129,16 @@ var _ = Describe("DeviceDisconnected", func() {
 				device, err := deviceStore.Get(ctx, orgId, deviceName)
 				Expect(err).ToNot(HaveOccurred())
 
-				// Set an old last seen time (more than DeviceDisconnectedTimeout ago)
-				device.Status.LastSeen = time.Now().Add(-10 * time.Minute)
+				// Set device status to online
 				device.Status.Summary.Status = api.DeviceSummaryStatusOnline
 				device.Status.Updated.Status = api.DeviceUpdatedStatusUpToDate
 				device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
 				_, err = deviceStore.UpdateStatus(ctx, orgId, device, nil)
+				Expect(err).ToNot(HaveOccurred())
+
+				// Set an old last seen time directly in the database (more than DeviceDisconnectedTimeout ago)
+				oldTime := time.Now().Add(-10 * time.Minute)
+				err = setDeviceLastSeen(deviceName, oldTime)
 				Expect(err).ToNot(HaveOccurred())
 			}
 		})
@@ -147,11 +171,15 @@ var _ = Describe("DeviceDisconnected", func() {
 				device, err := deviceStore.Get(ctx, orgId, deviceName)
 				Expect(err).ToNot(HaveOccurred())
 
-				device.Status.LastSeen = time.Now().Add(-1 * time.Minute)
 				device.Status.Summary.Status = api.DeviceSummaryStatusOnline
 				device.Status.Updated.Status = api.DeviceUpdatedStatusUpToDate
 				device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
 				_, err = deviceStore.UpdateStatus(ctx, orgId, device, nil)
+				Expect(err).ToNot(HaveOccurred())
+
+				// Set a recent last seen time directly in the database
+				recentTime := time.Now().Add(-1 * time.Minute)
+				err = setDeviceLastSeen(deviceName, recentTime)
 				Expect(err).ToNot(HaveOccurred())
 			}
 
@@ -164,11 +192,15 @@ var _ = Describe("DeviceDisconnected", func() {
 				device, err := deviceStore.Get(ctx, orgId, deviceName)
 				Expect(err).ToNot(HaveOccurred())
 
-				device.Status.LastSeen = time.Now().Add(-10 * time.Minute)
 				device.Status.Summary.Status = api.DeviceSummaryStatusOnline
 				device.Status.Updated.Status = api.DeviceUpdatedStatusUpToDate
 				device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
 				_, err = deviceStore.UpdateStatus(ctx, orgId, device, nil)
+				Expect(err).ToNot(HaveOccurred())
+
+				// Set an old last seen time directly in the database
+				oldTime := time.Now().Add(-10 * time.Minute)
+				err = setDeviceLastSeen(deviceName, oldTime)
 				Expect(err).ToNot(HaveOccurred())
 			}
 		})
@@ -208,10 +240,14 @@ var _ = Describe("DeviceDisconnected", func() {
 			device, err := deviceStore.Get(ctx, orgId, deviceName)
 			Expect(err).ToNot(HaveOccurred())
 
-			// Set last seen to exactly the disconnection timeout
-			device.Status.LastSeen = time.Now().Add(-api.DeviceDisconnectedTimeout)
+			// Set device status to online
 			device.Status.Summary.Status = api.DeviceSummaryStatusOnline
 			_, err = deviceStore.UpdateStatus(ctx, orgId, device, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Set last seen to exactly the disconnection timeout directly in the database
+			thresholdTime := time.Now().Add(-api.DeviceDisconnectedTimeout)
+			err = setDeviceLastSeen(deviceName, thresholdTime)
 			Expect(err).ToNot(HaveOccurred())
 		})
 
@@ -233,22 +269,30 @@ var _ = Describe("DeviceDisconnected", func() {
 			testutil.CreateTestDevice(ctx, deviceStore, orgId, "recent-device", nil, nil, nil)
 			recentDevice, err := deviceStore.Get(ctx, orgId, "recent-device")
 			Expect(err).ToNot(HaveOccurred())
-			recentDevice.Status.LastSeen = time.Now().Add(-1 * time.Minute)
 			recentDevice.Status.Summary.Status = api.DeviceSummaryStatusOnline
 			recentDevice.Status.Updated.Status = api.DeviceUpdatedStatusUpToDate
 			recentDevice.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
 			_, err = deviceStore.UpdateStatus(ctx, orgId, recentDevice, nil)
 			Expect(err).ToNot(HaveOccurred())
 
+			// Set a recent last seen time directly in the database
+			recentTime := time.Now().Add(-1 * time.Minute)
+			err = setDeviceLastSeen("recent-device", recentTime)
+			Expect(err).ToNot(HaveOccurred())
+
 			// Old device
 			testutil.CreateTestDevice(ctx, deviceStore, orgId, "old-device", nil, nil, nil)
 			oldDevice, err := deviceStore.Get(ctx, orgId, "old-device")
 			Expect(err).ToNot(HaveOccurred())
-			oldDevice.Status.LastSeen = time.Now().Add(-10 * time.Minute)
 			oldDevice.Status.Summary.Status = api.DeviceSummaryStatusOnline
 			oldDevice.Status.Updated.Status = api.DeviceUpdatedStatusUpToDate
 			oldDevice.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
 			_, err = deviceStore.UpdateStatus(ctx, orgId, oldDevice, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Set an old last seen time directly in the database
+			oldTime := time.Now().Add(-10 * time.Minute)
+			err = setDeviceLastSeen("old-device", oldTime)
 			Expect(err).ToNot(HaveOccurred())
 		})
 

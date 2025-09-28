@@ -55,6 +55,7 @@ rules:
       - flightctl.io
     resources:
       - devices/console
+      - devices/lastseen
   - verbs:
       - get
       - list
