@@ -165,7 +165,7 @@ func (f *TableFormatter) printDevicesSummaryTable(w *tabwriter.Writer, summary *
 func (f *TableFormatter) printDevicesLastSeenTable(w *tabwriter.Writer, lastSeen *api.DeviceLastSeen) error {
 	f.printHeaderRowLn(w, "LAST SEEN", "TIME AGO")
 	if lastSeen == nil {
-		f.printTableRowLn(w, NoneString, NoneString)
+		f.printTableRowLn(w, "<never>", "<never>")
 	} else {
 		f.printTableRowLn(w, lastSeen.LastSeen.Format(time.RFC3339), humanize.Time(lastSeen.LastSeen))
 	}
