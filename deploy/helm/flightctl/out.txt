@@ -1,0 +1,1591 @@
+---
+# Source: flightctl/templates/flightctl-alertmanager-proxy-serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    flightctl.service: flightctl-alertmanager-proxy
+  name: flightctl-alertmanager-proxy
+  namespace: default
+---
+# Source: flightctl/templates/flightctl-api-serviceaccout.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    flightctl.service: flightctl-api
+  name: flightctl-api
+  namespace: default
+---
+# Source: flightctl/templates/flightctl-db-admin-rbac.yaml
+# ServiceAccount for database migration jobs (needs admin access)
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: flightctl-db-migration
+  namespace: default
+  labels:
+    app: flightctl-db-migration
+    security.level: high-privilege
+---
+# Source: flightctl/templates/flightctl-secrets-sa.yaml
+kind: ServiceAccount
+apiVersion: v1
+metadata:
+  name: flightctl-secrets
+  namespace: default
+---
+# Source: flightctl/templates/flightctl-worker-serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    flightctl.service: flightctl-worker
+  name: flightctl-worker
+  namespace: default
+---
+# Source: flightctl/charts/ui/templates/flightctl-ui-certs-secret.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: flightctl-ui-certs
+  namespace: default
+type: Opaque
+stringData:
+  ca.crt: ""
+---
+# Source: flightctl/templates/flightctl-alertmanager-proxy-certs-secret.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: flightctl-alertmanager-proxy-certs
+  namespace: default
+type: Opaque
+stringData:
+  ca.crt: ""
+---
+# Source: flightctl/charts/ui/templates/flightctl-ui-cm.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flightctl-ui
+  namespace: default
+data:
+  FLIGHTCTL_SERVER: "https://flightctl-api:3443/"
+  FLIGHTCTL_CLI_ARTIFACTS_SERVER: http://flightctl-cli-artifacts:8090
+  FLIGHTCTL_ALERTMANAGER_PROXY: https://alertmanager-proxy.example.com
+  FLIGHTCTL_SERVER_INSECURE_SKIP_VERIFY: "true"
+  IS_RHEM: "false"
+  AUTH_INSECURE_SKIP_VERIFY: "false"
+  AUTH_CLIENT_ID: flightctl
+  K8S_RBAC_NS: "default"
+---
+# Source: flightctl/templates/flightctl-alert-exporter-config.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flightctl-alert-exporter-config
+  namespace: default
+data:
+  config.yaml: |-
+    database:
+        hostname: flightctl-db.default.svc.cluster.local
+        type: pgsql
+        port: 5432
+        name: flightctl
+    service:
+      alertPollingInterval: "1m"
+    kv:
+        hostname: flightctl-kv.default.svc.cluster.local
+        port: 6379
+    alertmanager:
+        hostname: flightctl-alertmanager.default.svc.cluster.local
+        port: 9093
+---
+# Source: flightctl/templates/flightctl-alertmanager-proxy-config.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flightctl-alertmanager-proxy-config
+  namespace: default
+data:
+  config.yaml: |-
+    service:
+      certStore: "/app/certs"
+      
+      rateLimit:
+          requests: 60
+          window: 1m
+          authRequests: 10
+          authWindow: 1h
+          trustedProxies:
+              - "10.0.0.0/8"
+              - "172.16.0.0/12"
+              - "192.168.0.0/16"
+      
+    ca:
+      internalConfig:
+        certStore: "/tmp/ca-certs"
+    auth:
+      insecureSkipTlsVerify: false
+      k8s:
+        apiUrl: https://kubernetes.default.svc
+        externalOpenShiftApiUrl: api.com
+        rbacNs: default
+---
+# Source: flightctl/templates/flightctl-alertmanager.yaml
+# ConfigMap for Alertmanager configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flightctl-alertmanager-config
+  namespace: default
+data:
+  alertmanager.yml: |-
+    global:
+      resolve_timeout: 5m
+    route:
+      receiver: 'null'
+      group_by: ['alertname']
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 12h
+    receivers:
+      - name: 'null'
+---
+# Source: flightctl/templates/flightctl-api-config.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flightctl-api-config
+  namespace: default
+data:
+  config.yaml: |-
+    database:
+        hostname: flightctl-db.default.svc.cluster.local
+        type: pgsql
+        port: 5432
+        name: flightctl
+    service:
+        address: :3443
+        agentEndpointAddress: :7443
+        httpReadTimeout: "5m"
+        httpReadHeaderTimeout: "5m"
+        httpWriteTimeout: "5m"
+        httpMaxNumHeaders: 32
+        httpMaxHeaderBytes: 33010
+        httpMaxUrlLength: 2000
+        httpMaxRequestSize: 53137200
+        baseUrl: https://api.example.com/
+        baseAgentEndpointUrl: https://agent-api.example.com/
+        baseUIUrl: https://console-openshift-console.example.com/edge
+        altNames:
+          - api.example.com
+          - agent-api.example.com
+          - flightctl-api
+          - flightctl-api.default
+          - flightctl-api.default.svc.cluster.local
+        
+        rateLimit:
+            requests: 60
+            window: 1m
+            authRequests: 10
+            authWindow: 1h
+            trustedProxies:
+                - "10.0.0.0/8"
+                - "172.16.0.0/12"
+                - "192.168.0.0/16"
+        
+    kv:
+        hostname: flightctl-kv.default.svc.cluster.local
+        port: 6379
+    
+    auth:
+        insecureSkipTlsVerify: false
+        caCert: 
+        k8s:
+            apiUrl: https://kubernetes.default.svc
+            externalOpenShiftApiUrl: api.com
+            rbacNs: default
+---
+# Source: flightctl/templates/flightctl-db-config.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flightctl-db
+  namespace: default
+data:
+  enable-superuser.sh: |
+    #!/bin/bash
+
+    _psql () { psql --set ON_ERROR_STOP=1 "$@" ; }
+
+    # Ensure POSTGRESQL_MASTER_USER is treated as a superuser
+    if [ -n "${POSTGRESQL_MASTER_USER}" ]; then
+      echo "Granting superuser privileges to ${POSTGRESQL_MASTER_USER}"
+      _psql -c "ALTER ROLE ${POSTGRESQL_MASTER_USER} WITH SUPERUSER;"
+    fi
+---
+# Source: flightctl/templates/flightctl-kv-statefulset.yaml
+# ConfigMap for Redis configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flightctl-kv-config
+  namespace: default
+data:
+  redis.conf: |-
+    bind 0.0.0.0 ::
+    protected-mode yes
+    port 6379
+    dir /var/lib/redis/data
+
+    # Logging
+    loglevel warning
+
+    # Snapshotting configuration
+    save 300 1
+    dbfilename dump.rdb
+
+    # AOF configuration
+    appendonly yes
+    appendfilename "appendonly.aof"
+    appendfsync everysec
+---
+# Source: flightctl/templates/flightctl-periodic-config.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flightctl-periodic-config
+  namespace: default
+data:
+  config.yaml: |-
+    database:
+        hostname: flightctl-db.default.svc.cluster.local
+        type: pgsql
+        port: 5432
+        name: flightctl
+    service: {}
+    kv:
+        hostname: flightctl-kv.default.svc.cluster.local
+        port: 6379
+---
+# Source: flightctl/templates/flightctl-worker-config.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flightctl-worker-config
+  namespace: default
+data:
+  config.yaml: |-
+    database:
+        hostname: flightctl-db.default.svc.cluster.local
+        type: pgsql
+        port: 5432
+        name: flightctl
+    service: {}
+    kv:
+        hostname: flightctl-kv.default.svc.cluster.local
+        port: 6379
+---
+# Source: flightctl/templates/flightctl-api-certs-persistentvolumeclaim.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  annotations:
+    kubernetes.io/reclaimPolicy: Delete
+  
+  name: flightctl-api-certs
+  namespace: default
+spec:
+  storageClassName: 
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 128Mi
+---
+# Source: flightctl/templates/flightctl-db-persistentvolumeclaim.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  annotations:
+    kubernetes.io/reclaimPolicy: Delete
+  name: flightctl-db
+  namespace:  default
+spec:
+  storageClassName: 
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 60Gi
+---
+# Source: flightctl/templates/flightctl-alertmanager-proxy-clusterrole.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    flightctl.service: flightctl-alertmanager-proxy
+  name: flightctl-alertmanager-proxy-default
+rules:
+  - apiGroups: ["authentication.k8s.io"]
+    resources: ["tokenreviews"]
+    verbs: ["create"]
+---
+# Source: flightctl/templates/flightctl-api-clusterrole.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    flightctl.service: flightctl-api
+  name: flightctl-api-default
+rules:
+  - apiGroups: ["authentication.k8s.io"]
+    resources: ["tokenreviews"]
+    verbs: ["create"]
+---
+# Source: flightctl/templates/flightctl-alertmanager-proxy-clusterrolebinding.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    flightctl.service: flightctl-alertmanager-proxy
+  name: flightctl-alertmanager-proxy-default
+subjects:
+  - kind: ServiceAccount
+    name: flightctl-alertmanager-proxy
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: flightctl-alertmanager-proxy-default
+  apiGroup: rbac.authorization.k8s.io
+---
+# Source: flightctl/templates/flightctl-api-clusterrolebinding.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    flightctl.service: flightctl-api
+  name: flightctl-api-default
+subjects:
+  - kind: ServiceAccount
+    name: flightctl-api
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: flightctl-api-default
+  apiGroup: rbac.authorization.k8s.io
+---
+# Source: flightctl/templates/flightctl-db-admin-rbac.yaml
+# Role for accessing admin database secrets (superuser only)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: flightctl-db-admin-access
+  namespace: default
+  labels:
+    app: flightctl-db-admin
+    security.level: superuser-privilege
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  resourceNames: ["flightctl-db-admin-secret"]
+  verbs: ["get"]
+---
+# Source: flightctl/templates/flightctl-db-admin-rbac.yaml
+# Role for accessing migration database secrets (schema changes only)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: flightctl-db-migration-access
+  namespace: default
+  labels:
+    app: flightctl-db-migration
+    security.level: schema-privilege
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  resourceNames: ["flightctl-db-migration-secret"]
+  verbs: ["get"]
+---
+# Source: flightctl/templates/flightctl-db-admin-rbac.yaml
+# Role for accessing application database secrets in internal namespace
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: flightctl-db-app-access
+  namespace: default
+  labels:
+    app: flightctl-db-app
+    security.level: application
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  resourceNames: ["flightctl-db-app-secret"]
+  verbs: ["get"]
+---
+# Source: flightctl/templates/flightctl-default-user-roles.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: flightctl-admin
+  namespace: default
+rules:
+  - verbs:
+      - '*'
+    apiGroups:
+      - flightctl.io
+    resources:
+      - '*'
+---
+# Source: flightctl/templates/flightctl-default-user-roles.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: flightctl-viewer
+  namespace: default
+rules:
+  - verbs:
+      - get
+      - list
+    apiGroups:
+      - flightctl.io
+    resources:
+      - devices
+      - fleets
+      - resourcesyncs
+---
+# Source: flightctl/templates/flightctl-default-user-roles.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: flightctl-operator
+  namespace: default
+rules:
+  - verbs:
+      - get
+      - list
+      - create
+      - delete
+      - update
+      - patch
+    apiGroups:
+      - flightctl.io
+    resources:
+      - devices
+      - fleets
+      - resourcesyncs
+  - verbs:
+      - get
+    apiGroups:
+      - flightctl.io
+    resources:
+      - devices/console
+  - verbs:
+      - get
+      - list
+    apiGroups:
+      - flightctl.io
+    resources:
+      - repositories
+      - fleets/templateversions
+---
+# Source: flightctl/templates/flightctl-default-user-roles.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: flightctl-installer
+  namespace: default
+rules:
+  - verbs:
+      - get
+      - list
+    apiGroups:
+      - flightctl.io
+    resources:
+      - enrollmentrequests
+  - verbs:
+      - post
+    apiGroups:
+      - flightctl.io
+    resources:
+      - enrollmentrequests/approval
+  - verbs:
+      - get
+      - list
+      - create
+    apiGroups:
+      - flightctl.io
+    resources:
+      - certificatesigningrequests
+---
+# Source: flightctl/templates/flightctl-secrets-sa.yaml
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: flightctl-secrets
+  namespace: default
+rules:
+  - verbs:
+      - get
+      - list
+      - create
+      - delete
+      - patch
+    apiGroups:
+      - ''
+    resources:
+      - secrets
+---
+# Source: flightctl/templates/flightctl-db-admin-rbac.yaml
+# RoleBinding for migration jobs to access both admin and migration secrets
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: flightctl-db-migration-admin-access
+  namespace: default
+  labels:
+    app: flightctl-db-migration
+    security.level: superuser-privilege
+subjects:
+- kind: ServiceAccount
+  name: flightctl-db-migration
+  namespace: default
+roleRef:
+  kind: Role
+  name: flightctl-db-admin-access
+  apiGroup: rbac.authorization.k8s.io
+---
+# Source: flightctl/templates/flightctl-db-admin-rbac.yaml
+# RoleBinding for migration jobs to access migration secrets
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: flightctl-db-migration-schema-access
+  namespace: default
+  labels:
+    app: flightctl-db-migration
+    security.level: schema-privilege
+subjects:
+- kind: ServiceAccount
+  name: flightctl-db-migration
+  namespace: default
+roleRef:
+  kind: Role
+  name: flightctl-db-migration-access
+  apiGroup: rbac.authorization.k8s.io
+---
+# Source: flightctl/templates/flightctl-db-admin-rbac.yaml
+# RoleBinding for internal namespace services to access app secrets
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: flightctl-db-app-access
+  namespace: default
+  labels:
+    app: flightctl-db-app
+    security.level: application
+subjects:
+- kind: ServiceAccount
+  name: flightctl-worker
+  namespace: default
+- kind: ServiceAccount
+  name: flightctl-periodic
+  namespace: default
+- kind: ServiceAccount
+  name: flightctl-alert-exporter
+  namespace: default
+roleRef:
+  kind: Role
+  name: flightctl-db-app-access
+  apiGroup: rbac.authorization.k8s.io
+---
+# Source: flightctl/templates/flightctl-secrets-sa.yaml
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: flightctl-secrets
+  namespace: default
+subjects:
+  - kind: ServiceAccount
+    name: flightctl-secrets
+    namespace: default
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: flightctl-secrets
+---
+# Source: flightctl/charts/ui/templates/flightctl-ui-service.yaml
+kind: Service
+apiVersion: v1
+metadata:
+  name: flightctl-ui
+  namespace: default
+  labels:
+    app: flightctl-ui
+  annotations:
+    service.alpha.openshift.io/serving-cert-secret-name: flightctl-ui-serving-cert
+spec:
+  ports:
+    - name: 8080-tcp
+      protocol: TCP
+      port: 8080
+      targetPort: 8080
+  selector:
+    app: flightctl-ui
+---
+# Source: flightctl/templates/flightctl-alertmanager-proxy-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    flightctl.service: flightctl-alertmanager-proxy
+  name: flightctl-alertmanager-proxy
+  namespace: default
+spec:
+  type: ClusterIP
+  ports:
+    - name: proxy
+      port: 8443
+      protocol: TCP
+      targetPort: 8443
+  selector:
+    flightctl.service: flightctl-alertmanager-proxy
+---
+# Source: flightctl/templates/flightctl-alertmanager.yaml
+# Service for Alertmanager
+apiVersion: v1
+kind: Service
+metadata:
+  name: flightctl-alertmanager
+  namespace: default
+  labels:
+    flightctl.service: flightctl-alertmanager
+spec:
+  ports:
+    - name: "9093"
+      port: 9093
+      targetPort: 9093
+  selector:
+    flightctl.service: flightctl-alertmanager
+---
+# Source: flightctl/templates/flightctl-api-service-agent.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    flightctl.service: flightctl-api
+  name: flightctl-api-agent
+  namespace: default
+spec:
+  ports:
+    - name: "agent-api"
+      port: 7443
+      targetPort: 7443
+  selector:
+    flightctl.service: flightctl-api
+---
+# Source: flightctl/templates/flightctl-api-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    flightctl.service: flightctl-api
+  name: flightctl-api
+  namespace: default
+spec:
+  ports:
+    - name: "flightctl-api"
+      port: 3443
+      targetPort: 3443
+  selector:
+    flightctl.service: flightctl-api
+---
+# Source: flightctl/templates/flightctl-cli-artifacts-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    flightctl.service: flightctl-cli-artifacts
+  name: flightctl-cli-artifacts
+  namespace: default
+spec:
+  ports:
+    - name: "flightctl-cli-artifacts"
+      port: 8090
+      targetPort: 8090
+  selector:
+    flightctl.service: flightctl-cli-artifacts
+---
+# Source: flightctl/templates/flightctl-db-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    flightctl.service: flightctl-db
+  name: flightctl-db
+  namespace:  default
+spec:
+  ports:
+    - name: "5432"
+      port: 5432
+      targetPort: 5432
+  selector:
+    flightctl.service: flightctl-db
+---
+# Source: flightctl/templates/flightctl-kv-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    flightctl.service: flightctl-kv
+  name: flightctl-kv
+  namespace:  default
+spec:
+  ports:
+    - name: "6379"
+      port: 6379
+      targetPort: 6379
+  selector:
+    flightctl.service: flightctl-kv
+---
+# Source: flightctl/charts/ui/templates/flightctl-ui-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flightctl-ui
+  namespace: default
+  labels:
+    app: flightctl-ui
+    role: frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: flightctl-ui
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        app: flightctl-ui
+        role: frontend
+    spec:
+      containers:
+        - env:
+          - name: API_PORT
+            value: '8080'
+          - name: FLIGHTCTL_SERVER
+            valueFrom:
+              configMapKeyRef:
+                name: flightctl-ui
+                key: FLIGHTCTL_SERVER
+          - name: FLIGHTCTL_CLI_ARTIFACTS_SERVER
+            valueFrom:
+              configMapKeyRef:
+                name: flightctl-ui
+                key: FLIGHTCTL_CLI_ARTIFACTS_SERVER
+          - name: FLIGHTCTL_ALERTMANAGER_PROXY
+            valueFrom:
+              configMapKeyRef:
+                name: flightctl-ui
+                key: FLIGHTCTL_ALERTMANAGER_PROXY
+          - name: FLIGHTCTL_SERVER_INSECURE_SKIP_VERIFY
+            valueFrom:
+              configMapKeyRef:
+                name: flightctl-ui
+                key: FLIGHTCTL_SERVER_INSECURE_SKIP_VERIFY
+          - name: TLS_KEY
+            value: /app/serving-cert/tls.key
+          - name: TLS_CERT
+            value: /app/serving-cert/tls.crt
+          - name: IS_OCP_PLUGIN
+            value: "true"
+          - name: K8S_RBAC_NS
+            valueFrom:
+              configMapKeyRef:
+                name: flightctl-ui
+                key: K8S_RBAC_NS
+          image: quay.io/flightctl/flightctl-ocp-ui:latest
+          imagePullPolicy: IfNotPresent
+          name: flightctl-ui
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+          volumeMounts:
+            - mountPath: /app/certs
+              name: flightctl-ui-certs
+            - mountPath: /app/serving-cert
+              name: flightctl-ui-serving-cert
+      restartPolicy: Always
+      volumes:
+        - name: flightctl-ui-certs
+          secret:
+            secretName: flightctl-ui-certs
+            items:
+              - key: ca.crt
+                path: ca.crt
+        - name: flightctl-ui-serving-cert
+          secret:
+            secretName: flightctl-ui-serving-cert
+            defaultMode: 420
+---
+# Source: flightctl/templates/flightctl-alert-exporter-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    flightctl.service: flightctl-alert-exporter
+  name: flightctl-alert-exporter
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      flightctl.service: flightctl-alert-exporter
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        flightctl.service: flightctl-alert-exporter
+    spec:
+      containers:
+        - name: alert-exporter
+          image: "quay.io/flightctl/flightctl-alert-exporter:latest"
+          imagePullPolicy: "IfNotPresent"
+          ports:
+            - containerPort: 8081
+              name: metrics
+              protocol: TCP
+          env:
+            - name: HOME
+              value: "/root"
+            - name: KV_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-kv-secret
+                  key: password
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-db-app-secret
+                  key: userPassword
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-db-app-secret
+                  key: user
+          volumeMounts:
+            - mountPath: /root/.flightctl
+              name: flightctl-alert-exporter-config
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8081
+              scheme: HTTP
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+
+      restartPolicy: Always
+      volumes:
+        - name: flightctl-alert-exporter-config
+          configMap:
+            name: flightctl-alert-exporter-config
+---
+# Source: flightctl/templates/flightctl-alertmanager-proxy-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    flightctl.service: flightctl-alertmanager-proxy
+  name: flightctl-alertmanager-proxy
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      flightctl.service: flightctl-alertmanager-proxy
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        flightctl.service: flightctl-alertmanager-proxy
+    spec:
+      serviceAccountName: flightctl-alertmanager-proxy
+      initContainers:
+        - name: init-certs
+          image: "registry.access.redhat.com/ubi9/ubi-minimal:latest"
+          command:
+            - /bin/sh
+            - -c
+            - |
+              mkdir -p /root/.flightctl/certs /tmp/certs /tmp/ca-certs
+              chmod 700 /root/.flightctl/certs /tmp/certs /tmp/ca-certs
+          volumeMounts:
+            - mountPath: /root/.flightctl
+              name: flightctl-config-dir
+            - mountPath: /tmp
+              name: tmp-dir
+      containers:
+        - name: alertmanager-proxy
+          image: "quay.io/flightctl/flightctl-alertmanager-proxy:latest"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8443
+              name: proxy
+              protocol: TCP
+          env:
+            - name: HOME
+              value: "/root"
+            - name: ALERTMANAGER_URL
+              value: "http://flightctl-alertmanager.default.svc.cluster.local:9093"
+          volumeMounts:
+            - mountPath: /app/certs
+              name: flightctl-alertmanager-proxy-certs
+            - mountPath: /root/.flightctl/config.yaml
+              name: flightctl-alertmanager-proxy-config
+              subPath: config.yaml
+              readOnly: true
+            - mountPath: /root/.flightctl
+              name: flightctl-config-dir
+            - mountPath: /tmp
+              name: tmp-dir
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8443
+              scheme: HTTPS
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8443
+              scheme: HTTPS
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+
+      restartPolicy: Always
+      volumes:
+        - name: flightctl-alertmanager-proxy-certs
+          secret:
+            secretName: flightctl-alertmanager-proxy-certs
+            defaultMode: 0440
+            optional: true
+            items:
+              - key: ca.crt
+                path: ca.crt
+        - name: flightctl-alertmanager-proxy-config
+          configMap:
+            name: flightctl-alertmanager-proxy-config
+        - name: flightctl-config-dir
+          emptyDir: {}
+        - name: tmp-dir
+          emptyDir: {}
+---
+# Source: flightctl/templates/flightctl-api-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    flightctl.service: flightctl-api
+  name: flightctl-api
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      flightctl.service: flightctl-api
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        flightctl.service: flightctl-api
+    spec:
+      serviceAccountName: flightctl-api
+      containers:
+        - name: flightctl-api
+          image: quay.io/flightctl/flightctl-api:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: HOME
+              value: "/root"
+            - name: KV_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-kv-secret
+                  key: password
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-db-app-secret
+                  key: userPassword
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-db-app-secret
+                  key: user
+          ports:
+            - containerPort: 3443
+              name: service-api
+              protocol: TCP
+            - containerPort: 7443
+              name: agent-api
+              protocol: TCP
+            - containerPort: 15690
+              name: api-prom-target
+              protocol: TCP
+            - containerPort: 15691
+              name: db-prom-target
+              protocol: TCP
+
+          volumeMounts:
+            - mountPath: /root/.flightctl/
+              name: flightctl-api-certs
+            - mountPath: /root/.flightctl/config.yaml
+              name: flightctl-api-config
+              subPath: config.yaml
+              readOnly: true
+
+      restartPolicy: Always
+      volumes:
+        - name: flightctl-api-certs
+          persistentVolumeClaim:
+            claimName: flightctl-api-certs
+        - name: flightctl-api-config
+          configMap:
+            name: flightctl-api-config
+---
+# Source: flightctl/templates/flightctl-cli-artifacts-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    flightctl.service: flightctl-cli-artifacts
+  name: flightctl-cli-artifacts
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      flightctl.service: flightctl-cli-artifacts
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        flightctl.service: flightctl-cli-artifacts
+    spec:
+      containers:
+        - name: flightctl-cli-artifacts
+          image: quay.io/flightctl/flightctl-cli-artifacts:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8090
+              name: cli-artifacts
+              protocol: TCP
+          env:
+            - name: CLI_ARTIFACTS_BASE_URL
+              value: https://cli-artifacts.example.com
+      restartPolicy: Always
+---
+# Source: flightctl/templates/flightctl-db-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    flightctl.service: flightctl-db
+  name: flightctl-db
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      flightctl.service: flightctl-db
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        flightctl.service: flightctl-db
+    spec:
+      containers:
+        - env:
+            - name: POSTGRESQL_DATABASE
+              value: flightctl
+            - name: POSTGRESQL_MASTER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-db-admin-secret
+                  key: masterPassword
+            - name: POSTGRESQL_MASTER_USER
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-db-admin-secret
+                  key: masterUser
+            - name: POSTGRESQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-db-app-secret
+                  key: userPassword
+            - name: POSTGRESQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-db-app-secret
+                  key: user
+            - name: POSTGRESQL_MAX_CONNECTIONS
+              value: "200"
+          image: quay.io/sclorg/postgresql-16-c9s:20250214
+          imagePullPolicy: IfNotPresent
+          name: flightctl-db
+          ports:
+            - containerPort: 5432
+              protocol: TCP
+          volumeMounts:
+            - mountPath: /var/lib/pgsql/data
+              name: flightctl-db
+            - mountPath: /usr/share/container-scripts/postgresql/start/enable-superuser.sh
+              subPath: enable-superuser.sh
+              name: init-scripts
+          resources:
+            requests:
+              cpu: 512m
+              memory: 512Mi
+      restartPolicy: Always
+      volumes:
+        - name: flightctl-db
+          persistentVolumeClaim:
+            claimName: flightctl-db
+        - name: init-scripts
+          configMap:
+            name: flightctl-db
+---
+# Source: flightctl/templates/flightctl-periodic-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    flightctl.service: flightctl-periodic
+  name: flightctl-periodic
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      flightctl.service: flightctl-periodic
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        flightctl.service: flightctl-periodic
+    spec:
+      containers:
+        - name: periodic
+          image: quay.io/flightctl/flightctl-periodic:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: HOME
+              value: "/root"
+            - name: KV_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-kv-secret
+                  key: password
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-db-app-secret
+                  key: userPassword
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-db-app-secret
+                  key: user
+          volumeMounts:
+            - mountPath: /root/.flightctl/config.yaml
+              name: flightctl-periodic-config
+              subPath: config.yaml
+              readOnly: true
+
+      restartPolicy: Always
+      volumes:
+        - name: flightctl-periodic-config
+          configMap:
+            name: flightctl-periodic-config
+---
+# Source: flightctl/templates/flightctl-worker-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    flightctl.service: flightctl-worker
+  name: flightctl-worker
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      flightctl.service: flightctl-worker
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        flightctl.service: flightctl-worker
+    spec:
+      serviceAccountName: flightctl-worker
+      containers:
+        - name: flightctl-worker
+          image: quay.io/flightctl/flightctl-worker:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: HOME
+              value: "/root"
+            - name: KV_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-kv-secret
+                  key: password
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-db-app-secret
+                  key: userPassword
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-db-app-secret
+                  key: user
+          volumeMounts:
+            - mountPath: /root/.flightctl/config.yaml
+              name: flightctl-worker-config
+              subPath: config.yaml
+              readOnly: true
+      restartPolicy: Always
+      volumes:
+        - name: flightctl-worker-config
+          configMap:
+            name: flightctl-worker-config
+---
+# Source: flightctl/templates/flightctl-alertmanager.yaml
+# StatefulSet for Alertmanager
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: flightctl-alertmanager
+  namespace: default
+  labels:
+    flightctl.service: flightctl-alertmanager
+spec:
+  serviceName: flightctl-alertmanager
+  revisionHistoryLimit: 10
+  replicas: 1
+  selector:
+    matchLabels:
+      flightctl.service: flightctl-alertmanager
+  podManagementPolicy: OrderedReady
+  template:
+    metadata:
+      labels:
+        flightctl.service: flightctl-alertmanager
+    spec:
+      containers:
+        - name: flightctl-alertmanager
+          image: "quay.io/prometheus/alertmanager:v0.28.1"
+          imagePullPolicy: IfNotPresent
+          args:
+            - "--config.file=/etc/alertmanager/alertmanager.yml"
+            - "--storage.path=/alertmanager"
+            - "--web.listen-address=:9093"
+          ports:
+            - name: web
+              containerPort: 9093
+          volumeMounts:
+            - name: flightctl-alertmanager-data
+              mountPath: /alertmanager
+            - name: flightctl-alertmanager-config
+              mountPath: /etc/alertmanager/alertmanager.yml
+              subPath: alertmanager.yml
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "2Gi"
+      volumes:
+        - name: flightctl-alertmanager-config
+          configMap:
+            name: flightctl-alertmanager-config
+            defaultMode: 0644
+  volumeClaimTemplates:
+    - metadata:
+        name: flightctl-alertmanager-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 2Gi
+---
+# Source: flightctl/templates/flightctl-kv-statefulset.yaml
+# StatefulSet for Redis
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: flightctl-kv
+  namespace: default
+  labels:
+    flightctl.service: flightctl-kv
+spec:
+  serviceName: flightctl-kv
+  revisionHistoryLimit: 10
+  replicas: 1
+  selector:
+    matchLabels:
+      flightctl.service: flightctl-kv
+  podManagementPolicy: OrderedReady
+  template:
+    metadata:
+      labels:
+        flightctl.service: flightctl-kv
+    spec:
+      containers:
+        - name: flightctl-kv
+          image: quay.io/sclorg/redis-7-c9s:20250108
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: kv
+              containerPort: 6379
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-kv-secret
+                  key: password
+          command:
+            - "redis-server"
+            - "/etc/redis/redis.conf"
+            - "--requirepass"
+            - "$(REDIS_PASSWORD)"
+          volumeMounts:
+            - name: flightctl-kv-data
+              mountPath: /var/lib/redis/data
+            - name: flightctl-kv-config
+              mountPath: /etc/redis/redis.conf
+              subPath: redis.conf
+          resources:
+            requests:
+              cpu: "1000m"
+              memory: "2Gi"
+      volumes:
+        - name: flightctl-kv-config
+          configMap:
+            name: flightctl-kv-config
+            defaultMode: 0644
+  volumeClaimTemplates:
+    - metadata:
+        name: flightctl-kv-data
+        annotations:
+          kubernetes.io/reclaimPolicy: Delete
+      spec:
+        storageClassName: 
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 2Gi
+---
+# Source: flightctl/templates/flightctl-secrets-job.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: flightctl-secrets
+  namespace: default
+spec:
+  manualSelector: true
+  selector:
+    matchLabels:
+      flightctl.service: secrets-job
+  template:
+    metadata:
+      name: flightctl-secrets
+      labels:
+        flightctl.service: secrets-job
+    spec:
+      serviceAccountName: flightctl-secrets
+      containers:
+        - name: flightctl-secrets
+          image: quay.io/openshift/origin-cli:4.20.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              DB_MASTER_PASSWORD=$(cat /dev/urandom | tr -dc 'A-Za-z0-9' | fold -w5 | head -n4 | paste -sd'-')
+              DB_USER_PASSWORD=$(cat /dev/urandom | tr -dc 'A-Za-z0-9' | fold -w5 | head -n4 | paste -sd'-')
+              KV_PASSWORD=$(cat /dev/urandom | tr -dc 'A-Za-z0-9' | fold -w5 | head -n4 | paste -sd'-')
+              DB_MIGRATION_PASSWORD=$(cat /dev/urandom | tr -dc 'A-Za-z0-9' | fold -w5 | head -n4 | paste -sd'-')
+              if ! kubectl get secret flightctl-db-admin-secret -n default >/dev/null 2>&1; then
+                kubectl create secret generic flightctl-db-admin-secret -n=default --from-literal=masterPassword="$DB_MASTER_PASSWORD" --from-literal=masterUser="admin" --
+                kubectl label secret flightctl-db-admin-secret -n default flightctl.service=flightctl-db-admin security.level=high-privilege
+              fi
+              if ! kubectl get secret flightctl-db-app-secret -n default >/dev/null 2>&1; then
+                kubectl create secret generic flightctl-db-app-secret -n=default --from-literal=userPassword="$DB_USER_PASSWORD" --from-literal=user="flightctl_app"
+                kubectl label secret flightctl-db-app-secret -n default flightctl.service=flightctl-db-app security.level=application
+              fi
+              if ! kubectl get secret flightctl-kv-secret -n default >/dev/null 2>&1; then
+                kubectl create secret generic flightctl-kv-secret -n=default --from-literal=password="$KV_PASSWORD"
+              fi
+              if ! kubectl get secret flightctl-db-migration-secret -n default >/dev/null 2>&1; then
+                kubectl create secret generic flightctl-db-migration-secret -n=default --from-literal=migrationUser="flightctl_migrator" --from-literal=migrationPassword=$DB_MIGRATION_PASSWORD
+                kubectl label secret flightctl-db-migration-secret -n default flightctl.service=flightctl-db-migration security.level=schema-privilege
+              fi
+      restartPolicy: Never
+---
+# Source: flightctl/templates/flightctl-cli-artifacts-console.yaml
+apiVersion: console.openshift.io/v1
+kind: ConsoleCLIDownload
+metadata:
+  name: flightctl-cli-downloads
+spec:
+  description: Flight Control is a service for declarative management of fleets of edge devices and their workloads.
+  displayName: flightctl - Flight Control Command Line Interface (CLI)
+  links:
+    - href: 'https://cli-artifacts.example.com/amd64/linux/flightctl-linux-amd64.tar.gz'
+      text: Download flightctl for Linux for x86_64
+    - href: 'https://cli-artifacts.example.com/amd64/mac/flightctl-darwin-amd64.zip'
+      text: Download flightctl for Mac for x86_64
+    - href: 'https://cli-artifacts.example.com/amd64/windows/flightctl-windows-amd64.zip'
+      text: Download flightctl for Windows for x86_64
+    - href: 'https://cli-artifacts.example.com/arm64/linux/flightctl-linux-arm64.tar.gz'
+      text: Download flightctl for Linux for ARM 64
+    - href: 'https://cli-artifacts.example.com/arm64/mac/flightctl-darwin-arm64.zip'
+      text: Download flightctl for Mac for ARM 64
+    - href: 'https://cli-artifacts.example.com/arm64/windows/flightctl-windows-arm64.zip'
+      text: Download flightctl for Windows for ARM 64
+---
+# Source: flightctl/charts/ui/templates/flightctl-ui-console-plugin.yaml
+apiVersion: console.openshift.io/v1
+kind: ConsolePlugin
+metadata:
+  name: flightctl-plugin
+spec:
+  backend:
+    service:
+      basePath: /
+      name: flightctl-ui
+      namespace: default
+      port: 8080
+    type: Service
+  displayName: FCTL Plugin
+  i18n:
+    loadType: Preload
+  proxy:
+    - alias: api-proxy
+      authorization: UserToken
+      endpoint:
+        service:
+          name: flightctl-ui
+          namespace: default
+          port: 8080
+        type: Service
+---
+# Source: flightctl/templates/flightctl-alertmanager-proxy-route.yaml
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: flightctl-alertmanager-proxy-route
+  namespace: default
+spec:
+  host: alertmanager-proxy.example.com
+  port:
+    targetPort: 8443
+  tls:
+    termination: passthrough
+    insecureEdgeTerminationPolicy: None
+  to:
+    kind: Service
+    name: flightctl-alertmanager-proxy
+    weight: 100
+  wildcardPolicy: None
+---
+# Source: flightctl/templates/flightctl-api-route-agent.yaml
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: flightctl-api-route-agent
+  namespace: default
+spec:
+  host: agent-api.example.com
+  port:
+    targetPort: 7443
+  tls:
+    termination: passthrough # the service is responsible for terminating TLS and authenticating devices through TLSs
+    insecureEdgeTerminationPolicy: None
+  to:
+    kind: Service
+    name: flightctl-api-agent
+    weight: 100
+  wildcardPolicy: None
+---
+# Source: flightctl/templates/flightctl-api-route.yaml
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: flightctl-api-route
+  namespace: default
+spec:
+  host: api.example.com
+  port:
+    targetPort: 3443
+  tls:
+    termination: passthrough # the service is responsible for terminating TLS and authenticating devices through TLSs
+    insecureEdgeTerminationPolicy: None
+  to:
+    kind: Service
+    name: flightctl-api
+    weight: 100
+  wildcardPolicy: None
+---
+# Source: flightctl/templates/flightctl-cli-artifacts-route.yaml
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: flightctl-cli-artifacts-route
+  namespace: default
+spec:
+  host: cli-artifacts.example.com
+  port:
+    targetPort: 8090
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+  to:
+    kind: Service
+    name: flightctl-cli-artifacts
+    weight: 100
+  wildcardPolicy: None
