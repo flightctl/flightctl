@@ -25,6 +25,7 @@ import (
 	"github.com/ccoveille/go-safecast"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
+	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto/signer"
 	"github.com/flightctl/flightctl/internal/util/validation"
@@ -147,6 +148,11 @@ func (o *CertificateOptions) Validate(args []string) error {
 }
 
 func (o *CertificateOptions) Run(ctx context.Context, args []string) error {
+	c, err := o.BuildVersionAwareClient()
+	if err != nil {
+		return fmt.Errorf("creating client: %w", err)
+	}
+
 	keypath := filepath.Join(o.OutputDir, o.Name+".key")
 	fmt.Fprintf(os.Stderr, "Creating new ECDSA key pair and writing to %q.\n", keypath)
 	_, priv, err := fccrypto.NewKeyPair()
@@ -170,11 +176,6 @@ func (o *CertificateOptions) Run(ctx context.Context, args []string) error {
 		if err != nil {
 			return fmt.Errorf("writing encrypted private key to %s: %w", keypath, err)
 		}
-	}
-
-	c, err := o.BuildClient()
-	if err != nil {
-		return fmt.Errorf("creating client: %w", err)
 	}
 
 	csrName, err := o.submitCsrWithRetries(ctx, c, priv)
@@ -246,7 +247,7 @@ func (o *CertificateOptions) Run(ctx context.Context, args []string) error {
 	return nil
 }
 
-func (o *CertificateOptions) submitCsrWithRetries(ctx context.Context, c *apiclient.ClientWithResponses, priv crypto.PrivateKey) (string, error) {
+func (o *CertificateOptions) submitCsrWithRetries(ctx context.Context, c *client.VersionAwareClient, priv crypto.PrivateKey) (string, error) {
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		csrName := createUniqueName(o.Name)
 		csrOrg := o.GetEffectiveOrganization()
@@ -348,7 +349,7 @@ func createCsr(o *CertificateOptions, name string, organization string, priv cry
 	return csrResourceJSON, nil
 }
 
-func getCsr(name string, c *apiclient.ClientWithResponses, ctx context.Context) (*api.CertificateSigningRequest, error) {
+func getCsr(name string, c *client.VersionAwareClient, ctx context.Context) (*api.CertificateSigningRequest, error) {
 	response, err := c.GetCertificateSigningRequestWithResponse(ctx, name)
 	if err != nil {
 		return nil, err

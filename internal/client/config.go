@@ -274,6 +274,25 @@ func NewFromConfigFile(filename string, opts ...client.ClientOption) (*client.Cl
 	return NewFromConfig(config, filename, opts...)
 }
 
+// NewVersionAwareClientFromConfigFile returns a new version-aware Flight Control API client using the config
+// read from the given file. This client will check version compatibility before making requests.
+func NewVersionAwareClientFromConfigFile(filename string, opts ...client.ClientOption) (*VersionAwareClient, error) {
+	config, err := ParseConfigFile(filename)
+	if err != nil {
+		return nil, err
+	}
+	return NewVersionAwareClientFromConfig(config, filename, opts...)
+}
+
+// NewVersionAwareClientFromConfig returns a new version-aware Flight Control API client from the given config.
+func NewVersionAwareClientFromConfig(config *Config, configFilePath string, opts ...client.ClientOption) (*VersionAwareClient, error) {
+	apiClient, err := NewFromConfig(config, configFilePath, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return NewVersionAwareClient(apiClient), nil
+}
+
 // NewHTTPClientFromConfig returns a new HTTP Client from the given config.
 func NewHTTPClientFromConfig(config *Config) (*http.Client, error) {
 	config = config.DeepCopy()
