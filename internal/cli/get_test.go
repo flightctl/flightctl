@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -182,4 +184,345 @@ func TestHandleListBatching(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestParseAndValidateKindNameFromArgs(t *testing.T) {
+	tests := []struct {
+		name          string
+		args          []string
+		expectedKind  string
+		expectedNames []string
+		expectError   bool
+		errorContains string
+	}{
+		// TYPE/NAME format tests
+		{
+			name:          "single_device_slash_format",
+			args:          []string{"device/test1"},
+			expectedKind:  DeviceKind,
+			expectedNames: []string{"test1"},
+			expectError:   false,
+		},
+		{
+			name:          "short_form_slash_format",
+			args:          []string{"dev/test1"},
+			expectedKind:  DeviceKind,
+			expectedNames: []string{"test1"},
+			expectError:   false,
+		},
+		{
+			name:          "plural_slash_format",
+			args:          []string{"devices/test1"},
+			expectedKind:  DeviceKind,
+			expectedNames: []string{"test1"},
+			expectError:   false,
+		},
+		{
+			name:          "enrollment_request_slash_format",
+			args:          []string{"er/test1"},
+			expectedKind:  EnrollmentRequestKind,
+			expectedNames: []string{"test1"},
+			expectError:   false,
+		},
+		{
+			name:          "slash_format_no_name",
+			args:          []string{"device/"},
+			expectedKind:  DeviceKind,
+			expectedNames: []string{},
+			expectError:   true,
+			errorContains: "resource name cannot be empty when using TYPE/NAME format",
+		},
+		{
+			name:          "slash_format_with_extra_args",
+			args:          []string{"device/test1", "extra"},
+			expectError:   true,
+			errorContains: "cannot mix TYPE/NAME syntax with additional arguments",
+		},
+
+		// TYPE NAME format tests
+		{
+			name:          "single_device_space_format",
+			args:          []string{"device", "test1"},
+			expectedKind:  DeviceKind,
+			expectedNames: []string{"test1"},
+			expectError:   false,
+		},
+		{
+			name:          "short_form_space_format",
+			args:          []string{"dev", "test1"},
+			expectedKind:  DeviceKind,
+			expectedNames: []string{"test1"},
+			expectError:   false,
+		},
+		{
+			name:          "plural_space_format",
+			args:          []string{"devices", "test1"},
+			expectedKind:  DeviceKind,
+			expectedNames: []string{"test1"},
+			expectError:   false,
+		},
+		{
+			name:          "enrollment_request_space_format",
+			args:          []string{"er", "test1"},
+			expectedKind:  EnrollmentRequestKind,
+			expectedNames: []string{"test1"},
+			expectError:   false,
+		},
+
+		// TYPE NAME1 NAME2 ... format tests
+		{
+			name:          "multiple_devices",
+			args:          []string{"device", "test1", "test2", "test3"},
+			expectedKind:  DeviceKind,
+			expectedNames: []string{"test1", "test2", "test3"},
+			expectError:   false,
+		},
+		{
+			name:          "multiple_devices_short_form",
+			args:          []string{"dev", "test1", "test2"},
+			expectedKind:  DeviceKind,
+			expectedNames: []string{"test1", "test2"},
+			expectError:   false,
+		},
+		{
+			name:          "multiple_devices_plural",
+			args:          []string{"devices", "test1", "test2"},
+			expectedKind:  DeviceKind,
+			expectedNames: []string{"test1", "test2"},
+			expectError:   false,
+		},
+		{
+			name:          "multiple_enrollment_requests",
+			args:          []string{"enrollmentrequests", "req1", "req2"},
+			expectedKind:  EnrollmentRequestKind,
+			expectedNames: []string{"req1", "req2"},
+			expectError:   false,
+		},
+
+		// List format tests (no names)
+		{
+			name:          "list_devices",
+			args:          []string{"devices"},
+			expectedKind:  DeviceKind,
+			expectedNames: []string{},
+			expectError:   false,
+		},
+		{
+			name:          "list_devices_short_form",
+			args:          []string{"dev"},
+			expectedKind:  DeviceKind,
+			expectedNames: []string{},
+			expectError:   false,
+		},
+		{
+			name:          "list_enrollment_requests",
+			args:          []string{"er"},
+			expectedKind:  EnrollmentRequestKind,
+			expectedNames: []string{},
+			expectError:   false,
+		},
+
+		// Error cases
+		{
+			name:          "no_args",
+			args:          []string{},
+			expectError:   true,
+			errorContains: "no arguments provided",
+		},
+		{
+			name:          "invalid_resource_kind",
+			args:          []string{"invalidtype"},
+			expectError:   true,
+			errorContains: "invalid resource kind: invalidtype",
+		},
+		{
+			name:          "invalid_resource_kind_with_name",
+			args:          []string{"invalidtype", "test1"},
+			expectError:   true,
+			errorContains: "invalid resource kind: invalidtype",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			kind, names, err := parseAndValidateKindNameFromArgs(tc.args)
+
+			if tc.expectError {
+				if err == nil {
+					t.Errorf("expected error but got none")
+				} else if tc.errorContains != "" && !contains(err.Error(), tc.errorContains) {
+					t.Errorf("expected error to contain %q, got %q", tc.errorContains, err.Error())
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+				return
+			}
+
+			if kind != tc.expectedKind {
+				t.Errorf("expected kind %q, got %q", tc.expectedKind, kind)
+			}
+
+			if len(names) != len(tc.expectedNames) {
+				t.Errorf("expected %d names, got %d", len(tc.expectedNames), len(names))
+				return
+			}
+
+			for i, expectedName := range tc.expectedNames {
+				if names[i] != expectedName {
+					t.Errorf("expected name[%d] to be %q, got %q", i, expectedName, names[i])
+				}
+			}
+		})
+	}
+}
+
+func TestGetOptionsValidation(t *testing.T) {
+	tests := []struct {
+		name          string
+		args          []string
+		options       *GetOptions
+		expectError   bool
+		errorContains string
+	}{
+		// Selector validation tests
+		{
+			name:          "selector_with_single_resource",
+			args:          []string{"device", "test1"},
+			options:       &GetOptions{LabelSelector: "app=test"},
+			expectError:   true,
+			errorContains: "cannot specify label selector when getting specific resources",
+		},
+		{
+			name:          "selector_with_multiple_resources",
+			args:          []string{"device", "test1", "test2"},
+			options:       &GetOptions{LabelSelector: "app=test"},
+			expectError:   true,
+			errorContains: "cannot specify label selector when getting specific resources",
+		},
+		{
+			name:          "field_selector_with_specific_resources",
+			args:          []string{"device", "test1", "test2"},
+			options:       &GetOptions{FieldSelector: "metadata.name=test"},
+			expectError:   true,
+			errorContains: "cannot specify field selector when getting specific resources",
+		},
+		{
+			name:        "selector_with_list_ok",
+			args:        []string{"devices"},
+			options:     &GetOptions{LabelSelector: "app=test"},
+			expectError: false,
+		},
+
+		// Summary validation tests
+		{
+			name:          "summary_with_specific_devices",
+			args:          []string{"device", "test1"},
+			options:       &GetOptions{Summary: true},
+			expectError:   true,
+			errorContains: "cannot specify '--summary' when getting specific devices",
+		},
+		{
+			name:          "summary_with_multiple_devices",
+			args:          []string{"device", "test1", "test2"},
+			options:       &GetOptions{Summary: true},
+			expectError:   true,
+			errorContains: "cannot specify '--summary' when getting specific devices",
+		},
+		{
+			name:        "summary_with_device_list_ok",
+			args:        []string{"devices"},
+			options:     &GetOptions{Summary: true},
+			expectError: false,
+		},
+
+		// Rendered validation tests
+		{
+			name:          "rendered_with_multiple_devices",
+			args:          []string{"device", "test1", "test2"},
+			options:       &GetOptions{Rendered: true},
+			expectError:   true,
+			errorContains: "'--rendered' can only be used when getting a single device",
+		},
+		{
+			name:        "rendered_with_single_device_ok",
+			args:        []string{"device", "test1"},
+			options:     &GetOptions{Rendered: true},
+			expectError: false,
+		},
+		{
+			name:          "rendered_with_non_device",
+			args:          []string{"fleet", "test1"},
+			options:       &GetOptions{Rendered: true},
+			expectError:   true,
+			errorContains: "'--rendered' can only be used when getting a single device",
+		},
+
+		// Single resource restriction tests
+		{
+			name:          "get_individual_event",
+			args:          []string{"event", "test1"},
+			expectError:   true,
+			errorContains: "you cannot get individual events",
+		},
+		{
+			name:          "get_multiple_events",
+			args:          []string{"event", "test1", "test2"},
+			expectError:   true,
+			errorContains: "you cannot get individual events",
+		},
+		{
+			name:        "list_events_ok",
+			args:        []string{"events"},
+			expectError: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Set up a temporary config file to avoid authentication errors
+			tempDir := t.TempDir()
+			configPath := filepath.Join(tempDir, "client.yaml")
+			writeTestConfig(t, configPath, "")
+
+			opts := DefaultGetOptions()
+			opts.ConfigFilePath = configPath
+			if tc.options != nil {
+				if tc.options.LabelSelector != "" {
+					opts.LabelSelector = tc.options.LabelSelector
+				}
+				if tc.options.FieldSelector != "" {
+					opts.FieldSelector = tc.options.FieldSelector
+				}
+				if tc.options.Summary {
+					opts.Summary = tc.options.Summary
+				}
+				if tc.options.Rendered {
+					opts.Rendered = tc.options.Rendered
+				}
+			}
+
+			err := opts.Validate(tc.args)
+
+			if tc.expectError {
+				if err == nil {
+					t.Errorf("expected error but got none")
+				} else if tc.errorContains != "" && !contains(err.Error(), tc.errorContains) {
+					t.Errorf("expected error to contain %q, got %q", tc.errorContains, err.Error())
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+// Helper function to check if a string contains a substring
+func contains(s, substr string) bool {
+	return strings.Contains(s, substr)
 }

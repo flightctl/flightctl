@@ -60,6 +60,7 @@ Use the `flightctl` CLI to login and then apply, get, or delete resources:
 bin/flightctl login $(cat ~/.flightctl/client.yaml | grep server | awk '{print $2}') --web --certificate-authority ~/.flightctl/certs/ca.crt
 bin/flightctl apply -f examples/fleet.yaml
 bin/flightctl get fleets
+bin/flightctl get fleet fleet1 fleet2  # Get multiple specific resources
 ```
 
 Note: If deployed without auth enabled, then there is no need to login.
