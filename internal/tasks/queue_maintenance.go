@@ -325,7 +325,7 @@ func (t *QueueMaintenanceTask) republishEventsSince(ctx context.Context, since t
 			}
 
 			// List events from database for this organization
-			eventList, status := t.serviceHandler.ListEvents(orgCtx, params)
+			eventList, status := t.serviceHandler.ListEvents(orgCtx, orgID, params)
 			if status.Code >= 400 {
 				orgLog.WithError(fmt.Errorf("status: %s", status.Message)).Warn("Failed to list events for organization, continuing with next")
 				break

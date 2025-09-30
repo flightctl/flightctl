@@ -57,7 +57,7 @@ func testDevicePatch(require *require.Assertions, patch api.PatchRequest) (*api.
 	ctx := context.Background()
 	_, err = serviceHandler.store.Device().Create(ctx, store.NullOrgId, &device, nil)
 	require.NoError(err)
-	resp, retStatus := serviceHandler.PatchDevice(ctx, "foo", patch)
+	resp, retStatus := serviceHandler.PatchDevice(ctx, store.NullOrgId, "foo", patch)
 	require.NotEqual(statusFailedCode, retStatus.Code)
 	return resp, device, retStatus
 }
@@ -77,7 +77,7 @@ func testDeviceStatusPatch(require *require.Assertions, orig api.Device, patch a
 	ctx := context.Background()
 	_, err = serviceHandler.store.Device().Create(ctx, store.NullOrgId, &orig, nil)
 	require.NoError(err)
-	resp, retStatus := serviceHandler.PatchDeviceStatus(ctx, "foo", patch)
+	resp, retStatus := serviceHandler.PatchDeviceStatus(ctx, store.NullOrgId, "foo", patch)
 	require.NotEqual(statusFailedCode, retStatus.Code)
 	return resp, retStatus
 }
@@ -358,7 +358,7 @@ func TestDeviceNonExistingResource(t *testing.T) {
 		Metadata: api.ObjectMeta{Name: lo.ToPtr("foo")},
 	}, nil)
 	require.NoError(err)
-	_, retStatus := serviceHandler.PatchDevice(ctx, "bar", pr)
+	_, retStatus := serviceHandler.PatchDevice(ctx, store.NullOrgId, "bar", pr)
 	require.Equal(statusNotFoundCode, retStatus.Code)
 	require.Equal(api.StatusResourceNotFound("Device", "bar"), retStatus)
 }
@@ -379,14 +379,14 @@ func TestDeviceDisconnected(t *testing.T) {
 	device := prepareDevice(uuid.New(), "foo")
 
 	// Create device
-	device, retStatus := serviceHandler.CreateDevice(ctx, *device)
+	device, retStatus := serviceHandler.CreateDevice(ctx, store.NullOrgId, *device)
 	require.Equal(int32(http.StatusCreated), retStatus.Code)
 	// Make it disconnected
 	//device, err = serviceHandler.store.Device().Get(ctx, store.NullOrgId, *device.Metadata.Name)
 	//require.NoError(err)
 	device.Status.LastSeen = lo.ToPtr(time.Now().Add(-10 * time.Minute))
 	device.Status.Summary.Status = api.DeviceSummaryStatusOnline
-	changed := serviceHandler.UpdateServiceSideDeviceStatus(ctx, *device)
+	changed := serviceHandler.UpdateServiceSideDeviceStatus(ctx, store.NullOrgId, *device)
 	require.Equal(true, changed)
 	require.Equal(device.Status.Summary.Status, api.DeviceSummaryStatusUnknown)
 }

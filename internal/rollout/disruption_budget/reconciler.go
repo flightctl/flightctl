@@ -84,13 +84,13 @@ func collectDeviceBudgetCounts(counts []map[string]any, groupBy []string) ([]*gr
 	return ret, nil
 }
 
-func (r *reconciler) getFleetCounts(ctx context.Context, _ uuid.UUID, fleet *api.Fleet) ([]*groupCounts, error) {
+func (r *reconciler) getFleetCounts(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet) ([]*groupCounts, error) {
 	groupBy := lo.FromPtr(fleet.Spec.RolloutPolicy.DisruptionBudget.GroupBy)
 
 	listParams := api.ListDevicesParams{
 		FieldSelector: lo.ToPtr(fmt.Sprintf("metadata.owner=%s", util.ResourceOwner(api.FleetKind, lo.FromPtr(fleet.Metadata.Name)))),
 	}
-	counts, status := r.serviceHandler.CountDevicesByLabels(ctx, listParams, nil, groupBy)
+	counts, status := r.serviceHandler.CountDevicesByLabels(ctx, orgId, listParams, nil, groupBy)
 	if status.Code != http.StatusOK {
 		return nil, service.ApiStatusToErr(status)
 	}
@@ -152,7 +152,7 @@ func (r *reconciler) reconcileSelectionDevices(ctx context.Context, orgId uuid.U
 	remaining := lo.Ternary(numToRender > 0, numToRender, math.MaxInt)
 	for {
 		listParams.Limit = lo.ToPtr(int32(math.Min(float64(remaining), float64(maxItemsToRender))))
-		devices, status := r.serviceHandler.ListDevices(ctx, listParams, annotationSelector)
+		devices, status := r.serviceHandler.ListDevices(ctx, orgId, listParams, annotationSelector)
 		if status.Code != http.StatusOK {
 			return service.ApiStatusToErr(status)
 		}
@@ -214,7 +214,7 @@ func (r *reconciler) Reconcile(ctx context.Context) {
 		return
 	}
 
-	fleetList, status := r.serviceHandler.ListDisruptionBudgetFleets(ctx)
+	fleetList, status := r.serviceHandler.ListDisruptionBudgetFleets(ctx, orgId)
 	if status.Code != http.StatusOK {
 		r.log.WithError(service.ApiStatusToErr(status)).Error("Failed to query disruption budget fleets")
 		return
