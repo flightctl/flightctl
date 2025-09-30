@@ -12,6 +12,8 @@ import (
 	"regexp"
 	"strings"
 
+	"os"
+
 	config_latest_types "github.com/coreos/ignition/v2/config/v3_4/types"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/pkg/ignition"
@@ -25,6 +27,7 @@ import (
 	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	gitmemory "github.com/go-git/go-git/v5/storage/memory"
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 // Ref: https://github.com/git/git/blob/master/Documentation/urls.txt#L37
@@ -113,18 +116,26 @@ func GetAuth(repository *api.Repository) (transport.AuthMethod, error) {
 			if err != nil {
 				return nil, err
 			}
-			if sshSpec.SshConfig.SkipServerVerification != nil && *sshSpec.SshConfig.SkipServerVerification {
-				auth.HostKeyCallbackHelper = gitssh.HostKeyCallbackHelper{
-					HostKeyCallback: ssh.InsecureIgnoreHostKey(), //nolint:gosec
-				}
-			}
 		}
+
+		// Configure host key verification
 		if sshSpec.SshConfig.SkipServerVerification != nil && *sshSpec.SshConfig.SkipServerVerification {
 			if auth == nil {
 				auth = &gitssh.PublicKeys{}
 			}
 			auth.HostKeyCallbackHelper = gitssh.HostKeyCallbackHelper{
 				HostKeyCallback: ssh.InsecureIgnoreHostKey(), //nolint:gosec
+			}
+		} else {
+			callback, cbErr := buildKnownHostsCallback()
+			if cbErr != nil {
+				return nil, cbErr
+			}
+			if callback != nil {
+				if auth == nil {
+					auth = &gitssh.PublicKeys{}
+				}
+				auth.HostKeyCallbackHelper = gitssh.HostKeyCallbackHelper{HostKeyCallback: callback}
 			}
 		}
 		return auth, nil
@@ -196,6 +207,22 @@ func configureRepoHTTPSClient(httpConfig api.HttpConfig) error {
 		},
 	))
 	return nil
+}
+
+const (
+	SshKnownHostsEnvKey = "FLIGHTCTL_SSH_KNOWN_HOSTS"
+)
+
+func buildKnownHostsCallback() (ssh.HostKeyCallback, error) {
+	path := os.Getenv(SshKnownHostsEnvKey)
+	if path == "" {
+		return nil, nil
+	}
+	cb, err := knownhosts.New(path)
+	if err != nil {
+		return nil, err
+	}
+	return cb, nil
 }
 
 // ConvertFileSystemToIgnition converts a filesystem to an ignition config

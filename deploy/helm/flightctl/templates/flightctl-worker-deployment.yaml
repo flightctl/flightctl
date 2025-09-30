@@ -41,6 +41,8 @@ spec:
                 secretKeyRef:
                   name: flightctl-db-app-secret
                   key: user
+            - name: FLIGHTCTL_SSH_KNOWN_HOSTS
+              value: "/etc/flightctl/ssh/known_hosts"
             {{- if .Values.worker.env }}
             {{- range $key, $value := .Values.worker.env }}
             - name: {{ $key }}
@@ -52,9 +54,18 @@ spec:
               name: flightctl-worker-config
               subPath: config.yaml
               readOnly: true
+            - mountPath: /etc/flightctl/ssh
+              name: flightctl-ssh-known-hosts
+              readOnly: true
       restartPolicy: Always
       volumes:
         - name: flightctl-worker-config
           configMap:
             name: flightctl-worker-config
+        - name: flightctl-ssh-known-hosts
+          configMap:
+            name: flightctl-known-hosts
+            items:
+              - key: known_hosts
+                path: known_hosts
 {{ end }}

@@ -81,6 +81,8 @@ global:
     create: true
   organizations:
     enabled: false
+  sshKnownHosts:
+    data: ""
 
 
 ## @section Component specific parameters
