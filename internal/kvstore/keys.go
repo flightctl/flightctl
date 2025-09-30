@@ -76,3 +76,21 @@ func (k *HttpKey) ComposeKey() string {
 	md5sum := md5.Sum([]byte(k.URL)) //nolint: gosec
 	return fmt.Sprintf("v1/%s/%s/%s/http-data/%x", k.OrgID, k.Fleet, k.TemplateVersion, md5sum)
 }
+
+type DeviceKey struct {
+	OrgID      uuid.UUID
+	DeviceName string
+}
+
+func (d *DeviceKey) ComposeKey() string {
+	return fmt.Sprintf("v1/%s/device/%s", d.OrgID, d.DeviceName)
+}
+
+type AwaitingReconnectionKey struct {
+	OrgID      uuid.UUID
+	DeviceName string
+}
+
+func (a *AwaitingReconnectionKey) ComposeKey() string {
+	return fmt.Sprintf("v1/%s/device/%s/awaiting-reconnect", a.OrgID, a.DeviceName)
+}

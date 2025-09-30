@@ -94,12 +94,26 @@ func (t *TracedService) CreateDevice(ctx context.Context, d api.Device) (*api.De
 	endSpan(span, st)
 	return resp, st
 }
+
+func (t *TracedService) SetOutOfDate(ctx context.Context, owner string) error {
+	ctx, span := startSpan(ctx, "UpdateToOutOfDateByOwner")
+	defer span.End()
+	return t.inner.SetOutOfDate(ctx, owner)
+}
+
+func (t *TracedService) UpdateServerSideDeviceStatus(ctx context.Context, name string) error {
+	ctx, span := startSpan(ctx, "UpdateServerSideDeviceStatus")
+	defer span.End()
+	return t.inner.UpdateServerSideDeviceStatus(ctx, name)
+}
+
 func (t *TracedService) ListDevices(ctx context.Context, params api.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (*api.DeviceList, api.Status) {
 	ctx, span := startSpan(ctx, "ListDevices")
 	resp, st := t.inner.ListDevices(ctx, params, annotationSelector)
 	endSpan(span, st)
 	return resp, st
 }
+
 func (t *TracedService) ListDevicesByServiceCondition(ctx context.Context, conditionType string, conditionStatus string, listParams store.ListParams) (*api.DeviceList, api.Status) {
 	ctx, span := startSpan(ctx, "ListDevicesByServiceCondition")
 	resp, st := t.inner.ListDevicesByServiceCondition(ctx, conditionType, conditionStatus, listParams)
@@ -133,6 +147,12 @@ func (t *TracedService) DeleteDevice(ctx context.Context, name string) api.Statu
 func (t *TracedService) GetDeviceStatus(ctx context.Context, name string) (*api.Device, api.Status) {
 	ctx, span := startSpan(ctx, "GetDeviceStatus")
 	resp, st := t.inner.GetDeviceStatus(ctx, name)
+	endSpan(span, st)
+	return resp, st
+}
+func (t *TracedService) GetDeviceLastSeen(ctx context.Context, name string) (*api.DeviceLastSeen, api.Status) {
+	ctx, span := startSpan(ctx, "GetDeviceLastSeen")
+	resp, st := t.inner.GetDeviceLastSeen(ctx, name)
 	endSpan(span, st)
 	return resp, st
 }
@@ -179,9 +199,9 @@ func (t *TracedService) UpdateDeviceAnnotations(ctx context.Context, name string
 	endSpan(span, st)
 	return st
 }
-func (t *TracedService) UpdateRenderedDevice(ctx context.Context, name, renderedConfig, renderedApps string) api.Status {
+func (t *TracedService) UpdateRenderedDevice(ctx context.Context, name, renderedConfig, renderedApps, specHash string) api.Status {
 	ctx, span := startSpan(ctx, "UpdateRenderedDevice")
-	st := t.inner.UpdateRenderedDevice(ctx, name, renderedConfig, renderedApps)
+	st := t.inner.UpdateRenderedDevice(ctx, name, renderedConfig, renderedApps, specHash)
 	endSpan(span, st)
 	return st
 }

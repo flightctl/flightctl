@@ -43,12 +43,12 @@ check_prerequisites() {
     fi
     
     # Check if standalone OpenTelemetry collector is installed
-    if [ -f "/etc/flightctl/definitions/otel-collector.defs" ]; then
+    if [ -f "/etc/flightctl/definitions/telemetry-gateway.defs" ]; then
         has_otel_only=true
     fi
     
     if [ "$has_full_observability" = false ] && [ "$has_otel_only" = false ]; then
-        log "ERROR" "No observability components found. Please install flightctl-observability or flightctl-otel-collector package"
+        log "ERROR" "No observability components found. Please install flightctl-observability or flightctl-telemetry-gateway package"
         exit 1
     fi
     
@@ -85,14 +85,14 @@ render_observability_config() {
     fi
 }
 
-render_otel_collector_config() {
+render_telemetry_gateway_config() {
     log "INFO" "Rendering OpenTelemetry collector configuration..."
     
     # Check if otel-collector definitions file exists
-    if [ -f "/etc/flightctl/definitions/otel-collector.defs" ]; then
+    if [ -f "/etc/flightctl/definitions/telemetry-gateway.defs" ]; then
         local config_file="/etc/flightctl/service-config.yaml"
         local templates_dir="/opt/flightctl-observability/templates"
-        local definitions_file="/etc/flightctl/definitions/otel-collector.defs"
+        local definitions_file="/etc/flightctl/definitions/telemetry-gateway.defs"
         
         # Source shared logic and call rendering with otel-collector specific definitions
         if [ -f "/etc/flightctl/scripts/render-templates.sh" ]; then
@@ -106,6 +106,9 @@ render_otel_collector_config() {
                 exit 1
             fi
             log "INFO" "OpenTelemetry collector configuration rendered successfully"
+            
+            # Setup certificates for telemetry-gateway after configuration is rendered
+            setup_telemetry_gateway_certs
         else
             log "ERROR" "render-templates.sh not found"
             exit 1
@@ -115,22 +118,57 @@ render_otel_collector_config() {
     fi
 }
 
+setup_telemetry_gateway_certs() {
+    log "INFO" "Setting up telemetry-gateway certificates..."
+    
+    # Check if certificate setup script exists
+    if [ -f "/etc/flightctl/scripts/setup_telemetry_gateway_certs.sh" ]; then
+        # Telemetry-gateway always uses Podman mode
+        local mode="podman"
+
+        log "INFO" "Running certificate setup in $mode mode..."
+
+        local sans="DNS:localhost,DNS:flightctl-telemetry-gateway,IP:127.0.0.1"
+        # Source the functions file to get get_ext_ip function
+        if [ -f "/etc/flightctl/scripts/functions" ]; then
+            source /etc/flightctl/scripts/functions
+            local ext_ip=$(get_ext_ip)
+            if [ -n "$ext_ip" ]; then
+                sans="${sans},DNS:telemetry-gateway.${ext_ip}.nip.io"
+            fi
+        fi
+
+        # Run the certificate setup script
+        if ! /etc/flightctl/scripts/setup_telemetry_gateway_certs.sh --mode "$mode" \
+        --sans "$sans" --force-rotate  ; then
+            log "WARNING" "Certificate setup failed, but continuing with configuration rendering"
+            log "INFO" "You can run the certificate setup manually later:"
+            log "INFO" "  sudo /etc/flightctl/scripts/setup_telemetry_gateway_certs.sh --mode $mode"
+        else
+            log "INFO" "Telemetry-gateway certificates setup completed successfully"
+        fi
+    else
+        log "WARNING" "Certificate setup script not found at /etc/flightctl/scripts/setup_telemetry_gateway_certs.sh"
+        log "INFO" "Certificates will need to be set up manually"
+    fi
+}
+
 main() {
     log "INFO" "Starting FlightCtl observability configuration rendering..."
     
     check_prerequisites
     render_observability_config
-    render_otel_collector_config
+    render_telemetry_gateway_config
     
     log "INFO" "FlightCtl observability configuration rendering completed successfully!"
     echo ""
     echo "Configuration has been updated. To start/restart services, use:"
     echo "  sudo systemctl start flightctl-observability.target      # Full stack"
-    echo "  sudo systemctl start flightctl-otel-collector.target     # OpenTelemetry collector only"
+    echo "  sudo systemctl start flightctl-telemetry-gateway.target     # OpenTelemetry collector only"
     echo ""
     echo "To stop services, use:"
     echo "  sudo systemctl stop flightctl-observability.target       # Full stack"
-    echo "  sudo systemctl stop flightctl-otel-collector.target      # OpenTelemetry collector only"
+    echo "  sudo systemctl stop flightctl-telemetry-gateway.target      # OpenTelemetry collector only"
 }
 
 # Show usage if help is requested
@@ -142,8 +180,8 @@ USAGE:
     $0 [OPTIONS]
 
 DESCRIPTION:
-    Renders observability configuration templates from /etc/flightctl/service-config.yaml
-    and reloads systemd daemon. Does NOT start or stop services.
+    Renders observability configuration templates from /etc/flightctl/service-config.yaml,
+    sets up telemetry-gateway certificates, and reloads systemd daemon. Does NOT start or stop services.
 
     This script supports both full observability stack and standalone OpenTelemetry 
     collector installations.
@@ -152,11 +190,12 @@ DESCRIPTION:
     1. Check prerequisites based on installed components
     2. Render observability configuration templates (if full stack is installed)
     3. Render OpenTelemetry collector configuration (if installed)
-    4. Reload systemd daemon
+    4. Setup telemetry-gateway certificates (if telemetry-gateway is installed)
+    5. Reload systemd daemon
 
     To start/stop services after rendering, use systemd targets:
     - flightctl-observability.target (full stack)
-    - flightctl-otel-collector.target (OpenTelemetry collector only)
+    - flightctl-telemetry-gateway.target (OpenTelemetry collector only)
 
 OPTIONS:
     -h, --help    Show this help message

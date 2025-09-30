@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand"
 	"time"
 )
 
@@ -23,6 +24,20 @@ type Config struct {
 	MaxDelay time.Duration
 	// MaxSteps limits the number of retries. If 0, retries will continue until timeout.
 	MaxSteps int
+	// JitterFactor adds randomization to prevent thundering herd (0.0 to 1.0)
+	JitterFactor float64
+	// Rand is the random number generator for jitter calculation
+	Rand *rand.Rand
+}
+
+// NewConfig creates a new Config with a properly seeded random number generator.
+func NewConfig(baseDelay time.Duration, factor float64) *Config {
+	return &Config{
+		BaseDelay:    baseDelay,
+		Factor:       factor,
+		JitterFactor: 0.1,                                             // Default jitter factor
+		Rand:         rand.New(rand.NewSource(time.Now().UnixNano())), //nolint:gosec
+	}
 }
 
 // Validate checks if the configuration parameters are valid
@@ -36,7 +51,22 @@ func (c *Config) Validate() error {
 	if c.MaxDelay > 0 && c.MaxDelay < c.BaseDelay {
 		return errors.New("poll MaxDelay must be greater than or equal to BaseDelay")
 	}
+	if c.JitterFactor < 0 || c.JitterFactor > 1 {
+		return errors.New("poll JitterFactor must be between 0.0 and 1.0")
+	}
+	if c.Rand == nil {
+		return errors.New("poll Rand must not be nil")
+	}
 	return nil
+}
+
+// calculateJitter calculates jitter for a given delay based on the jitter factor.
+func calculateJitter(rng *rand.Rand, delay time.Duration, jitterFactor float64) time.Duration {
+	if jitterFactor <= 0 {
+		return 0
+	}
+	jitterRange := float64(delay) * jitterFactor
+	return time.Duration((rng.Float64()*2 - 1) * jitterRange)
 }
 
 // BackoffWithContext repeatedly calls the operation until timeout is reached,
@@ -71,6 +101,16 @@ func BackoffWithContext(ctx context.Context, cfg Config, opFn func(context.Conte
 			if cfg.MaxDelay > 0 && next > cfg.MaxDelay {
 				next = cfg.MaxDelay
 			}
+
+			// Add jitter calculated per retry attempt to prevent thundering herd
+			jitter := calculateJitter(cfg.Rand, next, cfg.JitterFactor)
+			next += jitter
+
+			// Ensure delay doesn't go negative
+			if next < 0 {
+				next = 0
+			}
+
 			delay = next
 		case <-ctx.Done():
 			return ctx.Err()
@@ -104,6 +144,15 @@ func CalculateBackoffDelay(cfg *Config, tries int) time.Duration {
 	// cap max delay
 	if cfg.MaxDelay > 0 && delayDuration > cfg.MaxDelay {
 		delayDuration = cfg.MaxDelay
+	}
+
+	// Add jitter calculated per attempt to prevent thundering herd
+	jitter := calculateJitter(cfg.Rand, delayDuration, cfg.JitterFactor)
+	delayDuration += jitter
+
+	// Ensure delay doesn't go negative
+	if delayDuration < 0 {
+		delayDuration = 0
 	}
 
 	return delayDuration

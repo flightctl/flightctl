@@ -13,7 +13,7 @@ import (
 
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
 	"github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/agent/device/publisher"
+	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
@@ -41,10 +41,11 @@ func (l *lockBuffer) String() string {
 
 type vars struct {
 	ctx              context.Context
-	controller       *ConsoleController
+	controller       *Manager
 	ctrl             *gomock.Controller
 	mockGrpcClient   *MockRouterServiceClient
 	mockStreamClient *MockRouterService_StreamClient
+	mockWatcher      *spec.MockWatcher
 	executor         executer.Executer
 	logger           *log.PrefixLogger
 	recvChan         chan lo.Tuple2[*grpc_v1.StreamResponse, error]
@@ -60,19 +61,21 @@ func setupVars(t *testing.T) *vars {
 	logger := log.NewPrefixLogger("console")
 	mockGrpcClient := NewMockRouterServiceClient(ctrl)
 	mockStreamClient := NewMockRouterService_StreamClient(ctrl)
+	mockWatcher := spec.NewMockWatcher(ctrl)
 
 	v := &vars{
 		ctx:              context.Background(),
 		ctrl:             ctrl,
 		mockGrpcClient:   mockGrpcClient,
 		mockStreamClient: mockStreamClient,
+		mockWatcher:      mockWatcher,
 		executor:         executor,
 		logger:           logger,
-		controller: NewController(
+		controller: NewManager(
 			mockGrpcClient,
 			"mydevice",
 			executor,
-			publisher.NewSubscription(),
+			mockWatcher,
 			logger),
 		recvChan: make(chan lo.Tuple2[*grpc_v1.StreamResponse, error]),
 	}

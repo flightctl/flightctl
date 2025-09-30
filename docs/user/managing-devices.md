@@ -71,11 +71,24 @@ flightctl get devices
 The output will be a table similar to this:
 
 ```console
-NAME                                                  ALIAS    OWNER   SYSTEM  UPDATED     APPLICATIONS  LAST SEEN
-54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg  <none>   <none>  Online  Up-to-date  <none>        3 seconds ago
+NAME                                                  ALIAS    OWNER   SYSTEM  UPDATED     APPLICATIONS
+54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg  <none>   <none>  Online  Up-to-date  <none>
 ```
 
-You can see the details of this device in YAML format by running the following command:
+You can see one or more specific devices in the inventory using any of these formats:
+
+```console
+# Single device using slash format
+flightctl get device/54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg
+
+# Single device using space format
+flightctl get device 54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg
+
+# Multiple devices by name
+flightctl get devices device1 device2 device3
+```
+
+To see the details of a single device or list of devices in YAML or JSON formats, you can specify the `-o yaml` or `-o json` flags, respectively, e.g.
 
 ```console
 flightctl get device/54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg -o yaml
@@ -165,9 +178,9 @@ flightctl get devices -o wide
 ```
 
 ```console
-NAME                                                  ALIAS    OWNER   SYSTEM  UPDATED     APPLICATIONS  LAST SEEN      LABELS
-54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg  <none>   <none>  Online  Up-to-date  <none>        3 seconds ago  region=eu-west-1,site=factory-berlin
-hnsu33339f8m5pjqrbh5ak704jjp92r95a83sd5ja8cjnsl7qnrg  <none>   <none>  Online  Up-to-date  <none>        1 minute ago   region=eu-west-1,site=factory-madrid
+NAME                                                  ALIAS    OWNER   SYSTEM  UPDATED     APPLICATIONS  LABELS
+54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg  <none>   <none>  Online  Up-to-date  <none>        region=eu-west-1,site=factory-berlin
+hnsu33339f8m5pjqrbh5ak704jjp92r95a83sd5ja8cjnsl7qnrg  <none>   <none>  Online  Up-to-date  <none>        region=eu-west-1,site=factory-madrid
 ```
 
 You can view devices in your inventory with a specific label or set of labels by using the `-l key=value` option one or more times:
@@ -177,11 +190,39 @@ flightctl get devices -l site=factory-berlin -o wide
 ```
 
 ```console
-NAME                                                  ALIAS    OWNER   SYSTEM  UPDATED     APPLICATIONS  LAST SEEN      LABELS
-54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg  <none>   <none>  Online  Up-to-date  <none>        3 seconds ago  region=eu-west-1,site=factory-berlin
+NAME                                                  ALIAS    OWNER   SYSTEM  UPDATED     APPLICATIONS  LABELS
+54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg  <none>   <none>  Online  Up-to-date  <none>        region=eu-west-1,site=factory-berlin
 ```
 
-You can update the labels of a given device by exporting the device's current definition into a file, editing the specification to update the labels, and then applying the updated definition. To export the device's current definition into a file called `my_device.yaml`, run the `flightctl get device` command with the device's name and the `-o yaml` output flag:
+You can update the labels of a given device using one of two methods:
+
+### Method 1: Using the edit command (Recommended)
+
+The `flightctl edit` command provides a streamlined way to edit resources directly in your preferred text editor, similar to `kubectl edit`. This command automatically fetches the current resource definition, opens it in an editor, and applies your changes when you save and exit:
+
+```console
+flightctl edit device/54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg
+```
+
+This will open the device definition in your default editor (defined by `FLIGHTCTL_EDITOR`, `EDITOR` environment variables, or defaults to `vi`). You can also specify a different editor:
+
+```console
+flightctl edit device/54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg --editor=nano
+```
+
+The command supports both `TYPE/NAME` and `TYPE NAME` formats:
+
+```console
+# Both of these are equivalent:
+flightctl edit device/my-device
+flightctl edit device my-device
+```
+
+When you save and exit the editor, the command will automatically apply your changes to the server. If there are any errors (such as validation failures or conflicts), your changes will be saved to a temporary file for recovery.
+
+### Method 2: Export, edit, and apply manually
+
+Alternatively, you can update labels by exporting the device's current definition into a file, editing the specification to update the labels, and then applying the updated definition. To export the device's current definition into a file called `my_device.yaml`, run the `flightctl get device` command with the device's name and the `-o yaml` output flag:
 
 ```console
 flightctl get device/54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg -o yaml > my_device.yaml
@@ -210,9 +251,9 @@ flightctl apply -f my_device.yaml
 When you now view the device's labels using `flightctl get devices -o wide` once more, you should see your changes applied:
 
 ```console
-NAME                                                  ALIAS    OWNER   SYSTEM  UPDATED     APPLICATIONS  LAST SEEN      LABELS
-54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg  <none>   <none>  Online  Up-to-date  <none>        3 minutes ago  some_key=some_value,some_other_key=some_other_value
-hnsu33339f8m5pjqrbh5ak704jjp92r95a83sd5ja8cjnsl7qnrg  <none>   <none>  Online  Up-to-date  <none>        4 minutes ago  region=eu-west-1,site=factory-madrid
+NAME                                                  ALIAS    OWNER   SYSTEM  UPDATED     APPLICATIONS  LABELS
+54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg  <none>   <none>  Online  Up-to-date  <none>        some_key=some_value,some_other_key=some_other_value
+hnsu33339f8m5pjqrbh5ak704jjp92r95a83sd5ja8cjnsl7qnrg  <none>   <none>  Online  Up-to-date  <none>        region=eu-west-1,site=factory-madrid
 ```
 
 ## Updating the OS
@@ -438,6 +479,16 @@ spec:
 
 You can deploy, update, or undeploy applications on a device by updating the list of applications in the device's specification. The next time the agent checks in, it learns of the change in the specification, downloads any new or updated application packages and images from an OCI-compatible registry, and deploys them to the appropriate application runtime or removes them from that runtime.
 
+### Container Image Versioning and Floating Tags
+
+Flight Control uses a declarative API model that expects container images to be immutable for each rendered device version. Floating tags like `latest` are **not recommended** as they can change unexpectedly and cause version skew across your fleet. Changes to floating tags are not automatically reconciled by the service or agent, updates must be explicitly declared.
+
+**Best practices:**
+
+* Use explicit version tags `v1.2.3` or image digests `@sha256:abc123...`
+* When updating applications, explicitly declare new tags or digests in the device specification
+* This ensures consistent, predictable deployments and prevents unintended drift
+
 The following table shows the application runtimes and formats supported by Flight Control:
 
 ### Runtime: **Podman**
@@ -491,7 +542,7 @@ spec:
 [...]
   applications:
   - name: wordpress
-    image: quay.io/flightctl-demos/wordpress-app:latest
+    image: quay.io/flightctl-demos/wordpress-app:v1.2.3
     envVars:
       WORDPRESS_DB_HOST: "mysql"
       WORDPRESS_DB_USER: "user"
@@ -660,7 +711,7 @@ A run action takes the following parameters:
 | Parameter | Description |
 | --------- | ----------- |
 | Run | The absolute path to the command to run, followed by any flags or arguments.<br/><br/>Example: `/usr/bin/nmcli connection reload`.<br/><br/>Note that the command is not executed in a shell, so you cannot use shell variables like `$FOO_PATH` or chain commands (`\|` or `;`). However, it is possible to start a shell yourself if necessary by specifying the shell as command to run.<br/><br/>Example: `/usr/bin/bash -c 'echo foo'` |
-| EnvVars | (Optional) A list of key/value-pairs to set as environment variables for the command. |
+| EnvVars | (Optional) A list of key/value-pairs to set as environment variables for the command..<br/><br/>Note to use these variables `MY_VAR: value`, execute the command through a shell like `/bin/sh -c 'command "$MY_VAR"'`. |
 | WorkDir | (Optional) The directory the command will be run from. |
 | Timeout | (Optional) The maximum duration allowed for the action to complete. The duration must be be specified as a single positive integer followed by a time unit. Supported time units are `s` for seconds, `m` for minutes, and `h` for hours.<br/><br/>Default: 10s |
 | If | (Optional) A list of conditions that must be true for the action to be run (see below). If not provided, actions will run unconditionally. |

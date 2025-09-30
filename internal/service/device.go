@@ -9,7 +9,11 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/healthchecker"
+	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/rendered"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
@@ -44,7 +48,40 @@ func (h *ServiceHandler) PrepareDevicesAfterRestore(ctx context.Context) error {
 		return fmt.Errorf("failed to prepare devices after restore: %w", err)
 	}
 
-	h.log.Infof("Post-restoration device preparation completed successfully. Updated %d devices total.", devicesUpdated)
+	// 3. Add awaiting reconnection keys for all devices across all organizations
+	organizations, err := h.store.Organization().List(ctx)
+	if err != nil {
+		h.log.WithError(err).Error("Failed to get organizations for awaiting reconnection keys")
+		return fmt.Errorf("failed to get organizations for awaiting reconnection keys: %w", err)
+	}
+	h.log.Infof("Adding awaiting reconnection keys for %d organizations", len(organizations))
+
+	awaitingReconnectionKeysAdded := 0
+	for _, org := range organizations {
+		deviceNames, err := h.store.Device().GetAllDeviceNames(ctx, org.ID)
+		if err != nil {
+			h.log.WithError(err).Errorf("Failed to get device names for organization %s", org.ID)
+			// Continue with other organizations even if one fails
+			continue
+		}
+
+		for _, deviceName := range deviceNames {
+			key := kvstore.AwaitingReconnectionKey{
+				OrgID:      org.ID,
+				DeviceName: deviceName,
+			}
+			keyStr := key.ComposeKey()
+			_, err := h.kvStore.SetNX(ctx, keyStr, []byte("true"))
+			if err != nil {
+				h.log.WithError(err).Errorf("Failed to add awaiting reconnection key for device %s in org %s", deviceName, org.ID)
+				// Continue with other devices even if one fails
+				continue
+			}
+			awaitingReconnectionKeysAdded++
+		}
+	}
+
+	h.log.Infof("Post-restoration device preparation completed successfully. Updated %d devices total. Added %d awaiting reconnection keys across %d organizations.", devicesUpdated, awaitingReconnectionKeysAdded, len(organizations))
 
 	// Emit system restored event
 	if h.eventHandler != nil {
@@ -73,7 +110,7 @@ func (h *ServiceHandler) CreateDevice(ctx context.Context, device api.Device) (*
 		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
-	common.UpdateServiceSideStatus(ctx, orgId, &device, h.store, h.log)
+	_ = common.UpdateServiceSideStatus(ctx, orgId, &device, h.store, h.log)
 
 	result, err := h.store.Device().Create(ctx, orgId, &device, h.callbackDeviceUpdated)
 	return result, StoreErrorToApiStatus(err, true, api.DeviceKind, device.Metadata.Name)
@@ -182,7 +219,7 @@ func (h *ServiceHandler) ReplaceDevice(ctx context.Context, name string, device 
 		return nil, api.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
 
-	common.UpdateServiceSideStatus(ctx, orgId, &device, h.store, h.log)
+	_ = common.UpdateServiceSideStatus(ctx, orgId, &device, h.store, h.log)
 
 	result, created, err := h.store.Device().CreateOrUpdate(ctx, orgId, &device, fieldsToUnset, isNotInternal, DeviceVerificationCallback, h.callbackDeviceUpdated)
 	return result, StoreErrorToApiStatus(err, created, api.DeviceKind, &name)
@@ -209,7 +246,7 @@ func (h *ServiceHandler) UpdateDevice(ctx context.Context, name string, device a
 		return nil, fmt.Errorf("resource name specified in metadata does not match name in path")
 	}
 
-	common.UpdateServiceSideStatus(ctx, orgId, &device, h.store, h.log)
+	_ = common.UpdateServiceSideStatus(ctx, orgId, &device, h.store, h.log)
 
 	return h.store.Device().Update(ctx, orgId, &device, fieldsToUnset, false, DeviceVerificationCallback, h.callbackDeviceUpdated)
 }
@@ -227,6 +264,23 @@ func (h *ServiceHandler) GetDeviceStatus(ctx context.Context, name string) (*api
 
 	result, err := h.store.Device().Get(ctx, orgId, name)
 	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
+}
+
+func (h *ServiceHandler) GetDeviceLastSeen(ctx context.Context, name string) (*api.DeviceLastSeen, api.Status) {
+	orgId := getOrgIdFromContext(ctx)
+
+	lastSeen, err := h.store.Device().GetLastSeen(ctx, orgId, name)
+	if err != nil {
+		return nil, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
+	}
+
+	if lastSeen == nil {
+		return nil, api.StatusNoContent()
+	}
+
+	return &api.DeviceLastSeen{
+		LastSeen: *lastSeen,
+	}, api.StatusOK()
 }
 
 func validateDeviceStatus(d *api.Device) []error {
@@ -249,7 +303,7 @@ func (h *ServiceHandler) ReplaceDeviceStatus(ctx context.Context, name string, i
 	}
 	isNotInternal := !IsInternalRequest(ctx)
 	if isNotInternal {
-		incomingDevice.Status.LastSeen = time.Now()
+		incomingDevice.Status.LastSeen = lo.ToPtr(time.Now())
 	}
 
 	// UpdateServiceSideStatus() needs to know the latest .metadata.annotations[device-controller/renderedVersion]
@@ -264,7 +318,7 @@ func (h *ServiceHandler) ReplaceDeviceStatus(ctx context.Context, name string, i
 
 	common.KeepDBDeviceStatus(&incomingDevice, deviceToStore)
 	deviceToStore.Status = incomingDevice.Status
-	common.UpdateServiceSideStatus(ctx, orgId, deviceToStore, h.store, h.log)
+	_ = common.UpdateServiceSideStatus(ctx, orgId, deviceToStore, h.store, h.log)
 
 	result, err := h.store.Device().UpdateStatus(ctx, orgId, deviceToStore, h.callbackDeviceUpdated)
 	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
@@ -307,18 +361,53 @@ func (h *ServiceHandler) PatchDeviceStatus(ctx context.Context, name string, pat
 	NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
-	common.UpdateServiceSideStatus(ctx, orgId, newObj, h.store, h.log)
+	_ = common.UpdateServiceSideStatus(ctx, orgId, newObj, h.store, h.log)
 
 	result, err := h.store.Device().Update(ctx, orgId, newObj, nil, true, DeviceVerificationCallback, h.callbackDeviceUpdated)
 	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 }
 
 func (h *ServiceHandler) GetRenderedDevice(ctx context.Context, name string, params api.GetRenderedDeviceParams) (*api.Device, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
+	var (
+		isNew             bool
+		kvRenderedVersion string
+		err               error
+	)
 
-	result, err := h.store.Device().GetRendered(ctx, orgId, name, params.KnownRenderedVersion, h.agentEndpoint)
-	if err == nil && result == nil {
-		return nil, api.StatusNoContent()
+	orgId := getOrgIdFromContext(ctx)
+	if _, ok := ctx.Value(consts.AgentCtxKey).(string); ok {
+		if err := healthchecker.HealthChecks.Instance().Add(ctx, orgId, name); err != nil {
+			h.log.WithError(err).Errorf("failed to add healthcheck to device %s", name)
+			return nil, api.StatusInternalServerError(fmt.Sprintf("failed to add healthcheck to device %s: %v", name, err))
+		}
+
+		// Process awaiting reconnect annotation if present and KV store contains the awaiting reconnection key
+		h.processAwaitingReconnectIfNeeded(ctx, orgId, name, params.KnownRenderedVersion)
+	}
+
+	if params.KnownRenderedVersion != nil {
+		isNew, kvRenderedVersion, err = rendered.Bus.Instance().WaitForNewVersion(ctx, orgId, name, *params.KnownRenderedVersion)
+		if err != nil {
+			h.log.Errorf("GetRenderedDevice %s/%s: failed to wait for new rendered version: %v", orgId, name, err)
+			return nil, api.StatusInternalServerError(fmt.Sprintf("failed to wait for new rendered version: %v", err))
+		}
+		if !isNew {
+			return nil, api.StatusNoContent()
+		}
+	}
+
+	result, err := h.store.Device().GetRendered(ctx, orgId, name, nil, h.agentEndpoint)
+	if err != nil {
+		h.log.Errorf("GetRenderedDevice %s/%s: failed to get rendered device: %v", orgId, name, err)
+		return nil, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
+	}
+	newVersion := result.Version()
+	if kvRenderedVersion != "" && newVersion != "" && kvRenderedVersion != newVersion {
+		// If the rendered version in the KV store is different from the one we just fetched,
+		// we set the new version in the KV store.
+		if err = rendered.Bus.Instance().StoreAndNotify(ctx, orgId, name, newVersion); err != nil {
+			h.log.Errorf("GetRenderedDevice %s/%s: failed to set rendered version in kvstore: %v", orgId, name, err)
+		}
 	}
 	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 }
@@ -352,10 +441,30 @@ func (h *ServiceHandler) PatchDevice(ctx context.Context, name string, patch api
 	NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
-	common.UpdateServiceSideStatus(ctx, orgId, newObj, h.store, h.log)
+	_ = common.UpdateServiceSideStatus(ctx, orgId, newObj, h.store, h.log)
 
 	result, err := h.store.Device().Update(ctx, orgId, newObj, nil, true, DeviceVerificationCallback, h.callbackDeviceUpdated)
 	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
+}
+
+func (h *ServiceHandler) SetOutOfDate(ctx context.Context, owner string) error {
+	return h.store.Device().SetOutOfDate(ctx, getOrgIdFromContext(ctx), owner)
+}
+
+func (h *ServiceHandler) UpdateServerSideDeviceStatus(ctx context.Context, name string) error {
+	orgId := getOrgIdFromContext(ctx)
+	device, err := h.store.Device().GetWithoutServiceConditions(ctx, orgId, name)
+	if err != nil {
+		return err
+	}
+	if changed := common.UpdateServiceSideStatus(ctx, orgId, device, h.store, h.log); changed {
+		_, err = h.store.Device().UpdateStatus(ctx, orgId, device, h.callbackDeviceUpdated)
+		if err != nil {
+			h.log.WithError(err).Errorf("failed to update status for device %s/%s", orgId, name)
+			return err
+		}
+	}
+	return nil
 }
 
 func (h *ServiceHandler) DecommissionDevice(ctx context.Context, name string, decom api.DeviceDecommission) (*api.Device, api.Status) {
@@ -387,9 +496,27 @@ func (h *ServiceHandler) UpdateDeviceAnnotations(ctx context.Context, name strin
 	return StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 }
 
-func (h *ServiceHandler) UpdateRenderedDevice(ctx context.Context, name, renderedConfig, renderedApplications string) api.Status {
+func (h *ServiceHandler) UpdateRenderedDevice(ctx context.Context, name, renderedConfig, renderedApplications, specHash string) api.Status {
 	orgId := getOrgIdFromContext(ctx)
-	err := h.store.Device().UpdateRendered(ctx, orgId, name, renderedConfig, renderedApplications)
+	renderedVersion, err := h.store.Device().UpdateRendered(ctx, orgId, name, renderedConfig, renderedApplications, specHash)
+	if err != nil {
+		h.log.Errorf("Failed to update rendered device %s/%s: %v", orgId, name, err)
+		return StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
+	}
+	if renderedVersion == "" {
+		h.log.Debugf("Rendered device %s/%s: no change in rendered version", orgId, name)
+		return api.StatusOK()
+	}
+	err = h.UpdateServerSideDeviceStatus(ctx, name)
+	if err != nil {
+		return StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
+	}
+
+	err = rendered.Bus.Instance().StoreAndNotify(ctx, orgId, name, renderedVersion)
+	if err != nil {
+		h.log.Errorf("Failed to publish rendered device %s/%s: %v", orgId, name, err)
+		return api.StatusInternalServerError(fmt.Sprintf("failed to publish rendered device: %v", err))
+	}
 	return StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 }
 
@@ -517,7 +644,8 @@ func (h *ServiceHandler) GetDevicesSummary(ctx context.Context, params api.ListD
 
 func (h *ServiceHandler) UpdateServiceSideDeviceStatus(ctx context.Context, device api.Device) bool {
 	orgId := getOrgIdFromContext(ctx)
-	return common.UpdateServiceSideStatus(ctx, orgId, &device, h.store, h.log)
+	anyChanged := common.UpdateServiceSideStatus(ctx, orgId, &device, h.store, h.log)
+	return anyChanged
 }
 
 func (h *ServiceHandler) ResumeDevices(ctx context.Context, request api.DeviceResumeRequest) (api.DeviceResumeResponse, api.Status) {
@@ -573,4 +701,58 @@ func (h *ServiceHandler) callbackDeviceDecommission(ctx context.Context, resourc
 // callbackDeviceDeleted is the device-specific callback that handles device deletion events
 func (h *ServiceHandler) callbackDeviceDeleted(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
 	h.eventHandler.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+}
+
+// processAwaitingReconnectIfNeeded processes the awaiting reconnect annotation only if the KV store contains the awaiting reconnection key
+func (h *ServiceHandler) processAwaitingReconnectIfNeeded(ctx context.Context, orgId uuid.UUID, deviceName string, deviceReportedVersion *string) {
+
+	// Check if KV store contains the awaiting reconnection key
+	key := kvstore.AwaitingReconnectionKey{
+		OrgID:      orgId,
+		DeviceName: deviceName,
+	}
+	keyStr := key.ComposeKey()
+	kvValue, err := h.kvStore.Get(ctx, keyStr)
+	if err != nil {
+		h.log.WithError(err).Warnf("failed to check awaiting reconnection key for device %s", deviceName)
+		// Don't fail the request, just log the warning
+		return
+	}
+
+	if kvValue != nil && string(kvValue) == "true" {
+		versionStr := "nil"
+		if deviceReportedVersion != nil {
+			versionStr = *deviceReportedVersion
+		}
+		h.log.Infof("Processing awaiting reconnect annotation for device %s (orgId: %s, version: %s)", deviceName, orgId, versionStr)
+		// Only process the annotation if the KV store contains the key with value "true"
+		wasConflictPaused, err := h.store.Device().ProcessAwaitingReconnectAnnotation(ctx, orgId, deviceName, deviceReportedVersion)
+		if err != nil {
+			h.log.WithError(err).Warnf("failed to process awaiting reconnect annotation for device %s", deviceName)
+			// Don't fail the request, just log the warning
+		} else {
+			h.log.Infof("Successfully processed awaiting reconnect annotation for device %s, wasConflictPaused: %t", deviceName, wasConflictPaused)
+			// Successfully processed the annotation, now remove the key from KV store
+			if err := h.kvStore.DeleteKeysForTemplateVersion(ctx, keyStr); err != nil {
+				h.log.WithError(err).Warnf("failed to remove awaiting reconnection key for device %s", deviceName)
+				// Don't fail the request, just log the warning
+			} else {
+				h.log.Infof("Successfully removed awaiting reconnection key for device %s", deviceName)
+			}
+
+			// Create event if device was moved to conflict paused state
+			if wasConflictPaused && h.eventHandler != nil {
+				h.log.Infof("Device %s was moved to conflict paused state, creating event", deviceName)
+				event := common.GetDeviceConflictPausedEvent(ctx, deviceName)
+				if event != nil {
+					h.eventHandler.CreateEvent(ctx, event)
+					h.log.Infof("Successfully created conflict paused event for device %s", deviceName)
+				} else {
+					h.log.Warnf("Failed to create conflict paused event for device %s - event is nil", deviceName)
+				}
+			}
+		}
+	} else {
+		h.log.Debugf("Skipping awaiting reconnect annotation processing for device %s - KV value is not 'true' (value: %s)", deviceName, string(kvValue))
+	}
 }

@@ -36,11 +36,12 @@ func (t *DeviceDisconnected) Poll(ctx context.Context) {
 	defer cancel()
 
 	// Calculate the cutoff time for disconnected devices
-	cutoffTime := time.Now().Add(-api.DeviceDisconnectedTimeout)
+	cutoffTime := time.Now().UTC().Add(-api.DeviceDisconnectedTimeout)
 
 	// Create a field selector to only get devices that haven't been seen for more than DeviceDisconnectedTimeout
 	// and don't already have "Unknown" status to avoid reprocessing the same devices
-	fieldSelectorStr := fmt.Sprintf("status.lastSeen<%s,status.summary.status!=Unknown", cutoffTime.Format(time.RFC3339))
+	fieldSelectorStr := fmt.Sprintf("lastSeen<%s,status.summary.status!=Unknown", cutoffTime.Format(time.RFC3339))
+	t.log.Debugf("Using field selector: %s", fieldSelectorStr)
 
 	// List devices that match the disconnection criteria with pagination
 	listParams := api.ListDevicesParams{
@@ -62,7 +63,9 @@ func (t *DeviceDisconnected) Poll(ctx context.Context) {
 			return
 		}
 
+		t.log.Debugf("Field selector '%s' found %d devices", fieldSelectorStr, len(devices.Items))
 		if len(devices.Items) == 0 {
+			t.log.Debugf("No devices found with field selector '%s', stopping", fieldSelectorStr)
 			break
 		}
 
@@ -75,9 +78,10 @@ func (t *DeviceDisconnected) Poll(ctx context.Context) {
 				return
 			}
 
-			_, status := t.serviceHandler.ReplaceDeviceStatus(ctx, *device.Metadata.Name, device)
-			if status.Code != 200 {
-				t.log.Errorf("Failed to replace device status for %s: %s", *device.Metadata.Name, status.Message)
+			t.log.Debugf("Updating server-side device status for %s", *device.Metadata.Name)
+			err := t.serviceHandler.UpdateServerSideDeviceStatus(ctx, *device.Metadata.Name)
+			if err != nil {
+				t.log.Errorf("Failed to update server-side device status for %s: %s", *device.Metadata.Name, err.Error())
 				continue
 			}
 

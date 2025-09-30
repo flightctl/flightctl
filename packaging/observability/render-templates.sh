@@ -69,7 +69,8 @@ render_templates() {
         fi
 
         log "INFO" "Rendering $full_template_path -> $output_file"
-        envsubst < "$full_template_path" > "$output_file" || {
+        # envsubst is run twice to handle nested variables
+        envsubst < "$full_template_path" | envsubst > "$output_file" || {
             log "ERROR" "Failed to render $output_file"
             exit 1
         }

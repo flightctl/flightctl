@@ -98,7 +98,7 @@ jobs:
   publish-flightctl-containers:
     strategy:
       matrix:
-        image: ['api', 'periodic', 'worker', 'cli-artifacts', 'alert-exporter', 'alertmanager-proxy', 'userinfo-proxy', 'db-setup']
+        image: ['api', 'periodic', 'worker', 'cli-artifacts', 'alert-exporter', 'alertmanager-proxy', 'userinfo-proxy', 'db-setup', 'telemetry-gateway']
     needs: [generate-tags]
     runs-on: "ubuntu-24.04"
     steps:
@@ -178,6 +178,13 @@ jobs:
             --ulimit nofile=10000:10000
           containerfiles: Containerfile.${{ matrix.image }}
           context: .
+
+      - name: Validate FIPS
+        id: fips
+        run: |
+          go install github.com/flightctl/fips-validator@latest
+          TAGS=(${{ steps.build.outputs.tags }})
+          podman unshare -- $HOME/go/bin/fips-validator image ${{ steps.build.outputs.image }}:${TAGS[0]}
 
       - name: Push to Quay.io
         id: push

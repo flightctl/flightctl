@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/flightctl/flightctl/internal/config"
@@ -12,35 +13,52 @@ import (
 	"gorm.io/gorm"
 )
 
+const (
+	strategyLocal    = "local"
+	strategyTemplate = "template"
+)
+
 func PrepareDBForUnitTests(ctx context.Context, log *logrus.Logger) (Store, *config.Config, string, *gorm.DB) {
 	ctx, span := tracing.StartSpan(ctx, "flightctl/store", "PrepareDBForUnitTests")
 	defer span.End()
 
+	cfg, dbName, store, db := createRandomTestDB(ctx, log)
+	return store, cfg, dbName, db
+}
+
+func createRandomTestDB(ctx context.Context, log *logrus.Logger) (*config.Config, string, Store, *gorm.DB) {
 	cfg := config.NewDefault()
-	dbTemp, err := InitDB(cfg, log)
-	if err != nil {
-		log.Fatalf("initializing data store: %v", err)
-	}
-	defer CloseDB(dbTemp)
 
-	randomDBName := fmt.Sprintf("_%s", strings.ReplaceAll(uuid.New().String(), "-", "_"))
+	randomDBName := generateRandomDBName()
 	log.Infof("DB name: %s", randomDBName)
-	dbTemp = dbTemp.WithContext(ctx).Exec(fmt.Sprintf("CREATE DATABASE %s;", randomDBName))
-	if dbTemp.Error != nil {
-		log.Fatalf("creating database: %v", dbTemp.Error)
+
+	strategy := os.Getenv("FLIGHTCTL_TEST_DB_STRATEGY")
+	if strategy == "" {
+		strategy = strategyLocal
 	}
 
-	cfg.Database.Name = randomDBName
-	db, err := InitDB(cfg, log)
-	if err != nil {
-		log.Fatalf("initializing data store: %v", err)
+	var (
+		store  Store
+		gormDb *gorm.DB
+		err    error
+	)
+
+	switch strategy {
+	case strategyTemplate:
+		store, gormDb, err = setupTemplateStrategy(ctx, cfg, randomDBName, log)
+		if err != nil {
+			log.Fatal(err)
+		}
+	case strategyLocal:
+		store, gormDb, err = setupLocalStrategy(ctx, cfg, randomDBName, log)
+		if err != nil {
+			log.Fatal(err)
+		}
+	default:
+		log.Fatalf("unknown database initialization strategy: %s (valid: %s, %s)", strategy, strategyLocal, strategyTemplate)
 	}
 
-	store := NewStore(db, log.WithField("pkg", "store"))
-	if err := store.RunMigrations(ctx); err != nil {
-		log.Fatalf("running migrations: %v", err)
-	}
-	return store, cfg, randomDBName, db
+	return cfg, randomDBName, store, gormDb
 }
 
 func DeleteTestDB(ctx context.Context, log *logrus.Logger, cfg *config.Config, store Store, dbName string) {
@@ -66,4 +84,69 @@ func CloseDB(db *gorm.DB) {
 		return
 	}
 	_ = sqlDB.Close()
+}
+
+// Helpers
+
+func generateRandomDBName() string {
+	return fmt.Sprintf("_%s", strings.ReplaceAll(uuid.New().String(), "-", "_"))
+}
+
+func setupTemplateStrategy(ctx context.Context, cfg *config.Config, dbName string, log *logrus.Logger) (Store, *gorm.DB, error) {
+	originalName := cfg.Database.Name
+	cfg.Database.Name = "postgres"
+	adminDB, err := InitDB(cfg, log)
+	if err != nil {
+		return nil, nil, fmt.Errorf("initializing data store: %w", err)
+	}
+	defer CloseDB(adminDB)
+	cfg.Database.Name = originalName
+
+	templateDB := os.Getenv("FLIGHTCTL_TEST_TEMPLATE_DB")
+	if templateDB == "" {
+		templateDB = "flightctl_tmpl"
+	}
+
+	log.Infof("Creating test database from template: %s", templateDB)
+	res := adminDB.WithContext(ctx).Exec(fmt.Sprintf("CREATE DATABASE %s TEMPLATE %s;", dbName, templateDB))
+	if res.Error != nil {
+		return nil, nil, fmt.Errorf("creating database from template: %w", res.Error)
+	}
+
+	cfg.Database.Name = dbName
+	gormDb, err := InitDB(cfg, log)
+	if err != nil {
+		return nil, nil, fmt.Errorf("initializing data store: %w", err)
+	}
+
+	return NewStore(gormDb, log.WithField("pkg", "store")), gormDb, nil
+}
+
+func setupLocalStrategy(ctx context.Context, cfg *config.Config, dbName string, log *logrus.Logger) (Store, *gorm.DB, error) {
+	dbTemp, err := InitDB(cfg, log)
+	if err != nil {
+		return nil, nil, fmt.Errorf("initializing data store: %w", err)
+	}
+	defer CloseDB(dbTemp)
+
+	log.Infof("Creating test database with local migrations")
+	res := dbTemp.WithContext(ctx).Exec(fmt.Sprintf("CREATE DATABASE %s;", dbName))
+	if res.Error != nil {
+		return nil, nil, fmt.Errorf("creating empty database: %w", res.Error)
+	}
+
+	cfg.Database.Name = dbName
+	gormDb, err := InitDB(cfg, log)
+	if err != nil {
+		return nil, nil, fmt.Errorf("initializing data store: %w", err)
+	}
+
+	log.Infof("Running local migrations on test database")
+	store := NewStore(gormDb, log.WithField("pkg", "store"))
+	if err = store.RunMigrations(ctx); err != nil {
+		_ = store.Close() // ensure pool is closed on failure
+		return nil, nil, fmt.Errorf("running local migrations: %w", err)
+	}
+
+	return store, gormDb, nil
 }

@@ -57,6 +57,14 @@ func GetSignerNameExtension(cert *x509.Certificate) (string, error) {
 	return s, nil
 }
 
+func GetDeviceFingerprintExtension(cert *x509.Certificate) (string, error) {
+	s, err := fccrypto.GetCertificateExtensionValueAsStr(cert, OIDDeviceFingerprint)
+	if err != nil {
+		return "", err
+	}
+	return s, nil
+}
+
 // GetOrgIDExtensionFromCSR extracts the organization ID (UUID) from the CSR's
 // OIDOrgID extension. It returns (id, true, nil) if present and valid;
 // (uuid.Nil, false, nil) if the extension is absent; and (uuid.Nil, present, err)
