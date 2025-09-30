@@ -217,6 +217,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.config.EnrollmentService.EnrollmentUIEndpoint,
 		a.config.ManagementService.GetClientCertificatePath(),
 		a.config.ManagementService.GetClientKeyPath(),
+		a.config.DataDir,
 		deviceReadWriter,
 		enrollmentClient,
 		csr,

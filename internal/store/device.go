@@ -1196,7 +1196,7 @@ func (s *DeviceStore) PrepareDevicesAfterRestore(ctx context.Context) (int64, er
 	result := db.Exec(sql,
 		api.DeviceAnnotationAwaitingReconnect,
 		api.DeviceSummaryStatusAwaitingReconnect,
-		"Device is waiting for connection after restore",
+		"Device has not reconnected since restore to confirm its current state.",
 		api.DeviceLifecycleStatusDecommissioned,
 		api.DeviceLifecycleStatusDecommissioning,
 		api.DeviceUpdatedStatusUnknown,
