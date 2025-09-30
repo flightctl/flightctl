@@ -30,6 +30,7 @@ var (
 	ErrInfoAlertLessThanCritical             = errors.New("info alert percentage must be less than critical")
 	ErrWarnAlertLessThanCritical             = errors.New("warning alert percentage must be less than critical")
 	ErrDuplicateAlertSeverity                = errors.New("duplicate alertRule severity")
+	ErrDuplicateMonitorType                  = errors.New("duplicate monitorType in resources")
 )
 
 type Validator interface {
@@ -78,8 +79,20 @@ func (r DeviceSpec) Validate(fleetTemplate bool) []error {
 		allErrs = append(allErrs, validateApplications(*r.Applications, fleetTemplate)...)
 	}
 	if r.Resources != nil {
+		seenMonitorTypes := make(map[string]struct{})
 		for _, resource := range *r.Resources {
+			// Individual resource validation
 			allErrs = append(allErrs, resource.Validate()...)
+			
+			// Check for duplicate monitorType
+			monitorType, err := resource.Discriminator()
+			if err == nil {
+				if _, exists := seenMonitorTypes[monitorType]; exists {
+					allErrs = append(allErrs, fmt.Errorf("%w: %s", ErrDuplicateMonitorType, monitorType))
+				} else {
+					seenMonitorTypes[monitorType] = struct{}{}
+				}
+			}
 		}
 	}
 	if r.Systemd != nil && r.Systemd.MatchPatterns != nil {
