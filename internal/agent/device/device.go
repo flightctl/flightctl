@@ -53,6 +53,7 @@ type Agent struct {
 	statusUpdateInterval util.Duration
 
 	once     sync.Once
+	mu       sync.RWMutex
 	cancelFn context.CancelFunc
 	backoff  wait.Backoff
 	log      *log.PrefixLogger
@@ -110,7 +111,10 @@ func NewAgent(
 
 // Run starts the device agent reconciliation loop.
 func (a *Agent) Run(ctx context.Context) error {
-	ctx, a.cancelFn = context.WithCancel(ctx)
+	ctx, cancelFn := context.WithCancel(ctx)
+	a.mu.Lock()
+	a.cancelFn = cancelFn
+	a.mu.Unlock()
 
 	// orchestrates periodic fetching of device specs and pushing status updates
 	engine := NewEngine(
@@ -561,8 +565,11 @@ func (a *Agent) handlePrefetchNotReady(ctx context.Context, syncErr error) {
 // Stop ensures that the device agent stops reconciling during graceful shutdown.
 func (a *Agent) Stop(ctx context.Context) error {
 	a.once.Do(func() {
-		if a.cancelFn != nil {
-			a.cancelFn()
+		a.mu.RLock()
+		cancelFn := a.cancelFn
+		a.mu.RUnlock()
+		if cancelFn != nil {
+			cancelFn()
 		}
 	})
 	return nil
