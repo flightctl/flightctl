@@ -265,7 +265,11 @@ func (m *prefetchManager) pull(ctx context.Context, target string, task *prefetc
 func (m *prefetchManager) setResult(image string, err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	task := m.tasks[image]
+	task, ok := m.tasks[image]
+	if !ok {
+		m.log.Debugf("Task for %s no longer exists, skipping result update", image)
+		return
+	}
 	task.err = err
 	task.done = true
 }
