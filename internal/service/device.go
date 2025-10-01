@@ -436,6 +436,14 @@ func (h *ServiceHandler) PatchDevice(ctx context.Context, name string, patch api
 		return nil, api.StatusBadRequest(err.Error())
 	}
 
+	// Status.LastSeen and Status.SystemInfo.AdditionalProperties are not marshaled into newObj by ApplyJSONPatch
+	// and will always be set to nil as they have "-" json tags and will not be copied into newObj.  For now, set the fields manually
+	// so later validation passes
+	if currentObj.Status != nil {
+		newObj.Status.LastSeen = currentObj.Status.LastSeen
+		newObj.Status.SystemInfo.AdditionalProperties = currentObj.Status.SystemInfo.AdditionalProperties
+	}
+
 	if errs := newObj.Validate(); len(errs) > 0 {
 		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}
