@@ -8,11 +8,10 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
-
-	"os"
 
 	config_latest_types "github.com/coreos/ignition/v2/config/v3_4/types"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -28,6 +27,10 @@ import (
 	gitmemory "github.com/go-git/go-git/v5/storage/memory"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
+)
+
+const (
+	SshKnownHostsEnvKey = "FLIGHTCTL_SSH_KNOWN_HOSTS"
 )
 
 // Ref: https://github.com/git/git/blob/master/Documentation/urls.txt#L37
@@ -209,10 +212,6 @@ func configureRepoHTTPSClient(httpConfig api.HttpConfig) error {
 	return nil
 }
 
-const (
-	SshKnownHostsEnvKey = "FLIGHTCTL_SSH_KNOWN_HOSTS"
-)
-
 func buildKnownHostsCallback() (ssh.HostKeyCallback, error) {
 	path := os.Getenv(SshKnownHostsEnvKey)
 	if path == "" {
@@ -220,7 +219,7 @@ func buildKnownHostsCallback() (ssh.HostKeyCallback, error) {
 	}
 	cb, err := knownhosts.New(path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to load SSH known_hosts from: %w", err)
 	}
 	return cb, nil
 }

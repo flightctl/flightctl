@@ -313,6 +313,7 @@ For more detailed configuration options, see the [Values](#values) section below
 | global.nodePorts.ui | int | `9000` | NodePort for web UI service |
 | global.organizations.enabled | bool | `false` | Enable IDP-provided organizations support |
 | global.rbac.create | bool | `true` | Create RBAC resources (roles, bindings, service accounts) |
+| global.sshKnownHosts.data | string | `""` | SSH known hosts file content for Git repository host key verification. |
 | global.target | string | `"standalone"` | The type of Flightctl to deploy - either 'standalone' or 'acm'. |
 | global.tracing.enabled | bool | `false` | Enable distributed tracing with OpenTelemetry |
 | global.tracing.endpoint | string | `"jaeger-collector.flightctl-e2e.svc.cluster.local:4318"` | OpenTelemetry collector endpoint for trace data |

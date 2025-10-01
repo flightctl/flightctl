@@ -378,6 +378,27 @@ You can now reference this Repository when you configure devices. For example, t
 | TargetRevision | production |
 | Path | /factory-a |
 
+#### Configuring SSH Access for Private Repositories  
+  
+If your Git repository requires SSH authentication, you need to configure SSH known hosts to ensure secure connections.
+
+**For Helm deployments:** Add the SSH known hosts configuration to your Flight Control deployment
+
+```console
+helm upgrade --install --version=<version-to-install> \
+    --namespace flightctl --create-namespace \
+    flightctl oci://quay.io/flightctl/charts/flightctl \
+    --set-file global.sshKnownHosts.data=known_hosts_file
+```
+
+**For Quadlet deployments:** place the file on the host at `/etc/flightctl/ssh/known_hosts`.
+
+```console
+sudo mkdir -p /etc/flightctl/ssh
+sudo install -m 0644 known_hosts_file /etc/flightctl/ssh/known_hosts
+sudo systemctl restart flightctl-worker.service flightctl-periodic.service
+```
+
 ### Getting Secrets from a Kubernetes Cluster
 
 You can let Flight Control query the Kubernetes cluster it is running on for a Kubernetes Secret. The content of that Secret can then be written to a path on the device file system.

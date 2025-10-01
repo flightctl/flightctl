@@ -97,6 +97,7 @@ global:
     # -- Enable IDP-provided organizations support
     enabled: false
   sshKnownHosts:
+    # -- SSH known hosts file content for Git repository host key verification.
     data: ""
 
 
