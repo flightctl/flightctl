@@ -3,7 +3,6 @@ package device
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
@@ -52,11 +51,8 @@ type Agent struct {
 	fetchSpecInterval    util.Duration
 	statusUpdateInterval util.Duration
 
-	once     sync.Once
-	mu       sync.RWMutex
-	cancelFn context.CancelFunc
-	backoff  wait.Backoff
-	log      *log.PrefixLogger
+	backoff wait.Backoff
+	log     *log.PrefixLogger
 }
 
 // NewAgent creates a new device agent.
@@ -103,7 +99,6 @@ func NewAgent(
 		osClient:               osClient,
 		podmanClient:           podmanClient,
 		prefetchManager:        prefetchManager,
-		cancelFn:               func() {},
 		backoff:                backoff,
 		log:                    log,
 	}
@@ -111,11 +106,6 @@ func NewAgent(
 
 // Run starts the device agent reconciliation loop.
 func (a *Agent) Run(ctx context.Context) error {
-	ctx, cancelFn := context.WithCancel(ctx)
-	a.mu.Lock()
-	a.cancelFn = cancelFn
-	a.mu.Unlock()
-
 	// orchestrates periodic fetching of device specs and pushing status updates
 	engine := NewEngine(
 		a.fetchSpecInterval,
@@ -560,19 +550,6 @@ func (a *Agent) handlePrefetchNotReady(ctx context.Context, syncErr error) {
 	if updateStatusErr != nil {
 		a.log.Warnf("Failed to update status for image prefetch progress: %v", updateStatusErr)
 	}
-}
-
-// Stop ensures that the device agent stops reconciling during graceful shutdown.
-func (a *Agent) Stop(ctx context.Context) error {
-	a.once.Do(func() {
-		a.mu.RLock()
-		cancelFn := a.cancelFn
-		a.mu.RUnlock()
-		if cancelFn != nil {
-			cancelFn()
-		}
-	})
-	return nil
 }
 
 // ReloadConfig reloads the device agent configuration.
