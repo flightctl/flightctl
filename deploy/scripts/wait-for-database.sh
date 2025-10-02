@@ -71,13 +71,13 @@ if ! [[ "$CONNECTION_TIMEOUT" =~ ^[0-9]+$ ]]; then
     exit 1
 fi
 
-# Function to read value from YAML file using yq
+# Function to read value from YAML file using yaml-to-json.py and jq
 read_yaml_value() {
     local key="$1"
     local config_file="$2"
 
-    if command -v yq &> /dev/null && [ -f "$config_file" ]; then
-        yq eval "$key // \"\"" "$config_file" 2>/dev/null || echo ""
+    if command -v jq &> /dev/null && command -v python3 &> /dev/null && [ -f "$config_file" ]; then
+        python3 ./deploy/scripts/yaml-to-json.py < "$config_file" 2>/dev/null | jq -r "$key // \"\"" 2>/dev/null || echo ""
     else
         echo ""
     fi
@@ -87,8 +87,8 @@ read_yaml_value() {
 if [ -n "${SERVICE_CONFIG_PATH:-}" ]; then
     if [ ! -f "$SERVICE_CONFIG_PATH" ]; then
         echo "Warning: SERVICE_CONFIG_PATH is set but file not found: $SERVICE_CONFIG_PATH" >&2
-    elif ! command -v yq &> /dev/null; then
-        echo "Warning: yq command not found, cannot read service config file" >&2
+    elif ! command -v jq &> /dev/null || ! command -v python3 &> /dev/null; then
+        echo "Warning: jq or python3 command not found, cannot read service config file" >&2
     else
         echo "Loading database configuration from: $SERVICE_CONFIG_PATH"
 
