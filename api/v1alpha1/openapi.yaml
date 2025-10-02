@@ -4916,6 +4916,9 @@ components:
           additionalProperties:
             type: string
           description: 'A set of labels that the service will apply to this device when its enrollment is approved.'
+        knownRenderedVersion:
+          type: string
+          description: 'The rendered version of the device from desired.json (optional).'
       description: EnrollmentRequestSpec is a description of a EnrollmentRequest's target state.
     EnrollmentRequestStatus:
       type: object

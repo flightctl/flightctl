@@ -171,6 +171,15 @@ func (p *VMPool) createVMForWorker(workerID int) (vm.TestVMInterface, error) {
 	}
 
 	fmt.Printf("🔄 [VMPool] Worker %d: Creating pristine snapshot\n", workerID)
+	_, err = newVM.RunSSH([]string{"sudo", "rm", "-rf", "/var/lib/flightctl/*"}, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to clean state before taking pristine snapshot: %w", err)
+	}
+
+	_, err = newVM.RunSSH([]string{"sudo", "journalctl", "--rotate"}, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to rotate logs before taking pristine snapshot: %w", err)
+	}
 	if err := newVM.CreateSnapshot("pristine"); err != nil {
 		// Clean up on failure
 		_ = newVM.ForceDelete()
