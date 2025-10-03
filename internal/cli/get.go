@@ -338,7 +338,7 @@ func (o *GetOptions) validateLimit() error {
 
 // validateLastSeen checks the usage of the --last-seen flag.
 func (o *GetOptions) validateLastSeen(kind string, names []string) error {
-	if o.LastSeen && (kind != DeviceKind || len(names) == 0) {
+	if o.LastSeen && (kind != DeviceKind || len(names) != 1) {
 		return fmt.Errorf("'--last-seen' can only be used when getting a single device")
 	}
 	if o.LastSeen && (o.Rendered || o.Summary || o.SummaryOnly) {
