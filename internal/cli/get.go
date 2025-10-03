@@ -113,7 +113,7 @@ func (o *GetOptions) Bind(fs *pflag.FlagSet) {
 	fs.Int32Var(&o.Limit, FlagLimit, o.Limit, "The maximum number of results returned in the list response. If the value is 0, then the result is not limited.")
 	fs.StringVar(&o.Continue, FlagContinue, o.Continue, "Query more results starting from the value of the 'continue' field in the previous response.")
 	fs.StringVar(&o.FleetName, FlagFleetName, o.FleetName, "Fleet name for accessing templateversions (use only when getting templateversions).")
-	fs.BoolVar(&o.Rendered, FlagRendered, false, "Return the rendered device configuration that is presented to the device.")
+	fs.BoolVar(&o.Rendered, FlagRendered, false, "Return the rendered device configuration that is presented to the device. Default output format is YAML.")
 	fs.BoolVarP(&o.Summary, FlagSummary, "s", false, "Display summary information.")
 	fs.BoolVar(&o.SummaryOnly, FlagSummaryOnly, false, "Display summary information only.")
 	fs.BoolVar(&o.LastSeen, FlagLastSeen, false, "Display the last seen timestamp of the device.")
@@ -203,6 +203,12 @@ func (o *GetOptions) Complete(cmd *cobra.Command, args []string) error {
 	if err := o.GlobalOptions.Complete(cmd, args); err != nil {
 		return err
 	}
+
+	// --rendered flag defaults to YAML output when no explicit output format is specified
+	if o.Rendered && o.Output == "" {
+		o.Output = string(display.YAMLFormat)
+	}
+
 	return nil
 }
 
