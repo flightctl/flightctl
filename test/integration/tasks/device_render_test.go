@@ -74,6 +74,50 @@ var _ = Describe("DeviceRender", func() {
 		ctrl.Finish()
 	})
 
+	Context("unsafe path validation", func() {
+		testPathValidation := func(path, expectedError string) {
+			inlineConfig := &api.InlineConfigProviderSpec{
+				Name:   "test-config",
+				Inline: []api.FileSpec{{Path: path, Content: "test", Mode: lo.ToPtr(420)}},
+			}
+			configProvider := api.ConfigProviderSpec{}
+			err := configProvider.FromInlineConfigProviderSpec(*inlineConfig)
+			Expect(err).ToNot(HaveOccurred())
+
+			device := &api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName)},
+				Spec:     &api.DeviceSpec{Config: &[]api.ConfigProviderSpec{configProvider}},
+			}
+			_, err = deviceStore.Create(ctx, orgId, device, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			event := api.Event{
+				Reason:         api.EventReasonResourceUpdated,
+				InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: deviceName},
+			}
+			logic := tasks.NewDeviceRenderLogic(log, serviceHandler, nil, kvStoreInst, orgId, event)
+			err = logic.RenderDevice(ctx)
+			if expectedError != "" {
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring(expectedError))
+			} else {
+				Expect(err).ToNot(HaveOccurred())
+			}
+		}
+
+		It("should reject protected flightctl paths", func() {
+			testPathValidation("/var/lib/flightctl/data.txt", "unsafe device path")
+			testPathValidation("/usr/lib/flightctl/binary", "unsafe device path")
+			testPathValidation("/etc/flightctl/certs/ca.crt", "unsafe device path")
+			testPathValidation("/etc/flightctl/config.yaml", "unsafe device path")
+		})
+
+		It("should allow safe paths", func() {
+			testPathValidation("/etc/myapp/config.txt", "")
+			testPathValidation("/etc/flightctl/custom.txt", "")
+		})
+	})
+
 	Context("when device labels change with git configuration", func() {
 		It("should re-render the device configuration even if template version is the same", func() {
 			// Create a repository
