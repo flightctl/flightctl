@@ -18,7 +18,6 @@ var (
 		selector.NewSelectorName("status.summary.status"):             selector.String,
 		selector.NewSelectorName("status.applicationsSummary.status"): selector.String,
 		selector.NewSelectorName("status.updated.status"):             selector.String,
-		selector.NewSelectorName("status.lastSeen"):                   selector.Timestamp,
 		selector.NewSelectorName("status.lifecycle.status"):           selector.String,
 	}
 	fleetSpecSelectors = selectorToTypeMap{

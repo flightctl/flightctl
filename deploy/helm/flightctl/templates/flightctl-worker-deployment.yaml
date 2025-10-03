@@ -62,9 +62,11 @@ spec:
               name: flightctl-worker-config
               subPath: config.yaml
               readOnly: true
+            {{- include "flightctl.dbSslVolumeMounts" . | nindent 12 }}
       restartPolicy: Always
       volumes:
         - name: flightctl-worker-config
           configMap:
             name: flightctl-worker-config
+        {{- include "flightctl.dbSslVolumes" . | nindent 8 }}
 {{ end }}

@@ -3,6 +3,7 @@ package periodic
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"os"
 	"os/signal"
 	"sync"
@@ -82,13 +83,25 @@ func (s *Server) Run(ctx context.Context) error {
 	orgCache := cache.NewOrganizationTTL(cache.DefaultTTL)
 	go orgCache.Start()
 	defer orgCache.Stop()
+
 	buildResolverOpts := resolvers.BuildResolverOptions{
 		Config: s.cfg,
 		Store:  s.store.Organization(),
 		Log:    s.log,
 		Cache:  orgCache,
 	}
-	orgResolver := resolvers.BuildResolver(buildResolverOpts)
+
+	if s.cfg.Auth != nil && s.cfg.Auth.AAP != nil {
+		membershipCache := cache.NewMembershipTTL(cache.DefaultTTL)
+		go membershipCache.Start()
+		defer membershipCache.Stop()
+		buildResolverOpts.MembershipCache = membershipCache
+	}
+
+	orgResolver, err := resolvers.BuildResolver(buildResolverOpts)
+	if err != nil {
+		return err
+	}
 	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(s.store, workerClient, kvStore, nil, s.log, "", "", []string{}, orgResolver))
 
 	// Initialize the task executors
@@ -128,9 +141,11 @@ func (s *Server) Run(ctx context.Context) error {
 		TasksMetadata:  periodicTasks,
 		ChannelManager: channelManager,
 		TaskBackoff: &poll.Config{
-			BaseDelay: 100 * time.Millisecond,
-			Factor:    3,
-			MaxDelay:  10 * time.Second,
+			BaseDelay:    100 * time.Millisecond,
+			Factor:       3,
+			MaxDelay:     10 * time.Second,
+			JitterFactor: 0.1,
+			Rand:         rand.New(rand.NewSource(time.Now().UnixNano())), //nolint:gosec
 		},
 	}
 	periodicTaskPublisher, err := NewPeriodicTaskPublisher(publisherConfig)

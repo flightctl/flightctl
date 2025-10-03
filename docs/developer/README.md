@@ -7,7 +7,7 @@ Flight Control is a service for declarative, GitOps-driven management of edge de
 ## Building
 
 Prerequisites:
-* `git`, `make`, and `go` (>= 1.23), `openssl`, `openssl-devel`, `buildah`, `podman`, `podman-compose`, and `go-rpm-macros` (in case one needs to build RPM's)
+* `git`, `make`, and `go` (>= 1.23), `openssl`, `openssl-devel`, `buildah`, `podman`, `podman-compose`, `container-selinux` (>= 2.241) and `go-rpm-macros` (in case one needs to build RPM's)
 
 Flightctl agent reports the status of running rootless containers. Ensure the podman socket is enabled:
 
@@ -60,6 +60,7 @@ Use the `flightctl` CLI to login and then apply, get, or delete resources:
 bin/flightctl login $(cat ~/.flightctl/client.yaml | grep server | awk '{print $2}') --web --certificate-authority ~/.flightctl/certs/ca.crt
 bin/flightctl apply -f examples/fleet.yaml
 bin/flightctl get fleets
+bin/flightctl get fleet fleet1 fleet2  # Get multiple specific resources
 ```
 
 Note: If deployed without auth enabled, then there is no need to login.
@@ -90,9 +91,11 @@ make agent-vm agent-vm-console # user/password is user/user
 ```
 
 The agent-vm target accepts multiple parameters:
+
 - VMNAME: the name of the VM to create (default: flightctl-device-default)
 - VMCPUS: the number of CPUs to allocate to the VM (default: 1)
-- VMMEM: the amount of memory to allocate to the VM (default: 512)
+- VMRAM: the amount of memory to allocate to the VM (default: 512)
+- VMDISKSIZE: the disk size for the VM (default: 10G)
 - VMWAIT: the amount of minutes to wait on the console during first boot (default: 0)
 
 It is possible to create multiple VMs with different names:

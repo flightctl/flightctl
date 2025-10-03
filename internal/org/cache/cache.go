@@ -21,11 +21,8 @@ type OrganizationTTLCache struct {
 
 func NewOrganizationTTL(ttl time.Duration) *OrganizationTTLCache {
 	opts := []ttlcache.Option[uuid.UUID, *model.Organization]{}
-	if ttl > 0 {
-		opts = append(opts, ttlcache.WithTTL[uuid.UUID, *model.Organization](ttl))
-	} else {
-		opts = append(opts, ttlcache.WithTTL[uuid.UUID, *model.Organization](DefaultTTL))
-	}
+	opts = append(opts, ttlcache.WithTTL[uuid.UUID, *model.Organization](ttl))
+
 	return &OrganizationTTLCache{
 		cache: ttlcache.New(opts...),
 	}

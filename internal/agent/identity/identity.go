@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
+	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	agent_config "github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -26,7 +27,45 @@ var (
 	ErrNoCertificate = errors.New("no certificate available")
 	// ErrInvalidProvider indicates an invalid or unsupported provider type
 	ErrInvalidProvider = errors.New("invalid provider type")
+	// ErrIdentityProofFailed indicates a failure to prove the identity of the device
+	ErrIdentityProofFailed = errors.New("identity proof failed")
 )
+
+type Exportable struct {
+	// Name of the identity
+	name string
+	// CSR defines the certificate signing request. The contents may vary depending on the type of the provider
+	csr []byte
+	// KeyPEM defines the private PEM bytes. The PEM block may vary depending on the type of the provider
+	keyPEM []byte
+}
+
+// Name returns the name of the Exportable
+func (e *Exportable) Name() string {
+	return e.name
+}
+
+// CSR returns the CSR associated with the Exportable or an error if not initialized
+func (e *Exportable) CSR() ([]byte, error) {
+	if len(e.csr) == 0 {
+		return nil, fmt.Errorf("CSR not initialized")
+	}
+	return e.csr, nil
+}
+
+// KeyPEM returns the PEM bytes associated with the Exportable or an error if not inialized
+func (e *Exportable) KeyPEM() ([]byte, error) {
+	if len(e.keyPEM) == 0 {
+		return nil, fmt.Errorf("KeyPEM not initialized")
+	}
+	return e.keyPEM, nil
+}
+
+// ExportableProvider defines the interface for providing Exportable identities
+type ExportableProvider interface {
+	// NewExportable creates an Exportable for the specified name
+	NewExportable(name string) (*Exportable, error)
+}
 
 // Provider defines the interface for identity providers that handle device authentication.
 // Different implementations can support file-based keys, TPM-based keys, or other methods.
@@ -37,6 +76,8 @@ type Provider interface {
 	GetDeviceName() (string, error)
 	// GenerateCSR creates a certificate signing request using this identity
 	GenerateCSR(deviceName string) ([]byte, error)
+	// ProveIdentity performs idempotent, provider-specific, identity verification.
+	ProveIdentity(ctx context.Context, enrollmentRequest *v1alpha1.EnrollmentRequest) error
 	// StoreCertificate stores/persists the certificate received from enrollment.
 	StoreCertificate(certPEM []byte) error
 	// HasCertificate returns true if the provider has a certificate available
@@ -47,29 +88,31 @@ type Provider interface {
 	CreateGRPCClient(config *base_client.Config) (grpc_v1.RouterServiceClient, error)
 	// WipeCredentials securely removes all stored credentials (certificates and keys)
 	WipeCredentials() error
+	// WipeCertificateOnly securely removes only the certificate (not keys or CSR)
+	WipeCertificateOnly() error
 	// Close cleans up any resources used by the provider
 	Close(ctx context.Context) error
 }
 
 // NewProvider creates an identity provider
 func NewProvider(
-	tpmClient *tpm.Client,
+	tpmClient tpm.Client,
 	rw fileio.ReadWriter,
 	config *agent_config.Config,
 	log *log.PrefixLogger,
 ) Provider {
-	if tpmClient != nil {
-		log.Info("Using TPM-based identity provider")
-		return newTPMProvider(tpmClient, log)
-	}
-
 	if !config.ManagementService.Config.HasCredentials() {
 		config.ManagementService.Config.AuthInfo.ClientCertificate = filepath.Join(config.DataDir, agent_config.DefaultCertsDirName, agent_config.GeneratedCertFile)
 		config.ManagementService.Config.AuthInfo.ClientKey = filepath.Join(config.DataDir, agent_config.DefaultCertsDirName, agent_config.KeyFile)
 	}
 
-	clientKeyPath := config.ManagementService.AuthInfo.ClientKey
 	clientCertPath := config.ManagementService.GetClientCertificatePath()
+	clientKeyPath := config.ManagementService.GetClientKeyPath()
+
+	if tpmClient != nil {
+		log.Info("Using TPM-based identity provider")
+		return newTPMProvider(tpmClient, config, clientCertPath, rw, log)
+	}
 
 	log.Info("Using file-based identity provider")
 	return newFileProvider(clientKeyPath, clientCertPath, rw, log)

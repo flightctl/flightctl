@@ -88,7 +88,7 @@ func TestRingBuffer_Concurrency(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Producer
-	wg.Add(1)
+	wg.Add(2)
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 10; i++ {
@@ -109,9 +109,12 @@ func TestRingBuffer_Concurrency(t *testing.T) {
 	}()
 	wg.Wait()
 	close(errs)
+	count := 0
 	for err := range errs {
+		count++
 		require.NoError(t, err)
 	}
+	require.Equal(t, 10, count)
 	wg.Wait()
 }
 

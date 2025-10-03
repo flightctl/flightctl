@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
+	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	baseclient "github.com/flightctl/flightctl/internal/client"
@@ -39,6 +40,39 @@ func newFileProvider(
 	}
 }
 
+type softwareExportableProvider struct {
+}
+
+func newSoftwareExportableProvider() *softwareExportableProvider {
+	return &softwareExportableProvider{}
+}
+func (f *softwareExportableProvider) NewExportable(name string) (*Exportable, error) {
+	_, priv, err := fccrypto.NewKeyPair()
+	if err != nil {
+		return nil, fmt.Errorf("creating key pair: %q: %w", name, err)
+	}
+	signer, ok := priv.(crypto.Signer)
+	if !ok {
+		return nil, fmt.Errorf("expected crypto.Signer, got %T", priv)
+	}
+
+	csr, err := fccrypto.MakeCSR(signer, name)
+	if err != nil {
+		return nil, fmt.Errorf("creating CSR: %w", err)
+	}
+
+	pem, err := fccrypto.PEMEncodeKey(priv)
+	if err != nil {
+		return nil, fmt.Errorf("encoding private key: %w", err)
+	}
+
+	return &Exportable{
+		name:   name,
+		csr:    csr,
+		keyPEM: pem,
+	}, nil
+}
+
 func (f *fileProvider) Initialize(ctx context.Context) error {
 	publicKey, privateKey, _, err := fccrypto.EnsureKey(f.rw.PathFor(f.clientKeyPath))
 	if err != nil {
@@ -68,6 +102,11 @@ func (f *fileProvider) GenerateCSR(deviceName string) ([]byte, error) {
 		return nil, fmt.Errorf("private key does not implement crypto.Signer")
 	}
 	return fccrypto.MakeCSR(signer, deviceName)
+}
+
+func (f *fileProvider) ProveIdentity(ctx context.Context, enrollmentRequest *v1alpha1.EnrollmentRequest) error {
+	// no-op for file provider since identity is proven by CSR signing with private key
+	return nil
 }
 
 func (f *fileProvider) StoreCertificate(certPEM []byte) error {
@@ -141,6 +180,25 @@ func (f *fileProvider) WipeCredentials() error {
 	}
 
 	f.log.Info("Successfully wiped file-based credentials")
+	return nil
+}
+
+func (f *fileProvider) WipeCertificateOnly() error {
+	var errs []error
+
+	// Only wipe the certificate file, not the key or CSR
+	if f.clientCertPath != "" {
+		f.log.Infof("Wiping certificate file %s", f.clientCertPath)
+		if err := f.rw.OverwriteAndWipe(f.clientCertPath); err != nil {
+			errs = append(errs, fmt.Errorf("failed to wipe certificate file %s: %w", f.clientCertPath, err))
+		}
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("failed to wipe certificate: %v", errs)
+	}
+
+	f.log.Info("Successfully wiped certificate file")
 	return nil
 }
 

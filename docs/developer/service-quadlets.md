@@ -48,11 +48,13 @@ Services are configured with proper startup ordering through systemd dependencie
 
 ```ini
 [Unit]
-After=flightctl-db.service flightctl-kv.service
-Requires=flightctl-db.service flightctl-kv.service
+After=flightctl-db-wait.service flightctl-kv.service
+Wants=flightctl-db-wait.service flightctl-kv.service
 ```
 
 The dependency graph is configured between the individual `.container` files.
+
+> **Note:** The `flightctl-db-wait.service` is preferred over depending directly on `flightctl-db.service` because it ensures that not only the database container is up, but also verifies the database is ready by running a basic query.
 
 ## Configuration Management
 
@@ -187,6 +189,22 @@ sudo systemctl restart flightctl-api.service
 
 # Check service status
 sudo systemctl status flightctl-api.service
+
+# List all flightctl units and their statuses
+systemctl list-units 'flightctl*' --all
+```
+
+### API Health Check
+
+A basic API health check can be performed by calling `/readyz` via the API that will verify that the API is up and running and the connection with database and key-value store is established. A status 200 is returned when healthy.
+
+```bash
+# Using localhost
+curl -fk https://localhost:3443/readyz && echo OK || echo FAIL
+
+# Using domain from config file
+DOMAIN="$(yq -r '.global.baseDomain // "localhost"' /etc/flightctl/service-config.yaml)"
+curl -fk "https://${DOMAIN}:3443/readyz" && echo OK || echo FAIL
 ```
 
 ### Viewing Logs
@@ -214,7 +232,7 @@ sudo podman exec -it flightctl-api ls
 sudo podman logs flightctl-api
 ```
 
-## RPM Installation and Deployment
+## RPM Installation, Upgrade and Deployment
 
 The service Quadlets are also available to install via an RPM.  Installation steps for the latest release:
 
@@ -224,6 +242,30 @@ sudo dnf install -y flightctl-services
 sudo systemctl start flightctl.target
 sudo systemctl enable flightctl.target # To enable starting on reboot
 ```
+
+### Upgrading Flight Control Services
+
+To upgrade Flight Control services via DNF:
+
+```bash
+# Update to the latest version
+sudo dnf update flightctl-services
+
+# Or upgrade using a specific RPM file
+sudo rpm -Uvh flightctl-services-*.rpm
+```
+
+The RPM upgrade process includes:
+
+1. **Pre-upgrade checks** - A database migration dry-run is performed to verify compatibility
+2. **Service restart** - Flight Control services are automatically restarted with the new version
+3. **Configuration preservation** - Existing configuration files are preserved during upgrade
+
+> [!NOTE]
+> Database migration dry-run can be enabled/disabled by editing `/etc/flightctl/flightctl-services-install.conf` and setting `FLIGHTCTL_MIGRATION_DRY_RUN=1`. This is recommended to catch potential migration issues before they affect production.
+
+> [!NOTE] 
+> Downgrades are not supported. Be sure to back up your system before upgrading. If an upgrade fails, follow the [Flight Control Restore Operations](restore.md#flight-control-restore-operations).
 
 ### Running the Services Container
 

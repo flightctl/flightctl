@@ -34,6 +34,9 @@ type Device struct {
 	// Timestamp when the device was rendered
 	RenderTimestamp time.Time
 
+	// The last time the device was seen by the service
+	LastSeen *time.Time `gorm:"index" selector:"lastSeen"`
+
 	// The rendered application provided by the service.
 	RenderedApplications *JSONField[*[]api.ApplicationProviderSpec] `gorm:"type:jsonb"`
 
@@ -77,6 +80,7 @@ func NewDeviceFromApiResource(resource *api.Device) (*Device, error) {
 	if status.Conditions == nil {
 		status.Conditions = []api.Condition{}
 	}
+
 	var resourceVersion *int64
 	if resource.Metadata.ResourceVersion != nil {
 		i, err := strconv.ParseInt(lo.FromPtr(resource.Metadata.ResourceVersion), 10, 64)
@@ -101,9 +105,10 @@ func NewDeviceFromApiResource(resource *api.Device) (*Device, error) {
 			Owner:           resource.Metadata.Owner,
 			ResourceVersion: resourceVersion,
 		},
-		Alias:  alias,
-		Spec:   MakeJSONField(spec),
-		Status: MakeJSONField(status),
+		Alias:    alias,
+		Spec:     MakeJSONField(spec),
+		Status:   MakeJSONField(status),
+		LastSeen: status.LastSeen,
 	}, nil
 }
 
@@ -142,8 +147,22 @@ func (d *Device) ToApiResource(opts ...APIResourceOption) (*api.Device, error) {
 
 		// if we have a console request we ignore the rendered version
 		// TODO: bump the rendered version instead?
-		if len(consoles) == 0 && apiOpts.knownRenderedVersion != nil && renderedVersion == *apiOpts.knownRenderedVersion {
-			return nil, nil
+		if len(consoles) == 0 && apiOpts.knownRenderedVersion != nil {
+			// Try numeric comparison first, fall back to lexicographic if parsing fails
+			renderedVersionInt, err1 := strconv.ParseInt(renderedVersion, 10, 64)
+			knownRenderedVersionInt, err2 := strconv.ParseInt(*apiOpts.knownRenderedVersion, 10, 64)
+
+			if err1 == nil && err2 == nil {
+				// Both versions are numeric, use numeric comparison
+				if renderedVersionInt <= knownRenderedVersionInt {
+					return nil, nil
+				}
+			} else {
+				// Fall back to lexicographic comparison for non-numeric versions
+				if renderedVersion <= *apiOpts.knownRenderedVersion {
+					return nil, nil
+				}
+			}
 		}
 		// TODO: handle multiple consoles, for now we just encapsulate our one console in a list
 		spec.Config = d.RenderedConfig.Data
@@ -154,6 +173,7 @@ func (d *Device) ToApiResource(opts ...APIResourceOption) (*api.Device, error) {
 	status := api.NewDeviceStatus()
 	if d.Status != nil {
 		status = d.Status.Data
+		status.LastSeen = d.LastSeen
 	}
 
 	if !apiOpts.withoutServiceConditions {

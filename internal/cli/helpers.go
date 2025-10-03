@@ -75,6 +75,86 @@ func parseAndValidateKindName(arg string) (string, string, error) {
 	return kind, name, nil
 }
 
+// parseAndValidateKindNameFromArgs handles both "kind/name" and "kind name [name ...]" formats
+func parseAndValidateKindNameFromArgs(args []string) (string, []string, error) {
+	if len(args) == 0 {
+		return "", nil, fmt.Errorf("no arguments provided")
+	}
+
+	// Check if first argument contains a slash (TYPE/NAME format)
+	if strings.Contains(args[0], "/") {
+		if len(args) > 1 {
+			return "", nil, fmt.Errorf("cannot mix TYPE/NAME syntax with additional arguments. Use either 'get TYPE/NAME' or 'get TYPE NAME [NAME ...]'")
+		}
+		kind, name, err := parseAndValidateKindName(args[0])
+		if err != nil {
+			return "", nil, err
+		}
+		// Validate that name is not empty when using slash format
+		if name == "" {
+			return "", nil, fmt.Errorf("resource name cannot be empty when using TYPE/NAME format")
+		}
+		var names []string
+		if name != "" {
+			names = []string{name}
+		}
+		return kind, names, nil
+	}
+
+	// Handle TYPE NAME [NAME ...] format
+	kind := args[0]
+	kind = singular(kind)
+	kind = fullname(kind)
+	if _, ok := pluralKinds[kind]; !ok {
+		return "", nil, fmt.Errorf("invalid resource kind: %s", kind)
+	}
+
+	var names []string
+	if len(args) > 1 {
+		names = args[1:]
+	}
+
+	return kind, names, nil
+}
+
+// parseAndValidateKindNameFromArgsSingle handles both "kind/name" and "kind name" formats
+// but only allows a single resource name (not multiple)
+func parseAndValidateKindNameFromArgsSingle(args []string) (string, string, error) {
+	if len(args) == 0 {
+		return "", "", fmt.Errorf("no arguments provided")
+	}
+
+	// Check if first argument contains a slash (TYPE/NAME format)
+	if strings.Contains(args[0], "/") {
+		if len(args) > 1 {
+			return "", "", fmt.Errorf("cannot mix TYPE/NAME syntax with additional arguments. Use either 'TYPE/NAME' or 'TYPE NAME'")
+		}
+		kind, name, err := parseAndValidateKindName(args[0])
+		if err != nil {
+			return "", "", err
+		}
+		// Validate that name is not empty when using slash format
+		if name == "" {
+			return "", "", fmt.Errorf("resource name cannot be empty when using TYPE/NAME format")
+		}
+		return kind, name, nil
+	}
+
+	// Handle TYPE NAME format (single name only)
+	if len(args) != 2 {
+		return "", "", fmt.Errorf("exactly one resource name must be specified. Use 'TYPE NAME' format")
+	}
+
+	kind := args[0]
+	kind = singular(kind)
+	kind = fullname(kind)
+	if _, ok := pluralKinds[kind]; !ok {
+		return "", "", fmt.Errorf("invalid resource kind: %s", kind)
+	}
+
+	return kind, args[1], nil
+}
+
 func singular(kind string) string {
 	for singular, plural := range pluralKinds {
 		if kind == plural {
@@ -186,6 +266,11 @@ func GetRenderedDevice(ctx context.Context, c *apiclient.ClientWithResponses, na
 	return c.GetRenderedDeviceWithResponse(ctx, name, &api.GetRenderedDeviceParams{})
 }
 
+// GetLastSeenDevice fetches the last seen timestamp for a device.
+func GetLastSeenDevice(ctx context.Context, c *apiclient.ClientWithResponses, name string) (interface{}, error) {
+	return c.GetDeviceLastSeenWithResponse(ctx, name)
+}
+
 // GetTemplateVersion fetches a template version with the specified fleet name.
 func GetTemplateVersion(ctx context.Context, c *apiclient.ClientWithResponses, fleetName, name string) (interface{}, error) {
 	return c.GetTemplateVersionWithResponse(ctx, fleetName, name)
@@ -197,6 +282,16 @@ func ExtractJSON200(response interface{}) (interface{}, error) {
 	// Validate the response
 	if err := validateResponse(response); err != nil {
 		return nil, err
+	}
+
+	// Check if this is a 204 response (no content)
+	httpResponse, err := responseField[*http.Response](response, "HTTPResponse")
+	if err != nil {
+		return nil, err
+	}
+
+	if httpResponse.StatusCode == http.StatusNoContent {
+		return nil, nil
 	}
 
 	// Extract JSON200 data
@@ -220,7 +315,7 @@ func validateResponse(response interface{}) error {
 		return err
 	}
 
-	if httpResponse.StatusCode != http.StatusOK {
+	if httpResponse.StatusCode != http.StatusOK && httpResponse.StatusCode != http.StatusNoContent {
 		if strings.Contains(httpResponse.Header.Get("Content-Type"), "json") {
 			var dest api.Status
 			if err := json.Unmarshal(responseBody, &dest); err != nil {

@@ -6,10 +6,8 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
-	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -122,163 +120,6 @@ func TestComputeDeviceStatusChanges_StatusTransition(t *testing.T) {
 	assert.Contains(t, updates[0].Details, "update failed")
 }
 
-func TestUpdateServerSideDeviceAnnotations_PauseLogic(t *testing.T) {
-	tests := []struct {
-		name                   string
-		isInternalRequest      bool
-		hasWaitingAnnotation   bool
-		waitingAnnotationValue string
-		serviceVersion         string
-		deviceReportedVersion  string
-		expectedPaused         bool
-		expectedWaitingRemoved bool
-		expectedChanged        bool
-	}{
-		{
-			name:                   "Internal request - should skip",
-			isInternalRequest:      true,
-			hasWaitingAnnotation:   true,
-			waitingAnnotationValue: "true",
-			serviceVersion:         "1",
-			deviceReportedVersion:  "2",
-			expectedPaused:         false,
-			expectedWaitingRemoved: false,
-			expectedChanged:        false,
-		},
-		{
-			name:                   "No waiting annotation - should skip",
-			isInternalRequest:      false,
-			hasWaitingAnnotation:   false,
-			serviceVersion:         "1",
-			deviceReportedVersion:  "2",
-			expectedPaused:         false,
-			expectedWaitingRemoved: false,
-			expectedChanged:        false,
-		},
-		{
-			name:                   "Waiting annotation false - should skip",
-			isInternalRequest:      false,
-			hasWaitingAnnotation:   true,
-			waitingAnnotationValue: "false",
-			serviceVersion:         "1",
-			deviceReportedVersion:  "2",
-			expectedPaused:         false,
-			expectedWaitingRemoved: false,
-			expectedChanged:        false,
-		},
-		{
-			name:                   "Device version lower - should remove waiting only",
-			isInternalRequest:      false,
-			hasWaitingAnnotation:   true,
-			waitingAnnotationValue: "true",
-			serviceVersion:         "2",
-			deviceReportedVersion:  "1",
-			expectedPaused:         false,
-			expectedWaitingRemoved: true,
-			expectedChanged:        true,
-		},
-		{
-			name:                   "Device version equal - should remove waiting only",
-			isInternalRequest:      false,
-			hasWaitingAnnotation:   true,
-			waitingAnnotationValue: "true",
-			serviceVersion:         "2",
-			deviceReportedVersion:  "2",
-			expectedPaused:         false,
-			expectedWaitingRemoved: true,
-			expectedChanged:        true,
-		},
-		{
-			name:                   "Device version higher - should pause and remove waiting",
-			isInternalRequest:      false,
-			hasWaitingAnnotation:   true,
-			waitingAnnotationValue: "true",
-			serviceVersion:         "1",
-			deviceReportedVersion:  "2",
-			expectedPaused:         true,
-			expectedWaitingRemoved: true,
-			expectedChanged:        true,
-		},
-		{
-			name:                   "No service version - should pause and remove waiting",
-			isInternalRequest:      false,
-			hasWaitingAnnotation:   true,
-			waitingAnnotationValue: "true",
-			serviceVersion:         "",
-			deviceReportedVersion:  "2",
-			expectedPaused:         true,
-			expectedWaitingRemoved: true,
-			expectedChanged:        true,
-		},
-		{
-			name:                   "No device version - should remove waiting only",
-			isInternalRequest:      false,
-			hasWaitingAnnotation:   true,
-			waitingAnnotationValue: "true",
-			serviceVersion:         "1",
-			deviceReportedVersion:  "",
-			expectedPaused:         false,
-			expectedWaitingRemoved: true,
-			expectedChanged:        true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Setup context
-			ctx := context.Background()
-			if tt.isInternalRequest {
-				ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
-			}
-
-			// Setup device
-			annotations := make(map[string]string)
-			if tt.hasWaitingAnnotation {
-				annotations[api.DeviceAnnotationAwaitingReconnect] = tt.waitingAnnotationValue
-			}
-			if tt.serviceVersion != "" {
-				annotations[api.DeviceAnnotationRenderedVersion] = tt.serviceVersion
-			}
-
-			device := &api.Device{
-				Metadata: api.ObjectMeta{
-					Name:        lo.ToPtr("test-device"),
-					Annotations: &annotations,
-				},
-				Status: &api.DeviceStatus{
-					Config: api.DeviceConfigStatus{
-						RenderedVersion: tt.deviceReportedVersion,
-					},
-				},
-			}
-
-			// Mock logger
-			logger := logrus.New()
-			logger.SetLevel(logrus.ErrorLevel) // Suppress log output during tests
-
-			// Call function
-			changed := updateServerSideDeviceAnnotations(ctx, device, logger)
-
-			// Verify results
-			assert.Equal(t, tt.expectedChanged, changed, "Changed result mismatch")
-
-			if tt.expectedPaused {
-				assert.Equal(t, "true", (*device.Metadata.Annotations)[api.DeviceAnnotationConflictPaused], "ConflictPaused annotation should be set")
-			} else {
-				_, exists := (*device.Metadata.Annotations)[api.DeviceAnnotationConflictPaused]
-				assert.False(t, exists, "ConflictPaused annotation should not be set")
-			}
-
-			if tt.expectedWaitingRemoved {
-				_, exists := (*device.Metadata.Annotations)[api.DeviceAnnotationAwaitingReconnect]
-				assert.False(t, exists, "AwaitingReconnect annotation should be removed")
-			} else if tt.hasWaitingAnnotation {
-				assert.Equal(t, tt.waitingAnnotationValue, (*device.Metadata.Annotations)[api.DeviceAnnotationAwaitingReconnect], "AwaitingReconnect annotation should be preserved")
-			}
-		})
-	}
-}
-
 func TestUpdateServerSideDeviceStatus_PostRestoreState(t *testing.T) {
 	// This test validates the critical post-restore state where ALL three conditions must be true:
 	// 1. awaitingReconnect annotation = "true"
@@ -358,7 +199,12 @@ func TestUpdateServerSideDeviceStatus_PostRestoreState(t *testing.T) {
 					Annotations: &annotations,
 				},
 				Status: &api.DeviceStatus{
-					LastSeen: tt.lastSeenTime,
+					LastSeen: func() *time.Time {
+						if tt.lastSeenTime.IsZero() {
+							return nil
+						}
+						return lo.ToPtr(tt.lastSeenTime)
+					}(),
 					Summary: api.DeviceSummaryStatus{
 						Status: api.DeviceSummaryStatusOnline, // Initial status (will be overridden)
 						Info:   lo.ToPtr("Initial info"),

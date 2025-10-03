@@ -1089,3 +1089,35 @@ func TestCleanupPartialLayers(t *testing.T) {
 		})
 	}
 }
+
+func TestSetResultAfterCleanup(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	logger := log.NewPrefixLogger("test")
+	logger.SetLevel(logrus.DebugLevel)
+
+	mockExec := executer.NewMockExecuter(ctrl)
+	readWriter := fileio.NewReadWriter()
+	podmanClient := client.NewPodman(logger, mockExec, readWriter, poll.Config{})
+	pullTimeout := util.Duration(5 * time.Minute)
+
+	pm := NewPrefetchManager(logger, podmanClient, readWriter, pullTimeout)
+
+	testImage := "quay.io/test/image:latest"
+	pm.tasks[testImage] = &prefetchTask{
+		ociType: OCITypeImage,
+		done:    false,
+	}
+
+	pm.Cleanup()
+
+	require.Empty(pm.tasks)
+	pm.setResult(testImage, nil)
+	// ensure still empty
+	require.Empty(pm.tasks)
+	pm.setResult(testImage, fmt.Errorf("test error"))
+	// ensure still empty
+	require.Empty(pm.tasks)
+}

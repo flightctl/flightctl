@@ -9,7 +9,7 @@ import (
 
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
 	"github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/agent/device/publisher"
+	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -22,11 +22,11 @@ const (
 	cleanupDuration = 5 * time.Minute
 )
 
-type ConsoleController struct {
-	grpcClient   grpc_v1.RouterServiceClient
-	log          *log.PrefixLogger
-	deviceName   string
-	subscription publisher.Subscription
+type Manager struct {
+	grpcClient grpc_v1.RouterServiceClient
+	log        *log.PrefixLogger
+	deviceName string
+	watcher    spec.Watcher
 
 	activeSessions   []*session
 	inactiveSessions []*session
@@ -39,23 +39,23 @@ type TerminalSize struct {
 	Height uint16
 }
 
-func NewController(
+func NewManager(
 	grpcClient grpc_v1.RouterServiceClient,
 	deviceName string,
 	executor executer.Executer,
-	subscription publisher.Subscription,
+	watcher spec.Watcher,
 	log *log.PrefixLogger,
-) *ConsoleController {
-	return &ConsoleController{
-		grpcClient:   grpcClient,
-		deviceName:   deviceName,
-		executor:     executor,
-		subscription: subscription,
-		log:          log,
+) *Manager {
+	return &Manager{
+		grpcClient: grpcClient,
+		deviceName: deviceName,
+		executor:   executor,
+		watcher:    watcher,
+		log:        log,
 	}
 }
 
-func (c *ConsoleController) cleanup() {
+func (c *Manager) cleanup() {
 	var result []*session
 	for _, s := range c.inactiveSessions {
 		if s.inactiveTimestamp.Add(cleanupDuration).After(time.Now()) {
@@ -65,7 +65,7 @@ func (c *ConsoleController) cleanup() {
 	c.inactiveSessions = result
 }
 
-func (c *ConsoleController) add(newSession *session) bool {
+func (c *Manager) add(newSession *session) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.cleanup()
@@ -76,7 +76,7 @@ func (c *ConsoleController) add(newSession *session) bool {
 	return true
 }
 
-func (c *ConsoleController) inactivate(s *session) {
+func (c *Manager) inactivate(s *session) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.cleanup()
@@ -88,13 +88,13 @@ func (c *ConsoleController) inactivate(s *session) {
 	c.inactiveSessions = append(c.inactiveSessions, s)
 }
 
-func (c *ConsoleController) close(s *session) {
+func (c *Manager) close(s *session) {
 	c.log.Debugf("closing session %s", s.id)
 	_ = s.close()
 	c.inactivate(s)
 }
 
-func (c *ConsoleController) parseMetadata(metadata string) (*v1alpha1.DeviceConsoleSessionMetadata, error) {
+func (c *Manager) parseMetadata(metadata string) (*v1alpha1.DeviceConsoleSessionMetadata, error) {
 	var ret v1alpha1.DeviceConsoleSessionMetadata
 	err := json.Unmarshal([]byte(metadata), &ret)
 	if err != nil {
@@ -103,7 +103,7 @@ func (c *ConsoleController) parseMetadata(metadata string) (*v1alpha1.DeviceCons
 	return &ret, nil
 }
 
-func (c *ConsoleController) selectProtocol(requestedProtocols []string) (string, error) {
+func (c *Manager) selectProtocol(requestedProtocols []string) (string, error) {
 	supportedProtocols := []string{
 		StreamProtocolV5Name,
 	}
@@ -115,7 +115,7 @@ func (c *ConsoleController) selectProtocol(requestedProtocols []string) (string,
 	return "", fmt.Errorf("none of the protocols %v are supported", requestedProtocols)
 }
 
-func (c *ConsoleController) start(ctx context.Context, dc v1alpha1.DeviceConsole) {
+func (c *Manager) start(ctx context.Context, dc v1alpha1.DeviceConsole) {
 	s := &session{
 		id:       dc.SessionID,
 		executor: c.executor,
@@ -153,7 +153,7 @@ func (c *ConsoleController) start(ctx context.Context, dc v1alpha1.DeviceConsole
 	s.run(ctx, sessionMetadata)
 }
 
-func (c *ConsoleController) sync(ctx context.Context, desired *v1alpha1.DeviceSpec) {
+func (c *Manager) sync(ctx context.Context, desired *v1alpha1.DeviceSpec) {
 	c.log.Debug("Syncing console status")
 	defer c.log.Debug("Finished syncing console status")
 
@@ -164,20 +164,19 @@ func (c *ConsoleController) sync(ctx context.Context, desired *v1alpha1.DeviceSp
 	}
 }
 
-func (c *ConsoleController) Run(ctx context.Context, wg *sync.WaitGroup) {
+func (c *Manager) Run(ctx context.Context) {
 	c.log.Debug("Starting console controller")
 	defer c.log.Debug("Stopping console controller")
-	defer wg.Done()
 
 	for {
 		// The Pop() call will block until a new desired device spec is available
-		// It is the responsibility of the publisher to stop the subscription
+		// It is the responsibility of the publisher to stop the watcher
 		// in case the controller needs to exit the loop.  When the publisher
-		// stops, the subscription will be closed and the Pop() call will return
+		// stops, the watcher will be closed and the Pop() call will return
 		// an error.
-		desired, err := c.subscription.Pop()
+		desired, err := c.watcher.Pop()
 		if err != nil {
-			c.log.Warnf("failed to pop console subscription: %v", err)
+			c.log.Warnf("failed to pop from spec watcher: %v", err)
 			return
 		}
 		c.sync(ctx, desired.Spec)

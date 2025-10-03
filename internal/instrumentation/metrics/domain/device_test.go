@@ -82,6 +82,10 @@ func (m *MockDevice) GetWithoutServiceConditions(ctx context.Context, orgId uuid
 	return nil, nil
 }
 
+func (m *MockDevice) GetLastSeen(ctx context.Context, orgId uuid.UUID, name string) (*time.Time, error) {
+	return nil, nil
+}
+
 func (m *MockDevice) Healthcheck(ctx context.Context, orgId uuid.UUID, names []string) error {
 	return nil
 }
@@ -168,6 +172,14 @@ func (m *MockDevice) RemoveConflictPausedAnnotation(ctx context.Context, orgId u
 
 func (m *MockDevice) SetOutOfDate(ctx context.Context, orgId uuid.UUID, owner string) error {
 	return nil
+}
+
+func (m *MockDevice) GetAllDeviceNames(ctx context.Context, orgId uuid.UUID) ([]string, error) {
+	return nil, nil
+}
+
+func (m *MockDevice) ProcessAwaitingReconnectAnnotation(ctx context.Context, orgId uuid.UUID, deviceName string, deviceReportedVersion *string) (bool, error) {
+	return false, nil
 }
 
 func TestDeviceCollectorWithGroupByFleet(t *testing.T) {

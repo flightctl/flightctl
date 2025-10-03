@@ -60,7 +60,7 @@ global:
   clusterLevelSecretAccess: false
   # -- This is only related to deployment in Red Hat's PAAS.
   appCode: ""
-  # -- How the FCTL services should be exposed. Can be either nodePort or route
+  # -- How the Flight Control services should be exposed. Can be either nodePort or route
   exposeServicesMethod: "route" # route, nodePort, gateway
   # -- Gateway API class name for gateway exposure method
   gatewayClass: ""
@@ -86,6 +86,8 @@ global:
     tls: 443
     # -- HTTP port for Gateway API configuration
     http: 80
+  # -- Generate secrets when deploying Flight Control. This should be set to false if you want to provide your own secrets or when upgrading Flight Control to avoid overriding the existing secrets
+  generateSecrets: true
   # -- Image pull policy for all containers
   imagePullPolicy: IfNotPresent
   rbac:
@@ -115,12 +117,10 @@ db:
   type: "pgsql"
   # -- SSL mode for database connections (disable, allow, prefer, require, verify-ca, verify-full)
   sslmode: ""
-  # -- SSL client certificate file path
-  sslcert: ""
-  # -- SSL client key file path
-  sslkey: ""
-  # -- SSL root certificate file path (CA certificate)
-  sslrootcert: ""
+  # -- ConfigMap containing CA certificate (automatically mounted at /etc/ssl/postgres/)
+  sslConfigMap: ""
+  # -- Secret containing client certificates (automatically mounted at /etc/ssl/postgres/)
+  sslSecret: ""
   # Internal database deployment configuration (ignored when external: "enabled")
   image:
     # -- PostgreSQL container image

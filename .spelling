@@ -196,6 +196,8 @@ renderedVersion
 quadlets
 PEM
 NSING
+multiline
+flightctl-api
  - docs/user/api-resources.md
 approvedBy
 creationTimestamp
@@ -382,3 +384,5 @@ PL
 pgSQL
 values.yaml
 values.dev.yaml
+CN
+SAN

@@ -152,7 +152,7 @@ func (s *AgentServer) Run(ctx context.Context) error {
 
 	s.log.Printf("Listening on %s...", s.listener.Addr().String())
 	srv.TLSConfig = s.tlsConfig
-	if err := srv.ServeTLS(s.listener, "", ""); err != nil && !errors.Is(err, net.ErrClosed) {
+	if err := srv.ServeTLS(s.listener, "", ""); err != nil && !errors.Is(err, net.ErrClosed) && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 

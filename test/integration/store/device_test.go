@@ -1303,7 +1303,7 @@ var _ = Describe("DeviceStore create", func() {
 					Os: &api.DeviceOsSpec{Image: "test-image"},
 				},
 				Status: &api.DeviceStatus{
-					LastSeen: time.Now(),
+					LastSeen: lo.ToPtr(time.Now()),
 					Summary: api.DeviceSummaryStatus{
 						Status: api.DeviceSummaryStatusOnline,
 						Info:   lo.ToPtr("Device is online"),
@@ -1360,17 +1360,25 @@ var _ = Describe("DeviceStore create", func() {
 			// Check that existing annotation was preserved
 			Expect(annotations["existing-annotation"]).To(Equal("existing-value"))
 
-			// Check that lastSeen was cleared (should be zero time)
+			// Check that lastSeen was cleared (should be nil)
 			Expect(device.Status).ToNot(BeNil())
-			Expect(device.Status.LastSeen.IsZero()).To(BeTrue())
+			Expect(device.Status.LastSeen).To(BeNil())
 
 			// Check that status summary was set to waiting for connection
 			Expect(device.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusAwaitingReconnect))
 			Expect(device.Status.Summary.Info).ToNot(BeNil())
-			Expect(*device.Status.Summary.Info).To(Equal("Device is waiting for connection after restore"))
+			Expect(*device.Status.Summary.Info).To(Equal("Device has not reconnected since restore to confirm its current state."))
+
+			// Check that updated status was set to unknown
+			Expect(device.Status.Updated.Status).To(Equal(api.DeviceUpdatedStatusUnknown))
 
 			// Check that other status fields were preserved
 			Expect(device.Status.Config.RenderedVersion).To(Equal("test-version"))
+
+			// Check that last_seen column was cleared using GetLastSeen method
+			lastSeen, err := devStore.GetLastSeen(ctx, orgId, testDeviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(lastSeen).To(BeNil(), "last_seen column should be cleared after PrepareDevicesAfterRestore")
 		})
 
 		It("PrepareDevicesAfterRestore handles devices with no existing status", func() {
@@ -1408,10 +1416,13 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(updatedDevice.Status).ToNot(BeNil())
 			Expect(updatedDevice.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusAwaitingReconnect))
 			Expect(updatedDevice.Status.Summary.Info).ToNot(BeNil())
-			Expect(*updatedDevice.Status.Summary.Info).To(Equal("Device is waiting for connection after restore"))
+			Expect(*updatedDevice.Status.Summary.Info).To(Equal("Device has not reconnected since restore to confirm its current state."))
 
-			// Check that lastSeen is zero (not set)
-			Expect(updatedDevice.Status.LastSeen.IsZero()).To(BeTrue())
+			// Check that updated status was set to unknown
+			Expect(updatedDevice.Status.Updated.Status).To(Equal(api.DeviceUpdatedStatusUnknown))
+
+			// Check that lastSeen is nil (not set)
+			Expect(updatedDevice.Status.LastSeen).To(BeNil())
 		})
 
 		It("PrepareDevicesAfterRestore excludes decommissioned and decommissioning devices", func() {
@@ -1431,7 +1442,7 @@ var _ = Describe("DeviceStore create", func() {
 					},
 				},
 				Status: &api.DeviceStatus{
-					LastSeen: time.Now(),
+					LastSeen: lo.ToPtr(time.Now()),
 					Summary: api.DeviceSummaryStatus{
 						Status: api.DeviceSummaryStatusOnline,
 						Info:   lo.ToPtr("Device is online"),
@@ -1477,7 +1488,7 @@ var _ = Describe("DeviceStore create", func() {
 					},
 				},
 				Status: &api.DeviceStatus{
-					LastSeen: time.Now(),
+					LastSeen: lo.ToPtr(time.Now()),
 					Summary: api.DeviceSummaryStatus{
 						Status: api.DeviceSummaryStatusOnline,
 						Info:   lo.ToPtr("Device is online"),
@@ -1520,7 +1531,7 @@ var _ = Describe("DeviceStore create", func() {
 					Os: &api.DeviceOsSpec{Image: "test-image"},
 				},
 				Status: &api.DeviceStatus{
-					LastSeen: time.Now(),
+					LastSeen: lo.ToPtr(time.Now()),
 					Summary: api.DeviceSummaryStatus{
 						Status: api.DeviceSummaryStatusOnline,
 						Info:   lo.ToPtr("Device is online"),
@@ -1620,12 +1631,693 @@ var _ = Describe("DeviceStore create", func() {
 
 			// Should have lastSeen cleared
 			Expect(normalDeviceAfter.Status).ToNot(BeNil())
-			Expect(normalDeviceAfter.Status.LastSeen.IsZero()).To(BeTrue(), "Normal device SHOULD have lastSeen cleared")
+			Expect(normalDeviceAfter.Status.LastSeen).To(BeNil(), "Normal device SHOULD have lastSeen cleared")
 
 			// Should have status summary changed to awaiting reconnect
 			Expect(normalDeviceAfter.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusAwaitingReconnect), "Normal device SHOULD have status summary changed to AwaitingReconnect")
 			Expect(normalDeviceAfter.Status.Summary.Info).ToNot(BeNil())
-			Expect(*normalDeviceAfter.Status.Summary.Info).To(Equal("Device is waiting for connection after restore"))
+			Expect(*normalDeviceAfter.Status.Summary.Info).To(Equal("Device has not reconnected since restore to confirm its current state."))
+		})
+
+		It("PrepareDevicesAfterRestore properly clears last_seen column", func() {
+			// Create a test device with last_seen set
+			deviceName := "last-seen-column-test"
+			device := &api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName)},
+				Spec:     &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "test-image"}},
+				Status: &api.DeviceStatus{
+					LastSeen: lo.ToPtr(time.Now()),
+					Summary:  api.DeviceSummaryStatus{Status: api.DeviceSummaryStatusOnline},
+				},
+			}
+
+			// Create the device
+			_, created, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(created).To(BeTrue())
+
+			// Verify initial state - last_seen column should have a value
+			lastSeenBefore, err := devStore.GetLastSeen(ctx, orgId, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(lastSeenBefore).ToNot(BeNil(), "last_seen column should have a value initially")
+
+			// Execute: Run PrepareDevicesAfterRestore
+			devicesUpdated, err := devStore.PrepareDevicesAfterRestore(ctx)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(devicesUpdated).To(BeNumerically(">=", int64(1)))
+
+			// Verify: Check that last_seen column was cleared
+			lastSeenAfter, err := devStore.GetLastSeen(ctx, orgId, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(lastSeenAfter).To(BeNil(), "last_seen column should be cleared after PrepareDevicesAfterRestore")
+
+			// Verify: Check that device status LastSeen field is also nil
+			deviceAfter, err := devStore.Get(ctx, orgId, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(deviceAfter.Status.LastSeen).To(BeNil(), "device status LastSeen should also be nil")
+		})
+	})
+
+	Context("Healthcheck", func() {
+		It("should update last_seen column for specified devices", func() {
+			// Create test devices
+			device1Name := "healthcheck-device-1"
+			device2Name := "healthcheck-device-2"
+			device3Name := "healthcheck-device-3"
+
+			devices := []*api.Device{
+				{
+					Metadata: api.ObjectMeta{Name: lo.ToPtr(device1Name)},
+					Spec:     &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "test-image"}},
+					Status: &api.DeviceStatus{
+						LastSeen: lo.ToPtr(time.Now().Add(-1 * time.Hour)), // Old timestamp
+						Summary:  api.DeviceSummaryStatus{Status: api.DeviceSummaryStatusOnline},
+					},
+				},
+				{
+					Metadata: api.ObjectMeta{Name: lo.ToPtr(device2Name)},
+					Spec:     &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "test-image"}},
+					Status: &api.DeviceStatus{
+						LastSeen: lo.ToPtr(time.Now().Add(-2 * time.Hour)), // Old timestamp
+						Summary:  api.DeviceSummaryStatus{Status: api.DeviceSummaryStatusOnline},
+					},
+				},
+				{
+					Metadata: api.ObjectMeta{Name: lo.ToPtr(device3Name)},
+					Spec:     &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "test-image"}},
+					Status: &api.DeviceStatus{
+						LastSeen: lo.ToPtr(time.Now().Add(-3 * time.Hour)), // Old timestamp
+						Summary:  api.DeviceSummaryStatus{Status: api.DeviceSummaryStatusOnline},
+					},
+				},
+			}
+
+			// Create the devices
+			for _, device := range devices {
+				_, created, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(created).To(BeTrue())
+			}
+
+			// Record initial last_seen values
+			initialLastSeen := make(map[string]*time.Time)
+			for _, deviceName := range []string{device1Name, device2Name, device3Name} {
+				device, err := devStore.Get(ctx, orgId, deviceName)
+				Expect(err).ToNot(HaveOccurred())
+				initialLastSeen[deviceName] = device.Status.LastSeen
+			}
+
+			// Wait a bit to ensure timestamp difference
+			time.Sleep(100 * time.Millisecond)
+
+			// Execute: Run healthcheck on devices 1 and 2 only
+			deviceNames := []string{device1Name, device2Name}
+			err := devStore.Healthcheck(ctx, orgId, deviceNames)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Verify: Check that devices 1 and 2 have updated last_seen
+			for _, deviceName := range deviceNames {
+				device, err := devStore.Get(ctx, orgId, deviceName)
+				Expect(err).ToNot(HaveOccurred())
+
+				// last_seen should be updated (newer than initial)
+				Expect(device.Status.LastSeen).ToNot(BeNil())
+				Expect(device.Status.LastSeen.After(*initialLastSeen[deviceName])).To(BeTrue(),
+					"Device %s should have updated last_seen", deviceName)
+			}
+
+			// Verify: Check that device 3 was NOT updated
+			device3, err := devStore.Get(ctx, orgId, device3Name)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(device3.Status.LastSeen).To(Equal(initialLastSeen[device3Name]),
+				"Device 3 should NOT have updated last_seen")
+		})
+
+		It("should handle empty device list gracefully", func() {
+			// Execute: Run healthcheck with empty list
+			err := devStore.Healthcheck(ctx, orgId, []string{})
+			Expect(err).ToNot(HaveOccurred())
+		})
+
+		It("should handle non-existent devices gracefully", func() {
+			// Execute: Run healthcheck on non-existent devices
+			err := devStore.Healthcheck(ctx, orgId, []string{"non-existent-device-1", "non-existent-device-2"})
+			Expect(err).ToNot(HaveOccurred())
+		})
+
+		It("should update last_seen without affecting resource_version", func() {
+			// Create a test device
+			deviceName := "healthcheck-last-seen-test"
+			device := &api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName)},
+				Spec:     &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "test-image"}},
+				Status: &api.DeviceStatus{
+					LastSeen: lo.ToPtr(time.Now().Add(-1 * time.Hour)),
+					Summary:  api.DeviceSummaryStatus{Status: api.DeviceSummaryStatusOnline},
+				},
+			}
+
+			// Create the device
+			createdDevice, created, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(created).To(BeTrue())
+
+			// Record initial resource version and last_seen
+			initialResourceVersion := *createdDevice.Metadata.ResourceVersion
+			initialLastSeen, err := devStore.GetLastSeen(ctx, orgId, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(initialLastSeen).ToNot(BeNil())
+
+			// Wait a bit to ensure timestamp difference
+			time.Sleep(100 * time.Millisecond)
+
+			// Execute: Run healthcheck
+			err = devStore.Healthcheck(ctx, orgId, []string{deviceName})
+			Expect(err).ToNot(HaveOccurred())
+
+			// Verify: Check that resource version was NOT changed
+			updatedDevice, err := devStore.Get(ctx, orgId, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(*updatedDevice.Metadata.ResourceVersion).To(Equal(initialResourceVersion), "resource version should NOT be changed by healthcheck")
+
+			// Verify: Check that last_seen was updated
+			updatedLastSeen, err := devStore.GetLastSeen(ctx, orgId, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(updatedLastSeen).ToNot(BeNil())
+			Expect(updatedLastSeen.After(*initialLastSeen)).To(BeTrue(), "last_seen should be updated by healthcheck")
+		})
+
+		It("should handle mixed existing and non-existent devices", func() {
+			// Create one test device
+			deviceName := "healthcheck-mixed-test"
+			device := &api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName)},
+				Spec:     &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "test-image"}},
+				Status: &api.DeviceStatus{
+					LastSeen: lo.ToPtr(time.Now().Add(-1 * time.Hour)),
+					Summary:  api.DeviceSummaryStatus{Status: api.DeviceSummaryStatusOnline},
+				},
+			}
+
+			// Create the device
+			_, created, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(created).To(BeTrue())
+
+			// Record initial last_seen
+			initialDevice, err := devStore.Get(ctx, orgId, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+			initialLastSeen := initialDevice.Status.LastSeen
+
+			// Wait a bit to ensure timestamp difference
+			time.Sleep(100 * time.Millisecond)
+
+			// Execute: Run healthcheck on mix of existing and non-existent devices
+			deviceNames := []string{deviceName, "non-existent-device-1", "non-existent-device-2"}
+			err = devStore.Healthcheck(ctx, orgId, deviceNames)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Verify: Check that the existing device was updated
+			updatedDevice, err := devStore.Get(ctx, orgId, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(updatedDevice.Status.LastSeen).ToNot(BeNil())
+			Expect(updatedDevice.Status.LastSeen.After(*initialLastSeen)).To(BeTrue())
+		})
+	})
+
+	Context("ProcessAwaitingReconnectAnnotation", func() {
+		It("should return false when device has no awaiting reconnect annotation", func() {
+			// Create a device without awaiting reconnect annotation
+			deviceName := "no-awaiting-reconnect-device"
+			device := &api.Device{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr(deviceName),
+				},
+				Spec: &api.DeviceSpec{
+					Os: &api.DeviceOsSpec{Image: "test-image"},
+				},
+			}
+
+			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Process awaiting reconnect annotation - should return false
+			wasConflictPaused, err := devStore.ProcessAwaitingReconnectAnnotation(ctx, orgId, deviceName, nil)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(wasConflictPaused).To(BeFalse())
+
+			// Verify device is unchanged
+			updatedDevice, err := devStore.Get(ctx, orgId, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(updatedDevice.Metadata.Annotations).ToNot(BeNil())
+			Expect(len(*updatedDevice.Metadata.Annotations)).To(Equal(0))
+		})
+
+		It("should return false when awaiting reconnect annotation is not 'true'", func() {
+			// Create a device with awaiting reconnect annotation set to 'false'
+			deviceName := "awaiting-reconnect-false-device"
+			device := &api.Device{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr(deviceName),
+					Annotations: &map[string]string{
+						api.DeviceAnnotationAwaitingReconnect: "false",
+					},
+				},
+				Spec: &api.DeviceSpec{
+					Os: &api.DeviceOsSpec{Image: "test-image"},
+				},
+			}
+
+			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Process awaiting reconnect annotation - should return false
+			wasConflictPaused, err := devStore.ProcessAwaitingReconnectAnnotation(ctx, orgId, deviceName, nil)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(wasConflictPaused).To(BeFalse())
+
+			// Verify device is unchanged
+			updatedDevice, err := devStore.Get(ctx, orgId, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(updatedDevice.Metadata.Annotations).ToNot(BeNil())
+			Expect((*updatedDevice.Metadata.Annotations)[api.DeviceAnnotationAwaitingReconnect]).To(Equal("false"))
+		})
+
+		It("should remove awaiting reconnect annotation and set normal status when device version <= service version", func() {
+			// Create a device with awaiting reconnect annotation and service version
+			deviceName := "normal-reconnect-device"
+			device := &api.Device{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr(deviceName),
+					Annotations: &map[string]string{
+						api.DeviceAnnotationAwaitingReconnect: "true",
+						api.DeviceAnnotationRenderedVersion:   "5", // Service version
+					},
+				},
+				Spec: &api.DeviceSpec{
+					Os: &api.DeviceOsSpec{Image: "test-image"},
+				},
+				Status: &api.DeviceStatus{
+					Summary: api.DeviceSummaryStatus{
+						Status: api.DeviceSummaryStatusAwaitingReconnect,
+					},
+				},
+			}
+
+			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Process awaiting reconnect annotation with device version <= service version
+			deviceReportedVersion := "3" // Lower than service version 5
+			wasConflictPaused, err := devStore.ProcessAwaitingReconnectAnnotation(ctx, orgId, deviceName, &deviceReportedVersion)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(wasConflictPaused).To(BeFalse())
+
+			// Verify awaiting reconnect annotation was removed
+			updatedDevice, err := devStore.Get(ctx, orgId, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(updatedDevice.Metadata.Annotations).ToNot(BeNil())
+			_, hasAwaitingReconnect := (*updatedDevice.Metadata.Annotations)[api.DeviceAnnotationAwaitingReconnect]
+			Expect(hasAwaitingReconnect).To(BeFalse())
+
+			// Verify conflict paused annotation was not added
+			_, hasConflictPaused := (*updatedDevice.Metadata.Annotations)[api.DeviceAnnotationConflictPaused]
+			Expect(hasConflictPaused).To(BeFalse())
+
+			// Verify status was updated to normal
+			Expect(updatedDevice.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusOnline))
+			Expect(updatedDevice.Status.Summary.Info).ToNot(BeNil())
+			Expect(*updatedDevice.Status.Summary.Info).To(Equal("Device is up to date"))
+
+			// Verify updated status was set to OutOfDate (device version 3 < service version 5)
+			Expect(updatedDevice.Status.Updated.Status).To(Equal(api.DeviceUpdatedStatusOutOfDate))
+
+			// Verify status.config.renderedVersion was updated to device reported version
+			Expect(updatedDevice.Status.Config.RenderedVersion).To(Equal(deviceReportedVersion))
+
+			// Verify resource version was incremented
+			Expect(updatedDevice.Metadata.ResourceVersion).ToNot(BeNil())
+		})
+
+		It("should remove awaiting reconnect annotation and add conflict paused when device version > service version", func() {
+			// Create a device with awaiting reconnect annotation and service version
+			deviceName := "conflict-paused-device"
+			device := &api.Device{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr(deviceName),
+					Annotations: &map[string]string{
+						api.DeviceAnnotationAwaitingReconnect: "true",
+						api.DeviceAnnotationRenderedVersion:   "3", // Service version
+					},
+				},
+				Spec: &api.DeviceSpec{
+					Os: &api.DeviceOsSpec{Image: "test-image"},
+				},
+				Status: &api.DeviceStatus{
+					Summary: api.DeviceSummaryStatus{
+						Status: api.DeviceSummaryStatusAwaitingReconnect,
+					},
+				},
+			}
+
+			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Process awaiting reconnect annotation with device version > service version
+			deviceReportedVersion := "5" // Higher than service version 3
+			wasConflictPaused, err := devStore.ProcessAwaitingReconnectAnnotation(ctx, orgId, deviceName, &deviceReportedVersion)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(wasConflictPaused).To(BeTrue())
+
+			// Verify awaiting reconnect annotation was removed
+			updatedDevice, err := devStore.Get(ctx, orgId, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(updatedDevice.Metadata.Annotations).ToNot(BeNil())
+			_, hasAwaitingReconnect := (*updatedDevice.Metadata.Annotations)[api.DeviceAnnotationAwaitingReconnect]
+			Expect(hasAwaitingReconnect).To(BeFalse())
+
+			// Verify conflict paused annotation was added
+			conflictPausedValue, hasConflictPaused := (*updatedDevice.Metadata.Annotations)[api.DeviceAnnotationConflictPaused]
+			Expect(hasConflictPaused).To(BeTrue())
+			Expect(conflictPausedValue).To(Equal("true"))
+
+			// Verify status was updated to conflict paused with detailed info
+			Expect(updatedDevice.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusConflictPaused))
+			Expect(updatedDevice.Status.Summary.Info).ToNot(BeNil())
+			Expect(*updatedDevice.Status.Summary.Info).To(ContainSubstring("Device reconciliation is paused due to a state conflict"))
+			Expect(*updatedDevice.Status.Summary.Info).To(ContainSubstring("device reported version 5 > device version known to service 3"))
+
+			// Verify updated status was set to OutOfDate (device version 5 > service version 3)
+			Expect(updatedDevice.Status.Updated.Status).To(Equal(api.DeviceUpdatedStatusOutOfDate))
+
+			// Verify status.config.renderedVersion was updated to device reported version
+			Expect(updatedDevice.Status.Config.RenderedVersion).To(Equal(deviceReportedVersion))
+
+			// Verify resource version was incremented
+			Expect(updatedDevice.Metadata.ResourceVersion).ToNot(BeNil())
+		})
+
+		It("should handle nil device reported version gracefully", func() {
+			// Create a device with awaiting reconnect annotation and service version
+			deviceName := "nil-version-device"
+			device := &api.Device{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr(deviceName),
+					Annotations: &map[string]string{
+						api.DeviceAnnotationAwaitingReconnect: "true",
+						api.DeviceAnnotationRenderedVersion:   "5", // Service version
+					},
+				},
+				Spec: &api.DeviceSpec{
+					Os: &api.DeviceOsSpec{Image: "test-image"},
+				},
+				Status: &api.DeviceStatus{
+					Summary: api.DeviceSummaryStatus{
+						Status: api.DeviceSummaryStatusAwaitingReconnect,
+					},
+				},
+			}
+
+			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Process awaiting reconnect annotation with nil device reported version
+			wasConflictPaused, err := devStore.ProcessAwaitingReconnectAnnotation(ctx, orgId, deviceName, nil)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(wasConflictPaused).To(BeFalse()) // Should be false since device version (0) <= service version (5)
+
+			// Verify awaiting reconnect annotation was removed
+			updatedDevice, err := devStore.Get(ctx, orgId, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(updatedDevice.Metadata.Annotations).ToNot(BeNil())
+			_, hasAwaitingReconnect := (*updatedDevice.Metadata.Annotations)[api.DeviceAnnotationAwaitingReconnect]
+			Expect(hasAwaitingReconnect).To(BeFalse())
+
+			// Verify status was updated to normal
+			Expect(updatedDevice.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusOnline))
+
+			// Verify updated status was set to OutOfDate (device version 0 < service version 5)
+			Expect(updatedDevice.Status.Updated.Status).To(Equal(api.DeviceUpdatedStatusOutOfDate))
+
+			// Verify status.config.renderedVersion was updated to "0" (default for nil)
+			Expect(updatedDevice.Status.Config.RenderedVersion).To(Equal("0"))
+		})
+
+		It("should handle empty device reported version gracefully", func() {
+			// Create a device with awaiting reconnect annotation and service version
+			deviceName := "empty-version-device"
+			device := &api.Device{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr(deviceName),
+					Annotations: &map[string]string{
+						api.DeviceAnnotationAwaitingReconnect: "true",
+						api.DeviceAnnotationRenderedVersion:   "5", // Service version
+					},
+				},
+				Spec: &api.DeviceSpec{
+					Os: &api.DeviceOsSpec{Image: "test-image"},
+				},
+				Status: &api.DeviceStatus{
+					Summary: api.DeviceSummaryStatus{
+						Status: api.DeviceSummaryStatusAwaitingReconnect,
+					},
+				},
+			}
+
+			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Process awaiting reconnect annotation with empty device reported version
+			emptyVersion := ""
+			wasConflictPaused, err := devStore.ProcessAwaitingReconnectAnnotation(ctx, orgId, deviceName, &emptyVersion)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(wasConflictPaused).To(BeFalse()) // Should be false since device version (0) <= service version (5)
+
+			// Verify awaiting reconnect annotation was removed
+			updatedDevice, err := devStore.Get(ctx, orgId, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(updatedDevice.Metadata.Annotations).ToNot(BeNil())
+			_, hasAwaitingReconnect := (*updatedDevice.Metadata.Annotations)[api.DeviceAnnotationAwaitingReconnect]
+			Expect(hasAwaitingReconnect).To(BeFalse())
+
+			// Verify status was updated to normal
+			Expect(updatedDevice.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusOnline))
+
+			// Verify updated status was set to OutOfDate (device version 0 < service version 5)
+			Expect(updatedDevice.Status.Updated.Status).To(Equal(api.DeviceUpdatedStatusOutOfDate))
+
+			// Verify status.config.renderedVersion was updated to "0" (default for empty)
+			Expect(updatedDevice.Status.Config.RenderedVersion).To(Equal("0"))
+		})
+
+		It("should handle invalid device reported version gracefully", func() {
+			// Create a device with awaiting reconnect annotation and service version
+			deviceName := "invalid-version-device"
+			device := &api.Device{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr(deviceName),
+					Annotations: &map[string]string{
+						api.DeviceAnnotationAwaitingReconnect: "true",
+						api.DeviceAnnotationRenderedVersion:   "5", // Service version
+					},
+				},
+				Spec: &api.DeviceSpec{
+					Os: &api.DeviceOsSpec{Image: "test-image"},
+				},
+				Status: &api.DeviceStatus{
+					Summary: api.DeviceSummaryStatus{
+						Status: api.DeviceSummaryStatusAwaitingReconnect,
+					},
+				},
+			}
+
+			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Process awaiting reconnect annotation with invalid device reported version
+			invalidVersion := "not-a-number"
+			wasConflictPaused, err := devStore.ProcessAwaitingReconnectAnnotation(ctx, orgId, deviceName, &invalidVersion)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(wasConflictPaused).To(BeFalse()) // Should be false since device version (0) <= service version (5)
+
+			// Verify awaiting reconnect annotation was removed
+			updatedDevice, err := devStore.Get(ctx, orgId, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(updatedDevice.Metadata.Annotations).ToNot(BeNil())
+			_, hasAwaitingReconnect := (*updatedDevice.Metadata.Annotations)[api.DeviceAnnotationAwaitingReconnect]
+			Expect(hasAwaitingReconnect).To(BeFalse())
+
+			// Verify status was updated to normal
+			Expect(updatedDevice.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusOnline))
+
+			// Verify updated status was set to OutOfDate (device version 0 < service version 5)
+			Expect(updatedDevice.Status.Updated.Status).To(Equal(api.DeviceUpdatedStatusOutOfDate))
+
+			// Verify status.config.renderedVersion was updated to the original invalid value
+			Expect(updatedDevice.Status.Config.RenderedVersion).To(Equal("not-a-number"))
+		})
+
+		It("should handle missing service rendered version gracefully", func() {
+			// Create a device with awaiting reconnect annotation but no service version
+			deviceName := "no-service-version-device"
+			device := &api.Device{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr(deviceName),
+					Annotations: &map[string]string{
+						api.DeviceAnnotationAwaitingReconnect: "true",
+						// No DeviceAnnotationRenderedVersion
+					},
+				},
+				Spec: &api.DeviceSpec{
+					Os: &api.DeviceOsSpec{Image: "test-image"},
+				},
+				Status: &api.DeviceStatus{
+					Summary: api.DeviceSummaryStatus{
+						Status: api.DeviceSummaryStatusAwaitingReconnect,
+					},
+				},
+			}
+
+			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Process awaiting reconnect annotation
+			deviceReportedVersion := "5"
+			wasConflictPaused, err := devStore.ProcessAwaitingReconnectAnnotation(ctx, orgId, deviceName, &deviceReportedVersion)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(wasConflictPaused).To(BeTrue()) // Should be true since device version (5) > service version (0)
+
+			// Verify conflict paused annotation was added
+			updatedDevice, err := devStore.Get(ctx, orgId, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(updatedDevice.Metadata.Annotations).ToNot(BeNil())
+			conflictPausedValue, hasConflictPaused := (*updatedDevice.Metadata.Annotations)[api.DeviceAnnotationConflictPaused]
+			Expect(hasConflictPaused).To(BeTrue())
+			Expect(conflictPausedValue).To(Equal("true"))
+
+			// Verify status was updated to conflict paused
+			Expect(updatedDevice.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusConflictPaused))
+			Expect(updatedDevice.Status.Summary.Info).ToNot(BeNil())
+			Expect(*updatedDevice.Status.Summary.Info).To(ContainSubstring("device reported version 5 > device version known to service 0"))
+
+			// Verify updated status was set to OutOfDate (device version 5 > service version 0)
+			Expect(updatedDevice.Status.Updated.Status).To(Equal(api.DeviceUpdatedStatusOutOfDate))
+
+			// Verify status.config.renderedVersion was updated to device reported version
+			Expect(updatedDevice.Status.Config.RenderedVersion).To(Equal(deviceReportedVersion))
+		})
+
+		It("should handle invalid service rendered version gracefully", func() {
+			// Create a device with awaiting reconnect annotation and invalid service version
+			deviceName := "invalid-service-version-device"
+			device := &api.Device{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr(deviceName),
+					Annotations: &map[string]string{
+						api.DeviceAnnotationAwaitingReconnect: "true",
+						api.DeviceAnnotationRenderedVersion:   "not-a-number", // Invalid service version
+					},
+				},
+				Spec: &api.DeviceSpec{
+					Os: &api.DeviceOsSpec{Image: "test-image"},
+				},
+				Status: &api.DeviceStatus{
+					Summary: api.DeviceSummaryStatus{
+						Status: api.DeviceSummaryStatusAwaitingReconnect,
+					},
+				},
+			}
+
+			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Process awaiting reconnect annotation
+			deviceReportedVersion := "5"
+			wasConflictPaused, err := devStore.ProcessAwaitingReconnectAnnotation(ctx, orgId, deviceName, &deviceReportedVersion)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(wasConflictPaused).To(BeTrue()) // Should be true since device version (5) > service version (0)
+
+			// Verify conflict paused annotation was added
+			updatedDevice, err := devStore.Get(ctx, orgId, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(updatedDevice.Metadata.Annotations).ToNot(BeNil())
+			conflictPausedValue, hasConflictPaused := (*updatedDevice.Metadata.Annotations)[api.DeviceAnnotationConflictPaused]
+			Expect(hasConflictPaused).To(BeTrue())
+			Expect(conflictPausedValue).To(Equal("true"))
+
+			// Verify status was updated to conflict paused
+			Expect(updatedDevice.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusConflictPaused))
+			Expect(updatedDevice.Status.Summary.Info).ToNot(BeNil())
+			Expect(*updatedDevice.Status.Summary.Info).To(ContainSubstring("device reported version 5 > device version known to service 0"))
+
+			// Verify updated status was set to OutOfDate (device version 5 > service version 0)
+			Expect(updatedDevice.Status.Updated.Status).To(Equal(api.DeviceUpdatedStatusOutOfDate))
+
+			// Verify status.config.renderedVersion was updated to device reported version
+			Expect(updatedDevice.Status.Config.RenderedVersion).To(Equal(deviceReportedVersion))
+		})
+
+		It("should return error when device does not exist", func() {
+			// Try to process awaiting reconnect annotation for non-existent device
+			deviceName := "non-existent-device"
+			deviceReportedVersion := "5"
+			wasConflictPaused, err := devStore.ProcessAwaitingReconnectAnnotation(ctx, orgId, deviceName, &deviceReportedVersion)
+			Expect(err).To(HaveOccurred())
+			Expect(wasConflictPaused).To(BeFalse())
+		})
+
+		It("should preserve existing annotations when processing", func() {
+			// Create a device with awaiting reconnect annotation and other annotations
+			deviceName := "preserve-annotations-device"
+			device := &api.Device{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr(deviceName),
+					Annotations: &map[string]string{
+						api.DeviceAnnotationAwaitingReconnect: "true",
+						api.DeviceAnnotationRenderedVersion:   "3",
+						"custom-annotation":                   "custom-value",
+						"another-annotation":                  "another-value",
+					},
+				},
+				Spec: &api.DeviceSpec{
+					Os: &api.DeviceOsSpec{Image: "test-image"},
+				},
+				Status: &api.DeviceStatus{
+					Summary: api.DeviceSummaryStatus{
+						Status: api.DeviceSummaryStatusAwaitingReconnect,
+					},
+				},
+			}
+
+			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Process awaiting reconnect annotation
+			deviceReportedVersion := "5"
+			wasConflictPaused, err := devStore.ProcessAwaitingReconnectAnnotation(ctx, orgId, deviceName, &deviceReportedVersion)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(wasConflictPaused).To(BeTrue())
+
+			// Verify awaiting reconnect annotation was removed but others preserved
+			updatedDevice, err := devStore.Get(ctx, orgId, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(updatedDevice.Metadata.Annotations).ToNot(BeNil())
+			annotations := *updatedDevice.Metadata.Annotations
+
+			// Awaiting reconnect should be removed
+			_, hasAwaitingReconnect := annotations[api.DeviceAnnotationAwaitingReconnect]
+			Expect(hasAwaitingReconnect).To(BeFalse())
+
+			// Conflict paused should be added
+			Expect(annotations[api.DeviceAnnotationConflictPaused]).To(Equal("true"))
+
+			// Other annotations should be preserved
+			Expect(annotations["custom-annotation"]).To(Equal("custom-value"))
+			Expect(annotations["another-annotation"]).To(Equal("another-value"))
+			Expect(annotations[api.DeviceAnnotationRenderedVersion]).To(Equal("3"))
+
+			// Verify status.config.renderedVersion was updated to device reported version
+			Expect(updatedDevice.Status.Config.RenderedVersion).To(Equal(deviceReportedVersion))
 		})
 	})
 })

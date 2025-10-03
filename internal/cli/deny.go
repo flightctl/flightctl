@@ -25,8 +25,8 @@ func DefaultDenyOptions() *DenyOptions {
 func NewCmdDeny() *cobra.Command {
 	o := DefaultDenyOptions()
 	cmd := &cobra.Command{
-		Use:   "deny TYPE/NAME",
-		Short: "Deny a certificate signing or enrollment request.",
+		Use:   "deny csr/NAME",
+		Short: "Deny a certificate signing request.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := o.Complete(cmd, args); err != nil {

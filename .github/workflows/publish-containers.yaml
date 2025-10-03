@@ -179,6 +179,13 @@ jobs:
           containerfiles: Containerfile.${{ matrix.image }}
           context: .
 
+      - name: Validate FIPS
+        id: fips
+        run: |
+          go install github.com/flightctl/fips-validator@latest
+          TAGS=(${{ steps.build.outputs.tags }})
+          podman unshare -- $HOME/go/bin/fips-validator image ${{ steps.build.outputs.image }}:${TAGS[0]}
+
       - name: Push to Quay.io
         id: push
         uses: redhat-actions/push-to-registry@v2.7
