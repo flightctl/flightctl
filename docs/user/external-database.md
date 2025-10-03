@@ -110,19 +110,32 @@ db:
 ##### Option 2: Using Kubernetes Secrets (Production)
 
 ```bash
-# Create secrets before installing Flight Control
+# Create database secrets with proper Helm ownership metadata
 kubectl create secret generic flightctl-db-app-secret \
   --from-literal=user=flightctl_app \
-  --from-literal=userPassword=your-secure-app-password
+  --from-literal=userPassword=your-secure-app-password \
+  -n flightctl
 
 kubectl create secret generic flightctl-db-migration-secret \
   --from-literal=migrationUser=flightctl_migrator \
-  --from-literal=migrationPassword=your-secure-migration-password
+  --from-literal=migrationPassword=your-secure-migration-password \
+  -n flightctl
 
 # For automatic user creation (optional)
 kubectl create secret generic flightctl-db-admin-secret \
   --from-literal=masterUser=admin \
-  --from-literal=masterPassword=your-secure-admin-password
+  --from-literal=masterPassword=your-secure-admin-password \
+  -n flightctl
+
+# Add the required Helm ownership metadata
+kubectl label secret flightctl-db-app-secret flightctl-db-migration-secret flightctl-db-admin-secret \
+  app.kubernetes.io/managed-by=Helm \
+  -n flightctl
+
+kubectl annotate secret flightctl-db-app-secret flightctl-db-migration-secret flightctl-db-admin-secret \
+  meta.helm.sh/release-name=flightctl \
+  meta.helm.sh/release-namespace=flightctl \
+  -n flightctl
 ```
 
 Then configure without passwords in values.yaml:
@@ -160,12 +173,16 @@ helm install flightctl ./deploy/helm/flightctl \
 
 ```bash
 # First create secrets (see Password Management section above)
-# Then deploy without passwords in command line:
+# Then deploy - Helm will automatically detect existing database secrets:
 helm install flightctl ./deploy/helm/flightctl \
   --set db.external=enabled \
-  --set db.hostname=your-postgres-hostname.example.com
+  --set db.hostname=your-postgres-hostname.example.com \
+  --set db.sslrootcert="/etc/ssl/postgres/ca-cert.pem"
   # Passwords will be automatically discovered from existing secrets
+  # Other required secrets (KV, etc.) will be generated automatically
 ```
+
+**Note**: The Helm chart automatically detects existing database secrets and skips creating them, while still generating other required internal secrets.
 
 #### 3. Verify Deployment
 

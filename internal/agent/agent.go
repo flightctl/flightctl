@@ -217,6 +217,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.config.EnrollmentService.EnrollmentUIEndpoint,
 		a.config.ManagementService.GetClientCertificatePath(),
 		a.config.ManagementService.GetClientKeyPath(),
+		a.config.DataDir,
 		deviceReadWriter,
 		enrollmentClient,
 		csr,
@@ -335,22 +336,38 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.log,
 	)
 
-	// register agent with shutdown manager
-	shutdownManager.Register("agent", agent.Stop)
-
 	// register reloader with reload manager
 	reloadManager.Register(agent.ReloadConfig)
 	reloadManager.Register(systemInfoManager.ReloadConfig)
 	reloadManager.Register(statusManager.ReloadCollect)
 	reloadManager.Register(certManager.Sync)
 
-	go shutdownManager.Run(ctx)
-	go reloadManager.Run(ctx)
-	go resourceManager.Run(ctx)
-	go prefetchManager.Run(ctx)
-	go consoleManager.Run(ctx)
-	go specManager.Run(ctx)
+	// agent is serial by default. only a small number of operations run async.
+	// device reconciliation, status updates, and spec application happen serially.
 
+	// async to handle OS signals (SIGTERM, SIGINT) for graceful shutdown
+	go shutdownManager.Run(ctx)
+
+	// async to watch config file changes without blocking reconciliation
+	go reloadManager.Run(ctx)
+
+	// async monitors for various resources (cpu, memory, disk)
+	// monitoring must not be blocked by other operations to detect resource changes promptly
+	go resourceManager.Run(ctx)
+
+	// async to pre-pull container images without blocking the main loop
+	// image pulls can take minutes and should not delay device reconciliation
+	go prefetchManager.Run(ctx)
+
+	// async to handle bidirectional gRPC streams for remote shell access
+	// must run independently to maintain persistent console connections
+	go consoleManager.Run(ctx)
+
+	// publisher is async to poll management server for spec updates at regular intervals
+	// fetching is async, but spec management remains serial in the main agent loop
+	go specManager.Publisher().Run(ctx)
+
+	// main agent loop: all critical work happens here serially
 	return agent.Run(ctx)
 }
 

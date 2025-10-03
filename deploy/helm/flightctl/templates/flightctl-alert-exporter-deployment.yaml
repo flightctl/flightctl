@@ -46,6 +46,22 @@ spec:
                 secretKeyRef:
                   name: flightctl-db-app-secret
                   key: user
+            {{- if .Values.db.sslmode }}
+            - name: DB_SSL_MODE
+              value: "{{ .Values.db.sslmode }}"
+            {{- end }}
+            {{- if .Values.db.sslcert }}
+            - name: DB_SSL_CERT
+              value: "{{ .Values.db.sslcert }}"
+            {{- end }}
+            {{- if .Values.db.sslkey }}
+            - name: DB_SSL_KEY
+              value: "{{ .Values.db.sslkey }}"
+            {{- end }}
+            {{- if .Values.db.sslrootcert }}
+            - name: DB_SSL_ROOT_CERT
+              value: "{{ .Values.db.sslrootcert }}"
+            {{- end }}
             {{- if .Values.alertExporter.env }}
             {{- range $key, $value := .Values.alertExporter.env }}
             - name: {{ $key }}
@@ -56,6 +72,7 @@ spec:
             - mountPath: /root/.flightctl
               name: flightctl-alert-exporter-config
               readOnly: true
+            {{- include "flightctl.dbSslVolumeMounts" . | nindent 12 }}
           livenessProbe:
             httpGet:
               path: /health
@@ -77,4 +94,5 @@ spec:
         - name: flightctl-alert-exporter-config
           configMap:
             name: flightctl-alert-exporter-config
+        {{- include "flightctl.dbSslVolumes" . | nindent 8 }}
 {{- end }}

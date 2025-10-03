@@ -180,21 +180,9 @@ func (b *Bootstrap) updateStatus(ctx context.Context) {
 }
 
 func (b *Bootstrap) ensureSpecFiles(ctx context.Context) error {
-	if b.lifecycle.IsInitialized() {
-		// it is unexpected to have a missing spec files when the device is
-		// enrolled. reset the spec files to empty if they are missing to allow
-		// us to make progress. on the next sync, the device will get the latest
-		// desired spec and continue as expected.
-		if err := b.specManager.Ensure(); err != nil {
-			return fmt.Errorf("resetting spec files: %w", err)
-		}
-	} else {
-		b.log.Info("Device is not enrolled, initializing spec files")
-		if err := b.specManager.Initialize(ctx); err != nil {
-			return fmt.Errorf("initializing spec files: %w", err)
-		}
+	if err := b.specManager.Ensure(); err != nil {
+		return fmt.Errorf("ensuring spec files: %w", err)
 	}
-
 	return nil
 }
 

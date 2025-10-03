@@ -84,6 +84,20 @@ func (f *TableFormatter) formatList(w *tabwriter.Writer, data interface{}, optio
 func (f *TableFormatter) formatSingle(w *tabwriter.Writer, data interface{}, options FormatOptions) error {
 	switch {
 	case strings.EqualFold(options.Kind, api.DeviceKind):
+		if getLastSeenResponse, ok := data.(*apiclient.GetDeviceLastSeenResponse); ok {
+			// Check HTTP status code explicitly to distinguish between 204 (no content) and error responses
+			switch statusCode := getLastSeenResponse.StatusCode(); statusCode {
+			case 204:
+				// 204 No Content - device has no last-seen timestamp
+				return f.printDevicesLastSeenTable(w, nil)
+			case 200:
+				// 200 OK - device has last-seen timestamp
+				return f.printDevicesLastSeenTable(w, getLastSeenResponse.JSON200)
+			default:
+				// Error response (401/403/404/429/503) - surface the error
+				return fmt.Errorf("failed to get device last seen: HTTP %d", statusCode)
+			}
+		}
 		var device api.Device
 		if getRenderedResponse, ok := data.(*apiclient.GetRenderedDeviceResponse); ok {
 			device = *getRenderedResponse.JSON200
@@ -148,29 +162,45 @@ func (f *TableFormatter) printDevicesSummaryTable(w *tabwriter.Writer, summary *
 	return nil
 }
 
+func (f *TableFormatter) printDevicesLastSeenTable(w *tabwriter.Writer, lastSeen *api.DeviceLastSeen) error {
+	f.printHeaderRowLn(w, "LAST SEEN", "TIME AGO")
+	if lastSeen == nil {
+		f.printTableRowLn(w, "<never>", "<never>")
+	} else {
+		f.printTableRowLn(w, lastSeen.LastSeen.Format(time.RFC3339), humanize.Time(lastSeen.LastSeen))
+	}
+	return nil
+}
+
 func (f *TableFormatter) printDevicesTable(w *tabwriter.Writer, wide bool, devices ...api.Device) error {
 	if wide {
-		f.printHeaderRowLn(w, "NAME", "ALIAS", "OWNER", "SYSTEM", "UPDATED", "APPLICATIONS", "LAST SEEN", "LABELS")
+		f.printHeaderRowLn(w, "NAME", "ALIAS", "OWNER", "SYSTEM", "UPDATED", "APPLICATIONS", "LABELS")
 	} else {
-		f.printHeaderRowLn(w, "NAME", "ALIAS", "OWNER", "SYSTEM", "UPDATED", "APPLICATIONS", "LAST SEEN")
+		f.printHeaderRowLn(w, "NAME", "ALIAS", "OWNER", "SYSTEM", "UPDATED", "APPLICATIONS")
 	}
 	for _, d := range devices {
-		lastSeen := "<never>"
-		if !d.Status.LastSeen.IsZero() {
-			lastSeen = humanize.Time(d.Status.LastSeen)
-		}
 		alias := ""
 		if d.Metadata.Labels != nil {
 			alias = (*d.Metadata.Labels)["alias"]
 		}
+
+		// Handle nil status gracefully
+		summaryStatus := "Unknown"
+		updatedStatus := "Unknown"
+		applicationsStatus := "Unknown"
+		if d.Status != nil {
+			summaryStatus = string(d.Status.Summary.Status)
+			updatedStatus = string(d.Status.Updated.Status)
+			applicationsStatus = string(d.Status.ApplicationsSummary.Status)
+		}
+
 		f.printTableRow(w,
 			*d.Metadata.Name,
 			alias,
 			util.DefaultIfNil(d.Metadata.Owner, NoneString),
-			string(d.Status.Summary.Status),
-			string(d.Status.Updated.Status),
-			string(d.Status.ApplicationsSummary.Status),
-			lastSeen,
+			summaryStatus,
+			updatedStatus,
+			applicationsStatus,
 		)
 		if wide {
 			f.printTableRowLn(w, "", strings.Join(util.LabelMapToArray(d.Metadata.Labels), ","))

@@ -25,7 +25,7 @@ Welcome to the Flight Control user documentation.
   * [Viewing the Device Inventory and Device Details](managing-devices.md#viewing-the-device-inventory-and-device-details)
   * [Organizing Devices](managing-devices.md#organizing-devices)
   * [Updating the OS](managing-devices.md#updating-the-os)
-  * [Managing OS Configuration](managing-devices.md#managing-configuration)
+  * [Managing OS Configuration](managing-devices.md#managing-os-configuration)
   * [Managing Applications](managing-devices.md#managing-applications)
   * [Using Device Lifecycle Hooks](managing-devices.md#using-device-lifecycle-hooks)
   * [Monitoring Device Resources](managing-devices.md#monitoring-device-resources)
@@ -41,7 +41,7 @@ Welcome to the Flight Control user documentation.
   * [Managing Fleets Using GitOps](managing-fleets.md#managing-fleets-using-gitops)
 * **Solving Specific Use Cases** - How to solve specific use cases in Flight Control.
   * [Auto-Registering Devices with MicroShift into ACM](registering-microshift-devices-acm.md)
-  * Adding Device Observability
+  * [Adding Device Observability](device-observability.md)
 
 **Administrating Flight Control** - How to deploy and administrate a Flight Control service.
 

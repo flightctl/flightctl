@@ -408,6 +408,21 @@ func (mr *MockServiceMockRecorder) GetDeviceCompletionCounts(ctx, owner, templat
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeviceCompletionCounts", reflect.TypeOf((*MockService)(nil).GetDeviceCompletionCounts), ctx, owner, templateVersion, updateTimeout)
 }
 
+// GetDeviceLastSeen mocks base method.
+func (m *MockService) GetDeviceLastSeen(ctx context.Context, name string) (*v1alpha1.DeviceLastSeen, v1alpha1.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDeviceLastSeen", ctx, name)
+	ret0, _ := ret[0].(*v1alpha1.DeviceLastSeen)
+	ret1, _ := ret[1].(v1alpha1.Status)
+	return ret0, ret1
+}
+
+// GetDeviceLastSeen indicates an expected call of GetDeviceLastSeen.
+func (mr *MockServiceMockRecorder) GetDeviceLastSeen(ctx, name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeviceLastSeen", reflect.TypeOf((*MockService)(nil).GetDeviceLastSeen), ctx, name)
+}
+
 // GetDeviceRepositoryRefs mocks base method.
 func (m *MockService) GetDeviceRepositoryRefs(ctx context.Context, name string) (*v1alpha1.RepositoryList, v1alpha1.Status) {
 	m.ctrl.T.Helper()

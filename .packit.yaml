@@ -12,7 +12,7 @@ packages:
     upstream_tag_template: v{version} # remove v from the start of the version tags (vx.y.z)->x.y.z
 actions:
   get-current-version:
-    - bash -c '(git describe --tags --match "v*-main" || git describe --tags) | sed "s/^v//; s/-/~/g"'
+    - bash -c '(git describe --tags --match "v[0-9]*" 2>/dev/null || echo "v0.0.0-unknown") | sed "s/^v//; s/-/~/g"'
 jobs:
   - job: copr_build
     trigger: pull_request
@@ -51,9 +51,6 @@ jobs:
     project: flightctl
     preserve_project: True
     enable_net: True # this is necessary for go modules to download the sources
-    actions:
-      get-current-version:
-        - bash -c 'git describe --tags --match "v*" | sed "s/^v//; s/-/~/g"'
     targets:
       - fedora-41-aarch64
       - fedora-41-x86_64

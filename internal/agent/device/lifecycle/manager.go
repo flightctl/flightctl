@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -40,6 +42,7 @@ type LifecycleManager struct {
 	enrollmentUIEndpoint string
 	managementCertPath   string
 	managementKeyPath    string
+	dataDir              string
 	deviceReadWriter     fileio.ReadWriter
 
 	enrollmentClient client.Enrollment
@@ -59,6 +62,7 @@ func NewManager(
 	enrollmentUIEndpoint string,
 	managementCertPath string,
 	managementKeyPath string,
+	dataDir string,
 	deviceReadWriter fileio.ReadWriter,
 	enrollmentClient client.Enrollment,
 	enrollmentCSR []byte,
@@ -75,6 +79,7 @@ func NewManager(
 		enrollmentUIEndpoint: enrollmentUIEndpoint,
 		managementCertPath:   managementCertPath,
 		managementKeyPath:    managementKeyPath,
+		dataDir:              dataDir,
 		deviceReadWriter:     deviceReadWriter,
 		enrollmentClient:     enrollmentClient,
 		enrollmentCSR:        enrollmentCSR,
@@ -211,6 +216,8 @@ func (m *LifecycleManager) wipeAndReboot(ctx context.Context) error {
 	m.enrollmentUIEndpoint = ""
 	m.enrollmentClient = nil
 	m.enrollmentCSR = nil
+	//delete desired.json current.json rollback.json
+	errs = m.deleteSpec(errs)
 
 	// TODO: incorporate before-reboot hooks
 	if err := m.systemdClient.Reboot(ctx); err != nil {
@@ -220,6 +227,22 @@ func (m *LifecycleManager) wipeAndReboot(ctx context.Context) error {
 		return errors.Join(errs...)
 	}
 	return nil
+}
+
+func (m *LifecycleManager) deleteSpec(errs []error) []error {
+	if err := m.deviceReadWriter.RemoveFile(filepath.Join(m.dataDir, "desired.json")); err != nil {
+		m.log.Errorf("Failed to delete desired.json: %v", err)
+		errs = append(errs, fmt.Errorf("failed to delete desired.json: %w", err))
+	}
+	if err := m.deviceReadWriter.RemoveFile(filepath.Join(m.dataDir, "current.json")); err != nil {
+		m.log.Errorf("Failed to delete current.json: %v", err)
+		errs = append(errs, fmt.Errorf("failed to delete current.json: %w", err))
+	}
+	if err := m.deviceReadWriter.RemoveFile(filepath.Join(m.dataDir, "rollback.json")); err != nil {
+		m.log.Errorf("Failed to delete rollback.json: %v", err)
+		errs = append(errs, fmt.Errorf("failed to delete rollback.json: %w", err))
+	}
+	return errs
 }
 
 func (m *LifecycleManager) IsInitialized() bool {
@@ -353,6 +376,23 @@ func (m *LifecycleManager) enrollmentRequest(ctx context.Context, deviceStatus *
 		csrString = string(m.enrollmentCSR)
 	}
 
+	// Try to read knownRenderedVersion from desired.json
+	var knownRenderedVersion *string
+	desiredPath := filepath.Join(m.dataDir, "desired.json")
+	if desiredBytes, err := m.deviceReadWriter.ReadFile(desiredPath); err == nil {
+		var desired v1alpha1.Device
+		if err := json.Unmarshal(desiredBytes, &desired); err == nil {
+			if version := desired.Version(); version != "" {
+				knownRenderedVersion = &version
+				m.log.Debugf("Found knownRenderedVersion from desired.json: %s", version)
+			}
+		} else {
+			m.log.Debugf("Failed to unmarshal desired.json: %v", err)
+		}
+	} else {
+		m.log.Debugf("Failed to read desired.json: %v", err)
+	}
+
 	req := v1alpha1.EnrollmentRequest{
 		ApiVersion: "v1alpha1",
 		Kind:       "EnrollmentRequest",
@@ -360,9 +400,10 @@ func (m *LifecycleManager) enrollmentRequest(ctx context.Context, deviceStatus *
 			Name: &m.deviceName,
 		},
 		Spec: v1alpha1.EnrollmentRequestSpec{
-			Csr:          csrString,
-			DeviceStatus: deviceStatus,
-			Labels:       &m.defaultLabels,
+			Csr:                  csrString,
+			DeviceStatus:         deviceStatus,
+			Labels:               &m.defaultLabels,
+			KnownRenderedVersion: knownRenderedVersion,
 		},
 	}
 

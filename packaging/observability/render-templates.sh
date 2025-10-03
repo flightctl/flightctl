@@ -21,7 +21,8 @@ render_templates() {
         command -v "$1" &>/dev/null || { log "ERROR" "Required binary '$1' not found"; exit 1; }
     }
 
-    require_bin yq
+    require_bin jq
+    require_bin python3
     require_bin envsubst
 
     log "INFO" "Loading variable definitions from $definitions_file"
@@ -39,7 +40,7 @@ render_templates() {
 
         [[ "$env_var" =~ ^#.*$ || -z "$env_var" ]] && continue
 
-        value=$(yq e "$config_path" "$config_file" 2>/dev/null || echo "$default_value")
+        value=$(python3 /usr/share/flightctl/yaml-to-json.py < "$config_file" 2>/dev/null | jq -r "$config_path" 2>/dev/null || echo "$default_value")
         [[ "$value" == "null" || -z "$value" ]] && value="$default_value"
 
         export "$env_var"="$value"
@@ -69,7 +70,8 @@ render_templates() {
         fi
 
         log "INFO" "Rendering $full_template_path -> $output_file"
-        envsubst < "$full_template_path" > "$output_file" || {
+        # envsubst is run twice to handle nested variables
+        envsubst < "$full_template_path" | envsubst > "$output_file" || {
             log "ERROR" "Failed to render $output_file"
             exit 1
         }

@@ -242,7 +242,7 @@ var _ = Describe("cli events operation", func() {
 			By("Running with too many args")
 			out, err = harness.RunGetEvents(limit, "1", "2")
 			Expect(err).To(HaveOccurred())
-			Expect(out).To(ContainSubstring("accepts 1 arg(s), received 2"))
+			Expect(out).To(ContainSubstring("you cannot get individual events"))
 
 			By("fetching the next page of events using the continue flag", func() {
 				page, err := getEventsPage(harness, limit, "1", jsonFlag)

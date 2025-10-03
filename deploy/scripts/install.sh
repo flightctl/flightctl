@@ -24,12 +24,10 @@ export SYSTEMD_UNIT_OUTPUT_DIR
 # Tags for dev builds on the main branch look like: 0.6.0-main-119-gf75bcff
 get_services_for_tag() {
     local image_tag="$1"
-    local services=()
+    local services=("api" "periodic" "worker" "alert-exporter" "cli-artifacts" "alertmanager-proxy")
 
-    if [[ "$image_tag" =~ -main- ]]; then
-        services+=("api" "periodic" "worker" "alert-exporter" "cli-artifacts")
-    else
-        services+=("api" "periodic" "worker" "alert-exporter" "ui" "cli-artifacts")
+    if [[ ! "$image_tag" =~ -main- ]]; then
+        services+=("ui")
     fi
 
     echo "${services[@]}"

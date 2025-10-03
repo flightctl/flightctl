@@ -261,22 +261,11 @@ The RPM upgrade process includes:
 2. **Service restart** - Flight Control services are automatically restarted with the new version
 3. **Configuration preservation** - Existing configuration files are preserved during upgrade
 
-> **Note:** Database migration dry-run can be enabled/disabled by editing `/etc/flightctl/flightctl-services-install.conf` and setting `FLIGHTCTL_MIGRATION_DRY_RUN=1`. This is recommended to catch potential migration issues before they affect production.
+> [!NOTE]
+> Database migration dry-run can be enabled/disabled by editing `/etc/flightctl/flightctl-services-install.conf` and setting `FLIGHTCTL_MIGRATION_DRY_RUN=1`. This is recommended to catch potential migration issues before they affect production.
 
-### Downgrading Flight Control Services
-
-To downgrade Flight Control services to the previous version:
-
-```bash
-# Simulate downgrade to validate which versions will be replaced
-sudo dnf downgrade flightctl-services --assumeno
-
-# Downgrade to the previous version
-sudo dnf downgrade flightctl-services
-
-# Or downgrade using a specific older RPM file
-sudo rpm -Uvh --oldpackage flightctl-services-<older-version>.rpm
-```
+> [!NOTE] 
+> Downgrades are not supported. Be sure to back up your system before upgrading. If an upgrade fails, follow the [Flight Control Restore Operations](restore.md#flight-control-restore-operations).
 
 ### Running the Services Container
 

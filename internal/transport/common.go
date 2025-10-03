@@ -15,6 +15,14 @@ const (
 )
 
 func SetResponse(w http.ResponseWriter, body any, status api.Status) {
+	code := int(status.Code)
+
+	// Never write a body for 204/304 (and generally 1xx), per RFC 7231
+	if code == http.StatusNoContent || code == http.StatusNotModified || (code >= 100 && code < 200) {
+		w.WriteHeader(code)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 
 	hider, ok := body.(api.SensitiveDataHider)
@@ -44,7 +52,7 @@ func SetResponse(w http.ResponseWriter, body any, status api.Status) {
 	}
 
 	// Now that encoding is successful, write the status and response
-	w.WriteHeader(int(status.Code))
+	w.WriteHeader(code)
 	_, _ = w.Write(buf.Bytes()) // Write the encoded JSON from the buffer
 }
 

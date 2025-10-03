@@ -375,8 +375,8 @@ After the enrollment completes, you can find the device in the list of devices:
 ```console
 $ flightctl get devices
 
-NAME                                                  OWNER   SYSTEM  UPDATED     APPLICATIONS  LAST SEEN
-54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg  <none>  Online  Up-to-date  <none>        3 seconds ago
+NAME                                                  OWNER   SYSTEM  UPDATED     APPLICATIONS
+54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg  <none>  Online  Up-to-date  <none>
 ```
 
 ## Where to go from here
