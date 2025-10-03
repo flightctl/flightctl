@@ -13,7 +13,6 @@ Environment=HOME=/root
 Secret=flightctl-postgresql-user-password,type=env,target=DB_PASSWORD
 Secret=flightctl-kv-password,type=env,target=KV_PASSWORD
 Environment=DB_USER=flightctl_app
-Environment=FLIGHTCTL_SSH_KNOWN_HOSTS=/etc/flightctl/ssh/known_hosts
 Volume=/etc/flightctl/flightctl-api/config.yaml:/root/.flightctl/config.yaml:ro,z
 Volume=/etc/flightctl/ssh:/etc/flightctl/ssh:ro,z
 

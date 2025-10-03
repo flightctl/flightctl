@@ -51,8 +51,6 @@ spec:
                 secretKeyRef:
                   name: flightctl-db-app-secret
                   key: user
-            - name: FLIGHTCTL_SSH_KNOWN_HOSTS
-              value: "/etc/flightctl/ssh/known_hosts"
             {{- if .Values.worker.env }}
             {{- range $key, $value := .Values.worker.env }}
             - name: {{ $key }}

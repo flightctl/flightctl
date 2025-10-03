@@ -382,22 +382,49 @@ You can now reference this Repository when you configure devices. For example, t
   
 If your Git repository requires SSH authentication, you need to configure SSH known hosts to ensure secure connections.
 
-**For Helm deployments:** Add the SSH known hosts configuration to your Flight Control deployment
+First, create a `known_hosts` file containing the SSH host keys for your Git server. You can obtain these keys by running:
+
+```console
+ssh-keyscan github.com >> known_hosts
+ssh-keyscan gitlab.com >> known_hosts
+ssh-keyscan private-git-server.com >> known_hosts
+```
+
+Example `known_hosts` file content:
+
+```text
+github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=
+github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=
+github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
+gitlab.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCsj2bNKTBSpIYDEGk9KxsGh3mySTRgMtXL583qmBpzeQ+jqCMRgBqB98u3z++J1sKlXHWfM9dyhSevkMwSbhoR8XIq/U0tCNyokEi/ueaBMCvbcTHhO7FcwzY92WK4Yt0aGROY5qX2UKSeOvuP4D6TPqKF1onrSzH9bx9XUf2lEdWT/ia1NEKjunUqu1xOB/StKDHMoX4/OKyIzuS0q/T1zOATthvasJFoPrAjkohTyaDUz2LN5JoH839hViyEG82yB+MjcFV5MU3N1l1QL3cVUCh93xSaua1N85qivl+siMkPGbO5xR/En4iEY6K2XPASUEMaieWVNTRCtJ4S8H+9
+gitlab.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBFSMqzJeV9rUzU4kWitGjeR4PWSa29SPqJ1fVkhtj3Hw9xjLVXVYrU9QlYWrOLXBpQ6KWjbjTDTdDkoohFzgbEY=
+gitlab.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAfuCHKVTjquxvt6CM6tdG4SLp1Btn/nOeHHE5UOzRdf
+```
+
+Once you have created the `known_hosts` file, deploy it to Flight Control based on your deployment method:
+
+**For Helm deployments:** Use `--set-file` to include the `known_hosts` file in your deployment:
 
 ```console
 helm upgrade --install --version=<version-to-install> \
     --namespace flightctl --create-namespace \
     flightctl oci://quay.io/flightctl/charts/flightctl \
-    --set-file global.sshKnownHosts.data=known_hosts_file
+    --set-file global.sshKnownHosts.data=known_hosts
 ```
 
-**For Quadlet deployments:** place the file on the host at `/etc/flightctl/ssh/known_hosts`.
+**For Quadlet deployments:** Place the file on the host at `/etc/flightctl/ssh/known_hosts`:
 
 ```console
 sudo mkdir -p /etc/flightctl/ssh
-sudo install -m 0644 known_hosts_file /etc/flightctl/ssh/known_hosts
-sudo systemctl restart flightctl-worker.service flightctl-periodic.service
+sudo install -m 0644 known_hosts /etc/flightctl/ssh/known_hosts
 ```
+
+> [!NOTE]
+> If the services are already running and you're updating the configuration, restart them to apply the changes:
+>
+> ```console
+> sudo systemctl restart flightctl-worker.service flightctl-periodic.service
+> ```
 
 ### Getting Secrets from a Kubernetes Cluster
 
