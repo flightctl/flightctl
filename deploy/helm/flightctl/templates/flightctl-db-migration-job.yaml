@@ -16,7 +16,7 @@
   "name" (printf "%s-dryrun" $baseName)
   "hooks" (list "pre-upgrade")
   "hookWeight" "-10"
-  "hookDeletePolicy" "before-hook-creation,hook-succeeded"
+  "hookDeletePolicy" "before-hook-creation,hook-succeeded,hook-failed"
   "isDryRun" true
 ) }}
 ---
@@ -28,14 +28,16 @@
   "name" $baseName
   "hooks" (list "pre-upgrade")
   "hookWeight" "10"
-  "hookDeletePolicy" "before-hook-creation,hook-succeeded"
+  "hookDeletePolicy" "before-hook-creation,hook-succeeded,hook-failed"
   "isDryRun" false
 ) }}
 {{- else if .Release.IsInstall }}
 {{- include "flightctl.dbMigrationJob" (dict
   "context" $root
   "name" $baseName
-  "hooks" (list)
+  "hooks" (list "post-install")
+  "hookWeight" "10"
+  "hookDeletePolicy" "before-hook-creation,hook-succeeded,hook-failed"
   "isDryRun" false
 ) }}
 {{- end }}
