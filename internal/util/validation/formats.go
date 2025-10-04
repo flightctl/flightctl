@@ -34,6 +34,14 @@ const (
 	// short names (nginx:latest) are forbidden with strict mode
 	StrictOciImageNameFmt      string = OciImageDomainFmt + `\/` + ociNameCompFmt + `(?:\/` + ociNameCompFmt + `)*`
 	StrictOciImageReferenceFmt string = `(` + StrictOciImageNameFmt + `)(?:\:(` + OciImageTagFmt + `))?(?:\@(` + OciImageDigestFmt + `))?`
+
+	// Template parameter pattern for Go templates
+	templateParameterFmt = `\{\{[^}]*\}\}`
+	// One or more template params as tag
+	templatedTagFmt = `(?:` + templateParameterFmt + `)+`
+	// OCI image reference with a templated tag and optional digest:
+	// <name> ":" <templatedTag> [ "@" <digest> ]
+	OciImageReferenceWithTemplatesFmt = `(` + OciImageNameFmt + `)(?:\:` + templatedTagFmt + `)(?:\@(` + OciImageDigestFmt + `))?`
 )
 
 // capture(namePat)
@@ -41,8 +49,9 @@ const (
 // optional(literal("@"), capture(digestPat))
 
 var (
-	OciImageReferenceRegexp       = regexp.MustCompile("^" + OciImageReferenceFmt + "$")
-	StrictOciImageReferenceRegexp = regexp.MustCompile("^" + StrictOciImageReferenceFmt + "$")
+	OciImageReferenceRegexp              = regexp.MustCompile("^" + OciImageReferenceFmt + "$")
+	StrictOciImageReferenceRegexp        = regexp.MustCompile("^" + StrictOciImageReferenceFmt + "$")
+	OciImageReferenceWithTemplatesRegexp = regexp.MustCompile("^" + OciImageReferenceWithTemplatesFmt + "$")
 )
 
 // Validates an OCI image reference.
@@ -54,6 +63,11 @@ func ValidateOciImageReference(s *string, path string) []error {
 // This mode forbids short names (nginx:latest) and requires a domain name.
 func ValidateOciImageReferenceStrict(s *string, path string) []error {
 	return ValidateString(s, path, 1, OciImageReferenceMaxLength, StrictOciImageReferenceRegexp, StrictOciImageReferenceFmt, "quay.io/flightctl/flightctl:latest")
+}
+
+// Validates an OCI image reference that can contain template parameters.
+func ValidateOciImageReferenceWithTemplates(s *string, path string) []error {
+	return ValidateString(s, path, 1, OciImageReferenceMaxLength, OciImageReferenceWithTemplatesRegexp, OciImageReferenceWithTemplatesFmt, "quay.io/flightctl/device:{{ .metadata.labels.version }}")
 }
 
 const (
