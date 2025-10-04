@@ -119,6 +119,17 @@ deploy-e2e-extras: bin/.ssh/id_rsa.pub bin/e2e-certs/ca.pem
 deploy-e2e-ocp-test-vm:
 	sudo --preserve-env=VM_DISK_SIZE_INC test/scripts/create_vm_libvirt.sh ${KUBECONFIG_PATH}
 
+deploy-quadlets-vm:
+	sudo --preserve-env=VM_DISK_SIZE_INC --preserve-env=USER --preserve-env=REDHAT_USER --preserve-env=REDHAT_PASSWORD test/scripts/deploy_quadlets_rhel.sh
+
+clean-quadlets-vm:
+	@echo "Cleaning up quadlets-vm..."
+	@sudo virsh destroy quadlets-vm 2>/dev/null || true
+	@sudo virsh undefine quadlets-vm 2>/dev/null || true
+	@sudo rm -f /var/lib/libvirt/images/quadlets-vm.qcow2 2>/dev/null || true
+	@sudo rm -f /var/lib/libvirt/images/quadlets-vm_src.qcow2 2>/dev/null || true
+	@echo "quadlets-vm cleanup completed"
+
 prepare-e2e-test: deploy-e2e-extras bin/output/qcow2/disk.qcow2 build-e2e-containers
 	./test/scripts/prepare_cli.sh
 
