@@ -878,10 +878,15 @@ func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []
 				allErrs = append(allErrs, fmt.Errorf("invalid image application provider: %w", err))
 				continue
 			}
+
 			if provider.Image == "" && app.Name == nil {
 				allErrs = append(allErrs, fmt.Errorf("image reference cannot be empty when application name is not provided"))
 			}
-			allErrs = append(allErrs, validation.ValidateOciImageReference(&provider.Image, fmt.Sprintf("spec.applications[%s].image", appName))...)
+			containsParams, paramErrs := validateParametersInString(&provider.Image, fmt.Sprintf("spec.applications[%s].image", appName), fleetTemplate)
+			allErrs = append(allErrs, paramErrs...)
+			if !containsParams {
+				allErrs = append(allErrs, validation.ValidateOciImageReference(&provider.Image, fmt.Sprintf("spec.applications[%s].image", appName))...)
+			}
 			volumes = provider.Volumes
 
 		case InlineApplicationProviderType:
