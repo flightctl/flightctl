@@ -237,20 +237,6 @@ func (mr *MockStorageMockRecorder) ClearKey(keyType any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearKey", reflect.TypeOf((*MockStorage)(nil).ClearKey), keyType)
 }
 
-// ClearPassword mocks base method.
-func (m *MockStorage) ClearPassword() error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ClearPassword")
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// ClearPassword indicates an expected call of ClearPassword.
-func (mr *MockStorageMockRecorder) ClearPassword() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearPassword", reflect.TypeOf((*MockStorage)(nil).ClearPassword))
-}
-
 // Close mocks base method.
 func (m *MockStorage) Close() error {
 	m.ctrl.T.Helper()
@@ -296,21 +282,6 @@ func (mr *MockStorageMockRecorder) GetKey(keyType any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetKey", reflect.TypeOf((*MockStorage)(nil).GetKey), keyType)
 }
 
-// GetPassword mocks base method.
-func (m *MockStorage) GetPassword() ([]byte, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetPassword")
-	ret0, _ := ret[0].([]byte)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetPassword indicates an expected call of GetPassword.
-func (mr *MockStorageMockRecorder) GetPassword() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPassword", reflect.TypeOf((*MockStorage)(nil).GetPassword))
-}
-
 // StoreApplicationKey mocks base method.
 func (m *MockStorage) StoreApplicationKey(arg0 string, arg1 AppKeyStoreData) error {
 	m.ctrl.T.Helper()
@@ -337,20 +308,6 @@ func (m *MockStorage) StoreKey(keyType KeyType, public tpm2.TPM2BPublic, private
 func (mr *MockStorageMockRecorder) StoreKey(keyType, public, private any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreKey", reflect.TypeOf((*MockStorage)(nil).StoreKey), keyType, public, private)
-}
-
-// StorePassword mocks base method.
-func (m *MockStorage) StorePassword(password []byte) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "StorePassword", password)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// StorePassword indicates an expected call of StorePassword.
-func (mr *MockStorageMockRecorder) StorePassword(password any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StorePassword", reflect.TypeOf((*MockStorage)(nil).StorePassword), password)
 }
 
 // MockCertifiable is a mock of Certifiable interface.
