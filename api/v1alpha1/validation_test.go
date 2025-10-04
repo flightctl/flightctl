@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"strings"
 	"testing"
+	"text/template"
 
 	"github.com/robfig/cron/v3"
 	"github.com/samber/lo"
@@ -817,4 +818,207 @@ func newTestApplication(require *require.Assertions, name string, appImage, volI
 	require.NoError(app.FromImageApplicationProviderSpec(provider))
 
 	return app
+}
+
+func TestValidateImageApplicationFleetTemplating(t *testing.T) {
+	require := require.New(t)
+	tests := []struct {
+		name           string
+		image          string
+		fleetTemplate  bool
+		deviceName     string
+		deviceLabels   map[string]string
+		expectedOutput string
+		wantErr        bool
+		errContains    string
+	}{
+		{
+			name:           "valid image without template",
+			image:          "quay.io/flightctl/nginx:latest",
+			deviceName:     "device-1",
+			deviceLabels:   map[string]string{},
+			expectedOutput: "",
+		},
+		{
+			name:           "valid image with device name template",
+			image:          "quay.io/flightctl/app:{{ .metadata.name }}",
+			fleetTemplate:  true,
+			deviceName:     "device-1",
+			deviceLabels:   map[string]string{},
+			expectedOutput: "quay.io/flightctl/app:device-1",
+		},
+		{
+			name:           "valid image with label template",
+			image:          "quay.io/flightctl/app:{{ .metadata.labels.version }}",
+			fleetTemplate:  true,
+			deviceName:     "device-1",
+			deviceLabels:   map[string]string{"version": "v1.2.3"},
+			expectedOutput: "quay.io/flightctl/app:v1.2.3",
+		},
+		{
+			name:           "valid image with upper function",
+			image:          "quay.io/flightctl/app:{{ upper .metadata.labels.env }}",
+			fleetTemplate:  true,
+			deviceName:     "device-1",
+			deviceLabels:   map[string]string{"env": "prod"},
+			expectedOutput: "quay.io/flightctl/app:PROD",
+		},
+		{
+			name:           "valid image with lower function",
+			image:          "quay.io/flightctl/app:{{ lower .metadata.name }}",
+			fleetTemplate:  true,
+			deviceName:     "DEVICE-1",
+			deviceLabels:   map[string]string{},
+			expectedOutput: "quay.io/flightctl/app:device-1",
+		},
+		{
+			name:           "valid image with replace function",
+			image:          "quay.io/flightctl/app:{{ replace \".\" \"-\" .metadata.name }}",
+			fleetTemplate:  true,
+			deviceName:     "device.1.test",
+			deviceLabels:   map[string]string{},
+			expectedOutput: "quay.io/flightctl/app:device-1-test",
+		},
+		{
+			name:           "valid image with pipeline",
+			image:          "quay.io/flightctl/app:{{ .metadata.labels.version | lower | replace \" \" \"-\" }}",
+			fleetTemplate:  true,
+			deviceName:     "device-1",
+			deviceLabels:   map[string]string{"version": "V1 2 3"},
+			expectedOutput: "quay.io/flightctl/app:v1-2-3",
+		},
+		{
+			name:           "valid image with index function",
+			image:          "quay.io/flightctl/app:{{ index .metadata.labels \"app-version\" }}",
+			fleetTemplate:  true,
+			deviceName:     "device-1",
+			deviceLabels:   map[string]string{"app-version": "2.0.0"},
+			expectedOutput: "quay.io/flightctl/app:2.0.0",
+		},
+		{
+			name:           "valid image with multiple templates",
+			image:          "quay.io/{{ .metadata.labels.registry }}/app:{{ .metadata.labels.version }}",
+			fleetTemplate:  true,
+			deviceName:     "device-1",
+			deviceLabels:   map[string]string{"registry": "myregistry", "version": "1.0.0"},
+			expectedOutput: "quay.io/myregistry/app:1.0.0",
+		},
+		{
+			name:          "invalid image with Go struct syntax",
+			image:         "quay.io/flightctl/app:{{ .Metadata.Name }}",
+			fleetTemplate: true,
+			deviceName:    "device-1",
+			deviceLabels:  map[string]string{},
+			wantErr:       true,
+			errContains:   "cannot apply parameters, possibly because they access invalid fields",
+		},
+		{
+			name:          "invalid image with unsupported field",
+			image:         "quay.io/flightctl/app:{{ .metadata.annotations.version }}",
+			fleetTemplate: true,
+			deviceName:    "device-1",
+			deviceLabels:  map[string]string{},
+			wantErr:       true,
+			errContains:   "cannot apply parameters, possibly because they access invalid fields",
+		},
+		{
+			name:          "invalid image with range control structure",
+			image:         "quay.io/flightctl/app:{{range .metadata.labels}}{{.}}{{end}}",
+			fleetTemplate: true,
+			deviceName:    "device-1",
+			deviceLabels:  map[string]string{},
+			wantErr:       true,
+			errContains:   "unsupported elements",
+		},
+		{
+			name:          "invalid image with if control structure",
+			image:         "quay.io/flightctl/app:{{if .metadata.name}}latest{{else}}stable{{end}}",
+			fleetTemplate: true,
+			deviceName:    "device-1",
+			deviceLabels:  map[string]string{},
+			wantErr:       true,
+			errContains:   "unsupported elements",
+		},
+		{
+			name:          "invalid image with unknown function",
+			image:         "quay.io/flightctl/app:{{ unknownfunc .metadata.name }}",
+			fleetTemplate: true,
+			deviceName:    "device-1",
+			deviceLabels:  map[string]string{},
+			wantErr:       true,
+			errContains:   "function \"unknownfunc\" not defined",
+		},
+		{
+			name:          "invalid image with malformed template",
+			image:         "quay.io/flightctl/app:{{ .metadata.name",
+			fleetTemplate: true,
+			deviceName:    "device-1",
+			deviceLabels:  map[string]string{},
+			wantErr:       true,
+			errContains:   "invalid parameter syntax",
+		},
+		{
+			name:         "invalid base image without template",
+			image:        "_invalid-image",
+			deviceName:   "device-1",
+			deviceLabels: map[string]string{},
+			wantErr:      true,
+			errContains:  "Invalid value",
+		},
+		{
+			name:         "template in non-fleet context should validate as normal OCI reference",
+			image:        "quay.io/flightctl/app:{{ .metadata.name }}",
+			deviceName:   "device-1",
+			deviceLabels: map[string]string{},
+			wantErr:      true,
+			errContains:  "Invalid value",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			app := ApplicationProviderSpec{
+				Name:    lo.ToPtr("test-app"),
+				AppType: lo.ToPtr(AppTypeCompose),
+			}
+
+			provider := ImageApplicationProviderSpec{
+				Image: tt.image,
+			}
+			require.NoError(app.FromImageApplicationProviderSpec(provider))
+
+			apps := []ApplicationProviderSpec{app}
+			errs := validateApplications(apps, tt.fleetTemplate)
+
+			if tt.wantErr {
+				require.NotEmpty(errs, "expected errors but got none")
+				found := false
+				for _, err := range errs {
+					if strings.Contains(err.Error(), tt.errContains) {
+						found = true
+						break
+					}
+				}
+				require.True(found, "expected error containing %q but got: %v", tt.errContains, errs)
+			} else {
+				require.Empty(errs, "expected no errors but got: %v", errs)
+
+				if tt.fleetTemplate && tt.expectedOutput != "" {
+					dev := &Device{
+						Metadata: ObjectMeta{
+							Name:   lo.ToPtr(tt.deviceName),
+							Labels: &tt.deviceLabels,
+						},
+					}
+
+					tmpl, err := template.New("test").Funcs(GetGoTemplateFuncMap()).Parse(tt.image)
+					require.NoError(err, "template should parse successfully")
+
+					output, err := ExecuteGoTemplateOnDevice(tmpl, dev)
+					require.NoError(err, "template should execute successfully")
+					require.Equal(tt.expectedOutput, output, "rendered template should match expected output")
+				}
+			}
+		})
+	}
 }
