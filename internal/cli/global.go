@@ -96,6 +96,13 @@ func (o *GlobalOptions) BuildClient() (*apiclient.ClientWithResponses, error) {
 	return client.NewFromConfigFile(o.ConfigFilePath, client.WithOrganization(organization))
 }
 
+// BuildVersionAwareClient constructs a version-aware FlightCTL API client using configuration derived
+// from the global options. This client will check version compatibility before making requests.
+func (o *GlobalOptions) BuildVersionAwareClient() (*client.VersionAwareClient, error) {
+	organization := o.GetEffectiveOrganization()
+	return client.NewVersionAwareClientFromConfigFile(o.ConfigFilePath, client.WithOrganization(organization))
+}
+
 // GetEffectiveOrganization returns the organization ID to use for API requests.
 func (o *GlobalOptions) GetEffectiveOrganization() string {
 	if o.Organization != "" {
