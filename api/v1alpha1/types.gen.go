@@ -700,6 +700,12 @@ type DeviceIntegrityStatus struct {
 // DeviceIntegrityStatusSummaryType Status of the integrity of the device.
 type DeviceIntegrityStatusSummaryType string
 
+// DeviceLastSeen DeviceLastSeen represents the last seen timestamp of a device.
+type DeviceLastSeen struct {
+	// LastSeen The last time the device was seen by the service.
+	LastSeen time.Time `json:"lastSeen"`
+}
+
 // DeviceLifecycleHookType defines model for DeviceLifecycleHookType.
 type DeviceLifecycleHookType string
 
@@ -880,8 +886,8 @@ type DeviceStatus struct {
 	// Integrity Summary status of the integrity of the device.
 	Integrity DeviceIntegrityStatus `json:"integrity"`
 
-	// LastSeen The last time the device was seen by the service.
-	LastSeen time.Time `json:"lastSeen"`
+	// LastSeen The last time the device was seen by the service (NOTE: this property is not returned by the API).
+	LastSeen *time.Time `json:"-"`
 
 	// Lifecycle Current status of the device lifecycle.
 	Lifecycle DeviceLifecycleStatus `json:"lifecycle"`
@@ -1072,6 +1078,9 @@ type EnrollmentRequestSpec struct {
 
 	// DeviceStatus DeviceStatus represents information about the status of a device. Status may trail the actual state of a device.
 	DeviceStatus *DeviceStatus `json:"deviceStatus,omitempty"`
+
+	// KnownRenderedVersion The rendered version of the device from desired.json (optional).
+	KnownRenderedVersion *string `json:"knownRenderedVersion,omitempty"`
 
 	// Labels A set of labels that the service will apply to this device when its enrollment is approved.
 	Labels *map[string]string `json:"labels,omitempty"`

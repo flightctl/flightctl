@@ -29,7 +29,7 @@ var _ = Describe("Field Selectors Extension", Label("integration", "82219"), fun
 				"metadata.nameOrAlias",
 				"metadata.owner",
 				"status.applicationsSummary.status",
-				"status.lastSeen",
+				"lastSeen",
 				"status.lifecycle.status",
 				"status.summary.status",
 				"status.updated.status",

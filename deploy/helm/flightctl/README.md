@@ -195,11 +195,13 @@ db:
 
 **TLS/SSL Modes:**
 - `disable` - No TLS/SSL (not recommended for production)
+- `allow` - TLS/SSL if available, otherwise plain connection
+- `prefer` - TLS/SSL preferred, fallback to plain connection
 - `require` - TLS/SSL required, no certificate verification
 - `verify-ca` - TLS/SSL required, verify server certificate against CA
 - `verify-full` - TLS/SSL required, verify certificate and hostname
 
-For complete TLS/SSL configuration details, see the [external database documentation](https://docs.flightctl.io/user/external-database/).
+For complete TLS/SSL configuration details, see the [external database documentation](../../../user/external-database/).
 
 For more detailed configuration options, see the [Values](#values) section below.
 
@@ -311,6 +313,7 @@ For more detailed configuration options, see the [Values](#values) section below
 | global.nodePorts.ui | int | `9000` | NodePort for web UI service |
 | global.organizations.enabled | bool | `false` | Enable IDP-provided organizations support |
 | global.rbac.create | bool | `true` | Create RBAC resources (roles, bindings, service accounts) |
+| global.sshKnownHosts.data | string | `""` | SSH known hosts file content for Git repository host key verification. |
 | global.target | string | `"standalone"` | The type of Flightctl to deploy - either 'standalone' or 'acm'. |
 | global.tracing.enabled | bool | `false` | Enable distributed tracing with OpenTelemetry |
 | global.tracing.endpoint | string | `"jaeger-collector.flightctl-e2e.svc.cluster.local:4318"` | OpenTelemetry collector endpoint for trace data |

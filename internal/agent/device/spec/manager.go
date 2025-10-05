@@ -471,9 +471,11 @@ func (s *manager) Watch() Watcher {
 	return s.publisher.Watch()
 }
 
-// Run starts the internal publisher to fetch specs from the management API.
-func (s *manager) Run(ctx context.Context) {
-	s.publisher.Run(ctx)
+// Publisher returns the spec publisher that polls the management server
+// for spec updates. This is exposed separately to make the spec fetching goroutine
+// explicit and isolated from other spec manager operations.
+func (s *manager) Publisher() Publisher {
+	return s.publisher
 }
 
 func (s *manager) write(specType Type, device *v1alpha1.Device) error {

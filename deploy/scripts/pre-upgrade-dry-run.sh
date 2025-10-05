@@ -8,7 +8,6 @@ SERVICE_CONFIG_PATH="${2:-/etc/flightctl/flightctl-api/config.yaml}"
 
 # Tool paths
 PODMAN="${PODMAN:-$(command -v podman || echo '/usr/bin/podman')}"
-YQ="${YQ:-$(command -v yq || echo '/usr/bin/yq')}"
 
 # Configuration
 DB_SETUP_IMAGE="quay.io/flightctl/flightctl-db-setup:${IMAGE_TAG}"
@@ -36,16 +35,20 @@ parse_service_db_config() {
     fi
 
     echo "[flightctl] parsing database config from service config: ${SERVICE_CONFIG_PATH}"
-    DB_HOST=$(${YQ} '.database.hostname // "flightctl-db"' "${SERVICE_CONFIG_PATH}")
-    DB_PORT=$(${YQ} '.database.port // 5432' "${SERVICE_CONFIG_PATH}")
-    DB_NAME=$(${YQ} '.database.name // "flightctl"' "${SERVICE_CONFIG_PATH}")
-    DB_USER=${DB_USER:-$(${YQ} '.database.migrationUser // "flightctl_migrator"' "${SERVICE_CONFIG_PATH}")}
     
+    local config_json
+    config_json=$(python3 /usr/share/flightctl/yaml-to-json.py < "${SERVICE_CONFIG_PATH}")
+    
+    DB_HOST=$(echo "${config_json}" | jq -r '.database.hostname // "flightctl-db"')
+    DB_PORT=$(echo "${config_json}" | jq -r '.database.port // 5432')
+    DB_NAME=$(echo "${config_json}" | jq -r '.database.name // "flightctl"')
+    DB_USER=${DB_USER:-$(echo "${config_json}" | jq -r '.database.migrationUser // "flightctl_migrator"')}
+
     # Parse SSL configuration
-    DB_SSL_MODE=$(${YQ} '.database.sslmode // ""' "${SERVICE_CONFIG_PATH}")
-    DB_SSL_CERT=$(${YQ} '.database.sslcert // ""' "${SERVICE_CONFIG_PATH}")
-    DB_SSL_KEY=$(${YQ} '.database.sslkey // ""' "${SERVICE_CONFIG_PATH}")
-    DB_SSL_ROOT_CERT=$(${YQ} '.database.sslrootcert // ""' "${SERVICE_CONFIG_PATH}")
+    DB_SSL_MODE=$(echo "${config_json}" | jq -r '.database.sslmode // ""')
+    DB_SSL_CERT=$(echo "${config_json}" | jq -r '.database.sslcert // ""')
+    DB_SSL_KEY=$(echo "${config_json}" | jq -r '.database.sslkey // ""')
+    DB_SSL_ROOT_CERT=$(echo "${config_json}" | jq -r '.database.sslrootcert // ""')
 
     echo -n "[flightctl] database config: host=${DB_HOST}, port=${DB_PORT}, name=${DB_NAME}, user=${DB_USER}"
     if [ -n "${DB_SSL_MODE}" ]; then
@@ -79,8 +82,8 @@ wait_for_database() {
     podman_args+=("--timeout=${DB_WAIT_TIMEOUT}" "--sleep=${DB_WAIT_SLEEP}")
 
     if ! "${PODMAN}" run "${podman_args[@]}"; then
-        echo "[flightctl] database wait failed; skipping dry-run"
-        exit 0
+        echo "[flightctl] database is not ready; aborting pre-upgrade dry-run and stopping upgrade"
+        exit 1
     fi
 }
 

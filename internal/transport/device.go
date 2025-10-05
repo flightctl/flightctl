@@ -55,6 +55,12 @@ func (h *TransportHandler) GetDeviceStatus(w http.ResponseWriter, r *http.Reques
 	SetResponse(w, body, status)
 }
 
+// (GET /api/v1/devices/{name}/lastseen)
+func (h *TransportHandler) GetDeviceLastSeen(w http.ResponseWriter, r *http.Request, name string) {
+	body, status := h.serviceHandler.GetDeviceLastSeen(r.Context(), name)
+	SetResponse(w, body, status)
+}
+
 // (PUT /api/v1/devices/{name}/status)
 func (h *TransportHandler) ReplaceDeviceStatus(w http.ResponseWriter, r *http.Request, name string) {
 	var device api.Device

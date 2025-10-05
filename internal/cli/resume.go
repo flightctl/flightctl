@@ -16,6 +16,7 @@ type ResumeOptions struct {
 	LabelSelector string
 	FieldSelector string
 	All           bool
+	deviceName    string // internal field to store device name for single device resume
 }
 
 func DefaultResumeOptions() *ResumeOptions {
@@ -92,17 +93,22 @@ func (o *ResumeOptions) Validate(args []string) error {
 		return err
 	}
 
-	kind, name, err := parseAndValidateKindName(args[0])
-	if err != nil {
-		return err
-	}
+	// Handle bulk resume case (no specific device name)
+	if len(args) == 1 {
+		kind, name, err := parseAndValidateKindName(args[0])
+		if err != nil {
+			return err
+		}
 
-	if kind != DeviceKind {
-		return fmt.Errorf("kind must be Device")
-	}
+		if kind != DeviceKind {
+			return fmt.Errorf("kind must be Device")
+		}
 
-	// Handle bulk resume case (name is empty for plural forms)
-	if name == "" {
+		// For bulk resume, name should be empty (plural form like "devices")
+		if name != "" {
+			return fmt.Errorf("for bulk resume, use 'devices' without a specific name, or specify a single device with 'device <name>' or 'device/<name>'")
+		}
+
 		// Check for mutually exclusive flags
 		if o.All && (o.LabelSelector != "" || o.FieldSelector != "") {
 			return fmt.Errorf("--all flag cannot be used with selectors")
@@ -114,6 +120,19 @@ func (o *ResumeOptions) Validate(args []string) error {
 		}
 		return nil
 	}
+
+	// Handle single device case
+	kind, name, err := parseAndValidateKindNameFromArgsSingle(args)
+	if err != nil {
+		return err
+	}
+
+	if kind != DeviceKind {
+		return fmt.Errorf("kind must be Device")
+	}
+
+	// Store the device name for later use
+	o.deviceName = name
 
 	// Handle single device case (name is provided)
 	if o.All {
@@ -135,17 +154,27 @@ func (o *ResumeOptions) Run(ctx context.Context, args []string) error {
 		return fmt.Errorf("creating client: %w", err)
 	}
 
-	_, name, err := parseAndValidateKindName(args[0])
+	// Handle bulk resume case (no specific device name)
+	if len(args) == 1 {
+		_, name, err := parseAndValidateKindName(args[0])
+		if err != nil {
+			return err
+		}
+
+		// For bulk resume, name should be empty (plural form like "devices")
+		if name != "" {
+			return fmt.Errorf("for bulk resume, use 'devices' without a specific name, or specify a single device with 'device <name>' or 'device/<name>'")
+		}
+
+		return o.runBulkResume(ctx, c)
+	}
+
+	// Handle single device case
+	_, name, err := parseAndValidateKindNameFromArgsSingle(args)
 	if err != nil {
 		return err
 	}
 
-	// Handle bulk resume case (name is empty for plural forms)
-	if name == "" {
-		return o.runBulkResume(ctx, c)
-	}
-
-	// Handle single device case (name is provided)
 	return o.runSingleResume(ctx, c, name)
 }
 

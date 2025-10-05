@@ -1303,7 +1303,7 @@ var _ = Describe("DeviceStore create", func() {
 					Os: &api.DeviceOsSpec{Image: "test-image"},
 				},
 				Status: &api.DeviceStatus{
-					LastSeen: time.Now(),
+					LastSeen: lo.ToPtr(time.Now()),
 					Summary: api.DeviceSummaryStatus{
 						Status: api.DeviceSummaryStatusOnline,
 						Info:   lo.ToPtr("Device is online"),
@@ -1360,20 +1360,25 @@ var _ = Describe("DeviceStore create", func() {
 			// Check that existing annotation was preserved
 			Expect(annotations["existing-annotation"]).To(Equal("existing-value"))
 
-			// Check that lastSeen was cleared (should be zero time)
+			// Check that lastSeen was cleared (should be nil)
 			Expect(device.Status).ToNot(BeNil())
-			Expect(device.Status.LastSeen.IsZero()).To(BeTrue())
+			Expect(device.Status.LastSeen).To(BeNil())
 
 			// Check that status summary was set to waiting for connection
 			Expect(device.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusAwaitingReconnect))
 			Expect(device.Status.Summary.Info).ToNot(BeNil())
-			Expect(*device.Status.Summary.Info).To(Equal("Device is waiting for connection after restore"))
+			Expect(*device.Status.Summary.Info).To(Equal("Device has not reconnected since restore to confirm its current state."))
 
 			// Check that updated status was set to unknown
 			Expect(device.Status.Updated.Status).To(Equal(api.DeviceUpdatedStatusUnknown))
 
 			// Check that other status fields were preserved
 			Expect(device.Status.Config.RenderedVersion).To(Equal("test-version"))
+
+			// Check that last_seen column was cleared using GetLastSeen method
+			lastSeen, err := devStore.GetLastSeen(ctx, orgId, testDeviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(lastSeen).To(BeNil(), "last_seen column should be cleared after PrepareDevicesAfterRestore")
 		})
 
 		It("PrepareDevicesAfterRestore handles devices with no existing status", func() {
@@ -1411,13 +1416,13 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(updatedDevice.Status).ToNot(BeNil())
 			Expect(updatedDevice.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusAwaitingReconnect))
 			Expect(updatedDevice.Status.Summary.Info).ToNot(BeNil())
-			Expect(*updatedDevice.Status.Summary.Info).To(Equal("Device is waiting for connection after restore"))
+			Expect(*updatedDevice.Status.Summary.Info).To(Equal("Device has not reconnected since restore to confirm its current state."))
 
 			// Check that updated status was set to unknown
 			Expect(updatedDevice.Status.Updated.Status).To(Equal(api.DeviceUpdatedStatusUnknown))
 
-			// Check that lastSeen is zero (not set)
-			Expect(updatedDevice.Status.LastSeen.IsZero()).To(BeTrue())
+			// Check that lastSeen is nil (not set)
+			Expect(updatedDevice.Status.LastSeen).To(BeNil())
 		})
 
 		It("PrepareDevicesAfterRestore excludes decommissioned and decommissioning devices", func() {
@@ -1437,7 +1442,7 @@ var _ = Describe("DeviceStore create", func() {
 					},
 				},
 				Status: &api.DeviceStatus{
-					LastSeen: time.Now(),
+					LastSeen: lo.ToPtr(time.Now()),
 					Summary: api.DeviceSummaryStatus{
 						Status: api.DeviceSummaryStatusOnline,
 						Info:   lo.ToPtr("Device is online"),
@@ -1483,7 +1488,7 @@ var _ = Describe("DeviceStore create", func() {
 					},
 				},
 				Status: &api.DeviceStatus{
-					LastSeen: time.Now(),
+					LastSeen: lo.ToPtr(time.Now()),
 					Summary: api.DeviceSummaryStatus{
 						Status: api.DeviceSummaryStatusOnline,
 						Info:   lo.ToPtr("Device is online"),
@@ -1526,7 +1531,7 @@ var _ = Describe("DeviceStore create", func() {
 					Os: &api.DeviceOsSpec{Image: "test-image"},
 				},
 				Status: &api.DeviceStatus{
-					LastSeen: time.Now(),
+					LastSeen: lo.ToPtr(time.Now()),
 					Summary: api.DeviceSummaryStatus{
 						Status: api.DeviceSummaryStatusOnline,
 						Info:   lo.ToPtr("Device is online"),
@@ -1626,12 +1631,217 @@ var _ = Describe("DeviceStore create", func() {
 
 			// Should have lastSeen cleared
 			Expect(normalDeviceAfter.Status).ToNot(BeNil())
-			Expect(normalDeviceAfter.Status.LastSeen.IsZero()).To(BeTrue(), "Normal device SHOULD have lastSeen cleared")
+			Expect(normalDeviceAfter.Status.LastSeen).To(BeNil(), "Normal device SHOULD have lastSeen cleared")
 
 			// Should have status summary changed to awaiting reconnect
 			Expect(normalDeviceAfter.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusAwaitingReconnect), "Normal device SHOULD have status summary changed to AwaitingReconnect")
 			Expect(normalDeviceAfter.Status.Summary.Info).ToNot(BeNil())
-			Expect(*normalDeviceAfter.Status.Summary.Info).To(Equal("Device is waiting for connection after restore"))
+			Expect(*normalDeviceAfter.Status.Summary.Info).To(Equal("Device has not reconnected since restore to confirm its current state."))
+		})
+
+		It("PrepareDevicesAfterRestore properly clears last_seen column", func() {
+			// Create a test device with last_seen set
+			deviceName := "last-seen-column-test"
+			device := &api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName)},
+				Spec:     &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "test-image"}},
+				Status: &api.DeviceStatus{
+					LastSeen: lo.ToPtr(time.Now()),
+					Summary:  api.DeviceSummaryStatus{Status: api.DeviceSummaryStatusOnline},
+				},
+			}
+
+			// Create the device
+			_, created, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(created).To(BeTrue())
+
+			// Verify initial state - last_seen column should have a value
+			lastSeenBefore, err := devStore.GetLastSeen(ctx, orgId, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(lastSeenBefore).ToNot(BeNil(), "last_seen column should have a value initially")
+
+			// Execute: Run PrepareDevicesAfterRestore
+			devicesUpdated, err := devStore.PrepareDevicesAfterRestore(ctx)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(devicesUpdated).To(BeNumerically(">=", int64(1)))
+
+			// Verify: Check that last_seen column was cleared
+			lastSeenAfter, err := devStore.GetLastSeen(ctx, orgId, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(lastSeenAfter).To(BeNil(), "last_seen column should be cleared after PrepareDevicesAfterRestore")
+
+			// Verify: Check that device status LastSeen field is also nil
+			deviceAfter, err := devStore.Get(ctx, orgId, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(deviceAfter.Status.LastSeen).To(BeNil(), "device status LastSeen should also be nil")
+		})
+	})
+
+	Context("Healthcheck", func() {
+		It("should update last_seen column for specified devices", func() {
+			// Create test devices
+			device1Name := "healthcheck-device-1"
+			device2Name := "healthcheck-device-2"
+			device3Name := "healthcheck-device-3"
+
+			devices := []*api.Device{
+				{
+					Metadata: api.ObjectMeta{Name: lo.ToPtr(device1Name)},
+					Spec:     &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "test-image"}},
+					Status: &api.DeviceStatus{
+						LastSeen: lo.ToPtr(time.Now().Add(-1 * time.Hour)), // Old timestamp
+						Summary:  api.DeviceSummaryStatus{Status: api.DeviceSummaryStatusOnline},
+					},
+				},
+				{
+					Metadata: api.ObjectMeta{Name: lo.ToPtr(device2Name)},
+					Spec:     &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "test-image"}},
+					Status: &api.DeviceStatus{
+						LastSeen: lo.ToPtr(time.Now().Add(-2 * time.Hour)), // Old timestamp
+						Summary:  api.DeviceSummaryStatus{Status: api.DeviceSummaryStatusOnline},
+					},
+				},
+				{
+					Metadata: api.ObjectMeta{Name: lo.ToPtr(device3Name)},
+					Spec:     &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "test-image"}},
+					Status: &api.DeviceStatus{
+						LastSeen: lo.ToPtr(time.Now().Add(-3 * time.Hour)), // Old timestamp
+						Summary:  api.DeviceSummaryStatus{Status: api.DeviceSummaryStatusOnline},
+					},
+				},
+			}
+
+			// Create the devices
+			for _, device := range devices {
+				_, created, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(created).To(BeTrue())
+			}
+
+			// Record initial last_seen values
+			initialLastSeen := make(map[string]*time.Time)
+			for _, deviceName := range []string{device1Name, device2Name, device3Name} {
+				device, err := devStore.Get(ctx, orgId, deviceName)
+				Expect(err).ToNot(HaveOccurred())
+				initialLastSeen[deviceName] = device.Status.LastSeen
+			}
+
+			// Wait a bit to ensure timestamp difference
+			time.Sleep(100 * time.Millisecond)
+
+			// Execute: Run healthcheck on devices 1 and 2 only
+			deviceNames := []string{device1Name, device2Name}
+			err := devStore.Healthcheck(ctx, orgId, deviceNames)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Verify: Check that devices 1 and 2 have updated last_seen
+			for _, deviceName := range deviceNames {
+				device, err := devStore.Get(ctx, orgId, deviceName)
+				Expect(err).ToNot(HaveOccurred())
+
+				// last_seen should be updated (newer than initial)
+				Expect(device.Status.LastSeen).ToNot(BeNil())
+				Expect(device.Status.LastSeen.After(*initialLastSeen[deviceName])).To(BeTrue(),
+					"Device %s should have updated last_seen", deviceName)
+			}
+
+			// Verify: Check that device 3 was NOT updated
+			device3, err := devStore.Get(ctx, orgId, device3Name)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(device3.Status.LastSeen).To(Equal(initialLastSeen[device3Name]),
+				"Device 3 should NOT have updated last_seen")
+		})
+
+		It("should handle empty device list gracefully", func() {
+			// Execute: Run healthcheck with empty list
+			err := devStore.Healthcheck(ctx, orgId, []string{})
+			Expect(err).ToNot(HaveOccurred())
+		})
+
+		It("should handle non-existent devices gracefully", func() {
+			// Execute: Run healthcheck on non-existent devices
+			err := devStore.Healthcheck(ctx, orgId, []string{"non-existent-device-1", "non-existent-device-2"})
+			Expect(err).ToNot(HaveOccurred())
+		})
+
+		It("should update last_seen without affecting resource_version", func() {
+			// Create a test device
+			deviceName := "healthcheck-last-seen-test"
+			device := &api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName)},
+				Spec:     &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "test-image"}},
+				Status: &api.DeviceStatus{
+					LastSeen: lo.ToPtr(time.Now().Add(-1 * time.Hour)),
+					Summary:  api.DeviceSummaryStatus{Status: api.DeviceSummaryStatusOnline},
+				},
+			}
+
+			// Create the device
+			createdDevice, created, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(created).To(BeTrue())
+
+			// Record initial resource version and last_seen
+			initialResourceVersion := *createdDevice.Metadata.ResourceVersion
+			initialLastSeen, err := devStore.GetLastSeen(ctx, orgId, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(initialLastSeen).ToNot(BeNil())
+
+			// Wait a bit to ensure timestamp difference
+			time.Sleep(100 * time.Millisecond)
+
+			// Execute: Run healthcheck
+			err = devStore.Healthcheck(ctx, orgId, []string{deviceName})
+			Expect(err).ToNot(HaveOccurred())
+
+			// Verify: Check that resource version was NOT changed
+			updatedDevice, err := devStore.Get(ctx, orgId, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(*updatedDevice.Metadata.ResourceVersion).To(Equal(initialResourceVersion), "resource version should NOT be changed by healthcheck")
+
+			// Verify: Check that last_seen was updated
+			updatedLastSeen, err := devStore.GetLastSeen(ctx, orgId, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(updatedLastSeen).ToNot(BeNil())
+			Expect(updatedLastSeen.After(*initialLastSeen)).To(BeTrue(), "last_seen should be updated by healthcheck")
+		})
+
+		It("should handle mixed existing and non-existent devices", func() {
+			// Create one test device
+			deviceName := "healthcheck-mixed-test"
+			device := &api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName)},
+				Spec:     &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "test-image"}},
+				Status: &api.DeviceStatus{
+					LastSeen: lo.ToPtr(time.Now().Add(-1 * time.Hour)),
+					Summary:  api.DeviceSummaryStatus{Status: api.DeviceSummaryStatusOnline},
+				},
+			}
+
+			// Create the device
+			_, created, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(created).To(BeTrue())
+
+			// Record initial last_seen
+			initialDevice, err := devStore.Get(ctx, orgId, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+			initialLastSeen := initialDevice.Status.LastSeen
+
+			// Wait a bit to ensure timestamp difference
+			time.Sleep(100 * time.Millisecond)
+
+			// Execute: Run healthcheck on mix of existing and non-existent devices
+			deviceNames := []string{deviceName, "non-existent-device-1", "non-existent-device-2"}
+			err = devStore.Healthcheck(ctx, orgId, deviceNames)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Verify: Check that the existing device was updated
+			updatedDevice, err := devStore.Get(ctx, orgId, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(updatedDevice.Status.LastSeen).ToNot(BeNil())
+			Expect(updatedDevice.Status.LastSeen.After(*initialLastSeen)).To(BeTrue())
 		})
 	})
 
