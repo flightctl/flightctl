@@ -289,7 +289,7 @@ $ cat Containerfile
 
 FROM quay.io/centos-bootc/centos-bootc:stream9
 
-RUN dnf -y copr enable @redhat-et/flightctl && \
+RUN dnf -y config-manager --add-repo https://rpm.flightctl.io/flightctl-epel.repo && \
     dnf -y install flightctl-agent; \
     dnf -y clean all; \
     systemctl enable flightctl-agent.service
