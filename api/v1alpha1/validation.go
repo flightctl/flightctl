@@ -65,13 +65,7 @@ func (r DeviceSpec) Validate(fleetTemplate bool) []error {
 		allErrs = append(allErrs, fmt.Errorf("consoles are not supported through this api"))
 	}
 	if r.Os != nil {
-		containsParams, paramErrs := validateParametersInString(&r.Os.Image, "spec.os.image", fleetTemplate)
-		allErrs = append(allErrs, paramErrs...)
-		if !containsParams {
-			allErrs = append(allErrs, validation.ValidateOciImageReference(&r.Os.Image, "spec.os.image")...)
-		} else {
-			allErrs = append(allErrs, validation.ValidateOciImageReferenceWithTemplates(&r.Os.Image, "spec.os.image")...)
-		}
+		allErrs = append(allErrs, validateOciImageReference(&r.Os.Image, "spec.os.image", fleetTemplate)...)
 	}
 	if r.Config != nil {
 		allErrs = append(allErrs, validateConfigs(*r.Config, fleetTemplate)...)
@@ -883,7 +877,7 @@ func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []
 			if provider.Image == "" && app.Name == nil {
 				allErrs = append(allErrs, fmt.Errorf("image reference cannot be empty when application name is not provided"))
 			}
-			allErrs = append(allErrs, validation.ValidateOciImageReference(&provider.Image, fmt.Sprintf("spec.applications[%s].image", appName))...)
+			allErrs = append(allErrs, validateOciImageReference(&provider.Image, fmt.Sprintf("spec.applications[%s].image", appName), fleetTemplate)...)
 			volumes = provider.Volumes
 
 		case InlineApplicationProviderType:
@@ -915,7 +909,7 @@ func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []
 				seenVolumeNames[vol.Name] = struct{}{}
 
 				allErrs = append(allErrs, validation.ValidateString(&vol.Name, path+".name", 1, 253, validation.GenericNameRegexp, "")...)
-				allErrs = append(allErrs, validateVolume(vol, path)...)
+				allErrs = append(allErrs, validateVolume(vol, path, fleetTemplate)...)
 			}
 		}
 	}
@@ -923,7 +917,7 @@ func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []
 	return allErrs
 }
 
-func validateVolume(vol ApplicationVolume, path string) []error {
+func validateVolume(vol ApplicationVolume, path string, fleetTemplate bool) []error {
 	var errs []error
 
 	providerType, err := vol.Type()
@@ -937,7 +931,7 @@ func validateVolume(vol ApplicationVolume, path string) []error {
 		if err != nil {
 			errs = append(errs, fmt.Errorf("invalid image application volume provider: %w", err))
 		} else {
-			errs = append(errs, validation.ValidateOciImageReference(&imgProvider.Image.Reference, path+".image.reference")...)
+			errs = append(errs, validateOciImageReference(&imgProvider.Image.Reference, path+".image.reference", fleetTemplate)...)
 		}
 
 	default:
@@ -1073,6 +1067,20 @@ func validateGraceDuration(schedule cron.Schedule, duration string) error {
 	}
 
 	return nil
+}
+
+// validateOciImageReference validates an OCI image reference, with template support if fleetTemplate is true
+func validateOciImageReference(imageRef *string, path string, fleetTemplate bool) []error {
+	containsParams, paramErrs := validateParametersInString(imageRef, path, fleetTemplate)
+	allErrs := append([]error{}, paramErrs...)
+
+	if !containsParams {
+		allErrs = append(allErrs, validation.ValidateOciImageReference(imageRef, path)...)
+	} else {
+		allErrs = append(allErrs, validation.ValidateOciImageReferenceWithTemplates(imageRef, path)...)
+	}
+
+	return allErrs
 }
 
 func validateParametersInString(s *string, path string, fleetTemplate bool) (bool, []error) {
