@@ -1367,7 +1367,7 @@ var _ = Describe("DeviceStore create", func() {
 			// Check that status summary was set to waiting for connection
 			Expect(device.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusAwaitingReconnect))
 			Expect(device.Status.Summary.Info).ToNot(BeNil())
-			Expect(*device.Status.Summary.Info).To(Equal("Device is waiting for connection after restore"))
+			Expect(*device.Status.Summary.Info).To(Equal("Device has not reconnected since restore to confirm its current state."))
 
 			// Check that updated status was set to unknown
 			Expect(device.Status.Updated.Status).To(Equal(api.DeviceUpdatedStatusUnknown))
@@ -1416,7 +1416,7 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(updatedDevice.Status).ToNot(BeNil())
 			Expect(updatedDevice.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusAwaitingReconnect))
 			Expect(updatedDevice.Status.Summary.Info).ToNot(BeNil())
-			Expect(*updatedDevice.Status.Summary.Info).To(Equal("Device is waiting for connection after restore"))
+			Expect(*updatedDevice.Status.Summary.Info).To(Equal("Device has not reconnected since restore to confirm its current state."))
 
 			// Check that updated status was set to unknown
 			Expect(updatedDevice.Status.Updated.Status).To(Equal(api.DeviceUpdatedStatusUnknown))
@@ -1636,7 +1636,7 @@ var _ = Describe("DeviceStore create", func() {
 			// Should have status summary changed to awaiting reconnect
 			Expect(normalDeviceAfter.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusAwaitingReconnect), "Normal device SHOULD have status summary changed to AwaitingReconnect")
 			Expect(normalDeviceAfter.Status.Summary.Info).ToNot(BeNil())
-			Expect(*normalDeviceAfter.Status.Summary.Info).To(Equal("Device is waiting for connection after restore"))
+			Expect(*normalDeviceAfter.Status.Summary.Info).To(Equal("Device has not reconnected since restore to confirm its current state."))
 		})
 
 		It("PrepareDevicesAfterRestore properly clears last_seen column", func() {

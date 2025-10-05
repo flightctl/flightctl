@@ -59,7 +59,6 @@ func TestInitialization(t *testing.T) {
 			) {
 				gomock.InOrder(
 					mockExecutor.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "--version").Return("podman version 5.4.2", "", 0),
-					mockLifecycleInitializer.EXPECT().IsInitialized().Return(true),
 					mockSpecManager.EXPECT().Ensure().Return(nil),
 					mockStatusManager.EXPECT().Collect(gomock.Any()).Return(nil),
 					mockStatusManager.EXPECT().Get(gomock.Any()).Return(&v1alpha1.DeviceStatus{}),
@@ -92,7 +91,6 @@ func TestInitialization(t *testing.T) {
 				bootedOSVersion := "2.0.0"
 				gomock.InOrder(
 					mockExecutor.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "--version").Return("podman version 5.4.2", "", 0),
-					mockLifecycleInitializer.EXPECT().IsInitialized().Return(true),
 					mockSpecManager.EXPECT().Ensure().Return(nil),
 					mockStatusManager.EXPECT().Collect(gomock.Any()).Return(nil),
 					mockStatusManager.EXPECT().Get(gomock.Any()).Return(&v1alpha1.DeviceStatus{}),
@@ -125,8 +123,7 @@ func TestInitialization(t *testing.T) {
 			) {
 				gomock.InOrder(
 					mockExecutor.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "--version").Return("podman version 5.4.2", "", 0),
-					mockLifecycleInitializer.EXPECT().IsInitialized().Return(false),
-					mockSpecManager.EXPECT().Initialize(gomock.Any()).Return(nil),
+					mockSpecManager.EXPECT().Ensure().Return(nil),
 					mockStatusManager.EXPECT().Collect(gomock.Any()).Return(nil),
 					mockStatusManager.EXPECT().Get(gomock.Any()).Return(&v1alpha1.DeviceStatus{}),
 					mockLifecycleInitializer.EXPECT().Initialize(gomock.Any(), gomock.Any()).Return(nil),

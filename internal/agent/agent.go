@@ -217,6 +217,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.config.EnrollmentService.EnrollmentUIEndpoint,
 		a.config.ManagementService.GetClientCertificatePath(),
 		a.config.ManagementService.GetClientKeyPath(),
+		a.config.DataDir,
 		deviceReadWriter,
 		enrollmentClient,
 		csr,
@@ -334,9 +335,6 @@ func (a *Agent) Run(ctx context.Context) error {
 		backoff,
 		a.log,
 	)
-
-	// register agent with shutdown manager
-	shutdownManager.Register("agent", agent.Stop)
 
 	// register reloader with reload manager
 	reloadManager.Register(agent.ReloadConfig)

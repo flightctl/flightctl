@@ -198,6 +198,7 @@ PEM
 NSING
 multiline
 flightctl-api
+localhost
  - docs/user/api-resources.md
 approvedBy
 creationTimestamp
