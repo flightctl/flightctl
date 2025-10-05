@@ -431,9 +431,9 @@ echo "Flightctl Observability Stack uninstalled."
     SOURCE_GIT_COMMIT="%{?SOURCE_GIT_COMMIT:%{SOURCE_GIT_COMMIT}}%{!?SOURCE_GIT_COMMIT:%(echo %{version} | grep -o '[-~]g[0-9a-f]*' | sed 's/[-~]g//' || echo unknown)}" \
     SOURCE_GIT_TAG_NO_V="%{?SOURCE_GIT_TAG_NO_V:%{SOURCE_GIT_TAG_NO_V}}%{!?SOURCE_GIT_TAG_NO_V:%{version}}" \
     %if 0%{?rhel} == 9
-        %make_build build-cli build-agent
+        %make_build build-cli build-agent build-restore
     %else
-        DISABLE_FIPS="true" %make_build build-cli build-agent
+        DISABLE_FIPS="true" %make_build build-cli build-agent build-restore
     %endif
 
     # SELinux modules build
@@ -443,6 +443,7 @@ echo "Flightctl Observability Stack uninstalled."
     mkdir -p %{buildroot}/usr/bin
     mkdir -p %{buildroot}/etc/flightctl
     cp bin/flightctl %{buildroot}/usr/bin
+    cp bin/flightctl-restore %{buildroot}/usr/bin
     mkdir -p %{buildroot}/usr/lib/systemd/system
     mkdir -p %{buildroot}/%{_sharedstatedir}/flightctl
     mkdir -p %{buildroot}/usr/lib/flightctl/custom-info.d
@@ -578,6 +579,7 @@ fi
 
 %files cli -f licenses.list
     %{_bindir}/flightctl
+    %{_bindir}/flightctl-restore
     %license LICENSE
     %{_datadir}/bash-completion/completions/flightctl-completion.bash
     %{_datadir}/fish/vendor_completions.d/flightctl-completion.fish
