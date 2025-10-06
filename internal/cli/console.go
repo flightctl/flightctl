@@ -181,6 +181,7 @@ func (o *ConsoleOptions) buildURL(baseURL, metadata string) (string, error) {
 	// Create query parameters
 	query := url.Values{}
 	query.Set(api.DeviceQueryConsoleSessionMetadata, metadata)
+	query.Set(api.OrganizationIDQueryKey, o.GetEffectiveOrganization())
 
 	// Encode the query parameters and attach them to the URL
 	u.RawQuery = query.Encode()
