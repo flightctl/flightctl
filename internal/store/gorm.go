@@ -12,7 +12,6 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel/trace"
-	"go.opentelemetry.io/otel/trace/noop"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -85,9 +84,11 @@ func initDBWithUser(cfg *config.Config, log *logrus.Logger, user string, passwor
 		klog.Infof("PostgreSQL server_version: %s", serverVersion)
 	}
 
-	if err = newDB.Use(NewTraceContextEnforcer()); err != nil {
-		klog.Fatalf("failed to register OpenTelemetry GORM plugin: %v", err)
-		return nil, err
+	if cfg.Tracing != nil && cfg.Tracing.Enabled {
+		if err = newDB.Use(NewTraceContextEnforcer()); err != nil {
+			klog.Fatalf("failed to register OpenTelemetry GORM plugin: %v", err)
+			return nil, err
+		}
 	}
 
 	traceOpts := []tracing.Option{
@@ -141,8 +142,7 @@ func WithBypassSpanCheck(ctx context.Context) context.Context {
 	return context.WithValue(ctx, bypassSpanCheckKey{}, true)
 }
 
-type traceContextEnforcer struct {
-}
+type traceContextEnforcer struct{}
 
 func NewTraceContextEnforcer() gorm.Plugin {
 	return &traceContextEnforcer{}
@@ -180,7 +180,7 @@ func (p *traceContextEnforcer) enforce() func(tx *gorm.DB) {
 		ctx := tx.Statement.Context
 		if !isBypassSpanCheck(ctx) {
 			span := trace.SpanFromContext(ctx)
-			if !span.SpanContext().IsValid() && !isNoopSpan(span) {
+			if !span.SpanContext().IsValid() {
 				msg := "missing tracing span in GORM context"
 				if value := os.Getenv("GORM_TRACE_ENFORCE_FATAL"); value != "" {
 					debug.PrintStack()
@@ -198,10 +198,4 @@ func isBypassSpanCheck(ctx context.Context) bool {
 	val := ctx.Value(bypassSpanCheckKey{})
 	bypass, _ := val.(bool)
 	return bypass
-}
-
-// IsNoopSpan checks if the given span is a no-op span (e.g., from an uninitialized tracer).
-func isNoopSpan(span trace.Span) bool {
-	_, ok := span.(noop.Span)
-	return ok
 }

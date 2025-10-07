@@ -237,7 +237,7 @@ sudo podman logs flightctl-api
 The service Quadlets are also available to install via an RPM.  Installation steps for the latest release:
 
 ```bash
-sudo dnf copr enable -y @redhat-et/flightctl
+sudo dnf config-manager --add-repo https://rpm.flightctl.io/flightctl-epel.repo
 sudo dnf install -y flightctl-services
 sudo systemctl start flightctl.target
 sudo systemctl enable flightctl.target # To enable starting on reboot

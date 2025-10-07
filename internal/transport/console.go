@@ -10,7 +10,6 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
-	"github.com/flightctl/flightctl/internal/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
 )
@@ -29,7 +28,6 @@ func (h *WebsocketHandler) injectProtocolsToMetadata(metadataStr string, protoco
 }
 
 func (h *WebsocketHandler) HandleDeviceConsole(w http.ResponseWriter, r *http.Request) {
-	orgId := store.NullOrgId
 	deviceName := chi.URLParam(r, "name")
 
 	h.log.Infof("websocket console connection requested for device: %s", deviceName)
@@ -42,7 +40,7 @@ func (h *WebsocketHandler) HandleDeviceConsole(w http.ResponseWriter, r *http.Re
 		http.Error(w, "protocols injection error", http.StatusInternalServerError)
 		return
 	}
-	consoleSession, err := h.consoleSessionManager.StartSession(r.Context(), orgId, deviceName, metadata)
+	consoleSession, err := h.consoleSessionManager.StartSession(r.Context(), deviceName, metadata)
 	// check for errors
 	if err != nil {
 		switch {

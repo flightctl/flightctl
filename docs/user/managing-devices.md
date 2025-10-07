@@ -378,6 +378,48 @@ You can now reference this Repository when you configure devices. For example, t
 | TargetRevision | production |
 | Path | /factory-a |
 
+#### Configuring SSH Access for Private Repositories  
+  
+If your Git repository requires SSH authentication, you need to configure SSH known hosts to ensure secure connections.
+
+First, create a `known_hosts` file containing the SSH host keys for your Git server. You can obtain these keys by running:
+
+```console
+ssh-keyscan github.com >> known_hosts
+ssh-keyscan gitlab.com >> known_hosts
+ssh-keyscan private-git-server.com >> known_hosts
+```
+
+Example `known_hosts` file content:
+
+```text
+github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
+```
+
+Once you have created the `known_hosts` file, deploy it to Flight Control based on your deployment method:
+
+**For Helm deployments:** Use `--set-file` to include the `known_hosts` file in your deployment:
+
+```console
+helm upgrade --install --version=<version-to-install> \
+    --namespace flightctl --create-namespace \
+    flightctl oci://quay.io/flightctl/charts/flightctl \
+    --set-file global.sshKnownHosts.data=known_hosts
+```
+
+**For Quadlet deployments:** Place the file on the host at `/etc/flightctl/ssh/known_hosts`:
+
+```console
+sudo install -m 0644 known_hosts /etc/flightctl/ssh/known_hosts
+```
+
+> [!NOTE]
+> If the services are already running and you're updating the configuration, restart them to apply the changes:
+>
+> ```console
+> sudo systemctl restart flightctl-worker.service flightctl-periodic.service
+> ```
+
 ### Getting Secrets from a Kubernetes Cluster
 
 You can let Flight Control query the Kubernetes cluster it is running on for a Kubernetes Secret. The content of that Secret can then be written to a path on the device file system.

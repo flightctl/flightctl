@@ -82,8 +82,8 @@ wait_for_database() {
     podman_args+=("--timeout=${DB_WAIT_TIMEOUT}" "--sleep=${DB_WAIT_SLEEP}")
 
     if ! "${PODMAN}" run "${podman_args[@]}"; then
-        echo "[flightctl] database wait failed; skipping dry-run"
-        exit 0
+        echo "[flightctl] database is not ready; aborting pre-upgrade dry-run and stopping upgrade"
+        exit 1
     fi
 }
 

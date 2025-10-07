@@ -67,8 +67,11 @@ func TestManager(t *testing.T) {
 
 					// remove current app
 					mockExecPodmanNetworkList(mockExec, "app-remove"),
+					mockExecPodmanPodList(mockExec, "app-remove"),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"stop", "--filter", "label=com.docker.compose.project=" + id}).Return("", "", 0),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"rm", "--filter", "label=com.docker.compose.project=" + id}).Return("", "", 0),
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"pod", "rm", "pod123"}).Return("", "", 0),
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"network", "rm", "network123"}).Return("", "", 0),
 
 					// AfterUpdate call should NOT trigger podman events since there are no applications
 					// mockExecPodmanEvents(mockExec),
@@ -92,8 +95,11 @@ func TestManager(t *testing.T) {
 
 					// stop and remove current app
 					mockExecPodmanNetworkList(mockExec, "app-update"),
+					mockExecPodmanPodList(mockExec, "app-update"),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"stop", "--filter", "label=com.docker.compose.project=" + id}).Return("", "", 0),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"rm", "--filter", "label=com.docker.compose.project=" + id}).Return("", "", 0),
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"pod", "rm", "pod123"}).Return("", "", 0),
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"network", "rm", "network123"}).Return("", "", 0),
 
 					// start desired app
 					mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil).AnyTimes(),
@@ -196,8 +202,11 @@ func TestManagerRemoveApplication(t *testing.T) {
 
 		// remove current app during syncProviders
 		mockExecPodmanNetworkList(mockExec, "app-remove"),
+		mockExecPodmanPodList(mockExec, "app-remove"),
 		mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"stop", "--filter", "label=com.docker.compose.project=" + id}).Return("", "", 0),
 		mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"rm", "--filter", "label=com.docker.compose.project=" + id}).Return("", "", 0),
+		mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"pod", "rm", "pod123"}).Return("", "", 0),
+		mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"network", "rm", "network123"}).Return("", "", 0),
 		// Monitor stops during second AfterUpdate when no apps remain (no mock needed)
 	)
 
@@ -284,7 +293,22 @@ func mockExecPodmanNetworkList(mockExec *executer.MockExecuter, name string) *go
 				"--filter", "label=com.docker.compose.project=" + client.NewComposeID(name),
 			},
 		).
-		Return("", "", 0)
+		Return("network123", "", 0)
+}
+
+func mockExecPodmanPodList(mockExec *executer.MockExecuter, name string) *gomock.Call {
+	return mockExec.
+		EXPECT().
+		ExecuteWithContext(
+			gomock.Any(),
+			"podman",
+			[]string{
+				"ps", "-a",
+				"--format", "{{.Pod}}",
+				"--filter", "label=com.docker.compose.project=" + client.NewComposeID(name),
+			},
+		).
+		Return("pod123", "", 0)
 }
 
 type testInlineDetails struct {
