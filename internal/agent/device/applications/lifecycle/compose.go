@@ -95,7 +95,7 @@ func (c *Compose) update(ctx context.Context, action *Action) error {
 	return nil
 }
 
-// stopAndRemoveContainers stops and removes all containers and networks created by the compose application.
+// stopAndRemoveContainers stops and removes all containers, pods, and networks created by the compose application.
 func (c *Compose) stopAndRemoveContainers(ctx context.Context, action *Action) error {
 	var errs []error
 
@@ -107,10 +107,18 @@ func (c *Compose) stopAndRemoveContainers(ctx context.Context, action *Action) e
 		errs = append(errs, err)
 	}
 
+	pods, err := c.podman.ListPods(ctx, labels)
+	if err != nil {
+		errs = append(errs, err)
+	}
+
 	if err := c.podman.StopContainers(ctx, labels); err != nil {
 		errs = append(errs, err)
 	}
 	if err := c.podman.RemoveContainer(ctx, labels); err != nil {
+		errs = append(errs, err)
+	}
+	if err := c.podman.RemovePods(ctx, pods...); err != nil {
 		errs = append(errs, err)
 	}
 	if err := c.podman.RemoveNetworks(ctx, networks...); err != nil {
