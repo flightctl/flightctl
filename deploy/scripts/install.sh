@@ -96,6 +96,13 @@ render_files() {
     mkdir -p "${CONFIG_WRITEABLE_DIR}/flightctl-ui"
     mkdir -p "${CONFIG_WRITEABLE_DIR}/flightctl-cli-artifacts"
     mkdir -p "${CONFIG_WRITEABLE_DIR}/flightctl-alertmanager-proxy"
+    mkdir -p "${CONFIG_WRITEABLE_DIR}/ssh"
+
+    # Create an empty known_hosts file if it doesn't exist
+    if [ ! -f "${CONFIG_WRITEABLE_DIR}/ssh/known_hosts" ]; then
+        touch "${CONFIG_WRITEABLE_DIR}/ssh/known_hosts"
+        chmod 644 "${CONFIG_WRITEABLE_DIR}/ssh/known_hosts"
+    fi
 
     move_shared_files "${SOURCE_DIR}"
 }
