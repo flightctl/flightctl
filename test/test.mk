@@ -113,7 +113,7 @@ _run_template_migration:
     test/scripts/run_migration.sh \
 	'
 
-deploy-e2e-extras: bin/.ssh/id_rsa.pub bin/e2e-certs/ca.pem
+deploy-e2e-extras: bin/.ssh/id_rsa.pub bin/e2e-certs/ca.pem git-server-container
 	test/scripts/deploy_e2e_extras_with_helm.sh
 
 deploy-e2e-ocp-test-vm:
