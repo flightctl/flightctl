@@ -618,8 +618,10 @@ rm -rf /usr/share/sosreport
     %dir %{_sysconfdir}/flightctl/flightctl-ui
     %dir %{_sysconfdir}/flightctl/flightctl-cli-artifacts
     %dir %{_sysconfdir}/flightctl/flightctl-alertmanager-proxy
+    %dir %{_sysconfdir}/flightctl/ssh
     %config(noreplace) %{_sysconfdir}/flightctl/service-config.yaml
     %config(noreplace) %{_sysconfdir}/flightctl/flightctl-services-install.conf
+    %config(noreplace) %{_sysconfdir}/flightctl/ssh/known_hosts
 
     # Files mounted to data dir
     %dir %attr(0755,root,root) %{_datadir}/flightctl
