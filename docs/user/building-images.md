@@ -146,11 +146,15 @@ RUN dnf -y config-manager --add-repo https://rpm.flightctl.io/flightctl-epel.rep
 ADD config.yaml /etc/flightctl/
 ```
 
-You also need to log in to the Red Hat registry before building your image:
-
-```console
-sudo podman login registry.redhat.io
-```
+> [!IMPORTANT]
+> To build RHEL-based bootc images, the build host itself must be a registered RHEL or Fedora system
+> that has access to Red Hat content through subscription-manager.
+>
+> You also need to log in to the Red Hat registry before building your image:
+>
+> ```console
+> sudo podman login registry.redhat.io
+> ```
 
 ### Signing and Publishing the OS Image (bootc)
 
