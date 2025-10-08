@@ -297,3 +297,21 @@ download_brew_rpms() {
     cd - > /dev/null
     return 0
 }
+
+# Function to ensure an organization is selected in the CLI context
+# If no organization is currently set, it will automatically select the first available one
+function ensure_organization_set() {
+    local current_org
+    current_org=$(./bin/flightctl config current-organization -o id-only 2>/dev/null || echo "")
+
+    if [ -z "$current_org" ]; then
+        echo "No organization currently set, selecting first available organization"
+        local org_id
+        org_id=$(./bin/flightctl get organizations | awk 'NR==2 {print $1}')
+        ./bin/flightctl config set-organization "$org_id"
+        echo "Set organization to: $org_id"
+    else
+        echo "Organization already set to: $current_org"
+    fi
+    return 0
+}
