@@ -67,7 +67,7 @@ The Flight Control API server needs TPM manufacturer CA certificates to validate
 
 ### TPM Manufacturer CA Certificates
 
-Several [well-known](https://trustedcomputinggroup.org/membership/certification/tpm-certified-products/) discrete [TPM manufacturer certificates](../../tpm-manufacturer-certs) have been downloaded for use. They are provided in PEM format to be directly compatible with Flight Control services, and contain metadata indicating their download URL and when they were downloaded.
+Several [well-known](https://trustedcomputinggroup.org/membership/certification/tpm-certified-products/) discrete [TPM manufacturer certificates](https://github.com/flightctl/flightctl/tree/main/tpm-manufacturer-certs) have been downloaded for use. They are provided in PEM format to be directly compatible with Flight Control services, and contain metadata indicating their download URL and when they were downloaded.
 
 - **Infineon**
   - [TPM Product Page](https://www.infineon.com/products/security-smart-card-solutions/optiga-embedded-security-solutions/optiga-tpm). Each product's documents were inspected and individual intermediate certificates were pulled. Root certificates were obtained via following the AIA chain in the intermediate certs.
@@ -221,7 +221,7 @@ service:
 > [!NOTE]
 > Different TPM manufacturers provide their CA certificates in various locations:
 >
-> - **Infineon**: <https://www.infineon.com/cms/en/product/security-smart-card-solutions/optiga-embedded-security-solutions/>
+> - **Infineon**: [https://www.infineon.com/cms/en/product/security-smart-card-solutions/optiga-embedded-security-solutions/](https://www.infineon.com/cms/en/product/security-smart-card-solutions/optiga-embedded-security-solutions/)
 > - **STMicroelectronics**: See [Technical Note TN1330](https://www.st.com/resource/en/technical_note/tn1330-st-trusted-platform-module-tpm-endorsement-key-ek-certificates-stmicroelectronics.pdf) for certificates
 > - **Nuvoton**: Available through Nuvoton support portal
 

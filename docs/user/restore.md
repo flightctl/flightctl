@@ -312,8 +312,8 @@ echo "Database container file: $DB_CONTAINER_FILE"
 echo "KV store container file: $KV_CONTAINER_FILE"
 
 # Derive drop-in directories from source paths
-DB_DROPIN_DIR=$(dirname "$DB_CONTAINER_FILE").d
-KV_DROPIN_DIR=$(dirname "$KV_CONTAINER_FILE").d
+DB_DROPIN_DIR="${DB_CONTAINER_FILE}.d"
+KV_DROPIN_DIR="${KV_CONTAINER_FILE}.d"
 
 echo "Database drop-in directory: $DB_DROPIN_DIR"
 echo "KV store drop-in directory: $KV_DROPIN_DIR"
@@ -372,8 +372,8 @@ echo "Database container file: $DB_CONTAINER_FILE"
 echo "KV store container file: $KV_CONTAINER_FILE"
 
 # Derive drop-in directories from source paths
-DB_DROPIN_DIR=$(dirname "$DB_CONTAINER_FILE").d
-KV_DROPIN_DIR=$(dirname "$KV_CONTAINER_FILE").d
+DB_DROPIN_DIR="${DB_CONTAINER_FILE}.d"
+KV_DROPIN_DIR="${KV_CONTAINER_FILE}.d"
 
 echo "Database drop-in directory: $DB_DROPIN_DIR"
 echo "KV store drop-in directory: $KV_DROPIN_DIR"

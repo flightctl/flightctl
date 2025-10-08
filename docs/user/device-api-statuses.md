@@ -8,7 +8,7 @@ The Device Status represents the availability and health of the device's hardwar
 
 The `device.status.summary` field can have the following values:
 
-| Status              | Description                                                                                                                            | Formal Definition<sup>1</sub> |
+| Status              | Description                                                                                                                            | Formal Definition<sup>1</sup> |
 |---------------------|----------------------------------------------------------------------------------------------------------------------------------------| ----------------------------- |
 | `Online`            | All hardware resources and operating system services are reported to be healthy.                                                       | `!deviceIsDisconnected && !deviceIsRebooting && ∀ r∈{CPU, Memory, Disk}, status.resources[r]∈{Healthy}` |
 | `Degraded`          | One or more hardware resources or operating system services are reported to be degraded but in a still functional or recovering state. | `!deviceIsDisconnected && !deviceIsRebooting && ∀ r∈{CPU, Memory, Disk}, status.resources[r]∉{Error, Critical} && ∃ r∈{CPU, Memory, Disk}, status.resources[r]∈{Degraded}` |
@@ -79,7 +79,7 @@ The Device Update Status represents whether the device's currently running speci
 
 The `device.status.updated.status` field can have the following values:
 
-| Status | Description | Formal Definition<sup>1</sub> |
+| Status | Description | Formal Definition<sup>1</sup> |
 | ------ | ----------- | ----------------------------- |
 | `UpToDate` | The device is updated to its device spec. If the device is member of a fleet, its device spec is at the same template version as its fleet's device template. | `!deviceIsUpdating && deviceIsUpdatedToDeviceSpec && (deviceIsNotManaged \|\| deviceIsUpdatedToFleetSpec)` |
 | `Updating` | The device is in the process of updating to its device spec. | `deviceIsUpdating` |
@@ -168,7 +168,7 @@ The Application Status represents a summary of the availability and health of al
 
 The `device.status.applicationSummary` field can have the following values:
 
-| Status | Description | Formal Definition<sup>1</sub> |
+| Status | Description | Formal Definition<sup>1</sup> |
 | ------ | ----------- | ----------------------------- |
 | `Healthy` | All applications are reported to be in service or have successfully completed. | `!deviceIsDisconnected && ∀ a∈status.applications, status.applications[a]∈{Running, Completed}` |
 | `Degraded` | One or more applications are reported to not be in service but still in a starting or recovering state. | `!deviceIsDisconnected && ∀ a∈status.applications, status.applications[a]∉{Error} && ∃ a∈status.applications, status.applications[a]∈{Preparing, Starting}` |
