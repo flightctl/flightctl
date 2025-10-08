@@ -1,6 +1,6 @@
-# FlightCtl Standalone Observability Stack
+# Flight Control Standalone Observability Stack
 
-This comprehensive guide covers the complete FlightCtl observability stack, including installation, configuration, management, and troubleshooting.
+This comprehensive guide covers the complete Flight Control observability stack, including installation, configuration, management, and troubleshooting.
 
 ## Table of Contents
 
@@ -16,13 +16,13 @@ This comprehensive guide covers the complete FlightCtl observability stack, incl
 
 ## Overview
 
-FlightCtl provides flexible observability solutions to meet different deployment scenarios. The system supports two main use cases:
+Flight Control provides flexible observability solutions to meet different deployment scenarios. The system supports two main use cases:
 
 ### Use Case 1: External Observability Stack Integration
 
-**Scenario**: You already have an existing observability stack (Prometheus, Grafana, Jaeger, etc.) and want to integrate FlightCtl telemetry into it.
+**Scenario**: You already have an existing observability stack (Prometheus, Grafana, Jaeger, etc.) and want to integrate Flight Control telemetry into it.
 
-**Solution**: Deploy only the **Telemetry Gateway** as a bridge between FlightCtl and your external observability infrastructure.
+**Solution**: Deploy only the **Telemetry Gateway** as a bridge between Flight Control and your external observability infrastructure.
 
 **Benefits**:
 
@@ -33,7 +33,7 @@ FlightCtl provides flexible observability solutions to meet different deployment
 
 ### Use Case 2: Standalone Observability Stack
 
-**Scenario**: You need a complete, self-contained observability solution for FlightCtl.
+**Scenario**: You need a complete, self-contained observability solution for Flight Control.
 
 **Solution**: Deploy the **full observability stack** including:
 
@@ -45,13 +45,13 @@ FlightCtl provides flexible observability solutions to meet different deployment
 **Benefits**:
 
 - Complete out-of-the-box monitoring solution
-- Pre-configured FlightCtl dashboards
+- Pre-configured Flight Control dashboards
 - Integrated authentication with AAP
 - No external dependencies
 
 All components run as Podman containers managed by systemd, providing enterprise-grade reliability and integration with existing infrastructure.
 
-**Important**: Both the standalone Telemetry Gateway and the full observability stack can be installed and operated independently without requiring core FlightCtl services (flightctl-api, flightctl-worker, flightctl-db, flightctl-kv) to be running. This allows you to set up observability infrastructure before or alongside your main FlightCtl deployment.
+**Important**: Both the standalone Telemetry Gateway and the full observability stack can be installed and operated independently without requiring core Flight Control services (`flightctl-api`, `flightctl-worker`, `flightctl-db`, `flightctl-kv`) to be running. This allows you to set up observability infrastructure before or alongside your main Flight Control deployment.
 
 ## Service Management
 
@@ -102,7 +102,7 @@ sudo systemctl restart flightctl-observability.target  # Apply changes
 
 ```text
 ┌─────────────────────────────────────────────────────────────────┐
-│                    FlightCtl Observability Stack                │
+│                    Flight Control Observability Stack           │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
 │  ┌─────────────┐    ┌──────────────┐    ┌─────────────────────┐ │
@@ -149,26 +149,26 @@ External Access (Published Ports)
 - **Internal Communication**: Containers communicate via container names (e.g., `flightctl-prometheus:9090`)
 - **External Access**: Telemetry Gateway always exposes external ports; Grafana only in full stack mode
 - **Security**: Prometheus and UserInfo proxy are internal-only for security
-- **Network Isolation**: All components isolated within the flightctl network
+- **Network Isolation**: All components isolated within the `flightctl` network
 - **Flexibility**: Telemetry Gateway can forward data to external systems or internal Prometheus
 
 **Network Configuration:**
 
-The observability services use the shared `flightctl` Podman network that is managed by the core FlightCtl services. This network:
+The observability services use the shared `flightctl` Podman network that is managed by the core Flight Control services. This network:
 
-- Provides integration with other FlightCtl services
+- Provides integration with other Flight Control services
 - Enables secure internal communication between observability components
 - Allows containers to reference each other by name (e.g., `flightctl-prometheus:9090`)
-- Is created and managed by the core FlightCtl services package
-- Is shared between all FlightCtl components including observability services
+- Is created and managed by the core `flightctl-services` package
+- Is shared between all Flight Control components including observability services
 
 ## Installation Order
 
-The observability services require the `flightctl` network from the core FlightCtl services, but you have flexibility in installation order:
+The observability services require the `flightctl` network from the core Flight Control services, but you have flexibility in installation order:
 
 ### Option 1: Services First (Recommended)
 
-1. Install core FlightCtl services (`flightctl-services`) to create the `flightctl` network
+1. Install core Flight Control services (`flightctl-services`) to create the `flightctl` network
 2. Install observability services (`flightctl-telemetry-gateway` or `flightctl-observability`)
 3. Run `sudo flightctl-render-observability` to generate configuration files
 4. Start observability services with systemd targets
@@ -187,7 +187,7 @@ The observability services require the `flightctl` network from the core FlightC
 
 ### Scenario 1: External Observability Stack Integration
 
-**When to Use**: You already have an existing observability infrastructure (Prometheus, Grafana, Jaeger, etc.) and want to integrate FlightCtl telemetry into it.
+**When to Use**: You already have an existing observability infrastructure (Prometheus, Grafana, Jaeger, etc.) and want to integrate Flight Control telemetry into it.
 
 **Components Included**:
 
@@ -198,7 +198,7 @@ The observability services require the `flightctl` network from the core FlightC
 - Podman and systemd installed
 - External observability stack configured to receive OTLP data
 
-**Note**: Telemetry Gateway requires the `flightctl` network, which is provided by the core FlightCtl services package
+**Note**: Telemetry Gateway requires the `flightctl` network, which is provided by the `flightctl-services` package
 
 **Installation**:
 
@@ -244,7 +244,7 @@ observability:
 
 ### Scenario 2: Standalone Observability Stack
 
-**When to Use**: You need a complete, self-contained observability solution for FlightCtl without external dependencies.
+**When to Use**: You need a complete, self-contained observability solution for Flight Control without external dependencies.
 
 **Components Included**:
 
@@ -257,7 +257,7 @@ observability:
 
 - Podman and systemd installed
 
-**Note**: Observability stack requires the `flightctl` network from the core FlightCtl services package
+**Note**: Observability stack requires the `flightctl` network from the `flightctl-services` package
 
 **Installation**:
 
@@ -303,7 +303,7 @@ sudo systemctl enable flightctl-observability.target
 
 **Key Features**:
 
-- Pre-configured FlightCtl dashboards
+- Pre-configured Flight Control dashboards
 - OAuth integration with identity providers
 - HTTPS support with custom certificates
 - Automatic Prometheus data source configuration
@@ -342,7 +342,7 @@ observability:
 
 **Key Features**:
 
-- Automatic FlightCtl service discovery
+- Automatic Flight Control service discovery
 - Configurable retention policies
 - Built-in query interface
 - Integration with Grafana
@@ -362,11 +362,11 @@ observability:
     # No published_port - internal only
 ```
 
-**Note**: Prometheus configuration is automatically generated to scrape FlightCtl services and the OpenTelemetry collector.
+**Note**: Prometheus configuration is automatically generated to scrape Flight Control services and the OpenTelemetry collector.
 
 ### Telemetry Gateway
 
-**Purpose**: FlightCtl-specific telemetry data collection, processing, and forwarding with device authentication and attribute enrichment.
+**Purpose**: Flight Control-specific telemetry data collection, processing, and forwarding with device authentication and attribute enrichment.
 
 **Key Features**:
 
@@ -511,7 +511,7 @@ observability:
 
 ### Configuration Management System
 
-FlightCtl separates configuration management from service management for better control.
+Flight Control separates configuration management from service management for better control.
 
 #### Configuration Rendering
 
@@ -923,7 +923,7 @@ observability:
 
 ## Configuration Reference
 
-This section provides detailed documentation for every configuration variable available in the FlightCtl observability stack.
+This section provides detailed documentation for every configuration variable available in the Flight Control observability stack.
 
 ### Grafana Configuration Variables
 
@@ -1048,14 +1048,14 @@ This section provides detailed documentation for every configuration variable av
 
 - **Type**: String
 - **Default**: `quay.io/flightctl/flightctl-telemetry-gateway:latest`
-- **Description**: Container image for FlightCtl Telemetry Gateway. This is a specialized OpenTelemetry collector with device authentication and attribute enrichment.
+- **Description**: Container image for Flight Control Telemetry Gateway. This is a specialized OpenTelemetry collector with device authentication and attribute enrichment.
 - **Example**: `quay.io/flightctl/flightctl-telemetry-gateway:v1.0.0`
 
 **`observability.telemetry_gateway.grpc_port`**
 
 - **Type**: Integer
 - **Default**: `4317`
-- **Description**: External port for OpenTelemetry gRPC receiver. FlightCtl agents send telemetry data to this port using OTLP/gRPC protocol.
+- **Description**: External port for OpenTelemetry gRPC receiver. Flight Control agents send telemetry data to this port using OTLP/gRPC protocol.
 - **Example**: `14317`
 
 **`observability.telemetry_gateway.prometheus_port`**
