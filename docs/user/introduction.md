@@ -50,9 +50,9 @@ Features and use cases Flight Control aims to support:
 Flight Control consists of the highlighted components show in the following high-level architecture diagram:
 
 <picture>
-  <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/flightctl/flightctl/main/docs/images/flightctl-highlevel-architecture.svg">
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/flightctl/flightctl/main/docs/images/flightctl-highlevel-architecture-dark.svg">
-  <img alt="Flight Control architecture diagram" src="https://raw.githubusercontent.com/flightctl/flightctl/main/docs/images/flightctl-highlevel-architecture.svg">
+  <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/flightctl/flightctl/main/docs/images/flightctl-highlevel-architecture.svg"/>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/flightctl/flightctl/main/docs/images/flightctl-highlevel-architecture-dark.svg"/>
+  <img alt="Flight Control architecture diagram" src="https://raw.githubusercontent.com/flightctl/flightctl/main/docs/images/flightctl-highlevel-architecture.svg"/>
 </picture>
 
 The Flight Control Service consists of an API server, worker processes (not shown), and a PostgreSQL database for storing inventory and runtime information such as the current target configuration and the reported actual configuration. The API server exposes two endpoints:

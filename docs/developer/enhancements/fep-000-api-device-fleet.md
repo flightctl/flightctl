@@ -265,7 +265,7 @@ This means that the fleet-controller is the only one being able to claim a devic
 or to release a device claimed by a fleet.
 
 External controllers dealing with devices can only set the `metadata.owner` field
-to the authentication-allowed {owner} namespace.
+to the authentication-allowed `{owner}` namespace.
 
 If a fleet matches this device, and the device has empty `metadata.owner` the fleet controller
 will claim the device, by setting `metadata.owner` to `Fleet/{fleet-name}`.

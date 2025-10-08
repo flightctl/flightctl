@@ -364,7 +364,7 @@ Add this line to the `[Container]` section of each file:
 Volume=/etc/flightctl/ssl/postgres:/etc/ssl/postgres:ro,Z
 ```
 
-**Example for flightctl-api.container:**
+**Example for `flightctl-api.container`:**
 
 ```ini
 [Container]
