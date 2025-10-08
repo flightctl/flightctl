@@ -85,7 +85,7 @@ func (r DeviceSpec) Validate(fleetTemplate bool) []error {
 		for _, resource := range *r.Resources {
 			allErrs = append(allErrs, resource.Validate()...)
 		}
-		
+
 		// Cross-resource validation
 		allErrs = append(allErrs, validateResourceMonitor(*r.Resources)...)
 	}
