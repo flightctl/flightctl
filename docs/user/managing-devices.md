@@ -410,7 +410,6 @@ helm upgrade --install --version=<version-to-install> \
 **For Quadlet deployments:** Place the file on the host at `/etc/flightctl/ssh/known_hosts`:
 
 ```console
-sudo mkdir -p /etc/flightctl/ssh
 sudo install -m 0644 known_hosts /etc/flightctl/ssh/known_hosts
 ```
 
