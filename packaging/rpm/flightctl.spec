@@ -465,20 +465,6 @@ echo "Flightctl Observability Stack uninstalled."
 
     install -Dpm 0644 packaging/flightctl-services-install.conf %{buildroot}%{_sysconfdir}/flightctl/flightctl-services-install.conf
 
-    rm -f licenses.list
-
-    find . -type f -name LICENSE -or -name License | while read LICENSE_FILE; do
-        echo "%{_datadir}/licenses/%{NAME}/${LICENSE_FILE}" >> licenses.list
-    done
-    mkdir -vp "%{buildroot}%{_datadir}/licenses/%{NAME}"
-    cp LICENSE "%{buildroot}%{_datadir}/licenses/%{NAME}"
-
-    mkdir -vp "%{buildroot}%{_docdir}/%{NAME}"
-
-    for DOC in docs examples .markdownlint-cli2.yaml README.md; do
-        cp -vr "${DOC}" "%{buildroot}%{_docdir}/%{NAME}/${DOC}"
-    done
-
     # flightctl-services sub-package steps
     # Run the install script to move the quadlet files.
     #
@@ -577,7 +563,7 @@ fi
 # File listings
 # No %%files section for the main package, so it won't be built
 
-%files cli -f licenses.list
+%files cli
     %{_bindir}/flightctl
     %{_bindir}/flightctl-restore
     %license LICENSE
@@ -585,7 +571,7 @@ fi
     %{_datadir}/fish/vendor_completions.d/flightctl-completion.fish
     %{_datadir}/zsh/site-functions/_flightctl-completion
 
-%files agent -f licenses.list
+%files agent
     %license LICENSE
     %dir /etc/flightctl
     %{_bindir}/flightctl-agent
@@ -594,8 +580,6 @@ fi
     /usr/lib/systemd/system/flightctl-agent.service
     %{_sharedstatedir}/flightctl
     /usr/lib/greenboot/check/required.d/20_check_flightctl_agent.sh
-    %{_docdir}/%{NAME}/*
-    %{_docdir}/%{NAME}/.markdownlint-cli2.yaml
     /usr/share/sosreport/flightctl.py
 
 %post agent
