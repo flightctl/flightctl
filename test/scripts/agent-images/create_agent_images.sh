@@ -196,7 +196,7 @@ build_qcow2_image() {
                     quay.io/centos-bootc/bootc-image-builder:latest \
                     build \
                     --type qcow2 \
-                    --local "${REGISTRY_ADDRESS}/flightctl-device:base"
+                    "${REGISTRY_ADDRESS}/flightctl-device:base"
     if is_acm_installed; then
         sudo qemu-img resize "$(pwd)"/bin/output/qcow2/disk.qcow2 +5G # increasing disk size for microshift registration to acm test only
     fi
