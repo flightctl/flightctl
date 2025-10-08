@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	_ "embed"
 	"encoding/pem"
 	"fmt"
 	"net/http"
@@ -19,6 +20,8 @@ import (
 	agent_client "github.com/flightctl/flightctl/internal/api/client/agent"
 	base_client "github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/tpm"
+	fccrypto "github.com/flightctl/flightctl/pkg/crypto"
+	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/samber/lo"
 	"google.golang.org/grpc"
@@ -38,6 +41,7 @@ type tpmProvider struct {
 	certificateData []byte
 	clientCertPath  string
 	rw              fileio.ReadWriter
+	exec            executer.Executer
 }
 
 // newTPMProvider creates a new TPM-based identity provider
@@ -46,6 +50,7 @@ func newTPMProvider(
 	config *agent_config.Config,
 	clientCertPath string,
 	rw fileio.ReadWriter,
+	exec executer.Executer,
 	log *log.PrefixLogger,
 ) *tpmProvider {
 	return &tpmProvider{
@@ -53,6 +58,7 @@ func newTPMProvider(
 		config:         config,
 		clientCertPath: clientCertPath,
 		rw:             rw,
+		exec:           exec,
 		log:            log,
 	}
 }
@@ -80,6 +86,10 @@ func (t *tpmExportableProvider) NewExportable(name string) (*Exportable, error) 
 }
 
 func (t *tpmProvider) Initialize(ctx context.Context) error {
+	if err := t.initializeTPMCredential(ctx); err != nil {
+		return fmt.Errorf("failed to initialize TPM credential: %w", err)
+	}
+
 	publicKey := t.client.Public()
 	if publicKey == nil {
 		return fmt.Errorf("failed to get public key from TPM")
@@ -337,6 +347,67 @@ func (t *tpmProvider) HasCertificate() bool {
 		return false
 	}
 	return exists
+}
+
+// initializeTPMCredential ensures the TPM password credential is set up
+func (t *tpmProvider) initializeTPMCredential(ctx context.Context) error {
+	available, err := checkParentCredentialAvailable(t.rw, t.log)
+	if err != nil {
+		return fmt.Errorf("failed to check credential availability: %w", err)
+	}
+	if available {
+		t.log.Debug("TPM storage password credential already available")
+		return nil
+	}
+
+	exists, err := t.rw.PathExists(ParentCredentialPath)
+	if err != nil {
+		return fmt.Errorf("checking for sealed credential: %w", err)
+	}
+	if exists {
+		t.log.Debug("TPM storage password credential file exists")
+		// Ensure the systemd drop-in exists even if credential already exists
+		// This handles cases where the drop-in was deleted or service was reinstalled
+		if err := t.ensureParentSystemdDropin(ctx); err != nil {
+			return fmt.Errorf("failed to ensure systemd drop-in for existing credential: %w", err)
+		}
+		return nil
+	}
+
+	t.log.Info("Initializing new TPM storage password credential")
+	sealer, err := NewSealer(t.log, t.rw, t.exec)
+	if err != nil {
+		return fmt.Errorf("failed to create password sealer: %w", err)
+	}
+
+	password, err := GeneratePassword(DefaultSecretLength)
+	if err != nil {
+		return fmt.Errorf("failed to generate password: %w", err)
+	}
+
+	// use host-only sealing for flightctl-agent hierarchy password
+	// otherwise we have chicken/egg
+	err = sealer.Seal(ctx, "flightctl-agent", SealKeyHost, password)
+	if err != nil {
+		fccrypto.SecureMemoryWipe(password)
+		return fmt.Errorf("failed to seal password: %w", err)
+	}
+
+	defer fccrypto.SecureMemoryWipe(password)
+
+	t.log.Info("TPM storage password credential initialized successfully")
+	t.log.Infof("Sealed credential stored at: %s", ParentCredentialPath)
+
+	if err := t.ensureParentSystemdDropin(ctx); err != nil {
+		return fmt.Errorf("failed to create systemd drop-in: %w", err)
+	}
+
+	return nil
+}
+
+// ensureParentSystemdDropin creates a systemd drop-in file for flightctl-agent to load the TPM credential
+func (t *tpmProvider) ensureParentSystemdDropin(ctx context.Context) error {
+	return createSystemdDropIn(ctx, ParentService, "flightctl-agent", t.rw, t.exec, t.log)
 }
 
 func (t *tpmProvider) createCertificate() (*tls.Certificate, error) {

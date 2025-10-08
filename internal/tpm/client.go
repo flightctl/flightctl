@@ -36,6 +36,7 @@ type client struct {
 	connFactory   connFactory
 	sessionOpts   []SessionOption
 	log           *log.PrefixLogger
+	rw            fileio.ReadWriter
 	productModel  string
 	productSerial string
 }
@@ -80,6 +81,7 @@ func newClientWithConnection(conFact connFactory, log *log.PrefixLogger, rw file
 			WithKeyAlgo(keyAlgo),
 			WithStorage(storage),
 		},
+		rw:            rw,
 		productModel:  productModel,
 		productSerial: productSerial,
 	}
@@ -90,7 +92,7 @@ func newClientWithConnection(conFact connFactory, log *log.PrefixLogger, rw file
 	}
 
 	opts := append([]SessionOption{WithInitialization()}, c.sessionOpts...)
-	session, err := NewSession(conn, log, opts...)
+	session, err := NewSession(conn, log, rw, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("creating TPM session: %w", err)
 	}
@@ -209,7 +211,7 @@ func (c *client) RemoveApplicationKey(appName string) error {
 	if err != nil {
 		return fmt.Errorf("creating conn: %w", err)
 	}
-	session, err := NewSession(conn, c.log, c.sessionOpts...)
+	session, err := NewSession(conn, c.log, c.rw, c.sessionOpts...)
 	if err != nil {
 		return fmt.Errorf("creating session: %w", err)
 	}
@@ -229,7 +231,7 @@ func (c *client) CreateApplicationKey(name string) ([]byte, []byte, error) {
 		return nil, nil, fmt.Errorf("creating conn: %w", err)
 	}
 
-	session, err := NewSession(conn, c.log, c.sessionOpts...)
+	session, err := NewSession(conn, c.log, c.rw, c.sessionOpts...)
 	if err != nil {
 		err = fmt.Errorf("creating session: %w", err)
 		if closeErr := conn.Close(); closeErr != nil {
