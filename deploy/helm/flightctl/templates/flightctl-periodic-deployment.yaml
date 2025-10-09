@@ -20,8 +20,10 @@ spec:
         flightctl.service: flightctl-periodic
         {{- include "flightctl.standardLabels" . | nindent 8 }}
     spec:
+      serviceAccountName: flightctl-periodic
       initContainers:
       {{- include "flightctl.databaseWaitInitContainer" (dict "context" . "userType" "app") | nindent 6 }}
+      {{- include "flightctl.migrationWaitInitContainer" (dict "context" . "timeout" 600) | nindent 6 }}
       containers:
         - name: periodic
           image: {{ .Values.periodic.image.image }}:{{ default .Chart.AppVersion .Values.periodic.image.tag }}
