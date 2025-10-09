@@ -10,7 +10,6 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/service"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -89,10 +88,7 @@ func (e *EventProcessor) ProcessLatestEvents(ctx context.Context, oldCheckpoint 
 
 		orgLogger.Debug("Processing events for organization")
 
-		// Create organization-specific context
-		orgCtx := util.WithOrganizationID(ctx, orgID)
-
-		events, pages, orgValidationErrors, err := e.processOrganizationEvents(orgCtx, orgID, oldCheckpoint.Timestamp, &checkpointCtx, orgLogger)
+		events, pages, orgValidationErrors, err := e.processOrganizationEvents(ctx, orgID, oldCheckpoint.Timestamp, &checkpointCtx, orgLogger)
 		if err != nil {
 			orgLogger.WithError(err).Error("Failed to process events for organization")
 			continue // Continue processing other orgs even if one fails
@@ -166,7 +162,7 @@ func (e *EventProcessor) processOrganizationEvents(ctx context.Context, orgID uu
 		pageLogger := logger.WithField("page_number", totalPages)
 
 		// List the events since the last checkpoint for this organization
-		events, status := e.handler.ListEvents(ctx, params)
+		events, status := e.handler.ListEvents(ctx, orgID, params)
 		if status.Code != http.StatusOK {
 			pageLogger.WithFields(logrus.Fields{
 				"status_code": status.Code,

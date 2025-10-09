@@ -83,7 +83,7 @@ func (s *AgentTransportHandler) GetRenderedDevice(w http.ResponseWriter, r *http
 		return
 	}
 
-	body, status := s.serviceHandler.GetRenderedDevice(ctx, fingerprint, params)
+	body, status := s.serviceHandler.GetRenderedDevice(ctx, transport.OrgIDFromContext(ctx), fingerprint, params)
 	transport.SetResponse(w, body, status)
 }
 
@@ -104,7 +104,7 @@ func (s *AgentTransportHandler) ReplaceDeviceStatus(w http.ResponseWriter, r *ht
 		return
 	}
 
-	body, status := s.serviceHandler.ReplaceDeviceStatus(ctx, fingerprint, device)
+	body, status := s.serviceHandler.ReplaceDeviceStatus(ctx, transport.OrgIDFromContext(ctx), fingerprint, device)
 	transport.SetResponse(w, body, status)
 }
 
@@ -125,7 +125,7 @@ func (s *AgentTransportHandler) PatchDeviceStatus(w http.ResponseWriter, r *http
 		return
 	}
 
-	body, status := s.serviceHandler.PatchDeviceStatus(ctx, fingerprint, patch)
+	body, status := s.serviceHandler.PatchDeviceStatus(ctx, transport.OrgIDFromContext(ctx), fingerprint, patch)
 	transport.SetResponse(w, body, status)
 }
 
@@ -145,7 +145,7 @@ func (s *AgentTransportHandler) CreateEnrollmentRequest(w http.ResponseWriter, r
 		return
 	}
 
-	body, status := s.serviceHandler.CreateEnrollmentRequest(ctx, er)
+	body, status := s.serviceHandler.CreateEnrollmentRequest(ctx, transport.OrgIDFromContext(ctx), er)
 	transport.SetResponse(w, body, status)
 }
 
@@ -159,7 +159,7 @@ func (s *AgentTransportHandler) GetEnrollmentRequest(w http.ResponseWriter, r *h
 		return
 	}
 
-	body, status := s.serviceHandler.GetEnrollmentRequest(ctx, name)
+	body, status := s.serviceHandler.GetEnrollmentRequest(ctx, transport.OrgIDFromContext(ctx), name)
 	transport.SetResponse(w, body, status)
 }
 
@@ -174,7 +174,7 @@ func (s *AgentTransportHandler) CreateCertificateSigningRequest(w http.ResponseW
 		return
 	}
 
-	device, st := s.serviceHandler.GetDevice(ctx, fingerprint)
+	device, st := s.serviceHandler.GetDevice(ctx, transport.OrgIDFromContext(ctx), fingerprint)
 	if st.Code != http.StatusOK {
 		status := api.StatusUnauthorized(http.StatusText(http.StatusUnauthorized))
 		transport.SetResponse(w, status, status)
@@ -199,7 +199,7 @@ func (s *AgentTransportHandler) CreateCertificateSigningRequest(w http.ResponseW
 	request.Status = nil
 	service.NilOutManagedObjectMetaProperties(&request.Metadata)
 	request.Metadata.Owner = util.SetResourceOwner(api.DeviceKind, fingerprint)
-	csr, status := s.serviceHandler.CreateCertificateSigningRequest(context.WithValue(ctx, consts.InternalRequestCtxKey, true), request)
+	csr, status := s.serviceHandler.CreateCertificateSigningRequest(context.WithValue(ctx, consts.InternalRequestCtxKey, true), transport.OrgIDFromContext(ctx), request)
 	if status.Code != http.StatusCreated && status.Code != http.StatusOK {
 		transport.SetResponse(w, status, status)
 		return
@@ -230,7 +230,7 @@ func (s *AgentTransportHandler) GetCertificateSigningRequest(w http.ResponseWrit
 		return
 	}
 
-	csr, status := s.serviceHandler.GetCertificateSigningRequest(ctx, name)
+	csr, status := s.serviceHandler.GetCertificateSigningRequest(ctx, transport.OrgIDFromContext(ctx), name)
 	if status.Code != http.StatusOK {
 		transport.SetResponse(w, csr, status)
 		return
@@ -261,5 +261,5 @@ func (s *AgentTransportHandler) autoApprove(ctx context.Context, csr *api.Certif
 	api.RemoveStatusCondition(&csr.Status.Conditions, api.ConditionTypeCertificateSigningRequestDenied)
 	api.RemoveStatusCondition(&csr.Status.Conditions, api.ConditionTypeCertificateSigningRequestFailed)
 
-	return s.serviceHandler.UpdateCertificateSigningRequestApproval(ctx, *csr.Metadata.Name, *csr)
+	return s.serviceHandler.UpdateCertificateSigningRequestApproval(ctx, transport.OrgIDFromContext(ctx), *csr.Metadata.Name, *csr)
 }
