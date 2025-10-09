@@ -16,6 +16,7 @@ import (
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
 	testutil "github.com/flightctl/flightctl/test/util"
+	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
@@ -43,6 +44,7 @@ type ServiceTestSuite struct {
 	Ctx     context.Context
 	Store   store.Store
 	Handler service.Service
+	OrgID   uuid.UUID
 
 	// Private implementation details – not needed by tests
 	cfg               *config.Config
@@ -78,6 +80,9 @@ func (s *ServiceTestSuite) Setup() {
 	orgResolver, err := testutil.NewOrgResolver(s.cfg, s.Store.Organization(), s.Log)
 	Expect(err).ToNot(HaveOccurred())
 	s.Handler = service.NewServiceHandler(s.Store, s.workerClient, kvStore, s.caClient, s.Log, "", "", []string{}, orgResolver)
+
+	// Default org for integration tests
+	s.OrgID = store.NullOrgId
 }
 
 // Teardown performs common cleanup for service tests

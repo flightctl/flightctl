@@ -11,6 +11,7 @@ import (
 	pb "github.com/flightctl/flightctl/api/grpc/v1"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/tpm"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/samber/lo"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -60,7 +61,8 @@ func (s *AgentGrpcServer) updateEnrollmentRequestStatus(
 	enrollmentRequest *api.EnrollmentRequest,
 	streamErrorMessage string,
 ) error {
-	_, responseStatus := s.service.ReplaceEnrollmentRequestStatus(ctx, enrollmentRequestName, *enrollmentRequest)
+	orgId, _ := util.GetOrgIdFromContext(ctx)
+	_, responseStatus := s.service.ReplaceEnrollmentRequestStatus(ctx, orgId, enrollmentRequestName, *enrollmentRequest)
 	if responseStatus.Code != http.StatusOK {
 		if err := s.sendErrorResponse(stream, streamErrorMessage); err != nil {
 			s.log.Errorf("Failed to send error response: %v", err)
@@ -100,7 +102,8 @@ func (s *AgentGrpcServer) receiveAndValidateInitialRequest(stream pb.Enrollment_
 
 // validateEnrollmentRequest validates the enrollment request and parses the TPM CSR
 func (s *AgentGrpcServer) validateEnrollmentRequest(ctx context.Context, stream pb.Enrollment_TPMChallengeServer, enrollmentRequestName string) (*api.EnrollmentRequest, *tpm.ParsedTCGCSR, error) {
-	enrollmentRequest, responseStatus := s.service.GetEnrollmentRequest(ctx, enrollmentRequestName)
+	orgId, _ := util.GetOrgIdFromContext(ctx)
+	enrollmentRequest, responseStatus := s.service.GetEnrollmentRequest(ctx, orgId, enrollmentRequestName)
 	if responseStatus.Code != http.StatusOK {
 		if err := s.sendErrorResponse(stream, fmt.Sprintf("Enrollment request not found: %s", enrollmentRequestName)); err != nil {
 			s.log.Errorf("Failed to send error response: %v", err)

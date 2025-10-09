@@ -35,7 +35,7 @@ func (c *conditionEmitter) create(status api.ConditionStatus, reason, message st
 }
 
 func (c *conditionEmitter) save(ctx context.Context, condition api.Condition) error {
-	return service.ApiStatusToErr(c.serviceHandler.UpdateFleetConditions(ctx, c.fleetName, []api.Condition{condition}))
+	return service.ApiStatusToErr(c.serviceHandler.UpdateFleetConditions(ctx, c.orgId, c.fleetName, []api.Condition{condition}))
 }
 
 func (c *conditionEmitter) inactive(ctx context.Context) error {
