@@ -8,6 +8,7 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/service"
+	"github.com/flightctl/flightctl/internal/store"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -212,7 +213,7 @@ func TestFleetRolloutsLogic_FullDelayDeviceRenderPropagation(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
 
-			orgId := uuid.New()
+			orgId := store.NullOrgId
 			log := logrus.New()
 			fleetName := "test-fleet"
 			event := api.Event{
@@ -226,7 +227,7 @@ func TestFleetRolloutsLogic_FullDelayDeviceRenderPropagation(t *testing.T) {
 			mockService := service.NewMockService(ctrl)
 
 			// Mock GetFleet to return our test fleet
-			mockService.EXPECT().GetFleet(gomock.Any(), fleetName, gomock.Any()).Return(tt.fleet, api.Status{Code: http.StatusOK})
+			mockService.EXPECT().GetFleet(gomock.Any(), gomock.Any(), fleetName, gomock.Any()).Return(tt.fleet, api.Status{Code: http.StatusOK})
 
 			// Mock GetLatestTemplateVersion with a simple template that won't trigger complex processing
 			templateVersion := createTestTemplateVersion("test-tv")
@@ -234,7 +235,7 @@ func TestFleetRolloutsLogic_FullDelayDeviceRenderPropagation(t *testing.T) {
 			templateVersion.Status.Os = nil
 			templateVersion.Status.Config = nil
 			templateVersion.Status.Applications = nil
-			mockService.EXPECT().GetLatestTemplateVersion(gomock.Any(), fleetName).Return(templateVersion, api.Status{Code: http.StatusOK})
+			mockService.EXPECT().GetLatestTemplateVersion(gomock.Any(), gomock.Any(), fleetName).Return(templateVersion, api.Status{Code: http.StatusOK})
 
 			// Create test device with owner that matches what f.owner will be set to
 			// f.owner will be set to "Fleet/test-fleet" from util.SetResourceOwner(api.FleetKind, "test-fleet")
@@ -248,7 +249,7 @@ func TestFleetRolloutsLogic_FullDelayDeviceRenderPropagation(t *testing.T) {
 
 			// Mock ListDevices to return a device so the rollout process continues
 			// This is the key change - returning a non-empty device list to test full propagation
-			mockService.EXPECT().ListDevices(gomock.Any(), gomock.Any(), gomock.Any()).Return(&api.DeviceList{
+			mockService.EXPECT().ListDevices(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(&api.DeviceList{
 				Metadata: api.ListMeta{},
 				Items:    []api.Device{*testDevice},
 			}, api.Status{Code: http.StatusOK})
@@ -256,8 +257,8 @@ func TestFleetRolloutsLogic_FullDelayDeviceRenderPropagation(t *testing.T) {
 			// Mock ReplaceDevice to capture the delayDeviceRender value from context
 			// This will be called during the device update process, allowing us to verify propagation
 			var capturedDelayDeviceRender bool
-			mockService.EXPECT().ReplaceDevice(gomock.Any(), "test-device", gomock.Any(), gomock.Any()).DoAndReturn(
-				func(ctx context.Context, name string, device api.Device, fieldsToUnset []string) (*api.Device, api.Status) {
+			mockService.EXPECT().ReplaceDevice(gomock.Any(), gomock.Any(), "test-device", gomock.Any(), gomock.Any()).DoAndReturn(
+				func(ctx context.Context, orgId uuid.UUID, name string, device api.Device, fieldsToUnset []string) (*api.Device, api.Status) {
 					// Debug: Print the device owner when ReplaceDevice is called
 					if device.Metadata.Owner != nil {
 						t.Logf("ReplaceDevice called with device owner: %s", *device.Metadata.Owner)
@@ -276,7 +277,7 @@ func TestFleetRolloutsLogic_FullDelayDeviceRenderPropagation(t *testing.T) {
 				})
 
 			// Mock UpdateDeviceAnnotations for the device update
-			mockService.EXPECT().UpdateDeviceAnnotations(gomock.Any(), "test-device", gomock.Any(), gomock.Any()).Return(api.Status{Code: http.StatusOK})
+			mockService.EXPECT().UpdateDeviceAnnotations(gomock.Any(), gomock.Any(), "test-device", gomock.Any(), gomock.Any()).Return(api.Status{Code: http.StatusOK})
 
 			// Create FleetRolloutsLogic instance
 			logic := NewFleetRolloutsLogic(log, mockService, orgId, event)
@@ -328,7 +329,7 @@ func TestFleetRolloutsLogic_DelayDeviceRenderPropagationThroughContext(t *testin
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
 
-			orgId := uuid.New()
+			orgId := store.NullOrgId
 			log := logrus.New()
 			event := api.Event{
 				InvolvedObject: api.ObjectReference{
@@ -351,8 +352,8 @@ func TestFleetRolloutsLogic_DelayDeviceRenderPropagationThroughContext(t *testin
 
 			// Mock ReplaceDevice to capture the context value
 			var capturedDelayDeviceRender bool
-			mockService.EXPECT().ReplaceDevice(gomock.Any(), "test-device", gomock.Any(), gomock.Any()).DoAndReturn(
-				func(ctx context.Context, name string, device api.Device, fieldsToUnset []string) (*api.Device, api.Status) {
+			mockService.EXPECT().ReplaceDevice(gomock.Any(), gomock.Any(), "test-device", gomock.Any(), gomock.Any()).DoAndReturn(
+				func(ctx context.Context, orgId uuid.UUID, name string, device api.Device, fieldsToUnset []string) (*api.Device, api.Status) {
 					// Extract the delayDeviceRender value from context
 					if delayValue, ok := ctx.Value(consts.DelayDeviceRenderCtxKey).(bool); ok {
 						capturedDelayDeviceRender = delayValue

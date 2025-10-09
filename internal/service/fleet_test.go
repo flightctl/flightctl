@@ -58,7 +58,7 @@ func testFleetPatch(require *require.Assertions, patch api.PatchRequest) (*api.F
 	ctx := context.Background()
 	orig, err := serviceHandler.store.Fleet().Create(ctx, store.NullOrgId, &fleet, serviceHandler.callbackFleetUpdated)
 	require.NoError(err)
-	resp, status := serviceHandler.PatchFleet(ctx, "foo", patch)
+	resp, status := serviceHandler.PatchFleet(ctx, store.NullOrgId, "foo", patch)
 	require.NotEqual(statusFailedCode, status.Code)
 	_, err = serviceHandler.store.Event().List(ctx, store.NullOrgId, store.ListParams{})
 	require.NoError(err)
@@ -215,7 +215,7 @@ func TestFleetNonExistingResource(t *testing.T) {
 		workerClient: wc,
 	}
 	ctx := context.Background()
-	resp, status := serviceHandler.PatchFleet(ctx, "doesnotexist", pr)
+	resp, status := serviceHandler.PatchFleet(ctx, store.NullOrgId, "doesnotexist", pr)
 	require.Equal(statusNotFoundCode, status.Code)
 	require.Nil(resp)
 }

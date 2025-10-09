@@ -7,6 +7,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/service"
+	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
@@ -30,7 +31,7 @@ func NewDeviceDisconnected(log logrus.FieldLogger, serviceHandler service.Servic
 }
 
 // Poll checks the status of devices and updates the status to unknown if the device has not reported in the last DeviceDisconnectedTimeout.
-func (t *DeviceDisconnected) Poll(ctx context.Context) {
+func (t *DeviceDisconnected) Poll(ctx context.Context, orgID uuid.UUID) {
 	t.log.Info("Running DeviceDisconnected Polling")
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -57,7 +58,7 @@ func (t *DeviceDisconnected) Poll(ctx context.Context) {
 			return
 		}
 
-		devices, status := t.serviceHandler.ListDevices(ctx, listParams, nil)
+		devices, status := t.serviceHandler.ListDevices(ctx, orgID, listParams, nil)
 		if status.Code != 200 {
 			t.log.Errorf("Failed to list devices: %s", status.Message)
 			return
@@ -79,7 +80,7 @@ func (t *DeviceDisconnected) Poll(ctx context.Context) {
 			}
 
 			t.log.Debugf("Updating server-side device status for %s", *device.Metadata.Name)
-			err := t.serviceHandler.UpdateServerSideDeviceStatus(ctx, *device.Metadata.Name)
+			err := t.serviceHandler.UpdateServerSideDeviceStatus(ctx, orgID, *device.Metadata.Name)
 			if err != nil {
 				t.log.Errorf("Failed to update server-side device status for %s: %s", *device.Metadata.Name, err.Error())
 				continue
