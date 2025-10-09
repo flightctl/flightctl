@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/flightctl/flightctl/internal/client"
@@ -14,7 +15,17 @@ import (
 
 type ConfigOptions struct {
 	GlobalOptions
+	Output string
 }
+
+const (
+	CurrentOrgOutputAll    = "all"
+	CurrentOrgOutputIDOnly = "id-only"
+)
+
+var (
+	currentOrgOutputTypes = []string{CurrentOrgOutputAll, CurrentOrgOutputIDOnly}
+)
 
 func DefaultConfigOptions() *ConfigOptions {
 	return &ConfigOptions{
@@ -44,6 +55,11 @@ func (o *ConfigOptions) Bind(fs *pflag.FlagSet) {
 	o.GlobalOptions.Bind(fs)
 }
 
+func (o *ConfigOptions) BindCurrentOrganization(fs *pflag.FlagSet) {
+	o.GlobalOptions.Bind(fs)
+	fs.StringVarP(&o.Output, "output", "o", o.Output, fmt.Sprintf("Output format. One of: (%s). Default: %s", strings.Join(currentOrgOutputTypes, ", "), CurrentOrgOutputAll))
+}
+
 // NewCmdConfigCurrentOrganization creates a command to display the current organization
 func NewCmdConfigCurrentOrganization() *cobra.Command {
 	o := DefaultConfigOptions()
@@ -54,14 +70,14 @@ func NewCmdConfigCurrentOrganization() *cobra.Command {
 			if err := o.Complete(cmd, args); err != nil {
 				return err
 			}
-			if err := o.ValidateCmd(args); err != nil {
+			if err := o.ValidateCurrentOrganization(args); err != nil {
 				return err
 			}
 			return o.RunCurrentOrganization(cmd.Context(), args)
 		},
 		SilenceUsage: true,
 	}
-	o.Bind(cmd.Flags())
+	o.BindCurrentOrganization(cmd.Flags())
 	return cmd
 }
 
@@ -91,6 +107,16 @@ func (o *ConfigOptions) Complete(cmd *cobra.Command, args []string) error {
 	return o.GlobalOptions.Complete(cmd, args)
 }
 
+func (o *ConfigOptions) ValidateCurrentOrganization(args []string) error {
+	if err := o.GlobalOptions.Validate(args); err != nil {
+		return err
+	}
+	if len(o.Output) > 0 && !slices.Contains(currentOrgOutputTypes, o.Output) {
+		return fmt.Errorf("output format must be one of (%s)", strings.Join(currentOrgOutputTypes, ", "))
+	}
+	return nil
+}
+
 func (o *ConfigOptions) RunCurrentOrganization(ctx context.Context, args []string) error {
 	config, err := client.ParseConfigFile(o.ConfigFilePath)
 	if err != nil {
@@ -98,8 +124,18 @@ func (o *ConfigOptions) RunCurrentOrganization(ctx context.Context, args []strin
 	}
 
 	if config.Organization == "" {
-		fmt.Println("No current organization set")
-	} else {
+		if o.Output == CurrentOrgOutputIDOnly {
+			return nil
+		} else {
+			fmt.Println("No current organization set")
+			return nil
+		}
+	}
+
+	switch o.Output {
+	case CurrentOrgOutputIDOnly:
+		fmt.Println(config.Organization)
+	case CurrentOrgOutputAll, "":
 		displayName, err := o.getOrganizationDisplayName(ctx, config.Organization)
 		if err != nil || displayName == "" {
 			fmt.Println(config.Organization)
