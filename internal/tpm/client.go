@@ -346,7 +346,7 @@ func (c *client) Clear() error {
 }
 
 // Close closes the TPM session.
-func (c *client) Close(ctx context.Context) error {
+func (c *client) Close() error {
 	if c.session != nil {
 		return c.session.Close()
 	}
