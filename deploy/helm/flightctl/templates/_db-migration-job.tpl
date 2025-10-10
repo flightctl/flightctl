@@ -23,6 +23,8 @@ metadata:
   labels:
     app: flightctl-db-migration
     release: {{ $ctx.Release.Name }}
+    flightctl.io/migration-revision: "{{ $ctx.Release.Revision }}"
+    {{- include "flightctl.standardLabels" $ctx | nindent 4 }}
   annotations:
     {{- if gt (len $hooks) 0 }}
     helm.sh/hook: {{ join "," $hooks }}
@@ -37,6 +39,8 @@ spec:
       labels:
         app: flightctl-db-migration
         release: {{ $ctx.Release.Name }}
+        flightctl.io/migration-revision: "{{ $ctx.Release.Revision }}"
+        {{- include "flightctl.standardLabels" $ctx | nindent 8 }}
     spec:
       restartPolicy: Never
       serviceAccountName: flightctl-db-migration
