@@ -109,3 +109,44 @@ func (s *Systemd) ListUnitsByMatchPattern(ctx context.Context, matchPatterns []s
 	out := strings.TrimSpace(stdout)
 	return out, nil
 }
+
+// SystemdJob represents a systemd job from list-jobs
+type SystemdJob struct {
+	Job     string
+	Unit    string
+	JobType string
+	State   string
+}
+
+// ListJobs lists current systemd jobs in progress
+// This is more reliable than is-active for detecting pending shutdown/reboot
+func (s *Systemd) ListJobs(ctx context.Context) ([]SystemdJob, error) {
+	ctx, cancel := context.WithTimeout(ctx, defaultSystemctlTimeout)
+	defer cancel()
+
+	args := []string{"list-jobs", "--no-pager", "--no-legend"}
+	stdout, stderr, exitCode := s.exec.ExecuteWithContext(ctx, systemctlCommand, args...)
+	if exitCode != 0 {
+		return nil, fmt.Errorf("systemctl list-jobs: %w", errors.FromStderr(stderr, exitCode))
+	}
+
+	var jobs []SystemdJob
+	lines := strings.Split(strings.TrimSpace(stdout), "\n")
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+
+		fields := strings.Fields(line)
+		if len(fields) >= 4 {
+			jobs = append(jobs, SystemdJob{
+				Job:     fields[0],
+				Unit:    fields[1],
+				JobType: fields[2],
+				State:   fields[3],
+			})
+		}
+	}
+
+	return jobs, nil
+}

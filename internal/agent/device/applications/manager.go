@@ -12,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/agent/device/systeminfo"
+	"github.com/flightctl/flightctl/internal/agent/shutdown"
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
@@ -24,6 +25,7 @@ var _ Manager = (*manager)(nil)
 type manager struct {
 	podmanMonitor *PodmanMonitor
 	podmanClient  *client.Podman
+	systemdClient *client.Systemd
 	readWriter    fileio.ReadWriter
 	log           *log.PrefixLogger
 }
@@ -33,12 +35,14 @@ func NewManager(
 	readWriter fileio.ReadWriter,
 	podmanClient *client.Podman,
 	systemInfo systeminfo.Manager,
+	systemdClient *client.Systemd,
 ) Manager {
 	bootTime := systemInfo.BootTime()
 	return &manager{
 		readWriter:    readWriter,
 		podmanMonitor: NewPodmanMonitor(log, podmanClient, bootTime, readWriter),
 		podmanClient:  podmanClient,
+		systemdClient: systemdClient,
 		log:           log,
 	}
 }
@@ -159,8 +163,14 @@ func (m *manager) Status(ctx context.Context, status *v1alpha1.DeviceStatus, opt
 	return nil
 }
 
-func (m *manager) Stop(ctx context.Context) error {
-	return m.podmanMonitor.Stop(ctx)
+func (m *manager) Shutdown(ctx context.Context, state shutdown.State) error {
+	if state.SystemShutdown {
+		m.log.Info("System shutdown detected - draining applications")
+		return m.podmanMonitor.Drain(ctx)
+	} else {
+		m.log.Debug("Agent restart detected - stopping monitor")
+		return m.podmanMonitor.Stop()
+	}
 }
 
 // CollectOCITargets returns a function that collects OCI targets from applications

@@ -485,10 +485,3 @@ func (t *tpmProvider) WipeCertificateOnly() error {
 	t.log.Info("Successfully wiped certificate file")
 	return nil
 }
-
-func (t *tpmProvider) Close(ctx context.Context) error {
-	if t.client != nil {
-		return t.client.Close(ctx)
-	}
-	return nil
-}

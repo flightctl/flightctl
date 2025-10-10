@@ -9,6 +9,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
+	"github.com/flightctl/flightctl/internal/agent/shutdown"
 )
 
 const (
@@ -52,8 +53,8 @@ type Manager interface {
 	BeforeUpdate(ctx context.Context, desired *v1alpha1.DeviceSpec) error
 	// AfterUpdate is called after the application has been validated and is ready to be executed.
 	AfterUpdate(ctx context.Context) error
-	// Stop halts the application running on the device.
-	Stop(ctx context.Context) error
+	// Shutdown closes the manager according to the corresponding shutdown state
+	Shutdown(ctx context.Context, state shutdown.State) error
 
 	dependency.OCICollector
 	status.Exporter

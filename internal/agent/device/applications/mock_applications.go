@@ -17,6 +17,7 @@ import (
 	provider "github.com/flightctl/flightctl/internal/agent/device/applications/provider"
 	dependency "github.com/flightctl/flightctl/internal/agent/device/dependency"
 	status "github.com/flightctl/flightctl/internal/agent/device/status"
+	shutdown "github.com/flightctl/flightctl/internal/agent/shutdown"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -163,6 +164,20 @@ func (mr *MockManagerMockRecorder) Remove(ctx, provider any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Remove", reflect.TypeOf((*MockManager)(nil).Remove), ctx, provider)
 }
 
+// Shutdown mocks base method.
+func (m *MockManager) Shutdown(ctx context.Context, state shutdown.State) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Shutdown", ctx, state)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Shutdown indicates an expected call of Shutdown.
+func (mr *MockManagerMockRecorder) Shutdown(ctx, state any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Shutdown", reflect.TypeOf((*MockManager)(nil).Shutdown), ctx, state)
+}
+
 // Status mocks base method.
 func (m *MockManager) Status(arg0 context.Context, arg1 *v1alpha1.DeviceStatus, arg2 ...status.CollectorOpt) error {
 	m.ctrl.T.Helper()
@@ -180,20 +195,6 @@ func (mr *MockManagerMockRecorder) Status(arg0, arg1 any, arg2 ...any) *gomock.C
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]any{arg0, arg1}, arg2...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Status", reflect.TypeOf((*MockManager)(nil).Status), varargs...)
-}
-
-// Stop mocks base method.
-func (m *MockManager) Stop(ctx context.Context) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Stop", ctx)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// Stop indicates an expected call of Stop.
-func (mr *MockManagerMockRecorder) Stop(ctx any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Stop", reflect.TypeOf((*MockManager)(nil).Stop), ctx)
 }
 
 // Update mocks base method.

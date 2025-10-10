@@ -81,20 +81,6 @@ func (m *MockProvider) EXPECT() *MockProviderMockRecorder {
 	return m.recorder
 }
 
-// Close mocks base method.
-func (m *MockProvider) Close(ctx context.Context) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Close", ctx)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// Close indicates an expected call of Close.
-func (mr *MockProviderMockRecorder) Close(ctx any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockProvider)(nil).Close), ctx)
-}
-
 // CreateGRPCClient mocks base method.
 func (m *MockProvider) CreateGRPCClient(config *client0.Config) (grpc_v1.RouterServiceClient, error) {
 	m.ctrl.T.Helper()

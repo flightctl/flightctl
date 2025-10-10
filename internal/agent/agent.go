@@ -146,11 +146,15 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 
 	// create shutdown manager
-	shutdownManager := shutdown.NewManager(a.log, gracefulShutdownTimeout, cancel)
+	shutdownManager := shutdown.NewManager(a.log, systemdClient, deviceReadWriter, gracefulShutdownTimeout, cancel)
 
 	if tpmClient != nil {
 		systemInfoManager.RegisterCollector(ctx, "tpmVendorInfo", tpmClient.VendorInfoCollector)
-		shutdownManager.Register("tpmClient", tpmClient.Close)
+		defer func() {
+			if err = tpmClient.Close(); err != nil {
+				a.log.Errorf("Failed to close TPM client: %v", err)
+			}
+		}()
 	}
 
 	reloadManager := reload.NewManager(a.configFile, a.log)
@@ -188,13 +192,11 @@ func (a *Agent) Run(ctx context.Context) error {
 		deviceReadWriter,
 		podmanClient,
 		systemInfoManager,
+		systemdClient,
 	)
 
 	// register the application manager with the shutdown manager
-	shutdownManager.Register("applications", applicationsManager.Stop)
-
-	// register identity provider with shutdown manager
-	shutdownManager.Register("identity", identityProvider.Close)
+	shutdownManager.Register("applications", applicationsManager.Shutdown)
 
 	// create systemd manager
 	systemdManager := systemd.NewManager(a.log, systemdClient)
