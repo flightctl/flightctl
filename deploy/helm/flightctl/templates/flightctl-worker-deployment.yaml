@@ -23,6 +23,7 @@ spec:
       serviceAccountName: flightctl-worker
       initContainers:
       {{- include "flightctl.databaseWaitInitContainer" (dict "context" . "userType" "app") | nindent 6 }}
+      {{- include "flightctl.migrationWaitInitContainer" (dict "context" . "timeout" 600) | nindent 6 }}
       containers:
         - name: flightctl-worker
           image: {{ .Values.worker.image.image }}:{{ default .Chart.AppVersion .Values.worker.image.tag }}
