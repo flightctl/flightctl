@@ -533,7 +533,7 @@ func Collect(ctx context.Context, log *log.PrefixLogger, exec executer.Executer,
 	}
 
 	// custom info
-	if len(customKeys) > 0 {
+	if len(customKeys) > 0 || cfg.collectAllCustom {
 		customInfo, err := getCustomInfoMap(ctx, log, customKeys, reader, exec, opts...)
 		if err != nil {
 			if errors.IsContext(err) {
