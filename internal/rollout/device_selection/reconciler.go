@@ -46,10 +46,10 @@ func (r *reconciler) emitFleetRolloutBatchDispatchedEvent(ctx context.Context, o
 	fleetName := lo.FromPtr(fleet.Metadata.Name)
 	batchNumberStr, exists := util.GetFromMap(lo.FromPtr(fleet.Metadata.Annotations), api.FleetAnnotationBatchNumber)
 	if exists {
-		r.serviceHandler.CreateEvent(ctx, orgId, common.GetFleetRolloutBatchDispatchedEvent(ctx, fleetName, templateVersionName, batchNumberStr))
-	} else {
-		r.log.Warnf("%v/%s: No batch number found for FleetRolloutBatchDispatched event", store.NullOrgId, fleetName)
-	}
+        r.serviceHandler.CreateEvent(ctx, orgId, common.GetFleetRolloutBatchDispatchedEvent(ctx, fleetName, templateVersionName, batchNumberStr))
+    } else {
+       r.log.Warnf("%v/%s: No batch number found for FleetRolloutBatchDispatched event", orgId, fleetName)
+    }
 }
 
 func (r *reconciler) reconcileFleet(ctx context.Context, orgId uuid.UUID, fleet api.Fleet) {
