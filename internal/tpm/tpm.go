@@ -24,7 +24,7 @@ type Client interface {
 	// Clear clears any stored TPM data
 	Clear() error
 	// Close closes the TPM session
-	Close(ctx context.Context) error
+	Close() error
 	// VendorInfoCollector collects vendor information from the TPM
 	VendorInfoCollector(ctx context.Context) string
 	// CreateApplicationKey generates a TCG CSR IDEVID bundle and a TSS2 PEM encoded file for the specified application
