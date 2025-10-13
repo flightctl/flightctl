@@ -32,4 +32,8 @@ done
 cat <<EOF | tee -a  bin/agent/etc/flightctl/config.yaml
 spec-fetch-interval: $spec_fetch_interval
 status-update-interval: $status_update_interval
+system-info-custom:
+  - fips
+  - uptime
+  - uptime2
 EOF

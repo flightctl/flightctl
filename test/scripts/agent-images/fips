@@ -1,0 +1,9 @@
+#!/bin/sh
+
+fips-mode-setup --is-enabled >/dev/null 2>&1
+case $? in
+    0) echo "enabled";;
+    1) echo "inconsistent";;
+    2) echo "disabled";;
+    *) echo "unknown";;
+esac

@@ -67,6 +67,12 @@ ADD bin/agent/etc/flightctl/certs/* /etc/flightctl/certs/
 RUN mkdir -p /usr/lib/flightctl/custom-info.d && \
     chmod 755 /usr/lib/flightctl/custom-info.d
 
+
+# Add FIPS system info collector
+COPY ./test/scripts/agent-images/fips.sh /usr/lib/flightctl/custom-info.d/fips
+COPY ./test/scripts/agent-images/uptime.sh /usr/lib/flightctl/custom-info.d/uptime
+COPY ./test/scripts/agent-images/uptime.sh /usr/lib/flightctl/custom-info.d/uptime2.sh
+
 # Add custom system info
 RUN echo '#!/bin/bash\necho "my site"' > /usr/lib/flightctl/custom-info.d/siteName && \
     echo '#!/bin/bash\necho ""' > /usr/lib/flightctl/custom-info.d/test && \
