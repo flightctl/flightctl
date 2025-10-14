@@ -25,7 +25,7 @@ const (
 )
 
 type Reconciler interface {
-	Reconcile(ctx context.Context)
+	Reconcile(ctx context.Context, orgID uuid.UUID)
 }
 
 type reconciler struct {
@@ -207,14 +207,8 @@ func (r *reconciler) reconcileFleet(ctx context.Context, orgId uuid.UUID, fleet 
 	return nil
 }
 
-func (r *reconciler) Reconcile(ctx context.Context) {
-	orgId, ok := util.GetOrgIdFromContext(ctx)
-	if !ok {
-		r.log.Error("No organization ID found in context")
-		return
-	}
-
-	fleetList, status := r.serviceHandler.ListDisruptionBudgetFleets(ctx, orgId)
+func (r *reconciler) Reconcile(ctx context.Context, orgID uuid.UUID) {
+	fleetList, status := r.serviceHandler.ListDisruptionBudgetFleets(ctx, orgID)
 	if status.Code != http.StatusOK {
 		r.log.WithError(service.ApiStatusToErr(status)).Error("Failed to query disruption budget fleets")
 		return
@@ -229,8 +223,8 @@ func (r *reconciler) Reconcile(ctx context.Context) {
 		if !exists {
 			continue
 		}
-		if err := r.reconcileFleet(ctx, orgId, fleet); err != nil {
-			r.log.WithError(err).Errorf("reconcile fleet %v/%s", orgId, lo.FromPtr(fleet.Metadata.Name))
+		if err := r.reconcileFleet(ctx, orgID, fleet); err != nil {
+			r.log.WithError(err).Errorf("reconcile fleet %v/%s", orgID, lo.FromPtr(fleet.Metadata.Name))
 		}
 	}
 }

@@ -14,7 +14,7 @@ import (
 )
 
 type Reconciler interface {
-	Reconcile(ctx context.Context)
+	Reconcile(ctx context.Context, orgID uuid.UUID)
 }
 
 const DeviceSelectionTaskName = "rollout-device-selection"
@@ -184,18 +184,13 @@ func (r *reconciler) reconcileFleet(ctx context.Context, orgId uuid.UUID, fleet 
 	}
 }
 
-func (r *reconciler) Reconcile(ctx context.Context) {
-	orgId, ok := util.GetOrgIdFromContext(ctx)
-	if !ok {
-		r.log.Error("No organization ID found in context")
-		return
-	}
-	fleetList, status := r.serviceHandler.ListFleetRolloutDeviceSelection(ctx, orgId)
+func (r *reconciler) Reconcile(ctx context.Context, orgID uuid.UUID) {
+	fleetList, status := r.serviceHandler.ListFleetRolloutDeviceSelection(ctx, orgID)
 	if status.Code != http.StatusOK {
 		r.log.WithError(service.ApiStatusToErr(status)).Error("ListRolloutDeviceSelection")
 		return
 	}
 	for _, fleet := range fleetList.Items {
-		r.reconcileFleet(ctx, orgId, fleet)
+		r.reconcileFleet(ctx, orgID, fleet)
 	}
 }

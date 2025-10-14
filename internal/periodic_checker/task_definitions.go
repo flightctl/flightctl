@@ -64,14 +64,12 @@ type RepositoryTesterExecutor struct {
 	serviceHandler service.Service
 }
 
-// createTaskContext creates a task context with request ID, orgID, and event actor
+// createTaskContext creates a task context with request ID and event actor
 func createTaskContext(ctx context.Context, taskType PeriodicTaskType, orgID uuid.UUID) context.Context {
 	taskName := string(taskType)
 	reqid.OverridePrefix(taskName)
 	requestID := reqid.NextRequestID()
 	ctx = context.WithValue(ctx, middleware.RequestIDKey, requestID)
-
-	ctx = util.WithOrganizationID(ctx, orgID)
 
 	return context.WithValue(ctx, consts.EventActorCtxKey, taskName)
 }
@@ -113,7 +111,7 @@ type RolloutDeviceSelectionExecutor struct {
 func (e *RolloutDeviceSelectionExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgID uuid.UUID) {
 	taskCtx := createTaskContext(ctx, PeriodicTaskTypeRolloutDeviceSelection, orgID)
 	rolloutDeviceSelection := device_selection.NewReconciler(e.serviceHandler, e.log)
-	rolloutDeviceSelection.Reconcile(taskCtx)
+	rolloutDeviceSelection.Reconcile(taskCtx, orgID)
 }
 
 type DisruptionBudgetExecutor struct {
@@ -124,7 +122,7 @@ type DisruptionBudgetExecutor struct {
 func (e *DisruptionBudgetExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgID uuid.UUID) {
 	taskCtx := createTaskContext(ctx, PeriodicTaskTypeDisruptionBudget, orgID)
 	disruptionBudget := disruption_budget.NewReconciler(e.serviceHandler, e.log)
-	disruptionBudget.Reconcile(taskCtx)
+	disruptionBudget.Reconcile(taskCtx, orgID)
 }
 
 type EventCleanupExecutor struct {
