@@ -79,6 +79,7 @@ func main() {
 	sourceIPs := pflag.StringSlice("source-ips", []string{}, "comma-separated list of source IP addresses for device management HTTP connections")
 	maxConcurrency := pflag.Int("max-concurrency", 100, "maximum number of concurrent agent operations")
 	agentStartupJitter := pflag.Duration("agent-startup-jitter", -1*time.Second, "maximum random delay when starting agents (negative = use status-update-interval, 0 = no jitter, positive = custom duration)")
+	mockMode := pflag.Bool("mock", false, "run mock simulation instead of full agents (uses mTLS identity clients, reduces resource usage)")
 	versionFormat := pflag.StringP("output", "o", "", fmt.Sprintf("Output format. One of: (%s). Default: text format", strings.Join(outputTypes, ", ")))
 	logLevel := pflag.StringP("log-level", "v", "debug", "logger verbosity level (one of \"fatal\", \"error\", \"warn\", \"warning\", \"info\", \"debug\")")
 
@@ -170,7 +171,7 @@ func main() {
 		log.Warnf("Failed to create simulator fleet: %v", err)
 	}
 
-	agents, agentsFolders := createAgents(createAgentsConfig{
+	agentInfos := createAgents(createAgentsConfig{
 		log:                 log,
 		numDevices:          *numDevices,
 		initialDeviceIndex:  *initialDeviceIndex,
@@ -199,14 +200,17 @@ func main() {
 	}
 
 	launchParams := agentLaunchParams{
-		agents:          agents,
-		agentFolders:    agentsFolders,
-		log:             log,
-		serviceClient:   serviceClient,
-		formattedLabels: formattedLables,
-		sem:             sem,
-		jitterDuration:  jitterDuration,
+		agentInfos:         agentInfos,
+		log:                log,
+		serviceClient:      serviceClient,
+		formattedLabels:    formattedLables,
+		sem:                sem,
+		jitterDuration:     jitterDuration,
+		mockMode:           *mockMode,
+		agentConfig:        agentConfigTemplate,
+		initialDeviceIndex: *initialDeviceIndex,
 	}
+	now := time.Now()
 	for i := range *numDevices {
 		if err := sem.Acquire(ctx, 1); err != nil {
 			break
@@ -216,6 +220,7 @@ func main() {
 	// block until we can acquire all entries. This is an indication that all devices have been
 	// enrolled, and it's safe to start the "stopAfter" function.
 	_ = sem.Acquire(ctx, int64(*maxConcurrency))
+	fmt.Println("Enrollment Duration: ", time.Since(now))
 	if stopAfter != nil && *stopAfter > 0 {
 		time.AfterFunc(*stopAfter, func() {
 			log.Infoln("stopping simulator after duration")
@@ -234,10 +239,18 @@ func launchAgent(ctx context.Context, i int, params agentLaunchParams) {
 		return
 	case <-time.After(time.Duration(rand.Float64() * float64(params.jitterDuration))): //nolint:gosec
 	}
-	// leave the agent process running in the background
-	// when the agent is approved, we return and release the semaphore to allow other agents to onboard
-	go startAgent(ctx, params.agents[i], params.log, i)
-	approveAgent(ctx, params.log, params.serviceClient, params.agentFolders[i], params.formattedLabels)
+
+	if params.mockMode {
+		// Mock simulation mode: enrollment + approval happen synchronously,
+		// then simulation runs in background using mTLS identity clients
+		params.agentIndex = i
+		startMockSimulation(ctx, params)
+	} else {
+		// Existing full agent mode: leave the agent process running in the background
+		// when the agent is approved, we return and release the semaphore to allow other agents to onboard
+		go startAgent(ctx, params.agentInfos[i].agent, params.log, i)
+		approveAgent(ctx, params.log, params.serviceClient, params.agentInfos[i].folder, params.formattedLabels)
+	}
 }
 
 func reportVersion(versionFormat *string) error {
@@ -338,21 +351,29 @@ type createAgentsConfig struct {
 	maxConcurrency      int
 }
 
-type agentLaunchParams struct {
-	agents          []*agent.Agent
-	agentFolders    []string
-	log             *logrus.Logger
-	serviceClient   *apiClient.ClientWithResponses
-	formattedLabels *map[string]string
-	sem             *semaphore.Weighted
-	jitterDuration  time.Duration
+type agentInfo struct {
+	agent  *agent.Agent
+	folder string
+	config *agent_config.Config
 }
 
-func createAgents(agentCfg createAgentsConfig) ([]*agent.Agent, []string) {
+type agentLaunchParams struct {
+	agentInfos         []agentInfo
+	log                *logrus.Logger
+	serviceClient      *apiClient.ClientWithResponses
+	formattedLabels    *map[string]string
+	sem                *semaphore.Weighted
+	jitterDuration     time.Duration
+	mockMode           bool
+	agentConfig        *agent_config.Config
+	initialDeviceIndex int
+	agentIndex         int
+}
+
+func createAgents(agentCfg createAgentsConfig) []agentInfo {
 	logger := agentCfg.log
 	logger.Infoln("creating agents")
-	agents := make([]*agent.Agent, agentCfg.numDevices)
-	agentsFolders := make([]string, agentCfg.numDevices)
+	agentInfos := make([]agentInfo, agentCfg.numDevices)
 	ex := experimental.NewFeatures()
 	if ex.IsEnabled() && agentCfg.numDevices > 1 {
 		logger.Warnf("Using experimental features with more than one device could cause unexpected issues.")
@@ -446,10 +467,13 @@ func createAgents(agentCfg createAgentsConfig) ([]*agent.Agent, []string) {
 
 		logWithPrefix := flightlog.NewPrefixLogger(agentName)
 		logWithPrefix.Level(agentCfg.agentConfigTemplate.LogLevel)
-		agents[i] = agent.New(logWithPrefix, cfg, "")
-		agentsFolders[i] = agentDir
+		agentInfos[i] = agentInfo{
+			agent:  agent.New(logWithPrefix, cfg, ""),
+			folder: agentDir,
+			config: cfg,
+		}
 	}
-	return agents, agentsFolders
+	return agentInfos
 }
 
 func approveAgent(ctx context.Context, log *logrus.Logger, serviceClient *apiClient.ClientWithResponses, agentDir string, labels *map[string]string) {
