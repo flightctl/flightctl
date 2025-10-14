@@ -7,7 +7,6 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/service/common"
-	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -46,10 +45,14 @@ func (r *reconciler) emitFleetRolloutBatchDispatchedEvent(ctx context.Context, o
 	fleetName := lo.FromPtr(fleet.Metadata.Name)
 	batchNumberStr, exists := util.GetFromMap(lo.FromPtr(fleet.Metadata.Annotations), api.FleetAnnotationBatchNumber)
 	if exists {
-        r.serviceHandler.CreateEvent(ctx, orgId, common.GetFleetRolloutBatchDispatchedEvent(ctx, fleetName, templateVersionName, batchNumberStr))
-    } else {
-       r.log.Warnf("%v/%s: No batch number found for FleetRolloutBatchDispatched event", orgId, fleetName)
-    }
+		if evt := common.GetFleetRolloutBatchDispatchedEvent(ctx, fleetName, templateVersionName, batchNumberStr); evt != nil {
+			r.serviceHandler.CreateEvent(ctx, orgId, evt)
+		} else {
+			r.log.Warnf("%v/%s: Failed to build FleetRolloutBatchDispatched event", orgId, fleetName)
+		}
+	} else {
+		r.log.Warnf("%v/%s: No batch number found for FleetRolloutBatchDispatched event", orgId, fleetName)
+	}
 }
 
 func (r *reconciler) reconcileFleet(ctx context.Context, orgId uuid.UUID, fleet api.Fleet) {
@@ -60,7 +63,7 @@ func (r *reconciler) reconcileFleet(ctx context.Context, orgId uuid.UUID, fleet 
 
 	annotations := lo.FromPtr(fleet.Metadata.Annotations)
 	if annotations == nil {
-		r.log.Infof("Mo annotations for fleet %v/%s", orgId, fleetName)
+		r.log.Infof("No annotations for fleet %v/%s", orgId, fleetName)
 		return
 	}
 	if fleet.Spec.RolloutPolicy == nil || fleet.Spec.RolloutPolicy.DeviceSelection == nil {
