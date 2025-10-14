@@ -122,7 +122,7 @@ func (t *TracedService) ListDisconnectedDevices(ctx context.Context, orgId uuid.
 	return resp, st
 }
 
-func (t *TracedService) ListDevicesByServiceCondition(ctx context.Context, conditionType string, conditionStatus string, listParams store.ListParams) (*api.DeviceList, api.Status) {
+func (t *TracedService) ListDevicesByServiceCondition(ctx context.Context, orgId uuid.UUID, conditionType string, conditionStatus string, listParams store.ListParams) (*api.DeviceList, api.Status) {
 	ctx, span := startSpan(ctx, "ListDevicesByServiceCondition")
 	resp, st := t.inner.ListDevicesByServiceCondition(ctx, orgId, conditionType, conditionStatus, listParams)
 	endSpan(span, st)

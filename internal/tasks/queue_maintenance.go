@@ -157,7 +157,7 @@ func (t *QueueMaintenanceTask) retryFailedMessages(ctx context.Context, log logr
 				event.Details = &details
 			}
 
-			// Emit the event under the correct organization without mutating caller ctx
+			// Emit the event
 			t.serviceHandler.CreateEvent(ctx, eventWithOrgId.OrgId, event)
 
 			log.WithField("entryID", entryID).

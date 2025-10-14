@@ -141,17 +141,12 @@ func removeSession(sessionID string) func(string) (string, error) {
 	}
 }
 
-func (m *ConsoleSessionManager) StartSession(ctx context.Context, deviceName, sessionMetadata string) (*ConsoleSession, error) {
+func (m *ConsoleSessionManager) StartSession(ctx context.Context, orgId uuid.UUID, deviceName, sessionMetadata string) (*ConsoleSession, error) {
 	if sessionMetadata == "" {
 		m.log.Error("incompatible client: missing session metadata")
 		return nil, errors.New("incompatible client: missing session metadata")
 	}
 	m.log.Infof("Start session. Metadata %s", sessionMetadata)
-
-	orgId, ok := util.GetOrgIdFromContext(ctx)
-	if !ok {
-		return nil, errors.New("organization ID not found in context")
-	}
 	session := &ConsoleSession{
 		OrgId:      orgId,
 		DeviceName: deviceName,

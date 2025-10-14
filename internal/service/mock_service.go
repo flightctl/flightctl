@@ -710,18 +710,18 @@ func (mr *MockServiceMockRecorder) ListDevicesByServiceCondition(ctx, orgId, con
 }
 
 // ListDisconnectedDevices mocks base method.
-func (m *MockService) ListDisconnectedDevices(ctx context.Context, params v1alpha1.ListDevicesParams, cutoffTime time.Time) (*v1alpha1.DeviceList, v1alpha1.Status) {
+func (m *MockService) ListDisconnectedDevices(ctx context.Context, orgId uuid.UUID, params v1alpha1.ListDevicesParams, cutoffTime time.Time) (*v1alpha1.DeviceList, v1alpha1.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListDisconnectedDevices", ctx, params, cutoffTime)
+	ret := m.ctrl.Call(m, "ListDisconnectedDevices", ctx, orgId, params, cutoffTime)
 	ret0, _ := ret[0].(*v1alpha1.DeviceList)
 	ret1, _ := ret[1].(v1alpha1.Status)
 	return ret0, ret1
 }
 
 // ListDisconnectedDevices indicates an expected call of ListDisconnectedDevices.
-func (mr *MockServiceMockRecorder) ListDisconnectedDevices(ctx, params, cutoffTime any) *gomock.Call {
+func (mr *MockServiceMockRecorder) ListDisconnectedDevices(ctx, orgId, params, cutoffTime any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDisconnectedDevices", reflect.TypeOf((*MockService)(nil).ListDisconnectedDevices), ctx, params, cutoffTime)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDisconnectedDevices", reflect.TypeOf((*MockService)(nil).ListDisconnectedDevices), ctx, orgId, params, cutoffTime)
 }
 
 // ListDisruptionBudgetFleets mocks base method.

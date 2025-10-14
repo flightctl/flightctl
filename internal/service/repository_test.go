@@ -42,9 +42,10 @@ func testRepositoryPatch(require *require.Assertions, patch api.PatchRequest) (*
 		log:          logrus.New(),
 	}
 	ctx := context.Background()
-	_, err = serviceHandler.store.Repository().Create(ctx, store.NullOrgId, &repository, nil)
+	testOrgId := uuid.New()
+	_, err = serviceHandler.store.Repository().Create(ctx, testOrgId, &repository, nil)
 	require.NoError(err)
-	resp, status := serviceHandler.PatchRepository(ctx, store.NullOrgId, "foo", patch)
+	resp, status := serviceHandler.PatchRepository(ctx, testOrgId, "foo", patch)
 	require.NotEqual(statusFailedCode, status.Code)
 	return resp, repository, status
 }
@@ -176,13 +177,14 @@ func TestRepositoryNonExistingResource(t *testing.T) {
 		log:          logrus.New(),
 	}
 	ctx := context.Background()
-	_, err := serviceHandler.store.Repository().Create(ctx, store.NullOrgId, &api.Repository{
+	testOrgId := uuid.New()
+	_, err := serviceHandler.store.Repository().Create(ctx, testOrgId, &api.Repository{
 		Metadata: api.ObjectMeta{Name: lo.ToPtr("foo")},
 	}, nil)
 	require.NoError(err)
-	_, status := serviceHandler.PatchRepository(ctx, store.NullOrgId, "bar", pr)
+	_, status := serviceHandler.PatchRepository(ctx, testOrgId, "bar", pr)
 	require.Equal(statusNotFoundCode, status.Code)
-	event, _ := serviceHandler.store.Event().List(context.Background(), store.NullOrgId, store.ListParams{})
+	event, _ := serviceHandler.store.Event().List(context.Background(), testOrgId, store.ListParams{})
 	require.Len(event.Items, 0)
 }
 
@@ -214,7 +216,8 @@ func setAccessCondition(ctx context.Context, repository *api.Repository, err err
 	if repository.Status.Conditions == nil {
 		repository.Status.Conditions = []api.Condition{}
 	}
-	_, status := h.ReplaceRepositoryStatusByError(ctx, store.NullOrgId, lo.FromPtr(repository.Metadata.Name), *repository, err)
+	testOrgId := uuid.New()
+	_, status := h.ReplaceRepositoryStatusByError(ctx, testOrgId, lo.FromPtr(repository.Metadata.Name), *repository, err)
 
 	return ApiStatusToErr(status)
 }
@@ -232,14 +235,14 @@ func TestRepoTester_SetAccessCondition(t *testing.T) {
 	}
 	r := serviceHandler.store.Repository()
 	ctx := context.Background()
-	orgId := store.NullOrgId
+	testOrgId := uuid.New()
 
-	err := createRepository(ctx, r, orgId, "nil-to-ok", &map[string]string{"status": "OK"})
+	err := createRepository(ctx, r, testOrgId, "nil-to-ok", &map[string]string{"status": "OK"})
 	require.NoError(err)
 
-	err = createRepository(ctx, r, orgId, "ok-to-ok", &map[string]string{"status": "OK"})
+	err = createRepository(ctx, r, testOrgId, "ok-to-ok", &map[string]string{"status": "OK"})
 	require.NoError(err)
-	repo, err := r.Get(ctx, orgId, "ok-to-ok")
+	repo, err := r.Get(ctx, testOrgId, "ok-to-ok")
 	require.NoError(err)
 
 	err = setAccessCondition(ctx, repo, err, serviceHandler)

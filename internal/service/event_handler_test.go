@@ -121,15 +121,16 @@ func TestEventDeviceReplaced(t *testing.T) {
 	serviceHandler := serviceHandler()
 	ctx := context.Background()
 	ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
+	testOrgId := uuid.New()
 	device := prepareDevice(uuid.New(), "foo")
 
 	// Create device
 	expectedEvents := []common.ResourceUpdate{
 		{Reason: api.EventReasonResourceCreated, Details: "Device was created successfully."},
 	}
-	device, retStatus := serviceHandler.CreateDevice(ctx, store.NullOrgId, *device)
+	device, retStatus := serviceHandler.CreateDevice(ctx, testOrgId, *device)
 	require.Equal(statusCreatedCode, retStatus.Code)
-	events, err := serviceHandler.store.Event().List(context.Background(), store.NullOrgId, store.ListParams{})
+	events, err := serviceHandler.store.Event().List(context.Background(), testOrgId, store.ListParams{})
 	require.NoError(err)
 	compareEvents(expectedEvents, events.Items, require)
 
@@ -139,13 +140,13 @@ func TestEventDeviceReplaced(t *testing.T) {
 		{Reason: api.EventReasonResourceUpdated, Details: "Device was updated successfully (owner)."},
 	}...)
 	fleet := prepareFleet(newOwner1)
-	_, retStatus = serviceHandler.CreateFleet(ctx, store.NullOrgId, fleet)
+	_, retStatus = serviceHandler.CreateFleet(ctx, testOrgId, fleet)
 	require.Equal(statusCreatedCode, retStatus.Code)
 	device.Metadata.Owner = util.SetResourceOwner(api.DeviceKind, newOwner1)
-	device, retStatus = serviceHandler.ReplaceDevice(ctx, store.NullOrgId, *device.Metadata.Name, *device, nil)
+	device, retStatus = serviceHandler.ReplaceDevice(ctx, testOrgId, *device.Metadata.Name, *device, nil)
 	require.Equal(statusSuccessCode, retStatus.Code)
 	require.Equal(*device.Metadata.Owner, util.ResourceOwner(device.Kind, newOwner1))
-	events, err = serviceHandler.store.Event().List(context.Background(), store.NullOrgId, store.ListParams{})
+	events, err = serviceHandler.store.Event().List(context.Background(), testOrgId, store.ListParams{})
 	require.NoError(err)
 	compareEvents(expectedEvents, events.Items, require)
 
@@ -154,13 +155,13 @@ func TestEventDeviceReplaced(t *testing.T) {
 		{Reason: api.EventReasonResourceUpdated, Details: "Device was updated successfully (owner)."},
 	}...)
 	fleet = prepareFleet(newOwner2)
-	_, retStatus = serviceHandler.CreateFleet(ctx, store.NullOrgId, fleet)
+	_, retStatus = serviceHandler.CreateFleet(ctx, testOrgId, fleet)
 	require.Equal(statusCreatedCode, retStatus.Code)
 	device.Metadata.Owner = util.SetResourceOwner(api.DeviceKind, newOwner2)
-	device, retStatus = serviceHandler.ReplaceDevice(ctx, store.NullOrgId, *device.Metadata.Name, *device, nil)
+	device, retStatus = serviceHandler.ReplaceDevice(ctx, testOrgId, *device.Metadata.Name, *device, nil)
 	require.Equal(statusSuccessCode, retStatus.Code)
 	require.Equal(*device.Metadata.Owner, util.ResourceOwner(device.Kind, newOwner2))
-	events, err = serviceHandler.store.Event().List(context.Background(), store.NullOrgId, store.ListParams{})
+	events, err = serviceHandler.store.Event().List(context.Background(), testOrgId, store.ListParams{})
 	require.NoError(err)
 	compareEvents(expectedEvents, events.Items, require)
 }
@@ -170,15 +171,16 @@ func TestEventDeviceReplaceDeviceStatus(t *testing.T) {
 
 	serviceHandler := serviceHandler()
 	ctx := context.Background()
+	testOrgId := uuid.New()
 	device := prepareDevice(uuid.New(), "foo")
 
 	// Create device
 	expectedEvents := []common.ResourceUpdate{
 		{Reason: api.EventReasonResourceCreated, Details: "Device was created successfully."},
 	}
-	device, retStatus := serviceHandler.CreateDevice(ctx, store.NullOrgId, *device)
+	device, retStatus := serviceHandler.CreateDevice(ctx, testOrgId, *device)
 	require.Equal(statusCreatedCode, retStatus.Code)
-	events, err := serviceHandler.store.Event().List(context.Background(), store.NullOrgId, store.ListParams{})
+	events, err := serviceHandler.store.Event().List(context.Background(), testOrgId, store.ListParams{})
 	require.NoError(err)
 	compareEvents(expectedEvents, events.Items, require)
 
@@ -186,15 +188,15 @@ func TestEventDeviceReplaceDeviceStatus(t *testing.T) {
 		{Reason: api.EventReasonDeviceConnected, Details: "Device's system resources are healthy."},
 		{Reason: api.EventReasonDeviceApplicationHealthy, Details: "Device has no application workloads defined."},
 	}...)
-	device, retStatus = serviceHandler.ReplaceDeviceStatus(ctx, store.NullOrgId, *device.Metadata.Name, *device)
+	device, retStatus = serviceHandler.ReplaceDeviceStatus(ctx, testOrgId, *device.Metadata.Name, *device)
 	require.Equal(statusSuccessCode, retStatus.Code)
-	events, err = serviceHandler.store.Event().List(context.Background(), store.NullOrgId, store.ListParams{})
+	events, err = serviceHandler.store.Event().List(context.Background(), testOrgId, store.ListParams{})
 	require.NoError(err)
 	compareEvents(expectedEvents, events.Items, require)
 
-	_, retStatus = serviceHandler.ReplaceDeviceStatus(ctx, store.NullOrgId, *device.Metadata.Name, *device)
+	_, retStatus = serviceHandler.ReplaceDeviceStatus(ctx, testOrgId, *device.Metadata.Name, *device)
 	require.Equal(statusSuccessCode, retStatus.Code)
-	events, err = serviceHandler.store.Event().List(context.Background(), store.NullOrgId, store.ListParams{})
+	events, err = serviceHandler.store.Event().List(context.Background(), testOrgId, store.ListParams{})
 	require.NoError(err)
 	compareEvents(expectedEvents, events.Items, require)
 }
@@ -203,9 +205,10 @@ func TestEventDeviceReplaceDeviceStatus1(t *testing.T) {
 	ctx := context.Background()
 	ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
 	serviceHandler := serviceHandler()
+	testOrgId := uuid.New()
 
 	device := prepareDevice(uuid.New(), "foo")
-	result, status := serviceHandler.CreateDevice(ctx, store.NullOrgId, *device)
+	result, status := serviceHandler.CreateDevice(ctx, testOrgId, *device)
 	assert.Equal(t, statusCreatedCode, status.Code)
 	assert.NotNil(t, result)
 
@@ -217,11 +220,11 @@ func TestEventDeviceReplaceDeviceStatus1(t *testing.T) {
 	newDevice.Status.Summary.Status = "Online"
 	newDevice.Status.Lifecycle.Status = "Unknown"
 
-	result, status = serviceHandler.ReplaceDeviceStatus(ctx, store.NullOrgId, "foo", *newDevice)
+	result, status = serviceHandler.ReplaceDeviceStatus(ctx, testOrgId, "foo", *newDevice)
 	assert.Equal(t, statusSuccessCode, status.Code)
 	assert.NotNil(t, result)
 
-	events, err := serviceHandler.store.Event().List(context.Background(), store.NullOrgId, store.ListParams{})
+	events, err := serviceHandler.store.Event().List(context.Background(), testOrgId, store.ListParams{})
 	assert.NoError(t, err)
 	assert.Equal(t, 3, len(events.Items))
 }
@@ -230,13 +233,14 @@ func TestEventHandler_HandleDeviceUpdatedEmptyOldDevice(t *testing.T) {
 	serviceHandler := serviceHandler()
 
 	ctx := context.Background()
+	testOrgId := uuid.New()
 
 	device := prepareDevice(uuid.New(), "foo")
 	device.Status.Updated.Status = api.DeviceUpdatedStatusUpToDate
 	oldDevice := &api.Device{}
 	serviceHandler.eventHandler.HandleDeviceUpdatedEvents(ctx, api.DeviceKind, uuid.New(), "foo", oldDevice, device, false, nil)
 
-	events, err := serviceHandler.store.Event().List(context.Background(), store.NullOrgId, store.ListParams{})
+	events, err := serviceHandler.store.Event().List(context.Background(), testOrgId, store.ListParams{})
 	assert.NoError(t, err)
 	assert.Equal(t, 1, len(events.Items))
 }
@@ -245,6 +249,7 @@ func TestEventHandler_DeviceDisconnectedEventDeduplication(t *testing.T) {
 	serviceHandler := serviceHandler()
 
 	ctx := context.Background()
+	testOrgId := uuid.New()
 
 	// Create old device with all statuses as non-Unknown
 	oldDevice := prepareDevice(uuid.New(), "foo")
@@ -261,7 +266,7 @@ func TestEventHandler_DeviceDisconnectedEventDeduplication(t *testing.T) {
 	// This should trigger multiple DeviceDisconnected events, but only one should be emitted
 	serviceHandler.eventHandler.HandleDeviceUpdatedEvents(ctx, api.DeviceKind, uuid.New(), "foo", oldDevice, newDevice, false, nil)
 
-	events, err := serviceHandler.store.Event().List(context.Background(), store.NullOrgId, store.ListParams{})
+	events, err := serviceHandler.store.Event().List(context.Background(), testOrgId, store.ListParams{})
 	assert.NoError(t, err)
 
 	// Should only have 1 DeviceDisconnected event, not 3
@@ -279,15 +284,16 @@ func TestEventDevicePatchDeviceStatus(t *testing.T) {
 
 	serviceHandler := serviceHandler()
 	ctx := context.Background()
+	testOrgId := uuid.New()
 	device := prepareDevice(uuid.New(), "foo")
 
 	// Create device
 	expectedEvents := []common.ResourceUpdate{
 		{Reason: api.EventReasonResourceCreated, Details: "Device was created successfully."},
 	}
-	device, retStatus := serviceHandler.CreateDevice(ctx, store.NullOrgId, *device)
+	device, retStatus := serviceHandler.CreateDevice(ctx, testOrgId, *device)
 	require.Equal(statusCreatedCode, retStatus.Code)
-	events, err := serviceHandler.store.Event().List(context.Background(), store.NullOrgId, store.ListParams{})
+	events, err := serviceHandler.store.Event().List(context.Background(), testOrgId, store.ListParams{})
 	require.NoError(err)
 	compareEvents(expectedEvents, events.Items, require)
 
@@ -303,9 +309,9 @@ func TestEventDevicePatchDeviceStatus(t *testing.T) {
 	patchRequest := api.PatchRequest{
 		{Op: "replace", Path: "/status/systemInfo", Value: &value},
 	}
-	device, retStatus = serviceHandler.PatchDeviceStatus(ctx, store.NullOrgId, *device.Metadata.Name, patchRequest)
+	device, retStatus = serviceHandler.PatchDeviceStatus(ctx, testOrgId, *device.Metadata.Name, patchRequest)
 	require.Equal(statusSuccessCode, retStatus.Code)
-	events, err = serviceHandler.store.Event().List(context.Background(), store.NullOrgId, store.ListParams{})
+	events, err = serviceHandler.store.Event().List(context.Background(), testOrgId, store.ListParams{})
 	require.NoError(err)
 	compareEvents(expectedEvents, events.Items, require)
 
@@ -316,9 +322,9 @@ func TestEventDevicePatchDeviceStatus(t *testing.T) {
 		OperatingSystem: "3",
 	})
 	require.NoError(err)
-	_, retStatus = serviceHandler.PatchDeviceStatus(ctx, store.NullOrgId, *device.Metadata.Name, patchRequest)
+	_, retStatus = serviceHandler.PatchDeviceStatus(ctx, testOrgId, *device.Metadata.Name, patchRequest)
 	require.Equal(statusSuccessCode, retStatus.Code)
-	events, err = serviceHandler.store.Event().List(context.Background(), store.NullOrgId, store.ListParams{})
+	events, err = serviceHandler.store.Event().List(context.Background(), testOrgId, store.ListParams{})
 	require.NoError(err)
 	compareEvents(expectedEvents, events.Items, require)
 }
@@ -338,15 +344,16 @@ func TestEventDeviceCreatedAndIsAlive(t *testing.T) {
 	serviceHandler := serviceHandler()
 	ctx := context.Background()
 	ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
+	testOrgId := uuid.New()
 	device := prepareDevice(uuid.New(), "foo")
 
 	// Create device
 	expectedEvents := []common.ResourceUpdate{
 		{Reason: api.EventReasonResourceCreated, Details: "Device was created successfully."},
 	}
-	device, retStatus := serviceHandler.CreateDevice(ctx, store.NullOrgId, *device)
+	device, retStatus := serviceHandler.CreateDevice(ctx, testOrgId, *device)
 	require.Equal(statusCreatedCode, retStatus.Code)
-	events, err := serviceHandler.store.Event().List(context.Background(), store.NullOrgId, store.ListParams{})
+	events, err := serviceHandler.store.Event().List(context.Background(), testOrgId, store.ListParams{})
 	require.NoError(err)
 	compareEvents(expectedEvents, events.Items, require)
 
@@ -356,17 +363,17 @@ func TestEventDeviceCreatedAndIsAlive(t *testing.T) {
 		{Reason: api.EventReasonDeviceApplicationHealthy, Details: "Device has no application workloads defined."},
 	}...)
 	device.Status.LastSeen = lo.ToPtr(time.Now())
-	device, err = serviceHandler.UpdateDevice(ctx, store.NullOrgId, *device.Metadata.Name, *device, nil)
+	device, err = serviceHandler.UpdateDevice(ctx, testOrgId, *device.Metadata.Name, *device, nil)
 	require.NoError(err)
-	events, _ = serviceHandler.store.Event().List(context.Background(), store.NullOrgId, store.ListParams{})
+	events, _ = serviceHandler.store.Event().List(context.Background(), testOrgId, store.ListParams{})
 	compareEvents(expectedEvents, events.Items, require)
 
 	// Device I-am-alive
 	// No new expected events
 	device.Status.LastSeen = lo.ToPtr(time.Now())
-	_, err = serviceHandler.UpdateDevice(ctx, store.NullOrgId, *device.Metadata.Name, *device, nil)
+	_, err = serviceHandler.UpdateDevice(ctx, testOrgId, *device.Metadata.Name, *device, nil)
 	require.NoError(err)
-	events, err = serviceHandler.store.Event().List(context.Background(), store.NullOrgId, store.ListParams{})
+	events, err = serviceHandler.store.Event().List(context.Background(), testOrgId, store.ListParams{})
 	require.NoError(err)
 	compareEvents(expectedEvents, events.Items, require)
 }
@@ -377,15 +384,16 @@ func TestEventDeviceUpdated(t *testing.T) {
 	serviceHandler := serviceHandler()
 	ctx := context.Background()
 	ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
+	testOrgId := uuid.New()
 	device := prepareDevice(uuid.New(), "foo")
 
 	// Create device
 	expectedEvents := []common.ResourceUpdate{
 		{Reason: api.EventReasonResourceCreated, Details: "Device was created successfully."},
 	}
-	device, retStatus := serviceHandler.CreateDevice(ctx, store.NullOrgId, *device)
+	device, retStatus := serviceHandler.CreateDevice(ctx, testOrgId, *device)
 	require.Equal(statusCreatedCode, retStatus.Code)
-	events, err := serviceHandler.store.Event().List(context.Background(), store.NullOrgId, store.ListParams{})
+	events, err := serviceHandler.store.Event().List(context.Background(), testOrgId, store.ListParams{})
 	require.NoError(err)
 	compareEvents(expectedEvents, events.Items, require)
 
@@ -399,15 +407,15 @@ func TestEventDeviceUpdated(t *testing.T) {
 		Disk:   api.DeviceResourceStatusHealthy,
 	}
 	device.Status.LastSeen = lo.ToPtr(time.Now())
-	device, err = serviceHandler.UpdateDevice(ctx, store.NullOrgId, *device.Metadata.Name, *device, nil)
+	device, err = serviceHandler.UpdateDevice(ctx, testOrgId, *device.Metadata.Name, *device, nil)
 	require.NoError(err)
-	events, err = serviceHandler.store.Event().List(context.Background(), store.NullOrgId, store.ListParams{})
+	events, err = serviceHandler.store.Event().List(context.Background(), testOrgId, store.ListParams{})
 	require.NoError(err)
 	compareEvents(expectedEvents, events.Items, require)
 
-	_, err = serviceHandler.UpdateDevice(ctx, store.NullOrgId, *device.Metadata.Name, *device, nil)
+	_, err = serviceHandler.UpdateDevice(ctx, testOrgId, *device.Metadata.Name, *device, nil)
 	require.NoError(err)
-	events, err = serviceHandler.store.Event().List(context.Background(), store.NullOrgId, store.ListParams{})
+	events, err = serviceHandler.store.Event().List(context.Background(), testOrgId, store.ListParams{})
 	require.NoError(err)
 	compareEvents(expectedEvents, events.Items, require)
 }
@@ -418,6 +426,7 @@ func TestEventHandler_EmitFleetValidEvents(t *testing.T) {
 	require := require.New(t)
 
 	ctx := context.Background()
+	testOrgId := uuid.New()
 	handler := serviceHandler()
 	fleetName := "test-fleet"
 
@@ -451,7 +460,7 @@ func TestEventHandler_EmitFleetValidEvents(t *testing.T) {
 			},
 		}
 
-		handler.eventHandler.emitFleetValidEvents(ctx, store.NullOrgId, fleetName, oldFleet, newFleet)
+		handler.eventHandler.emitFleetValidEvents(ctx, testOrgId, fleetName, oldFleet, newFleet)
 
 		// Verify that a valid event was created
 		events := *handler.store.(*TestStore).events.events
@@ -496,7 +505,7 @@ func TestEventHandler_EmitFleetValidEvents(t *testing.T) {
 			},
 		}
 
-		handler.eventHandler.emitFleetValidEvents(ctx, store.NullOrgId, fleetName, oldFleet, newFleet)
+		handler.eventHandler.emitFleetValidEvents(ctx, testOrgId, fleetName, oldFleet, newFleet)
 
 		// Verify that an invalid event was created
 		events := *handler.store.(*TestStore).events.events
@@ -527,7 +536,7 @@ func TestEventHandler_EmitFleetValidEvents(t *testing.T) {
 			},
 		}
 
-		handler.eventHandler.emitFleetValidEvents(ctx, store.NullOrgId, fleetName, fleet, fleet)
+		handler.eventHandler.emitFleetValidEvents(ctx, testOrgId, fleetName, fleet, fleet)
 
 		// Verify that no event was created
 		events := *handler.store.(*TestStore).events.events
@@ -543,7 +552,7 @@ func TestEventHandler_EmitFleetValidEvents(t *testing.T) {
 			Status:   nil,
 		}
 
-		handler.eventHandler.emitFleetValidEvents(ctx, store.NullOrgId, fleetName, fleet, fleet)
+		handler.eventHandler.emitFleetValidEvents(ctx, testOrgId, fleetName, fleet, fleet)
 
 		// Verify that no event was created
 		events := *handler.store.(*TestStore).events.events
@@ -556,6 +565,7 @@ func TestEventEnrollmentRequestApproved(t *testing.T) {
 	require := require.New(t)
 
 	serviceHandler := serviceHandler()
+	testOrgId := uuid.New()
 	testDirPath := t.TempDir()
 	cfg := ca.NewDefault(testDirPath)
 	ca, _, err := fcrypto.EnsureCA(cfg)
@@ -597,12 +607,12 @@ func TestEventEnrollmentRequestApproved(t *testing.T) {
 			serviceHandler.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, api.EnrollmentRequestKind, name, nil, serviceHandler.log, nil))
 		}
 	}
-	_, err = serviceHandler.store.EnrollmentRequest().Create(ctx, store.NullOrgId, &er, eventCallback)
+	_, err = serviceHandler.store.EnrollmentRequest().Create(ctx, testOrgId, &er, eventCallback)
 	require.NoError(err)
 
 	identity := authcommon.NewBaseIdentity("bar", "", []string{})
 	ctx = context.WithValue(ctx, consts.IdentityCtxKey, identity)
-	_, stat := serviceHandler.ApproveEnrollmentRequest(ctx, store.NullOrgId, name, approval)
+	_, stat := serviceHandler.ApproveEnrollmentRequest(ctx, testOrgId, name, approval)
 	require.Equal(statusSuccessCode, stat.Code)
 	expectedEvents := []common.ResourceUpdate{
 		{Reason: api.EventReasonResourceCreated, Details: "EnrollmentRequest was created successfully."},
@@ -610,7 +620,7 @@ func TestEventEnrollmentRequestApproved(t *testing.T) {
 		{Reason: api.EventReasonEnrollmentRequestApproved, Details: "EnrollmentRequest was approved successfully."},
 	}
 	require.Equal(statusSuccessCode, stat.Code)
-	events, err := serviceHandler.store.Event().List(context.Background(), store.NullOrgId, store.ListParams{})
+	events, err := serviceHandler.store.Event().List(context.Background(), testOrgId, store.ListParams{})
 	require.NoError(err)
 	compareEvents(expectedEvents, events.Items, require)
 }
