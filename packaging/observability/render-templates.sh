@@ -21,7 +21,6 @@ render_templates() {
         command -v "$1" &>/dev/null || { log "ERROR" "Required binary '$1' not found"; exit 1; }
     }
 
-    require_bin jq
     require_bin python3
     require_bin envsubst
 
@@ -40,8 +39,7 @@ render_templates() {
 
         [[ "$env_var" =~ ^#.*$ || -z "$env_var" ]] && continue
 
-        value=$(python3 /usr/share/flightctl/yaml-to-json.py < "$config_file" 2>/dev/null | jq -r "$config_path" 2>/dev/null || echo "$default_value")
-        [[ "$value" == "null" || -z "$value" ]] && value="$default_value"
+        value=$(python3 /usr/share/flightctl/yaml_helpers.py extract "$config_path" "$config_file" --default "$default_value")
 
         export "$env_var"="$value"
 

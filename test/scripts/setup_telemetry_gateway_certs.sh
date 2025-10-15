@@ -22,6 +22,7 @@ CSR_FILE_DEFAULT="${CSR_FILE_DEFAULT:-${CERTS_DIR}/${CSR_NAME}.csr}"
 CRT_FILE_DEFAULT="${CRT_FILE_DEFAULT:-${CERTS_DIR}/${CSR_NAME}.crt}"
 CA_FILE_DEFAULT="${CA_FILE_DEFAULT:-${CERTS_DIR}/ca.crt}"
 EXPIRATION_SECONDS="${EXPIRATION_SECONDS:-8640000}" # 100 days
+YAML_HELPERS_PATH="${YAML_HELPERS_PATH:-/usr/share/flightctl/yaml_helpers.py}"
 FORCE_ROTATE="${FORCE_ROTATE:-false}"
 
 # Podman-specific defaults (no container dependency)
@@ -45,12 +46,13 @@ Options:
   --ca-secret <name>          CA  secret name      (default: ${CA_SECRET_NAME})
   --expiration <seconds>      CSR expirationSeconds (default: ${EXPIRATION_SECONDS})
   --sans "<SAN1,SAN2,...>"    SubjectAltName entries (default: "${DEFAULT_SANS}")
+  --yaml-helpers-path <path>  Path to yaml_helpers.py script (default: ${YAML_HELPERS_PATH})
   --force-rotate              Rotate even if secrets exist
   -h|--help                   Show this help
 
 Notes:
-- Kubernetes mode requires: kubectl, openssl, jq, python3 (with PyYAML), flightctl CLI.
-- Podman mode requires: podman, openssl, jq, python3 (with PyYAML), flightctl CLI.
+- Kubernetes mode requires: kubectl, openssl, python3 (with PyYAML), flightctl CLI.
+- Podman mode requires: podman, openssl, python3 (with PyYAML), flightctl CLI.
 - In Podman mode, secrets are created using 'podman secret create' - no container dependency.
 - In Podman mode, local certificate files are removed after creating secrets for security.
 - Use --secret flags when creating containers to inject the created secrets.
@@ -75,6 +77,7 @@ while [[ $# -gt 0 ]]; do
     --ca-secret) CA_SECRET_NAME="$2"; shift 2;;
     --expiration) EXPIRATION_SECONDS="$2"; shift 2;;
     --sans) SANS="$2"; shift 2;;
+    --yaml-helpers-path) YAML_HELPERS_PATH="$2"; shift 2;;
     --force-rotate) FORCE_ROTATE=true; shift;;
     -h|--help) usage; exit 0;;
     *) echo "Unknown arg: $1"; usage; exit 1;;
@@ -95,7 +98,6 @@ need() { command -v "$1" >/dev/null 2>&1 || { echo "Missing dependency: $1"; exi
 
 # Common dependencies
 need openssl
-need jq
 need python3
 
 # Default to using the flightctl binary in the bin directory
@@ -103,6 +105,12 @@ if [[ -x ./bin/flightctl ]]; then
   PATH="$(pwd)/bin:${PATH}"
 fi
 need flightctl
+
+# Check if yaml_helpers.py script exists
+if [[ ! -f "${YAML_HELPERS_PATH}" ]]; then
+  echo "ERROR: Could not find yaml_helpers.py script at ${YAML_HELPERS_PATH}"
+  exit 1
+fi
 
 # Mode-specific dependencies and setup
 if [[ "${MODE}" == "kubernetes" ]]; then
@@ -222,7 +230,10 @@ done
 CERT_B64=""
 tries=0
 until [[ -n "${CERT_B64}" && "${CERT_B64}" != "null" ]] || [[ $tries -ge 5 ]]; do
-  CERT_B64="$(flightctl get "csr/${CSR_NAME}" -o yaml | python3 /usr/share/flightctl/yaml-to-json.py | jq -r '.status.certificate // ""' || echo "")"
+  CSR_YAML_TEMP="$(mktemp)"
+  flightctl get "csr/${CSR_NAME}" -o yaml > "${CSR_YAML_TEMP}" 2>/dev/null || echo ""
+  CERT_B64="$(python3 "${YAML_HELPERS_PATH}" extract ".status.certificate" "${CSR_YAML_TEMP}" --default "")"
+  rm -f "${CSR_YAML_TEMP}"
   if [[ -z "${CERT_B64}" || "${CERT_B64}" == "null" ]]; then
     sleep 5
     tries=$((tries+1))
@@ -238,7 +249,10 @@ echo "${CERT_B64}" | base64 -d > "${CRT_FILE}"
 # -------------------------
 # Fetch CA from enrollment config
 # -------------------------
-ENR_CA_B64="$(flightctl enrollmentconfig | python3 /usr/share/flightctl/yaml-to-json.py | jq -r '."enrollment-service".service."certificate-authority-data" // ""' || echo "")"
+ENR_CONFIG_TEMP="$(mktemp)"
+flightctl enrollmentconfig > "${ENR_CONFIG_TEMP}" 2>/dev/null || { echo "ERROR: Failed to get enrollment config."; exit 1; }
+ENR_CA_B64="$(python3 "${YAML_HELPERS_PATH}" extract ".enrollment-service.service.certificate-authority-data" "${ENR_CONFIG_TEMP}" --default "")"
+rm -f "${ENR_CONFIG_TEMP}"
 if [[ -z "${ENR_CA_B64}" || "${ENR_CA_B64}" == "null" ]]; then
   echo "ERROR: Could not retrieve CA from 'flightctl enrollmentconfig'."
   exit 1
