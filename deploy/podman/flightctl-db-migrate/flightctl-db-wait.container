@@ -9,7 +9,9 @@ Image=quay.io/flightctl/flightctl-db-setup:latest
 Network=flightctl.network
 AutoUpdate=none
 Environment=DB_USER=flightctl_app
+Environment=SERVICE_CONFIG_PATH=/etc/flightctl/service-config.yaml
 Secret=flightctl-postgresql-user-password,type=env,target=DB_PASSWORD
+Volume=/etc/flightctl/service-config.yaml:/etc/flightctl/service-config.yaml:ro,z
 Exec=/app/deploy/scripts/wait-for-database.sh --timeout=60 --sleep=1
 
 [Service]
