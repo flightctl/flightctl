@@ -322,7 +322,7 @@ func TestClient_Close(t *testing.T) {
 				log:     logger,
 			}
 
-			err := c.Close(context.Background())
+			err := c.Close()
 
 			if tc.expectError {
 				require.Error(t, err)

@@ -138,7 +138,7 @@ var _ = Describe("Agent System Info", func() {
 		Expect(err).NotTo(HaveOccurred())
 
 		Expect(output.String()).To(ContainSubstring("siteName"))
-		Expect(output.String()).To(ContainSubstring("test"))
+		Expect(output.String()).To(ContainSubstring("emptyValue"))
 		Expect(output.String()).To(ContainSubstring("keyNotShown"))
 
 		By("Updating agent config with custom system info")
@@ -153,8 +153,8 @@ var _ = Describe("Agent System Info", func() {
 			}
 			return *sysInfo.CustomInfo
 		}, e2e.TIMEOUT, e2e.POLLING).Should(And(
-			HaveKey("siteName"),
-			HaveKey("test"), // Empty command should result in empty value
+			HaveKeyWithValue("siteName", "my site"),
+			HaveKeyWithValue("emptyValue", ""), // Empty command should result in empty value
 		), "Custom system info should be present with correct values")
 
 		By("Verifying unlisted custom scripts are not reported")
@@ -228,7 +228,7 @@ system-info: []
 	customSystemInfoConfig = `
 system-info-custom:
  - siteName
- - test
+ - emptyValue
 `
 )
 
