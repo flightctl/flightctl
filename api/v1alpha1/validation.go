@@ -33,6 +33,7 @@ var (
 	ErrDuplicateAlertSeverity                = errors.New("duplicate alertRule severity")
 	ErrDuplicateMonitorType                  = errors.New("duplicate monitorType in resources")
 	ErrInvalidCPUMonitorField                = errors.New("invalid field for CPU monitor")
+	ErrInvalidMemoryMonitorField             = errors.New("invalid field for Memory monitor")
 )
 
 type Validator interface {
@@ -253,6 +254,10 @@ func (r ResourceMonitor) Validate() []error {
 		spec, err := r.AsMemoryResourceMonitorSpec()
 		if err != nil {
 			allErrs = append(allErrs, err)
+		}
+		// Memory monitors should not have a path field
+		if hasPathField(r.union) {
+			allErrs = append(allErrs, fmt.Errorf("%w: Memory monitors cannot have a path field", ErrInvalidMemoryMonitorField))
 		}
 		allErrs = append(allErrs, validateAlertRules(spec.AlertRules, spec.SamplingInterval)...)
 	default:
