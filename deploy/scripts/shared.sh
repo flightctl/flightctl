@@ -144,7 +144,7 @@ move_shared_files() {
     cp "${source_dir}/scripts/init_utils.sh" "${CONFIG_READONLY_DIR}/init_utils.sh"
     cp "${source_dir}/scripts/init_host.sh" "${CONFIG_READONLY_DIR}/init_host.sh"
     cp "${source_dir}/scripts/secrets.sh" "${CONFIG_READONLY_DIR}/secrets.sh"
-    cp "${source_dir}/scripts/yaml-to-json.py" "${CONFIG_READONLY_DIR}/yaml-to-json.py"
+    cp "${source_dir}/scripts/yaml_helpers.py" "${CONFIG_READONLY_DIR}/yaml_helpers.py"
 }
 
 # Start a systemd service
