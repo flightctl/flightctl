@@ -36,19 +36,16 @@ parse_service_db_config() {
 
     echo "[flightctl] parsing database config from service config: ${SERVICE_CONFIG_PATH}"
     
-    local config_json
-    config_json=$(python3 /usr/share/flightctl/yaml-to-json.py < "${SERVICE_CONFIG_PATH}")
-    
-    DB_HOST=$(echo "${config_json}" | jq -r '.database.hostname // "flightctl-db"')
-    DB_PORT=$(echo "${config_json}" | jq -r '.database.port // 5432')
-    DB_NAME=$(echo "${config_json}" | jq -r '.database.name // "flightctl"')
-    DB_USER=${DB_USER:-$(echo "${config_json}" | jq -r '.database.migrationUser // "flightctl_migrator"')}
+    DB_HOST=$(python3 /usr/share/flightctl/yaml_helpers.py extract ".database.hostname" "${SERVICE_CONFIG_PATH}" --default "flightctl-db")
+    DB_PORT=$(python3 /usr/share/flightctl/yaml_helpers.py extract ".database.port" "${SERVICE_CONFIG_PATH}" --default "5432")
+    DB_NAME=$(python3 /usr/share/flightctl/yaml_helpers.py extract ".database.name" "${SERVICE_CONFIG_PATH}" --default "flightctl")
+    DB_USER=${DB_USER:-$(python3 /usr/share/flightctl/yaml_helpers.py extract ".database.migrationUser" "${SERVICE_CONFIG_PATH}" --default "flightctl_migrator")}
 
     # Parse SSL configuration
-    DB_SSL_MODE=$(echo "${config_json}" | jq -r '.database.sslmode // ""')
-    DB_SSL_CERT=$(echo "${config_json}" | jq -r '.database.sslcert // ""')
-    DB_SSL_KEY=$(echo "${config_json}" | jq -r '.database.sslkey // ""')
-    DB_SSL_ROOT_CERT=$(echo "${config_json}" | jq -r '.database.sslrootcert // ""')
+    DB_SSL_MODE=$(python3 /usr/share/flightctl/yaml_helpers.py extract ".database.sslmode" "${SERVICE_CONFIG_PATH}" --default "")
+    DB_SSL_CERT=$(python3 /usr/share/flightctl/yaml_helpers.py extract ".database.sslcert" "${SERVICE_CONFIG_PATH}" --default "")
+    DB_SSL_KEY=$(python3 /usr/share/flightctl/yaml_helpers.py extract ".database.sslkey" "${SERVICE_CONFIG_PATH}" --default "")
+    DB_SSL_ROOT_CERT=$(python3 /usr/share/flightctl/yaml_helpers.py extract ".database.sslrootcert" "${SERVICE_CONFIG_PATH}" --default "")
 
     echo -n "[flightctl] database config: host=${DB_HOST}, port=${DB_PORT}, name=${DB_NAME}, user=${DB_USER}"
     if [ -n "${DB_SSL_MODE}" ]; then
