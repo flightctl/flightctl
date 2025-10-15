@@ -64,16 +64,47 @@ render_service() {
         # Normal mode - process container files based on configuration
         mkdir -p "${QUADLET_FILES_OUTPUT_DIR}"
 
-        # Special handling for database service - choose external or regular based on config
-        if [[ "$service_name" == "db" ]] && is_external_database_enabled; then
-            echo "External database enabled - using external database container"
+        # Special handling for database and API services - install both variants for runtime selection
+        if [[ "$service_name" == "db" ]]; then
+            echo "Installing database container variants for runtime selection"
+
+            # Install internal database container to readonly location
+            local internal_container="${source_dir}/flightctl-${service_name}/flightctl-${service_name}.container"
+            if [[ -f "$internal_container" ]]; then
+                mkdir -p "${CONFIG_READONLY_DIR}/flightctl-${service_name}"
+                cp "$internal_container" "${CONFIG_READONLY_DIR}/flightctl-${service_name}/flightctl-${service_name}.container"
+                echo "copy internal db container: ${internal_container} -> ${CONFIG_READONLY_DIR}/flightctl-${service_name}/flightctl-${service_name}.container"
+            fi
+
+            # Install external database container to readonly location
             local external_container="${source_dir}/flightctl-${service_name}/flightctl-${service_name}-external.container"
             if [[ -f "$external_container" ]]; then
-                cp "$external_container" "${QUADLET_FILES_OUTPUT_DIR}/flightctl-${service_name}.container"
-            else
-                echo "Error: External database container file not found: $external_container"
-                exit 1
+                mkdir -p "${CONFIG_READONLY_DIR}/flightctl-${service_name}"
+                cp "$external_container" "${CONFIG_READONLY_DIR}/flightctl-${service_name}/flightctl-${service_name}-external.container"
+                echo "copy external db container: ${external_container} -> ${CONFIG_READONLY_DIR}/flightctl-${service_name}/flightctl-${service_name}-external.container"
             fi
+
+            # Don't install container files to quadlet directory - runtime selector will handle this
+        elif [[ "$service_name" == "api" ]] || [[ "$service_name" == "db-migrate" ]] || [[ "$service_name" == "worker" ]] || [[ "$service_name" == "periodic" ]] || [[ "$service_name" == "alert-exporter" ]] || [[ "$service_name" == "alertmanager-proxy" ]]; then
+            echo "Installing ${service_name} container variants for runtime selection"
+
+            # Install internal database container to readonly location
+            local internal_container="${source_dir}/flightctl-${service_name}/flightctl-${service_name}.container"
+            if [[ -f "$internal_container" ]]; then
+                mkdir -p "${CONFIG_READONLY_DIR}/flightctl-${service_name}"
+                cp "$internal_container" "${CONFIG_READONLY_DIR}/flightctl-${service_name}/flightctl-${service_name}.container"
+                echo "copy internal ${service_name} container: ${internal_container} -> ${CONFIG_READONLY_DIR}/flightctl-${service_name}/flightctl-${service_name}.container"
+            fi
+
+            # Install external database container to readonly location
+            local external_container="${source_dir}/flightctl-${service_name}/flightctl-${service_name}-external.container"
+            if [[ -f "$external_container" ]]; then
+                mkdir -p "${CONFIG_READONLY_DIR}/flightctl-${service_name}"
+                cp "$external_container" "${CONFIG_READONLY_DIR}/flightctl-${service_name}/flightctl-${service_name}-external.container"
+                echo "copy external ${service_name} container: ${external_container} -> ${CONFIG_READONLY_DIR}/flightctl-${service_name}/flightctl-${service_name}-external.container"
+            fi
+
+            # Don't install container files to quadlet directory - runtime selector will handle this
         else
             # Process regular container files except standalone and external ones
             for container_file in "${source_dir}/flightctl-${service_name}"/*.container; do
@@ -145,6 +176,7 @@ move_shared_files() {
     cp "${source_dir}/scripts/init_host.sh" "${CONFIG_READONLY_DIR}/init_host.sh"
     cp "${source_dir}/scripts/secrets.sh" "${CONFIG_READONLY_DIR}/secrets.sh"
     cp "${source_dir}/scripts/yaml_helpers.py" "${CONFIG_READONLY_DIR}/yaml_helpers.py"
+    cp "${source_dir}/scripts/select-db-container.sh" "${CONFIG_READONLY_DIR}/select-db-container.sh"
 }
 
 # Start a systemd service

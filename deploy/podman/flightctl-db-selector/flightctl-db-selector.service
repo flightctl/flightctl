@@ -1,0 +1,16 @@
+[Unit]
+Description=Flight Control Database Container Selector
+Documentation=Selects appropriate database container based on configuration
+Before=flightctl-db.service
+Before=flightctl.target
+PartOf=flightctl.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/share/flightctl/select-db-container.sh
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=flightctl.target

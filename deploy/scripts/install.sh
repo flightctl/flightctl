@@ -81,6 +81,7 @@ render_files() {
     render_service "worker" "${SOURCE_DIR}"
     render_service "alert-exporter" "${SOURCE_DIR}"
     render_service "db" "${SOURCE_DIR}"
+    render_service "db-selector" "${SOURCE_DIR}"
     render_service "db-migrate" "${SOURCE_DIR}"
     render_service "kv" "${SOURCE_DIR}"
     render_service "alertmanager" "${SOURCE_DIR}"
@@ -93,6 +94,7 @@ render_files() {
     # Create writeable directories for certs and services that generate files
     mkdir -p "${CONFIG_WRITEABLE_DIR}/pki"
     mkdir -p "${CONFIG_WRITEABLE_DIR}/flightctl-api"
+    mkdir -p "${CONFIG_WRITEABLE_DIR}/flightctl-db-migrate"
     mkdir -p "${CONFIG_WRITEABLE_DIR}/flightctl-ui"
     mkdir -p "${CONFIG_WRITEABLE_DIR}/flightctl-cli-artifacts"
     mkdir -p "${CONFIG_WRITEABLE_DIR}/flightctl-alertmanager-proxy"

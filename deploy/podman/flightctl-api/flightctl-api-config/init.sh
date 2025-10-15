@@ -27,6 +27,36 @@ BASE_DOMAIN=$(extract_value "baseDomain" "$SERVICE_CONFIG_FILE")
 SRV_CERT_FILE=""
 SRV_KEY_FILE=""
 
+# Extract database configuration
+DB_EXTERNAL=$(sed -n '/^db:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n 's/^[[:space:]]*external:[[:space:]]*[\"'"'"']*\([^\"'"'"'[:space:]]*\)[\"'"'"']*.*/\1/p' | head -1)
+if [ "$DB_EXTERNAL" == "enabled" ]; then
+  echo "Configuring external database connection"
+  DB_HOSTNAME=$(sed -n '/^db:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n 's/^[[:space:]]*hostname:[[:space:]]*[\"'"'"']*\([^\"'"'"'[:space:]]*\)[\"'"'"']*.*/\1/p' | head -1)
+  DB_PORT=$(sed -n '/^db:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n 's/^[[:space:]]*port:[[:space:]]*\([^[:space:]]*\).*/\1/p' | head -1)
+  DB_NAME=$(sed -n '/^db:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n 's/^[[:space:]]*name:[[:space:]]*[\"'"'"']*\([^\"'"'"'[:space:]]*\)[\"'"'"']*.*/\1/p' | head -1)
+  DB_USER=$(sed -n '/^db:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n 's/^[[:space:]]*user:[[:space:]]*[\"'"'"']*\([^\"'"'"'[:space:]]*\)[\"'"'"']*.*/\1/p' | head -1)
+  DB_USER_PASSWORD=$(sed -n '/^db:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n 's/^[[:space:]]*userPassword:[[:space:]]*[\"'"'"']*\([^\"'"'"'[:space:]]*\)[\"'"'"']*.*/\1/p' | head -1)
+  DB_MIGRATION_PASSWORD=$(sed -n '/^db:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n 's/^[[:space:]]*migrationPassword:[[:space:]]*[\"'"'"']*\([^\"'"'"'[:space:]]*\)[\"'"'"']*.*/\1/p' | head -1)
+
+  # For external database: read password directly from YAML, don't use Podman secrets
+  DB_PASSWORD_ENV="DB_PASSWORD=$DB_USER_PASSWORD"
+else
+  echo "Configuring internal database connection"
+  DB_HOSTNAME="flightctl-db"
+  DB_PORT="5432"
+  DB_NAME="flightctl"
+  DB_USER="admin"
+
+  # For internal database: password will come from Podman secret, don't set in env file
+  DB_PASSWORD_ENV=""
+fi
+
+# Use defaults if values not found
+DB_HOSTNAME=${DB_HOSTNAME:-flightctl-db}
+DB_PORT=${DB_PORT:-5432}
+DB_NAME=${DB_NAME:-flightctl}
+DB_USER=${DB_USER:-admin}
+
 # Extract auth-related values
 AUTH_TYPE=$(extract_value "type" "$SERVICE_CONFIG_FILE")
 INSECURE_SKIP_TLS_VERIFY=$(extract_value "insecureSkipTlsVerify" "$SERVICE_CONFIG_FILE")
@@ -113,6 +143,10 @@ fi
 
 # Template the configuration file
 sed -e "s|{{BASE_DOMAIN}}|$BASE_DOMAIN|g" \
+    -e "s|{{DB_HOSTNAME}}|$DB_HOSTNAME|g" \
+    -e "s|{{DB_PORT}}|$DB_PORT|g" \
+    -e "s|{{DB_NAME}}|$DB_NAME|g" \
+    -e "s|{{DB_USER}}|$DB_USER|g" \
     -e "s|{{SRV_CERT_FILE}}|$SRV_CERT_FILE|g" \
     -e "s|{{SRV_KEY_FILE}}|$SRV_KEY_FILE|g" \
     -e "s|{{INSECURE_SKIP_TLS_VERIFY}}|$INSECURE_SKIP_TLS_VERIFY|g" \
@@ -131,6 +165,7 @@ sed -e "s|{{FLIGHTCTL_DISABLE_AUTH}}|$FLIGHTCTL_DISABLE_AUTH|g" \
     -e "s|{{RATE_LIMIT_WINDOW}}|$RATE_LIMIT_WINDOW|g" \
     -e "s|{{AUTH_RATE_LIMIT_REQUESTS}}|$RATE_LIMIT_AUTH_REQUESTS|g" \
     -e "s|{{AUTH_RATE_LIMIT_WINDOW}}|$RATE_LIMIT_AUTH_WINDOW|g" \
+    -e "s|{{DB_PASSWORD_ENV}}|$DB_PASSWORD_ENV|g" \
     "$ENV_TEMPLATE" > "$ENV_OUTPUT"
 
 echo "Initialization complete"

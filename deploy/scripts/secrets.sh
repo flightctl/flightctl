@@ -17,6 +17,27 @@ ensure_secrets() {
 # Ensure PostgreSQL secrets exist
 ensure_postgres_secrets() {
     echo "Ensuring secrets for PostgreSQL"
+
+    # Load passwords from service-config.yaml if available and external DB is enabled
+    local service_config="/etc/flightctl/service-config.yaml"
+    if [[ -f "$service_config" ]]; then
+        source "$(dirname "${BASH_SOURCE[0]}")/init_utils.sh"
+        local db_external=$(sed -n '/^db:/,/^[^[:space:]]/p' "$service_config" | sed -n 's/^[[:space:]]*external:[[:space:]]*[\"'"'"']*\([^\"'"'"'[:space:]]*\)[\"'"'"']*.*/\1/p' | head -1)
+
+        if [[ "$db_external" == "enabled" ]]; then
+            echo "External database detected - reading passwords from service-config.yaml"
+            local user_password=$(sed -n '/^db:/,/^[^[:space:]]/p' "$service_config" | sed -n 's/^[[:space:]]*userPassword:[[:space:]]*[\"'"'"']*\([^\"'"'"'[:space:]]*\)[\"'"'"']*.*/\1/p' | head -1)
+            local migration_password=$(sed -n '/^db:/,/^[^[:space:]]/p' "$service_config" | sed -n 's/^[[:space:]]*migrationPassword:[[:space:]]*[\"'"'"']*\([^\"'"'"'[:space:]]*\)[\"'"'"']*.*/\1/p' | head -1)
+
+            if [[ -n "$user_password" ]]; then
+                export FLIGHTCTL_POSTGRESQL_USER_PASSWORD="$user_password"
+            fi
+            if [[ -n "$migration_password" ]]; then
+                export FLIGHTCTL_POSTGRESQL_MIGRATOR_PASSWORD="$migration_password"
+            fi
+        fi
+    fi
+
     ensure_secret "flightctl-postgresql-password" "FLIGHTCTL_POSTGRESQL_PASSWORD"
     ensure_secret "flightctl-postgresql-master-password" "FLIGHTCTL_POSTGRESQL_MASTER_PASSWORD"
     ensure_secret "flightctl-postgresql-user-password" "FLIGHTCTL_POSTGRESQL_USER_PASSWORD"

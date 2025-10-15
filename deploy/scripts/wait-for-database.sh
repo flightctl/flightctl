@@ -92,15 +92,29 @@ if [ -n "${SERVICE_CONFIG_PATH:-}" ]; then
     else
         echo "Loading database configuration from: $SERVICE_CONFIG_PATH"
 
-        # Read values from YAML into DB_* variables if not already set
-        : "${DB_HOST:=$(read_yaml_value ".db.hostname" "$SERVICE_CONFIG_PATH")}"
-        : "${DB_PORT:=$(read_yaml_value ".db.port" "$SERVICE_CONFIG_PATH")}"
-        : "${DB_NAME:=$(read_yaml_value ".db.name" "$SERVICE_CONFIG_PATH")}"
-        : "${DB_USER:=$(read_yaml_value ".db.user" "$SERVICE_CONFIG_PATH")}"
-        : "${DB_SSL_MODE:=$(read_yaml_value ".db.sslmode" "$SERVICE_CONFIG_PATH")}"
-        : "${DB_SSL_CERT:=$(read_yaml_value ".db.sslcert" "$SERVICE_CONFIG_PATH")}"
-        : "${DB_SSL_KEY:=$(read_yaml_value ".db.sslkey" "$SERVICE_CONFIG_PATH")}"
-        : "${DB_SSL_ROOT_CERT:=$(read_yaml_value ".db.sslrootcert" "$SERVICE_CONFIG_PATH")}"
+        # Read values from YAML into DB_* variables, overriding defaults if values exist in YAML
+        yaml_host=$(read_yaml_value ".db.hostname" "$SERVICE_CONFIG_PATH")
+        yaml_port=$(read_yaml_value ".db.port" "$SERVICE_CONFIG_PATH")
+        yaml_name=$(read_yaml_value ".db.name" "$SERVICE_CONFIG_PATH")
+        yaml_user=$(read_yaml_value ".db.user" "$SERVICE_CONFIG_PATH")
+        yaml_password=$(read_yaml_value ".db.userPassword" "$SERVICE_CONFIG_PATH")
+
+        [ -n "$yaml_host" ] && DB_HOST="$yaml_host"
+        [ -n "$yaml_port" ] && DB_PORT="$yaml_port"
+        [ -n "$yaml_name" ] && DB_NAME="$yaml_name"
+        [ -n "$yaml_user" ] && DB_USER="$yaml_user"
+        [ -n "$yaml_password" ] && DB_PASSWORD="$yaml_password"
+
+        # Read SSL configuration from YAML
+        yaml_ssl_mode=$(read_yaml_value ".db.sslmode" "$SERVICE_CONFIG_PATH")
+        yaml_ssl_cert=$(read_yaml_value ".db.sslcert" "$SERVICE_CONFIG_PATH")
+        yaml_ssl_key=$(read_yaml_value ".db.sslkey" "$SERVICE_CONFIG_PATH")
+        yaml_ssl_root_cert=$(read_yaml_value ".db.sslrootcert" "$SERVICE_CONFIG_PATH")
+
+        [ -n "$yaml_ssl_mode" ] && DB_SSL_MODE="$yaml_ssl_mode"
+        [ -n "$yaml_ssl_cert" ] && DB_SSL_CERT="$yaml_ssl_cert"
+        [ -n "$yaml_ssl_key" ] && DB_SSL_KEY="$yaml_ssl_key"
+        [ -n "$yaml_ssl_root_cert" ] && DB_SSL_ROOT_CERT="$yaml_ssl_root_cert"
     fi
 fi
 
