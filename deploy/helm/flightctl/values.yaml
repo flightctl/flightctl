@@ -345,10 +345,10 @@ dbSetup:
     # Default sleep interval between connection attempts
     sleep: 2
   migration:
-    # -- Number of retries for the migration Job on failure
-    backoffLimit: 3
-    # -- Maximum runtime in seconds for the migration Job
-    activeDeadlineSeconds: 600
+    # -- Number of retries for the migration Job on failure (0 = unlimited)
+    backoffLimit: 0
+    # -- Maximum runtime in seconds for the migration Job (0 = no deadline)
+    activeDeadlineSeconds: 0
 
 # -- Upgrade hooks
 upgradeHooks:

@@ -32,8 +32,14 @@ metadata:
     helm.sh/hook-delete-policy: "{{ $deletePolicy }}"
     {{- end }}
 spec:
-  backoffLimit: {{ $ctx.Values.dbSetup.migration.backoffLimit | int }}
-  activeDeadlineSeconds: {{ $ctx.Values.dbSetup.migration.activeDeadlineSeconds | int }}
+  {{- if gt (int (default 0 $ctx.Values.dbSetup.migration.backoffLimit)) 0 }}
+  backoffLimit: {{ (int (default 0 $ctx.Values.dbSetup.migration.backoffLimit)) }}
+  {{- end }}
+  {{- if gt (int (default 0 $ctx.Values.dbSetup.migration.activeDeadlineSeconds)) 0 }}
+  activeDeadlineSeconds: {{ (int (default 0 $ctx.Values.dbSetup.migration.activeDeadlineSeconds)) }}
+  {{- end }}
+  completions: 1
+  parallelism: 1
   template:
     metadata:
       labels:
@@ -42,7 +48,7 @@ spec:
         flightctl.io/migration-revision: "{{ $ctx.Release.Revision }}"
         {{- include "flightctl.standardLabels" $ctx | nindent 8 }}
     spec:
-      restartPolicy: Never
+      restartPolicy: OnFailure
       serviceAccountName: flightctl-db-migration
       initContainers:
       {{- $userType := ternary "admin" "migration" (ne $ctx.Values.db.external "enabled") }}
