@@ -86,8 +86,6 @@ global:
     tls: 443
     # -- HTTP port for Gateway API configuration
     http: 80
-  # -- Generate secrets when deploying Flight Control. This should be set to false if you want to provide your own secrets or when upgrading Flight Control to avoid overriding the existing secrets
-  generateSecrets: true
   # -- Image pull policy for all containers
   imagePullPolicy: IfNotPresent
   rbac:
@@ -138,15 +136,6 @@ db:
   user: flightctl_app
   # -- Database migration username
   migrationUser: flightctl_migrator
-  # -- Master user password (leave empty for auto-generation)
-  # masterPassword: Leave empty to auto-generate secure password, or set to use a specific password.
-  masterPassword: ""
-  # -- Application user password (leave empty for auto-generation)
-  # userPassword: Leave empty to auto-generate secure password, or set to use a specific password.
-  userPassword: ""
-  # -- Migration user password (leave empty for auto-generation)
-  # migrationPassword: Leave empty to auto-generate secure password, or set to use a specific password.
-  migrationPassword: ""
   # -- Maximum number of database connections
   maxConnections: 200
   storage:
@@ -171,9 +160,6 @@ kv:
     tag: "20250108"
     # -- Image pull policy for Redis container
     pullPolicy: ""
-  # -- Redis password (leave empty for auto-generation)
-  # password: Leave empty to auto-generate secure password, or set to use a specific password.
-  password: ""
   # -- Redis log level (debug, verbose, notice, warning)
   loglevel: warning
   # -- File system group ID for Redis pod security context
@@ -317,6 +303,16 @@ ui:
   api:
     # -- Skip TLS verification for UI API calls
     insecureSkipTlsVerify: true
+
+# -- Secrets job configuration
+secretsJob:
+  image:
+    # -- Secrets job container image
+    image: quay.io/openshift/origin-cli
+    # -- Secrets job image tag
+    tag: "4.20.0"
+    # -- Image pull policy for Secrets job container
+    pullPolicy: ""
 
 # -- Cluster CLI Configuration
 clusterCli:
