@@ -28,8 +28,12 @@ while true; do
   esac
 done
 
-# enforce the agent to fetch the spec and update status every 2 seconds to improve the E2E test speed
+# - Enforce the agent to fetch the spec and update status every 2 seconds to improve the E2E test speed
+# - Include the custom system info collectors that were defined in the container image
 cat <<EOF | tee -a  bin/agent/etc/flightctl/config.yaml
 spec-fetch-interval: $spec_fetch_interval
 status-update-interval: $status_update_interval
+system-info-custom:
+  - siteName
+  - emptyValue
 EOF
