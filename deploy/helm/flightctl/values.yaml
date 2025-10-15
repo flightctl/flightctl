@@ -345,8 +345,8 @@ dbSetup:
     # Default sleep interval between connection attempts
     sleep: 2
   migration:
-    # -- Number of retries for the migration Job on failure (0 = unlimited)
-    backoffLimit: 0
+    # -- Number of retries for the migration Job on failure 
+    backoffLimit: 2147483647
     # -- Maximum runtime in seconds for the migration Job (0 = no deadline)
     activeDeadlineSeconds: 0
 

@@ -32,11 +32,9 @@ metadata:
     helm.sh/hook-delete-policy: "{{ $deletePolicy }}"
     {{- end }}
 spec:
-  {{- if gt (int (default 0 $ctx.Values.dbSetup.migration.backoffLimit)) 0 }}
-  backoffLimit: {{ (int (default 0 $ctx.Values.dbSetup.migration.backoffLimit)) }}
-  {{- end }}
-  {{- if gt (int (default 0 $ctx.Values.dbSetup.migration.activeDeadlineSeconds)) 0 }}
-  activeDeadlineSeconds: {{ (int (default 0 $ctx.Values.dbSetup.migration.activeDeadlineSeconds)) }}
+  backoffLimit: {{ $ctx.Values.dbSetup.migration.backoffLimit | int }}
+  {{- if gt ($ctx.Values.dbSetup.migration.activeDeadlineSeconds | int) 0 }}
+  activeDeadlineSeconds: {{ $ctx.Values.dbSetup.migration.activeDeadlineSeconds | int }}
   {{- end }}
   completions: 1
   parallelism: 1
