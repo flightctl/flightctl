@@ -260,7 +260,7 @@ The CLI uses the host's certificate authority (CA) pool to verify the Flight Con
 
 ## Building a Bootable Container Image including the Flight Control Agent
 
-Next, we will use [Podman](https://github.com/containers/podman) to build a [bootable container image (bootc)](https://containers.github.io/bootc/) that includes the Flight Control Agent binary and configuration. The configuration contains the connection details and credentials required by the agent to discover the service and send an enrollment request to the service.
+Next, we will use [Podman](https://github.com/containers/podman) to build a [bootable container image (bootc)](https://bootc-dev.github.io/bootc/) that includes the Flight Control Agent binary and configuration. The configuration contains the connection details and credentials required by the agent to discover the service and send an enrollment request to the service.
 
 Retrieve the agent configuration with enrollment credentials by running:
 
