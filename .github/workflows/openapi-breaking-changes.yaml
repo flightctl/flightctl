@@ -15,13 +15,68 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
 
-      - name: Checkout base branch for comparison
+      - name: Detect base for comparison
+        id: detect_base
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          # TODO: checkout previously released version after 0.10 release
+          set -euo pipefail
+          echo "Detecting base commit for API comparison..."
+          echo ""
+
+          API_GLOB=':(glob)api/v1alpha1/**/openapi.yaml'
+
+          # Ensure tags exist locally (required for rev-list against the release tag)
+          git fetch --tags --force >/dev/null 2>&1 || true
+
+          # A) Latest release API change
+          LATEST_RELEASE_TAG="$(gh release view --json tagName --jq .tagName)"
+          LATEST_RELEASE_COMMIT="$(git rev-list -1 "${LATEST_RELEASE_TAG}" -- "${API_GLOB}" || true)"
+          if [ -n "${LATEST_RELEASE_COMMIT}" ]; then
+            LATEST_RELEASE_DATE="$(git show -s --format=%ct "${LATEST_RELEASE_COMMIT}")"
+            echo "Latest release: ${LATEST_RELEASE_TAG}"
+            echo "Latest API change in release: ${LATEST_RELEASE_COMMIT} on $(date -ud "@${LATEST_RELEASE_DATE}" +%Y-%m-%dT%H:%M:%SZ)"
+          else
+            LATEST_RELEASE_DATE="0"
+            echo "Latest release: ${LATEST_RELEASE_TAG} (no API changes found)"
+          fi
+          echo ""
+          
+          # B) Latest merged PR with the approval label (sorted by merged time desc)
+          PR_JSON="$(gh pr list \
+            --state merged \
+            --search "label:'breaking-change-approved' sort:merged-desc" \
+            --limit 1 \
+            --json number,mergeCommit,mergedAt)"
+
+          LATEST_BREAKING_PR="$(jq -r '.[0].number' <<<"${PR_JSON}")"
+          LATEST_BREAKING_COMMIT="$(jq -r '.[0].mergeCommit.oid' <<<"${PR_JSON}")"
+          LATEST_BREAKING_DATE="$(jq -r '.[0].mergedAt' <<<"${PR_JSON}" | xargs -I{} date -ud {} +%s)"
+          echo "Latest breaking-change-approved PR: #${LATEST_BREAKING_PR} (${LATEST_BREAKING_COMMIT}) on $(date -ud "@${LATEST_BREAKING_DATE}" +%Y-%m-%dT%H:%M:%SZ)"
+          echo ""
+          
+          # Choose the most recent of the two
+          echo "================================================"
+          echo ""
+          if [ -n "${LATEST_RELEASE_COMMIT}" ] && [ "${LATEST_RELEASE_DATE}" -gt "${LATEST_BREAKING_DATE}" ]; then
+            BASE_COMMIT="${LATEST_RELEASE_COMMIT}"
+            echo "Using release API change commit as base (more recent)."
+          else
+            BASE_COMMIT="${LATEST_BREAKING_COMMIT}"
+            echo "Using breaking-change-approved PR commit as base (more recent)."
+          fi
+          echo "Selected base commit: ${BASE_COMMIT}"
+          echo "Commit link: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${BASE_COMMIT}"
+          echo "================================================"
+          echo ""
+          echo "base_commit=${BASE_COMMIT}" >> "$GITHUB_OUTPUT"
+      - name: Checkout base commit for comparison
+        run: |
+          echo "Preparing base API files from: ${{ steps.detect_base.outputs.base_commit }}"
           git fetch origin ${{ github.event.pull_request.base.ref }}
           mkdir -p base-api/v1alpha1/agent
-          git show origin/${{ github.event.pull_request.base.ref }}:api/v1alpha1/openapi.yaml > base-api/v1alpha1/openapi.yaml || true
-          git show origin/${{ github.event.pull_request.base.ref }}:api/v1alpha1/agent/openapi.yaml > base-api/v1alpha1/agent/openapi.yaml || true
+          git show ${{ steps.detect_base.outputs.base_commit }}:api/v1alpha1/openapi.yaml > base-api/v1alpha1/openapi.yaml || true
+          git show ${{ steps.detect_base.outputs.base_commit }}:api/v1alpha1/agent/openapi.yaml > base-api/v1alpha1/agent/openapi.yaml || true
 
       - name: Check if override label exists
         id: check_override
