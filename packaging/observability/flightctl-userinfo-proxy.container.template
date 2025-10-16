@@ -21,9 +21,6 @@ Environment=USERINFO_SKIP_TLS_VERIFY=${USERINFO_SKIP_TLS_VERIFY}
 # Security
 User=1001:1001
 
-# Resource limits
-Memory=64m
-
 [Service]
 Restart=on-failure
 RestartSec=10
