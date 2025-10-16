@@ -269,12 +269,12 @@ For more detailed configuration options, see the [Values](#values) section below
 | db.type | string | `"pgsql"` | Database type (currently only 'pgsql' is supported) |
 | db.user | string | `"flightctl_app"` | Application database username |
 | db.userPassword | string | `""` | Application user password (leave empty for auto-generation) userPassword: Leave empty to auto-generate secure password, or set to use a specific password. |
-| dbSetup | object | `{"image":{"image":"quay.io/flightctl/flightctl-db-setup","pullPolicy":"","tag":""},"migration":{"activeDeadlineSeconds":600,"backoffLimit":3},"wait":{"sleep":2,"timeout":60}}` | Database Setup Configuration |
+| dbSetup | object | `{"image":{"image":"quay.io/flightctl/flightctl-db-setup","pullPolicy":"","tag":""},"migration":{"activeDeadlineSeconds":0,"backoffLimit":2147483647},"wait":{"sleep":2,"timeout":60}}` | Database Setup Configuration |
 | dbSetup.image.image | string | `"quay.io/flightctl/flightctl-db-setup"` | Database setup container image |
 | dbSetup.image.pullPolicy | string | `""` | Image pull policy for database setup container |
 | dbSetup.image.tag | string | `""` | Database setup image tag |
-| dbSetup.migration.activeDeadlineSeconds | int | `600` | Maximum runtime in seconds for the migration Job |
-| dbSetup.migration.backoffLimit | int | `3` | Number of retries for the migration Job on failure |
+| dbSetup.migration.activeDeadlineSeconds | int | `0` | Maximum runtime in seconds for the migration Job (0 = no deadline) |
+| dbSetup.migration.backoffLimit | int | `2147483647` | Number of retries for the migration Job on failure  |
 | dbSetup.wait.sleep | int | `2` | Seconds to sleep between database connection attempts Default sleep interval between connection attempts |
 | dbSetup.wait.timeout | int | `60` | Seconds to wait for database readiness before failing Default timeout for database wait (can be overridden per deployment) |
 | global.apiUrl | string | `""` | Alternative to global.auth.k8s.externalOpenShiftApiUrl with the same meaning, used by the multiclusterhub operator |
