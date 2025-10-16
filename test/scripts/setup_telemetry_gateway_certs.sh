@@ -49,8 +49,8 @@ Options:
   -h|--help                   Show this help
 
 Notes:
-- Kubernetes mode requires: kubectl, openssl, jq, yq, flightctl CLI.
-- Podman mode requires: podman, openssl, jq, yq, flightctl CLI.
+- Kubernetes mode requires: kubectl, openssl, jq, python3 (with PyYAML), flightctl CLI.
+- Podman mode requires: podman, openssl, jq, python3 (with PyYAML), flightctl CLI.
 - In Podman mode, secrets are created using 'podman secret create' - no container dependency.
 - In Podman mode, local certificate files are removed after creating secrets for security.
 - Use --secret flags when creating containers to inject the created secrets.
@@ -96,7 +96,7 @@ need() { command -v "$1" >/dev/null 2>&1 || { echo "Missing dependency: $1"; exi
 # Common dependencies
 need openssl
 need jq
-need yq
+need python3
 
 # Default to using the flightctl binary in the bin directory
 if [[ -x ./bin/flightctl ]]; then
@@ -222,7 +222,7 @@ done
 CERT_B64=""
 tries=0
 until [[ -n "${CERT_B64}" && "${CERT_B64}" != "null" ]] || [[ $tries -ge 5 ]]; do
-  CERT_B64="$(flightctl get "csr/${CSR_NAME}" -o yaml | yq '.status.certificate' || echo "")"
+  CERT_B64="$(flightctl get "csr/${CSR_NAME}" -o yaml | python3 /usr/share/flightctl/yaml-to-json.py | jq -r '.status.certificate // ""' || echo "")"
   if [[ -z "${CERT_B64}" || "${CERT_B64}" == "null" ]]; then
     sleep 5
     tries=$((tries+1))
@@ -238,7 +238,7 @@ echo "${CERT_B64}" | base64 -d > "${CRT_FILE}"
 # -------------------------
 # Fetch CA from enrollment config
 # -------------------------
-ENR_CA_B64="$(flightctl enrollmentconfig | yq -r '."enrollment-service".service."certificate-authority-data"' || echo "")"
+ENR_CA_B64="$(flightctl enrollmentconfig | python3 /usr/share/flightctl/yaml-to-json.py | jq -r '."enrollment-service".service."certificate-authority-data" // ""' || echo "")"
 if [[ -z "${ENR_CA_B64}" || "${ENR_CA_B64}" == "null" ]]; then
   echo "ERROR: Could not retrieve CA from 'flightctl enrollmentconfig'."
   exit 1

@@ -109,8 +109,6 @@ ssh -i ${SSH_PRIVATE_KEY_PATH} -o StrictHostKeyChecking=no -o UserKnownHostsFile
                     make golang git \
                     podman qemu-kvm sshpass
   sudo dnf --enablerepo=crb install -y libvirt-devel
-  sudo curl -L "https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64" -o /usr/local/bin/yq
-  sudo chmod +x /usr/local/bin/yq
 
   sudo dnf copr -y enable ${RPM_COPR}
   sudo dnf install -y ${RPM_PACKAGE} ${RPM_CLIENT}
