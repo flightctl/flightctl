@@ -112,6 +112,12 @@ if [[ ! -f "${YAML_HELPERS_PATH}" ]]; then
   exit 1
 fi
 
+# Test flightctl CLI login to server
+if ! flightctl version | grep 'Server Version:' >/dev/null 2>&1; then
+  echo "ERROR: flightctl CLI cannot connect to server. Please ensure you are logged in with 'flightctl login'."
+  exit 1
+fi
+
 # Mode-specific dependencies and setup
 if [[ "${MODE}" == "kubernetes" ]]; then
   need kubectl
