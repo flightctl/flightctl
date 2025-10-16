@@ -24,7 +24,8 @@ umask "$UMASK_VAL"
 # Pre-flight
 # ----------------------------
 [ -f "$CFG" ] || die "Agent config not found at $CFG"
-command -v yq >/dev/null 2>&1 || die "yq not found on PATH"
+command -v python3 >/dev/null 2>&1 || die "python3 not found on PATH"
+command -v jq >/dev/null 2>&1 || die "jq not found on PATH"
 
 # base64 decode wrapper (Linux/macOS)
 b64dec() {
@@ -38,7 +39,7 @@ b64dec() {
 # ----------------------------
 # 1) Derive gateway + decode CA
 # ----------------------------
-server_url="$(yq -e -r '.["enrollment-service"].service.server // ""' "$CFG" 2>/dev/null || true)"
+server_url="$(python3 -c "import yaml, sys, json; print(json.dumps(yaml.safe_load(sys.stdin)))" < "$CFG" 2>/dev/null | jq -r '.["enrollment-service"].service.server // ""' || true)"
 [ -n "${server_url:-}" ] || die "Missing enrollment-service.service.server in $CFG"
 
 # Extract IPv4 ahead of '.nip.io' specifically; fallback to loose grep if pattern differs
@@ -49,7 +50,7 @@ fi
 [ -n "$ip" ] || die "Could not extract IP from server URL: $server_url"
 
 # Read CA (base64)
-ca_b64="$(yq -e -r '.["enrollment-service"].service."certificate-authority-data" // ""' "$CFG" 2>/dev/null || true)"
+ca_b64="$(python3 -c "import yaml, sys, json; print(json.dumps(yaml.safe_load(sys.stdin)))" < "$CFG" 2>/dev/null | jq -r '.["enrollment-service"].service."certificate-authority-data" // ""' || true)"
 [ -n "${ca_b64:-}" ] || die "Missing certificate-authority-data in $CFG"
 
 # Ensure dirs exist with proper ownership so otelcol can traverse/read

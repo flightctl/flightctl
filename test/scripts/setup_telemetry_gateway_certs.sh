@@ -222,7 +222,7 @@ done
 CERT_B64=""
 tries=0
 until [[ -n "${CERT_B64}" && "${CERT_B64}" != "null" ]] || [[ $tries -ge 5 ]]; do
-  CERT_B64="$(flightctl get "csr/${CSR_NAME}" -o yaml | python3 /usr/share/flightctl/yaml-to-json.py | jq -r '.status.certificate // ""' || echo "")"
+  CERT_B64="$(flightctl get "csr/${CSR_NAME}" -o yaml | python3 -c "import yaml, sys, json; print(json.dumps(yaml.safe_load(sys.stdin)))" | jq -r '.status.certificate // ""' || echo "")"
   if [[ -z "${CERT_B64}" || "${CERT_B64}" == "null" ]]; then
     sleep 5
     tries=$((tries+1))
@@ -238,7 +238,7 @@ echo "${CERT_B64}" | base64 -d > "${CRT_FILE}"
 # -------------------------
 # Fetch CA from enrollment config
 # -------------------------
-ENR_CA_B64="$(flightctl enrollmentconfig | python3 /usr/share/flightctl/yaml-to-json.py | jq -r '."enrollment-service".service."certificate-authority-data" // ""' || echo "")"
+ENR_CA_B64="$(flightctl enrollmentconfig | python3 -c "import yaml, sys, json; print(json.dumps(yaml.safe_load(sys.stdin)))" | jq -r '."enrollment-service".service."certificate-authority-data" // ""' || echo "")"
 if [[ -z "${ENR_CA_B64}" || "${ENR_CA_B64}" == "null" ]]; then
   echo "ERROR: Could not retrieve CA from 'flightctl enrollmentconfig'."
   exit 1
