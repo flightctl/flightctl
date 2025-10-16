@@ -217,6 +217,10 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 
 	// reconciliation is a success, upgrade the current spec
 	if err := a.specManager.Upgrade(ctx); err != nil {
+		if errors.IsContext(err) {
+			a.log.Debugf("Sync is shutting down : %v", err)
+			return
+		}
 		a.log.Errorf("Failed to upgrade spec: %v", err)
 		return
 	}
