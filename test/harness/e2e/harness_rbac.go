@@ -25,6 +25,20 @@ func (h *Harness) CreateRole(ctx context.Context, kubernetesClient kubernetes.In
 	return role, err
 }
 
+func (h *Harness) UpdateRole(ctx context.Context, kubernetesClient kubernetes.Interface, flightCtlNs string, role *rbacv1.Role) (*rbacv1.Role, error) {
+	if ctx == nil {
+		return nil, errors.New("context cannot be nil")
+	}
+	if role == nil {
+		return nil, errors.New("role cannot be nil")
+	}
+	if flightCtlNs == "" {
+		return nil, errors.New("namespace cannot be empty")
+	}
+	role, err := kubernetesClient.RbacV1().Roles(flightCtlNs).Update(ctx, role, metav1.UpdateOptions{})
+	return role, err
+}
+
 func (h *Harness) CreateClusterRole(ctx context.Context, kubernetesClient kubernetes.Interface, clusterRole *rbacv1.ClusterRole) (*rbacv1.ClusterRole, error) {
 	if ctx == nil {
 		return nil, errors.New("context cannot be nil")
@@ -34,6 +48,17 @@ func (h *Harness) CreateClusterRole(ctx context.Context, kubernetesClient kubern
 	}
 
 	clusterRole, err := kubernetesClient.RbacV1().ClusterRoles().Create(ctx, clusterRole, metav1.CreateOptions{})
+	return clusterRole, err
+}
+
+func (h *Harness) UpdateClusterRole(ctx context.Context, kubernetesClient kubernetes.Interface, clusterRole *rbacv1.ClusterRole) (*rbacv1.ClusterRole, error) {
+	if ctx == nil {
+		return nil, errors.New("context cannot be nil")
+	}
+	if clusterRole == nil {
+		return nil, errors.New("clusterRole cannot be nil")
+	}
+	clusterRole, err := kubernetesClient.RbacV1().ClusterRoles().Update(ctx, clusterRole, metav1.UpdateOptions{})
 	return clusterRole, err
 }
 

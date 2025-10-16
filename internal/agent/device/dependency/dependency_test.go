@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -320,7 +321,12 @@ func TestIsReady(t *testing.T) {
 				manager.mu.Unlock()
 			}
 
-			ready := manager.isTargetReady(tt.imageToCheck)
+			// Check if target is ready
+			manager.mu.Lock()
+			task, ok := manager.tasks[tt.imageToCheck]
+			ready := ok && task.err == nil && task.done
+			manager.mu.Unlock()
+
 			require.Equal(tt.expectedReady, ready)
 
 			manager.Cleanup()
@@ -1085,6 +1091,273 @@ func TestCleanupPartialLayers(t *testing.T) {
 				dirPath := filepath.Join(tmpDir, dir)
 				_, err := os.Stat(dirPath)
 				require.True(os.IsNotExist(err), "expected directory %s to be removed", dir)
+			}
+		})
+	}
+}
+
+func TestSetResultAfterCleanup(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	logger := log.NewPrefixLogger("test")
+	logger.SetLevel(logrus.DebugLevel)
+
+	mockExec := executer.NewMockExecuter(ctrl)
+	readWriter := fileio.NewReadWriter()
+	podmanClient := client.NewPodman(logger, mockExec, readWriter, poll.Config{})
+	pullTimeout := util.Duration(5 * time.Minute)
+
+	pm := NewPrefetchManager(logger, podmanClient, readWriter, pullTimeout)
+
+	testImage := "quay.io/test/image:latest"
+	pm.tasks[testImage] = &prefetchTask{
+		ociType: OCITypeImage,
+		done:    false,
+	}
+
+	pm.Cleanup()
+
+	require.Empty(pm.tasks)
+	pm.setResult(testImage, nil)
+	// ensure still empty
+	require.Empty(pm.tasks)
+	pm.setResult(testImage, fmt.Errorf("test error"))
+	// ensure still empty
+	require.Empty(pm.tasks)
+}
+
+func TestSelectiveCleanup(t *testing.T) {
+	logger := log.NewPrefixLogger("test")
+	pullTimeout := util.Duration(5 * time.Minute)
+
+	manager := &prefetchManager{
+		log:         logger,
+		pullTimeout: time.Duration(pullTimeout),
+		tasks:       make(map[string]*prefetchTask),
+		queue:       make(chan string, maxQueueSize),
+	}
+
+	initialImages := []string{
+		"registry.example.com/app:v1",
+		"registry.example.com/sidecar:v1",
+		"registry.example.com/database:v1",
+	}
+	for _, ref := range initialImages {
+		manager.tasks[ref] = &prefetchTask{
+			done:     false,
+			cancelFn: func() {},
+		}
+	}
+
+	newTargets := []OCIPullTarget{
+		{Type: OCITypeImage, Reference: "registry.example.com/app:v1"},
+		{Type: OCITypeImage, Reference: "registry.example.com/sidecar:v1"},
+		{Type: OCITypeImage, Reference: "registry.example.com/cache:v1"},
+	}
+
+	newRefs := make(map[string]struct{}, len(newTargets))
+	for _, target := range newTargets {
+		newRefs[target.Reference] = struct{}{}
+	}
+
+	manager.mu.Lock()
+	manager.cleanupStaleTasks(newRefs)
+	manager.mu.Unlock()
+
+	// app and sidecar tasks should still exist
+	_, appExists := manager.tasks["registry.example.com/app:v1"]
+	require.True(t, appExists, "app:v1 task should be preserved")
+
+	_, sidecarExists := manager.tasks["registry.example.com/sidecar:v1"]
+	require.True(t, sidecarExists, "sidecar:v1 task should be preserved")
+
+	// database should be removed
+	_, databaseExists := manager.tasks["registry.example.com/database:v1"]
+	require.False(t, databaseExists, "database:v1 task should be removed")
+
+	// cache task should NOT exist yet
+	_, cacheExists := manager.tasks["registry.example.com/cache:v1"]
+	require.False(t, cacheExists, "cache:v1 task should not exist (not scheduled)")
+
+	require.Equal(t, 2, len(manager.tasks), "should have exactly 2 tasks remaining")
+}
+
+func TestTargetChangeCleanup(t *testing.T) {
+	require := require.New(t)
+
+	testCases := []struct {
+		name           string
+		initialTargets []string
+		newTargets     []string
+		expectCleanup  bool
+	}{
+		{
+			name:           "different images triggers cleanup",
+			initialTargets: []string{"registry.example.com/app:v1"},
+			newTargets:     []string{"registry.example.com/app:v2"},
+			expectCleanup:  true,
+		},
+		{
+			name:           "same images does not trigger cleanup",
+			initialTargets: []string{"registry.example.com/app:v1"},
+			newTargets:     []string{"registry.example.com/app:v1"},
+			expectCleanup:  false,
+		},
+		{
+			name:           "first call with no previous targets triggers change detection",
+			initialTargets: nil,
+			newTargets:     []string{"registry.example.com/app:v1"},
+			expectCleanup:  true, // targets changed but selective cleanup won't remove anything
+		},
+		{
+			name:           "adding image triggers cleanup",
+			initialTargets: []string{"registry.example.com/app:v1"},
+			newTargets:     []string{"registry.example.com/app:v1", "registry.example.com/sidecar:v1"},
+			expectCleanup:  true,
+		},
+		{
+			name:           "removing image triggers cleanup",
+			initialTargets: []string{"registry.example.com/app:v1", "registry.example.com/sidecar:v1"},
+			newTargets:     []string{"registry.example.com/app:v1"},
+			expectCleanup:  true,
+		},
+		{
+			name:           "version bump with same images does not cleanup",
+			initialTargets: []string{"registry.example.com/app:stable"},
+			newTargets:     []string{"registry.example.com/app:stable"},
+			expectCleanup:  false,
+		},
+	}
+
+	for _, tt := range testCases {
+		t.Run(tt.name, func(t *testing.T) {
+			logger := log.NewPrefixLogger("test")
+			pullTimeout := util.Duration(5 * time.Minute)
+
+			manager := &prefetchManager{
+				log:         logger,
+				pullTimeout: time.Duration(pullTimeout),
+				tasks:       make(map[string]*prefetchTask),
+				queue:       make(chan string, maxQueueSize),
+			}
+
+			if len(tt.initialTargets) > 0 {
+				for _, ref := range tt.initialTargets {
+					manager.tasks[ref] = &prefetchTask{done: false}
+				}
+			}
+
+			initialTaskCount := len(manager.tasks)
+
+			newTargets := make([]OCIPullTarget, len(tt.newTargets))
+			for i, ref := range tt.newTargets {
+				newTargets[i] = OCIPullTarget{
+					Type:       OCITypeImage,
+					Reference:  ref,
+					PullPolicy: v1alpha1.PullIfNotPresent,
+				}
+			}
+
+			newRefs := make(map[string]struct{}, len(newTargets))
+			for _, target := range newTargets {
+				newRefs[target.Reference] = struct{}{}
+			}
+
+			manager.mu.Lock()
+			targetsChanged := manager.isTargetsChanged(newRefs)
+			manager.mu.Unlock()
+
+			require.Equal(tt.expectCleanup, targetsChanged,
+				"target change detection should match expectation")
+
+			// simulate selective cleanup if targets changed
+			if targetsChanged {
+				manager.mu.Lock()
+				manager.cleanupStaleTasks(newRefs)
+				manager.mu.Unlock()
+
+				// ensure only stale tasks were removed
+				for _, ref := range tt.newTargets {
+					if slices.Contains(tt.initialTargets, ref) {
+						_, exists := manager.tasks[ref]
+						require.True(exists, "existing task for %s should be preserved", ref)
+					}
+				}
+
+				// tasks for removed targets should be gone
+				for _, ref := range tt.initialTargets {
+					if !slices.Contains(tt.newTargets, ref) {
+						_, exists := manager.tasks[ref]
+						require.False(exists, "stale task for %s should be removed", ref)
+					}
+				}
+			} else {
+				require.Equal(initialTaskCount, len(manager.tasks),
+					"tasks should not be cleared when targets don't change")
+			}
+		})
+	}
+}
+
+func BenchmarkPrefetchTargetChange(b *testing.B) {
+	benchmarks := []struct {
+		name         string
+		initialCount int
+		newCount     int
+		overlap      int
+	}{
+		{"small_partial_change", 5, 5, 3},
+		{"medium_partial_change", 20, 20, 10},
+		{"large_partial_change", 100, 100, 50},
+	}
+
+	for _, bm := range benchmarks {
+		b.Run(bm.name, func(b *testing.B) {
+			logger := log.NewPrefixLogger("bench")
+			for i := 0; i < b.N; i++ {
+				b.StopTimer()
+				manager := &prefetchManager{
+					log:         logger,
+					pullTimeout: 5 * time.Minute,
+					tasks:       make(map[string]*prefetchTask),
+					queue:       make(chan string, maxQueueSize),
+				}
+
+				for j := 0; j < bm.initialCount; j++ {
+					ref := fmt.Sprintf("registry.example.com/image-%d:v1", j)
+					manager.tasks[ref] = &prefetchTask{
+						done:     false,
+						cancelFn: func() {},
+					}
+				}
+
+				// new targets
+				allTargets := make([]OCIPullTarget, bm.newCount)
+				for j := 0; j < bm.newCount; j++ {
+					var ref string
+					if j < bm.overlap {
+						ref = fmt.Sprintf("registry.example.com/image-%d:v1", j)
+					} else {
+						ref = fmt.Sprintf("registry.example.com/new-image-%d:v1", j)
+					}
+					allTargets[j] = OCIPullTarget{
+						Type:      OCITypeImage,
+						Reference: ref,
+					}
+				}
+
+				b.StartTimer()
+				manager.mu.Lock()
+				newRefs := make(map[string]struct{}, len(allTargets))
+				for _, target := range allTargets {
+					newRefs[target.Reference] = struct{}{}
+				}
+				if manager.isTargetsChanged(newRefs) {
+					manager.cleanupStaleTasks(newRefs)
+				}
+				manager.mu.Unlock()
 			}
 		})
 	}

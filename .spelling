@@ -196,6 +196,8 @@ renderedVersion
 quadlets
 PEM
 NSING
+multiline
+localhost
  - docs/user/api-resources.md
 approvedBy
 creationTimestamp
@@ -344,6 +346,9 @@ real_ip
 untrusted
  - docs/user/tpm-authentication.md
 TN1330
+www.infineon.com
+cms
+optiga-embedded-security-solutions
 - docs/user/metrics.md
 sloMax
 SLO
@@ -382,3 +387,8 @@ PL
 pgSQL
 values.yaml
 values.dev.yaml
+CN
+SAN
+ - docs/user/service-observability.md
+https
+http

@@ -55,7 +55,7 @@ The HTTP collector automatically generates standard OpenTelemetry HTTP server me
 - `net_host_port`: Network host port
 - `net_protocol_name`: Network protocol name
 - `net_protocol_version`: Network protocol version
-- `service_name`: FlightCtl service name
+- `service_name`: Flight Control service name
 
 **Configuration:**
 

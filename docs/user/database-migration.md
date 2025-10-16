@@ -112,6 +112,8 @@ The Helm deployment automatically handles user creation and migration:
 # 3. Run database migrations using migration user
 ```
 
+> **Troubleshooting Migration Failures**: If the migration job fails, check logs with `kubectl logs -n flightctl job/flightctl-db-migration-<revision> --all-containers` to identify the issue. Common causes include DB connection problems, incorrect credentials, missing database users, or database not ready.
+
 ### Quadlet Deployment
 
 The quadlet deployment includes integrated user setup and migration:

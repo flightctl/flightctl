@@ -79,10 +79,10 @@ Flight Control alerts are accessible through the Alertmanager proxy, which requi
 ### Authentication Setup
 
 1. **Get your authentication token** (varies by auth method):
-   - **OIDC**: Obtain token from your identity provider or FlightCtl client config:
+   - **OIDC**: Obtain token from your identity provider or `flightctl` client config:
 
      ```bash
-     # Extract token from FlightCtl client config
+     # Extract token from flightctl client config
      TOKEN=$(grep '^  token:' ~/.config/flightctl/client.yaml | awk '{print $2}')
      ```
 
@@ -116,7 +116,7 @@ Flight Control alerts are accessible through the Alertmanager proxy, which requi
 **For API/Programmatic Access:**
 
 ```bash
-# Extract your FlightCtl token
+# Extract your flightctl token
 TOKEN=$(grep '^  token:' ~/.config/flightctl/client.yaml | awk '{print $2}')
 
 # Test connection

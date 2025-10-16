@@ -63,8 +63,8 @@ ifeq ($(DEBUG),true)
 	LD_FLAGS :=
 	GC_FLAGS := -gcflags "all=-N -l"
 else
-	# strip everything we can
-	LD_FLAGS := -w -s
+	# strip debug info, but keep symbols
+	LD_FLAGS := -w
 	GC_FLAGS :=
 endif
 
@@ -370,13 +370,19 @@ clean-quadlets:
 
 .PHONY: tools flightctl-api-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-userinfo-proxy-container flightctl-telemetry-gateway-container
 
-tools: $(GOBIN)/golangci-lint
+# Use custom golangci-lint container with libvirt support
+LINT_IMAGE := flightctl-lint:latest
+LINT_CONTAINER := podman run --rm -v $(GOBASE):/app:Z -w /app --user 0 $(LINT_IMAGE)
 
-$(GOBIN)/golangci-lint:
-	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(GOBIN) v1.61.0
+.PHONY: tools lint-image
+tools:
 
-lint: tools
-	$(GOBIN)/golangci-lint run -v
+lint-image:
+	podman build -f Containerfile.lint -t $(LINT_IMAGE)
+
+.PHONY: lint
+lint: lint-image
+	$(LINT_CONTAINER) golangci-lint run -v
 
 .PHONY: rpmlint
 rpmlint: check-rpmlint

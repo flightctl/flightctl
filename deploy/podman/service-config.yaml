@@ -12,6 +12,9 @@ global:
       oidcAuthority:
       externalOidcAuthority:
       oidcClientId:
+  organizations:
+    # Enable IdP-provided organizations support
+    enabled: false
 
 db:
   # external: Set to "enabled" to use external PostgreSQL database
@@ -66,10 +69,17 @@ observability:
   prometheus:
     image:
 
-  otel_collector:
+  telemetry_gateway:
     image:
-    http_port:
+    prometheus_port:
     grpc_port:
+    config:
+      telemetryGateway:
+        export:
+          prometheus:
+        forward:
+          endpoint:
+
 
   userinfo_proxy:
     image:

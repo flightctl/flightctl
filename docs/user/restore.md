@@ -37,7 +37,25 @@ This document covers restore procedures for both Kubernetes and Quadlets deploym
 
 ## Kubernetes Deployment Restore Process
 
-### Step 1: Stop Flight Control Services
+### Step 1: Verify Version Compatibility
+
+Verify that the `flightctl-restore` version matches the Flight Control server version to ensure compatibility:
+
+```bash
+# Get the Flight Control server version
+flightctl version
+
+# Get the flightctl-restore version
+flightctl-restore version
+
+# Compare the versions - they should match
+echo "Server version: $(flightctl version)"
+echo "Restore version: $(flightctl-restore version)"
+```
+
+⚠️ **Important**: The versions must match to ensure compatibility. If they don't match, update your `flightctl-restore` binary to match the server version before proceeding.
+
+### Step 2: Stop Flight Control Services
 
 Scale down all Flight Control service deployments to prevent data conflicts during the restore process:
 
@@ -69,7 +87,7 @@ kubectl get pods -n flightctl-external
 kubectl get pods -n flightctl-internal
 ```
 
-### Step 2: Restore Database from Backup
+### Step 3: Restore Database from Backup
 
 Now that all Flight Control services are stopped, restore your database from backup using your preferred restoration method.
 
@@ -101,7 +119,7 @@ KV_PASSWORD=$(kubectl get secret flightctl-kv-secret -n flightctl-internal -o js
 echo "KV Password retrieved successfully"
 ```
 
-### Step 4: Set Up Port Forwarding
+### Step 5: Set Up Port Forwarding
 
 Open separate terminal sessions for each port forward, or run them in the background:
 
@@ -127,7 +145,7 @@ KV_PORT_FORWARD_PID=$!
 REDISCLI_AUTH="$KV_PASSWORD" redis-cli -h localhost -p 6379 ping
 ```
 
-### Step 5: Run the Restore Command
+### Step 6: Run the Restore Command
 
 Execute the flightctl-restore command using environment variables for database and KV store passwords:
 
@@ -138,7 +156,7 @@ DB_PASSWORD="$DB_APP_PASSWORD" KV_PASSWORD="$KV_PASSWORD" ./bin/flightctl-restor
 
 Monitor the restore process output for any errors or completion messages.
 
-### Step 6: Clean Up Port Forwards
+### Step 7: Clean Up Port Forwards
 
 After the restore command completes successfully:
 
@@ -149,7 +167,7 @@ kill $DB_PORT_FORWARD_PID $KV_PORT_FORWARD_PID
 # Or if running in separate terminals, use Ctrl+C to stop them
 ```
 
-### Step 7: Restart Flight Control Services
+### Step 8: Restart Flight Control Services
 
 Scale the services back up to their normal replica counts:
 
@@ -180,18 +198,37 @@ kubectl get pods -n flightctl-internal
 
 ## Quadlets Deployment Restore Process
 
-### Step 1: Stop Flight Control Services
+### Step 1: Verify Version Compatibility
 
-Stop all Flight Control services using systemctl to prevent data conflicts during the restore process:
+Verify that the `flightctl-restore` version matches the Flight Control server version to ensure compatibility:
 
 ```bash
-# Stop the main Flight Control target (stops all services)
-sudo systemctl stop flightctl.target
+# Get the Flight Control server version
+flightctl version
 
-# Verify all services are stopped
-sudo systemctl status flightctl.target
+# Get the flightctl-restore version
+flightctl-restore version
 
-# Check individual service status
+# Compare the versions - they should match
+echo "Server version: $(flightctl version)"
+echo "Restore version: $(flightctl-restore version)"
+```
+
+⚠️ **Important**: The versions must match to ensure compatibility. If they don't match, update your `flightctl-restore` binary to match the server version before proceeding.
+
+### Step 2: Stop Flight Control Services
+
+Stop the Flight Control application services to prevent data conflicts during the restore process:
+
+```bash
+# Stop only the application services (keep database and KV store running)
+sudo systemctl stop flightctl-api.service
+sudo systemctl stop flightctl-worker.service
+sudo systemctl stop flightctl-periodic.service
+sudo systemctl stop flightctl-alert-exporter.service
+sudo systemctl stop flightctl-alertmanager-proxy.service
+
+# Verify application services are stopped
 sudo systemctl status flightctl-api.service
 sudo systemctl status flightctl-worker.service
 sudo systemctl status flightctl-periodic.service
@@ -206,7 +243,7 @@ Wait for all services to stop before proceeding:
 watch "sudo systemctl is-active flightctl-api.service flightctl-worker.service flightctl-periodic.service flightctl-alert-exporter.service flightctl-alertmanager-proxy.service"
 ```
 
-### Step 2: Restore Database from Backup
+### Step 3: Restore Database from Backup
 
 Now that all Flight Control services are stopped, restore your database from backup using your preferred restoration method.
 
@@ -218,7 +255,7 @@ Now that all Flight Control services are stopped, restore your database from bac
 
 ⚠️ **Note**: The specific restoration commands depend on your backup strategy and tools. Ensure the database is fully restored before proceeding to the next step.
 
-### Step 3: Retrieve Database and KV Store Credentials
+### Step 4: Retrieve Database and KV Store Credentials
 
 #### Database Credentials
 
@@ -238,7 +275,7 @@ KV_PASSWORD=$(sudo podman secret inspect flightctl-kv-password --showsecret | jq
 echo "KV Password retrieved successfully"
 ```
 
-### Step 4: Access Database and KV Store
+### Step 5: Access Database and KV Store
 
 In quadlets deployment, you can access the database and KV store directly through the running containers:
 
@@ -262,7 +299,56 @@ sudo podman exec flightctl-kv redis-cli ping
 sudo podman exec -it flightctl-kv redis-cli
 ```
 
-### Step 5: Run the Restore Command
+### Step 6: Set Up Port Forwarding
+
+The database and KV store containers run on a private network and are not accessible from localhost. Use systemd drop-in files to temporarily enable port forwarding:
+
+```bash
+# Get the container file locations dynamically
+DB_CONTAINER_FILE=$(systemctl show flightctl-db.service -p SourcePath --value)
+KV_CONTAINER_FILE=$(systemctl show flightctl-kv.service -p SourcePath --value)
+
+echo "Database container file: $DB_CONTAINER_FILE"
+echo "KV store container file: $KV_CONTAINER_FILE"
+
+# Derive drop-in directories from source paths
+DB_DROPIN_DIR="${DB_CONTAINER_FILE}.d"
+KV_DROPIN_DIR="${KV_CONTAINER_FILE}.d"
+
+echo "Database drop-in directory: $DB_DROPIN_DIR"
+echo "KV store drop-in directory: $KV_DROPIN_DIR"
+
+# Create drop-in directories
+sudo mkdir -p "$DB_DROPIN_DIR"
+sudo mkdir -p "$KV_DROPIN_DIR"
+
+# Create drop-in files for port publishing
+sudo tee "$DB_DROPIN_DIR/10-publish-port.conf" > /dev/null <<EOF
+[Container]
+PublishPort=5432:5432
+EOF
+
+sudo tee "$KV_DROPIN_DIR/10-publish-port.conf" > /dev/null <<EOF
+[Container]
+PublishPort=6379:6379
+EOF
+
+# Reload systemd and restart services
+sudo systemctl daemon-reload
+sudo systemctl restart flightctl-db.service flightctl-kv.service
+
+# Verify ports are accessible
+netstat -tlnp | grep :5432
+netstat -tlnp | grep :6379
+
+# Test database connectivity
+pg_isready -h localhost -p 5432
+
+# Test KV store connectivity
+redis-cli -h localhost -p 6379 ping
+```
+
+### Step 7: Run the Restore Command
 
 Execute the flightctl-restore command using environment variables for database and KV store passwords:
 
@@ -273,18 +359,54 @@ DB_PASSWORD="$DB_APP_PASSWORD" KV_PASSWORD="$KV_PASSWORD" ./bin/flightctl-restor
 
 Monitor the restore process output for any errors or completion messages.
 
-### Step 6: Restart Flight Control Services
+### Step 8: Clean Up Port Forwarding
 
-Start the services back up using systemctl:
+After the restore command completes successfully, remove the temporary drop-in files:
 
 ```bash
-# Start the main Flight Control target (starts all services)
-sudo systemctl start flightctl.target
+# Get the container file locations dynamically
+DB_CONTAINER_FILE=$(systemctl show flightctl-db.service -p SourcePath --value)
+KV_CONTAINER_FILE=$(systemctl show flightctl-kv.service -p SourcePath --value)
 
-# Verify all services are running
-sudo systemctl status flightctl.target
+echo "Database container file: $DB_CONTAINER_FILE"
+echo "KV store container file: $KV_CONTAINER_FILE"
 
-# Check individual service status
+# Derive drop-in directories from source paths
+DB_DROPIN_DIR="${DB_CONTAINER_FILE}.d"
+KV_DROPIN_DIR="${KV_CONTAINER_FILE}.d"
+
+echo "Database drop-in directory: $DB_DROPIN_DIR"
+echo "KV store drop-in directory: $KV_DROPIN_DIR"
+
+# Remove the drop-in files
+sudo rm -f "$DB_DROPIN_DIR/10-publish-port.conf"
+sudo rm -f "$KV_DROPIN_DIR/10-publish-port.conf"
+
+# Remove empty drop-in directories
+sudo rmdir "$DB_DROPIN_DIR" 2>/dev/null || true
+sudo rmdir "$KV_DROPIN_DIR" 2>/dev/null || true
+
+# Reload systemd and restart services
+sudo systemctl daemon-reload
+sudo systemctl restart flightctl-db.service flightctl-kv.service
+
+# Verify ports are no longer accessible from localhost
+netstat -tlnp | grep -E ':(5432|6379)'
+```
+
+### Step 9: Restart Flight Control Services
+
+Start the application services back up using systemctl:
+
+```bash
+# Start only the application services (database and KV store should already be running)
+sudo systemctl start flightctl-api.service
+sudo systemctl start flightctl-worker.service
+sudo systemctl start flightctl-periodic.service
+sudo systemctl start flightctl-alert-exporter.service
+sudo systemctl start flightctl-alertmanager-proxy.service
+
+# Verify application services are running
 sudo systemctl status flightctl-api.service
 sudo systemctl status flightctl-worker.service
 sudo systemctl status flightctl-periodic.service

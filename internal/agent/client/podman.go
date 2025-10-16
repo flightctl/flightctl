@@ -450,6 +450,59 @@ func (p *Podman) RemoveNetworks(ctx context.Context, networks ...string) error {
 	return nil
 }
 
+func (p *Podman) ListPods(ctx context.Context, labels []string) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, p.timeout)
+	defer cancel()
+
+	// pods created by podman-compose don't have the compose project label,
+	// so we need to get pod IDs from the containers that do have the label
+	args := []string{
+		"ps",
+		"-a",
+		"--format",
+		"{{.Pod}}",
+	}
+	for _, label := range labels {
+		args = append(args, "--filter", fmt.Sprintf("label=%s", label))
+	}
+
+	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
+	if exitCode != 0 {
+		return nil, fmt.Errorf("list pods: %w", errors.FromStderr(stderr, exitCode))
+	}
+
+	lines := strings.Split(strings.TrimSpace(stdout), "\n")
+	podSeen := make(map[string]struct{})
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		// skip empty lines and containers not in a pod
+		if line == "" || line == "--" {
+			continue
+		}
+		podSeen[line] = struct{}{}
+	}
+
+	var pods []string
+	for pod := range podSeen {
+		pods = append(pods, pod)
+	}
+	return pods, nil
+}
+
+func (p *Podman) RemovePods(ctx context.Context, pods ...string) error {
+	for _, pod := range pods {
+		nctx, cancel := context.WithTimeout(ctx, p.timeout)
+		args := []string{"pod", "rm", pod}
+		_, stderr, exitCode := p.exec.ExecuteWithContext(nctx, podmanCmd, args...)
+		cancel()
+		if exitCode != 0 {
+			return fmt.Errorf("remove pods: %w", errors.FromStderr(stderr, exitCode))
+		}
+		p.log.Infof("Removed pod %s", pod)
+	}
+	return nil
+}
+
 func (p *Podman) Unshare(ctx context.Context, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()

@@ -23,6 +23,7 @@ spec:
       serviceAccountName: flightctl-api
       initContainers:
       {{- include "flightctl.databaseWaitInitContainer" (dict "context" . "userType" "app" "timeout" 60 "sleep" 1) | nindent 6 }}
+      {{- include "flightctl.migrationWaitInitContainer" (dict "context" . "timeout" 600) | nindent 6 }}
       containers:
         - name: flightctl-api
           image: {{ .Values.api.image.image }}:{{ default .Chart.AppVersion .Values.api.image.tag }}
@@ -104,6 +105,7 @@ spec:
               name: flightctl-api-k8s-token
               readOnly: true
             {{- end}}
+            {{- include "flightctl.dbSslVolumeMounts" . | nindent 12 }}
 
       restartPolicy: Always
       volumes:
@@ -118,4 +120,5 @@ spec:
           secret:
             secretName: flightctl-api-k8s-token
         {{- end}}
+        {{- include "flightctl.dbSslVolumes" . | nindent 8 }}
 {{ end }}

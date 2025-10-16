@@ -324,7 +324,7 @@ func (s *Server) Run(ctx context.Context) error {
 	}()
 
 	s.log.Printf("Listening on %s...", s.listener.Addr().String())
-	if err := srv.Serve(s.listener); err != nil && !errors.Is(err, net.ErrClosed) {
+	if err := srv.Serve(s.listener); err != nil && !errors.Is(err, net.ErrClosed) && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 

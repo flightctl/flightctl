@@ -68,9 +68,9 @@ RUN mkdir -p /usr/lib/flightctl/custom-info.d && \
     chmod 755 /usr/lib/flightctl/custom-info.d
 
 # Add custom system info
-RUN echo '#!/bin/bash\necho "my site"' > /usr/lib/flightctl/custom-info.d/siteName && \
-    echo '#!/bin/bash\necho ""' > /usr/lib/flightctl/custom-info.d/test && \
-    echo '#!/bin/bash\necho "no-show"' > /usr/lib/flightctl/custom-info.d/keyNotShown && \
+RUN echo -e '#!/bin/bash\necho "my site"' > /usr/lib/flightctl/custom-info.d/siteName && \
+    echo -e '#!/bin/bash\necho ""' > /usr/lib/flightctl/custom-info.d/emptyValue && \
+    echo -e '#!/bin/bash\necho "no-show"' > /usr/lib/flightctl/custom-info.d/keyNotShown && \
     chmod 755 /usr/lib/flightctl/custom-info.d/*
 
 # Add the registry

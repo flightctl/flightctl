@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"os"
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/instrumentation"
@@ -11,11 +13,56 @@ import (
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/version"
 	"github.com/sirupsen/logrus"
+	"github.com/spf13/cobra"
 )
 
 func main() {
-	ctx := context.Background()
+	command := NewFlightCtlRestoreCommand()
+	if err := command.Execute(); err != nil {
+		os.Exit(1)
+	}
+}
+
+func NewFlightCtlRestoreCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "flightctl-restore [flags]",
+		Short: "flightctl-restore prepares devices after database restoration.",
+		Long: `flightctl-restore prepares devices after database restoration.
+
+This command runs post-restoration device preparation tasks including:
+- Initializing database and KV store connections
+- Setting up organization resolvers and caches
+- Preparing devices for normal operation after restore
+
+The command should be run after restoring the database from a backup.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runRestore(cmd.Context())
+		},
+		SilenceUsage: true,
+	}
+
+	// Add version command
+	cmd.AddCommand(NewCmdVersion())
+
+	return cmd
+}
+
+func NewCmdVersion() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "version",
+		Short: "Print flightctl-restore version information.",
+		Run: func(cmd *cobra.Command, args []string) {
+			clientVersion := version.Get()
+			fmt.Printf("Flight Control Restore Version: %s\n", clientVersion.String())
+		},
+		SilenceUsage: true,
+	}
+	return cmd
+}
+
+func runRestore(ctx context.Context) error {
 	// Bypass span check for restore operations
 	ctx = store.WithBypassSpanCheck(ctx)
 
@@ -68,13 +115,25 @@ func main() {
 	orgCache := cache.NewOrganizationTTL(cache.DefaultTTL)
 	go orgCache.Start()
 	defer orgCache.Stop()
+
 	buildResolverOpts := resolvers.BuildResolverOptions{
 		Config: cfg,
 		Store:  storeInst.Organization(),
 		Log:    log,
 		Cache:  orgCache,
 	}
-	orgResolver := resolvers.BuildResolver(buildResolverOpts)
+
+	if cfg.Auth != nil && cfg.Auth.AAP != nil {
+		membershipCache := cache.NewMembershipTTL(cache.DefaultTTL)
+		go membershipCache.Start()
+		defer membershipCache.Stop()
+		buildResolverOpts.MembershipCache = membershipCache
+	}
+
+	orgResolver, err := resolvers.BuildResolver(buildResolverOpts)
+	if err != nil {
+		log.Fatalf("failed to build organization resolver: %v", err)
+	}
 	serviceHandler := service.NewServiceHandler(storeInst, nil, kvStore, nil, log, "", "", []string{}, orgResolver)
 
 	log.Println("Running post-restoration device preparation")
@@ -83,4 +142,5 @@ func main() {
 	}
 
 	log.Println("Post-restoration device preparation completed successfully")
+	return nil
 }

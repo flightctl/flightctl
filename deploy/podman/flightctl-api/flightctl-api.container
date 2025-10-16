@@ -1,9 +1,8 @@
 [Unit]
 Description=Flight Control API server
 PartOf=flightctl.target
-After=flightctl-db.service flightctl-db-migrate.service flightctl-kv.service flightctl-api-init.service
-Wants=flightctl-db.service flightctl-db-migrate.service flightctl-kv.service flightctl-api-init.service
-Requires=flightctl-db.service flightctl-db-migrate.service flightctl-kv.service
+After=flightctl-db-wait.service flightctl-db-migrate.service flightctl-kv.service flightctl-api-init.service
+Wants=flightctl-db-wait.service flightctl-db-migrate.service flightctl-kv.service flightctl-api-init.service
 
 [Container]
 ContainerName=flightctl-api

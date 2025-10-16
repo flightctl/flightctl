@@ -14,10 +14,49 @@ import (
 	reflect "reflect"
 
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
+	v1alpha1 "github.com/flightctl/flightctl/api/v1alpha1"
 	client "github.com/flightctl/flightctl/internal/agent/client"
 	client0 "github.com/flightctl/flightctl/internal/client"
 	gomock "go.uber.org/mock/gomock"
 )
+
+// MockExportableProvider is a mock of ExportableProvider interface.
+type MockExportableProvider struct {
+	ctrl     *gomock.Controller
+	recorder *MockExportableProviderMockRecorder
+}
+
+// MockExportableProviderMockRecorder is the mock recorder for MockExportableProvider.
+type MockExportableProviderMockRecorder struct {
+	mock *MockExportableProvider
+}
+
+// NewMockExportableProvider creates a new mock instance.
+func NewMockExportableProvider(ctrl *gomock.Controller) *MockExportableProvider {
+	mock := &MockExportableProvider{ctrl: ctrl}
+	mock.recorder = &MockExportableProviderMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockExportableProvider) EXPECT() *MockExportableProviderMockRecorder {
+	return m.recorder
+}
+
+// NewExportable mocks base method.
+func (m *MockExportableProvider) NewExportable(name string) (*Exportable, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "NewExportable", name)
+	ret0, _ := ret[0].(*Exportable)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// NewExportable indicates an expected call of NewExportable.
+func (mr *MockExportableProviderMockRecorder) NewExportable(name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewExportable", reflect.TypeOf((*MockExportableProvider)(nil).NewExportable), name)
+}
 
 // MockProvider is a mock of Provider interface.
 type MockProvider struct {
@@ -40,20 +79,6 @@ func NewMockProvider(ctrl *gomock.Controller) *MockProvider {
 // EXPECT returns an object that allows the caller to indicate expected use.
 func (m *MockProvider) EXPECT() *MockProviderMockRecorder {
 	return m.recorder
-}
-
-// Close mocks base method.
-func (m *MockProvider) Close(ctx context.Context) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Close", ctx)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// Close indicates an expected call of Close.
-func (mr *MockProviderMockRecorder) Close(ctx any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockProvider)(nil).Close), ctx)
 }
 
 // CreateGRPCClient mocks base method.
@@ -101,21 +126,6 @@ func (mr *MockProviderMockRecorder) GenerateCSR(deviceName any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GenerateCSR", reflect.TypeOf((*MockProvider)(nil).GenerateCSR), deviceName)
 }
 
-// GenerateTCGCSR mocks base method.
-func (m *MockProvider) GenerateTCGCSR(deviceName, productModel, productSerial string, qualifyingData []byte) ([]byte, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GenerateTCGCSR", deviceName, productModel, productSerial, qualifyingData)
-	ret0, _ := ret[0].([]byte)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GenerateTCGCSR indicates an expected call of GenerateTCGCSR.
-func (mr *MockProviderMockRecorder) GenerateTCGCSR(deviceName, productModel, productSerial, qualifyingData any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GenerateTCGCSR", reflect.TypeOf((*MockProvider)(nil).GenerateTCGCSR), deviceName, productModel, productSerial, qualifyingData)
-}
-
 // GetDeviceName mocks base method.
 func (m *MockProvider) GetDeviceName() (string, error) {
 	m.ctrl.T.Helper()
@@ -159,6 +169,20 @@ func (mr *MockProviderMockRecorder) Initialize(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Initialize", reflect.TypeOf((*MockProvider)(nil).Initialize), ctx)
 }
 
+// ProveIdentity mocks base method.
+func (m *MockProvider) ProveIdentity(ctx context.Context, enrollmentRequest *v1alpha1.EnrollmentRequest) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ProveIdentity", ctx, enrollmentRequest)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ProveIdentity indicates an expected call of ProveIdentity.
+func (mr *MockProviderMockRecorder) ProveIdentity(ctx, enrollmentRequest any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ProveIdentity", reflect.TypeOf((*MockProvider)(nil).ProveIdentity), ctx, enrollmentRequest)
+}
+
 // StoreCertificate mocks base method.
 func (m *MockProvider) StoreCertificate(certPEM []byte) error {
 	m.ctrl.T.Helper()
@@ -171,6 +195,20 @@ func (m *MockProvider) StoreCertificate(certPEM []byte) error {
 func (mr *MockProviderMockRecorder) StoreCertificate(certPEM any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreCertificate", reflect.TypeOf((*MockProvider)(nil).StoreCertificate), certPEM)
+}
+
+// WipeCertificateOnly mocks base method.
+func (m *MockProvider) WipeCertificateOnly() error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "WipeCertificateOnly")
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// WipeCertificateOnly indicates an expected call of WipeCertificateOnly.
+func (mr *MockProviderMockRecorder) WipeCertificateOnly() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WipeCertificateOnly", reflect.TypeOf((*MockProvider)(nil).WipeCertificateOnly))
 }
 
 // WipeCredentials mocks base method.

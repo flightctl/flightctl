@@ -167,6 +167,42 @@ global:
       apiUrl: "https://api.cluster.example.com:6443"
 ```
 
+### TLS/SSL Certificate Configuration
+
+When using external PostgreSQL databases with TLS/SSL, Flight Control supports multiple certificate management options:
+
+#### Option 1: Kubernetes ConfigMap/Secret (Production)
+
+```bash
+# Create certificate resources
+kubectl create configmap postgres-ca-cert \
+  --from-file=ca-cert.pem=/path/to/ca-cert.pem
+
+kubectl create secret generic postgres-client-certs \
+  --from-file=client-cert.pem=/path/to/client-cert.pem \
+  --from-file=client-key.pem=/path/to/client-key.pem
+```
+
+```yaml
+# Configure in values.yaml
+db:
+  external: "enabled"
+  hostname: "postgres.example.com"
+  sslmode: "verify-ca"
+  sslConfigMap: "postgres-ca-cert"     # ConfigMap containing CA certificate
+  sslSecret: "postgres-client-certs"   # Secret containing client certificates
+```
+
+**TLS/SSL Modes:**
+- `disable` - No TLS/SSL (not recommended for production)
+- `allow` - TLS/SSL if available, otherwise plain connection
+- `prefer` - TLS/SSL preferred, fallback to plain connection
+- `require` - TLS/SSL required, no certificate verification
+- `verify-ca` - TLS/SSL required, verify server certificate against CA
+- `verify-full` - TLS/SSL required, verify certificate and hostname
+
+For complete TLS/SSL configuration details, see the [external database documentation](../../../docs/user/external-database.md).
+
 For more detailed configuration options, see the [Values](#values) section below.
 
 ## Values
@@ -211,7 +247,7 @@ For more detailed configuration options, see the [Values](#values) section below
 | clusterCli.image.image | string | `"quay.io/openshift/origin-cli"` | Cluster CLI container image |
 | clusterCli.image.pullPolicy | string | `""` | Image pull policy for cluster CLI container |
 | clusterCli.image.tag | string | `"4.20.0"` | Cluster CLI image tag |
-| db | object | `{"external":"disabled","fsGroup":"","image":{"image":"quay.io/sclorg/postgresql-16-c9s","pullPolicy":"","tag":"20250214"},"masterPassword":"","masterUser":"admin","maxConnections":200,"migrationPassword":"","migrationUser":"flightctl_migrator","name":"flightctl","port":5432,"resources":{"requests":{"cpu":"512m","memory":"512Mi"}},"sslcert":"","sslkey":"","sslmode":"","sslrootcert":"","storage":{"size":"60Gi"},"type":"pgsql","user":"flightctl_app","userPassword":""}` | Database Configuration |
+| db | object | `{"external":"disabled","fsGroup":"","image":{"image":"quay.io/sclorg/postgresql-16-c9s","pullPolicy":"","tag":"20250214"},"masterPassword":"","masterUser":"admin","maxConnections":200,"migrationPassword":"","migrationUser":"flightctl_migrator","name":"flightctl","port":5432,"resources":{"requests":{"cpu":"512m","memory":"512Mi"}},"sslConfigMap":"","sslSecret":"","sslmode":"","storage":{"size":"60Gi"},"type":"pgsql","user":"flightctl_app","userPassword":""}` | Database Configuration |
 | db.external | string | `"disabled"` | Use external PostgreSQL database instead of deploying internal one external: Set to "enabled" to use external PostgreSQL database instead of deploying internal one When enabled, configure hostname, port, name, user credentials to point to your external database |
 | db.fsGroup | string | `""` | File system group ID for database pod security context |
 | db.image.image | string | `"quay.io/sclorg/postgresql-16-c9s"` | PostgreSQL container image |
@@ -226,20 +262,19 @@ For more detailed configuration options, see the [Values](#values) section below
 | db.port | int | `5432` | Database port number |
 | db.resources.requests.cpu | string | `"512m"` | CPU resource requests for database pod |
 | db.resources.requests.memory | string | `"512Mi"` | Memory resource requests for database pod |
-| db.sslcert | string | `""` | SSL client certificate file path |
-| db.sslkey | string | `""` | SSL client key file path |
+| db.sslConfigMap | string | `""` | ConfigMap containing CA certificate (automatically mounted at /etc/ssl/postgres/) |
+| db.sslSecret | string | `""` | Secret containing client certificates (automatically mounted at /etc/ssl/postgres/) |
 | db.sslmode | string | `""` | SSL mode for database connections (disable, allow, prefer, require, verify-ca, verify-full) |
-| db.sslrootcert | string | `""` | SSL root certificate file path (CA certificate) |
 | db.storage.size | string | `"60Gi"` | Persistent volume size for database storage |
 | db.type | string | `"pgsql"` | Database type (currently only 'pgsql' is supported) |
 | db.user | string | `"flightctl_app"` | Application database username |
 | db.userPassword | string | `""` | Application user password (leave empty for auto-generation) userPassword: Leave empty to auto-generate secure password, or set to use a specific password. |
-| dbSetup | object | `{"image":{"image":"quay.io/flightctl/flightctl-db-setup","pullPolicy":"","tag":""},"migration":{"activeDeadlineSeconds":600,"backoffLimit":3},"wait":{"sleep":2,"timeout":60}}` | Database Setup Configuration |
+| dbSetup | object | `{"image":{"image":"quay.io/flightctl/flightctl-db-setup","pullPolicy":"","tag":""},"migration":{"activeDeadlineSeconds":0,"backoffLimit":2147483647},"wait":{"sleep":2,"timeout":60}}` | Database Setup Configuration |
 | dbSetup.image.image | string | `"quay.io/flightctl/flightctl-db-setup"` | Database setup container image |
 | dbSetup.image.pullPolicy | string | `""` | Image pull policy for database setup container |
 | dbSetup.image.tag | string | `""` | Database setup image tag |
-| dbSetup.migration.activeDeadlineSeconds | int | `600` | Maximum runtime in seconds for the migration Job |
-| dbSetup.migration.backoffLimit | int | `3` | Number of retries for the migration Job on failure |
+| dbSetup.migration.activeDeadlineSeconds | int | `0` | Maximum runtime in seconds for the migration Job (0 = no deadline) |
+| dbSetup.migration.backoffLimit | int | `2147483647` | Number of retries for the migration Job on failure  |
 | dbSetup.wait.sleep | int | `2` | Seconds to sleep between database connection attempts Default sleep interval between connection attempts |
 | dbSetup.wait.timeout | int | `60` | Seconds to wait for database readiness before failing Default timeout for database wait (can be overridden per deployment) |
 | global.apiUrl | string | `""` | Alternative to global.auth.k8s.externalOpenShiftApiUrl with the same meaning, used by the multiclusterhub operator |
@@ -259,10 +294,11 @@ For more detailed configuration options, see the [Values](#values) section below
 | global.baseDomainTls.cert | string | `""` | Certificate for the base domain wildcard certificate, it should be valid for *.${baseDomain}. This certificate is only used for non mTLS endpoints, mTLS endpoints like agent-api, etc will use different certificates. |
 | global.baseDomainTls.key | string | `""` | Key for the base domain wildcard certificate. |
 | global.clusterLevelSecretAccess | bool | `false` | Allow flightctl-worker to access secrets at the cluster level for embedding in device configs |
-| global.exposeServicesMethod | string | `"route"` | How the FCTL services should be exposed. Can be either nodePort or route |
+| global.exposeServicesMethod | string | `"route"` | How the Flight Control services should be exposed. Can be either nodePort or route |
 | global.gatewayClass | string | `""` | Gateway API class name for gateway exposure method |
 | global.gatewayPorts.http | int | `80` | HTTP port for Gateway API configuration |
 | global.gatewayPorts.tls | int | `443` | TLS port for Gateway API configuration |
+| global.generateSecrets | bool | `true` | Generate secrets when deploying Flight Control. This should be set to false if you want to provide your own secrets or when upgrading Flight Control to avoid overriding the existing secrets |
 | global.imagePullPolicy | string | `"IfNotPresent"` | Image pull policy for all containers |
 | global.imagePullSecretName | string | `""` | Name of the image pull secret for accessing private container registries |
 | global.internalNamespace | string | `""` | Namespace where internal components are deployed |
@@ -277,6 +313,7 @@ For more detailed configuration options, see the [Values](#values) section below
 | global.nodePorts.ui | int | `9000` | NodePort for web UI service |
 | global.organizations.enabled | bool | `false` | Enable IDP-provided organizations support |
 | global.rbac.create | bool | `true` | Create RBAC resources (roles, bindings, service accounts) |
+| global.sshKnownHosts.data | string | `""` | SSH known hosts file content for Git repository host key verification. |
 | global.target | string | `"standalone"` | The type of Flightctl to deploy - either 'standalone' or 'acm'. |
 | global.tracing.enabled | bool | `false` | Enable distributed tracing with OpenTelemetry |
 | global.tracing.endpoint | string | `"jaeger-collector.flightctl-e2e.svc.cluster.local:4318"` | OpenTelemetry collector endpoint for trace data |
@@ -344,7 +381,7 @@ To use these files:
 # Development deployment
 helm install my-flightctl oci://quay.io/flightctl/charts/flightctl -f values.dev.yaml
 
-# ACM integration deployment 
+# ACM integration deployment
 helm install my-flightctl oci://quay.io/flightctl/charts/flightctl -f values.acm.yaml
 
 # Combine multiple values files (later files override earlier ones)

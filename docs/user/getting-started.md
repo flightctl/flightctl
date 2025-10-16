@@ -47,7 +47,7 @@ helm list
 
 ### Standalone Flight Control on k8s/KIND
 
-Start your k8s/KIND cluster. For KIND cluster you can use [example config](../../deploy/kind.yaml).
+Start your k8s/KIND cluster. For KIND cluster you can use [example config](https://github.com/flightctl/flightctl/blob/main/deploy/kind.yaml).
 
 ```console
 kind create cluster --config kind.yaml
@@ -174,7 +174,7 @@ FC_API_URL=<API_URL>
 
 ```
 
-For managing ongoing Flight Control deployments including upgrades, rollbacks, and monitoring, refer to the [Helm Chart Documentation](../../deploy/helm/flightctl/README.md#upgrade-chart).
+For managing ongoing Flight Control deployments including upgrades and monitoring, refer to the [Helm Chart Documentation](https://github.com/flightctl/flightctl/blob/main/deploy/helm/flightctl/README.md).
 
 ## Installing the Flight Control CLI
 
@@ -260,7 +260,7 @@ The CLI uses the host's certificate authority (CA) pool to verify the Flight Con
 
 ## Building a Bootable Container Image including the Flight Control Agent
 
-Next, we will use [Podman](https://github.com/containers/podman) to build a [bootable container image (bootc)](https://containers.github.io/bootc/) that includes the Flight Control Agent binary and configuration. The configuration contains the connection details and credentials required by the agent to discover the service and send an enrollment request to the service.
+Next, we will use [Podman](https://github.com/containers/podman) to build a [bootable container image (bootc)](https://bootc-dev.github.io/bootc/) that includes the Flight Control Agent binary and configuration. The configuration contains the connection details and credentials required by the agent to discover the service and send an enrollment request to the service.
 
 Retrieve the agent configuration with enrollment credentials by running:
 
@@ -289,7 +289,7 @@ $ cat Containerfile
 
 FROM quay.io/centos-bootc/centos-bootc:stream9
 
-RUN dnf -y copr enable @redhat-et/flightctl && \
+RUN dnf -y config-manager --add-repo https://rpm.flightctl.io/flightctl-epel.repo && \
     dnf -y install flightctl-agent; \
     dnf -y clean all; \
     systemctl enable flightctl-agent.service
@@ -375,8 +375,8 @@ After the enrollment completes, you can find the device in the list of devices:
 ```console
 $ flightctl get devices
 
-NAME                                                  OWNER   SYSTEM  UPDATED     APPLICATIONS  LAST SEEN
-54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg  <none>  Online  Up-to-date  <none>        3 seconds ago
+NAME                                                  OWNER   SYSTEM  UPDATED     APPLICATIONS
+54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg  <none>  Online  Up-to-date  <none>
 ```
 
 ## Where to go from here

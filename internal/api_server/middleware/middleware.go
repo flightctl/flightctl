@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 
+	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/consts"
@@ -105,14 +106,14 @@ func AddOrgIDToCtx(resolver resolvers.Resolver, extractor OrgIDExtractor) func(h
 }
 
 func extractOrgIDFromRequestQuery(r *http.Request) (uuid.UUID, error) {
-	orgIDParam := r.URL.Query().Get("org_id")
+	orgIDParam := r.URL.Query().Get(api.OrganizationIDQueryKey)
 	if orgIDParam == "" {
 		return org.DefaultID, nil
 	}
 
 	parsedID, err := org.Parse(orgIDParam)
 	if err != nil {
-		return uuid.Nil, fmt.Errorf("invalid org_id parameter: %w", err)
+		return uuid.Nil, fmt.Errorf("invalid %s parameter: %w", api.OrganizationIDQueryKey, err)
 	}
 	return parsedID, nil
 }

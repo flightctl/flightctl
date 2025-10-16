@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"text/template"
 	"time"
@@ -17,6 +18,9 @@ import (
 	"github.com/sirupsen/logrus"
 	"libvirt.org/go/libvirt"
 )
+
+// Default disk size in GB for VM instances
+const DefaultDiskSizeGB = 10
 
 //go:embed domain-template.xml
 var domainTemplate string
@@ -319,6 +323,12 @@ func (v *VMInLibvirt) parseDomainTemplate() (domainXML string, err error) {
 		Name            string
 		CloudInitCDRom  string
 		CloudInitSMBios string
+		DiskSize        string
+	}
+
+	diskSize := v.TestVM.DiskSizeGB
+	if diskSize <= 0 {
+		diskSize = DefaultDiskSizeGB
 	}
 
 	templateParams := TemplateParams{
@@ -326,6 +336,7 @@ func (v *VMInLibvirt) parseDomainTemplate() (domainXML string, err error) {
 		Port:          strconv.Itoa(v.TestVM.SSHPort),
 		PIDFile:       v.pidFile,
 		Name:          v.TestVM.VMName,
+		DiskSize:      strconv.Itoa(diskSize),
 	}
 
 	err = v.ParseCloudInit()
@@ -578,21 +589,10 @@ func (v *VMInLibvirt) RevertToSnapshot(name string) error {
 		return fmt.Errorf("VM %s does not exist, cannot revert to snapshot", v.TestVM.VMName)
 	}
 
-	// Check if VM is running, if not start it first
-	isRunning, err := v.IsRunning()
+	err = v.createRevertVerificationData()
 	if err != nil {
-		return fmt.Errorf("failed to check VM running state: %w", err)
+		return err
 	}
-
-	if !isRunning {
-		logrus.Infof("VM %s is not running, starting it before revert", v.TestVM.VMName)
-		if err := v.Run(); err != nil {
-			return fmt.Errorf("failed to start VM before revert: %w", err)
-		}
-		// Wait a moment for the VM to be fully started
-		time.Sleep(2 * time.Second)
-	}
-
 	// First, pause the VM
 	err = v.Pause()
 	if err != nil {
@@ -605,8 +605,9 @@ func (v *VMInLibvirt) RevertToSnapshot(name string) error {
 		return fmt.Errorf("failed to find snapshot %s: %w", name, err)
 	}
 
+	flags := libvirt.DOMAIN_SNAPSHOT_REVERT_RUNNING | libvirt.DOMAIN_SNAPSHOT_REVERT_FORCE
 	// Revert to the snapshot
-	err = snapshot.RevertToSnapshot(libvirt.DOMAIN_SNAPSHOT_REVERT_RUNNING)
+	err = snapshot.RevertToSnapshot(flags)
 	if err != nil {
 		return fmt.Errorf("failed to revert to snapshot %s: %w", name, err)
 	}
@@ -620,8 +621,50 @@ func (v *VMInLibvirt) RevertToSnapshot(name string) error {
 		// Don't fail the revert operation, just log the warning
 	}
 
+	err = v.verifyRevert()
+	if err != nil {
+		return err
+	}
 	logrus.Infof("Reverted VM %s to snapshot %s", v.TestVM.VMName, name)
 	return nil
+}
+
+func (v *VMInLibvirt) verifyRevert() error {
+	_, err := v.RunSSH([]string{"sudo", "ls", "/etc/i-should-be-deleted"}, nil)
+	if err == nil {
+		return fmt.Errorf("revert verification failed: file still exists")
+	}
+
+	stdout, _ := v.RunSSH([]string{"sudo", "journalctl", "-b", "|", "grep", "\"This test message should disappear\""}, nil)
+	if stdout != nil && strings.Contains(stdout.String(), "This test message should disappear") {
+		return fmt.Errorf("revert verification failed: log still exists")
+	}
+	return nil
+}
+
+func (v *VMInLibvirt) createRevertVerificationData() error {
+	_, err := v.RunSSH([]string{"sudo", "touch", "/etc/i-should-be-deleted"}, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create revert verification file: %w", err)
+	}
+	_, err = v.RunSSH([]string{"sudo", "logger", "\"This test message should disappear after revert\""}, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create revert verification log message: %w", err)
+	}
+
+	_, err = v.RunSSH([]string{"sudo", "ls", "/etc/i-should-be-deleted"}, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create revert verification file: %w", err)
+	}
+
+	stdout, err := v.RunSSH([]string{"sudo", "journalctl", "-b", "|", "grep", "\"This test message should disappear\""}, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create revert verification log message: %w", err)
+	}
+	if stdout == nil || !strings.Contains(stdout.String(), "This test message should disappear") {
+		return fmt.Errorf("failed to create revert verification log message: journalctl did not return test message")
+	}
+	return err
 }
 
 // DeleteSnapshot deletes a specific snapshot

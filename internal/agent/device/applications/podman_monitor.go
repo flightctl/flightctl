@@ -202,11 +202,14 @@ func (m *PodmanMonitor) stopMonitor() error {
 	return nil
 }
 
-func (m *PodmanMonitor) Stop(ctx context.Context) error {
-	if err := m.drain(ctx); err != nil {
-		return err
-	}
-	return nil
+// Stop stops the podman monitor without draining applications
+func (m *PodmanMonitor) Stop() error {
+	return m.stopMonitor()
+}
+
+// Drain stops and removes all applications, then stops the monitor
+func (m *PodmanMonitor) Drain(ctx context.Context) error {
+	return m.drain(ctx)
 }
 
 func (m *PodmanMonitor) getApps() []Application {

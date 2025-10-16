@@ -2,6 +2,7 @@ package v1alpha1
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -30,6 +31,9 @@ var (
 	ErrInfoAlertLessThanCritical             = errors.New("info alert percentage must be less than critical")
 	ErrWarnAlertLessThanCritical             = errors.New("warning alert percentage must be less than critical")
 	ErrDuplicateAlertSeverity                = errors.New("duplicate alertRule severity")
+	ErrDuplicateMonitorType                  = errors.New("duplicate monitorType in resources")
+	ErrInvalidCPUMonitorField                = errors.New("invalid field for CPU monitor")
+	ErrInvalidMemoryMonitorField             = errors.New("invalid field for Memory monitor")
 )
 
 type Validator interface {
@@ -78,9 +82,13 @@ func (r DeviceSpec) Validate(fleetTemplate bool) []error {
 		allErrs = append(allErrs, validateApplications(*r.Applications, fleetTemplate)...)
 	}
 	if r.Resources != nil {
+		// Individual resource validation
 		for _, resource := range *r.Resources {
 			allErrs = append(allErrs, resource.Validate()...)
 		}
+
+		// Cross-resource validation
+		allErrs = append(allErrs, validateResourceMonitor(*r.Resources)...)
 	}
 	if r.Systemd != nil && r.Systemd.MatchPatterns != nil {
 		for i, matchPattern := range *r.Systemd.MatchPatterns {
@@ -230,6 +238,10 @@ func (r ResourceMonitor) Validate() []error {
 		if err != nil {
 			allErrs = append(allErrs, err)
 		}
+		// CPU monitors should not have a path field
+		if hasPathField(r.union) {
+			allErrs = append(allErrs, fmt.Errorf("%w: CPU monitors cannot have a path field", ErrInvalidCPUMonitorField))
+		}
 		allErrs = append(allErrs, validateAlertRules(spec.AlertRules, spec.SamplingInterval)...)
 	case "Disk":
 		spec, err := r.AsDiskResourceMonitorSpec()
@@ -242,6 +254,10 @@ func (r ResourceMonitor) Validate() []error {
 		spec, err := r.AsMemoryResourceMonitorSpec()
 		if err != nil {
 			allErrs = append(allErrs, err)
+		}
+		// Memory monitors should not have a path field
+		if hasPathField(r.union) {
+			allErrs = append(allErrs, fmt.Errorf("%w: Memory monitors cannot have a path field", ErrInvalidMemoryMonitorField))
 		}
 		allErrs = append(allErrs, validateAlertRules(spec.AlertRules, spec.SamplingInterval)...)
 	default:
@@ -435,7 +451,7 @@ func (r CertificateSigningRequest) Validate() []error {
 	allErrs = append(allErrs, validation.ValidateCSRUsages(r.Spec.Usages)...)
 	allErrs = append(allErrs, validation.ValidateExpirationSeconds(r.Spec.ExpirationSeconds)...)
 	allErrs = append(allErrs, validation.ValidateSignerName(r.Spec.SignerName)...)
-	allErrs = append(allErrs, validation.ValidateCSR(r.Spec.Request)...)
+	allErrs = append(allErrs, validation.ValidateCSRWithTCGSupport(r.Spec.Request)...)
 	return allErrs
 }
 
@@ -1166,4 +1182,35 @@ func validateImmutableCoreFields(currentName, newName *string, currentAPIVersion
 		errs = append(errs, fmt.Errorf("status is immutable"))
 	}
 	return errs
+}
+
+// validateResourceMonitor performs cross-resource validation for ResourceMonitor arrays
+func validateResourceMonitor(resources []ResourceMonitor) []error {
+	var allErrs []error
+
+	// Validate no duplicate monitorTypes exist across resources
+	// Each monitorType (CPU, Disk, Memory) should only appear once in the resources array
+	seenMonitorTypes := make(map[string]struct{})
+	for _, resource := range resources {
+		monitorType, err := resource.Discriminator()
+		if err == nil {
+			if _, exists := seenMonitorTypes[monitorType]; exists {
+				allErrs = append(allErrs, fmt.Errorf("%w: %s", ErrDuplicateMonitorType, monitorType))
+			} else {
+				seenMonitorTypes[monitorType] = struct{}{}
+			}
+		}
+	}
+
+	return allErrs
+}
+
+// hasPathField checks if the raw JSON contains a "path" field
+func hasPathField(rawJSON []byte) bool {
+	var data map[string]interface{}
+	if err := json.Unmarshal(rawJSON, &data); err != nil {
+		return false
+	}
+	_, exists := data["path"]
+	return exists
 }

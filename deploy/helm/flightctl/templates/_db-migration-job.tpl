@@ -23,6 +23,8 @@ metadata:
   labels:
     app: flightctl-db-migration
     release: {{ $ctx.Release.Name }}
+    flightctl.io/migration-revision: "{{ $ctx.Release.Revision }}"
+    {{- include "flightctl.standardLabels" $ctx | nindent 4 }}
   annotations:
     {{- if gt (len $hooks) 0 }}
     helm.sh/hook: {{ join "," $hooks }}
@@ -31,14 +33,20 @@ metadata:
     {{- end }}
 spec:
   backoffLimit: {{ $ctx.Values.dbSetup.migration.backoffLimit | int }}
+  {{- if gt ($ctx.Values.dbSetup.migration.activeDeadlineSeconds | int) 0 }}
   activeDeadlineSeconds: {{ $ctx.Values.dbSetup.migration.activeDeadlineSeconds | int }}
+  {{- end }}
+  completions: 1
+  parallelism: 1
   template:
     metadata:
       labels:
         app: flightctl-db-migration
         release: {{ $ctx.Release.Name }}
+        flightctl.io/migration-revision: "{{ $ctx.Release.Revision }}"
+        {{- include "flightctl.standardLabels" $ctx | nindent 8 }}
     spec:
-      restartPolicy: Never
+      restartPolicy: OnFailure
       serviceAccountName: flightctl-db-migration
       initContainers:
       {{- $userType := ternary "admin" "migration" (ne $ctx.Values.db.external "enabled") }}
@@ -212,10 +220,12 @@ spec:
         - mountPath: /root/.flightctl/
           name: flightctl-db-migration-config
           readOnly: true
+        {{- include "flightctl.dbSslVolumeMounts" $ctx | nindent 8 }}
       volumes:
       - name: flightctl-db-migration-config
         configMap:
           name: flightctl-db-migration-config
+      {{- include "flightctl.dbSslVolumes" $ctx | nindent 6 }}
 {{- end }}
 
 

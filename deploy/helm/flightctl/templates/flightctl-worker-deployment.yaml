@@ -23,6 +23,7 @@ spec:
       serviceAccountName: flightctl-worker
       initContainers:
       {{- include "flightctl.databaseWaitInitContainer" (dict "context" . "userType" "app") | nindent 6 }}
+      {{- include "flightctl.migrationWaitInitContainer" (dict "context" . "timeout" 600) | nindent 6 }}
       containers:
         - name: flightctl-worker
           image: {{ .Values.worker.image.image }}:{{ default .Chart.AppVersion .Values.worker.image.tag }}
@@ -62,9 +63,20 @@ spec:
               name: flightctl-worker-config
               subPath: config.yaml
               readOnly: true
+            - mountPath: /etc/flightctl/ssh
+              name: flightctl-ssh-known-hosts
+              readOnly: true
+            {{- include "flightctl.dbSslVolumeMounts" . | nindent 12 }}
       restartPolicy: Always
       volumes:
         - name: flightctl-worker-config
           configMap:
             name: flightctl-worker-config
+        - name: flightctl-ssh-known-hosts
+          configMap:
+            name: flightctl-known-hosts
+            items:
+              - key: known_hosts
+                path: known_hosts
+        {{- include "flightctl.dbSslVolumes" . | nindent 8 }}
 {{ end }}

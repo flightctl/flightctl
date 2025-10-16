@@ -24,19 +24,21 @@ spec:
     spec:
       serviceAccountName: flightctl-alertmanager-proxy
       initContainers:
-        - name: init-certs
-          image: "registry.access.redhat.com/ubi9/ubi-minimal:latest"
-          command:
-            - /bin/sh
-            - -c
-            - |
-              mkdir -p /root/.flightctl/certs /tmp/certs /tmp/ca-certs
-              chmod 700 /root/.flightctl/certs /tmp/certs /tmp/ca-certs
-          volumeMounts:
-            - mountPath: /root/.flightctl
-              name: flightctl-config-dir
-            - mountPath: /tmp
-              name: tmp-dir
+      {{- include "flightctl.databaseWaitInitContainer" (dict "context" . "userType" "app") | nindent 6 }}
+      {{- include "flightctl.migrationWaitInitContainer" (dict "context" . "timeout" 600) | nindent 6 }}
+      - name: init-certs
+        image: "registry.access.redhat.com/ubi9/ubi-minimal:latest"
+        command:
+          - /bin/sh
+          - -c
+          - |
+            mkdir -p /root/.flightctl/certs /tmp/certs /tmp/ca-certs
+            chmod 700 /root/.flightctl/certs /tmp/certs /tmp/ca-certs
+        volumeMounts:
+          - mountPath: /root/.flightctl
+            name: flightctl-config-dir
+          - mountPath: /tmp
+            name: tmp-dir
       containers:
         - name: alertmanager-proxy
           image: "{{ .Values.alertmanagerProxy.image.image }}:{{ default .Chart.AppVersion .Values.alertmanagerProxy.image.tag }}"
@@ -54,6 +56,16 @@ spec:
             - name: FLIGHTCTL_DISABLE_AUTH
               value: "true"
             {{- end }}
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-db-app-secret
+                  key: userPassword
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-db-app-secret
+                  key: user
           volumeMounts:
             - mountPath: /app/certs
               name: flightctl-alertmanager-proxy-certs
@@ -65,6 +77,7 @@ spec:
               name: flightctl-config-dir
             - mountPath: /tmp
               name: tmp-dir
+            {{- include "flightctl.dbSslVolumeMounts" . | nindent 12 }}
           livenessProbe:
             httpGet:
               path: /health
@@ -110,4 +123,5 @@ spec:
           emptyDir: {}
         - name: tmp-dir
           emptyDir: {}
+        {{- include "flightctl.dbSslVolumes" . | nindent 8 }}
 {{- end }}

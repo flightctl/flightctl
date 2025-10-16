@@ -2,9 +2,11 @@ package spec
 
 import (
 	"context"
+	"math/rand"
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -27,11 +29,23 @@ const (
 
 // defaultSpecPollConfig is the default poll configuration for the spec priority queue.
 var defaultSpecPollConfig = poll.Config{
-	BaseDelay: 30 * time.Second,
-	Factor:    1.5,
-	MaxDelay:  5 * time.Minute,
+	BaseDelay:    30 * time.Second,
+	Factor:       1.5,
+	MaxDelay:     5 * time.Minute,
+	JitterFactor: 0.1,
+	Rand:         rand.New(rand.NewSource(time.Now().UnixNano())), //nolint:gosec
 }
 
+// Watcher provides a way to watch for device spec updates.
+type Watcher interface {
+	// Pop blocks until a device is available or returns error if closed
+	Pop() (*v1alpha1.Device, error)
+	// TryPop attempts to get a device without blocking
+	TryPop() (*v1alpha1.Device, bool, error)
+}
+
+// Manager provides the public API for managing device specifications.
+// This interface is used by the device agent for normal operations.
 type Manager interface {
 	// Initialize initializes the current, desired and rollback device files on
 	// disk. If the files already exist, they are overwritten.
@@ -67,6 +81,8 @@ type Manager interface {
 	GetDesired(ctx context.Context) (*v1alpha1.Device, bool, error)
 	// CheckPolicy validates the update policy is ready to process.
 	CheckPolicy(ctx context.Context, policyType policy.Type, version string) error
+	// SetClient sets the management client for fetching specs.
+	SetClient(client client.Management)
 	status.Exporter
 }
 

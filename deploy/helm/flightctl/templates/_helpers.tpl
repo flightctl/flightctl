@@ -253,19 +253,137 @@ Parameters:
   {{- fail (printf "Invalid userType '%s'. Must be one of: app, migration, admin" $userType) }}
   {{- end }}
   {{- if $context.Values.db.sslmode }}
-  - name: PGSSLMODE
+  - name: DB_SSL_MODE
     value: "{{ $context.Values.db.sslmode }}"
   {{- end }}
   {{- if $context.Values.db.sslcert }}
-  - name: PGSSLCERT
+  - name: DB_SSL_CERT
     value: "{{ $context.Values.db.sslcert }}"
   {{- end }}
   {{- if $context.Values.db.sslkey }}
-  - name: PGSSLKEY
+  - name: DB_SSL_KEY
     value: "{{ $context.Values.db.sslkey }}"
   {{- end }}
   {{- if $context.Values.db.sslrootcert }}
-  - name: PGSSLROOTCERT
+  - name: DB_SSL_ROOT_CERT
     value: "{{ $context.Values.db.sslrootcert }}"
   {{- end }}
+  volumeMounts:
+  {{- include "flightctl.dbSslVolumeMounts" $context | nindent 2 }}
+{{- end }}
+
+{{/*
+Migration wait init container template.
+Waits for database migration job to complete before starting the main container.
+Usage: {{- include "flightctl.migrationWaitInitContainer" (dict "context" .) | nindent 6 }}
+Parameters:
+- context: The root template context (.)
+- timeout: Optional timeout in seconds (default: 600)
+*/}}
+{{- define "flightctl.migrationWaitInitContainer" }}
+{{- $ctx := .context }}
+{{- $timeout := .timeout | default 600 | int }}
+- name: wait-for-migration
+  image: "{{ $ctx.Values.clusterCli.image.image }}:{{ $ctx.Values.clusterCli.image.tag }}"
+  imagePullPolicy: {{ default $ctx.Values.global.imagePullPolicy $ctx.Values.clusterCli.image.pullPolicy }}
+  command:
+  - /bin/bash
+  - -c
+  - |
+    set -euo pipefail
+
+    LABEL_SELECTOR="app=flightctl-db-migration,flightctl.io/migration-revision={{ $ctx.Release.Revision }}"
+    TIMEOUT={{ $timeout }}
+    NS="{{ default $ctx.Release.Namespace $ctx.Values.global.internalNamespace }}"
+
+    echo "Waiting for migration job with labels: $LABEL_SELECTOR (timeout ${TIMEOUT}s)"
+    start=$(date +%s)
+
+    while true; do
+      elapsed=$(( $(date +%s) - start ))
+
+      if [ $elapsed -ge $TIMEOUT ]; then
+        echo "Timeout waiting for migration job after ${TIMEOUT}s"
+        exit 1
+      fi
+
+      # Find job by label selector
+      JOB=$(kubectl get jobs -n "$NS" -l "$LABEL_SELECTOR" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+      
+      # Check if job exists
+      if [ -n "$JOB" ]; then
+        # Check for parallel execution (dangerous even with idempotent migrations)
+        parallelism=$(kubectl get job "$JOB" -n "$NS" -o jsonpath='{.spec.parallelism}' 2>/dev/null || echo 1)
+        if (( parallelism > 1 )); then
+            echo "ERROR: Migration job has spec.parallelism=$parallelism (must be 1)"
+            echo "Database migrations must not run in parallel due to race condition risks"
+            exit 1
+        fi
+
+        succeeded=$(kubectl get job "$JOB" -n "$NS" -o jsonpath='{.status.succeeded}' 2>/dev/null || echo 0)
+        failed=$(kubectl get job "$JOB" -n "$NS" -o jsonpath='{.status.failed}' 2>/dev/null || echo 0)
+
+        if (( succeeded > 0 )); then
+            # The 'greater than 1' scenario would only occur if the job spec.completions is set to more than 1
+            if (( succeeded > 1 )); then
+                echo "Warning: Migration job completed $succeeded times (expected 1). Ensure spec.completions is set to 1."
+            fi
+            echo "Migration job $JOB completed successfully"
+            exit 0
+        elif (( failed > 0 )); then
+            echo "Migration job $JOB failed"
+            exit 1
+        else
+            echo "Migration job $JOB is still running..."
+        fi
+      else
+        # Job not found - could be not created yet, RBAC issue, or other problem
+        echo "Migration job not found yet, waiting..."
+      fi
+
+      sleep 5
+    done
+{{- end }}
+
+{{- /*
+SSL certificate volume mounts for database connections.
+Usage: {{- include "flightctl.dbSslVolumeMounts" . | nindent X }}
+*/}}
+{{- define "flightctl.dbSslVolumeMounts" -}}
+{{- if or .Values.db.sslConfigMap .Values.db.sslSecret }}
+- name: postgres-ssl-certs
+  mountPath: /etc/ssl/postgres
+  readOnly: true
+{{- end }}
+{{- end }}
+
+{{- /*
+SSL certificate volumes for database connections.
+Usage: {{- include "flightctl.dbSslVolumes" . | nindent X }}
+*/}}
+{{- define "flightctl.dbSslVolumes" -}}
+{{- if or .Values.db.sslConfigMap .Values.db.sslSecret }}
+- name: postgres-ssl-certs
+  projected:
+    sources:
+    {{- if .Values.db.sslConfigMap }}
+    - configMap:
+        name: {{ .Values.db.sslConfigMap }}
+        items:
+        - key: ca-cert.pem
+          path: ca-cert.pem
+          mode: 0444
+    {{- end }}
+    {{- if .Values.db.sslSecret }}
+    - secret:
+        name: {{ .Values.db.sslSecret }}
+        items:
+        - key: client-cert.pem
+          path: client-cert.pem
+          mode: 0444
+        - key: client-key.pem
+          path: client-key.pem
+          mode: 0400
+    {{- end }}
+{{- end }}
 {{- end }}

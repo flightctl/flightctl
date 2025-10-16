@@ -55,7 +55,7 @@ jobs:
 
       - name: Get changed files
         id: changed-files
-        uses: tj-actions/changed-files@v44
+        uses: tj-actions/changed-files@v46
         with:
           since_last_remote_commit: 'true'
           files_ignore: |
@@ -64,7 +64,6 @@ jobs:
             docs/**
             .github/**
             examples/**
-            packaging/rpm/**
 
       - name: Free Disk Space (Ubuntu)
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
