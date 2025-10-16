@@ -445,7 +445,7 @@ echo "Flightctl Observability Stack uninstalled."
     cp bin/flightctl %{buildroot}/usr/bin
     cp bin/flightctl-restore %{buildroot}/usr/bin
     mkdir -p %{buildroot}/usr/lib/systemd/system
-    mkdir -p %{buildroot}/%{_sharedstatedir}/flightctl
+    mkdir -p %{buildroot}/usr/lib/tmpfiles.d
     mkdir -p %{buildroot}/usr/lib/flightctl/custom-info.d
     mkdir -p %{buildroot}/usr/lib/flightctl/hooks.d/{afterupdating,beforeupdating,afterrebooting,beforerebooting}
     mkdir -p %{buildroot}/usr/lib/greenboot/check/required.d
@@ -454,6 +454,7 @@ echo "Flightctl Observability Stack uninstalled."
     cp packaging/must-gather/flightctl-must-gather %{buildroot}/usr/bin
     cp packaging/hooks.d/afterupdating/00-default.yaml %{buildroot}/usr/lib/flightctl/hooks.d/afterupdating
     cp packaging/systemd/flightctl-agent.service %{buildroot}/usr/lib/systemd/system
+    echo "d /var/lib/flightctl 0755 root root -" > %{buildroot}/usr/lib/tmpfiles.d/flightctl.conf
     bin/flightctl completion bash > flightctl-completion.bash
     install -Dpm 0644 flightctl-completion.bash -t %{buildroot}/%{_datadir}/bash-completion/completions
     bin/flightctl completion fish > flightctl-completion.fish
@@ -578,11 +579,19 @@ fi
     %{_bindir}/flightctl-must-gather
     /usr/lib/flightctl/hooks.d/afterupdating/00-default.yaml
     /usr/lib/systemd/system/flightctl-agent.service
-    %{_sharedstatedir}/flightctl
+    /usr/lib/tmpfiles.d/flightctl.conf
     /usr/lib/greenboot/check/required.d/20_check_flightctl_agent.sh
     /usr/share/sosreport/flightctl.py
 
 %post agent
+# Ensure /var/lib/flightctl exists immediately for environments where systemd-tmpfiles succeeds or via fallback
+# Try systemd-tmpfiles first, fall back to manual creation if it fails
+/usr/bin/systemd-tmpfiles --create /usr/lib/tmpfiles.d/flightctl.conf || {
+    mkdir -p /var/lib/flightctl && \
+    chown root:root /var/lib/flightctl && \
+    chmod 0755 /var/lib/flightctl
+}
+
 INSTALL_DIR="/usr/lib/python$(python3 --version | sed 's/^.* \(3[.][0-9]*\).*$/\1/')/site-packages/sos/report/plugins"
 mkdir -p $INSTALL_DIR
 cp /usr/share/sosreport/flightctl.py $INSTALL_DIR
