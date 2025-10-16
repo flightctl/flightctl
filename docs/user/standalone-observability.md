@@ -422,7 +422,7 @@ observability:
             caFile: "/etc/telemetry-gateway/certs/ca.crt"
 ```
 
-**Note**: The `config` field contains the telemetry gateway configuration as a YAML object. The `flightctl-render-observability` script extracts this configuration using `yq` and writes it to `/etc/flightctl/telemetry-gateway/config.yaml`.
+**Note**: The `config` field contains the telemetry gateway configuration as a YAML object. The `flightctl-render-observability` script extracts this configuration using Python and `jq`, and writes it to `/etc/flightctl/telemetry-gateway/config.yaml`.
 
 ### UserInfo Proxy
 
@@ -705,7 +705,7 @@ observability:
           prometheus: "your-prometheus.company.com:9090"
 ```
 
-**Note**: The telemetry gateway configuration is provided as a YAML object in the `config` field. The `flightctl-render-observability` script extracts this configuration using `yq` and writes it to `/etc/flightctl/telemetry-gateway/config.yaml`.
+**Note**: The telemetry gateway configuration is provided as a YAML object in the `config` field. The `flightctl-render-observability` script extracts this configuration using Python and `jq`, and writes it to `/etc/flightctl/telemetry-gateway/config.yaml`.
 
 **Management Commands Available**:
 
@@ -1073,7 +1073,7 @@ The telemetry gateway uses a nested YAML object in the `config` field for its in
 
 - **Type**: YAML Object
 - **Default**: Empty
-- **Description**: Telemetry gateway configuration as a YAML object. The `flightctl-render-observability` script extracts this configuration using `yq` and writes it to `/etc/flightctl/telemetry-gateway/config.yaml`.
+- **Description**: Telemetry gateway configuration as a YAML object. The `flightctl-render-observability` script extracts this configuration using Python and `jq`, and writes it to `/etc/flightctl/telemetry-gateway/config.yaml`.
 - **Example**: See the sample configurations above for complete examples.
 
 **Configuration Structure**:

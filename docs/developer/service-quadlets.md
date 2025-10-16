@@ -203,7 +203,7 @@ A basic API health check can be performed by calling `/readyz` via the API that 
 curl -fk https://localhost:3443/readyz && echo OK || echo FAIL
 
 # Using domain from config file
-DOMAIN="$(yq -r '.global.baseDomain // "localhost"' /etc/flightctl/service-config.yaml)"
+DOMAIN="$(python3 /usr/share/flightctl/yaml-to-json.py < /etc/flightctl/service-config.yaml | jq -r '.global.baseDomain // "localhost"')"
 curl -fk "https://${DOMAIN}:3443/readyz" && echo OK || echo FAIL
 ```
 

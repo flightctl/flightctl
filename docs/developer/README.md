@@ -7,7 +7,7 @@ Flight Control is a service for declarative, GitOps-driven management of edge de
 ## Building
 
 Prerequisites:
-* `git`, `make`, and `go` (>= 1.23), `openssl`, `openssl-devel`, `buildah`, `podman`, `podman-compose`, and `go-rpm-macros` (in case one needs to build RPM's)
+* `git`, `make`, and `go` (>= 1.23), `openssl`, `openssl-devel`, `buildah`, `podman`, `podman-compose`, `container-selinux` (>= 2.241), `go-rpm-macros` (in case one needs to build RPM's), `jq`, `python3`, and `python3-pyyaml` (or install PyYAML via pip)
 
 Flightctl agent reports the status of running rootless containers. Ensure the podman socket is enabled:
 
