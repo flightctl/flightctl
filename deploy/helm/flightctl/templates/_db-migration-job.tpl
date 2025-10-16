@@ -33,7 +33,11 @@ metadata:
     {{- end }}
 spec:
   backoffLimit: {{ $ctx.Values.dbSetup.migration.backoffLimit | int }}
+  {{- if gt ($ctx.Values.dbSetup.migration.activeDeadlineSeconds | int) 0 }}
   activeDeadlineSeconds: {{ $ctx.Values.dbSetup.migration.activeDeadlineSeconds | int }}
+  {{- end }}
+  completions: 1
+  parallelism: 1
   template:
     metadata:
       labels:
@@ -42,7 +46,7 @@ spec:
         flightctl.io/migration-revision: "{{ $ctx.Release.Revision }}"
         {{- include "flightctl.standardLabels" $ctx | nindent 8 }}
     spec:
-      restartPolicy: Never
+      restartPolicy: OnFailure
       serviceAccountName: flightctl-db-migration
       initContainers:
       {{- $userType := ternary "admin" "migration" (ne $ctx.Values.db.external "enabled") }}
