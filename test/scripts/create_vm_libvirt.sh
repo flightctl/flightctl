@@ -13,6 +13,7 @@ VM_CPUS=8                  # Number of CPUs
 VM_DISK_SIZE_INC=${VM_DISK_SIZE_INC:-30} # Disk size increment
 NETWORK_NAME="$(get_ocp_nodes_network)"   # Network name
 NETWORK_NAME=${NETWORK_NAME:-baremetal-0}
+DEFAULT_NETWORK_NAME="default"
 echo "ocp_network name is: ${NETWORK_NAME}"
 echo "Disk size increment: ${VM_DISK_SIZE_INC}G"
 ISO_URL="https://cloud.centos.org/centos/9-stream/x86_64/images/CentOS-Stream-GenericCloud-x86_64-9-latest.x86_64.qcow2"
@@ -67,6 +68,10 @@ echo "Resizing image ${DISK_PATH}..."
 qemu-img resize ${DISK_PATH} +${VM_DISK_SIZE_INC}G && \
 qemu-img info --output=json "${DISK_PATH}"
 
+# Restart default network
+sudo virsh net-destroy ${DEFAULT_NETWORK_NAME}
+sudo virsh net-start ${DEFAULT_NETWORK_NAME}
+
 # Create the VM
 echo "Creating virtual machine ${VM_NAME}..."
 virt-install \
@@ -75,7 +80,7 @@ virt-install \
   --vcpus $VM_CPUS \
   --disk path=$DISK_PATH,format=qcow2 \
   --os-variant centos-stream9  \
-  --network network="default" \
+  --network network=$DEFAULT_NETWORK_NAME \
   --network network=$NETWORK_NAME,model=virtio \
   --import \
   --cpu host-model \
