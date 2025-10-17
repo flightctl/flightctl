@@ -78,7 +78,7 @@ The flightctl-selinux package provides the SELinux policy modules required by th
 Summary: Flight Control services
 Requires: bash
 Requires: podman
-Requires: jq python3-pyyaml
+Requires: python3-pyyaml
 BuildRequires: systemd-rpm-macros
 %{?systemd_requires}
 
@@ -88,8 +88,8 @@ The flightctl-services package provides installation and setup of files for runn
 %package telemetry-gateway
 Summary: Telemetry Gateway for FlightCtl
 Requires:       podman
-Requires:       jq python3-pyyaml
-Requires(post): jq python3-pyyaml gettext
+Requires:       python3-pyyaml
+Requires(post): python3-pyyaml gettext
 %{?systemd_requires}
 Requires:       selinux-policy-targeted
 
@@ -105,7 +105,7 @@ Requires:       /usr/sbin/semanage
 Requires:       /usr/sbin/restorecon
 Requires:       podman
 Requires:       systemd
-Requires(post): jq python3-pyyaml gettext
+Requires(post): python3-pyyaml gettext
 %{?systemd_requires}
 Requires:       selinux-policy-targeted
 
@@ -651,7 +651,7 @@ rm -rf /usr/share/sosreport
     # Handle permissions for scripts setting host config
     %attr(0755,root,root) %{_datadir}/flightctl/init_host.sh
     %attr(0755,root,root) %{_datadir}/flightctl/secrets.sh
-    %attr(0755,root,root) %{_datadir}/flightctl/yaml-to-json.py
+    %attr(0755,root,root) %{_datadir}/flightctl/yaml_helpers.py
     
     # flightctl-services pre upgrade checks
     %dir %{_libexecdir}/flightctl

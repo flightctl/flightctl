@@ -32,7 +32,7 @@ Type=oneshot
 RemainAfterExit=yes
 Restart=on-failure
 RestartSec=5
-ExecCondition=python3 /usr/share/flightctl/yaml-to-json.py < /etc/flightctl/service-config.yaml | jq -e '.db.external != "enabled"'
+ExecCondition=/bin/bash -c 'test "$(python3 /usr/share/flightctl/yaml_helpers.py extract ".db.external" /etc/flightctl/service-config.yaml --default "disabled")" != "enabled"'
 
 [Install]
 WantedBy=flightctl.target
