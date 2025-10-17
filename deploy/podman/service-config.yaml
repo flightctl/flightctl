@@ -60,11 +60,13 @@ observability:
       auth_url:
       token_url:
       api_url:
+      scopes:
 
       client_id:
 
-      local_admin_user:
-      local_admin_password:
+    local_admin_user:
+    local_admin_password:
+    root_url:
 
   prometheus:
     image:

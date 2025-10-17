@@ -6,8 +6,11 @@ GRAFANA_OAUTH_CLIENT_ID        | .observability.grafana.oauth.client_id         
 GRAFANA_OAUTH_AUTH_URL         | .observability.grafana.oauth.auth_url                      |                                              | grafana.ini.template                          | /etc/grafana/grafana.ini
 GRAFANA_OAUTH_TOKEN_URL        | .observability.grafana.oauth.token_url                     |                                              | grafana.ini.template                          | /etc/grafana/grafana.ini
 GRAFANA_OAUTH_API_URL          | .observability.grafana.oauth.api_url                       |                                              | grafana.ini.template                          | /etc/grafana/grafana.ini
-GRAFANA_LOCAL_ADMIN_USER       | .observability.grafana.oauth.local_admin_user              | admin                                        | grafana.ini.template                          | /etc/grafana/grafana.ini
-GRAFANA_LOCAL_ADMIN_PASSWORD   | .observability.grafana.oauth.local_admin_password          | defaultadmin                                 | grafana.ini.template                          | /etc/grafana/grafana.ini
+GRAFANA_OAUTH_SCOPES           | .observability.grafana.oauth.scopes                        | read                                         | grafana.ini.template                          | /etc/grafana/grafana.ini
+
+GRAFANA_LOCAL_ADMIN_USER       | .observability.grafana.local_admin_user                    | admin                                        | grafana.ini.template                          | /etc/grafana/grafana.ini
+GRAFANA_LOCAL_ADMIN_PASSWORD   | .observability.grafana.local_admin_password                | defaultadmin                                 | grafana.ini.template                          | /etc/grafana/grafana.ini
+GRAFANA_ROOT_URL               | .observability.grafana.root_url                            | http://localhost:3000                        | grafana.ini.template                          | /etc/grafana/grafana.ini
 
 GRAFANA_TLS_SKIP_VERIFY        | .observability.grafana.oauth.tls_skip_verify               | false                                        | grafana.ini.template                          | /etc/grafana/grafana.ini
 GRAFANA_PROTOCOL               | .observability.grafana.protocol                            | http                                         | grafana.ini.template                          | /etc/grafana/grafana.ini
@@ -19,7 +22,7 @@ GRAFANA_PUBLISHED_PORT         | .observability.grafana.published_port          
 
 PROMETHEUS_IMAGE               | .observability.prometheus.image                            | docker.io/prom/prometheus:latest             | flightctl-prometheus.container.template       | /etc/containers/systemd/flightctl-prometheus.container
 
-USERINFO_PROXY_IMAGE           | .observability.userinfo_proxy.image                       | flightctl/userinfo-proxy:latest              | flightctl-userinfo-proxy.container.template   | /etc/containers/systemd/flightctl-userinfo-proxy.container
-USERINFO_UPSTREAM_URL          | .observability.userinfo_proxy.upstream_url                |                                              | flightctl-userinfo-proxy.container.template   | /etc/containers/systemd/flightctl-userinfo-proxy.container
-USERINFO_SKIP_TLS_VERIFY       | .observability.userinfo_proxy.skip_tls_verify             | false                                        | flightctl-userinfo-proxy.container.template   | /etc/containers/systemd/flightctl-userinfo-proxy.container
+USERINFO_PROXY_IMAGE           | .observability.userinfo_proxy.image                        | quay.io/flightctl/flightctl-userinfo-proxy:latest | flightctl-userinfo-proxy.container.template   | /etc/containers/systemd/flightctl-userinfo-proxy.container
+USERINFO_UPSTREAM_URL          | .observability.userinfo_proxy.upstream_url                 |                                              | flightctl-userinfo-proxy.container.template   | /etc/containers/systemd/flightctl-userinfo-proxy.container
+USERINFO_SKIP_TLS_VERIFY       | .observability.userinfo_proxy.skip_tls_verify              | false                                        | flightctl-userinfo-proxy.container.template   | /etc/containers/systemd/flightctl-userinfo-proxy.container
 

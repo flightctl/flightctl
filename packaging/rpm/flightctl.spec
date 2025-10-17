@@ -112,12 +112,12 @@ Requires:       selinux-policy-targeted
 %description observability
 This package provides the complete FlightCtl Observability Stack, including
 Prometheus for metric storage, Grafana for visualization, and
-OpenTelemetry Collector for metric collection. All components run in Podman containers
+Telemetry Gateway for metric collection. All components run in Podman containers
 managed by systemd and can be installed independently without requiring core FlightCtl
 services to be running. This package automatically includes the flightctl-telemetry-gateway package.
 
 %files telemetry-gateway
-# OpenTelemetry Collector specific files
+# Telemetry Gateway specific files
 /opt/flightctl-observability/templates/flightctl-telemetry-gateway.container.template
 /opt/flightctl-observability/templates/flightctl-telemetry-gateway-config.yaml.template
 
@@ -128,7 +128,7 @@ services to be running. This package automatically includes the flightctl-teleme
 /etc/flightctl/definitions/telemetry-gateway.defs
 
 # Configuration management script - needed for standalone telemetry-gateway deployment
-/usr/local/bin/flightctl-render-observability
+/usr/bin/flightctl-render-observability
 
 # Note: Uses flightctl network from flightctl-services package
 
@@ -170,7 +170,7 @@ services to be running. This package automatically includes the flightctl-teleme
 %ghost /etc/containers/systemd/flightctl-userinfo-proxy.container
 
 # Configuration management script
-/usr/local/bin/flightctl-render-observability
+/usr/bin/flightctl-render-observability
 
 # Systemd target for full observability stack
 /usr/lib/systemd/system/flightctl-observability.target
@@ -192,13 +192,13 @@ services to be running. This package automatically includes the flightctl-teleme
 
 %pre telemetry-gateway
 # This script runs BEFORE the files are installed onto the system.
-echo "Preparing to install FlightCtl OpenTelemetry Collector..."
+echo "Preparing to install FlightCtl Telemetry Gateway..."
 echo "Note: OpenTelemetry collector can be installed independently of other FlightCtl services."
 
 
 %post telemetry-gateway
 # This script runs AFTER the files have been installed onto the system.
-echo "Running post-install actions for FlightCtl OpenTelemetry Collector..."
+echo "Running post-install actions for FlightCtl Telemetry Gateway..."
 
 # Create necessary directories on the host if they don't already exist.
 /usr/bin/mkdir -p /opt/flightctl-observability/templates
@@ -207,13 +207,11 @@ echo "Running post-install actions for FlightCtl OpenTelemetry Collector..."
 
 # Apply persistent SELinux contexts for volumes and configuration files.
 /usr/sbin/semanage fcontext -a -t container_file_t "/opt/flightctl-observability/templates(/.*)?" >/dev/null 2>&1 || :
-/usr/sbin/semanage fcontext -a -t container_file_t "/usr/local/bin/flightctl-render-observability" >/dev/null 2>&1 || :
-/usr/sbin/semanage fcontext -a -t container_file_t "/usr/local/bin/" >/dev/null 2>&1 || :
+/usr/sbin/semanage fcontext -a -t container_file_t "/usr/bin/flightctl-render-observability" >/dev/null 2>&1 || :
 
 # Restore file contexts based on the new rules (and default rules)
 /usr/sbin/restorecon -RvF /opt/flightctl-observability/templates >/dev/null 2>&1 || :
-/usr/sbin/restorecon -RvF /usr/local/bin/flightctl-render-observability >/dev/null 2>&1 || :
-/usr/sbin/restorecon -RvF /usr/local/bin/ >/dev/null 2>&1 || :
+/usr/sbin/restorecon -RvF /usr/bin/flightctl-render-observability >/dev/null 2>&1 || :
 
 # Enable specific SELinux boolean if needed
 /usr/sbin/setsebool -P container_manage_cgroup on >/dev/null 2>&1 || :
@@ -237,14 +235,14 @@ fi
 echo "Reloading systemd daemon..."
 /usr/bin/systemctl daemon-reload
 
-echo "FlightCtl OpenTelemetry Collector installed. Service is configured but not started."
+echo "FlightCtl Telemetry Gateway installed. Service is configured but not started."
 echo "To render config: sudo flightctl-render-observability"
 echo "To start services: sudo systemctl start flightctl-telemetry-gateway.target"
 echo "For automatic startup: sudo systemctl enable flightctl-telemetry-gateway.target"
 
 
 %preun telemetry-gateway
-echo "Running pre-uninstall actions for FlightCtl OpenTelemetry Collector..."
+echo "Running pre-uninstall actions for FlightCtl Telemetry Gateway..."
 # Stop and disable the target and services
 /usr/bin/systemctl stop flightctl-telemetry-gateway.target >/dev/null 2>&1 || :
 /usr/bin/systemctl disable flightctl-telemetry-gateway.target >/dev/null 2>&1 || :
@@ -253,7 +251,7 @@ echo "Running pre-uninstall actions for FlightCtl OpenTelemetry Collector..."
 
 
 %postun telemetry-gateway
-echo "Running post-uninstall actions for FlightCtl OpenTelemetry Collector..."
+echo "Running post-uninstall actions for FlightCtl Telemetry Gateway..."
 # Clean up Podman container
 /usr/bin/podman rm -f flightctl-telemetry-gateway >/dev/null 2>&1 || :
 
@@ -271,16 +269,15 @@ fi
 
 # Remove SELinux fcontext rules added by this package
 /usr/sbin/semanage fcontext -d -t container_file_t "/opt/flightctl-observability/templates(/.*)?" >/dev/null 2>&1 || :
-/usr/sbin/semanage fcontext -d -t container_file_t "/usr/local/bin/flightctl-render-observability" >/dev/null 2>&1 || :
-/usr/sbin/semanage fcontext -d -t container_file_t "/usr/local/bin/" >/dev/null 2>&1 || :
+/usr/sbin/semanage fcontext -d -t container_file_t "/usr/bin/flightctl-render-observability" >/dev/null 2>&1 || :
+/usr/sbin/semanage fcontext -d -t container_file_t "/usr/bin/" >/dev/null 2>&1 || :
 
 # Restore default SELinux contexts for affected directories
 /usr/sbin/restorecon -RvF /opt/flightctl-observability/templates >/dev/null 2>&1 || :
-/usr/sbin/restorecon -RvF /usr/local/bin/flightctl-render-observability >/dev/null 2>&1 || :
-/usr/sbin/restorecon -RvF /usr/local/bin/ >/dev/null 2>&1 || :
+/usr/sbin/restorecon -RvF /usr/bin/flightctl-render-observability >/dev/null 2>&1 || :
 
 /usr/bin/systemctl daemon-reload
-echo "FlightCtl OpenTelemetry Collector uninstalled."
+echo "FlightCtl Telemetry Gateway uninstalled."
 
 
 %pre observability
@@ -299,7 +296,7 @@ echo "Running post-install actions for Flightctl Observability Stack..."
 /usr/bin/mkdir -p /etc/grafana/provisioning/dashboards /etc/grafana/provisioning/dashboards/flightctl
 /usr/bin/mkdir -p /etc/grafana/certs
 /usr/bin/mkdir -p /etc/flightctl /opt/flightctl-observability/templates
-/usr/bin/mkdir -p /usr/local/bin /usr/lib/systemd/system
+/usr/bin/mkdir -p /usr/bin /usr/lib/systemd/system
 /usr/bin/mkdir -p /etc/flightctl/scripts
 /usr/bin/mkdir -p /etc/flightctl/definitions
 
@@ -316,8 +313,7 @@ chown 472:472 /var/lib/grafana
 /usr/sbin/semanage fcontext -a -t container_file_t "/etc/grafana/certs(/.*)?" >/dev/null 2>&1 || :
 
 /usr/sbin/semanage fcontext -a -t container_file_t "/opt/flightctl-observability/templates(/.*)?" >/dev/null 2>&1 || :
-/usr/sbin/semanage fcontext -a -t container_file_t "/usr/local/bin/flightctl-render-observability" >/dev/null 2>&1 || :
-/usr/sbin/semanage fcontext -a -t container_file_t "/usr/local/bin/" >/dev/null 2>&1 || :
+/usr/sbin/semanage fcontext -a -t container_file_t "/usr/bin/flightctl-render-observability" >/dev/null 2>&1 || :
 
 # Restore file contexts based on the new rules (and default rules)
 /usr/sbin/restorecon -RvF /etc/prometheus >/dev/null 2>&1 || :
@@ -326,8 +322,7 @@ chown 472:472 /var/lib/grafana
 /usr/sbin/restorecon -RvF /var/lib/grafana >/dev/null 2>&1 || :
 /usr/sbin/restorecon -RvF /etc/grafana/certs >/dev/null 2>&1 || :
 /usr/sbin/restorecon -RvF /opt/flightctl-observability/templates >/dev/null 2>&1 || :
-/usr/sbin/restorecon -RvF /usr/local/bin/flightctl-render-observability >/dev/null 2>&1 || :
-/usr/sbin/restorecon -RvF /usr/local/bin/ >/dev/null 2>&1 || :
+/usr/sbin/restorecon -RvF /usr/bin/flightctl-render-observability >/dev/null 2>&1 || :
 
 # Enable specific SELinux boolean if needed
 /usr/sbin/setsebool -P container_manage_cgroup on >/dev/null 2>&1 || :
@@ -395,8 +390,7 @@ echo "Running post-uninstall actions for Flightctl Observability Stack..."
 /usr/sbin/semanage fcontext -d -t container_file_t "/var/lib/prometheus(/.*)?" >/dev/null 2>&1 || :
 
 /usr/sbin/semanage fcontext -d -t container_file_t "/opt/flightctl-observability/templates(/.*)?" >/dev/null 2>&1 || :
-/usr/sbin/semanage fcontext -d -t container_file_t "/usr/local/bin/flightctl-render-observability" >/dev/null 2>&1 || :
-/usr/sbin/semanage fcontext -d -t container_file_t "/usr/local/bin/" >/dev/null 2>&1 || :
+/usr/sbin/semanage fcontext -d -t container_file_t "/usr/bin/flightctl-render-observability" >/dev/null 2>&1 || :
 
 
 # Restore default SELinux contexts for affected directories
@@ -406,8 +400,7 @@ echo "Running post-uninstall actions for Flightctl Observability Stack..."
 /usr/sbin/restorecon -RvF /etc/prometheus >/dev/null 2>&1 || :
 /usr/sbin/restorecon -RvF /var/lib/prometheus >/dev/null 2>&1 || :
 /usr/sbin/restorecon -RvF /opt/flightctl-observability/templates >/dev/null 2>&1 || :
-/usr/sbin/restorecon -RvF /usr/local/bin/flightctl-render-observability >/dev/null 2>&1 || :
-/usr/sbin/restorecon -RvF /usr/local/bin/ >/dev/null 2>&1 || :
+/usr/sbin/restorecon -RvF /usr/bin/flightctl-render-observability >/dev/null 2>&1 || :
 
 
 /usr/bin/systemctl daemon-reload
@@ -501,7 +494,7 @@ echo "Flightctl Observability Stack uninstalled."
      mkdir -p %{buildroot}/var/lib/prometheus
      mkdir -p %{buildroot}/var/lib/grafana # For Grafana's data
      mkdir -p %{buildroot}/opt/flightctl-observability/templates # Staging for template files processed in %post
-     mkdir -p %{buildroot}/usr/local/bin # For the reloader script
+     mkdir -p %{buildroot}/usr/bin # For the reloader script
      mkdir -p %{buildroot}/usr/lib/systemd/system # For systemd units
 
      # Install pre-upgrade helper script to libexec
@@ -529,7 +522,7 @@ echo "Flightctl Observability Stack uninstalled."
      install -m 0755 test/scripts/setup_telemetry_gateway_certs.sh %{buildroot}/etc/flightctl/scripts
      install -m 0755 test/scripts/functions %{buildroot}/etc/flightctl/scripts
 
-     install -m 0755 packaging/observability/flightctl-render-observability %{buildroot}/usr/local/bin/
+     install -m 0755 packaging/observability/flightctl-render-observability %{buildroot}/usr/bin/
      install -m 0644 packaging/observability/observability.defs %{buildroot}/etc/flightctl/definitions/
      install -m 0644 packaging/observability/telemetry-gateway.defs %{buildroot}/etc/flightctl/definitions/
 
