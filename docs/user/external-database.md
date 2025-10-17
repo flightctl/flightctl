@@ -213,6 +213,26 @@ db:
 
 **Note**: The `service-config.yaml` file is always required for quadlet deployments (for baseDomain, auth settings, etc.). For internal database deployments, the `db:` section can be omitted entirely or set to `external: "disabled"`.
 
+#### Runtime Container Selection
+
+The quadlet deployment uses a runtime container selection mechanism that automatically chooses the appropriate container variants based on your configuration:
+
+**Selection Process:**
+
+1. During RPM installation, both internal and external container variants are installed to the system
+2. At systemd service startup, a selector script (`/usr/libexec/flightctl/select-db-container.sh`) runs
+3. The script reads `/etc/flightctl/service-config.yaml` to determine if external database is enabled
+4. Based on configuration, it copies the appropriate container files to the active systemd directory
+5. Services start with the selected container variants
+
+**Configuration Detection:**
+
+- **External Mode**: When `db.external: "enabled"` is found in service-config.yaml
+- **Internal Mode**: When `db.external: "disabled"` or `db` section is missing
+- **Fallback**: Defaults to internal mode if service-config.yaml is not found
+
+This design ensures seamless switching between internal and external database modes without manual container file management.
+
 #### 2. Set up secrets
 
 ```bash
@@ -223,18 +243,36 @@ echo "your_migration_password" | podman secret create flightctl-postgresql-migra
 
 #### 3. Deploy
 
-The quadlet deployment automatically detects external database configuration:
+The quadlet deployment automatically detects external database configuration and selects appropriate container variants:
 
 ```bash
 # Deploy Flight Control (will automatically use external database based on service-config.yaml)
 sudo systemctl start flightctl.target
 ```
 
-The deployment script will:
+The deployment process:
 
-- **Automatically select** `flightctl-db-external.container` (placeholder container) when `db.external: "enabled"`
-- **Skip database readiness checks** since no local PostgreSQL will be running
-- **Use regular** `flightctl-db.container` (PostgreSQL container) when `db.external: "disabled"` or omitted
+1. **Runtime Container Selection**: The system automatically selects external-variant containers for all database-connected services when `db.external: "enabled"` is detected in service-config.yaml
+2. **Database Service Selection**:
+   - **External mode**: Uses `flightctl-db-external.container` (placeholder container)
+   - **Internal mode**: Uses `flightctl-db.container` (PostgreSQL container)
+3. **Service Configuration**: All database-connected services (API, worker, periodic, alert-exporter, db-migrate) automatically read external database configuration from `SERVICE_CONFIG_PATH=/service-config.yaml`
+
+**Container Variants Used in External Mode:**
+
+- `flightctl-api-external.container` - API service with external DB support
+- `flightctl-worker-external.container` - Worker service with external DB support
+- `flightctl-periodic-external.container` - Periodic service with external DB support
+- `flightctl-alert-exporter-external.container` - Alert exporter with external DB support
+- `flightctl-db-migrate-external.container` - Migration service with external DB support
+- `flightctl-db-external.container` - Placeholder database service (no-op)
+
+**Automatic Features:**
+
+- **Service Config Reading**: External variants automatically read database configuration from mounted service-config.yaml
+- **Password Management**: Uses Podman secrets for database passwords
+- **No Manual Intervention**: Container selection happens automatically during systemd service startup
+- **Fallback Support**: Falls back to internal database containers if external configuration is disabled or missing
 
 ## Migration and Schema Management
 
