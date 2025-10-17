@@ -10,9 +10,7 @@ import (
 	"github.com/samber/lo"
 )
 
-func (h *ServiceHandler) CreateRepository(ctx context.Context, repository api.Repository) (*api.Repository, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) CreateRepository(ctx context.Context, orgId uuid.UUID, repository api.Repository) (*api.Repository, api.Status) {
 	// don't set fields that are managed by the service
 	repository.Status = nil
 	NilOutManagedObjectMetaProperties(&repository.Metadata)
@@ -25,9 +23,7 @@ func (h *ServiceHandler) CreateRepository(ctx context.Context, repository api.Re
 	return result, StoreErrorToApiStatus(err, true, api.RepositoryKind, repository.Metadata.Name)
 }
 
-func (h *ServiceHandler) ListRepositories(ctx context.Context, params api.ListRepositoriesParams) (*api.RepositoryList, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) ListRepositories(ctx context.Context, orgId uuid.UUID, params api.ListRepositoriesParams) (*api.RepositoryList, api.Status) {
 	listParams, status := prepareListParams(params.Continue, params.LabelSelector, params.FieldSelector, params.Limit)
 	if status != api.StatusOK() {
 		return nil, status
@@ -48,16 +44,12 @@ func (h *ServiceHandler) ListRepositories(ctx context.Context, params api.ListRe
 	}
 }
 
-func (h *ServiceHandler) GetRepository(ctx context.Context, name string) (*api.Repository, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) GetRepository(ctx context.Context, orgId uuid.UUID, name string) (*api.Repository, api.Status) {
 	result, err := h.store.Repository().Get(ctx, orgId, name)
 	return result, StoreErrorToApiStatus(err, false, api.RepositoryKind, &name)
 }
 
-func (h *ServiceHandler) ReplaceRepository(ctx context.Context, name string, repository api.Repository) (*api.Repository, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) ReplaceRepository(ctx context.Context, orgId uuid.UUID, name string, repository api.Repository) (*api.Repository, api.Status) {
 	// don't overwrite fields that are managed by the service for external requests
 	if !IsInternalRequest(ctx) {
 		repository.Status = nil
@@ -75,16 +67,12 @@ func (h *ServiceHandler) ReplaceRepository(ctx context.Context, name string, rep
 	return result, StoreErrorToApiStatus(err, created, api.RepositoryKind, &name)
 }
 
-func (h *ServiceHandler) DeleteRepository(ctx context.Context, name string) api.Status {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) DeleteRepository(ctx context.Context, orgId uuid.UUID, name string) api.Status {
 	err := h.store.Repository().Delete(ctx, orgId, name, h.callbackRepositoryDeleted)
 	return StoreErrorToApiStatus(err, false, api.RepositoryKind, &name)
 }
 
-func (h *ServiceHandler) PatchRepository(ctx context.Context, name string, patch api.PatchRequest) (*api.Repository, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) PatchRepository(ctx context.Context, orgId uuid.UUID, name string, patch api.PatchRequest) (*api.Repository, api.Status) {
 	currentObj, err := h.store.Repository().Get(ctx, orgId, name)
 	if err != nil {
 		return nil, StoreErrorToApiStatus(err, false, api.RepositoryKind, &name)
@@ -111,9 +99,7 @@ func (h *ServiceHandler) PatchRepository(ctx context.Context, name string, patch
 	return result, StoreErrorToApiStatus(err, false, api.RepositoryKind, &name)
 }
 
-func (h *ServiceHandler) ReplaceRepositoryStatusByError(ctx context.Context, name string, repository api.Repository, err error) (*api.Repository, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) ReplaceRepositoryStatusByError(ctx context.Context, orgId uuid.UUID, name string, repository api.Repository, err error) (*api.Repository, api.Status) {
 	if name != lo.FromPtr(repository.Metadata.Name) {
 		return nil, api.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
@@ -129,16 +115,12 @@ func (h *ServiceHandler) ReplaceRepositoryStatusByError(ctx context.Context, nam
 	return result, StoreErrorToApiStatus(err, false, api.RepositoryKind, &name)
 }
 
-func (h *ServiceHandler) GetRepositoryFleetReferences(ctx context.Context, name string) (*api.FleetList, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) GetRepositoryFleetReferences(ctx context.Context, orgId uuid.UUID, name string) (*api.FleetList, api.Status) {
 	result, err := h.store.Repository().GetFleetRefs(ctx, orgId, name)
 	return result, StoreErrorToApiStatus(err, false, api.RepositoryKind, &name)
 }
 
-func (h *ServiceHandler) GetRepositoryDeviceReferences(ctx context.Context, name string) (*api.DeviceList, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) GetRepositoryDeviceReferences(ctx context.Context, orgId uuid.UUID, name string) (*api.DeviceList, api.Status) {
 	result, err := h.store.Repository().GetDeviceRefs(ctx, orgId, name)
 	return result, StoreErrorToApiStatus(err, false, api.RepositoryKind, &name)
 }

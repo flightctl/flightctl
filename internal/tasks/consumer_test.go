@@ -6,9 +6,9 @@ import (
 	"testing"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/queues"
-	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -451,7 +451,7 @@ func TestDispatchTasks_WithNilMetrics(t *testing.T) {
 	mockConsumer := &MockConsumer{}
 
 	// Create a simple valid payload that won't trigger any task processing
-	orgId := uuid.New()
+	orgId := store.NullOrgId
 	eventWithOrgId := worker_client.EventWithOrgId{
 		OrgId: orgId,
 		Event: api.Event{
@@ -486,7 +486,7 @@ func TestDispatchTasks_WithNilMetrics_SuccessfulProcessing(t *testing.T) {
 	mockConsumer := &MockConsumer{}
 
 	// Create a simple valid payload that won't trigger any task processing
-	orgId := uuid.New()
+	orgId := store.NullOrgId
 	eventWithOrgId := worker_client.EventWithOrgId{
 		OrgId: orgId,
 		Event: api.Event{

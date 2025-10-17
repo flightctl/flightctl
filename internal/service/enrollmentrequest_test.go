@@ -12,7 +12,7 @@ import (
 
 func testEnrollmentRequestPatch(require *require.Assertions, patch v1alpha1.PatchRequest) (*v1alpha1.EnrollmentRequest, v1alpha1.EnrollmentRequest, v1alpha1.Status) {
 	serviceHandler, ctx, enrollmentRequest := createTestEnrollmentRequest(require, "validname", nil)
-	resp, status := serviceHandler.PatchEnrollmentRequest(ctx, "validname", patch)
+	resp, status := serviceHandler.PatchEnrollmentRequest(ctx, store.NullOrgId, "validname", patch)
 	require.NotEqual(statusFailedCode, status.Code)
 	return resp, enrollmentRequest, status
 }
@@ -36,7 +36,7 @@ func TestAlreadyApprovedEnrollmentRequestApprove(t *testing.T) {
 		Labels:   &map[string]string{"label": "value"},
 	}
 
-	_, stat := serviceHandler.ApproveEnrollmentRequest(ctx, "foo", approval)
+	_, stat := serviceHandler.ApproveEnrollmentRequest(ctx, store.NullOrgId, "foo", approval)
 	require.Equal(statusBadRequestCode, stat.Code)
 	require.Equal("Enrollment request is already approved", stat.Message)
 
@@ -62,7 +62,7 @@ func TestNotFoundReplaceEnrollmentRequestStatus(t *testing.T) {
 		},
 	}
 
-	_, status := serviceHandler.ReplaceEnrollmentRequestStatus(ctx, "InvalidName", invalidER)
+	_, status := serviceHandler.ReplaceEnrollmentRequestStatus(ctx, store.NullOrgId, "InvalidName", invalidER)
 
 	require.Equal(statusNotFoundCode, status.Code)
 }

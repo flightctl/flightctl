@@ -44,7 +44,7 @@ func testRepositoryPatch(require *require.Assertions, patch api.PatchRequest) (*
 	ctx := context.Background()
 	_, err = serviceHandler.store.Repository().Create(ctx, store.NullOrgId, &repository, nil)
 	require.NoError(err)
-	resp, status := serviceHandler.PatchRepository(ctx, "foo", patch)
+	resp, status := serviceHandler.PatchRepository(ctx, store.NullOrgId, "foo", patch)
 	require.NotEqual(statusFailedCode, status.Code)
 	return resp, repository, status
 }
@@ -180,7 +180,7 @@ func TestRepositoryNonExistingResource(t *testing.T) {
 		Metadata: api.ObjectMeta{Name: lo.ToPtr("foo")},
 	}, nil)
 	require.NoError(err)
-	_, status := serviceHandler.PatchRepository(ctx, "bar", pr)
+	_, status := serviceHandler.PatchRepository(ctx, store.NullOrgId, "bar", pr)
 	require.Equal(statusNotFoundCode, status.Code)
 	event, _ := serviceHandler.store.Event().List(context.Background(), store.NullOrgId, store.ListParams{})
 	require.Len(event.Items, 0)
@@ -214,7 +214,7 @@ func setAccessCondition(ctx context.Context, repository *api.Repository, err err
 	if repository.Status.Conditions == nil {
 		repository.Status.Conditions = []api.Condition{}
 	}
-	_, status := h.ReplaceRepositoryStatusByError(ctx, lo.FromPtr(repository.Metadata.Name), *repository, err)
+	_, status := h.ReplaceRepositoryStatusByError(ctx, store.NullOrgId, lo.FromPtr(repository.Metadata.Name), *repository, err)
 
 	return ApiStatusToErr(status)
 }
