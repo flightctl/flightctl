@@ -2,14 +2,11 @@ package cli_test
 
 import (
 	"fmt"
-	"regexp"
-	"strings"
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/test/e2e/resources"
 	"github.com/flightctl/flightctl/test/harness/e2e"
-	"github.com/flightctl/flightctl/test/harness/e2e/vm"
 	"github.com/flightctl/flightctl/test/login"
 	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
@@ -119,66 +116,67 @@ var _ = Describe("CLI - device console", func() {
 		Expect(out).To(ContainSubstring("not found"))
 	})
 
-	It("allows tuning spec-fetch-interval", Label("82538"), func() {
-		// Get harness directly - no shared package-level variable
-		harness := e2e.GetWorkerHarness()
+	// Commenting since this feature is deprecated
+	// It("allows tuning spec-fetch-interval", Label("82538"), func() {
+	// 	// Get harness directly - no shared package-level variable
+	// 	harness := e2e.GetWorkerHarness()
 
-		const (
-			cfgFile              = "/etc/flightctl/config.yaml"
-			specFetchKey         = "spec-fetch-interval"
-			specFetchIntervalSec = 20
-			rootPwd              = "user"
-		)
+	// 	const (
+	// 		cfgFile              = "/etc/flightctl/config.yaml"
+	// 		specFetchKey         = "spec-fetch-interval"
+	// 		specFetchIntervalSec = 20
+	// 		rootPwd              = "user"
+	// 	)
 
-		sendAsRoot := func(cs *e2e.ConsoleSession, cmd string) {
-			cs.MustSend(fmt.Sprintf("echo '%s' | sudo -S %s", rootPwd, cmd))
-		}
+	// 	sendAsRoot := func(cs *e2e.ConsoleSession, cmd string) {
+	// 		cs.MustSend(fmt.Sprintf("echo '%s' | sudo -S %s", rootPwd, cmd))
+	// 	}
 
-		cs := harness.NewConsoleSession(deviceID)
+	// 	cs := harness.NewConsoleSession(deviceID)
 
-		// show current config & ensure the key is present
-		sendAsRoot(cs, "cat "+cfgFile)
-		cs.MustExpect(specFetchKey)
+	// 	// show current config & ensure the key is present
+	// 	sendAsRoot(cs, "cat "+cfgFile)
+	// 	cs.MustExpect(specFetchKey)
 
-		// patch config
-		sedExpr := fmt.Sprintf("sed -i -E 's/%s: .+m.+s/%s: 0m%ds/g' %s && cat %s", specFetchKey, specFetchKey,
-			specFetchIntervalSec, cfgFile, cfgFile)
-		sendAsRoot(cs, sedExpr)
-		cs.MustExpect(fmt.Sprintf("%s: 0m%ds", specFetchKey, specFetchIntervalSec))
-		sendAsRoot(cs, fmt.Sprintf("sh -c \"echo 'log-level: debug' >> %s\" && cat %s", cfgFile, cfgFile))
-		cs.MustExpect("log-level: debug")
+	// 	// patch config
+	// 	sedExpr := fmt.Sprintf("sed -i -E 's/%s: .+m.+s/%s: 0m%ds/g' %s && cat %s", specFetchKey, specFetchKey,
+	// 		specFetchIntervalSec, cfgFile, cfgFile)
+	// 	sendAsRoot(cs, sedExpr)
+	// 	cs.MustExpect(fmt.Sprintf("%s: 0m%ds", specFetchKey, specFetchIntervalSec))
+	// 	sendAsRoot(cs, fmt.Sprintf("sh -c \"echo 'log-level: debug' >> %s\" && cat %s", cfgFile, cfgFile))
+	// 	cs.MustExpect("log-level: debug")
 
-		sendAsRoot(cs, "systemctl restart flightctl-agent")
-		cs.Close()
+	// 	sendAsRoot(cs, "systemctl restart flightctl-agent")
+	// 	cs.Close()
 
-		By("waiting for publisher logs with the new interval")
-		// Wait for the target log messages to appear
-		opts := vm.JournalOpts{
-			Unit:     "flightctl-agent",
-			Since:    logLookbackDuration,
-			LastBoot: true,
-		}
-		util.EventuallySlow(harness.VM.JournalLogs).
-			WithArguments(opts).
-			Should(And(
-				ContainSubstring("No new template version from management service"),
-				ContainSubstring("publisher.go"),
-			))
+	// 	By("waiting for publisher logs with the new interval")
+	// 	// Wait for the target log messages to appear
+	// 	opts := vm.JournalOpts{
+	// 		Unit:     "flightctl-agent",
+	// 		Since:    logLookbackDuration,
+	// 		LastBoot: true,
+	// 	}
+	// 	util.EventuallySlow(harness.VM.JournalLogs).
+	// 		WithArguments(opts).
+	// 		Should(And(
+	// 			ContainSubstring("No new template version from management service"),
+	// 			ContainSubstring("publisher.go"),
+	// 		))
 
-		// Now validate the timing intervals
-		logPattern := regexp.MustCompile(`.*time="([^"]+).*No new template version from management service.*publisher\.go.*"`)
-		expectedInterval := time.Duration(specFetchIntervalSec) * time.Second
-		Eventually(func() bool {
-			logs, err := harness.VM.JournalLogs(vm.JournalOpts{
-				Unit:     "flightctl-agent",
-				Since:    logLookbackDuration,
-				LastBoot: true,
-			})
-			Expect(err).ToNot(HaveOccurred())
+	// 	// Now validate the timing intervals
+	// 	logPattern := regexp.MustCompile(`.*time="([^"]+).*No new template version from management service.*publisher\.go.*"`)
+	// 	expectedInterval := time.Duration(specFetchIntervalSec) * time.Second
+	// 	Eventually(func() bool {
+	// 		logs, err := harness.VM.JournalLogs(vm.JournalOpts{
+	// 			Unit:     "flightctl-agent",
+	// 			Since:    logLookbackDuration,
+	// 			LastBoot: true,
+	// 		})
+	// 		Expect(err).ToNot(HaveOccurred())
 
-			return validateTimestampIntervals(logs, logPattern, expectedInterval)
-		}, 2*time.Minute, 10*time.Second).Should(BeTrue())
-	})
+	// 		return validateTimestampIntervals(logs, logPattern, expectedInterval)
+	// 	}, 2*time.Minute, 10*time.Second).Should(BeTrue())
+	// })
 
 	It("recovers from image pull network disruption", Label("82541"), func() {
 		// Get harness directly - no shared package-level variable
@@ -303,66 +301,66 @@ var _ = Describe("CLI - device console", func() {
 })
 
 // -----------------------------------------------------------------------------
-// Helper functions
+// Helper functions for deprecated test
 // -----------------------------------------------------------------------------
 
 // extractTimestampsFromLogs extracts and parses timestamps from log lines that match the given regex pattern.
 // Returns a slice of valid timestamps found in the logs.
-func extractTimestampsFromLogs(logs string, logPattern *regexp.Regexp) []time.Time {
-	lines := strings.Split(strings.TrimSpace(logs), "\n")
-	GinkgoWriter.Printf("Read %d log lines from agent journal\n", len(lines))
+// func extractTimestampsFromLogs(logs string, logPattern *regexp.Regexp) []time.Time {
+// 	lines := strings.Split(strings.TrimSpace(logs), "\n")
+// 	GinkgoWriter.Printf("Read %d log lines from agent journal\n", len(lines))
 
-	var validTimestamps []time.Time
+// 	var validTimestamps []time.Time
 
-	for _, line := range lines {
-		if m := logPattern.FindStringSubmatch(line); m != nil {
-			if t, err := time.Parse(time.RFC3339Nano, m[1]); err != nil {
-				GinkgoWriter.Printf("Failed to parse timestamp %q: %v\n", m[1], err)
-			} else {
-				validTimestamps = append(validTimestamps, t)
-				GinkgoWriter.Printf("Found matching log line with timestamp: %s\n", t.Format(time.RFC3339))
-			}
-		}
-	}
+// 	for _, line := range lines {
+// 		if m := logPattern.FindStringSubmatch(line); m != nil {
+// 			if t, err := time.Parse(time.RFC3339Nano, m[1]); err != nil {
+// 				GinkgoWriter.Printf("Failed to parse timestamp %q: %v\n", m[1], err)
+// 			} else {
+// 				validTimestamps = append(validTimestamps, t)
+// 				GinkgoWriter.Printf("Found matching log line with timestamp: %s\n", t.Format(time.RFC3339))
+// 			}
+// 		}
+// 	}
 
-	GinkgoWriter.Printf("Found %d lines matching the pattern\n", len(validTimestamps))
-	return validTimestamps
-}
+// 	GinkgoWriter.Printf("Found %d lines matching the pattern\n", len(validTimestamps))
+// 	return validTimestamps
+// }
 
 // validateIntervalTiming checks if intervals between consecutive timestamps are within tolerance.
 // Returns true if all intervals are within 1 second of the expected interval.
-func validateIntervalTiming(timestamps []time.Time, expectedInterval time.Duration) bool {
-	const toleranceThreshold = time.Second
+// func validateIntervalTiming(timestamps []time.Time, expectedInterval time.Duration) bool {
+// 	const toleranceThreshold = time.Second
 
-	GinkgoWriter.Printf("Validating intervals between %d timestamps\n", len(timestamps))
+// 	GinkgoWriter.Printf("Validating intervals between %d timestamps\n", len(timestamps))
 
-	for i := 1; i < len(timestamps); i++ {
-		delta := timestamps[i].Sub(timestamps[i-1])
-		deviation := (delta - expectedInterval).Abs()
+// 	for i := 1; i < len(timestamps); i++ {
+// 		delta := timestamps[i].Sub(timestamps[i-1])
+// 		deviation := (delta - expectedInterval).Abs()
 
-		GinkgoWriter.Printf("Timestamp %d->%d: delta=%v, expected=%v, deviation=%v\n",
-			i-1, i, delta, expectedInterval, deviation)
+// 		GinkgoWriter.Printf("Timestamp %d->%d: delta=%v, expected=%v, deviation=%v\n",
+// 			i-1, i, delta, expectedInterval, deviation)
 
-		if deviation > toleranceThreshold {
-			GinkgoWriter.Printf("Interval not as expected - deviation %v > %v threshold\n", deviation, toleranceThreshold)
-			return false
-		}
-	}
+// 		if deviation > toleranceThreshold {
+// 			GinkgoWriter.Printf("Interval not as expected - deviation %v > %v threshold\n", deviation, toleranceThreshold)
+// 			return false
+// 		}
+// 	}
 
-	GinkgoWriter.Printf("All %d intervals are stable within %v tolerance\n", len(timestamps)-1, toleranceThreshold)
-	return true
-}
+// 	GinkgoWriter.Printf("All %d intervals are stable within %v tolerance\n", len(timestamps)-1, toleranceThreshold)
+// 	return true
+// }
 
 // validateTimestampIntervals validates that the intervals between log timestamps match the expected interval.
 // It returns true if at least 2 timestamps are found and all intervals are within 1 second of the expected interval.
-func validateTimestampIntervals(logs string, logPattern *regexp.Regexp, expectedInterval time.Duration) bool {
-	timestamps := extractTimestampsFromLogs(logs, logPattern)
+// func validateTimestampIntervals(logs string, logPattern *regexp.Regexp, expectedInterval time.Duration) bool {
+// 	timestamps := extractTimestampsFromLogs(logs, logPattern)
 
-	const minRequired = 2
-	if len(timestamps) < minRequired {
-		GinkgoWriter.Printf("Need at least %d matching timestamps, only have %d - waiting for more logs\n", minRequired, len(timestamps))
-		return false
-	}
+// 	const minRequired = 2
+// 	if len(timestamps) < minRequired {
+// 		GinkgoWriter.Printf("Need at least %d matching timestamps, only have %d - waiting for more logs\n", minRequired, len(timestamps))
+// 		return false
+// 	}
 
-	return validateIntervalTiming(timestamps, expectedInterval)
-}
+// 	return validateIntervalTiming(timestamps, expectedInterval)
+// }

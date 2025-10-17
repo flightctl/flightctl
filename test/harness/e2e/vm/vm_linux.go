@@ -573,7 +573,7 @@ func (v *VMInLibvirt) CreateSnapshot(name string) error {
 	return nil
 }
 
-// RevertToSnapshot reverts the VM to a specific snapshot
+// RevertToSnapshot reverts the VM to a specific snapshot with retry logic
 func (v *VMInLibvirt) RevertToSnapshot(name string) error {
 	if v.domain == nil {
 		return fmt.Errorf("VM domain is not initialized")
@@ -589,10 +589,38 @@ func (v *VMInLibvirt) RevertToSnapshot(name string) error {
 		return fmt.Errorf("VM %s does not exist, cannot revert to snapshot", v.TestVM.VMName)
 	}
 
-	err = v.createRevertVerificationData()
-	if err != nil {
-		return err
+	// Retry the entire revert operation up to 5 times
+	var lastErr error
+	for attempt := 1; attempt <= 5; attempt++ {
+		logrus.Infof("Revert attempt %d/5 for VM %s to snapshot %s", attempt, v.TestVM.VMName, name)
+
+		err = v.performRevertOperation(name)
+		if err == nil {
+			logrus.Infof("Successfully reverted VM %s to snapshot %s on attempt %d", v.TestVM.VMName, name, attempt)
+			return nil
+		}
+
+		lastErr = err
+		logrus.Warnf("Revert attempt %d/5 failed: %v", attempt, err)
+
+		if attempt < 5 {
+			// Wait before retrying, with exponential backoff
+			waitTime := time.Duration(attempt) * time.Second
+			logrus.Infof("Waiting %v before retry attempt %d", waitTime, attempt+1)
+			time.Sleep(waitTime)
+		}
 	}
+
+	return fmt.Errorf("failed to revert to snapshot %s after 5 attempts: %w", name, lastErr)
+}
+
+// performRevertOperation performs a single revert operation attempt
+func (v *VMInLibvirt) performRevertOperation(name string) error {
+	err := v.createRevertVerificationData()
+	if err != nil {
+		return fmt.Errorf("failed to create revert verification data: %w", err)
+	}
+
 	// First, pause the VM
 	err = v.Pause()
 	if err != nil {
@@ -623,9 +651,9 @@ func (v *VMInLibvirt) RevertToSnapshot(name string) error {
 
 	err = v.verifyRevert()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to verify revert: %w", err)
 	}
-	logrus.Infof("Reverted VM %s to snapshot %s", v.TestVM.VMName, name)
+
 	return nil
 }
 
@@ -664,7 +692,7 @@ func (v *VMInLibvirt) createRevertVerificationData() error {
 	if stdout == nil || !strings.Contains(stdout.String(), "This test message should disappear") {
 		return fmt.Errorf("failed to create revert verification log message: journalctl did not return test message")
 	}
-	return err
+	return nil
 }
 
 // DeleteSnapshot deletes a specific snapshot
