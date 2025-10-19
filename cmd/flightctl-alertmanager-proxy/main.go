@@ -163,7 +163,7 @@ func (p *AlertmanagerProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create context with necessary values for authorization checks
+	// Create context with necessary values for authorization checks and rate limiting
 	ctx := context.WithValue(r.Context(), consts.TokenCtxKey, token)
 	identity, err := p.authN.GetIdentity(ctx, token)
 	if err != nil {
@@ -173,6 +173,9 @@ func (p *AlertmanagerProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx = context.WithValue(ctx, consts.IdentityCtxKey, identity)
 	ctx = util.WithOrganizationID(ctx, orgID)
+
+	// Update the request context for rate limiting
+	r = r.WithContext(ctx)
 
 	// Check if user has permission to access alerts
 	allowed, err := p.authZ.CheckPermission(ctx, alertsResource, getAction)
@@ -337,10 +340,9 @@ func main() {
 		})
 	})
 
-	// Add rate limiting (only if configured)
+	// Add user identity rate limiting (only if configured)
 	// Alertmanager doesn't have built-in rate limiting, so we add it here to prevent abuse
 	if cfg.Service.RateLimit != nil {
-		trustedProxies := cfg.Service.RateLimit.TrustedProxies
 		requests := 60        // Default requests limit
 		window := time.Minute // Default window
 		if cfg.Service.RateLimit.Requests > 0 {
@@ -349,12 +351,12 @@ func main() {
 		if cfg.Service.RateLimit.Window > 0 {
 			window = time.Duration(cfg.Service.RateLimit.Window)
 		}
-		middleware.InstallRateLimiter(router, middleware.RateLimitOptions{
-			Requests:       requests,
-			Window:         window,
-			Message:        "Alertmanager proxy rate limit exceeded, please try again later",
-			TrustedProxies: trustedProxies,
-		})
+		// Use user identity rate limiter instead of IP-based
+		router.Use(middleware.UserIdentityRateLimiter(
+			requests,
+			window,
+			"Alertmanager proxy rate limit exceeded, please try again later",
+		))
 	}
 
 	router.Mount("/", proxy)
