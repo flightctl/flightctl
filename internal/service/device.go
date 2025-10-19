@@ -184,6 +184,51 @@ func (h *ServiceHandler) ListDevices(ctx context.Context, params api.ListDevices
 	}
 }
 
+func (h *ServiceHandler) ListDisconnectedDevices(ctx context.Context, params api.ListDevicesParams, cutoffTime time.Time) (*api.DeviceList, api.Status) {
+	orgId := getOrgIdFromContext(ctx)
+	storeParams, status := convertDeviceListParams(params, nil)
+	if status.Code != http.StatusOK {
+		return nil, status
+	}
+
+	// Check if SummaryOnly is true
+	if params.SummaryOnly != nil && *params.SummaryOnly {
+		// Check for unsupported parameters
+		return nil, api.StatusBadRequest("summaryOnly is not supported for disconnected devices")
+	}
+
+	if params.FieldSelector != nil {
+		return nil, api.StatusBadRequest("fieldSelector is not supported for disconnected devices")
+	}
+
+	if params.LabelSelector != nil {
+		return nil, api.StatusBadRequest("labelSelector is not supported for disconnected devices")
+	}
+
+	if storeParams.Limit == 0 {
+		storeParams.Limit = MaxRecordsPerListRequest
+	} else if storeParams.Limit > MaxRecordsPerListRequest {
+		return nil, api.StatusBadRequest(fmt.Sprintf("limit cannot exceed %d", MaxRecordsPerListRequest))
+	} else if storeParams.Limit < 0 {
+		return nil, api.StatusBadRequest("limit cannot be negative")
+	}
+
+	result, err := h.store.Device().ListDisconnected(ctx, orgId, *storeParams, cutoffTime)
+	if err == nil {
+		return result, api.StatusOK()
+	}
+
+	var se *selector.SelectorError
+
+	switch {
+	case selector.AsSelectorError(err, &se):
+		return nil, api.StatusBadRequest(se.Error())
+	default:
+		return nil, api.StatusInternalServerError(err.Error())
+	}
+
+}
+
 func (h *ServiceHandler) ListDevicesByServiceCondition(ctx context.Context, conditionType string, conditionStatus string, listParams store.ListParams) (*api.DeviceList, api.Status) {
 	orgId := getOrgIdFromContext(ctx)
 
@@ -312,12 +357,15 @@ func (h *ServiceHandler) ReplaceDeviceStatus(ctx context.Context, name string, i
 	}
 	isNotInternal := !IsInternalRequest(ctx)
 	if isNotInternal {
+		if h.agentGate.Acquire(ctx, 1) == nil {
+			defer h.agentGate.Release(1)
+		}
 		incomingDevice.Status.LastSeen = lo.ToPtr(time.Now())
 	}
 
 	// UpdateServiceSideStatus() needs to know the latest .metadata.annotations[device-controller/renderedVersion]
 	// that the agent does not provide or only have an outdated knowledge of
-	originalDevice, err := h.store.Device().Get(ctx, orgId, name)
+	originalDevice, err := h.store.Device().GetWithoutServiceConditions(ctx, orgId, name)
 	if err != nil {
 		return nil, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 	}
@@ -381,10 +429,11 @@ func (h *ServiceHandler) GetRenderedDevice(ctx context.Context, name string, par
 		isNew             bool
 		kvRenderedVersion string
 		err               error
+		isAgent           bool
 	)
 
 	orgId := getOrgIdFromContext(ctx)
-	if _, ok := ctx.Value(consts.AgentCtxKey).(string); ok {
+	if _, isAgent = ctx.Value(consts.AgentCtxKey).(string); isAgent {
 		if err := healthchecker.HealthChecks.Instance().Add(ctx, orgId, name); err != nil {
 			h.log.WithError(err).Errorf("failed to add healthcheck to device %s", name)
 			return nil, api.StatusInternalServerError(fmt.Sprintf("failed to add healthcheck to device %s: %v", name, err))
@@ -402,6 +451,12 @@ func (h *ServiceHandler) GetRenderedDevice(ctx context.Context, name string, par
 		}
 		if !isNew {
 			return nil, api.StatusNoContent()
+		}
+	}
+
+	if isAgent {
+		if h.agentGate.Acquire(ctx, 1) == nil {
+			defer h.agentGate.Release(1)
 		}
 	}
 
