@@ -1558,35 +1558,32 @@ var _ = Describe("Device LastSeen Integration Tests", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Debug: Verify the devices were actually created with the correct lastSeen values
-			device1Check, status1 := suite.Handler.GetDevice(ctx, device1Name)
+			device1LastSeen, status1 := suite.Handler.GetDeviceLastSeen(ctx, device1Name)
 			Expect(status1.Code).To(Equal(int32(200)))
-			device2Check, status2 := suite.Handler.GetDevice(ctx, device2Name)
+			device2LastSeen, status2 := suite.Handler.GetDeviceLastSeen(ctx, device2Name)
 			Expect(status2.Code).To(Equal(int32(200)))
 
-			fmt.Printf("DEBUG: Device1 actual lastSeen: %v\n", device1Check.Status.LastSeen)
-			fmt.Printf("DEBUG: Device2 actual lastSeen: %v\n", device2Check.Status.LastSeen)
+			fmt.Printf("DEBUG: Device1 actual lastSeen: %v\n", device1LastSeen)
+			fmt.Printf("DEBUG: Device2 actual lastSeen: %v\n", device2LastSeen)
 
 			// Test field selector: get devices with lastSeen after 1 hour ago
 			cutoffTime := time.Now().Add(-1 * time.Hour)
-			fieldSelector := fmt.Sprintf("lastSeen>%s", cutoffTime.Format(time.RFC3339))
 
 			// Debug: Print the actual times and field selector
 			fmt.Printf("DEBUG: recentTime = %s\n", recentTime.Format(time.RFC3339))
 			fmt.Printf("DEBUG: oldTime = %s\n", oldTime.Format(time.RFC3339))
 			fmt.Printf("DEBUG: cutoffTime = %s\n", cutoffTime.Format(time.RFC3339))
-			fmt.Printf("DEBUG: fieldSelector = %s\n", fieldSelector)
 
 			params := api.ListDevicesParams{
-				FieldSelector: &fieldSelector,
-				Limit:         lo.ToPtr(int32(100)),
+				Limit: lo.ToPtr(int32(100)),
 			}
 
-			deviceList, status := suite.Handler.ListDevices(ctx, params, nil)
+			deviceList, status := suite.Handler.ListDisconnectedDevices(ctx, params, cutoffTime)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(deviceList).ToNot(BeNil())
 
 			// Debug: Print all found devices and their lastSeen values
-			fmt.Printf("DEBUG: Found %d devices with field selector '%s'\n", len(deviceList.Items), fieldSelector)
+			fmt.Printf("DEBUG: Found %d devices\n", len(deviceList.Items))
 			for i, device := range deviceList.Items {
 				if device.Metadata.Name != nil {
 					lastSeenStr := "nil"
@@ -1610,51 +1607,8 @@ var _ = Describe("Device LastSeen Integration Tests", func() {
 			}
 
 			fmt.Printf("DEBUG: foundDevice1=%t, foundDevice2=%t\n", foundDevice1, foundDevice2)
-			Expect(foundDevice1).To(BeTrue(), "Device with recent lastSeen should be found")
-			Expect(foundDevice2).To(BeFalse(), "Device with old lastSeen should not be found")
-
-			// Test field selector: get devices with lastSeen before 1 hour ago
-			fieldSelectorOld := fmt.Sprintf("lastSeen<%s", cutoffTime.Format(time.RFC3339))
-
-			// Debug: Print the old field selector
-			fmt.Printf("DEBUG: fieldSelectorOld = %s\n", fieldSelectorOld)
-
-			paramsOld := api.ListDevicesParams{
-				FieldSelector: &fieldSelectorOld,
-				Limit:         lo.ToPtr(int32(100)),
-			}
-
-			deviceListOld, status := suite.Handler.ListDevices(ctx, paramsOld, nil)
-			Expect(status.Code).To(Equal(int32(200)))
-			Expect(deviceListOld).ToNot(BeNil())
-
-			// Debug: Print all found devices in old filter
-			fmt.Printf("DEBUG: Found %d devices with field selector '%s'\n", len(deviceListOld.Items), fieldSelectorOld)
-			for i, device := range deviceListOld.Items {
-				if device.Metadata.Name != nil {
-					lastSeenStr := "nil"
-					if device.Status != nil && device.Status.LastSeen != nil {
-						lastSeenStr = device.Status.LastSeen.Format(time.RFC3339)
-					}
-					fmt.Printf("DEBUG: Old Device %d: name=%s, lastSeen=%s\n", i, *device.Metadata.Name, lastSeenStr)
-				}
-			}
-
-			// Should find device2 (old) but not device1 (recent)
-			foundDevice1Old := false
-			foundDevice2Old := false
-			for _, device := range deviceListOld.Items {
-				if device.Metadata.Name != nil && *device.Metadata.Name == device1Name {
-					foundDevice1Old = true
-				}
-				if device.Metadata.Name != nil && *device.Metadata.Name == device2Name {
-					foundDevice2Old = true
-				}
-			}
-
-			fmt.Printf("DEBUG: foundDevice1Old=%t, foundDevice2Old=%t\n", foundDevice1Old, foundDevice2Old)
-			Expect(foundDevice1Old).To(BeFalse(), "Device with recent lastSeen should not be found in old filter")
-			Expect(foundDevice2Old).To(BeTrue(), "Device with old lastSeen should be found in old filter")
+			Expect(foundDevice1).To(BeFalse(), "Device with recent lastSeen should not be found")
+			Expect(foundDevice2).To(BeTrue(), "Device with old lastSeen should be found")
 		})
 
 		It("should handle field selector with non-existent lastSeen values", func() {
@@ -1677,14 +1631,12 @@ var _ = Describe("Device LastSeen Integration Tests", func() {
 
 			// Test field selector: get devices with lastSeen after a specific time
 			cutoffTime := time.Now().Add(-1 * time.Hour)
-			fieldSelector := fmt.Sprintf("lastSeen>%s", cutoffTime.Format(time.RFC3339))
 
 			params := api.ListDevicesParams{
-				FieldSelector: &fieldSelector,
-				Limit:         lo.ToPtr(int32(100)),
+				Limit: lo.ToPtr(int32(100)),
 			}
 
-			deviceList, status := suite.Handler.ListDevices(suite.Ctx, params, nil)
+			deviceList, status := suite.Handler.ListDisconnectedDevices(suite.Ctx, params, cutoffTime)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(deviceList).ToNot(BeNil())
 

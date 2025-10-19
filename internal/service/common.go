@@ -22,6 +22,7 @@ import (
 
 const (
 	MaxRecordsPerListRequest = 1000
+	MaxConcurrentAgents      = 15
 )
 
 func IsInternalRequest(ctx context.Context) bool {

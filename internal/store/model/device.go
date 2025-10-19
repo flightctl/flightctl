@@ -34,14 +34,39 @@ type Device struct {
 	// Timestamp when the device was rendered
 	RenderTimestamp time.Time
 
-	// The last time the device was seen by the service
-	LastSeen *time.Time `gorm:"index" selector:"lastSeen"`
-
 	// The rendered application provided by the service.
 	RenderedApplications *JSONField[*[]api.ApplicationProviderSpec] `gorm:"type:jsonb"`
 
 	// Join table with the relationship of devices to repositories (only maintained for standalone devices)
 	Repositories []Repository `gorm:"many2many:device_repos;constraint:OnDelete:CASCADE;"`
+
+	DeviceTimestamp DeviceTimestamp `gorm:"foreignKey:OrgID,Name;references:OrgID,Name;constraint:OnDelete:CASCADE"`
+}
+
+type DeviceTimestamp struct {
+	OrgID uuid.UUID `gorm:"type:uuid;primaryKey;index:,composite:org_name,priority:1"`
+	// Uniquely identifies the resource within an organization and schema.
+	// Depending on the schema (kind), assigned by the device management system or the crypto identity of the device (public key). Immutable.
+	// This may become a URN later, so it's important API users treat this as an opaque handle.
+	Name string `gorm:"primaryKey;index:,composite:org_name,priority:2" selector:"metadata.name"`
+
+	// The last time the device was seen (reported status).  Since this is updated frequently,
+	// we store it in a separate table to avoid bloating the main device table.  In addition we don't index this field
+	// because the effort of maintaining the index outweighs the benefit of querying by last seen.
+	LastSeen *time.Time
+}
+
+type DeviceWithTimestamp struct {
+	Device
+	LastSeen *time.Time
+}
+
+type DeviceType interface {
+	Device | DeviceWithTimestamp
+}
+
+type DeviceTypePtr interface {
+	ToApiResource(opts ...APIResourceOption) (*api.Device, error)
 }
 
 type DeviceLabel struct {
@@ -105,10 +130,9 @@ func NewDeviceFromApiResource(resource *api.Device) (*Device, error) {
 			Owner:           resource.Metadata.Owner,
 			ResourceVersion: resourceVersion,
 		},
-		Alias:    alias,
-		Spec:     MakeJSONField(spec),
-		Status:   MakeJSONField(status),
-		LastSeen: status.LastSeen,
+		Alias:  alias,
+		Spec:   MakeJSONField(spec),
+		Status: MakeJSONField(status),
 	}, nil
 }
 
@@ -173,7 +197,6 @@ func (d *Device) ToApiResource(opts ...APIResourceOption) (*api.Device, error) {
 	status := api.NewDeviceStatus()
 	if d.Status != nil {
 		status = d.Status.Data
-		status.LastSeen = d.LastSeen
 	}
 
 	if !apiOpts.withoutServiceConditions {
@@ -206,13 +229,17 @@ func (d *Device) ToApiResource(opts ...APIResourceOption) (*api.Device, error) {
 	}, nil
 }
 
-func DevicesToApiResource(devices []Device, cont *string, numRemaining *int64) (api.DeviceList, error) {
+func DevicesToApiResource[D DeviceType](devices []D, cont *string, numRemaining *int64) (api.DeviceList, error) {
 	deviceList := make([]api.Device, len(devices))
 	applicationStatuses := make(map[string]int64)
 	summaryStatuses := make(map[string]int64)
 	updateStatuses := make(map[string]int64)
 	for i, device := range devices {
-		apiResource, _ := device.ToApiResource()
+		dptr, ok := any(&device).(DeviceTypePtr)
+		if !ok {
+			return api.DeviceList{}, fmt.Errorf("type assertion to DeviceTypePtr failed")
+		}
+		apiResource, _ := dptr.ToApiResource()
 		deviceList[i] = *apiResource
 		applicationStatus := string(deviceList[i].Status.ApplicationsSummary.Status)
 		applicationStatuses[applicationStatus] = applicationStatuses[applicationStatus] + 1
@@ -264,4 +291,18 @@ func (d *Device) HasSameSpecAs(otherResource any) bool {
 
 func (d *Device) GetStatusAsJson() ([]byte, error) {
 	return d.Status.MarshalJSON()
+}
+
+func (d *DeviceWithTimestamp) ToApiResource(opts ...APIResourceOption) (*api.Device, error) {
+	if d == nil {
+		return &api.Device{}, nil
+	}
+	baseDevice, err := d.Device.ToApiResource(opts...)
+	if err != nil {
+		return nil, err
+	}
+	if d.LastSeen != nil {
+		baseDevice.Status.LastSeen = lo.ToPtr(d.LastSeen.UTC())
+	}
+	return baseDevice, nil
 }
