@@ -1,6 +1,10 @@
 package middleware
 
 import (
+	"context"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/asn1"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -10,6 +14,8 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/crypto/signer"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/assert"
@@ -34,7 +40,7 @@ func TestServerRateLimitConfiguration(t *testing.T) {
 		router := chi.NewRouter()
 		// Add auth-specific rate limiting to auth endpoint
 		router.Group(func(r chi.Router) {
-			InstallRateLimiter(r, RateLimitOptions{
+			InstallIPRateLimiter(r, RateLimitOptions{
 				Requests:       cfg.Service.RateLimit.AuthRequests,
 				Window:         time.Duration(cfg.Service.RateLimit.AuthWindow),
 				Message:        "Login rate limit exceeded, please try again later",
@@ -48,7 +54,7 @@ func TestServerRateLimitConfiguration(t *testing.T) {
 
 		// Add general rate limiting to other endpoints
 		router.Group(func(r chi.Router) {
-			InstallRateLimiter(r, RateLimitOptions{
+			InstallIPRateLimiter(r, RateLimitOptions{
 				Requests:       cfg.Service.RateLimit.Requests,
 				Window:         time.Duration(cfg.Service.RateLimit.Window),
 				Message:        "Rate limit exceeded, please try again later",
@@ -204,7 +210,7 @@ func TestRateLimitMiddlewareNoConfig(t *testing.T) {
 	cfg := config.NewDefault()
 	cfg.Service.RateLimit = nil // No rate limit config
 	router := chi.NewRouter()
-	InstallRateLimiter(router, RateLimitOptions{
+	InstallIPRateLimiter(router, RateLimitOptions{
 		Requests:       100,
 		Window:         time.Minute,
 		Message:        "Rate limit exceeded, please try again later",
@@ -235,7 +241,7 @@ func TestRateLimitMiddlewareWithConfig(t *testing.T) {
 		Window:   util.Duration(5 * time.Minute),
 	}
 	router := chi.NewRouter()
-	InstallRateLimiter(router, RateLimitOptions{
+	InstallIPRateLimiter(router, RateLimitOptions{
 		Requests:       cfg.Service.RateLimit.Requests,
 		Window:         time.Duration(cfg.Service.RateLimit.Window),
 		Message:        "Rate limit exceeded, please try again later",
@@ -268,7 +274,7 @@ func TestLoginRateLimitMiddlewareWithConfig(t *testing.T) {
 		}
 
 		router := chi.NewRouter()
-		InstallRateLimiter(router, RateLimitOptions{
+		InstallIPRateLimiter(router, RateLimitOptions{
 			Requests:       cfg.Service.RateLimit.AuthRequests,
 			Window:         time.Duration(cfg.Service.RateLimit.AuthWindow),
 			Message:        "Login rate limit exceeded, please try again later",
@@ -306,7 +312,7 @@ func TestLoginRateLimitMiddlewareWithConfig(t *testing.T) {
 		}
 
 		router := chi.NewRouter()
-		InstallRateLimiter(router, RateLimitOptions{
+		InstallIPRateLimiter(router, RateLimitOptions{
 			Requests:       cfg.Service.RateLimit.Requests,
 			Window:         time.Duration(cfg.Service.RateLimit.Window),
 			Message:        "Login rate limit exceeded, please try again later",
@@ -345,7 +351,7 @@ func TestRateLimitWithXForwardedFor(t *testing.T) {
 	}
 
 	router := chi.NewRouter()
-	InstallRateLimiter(router, RateLimitOptions{
+	InstallIPRateLimiter(router, RateLimitOptions{
 		Requests:       cfg.Service.RateLimit.Requests,
 		Window:         time.Duration(cfg.Service.RateLimit.Window),
 		Message:        "Rate limit exceeded, please try again later",
@@ -448,7 +454,7 @@ func TestRateLimitWithTrustedProxies(t *testing.T) {
 	}
 
 	router := chi.NewRouter()
-	InstallRateLimiter(router, RateLimitOptions{
+	InstallIPRateLimiter(router, RateLimitOptions{
 		Requests:       cfg.Service.RateLimit.Requests,
 		Window:         time.Duration(cfg.Service.RateLimit.Window),
 		Message:        "Rate limit exceeded, please try again later",
@@ -513,7 +519,7 @@ func TestRateLimitWithTrustedProxies(t *testing.T) {
 		}
 
 		routerNoProxies := chi.NewRouter()
-		InstallRateLimiter(routerNoProxies, RateLimitOptions{
+		InstallIPRateLimiter(routerNoProxies, RateLimitOptions{
 			Requests:       cfgNoProxies.Service.RateLimit.Requests,
 			Window:         time.Duration(cfgNoProxies.Service.RateLimit.Window),
 			Message:        "Rate limit exceeded, please try again later",
@@ -553,7 +559,7 @@ func TestRateLimitWithTrustedProxies(t *testing.T) {
 		}
 
 		routerCIDR := chi.NewRouter()
-		InstallRateLimiter(routerCIDR, RateLimitOptions{
+		InstallIPRateLimiter(routerCIDR, RateLimitOptions{
 			Requests:       cfgCIDR.Service.RateLimit.Requests,
 			Window:         time.Duration(cfgCIDR.Service.RateLimit.Window),
 			Message:        "Rate limit exceeded, please try again later",
@@ -780,5 +786,692 @@ func TestTrustedRealIPSilentIgnore(t *testing.T) {
 		// Should return the original address (no change)
 		assert.Equal(t, http.StatusOK, w.Code)
 		assert.Equal(t, "invalid-address", w.Body.String())
+	})
+}
+
+// TestIPRateLimiter tests the IP-based rate limiter
+func TestIPRateLimiter(t *testing.T) {
+	t.Run("rate limits by IP address", func(t *testing.T) {
+		router := chi.NewRouter()
+		router.Use(IPRateLimiter(2, time.Second, "IP rate limit exceeded"))
+		router.Get("/test", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+
+		// First two requests should succeed
+		for i := 0; i < 2; i++ {
+			req := httptest.NewRequest("GET", "/test", nil)
+			req.RemoteAddr = "192.168.1.100:12345"
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+			assert.Equal(t, http.StatusOK, w.Code, "Request %d should succeed", i+1)
+		}
+
+		// Third request should be rate limited
+		req := httptest.NewRequest("GET", "/test", nil)
+		req.RemoteAddr = "192.168.1.100:12345"
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusTooManyRequests, w.Code)
+
+		// Check rate limit response
+		var status api.Status
+		err := json.NewDecoder(w.Body).Decode(&status)
+		require.NoError(t, err)
+		assert.Equal(t, "IP rate limit exceeded", status.Message)
+		assert.Equal(t, "TooManyRequests", status.Reason)
+		assert.NotEmpty(t, w.Header().Get("Retry-After"))
+	})
+
+	t.Run("different IPs have separate rate limits", func(t *testing.T) {
+		router := chi.NewRouter()
+		router.Use(IPRateLimiter(1, time.Second, "IP rate limit exceeded"))
+		router.Get("/test", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+
+		// First IP should succeed
+		req1 := httptest.NewRequest("GET", "/test", nil)
+		req1.RemoteAddr = "192.168.1.100:12345"
+		w1 := httptest.NewRecorder()
+		router.ServeHTTP(w1, req1)
+		assert.Equal(t, http.StatusOK, w1.Code)
+
+		// Second IP should also succeed (separate rate limit)
+		req2 := httptest.NewRequest("GET", "/test", nil)
+		req2.RemoteAddr = "192.168.1.200:12345"
+		w2 := httptest.NewRecorder()
+		router.ServeHTTP(w2, req2)
+		assert.Equal(t, http.StatusOK, w2.Code)
+	})
+}
+
+// TestUserIdentityRateLimiter tests the user identity-based rate limiter
+func TestUserIdentityRateLimiter(t *testing.T) {
+	t.Run("WithUsername", func(t *testing.T) {
+		// Create a mock identity with username
+		mockIdentity := &MockIdentity{
+			username: "testuser",
+			uid:      "12345",
+		}
+
+		// Create rate limiter
+		limiter := UserIdentityRateLimiter(2, time.Second, "Rate limit exceeded")
+		router := chi.NewRouter()
+
+		// Add middleware to set identity context before rate limiter
+		router.Use(func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				ctx := context.WithValue(r.Context(), consts.IdentityCtxKey, mockIdentity)
+				next.ServeHTTP(w, r.WithContext(ctx))
+			})
+		})
+
+		router.Use(limiter)
+		router.Get("/test", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+
+		// First request should succeed
+		req1 := httptest.NewRequest("GET", "/test", nil)
+		req1.RemoteAddr = "192.168.1.100:12345"
+		w1 := httptest.NewRecorder()
+		router.ServeHTTP(w1, req1)
+		assert.Equal(t, http.StatusOK, w1.Code)
+
+		// Second request should succeed
+		req2 := httptest.NewRequest("GET", "/test", nil)
+		req2.RemoteAddr = "192.168.1.100:12345"
+		w2 := httptest.NewRecorder()
+		router.ServeHTTP(w2, req2)
+		assert.Equal(t, http.StatusOK, w2.Code)
+
+		// Third request should be rate limited
+		req3 := httptest.NewRequest("GET", "/test", nil)
+		req3.RemoteAddr = "192.168.1.100:12345"
+		w3 := httptest.NewRecorder()
+		router.ServeHTTP(w3, req3)
+		assert.Equal(t, http.StatusTooManyRequests, w3.Code)
+
+		// Verify response body
+		var response map[string]interface{}
+		err := json.Unmarshal(w3.Body.Bytes(), &response)
+		require.NoError(t, err)
+		assert.Equal(t, float64(429), response["code"])
+		assert.Equal(t, "Rate limit exceeded", response["message"])
+		assert.Equal(t, "TooManyRequests", response["reason"])
+	})
+
+	t.Run("WithUIDOnly", func(t *testing.T) {
+		// Create a mock identity with only UID
+		mockIdentity := &MockIdentity{
+			username: "", // Empty username
+			uid:      "67890",
+		}
+
+		// Create rate limiter
+		limiter := UserIdentityRateLimiter(1, time.Second, "Rate limit exceeded")
+		router := chi.NewRouter()
+
+		// Add middleware to set identity context before rate limiter
+		router.Use(func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				ctx := context.WithValue(r.Context(), consts.IdentityCtxKey, mockIdentity)
+				next.ServeHTTP(w, r.WithContext(ctx))
+			})
+		})
+
+		router.Use(limiter)
+		router.Get("/test", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+
+		// First request should succeed
+		req1 := httptest.NewRequest("GET", "/test", nil)
+		req1.RemoteAddr = "192.168.1.100:12345"
+		w1 := httptest.NewRecorder()
+		router.ServeHTTP(w1, req1)
+		assert.Equal(t, http.StatusOK, w1.Code)
+
+		// Second request should be rate limited
+		req2 := httptest.NewRequest("GET", "/test", nil)
+		req2.RemoteAddr = "192.168.1.100:12345"
+		w2 := httptest.NewRecorder()
+		router.ServeHTTP(w2, req2)
+		assert.Equal(t, http.StatusTooManyRequests, w2.Code)
+	})
+
+	t.Run("FallbackToIP", func(t *testing.T) {
+		// Create rate limiter
+		limiter := UserIdentityRateLimiter(1, time.Second, "Rate limit exceeded")
+		router := chi.NewRouter()
+		router.Use(limiter)
+		router.Get("/test", func(w http.ResponseWriter, r *http.Request) {
+			// No identity in context - should fallback to IP
+			w.WriteHeader(http.StatusOK)
+		})
+
+		// First request should succeed
+		req1 := httptest.NewRequest("GET", "/test", nil)
+		req1.RemoteAddr = "192.168.1.100:12345"
+		w1 := httptest.NewRecorder()
+		router.ServeHTTP(w1, req1)
+		assert.Equal(t, http.StatusOK, w1.Code)
+
+		// Second request should be rate limited
+		req2 := httptest.NewRequest("GET", "/test", nil)
+		req2.RemoteAddr = "192.168.1.100:12345"
+		w2 := httptest.NewRecorder()
+		router.ServeHTTP(w2, req2)
+		assert.Equal(t, http.StatusTooManyRequests, w2.Code)
+	})
+
+	t.Run("DifferentUsers", func(t *testing.T) {
+		// Create a single rate limiter for all users
+		limiter := UserIdentityRateLimiter(1, time.Second, "Rate limit exceeded")
+		router := chi.NewRouter()
+
+		// Add middleware to set identity context before rate limiter
+		router.Use(func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				// Add different identities to context based on query parameter
+				ctx := r.Context()
+				if r.URL.Query().Get("user") == "user1" {
+					mockIdentity1 := &MockIdentity{username: "user1", uid: "111"}
+					ctx = context.WithValue(ctx, consts.IdentityCtxKey, mockIdentity1)
+				} else {
+					mockIdentity2 := &MockIdentity{username: "user2", uid: "222"}
+					ctx = context.WithValue(ctx, consts.IdentityCtxKey, mockIdentity2)
+				}
+				next.ServeHTTP(w, r.WithContext(ctx))
+			})
+		})
+
+		router.Use(limiter)
+		router.Get("/test", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+
+		// First user should succeed
+		req1 := httptest.NewRequest("GET", "/test?user=user1", nil)
+		req1.RemoteAddr = "192.168.1.100:12345"
+		w1 := httptest.NewRecorder()
+		router.ServeHTTP(w1, req1)
+		assert.Equal(t, http.StatusOK, w1.Code)
+
+		// Second user should also succeed (different identity)
+		req2 := httptest.NewRequest("GET", "/test?user=user2", nil)
+		req2.RemoteAddr = "192.168.1.100:12345"
+		w2 := httptest.NewRecorder()
+		router.ServeHTTP(w2, req2)
+		assert.Equal(t, http.StatusOK, w2.Code)
+	})
+}
+
+// TestDeviceIdentityRateLimiter tests the device identity-based rate limiter
+func TestDeviceIdentityRateLimiter(t *testing.T) {
+	t.Run("WithDeviceFingerprint", func(t *testing.T) {
+		// Create a mock certificate with device fingerprint
+		encoded123, err := asn1.Marshal("device-fingerprint-123")
+		require.NoError(t, err)
+
+		mockCert := &x509.Certificate{
+			Extensions: []pkix.Extension{
+				{
+					Id:    asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 99999, 1, 3}, // OIDDeviceFingerprint
+					Value: encoded123,
+				},
+			},
+		}
+
+		// Create rate limiter
+		limiter := DeviceIdentityRateLimiter(2, time.Second, "Rate limit exceeded")
+		router := chi.NewRouter()
+
+		// Add middleware to set certificate context before rate limiter
+		router.Use(func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				ctx := context.WithValue(r.Context(), consts.TLSPeerCertificateCtxKey, mockCert)
+				next.ServeHTTP(w, r.WithContext(ctx))
+			})
+		})
+
+		router.Use(limiter)
+		router.Get("/test", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+
+		// First request should succeed
+		req1 := httptest.NewRequest("GET", "/test", nil)
+		req1.RemoteAddr = "192.168.1.100:12345"
+		w1 := httptest.NewRecorder()
+		router.ServeHTTP(w1, req1)
+		assert.Equal(t, http.StatusOK, w1.Code)
+
+		// Second request should succeed
+		req2 := httptest.NewRequest("GET", "/test", nil)
+		req2.RemoteAddr = "192.168.1.100:12345"
+		w2 := httptest.NewRecorder()
+		router.ServeHTTP(w2, req2)
+		assert.Equal(t, http.StatusOK, w2.Code)
+
+		// Third request should be rate limited
+		req3 := httptest.NewRequest("GET", "/test", nil)
+		req3.RemoteAddr = "192.168.1.100:12345"
+		w3 := httptest.NewRecorder()
+		router.ServeHTTP(w3, req3)
+		assert.Equal(t, http.StatusTooManyRequests, w3.Code)
+
+		// Verify response body
+		var response map[string]interface{}
+		err = json.Unmarshal(w3.Body.Bytes(), &response)
+		require.NoError(t, err)
+		assert.Equal(t, float64(429), response["code"])
+		assert.Equal(t, "Rate limit exceeded", response["message"])
+		assert.Equal(t, "TooManyRequests", response["reason"])
+	})
+
+	t.Run("FallbackToIP", func(t *testing.T) {
+		// Create rate limiter
+		limiter := DeviceIdentityRateLimiter(1, time.Second, "Rate limit exceeded")
+		router := chi.NewRouter()
+		router.Use(limiter)
+		router.Get("/test", func(w http.ResponseWriter, r *http.Request) {
+			// No certificate in context - should fallback to IP
+			w.WriteHeader(http.StatusOK)
+		})
+
+		// First request should succeed
+		req1 := httptest.NewRequest("GET", "/test", nil)
+		req1.RemoteAddr = "192.168.1.100:12345"
+		w1 := httptest.NewRecorder()
+		router.ServeHTTP(w1, req1)
+		assert.Equal(t, http.StatusOK, w1.Code)
+
+		// Second request should be rate limited
+		req2 := httptest.NewRequest("GET", "/test", nil)
+		req2.RemoteAddr = "192.168.1.100:12345"
+		w2 := httptest.NewRecorder()
+		router.ServeHTTP(w2, req2)
+		assert.Equal(t, http.StatusTooManyRequests, w2.Code)
+	})
+
+	t.Run("DifferentDevices", func(t *testing.T) {
+		// Create a single rate limiter for all devices
+		limiter := DeviceIdentityRateLimiter(1, time.Second, "Rate limit exceeded")
+		router := chi.NewRouter()
+
+		// Add middleware to set certificate context before rate limiter
+		router.Use(func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				// Add different certificates to context based on query parameter
+				ctx := r.Context()
+				if r.URL.Query().Get("device") == "device1" {
+					encoded1, _ := asn1.Marshal("device-fingerprint-111")
+					mockCert1 := &x509.Certificate{
+						Extensions: []pkix.Extension{
+							{
+								Id:    asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 99999, 1, 3}, // OIDDeviceFingerprint
+								Value: encoded1,
+							},
+						},
+					}
+					ctx = context.WithValue(ctx, consts.TLSPeerCertificateCtxKey, mockCert1)
+				} else {
+					encoded2, _ := asn1.Marshal("device-fingerprint-222")
+					mockCert2 := &x509.Certificate{
+						Extensions: []pkix.Extension{
+							{
+								Id:    asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 99999, 1, 3}, // OIDDeviceFingerprint
+								Value: encoded2,
+							},
+						},
+					}
+					ctx = context.WithValue(ctx, consts.TLSPeerCertificateCtxKey, mockCert2)
+				}
+				next.ServeHTTP(w, r.WithContext(ctx))
+			})
+		})
+
+		router.Use(limiter)
+		router.Get("/test", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+
+		// First device should succeed
+		req1 := httptest.NewRequest("GET", "/test?device=device1", nil)
+		req1.RemoteAddr = "192.168.1.100:12345"
+		w1 := httptest.NewRecorder()
+		router.ServeHTTP(w1, req1)
+		assert.Equal(t, http.StatusOK, w1.Code)
+
+		// Second device should also succeed (different fingerprint)
+		req2 := httptest.NewRequest("GET", "/test?device=device2", nil)
+		req2.RemoteAddr = "192.168.1.100:12345"
+		w2 := httptest.NewRecorder()
+		router.ServeHTTP(w2, req2)
+		assert.Equal(t, http.StatusOK, w2.Code)
+	})
+}
+
+// TestDeviceFingerprintExtraction tests that device fingerprint extraction works correctly
+func TestDeviceFingerprintExtraction(t *testing.T) {
+	// Test that our mock certificate can be processed by the signer package
+	encoded, err := asn1.Marshal("device-fingerprint-123")
+	require.NoError(t, err)
+
+	mockCert := &x509.Certificate{
+		Extensions: []pkix.Extension{
+			{
+				Id:    asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 99999, 1, 3}, // OIDDeviceFingerprint
+				Value: encoded,
+			},
+		},
+	}
+
+	// Test that the signer package can extract the fingerprint
+	fingerprint, err := signer.GetDeviceFingerprintExtension(mockCert)
+	require.NoError(t, err)
+	assert.Equal(t, "device-fingerprint-123", fingerprint)
+}
+
+// TestTrustedRealIPLiteralIPs tests that TrustedRealIP supports literal IPs in addition to CIDRs
+func TestTrustedRealIPLiteralIPs(t *testing.T) {
+	t.Run("IPv4Literal", func(t *testing.T) {
+		// Test with literal IPv4 address
+		router := chi.NewRouter()
+		router.Use(TrustedRealIP([]string{"192.168.1.100"}))
+		router.Get("/test", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+
+		// Request from the trusted literal IP should use X-Real-IP
+		req := httptest.NewRequest("GET", "/test", nil)
+		req.RemoteAddr = "192.168.1.100:12345"
+		req.Header.Set("X-Real-IP", "10.0.0.1")
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code)
+		// The X-Real-IP should be used (we can't easily test this without modifying the handler)
+	})
+
+	t.Run("IPv6Literal", func(t *testing.T) {
+		// Test with literal IPv6 address
+		router := chi.NewRouter()
+		router.Use(TrustedRealIP([]string{"2001:db8::1"}))
+		router.Get("/test", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+
+		// Request from the trusted literal IPv6 should use X-Real-IP
+		req := httptest.NewRequest("GET", "/test", nil)
+		req.RemoteAddr = "[2001:db8::1]:12345"
+		req.Header.Set("X-Real-IP", "10.0.0.1")
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code)
+	})
+
+	t.Run("MixedCIDRsAndLiterals", func(t *testing.T) {
+		// Test with mixed CIDR and literal IPs
+		router := chi.NewRouter()
+		router.Use(TrustedRealIP([]string{"192.168.1.0/24", "10.0.0.1", "2001:db8::/32", "::1"}))
+		router.Get("/test", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+
+		// Test CIDR match
+		req1 := httptest.NewRequest("GET", "/test", nil)
+		req1.RemoteAddr = "192.168.1.50:12345"
+		req1.Header.Set("X-Real-IP", "10.0.0.1")
+		w1 := httptest.NewRecorder()
+		router.ServeHTTP(w1, req1)
+		assert.Equal(t, http.StatusOK, w1.Code)
+
+		// Test literal IPv4 match
+		req2 := httptest.NewRequest("GET", "/test", nil)
+		req2.RemoteAddr = "10.0.0.1:12345"
+		req2.Header.Set("X-Real-IP", "10.0.0.2")
+		w2 := httptest.NewRecorder()
+		router.ServeHTTP(w2, req2)
+		assert.Equal(t, http.StatusOK, w2.Code)
+
+		// Test literal IPv6 match
+		req3 := httptest.NewRequest("GET", "/test", nil)
+		req3.RemoteAddr = "[::1]:12345"
+		req3.Header.Set("X-Real-IP", "10.0.0.3")
+		w3 := httptest.NewRecorder()
+		router.ServeHTTP(w3, req3)
+		assert.Equal(t, http.StatusOK, w3.Code)
+	})
+
+	t.Run("EmptyAndWhitespaceEntries", func(t *testing.T) {
+		// Test with empty and whitespace entries
+		router := chi.NewRouter()
+		router.Use(TrustedRealIP([]string{"", "  ", "192.168.1.100", "\t", "10.0.0.1"}))
+		router.Get("/test", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+
+		// Should work with valid entries despite empty ones
+		req := httptest.NewRequest("GET", "/test", nil)
+		req.RemoteAddr = "192.168.1.100:12345"
+		req.Header.Set("X-Real-IP", "10.0.0.1")
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code)
+	})
+
+	t.Run("InvalidEntries", func(t *testing.T) {
+		// Test with invalid entries (should be ignored)
+		router := chi.NewRouter()
+		router.Use(TrustedRealIP([]string{"invalid-ip", "192.168.1.100", "not-a-cidr", "10.0.0.1"}))
+		router.Get("/test", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+
+		// Should work with valid entries despite invalid ones
+		req := httptest.NewRequest("GET", "/test", nil)
+		req.RemoteAddr = "192.168.1.100:12345"
+		req.Header.Set("X-Real-IP", "10.0.0.1")
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code)
+	})
+}
+
+// TestAuthFailureRateLimiter removed; IP-based limiter covers pre-auth behavior where applicable
+
+// MockIdentity implements the common.Identity interface for testing
+type MockIdentity struct {
+	username string
+	uid      string
+}
+
+func (m *MockIdentity) GetUsername() string {
+	return m.username
+}
+
+func (m *MockIdentity) GetUID() string {
+	return m.uid
+}
+
+func (m *MockIdentity) GetGroups() []string {
+	return []string{}
+}
+
+func (m *MockIdentity) GetExtra() map[string][]string {
+	return map[string][]string{}
+}
+
+func TestTrustedRealIPInvalidHeaderIPs(t *testing.T) {
+	t.Run("InvalidHeaderIPs", func(t *testing.T) {
+		// Test that invalid IPs in headers are rejected
+		router := chi.NewRouter()
+		router.Use(TrustedRealIP([]string{"10.0.0.0/8"}))
+		router.Get("/test", func(w http.ResponseWriter, r *http.Request) {
+			// Store the RemoteAddr for verification
+			w.Header().Set("X-Remote-Addr", r.RemoteAddr)
+			w.WriteHeader(http.StatusOK)
+		})
+
+		// Test with invalid IPs in various headers
+		testCases := []struct {
+			name          string
+			trueClientIP  string
+			xRealIP       string
+			xForwardedFor string
+			expectedIP    string // Expected RemoteAddr (should be original if invalid)
+		}{
+			{
+				name:         "InvalidTrueClientIP",
+				trueClientIP: "not-an-ip",
+				expectedIP:   "10.0.0.1:12345", // Should keep original
+			},
+			{
+				name:       "InvalidXRealIP",
+				xRealIP:    "malformed-ip",
+				expectedIP: "10.0.0.1:12345", // Should keep original
+			},
+			{
+				name:          "InvalidXForwardedFor",
+				xForwardedFor: "bad-ip,10.0.0.2",
+				expectedIP:    "10.0.0.1:12345", // Should keep original
+			},
+			{
+				name:       "EmptyHeaders",
+				expectedIP: "10.0.0.1:12345", // Should keep original
+			},
+			{
+				name:          "WhitespaceOnlyHeaders",
+				trueClientIP:  "   ",
+				xRealIP:       "\t",
+				xForwardedFor: " ",
+				expectedIP:    "10.0.0.1:12345", // Should keep original
+			},
+			{
+				name:         "ValidTrueClientIP",
+				trueClientIP: "203.0.113.1",
+				expectedIP:   "203.0.113.1", // Should use header value
+			},
+			{
+				name:       "ValidXRealIP",
+				xRealIP:    "203.0.113.2",
+				expectedIP: "203.0.113.2", // Should use header value
+			},
+			{
+				name:          "ValidXForwardedFor",
+				xForwardedFor: "203.0.113.3,10.0.0.2",
+				expectedIP:    "203.0.113.3", // Should use first valid IP
+			},
+			{
+				name:         "ValidIPv6",
+				trueClientIP: "2001:db8::1",
+				expectedIP:   "2001:db8::1", // Should use IPv6
+			},
+			{
+				name:         "InvalidThenValid",
+				trueClientIP: "not-an-ip",
+				xRealIP:      "203.0.113.4",
+				expectedIP:   "203.0.113.4", // Should fall back to valid X-Real-IP
+			},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				req := httptest.NewRequest("GET", "/test", nil)
+				req.RemoteAddr = "10.0.0.1:12345" // Trusted proxy IP
+
+				if tc.trueClientIP != "" {
+					req.Header.Set("True-Client-IP", tc.trueClientIP)
+				}
+				if tc.xRealIP != "" {
+					req.Header.Set("X-Real-IP", tc.xRealIP)
+				}
+				if tc.xForwardedFor != "" {
+					req.Header.Set("X-Forwarded-For", tc.xForwardedFor)
+				}
+
+				w := httptest.NewRecorder()
+				router.ServeHTTP(w, req)
+
+				assert.Equal(t, http.StatusOK, w.Code)
+				assert.Equal(t, tc.expectedIP, w.Header().Get("X-Remote-Addr"))
+			})
+		}
+	})
+
+	t.Run("HeaderPriorityWithValidation", func(t *testing.T) {
+		// Test that header priority is maintained even with validation
+		router := chi.NewRouter()
+		router.Use(TrustedRealIP([]string{"10.0.0.0/8"}))
+		router.Get("/test", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("X-Remote-Addr", r.RemoteAddr)
+			w.WriteHeader(http.StatusOK)
+		})
+
+		// True-Client-IP should take priority even if other headers have valid IPs
+		req := httptest.NewRequest("GET", "/test", nil)
+		req.RemoteAddr = "10.0.0.1:12345"
+		req.Header.Set("True-Client-IP", "203.0.113.1")  // Valid, should be used
+		req.Header.Set("X-Real-IP", "203.0.113.2")       // Valid but lower priority
+		req.Header.Set("X-Forwarded-For", "203.0.113.3") // Valid but lowest priority
+
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, "203.0.113.1", w.Header().Get("X-Remote-Addr"))
+	})
+
+	t.Run("XForwardedForMultipleIPs", func(t *testing.T) {
+		// Test X-Forwarded-For with multiple IPs (should use first valid one)
+		router := chi.NewRouter()
+		router.Use(TrustedRealIP([]string{"10.0.0.0/8"}))
+		router.Get("/test", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("X-Remote-Addr", r.RemoteAddr)
+			w.WriteHeader(http.StatusOK)
+		})
+
+		testCases := []struct {
+			name          string
+			xForwardedFor string
+			expectedIP    string
+		}{
+			{
+				name:          "FirstValid",
+				xForwardedFor: "203.0.113.1, 10.0.0.2, 203.0.113.3",
+				expectedIP:    "203.0.113.1",
+			},
+			{
+				name:          "FirstInvalid",
+				xForwardedFor: "invalid-ip, 203.0.113.2, 203.0.113.3",
+				expectedIP:    "10.0.0.1:12345", // Should keep original since first IP is invalid
+			},
+			{
+				name:          "AllInvalid",
+				xForwardedFor: "bad-ip, not-an-ip, malformed",
+				expectedIP:    "10.0.0.1:12345", // Should keep original
+			},
+			{
+				name:          "EmptyAfterComma",
+				xForwardedFor: "203.0.113.1, , 203.0.113.3",
+				expectedIP:    "203.0.113.1",
+			},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				req := httptest.NewRequest("GET", "/test", nil)
+				req.RemoteAddr = "10.0.0.1:12345"
+				req.Header.Set("X-Forwarded-For", tc.xForwardedFor)
+
+				w := httptest.NewRecorder()
+				router.ServeHTTP(w, req)
+
+				assert.Equal(t, http.StatusOK, w.Code)
+				assert.Equal(t, tc.expectedIP, w.Header().Get("X-Remote-Addr"))
+			})
+		}
 	})
 }

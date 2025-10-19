@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -38,9 +39,6 @@ type RateLimitConfig struct {
 	Window       util.Duration `json:"window,omitempty"`       // e.g. "1m" for one minute
 	AuthRequests int           `json:"authRequests,omitempty"` // max auth requests per window
 	AuthWindow   util.Duration `json:"authWindow,omitempty"`   // e.g. "1h" for one hour
-	// TrustedProxies specifies IP addresses/networks that are allowed to set proxy headers
-	// If empty, proxy headers are ignored for security (only direct connection IPs are used)
-	TrustedProxies []string `json:"trustedProxies,omitempty"`
 }
 
 type dbConfig struct {
@@ -61,8 +59,11 @@ type dbConfig struct {
 }
 
 type svcConfig struct {
-	Address                string           `json:"address,omitempty"`
-	AgentEndpointAddress   string           `json:"agentEndpointAddress,omitempty"`
+	Address              string `json:"address,omitempty"`
+	AgentEndpointAddress string `json:"agentEndpointAddress,omitempty"`
+	// TrustedProxies specifies IP addresses/networks that are allowed to set proxy headers
+	// If empty, proxy headers are ignored for security (only direct connection IPs are used)
+	TrustedProxies         []string         `json:"trustedProxies,omitempty"`
 	CertStore              string           `json:"cert,omitempty"`
 	BaseUrl                string           `json:"baseUrl,omitempty"`
 	BaseAgentEndpointUrl   string           `json:"baseAgentEndpointUrl,omitempty"`
@@ -479,6 +480,38 @@ func Validate(cfg *Config) error {
 			return fmt.Errorf("readinessPath and livenessPath must not be identical")
 		}
 	}
+
+	// Validate TrustedProxies entries
+	if cfg.Service != nil && len(cfg.Service.TrustedProxies) > 0 {
+		var invalidEntries []string
+		for _, entry := range cfg.Service.TrustedProxies {
+			trimmed := strings.TrimSpace(entry)
+			if trimmed == "" {
+				continue // Skip empty entries
+			}
+
+			// Try to parse as CIDR first
+			if _, _, err := net.ParseCIDR(trimmed); err == nil {
+				continue // Valid CIDR
+			}
+
+			// Try to parse as IP address
+			if net.ParseIP(trimmed) != nil {
+				continue // Valid IP
+			}
+
+			// Both parsing attempts failed
+			invalidEntries = append(invalidEntries, trimmed)
+		}
+
+		if len(invalidEntries) > 0 {
+			if len(invalidEntries) == 1 {
+				return fmt.Errorf("invalid TrustedProxies entry: %s (must be a valid CIDR block or IP address)", invalidEntries[0])
+			}
+			return fmt.Errorf("invalid TrustedProxies entries: %s (must be valid CIDR blocks or IP addresses)", strings.Join(invalidEntries, ", "))
+		}
+	}
+
 	return nil
 }
 

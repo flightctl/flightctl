@@ -4,7 +4,10 @@ Flight Control implements rate limiting to protect the API from abuse and ensure
 
 ## Overview
 
-Rate limiting in Flight Control is **IP-based**, meaning requests are limited per client IP address. This helps prevent abuse while allowing legitimate users to access the API normally.
+Rate limiting in Flight Control is a combination of strategies applied at different endpoints:
+
+- IP-based limits for endpoints before authentication (when feasible)
+- Identity-based limits (by username/UID or device fingerprint) for authenticated endpoints
 
 ## How It Works
 
@@ -19,10 +22,45 @@ Flight Control automatically detects the real client IP address using the follow
 
 ### Rate Limit Types
 
-Flight Control applies different rate limits for different types of requests:
+Flight Control applies different rate limits per endpoint class:
 
-- **General API requests**: Higher limits for normal API operations
-- **Authentication requests**: Stricter limits for login/validation endpoints
+- **General API requests (authenticated users)**: Identity-based limiting using user identity (username or UID)
+- **Agent API (mTLS devices)**: Identity-based limiting using device fingerprint from the client certificate
+- **Authentication endpoints (before authentication)**: IP-based limiting when the real client IP is available. If a proxy hides the real IP, in-app IP-based limiting may be ineffective (see the OpenShift section below).
+- **Public/read-only endpoints**: Typically no limits or a very generous cap; consider per-connection token bucket if needed
+
+See Endpoint-specific Strategies below for details.
+
+## Endpoint-specific Strategies
+
+The following guidance describes how Flight Control applies rate limiting per endpoint type and what to configure in different environments.
+
+### 1) Authenticated API (users)
+
+- Key: `user:<username>` if available, otherwise `uid:<uid>`
+- Rationale: Multiple users behind one proxy should not share a bucket
+- Behavior: Applied after authentication succeeds
+
+Example behavior:
+
+- Different authenticated users from the same IP each get independent limits
+- If username is empty, UID is used as a stable identity
+
+### 2) Agent API (devices)
+
+- Key: `device:<fingerprint>` where fingerprint is extracted from the device certificate extension
+- Rationale: Distinct devices behind NAT/routers should not interfere with each other
+- Behavior: Applied after successful client-certificate auth
+
+### 3) Authentication endpoints (before authentication)
+
+- Purpose: Protect login/validation endpoints from brute force
+- Preferred: IP-based limits when the real client IP is available (e.g., via trusted proxy headers)
+
+Notes:
+
+- If your deployment topology hides the real client IP (for example, certain TLS passthrough setups), in-app IP-based auth limiting may be ineffective
+- In those cases, prefer enforcing rate limiting at the router/load balancer; see the OpenShift section below for guidance
 
 ## Configuration
 
@@ -59,10 +97,7 @@ Edit `deploy/podman/service-config.yaml`:
 ```yaml
 service:
   rateLimit:
-    # Enable or disable rate limiting
-    enabled: true
-
-    # General API rate limiting
+    # General API rate limiting (applies to authenticated API requests)
     requests: 300       # Maximum requests per window
     window: "1m"        # Time window (e.g., "1m", "1h", "1d")
 
@@ -80,7 +115,13 @@ service:
 
 ### Default Values
 
-If no rate limiting configuration is provided at all, rate limiting is **disabled by default**. However, both Quadlet and Helm deployments include rate limiting configuration with `enabled: true` by default, so rate limiting is **enabled by default** in standard deployments.
+The default rate limiting behavior depends on your deployment method:
+
+- **Helm deployments**: Rate limiting is **enabled by default** with the following values:
+  - General API: 300 requests per minute
+  - Authentication: 20 requests per hour
+- **Quadlet deployments**: Rate limiting is **enabled by default** with the same values as Helm
+- **Manual configuration**: If not configured, rate limiting is **disabled by default**. To enable it, you must explicitly set the configuration values.
 
 **Important**: When using reverse proxies (load balancers, API gateways, etc.), you **must** configure `trustedProxies` to include the IP ranges of your proxy infrastructure. Without this configuration, proxy headers will be ignored for security reasons, and all requests will be rate-limited based on the proxy's IP address rather than the real client IP.
 
@@ -110,7 +151,7 @@ service:
 
 ## Reverse Proxy Configuration
 
-When using a reverse proxy (nginx, HAProxy, load balancer, etc.), you have two options for proper rate limiting:
+When using a reverse proxy (nginx, HAProxy, load balancer, etc.), you have two options for proper rate limiting in front of Flight Control:
 
 ### Option 1: Configure Proxy to Use Real Client IPs
 
@@ -153,6 +194,36 @@ service:
 ```
 
 **Important**: Without configuring `trustedProxies`, proxy headers will be silently ignored, and rate limiting will be based on the proxy's IP address rather than the real client IP.
+
+## OpenShift Deployments (TLS Passthrough)
+
+When using OpenShift Routes with `termination: passthrough`, TLS terminates at the Flight Control pod. The OpenShift router cannot inject HTTP headers (traffic is encrypted), and it does not forward PROXY protocol to pods. Therefore, the application cannot learn the real client IP from the router.
+
+Implications:
+
+- In app IP-based rate limiting on endpoints before authentication (e.g., `/api/v1/auth/validate`) is ineffective because all requests appear to originate from the router
+- Identity-based rate limiting for authenticated endpoints continues to work normally (username/UID or device fingerprint)
+
+Note: Identity-based rate limiting for authenticated endpoints (users and devices) does not rely on client IP addresses and works correctly in all deployment scenarios, including OpenShift passthrough. This provides fine-grained, per-user/per-device protection. Only the endpoints before authentication are affected by the IP detection limitation.
+
+Recommended approach for OpenShift:
+
+1) Keep identity-based rate limiting in-app for authenticated endpoints (already effective)
+2) Disable/avoid in-app IP-based rate limiting for the auth endpoint when using passthrough Routes
+3) Enforce auth endpoint rate limiting at the router (TCP-level):
+   - Configure the external load balancer to send PROXY protocol to the OpenShift routers
+   - Configure the `IngressController` to accept PROXY protocol (e.g., `spec.endpointPublishingStrategy.nodePort.protocol: PROXY`)
+   - Use HAProxy router rate-limiting annotations on the Route (if supported in your OpenShift version), for example:
+
+```yaml
+metadata:
+  annotations:
+    haproxy.router.openshift.io/rate-limit-connections: "true"
+    haproxy.router.openshift.io/rate-limit-connections.rate-tcp: "10"           # per-client-IP connections per 3s
+    haproxy.router.openshift.io/rate-limit-connections.concurrent-tcp: "5"      # per-client-IP concurrent connections
+```
+
+Note: TCP-level rate limiting (`rate-tcp` and `concurrent-tcp`) is coarser than application-level rate limiting but is the only option for passthrough routes. It limits connections per client IP rather than HTTP requests, so it may be less precise for rate limiting authentication attempts.
 
 ## Rate Limit Headers
 
@@ -433,8 +504,8 @@ service:
 ```yaml
 service:
   rateLimit:
-    requests: 200     # Higher limits for high traffic
+    requests: 600     # Higher limits for high traffic (10 requests/second)
     window: "1m"
-    authRequests: 20
+    authRequests: 50   # Higher auth limits for high traffic
     authWindow: "1h"
 ```

@@ -122,6 +122,54 @@ func ensureOrgIDFilter(r *http.Request) (uuid.UUID, error) {
 	return orgID, nil
 }
 
+// createAuthNMiddleware creates middleware that extracts token and identity, setting them in context.
+// This must run before rate limiting middleware so UserIdentityRateLimiter can access identity.
+func (p *AlertmanagerProxy) createAuthNMiddleware() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Health check endpoint - skip auth
+			if r.URL.Path == healthPath {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			// If auth is disabled, skip identity extraction
+			if p.authDisabled {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			// Extract bearer token from Authorization header
+			token, err := common.ExtractBearerToken(r)
+			if err != nil {
+				p.log.WithError(err).Error("Failed to extract bearer token")
+				http.Error(w, "Invalid Authorization header", http.StatusUnauthorized)
+				return
+			}
+
+			// Validate token using FlightControl's auth system
+			if err := p.authN.ValidateToken(r.Context(), token); err != nil {
+				p.log.WithError(err).Error("Token validation failed")
+				http.Error(w, "Invalid token", http.StatusUnauthorized)
+				return
+			}
+
+			// Extract identity and set in context for rate limiting
+			ctx := context.WithValue(r.Context(), consts.TokenCtxKey, token)
+			identity, err := p.authN.GetIdentity(ctx, token)
+			if err != nil {
+				p.log.WithError(err).Error("Failed to get identity")
+				http.Error(w, "Invalid identity", http.StatusUnauthorized)
+				return
+			}
+			ctx = context.WithValue(ctx, consts.IdentityCtxKey, identity)
+
+			// Update request with context containing identity
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
 func (p *AlertmanagerProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Health check endpoint - doesn't require auth and doesn't depend on Alertmanager
 	if r.URL.Path == healthPath {
@@ -135,20 +183,9 @@ func (p *AlertmanagerProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Extract bearer token from Authorization header using FlightControl's utility
-	token, err := common.ExtractBearerToken(r)
-	if err != nil {
-		p.log.WithError(err).Error("Failed to extract bearer token")
-		http.Error(w, "Invalid Authorization header", http.StatusUnauthorized)
-		return
-	}
-
-	// Validate token using FlightControl's auth system
-	if err := p.authN.ValidateToken(r.Context(), token); err != nil {
-		p.log.WithError(err).Error("Token validation failed")
-		http.Error(w, "Invalid token", http.StatusUnauthorized)
-		return
-	}
+	// Token and identity should already be in context from auth middleware
+	// (verified and set by createAuthNMiddleware)
+	ctx := r.Context()
 
 	// Status endpoint is not scoped to a specific org or user context, if the user has a valid token they can access it
 	if r.URL.Path == statusPath {
@@ -163,16 +200,9 @@ func (p *AlertmanagerProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create context with necessary values for authorization checks
-	ctx := context.WithValue(r.Context(), consts.TokenCtxKey, token)
-	identity, err := p.authN.GetIdentity(ctx, token)
-	if err != nil {
-		p.log.WithError(err).Error("Failed to get identity")
-		http.Error(w, "Invalid identity", http.StatusUnauthorized)
-		return
-	}
-	ctx = context.WithValue(ctx, consts.IdentityCtxKey, identity)
+	// Add org ID to context for authorization checks
 	ctx = util.WithOrganizationID(ctx, orgID)
+	r = r.WithContext(ctx)
 
 	// Check if user has permission to access alerts
 	allowed, err := p.authZ.CheckPermission(ctx, alertsResource, getAction)
@@ -337,10 +367,13 @@ func main() {
 		})
 	})
 
-	// Add rate limiting (only if configured)
+	// Add authentication middleware to extract token and identity
+	// This must run BEFORE rate limiting so UserIdentityRateLimiter can access identity
+	router.Use(proxy.createAuthNMiddleware())
+
+	// Add user identity rate limiting (only if configured)
 	// Alertmanager doesn't have built-in rate limiting, so we add it here to prevent abuse
 	if cfg.Service.RateLimit != nil {
-		trustedProxies := cfg.Service.RateLimit.TrustedProxies
 		requests := 60        // Default requests limit
 		window := time.Minute // Default window
 		if cfg.Service.RateLimit.Requests > 0 {
@@ -349,12 +382,12 @@ func main() {
 		if cfg.Service.RateLimit.Window > 0 {
 			window = time.Duration(cfg.Service.RateLimit.Window)
 		}
-		middleware.InstallRateLimiter(router, middleware.RateLimitOptions{
-			Requests:       requests,
-			Window:         window,
-			Message:        "Alertmanager proxy rate limit exceeded, please try again later",
-			TrustedProxies: trustedProxies,
-		})
+		// Use user identity rate limiter instead of IP-based
+		router.Use(middleware.UserIdentityRateLimiter(
+			requests,
+			window,
+			"Alertmanager proxy rate limit exceeded, please try again later",
+		))
 	}
 
 	router.Mount("/", proxy)
