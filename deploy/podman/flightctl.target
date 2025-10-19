@@ -6,10 +6,8 @@ Description=Flight Control Services Group
 #
 # Note: The exact startup order among the services is controlled by
 # additional directives defined within the .container files
-Wants=flightctl-db-selector.service
 Wants=flightctl-network.service
 Wants=flightctl-db.service
-Wants=flightctl-db-migrate-init.service
 Wants=flightctl-db-migrate.service
 Wants=flightctl-db-wait.service
 Wants=flightctl-kv.service
@@ -27,10 +25,8 @@ Wants=flightctl-cli-artifacts-init.service
 Wants=flightctl-cli-artifacts.service
 
 After=network.target
-After=flightctl-db-selector.service
 After=flightctl-network.service
 After=flightctl-db.service
-After=flightctl-db-migrate-init.service
 After=flightctl-db-migrate.service
 After=flightctl-db-wait.service
 After=flightctl-kv.service

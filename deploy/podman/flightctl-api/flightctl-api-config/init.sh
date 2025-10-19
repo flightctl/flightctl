@@ -35,11 +35,45 @@ if [ "$DB_EXTERNAL" == "enabled" ]; then
   DB_PORT=$(sed -n '/^db:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n 's/^[[:space:]]*port:[[:space:]]*\([^[:space:]]*\).*/\1/p' | head -1)
   DB_NAME=$(sed -n '/^db:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n 's/^[[:space:]]*name:[[:space:]]*[\"'"'"']*\([^\"'"'"'[:space:]]*\)[\"'"'"']*.*/\1/p' | head -1)
   DB_USER=$(sed -n '/^db:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n 's/^[[:space:]]*user:[[:space:]]*[\"'"'"']*\([^\"'"'"'[:space:]]*\)[\"'"'"']*.*/\1/p' | head -1)
-  DB_USER_PASSWORD=$(sed -n '/^db:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n 's/^[[:space:]]*userPassword:[[:space:]]*[\"'"'"']*\([^\"'"'"'[:space:]]*\)[\"'"'"']*.*/\1/p' | head -1)
-  DB_MIGRATION_PASSWORD=$(sed -n '/^db:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n 's/^[[:space:]]*migrationPassword:[[:space:]]*[\"'"'"']*\([^\"'"'"'[:space:]]*\)[\"'"'"']*.*/\1/p' | head -1)
 
-  # For external database: read password directly from YAML, don't use Podman secrets
-  DB_PASSWORD_ENV="DB_PASSWORD=$DB_USER_PASSWORD"
+  # Extract SSL configuration for external database
+  DB_SSL_MODE=$(sed -n '/^db:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n 's/^[[:space:]]*sslmode:[[:space:]]*[\"'"'"']*\([^\"'"'"'[:space:]]*\)[\"'"'"']*.*/\1/p' | head -1)
+  DB_SSL_CERT=$(sed -n '/^db:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n 's/^[[:space:]]*sslcert:[[:space:]]*[\"'"'"']*\([^\"'"'"'[:space:]]*\)[\"'"'"']*.*/\1/p' | head -1)
+  DB_SSL_KEY=$(sed -n '/^db:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n 's/^[[:space:]]*sslkey:[[:space:]]*[\"'"'"']*\([^\"'"'"'[:space:]]*\)[\"'"'"']*.*/\1/p' | head -1)
+  DB_SSL_ROOT_CERT=$(sed -n '/^db:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n 's/^[[:space:]]*sslrootcert:[[:space:]]*[\"'"'"']*\([^\"'"'"'[:space:]]*\)[\"'"'"']*.*/\1/p' | head -1)
+
+  # Build SSL configuration block
+  DB_SSL_CONFIG=""
+  if [ -n "$DB_SSL_MODE" ]; then
+    DB_SSL_CONFIG="${DB_SSL_CONFIG}$(cat <<EOF
+
+  sslmode: $DB_SSL_MODE
+EOF
+)"
+  fi
+  if [ -n "$DB_SSL_CERT" ]; then
+    DB_SSL_CONFIG="${DB_SSL_CONFIG}$(cat <<EOF
+
+  sslcert: $DB_SSL_CERT
+EOF
+)"
+  fi
+  if [ -n "$DB_SSL_KEY" ]; then
+    DB_SSL_CONFIG="${DB_SSL_CONFIG}$(cat <<EOF
+
+  sslkey: $DB_SSL_KEY
+EOF
+)"
+  fi
+  if [ -n "$DB_SSL_ROOT_CERT" ]; then
+    DB_SSL_CONFIG="${DB_SSL_CONFIG}$(cat <<EOF
+
+  sslrootcert: $DB_SSL_ROOT_CERT
+EOF
+)"
+  fi
+
+  # For external database: use Podman secrets just like internal database
 else
   echo "Configuring internal database connection"
   DB_HOSTNAME="flightctl-db"
@@ -47,8 +81,10 @@ else
   DB_NAME="flightctl"
   DB_USER="admin"
 
-  # For internal database: password will come from Podman secret, don't set in env file
-  DB_PASSWORD_ENV=""
+  # No SSL configuration for internal database
+  DB_SSL_CONFIG=""
+
+  # For internal database: password will come from Podman secret
 fi
 
 # Use defaults if values not found
@@ -128,6 +164,7 @@ else
   )
 fi
 
+
 # Set cert paths
 # If there are no server certs provided, they will be generated
 # The variables set are relative to the container's filesystem
@@ -139,6 +176,12 @@ if [ -f "$CERTS_SOURCE_PATH/server.key" ]; then
 fi
 if [ -f "$CERTS_SOURCE_PATH/auth/ca.crt" ]; then
   AUTH_CA_CERT="$CERTS_DEST_PATH/auth/ca.crt"
+fi
+
+# Create SSL config replacement file if needed
+SSL_CONFIG_FILE=$(mktemp)
+if [ -n "$DB_SSL_CONFIG" ]; then
+  echo "$DB_SSL_CONFIG" > "$SSL_CONFIG_FILE"
 fi
 
 # Template the configuration file
@@ -157,7 +200,25 @@ sed -e "s|{{BASE_DOMAIN}}|$BASE_DOMAIN|g" \
     -e "s|{{RATE_LIMIT_AUTH_WINDOW}}|$RATE_LIMIT_AUTH_WINDOW|g" \
     -e "s|{{ORGANIZATIONS_ENABLED}}|$ORGANIZATIONS_ENABLED|g" \
     "${AUTH_SED_CMDS[@]}" \
-    "$CONFIG_TEMPLATE" > "$CONFIG_OUTPUT"
+    "$CONFIG_TEMPLATE" > "$CONFIG_OUTPUT.tmp"
+
+# Handle SSL config replacement using awk for multi-line support
+awk -v ssl_config_file="$SSL_CONFIG_FILE" '
+/{{DB_SSL_CONFIG}}/ {
+    if ((getline ssl_config < ssl_config_file) > 0) {
+        print ssl_config
+        while ((getline ssl_config < ssl_config_file) > 0) {
+            print ssl_config
+        }
+        close(ssl_config_file)
+    }
+    next
+}
+{ print }
+' "$CONFIG_OUTPUT.tmp" > "$CONFIG_OUTPUT"
+
+# Clean up temporary files
+rm -f "$CONFIG_OUTPUT.tmp" "$SSL_CONFIG_FILE"
 
 # Template the environment file
 sed -e "s|{{FLIGHTCTL_DISABLE_AUTH}}|$FLIGHTCTL_DISABLE_AUTH|g" \
@@ -165,7 +226,6 @@ sed -e "s|{{FLIGHTCTL_DISABLE_AUTH}}|$FLIGHTCTL_DISABLE_AUTH|g" \
     -e "s|{{RATE_LIMIT_WINDOW}}|$RATE_LIMIT_WINDOW|g" \
     -e "s|{{AUTH_RATE_LIMIT_REQUESTS}}|$RATE_LIMIT_AUTH_REQUESTS|g" \
     -e "s|{{AUTH_RATE_LIMIT_WINDOW}}|$RATE_LIMIT_AUTH_WINDOW|g" \
-    -e "s|{{DB_PASSWORD_ENV}}|$DB_PASSWORD_ENV|g" \
     "$ENV_TEMPLATE" > "$ENV_OUTPUT"
 
 echo "Initialization complete"

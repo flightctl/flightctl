@@ -37,15 +37,9 @@ fi
 # Extract database configuration
 DB_EXTERNAL=$(sed -n '/^db:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n 's/^[[:space:]]*external:[[:space:]]*[\"'"'"']*\([^\"'"'"'[:space:]]*\)[\"'"'"']*.*/\1/p' | head -1)
 if [ "$DB_EXTERNAL" == "enabled" ]; then
-  echo "Configuring external database connection"
-  DB_USER_PASSWORD=$(sed -n '/^db:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n 's/^[[:space:]]*userPassword:[[:space:]]*[\"'"'"']*\([^\"'"'"'[:space:]]*\)[\"'"'"']*.*/\1/p' | head -1)
-
-  # For external database: read password directly from YAML, don't use Podman secrets
-  DB_PASSWORD_ENV="DB_PASSWORD=$DB_USER_PASSWORD"
+  echo "External database - password will come from Podman secret"
 else
   echo "Internal database - password will come from Podman secret"
-  # For internal database: password will come from Podman secret, don't set in env file
-  DB_PASSWORD_ENV=""
 fi
 
 # Extract rate limit values (defaults if not configured)
@@ -67,7 +61,6 @@ sed -e "s|{{FLIGHTCTL_DISABLE_AUTH}}|$FLIGHTCTL_DISABLE_AUTH|g" \
     -e "s|{{RATE_LIMIT_WINDOW}}|$RATE_LIMIT_WINDOW|g" \
     -e "s|{{AUTH_RATE_LIMIT_REQUESTS}}|$AUTH_RATE_LIMIT_REQUESTS|g" \
     -e "s|{{AUTH_RATE_LIMIT_WINDOW}}|$AUTH_RATE_LIMIT_WINDOW|g" \
-    -e "s|{{DB_PASSWORD_ENV}}|$DB_PASSWORD_ENV|g" \
     "$ENV_TEMPLATE" > "$ENV_OUTPUT"
 
 echo "Initialization complete" 

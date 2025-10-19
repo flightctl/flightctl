@@ -71,50 +71,50 @@ if ! [[ "$CONNECTION_TIMEOUT" =~ ^[0-9]+$ ]]; then
     exit 1
 fi
 
-# Function to read value from YAML file using yaml_helpers.py
-read_yaml_value() {
-    local key="$1"
-    local config_file="$2"
-
-    if command -v python3 &> /dev/null && [ -f "$config_file" ]; then
-        python3 ./deploy/scripts/yaml_helpers.py extract "$key" "$config_file" --default ""
-    else
-        echo ""
-    fi
-}
-
 # Load database configuration from SERVICE_CONFIG_PATH if provided
 if [ -n "${SERVICE_CONFIG_PATH:-}" ]; then
     if [ ! -f "$SERVICE_CONFIG_PATH" ]; then
         echo "Warning: SERVICE_CONFIG_PATH is set but file not found: $SERVICE_CONFIG_PATH" >&2
-    elif ! command -v jq &> /dev/null || ! command -v python3 &> /dev/null; then
-        echo "Warning: jq or python3 command not found, cannot read service config file" >&2
+    elif ! command -v python3 &> /dev/null; then
+        echo "Warning: python3 command not found, cannot read service config file" >&2
     else
         echo "Loading database configuration from: $SERVICE_CONFIG_PATH"
 
-        # Read values from YAML into DB_* variables, overriding defaults if values exist in YAML
-        yaml_host=$(read_yaml_value ".db.hostname" "$SERVICE_CONFIG_PATH")
-        yaml_port=$(read_yaml_value ".db.port" "$SERVICE_CONFIG_PATH")
-        yaml_name=$(read_yaml_value ".db.name" "$SERVICE_CONFIG_PATH")
-        yaml_user=$(read_yaml_value ".db.user" "$SERVICE_CONFIG_PATH")
-        yaml_password=$(read_yaml_value ".db.userPassword" "$SERVICE_CONFIG_PATH")
+        # Check if external database is enabled
+        yaml_external=$(sed -n '/^db:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_PATH" | sed -n 's/^[[:space:]]*external:[[:space:]]*[\"'\'']*\([^\"'\''[:space:]]*\)[\"'\'']*.*$/\1/p' | head -1)
 
-        [ -n "$yaml_host" ] && DB_HOST="$yaml_host"
-        [ -n "$yaml_port" ] && DB_PORT="$yaml_port"
-        [ -n "$yaml_name" ] && DB_NAME="$yaml_name"
-        [ -n "$yaml_user" ] && DB_USER="$yaml_user"
-        [ -n "$yaml_password" ] && DB_PASSWORD="$yaml_password"
+        if [ "$yaml_external" = "enabled" ]; then
+            echo "External database mode detected"
+        else
+            echo "Internal database mode"
+        fi
+
+        # Read database configuration from YAML for both internal and external databases
+        # Environment variables will take precedence if they are already set
+        yaml_host=$(sed -n '/^db:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_PATH" | sed -n 's/^[[:space:]]*hostname:[[:space:]]*[\"'\'']*\([^\"'\''[:space:]]*\)[\"'\'']*.*$/\1/p' | head -1)
+        yaml_port=$(sed -n '/^db:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_PATH" | sed -n 's/^[[:space:]]*port:[[:space:]]*\([^[:space:]]*\).*$/\1/p' | head -1)
+        yaml_name=$(sed -n '/^db:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_PATH" | sed -n 's/^[[:space:]]*name:[[:space:]]*[\"'\'']*\([^\"'\''[:space:]]*\)[\"'\'']*.*$/\1/p' | head -1)
+        yaml_user=$(sed -n '/^db:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_PATH" | sed -n 's/^[[:space:]]*user:[[:space:]]*[\"'\'']*\([^\"'\''[:space:]]*\)[\"'\'']*.*$/\1/p' | head -1)
+        yaml_password=$(sed -n '/^db:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_PATH" | sed -n 's/^[[:space:]]*userPassword:[[:space:]]*[\"'\'']*\([^\"'\''[:space:]]*\)[\"'\'']*.*$/\1/p' | head -1)
+
+        # Use config file values only if environment variables are not already set
+        [ -z "$DB_HOST" ] && [ -n "$yaml_host" ] && DB_HOST="$yaml_host"
+        [ -z "$DB_PORT" ] && [ -n "$yaml_port" ] && DB_PORT="$yaml_port"
+        [ -z "$DB_NAME" ] && [ -n "$yaml_name" ] && DB_NAME="$yaml_name"
+        [ -z "$DB_USER" ] && [ -n "$yaml_user" ] && DB_USER="$yaml_user"
+        [ -z "$DB_PASSWORD" ] && [ -n "$yaml_password" ] && DB_PASSWORD="$yaml_password"
 
         # Read SSL configuration from YAML
-        yaml_ssl_mode=$(read_yaml_value ".db.sslmode" "$SERVICE_CONFIG_PATH")
-        yaml_ssl_cert=$(read_yaml_value ".db.sslcert" "$SERVICE_CONFIG_PATH")
-        yaml_ssl_key=$(read_yaml_value ".db.sslkey" "$SERVICE_CONFIG_PATH")
-        yaml_ssl_root_cert=$(read_yaml_value ".db.sslrootcert" "$SERVICE_CONFIG_PATH")
+        yaml_ssl_mode=$(sed -n '/^db:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_PATH" | sed -n 's/^[[:space:]]*sslmode:[[:space:]]*[\"'\'']*\([^\"'\''[:space:]]*\)[\"'\'']*.*$/\1/p' | head -1)
+        yaml_ssl_cert=$(sed -n '/^db:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_PATH" | sed -n 's/^[[:space:]]*sslcert:[[:space:]]*[\"'\'']*\([^\"'\''[:space:]]*\)[\"'\'']*.*$/\1/p' | head -1)
+        yaml_ssl_key=$(sed -n '/^db:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_PATH" | sed -n 's/^[[:space:]]*sslkey:[[:space:]]*[\"'\'']*\([^\"'\''[:space:]]*\)[\"'\'']*.*$/\1/p' | head -1)
+        yaml_ssl_root_cert=$(sed -n '/^db:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_PATH" | sed -n 's/^[[:space:]]*sslrootcert:[[:space:]]*[\"'\'']*\([^\"'\''[:space:]]*\)[\"'\'']*.*$/\1/p' | head -1)
 
-        [ -n "$yaml_ssl_mode" ] && DB_SSL_MODE="$yaml_ssl_mode"
-        [ -n "$yaml_ssl_cert" ] && DB_SSL_CERT="$yaml_ssl_cert"
-        [ -n "$yaml_ssl_key" ] && DB_SSL_KEY="$yaml_ssl_key"
-        [ -n "$yaml_ssl_root_cert" ] && DB_SSL_ROOT_CERT="$yaml_ssl_root_cert"
+        # Use SSL config from file only if environment variables are not already set
+        [ -z "$DB_SSL_MODE" ] && [ -n "$yaml_ssl_mode" ] && DB_SSL_MODE="$yaml_ssl_mode"
+        [ -z "$DB_SSL_CERT" ] && [ -n "$yaml_ssl_cert" ] && DB_SSL_CERT="$yaml_ssl_cert"
+        [ -z "$DB_SSL_KEY" ] && [ -n "$yaml_ssl_key" ] && DB_SSL_KEY="$yaml_ssl_key"
+        [ -z "$DB_SSL_ROOT_CERT" ] && [ -n "$yaml_ssl_root_cert" ] && DB_SSL_ROOT_CERT="$yaml_ssl_root_cert"
     fi
 fi
 

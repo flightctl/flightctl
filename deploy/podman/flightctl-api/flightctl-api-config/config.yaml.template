@@ -3,7 +3,7 @@ database:
   type: pgsql
   port: {{DB_PORT}}
   name: {{DB_NAME}}
-  user: {{DB_USER}}
+  user: {{DB_USER}}{{DB_SSL_CONFIG}}
 service:
   address: flightctl-api:3443
   agentEndpointAddress: flightctl-api:7443

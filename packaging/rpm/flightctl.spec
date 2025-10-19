@@ -33,7 +33,7 @@ Requires: openssl
 %global flightctl_target flightctl.target
 
 # --- Restart these on upgrade  ---
-%global flightctl_services_restart flightctl-api.service flightctl-ui.service flightctl-worker.service flightctl-alertmanager.service flightctl-alert-exporter.service flightctl-alertmanager-proxy.service flightctl-cli-artifacts.service flightctl-periodic.service flightctl-db-migrate.service flightctl-db-migrate-init.service flightctl-db-wait.service flightctl-db-selector.service
+%global flightctl_services_restart flightctl-api.service flightctl-ui.service flightctl-worker.service flightctl-alertmanager.service flightctl-alert-exporter.service flightctl-alertmanager-proxy.service flightctl-cli-artifacts.service flightctl-periodic.service flightctl-db-migrate.service flightctl-db-wait.service
 
 
 %description
@@ -262,7 +262,7 @@ if command -v podman >/dev/null 2>&1; then
     /usr/bin/podman secret rm telemetry-gateway-tls-key >/dev/null 2>&1 || :
     /usr/bin/podman secret rm flightctl-ca-secret >/dev/null 2>&1 || :
     echo "Podman secrets cleanup completed"
-    
+
 else
     echo "Podman not available, skipping cleanup"
 fi
@@ -473,11 +473,6 @@ echo "Flightctl Observability Stack uninstalled."
     IMAGE_TAG=$(echo %{version} | tr '~' '-') \
     deploy/scripts/install.sh
 
-    # Copy database selector script and service
-    install -m 755 deploy/scripts/select-db-container.sh %{buildroot}%{_datadir}/flightctl/
-
-    # External database configuration files are now installed by shared.sh install script
-
     # Copy sos report flightctl plugin
     mkdir -p %{buildroot}/usr/share/sosreport
     cp packaging/sosreport/sos/report/plugins/flightctl.py %{buildroot}/usr/share/sosreport
@@ -616,9 +611,6 @@ rm -rf /usr/share/sosreport
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-api
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-alert-exporter
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-db
-    %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-db-migrate
-    %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-worker
-    %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-periodic
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-alertmanager-proxy
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-ui
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-cli-artifacts
@@ -626,25 +618,8 @@ rm -rf /usr/share/sosreport
     %{_datadir}/flightctl/flightctl-api/env.template
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-api/init.sh
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-api/create_aap_application.sh
-    %{_datadir}/flightctl/flightctl-db-migrate/env.template
-    %attr(0755,root,root) %{_datadir}/flightctl/flightctl-db-migrate/init.sh
     %{_datadir}/flightctl/flightctl-alert-exporter/config.yaml
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-db/enable-superuser.sh
-    %{_datadir}/flightctl/flightctl-db/flightctl-db.container
-    %{_datadir}/flightctl/flightctl-db/flightctl-db-external.container
-    %{_datadir}/flightctl/flightctl-api/flightctl-api.container
-    %{_datadir}/flightctl/flightctl-api/flightctl-api-external.container
-    %{_datadir}/flightctl/flightctl-db-migrate/flightctl-db-migrate.container
-    %{_datadir}/flightctl/flightctl-db-migrate/flightctl-db-migrate-external.container
-    %{_datadir}/flightctl/flightctl-worker/flightctl-worker.container
-    %{_datadir}/flightctl/flightctl-worker/flightctl-worker-external.container
-    %{_datadir}/flightctl/flightctl-periodic/flightctl-periodic.container
-    %{_datadir}/flightctl/flightctl-periodic/flightctl-periodic-external.container
-    %{_datadir}/flightctl/flightctl-alert-exporter/flightctl-alert-exporter.container
-    %{_datadir}/flightctl/flightctl-alert-exporter/flightctl-alert-exporter-external.container
-    %{_datadir}/flightctl/flightctl-alertmanager-proxy/flightctl-alertmanager-proxy.container
-    %{_datadir}/flightctl/flightctl-alertmanager-proxy/flightctl-alertmanager-proxy-external.container
-    %attr(0755,root,root) %{_datadir}/flightctl/select-db-container.sh
     %{_datadir}/flightctl/flightctl-ui/env.template
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-ui/init.sh
     %attr(0755,root,root) %{_datadir}/flightctl/init_utils.sh
@@ -660,15 +635,13 @@ rm -rf /usr/share/sosreport
     %attr(0755,root,root) %{_datadir}/flightctl/init_host.sh
     %attr(0755,root,root) %{_datadir}/flightctl/secrets.sh
     %attr(0755,root,root) %{_datadir}/flightctl/yaml_helpers.py
-    
+
     # flightctl-services pre upgrade checks
     %dir %{_libexecdir}/flightctl
     %attr(0755,root,root) %{_libexecdir}/flightctl/pre-upgrade-dry-run.sh
 
     # Files mounted to lib dir
     /usr/lib/systemd/system/flightctl.target
-    /usr/lib/systemd/system/flightctl-db-migrate-init.service
-    /usr/lib/systemd/system/flightctl-db-selector.service
 
 # Optional pre-upgrade database migration dry-run
 %pre services
@@ -692,17 +665,6 @@ fi
 %post services
 # On initial install: apply preset policy to enable/disable services based on system defaults
 %systemd_post %{flightctl_target}
-
-# Apply SELinux contexts for files that need to be accessed by containers
-/usr/sbin/semanage fcontext -a -t container_file_t "/etc/flightctl/service-config.yaml" >/dev/null 2>&1 || :
-/usr/sbin/semanage fcontext -a -t container_file_t "/etc/flightctl(/.*)?" >/dev/null 2>&1 || :
-
-# Restore file contexts based on the new rules
-/usr/sbin/restorecon -RvF /etc/flightctl >/dev/null 2>&1 || :
-
-# Run database container selector to install appropriate container files
-echo "Selecting database container configuration..."
-/usr/share/flightctl/select-db-container.sh || echo "Warning: Database container selection failed"
 
 # Reload systemd to recognize new container files
 /usr/bin/systemctl daemon-reload >/dev/null 2>&1 || :
@@ -744,7 +706,7 @@ fi
 
 %preun services
 # On package removal: stop and disable all services
-%systemd_preun %{flightctl_target} 
+%systemd_preun %{flightctl_target}
 %systemd_preun flightctl-network.service
 
 %postun services
@@ -752,12 +714,7 @@ fi
 %systemd_postun_with_restart %{flightctl_services_restart}
 %systemd_postun %{flightctl_target}
 
-# On package removal: clean up SELinux contexts
-if [ "$1" -eq 0 ]; then
-    /usr/sbin/semanage fcontext -d -t container_file_t "/etc/flightctl/service-config.yaml" >/dev/null 2>&1 || :
-    /usr/sbin/semanage fcontext -d -t container_file_t "/etc/flightctl(/.*)?" >/dev/null 2>&1 || :
-    /usr/sbin/restorecon -RvF /etc/flightctl >/dev/null 2>&1 || :
-fi
+# If contexts were managed via policy, no cleanup is needed here.
 
 %changelog
 * Wed Oct 8 2025 Ilya Skornyakov <iskornya@redhat.com> - 0.10.0
