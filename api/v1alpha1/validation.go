@@ -764,6 +764,10 @@ func (a InlineApplicationProviderSpec) Validate(appTypeRef *AppType, fleetTempla
 	allErrs := []error{}
 	appType := lo.FromPtr(appTypeRef)
 
+	if appType == AppTypeQuadlet {
+		return []error{fmt.Errorf("inline provider is unsupported for %q applications", appType)}
+	}
+
 	seenPath := make(map[string]struct{}, len(a.Inline))
 	for i := range a.Inline {
 		path := a.Inline[i].Path
@@ -892,6 +896,9 @@ func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []
 			}
 			if provider.Image == "" && app.Name == nil {
 				allErrs = append(allErrs, fmt.Errorf("image reference cannot be empty when application name is not provided"))
+			}
+			if lo.FromPtr(app.AppType) == AppTypeQuadlet {
+				allErrs = append(allErrs, fmt.Errorf("image application provider does not support %q application type", AppTypeQuadlet))
 			}
 			allErrs = append(allErrs, validateOciImageReference(&provider.Image, fmt.Sprintf("spec.applications[%s].image", appName), fleetTemplate)...)
 			volumes = provider.Volumes
