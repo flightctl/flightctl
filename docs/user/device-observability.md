@@ -84,8 +84,11 @@ Apply the CSR and approve it with flightctl:
 Extract the issued certificate and CA:
 
 ```bash
-./bin/flightctl get csr/svc-telemetry-gateway -o yaml | python3 -c "import sys, yaml, json; print(json.dumps(yaml.safe_load(sys.stdin)))" | jq -r '.status.certificate' | base64 -d > ./certs/svc-telemetry-gateway.crt
-./bin/flightctl enrollmentconfig | python3 -c "import sys, yaml, json; print(json.dumps(yaml.safe_load(sys.stdin)))" | jq -r '."enrollment-service".service."certificate-authority-data"' | base64 -d > ./certs/ca.crt
+CERT_B64="$(./bin/flightctl get csr/svc-telemetry-gateway -o yaml | python3 deploy/scripts/yaml_helpers.py extract ".status.certificate")"
+echo "${CERT_B64}" | base64 -d > ./certs/svc-telemetry-gateway.crt
+
+ENR_CA_B64="$(./bin/flightctl enrollmentconfig | python3 deploy/scripts/yaml_helpers.py extract ".enrollment-service.service.certificate-authority-data")"
+echo "${ENR_CA_B64}" | base64 -d > ./certs/ca.crt
 ```
 
 Resulting files:
@@ -272,8 +275,7 @@ One way to extract the CA:
 
 ```bash
 ./bin/flightctl enrollmentconfig \
-  | python3 -c "import sys, yaml, json; print(json.dumps(yaml.safe_load(sys.stdin)))" \
-  | jq -r '."enrollment-service".service."certificate-authority-data"' \
+  | python3 deploy/scripts/yaml_helpers.py extract ".enrollment-service.service.certificate-authority-data" \
   | base64 -d > /etc/otelcol/certs/ca.crt
 chmod 644 /etc/otelcol/certs/ca.crt
 ```
