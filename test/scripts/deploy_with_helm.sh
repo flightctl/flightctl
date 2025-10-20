@@ -156,6 +156,7 @@ org_id=$(./bin/flightctl get organizations | awk 'NR==2 {print $1}')
 # Setup telemetry gateway certificates (non-blocking)
 if ! "${SCRIPT_DIR}"/setup_telemetry_gateway_certs.sh \
   --sans "DNS:localhost,DNS:flightctl-telemetry-gateway.flightctl-external.svc,DNS:flightctl-telemetry-gateway.flightctl-external.svc.cluster.local,DNS:telemetry-gateway.${IP}.nip.io,IP:127.0.0.1" \
+  --yaml-helpers-path "./deploy/scripts/yaml_helpers.py" \
   --force-rotate; then
   echo "WARNING: Failed to setup telemetry gateway certificates. Deployment will continue without them."
   echo "You can manually run the certificate setup later if needed."

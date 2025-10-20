@@ -2,7 +2,6 @@ package tasks
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -38,15 +37,9 @@ func (t *DeviceDisconnected) Poll(ctx context.Context) {
 	// Calculate the cutoff time for disconnected devices
 	cutoffTime := time.Now().UTC().Add(-api.DeviceDisconnectedTimeout)
 
-	// Create a field selector to only get devices that haven't been seen for more than DeviceDisconnectedTimeout
-	// and don't already have "Unknown" status to avoid reprocessing the same devices
-	fieldSelectorStr := fmt.Sprintf("lastSeen<%s,status.summary.status!=Unknown", cutoffTime.Format(time.RFC3339))
-	t.log.Debugf("Using field selector: %s", fieldSelectorStr)
-
 	// List devices that match the disconnection criteria with pagination
 	listParams := api.ListDevicesParams{
-		FieldSelector: &fieldSelectorStr,
-		Limit:         lo.ToPtr(int32(ItemsPerPage)),
+		Limit: lo.ToPtr(int32(ItemsPerPage)),
 	}
 
 	totalProcessed := 0
@@ -57,15 +50,14 @@ func (t *DeviceDisconnected) Poll(ctx context.Context) {
 			return
 		}
 
-		devices, status := t.serviceHandler.ListDevices(ctx, listParams, nil)
+		devices, status := t.serviceHandler.ListDisconnectedDevices(ctx, listParams, cutoffTime)
 		if status.Code != 200 {
 			t.log.Errorf("Failed to list devices: %s", status.Message)
 			return
 		}
 
-		t.log.Debugf("Field selector '%s' found %d devices", fieldSelectorStr, len(devices.Items))
 		if len(devices.Items) == 0 {
-			t.log.Debugf("No devices found with field selector '%s', stopping", fieldSelectorStr)
+			t.log.Debug("No devices found, stopping")
 			break
 		}
 

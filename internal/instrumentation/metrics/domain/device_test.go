@@ -82,6 +82,10 @@ func (m *MockDevice) GetWithoutServiceConditions(ctx context.Context, orgId uuid
 	return nil, nil
 }
 
+func (m *MockDevice) ListDisconnected(ctx context.Context, orgId uuid.UUID, listParams store.ListParams, cutoffTime time.Time) (*api.DeviceList, error) {
+	return nil, nil
+}
+
 func (m *MockDevice) GetLastSeen(ctx context.Context, orgId uuid.UUID, name string) (*time.Time, error) {
 	return nil, nil
 }

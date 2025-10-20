@@ -54,7 +54,7 @@ LABEL \
 # Use BuildKit cache mounts for dnf package caching
 RUN --mount=type=cache,target=/var/cache/dnf \
     --mount=type=cache,target=/var/lib/dnf \
-    dnf install -y postgresql gettext jq python3-pyyaml && dnf clean all
+    dnf install -y postgresql gettext python3-pyyaml && dnf clean all
 
 # Copy the migration binary from the build stage
 COPY --from=build /app/bin/flightctl-db-migrate /usr/local/bin/flightctl-db-migrate
@@ -64,7 +64,7 @@ COPY ./deploy/scripts/setup_database_users.sh ./deploy/scripts/setup_database_us
 COPY ./deploy/scripts/setup_database_users.sql ./deploy/scripts/setup_database_users.sql
 COPY ./deploy/scripts/migration-setup.sh ./deploy/scripts/migration-setup.sh
 COPY --chmod=0755 ./deploy/scripts/wait-for-database.sh ./deploy/scripts/wait-for-database.sh
-COPY --chmod=0755 ./deploy/scripts/yaml-to-json.py ./deploy/scripts/yaml-to-json.py
+COPY --chmod=0755 ./deploy/scripts/yaml_helpers.py ./deploy/scripts/yaml_helpers.py
 
 # Make the setup scripts executable
 RUN chmod +x ./deploy/scripts/setup_database_users.sh ./deploy/scripts/migration-setup.sh

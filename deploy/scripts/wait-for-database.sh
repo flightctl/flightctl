@@ -71,13 +71,13 @@ if ! [[ "$CONNECTION_TIMEOUT" =~ ^[0-9]+$ ]]; then
     exit 1
 fi
 
-# Function to read value from YAML file using yaml-to-json.py and jq
+# Function to read value from YAML file using yaml_helpers.py
 read_yaml_value() {
     local key="$1"
     local config_file="$2"
 
-    if command -v jq &> /dev/null && command -v python3 &> /dev/null && [ -f "$config_file" ]; then
-        python3 ./deploy/scripts/yaml-to-json.py < "$config_file" 2>/dev/null | jq -r "$key // \"\"" 2>/dev/null || echo ""
+    if command -v python3 &> /dev/null && [ -f "$config_file" ]; then
+        python3 ./deploy/scripts/yaml_helpers.py extract "$key" "$config_file" --default ""
     else
         echo ""
     fi

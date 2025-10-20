@@ -1566,13 +1566,19 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(BeTrue())
 
+			setLastSeen(db, orgId, decommissioningDeviceName, *decommissioningDevice.Status.LastSeen)
+
 			_, created, err = devStore.CreateOrUpdate(ctx, orgId, &decommissionedDevice, nil, false, nil, callback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(BeTrue())
 
+			setLastSeen(db, orgId, decommissionedDeviceName, *decommissionedDevice.Status.LastSeen)
+
 			_, created, err = devStore.CreateOrUpdate(ctx, orgId, &normalDevice, nil, false, nil, callback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(BeTrue())
+
+			setLastSeen(db, orgId, normalDeviceName, *normalDevice.Status.LastSeen)
 
 			// Execute: Run PrepareDevicesAfterRestore
 			devicesUpdated, err := devStore.PrepareDevicesAfterRestore(ctx)
@@ -1592,8 +1598,11 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(annotations["existing-annotation"]).To(Equal("existing-value"))
 
 			// Should NOT have lastSeen cleared
-			Expect(decommissioningDeviceAfter.Status).ToNot(BeNil())
-			Expect(decommissioningDeviceAfter.Status.LastSeen.IsZero()).To(BeFalse(), "Decommissioning device should NOT have lastSeen cleared")
+			decommissioningLastSeen, err := devStore.GetLastSeen(ctx, orgId, decommissioningDeviceName)
+			Expect(err).ToNot(HaveOccurred())
+
+			Expect(decommissioningLastSeen).ToNot(BeNil())
+			Expect(decommissioningLastSeen.IsZero()).To(BeFalse(), "Decommissioning device should NOT have lastSeen cleared")
 
 			// Should NOT have status summary changed
 			Expect(decommissioningDeviceAfter.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusOnline), "Decommissioning device should NOT have status summary changed")
@@ -1611,8 +1620,11 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(annotations["existing-annotation"]).To(Equal("existing-value"))
 
 			// Should NOT have lastSeen cleared
-			Expect(decommissionedDeviceAfter.Status).ToNot(BeNil())
-			Expect(decommissionedDeviceAfter.Status.LastSeen.IsZero()).To(BeFalse(), "Decommissioned device should NOT have lastSeen cleared")
+			decommissionedLastSeen, err := devStore.GetLastSeen(ctx, orgId, decommissionedDeviceName)
+			Expect(err).ToNot(HaveOccurred())
+
+			Expect(decommissionedLastSeen).ToNot(BeNil())
+			Expect(decommissionedLastSeen.IsZero()).To(BeFalse(), "Decommissioned device should NOT have lastSeen cleared")
 
 			// Should NOT have status summary changed
 			Expect(decommissionedDeviceAfter.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusOnline), "Decommissioned device should NOT have status summary changed")
@@ -1630,8 +1642,10 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(annotations["existing-annotation"]).To(Equal("existing-value"))
 
 			// Should have lastSeen cleared
-			Expect(normalDeviceAfter.Status).ToNot(BeNil())
-			Expect(normalDeviceAfter.Status.LastSeen).To(BeNil(), "Normal device SHOULD have lastSeen cleared")
+			normalLastSeen, err := devStore.GetLastSeen(ctx, orgId, normalDeviceName)
+			Expect(err).ToNot(HaveOccurred())
+
+			Expect(normalLastSeen).To(BeNil(), "Normal device SHOULD have lastSeen cleared")
 
 			// Should have status summary changed to awaiting reconnect
 			Expect(normalDeviceAfter.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusAwaitingReconnect), "Normal device SHOULD have status summary changed to AwaitingReconnect")
@@ -1656,6 +1670,8 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(BeTrue())
 
+			setLastSeen(db, orgId, deviceName, *device.Status.LastSeen)
+
 			// Verify initial state - last_seen column should have a value
 			lastSeenBefore, err := devStore.GetLastSeen(ctx, orgId, deviceName)
 			Expect(err).ToNot(HaveOccurred())
@@ -1670,11 +1686,6 @@ var _ = Describe("DeviceStore create", func() {
 			lastSeenAfter, err := devStore.GetLastSeen(ctx, orgId, deviceName)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(lastSeenAfter).To(BeNil(), "last_seen column should be cleared after PrepareDevicesAfterRestore")
-
-			// Verify: Check that device status LastSeen field is also nil
-			deviceAfter, err := devStore.Get(ctx, orgId, deviceName)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(deviceAfter.Status.LastSeen).To(BeNil(), "device status LastSeen should also be nil")
 		})
 	})
 
@@ -1717,14 +1728,15 @@ var _ = Describe("DeviceStore create", func() {
 				_, created, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(created).To(BeTrue())
+				setLastSeen(db, orgId, *device.Metadata.Name, *device.Status.LastSeen)
 			}
 
 			// Record initial last_seen values
 			initialLastSeen := make(map[string]*time.Time)
 			for _, deviceName := range []string{device1Name, device2Name, device3Name} {
-				device, err := devStore.Get(ctx, orgId, deviceName)
+				lastSeen, err := devStore.GetLastSeen(ctx, orgId, deviceName)
 				Expect(err).ToNot(HaveOccurred())
-				initialLastSeen[deviceName] = device.Status.LastSeen
+				initialLastSeen[deviceName] = lastSeen
 			}
 
 			// Wait a bit to ensure timestamp difference
@@ -1737,19 +1749,19 @@ var _ = Describe("DeviceStore create", func() {
 
 			// Verify: Check that devices 1 and 2 have updated last_seen
 			for _, deviceName := range deviceNames {
-				device, err := devStore.Get(ctx, orgId, deviceName)
+				lastSeen, err := devStore.GetLastSeen(ctx, orgId, deviceName)
 				Expect(err).ToNot(HaveOccurred())
 
 				// last_seen should be updated (newer than initial)
-				Expect(device.Status.LastSeen).ToNot(BeNil())
-				Expect(device.Status.LastSeen.After(*initialLastSeen[deviceName])).To(BeTrue(),
+				Expect(lastSeen).ToNot(BeNil())
+				Expect(lastSeen.After(*initialLastSeen[deviceName])).To(BeTrue(),
 					"Device %s should have updated last_seen", deviceName)
 			}
 
 			// Verify: Check that device 3 was NOT updated
-			device3, err := devStore.Get(ctx, orgId, device3Name)
+			lastSeen, err := devStore.GetLastSeen(ctx, orgId, device3Name)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(device3.Status.LastSeen).To(Equal(initialLastSeen[device3Name]),
+			Expect(lastSeen).To(Equal(initialLastSeen[device3Name]),
 				"Device 3 should NOT have updated last_seen")
 		})
 
@@ -1772,8 +1784,7 @@ var _ = Describe("DeviceStore create", func() {
 				Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName)},
 				Spec:     &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "test-image"}},
 				Status: &api.DeviceStatus{
-					LastSeen: lo.ToPtr(time.Now().Add(-1 * time.Hour)),
-					Summary:  api.DeviceSummaryStatus{Status: api.DeviceSummaryStatusOnline},
+					Summary: api.DeviceSummaryStatus{Status: api.DeviceSummaryStatusOnline},
 				},
 			}
 
@@ -1781,6 +1792,10 @@ var _ = Describe("DeviceStore create", func() {
 			createdDevice, created, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(BeTrue())
+
+			// Execute: Run healthcheck
+			err = devStore.Healthcheck(ctx, orgId, []string{deviceName})
+			Expect(err).ToNot(HaveOccurred())
 
 			// Record initial resource version and last_seen
 			initialResourceVersion := *createdDevice.Metadata.ResourceVersion
@@ -1814,8 +1829,7 @@ var _ = Describe("DeviceStore create", func() {
 				Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName)},
 				Spec:     &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "test-image"}},
 				Status: &api.DeviceStatus{
-					LastSeen: lo.ToPtr(time.Now().Add(-1 * time.Hour)),
-					Summary:  api.DeviceSummaryStatus{Status: api.DeviceSummaryStatusOnline},
+					Summary: api.DeviceSummaryStatus{Status: api.DeviceSummaryStatusOnline},
 				},
 			}
 
@@ -1823,11 +1837,8 @@ var _ = Describe("DeviceStore create", func() {
 			_, created, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(BeTrue())
-
-			// Record initial last_seen
-			initialDevice, err := devStore.Get(ctx, orgId, deviceName)
-			Expect(err).ToNot(HaveOccurred())
-			initialLastSeen := initialDevice.Status.LastSeen
+			initialLastSeen := time.Now().Add(-1 * time.Hour)
+			setLastSeen(db, orgId, deviceName, initialLastSeen)
 
 			// Wait a bit to ensure timestamp difference
 			time.Sleep(100 * time.Millisecond)
@@ -1838,10 +1849,10 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Verify: Check that the existing device was updated
-			updatedDevice, err := devStore.Get(ctx, orgId, deviceName)
+			updatedLastSeen, err := devStore.GetLastSeen(ctx, orgId, deviceName)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(updatedDevice.Status.LastSeen).ToNot(BeNil())
-			Expect(updatedDevice.Status.LastSeen.After(*initialLastSeen)).To(BeTrue())
+			Expect(updatedLastSeen).ToNot(BeNil())
+			Expect(updatedLastSeen.After(initialLastSeen)).To(BeTrue())
 		})
 	})
 
@@ -2339,4 +2350,9 @@ func createTestConfigProvider(contents string) (string, error) {
 		return "", err
 	}
 	return string(providersBytes), nil
+}
+
+func setLastSeen(db *gorm.DB, orgId uuid.UUID, name string, lastSeen time.Time) {
+	Expect(db.Model(&model.DeviceTimestamp{}).Where("org_id = ? AND name = ?", orgId, name).
+		Update("last_seen", lastSeen).Error).ToNot(HaveOccurred())
 }
