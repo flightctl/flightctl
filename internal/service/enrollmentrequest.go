@@ -12,12 +12,12 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	authcommon "github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/config/ca"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/crypto/signer"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service/common"
-	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/tpm"
 	"github.com/flightctl/flightctl/internal/util"
@@ -283,6 +283,11 @@ func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, er api.Enr
 			return nil, api.StatusBadRequest(err.Error())
 		}
 	}
+	if _, isAgent := ctx.Value(consts.AgentCtxKey).(string); isAgent {
+		if h.agentGate.Acquire(ctx, 1) == nil {
+			defer h.agentGate.Release(1)
+		}
+	}
 
 	// Use fromAPI=false for internal requests to preserve annotations
 	result, err := h.store.EnrollmentRequest().CreateWithFromAPI(ctx, orgId, &er, false, h.callbackEnrollmentRequestUpdated)
@@ -315,6 +320,11 @@ func (h *ServiceHandler) ListEnrollmentRequests(ctx context.Context, params api.
 func (h *ServiceHandler) GetEnrollmentRequest(ctx context.Context, name string) (*api.EnrollmentRequest, api.Status) {
 	orgId := getOrgIdFromContext(ctx)
 
+	if _, isAgent := ctx.Value(consts.AgentCtxKey).(string); isAgent {
+		if h.agentGate.Acquire(ctx, 1) == nil {
+			defer h.agentGate.Release(1)
+		}
+	}
 	result, err := h.store.EnrollmentRequest().Get(ctx, orgId, name)
 	return result, StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
 }
@@ -400,7 +410,7 @@ func (h *ServiceHandler) PatchEnrollmentRequest(ctx context.Context, name string
 func (h *ServiceHandler) DeleteEnrollmentRequest(ctx context.Context, name string) api.Status {
 	orgId := getOrgIdFromContext(ctx)
 
-	exists, err := h.deviceExists(ctx, name)
+	exists, err := h.deviceExists(ctx, orgId, name)
 	if err != nil {
 		return StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 	}
@@ -526,8 +536,8 @@ func (h *ServiceHandler) allowCreationOrUpdate(ctx context.Context, orgId uuid.U
 
 // deviceExists checks if a device with the given name exists in the store.
 // Error is returned if there is an error other than ErrResourceNotFound.
-func (h *ServiceHandler) deviceExists(ctx context.Context, name string) (bool, error) {
-	dev, err := h.store.Device().Get(ctx, store.NullOrgId, name)
+func (h *ServiceHandler) deviceExists(ctx context.Context, orgId uuid.UUID, name string) (bool, error) {
+	dev, err := h.store.Device().Get(ctx, orgId, name)
 	if errors.Is(err, flterrors.ErrResourceNotFound) {
 		return false, nil
 	}

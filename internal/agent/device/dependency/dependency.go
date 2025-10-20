@@ -140,6 +140,26 @@ func (m *prefetchManager) RegisterOCICollector(collector OCICollector) {
 	m.collectors = append(m.collectors, collector)
 }
 
+// isTargetsChanged checks if targets changed using pre-built reference set
+// caller must hold m.mu lock
+func (m *prefetchManager) isTargetsChanged(seenTargets map[string]struct{}) bool {
+	if len(m.tasks) == 0 {
+		return len(seenTargets) > 0
+	}
+
+	if len(seenTargets) != len(m.tasks) {
+		return true
+	}
+
+	for existingRef := range m.tasks {
+		if _, exists := seenTargets[existingRef]; !exists {
+			return true
+		}
+	}
+
+	return false
+}
+
 func (m *prefetchManager) BeforeUpdate(ctx context.Context, current, desired *v1alpha1.DeviceSpec) error {
 	m.log.Debug("Collecting OCI targets from all dependency sources")
 
@@ -156,6 +176,18 @@ func (m *prefetchManager) BeforeUpdate(ctx context.Context, current, desired *v1
 		}
 		allTargets = append(allTargets, targets...)
 	}
+
+	seenTargets := make(map[string]struct{}, len(allTargets))
+	for _, target := range allTargets {
+		seenTargets[target.Reference] = struct{}{}
+	}
+
+	m.mu.Lock()
+	if m.isTargetsChanged(seenTargets) {
+		m.log.Debug("OCI targets changed, cleaning up stale prefetch tasks")
+		m.cleanupStaleTasks(seenTargets)
+	}
+	m.mu.Unlock()
 
 	if len(allTargets) > 0 {
 		m.log.Debugf("Scheduling %d total OCI targets for prefetching", len(allTargets))
@@ -282,7 +314,9 @@ func (m *prefetchManager) Schedule(ctx context.Context, targets []OCIPullTarget)
 		var cleanupFns []func()
 		if target.PullSecret != nil {
 			opts = append(opts, client.WithPullSecret(target.PullSecret.Path))
-			cleanupFns = append(cleanupFns, target.PullSecret.Cleanup)
+			if target.PullSecret.Cleanup != nil {
+				cleanupFns = append(cleanupFns, target.PullSecret.Cleanup)
+			}
 		}
 		if err := m.schedule(ctx, target.Reference, target.Type, cleanupFns, opts...); err != nil {
 			return fmt.Errorf("prefetch schedule: %w", err)
@@ -371,14 +405,28 @@ func (m *prefetchManager) IsReady(ctx context.Context) bool {
 	return true
 }
 
-func (m *prefetchManager) isTargetReady(image string) bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	task, ok := m.tasks[image]
-	if !ok {
-		return false
+// cleanupStaleTasks removes tasks not in the provided target set
+// caller must hold m.mu lock
+func (m *prefetchManager) cleanupStaleTasks(seenTargets map[string]struct{}) {
+	var removed int
+	for ref, task := range m.tasks {
+		if _, exists := seenTargets[ref]; !exists {
+			if task.cancelFn != nil {
+				task.cancelFn()
+			}
+			for _, cleanup := range task.cleanupFns {
+				if cleanup != nil {
+					cleanup()
+				}
+			}
+			delete(m.tasks, ref)
+			removed++
+		}
 	}
-	return task.err == nil && task.done
+
+	if removed > 0 {
+		m.log.Debugf("Cleaned up %d stale prefetch tasks", removed)
+	}
 }
 
 func (m *prefetchManager) Cleanup() {
@@ -393,7 +441,9 @@ func (m *prefetchManager) Cleanup() {
 		}
 		// fire cleanups
 		for _, cleanup := range task.cleanupFns {
-			cleanup()
+			if cleanup != nil {
+				cleanup()
+			}
 		}
 	}
 

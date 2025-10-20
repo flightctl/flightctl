@@ -24,7 +24,7 @@ tracing:
 ```
 
 - `enabled` **(required)**: Enables or disables tracing.
-- `endpoint` **(optional)**: The OTLP HTTP endpoint for exporting traces. Defaults to `https://localhost:4318/v1/traces` if not specified.
+- `endpoint` **(optional)**: The OTLP HTTP endpoint for exporting traces. Defaults to [https://localhost:4318/v1/traces](https://localhost:4318/v1/traces) if not specified.
 - `insecure` **(optional)**: Set to true to allow HTTP (non-TLS) connections—useful in development environments.
 
 > [!NOTE]
@@ -43,7 +43,7 @@ podman run --rm --network host jaegertracing/all-in-one:latest
 > [!NOTE]
 > You can use the default Flightctl tracing configuration with `insecure: true` to send traces to this Jaeger instance over HTTP.
 
-Once the container is running, open your browser and navigate to: <http://localhost:16686>
+Once the container is running, open your browser and navigate to [http://localhost:16686](http://localhost:16686)
 
 This brings up the Jaeger web interface, where you can:
 

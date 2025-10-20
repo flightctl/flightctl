@@ -22,6 +22,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sync/semaphore"
 )
 
 // MockKVStore implements kvstore.KVStore for testing
@@ -50,6 +51,7 @@ func serviceHandler() *ServiceHandler {
 		workerClient: &DummyWorkerClient{},
 		kvStore:      &MockKVStore{},
 		log:          logrus.New(),
+		agentGate:    semaphore.NewWeighted(MaxConcurrentAgents),
 	}
 }
 

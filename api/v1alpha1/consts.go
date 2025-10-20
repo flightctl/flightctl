@@ -89,6 +89,7 @@ const (
 	OrganizationAPIVersion = "v1alpha1"
 	OrganizationKind       = "Organization"
 	OrganizationListKind   = "OrganizationList"
+	OrganizationIDQueryKey = "org_id"
 
 	SystemKind           = "System"
 	SystemComponentDB    = "database"

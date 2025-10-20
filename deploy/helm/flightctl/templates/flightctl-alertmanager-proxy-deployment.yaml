@@ -24,19 +24,21 @@ spec:
     spec:
       serviceAccountName: flightctl-alertmanager-proxy
       initContainers:
-        - name: init-certs
-          image: "registry.access.redhat.com/ubi9/ubi-minimal:latest"
-          command:
-            - /bin/sh
-            - -c
-            - |
-              mkdir -p /root/.flightctl/certs /tmp/certs /tmp/ca-certs
-              chmod 700 /root/.flightctl/certs /tmp/certs /tmp/ca-certs
-          volumeMounts:
-            - mountPath: /root/.flightctl
-              name: flightctl-config-dir
-            - mountPath: /tmp
-              name: tmp-dir
+      {{- include "flightctl.databaseWaitInitContainer" (dict "context" . "userType" "app") | nindent 6 }}
+      {{- include "flightctl.migrationWaitInitContainer" (dict "context" . "timeout" 600) | nindent 6 }}
+      - name: init-certs
+        image: "registry.access.redhat.com/ubi9/ubi-minimal:latest"
+        command:
+          - /bin/sh
+          - -c
+          - |
+            mkdir -p /root/.flightctl/certs /tmp/certs /tmp/ca-certs
+            chmod 700 /root/.flightctl/certs /tmp/certs /tmp/ca-certs
+        volumeMounts:
+          - mountPath: /root/.flightctl
+            name: flightctl-config-dir
+          - mountPath: /tmp
+            name: tmp-dir
       containers:
         - name: alertmanager-proxy
           image: "{{ .Values.alertmanagerProxy.image.image }}:{{ default .Chart.AppVersion .Values.alertmanagerProxy.image.tag }}"

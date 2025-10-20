@@ -1,4 +1,4 @@
-# Flight Control User Documentation
+# User Documentation
 
 Welcome to the Flight Control user documentation.
 
@@ -14,7 +14,7 @@ Welcome to the Flight Control user documentation.
   * [Considerations for Specific Target Platforms](building-images.md#considerations-for-specific-target-platforms)
     * [Red Hat OpenShift Virtualization](building-images.md#red-hat-openshift-virtualization)
     * [VMware vSphere](building-images.md#vmware-vsphere)
-  * [Best Practices](building-images.md#best-practices)
+  * [Best Practices](building-images.md#best-practices-when-building-images)
 * **[Provisioning Devices](provisioning-devices.md)** - How to provision a device with an OS image.
   * [Testing an OS image on a developer machine](provisioning-devices.md#testing-an-os-image-on-a-developer-machine)
   * [Provisioning Physical Devices](provisioning-devices.md#provisioning-physical-devices)
@@ -38,7 +38,6 @@ Welcome to the Flight Control user documentation.
   * [Selecting Devices into a Fleet](managing-fleets.md#selecting-devices-into-a-fleet)
   * [Defining Device Templates](managing-fleets.md#defining-device-templates)
   * [Defining Rollout Policies](managing-fleets.md#defining-rollout-policies)
-  * [Managing Fleets Using GitOps](managing-fleets.md#managing-fleets-using-gitops)
 * **Solving Specific Use Cases** - How to solve specific use cases in Flight Control.
   * [Auto-Registering Devices with MicroShift into ACM](registering-microshift-devices-acm.md)
   * [Adding Device Observability](device-observability.md)

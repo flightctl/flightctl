@@ -64,13 +64,12 @@ jobs:
             docs/**
             .github/**
             examples/**
-            packaging/rpm/**
-
       - name: Free Disk Space (Ubuntu)
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         uses: jlumbroso/free-disk-space@main
         with:
           tool-cache: false
+          large-packages: false # disabling this will result in ~4.6 GB not freed, but will save 2-3 minutes of exec time
 
       - name: Restore APT cache
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
@@ -159,9 +158,17 @@ jobs:
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         run: DISABLE_FIPS="true" make deploy
 
+      - name: Check disk space after deploy
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        run: df -h
+
       - name: Prepare the E2E test environment
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         run: make prepare-e2e-test
+
+      - name: Check disk space after prepare e2e
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        run: df -h
 
       - name: Set permissions for APT before save
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
@@ -235,6 +242,10 @@ jobs:
           GINKGO_LABEL_FILTER: ${{ inputs.label_filter || 'sanity' }}
           GINKGO_TOTAL_NODES: ${{ env.GINKGO_TOTAL_NODES }}
           GINKGO_NODE: ${{ matrix.ginkgo_node }}
+
+      - name: Check disk space at end
+        if: always() && steps.changed-files.outputs.any_changed == 'true'
+        run: df -h
 
       # =================================================================
       # This step now uploads logs to a unique artifact for each job

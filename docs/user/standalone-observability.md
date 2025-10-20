@@ -1,6 +1,6 @@
-# FlightCtl Standalone Observability Stack
+# Flight Control Standalone Observability Stack
 
-This comprehensive guide covers the complete FlightCtl observability stack, including installation, configuration, management, and troubleshooting.
+This comprehensive guide covers the complete Flight Control observability stack, including installation, configuration, management, and troubleshooting.
 
 ## Table of Contents
 
@@ -16,13 +16,13 @@ This comprehensive guide covers the complete FlightCtl observability stack, incl
 
 ## Overview
 
-FlightCtl provides flexible observability solutions to meet different deployment scenarios. The system supports two main use cases:
+Flight Control provides flexible observability solutions to meet different deployment scenarios. The system supports two main use cases:
 
 ### Use Case 1: External Observability Stack Integration
 
-**Scenario**: You already have an existing observability stack (Prometheus, Grafana, Jaeger, etc.) and want to integrate FlightCtl telemetry into it.
+**Scenario**: You already have an existing observability stack (Prometheus, Grafana, Jaeger, etc.) and want to integrate Flight Control telemetry into it.
 
-**Solution**: Deploy only the **Telemetry Gateway** as a bridge between FlightCtl and your external observability infrastructure.
+**Solution**: Deploy only the **Telemetry Gateway** as a bridge between Flight Control and your external observability infrastructure.
 
 **Benefits**:
 
@@ -33,7 +33,7 @@ FlightCtl provides flexible observability solutions to meet different deployment
 
 ### Use Case 2: Standalone Observability Stack
 
-**Scenario**: You need a complete, self-contained observability solution for FlightCtl.
+**Scenario**: You need a complete, self-contained observability solution for Flight Control.
 
 **Solution**: Deploy the **full observability stack** including:
 
@@ -45,13 +45,13 @@ FlightCtl provides flexible observability solutions to meet different deployment
 **Benefits**:
 
 - Complete out-of-the-box monitoring solution
-- Pre-configured FlightCtl dashboards
+- Pre-configured Flight Control dashboards
 - Integrated authentication with AAP
 - No external dependencies
 
 All components run as Podman containers managed by systemd, providing enterprise-grade reliability and integration with existing infrastructure.
 
-**Important**: Both the standalone Telemetry Gateway and the full observability stack can be installed and operated independently without requiring core FlightCtl services (flightctl-api, flightctl-worker, flightctl-db, flightctl-kv) to be running. This allows you to set up observability infrastructure before or alongside your main FlightCtl deployment.
+**Important**: Both the standalone Telemetry Gateway and the full observability stack can be installed and operated independently without requiring core Flight Control services (`flightctl-api`, `flightctl-worker`, `flightctl-db`, `flightctl-kv`) to be running. This allows you to set up observability infrastructure before or alongside your main Flight Control deployment.
 
 ## Service Management
 
@@ -74,6 +74,10 @@ sudo systemctl enable flightctl-observability.target
 
 ```bash
 # When you change /etc/flightctl/service-config.yaml
+# First, ensure root is logged in to flightctl
+sudo flightctl login
+
+# Then regenerate configs
 sudo flightctl-render-observability      # Regenerate configs
 sudo systemctl restart flightctl-observability.target  # Apply changes
 ```
@@ -93,7 +97,7 @@ sudo systemctl restart flightctl-observability.target  # Apply changes
 
 **Two-step process:**
 
-1. **Config changes**: `sudo flightctl-render-observability` (renders templates)
+1. **Config changes**: `sudo flightctl login` then `sudo flightctl-render-observability` (renders templates)
 2. **Service management**: `sudo systemctl start/stop/restart flightctl-observability.target`
 
 ## Architecture
@@ -102,7 +106,7 @@ sudo systemctl restart flightctl-observability.target  # Apply changes
 
 ```text
 ┌─────────────────────────────────────────────────────────────────┐
-│                    FlightCtl Observability Stack                │
+│                    Flight Control Observability Stack           │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
 │  ┌─────────────┐    ┌──────────────┐    ┌─────────────────────┐ │
@@ -149,37 +153,39 @@ External Access (Published Ports)
 - **Internal Communication**: Containers communicate via container names (e.g., `flightctl-prometheus:9090`)
 - **External Access**: Telemetry Gateway always exposes external ports; Grafana only in full stack mode
 - **Security**: Prometheus and UserInfo proxy are internal-only for security
-- **Network Isolation**: All components isolated within the flightctl network
+- **Network Isolation**: All components isolated within the `flightctl` network
 - **Flexibility**: Telemetry Gateway can forward data to external systems or internal Prometheus
 
 **Network Configuration:**
 
-The observability services use the shared `flightctl` Podman network that is managed by the core FlightCtl services. This network:
+The observability services use the shared `flightctl` Podman network that is managed by the core Flight Control services. This network:
 
-- Provides integration with other FlightCtl services
+- Provides integration with other Flight Control services
 - Enables secure internal communication between observability components
 - Allows containers to reference each other by name (e.g., `flightctl-prometheus:9090`)
-- Is created and managed by the core FlightCtl services package
-- Is shared between all FlightCtl components including observability services
+- Is created and managed by the core `flightctl-services` package
+- Is shared between all Flight Control components including observability services
 
 ## Installation Order
 
-The observability services require the `flightctl` network from the core FlightCtl services, but you have flexibility in installation order:
+The observability services require the `flightctl` network from the core Flight Control services, but you have flexibility in installation order:
 
 ### Option 1: Services First (Recommended)
 
-1. Install core FlightCtl services (`flightctl-services`) to create the `flightctl` network
+1. Install core Flight Control services (`flightctl-services`) to create the `flightctl` network
 2. Install observability services (`flightctl-telemetry-gateway` or `flightctl-observability`)
-3. Run `sudo flightctl-render-observability` to generate configuration files
-4. Start observability services with systemd targets
-5. Core services will automatically send telemetry to existing observability infrastructure
+3. Log in as root: `sudo flightctl login`
+4. Run `sudo flightctl-render-observability` to generate configuration files
+5. Start observability services with systemd targets
+6. Core services will automatically send telemetry to existing observability infrastructure
 
 ### Option 2: Simultaneous Installation
 
 1. Install both core services (`flightctl-services`) and observability services
-2. Run `sudo flightctl-render-observability` to generate configuration files
-3. Start observability services with systemd targets
-4. The `flightctl` network will be available for observability services
+2. Log in as root: `sudo flightctl login`
+3. Run `sudo flightctl-render-observability` to generate configuration files
+4. Start observability services with systemd targets
+5. The `flightctl` network will be available for observability services
 
 **Note**: The observability services will fail to start if the `flightctl` network is not available or if configuration files haven't been generated, so ensure the core services are installed first and configuration is rendered.
 
@@ -187,7 +193,7 @@ The observability services require the `flightctl` network from the core FlightC
 
 ### Scenario 1: External Observability Stack Integration
 
-**When to Use**: You already have an existing observability infrastructure (Prometheus, Grafana, Jaeger, etc.) and want to integrate FlightCtl telemetry into it.
+**When to Use**: You already have an existing observability infrastructure (Prometheus, Grafana, Jaeger, etc.) and want to integrate Flight Control telemetry into it.
 
 **Components Included**:
 
@@ -198,7 +204,7 @@ The observability services require the `flightctl` network from the core FlightC
 - Podman and systemd installed
 - External observability stack configured to receive OTLP data
 
-**Note**: Telemetry Gateway requires the `flightctl` network, which is provided by the core FlightCtl services package
+**Note**: Telemetry Gateway requires the `flightctl` network, which is provided by the `flightctl-services` package
 
 **Installation**:
 
@@ -212,6 +218,10 @@ sudo dnf install flightctl-telemetry-gateway
 # 3. Configures systemd service (but does not start or enable it)
 
 # Generate configuration files from service-config.yaml:
+# First, ensure root is logged in to flightctl
+sudo flightctl login
+
+# Then render configuration templates
 sudo flightctl-render-observability
 
 # To start the telemetry gateway service:
@@ -244,7 +254,7 @@ observability:
 
 ### Scenario 2: Standalone Observability Stack
 
-**When to Use**: You need a complete, self-contained observability solution for FlightCtl without external dependencies.
+**When to Use**: You need a complete, self-contained observability solution for Flight Control without external dependencies.
 
 **Components Included**:
 
@@ -257,7 +267,7 @@ observability:
 
 - Podman and systemd installed
 
-**Note**: Observability stack requires the `flightctl` network from the core FlightCtl services package
+**Note**: Observability stack requires the `flightctl` network from the `flightctl-services` package
 
 **Installation**:
 
@@ -271,6 +281,10 @@ sudo dnf install flightctl-observability
 # 3. Configures systemd services (but does not start or enable them)
 
 # Generate configuration files from service-config.yaml:
+# First, ensure root is logged in to flightctl
+sudo flightctl login
+
+# Then render configuration templates
 sudo flightctl-render-observability
 
 # To start all observability services:
@@ -303,7 +317,7 @@ sudo systemctl enable flightctl-observability.target
 
 **Key Features**:
 
-- Pre-configured FlightCtl dashboards
+- Pre-configured Flight Control dashboards
 - OAuth integration with identity providers
 - HTTPS support with custom certificates
 - Automatic Prometheus data source configuration
@@ -326,7 +340,7 @@ observability:
       client_id: your-oauth-client-id
       auth_url: https://your-aap.com/o/authorize
       token_url: https://your-aap.com/o/token
-      api_url: http://flightctl-userinfo-proxy:8080
+      api_url: http://flightctl-userinfo-proxy:8080/userinfo
       tls_skip_verify: false
       local_admin_user: admin
       local_admin_password: secure-password
@@ -342,7 +356,7 @@ observability:
 
 **Key Features**:
 
-- Automatic FlightCtl service discovery
+- Automatic Flight Control service discovery
 - Configurable retention policies
 - Built-in query interface
 - Integration with Grafana
@@ -362,11 +376,11 @@ observability:
     # No published_port - internal only
 ```
 
-**Note**: Prometheus configuration is automatically generated to scrape FlightCtl services and the OpenTelemetry collector.
+**Note**: Prometheus configuration is automatically generated to scrape Flight Control services and the OpenTelemetry collector.
 
 ### Telemetry Gateway
 
-**Purpose**: FlightCtl-specific telemetry data collection, processing, and forwarding with device authentication and attribute enrichment.
+**Purpose**: Flight Control-specific telemetry data collection, processing, and forwarding with device authentication and attribute enrichment.
 
 **Key Features**:
 
@@ -422,7 +436,7 @@ observability:
             caFile: "/etc/telemetry-gateway/certs/ca.crt"
 ```
 
-**Note**: The `config` field contains the telemetry gateway configuration as a YAML object. The `flightctl-render-observability` script extracts this configuration using `yq` and writes it to `/etc/flightctl/telemetry-gateway/config.yaml`.
+**Note**: The `config` field contains the telemetry gateway configuration as a YAML object. The `flightctl-render-observability` script extracts this configuration using Python and `jq`, and writes it to `/etc/flightctl/telemetry-gateway/config.yaml`.
 
 ### UserInfo Proxy
 
@@ -471,11 +485,16 @@ observability:
       client_id: your-oauth-client-id
       auth_url: https://your-idp.com/o/authorize
       token_url: https://your-idp.com/o/token
-      api_url: http://flightctl-userinfo-proxy:8080  # Internal container communication
+      api_url: http://flightctl-userinfo-proxy:8080/userinfo  # Internal container communication
+      scopes: read  # OAuth scopes to request
       tls_skip_verify: false  # Skip TLS verification for OAuth endpoints
-      local_admin_user: admin
-      local_admin_password: secure-password
     
+    # Local Admin Configuration (used when OAuth is disabled)
+    local_admin_user: admin
+    local_admin_password: secure-password
+    
+    # Server Configuration
+    root_url: http://localhost:3000  # Root URL for Grafana (used for OAuth redirects)
     protocol: http  # or https
     
     # HTTPS Configuration (Optional - only needed when protocol: https)
@@ -504,20 +523,24 @@ observability:
 
 1. **All configuration is in service-config.yaml**: No need to edit individual container files or environment variables
 2. **Automatic template generation**: The system automatically generates container configurations from your service-config.yaml
-3. **Hot configuration**: Use `sudo flightctl-render-observability` then restart services with systemd targets
+3. **Hot configuration**: Use `sudo flightctl login` then `sudo flightctl-render-observability` then restart services with systemd targets
 4. **Built-in validation**: The system automatically validates your configuration and provides clear error messages
 
 ## Configuration Management
 
 ### Configuration Management System
 
-FlightCtl separates configuration management from service management for better control.
+Flight Control separates configuration management from service management for better control.
 
 #### Configuration Rendering
 
 **Render Configuration Templates**:
 
 ```bash
+# First, ensure root is logged in to flightctl
+sudo flightctl login
+
+# Then render configuration templates
 sudo flightctl-render-observability
 ```
 
@@ -564,6 +587,10 @@ These commands work whether you have the full observability stack, standalone Te
 2. **Render updated configuration**:
 
    ```bash
+   # Ensure root is logged in to flightctl
+   sudo flightctl login
+   
+   # Render configuration templates
    sudo flightctl-render-observability
    ```
 
@@ -607,7 +634,7 @@ observability:
       client_id: your-oauth-client-id
       auth_url: https://your-idp.com/o/authorize
       token_url: https://your-idp.com/o/token
-      api_url: http://flightctl-userinfo-proxy:8080  # Points to internal proxy
+      api_url: http://flightctl-userinfo-proxy:8080/userinfo  # Points to internal proxy
       
   userinfo_proxy:
     upstream_url: https://your-aap-instance.com/api/gateway/v1/me/  # Your AAP instance's user API endpoint
@@ -705,16 +732,17 @@ observability:
           prometheus: "your-prometheus.company.com:9090"
 ```
 
-**Note**: The telemetry gateway configuration is provided as a YAML object in the `config` field. The `flightctl-render-observability` script extracts this configuration using `yq` and writes it to `/etc/flightctl/telemetry-gateway/config.yaml`.
+**Note**: The telemetry gateway configuration is provided as a YAML object in the `config` field. The `flightctl-render-observability` script extracts this configuration using Python and `jq`, and writes it to `/etc/flightctl/telemetry-gateway/config.yaml`.
 
 **Management Commands Available**:
 
 Even when installing only the Telemetry Gateway, you have access to the management commands:
 
+- `sudo flightctl login` - Log in as root to flightctl (required before rendering)
 - `sudo flightctl-render-observability` - Render configuration templates from `service-config.yaml`
 - `sudo systemctl start/stop/restart flightctl-telemetry-gateway.target` - Manage telemetry gateway service
 
-**Two-step process**: First render configuration with `flightctl-render-observability`, then manage services with systemd targets. This separation provides better control and follows systemd best practices.
+**Two-step process**: First log in with `sudo flightctl login`, then render configuration with `sudo flightctl-render-observability`, then manage services with systemd targets. This separation provides better control and follows systemd best practices.
 
 ### Standalone Stack Configuration (No OAuth)
 
@@ -727,8 +755,9 @@ observability:
     published_port: 3000
     oauth:
       enabled: false
-      local_admin_user: admin
-      local_admin_password: secure-password
+    
+    local_admin_user: admin
+    local_admin_password: secure-password
 
   prometheus:
     image: docker.io/prom/prometheus:latest
@@ -757,10 +786,12 @@ observability:
       client_id: flightctl-grafana-client
       auth_url: https://your-aap-instance.com/o/authorize
       token_url: https://your-aap-instance.com/o/token
-      api_url: http://flightctl-userinfo-proxy:8080
+      api_url: http://flightctl-userinfo-proxy:8080/userinfo
+      scopes: read
       tls_skip_verify: false
-      local_admin_user: admin
-      local_admin_password: fallback-password
+    
+    local_admin_user: admin
+    local_admin_password: fallback-password
 
   prometheus:
     image: docker.io/prom/prometheus:latest
@@ -798,7 +829,8 @@ observability:
       client_id: flightctl-grafana-client
       auth_url: https://your-aap-instance.com/o/authorize
       token_url: https://your-aap-instance.com/o/token
-      api_url: http://flightctl-userinfo-proxy:8080
+      api_url: http://flightctl-userinfo-proxy:8080/userinfo
+      scopes: read
       tls_skip_verify: false
 
   prometheus:
@@ -844,10 +876,12 @@ observability:
       client_id: dev-grafana-client
       auth_url: https://dev-auth.local/o/authorize
       token_url: https://dev-auth.local/o/token
-      api_url: http://flightctl-userinfo-proxy:8080
+      api_url: http://flightctl-userinfo-proxy:8080/userinfo
+      scopes: read
       tls_skip_verify: true  # OK for development
-      local_admin_user: admin
-      local_admin_password: dev-password
+    
+    local_admin_user: admin
+    local_admin_password: dev-password
 
   prometheus:
     image: docker.io/prom/prometheus:latest
@@ -900,8 +934,9 @@ observability:
     published_port: 8080  # Use port 8080 instead of 3000
     oauth:
       enabled: false
-      local_admin_user: admin
-      local_admin_password: secure-password
+    
+    local_admin_user: admin
+    local_admin_password: secure-password
 
   prometheus:
     image: docker.io/prom/prometheus:latest
@@ -923,7 +958,7 @@ observability:
 
 ## Configuration Reference
 
-This section provides detailed documentation for every configuration variable available in the FlightCtl observability stack.
+This section provides detailed documentation for every configuration variable available in the Flight Control observability stack.
 
 ### Grafana Configuration Variables
 
@@ -1006,9 +1041,16 @@ This section provides detailed documentation for every configuration variable av
 
 - **Type**: String (URL)
 - **Default**: Empty
-- **Description**: OAuth user info API endpoint. Grafana calls this to get user information. For AAP integration, use the UserInfo proxy: `http://flightctl-userinfo-proxy:8080`
+- **Description**: OAuth user info API endpoint. Grafana calls this to get user information. For AAP integration, use the UserInfo proxy: `http://flightctl-userinfo-proxy:8080/userinfo`
 - **Required**: When `oauth.enabled: true`
-- **Example**: `http://flightctl-userinfo-proxy:8080`
+- **Example**: `http://flightctl-userinfo-proxy:8080/userinfo`
+
+**`observability.grafana.oauth.scopes`**
+
+- **Type**: String
+- **Default**: `read`
+- **Description**: OAuth scopes to request from the identity provider. Specifies what permissions the OAuth application should request.
+- **Example**: `read`, `read write`, `openid profile email`
 
 **`observability.grafana.oauth.tls_skip_verify`**
 
@@ -1018,20 +1060,31 @@ This section provides detailed documentation for every configuration variable av
 - **Security**: Always use `false` in production
 - **Example**: `true` (development only)
 
-**`observability.grafana.oauth.local_admin_user`**
+#### Local Admin Configuration
+
+**`observability.grafana.local_admin_user`**
 
 - **Type**: String
 - **Default**: `admin`
-- **Description**: Username for local Grafana admin account. This account can be used as fallback when OAuth is unavailable.
+- **Description**: Username for local Grafana admin account. This account can be used as fallback when OAuth is unavailable or disabled.
 - **Example**: `admin`
 
-**`observability.grafana.oauth.local_admin_password`**
+**`observability.grafana.local_admin_password`**
 
 - **Type**: String
 - **Default**: `defaultadmin`
 - **Description**: Password for local Grafana admin account. Change this from the default for security.
 - **Security**: Use a strong password in production
 - **Example**: `secure-admin-password-123`
+
+#### Server Configuration
+
+**`observability.grafana.root_url`**
+
+- **Type**: String (URL)
+- **Default**: `http://localhost:3000`
+- **Description**: Root URL for Grafana. Used for OAuth redirects and asset loading. Should match the external URL where Grafana is accessible.
+- **Example**: `https://grafana.yourdomain.com`, `http://server-ip:3000`
 
 ### Prometheus Configuration Variables
 
@@ -1048,14 +1101,14 @@ This section provides detailed documentation for every configuration variable av
 
 - **Type**: String
 - **Default**: `quay.io/flightctl/flightctl-telemetry-gateway:latest`
-- **Description**: Container image for FlightCtl Telemetry Gateway. This is a specialized OpenTelemetry collector with device authentication and attribute enrichment.
+- **Description**: Container image for Flight Control Telemetry Gateway. This is a specialized OpenTelemetry collector with device authentication and attribute enrichment.
 - **Example**: `quay.io/flightctl/flightctl-telemetry-gateway:v1.0.0`
 
 **`observability.telemetry_gateway.grpc_port`**
 
 - **Type**: Integer
 - **Default**: `4317`
-- **Description**: External port for OpenTelemetry gRPC receiver. FlightCtl agents send telemetry data to this port using OTLP/gRPC protocol.
+- **Description**: External port for OpenTelemetry gRPC receiver. Flight Control agents send telemetry data to this port using OTLP/gRPC protocol.
 - **Example**: `14317`
 
 **`observability.telemetry_gateway.prometheus_port`**
@@ -1073,7 +1126,7 @@ The telemetry gateway uses a nested YAML object in the `config` field for its in
 
 - **Type**: YAML Object
 - **Default**: Empty
-- **Description**: Telemetry gateway configuration as a YAML object. The `flightctl-render-observability` script extracts this configuration using `yq` and writes it to `/etc/flightctl/telemetry-gateway/config.yaml`.
+- **Description**: Telemetry gateway configuration as a YAML object. The `flightctl-render-observability` script extracts this configuration using Python and `jq`, and writes it to `/etc/flightctl/telemetry-gateway/config.yaml`.
 - **Example**: See the sample configurations above for complete examples.
 
 **Configuration Structure**:
@@ -1090,7 +1143,7 @@ telemetryGateway:
   listen:
     device: "0.0.0.0:4317"           # Address and port for device connections
   export:
-    prometheus: "flightctl-prometheus:9090"  # Prometheus export endpoint
+    prometheus: "0.0.0.0:9090"  # Prometheus export endpoint
   forward:
     endpoint: "external-collector.company.com:4317"  # External forwarding endpoint
     tls:

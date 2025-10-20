@@ -2,31 +2,28 @@
 
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 source "${SCRIPT_DIR}"/functions
-KUBECONFIG_PATH="${1:-/home/kni/clusterconfigs/auth/kubeconfig}"
-echo "kubeconfig path is: ${KUBECONFIG_PATH}"
-export KUBECONFIG=${KUBECONFIG_PATH}
 
 # Variables
-VM_NAME="test-vm"
+VM_NAME=${VM_NAME:-"quadlets-vm"}
 VM_RAM=10240                # RAM in MB necessary to run the flightctl e2e
 VM_CPUS=8                  # Number of CPUs
 VM_DISK_SIZE_INC=${VM_DISK_SIZE_INC:-30} # Disk size increment
-NETWORK_NAME="$(get_ocp_nodes_network)"   # Network name
-NETWORK_NAME=${NETWORK_NAME:-baremetal-0}
-DEFAULT_NETWORK_NAME="default"
-echo "ocp_network name is: ${NETWORK_NAME}"
 echo "Disk size increment: ${VM_DISK_SIZE_INC}G"
-ISO_URL="https://cloud.centos.org/centos/9-stream/x86_64/images/CentOS-Stream-GenericCloud-x86_64-9-latest.x86_64.qcow2"
+QUAY_ISO_URL="quay.io/flightctl-tests/rhel:rhel-9.6"
 DISK_PATH="/var/lib/libvirt/images/${VM_NAME}.qcow2"
 DISK_PATH_SRC="/var/lib/libvirt/images/${VM_NAME}_src.qcow2"
 VIRT_BRIDGE="virbr0"         # Default libvirt bridge
 TIMEOUT_SECONDS=30
-USER="kni"
+USER=${USER:-$(whoami)}
 USER_HOME="/home/${USER}"   # user $HOME in the vm
-SSH_PRIVATE_KEY_PATH="/home/${USER}/.ssh/id_rsa"
-SSH_PUBLIC_KEY_PATH="/home/${USER}/.ssh/id_rsa.pub"
+SSH_PRIVATE_KEY_PATH=${SSH_PRIVATE_KEY_PATH:-"/home/${USER}/.ssh/id_rsa"}
+SSH_PUBLIC_KEY_PATH=${SSH_PUBLIC_KEY_PATH:-"/home/${USER}/.ssh/id_rsa.pub"}
 USER_DATA_FILE="user-data.yaml"
-REMOTE_URL=$(git remote get-url origin 2>/dev/null || echo "https://github.com/flightctl/flightctl.git")
+REMOTE_URL=${REMOTE_URL:-"https://github.com/flightctl/flightctl.git"}
+RPM_COPR="$(copr_repo)"
+RPM_COPR=${RPM_COPR:-"@redhat-et/flightctl-dev"}
+RPM_PACKAGE="flightctl-services"
+RPM_CLIENT="flightctl-cli"
 
 # Generate user-data file
 echo "Generating user-data file..."
@@ -52,7 +49,9 @@ virsh undefine ${VM_NAME}
 # Get the image
 if [ ! -f $DISK_PATH_SRC ]; then
     echo "Source image ${DISK_PATH_SRC} not found! Downloading it..."
-    curl -o ${DISK_PATH_SRC} ${ISO_URL}
+    sudo podman create --name tempdisk ${QUAY_ISO_URL}
+    sudo podman cp tempdisk:/disk.qcow2 ${DISK_PATH_SRC}
+    sudo podman rm tempdisk
 fi
 
 if [ -f $DISK_PATH ]; then
@@ -68,10 +67,6 @@ echo "Resizing image ${DISK_PATH}..."
 qemu-img resize ${DISK_PATH} +${VM_DISK_SIZE_INC}G && \
 qemu-img info --output=json "${DISK_PATH}"
 
-# Restart default network
-sudo virsh net-destroy ${DEFAULT_NETWORK_NAME}
-sudo virsh net-start ${DEFAULT_NETWORK_NAME}
-
 # Create the VM
 echo "Creating virtual machine ${VM_NAME}..."
 virt-install \
@@ -80,8 +75,7 @@ virt-install \
   --vcpus $VM_CPUS \
   --disk path=$DISK_PATH,format=qcow2 \
   --os-variant centos-stream9  \
-  --network network=$DEFAULT_NETWORK_NAME \
-  --network network=$NETWORK_NAME,model=virtio \
+  --network network="default" \
   --import \
   --cpu host-model \
   --graphics none \
@@ -95,14 +89,11 @@ sleep ${TIMEOUT_SECONDS}
 # Configure the VM
 echo "Provisioning the VM..."
 
-# Get the VM IPs
+# Get the VM IP
 export INTERFACE_DEFAULT=$(sudo virsh domiflist ${VM_NAME} | grep default | awk '{print $1}')
 VM_DEFAULT_IP=$(sudo virsh domifaddr ${VM_NAME} --interface ${INTERFACE_DEFAULT} | awk '/ipv4/ {print $4}' | cut -d'/' -f1)
 echo "VM DEFAULT IP: ${VM_DEFAULT_IP}"
 
-export INTERFACE_BM=$(sudo virsh domiflist ${VM_NAME} | grep ${NETWORK_NAME} | awk '{print $1}')
-VM_IP=$(sudo virsh domifaddr ${VM_NAME} --interface ${INTERFACE_BM} | awk '/ipv4/ {print $4}' | cut -d'/' -f1)
-echo "VM IP: ${VM_IP}"
 
 # Executing commands
 echo "Executing commands in the VM..."
@@ -110,10 +101,17 @@ echo "Executing commands in the VM..."
 ssh -i ${SSH_PRIVATE_KEY_PATH} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ${USER}@${VM_DEFAULT_IP} <<EOF
 
   # Install necessary packages
-  sudo dnf install -y epel-release libvirt libvirt-client virt-install swtpm \
+  sudo subscription-manager register --username $REDHAT_USER --password $REDHAT_PASSWORD
+  sudo dnf install -y \
+  https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm
+  sudo dnf repolist
+  sudo dnf install -y libvirt libvirt-client virt-install swtpm \
                     make golang git \
                     podman qemu-kvm sshpass
   sudo dnf --enablerepo=crb install -y libvirt-devel
+
+  sudo dnf copr -y enable ${RPM_COPR}
+  sudo dnf install -y ${RPM_PACKAGE} ${RPM_CLIENT}
 
   # Install OpenShift client
   echo "Installing OpenShift client..."
@@ -132,6 +130,11 @@ ssh -i ${SSH_PRIVATE_KEY_PATH} -o StrictHostKeyChecking=no -o UserKnownHostsFile
 [Service]
 Delegate=yes
 EOF2
+
+  # Start flightctl services
+  sudo systemctl start flightctl.target
+  cd $USER_HOME/flightctl
+  flightctl login https://localhost:3443 -k
 EOF
 
 # Clean up
@@ -139,5 +142,5 @@ echo "Cleaning up stuff..."
 rm ${USER_DATA_FILE}
 
 # Greetings
-echo "You can access the created VM with ssh ${USER}@${VM_IP}"
+echo "You can access the created VM with ssh ${USER}@${VM_DEFAULT_IP}"
 echo "VM creation and provisioning complete!"

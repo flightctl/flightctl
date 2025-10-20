@@ -291,7 +291,7 @@ The alert exporter exposes comprehensive metrics on port 8081:
 - Checkpoint operation metrics
 - System health and uptime
 
-See [metrics.md](../metrics.md) for complete metrics documentation.
+See [metrics.md](../user/metrics.md) for complete metrics documentation.
 
 ### Logging
 

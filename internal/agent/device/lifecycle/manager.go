@@ -216,7 +216,7 @@ func (m *LifecycleManager) wipeAndReboot(ctx context.Context) error {
 	m.enrollmentUIEndpoint = ""
 	m.enrollmentClient = nil
 	m.enrollmentCSR = nil
-	//delete desired.json current.json rollback.json
+	// delete desired.json current.json rollback.json
 	errs = m.deleteSpec(errs)
 
 	// TODO: incorporate before-reboot hooks
@@ -283,6 +283,7 @@ func (m *LifecycleManager) verifyEnrollment(ctx context.Context) (bool, error) {
 			if errors.Is(err, identity.ErrIdentityProofFailed) {
 				return false, fmt.Errorf("proving identity: %w", err)
 			}
+			m.log.Warnf("A retryable error occurred while proving the agent's identity: %v", err)
 			return false, nil
 		}
 		m.log.Info("Enrollment request not yet approved")

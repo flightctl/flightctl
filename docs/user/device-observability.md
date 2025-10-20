@@ -84,8 +84,8 @@ Apply the CSR and approve it with flightctl:
 Extract the issued certificate and CA:
 
 ```bash
-./bin/flightctl get csr/svc-telemetry-gateway -o yaml | yq '.status.certificate' | base64 -d > ./certs/svc-telemetry-gateway.crt
-./bin/flightctl enrollmentconfig | yq '.enrollment-service.service.certificate-authority-data' | base64 -d > ./certs/ca.crt
+./bin/flightctl get csr/svc-telemetry-gateway -o yaml | python3 -c "import sys, yaml, json; print(json.dumps(yaml.safe_load(sys.stdin)))" | jq -r '.status.certificate' | base64 -d > ./certs/svc-telemetry-gateway.crt
+./bin/flightctl enrollmentconfig | python3 -c "import sys, yaml, json; print(json.dumps(yaml.safe_load(sys.stdin)))" | jq -r '."enrollment-service".service."certificate-authority-data"' | base64 -d > ./certs/ca.crt
 ```
 
 Resulting files:
@@ -198,7 +198,7 @@ This shows a `bootc` based device image that installs flightctl-agent and OpenTe
 ```yaml
 FROM quay.io/centos-bootc/centos-bootc:stream9
 
-RUN dnf -y copr enable @redhat-et/flightctl && \
+RUN dnf -y config-manager --add-repo https://rpm.flightctl.io/flightctl-epel.repo && \
     dnf -y install flightctl-agent opentelemetry-collector && \
     dnf -y clean all && \
     systemctl enable flightctl-agent.service
@@ -270,9 +270,10 @@ RUN systemctl enable otelcol.service
 
 One way to extract the CA:
 
-```yaml
-flightctl enrollmentconfig \
-  | yq -r '.enrollment-service.service.certificate-authority-data' \
+```bash
+./bin/flightctl enrollmentconfig \
+  | python3 -c "import sys, yaml, json; print(json.dumps(yaml.safe_load(sys.stdin)))" \
+  | jq -r '."enrollment-service".service."certificate-authority-data"' \
   | base64 -d > /etc/otelcol/certs/ca.crt
 chmod 644 /etc/otelcol/certs/ca.crt
 ```
