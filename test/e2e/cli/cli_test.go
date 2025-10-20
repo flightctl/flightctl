@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
@@ -19,6 +20,7 @@ import (
 var (
 	unspecifiedResource  = "Error: name must be specified when deleting"
 	resourceCreated      = `(200 OK|201 Created)`
+	invalidResource      = "invalid resource kind"
 	strictfipsruntimeTag = "X:strictfipsruntime"
 )
 
@@ -621,6 +623,100 @@ var _ = Describe("cli login", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(cfg.AuthInfo.Token).ToNot(Equal(secondToken), "Token should have been refreshed")
 		})
+
+		It("CertificateSigningRequest deny flow validation", Label("85396", "sanity"),
+			func() {
+
+				harness := e2e.GetWorkerHarness()
+
+				By("CertificateSigningRequest: Resources lifecycle")
+				// Prepare a unique CSR YAML and ensure cleanup
+				uniqueCsrYAML, err := util.CreateUniqueYAMLFile("csr.yaml", harness.GetTestIDFromContext())
+				Expect(err).ToNot(HaveOccurred())
+				defer util.CleanupTempYAMLFile(uniqueCsrYAML)
+
+				// Apply CSR
+				var out string
+				Eventually(func() error {
+					var applyErr error
+					out, applyErr = harness.CLI("apply", "-f", uniqueCsrYAML)
+					return applyErr
+				}).Should(BeNil(), "failed to apply CSR")
+				Expect(out).To(MatchRegexp(resourceCreated))
+
+				// Extract CSR name from YAML
+				csr := harness.GetCertificateSigningRequestByYaml(uniqueCsrYAML)
+				Expect(csr.Metadata.Name).ToNot(BeNil(), "csr metadata.name should be set")
+				csrName := *csr.Metadata.Name
+				Expect(csrName).ToNot(BeEmpty())
+
+				By("verifying `flightctl deny -h` prints usage")
+				out, err = harness.ManageResource(util.DenyAction, "-h")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(out).To(ContainSubstring("Deny a certificate signing request."))
+				Expect(out).To(ContainSubstring("Usage:"))
+				Expect(out).To(ContainSubstring("flightctl deny csr/NAME"))
+
+				By(fmt.Sprintf("denying csr/%s", csrName))
+				out, err = harness.ManageResource(util.DenyAction, fmt.Sprintf("csr/%s", csrName))
+				Expect(err).NotTo(HaveOccurred(), "first deny should succeed")
+
+				By("verifying `flightctl get csr` shows CONDITION=Denied for the CSR")
+				out, err = harness.CLI("get", "csr")
+				Expect(err).NotTo(HaveOccurred())
+
+				lines := strings.Split(strings.TrimSpace(out), "\n")
+				Expect(len(lines)).To(BeNumerically(">=", 2), "expected at least one CSR entry")
+
+				header := strings.Fields(lines[0])
+				condIdx := slices.Index(header, "CONDITION")
+				Expect(condIdx).To(BeNumerically(">=", 0), "CONDITION column not found")
+
+				found := false
+				for _, line := range lines[1:] {
+					cols := strings.Fields(line)
+					if len(cols) > condIdx && cols[0] == csrName {
+						found = true
+						Expect(cols[condIdx]).To(Equal("Denied"))
+						break
+					}
+				}
+				Expect(found).To(BeTrue(), "expected CSR %s in output", csrName)
+
+				By("denying the same CSR again should fail")
+				out, err = harness.ManageResource(util.DenyAction, fmt.Sprintf("csr/%s", csrName))
+				Expect(err).To(HaveOccurred())
+				Expect(out).To(ContainSubstring("409"))
+
+				By("denying a non-existent CSR should fail with 404")
+				out, err = harness.ManageResource(util.DenyAction, "csr/fake-does-not-exist")
+				Expect(err).To(HaveOccurred())
+				Expect(out).To(ContainSubstring("404"))
+
+				By("accepting --request-timeout flag on successful deny")
+				out, err = harness.CLI("apply", "-f", uniqueCsrYAML)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(out).To(MatchRegexp(resourceCreated))
+				out, err = harness.ManageResource(util.DenyAction, fmt.Sprintf("csr/%s", csrName), "--request-timeout", "10")
+				Expect(err).NotTo(HaveOccurred())
+
+				By("calling deny with zero args should error")
+				out, err = harness.ManageResource(util.DenyAction, "")
+				Expect(err).To(HaveOccurred())
+				Expect(out).To(ContainSubstring("Error: accepts 1 arg(s), received 0"))
+
+				By("calling deny with empty resource should fail")
+				out, err = harness.ManageResource(util.DenyAction, "csr")
+				Expect(err).To(HaveOccurred())
+				Expect(out).To(ContainSubstring("Error: specify a specific request resource to deny"))
+
+				By("calling deny with invalid resource kind should error")
+				out, err = harness.ManageResource(util.DenyAction, "1234")
+				Expect(err).To(HaveOccurred())
+				Expect(out).To(ContainSubstring(invalidResource))
+
+			})
+
 	})
 })
 
