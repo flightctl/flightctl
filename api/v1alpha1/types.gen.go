@@ -15,6 +15,7 @@ import (
 // Defines values for AppType.
 const (
 	AppTypeCompose AppType = "compose"
+	AppTypeQuadlet AppType = "quadlet"
 )
 
 // Defines values for ApplicationStatusType.
@@ -431,6 +432,12 @@ type ApplicationVolumeStatus struct {
 
 // ApplicationsSummaryStatusType Status of all applications on the device.
 type ApplicationsSummaryStatusType string
+
+// ArtifactApplicationProviderSpec defines model for ArtifactApplicationProviderSpec.
+type ArtifactApplicationProviderSpec struct {
+	// Artifact Reference to an OCI artifact for the application package.
+	Artifact string `json:"artifact"`
+}
 
 // AuthConfig Auth config.
 type AuthConfig struct {
@@ -2529,6 +2536,32 @@ func (t *ApplicationProviderSpec) FromImageApplicationProviderSpec(v ImageApplic
 
 // MergeImageApplicationProviderSpec performs a merge with any union data inside the ApplicationProviderSpec, using the provided ImageApplicationProviderSpec
 func (t *ApplicationProviderSpec) MergeImageApplicationProviderSpec(v ImageApplicationProviderSpec) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsArtifactApplicationProviderSpec returns the union data inside the ApplicationProviderSpec as a ArtifactApplicationProviderSpec
+func (t ApplicationProviderSpec) AsArtifactApplicationProviderSpec() (ArtifactApplicationProviderSpec, error) {
+	var body ArtifactApplicationProviderSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromArtifactApplicationProviderSpec overwrites any union data inside the ApplicationProviderSpec as the provided ArtifactApplicationProviderSpec
+func (t *ApplicationProviderSpec) FromArtifactApplicationProviderSpec(v ArtifactApplicationProviderSpec) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeArtifactApplicationProviderSpec performs a merge with any union data inside the ApplicationProviderSpec, using the provided ArtifactApplicationProviderSpec
+func (t *ApplicationProviderSpec) MergeArtifactApplicationProviderSpec(v ArtifactApplicationProviderSpec) error {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
