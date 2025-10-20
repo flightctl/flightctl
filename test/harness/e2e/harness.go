@@ -1044,26 +1044,40 @@ func (h *Harness) RunGetEvents(args ...string) (string, error) {
 	return h.CLI(allArgs...)
 }
 
-// ManageResource performs an operation ("apply", "delete", or "approve") on a specified resource.
+// ManageResource performs an operation ("apply", "delete", "approve" or "deny") on a specified resource.
 func (h *Harness) ManageResource(operation, resource string, args ...string) (string, error) {
 	switch operation {
 	case "apply":
 		return h.applyResourceWithTestLabels(resource)
+
 	case "delete":
-		if len(args) > 0 {
-			deleteArgs := append([]string{"delete", resource}, args...)
-			return h.CLI(deleteArgs...)
+		deleteArgs := []string{"delete"}
+		if resource != "" {
+			deleteArgs = append(deleteArgs, resource)
 		}
-		if len(args) == 0 {
-			return h.CLI("delete", resource)
-		}
-		err := h.CleanUpTestResources(resource)
-		if err != nil {
-			return "", fmt.Errorf("failed to clean up test resources: %w", err)
-		}
-		return "", nil
+		deleteArgs = append(deleteArgs, args...)
+		return h.CLI(deleteArgs...)
+
 	case "approve":
-		return h.CLI("approve", resource)
+		approveArgs := []string{"approve"}
+		if resource != "" {
+			approveArgs = append(approveArgs, resource)
+		}
+		approveArgs = append(approveArgs, args...)
+		return h.CLI(approveArgs...)
+
+	case "deny":
+		// If no resource and no extra args → call bare `flightctl deny`
+		if resource == "" && len(args) == 0 {
+			return h.CLI("deny")
+		}
+		denyArgs := []string{"deny"}
+		if resource != "" {
+			denyArgs = append(denyArgs, resource)
+		}
+		denyArgs = append(denyArgs, args...)
+		return h.CLI(denyArgs...)
+
 	default:
 		return "", fmt.Errorf("unsupported operation: %s", operation)
 	}
