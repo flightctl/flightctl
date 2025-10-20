@@ -259,6 +259,20 @@ func TestGetCollectionOptsFromInfoKeys(t *testing.T) {
 			expectGPU: true,
 			expectErr: true,
 		},
+		{
+			name:      "hostname key should be supported",
+			infoKeys:  []string{hostnameKey},
+			expectErr: false, // Fixed: hostname is now properly supported
+		},
+		{
+			name:          "default system info with hostname key",
+			infoKeys:      config.DefaultSystemInfo, // This includes "hostname" which is now supported
+			expectErr:     false,                    // Fixed: default config now works properly
+			expectKernel:  true,                     // kernel is in default config
+			expectDistro:  true,                     // distro keys are in default config
+			expectSystem:  true,                     // product keys are in default config
+			expectNetwork: true,                     // network keys are in default config
+		},
 	}
 
 	for _, tt := range tests {
