@@ -649,7 +649,7 @@ func copyData(ctx context.Context, log *log.PrefixLogger, writer fileio.Writer, 
 		if info.IsDir() {
 			if info.Name() == "merged" {
 				log.Tracef("Skipping merged directory: %s", walkedSrc)
-				return nil
+				return filepath.SkipDir
 			}
 
 			// create the directory in the destination
