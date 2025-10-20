@@ -2,8 +2,7 @@
 Description=Flight Control Database Migration service
 PartOf=flightctl.target
 After=flightctl-db-wait.service flightctl-db-users-init.service
-Wants=flightctl-db-wait.service flightctl-db-users-init.service
-ConditionPathExists=/etc/flightctl/flightctl-api/config.yaml
+Wants=flightctl-db-wait.service flightctl-db-users-init.service 
 
 [Container]
 ContainerName=flightctl-db-migrate
