@@ -597,7 +597,6 @@ rm -rf /usr/share/sosreport
     %dir %{_sysconfdir}/flightctl
     %dir %{_sysconfdir}/flightctl/pki
     %dir %{_sysconfdir}/flightctl/flightctl-api
-    %dir %{_sysconfdir}/flightctl/flightctl-db-migrate
     %dir %{_sysconfdir}/flightctl/flightctl-ui
     %dir %{_sysconfdir}/flightctl/flightctl-cli-artifacts
     %dir %{_sysconfdir}/flightctl/flightctl-alertmanager-proxy
