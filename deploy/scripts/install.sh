@@ -95,7 +95,6 @@ render_files() {
     # Create writeable directories for certs and services that generate files
     mkdir -p "${CONFIG_WRITEABLE_DIR}/pki"
     mkdir -p "${CONFIG_WRITEABLE_DIR}/flightctl-api"
-    mkdir -p "${CONFIG_WRITEABLE_DIR}/flightctl-db-migrate"
     mkdir -p "${CONFIG_WRITEABLE_DIR}/flightctl-ui"
     mkdir -p "${CONFIG_WRITEABLE_DIR}/flightctl-cli-artifacts"
     mkdir -p "${CONFIG_WRITEABLE_DIR}/flightctl-alertmanager-proxy"
