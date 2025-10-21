@@ -1,0 +1,436 @@
+name: Build All Containers
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - 'release-*'
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+env:
+  # Enable BuildKit for cache mounts
+  DOCKER_BUILDKIT: 1
+  BUILDKIT_PROGRESS: plain
+  # Set the registry for container caching - following existing pattern
+  QUAY_ORG: quay.io/flightctl
+  REGISTRY: quay.io
+  REGISTRY_OWNER: flightctl
+  GITHUB_ACTIONS: true
+
+jobs:
+  build-all-containers:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up build tools
+        run: |
+          sudo apt-get install -y podman buildah openssl make
+
+      - name: Build all service containers using Makefile
+        env:
+          REGISTRY: ${{ env.REGISTRY }}
+          REGISTRY_OWNER: ${{ env.REGISTRY_OWNER }}
+          GITHUB_ACTIONS: true
+        run: |
+          make build-containers
+
+      - name: Save all container images as archives
+        run: |
+          # List of container names that build-containers creates
+          containers=(
+            "flightctl-api"
+            "flightctl-db-setup"
+            "flightctl-worker"
+            "flightctl-periodic"
+            "flightctl-alert-exporter"
+            "flightctl-alertmanager-proxy"
+            "flightctl-cli-artifacts"
+            "flightctl-userinfo-proxy"
+            "flightctl-telemetry-gateway"
+          )
+
+          # Save each container to a compressed tar file
+          for container in "${containers[@]}"; do
+            echo "Saving ${container}:latest..."
+            podman save ${container}:latest -o ${container}-container.tar
+            gzip ${container}-container.tar
+          done
+
+          # List created files for verification
+          ls -la *-container.tar.gz
+
+      - name: Upload all container artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: flightctl-containers
+          path: "*-container.tar.gz"
+          retention-days: 1
+          compression-level: 1
+
+  e2e-image-artifacts-prepare:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Free Disk Space (Ubuntu)
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          large-packages: false
+
+      - name: Set up build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y podman buildah openssl make qemu-utils libguestfs-tools
+
+      - name: Restore bootc-image-builder cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            bin/dnf-cache
+            bin/osbuild-cache
+          key: ${{ runner.os }}-bootc-cache-e2e-${{ hashFiles('test/scripts/agent-images/Containerfile-e2e-base.local') }}
+          restore-keys: |
+            ${{ runner.os }}-bootc-cache-e2e-
+
+      - name: Prepare offline E2E image artifacts (seed images + seed qcow2)
+        env:
+          GITHUB_ACTIONS: true
+        run: |
+          make e2e-artifacts-offline
+
+      - name: Save bootc-image-builder cache
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            bin/dnf-cache
+            bin/osbuild-cache
+          key: ${{ runner.os }}-bootc-cache-e2e-${{ hashFiles('test/scripts/agent-images/Containerfile-e2e-base.local') }}
+
+      - name: Collect non-image artifacts (OCI cache, qcow2, certs)
+        run: |
+          sudo mkdir -p bin/output && sudo chown -R runner:runner bin/output
+          mkdir -p artifacts
+          # OCI archives produced by the make target (if any)
+          cp -a bin/output/oci/*.tar artifacts/ || true
+          # Seed qcow2
+          if [ -f bin/output/qcow2/disk-seed.qcow2 ]; then \
+            cp bin/output/qcow2/disk-seed.qcow2 artifacts/; \
+          fi
+          # E2E CA and certs used to build seed images (must match cluster registry)
+          tar czf artifacts/bin-e2e-certs.tgz bin/e2e-certs
+
+      - name: Save seed image base
+        run: |
+          if podman image exists localhost:5000/flightctl-device-seed:base; then \
+            mkdir -p artifacts; \
+            podman save localhost:5000/flightctl-device-seed:base -o artifacts/flightctl-device-seed-base.tar; \
+          fi
+      - name: Upload seed image base
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-image-seed-base
+          path: artifacts/flightctl-device-seed-base.tar
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: ignore
+      - name: Remove seed image base tar
+        run: rm -f artifacts/flightctl-device-seed-base.tar
+
+      - name: Save seed image v2
+        run: |
+          if podman image exists localhost:5000/flightctl-device-seed:v2; then \
+            mkdir -p artifacts; \
+            podman save localhost:5000/flightctl-device-seed:v2 -o artifacts/flightctl-device-seed-v2.tar; \
+          fi
+      - name: Upload seed image v2
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-image-seed-v2
+          path: artifacts/flightctl-device-seed-v2.tar
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: ignore
+      - name: Remove seed image v2 tar
+        run: rm -f artifacts/flightctl-device-seed-v2.tar
+
+      - name: Save seed image v3
+        run: |
+          if podman image exists localhost:5000/flightctl-device-seed:v3; then \
+            mkdir -p artifacts; \
+            podman save localhost:5000/flightctl-device-seed:v3 -o artifacts/flightctl-device-seed-v3.tar; \
+          fi
+      - name: Upload seed image v3
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-image-seed-v3
+          path: artifacts/flightctl-device-seed-v3.tar
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: ignore
+      - name: Remove seed image v3 tar
+        run: rm -f artifacts/flightctl-device-seed-v3.tar
+
+      - name: Save seed image v4
+        run: |
+          if podman image exists localhost:5000/flightctl-device-seed:v4; then \
+            mkdir -p artifacts; \
+            podman save localhost:5000/flightctl-device-seed:v4 -o artifacts/flightctl-device-seed-v4.tar; \
+          fi
+      - name: Upload seed image v4
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-image-seed-v4
+          path: artifacts/flightctl-device-seed-v4.tar
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: ignore
+      - name: Remove seed image v4 tar
+        run: rm -f artifacts/flightctl-device-seed-v4.tar
+
+      - name: Save seed image v5
+        run: |
+          if podman image exists localhost:5000/flightctl-device-seed:v5; then \
+            mkdir -p artifacts; \
+            podman save localhost:5000/flightctl-device-seed:v5 -o artifacts/flightctl-device-seed-v5.tar; \
+          fi
+      - name: Upload seed image v5
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-image-seed-v5
+          path: artifacts/flightctl-device-seed-v5.tar
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: ignore
+      - name: Remove seed image v5 tar
+        run: rm -f artifacts/flightctl-device-seed-v5.tar
+
+      - name: Save seed image v6
+        run: |
+          if podman image exists localhost:5000/flightctl-device-seed:v6; then \
+            mkdir -p artifacts; \
+            podman save localhost:5000/flightctl-device-seed:v6 -o artifacts/flightctl-device-seed-v6.tar; \
+          fi
+      - name: Upload seed image v6
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-image-seed-v6
+          path: artifacts/flightctl-device-seed-v6.tar
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: ignore
+      - name: Remove seed image v6 tar
+        run: rm -f artifacts/flightctl-device-seed-v6.tar
+
+      - name: Save seed image v8
+        run: |
+          if podman image exists localhost:5000/flightctl-device-seed:v8; then \
+            mkdir -p artifacts; \
+            podman save localhost:5000/flightctl-device-seed:v8 -o artifacts/flightctl-device-seed-v8.tar; \
+          fi
+      - name: Upload seed image v8
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-image-seed-v8
+          path: artifacts/flightctl-device-seed-v8.tar
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: ignore
+      - name: Remove seed image v8 tar
+        run: rm -f artifacts/flightctl-device-seed-v8.tar
+
+      - name: Save seed image v9
+        run: |
+          if podman image exists localhost:5000/flightctl-device-seed:v9; then \
+            mkdir -p artifacts; \
+            podman save localhost:5000/flightctl-device-seed:v9 -o artifacts/flightctl-device-seed-v9.tar; \
+          fi
+      - name: Upload seed image v9
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-image-seed-v9
+          path: artifacts/flightctl-device-seed-v9.tar
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: ignore
+      - name: Remove seed image v9 tar
+        run: rm -f artifacts/flightctl-device-seed-v9.tar
+
+      - name: Save seed image v10
+        run: |
+          if podman image exists localhost:5000/flightctl-device-seed:v10; then \
+            mkdir -p artifacts; \
+            podman save localhost:5000/flightctl-device-seed:v10 -o artifacts/flightctl-device-seed-v10.tar; \
+          fi
+      - name: Upload seed image v10
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-image-seed-v10
+          path: artifacts/flightctl-device-seed-v10.tar
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: ignore
+      - name: Remove seed image v10 tar
+        run: rm -f artifacts/flightctl-device-seed-v10.tar
+
+      - name: Upload E2E seed artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-image-seed-artifacts
+          path: artifacts/*
+          retention-days: 1
+          compression-level: 1
+
+  e2e-run:
+    runs-on: ubuntu-24.04
+    needs: [build-all-containers, e2e-image-artifacts-prepare]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Free Disk Space (Ubuntu)
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          large-packages: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22.x'
+
+      - name: Restore APT cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            /var/cache/apt
+            /var/lib/apt
+          key: ${{ runner.os }}-apt-e2e-${{ hashFiles('.github/actions/setup-dependencies/action.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-apt-e2e-
+
+      - name: Set permissions for APT after restore
+        run: sudo mkdir -p /var/cache/apt /var/lib/apt && sudo chown -R root:root /var/cache/apt /var/lib/apt
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y podman buildah openssl make jq kubectl qemu-utils libguestfs-tools libvirt-daemon-system libvirt-clients qemu-kvm virtinst libvirt-daemon-driver-qemu
+          sudo systemctl start libvirtd || true
+
+      - name: Restore Go modules cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Download service container artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: flightctl-containers
+
+      - name: Download E2E seed artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: e2e-image-seed-artifacts
+
+      - name: Download seed device image artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: e2e-image-seed-*
+          merge-multiple: true
+
+      - name: Load service container images
+        run: |
+          shopt -s nullglob
+          for tarfile in *-container.tar.gz; do
+            echo "Loading ${tarfile}..."
+            gunzip -f "${tarfile}"
+            podman load -i "${tarfile%.gz}"
+          done
+          echo "Loaded images:"; podman images | grep flightctl || true
+
+      - name: Retag service images to localhost for kind
+        run: |
+          for suffix in periodic api worker alert-exporter alertmanager-proxy cli-artifacts db-setup telemetry-gateway; do
+            if podman image exists flightctl-${suffix}:latest; then
+              podman tag flightctl-${suffix}:latest localhost/flightctl-${suffix}:latest || true
+            fi
+          done
+
+      - name: Load seed device images
+        run: |
+          shopt -s nullglob
+          for tar in flightctl-device-seed-*.tar; do \
+            echo "Loading $tar"; \
+            podman load -i "$tar"; \
+            rm -f "$tar"; \
+          done
+          # Restore seed qcow2 and e2e certs to expected locations
+          mkdir -p bin/output/qcow2
+          if [ -f disk-seed.qcow2 ]; then mv -f disk-seed.qcow2 bin/output/qcow2/; fi
+          if [ -f bin-e2e-certs.tgz ]; then tar xzf bin-e2e-certs.tgz; fi
+
+      - name: Build CLI
+        run: |
+          make build-cli
+
+      - name: Create kind cluster
+        run: |
+          make cluster
+
+      - name: Deploy E2E extras (local registry, git-server)
+        run: |
+          make deploy-e2e-extras
+
+      - name: Deploy FlightCTL with Helm using preloaded images
+        run: |
+          test/scripts/deploy_with_helm.sh --db-size e2e
+
+      - name: Finalize device images and qcow2
+        env:
+          GITHUB_ACTIONS: true
+        run: |
+          make e2e-artifacts-finalize
+
+      - name: Run E2E tests
+        env:
+          # Optional tuning for parallelism/output
+          GINKGO_PROCS: '4'
+          GINKGO_OUTPUT_INTERCEPTOR_MODE: 'swap'
+        run: |
+          make run-e2e-test
+
+      - name: Set permissions for APT before save
+        if: always()
+        run: sudo mkdir -p /var/cache/apt /var/lib/apt && sudo chown -R runner:runner /var/cache/apt /var/lib/apt
+
+      - name: Save APT cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            /var/cache/apt
+            /var/lib/apt
+          key: ${{ runner.os }}-apt-e2e-${{ hashFiles('.github/actions/setup-dependencies/action.yaml') }}
+
+      - name: Save Go modules cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}

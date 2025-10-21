@@ -2,12 +2,18 @@
 set -ex
 
 BUILD_TYPE=${BUILD_TYPE:-bootc}
+BUILD_PHASE=${BUILD_PHASE:-}
 PARALLEL_JOBS=${PARALLEL_JOBS:-4}
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 
 source "${SCRIPT_DIR}"/../functions
 
-REGISTRY_ADDRESS=$(registry_address)
+# Compute registry address only when needed. In seed phase avoid kubectl dependency.
+if [ "${BUILD_PHASE:-}" = "seed" ]; then
+    REGISTRY_ADDRESS=${REGISTRY_ADDRESS:-localhost:5000}
+else
+    REGISTRY_ADDRESS=$(registry_address)
+fi
 IMAGE_LIST="base v2 v3 v4 v5 v6 v8 v9 v10"
 
 if is_acm_installed; then
@@ -86,6 +92,41 @@ build_single_image() {
     podman push "${FINAL_REF}"
 }
 
+build_seed_single_image() {
+    local img="$1"
+    local containerfile_path
+    local container_name
+
+    if [ "$img" = "base" ]; then
+        containerfile_path="${SCRIPT_DIR}/Containerfile-e2e-base-seed.local"
+        container_name="localhost:5000/flightctl-device-seed:base"
+    else
+        # Create a temporary Containerfile that bases on the seed base image
+        local original_cf="${SCRIPT_DIR}/Containerfile-e2e-${img}.local"
+        local tmpdir
+        tmpdir=$(mktemp -d)
+        trap 'rm -rf "$tmpdir"' RETURN
+        containerfile_path="$tmpdir/Containerfile"
+        cp "$original_cf" "$containerfile_path"
+        # Replace base FROM line to seed base
+        sed -i 's|^FROM .*flightctl-device:base|FROM localhost:5000/flightctl-device-seed:base|' "$containerfile_path"
+        container_name="localhost:5000/flightctl-device-seed:${img}"
+    fi
+
+    echo -e "\033[32mCreating seed image ${container_name}\033[m"
+
+    # Use GitHub Actions cache only when available
+    if [ "${GITHUB_ACTIONS:-false}" = "true" ]; then
+        REGISTRY="${REGISTRY:-localhost}"
+        REGISTRY_OWNER_TESTS="${REGISTRY_OWNER_TESTS:-flightctl-tests}"
+        CACHE_FLAGS=("--cache-from=${REGISTRY}/${REGISTRY_OWNER_TESTS}/flightctl-device")
+    else
+        CACHE_FLAGS=()
+    fi
+
+    podman build "${CACHE_FLAGS[@]}" -f "${containerfile_path}" -t "${container_name}" .
+}
+
 build_images() {
     # Validate PARALLEL_JOBS parameter
     if ! [[ "$PARALLEL_JOBS" =~ ^[0-9]+$ ]] || [ "$PARALLEL_JOBS" -lt 1 ]; then
@@ -120,6 +161,19 @@ build_images() {
             job_count=$((job_count + 1))
         done
         wait  # Wait for all remaining jobs to complete
+    fi
+}
+
+build_seed_images() {
+    echo -e "\033[33mBuilding seed base image first...\033[m"
+    build_seed_single_image "base"
+
+    local other_images=$(echo $IMAGE_LIST | sed 's/base//')
+    if [ -n "$other_images" ]; then
+        echo -e "\033[33mBuilding seed variant images...\033[m"
+        for img in $other_images; do
+            build_seed_single_image "$img"
+        done
     fi
 }
 
@@ -204,16 +258,72 @@ build_qcow2_image() {
     sudo chown -R "${USER}:$(id -gn ${USER})" "$(pwd)"/bin/output
 }
 
-case "$BUILD_TYPE" in
-    regular)
-        build_images
-        ;;
-    bootc)
-        build_images
-        build_qcow2_image
-        ;;
-    *)
-        echo "Unknown BUILD_TYPE: $BUILD_TYPE"
-        exit 1
-        ;;
-esac
+build_seed_qcow2_image() {
+    echo -e "\033[32mProducing qcow2 SEED image for localhost:5000/flightctl-device-seed:base \033[m"
+    mkdir -p bin/output
+
+    # Output path for seed qcow
+    local out_qcow="bin/output/qcow2/disk-seed.qcow2"
+
+    # Ensure the seed image exists in root storage for bootc-image-builder without requiring a registry
+    local seed_ref="localhost:5000/flightctl-device-seed:base"
+    local seed_tar="$(pwd)/bin/output/oci/flightctl-device-seed-base.tar"
+    mkdir -p "$(pwd)/bin/output/oci"
+    echo -e "\033[32mSaving ${seed_ref} to ${seed_tar} and loading into root storage\033[m"
+    podman image exists "${seed_ref}" || { echo -e "\033[31mSeed image ${seed_ref} not found. Build seed images first.\033[m"; exit 1; }
+    rm -f "${seed_tar}"
+    podman save "${seed_ref}" -o "${seed_tar}"
+    sudo podman load -i "${seed_tar}"
+
+    # Create cache directories if they don't exist
+    mkdir -p "$(pwd)/bin/dnf-cache"
+    mkdir -p "$(pwd)/bin/osbuild-cache"
+
+    sudo podman run --rm \
+                    -it \
+                    --privileged \
+                    --pull=newer \
+                    --security-opt label=type:unconfined_t \
+                    -v "$(pwd)"/bin/output:/output \
+                    -v "$(pwd)"/bin/dnf-cache:/var/cache/dnf:Z \
+                    -v "$(pwd)"/bin/osbuild-cache:/var/cache/osbuild:Z \
+                    -v /var/lib/containers/storage:/var/lib/containers/storage \
+                    quay.io/centos-bootc/bootc-image-builder:latest \
+                    build \
+                    --type qcow2 \
+                    --local localhost:5000/flightctl-device-seed:base
+
+    # Ensure artifacts are owned by the invoking user before moving
+    sudo chown -R "${USER}:$(id -gn ${USER})" "$(pwd)"/bin/output
+    # The builder writes to bin/output/qcow2/disk.qcow2 by default; keep a seed copy
+    if [ -f bin/output/qcow2/disk.qcow2 ]; then
+        mv -f bin/output/qcow2/disk.qcow2 "${out_qcow}"
+    fi
+}
+
+if [ -n "$BUILD_PHASE" ]; then
+    case "$BUILD_PHASE" in
+        seed)
+            build_seed_images
+            build_seed_qcow2_image
+            ;;
+        *)
+            echo "Unknown BUILD_PHASE: $BUILD_PHASE"
+            exit 1
+            ;;
+    esac
+else
+    case "$BUILD_TYPE" in
+        regular)
+            build_images
+            ;;
+        bootc)
+            build_images
+            build_qcow2_image
+            ;;
+        *)
+            echo "Unknown BUILD_TYPE: $BUILD_TYPE"
+            exit 1
+            ;;
+    esac
+fi

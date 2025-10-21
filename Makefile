@@ -249,6 +249,8 @@ flightctl-multiarch-cli-container: Containerfile.cli-artifacts go.mod go.sum $(G
 		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
 		-f Containerfile.cli-artifacts -t flightctl-cli-artifacts:latest
 
+flightctl-cli-artifacts-container: flightctl-multiarch-cli-container
+
 flightctl-userinfo-proxy-container: Containerfile.userinfo-proxy go.mod go.sum $(GO_FILES)
 	podman build $(call CACHE_FLAGS_FOR_IMAGE,flightctl-userinfo-proxy) \
 		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \

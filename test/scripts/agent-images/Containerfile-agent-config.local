@@ -1,0 +1,18 @@
+# Lightweight finalize layer to inject agent config/certs and registries.conf
+
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+
+# Inject agent enrollment config and device certs created at finalize time
+ADD bin/agent/etc/flightctl/config.yaml /etc/flightctl/
+ADD bin/agent/etc/flightctl/certs/* /etc/flightctl/certs/
+
+# Configure per-environment insecure registry endpoint for agent pulls
+ARG REGISTRY_ADDRESS
+RUN test -n "${REGISTRY_ADDRESS}" || (echo "REGISTRY_ADDRESS build arg is required" >&2 && exit 1)
+RUN mkdir -p /etc/containers/registries.conf.d/ && \
+    echo "[[registry]]" > /etc/containers/registries.conf.d/custom-registry.conf && \
+    echo "location = \"${REGISTRY_ADDRESS}\"" >> /etc/containers/registries.conf.d/custom-registry.conf && \
+    echo "insecure = true" >> /etc/containers/registries.conf.d/custom-registry.conf
+
+
