@@ -29,6 +29,8 @@ type testApp struct {
 
 func TestParseAppProviders(t *testing.T) {
 	require := require.New(t)
+	cleanup := util.WithFakeCompose(t)
+	defer cleanup()
 	testCases := []struct {
 		name       string
 		setupMocks func(
@@ -47,11 +49,7 @@ func TestParseAppProviders(t *testing.T) {
 				mockExecuter *executer.MockExecuter,
 				imageConfig string,
 			) {
-				gomock.InOrder(
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(imageConfig, "", 0),
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "unshare", "podman", "image", "mount", gomock.Any()).Return("/mount", "", 0),
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "unmount", gomock.Any()).Return("", "", 0),
-				)
+				util.ExpectPodmanGeneric(mockExecuter, imageConfig)
 			},
 			apps: []testApp{{name: "app1", image: "quay.io/org/app1:latest"}},
 			labels: map[string]string{
@@ -66,9 +64,7 @@ func TestParseAppProviders(t *testing.T) {
 				mockExecuter *executer.MockExecuter,
 				imageConfig string,
 			) {
-				gomock.InOrder(
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(imageConfig, "", 0),
-				)
+				util.ExpectPodmanGeneric(mockExecuter, imageConfig)
 			},
 			apps: []testApp{{name: "app1", image: "quay.io/org/app1:latest"}},
 			labels: map[string]string{
@@ -82,9 +78,7 @@ func TestParseAppProviders(t *testing.T) {
 				mockExecuter *executer.MockExecuter,
 				imageConfig string,
 			) {
-				gomock.InOrder(
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(imageConfig, "", 0),
-				)
+				util.ExpectPodmanGeneric(mockExecuter, imageConfig)
 			},
 			apps:    []testApp{{name: "app1", image: "quay.io/org/app1:latest"}},
 			labels:  map[string]string{},
@@ -96,11 +90,7 @@ func TestParseAppProviders(t *testing.T) {
 				mockExecuter *executer.MockExecuter,
 				imageConfig string,
 			) {
-				gomock.InOrder(
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(imageConfig, "", 0),
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "unshare", "podman", "image", "mount", gomock.Any()).Return("/mount", "", 0),
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "unmount", gomock.Any()).Return("", "", 0),
-				)
+				util.ExpectPodmanGeneric(mockExecuter, imageConfig)
 			},
 			apps: []testApp{{name: "", image: "quay.io/org/app1:latest"}},
 			labels: map[string]string{
@@ -124,19 +114,7 @@ func TestParseAppProviders(t *testing.T) {
 				mockExecuter *executer.MockExecuter,
 				imageConfig string,
 			) {
-				gomock.InOrder(
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(imageConfig, "", 0),
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "unshare", "podman", "image", "mount", gomock.Any()).Return("/mount", "", 0),
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "unmount", gomock.Any()).Return("", "", 0),
-
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(imageConfig, "", 0),
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "unshare", "podman", "image", "mount", gomock.Any()).Return("/mount", "", 0),
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "unmount", gomock.Any()).Return("", "", 0),
-
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(imageConfig, "", 0),
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "unshare", "podman", "image", "mount", gomock.Any()).Return("/mount", "", 0),
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "unmount", gomock.Any()).Return("", "", 0),
-				)
+				util.ExpectPodmanGeneric(mockExecuter, imageConfig)
 			},
 			apps: []testApp{
 				{name: "app1", image: "quay.io/org/app1:latest"},
@@ -257,6 +235,8 @@ func createTestLabels(labels map[string]string) (string, error) {
 
 func TestControllerSync(t *testing.T) {
 	require := require.New(t)
+	cleanup := util.WithFakeCompose(t)
+	defer cleanup()
 
 	app1Image := "quay.io/org/app1:v1.1.0"
 	app2Image := "quay.io/org/app2:v1.1.0"
@@ -305,20 +285,12 @@ func TestControllerSync(t *testing.T) {
 				mockAppManager *MockManager,
 				mockExecuter *executer.MockExecuter,
 			) {
+				util.ExpectPodmanPerImage(mockExecuter, map[string]string{
+					app1Image: app1Labels,
+					app2Image: app1Labels,
+				})
 				gomock.InOrder(
-					// app1
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", app1Image).Return(app1Labels, "", 0),
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "unshare", "podman", "image", "mount", app1Image).Return("/mount", "", 0),
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "unmount", app1Image).Return("", "", 0),
-
-					// app2
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", app2Image).Return(app1Labels, "", 0),
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "unshare", "podman", "image", "mount", app2Image).Return("/mount", "", 0),
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "unmount", app2Image).Return("", "", 0),
-
-					// ensure app1
 					mockAppManager.EXPECT().Ensure(gomock.Any(), gomock.Any()).Return(nil),
-					// ensure app2
 					mockAppManager.EXPECT().Ensure(gomock.Any(), gomock.Any()).Return(nil),
 				)
 			},
@@ -353,35 +325,14 @@ func TestControllerSync(t *testing.T) {
 				mockAppManager *MockManager,
 				mockExecuter *executer.MockExecuter,
 			) {
-
+				util.ExpectPodmanPerImage(mockExecuter, map[string]string{
+					app1Image: app1Labels,
+					app2Image: app1Labels,
+				})
 				gomock.InOrder(
-					// rendered version 1 -> 2
-					// app1
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", app1Image).Return(app1Labels, "", 0),
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "unshare", "podman", "image", "mount", app1Image).Return("/mount", "", 0),
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "unmount", app1Image).Return("", "", 0),
-
-					// app2
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", app2Image).Return(app1Labels, "", 0),
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "unshare", "podman", "image", "mount", app2Image).Return("/mount", "", 0),
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "unmount", app2Image).Return("", "", 0),
-
-					// ensure app1
 					mockAppManager.EXPECT().Ensure(gomock.Any(), gomock.Any()).Return(nil),
-					// ensure app2
 					mockAppManager.EXPECT().Ensure(gomock.Any(), gomock.Any()).Return(nil),
-					// rendered version 2 -> 3
-					// app1
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", app1Image).Return(app1Labels, "", 0),
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "unshare", "podman", "image", "mount", app1Image).Return("/mount", "", 0),
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "unmount", app1Image).Return("", "", 0),
-					// app2
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", app2Image).Return(app1Labels, "", 0),
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "unshare", "podman", "image", "mount", app2Image).Return("/mount", "", 0),
-					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "unmount", app2Image).Return("", "", 0),
-					// remove app1
 					mockAppManager.EXPECT().Remove(gomock.Any(), gomock.Any()).Return(nil),
-					// remove app2
 					mockAppManager.EXPECT().Remove(gomock.Any(), gomock.Any()).Return(nil),
 				)
 			},
