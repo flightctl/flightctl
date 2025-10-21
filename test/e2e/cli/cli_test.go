@@ -1,10 +1,15 @@
 package cli_test
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
+	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/client"
@@ -622,6 +627,168 @@ var _ = Describe("cli login", func() {
 			Expect(cfg.AuthInfo.Token).ToNot(Equal(secondToken), "Token should have been refreshed")
 		})
 	})
+
+	It("generates completion and can be sourced for each supported shell (harness.CLI only for flightctl calls)", Label("85470"), func() {
+		harness := e2e.GetWorkerHarness()
+
+		type shellCase struct {
+			name      string
+			markers   []string
+			syntaxCmd func(ctx context.Context, p string) *exec.Cmd
+			sourceCmd func(ctx context.Context, p, tempHome string) *exec.Cmd
+			tmpName   string
+		}
+
+		tmpRoot := GinkgoT().TempDir()
+		mkHome := func(tag string) (home, tmp string) {
+			home = filepath.Join(tmpRoot, "home_"+tag)
+			tmp = filepath.Join(home, "tmp")
+			Expect(os.MkdirAll(tmp, 0o755)).To(Succeed())
+			return
+		}
+		write0600 := func(dir, name, data string) string {
+			p := filepath.Join(dir, name)
+			// G306: use 0600
+			Expect(os.WriteFile(p, []byte(data), 0o600)).To(Succeed())
+			return p
+		}
+
+		shells := []shellCase{
+			{
+				name:    "bash",
+				markers: []string{"# bash completion for flightctl", "__flightctl_"},
+				tmpName: "flightctl.bash",
+				syntaxCmd: func(ctx context.Context, p string) *exec.Cmd {
+					if !util.BinaryExistsOnPath("bash") {
+						return nil
+					}
+					// No tainted args: constant argv, script path via env
+					cmd := exec.CommandContext(ctx, "bash", "-n", p)
+					return cmd
+				},
+				sourceCmd: func(ctx context.Context, p, home string) *exec.Cmd {
+					if !util.BinaryExistsOnPath("bash") {
+						return nil
+					}
+					// Use env var to pass path; constant argv avoids G204
+					cmd := exec.CommandContext(ctx, "bash", "--noprofile", "--norc", "-lc", `source "$SCRIPT"; true`)
+					cmd.Env = append(os.Environ(), "HOME="+home, "SCRIPT="+p)
+					return cmd
+				},
+			},
+			{
+				name:    "zsh",
+				markers: []string{"#compdef flightctl", "_flightctl"},
+				tmpName: "_flightctl",
+				syntaxCmd: func(ctx context.Context, p string) *exec.Cmd {
+					if !util.BinaryExistsOnPath("zsh") {
+						return nil
+					}
+					return exec.CommandContext(ctx, "zsh", "-n", p)
+				},
+				sourceCmd: func(ctx context.Context, p, home string) *exec.Cmd {
+					if !util.BinaryExistsOnPath("zsh") {
+						return nil
+					}
+					cmd := exec.CommandContext(ctx, "zsh", "-f", "-lc", `source "$SCRIPT"; true`)
+					cmd.Env = append(os.Environ(), "HOME="+home, "SCRIPT="+p)
+					return cmd
+				},
+			},
+			{
+				name:    "fish",
+				markers: []string{"complete -c flightctl"},
+				tmpName: "flightctl.fish",
+				syntaxCmd: func(ctx context.Context, p string) *exec.Cmd {
+					if !util.BinaryExistsOnPath("fish") {
+						return nil
+					}
+					return exec.CommandContext(ctx, "fish", "-n", p)
+				},
+				sourceCmd: func(ctx context.Context, p, home string) *exec.Cmd {
+					if !util.BinaryExistsOnPath("fish") {
+						return nil
+					}
+					cmd := exec.CommandContext(ctx, "fish", "--no-config", "-lc", `. "$SCRIPT"; true`)
+					cmd.Env = append(os.Environ(),
+						"HOME="+home,
+						"XDG_CONFIG_HOME="+filepath.Join(home, ".config"),
+						"SCRIPT="+p,
+					)
+					return cmd
+				},
+			},
+			{
+				name:    "powershell",
+				markers: []string{"Register-ArgumentCompleter", "flightctl"},
+				tmpName: "completion.ps1",
+				syntaxCmd: func(ctx context.Context, p string) *exec.Cmd {
+					if !util.BinaryExistsOnPath("pwsh") {
+						return nil
+					}
+					// Dot-source via env var
+					return exec.CommandContext(ctx, "pwsh", "-NoLogo", "-NoProfile", "-Command", `. $env:SCRIPT`)
+				},
+				sourceCmd: func(ctx context.Context, p, home string) *exec.Cmd {
+					if !util.BinaryExistsOnPath("pwsh") {
+						return nil
+					}
+					cmd := exec.CommandContext(ctx, "pwsh", "-NoLogo", "-NoProfile", "-Command", `. $env:SCRIPT`)
+					cmd.Env = append(os.Environ(), "HOME="+home, "USERPROFILE="+home, "SCRIPT="+p)
+					return cmd
+				},
+			},
+		}
+
+		for _, sc := range shells {
+			home, tmp := mkHome(sc.name)
+
+			// Check if generation is supported
+			if sc.name == "powershell" && runtime.GOOS != "windows" {
+				By("powershell completion may not be supported on non-Windows — skipping")
+				continue
+			}
+
+			By("generating " + sc.name + " completion via harness.CLI")
+			out, err := harness.CLI("completion", sc.name) // the only place we invoke flightctl
+			// Note: if your binary doesn’t support powershell on Linux, you can gate that here
+			Expect(err).NotTo(HaveOccurred(), "generation failed for %s", sc.name)
+			Expect(strings.TrimSpace(out)).NotTo(BeEmpty(), "empty completion for %s", sc.name)
+			for _, m := range sc.markers {
+				Expect(out).To(ContainSubstring(m), "missing marker %q for %s", m, sc.name)
+			}
+
+			By("saving script to a temp file with 0600 perms")
+			path := write0600(tmp, sc.tmpName, out)
+
+			By("light syntax check (if shell present): " + sc.name)
+			{
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				if cmd := sc.syntaxCmd(ctx, path); cmd != nil {
+					cmd.Env = append(cmd.Env, "SCRIPT="+path) // for pwsh syntax step
+					cmd.Stdout, cmd.Stderr = GinkgoWriter, GinkgoWriter
+					Expect(cmd.Run()).To(Succeed())
+				} else {
+					By(sc.name + " not available — skipping syntax check")
+				}
+			}
+
+			By("sourcing in a non-interactive subshell (no profiles/rc): " + sc.name)
+			{
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				if cmd := sc.sourceCmd(ctx, path, home); cmd != nil {
+					cmd.Env = append(cmd.Env, "SCRIPT="+path) // ensure SCRIPT is set
+					cmd.Stdout, cmd.Stderr = GinkgoWriter, GinkgoWriter
+					Expect(cmd.Run()).To(Succeed())
+				} else {
+					By(sc.name + " not available — skipping source step")
+				}
+			}
+		}
+	})
+
 })
 
 // formatResourceEvent formats the event's message and returns it as a string
