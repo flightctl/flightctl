@@ -245,7 +245,7 @@ observability:
     config:
       telemetryGateway:
         export:
-          prometheus: "your-prometheus.company.com:9090"
+          prometheus: 0.0.0.0:9464
         forward:
           endpoint: "your-otel-collector.company.com:4317"
           tls:
@@ -729,7 +729,7 @@ observability:
           tls:
             insecureSkipTlsVerify: false
         export:
-          prometheus: "your-prometheus.company.com:9090"
+          prometheus: 0.0.0.0:9464
 ```
 
 **Note**: The telemetry gateway configuration is provided as a YAML object in the `config` field. The `flightctl-render-observability` script extracts this configuration using Python and `PyYAML`, and writes it to `/etc/flightctl/telemetry-gateway/config.yaml`.
@@ -918,7 +918,7 @@ observability:
           tls:
             insecureSkipTlsVerify: false
         export:
-          prometheus: "your-prometheus.company.com:9090"
+          prometheus: 0.0.0.0:9464
 ```
 
 **Note**: The telemetry gateway automatically configures itself based on the `observability.telemetry_gateway.config.telemetryGateway` section in `service-config.yaml`. No manual OpenTelemetry configuration files are needed.
