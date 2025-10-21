@@ -78,6 +78,7 @@ func NewAgentCommand() *agentCmd {
 	}
 
 	a.log.Level(a.config.LogLevel)
+	a.log.Infof("Loaded configuration: %s", a.config.StringSanitized())
 
 	return a
 }
