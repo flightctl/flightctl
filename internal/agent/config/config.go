@@ -312,17 +312,24 @@ func (cfg *Config) String() string {
 
 // StringSanitized returns a JSON representation of the config with sensitive fields removed
 func (cfg *Config) StringSanitized() string {
-	sanitized := *cfg
-	
-	// clear sensitive service configurations
-	sanitized.EnrollmentService = config.EnrollmentService{}
-	sanitized.ManagementService = config.ManagementService{}
-
-	contents, err := json.Marshal(sanitized)
+	contents, err := json.Marshal(cfg)
 	if err != nil {
 		return "<error>"
 	}
-	return string(contents)
+
+	var configMap map[string]interface{}
+	if err := json.Unmarshal(contents, &configMap); err != nil {
+		return "<error>"
+	}
+
+	delete(configMap, "enrollment-service")
+	delete(configMap, "management-service")
+
+	sanitized, err := json.Marshal(configMap)
+	if err != nil {
+		return "<error>"
+	}
+	return string(sanitized)
 }
 
 func (cfg *Config) validateSyncIntervals() error {
