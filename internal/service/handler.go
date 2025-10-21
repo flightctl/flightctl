@@ -7,6 +7,7 @@ import (
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/sync/semaphore"
 )
 
 type ServiceHandler struct {
@@ -20,6 +21,7 @@ type ServiceHandler struct {
 	uiUrl         string
 	tpmCAPaths    []string
 	orgResolver   resolvers.Resolver
+	agentGate     *semaphore.Weighted
 }
 
 func NewServiceHandler(store store.Store, workerClient worker_client.WorkerClient, kvStore kvstore.KVStore, ca *crypto.CAClient, log logrus.FieldLogger, agentEndpoint string, uiUrl string, tpmCAPaths []string, orgResolver resolvers.Resolver) *ServiceHandler {
@@ -34,5 +36,6 @@ func NewServiceHandler(store store.Store, workerClient worker_client.WorkerClien
 		uiUrl:         uiUrl,
 		tpmCAPaths:    tpmCAPaths,
 		orgResolver:   orgResolver,
+		agentGate:     semaphore.NewWeighted(MaxConcurrentAgents),
 	}
 }

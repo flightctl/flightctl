@@ -818,3 +818,294 @@ func newTestApplication(require *require.Assertions, name string, appImage, volI
 
 	return app
 }
+
+func TestValidateResourceMonitor(t *testing.T) {
+	require := require.New(t)
+	tests := []struct {
+		name      string
+		resources []ResourceMonitor
+		wantErrs  []error
+	}{
+		{
+			name: "valid unique monitor types",
+			resources: []ResourceMonitor{
+				createCPUMonitor(t),
+				createDiskMonitor(t),
+				createMemoryMonitor(t),
+			},
+			wantErrs: nil,
+		},
+		{
+			name: "duplicate CPU monitor types",
+			resources: []ResourceMonitor{
+				createCPUMonitor(t),
+				createCPUMonitor(t),
+			},
+			wantErrs: []error{ErrDuplicateMonitorType},
+		},
+		{
+			name: "duplicate Disk monitor types",
+			resources: []ResourceMonitor{
+				createDiskMonitor(t),
+				createDiskMonitor(t),
+			},
+			wantErrs: []error{ErrDuplicateMonitorType},
+		},
+		{
+			name: "duplicate Memory monitor types",
+			resources: []ResourceMonitor{
+				createMemoryMonitor(t),
+				createMemoryMonitor(t),
+			},
+			wantErrs: []error{ErrDuplicateMonitorType},
+		},
+		{
+			name: "multiple duplicates",
+			resources: []ResourceMonitor{
+				createCPUMonitor(t),
+				createCPUMonitor(t),
+				createDiskMonitor(t),
+				createDiskMonitor(t),
+			},
+			wantErrs: []error{ErrDuplicateMonitorType, ErrDuplicateMonitorType},
+		},
+		{
+			name:      "empty resources array",
+			resources: []ResourceMonitor{},
+			wantErrs:  nil,
+		},
+		{
+			name: "single monitor type",
+			resources: []ResourceMonitor{
+				createCPUMonitor(t),
+			},
+			wantErrs: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			errs := validateResourceMonitor(tt.resources)
+			if len(tt.wantErrs) > 0 {
+				require.Len(errs, len(tt.wantErrs), "expected %d errors but got %d", len(tt.wantErrs), len(errs))
+				for i, wantErr := range tt.wantErrs {
+					require.ErrorIs(errs[i], wantErr, "expected error at index %d to be %v, got: %v", i, wantErr, errs[i])
+				}
+			} else {
+				require.Empty(errs, "expected no errors but got: %v", errs)
+			}
+		})
+	}
+}
+
+func TestResourceMonitorValidate_CPUPathField(t *testing.T) {
+	require := require.New(t)
+	tests := []struct {
+		name     string
+		monitor  ResourceMonitor
+		wantErrs []error
+	}{
+		{
+			name:     "valid CPU monitor without path",
+			monitor:  createCPUMonitor(t),
+			wantErrs: nil,
+		},
+		{
+			name:     "invalid CPU monitor with path field",
+			monitor:  createCPUMonitorWithPath(t),
+			wantErrs: []error{ErrInvalidCPUMonitorField},
+		},
+		{
+			name:     "valid Disk monitor with path",
+			monitor:  createDiskMonitor(t),
+			wantErrs: nil,
+		},
+		{
+			name:     "valid Memory monitor without path",
+			monitor:  createMemoryMonitor(t),
+			wantErrs: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			errs := tt.monitor.Validate()
+			if len(tt.wantErrs) > 0 {
+				require.Len(errs, len(tt.wantErrs), "expected %d errors but got %d", len(tt.wantErrs), len(errs))
+				for i, wantErr := range tt.wantErrs {
+					require.ErrorIs(errs[i], wantErr, "expected error at index %d to be %v, got: %v", i, wantErr, errs[i])
+				}
+			} else {
+				require.Empty(errs, "expected no errors but got: %v", errs)
+			}
+		})
+	}
+}
+
+func TestDeviceSpecValidate_ResourceMonitors(t *testing.T) {
+	require := require.New(t)
+	tests := []struct {
+		name         string
+		resources    *[]ResourceMonitor
+		wantErrs     []error
+		errorStrings []string
+	}{
+		{
+			name:      "valid mixed monitors",
+			resources: &[]ResourceMonitor{createCPUMonitor(t), createDiskMonitor(t)},
+			wantErrs:  nil,
+		},
+		{
+			name:         "duplicate monitors in DeviceSpec",
+			resources:    &[]ResourceMonitor{createCPUMonitor(t), createCPUMonitor(t)},
+			errorStrings: []string{"duplicate monitorType in resources: CPU"},
+		},
+		{
+			name:         "CPU monitor with invalid path field",
+			resources:    &[]ResourceMonitor{createCPUMonitorWithPath(t)},
+			errorStrings: []string{"CPU monitors cannot have a path field"},
+		},
+		{
+			name: "combination of duplicate and invalid path",
+			resources: &[]ResourceMonitor{
+				createCPUMonitorWithPath(t),
+				createCPUMonitorWithPath(t),
+			},
+			errorStrings: []string{"CPU monitors cannot have a path field", "CPU monitors cannot have a path field", "duplicate monitorType in resources: CPU"},
+		},
+		{
+			name:      "nil resources",
+			resources: nil,
+			wantErrs:  nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			spec := DeviceSpec{
+				Resources: tt.resources,
+			}
+			errs := spec.Validate(false)
+
+			if len(tt.wantErrs) > 0 {
+				require.Len(errs, len(tt.wantErrs), "expected %d errors but got %d", len(tt.wantErrs), len(errs))
+				for i, wantErr := range tt.wantErrs {
+					require.ErrorIs(errs[i], wantErr, "expected error at index %d to be %v, got: %v", i, wantErr, errs[i])
+				}
+			} else if len(tt.errorStrings) > 0 {
+				require.Len(errs, len(tt.errorStrings), "expected %d errors but got %d", len(tt.errorStrings), len(errs))
+				for i, errStr := range tt.errorStrings {
+					require.Contains(errs[i].Error(), errStr, "expected error at index %d to contain %q, got: %v", i, errStr, errs[i])
+				}
+			} else {
+				require.Empty(errs, "expected no errors but got: %v", errs)
+			}
+		})
+	}
+}
+
+// Helper functions to create test ResourceMonitor instances
+
+func createCPUMonitor(t *testing.T) ResourceMonitor {
+	var monitor ResourceMonitor
+	err := monitor.FromCpuResourceMonitorSpec(CpuResourceMonitorSpec{
+		MonitorType:      "CPU",
+		SamplingInterval: "30s",
+		AlertRules: []ResourceAlertRule{
+			{
+				Severity:    ResourceAlertSeverityTypeWarning,
+				Percentage:  75,
+				Duration:    "5m",
+				Description: "CPU usage above 75%",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Failed to create CPU monitor: %v", err)
+	}
+	return monitor
+}
+
+func createCPUMonitorWithPath(t *testing.T) ResourceMonitor {
+	// We need to create a ResourceMonitor with path field manually
+	// since FromCpuResourceMonitorSpec doesn't accept path field
+	cpuSpec := CpuResourceMonitorSpec{
+		MonitorType:      "CPU",
+		SamplingInterval: "30s",
+		AlertRules: []ResourceAlertRule{
+			{
+				Severity:    ResourceAlertSeverityTypeWarning,
+				Percentage:  75,
+				Duration:    "5m",
+				Description: "CPU usage above 75%",
+			},
+		},
+	}
+
+	// Create monitor first without path
+	var monitor ResourceMonitor
+	err := monitor.FromCpuResourceMonitorSpec(cpuSpec)
+	if err != nil {
+		t.Fatalf("Failed to create CPU monitor: %v", err)
+	}
+
+	// Now manually inject the path field into the raw JSON
+	// This simulates what would happen if someone manually included a path field
+	rawWithPath := `{
+		"monitorType": "CPU",
+		"samplingInterval": "30s", 
+		"path": "/invalid/path/for/cpu",
+		"alertRules": [
+			{
+				"severity": "Warning",
+				"percentage": 75,
+				"duration": "5m",
+				"description": "CPU usage above 75%"
+			}
+		]
+	}`
+	monitor.union = []byte(rawWithPath)
+
+	return monitor
+}
+
+func createDiskMonitor(t *testing.T) ResourceMonitor {
+	var monitor ResourceMonitor
+	err := monitor.FromDiskResourceMonitorSpec(DiskResourceMonitorSpec{
+		MonitorType:      "Disk",
+		Path:             "/var/data",
+		SamplingInterval: "30s",
+		AlertRules: []ResourceAlertRule{
+			{
+				Severity:    ResourceAlertSeverityTypeCritical,
+				Percentage:  90,
+				Duration:    "3m",
+				Description: "Disk usage above 90%",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Failed to create Disk monitor: %v", err)
+	}
+	return monitor
+}
+
+func createMemoryMonitor(t *testing.T) ResourceMonitor {
+	var monitor ResourceMonitor
+	err := monitor.FromMemoryResourceMonitorSpec(MemoryResourceMonitorSpec{
+		MonitorType:      "Memory",
+		SamplingInterval: "30s",
+		AlertRules: []ResourceAlertRule{
+			{
+				Severity:    ResourceAlertSeverityTypeInfo,
+				Percentage:  80,
+				Duration:    "10m",
+				Description: "Memory usage above 80%",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Failed to create Memory monitor: %v", err)
+	}
+	return monitor
+}

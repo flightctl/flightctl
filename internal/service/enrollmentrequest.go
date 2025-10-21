@@ -12,6 +12,7 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	authcommon "github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/config/ca"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/crypto/signer"
 	"github.com/flightctl/flightctl/internal/flterrors"
@@ -282,6 +283,11 @@ func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, er api.Enr
 			return nil, api.StatusBadRequest(err.Error())
 		}
 	}
+	if _, isAgent := ctx.Value(consts.AgentCtxKey).(string); isAgent {
+		if h.agentGate.Acquire(ctx, 1) == nil {
+			defer h.agentGate.Release(1)
+		}
+	}
 
 	// Use fromAPI=false for internal requests to preserve annotations
 	result, err := h.store.EnrollmentRequest().CreateWithFromAPI(ctx, orgId, &er, false, h.callbackEnrollmentRequestUpdated)
@@ -314,6 +320,11 @@ func (h *ServiceHandler) ListEnrollmentRequests(ctx context.Context, params api.
 func (h *ServiceHandler) GetEnrollmentRequest(ctx context.Context, name string) (*api.EnrollmentRequest, api.Status) {
 	orgId := getOrgIdFromContext(ctx)
 
+	if _, isAgent := ctx.Value(consts.AgentCtxKey).(string); isAgent {
+		if h.agentGate.Acquire(ctx, 1) == nil {
+			defer h.agentGate.Release(1)
+		}
+	}
 	result, err := h.store.EnrollmentRequest().Get(ctx, orgId, name)
 	return result, StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
 }

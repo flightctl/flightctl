@@ -61,7 +61,7 @@ var _ = Describe("DeviceDisconnected", func() {
 
 	// Helper function to set device lastSeen directly in the database
 	setDeviceLastSeen := func(deviceName string, lastSeen time.Time) error {
-		result := db.WithContext(ctx).Model(&model.Device{}).Where("org_id = ? AND name = ?", orgId, deviceName).Updates(map[string]interface{}{
+		result := db.WithContext(ctx).Model(&model.DeviceTimestamp{}).Where("org_id = ? AND name = ?", orgId, deviceName).Updates(map[string]interface{}{
 			"last_seen": lastSeen,
 		})
 		return result.Error

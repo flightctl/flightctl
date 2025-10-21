@@ -58,7 +58,6 @@ type Device interface {
 	GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion *string, consoleGrpcEndpoint string) (*api.Device, error)
 	Healthcheck(ctx context.Context, orgId uuid.UUID, names []string) error
 	ProcessAwaitingReconnectAnnotation(ctx context.Context, orgId uuid.UUID, deviceName string, deviceReportedVersion *string) (bool, error)
-	GetWithoutServiceConditions(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error)
 	GetLastSeen(ctx context.Context, orgId uuid.UUID, name string) (*time.Time, error)
 
 	// Used internally
@@ -70,6 +69,8 @@ type Device interface {
 	PrepareDevicesAfterRestore(ctx context.Context) (int64, error)
 	RemoveConflictPausedAnnotation(ctx context.Context, orgId uuid.UUID, listParams ListParams) (int64, []string, error)
 	SetOutOfDate(ctx context.Context, orgId uuid.UUID, owner string) error
+	ListDisconnected(ctx context.Context, orgId uuid.UUID, listParams ListParams, cutoffTime time.Time) (*api.DeviceList, error)
+	GetWithoutServiceConditions(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error)
 
 	// Used only by rollout
 	Count(ctx context.Context, orgId uuid.UUID, listParams ListParams) (int64, error)
@@ -133,7 +134,7 @@ func (s *DeviceStore) SetIntegrationTestCreateOrUpdateCallback(c IntegrationTest
 func (s *DeviceStore) InitialMigration(ctx context.Context) error {
 	db := s.getDB(ctx)
 
-	if err := db.AutoMigrate(&model.Device{}, &model.DeviceLabel{}); err != nil {
+	if err := db.AutoMigrate(&model.Device{}, &model.DeviceLabel{}, &model.DeviceTimestamp{}); err != nil {
 		return err
 	}
 
@@ -166,6 +167,18 @@ func (s *DeviceStore) InitialMigration(ctx context.Context) error {
 	}
 
 	if err := s.createDeviceLabelsTrigger(db); err != nil {
+		return err
+	}
+
+	if err := s.createDeviceTimestampInsertTrigger(db); err != nil {
+		return err
+	}
+
+	if err := s.backfillDeviceTimestamps(db); err != nil {
+		return err
+	}
+
+	if err := s.dropLastSeenColumnIfExists(db); err != nil {
 		return err
 	}
 
@@ -308,6 +321,41 @@ func (s *DeviceStore) createDeviceLabelsTrigger(db *gorm.DB) error {
 	return nil
 }
 
+func (s *DeviceStore) createDeviceTimestampInsertTrigger(db *gorm.DB) error {
+	if db.Dialector.Name() == "postgres" {
+		triggerSQL := `
+		DROP TRIGGER IF EXISTS device_after_insert ON devices;
+		DROP FUNCTION IF EXISTS create_device_timestamp();
+		CREATE OR REPLACE FUNCTION create_device_timestamp()
+		RETURNS TRIGGER AS $$
+		BEGIN
+		    INSERT INTO device_timestamps (name, org_id)
+		    VALUES (NEW.name, NEW.org_id);
+		    RETURN NEW;
+		END;
+		$$ LANGUAGE plpgsql;
+		CREATE TRIGGER device_after_insert
+		AFTER INSERT ON devices
+		FOR EACH ROW
+		EXECUTE FUNCTION create_device_timestamp();
+		`
+		return db.Exec(triggerSQL).Error
+	}
+	return nil
+}
+
+func (s *DeviceStore) backfillDeviceTimestamps(db *gorm.DB) error {
+	return db.Exec(`INSERT INTO device_timestamps (org_id, name) 
+		SELECT org_id, name FROM devices WHERE (org_id, name) NOT IN (SELECT org_id, name FROM device_timestamps)`).Error
+}
+
+func (s *DeviceStore) dropLastSeenColumnIfExists(db *gorm.DB) error {
+	if db.Migrator().HasColumn(&model.Device{}, "last_seen") {
+		return db.Migrator().DropColumn(&model.Device{}, "last_seen")
+	}
+	return nil
+}
+
 func (s *DeviceStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.Device, eventCallback EventCallback) (*api.Device, error) {
 	device, err := s.genericStore.Create(ctx, orgId, resource)
 	name := lo.FromPtr(resource.Metadata.Name)
@@ -329,12 +377,98 @@ func (s *DeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resou
 	return device, created, err
 }
 
+func (s *DeviceStore) getWithTimestamp(ctx context.Context, orgId uuid.UUID, name string, opts ...model.APIResourceOption) (*api.Device, error) {
+	var deviceModel model.DeviceWithTimestamp
+	device := s.getDB(ctx).Raw(`SELECT d.*, dt.last_seen
+          FROM devices d, device_timestamps dt
+          WHERE d.org_id = ? AND d.name = ? AND d.deleted_at is NULL AND 
+          d.org_id = dt.org_id AND d.name = dt.name`, orgId, name).Scan(&deviceModel)
+	if device.Error != nil {
+		return nil, ErrorFromGormError(device.Error)
+	}
+	if device.RowsAffected == 0 {
+		return nil, flterrors.ErrResourceNotFound
+	}
+	ret, err := deviceModel.ToApiResource(opts...)
+	if err != nil {
+		return nil, err
+	}
+	return ret, nil
+}
+
 func (s *DeviceStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error) {
 	return s.genericStore.Get(ctx, orgId, name)
 }
 
+func (s *DeviceStore) GetWithoutServiceConditions(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error) {
+	return s.getWithTimestamp(ctx, orgId, name, model.WithoutServiceConditions())
+}
+
 func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DeviceList, error) {
 	return s.genericStore.List(ctx, orgId, listParams)
+}
+
+func (s *DeviceStore) ListDisconnected(ctx context.Context, orgId uuid.UUID, listParams ListParams, cutoffTime time.Time) (*api.DeviceList, error) {
+	var nextContinue *string
+	var numRemaining *int64
+	var devices []model.DeviceWithTimestamp
+	queryStr := `SELECT d.*, dt.last_seen
+          FROM devices d, device_timestamps dt
+          WHERE d.org_id = ? AND d.deleted_at is NULL AND d.name = dt.name AND d.org_id = dt.org_id AND dt.last_seen < ? `
+
+	args := []interface{}{
+		orgId,
+		cutoffTime,
+	}
+
+	if listParams.Continue != nil && len(listParams.Continue.Names) == 1 {
+		queryStr += ` AND d.name >= ? `
+		args = append(args, listParams.Continue.Names[0])
+	}
+
+	queryStr += ` order by d.name `
+
+	if listParams.Limit > 0 {
+		queryStr += ` limit ?`
+		args = append(args, listParams.Limit+1)
+	}
+
+	if err := s.getDB(ctx).Raw(queryStr, args...).Scan(&devices).Error; err != nil {
+		return nil, ErrorFromGormError(err)
+	}
+
+	// If we got more than the user requested, remove one record and calculate "continue"
+	if listParams.Limit > 0 && len(devices) > listParams.Limit {
+		lastIndex := len(devices) - 1
+		lastItem := devices[lastIndex]
+		continueValues := []string{lastItem.Name}
+
+		devices = devices[:lastIndex]
+
+		var numRemainingVal int64
+		if listParams.Continue != nil {
+			numRemainingVal = listParams.Continue.Count - int64(listParams.Limit)
+			if numRemainingVal < 1 {
+				numRemainingVal = 1
+			}
+		} else {
+			countQuery, err := ListQuery(&model.Device{}).Build(ctx, s.getDB(ctx), orgId, listParams)
+			if err != nil {
+				return nil, err
+			}
+			numRemainingVal = CountRemainingItems(countQuery, continueValues, listParams)
+		}
+
+		nextContinue = BuildContinueString(continueValues, numRemainingVal)
+		numRemaining = &numRemainingVal
+	}
+
+	ret, err := model.DevicesToApiResource(devices, nextContinue, numRemaining)
+	if err != nil {
+		return nil, err
+	}
+
+	return lo.ToPtr(ret), nil
 }
 
 func (s *DeviceStore) Labels(ctx context.Context, orgId uuid.UUID, listParams ListParams) (api.LabelList, error) {
@@ -630,9 +764,8 @@ func (s *DeviceStore) healthcheck(ctx context.Context, orgId uuid.UUID, names []
 		return false, nil
 	}
 
-	result := s.getDB(ctx).Model(&model.Device{}).Where("org_id = ? and name in (?)", orgId, names).Updates(map[string]interface{}{
-		"last_seen": time.Now().UTC(),
-	})
+	result := s.getDB(ctx).Model(&model.DeviceTimestamp{}).Where("org_id = ? and name in (?)", orgId, names).Update(
+		"last_seen", time.Now().UTC())
 	err := ErrorFromGormError(result.Error)
 	if err != nil {
 		return strings.Contains(err.Error(), "deadlock"), err
@@ -907,21 +1040,9 @@ func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name str
 	return deviceModel.ToApiResource(model.WithRendered(knownRenderedVersion))
 }
 
-func (s *DeviceStore) GetWithoutServiceConditions(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error) {
-	deviceModel := model.Device{
-		Resource: model.Resource{OrgID: orgId, Name: name},
-	}
-	result := s.getDB(ctx).Take(&deviceModel)
-	if result.Error != nil {
-		return nil, ErrorFromGormError(result.Error)
-	}
-
-	return deviceModel.ToApiResource(model.WithoutServiceConditions())
-}
-
 func (s *DeviceStore) GetLastSeen(ctx context.Context, orgId uuid.UUID, name string) (*time.Time, error) {
-	deviceModel := model.Device{
-		Resource: model.Resource{OrgID: orgId, Name: name},
+	deviceModel := model.DeviceTimestamp{
+		OrgID: orgId, Name: name,
 	}
 	result := s.getDB(ctx).Take(&deviceModel)
 	if result.Error != nil {
@@ -1177,6 +1298,7 @@ func (s *DeviceStore) PrepareDevicesAfterRestore(ctx context.Context) (int64, er
 	// Use raw SQL for efficient bulk update that preserves existing annotations
 	// and properly handles the status JSON structure using || operator for merging
 	sql := `
+        WITH updated_devices AS (
 		UPDATE devices 
 		SET 
 			annotations = COALESCE(annotations, '{}'::jsonb) || jsonb_build_object($1::text, 'true'),
@@ -1186,11 +1308,15 @@ func (s *DeviceStore) PrepareDevicesAfterRestore(ctx context.Context) (int64, er
 				ELSE 
 					jsonb_build_object('summary', jsonb_build_object('status', $2::text, 'info', $3::text)) || jsonb_build_object('updated', jsonb_build_object('status', $6::text))
 			END,
-			resource_version = COALESCE(resource_version, 0) + 1,
-			last_seen = NULL
+			resource_version = COALESCE(resource_version, 0) + 1
 		WHERE deleted_at IS NULL 
 			AND NOT (status->'lifecycle'->>'status') IN ($4, $5)
 			AND (annotations->>$1) IS DISTINCT FROM 'true'
+        RETURNING name, org_id)
+        UPDATE device_timestamps dt
+        SET last_seen = NULL
+		FROM updated_devices ud
+		WHERE dt.org_id = ud.org_id AND dt.name = ud.name
 	`
 
 	result := db.Exec(sql,

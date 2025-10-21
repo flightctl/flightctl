@@ -62,13 +62,42 @@ jobs:
           DISABLE_FIPS: true
           FLIGHTCTL_TEST_DB_STRATEGY: template
 
-      - name: Checkout baseline branch (PR base)
+      - name: Detect baseline for compatibility testing
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' && github.event_name == 'pull_request' }}
+        id: detect_baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          echo "Detecting baseline commit for compatibility testing..."
+          echo ""
+
+          # Ensure tags exist locally (required for rev-list against the release tag)
+          git fetch --tags --force >/dev/null 2>&1 || true
+
+          # Try to get latest release
+          LATEST_RELEASE_TAG="$(gh release view --json tagName --jq .tagName 2>/dev/null || true)"
+          if [ -n "${LATEST_RELEASE_TAG}" ]; then
+            echo "Latest release: ${LATEST_RELEASE_TAG}"
+            BASELINE_REF="${LATEST_RELEASE_TAG}"
+            echo "Using latest release as baseline: ${BASELINE_REF}"
+          else
+            BASELINE_REF="${{ github.event.pull_request.base.sha }}"
+            echo "Failed to detect latest release, falling back to PR base: ${BASELINE_REF}"
+          fi
+          echo ""
+          echo "================================================"
+          echo "Selected baseline: ${BASELINE_REF}"
+          echo "================================================"
+          echo ""
+          echo "baseline_ref=${BASELINE_REF}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout baseline branch
         if: ${{ steps.changed-files.outputs.any_changed == 'true' && github.event_name == 'pull_request' }}
         uses: actions/checkout@v4
         with:
           repository: flightctl/flightctl
-          #TODO: checkout previously released version after 0.10 release
-          ref: ${{ github.event.pull_request.base.ref }}
+          ref: ${{ steps.detect_baseline.outputs.baseline_ref }}
           fetch-depth: 0
 
       - name: Print checkout info (baseline)
