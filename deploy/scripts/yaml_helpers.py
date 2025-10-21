@@ -54,8 +54,13 @@ def extract_command(args):
     default_value = args.default_value
 
     try:
-        with open(file_path, 'r') as f:
-            data = yaml.safe_load(f)
+        if file_path is None:
+            # Read from stdin
+            data = yaml.safe_load(sys.stdin)
+        else:
+            # Read from file
+            with open(file_path, 'r') as f:
+                data = yaml.safe_load(f)
 
         if data is None:
             if default_value is not None:
@@ -102,7 +107,8 @@ def main():
     )
     extract_parser.add_argument(
         'yaml_file',
-        help='Path to the YAML file to read'
+        nargs='?',
+        help='Path to the YAML file to read (reads from stdin if not provided)'
     )
     extract_parser.add_argument(
         '--default',
