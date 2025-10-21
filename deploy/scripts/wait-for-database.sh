@@ -97,12 +97,23 @@ if [ -n "${SERVICE_CONFIG_PATH:-}" ]; then
         yaml_user=$(sed -n '/^db:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_PATH" | sed -n 's/^[[:space:]]*user:[[:space:]]*[\"'\'']*\([^\"'\''[:space:]]*\)[\"'\'']*.*$/\1/p' | head -1)
         yaml_password=$(sed -n '/^db:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_PATH" | sed -n 's/^[[:space:]]*userPassword:[[:space:]]*[\"'\'']*\([^\"'\''[:space:]]*\)[\"'\'']*.*$/\1/p' | head -1)
 
-        # Use config file values only if environment variables are not already set
-        [ -z "$DB_HOST" ] && [ -n "$yaml_host" ] && DB_HOST="$yaml_host"
-        [ -z "$DB_PORT" ] && [ -n "$yaml_port" ] && DB_PORT="$yaml_port"
-        [ -z "$DB_NAME" ] && [ -n "$yaml_name" ] && DB_NAME="$yaml_name"
-        [ -z "$DB_USER" ] && [ -n "$yaml_user" ] && DB_USER="$yaml_user"
-        [ -z "$DB_PASSWORD" ] && [ -n "$yaml_password" ] && DB_PASSWORD="$yaml_password"
+        # For external database, prefer YAML config over defaults
+        # For internal database, use defaults if YAML values are not set
+        if [ "$yaml_external" = "enabled" ]; then
+            # External database: use YAML values, fall back to defaults only if YAML is empty
+            [ -n "$yaml_host" ] && DB_HOST="$yaml_host"
+            [ -n "$yaml_port" ] && DB_PORT="$yaml_port"
+            [ -n "$yaml_name" ] && DB_NAME="$yaml_name"
+            [ -n "$yaml_user" ] && DB_USER="$yaml_user"
+            [ -n "$yaml_password" ] && DB_PASSWORD="$yaml_password"
+        else
+            # Internal database: use config file values only if environment variables are not already set
+            [ -z "$DB_HOST" ] && [ -n "$yaml_host" ] && DB_HOST="$yaml_host"
+            [ -z "$DB_PORT" ] && [ -n "$yaml_port" ] && DB_PORT="$yaml_port"
+            [ -z "$DB_NAME" ] && [ -n "$yaml_name" ] && DB_NAME="$yaml_name"
+            [ -z "$DB_USER" ] && [ -n "$yaml_user" ] && DB_USER="$yaml_user"
+            [ -z "$DB_PASSWORD" ] && [ -n "$yaml_password" ] && DB_PASSWORD="$yaml_password"
+        fi
 
         # Read SSL configuration from YAML
         yaml_ssl_mode=$(sed -n '/^db:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_PATH" | sed -n 's/^[[:space:]]*sslmode:[[:space:]]*[\"'\'']*\([^\"'\''[:space:]]*\)[\"'\'']*.*$/\1/p' | head -1)

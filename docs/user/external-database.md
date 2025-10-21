@@ -64,13 +64,49 @@ GRANT CREATE ON DATABASE flightctl TO flightctl_migrator;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO flightctl_migrator WITH GRANT OPTION;
 
 -- Set up automatic permissions for future tables
-ALTER DEFAULT PRIVILEGES IN SCHEMA public 
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO flightctl_app;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public 
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
   GRANT USAGE, SELECT ON SEQUENCES TO flightctl_app;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
     GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO flightctl_migrator WITH GRANT OPTION;
+
+-- Grant permissions on existing tables/sequences (for any pre-existing objects)
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO flightctl_app;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO flightctl_app;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO flightctl_migrator;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO flightctl_migrator;
+
+-- Create function to grant permissions on existing tables (called after migrations)
+CREATE OR REPLACE FUNCTION grant_app_permissions_on_existing_tables()
+RETURNS void AS $$
+BEGIN
+    -- Grant table permissions
+    EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO %I', 'flightctl_app');
+    -- Grant sequence permissions
+    EXECUTE format('GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO %I', 'flightctl_app');
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create event trigger function for automatic permission granting
+CREATE OR REPLACE FUNCTION grant_app_permissions()
+RETURNS event_trigger AS $$
+BEGIN
+    -- Grant permissions on newly created tables/sequences
+    EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO %I', 'flightctl_app');
+    EXECUTE format('GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO %I', 'flightctl_app');
+END;
+$$ LANGUAGE plpgsql;
+
+-- Set up automatic permission granting for future table creation
+DROP EVENT TRIGGER IF EXISTS grant_app_permissions_trigger;
+CREATE EVENT TRIGGER grant_app_permissions_trigger
+    ON ddl_command_end
+    WHEN TAG IN ('CREATE TABLE', 'CREATE SEQUENCE')
+    EXECUTE FUNCTION grant_app_permissions();
 ```
+
+**Important**: The automatic permission management functions and event trigger above ensure that `flightctl_app` user automatically receives proper permissions on all tables and sequences created by the migration process. This replicates the same automatic permission handling that FlightCtl provides for internal databases.
 
 ### 2. Configure SSL (Recommended)
 
