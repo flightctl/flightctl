@@ -2,7 +2,7 @@
 
 set -x -eo pipefail
 
-TIMEOUT=60
+TIMEOUT=150
 SUCCESS_DURATION=60
 
 # This script is used to check if the flightctl-agent service is running. It is
