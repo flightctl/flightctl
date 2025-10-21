@@ -18,7 +18,6 @@ import (
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/google/renameio"
 	"github.com/samber/lo"
-	"k8s.io/klog/v2"
 )
 
 // writer is responsible for writing files to the device
@@ -319,7 +318,6 @@ func lookupUID(username string) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("failed to retrieve UserID for username: %s", username)
 	}
-	klog.V(2).Infof("Retrieved UserId: %s for username: %s", osUser.Uid, username)
 	uid, _ := strconv.Atoi(osUser.Uid)
 	return uid, nil
 }
@@ -329,7 +327,6 @@ func lookupGID(group string) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("failed to retrieve GroupID for group: %v", group)
 	}
-	klog.V(2).Infof("Retrieved GroupID: %s for group: %s", osGroup.Gid, group)
 	gid, _ := strconv.Atoi(osGroup.Gid)
 	return gid, nil
 }
