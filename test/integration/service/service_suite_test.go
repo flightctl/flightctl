@@ -96,7 +96,7 @@ func NewServiceTestSuite() *ServiceTestSuite {
 // SetDeviceLastSeen sets the lastSeen timestamp for a device directly in the database
 func (s *ServiceTestSuite) SetDeviceLastSeen(deviceName string, lastSeen time.Time) error {
 	orgId := store.NullOrgId
-	result := s.db.WithContext(s.Ctx).Model(&model.Device{}).Where("org_id = ? AND name = ?", orgId, deviceName).Updates(map[string]interface{}{
+	result := s.db.WithContext(s.Ctx).Model(&model.DeviceTimestamp{}).Where("org_id = ? AND name = ?", orgId, deviceName).Updates(map[string]interface{}{
 		"last_seen": lastSeen,
 	})
 	return result.Error

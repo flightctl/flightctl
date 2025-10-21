@@ -141,9 +141,8 @@ setup_telemetry_gateway_certs() {
         # Run the certificate setup script
         if ! /etc/flightctl/scripts/setup_telemetry_gateway_certs.sh --mode "$mode" \
         --sans "$sans" --force-rotate  ; then
-            log "WARNING" "Certificate setup failed, but continuing with configuration rendering"
-            log "INFO" "You can run the certificate setup manually later:"
-            log "INFO" "  sudo /etc/flightctl/scripts/setup_telemetry_gateway_certs.sh --mode $mode"
+            log "ERROR" "Certificate setup failed, aborting configuration rendering"
+            exit 1
         else
             log "INFO" "Telemetry-gateway certificates setup completed successfully"
         fi
