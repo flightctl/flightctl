@@ -1,8 +1,9 @@
 package cli
 
 import (
-	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestParseAndValidateKindNameFromArgsApprove(t *testing.T) {
@@ -139,25 +140,21 @@ func TestParseAndValidateKindNameFromArgsApprove(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			kind, name, err := parseAndValidateKindNameFromArgsSingle(tc.args)
+			require := require.New(t)
 
+			kind, name, err := parseAndValidateKindNameFromArgsSingle(tc.args)
 			if tc.expectError {
-				if err == nil {
-					t.Errorf("expected error but got none")
-				} else if tc.errorContains != "" && !strings.Contains(err.Error(), tc.errorContains) {
-					t.Errorf("expected error to contain %q, but got %q", tc.errorContains, err.Error())
+				require.Error(err, "expected an error but got none")
+				if tc.errorContains != "" {
+					require.Contains(err.Error(), tc.errorContains,
+						"expected error to contain %q", tc.errorContains)
 				}
-			} else {
-				if err != nil {
-					t.Errorf("unexpected error: %v", err)
-				}
-				if kind != tc.expectedKind {
-					t.Errorf("expected kind %q, got %q", tc.expectedKind, kind)
-				}
-				if name != tc.expectedName {
-					t.Errorf("expected name %q, got %q", tc.expectedName, name)
-				}
+				return
 			}
+
+			require.NoError(err, "unexpected error")
+			require.Equal(tc.expectedKind, kind, "unexpected kind")
+			require.Equal(tc.expectedName, name, "unexpected name")
 		})
 	}
 }
