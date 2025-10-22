@@ -40,12 +40,7 @@ Requires: openssl
 # --- Restart these on upgrade  ---
 %global flightctl_services_restart flightctl-api.service flightctl-ui.service flightctl-worker.service flightctl-alertmanager.service flightctl-alert-exporter.service flightctl-alertmanager-proxy.service flightctl-cli-artifacts.service flightctl-periodic.service flightctl-db-migrate.service flightctl-db-wait.service
 
-%description
-# Main package is empty and not created.
-
-# File listings
-# No %%files section for the main package, so it won't be built
-
+%include packages/main.spec
 %include packages/cli.spec
 %include packages/agent.spec
 %include packages/selinux.spec
