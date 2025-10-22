@@ -60,7 +60,7 @@ flightctl is the CLI for controlling the Flight Control service.
     %{_datadir}/fish/vendor_completions.d/flightctl-completion.fish
     %{_datadir}/zsh/site-functions/_flightctl-completion
 
- %include packaging/rpm/packages/main.spec
+# %include packaging/rpm/packages/main.spec
 # %include packaging/rpm/packages/cli.spec
 # %include packaging/rpm/packages/agent.spec
 # %include packaging/rpm/packages/selinux.spec
