@@ -40,27 +40,49 @@ Requires: openssl
 # --- Restart these on upgrade  ---
 %global flightctl_services_restart flightctl-api.service flightctl-ui.service flightctl-worker.service flightctl-alertmanager.service flightctl-alert-exporter.service flightctl-alertmanager-proxy.service flightctl-cli-artifacts.service flightctl-periodic.service flightctl-db-migrate.service flightctl-db-wait.service
 
-%include packaging/rpm/packages/main.spec
-%include packaging/rpm/packages/cli.spec
-%include packaging/rpm/packages/agent.spec
-%include packaging/rpm/packages/selinux.spec
-%include packaging/rpm/packages/telemetry-gateway.spec
-%include packaging/rpm/packages/services.spec
-%include packaging/rpm/packages/observability.spec
+%description
+# Main package is empty and not created.
+
+# File listings
+# No %%files section for the main package, so it won't be built
+
+# cli sub-package
+%package cli
+Summary: Flight Control CLI
+%description cli
+flightctl is the CLI for controlling the Flight Control service.
+
+%files cli -f licenses.list
+    %{_bindir}/flightctl
+    %{_bindir}/flightctl-restore
+    %license LICENSE
+    %{_datadir}/bash-completion/completions/flightctl-completion.bash
+    %{_datadir}/fish/vendor_completions.d/flightctl-completion.fish
+    %{_datadir}/zsh/site-functions/_flightctl-completion
+
+# %include packaging/rpm/packages/main.spec
+# %include packaging/rpm/packages/cli.spec
+# %include packaging/rpm/packages/agent.spec
+# %include packaging/rpm/packages/selinux.spec
+# %include packaging/rpm/packages/telemetry-gateway.spec
+# %include packaging/rpm/packages/services.spec
+# %include packaging/rpm/packages/observability.spec
 
 %prep
 %goprep -A
 %setup -q %{forgesetupargs}
 
 %build
-%include packaging/rpm/build/build.spec
+echo -n "Current directory: "
+pwd
+# %include packaging/rpm/build/build.spec
 
 %install
-%include packaging/rpm/install/licences.spec
-%include packaging/rpm/install/flightctl.spec
-%include packaging/rpm/install/selinux.spec
-%include packaging/rpm/install/services.spec
-%include packaging/rpm/install/observability.spec
+# %include packaging/rpm/install/licences.spec
+# %include packaging/rpm/install/flightctl.spec
+# %include packaging/rpm/install/selinux.spec
+# %include packaging/rpm/install/services.spec
+# %include packaging/rpm/install/observability.spec
 
 %check
     %{buildroot}%{_bindir}/flightctl-agent version
