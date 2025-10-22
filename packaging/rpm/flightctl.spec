@@ -40,27 +40,27 @@ Requires: openssl
 # --- Restart these on upgrade  ---
 %global flightctl_services_restart flightctl-api.service flightctl-ui.service flightctl-worker.service flightctl-alertmanager.service flightctl-alert-exporter.service flightctl-alertmanager-proxy.service flightctl-cli-artifacts.service flightctl-periodic.service flightctl-db-migrate.service flightctl-db-wait.service
 
-%include packages/main.spec
-%include packages/cli.spec
-%include packages/agent.spec
-%include packages/selinux.spec
-%include packages/telemetry-gateway.spec
-%include packages/services.spec
-%include packages/observability.spec
+%include packaging/rpm/packages/main.spec
+%include packaging/rpm/packages/cli.spec
+%include packaging/rpm/packages/agent.spec
+%include packaging/rpm/packages/selinux.spec
+%include packaging/rpm/packages/telemetry-gateway.spec
+%include packaging/rpm/packages/services.spec
+%include packaging/rpm/packages/observability.spec
 
 %prep
 %goprep -A
 %setup -q %{forgesetupargs}
 
 %build
-%include build/build.spec
+%include packaging/rpm/build/build.spec
 
 %install
-%include install/licences.spec
-%include install/flightctl.spec
-%include install/selinux.spec
-%include install/services.spec
-%include install/observability.spec
+%include packaging/rpm/install/licences.spec
+%include packaging/rpm/install/flightctl.spec
+%include packaging/rpm/install/selinux.spec
+%include packaging/rpm/install/services.spec
+%include packaging/rpm/install/observability.spec
 
 %check
     %{buildroot}%{_bindir}/flightctl-agent version
