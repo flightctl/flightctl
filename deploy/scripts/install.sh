@@ -80,7 +80,9 @@ render_files() {
     render_service "periodic" "${SOURCE_DIR}"
     render_service "worker" "${SOURCE_DIR}"
     render_service "alert-exporter" "${SOURCE_DIR}"
+
     render_service "db" "${SOURCE_DIR}"
+
     render_service "db-migrate" "${SOURCE_DIR}"
     render_service "kv" "${SOURCE_DIR}"
     render_service "alertmanager" "${SOURCE_DIR}"

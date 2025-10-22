@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/agent/config"
+	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -158,7 +159,7 @@ func TestGetCustomInfoMap(t *testing.T) {
 			details, err := getCustomInfoMap(ctx, log, tt.keys, rw, exec)
 			if tt.wantError != nil {
 				require.Error(err)
-				require.ErrorIs(tt.wantError, err)
+				require.ErrorIs(err, tt.wantError)
 				return
 			}
 			require.NoError(err)
@@ -258,6 +259,20 @@ func TestGetCollectionOptsFromInfoKeys(t *testing.T) {
 			expectCPU: true,
 			expectGPU: true,
 			expectErr: true,
+		},
+		{
+			name:      "hostname key should be supported",
+			infoKeys:  []string{hostnameKey},
+			expectErr: false, // Fixed: hostname is now properly supported
+		},
+		{
+			name:          "default system info with hostname key",
+			infoKeys:      config.DefaultSystemInfo, // This includes "hostname" which is now supported
+			expectErr:     false,                    // Fixed: default config now works properly
+			expectKernel:  true,                     // kernel is in default config
+			expectDistro:  true,                     // distro keys are in default config
+			expectSystem:  true,                     // product keys are in default config
+			expectNetwork: true,                     // network keys are in default config
 		},
 	}
 
@@ -438,4 +453,58 @@ func TestCollect_AllDisabled(t *testing.T) {
 	require.Nil(t, info.Distribution)
 	require.Empty(t, info.Kernel)
 
+}
+
+func TestGetCustomInfoContextTimeout(t *testing.T) {
+	tests := []struct {
+		name          string
+		scriptContent string
+		description   string
+	}{
+		{
+			name:          "timeout with exec single process in group",
+			scriptContent: "#!/bin/bash\nexec sleep 10\n",
+		},
+		{
+			name:          "timeout without exec two processes in group",
+			scriptContent: "#!/bin/bash\nsleep 10\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+
+			tmpDir := t.TempDir()
+			rw := fileio.NewReadWriter()
+			rw.SetRootdir(tmpDir)
+
+			err := rw.MkdirAll(config.SystemInfoCustomScriptDir, fileio.DefaultDirectoryPermissions)
+			require.NoError(err)
+
+			scriptName := "slowScript.sh"
+			err = rw.WriteFile(
+				filepath.Join(config.SystemInfoCustomScriptDir, scriptName),
+				[]byte(tt.scriptContent),
+				fileio.DefaultExecutablePermissions,
+			)
+			require.NoError(err)
+
+			exec := &executer.CommonExecuter{}
+			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+			defer cancel()
+
+			entries, err := rw.ReadDir(config.SystemInfoCustomScriptDir)
+			require.NoError(err)
+
+			start := time.Now()
+			value, err := getCustomInfoValue(ctx, "slowScript", rw, exec, entries)
+			elapsed := time.Since(start)
+
+			require.Less(elapsed, 200*time.Millisecond, "timeout quickly")
+			require.Error(err)
+			require.True(errors.IsContext(err), "context error")
+			require.Empty(value, "empty on timeout")
+		})
+	}
 }
