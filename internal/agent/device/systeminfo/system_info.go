@@ -457,6 +457,8 @@ func collectionOptsFromInfoKeys(infoKeys []string) ([]CollectOpt, error) {
 			opts = append(opts, withCollector(collectorKernel, collectKernelFunc))
 		case distroNameKey, distroVersionKey:
 			opts = append(opts, withCollector(collectorDistribution, collectDistributionFunc))
+		case hostnameKey, architectureKey:
+			// No specific collector needed - hostname and architecture are always collected
 		default:
 			errs = append(errs, fmt.Errorf("unknown key: %q", key))
 		}
