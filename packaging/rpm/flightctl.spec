@@ -75,9 +75,11 @@ flightctl is the CLI for controlling the Flight Control service.
 %build
 echo -n "Current directory: "
 pwd
-ls -l `find . -name main.spec`
-echo 'Files: '
-ls -l
+echo "Testing %include resolution:"
+rpm --eval "%include packaging/rpm/packages/main.spec"
+ls -la packaging/rpm/packages/main.spec
+rpmbuild --eval "%include packaging/rpm/packages/main.spec" 2>&1 || echo "Include failed"
+
 # %include packaging/rpm/build/build.spec
 
 %install
