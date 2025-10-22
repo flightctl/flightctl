@@ -1,0 +1,6 @@
+# Example drop-in configuration for custom system info collection
+# This file demonstrates using /etc/flightctl/conf.d/ for configuration overrides
+
+system-info-custom:
+  - infinite
+system-info-timeout: 15s

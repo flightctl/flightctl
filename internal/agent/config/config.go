@@ -16,7 +16,6 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/sirupsen/logrus"
-	"k8s.io/klog/v2"
 	"sigs.k8s.io/yaml"
 )
 
@@ -27,6 +26,8 @@ const (
 	DefaultStatusUpdateInterval = util.Duration(60 * time.Second)
 	// DefaultSystemInfoTimeout is the default timeout for collecting system info
 	DefaultSystemInfoTimeout = util.Duration(2 * time.Minute)
+	// MaxSystemInfoTimeout is the maximum timeout for collecting system info
+	MaxSystemInfoTimeout = util.Duration(2 * time.Minute)
 	// DefaultPullRetrySteps is the default retry attempts are allowed for pulling an OCI target.
 	DefaultPullRetrySteps = 6
 	// DefaultPullTimeout is the default timeout for pulling a single OCI
@@ -171,7 +172,7 @@ func NewDefault() *Config {
 	}
 
 	if value := os.Getenv(TestRootDirEnvKey); value != "" {
-		klog.Warning("Setting testRootDir is intended for testing only. Do not use in production.")
+		fmt.Fprintf(os.Stderr, "WARNING: Setting testRootDir is intended for testing only. Do not use in production.\n")
 		c.testRootDir = filepath.Clean(value)
 	}
 
@@ -249,6 +250,10 @@ func (cfg *Config) Validate() error {
 		return err
 	}
 
+	if cfg.SystemInfoTimeout > MaxSystemInfoTimeout {
+		return fmt.Errorf("system-info-timeout cannot exceed %s, got %s", MaxSystemInfoTimeout, cfg.SystemInfoTimeout)
+	}
+
 	if cfg.TPM.AuthEnabled && !cfg.TPM.Enabled {
 		return fmt.Errorf("cannot enable TPM password authentication when TPM device identity is disabled")
 	}
@@ -273,7 +278,6 @@ func (cfg *Config) Validate() error {
 			}
 			if !exists {
 				// ensure required paths exist
-				klog.Infof("Creating missing required directory: %s", field.value)
 				if err := cfg.readWriter.MkdirAll(field.value, fileio.DefaultDirectoryPermissions); err != nil {
 					return fmt.Errorf("creating %s: %w", field.name, err)
 				}
@@ -304,6 +308,28 @@ func (cfg *Config) String() string {
 		return "<error>"
 	}
 	return string(contents)
+}
+
+// StringSanitized returns a JSON representation of the config with sensitive fields removed
+func (cfg *Config) StringSanitized() string {
+	contents, err := json.Marshal(cfg)
+	if err != nil {
+		return "<error>"
+	}
+
+	var configMap map[string]interface{}
+	if err := json.Unmarshal(contents, &configMap); err != nil {
+		return "<error>"
+	}
+
+	delete(configMap, "enrollment-service")
+	delete(configMap, "management-service")
+
+	sanitized, err := json.Marshal(configMap)
+	if err != nil {
+		return "<error>"
+	}
+	return string(sanitized)
 }
 
 func (cfg *Config) validateSyncIntervals() error {
