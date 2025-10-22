@@ -42,7 +42,7 @@ jobs:
             echo "image_tags,helm_tag=${image_tags[@]}"
 
           else
-            version=$(git describe --long --tags --exclude latest)
+            version=$(./hack/current-version)
             # image tags should not have the leading v, and we tag rcs with ~rc1..rcX for rpm version ordering
             version=$(echo "${version#v}" | sed 's/~/-/g')
 
