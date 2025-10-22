@@ -17,6 +17,11 @@ ensure_secrets() {
 # Ensure PostgreSQL secrets exist
 ensure_postgres_secrets() {
     echo "Ensuring secrets for PostgreSQL"
+
+    # Use Podman secrets consistently for both internal and external databases
+    # For external databases, users should create the secrets manually
+    # For internal databases, secrets will be auto-generated if they don't exist
+
     ensure_secret "flightctl-postgresql-password" "FLIGHTCTL_POSTGRESQL_PASSWORD"
     ensure_secret "flightctl-postgresql-master-password" "FLIGHTCTL_POSTGRESQL_MASTER_PASSWORD"
     ensure_secret "flightctl-postgresql-user-password" "FLIGHTCTL_POSTGRESQL_USER_PASSWORD"
