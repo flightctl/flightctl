@@ -1,10 +1,6 @@
 # Build configuration flags: by default enable all packages
-# To disable use: --without cli
-%bcond_without cli
-%bcond_without agent
-%bcond_without selinux
+# To disable use: --without services
 %bcond_without services
-%bcond_without telemetry_gateway
 %bcond_without observability
 
 # Disable debug information package creation
@@ -50,52 +46,26 @@ Requires: openssl
 # File listings
 # No %%files section for the main package, so it won't be built
 
-%if %{with cli}
-  %include packages/cli.spec
-%endif
-
-%if %{with agent}
-  %include packages/agent.spec
-%endif
-
-%if %{with selinux}
-  %include packages/selinux.spec
-%endif
-
-%if %{with services}
-  %include packages/services.spec
-%endif
-
-%if %{with telemetry_gateway}
-  %include packages/telemetry-gateway.spec
-%endif
-
-%if %{with observability}
-  %include packages/observability.spec
-%endif
+%include packages/cli.spec
+%include packages/agent.spec
+%include packages/selinux.spec
+%include packages/telemetry-gateway.spec
+%include packages/services.spec
+%include packages/observability.spec
 
 %prep
 %goprep -A
 %setup -q %{forgesetupargs}
 
+%build
+%include build/build.spec
+
 %install
-    %include install/licenses.spec
-
-    %if %{with cli} || %{with agent}
-      %include install/flightctl.spec
-    %endif
-
-    %if %{with selinux}
-      %include install/selinux.spec
-    %endif
-
-    %if %{with services}
-      %include install/services.spec
-    %endif
-
-    %if %{with observability}
-      %include install/observability.spec
-    %endif
+%include install/licences.spec
+%include install/flightctl.spec
+%include install/selinux.spec
+%include install/services.spec
+%include install/observability.spec
 
 %check
     %{buildroot}%{_bindir}/flightctl-agent version
