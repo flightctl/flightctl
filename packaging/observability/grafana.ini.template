@@ -2,6 +2,7 @@
 [server]
 http_port = 3000
 # http_addr = 0.0.0.0 # Default
+root_url = ${GRAFANA_ROOT_URL}
 
 # HTTPS Configuration
 protocol = ${GRAFANA_PROTOCOL}
@@ -50,8 +51,8 @@ client_id = ${GRAFANA_OAUTH_CLIENT_ID}
 auth_url = ${GRAFANA_OAUTH_AUTH_URL}
 token_url = ${GRAFANA_OAUTH_TOKEN_URL}
 api_url = ${GRAFANA_OAUTH_API_URL}
-scopes = read
-role_attribute_path = contains(roles[*], 'grafana-admin') && 'Admin', contains(roles[*], 'grafana-editor') && 'Editor', true && 'Viewer'
+scopes = ${GRAFANA_OAUTH_SCOPES}
+role_attribute_path = (contains(roles[*], 'grafana-admin') || contains(roles[*], 'Admin')) && 'Admin' ||  (contains(roles[*], 'grafana-editor') || contains(roles[*], 'Editor')) && 'Editor' ||  'Viewer'
 tls_skip_verify_insecure = ${GRAFANA_TLS_SKIP_VERIFY}
 
 

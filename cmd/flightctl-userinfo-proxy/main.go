@@ -38,7 +38,6 @@ func main() {
 	config := loadConfig()
 
 	http.HandleFunc("/userinfo", makeUserInfoHandler(config))
-	http.HandleFunc("/health", healthHandler)
 
 	log.Printf("Starting UserInfo proxy server on port %s", config.ListenPort)
 	log.Printf("Proxying to upstream: %s", config.UpstreamURL)
@@ -227,13 +226,4 @@ func transformToUserInfo(aapResp *AAPResponse) (*UserInfoResponse, error) {
 	}
 
 	return userInfo, nil
-}
-
-func healthHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(map[string]string{
-		"status": "healthy",
-		"time":   time.Now().Format(time.RFC3339),
-	})
 }
