@@ -73,12 +73,11 @@ flightctl is the CLI for controlling the Flight Control service.
 %setup -q %{forgesetupargs}
 
 %build
-echo -n "Current directory: "
-pwd
-echo "Testing %include resolution:"
-rpm --eval "%include packaging/rpm/packages/main.spec"
-ls -la packaging/rpm/packages/main.spec
-rpmbuild --eval "%include packaging/rpm/packages/main.spec" 2>&1 || echo "Include failed"
+echo "RPM build info:"
+echo "Build dir: %{_builddir}"
+rpm --eval "%{_builddir}"
+echo "Source dir: %{_sourcedir}"
+rpm --eval "%{_sourcedir}"
 
 # %include packaging/rpm/build/build.spec
 
