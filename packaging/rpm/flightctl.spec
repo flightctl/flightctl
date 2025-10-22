@@ -91,3 +91,4 @@ Requires: openssl
 - Add basic greenboot support for failed flightctl-agent service
 * Wed Mar 13 2024 Ricardo Noriega <rnoriega@redhat.com> - 0.0.1-3
 - New specfile for both CLI and agent packages
+
