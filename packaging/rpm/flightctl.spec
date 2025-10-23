@@ -40,14 +40,14 @@ Requires: openssl
 # --- Restart these on upgrade  ---
 %global flightctl_services_restart flightctl-api.service flightctl-ui.service flightctl-worker.service flightctl-alertmanager.service flightctl-alert-exporter.service flightctl-alertmanager-proxy.service flightctl-cli-artifacts.service flightctl-periodic.service flightctl-db-migrate.service flightctl-db-wait.service
 
-%{expand:%(cat packaging/rpm/packages/main.spec)}
-%{expand:%(cat packaging/rpm/packages/licences.spec)}
-%{expand:%(cat packaging/rpm/packages/cli.spec)}
-%{expand:%(cat packaging/rpm/packages/agent.spec)}
-%{expand:%(cat packaging/rpm/packages/selinux.spec)}
-%{expand:%(cat packaging/rpm/packages/telemetry-gateway.spec)}
-%{expand:%(cat packaging/rpm/packages/services.spec)}
-%{expand:%(cat packaging/rpm/packages/observability.spec)}
+%{expand:%(cat %{_sourcedir}/packaging/rpm/packages/main.spec)}
+%{expand:%(cat %{_sourcedir}/packaging/rpm/packages/licences.spec)}
+%{expand:%(cat %{_sourcedir}/packaging/rpm/packages/cli.spec)}
+%{expand:%(cat %{_sourcedir}/packaging/rpm/packages/agent.spec)}
+%{expand:%(cat %{_sourcedir}/packaging/rpm/packages/selinux.spec)}
+%{expand:%(cat %{_sourcedir}/packaging/rpm/packages/telemetry-gateway.spec)}
+%{expand:%(cat %{_sourcedir}/packaging/rpm/packages/services.spec)}
+%{expand:%(cat %{_sourcedir}/packaging/rpm/packages/observability.spec)}
 
 %prep
   %goprep -A
