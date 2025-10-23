@@ -40,14 +40,14 @@ Requires: openssl
 # --- Restart these on upgrade  ---
 %global flightctl_services_restart flightctl-api.service flightctl-ui.service flightctl-worker.service flightctl-alertmanager.service flightctl-alert-exporter.service flightctl-alertmanager-proxy.service flightctl-cli-artifacts.service flightctl-periodic.service flightctl-db-migrate.service flightctl-db-wait.service
 
-%{expand:%(cat %{_sourcedir}/packaging/rpm/packages/main.spec)}
-%{expand:%(cat %{_sourcedir}/packaging/rpm/packages/licences.spec)}
-%{expand:%(cat %{_sourcedir}/packaging/rpm/packages/cli.spec)}
-%{expand:%(cat %{_sourcedir}/packaging/rpm/packages/agent.spec)}
-%{expand:%(cat %{_sourcedir}/packaging/rpm/packages/selinux.spec)}
-%{expand:%(cat %{_sourcedir}/packaging/rpm/packages/telemetry-gateway.spec)}
-%{expand:%(cat %{_sourcedir}/packaging/rpm/packages/services.spec)}
-%{expand:%(cat %{_sourcedir}/packaging/rpm/packages/observability.spec)}
+%include packaging/rpm/packages/main.spec
+%include packaging/rpm/packages/licences.spec
+%include packaging/rpm/packages/cli.spec
+%include packaging/rpm/packages/agent.spec
+%include packaging/rpm/packages/selinux.spec
+%include packaging/rpm/packages/telemetry-gateway.spec
+%include packaging/rpm/packages/services.spec
+%include packaging/rpm/packages/observability.spec
 
 %prep
   %goprep -A
