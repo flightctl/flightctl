@@ -40,14 +40,62 @@ Requires: openssl
 # --- Restart these on upgrade  ---
 %global flightctl_services_restart flightctl-api.service flightctl-ui.service flightctl-worker.service flightctl-alertmanager.service flightctl-alert-exporter.service flightctl-alertmanager-proxy.service flightctl-cli-artifacts.service flightctl-periodic.service flightctl-db-migrate.service flightctl-db-wait.service
 
-%include packaging/rpm/packages/main.spec
-%include packaging/rpm/packages/licences.spec
-%include packaging/rpm/packages/cli.spec
-%include packaging/rpm/packages/agent.spec
-%include packaging/rpm/packages/selinux.spec
-%include packaging/rpm/packages/telemetry-gateway.spec
-%include packaging/rpm/packages/services.spec
-%include packaging/rpm/packages/observability.spec
+%{lua:
+local file = io.open("packaging/rpm/packages/main.spec", "r")
+if file then
+    print(file:read("*all"))
+    file:close()
+end
+}
+%{lua:
+local file = io.open("packaging/rpm/packages/licences.spec", "r")
+if file then
+    print(file:read("*all"))
+    file:close()
+end
+}
+%{lua:
+local file = io.open("packaging/rpm/packages/cli.spec", "r")
+if file then
+    print(file:read("*all"))
+    file:close()
+end
+}
+%{lua:
+local file = io.open("packaging/rpm/packages/agent.spec", "r")
+if file then
+    print(file:read("*all"))
+    file:close()
+end
+}
+%{lua:
+local file = io.open("packaging/rpm/packages/selinux.spec", "r")
+if file then
+    print(file:read("*all"))
+    file:close()
+end
+}
+%{lua:
+local file = io.open("packaging/rpm/packages/telemetry-gateway.spec", "r")
+if file then
+    print(file:read("*all"))
+    file:close()
+end
+}
+%{lua:
+local file = io.open("packaging/rpm/packages/services.spec", "r")
+if file then
+    print(file:read("*all"))
+    file:close()
+end
+}
+%{lua:
+local file = io.open("packaging/rpm/packages/observability.spec", "r")
+if file then
+    print(file:read("*all"))
+    file:close()
+end
+}
 
 %prep
   %goprep -A
