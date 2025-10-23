@@ -73,12 +73,13 @@ flightctl is the CLI for controlling the Flight Control service.
 %setup -q %{forgesetupargs}
 
 %build
-echo "Testing absolute path include:"
-ls -la /builddir/build/BUILD/flightctl-1.0.0_main_147_g36fb8aba-build/flightctl-1.0.0~main~147~g36fb8aba/packaging/rpm/packages/main.spec
-
-echo "Testing source subdirectory:"
-basename $(pwd)
-ls -la ../$(basename $(pwd))/packaging/rpm/packages/main.spec
+echo "Testing dynamic path:"
+pwd
+cd ..
+pwd
+ls -la flightctl-*/packaging/rpm/packages/main.spec
+echo "RPM name-version:"
+rpm --eval "%{name}-%{version}"
 
 # %include packaging/rpm/build/build.spec
 
