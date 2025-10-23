@@ -41,14 +41,14 @@ Requires: openssl
 %global flightctl_services_restart flightctl-api.service flightctl-ui.service flightctl-worker.service flightctl-alertmanager.service flightctl-alert-exporter.service flightctl-alertmanager-proxy.service flightctl-cli-artifacts.service flightctl-periodic.service flightctl-db-migrate.service flightctl-db-wait.service
 
 # Include all package definitions
-%include_package -p main
-%include_package -p licences
-%include_package -p cli
-%include_package -p agent
-%include_package -p selinux
-%include_package -p telemetry-gateway
-%include_package -p services
-%include_package -p observability
+%include_package main
+%include_package licences
+%include_package cli
+%include_package agent
+%include_package selinux
+%include_package telemetry-gateway
+%include_package services
+%include_package observability
 
 %prep
 %goprep -A -k

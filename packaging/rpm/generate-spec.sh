@@ -61,8 +61,8 @@ $(echo "$install_content" | sed 's/^/  /')"
         awk '/^%build/{flag=1} /^%install/{flag=1} /^%(files|pre|post|preun|postun|description|package)/ && !/^%build/ && !/^%install/{if(flag) flag=0} !flag{print}' "$package_file" > "$temp_package"
 
         # Replace the corresponding include line with cleaned package contents
-        sed -i "/^%include_package -p $package_name$/r $temp_package" "$OUTPUT"
-        sed -i "/^%include_package -p $package_name$/d" "$OUTPUT"
+        sed -i "/^%include_package $package_name$/r $temp_package" "$OUTPUT"
+        sed -i "/^%include_package $package_name$/d" "$OUTPUT"
         rm -f "$temp_package"
     fi
 done
