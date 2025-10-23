@@ -9,10 +9,14 @@ rm -f "$(uname -m)"/flightctl-*.rpm 2>/dev/null || true
 rm -f bin/rpm/* 2>/dev/null || true
 mkdir -p bin/rpm
 
+# Ensure the spec file is generated from template and package modules
+echo "Generating flightctl.spec from template..."
+cd packaging/rpm && ./generate-spec.sh && cd ../..
+
 # Save the spec as packit will modify it locally to inject versioning and we don't want that
 cp packaging/rpm/flightctl.spec /tmp
-# Always restore the original .spec file on exit
-trap 'cp /tmp/flightctl.spec packaging/rpm/flightctl.spec || true' EXIT
+# Always regenerate the spec file on exit (since it's auto-generated)
+trap 'cd packaging/rpm && ./generate-spec.sh && cd ../..' EXIT
 
 packit build locally
 
