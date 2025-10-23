@@ -242,6 +242,9 @@ jobs:
           GINKGO_LABEL_FILTER: ${{ inputs.label_filter || 'sanity' }}
           GINKGO_TOTAL_NODES: ${{ env.GINKGO_TOTAL_NODES }}
           GINKGO_NODE: ${{ matrix.ginkgo_node }}
+          GINKGO_OUTPUT_INTERCEPTOR_MODE: 'swap'
+          GINKGO_PROCS: '4'
+
 
       - name: Check disk space at end
         if: always() && steps.changed-files.outputs.any_changed == 'true'

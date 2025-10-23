@@ -1,99 +1,36 @@
-name: Build Container Artifacts
+name: "E2E testing (From Build Artifacts)"
 
 on:
-  workflow_dispatch:
-  push:
-    branches:
-      - main
-      - 'release-*'
-  pull_request:
+  workflow_run:
+    workflows: ["Build Container Artifacts"]
+    types:
+      - completed
 
 permissions:
   contents: read
   pull-requests: read
+  actions: read
 
 env:
-  # Enable BuildKit for cache mounts
   DOCKER_BUILDKIT: 1
   BUILDKIT_PROGRESS: plain
-  # Set the registry for container caching - following existing pattern
   QUAY_ORG: quay.io/flightctl
+  QUAY_TESTS_ORG: quay.io/flightctl-tests
   REGISTRY: quay.io
   REGISTRY_OWNER: flightctl
+  REGISTRY_OWNER_TESTS: flightctl-tests
   GITHUB_ACTIONS: true
 
 jobs:
-  # Build each container image in parallel
-  build-images:
-    runs-on: ubuntu-24.04
-    strategy:
-      matrix:
-        app: [
-          "flightctl-api",
-          "flightctl-db-setup",
-          "flightctl-worker",
-          "flightctl-periodic",
-          "flightctl-alert-exporter",
-          "flightctl-alertmanager-proxy",
-          "flightctl-cli-artifacts",
-          "flightctl-userinfo-proxy",
-          "flightctl-telemetry-gateway"
-        ]
-      fail-fast: false
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up build tools
-        run: |
-          sudo apt-get install -y podman buildah openssl make
-
-      - name: Build container image using Makefile
-        env:
-          REGISTRY: ${{ env.REGISTRY }}
-          REGISTRY_OWNER: ${{ env.REGISTRY_OWNER }}
-          GITHUB_ACTIONS: true
-        run: |
-          make ${{ matrix.app }}-container
-
-      - name: Save container image as archive
-        run: |
-          podman save ${{ matrix.app }}:latest -o ${{ matrix.app }}.tar
-          gzip ${{ matrix.app }}.tar
-
-      - name: Upload container artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.app }}-image
-          path: ${{ matrix.app }}.tar.gz
-          retention-days: 1
-          compression-level: 1
-
-  # Summary job that depends on all matrix jobs completing
-  build-summary:
-    runs-on: ubuntu-latest
-    needs: build-images
-    if: always()
-    steps:
-      - name: Check Build Results
-        run: |
-          if [[ "${{ needs.build-images.result }}" == "success" ]]; then
-            echo "All container builds completed successfully!"
-            exit 0
-          else
-            echo "Container builds failed or were cancelled"
-            exit 1
-          fi
-
-  # Run E2E tests using artifacts produced by build-images
   e2e-tests-from-artifacts:
-    needs: build-images
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ github.event.workflow_run.head_sha }}
 
       - name: Free Disk Space (Ubuntu)
         uses: jlumbroso/free-disk-space@main
@@ -159,14 +96,12 @@ jobs:
       - name: Create kind cluster
         run: make cluster
 
-      - name: Download container artifacts
-        uses: actions/download-artifact@v4
+      - name: Download container artifacts from build run
+        uses: dawidd6/action-download-artifact@v6
         with:
+          run_id: ${{ github.event.workflow_run.id }}
           path: artifacts
-          merge-multiple: true
-
-      - name: Build CLI binary
-        run: make build-cli
+          if_no_artifact_found: warn
 
       - name: Load images from artifacts into local registry
         shell: bash
@@ -276,26 +211,22 @@ jobs:
           namespace-internal: 'flightctl-internal'
           log-directory: 'e2e-logs'
 
-  # Optional: Demonstration job showing how to download and use the artifacts
-  use-artifacts-example:
-    needs: build-images
+  e2e:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        app: [flightctl-api, flightctl-worker]  # Example subset
+    needs: e2e-tests-from-artifacts
+    if: always()
     steps:
-      - name: Download container artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: ${{ matrix.app }}-image
-
-      - name: Set up build tools
+      - name: Check E2E Test Results
         run: |
-          sudo apt-get update
-          sudo apt-get install -y podman buildah openssl make
+          if [[ "${{ needs.e2e-tests-from-artifacts.result }}" == "success" ]]; then
+            echo "All E2E tests passed!"
+            exit 0
+          elif [[ "${{ needs.e2e-tests-from-artifacts.result }}" == "skipped" ]]; then
+            echo "E2E tests were skipped (docs-only changes)"
+            exit 0
+          else
+            echo "E2E tests failed or were cancelled"
+            exit 1
+          fi
 
-      - name: Load and verify container image
-        run: |
-          gunzip ${{ matrix.app }}.tar.gz
-          podman load -i ${{ matrix.app }}.tar
-          podman images | grep ${{ matrix.app }}
+
