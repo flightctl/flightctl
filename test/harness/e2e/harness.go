@@ -1417,6 +1417,9 @@ func (h *Harness) SetupVMFromPoolAndStartAgent(workerID int) error {
 		return fmt.Errorf("failed to wait for SSH: %w", err)
 	}
 
+	// Print agent files right after snapshot revert - should be empty/version 0
+	printAgentFilesForVM(testVM, "After Snapshot Revert")
+
 	// Stop the agent to ensure clean state
 	if _, err := testVM.RunSSH([]string{"sudo", "systemctl", "restart", "flightctl-agent"}, nil); err != nil {
 		return fmt.Errorf("failed to stop flightctl-agent: %w", err)
@@ -2573,4 +2576,35 @@ func (h *Harness) EditWithRetry(format, editor, resource string) (string, error)
 	// last attempt
 	out, err := h.CLI("edit", "-o", format, "--editor", editor, resource)
 	return out, h.ApplyTempIfSuggested(out, err)
+}
+
+// printAgentFilesForVM prints all agent files for debugging
+// This is a shared helper function used by harness and vm_pool.go
+func printAgentFilesForVM(vm vm.TestVMInterface, context string) {
+	fmt.Printf("🔍 [%s] Printing agent files:\n", context)
+
+	// Define agent file paths
+	agentFiles := map[string]string{
+		"current.json": "/var/lib/flightctl/current.json",
+		"desired.json": "/var/lib/flightctl/desired.json",
+		"agent secret": "/etc/flightctl/certs/agent.crt",
+	}
+
+	for fileType, filePath := range agentFiles {
+		fmt.Printf("📄 [%s] %s:\n", context, fileType)
+
+		// Regular file handling
+		stdout, err := vm.RunSSH([]string{"sudo", "cat", filePath}, nil)
+		if err != nil {
+			fmt.Printf("❌ [%s] Failed to read %s: %v\n", context, fileType, err)
+		} else {
+			content := stdout.String()
+			if content == "" {
+				fmt.Printf("📄 [%s] %s: (empty or does not exist)\n", context, fileType)
+			} else {
+				fmt.Printf("%s\n", content)
+			}
+		}
+		fmt.Printf("---\n")
+	}
 }
