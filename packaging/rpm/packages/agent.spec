@@ -15,8 +15,8 @@ install -D -m 0755 packaging/must-gather/flightctl-must-gather %{buildroot}%{_bi
 install -D -m 0644 packaging/systemd/flightctl-agent.service %{buildroot}/usr/lib/systemd/system/flightctl-agent.service
 install -D -m 0644 packaging/tmpfiles/flightctl.conf %{buildroot}/usr/lib/tmpfiles.d/flightctl.conf
 install -D -m 0644 packaging/greenboot/flightctl-agent-running-check.sh %{buildroot}/usr/lib/greenboot/check/required.d/20_check_flightctl_agent.sh
-install -D -m 0644 packaging/flightctl-hooks/00-default.yaml %{buildroot}/usr/lib/flightctl/hooks.d/afterupdating/00-default.yaml
-install -D -m 0644 packaging/sosreport/flightctl.py %{buildroot}/usr/share/sosreport/flightctl.py
+install -D -m 0644 packaging/hooks.d/afterupdating/00-default.yaml %{buildroot}/usr/lib/flightctl/hooks.d/afterupdating/00-default.yaml
+install -D -m 0644 packaging/sosreport/sos/report/plugins/flightctl.py %{buildroot}/usr/share/sosreport/flightctl.py
 
 %files agent -f licenses.list
     %license LICENSE
