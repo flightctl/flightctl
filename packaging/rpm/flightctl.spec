@@ -619,9 +619,9 @@ services to be running. This package automatically includes the flightctl-teleme
   # Install commands for cli
   install -D -m 0755 bin/flightctl %{buildroot}%{_bindir}/flightctl
   install -D -m 0755 bin/flightctl-restore %{buildroot}%{_bindir}/flightctl-restore
-  install -D -m 0644 ./packaging/bash-completion/flightctl-completion.bash %{buildroot}%{_datadir}/bash-completion/completions/flightctl-completion.bash
-  install -D -m 0644 ./packaging/fish-completion/flightctl-completion.fish %{buildroot}%{_datadir}/fish/vendor_completions.d/flightctl-completion.fish
-  install -D -m 0644 ./packaging/zsh-completion/_flightctl-completion %{buildroot}%{_datadir}/zsh/site-functions/_flightctl-completion
+  install -D -m 0644 packaging/bash-completion/flightctl-completion.bash %{buildroot}%{_datadir}/bash-completion/completions/flightctl-completion.bash
+  install -D -m 0644 packaging/fish-completion/flightctl-completion.fish %{buildroot}%{_datadir}/fish/vendor_completions.d/flightctl-completion.fish
+  install -D -m 0644 packaging/zsh-completion/_flightctl-completion %{buildroot}%{_datadir}/zsh/site-functions/_flightctl-completion
   # Install commands for licences
   rm -f licenses.list
   find . -type f -name LICENSE -or -name License | while read LICENSE_FILE; do

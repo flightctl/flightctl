@@ -11,9 +11,9 @@ flightctl is the CLI for controlling the Flight Control service.
 %install
 install -D -m 0755 bin/flightctl %{buildroot}%{_bindir}/flightctl
 install -D -m 0755 bin/flightctl-restore %{buildroot}%{_bindir}/flightctl-restore
-install -D -m 0644 ./packaging/bash-completion/flightctl-completion.bash %{buildroot}%{_datadir}/bash-completion/completions/flightctl-completion.bash
-install -D -m 0644 ./packaging/fish-completion/flightctl-completion.fish %{buildroot}%{_datadir}/fish/vendor_completions.d/flightctl-completion.fish
-install -D -m 0644 ./packaging/zsh-completion/_flightctl-completion %{buildroot}%{_datadir}/zsh/site-functions/_flightctl-completion
+install -D -m 0644 packaging/bash-completion/flightctl-completion.bash %{buildroot}%{_datadir}/bash-completion/completions/flightctl-completion.bash
+install -D -m 0644 packaging/fish-completion/flightctl-completion.fish %{buildroot}%{_datadir}/fish/vendor_completions.d/flightctl-completion.fish
+install -D -m 0644 packaging/zsh-completion/_flightctl-completion %{buildroot}%{_datadir}/zsh/site-functions/_flightctl-completion
 
 %files cli -f licenses.list
     %{_bindir}/flightctl
