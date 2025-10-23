@@ -1,3 +1,12 @@
+# WARNING: THIS FILE IS AUTO-GENERATED - DO NOT EDIT MANUALLY
+#
+# This file is generated from flightctl.spec.template and package_*.spec files
+# To make changes, edit the template or package files, then run:
+#   make generate
+# or:
+#   cd packaging/rpm && ./generate-spec.sh
+#
+
 # Build configuration flags: by default enable all packages
 # To disable use: --without services
 %bcond_without services
@@ -40,62 +49,630 @@ Requires: openssl
 # --- Restart these on upgrade  ---
 %global flightctl_services_restart flightctl-api.service flightctl-ui.service flightctl-worker.service flightctl-alertmanager.service flightctl-alert-exporter.service flightctl-alertmanager-proxy.service flightctl-cli-artifacts.service flightctl-periodic.service flightctl-db-migrate.service flightctl-db-wait.service
 
-%{lua:
-local file = io.open("packaging/rpm/packages/main.spec", "r")
-if file then
-    print(file:read("*all"))
-    file:close()
-end
+# Define a macro to include package specs
+%define include_package(p) %{lua: \
+local file = io.open("packaging/rpm/package_" .. rpm.expand("%{-p*}") .. ".spec", "r") \
+if file then \
+    print(file:read("*all")) \
+    file:close() \
+end \
 }
-%{lua:
-local file = io.open("packaging/rpm/packages/licences.spec", "r")
-if file then
-    print(file:read("*all"))
-    file:close()
-end
-}
-%{lua:
-local file = io.open("packaging/rpm/packages/cli.spec", "r")
-if file then
-    print(file:read("*all"))
-    file:close()
-end
-}
-%{lua:
-local file = io.open("packaging/rpm/packages/agent.spec", "r")
-if file then
-    print(file:read("*all"))
-    file:close()
-end
-}
-%{lua:
-local file = io.open("packaging/rpm/packages/selinux.spec", "r")
-if file then
-    print(file:read("*all"))
-    file:close()
-end
-}
-%{lua:
-local file = io.open("packaging/rpm/packages/telemetry-gateway.spec", "r")
-if file then
-    print(file:read("*all"))
-    file:close()
-end
-}
-%{lua:
-local file = io.open("packaging/rpm/packages/services.spec", "r")
-if file then
-    print(file:read("*all"))
-    file:close()
-end
-}
-%{lua:
-local file = io.open("packaging/rpm/packages/observability.spec", "r")
-if file then
-    print(file:read("*all"))
-    file:close()
-end
-}
+
+# Include all package definitions
+%description
+# Main package is empty and not created.
+
+# File listings
+# No %%files section for the main package, so it won't be built
+# Licences install commands
+%global licences_install_commands \
+rm -f licenses.list; \
+find . -type f -name LICENSE -or -name License | while read LICENSE_FILE; do \
+    echo "%{_datadir}/licenses/%{NAME}/${LICENSE_FILE}" >> licenses.list; \
+done; \
+mkdir -vp "%{buildroot}%{_datadir}/licenses/%{NAME}"; \
+cp LICENSE "%{buildroot}%{_datadir}/licenses/%{NAME}"# cli sub-package
+%package cli
+Summary: Flight Control CLI
+
+%description cli
+flightctl is the CLI for controlling the Flight Control service.
+
+# CLI build commands
+%global cli_build_commands %{?rhel:%(if [ "%{rhel}" = "9" ]; then echo "%make_build build-cli build-restore"; else echo "DISABLE_FIPS=\"true\" %make_build build-cli build-restore"; fi)}%{!?rhel:DISABLE_FIPS="true" %make_build build-cli build-restore}
+
+# CLI install commands
+%global cli_install_commands \
+install -D -m 0755 bin/flightctl %{buildroot}%{_bindir}/flightctl; \
+install -D -m 0755 bin/flightctl-restore %{buildroot}%{_bindir}/flightctl-restore; \
+install -D -m 0644 ./packaging/bash-completion/flightctl-completion.bash %{buildroot}%{_datadir}/bash-completion/completions/flightctl-completion.bash; \
+install -D -m 0644 ./packaging/fish-completion/flightctl-completion.fish %{buildroot}%{_datadir}/fish/vendor_completions.d/flightctl-completion.fish; \
+install -D -m 0644 ./packaging/zsh-completion/_flightctl-completion %{buildroot}%{_datadir}/zsh/site-functions/_flightctl-completion
+
+%files cli -f licenses.list
+    %{_bindir}/flightctl
+    %{_bindir}/flightctl-restore
+    %license LICENSE
+    %{_datadir}/bash-completion/completions/flightctl-completion.bash
+    %{_datadir}/fish/vendor_completions.d/flightctl-completion.fish
+    %{_datadir}/zsh/site-functions/_flightctl-completion
+# agent sub-package
+%package agent
+Summary: Flight Control management agent
+Requires: flightctl-selinux = %{version}
+
+%description agent
+The flightctl-agent package provides the management agent for the Flight Control fleet management service.
+
+# Agent build commands
+%global agent_build_commands %{?rhel:%(if [ "%{rhel}" = "9" ]; then echo "%make_build build-agent"; else echo "DISABLE_FIPS=\"true\" %make_build build-agent"; fi)}%{!?rhel:DISABLE_FIPS="true" %make_build build-agent}
+
+# Agent install commands
+%global agent_install_commands \
+install -D -m 0755 bin/flightctl-agent %{buildroot}%{_bindir}/flightctl-agent; \
+install -D -m 0755 hack/flightctl-must-gather %{buildroot}%{_bindir}/flightctl-must-gather; \
+install -D -m 0644 packaging/systemd/flightctl-agent.service %{buildroot}/usr/lib/systemd/system/flightctl-agent.service; \
+install -D -m 0644 packaging/tmpfiles/flightctl.conf %{buildroot}/usr/lib/tmpfiles.d/flightctl.conf; \
+install -D -m 0644 packaging/greenboot/20_check_flightctl_agent.sh %{buildroot}/usr/lib/greenboot/check/required.d/20_check_flightctl_agent.sh; \
+install -D -m 0644 packaging/flightctl-hooks/00-default.yaml %{buildroot}/usr/lib/flightctl/hooks.d/afterupdating/00-default.yaml; \
+install -D -m 0644 packaging/sosreport/flightctl.py %{buildroot}/usr/share/sosreport/flightctl.py
+
+%files agent -f licenses.list
+    %license LICENSE
+    %dir /etc/flightctl
+    %{_bindir}/flightctl-agent
+    %{_bindir}/flightctl-must-gather
+    /usr/lib/flightctl/hooks.d/afterupdating/00-default.yaml
+    /usr/lib/systemd/system/flightctl-agent.service
+    /usr/lib/tmpfiles.d/flightctl.conf
+    /usr/lib/greenboot/check/required.d/20_check_flightctl_agent.sh
+    /usr/share/sosreport/flightctl.py
+
+%post agent
+  # Ensure /var/lib/flightctl exists immediately for environments where systemd-tmpfiles succeeds or via fallback
+  # Try systemd-tmpfiles first, fall back to manual creation if it fails
+  /usr/bin/systemd-tmpfiles --create /usr/lib/tmpfiles.d/flightctl.conf || {
+      mkdir -p /var/lib/flightctl && \
+      chown root:root /var/lib/flightctl && \
+      chmod 0755 /var/lib/flightctl
+  }
+
+  INSTALL_DIR="/usr/lib/python$(python3 --version | sed 's/^.* \(3[.][0-9]*\).*$/\1/')/site-packages/sos/report/plugins"
+  mkdir -p $INSTALL_DIR
+  cp /usr/share/sosreport/flightctl.py $INSTALL_DIR
+  chmod 0644 $INSTALL_DIR/flightctl.py
+  rm -rf /usr/share/sosreport
+# selinux sub-package
+%package selinux
+Summary: SELinux policies for the Flight Control management agent
+BuildRequires: selinux-policy >= %{selinux_policyver}
+BuildRequires: selinux-policy-devel >= %{selinux_policyver}
+BuildRequires: container-selinux
+BuildArch: noarch
+Requires: selinux-policy >= %{selinux_policyver}
+
+# For restorecon
+Requires: policycoreutils
+# For semanage
+Requires: policycoreutils-python-utils
+# For policy macros
+Requires: container-selinux
+
+%description selinux
+The flightctl-selinux package provides the SELinux policy modules required by the Flight Control management agent.
+
+# SELinux build commands
+%global selinux_build_commands %make_build --directory packaging/selinux
+
+# SELinux install commands
+%global selinux_install_commands \
+install -d %{buildroot}%{_datadir}/selinux/packages/%{selinuxtype}; \
+install -m644 packaging/selinux/*.bz2 %{buildroot}%{_datadir}/selinux/packages/%{selinuxtype}
+
+%pre selinux
+%selinux_relabel_pre -s %{selinuxtype}
+
+%post selinux
+  # Install SELinux module - if this fails, RPM installation will still continue
+  if ! semodule -s %{selinuxtype} -i %{_datadir}/selinux/packages/%{selinuxtype}/flightctl_agent.pp.bz2; then
+      echo "ERROR: Failed to install flightctl SELinux policy (AST failure or compatibility issue)" >&2
+      exit 1
+  fi
+
+%postun selinux
+  if [ $1 -eq 0 ]; then
+      semodule -s %{selinuxtype} -r flightctl_agent 2>/dev/null || :
+  fi
+
+%posttrans selinux
+  %selinux_relabel_post -s %{selinuxtype}
+
+%files selinux
+  %{_datadir}/selinux/packages/%{selinuxtype}/flightctl_agent.pp.bz2
+# telemetry-gateway sub-package
+%package telemetry-gateway
+Summary: Telemetry Gateway for FlightCtl
+Requires:       podman
+Requires:       python3-pyyaml
+Requires(post): python3-pyyaml gettext
+%{?systemd_requires}
+Requires:       selinux-policy-targeted
+
+%description telemetry-gateway
+This package provides the FlightCtl Telemetry Gateway for telemetry collection/forwarding.
+It runs in a Podman container managed by systemd and can be installed
+independently of core FlightCtl services. Includes certificate tooling for Podman/Kubernetes.
+
+# Telemetry Gateway install commands
+%global telemetry_gateway_install_commands \
+mkdir -p %{buildroot}/etc/flightctl/telemetry-gateway; \
+install -m 0644 packaging/observability/flightctl-telemetry-gateway.container.template %{buildroot}/opt/flightctl-observability/templates/; \
+install -m 0644 packaging/observability/flightctl-telemetry-gateway-config.yaml.template %{buildroot}/opt/flightctl-observability/templates/; \
+install -m 0644 packaging/observability/telemetry-gateway.defs %{buildroot}/etc/flightctl/definitions/; \
+install -m 0644 packaging/observability/flightctl-telemetry-gateway.target %{buildroot}/usr/lib/systemd/system/
+
+%files telemetry-gateway
+  # Telemetry Gateway specific files
+  /opt/flightctl-observability/templates/flightctl-telemetry-gateway.container.template
+  /opt/flightctl-observability/templates/flightctl-telemetry-gateway-config.yaml.template
+
+  # Shared rendering infrastructure for telemetry-gateway
+  /etc/flightctl/scripts/render-templates.sh
+  /etc/flightctl/scripts/setup_telemetry_gateway_certs.sh
+  /etc/flightctl/scripts/functions
+  /etc/flightctl/definitions/telemetry-gateway.defs
+
+  # Configuration management script - needed for standalone telemetry-gateway deployment
+  /usr/bin/flightctl-render-observability
+
+  # Note: Uses flightctl network from flightctl-services package
+
+  # Systemd target for service grouping
+  /usr/lib/systemd/system/flightctl-telemetry-gateway.target
+
+  # Directories owned by the telemetry-gateway RPM
+  %dir /opt/flightctl-observability/templates
+  %dir /etc/flightctl
+  %dir /etc/flightctl/telemetry-gateway
+  %dir /etc/flightctl/scripts
+  %dir /etc/flightctl/definitions
+
+  # Ghost file for generated container file
+  %ghost /etc/containers/systemd/flightctl-telemetry-gateway.container
+  %ghost /etc/flightctl/telemetry-gateway/config.yaml
+
+%pre telemetry-gateway
+  # This script runs BEFORE the files are installed onto the system.
+  echo "Preparing to install FlightCtl Telemetry Gateway..."
+  echo "Note: OpenTelemetry collector can be installed independently of other FlightCtl services."
+
+%post telemetry-gateway
+  # This script runs AFTER the files have been installed onto the system.
+  echo "Running post-install actions for FlightCtl Telemetry Gateway..."
+
+  # Create necessary directories on the host if they don't already exist.
+  /usr/bin/mkdir -p /opt/flightctl-observability/templates
+  /usr/bin/mkdir -p /etc/flightctl /etc/flightctl/scripts /etc/flightctl/definitions /etc/flightctl/telemetry-gateway
+
+
+  # Apply persistent SELinux contexts for volumes and configuration files.
+  /usr/sbin/semanage fcontext -a -t container_file_t "/opt/flightctl-observability/templates(/.*)?" >/dev/null 2>&1 || :
+  /usr/sbin/semanage fcontext -a -t container_file_t "/usr/bin/flightctl-render-observability" >/dev/null 2>&1 || :
+
+  # Restore file contexts based on the new rules (and default rules)
+  /usr/sbin/restorecon -RvF /opt/flightctl-observability/templates >/dev/null 2>&1 || :
+  /usr/sbin/restorecon -RvF /usr/bin/flightctl-render-observability >/dev/null 2>&1 || :
+
+  # Enable specific SELinux boolean if needed
+  /usr/sbin/setsebool -P container_manage_cgroup on >/dev/null 2>&1 || :
+
+  # Generate OpenTelemetry collector container file from template
+  echo "Generating OpenTelemetry collector container configuration..."
+  CONFIG_FILE="/etc/flightctl/service-config.yaml"
+  TEMPLATES_DIR="/opt/flightctl-observability/templates"
+  DEFINITIONS_FILE="/etc/flightctl/definitions/telemetry-gateway.defs"
+
+  # Source shared logic and call rendering with telemetry-gateway specific definitions
+  if [ -f "/etc/flightctl/scripts/render-templates.sh" ]; then
+      source /etc/flightctl/scripts/render-templates.sh
+      render_templates "$CONFIG_FILE" "$TEMPLATES_DIR" "$DEFINITIONS_FILE" || { echo "ERROR: OpenTelemetry collector config generation failed!"; exit 1; }
+  else
+      echo "ERROR: render-templates.sh not found!"
+      exit 1
+  fi
+
+  # Final service management
+  echo "Reloading systemd daemon..."
+  /usr/bin/systemctl daemon-reload
+
+  echo "FlightCtl Telemetry Gateway installed. Service is configured but not started."
+  echo "To render config: sudo flightctl-render-observability"
+  echo "To start services: sudo systemctl start flightctl-telemetry-gateway.target"
+  echo "For automatic startup: sudo systemctl enable flightctl-telemetry-gateway.target"
+
+%preun telemetry-gateway
+  echo "Running pre-uninstall actions for FlightCtl Telemetry Gateway..."
+  # Stop and disable the target and services
+  /usr/bin/systemctl stop flightctl-telemetry-gateway.target >/dev/null 2>&1 || :
+  /usr/bin/systemctl disable flightctl-telemetry-gateway.target >/dev/null 2>&1 || :
+  /usr/bin/systemctl stop flightctl-telemetry-gateway.service >/dev/null 2>&1 || :
+  /usr/bin/systemctl disable flightctl-telemetry-gateway.service >/dev/null 2>&1 || :
+
+%postun telemetry-gateway
+  echo "Running post-uninstall actions for FlightCtl Telemetry Gateway..."
+  # Clean up Podman container
+  /usr/bin/podman rm -f flightctl-telemetry-gateway >/dev/null 2>&1 || :
+
+  # Clean up Podman secrets created by the certificate setup script
+  echo "Cleaning up Podman secrets..."
+  if command -v podman >/dev/null 2>&1; then
+      /usr/bin/podman secret rm telemetry-gateway-tls >/dev/null 2>&1 || :
+      /usr/bin/podman secret rm telemetry-gateway-tls-key >/dev/null 2>&1 || :
+      /usr/bin/podman secret rm flightctl-ca-secret >/dev/null 2>&1 || :
+      echo "Podman secrets cleanup completed"
+
+  else
+      echo "Podman not available, skipping cleanup"
+  fi
+
+  # Remove SELinux fcontext rules added by this package
+  /usr/sbin/semanage fcontext -d -t container_file_t "/opt/flightctl-observability/templates(/.*)?" >/dev/null 2>&1 || :
+  /usr/sbin/semanage fcontext -d -t container_file_t "/usr/bin/flightctl-render-observability" >/dev/null 2>&1 || :
+  /usr/sbin/semanage fcontext -d -t container_file_t "/usr/bin/" >/dev/null 2>&1 || :
+
+  # Restore default SELinux contexts for affected directories
+  /usr/sbin/restorecon -RvF /opt/flightctl-observability/templates >/dev/null 2>&1 || :
+  /usr/sbin/restorecon -RvF /usr/bin/flightctl-render-observability >/dev/null 2>&1 || :
+
+  /usr/bin/systemctl daemon-reload
+  echo "FlightCtl Telemetry Gateway uninstalled."
+# services sub-package
+%package services
+Summary: Flight Control services
+Requires: bash
+Requires: podman
+Requires: python3-pyyaml
+BuildRequires: systemd-rpm-macros
+%{?systemd_requires}
+
+%description services
+The flightctl-services package provides installation and setup of files for running containerized Flight Control services
+
+# Services install commands
+%global services_install_commands \
+install -Dpm 0644 packaging/flightctl-services-install.conf %{buildroot}%{_sysconfdir}/flightctl/flightctl-services-install.conf; \
+CONFIG_READONLY_DIR="%{buildroot}%{_datadir}/flightctl" CONFIG_WRITEABLE_DIR="%{buildroot}%{_sysconfdir}/flightctl" QUADLET_FILES_OUTPUT_DIR="%{buildroot}%{_datadir}/containers/systemd" SYSTEMD_UNIT_OUTPUT_DIR="%{buildroot}/usr/lib/systemd/system" IMAGE_TAG=$(echo %{version} | tr '~' '-') deploy/scripts/install.sh
+
+%files services
+    %defattr(0644,root,root,-)
+    # Files mounted to system config
+    %dir %{_sysconfdir}/flightctl
+    %dir %{_sysconfdir}/flightctl/pki
+    %dir %{_sysconfdir}/flightctl/flightctl-api
+    %dir %{_sysconfdir}/flightctl/flightctl-ui
+    %dir %{_sysconfdir}/flightctl/flightctl-cli-artifacts
+    %dir %{_sysconfdir}/flightctl/flightctl-alertmanager-proxy
+    %dir %{_sysconfdir}/flightctl/ssh
+    %config(noreplace) %{_sysconfdir}/flightctl/service-config.yaml
+    %config(noreplace) %{_sysconfdir}/flightctl/flightctl-services-install.conf
+    %config(noreplace) %{_sysconfdir}/flightctl/ssh/known_hosts
+
+    # Files mounted to data dir
+    %dir %attr(0755,root,root) %{_datadir}/flightctl
+    %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-api
+    %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-alert-exporter
+    %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-db
+    %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-alertmanager-proxy
+    %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-ui
+    %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-cli-artifacts
+    %{_datadir}/flightctl/flightctl-api/config.yaml.template
+    %{_datadir}/flightctl/flightctl-api/env.template
+    %attr(0755,root,root) %{_datadir}/flightctl/flightctl-api/init.sh
+    %attr(0755,root,root) %{_datadir}/flightctl/flightctl-api/create_aap_application.sh
+    %{_datadir}/flightctl/flightctl-alert-exporter/config.yaml
+    %attr(0755,root,root) %{_datadir}/flightctl/flightctl-db/enable-superuser.sh
+    %{_datadir}/flightctl/flightctl-ui/env.template
+    %attr(0755,root,root) %{_datadir}/flightctl/flightctl-ui/init.sh
+    %attr(0755,root,root) %{_datadir}/flightctl/init_utils.sh
+    %{_datadir}/flightctl/flightctl-cli-artifacts/env.template
+    %{_datadir}/flightctl/flightctl-cli-artifacts/nginx.conf
+    %attr(0755,root,root) %{_datadir}/flightctl/flightctl-cli-artifacts/init.sh
+    %{_datadir}/containers/systemd/flightctl*
+    %{_datadir}/flightctl/flightctl-alertmanager/alertmanager.yml
+    %{_datadir}/flightctl/flightctl-alertmanager-proxy/env.template
+    %attr(0755,root,root) %{_datadir}/flightctl/flightctl-alertmanager-proxy/init.sh
+
+    # Handle permissions for scripts setting host config
+    %attr(0755,root,root) %{_datadir}/flightctl/init_host.sh
+    %attr(0755,root,root) %{_datadir}/flightctl/secrets.sh
+    %attr(0755,root,root) %{_datadir}/flightctl/yaml_helpers.py
+
+    # flightctl-services pre upgrade checks
+    %dir %{_libexecdir}/flightctl
+    %attr(0755,root,root) %{_libexecdir}/flightctl/pre-upgrade-dry-run.sh
+
+    # Files mounted to lib dir
+    /usr/lib/systemd/system/flightctl.target
+
+# Optional pre-upgrade database migration dry-run
+%pre services
+  # $1 == 1 if it's an install
+  # $1 == 2 if it's an upgrade
+  if [ "$1" -eq 2 ]; then
+      IMAGE_TAG="$(echo %{version} | tr '~' '-')"
+      echo "flightctl: running pre upgrade checks, target version $IMAGE_TAG"
+      if [ -x "%{_libexecdir}/flightctl/pre-upgrade-dry-run.sh" ]; then
+          IMAGE_TAG="$IMAGE_TAG" \
+          CONFIG_PATH="%{_sysconfdir}/flightctl/flightctl-api/config.yaml" \
+          "%{_libexecdir}/flightctl/pre-upgrade-dry-run.sh" "$IMAGE_TAG" "%{_sysconfdir}/flightctl/flightctl-api/config.yaml" || {
+              echo "flightctl: dry-run failed; aborting upgrade." >&2
+              exit 1
+          }
+      else
+          echo "flightctl: pre-upgrade-dry-run.sh not found at %{_libexecdir}/flightctl; skipping."
+      fi
+  fi
+
+%post services
+  # On initial install: apply preset policy to enable/disable services based on system defaults
+  %systemd_post %{flightctl_target}
+
+  # Reload systemd to recognize new container files
+  /usr/bin/systemctl daemon-reload >/dev/null 2>&1 || :
+
+  cfg="%{_sysconfdir}/flightctl/flightctl-services-install.conf"
+
+  if [ "$1" -eq 1 ]; then # it's a fresh install
+    %{__cat} <<EOF
+[flightctl] Installed.
+
+Start services:
+  sudo systemctl start flightctl.target
+
+Check status:
+  systemctl list-units 'flightctl*' --all
+EOF
+fi
+
+# Suggest enabling migration dry-run if not set
+if [ -f "$cfg" ] && ! %{__grep} -q '^[[:space:]]*FLIGHTCTL_MIGRATION_DRY_RUN=1[[:space:]]*$' "$cfg"; then
+  %{__cat} <<EOF
+Recommendation:
+  A database migration dry-run before updates is currently DISABLED.
+  To enable it, edit:
+    $cfg
+  and set:
+    FLIGHTCTL_MIGRATION_DRY_RUN=1
+EOF
+fi
+
+if [ "$1" -eq 2 ]; then # it's an upgrade
+  %{__cat} <<'EOF'
+[flightctl] Upgraded.
+
+Review status:
+  systemctl list-units 'flightctl*' --all
+EOF
+  fi
+
+%preun services
+  # On package removal: stop and disable all services
+  %systemd_preun %{flightctl_target}
+  %systemd_preun flightctl-network.service
+
+%postun services
+  # On upgrade: mark services for restart after transaction completes
+  %systemd_postun_with_restart %{flightctl_services_restart}
+  %systemd_postun %{flightctl_target}
+# observability sub-package
+%package observability
+Summary: Complete FlightCtl observability stack
+Requires:       flightctl-telemetry-gateway = %{version}-%{release}
+Requires:       /usr/sbin/semanage
+Requires:       /usr/sbin/restorecon
+Requires:       podman
+Requires:       systemd
+Requires(post): python3-pyyaml gettext
+%{?systemd_requires}
+Requires:       selinux-policy-targeted
+
+%description observability
+This package provides the complete FlightCtl Observability Stack, including
+Prometheus for metric storage, Grafana for visualization, and
+Telemetry Gateway for metric collection. All components run in Podman containers
+managed by systemd and can be installed independently without requiring core FlightCtl
+services to be running. This package automatically includes the flightctl-telemetry-gateway package.
+
+# Observability install commands
+%global observability_install_commands \
+mkdir -p %{buildroot}/usr/share/sosreport; \
+cp packaging/sosreport/sos/report/plugins/flightctl.py %{buildroot}/usr/share/sosreport; \
+mkdir -p %{buildroot}/etc/flightctl/scripts; \
+mkdir -p %{buildroot}/etc/flightctl/definitions; \
+mkdir -p %{buildroot}/etc/containers/systemd; \
+mkdir -p %{buildroot}/etc/prometheus; \
+mkdir -p %{buildroot}/etc/grafana/provisioning/datasources; \
+mkdir -p %{buildroot}/etc/grafana/provisioning/dashboards/flightctl; \
+mkdir -p %{buildroot}/etc/grafana/certs; \
+mkdir -p %{buildroot}/var/lib/prometheus; \
+mkdir -p %{buildroot}/var/lib/grafana; \
+mkdir -p %{buildroot}/opt/flightctl-observability/templates; \
+mkdir -p %{buildroot}/usr/bin; \
+mkdir -p %{buildroot}/usr/lib/systemd/system; \
+mkdir -p %{buildroot}%{_libexecdir}/flightctl; \
+install -Dpm 0755 deploy/scripts/pre-upgrade-dry-run.sh %{buildroot}%{_libexecdir}/flightctl/pre-upgrade-dry-run.sh; \
+install -m 0644 packaging/observability/prometheus.yml %{buildroot}/etc/prometheus/; \
+install -m 0644 packaging/observability/grafana.ini.template %{buildroot}/opt/flightctl-observability/templates/; \
+install -m 0644 packaging/observability/flightctl-grafana.container.template %{buildroot}/opt/flightctl-observability/templates/; \
+install -m 0644 packaging/observability/flightctl-prometheus.container.template %{buildroot}/opt/flightctl-observability/templates/; \
+install -m 0644 packaging/observability/flightctl-userinfo-proxy.container.template %{buildroot}/opt/flightctl-observability/templates/; \
+install -m 0644 packaging/observability/grafana-datasources.yaml %{buildroot}/etc/grafana/provisioning/datasources/prometheus.yaml; \
+install -m 0644 packaging/observability/grafana-dashboards.yaml %{buildroot}/etc/grafana/provisioning/dashboards/flightctl.yaml; \
+install -m 0755 packaging/observability/render-templates.sh %{buildroot}/etc/flightctl/scripts; \
+install -m 0755 test/scripts/setup_telemetry_gateway_certs.sh %{buildroot}/etc/flightctl/scripts; \
+install -m 0755 test/scripts/functions %{buildroot}/etc/flightctl/scripts; \
+install -m 0755 packaging/observability/flightctl-render-observability %{buildroot}/usr/bin/; \
+install -m 0644 packaging/observability/observability.defs %{buildroot}/etc/flightctl/definitions/; \
+install -m 0644 packaging/observability/flightctl-observability.target %{buildroot}/usr/lib/systemd/system/
+
+%files observability
+  # Static configuration files (Prometheus and Grafana only)
+  /etc/prometheus/prometheus.yml
+
+  /etc/flightctl/scripts/render-templates.sh
+  /etc/flightctl/definitions/observability.defs
+
+  # Template source files (Prometheus, Grafana, and UserInfo Proxy)
+  /opt/flightctl-observability/templates/grafana.ini.template
+  /opt/flightctl-observability/templates/flightctl-grafana.container.template
+  /opt/flightctl-observability/templates/flightctl-prometheus.container.template
+  /opt/flightctl-observability/templates/flightctl-userinfo-proxy.container.template
+
+  /etc/grafana/provisioning/datasources/prometheus.yaml
+
+  /etc/grafana/provisioning/dashboards/flightctl.yaml
+
+  # The files that will be generated in %%post must be listed as %%ghost files.
+  %ghost /etc/grafana/grafana.ini
+  %ghost /etc/containers/systemd/flightctl-grafana.container
+  %ghost /etc/containers/systemd/flightctl-prometheus.container
+  %ghost /etc/containers/systemd/flightctl-userinfo-proxy.container
+
+  # Configuration management script
+  /usr/bin/flightctl-render-observability
+
+  # Systemd target for full observability stack
+  /usr/lib/systemd/system/flightctl-observability.target
+
+  # Directories owned by the observability RPM (Prometheus and Grafana only)
+  %dir /etc/prometheus
+  %dir /etc/grafana
+  %dir /etc/grafana/provisioning
+  %dir /etc/grafana/provisioning/datasources
+  %dir /etc/grafana/provisioning/dashboards
+  %dir /etc/grafana/provisioning/dashboards/flightctl
+  %dir /etc/grafana/certs
+  %dir /var/lib/prometheus
+  %dir /var/lib/grafana
+  %dir /etc/flightctl
+  %dir /etc/flightctl/scripts
+  %dir /etc/flightctl/definitions
+
+%pre observability
+  # This script runs BEFORE the files are installed onto the system.
+  echo "Preparing to install FlightCtl Observability Stack..."
+  echo "Note: Observability stack can be installed independently of other FlightCtl services."
+
+%post observability
+  # This script runs AFTER the files have been installed onto the system.
+  echo "Running post-install actions for Flightctl Observability Stack..."
+
+  # Create necessary directories on the host if they don't already exist.
+  /usr/bin/mkdir -p /etc/prometheus /var/lib/prometheus
+  /usr/bin/mkdir -p /etc/grafana /etc/grafana/provisioning /etc/grafana/provisioning/datasources /var/lib/grafana
+  /usr/bin/mkdir -p /etc/grafana/provisioning/dashboards /etc/grafana/provisioning/dashboards/flightctl
+  /usr/bin/mkdir -p /etc/grafana/certs
+  /usr/bin/mkdir -p /etc/flightctl /opt/flightctl-observability/templates
+  /usr/bin/mkdir -p /usr/bin /usr/lib/systemd/system
+  /usr/bin/mkdir -p /etc/flightctl/scripts
+  /usr/bin/mkdir -p /etc/flightctl/definitions
+
+  chown 65534:65534 /var/lib/prometheus
+  chown 472:472 /var/lib/grafana
+
+  # Apply persistent SELinux contexts for volumes and configuration files.
+  /usr/sbin/semanage fcontext -a -t container_file_t "/etc/prometheus/prometheus.yml" >/dev/null 2>&1 || :
+  /usr/sbin/semanage fcontext -a -t container_file_t "/var/lib/prometheus(/.*)?" >/dev/null 2>&1 || :
+
+  /usr/sbin/semanage fcontext -a -t container_file_t "/etc/grafana(/.*)?" >/dev/null 2>&1 || :
+  /usr/sbin/semanage fcontext -a -t container_file_t "/var/lib/grafana(/.*)?" >/dev/null 2>&1 || :
+  /usr/sbin/semanage fcontext -a -t container_file_t "/etc/grafana/certs(/.*)?" >/dev/null 2>&1 || :
+
+  /usr/sbin/semanage fcontext -a -t container_file_t "/opt/flightctl-observability/templates(/.*)?" >/dev/null 2>&1 || :
+  /usr/sbin/semanage fcontext -a -t container_file_t "/usr/bin/flightctl-render-observability" >/dev/null 2>&1 || :
+
+  # Restore file contexts based on the new rules (and default rules)
+  /usr/sbin/restorecon -RvF /etc/prometheus >/dev/null 2>&1 || :
+  /usr/sbin/restorecon -RvF /var/lib/prometheus >/dev/null 2>&1 || :
+  /usr/sbin/restorecon -RvF /etc/grafana >/dev/null 2>&1 || :
+  /usr/sbin/restorecon -RvF /var/lib/grafana >/dev/null 2>&1 || :
+  /usr/sbin/restorecon -RvF /etc/grafana/certs >/dev/null 2>&1 || :
+  /usr/sbin/restorecon -RvF /opt/flightctl-observability/templates >/dev/null 2>&1 || :
+  /usr/sbin/restorecon -RvF /usr/bin/flightctl-render-observability >/dev/null 2>&1 || :
+
+  # Enable specific SELinux boolean if needed
+  /usr/sbin/setsebool -P container_manage_cgroup on >/dev/null 2>&1 || :
+
+  # --- Process Configuration Templates (Initial Generation) ---
+  # Call the basic config reloader script once during installation to generate initial config files.
+  # Note: We use the basic reloader here because FlightCtl services aren't running yet during installation.
+  echo "Generating initial configuration files..."
+  CONFIG_FILE="/etc/flightctl/service-config.yaml"
+  TEMPLATES_DIR="/opt/flightctl-observability/templates"
+  DEFINITIONS_FILE="/etc/flightctl/definitions/observability.defs"
+
+  # Source shared logic and call rendering without restarting services
+  if [ -f "/etc/flightctl/scripts/render-templates.sh" ]; then
+      source /etc/flightctl/scripts/render-templates.sh
+      render_templates "$CONFIG_FILE" "$TEMPLATES_DIR" "$DEFINITIONS_FILE" || { echo "ERROR: Initial config generation failed!"; exit 1; }
+  else
+      echo "ERROR: render-templates.sh not found!"
+      exit 1
+  fi
+
+  # --- Final service management ---
+  echo "Reloading systemd daemon..."
+  /usr/bin/systemctl daemon-reload
+
+  echo "Flightctl Observability Stack services installed. Services are configured but not started."
+  echo "To render config: sudo flightctl-render-observability"
+  echo "To start services: sudo systemctl start flightctl-observability.target"
+  echo "For automatic startup: sudo systemctl enable flightctl-observability.target"
+
+%preun observability
+  echo "Running pre-uninstall actions for Flightctl Observability Stack..."
+  # Stop and disable the target and all services
+  /usr/bin/systemctl stop flightctl-observability.target >/dev/null 2>&1 || :
+  /usr/bin/systemctl disable flightctl-observability.target >/dev/null 2>&1 || :
+  /usr/bin/systemctl stop flightctl-grafana.service >/dev/null 2>&1 || :
+  /usr/bin/systemctl disable flightctl-grafana.service >/dev/null 2>&1 || :
+  /usr/bin/systemctl stop flightctl-userinfo-proxy.service >/dev/null 2>&1 || :
+  /usr/bin/systemctl disable flightctl-userinfo-proxy.service >/dev/null 2>&1 || :
+  /usr/bin/systemctl stop flightctl-prometheus.service >/dev/null 2>&1 || :
+  /usr/bin/systemctl disable flightctl-prometheus.service >/dev/null 2>&1 || :
+
+%postun observability
+  echo "Running post-uninstall actions for Flightctl Observability Stack..."
+  # Clean up Podman containers associated with the services
+  /usr/bin/podman rm -f flightctl-grafana >/dev/null 2>&1 || :
+  /usr/bin/podman rm -f flightctl-userinfo-proxy >/dev/null 2>&1 || :
+  /usr/bin/podman rm -f flightctl-prometheus >/dev/null 2>&1 || :
+
+  # Note: Podman secrets are managed by the telemetry-gateway package
+  # and will be cleaned up when that package is uninstalled
+
+  # Remove SELinux fcontext rules added by this package
+  /usr/sbin/semanage fcontext -d -t container_file_t "/etc/grafana(/.*)?" >/dev/null 2>&1 || :
+  /usr/sbin/semanage fcontext -d -t container_file_t "/var/lib/grafana(/.*)?" >/dev/null 2>&1 || :
+  /usr/sbin/semanage fcontext -d -t container_file_t "/etc/grafana/certs(/.*)?" >/dev/null 2>&1 || :
+
+  /usr/sbin/semanage fcontext -d -t container_file_t "/etc/prometheus/prometheus.yml" >/dev/null 2>&1 || :
+  /usr/sbin/semanage fcontext -d -t container_file_t "/var/lib/prometheus(/.*)?" >/dev/null 2>&1 || :
+
+  /usr/sbin/semanage fcontext -d -t container_file_t "/opt/flightctl-observability/templates(/.*)?" >/dev/null 2>&1 || :
+  /usr/sbin/semanage fcontext -d -t container_file_t "/usr/bin/flightctl-render-observability" >/dev/null 2>&1 || :
+
+  # Restore default SELinux contexts for affected directories
+  /usr/sbin/restorecon -RvF /etc/grafana >/dev/null 2>&1 || :
+  /usr/sbin/restorecon -RvF /var/lib/grafana >/dev/null 2>&1 || :
+  /usr/sbin/restorecon -RvF /etc/grafana/certs >/dev/null 2>&1 || :
+  /usr/sbin/restorecon -RvF /etc/prometheus >/dev/null 2>&1 || :
+  /usr/sbin/restorecon -RvF /var/lib/prometheus >/dev/null 2>&1 || :
+  /usr/sbin/restorecon -RvF /opt/flightctl-observability/templates >/dev/null 2>&1 || :
+  /usr/sbin/restorecon -RvF /usr/bin/flightctl-render-observability >/dev/null 2>&1 || :
+
+  /usr/bin/systemctl daemon-reload
+  echo "Flightctl Observability Stack uninstalled."
 
 %prep
   %goprep -A
