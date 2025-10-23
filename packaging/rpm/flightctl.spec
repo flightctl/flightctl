@@ -40,58 +40,50 @@ Requires: openssl
 # --- Restart these on upgrade  ---
 %global flightctl_services_restart flightctl-api.service flightctl-ui.service flightctl-worker.service flightctl-alertmanager.service flightctl-alert-exporter.service flightctl-alertmanager-proxy.service flightctl-cli-artifacts.service flightctl-periodic.service flightctl-db-migrate.service flightctl-db-wait.service
 
-%description
-# Main package is empty and not created.
-
-# File listings
-# No %%files section for the main package, so it won't be built
-
-# cli sub-package
-%package cli
-Summary: Flight Control CLI
-%description cli
-flightctl is the CLI for controlling the Flight Control service.
-
-%files cli -f licenses.list
-    %{_bindir}/flightctl
-    %{_bindir}/flightctl-restore
-    %license LICENSE
-    %{_datadir}/bash-completion/completions/flightctl-completion.bash
-    %{_datadir}/fish/vendor_completions.d/flightctl-completion.fish
-    %{_datadir}/zsh/site-functions/_flightctl-completion
-
-%include %{name}-%{version}/packaging/rpm/packages/main.spec
-# %include packaging/rpm/packages/cli.spec
-# %include packaging/rpm/packages/agent.spec
-# %include packaging/rpm/packages/selinux.spec
-# %include packaging/rpm/packages/telemetry-gateway.spec
-# %include packaging/rpm/packages/services.spec
-# %include packaging/rpm/packages/observability.spec
+%{expand:%(cat packaging/rpm/packages/main.spec)}
+%{expand:%(cat packaging/rpm/packages/licences.spec)}
+%{expand:%(cat packaging/rpm/packages/cli.spec)}
+%{expand:%(cat packaging/rpm/packages/agent.spec)}
+%{expand:%(cat packaging/rpm/packages/selinux.spec)}
+%{expand:%(cat packaging/rpm/packages/telemetry-gateway.spec)}
+%{expand:%(cat packaging/rpm/packages/services.spec)}
+%{expand:%(cat packaging/rpm/packages/observability.spec)}
 
 %prep
-%goprep -A
-%setup -q %{forgesetupargs}
+  %goprep -A
+  %setup -q %{forgesetupargs}
 
 %build
-echo "Testing dynamic path:"
-pwd
-cd ..
-pwd
-ls -la flightctl-*/packaging/rpm/packages/main.spec
-echo "RPM name-version:"
-rpm --eval "%{name}-%{version}"
+  # if this is a buggy version of go we need to set GOPROXY as workaround
+  # see https://github.com/golang/go/issues/61928
+  GOENVFILE=$(go env GOROOT)/go.env
+  if [[ ! -f "${GOENVFILE}" ]]; then
+      export GOPROXY='https://proxy.golang.org,direct'
+  fi
 
-# %include packaging/rpm/build/build.spec
+  # Prefer values injected by Makefile/CI; fall back to RPM macros when unset
+  SOURCE_GIT_TAG="%{?SOURCE_GIT_TAG:%{SOURCE_GIT_TAG}}%{!?SOURCE_GIT_TAG:%(echo "v%{version}" | tr '~' '-')}" \
+  SOURCE_GIT_TREE_STATE="%{?SOURCE_GIT_TREE_STATE:%{SOURCE_GIT_TREE_STATE}}%{!?SOURCE_GIT_TREE_STATE:clean}" \
+  SOURCE_GIT_COMMIT="%{?SOURCE_GIT_COMMIT:%{SOURCE_GIT_COMMIT}}%{!?SOURCE_GIT_COMMIT:%(echo %{version} | grep -o '[-~]g[0-9a-f]*' | sed 's/[-~]g//' || echo unknown)}" \
+  SOURCE_GIT_TAG_NO_V="%{?SOURCE_GIT_TAG_NO_V:%{SOURCE_GIT_TAG_NO_V}}%{!?SOURCE_GIT_TAG_NO_V:%{version}}" \
+
+  # Execute modular build commands
+  %{cli_build_commands}
+  %{agent_build_commands}
+  %{selinux_build_commands}
 
 %install
-# %include packaging/rpm/install/licences.spec
-# %include packaging/rpm/install/flightctl.spec
-# %include packaging/rpm/install/selinux.spec
-# %include packaging/rpm/install/services.spec
-# %include packaging/rpm/install/observability.spec
+  # Execute modular install commands
+  %{licences_install_commands}
+  %{cli_install_commands}
+  %{agent_install_commands}
+  %{selinux_install_commands}
+  %{services_install_commands}
+  %{observability_install_commands}
+  %{telemetry_gateway_install_commands}
 
 %check
-    %{buildroot}%{_bindir}/flightctl-agent version
+  %{buildroot}%{_bindir}/flightctl-agent version
 
 %changelog
 * Wed Oct 8 2025 Ilya Skornyakov <iskornya@redhat.com> - 0.10.0

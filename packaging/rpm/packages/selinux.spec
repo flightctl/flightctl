@@ -17,23 +17,31 @@ Requires: container-selinux
 %description selinux
 The flightctl-selinux package provides the SELinux policy modules required by the Flight Control management agent.
 
+# SELinux build commands
+%global selinux_build_commands %make_build --directory packaging/selinux
+
+# SELinux install commands
+%global selinux_install_commands \
+install -d %{buildroot}%{_datadir}/selinux/packages/%{selinuxtype}; \
+install -m644 packaging/selinux/*.bz2 %{buildroot}%{_datadir}/selinux/packages/%{selinuxtype}
+
 %pre selinux
 %selinux_relabel_pre -s %{selinuxtype}
 
 %post selinux
-# Install SELinux module - if this fails, RPM installation will still continue
-if ! semodule -s %{selinuxtype} -i %{_datadir}/selinux/packages/%{selinuxtype}/flightctl_agent.pp.bz2; then
-    echo "ERROR: Failed to install flightctl SELinux policy (AST failure or compatibility issue)" >&2
-    exit 1
-fi
+  # Install SELinux module - if this fails, RPM installation will still continue
+  if ! semodule -s %{selinuxtype} -i %{_datadir}/selinux/packages/%{selinuxtype}/flightctl_agent.pp.bz2; then
+      echo "ERROR: Failed to install flightctl SELinux policy (AST failure or compatibility issue)" >&2
+      exit 1
+  fi
 
 %postun selinux
-if [ $1 -eq 0 ]; then
-    semodule -s %{selinuxtype} -r flightctl_agent 2>/dev/null || :
-fi
+  if [ $1 -eq 0 ]; then
+      semodule -s %{selinuxtype} -r flightctl_agent 2>/dev/null || :
+  fi
 
 %posttrans selinux
-%selinux_relabel_post -s %{selinuxtype}
+  %selinux_relabel_post -s %{selinuxtype}
 
 %files selinux
-%{_datadir}/selinux/packages/%{selinuxtype}/flightctl_agent.pp.bz2
+  %{_datadir}/selinux/packages/%{selinuxtype}/flightctl_agent.pp.bz2

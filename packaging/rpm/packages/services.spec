@@ -10,6 +10,11 @@ BuildRequires: systemd-rpm-macros
 %description services
 The flightctl-services package provides installation and setup of files for running containerized Flight Control services
 
+# Services install commands
+%global services_install_commands \
+install -Dpm 0644 packaging/flightctl-services-install.conf %{buildroot}%{_sysconfdir}/flightctl/flightctl-services-install.conf; \
+CONFIG_READONLY_DIR="%{buildroot}%{_datadir}/flightctl" CONFIG_WRITEABLE_DIR="%{buildroot}%{_sysconfdir}/flightctl" QUADLET_FILES_OUTPUT_DIR="%{buildroot}%{_datadir}/containers/systemd" SYSTEMD_UNIT_OUTPUT_DIR="%{buildroot}/usr/lib/systemd/system" IMAGE_TAG=$(echo %{version} | tr '~' '-') deploy/scripts/install.sh
+
 %files services
     %defattr(0644,root,root,-)
     # Files mounted to system config
@@ -63,34 +68,34 @@ The flightctl-services package provides installation and setup of files for runn
 
 # Optional pre-upgrade database migration dry-run
 %pre services
-# $1 == 1 if it's an install
-# $1 == 2 if it's an upgrade
-if [ "$1" -eq 2 ]; then
-    IMAGE_TAG="$(echo %{version} | tr '~' '-')"
-    echo "flightctl: running pre upgrade checks, target version $IMAGE_TAG"
-    if [ -x "%{_libexecdir}/flightctl/pre-upgrade-dry-run.sh" ]; then
-        IMAGE_TAG="$IMAGE_TAG" \
-        CONFIG_PATH="%{_sysconfdir}/flightctl/flightctl-api/config.yaml" \
-        "%{_libexecdir}/flightctl/pre-upgrade-dry-run.sh" "$IMAGE_TAG" "%{_sysconfdir}/flightctl/flightctl-api/config.yaml" || {
-            echo "flightctl: dry-run failed; aborting upgrade." >&2
-            exit 1
-        }
-    else
-        echo "flightctl: pre-upgrade-dry-run.sh not found at %{_libexecdir}/flightctl; skipping."
-    fi
-fi
+  # $1 == 1 if it's an install
+  # $1 == 2 if it's an upgrade
+  if [ "$1" -eq 2 ]; then
+      IMAGE_TAG="$(echo %{version} | tr '~' '-')"
+      echo "flightctl: running pre upgrade checks, target version $IMAGE_TAG"
+      if [ -x "%{_libexecdir}/flightctl/pre-upgrade-dry-run.sh" ]; then
+          IMAGE_TAG="$IMAGE_TAG" \
+          CONFIG_PATH="%{_sysconfdir}/flightctl/flightctl-api/config.yaml" \
+          "%{_libexecdir}/flightctl/pre-upgrade-dry-run.sh" "$IMAGE_TAG" "%{_sysconfdir}/flightctl/flightctl-api/config.yaml" || {
+              echo "flightctl: dry-run failed; aborting upgrade." >&2
+              exit 1
+          }
+      else
+          echo "flightctl: pre-upgrade-dry-run.sh not found at %{_libexecdir}/flightctl; skipping."
+      fi
+  fi
 
 %post services
-# On initial install: apply preset policy to enable/disable services based on system defaults
-%systemd_post %{flightctl_target}
+  # On initial install: apply preset policy to enable/disable services based on system defaults
+  %systemd_post %{flightctl_target}
 
-# Reload systemd to recognize new container files
-/usr/bin/systemctl daemon-reload >/dev/null 2>&1 || :
+  # Reload systemd to recognize new container files
+  /usr/bin/systemctl daemon-reload >/dev/null 2>&1 || :
 
-cfg="%{_sysconfdir}/flightctl/flightctl-services-install.conf"
+  cfg="%{_sysconfdir}/flightctl/flightctl-services-install.conf"
 
-if [ "$1" -eq 1 ]; then # it's a fresh install
-  %{__cat} <<EOF
+  if [ "$1" -eq 1 ]; then # it's a fresh install
+    %{__cat} <<EOF
 [flightctl] Installed.
 
 Start services:
@@ -120,14 +125,14 @@ if [ "$1" -eq 2 ]; then # it's an upgrade
 Review status:
   systemctl list-units 'flightctl*' --all
 EOF
-fi
+  fi
 
 %preun services
-# On package removal: stop and disable all services
-%systemd_preun %{flightctl_target}
-%systemd_preun flightctl-network.service
+  # On package removal: stop and disable all services
+  %systemd_preun %{flightctl_target}
+  %systemd_preun flightctl-network.service
 
 %postun services
-# On upgrade: mark services for restart after transaction completes
-%systemd_postun_with_restart %{flightctl_services_restart}
-%systemd_postun %{flightctl_target}
+  # On upgrade: mark services for restart after transaction completes
+  %systemd_postun_with_restart %{flightctl_services_restart}
+  %systemd_postun %{flightctl_target}
