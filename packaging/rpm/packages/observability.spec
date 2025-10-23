@@ -17,36 +17,35 @@ Telemetry Gateway for metric collection. All components run in Podman containers
 managed by systemd and can be installed independently without requiring core FlightCtl
 services to be running. This package automatically includes the flightctl-telemetry-gateway package.
 
-# Observability install commands
-%global observability_install_commands \
-mkdir -p %{buildroot}/usr/share/sosreport; \
-cp packaging/sosreport/sos/report/plugins/flightctl.py %{buildroot}/usr/share/sosreport; \
-mkdir -p %{buildroot}/etc/flightctl/scripts; \
-mkdir -p %{buildroot}/etc/flightctl/definitions; \
-mkdir -p %{buildroot}/etc/containers/systemd; \
-mkdir -p %{buildroot}/etc/prometheus; \
-mkdir -p %{buildroot}/etc/grafana/provisioning/datasources; \
-mkdir -p %{buildroot}/etc/grafana/provisioning/dashboards/flightctl; \
-mkdir -p %{buildroot}/etc/grafana/certs; \
-mkdir -p %{buildroot}/var/lib/prometheus; \
-mkdir -p %{buildroot}/var/lib/grafana; \
-mkdir -p %{buildroot}/opt/flightctl-observability/templates; \
-mkdir -p %{buildroot}/usr/bin; \
-mkdir -p %{buildroot}/usr/lib/systemd/system; \
-mkdir -p %{buildroot}%{_libexecdir}/flightctl; \
-install -Dpm 0755 deploy/scripts/pre-upgrade-dry-run.sh %{buildroot}%{_libexecdir}/flightctl/pre-upgrade-dry-run.sh; \
-install -m 0644 packaging/observability/prometheus.yml %{buildroot}/etc/prometheus/; \
-install -m 0644 packaging/observability/grafana.ini.template %{buildroot}/opt/flightctl-observability/templates/; \
-install -m 0644 packaging/observability/flightctl-grafana.container.template %{buildroot}/opt/flightctl-observability/templates/; \
-install -m 0644 packaging/observability/flightctl-prometheus.container.template %{buildroot}/opt/flightctl-observability/templates/; \
-install -m 0644 packaging/observability/flightctl-userinfo-proxy.container.template %{buildroot}/opt/flightctl-observability/templates/; \
-install -m 0644 packaging/observability/grafana-datasources.yaml %{buildroot}/etc/grafana/provisioning/datasources/prometheus.yaml; \
-install -m 0644 packaging/observability/grafana-dashboards.yaml %{buildroot}/etc/grafana/provisioning/dashboards/flightctl.yaml; \
-install -m 0755 packaging/observability/render-templates.sh %{buildroot}/etc/flightctl/scripts; \
-install -m 0755 test/scripts/setup_telemetry_gateway_certs.sh %{buildroot}/etc/flightctl/scripts; \
-install -m 0755 test/scripts/functions %{buildroot}/etc/flightctl/scripts; \
-install -m 0755 packaging/observability/flightctl-render-observability %{buildroot}/usr/bin/; \
-install -m 0644 packaging/observability/observability.defs %{buildroot}/etc/flightctl/definitions/; \
+%install
+mkdir -p %{buildroot}/usr/share/sosreport
+cp packaging/sosreport/sos/report/plugins/flightctl.py %{buildroot}/usr/share/sosreport
+mkdir -p %{buildroot}/etc/flightctl/scripts
+mkdir -p %{buildroot}/etc/flightctl/definitions
+mkdir -p %{buildroot}/etc/containers/systemd
+mkdir -p %{buildroot}/etc/prometheus
+mkdir -p %{buildroot}/etc/grafana/provisioning/datasources
+mkdir -p %{buildroot}/etc/grafana/provisioning/dashboards/flightctl
+mkdir -p %{buildroot}/etc/grafana/certs
+mkdir -p %{buildroot}/var/lib/prometheus
+mkdir -p %{buildroot}/var/lib/grafana
+mkdir -p %{buildroot}/opt/flightctl-observability/templates
+mkdir -p %{buildroot}/usr/bin
+mkdir -p %{buildroot}/usr/lib/systemd/system
+mkdir -p %{buildroot}%{_libexecdir}/flightctl
+install -Dpm 0755 deploy/scripts/pre-upgrade-dry-run.sh %{buildroot}%{_libexecdir}/flightctl/pre-upgrade-dry-run.sh
+install -m 0644 packaging/observability/prometheus.yml %{buildroot}/etc/prometheus/
+install -m 0644 packaging/observability/grafana.ini.template %{buildroot}/opt/flightctl-observability/templates/
+install -m 0644 packaging/observability/flightctl-grafana.container.template %{buildroot}/opt/flightctl-observability/templates/
+install -m 0644 packaging/observability/flightctl-prometheus.container.template %{buildroot}/opt/flightctl-observability/templates/
+install -m 0644 packaging/observability/flightctl-userinfo-proxy.container.template %{buildroot}/opt/flightctl-observability/templates/
+install -m 0644 packaging/observability/grafana-datasources.yaml %{buildroot}/etc/grafana/provisioning/datasources/prometheus.yaml
+install -m 0644 packaging/observability/grafana-dashboards.yaml %{buildroot}/etc/grafana/provisioning/dashboards/flightctl.yaml
+install -m 0755 packaging/observability/render-templates.sh %{buildroot}/etc/flightctl/scripts
+install -m 0755 test/scripts/setup_telemetry_gateway_certs.sh %{buildroot}/etc/flightctl/scripts
+install -m 0755 test/scripts/functions %{buildroot}/etc/flightctl/scripts
+install -m 0755 packaging/observability/flightctl-render-observability %{buildroot}/usr/bin/
+install -m 0644 packaging/observability/observability.defs %{buildroot}/etc/flightctl/definitions/
 install -m 0644 packaging/observability/flightctl-observability.target %{buildroot}/usr/lib/systemd/system/
 
 %files observability

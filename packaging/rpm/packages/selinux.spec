@@ -17,12 +17,11 @@ Requires: container-selinux
 %description selinux
 The flightctl-selinux package provides the SELinux policy modules required by the Flight Control management agent.
 
-# SELinux build commands
-%global selinux_build_commands %make_build --directory packaging/selinux
+%build
+%make_build --directory packaging/selinux
 
-# SELinux install commands
-%global selinux_install_commands \
-install -d %{buildroot}%{_datadir}/selinux/packages/%{selinuxtype}; \
+%install
+install -d %{buildroot}%{_datadir}/selinux/packages/%{selinuxtype}
 install -m644 packaging/selinux/*.bz2 %{buildroot}%{_datadir}/selinux/packages/%{selinuxtype}
 
 %pre selinux

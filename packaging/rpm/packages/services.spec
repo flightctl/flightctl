@@ -10,9 +10,8 @@ BuildRequires: systemd-rpm-macros
 %description services
 The flightctl-services package provides installation and setup of files for running containerized Flight Control services
 
-# Services install commands
-%global services_install_commands \
-install -Dpm 0644 packaging/flightctl-services-install.conf %{buildroot}%{_sysconfdir}/flightctl/flightctl-services-install.conf; \
+%install
+install -Dpm 0644 packaging/flightctl-services-install.conf %{buildroot}%{_sysconfdir}/flightctl/flightctl-services-install.conf
 CONFIG_READONLY_DIR="%{buildroot}%{_datadir}/flightctl" CONFIG_WRITEABLE_DIR="%{buildroot}%{_sysconfdir}/flightctl" QUADLET_FILES_OUTPUT_DIR="%{buildroot}%{_datadir}/containers/systemd" SYSTEMD_UNIT_OUTPUT_DIR="%{buildroot}/usr/lib/systemd/system" IMAGE_TAG=$(echo %{version} | tr '~' '-') deploy/scripts/install.sh
 
 %files services

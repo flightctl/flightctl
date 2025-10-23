@@ -64,30 +64,12 @@ end \
 
 # File listings
 # No %%files section for the main package, so it won't be built
-# Licences install commands
-%global licences_install_commands \
-rm -f licenses.list; \
-find . -type f -name LICENSE -or -name License | while read LICENSE_FILE; do \
-    echo "%{_datadir}/licenses/%{NAME}/${LICENSE_FILE}" >> licenses.list; \
-done; \
-mkdir -vp "%{buildroot}%{_datadir}/licenses/%{NAME}"; \
-cp LICENSE "%{buildroot}%{_datadir}/licenses/%{NAME}"# cli sub-package
+# cli sub-package
 %package cli
 Summary: Flight Control CLI
 
 %description cli
 flightctl is the CLI for controlling the Flight Control service.
-
-# CLI build commands
-%global cli_build_commands %{?rhel:%(if [ "%{rhel}" = "9" ]; then echo "%make_build build-cli build-restore"; else echo "DISABLE_FIPS=\"true\" %make_build build-cli build-restore"; fi)}%{!?rhel:DISABLE_FIPS="true" %make_build build-cli build-restore}
-
-# CLI install commands
-%global cli_install_commands \
-install -D -m 0755 bin/flightctl %{buildroot}%{_bindir}/flightctl; \
-install -D -m 0755 bin/flightctl-restore %{buildroot}%{_bindir}/flightctl-restore; \
-install -D -m 0644 ./packaging/bash-completion/flightctl-completion.bash %{buildroot}%{_datadir}/bash-completion/completions/flightctl-completion.bash; \
-install -D -m 0644 ./packaging/fish-completion/flightctl-completion.fish %{buildroot}%{_datadir}/fish/vendor_completions.d/flightctl-completion.fish; \
-install -D -m 0644 ./packaging/zsh-completion/_flightctl-completion %{buildroot}%{_datadir}/zsh/site-functions/_flightctl-completion
 
 %files cli -f licenses.list
     %{_bindir}/flightctl
@@ -103,19 +85,6 @@ Requires: flightctl-selinux = %{version}
 
 %description agent
 The flightctl-agent package provides the management agent for the Flight Control fleet management service.
-
-# Agent build commands
-%global agent_build_commands %{?rhel:%(if [ "%{rhel}" = "9" ]; then echo "%make_build build-agent"; else echo "DISABLE_FIPS=\"true\" %make_build build-agent"; fi)}%{!?rhel:DISABLE_FIPS="true" %make_build build-agent}
-
-# Agent install commands
-%global agent_install_commands \
-install -D -m 0755 bin/flightctl-agent %{buildroot}%{_bindir}/flightctl-agent; \
-install -D -m 0755 hack/flightctl-must-gather %{buildroot}%{_bindir}/flightctl-must-gather; \
-install -D -m 0644 packaging/systemd/flightctl-agent.service %{buildroot}/usr/lib/systemd/system/flightctl-agent.service; \
-install -D -m 0644 packaging/tmpfiles/flightctl.conf %{buildroot}/usr/lib/tmpfiles.d/flightctl.conf; \
-install -D -m 0644 packaging/greenboot/20_check_flightctl_agent.sh %{buildroot}/usr/lib/greenboot/check/required.d/20_check_flightctl_agent.sh; \
-install -D -m 0644 packaging/flightctl-hooks/00-default.yaml %{buildroot}/usr/lib/flightctl/hooks.d/afterupdating/00-default.yaml; \
-install -D -m 0644 packaging/sosreport/flightctl.py %{buildroot}/usr/share/sosreport/flightctl.py
 
 %files agent -f licenses.list
     %license LICENSE
@@ -161,14 +130,6 @@ Requires: container-selinux
 %description selinux
 The flightctl-selinux package provides the SELinux policy modules required by the Flight Control management agent.
 
-# SELinux build commands
-%global selinux_build_commands %make_build --directory packaging/selinux
-
-# SELinux install commands
-%global selinux_install_commands \
-install -d %{buildroot}%{_datadir}/selinux/packages/%{selinuxtype}; \
-install -m644 packaging/selinux/*.bz2 %{buildroot}%{_datadir}/selinux/packages/%{selinuxtype}
-
 %pre selinux
 %selinux_relabel_pre -s %{selinuxtype}
 
@@ -202,14 +163,6 @@ Requires:       selinux-policy-targeted
 This package provides the FlightCtl Telemetry Gateway for telemetry collection/forwarding.
 It runs in a Podman container managed by systemd and can be installed
 independently of core FlightCtl services. Includes certificate tooling for Podman/Kubernetes.
-
-# Telemetry Gateway install commands
-%global telemetry_gateway_install_commands \
-mkdir -p %{buildroot}/etc/flightctl/telemetry-gateway; \
-install -m 0644 packaging/observability/flightctl-telemetry-gateway.container.template %{buildroot}/opt/flightctl-observability/templates/; \
-install -m 0644 packaging/observability/flightctl-telemetry-gateway-config.yaml.template %{buildroot}/opt/flightctl-observability/templates/; \
-install -m 0644 packaging/observability/telemetry-gateway.defs %{buildroot}/etc/flightctl/definitions/; \
-install -m 0644 packaging/observability/flightctl-telemetry-gateway.target %{buildroot}/usr/lib/systemd/system/
 
 %files telemetry-gateway
   # Telemetry Gateway specific files
@@ -337,11 +290,6 @@ BuildRequires: systemd-rpm-macros
 
 %description services
 The flightctl-services package provides installation and setup of files for running containerized Flight Control services
-
-# Services install commands
-%global services_install_commands \
-install -Dpm 0644 packaging/flightctl-services-install.conf %{buildroot}%{_sysconfdir}/flightctl/flightctl-services-install.conf; \
-CONFIG_READONLY_DIR="%{buildroot}%{_datadir}/flightctl" CONFIG_WRITEABLE_DIR="%{buildroot}%{_sysconfdir}/flightctl" QUADLET_FILES_OUTPUT_DIR="%{buildroot}%{_datadir}/containers/systemd" SYSTEMD_UNIT_OUTPUT_DIR="%{buildroot}/usr/lib/systemd/system" IMAGE_TAG=$(echo %{version} | tr '~' '-') deploy/scripts/install.sh
 
 %files services
     %defattr(0644,root,root,-)
@@ -482,38 +430,6 @@ Prometheus for metric storage, Grafana for visualization, and
 Telemetry Gateway for metric collection. All components run in Podman containers
 managed by systemd and can be installed independently without requiring core FlightCtl
 services to be running. This package automatically includes the flightctl-telemetry-gateway package.
-
-# Observability install commands
-%global observability_install_commands \
-mkdir -p %{buildroot}/usr/share/sosreport; \
-cp packaging/sosreport/sos/report/plugins/flightctl.py %{buildroot}/usr/share/sosreport; \
-mkdir -p %{buildroot}/etc/flightctl/scripts; \
-mkdir -p %{buildroot}/etc/flightctl/definitions; \
-mkdir -p %{buildroot}/etc/containers/systemd; \
-mkdir -p %{buildroot}/etc/prometheus; \
-mkdir -p %{buildroot}/etc/grafana/provisioning/datasources; \
-mkdir -p %{buildroot}/etc/grafana/provisioning/dashboards/flightctl; \
-mkdir -p %{buildroot}/etc/grafana/certs; \
-mkdir -p %{buildroot}/var/lib/prometheus; \
-mkdir -p %{buildroot}/var/lib/grafana; \
-mkdir -p %{buildroot}/opt/flightctl-observability/templates; \
-mkdir -p %{buildroot}/usr/bin; \
-mkdir -p %{buildroot}/usr/lib/systemd/system; \
-mkdir -p %{buildroot}%{_libexecdir}/flightctl; \
-install -Dpm 0755 deploy/scripts/pre-upgrade-dry-run.sh %{buildroot}%{_libexecdir}/flightctl/pre-upgrade-dry-run.sh; \
-install -m 0644 packaging/observability/prometheus.yml %{buildroot}/etc/prometheus/; \
-install -m 0644 packaging/observability/grafana.ini.template %{buildroot}/opt/flightctl-observability/templates/; \
-install -m 0644 packaging/observability/flightctl-grafana.container.template %{buildroot}/opt/flightctl-observability/templates/; \
-install -m 0644 packaging/observability/flightctl-prometheus.container.template %{buildroot}/opt/flightctl-observability/templates/; \
-install -m 0644 packaging/observability/flightctl-userinfo-proxy.container.template %{buildroot}/opt/flightctl-observability/templates/; \
-install -m 0644 packaging/observability/grafana-datasources.yaml %{buildroot}/etc/grafana/provisioning/datasources/prometheus.yaml; \
-install -m 0644 packaging/observability/grafana-dashboards.yaml %{buildroot}/etc/grafana/provisioning/dashboards/flightctl.yaml; \
-install -m 0755 packaging/observability/render-templates.sh %{buildroot}/etc/flightctl/scripts; \
-install -m 0755 test/scripts/setup_telemetry_gateway_certs.sh %{buildroot}/etc/flightctl/scripts; \
-install -m 0755 test/scripts/functions %{buildroot}/etc/flightctl/scripts; \
-install -m 0755 packaging/observability/flightctl-render-observability %{buildroot}/usr/bin/; \
-install -m 0644 packaging/observability/observability.defs %{buildroot}/etc/flightctl/definitions/; \
-install -m 0644 packaging/observability/flightctl-observability.target %{buildroot}/usr/lib/systemd/system/
 
 %files observability
   # Static configuration files (Prometheus and Grafana only)
@@ -693,19 +609,77 @@ install -m 0644 packaging/observability/flightctl-observability.target %{buildro
   SOURCE_GIT_TAG_NO_V="%{?SOURCE_GIT_TAG_NO_V:%{SOURCE_GIT_TAG_NO_V}}%{!?SOURCE_GIT_TAG_NO_V:%{version}}" \
 
   # Execute modular build commands
-  %{cli_build_commands}
-  %{agent_build_commands}
-  %{selinux_build_commands}
-
+  # Build commands for agent
+%{?rhel:%(if [ "%{rhel}" = "9" ]; then echo "%make_build build-agent"; else echo "DISABLE_FIPS=\"true\" %make_build build-agent"; fi)}%{!?rhel:DISABLE_FIPS="true" %make_build build-agent}
+  # Build commands for cli
+%{?rhel:%(if [ "%{rhel}" = "9" ]; then echo "%make_build build-cli build-restore"; else echo "DISABLE_FIPS=\"true\" %make_build build-cli build-restore"; fi)}%{!?rhel:DISABLE_FIPS="true" %make_build build-cli build-restore}
+  # Build commands for selinux
+%make_build --directory packaging/selinux
 %install
   # Execute modular install commands
-  %{licences_install_commands}
-  %{cli_install_commands}
-  %{agent_install_commands}
-  %{selinux_install_commands}
-  %{services_install_commands}
-  %{observability_install_commands}
-  %{telemetry_gateway_install_commands}
+  # Install commands for agent
+  install -D -m 0755 bin/flightctl-agent %{buildroot}%{_bindir}/flightctl-agent
+  install -D -m 0755 hack/flightctl-must-gather %{buildroot}%{_bindir}/flightctl-must-gather
+  install -D -m 0644 packaging/systemd/flightctl-agent.service %{buildroot}/usr/lib/systemd/system/flightctl-agent.service
+  install -D -m 0644 packaging/tmpfiles/flightctl.conf %{buildroot}/usr/lib/tmpfiles.d/flightctl.conf
+  install -D -m 0644 packaging/greenboot/20_check_flightctl_agent.sh %{buildroot}/usr/lib/greenboot/check/required.d/20_check_flightctl_agent.sh
+  install -D -m 0644 packaging/flightctl-hooks/00-default.yaml %{buildroot}/usr/lib/flightctl/hooks.d/afterupdating/00-default.yaml
+  install -D -m 0644 packaging/sosreport/flightctl.py %{buildroot}/usr/share/sosreport/flightctl.py
+  # Install commands for cli
+  install -D -m 0755 bin/flightctl %{buildroot}%{_bindir}/flightctl
+  install -D -m 0755 bin/flightctl-restore %{buildroot}%{_bindir}/flightctl-restore
+  install -D -m 0644 ./packaging/bash-completion/flightctl-completion.bash %{buildroot}%{_datadir}/bash-completion/completions/flightctl-completion.bash
+  install -D -m 0644 ./packaging/fish-completion/flightctl-completion.fish %{buildroot}%{_datadir}/fish/vendor_completions.d/flightctl-completion.fish
+  install -D -m 0644 ./packaging/zsh-completion/_flightctl-completion %{buildroot}%{_datadir}/zsh/site-functions/_flightctl-completion
+  # Install commands for licences
+  rm -f licenses.list
+  find . -type f -name LICENSE -or -name License | while read LICENSE_FILE; do
+      echo "%{_datadir}/licenses/%{NAME}/${LICENSE_FILE}" >> licenses.list
+  done
+  mkdir -vp "%{buildroot}%{_datadir}/licenses/%{NAME}"
+  cp LICENSE "%{buildroot}%{_datadir}/licenses/%{NAME}"
+  # Install commands for observability
+  mkdir -p %{buildroot}/usr/share/sosreport
+  cp packaging/sosreport/sos/report/plugins/flightctl.py %{buildroot}/usr/share/sosreport
+  mkdir -p %{buildroot}/etc/flightctl/scripts
+  mkdir -p %{buildroot}/etc/flightctl/definitions
+  mkdir -p %{buildroot}/etc/containers/systemd
+  mkdir -p %{buildroot}/etc/prometheus
+  mkdir -p %{buildroot}/etc/grafana/provisioning/datasources
+  mkdir -p %{buildroot}/etc/grafana/provisioning/dashboards/flightctl
+  mkdir -p %{buildroot}/etc/grafana/certs
+  mkdir -p %{buildroot}/var/lib/prometheus
+  mkdir -p %{buildroot}/var/lib/grafana
+  mkdir -p %{buildroot}/opt/flightctl-observability/templates
+  mkdir -p %{buildroot}/usr/bin
+  mkdir -p %{buildroot}/usr/lib/systemd/system
+  mkdir -p %{buildroot}%{_libexecdir}/flightctl
+  install -Dpm 0755 deploy/scripts/pre-upgrade-dry-run.sh %{buildroot}%{_libexecdir}/flightctl/pre-upgrade-dry-run.sh
+  install -m 0644 packaging/observability/prometheus.yml %{buildroot}/etc/prometheus/
+  install -m 0644 packaging/observability/grafana.ini.template %{buildroot}/opt/flightctl-observability/templates/
+  install -m 0644 packaging/observability/flightctl-grafana.container.template %{buildroot}/opt/flightctl-observability/templates/
+  install -m 0644 packaging/observability/flightctl-prometheus.container.template %{buildroot}/opt/flightctl-observability/templates/
+  install -m 0644 packaging/observability/flightctl-userinfo-proxy.container.template %{buildroot}/opt/flightctl-observability/templates/
+  install -m 0644 packaging/observability/grafana-datasources.yaml %{buildroot}/etc/grafana/provisioning/datasources/prometheus.yaml
+  install -m 0644 packaging/observability/grafana-dashboards.yaml %{buildroot}/etc/grafana/provisioning/dashboards/flightctl.yaml
+  install -m 0755 packaging/observability/render-templates.sh %{buildroot}/etc/flightctl/scripts
+  install -m 0755 test/scripts/setup_telemetry_gateway_certs.sh %{buildroot}/etc/flightctl/scripts
+  install -m 0755 test/scripts/functions %{buildroot}/etc/flightctl/scripts
+  install -m 0755 packaging/observability/flightctl-render-observability %{buildroot}/usr/bin/
+  install -m 0644 packaging/observability/observability.defs %{buildroot}/etc/flightctl/definitions/
+  install -m 0644 packaging/observability/flightctl-observability.target %{buildroot}/usr/lib/systemd/system/
+  # Install commands for selinux
+  install -d %{buildroot}%{_datadir}/selinux/packages/%{selinuxtype}
+  install -m644 packaging/selinux/*.bz2 %{buildroot}%{_datadir}/selinux/packages/%{selinuxtype}
+  # Install commands for services
+  install -Dpm 0644 packaging/flightctl-services-install.conf %{buildroot}%{_sysconfdir}/flightctl/flightctl-services-install.conf
+  CONFIG_READONLY_DIR="%{buildroot}%{_datadir}/flightctl" CONFIG_WRITEABLE_DIR="%{buildroot}%{_sysconfdir}/flightctl" QUADLET_FILES_OUTPUT_DIR="%{buildroot}%{_datadir}/containers/systemd" SYSTEMD_UNIT_OUTPUT_DIR="%{buildroot}/usr/lib/systemd/system" IMAGE_TAG=$(echo %{version} | tr '~' '-') deploy/scripts/install.sh
+  # Install commands for telemetry-gateway
+  mkdir -p %{buildroot}/etc/flightctl/telemetry-gateway
+  install -m 0644 packaging/observability/flightctl-telemetry-gateway.container.template %{buildroot}/opt/flightctl-observability/templates/
+  install -m 0644 packaging/observability/flightctl-telemetry-gateway-config.yaml.template %{buildroot}/opt/flightctl-observability/templates/
+  install -m 0644 packaging/observability/telemetry-gateway.defs %{buildroot}/etc/flightctl/definitions/
+  install -m 0644 packaging/observability/flightctl-telemetry-gateway.target %{buildroot}/usr/lib/systemd/system/
 
 %check
   %{buildroot}%{_bindir}/flightctl-agent version

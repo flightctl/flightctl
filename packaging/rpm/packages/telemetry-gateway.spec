@@ -12,12 +12,11 @@ This package provides the FlightCtl Telemetry Gateway for telemetry collection/f
 It runs in a Podman container managed by systemd and can be installed
 independently of core FlightCtl services. Includes certificate tooling for Podman/Kubernetes.
 
-# Telemetry Gateway install commands
-%global telemetry_gateway_install_commands \
-mkdir -p %{buildroot}/etc/flightctl/telemetry-gateway; \
-install -m 0644 packaging/observability/flightctl-telemetry-gateway.container.template %{buildroot}/opt/flightctl-observability/templates/; \
-install -m 0644 packaging/observability/flightctl-telemetry-gateway-config.yaml.template %{buildroot}/opt/flightctl-observability/templates/; \
-install -m 0644 packaging/observability/telemetry-gateway.defs %{buildroot}/etc/flightctl/definitions/; \
+%install
+mkdir -p %{buildroot}/etc/flightctl/telemetry-gateway
+install -m 0644 packaging/observability/flightctl-telemetry-gateway.container.template %{buildroot}/opt/flightctl-observability/templates/
+install -m 0644 packaging/observability/flightctl-telemetry-gateway-config.yaml.template %{buildroot}/opt/flightctl-observability/templates/
+install -m 0644 packaging/observability/telemetry-gateway.defs %{buildroot}/etc/flightctl/definitions/
 install -m 0644 packaging/observability/flightctl-telemetry-gateway.target %{buildroot}/usr/lib/systemd/system/
 
 %files telemetry-gateway
