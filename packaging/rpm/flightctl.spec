@@ -68,8 +68,13 @@ Requires: openssl
   SOURCE_GIT_TAG_NO_V="%{?SOURCE_GIT_TAG_NO_V:%{SOURCE_GIT_TAG_NO_V}}%{!?SOURCE_GIT_TAG_NO_V:%{version}}" \
 
   # Execute modular build commands
-  %{cli_build_commands}
-  %{agent_build_commands}
+%if 0%{?rhel} == 9
+  %{cli_build_commands_rhel9}
+  %{agent_build_commands_rhel9}
+%else
+  %{cli_build_commands_default}
+  %{agent_build_commands_default}
+%endif
   %{selinux_build_commands}
 
 %install
