@@ -49,15 +49,6 @@ Requires: openssl
 # --- Restart these on upgrade  ---
 %global flightctl_services_restart flightctl-api.service flightctl-ui.service flightctl-worker.service flightctl-alertmanager.service flightctl-alert-exporter.service flightctl-alertmanager-proxy.service flightctl-cli-artifacts.service flightctl-periodic.service flightctl-db-migrate.service flightctl-db-wait.service
 
-# Define a macro to include package specs
-%define include_package(p) %{lua: \
-local file = io.open("packaging/rpm/package_" .. rpm.expand("%{-p*}") .. ".spec", "r") \
-if file then \
-    print(file:read("*all")) \
-    file:close() \
-end \
-}
-
 # Include all package definitions
 %description
 # Main package is empty and not created.
