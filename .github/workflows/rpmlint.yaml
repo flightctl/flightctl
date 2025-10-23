@@ -29,11 +29,14 @@ jobs:
           echo "Checking if flightctl.spec is up-to-date with template and package files..."
           cd packaging/rpm
 
+          # Save the current spec file
+          cp flightctl.spec flightctl.spec.original
+
           # Generate a fresh spec file
           ./generate-spec.sh
 
           # Check if there are any differences
-          if ! git diff --exit-code flightctl.spec; then
+          if ! diff -u flightctl.spec.original flightctl.spec; then
             echo "ERROR: flightctl.spec is not up-to-date!"
             echo "Please run 'make generate' and commit the changes."
             echo ""
