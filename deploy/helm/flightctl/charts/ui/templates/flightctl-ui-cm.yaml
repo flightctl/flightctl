@@ -7,6 +7,7 @@ metadata:
     {{- include "flightctl.standardLabels" . | nindent 4 }}
 data:
   FLIGHTCTL_SERVER: {{ .Values.api.url | quote }}
+  FLIGHTCTL_SERVER_EXTERNAL: {{ include "flightctl.getApiUrl" . }}
   {{- if .Values.cliArtifacts.enabled }}
   FLIGHTCTL_CLI_ARTIFACTS_SERVER: {{ include "flightctl.getInternalCliArtifactsUrl" . }}
   {{- end }}
