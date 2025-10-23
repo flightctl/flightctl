@@ -7,8 +7,7 @@ Requires: flightctl-selinux = %{version}
 The flightctl-agent package provides the management agent for the Flight Control fleet management service.
 
 # Agent build commands
-%global agent_build_commands_rhel9 %make_build build-agent
-%global agent_build_commands_default DISABLE_FIPS="true" %make_build build-agent
+%global agent_build_commands %{?rhel:%(if [ "%{rhel}" = "9" ]; then echo "%make_build build-agent"; else echo "DISABLE_FIPS=\"true\" %make_build build-agent"; fi)}%{!?rhel:DISABLE_FIPS="true" %make_build build-agent}
 
 # Agent install commands
 %global agent_install_commands \

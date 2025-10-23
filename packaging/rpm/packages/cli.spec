@@ -6,8 +6,7 @@ Summary: Flight Control CLI
 flightctl is the CLI for controlling the Flight Control service.
 
 # CLI build commands
-%global cli_build_commands_rhel9 %make_build build-cli build-restore
-%global cli_build_commands_default DISABLE_FIPS="true" %make_build build-cli build-restore
+%global cli_build_commands %{?rhel:%(if [ "%{rhel}" = "9" ]; then echo "%make_build build-cli build-restore"; else echo "DISABLE_FIPS=\"true\" %make_build build-cli build-restore"; fi)}%{!?rhel:DISABLE_FIPS="true" %make_build build-cli build-restore}
 
 # CLI install commands
 %global cli_install_commands \
