@@ -619,7 +619,7 @@ services to be running. This package automatically includes the flightctl-teleme
   # Execute modular install commands
   # Install commands for agent
   install -D -m 0755 bin/flightctl-agent %{buildroot}%{_bindir}/flightctl-agent
-  install -D -m 0755 hack/flightctl-must-gather %{buildroot}%{_bindir}/flightctl-must-gather
+  install -D -m 0755 packaging/must-gather/flightctl-must-gather %{buildroot}%{_bindir}/flightctl-must-gather
   install -D -m 0644 packaging/systemd/flightctl-agent.service %{buildroot}/usr/lib/systemd/system/flightctl-agent.service
   install -D -m 0644 packaging/tmpfiles/flightctl.conf %{buildroot}/usr/lib/tmpfiles.d/flightctl.conf
   install -D -m 0644 packaging/greenboot/20_check_flightctl_agent.sh %{buildroot}/usr/lib/greenboot/check/required.d/20_check_flightctl_agent.sh
