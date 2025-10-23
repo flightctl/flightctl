@@ -51,8 +51,8 @@ Requires: openssl
 %include_package -p observability
 
 %prep
-  %goprep -A
-  %setup -q %{forgesetupargs}
+%goprep -A -k
+%setup -q -T -D -a0 %{forgesetupargs}
 
 %build
   # if this is a buggy version of go we need to set GOPROXY as workaround

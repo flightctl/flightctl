@@ -582,8 +582,8 @@ services to be running. This package automatically includes the flightctl-teleme
   echo "Flightctl Observability Stack uninstalled."
 
 %prep
-  %goprep -A
-  %setup -q %{forgesetupargs}
+%goprep -A -k
+%setup -q -T -D -a0 %{forgesetupargs}
 
 %build
   # if this is a buggy version of go we need to set GOPROXY as workaround
