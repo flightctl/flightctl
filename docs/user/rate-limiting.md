@@ -112,30 +112,6 @@ service:
 
 ## Reverse Proxy Configuration
 
-To disable rate limiting, set the `enabled` field to `false` in your configuration:
-
-**For Helm deployments:**
-
-```yaml
-api:
-  rateLimit:
-    enabled: false
-```
-
-**For Quadlet deployments:**
-
-Edit `deploy/podman/service-config.yaml`:
-
-```yaml
-service:
-  rateLimit:
-    enabled: false
-```
-
-**Note**: Setting `requests=0` or `authRequests=0` will **not** disable rate limiting. Instead, it will use the hard-coded default values (300 requests/minute for general API, 20 requests/hour for auth). To disable rate limiting, set `enabled: false`.
-
-## Reverse Proxy Configuration
-
 When using a reverse proxy (nginx, HAProxy, load balancer, etc.), you have two options for proper rate limiting:
 
 ### Option 1: Configure Proxy to Use Real Client IPs
