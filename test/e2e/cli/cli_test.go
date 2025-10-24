@@ -791,6 +791,10 @@ var _ = Describe("cli login", func() {
 				Expect(err).To(HaveOccurred())
 				Expect(out).To(ContainSubstring("404"))
 
+				By("deleting the CSR before testing timeout flag")
+				out, err = harness.CLI("delete", fmt.Sprintf("csr/%s", csrName))
+				Expect(err).NotTo(HaveOccurred())
+
 				By("accepting --request-timeout flag on successful deny and confirming execution within timeout")
 				out, err = harness.CLI("apply", "-f", uniqueCsrYAML)
 				Expect(err).NotTo(HaveOccurred())
