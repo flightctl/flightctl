@@ -22,6 +22,8 @@ import (
 
 func TestImageProvider(t *testing.T) {
 	require := require.New(t)
+	cleanup := util.WithFakeCompose(t)
+	defer cleanup()
 	appImage := "quay.io/flightctl-tests/alpine:v1"
 	tests := []struct {
 		name          string
@@ -41,9 +43,7 @@ func TestImageProvider(t *testing.T) {
 			},
 			composeSpec: util.NewComposeSpec(),
 			setupMocks: func(mockExec *executer.MockExecuter, appLabels string) {
-				gomock.InOrder(
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"inspect", appImage}).Return(appLabels, "", 0),
-				)
+				util.ExpectPodmanGeneric(mockExec, appLabels)
 			},
 			wantVerifyErr: errors.ErrAppLabel,
 		},
@@ -78,14 +78,7 @@ func TestImageProvider(t *testing.T) {
 			},
 			composeSpec: util.NewComposeSpec(),
 			setupMocks: func(mockExec *executer.MockExecuter, appLabels string) {
-				gomock.InOrder(
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"inspect", appImage}).Return(appLabels, "", 0),
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"unshare", "podman", "image", "mount", appImage}).Return("/mount", "", 0),
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "unmount", appImage}).Return("", "", 0),
-
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"unshare", "podman", "image", "mount", appImage}).Return("/mount", "", 0),
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "unmount", appImage}).Return("", "", 0),
-				)
+				util.ExpectPodmanGeneric(mockExec, appLabels)
 			},
 		},
 		{
@@ -119,11 +112,7 @@ services:
     container_name: app #invalid hardcoded container name
     image: quay.io/flightctl-tests/alpine:v1`,
 			setupMocks: func(mockExec *executer.MockExecuter, appLabels string) {
-				gomock.InOrder(
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"inspect", appImage}).Return(appLabels, "", 0),
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"unshare", "podman", "image", "mount", appImage}).Return("/mount", "", 0),
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "unmount", appImage}).Return("", "", 0),
-				)
+				util.ExpectPodmanGeneric(mockExec, appLabels)
 			},
 			wantVerifyErr: validation.ErrHardCodedContainerName,
 		},
@@ -140,11 +129,7 @@ services:
 services:
 image: quay.io/flightctl-tests/alpine:v1`,
 			setupMocks: func(mockExec *executer.MockExecuter, appLabels string) {
-				gomock.InOrder(
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"inspect", appImage}).Return(appLabels, "", 0),
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"unshare", "podman", "image", "mount", appImage}).Return("/mount", "", 0),
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "unmount", appImage}).Return("", "", 0),
-				)
+				util.ExpectPodmanGeneric(mockExec, appLabels)
 			},
 			wantVerifyErr: errors.ErrNoComposeServices,
 		},

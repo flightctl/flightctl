@@ -20,6 +20,8 @@ import (
 
 func TestInlineProvider(t *testing.T) {
 	require := require.New(t)
+	cleanup := util.WithFakeCompose(t)
+	defer cleanup()
 	appImage := "quay.io/flightctl-tests/alpine:v1"
 	tests := []struct {
 		name          string

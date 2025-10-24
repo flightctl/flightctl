@@ -118,6 +118,22 @@ func (p *imageProvider) Verify(ctx context.Context) error {
 		}
 	}
 	defer cleanup()
+	if p.spec.AppType == v1alpha1.AppTypeCompose {
+		mountPoint, err := p.podman.Mount(ctx, image)
+		if err == nil {
+			defer func() {
+				if err := p.podman.Unmount(ctx, image); err != nil {
+					p.log.Errorf("Failed to unmount image %q: %v", image, err)
+				}
+			}()
+			if _, err := client.ParseComposeSpecFromDir(p.readWriter, mountPoint); err != nil {
+				return fmt.Errorf("parsing compose spec: %w", err)
+			}
+		} else {
+			return fmt.Errorf("mounting image: %w", err)
+		}
+
+	}
 
 	// copy image contents to a tmp directory for further processing
 	if err := p.podman.CopyContainerData(ctx, image, tmpAppPath); err != nil {

@@ -9,10 +9,12 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"testing"
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
@@ -26,12 +28,15 @@ import (
 	"github.com/flightctl/flightctl/internal/org/resolvers"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/types"
 	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 )
 
 const (
@@ -443,4 +448,54 @@ func RunTable[T any](cases []TestCase[T], runFunc func(T)) {
 
 func EventuallySlow(actual any) types.AsyncAssertion {
 	return Eventually(actual).WithTimeout(LONG_TIMEOUT).WithPolling(LONG_POLLING)
+}
+
+// WithFakeCompose prepends a temp directory with two dummy binaries podman-compose/docker-compose
+func WithFakeCompose(t *testing.T) func() {
+	t.Helper()
+	tmp := t.TempDir()
+	for _, name := range []string{"podman-compose", "docker-compose"} {
+		p := filepath.Join(tmp, name)
+		require.NoError(t, os.WriteFile(p, []byte("#!/bin/sh\nexit 0\n"), 0o755))
+	}
+	old := os.Getenv("PATH")
+	require.NoError(t, os.Setenv("PATH", tmp+string(os.PathListSeparator)+old))
+	return func() { _ = os.Setenv("PATH", old) }
+}
+
+// ExpectPodman sets up a generic podman mock. The inspect output is provided by the resolver.
+// resolver should return (output, true) for known images; ("", false) to simulate unknown image.
+func ExpectPodman(mockExecuter *executer.MockExecuter, resolver func(image string) (string, bool)) {
+	mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", gomock.Any()).DoAndReturn(
+		func(_ context.Context, _cmd string, args ...string) (string, string, int) {
+			if len(args) >= 2 && args[0] == "inspect" {
+				if out, ok := resolver(args[1]); ok {
+					return out, "", 0
+				}
+				return "", "unexpected image", 1
+			}
+			for i := 0; i+1 < len(args); i++ {
+				if args[i] == "mount" {
+					return "/mount", "", 0
+				}
+				if args[i] == "unmount" {
+					return "", "", 0
+				}
+			}
+			return "", "unexpected args", 1
+		},
+	).AnyTimes()
+}
+
+// ExpectPodmanGeneric stubs podman inspect/mount/unmount for any image, returning the same labels JSON.
+func ExpectPodmanGeneric(mockExecuter *executer.MockExecuter, imageConfig string) {
+	ExpectPodman(mockExecuter, func(_ string) (string, bool) { return imageConfig, true })
+}
+
+// ExpectPodmanPerImage stubs podman inspect/mount/unmount; inspect returns labels per image ref.
+func ExpectPodmanPerImage(mockExecuter *executer.MockExecuter, labelsByImage map[string]string) {
+	ExpectPodman(mockExecuter, func(image string) (string, bool) {
+		out, ok := labelsByImage[image]
+		return out, ok
+	})
 }
