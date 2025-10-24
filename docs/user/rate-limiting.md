@@ -4,7 +4,10 @@ Flight Control implements rate limiting to protect the API from abuse and ensure
 
 ## Overview
 
-Rate limiting in Flight Control is **IP-based**, meaning requests are limited per client IP address. This helps prevent abuse while allowing legitimate users to access the API normally.
+Rate limiting in Flight Control is a combination of strategies applied at different endpoints:
+
+- IP-based limits for endpoints before authentication (when feasible)
+- Identity-based limits (by username/UID or device fingerprint) for authenticated endpoints
 
 ## How It Works
 
@@ -19,10 +22,45 @@ Flight Control automatically detects the real client IP address using the follow
 
 ### Rate Limit Types
 
-Flight Control applies different rate limits for different types of requests:
+Flight Control applies different rate limits per endpoint class:
 
-- **General API requests**: Higher limits for normal API operations
-- **Authentication requests**: Stricter limits for login/validation endpoints
+- **General API requests (authenticated users)**: Identity-based limiting using user identity (username or UID)
+- **Agent API (mTLS devices)**: Identity-based limiting using device fingerprint from the client certificate
+- **Authentication endpoints (before authentication)**: IP-based limiting when the real client IP is available. If a proxy hides the real IP, in-app IP-based limiting may be ineffective (see the OpenShift section below).
+- **Public/read-only endpoints**: Typically no limits or a very generous cap; consider per-connection token bucket if needed
+
+See Endpoint-specific Strategies below for details.
+
+## Endpoint-specific Strategies
+
+The following guidance describes how Flight Control applies rate limiting per endpoint type and what to configure in different environments.
+
+### 1) Authenticated API (users)
+
+- Key: `user:<username>` if available, otherwise `uid:<uid>`
+- Rationale: Multiple users behind one proxy should not share a bucket
+- Behavior: Applied after authentication succeeds
+
+Example behavior:
+
+- Different authenticated users from the same IP each get independent limits
+- If username is empty, UID is used as a stable identity
+
+### 2) Agent API (devices)
+
+- Key: `device:<fingerprint>` where fingerprint is extracted from the device certificate extension
+- Rationale: Distinct devices behind NAT/routers should not interfere with each other
+- Behavior: Applied after successful client-certificate auth
+
+### 3) Authentication endpoints (before authentication)
+
+- Purpose: Protect login/validation endpoints from brute force
+- Preferred: IP-based limits when the real client IP is available (e.g., via trusted proxy headers)
+
+Notes:
+
+- If your deployment topology hides the real client IP (for example, certain TLS passthrough setups), in-app IP-based auth limiting may be ineffective
+- In those cases, prefer enforcing rate limiting at the router/load balancer; see the OpenShift section below for guidance
 
 ## Configuration
 
@@ -31,12 +69,12 @@ Rate limiting is configured in your Flight Control configuration file:
 ```yaml
 service:
   rateLimit:
-    # General API rate limiting
-    requests: 60        # Maximum requests per window
+    # General API rate limiting (applies to authenticated API requests)
+    requests: 300       # Maximum requests per window
     window: "1m"        # Time window (e.g., "1m", "1h", "1d")
     
     # Authentication-specific rate limiting (stricter)
-    authRequests: 10    # Maximum auth requests per window
+    authRequests: 20    # Maximum auth requests per window
     authWindow: "1h"    # Auth time window
     
     # Trusted proxies that can set True-Client-IP/X-Forwarded-For/X-Real-IP headers
@@ -49,7 +87,13 @@ service:
 
 ### Default Values
 
-If not configured, rate limiting is **disabled by default**. To enable it, you must explicitly set the configuration values.
+The default rate limiting behavior depends on your deployment method:
+
+- **Helm deployments**: Rate limiting is **enabled by default** with the following values:
+  - General API: 300 requests per minute
+  - Authentication: 20 requests per hour
+- **Quadlet deployments**: Rate limiting is **enabled by default** with the same values as Helm
+- **Manual configuration**: If not configured, rate limiting is **disabled by default**. To enable it, you must explicitly set the configuration values.
 
 **Important**: When using reverse proxies (load balancers, API gateways, etc.), you **must** configure `trustedProxies` to include the IP ranges of your proxy infrastructure. Without this configuration, proxy headers will be ignored for security reasons, and all requests will be rate-limited based on the proxy's IP address rather than the real client IP.
 
@@ -59,11 +103,11 @@ You can also configure rate limiting using environment variables:
 
 ```bash
 # General rate limiting
-export RATE_LIMIT_REQUESTS=60
+export RATE_LIMIT_REQUESTS=300
 export RATE_LIMIT_WINDOW=1m
 
 # Auth-specific rate limiting
-export AUTH_RATE_LIMIT_REQUESTS=10
+export AUTH_RATE_LIMIT_REQUESTS=20
 export AUTH_RATE_LIMIT_WINDOW=1h
 
 # Trusted proxies (comma-separated list)
@@ -78,11 +122,129 @@ export RATE_LIMIT_TRUSTED_PROXIES="10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
 
 **Note**: The `RATE_LIMIT_TRUSTED_PROXIES` environment variable accepts a comma-separated list of CIDR ranges. Each CIDR should be in standard format (e.g., `10.0.0.0/8`, `172.16.0.0/12`).
 
-**Example**: If your config file has `requests: 100` but you set `RATE_LIMIT_REQUESTS=60`, the final value will be `60` (the environment variable takes precedence).
+**Example**: If your config file has `requests: 100` but you set `RATE_LIMIT_REQUESTS=300`, the final value will be `300` (the environment variable takes precedence).
+
+## Deployment-Specific Configuration
+
+The way you configure rate limiting depends on how Flight Control is deployed:
+
+### Helm Deployments
+
+For Helm deployments, rate limiting is configured in the `values.yaml` file or through Helm values:
+
+**Location**: `deploy/helm/flightctl/values.yaml`
+
+```yaml
+api:
+  rateLimit:
+    # General API rate limiting
+    requests: 300       # Maximum requests per window
+    window: "1m"        # Time window
+    # Auth-specific rate limiting
+    authRequests: 20    # Maximum auth requests per window
+    authWindow: "1h"    # Auth time window
+    # Trusted proxies
+    trustedProxies:
+      - "10.0.0.0/8"
+      - "172.16.0.0/12"
+      - "192.168.0.0/16"
+```
+
+**To modify rate limiting in Helm:**
+
+1. **Edit values.yaml directly**:
+
+   ```bash
+   # Edit the values file
+   vim deploy/helm/flightctl/values.yaml
+   
+   # Update the deployment
+   helm upgrade flightctl ./deploy/helm/flightctl
+   ```
+
+2. **Override values during deployment**:
+
+   ```bash
+   helm install flightctl ./deploy/helm/flightctl \
+     --set api.rateLimit.requests=600 \
+     --set api.rateLimit.authRequests=30
+   ```
+
+3. **Override values during upgrade**:
+
+   ```bash
+   helm upgrade flightctl ./deploy/helm/flightctl \
+     --set api.rateLimit.requests=600 \
+     --set api.rateLimit.authRequests=30
+   ```
+
+**To disable rate limiting in Helm:**
+
+```bash
+# Remove the rateLimit section entirely
+helm upgrade flightctl ./deploy/helm/flightctl \
+  --set api.rateLimit=null
+```
+
+**Note**: Setting `requests=0` or `authRequests=0` will **not** disable rate limiting. Instead, it will use the hard-coded default values (300 requests/minute for general API, 20 requests/hour for auth). To truly disable rate limiting, you must remove the entire `rateLimit` section.
+
+### Quadlet Deployments
+
+For Quadlet deployments, rate limiting is configured in the global service configuration:
+
+**Location**: `deploy/podman/service-config.yaml`
+
+```yaml
+service:
+  rateLimit:
+    # General API rate limiting
+    requests: 300
+    window: "1m"
+    # Auth-specific rate limiting
+    authRequests: 20
+    authWindow: "1h"
+    # Trusted proxies
+    trustedProxies:
+      - "10.0.0.0/8"
+      - "172.16.0.0/12"
+      - "192.168.0.0/16"
+```
+
+**To modify rate limiting in Quadlets:**
+
+1. **Edit the configuration file**:
+
+   ```bash
+   # Edit the service configuration
+   sudo vim /etc/flightctl/service-config.yaml
+   
+   # Restart the API service
+   sudo systemctl restart flightctl-api.service
+   ```
+
+2. **For RPM installations**, the configuration is in `/etc/flightctl/service-config.yaml`:
+
+   ```bash
+   # Edit the configuration
+   sudo vim /etc/flightctl/service-config.yaml
+   
+   # Restart services
+   sudo systemctl restart flightctl.target
+   ```
+
+**To disable rate limiting in Quadlets:**
+
+```yaml
+# Remove the rateLimit section entirely
+service:
+  # rateLimit section removed
+```
+
+**Note**: Setting `requests=0` or `authRequests=0` will **not** disable rate limiting. Instead, it will use the hard-coded default values (300 requests/minute for general API, 20 requests/hour for auth). To truly disable rate limiting, you must remove the entire `rateLimit` section.
 
 ## Reverse Proxy Configuration
 
-When using a reverse proxy (nginx, HAProxy, load balancer, etc.), you have two options for proper rate limiting:
+When using a reverse proxy (nginx, HAProxy, load balancer, etc.), you have two options for proper rate limiting in front of Flight Control:
 
 ### Option 1: Configure Proxy to Use Real Client IPs
 
@@ -125,6 +287,36 @@ service:
 ```
 
 **Important**: Without configuring `trustedProxies`, proxy headers will be silently ignored, and rate limiting will be based on the proxy's IP address rather than the real client IP.
+
+## OpenShift Deployments (TLS Passthrough)
+
+When using OpenShift Routes with `termination: passthrough`, TLS terminates at the Flight Control pod. The OpenShift router cannot inject HTTP headers (traffic is encrypted), and it does not forward PROXY protocol to pods. Therefore, the application cannot learn the real client IP from the router.
+
+Implications:
+
+- In app IP-based rate limiting on endpoints before authentication (e.g., `/api/v1/auth/validate`) is ineffective because all requests appear to originate from the router
+- Identity-based rate limiting for authenticated endpoints continues to work normally (username/UID or device fingerprint)
+
+Note: Identity-based rate limiting for authenticated endpoints (users and devices) does not rely on client IP addresses and works correctly in all deployment scenarios, including OpenShift passthrough. This provides fine-grained, per-user/per-device protection. Only the endpoints before authentication are affected by the IP detection limitation.
+
+Recommended approach for OpenShift:
+
+1) Keep identity-based rate limiting in-app for authenticated endpoints (already effective)
+2) Disable/avoid in-app IP-based rate limiting for the auth endpoint when using passthrough Routes
+3) Enforce auth endpoint rate limiting at the router (TCP-level):
+   - Configure the external load balancer to send PROXY protocol to the OpenShift routers
+   - Configure the `IngressController` to accept PROXY protocol (e.g., `spec.endpointPublishingStrategy.nodePort.protocol: PROXY`)
+   - Use HAProxy router rate-limiting annotations on the Route (if supported in your OpenShift version), for example:
+
+```yaml
+metadata:
+  annotations:
+    haproxy.router.openshift.io/rate-limit-connections: "true"
+    haproxy.router.openshift.io/rate-limit-connections.rate-tcp: "10"           # per-client-IP connections per 3s
+    haproxy.router.openshift.io/rate-limit-connections.concurrent-tcp: "5"      # per-client-IP concurrent connections
+```
+
+Note: TCP-level rate limiting (`rate-tcp` and `concurrent-tcp`) is coarser than application-level rate limiting but is the only option for passthrough routes. It limits connections per client IP rather than HTTP requests, so it may be less precise for rate limiting authentication attempts.
 
 ## Rate Limit Headers
 
@@ -394,9 +586,9 @@ service:
 ```yaml
 service:
   rateLimit:
-    requests: 60      # Conservative limits for production
+    requests: 300     # Default production setting (5 requests/second)
     window: "1m"
-    authRequests: 10  # Stricter auth limits
+    authRequests: 20  # Default production setting
     authWindow: "1h"
 ```
 
@@ -405,8 +597,8 @@ service:
 ```yaml
 service:
   rateLimit:
-    requests: 200     # Higher limits for high traffic
+    requests: 600     # Higher limits for high traffic (10 requests/second)
     window: "1m"
-    authRequests: 20
+    authRequests: 50   # Higher auth limits for high traffic
     authWindow: "1h"
 ```

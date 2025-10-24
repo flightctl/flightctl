@@ -226,8 +226,8 @@ func (s *AgentServer) prepareHTTPHandler(serviceHandler service.Service) (http.H
 	router := chi.NewRouter()
 	router.Use(middlewares...)
 
-	// Rate limiting middleware - applied before validation (only if configured)
-	// Note: Agent server doesn't need trusted proxy validation since it's mTLS
+	// Device identity rate limiting middleware - applied before validation (only if configured)
+	// Uses device fingerprint from mTLS certificate for rate limiting
 	if s.cfg.Service.RateLimit != nil {
 		requests := 60        // Default requests limit
 		window := time.Minute // Default window
@@ -237,12 +237,12 @@ func (s *AgentServer) prepareHTTPHandler(serviceHandler service.Service) (http.H
 		if s.cfg.Service.RateLimit.Window > 0 {
 			window = time.Duration(s.cfg.Service.RateLimit.Window)
 		}
-		tlsmiddleware.InstallRateLimiter(router, tlsmiddleware.RateLimitOptions{
-			Requests:       requests,
-			Window:         window,
-			Message:        "Rate limit exceeded, please try again later",
-			TrustedProxies: []string{}, // No proxy headers for mTLS
-		})
+		// Use device identity rate limiter instead of IP-based
+		router.Use(tlsmiddleware.DeviceIdentityRateLimiter(
+			requests,
+			window,
+			"Rate limit exceeded, please try again later",
+		))
 	}
 
 	h := transport.NewAgentTransportHandler(serviceHandler, s.ca, s.log)
