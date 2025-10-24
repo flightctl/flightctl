@@ -245,7 +245,10 @@ func (t *QueueMaintenanceTask) recoverFromMissingCheckpoint(ctx context.Context,
 		}
 	} else {
 		// Success case - parse the database checkpoint
-		if parsedTime, err := time.Parse(time.RFC3339Nano, string(dbCheckpointBytes)); err == nil {
+		if len(dbCheckpointBytes) == 0 {
+			log.Info("Database checkpoint is empty (fresh system), initializing Redis checkpoint to zero")
+			lastCheckpointTime = time.Time{}
+		} else if parsedTime, err := time.Parse(time.RFC3339Nano, string(dbCheckpointBytes)); err == nil {
 			lastCheckpointTime = parsedTime
 			log.WithField("lastCheckpoint", lastCheckpointTime.Format(time.RFC3339Nano)).Info("Found last checkpoint in database")
 		} else {
