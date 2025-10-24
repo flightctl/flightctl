@@ -133,7 +133,7 @@ help:
 publish: build-containers
 	hack/publish_containers.sh
 
-generate:
+generate: packaging/rpm/flightctl.spec
 	go generate -v $(shell go list ./... | grep -v -e api/grpc)
 
 generate-proto:
@@ -316,6 +316,10 @@ build-containers: flightctl-api-container flightctl-db-setup-container flightctl
 
 bin:
 	mkdir -p bin
+
+# Generate RPM spec from template and package modules when they change
+packaging/rpm/flightctl.spec: packaging/rpm/flightctl.spec.template packaging/rpm/generate-spec.sh $(shell find packaging/rpm/packages -name "*.spec")
+	cd packaging/rpm && ./generate-spec.sh
 
 # only trigger the rpm build when not built before or changes happened to the codebase
 bin/.rpm: bin $(shell find ./ -name "*.go" -not -path "./packaging/*") packaging/rpm/flightctl.spec packaging/systemd/flightctl-agent.service hack/build_rpms.sh $(shell find packaging/selinux -type f)
