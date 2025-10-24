@@ -243,10 +243,6 @@ For more detailed configuration options, see the [Values](#values) section below
 | cliArtifacts.image.image | string | `"quay.io/flightctl/flightctl-cli-artifacts"` | CLI artifacts container image |
 | cliArtifacts.image.pullPolicy | string | `""` | Image pull policy for CLI artifacts container |
 | cliArtifacts.image.tag | string | `""` | CLI artifacts image tag |
-| clusterCli | object | `{"image":{"image":"quay.io/openshift/origin-cli","pullPolicy":"","tag":"4.20.0"}}` | Cluster CLI Configuration |
-| clusterCli.image.image | string | `"quay.io/openshift/origin-cli"` | Cluster CLI container image |
-| clusterCli.image.pullPolicy | string | `""` | Image pull policy for cluster CLI container |
-| clusterCli.image.tag | string | `"4.20.0"` | Cluster CLI image tag |
 | db | object | `{"external":"disabled","fsGroup":"","image":{"image":"quay.io/sclorg/postgresql-16-c9s","pullPolicy":"","tag":"20250214"},"masterPassword":"","masterUser":"admin","maxConnections":200,"migrationPassword":"","migrationUser":"flightctl_migrator","name":"flightctl","port":5432,"resources":{"requests":{"cpu":"512m","memory":"512Mi"}},"sslConfigMap":"","sslSecret":"","sslmode":"","storage":{"size":"60Gi"},"type":"pgsql","user":"flightctl_app","userPassword":""}` | Database Configuration |
 | db.external | string | `"disabled"` | Use external PostgreSQL database instead of deploying internal one external: Set to "enabled" to use external PostgreSQL database instead of deploying internal one When enabled, configure hostname, port, name, user credentials to point to your external database |
 | db.fsGroup | string | `""` | File system group ID for database pod security context |
@@ -298,7 +294,6 @@ For more detailed configuration options, see the [Values](#values) section below
 | global.gatewayClass | string | `""` | Gateway API class name for gateway exposure method |
 | global.gatewayPorts.http | int | `80` | HTTP port for Gateway API configuration |
 | global.gatewayPorts.tls | int | `443` | TLS port for Gateway API configuration |
-| global.generateSecrets | bool | `true` | Generate secrets when deploying Flight Control. This should be set to false if you want to provide your own secrets or when upgrading Flight Control to avoid overriding the existing secrets |
 | global.imagePullPolicy | string | `"IfNotPresent"` | Image pull policy for all containers |
 | global.imagePullSecretName | string | `""` | Name of the image pull secret for accessing private container registries |
 | global.internalNamespace | string | `""` | Namespace where internal components are deployed |
@@ -338,6 +333,10 @@ For more detailed configuration options, see the [Values](#values) section below
 | periodic.image.tag | string | `""` | Periodic image tag |
 | prometheus | object | `{"enabled":false}` | Prometheus Configuration |
 | prometheus.enabled | bool | `false` | Enable Prometheus deployment |
+| secretsJob | object | `{"image":{"image":"quay.io/openshift/origin-cli","pullPolicy":"","tag":"4.20.0"}}` | Secrets job configuration |
+| secretsJob.image.image | string | `"quay.io/openshift/origin-cli"` | Secrets job container image |
+| secretsJob.image.pullPolicy | string | `""` | Image pull policy for Secrets job container |
+| secretsJob.image.tag | string | `"4.20.0"` | Secrets job image tag |
 | telemetryGateway | object | `{"enabled":false}` | Telemetry Gateway Configuration |
 | telemetryGateway.enabled | bool | `false` | Enable telemetry gateway service |
 | ui | object | `{"api":{"insecureSkipTlsVerify":true},"enabled":true}` | UI Configuration |

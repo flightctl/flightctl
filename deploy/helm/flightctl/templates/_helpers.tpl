@@ -284,8 +284,8 @@ Parameters:
 {{- $ctx := .context }}
 {{- $timeout := .timeout | default 600 | int }}
 - name: wait-for-migration
-  image: "{{ $ctx.Values.clusterCli.image.image }}:{{ $ctx.Values.clusterCli.image.tag }}"
-  imagePullPolicy: {{ default $ctx.Values.global.imagePullPolicy $ctx.Values.clusterCli.image.pullPolicy }}
+  image: "{{ $ctx.Values.secretsJob.image.image }}:{{ $ctx.Values.secretsJob.image.tag }}"
+  imagePullPolicy: {{ default $ctx.Values.global.imagePullPolicy $ctx.Values.secretsJob.image.pullPolicy }}
   command:
   - /bin/bash
   - -c
