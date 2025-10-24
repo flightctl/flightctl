@@ -764,6 +764,10 @@ func (a InlineApplicationProviderSpec) Validate(appTypeRef *AppType, fleetTempla
 	allErrs := []error{}
 	appType := lo.FromPtr(appTypeRef)
 
+	if appType == AppTypeQuadlet {
+		return []error{fmt.Errorf("inline provider are unsupported for %q applications", appType)}
+	}
+
 	seenPath := make(map[string]struct{}, len(a.Inline))
 	for i := range a.Inline {
 		path := a.Inline[i].Path
@@ -893,6 +897,9 @@ func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []
 			if provider.Image == "" && app.Name == nil {
 				allErrs = append(allErrs, fmt.Errorf("image reference cannot be empty when application name is not provided"))
 			}
+			if lo.FromPtr(app.AppType) == AppTypeQuadlet {
+				allErrs = append(allErrs, fmt.Errorf("image application provider does not support %q application type", AppTypeQuadlet))
+			}
 			allErrs = append(allErrs, validateOciImageReference(&provider.Image, fmt.Sprintf("spec.applications[%s].image", appName), fleetTemplate)...)
 			volumes = provider.Volumes
 
@@ -907,6 +914,20 @@ func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []
 			}
 			allErrs = append(allErrs, provider.Validate(app.AppType, fleetTemplate)...)
 			volumes = provider.Volumes
+
+		case ArtifactApplicationProviderType:
+			_, err = app.AsArtifactApplicationProviderSpec()
+			if err != nil {
+				allErrs = append(allErrs, fmt.Errorf("invalid artifact application provider: %w", err))
+				continue
+			}
+			if app.AppType == nil {
+				allErrs = append(allErrs, fmt.Errorf("artifact application type cannot be empty"))
+			}
+			if lo.FromPtr(app.AppType) == AppTypeCompose {
+				allErrs = append(allErrs, fmt.Errorf("artifact application provider does not support %q application type", AppTypeCompose))
+			}
+			allErrs = append(allErrs, fmt.Errorf("artifact application provider is currently unsupported"))
 
 		default:
 			allErrs = append(allErrs, fmt.Errorf("no validations implemented for application provider type: %s", providerType))

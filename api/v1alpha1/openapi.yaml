@@ -4074,6 +4074,7 @@ components:
               $ref: '#/components/schemas/AppType'
         - oneOf:
             - $ref: '#/components/schemas/ImageApplicationProviderSpec'
+            - $ref: '#/components/schemas/ArtifactApplicationProviderSpec'
             - $ref: '#/components/schemas/InlineApplicationProviderSpec'
     ImageApplicationProviderSpec:
       type: object
@@ -4086,6 +4087,16 @@ components:
               description: Reference to the container image for the application package.
           required:
             - image
+    ArtifactApplicationProviderSpec:
+      type: object
+      allOf:
+        - type: object
+          properties:
+            artifact:
+              type: string
+              description: Reference to an OCI artifact for the application package.
+          required:
+            - artifact
     InlineApplicationProviderSpec:
       type: object
       allOf:
@@ -4157,8 +4168,10 @@ components:
       description: The type of the application.
       enum:
         - "compose"
+        - "quadlet"
       x-enum-varnames:
         - "AppTypeCompose"
+        - "AppTypeQuadlet"
     ResourceMonitor:
       oneOf:
         - $ref: '#/components/schemas/CpuResourceMonitorSpec'
