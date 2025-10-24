@@ -319,6 +319,48 @@ var _ = Describe("cli operation", func() {
 			_, err = harness.CLI("delete", fmt.Sprintf("%s/%s", util.CertificateSigningRequest, csrNewName))
 			Expect(err).ToNot(HaveOccurred())
 		})
+
+		It("should verify that `flightctl get kind NAME works", Label("85509", "sanity"), func() {
+			harness := e2e.GetWorkerHarness()
+			testID := harness.GetTestIDFromContext()
+
+			By("Creating a test device")
+			uniqueDeviceYAML, err := util.CreateUniqueYAMLFile("device.yaml", testID)
+			Expect(err).ToNot(HaveOccurred())
+			defer util.CleanupTempYAMLFile(uniqueDeviceYAML)
+
+			out, err := harness.ManageResource("apply", uniqueDeviceYAML)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(MatchRegexp(resourceCreated))
+			device := harness.GetDeviceByYaml(uniqueDeviceYAML)
+			deviceName := *device.Metadata.Name
+
+			By("Confirming device appears in device list")
+			out, err = harness.CLI("get", "devices")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring(deviceName))
+
+			collapse := func(s string) string {
+				fields := strings.Fields(strings.TrimSpace(s))
+				return strings.Join(fields, " ")
+			}
+			run := func(args ...string) string {
+				out, err := harness.CLI(args...)
+				Expect(err).NotTo(HaveOccurred(), "flighctl %v failed", args)
+				return out
+			}
+
+			By("Comparing with-slash and no-slash forms for table and JSON output")
+			withSlash := run("get", "device/"+deviceName)
+			noSlash := run("get", "device", deviceName)
+			Expect(collapse(noSlash)).To(Equal(collapse(withSlash)),
+				"no-slash table output must equal with-slash")
+
+			withSlashJSON := run("get", "device/"+deviceName, "-o", "json")
+			noSlashJSON := run("get", "device", deviceName, "-o", "json")
+			Expect(noSlashJSON).To(MatchJSON(withSlashJSON),
+				"no-slash JSON must deep-equal with-slash")
+		})
 	})
 
 	Context("CLI Multi-Device Delete", func() {
@@ -622,6 +664,7 @@ var _ = Describe("cli login", func() {
 			Expect(cfg.AuthInfo.Token).ToNot(Equal(secondToken), "Token should have been refreshed")
 		})
 	})
+
 })
 
 // formatResourceEvent formats the event's message and returns it as a string
