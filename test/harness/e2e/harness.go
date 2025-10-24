@@ -1044,7 +1044,7 @@ func (h *Harness) RunGetEvents(args ...string) (string, error) {
 	return h.CLI(allArgs...)
 }
 
-// ManageResource performs an operation ("apply", "delete", or "approve") on a specified resource.
+// ManageResource performs an operation ("apply", "delete", "approve" or "deny") on a specified resource.
 func (h *Harness) ManageResource(operation, resource string, args ...string) (string, error) {
 	switch operation {
 	case "apply":
@@ -1064,6 +1064,9 @@ func (h *Harness) ManageResource(operation, resource string, args ...string) (st
 		return "", nil
 	case "approve":
 		return h.CLI("approve", resource)
+	case "deny":
+		denyArgs := append([]string{"deny", resource}, args...)
+		return h.CLI(denyArgs...)
 	default:
 		return "", fmt.Errorf("unsupported operation: %s", operation)
 	}
