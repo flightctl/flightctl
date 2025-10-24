@@ -2,15 +2,21 @@ package tasks_test
 
 import (
 	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/rendered"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/flightctl/flightctl/internal/worker_client"
+	"github.com/flightctl/flightctl/pkg/k8sclient"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
 	testutil "github.com/flightctl/flightctl/test/util"
@@ -20,7 +26,25 @@ import (
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"go.uber.org/mock/gomock"
+	corev1 "k8s.io/api/core/v1"
 )
+
+// Simple mock K8s client for testing path validation
+type mockK8sClient struct{}
+
+func (m *mockK8sClient) GetSecret(ctx context.Context, namespace, name string) (*corev1.Secret, error) {
+	// Return a fake secret with dummy data
+	return &corev1.Secret{
+		Data: map[string][]byte{
+			"key1": []byte("value1"),
+			"key2": []byte("value2"),
+		},
+	}, nil
+}
+
+func (m *mockK8sClient) PostCRD(ctx context.Context, crdGVK string, body []byte, opts ...k8sclient.Option) ([]byte, error) {
+	return nil, nil
+}
 
 var _ = Describe("DeviceRender", func() {
 	var (
@@ -42,6 +66,9 @@ var _ = Describe("DeviceRender", func() {
 		mockQueueProducer *queues.MockQueueProducer
 		ctrl              *gomock.Controller
 		kvStoreInst       kvstore.KVStore
+		queuesProvider    queues.Provider
+		mockK8s           *mockK8sClient
+		testHTTPServer    *httptest.Server
 	)
 
 	BeforeEach(func() {
@@ -66,12 +93,199 @@ var _ = Describe("DeviceRender", func() {
 		Expect(err).ToNot(HaveOccurred())
 		orgResolver, err := testutil.NewOrgResolver(cfg, storeInst.Organization(), log)
 		Expect(err).ToNot(HaveOccurred())
+
+		// Initialize mock K8s client for path validation tests
+		mockK8s = &mockK8sClient{}
+
 		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStoreInst, nil, log, "", "", []string{}, orgResolver)
+
+		// Initialize queues provider and rendered.Bus for successful device rendering
+		// Only initialize once (singleton pattern), subsequent calls are no-ops
+		if queuesProvider == nil {
+			processID := fmt.Sprintf("device-render-test-%s", uuid.New().String())
+			queuesProvider, err = queues.NewRedisProvider(ctx, log, processID, "localhost", 6379, config.SecureString("adminpass"), queues.DefaultRetryConfig())
+			Expect(err).ToNot(HaveOccurred())
+			err = rendered.Bus.Initialize(ctx, kvStoreInst, queuesProvider, 10*time.Second, log)
+			Expect(err).ToNot(HaveOccurred())
+		}
 	})
 
 	AfterEach(func() {
+		// Clean up Redis keys but keep connections open
+		// The queuesProvider and rendered.Bus singleton persist across all tests in this suite
+		// since singletons are meant to live for the process lifetime
+		if kvStoreInst != nil {
+			_ = kvStoreInst.DeleteAllKeys(ctx)
+		}
+
 		store.DeleteTestDB(ctx, log, cfg, storeInst, dbName)
 		ctrl.Finish()
+	})
+
+	Context("unsafe path validation", func() {
+		DescribeTable("inline config path validation",
+			func(path string, shouldFail bool, errorSubstring string) {
+				inlineConfig := &api.InlineConfigProviderSpec{
+					Name:   "test-config",
+					Inline: []api.FileSpec{{Path: path, Content: "test", Mode: lo.ToPtr(420)}},
+				}
+				configProvider := api.ConfigProviderSpec{}
+				err := configProvider.FromInlineConfigProviderSpec(*inlineConfig)
+				Expect(err).ToNot(HaveOccurred())
+
+				testDeviceName := deviceName + "-inline-" + uuid.New().String()[:8]
+				device := &api.Device{
+					Metadata: api.ObjectMeta{Name: lo.ToPtr(testDeviceName)},
+					Spec:     &api.DeviceSpec{Config: &[]api.ConfigProviderSpec{configProvider}},
+				}
+				_, err = deviceStore.Create(ctx, orgId, device, nil)
+				Expect(err).ToNot(HaveOccurred())
+
+				defer func() {
+					_, _ = deviceStore.Delete(ctx, orgId, testDeviceName, nil)
+				}()
+
+				event := api.Event{
+					Reason:         api.EventReasonResourceUpdated,
+					InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: testDeviceName},
+				}
+				logic := tasks.NewDeviceRenderLogic(log, serviceHandler, nil, kvStoreInst, orgId, event)
+				err = logic.RenderDevice(ctx)
+
+				if shouldFail {
+					// Path validation should fail - error returned before UpdateRenderedDevice
+					Expect(err).To(HaveOccurred())
+					Expect(err.Error()).To(ContainSubstring(errorSubstring))
+				} else {
+					// Safe paths should complete successfully with queues provider
+					Expect(err).ToNot(HaveOccurred())
+				}
+			},
+			Entry("should reject /var/lib/flightctl/data.txt", "/var/lib/flightctl/data.txt", true, "unsafe device path"),
+			Entry("should reject /usr/lib/flightctl/binary", "/usr/lib/flightctl/binary", true, "unsafe device path"),
+			Entry("should reject /etc/flightctl/certs/ca.crt", "/etc/flightctl/certs/ca.crt", true, "unsafe device path"),
+			Entry("should reject /etc/flightctl/config.yaml", "/etc/flightctl/config.yaml", true, "unsafe device path"),
+			Entry("should allow /etc/myapp/config.txt", "/etc/myapp/config.txt", false, ""),
+			Entry("should allow /etc/flightctl/custom.txt", "/etc/flightctl/custom.txt", false, ""),
+		)
+
+		Context("HTTP config path validation", func() {
+			BeforeEach(func() {
+				// Set up local HTTP test server only for HTTP tests
+				testHTTPServer = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					w.WriteHeader(http.StatusOK)
+					_, _ = w.Write([]byte("test config content"))
+				}))
+			})
+
+			AfterEach(func() {
+				// Close the test HTTP server
+				if testHTTPServer != nil {
+					testHTTPServer.Close()
+				}
+			})
+
+			DescribeTable("validates paths correctly",
+				func(filePath string, shouldFailWithPathError bool) {
+					testRepoName := repoName + "-http-" + uuid.New().String()[:8]
+					repoSpec := api.RepositorySpec{}
+					err := repoSpec.FromGenericRepoSpec(api.GenericRepoSpec{
+						Url:  testHTTPServer.URL,
+						Type: api.Http,
+					})
+					Expect(err).ToNot(HaveOccurred())
+
+					repo := &api.Repository{
+						Metadata: api.ObjectMeta{Name: lo.ToPtr(testRepoName)},
+						Spec:     repoSpec,
+					}
+					_, err = repoStore.Create(ctx, orgId, repo, nil)
+					Expect(err).ToNot(HaveOccurred())
+
+					defer func() {
+						_ = repoStore.Delete(ctx, orgId, testRepoName, nil)
+					}()
+
+					httpConfig := &api.HttpConfigProviderSpec{Name: "http-config"}
+					httpConfig.HttpRef.Repository = testRepoName
+					httpConfig.HttpRef.FilePath = filePath
+					configProvider := api.ConfigProviderSpec{}
+					err = configProvider.FromHttpConfigProviderSpec(*httpConfig)
+					Expect(err).ToNot(HaveOccurred())
+
+					testDeviceName := deviceName + "-http-" + uuid.New().String()[:8]
+					device := &api.Device{
+						Metadata: api.ObjectMeta{Name: lo.ToPtr(testDeviceName)},
+						Spec:     &api.DeviceSpec{Config: &[]api.ConfigProviderSpec{configProvider}},
+					}
+					_, err = deviceStore.Create(ctx, orgId, device, nil)
+					Expect(err).ToNot(HaveOccurred())
+
+					defer func() {
+						_, _ = deviceStore.Delete(ctx, orgId, testDeviceName, nil)
+					}()
+
+					event := api.Event{
+						Reason:         api.EventReasonResourceUpdated,
+						InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: testDeviceName},
+					}
+					logic := tasks.NewDeviceRenderLogic(log, serviceHandler, nil, kvStoreInst, orgId, event)
+					err = logic.RenderDevice(ctx)
+
+					if shouldFailWithPathError {
+						Expect(err).To(HaveOccurred())
+						Expect(err.Error()).To(ContainSubstring("unsafe device path"))
+					} else {
+						// Safe paths should succeed with local test server
+						Expect(err).ToNot(HaveOccurred())
+					}
+				},
+				Entry("should reject /var/lib/flightctl/data.txt", "/var/lib/flightctl/data.txt", true),
+				Entry("should reject /etc/flightctl/certs/key.pem", "/etc/flightctl/certs/key.pem", true),
+				Entry("should allow /etc/myapp/config.yaml", "/etc/myapp/config.yaml", false),
+			)
+		})
+
+		DescribeTable("Kubernetes config path validation",
+			func(mountPath string, shouldFailWithPathError bool) {
+				k8sConfig := &api.KubernetesSecretProviderSpec{Name: "k8s-config"}
+				k8sConfig.SecretRef.Name = "test-secret"
+				k8sConfig.SecretRef.Namespace = "default"
+				k8sConfig.SecretRef.MountPath = mountPath
+				configProvider := api.ConfigProviderSpec{}
+				err := configProvider.FromKubernetesSecretProviderSpec(*k8sConfig)
+				Expect(err).ToNot(HaveOccurred())
+
+				testDeviceName := deviceName + "-k8s-" + uuid.New().String()[:8]
+				device := &api.Device{
+					Metadata: api.ObjectMeta{Name: lo.ToPtr(testDeviceName)},
+					Spec:     &api.DeviceSpec{Config: &[]api.ConfigProviderSpec{configProvider}},
+				}
+				_, err = deviceStore.Create(ctx, orgId, device, nil)
+				Expect(err).ToNot(HaveOccurred())
+
+				defer func() {
+					_, _ = deviceStore.Delete(ctx, orgId, testDeviceName, nil)
+				}()
+
+				event := api.Event{
+					Reason:         api.EventReasonResourceUpdated,
+					InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: testDeviceName},
+				}
+				logic := tasks.NewDeviceRenderLogic(log, serviceHandler, mockK8s, kvStoreInst, orgId, event)
+				err = logic.RenderDevice(ctx)
+
+				if shouldFailWithPathError {
+					Expect(err).To(HaveOccurred())
+					Expect(err.Error()).To(ContainSubstring("unsafe device path"))
+				} else {
+					Expect(err).ToNot(HaveOccurred())
+				}
+			},
+			Entry("should reject /etc/flightctl/certs", "/etc/flightctl/certs", true),
+			Entry("should reject /var/lib/flightctl/data", "/var/lib/flightctl/data", true),
+			Entry("should allow /etc/myapp/secrets", "/etc/myapp/secrets", false),
+		)
 	})
 
 	Context("when device labels change with git configuration", func() {
