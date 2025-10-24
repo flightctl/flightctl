@@ -64,14 +64,12 @@ type RepositoryTesterExecutor struct {
 	serviceHandler service.Service
 }
 
-// createTaskContext creates a task context with request ID, orgID, and event actor
+// createTaskContext creates a task context with request ID and event actor
 func createTaskContext(ctx context.Context, taskType PeriodicTaskType, orgID uuid.UUID) context.Context {
 	taskName := string(taskType)
 	reqid.OverridePrefix(taskName)
 	requestID := reqid.NextRequestID()
 	ctx = context.WithValue(ctx, middleware.RequestIDKey, requestID)
-
-	ctx = util.WithOrganizationID(ctx, orgID)
 
 	return context.WithValue(ctx, consts.EventActorCtxKey, taskName)
 }
@@ -79,7 +77,7 @@ func createTaskContext(ctx context.Context, taskType PeriodicTaskType, orgID uui
 func (e *RepositoryTesterExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgID uuid.UUID) {
 	taskCtx := createTaskContext(ctx, PeriodicTaskTypeRepositoryTester, orgID)
 	repoTester := tasks.NewRepoTester(e.log, e.serviceHandler)
-	repoTester.TestRepositories(taskCtx)
+	repoTester.TestRepositories(taskCtx, orgID)
 }
 
 type ResourceSyncExecutor struct {
@@ -91,7 +89,7 @@ type ResourceSyncExecutor struct {
 func (e *ResourceSyncExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgID uuid.UUID) {
 	taskCtx := createTaskContext(ctx, PeriodicTaskTypeResourceSync, orgID)
 	resourceSync := tasks.NewResourceSync(e.serviceHandler, e.log, e.ignoreResourceUpdates)
-	resourceSync.Poll(taskCtx)
+	resourceSync.Poll(taskCtx, orgID)
 }
 
 type DeviceDisconnectedExecutor struct {
@@ -102,7 +100,7 @@ type DeviceDisconnectedExecutor struct {
 func (e *DeviceDisconnectedExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgID uuid.UUID) {
 	taskCtx := createTaskContext(ctx, PeriodicTaskTypeDeviceDisconnected, orgID)
 	deviceDisconnected := tasks.NewDeviceDisconnected(e.log, e.serviceHandler)
-	deviceDisconnected.Poll(taskCtx)
+	deviceDisconnected.Poll(taskCtx, orgID)
 }
 
 type RolloutDeviceSelectionExecutor struct {
@@ -113,7 +111,7 @@ type RolloutDeviceSelectionExecutor struct {
 func (e *RolloutDeviceSelectionExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgID uuid.UUID) {
 	taskCtx := createTaskContext(ctx, PeriodicTaskTypeRolloutDeviceSelection, orgID)
 	rolloutDeviceSelection := device_selection.NewReconciler(e.serviceHandler, e.log)
-	rolloutDeviceSelection.Reconcile(taskCtx)
+	rolloutDeviceSelection.Reconcile(taskCtx, orgID)
 }
 
 type DisruptionBudgetExecutor struct {
@@ -124,7 +122,7 @@ type DisruptionBudgetExecutor struct {
 func (e *DisruptionBudgetExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgID uuid.UUID) {
 	taskCtx := createTaskContext(ctx, PeriodicTaskTypeDisruptionBudget, orgID)
 	disruptionBudget := disruption_budget.NewReconciler(e.serviceHandler, e.log)
-	disruptionBudget.Reconcile(taskCtx)
+	disruptionBudget.Reconcile(taskCtx, orgID)
 }
 
 type EventCleanupExecutor struct {

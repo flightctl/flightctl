@@ -10,6 +10,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
 )
@@ -32,6 +33,14 @@ func (h *WebsocketHandler) HandleDeviceConsole(w http.ResponseWriter, r *http.Re
 
 	h.log.Infof("websocket console connection requested for device: %s", deviceName)
 
+	// Extract organization ID from context
+	orgId, orgIdFound := util.GetOrgIdFromContext(r.Context())
+	if !orgIdFound {
+		h.log.Error("organization ID not found in context")
+		http.Error(w, "organization ID not found in context", http.StatusInternalServerError)
+		return
+	}
+
 	// Extract metadata
 	metadata, err := h.injectProtocolsToMetadata(r.URL.Query().Get(api.DeviceQueryConsoleSessionMetadata),
 		websocket.Subprotocols(r))
@@ -40,7 +49,7 @@ func (h *WebsocketHandler) HandleDeviceConsole(w http.ResponseWriter, r *http.Re
 		http.Error(w, "protocols injection error", http.StatusInternalServerError)
 		return
 	}
-	consoleSession, err := h.consoleSessionManager.StartSession(r.Context(), deviceName, metadata)
+	consoleSession, err := h.consoleSessionManager.StartSession(r.Context(), orgId, deviceName, metadata)
 	// check for errors
 	if err != nil {
 		switch {

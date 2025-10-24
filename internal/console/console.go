@@ -12,7 +12,6 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/rendered"
 	"github.com/flightctl/flightctl/internal/service"
-	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -54,22 +53,14 @@ func NewConsoleSessionManager(serviceHandler service.Service, log logrus.FieldLo
 	}
 }
 
-// Extracts organization ID from context with fallback to default
-func getOrgIdFromContext(ctx context.Context) uuid.UUID {
-	if orgId, ok := util.GetOrgIdFromContext(ctx); ok {
-		return orgId
-	}
-	return store.NullOrgId
-}
-
-func (m *ConsoleSessionManager) modifyAnnotations(ctx context.Context, deviceName string, updater func(value string) (string, error)) error {
+func (m *ConsoleSessionManager) modifyAnnotations(ctx context.Context, orgId uuid.UUID, deviceName string, updater func(value string) (string, error)) error {
 	var (
 		err                 error
 		newValue            string
 		nextRenderedVersion string
 	)
 	for i := 0; i != 10; i++ {
-		device, status := m.serviceHandler.GetDevice(ctx, deviceName)
+		device, status := m.serviceHandler.GetDevice(ctx, orgId, deviceName)
 		if status.Code != http.StatusOK {
 			return service.ApiStatusToErr(status)
 		}
@@ -96,13 +87,13 @@ func (m *ConsoleSessionManager) modifyAnnotations(ctx context.Context, deviceNam
 		}
 		(*device.Metadata.Annotations)[api.DeviceAnnotationRenderedVersion] = nextRenderedVersion
 		m.log.Infof("About to save annotations %+v", *device.Metadata.Annotations)
-		_, err = m.serviceHandler.UpdateDevice(context.WithValue(ctx, consts.InternalRequestCtxKey, true), deviceName, *device, nil)
+		_, err = m.serviceHandler.UpdateDevice(context.WithValue(ctx, consts.InternalRequestCtxKey, true), orgId, deviceName, *device, nil)
 		if !errors.Is(err, flterrors.ErrResourceVersionConflict) {
 			break
 		}
 	}
 	if err == nil {
-		err = rendered.Bus.Instance().StoreAndNotify(ctx, getOrgIdFromContext(ctx), deviceName, nextRenderedVersion)
+		err = rendered.Bus.Instance().StoreAndNotify(ctx, orgId, deviceName, nextRenderedVersion)
 	}
 	return err
 }
@@ -150,14 +141,12 @@ func removeSession(sessionID string) func(string) (string, error) {
 	}
 }
 
-func (m *ConsoleSessionManager) StartSession(ctx context.Context, deviceName, sessionMetadata string) (*ConsoleSession, error) {
+func (m *ConsoleSessionManager) StartSession(ctx context.Context, orgId uuid.UUID, deviceName, sessionMetadata string) (*ConsoleSession, error) {
 	if sessionMetadata == "" {
 		m.log.Error("incompatible client: missing session metadata")
 		return nil, errors.New("incompatible client: missing session metadata")
 	}
 	m.log.Infof("Start session. Metadata %s", sessionMetadata)
-
-	orgId := getOrgIdFromContext(ctx)
 	session := &ConsoleSession{
 		OrgId:      orgId,
 		DeviceName: deviceName,
@@ -167,11 +156,11 @@ func (m *ConsoleSessionManager) StartSession(ctx context.Context, deviceName, se
 		ProtocolCh: make(chan string),
 	}
 	// we should move this to a separate table in the database
-	if _, status := m.serviceHandler.GetDevice(ctx, deviceName); status.Code != http.StatusOK {
+	if _, status := m.serviceHandler.GetDevice(ctx, orgId, deviceName); status.Code != http.StatusOK {
 		return nil, service.ApiStatusToErr(status)
 	}
 
-	if err := m.modifyAnnotations(ctx, deviceName, addSession(session.UUID, sessionMetadata)); err != nil {
+	if err := m.modifyAnnotations(ctx, orgId, deviceName, addSession(session.UUID, sessionMetadata)); err != nil {
 		return nil, err
 	}
 	// tell the gRPC service, or the message queue (in the future) that there is a session waiting, and provide
@@ -179,7 +168,7 @@ func (m *ConsoleSessionManager) StartSession(ctx context.Context, deviceName, se
 	if err := m.sessionRegistration.StartSession(session); err != nil {
 		m.log.Errorf("Failed to start session %s for device %s: %v, rolling back device annotation", session.UUID, deviceName, err)
 		// if we fail to register the session we should remove the annotation (best effort)
-		if annErr := m.modifyAnnotations(ctx, deviceName, removeSession(session.UUID)); annErr != nil {
+		if annErr := m.modifyAnnotations(ctx, orgId, deviceName, removeSession(session.UUID)); annErr != nil {
 			m.log.Errorf("Failed to remove annotation from device %s: %v", deviceName, annErr)
 		}
 		return nil, err
@@ -191,7 +180,7 @@ func (m *ConsoleSessionManager) CloseSession(ctx context.Context, session *Conso
 	closeSessionErr := m.sessionRegistration.CloseSession(session)
 	// make sure the device exists
 
-	if err := m.modifyAnnotations(ctx, session.DeviceName, removeSession(session.UUID)); err != nil {
+	if err := m.modifyAnnotations(ctx, session.OrgId, session.DeviceName, removeSession(session.UUID)); err != nil {
 		return fmt.Errorf("failed to remove annotation from device %s: %w", session.DeviceName, err)
 	}
 

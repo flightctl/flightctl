@@ -397,7 +397,7 @@ var _ = Describe("Alert Exporter", func() {
 				Metadata:       api.ObjectMeta{Name: lo.ToPtr("test-event-nil-timestamp")},
 				// CreationTimestamp is nil
 			}
-			serviceHandler.CreateEvent(ctx, ev)
+			serviceHandler.CreateEvent(ctx, store.NullOrgId, ev)
 
 			// Create event with empty object name
 			ev2 := &api.Event{
@@ -408,7 +408,7 @@ var _ = Describe("Alert Exporter", func() {
 					CreationTimestamp: lo.ToPtr(time.Now()),
 				},
 			}
-			serviceHandler.CreateEvent(ctx, ev2)
+			serviceHandler.CreateEvent(ctx, store.NullOrgId, ev2)
 
 			// Create valid event
 			createEvent(ctx, serviceHandler, api.EventReasonDeviceDiskWarning, api.DeviceKind, "valid-device")
@@ -562,7 +562,7 @@ func createEvent(ctx context.Context, handler service.Service, reason api.EventR
 		InvolvedObject: api.ObjectReference{Kind: kind, Name: name},
 		Metadata:       api.ObjectMeta{Name: lo.ToPtr(fmt.Sprintf("test-event-%d", rand.Int63()))}, //nolint:gosec
 	}
-	handler.CreateEvent(ctx, ev)
+	handler.CreateEvent(ctx, store.NullOrgId, ev)
 }
 
 type AlertmanagerAlert struct {

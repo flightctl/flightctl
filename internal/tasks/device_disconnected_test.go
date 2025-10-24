@@ -17,6 +17,7 @@ import (
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/flightctl/flightctl/test/util"
+	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
@@ -82,7 +83,8 @@ func benchmarkUpdateSummaryStatusBatch(ctx context.Context, b *testing.B, log *l
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		b.StartTimer()
-		disconnected.Poll(ctx)
+		testOrgId := uuid.New()
+		disconnected.Poll(ctx, testOrgId)
 		b.StopTimer()
 
 		err := resetDeviceStatus(ctx, db, deviceNames)
