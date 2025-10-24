@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/client"
@@ -622,6 +623,95 @@ var _ = Describe("cli login", func() {
 			Expect(cfg.AuthInfo.Token).ToNot(Equal(secondToken), "Token should have been refreshed")
 		})
 	})
+
+	It("creates a device, edits via headless editor (yaml & json), and validates negatives", Label("83301"), func() {
+		harness := e2e.GetWorkerHarness()
+		editorFlag := "--editor"
+		oFlag := "-o"
+
+		By("creating a unique Device from template")
+		uniqueDeviceYAML, err := util.CreateUniqueYAMLFile("device.yaml", harness.GetTestIDFromContext())
+		Expect(err).ToNot(HaveOccurred())
+		defer util.CleanupTempYAMLFile(uniqueDeviceYAML)
+
+		out, err := harness.ManageResource("apply", uniqueDeviceYAML)
+		Expect(err).ToNot(HaveOccurred(), out)
+		Expect(out).To(MatchRegexp(resourceCreated), out)
+
+		device := harness.GetDeviceByYaml(uniqueDeviceYAML)
+		Expect(device.Metadata).ToNot(BeNil())
+		Expect(device.Metadata.Name).ToNot(BeNil())
+		Expect(*device.Metadata.Name).ToNot(BeEmpty(), "device name should not be empty")
+
+		devName := *device.Metadata.Name
+		devicePath := "device/" + devName
+
+		newTestKey := "e2e-prelabel"
+		newTestValue := "ok"
+
+		By("patching the device once via API to ensure it is reachable")
+		Eventually(func() error {
+			return harness.UpdateDevice(devName, func(d *v1alpha1.Device) {
+				if d.Metadata.Labels == nil {
+					d.Metadata.Labels = &map[string]string{}
+				}
+				(*d.Metadata.Labels)[newTestKey] = newTestValue
+			})
+		}).Should(BeNil(), "failed to update device preliminarily")
+
+		By("editing the Device via headless editor in YAML mode")
+		markerYAML := "autotest-edit-yaml-" + time.Now().Format("150405")
+
+		editorYAML, err := harness.WriteEditor(markerYAML)
+		Expect(err).ToNot(HaveOccurred())
+
+		out, err = harness.CLI("edit", oFlag, "yaml", editorFlag, editorYAML, devicePath)
+		Expect(harness.ApplyTempIfSuggested(out, err)).ToNot(HaveOccurred())
+
+		yamlOut, err := harness.GetYAML(devicePath)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(yamlOut).To(ContainSubstring("autotest-edit: " + markerYAML))
+
+		// -----------------------------
+		// Positive: headless edit (JSON)
+		// -----------------------------
+		By("editing the Device via headless editor in JSON mode")
+		markerJSON := "autotest-edit-json-" + time.Now().Format("150405")
+
+		editorJSON, err := harness.WriteEditor(markerJSON)
+		Expect(err).ToNot(HaveOccurred())
+
+		out, err = harness.CLI("edit", oFlag, "json", editorFlag, editorJSON, devicePath)
+		Expect(harness.ApplyTempIfSuggested(out, err)).ToNot(HaveOccurred())
+
+		yamlOut, err = harness.GetYAML(devicePath)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(yamlOut).To(ContainSubstring("autotest-edit: " + markerJSON))
+
+		// -----------------------------
+		// Negative tests
+		// -----------------------------
+		By("failing when no arguments are provided")
+		out, err = harness.CLI("edit")
+		Expect(err).To(HaveOccurred())
+		Expect(out).To(ContainSubstring("Error: accepts between 1 and 2 arg(s), received 0"))
+
+		By("failing on invalid resource kind (numeric)")
+		out, err = harness.CLI("edit", "1234")
+		Expect(err).To(HaveOccurred())
+		Expect(out).To(ContainSubstring("Error: invalid resource kind: 1234"))
+
+		By("failing on invalid resource kind (empty string)")
+		out, err = harness.CLI("edit", "")
+		Expect(err).To(HaveOccurred())
+		Expect(out).To(ContainSubstring("Error: invalid resource kind:"))
+
+		By("failing when too many arguments are provided")
+		out, err = harness.CLI("edit", "1", "2", "3", "4")
+		Expect(err).To(HaveOccurred())
+		Expect(out).To(ContainSubstring("Error: accepts between 1 and 2 arg(s), received 4"))
+	})
+
 })
 
 // formatResourceEvent formats the event's message and returns it as a string

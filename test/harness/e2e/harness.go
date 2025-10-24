@@ -60,6 +60,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -2338,4 +2339,99 @@ func (h *Harness) getVersionByPrefix(output, prefix string) string {
 		}
 	}
 	return ""
+}
+
+// GetYAML returns the YAML output of a given resource name via Harness.CLI.
+// No test framework calls inside; returns (string, error).
+func (h *Harness) GetYAML(name string) (string, error) {
+	out, err := h.CLI("get", name, "-o", "yaml")
+	if err != nil {
+		return out, fmt.Errorf("get -o yaml failed for %s: %v\n%s", name, err, out)
+	}
+	return out, nil
+}
+
+// ApplyTempIfSuggested looks for "Your changes have been saved to:" in CLI output.
+// If found, it automatically applies the saved file to complete the edit flow.
+func (h *Harness) ApplyTempIfSuggested(out string, cliErr error) error {
+	if cliErr == nil {
+		return nil
+	}
+	lower := strings.ToLower(out)
+	if !strings.Contains(lower, "saved to:") {
+		return fmt.Errorf("edit failed without saved-temp-file hint: %v\n%s", cliErr, out)
+	}
+	re := regexp.MustCompile(`(?i)saved to:\s+(\S+)`)
+	match := re.FindStringSubmatch(out)
+	if len(match) < 2 {
+		return fmt.Errorf("could not extract temp file path from output:\n%s", out)
+	}
+	tmpPath := match[1]
+
+	applyOut, applyErr := h.CLI("apply", "-f", tmpPath)
+	if applyErr != nil {
+		return fmt.Errorf("failed to apply saved temp file %s:\n%s", tmpPath, applyOut)
+	}
+	return nil
+}
+
+// WriteEditor creates a temporary script that acts as a fake editor.
+// It edits metadata.labels.autotest-edit = <marker> and detects JSON or YAML automatically.
+// Returns the full path to the created script.
+func (h *Harness) WriteEditor(marker string) (string, error) {
+	// Create a private temp dir (0700) and place the script inside it.
+	dir, err := os.MkdirTemp("", "flightctl-editor-*")
+	if err != nil {
+		return "", fmt.Errorf("mkdtemp: %w", err)
+	}
+	// Note: we intentionally do NOT remove the dir so the script remains usable during the test run.
+
+	scriptPath := filepath.Join(dir, fmt.Sprintf("fake_editor_%s.sh", marker))
+
+	script := fmt.Sprintf(`#!/usr/bin/env bash
+set -euo pipefail
+file="$1"
+
+# Detect JSON vs YAML by first non-space character
+first_char=$(awk 'NF{line=$0; sub(/^[[:space:]]+/,"",line); print substr(line,1,1); exit}' "$file")
+
+if [[ "$first_char" == "{" ]]; then
+  #
+  # --- JSON buffer handling ---
+  #
+  if grep -q '"labels"' "$file"; then
+    if grep -q '"autotest-edit"' "$file"; then
+      sed -i 's/"autotest-edit":[^,}]*/"autotest-edit":"%[1]s"/' "$file"
+    else
+      sed -i 's/"labels":[[:space:]]*{/"labels":{"autotest-edit":"%[1]s",/' "$file"
+    fi
+  else
+    sed -i 's/"metadata":[[:space:]]*{/"metadata":{"labels":{"autotest-edit":"%[1]s"},/' "$file"
+  fi
+else
+  #
+  # --- YAML buffer handling ---
+  #
+  if grep -qE '^[[:space:]]*labels:' "$file"; then
+    if grep -qE '^[[:space:]]*autotest-edit:' "$file"; then
+      sed -i 's/^[[:space:]]*autotest-edit:.*/  autotest-edit: %[1]s/' "$file"
+    else
+      awk '{print} /^[[:space:]]*labels:[[:space:]]*$/{print "  autotest-edit: %[1]s"}' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
+    fi
+  else
+    awk 'BEGIN{inserted=0}{print}/^[[:space:]]*metadata:/{print "  labels:"; print "    autotest-edit: %[1]s"; inserted=1} END{if(inserted==0){print "metadata:"; print "  labels:"; print "    autotest-edit: %[1]s"}}' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
+  fi
+fi
+`, marker)
+
+	// Create with 0600 to satisfy gosec G306
+	if err := os.WriteFile(scriptPath, []byte(script), 0o600); err != nil {
+		return "", fmt.Errorf("write script: %w", err)
+	}
+	// Then make it executable for the test run
+	if err := os.Chmod(scriptPath, 0o700); err != nil {
+		return "", fmt.Errorf("chmod script: %w", err)
+	}
+
+	return scriptPath, nil
 }
