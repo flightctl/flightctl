@@ -35,10 +35,10 @@ service:
   # Rate limiting configuration
   rateLimit:
     # General API rate limiting
-    requests: 60
+    requests: 300
     window: "1m"
     # Auth-specific rate limiting
-    authRequests: 10
+    authRequests: 20
     authWindow: "1h"
     # Trusted proxies that can set X-Forwarded-For/X-Real-IP headers
     # This should include your load balancer and UI proxy IPs
