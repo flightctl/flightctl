@@ -34,6 +34,8 @@ db:
 service:
   # Rate limiting configuration
   rateLimit:
+    # Enable or disable rate limiting
+    enabled: true
     # General API rate limiting
     requests: 300
     window: "1m"
