@@ -207,7 +207,7 @@ func (s *Server) Run(ctx context.Context) error {
 		// Add general rate limiting (only if configured)
 		if s.cfg.Service.RateLimit != nil {
 			trustedProxies := s.cfg.Service.RateLimit.TrustedProxies
-			requests := 60        // Default requests limit
+			requests := 300       // Default requests limit
 			window := time.Minute // Default window
 			if s.cfg.Service.RateLimit.Requests > 0 {
 				requests = s.cfg.Service.RateLimit.Requests
@@ -251,7 +251,7 @@ func (s *Server) Run(ctx context.Context) error {
 		// Add auth-specific rate limiting (only if configured)
 		if s.cfg.Service.RateLimit != nil {
 			trustedProxies := s.cfg.Service.RateLimit.TrustedProxies
-			authRequests := 10      // Default auth requests limit
+			authRequests := 20      // Default auth requests limit
 			authWindow := time.Hour // Default auth window
 			if s.cfg.Service.RateLimit.AuthRequests > 0 {
 				authRequests = s.cfg.Service.RateLimit.AuthRequests
@@ -286,7 +286,7 @@ func (s *Server) Run(ctx context.Context) error {
 		// Add websocket rate limiting (only if configured)
 		if s.cfg.Service.RateLimit != nil {
 			trustedProxies := s.cfg.Service.RateLimit.TrustedProxies
-			requests := 60        // Default requests limit
+			requests := 300       // Default requests limit
 			window := time.Minute // Default window
 			if s.cfg.Service.RateLimit.Requests > 0 {
 				requests = s.cfg.Service.RateLimit.Requests

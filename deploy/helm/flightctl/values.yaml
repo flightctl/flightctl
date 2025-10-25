@@ -218,12 +218,12 @@ api:
   rateLimit:
     # -- Maximum requests per window for general API endpoints
     # General API rate limiting
-    requests: 60
+    requests: 300
     # -- Time window for rate limiting (e.g., "1m", "1h")
     window: "1m"
     # -- Maximum authentication requests per auth window
     # Auth-specific rate limiting
-    authRequests: 10
+    authRequests: 20
     # -- Time window for authentication rate limiting
     authWindow: "1h"
     # -- List of trusted proxy IP ranges that can set X-Forwarded-For headers

@@ -32,11 +32,11 @@ Rate limiting is configured in your Flight Control configuration file:
 service:
   rateLimit:
     # General API rate limiting
-    requests: 60        # Maximum requests per window
+    requests: 300       # Maximum requests per window
     window: "1m"        # Time window (e.g., "1m", "1h", "1d")
     
     # Authentication-specific rate limiting (stricter)
-    authRequests: 10    # Maximum auth requests per window
+    authRequests: 20    # Maximum auth requests per window
     authWindow: "1h"    # Auth time window
     
     # Trusted proxies that can set True-Client-IP/X-Forwarded-For/X-Real-IP headers
@@ -78,7 +78,7 @@ export RATE_LIMIT_TRUSTED_PROXIES="10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
 
 **Note**: The `RATE_LIMIT_TRUSTED_PROXIES` environment variable accepts a comma-separated list of CIDR ranges. Each CIDR should be in standard format (e.g., `10.0.0.0/8`, `172.16.0.0/12`).
 
-**Example**: If your config file has `requests: 100` but you set `RATE_LIMIT_REQUESTS=60`, the final value will be `60` (the environment variable takes precedence).
+**Example**: If your config file has `requests: 100` but you set `RATE_LIMIT_REQUESTS=300`, the final value will be `300` (the environment variable takes precedence).
 
 ## Reverse Proxy Configuration
 
@@ -394,9 +394,9 @@ service:
 ```yaml
 service:
   rateLimit:
-    requests: 60      # Conservative limits for production
+    requests: 300     # Conservative limits for production
     window: "1m"
-    authRequests: 10  # Stricter auth limits
+    authRequests: 20  # Stricter auth limits
     authWindow: "1h"
 ```
 
