@@ -88,6 +88,7 @@ If no rate limiting configuration is provided at all, rate limiting is **disable
 
 To disable rate limiting, set the `enabled` field to `false` in your configuration:
 
+<<<<<<< HEAD
 **For Helm deployments:**
 
 ```yaml
@@ -104,6 +105,26 @@ Edit `deploy/podman/service-config.yaml`:
 service:
   rateLimit:
     enabled: false
+```
+
+**Note**: Setting `requests=0` or `authRequests=0` will **not** disable rate limiting. Instead, it will use the hard-coded default values (300 requests/minute for general API, 20 requests/hour for auth). To disable rate limiting, set `enabled: false`.
+
+### Disabling Rate Limiting
+
+To disable rate limiting, set the `enabled` field to `false`:
+
+**Configuration file:**
+
+```yaml
+service:
+  rateLimit:
+    enabled: false
+```
+
+**Environment variable:**
+
+```bash
+export RATE_LIMIT_ENABLED=false
 ```
 
 **Note**: Setting `requests=0` or `authRequests=0` will **not** disable rate limiting. Instead, it will use the hard-coded default values (300 requests/minute for general API, 20 requests/hour for auth). To disable rate limiting, set `enabled: false`.
