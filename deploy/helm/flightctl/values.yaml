@@ -216,6 +216,8 @@ api:
   baseUIUrl: "" # ui.flightctl.example.com
   # Rate limiting configuration - enabled by default for production
   rateLimit:
+    # -- Enable or disable rate limiting
+    enabled: true
     # -- Maximum requests per window for general API endpoints
     # General API rate limiting
     requests: 300
