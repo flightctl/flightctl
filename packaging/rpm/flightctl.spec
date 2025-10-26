@@ -448,6 +448,10 @@ echo "Flightctl Observability Stack uninstalled."
     cp packaging/hooks.d/afterupdating/00-default.yaml %{buildroot}/usr/lib/flightctl/hooks.d/afterupdating
     cp packaging/systemd/flightctl-agent.service %{buildroot}/usr/lib/systemd/system
     echo "d /var/lib/flightctl 0755 root root -" > %{buildroot}/usr/lib/tmpfiles.d/flightctl.conf
+    echo "# systemd-tmpfiles configuration for CentOS bootc buildinfo directories" > %{buildroot}/usr/lib/tmpfiles.d/centos-buildinfo.conf
+    echo "d /var/roothome 0755 root root -" >> %{buildroot}/usr/lib/tmpfiles.d/centos-buildinfo.conf
+    echo "d /var/roothome/buildinfo 0755 root root -" >> %{buildroot}/usr/lib/tmpfiles.d/centos-buildinfo.conf
+    echo "d /var/roothome/buildinfo/content_manifests 0755 root root -" >> %{buildroot}/usr/lib/tmpfiles.d/centos-buildinfo.conf
     bin/flightctl completion bash > flightctl-completion.bash
     install -Dpm 0644 flightctl-completion.bash -t %{buildroot}/%{_datadir}/bash-completion/completions
     bin/flightctl completion fish > flightctl-completion.fish
@@ -569,6 +573,7 @@ fi
     /usr/lib/flightctl/hooks.d/afterupdating/00-default.yaml
     /usr/lib/systemd/system/flightctl-agent.service
     /usr/lib/tmpfiles.d/flightctl.conf
+    /usr/lib/tmpfiles.d/centos-buildinfo.conf
     /usr/lib/greenboot/check/required.d/20_check_flightctl_agent.sh
     /usr/share/sosreport/flightctl.py
 
@@ -580,6 +585,13 @@ fi
     chown root:root /var/lib/flightctl && \
     chmod 0755 /var/lib/flightctl
 }
+
+# These files prevent tmpfiles.d from managing the /var/roothome/buildinfo directory
+rm -f /var/roothome/buildinfo/content_manifests/content-sets.json
+rm -f /var/roothome/buildinfo/labels.json
+# Remove the directories so tmpfiles.d can recreate them properly
+rmdir /var/roothome/buildinfo/content_manifests 2>/dev/null || true
+rmdir /var/roothome/buildinfo 2>/dev/null || true
 
 INSTALL_DIR="/usr/lib/python$(python3 --version | sed 's/^.* \(3[.][0-9]*\).*$/\1/')/site-packages/sos/report/plugins"
 mkdir -p $INSTALL_DIR
