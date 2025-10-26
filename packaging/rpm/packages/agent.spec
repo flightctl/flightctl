@@ -14,6 +14,10 @@ install -D -m 0755 bin/flightctl-agent %{buildroot}%{_bindir}/flightctl-agent
 install -D -m 0755 packaging/must-gather/flightctl-must-gather %{buildroot}%{_bindir}/flightctl-must-gather
 install -D -m 0644 packaging/systemd/flightctl-agent.service %{buildroot}/usr/lib/systemd/system/flightctl-agent.service
 install -D -m 0644 packaging/tmpfiles/flightctl.conf %{buildroot}/usr/lib/tmpfiles.d/flightctl.conf
+echo "# systemd-tmpfiles configuration for CentOS bootc buildinfo directories" > %{buildroot}/usr/lib/tmpfiles.d/centos-buildinfo.conf
+echo "d /var/roothome 0755 root root -" >> %{buildroot}/usr/lib/tmpfiles.d/centos-buildinfo.conf
+echo "d /var/roothome/buildinfo 0755 root root -" >> %{buildroot}/usr/lib/tmpfiles.d/centos-buildinfo.conf
+echo "d /var/roothome/buildinfo/content_manifests 0755 root root -" >> %{buildroot}/usr/lib/tmpfiles.d/centos-buildinfo.conf
 install -D -m 0644 packaging/greenboot/flightctl-agent-running-check.sh %{buildroot}/usr/lib/greenboot/check/required.d/20_check_flightctl_agent.sh
 install -D -m 0644 packaging/hooks.d/afterupdating/00-default.yaml %{buildroot}/usr/lib/flightctl/hooks.d/afterupdating/00-default.yaml
 install -D -m 0644 packaging/sosreport/sos/report/plugins/flightctl.py %{buildroot}/usr/share/sosreport/flightctl.py
@@ -26,6 +30,7 @@ install -D -m 0644 packaging/sosreport/sos/report/plugins/flightctl.py %{buildro
     /usr/lib/flightctl/hooks.d/afterupdating/00-default.yaml
     /usr/lib/systemd/system/flightctl-agent.service
     /usr/lib/tmpfiles.d/flightctl.conf
+    /usr/lib/tmpfiles.d/centos-buildinfo.conf
     /usr/lib/greenboot/check/required.d/20_check_flightctl_agent.sh
     /usr/share/sosreport/flightctl.py
 
@@ -37,6 +42,13 @@ install -D -m 0644 packaging/sosreport/sos/report/plugins/flightctl.py %{buildro
       chown root:root /var/lib/flightctl && \
       chmod 0755 /var/lib/flightctl
   }
+
+  # These files prevent tmpfiles.d from managing the /var/roothome/buildinfo directory
+  rm -f /var/roothome/buildinfo/content_manifests/content-sets.json
+  rm -f /var/roothome/buildinfo/labels.json
+  # Remove the directories so tmpfiles.d can recreate them properly
+  rmdir /var/roothome/buildinfo/content_manifests 2>/dev/null || true
+  rmdir /var/roothome/buildinfo 2>/dev/null || true
 
   INSTALL_DIR="/usr/lib/python$(python3 --version | sed 's/^.* \(3[.][0-9]*\).*$/\1/')/site-packages/sos/report/plugins"
   mkdir -p $INSTALL_DIR
