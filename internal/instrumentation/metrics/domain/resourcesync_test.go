@@ -115,3 +115,87 @@ func TestResourceSyncCollectorGroupByOrgAndStatus(t *testing.T) {
 
 	t.Logf("Collected %d metrics", len(metrics))
 }
+
+func TestResourceSyncCollectorWithEmptyResults(t *testing.T) {
+	// Test the new behavior where empty results emit a default metric
+	mockStore := &MockResourceSyncStore{results: []store.CountByResourceSyncOrgAndStatusResult{}} // Empty results
+	log := logrus.New()
+	log.SetLevel(logrus.DebugLevel)
+
+	// Create context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Create collector
+	config := config.NewDefault()
+	if config.Metrics == nil || config.Metrics.ResourceSyncCollector == nil {
+		t.Fatal("expected default ResourceSyncCollector config to be initialized")
+	}
+	config.Metrics.ResourceSyncCollector.TickerInterval = util.Duration(1 * time.Millisecond)
+	collector := NewResourceSyncCollector(ctx, mockStore, log, config)
+	time.Sleep(5 * time.Millisecond)
+
+	// Test that metrics are collected even with empty results
+	ch := make(chan prometheus.Metric, 100)
+	go func() {
+		collector.Collect(ch)
+		close(ch)
+	}()
+
+	// Collect metrics
+	var metrics []prometheus.Metric
+	for metric := range ch {
+		metrics = append(metrics, metric)
+	}
+
+	// Verify that we got metrics even with empty results
+	// Should have 1 default metric for the resourcesync gauge
+	if len(metrics) == 0 {
+		t.Error("Expected metrics to be collected even with empty results, but got none")
+	}
+
+	t.Logf("Collected %d metrics with empty results", len(metrics))
+}
+
+func TestResourceSyncCollectorUpdateResourceSyncMetricsWithEmptyResults(t *testing.T) {
+	// Test the updateResourceSyncMetrics method directly with empty results
+	mockStore := &MockResourceSyncStore{results: []store.CountByResourceSyncOrgAndStatusResult{}} // Empty results
+	log := logrus.New()
+	log.SetLevel(logrus.DebugLevel)
+
+	// Create context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Create collector
+	config := config.NewDefault()
+	if config.Metrics == nil || config.Metrics.ResourceSyncCollector == nil {
+		t.Fatal("expected default ResourceSyncCollector config to be initialized")
+	}
+	config.Metrics.ResourceSyncCollector.TickerInterval = util.Duration(1 * time.Millisecond)
+	collector := NewResourceSyncCollector(ctx, mockStore, log, config)
+
+	// Call updateResourceSyncMetrics directly
+	collector.updateResourceSyncMetrics()
+
+	// Test that metrics are collected even with empty results
+	ch := make(chan prometheus.Metric, 100)
+	go func() {
+		collector.Collect(ch)
+		close(ch)
+	}()
+
+	// Collect metrics
+	var metrics []prometheus.Metric
+	for metric := range ch {
+		metrics = append(metrics, metric)
+	}
+
+	// Verify that we got metrics even with empty results
+	// Should have 1 default metric for the resourcesync gauge
+	if len(metrics) == 0 {
+		t.Error("Expected metrics to be collected even with empty results, but got none")
+	}
+
+	t.Logf("Direct updateResourceSyncMetrics call with empty results collected %d metrics", len(metrics))
+}
