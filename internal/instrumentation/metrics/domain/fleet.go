@@ -96,16 +96,22 @@ func (c *FleetCollector) updateFleetMetrics() {
 
 	// Update total fleets metric
 	c.totalFleetsGauge.Reset()
-	for _, result := range statusCounts {
-		orgIdLabel := result.OrgID
-		if orgIdLabel == "" {
-			orgIdLabel = "unknown"
+
+	if len(statusCounts) == 0 {
+		// Always emit at least one metric to indicate "no fleets" rather than "metric absent"
+		c.totalFleetsGauge.WithLabelValues("unknown", "none").Set(0)
+	} else {
+		for _, result := range statusCounts {
+			orgIdLabel := result.OrgID
+			if orgIdLabel == "" {
+				orgIdLabel = "unknown"
+			}
+			status := result.Status
+			if status == "" {
+				status = "none"
+			}
+			c.totalFleetsGauge.WithLabelValues(orgIdLabel, status).Set(float64(result.Count))
 		}
-		status := result.Status
-		if status == "" {
-			status = "none"
-		}
-		c.totalFleetsGauge.WithLabelValues(orgIdLabel, status).Set(float64(result.Count))
 	}
 
 	c.log.WithFields(logrus.Fields{
