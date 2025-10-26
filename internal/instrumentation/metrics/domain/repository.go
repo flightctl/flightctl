@@ -96,12 +96,18 @@ func (c *RepositoryCollector) updateRepositoryMetrics() {
 
 	// Update repositories metric
 	c.repositoriesGauge.Reset()
-	for _, result := range repoCounts {
-		orgIdLabel := result.OrgID
-		if orgIdLabel == "" {
-			orgIdLabel = "unknown"
+
+	if len(repoCounts) == 0 {
+		// Always emit at least one metric to indicate "no repositories" rather than "metric absent"
+		c.repositoriesGauge.WithLabelValues("unknown").Set(0)
+	} else {
+		for _, result := range repoCounts {
+			orgIdLabel := result.OrgID
+			if orgIdLabel == "" {
+				orgIdLabel = "unknown"
+			}
+			c.repositoriesGauge.WithLabelValues(orgIdLabel).Set(float64(result.Count))
 		}
-		c.repositoriesGauge.WithLabelValues(orgIdLabel).Set(float64(result.Count))
 	}
 
 	c.log.WithFields(logrus.Fields{

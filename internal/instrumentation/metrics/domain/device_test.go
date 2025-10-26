@@ -313,3 +313,79 @@ func TestDeviceCollectorWithOrgFilter(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, results, 2)
 }
+
+func TestDeviceCollectorWithEmptyResults(t *testing.T) {
+	// Test the new behavior where empty results emit a default metric
+	mockStore := &MockStore{results: []store.CountByOrgAndStatusResult{}} // Empty results
+	log := logrus.New()
+	log.SetLevel(logrus.DebugLevel)
+
+	// Create context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Create collector
+	config := config.NewDefault()
+	config.Metrics.DeviceCollector.GroupByFleet = true
+	collector := NewDeviceCollector(ctx, mockStore, log, config)
+
+	// Wait a bit for the collector to start and collect metrics
+	time.Sleep(10 * time.Millisecond)
+
+	// Test that metrics are collected even with empty results
+	ch := make(chan prometheus.Metric, 100)
+	go func() {
+		collector.Collect(ch)
+		close(ch)
+	}()
+
+	// Collect metrics
+	var metrics []prometheus.Metric
+	for metric := range ch {
+		metrics = append(metrics, metric)
+	}
+
+	// Verify that we got metrics even with empty results
+	// Should have 3 default metrics (one for each gauge: summary, application, update)
+	assert.GreaterOrEqual(t, len(metrics), 3, "Expected at least 3 metrics (one default per gauge) even with empty results")
+
+	t.Logf("Collected %d metrics with empty results", len(metrics))
+}
+
+func TestDeviceCollectorUpdateDeviceMetricsWithEmptyResults(t *testing.T) {
+	// Test the updateDeviceMetrics method directly with empty results
+	mockStore := &MockStore{results: []store.CountByOrgAndStatusResult{}} // Empty results
+	log := logrus.New()
+	log.SetLevel(logrus.DebugLevel)
+
+	// Create context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Create collector
+	config := config.NewDefault()
+	config.Metrics.DeviceCollector.GroupByFleet = true
+	collector := NewDeviceCollector(ctx, mockStore, log, config)
+
+	// Call updateDeviceMetrics directly
+	collector.updateDeviceMetrics()
+
+	// Test that metrics are collected even with empty results
+	ch := make(chan prometheus.Metric, 100)
+	go func() {
+		collector.Collect(ch)
+		close(ch)
+	}()
+
+	// Collect metrics
+	var metrics []prometheus.Metric
+	for metric := range ch {
+		metrics = append(metrics, metric)
+	}
+
+	// Verify that we got metrics even with empty results
+	// Should have 3 default metrics (one for each gauge: summary, application, update)
+	assert.GreaterOrEqual(t, len(metrics), 3, "Expected at least 3 metrics (one default per gauge) even with empty results")
+
+	t.Logf("Direct updateDeviceMetrics call with empty results collected %d metrics", len(metrics))
+}
