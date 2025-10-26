@@ -109,73 +109,59 @@ func (c *DeviceCollector) updateDeviceMetrics() {
 	// Use bypass span check for metrics collection to avoid tracing context errors
 	ctx = store.WithBypassSpanCheck(ctx)
 
-	// Update summary status metrics
+	// Get all data first before acquiring lock
 	summaryResults, err := c.store.Device().CountByOrgAndStatus(ctx, nil, store.DeviceStatusTypeSummary, c.cfg.Metrics.DeviceCollector.GroupByFleet)
 	if err != nil {
 		c.log.WithError(err).Error("Failed to get device summary status counts")
 		return
 	}
 
-	// Update summary metrics with actual status values
-	for _, r := range summaryResults {
-		orgIdLabel := r.OrgID
-		if orgIdLabel == "" {
-			orgIdLabel = "unknown"
-		}
-		fleetLabel := r.Fleet
-		if fleetLabel == "" {
-			fleetLabel = "unknown"
-		}
-		c.devicesSummaryGauge.WithLabelValues(orgIdLabel, fleetLabel, r.Status).Set(float64(r.Count))
-	}
-
-	// Update application status metrics
 	applicationResults, err := c.store.Device().CountByOrgAndStatus(ctx, nil, store.DeviceStatusTypeApplication, c.cfg.Metrics.DeviceCollector.GroupByFleet)
 	if err != nil {
 		c.log.WithError(err).Error("Failed to get device application status counts")
 		return
 	}
 
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	// Reset all metrics
-	c.devicesSummaryGauge.Reset()
-	c.devicesApplicationGauge.Reset()
-	c.devicesUpdateGauge.Reset()
-
-	// Update application metrics with actual status values
-	for _, r := range applicationResults {
-		orgIdLabel := r.OrgID
-		if orgIdLabel == "" {
-			orgIdLabel = "unknown"
-		}
-		fleetLabel := r.Fleet
-		if fleetLabel == "" {
-			fleetLabel = "unknown"
-		}
-		c.devicesApplicationGauge.WithLabelValues(orgIdLabel, fleetLabel, r.Status).Set(float64(r.Count))
-	}
-
-	// Update system update status metrics
 	updateResults, err := c.store.Device().CountByOrgAndStatus(ctx, nil, store.DeviceStatusTypeUpdate, c.cfg.Metrics.DeviceCollector.GroupByFleet)
 	if err != nil {
 		c.log.WithError(err).Error("Failed to get device update status counts")
 		return
 	}
 
-	// Update update metrics with actual status values
-	for _, r := range updateResults {
-		orgIdLabel := r.OrgID
-		if orgIdLabel == "" {
-			orgIdLabel = "unknown"
+	// Acquire lock for all metric updates
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Reset all metrics first
+	c.devicesSummaryGauge.Reset()
+	c.devicesApplicationGauge.Reset()
+	c.devicesUpdateGauge.Reset()
+
+	// Helper function to set metrics with proper label handling
+	setMetrics := func(gauge *prometheus.GaugeVec, results []store.CountByOrgAndStatusResult) {
+		if len(results) == 0 {
+			// Always emit at least one metric to indicate "no devices" rather than "metric absent"
+			gauge.WithLabelValues("unknown", "unknown", "none").Set(0)
+			return
 		}
-		fleetLabel := r.Fleet
-		if fleetLabel == "" {
-			fleetLabel = "unknown"
+
+		for _, r := range results {
+			orgIdLabel := r.OrgID
+			if orgIdLabel == "" {
+				orgIdLabel = "unknown"
+			}
+			fleetLabel := r.Fleet
+			if fleetLabel == "" {
+				fleetLabel = "unknown"
+			}
+			gauge.WithLabelValues(orgIdLabel, fleetLabel, r.Status).Set(float64(r.Count))
 		}
-		c.devicesUpdateGauge.WithLabelValues(orgIdLabel, fleetLabel, r.Status).Set(float64(r.Count))
 	}
+
+	// Update all metrics
+	setMetrics(c.devicesSummaryGauge, summaryResults)
+	setMetrics(c.devicesApplicationGauge, applicationResults)
+	setMetrics(c.devicesUpdateGauge, updateResults)
 
 	c.log.WithFields(logrus.Fields{
 		"summary_count":     len(summaryResults),
