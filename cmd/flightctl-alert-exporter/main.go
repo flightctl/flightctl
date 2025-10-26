@@ -48,6 +48,7 @@ func main() {
 
 	ctx = context.WithValue(ctx, consts.EventSourceComponentCtxKey, "flightctl-alert-exporter")
 	ctx = context.WithValue(ctx, consts.EventActorCtxKey, "service:flightctl-alert-exporter")
+	ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
 
 	log.Println("Initializing data store")
 	db, err := store.InitDB(cfg, log)
