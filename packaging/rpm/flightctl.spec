@@ -686,6 +686,7 @@ services to be running. This package automatically includes the flightctl-teleme
 
 %check
   %{buildroot}%{_bindir}/flightctl-agent version
+
 %changelog
 * Wed Oct 8 2025 Ilya Skornyakov <iskornya@redhat.com> - 0.10.0
 - Add pre-upgrade database migration dry-run capability
