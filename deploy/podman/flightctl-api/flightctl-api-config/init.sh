@@ -101,17 +101,19 @@ AAP_API_URL=""
 AAP_EXTERNAL_API_URL=""
 FLIGHTCTL_DISABLE_AUTH=""
 
-# Extract rate limit values (defaults if not configured)
-# Extract from service.rateLimit section
-RATE_LIMIT_REQUESTS=$(sed -n '/^service:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n '/^[[:space:]]*rateLimit:/,/^[[:space:]]*[^[:space:]]/p' | sed -n 's/^[[:space:]]*requests:[[:space:]]*\([^[:space:]]*\).*/\1/p' | head -1)
-RATE_LIMIT_WINDOW=$(sed -n '/^service:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n '/^[[:space:]]*rateLimit:/,/^[[:space:]]*[^[:space:]]/p' | sed -n 's/^[[:space:]]*window:[[:space:]]*[\"'"'"']*\([^\"'"'"'[:space:]]*\)[\"'"'"']*.*/\1/p' | head -1)
-RATE_LIMIT_AUTH_REQUESTS=$(sed -n '/^service:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n '/^[[:space:]]*rateLimit:/,/^[[:space:]]*[^[:space:]]/p' | sed -n 's/^[[:space:]]*authRequests:[[:space:]]*\([^[:space:]]*\).*/\1/p' | head -1)
-RATE_LIMIT_AUTH_WINDOW=$(sed -n '/^service:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n '/^[[:space:]]*rateLimit:/,/^[[:space:]]*[^[:space:]]/p' | sed -n 's/^[[:space:]]*authWindow:[[:space:]]*[\"'"'"']*\([^\"'"'"'[:space:]]*\)[\"'"'"']*.*/\1/p' | head -1)
 
-# Use defaults if not found
-RATE_LIMIT_REQUESTS=${RATE_LIMIT_REQUESTS:-60}
+# Extract rate limit values from service-config.yaml
+RATE_LIMIT_ENABLED=$(sed -n '/^service:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n '/^[[:space:]]*rateLimit:/,/^[^[:space:]]/p' | sed -n '/^[[:space:]]*enabled:[[:space:]]*\([^[:space:]]*\).*/s//\1/p' | head -1)
+RATE_LIMIT_REQUESTS=$(sed -n '/^service:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n '/^[[:space:]]*rateLimit:/,/^[^[:space:]]/p' | sed -n '/^[[:space:]]*requests:[[:space:]]*\([^[:space:]]*\).*/s//\1/p' | head -1)
+RATE_LIMIT_WINDOW=$(sed -n '/^service:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n '/^[[:space:]]*rateLimit:/,/^[^[:space:]]/p' | sed -n '/^[[:space:]]*window:[[:space:]]*\([^[:space:]]*\).*/s//\1/p' | head -1)
+RATE_LIMIT_AUTH_REQUESTS=$(sed -n '/^service:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n '/^[[:space:]]*rateLimit:/,/^[^[:space:]]/p' | sed -n '/^[[:space:]]*authRequests:[[:space:]]*\([^[:space:]]*\).*/s//\1/p' | head -1)
+RATE_LIMIT_AUTH_WINDOW=$(sed -n '/^service:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n '/^[[:space:]]*rateLimit:/,/^[^[:space:]]/p' | sed -n '/^[[:space:]]*authWindow:[[:space:]]*\([^[:space:]]*\).*/s//\1/p' | head -1)
+
+# Set defaults if not configured
+RATE_LIMIT_ENABLED=${RATE_LIMIT_ENABLED:-true}
+RATE_LIMIT_REQUESTS=${RATE_LIMIT_REQUESTS:-300}
 RATE_LIMIT_WINDOW=${RATE_LIMIT_WINDOW:-1m}
-RATE_LIMIT_AUTH_REQUESTS=${RATE_LIMIT_AUTH_REQUESTS:-10}
+RATE_LIMIT_AUTH_REQUESTS=${RATE_LIMIT_AUTH_REQUESTS:-20}
 RATE_LIMIT_AUTH_WINDOW=${RATE_LIMIT_AUTH_WINDOW:-1h}
 
 # Extract organizations enabled value (defaults to false if not configured)
@@ -194,6 +196,7 @@ sed -e "s|{{BASE_DOMAIN}}|$BASE_DOMAIN|g" \
     -e "s|{{SRV_KEY_FILE}}|$SRV_KEY_FILE|g" \
     -e "s|{{INSECURE_SKIP_TLS_VERIFY}}|$INSECURE_SKIP_TLS_VERIFY|g" \
     -e "s|{{AUTH_CA_CERT}}|$AUTH_CA_CERT|g" \
+    -e "s|{{RATE_LIMIT_ENABLED}}|$RATE_LIMIT_ENABLED|g" \
     -e "s|{{RATE_LIMIT_REQUESTS}}|$RATE_LIMIT_REQUESTS|g" \
     -e "s|{{RATE_LIMIT_WINDOW}}|$RATE_LIMIT_WINDOW|g" \
     -e "s|{{RATE_LIMIT_AUTH_REQUESTS}}|$RATE_LIMIT_AUTH_REQUESTS|g" \
@@ -222,10 +225,6 @@ rm -f "$CONFIG_OUTPUT.tmp" "$SSL_CONFIG_FILE"
 
 # Template the environment file
 sed -e "s|{{FLIGHTCTL_DISABLE_AUTH}}|$FLIGHTCTL_DISABLE_AUTH|g" \
-    -e "s|{{RATE_LIMIT_REQUESTS}}|$RATE_LIMIT_REQUESTS|g" \
-    -e "s|{{RATE_LIMIT_WINDOW}}|$RATE_LIMIT_WINDOW|g" \
-    -e "s|{{AUTH_RATE_LIMIT_REQUESTS}}|$RATE_LIMIT_AUTH_REQUESTS|g" \
-    -e "s|{{AUTH_RATE_LIMIT_WINDOW}}|$RATE_LIMIT_AUTH_WINDOW|g" \
     "$ENV_TEMPLATE" > "$ENV_OUTPUT"
 
 echo "Initialization complete"

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -430,70 +429,6 @@ func Load(cfgFile string) (*Config, error) {
 	}
 	if dbMigrationPass := os.Getenv("DB_MIGRATION_PASSWORD"); dbMigrationPass != "" {
 		c.Database.MigrationPassword = SecureString(dbMigrationPass)
-	}
-	// Handle rate limit environment variables - create config if env vars are set
-	rateLimitEnabled := os.Getenv("RATE_LIMIT_ENABLED")
-	rateLimitRequests := os.Getenv("RATE_LIMIT_REQUESTS")
-	rateLimitWindow := os.Getenv("RATE_LIMIT_WINDOW")
-	authRateLimitRequests := os.Getenv("AUTH_RATE_LIMIT_REQUESTS")
-	authRateLimitWindow := os.Getenv("AUTH_RATE_LIMIT_WINDOW")
-	trustedProxies := os.Getenv("RATE_LIMIT_TRUSTED_PROXIES")
-
-	// Check if any rate limit environment variables are set
-	if rateLimitEnabled != "" || rateLimitRequests != "" || rateLimitWindow != "" || authRateLimitRequests != "" || authRateLimitWindow != "" || trustedProxies != "" {
-		// Create rate limit config if it doesn't exist
-		if c.Service.RateLimit == nil {
-			c.Service.RateLimit = &RateLimitConfig{}
-		}
-
-		// Set enabled based on environment variable
-		if rateLimitEnabled != "" {
-			if enabled, err := strconv.ParseBool(rateLimitEnabled); err != nil {
-				return nil, fmt.Errorf("invalid RATE_LIMIT_ENABLED value %q: %w", rateLimitEnabled, err)
-			} else {
-				c.Service.RateLimit.Enabled = enabled
-			}
-		} else {
-			// If enabled is not explicitly set, default to true when other rate limit settings are provided
-			c.Service.RateLimit.Enabled = true
-		}
-
-		if rateLimitRequests != "" {
-			if requests, err := strconv.Atoi(rateLimitRequests); err != nil {
-				return nil, fmt.Errorf("invalid RATE_LIMIT_REQUESTS value %q: %w", rateLimitRequests, err)
-			} else {
-				c.Service.RateLimit.Requests = requests
-			}
-		}
-		if rateLimitWindow != "" {
-			if window, err := time.ParseDuration(rateLimitWindow); err != nil {
-				return nil, fmt.Errorf("invalid RATE_LIMIT_WINDOW value %q: %w", rateLimitWindow, err)
-			} else {
-				c.Service.RateLimit.Window = util.Duration(window)
-			}
-		}
-		if authRateLimitRequests != "" {
-			if requests, err := strconv.Atoi(authRateLimitRequests); err != nil {
-				return nil, fmt.Errorf("invalid AUTH_RATE_LIMIT_REQUESTS value %q: %w", authRateLimitRequests, err)
-			} else {
-				c.Service.RateLimit.AuthRequests = requests
-			}
-		}
-		if authRateLimitWindow != "" {
-			if window, err := time.ParseDuration(authRateLimitWindow); err != nil {
-				return nil, fmt.Errorf("invalid AUTH_RATE_LIMIT_WINDOW value %q: %w", authRateLimitWindow, err)
-			} else {
-				c.Service.RateLimit.AuthWindow = util.Duration(window)
-			}
-		}
-		if trustedProxies != "" {
-			// Split by comma and trim whitespace
-			proxies := strings.Split(trustedProxies, ",")
-			for i, proxy := range proxies {
-				proxies[i] = strings.TrimSpace(proxy)
-			}
-			c.Service.RateLimit.TrustedProxies = proxies
-		}
 	}
 
 	return c, nil
