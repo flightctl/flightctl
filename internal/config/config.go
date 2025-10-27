@@ -506,6 +506,7 @@ func Load(cfgFile string) (*Config, error) {
 		c.Database.MigrationPassword = api.SecureString(dbMigrationPass)
 	}
 <<<<<<< HEAD
+<<<<<<< HEAD
 
 	// Set up OIDC issuer and client defaults only when explicitly configured
 	if c.Auth != nil {

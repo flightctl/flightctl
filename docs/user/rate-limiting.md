@@ -84,6 +84,7 @@ If no rate limiting configuration is provided at all, rate limiting is **disable
 
 **Important**: When using reverse proxies (load balancers, API gateways, etc.), you **must** configure `trustedProxies` to include the IP ranges of your proxy infrastructure. Without this configuration, proxy headers will be ignored for security reasons, and all requests will be rate-limited based on the proxy's IP address rather than the real client IP.
 
+<<<<<<< HEAD
 ### Disabling Rate Limiting
 
 To disable rate limiting, set the `enabled` field to `false` in your configuration:
@@ -109,22 +110,26 @@ service:
 
 **Note**: Setting `requests=0` or `authRequests=0` will **not** disable rate limiting. Instead, it will use the hard-coded default values (300 requests/minute for general API, 20 requests/hour for auth). To disable rate limiting, set `enabled: false`.
 
-### Disabling Rate Limiting
+## Reverse Proxy Configuration
 
-To disable rate limiting, set the `enabled` field to `false`:
+To disable rate limiting, set the `enabled` field to `false` in your configuration:
 
-**Configuration file:**
+**For Helm deployments:**
+
+```yaml
+api:
+  rateLimit:
+    enabled: false
+```
+
+**For Quadlet deployments:**
+
+Edit `deploy/podman/service-config.yaml`:
 
 ```yaml
 service:
   rateLimit:
     enabled: false
-```
-
-**Environment variable:**
-
-```bash
-export RATE_LIMIT_ENABLED=false
 ```
 
 **Note**: Setting `requests=0` or `authRequests=0` will **not** disable rate limiting. Instead, it will use the hard-coded default values (300 requests/minute for general API, 20 requests/hour for auth). To disable rate limiting, set `enabled: false`.

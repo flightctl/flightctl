@@ -117,11 +117,11 @@ FLIGHTCTL_DISABLE_AUTH=""
 
 
 # Extract rate limit values from service-config.yaml
-RATE_LIMIT_ENABLED=$(extract_value "service.rateLimit.enabled" "$SERVICE_CONFIG_FILE")
-RATE_LIMIT_REQUESTS=$(extract_value "service.rateLimit.requests" "$SERVICE_CONFIG_FILE")
-RATE_LIMIT_WINDOW=$(extract_value "service.rateLimit.window" "$SERVICE_CONFIG_FILE")
-RATE_LIMIT_AUTH_REQUESTS=$(extract_value "service.rateLimit.authRequests" "$SERVICE_CONFIG_FILE")
-RATE_LIMIT_AUTH_WINDOW=$(extract_value "service.rateLimit.authWindow" "$SERVICE_CONFIG_FILE")
+RATE_LIMIT_ENABLED=$(sed -n '/^service:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n '/^[[:space:]]*rateLimit:/,/^[^[:space:]]/p' | sed -n '/^[[:space:]]*enabled:[[:space:]]*\([^[:space:]]*\).*/s//\1/p' | head -1)
+RATE_LIMIT_REQUESTS=$(sed -n '/^service:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n '/^[[:space:]]*rateLimit:/,/^[^[:space:]]/p' | sed -n '/^[[:space:]]*requests:[[:space:]]*\([^[:space:]]*\).*/s//\1/p' | head -1)
+RATE_LIMIT_WINDOW=$(sed -n '/^service:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n '/^[[:space:]]*rateLimit:/,/^[^[:space:]]/p' | sed -n '/^[[:space:]]*window:[[:space:]]*\([^[:space:]]*\).*/s//\1/p' | head -1)
+RATE_LIMIT_AUTH_REQUESTS=$(sed -n '/^service:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n '/^[[:space:]]*rateLimit:/,/^[^[:space:]]/p' | sed -n '/^[[:space:]]*authRequests:[[:space:]]*\([^[:space:]]*\).*/s//\1/p' | head -1)
+RATE_LIMIT_AUTH_WINDOW=$(sed -n '/^service:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n '/^[[:space:]]*rateLimit:/,/^[^[:space:]]/p' | sed -n '/^[[:space:]]*authWindow:[[:space:]]*\([^[:space:]]*\).*/s//\1/p' | head -1)
 
 # Set defaults if not configured
 RATE_LIMIT_ENABLED=${RATE_LIMIT_ENABLED:-true}
