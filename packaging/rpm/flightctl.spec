@@ -262,7 +262,7 @@ if command -v podman >/dev/null 2>&1; then
     /usr/bin/podman secret rm telemetry-gateway-tls-key >/dev/null 2>&1 || :
     /usr/bin/podman secret rm flightctl-ca-secret >/dev/null 2>&1 || :
     echo "Podman secrets cleanup completed"
-    
+
 else
     echo "Podman not available, skipping cleanup"
 fi
@@ -448,6 +448,10 @@ echo "Flightctl Observability Stack uninstalled."
     cp packaging/hooks.d/afterupdating/00-default.yaml %{buildroot}/usr/lib/flightctl/hooks.d/afterupdating
     cp packaging/systemd/flightctl-agent.service %{buildroot}/usr/lib/systemd/system
     echo "d /var/lib/flightctl 0755 root root -" > %{buildroot}/usr/lib/tmpfiles.d/flightctl.conf
+    echo "# systemd-tmpfiles configuration for CentOS bootc buildinfo directories" > %{buildroot}/usr/lib/tmpfiles.d/centos-buildinfo.conf
+    echo "d /var/roothome 0755 root root -" >> %{buildroot}/usr/lib/tmpfiles.d/centos-buildinfo.conf
+    echo "d /var/roothome/buildinfo 0755 root root -" >> %{buildroot}/usr/lib/tmpfiles.d/centos-buildinfo.conf
+    echo "d /var/roothome/buildinfo/content_manifests 0755 root root -" >> %{buildroot}/usr/lib/tmpfiles.d/centos-buildinfo.conf
     bin/flightctl completion bash > flightctl-completion.bash
     install -Dpm 0644 flightctl-completion.bash -t %{buildroot}/%{_datadir}/bash-completion/completions
     bin/flightctl completion fish > flightctl-completion.fish
@@ -472,10 +476,6 @@ echo "Flightctl Observability Stack uninstalled."
     SYSTEMD_UNIT_OUTPUT_DIR="%{buildroot}/usr/lib/systemd/system" \
     IMAGE_TAG=$(echo %{version} | tr '~' '-') \
     deploy/scripts/install.sh
-
-    # Copy external database configuration files
-    mkdir -p %{buildroot}%{_datadir}/flightctl/flightctl-db
-    cp deploy/podman/flightctl-db/flightctl-db-external.container %{buildroot}%{_datadir}/flightctl/flightctl-db/
 
     # Copy sos report flightctl plugin
     mkdir -p %{buildroot}/usr/share/sosreport
@@ -573,6 +573,7 @@ fi
     /usr/lib/flightctl/hooks.d/afterupdating/00-default.yaml
     /usr/lib/systemd/system/flightctl-agent.service
     /usr/lib/tmpfiles.d/flightctl.conf
+    /usr/lib/tmpfiles.d/centos-buildinfo.conf
     /usr/lib/greenboot/check/required.d/20_check_flightctl_agent.sh
     /usr/share/sosreport/flightctl.py
 
@@ -584,6 +585,13 @@ fi
     chown root:root /var/lib/flightctl && \
     chmod 0755 /var/lib/flightctl
 }
+
+# These files prevent tmpfiles.d from managing the /var/roothome/buildinfo directory
+rm -f /var/roothome/buildinfo/content_manifests/content-sets.json
+rm -f /var/roothome/buildinfo/labels.json
+# Remove the directories so tmpfiles.d can recreate them properly
+rmdir /var/roothome/buildinfo/content_manifests 2>/dev/null || true
+rmdir /var/roothome/buildinfo 2>/dev/null || true
 
 INSTALL_DIR="/usr/lib/python$(python3 --version | sed 's/^.* \(3[.][0-9]*\).*$/\1/')/site-packages/sos/report/plugins"
 mkdir -p $INSTALL_DIR
@@ -614,6 +622,8 @@ rm -rf /usr/share/sosreport
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-api
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-alert-exporter
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-db
+    %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-kv
+    %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-alertmanager-proxy
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-ui
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-cli-artifacts
     %{_datadir}/flightctl/flightctl-api/config.yaml.template
@@ -622,7 +632,7 @@ rm -rf /usr/share/sosreport
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-api/create_aap_application.sh
     %{_datadir}/flightctl/flightctl-alert-exporter/config.yaml
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-db/enable-superuser.sh
-    %{_datadir}/flightctl/flightctl-db/flightctl-db-external.container
+    %{_datadir}/flightctl/flightctl-kv/redis.conf
     %{_datadir}/flightctl/flightctl-ui/env.template
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-ui/init.sh
     %attr(0755,root,root) %{_datadir}/flightctl/init_utils.sh
@@ -638,7 +648,7 @@ rm -rf /usr/share/sosreport
     %attr(0755,root,root) %{_datadir}/flightctl/init_host.sh
     %attr(0755,root,root) %{_datadir}/flightctl/secrets.sh
     %attr(0755,root,root) %{_datadir}/flightctl/yaml_helpers.py
-    
+
     # flightctl-services pre upgrade checks
     %dir %{_libexecdir}/flightctl
     %attr(0755,root,root) %{_libexecdir}/flightctl/pre-upgrade-dry-run.sh
@@ -668,6 +678,9 @@ fi
 %post services
 # On initial install: apply preset policy to enable/disable services based on system defaults
 %systemd_post %{flightctl_target}
+
+# Reload systemd to recognize new container files
+/usr/bin/systemctl daemon-reload >/dev/null 2>&1 || :
 
 cfg="%{_sysconfdir}/flightctl/flightctl-services-install.conf"
 
@@ -706,13 +719,15 @@ fi
 
 %preun services
 # On package removal: stop and disable all services
-%systemd_preun %{flightctl_target} 
+%systemd_preun %{flightctl_target}
 %systemd_preun flightctl-network.service
 
 %postun services
 # On upgrade: mark services for restart after transaction completes
 %systemd_postun_with_restart %{flightctl_services_restart}
 %systemd_postun %{flightctl_target}
+
+# If contexts were managed via policy, no cleanup is needed here.
 
 %changelog
 * Wed Oct 8 2025 Ilya Skornyakov <iskornya@redhat.com> - 0.10.0

@@ -1,9 +1,8 @@
 package experimental
 
 import (
+	"fmt"
 	"os"
-
-	"k8s.io/klog/v2"
 )
 
 const (
@@ -18,7 +17,7 @@ func NewFeatures() *Features {
 	var enabled bool
 	value, exists := os.LookupEnv(ExperimentalFeatureEnvKey)
 	if exists && value != "" {
-		klog.Warning("Experimental features enabled")
+		fmt.Fprintf(os.Stderr, "WARNING: Experimental features enabled\n")
 		enabled = true
 	}
 

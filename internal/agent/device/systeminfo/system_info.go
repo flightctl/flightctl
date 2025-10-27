@@ -457,6 +457,8 @@ func collectionOptsFromInfoKeys(infoKeys []string) ([]CollectOpt, error) {
 			opts = append(opts, withCollector(collectorKernel, collectKernelFunc))
 		case distroNameKey, distroVersionKey:
 			opts = append(opts, withCollector(collectorDistribution, collectDistributionFunc))
+		case hostnameKey, architectureKey:
+			// No specific collector needed - hostname and architecture are always collected
 		default:
 			errs = append(errs, fmt.Errorf("unknown key: %q", key))
 		}
@@ -518,17 +520,16 @@ func Collect(ctx context.Context, log *log.PrefixLogger, exec executer.Executer,
 	for _, collectorFn := range cfg.collectorFuncs {
 		if ctx.Err() != nil {
 			log.Warningf("Context canceled during collection: %v", ctx.Err())
-			return info, ctx.Err()
+			return info, nil
 		}
 
-		if err = collectorFn(ctx, collectCtx, info); err != nil {
-			log.Warningf("Collector failed: %v", err)
-
+		if err := collectorFn(ctx, collectCtx, info); err != nil {
 			// If it's a context error, allow early exit
 			if errors.IsContext(err) {
-				return info, err
+				return info, nil
 			}
 			// Otherwise continue with other collectors (best effort)
+			log.Warningf("Collector failed: %v", err)
 		}
 	}
 
@@ -536,12 +537,11 @@ func Collect(ctx context.Context, log *log.PrefixLogger, exec executer.Executer,
 	if len(customKeys) > 0 || cfg.collectAllCustom {
 		customInfo, err := getCustomInfoMap(ctx, log, customKeys, reader, exec, opts...)
 		if err != nil {
-			if errors.IsContext(err) {
-				log.Warningf("Context canceled during custom info collection: %v", err)
-				return info, err
-			}
-			log.Warningf("Failed to get custom info: %v", err)
-		} else {
+			// continue best effort
+			log.Debugf("Custom info collection completed with errors: %v", err)
+		}
+		// use whatever collected, if there was an error it was logged per-key in getCustomInfoMap
+		if len(customInfo) > 0 {
 			info.Custom = customInfo
 		}
 	} else {
@@ -758,16 +758,16 @@ func getCustomInfoMap(ctx context.Context, log *log.PrefixLogger, keys []string,
 	customInfoinfo := make(map[string]string, len(keys))
 	for _, key := range keys {
 		if ctx.Err() != nil {
-			//  only return ctx errors
-			return nil, ctx.Err()
+			// return what was collected
+			return customInfoinfo, nil
 		}
 
 		val, err := getCustomInfoValue(ctx, key, reader, exec, entries)
 		if err != nil {
-			log.Warnf("Failed to get custom info for key %s: %v", key, err)
 			if errors.IsContext(err) {
-				// only return ctx errors
-				return nil, err
+				log.Warnf("Custom info script '%s' timed out", key)
+			} else {
+				log.Warnf("Failed to get custom info for key %s: %v", key, err)
 			}
 		}
 
@@ -828,12 +828,12 @@ func getCustomInfoValue(ctx context.Context, key string, reader fileio.Reader, e
 			continue
 		}
 
-		out, err := exec.CommandContext(ctx, scriptPath).Output()
-		if err != nil {
-			return "", err
+		stdout, stderr, exitCode := exec.ExecuteWithContext(ctx, scriptPath)
+		if exitCode != 0 {
+			return "", errors.FromStderr(stderr, exitCode)
 		}
 
-		return strings.TrimSpace(string(out)), nil
+		return strings.TrimSpace(stdout), nil
 	}
 
 	return "", nil

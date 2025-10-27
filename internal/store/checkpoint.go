@@ -8,6 +8,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -65,7 +66,7 @@ func (s *CheckpointStore) Get(ctx context.Context, consumer string, key string) 
 	result := s.getDB(ctx).Take(&checkpoint, "consumer = ? AND key = ?", consumer, key)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil, nil
+			return nil, flterrors.ErrResourceNotFound
 		}
 		return nil, result.Error
 	}
