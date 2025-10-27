@@ -291,3 +291,93 @@ func TestFleetCollectorWithErrors(t *testing.T) {
 	}
 	assert.Equal(t, 0, metricCount)
 }
+
+func TestFleetCollectorWithEmptyResults(t *testing.T) {
+	// Test the new behavior where empty results emit a default metric
+	mockFleetStore := &MockFleetStore{
+		rolloutStatusCounts: []store.CountByRolloutStatusResult{}, // Empty results
+		shouldError:         false,
+	}
+
+	mockStore := &MockFleetStoreWrapper{
+		fleetStore: mockFleetStore,
+	}
+
+	log := logrus.New()
+	log.SetLevel(logrus.DebugLevel)
+
+	// Create context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Create collector
+	config := config.NewDefault()
+	collector := NewFleetCollector(ctx, mockStore, log, config)
+
+	// Wait a bit for the collector to start and collect metrics
+	time.Sleep(10 * time.Millisecond)
+
+	// Test that metrics are collected even with empty results
+	ch := make(chan prometheus.Metric, 100)
+	go func() {
+		collector.Collect(ch)
+		close(ch)
+	}()
+
+	// Collect metrics
+	var metrics []prometheus.Metric
+	for metric := range ch {
+		metrics = append(metrics, metric)
+	}
+
+	// Verify that we got metrics even with empty results
+	// Should have 1 default metric for the fleet gauge
+	assert.GreaterOrEqual(t, len(metrics), 1, "Expected at least 1 metric (default fleet metric) even with empty results")
+
+	t.Logf("Collected %d metrics with empty results", len(metrics))
+}
+
+func TestFleetCollectorUpdateFleetMetricsWithEmptyResults(t *testing.T) {
+	// Test the updateFleetMetrics method directly with empty results
+	mockFleetStore := &MockFleetStore{
+		rolloutStatusCounts: []store.CountByRolloutStatusResult{}, // Empty results
+		shouldError:         false,
+	}
+
+	mockStore := &MockFleetStoreWrapper{
+		fleetStore: mockFleetStore,
+	}
+
+	log := logrus.New()
+	log.SetLevel(logrus.DebugLevel)
+
+	// Create context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Create collector
+	config := config.NewDefault()
+	collector := NewFleetCollector(ctx, mockStore, log, config)
+
+	// Call updateFleetMetrics directly
+	collector.updateFleetMetrics()
+
+	// Test that metrics are collected even with empty results
+	ch := make(chan prometheus.Metric, 100)
+	go func() {
+		collector.Collect(ch)
+		close(ch)
+	}()
+
+	// Collect metrics
+	var metrics []prometheus.Metric
+	for metric := range ch {
+		metrics = append(metrics, metric)
+	}
+
+	// Verify that we got metrics even with empty results
+	// Should have 1 default metric for the fleet gauge
+	assert.GreaterOrEqual(t, len(metrics), 1, "Expected at least 1 metric (default fleet metric) even with empty results")
+
+	t.Logf("Direct updateFleetMetrics call with empty results collected %d metrics", len(metrics))
+}
