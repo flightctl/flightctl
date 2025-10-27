@@ -5,7 +5,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: flightctl-cleanup-pvcs
+  name: flightctl-cleanup-pvcs-{{ now | date "20060102-150405" }}-{{ .Release.Revision }}
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "flightctl.standardLabels" . | nindent 4 }}
