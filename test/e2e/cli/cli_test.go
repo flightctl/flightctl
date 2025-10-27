@@ -20,7 +20,22 @@ var (
 	unspecifiedResource  = "Error: name must be specified when deleting"
 	resourceCreated      = `(200 OK|201 Created)`
 	strictfipsruntimeTag = "X:strictfipsruntime"
+	applyOperation       = "apply"
 )
+
+type fleetTestManager struct {
+	harness          *e2e.Harness
+	testID           string
+	fleetA           v1alpha1.Fleet
+	fleetB           v1alpha1.Fleet
+	device           v1alpha1.Device
+	uniqueFleetAYAML string
+	uniqueFleetBYAML string
+	uniqueDeviceYAML string
+	fleetAName       string
+	fleetBName       string
+	deviceName       string
+}
 
 // _ is a blank identifier used to ignore values or expressions, often applied to satisfy interface or assignment requirements.
 var _ = Describe("cli operation", func() {
@@ -36,7 +51,7 @@ var _ = Describe("cli operation", func() {
 			harness := e2e.GetWorkerHarness()
 
 			By("should error when creating incomplete fleet")
-			out, err := harness.CLIWithStdin(incompleteFleetYaml, "apply", "-f", "-")
+			out, err := harness.CLIWithStdin(incompleteFleetYaml, applyOperation, "-f", "-")
 			Expect(err).To(HaveOccurred())
 			Expect(out).To(ContainSubstring("fleet: failed to apply"))
 
@@ -46,7 +61,7 @@ var _ = Describe("cli operation", func() {
 
 			By("Should error when creating a device with decimal in percentages")
 
-			out, err = harness.CLI("apply", "-f", util.GetTestExamplesYamlPath("badfleetrequest.yaml"))
+			out, err = harness.CLI(applyOperation, "-f", util.GetTestExamplesYamlPath("badfleetrequest.yaml"))
 			Expect(err).To(HaveOccurred())
 			Expect(out).To(MatchRegexp(`doesn't match percentage pattern`))
 
@@ -55,12 +70,12 @@ var _ = Describe("cli operation", func() {
 			Expect(err).ToNot(HaveOccurred())
 			defer util.CleanupTempYAMLFile(uniqueFleetYAML)
 
-			out, err = harness.ManageResource("apply", uniqueFleetYAML)
+			out, err = harness.ManageResource(applyOperation, uniqueFleetYAML)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(out).To(ContainSubstring("201 Created"))
 
 			// Applying a 2nd time it should also work, the fleet is just updated
-			out, err = harness.ManageResource("apply", uniqueFleetYAML)
+			out, err = harness.ManageResource(applyOperation, uniqueFleetYAML)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(out).To(ContainSubstring("200 OK"))
 		})
@@ -96,7 +111,7 @@ var _ = Describe("cli operation", func() {
 			Expect(out).To(ContainSubstring(deviceID))
 
 			By("Should let you list fleets")
-			_, err = harness.CLIWithStdin(completeFleetYaml, "apply", "-f", "-")
+			_, err = harness.CLIWithStdin(completeFleetYaml, applyOperation, "-f", "-")
 			Expect(err).ToNot(HaveOccurred())
 			out, err = harness.CLI("get", "fleets")
 			Expect(err).ToNot(HaveOccurred())
@@ -154,7 +169,7 @@ var _ = Describe("cli operation", func() {
 			Expect(err).ToNot(HaveOccurred())
 			defer util.CleanupTempYAMLFile(uniqueDeviceYAML)
 
-			out, err := harness.ManageResource("apply", uniqueDeviceYAML)
+			out, err := harness.ManageResource(applyOperation, uniqueDeviceYAML)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(out).To(MatchRegexp(resourceCreated))
 
@@ -195,7 +210,7 @@ var _ = Describe("cli operation", func() {
 			Expect(err).ToNot(HaveOccurred())
 			defer util.CleanupTempYAMLFile(uniqueFleetYAML)
 
-			out, err = harness.ManageResource("apply", uniqueFleetYAML)
+			out, err = harness.ManageResource(applyOperation, uniqueFleetYAML)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(out).To(MatchRegexp(resourceCreated))
 			fleet := harness.GetFleetByYaml(uniqueFleetYAML)
@@ -229,7 +244,7 @@ var _ = Describe("cli operation", func() {
 			defer util.CleanupTempYAMLFile(uniqueRepoYAML)
 
 			Eventually(func() error {
-				out, err = harness.ManageResource("apply", uniqueRepoYAML)
+				out, err = harness.ManageResource(applyOperation, uniqueRepoYAML)
 				return err
 			}).Should(BeNil(), "failed to apply Repository")
 			Expect(out).To(MatchRegexp(resourceCreated))
@@ -241,7 +256,7 @@ var _ = Describe("cli operation", func() {
 			*repo.Metadata.Name = updatedName
 			repoData, err := yaml.Marshal(&repo)
 			Expect(err).ToNot(HaveOccurred())
-			out, err = harness.CLIWithStdin(string(repoData), "apply", "-f", "-")
+			out, err = harness.CLIWithStdin(string(repoData), applyOperation, "-f", "-")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(out).To(ContainSubstring(updatedName))
 
@@ -253,7 +268,7 @@ var _ = Describe("cli operation", func() {
 			Expect(err).ToNot(HaveOccurred())
 			defer util.CleanupTempYAMLFile(uniqueResourceSyncYAML)
 
-			out, err = harness.ManageResource("apply", uniqueResourceSyncYAML)
+			out, err = harness.ManageResource(applyOperation, uniqueResourceSyncYAML)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(out).To(MatchRegexp(resourceCreated))
 			rSync := harness.GetResourceSyncByYaml(uniqueResourceSyncYAML)
@@ -263,7 +278,7 @@ var _ = Describe("cli operation", func() {
 			*rSync.Metadata.Name = rSyncNewName
 			rSyncData, err := yaml.Marshal(&rSync)
 			Expect(err).ToNot(HaveOccurred())
-			out, err = harness.CLIWithStdin(string(rSyncData), "apply", "-f", "-")
+			out, err = harness.CLIWithStdin(string(rSyncData), applyOperation, "-f", "-")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(out).To(ContainSubstring(rSyncNewName))
 
@@ -275,7 +290,7 @@ var _ = Describe("cli operation", func() {
 			Expect(err).ToNot(HaveOccurred())
 			defer os.Remove(erYAMLPath)
 
-			out, err = harness.ManageResource("apply", erYAMLPath)
+			out, err = harness.ManageResource(applyOperation, erYAMLPath)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(out).To(MatchRegexp(resourceCreated))
 			er := harness.GetEnrollmentRequestByYaml(erYAMLPath)
@@ -286,7 +301,7 @@ var _ = Describe("cli operation", func() {
 			*er.Metadata.Name = erNewName
 			erData, err := yaml.Marshal(&er)
 			Expect(err).ToNot(HaveOccurred())
-			out, err = harness.CLIWithStdin(string(erData), "apply", "-f", "-")
+			out, err = harness.CLIWithStdin(string(erData), applyOperation, "-f", "-")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(out).To(ContainSubstring(erNewName))
 
@@ -299,7 +314,7 @@ var _ = Describe("cli operation", func() {
 			defer util.CleanupTempYAMLFile(uniqueCsrYAML)
 
 			Eventually(func() error {
-				out, err = harness.CLI("apply", "-f", uniqueCsrYAML)
+				out, err = harness.CLI(applyOperation, "-f", uniqueCsrYAML)
 				return err
 			}).Should(BeNil(), "failed to apply CSR")
 			Expect(out).To(MatchRegexp(resourceCreated))
@@ -311,7 +326,7 @@ var _ = Describe("cli operation", func() {
 			*csr.Metadata.Name = csrNewName
 			csrData, err := yaml.Marshal(&csr)
 			Expect(err).ToNot(HaveOccurred())
-			out, err = harness.CLIWithStdin(string(csrData), "apply", "-f", "-")
+			out, err = harness.CLIWithStdin(string(csrData), applyOperation, "-f", "-")
 
 			Expect(err).ToNot(HaveOccurred())
 			Expect(out).To(ContainSubstring(csrNewName))
@@ -339,13 +354,13 @@ var _ = Describe("cli operation", func() {
 			Expect(err).ToNot(HaveOccurred())
 			defer util.CleanupTempYAMLFile(uniqueDeviceBYAML)
 
-			out, err := harness.ManageResource("apply", uniqueDeviceYAML)
+			out, err := harness.ManageResource(applyOperation, uniqueDeviceYAML)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(out).To(MatchRegexp(resourceCreated))
 			device1 := harness.GetDeviceByYaml(uniqueDeviceYAML)
 			device1Name := *device1.Metadata.Name
 
-			out, err = harness.ManageResource("apply", uniqueDeviceBYAML)
+			out, err = harness.ManageResource(applyOperation, uniqueDeviceBYAML)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(out).To(MatchRegexp(resourceCreated))
 			device2 := harness.GetDeviceByYaml(uniqueDeviceBYAML)
@@ -410,7 +425,7 @@ var _ = Describe("cli operation", func() {
 			}
 
 			for _, file := range applyResources {
-				out, err := harness.ManageResource("apply", file)
+				out, err := harness.ManageResource(applyOperation, file)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(out).To(MatchRegexp(resourceCreated))
 			}
@@ -492,6 +507,64 @@ var _ = Describe("cli operation", func() {
 		})
 	})
 
+	Context("Verify fleet check shows devices", func() {
+		It("Show number of devices associated with each fleet", Label("84266", "sanity"), func() {
+			harness := e2e.GetWorkerHarness()
+			testID := harness.GetTestIDFromContext()
+			fleetDevicesCount := map[string]int64{}
+			fleetManager := fleetTestManager{harness: harness, testID: testID}
+
+			By("Creating a fleet")
+			out, err := createTestFleet(&fleetManager, fleetDevicesCount, "fleet.yaml", "fleetA")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(out).To(MatchRegexp(resourceCreated))
+			defer util.CleanupTempYAMLFile(fleetManager.uniqueFleetAYAML)
+
+			// Checking if number of devices is shown
+			By("Checking if number of devices is shown")
+			notMatched, err := checkDevicesInFleetStatus(harness, fleetDevicesCount)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(notMatched).To(BeEmpty())
+
+			// Creating a device in the same fleet
+			By("Creating a device in the same fleet")
+			out, err = createDeviceInFleet(&fleetManager, fleetDevicesCount, "device.yaml", "fleetA")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(out).To(MatchRegexp(resourceCreated))
+			defer util.CleanupTempYAMLFile(fleetManager.uniqueDeviceYAML)
+
+			// Checking if the number of devices is shown and changed
+			By("Checking if number of devices is shown and changed")
+			notMatched, err = checkDevicesInFleetStatus(harness, fleetDevicesCount)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(notMatched).To(BeEmpty())
+
+			By("Creating another fleet")
+			out, err = createTestFleet(&fleetManager, fleetDevicesCount, "fleet-b.yaml", "fleetB")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(out).To(MatchRegexp(resourceCreated))
+			defer util.CleanupTempYAMLFile(fleetManager.uniqueFleetBYAML)
+
+			// Checking if the number of devices is shown for both fleetsS
+			By("Checking if number of devices is shown for both fleets")
+			notMatched, err = checkDevicesInFleetStatus(harness, fleetDevicesCount)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(notMatched).To(BeEmpty())
+
+			// Deleting a device from the first fleet
+			By("Deleting a device from the first fleet")
+			out, err = harness.CLI("delete", util.Device, fleetManager.deviceName)
+			fleetDevicesCount[fleetManager.fleetAName]--
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring("completed"))
+
+			// Check if the number is changed after deletion
+			By("Checking if number of devices is shown and changed")
+			notMatched, err = checkDevicesInFleetStatus(harness, fleetDevicesCount)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(notMatched).To(BeEmpty())
+		})
+	})
 })
 
 var _ = Describe("cli login", func() {
@@ -653,6 +726,104 @@ func GetVersionByPrefix(output, prefix string) string {
 		}
 	}
 	return ""
+}
+
+// Comparing devices count output in yaml with fleet data in map
+func compareDeviceCountCliOutput(output string, expected map[string]int64) []string {
+
+	var notMatched []string
+
+	type fleetData struct {
+		Name   string `yaml:"name"`
+		Status struct {
+			DevicesSummary struct {
+				Total int64 `yaml:"total"`
+			} `yaml:"devicesSummary"`
+		} `yaml:"status"`
+	}
+
+	var parsed struct {
+		Fleets []fleetData `yaml:"items"`
+	}
+
+	err := yaml.Unmarshal([]byte(output), &parsed)
+	if err != nil {
+		return []string{"Failed to parse YAML: " + err.Error()}
+	}
+
+	// Compare each item against expected map
+	for _, fleet := range parsed.Fleets {
+		expectedCount, ok := expected[fleet.Name]
+		if !ok || fleet.Status.DevicesSummary.Total != expectedCount {
+			notMatched = append(notMatched, fleet.Name)
+		}
+	}
+
+	return notMatched
+}
+
+// Creating a test fleet
+func createTestFleet(fleetTestManager *fleetTestManager, fleetDevicesCount map[string]int64, originalYamlPath string, fleetIdentifier string) (string, error) {
+	uniqueFleetYAML, err := util.CreateUniqueYAMLFile(originalYamlPath, fleetTestManager.testID)
+	if err != nil {
+		return "", err
+	}
+
+	// Checking the fleet was created and updating in map
+	out, err := fleetTestManager.harness.ManageResource(applyOperation, uniqueFleetYAML)
+
+	if strings.Contains(fleetIdentifier, "fleetA") {
+		fleetTestManager.fleetA = fleetTestManager.harness.GetFleetByYaml(uniqueFleetYAML)
+		fleetTestManager.uniqueFleetAYAML = uniqueFleetYAML
+		fleetTestManager.fleetAName = *fleetTestManager.fleetA.Metadata.Name
+		fleetDevicesCount[fleetTestManager.fleetAName] = 0
+	} else if strings.Contains(fleetIdentifier, "fleetB") {
+		fleetTestManager.fleetB = fleetTestManager.harness.GetFleetByYaml(uniqueFleetYAML)
+		fleetTestManager.uniqueFleetBYAML = uniqueFleetYAML
+		fleetTestManager.fleetBName = *fleetTestManager.fleetB.Metadata.Name
+		fleetDevicesCount[fleetTestManager.fleetBName] = 0
+	}
+
+	GinkgoWriter.Printf("Created fleet: %s and set 0 in devices count\n", fleetIdentifier)
+	return out, err
+}
+
+// Creating a device in a fleet
+func createDeviceInFleet(fleetTestManager *fleetTestManager, fleetDevicesCount map[string]int64, originalYamlPath string, fleetIdentifier string) (string, error) {
+
+	uniqueDeviceYAML, err := util.CreateUniqueYAMLFile(originalYamlPath, fleetTestManager.testID)
+	if err != nil {
+		return "", err
+	}
+
+	// Checking the device was created and updating in map
+	out, err := fleetTestManager.harness.ManageResource(applyOperation, uniqueDeviceYAML)
+	fleetTestManager.device = fleetTestManager.harness.GetDeviceByYaml(uniqueDeviceYAML)
+	fleetTestManager.deviceName = *fleetTestManager.device.Metadata.Name
+	fleetTestManager.uniqueDeviceYAML = uniqueDeviceYAML
+
+	if strings.Contains(fleetIdentifier, "fleetA") {
+		fleetDevicesCount[fleetTestManager.fleetAName]++
+	} else if strings.Contains(fleetIdentifier, "fleetB") {
+		fleetDevicesCount[fleetTestManager.fleetBName]++
+	}
+
+	GinkgoWriter.Printf("Created a device in fleet: %s and updated devices count\n", fleetIdentifier)
+	return out, err
+}
+
+// Checking the status of devices in fleet and devices count
+func checkDevicesInFleetStatus(harness *e2e.Harness, fleetDevicesCount map[string]int64) ([]string, error) {
+
+	out, err := harness.CLI("get", "fleet", "-s", "-o", "yaml")
+	notMatched := compareDeviceCountCliOutput(out, fleetDevicesCount)
+
+	// Printing unmatched fleets names
+	for _, fleet := range notMatched {
+		GinkgoWriter.Printf("Unmatched fleet: %s\n", fleet)
+	}
+
+	return notMatched, err
 }
 
 // completeFleetYaml defines a YAML template for creating a Fleet resource with specified metadata and spec configuration.
