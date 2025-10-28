@@ -2,11 +2,20 @@
   {{- if .Values.global.baseDomain }}
     {{- printf .Values.global.baseDomain }}
   {{- else }}
-    {{- $openShiftBaseDomain := (lookup "config.openshift.io/v1" "DNS" "" "cluster").spec.baseDomain }}
-    {{- if .noNs }}
-      {{- printf "apps.%s" $openShiftBaseDomain }}
+    {{- $crd := .Capabilities.APIVersions.Has "config.openshift.io/v1" }}
+    {{- if $crd }}
+      {{- $dns := (lookup "config.openshift.io/v1" "DNS" "" "cluster") }}
+      {{- if and $dns $dns.spec.baseDomain }}
+        {{- if .noNs }}
+          {{- printf "apps.%s" $dns.spec.baseDomain }}
+        {{- else }}
+          {{- printf "%s.apps.%s" .Release.Namespace $dns.spec.baseDomain }}
+        {{- end }}
+      {{- else }}
+        {{- printf "nip.io" }}
+      {{- end }}
     {{- else }}
-      {{- printf "%s.apps.%s" .Release.Namespace $openShiftBaseDomain }}
+      {{- printf "nip.io" }}
     {{- end }}
   {{- end }}
 {{- end }}
@@ -38,8 +47,16 @@ app.kubernetes.io/version: {{ .Chart.AppVersion }}
   {{- else if .Values.global.apiUrl }}
     {{- printf .Values.global.apiUrl }}
   {{- else }}
-    {{- $openShiftBaseDomain := (lookup "config.openshift.io/v1" "DNS" "" "cluster").spec.baseDomain }}
-    {{- printf "https://api.%s:6443" $openShiftBaseDomain }}
+    {{- if .Capabilities.APIVersions.Has "config.openshift.io/v1" }}
+      {{- $openShiftDNS := (lookup "config.openshift.io/v1" "DNS" "" "cluster") }}
+      {{- if and $openShiftDNS $openShiftDNS.spec.baseDomain }}
+        {{- printf "https://api.%s:6443" $openShiftDNS.spec.baseDomain }}
+      {{- else }}
+        {{- printf "https://kubernetes.default.svc" }}
+      {{- end }}
+    {{- else }}
+      {{- printf "https://kubernetes.default.svc" }}
+    {{- end }}
   {{- end }}
 {{- end }}
 

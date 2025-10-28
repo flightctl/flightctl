@@ -26,4 +26,11 @@ const (
 	AgentCtxKey                ctxKey = "agent"
 	TokenCtxKey                ctxKey = "token"
 	IdentityCtxKey             ctxKey = "identity"
+
+	// Session
+	SessionIDCtxKey     ctxKey = "session-id"
+	SessionCookieCtxKey ctxKey = "session-cookie"
+	AuthorizationCtxKey ctxKey = "authorization"
+	FormUsernameCtxKey  ctxKey = "form-username"
+	FormPasswordCtxKey  ctxKey = "form-password"
 )

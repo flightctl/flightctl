@@ -9,22 +9,6 @@ metadata:
 spec:
   gatewayClassName: {{ .Values.global.gatewayClass }}
   listeners:
-  {{- if and (eq .Values.global.target "standalone") (eq .Values.global.auth.type "builtin") }}
-  - name: keycloak
-    hostname: auth.{{ include "flightctl.getBaseDomain" . }}
-    {{- if .Values.global.baseDomainTls.cert }}
-    port: {{ .Values.global.gatewayPorts.tls }}
-    protocol: HTTPS
-    tls:
-      mode: Terminate
-      certificateRefs:
-      - kind: Secret
-        name: gateway-cert
-    {{- else }}
-    port: {{ .Values.global.gatewayPorts.http }}
-    protocol: HTTP
-    {{- end }}
-  {{- end }}
   {{- if .Values.ui.enabled }}
   - name: ui
     hostname: ui.{{ include "flightctl.getBaseDomain" . }}

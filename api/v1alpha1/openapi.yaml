@@ -16,6 +16,8 @@ servers:
 tags:
   - name: authentication
     description: Operations for authentication.
+  - name: authprovider
+    description: Operations on AuthProvider resources.
   - name: certificatesigningrequest
     description: Operations on CertificateSigningRequest resources.
   - name: device
@@ -132,6 +134,248 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+  /api/v1/auth/authorize:
+    get:
+      tags:
+        - authentication
+      description: OAuth2 authorization endpoint for authorization code flow.
+      operationId: authAuthorize
+      parameters:
+        - name: response_type
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [code, token]
+          description: OAuth2 response type.
+        - name: client_id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: OAuth2 client ID.
+        - name: redirect_uri
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uri
+          description: OAuth2 redirect URI.
+        - name: scope
+          in: query
+          schema:
+            type: string
+          description: OAuth2 scope.
+        - name: state
+          in: query
+          schema:
+            type: string
+          description: OAuth2 state parameter.
+      responses:
+        "200":
+          description: Login form HTML (if user not authenticated)
+          content:
+            text/html:
+              schema:
+                type: string
+        "302":
+          description: Redirect to authorization page or back to client
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+    post:
+      tags:
+        - authentication
+      description: OAuth2 authorization endpoint for login form submission.
+      operationId: authAuthorizePost
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                response_type:
+                  type: string
+                  enum: [code]
+                client_id:
+                  type: string
+                redirect_uri:
+                  type: string
+                  format: uri
+                scope:
+                  type: string
+                state:
+                  type: string
+                username:
+                  type: string
+                password:
+                  type: string
+              required:
+                - response_type
+                - client_id
+                - redirect_uri
+                - username
+                - password
+      responses:
+        "302":
+          description: Redirect back to client with authorization code
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+  /api/v1/auth/login:
+    get:
+      tags:
+        - authentication
+      description: Login form endpoint for OAuth2 authorization flow.
+      operationId: authLogin
+      parameters:
+        - name: client_id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: OAuth2 client ID.
+        - name: redirect_uri
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uri
+          description: OAuth2 redirect URI.
+        - name: state
+          in: query
+          schema:
+            type: string
+          description: OAuth2 state parameter.
+      responses:
+        "200":
+          description: Login form HTML
+          content:
+            text/html:
+              schema:
+                type: string
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+    post:
+      tags:
+        - authentication
+      description: Process login form submission.
+      operationId: authLoginPost
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                client_id:
+                  type: string
+                redirect_uri:
+                  type: string
+                  format: uri
+                state:
+                  type: string
+                username:
+                  type: string
+                password:
+                  type: string
+              required:
+                - client_id
+                - redirect_uri
+                - username
+                - password
+      responses:
+        "302":
+          description: Redirect back to authorization endpoint
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+  /api/v1/auth/token:
+    post:
+      tags:
+        - authentication
+      description: OAuth2 token endpoint for authentication and token refresh.
+      operationId: authToken
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TokenRequest'
+      responses:
+        "200":
+          description: Token response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+  /api/v1/auth/userinfo:
+    get:
+      tags:
+        - authentication
+      description: OIDC UserInfo endpoint for retrieving user information.
+      operationId: authUserInfo
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: User information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserInfoResponse'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserInfoResponse'
+  /api/v1/auth/jwks:
+    get:
+      tags:
+        - authentication
+      description: JSON Web Key Set (JWKS) endpoint for token validation.
+      operationId: authJWKS
+      responses:
+        "200":
+          description: JSON Web Key Set
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JWKSResponse'
+  /api/v1/auth/.well-known/openid-configuration:
+    get:
+      tags:
+        - authentication
+      description: OpenID Connect discovery endpoint.
+      operationId: authOpenIDConfiguration
+      responses:
+        "200":
+          description: OpenID Connect configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OpenIDConfiguration'
   /api/v1/resourcesyncs:
     get:
       tags:
@@ -3627,12 +3871,389 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+  /api/v1/authproviders:
+    get:
+      tags:
+        - authprovider
+      description: List AuthProvider resources.
+      operationId: listAuthProviders
+      parameters:
+        - name: continue
+          in: query
+          description: An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
+          required: false
+          schema:
+            type: string
+        - name: labelSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their labels. Defaults to everything.
+          schema:
+            type: string
+        - name: fieldSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!=' (e.g., "key1=value1,key2!=value2").
+          schema:
+            type: string
+        - name: limit
+          in: query
+          description: The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
+          required: false
+          schema:
+            type: integer
+            format: int32
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthProviderList'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+    post:
+      tags:
+        - authprovider
+      description: Create an AuthProvider resource.
+      operationId: createAuthProvider
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthProvider'
+        required: true
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthProvider'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+  /api/v1/authproviders/{name}:
+    get:
+      tags:
+        - authprovider
+      description: Get an AuthProvider resource.
+      operationId: getAuthProvider
+      parameters:
+        - name: name
+          in: path
+          description: The name of the AuthProvider resource to get.
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthProvider'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+    put:
+      tags:
+        - authprovider
+      description: Update an AuthProvider resource.
+      operationId: replaceAuthProvider
+      parameters:
+        - name: name
+          in: path
+          description: The name of the AuthProvider resource to update.
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthProvider'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthProvider'
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthProvider'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+    patch:
+      tags:
+        - authprovider
+      description: Patch an AuthProvider resource.
+      operationId: patchAuthProvider
+      parameters:
+        - name: name
+          in: path
+          description: The name of the AuthProvider resource to patch.
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json-patch+json:
+            schema:
+              $ref: '#/components/schemas/PatchRequest'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthProvider'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+    delete:
+      tags:
+        - authprovider
+      description: Delete an AuthProvider resource.
+      operationId: deleteAuthProvider
+      parameters:
+        - name: name
+          in: path
+          description: The name of the AuthProvider resource to delete.
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
+    oauth2:
+      type: oauth2
+      description: OAuth2 authentication with authorization code and refresh token grants
+      flows:
+        authorizationCode:
+          authorizationUrl: /api/v1/auth/authorize
+          tokenUrl: /api/v1/auth/token
+          scopes:
+            openid: OpenID Connect scope
+            profile: Access to user profile information
+            email: Access to user email
+            roles: Access to user roles
+          refreshUrl: /api/v1/auth/token
+    openIdConnect:
+      type: openIdConnect
+      openIdConnectUrl: /api/v1/auth/.well-known/openid-configuration
+      description: OpenID Connect authentication
     orgId:
       type: apiKey
       in: query
@@ -3641,7 +4262,7 @@ components:
   schemas:
     ResourceKind:
       type: string
-      enum: [CertificateSigningRequest, EnrollmentRequest, Device, Fleet, Repository, ResourceSync, TemplateVersion]
+      enum: [CertificateSigningRequest, EnrollmentRequest, Device, Fleet, Repository, ResourceSync, TemplateVersion, AuthProvider]
       description: Resource types exposed via the API.
     DeviceDecommissionTargetType:
       type: string
@@ -5334,29 +5955,66 @@ components:
     AuthConfig:
       type: object
       properties:
-        authType:
+        providers:
+          type: array
+          description: List of all available authentication providers.
+          items:
+            $ref: '#/components/schemas/AuthProviderInfo'
+        defaultProvider:
           type: string
-          description: Auth type.
-        authURL:
+          description: Name of the default authentication provider.
+        organizationsEnabled:
+          type: boolean
+          description: Whether organizations are enabled for authentication.
+    AuthProviderInfo:
+      type: object
+      properties:
+        name:
           type: string
-          description: Auth URL.
-        authOrganizationsConfig:
-          $ref: '#/components/schemas/AuthOrganizationsConfig'
+          description: Unique identifier for the provider.
+        displayName:
+          type: string
+          description: Human-readable display name.
+        type:
+          type: string
+          enum: [oidc, k8s, aap, oauth2]
+          description: Type of authentication provider.
+        issuer:
+          type: string
+          description: OIDC issuer URL (for OIDC providers).
+        clientId:
+          type: string
+          description: Default client ID for OIDC/OAuth2 providers.
+        authUrl:
+          type: string
+          description: Authentication URL for the provider.
+        tokenUrl:
+          type: string
+          description: Token endpoint URL (for OAuth2 providers).
+        userinfoUrl:
+          type: string
+          description: Userinfo endpoint URL (for OAuth2 providers).
+        scopes:
+          type: array
+          items:
+            type: string
+          description: OAuth2 scopes (for OAuth2 providers).
+        usernameClaim:
+          type: string
+          description: JSON path to the username claim (for OIDC/OAuth2 providers).
+        isDefault:
+          type: boolean
+          description: Whether this is the default provider.
+          default: false
+        isStatic:
+          type: boolean
+          description: Whether this is a static provider (from config) or dynamic (from database).
+          default: false
       required:
         - authType
         - authURL
         - authOrganizationsConfig
       description: Auth config.
-    AuthOrganizationsConfig:
-      type: object
-      description: Auth related organizations configuration.
-      properties:
-        enabled:
-          type: boolean
-          description: If true, support for IdP provided organizations is enabled.
-          default: false
-      required:
-        - enabled
     ListMeta:
       type: object
       properties:
@@ -6161,3 +6819,380 @@ components:
           items:
             $ref: '#/components/schemas/Organization'
       description: OrganizationList is a list of Organizations.
+    TokenRequest:
+      type: object
+      required:
+        - grant_type
+      properties:
+        grant_type:
+          type: string
+          enum: [refresh_token, authorization_code]
+          description: OAuth2 grant type.
+        username:
+          type: string
+          description: Username for password grant.
+        password:
+          type: string
+          description: Password for password grant.
+        refresh_token:
+          type: string
+          description: Refresh token for refresh_token grant.
+        code:
+          type: string
+          description: Authorization code for authorization_code grant.
+        client_id:
+          type: string
+          description: OAuth2 client ID.
+        client_secret:
+          type: string
+          description: OAuth2 client secret.
+        scope:
+          type: string
+          description: OAuth2 scope.
+      description: OAuth2 token request
+    TokenResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+          description: OAuth2 access token.
+        token_type:
+          type: string
+          enum: [Bearer]
+          description: Token type.
+        refresh_token:
+          type: string
+          description: OAuth2 refresh token.
+        expires_in:
+          type: integer
+          description: Token expiration time in seconds.
+        error:
+          type: string
+          description: OAuth2 error code.
+        error_description:
+          type: string
+          description: OAuth2 error description.
+      description: OAuth2 token response
+    UserInfoResponse:
+      type: object
+      properties:
+        sub:
+          type: string
+          description: Subject identifier.
+        preferred_username:
+          type: string
+          description: Preferred username.
+        name:
+          type: string
+          description: Full name.
+        email:
+          type: string
+          description: Email address.
+        email_verified:
+          type: boolean
+          description: Email verification status.
+        roles:
+          type: array
+          items:
+            type: string
+          description: User roles.
+        organizations:
+          type: array
+          items:
+            type: string
+          description: User organizations.
+        error:
+          type: string
+          description: Error code.
+      description: OIDC UserInfo response
+    JWKSResponse:
+      type: object
+      properties:
+        keys:
+          type: array
+          items:
+            type: object
+            properties:
+              kty:
+                type: string
+                description: Key type.
+              use:
+                type: string
+                description: Key use.
+              kid:
+                type: string
+                description: Key ID.
+              alg:
+                type: string
+                description: Algorithm.
+              n:
+                type: string
+                description: RSA modulus.
+              e:
+                type: string
+                description: RSA exponent.
+      description: JSON Web Key Set
+    OpenIDConfiguration:
+      type: object
+      properties:
+        issuer:
+          type: string
+          description: OIDC issuer.
+        authorization_endpoint:
+          type: string
+          description: Authorization endpoint.
+        token_endpoint:
+          type: string
+          description: Token endpoint.
+        userinfo_endpoint:
+          type: string
+          description: UserInfo endpoint.
+        jwks_uri:
+          type: string
+          description: JWKS endpoint.
+        response_types_supported:
+          type: array
+          items:
+            type: string
+          description: Supported response types.
+        grant_types_supported:
+          type: array
+          items:
+            type: string
+          description: Supported grant types.
+        scopes_supported:
+          type: array
+          items:
+            type: string
+          description: Supported scopes.
+        claims_supported:
+          type: array
+          items:
+            type: string
+          description: Supported claims.
+        id_token_signing_alg_values_supported:
+          type: array
+          items:
+            type: string
+          description: Supported signing algorithms.
+        token_endpoint_auth_methods_supported:
+          type: array
+          items:
+            type: string
+          description: Supported authentication methods.
+      description: OpenID Connect configuration
+    AuthProvider:
+      type: object
+      properties:
+        apiVersion:
+          type: string
+          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+        kind:
+          type: string
+          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
+        metadata:
+          $ref: '#/components/schemas/ObjectMeta'
+        spec:
+          $ref: '#/components/schemas/AuthProviderSpec'
+      required:
+        - apiVersion
+        - kind
+        - metadata
+        - spec
+      description: AuthProvider represents an authentication provider configuration supporting both OIDC and OAuth2.
+    AuthProviderSpec:
+      oneOf:
+        - $ref: '#/components/schemas/OIDCProviderSpec'
+        - $ref: '#/components/schemas/OAuth2ProviderSpec'
+      discriminator:
+        propertyName: providerType
+        mapping:
+          oidc: '#/components/schemas/OIDCProviderSpec'
+          oauth2: '#/components/schemas/OAuth2ProviderSpec'
+      required:
+        - providerType
+    OIDCProviderSpec:
+      type: object
+      description: OIDCProviderSpec describes an OIDC provider configuration.
+      properties:
+        providerType:
+          type: string
+          enum: [oidc]
+          description: The type of authentication provider.
+        issuer:
+          type: string
+          description: The OIDC issuer URL (e.g., https://accounts.google.com).
+        clientId:
+          type: string
+          description: The OIDC client ID.
+        clientSecret:
+          type: string
+          description: The OIDC client secret.
+        enabled:
+          type: boolean
+          description: Whether this OIDC provider is enabled.
+          default: true
+        scopes:
+          type: array
+          items:
+            type: string
+          description: List of OIDC scopes to request.
+        organizationAssignment:
+          $ref: '#/components/schemas/AuthOrganizationAssignment'
+        usernameClaim:
+          type: string
+          description: JSON path to the username claim in the JWT token (e.g., "preferred_username", "email", "sub").
+          default: "preferred_username"
+        roleClaim:
+          type: string
+          description: JSON path to the role/group claim in the JWT token (e.g., "groups", "roles", "realm_access.roles").
+          default: "groups"
+      required:
+        - providerType
+        - issuer
+        - clientId
+        - clientSecret
+        - organizationAssignment
+    OAuth2ProviderSpec:
+      type: object
+      description: OAuth2ProviderSpec describes an OAuth2 provider configuration.
+      properties:
+        providerType:
+          type: string
+          enum: [oauth2]
+          description: The type of authentication provider.
+        issuer:
+          type: string
+          description: The OAuth2 issuer identifier (used for issuer identification in tokens).
+        authorizationUrl:
+          type: string
+          description: The OAuth2 authorization endpoint URL.
+        tokenUrl:
+          type: string
+          description: The OAuth2 token endpoint URL.
+        userinfoUrl:
+          type: string
+          description: The OAuth2 userinfo endpoint URL.
+        clientId:
+          type: string
+          description: The OAuth2 client ID.
+        clientSecret:
+          type: string
+          description: The OAuth2 client secret.
+        enabled:
+          type: boolean
+          description: Whether this OAuth2 provider is enabled.
+          default: true
+        scopes:
+          type: array
+          items:
+            type: string
+          description: List of OAuth2 scopes to request.
+        organizationAssignment:
+          $ref: '#/components/schemas/AuthOrganizationAssignment'
+        usernameClaim:
+          type: string
+          description: JSON path to the username claim in the userinfo response (e.g., "preferred_username", "email", "sub").
+          default: "preferred_username"
+        roleClaim:
+          type: string
+          description: JSON path to the role/group claim in the userinfo response (e.g., "groups", "roles", "realm_access.roles").
+          default: "groups"
+      required:
+        - providerType
+        - issuer
+        - authorizationUrl
+        - tokenUrl
+        - userinfoUrl
+        - clientId
+        - clientSecret
+        - organizationAssignment
+    AuthOrganizationAssignment:
+      type: object
+      description: AuthOrganizationAssignment defines how users from this auth provider are assigned to organizations.
+      oneOf:
+        - $ref: '#/components/schemas/AuthStaticOrganizationAssignment'
+        - $ref: '#/components/schemas/AuthDynamicOrganizationAssignment'
+        - $ref: '#/components/schemas/AuthPerUserOrganizationAssignment'
+      discriminator:
+        propertyName: type
+        mapping:
+          static: '#/components/schemas/AuthStaticOrganizationAssignment'
+          dynamic: '#/components/schemas/AuthDynamicOrganizationAssignment'
+          perUser: '#/components/schemas/AuthPerUserOrganizationAssignment'
+    AuthStaticOrganizationAssignment:
+      type: object
+      description: AuthStaticOrganizationAssignment assigns all users from this auth provider to a single static organization.
+      properties:
+        type:
+          type: string
+          enum: [static]
+          description: The type of organization assignment.
+        organizationName:
+          type: string
+          description: The name of the organization where all users will be assigned.
+      required:
+        - type
+        - organizationName
+    AuthDynamicOrganizationAssignment:
+      type: object
+      description: AuthDynamicOrganizationAssignment assigns users to organizations based on auth provider claims.
+      properties:
+        type:
+          type: string
+          enum: [dynamic]
+          description: The type of organization assignment.
+        claimPath:
+          type: string
+          description: The JSON path to the claim that contains the organization identifier (e.g., "groups.0" or "custom.org").
+        organizationNamePrefix:
+          type: string
+          description: The prefix for the organization name (e.g., "org-").
+          default: ""
+        organizationNameSuffix:
+          type: string
+          description: The suffix for the organization name (e.g., "-org").
+          default: ""
+      required:
+        - type
+        - claimPath
+    AuthPerUserOrganizationAssignment:
+      type: object
+      description: AuthPerUserOrganizationAssignment creates a separate organization for each user.
+      properties:
+        type:
+          type: string
+          enum: [perUser]
+          description: The type of organization assignment.
+        organizationNamePrefix:
+          type: string
+          description: The prefix for the user-specific organization name (e.g., "user-org-").
+          default: "user-org-"
+        organizationNameSuffix:
+          type: string
+          description: The suffix for the user-specific organization name (e.g., "-org").
+          default: ""
+      required:
+        - type
+    AuthProviderList:
+      type: object
+      properties:
+        apiVersion:
+          type: string
+          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+        kind:
+          type: string
+          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
+        metadata:
+          $ref: '#/components/schemas/ListMeta'
+        items:
+          type: array
+          description: 'List of auth providers.'
+          items:
+            $ref: '#/components/schemas/AuthProvider'
+      required:
+        - apiVersion
+        - kind
+        - metadata
+        - items
+      description: AuthProviderList is a list of auth providers.

@@ -286,9 +286,20 @@ For more detailed configuration options, see the [Values](#values) section below
 | global.auth.k8s.externalApiToken | string | `""` | In case flightctl is not running within a cluster, you can provide api token |
 | global.auth.k8s.externalOpenShiftApiUrl | string | `""` | API URL of OpenShift cluster that can be accessed by external client to retrieve auth token |
 | global.auth.k8s.rbacNs | string | `""` | Namespace that should be used for the RBAC checks |
-| global.auth.oidc.externalOidcAuthority | string | `""` | The base URL for the Keycloak realm that is reachable by clients. Example: https://keycloak.foo.net/realms/flightctl |
-| global.auth.oidc.oidcAuthority | string | `"http://keycloak:8081/realms/flightctl"` | The base URL for the Keycloak realm that is reachable by flightctl services. Example: https://keycloak.foo.internal/realms/flightctl |
-| global.auth.type | string | `"builtin"` | Type of the auth to use. Can be one of 'builtin', 'k8s', 'oidc', or 'none' |
+| global.auth.oidc.clientId | string | `"flightctl-client"` | OIDC Client ID |
+| global.auth.oidc.enabled | bool | `true` | Whether this OIDC provider is enabled |
+| global.auth.oidc.externalOidcAuthority | string | `""` | The base URL for the OIDC provider that is reachable by clients. Example: https://auth.foo.net/realms/flightctl |
+| global.auth.oidc.issuer | string | `""` | The base URL for the OIDC provider that is reachable by flightctl services. Example: https://auth.foo.internal/realms/flightctl |
+| global.auth.oidc.organizationAssignment | object | `{"organizationName":"default","type":"static"}` | Organization assignment configuration |
+| global.auth.oidc.roleClaim | string | `"groups"` | Role claim to extract from OIDC token (default: "groups") |
+| global.auth.oidc.usernameClaim | string | `"preferred_username"` | Username claim to extract from OIDC token (default: "preferred_username") |
+| global.auth.pamOidcIssuer.clientId | string | `"flightctl-client"` | OAuth2 client ID for the OIDC issuer |
+| global.auth.pamOidcIssuer.clientSecret | string | `""` | OAuth2 client secret for the OIDC issuer |
+| global.auth.pamOidcIssuer.issuer | string | `""` | The base URL for the OIDC issuer (defaults to API server URL) |
+| global.auth.pamOidcIssuer.pamService | string | `"flightctl"` | PAM service name for authentication (default: "flightctl") |
+| global.auth.pamOidcIssuer.redirectUris | list | `[]` | Allowed redirect URIs for OAuth2 flows |
+| global.auth.pamOidcIssuer.scopes | list | `["openid","profile","email","roles"]` | Supported OAuth2 scopes |
+| global.auth.type | string | `"oidc"` | Type of the auth to use. Can be one of 'k8s', 'oidc', or 'none' |
 | global.baseDomain | string | `""` | Base domain to construct the FQDN for the service endpoints. |
 | global.baseDomainTls.cert | string | `""` | Certificate for the base domain wildcard certificate, it should be valid for *.${baseDomain}. This certificate is only used for non mTLS endpoints, mTLS endpoints like agent-api, etc will use different certificates. |
 | global.baseDomainTls.key | string | `""` | Key for the base domain wildcard certificate. |

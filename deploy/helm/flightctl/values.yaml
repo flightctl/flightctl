@@ -35,10 +35,35 @@ global:
       # -- Namespace that should be used for the RBAC checks
       rbacNs: ""
     oidc:
-      # -- The base URL for the Keycloak realm that is reachable by flightctl services. Example: https://keycloak.foo.internal/realms/flightctl
-      oidcAuthority: http://keycloak:8081/realms/flightctl
-      # -- The base URL for the Keycloak realm that is reachable by clients. Example: https://keycloak.foo.net/realms/flightctl
+      # -- OIDC Client ID
+      clientId: "flightctl-client"
+      # -- Whether this OIDC provider is enabled
+      enabled: true
+      # -- The base URL for the OIDC provider that is reachable by flightctl services. Example: https://auth.foo.internal/realms/flightctl
+      issuer: ""
+      # -- The base URL for the OIDC provider that is reachable by clients. Example: https://auth.foo.net/realms/flightctl
       externalOidcAuthority: ""
+      # -- Organization assignment configuration
+      organizationAssignment:
+        type: "static"
+        organizationName: "default"
+      # -- Username claim to extract from OIDC token (default: "preferred_username")
+      usernameClaim: "preferred_username"
+      # -- Role claim to extract from OIDC token (default: "groups")
+      roleClaim: "groups"
+    sssdOidcIssuer:
+      # -- The base URL for the OIDC issuer (defaults to API server URL)
+      issuer: ""
+      # -- OAuth2 client ID for the OIDC issuer
+      clientId: "flightctl-client"
+      # -- OAuth2 client secret for the OIDC issuer
+      clientSecret: ""
+      # -- Supported OAuth2 scopes
+      scopes: ["openid", "profile", "email", "roles"]
+      # -- Allowed redirect URIs for OAuth2 flows
+      redirectUris: []
+      # -- SSSD service name for authentication (default: "flightctl")
+      sssdService: "flightctl"
     aap:
       # -- The URL of the AAP Gateway API endpoint
       apiUrl: ""
@@ -73,8 +98,6 @@ global:
     agent: 7443
     # -- NodePort for web UI service
     ui: 9000
-    # -- NodePort for Keycloak service
-    keycloak: 8081
     # -- NodePort for Alertmanager proxy service
     alertmanagerProxy: 8443
     # -- NodePort for OTLP telemetry gateway

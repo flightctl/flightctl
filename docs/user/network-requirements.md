@@ -40,7 +40,7 @@ graph TB
         end
 
         subgraph "Authentication"
-            KEYCLOAK[Keycloak<br/>:8081]
+            AUTH[Internal OIDC<br/>:3443]
         end
 
         subgraph "Data Layer"
@@ -69,7 +69,7 @@ graph TB
     LB_USER --> API
     USERS -.->|"HTTP/HTTPS<br/>Port 9000"| UI
     USERS -.->|"HTTP/HTTPS<br/>Port 8090"| CLI_ARTIFACTS
-    USERS -.->|"HTTP<br/>Port 8081"| KEYCLOAK
+    USERS -.->|"HTTPS<br/>Port 3443"| AUTH
 
     %% Internal Service Communication
     API --> DB
@@ -154,7 +154,7 @@ graph TB
 
 ### Authentication Services
 
-- **Port 8081** (TCP) - **HTTP** - Keycloak authentication server (when using built-in auth)
+- **Port 3443** (TCP) - **HTTPS** - Internal OIDC authentication server (when using built-in auth)
 
 ### Observability and Monitoring
 
@@ -213,10 +213,10 @@ ACCEPT tcp port 9000 from trusted networks/users (UI - nodePort deployments)
 ACCEPT tcp port 8090 from trusted networks/users (CLI artifacts)
 ```
 
-#### Required for Authentication (if using built-in Keycloak)
+#### Required for Authentication (if using built-in OIDC)
 
 ```text
-ACCEPT tcp port 8081 from trusted networks/users
+ACCEPT tcp port 3443 from trusted networks/users
 ```
 
 #### Required for Observability (if externally accessible)
@@ -423,7 +423,7 @@ telnet api.flightctl.example.com 3443
 
 ### Development Environment
 
-- Uses NodePort services (ports 3443, 7443, 9000, 8081)
+- Uses NodePort services (ports 3443, 7443, 9000)
 - May expose internal services for debugging
 - Less restrictive firewall rules
 
@@ -449,7 +449,7 @@ telnet api.flightctl.example.com 3443
 | Web UI | 9000 | HTTP | External | Development UI |
 | PostgreSQL | 5432 | TCP | Internal | Database |
 | Redis | 6379 | TCP | Internal | Key-value store |
-| Keycloak | 8081 | HTTP | External | Authentication |
+| Internal OIDC | 3443 | HTTPS | External | Authentication |
 | Prometheus | 9090 | HTTP | Internal | Metrics |
 | Alertmanager | 9093 | HTTP | Internal | Alerting |
 | Alertmanager Proxy | 8443 | HTTPS | External | Authenticated alerts |

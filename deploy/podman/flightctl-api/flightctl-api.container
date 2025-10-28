@@ -6,8 +6,8 @@ Wants=flightctl-db-wait.service flightctl-db-migrate.service flightctl-kv.servic
 
 [Container]
 ContainerName=flightctl-api
-Image=quay.io/flightctl/flightctl-api:latest
-Pull=newer
+Image=localhost/flightctl-api:latest
+Pull=never
 Network=flightctl.network
 EnvironmentFile=/etc/flightctl/flightctl-api/env
 Secret=flightctl-postgresql-user-password,type=env,target=DB_PASSWORD
@@ -19,6 +19,10 @@ PublishPort=3443:3443
 PublishPort=7443:7443
 Volume=/etc/flightctl/pki:/root/.flightctl/certs:rw,z
 Volume=/etc/flightctl/flightctl-api/config.yaml:/root/.flightctl/config.yaml:ro,z
+# Persist user database across container restarts using named volumes
+Volume=flightctl-api-passwd:/etc/passwd
+Volume=flightctl-api-shadow:/etc/shadow
+Volume=flightctl-api-group:/etc/group
 
 Ulimit=nofile=300000:300000
 

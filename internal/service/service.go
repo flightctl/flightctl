@@ -124,4 +124,12 @@ type Service interface {
 
 	// Organization
 	ListOrganizations(ctx context.Context) (*api.OrganizationList, api.Status)
+
+	// OAuth2/OIDC Authentication
+	AuthToken(ctx context.Context, req api.TokenRequest) (*api.TokenResponse, api.Status)
+	AuthUserInfo(ctx context.Context, accessToken string) (*api.UserInfoResponse, api.Status)
+	AuthJWKS(ctx context.Context) (*api.JWKSResponse, api.Status)
+	AuthOpenIDConfiguration(ctx context.Context) (*api.OpenIDConfiguration, api.Status)
+	AuthAuthorize(ctx context.Context, params api.AuthAuthorizeParams) (*api.Status, api.Status)
+	AuthLogin(ctx context.Context, username, password, clientID, redirectURI, state string) (*api.Status, api.Status)
 }

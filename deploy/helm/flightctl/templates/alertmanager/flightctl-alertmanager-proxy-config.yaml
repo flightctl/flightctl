@@ -59,8 +59,21 @@ data:
         externalApiUrl: {{ .Values.global.auth.aap.externalApiUrl }}
       {{- else }}
       oidc:
-        oidcAuthority: {{ .Values.global.auth.oidc.oidcAuthority }}
+        clientId: {{ .Values.global.auth.oidc.clientId }}
+        {{- if .Values.global.auth.oidc.enabled }}
+        enabled: {{ .Values.global.auth.oidc.enabled }}
+        {{- end }}
+        issuer: {{ .Values.global.auth.oidc.issuer }}
         externalOidcAuthority: {{ include "flightctl.getOidcAuthorityUrl" . }}
+        {{- if .Values.global.auth.oidc.organizationAssignment }}
+        organizationAssignment: {{ .Values.global.auth.oidc.organizationAssignment | toYaml | nindent 8 }}
+        {{- end }}
+        {{- if .Values.global.auth.oidc.usernameClaim }}
+        usernameClaim: {{ .Values.global.auth.oidc.usernameClaim }}
+        {{- end }}
+        {{- if .Values.global.auth.oidc.roleClaim }}
+        roleClaim: {{ .Values.global.auth.oidc.roleClaim }}
+        {{- end }}
       {{- end }}
     {{- end }}
     organizations:

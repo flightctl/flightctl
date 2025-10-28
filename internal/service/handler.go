@@ -1,9 +1,9 @@
 package service
 
 import (
+	"github.com/flightctl/flightctl/internal/auth/issuer"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/kvstore"
-	"github.com/flightctl/flightctl/internal/org/resolvers"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/sirupsen/logrus"
@@ -20,11 +20,11 @@ type ServiceHandler struct {
 	agentEndpoint string
 	uiUrl         string
 	tpmCAPaths    []string
-	orgResolver   resolvers.Resolver
+	oidcIssuer    issuer.OIDCIssuer
 	agentGate     *semaphore.Weighted
 }
 
-func NewServiceHandler(store store.Store, workerClient worker_client.WorkerClient, kvStore kvstore.KVStore, ca *crypto.CAClient, log logrus.FieldLogger, agentEndpoint string, uiUrl string, tpmCAPaths []string, orgResolver resolvers.Resolver) *ServiceHandler {
+func NewServiceHandler(store store.Store, workerClient worker_client.WorkerClient, kvStore kvstore.KVStore, ca *crypto.CAClient, log logrus.FieldLogger, agentEndpoint string, uiUrl string, tpmCAPaths []string, oidcIssuer issuer.OIDCIssuer) *ServiceHandler {
 	return &ServiceHandler{
 		eventHandler:  NewEventHandler(store, workerClient, log),
 		store:         store,
@@ -35,7 +35,7 @@ func NewServiceHandler(store store.Store, workerClient worker_client.WorkerClien
 		agentEndpoint: agentEndpoint,
 		uiUrl:         uiUrl,
 		tpmCAPaths:    tpmCAPaths,
-		orgResolver:   orgResolver,
+		oidcIssuer:    oidcIssuer,
 		agentGate:     semaphore.NewWeighted(MaxConcurrentAgents),
 	}
 }

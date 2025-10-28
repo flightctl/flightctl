@@ -604,6 +604,48 @@ func (t *TracedService) GetDatabaseTime(ctx context.Context) (time.Time, api.Sta
 	return resp, st
 }
 
+func (t *TracedService) AuthAuthorize(ctx context.Context, params api.AuthAuthorizeParams) (*api.Status, api.Status) {
+	ctx, span := startSpan(ctx, "AuthAuthorize")
+	resp, st := t.inner.AuthAuthorize(ctx, params)
+	endSpan(span, st)
+	return resp, st
+}
+
+func (t *TracedService) AuthLogin(ctx context.Context, username, password, clientID, redirectURI, state string) (*api.Status, api.Status) {
+	ctx, span := startSpan(ctx, "AuthLogin")
+	resp, st := t.inner.AuthLogin(ctx, username, password, clientID, redirectURI, state)
+	endSpan(span, st)
+	return resp, st
+}
+
+func (t *TracedService) AuthJWKS(ctx context.Context) (*api.JWKSResponse, api.Status) {
+	ctx, span := startSpan(ctx, "AuthJWKS")
+	resp, st := t.inner.AuthJWKS(ctx)
+	endSpan(span, st)
+	return resp, st
+}
+
+func (t *TracedService) AuthOpenIDConfiguration(ctx context.Context) (*api.OpenIDConfiguration, api.Status) {
+	ctx, span := startSpan(ctx, "AuthOpenIDConfiguration")
+	resp, st := t.inner.AuthOpenIDConfiguration(ctx)
+	endSpan(span, st)
+	return resp, st
+}
+
+func (t *TracedService) AuthToken(ctx context.Context, req api.TokenRequest) (*api.TokenResponse, api.Status) {
+	ctx, span := startSpan(ctx, "AuthToken")
+	resp, st := t.inner.AuthToken(ctx, req)
+	endSpan(span, st)
+	return resp, st
+}
+
+func (t *TracedService) AuthUserInfo(ctx context.Context, accessToken string) (*api.UserInfoResponse, api.Status) {
+	ctx, span := startSpan(ctx, "AuthUserInfo")
+	resp, st := t.inner.AuthUserInfo(ctx, accessToken)
+	endSpan(span, st)
+	return resp, st
+}
+
 // --- Organization ---
 func (t *TracedService) ListOrganizations(ctx context.Context) (*api.OrganizationList, api.Status) {
 	ctx, span := startSpan(ctx, "ListOrganizations")

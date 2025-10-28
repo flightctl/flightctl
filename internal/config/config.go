@@ -111,11 +111,13 @@ type alertmanagerConfig struct {
 }
 
 type authConfig struct {
-	K8s                   *k8sAuth  `json:"k8s,omitempty"`
-	OIDC                  *oidcAuth `json:"oidc,omitempty"`
-	AAP                   *aapAuth  `json:"aap,omitempty"`
-	CACert                string    `json:"caCert,omitempty"`
-	InsecureSkipTlsVerify bool      `json:"insecureSkipTlsVerify,omitempty"`
+	K8s                     *k8sAuth        `json:"k8s,omitempty"`
+	OIDC                    *oidcAuth       `json:"oidc,omitempty"`
+	SSSDOIDCIssuer          *SSSDOIDCIssuer `json:"sssdOidcIssuer,omitempty"` // this is the issuer implementation configuration
+	AAP                     *aapAuth        `json:"aap,omitempty"`
+	CACert                  string          `json:"caCert,omitempty"`
+	InsecureSkipTlsVerify   bool            `json:"insecureSkipTlsVerify,omitempty"`
+	DynamicProviderCacheTTL util.Duration   `json:"dynamicProviderCacheTTL,omitempty"` // TTL for dynamic auth provider cache (default: 5s)
 }
 
 type k8sAuth struct {
@@ -132,6 +134,22 @@ type oidcAuth struct {
 type aapAuth struct {
 	ApiUrl         string `json:"apiUrl,omitempty"`
 	ExternalApiUrl string `json:"externalApiUrl,omitempty"`
+}
+
+// SSSDOIDCIssuer represents an OIDC issuer that uses Linux SSSD for authentication
+type SSSDOIDCIssuer struct {
+	// Issuer is the base URL for the OIDC issuer (e.g., "https://flightctl.example.com")
+	Issuer string `json:"issuer,omitempty"`
+	// ClientID is the OAuth2 client ID for this issuer
+	ClientID string `json:"clientId,omitempty"`
+	// ClientSecret is the OAuth2 client secret for this issuer
+	ClientSecret string `json:"clientSecret,omitempty"`
+	// Scopes are the supported OAuth2 scopes
+	Scopes []string `json:"scopes,omitempty"`
+	// RedirectURIs are the allowed redirect URIs for OAuth2 flows
+	RedirectURIs []string `json:"redirectUris,omitempty"`
+	// SSSDService is the SSSD service name to use for authentication (default: "flightctl")
+	SSSDService string `json:"sssdService" validate:"required"`
 }
 
 type metricsConfig struct {
