@@ -6,19 +6,21 @@ Wants=flightctl-db-wait.service flightctl-db-migrate.service flightctl-kv.servic
 
 [Container]
 ContainerName=flightctl-worker
-Image=quay.io/flightctl/flightctl-worker:latest
+Image={{ .Worker.Image }}:{{ .Worker.Tag }}
 Pull=newer
 Network=flightctl.network
 Environment=HOME=/root
 Secret=flightctl-postgresql-user-password,type=env,target=DB_PASSWORD
 Secret=flightctl-kv-password,type=env,target=KV_PASSWORD
 Environment=DB_USER=flightctl_app
-Volume=/etc/flightctl/flightctl-api/config.yaml:/root/.flightctl/config.yaml:ro,z
+Volume=/etc/flightctl/flightctl-worker/config.yaml:/root/.flightctl/config.yaml:ro,z
 Volume=/etc/flightctl/ssh:/etc/flightctl/ssh:ro,z
 
 [Service]
 Restart=always
 RestartSec=30
+
+ExecStartPre=/usr/bin/flightctl-ground-crew render --input-file /usr/share/flightctl/flightctl-worker/config.yaml.template --output-file /etc/flightctl/flightctl-worker/config.yaml
 
 [Install]
 WantedBy=flightctl.target

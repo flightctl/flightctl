@@ -6,14 +6,13 @@ Wants=flightctl-db-wait.service flightctl-db-migrate.service flightctl-kv.servic
 
 [Container]
 ContainerName=flightctl-api
-Image=quay.io/flightctl/flightctl-api:latest
+Image={{ .Api.Image }}:{{ .Api.Tag }}
 Pull=newer
 Network=flightctl.network
 EnvironmentFile=/etc/flightctl/flightctl-api/env
 Secret=flightctl-postgresql-user-password,type=env,target=DB_PASSWORD
 Secret=flightctl-kv-password,type=env,target=KV_PASSWORD
 Environment=DB_USER=flightctl_app
-
 
 PublishPort=3443:3443
 PublishPort=7443:7443
@@ -26,6 +25,9 @@ Ulimit=nofile=300000:300000
 Restart=always
 RestartSec=30
 LimitNOFILE=300000
+
+ExecStartPre=/usr/bin/flightctl-ground-crew render --input-file /usr/share/flightctl/flightctl-api/config.yaml.template --output-file /etc/flightctl/flightctl-api/config.yaml
+ExecStartPre=/usr/bin/flightctl-ground-crew render --input-file /usr/share/flightctl/flightctl-api/env.template --output-file /etc/flightctl/flightctl-api/env
 
 [Install]
 WantedBy=flightctl.target
