@@ -13,6 +13,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/os"
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
+	"github.com/flightctl/flightctl/internal/agent/device/spec/audit"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -34,6 +35,7 @@ type manager struct {
 	cache            *cache
 	queue            PriorityQueue
 	policyManager    policy.Manager
+	auditLogger      audit.Logger
 
 	lastConsumedDevice *v1alpha1.Device
 	log                *log.PrefixLogger
@@ -52,6 +54,7 @@ func NewManager(
 	fetchInterval util.Duration,
 	backoff wait.Backoff,
 	deviceNotFoundHandler func() error,
+	auditLogger audit.Logger,
 	log *log.PrefixLogger,
 ) *manager {
 	cache := newCache(log)
@@ -72,6 +75,7 @@ func NewManager(
 		osClient:         osClient,
 		cache:            cache,
 		policyManager:    policyManager,
+		auditLogger:      auditLogger,
 		queue:            queue,
 		log:              log,
 	}
@@ -193,6 +197,9 @@ func (s *manager) Upgrade(ctx context.Context) error {
 
 	// only upgrade if the device is in the process of reconciling the desired spec
 	if s.IsUpgrading() {
+		// Get current version before upgrade for audit logging
+		currentVersion := s.cache.getRenderedVersion(Current)
+		
 		desired, err := s.Read(Desired)
 		if err != nil {
 			return err
@@ -207,6 +214,13 @@ func (s *manager) Upgrade(ctx context.Context) error {
 		}
 
 		s.log.Infof("Spec reconciliation complete: current version %s", desired.Version())
+		
+		// Log successful spec application to audit log
+		if s.auditLogger != nil {
+			if err := s.auditLogger.LogApply(ctx, currentVersion, desired.Version()); err != nil {
+				s.log.Warnf("Failed to write audit log for successful upgrade from %s to %s: %v", currentVersion, desired.Version(), err)
+			}
+		}
 	}
 
 	// remove reconciled desired spec from the queue
@@ -225,6 +239,17 @@ func (s *manager) SetUpgradeFailed(version string) error {
 		return err
 	}
 	s.queue.SetFailed(versionInt)
+	
+	// Log failed spec application to audit log
+	if s.auditLogger != nil {
+		currentVersion := s.cache.getRenderedVersion(Current)
+		// Create a generic failure error since specific error isn't passed to this method
+		failureErr := fmt.Errorf("spec version %s failed to apply", version)
+		if err := s.auditLogger.LogFailure(context.Background(), currentVersion, version, failureErr); err != nil {
+			s.log.Warnf("Failed to write audit log for upgrade failure from %s to %s: %v", currentVersion, version, err)
+		}
+	}
+	
 	return nil
 }
 
@@ -300,6 +325,16 @@ func (s *manager) Rollback(ctx context.Context, opts ...RollbackOption) error {
 
 	// rollback in-memory cache current == desired
 	s.cache.update(Desired, current)
+	
+	// Log successful rollback to audit log
+	if s.auditLogger != nil {
+		// For rollback: old version is the failed desired version, new version is the current (rollback target)
+		desiredVersion := s.cache.getRenderedVersion(Desired)
+		if err := s.auditLogger.LogRollback(ctx, desiredVersion, current.Version()); err != nil {
+			s.log.Warnf("Failed to write audit log for rollback from %s to %s: %v", desiredVersion, current.Version(), err)
+		}
+	}
+	
 	return nil
 }
 

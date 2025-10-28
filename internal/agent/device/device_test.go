@@ -21,6 +21,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
+	"github.com/flightctl/flightctl/internal/agent/device/spec/audit"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/internal/agent/device/systeminfo"
@@ -322,6 +323,11 @@ func TestRollbackDevice(t *testing.T) {
 			policyManager := policy.NewManager(log)
 			statusManager := status.NewManager(deviceName, log)
 			statusManager.SetClient(mockManagementClient)
+			mockAuditLogger := audit.NewMockLogger(ctrl)
+			mockAuditLogger.EXPECT().Close().Return(nil).AnyTimes()
+			mockAuditLogger.EXPECT().LogApply(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+			mockAuditLogger.EXPECT().LogRollback(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+			mockAuditLogger.EXPECT().LogFailure(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 			specManager := spec.NewManager(
 				"test-device",
 				dataDir,
@@ -331,6 +337,7 @@ func TestRollbackDevice(t *testing.T) {
 				util.Duration(time.Second),
 				wait.Backoff{Steps: 1},
 				func() error { return nil },
+				mockAuditLogger,
 				log,
 			)
 
