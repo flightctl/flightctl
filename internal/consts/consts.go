@@ -26,6 +26,7 @@ const (
 	AgentCtxKey                ctxKey = "agent"
 	TokenCtxKey                ctxKey = "token"
 	IdentityCtxKey             ctxKey = "identity"
+	MappedIdentityCtxKey       ctxKey = "mapped-identity"
 
 	// Session
 	SessionIDCtxKey     ctxKey = "session-id"

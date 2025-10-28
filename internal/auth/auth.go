@@ -6,7 +6,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
-	"net/http"
+	"net/url"
 	"os"
 	"strings"
 
@@ -15,7 +15,6 @@ import (
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
-	"github.com/flightctl/flightctl/internal/org/resolvers"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/sirupsen/logrus"
 )
@@ -26,13 +25,6 @@ const (
 	k8sCACertPath     = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
 	k8sApiService     = "https://kubernetes.default.svc"
 )
-
-type AuthNMiddleware interface {
-	GetAuthToken(r *http.Request) (string, error)
-	ValidateToken(ctx context.Context, token string) error
-	GetIdentity(ctx context.Context, token string) (common.Identity, error)
-	GetAuthConfig() common.AuthConfig
-}
 
 type AuthZMiddleware interface {
 	CheckPermission(ctx context.Context, resource string, op string) (bool, error)
@@ -53,7 +45,7 @@ func GetConfiguredAuthType() AuthType {
 
 var configuredAuthType AuthType
 
-func initK8sAuth(cfg *config.Config, log logrus.FieldLogger) (AuthNMiddleware, AuthZMiddleware, error) {
+func initK8sAuth(cfg *config.Config, log logrus.FieldLogger) (common.AuthNMiddleware, AuthZMiddleware, error) {
 	apiUrl := strings.TrimSuffix(cfg.Auth.K8s.ApiUrl, "/")
 	externalOpenShiftApiUrl := strings.TrimSuffix(cfg.Auth.K8s.ExternalOpenShiftApiUrl, "/")
 	log.Infof("k8s auth enabled: %s", apiUrl)
@@ -68,7 +60,7 @@ func initK8sAuth(cfg *config.Config, log logrus.FieldLogger) (AuthNMiddleware, A
 		return nil, nil, fmt.Errorf("failed to create k8s client: %w", err)
 	}
 	authZProvider := K8sToK8sAuth{K8sAuthZ: authz.K8sAuthZ{K8sClient: k8sClient, Namespace: cfg.Auth.K8s.RBACNs}}
-	authNProvider, err := authn.NewK8sAuthN(k8sClient, externalOpenShiftApiUrl)
+	authNProvider, err := authn.NewK8sAuthN(k8sClient, externalOpenShiftApiUrl, cfg.Auth.K8s.RBACNs)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create k8s AuthN: %w", err)
 	}
@@ -98,23 +90,30 @@ func getOrgConfig(cfg *config.Config) *common.AuthOrganizationsConfig {
 	}
 }
 
-func initOIDCAuth(cfg *config.Config, log logrus.FieldLogger, orgResolver resolvers.Resolver) (AuthNMiddleware, AuthZMiddleware, error) {
-	oidcUrl := strings.TrimSuffix(cfg.Auth.OIDC.OIDCAuthority, "/")
-	externalOidcUrl := strings.TrimSuffix(cfg.Auth.OIDC.ExternalOIDCAuthority, "/")
+func initOIDCAuth(cfg *config.Config, log logrus.FieldLogger) (common.AuthNMiddleware, AuthZMiddleware, error) {
+	oidcUrl := strings.TrimSuffix(cfg.Auth.OIDC.Issuer, "/")
 	log.Infof("OIDC auth enabled: %s", oidcUrl)
-	authZProvider := authz.NewOrgMembershipAuthZ(orgResolver)
-	authNProvider, err := authn.NewJWTAuth(oidcUrl, externalOidcUrl, getTlsConfig(cfg), getOrgConfig(cfg))
+	authZProvider := authz.NewStaticAuthZ()
+	usernameClaim := "preferred_username"
+	if cfg.Auth.OIDC.UsernameClaim != nil {
+		usernameClaim = *cfg.Auth.OIDC.UsernameClaim
+	}
+	roleClaim := "groups"
+	if cfg.Auth.OIDC.RoleClaim != nil {
+		roleClaim = *cfg.Auth.OIDC.RoleClaim
+	}
+	authNProvider, err := authn.NewOIDCAuth(oidcUrl, getTlsConfig(cfg), getOrgConfig(cfg), usernameClaim, roleClaim, "", []string{})
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create OIDC AuthN: %w", err)
 	}
 	return authNProvider, authZProvider, nil
 }
 
-func initAAPAuth(cfg *config.Config, log logrus.FieldLogger, orgResolver resolvers.Resolver) (AuthNMiddleware, AuthZMiddleware, error) {
+func initAAPAuth(cfg *config.Config, log logrus.FieldLogger) (common.AuthNMiddleware, AuthZMiddleware, error) {
 	gatewayUrl := strings.TrimSuffix(cfg.Auth.AAP.ApiUrl, "/")
 	gatewayExternalUrl := strings.TrimSuffix(cfg.Auth.AAP.ExternalApiUrl, "/")
 	log.Infof("AAP Gateway auth enabled: %s", gatewayUrl)
-	authZProvider := authz.NewOrgMembershipAuthZ(orgResolver)
+	authZProvider := authz.NewStaticAuthZ()
 	authNProvider, err := authn.NewAapGatewayAuth(gatewayUrl, gatewayExternalUrl, getTlsConfig(cfg))
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create AAP Gateway AuthN: %w", err)
