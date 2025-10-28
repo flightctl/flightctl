@@ -18,6 +18,7 @@ import (
 
 // createTestOIDCAuth creates an OIDCAuth instance for testing without OIDC discovery
 func createTestOIDCAuth(jwksUri string) OIDCAuth {
+	ctx := context.Background()
 	oidcAuth := OIDCAuth{
 		jwksUri:       jwksUri,
 		client:        &http.Client{Timeout: 5 * time.Second},
@@ -28,9 +29,14 @@ func createTestOIDCAuth(jwksUri string) OIDCAuth {
 		},
 	}
 
-	// Initialize JWKS cache (this is what NewOIDCAuth does internally)
-	oidcAuth.jwksCache = jwk.NewCache(context.Background())
-	oidcAuth.jwksCache.Register(jwksUri, jwk.WithMinRefreshInterval(15*time.Minute))
+	// Initialize JWKS cache and mark discovery as complete to bypass lazy initialization
+	oidcAuth.jwksCache = jwk.NewCache(ctx)
+	_ = oidcAuth.jwksCache.Register(jwksUri, jwk.WithMinRefreshInterval(15*time.Minute))
+
+	// Mark discovery as complete to prevent ensureDiscovery from running
+	oidcAuth.discoveryOnce.Do(func() {
+		// Discovery already done manually for testing
+	})
 
 	return oidcAuth
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/auth/issuer"
 )
 
 // AuthToken handles OAuth2 token requests
@@ -45,63 +46,7 @@ func (h *ServiceHandler) AuthJWKS(ctx context.Context) (*api.JWKSResponse, api.S
 		return nil, api.StatusInternalServerError(err.Error())
 	}
 
-	// The JWKS from the PAM issuer is already in the correct format
-	// It returns a map with "keys" containing the actual JWK array
-	if keysInterface, ok := jwks["keys"]; ok {
-		if keysArray, ok := keysInterface.([]interface{}); ok {
-			// Convert the JWK array to the expected struct format
-			keys := make([]struct {
-				Alg *string `json:"alg,omitempty"`
-				E   *string `json:"e,omitempty"`
-				Kid *string `json:"kid,omitempty"`
-				Kty *string `json:"kty,omitempty"`
-				N   *string `json:"n,omitempty"`
-				Use *string `json:"use,omitempty"`
-			}, len(keysArray))
-
-			for i, keyInterface := range keysArray {
-				if keyMap, ok := keyInterface.(map[string]interface{}); ok {
-					// Extract values from the JWK map
-					if alg, ok := keyMap["alg"].(string); ok {
-						keys[i].Alg = &alg
-					}
-					if e, ok := keyMap["e"].(string); ok {
-						keys[i].E = &e
-					}
-					if kid, ok := keyMap["kid"].(string); ok {
-						keys[i].Kid = &kid
-					}
-					if kty, ok := keyMap["kty"].(string); ok {
-						keys[i].Kty = &kty
-					}
-					if n, ok := keyMap["n"].(string); ok {
-						keys[i].N = &n
-					}
-					if use, ok := keyMap["use"].(string); ok {
-						keys[i].Use = &use
-					}
-				}
-			}
-
-			return &api.JWKSResponse{
-				Keys: &keys,
-			}, api.StatusOK()
-		}
-	}
-
-	// Fallback: return empty keys if conversion fails
-	keys := make([]struct {
-		Alg *string `json:"alg,omitempty"`
-		E   *string `json:"e,omitempty"`
-		Kid *string `json:"kid,omitempty"`
-		Kty *string `json:"kty,omitempty"`
-		N   *string `json:"n,omitempty"`
-		Use *string `json:"use,omitempty"`
-	}, 0)
-
-	return &api.JWKSResponse{
-		Keys: &keys,
-	}, api.StatusOK()
+	return jwks, api.StatusOK()
 }
 
 // AuthOpenIDConfiguration handles OpenID Connect discovery requests
@@ -116,68 +61,48 @@ func (h *ServiceHandler) AuthOpenIDConfiguration(ctx context.Context) (*api.Open
 		baseURL = "http://localhost:8080" // fallback
 	}
 
-	config := h.oidcIssuer.GetOpenIDConfiguration(baseURL)
-
-	// Helper function to safely get string values
-	getString := func(key string) *string {
-		if val, ok := config[key].(string); ok {
-			return &val
-		}
-		return nil
+	config, err := h.oidcIssuer.GetOpenIDConfiguration(baseURL)
+	if err != nil {
+		return nil, api.StatusInternalServerError(err.Error())
 	}
 
-	// Helper function to safely get string slice values
-	getStringSlice := func(key string) *[]string {
-		if val, ok := config[key].([]string); ok {
-			return &val
-		}
-		return nil
-	}
-
-	return &api.OpenIDConfiguration{
-		Issuer:                            getString("issuer"),
-		AuthorizationEndpoint:             getString("authorization_endpoint"),
-		TokenEndpoint:                     getString("token_endpoint"),
-		UserinfoEndpoint:                  getString("userinfo_endpoint"),
-		JwksUri:                           getString("jwks_uri"),
-		ResponseTypesSupported:            getStringSlice("response_types_supported"),
-		GrantTypesSupported:               getStringSlice("grant_types_supported"),
-		ScopesSupported:                   getStringSlice("scopes_supported"),
-		ClaimsSupported:                   getStringSlice("claims_supported"),
-		IdTokenSigningAlgValuesSupported:  getStringSlice("id_token_signing_alg_values_supported"),
-		TokenEndpointAuthMethodsSupported: getStringSlice("token_endpoint_auth_methods_supported"),
-	}, api.StatusOK()
+	return config, api.StatusOK()
 }
 
 // AuthAuthorize handles OAuth2 authorization requests
-func (h *ServiceHandler) AuthAuthorize(ctx context.Context, params api.AuthAuthorizeParams) (*api.Status, api.Status) {
+func (h *ServiceHandler) AuthAuthorize(ctx context.Context, params api.AuthAuthorizeParams) (*issuer.AuthorizeResponse, api.Status) {
 	if h.oidcIssuer == nil {
 		return nil, api.StatusInternalServerError("OIDC issuer not configured")
 	}
 
 	// Call the OIDC issuer's Authorize method
+	// The issuer returns a structured response indicating HTML or redirect
 	response, err := h.oidcIssuer.Authorize(ctx, &params)
 	if err != nil {
 		return nil, api.StatusBadRequest(err.Error())
 	}
 
-	// Return the response (could be HTML login form or redirect URL)
-	return &api.Status{
-		Message: response,
-	}, api.StatusOK()
+	return response, api.StatusOK()
 }
 
 // AuthLogin handles login form submission
 func (h *ServiceHandler) AuthLogin(ctx context.Context, username, password, clientID, redirectURI, state string) (*api.Status, api.Status) {
+	h.log.Infof("AuthLogin: handling login for user %s, clientID=%s, redirectURI=%s", username, clientID, redirectURI)
+
 	if h.oidcIssuer == nil {
+		h.log.Errorf("AuthLogin: OIDC issuer not configured")
 		return nil, api.StatusInternalServerError("OIDC issuer not configured")
 	}
 
 	// Call the OIDC issuer's Login method
+	h.log.Infof("AuthLogin: calling OIDC issuer Login for user %s", username)
 	response, err := h.oidcIssuer.Login(ctx, username, password, clientID, redirectURI, state)
 	if err != nil {
+		h.log.Errorf("AuthLogin: OIDC issuer Login failed for user %s - %v", username, err)
 		return nil, api.StatusBadRequest(err.Error())
 	}
+
+	h.log.Infof("AuthLogin: login successful for user %s, redirect URL=%s", username, response)
 
 	// Return the response (redirect URL)
 	return &api.Status{

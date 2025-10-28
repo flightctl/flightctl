@@ -31,7 +31,7 @@ func verifyDevicePatchFailed(require *require.Assertions, status api.Status) {
 
 func testDevicePatch(require *require.Assertions, patch api.PatchRequest) (*api.Device, api.Device, api.Status) {
 	_ = os.Setenv(auth.DisableAuthEnvKey, "true")
-	_, _, err := auth.InitAuth(nil, log.InitLogs(), nil)
+	_, _, err := auth.InitMultiAuth(nil, log.InitLogs(), nil)
 	require.NoError(err)
 
 	status := api.NewDeviceStatus()
@@ -64,7 +64,7 @@ func testDevicePatch(require *require.Assertions, patch api.PatchRequest) (*api.
 
 func testDeviceStatusPatch(require *require.Assertions, orig api.Device, patch api.PatchRequest) (*api.Device, api.Status) {
 	_ = os.Setenv(auth.DisableAuthEnvKey, "true")
-	_, _, err := auth.InitAuth(nil, log.InitLogs(), nil)
+	_, _, err := auth.InitMultiAuth(nil, log.InitLogs(), nil)
 	require.NoError(err)
 
 	ts := &TestStore{}

@@ -15,34 +15,9 @@ import (
 	"github.com/flightctl/flightctl/internal/identity"
 	"github.com/flightctl/flightctl/internal/org"
 	orgmodel "github.com/flightctl/flightctl/internal/org/model"
-	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 )
-
-type mockOrgStore struct {
-	t       *testing.T
-	wantID  uuid.UUID
-	respOrg *model.Organization
-	respErr error
-	called  bool
-}
-
-func (m *mockOrgStore) GetByID(_ context.Context, id uuid.UUID) (*model.Organization, error) {
-	if m.t != nil && m.wantID != uuid.Nil && m.wantID != id {
-		m.t.Errorf("unexpected id: got %v, want %v", id, m.wantID)
-	}
-	m.called = true
-	return m.respOrg, m.respErr
-}
-
-func (m *mockOrgStore) ListByExternalIDs(_ context.Context, ids []string) ([]*model.Organization, error) {
-	return nil, m.respErr
-}
-
-func (m *mockOrgStore) UpsertMany(_ context.Context, orgs []*model.Organization) ([]*model.Organization, error) {
-	return nil, m.respErr
-}
 
 // createCertWithOrgID returns an *x509.Certificate with the organization ID
 // stored in an extension identified by signer.OIDOrgID.

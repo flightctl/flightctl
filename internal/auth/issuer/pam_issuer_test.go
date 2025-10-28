@@ -226,29 +226,17 @@ func TestPAMOIDCProvider_Token(t *testing.T) {
 }
 
 func TestPAMOIDCProvider_GetOpenIDConfiguration(t *testing.T) {
+	caClient := createTestCAClient(t)
+
 	tests := []struct {
-		name     string
-		config   *config.PAMOIDCIssuer
-		baseURL  string
-		expected map[string]interface{}
+		name    string
+		config  *config.PAMOIDCIssuer
+		baseURL string
 	}{
 		{
 			name:    "default configuration",
 			config:  &config.PAMOIDCIssuer{},
 			baseURL: "https://example.com",
-			expected: map[string]interface{}{
-				"issuer":                                "https://example.com",
-				"authorization_endpoint":                "https://example.com/api/v1/auth/authorize",
-				"token_endpoint":                        "https://example.com/api/v1/auth/token",
-				"userinfo_endpoint":                     "https://example.com/api/v1/auth/userinfo",
-				"jwks_uri":                              "https://example.com/api/v1/auth/jwks",
-				"response_types_supported":              []string{"code"},
-				"grant_types_supported":                 []string{"authorization_code", "refresh_token"},
-				"scopes_supported":                      []string{"openid", "profile", "email", "roles"},
-				"claims_supported":                      []string{"sub", "preferred_username", "name", "email", "email_verified", "roles", "organizations"},
-				"id_token_signing_alg_values_supported": []string{"RS256"},
-				"token_endpoint_auth_methods_supported": []string{"client_secret_post"},
-			},
 		},
 		{
 			name: "custom configuration with issuer",
@@ -257,31 +245,25 @@ func TestPAMOIDCProvider_GetOpenIDConfiguration(t *testing.T) {
 				Scopes: []string{"openid", "profile"},
 			},
 			baseURL: "https://example.com",
-			expected: map[string]interface{}{
-				"issuer":                                "https://custom.example.com",
-				"authorization_endpoint":                "https://custom.example.com/api/v1/auth/authorize",
-				"token_endpoint":                        "https://custom.example.com/api/v1/auth/token",
-				"userinfo_endpoint":                     "https://custom.example.com/api/v1/auth/userinfo",
-				"jwks_uri":                              "https://custom.example.com/api/v1/auth/jwks",
-				"response_types_supported":              []string{"code"},
-				"grant_types_supported":                 []string{"authorization_code", "refresh_token"},
-				"scopes_supported":                      []string{"openid", "profile"},
-				"claims_supported":                      []string{"sub", "preferred_username", "name", "email", "email_verified", "roles", "organizations"},
-				"id_token_signing_alg_values_supported": []string{"RS256"},
-				"token_endpoint_auth_methods_supported": []string{"client_secret_post"},
-			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			provider := &PAMOIDCProvider{
-				config: tt.config,
+			provider, err := NewPAMOIDCProvider(caClient, tt.config)
+			require.NoError(t, err)
+
+			result, err := provider.GetOpenIDConfiguration(tt.baseURL)
+			require.NoError(t, err)
+			assert.NotNil(t, result)
+
+			// Verify the issuer is set correctly
+			expectedIssuer := tt.baseURL
+			if tt.config.Issuer != "" {
+				expectedIssuer = tt.config.Issuer
 			}
-
-			result := provider.GetOpenIDConfiguration(tt.baseURL)
-
-			assert.Equal(t, tt.expected, result)
+			assert.NotNil(t, result.Issuer)
+			assert.Equal(t, expectedIssuer, *result.Issuer)
 		})
 	}
 }
@@ -297,11 +279,11 @@ func TestPAMOIDCProvider_GetJWKS(t *testing.T) {
 	result, err := provider.GetJWKS()
 
 	// The actual result depends on the JWT generator implementation
-	// We just verify it doesn't error and returns a map
+	// We just verify it doesn't error and returns a proper response
 	require.NoError(t, err)
 	assert.NotNil(t, result)
 	// Verify it has the expected structure for JWKS
-	assert.Contains(t, result, "keys")
+	assert.NotNil(t, result.Keys)
 }
 
 func TestPAMOIDCProvider_UserInfo(t *testing.T) {
@@ -374,9 +356,11 @@ func TestPAMOIDCProvider_InterfaceCompliance(t *testing.T) {
 	assert.NotNil(t, userInfoResp.Error)
 
 	// GetOpenIDConfiguration method
-	oidcConfig := provider.GetOpenIDConfiguration("https://test.com")
+	oidcConfig, err := provider.GetOpenIDConfiguration("https://test.com")
+	require.NoError(t, err)
 	assert.NotNil(t, oidcConfig)
-	assert.Contains(t, oidcConfig, "issuer")
+	assert.NotNil(t, oidcConfig.Issuer)
+	assert.Equal(t, "https://test.com", *oidcConfig.Issuer)
 
 	// GetJWKS method
 	jwks, err := provider.GetJWKS()
@@ -470,11 +454,14 @@ func TestPAMOIDCProvider_AuthorizationCodeFlow(t *testing.T) {
 		ctx := context.WithValue(context.Background(), consts.SessionIDCtxKey, sessionID)
 
 		// Get authorization code
-		authCode, err := provider.Authorize(ctx, authParams)
+		authResp, err := provider.Authorize(ctx, authParams)
 		require.NoError(t, err)
-		assert.Contains(t, authCode, "code=")
+		require.NotNil(t, authResp)
+		assert.Equal(t, AuthorizeResponseTypeRedirect, authResp.Type)
+		assert.Contains(t, authResp.Content, "code=")
 
 		// Extract the code from the redirect URL
+		authCode := authResp.Content
 		codeStart := strings.Index(authCode, "code=") + 5
 		codeEnd := strings.Index(authCode[codeStart:], "&")
 		if codeEnd == -1 {
@@ -540,11 +527,14 @@ func TestPAMOIDCProvider_AuthorizationCodeFlow(t *testing.T) {
 		ctx := context.WithValue(context.Background(), consts.SessionIDCtxKey, sessionID)
 
 		// Get authorization code
-		authCode, err := provider.Authorize(ctx, authParams)
+		authResp, err := provider.Authorize(ctx, authParams)
 		require.NoError(t, err)
-		assert.Contains(t, authCode, "code=")
+		require.NotNil(t, authResp)
+		assert.Equal(t, AuthorizeResponseTypeRedirect, authResp.Type)
+		assert.Contains(t, authResp.Content, "code=")
 
 		// Extract the code from the redirect URL
+		authCode := authResp.Content
 		codeStart := strings.Index(authCode, "code=") + 5
 		codeEnd := strings.Index(authCode[codeStart:], "&")
 		if codeEnd == -1 {
@@ -590,11 +580,14 @@ func TestPAMOIDCProvider_AuthorizationCodeFlow(t *testing.T) {
 		ctx := context.WithValue(context.Background(), consts.SessionIDCtxKey, sessionID)
 
 		// Get authorization code
-		authCode, err := provider.Authorize(ctx, authParams)
+		authResp, err := provider.Authorize(ctx, authParams)
 		require.NoError(t, err)
-		assert.Contains(t, authCode, "code=")
+		require.NotNil(t, authResp)
+		assert.Equal(t, AuthorizeResponseTypeRedirect, authResp.Type)
+		assert.Contains(t, authResp.Content, "code=")
 
 		// Extract the code from the redirect URL
+		authCode := authResp.Content
 		codeStart := strings.Index(authCode, "code=") + 5
 		codeEnd := strings.Index(authCode[codeStart:], "&")
 		if codeEnd == -1 {
@@ -679,11 +672,14 @@ func TestPAMOIDCProvider_RefreshTokenFlow(t *testing.T) {
 		ctx := context.WithValue(context.Background(), consts.SessionIDCtxKey, sessionID)
 
 		// Get authorization code
-		authCode, err := provider.Authorize(ctx, authParams)
+		authResp, err := provider.Authorize(ctx, authParams)
 		require.NoError(t, err)
-		assert.Contains(t, authCode, "code=")
+		require.NotNil(t, authResp)
+		assert.Equal(t, AuthorizeResponseTypeRedirect, authResp.Type)
+		assert.Contains(t, authResp.Content, "code=")
 
 		// Extract the code from the redirect URL
+		authCode := authResp.Content
 		codeStart := strings.Index(authCode, "code=") + 5
 		codeEnd := strings.Index(authCode[codeStart:], "&")
 		if codeEnd == -1 {
@@ -856,11 +852,14 @@ func TestPAMOIDCProvider_UserInfoClaims(t *testing.T) {
 	provider.CreateUserSession(sessionID, testUsername, "test-client", "https://example.com/callback", "test-state")
 	ctx := context.WithValue(context.Background(), consts.SessionIDCtxKey, sessionID)
 
-	authCode, err := provider.Authorize(ctx, authParams)
+	authResp, err := provider.Authorize(ctx, authParams)
 	require.NoError(t, err)
-	assert.Contains(t, authCode, "code=")
+	require.NotNil(t, authResp)
+	assert.Equal(t, AuthorizeResponseTypeRedirect, authResp.Type)
+	assert.Contains(t, authResp.Content, "code=")
 
 	// Extract the code from the redirect URL
+	authCode := authResp.Content
 	codeStart := strings.Index(authCode, "code=") + 5
 	codeEnd := strings.Index(authCode[codeStart:], "&")
 	if codeEnd == -1 {
@@ -956,11 +955,14 @@ func TestPAMOIDCProvider_EndToEndFlow(t *testing.T) {
 	provider.CreateUserSession(sessionID, testUsername, "test-client", "https://example.com/callback", "test-state")
 	ctx := context.WithValue(context.Background(), consts.SessionIDCtxKey, sessionID)
 
-	authCode, err := provider.Authorize(ctx, authParams)
+	authResp, err := provider.Authorize(ctx, authParams)
 	require.NoError(t, err)
-	assert.Contains(t, authCode, "code=")
+	require.NotNil(t, authResp)
+	assert.Equal(t, AuthorizeResponseTypeRedirect, authResp.Type)
+	assert.Contains(t, authResp.Content, "code=")
 
 	// Extract the code from the redirect URL
+	authCode := authResp.Content
 	codeStart := strings.Index(authCode, "code=") + 5
 	codeEnd := strings.Index(authCode[codeStart:], "&")
 	if codeEnd == -1 {

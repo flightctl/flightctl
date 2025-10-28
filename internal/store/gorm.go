@@ -32,7 +32,7 @@ func initDBWithUser(cfg *config.Config, log *logrus.Logger, user string, passwor
 
 	if cfg.Database.Type != "pgsql" {
 		errString := fmt.Sprintf("failed to connect database %s: only PostgreSQL is supported", cfg.Database.Type)
-		log.Fatalf(errString)
+		log.Fatal(errString)
 		return nil, errors.New(errString)
 	}
 	dsn := createDSN(cfg, user, password)

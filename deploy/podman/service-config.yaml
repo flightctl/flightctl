@@ -1,7 +1,7 @@
 global:
   baseDomain:
   auth:
-    type: none # aap, oidc or none
+    type: oidc # aap, oidc or none
     insecureSkipTlsVerify: false
     aap:
       apiUrl:
@@ -9,9 +9,23 @@ global:
       oAuthApplicationClientId:
       oAuthToken:
     oidc:
-      oidcAuthority:
+      clientId: flightctl-client
+      enabled: true
+      issuer:
       externalOidcAuthority:
-      oidcClientId:
+      organizationAssignment:
+        type: static
+        organizationName: default
+      usernameClaim: preferred_username
+      roleClaim: groups
+    pamOidcIssuer:
+      enabled: true
+      issuer:
+      clientId: flightctl-client
+      clientSecret:
+      scopes: openid,profile,email,roles
+      redirectUris:
+      pamService: flightctl
   organizations:
     # Enable IdP-provided organizations support
     enabled: false

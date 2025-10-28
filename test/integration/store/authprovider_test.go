@@ -318,11 +318,6 @@ var _ = Describe("AuthProviderStore", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(results)).To(Equal(2)) // Two orgs
 		})
-
-		It("InitialMigration", func() {
-			err := authStore.InitialMigration(ctx)
-			Expect(err).ToNot(HaveOccurred())
-		})
 	})
 
 	Context("AuthProvider validation", func() {

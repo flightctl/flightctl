@@ -51,7 +51,7 @@ PATCH := $(shell echo $(SOURCE_GIT_TAG_NO_V) | awk -F'[._~-]' '{print $$3}')
 
 # If a FIPS-validated Go toolset is found, build in FIPS mode unless explicitly disabled by the user using DISABLE_FIPS="true"
 FIPS_VALIDATED_TOOLSET := $(shell go env GOVERSION | grep -q "Red Hat"; if [ $$? -eq 0 ]; then echo "true"; fi)
-GOENV := CGO_ENABLED=0
+GOENV := CGO_ENABLED=1
 ifeq ($(FIPS_VALIDATED_TOOLSET),true)
 	ifneq ($(DISABLE_FIPS),true)
 		GOENV := CGO_ENABLED=1 CGO_CFLAGS=-flto GOEXPERIMENT=strictfipsruntime

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/auth/issuer"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
 )
@@ -106,16 +107,6 @@ type Service interface {
 	PatchAuthProvider(ctx context.Context, name string, patch api.PatchRequest) (*api.AuthProvider, api.Status)
 	DeleteAuthProvider(ctx context.Context, name string) api.Status
 
-	// AuthProvider
-	CreateAuthProvider(ctx context.Context, authProvider api.AuthProvider) (*api.AuthProvider, api.Status)
-	ListAuthProviders(ctx context.Context, params api.ListAuthProvidersParams) (*api.AuthProviderList, api.Status)
-	GetAuthProvider(ctx context.Context, name string) (*api.AuthProvider, api.Status)
-	GetAuthProviderByIssuerAndClientId(ctx context.Context, issuer string, clientId string) (*api.AuthProvider, api.Status)
-	GetAuthProviderByAuthorizationUrl(ctx context.Context, authorizationUrl string) (*api.AuthProvider, api.Status)
-	ReplaceAuthProvider(ctx context.Context, name string, authProvider api.AuthProvider) (*api.AuthProvider, api.Status)
-	PatchAuthProvider(ctx context.Context, name string, patch api.PatchRequest) (*api.AuthProvider, api.Status)
-	DeleteAuthProvider(ctx context.Context, name string) api.Status
-
 	// Auth
 	GetAuthConfig(ctx context.Context, authConfig *api.AuthConfig) (*api.AuthConfig, api.Status)
 
@@ -153,6 +144,6 @@ type Service interface {
 	AuthUserInfo(ctx context.Context, accessToken string) (*api.UserInfoResponse, api.Status)
 	AuthJWKS(ctx context.Context) (*api.JWKSResponse, api.Status)
 	AuthOpenIDConfiguration(ctx context.Context) (*api.OpenIDConfiguration, api.Status)
-	AuthAuthorize(ctx context.Context, params api.AuthAuthorizeParams) (*api.Status, api.Status)
+	AuthAuthorize(ctx context.Context, params api.AuthAuthorizeParams) (*issuer.AuthorizeResponse, api.Status)
 	AuthLogin(ctx context.Context, username, password, clientID, redirectURI, state string) (*api.Status, api.Status)
 }

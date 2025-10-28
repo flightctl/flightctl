@@ -8,7 +8,9 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/auth"
+	"github.com/flightctl/flightctl/internal/auth/issuer"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/sirupsen/logrus"
 )
 
 // (POST /api/v1/auth/token)
@@ -59,8 +61,31 @@ func (h *TransportHandler) AuthAuthorize(w http.ResponseWriter, r *http.Request,
 	// Extract session information from HTTP request and add to context
 	ctx := h.extractSessionContext(r.Context(), r)
 
-	body, status := h.serviceHandler.AuthAuthorize(ctx, params)
-	SetResponse(w, body, status)
+	authorizeResp, status := h.serviceHandler.AuthAuthorize(ctx, params)
+
+	// Check for error response
+	if authorizeResp == nil {
+		SetResponse(w, nil, status)
+		return
+	}
+
+	// OIDC spec: authorization endpoint returns HTML (login form) or redirect
+	switch authorizeResp.Type {
+	case issuer.AuthorizeResponseTypeHTML:
+		// Return HTML login form with correct content-type
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(authorizeResp.Content))
+
+	case issuer.AuthorizeResponseTypeRedirect:
+		// Return 302 redirect to callback with authorization code
+		w.Header().Set("Location", authorizeResp.Content)
+		w.WriteHeader(http.StatusFound)
+
+	default:
+		// Fallback: return as JSON (shouldn't happen)
+		SetResponse(w, &api.Status{Message: authorizeResp.Content}, status)
+	}
 }
 
 // (POST /api/v1/auth/login)
@@ -93,9 +118,62 @@ func (h *TransportHandler) AuthLogin(w http.ResponseWriter, r *http.Request, par
 
 // (POST /api/v1/auth/login)
 func (h *TransportHandler) AuthLoginPost(w http.ResponseWriter, r *http.Request) {
-	// TODO: Implement OAuth2 login flow
-	// This is a placeholder implementation for OAuth2 login
-	http.Error(w, "OAuth2 login not yet implemented", http.StatusNotImplemented)
+	ctx := r.Context()
+
+	// Parse form data
+	if err := r.ParseForm(); err != nil {
+		logrus.Errorf("AuthLoginPost: failed to parse form data - %v", err)
+		SetResponse(w, nil, api.StatusBadRequest("Failed to parse form data"))
+		return
+	}
+
+	// Extract required fields from form
+	username := r.FormValue("username")
+	password := r.FormValue("password")
+	clientID := r.FormValue("client_id")
+	redirectURI := r.FormValue("redirect_uri")
+	state := r.FormValue("state")
+
+	logrus.Infof("AuthLoginPost: received login request - username=%s, clientID=%s, redirectURI=%s, state=%s, hasPassword=%v",
+		username, clientID, redirectURI, state, password != "")
+
+	// Validate required fields
+	if username == "" || password == "" || clientID == "" || redirectURI == "" {
+		logrus.Warnf("AuthLoginPost: missing required fields - username=%v, hasPassword=%v, clientID=%v, redirectURI=%v",
+			username != "", password != "", clientID != "", redirectURI != "")
+		SetResponse(w, nil, api.StatusBadRequest("Missing required fields"))
+		return
+	}
+
+	// Call service handler
+	logrus.Infof("AuthLoginPost: calling service handler for user %s", username)
+	body, status := h.serviceHandler.AuthLogin(ctx, username, password, clientID, redirectURI, state)
+
+	logrus.Infof("AuthLoginPost: service handler returned - status=%d, hasBody=%v, message=%s",
+		status.Code, body != nil, func() string {
+			if body != nil {
+				return body.Message
+			}
+			return ""
+		}())
+
+	// OIDC spec: login endpoint should redirect to authorization endpoint with session
+	// Check if response contains a redirect URL
+	if body != nil && body.Message != "" {
+		if strings.HasPrefix(body.Message, "http://") ||
+			strings.HasPrefix(body.Message, "https://") ||
+			strings.HasPrefix(body.Message, "/") {
+			// Return 302 redirect
+			logrus.Infof("AuthLoginPost: redirecting to %s", body.Message)
+			w.Header().Set("Location", body.Message)
+			w.WriteHeader(http.StatusFound)
+			return
+		}
+	}
+
+	// Default: return as JSON (for errors)
+	logrus.Warnf("AuthLoginPost: returning error response - status=%d", status.Code)
+	SetResponse(w, body, status)
 }
 
 // (GET /api/v1/auth/config)
@@ -140,12 +218,4 @@ func (h *TransportHandler) extractSessionContext(ctx context.Context, r *http.Re
 	}
 
 	return ctx
-}
-
-// Helper function to create string pointer
-func stringPtr(s string) *string {
-	if s == "" {
-		return nil
-	}
-	return &s
 }

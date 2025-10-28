@@ -138,7 +138,7 @@ func InitMultiAuth(cfg *config.Config, log logrus.FieldLogger, authProviderServi
 
 	// Create TLS config for OIDC provider connections
 	tlsConfig := &tls.Config{
-		InsecureSkipVerify: cfg.Auth.InsecureSkipTlsVerify,
+		InsecureSkipVerify: cfg.Auth.InsecureSkipTlsVerify, //nolint:gosec // Configurable TLS verification for testing/dev environments
 	}
 
 	// Create MultiAuth instance

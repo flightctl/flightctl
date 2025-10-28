@@ -156,30 +156,6 @@ type CertificateInfo struct {
 	ExpirationDate time.Time
 }
 
-// extractAndValidateCertificate validates the peer certificate for enrollment using the same pattern as handler.go
-func (m *EnrollmentAuthMiddleware) extractAndValidateCertificate(ctx context.Context) (*tls.Certificate, error) {
-	// Validate certificate signer using the exact same pattern as ValidateEnrollmentAccessFromContext
-	signer := m.ca.PeerCertificateSignerFromCtx(ctx)
-
-	got := "<nil>"
-	if signer != nil {
-		got = signer.Name()
-	}
-
-	if signer == nil || signer.Name() != m.ca.Cfg.ClientBootstrapSignerName {
-		m.log.Warnf("unexpected client certificate signer: expected %q, got %q", m.ca.Cfg.ClientBootstrapSignerName, got)
-		return nil, fmt.Errorf("unexpected client certificate signer: expected %q, got %q", m.ca.Cfg.ClientBootstrapSignerName, got)
-	}
-
-	// Get peer certificate using the same pattern as handler.go
-	peerCertificate, err := m.ca.PeerCertificateFromCtx(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	return &tls.Certificate{Certificate: [][]byte{peerCertificate.Raw}}, nil
-}
-
 // EnrollmentIdentity implements the common.Identity interface for enrollment requests
 // This is different from device identities:
 // - Uses certificate common name as identity (not device fingerprint)

@@ -113,13 +113,13 @@ type alertmanagerConfig struct {
 }
 
 type authConfig struct {
-	K8s                     *k8sAuth        `json:"k8s,omitempty"`
-	OIDC                    *oidcAuth       `json:"oidc,omitempty"`
-	SSSDOIDCIssuer          *SSSDOIDCIssuer `json:"sssdOidcIssuer,omitempty"` // this is the issuer implementation configuration
-	AAP                     *aapAuth        `json:"aap,omitempty"`
-	CACert                  string          `json:"caCert,omitempty"`
-	InsecureSkipTlsVerify   bool            `json:"insecureSkipTlsVerify,omitempty"`
-	DynamicProviderCacheTTL util.Duration   `json:"dynamicProviderCacheTTL,omitempty"` // TTL for dynamic auth provider cache (default: 5s)
+	K8s                     *k8sAuth       `json:"k8s,omitempty"`
+	OIDC                    *oidcAuth      `json:"oidc,omitempty"`
+	PAMOIDCIssuer           *PAMOIDCIssuer `json:"pamOidcIssuer,omitempty"` // this is the issuer implementation configuration
+	AAP                     *aapAuth       `json:"aap,omitempty"`
+	CACert                  string         `json:"caCert,omitempty"`
+	InsecureSkipTlsVerify   bool           `json:"insecureSkipTlsVerify,omitempty"`
+	DynamicProviderCacheTTL util.Duration  `json:"dynamicProviderCacheTTL,omitempty"` // TTL for dynamic auth provider cache (default: 5s)
 }
 
 type k8sAuth struct {
@@ -149,8 +149,8 @@ type aapAuth struct {
 	ExternalApiUrl string `json:"externalApiUrl,omitempty"`
 }
 
-// SSSDOIDCIssuer represents an OIDC issuer that uses Linux SSSD for authentication
-type SSSDOIDCIssuer struct {
+// PAMOIDCIssuer represents an OIDC issuer that uses Linux PAM for authentication
+type PAMOIDCIssuer struct {
 	// Issuer is the base URL for the OIDC issuer (e.g., "https://flightctl.example.com")
 	Issuer string `json:"issuer,omitempty"`
 	// ClientID is the OAuth2 client ID for this issuer
@@ -161,8 +161,8 @@ type SSSDOIDCIssuer struct {
 	Scopes []string `json:"scopes,omitempty"`
 	// RedirectURIs are the allowed redirect URIs for OAuth2 flows
 	RedirectURIs []string `json:"redirectUris,omitempty"`
-	// SSSDService is the SSSD service name to use for authentication (default: "flightctl")
-	SSSDService string `json:"sssdService" validate:"required"`
+	// PAMService is the PAM service name to use for authentication (default: "flightctl")
+	PAMService string `json:"pamService" validate:"required"`
 }
 
 type metricsConfig struct {
@@ -498,6 +498,7 @@ func LoadOrGenerate(cfgFile string) (*Config, error) {
 	return NewFromFile(cfgFile)
 }
 
+//nolint:gocyclo // Function complexity is acceptable for configuration loading
 func Load(cfgFile string) (*Config, error) {
 	contents, err := os.ReadFile(cfgFile)
 	if err != nil {
@@ -568,22 +569,22 @@ func Load(cfgFile string) (*Config, error) {
 
 	// Set up OIDC issuer and client defaults only when explicitly configured
 	if c.Auth != nil {
-		// Only apply defaults if SSSD OIDC issuer block is provided
-		if c.Auth.SSSDOIDCIssuer != nil {
-			if c.Auth.SSSDOIDCIssuer.SSSDService == "" {
-				c.Auth.SSSDOIDCIssuer.SSSDService = "flightctl"
+		// Only apply defaults if PAM OIDC issuer block is provided
+		if c.Auth.PAMOIDCIssuer != nil {
+			if c.Auth.PAMOIDCIssuer.PAMService == "" {
+				c.Auth.PAMOIDCIssuer.PAMService = "flightctl"
 			}
-			if c.Auth.SSSDOIDCIssuer.Issuer == "" {
-				c.Auth.SSSDOIDCIssuer.Issuer = c.Service.BaseUrl
+			if c.Auth.PAMOIDCIssuer.Issuer == "" {
+				c.Auth.PAMOIDCIssuer.Issuer = c.Service.BaseUrl
 			}
-			if c.Auth.SSSDOIDCIssuer.ClientID == "" {
-				c.Auth.SSSDOIDCIssuer.ClientID = "flightctl-client"
+			if c.Auth.PAMOIDCIssuer.ClientID == "" {
+				c.Auth.PAMOIDCIssuer.ClientID = "flightctl-client"
 			}
-			if len(c.Auth.SSSDOIDCIssuer.Scopes) == 0 {
-				c.Auth.SSSDOIDCIssuer.Scopes = []string{"openid", "profile", "email", "roles"}
+			if len(c.Auth.PAMOIDCIssuer.Scopes) == 0 {
+				c.Auth.PAMOIDCIssuer.Scopes = []string{"openid", "profile", "email", "roles"}
 			}
-			if len(c.Auth.SSSDOIDCIssuer.RedirectURIs) == 0 {
-				c.Auth.SSSDOIDCIssuer.RedirectURIs = []string{c.Service.BaseUrl + "/auth/callback"}
+			if len(c.Auth.PAMOIDCIssuer.RedirectURIs) == 0 {
+				c.Auth.PAMOIDCIssuer.RedirectURIs = []string{c.Service.BaseUrl + "/auth/callback"}
 			}
 		}
 
@@ -611,7 +612,7 @@ func Load(cfgFile string) (*Config, error) {
 					OrganizationName: org.DefaultExternalID,
 					Type:             api.Static,
 				}
-				c.Auth.OIDC.OrganizationAssignment.FromAuthStaticOrganizationAssignment(staticAssignment)
+				_ = c.Auth.OIDC.OrganizationAssignment.FromAuthStaticOrganizationAssignment(staticAssignment)
 			}
 		}
 	}

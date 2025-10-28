@@ -225,35 +225,6 @@ func (o K8sAuthN) fetchRoleBindingsForUser(ctx context.Context, username string)
 	return roleNames, nil
 }
 
-// extractOrganizationsFromRoleBindings extracts organization names from role names
-// Roles with prefix "org-" or "org_" are treated as organizations
-func (o K8sAuthN) extractOrganizationsFromRoleBindings(ctx context.Context, username string) []string {
-	roleNames, err := o.fetchRoleBindingsForUser(ctx, username)
-	if err != nil {
-		return []string{}
-	}
-
-	var organizations []string
-	for _, roleName := range roleNames {
-		// Check for "org-" prefix (Kubernetes-friendly) and convert to organization name
-		if strings.HasPrefix(roleName, "org-") {
-			orgName := strings.TrimPrefix(roleName, "org-")
-			if orgName != "" {
-				organizations = append(organizations, orgName)
-			}
-		}
-		// Also check for "org_" prefix for consistency
-		if strings.HasPrefix(roleName, organizationPrefix) {
-			orgName := roleName[len(organizationPrefix):]
-			if orgName != "" {
-				organizations = append(organizations, orgName)
-			}
-		}
-	}
-
-	return organizations
-}
-
 func (o K8sAuthN) GetAuthConfig() *api.AuthConfig {
 	providerType := string(api.AuthProviderInfoTypeK8s)
 	providerName := string(api.AuthProviderInfoTypeK8s)
@@ -293,31 +264,6 @@ func (o K8sAuthN) extractRolesFromOpenShiftScopes(token string) []string {
 	}
 
 	return roles
-}
-
-// extractOrganizationsFromOpenShiftScopes extracts organization names from OpenShift OAuth token scopes
-// Organizations might be encoded in scopes with a specific pattern
-func (o K8sAuthN) extractOrganizationsFromOpenShiftScopes(token string) []string {
-	scopes, err := o.parseScopesFromToken(token)
-	if err != nil {
-		return []string{}
-	}
-
-	var organizations []string
-	for _, scope := range scopes {
-		// Look for organization patterns in scopes (e.g., "org_myorg:read")
-		if strings.HasPrefix(scope, organizationPrefix) {
-			parts := strings.Split(scope, "_")
-			if len(parts) >= 2 {
-				orgName := parts[1]
-				if orgName != "" {
-					organizations = append(organizations, orgName)
-				}
-			}
-		}
-	}
-
-	return organizations
 }
 
 // parseScopesFromToken parses the JWT token and extracts the scopes claim

@@ -19,6 +19,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
+	"github.com/sirupsen/logrus"
 )
 
 func TestPAMIssuerServiceIntegration(t *testing.T) {
@@ -59,8 +60,12 @@ var _ = Describe("PAM Issuer Service Integration Tests", func() {
 		Expect(err).ToNot(HaveOccurred())
 		Expect(provider).ToNot(BeNil())
 
+		// Create a test logger using logrus
+		testLogger := logrus.New()
+		testLogger.SetLevel(logrus.ErrorLevel) // Set to error level to reduce test noise
+
 		// Create service handler with the OIDC issuer
-		serviceHandler = service.NewServiceHandler(nil, nil, nil, caClient, nil, "", "", []string{}, provider)
+		serviceHandler = service.NewServiceHandler(nil, nil, nil, caClient, testLogger, "", "", []string{}, provider)
 	})
 
 	AfterEach(func() {
@@ -89,7 +94,8 @@ var _ = Describe("PAM Issuer Service Integration Tests", func() {
 			result, status := serviceHandler.AuthAuthorize(context.Background(), *authParams)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(result).ToNot(BeNil())
-			Expect(result.Message).To(ContainSubstring("Flightctl Login"))
+			Expect(result.Type).To(Equal(issuer.AuthorizeResponseTypeHTML))
+			Expect(result.Content).To(ContainSubstring("Flightctl Login"))
 
 			By("Step 2: Simulating login with mock PAM authenticator")
 			// Use the credentials that our mock authenticator will accept
@@ -130,7 +136,7 @@ var _ = Describe("PAM Issuer Service Integration Tests", func() {
 			fmt.Printf("DEBUG: Auth with session result: %+v, status: %+v\n", authResult, authStatus)
 
 			// Extract the authorization code from the final redirect URL
-			authCode, err := extractAuthCodeFromURL(authResult.Message)
+			authCode, err := extractAuthCodeFromURL(authResult.Content)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(authCode).ToNot(BeEmpty())
 			fmt.Printf("DEBUG: Extracted real auth code: %s\n", authCode)

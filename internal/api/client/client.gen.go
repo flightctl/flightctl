@@ -118,7 +118,7 @@ type ClientInterface interface {
 	// AuthTokenWithBody request with any body
 	AuthTokenWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	AuthTokenWithFormdataBody(ctx context.Context, body AuthTokenFormdataRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+	AuthToken(ctx context.Context, body AuthTokenJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// AuthUserInfo request
 	AuthUserInfo(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -504,8 +504,8 @@ func (c *Client) AuthTokenWithBody(ctx context.Context, contentType string, body
 	return c.Client.Do(req)
 }
 
-func (c *Client) AuthTokenWithFormdataBody(ctx context.Context, body AuthTokenFormdataRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewAuthTokenRequestWithFormdataBody(c.Server, body)
+func (c *Client) AuthToken(ctx context.Context, body AuthTokenJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAuthTokenRequest(c.Server, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1701,7 +1701,7 @@ func NewAuthOpenIDConfigurationRequest(server string) (*http.Request, error) {
 		return nil, err
 	}
 
-	operationPath := fmt.Sprintf("/api/v1/auth/.well-known/openid_configuration")
+	operationPath := fmt.Sprintf("/api/v1/auth/.well-known/openid-configuration")
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -2027,15 +2027,15 @@ func NewAuthLoginPostRequestWithBody(server string, contentType string, body io.
 	return req, nil
 }
 
-// NewAuthTokenRequestWithFormdataBody calls the generic AuthToken builder with application/x-www-form-urlencoded body
-func NewAuthTokenRequestWithFormdataBody(server string, body AuthTokenFormdataRequestBody) (*http.Request, error) {
+// NewAuthTokenRequest calls the generic AuthToken builder with application/json body
+func NewAuthTokenRequest(server string, body AuthTokenJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
-	bodyStr, err := runtime.MarshalForm(body, nil)
+	buf, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
 	}
-	bodyReader = strings.NewReader(bodyStr.Encode())
-	return NewAuthTokenRequestWithBody(server, "application/x-www-form-urlencoded", bodyReader)
+	bodyReader = bytes.NewReader(buf)
+	return NewAuthTokenRequestWithBody(server, "application/json", bodyReader)
 }
 
 // NewAuthTokenRequestWithBody generates requests for AuthToken with any type of body
@@ -5488,7 +5488,7 @@ type ClientWithResponsesInterface interface {
 	// AuthTokenWithBodyWithResponse request with any body
 	AuthTokenWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AuthTokenResponse, error)
 
-	AuthTokenWithFormdataBodyWithResponse(ctx context.Context, body AuthTokenFormdataRequestBody, reqEditors ...RequestEditorFn) (*AuthTokenResponse, error)
+	AuthTokenWithResponse(ctx context.Context, body AuthTokenJSONRequestBody, reqEditors ...RequestEditorFn) (*AuthTokenResponse, error)
 
 	// AuthUserInfoWithResponse request
 	AuthUserInfoWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*AuthUserInfoResponse, error)
@@ -7877,8 +7877,8 @@ func (c *ClientWithResponses) AuthTokenWithBodyWithResponse(ctx context.Context,
 	return ParseAuthTokenResponse(rsp)
 }
 
-func (c *ClientWithResponses) AuthTokenWithFormdataBodyWithResponse(ctx context.Context, body AuthTokenFormdataRequestBody, reqEditors ...RequestEditorFn) (*AuthTokenResponse, error) {
-	rsp, err := c.AuthTokenWithFormdataBody(ctx, body, reqEditors...)
+func (c *ClientWithResponses) AuthTokenWithResponse(ctx context.Context, body AuthTokenJSONRequestBody, reqEditors ...RequestEditorFn) (*AuthTokenResponse, error) {
+	rsp, err := c.AuthToken(ctx, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}

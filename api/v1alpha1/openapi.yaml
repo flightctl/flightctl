@@ -147,30 +147,30 @@ paths:
           schema:
             type: string
             enum: [code, token]
-          description: OAuth2 response type
+          description: OAuth2 response type.
         - name: client_id
           in: query
           required: true
           schema:
             type: string
-          description: OAuth2 client ID
+          description: OAuth2 client ID.
         - name: redirect_uri
           in: query
           required: true
           schema:
             type: string
             format: uri
-          description: OAuth2 redirect URI
+          description: OAuth2 redirect URI.
         - name: scope
           in: query
           schema:
             type: string
-          description: OAuth2 scope
+          description: OAuth2 scope.
         - name: state
           in: query
           schema:
             type: string
-          description: OAuth2 state parameter
+          description: OAuth2 state parameter.
       responses:
         "200":
           description: Login form HTML (if user not authenticated)
@@ -241,19 +241,19 @@ paths:
           required: true
           schema:
             type: string
-          description: OAuth2 client ID
+          description: OAuth2 client ID.
         - name: redirect_uri
           in: query
           required: true
           schema:
             type: string
             format: uri
-          description: OAuth2 redirect URI
+          description: OAuth2 redirect URI.
         - name: state
           in: query
           schema:
             type: string
-          description: OAuth2 state parameter
+          description: OAuth2 state parameter.
       responses:
         "200":
           description: Login form HTML
@@ -363,7 +363,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/JWKSResponse'
-  /api/v1/auth/.well-known/openid_configuration:
+  /api/v1/auth/.well-known/openid-configuration:
     get:
       tags:
         - authentication
@@ -4252,7 +4252,7 @@ components:
           refreshUrl: /api/v1/auth/token
     openIdConnect:
       type: openIdConnect
-      openIdConnectUrl: /api/v1/auth/.well-known/openid_configuration
+      openIdConnectUrl: /api/v1/auth/.well-known/openid-configuration
       description: OpenID Connect authentication
     orgId:
       type: apiKey

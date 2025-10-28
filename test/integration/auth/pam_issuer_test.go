@@ -4,7 +4,6 @@ package auth_test
 
 import (
 	"context"
-	"testing"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/auth/issuer"
@@ -15,11 +14,6 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
 )
-
-func TestPAMIssuerIntegration(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecs(t, "PAM Issuer Integration Suite")
-}
 
 var _ = Describe("PAM Issuer Integration Tests", func() {
 	var (
@@ -44,6 +38,7 @@ var _ = Describe("PAM Issuer Integration Tests", func() {
 			ClientID:     "test-client",
 			ClientSecret: "test-secret",
 			RedirectURIs: []string{"https://example.com/callback"},
+			PAMService:   "other", // Use 'other' PAM service for authentication
 		}
 
 		provider, err = issuer.NewPAMOIDCProvider(caClient, config)
@@ -59,20 +54,25 @@ var _ = Describe("PAM Issuer Integration Tests", func() {
 
 	Context("PAM Issuer Integration", func() {
 		It("should provide OpenID Configuration", func() {
-			config := provider.GetOpenIDConfiguration("https://base.example.com")
+			config, err := provider.GetOpenIDConfiguration("https://base.example.com")
+			Expect(err).ToNot(HaveOccurred())
 
 			Expect(config).ToNot(BeNil())
-			Expect(config["issuer"]).To(Equal("https://test.example.com"))
-			Expect(config["scopes_supported"]).To(Equal([]string{"openid", "profile", "email"}))
-			Expect(config["response_types_supported"]).To(ContainElement("code"))
-			Expect(config["grant_types_supported"]).To(ContainElements("authorization_code", "refresh_token"))
+			Expect(config.Issuer).ToNot(BeNil())
+			Expect(*config.Issuer).To(Equal("https://test.example.com"))
+			Expect(config.ScopesSupported).ToNot(BeNil())
+			Expect(*config.ScopesSupported).To(Equal([]string{"openid", "profile", "email"}))
+			Expect(config.ResponseTypesSupported).ToNot(BeNil())
+			Expect(*config.ResponseTypesSupported).To(ContainElement("code"))
+			Expect(config.GrantTypesSupported).ToNot(BeNil())
+			Expect(*config.GrantTypesSupported).To(ContainElements("authorization_code", "refresh_token"))
 		})
 
 		It("should provide JWKS endpoint", func() {
 			jwks, err := provider.GetJWKS()
 			Expect(err).ToNot(HaveOccurred())
 			Expect(jwks).ToNot(BeNil())
-			Expect(jwks).To(HaveKey("keys"))
+			Expect(jwks.Keys).ToNot(BeNil())
 		})
 
 		It("should handle authorization code flow with real PAM", func() {
@@ -87,10 +87,12 @@ var _ = Describe("PAM Issuer Integration Tests", func() {
 			}
 
 			// This will return a login form since no session is established
-			authCode, err := provider.Authorize(ctx, authParams)
+			authResp, err := provider.Authorize(ctx, authParams)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(authCode).To(ContainSubstring("<!DOCTYPE html>"))
-			Expect(authCode).To(ContainSubstring("Flightctl Login"))
+			Expect(authResp).ToNot(BeNil())
+			Expect(authResp.Type).To(Equal(issuer.AuthorizeResponseTypeHTML))
+			Expect(authResp.Content).To(ContainSubstring("<!DOCTYPE html>"))
+			Expect(authResp.Content).To(ContainSubstring("Flightctl Login"))
 		})
 
 		It("should handle token validation", func() {
@@ -158,9 +160,10 @@ var _ = Describe("PAM Issuer Integration Tests", func() {
 			Expect(userInfoResp.Error).ToNot(BeNil())
 
 			// GetOpenIDConfiguration method
-			oidcConfig := provider.GetOpenIDConfiguration("https://test.com")
+			oidcConfig, err := provider.GetOpenIDConfiguration("https://test.com")
+			Expect(err).ToNot(HaveOccurred())
 			Expect(oidcConfig).ToNot(BeNil())
-			Expect(oidcConfig).To(HaveKey("issuer"))
+			Expect(oidcConfig.Issuer).ToNot(BeNil())
 
 			// GetJWKS method
 			jwks, err := provider.GetJWKS()
@@ -169,37 +172,4 @@ var _ = Describe("PAM Issuer Integration Tests", func() {
 		})
 	})
 
-	Context("PAM Issuer with Real Authentication", func() {
-		// These tests would require actual PAM setup and real user accounts
-		// They are marked as pending for now since they need a real PAM environment
-
-		PIt("should authenticate real users via PAM", func() {
-			// This test would require:
-			// 1. Real PAM configuration
-			// 2. Real user accounts in the system
-			// 3. Actual authentication flow
-
-			// Example test structure:
-			// authParams := &v1alpha1.AuthAuthorizeParams{...}
-			// sessionID := "real-session-id"
-			// ctx := context.WithValue(ctx, consts.SessionIDCtxKey, sessionID)
-			//
-			// authCode, err := provider.Authorize(ctx, authParams)
-			// Expect(err).ToNot(HaveOccurred())
-			//
-			// tokenReq := &v1alpha1.TokenRequest{...}
-			// response, err := provider.Token(ctx, tokenReq)
-			// Expect(err).ToNot(HaveOccurred())
-			// Expect(response.AccessToken).ToNot(BeNil())
-		})
-
-		PIt("should handle real user groups and roles", func() {
-			// This test would verify that real system groups are properly mapped to roles
-			// and that the user info endpoint returns correct information
-		})
-
-		PIt("should handle real refresh token flow", func() {
-			// This test would verify the complete refresh token flow with real authentication
-		})
-	})
 })

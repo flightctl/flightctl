@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -52,6 +53,12 @@ type OIDCAuth struct {
 	scopes                []string
 	jwksCache             *jwk.Cache
 	organizationExtractor *OrganizationExtractor
+
+	// Lazy OIDC discovery initialization
+	// We need to fetch the discovery document once to get the JWKS URL,
+	// then Register() it with the cache. After that, cache.Get() handles everything.
+	discoveryOnce sync.Once
+	discoveryErr  error
 }
 
 type OIDCServerResponse struct {
@@ -76,38 +83,63 @@ func NewOIDCAuth(providerName string, oidcAuthority string, clientTlsConfig *tls
 		scopes:           scopes,
 	}
 
-	res, err := oidcAuth.client.Get(fmt.Sprintf("%s/.well-known/openid-configuration", oidcAuthority))
-	if err != nil {
-		return oidcAuth, err
-	}
-	oidcResponse := OIDCServerResponse{}
-	defer res.Body.Close()
-	bodyBytes, err := io.ReadAll(res.Body)
-	if err != nil {
-		return oidcAuth, err
-	}
-	if err := json.Unmarshal(bodyBytes, &oidcResponse); err != nil {
-		return oidcAuth, err
-	}
-	oidcAuth.jwksUri = oidcResponse.JwksUri
-
-	// Initialize JWKS cache with 15-minute refresh interval
-	// This balances performance with key rotation requirements
-	oidcAuth.jwksCache = jwk.NewCache(context.Background())
-	oidcAuth.jwksCache.Register(oidcAuth.jwksUri, jwk.WithMinRefreshInterval(15*time.Minute))
-
 	// Create stateless organization extractor
 	oidcAuth.organizationExtractor = NewOrganizationExtractor(orgConfig)
+
+	// Note: OIDC discovery (.well-known/openid-configuration) is fetched lazily on first token validation
+	// This prevents startup deadlocks when the API server is its own OIDC provider
 
 	return oidcAuth, nil
 }
 
-func (o OIDCAuth) ValidateToken(ctx context.Context, token string) error {
+// ensureDiscovery performs lazy OIDC discovery on first use
+// This is called automatically before validating tokens
+func (o *OIDCAuth) ensureDiscovery(ctx context.Context) error {
+	o.discoveryOnce.Do(func() {
+		res, err := o.client.Get(fmt.Sprintf("%s/.well-known/openid-configuration", o.oidcAuthority))
+		if err != nil {
+			o.discoveryErr = fmt.Errorf("failed to fetch OIDC discovery document: %w", err)
+			return
+		}
+		defer res.Body.Close()
+
+		oidcResponse := OIDCServerResponse{}
+		bodyBytes, err := io.ReadAll(res.Body)
+		if err != nil {
+			o.discoveryErr = fmt.Errorf("failed to read OIDC discovery response: %w", err)
+			return
+		}
+
+		if err := json.Unmarshal(bodyBytes, &oidcResponse); err != nil {
+			o.discoveryErr = fmt.Errorf("failed to parse OIDC discovery document: %w", err)
+			return
+		}
+
+		o.jwksUri = oidcResponse.JwksUri
+
+		// Initialize JWKS cache with 15-minute refresh interval
+		// This balances performance with key rotation requirements
+		o.jwksCache = jwk.NewCache(ctx)
+		if err := o.jwksCache.Register(o.jwksUri, jwk.WithMinRefreshInterval(15*time.Minute)); err != nil {
+			o.discoveryErr = fmt.Errorf("failed to register JWKS cache: %w", err)
+			return
+		}
+	})
+
+	return o.discoveryErr
+}
+
+func (o *OIDCAuth) ValidateToken(ctx context.Context, token string) error {
 	_, err := o.parseAndCreateIdentity(ctx, token)
 	return err
 }
 
-func (o OIDCAuth) parseAndCreateIdentity(ctx context.Context, token string) (*JWTIdentity, error) {
+func (o *OIDCAuth) parseAndCreateIdentity(ctx context.Context, token string) (*JWTIdentity, error) {
+	// Ensure OIDC discovery has been performed (lazy initialization)
+	if err := o.ensureDiscovery(ctx); err != nil {
+		return nil, fmt.Errorf("OIDC discovery failed: %w", err)
+	}
+
 	var jwkSet jwk.Set
 	var err error
 
@@ -142,23 +174,10 @@ func (o OIDCAuth) parseAndCreateIdentity(ctx context.Context, token string) (*JW
 	// Validate audience claim contains expected client ID
 	if o.expectedClientId != "" {
 		audienceValid := false
-		if aud, exists := parsedToken.Get("aud"); exists {
-			switch audValue := aud.(type) {
-			case string:
-				// Single audience - must match exactly
-				if audValue == o.expectedClientId {
-					audienceValid = true
-				}
-			case []interface{}:
-				// Multiple audiences - check if our client ID is in the list
-				for _, v := range audValue {
-					if audStr, ok := v.(string); ok {
-						if audStr == o.expectedClientId {
-							audienceValid = true
-							break
-						}
-					}
-				}
+		for _, v := range parsedToken.Audience() {
+			if v == o.expectedClientId {
+				audienceValid = true
+				break
 			}
 		}
 
@@ -226,19 +245,15 @@ func (o OIDCAuth) parseAndCreateIdentity(ctx context.Context, token string) (*JW
 	identity.SetOrganizations(reportedOrganizations)
 
 	// Set the issuer from JWT token
-	issuerID := ""
-	if iss, exists := parsedToken.Get("iss"); exists {
-		if issStr, ok := iss.(string); ok {
-			issuerID = issStr
-		}
+	if issuer := parsedToken.Issuer(); issuer != "" {
+		issuer := identitypkg.NewIssuer(identitypkg.AuthTypeOIDC, issuer)
+		identity.SetIssuer(issuer)
 	}
-	issuer := identitypkg.NewIssuer(identitypkg.AuthTypeOIDC, issuerID)
-	identity.SetIssuer(issuer)
 
 	return identity, nil
 }
 
-func (o OIDCAuth) GetIdentity(ctx context.Context, token string) (common.Identity, error) {
+func (o *OIDCAuth) GetIdentity(ctx context.Context, token string) (common.Identity, error) {
 	identity, err := o.parseAndCreateIdentity(ctx, token)
 	if err != nil {
 		return nil, err
@@ -247,7 +262,7 @@ func (o OIDCAuth) GetIdentity(ctx context.Context, token string) (common.Identit
 	return identity, nil
 }
 
-func (o OIDCAuth) GetAuthConfig() *api.AuthConfig {
+func (o *OIDCAuth) GetAuthConfig() *api.AuthConfig {
 	orgEnabled := false
 	if o.orgConfig != nil {
 		orgEnabled = o.orgConfig.Enabled
@@ -272,12 +287,12 @@ func (o OIDCAuth) GetAuthConfig() *api.AuthConfig {
 	}
 }
 
-func (o OIDCAuth) GetAuthToken(r *http.Request) (string, error) {
+func (o *OIDCAuth) GetAuthToken(r *http.Request) (string, error) {
 	return common.ExtractBearerToken(r)
 }
 
 // extractRoles extracts roles from multiple possible JWT claims
-func (o OIDCAuth) extractRoles(token jwt.Token) []string {
+func (o *OIDCAuth) extractRoles(token jwt.Token) []string {
 	var roles []string
 
 	// 1. Try configured groups claim first

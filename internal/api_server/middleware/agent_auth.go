@@ -3,7 +3,6 @@ package middleware
 import (
 	"context"
 	"crypto/tls"
-	"crypto/x509"
 	"fmt"
 	"net/http"
 	"time"
@@ -163,82 +162,6 @@ type DeviceInfo struct {
 	OrgID             string
 	CommonName        string
 	ExpirationDate    time.Time
-}
-
-// extractAndValidateCertificate validates the peer certificate using the same pattern as handler.go
-func (m *AgentAuthMiddleware) extractAndValidateCertificate(ctx context.Context) (*tls.Certificate, error) {
-	// Validate certificate signer using the same pattern as handler.go
-	if s := m.ca.PeerCertificateSignerFromCtx(ctx); s != nil && s.Name() != m.ca.Cfg.DeviceEnrollmentSignerName {
-		m.log.Warnf("unexpected client certificate signer: expected %q, got %q", m.ca.Cfg.DeviceEnrollmentSignerName, s.Name())
-		return nil, fmt.Errorf("unexpected client certificate signer: expected %q, got %q", m.ca.Cfg.DeviceEnrollmentSignerName, s.Name())
-	}
-
-	peerCertificate, err := m.ca.PeerCertificateFromCtx(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	return &tls.Certificate{Certificate: [][]byte{peerCertificate.Raw}}, nil
-}
-
-// extractDeviceInfo extracts device information from the certificate
-func (m *AgentAuthMiddleware) extractDeviceInfo(cert *tls.Certificate) (*DeviceInfo, error) {
-	if len(cert.Certificate) == 0 {
-		return nil, fmt.Errorf("no certificate data")
-	}
-
-	// Parse the certificate
-	x509Cert, err := x509.ParseCertificate(cert.Certificate[0])
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse certificate: %w", err)
-	}
-
-	// Extract device fingerprint from CN
-	deviceFingerprint, err := signer.DeviceFingerprintFromCN(m.ca.Cfg, x509Cert.Subject.CommonName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to extract device fingerprint from CN: %w", err)
-	}
-
-	// Extract device fingerprint from extension (for validation)
-	extensionFingerprint, err := signer.GetDeviceFingerprintExtension(x509Cert)
-	if err != nil {
-		return nil, fmt.Errorf("failed to extract device fingerprint from extension: %w", err)
-	}
-
-	// Validate that CN and extension fingerprints match
-	if deviceFingerprint != extensionFingerprint {
-		return nil, fmt.Errorf("device fingerprint mismatch: CN=%s, extension=%s", deviceFingerprint, extensionFingerprint)
-	}
-
-	// Extract organization ID from extension
-	orgID, present, err := signer.GetOrgIDExtensionFromCert(x509Cert)
-	if err != nil {
-		return nil, fmt.Errorf("failed to extract organization ID from certificate: %w", err)
-	}
-
-	// Use default org ID if not present in certificate
-	if !present {
-		orgID = org.DefaultID
-	}
-
-	return &DeviceInfo{
-		DeviceFingerprint: deviceFingerprint,
-		OrgID:             orgID.String(),
-		CommonName:        x509Cert.Subject.CommonName,
-		ExpirationDate:    x509Cert.NotAfter,
-	}, nil
-}
-
-// createAgentIdentity creates an identity object for the authenticated agent
-func (m *AgentAuthMiddleware) createAgentIdentity(deviceInfo *DeviceInfo) common.Identity {
-	// Create a simple identity for the agent
-	// Agents don't have traditional user roles, they are authenticated by their certificate
-	return &AgentIdentity{
-		deviceFingerprint: deviceInfo.DeviceFingerprint,
-		orgID:             deviceInfo.OrgID,
-		commonName:        deviceInfo.CommonName,
-		expirationDate:    deviceInfo.ExpirationDate,
-	}
 }
 
 // AgentIdentity implements the common.Identity interface for agents

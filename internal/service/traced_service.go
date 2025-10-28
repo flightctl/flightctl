@@ -8,6 +8,7 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/auth/issuer"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
@@ -604,7 +605,7 @@ func (t *TracedService) GetDatabaseTime(ctx context.Context) (time.Time, api.Sta
 	return resp, st
 }
 
-func (t *TracedService) AuthAuthorize(ctx context.Context, params api.AuthAuthorizeParams) (*api.Status, api.Status) {
+func (t *TracedService) AuthAuthorize(ctx context.Context, params api.AuthAuthorizeParams) (*issuer.AuthorizeResponse, api.Status) {
 	ctx, span := startSpan(ctx, "AuthAuthorize")
 	resp, st := t.inner.AuthAuthorize(ctx, params)
 	endSpan(span, st)

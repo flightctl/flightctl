@@ -494,32 +494,32 @@ type ApplicationsSummaryStatusType string
 
 // AuthConfig defines model for AuthConfig.
 type AuthConfig struct {
-	// DefaultProvider Name of the default authentication provider
+	// DefaultProvider Name of the default authentication provider.
 	DefaultProvider *string `json:"defaultProvider,omitempty"`
 
-	// OrganizationsEnabled Whether organizations are enabled for authentication
+	// OrganizationsEnabled Whether organizations are enabled for authentication.
 	OrganizationsEnabled *bool `json:"organizationsEnabled,omitempty"`
 
-	// Providers List of all available authentication providers
+	// Providers List of all available authentication providers.
 	Providers *[]AuthProviderInfo `json:"providers,omitempty"`
 }
 
 // AuthDynamicOrganizationAssignment AuthDynamicOrganizationAssignment assigns users to organizations based on auth provider claims.
 type AuthDynamicOrganizationAssignment struct {
-	// ClaimPath The JSON path to the claim that contains the organization identifier (e.g., "groups.0" or "custom.org")
+	// ClaimPath The JSON path to the claim that contains the organization identifier (e.g., "groups.0" or "custom.org").
 	ClaimPath string `json:"claimPath"`
 
-	// OrganizationNamePrefix The prefix for the organization name (e.g., "org-")
+	// OrganizationNamePrefix The prefix for the organization name (e.g., "org-").
 	OrganizationNamePrefix *string `json:"organizationNamePrefix,omitempty"`
 
-	// OrganizationNameSuffix The suffix for the organization name (e.g., "-org")
+	// OrganizationNameSuffix The suffix for the organization name (e.g., "-org").
 	OrganizationNameSuffix *string `json:"organizationNameSuffix,omitempty"`
 
-	// Type The type of organization assignment
+	// Type The type of organization assignment.
 	Type AuthDynamicOrganizationAssignmentType `json:"type"`
 }
 
-// AuthDynamicOrganizationAssignmentType The type of organization assignment
+// AuthDynamicOrganizationAssignmentType The type of organization assignment.
 type AuthDynamicOrganizationAssignmentType string
 
 // AuthOrganizationAssignment AuthOrganizationAssignment defines how users from this auth provider are assigned to organizations.
@@ -529,17 +529,17 @@ type AuthOrganizationAssignment struct {
 
 // AuthPerUserOrganizationAssignment AuthPerUserOrganizationAssignment creates a separate organization for each user.
 type AuthPerUserOrganizationAssignment struct {
-	// OrganizationNamePrefix The prefix for the user-specific organization name (e.g., "user-org-")
+	// OrganizationNamePrefix The prefix for the user-specific organization name (e.g., "user-org-").
 	OrganizationNamePrefix *string `json:"organizationNamePrefix,omitempty"`
 
-	// OrganizationNameSuffix The suffix for the user-specific organization name (e.g., "-org")
+	// OrganizationNameSuffix The suffix for the user-specific organization name (e.g., "-org").
 	OrganizationNameSuffix *string `json:"organizationNameSuffix,omitempty"`
 
-	// Type The type of organization assignment
+	// Type The type of organization assignment.
 	Type AuthPerUserOrganizationAssignmentType `json:"type"`
 }
 
-// AuthPerUserOrganizationAssignmentType The type of organization assignment
+// AuthPerUserOrganizationAssignmentType The type of organization assignment.
 type AuthPerUserOrganizationAssignmentType string
 
 // AuthProvider AuthProvider represents an authentication provider configuration supporting both OIDC and OAuth2.
@@ -557,44 +557,44 @@ type AuthProvider struct {
 
 // AuthProviderInfo Auth config.
 type AuthProviderInfo struct {
-	// AuthUrl Authentication URL for the provider
+	// AuthUrl Authentication URL for the provider.
 	AuthUrl *string `json:"authUrl,omitempty"`
 
-	// ClientId Default client ID for OIDC/OAuth2 providers
+	// ClientId Default client ID for OIDC/OAuth2 providers.
 	ClientId *string `json:"clientId,omitempty"`
 
-	// DisplayName Human-readable display name
+	// DisplayName Human-readable display name.
 	DisplayName *string `json:"displayName,omitempty"`
 
-	// IsDefault Whether this is the default provider
+	// IsDefault Whether this is the default provider.
 	IsDefault *bool `json:"isDefault,omitempty"`
 
-	// IsStatic Whether this is a static provider (from config) or dynamic (from database)
+	// IsStatic Whether this is a static provider (from config) or dynamic (from database).
 	IsStatic *bool `json:"isStatic,omitempty"`
 
-	// Issuer OIDC issuer URL (for OIDC providers)
+	// Issuer OIDC issuer URL (for OIDC providers).
 	Issuer *string `json:"issuer,omitempty"`
 
-	// Name Unique identifier for the provider
+	// Name Unique identifier for the provider.
 	Name *string `json:"name,omitempty"`
 
-	// Scopes OAuth2 scopes (for OAuth2 providers)
+	// Scopes OAuth2 scopes (for OAuth2 providers).
 	Scopes *[]string `json:"scopes,omitempty"`
 
-	// TokenUrl Token endpoint URL (for OAuth2 providers)
+	// TokenUrl Token endpoint URL (for OAuth2 providers).
 	TokenUrl *string `json:"tokenUrl,omitempty"`
 
-	// Type Type of authentication provider
+	// Type Type of authentication provider.
 	Type *AuthProviderInfoType `json:"type,omitempty"`
 
-	// UserinfoUrl Userinfo endpoint URL (for OAuth2 providers)
+	// UserinfoUrl Userinfo endpoint URL (for OAuth2 providers).
 	UserinfoUrl *string `json:"userinfoUrl,omitempty"`
 
-	// UsernameClaim JSON path to the username claim (for OIDC/OAuth2 providers)
+	// UsernameClaim JSON path to the username claim (for OIDC/OAuth2 providers).
 	UsernameClaim *string `json:"usernameClaim,omitempty"`
 }
 
-// AuthProviderInfoType Type of authentication provider
+// AuthProviderInfoType Type of authentication provider.
 type AuthProviderInfoType string
 
 // AuthProviderList AuthProviderList is a list of auth providers.
@@ -619,14 +619,14 @@ type AuthProviderSpec struct {
 
 // AuthStaticOrganizationAssignment AuthStaticOrganizationAssignment assigns all users from this auth provider to a single static organization.
 type AuthStaticOrganizationAssignment struct {
-	// OrganizationName The name of the organization where all users will be assigned
+	// OrganizationName The name of the organization where all users will be assigned.
 	OrganizationName string `json:"organizationName"`
 
-	// Type The type of organization assignment
+	// Type The type of organization assignment.
 	Type AuthStaticOrganizationAssignmentType `json:"type"`
 }
 
-// AuthStaticOrganizationAssignmentType The type of organization assignment
+// AuthStaticOrganizationAssignmentType The type of organization assignment.
 type AuthStaticOrganizationAssignmentType string
 
 // Batch Batch is an element in batch sequence.
@@ -1795,22 +1795,22 @@ type InternalTaskPermanentlyFailedDetailsDetailType string
 // JWKSResponse JSON Web Key Set
 type JWKSResponse struct {
 	Keys *[]struct {
-		// Alg Algorithm
+		// Alg Algorithm.
 		Alg *string `json:"alg,omitempty"`
 
-		// E RSA exponent
+		// E RSA exponent.
 		E *string `json:"e,omitempty"`
 
-		// Kid Key ID
+		// Kid Key ID.
 		Kid *string `json:"kid,omitempty"`
 
-		// Kty Key type
+		// Kty Key type.
 		Kty *string `json:"kty,omitempty"`
 
-		// N RSA modulus
+		// N RSA modulus.
 		N *string `json:"n,omitempty"`
 
-		// Use Key use
+		// Use Key use.
 		Use *string `json:"use,omitempty"`
 	} `json:"keys,omitempty"`
 }
@@ -1886,77 +1886,77 @@ type MemoryResourceMonitorSpec struct {
 
 // OAuth2ProviderSpec OAuth2ProviderSpec describes an OAuth2 provider configuration.
 type OAuth2ProviderSpec struct {
-	// AuthorizationUrl The OAuth2 authorization endpoint URL
+	// AuthorizationUrl The OAuth2 authorization endpoint URL.
 	AuthorizationUrl string `json:"authorizationUrl"`
 
-	// ClientId The OAuth2 client ID
+	// ClientId The OAuth2 client ID.
 	ClientId string `json:"clientId"`
 
-	// ClientSecret The OAuth2 client secret
+	// ClientSecret The OAuth2 client secret.
 	ClientSecret string `json:"clientSecret"`
 
-	// Enabled Whether this OAuth2 provider is enabled
+	// Enabled Whether this OAuth2 provider is enabled.
 	Enabled *bool `json:"enabled,omitempty"`
 
-	// Issuer The OAuth2 issuer identifier (used for issuer identification in tokens)
+	// Issuer The OAuth2 issuer identifier (used for issuer identification in tokens).
 	Issuer string `json:"issuer"`
 
 	// OrganizationAssignment AuthOrganizationAssignment defines how users from this auth provider are assigned to organizations.
 	OrganizationAssignment AuthOrganizationAssignment `json:"organizationAssignment"`
 
-	// ProviderType The type of authentication provider
+	// ProviderType The type of authentication provider.
 	ProviderType OAuth2ProviderSpecProviderType `json:"providerType"`
 
-	// RoleClaim JSON path to the role/group claim in the userinfo response (e.g., "groups", "roles", "realm_access.roles")
+	// RoleClaim JSON path to the role/group claim in the userinfo response (e.g., "groups", "roles", "realm_access.roles").
 	RoleClaim *string `json:"roleClaim,omitempty"`
 
-	// Scopes List of OAuth2 scopes to request
+	// Scopes List of OAuth2 scopes to request.
 	Scopes *[]string `json:"scopes,omitempty"`
 
-	// TokenUrl The OAuth2 token endpoint URL
+	// TokenUrl The OAuth2 token endpoint URL.
 	TokenUrl string `json:"tokenUrl"`
 
-	// UserinfoUrl The OAuth2 userinfo endpoint URL
+	// UserinfoUrl The OAuth2 userinfo endpoint URL.
 	UserinfoUrl string `json:"userinfoUrl"`
 
-	// UsernameClaim JSON path to the username claim in the userinfo response (e.g., "preferred_username", "email", "sub")
+	// UsernameClaim JSON path to the username claim in the userinfo response (e.g., "preferred_username", "email", "sub").
 	UsernameClaim *string `json:"usernameClaim,omitempty"`
 }
 
-// OAuth2ProviderSpecProviderType The type of authentication provider
+// OAuth2ProviderSpecProviderType The type of authentication provider.
 type OAuth2ProviderSpecProviderType string
 
 // OIDCProviderSpec OIDCProviderSpec describes an OIDC provider configuration.
 type OIDCProviderSpec struct {
-	// ClientId The OIDC client ID
+	// ClientId The OIDC client ID.
 	ClientId string `json:"clientId"`
 
-	// ClientSecret The OIDC client secret
+	// ClientSecret The OIDC client secret.
 	ClientSecret string `json:"clientSecret"`
 
-	// Enabled Whether this OIDC provider is enabled
+	// Enabled Whether this OIDC provider is enabled.
 	Enabled *bool `json:"enabled,omitempty"`
 
-	// Issuer The OIDC issuer URL (e.g., https://accounts.google.com)
+	// Issuer The OIDC issuer URL (e.g., https://accounts.google.com).
 	Issuer string `json:"issuer"`
 
 	// OrganizationAssignment AuthOrganizationAssignment defines how users from this auth provider are assigned to organizations.
 	OrganizationAssignment AuthOrganizationAssignment `json:"organizationAssignment"`
 
-	// ProviderType The type of authentication provider
+	// ProviderType The type of authentication provider.
 	ProviderType OIDCProviderSpecProviderType `json:"providerType"`
 
-	// RoleClaim JSON path to the role/group claim in the JWT token (e.g., "groups", "roles", "realm_access.roles")
+	// RoleClaim JSON path to the role/group claim in the JWT token (e.g., "groups", "roles", "realm_access.roles").
 	RoleClaim *string `json:"roleClaim,omitempty"`
 
-	// Scopes List of OIDC scopes to request
+	// Scopes List of OIDC scopes to request.
 	Scopes *[]string `json:"scopes,omitempty"`
 
-	// UsernameClaim JSON path to the username claim in the JWT token (e.g., "preferred_username", "email", "sub")
+	// UsernameClaim JSON path to the username claim in the JWT token (e.g., "preferred_username", "email", "sub").
 	UsernameClaim *string `json:"usernameClaim,omitempty"`
 }
 
-// OIDCProviderSpecProviderType The type of authentication provider
+// OIDCProviderSpecProviderType The type of authentication provider.
 type OIDCProviderSpecProviderType string
 
 // ObjectMeta ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
@@ -1997,37 +1997,37 @@ type ObjectReference struct {
 
 // OpenIDConfiguration OpenID Connect configuration
 type OpenIDConfiguration struct {
-	// AuthorizationEndpoint Authorization endpoint
+	// AuthorizationEndpoint Authorization endpoint.
 	AuthorizationEndpoint *string `json:"authorization_endpoint,omitempty"`
 
-	// ClaimsSupported Supported claims
+	// ClaimsSupported Supported claims.
 	ClaimsSupported *[]string `json:"claims_supported,omitempty"`
 
-	// GrantTypesSupported Supported grant types
+	// GrantTypesSupported Supported grant types.
 	GrantTypesSupported *[]string `json:"grant_types_supported,omitempty"`
 
-	// IdTokenSigningAlgValuesSupported Supported signing algorithms
+	// IdTokenSigningAlgValuesSupported Supported signing algorithms.
 	IdTokenSigningAlgValuesSupported *[]string `json:"id_token_signing_alg_values_supported,omitempty"`
 
-	// Issuer OIDC issuer
+	// Issuer OIDC issuer.
 	Issuer *string `json:"issuer,omitempty"`
 
-	// JwksUri JWKS endpoint
+	// JwksUri JWKS endpoint.
 	JwksUri *string `json:"jwks_uri,omitempty"`
 
-	// ResponseTypesSupported Supported response types
+	// ResponseTypesSupported Supported response types.
 	ResponseTypesSupported *[]string `json:"response_types_supported,omitempty"`
 
-	// ScopesSupported Supported scopes
+	// ScopesSupported Supported scopes.
 	ScopesSupported *[]string `json:"scopes_supported,omitempty"`
 
-	// TokenEndpoint Token endpoint
+	// TokenEndpoint Token endpoint.
 	TokenEndpoint *string `json:"token_endpoint,omitempty"`
 
-	// TokenEndpointAuthMethodsSupported Supported authentication methods
+	// TokenEndpointAuthMethodsSupported Supported authentication methods.
 	TokenEndpointAuthMethodsSupported *[]string `json:"token_endpoint_auth_methods_supported,omitempty"`
 
-	// UserinfoEndpoint UserInfo endpoint
+	// UserinfoEndpoint UserInfo endpoint.
 	UserinfoEndpoint *string `json:"userinfo_endpoint,omitempty"`
 }
 
@@ -2432,56 +2432,56 @@ type TimeZone = string
 
 // TokenRequest OAuth2 token request
 type TokenRequest struct {
-	// ClientId OAuth2 client ID
+	// ClientId OAuth2 client ID.
 	ClientId *string `json:"client_id,omitempty"`
 
-	// ClientSecret OAuth2 client secret
+	// ClientSecret OAuth2 client secret.
 	ClientSecret *string `json:"client_secret,omitempty"`
 
-	// Code Authorization code for authorization_code grant
+	// Code Authorization code for authorization_code grant.
 	Code *string `json:"code,omitempty"`
 
-	// GrantType OAuth2 grant type
+	// GrantType OAuth2 grant type.
 	GrantType TokenRequestGrantType `json:"grant_type"`
 
-	// Password Password for password grant
+	// Password Password for password grant.
 	Password *string `json:"password,omitempty"`
 
-	// RefreshToken Refresh token for refresh_token grant
+	// RefreshToken Refresh token for refresh_token grant.
 	RefreshToken *string `json:"refresh_token,omitempty"`
 
-	// Scope OAuth2 scope
+	// Scope OAuth2 scope.
 	Scope *string `json:"scope,omitempty"`
 
-	// Username Username for password grant
+	// Username Username for password grant.
 	Username *string `json:"username,omitempty"`
 }
 
-// TokenRequestGrantType OAuth2 grant type
+// TokenRequestGrantType OAuth2 grant type.
 type TokenRequestGrantType string
 
 // TokenResponse OAuth2 token response
 type TokenResponse struct {
-	// AccessToken OAuth2 access token
+	// AccessToken OAuth2 access token.
 	AccessToken *string `json:"access_token,omitempty"`
 
-	// Error OAuth2 error code
+	// Error OAuth2 error code.
 	Error *string `json:"error,omitempty"`
 
-	// ErrorDescription OAuth2 error description
+	// ErrorDescription OAuth2 error description.
 	ErrorDescription *string `json:"error_description,omitempty"`
 
-	// ExpiresIn Token expiration time in seconds
+	// ExpiresIn Token expiration time in seconds.
 	ExpiresIn *int `json:"expires_in,omitempty"`
 
-	// RefreshToken OAuth2 refresh token
+	// RefreshToken OAuth2 refresh token.
 	RefreshToken *string `json:"refresh_token,omitempty"`
 
-	// TokenType Token type
+	// TokenType Token type.
 	TokenType *TokenResponseTokenType `json:"token_type,omitempty"`
 }
 
-// TokenResponseTokenType Token type
+// TokenResponseTokenType Token type.
 type TokenResponseTokenType string
 
 // UpdateSchedule Defines the schedule for automatic downloading and updates, including timing and optional timeout.
@@ -2501,28 +2501,28 @@ type UpdateSchedule struct {
 
 // UserInfoResponse OIDC UserInfo response
 type UserInfoResponse struct {
-	// Email Email address
+	// Email Email address.
 	Email *string `json:"email,omitempty"`
 
-	// EmailVerified Email verification status
+	// EmailVerified Email verification status.
 	EmailVerified *bool `json:"email_verified,omitempty"`
 
-	// Error Error code
+	// Error Error code.
 	Error *string `json:"error,omitempty"`
 
-	// Name Full name
+	// Name Full name.
 	Name *string `json:"name,omitempty"`
 
-	// Organizations User organizations
+	// Organizations User organizations.
 	Organizations *[]string `json:"organizations,omitempty"`
 
-	// PreferredUsername Preferred username
+	// PreferredUsername Preferred username.
 	PreferredUsername *string `json:"preferred_username,omitempty"`
 
-	// Roles User roles
+	// Roles User roles.
 	Roles *[]string `json:"roles,omitempty"`
 
-	// Sub Subject identifier
+	// Sub Subject identifier.
 	Sub *string `json:"sub,omitempty"`
 }
 
@@ -2534,19 +2534,19 @@ type Version struct {
 
 // AuthAuthorizeParams defines parameters for AuthAuthorize.
 type AuthAuthorizeParams struct {
-	// ResponseType OAuth2 response type
+	// ResponseType OAuth2 response type.
 	ResponseType AuthAuthorizeParamsResponseType `form:"response_type" json:"response_type"`
 
-	// ClientId OAuth2 client ID
+	// ClientId OAuth2 client ID.
 	ClientId string `form:"client_id" json:"client_id"`
 
-	// RedirectUri OAuth2 redirect URI
+	// RedirectUri OAuth2 redirect URI.
 	RedirectUri string `form:"redirect_uri" json:"redirect_uri"`
 
-	// Scope OAuth2 scope
+	// Scope OAuth2 scope.
 	Scope *string `form:"scope,omitempty" json:"scope,omitempty"`
 
-	// State OAuth2 state parameter
+	// State OAuth2 state parameter.
 	State *string `form:"state,omitempty" json:"state,omitempty"`
 }
 
@@ -2569,13 +2569,13 @@ type AuthAuthorizePostFormdataBodyResponseType string
 
 // AuthLoginParams defines parameters for AuthLogin.
 type AuthLoginParams struct {
-	// ClientId OAuth2 client ID
+	// ClientId OAuth2 client ID.
 	ClientId string `form:"client_id" json:"client_id"`
 
-	// RedirectUri OAuth2 redirect URI
+	// RedirectUri OAuth2 redirect URI.
 	RedirectUri string `form:"redirect_uri" json:"redirect_uri"`
 
-	// State OAuth2 state parameter
+	// State OAuth2 state parameter.
 	State *string `form:"state,omitempty" json:"state,omitempty"`
 }
 
@@ -2780,8 +2780,8 @@ type AuthAuthorizePostFormdataRequestBody AuthAuthorizePostFormdataBody
 // AuthLoginPostFormdataRequestBody defines body for AuthLoginPost for application/x-www-form-urlencoded ContentType.
 type AuthLoginPostFormdataRequestBody AuthLoginPostFormdataBody
 
-// AuthTokenFormdataRequestBody defines body for AuthToken for application/x-www-form-urlencoded ContentType.
-type AuthTokenFormdataRequestBody = TokenRequest
+// AuthTokenJSONRequestBody defines body for AuthToken for application/json ContentType.
+type AuthTokenJSONRequestBody = TokenRequest
 
 // CreateAuthProviderJSONRequestBody defines body for CreateAuthProvider for application/json ContentType.
 type CreateAuthProviderJSONRequestBody = AuthProvider

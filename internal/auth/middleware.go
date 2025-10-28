@@ -15,6 +15,8 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+type contextKey string
+
 type action string
 
 const (
@@ -135,7 +137,7 @@ func CreateAuthZMiddleware(authZ AuthZMiddleware, log logrus.FieldLogger) func(h
 			}
 
 			// Add HTTP request to context for authorization checks
-			ctx := context.WithValue(r.Context(), "http_request", r)
+			ctx := context.WithValue(r.Context(), contextKey("http_request"), r)
 
 			log.Debugf("AuthZMiddleware: checking authorization for path=%s, method=%s, resource=%s, action=%s",
 				r.URL.Path, r.Method, resource, action)

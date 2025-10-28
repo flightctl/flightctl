@@ -5,11 +5,13 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"os"
 	"time"
 
+	v1alpha1 "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	fccrypto "github.com/flightctl/flightctl/internal/crypto"
 	pkgcrypto "github.com/flightctl/flightctl/pkg/crypto"
@@ -278,7 +280,7 @@ func (g *JWTGenerator) GetPublicKeyPEM() (string, error) {
 }
 
 // GetJWKS returns the JWKS (JSON Web Key Set) for this generator
-func (g *JWTGenerator) GetJWKS() (map[string]interface{}, error) {
+func (g *JWTGenerator) GetJWKS() (*v1alpha1.JWKSResponse, error) {
 	// Get the public key from the private key
 	signer, ok := g.privateKey.(crypto.Signer)
 	if !ok {
@@ -299,8 +301,12 @@ func (g *JWTGenerator) GetJWKS() (map[string]interface{}, error) {
 	}
 
 	// Set algorithm and key type based on the key type
+	var alg string
+	var kty string
 	switch g.privateKey.(type) {
 	case *rsa.PrivateKey:
+		alg = "RS256"
+		kty = "RSA"
 		if err := jwkKey.Set(jwk.AlgorithmKey, jwa.RS256); err != nil {
 			return nil, fmt.Errorf("failed to set algorithm: %w", err)
 		}
@@ -309,6 +315,8 @@ func (g *JWTGenerator) GetJWKS() (map[string]interface{}, error) {
 		}
 	default:
 		// For ECDSA keys
+		alg = "ES256"
+		kty = "EC"
 		if err := jwkKey.Set(jwk.AlgorithmKey, jwa.ES256); err != nil {
 			return nil, fmt.Errorf("failed to set algorithm: %w", err)
 		}
@@ -321,12 +329,55 @@ func (g *JWTGenerator) GetJWKS() (map[string]interface{}, error) {
 		return nil, fmt.Errorf("failed to set key usage: %w", err)
 	}
 
-	// Create JWKS
-	jwks := map[string]interface{}{
-		"keys": []interface{}{jwkKey},
+	// Marshal the JWK to JSON and then unmarshal to map to get the actual JWK fields
+	jwkJSON, err := json.Marshal(jwkKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal JWK: %w", err)
 	}
 
-	return jwks, nil
+	var jwkMap map[string]interface{}
+	if err := json.Unmarshal(jwkJSON, &jwkMap); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal JWK to map: %w", err)
+	}
+
+	// Build the JWK struct matching the API type
+	// Note: The API type currently only includes RSA fields (E, N)
+	// EC key fields (X, Y, Crv) are in jwkMap but not exposed in the API type
+	use := "sig"
+	key := struct {
+		Alg *string `json:"alg,omitempty"`
+		E   *string `json:"e,omitempty"`
+		Kid *string `json:"kid,omitempty"`
+		Kty *string `json:"kty,omitempty"`
+		N   *string `json:"n,omitempty"`
+		Use *string `json:"use,omitempty"`
+	}{
+		Alg: &alg,
+		Kid: &g.keyID,
+		Kty: &kty,
+		Use: &use,
+	}
+
+	// Extract RSA-specific fields
+	if e, ok := jwkMap["e"].(string); ok {
+		key.E = &e
+	}
+	if n, ok := jwkMap["n"].(string); ok {
+		key.N = &n
+	}
+
+	keys := []struct {
+		Alg *string `json:"alg,omitempty"`
+		E   *string `json:"e,omitempty"`
+		Kid *string `json:"kid,omitempty"`
+		Kty *string `json:"kty,omitempty"`
+		N   *string `json:"n,omitempty"`
+		Use *string `json:"use,omitempty"`
+	}{key}
+
+	return &v1alpha1.JWKSResponse{
+		Keys: &keys,
+	}, nil
 }
 
 // ValidateToken validates a JWT token using the generator's public key

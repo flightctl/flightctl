@@ -31,22 +31,33 @@ func (m *MockOIDCIssuer) UserInfo(ctx context.Context, accessToken string) (*v1a
 }
 
 // GetOpenIDConfiguration implements the OIDCIssuer interface
-func (m *MockOIDCIssuer) GetOpenIDConfiguration(baseURL string) map[string]interface{} {
-	return map[string]interface{}{
-		"issuer": baseURL,
-	}
+func (m *MockOIDCIssuer) GetOpenIDConfiguration(baseURL string) (*v1alpha1.OpenIDConfiguration, error) {
+	return &v1alpha1.OpenIDConfiguration{
+		Issuer: &baseURL,
+	}, nil
 }
 
 // GetJWKS implements the OIDCIssuer interface
-func (m *MockOIDCIssuer) GetJWKS() (map[string]interface{}, error) {
-	return map[string]interface{}{
-		"keys": []interface{}{},
+func (m *MockOIDCIssuer) GetJWKS() (*v1alpha1.JWKSResponse, error) {
+	emptyKeys := []struct {
+		Alg *string `json:"alg,omitempty"`
+		E   *string `json:"e,omitempty"`
+		Kid *string `json:"kid,omitempty"`
+		Kty *string `json:"kty,omitempty"`
+		N   *string `json:"n,omitempty"`
+		Use *string `json:"use,omitempty"`
+	}{}
+	return &v1alpha1.JWKSResponse{
+		Keys: &emptyKeys,
 	}, nil
 }
 
 // Authorize implements the OIDCIssuer interface
-func (m *MockOIDCIssuer) Authorize(ctx context.Context, req *v1alpha1.AuthAuthorizeParams) (string, error) {
-	return "invalid_request", nil
+func (m *MockOIDCIssuer) Authorize(ctx context.Context, req *v1alpha1.AuthAuthorizeParams) (*issuer.AuthorizeResponse, error) {
+	return &issuer.AuthorizeResponse{
+		Type:    issuer.AuthorizeResponseTypeRedirect,
+		Content: "invalid_request",
+	}, nil
 }
 
 // Login implements the OIDCIssuer interface

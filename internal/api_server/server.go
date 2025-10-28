@@ -167,16 +167,16 @@ func (s *Server) Run(ctx context.Context) error {
 
 	// Create OIDC issuer if configured
 	var oidcIssuer issuer.OIDCIssuer
-	if s.cfg.Auth != nil && s.cfg.Auth.SSSDOIDCIssuer != nil {
-		// For now, we only support SSSD-based OIDC issuer
+	if s.cfg.Auth != nil && s.cfg.Auth.PAMOIDCIssuer != nil {
+		// For now, we only support PAM-based OIDC issuer
 		// This could be extended to support other issuer types in the future
-		// Create SSSD OIDC provider
-		// Note: SSSD functionality requires Linux build constraints
-		sssdOIDCProvider, err := s.createSSSDOIDCProvider()
+		// Create PAM OIDC provider
+		// Note: PAM functionality requires Linux build constraints
+		pamOIDCProvider, err := s.createPAMOIDCProvider()
 		if err != nil {
-			s.log.WithError(err).Warn("Failed to create SSSD OIDC provider, OIDC endpoints will not be available")
+			s.log.WithError(err).Warn("Failed to create PAM OIDC provider, OIDC endpoints will not be available")
 		} else {
-			oidcIssuer = sssdOIDCProvider
+			oidcIssuer = pamOIDCProvider
 		}
 	}
 

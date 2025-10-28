@@ -51,7 +51,7 @@ global:
       usernameClaim: "preferred_username"
       # -- Role claim to extract from OIDC token (default: "groups")
       roleClaim: "groups"
-    sssdOidcIssuer:
+    pamOidcIssuer:
       # -- The base URL for the OIDC issuer (defaults to API server URL)
       issuer: ""
       # -- OAuth2 client ID for the OIDC issuer
@@ -62,8 +62,8 @@ global:
       scopes: ["openid", "profile", "email", "roles"]
       # -- Allowed redirect URIs for OAuth2 flows
       redirectUris: []
-      # -- SSSD service name for authentication (default: "flightctl")
-      sssdService: "flightctl"
+      # -- PAM service name for authentication (default: "flightctl")
+      pamService: "flightctl"
     aap:
       # -- The URL of the AAP Gateway API endpoint
       apiUrl: ""
