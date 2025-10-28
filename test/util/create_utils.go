@@ -287,3 +287,204 @@ services:
 
 	return sb.String()
 }
+
+// ReturnTestAuthProvider creates a test auth provider with the given parameters
+func ReturnTestAuthProvider(orgId uuid.UUID, name string, issuer string, labels *map[string]string) api.AuthProvider {
+	if issuer == "" {
+		issuer = "https://accounts.google.com"
+	}
+
+	// Create organization assignment
+	assignment := api.AuthOrganizationAssignment{}
+	staticAssignment := api.AuthStaticOrganizationAssignment{
+		Type:             api.Static,
+		OrganizationName: "test-org",
+	}
+	_ = assignment.FromAuthStaticOrganizationAssignment(staticAssignment)
+
+	// Create OIDC provider spec
+	oidcSpec := api.OIDCProviderSpec{
+		ProviderType:           api.Oidc,
+		Issuer:                 issuer,
+		ClientId:               fmt.Sprintf("test-client-id-%s", name),
+		ClientSecret:           "test-client-secret",
+		Scopes:                 lo.ToPtr([]string{"openid", "profile", "email"}),
+		Enabled:                lo.ToPtr(true),
+		UsernameClaim:          lo.ToPtr("preferred_username"),
+		RoleClaim:              lo.ToPtr("groups"),
+		OrganizationAssignment: assignment,
+	}
+
+	// Create AuthProvider with OIDC spec
+	authProvider := api.AuthProvider{
+		Metadata: api.ObjectMeta{
+			Name:   lo.ToPtr(name),
+			Labels: labels,
+		},
+	}
+	_ = authProvider.Spec.FromOIDCProviderSpec(oidcSpec)
+
+	return authProvider
+}
+
+// CreateTestAuthProvider creates a test auth provider in the store
+func CreateTestAuthProvider(ctx context.Context, authStore store.AuthProvider, orgId uuid.UUID, name string, issuer string, labels *map[string]string) {
+	resource := ReturnTestAuthProvider(orgId, name, issuer, labels)
+	callback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
+	_, err := authStore.Create(ctx, orgId, &resource, callback)
+	if err != nil {
+		log.Fatalf("creating auth provider: %v", err)
+	}
+}
+
+// CreateTestAuthProviders creates multiple test auth providers
+func CreateTestAuthProviders(ctx context.Context, numProviders int, authStore store.AuthProvider, orgId uuid.UUID, sameVals bool) {
+	CreateTestAuthProvidersWithOffset(ctx, numProviders, authStore, orgId, sameVals, 0)
+}
+
+// CreateTestAuthProvidersWithOffset creates multiple test OIDC providers with an offset
+func CreateTestAuthProvidersWithOffset(ctx context.Context, numProviders int, authStore store.AuthProvider, orgId uuid.UUID, sameVals bool, offset int) {
+	issuers := []string{
+		"https://accounts.google.com",
+		"https://login.microsoftonline.com",
+		"https://auth0.com",
+		"https://keycloak.example.com",
+		"https://okta.com",
+	}
+
+	for i := 1; i <= numProviders; i++ {
+		num := i + offset
+		labels := map[string]string{
+			"key":      fmt.Sprintf("value-%d", num),
+			"otherkey": "othervalue",
+			"version":  fmt.Sprintf("%d", num),
+			"type":     "oidc",
+		}
+		if sameVals {
+			labels["key"] = "value"
+			labels["version"] = "1"
+		}
+
+		issuer := issuers[(num-1)%len(issuers)]
+		CreateTestAuthProvider(ctx, authStore, orgId, fmt.Sprintf("myoidcprovider-%d", num), issuer, &labels)
+	}
+}
+
+// CreateTestAuthProviderWithStaticOrg creates a test OIDC provider with static organization assignment
+func CreateTestAuthProviderWithStaticOrg(ctx context.Context, authStore store.AuthProvider, orgId uuid.UUID, name string, orgName string) {
+	assignment := api.AuthOrganizationAssignment{}
+	staticAssignment := api.AuthStaticOrganizationAssignment{
+		Type:             api.Static,
+		OrganizationName: orgName,
+	}
+	_ = assignment.FromAuthStaticOrganizationAssignment(staticAssignment)
+
+	// Create OIDC provider spec
+	oidcSpec := api.OIDCProviderSpec{
+		ProviderType:           api.Oidc,
+		Issuer:                 "https://accounts.google.com",
+		ClientId:               fmt.Sprintf("test-client-id-%s", name),
+		ClientSecret:           "test-client-secret",
+		Scopes:                 lo.ToPtr([]string{"openid", "profile", "email"}),
+		Enabled:                lo.ToPtr(true),
+		UsernameClaim:          lo.ToPtr("preferred_username"),
+		RoleClaim:              lo.ToPtr("groups"),
+		OrganizationAssignment: assignment,
+	}
+
+	provider := api.AuthProvider{
+		Metadata: api.ObjectMeta{
+			Name: lo.ToPtr(name),
+		},
+	}
+	_ = provider.Spec.FromOIDCProviderSpec(oidcSpec)
+
+	callback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
+	_, err := authStore.Create(ctx, orgId, &provider, callback)
+	if err != nil {
+		log.Fatalf("creating OIDC provider with static org: %v", err)
+	}
+}
+
+// CreateTestAuthProviderWithDynamicOrg creates a test OIDC provider with dynamic organization assignment
+func CreateTestAuthProviderWithDynamicOrg(ctx context.Context, authStore store.AuthProvider, orgId uuid.UUID, name string) {
+	assignment := api.AuthOrganizationAssignment{}
+	dynamicAssignment := api.AuthDynamicOrganizationAssignment{
+		Type: api.Dynamic,
+	}
+	_ = assignment.FromAuthDynamicOrganizationAssignment(dynamicAssignment)
+
+	// Create OIDC provider spec
+	oidcSpec := api.OIDCProviderSpec{
+		ProviderType:           api.Oidc,
+		Issuer:                 "https://accounts.google.com",
+		ClientId:               fmt.Sprintf("test-client-id-%s", name),
+		ClientSecret:           "test-client-secret",
+		Scopes:                 lo.ToPtr([]string{"openid", "profile", "email"}),
+		Enabled:                lo.ToPtr(true),
+		UsernameClaim:          lo.ToPtr("preferred_username"),
+		RoleClaim:              lo.ToPtr("groups"),
+		OrganizationAssignment: assignment,
+	}
+
+	provider := api.AuthProvider{
+		Metadata: api.ObjectMeta{
+			Name: lo.ToPtr(name),
+		},
+	}
+	_ = provider.Spec.FromOIDCProviderSpec(oidcSpec)
+
+	callback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
+	_, err := authStore.Create(ctx, orgId, &provider, callback)
+	if err != nil {
+		log.Fatalf("creating OIDC provider with dynamic org: %v", err)
+	}
+}
+
+// CreateTestAuthProviderWithPerUserOrg creates a test OIDC provider with per-user organization assignment
+func CreateTestAuthProviderWithPerUserOrg(ctx context.Context, authStore store.AuthProvider, orgId uuid.UUID, name string, prefix *string, suffix *string) {
+	assignment := api.AuthOrganizationAssignment{}
+	perUserAssignment := api.AuthPerUserOrganizationAssignment{
+		Type:                   api.PerUser,
+		OrganizationNamePrefix: prefix,
+		OrganizationNameSuffix: suffix,
+	}
+	_ = assignment.FromAuthPerUserOrganizationAssignment(perUserAssignment)
+
+	// Create OIDC provider spec
+	oidcSpec := api.OIDCProviderSpec{
+		ProviderType:           api.Oidc,
+		Issuer:                 "https://accounts.google.com",
+		ClientId:               fmt.Sprintf("test-client-id-%s", name),
+		ClientSecret:           "test-client-secret",
+		Scopes:                 lo.ToPtr([]string{"openid", "profile", "email"}),
+		Enabled:                lo.ToPtr(true),
+		UsernameClaim:          lo.ToPtr("preferred_username"),
+		RoleClaim:              lo.ToPtr("groups"),
+		OrganizationAssignment: assignment,
+	}
+
+	provider := api.AuthProvider{
+		Metadata: api.ObjectMeta{
+			Name: lo.ToPtr(name),
+		},
+	}
+	_ = provider.Spec.FromOIDCProviderSpec(oidcSpec)
+
+	callback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
+	_, err := authStore.Create(ctx, orgId, &provider, callback)
+	if err != nil {
+		log.Fatalf("creating OIDC provider with per-user org: %v", err)
+	}
+}
+
+// CreateTestOrganizationAssignment creates a test organization assignment
+func CreateTestOrganizationAssignment() api.AuthOrganizationAssignment {
+	assignment := api.AuthOrganizationAssignment{}
+	staticAssignment := api.AuthStaticOrganizationAssignment{
+		Type:             "static",
+		OrganizationName: "default-org",
+	}
+	_ = assignment.FromAuthStaticOrganizationAssignment(staticAssignment)
+	return assignment
+}

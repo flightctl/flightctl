@@ -352,6 +352,42 @@ func (h *EventHandler) HandleRepositoryUpdatedEvents(ctx context.Context, resour
 }
 
 //////////////////////////////////////////////////////
+//                 AuthProvider Events              //
+//////////////////////////////////////////////////////
+
+// HandleAuthProviderUpdatedEvents handles auth provider update event emission logic
+func (h *EventHandler) HandleAuthProviderUpdatedEvents(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
+	if err != nil {
+		status := StoreErrorToApiStatus(err, created, api.AuthProviderKind, &name)
+		h.CreateEvent(ctx, common.GetResourceCreatedOrUpdatedFailureEvent(ctx, created, api.AuthProviderKind, name, status, nil))
+		return
+	}
+
+	// Emit success event for create
+	if created {
+		h.CreateEvent(ctx, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, api.AuthProviderKind, name, nil, h.log, nil))
+	} else {
+		// Handle update events
+		var oldAuthProvider, newAuthProvider *api.AuthProvider
+		var ok bool
+		if oldAuthProvider, newAuthProvider, ok = castResources[api.AuthProvider](oldResource, newResource); !ok {
+			return
+		}
+
+		updateDetails := h.computeResourceUpdatedDetails(oldAuthProvider.Metadata, newAuthProvider.Metadata)
+		// Generate ResourceUpdated event if there are spec changes
+		if updateDetails != nil {
+			h.CreateEvent(ctx, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, false, api.AuthProviderKind, name, updateDetails, h.log, nil))
+		}
+	}
+}
+
+// HandleAuthProviderDeletedEvents handles auth provider deletion event emission logic
+func (h *EventHandler) HandleAuthProviderDeletedEvents(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
+	h.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+}
+
+//////////////////////////////////////////////////////
 //               EnrollmentRequest Events           //
 //////////////////////////////////////////////////////
 
