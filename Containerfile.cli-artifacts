@@ -44,7 +44,7 @@ ENV SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT}
 # Use BuildKit cache mounts for Go caching
 RUN --mount=type=cache,target=/opt/app-root/src/.cache/go-build \
     --mount=type=cache,target=/opt/app-root/src/go/pkg/mod \
-    make build-multiarch-clis
+    make build-multiarch-clis build-service-setup
 
 FROM registry.access.redhat.com/ubi9/ubi
 # Use BuildKit cache mounts for dnf package caching
@@ -58,11 +58,12 @@ ENV USER_UID=1001 \
     USER_NAME=server \
     HOME=/home/server \
     NGINX_CONF_PATH=/etc/nginx/nginx.conf \
-    ENTRYPOINT_PATH=/usr/local/bin/entrypoint.sh
+    ENTRYPOINT_PATH=/usr/local/bin/entrypoint.sh \
+    SETUP_PATH=/app/flightctl-service-setup
 
 COPY --from=builder /app/packaging/containers/cli-artifacts/nginx.conf ${NGINX_CONF_PATH}
 COPY --from=builder /app/packaging/containers/cli-artifacts/entrypoint.sh ${ENTRYPOINT_PATH}
-
+COPY --from=builder /app/bin/flightctl-service-setup ${SETUP_PATH}
 USER root
 
 RUN mkdir -p ${HOME}/src/gh-archives \
@@ -78,7 +79,7 @@ RUN mkdir -p ${HOME}/src/gh-archives \
     chown -R ${USER_UID}:0 /var/log/nginx && \
     chmod -R 775 /var/run && \
     chown -R ${USER_UID}:0 /var/run && \
-    chmod +x ${ENTRYPOINT_PATH}
+    chmod +x ${ENTRYPOINT_PATH} ${SETUP_PATH}
 
 USER ${USER_UID}
 
@@ -102,4 +103,4 @@ LABEL \
   summary="Container image exposing multi-arch Flight Control CLI binaries over HTTP"
 EXPOSE 8090
 
-ENTRYPOINT ${ENTRYPOINT_PATH}
+CMD ${ENTRYPOINT_PATH}

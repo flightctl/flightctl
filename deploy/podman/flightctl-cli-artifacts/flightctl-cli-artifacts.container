@@ -1,7 +1,7 @@
 [Unit]
 Description=Flight Control CLI Artifacts service
-After=flightctl-cli-artifacts-init.service
-Wants=flightctl-cli-artifacts-init.service
+After=flightctl-cli-artifacts-init.service flightctl-cli-artifacts-post-init.service
+Wants=flightctl-cli-artifacts-init.service flightctl-cli-artifacts-post-init.service
 PartOf=flightctl.target
 
 [Container]

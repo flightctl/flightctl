@@ -15,6 +15,8 @@ configure_service_config() {
         echo "Enabling authentication (OIDC with PAM issuer)..."
         # Set auth type to oidc (PAM issuer is enabled by default in service-config.yaml)
         sed -i '/^  auth:/,/^  [^ ]/ { s/type: none.*/type: oidc/ }' "$service_config"
+        # Disable certs validation for local development
+        sed -i 's/insecureSkipTlsVerify: .*/insecureSkipTlsVerify: true/' "$service_config"
     fi
     
     # Configure organizations if ORGS environment variable is set
@@ -28,7 +30,7 @@ configure_service_config() {
 # Function to switch container images from quay.io to locally built ones for development
 switch_to_local_images() {
     echo "Switching container images to locally built ones for development..."
-    local services=("api" "worker" "periodic" "alert-exporter" "alertmanager-proxy" "cli-artifacts" "db-migrate" "db-wait" "db-users-init" "pam-issuer")
+    local services=("api" "api-init" "worker" "periodic" "alert-exporter" "alertmanager-proxy" "alertmanager-proxy-init" "cli-artifacts" "cli-artifacts-init" "db-migrate" "db-wait" "db-users-init" "pam-issuer" "pam-issuer-init" "ui-init")
 
     for service in "${services[@]}"; do
         container_file="${QUADLET_FILES_OUTPUT_DIR}/flightctl-${service}.container"

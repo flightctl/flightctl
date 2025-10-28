@@ -21,6 +21,3 @@ RestartSec=30
 
 [Install]
 WantedBy=flightctl.target
-
-
-

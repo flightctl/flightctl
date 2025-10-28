@@ -1,18 +1,20 @@
 [Unit]
+Description=Flight Control API Configuration Templating
 PartOf=flightctl.target
 After=flightctl-db-wait.service
 Wants=flightctl-db-wait.service
 
 [Container]
-Image=registry.access.redhat.com/ubi9/ubi-minimal
 ContainerName=flightctl-api-init
-Network=flightctl.network
-Volume=/usr/share/flightctl/flightctl-api:/config-source:ro,z
-Volume=/usr/share/flightctl/init_utils.sh:/utils/init_utils.sh:ro,z
-Volume=/etc/flightctl/pki:/certs:rw,z
-Volume=/etc/flightctl/flightctl-api:/config-destination:rw,z
-Volume=/etc/flightctl/service-config.yaml:/service-config.yaml:rw,z
-Exec=/bin/sh /config-source/init.sh
+Image=quay.io/flightctl/flightctl-api:latest
+Pull=newer
+
+Volume=/etc/flightctl/service-config.yaml:/app/service-config.yaml:ro,z
+Volume=/usr/share/flightctl/flightctl-api/env.template:/app/templates/env.template:ro,z
+Volume=/usr/share/flightctl/flightctl-api/config.yaml.template:/app/templates/config.yaml.template:ro,z
+Volume=/etc/flightctl/flightctl-api:/app/rendered:rw,z
+
+Exec=/app/flightctl-service-setup
 
 [Service]
 Type=oneshot

@@ -155,7 +155,8 @@ build: bin build-cli build-pam-issuer
 		./cmd/flightctl-userinfo-proxy \
 		./cmd/flightctl-db-migrate \
 		./cmd/flightctl-restore \
-		./cmd/flightctl-telemetry-gateway 
+		./cmd/flightctl-telemetry-gateway \
+		./cmd/flightctl-service-setup
 
 bin/flightctl-agent: bin $(GO_FILES)
 	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-agent
@@ -201,6 +202,9 @@ build-telemetry-gateway: bin
 
 build-devicesimulator: bin
 	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/devicesimulator
+
+build-service-setup: bin
+	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-service-setup
 
 # Container builds - Environment-aware caching
 flightctl-api-container: Containerfile.api go.mod go.sum $(GO_FILES)
@@ -274,7 +278,14 @@ flightctl-telemetry-gateway-container: Containerfile.telemetry-gateway go.mod go
 		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
 		-f Containerfile.telemetry-gateway -t flightctl-telemetry-gateway:latest
 
-.PHONY: flightctl-api-container flightctl-pam-issuer-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container flightctl-userinfo-proxy-container flightctl-telemetry-gateway-container
+flightctl-ui-setup-container: Containerfile.ui-setup go.mod go.sum $(GO_FILES)
+	podman build $(call CACHE_FLAGS_FOR_IMAGE,flightctl-ui-setup) \
+		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
+		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
+		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
+		-f Containerfile.ui-setup -t flightctl-ui-setup:latest
+
+.PHONY: flightctl-api-container flightctl-pam-issuer-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container flightctl-userinfo-proxy-container flightctl-telemetry-gateway-container flightctl-ui-setup-container
 
 # --- Registry Operations ---
 # The login target expects REGISTRY_USER via environment variable and
@@ -301,6 +312,7 @@ push-containers: login
 	podman push flightctl-cli-artifacts:latest
 	podman push flightctl-userinfo-proxy:latest
 	podman push flightctl-telemetry-gateway:latest
+	podman push flightctl-ui-setup:latest
 
 # A convenience target to run the full CI process.
 ci-build: build-containers push-containers
@@ -321,8 +333,9 @@ clean-containers:
 	- podman rmi flightctl-cli-artifacts:latest || true
 	- podman rmi flightctl-userinfo-proxy:latest || true
 	- podman rmi flightctl-telemetry-gateway:latest || true
+	- podman rmi flightctl-ui-setup:latest || true
 
-build-containers: flightctl-api-container flightctl-pam-issuer-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container flightctl-userinfo-proxy-container flightctl-telemetry-gateway-container
+build-containers: flightctl-api-container flightctl-pam-issuer-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container flightctl-userinfo-proxy-container flightctl-telemetry-gateway-container flightctl-ui-setup-container
 
 .PHONY: build-containers build-cli build-multiarch-clis
 
@@ -337,7 +350,7 @@ bin/.rpm: bin $(shell find ./ -name "*.go" -not -path "./packaging/*") packaging
 
 rpm: bin/.rpm
 
-.PHONY: rpm build build-api build-pam-issuer build-periodic build-worker build-alert-exporter build-alertmanager-proxy build-userinfo-proxy
+.PHONY: rpm build build-api build-pam-issuer build-periodic build-worker build-alert-exporter build-alertmanager-proxy build-userinfo-proxy build-service-setup
 
 # cross-building for deb pkg
 bin/amd64:

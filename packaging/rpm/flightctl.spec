@@ -626,7 +626,6 @@ rm -rf /usr/share/sosreport
     # Files mounted to data dir
     %dir %attr(0755,root,root) %{_datadir}/flightctl
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-api
-    %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-alert-exporter
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-db
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-kv
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-alertmanager-proxy
@@ -637,7 +636,6 @@ rm -rf /usr/share/sosreport
     %{_datadir}/flightctl/flightctl-api/env.template
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-api/init.sh
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-api/create_aap_application.sh
-    %{_datadir}/flightctl/flightctl-alert-exporter/config.yaml
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-db/enable-superuser.sh
     %{_datadir}/flightctl/flightctl-kv/redis.conf
     %{_datadir}/flightctl/flightctl-ui/env.template
@@ -649,9 +647,7 @@ rm -rf /usr/share/sosreport
     %{_datadir}/containers/systemd/flightctl*
     %{_datadir}/flightctl/flightctl-alertmanager/alertmanager.yml
     %{_datadir}/flightctl/flightctl-alertmanager-proxy/env.template
-    %attr(0755,root,root) %{_datadir}/flightctl/flightctl-alertmanager-proxy/init.sh
     %{_datadir}/flightctl/flightctl-pam-issuer/config.yaml.template
-    %attr(0755,root,root) %{_datadir}/flightctl/flightctl-pam-issuer/init.sh
 
     # Handle permissions for scripts setting host config
     %attr(0755,root,root) %{_datadir}/flightctl/init_host.sh

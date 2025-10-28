@@ -13,7 +13,7 @@ Environment=HOME=/root
 Secret=flightctl-postgresql-user-password,type=env,target=DB_PASSWORD
 Secret=flightctl-kv-password,type=env,target=KV_PASSWORD
 Environment=DB_USER=flightctl_app
-Volume=/usr/share/flightctl/flightctl-alert-exporter/config.yaml:/root/.flightctl/config.yaml:ro,z
+Volume=/etc/flightctl/flightctl-api/config.yaml:/root/.flightctl/config.yaml:ro,z
 
 [Service]
 Restart=always
