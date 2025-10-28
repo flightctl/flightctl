@@ -1,8 +1,7 @@
 [Unit]
 Description=Flight Control UI
 PartOf=flightctl.target
-After=flightctl-ui-init.service flightctl-api.service
-Wants=flightctl-ui-init.service
+After=flightctl-api.service
 
 [Container]
 ContainerName=flightctl-ui
