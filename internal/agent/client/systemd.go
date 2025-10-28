@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -13,6 +14,26 @@ import (
 const (
 	systemctlCommand        = "/usr/bin/systemctl"
 	defaultSystemctlTimeout = time.Minute
+)
+
+var (
+	ErrNoSystemDUnits = errors.New("no units defined")
+)
+
+type SystemDActiveStateType string
+type SystemDSubStateType string
+
+const (
+	SystemDActiveStateActivating SystemDActiveStateType = "activating"
+	SystemDActiveStateActive     SystemDActiveStateType = "active"
+	SystemDActiveStateFailed     SystemDActiveStateType = "failed"
+	SystemDActiveStateInactive   SystemDActiveStateType = "inactive"
+
+	SystemDSubStateStartPre  SystemDSubStateType = "start-pre"
+	SystemDSubStateStartPost SystemDSubStateType = "start-post"
+	SystemDSubStateRunning   SystemDSubStateType = "running"
+	SystemDSubStateExited    SystemDSubStateType = "exited"
+	SystemDSubStateDead      SystemDSubStateType = "dead"
 )
 
 func NewSystemd(exec executer.Executer) *Systemd {
@@ -34,21 +55,26 @@ func (s *Systemd) Reload(ctx context.Context, name string) error {
 	return nil
 }
 
-func (s *Systemd) Start(ctx context.Context, name string) error {
-	args := []string{"start", name}
+func (s *Systemd) Start(ctx context.Context, units ...string) error {
+	if len(units) == 0 {
+		return ErrNoSystemDUnits
+	}
+	args := append([]string{"start"}, units...)
 	_, stderr, exitCode := s.exec.ExecuteWithContext(ctx, systemctlCommand, args...)
 	if exitCode != 0 {
-		return fmt.Errorf("start systemd unit: %s: %w", name, errors.FromStderr(stderr, exitCode))
+		return fmt.Errorf("start systemd unit(s): %q: %w", strings.Join(units, ","), errors.FromStderr(stderr, exitCode))
 	}
-
 	return nil
 }
 
-func (s *Systemd) Stop(ctx context.Context, name string) error {
-	args := []string{"stop", name}
+func (s *Systemd) Stop(ctx context.Context, units ...string) error {
+	if len(units) == 0 {
+		return ErrNoSystemDUnits
+	}
+	args := append([]string{"stop"}, units...)
 	_, stderr, exitCode := s.exec.ExecuteWithContext(ctx, systemctlCommand, args...)
 	if exitCode != 0 {
-		return fmt.Errorf("stop systemd unit: %s: %w", name, errors.FromStderr(stderr, exitCode))
+		return fmt.Errorf("stop systemd unit(s): %q: %w", strings.Join(units, ","), errors.FromStderr(stderr, exitCode))
 	}
 	return nil
 }
@@ -98,16 +124,27 @@ func (s *Systemd) DaemonReload(ctx context.Context) error {
 	return nil
 }
 
-func (s *Systemd) ListUnitsByMatchPattern(ctx context.Context, matchPatterns []string) (string, error) {
+type SystemDUnitListEntry struct {
+	Unit        string                 `json:"unit"`
+	LoadState   string                 `json:"load"`
+	ActiveState SystemDActiveStateType `json:"active"`
+	Sub         SystemDSubStateType    `json:"sub"`
+	Description string                 `json:"description"`
+}
+
+func (s *Systemd) ListUnitsByMatchPattern(ctx context.Context, matchPatterns []string) ([]SystemDUnitListEntry, error) {
 	execCtx, cancel := context.WithTimeout(ctx, defaultSystemctlTimeout)
 	defer cancel()
 	args := append([]string{"list-units", "--all", "--output", "json"}, matchPatterns...)
 	stdout, stderr, exitCode := s.exec.ExecuteWithContext(execCtx, systemctlCommand, args...)
 	if exitCode != 0 {
-		return "", fmt.Errorf("list systemd units: %w", errors.FromStderr(stderr, exitCode))
+		return nil, fmt.Errorf("list systemd units: %w", errors.FromStderr(stderr, exitCode))
 	}
-	out := strings.TrimSpace(stdout)
-	return out, nil
+	var units []SystemDUnitListEntry
+	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &units); err != nil {
+		return nil, fmt.Errorf("unmarshalling systemctl list-units output: %w", err)
+	}
+	return units, nil
 }
 
 // SystemdJob represents a systemd job from list-jobs

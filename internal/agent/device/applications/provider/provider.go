@@ -255,6 +255,12 @@ func pathFromAppType(appType v1alpha1.AppType, name string, embedded bool) (stri
 			break
 		}
 		typePath = lifecycle.ComposeAppPath
+	case v1alpha1.AppTypeQuadlet:
+		if embedded {
+			typePath = lifecycle.EmbeddedQuadletAppPath
+			break
+		}
+		typePath = lifecycle.QuadletAppPath
 	default:
 		return "", fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
 	}
