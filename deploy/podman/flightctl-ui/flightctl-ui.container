@@ -1,12 +1,12 @@
 [Unit]
 Description=Flight Control UI
 PartOf=flightctl.target
-After=flightctl-ui-init.service flightctl-api.service
+After=flightctl-api.service flightctl-ui-init.service
 Wants=flightctl-ui-init.service
 
 [Container]
 ContainerName=flightctl-ui
-Image=quay.io/flightctl/flightctl-ui:latest
+Image={{ .Ui.Image }}:{{ .Ui.Tag }}
 Pull=newer
 Network=flightctl.network
 EnvironmentFile=/etc/flightctl/flightctl-ui/env
@@ -18,6 +18,8 @@ Volume=flightctl-ui-certs:/app/certs:ro,z
 [Service]
 Restart=always
 RestartSec=30
+
+ExecStartPre=/usr/bin/flightctl-ground-crew render --input-file /usr/share/flightctl/flightctl-ui/env.template --output-file /etc/flightctl/flightctl-ui/env
 
 [Install]
 WantedBy=flightctl.target

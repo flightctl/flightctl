@@ -428,9 +428,9 @@ echo "Flightctl Observability Stack uninstalled."
     SOURCE_GIT_COMMIT="%{?SOURCE_GIT_COMMIT:%{SOURCE_GIT_COMMIT}}%{!?SOURCE_GIT_COMMIT:%(echo %{version} | grep -o '[-~]g[0-9a-f]*' | sed 's/[-~]g//' || echo unknown)}" \
     SOURCE_GIT_TAG_NO_V="%{?SOURCE_GIT_TAG_NO_V:%{SOURCE_GIT_TAG_NO_V}}%{!?SOURCE_GIT_TAG_NO_V:%{version}}" \
     %if 0%{?rhel} == 9
-        %make_build build-cli build-agent build-restore
+        %make_build build-cli build-agent build-restore build-render-quadlets build-ground-crew
     %else
-        DISABLE_FIPS="true" %make_build build-cli build-agent build-restore
+        DISABLE_FIPS="true" %make_build build-cli build-agent build-restore build-render-quadlets build-ground-crew
     %endif
 
     # SELinux modules build
@@ -468,18 +468,21 @@ echo "Flightctl Observability Stack uninstalled."
     install -Dpm 0644 packaging/flightctl-services-install.conf %{buildroot}%{_sysconfdir}/flightctl/flightctl-services-install.conf
 
     # flightctl-services sub-package steps
-    # Run the install script to move the quadlet files.
+    # Use the render-quadlets binary to generate quadlet files with the correct image tags.
     #
     # The IMAGE_TAG is derived from the RPM version, which may include tildes (~)
     # for proper version sorting (e.g., 0.5.1~rc1-1). However, the tagged images
     # always use hyphens (-) instead of tildes (~). To ensure valid image tags we need
     # to transform the version string by replacing tildes with hyphens.
-    CONFIG_READONLY_DIR="%{buildroot}%{_datadir}/flightctl" \
-    CONFIG_WRITEABLE_DIR="%{buildroot}%{_sysconfdir}/flightctl" \
-    QUADLET_FILES_OUTPUT_DIR="%{buildroot}%{_datadir}/containers/systemd" \
-    SYSTEMD_UNIT_OUTPUT_DIR="%{buildroot}/usr/lib/systemd/system" \
-    IMAGE_TAG=$(echo %{version} | tr '~' '-') \
-    deploy/scripts/install.sh
+    IMAGE_TAG=$(echo %{version} | tr '~' '-')
+    bin/render-quadlets \
+        --config deploy/podman/images.yaml \
+        --flightctl-services-tag-override "${IMAGE_TAG}" \
+        --readonly-config-dir "%{buildroot}%{_datadir}/flightctl" \
+        --writeable-config-dir "%{buildroot}%{_sysconfdir}/flightctl" \
+        --quadlet-dir "%{buildroot}%{_datadir}/containers/systemd" \
+        --systemd-dir "%{buildroot}/usr/lib/systemd/system" \
+        --bin-dir "%{buildroot}/usr/bin"
 
     # Copy services must gather script
     cp packaging/must-gather/flightctl-services-must-gather %{buildroot}%{_bindir}
@@ -630,18 +633,19 @@ rm -rf /usr/share/sosreport
     # Files mounted to data dir
     %dir %attr(0755,root,root) %{_datadir}/flightctl
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-api
-    %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-alert-exporter
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-db
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-kv
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-alertmanager-proxy
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-ui
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-cli-artifacts
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-pam-issuer
+    %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-alert-exporter
+    %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-periodic
+    %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-worker
     %{_datadir}/flightctl/flightctl-api/config.yaml.template
     %{_datadir}/flightctl/flightctl-api/env.template
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-api/init.sh
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-api/create_aap_application.sh
-    %{_datadir}/flightctl/flightctl-alert-exporter/config.yaml
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-db/enable-superuser.sh
     %{_datadir}/flightctl/flightctl-kv/redis.conf
     %{_datadir}/flightctl/flightctl-ui/env.template
@@ -653,9 +657,11 @@ rm -rf /usr/share/sosreport
     %{_datadir}/containers/systemd/flightctl*
     %{_datadir}/flightctl/flightctl-alertmanager/alertmanager.yml
     %{_datadir}/flightctl/flightctl-alertmanager-proxy/env.template
-    %attr(0755,root,root) %{_datadir}/flightctl/flightctl-alertmanager-proxy/init.sh
     %{_datadir}/flightctl/flightctl-pam-issuer/config.yaml.template
-    %attr(0755,root,root) %{_datadir}/flightctl/flightctl-pam-issuer/init.sh
+        %{_datadir}/flightctl/flightctl-alertmanager-proxy/config.yaml.template
+    %{_datadir}/flightctl/flightctl-alert-exporter/config.yaml.template
+    %{_datadir}/flightctl/flightctl-periodic/config.yaml.template
+    %{_datadir}/flightctl/flightctl-worker/config.yaml.template
 
     # Handle permissions for scripts setting host config
     %attr(0755,root,root) %{_datadir}/flightctl/init_host.sh
@@ -671,6 +677,7 @@ rm -rf /usr/share/sosreport
 
     # Files mounted to bin dir
     %attr(0755,root,root) %{_bindir}/flightctl-services-must-gather
+    %attr(0755,root,root) %{_bindir}/flightctl-ground-crew
 
 # Optional pre-upgrade database migration dry-run
 %pre services
@@ -746,9 +753,11 @@ fi
 # If contexts were managed via policy, no cleanup is needed here.
 
 %changelog
-* Wed Nov 12 2025 Ben Keith <bkeith@redhat.com> - 1.0
+* Mon Nov 17 2025 Dakota Crowder <dcrowder@redhat.com> - 1.0-1
+- Refactoring quadlet install
+* Wed Nov 12 2025 Ben Keith <bkeith@redhat.com> - 1.0-1
 - Make observability and telemetry-gateway packages require services package
-* Mon Oct 27 2025 Dakota Crowder <dcrowder@redhat.com> - 1.0
+* Mon Oct 27 2025 Dakota Crowder <dcrowder@redhat.com> - 1.0-1
 - Add must-gather script for the services sub package
 * Wed Oct 8 2025 Ilya Skornyakov <iskornya@redhat.com> - 0.10.0
 - Add pre-upgrade database migration dry-run capability

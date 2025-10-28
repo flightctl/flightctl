@@ -1,12 +1,10 @@
 [Unit]
 Description=Flight Control PAM OIDC Issuer server
 PartOf=flightctl.target
-After=flightctl-pam-issuer-init.service
-Wants=flightctl-pam-issuer-init.service
 
 [Container]
 ContainerName=flightctl-pam-issuer
-Image=quay.io/flightctl/flightctl-pam-issuer:latest
+Image={{ .PamIssuer.Image }}:{{ .PamIssuer.Tag }}
 Pull=newer
 Network=flightctl.network
 
@@ -19,8 +17,7 @@ Volume=/etc/flightctl/flightctl-pam-issuer/config.yaml:/root/.flightctl/config.y
 Restart=always
 RestartSec=30
 
+ExecStartPre=/usr/bin/flightctl-ground-crew render --input-file /usr/share/flightctl/flightctl-pam-issuer/config.yaml.template --output-file /etc/flightctl/flightctl-pam-issuer/config.yaml
+
 [Install]
 WantedBy=flightctl.target
-
-
-

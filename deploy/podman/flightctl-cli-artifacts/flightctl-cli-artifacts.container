@@ -6,7 +6,7 @@ PartOf=flightctl.target
 
 [Container]
 ContainerName=flightctl-cli-artifacts
-Image=quay.io/flightctl/flightctl-cli-artifacts:latest
+Image={{ .CliArtifacts.Image }}:{{ .CliArtifacts.Tag }}
 Pull=newer
 Network=flightctl.network
 EnvironmentFile=/etc/flightctl/flightctl-cli-artifacts/env
@@ -20,3 +20,5 @@ PublishPort=8090:8090
 [Service]
 Restart=always
 RestartSec=30
+
+ExecStartPre=/usr/bin/flightctl-ground-crew render --input-file /usr/share/flightctl/flightctl-cli-artifacts/env.template --output-file /etc/flightctl/flightctl-cli-artifacts/env

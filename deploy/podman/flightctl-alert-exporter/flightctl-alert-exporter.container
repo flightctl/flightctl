@@ -6,18 +6,20 @@ Wants=flightctl-db-wait.service flightctl-db-migrate.service flightctl-kv.servic
 
 [Container]
 ContainerName=flightctl-alert-exporter
-Image=quay.io/flightctl/flightctl-alert-exporter:latest
+Image={{ .AlertExporter.Image }}:{{ .AlertExporter.Tag }}
 Pull=newer
 Network=flightctl.network
 Environment=HOME=/root
 Secret=flightctl-postgresql-user-password,type=env,target=DB_PASSWORD
 Secret=flightctl-kv-password,type=env,target=KV_PASSWORD
 Environment=DB_USER=flightctl_app
-Volume=/usr/share/flightctl/flightctl-alert-exporter/config.yaml:/root/.flightctl/config.yaml:ro,z
+Volume=/etc/flightctl/flightctl-alert-exporter/config.yaml:/root/.flightctl/config.yaml:ro,z
 
 [Service]
 Restart=always
 RestartSec=30
+
+ExecStartPre=/usr/bin/flightctl-ground-crew render --input-file /usr/share/flightctl/flightctl-alert-exporter/config.yaml.template --output-file /etc/flightctl/flightctl-alert-exporter/config.yaml
 
 [Install]
 WantedBy=flightctl.target
