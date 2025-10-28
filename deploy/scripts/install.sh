@@ -110,7 +110,7 @@ render_files() {
 
     # Build the render-services binary and move it to the /usr/bin directory
     make build-render-services
-    mv "${GOBIN}/flightctl-render-services" "/usr/bin/flightctl-render-services"
+    cp "${GOBIN}/flightctl-render-services" "/usr/bin/flightctl-render-services"
     chown root:root "/usr/bin/flightctl-render-services"
     chmod 755 "/usr/bin/flightctl-render-services"
     sudo chcon -t bin_t /usr/bin/flightctl-render-services
