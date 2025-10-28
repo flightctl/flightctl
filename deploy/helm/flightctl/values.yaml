@@ -19,8 +19,8 @@ global:
   # -- Alternative to global.auth.k8s.externalOpenShiftApiUrl with the same meaning, used by the multiclusterhub operator
   apiUrl: "" # alternative to global.auth.k8s.externalOpenShiftApiUrl used by multiclusterhub operator
   auth:
-    # -- Type of the auth to use. Can be one of 'builtin', 'k8s', 'oidc', or 'none'
-    type: "builtin" # builtin, k8s, oidc, aap, none
+    # -- Type of the auth to use. Can be one of 'k8s', 'oidc', or 'none'
+    type: "oidc" # k8s, oidc, aap, none
     # -- The custom CA cert.
     caCert: ""
     # -- True if verification of authority TLS cert should be skipped.
@@ -195,11 +195,6 @@ alertmanager:
     # -- Image pull policy for Alertmanager container
     pullPolicy: ""
 
-# -- Keycloak Configuration
-keycloak:
-  db:
-    # -- File system group ID for Keycloak database pod security context
-    fsGroup: ""
 
 # -- API Server Configuration
 api:

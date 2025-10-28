@@ -95,22 +95,7 @@ app.kubernetes.io/version: {{ .Chart.AppVersion }}
   {{- if .Values.global.auth.oidc.externalOidcAuthority }}
     {{- printf .Values.global.auth.oidc.externalOidcAuthority }}
   {{- else }}
-    {{- $baseDomain := (include "flightctl.getBaseDomain" . )}}
-    {{- $scheme := (include "flightctl.getHttpScheme" . )}}
-    {{- $exposeMethod := (include "flightctl.getServiceExposeMethod" .)}}
-    {{- if eq $exposeMethod "nodePort" }}
-      {{- printf "%s://%s:%v/realms/flightctl" $scheme $baseDomain .Values.global.nodePorts.keycloak }}
-    {{- else if eq $exposeMethod "gateway" }}
-      {{- if and (eq $scheme "http") (not (eq (int .Values.global.gatewayPorts.http) 80)) }}
-        {{- printf "%s://auth.%s:%v/realms/flightctl" $scheme $baseDomain .Values.global.gatewayPorts.http }}
-      {{- else if and (eq $scheme "https") (not (eq (int .Values.global.gatewayPorts.tls) 443))}}
-        {{- printf "%s://auth.%s:%v/realms/flightctl" $scheme $baseDomain .Values.global.gatewayPorts.tls }}
-      {{- else }}
-        {{- printf "%s://auth.%s/realms/flightctl" $scheme $baseDomain }}
-      {{- end }}
-    {{- else }}
-      {{- printf "%s://auth.%s/realms/flightctl" $scheme $baseDomain }}
-    {{- end }}
+    {{- include "flightctl.getApiUrl" . }}
   {{- end }}
 {{- end }}
 

@@ -10,7 +10,6 @@ A helm chart for flightctl
 
 | Repository | Name | Version |
 |------------|------|---------|
-| keycloak | keycloak | 0.0.1 |
 | ui | ui | 0.0.1 |
 
 ## Installation
@@ -156,7 +155,7 @@ global:
   target: "standalone"
   baseDomain: "flightctl.example.com"
   auth:
-    type: "builtin"
+    type: "oidc"
 
 # Example: ACM integration
 global:
@@ -307,7 +306,6 @@ For more detailed configuration options, see the [Values](#values) section below
 | global.nodePorts.alertmanagerProxy | int | `8443` | NodePort for Alertmanager proxy service |
 | global.nodePorts.api | int | `3443` | NodePort for Flight Control API service |
 | global.nodePorts.cliArtifacts | int | `8090` | NodePort for CLI artifacts service |
-| global.nodePorts.keycloak | int | `8081` | NodePort for Keycloak service |
 | global.nodePorts.telemetryGatewayOtlp | int | `4317` | NodePort for OTLP telemetry gateway |
 | global.nodePorts.telemetryGatewayProm | int | `9464` | NodePort for Prometheus telemetry gateway |
 | global.nodePorts.ui | int | `9000` | NodePort for web UI service |
@@ -318,8 +316,6 @@ For more detailed configuration options, see the [Values](#values) section below
 | global.tracing.enabled | bool | `false` | Enable distributed tracing with OpenTelemetry |
 | global.tracing.endpoint | string | `"jaeger-collector.flightctl-e2e.svc.cluster.local:4318"` | OpenTelemetry collector endpoint for trace data |
 | global.tracing.insecure | bool | `true` | Use insecure connection to tracing endpoint (development only) |
-| keycloak | object | `{"db":{"fsGroup":""}}` | Keycloak Configuration |
-| keycloak.db.fsGroup | string | `""` | File system group ID for Keycloak database pod security context |
 | kv | object | `{"enabled":true,"fsGroup":"","image":{"image":"quay.io/sclorg/redis-7-c9s","pullPolicy":"","tag":"20250108"},"loglevel":"warning","maxmemory":"1gb","maxmemoryPolicy":"allkeys-lru","password":""}` | Key-Value Store Configuration |
 | kv.enabled | bool | `true` | Enable Redis key-value store for caching and session storage |
 | kv.fsGroup | string | `""` | File system group ID for Redis pod security context |

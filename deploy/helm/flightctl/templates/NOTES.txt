@@ -21,12 +21,6 @@ You can access the Flight Control UI at {{ include "flightctl.getUIUrl" . }}
 {{- end }}
 You can access the Flight Control API at {{ include "flightctl.getApiUrl" . }}
 
-{{- if and (eq .Values.global.auth.type "builtin") (not (eq .Values.global.target "acm")) }}
-A demo user "demouser" has been created for you. You can retrieve its password by running:
-
-    kubectl get secret -n {{ .Release.Namespace }} keycloak-demouser-secret -o=jsonpath='{.data.password}' | base64 -d
-
-{{- end }}
 
 You can login using the following CLI command:
    
