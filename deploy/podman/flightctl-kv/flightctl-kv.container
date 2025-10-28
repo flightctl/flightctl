@@ -4,7 +4,7 @@ PartOf=flightctl.target
 
 [Container]
 ContainerName=flightctl-kv
-Image=docker.io/redis:7.4.1
+Image={{ .Kv.Image }}:{{ .Kv.Tag }}
 Network=flightctl.network
 Exec=/bin/sh -c 'redis-server /usr/local/etc/redis/redis.conf --requirepass $${KV_PASSWORD}'
 Secret=flightctl-kv-password,type=env,target=KV_PASSWORD
