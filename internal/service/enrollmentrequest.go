@@ -10,9 +10,9 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	authcommon "github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/config/ca"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/contextutil"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/crypto/signer"
 	"github.com/flightctl/flightctl/internal/flterrors"
@@ -449,9 +449,9 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, name stri
 			return nil, api.StatusBadRequest("Enrollment request is already approved")
 		}
 
-		identity, err := authcommon.GetIdentity(ctx)
-		if err != nil {
-			status := api.StatusInternalServerError(fmt.Sprintf("failed to retrieve user identity while approving enrollment request: %v", err))
+		identity, ok := contextutil.GetMappedIdentityFromContext(ctx)
+		if !ok {
+			status := api.StatusInternalServerError("failed to retrieve user identity while approving enrollment request")
 			h.CreateEvent(ctx, common.GetEnrollmentRequestApprovalFailedEvent(ctx, name, status, h.log))
 			return nil, status
 		}

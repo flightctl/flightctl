@@ -19,8 +19,6 @@ import (
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/domain"
 	"github.com/flightctl/flightctl/internal/kvstore"
-	"github.com/flightctl/flightctl/internal/org/cache"
-	"github.com/flightctl/flightctl/internal/org/resolvers"
 	"github.com/flightctl/flightctl/internal/rendered"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
@@ -167,30 +165,7 @@ func main() {
 		log.Fatalf("creating listener: %s", err)
 	}
 
-	orgCache := cache.NewOrganizationTTL(cache.DefaultTTL)
-	go orgCache.Start()
-	defer orgCache.Stop()
-
-	buildResolverOpts := resolvers.BuildResolverOptions{
-		Config: cfg,
-		Store:  store.Organization(),
-		Log:    log,
-		Cache:  orgCache,
-	}
-
-	if cfg.Auth != nil && cfg.Auth.AAP != nil {
-		membershipCache := cache.NewMembershipTTL(cache.DefaultTTL)
-		go membershipCache.Start()
-		defer membershipCache.Stop()
-		buildResolverOpts.MembershipCache = membershipCache
-	}
-
-	orgResolver, err := resolvers.BuildResolver(buildResolverOpts)
-	if err != nil {
-		log.Fatalf("failed to build organization resolver: %v", err)
-	}
-
-	agentServer, err := agentserver.New(ctx, log, cfg, store, ca, agentListener, provider, agentTlsConfig, orgResolver)
+	agentServer, err := agentserver.New(ctx, log, cfg, store, ca, agentListener, provider, agentTlsConfig)
 	if err != nil {
 		log.Fatalf("initializing agent server: %v", err)
 	}
@@ -201,7 +176,7 @@ func main() {
 			log.Fatalf("creating listener: %s", err)
 		}
 		// we pass the grpc server for now, to let the console sessions to establish a connection in grpc
-		server := apiserver.New(log, cfg, store, ca, listener, provider, agentServer.GetGRPCServer(), orgResolver)
+		server := apiserver.New(log, cfg, store, ca, listener, provider, agentServer.GetGRPCServer())
 		if err := server.Run(ctx); err != nil {
 			log.Fatalf("Error running server: %s", err)
 		}

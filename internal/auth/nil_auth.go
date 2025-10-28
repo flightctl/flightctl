@@ -4,7 +4,9 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/auth/common"
+	"github.com/flightctl/flightctl/internal/org"
 )
 
 type NilAuth struct{}
@@ -14,13 +16,22 @@ func (a NilAuth) ValidateToken(ctx context.Context, token string) error {
 }
 
 func (a NilAuth) GetIdentity(ctx context.Context, token string) (common.Identity, error) {
-	return common.NewBaseIdentity("", "", []string{}), nil
+	identity := common.NewBaseIdentity("testuser", "testuser", []common.ReportedOrganization{
+		{
+			Name:         org.DefaultID.String(),
+			IsInternalID: true,
+			ID:           org.DefaultID.String(),
+		},
+	}, []string{v1alpha1.RoleAdmin})
+	return identity, nil
 }
 
-func (a NilAuth) GetAuthConfig() common.AuthConfig {
-	return common.AuthConfig{
-		Type: "",
-		Url:  "",
+func (a NilAuth) GetAuthConfig() *v1alpha1.AuthConfig {
+	providerType := string(v1alpha1.AuthProviderInfoTypeOidc)
+	return &v1alpha1.AuthConfig{
+		DefaultProvider:      &providerType,
+		OrganizationsEnabled: nil,
+		Providers:            &[]v1alpha1.AuthProviderInfo{},
 	}
 }
 

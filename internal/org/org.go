@@ -9,6 +9,8 @@ import (
 // DefaultID is the well-known UUID reserved for the default / system organization.
 // It is equivalent to the previous `store.NullOrgId` constant.
 var DefaultID = uuid.MustParse("00000000-0000-0000-0000-000000000000")
+var DefaultExternalID = "default"
+var DefaultDisplayName = "Default"
 
 // Parse validates that the supplied string is a valid UUID and returns it.
 func Parse(s string) (uuid.UUID, error) {

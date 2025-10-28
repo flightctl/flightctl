@@ -32,7 +32,6 @@ import (
 	"github.com/flightctl/flightctl/internal/instrumentation"
 	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/internal/org/cache"
-	"github.com/flightctl/flightctl/internal/org/resolvers"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
 	fclog "github.com/flightctl/flightctl/pkg/log"
@@ -58,11 +57,11 @@ type AlertmanagerProxy struct {
 	proxy        *httputil.ReverseProxy
 	target       *url.URL
 	authDisabled bool
-	authN        auth.AuthNMiddleware
+	authN        common.AuthNMiddleware
 	authZ        auth.AuthZMiddleware
 }
 
-func NewAlertmanagerProxy(cfg *config.Config, log logrus.FieldLogger, authN auth.AuthNMiddleware, authZ auth.AuthZMiddleware) (*AlertmanagerProxy, error) {
+func NewAlertmanagerProxy(cfg *config.Config, log logrus.FieldLogger, authN common.AuthNMiddleware, authZ auth.AuthZMiddleware) (*AlertmanagerProxy, error) {
 	// Get alertmanager URL from environment or use default
 	alertmanagerURL := os.Getenv("ALERTMANAGER_URL")
 	if alertmanagerURL == "" {
@@ -282,27 +281,8 @@ func main() {
 	go orgCache.Start()
 	defer orgCache.Stop()
 
-	buildResolverOpts := resolvers.BuildResolverOptions{
-		Config: cfg,
-		Store:  dataStore.Organization(),
-		Log:    logger,
-		Cache:  orgCache,
-	}
-
-	if cfg.Auth != nil && cfg.Auth.AAP != nil {
-		membershipCache := cache.NewMembershipTTL(cache.DefaultTTL)
-		go membershipCache.Start()
-		defer membershipCache.Stop()
-		buildResolverOpts.MembershipCache = membershipCache
-	}
-
-	orgResolver, err := resolvers.BuildResolver(buildResolverOpts)
-	if err != nil {
-		logger.Fatalf("Failed to build organization resolver: %v", err)
-	}
-
 	// Initialize auth system
-	authN, authZ, err := auth.InitAuth(cfg, logger, orgResolver)
+	authN, authZ, err := auth.InitMultiAuth(cfg, logger, nil)
 	if err != nil {
 		logger.Fatalf("Failed to initialize auth: %v", err)
 	}

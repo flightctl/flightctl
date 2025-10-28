@@ -14,11 +14,12 @@ import (
 	"github.com/flightctl/flightctl/internal/api/server"
 	fcmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/auth"
+	"github.com/flightctl/flightctl/internal/auth/common"
+	"github.com/flightctl/flightctl/internal/auth/issuer"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/console"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/kvstore"
-	"github.com/flightctl/flightctl/internal/org/resolvers"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/transport"
@@ -56,8 +57,7 @@ type Server struct {
 	listener           net.Listener
 	queuesProvider     queues.Provider
 	consoleEndpointReg console.InternalSessionRegistration
-	orgResolver        resolvers.Resolver
-	authN              auth.AuthNMiddleware
+	authN              common.AuthNMiddleware
 	authZ              auth.AuthZMiddleware
 }
 
@@ -70,7 +70,6 @@ func New(
 	listener net.Listener,
 	queuesProvider queues.Provider,
 	consoleEndpointReg console.InternalSessionRegistration,
-	orgResolver resolvers.Resolver,
 ) *Server {
 	return &Server{
 		log:                log,
@@ -80,7 +79,6 @@ func New(
 		listener:           listener,
 		queuesProvider:     queuesProvider,
 		consoleEndpointReg: consoleEndpointReg,
-		orgResolver:        orgResolver,
 	}
 }
 
@@ -167,15 +165,48 @@ func (s *Server) Run(ctx context.Context) error {
 		MultiErrorHandler: oapiMultiErrorHandler,
 	}
 
-	s.authN, s.authZ, err = auth.InitAuth(s.cfg, s.log, s.orgResolver)
+	// Create OIDC issuer if configured
+	var oidcIssuer issuer.OIDCIssuer
+	if s.cfg.Auth != nil && s.cfg.Auth.SSSDOIDCIssuer != nil {
+		// For now, we only support SSSD-based OIDC issuer
+		// This could be extended to support other issuer types in the future
+		// Create SSSD OIDC provider
+		// Note: SSSD functionality requires Linux build constraints
+		sssdOIDCProvider, err := s.createSSSDOIDCProvider()
+		if err != nil {
+			s.log.WithError(err).Warn("Failed to create SSSD OIDC provider, OIDC endpoints will not be available")
+		} else {
+			oidcIssuer = sssdOIDCProvider
+		}
+	}
+
+	// Create service handler and wrap with tracing
+	baseServiceHandler := service.NewServiceHandler(
+		s.store, workerClient, kvStore, s.ca, s.log, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl, s.cfg.Service.TPMCAPaths, oidcIssuer)
+	serviceHandler := service.WrapWithTracing(baseServiceHandler)
+
+	// Initialize auth with traced service handler for OIDC provider access
+	s.authN, s.authZ, err = auth.InitMultiAuth(s.cfg, s.log, serviceHandler)
 	if err != nil {
 		return fmt.Errorf("failed initializing auth: %w", err)
 	}
 
 	router := chi.NewRouter()
 
+	// Create identity mapping middleware
+	identityMapper := service.NewIdentityMapper(s.store, s.log)
+	go identityMapper.Start()
+	identityMappingMiddleware := fcmiddleware.NewIdentityMappingMiddleware(identityMapper, s.log)
+
+	// Create organization extraction and validation middlewares once
+	extractOrgMiddleware := fcmiddleware.ExtractOrgIDToCtx(fcmiddleware.QueryOrgIDExtractor)
+	validateOrgMiddleware := fcmiddleware.ValidateOrgMembership
+
 	authMiddewares := []func(http.Handler) http.Handler{
 		auth.CreateAuthNMiddleware(s.authN, s.log),
+		identityMappingMiddleware.MapIdentityToDB,
+		extractOrgMiddleware,
+		validateOrgMiddleware,
 		auth.CreateAuthZMiddleware(s.authZ, s.log),
 	}
 
@@ -186,16 +217,9 @@ func (s *Server) Run(ctx context.Context) error {
 		fcmiddleware.RequestSizeLimiter(s.cfg.Service.HttpMaxUrlLength, s.cfg.Service.HttpMaxNumHeaders),
 		fcmiddleware.RequestID,
 		fcmiddleware.AddEventMetadataToCtx,
-		fcmiddleware.AddOrgIDToCtx(
-			s.orgResolver,
-			fcmiddleware.QueryOrgIDExtractor,
-		),
 		middleware.Logger,
 		middleware.Recoverer,
 	)
-
-	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(
-		s.store, workerClient, kvStore, s.ca, s.log, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl, s.cfg.Service.TPMCAPaths, s.orgResolver))
 
 	// a group is a new mux copy, with its own copy of the middleware stack
 	// this one handles the OpenAPI handling of the service (excluding auth validate endpoint)
@@ -247,6 +271,7 @@ func (s *Server) Run(ctx context.Context) error {
 		// Add conditional middleware
 		r.Use(oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts))
 		r.Use(authMiddewares...)
+		r.Use(identityMappingMiddleware.MapIdentityToDB) // Map identity to DB objects AFTER authentication
 
 		// Add auth-specific rate limiting (only if configured)
 		if s.cfg.Service.RateLimit != nil {
@@ -283,6 +308,7 @@ func (s *Server) Run(ctx context.Context) error {
 	router.Group(func(r chi.Router) {
 		r.Use(fcmiddleware.CreateRouteExistsMiddleware(r))
 		r.Use(authMiddewares...)
+		r.Use(identityMappingMiddleware.MapIdentityToDB) // Map identity to DB objects AFTER authentication
 		// Add websocket rate limiting (only if configured)
 		if s.cfg.Service.RateLimit != nil {
 			trustedProxies := s.cfg.Service.RateLimit.TrustedProxies
