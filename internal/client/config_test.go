@@ -10,7 +10,12 @@ import (
 
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/config/ca"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/identity"
+	"github.com/flightctl/flightctl/internal/org"
+	orgmodel "github.com/flightctl/flightctl/internal/org/model"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -115,7 +120,15 @@ func TestClientConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
+			// Create context with dummy mapped identity for certificate signing
+			orgID := org.DefaultID
+			orgEntity := &orgmodel.Organization{
+				ID:         orgID,
+				ExternalID: orgID.String(),
+			}
+			mappedIdentity := identity.NewMappedIdentity("test-user", "test-uid", []*orgmodel.Organization{orgEntity}, []string{}, identity.NewIssuer("test", "test-issuer"))
+			ctx := context.WithValue(context.Background(), consts.MappedIdentityCtxKey, mappedIdentity)
+			ctx = util.WithOrganizationID(ctx, orgID)
 
 			testDirPath := t.TempDir()
 			configFile := filepath.Join(testDirPath, "client.yaml")

@@ -102,7 +102,7 @@ func initOIDCAuth(cfg *config.Config, log logrus.FieldLogger) (common.AuthNMiddl
 	if cfg.Auth.OIDC.RoleClaim != nil {
 		roleClaim = *cfg.Auth.OIDC.RoleClaim
 	}
-	authNProvider, err := authn.NewOIDCAuth(oidcUrl, getTlsConfig(cfg), getOrgConfig(cfg), usernameClaim, roleClaim, "", []string{})
+	authNProvider, err := authn.NewOIDCAuth("oidc", oidcUrl, getTlsConfig(cfg), getOrgConfig(cfg), usernameClaim, roleClaim, "", []string{})
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create OIDC AuthN: %w", err)
 	}
@@ -121,7 +121,8 @@ func initAAPAuth(cfg *config.Config, log logrus.FieldLogger) (common.AuthNMiddle
 	return authNProvider, authZProvider, nil
 }
 
-func InitAuth(cfg *config.Config, log logrus.FieldLogger, orgResolver resolvers.Resolver) (AuthNMiddleware, AuthZMiddleware, error) {
+// InitMultiAuth initializes authentication with support for multiple methods
+func InitMultiAuth(cfg *config.Config, log logrus.FieldLogger, authProviderService authn.AuthProviderService) (common.AuthNMiddleware, AuthZMiddleware, error) {
 	value, exists := os.LookupEnv(DisableAuthEnvKey)
 	if exists && value != "" {
 		log.Warnln("Auth disabled")
@@ -129,35 +130,116 @@ func InitAuth(cfg *config.Config, log logrus.FieldLogger, orgResolver resolvers.
 		authNProvider := NilAuth{}
 		authZProvider := NilAuth{}
 		return authNProvider, authZProvider, nil
-	} else if cfg.Auth != nil {
-		var authNProvider AuthNMiddleware
-		var authZProvider AuthZMiddleware
-		var err error
-		if cfg.Auth.K8s != nil {
-			configuredAuthType = AuthTypeK8s
-			authNProvider, authZProvider, err = initK8sAuth(cfg, log)
-		} else if cfg.Auth.OIDC != nil {
-			configuredAuthType = AuthTypeOIDC
-			authNProvider, authZProvider, err = initOIDCAuth(cfg, log, orgResolver)
-		} else if cfg.Auth.AAP != nil {
-			configuredAuthType = AuthTypeAAP
-			authNProvider, authZProvider, err = initAAPAuth(cfg, log, orgResolver)
-		}
-
-		if err != nil {
-			return nil, nil, err
-		}
-
-		if authNProvider == nil {
-			return nil, nil, errors.New("no authN provider defined")
-		}
-		if authZProvider == nil {
-			return nil, nil, errors.New("no authZ provider defined")
-		}
-		return authNProvider, authZProvider, nil
 	}
 
-	return nil, nil, errors.New("no auth configuration provided")
+	if cfg.Auth == nil {
+		return nil, nil, errors.New("no auth configuration provided")
+	}
+
+	// Create TLS config for OIDC provider connections
+	tlsConfig := &tls.Config{
+		InsecureSkipVerify: cfg.Auth.InsecureSkipTlsVerify,
+	}
+
+	// Create MultiAuth instance
+	multiAuth := authn.NewMultiAuth(authProviderService, tlsConfig, log)
+	var authZProvider AuthZMiddleware
+
+	// Initialize static authentication methods
+	if cfg.Auth.K8s != nil {
+		log.Infof("K8s auth enabled: %s", cfg.Auth.K8s.ApiUrl)
+		k8sAuthN, k8sAuthZ, err := initK8sAuth(cfg, log)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to initialize K8s auth: %w", err)
+		}
+
+		// Register K8s auth under normalized issuer aliases (with/without .cluster.local)
+		addAliases := func(raw string) {
+			raw = strings.TrimSuffix(raw, "/")
+			if raw == "" {
+				return
+			}
+			// exact as provided
+			multiAuth.AddStaticProvider(raw, k8sAuthN)
+			// host alias with/without .cluster.local
+			if u, err := url.Parse(raw); err == nil {
+				host := u.Host
+				var aliasHost string
+				if strings.HasSuffix(host, ".cluster.local") {
+					aliasHost = strings.TrimSuffix(host, ".cluster.local")
+				} else {
+					aliasHost = host + ".cluster.local"
+				}
+				if aliasHost != host {
+					u.Host = aliasHost
+					multiAuth.AddStaticProvider(strings.TrimSuffix(u.String(), "/"), k8sAuthN)
+				}
+			}
+		}
+
+		primary := strings.TrimSuffix(cfg.Auth.K8s.ApiUrl, "/")
+		if primary == "" {
+			primary = k8sApiService
+		}
+		addAliases(primary)
+		if cfg.Auth.K8s.ExternalOpenShiftApiUrl != "" {
+			addAliases(strings.TrimSuffix(cfg.Auth.K8s.ExternalOpenShiftApiUrl, "/"))
+		}
+
+		// Use K8s authZ as primary (can be overridden by other methods)
+		if authZProvider == nil {
+			authZProvider = k8sAuthZ
+		}
+		configuredAuthType = AuthTypeK8s
+	}
+
+	if cfg.Auth.OIDC != nil {
+		log.Infof("OIDC auth enabled: %s", cfg.Auth.OIDC.Issuer)
+		oidcAuthN, oidcAuthZ, err := initOIDCAuth(cfg, log)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to initialize OIDC auth: %w", err)
+		}
+
+		// Add OIDC auth with its issuer
+		oidcIssuer := strings.TrimSuffix(cfg.Auth.OIDC.Issuer, "/")
+		multiAuth.AddStaticProvider(oidcIssuer, oidcAuthN)
+
+		// Use OIDC authZ as primary (can be overridden by other methods)
+		if authZProvider == nil {
+			authZProvider = oidcAuthZ
+		}
+		configuredAuthType = AuthTypeOIDC
+	}
+
+	if cfg.Auth.AAP != nil {
+		log.Infof("AAP Gateway auth enabled: %s", cfg.Auth.AAP.ApiUrl)
+		aapAuthN, aapAuthZ, err := initAAPAuth(cfg, log)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to initialize AAP auth: %w", err)
+		}
+
+		// Add AAP auth (for opaque tokens)
+		multiAuth.AddStaticProvider("aap", aapAuthN)
+
+		// Use AAP authZ as primary (can be overridden by other methods)
+		if authZProvider == nil {
+			authZProvider = aapAuthZ
+		}
+		configuredAuthType = AuthTypeAAP
+	}
+
+	if !multiAuth.HasProviders() {
+		return nil, nil, errors.New("no authentication providers configured")
+	}
+
+	if authZProvider == nil {
+		return nil, nil, errors.New("no authZ provider defined")
+	}
+
+	// Start the cache background cleanup
+	multiAuth.Start()
+
+	return multiAuth, authZProvider, nil
 }
 
 type K8sToK8sAuth struct {

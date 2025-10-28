@@ -107,15 +107,8 @@ func (h *TransportHandler) AuthConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	authConfig := h.authN.GetAuthConfig()
-
-	conf := api.AuthConfig{
-		AuthType: authConfig.Type,
-		AuthURL:  authConfig.Url,
-		AuthOrganizationsConfig: api.AuthOrganizationsConfig{
-			Enabled: authConfig.OrganizationsConfig.Enabled,
-		},
-	}
-	SetResponse(w, conf, api.StatusOK())
+	body, status := h.serviceHandler.GetAuthConfig(r.Context(), authConfig)
+	SetResponse(w, body, status)
 }
 
 // (GET /api/v1/auth/validate)

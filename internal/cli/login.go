@@ -14,7 +14,6 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	apiClient "github.com/flightctl/flightctl/internal/api/client"
-	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/cli/login"
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/spf13/cobra"
@@ -277,44 +276,91 @@ func (o *LoginOptions) ensureClientID() {
 	if o.ClientId != "" {
 		return
 	}
-	switch o.authConfig.AuthType {
-	case common.AuthTypeK8s:
+	provider := o.getDefaultProvider()
+	if provider == nil || provider.Type == nil {
+		return
+	}
+	switch *provider.Type {
+	case v1alpha1.AuthProviderInfoTypeK8s:
 		if o.Username != "" {
 			o.ClientId = "openshift-challenging-client"
 		} else {
 			o.ClientId = "openshift-cli-client"
 		}
-	case common.AuthTypeOIDC:
+	case v1alpha1.AuthProviderInfoTypeOidc:
 		o.ClientId = "flightctl"
 	}
 }
 
+// getDefaultProvider returns the default authentication provider
+func (o *LoginOptions) getDefaultProvider() *v1alpha1.AuthProviderInfo {
+	if o.authConfig == nil || o.authConfig.Providers == nil {
+		return nil
+	}
+	// Find the default provider
+	for _, p := range *o.authConfig.Providers {
+		if p.IsDefault != nil && *p.IsDefault {
+			return &p
+		}
+	}
+	// If no default is marked, return the first provider
+	if len(*o.authConfig.Providers) > 0 {
+		return &(*o.authConfig.Providers)[0]
+	}
+	return nil
+}
+
 // createAuthProvider creates and assigns the auth provider from current config
 func (o *LoginOptions) createAuthProvider() error {
-	provider, err := client.CreateAuthProvider(client.AuthInfo{
+	provider := o.getDefaultProvider()
+	if provider == nil || provider.Type == nil || provider.Name == nil {
+		return fmt.Errorf("no valid authentication provider found")
+	}
+
+	authURL := ""
+	if provider.AuthUrl != nil {
+		authURL = *provider.AuthUrl
+	}
+
+	orgEnabled := false
+	if o.authConfig.OrganizationsEnabled != nil {
+		orgEnabled = *o.authConfig.OrganizationsEnabled
+	}
+
+	authProvider, err := client.CreateAuthProvider(client.AuthInfo{
 		AuthProvider: &client.AuthProviderConfig{
-			Name: o.authConfig.AuthType,
+			Name: string(*provider.Type),
 			Config: map[string]string{
-				client.AuthUrlKey:      o.authConfig.AuthURL,
+				client.AuthUrlKey:      authURL,
 				client.AuthCAFileKey:   o.AuthCAFile,
 				client.AuthClientIdKey: o.ClientId,
 			},
 		},
-		OrganizationsEnabled: o.authConfig.AuthOrganizationsConfig.Enabled,
+		OrganizationsEnabled: orgEnabled,
 	}, o.InsecureSkipVerify)
 	if err != nil {
 		return fmt.Errorf("creating auth provider: %w", err)
 	}
-	o.authProvider = provider
+	o.authProvider = authProvider
 	return nil
 }
 
 // setAuthProviderInClientConfig writes the provider info into the client config
 func (o *LoginOptions) setAuthProviderInClientConfig() {
+	provider := o.getDefaultProvider()
+	if provider == nil || provider.Type == nil {
+		return
+	}
+
+	authURL := ""
+	if provider.AuthUrl != nil {
+		authURL = *provider.AuthUrl
+	}
+
 	o.clientConfig.AuthInfo.AuthProvider = &client.AuthProviderConfig{
-		Name: o.authConfig.AuthType,
+		Name: string(*provider.Type),
 		Config: map[string]string{
-			client.AuthUrlKey:      o.authConfig.AuthURL,
+			client.AuthUrlKey:      authURL,
 			client.AuthClientIdKey: o.ClientId,
 		},
 	}
@@ -329,7 +375,8 @@ func (o *LoginOptions) fetchToken() (string, error) {
 	authInfo, err := o.authProvider.Auth(o.Web, o.Username, o.Password)
 	if err != nil {
 		// Check if this is an Auth certificate issue
-		if o.authConfig != nil && o.authConfig.AuthURL != "" {
+		provider := o.getDefaultProvider()
+		if o.authConfig != nil && provider != nil && provider.AuthUrl != nil && *provider.AuthUrl != "" {
 			errorInfo := classifyTLSError(err)
 			if errorInfo.Type != TLSErrorUnknown {
 				// Offer interactive prompt to proceed insecurely
@@ -448,7 +495,12 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 		return err
 	}
 
-	if o.AccessToken == "" && o.authConfig.AuthURL == "" {
+	provider := o.getDefaultProvider()
+	providerAuthURL := ""
+	if provider != nil && provider.AuthUrl != nil {
+		providerAuthURL = *provider.AuthUrl
+	}
+	if o.AccessToken == "" && providerAuthURL == "" {
 		fmt.Printf("You must obtain API token, then login via \"flightctl login %s --token=<token>\"\n", o.clientConfig.Service.Server)
 		return fmt.Errorf("must provide --token")
 	}
