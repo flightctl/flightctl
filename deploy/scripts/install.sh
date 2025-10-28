@@ -107,6 +107,14 @@ render_files() {
     fi
 
     move_shared_files "${SOURCE_DIR}"
+
+    # Build the render-services binary and move it to the /usr/bin directory
+    make build-render-services
+    mv "${GOBIN}/flightctl-render-services" "/usr/bin/flightctl-render-services"
+    chown root:root "/usr/bin/flightctl-render-services"
+    chmod 755 "/usr/bin/flightctl-render-services"
+    sudo chcon -t bin_t /usr/bin/flightctl-render-services
+    sudo restorecon -v /usr/bin/flightctl-render-services
 }
 
 main() {

@@ -16,6 +16,7 @@ PublishPort=443:8080
 Volume=flightctl-ui-certs:/app/certs:ro,z
 
 [Service]
+ExecStartPre=/usr/bin/flightctl-render-services
 Restart=always
 RestartSec=30
 
