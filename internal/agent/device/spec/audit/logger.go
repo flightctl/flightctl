@@ -55,61 +55,22 @@ func NewFileLogger(
 	}, nil
 }
 
-// LogApply logs a successful spec application.
-func (f *FileLogger) LogApply(ctx context.Context, oldVersion, newVersion string) error {
+// LogEvent logs a complete audit event with all required fields.
+func (f *FileLogger) LogEvent(ctx context.Context, info *AuditEventInfo) error {
 	if !f.config.Enabled {
 		return nil
 	}
 
 	event := AuditEvent{
-		Timestamp:   time.Now().UTC(),
-		DeviceID:    f.deviceID,
-		OldVersion:  oldVersion,
-		NewVersion:  newVersion,
-		AuditType:   AuditTypeApply,
-		AuditResult: AuditResultSuccess,
-	}
-
-	return f.writeEvent(event)
-}
-
-// LogRollback logs a rollback operation.
-func (f *FileLogger) LogRollback(ctx context.Context, oldVersion, newVersion string) error {
-	if !f.config.Enabled {
-		return nil
-	}
-
-	event := AuditEvent{
-		Timestamp:   time.Now().UTC(),
-		DeviceID:    f.deviceID,
-		OldVersion:  oldVersion,
-		NewVersion:  newVersion,
-		AuditType:   AuditTypeRollback,
-		AuditResult: AuditResultSuccess,
-	}
-
-	return f.writeEvent(event)
-}
-
-// LogFailure logs a failed spec application.
-func (f *FileLogger) LogFailure(ctx context.Context, oldVersion, newVersion string, err error) error {
-	if !f.config.Enabled {
-		return nil
-	}
-
-	errorMessage := ""
-	if err != nil {
-		errorMessage = err.Error()
-	}
-
-	event := AuditEvent{
-		Timestamp:    time.Now().UTC(),
-		DeviceID:     f.deviceID,
-		OldVersion:   oldVersion,
-		NewVersion:   newVersion,
-		AuditType:    AuditTypeFailure,
-		AuditResult:  AuditResultFailure,
-		ErrorMessage: errorMessage,
+		Ts:         info.StartTime.UTC().Format(time.RFC3339),
+		Device:     info.Device,
+		OldVersion: info.OldVersion,
+		NewVersion: info.NewVersion,
+		OldHash:    info.OldHash,
+		NewHash:    info.NewHash,
+		Result:     info.Result,
+		DurationMs: info.DurationMs,
+		Type:       info.Type,
 	}
 
 	return f.writeEvent(event)
@@ -152,7 +113,7 @@ func (f *FileLogger) writeEvent(event AuditEvent) error {
 		return fmt.Errorf("writing audit event to %q: %w", DefaultLogPath, err)
 	}
 
-	f.log.Debugf("Wrote audit event: %s", string(eventBytes[:len(eventBytes)-1])) // Remove newline for logging
+	f.log.Debugf("Wrote audit event: %s %s->%s %s (%dms)", event.Type, event.OldVersion, event.NewVersion, event.Result, event.DurationMs)
 
 	return nil
 }
