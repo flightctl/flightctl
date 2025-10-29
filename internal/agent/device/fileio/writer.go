@@ -130,6 +130,52 @@ func (w *writer) WriteFile(name string, data []byte, perm fs.FileMode, opts ...F
 	return writeFileAtomically(filepath.Join(w.rootDir, name), data, DefaultDirectoryPermissions, perm, uid, gid)
 }
 
+func (w *writer) AppendFile(name string, data []byte, perm fs.FileMode, opts ...FileOption) error {
+	fopts := &fileOptions{}
+	for _, opt := range opts {
+		opt(fopts)
+	}
+
+	var uid, gid int
+	// if rootDir is set use the default UID and GID
+	if w.rootDir != "" {
+		defaultUID, defaultGID, err := getUserIdentity()
+		if err != nil {
+			return err
+		}
+		uid = defaultUID
+		gid = defaultGID
+	} else {
+		uid = fopts.uid
+		gid = fopts.gid
+	}
+
+	filePath := filepath.Join(w.rootDir, name)
+
+	// Create directory if it doesn't exist
+	if err := os.MkdirAll(filepath.Dir(filePath), DefaultDirectoryPermissions); err != nil {
+		return err
+	}
+
+	// Open file for appending, create if not exists
+	file, err := os.OpenFile(filePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, perm)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	// Set ownership if specified
+	if uid != 0 || gid != 0 {
+		if err := file.Chown(uid, gid); err != nil {
+			return err
+		}
+	}
+
+	// Append data
+	_, err = file.Write(data)
+	return err
+}
+
 func (w *writer) RemoveFile(file string) error {
 	if err := os.Remove(filepath.Join(w.rootDir, file)); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove file %q: %w", file, err)

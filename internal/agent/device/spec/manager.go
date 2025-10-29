@@ -219,14 +219,12 @@ func (s *manager) Upgrade(ctx context.Context) error {
 
 		// Log successful spec application to audit log
 		if s.auditLogger != nil {
-			// For now, use simplified audit logging until we have proper timing/hash collection
-			// TODO: Add proper start time tracking and spec hash collection
 			auditInfo := &audit.AuditEventInfo{
 				Device:     s.deviceName,
 				OldVersion: currentVersion,
 				NewVersion: desired.Version(),
-				OldHash:    "unknown", // TODO: Calculate actual spec hash
-				NewHash:    "unknown", // TODO: Calculate actual spec hash
+				OldHash:    s.cache.getRenderedSpecHash(Current),
+				NewHash:    s.cache.getRenderedSpecHash(Desired),
 				Result:     audit.AuditResultSuccess,
 				DurationMs: 0, // TODO: Add proper timing
 				Type:       audit.AuditTypeApply,
@@ -262,8 +260,8 @@ func (s *manager) SetUpgradeFailed(version string) error {
 			Device:     s.deviceName,
 			OldVersion: currentVersion,
 			NewVersion: version,
-			OldHash:    "unknown", // TODO: Calculate actual spec hash
-			NewHash:    "unknown", // TODO: Calculate actual spec hash
+			OldHash:    s.cache.getRenderedSpecHash(Current),
+			NewHash:    s.cache.getRenderedSpecHash(Desired),
 			Result:     audit.AuditResultFailure,
 			DurationMs: 0, // TODO: Add proper timing
 			Type:       audit.AuditTypeFailure,
@@ -358,8 +356,8 @@ func (s *manager) Rollback(ctx context.Context, opts ...RollbackOption) error {
 			Device:     s.deviceName,
 			OldVersion: desiredVersion,
 			NewVersion: current.Version(),
-			OldHash:    "unknown", // TODO: Calculate actual spec hash
-			NewHash:    "unknown", // TODO: Calculate actual spec hash
+			OldHash:    s.cache.getRenderedSpecHash(Desired),
+			NewHash:    s.cache.getRenderedSpecHash(Current),
 			Result:     audit.AuditResultSuccess,
 			DurationMs: 0, // TODO: Add proper timing
 			Type:       audit.AuditTypeRollback,

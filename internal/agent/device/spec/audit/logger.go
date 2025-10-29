@@ -83,7 +83,7 @@ func (f *FileLogger) Close() error {
 }
 
 // writeEvent writes an audit event to the log file.
-// Following the pattern from config controller file writing.
+// Uses true append-only JSONL format for lightweight logging.
 func (f *FileLogger) writeEvent(event AuditEvent) error {
 	// Marshal event to JSON
 	eventBytes, err := json.Marshal(event)
@@ -94,23 +94,9 @@ func (f *FileLogger) writeEvent(event AuditEvent) error {
 	// Add newline for JSON lines format
 	eventBytes = append(eventBytes, '\n')
 
-	// Read existing content if file exists
-	var existingContent []byte
-	if exists, _ := f.readWriter.PathExists(DefaultLogPath); exists {
-		existingContent, err = f.readWriter.ReadFile(DefaultLogPath)
-		if err != nil {
-			f.log.Warnf("Failed to read existing audit log: %v", err)
-			// Continue with empty content
-			existingContent = []byte{}
-		}
-	}
-
-	// Append new event
-	newContent := append(existingContent, eventBytes...)
-
-	// Write back to file using fileio abstraction
-	if err := f.readWriter.WriteFile(DefaultLogPath, newContent, fileio.DefaultFilePermissions); err != nil {
-		return fmt.Errorf("writing audit event to %q: %w", DefaultLogPath, err)
+	// Append directly to file using fileio abstraction (lightweight, append-only)
+	if err := f.readWriter.AppendFile(DefaultLogPath, eventBytes, fileio.DefaultFilePermissions); err != nil {
+		return fmt.Errorf("appending audit event to %q: %w", DefaultLogPath, err)
 	}
 
 	f.log.Debugf("Wrote audit event: %s %s->%s %s (%dms)", event.Type, event.OldVersion, event.NewVersion, event.Result, event.DurationMs)
