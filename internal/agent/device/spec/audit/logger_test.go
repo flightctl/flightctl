@@ -208,3 +208,67 @@ func TestFileLogger_DisabledLogging(t *testing.T) {
 	err = auditLogger.LogFailure(ctx, "1", "2", errors.New("test error"))
 	require.NoError(err)
 }
+
+func TestFileLogger_LogRollback(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	ctx := context.Background()
+	config := NewDefaultAuditConfig()
+	mockRW := fileio.NewMockReadWriter(ctrl)
+	logger := log.NewPrefixLogger("test")
+
+	// Setup validation mocks
+	mockRW.EXPECT().PathExists("/var/log/flightctl").Return(true, nil)
+
+	auditLogger, err := NewFileLogger(config, mockRW, "test-device", logger)
+	require.NoError(err)
+
+	// Test successful log rollback
+	mockRW.EXPECT().PathExists(DefaultLogPath).Return(false, nil)
+	mockRW.EXPECT().WriteFile(DefaultLogPath, gomock.Any(), fileio.DefaultFilePermissions).DoAndReturn(
+		func(path string, data []byte, perm interface{}, opts ...interface{}) error {
+			// Verify the JSON structure
+			lines := strings.Split(string(data), "\n")
+			require.Len(lines, 2) // Event line + empty line from newline
+			require.NotEmpty(lines[0])
+
+			var event AuditEvent
+			err := json.Unmarshal([]byte(lines[0]), &event)
+			require.NoError(err)
+
+			require.Equal("test-device", event.DeviceID)
+			require.Equal("3", event.OldVersion)
+			require.Equal("2", event.NewVersion)
+			require.Equal(AuditTypeRollback, event.AuditType)
+			require.Equal(AuditResultSuccess, event.AuditResult)
+			require.Empty(event.ErrorMessage)
+			require.False(event.Timestamp.IsZero())
+
+			return nil
+		})
+
+	err = auditLogger.LogRollback(ctx, "3", "2")
+	require.NoError(err)
+}
+
+func TestFileLogger_Close(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	config := NewDefaultAuditConfig()
+	mockRW := fileio.NewMockReadWriter(ctrl)
+	logger := log.NewPrefixLogger("test")
+
+	// Setup validation mocks
+	mockRW.EXPECT().PathExists("/var/log/flightctl").Return(true, nil)
+
+	auditLogger, err := NewFileLogger(config, mockRW, "test-device", logger)
+	require.NoError(err)
+
+	// Test that Close() doesn't return an error
+	err = auditLogger.Close()
+	require.NoError(err)
+}

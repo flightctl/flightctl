@@ -199,7 +199,7 @@ func (s *manager) Upgrade(ctx context.Context) error {
 	if s.IsUpgrading() {
 		// Get current version before upgrade for audit logging
 		currentVersion := s.cache.getRenderedVersion(Current)
-		
+
 		desired, err := s.Read(Desired)
 		if err != nil {
 			return err
@@ -214,10 +214,23 @@ func (s *manager) Upgrade(ctx context.Context) error {
 		}
 
 		s.log.Infof("Spec reconciliation complete: current version %s", desired.Version())
-		
+
 		// Log successful spec application to audit log
 		if s.auditLogger != nil {
-			if err := s.auditLogger.LogApply(ctx, currentVersion, desired.Version()); err != nil {
+			// For now, use simplified audit logging until we have proper timing/hash collection
+			// TODO: Add proper start time tracking and spec hash collection
+			auditInfo := &audit.AuditEventInfo{
+				Device:     s.deviceID,
+				OldVersion: currentVersion,
+				NewVersion: desired.Version(),
+				OldHash:    "unknown", // TODO: Calculate actual spec hash
+				NewHash:    "unknown", // TODO: Calculate actual spec hash
+				Result:     audit.AuditResultSuccess,
+				DurationMs: 0, // TODO: Add proper timing
+				Type:       audit.AuditTypeApply,
+				StartTime:  time.Now(), // TODO: Track actual start time
+			}
+			if err := s.auditLogger.LogEvent(ctx, auditInfo); err != nil {
 				s.log.Warnf("Failed to write audit log for successful upgrade from %s to %s: %v", currentVersion, desired.Version(), err)
 			}
 		}
@@ -239,17 +252,26 @@ func (s *manager) SetUpgradeFailed(version string) error {
 		return err
 	}
 	s.queue.SetFailed(versionInt)
-	
+
 	// Log failed spec application to audit log
 	if s.auditLogger != nil {
 		currentVersion := s.cache.getRenderedVersion(Current)
-		// Create a generic failure error since specific error isn't passed to this method
-		failureErr := fmt.Errorf("spec version %s failed to apply", version)
-		if err := s.auditLogger.LogFailure(context.Background(), currentVersion, version, failureErr); err != nil {
+		auditInfo := &audit.AuditEventInfo{
+			Device:     s.deviceID,
+			OldVersion: currentVersion,
+			NewVersion: version,
+			OldHash:    "unknown", // TODO: Calculate actual spec hash
+			NewHash:    "unknown", // TODO: Calculate actual spec hash
+			Result:     audit.AuditResultFailure,
+			DurationMs: 0, // TODO: Add proper timing
+			Type:       audit.AuditTypeFailure,
+			StartTime:  time.Now(), // TODO: Track actual start time
+		}
+		if err := s.auditLogger.LogEvent(context.Background(), auditInfo); err != nil {
 			s.log.Warnf("Failed to write audit log for upgrade failure from %s to %s: %v", currentVersion, version, err)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -325,16 +347,27 @@ func (s *manager) Rollback(ctx context.Context, opts ...RollbackOption) error {
 
 	// rollback in-memory cache current == desired
 	s.cache.update(Desired, current)
-	
+
 	// Log successful rollback to audit log
 	if s.auditLogger != nil {
 		// For rollback: old version is the failed desired version, new version is the current (rollback target)
 		desiredVersion := s.cache.getRenderedVersion(Desired)
-		if err := s.auditLogger.LogRollback(ctx, desiredVersion, current.Version()); err != nil {
+		auditInfo := &audit.AuditEventInfo{
+			Device:     s.deviceID,
+			OldVersion: desiredVersion,
+			NewVersion: current.Version(),
+			OldHash:    "unknown", // TODO: Calculate actual spec hash
+			NewHash:    "unknown", // TODO: Calculate actual spec hash
+			Result:     audit.AuditResultSuccess,
+			DurationMs: 0, // TODO: Add proper timing
+			Type:       audit.AuditTypeRollback,
+			StartTime:  time.Now(), // TODO: Track actual start time
+		}
+		if err := s.auditLogger.LogEvent(ctx, auditInfo); err != nil {
 			s.log.Warnf("Failed to write audit log for rollback from %s to %s: %v", desiredVersion, current.Version(), err)
 		}
 	}
-	
+
 	return nil
 }
 

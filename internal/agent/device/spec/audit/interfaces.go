@@ -25,32 +25,42 @@ const (
 	AuditResultSuccess AuditResult = "success"
 	// AuditResultFailure represents a failed operation
 	AuditResultFailure AuditResult = "failure"
+	// AuditResultNoop represents no change was needed
+	AuditResultNoop AuditResult = "noop"
 )
 
 // AuditEvent represents a single audit log entry.
 type AuditEvent struct {
-	Timestamp    time.Time   `json:"timestamp"`
-	DeviceID     string      `json:"device_id"`
-	OldVersion   string      `json:"old_version"`
-	NewVersion   string      `json:"new_version"`
-	AuditType    AuditType   `json:"audit_type"`
-	AuditResult  AuditResult `json:"audit_result"`
-	ErrorMessage string      `json:"error_message,omitempty"`
+	Ts         string      `json:"ts"`          // RFC3339 UTC format - when the attempt started
+	Device     string      `json:"device"`      // device name
+	OldVersion string      `json:"old_version"` // current effective version before the attempt
+	NewVersion string      `json:"new_version"` // target version
+	OldHash    string      `json:"old_hash"`    // SHA256 of the current rendered spec
+	NewHash    string      `json:"new_hash"`    // target rendered spec hash
+	Result     AuditResult `json:"result"`      // success | failure | noop
+	DurationMs int64       `json:"duration_ms"` // total apply time in milliseconds
+	Type       AuditType   `json:"type"`        // apply/rollback/failure
+}
+
+// AuditEventInfo contains all the information needed to log an audit event.
+type AuditEventInfo struct {
+	Device     string
+	OldVersion string
+	NewVersion string
+	OldHash    string
+	NewHash    string
+	Result     AuditResult
+	DurationMs int64
+	Type       AuditType
+	StartTime  time.Time // When the operation started
 }
 
 // Logger defines the interface for audit logging operations.
 // Following the pattern from status.Manager interface.
 type Logger interface {
-	// LogApply logs a successful spec application.
-	LogApply(ctx context.Context, oldVersion, newVersion string) error
-
-	// LogRollback logs a rollback operation.
-	LogRollback(ctx context.Context, oldVersion, newVersion string) error
-
-	// LogFailure logs a failed spec application.
-	LogFailure(ctx context.Context, oldVersion, newVersion string, err error) error
+	// LogEvent logs a complete audit event with all required fields.
+	LogEvent(ctx context.Context, info *AuditEventInfo) error
 
 	// Close closes the audit logger and flushes any pending writes.
 	Close() error
 }
-
