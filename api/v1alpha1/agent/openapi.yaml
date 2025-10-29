@@ -63,6 +63,12 @@ paths:
             application/json:
               schema:
                 $ref: '../openapi.yaml#/components/schemas/Status'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
     patch:
       tags:
         - device
@@ -118,6 +124,12 @@ paths:
             application/json:
               schema:
                 $ref: '../openapi.yaml#/components/schemas/Status'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
   /api/v1/devices/{name}/rendered:
     #$ref: '../openapi.yaml#/paths/~1api~1v1~1devices~1{name}~1rendered'
     # this is buggy and generates invalid references, see:
@@ -168,6 +180,12 @@ paths:
             application/json:
               schema:
                 $ref: '../openapi.yaml#/components/schemas/Status'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
   /api/v1/enrollmentrequests/{name}:
     # $ref: '../openapi.yaml#/paths/~1api~1v1~1enrollmentrequests~1{name}' (same oapi-codegen bug as above)
     get:
@@ -209,6 +227,12 @@ paths:
                 $ref: '../openapi.yaml#/components/schemas/Status'
         "503":
           description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        default:
+          description: Unexpected error
           content:
             application/json:
               schema:
@@ -262,6 +286,12 @@ paths:
             application/json:
               schema:
                 $ref: '../openapi.yaml#/components/schemas/Status'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
   /api/v1/certificatesigningrequests:
     post:
       tags:
@@ -307,6 +337,12 @@ paths:
                 $ref: '../openapi.yaml#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        default:
+          description: Unexpected error
           content:
             application/json:
               schema:
@@ -357,5 +393,12 @@ paths:
             application/json:
               schema:
                 $ref: '../openapi.yaml#/components/schemas/Status'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+
 
 

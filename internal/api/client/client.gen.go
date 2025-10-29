@@ -4737,6 +4737,7 @@ type AuthConfigResponse struct {
 	HTTPResponse *http.Response
 	JSON200      *AuthConfig
 	JSON418      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -4763,6 +4764,7 @@ type AuthValidateResponse struct {
 	JSON401      *Status
 	JSON418      *Status
 	JSON500      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -4790,6 +4792,7 @@ type ListCertificateSigningRequestsResponse struct {
 	JSON403      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -4818,6 +4821,7 @@ type CreateCertificateSigningRequestResponse struct {
 	JSON409      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -4845,6 +4849,7 @@ type DeleteCertificateSigningRequestResponse struct {
 	JSON404      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -4872,6 +4877,7 @@ type GetCertificateSigningRequestResponse struct {
 	JSON404      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -4901,6 +4907,7 @@ type PatchCertificateSigningRequestResponse struct {
 	JSON409      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -4931,6 +4938,7 @@ type ReplaceCertificateSigningRequestResponse struct {
 	JSON409      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -4960,6 +4968,7 @@ type UpdateCertificateSigningRequestApprovalResponse struct {
 	JSON409      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -4987,6 +4996,7 @@ type ResumeDevicesResponse struct {
 	JSON403      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5014,6 +5024,7 @@ type ListDevicesResponse struct {
 	JSON403      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5042,6 +5053,7 @@ type CreateDeviceResponse struct {
 	JSON409      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5069,6 +5081,7 @@ type DeleteDeviceResponse struct {
 	JSON404      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5096,6 +5109,7 @@ type GetDeviceResponse struct {
 	JSON404      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5125,6 +5139,7 @@ type PatchDeviceResponse struct {
 	JSON409      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5155,6 +5170,7 @@ type ReplaceDeviceResponse struct {
 	JSON409      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5183,6 +5199,7 @@ type DecommissionDeviceResponse struct {
 	JSON404      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5210,6 +5227,7 @@ type GetDeviceLastSeenResponse struct {
 	JSON404      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5238,6 +5256,7 @@ type GetRenderedDeviceResponse struct {
 	JSON409      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5265,6 +5284,7 @@ type GetDeviceStatusResponse struct {
 	JSON404      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5293,6 +5313,7 @@ type PatchDeviceStatusResponse struct {
 	JSON404      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5322,6 +5343,7 @@ type ReplaceDeviceStatusResponse struct {
 	JSON409      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5350,6 +5372,7 @@ type GetEnrollmentConfigResponse struct {
 	JSON404      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5377,6 +5400,7 @@ type ListEnrollmentRequestsResponse struct {
 	JSON403      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5405,6 +5429,7 @@ type CreateEnrollmentRequestResponse struct {
 	JSON409      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5433,6 +5458,7 @@ type DeleteEnrollmentRequestResponse struct {
 	JSON409      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5460,6 +5486,7 @@ type GetEnrollmentRequestResponse struct {
 	JSON404      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5489,6 +5516,7 @@ type PatchEnrollmentRequestResponse struct {
 	JSON409      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5519,6 +5547,7 @@ type ReplaceEnrollmentRequestResponse struct {
 	JSON409      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5547,6 +5576,7 @@ type ApproveEnrollmentRequestResponse struct {
 	JSON404      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5574,6 +5604,7 @@ type GetEnrollmentRequestStatusResponse struct {
 	JSON404      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5603,6 +5634,7 @@ type PatchEnrollmentRequestStatusResponse struct {
 	JSON409      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5657,6 +5689,7 @@ type ListEventsResponse struct {
 	JSON403      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5684,6 +5717,7 @@ type ListFleetsResponse struct {
 	JSON403      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5712,6 +5746,7 @@ type CreateFleetResponse struct {
 	JSON409      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5739,6 +5774,7 @@ type ListTemplateVersionsResponse struct {
 	JSON403      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5766,6 +5802,7 @@ type DeleteTemplateVersionResponse struct {
 	JSON404      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5793,6 +5830,7 @@ type GetTemplateVersionResponse struct {
 	JSON404      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5820,6 +5858,7 @@ type DeleteFleetResponse struct {
 	JSON404      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5847,6 +5886,7 @@ type GetFleetResponse struct {
 	JSON404      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5876,6 +5916,7 @@ type PatchFleetResponse struct {
 	JSON409      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5906,6 +5947,7 @@ type ReplaceFleetResponse struct {
 	JSON409      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5933,6 +5975,7 @@ type GetFleetStatusResponse struct {
 	JSON404      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5961,6 +6004,7 @@ type PatchFleetStatusResponse struct {
 	JSON404      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -5988,6 +6032,7 @@ type ReplaceFleetStatusResponse struct {
 	JSON404      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -6015,6 +6060,7 @@ type ListLabelsResponse struct {
 	JSON403      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -6042,6 +6088,7 @@ type ListOrganizationsResponse struct {
 	JSON403      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -6069,6 +6116,7 @@ type ListRepositoriesResponse struct {
 	JSON403      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -6097,6 +6145,7 @@ type CreateRepositoryResponse struct {
 	JSON409      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -6124,6 +6173,7 @@ type DeleteRepositoryResponse struct {
 	JSON404      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -6151,6 +6201,7 @@ type GetRepositoryResponse struct {
 	JSON404      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -6180,6 +6231,7 @@ type PatchRepositoryResponse struct {
 	JSON409      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -6210,6 +6262,7 @@ type ReplaceRepositoryResponse struct {
 	JSON409      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -6237,6 +6290,7 @@ type ListResourceSyncsResponse struct {
 	JSON403      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -6265,6 +6319,7 @@ type CreateResourceSyncResponse struct {
 	JSON409      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -6292,6 +6347,7 @@ type DeleteResourceSyncResponse struct {
 	JSON404      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -6319,6 +6375,7 @@ type GetResourceSyncResponse struct {
 	JSON404      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -6348,6 +6405,7 @@ type PatchResourceSyncResponse struct {
 	JSON409      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -6378,6 +6436,7 @@ type ReplaceResourceSyncResponse struct {
 	JSON409      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -6403,6 +6462,7 @@ type GetVersionResponse struct {
 	JSON403      *Status
 	JSON429      *Status
 	JSON503      *Status
+	JSONDefault  *Status
 }
 
 // Status returns HTTPResponse.Status
@@ -7222,6 +7282,13 @@ func ParseAuthConfigResponse(rsp *http.Response) (*AuthConfigResponse, error) {
 		}
 		response.JSON418 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
 	}
 
 	return response, nil
@@ -7275,6 +7342,13 @@ func ParseAuthValidateResponse(rsp *http.Response) (*AuthValidateResponse, error
 			return nil, err
 		}
 		response.JSON500 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
 
 	}
 
@@ -7336,6 +7410,13 @@ func ParseListCertificateSigningRequestsResponse(rsp *http.Response) (*ListCerti
 			return nil, err
 		}
 		response.JSON503 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
 
 	}
 
@@ -7405,6 +7486,13 @@ func ParseCreateCertificateSigningRequestResponse(rsp *http.Response) (*CreateCe
 		}
 		response.JSON503 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
 	}
 
 	return response, nil
@@ -7466,6 +7554,13 @@ func ParseDeleteCertificateSigningRequestResponse(rsp *http.Response) (*DeleteCe
 		}
 		response.JSON503 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
 	}
 
 	return response, nil
@@ -7526,6 +7621,13 @@ func ParseGetCertificateSigningRequestResponse(rsp *http.Response) (*GetCertific
 			return nil, err
 		}
 		response.JSON503 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
 
 	}
 
@@ -7601,6 +7703,13 @@ func ParsePatchCertificateSigningRequestResponse(rsp *http.Response) (*PatchCert
 			return nil, err
 		}
 		response.JSON503 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
 
 	}
 
@@ -7684,6 +7793,13 @@ func ParseReplaceCertificateSigningRequestResponse(rsp *http.Response) (*Replace
 		}
 		response.JSON503 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
 	}
 
 	return response, nil
@@ -7759,6 +7875,13 @@ func ParseUpdateCertificateSigningRequestApprovalResponse(rsp *http.Response) (*
 		}
 		response.JSON503 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
 	}
 
 	return response, nil
@@ -7820,6 +7943,13 @@ func ParseResumeDevicesResponse(rsp *http.Response) (*ResumeDevicesResponse, err
 		}
 		response.JSON503 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
 	}
 
 	return response, nil
@@ -7880,6 +8010,13 @@ func ParseListDevicesResponse(rsp *http.Response) (*ListDevicesResponse, error) 
 			return nil, err
 		}
 		response.JSON503 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
 
 	}
 
@@ -7949,6 +8086,13 @@ func ParseCreateDeviceResponse(rsp *http.Response) (*CreateDeviceResponse, error
 		}
 		response.JSON503 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
 	}
 
 	return response, nil
@@ -8010,6 +8154,13 @@ func ParseDeleteDeviceResponse(rsp *http.Response) (*DeleteDeviceResponse, error
 		}
 		response.JSON503 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
 	}
 
 	return response, nil
@@ -8070,6 +8221,13 @@ func ParseGetDeviceResponse(rsp *http.Response) (*GetDeviceResponse, error) {
 			return nil, err
 		}
 		response.JSON503 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
 
 	}
 
@@ -8145,6 +8303,13 @@ func ParsePatchDeviceResponse(rsp *http.Response) (*PatchDeviceResponse, error) 
 			return nil, err
 		}
 		response.JSON503 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
 
 	}
 
@@ -8228,6 +8393,13 @@ func ParseReplaceDeviceResponse(rsp *http.Response) (*ReplaceDeviceResponse, err
 		}
 		response.JSON503 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
 	}
 
 	return response, nil
@@ -8296,6 +8468,13 @@ func ParseDecommissionDeviceResponse(rsp *http.Response) (*DecommissionDeviceRes
 		}
 		response.JSON503 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
 	}
 
 	return response, nil
@@ -8356,6 +8535,13 @@ func ParseGetDeviceLastSeenResponse(rsp *http.Response) (*GetDeviceLastSeenRespo
 			return nil, err
 		}
 		response.JSON503 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
 
 	}
 
@@ -8425,6 +8611,13 @@ func ParseGetRenderedDeviceResponse(rsp *http.Response) (*GetRenderedDeviceRespo
 		}
 		response.JSON503 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
 	}
 
 	return response, nil
@@ -8485,6 +8678,13 @@ func ParseGetDeviceStatusResponse(rsp *http.Response) (*GetDeviceStatusResponse,
 			return nil, err
 		}
 		response.JSON503 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
 
 	}
 
@@ -8553,6 +8753,13 @@ func ParsePatchDeviceStatusResponse(rsp *http.Response) (*PatchDeviceStatusRespo
 			return nil, err
 		}
 		response.JSON503 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
 
 	}
 
@@ -8629,6 +8836,13 @@ func ParseReplaceDeviceStatusResponse(rsp *http.Response) (*ReplaceDeviceStatusR
 		}
 		response.JSON503 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
 	}
 
 	return response, nil
@@ -8697,6 +8911,13 @@ func ParseGetEnrollmentConfigResponse(rsp *http.Response) (*GetEnrollmentConfigR
 		}
 		response.JSON503 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
 	}
 
 	return response, nil
@@ -8757,6 +8978,13 @@ func ParseListEnrollmentRequestsResponse(rsp *http.Response) (*ListEnrollmentReq
 			return nil, err
 		}
 		response.JSON503 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
 
 	}
 
@@ -8826,6 +9054,13 @@ func ParseCreateEnrollmentRequestResponse(rsp *http.Response) (*CreateEnrollment
 		}
 		response.JSON503 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
 	}
 
 	return response, nil
@@ -8894,6 +9129,13 @@ func ParseDeleteEnrollmentRequestResponse(rsp *http.Response) (*DeleteEnrollment
 		}
 		response.JSON503 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
 	}
 
 	return response, nil
@@ -8954,6 +9196,13 @@ func ParseGetEnrollmentRequestResponse(rsp *http.Response) (*GetEnrollmentReques
 			return nil, err
 		}
 		response.JSON503 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
 
 	}
 
@@ -9029,6 +9278,13 @@ func ParsePatchEnrollmentRequestResponse(rsp *http.Response) (*PatchEnrollmentRe
 			return nil, err
 		}
 		response.JSON503 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
 
 	}
 
@@ -9112,6 +9368,13 @@ func ParseReplaceEnrollmentRequestResponse(rsp *http.Response) (*ReplaceEnrollme
 		}
 		response.JSON503 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
 	}
 
 	return response, nil
@@ -9180,6 +9443,13 @@ func ParseApproveEnrollmentRequestResponse(rsp *http.Response) (*ApproveEnrollme
 		}
 		response.JSON503 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
 	}
 
 	return response, nil
@@ -9240,6 +9510,13 @@ func ParseGetEnrollmentRequestStatusResponse(rsp *http.Response) (*GetEnrollment
 			return nil, err
 		}
 		response.JSON503 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
 
 	}
 
@@ -9315,6 +9592,13 @@ func ParsePatchEnrollmentRequestStatusResponse(rsp *http.Response) (*PatchEnroll
 			return nil, err
 		}
 		response.JSON503 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
 
 	}
 
@@ -9438,6 +9722,13 @@ func ParseListEventsResponse(rsp *http.Response) (*ListEventsResponse, error) {
 		}
 		response.JSON503 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
 	}
 
 	return response, nil
@@ -9498,6 +9789,13 @@ func ParseListFleetsResponse(rsp *http.Response) (*ListFleetsResponse, error) {
 			return nil, err
 		}
 		response.JSON503 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
 
 	}
 
@@ -9567,6 +9865,13 @@ func ParseCreateFleetResponse(rsp *http.Response) (*CreateFleetResponse, error) 
 		}
 		response.JSON503 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
 	}
 
 	return response, nil
@@ -9627,6 +9932,13 @@ func ParseListTemplateVersionsResponse(rsp *http.Response) (*ListTemplateVersion
 			return nil, err
 		}
 		response.JSON503 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
 
 	}
 
@@ -9689,6 +10001,13 @@ func ParseDeleteTemplateVersionResponse(rsp *http.Response) (*DeleteTemplateVers
 		}
 		response.JSON503 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
 	}
 
 	return response, nil
@@ -9749,6 +10068,13 @@ func ParseGetTemplateVersionResponse(rsp *http.Response) (*GetTemplateVersionRes
 			return nil, err
 		}
 		response.JSON503 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
 
 	}
 
@@ -9811,6 +10137,13 @@ func ParseDeleteFleetResponse(rsp *http.Response) (*DeleteFleetResponse, error) 
 		}
 		response.JSON503 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
 	}
 
 	return response, nil
@@ -9871,6 +10204,13 @@ func ParseGetFleetResponse(rsp *http.Response) (*GetFleetResponse, error) {
 			return nil, err
 		}
 		response.JSON503 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
 
 	}
 
@@ -9946,6 +10286,13 @@ func ParsePatchFleetResponse(rsp *http.Response) (*PatchFleetResponse, error) {
 			return nil, err
 		}
 		response.JSON503 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
 
 	}
 
@@ -10029,6 +10376,13 @@ func ParseReplaceFleetResponse(rsp *http.Response) (*ReplaceFleetResponse, error
 		}
 		response.JSON503 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
 	}
 
 	return response, nil
@@ -10089,6 +10443,13 @@ func ParseGetFleetStatusResponse(rsp *http.Response) (*GetFleetStatusResponse, e
 			return nil, err
 		}
 		response.JSON503 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
 
 	}
 
@@ -10158,6 +10519,13 @@ func ParsePatchFleetStatusResponse(rsp *http.Response) (*PatchFleetStatusRespons
 		}
 		response.JSON503 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
 	}
 
 	return response, nil
@@ -10218,6 +10586,13 @@ func ParseReplaceFleetStatusResponse(rsp *http.Response) (*ReplaceFleetStatusRes
 			return nil, err
 		}
 		response.JSON503 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
 
 	}
 
@@ -10280,6 +10655,13 @@ func ParseListLabelsResponse(rsp *http.Response) (*ListLabelsResponse, error) {
 		}
 		response.JSON503 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
 	}
 
 	return response, nil
@@ -10341,6 +10723,13 @@ func ParseListOrganizationsResponse(rsp *http.Response) (*ListOrganizationsRespo
 		}
 		response.JSON503 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
 	}
 
 	return response, nil
@@ -10401,6 +10790,13 @@ func ParseListRepositoriesResponse(rsp *http.Response) (*ListRepositoriesRespons
 			return nil, err
 		}
 		response.JSON503 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
 
 	}
 
@@ -10470,6 +10866,13 @@ func ParseCreateRepositoryResponse(rsp *http.Response) (*CreateRepositoryRespons
 		}
 		response.JSON503 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
 	}
 
 	return response, nil
@@ -10531,6 +10934,13 @@ func ParseDeleteRepositoryResponse(rsp *http.Response) (*DeleteRepositoryRespons
 		}
 		response.JSON503 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
 	}
 
 	return response, nil
@@ -10591,6 +11001,13 @@ func ParseGetRepositoryResponse(rsp *http.Response) (*GetRepositoryResponse, err
 			return nil, err
 		}
 		response.JSON503 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
 
 	}
 
@@ -10666,6 +11083,13 @@ func ParsePatchRepositoryResponse(rsp *http.Response) (*PatchRepositoryResponse,
 			return nil, err
 		}
 		response.JSON503 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
 
 	}
 
@@ -10749,6 +11173,13 @@ func ParseReplaceRepositoryResponse(rsp *http.Response) (*ReplaceRepositoryRespo
 		}
 		response.JSON503 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
 	}
 
 	return response, nil
@@ -10809,6 +11240,13 @@ func ParseListResourceSyncsResponse(rsp *http.Response) (*ListResourceSyncsRespo
 			return nil, err
 		}
 		response.JSON503 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
 
 	}
 
@@ -10878,6 +11316,13 @@ func ParseCreateResourceSyncResponse(rsp *http.Response) (*CreateResourceSyncRes
 		}
 		response.JSON503 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
 	}
 
 	return response, nil
@@ -10939,6 +11384,13 @@ func ParseDeleteResourceSyncResponse(rsp *http.Response) (*DeleteResourceSyncRes
 		}
 		response.JSON503 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
 	}
 
 	return response, nil
@@ -10999,6 +11451,13 @@ func ParseGetResourceSyncResponse(rsp *http.Response) (*GetResourceSyncResponse,
 			return nil, err
 		}
 		response.JSON503 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
 
 	}
 
@@ -11074,6 +11533,13 @@ func ParsePatchResourceSyncResponse(rsp *http.Response) (*PatchResourceSyncRespo
 			return nil, err
 		}
 		response.JSON503 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
 
 	}
 
@@ -11157,6 +11623,13 @@ func ParseReplaceResourceSyncResponse(rsp *http.Response) (*ReplaceResourceSyncR
 		}
 		response.JSON503 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
 	}
 
 	return response, nil
@@ -11203,6 +11676,13 @@ func ParseGetVersionResponse(rsp *http.Response) (*GetVersionResponse, error) {
 			return nil, err
 		}
 		response.JSON503 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
 
 	}
 

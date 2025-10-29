@@ -70,6 +70,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
   /api/v1/auth/config:
     get:
       tags:
@@ -85,6 +91,12 @@ paths:
                 $ref: '#/components/schemas/AuthConfig'
         "418":
           description: Auth not configured
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
           content:
             application/json:
               schema:
@@ -128,6 +140,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "500":
           description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
           content:
             application/json:
               schema:
@@ -199,6 +217,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
     post:
       tags:
         - resourcesync
@@ -253,6 +277,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
   /api/v1/resourcesyncs/{name}:
     get:
       tags:
@@ -299,6 +329,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
           content:
             application/json:
               schema:
@@ -376,6 +412,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
     patch:
       tags:
         - resourcesync
@@ -443,6 +485,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
     delete:
       tags:
         - resourcesync
@@ -488,6 +536,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
           content:
             application/json:
               schema:
@@ -559,6 +613,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
     post:
       tags:
         - repository
@@ -613,6 +673,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
   /api/v1/repositories/{name}:
     get:
       tags:
@@ -659,6 +725,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
           content:
             application/json:
               schema:
@@ -736,6 +808,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
     delete:
       tags:
         - repository
@@ -781,6 +859,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
           content:
             application/json:
               schema:
@@ -848,6 +932,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
           content:
             application/json:
               schema:
@@ -925,6 +1015,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
     post:
       tags:
         - device
@@ -979,6 +1075,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
   /api/v1/devices/{name}:
     get:
       tags:
@@ -1025,6 +1127,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
           content:
             application/json:
               schema:
@@ -1102,6 +1210,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
     delete:
       tags:
         - device
@@ -1147,6 +1261,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
           content:
             application/json:
               schema:
@@ -1218,6 +1338,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
   /api/v1/devices/{name}/status:
     get:
       tags:
@@ -1264,6 +1390,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
           content:
             application/json:
               schema:
@@ -1325,6 +1457,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
           content:
             application/json:
               schema:
@@ -1396,6 +1534,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
   /api/v1/devices/{name}/decommission:
     put:
       tags:
@@ -1454,6 +1598,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
           content:
             application/json:
               schema:
@@ -1523,6 +1673,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
   /api/v1/devices/{name}/lastseen:
     get:
       tags:
@@ -1572,6 +1728,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
           content:
             application/json:
               schema:
@@ -1628,6 +1790,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
   /api/v1/enrollmentconfig:
     get:
       tags:
@@ -1680,6 +1848,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
           content:
             application/json:
               schema:
@@ -1752,6 +1926,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
     post:
       tags:
         - enrollmentrequest
@@ -1806,6 +1986,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
   /api/v1/enrollmentrequests/{name}:
     get:
       tags:
@@ -1852,6 +2038,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
           content:
             application/json:
               schema:
@@ -1929,6 +2121,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
     patch:
       tags:
         - enrollmentrequest
@@ -1996,6 +2194,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
     delete:
       tags:
         - enrollmentrequest
@@ -2051,6 +2255,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
   /api/v1/enrollmentrequests/{name}/status:
     get:
       tags:
@@ -2097,6 +2307,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
           content:
             application/json:
               schema:
@@ -2223,6 +2439,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
   /api/v1/enrollmentrequests/{name}/approval:
     put:
       tags:
@@ -2281,6 +2503,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
           content:
             application/json:
               schema:
@@ -2352,6 +2580,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
     post:
       tags:
         - certificatesigningrequest
@@ -2402,6 +2636,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
           content:
             application/json:
               schema:
@@ -2474,6 +2714,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
     get:
       tags:
         - certificatesigningrequest
@@ -2520,6 +2766,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
           content:
             application/json:
               schema:
@@ -2597,6 +2849,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
     delete:
       tags:
         - certificatesigningrequest
@@ -2642,6 +2900,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
           content:
             application/json:
               schema:
@@ -2710,6 +2974,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
           content:
             application/json:
               schema:
@@ -2787,6 +3057,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
     post:
       tags:
         - fleet
@@ -2837,6 +3113,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
           content:
             application/json:
               schema:
@@ -2893,6 +3175,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
           content:
             application/json:
               schema:
@@ -2970,6 +3258,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
     patch:
       tags:
         - fleet
@@ -3037,6 +3331,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
     delete:
       tags:
         - fleet
@@ -3082,6 +3382,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
           content:
             application/json:
               schema:
@@ -3132,6 +3438,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
           content:
             application/json:
               schema:
@@ -3197,6 +3509,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
     put:
       tags:
         - fleet
@@ -3248,6 +3566,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
           content:
             application/json:
               schema:
@@ -3325,6 +3649,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
   /api/v1/fleets/{fleet}/templateversions/{name}:
     get:
       tags:
@@ -3381,6 +3711,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
     delete:
       tags:
         - fleet
@@ -3432,6 +3768,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
           content:
             application/json:
               schema:
@@ -3513,6 +3855,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
   /api/v1/events:
     get:
       tags:
@@ -3583,6 +3931,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
   /api/v1/organizations:
     get:
       tags:
@@ -3623,6 +3977,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "503":
           description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        default:
+          description: Unexpected error
           content:
             application/json:
               schema:

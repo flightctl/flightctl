@@ -633,6 +633,7 @@ type CreateCertificateSigningRequestResponse struct {
 	JSON403      *externalRef0.Status
 	JSON409      *externalRef0.Status
 	JSON503      *externalRef0.Status
+	JSONDefault  *externalRef0.Status
 }
 
 // Status returns HTTPResponse.Status
@@ -659,6 +660,7 @@ type GetCertificateSigningRequestResponse struct {
 	JSON403      *externalRef0.Status
 	JSON404      *externalRef0.Status
 	JSON503      *externalRef0.Status
+	JSONDefault  *externalRef0.Status
 }
 
 // Status returns HTTPResponse.Status
@@ -684,6 +686,7 @@ type GetRenderedDeviceResponse struct {
 	JSON401      *externalRef0.Status
 	JSON404      *externalRef0.Status
 	JSON409      *externalRef0.Status
+	JSONDefault  *externalRef0.Status
 }
 
 // Status returns HTTPResponse.Status
@@ -711,6 +714,7 @@ type PatchDeviceStatusResponse struct {
 	JSON403      *externalRef0.Status
 	JSON404      *externalRef0.Status
 	JSON503      *externalRef0.Status
+	JSONDefault  *externalRef0.Status
 }
 
 // Status returns HTTPResponse.Status
@@ -736,6 +740,7 @@ type ReplaceDeviceStatusResponse struct {
 	JSON400      *externalRef0.Status
 	JSON401      *externalRef0.Status
 	JSON404      *externalRef0.Status
+	JSONDefault  *externalRef0.Status
 }
 
 // Status returns HTTPResponse.Status
@@ -763,6 +768,7 @@ type CreateEnrollmentRequestResponse struct {
 	JSON403      *externalRef0.Status
 	JSON409      *externalRef0.Status
 	JSON503      *externalRef0.Status
+	JSONDefault  *externalRef0.Status
 }
 
 // Status returns HTTPResponse.Status
@@ -789,6 +795,7 @@ type GetEnrollmentRequestResponse struct {
 	JSON403      *externalRef0.Status
 	JSON404      *externalRef0.Status
 	JSON503      *externalRef0.Status
+	JSONDefault  *externalRef0.Status
 }
 
 // Status returns HTTPResponse.Status
@@ -958,6 +965,13 @@ func ParseCreateCertificateSigningRequestResponse(rsp *http.Response) (*CreateCe
 		}
 		response.JSON503 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
 	}
 
 	return response, nil
@@ -1012,6 +1026,13 @@ func ParseGetCertificateSigningRequestResponse(rsp *http.Response) (*GetCertific
 		}
 		response.JSON503 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
 	}
 
 	return response, nil
@@ -1058,6 +1079,13 @@ func ParseGetRenderedDeviceResponse(rsp *http.Response) (*GetRenderedDeviceRespo
 			return nil, err
 		}
 		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
 
 	}
 
@@ -1120,6 +1148,13 @@ func ParsePatchDeviceStatusResponse(rsp *http.Response) (*PatchDeviceStatusRespo
 		}
 		response.JSON503 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
 	}
 
 	return response, nil
@@ -1166,6 +1201,13 @@ func ParseReplaceDeviceStatusResponse(rsp *http.Response) (*ReplaceDeviceStatusR
 			return nil, err
 		}
 		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
 
 	}
 
@@ -1228,6 +1270,13 @@ func ParseCreateEnrollmentRequestResponse(rsp *http.Response) (*CreateEnrollment
 		}
 		response.JSON503 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
 	}
 
 	return response, nil
@@ -1281,6 +1330,13 @@ func ParseGetEnrollmentRequestResponse(rsp *http.Response) (*GetEnrollmentReques
 			return nil, err
 		}
 		response.JSON503 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
 
 	}
 
