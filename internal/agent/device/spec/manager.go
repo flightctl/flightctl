@@ -28,6 +28,7 @@ type manager struct {
 	desiredPath  string
 	rollbackPath string
 
+	deviceName       string
 	deviceReadWriter fileio.ReadWriter
 	osClient         os.Client
 	publisher        Publisher
@@ -71,6 +72,7 @@ func NewManager(
 		currentPath:      filepath.Join(dataDir, string(Current)+".json"),
 		desiredPath:      filepath.Join(dataDir, string(Desired)+".json"),
 		rollbackPath:     filepath.Join(dataDir, string(Rollback)+".json"),
+		deviceName:       deviceName,
 		deviceReadWriter: deviceReadWriter,
 		osClient:         osClient,
 		cache:            cache,
@@ -220,7 +222,7 @@ func (s *manager) Upgrade(ctx context.Context) error {
 			// For now, use simplified audit logging until we have proper timing/hash collection
 			// TODO: Add proper start time tracking and spec hash collection
 			auditInfo := &audit.AuditEventInfo{
-				Device:     s.deviceID,
+				Device:     s.deviceName,
 				OldVersion: currentVersion,
 				NewVersion: desired.Version(),
 				OldHash:    "unknown", // TODO: Calculate actual spec hash
@@ -257,7 +259,7 @@ func (s *manager) SetUpgradeFailed(version string) error {
 	if s.auditLogger != nil {
 		currentVersion := s.cache.getRenderedVersion(Current)
 		auditInfo := &audit.AuditEventInfo{
-			Device:     s.deviceID,
+			Device:     s.deviceName,
 			OldVersion: currentVersion,
 			NewVersion: version,
 			OldHash:    "unknown", // TODO: Calculate actual spec hash
@@ -353,7 +355,7 @@ func (s *manager) Rollback(ctx context.Context, opts ...RollbackOption) error {
 		// For rollback: old version is the failed desired version, new version is the current (rollback target)
 		desiredVersion := s.cache.getRenderedVersion(Desired)
 		auditInfo := &audit.AuditEventInfo{
-			Device:     s.deviceID,
+			Device:     s.deviceName,
 			OldVersion: desiredVersion,
 			NewVersion: current.Version(),
 			OldHash:    "unknown", // TODO: Calculate actual spec hash
