@@ -477,6 +477,9 @@ echo "Flightctl Observability Stack uninstalled."
     IMAGE_TAG=$(echo %{version} | tr '~' '-') \
     deploy/scripts/install.sh
 
+    # Copy services must gather script
+    cp packaging/must-gather/flightctl-services-must-gather %{buildroot}%{_bindir}
+
     # Copy sos report flightctl plugin
     mkdir -p %{buildroot}/usr/share/sosreport
     cp packaging/sosreport/sos/report/plugins/flightctl.py %{buildroot}/usr/share/sosreport
@@ -656,6 +659,9 @@ rm -rf /usr/share/sosreport
     # Files mounted to lib dir
     /usr/lib/systemd/system/flightctl.target
 
+    # Files mounted to bin dir
+    %attr(0755,root,root) %{_bindir}/flightctl-services-must-gather
+
 # Optional pre-upgrade database migration dry-run
 %pre services
 # $1 == 1 if it's an install
@@ -730,6 +736,8 @@ fi
 # If contexts were managed via policy, no cleanup is needed here.
 
 %changelog
+* Mon Oct 27 2025 Dakota Crowder <dcrowder@redhat.com> - 1.0
+- Add must-gather script for the services sub package
 * Wed Oct 8 2025 Ilya Skornyakov <iskornya@redhat.com> - 0.10.0
 - Add pre-upgrade database migration dry-run capability
 * Tue Jul 15 2025 Sam Batschelet <sbatsche@redhat.com> - 0.9.0-2
