@@ -325,9 +325,7 @@ func TestRollbackDevice(t *testing.T) {
 			statusManager.SetClient(mockManagementClient)
 			mockAuditLogger := audit.NewMockLogger(ctrl)
 			mockAuditLogger.EXPECT().Close().Return(nil).AnyTimes()
-			mockAuditLogger.EXPECT().LogApply(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-			mockAuditLogger.EXPECT().LogRollback(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-			mockAuditLogger.EXPECT().LogFailure(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+			mockAuditLogger.EXPECT().LogEvent(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 			specManager := spec.NewManager(
 				"test-device",
 				dataDir,

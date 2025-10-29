@@ -53,44 +53,16 @@ func (mr *MockLoggerMockRecorder) Close() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockLogger)(nil).Close))
 }
 
-// LogApply mocks base method.
-func (m *MockLogger) LogApply(ctx context.Context, oldVersion, newVersion string) error {
+// LogEvent mocks base method.
+func (m *MockLogger) LogEvent(ctx context.Context, info *AuditEventInfo) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "LogApply", ctx, oldVersion, newVersion)
+	ret := m.ctrl.Call(m, "LogEvent", ctx, info)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
-// LogApply indicates an expected call of LogApply.
-func (mr *MockLoggerMockRecorder) LogApply(ctx, oldVersion, newVersion any) *gomock.Call {
+// LogEvent indicates an expected call of LogEvent.
+func (mr *MockLoggerMockRecorder) LogEvent(ctx, info any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LogApply", reflect.TypeOf((*MockLogger)(nil).LogApply), ctx, oldVersion, newVersion)
-}
-
-// LogFailure mocks base method.
-func (m *MockLogger) LogFailure(ctx context.Context, oldVersion, newVersion string, err error) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "LogFailure", ctx, oldVersion, newVersion, err)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// LogFailure indicates an expected call of LogFailure.
-func (mr *MockLoggerMockRecorder) LogFailure(ctx, oldVersion, newVersion, err any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LogFailure", reflect.TypeOf((*MockLogger)(nil).LogFailure), ctx, oldVersion, newVersion, err)
-}
-
-// LogRollback mocks base method.
-func (m *MockLogger) LogRollback(ctx context.Context, oldVersion, newVersion string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "LogRollback", ctx, oldVersion, newVersion)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// LogRollback indicates an expected call of LogRollback.
-func (mr *MockLoggerMockRecorder) LogRollback(ctx, oldVersion, newVersion any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LogRollback", reflect.TypeOf((*MockLogger)(nil).LogRollback), ctx, oldVersion, newVersion)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LogEvent", reflect.TypeOf((*MockLogger)(nil).LogEvent), ctx, info)
 }

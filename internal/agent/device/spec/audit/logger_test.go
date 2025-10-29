@@ -3,9 +3,9 @@ package audit
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -95,7 +95,7 @@ func TestNewFileLogger(t *testing.T) {
 	}
 }
 
-func TestFileLogger_LogApply(t *testing.T) {
+func TestFileLogger_LogEventApply(t *testing.T) {
 	require := require.New(t)
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -124,22 +124,35 @@ func TestFileLogger_LogApply(t *testing.T) {
 			err := json.Unmarshal([]byte(lines[0]), &event)
 			require.NoError(err)
 
-			require.Equal("test-device", event.DeviceID)
+			require.Equal("test-device", event.Device)
 			require.Equal("1", event.OldVersion)
 			require.Equal("2", event.NewVersion)
-			require.Equal(AuditTypeApply, event.AuditType)
-			require.Equal(AuditResultSuccess, event.AuditResult)
-			require.Empty(event.ErrorMessage)
-			require.False(event.Timestamp.IsZero())
+			require.Equal("hash1", event.OldHash)
+			require.Equal("hash2", event.NewHash)
+			require.Equal(AuditTypeApply, event.Type)
+			require.Equal(AuditResultSuccess, event.Result)
+			require.NotEmpty(event.Ts)
+			require.Equal(int64(1500), event.DurationMs)
 
 			return nil
 		})
 
-	err = auditLogger.LogApply(ctx, "1", "2")
+	auditInfo := &AuditEventInfo{
+		Device:     "test-device",
+		OldVersion: "1",
+		NewVersion: "2",
+		OldHash:    "hash1",
+		NewHash:    "hash2",
+		Result:     AuditResultSuccess,
+		DurationMs: 1500,
+		Type:       AuditTypeApply,
+		StartTime:  time.Now(),
+	}
+	err = auditLogger.LogEvent(ctx, auditInfo)
 	require.NoError(err)
 }
 
-func TestFileLogger_LogFailure(t *testing.T) {
+func TestFileLogger_LogEventFailure(t *testing.T) {
 	require := require.New(t)
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -155,8 +168,6 @@ func TestFileLogger_LogFailure(t *testing.T) {
 	auditLogger, err := NewFileLogger(config, mockRW, "test-device", logger)
 	require.NoError(err)
 
-	testErr := errors.New("reconciliation failed")
-
 	// Test failure logging
 	mockRW.EXPECT().PathExists(DefaultLogPath).Return(false, nil)
 	mockRW.EXPECT().WriteFile(DefaultLogPath, gomock.Any(), fileio.DefaultFilePermissions).DoAndReturn(
@@ -169,47 +180,35 @@ func TestFileLogger_LogFailure(t *testing.T) {
 			err := json.Unmarshal([]byte(lines[0]), &event)
 			require.NoError(err)
 
-			require.Equal("test-device", event.DeviceID)
+			require.Equal("test-device", event.Device)
 			require.Equal("2", event.OldVersion)
 			require.Equal("3", event.NewVersion)
-			require.Equal(AuditTypeFailure, event.AuditType)
-			require.Equal(AuditResultFailure, event.AuditResult)
-			require.Equal("reconciliation failed", event.ErrorMessage)
-			require.False(event.Timestamp.IsZero())
+			require.Equal("oldhash", event.OldHash)
+			require.Equal("newhash", event.NewHash)
+			require.Equal(AuditTypeFailure, event.Type)
+			require.Equal(AuditResultFailure, event.Result)
+			require.NotEmpty(event.Ts)
+			require.Equal(int64(500), event.DurationMs)
 
 			return nil
 		})
 
-	err = auditLogger.LogFailure(ctx, "2", "3", testErr)
+	auditInfo := &AuditEventInfo{
+		Device:     "test-device",
+		OldVersion: "2",
+		NewVersion: "3",
+		OldHash:    "oldhash",
+		NewHash:    "newhash",
+		Result:     AuditResultFailure,
+		DurationMs: 500,
+		Type:       AuditTypeFailure,
+		StartTime:  time.Now(),
+	}
+	err = auditLogger.LogEvent(ctx, auditInfo)
 	require.NoError(err)
 }
 
-func TestFileLogger_DisabledLogging(t *testing.T) {
-	require := require.New(t)
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	ctx := context.Background()
-	config := NewDefaultAuditConfig()
-	config.Enabled = false // Disable logging
-	mockRW := fileio.NewMockReadWriter(ctrl)
-	logger := log.NewPrefixLogger("test")
-
-	auditLogger, err := NewFileLogger(config, mockRW, "test-device", logger)
-	require.NoError(err)
-
-	// Should not make any file operations when disabled
-	err = auditLogger.LogApply(ctx, "1", "2")
-	require.NoError(err)
-
-	err = auditLogger.LogRollback(ctx, "2", "1")
-	require.NoError(err)
-
-	err = auditLogger.LogFailure(ctx, "1", "2", errors.New("test error"))
-	require.NoError(err)
-}
-
-func TestFileLogger_LogRollback(t *testing.T) {
+func TestFileLogger_LogEventRollback(t *testing.T) {
 	require := require.New(t)
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -238,18 +237,61 @@ func TestFileLogger_LogRollback(t *testing.T) {
 			err := json.Unmarshal([]byte(lines[0]), &event)
 			require.NoError(err)
 
-			require.Equal("test-device", event.DeviceID)
+			require.Equal("test-device", event.Device)
 			require.Equal("3", event.OldVersion)
 			require.Equal("2", event.NewVersion)
-			require.Equal(AuditTypeRollback, event.AuditType)
-			require.Equal(AuditResultSuccess, event.AuditResult)
-			require.Empty(event.ErrorMessage)
-			require.False(event.Timestamp.IsZero())
+			require.Equal("rollback-old", event.OldHash)
+			require.Equal("rollback-new", event.NewHash)
+			require.Equal(AuditTypeRollback, event.Type)
+			require.Equal(AuditResultSuccess, event.Result)
+			require.NotEmpty(event.Ts)
+			require.Equal(int64(800), event.DurationMs)
 
 			return nil
 		})
 
-	err = auditLogger.LogRollback(ctx, "3", "2")
+	auditInfo := &AuditEventInfo{
+		Device:     "test-device",
+		OldVersion: "3",
+		NewVersion: "2",
+		OldHash:    "rollback-old",
+		NewHash:    "rollback-new",
+		Result:     AuditResultSuccess,
+		DurationMs: 800,
+		Type:       AuditTypeRollback,
+		StartTime:  time.Now(),
+	}
+	err = auditLogger.LogEvent(ctx, auditInfo)
+	require.NoError(err)
+}
+
+func TestFileLogger_DisabledLogging(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	ctx := context.Background()
+	config := NewDefaultAuditConfig()
+	config.Enabled = false // Disable logging
+	mockRW := fileio.NewMockReadWriter(ctrl)
+	logger := log.NewPrefixLogger("test")
+
+	auditLogger, err := NewFileLogger(config, mockRW, "test-device", logger)
+	require.NoError(err)
+
+	// Should not make any file operations when disabled
+	auditInfo := &AuditEventInfo{
+		Device:     "test-device",
+		OldVersion: "1",
+		NewVersion: "2",
+		OldHash:    "hash1",
+		NewHash:    "hash2",
+		Result:     AuditResultSuccess,
+		DurationMs: 1000,
+		Type:       AuditTypeApply,
+		StartTime:  time.Now(),
+	}
+	err = auditLogger.LogEvent(ctx, auditInfo)
 	require.NoError(err)
 }
 

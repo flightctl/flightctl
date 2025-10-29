@@ -171,7 +171,7 @@ allow flightctl_agent_t devlog_t:sock_file write;
 # Journal access permissions
 allow flightctl_agent_t syslogd_var_run_t:dir { read search };
 allow flightctl_agent_t var_log_t:dir { read watch search create write add_name };
-allow flightctl_agent_t var_log_t:file { read open getattr create write append };
+allow flightctl_agent_t var_log_t:file { read open getattr create write append setattr rename unlink };
 
 # Systemd service management
 systemd_manage_all_unit_files(flightctl_agent_t)
