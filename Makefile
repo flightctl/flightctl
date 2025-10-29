@@ -266,6 +266,13 @@ flightctl-telemetry-gateway-container: Containerfile.telemetry-gateway go.mod go
 		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
 		-f Containerfile.telemetry-gateway -t flightctl-telemetry-gateway:latest
 
+flightctl-ui-init-container: Containerfile.ui-init go.mod go.sum $(GO_FILES)
+	podman build $(call CACHE_FLAGS_FOR_IMAGE,flightctl-ui-init) \
+		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
+		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
+		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
+		-f Containerfile.ui-init -t flightctl-ui-init:latest
+
 .PHONY: flightctl-api-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container flightctl-userinfo-proxy-container flightctl-telemetry-gateway-container
 
 # --- Registry Operations ---

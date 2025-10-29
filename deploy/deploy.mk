@@ -62,7 +62,7 @@ deploy-alertmanager-proxy:
 	sudo -E deploy/scripts/deploy_quadlet_service.sh alertmanager-proxy
 
 # TODO add back build-containers and save cmds
-deploy-quadlets:
+deploy-quadlets: flightctl-ui-init-container
 	# @echo "Copying containers from user to root context for systemd services..."
 	# podman save flightctl-api:latest | sudo podman load
 	# podman save flightctl-db-setup:latest | sudo podman load

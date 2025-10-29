@@ -107,16 +107,6 @@ render_files() {
     fi
 
     move_shared_files "${SOURCE_DIR}"
-
-    # TODO this should be moved
-    # TODO why is my entire repo tagged with container_t selinux context and bin_t labeling is required?
-    # Build the render-services binary and move it to the /usr/bin directory
-    make build-render-services
-    cp "${GOBIN}/flightctl-render-services" "/usr/bin/flightctl-render-services"
-    chown root:root "/usr/bin/flightctl-render-services"
-    chmod 755 "/usr/bin/flightctl-render-services"
-    sudo chcon -t bin_t /usr/bin/flightctl-render-services
-    sudo restorecon -v /usr/bin/flightctl-render-services
 }
 
 main() {

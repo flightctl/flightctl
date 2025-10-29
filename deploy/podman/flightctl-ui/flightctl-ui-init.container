@@ -1,0 +1,23 @@
+[Unit]
+Description=Flight Control UI Initialization
+PartOf=flightctl.target
+After=flightctl-api.service
+
+[Container]
+ContainerName=flightctl-ui-init
+Image=localhost/flightctl-ui-init:latest
+Pull=newer
+Network=flightctl.network
+EnvironmentFile=/etc/flightctl/flightctl-ui/env
+
+PublishPort=443:8080
+
+Volume=flightctl-ui-certs:/app/certs:ro,z
+
+[Service]
+ExecStartPre=/usr/bin/flightctl-render-services
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=flightctl.target
