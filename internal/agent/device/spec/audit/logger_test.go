@@ -112,8 +112,7 @@ func TestFileLogger_LogEventApply(t *testing.T) {
 	require.NoError(err)
 
 	// Test successful log apply
-	mockRW.EXPECT().PathExists(DefaultLogPath).Return(false, nil)
-	mockRW.EXPECT().WriteFile(DefaultLogPath, gomock.Any(), fileio.DefaultFilePermissions).DoAndReturn(
+	mockRW.EXPECT().AppendFile(DefaultLogPath, gomock.Any(), fileio.DefaultFilePermissions).DoAndReturn(
 		func(path string, data []byte, perm interface{}, opts ...interface{}) error {
 			// Verify the JSON structure
 			lines := strings.Split(string(data), "\n")
@@ -169,8 +168,7 @@ func TestFileLogger_LogEventFailure(t *testing.T) {
 	require.NoError(err)
 
 	// Test failure logging
-	mockRW.EXPECT().PathExists(DefaultLogPath).Return(false, nil)
-	mockRW.EXPECT().WriteFile(DefaultLogPath, gomock.Any(), fileio.DefaultFilePermissions).DoAndReturn(
+	mockRW.EXPECT().AppendFile(DefaultLogPath, gomock.Any(), fileio.DefaultFilePermissions).DoAndReturn(
 		func(path string, data []byte, perm interface{}, opts ...interface{}) error {
 			// Verify the JSON structure
 			lines := strings.Split(string(data), "\n")
@@ -225,8 +223,7 @@ func TestFileLogger_LogEventRollback(t *testing.T) {
 	require.NoError(err)
 
 	// Test successful log rollback
-	mockRW.EXPECT().PathExists(DefaultLogPath).Return(false, nil)
-	mockRW.EXPECT().WriteFile(DefaultLogPath, gomock.Any(), fileio.DefaultFilePermissions).DoAndReturn(
+	mockRW.EXPECT().AppendFile(DefaultLogPath, gomock.Any(), fileio.DefaultFilePermissions).DoAndReturn(
 		func(path string, data []byte, perm interface{}, opts ...interface{}) error {
 			// Verify the JSON structure
 			lines := strings.Split(string(data), "\n")
