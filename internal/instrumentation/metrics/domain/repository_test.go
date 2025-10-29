@@ -149,3 +149,77 @@ func TestRepositoryCollectorWithError(t *testing.T) {
 	// Cancel context to stop background goroutine
 	cancel()
 }
+
+func TestRepositoryCollectorWithEmptyResults(t *testing.T) {
+	// Test the new behavior where empty results emit a default metric
+	mockStore := &MockRepositoryStore{results: []store.CountByOrgResult{}} // Empty results
+	log := logrus.New()
+	log.SetLevel(logrus.DebugLevel)
+
+	// Create context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Create collector
+	config := config.NewDefault()
+	collector := NewRepositoryCollector(ctx, mockStore, log, config)
+
+	// Wait a bit for the collector to start and collect metrics
+	time.Sleep(10 * time.Millisecond)
+
+	// Test that metrics are collected even with empty results
+	ch := make(chan prometheus.Metric, 100)
+	go func() {
+		collector.Collect(ch)
+		close(ch)
+	}()
+
+	// Collect metrics
+	var metrics []prometheus.Metric
+	for metric := range ch {
+		metrics = append(metrics, metric)
+	}
+
+	// Verify that we got metrics even with empty results
+	// Should have 1 default metric for the repository gauge
+	assert.GreaterOrEqual(t, len(metrics), 1, "Expected at least 1 metric (default repository metric) even with empty results")
+
+	t.Logf("Collected %d metrics with empty results", len(metrics))
+}
+
+func TestRepositoryCollectorUpdateRepositoryMetricsWithEmptyResults(t *testing.T) {
+	// Test the updateRepositoryMetrics method directly with empty results
+	mockStore := &MockRepositoryStore{results: []store.CountByOrgResult{}} // Empty results
+	log := logrus.New()
+	log.SetLevel(logrus.DebugLevel)
+
+	// Create context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Create collector
+	config := config.NewDefault()
+	collector := NewRepositoryCollector(ctx, mockStore, log, config)
+
+	// Call updateRepositoryMetrics directly
+	collector.updateRepositoryMetrics()
+
+	// Test that metrics are collected even with empty results
+	ch := make(chan prometheus.Metric, 100)
+	go func() {
+		collector.Collect(ch)
+		close(ch)
+	}()
+
+	// Collect metrics
+	var metrics []prometheus.Metric
+	for metric := range ch {
+		metrics = append(metrics, metric)
+	}
+
+	// Verify that we got metrics even with empty results
+	// Should have 1 default metric for the repository gauge
+	assert.GreaterOrEqual(t, len(metrics), 1, "Expected at least 1 metric (default repository metric) even with empty results")
+
+	t.Logf("Direct updateRepositoryMetrics call with empty results collected %d metrics", len(metrics))
+}
