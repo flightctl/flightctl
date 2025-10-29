@@ -71,6 +71,7 @@ deploy-quadlets: flightctl-ui-init-container
 	# podman save flightctl-alert-exporter:latest | sudo podman load
 	# podman save flightctl-cli-artifacts:latest | sudo podman load
 	# podman save flightctl-alertmanager-proxy:latest | sudo podman load
+	podman save flightctl-ui-init:latest | sudo podman load
 	sudo -E deploy/scripts/deploy_quadlets.sh
 
 kill-db:

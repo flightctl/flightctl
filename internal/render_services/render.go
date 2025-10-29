@@ -1,26 +1,18 @@
 package renderservices
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"text/template"
-	"time"
-
-	"github.com/flightctl/flightctl/internal/agent/client"
-	"github.com/flightctl/flightctl/internal/agent/device/fileio"
-	"github.com/flightctl/flightctl/pkg/executer"
-	"github.com/flightctl/flightctl/pkg/log"
-	"github.com/flightctl/flightctl/pkg/poll"
 )
 
-const configFile = "/etc/flightctl/service-config.yaml"
-const envTemplateFile = "/usr/share/flightctl/flightctl-ui/env.template"
-const envOutputFile = "/etc/flightctl/flightctl-ui/env"
-const certsSourceDir = "/etc/flightctl/pki"
-const uiCertsVolumeName = "flightctl-ui-certs"
+const configFile = "/app/service-config.yaml"
+const envTemplateFile = "/app/templates/env.template"
+const outputDir = "/app/rendered"
+const certsSourceDir = "/app/pki"
+const uiCertsVolumeName = "/app/ui-certs"
 
 func RenderServicesConfig() error {
 	fmt.Println("Rendering services config file")
@@ -35,14 +27,13 @@ func RenderServicesConfig() error {
 		return fmt.Errorf("failed to parse template file %s: %w", envTemplateFile, err)
 	}
 
-	outputDir := filepath.Dir(envOutputFile)
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		return fmt.Errorf("failed to create output directory %s: %w", outputDir, err)
 	}
 
-	outputFile, err := os.Create(envOutputFile)
+	outputFile, err := os.Create(filepath.Join(outputDir, "env"))
 	if err != nil {
-		return fmt.Errorf("failed to create output file %s: %w", envOutputFile, err)
+		return fmt.Errorf("failed to create output file %s: %w", filepath.Join(outputDir, "env"), err)
 	}
 	defer outputFile.Close()
 
@@ -50,7 +41,7 @@ func RenderServicesConfig() error {
 		return fmt.Errorf("failed to execute template: %w", err)
 	}
 
-	fmt.Printf("Successfully rendered template to %s\n", envOutputFile)
+	fmt.Printf("Successfully rendered template to %s\n", filepath.Join(outputDir, "env"))
 
 	if err := copyCertificatesToVolume(); err != nil {
 		return fmt.Errorf("failed to copy certificates to volume: %w", err)
@@ -62,54 +53,21 @@ func RenderServicesConfig() error {
 func copyCertificatesToVolume() error {
 	fmt.Println("Copying certificates to flightctl-ui-certs volume")
 
-	logger := log.NewPrefixLogger("render-services")
-
-	executer := &executer.CommonExecuter{}
-	readWriter := fileio.NewReadWriter()
-	pollConfig := poll.Config{
-		MaxDelay:     10 * time.Second,
-		BaseDelay:    2 * time.Second,
-		Factor:       1.5,
-		MaxSteps:     3,
-		JitterFactor: 0.1,
-	}
-	podmanClient := client.NewPodman(logger, executer, readWriter, pollConfig)
-
-	ctx := context.Background()
-
-	volumePath, err := podmanClient.InspectVolumeMount(ctx, uiCertsVolumeName)
-	if err != nil {
-		return fmt.Errorf("failed to inspect volume %s: %w", uiCertsVolumeName, err)
-	}
-
-	fmt.Printf("Volume %s is mounted at: %s\n", uiCertsVolumeName, volumePath)
-
-	serverCertSrc := filepath.Join(certsSourceDir, "server.crt")
-	serverCertDst := filepath.Join(volumePath, "server.crt")
-	if err := copyFile(serverCertSrc, serverCertDst); err != nil {
+	if err := copyFile(filepath.Join(certsSourceDir, "server.crt"), filepath.Join(uiCertsVolumeName, "server.crt")); err != nil {
 		return fmt.Errorf("failed to copy server certificate: %w", err)
 	}
-	fmt.Printf("Copied %s to %s\n", serverCertSrc, serverCertDst)
 
-	serverKeySrc := filepath.Join(certsSourceDir, "server.key")
-	serverKeyDst := filepath.Join(volumePath, "server.key")
-	if err := copyFile(serverKeySrc, serverKeyDst); err != nil {
+	if err := copyFile(filepath.Join(certsSourceDir, "server.key"), filepath.Join(uiCertsVolumeName, "server.key")); err != nil {
 		return fmt.Errorf("failed to copy server key: %w", err)
 	}
-	fmt.Printf("Copied %s to %s\n", serverKeySrc, serverKeyDst)
 
-	authCASrc := filepath.Join(certsSourceDir, "auth", "ca.crt")
-	authCADst := filepath.Join(volumePath, "ca_auth.crt")
-	if _, err := os.Stat(authCASrc); err == nil {
-		if err := copyFile(authCASrc, authCADst); err != nil {
+	// Copy auth CA certificate if it exists
+	if _, err := os.Stat(filepath.Join(certsSourceDir, "auth", "ca.crt")); !os.IsNotExist(err) {
+		if err := copyFile(filepath.Join(certsSourceDir, "auth", "ca.crt"), filepath.Join(uiCertsVolumeName, "auth", "ca.crt")); err != nil {
 			return fmt.Errorf("failed to copy auth CA certificate: %w", err)
 		}
-		fmt.Printf("Copied %s to %s\n", authCASrc, authCADst)
-	} else {
-		fmt.Printf("Auth CA certificate not found at %s, skipping\n", authCASrc)
 	}
 
-	fmt.Println("Successfully copied certificates to volume")
 	return nil
 }
 

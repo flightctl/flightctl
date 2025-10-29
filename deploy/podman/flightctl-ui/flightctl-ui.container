@@ -1,7 +1,7 @@
 [Unit]
 Description=Flight Control UI
 PartOf=flightctl.target
-After=flightctl-api.service
+After=flightctl-api.service flightctl-ui-init.service
 
 [Container]
 ContainerName=flightctl-ui
@@ -15,7 +15,6 @@ PublishPort=443:8080
 Volume=flightctl-ui-certs:/app/certs:ro,z
 
 [Service]
-ExecStartPre=/usr/bin/flightctl-render-services
 Restart=always
 RestartSec=30
 

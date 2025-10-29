@@ -7,17 +7,18 @@ After=flightctl-api.service
 ContainerName=flightctl-ui-init
 Image=localhost/flightctl-ui-init:latest
 Pull=newer
-Network=flightctl.network
-EnvironmentFile=/etc/flightctl/flightctl-ui/env
 
-PublishPort=443:8080
-
-Volume=flightctl-ui-certs:/app/certs:ro,z
+Volume=/etc/flightctl/service-config.yaml:/app/service-config.yaml:ro,z
+Volume=/usr/share/flightctl/flightctl-ui/env.template:/app/templates/env.template:ro,Z
+Volume=/etc/flightctl/flightctl-ui:/app/rendered:rw,z
+Volume=/etc/flightctl/pki:/app/pki:ro,z
+Volume=flightctl-ui-certs:/app/ui-certs:rw,z
 
 [Service]
-ExecStartPre=/usr/bin/flightctl-render-services
-Restart=always
-RestartSec=30
+Type=oneshot
+RemainAfterExit=true
+Restart=on-failure
+RestartSec=5s
 
 [Install]
 WantedBy=flightctl.target
