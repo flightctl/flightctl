@@ -34,7 +34,7 @@ COPY ./test ./test
 # Use BuildKit cache mounts for Go caching
 RUN --mount=type=cache,target=/opt/app-root/src/.cache/go-build \
     --mount=type=cache,target=/opt/app-root/src/go/pkg/mod \
-    make build-api
+    make build-api build-api-setup
 
 FROM quay.io/flightctl/flightctl-base:9.6-1758714456
 WORKDIR /app
@@ -46,5 +46,6 @@ LABEL \
   name="flightctl-api" \
   summary="Flight Control Edge management API server"
 COPY --from=build /app/bin/flightctl-api .
+COPY --from=build /app/bin/flightctl-api-setup .
 
 CMD ./flightctl-api
