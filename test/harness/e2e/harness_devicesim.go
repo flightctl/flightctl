@@ -17,10 +17,6 @@ import (
 	"github.com/flightctl/flightctl/test/util"
 )
 
-func devicesimulatorPath() string {
-	return filepath.Join(util.GetTopLevelDir(), "/bin/devicesimulator")
-}
-
 // EnsureDeviceSimulatorBinary returns the path to the devicesimulator binary, building it if missing.
 func (h *Harness) EnsureDeviceSimulatorBinary() (string, error) {
 	// Compute the expected path under the repo top-level bin directory
