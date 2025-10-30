@@ -33,6 +33,7 @@ import (
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/poll"
+	"github.com/flightctl/flightctl/pkg/version"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 )
@@ -193,6 +194,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		&a.config.Audit,
 		deviceReadWriter,
 		deviceName,
+		version.Get().String(),
 		a.log,
 	)
 	if err != nil {

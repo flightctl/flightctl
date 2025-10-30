@@ -17,116 +17,36 @@ func TestNewDefaultAuditConfig(t *testing.T) {
 
 	require.NotNil(config)
 	require.Equal(DefaultEnabled, config.Enabled)
-	require.Equal(DefaultMaxSize, config.MaxSize)
-	require.Equal(DefaultMaxBackups, config.MaxBackups)
-	require.Equal(DefaultMaxAge, config.MaxAge)
 }
 
 func TestAuditConfig_Complete(t *testing.T) {
 	require := require.New(t)
 
+	// Test that Complete() doesn't modify the config since rotation settings are hardcoded
 	testCases := []struct {
-		name           string
-		config         *AuditConfig
-		expectedConfig *AuditConfig
+		name   string
+		config *AuditConfig
 	}{
 		{
-			name: "all fields set - no changes",
+			name: "enabled config unchanged",
 			config: &AuditConfig{
-				Enabled:    true,
-				MaxSize:    200,
-				MaxBackups: 5,
-				MaxAge:     14,
-			},
-			expectedConfig: &AuditConfig{
-				Enabled:    true,
-				MaxSize:    200,
-				MaxBackups: 5,
-				MaxAge:     14,
+				Enabled: true,
 			},
 		},
 		{
-			name: "zero max size - use default",
+			name: "disabled config unchanged",
 			config: &AuditConfig{
-				Enabled:    true,
-				MaxSize:    0,
-				MaxBackups: 5,
-				MaxAge:     14,
-			},
-			expectedConfig: &AuditConfig{
-				Enabled:    true,
-				MaxSize:    DefaultMaxSize,
-				MaxBackups: 5,
-				MaxAge:     14,
-			},
-		},
-		{
-			name: "negative max size - use default",
-			config: &AuditConfig{
-				Enabled:    true,
-				MaxSize:    -10,
-				MaxBackups: 5,
-				MaxAge:     14,
-			},
-			expectedConfig: &AuditConfig{
-				Enabled:    true,
-				MaxSize:    DefaultMaxSize,
-				MaxBackups: 5,
-				MaxAge:     14,
-			},
-		},
-		{
-			name: "negative max backups - use default",
-			config: &AuditConfig{
-				Enabled:    true,
-				MaxSize:    100,
-				MaxBackups: -1,
-				MaxAge:     14,
-			},
-			expectedConfig: &AuditConfig{
-				Enabled:    true,
-				MaxSize:    100,
-				MaxBackups: DefaultMaxBackups,
-				MaxAge:     14,
-			},
-		},
-		{
-			name: "zero max age - use default",
-			config: &AuditConfig{
-				Enabled:    true,
-				MaxSize:    100,
-				MaxBackups: 5,
-				MaxAge:     0,
-			},
-			expectedConfig: &AuditConfig{
-				Enabled:    true,
-				MaxSize:    100,
-				MaxBackups: 5,
-				MaxAge:     DefaultMaxAge,
-			},
-		},
-		{
-			name: "all defaults needed",
-			config: &AuditConfig{
-				Enabled:    false,
-				MaxSize:    0,
-				MaxBackups: -1,
-				MaxAge:     0,
-			},
-			expectedConfig: &AuditConfig{
-				Enabled:    false,
-				MaxSize:    DefaultMaxSize,
-				MaxBackups: DefaultMaxBackups,
-				MaxAge:     DefaultMaxAge,
+				Enabled: false,
 			},
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			originalConfig := &AuditConfig{Enabled: tc.config.Enabled}
 			err := tc.config.Complete()
 			require.NoError(err)
-			require.Equal(tc.expectedConfig, tc.config)
+			require.Equal(originalConfig, tc.config)
 		})
 	}
 }
@@ -145,10 +65,7 @@ func TestAuditConfig_Validate(t *testing.T) {
 		{
 			name: "audit disabled - validation skipped",
 			config: &AuditConfig{
-				Enabled:    false,
-				MaxSize:    100,
-				MaxBackups: 3,
-				MaxAge:     28,
+				Enabled: false,
 			},
 			setupMocks: func(mockRW *fileio.MockReadWriter) {
 				// No expectations - validation should be skipped
@@ -157,10 +74,7 @@ func TestAuditConfig_Validate(t *testing.T) {
 		{
 			name: "valid config with existing directory",
 			config: &AuditConfig{
-				Enabled:    true,
-				MaxSize:    100,
-				MaxBackups: 3,
-				MaxAge:     28,
+				Enabled: true,
 			},
 			setupMocks: func(mockRW *fileio.MockReadWriter) {
 				mockRW.EXPECT().PathExists(filepath.Dir(DefaultLogPath)).Return(true, nil)
@@ -169,10 +83,7 @@ func TestAuditConfig_Validate(t *testing.T) {
 		{
 			name: "valid config with non-existing directory - creates it",
 			config: &AuditConfig{
-				Enabled:    true,
-				MaxSize:    100,
-				MaxBackups: 3,
-				MaxAge:     28,
+				Enabled: true,
 			},
 			setupMocks: func(mockRW *fileio.MockReadWriter) {
 				mockRW.EXPECT().PathExists(filepath.Dir(DefaultLogPath)).Return(false, nil)
@@ -182,10 +93,7 @@ func TestAuditConfig_Validate(t *testing.T) {
 		{
 			name: "error checking directory existence",
 			config: &AuditConfig{
-				Enabled:    true,
-				MaxSize:    100,
-				MaxBackups: 3,
-				MaxAge:     28,
+				Enabled: true,
 			},
 			setupMocks: func(mockRW *fileio.MockReadWriter) {
 				mockRW.EXPECT().PathExists(filepath.Dir(DefaultLogPath)).Return(false, errors.New("path check failed"))
@@ -195,93 +103,13 @@ func TestAuditConfig_Validate(t *testing.T) {
 		{
 			name: "error creating directory",
 			config: &AuditConfig{
-				Enabled:    true,
-				MaxSize:    100,
-				MaxBackups: 3,
-				MaxAge:     28,
+				Enabled: true,
 			},
 			setupMocks: func(mockRW *fileio.MockReadWriter) {
 				mockRW.EXPECT().PathExists(filepath.Dir(DefaultLogPath)).Return(false, nil)
 				mockRW.EXPECT().MkdirAll(filepath.Dir(DefaultLogPath), fileio.DefaultDirectoryPermissions).Return(errors.New("mkdir failed"))
 			},
 			expectedError: "creating audit log directory",
-		},
-		{
-			name: "invalid max size - zero",
-			config: &AuditConfig{
-				Enabled:    true,
-				MaxSize:    0,
-				MaxBackups: 3,
-				MaxAge:     28,
-			},
-			setupMocks: func(mockRW *fileio.MockReadWriter) {
-				mockRW.EXPECT().PathExists(filepath.Dir(DefaultLogPath)).Return(true, nil)
-			},
-			expectedError: "audit log max size must be positive",
-		},
-		{
-			name: "invalid max size - negative",
-			config: &AuditConfig{
-				Enabled:    true,
-				MaxSize:    -10,
-				MaxBackups: 3,
-				MaxAge:     28,
-			},
-			setupMocks: func(mockRW *fileio.MockReadWriter) {
-				mockRW.EXPECT().PathExists(filepath.Dir(DefaultLogPath)).Return(true, nil)
-			},
-			expectedError: "audit log max size must be positive",
-		},
-		{
-			name: "invalid max backups - negative",
-			config: &AuditConfig{
-				Enabled:    true,
-				MaxSize:    100,
-				MaxBackups: -1,
-				MaxAge:     28,
-			},
-			setupMocks: func(mockRW *fileio.MockReadWriter) {
-				mockRW.EXPECT().PathExists(filepath.Dir(DefaultLogPath)).Return(true, nil)
-			},
-			expectedError: "audit log max backups must be non-negative",
-		},
-		{
-			name: "valid max backups - zero is allowed",
-			config: &AuditConfig{
-				Enabled:    true,
-				MaxSize:    100,
-				MaxBackups: 0,
-				MaxAge:     28,
-			},
-			setupMocks: func(mockRW *fileio.MockReadWriter) {
-				mockRW.EXPECT().PathExists(filepath.Dir(DefaultLogPath)).Return(true, nil)
-			},
-		},
-		{
-			name: "invalid max age - zero",
-			config: &AuditConfig{
-				Enabled:    true,
-				MaxSize:    100,
-				MaxBackups: 3,
-				MaxAge:     0,
-			},
-			setupMocks: func(mockRW *fileio.MockReadWriter) {
-				mockRW.EXPECT().PathExists(filepath.Dir(DefaultLogPath)).Return(true, nil)
-			},
-			expectedError: "audit log max age must be positive",
-		},
-		{
-			name: "invalid max age - negative",
-			config: &AuditConfig{
-				Enabled:    true,
-				MaxSize:    100,
-				MaxBackups: 3,
-				MaxAge:     -5,
-			},
-			setupMocks: func(mockRW *fileio.MockReadWriter) {
-				mockRW.EXPECT().PathExists(filepath.Dir(DefaultLogPath)).Return(true, nil)
-			},
-			expectedError: "audit log max age must be positive",
 		},
 	}
 
@@ -307,8 +135,10 @@ func TestConstants(t *testing.T) {
 
 	// Test that constants have expected values
 	require.Equal("/var/log/flightctl/audit.log", DefaultLogPath)
-	require.Equal(100, DefaultMaxSize)
-	require.Equal(3, DefaultMaxBackups)
-	require.Equal(28, DefaultMaxAge)
 	require.Equal(true, DefaultEnabled)
+
+	// Test hardcoded rotation constants (non-configurable)
+	require.Equal(1024, DefaultMaxSizeKB) // 1MB for ~10k records
+	require.Equal(1, DefaultMaxBackups)   // Minimal rotations
+	require.Equal(0, DefaultMaxAge)       // No time-based pruning
 }

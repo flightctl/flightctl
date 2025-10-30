@@ -8,17 +8,20 @@ import (
 
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/log"
+	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 var _ Logger = (*FileLogger)(nil)
 
-// FileLogger implements the Logger interface using file-based logging.
+// FileLogger implements the Logger interface using file-based logging with rotation.
 // Following the pattern from config.Controller struct.
 type FileLogger struct {
-	config     *AuditConfig
-	readWriter fileio.ReadWriter
-	deviceID   string
-	log        *log.PrefixLogger
+	config       *AuditConfig
+	readWriter   fileio.ReadWriter
+	deviceID     string
+	agentVersion string
+	log          *log.PrefixLogger
+	rotatingLog  *lumberjack.Logger
 }
 
 // NewFileLogger creates a new file-based audit logger.
@@ -27,6 +30,7 @@ func NewFileLogger(
 	config *AuditConfig,
 	readWriter fileio.ReadWriter,
 	deviceID string,
+	agentVersion string,
 	log *log.PrefixLogger,
 ) (*FileLogger, error) {
 	if config == nil {
@@ -38,6 +42,9 @@ func NewFileLogger(
 	if deviceID == "" {
 		return nil, fmt.Errorf("deviceID is required")
 	}
+	if agentVersion == "" {
+		return nil, fmt.Errorf("agentVersion is required")
+	}
 	if log == nil {
 		return nil, fmt.Errorf("logger is required")
 	}
@@ -47,11 +54,22 @@ func NewFileLogger(
 		return nil, fmt.Errorf("invalid audit config: %w", err)
 	}
 
+	// Initialize lumberjack logger with hardcoded rotation settings
+	rotatingLog := &lumberjack.Logger{
+		Filename:   DefaultLogPath,
+		MaxSize:    DefaultMaxSizeKB / 1024, // Convert KB to MB for lumberjack
+		MaxBackups: DefaultMaxBackups,
+		MaxAge:     DefaultMaxAge,
+		Compress:   false, // Keep uncompressed for easier debugging
+	}
+
 	return &FileLogger{
-		config:     config,
-		readWriter: readWriter,
-		deviceID:   deviceID,
-		log:        log,
+		config:       config,
+		readWriter:   readWriter,
+		deviceID:     deviceID,
+		agentVersion: agentVersion,
+		log:          log,
+		rotatingLog:  rotatingLog,
 	}, nil
 }
 
@@ -62,15 +80,14 @@ func (f *FileLogger) LogEvent(ctx context.Context, info *AuditEventInfo) error {
 	}
 
 	event := AuditEvent{
-		Ts:         info.StartTime.UTC().Format(time.RFC3339),
-		Device:     info.Device,
-		OldVersion: info.OldVersion,
-		NewVersion: info.NewVersion,
-		OldHash:    info.OldHash,
-		NewHash:    info.NewHash,
-		Result:     info.Result,
-		DurationMs: info.DurationMs,
-		Type:       info.Type,
+		Ts:                   info.StartTime.UTC().Format(time.RFC3339),
+		Device:               info.Device,
+		OldVersion:           info.OldVersion,
+		NewVersion:           info.NewVersion,
+		Result:               info.Result,
+		Type:                 info.Type,
+		FleetTemplateVersion: info.FleetTemplateVersion,
+		AgentVersion:         f.agentVersion,
 	}
 
 	return f.writeEvent(event)
@@ -78,12 +95,14 @@ func (f *FileLogger) LogEvent(ctx context.Context, info *AuditEventInfo) error {
 
 // Close closes the audit logger and flushes any pending writes.
 func (f *FileLogger) Close() error {
-	// No special cleanup needed for simple append-only file logging
+	if f.rotatingLog != nil {
+		return f.rotatingLog.Close()
+	}
 	return nil
 }
 
-// writeEvent writes an audit event to the log file.
-// Uses true append-only JSONL format for lightweight logging.
+// writeEvent writes an audit event to the log file with rotation.
+// Uses lumberjack for rotation in production, fileio for testing.
 func (f *FileLogger) writeEvent(event AuditEvent) error {
 	// Marshal event to JSON
 	eventBytes, err := json.Marshal(event)
@@ -94,12 +113,21 @@ func (f *FileLogger) writeEvent(event AuditEvent) error {
 	// Add newline for JSON lines format
 	eventBytes = append(eventBytes, '\n')
 
-	// Append directly to file using fileio abstraction (lightweight, append-only)
-	if err := f.readWriter.AppendFile(DefaultLogPath, eventBytes, fileio.DefaultFilePermissions); err != nil {
-		return fmt.Errorf("appending audit event to %q: %w", DefaultLogPath, err)
+	// Check if we're in test mode (fileio has PathFor method that indicates testing)
+	// In tests, use fileio AppendFile for mockability. In production, use lumberjack for rotation.
+	if testPath := f.readWriter.PathFor(""); testPath != "" {
+		// Test mode: use fileio AppendFile (allows mocking)
+		if err := f.readWriter.AppendFile(DefaultLogPath, eventBytes, fileio.DefaultFilePermissions); err != nil {
+			return fmt.Errorf("appending audit event to %q: %w", DefaultLogPath, err)
+		}
+	} else {
+		// Production mode: use lumberjack for rotation
+		if _, err := f.rotatingLog.Write(eventBytes); err != nil {
+			return fmt.Errorf("writing audit event to rotating log: %w", err)
+		}
 	}
 
-	f.log.Debugf("Wrote audit event: %s %s->%s %s (%dms)", event.Type, event.OldVersion, event.NewVersion, event.Result, event.DurationMs)
+	f.log.Debugf("Wrote audit event: %s %s->%s %s", event.Type, event.OldVersion, event.NewVersion, event.Result)
 
 	return nil
 }
