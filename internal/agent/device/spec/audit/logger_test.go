@@ -79,7 +79,7 @@ func TestNewFileLogger(t *testing.T) {
 				tt.setupMocks(mockRW)
 			}
 
-			logger, err := NewFileLogger(tt.config, tt.readWriter, tt.deviceID, tt.log)
+			logger, err := NewFileLogger(tt.config, tt.readWriter, tt.deviceID, "test-agent-version", tt.log)
 
 			if tt.expectedError != "" {
 				require.Error(err)
@@ -108,10 +108,11 @@ func TestFileLogger_LogEventApply(t *testing.T) {
 	// Setup validation mocks
 	mockRW.EXPECT().PathExists("/var/log/flightctl").Return(true, nil)
 
-	auditLogger, err := NewFileLogger(config, mockRW, "test-device", logger)
+	auditLogger, err := NewFileLogger(config, mockRW, "test-device", "test-agent-version", logger)
 	require.NoError(err)
 
 	// Test successful log apply
+	mockRW.EXPECT().PathFor("").Return("/test/root")
 	mockRW.EXPECT().AppendFile(DefaultLogPath, gomock.Any(), fileio.DefaultFilePermissions).DoAndReturn(
 		func(path string, data []byte, perm interface{}, opts ...interface{}) error {
 			// Verify the JSON structure
@@ -126,26 +127,23 @@ func TestFileLogger_LogEventApply(t *testing.T) {
 			require.Equal("test-device", event.Device)
 			require.Equal("1", event.OldVersion)
 			require.Equal("2", event.NewVersion)
-			require.Equal("hash1", event.OldHash)
-			require.Equal("hash2", event.NewHash)
-			require.Equal(AuditTypeApply, event.Type)
+			require.Equal(AuditTypeDesired, event.Type)
 			require.Equal(AuditResultSuccess, event.Result)
 			require.NotEmpty(event.Ts)
-			require.Equal(int64(1500), event.DurationMs)
+			require.Equal("template-v1", event.FleetTemplateVersion)
+			require.Equal("test-agent-version", event.AgentVersion)
 
 			return nil
 		})
 
 	auditInfo := &AuditEventInfo{
-		Device:     "test-device",
-		OldVersion: "1",
-		NewVersion: "2",
-		OldHash:    "hash1",
-		NewHash:    "hash2",
-		Result:     AuditResultSuccess,
-		DurationMs: 1500,
-		Type:       AuditTypeApply,
-		StartTime:  time.Now(),
+		Device:               "test-device",
+		OldVersion:           "1",
+		NewVersion:           "2",
+		Result:               AuditResultSuccess,
+		Type:                 AuditTypeDesired,
+		FleetTemplateVersion: "template-v1",
+		StartTime:            time.Now(),
 	}
 	err = auditLogger.LogEvent(ctx, auditInfo)
 	require.NoError(err)
@@ -164,10 +162,11 @@ func TestFileLogger_LogEventFailure(t *testing.T) {
 	// Setup validation mocks
 	mockRW.EXPECT().PathExists("/var/log/flightctl").Return(true, nil)
 
-	auditLogger, err := NewFileLogger(config, mockRW, "test-device", logger)
+	auditLogger, err := NewFileLogger(config, mockRW, "test-device", "test-agent-version", logger)
 	require.NoError(err)
 
 	// Test failure logging
+	mockRW.EXPECT().PathFor("").Return("/test/root")
 	mockRW.EXPECT().AppendFile(DefaultLogPath, gomock.Any(), fileio.DefaultFilePermissions).DoAndReturn(
 		func(path string, data []byte, perm interface{}, opts ...interface{}) error {
 			// Verify the JSON structure
@@ -181,26 +180,23 @@ func TestFileLogger_LogEventFailure(t *testing.T) {
 			require.Equal("test-device", event.Device)
 			require.Equal("2", event.OldVersion)
 			require.Equal("3", event.NewVersion)
-			require.Equal("oldhash", event.OldHash)
-			require.Equal("newhash", event.NewHash)
-			require.Equal(AuditTypeFailure, event.Type)
+			require.Equal(AuditTypeDesired, event.Type) // Failed transition to desired state
 			require.Equal(AuditResultFailure, event.Result)
 			require.NotEmpty(event.Ts)
-			require.Equal(int64(500), event.DurationMs)
+			require.Equal("template-v2", event.FleetTemplateVersion)
+			require.Equal("test-agent-version", event.AgentVersion)
 
 			return nil
 		})
 
 	auditInfo := &AuditEventInfo{
-		Device:     "test-device",
-		OldVersion: "2",
-		NewVersion: "3",
-		OldHash:    "oldhash",
-		NewHash:    "newhash",
-		Result:     AuditResultFailure,
-		DurationMs: 500,
-		Type:       AuditTypeFailure,
-		StartTime:  time.Now(),
+		Device:               "test-device",
+		OldVersion:           "2",
+		NewVersion:           "3",
+		Result:               AuditResultFailure,
+		Type:                 AuditTypeDesired, // Failed transition to desired state
+		FleetTemplateVersion: "template-v2",
+		StartTime:            time.Now(),
 	}
 	err = auditLogger.LogEvent(ctx, auditInfo)
 	require.NoError(err)
@@ -219,10 +215,11 @@ func TestFileLogger_LogEventRollback(t *testing.T) {
 	// Setup validation mocks
 	mockRW.EXPECT().PathExists("/var/log/flightctl").Return(true, nil)
 
-	auditLogger, err := NewFileLogger(config, mockRW, "test-device", logger)
+	auditLogger, err := NewFileLogger(config, mockRW, "test-device", "test-agent-version", logger)
 	require.NoError(err)
 
 	// Test successful log rollback
+	mockRW.EXPECT().PathFor("").Return("/test/root")
 	mockRW.EXPECT().AppendFile(DefaultLogPath, gomock.Any(), fileio.DefaultFilePermissions).DoAndReturn(
 		func(path string, data []byte, perm interface{}, opts ...interface{}) error {
 			// Verify the JSON structure
@@ -237,26 +234,23 @@ func TestFileLogger_LogEventRollback(t *testing.T) {
 			require.Equal("test-device", event.Device)
 			require.Equal("3", event.OldVersion)
 			require.Equal("2", event.NewVersion)
-			require.Equal("rollback-old", event.OldHash)
-			require.Equal("rollback-new", event.NewHash)
 			require.Equal(AuditTypeRollback, event.Type)
 			require.Equal(AuditResultSuccess, event.Result)
 			require.NotEmpty(event.Ts)
-			require.Equal(int64(800), event.DurationMs)
+			require.Equal("template-rollback", event.FleetTemplateVersion)
+			require.Equal("test-agent-version", event.AgentVersion)
 
 			return nil
 		})
 
 	auditInfo := &AuditEventInfo{
-		Device:     "test-device",
-		OldVersion: "3",
-		NewVersion: "2",
-		OldHash:    "rollback-old",
-		NewHash:    "rollback-new",
-		Result:     AuditResultSuccess,
-		DurationMs: 800,
-		Type:       AuditTypeRollback,
-		StartTime:  time.Now(),
+		Device:               "test-device",
+		OldVersion:           "3",
+		NewVersion:           "2",
+		Result:               AuditResultSuccess,
+		Type:                 AuditTypeRollback,
+		FleetTemplateVersion: "template-rollback",
+		StartTime:            time.Now(),
 	}
 	err = auditLogger.LogEvent(ctx, auditInfo)
 	require.NoError(err)
@@ -273,20 +267,18 @@ func TestFileLogger_DisabledLogging(t *testing.T) {
 	mockRW := fileio.NewMockReadWriter(ctrl)
 	logger := log.NewPrefixLogger("test")
 
-	auditLogger, err := NewFileLogger(config, mockRW, "test-device", logger)
+	auditLogger, err := NewFileLogger(config, mockRW, "test-device", "test-agent-version", logger)
 	require.NoError(err)
 
 	// Should not make any file operations when disabled
 	auditInfo := &AuditEventInfo{
-		Device:     "test-device",
-		OldVersion: "1",
-		NewVersion: "2",
-		OldHash:    "hash1",
-		NewHash:    "hash2",
-		Result:     AuditResultSuccess,
-		DurationMs: 1000,
-		Type:       AuditTypeApply,
-		StartTime:  time.Now(),
+		Device:               "test-device",
+		OldVersion:           "1",
+		NewVersion:           "2",
+		Result:               AuditResultSuccess,
+		Type:                 AuditTypeDesired,
+		FleetTemplateVersion: "template-disabled",
+		StartTime:            time.Now(),
 	}
 	err = auditLogger.LogEvent(ctx, auditInfo)
 	require.NoError(err)
@@ -304,7 +296,7 @@ func TestFileLogger_Close(t *testing.T) {
 	// Setup validation mocks
 	mockRW.EXPECT().PathExists("/var/log/flightctl").Return(true, nil)
 
-	auditLogger, err := NewFileLogger(config, mockRW, "test-device", logger)
+	auditLogger, err := NewFileLogger(config, mockRW, "test-device", "test-agent-version", logger)
 	require.NoError(err)
 
 	// Test that Close() doesn't return an error

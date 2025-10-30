@@ -103,7 +103,6 @@ type PriorityQueue interface {
 
 type cacheData struct {
 	renderedVersion string
-	renderedHash    string
 	osVersion       string
 }
 
@@ -126,7 +125,7 @@ func newCache(log *log.PrefixLogger) *cache {
 	}
 }
 
-// update updates the rendered version, hash, and OS version of the specified spec type.
+// update updates the rendered version and OS version of the specified spec type.
 func (c *cache) update(specType Type, device *v1alpha1.Device) {
 	if device.Spec == nil {
 		c.log.Errorf("Failed to update cache device spec is nil")
@@ -139,26 +138,15 @@ func (c *cache) update(specType Type, device *v1alpha1.Device) {
 
 	renderedVersion := device.Version()
 
-	// Extract rendered spec hash from annotations
-	var renderedHash string
-	if device.Metadata.Annotations != nil {
-		if hash, exists := (*device.Metadata.Annotations)[v1alpha1.DeviceAnnotationRenderedSpecHash]; exists {
-			renderedHash = hash
-		}
-	}
-
 	switch specType {
 	case Current:
 		c.current.renderedVersion = renderedVersion
-		c.current.renderedHash = renderedHash
 		c.current.osVersion = osImage
 	case Desired:
 		c.desired.renderedVersion = renderedVersion
-		c.desired.renderedHash = renderedHash
 		c.desired.osVersion = osImage
 	case Rollback:
 		c.rollback.renderedVersion = renderedVersion
-		c.rollback.renderedHash = renderedHash
 		c.rollback.osVersion = osImage
 	}
 }
@@ -172,21 +160,6 @@ func (c *cache) getRenderedVersion(specType Type) string {
 		return c.desired.renderedVersion
 	case Rollback:
 		return c.rollback.renderedVersion
-	default:
-		c.log.Errorf("Invalid spec type: %s", specType)
-		return ""
-	}
-}
-
-// getRenderedSpecHash returns the rendered spec hash of the specified spec type.
-func (c *cache) getRenderedSpecHash(specType Type) string {
-	switch specType {
-	case Current:
-		return c.current.renderedHash
-	case Desired:
-		return c.desired.renderedHash
-	case Rollback:
-		return c.rollback.renderedHash
 	default:
 		c.log.Errorf("Invalid spec type: %s", specType)
 		return ""
