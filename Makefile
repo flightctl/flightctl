@@ -198,8 +198,8 @@ build-telemetry-gateway: bin
 build-devicesimulator: bin
 	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/devicesimulator
 
-build-render-services: bin
-	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-render-services
+build-ui-setup: bin
+	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-ui-setup
 
 # Container builds - Environment-aware caching
 flightctl-api-container: Containerfile.api go.mod go.sum $(GO_FILES)
@@ -266,12 +266,12 @@ flightctl-telemetry-gateway-container: Containerfile.telemetry-gateway go.mod go
 		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
 		-f Containerfile.telemetry-gateway -t flightctl-telemetry-gateway:latest
 
-flightctl-ui-init-container: Containerfile.ui-init go.mod go.sum $(GO_FILES)
-	podman build $(call CACHE_FLAGS_FOR_IMAGE,flightctl-ui-init) \
+flightctl-ui-setup-container: Containerfile.ui-setup go.mod go.sum $(GO_FILES)
+	podman build $(call CACHE_FLAGS_FOR_IMAGE,flightctl-ui-setup) \
 		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
 		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
 		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
-		-f Containerfile.ui-init -t flightctl-ui-init:latest
+		-f Containerfile.ui-setup -t flightctl-ui-setup:latest
 
 .PHONY: flightctl-api-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container flightctl-userinfo-proxy-container flightctl-telemetry-gateway-container
 

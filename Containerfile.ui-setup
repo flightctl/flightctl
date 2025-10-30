@@ -35,22 +35,22 @@ COPY ./test ./test
 # Use BuildKit cache mounts for Go caching
 RUN --mount=type=cache,target=/opt/app-root/src/.cache/go-build \
     --mount=type=cache,target=/opt/app-root/src/go/pkg/mod \
-    make build-render-services
+    make build-ui-setup
 
 FROM registry.access.redhat.com/ubi9/ubi-minimal
 
 WORKDIR /app
 
 LABEL \
-  com.redhat.component="flightctl-ui-init-container" \
-  description="Flight Control UI Initialization" \
-  io.k8s.description="Flight Control UI Initialization" \
-  io.k8s.display-name="Flight Control UI Initialization" \
-  io.openshift.tags="flightctl,ui-init" \
-  name="flightctl-ui-init" \
-  summary="Flight Control UI Initialization"
+  com.redhat.component="flightctl-ui-setup-container" \
+  description="Flight Control UI Setup" \
+  io.k8s.description="Flight Control UI Setup" \
+  io.k8s.display-name="Flight Control UI Setup" \
+  io.openshift.tags="flightctl,ui-setup" \
+  name="flightctl-ui-setup" \
+  summary="Flight Control UI Setup"
 
 # Copy the render-services binary from the build stage
-COPY --from=build /app/bin/flightctl-render-services /app/flightctl-render-services
+COPY --from=build /app/bin/flightctl-ui-setup /app/flightctl-ui-setup
 
-CMD ["/app/flightctl-render-services"]
+CMD ["/app/flightctl-ui-setup"]

@@ -5,7 +5,7 @@ After=flightctl-api.service
 
 [Container]
 ContainerName=flightctl-ui-init
-Image=localhost/flightctl-ui-init:latest
+Image=localhost/flightctl-ui-setup:latest
 Pull=newer
 
 Volume=/etc/flightctl/service-config.yaml:/app/service-config.yaml:ro,z
