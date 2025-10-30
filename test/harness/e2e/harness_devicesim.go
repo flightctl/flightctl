@@ -11,10 +11,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/flightctl/flightctl/test/util"
 	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/sirupsen/logrus"
-
-	"github.com/flightctl/flightctl/test/util"
 )
 
 // EnsureDeviceSimulatorBinary returns the path to the devicesimulator binary, building it if missing.

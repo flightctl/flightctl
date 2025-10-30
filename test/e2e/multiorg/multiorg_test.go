@@ -1,8 +1,10 @@
 package multiorg_test
 
 import (
+	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
@@ -87,6 +89,68 @@ var _ = Describe("multiorg operation", func() {
 			out4, err4 := harness.CLI("get", "devices")
 			Expect(err4).ToNot(HaveOccurred())
 			Expect(out4).To(Not(ContainSubstring(deviceId)))
+		})
+
+		It("Should create 2 devices in the current organization", func() {
+			harness := e2e.GetWorkerHarness()
+			orgName := getOrgNameByDisplayName("pinkcorp")
+			out, err := harness.CLI("config", "set-organization", orgName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring(orgName))
+
+			_, err = harness.SetupDeviceSimulatorAgentConfig(harness.RegistryEndpoint(), "info", 2*time.Second, 2*time.Second)
+			Expect(err).ToNot(HaveOccurred())
+
+			cmd, err := harness.RunDeviceSimulator(context.Background(), "--count", "2")
+			Expect(err).ToNot(HaveOccurred())
+
+			DeferCleanup(func() {
+				_ = harness.StopDeviceSimulator(cmd, 5*time.Second)
+			})
+
+			Eventually(func(g Gomega) {
+				out1, err1 := harness.CLI("get", "devices")
+				g.Expect(err1).ToNot(HaveOccurred())
+				g.Expect(out1).To(ContainSubstring("device-00000"))
+				g.Expect(out1).To(ContainSubstring("device-00001"))
+			}, 30*time.Second, 2*time.Second).Should(Succeed())
+		})
+		It("Should create 10 devices in every organization", func() {
+			harness := e2e.GetWorkerHarness()
+			orgNames := []string{"pinkcorp", "orangecorp"}
+			for _, orgName := range orgNames {
+				logrus.Info("setting organization: ", orgName)
+				orgName1 := getOrgNameByDisplayName(orgName)
+				out, err := harness.CLI("config", "set-organization", orgName1)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(out).To(ContainSubstring(orgName1))
+
+				_, err = harness.SetupDeviceSimulatorAgentConfig(harness.RegistryEndpoint(), "info", 2*time.Second, 2*time.Second)
+				Expect(err).ToNot(HaveOccurred())
+
+				cmd, err := harness.RunDeviceSimulator(context.Background(), "--count", "10", "--log-level", "info", "--label", "organization="+orgName1)
+				Expect(err).ToNot(HaveOccurred())
+
+				Eventually(func(g Gomega) {
+					out, err := harness.CLI("get", "devices")
+					g.Expect(err).ToNot(HaveOccurred())
+					g.Expect(out).To(ContainSubstring("device-00000"))
+					g.Expect(out).To(ContainSubstring("device-00001"))
+					g.Expect(out).To(ContainSubstring("device-00002"))
+					g.Expect(out).To(ContainSubstring("device-00003"))
+					g.Expect(out).To(ContainSubstring("device-00004"))
+					g.Expect(out).To(ContainSubstring("device-00005"))
+					g.Expect(out).To(ContainSubstring("device-00006"))
+					g.Expect(out).To(ContainSubstring("device-00007"))
+					g.Expect(out).To(ContainSubstring("device-00008"))
+					g.Expect(out).To(ContainSubstring("device-00009"))
+				}, 30*time.Second, 2*time.Second).Should(Succeed())
+				DeferCleanup(func() {
+					_ = harness.StopDeviceSimulator(cmd, 5*time.Second)
+				})
+				logrus.Info("devices created in organization: ", orgName)
+				logrus.Info("devices: ", out)
+			}
 		})
 	})
 })
