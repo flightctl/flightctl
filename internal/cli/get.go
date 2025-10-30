@@ -23,6 +23,28 @@ var legalOutputTypes = []string{string(display.JSONFormat), string(display.YAMLF
 
 const maxRequestLimit = 1000 // At most the server side constraint
 
+const (
+	// Common flags
+	FlagSelector      = "selector"
+	FlagFieldSelector = "field-selector"
+	FlagOutput        = "output"
+	FlagLimit         = "limit"
+	FlagContinue      = "continue"
+
+	// Resource specific flags
+	FlagFleetName   = "fleetname"    // for templateversions
+	FlagRendered    = "rendered"     // for a single device
+	FlagSummary     = "summary"      // for listing devices and fleets
+	FlagSummaryOnly = "summary-only" // for listing devices
+	FlagLastSeen    = "last-seen"    // for a single device
+)
+
+type FlagContextualRule struct {
+	FlagName     string
+	ResourceKind []string
+	Operations   []string // "list", "single", "any"
+}
+
 type GetOptions struct {
 	GlobalOptions
 
@@ -72,28 +94,114 @@ func NewCmdGet() *cobra.Command {
 		SilenceUsage: true,
 	}
 	o.Bind(cmd.Flags())
+
+	// Override help function to show conditional flags based on command line args
+	cmd.SetHelpFunc(func(cmd *cobra.Command, args []string) {
+		o.showHelpContextualFlags(cmd)
+		cmd.Parent().HelpFunc()(cmd, args)
+	})
+
 	return cmd
 }
 
 func (o *GetOptions) Bind(fs *pflag.FlagSet) {
 	o.GlobalOptions.Bind(fs)
 
-	fs.StringVarP(&o.LabelSelector, "selector", "l", o.LabelSelector, "Selector (label query) to filter on, supporting operators like '=', '!=', and 'in' (e.g., -l='key1=value1,key2!=value2,key3 in (value3, value4)').")
-	fs.StringVar(&o.FieldSelector, "field-selector", o.FieldSelector, "Selector (field query) to filter on, supporting operators like '=', '!=', 'in', 'contains', '>', '<', etc. (e.g., --field-selector='metadata.name in (device1,device2)', --field-selector='metadata.owner=Fleet/test').")
-	fs.StringVarP(&o.Output, "output", "o", o.Output, fmt.Sprintf("Output format. One of: (%s).", strings.Join(legalOutputTypes, ", ")))
-	fs.Int32Var(&o.Limit, "limit", o.Limit, "The maximum number of results returned in the list response. If the value is 0, then the result is not limited.")
-	fs.StringVar(&o.Continue, "continue", o.Continue, "Query more results starting from the value of the 'continue' field in the previous response.")
-	fs.StringVar(&o.FleetName, "fleetname", o.FleetName, "Fleet name for accessing templateversions (use only when getting templateversions).")
-	fs.BoolVar(&o.Rendered, "rendered", false, "Return the rendered device configuration that is presented to the device (use only when getting a single device).")
-	fs.BoolVarP(&o.Summary, "summary", "s", false, "Display summary information.")
-	fs.BoolVar(&o.SummaryOnly, "summary-only", false, "Display summary information only.")
-	fs.BoolVar(&o.LastSeen, "last-seen", false, "Display the last seen timestamp for a single device.")
+	fs.StringVarP(&o.LabelSelector, FlagSelector, "l", o.LabelSelector, "Selector (label query) to filter on, supporting operators like '=', '!=', and 'in' (e.g., -l='key1=value1,key2!=value2,key3 in (value3, value4)').")
+	fs.StringVar(&o.FieldSelector, FlagFieldSelector, o.FieldSelector, "Selector (field query) to filter on, supporting operators like '=', '!=', 'in', 'contains', '>', '<', etc. (e.g., --field-selector='metadata.name in (device1,device2)', --field-selector='metadata.owner=Fleet/test').")
+	fs.StringVarP(&o.Output, FlagOutput, "o", o.Output, fmt.Sprintf("Output format. One of: (%s).", strings.Join(legalOutputTypes, ", ")))
+	fs.Int32Var(&o.Limit, FlagLimit, o.Limit, "The maximum number of results returned in the list response. If the value is 0, then the result is not limited.")
+	fs.StringVar(&o.Continue, FlagContinue, o.Continue, "Query more results starting from the value of the 'continue' field in the previous response.")
+	fs.StringVar(&o.FleetName, FlagFleetName, o.FleetName, "Fleet name for accessing templateversions (use only when getting templateversions).")
+	fs.BoolVar(&o.Rendered, FlagRendered, false, "Return the rendered device configuration that is presented to the device. Default output format is YAML.")
+	fs.BoolVarP(&o.Summary, FlagSummary, "s", false, "Display summary information.")
+	fs.BoolVar(&o.SummaryOnly, FlagSummaryOnly, false, "Display summary information only.")
+	fs.BoolVar(&o.LastSeen, FlagLastSeen, false, "Display the last seen timestamp of the device.")
+	o.hideHelpContextualFlags(fs)
+}
+
+var flagContextualRules = []FlagContextualRule{
+	{FlagSummaryOnly, []string{DeviceKind}, []string{"list"}},
+	{FlagSummary, []string{DeviceKind, FleetKind}, []string{"list"}},
+	{FlagRendered, []string{DeviceKind}, []string{"single"}},
+	{FlagLastSeen, []string{DeviceKind}, []string{"single"}},
+	{FlagFleetName, []string{TemplateVersionKind}, []string{"any"}},
+}
+
+func (o *GetOptions) hideHelpContextualFlags(fs *pflag.FlagSet) {
+	for _, rule := range flagContextualRules {
+		flag := fs.Lookup(rule.FlagName)
+		if flag != nil {
+			flag.Hidden = true
+		}
+	}
+}
+
+func (o *GetOptions) showHelpContextualFlags(cmd *cobra.Command) {
+	// Extract resource arguments from os.Args after "get" command
+	resourceArgs := o.extractResourceArgsFromCmdLine(os.Args)
+	if len(resourceArgs) == 0 {
+		return
+	}
+	kind, names, err := parseAndValidateKindNameFromArgs(resourceArgs)
+	if err != nil {
+		return
+	}
+
+	operation := "list"
+	if len(names) == 1 {
+		operation = "single"
+	}
+	for _, rule := range flagContextualRules {
+		if o.shouldShowHelpFlag(rule, kind, operation) {
+			if flag := cmd.Flags().Lookup(rule.FlagName); flag != nil {
+				flag.Hidden = false
+			}
+		}
+	}
+}
+
+func (o *GetOptions) extractResourceArgsFromCmdLine(args []string) []string {
+	for i, arg := range args {
+		if arg == "get" && i+1 < len(args) {
+			// Parse the arguments after "get" and get just the resource arguments
+			remainingArgs := args[i+1:]
+			var resourceArgs []string
+			for _, a := range remainingArgs {
+				if strings.HasPrefix(a, "-") {
+					// Collect arguments until we hit the first flag
+					break
+				}
+				resourceArgs = append(resourceArgs, a)
+			}
+			return resourceArgs
+		}
+	}
+	return nil
+}
+
+func (o *GetOptions) shouldShowHelpFlag(rule FlagContextualRule, resourceKind, operation string) bool {
+	if !slices.Contains(rule.ResourceKind, resourceKind) {
+		return false
+	}
+	for _, op := range rule.Operations {
+		if op == "any" || op == operation {
+			return true
+		}
+	}
+	return false
 }
 
 func (o *GetOptions) Complete(cmd *cobra.Command, args []string) error {
 	if err := o.GlobalOptions.Complete(cmd, args); err != nil {
 		return err
 	}
+
+	// --rendered flag defaults to YAML output when no explicit output format is specified
+	if o.Rendered && o.Output == "" {
+		o.Output = string(display.YAMLFormat)
+	}
+
 	return nil
 }
 
@@ -229,7 +337,7 @@ func (o *GetOptions) validateLimit() error {
 
 // validateLastSeen checks the usage of the --last-seen flag.
 func (o *GetOptions) validateLastSeen(kind string, names []string) error {
-	if o.LastSeen && (kind != DeviceKind || len(names) == 0) {
+	if o.LastSeen && (kind != DeviceKind || len(names) != 1) {
 		return fmt.Errorf("'--last-seen' can only be used when getting a single device")
 	}
 	if o.LastSeen && (o.Rendered || o.Summary || o.SummaryOnly) {
