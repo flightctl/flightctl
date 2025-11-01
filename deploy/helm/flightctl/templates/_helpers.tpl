@@ -170,10 +170,10 @@ Database hostname helper.
 Returns the database hostname, either from values or the default cluster service name.
 */}}
 {{- define "flightctl.dbHostname" }}
-{{- if .Values.db.external -}}
-{{ .Values.db.hostname }}
-{{- else -}}
+{{- if .Values.db.enabled -}}
 {{- default (printf "flightctl-db.%s.svc.cluster.local" (default .Release.Namespace .Values.global.internalNamespace)) .Values.db.hostname }}
+{{- else -}}
+{{ .Values.db.hostname }}
 {{- end }}
 {{- end }}
 
