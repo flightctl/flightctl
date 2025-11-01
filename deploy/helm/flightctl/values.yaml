@@ -108,7 +108,7 @@ global:
 db:
   # -- Enable internal PostgreSQL database
   # enabled: Set to false to use external PostgreSQL database instead of deploying internal one
-  # When false, configure hostname, port, name, user credentials to point to your external database
+  # When set to false, configure hostname, port, name, user credentials to point to your external database
   enabled: true
   # -- External database hostname (leave empty to use in-cluster PostgreSQL)
   # hostname: <set to external DB host to override cluster default>

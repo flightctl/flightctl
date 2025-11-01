@@ -186,7 +186,7 @@ kubectl create secret generic postgres-client-certs \
 ```yaml
 # Configure in values.yaml
 db:
-  external: "enabled"
+  enabled: false
   hostname: "postgres.example.com"
   sslmode: "verify-ca"
   sslConfigMap: "postgres-ca-cert"     # ConfigMap containing CA certificate
@@ -247,8 +247,8 @@ For more detailed configuration options, see the [Values](#values) section below
 | clusterCli.image.image | string | `"quay.io/openshift/origin-cli"` | Cluster CLI container image |
 | clusterCli.image.pullPolicy | string | `""` | Image pull policy for cluster CLI container |
 | clusterCli.image.tag | string | `"4.20.0"` | Cluster CLI image tag |
-| db | object | `{"external":false,"fsGroup":"","image":{"image":"quay.io/sclorg/postgresql-16-c9s","pullPolicy":"","tag":"20250214"},"masterPassword":"","masterUser":"admin","maxConnections":200,"migrationPassword":"","migrationUser":"flightctl_migrator","name":"flightctl","port":5432,"resources":{"requests":{"cpu":"512m","memory":"512Mi"}},"sslConfigMap":"","sslSecret":"","sslmode":"","storage":{"size":"60Gi"},"type":"pgsql","user":"flightctl_app","userPassword":""}` | Database Configuration |
-| db.enabled | bool | `true` | Use internal PostgreSQL database enabled: Set to false to use external PostgreSQL database instead of deploying internal one When set to false, configure hostname, port, name, user credentials to point to your external database |
+| db | object | `{"enabled":true,"fsGroup":"","image":{"image":"quay.io/sclorg/postgresql-16-c9s","pullPolicy":"","tag":"20250214"},"masterPassword":"","masterUser":"admin","maxConnections":200,"migrationPassword":"","migrationUser":"flightctl_migrator","name":"flightctl","port":5432,"resources":{"requests":{"cpu":"512m","memory":"512Mi"}},"sslConfigMap":"","sslSecret":"","sslmode":"","storage":{"size":"60Gi"},"type":"pgsql","user":"flightctl_app","userPassword":""}` | Database Configuration |
+| db.enabled | bool | `true` | Enable internal PostgreSQL database enabled: Set to false to use external PostgreSQL database instead of deploying internal one When set to false, configure hostname, port, name, user credentials to point to your external database |
 | db.fsGroup | string | `""` | File system group ID for database pod security context |
 | db.image.image | string | `"quay.io/sclorg/postgresql-16-c9s"` | PostgreSQL container image |
 | db.image.pullPolicy | string | `""` | Image pull policy for database container |
