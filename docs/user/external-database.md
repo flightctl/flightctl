@@ -209,7 +209,7 @@ db:
 
 ```bash
 helm install flightctl ./deploy/helm/flightctl \
-  --set db.external=enabled \
+  --set db.external=true \
   --set db.hostname=your-postgres-hostname.example.com \
   --set db.userPassword=your_app_password \
   --set db.migrationPassword=your_migration_password
@@ -223,7 +223,7 @@ helm install flightctl ./deploy/helm/flightctl \
 # First create secrets (see Password Management section above)
 # Then deploy - Helm will automatically detect existing database secrets:
 helm install flightctl ./deploy/helm/flightctl \
-  --set db.external=enabled \
+  --set db.external=true \
   --set db.hostname=your-postgres-hostname.example.com \
   --set db.sslrootcert="/etc/ssl/postgres/ca-cert.pem"
   # Passwords will be automatically discovered from existing secrets
@@ -234,7 +234,7 @@ helm install flightctl ./deploy/helm/flightctl \
 
 #### 3. Verify Deployment
 
-The following resources will NOT be created when `db.external=enabled`:
+The following resources will NOT be created when `db.external=true`:
 
 - `flightctl-db` Deployment
 - `flightctl-db` Service (internal)

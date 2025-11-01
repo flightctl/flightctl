@@ -49,9 +49,9 @@ spec:
       restartPolicy: OnFailure
       serviceAccountName: flightctl-db-migration
       initContainers:
-      {{- $userType := ternary "admin" "migration" (ne $ctx.Values.db.external "enabled") }}
+      {{- $userType := ternary "admin" "migration" (not $ctx.Values.db.external) }}
       {{- include "flightctl.databaseWaitInitContainer" (dict "context" $ctx "userType" $userType "timeout" 120 "sleep" 2) | nindent 6 }}
-      {{- if ne $ctx.Values.db.external "enabled" }}
+      {{- if not $ctx.Values.db.external }}
       {{- if not $isDryRun }}
       - name: setup-database-users
         image: "{{ $ctx.Values.dbSetup.image.image }}:{{ default $ctx.Chart.AppVersion $ctx.Values.dbSetup.image.tag }}"
@@ -199,7 +199,7 @@ spec:
           {{- if not $isDryRun }}
           # Grant permissions on all existing tables to the application user
           echo "Granting permissions on existing tables to application user..."
-          {{- if eq $ctx.Values.db.external "enabled" }}
+          {{- if $ctx.Values.db.external }}
             export PGPASSWORD="$DB_MIGRATION_PASSWORD"
             psql -v ON_ERROR_STOP=1 -h {{ $ctx.Values.db.hostname }} -p {{ (default 5432 $ctx.Values.db.port) }} -U "$DB_MIGRATION_USER" -d "{{ (default "flightctl" $ctx.Values.db.name) }}" -c "GRANT USAGE ON SCHEMA public TO \"${DB_APP_USER}\";"
             psql -v ON_ERROR_STOP=1 -h {{ $ctx.Values.db.hostname }} -p {{ (default 5432 $ctx.Values.db.port) }} -U "$DB_MIGRATION_USER" -d "{{ (default "flightctl" $ctx.Values.db.name) }}" -c "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO \"${DB_APP_USER}\";"

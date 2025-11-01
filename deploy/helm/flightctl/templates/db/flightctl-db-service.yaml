@@ -1,4 +1,4 @@
-{{- if ne .Values.db.external "enabled" }}
+{{- if not .Values.db.external }}
 apiVersion: v1
 kind: Service
 metadata:
