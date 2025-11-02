@@ -15,7 +15,6 @@ import (
 	fcmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/auth/common"
-	"github.com/flightctl/flightctl/internal/auth/issuer"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/console"
 	"github.com/flightctl/flightctl/internal/crypto"
@@ -165,24 +164,13 @@ func (s *Server) Run(ctx context.Context) error {
 		MultiErrorHandler: oapiMultiErrorHandler,
 	}
 
-	// Create OIDC issuer if configured
-	var oidcIssuer issuer.OIDCIssuer
-	if s.cfg.Auth != nil && s.cfg.Auth.PAMOIDCIssuer != nil {
-		// For now, we only support PAM-based OIDC issuer
-		// This could be extended to support other issuer types in the future
-		// Create PAM OIDC provider
-		// Note: PAM functionality requires Linux build constraints
-		pamOIDCProvider, err := s.createPAMOIDCProvider()
-		if err != nil {
-			s.log.WithError(err).Warn("Failed to create PAM OIDC provider, OIDC endpoints will not be available")
-		} else {
-			oidcIssuer = pamOIDCProvider
-		}
-	}
+	// Note: OIDC issuer endpoints (like /auth/token, /auth/authorize) are now
+	// served by the separate flightctl-pam-issuer service. The main API server
+	// only validates tokens issued by external OIDC providers.
 
 	// Create service handler and wrap with tracing
 	baseServiceHandler := service.NewServiceHandler(
-		s.store, workerClient, kvStore, s.ca, s.log, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl, s.cfg.Service.TPMCAPaths, oidcIssuer)
+		s.store, workerClient, kvStore, s.ca, s.log, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl, s.cfg.Service.TPMCAPaths, nil)
 	serviceHandler := service.WrapWithTracing(baseServiceHandler)
 
 	// Initialize auth with traced service handler for OIDC provider access

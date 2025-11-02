@@ -151,6 +151,8 @@ type aapAuth struct {
 
 // PAMOIDCIssuer represents an OIDC issuer that uses Linux PAM for authentication
 type PAMOIDCIssuer struct {
+	// Address is the listen address for the PAM issuer service (e.g., ":8444")
+	Address string `json:"address,omitempty"`
 	// Issuer is the base URL for the OIDC issuer (e.g., "https://flightctl.example.com")
 	Issuer string `json:"issuer,omitempty"`
 	// ClientID is the OAuth2 client ID for this issuer

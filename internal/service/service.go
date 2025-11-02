@@ -5,7 +5,6 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/auth/issuer"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
 )
@@ -138,12 +137,4 @@ type Service interface {
 
 	// Organization
 	ListOrganizations(ctx context.Context) (*api.OrganizationList, api.Status)
-
-	// OAuth2/OIDC Authentication
-	AuthToken(ctx context.Context, req api.TokenRequest) (*api.TokenResponse, api.Status)
-	AuthUserInfo(ctx context.Context, accessToken string) (*api.UserInfoResponse, api.Status)
-	AuthJWKS(ctx context.Context) (*api.JWKSResponse, api.Status)
-	AuthOpenIDConfiguration(ctx context.Context) (*api.OpenIDConfiguration, api.Status)
-	AuthAuthorize(ctx context.Context, params api.AuthAuthorizeParams) (*issuer.AuthorizeResponse, api.Status)
-	AuthLogin(ctx context.Context, username, password, clientID, redirectURI, state string) (*api.Status, api.Status)
 }

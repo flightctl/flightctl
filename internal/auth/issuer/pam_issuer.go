@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	pamapi "github.com/flightctl/flightctl/api/v1alpha1/pam-issuer"
+
 	"github.com/flightctl/flightctl/internal/auth/authn"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
@@ -140,41 +142,41 @@ func NewPAMOIDCProviderWithAuthenticator(caClient *fccrypto.CAClient, config *co
 }
 
 // Token implements OIDCProvider interface - handles OAuth2 token requests
-func (s *PAMOIDCProvider) Token(ctx context.Context, req *v1alpha1.TokenRequest) (*v1alpha1.TokenResponse, error) {
+func (s *PAMOIDCProvider) Token(ctx context.Context, req *pamapi.TokenRequest) (*pamapi.TokenResponse, error) {
 	// Handle different grant types - only OIDC-compliant flows
 	switch req.GrantType {
-	case v1alpha1.RefreshToken:
+	case pamapi.RefreshToken:
 		return s.handleRefreshTokenGrant(ctx, req)
-	case v1alpha1.AuthorizationCode:
+	case pamapi.AuthorizationCode:
 		return s.handleAuthorizationCodeGrant(ctx, req)
 	default:
-		return &v1alpha1.TokenResponse{Error: lo.ToPtr("unsupported_grant_type")}, nil
+		return &pamapi.TokenResponse{Error: lo.ToPtr("unsupported_grant_type")}, nil
 	}
 }
 
 // handleRefreshTokenGrant handles the refresh_token grant type
-func (s *PAMOIDCProvider) handleRefreshTokenGrant(ctx context.Context, req *v1alpha1.TokenRequest) (*v1alpha1.TokenResponse, error) {
+func (s *PAMOIDCProvider) handleRefreshTokenGrant(ctx context.Context, req *pamapi.TokenRequest) (*pamapi.TokenResponse, error) {
 	// Validate required fields for refresh token flow
 	if req.RefreshToken == nil || *req.RefreshToken == "" {
-		return &v1alpha1.TokenResponse{Error: lo.ToPtr("invalid_request")}, nil
+		return &pamapi.TokenResponse{Error: lo.ToPtr("invalid_request")}, nil
 	}
 
 	// Validate the refresh token and ensure it's actually a refresh token
 	identity, err := s.jwtGenerator.ValidateTokenWithType(*req.RefreshToken, "refresh_token")
 	if err != nil {
-		return &v1alpha1.TokenResponse{Error: lo.ToPtr("invalid_grant")}, nil
+		return &pamapi.TokenResponse{Error: lo.ToPtr("invalid_grant")}, nil
 	}
 
 	// Get current user information from NSS to ensure user still exists
 	systemUser, err := s.pamAuthenticator.LookupUser(identity.GetUsername())
 	if err != nil {
-		return &v1alpha1.TokenResponse{Error: lo.ToPtr("invalid_grant")}, nil
+		return &pamapi.TokenResponse{Error: lo.ToPtr("invalid_grant")}, nil
 	}
 
 	// Get current user groups for roles
 	groups, err := s.pamAuthenticator.GetUserGroups(systemUser)
 	if err != nil {
-		return &v1alpha1.TokenResponse{Error: lo.ToPtr("server_error")}, nil
+		return &pamapi.TokenResponse{Error: lo.ToPtr("server_error")}, nil
 	}
 
 	// Map groups to roles and extract organizations
@@ -189,13 +191,13 @@ func (s *PAMOIDCProvider) handleRefreshTokenGrant(ctx context.Context, req *v1al
 	// Generate new access token with proper expiry (1 hour)
 	accessToken, err := s.jwtGenerator.GenerateTokenWithType(tokenGenerationRequest, time.Hour, "access_token")
 	if err != nil {
-		return &v1alpha1.TokenResponse{Error: lo.ToPtr("server_error")}, nil
+		return &pamapi.TokenResponse{Error: lo.ToPtr("server_error")}, nil
 	}
 
 	// Create token response
-	tokenResponse := &v1alpha1.TokenResponse{
+	tokenResponse := &pamapi.TokenResponse{
 		AccessToken: lo.ToPtr(accessToken),
-		TokenType:   lo.ToPtr(v1alpha1.Bearer),
+		TokenType:   lo.ToPtr(pamapi.Bearer),
 		ExpiresIn:   lo.ToPtr(int(time.Hour.Seconds())),
 	}
 
@@ -203,7 +205,7 @@ func (s *PAMOIDCProvider) handleRefreshTokenGrant(ctx context.Context, req *v1al
 	// (if we have a refresh token, it means offline_access was originally granted)
 	refreshToken, err := s.jwtGenerator.GenerateTokenWithType(tokenGenerationRequest, 7*24*time.Hour, "refresh_token")
 	if err != nil {
-		return &v1alpha1.TokenResponse{Error: lo.ToPtr("server_error")}, nil
+		return &pamapi.TokenResponse{Error: lo.ToPtr("server_error")}, nil
 	}
 	tokenResponse.RefreshToken = lo.ToPtr(refreshToken)
 
@@ -211,18 +213,18 @@ func (s *PAMOIDCProvider) handleRefreshTokenGrant(ctx context.Context, req *v1al
 }
 
 // handleAuthorizationCodeGrant handles the authorization_code grant type
-func (s *PAMOIDCProvider) handleAuthorizationCodeGrant(ctx context.Context, req *v1alpha1.TokenRequest) (*v1alpha1.TokenResponse, error) {
+func (s *PAMOIDCProvider) handleAuthorizationCodeGrant(ctx context.Context, req *pamapi.TokenRequest) (*pamapi.TokenResponse, error) {
 	// Validate required fields for authorization code flow
 	if req.Code == nil || *req.Code == "" {
-		return &v1alpha1.TokenResponse{Error: lo.ToPtr("invalid_request")}, nil
+		return &pamapi.TokenResponse{Error: lo.ToPtr("invalid_request")}, nil
 	}
 
 	// Validate client ID
 	if req.ClientId == nil || *req.ClientId == "" {
-		return &v1alpha1.TokenResponse{Error: lo.ToPtr("invalid_client")}, nil
+		return &pamapi.TokenResponse{Error: lo.ToPtr("invalid_client")}, nil
 	}
 	if s.config == nil || s.config.ClientID != *req.ClientId {
-		return &v1alpha1.TokenResponse{Error: lo.ToPtr("invalid_client")}, nil
+		return &pamapi.TokenResponse{Error: lo.ToPtr("invalid_client")}, nil
 	}
 
 	// Validate client authentication based on whether a secret is configured
@@ -231,7 +233,7 @@ func (s *PAMOIDCProvider) handleAuthorizationCodeGrant(ctx context.Context, req 
 	if s.config.ClientSecret != "" {
 		// Confidential client - require client_secret_post authentication
 		if req.ClientSecret == nil || *req.ClientSecret != s.config.ClientSecret {
-			return &v1alpha1.TokenResponse{Error: lo.ToPtr("invalid_client")}, nil
+			return &pamapi.TokenResponse{Error: lo.ToPtr("invalid_client")}, nil
 		}
 	}
 	// For public clients (empty secret), we accept the request without secret validation
@@ -240,24 +242,24 @@ func (s *PAMOIDCProvider) handleAuthorizationCodeGrant(ctx context.Context, req 
 	// Validate and retrieve authorization code
 	codeData, exists := s.codeStore.GetCode(*req.Code)
 	if !exists {
-		return &v1alpha1.TokenResponse{Error: lo.ToPtr("invalid_grant")}, nil
+		return &pamapi.TokenResponse{Error: lo.ToPtr("invalid_grant")}, nil
 	}
 
 	// Validate that the client ID matches the stored code
 	if codeData.ClientID != *req.ClientId {
-		return &v1alpha1.TokenResponse{Error: lo.ToPtr("invalid_grant")}, nil
+		return &pamapi.TokenResponse{Error: lo.ToPtr("invalid_grant")}, nil
 	}
 
 	// Get user information from NSS
 	systemUser, err := s.pamAuthenticator.LookupUser(codeData.Username)
 	if err != nil {
-		return &v1alpha1.TokenResponse{Error: lo.ToPtr("invalid_grant")}, nil
+		return &pamapi.TokenResponse{Error: lo.ToPtr("invalid_grant")}, nil
 	}
 
 	// Get user groups for roles
 	groups, err := s.pamAuthenticator.GetUserGroups(systemUser)
 	if err != nil {
-		return &v1alpha1.TokenResponse{Error: lo.ToPtr("server_error")}, nil
+		return &pamapi.TokenResponse{Error: lo.ToPtr("server_error")}, nil
 	}
 
 	// Map groups to roles and extract organizations
@@ -274,13 +276,13 @@ func (s *PAMOIDCProvider) handleAuthorizationCodeGrant(ctx context.Context, req 
 	// Generate access token with proper expiry (1 hour)
 	accessToken, err := s.jwtGenerator.GenerateTokenWithType(tokenGenerationRequest, time.Hour, "access_token")
 	if err != nil {
-		return &v1alpha1.TokenResponse{Error: lo.ToPtr("server_error")}, nil
+		return &pamapi.TokenResponse{Error: lo.ToPtr("server_error")}, nil
 	}
 
 	// Create token response
-	tokenResponse := &v1alpha1.TokenResponse{
+	tokenResponse := &pamapi.TokenResponse{
 		AccessToken: lo.ToPtr(accessToken),
-		TokenType:   lo.ToPtr(v1alpha1.Bearer),
+		TokenType:   lo.ToPtr(pamapi.Bearer),
 		ExpiresIn:   lo.ToPtr(int(time.Hour.Seconds())),
 	}
 
@@ -288,7 +290,7 @@ func (s *PAMOIDCProvider) handleAuthorizationCodeGrant(ctx context.Context, req 
 	if strings.Contains(codeData.Scope, "offline_access") {
 		refreshToken, err := s.jwtGenerator.GenerateTokenWithType(tokenGenerationRequest, 7*24*time.Hour, "refresh_token")
 		if err != nil {
-			return &v1alpha1.TokenResponse{Error: lo.ToPtr("server_error")}, nil
+			return &pamapi.TokenResponse{Error: lo.ToPtr("server_error")}, nil
 		}
 		tokenResponse.RefreshToken = lo.ToPtr(refreshToken)
 	}
@@ -297,7 +299,7 @@ func (s *PAMOIDCProvider) handleAuthorizationCodeGrant(ctx context.Context, req 
 }
 
 // Authorize handles the authorization endpoint for authorization code flow
-func (s *PAMOIDCProvider) Authorize(ctx context.Context, req *v1alpha1.AuthAuthorizeParams) (*AuthorizeResponse, error) {
+func (s *PAMOIDCProvider) Authorize(ctx context.Context, req *pamapi.AuthAuthorizeParams) (*AuthorizeResponse, error) {
 	s.log.Infof("Authorize: starting authorization request - ClientId=%s, RedirectUri=%s, ResponseType=%s, Scope=%s, State=%s",
 		req.ClientId, req.RedirectUri, req.ResponseType, lo.FromPtrOr(req.Scope, ""), lo.FromPtrOr(req.State, ""))
 
@@ -336,7 +338,7 @@ func (s *PAMOIDCProvider) Authorize(ctx context.Context, req *v1alpha1.AuthAutho
 	}
 
 	// Validate response type
-	if req.ResponseType != v1alpha1.AuthAuthorizeParamsResponseTypeCode {
+	if req.ResponseType != pamapi.Code {
 		s.log.Warnf("Authorize: unsupported response type - %s", req.ResponseType)
 		return nil, fmt.Errorf("unsupported_response_type")
 	}
@@ -758,23 +760,23 @@ func (s *PAMOIDCProvider) GetLoginFormWithError(clientID, redirectURI, state, er
 }
 
 // UserInfo implements OIDCProvider interface - returns user information
-func (s *PAMOIDCProvider) UserInfo(ctx context.Context, accessToken string) (*v1alpha1.UserInfoResponse, error) {
+func (s *PAMOIDCProvider) UserInfo(ctx context.Context, accessToken string) (*pamapi.UserInfoResponse, error) {
 	// Validate the access token and ensure it's actually an access token
 	identity, err := s.jwtGenerator.ValidateTokenWithType(accessToken, "access_token")
 	if err != nil {
-		return &v1alpha1.UserInfoResponse{Error: lo.ToPtr("invalid_token")}, fmt.Errorf("invalid access token: %w", err)
+		return &pamapi.UserInfoResponse{Error: lo.ToPtr("invalid_token")}, fmt.Errorf("invalid access token: %w", err)
 	}
 
 	// Get user information from NSS
 	systemUser, err := s.pamAuthenticator.LookupUser(identity.GetUsername())
 	if err != nil {
-		return &v1alpha1.UserInfoResponse{Error: lo.ToPtr("invalid_token")}, fmt.Errorf("user not found: %w", err)
+		return &pamapi.UserInfoResponse{Error: lo.ToPtr("invalid_token")}, fmt.Errorf("user not found: %w", err)
 	}
 
 	// Get user groups for roles
 	groups, err := s.pamAuthenticator.GetUserGroups(systemUser)
 	if err != nil {
-		return &v1alpha1.UserInfoResponse{Error: lo.ToPtr("server_error")}, fmt.Errorf("failed to get user groups: %w", err)
+		return &pamapi.UserInfoResponse{Error: lo.ToPtr("server_error")}, fmt.Errorf("failed to get user groups: %w", err)
 	}
 
 	// Map groups to roles and extract organizations
@@ -782,7 +784,7 @@ func (s *PAMOIDCProvider) UserInfo(ctx context.Context, accessToken string) (*v1
 	organizations := s.extractOrganizations(groups)
 
 	// Create user info response
-	userInfo := &v1alpha1.UserInfoResponse{
+	userInfo := &pamapi.UserInfoResponse{
 		Sub:               lo.ToPtr(identity.GetUsername()),
 		PreferredUsername: lo.ToPtr(identity.GetUsername()),
 		Name:              lo.ToPtr(systemUser.Name),
@@ -796,7 +798,7 @@ func (s *PAMOIDCProvider) UserInfo(ctx context.Context, accessToken string) (*v1
 }
 
 // GetOpenIDConfiguration returns the OpenID Connect configuration
-func (s *PAMOIDCProvider) GetOpenIDConfiguration() (*v1alpha1.OpenIDConfiguration, error) {
+func (s *PAMOIDCProvider) GetOpenIDConfiguration() (*pamapi.OpenIDConfiguration, error) {
 	// Use issuer from config
 	if s.config == nil || s.config.Issuer == "" {
 		return nil, fmt.Errorf("issuer URL not configured")
@@ -848,7 +850,7 @@ func (s *PAMOIDCProvider) GetOpenIDConfiguration() (*v1alpha1.OpenIDConfiguratio
 		tokenEndpointAuthMethods = []string{"none", "client_secret_post"}
 	}
 
-	return &v1alpha1.OpenIDConfiguration{
+	return &pamapi.OpenIDConfiguration{
 		Issuer:                            &issuer,
 		AuthorizationEndpoint:             &authzEndpoint,
 		TokenEndpoint:                     &tokenEndpoint,
@@ -864,7 +866,7 @@ func (s *PAMOIDCProvider) GetOpenIDConfiguration() (*v1alpha1.OpenIDConfiguratio
 }
 
 // GetJWKS returns the JSON Web Key Set
-func (s *PAMOIDCProvider) GetJWKS() (*v1alpha1.JWKSResponse, error) {
+func (s *PAMOIDCProvider) GetJWKS() (*pamapi.JWKSResponse, error) {
 	// Use the JWT generator's GetJWKS method
 	return s.jwtGenerator.GetJWKS()
 }
@@ -962,7 +964,7 @@ func (s *PAMOIDCProvider) CreateUserSession(sessionID string, username, clientID
 }
 
 // extractSessionID extracts session ID from request context
-func (s *PAMOIDCProvider) extractSessionID(ctx context.Context, req *v1alpha1.AuthAuthorizeParams) string {
+func (s *PAMOIDCProvider) extractSessionID(ctx context.Context, req *pamapi.AuthAuthorizeParams) string {
 	// Extract session ID from request context
 	if sessionID, ok := ctx.Value(consts.SessionIDCtxKey).(string); ok && sessionID != "" {
 		return sessionID

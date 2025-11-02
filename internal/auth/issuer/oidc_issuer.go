@@ -3,7 +3,7 @@ package issuer
 import (
 	"context"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	pamapi "github.com/flightctl/flightctl/api/v1alpha1/pam-issuer"
 )
 
 // AuthorizeResponseType indicates the type of response from the authorize endpoint
@@ -24,16 +24,16 @@ type AuthorizeResponse struct {
 // This handles token issuance only - validation is handled by existing auth modules
 type OIDCIssuer interface {
 	// Token Issuance (OAuth2/OIDC flows)
-	Token(ctx context.Context, req *v1alpha1.TokenRequest) (*v1alpha1.TokenResponse, error)
-	UserInfo(ctx context.Context, accessToken string) (*v1alpha1.UserInfoResponse, error)
+	Token(ctx context.Context, req *pamapi.TokenRequest) (*pamapi.TokenResponse, error)
+	UserInfo(ctx context.Context, accessToken string) (*pamapi.UserInfoResponse, error)
 
 	// Authorization Code Flow
-	Authorize(ctx context.Context, req *v1alpha1.AuthAuthorizeParams) (*AuthorizeResponse, error)
+	Authorize(ctx context.Context, req *pamapi.AuthAuthorizeParams) (*AuthorizeResponse, error)
 
 	// Login handles the login form submission
 	Login(ctx context.Context, username, password, clientID, redirectURI, state string) (string, error)
 
 	// Discovery and Configuration
-	GetOpenIDConfiguration() (*v1alpha1.OpenIDConfiguration, error)
-	GetJWKS() (*v1alpha1.JWKSResponse, error)
+	GetOpenIDConfiguration() (*pamapi.OpenIDConfiguration, error)
+	GetJWKS() (*pamapi.JWKSResponse, error)
 }

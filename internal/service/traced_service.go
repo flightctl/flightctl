@@ -8,7 +8,6 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/auth/issuer"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
@@ -601,48 +600,6 @@ func (t *TracedService) SetCheckpoint(ctx context.Context, consumer string, key 
 func (t *TracedService) GetDatabaseTime(ctx context.Context) (time.Time, api.Status) {
 	ctx, span := startSpan(ctx, "GetDatabaseTime")
 	resp, st := t.inner.GetDatabaseTime(ctx)
-	endSpan(span, st)
-	return resp, st
-}
-
-func (t *TracedService) AuthAuthorize(ctx context.Context, params api.AuthAuthorizeParams) (*issuer.AuthorizeResponse, api.Status) {
-	ctx, span := startSpan(ctx, "AuthAuthorize")
-	resp, st := t.inner.AuthAuthorize(ctx, params)
-	endSpan(span, st)
-	return resp, st
-}
-
-func (t *TracedService) AuthLogin(ctx context.Context, username, password, clientID, redirectURI, state string) (*api.Status, api.Status) {
-	ctx, span := startSpan(ctx, "AuthLogin")
-	resp, st := t.inner.AuthLogin(ctx, username, password, clientID, redirectURI, state)
-	endSpan(span, st)
-	return resp, st
-}
-
-func (t *TracedService) AuthJWKS(ctx context.Context) (*api.JWKSResponse, api.Status) {
-	ctx, span := startSpan(ctx, "AuthJWKS")
-	resp, st := t.inner.AuthJWKS(ctx)
-	endSpan(span, st)
-	return resp, st
-}
-
-func (t *TracedService) AuthOpenIDConfiguration(ctx context.Context) (*api.OpenIDConfiguration, api.Status) {
-	ctx, span := startSpan(ctx, "AuthOpenIDConfiguration")
-	resp, st := t.inner.AuthOpenIDConfiguration(ctx)
-	endSpan(span, st)
-	return resp, st
-}
-
-func (t *TracedService) AuthToken(ctx context.Context, req api.TokenRequest) (*api.TokenResponse, api.Status) {
-	ctx, span := startSpan(ctx, "AuthToken")
-	resp, st := t.inner.AuthToken(ctx, req)
-	endSpan(span, st)
-	return resp, st
-}
-
-func (t *TracedService) AuthUserInfo(ctx context.Context, accessToken string) (*api.UserInfoResponse, api.Status) {
-	ctx, span := startSpan(ctx, "AuthUserInfo")
-	resp, st := t.inner.AuthUserInfo(ctx, accessToken)
 	endSpan(span, st)
 	return resp, st
 }

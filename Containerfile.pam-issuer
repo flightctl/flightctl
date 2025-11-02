@@ -1,0 +1,103 @@
+FROM registry.fedoraproject.org/fedora:42 AS build
+WORKDIR /app
+ARG SOURCE_GIT_TAG
+ARG SOURCE_GIT_TREE_STATE
+ARG SOURCE_GIT_COMMIT
+
+# Switch to root for build operations
+USER 0
+
+# Install PAM development headers and build tools (after runtime install)
+RUN dnf install -y pam pam-devel gcc wget tar ca-certificates curl
+
+RUN mkdir -p /runtime-root && \
+    dnf install -y --installroot=/runtime-root --use-host-config --releasever=42 --setopt=install_weak_deps=False pam shadow-utils
+
+
+# Install Go 1.23.9
+RUN curl -fsSL --retry 5 --retry-delay 3 -o go1.23.9.linux-amd64.tar.gz https://go.dev/dl/go1.23.9.linux-amd64.tar.gz && \
+    tar -tzf go1.23.9.linux-amd64.tar.gz >/dev/null && \
+    tar -C /usr/local -xzf go1.23.9.linux-amd64.tar.gz && \
+    rm go1.23.9.linux-amd64.tar.gz
+
+ENV PATH="/usr/local/go/bin:${PATH}"
+ENV GOPATH="/go"
+
+# Copy dependencies first (most stable)
+COPY go.mod go.sum ./
+
+# Download dependencies (cached layer)
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
+
+# Copy build tools and configs
+COPY Makefile .
+
+# Copy source code directories
+COPY ./api ./api
+COPY ./cmd ./cmd
+COPY ./deploy ./deploy
+COPY ./hack ./hack
+COPY ./internal ./internal
+COPY ./pkg ./pkg
+COPY ./test ./test
+
+# Convert ARGs to ENV just before build (after all package installations for better caching)
+ENV SOURCE_GIT_TAG=${SOURCE_GIT_TAG}
+ENV SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE}
+ENV SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT}
+
+# Build the PAM issuer binary
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    CGO_ENABLED=1 go build -tags linux -o bin/flightctl-pam-issuer \
+    -ldflags="-X github.com/flightctl/flightctl/pkg/version.GitCommit=${SOURCE_GIT_COMMIT} \
+              -X github.com/flightctl/flightctl/pkg/version.GitTag=${SOURCE_GIT_TAG} \
+              -X github.com/flightctl/flightctl/pkg/version.GitTreeState=${SOURCE_GIT_TREE_STATE}" \
+    ./cmd/flightctl-pam-issuer
+
+FROM quay.io/flightctl/flightctl-base:9.6-1758714456
+WORKDIR /app
+LABEL \
+  com.redhat.component="flightctl-pam-issuer-container" \
+  description="Flight Control PAM-based OIDC issuer service" \
+  io.k8s.description="Flight Control PAM-based OIDC issuer service" \
+  io.k8s.display-name="Flight Control PAM Issuer" \
+  name="flightctl-pam-issuer" \
+  summary="Flight Control PAM-based OIDC issuer service"
+
+# Copy PAM and sssd-client runtime from build stage for authentication
+USER 0
+# Copy entire runtime-root (contains pam, sssd-client, and all dependencies)
+COPY --from=build /runtime-root/ /
+
+# Copy custom PAM config for flightctl
+COPY --from=build /app/deploy/podman/flightctl-api/pam-flightctl /etc/pam.d/flightctl
+
+# Create entrypoint script to manage users
+RUN printf '#!/bin/sh\n\
+# Create default admin user if it does not exist\n\
+if ! id flightctl-admin >/dev/null 2>&1; then\n\
+    echo "Creating user flightctl-admin..."\n\
+    ERROR_MSG=$(/usr/sbin/useradd -m -s /bin/sh flightctl-admin 2>&1)\n\
+    if [ $? -eq 0 ]; then\n\
+        echo "User created, setting password..."\n\
+        echo "flightctl-admin:flightctl-admin" | /usr/sbin/chpasswd 2>&1\n\
+        /usr/bin/chage -d 0 flightctl-admin 2>&1\n\
+        echo "Created default user: flightctl-admin (must change password on first login)"\n\
+    else\n\
+        echo "ERROR: Failed to create user flightctl-admin: $ERROR_MSG"\n\
+    fi\n\
+fi\n\
+\n\
+exec ./flightctl-pam-issuer\n\
+' > /entrypoint.sh && chmod +x /entrypoint.sh
+
+COPY --from=build /app/bin/flightctl-pam-issuer .
+
+# Declare volumes for user database persistence
+# Note: The quadlet file overrides these with named volumes
+VOLUME ["/etc/passwd", "/etc/shadow", "/etc/group"]
+
+ENTRYPOINT ["/bin/sh", "/entrypoint.sh"]
+

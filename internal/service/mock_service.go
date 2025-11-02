@@ -15,7 +15,6 @@ import (
 	time "time"
 
 	v1alpha1 "github.com/flightctl/flightctl/api/v1alpha1"
-	issuer "github.com/flightctl/flightctl/internal/auth/issuer"
 	store "github.com/flightctl/flightctl/internal/store"
 	selector "github.com/flightctl/flightctl/internal/store/selector"
 	gomock "go.uber.org/mock/gomock"
@@ -57,96 +56,6 @@ func (m *MockService) ApproveEnrollmentRequest(ctx context.Context, name string,
 func (mr *MockServiceMockRecorder) ApproveEnrollmentRequest(ctx, name, approval any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ApproveEnrollmentRequest", reflect.TypeOf((*MockService)(nil).ApproveEnrollmentRequest), ctx, name, approval)
-}
-
-// AuthAuthorize mocks base method.
-func (m *MockService) AuthAuthorize(ctx context.Context, params v1alpha1.AuthAuthorizeParams) (*issuer.AuthorizeResponse, v1alpha1.Status) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "AuthAuthorize", ctx, params)
-	ret0, _ := ret[0].(*issuer.AuthorizeResponse)
-	ret1, _ := ret[1].(v1alpha1.Status)
-	return ret0, ret1
-}
-
-// AuthAuthorize indicates an expected call of AuthAuthorize.
-func (mr *MockServiceMockRecorder) AuthAuthorize(ctx, params any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AuthAuthorize", reflect.TypeOf((*MockService)(nil).AuthAuthorize), ctx, params)
-}
-
-// AuthJWKS mocks base method.
-func (m *MockService) AuthJWKS(ctx context.Context) (*v1alpha1.JWKSResponse, v1alpha1.Status) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "AuthJWKS", ctx)
-	ret0, _ := ret[0].(*v1alpha1.JWKSResponse)
-	ret1, _ := ret[1].(v1alpha1.Status)
-	return ret0, ret1
-}
-
-// AuthJWKS indicates an expected call of AuthJWKS.
-func (mr *MockServiceMockRecorder) AuthJWKS(ctx any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AuthJWKS", reflect.TypeOf((*MockService)(nil).AuthJWKS), ctx)
-}
-
-// AuthLogin mocks base method.
-func (m *MockService) AuthLogin(ctx context.Context, username, password, clientID, redirectURI, state string) (*v1alpha1.Status, v1alpha1.Status) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "AuthLogin", ctx, username, password, clientID, redirectURI, state)
-	ret0, _ := ret[0].(*v1alpha1.Status)
-	ret1, _ := ret[1].(v1alpha1.Status)
-	return ret0, ret1
-}
-
-// AuthLogin indicates an expected call of AuthLogin.
-func (mr *MockServiceMockRecorder) AuthLogin(ctx, username, password, clientID, redirectURI, state any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AuthLogin", reflect.TypeOf((*MockService)(nil).AuthLogin), ctx, username, password, clientID, redirectURI, state)
-}
-
-// AuthOpenIDConfiguration mocks base method.
-func (m *MockService) AuthOpenIDConfiguration(ctx context.Context) (*v1alpha1.OpenIDConfiguration, v1alpha1.Status) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "AuthOpenIDConfiguration", ctx)
-	ret0, _ := ret[0].(*v1alpha1.OpenIDConfiguration)
-	ret1, _ := ret[1].(v1alpha1.Status)
-	return ret0, ret1
-}
-
-// AuthOpenIDConfiguration indicates an expected call of AuthOpenIDConfiguration.
-func (mr *MockServiceMockRecorder) AuthOpenIDConfiguration(ctx any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AuthOpenIDConfiguration", reflect.TypeOf((*MockService)(nil).AuthOpenIDConfiguration), ctx)
-}
-
-// AuthToken mocks base method.
-func (m *MockService) AuthToken(ctx context.Context, req v1alpha1.TokenRequest) (*v1alpha1.TokenResponse, v1alpha1.Status) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "AuthToken", ctx, req)
-	ret0, _ := ret[0].(*v1alpha1.TokenResponse)
-	ret1, _ := ret[1].(v1alpha1.Status)
-	return ret0, ret1
-}
-
-// AuthToken indicates an expected call of AuthToken.
-func (mr *MockServiceMockRecorder) AuthToken(ctx, req any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AuthToken", reflect.TypeOf((*MockService)(nil).AuthToken), ctx, req)
-}
-
-// AuthUserInfo mocks base method.
-func (m *MockService) AuthUserInfo(ctx context.Context, accessToken string) (*v1alpha1.UserInfoResponse, v1alpha1.Status) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "AuthUserInfo", ctx, accessToken)
-	ret0, _ := ret[0].(*v1alpha1.UserInfoResponse)
-	ret1, _ := ret[1].(v1alpha1.Status)
-	return ret0, ret1
-}
-
-// AuthUserInfo indicates an expected call of AuthUserInfo.
-func (mr *MockServiceMockRecorder) AuthUserInfo(ctx, accessToken any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AuthUserInfo", reflect.TypeOf((*MockService)(nil).AuthUserInfo), ctx, accessToken)
 }
 
 // CountDevices mocks base method.

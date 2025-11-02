@@ -18,48 +18,8 @@ type EndpointMetadata struct {
 
 // APIMetadataMap provides O(1) lookup for endpoint metadata using pattern+method as key
 var APIMetadataMap = map[string]EndpointMetadata{
-	"GET:/api/v1/auth/.well-known/openid-configuration": {
-		OperationID: "authOpenIDConfiguration",
-		Resource:    "",
-		Action:      "",
-	},
-	"GET:/api/v1/auth/authorize": {
-		OperationID: "authAuthorize",
-		Resource:    "",
-		Action:      "",
-	},
-	"POST:/api/v1/auth/authorize": {
-		OperationID: "authAuthorizePost",
-		Resource:    "",
-		Action:      "",
-	},
 	"GET:/api/v1/auth/config": {
 		OperationID: "authConfig",
-		Resource:    "",
-		Action:      "",
-	},
-	"GET:/api/v1/auth/jwks": {
-		OperationID: "authJWKS",
-		Resource:    "",
-		Action:      "",
-	},
-	"GET:/api/v1/auth/login": {
-		OperationID: "authLogin",
-		Resource:    "",
-		Action:      "",
-	},
-	"POST:/api/v1/auth/login": {
-		OperationID: "authLoginPost",
-		Resource:    "",
-		Action:      "",
-	},
-	"POST:/api/v1/auth/token": {
-		OperationID: "authToken",
-		Resource:    "",
-		Action:      "",
-	},
-	"GET:/api/v1/auth/userinfo": {
-		OperationID: "authUserInfo",
 		Resource:    "",
 		Action:      "",
 	},

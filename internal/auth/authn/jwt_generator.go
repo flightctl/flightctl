@@ -11,7 +11,7 @@ import (
 	"os"
 	"time"
 
-	v1alpha1 "github.com/flightctl/flightctl/api/v1alpha1"
+	pamapi "github.com/flightctl/flightctl/api/v1alpha1/pam-issuer"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	fccrypto "github.com/flightctl/flightctl/internal/crypto"
 	pkgcrypto "github.com/flightctl/flightctl/pkg/crypto"
@@ -280,7 +280,7 @@ func (g *JWTGenerator) GetPublicKeyPEM() (string, error) {
 }
 
 // GetJWKS returns the JWKS (JSON Web Key Set) for this generator
-func (g *JWTGenerator) GetJWKS() (*v1alpha1.JWKSResponse, error) {
+func (g *JWTGenerator) GetJWKS() (*pamapi.JWKSResponse, error) {
 	// Get the public key from the private key
 	signer, ok := g.privateKey.(crypto.Signer)
 	if !ok {
@@ -375,7 +375,7 @@ func (g *JWTGenerator) GetJWKS() (*v1alpha1.JWKSResponse, error) {
 		Use *string `json:"use,omitempty"`
 	}{key}
 
-	return &v1alpha1.JWKSResponse{
+	return &pamapi.JWKSResponse{
 		Keys: &keys,
 	}, nil
 }
