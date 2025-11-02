@@ -283,6 +283,9 @@ func (d *Device) HasSameSpecAs(otherResource any) bool {
 	if other == nil {
 		return false
 	}
+	if d.Spec == nil && other.Spec == nil {
+		return true
+	}
 	if (d.Spec == nil && other.Spec != nil) || (d.Spec != nil && other.Spec == nil) {
 		return false
 	}

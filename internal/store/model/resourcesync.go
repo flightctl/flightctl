@@ -126,6 +126,9 @@ func (rs *ResourceSync) HasSameSpecAs(otherResource any) bool {
 	if other == nil {
 		return false
 	}
+	if rs.Spec == nil && other.Spec == nil {
+		return true
+	}
 	if (rs.Spec == nil && other.Spec != nil) || (rs.Spec != nil && other.Spec == nil) {
 		return false
 	}

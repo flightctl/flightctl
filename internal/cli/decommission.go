@@ -120,6 +120,6 @@ func (o *DecommissionOptions) Run(ctx context.Context, args []string) error {
 		}
 	}
 
-	fmt.Printf("Device scheduled for decommissioning: %s: %s\n", response.HTTPResponse.Status, name)
+	fmt.Printf("Device scheduled for decommissioning: %s: %s\n", response.Status(), name)
 	return nil
 }
