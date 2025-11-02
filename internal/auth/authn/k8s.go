@@ -34,7 +34,7 @@ func NewK8sAuthN(k8sClient k8sclient.K8SClient, externalOpenShiftApiUrl string, 
 	authN := &K8sAuthN{
 		k8sClient:               k8sClient,
 		externalOpenShiftApiUrl: externalOpenShiftApiUrl,
-		cache:                   ttlcache.New[string, *k8sAuthenticationV1.TokenReview](ttlcache.WithTTL[string, *k8sAuthenticationV1.TokenReview](5 * time.Second)),
+		cache:                   ttlcache.New(ttlcache.WithTTL[string, *k8sAuthenticationV1.TokenReview](5 * time.Second)),
 		rbacNamespace:           rbacNamespace,
 	}
 	go authN.cache.Start()
@@ -110,6 +110,7 @@ func (o K8sAuthN) GetIdentity(ctx context.Context, token string) (common.Identit
 			"scopes": scopes,
 		}).Info("Processing OpenShift OAuth token")
 		roles = o.extractRolesFromOpenShiftScopes(token)
+		organizations = o.extractOrganizationsFromOpenShiftScopes(token)
 	} else {
 		// Token doesn't have scopes claim - this is a regular K8s token
 		// Get roles from RoleBindings instead of TokenReview groups
@@ -121,15 +122,14 @@ func (o K8sAuthN) GetIdentity(ctx context.Context, token string) (common.Identit
 				"roles": roles,
 			}).Info("Processing regular K8s token with roles from RoleBindings")
 		}
+		// Extract organizations from roles for K8s tokens
+		organizations = o.extractOrganizationsFromRoles(roles)
 	}
-
-	// Extract organizations from roles (same logic for both OpenShift and K8s)
-	organizations = o.extractOrganizationsFromRoles(roles)
 	logrus.WithFields(logrus.Fields{
 		"user":          review.Status.User.Username,
 		"organizations": organizations,
 		"roles":         roles,
-	}).Info("Extracted organizations from roles")
+	}).Info("Extracted organizations and roles")
 
 	// Remove organizations from roles since they are orgs, not roles
 	roles = o.removeOrganizationsFromRoles(roles)
@@ -264,6 +264,40 @@ func (o K8sAuthN) extractRolesFromOpenShiftScopes(token string) []string {
 	}
 
 	return roles
+}
+
+// extractOrganizationsFromOpenShiftScopes extracts organizations from OpenShift OAuth token scopes
+// Organization scopes are expected to start with "org-" or "org_"
+func (o K8sAuthN) extractOrganizationsFromOpenShiftScopes(token string) []string {
+	scopes, err := o.parseScopesFromToken(token)
+	if err != nil {
+		return []string{}
+	}
+
+	var organizations []string
+	for _, scope := range scopes {
+		var orgName string
+		// Check for "org-" prefix
+		if strings.HasPrefix(scope, "org-") {
+			orgName = scope[4:] // Remove "org-" prefix
+		} else if strings.HasPrefix(scope, "org_") {
+			orgName = scope[4:] // Remove "org_" prefix
+		}
+
+		// If we found an organization scope
+		if orgName != "" {
+			// Remove trailing scope suffix after ':' if present
+			if idx := strings.Index(orgName, ":"); idx != -1 {
+				orgName = orgName[:idx]
+			}
+			// Append non-empty org names
+			if orgName != "" {
+				organizations = append(organizations, orgName)
+			}
+		}
+	}
+
+	return organizations
 }
 
 // parseScopesFromToken parses the JWT token and extracts the scopes claim

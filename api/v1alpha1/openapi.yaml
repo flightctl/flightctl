@@ -6834,6 +6834,7 @@ components:
         password:
           type: string
           description: Password for password grant.
+          writeOnly: true
         refresh_token:
           type: string
           description: Refresh token for refresh_token grant.
@@ -6846,6 +6847,7 @@ components:
         client_secret:
           type: string
           description: OAuth2 client secret.
+          writeOnly: true
         scope:
           type: string
           description: OAuth2 scope.
@@ -7028,6 +7030,7 @@ components:
         clientSecret:
           type: string
           description: The OIDC client secret.
+          writeOnly: true
         enabled:
           type: boolean
           description: Whether this OIDC provider is enabled.
@@ -7079,6 +7082,7 @@ components:
         clientSecret:
           type: string
           description: The OAuth2 client secret.
+          writeOnly: true
         enabled:
           type: boolean
           description: Whether this OAuth2 provider is enabled.

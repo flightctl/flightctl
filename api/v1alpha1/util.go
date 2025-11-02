@@ -394,6 +394,46 @@ func (r *RepositoryList) HideSensitiveData() error {
 	return nil
 }
 
+func (a *AuthProvider) HideSensitiveData() error {
+	if a == nil {
+		return nil
+	}
+
+	// Hide clientSecret in OIDC provider spec
+	oidcSpec, err := a.Spec.AsOIDCProviderSpec()
+	if err == nil {
+		hideValue(oidcSpec.ClientSecret)
+		if err := a.Spec.FromOIDCProviderSpec(oidcSpec); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	// Hide clientSecret in OAuth2 provider spec
+	oauth2Spec, err := a.Spec.AsOAuth2ProviderSpec()
+	if err == nil {
+		hideValue(oauth2Spec.ClientSecret)
+		if err := a.Spec.FromOAuth2ProviderSpec(oauth2Spec); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	return nil
+}
+
+func (a *AuthProviderList) HideSensitiveData() error {
+	if a == nil {
+		return nil
+	}
+	for i := range a.Items {
+		if err := a.Items[i].HideSensitiveData(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // GetBaseEvent creates a base event with common fields
 func GetBaseEvent(ctx context.Context, resourceKind ResourceKind, resourceName string, reason EventReason, message string, details *EventDetails) *Event {
 	var actorStr string

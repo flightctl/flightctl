@@ -120,7 +120,7 @@ func (o *OIDCAuth) ensureDiscovery(ctx context.Context) error {
 		// Initialize JWKS cache with 15-minute refresh interval
 		// This balances performance with key rotation requirements
 		o.jwksCache = jwk.NewCache(ctx)
-		if err := o.jwksCache.Register(o.jwksUri, jwk.WithMinRefreshInterval(15*time.Minute)); err != nil {
+		if err := o.jwksCache.Register(o.jwksUri, jwk.WithMinRefreshInterval(15*time.Minute), jwk.WithHTTPClient(o.client)); err != nil {
 			o.discoveryErr = fmt.Errorf("failed to register JWKS cache: %w", err)
 			return
 		}

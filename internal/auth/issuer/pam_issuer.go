@@ -7,6 +7,8 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"html"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -406,10 +408,18 @@ func (s *PAMOIDCProvider) Authorize(ctx context.Context, req *v1alpha1.AuthAutho
 	s.log.Infof("Authorize: stored authorization code for user - %s", username)
 
 	// Build redirect URL with authorization code
-	redirectURL := fmt.Sprintf("%s?code=%s", req.RedirectUri, authCode)
-	if req.State != nil && *req.State != "" {
-		redirectURL += fmt.Sprintf("&state=%s", *req.State)
+	parsed, err := url.Parse(req.RedirectUri)
+	if err != nil {
+		return nil, fmt.Errorf("invalid redirect URI: %w", err)
 	}
+
+	values := parsed.Query()
+	values.Set("code", authCode)
+	if req.State != nil && *req.State != "" {
+		values.Set("state", *req.State)
+	}
+	parsed.RawQuery = values.Encode()
+	redirectURL := parsed.String()
 
 	s.log.Infof("Authorize: returning redirect URL - %s", redirectURL)
 	return &AuthorizeResponse{
@@ -531,6 +541,12 @@ func (s *PAMOIDCProvider) determineUserScopes(username string) string {
 
 // GetLoginFormWithError generates HTML for the embedded login form with error message
 func (s *PAMOIDCProvider) GetLoginFormWithError(clientID, redirectURI, state, errorMessage string) string {
+	// Escape all variables to prevent XSS attacks
+	escapedClientID := html.EscapeString(clientID)
+	escapedRedirectURI := html.EscapeString(redirectURI)
+	escapedState := html.EscapeString(state)
+	escapedErrorMessage := html.EscapeString(errorMessage)
+
 	return fmt.Sprintf(`
 <!DOCTYPE html>
 <html>
@@ -738,7 +754,7 @@ func (s *PAMOIDCProvider) GetLoginFormWithError(clientID, redirectURI, state, er
         </form>
     </div>
 </body>
-</html>`, clientID, redirectURI, state, errorMessage)
+</html>`, escapedClientID, escapedRedirectURI, escapedState, escapedErrorMessage)
 }
 
 // UserInfo implements OIDCProvider interface - returns user information

@@ -1893,7 +1893,7 @@ type OAuth2ProviderSpec struct {
 	ClientId string `json:"clientId"`
 
 	// ClientSecret The OAuth2 client secret.
-	ClientSecret string `json:"clientSecret"`
+	ClientSecret *string `json:"clientSecret,omitempty"`
 
 	// Enabled Whether this OAuth2 provider is enabled.
 	Enabled *bool `json:"enabled,omitempty"`
@@ -1932,7 +1932,7 @@ type OIDCProviderSpec struct {
 	ClientId string `json:"clientId"`
 
 	// ClientSecret The OIDC client secret.
-	ClientSecret string `json:"clientSecret"`
+	ClientSecret *string `json:"clientSecret,omitempty"`
 
 	// Enabled Whether this OIDC provider is enabled.
 	Enabled *bool `json:"enabled,omitempty"`

@@ -21,11 +21,35 @@ func (h *TransportHandler) AuthToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get OIDC provider from service (this would need to be added to service interface)
-	// For now, we'll assume it's available through the service handler
-	// This is a placeholder - the actual implementation would depend on how
-	// the OIDC provider is integrated into the service layer
 	body, status := h.serviceHandler.AuthToken(r.Context(), req)
+
+	// OAuth2 spec requires returning TokenResponse with error/error_description fields
+	// for non-2xx responses instead of the generic api.Status schema
+	if status.Code >= 400 && status.Code < 600 {
+		// Convert error to OAuth2-compliant TokenResponse
+		errMsg := status.Message
+		errorCode := "invalid_request"
+		tokenResponse := &api.TokenResponse{
+			Error:            &errorCode,
+			ErrorDescription: &errMsg,
+		}
+
+		// Serialize the TokenResponse directly for error responses
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(int(status.Code))
+		json.NewEncoder(w).Encode(tokenResponse)
+		return
+	}
+
+	// Check if the TokenResponse itself contains an OAuth2 error
+	if body != nil && body.Error != nil {
+		// Return 400 Bad Request for OAuth2 errors
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(body)
+		return
+	}
+
 	SetResponse(w, body, status)
 }
 

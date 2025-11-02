@@ -42,7 +42,7 @@ func (r *RealPAMAuthenticator) Authenticate(username, password string) error {
 		case pam.PromptEchoOn:
 			// Username or other visible prompt
 			fmt.Printf("PAM Authenticate: responding to PromptEchoOn (username prompt)\n")
-			return password, nil
+			return "", nil
 		case pam.ErrorMsg:
 			fmt.Printf("PAM Authenticate: received ErrorMsg - %s\n", msg)
 			return "", fmt.Errorf("PAM error: %s", msg)
