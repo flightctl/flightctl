@@ -609,6 +609,51 @@ var _ = Describe("cli operation", func() {
 			Expect(notMatched).To(BeEmpty())
 		})
 	})
+
+	Context("Verify fleet check shows aggregated device status", func() {
+		It("Show aggregated device status for each fleet", Label("84270", "sanity"), func() {
+			harness := e2e.GetWorkerHarness()
+			testID := harness.GetTestIDFromContext()
+
+			By("Creating a fleet")
+			uniqueFleetAYAML, err := util.CreateUniqueYAMLFile("fleet.yaml", testID)
+			out, err := harness.ManageResource(applyOperation, uniqueFleetAYAML)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(out).To(MatchRegexp(resourceCreated))
+			defer util.CleanupTempYAMLFile(uniqueFleetAYAML)
+
+			By("Checking if devicesSummary is shown for fleet and is in correct structure")
+			notMatched, err := checkDevicesSummary(harness)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(notMatched).To(BeEmpty())
+
+			By("Creating a device in the fleetA")
+			uniqueDeviceYAML, err := util.CreateUniqueYAMLFile("device.yaml", testID)
+			out, err = harness.ManageResource(applyOperation, uniqueDeviceYAML)
+			device := harness.GetDeviceByYaml(uniqueDeviceYAML)
+			deviceName := *device.Metadata.Name
+			Expect(err).NotTo(HaveOccurred())
+			Expect(out).To(MatchRegexp(resourceCreated))
+			defer util.CleanupTempYAMLFile(uniqueDeviceYAML)
+
+			By("Checking if devicesSummary is shown for fleet and correct structure for a fleet with a device")
+			notMatched, err = checkDevicesSummary(harness)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(notMatched).To(BeEmpty())
+
+			By("Deleting a device from the first fleet")
+			out, err = harness.CLI("delete", util.Device, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring("completed"))
+
+			By("Checking if devicesSummary structure is still correct after deletion")
+			notMatched, err = checkDevicesSummary(harness)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(notMatched).To(BeEmpty())
+
+		})
+	})
+
 })
 
 var _ = Describe("cli login", func() {
@@ -952,7 +997,7 @@ func GetVersionByPrefix(output, prefix string) string {
 }
 
 // Comparing devices count output in yaml with fleet data in map
-func compareDeviceCountCliOutput(output string, expected map[string]int64) []string {
+func compareDeviceCountCliOutput(output string, expectedDevicesCount map[string]int64) []string {
 
 	var notMatched []string
 
@@ -976,9 +1021,59 @@ func compareDeviceCountCliOutput(output string, expected map[string]int64) []str
 
 	// Compare each item against expected map
 	for _, fleet := range parsed.Fleets {
-		expectedCount, ok := expected[fleet.Name]
+		expectedCount, ok := expectedDevicesCount[fleet.Name]
 		if !ok || fleet.Status.DevicesSummary.Total != expectedCount {
 			notMatched = append(notMatched, fleet.Name)
+		}
+	}
+
+	return notMatched
+}
+
+// Checking if devicesSummary output in yaml is in correct structure
+func checkFleetsDevicesSummaryCliOutput(output string) []string {
+
+	var notMatched []string
+
+	type fleetDevicesSummary struct {
+		Name   string `yaml:"name"`
+		Status struct {
+			DevicesSummary struct {
+				ApplicationStatus map[string]int64 `yaml:"applicationStatus"`
+				SummaryStatus     map[string]int64 `yaml:"summaryStatus"`
+				Total             int64            `yaml:"total"`
+				UpdateStatus      map[string]int64 `yaml:"updateStatus"`
+			} `yaml:"devicesSummary"`
+		} `yaml:"status"`
+	}
+
+	var parsed struct {
+		Fleets []fleetDevicesSummary `yaml:"items"`
+	}
+
+	err := yaml.Unmarshal([]byte(output), &parsed)
+	if err != nil {
+		return []string{"Failed to parse YAML: " + err.Error()}
+	}
+
+	// Checking the devicesSummary is in correct structure
+	for _, fleet := range parsed.Fleets {
+		if fleet.Status.DevicesSummary.Total == 0 {
+
+			// UpdateStatus,SummaryStatus and ApplicationStatus should be empty if there are no devices in fleet
+			if len(fleet.Status.DevicesSummary.UpdateStatus) != 0 ||
+				len(fleet.Status.DevicesSummary.SummaryStatus) != 0 ||
+				len(fleet.Status.DevicesSummary.ApplicationStatus) != 0 {
+				notMatched = append(notMatched, fleet.Name)
+			}
+		} else {
+
+			// There is at least one device in fleet
+			if len(fleet.Status.DevicesSummary.UpdateStatus) == 0 ||
+				len(fleet.Status.DevicesSummary.SummaryStatus) == 0 ||
+				len(fleet.Status.DevicesSummary.ApplicationStatus) == 0 {
+				notMatched = append(notMatched, fleet.Name)
+			}
 		}
 	}
 
@@ -1052,6 +1147,17 @@ func checkDevicesInFleetStatus(harness *e2e.Harness, fleetDevicesCount map[strin
 		GinkgoWriter.Printf("Unmatched fleet: %s\n", fleet)
 	}
 
+	return notMatched, err
+}
+
+// Checking the devicesSummary of fleets
+func checkDevicesSummary(harness *e2e.Harness) ([]string, error) {
+	out, err := harness.CLI("get", "fleet", "-s", "-o", "yaml")
+	notMatched := checkFleetsDevicesSummaryCliOutput(out)
+
+	for _, fleet := range notMatched {
+		GinkgoWriter.Printf("Unmatched fleet: %s\n", fleet)
+	}
 	return notMatched, err
 }
 
