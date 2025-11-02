@@ -30,7 +30,6 @@ jobs:
             .spelling
             README.md
             docs/**
-            .github/**
             examples/**
             packaging/rpm/**
 
