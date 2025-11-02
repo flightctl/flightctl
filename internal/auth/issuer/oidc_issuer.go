@@ -34,6 +34,6 @@ type OIDCIssuer interface {
 	Login(ctx context.Context, username, password, clientID, redirectURI, state string) (string, error)
 
 	// Discovery and Configuration
-	GetOpenIDConfiguration(baseURL string) (*v1alpha1.OpenIDConfiguration, error)
+	GetOpenIDConfiguration() (*v1alpha1.OpenIDConfiguration, error)
 	GetJWKS() (*v1alpha1.JWKSResponse, error)
 }

@@ -7,6 +7,7 @@ import (
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/org"
+	"github.com/samber/lo"
 )
 
 type NilAuth struct{}
@@ -30,7 +31,7 @@ func (a NilAuth) GetAuthConfig() *v1alpha1.AuthConfig {
 	providerType := string(v1alpha1.AuthProviderInfoTypeOidc)
 	return &v1alpha1.AuthConfig{
 		DefaultProvider:      &providerType,
-		OrganizationsEnabled: nil,
+		OrganizationsEnabled: lo.ToPtr(true),
 		Providers:            &[]v1alpha1.AuthProviderInfo{},
 	}
 }

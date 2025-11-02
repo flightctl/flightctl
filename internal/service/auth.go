@@ -55,13 +55,7 @@ func (h *ServiceHandler) AuthOpenIDConfiguration(ctx context.Context) (*api.Open
 		return nil, api.StatusInternalServerError("OIDC issuer not configured")
 	}
 
-	// Use the UI URL as the base URL for OIDC configuration
-	baseURL := h.uiUrl
-	if baseURL == "" {
-		baseURL = "http://localhost:8080" // fallback
-	}
-
-	config, err := h.oidcIssuer.GetOpenIDConfiguration(baseURL)
+	config, err := h.oidcIssuer.GetOpenIDConfiguration()
 	if err != nil {
 		return nil, api.StatusInternalServerError(err.Error())
 	}

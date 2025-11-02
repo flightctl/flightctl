@@ -4,25 +4,19 @@ ARG SOURCE_GIT_TAG
 ARG SOURCE_GIT_TREE_STATE
 ARG SOURCE_GIT_COMMIT
 
-# Convert ARGs to ENV so make can use them
-ENV SOURCE_GIT_TAG=${SOURCE_GIT_TAG}
-ENV SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE}
-ENV SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT}
-
 # Switch to root for build operations
 USER 0
 
-# Install PAM development headers and build tools
-RUN dnf install -y pam-devel gcc wget tar && dnf clean all
+# Install PAM development headers and build tools (after runtime install)
+RUN dnf install -y pam pam-devel gcc wget tar ca-certificates curl
 
-# Install runtime PAM and shadow-utils for local user authentication
 RUN mkdir -p /runtime-root && \
-    dnf install -y --installroot=/runtime-root --use-host-config --setopt=install_weak_deps=False \
-    pam shadow-utils && \
-    dnf clean all
+    dnf install -y --installroot=/runtime-root --use-host-config --releasever=42 --setopt=install_weak_deps=False pam shadow-utils
+
 
 # Install Go 1.23.9
-RUN wget https://go.dev/dl/go1.23.9.linux-amd64.tar.gz && \
+RUN curl -fsSL --retry 5 --retry-delay 3 -o go1.23.9.linux-amd64.tar.gz https://go.dev/dl/go1.23.9.linux-amd64.tar.gz && \
+    tar -tzf go1.23.9.linux-amd64.tar.gz >/dev/null && \
     tar -C /usr/local -xzf go1.23.9.linux-amd64.tar.gz && \
     rm go1.23.9.linux-amd64.tar.gz
 
@@ -47,6 +41,11 @@ COPY ./hack ./hack
 COPY ./internal ./internal
 COPY ./pkg ./pkg
 COPY ./test ./test
+
+# Convert ARGs to ENV just before build (after all package installations for better caching)
+ENV SOURCE_GIT_TAG=${SOURCE_GIT_TAG}
+ENV SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE}
+ENV SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT}
 
 # Use BuildKit cache mounts for Go caching
 RUN --mount=type=cache,target=/root/.cache/go-build \

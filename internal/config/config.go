@@ -584,7 +584,7 @@ func Load(cfgFile string) (*Config, error) {
 				c.Auth.PAMOIDCIssuer.Scopes = []string{"openid", "profile", "email", "roles"}
 			}
 			if len(c.Auth.PAMOIDCIssuer.RedirectURIs) == 0 {
-				c.Auth.PAMOIDCIssuer.RedirectURIs = []string{c.Service.BaseUrl + "/auth/callback"}
+				c.Auth.PAMOIDCIssuer.RedirectURIs = []string{c.Service.BaseUIUrl + "/auth/callback"}
 			}
 		}
 

@@ -551,7 +551,7 @@ func (s *PAMOIDCProvider) GetLoginFormWithError(clientID, redirectURI, state, er
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Flightctl Login</title>
+    <title>Flight Control Login</title>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
@@ -728,7 +728,7 @@ func (s *PAMOIDCProvider) GetLoginFormWithError(clientID, redirectURI, state, er
 <body>
     <div class="login-container">
         <div class="header">
-            <h1>Flightctl</h1>
+            <h1>Flight Control</h1>
             <p>Please sign in to continue</p>
         </div>
         
@@ -796,12 +796,12 @@ func (s *PAMOIDCProvider) UserInfo(ctx context.Context, accessToken string) (*v1
 }
 
 // GetOpenIDConfiguration returns the OpenID Connect configuration
-func (s *PAMOIDCProvider) GetOpenIDConfiguration(baseURL string) (*v1alpha1.OpenIDConfiguration, error) {
-	// Use config values if available, otherwise use defaults
-	issuer := baseURL
-	if s.config != nil && s.config.Issuer != "" {
-		issuer = s.config.Issuer
+func (s *PAMOIDCProvider) GetOpenIDConfiguration() (*v1alpha1.OpenIDConfiguration, error) {
+	// Use issuer from config
+	if s.config == nil || s.config.Issuer == "" {
+		return nil, fmt.Errorf("issuer URL not configured")
 	}
+	issuer := s.config.Issuer
 
 	// Response types and grant types are determined by implementation
 	responseTypes := []string{"code"}                             // Support authorization code flow
@@ -1051,7 +1051,7 @@ func (s *PAMOIDCProvider) GetLoginForm(clientID, redirectURI, state string) stri
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Flightctl Login</title>
+    <title>Flight Control Login</title>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
@@ -1184,7 +1184,7 @@ func (s *PAMOIDCProvider) GetLoginForm(clientID, redirectURI, state string) stri
 <body>
     <div class="login-container">
         <div class="header">
-            <h1>Flightctl</h1>
+            <h1>Flight Control</h1>
             <p>Please sign in to continue</p>
         </div>
         

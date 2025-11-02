@@ -76,10 +76,6 @@ const (
 	AuthProviderKind       = "AuthProvider"
 	AuthProviderListKind   = "AuthProviderList"
 
-	OIDCProviderAPIVersion = "v1alpha1"
-	OIDCProviderKind       = "OIDCProvider"
-	OIDCProviderListKind   = "OIDCProviderList"
-
 	ResourceSyncAPIVersion = "v1alpha1"
 	ResourceSyncKind       = "ResourceSync"
 	ResourceSyncListKind   = "ResourceSyncList"

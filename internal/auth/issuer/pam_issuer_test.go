@@ -229,22 +229,32 @@ func TestPAMOIDCProvider_GetOpenIDConfiguration(t *testing.T) {
 	caClient := createTestCAClient(t)
 
 	tests := []struct {
-		name    string
-		config  *config.PAMOIDCIssuer
-		baseURL string
+		name           string
+		config         *config.PAMOIDCIssuer
+		expectError    bool
+		expectedIssuer string
 	}{
 		{
-			name:    "default configuration",
-			config:  &config.PAMOIDCIssuer{},
-			baseURL: "https://example.com",
+			name: "valid configuration with issuer",
+			config: &config.PAMOIDCIssuer{
+				Issuer: "https://example.com",
+			},
+			expectError:    false,
+			expectedIssuer: "https://example.com",
 		},
 		{
-			name: "custom configuration with issuer",
+			name: "custom configuration with different issuer",
 			config: &config.PAMOIDCIssuer{
 				Issuer: "https://custom.example.com",
 				Scopes: []string{"openid", "profile"},
 			},
-			baseURL: "https://example.com",
+			expectError:    false,
+			expectedIssuer: "https://custom.example.com",
+		},
+		{
+			name:        "missing issuer should error",
+			config:      &config.PAMOIDCIssuer{},
+			expectError: true,
 		},
 	}
 
@@ -253,17 +263,16 @@ func TestPAMOIDCProvider_GetOpenIDConfiguration(t *testing.T) {
 			provider, err := NewPAMOIDCProvider(caClient, tt.config)
 			require.NoError(t, err)
 
-			result, err := provider.GetOpenIDConfiguration(tt.baseURL)
+			result, err := provider.GetOpenIDConfiguration()
+			if tt.expectError {
+				require.Error(t, err)
+				return
+			}
+
 			require.NoError(t, err)
 			assert.NotNil(t, result)
-
-			// Verify the issuer is set correctly
-			expectedIssuer := tt.baseURL
-			if tt.config.Issuer != "" {
-				expectedIssuer = tt.config.Issuer
-			}
 			assert.NotNil(t, result.Issuer)
-			assert.Equal(t, expectedIssuer, *result.Issuer)
+			assert.Equal(t, tt.expectedIssuer, *result.Issuer)
 		})
 	}
 }
@@ -331,7 +340,9 @@ func TestPAMOIDCProvider_UserInfo(t *testing.T) {
 func TestPAMOIDCProvider_InterfaceCompliance(t *testing.T) {
 	// Test that PAMOIDCProvider implements the OIDCIssuer interface
 	caClient := createTestCAClient(t)
-	cfg := &config.PAMOIDCIssuer{}
+	cfg := &config.PAMOIDCIssuer{
+		Issuer: "https://test.com",
+	}
 	provider, err := NewPAMOIDCProvider(caClient, cfg)
 	require.NoError(t, err)
 
@@ -356,7 +367,7 @@ func TestPAMOIDCProvider_InterfaceCompliance(t *testing.T) {
 	assert.NotNil(t, userInfoResp.Error)
 
 	// GetOpenIDConfiguration method
-	oidcConfig, err := provider.GetOpenIDConfiguration("https://test.com")
+	oidcConfig, err := provider.GetOpenIDConfiguration()
 	require.NoError(t, err)
 	assert.NotNil(t, oidcConfig)
 	assert.NotNil(t, oidcConfig.Issuer)

@@ -115,7 +115,7 @@ func (a AapGatewayAuth) GetAuthConfig() *api.AuthConfig {
 
 	return &api.AuthConfig{
 		DefaultProvider:      &providerType,
-		OrganizationsEnabled: lo.ToPtr(false),
+		OrganizationsEnabled: lo.ToPtr(true),
 		Providers:            &[]api.AuthProviderInfo{provider},
 	}
 }

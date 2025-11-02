@@ -1269,10 +1269,6 @@ func (o OAuth2ProviderSpec) Validate(ctx context.Context) []error {
 	if o.ClientId == "" {
 		allErrs = append(allErrs, errors.New("clientId is required"))
 	}
-	if o.ClientSecret == "" {
-		allErrs = append(allErrs, errors.New("clientSecret is required"))
-	}
-
 	// Validate organization assignment
 	allErrs = append(allErrs, o.OrganizationAssignment.Validate(ctx)...)
 

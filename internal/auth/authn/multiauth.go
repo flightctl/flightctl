@@ -763,7 +763,7 @@ func createOAuth2AuthFromProvider(provider *api.AuthProvider, tlsConfig *tls.Con
 		oauth2Spec.TokenUrl,
 		oauth2Spec.UserinfoUrl,
 		oauth2Spec.ClientId,
-		oauth2Spec.ClientSecret,
+		lo.FromPtr(oauth2Spec.ClientSecret),
 		scopes,
 		tlsConfig,
 		orgConfig,
