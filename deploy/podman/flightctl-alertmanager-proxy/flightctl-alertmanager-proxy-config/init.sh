@@ -42,25 +42,9 @@ else
   echo "Internal database - password will come from Podman secret"
 fi
 
-# Extract rate limit values (defaults if not configured)
-RATE_LIMIT_REQUESTS=$(sed -n '/^service:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n '/^[[:space:]]*rateLimit:/,/^[[:space:]]*[^[:space:]]/p' | sed -n 's/^[[:space:]]*requests:[[:space:]]*\([^[:space:]]*\).*/\1/p' | head -1)
-RATE_LIMIT_WINDOW=$(sed -n '/^service:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n '/^[[:space:]]*rateLimit:/,/^[[:space:]]*[^[:space:]]/p' | sed -n 's/^[[:space:]]*window:[[:space:]]*[\"'"'"']*\([^\"'"'"'[:space:]]*\)[\"'"'"']*.*/\1/p' | head -1)
-AUTH_RATE_LIMIT_REQUESTS=$(sed -n '/^service:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n '/^[[:space:]]*rateLimit:/,/^[[:space:]]*[^[:space:]]/p' | sed -n 's/^[[:space:]]*authRequests:[[:space:]]*\([^[:space:]]*\).*/\1/p' | head -1)
-AUTH_RATE_LIMIT_WINDOW=$(sed -n '/^service:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n '/^[[:space:]]*rateLimit:/,/^[[:space:]]*[^[:space:]]/p' | sed -n 's/^[[:space:]]*authWindow:[[:space:]]*[\"'"'"']*\([^\"'"'"'[:space:]]*\)[\"'"'"']*.*/\1/p' | head -1)
-
-# Use defaults if not found
-RATE_LIMIT_REQUESTS=${RATE_LIMIT_REQUESTS:-60}
-RATE_LIMIT_WINDOW=${RATE_LIMIT_WINDOW:-1m}
-AUTH_RATE_LIMIT_REQUESTS=${AUTH_RATE_LIMIT_REQUESTS:-10}
-AUTH_RATE_LIMIT_WINDOW=${AUTH_RATE_LIMIT_WINDOW:-1h}
-
 # Template the environment file
 mkdir -p "$(dirname "$ENV_OUTPUT")"
 sed -e "s|{{FLIGHTCTL_DISABLE_AUTH}}|$FLIGHTCTL_DISABLE_AUTH|g" \
-    -e "s|{{RATE_LIMIT_REQUESTS}}|$RATE_LIMIT_REQUESTS|g" \
-    -e "s|{{RATE_LIMIT_WINDOW}}|$RATE_LIMIT_WINDOW|g" \
-    -e "s|{{AUTH_RATE_LIMIT_REQUESTS}}|$AUTH_RATE_LIMIT_REQUESTS|g" \
-    -e "s|{{AUTH_RATE_LIMIT_WINDOW}}|$AUTH_RATE_LIMIT_WINDOW|g" \
     "$ENV_TEMPLATE" > "$ENV_OUTPUT"
 
 echo "Initialization complete" 
