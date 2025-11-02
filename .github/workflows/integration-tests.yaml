@@ -116,6 +116,17 @@ jobs:
           echo
           echo "- EXPAND_MIGRATION_IMAGE: ${EXPAND_MIGRATION_IMAGE}"
 
+      - name: Restore migration scripts from PR branch (temporary)
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' && github.event_name == 'pull_request' }}
+        run: |
+          set -euo pipefail
+          echo "Restoring updated migration scripts from PR branch..."
+
+          # Checkout specific files from the PR branch
+          git checkout ${{ github.sha }} -- test/test.mk test/scripts/run_migration.sh
+
+          echo "Restored test/test.mk and test/scripts/run_migration.sh from PR"
+
       - name: Build db-migrator image (initial)
         if: ${{ steps.changed-files.outputs.any_changed == 'true' && github.event_name == 'pull_request' }}
         run: |
