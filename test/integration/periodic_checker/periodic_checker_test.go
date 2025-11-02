@@ -136,7 +136,7 @@ var _ = Describe("Periodic", func() {
 
 		// Setup worker client and service handler
 		workerClient = worker_client.NewWorkerClient(queuePublisher, log)
-		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{}, testutil.NewMockOIDCIssuer())
+		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{})
 
 		channelManager, err = periodic.NewChannelManager(periodic.ChannelManagerConfig{
 			Log: log,

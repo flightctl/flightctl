@@ -115,7 +115,7 @@ func runRestore(ctx context.Context) error {
 	go orgCache.Start()
 	defer orgCache.Stop()
 
-	serviceHandler := service.NewServiceHandler(storeInst, nil, kvStore, nil, log, "", "", []string{}, nil)
+	serviceHandler := service.NewServiceHandler(storeInst, nil, kvStore, nil, log, "", "", []string{})
 
 	log.Println("Running post-restoration device preparation")
 	if err := serviceHandler.PrepareDevicesAfterRestore(ctx); err != nil {

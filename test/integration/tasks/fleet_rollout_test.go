@@ -78,7 +78,7 @@ var _ = Describe("FleetRollout", func() {
 		workerClient = worker_client.NewWorkerClient(mockQueueProducer, log)
 		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		Expect(err).ToNot(HaveOccurred())
-		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{}, testutil.NewMockOIDCIssuer())
+		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{})
 	})
 
 	AfterEach(func() {

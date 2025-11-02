@@ -1,6 +1,6 @@
 //go:build linux
 
-package issuer
+package pam
 
 import (
 	"context"

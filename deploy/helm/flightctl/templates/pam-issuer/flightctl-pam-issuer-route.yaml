@@ -1,0 +1,20 @@
+{{- if and .Values.pamIssuer.enabled (eq (include "flightctl.getServiceExposeMethod" .) "route") }}
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  labels:
+    flightctl.service: flightctl-pam-issuer
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+  name: flightctl-pam-issuer
+  namespace: {{ .Release.Namespace }}
+spec:
+  host: pam-issuer.{{ include "flightctl.getBaseDomain" . }}
+  port:
+    targetPort: 8444
+  tls:
+    termination: passthrough
+  to:
+    kind: Service
+    name: flightctl-pam-issuer
+{{ end }}
+

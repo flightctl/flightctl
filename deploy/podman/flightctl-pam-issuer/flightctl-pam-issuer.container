@@ -1,0 +1,27 @@
+[Unit]
+Description=Flight Control PAM OIDC Issuer server
+PartOf=flightctl.target
+After=flightctl-db-wait.service flightctl-db-migrate.service flightctl-kv.service flightctl-pam-issuer-init.service
+Wants=flightctl-db-wait.service flightctl-db-migrate.service flightctl-kv.service flightctl-pam-issuer-init.service
+
+[Container]
+ContainerName=flightctl-pam-issuer
+Image=quay.io/flightctl/flightctl-pam-issuer:latest
+Pull=newer
+Network=flightctl.network
+EnvironmentFile=/etc/flightctl/flightctl-pam-issuer/env
+Secret=flightctl-postgresql-user-password,type=env,target=DB_PASSWORD
+Secret=flightctl-kv-password,type=env,target=KV_PASSWORD
+Environment=DB_USER=flightctl_app
+
+PublishPort=8444:8444
+Volume=/etc/flightctl/pki:/root/.flightctl/certs:rw,z
+Volume=/etc/flightctl/flightctl-pam-issuer/config.yaml:/root/.flightctl/config.yaml:ro,z
+
+[Service]
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=flightctl.target
+

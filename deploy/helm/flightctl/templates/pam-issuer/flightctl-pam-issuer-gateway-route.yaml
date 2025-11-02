@@ -1,0 +1,21 @@
+{{- if and .Values.pamIssuer.enabled (eq (include "flightctl.getServiceExposeMethod" .) "gateway") }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: flightctl-pam-issuer
+  namespace: {{ .Release.Namespace }}
+  labels:
+    flightctl.service: flightctl-pam-issuer
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+spec:
+  parentRefs:
+    - name: flightctl-gateway
+      sectionName: https
+  hostnames:
+    - pam-issuer.{{ include "flightctl.getBaseDomain" . }}
+  rules:
+    - backendRefs:
+        - name: flightctl-pam-issuer
+          port: 8444
+{{ end }}
+

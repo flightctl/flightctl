@@ -100,6 +100,8 @@ global:
     ui: 9000
     # -- NodePort for Alertmanager proxy service
     alertmanagerProxy: 8443
+    # -- NodePort for PAM OIDC issuer service
+    pamIssuer: 8444
     # -- NodePort for OTLP telemetry gateway
     telemetryGatewayOtlp: 4317
     # -- NodePort for Prometheus telemetry gateway
@@ -259,6 +261,29 @@ api:
     readinessPath: /readyz
     # -- HTTP path for liveness probe
     livenessPath: /healthz
+
+# -- PAM OIDC Issuer Configuration
+pamIssuer:
+  # -- Enable PAM OIDC Issuer service deployment
+  enabled: false
+  image:
+    # -- PAM issuer container image
+    image: quay.io/flightctl/flightctl-pam-issuer
+    # -- Image pull policy for PAM issuer container
+    pullPolicy: ""
+    # -- PAM issuer image tag (leave empty to use chart appVersion)
+    tag: ""
+  # -- Additional environment variables for PAM issuer
+  env: {}
+  # Health probes configuration
+  probes:
+    # -- Enable health and readiness probes for PAM issuer
+    enabled: true
+    # -- HTTP path for readiness probe
+    readinessPath: /api/v1/auth/.well-known/openid-configuration
+    # -- HTTP path for liveness probe
+    livenessPath: /api/v1/auth/.well-known/openid-configuration
+
 # -- CLI Artifacts Configuration
 cliArtifacts:
   # -- Enable CLI artifacts service

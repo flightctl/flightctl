@@ -1,0 +1,20 @@
+{{ if .Values.pamIssuer.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  labels:
+    flightctl.service: flightctl-pam-issuer-certs
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+  name: flightctl-pam-issuer-certs
+  namespace: {{ .Release.Namespace }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Mi
+  {{- if .Values.global.storageClassName }}
+  storageClassName: {{ .Values.global.storageClassName }}
+  {{- end }}
+{{ end }}
+

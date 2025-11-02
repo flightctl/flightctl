@@ -72,7 +72,7 @@ USER 0
 COPY --from=build /runtime-root/ /
 
 # Copy custom PAM config for flightctl
-COPY --from=build /app/deploy/podman/flightctl-api/pam-flightctl /etc/pam.d/flightctl
+COPY --from=build /app/deploy/podman/flightctl-pam-issuer/pam-flightctl /etc/pam.d/flightctl
 
 # Create entrypoint script to manage users
 RUN printf '#!/bin/sh\n\

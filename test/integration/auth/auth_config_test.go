@@ -54,7 +54,7 @@ var _ = Describe("Auth Config Integration Tests", func() {
 		ctx = context.WithValue(ctx, consts.MappedIdentityCtxKey, adminIdentity)
 
 		// Create service handler (it implements AuthProviderService interface)
-		serviceHandler = service.NewServiceHandler(testStore, nil, nil, nil, log, "", "", []string{}, util.NewMockOIDCIssuer())
+		serviceHandler = service.NewServiceHandler(testStore, nil, nil, nil, log, "", "", []string{})
 
 		// Create a config with static OIDC provider to test production initialization path
 		cfg := config.NewDefault(

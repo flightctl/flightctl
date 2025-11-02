@@ -1,0 +1,102 @@
+{{ if .Values.pamIssuer.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    flightctl.service: flightctl-pam-issuer
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+  name: flightctl-pam-issuer
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      flightctl.service: flightctl-pam-issuer
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        flightctl.service: flightctl-pam-issuer
+        {{- include "flightctl.standardLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: flightctl-pam-issuer
+      initContainers:
+      {{- include "flightctl.databaseWaitInitContainer" (dict "context" . "userType" "app" "timeout" 60 "sleep" 1) | nindent 6 }}
+      {{- include "flightctl.migrationWaitInitContainer" (dict "context" . "timeout" 600) | nindent 6 }}
+      containers:
+        - name: flightctl-pam-issuer
+          image: {{ .Values.pamIssuer.image.image }}:{{ default .Chart.AppVersion .Values.pamIssuer.image.tag }}
+          imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.pamIssuer.image.pullPolicy }}
+          env:
+            - name: HOME
+              value: "/root"
+            - name: KV_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-kv-secret
+                  key: password
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-db-app-secret
+                  key: userPassword
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-db-app-secret
+                  key: user
+            {{- if .Values.pamIssuer.env }}
+            {{- range $key, $value := .Values.pamIssuer.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+            {{- end }}
+          ports:
+            - containerPort: 8444
+              name: pam-issuer
+              protocol: TCP
+
+          {{- if .Values.pamIssuer.probes.enabled }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.pamIssuer.probes.readinessPath }}
+              port: pam-issuer
+              scheme: HTTPS
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+            successThreshold: 1
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.pamIssuer.probes.livenessPath }}
+              port: pam-issuer
+              scheme: HTTPS
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 10
+            successThreshold: 1
+          {{- end }}
+
+          volumeMounts:
+            - mountPath: /root/.flightctl/
+              name: flightctl-pam-issuer-certs
+            - mountPath: /root/.flightctl/config.yaml
+              name: flightctl-pam-issuer-config
+              subPath: config.yaml
+              readOnly: true
+            {{- include "flightctl.dbSslVolumeMounts" . | nindent 12 }}
+
+      restartPolicy: Always
+      volumes:
+        - name: flightctl-pam-issuer-certs
+          persistentVolumeClaim:
+            claimName: flightctl-pam-issuer-certs
+        - name: flightctl-pam-issuer-config
+          configMap:
+            name: flightctl-pam-issuer-config
+        {{- include "flightctl.dbSslVolumes" . | nindent 8 }}
+{{ end }}
+

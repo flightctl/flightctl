@@ -20,7 +20,7 @@ global:
       roleClaim: groups
     pamOidcIssuer:
       enabled: true
-      issuer:
+      issuer: # Leave empty to auto-configure based on baseDomain:8444
       clientId: flightctl-client
       clientSecret:
       scopes: openid,profile,email,roles

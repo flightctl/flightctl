@@ -11,7 +11,7 @@ import (
 	"time"
 
 	pamapi "github.com/flightctl/flightctl/api/v1alpha1/pam-issuer"
-	"github.com/flightctl/flightctl/internal/auth/issuer"
+	"github.com/flightctl/flightctl/internal/auth/issuer/pam"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/crypto"
@@ -23,7 +23,7 @@ import (
 type Handler struct {
 	log         logrus.FieldLogger
 	cfg         *config.Config
-	pamProvider *issuer.PAMOIDCProvider
+	pamProvider *pam.PAMOIDCProvider
 }
 
 // NewHandler creates a new PAM issuer handler
@@ -36,7 +36,7 @@ func NewHandler(
 		return nil, fmt.Errorf("PAM OIDC issuer not configured")
 	}
 
-	pamProvider, err := issuer.NewPAMOIDCProvider(ca, cfg.Auth.PAMOIDCIssuer)
+	pamProvider, err := pam.NewPAMOIDCProvider(ca, cfg.Auth.PAMOIDCIssuer)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create PAM OIDC provider: %w", err)
 	}
@@ -155,13 +155,13 @@ func (h *Handler) AuthAuthorize(w http.ResponseWriter, r *http.Request, params p
 
 	// OIDC spec: authorization endpoint returns HTML (login form) or redirect
 	switch response.Type {
-	case issuer.AuthorizeResponseTypeHTML:
+	case pam.AuthorizeResponseTypeHTML:
 		// Return HTML login form with correct content-type
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(response.Content))
 
-	case issuer.AuthorizeResponseTypeRedirect:
+	case pam.AuthorizeResponseTypeRedirect:
 		// Return 302 redirect to callback with authorization code
 		w.Header().Set("Location", response.Content)
 		w.WriteHeader(http.StatusFound)

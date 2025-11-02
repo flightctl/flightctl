@@ -142,7 +142,7 @@ generate-proto:
 tidy:
 	git ls-files go.mod '**/*go.mod' -z | xargs -0 -I{} bash -xc 'cd $$(dirname {}) && go mod tidy -v'
 
-build: bin build-cli
+build: bin build-cli build-pam-issuer
 	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) \
 		./cmd/devicesimulator \
 		./cmd/flightctl-agent \

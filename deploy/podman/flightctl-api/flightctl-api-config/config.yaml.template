@@ -35,22 +35,24 @@ auth:
   {{endif AAP}}
   {{if OIDC}}
   oidc:
-    clientId: {{OIDC_CLIENT_ID}}
-    enabled: {{OIDC_ENABLED}}
-    issuer: {{OIDC_ISSUER}}
-    externalOidcAuthority: {{OIDC_EXTERNAL_AUTHORITY}}
-    organizationAssignment:
-      type: {{OIDC_ORG_ASSIGNMENT_TYPE}}
-      organizationName: {{OIDC_ORG_NAME}}
-    usernameClaim: {{OIDC_USERNAME_CLAIM}}
-    roleClaim: {{OIDC_ROLE_CLAIM}}
+    - clientId: {{OIDC_CLIENT_ID}}
+      enabled: {{OIDC_ENABLED}}
+      issuer: {{OIDC_ISSUER}}
+      externalOidcAuthority: {{OIDC_EXTERNAL_AUTHORITY}}
+      organizationAssignment:
+        type: {{OIDC_ORG_ASSIGNMENT_TYPE}}
+        organizationName: {{OIDC_ORG_NAME}}
+      usernameClaim: {{OIDC_USERNAME_CLAIM}}
+      roleClaim: {{OIDC_ROLE_CLAIM}}
+    {{if PAM_OIDC_ISSUER_ENABLED}}
+    - clientId: {{PAM_OIDC_CLIENT_ID}}
+      enabled: true
+      issuer: {{PAM_OIDC_ISSUER_URL}}
+      externalOidcAuthority: {{PAM_OIDC_ISSUER_URL}}
+      organizationAssignment:
+        type: {{OIDC_ORG_ASSIGNMENT_TYPE}}
+        organizationName: {{OIDC_ORG_NAME}}
+      usernameClaim: preferred_username
+      roleClaim: roles
+    {{endif PAM_OIDC_ISSUER_ENABLED}}
   {{endif OIDC}}
-  {{if PAM_OIDC_ISSUER_ENABLED}}
-  pamOidcIssuer:
-    issuer: {{PAM_OIDC_ISSUER}}
-    clientId: {{PAM_OIDC_CLIENT_ID}}
-    clientSecret: {{PAM_OIDC_CLIENT_SECRET}}
-    scopes: {{PAM_OIDC_SCOPES}}
-    redirectUris: {{PAM_OIDC_REDIRECT_URIS}}
-    pamService: {{PAM_OIDC_SERVICE}}
-  {{endif PAM_OIDC_ISSUER_ENABLED}}

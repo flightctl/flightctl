@@ -1,0 +1,24 @@
+{{ if .Values.pamIssuer.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    flightctl.service: flightctl-pam-issuer
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+  name: flightctl-pam-issuer
+  namespace: {{ .Release.Namespace }}
+spec:
+  {{- if and .Values.global.nodePorts.pamIssuer (eq (include "flightctl.getServiceExposeMethod" .) "nodePort") }}
+  type: NodePort
+  {{- end }}
+  ports:
+    - name: "flightctl-pam-issuer"
+      port: 8444
+      targetPort: 8444
+      {{- if and .Values.global.nodePorts.pamIssuer (eq (include "flightctl.getServiceExposeMethod" .) "nodePort") }}
+      nodePort: {{ .Values.global.nodePorts.pamIssuer }}
+      {{- end }}
+  selector:
+    flightctl.service: flightctl-pam-issuer
+{{ end }}
+

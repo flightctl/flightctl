@@ -53,7 +53,7 @@ var _ = Describe("DeviceDisconnected", func() {
 		kvStore, err = kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		workerClient = worker_client.NewMockWorkerClient(ctrl)
 		Expect(err).ToNot(HaveOccurred())
-		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{}, testutil.NewMockOIDCIssuer())
+		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{})
 		disconnectedTask = tasks.NewDeviceDisconnected(log, serviceHandler)
 	})
 

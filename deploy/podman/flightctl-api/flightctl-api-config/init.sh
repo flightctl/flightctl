@@ -187,6 +187,10 @@ elif [ "$AUTH_TYPE" == "oidc" ]; then
   PAM_OIDC_CLIENT_ID=${PAM_OIDC_CLIENT_ID:-flightctl-client}
   PAM_OIDC_SERVICE=${PAM_OIDC_SERVICE:-flightctl}
   
+  # Set PAM OIDC issuer URL for API server to connect to
+  # This is the URL where the PAM issuer service is accessible
+  PAM_OIDC_ISSUER_URL=${PAM_OIDC_ISSUER:-"https://${BASE_DOMAIN}:8444"}
+  
   # Default redirect URI if not specified
   if [ -z "$PAM_OIDC_REDIRECT_URIS" ]; then
     PAM_OIDC_REDIRECT_URIS="${BASE_URL}/auth/callback"
@@ -224,6 +228,7 @@ elif [ "$AUTH_TYPE" == "oidc" ]; then
     -e "s|{{PAM_OIDC_SCOPES}}|$PAM_OIDC_SCOPES_YAML|g"
     -e "s|{{PAM_OIDC_REDIRECT_URIS}}|$PAM_OIDC_REDIRECT_URIS_YAML|g"
     -e "s|{{PAM_OIDC_SERVICE}}|$PAM_OIDC_SERVICE|g"
+    -e "s|{{PAM_OIDC_ISSUER_URL}}|$PAM_OIDC_ISSUER_URL|g"
   )
   
   # Handle PAM conditional block
