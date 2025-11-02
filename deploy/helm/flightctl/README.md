@@ -317,6 +317,7 @@ For more detailed configuration options, see the [Values](#values) section below
 | global.nodePorts.alertmanagerProxy | int | `8443` | NodePort for Alertmanager proxy service |
 | global.nodePorts.api | int | `3443` | NodePort for Flight Control API service |
 | global.nodePorts.cliArtifacts | int | `8090` | NodePort for CLI artifacts service |
+| global.nodePorts.pamIssuer | int | `8444` | NodePort for PAM OIDC issuer service |
 | global.nodePorts.telemetryGatewayOtlp | int | `4317` | NodePort for OTLP telemetry gateway |
 | global.nodePorts.telemetryGatewayProm | int | `9464` | NodePort for Prometheus telemetry gateway |
 | global.nodePorts.ui | int | `9000` | NodePort for web UI service |
@@ -337,6 +338,15 @@ For more detailed configuration options, see the [Values](#values) section below
 | kv.maxmemory | string | `"1gb"` | Maximum memory usage for Redis |
 | kv.maxmemoryPolicy | string | `"allkeys-lru"` | Redis memory eviction policy |
 | kv.password | string | `""` | Redis password (leave empty for auto-generation) password: Leave empty to auto-generate secure password, or set to use a specific password. |
+| pamIssuer | object | `{"enabled":false,"env":{},"image":{"image":"quay.io/flightctl/flightctl-pam-issuer","pullPolicy":"","tag":""},"probes":{"enabled":true,"livenessPath":"/api/v1/auth/.well-known/openid-configuration","readinessPath":"/api/v1/auth/.well-known/openid-configuration"}}` | PAM OIDC Issuer Configuration |
+| pamIssuer.enabled | bool | `false` | Enable PAM OIDC Issuer service deployment |
+| pamIssuer.env | object | `{}` | Additional environment variables for PAM issuer |
+| pamIssuer.image.image | string | `"quay.io/flightctl/flightctl-pam-issuer"` | PAM issuer container image |
+| pamIssuer.image.pullPolicy | string | `""` | Image pull policy for PAM issuer container |
+| pamIssuer.image.tag | string | `""` | PAM issuer image tag (leave empty to use chart appVersion) |
+| pamIssuer.probes.enabled | bool | `true` | Enable health and readiness probes for PAM issuer |
+| pamIssuer.probes.livenessPath | string | `"/api/v1/auth/.well-known/openid-configuration"` | HTTP path for liveness probe |
+| pamIssuer.probes.readinessPath | string | `"/api/v1/auth/.well-known/openid-configuration"` | HTTP path for readiness probe |
 | periodic | object | `{"consumers":5,"enabled":true,"image":{"image":"quay.io/flightctl/flightctl-periodic","pullPolicy":"","tag":""}}` | Periodic Configuration |
 | periodic.consumers | int | `5` | Number of periodic consumers |
 | periodic.enabled | bool | `true` | Enable Flight Control periodic service |
@@ -346,14 +356,23 @@ For more detailed configuration options, see the [Values](#values) section below
 | prometheus | object | `{"enabled":false}` | Prometheus Configuration |
 | prometheus.enabled | bool | `false` | Enable Prometheus deployment |
 | telemetryGateway | object | `{"enabled":false}` | Telemetry Gateway Configuration |
+| telemetryGateway | object | `{"enabled":false,"migration":{"activeDeadlineSeconds":0,"backoffLimit":2147483647}}` | Telemetry Gateway Configuration |
 | telemetryGateway.enabled | bool | `false` | Enable telemetry gateway service |
+| telemetryGateway.enabled | bool | `false` | Enable telemetry gateway service |
+| telemetryGateway.migration.activeDeadlineSeconds | int | `0` | Maximum runtime in seconds for the migration Job (0 = no deadline) |
+| telemetryGateway.migration.backoffLimit | int | `2147483647` | Number of retries for the migration Job on failure  |
 | ui | object | `{"api":{"insecureSkipTlsVerify":true},"enabled":true}` | UI Configuration |
 | ui.api.insecureSkipTlsVerify | bool | `true` | Skip TLS verification for UI API calls |
 | ui.enabled | bool | `true` | Enable web UI deployment |
 | upgradeHooks | object | `{"databaseMigrationDryRun":true,"scaleDown":{"condition":"chart","deployments":["flightctl-periodic","flightctl-worker"],"timeoutSeconds":120}}` | Upgrade hooks |
+| upgradeHooks | object | `{"databaseMigrationDryRun":true,"scaleDown":{"condition":"chart","deployments":["flightctl-periodic","flightctl-worker"],"timeoutSeconds":120}}` | Upgrade hooks |
+| upgradeHooks.databaseMigrationDryRun | bool | `true` | Enable pre-upgrade DB migration dry-run as a hook |
 | upgradeHooks.databaseMigrationDryRun | bool | `true` | Enable pre-upgrade DB migration dry-run as a hook |
 | upgradeHooks.scaleDown.condition | string | `"chart"` | When to run pre-upgrade scale down job: "always", "never", or "chart" (default). "chart" runs only if helm.sh/chart changed. |
+| upgradeHooks.scaleDown.condition | string | `"chart"` | When to run pre-upgrade scale down job: "always", "never", or "chart" (default). "chart" runs only if helm.sh/chart changed. |
 | upgradeHooks.scaleDown.deployments | list | `["flightctl-periodic","flightctl-worker"]` | List of Deployments to scale down in order |
+| upgradeHooks.scaleDown.deployments | list | `["flightctl-periodic","flightctl-worker"]` | List of Deployments to scale down in order |
+| upgradeHooks.scaleDown.timeoutSeconds | int | `120` | Timeout in seconds to wait for rollout per Deployment |
 | upgradeHooks.scaleDown.timeoutSeconds | int | `120` | Timeout in seconds to wait for rollout per Deployment |
 | worker | object | `{"enableSecretsClusterRoleBinding":true,"enabled":true,"image":{"image":"quay.io/flightctl/flightctl-worker","pullPolicy":"","tag":""}}` | Worker Configuration |
 | worker.enableSecretsClusterRoleBinding | bool | `true` | Enable secrets cluster role binding for worker |

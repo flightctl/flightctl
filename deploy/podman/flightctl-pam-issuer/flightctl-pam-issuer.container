@@ -1,8 +1,8 @@
 [Unit]
 Description=Flight Control PAM OIDC Issuer server
 PartOf=flightctl.target
-After=flightctl-db-wait.service flightctl-db-migrate.service flightctl-kv.service flightctl-pam-issuer-init.service
-Wants=flightctl-db-wait.service flightctl-db-migrate.service flightctl-kv.service flightctl-pam-issuer-init.service
+After=flightctl-pam-issuer-init.service
+Wants=flightctl-pam-issuer-init.service
 
 [Container]
 ContainerName=flightctl-pam-issuer

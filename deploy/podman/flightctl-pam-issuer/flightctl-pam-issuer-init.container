@@ -1,18 +1,17 @@
 [Unit]
 Description=Initialize Flight Control PAM OIDC Issuer configuration
 PartOf=flightctl.target
-After=flightctl-db-wait.service
 
 [Container]
 ContainerName=flightctl-pam-issuer-init
 Image=registry.access.redhat.com/ubi9/ubi-minimal:latest
-Exec=/config-source/init.sh
+Exec=/bin/sh /config-source/init.sh
 PodmanArgs=--replace
 Network=flightctl.network
-Volume=/etc/flightctl/flightctl-pam-issuer/config:/config-destination:rw,z
-Volume=/etc/flightctl/flightctl-pam-issuer-config:/config-source:ro,z
+Volume=/usr/share/flightctl/flightctl-pam-issuer:/config-source:ro,z
+Volume=/usr/share/flightctl/init_utils.sh:/utils/init_utils.sh:ro,z
 Volume=/etc/flightctl/pki:/certs:rw,z
-Volume=/etc/flightctl/init-utils:/utils:ro,z
+Volume=/etc/flightctl/flightctl-pam-issuer:/config-destination:rw,z
 Volume=/etc/flightctl/service-config.yaml:/service-config.yaml:ro,z
 
 [Service]

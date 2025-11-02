@@ -139,6 +139,8 @@ type oidcAuth struct {
 	ExternalOIDCAuthority string `json:"externalOidcAuthority,omitempty"`
 	// Organization assignment configuration
 	OrganizationAssignment api.AuthOrganizationAssignment `json:"organizationAssignment,omitempty"`
+	// OAuth2 scopes to request (e.g., ["openid", "profile", "email", "roles"])
+	Scopes []string `json:"scopes,omitempty"`
 	// Custom claims mapping
 	UsernameClaim *string `json:"usernameClaim,omitempty"` // e.g., "preferred_username", "email"
 	RoleClaim     *string `json:"roleClaim,omitempty"`     // e.g., "groups", "roles"

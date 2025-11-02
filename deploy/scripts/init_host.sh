@@ -16,39 +16,11 @@ write_default_base_domain() {
     sed -i "s/^\(\s*baseDomain\s*\):\s*.*$/\1: ${base_domain}/" "${SERVICE_CONFIG_FILE}"
 }
 
-# Configure PAM authentication for FlightCtl
-configure_pam_auth() {
-    echo "Configuring PAM authentication for FlightCtl..."
-    
-    PAM_CONFIG_FILE="/etc/pam.d/flightctl"
-    
-    # Check if already configured
-    if [ -f "$PAM_CONFIG_FILE" ]; then
-        echo "✓ PAM configuration already exists: $PAM_CONFIG_FILE"
-        return 0
-    fi
-    
-    # Create service-specific PAM config that includes system-auth
-    # This follows the standard pattern used by other services (e.g., cups, vsftpd)
-    echo "Creating FlightCtl PAM configuration..."
-    cat > "$PAM_CONFIG_FILE" << 'EOF'
-#%PAM-1.0
-# FlightCtl PAM configuration
-# Includes the standard RHEL authentication stack (system-auth)
-# This automatically supports any system-configured authentication backend
-auth       include      system-auth
-account    include      system-auth
-password   include      system-auth
-session    include      system-auth
-EOF
-
-    chmod 644 "$PAM_CONFIG_FILE"
-    chown root:root "$PAM_CONFIG_FILE"
-    
-    echo "✓ PAM authentication configured successfully"
-    echo "  Config file: $PAM_CONFIG_FILE"
-    echo "  Uses standard RHEL authentication stack (system-auth)"
-}
+# Note: PAM configuration (/etc/pam.d/flightctl) is baked into the
+# flightctl-pam-issuer container image, not configured on the host.
+# Service configuration transformation from service-config.yaml to
+# /etc/flightctl/flightctl-pam-issuer/config.yaml is handled by the
+# flightctl-pam-issuer-init container.
 
 main() {
     echo "Configuring Flight Control"
@@ -66,11 +38,8 @@ main() {
     auth_type=$(extract_value "global.auth.type" "$SERVICE_CONFIG_FILE")
     pam_enabled=$(extract_value "global.auth.pamOidcIssuer.enabled" "$SERVICE_CONFIG_FILE")
     
-    if [[ "$auth_type" == "oidc" ]] && [[ "$pam_enabled" == "true" ]]; then
-        configure_pam_auth
-    else
-        echo "PAM OIDC not enabled (auth.type=$auth_type, pamOidcIssuer.enabled=$pam_enabled) - skipping PAM configuration"
-    fi
+    # PAM configuration is baked into the flightctl-pam-issuer container image
+    # No host-level PAM configuration needed
 
     echo "Configuration complete"
 }

@@ -23,7 +23,7 @@ if [ ! -f "$SERVICE_CONFIG_FILE" ]; then
 fi
 
 # Extract values
-BASE_DOMAIN=$(extract_value "baseDomain" "$SERVICE_CONFIG_FILE")
+BASE_DOMAIN=$(extract_value "global.baseDomain" "$SERVICE_CONFIG_FILE")
 SRV_CERT_FILE=""
 SRV_KEY_FILE=""
 
@@ -94,8 +94,8 @@ DB_NAME=${DB_NAME:-flightctl}
 DB_USER=${DB_USER:-admin}
 
 # Extract auth-related values
-AUTH_TYPE=$(extract_value "type" "$SERVICE_CONFIG_FILE" | head -1)
-INSECURE_SKIP_TLS_VERIFY=$(extract_value "insecureSkipTlsVerify" "$SERVICE_CONFIG_FILE" | head -1)
+AUTH_TYPE=$(extract_value "global.auth.type" "$SERVICE_CONFIG_FILE" | head -1)
+INSECURE_SKIP_TLS_VERIFY=$(extract_value "global.auth.insecureSkipTlsVerify" "$SERVICE_CONFIG_FILE" | head -1)
 AUTH_CA_CERT=""
 AAP_API_URL=""
 AAP_EXTERNAL_API_URL=""
@@ -172,14 +172,14 @@ elif [ "$AUTH_TYPE" == "oidc" ]; then
   OIDC_ROLE_CLAIM=${OIDC_ROLE_CLAIM:-groups}
 
   # Extract PAM OIDC Issuer configuration (under global.auth.pamOidcIssuer)
-  # Use grep to find values in the pamOidcIssuer section
-  PAM_OIDC_ISSUER_ENABLED=$(grep -A 20 "pamOidcIssuer:" "$SERVICE_CONFIG_FILE" | grep "enabled:" | head -1 | sed 's/.*enabled:[[:space:]]*\(.*\)/\1/' | sed 's/[[:space:]]*$//')
-  PAM_OIDC_ISSUER=$(grep -A 20 "pamOidcIssuer:" "$SERVICE_CONFIG_FILE" | grep "issuer:" | head -1 | sed 's/.*issuer:[[:space:]]*\(.*\)/\1/' | sed 's/[[:space:]]*$//')
-  PAM_OIDC_CLIENT_ID=$(grep -A 20 "pamOidcIssuer:" "$SERVICE_CONFIG_FILE" | grep "clientId:" | head -1 | sed 's/.*clientId:[[:space:]]*\(.*\)/\1/' | sed 's/[[:space:]]*$//')
-  PAM_OIDC_CLIENT_SECRET=$(grep -A 20 "pamOidcIssuer:" "$SERVICE_CONFIG_FILE" | grep "clientSecret:" | head -1 | sed 's/.*clientSecret:[[:space:]]*\(.*\)/\1/' | sed 's/[[:space:]]*$//')
-  PAM_OIDC_SCOPES=$(grep -A 20 "pamOidcIssuer:" "$SERVICE_CONFIG_FILE" | grep "scopes:" | head -1 | sed 's/.*scopes:[[:space:]]*\(.*\)/\1/' | sed 's/[[:space:]]*$//')
-  PAM_OIDC_REDIRECT_URIS=$(grep -A 20 "pamOidcIssuer:" "$SERVICE_CONFIG_FILE" | grep "redirectUris:" | head -1 | sed 's/.*redirectUris:[[:space:]]*\(.*\)/\1/' | sed 's/[[:space:]]*$//')
-  PAM_OIDC_SERVICE=$(grep -A 20 "pamOidcIssuer:" "$SERVICE_CONFIG_FILE" | grep "pamService:" | head -1 | sed 's/.*pamService:[[:space:]]*\(.*\)/\1/' | sed 's/[[:space:]]*$//')
+  # Use grep to find values in the pamOidcIssuer section, stripping comments
+  PAM_OIDC_ISSUER_ENABLED=$(grep -A 20 "pamOidcIssuer:" "$SERVICE_CONFIG_FILE" | grep "enabled:" | head -1 | sed 's/.*enabled:[[:space:]]*\(.*\)/\1/' | sed 's/#.*$//' | sed 's/[[:space:]]*$//')
+  PAM_OIDC_ISSUER=$(grep -A 20 "pamOidcIssuer:" "$SERVICE_CONFIG_FILE" | grep "issuer:" | head -1 | sed 's/.*issuer:[[:space:]]*\(.*\)/\1/' | sed 's/#.*$//' | sed 's/[[:space:]]*$//')
+  PAM_OIDC_CLIENT_ID=$(grep -A 20 "pamOidcIssuer:" "$SERVICE_CONFIG_FILE" | grep "clientId:" | head -1 | sed 's/.*clientId:[[:space:]]*\(.*\)/\1/' | sed 's/#.*$//' | sed 's/[[:space:]]*$//')
+  PAM_OIDC_CLIENT_SECRET=$(grep -A 20 "pamOidcIssuer:" "$SERVICE_CONFIG_FILE" | grep "clientSecret:" | head -1 | sed 's/.*clientSecret:[[:space:]]*\(.*\)/\1/' | sed 's/#.*$//' | sed 's/[[:space:]]*$//')
+  PAM_OIDC_SCOPES=$(grep -A 20 "pamOidcIssuer:" "$SERVICE_CONFIG_FILE" | grep "scopes:" | head -1 | sed 's/.*scopes:[[:space:]]*\(.*\)/\1/' | sed 's/#.*$//' | sed 's/[[:space:]]*$//')
+  PAM_OIDC_REDIRECT_URIS=$(grep -A 20 "pamOidcIssuer:" "$SERVICE_CONFIG_FILE" | grep "redirectUris:" | head -1 | sed 's/.*redirectUris:[[:space:]]*\(.*\)/\1/' | sed 's/#.*$//' | sed 's/[[:space:]]*$//')
+  PAM_OIDC_SERVICE=$(grep -A 20 "pamOidcIssuer:" "$SERVICE_CONFIG_FILE" | grep "pamService:" | head -1 | sed 's/.*pamService:[[:space:]]*\(.*\)/\1/' | sed 's/#.*$//' | sed 's/[[:space:]]*$//')
 
   # Set defaults for PAM
   PAM_OIDC_ISSUER_ENABLED=${PAM_OIDC_ISSUER_ENABLED:-true}
@@ -189,7 +189,7 @@ elif [ "$AUTH_TYPE" == "oidc" ]; then
   
   # Set PAM OIDC issuer URL for API server to connect to
   # This is the URL where the PAM issuer service is accessible
-  PAM_OIDC_ISSUER_URL=${PAM_OIDC_ISSUER:-"https://${BASE_DOMAIN}:8444"}
+  PAM_OIDC_ISSUER_URL=${PAM_OIDC_ISSUER:-"https://${BASE_DOMAIN}:8444/api/v1/auth"}
   
   # Default redirect URI if not specified
   if [ -z "$PAM_OIDC_REDIRECT_URIS" ]; then

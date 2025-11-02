@@ -187,6 +187,8 @@ func (s *PAMOIDCProvider) handleRefreshTokenGrant(ctx context.Context, req *pama
 		UID:           identity.GetUID(),
 		Organizations: organizations,
 		Roles:         roles,
+		Audience:      []string{s.config.ClientID}, // Set audience to client ID
+		Issuer:        s.config.Issuer,             // Set issuer
 	}
 	// Generate new access token with proper expiry (1 hour)
 	accessToken, err := s.jwtGenerator.GenerateTokenWithType(tokenGenerationRequest, time.Hour, "access_token")
@@ -272,6 +274,8 @@ func (s *PAMOIDCProvider) handleAuthorizationCodeGrant(ctx context.Context, req 
 		UID:           codeData.Username,
 		Organizations: organizations,
 		Roles:         roles,
+		Audience:      []string{codeData.ClientID}, // Set audience to client ID from authorization request
+		Issuer:        s.config.Issuer,             // Set issuer
 	}
 	// Generate access token with proper expiry (1 hour)
 	accessToken, err := s.jwtGenerator.GenerateTokenWithType(tokenGenerationRequest, time.Hour, "access_token")
@@ -835,10 +839,10 @@ func (s *PAMOIDCProvider) GetOpenIDConfiguration() (*pamapi.OpenIDConfiguration,
 		}
 	}
 
-	authzEndpoint := issuer + "/api/v1/auth/authorize"
-	tokenEndpoint := issuer + "/api/v1/auth/token"
-	userinfoEndpoint := issuer + "/api/v1/auth/userinfo"
-	jwksURI := issuer + "/api/v1/auth/jwks"
+	authzEndpoint := issuer + "/authorize"
+	tokenEndpoint := issuer + "/token"
+	userinfoEndpoint := issuer + "/userinfo"
+	jwksURI := issuer + "/jwks"
 	claimsSupported := []string{"sub", "preferred_username", "name", "email", "email_verified", "roles", "organizations"}
 
 	// Determine supported client authentication methods based on configuration

@@ -411,3 +411,28 @@ upgradeHooks:
 telemetryGateway:
   # -- Enable telemetry gateway service
   enabled: false
+
+  migration:
+    # -- Number of retries for the migration Job on failure 
+    backoffLimit: 2147483647
+    # -- Maximum runtime in seconds for the migration Job (0 = no deadline)
+    activeDeadlineSeconds: 0
+
+# -- Upgrade hooks
+upgradeHooks:
+  scaleDown:
+    # -- When to run pre-upgrade scale down job: "always", "never", or "chart" (default). "chart" runs only if helm.sh/chart changed.
+    condition: chart
+    # -- List of Deployments to scale down in order
+    deployments:
+      - flightctl-periodic
+      - flightctl-worker
+    # -- Timeout in seconds to wait for rollout per Deployment
+    timeoutSeconds: 120
+  # -- Enable pre-upgrade DB migration dry-run as a hook
+  databaseMigrationDryRun: true
+
+# -- Telemetry Gateway Configuration
+telemetryGateway:
+  # -- Enable telemetry gateway service
+  enabled: false

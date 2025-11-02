@@ -22,7 +22,7 @@ if [ ! -f "$SERVICE_CONFIG_FILE" ]; then
 fi
 
 # Extract base values from service-config.yaml
-BASE_DOMAIN=$(extract_value "baseDomain" "$SERVICE_CONFIG_FILE")
+BASE_DOMAIN=$(extract_value "global.baseDomain" "$SERVICE_CONFIG_FILE")
 
 # Extract auth-related values
 AUTH_TYPE=$(extract_value "type" "$SERVICE_CONFIG_FILE")

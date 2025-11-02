@@ -1,0 +1,45 @@
+database:
+  hostname: {{DB_HOSTNAME}}
+  type: pgsql
+  port: {{DB_PORT}}
+  name: {{DB_NAME}}
+  user: {{DB_USER}}{{DB_SSL_CONFIG}}
+service:
+  baseUrl: https://{{BASE_DOMAIN}}:3443/
+  baseAgentEndpointUrl: https://{{BASE_DOMAIN}}:7443/
+  baseUIUrl: https://{{BASE_DOMAIN}}:443
+kv:
+  hostname: flightctl-kv
+  port: 6379
+auth:
+  pamOidcIssuer:
+    address: ":8444"
+    issuer: {{PAM_OIDC_ISSUER}}
+    clientId: {{PAM_OIDC_CLIENT_ID}}
+    clientSecret: {{PAM_OIDC_CLIENT_SECRET}}
+    scopes: {{PAM_OIDC_SCOPES}}
+    redirectUris: {{PAM_OIDC_REDIRECT_URIS}}
+    pamService: {{PAM_OIDC_SERVICE}}
+
+
+  type: pgsql
+  port: {{DB_PORT}}
+  name: {{DB_NAME}}
+  user: {{DB_USER}}{{DB_SSL_CONFIG}}
+service:
+  baseUrl: https://{{BASE_DOMAIN}}:3443/
+  baseAgentEndpointUrl: https://{{BASE_DOMAIN}}:7443/
+  baseUIUrl: https://{{BASE_DOMAIN}}:443
+kv:
+  hostname: flightctl-kv
+  port: 6379
+auth:
+  pamOidcIssuer:
+    address: ":8444"
+    issuer: {{PAM_OIDC_ISSUER}}
+    clientId: {{PAM_OIDC_CLIENT_ID}}
+    clientSecret: {{PAM_OIDC_CLIENT_SECRET}}
+    scopes: {{PAM_OIDC_SCOPES}}
+    redirectUris: {{PAM_OIDC_REDIRECT_URIS}}
+    pamService: {{PAM_OIDC_SERVICE}}
+

@@ -301,26 +301,33 @@ components:
           description: OAuth2 grant type.
         username:
           type: string
-          description: Username for password grant.
+          nullable: true
+          description: Username for password grant (not used in OIDC flows).
         password:
           type: string
-          description: Password for password grant.
+          nullable: true
+          description: Password for password grant (not used in OIDC flows).
           writeOnly: true
         refresh_token:
           type: string
+          nullable: true
           description: Refresh token for refresh_token grant.
         code:
           type: string
+          nullable: true
           description: Authorization code for authorization_code grant.
         client_id:
           type: string
+          nullable: true
           description: OAuth2 client ID.
         client_secret:
           type: string
-          description: OAuth2 client secret.
+          nullable: true
+          description: OAuth2 client secret (optional for public clients).
           writeOnly: true
         scope:
           type: string
+          nullable: true
           description: OAuth2 scope.
       description: OAuth2 token request
     TokenResponse:
@@ -400,10 +407,19 @@ components:
                 description: Algorithm.
               n:
                 type: string
-                description: RSA modulus.
+                description: RSA modulus (for RSA keys).
               e:
                 type: string
-                description: RSA exponent.
+                description: RSA exponent (for RSA keys).
+              crv:
+                type: string
+                description: Elliptic curve name (for EC keys, e.g., "P-256").
+              x:
+                type: string
+                description: EC x-coordinate (for EC keys).
+              y:
+                type: string
+                description: EC y-coordinate (for EC keys).
       description: JSON Web Key Set
     OpenIDConfiguration:
       type: object

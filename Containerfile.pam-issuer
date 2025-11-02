@@ -95,9 +95,9 @@ exec ./flightctl-pam-issuer\n\
 
 COPY --from=build /app/bin/flightctl-pam-issuer .
 
-# Declare volumes for user database persistence
-# Note: The quadlet file overrides these with named volumes
-VOLUME ["/etc/passwd", "/etc/shadow", "/etc/group"]
+# Note: User database files (/etc/passwd, /etc/shadow, /etc/group) are managed
+# inside the container. For persistence across container restarts, mount them
+# as volumes in the quadlet file if needed.
 
 ENTRYPOINT ["/bin/sh", "/entrypoint.sh"]
 

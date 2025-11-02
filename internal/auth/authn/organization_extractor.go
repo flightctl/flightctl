@@ -39,8 +39,9 @@ func (e *OrganizationExtractor) ExtractOrganizations(claims map[string]interface
 		// Dynamic assignment: extract from claim and apply prefix/suffix
 		if assignment.ClaimPath != nil && *assignment.ClaimPath != "" {
 			if orgValue, exists := e.getValueByPath(claims, *assignment.ClaimPath); exists {
+				// Handle both string and array values
 				if orgStr, ok := orgValue.(string); ok && orgStr != "" {
-					// Apply prefix and suffix if configured
+					// Single string value
 					orgName := orgStr
 					if assignment.OrganizationNamePrefix != nil && *assignment.OrganizationNamePrefix != "" {
 						orgName = *assignment.OrganizationNamePrefix + orgName
@@ -49,6 +50,20 @@ func (e *OrganizationExtractor) ExtractOrganizations(claims map[string]interface
 						orgName = orgName + *assignment.OrganizationNameSuffix
 					}
 					organizations = append(organizations, orgName)
+				} else if orgArray, ok := orgValue.([]interface{}); ok {
+					// Array of values
+					for _, item := range orgArray {
+						if orgStr, ok := item.(string); ok && orgStr != "" {
+							orgName := orgStr
+							if assignment.OrganizationNamePrefix != nil && *assignment.OrganizationNamePrefix != "" {
+								orgName = *assignment.OrganizationNamePrefix + orgName
+							}
+							if assignment.OrganizationNameSuffix != nil && *assignment.OrganizationNameSuffix != "" {
+								orgName = orgName + *assignment.OrganizationNameSuffix
+							}
+							organizations = append(organizations, orgName)
+						}
+					}
 				}
 			}
 		}

@@ -161,6 +161,8 @@ type TokenGenerationRequest struct {
 	UID           string
 	Organizations []string
 	Roles         []string
+	Audience      []string // JWT audience claim (aud)
+	Issuer        string   // JWT issuer claim (iss)
 }
 
 // GenerateTokenWithType creates a JWT token for the given identity with a specific token type
@@ -182,6 +184,18 @@ func (g *JWTGenerator) GenerateTokenWithType(request TokenGenerationRequest, exp
 	}
 	if err := token.Set(jwt.NotBeforeKey, now.Unix()); err != nil {
 		return "", fmt.Errorf("failed to set not before: %w", err)
+	}
+	// Set audience claim if provided
+	if len(request.Audience) > 0 {
+		if err := token.Set(jwt.AudienceKey, request.Audience); err != nil {
+			return "", fmt.Errorf("failed to set audience: %w", err)
+		}
+	}
+	// Set issuer claim if provided
+	if request.Issuer != "" {
+		if err := token.Set(jwt.IssuerKey, request.Issuer); err != nil {
+			return "", fmt.Errorf("failed to set issuer: %w", err)
+		}
 	}
 
 	// Set custom claims
@@ -340,17 +354,19 @@ func (g *JWTGenerator) GetJWKS() (*pamapi.JWKSResponse, error) {
 		return nil, fmt.Errorf("failed to unmarshal JWK to map: %w", err)
 	}
 
-	// Build the JWK struct matching the API type
-	// Note: The API type currently only includes RSA fields (E, N)
-	// EC key fields (X, Y, Crv) are in jwkMap but not exposed in the API type
+	// Build the JWK struct matching the API type, including both RSA and EC fields
+	// Fields must be in alphabetical order to match generated type
 	use := "sig"
 	key := struct {
 		Alg *string `json:"alg,omitempty"`
+		Crv *string `json:"crv,omitempty"` // EC curve (e.g., "P-256")
 		E   *string `json:"e,omitempty"`
 		Kid *string `json:"kid,omitempty"`
 		Kty *string `json:"kty,omitempty"`
 		N   *string `json:"n,omitempty"`
 		Use *string `json:"use,omitempty"`
+		X   *string `json:"x,omitempty"` // EC x-coordinate
+		Y   *string `json:"y,omitempty"` // EC y-coordinate
 	}{
 		Alg: &alg,
 		Kid: &g.keyID,
@@ -366,13 +382,27 @@ func (g *JWTGenerator) GetJWKS() (*pamapi.JWKSResponse, error) {
 		key.N = &n
 	}
 
+	// Extract EC-specific fields
+	if crv, ok := jwkMap["crv"].(string); ok {
+		key.Crv = &crv
+	}
+	if x, ok := jwkMap["x"].(string); ok {
+		key.X = &x
+	}
+	if y, ok := jwkMap["y"].(string); ok {
+		key.Y = &y
+	}
+
 	keys := []struct {
 		Alg *string `json:"alg,omitempty"`
+		Crv *string `json:"crv,omitempty"` // EC curve
 		E   *string `json:"e,omitempty"`
 		Kid *string `json:"kid,omitempty"`
 		Kty *string `json:"kty,omitempty"`
 		N   *string `json:"n,omitempty"`
 		Use *string `json:"use,omitempty"`
+		X   *string `json:"x,omitempty"` // EC x-coordinate
+		Y   *string `json:"y,omitempty"` // EC y-coordinate
 	}{key}
 
 	return &pamapi.JWKSResponse{

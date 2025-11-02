@@ -30,7 +30,10 @@ type JWKSResponse struct {
 		// Alg Algorithm.
 		Alg *string `json:"alg,omitempty"`
 
-		// E RSA exponent.
+		// Crv Elliptic curve name (for EC keys, e.g., "P-256").
+		Crv *string `json:"crv,omitempty"`
+
+		// E RSA exponent (for RSA keys).
 		E *string `json:"e,omitempty"`
 
 		// Kid Key ID.
@@ -39,11 +42,17 @@ type JWKSResponse struct {
 		// Kty Key type.
 		Kty *string `json:"kty,omitempty"`
 
-		// N RSA modulus.
+		// N RSA modulus (for RSA keys).
 		N *string `json:"n,omitempty"`
 
 		// Use Key use.
 		Use *string `json:"use,omitempty"`
+
+		// X EC x-coordinate (for EC keys).
+		X *string `json:"x,omitempty"`
+
+		// Y EC y-coordinate (for EC keys).
+		Y *string `json:"y,omitempty"`
 	} `json:"keys,omitempty"`
 }
 
@@ -107,28 +116,28 @@ type Status struct {
 // TokenRequest OAuth2 token request
 type TokenRequest struct {
 	// ClientId OAuth2 client ID.
-	ClientId *string `json:"client_id,omitempty"`
+	ClientId *string `json:"client_id"`
 
-	// ClientSecret OAuth2 client secret.
-	ClientSecret *string `json:"client_secret,omitempty"`
+	// ClientSecret OAuth2 client secret (optional for public clients).
+	ClientSecret *string `json:"client_secret"`
 
 	// Code Authorization code for authorization_code grant.
-	Code *string `json:"code,omitempty"`
+	Code *string `json:"code"`
 
 	// GrantType OAuth2 grant type.
 	GrantType TokenRequestGrantType `json:"grant_type"`
 
-	// Password Password for password grant.
-	Password *string `json:"password,omitempty"`
+	// Password Password for password grant (not used in OIDC flows).
+	Password *string `json:"password"`
 
 	// RefreshToken Refresh token for refresh_token grant.
-	RefreshToken *string `json:"refresh_token,omitempty"`
+	RefreshToken *string `json:"refresh_token"`
 
 	// Scope OAuth2 scope.
-	Scope *string `json:"scope,omitempty"`
+	Scope *string `json:"scope"`
 
-	// Username Username for password grant.
-	Username *string `json:"username,omitempty"`
+	// Username Username for password grant (not used in OIDC flows).
+	Username *string `json:"username"`
 }
 
 // TokenRequestGrantType OAuth2 grant type.

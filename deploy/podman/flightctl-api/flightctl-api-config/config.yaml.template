@@ -34,25 +34,21 @@ auth:
     externalApiUrl: {{AAP_EXTERNAL_API_URL}}
   {{endif AAP}}
   {{if OIDC}}
+  {{if PAM_OIDC_ISSUER_ENABLED}}
   oidc:
-    - clientId: {{OIDC_CLIENT_ID}}
-      enabled: {{OIDC_ENABLED}}
-      issuer: {{OIDC_ISSUER}}
-      externalOidcAuthority: {{OIDC_EXTERNAL_AUTHORITY}}
-      organizationAssignment:
-        type: {{OIDC_ORG_ASSIGNMENT_TYPE}}
-        organizationName: {{OIDC_ORG_NAME}}
-      usernameClaim: {{OIDC_USERNAME_CLAIM}}
-      roleClaim: {{OIDC_ROLE_CLAIM}}
-    {{if PAM_OIDC_ISSUER_ENABLED}}
-    - clientId: {{PAM_OIDC_CLIENT_ID}}
-      enabled: true
-      issuer: {{PAM_OIDC_ISSUER_URL}}
-      externalOidcAuthority: {{PAM_OIDC_ISSUER_URL}}
-      organizationAssignment:
-        type: {{OIDC_ORG_ASSIGNMENT_TYPE}}
-        organizationName: {{OIDC_ORG_NAME}}
-      usernameClaim: preferred_username
-      roleClaim: roles
-    {{endif PAM_OIDC_ISSUER_ENABLED}}
+    clientId: {{PAM_OIDC_CLIENT_ID}}
+    enabled: true
+    issuer: {{PAM_OIDC_ISSUER_URL}}
+    externalOidcAuthority: {{PAM_OIDC_ISSUER_URL}}
+    scopes:
+      - openid
+      - profile
+      - email
+      - roles
+    organizationAssignment:
+      type: {{OIDC_ORG_ASSIGNMENT_TYPE}}
+      organizationName: {{OIDC_ORG_NAME}}
+    usernameClaim: preferred_username
+    roleClaim: roles
+  {{endif PAM_OIDC_ISSUER_ENABLED}}
   {{endif OIDC}}
