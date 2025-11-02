@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/org"
 	"github.com/spf13/cobra"
@@ -169,7 +170,9 @@ func (o *ConfigOptions) getOrganizationDisplayName(ctx context.Context, organiza
 		return "", fmt.Errorf("failed to create API client: %w", err)
 	}
 
-	response, err := c.ListOrganizationsWithResponse(ctx)
+	field := fmt.Sprintf("metadata.name=%s", organizationId)
+	params := api.ListOrganizationsParams{FieldSelector: &field}
+	response, err := c.ListOrganizationsWithResponse(ctx, &params)
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch organizations: %w", err)
 	}

@@ -58,7 +58,7 @@ func (h *ServiceHandler) PrepareDevicesAfterRestore(ctx context.Context) error {
 	}
 
 	// 4. Add awaiting reconnection keys for all devices across all organizations
-	organizations, err := h.store.Organization().List(ctx)
+	organizations, err := h.store.Organization().List(ctx, store.ListParams{})
 	if err != nil {
 		h.log.WithError(err).Error("Failed to get organizations for awaiting reconnection keys")
 		return fmt.Errorf("failed to get organizations for awaiting reconnection keys: %w", err)

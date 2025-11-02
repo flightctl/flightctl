@@ -157,7 +157,7 @@ type ServerInterface interface {
 	ListLabels(w http.ResponseWriter, r *http.Request, params ListLabelsParams)
 	// List organizations
 	// (GET /api/v1/organizations)
-	ListOrganizations(w http.ResponseWriter, r *http.Request)
+	ListOrganizations(w http.ResponseWriter, r *http.Request, params ListOrganizationsParams)
 
 	// (GET /api/v1/repositories)
 	ListRepositories(w http.ResponseWriter, r *http.Request, params ListRepositoriesParams)
@@ -440,7 +440,7 @@ func (_ Unimplemented) ListLabels(w http.ResponseWriter, r *http.Request, params
 
 // List organizations
 // (GET /api/v1/organizations)
-func (_ Unimplemented) ListOrganizations(w http.ResponseWriter, r *http.Request) {
+func (_ Unimplemented) ListOrganizations(w http.ResponseWriter, r *http.Request, params ListOrganizationsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1949,8 +1949,37 @@ func (siw *ServerInterfaceWrapper) ListLabels(w http.ResponseWriter, r *http.Req
 func (siw *ServerInterfaceWrapper) ListOrganizations(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
+	var err error
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListOrganizationsParams
+
+	// ------------- Optional query parameter "continue" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "continue", r.URL.Query(), &params.Continue)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "continue", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "fieldSelector" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "fieldSelector", r.URL.Query(), &params.FieldSelector)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "fieldSelector", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "limit", r.URL.Query(), &params.Limit)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListOrganizations(w, r)
+		siw.Handler.ListOrganizations(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
