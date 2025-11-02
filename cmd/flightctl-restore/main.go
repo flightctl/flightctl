@@ -6,7 +6,7 @@ import (
 	"os"
 
 	"github.com/flightctl/flightctl/internal/config"
-	"github.com/flightctl/flightctl/internal/instrumentation"
+	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/org/cache"
 	"github.com/flightctl/flightctl/internal/org/resolvers"
@@ -82,7 +82,7 @@ func runRestore(ctx context.Context) error {
 	}
 	log.SetLevel(logLvl)
 
-	tracerShutdown := instrumentation.InitTracer(log, cfg, "flightctl-restore")
+	tracerShutdown := tracing.InitTracer(log, cfg, "flightctl-restore")
 	defer func() {
 		if err := tracerShutdown(ctx); err != nil {
 			log.Fatalf("failed to shut down tracer: %v", err)

@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/flightctl/flightctl/internal/config"
-	"github.com/flightctl/flightctl/internal/instrumentation"
+	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	periodic "github.com/flightctl/flightctl/internal/periodic_checker"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -29,7 +29,7 @@ func main() {
 	}
 	log.SetLevel(logLvl)
 
-	tracerShutdown := instrumentation.InitTracer(log, cfg, "flightctl-periodic")
+	tracerShutdown := tracing.InitTracer(log, cfg, "flightctl-periodic")
 	defer func() {
 		if err := tracerShutdown(ctx); err != nil {
 			log.Fatalf("failed to shut down tracer: %v", err)
