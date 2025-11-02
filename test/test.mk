@@ -83,34 +83,38 @@ _wait_for_db:
 	  done' || { echo "ERROR: Database did not become ready within 60s"; exit 1; }
 
 _run_template_migration:
-	@MIGRATION_IMAGE="$(MIGRATION_IMAGE)" bash -euo pipefail -c '\
-	  echo "Template strategy: resolving migration image..."; \
-	  if [ -n "$$MIGRATION_IMAGE" ]; then \
+	@INITIAL_MIGRATION_IMAGE="$(INITIAL_MIGRATION_IMAGE)" EXPAND_MIGRATION_IMAGE="$(EXPAND_MIGRATION_IMAGE)" bash -euo pipefail -c '\
+	  echo "Template strategy: resolving migration strategy..."; \
+	  if [ -n "$$EXPAND_MIGRATION_IMAGE" ]; then \
 	    echo "##################################################"; \
-	    echo "Using provided migration image: $$MIGRATION_IMAGE"; \
+	    echo "Two-phase migration detected:"; \
+	    echo "  Initial: $$INITIAL_MIGRATION_IMAGE"; \
+	    echo "  Expand:  $$EXPAND_MIGRATION_IMAGE"; \
 	    echo "##################################################"; \
-	    if ! sudo podman image exists "$$MIGRATION_IMAGE"; then \
-	      echo "Image not found locally; attempting to pull..."; \
-	      if ! sudo podman pull "$$MIGRATION_IMAGE"; then \
-	        echo "Error: failed to pull $$MIGRATION_IMAGE" >&2; exit 1; \
-	      fi; \
-	    fi; \
-	    img="$$MIGRATION_IMAGE"; \
+	    echo "Running initial migration..."; \
+	    sudo -E env MIGRATION_IMAGE="$$INITIAL_MIGRATION_IMAGE" MIGRATION_PHASE=initial \
+	      test/scripts/run_migration.sh; \
+	    echo "##################################################"; \
+	    echo "Running expand migration and creating template database..."; \
+	    sudo -E env MIGRATION_IMAGE="$$EXPAND_MIGRATION_IMAGE" MIGRATION_PHASE=expand CREATE_TEMPLATE=true \
+	      test/scripts/run_migration.sh; \
 	  else \
-	    echo "##################################################"; \
-	    echo "No MIGRATION_IMAGE provided; building a fresh one ..."; \
-	    echo "##################################################"; \
-	    $(MAKE) --no-print-directory -B flightctl-db-setup-container; \
-	    img="flightctl-db-setup:latest"; \
-	    if ! sudo podman image exists "$$img"; then \
-	      echo "Error: build did not produce $$img" >&2; exit 1; \
+	    if [ -n "$$INITIAL_MIGRATION_IMAGE" ]; then \
+	      echo "##################################################"; \
+	      echo "Single migration mode using: $$INITIAL_MIGRATION_IMAGE"; \
+	      echo "##################################################"; \
+	      img="$$INITIAL_MIGRATION_IMAGE"; \
+	    else \
+	      echo "##################################################"; \
+	      echo "No migration image provided; building a fresh one ..."; \
+	      echo "##################################################"; \
+	      $(MAKE) --no-print-directory -B flightctl-db-setup-container; \
+	      img="flightctl-db-setup:latest"; \
 	    fi; \
-	  fi; \
-	  echo "##################################################"; \
-	  echo "Running database migration & template creation using: $$img"; \
-	  echo "##################################################"; \
-	  sudo -E env MIGRATION_IMAGE="$$img" CREATE_TEMPLATE=true \
-    test/scripts/run_migration.sh \
+	    echo "Running initial migration & template creation using: $$img"; \
+	    sudo -E env MIGRATION_IMAGE="$$img" MIGRATION_PHASE=initial CREATE_TEMPLATE=true \
+	      test/scripts/run_migration.sh; \
+	  fi \
 	'
 
 deploy-e2e-extras: bin/.ssh/id_rsa.pub bin/e2e-certs/ca.pem git-server-container

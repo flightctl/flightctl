@@ -38,21 +38,21 @@ jobs:
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         uses: ./.github/actions/setup-dependencies
 
-      - name: Build db-migrator image
+      - name: Build db-migrator image (expand)
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         run: |
           set -euo pipefail
           # Get the current commit SHA for tagging
           COMMIT_SHA="${{ github.sha }}"
-          echo "Building db-migrator image tagged with commit: ${COMMIT_SHA}"
+          echo "Building expand migration image tagged with commit: ${COMMIT_SHA}"
 
           # Build the db-setup container with commit tag
           sudo make flightctl-db-setup-container
 
-          # Tag the image with the commit SHA
+          # Tag the image with commit SHA
           sudo podman tag flightctl-db-setup:latest "flightctl-db-setup:${COMMIT_SHA}"
 
-          echo "MIGRATION_IMAGE=flightctl-db-setup:${COMMIT_SHA}" >> "$GITHUB_ENV"
+          echo "EXPAND_MIGRATION_IMAGE=flightctl-db-setup:${COMMIT_SHA}" >> "$GITHUB_ENV"
 
       - name: Running integration tests
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
@@ -61,6 +61,7 @@ jobs:
         env:
           DISABLE_FIPS: true
           FLIGHTCTL_TEST_DB_STRATEGY: template
+          INITIAL_MIGRATION_IMAGE: ${{ env.EXPAND_MIGRATION_IMAGE }}
 
       - name: Detect baseline for compatibility testing
         if: ${{ steps.changed-files.outputs.any_changed == 'true' && github.event_name == 'pull_request' }}
@@ -112,9 +113,26 @@ jobs:
           echo "- Subject: $(git log -1 --pretty=%s)"
           echo "- Tags: $(git tag --points-at HEAD | tr '\n' ' ' || true)"
           echo
-          echo "### Migration image"
+          echo "### Migration images"
           echo
-          echo "- MIGRATION_IMAGE: ${MIGRATION_IMAGE}"
+          echo "- EXPAND_MIGRATION_IMAGE: ${EXPAND_MIGRATION_IMAGE}"
+
+      - name: Build db-migrator image (initial)
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' && github.event_name == 'pull_request' }}
+        run: |
+          set -euo pipefail
+          # Get the baseline commit SHA for tagging
+          BASELINE_SHA="$(git rev-parse HEAD)"
+          echo "Building initial migration image from baseline commit: ${BASELINE_SHA}"
+
+          # Build the db-setup container from baseline code
+          sudo make flightctl-db-setup-container
+
+          # Tag the image with baseline SHA
+          sudo podman tag flightctl-db-setup:latest "flightctl-db-setup:${BASELINE_SHA}"
+
+          echo "INITIAL_MIGRATION_IMAGE=flightctl-db-setup:${BASELINE_SHA}" >> "$GITHUB_ENV"
+          echo "- INITIAL_MIGRATION_IMAGE: flightctl-db-setup:${BASELINE_SHA}"
 
       - name: Running backward compatibility tests in template mode
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
@@ -123,4 +141,6 @@ jobs:
         env:
           DISABLE_FIPS: true
           FLIGHTCTL_TEST_DB_STRATEGY: template
+          INITIAL_MIGRATION_IMAGE: ${{ env.INITIAL_MIGRATION_IMAGE }}
+          EXPAND_MIGRATION_IMAGE: ${{ env.EXPAND_MIGRATION_IMAGE }}
 
