@@ -147,7 +147,7 @@ jobs:
       # Temporarily disabled backward compatibility tests
       # TODO: Re-enable after fixing schema migration issues
       - name: Running backward compatibility tests in template mode
-        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        if: ${{ github.event_name == 'pull_request' && steps.changed-files.outputs.any_changed == 'true' }}
         run: |
           make integration-test VERBOSE=true
         env:

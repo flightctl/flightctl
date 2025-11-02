@@ -85,7 +85,7 @@ _wait_for_db:
 _run_template_migration:
 	@INITIAL_MIGRATION_IMAGE="$(INITIAL_MIGRATION_IMAGE)" EXPAND_MIGRATION_IMAGE="$(EXPAND_MIGRATION_IMAGE)" bash -euo pipefail -c '\
 	  echo "Template strategy: resolving migration strategy..."; \
-	  if [ -n "$$EXPAND_MIGRATION_IMAGE" ]; then \
+	  if [ -n "$$EXPAND_MIGRATION_IMAGE" ] && [ -n "$$INITIAL_MIGRATION_IMAGE" ]; then \
 	    echo "##################################################"; \
 	    echo "Two-phase migration detected:"; \
 	    echo "  Initial: $$INITIAL_MIGRATION_IMAGE"; \
