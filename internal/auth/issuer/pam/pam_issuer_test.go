@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	pam_issuer "github.com/flightctl/flightctl/api/v1alpha1/pam-issuer"
 	"github.com/flightctl/flightctl/internal/auth/authn"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/config"
@@ -140,13 +140,13 @@ func TestPAMOIDCProvider_Token(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		request     *v1alpha1.TokenRequest
+		request     *pam_issuer.TokenRequest
 		expectError bool
 		errorCode   string
 	}{
 		{
 			name: "unsupported grant type",
-			request: &v1alpha1.TokenRequest{
+			request: &pam_issuer.TokenRequest{
 				GrantType: "unsupported",
 			},
 			expectError: true,
@@ -154,8 +154,8 @@ func TestPAMOIDCProvider_Token(t *testing.T) {
 		},
 		{
 			name: "authorization_code grant type - missing code",
-			request: &v1alpha1.TokenRequest{
-				GrantType: v1alpha1.AuthorizationCode,
+			request: &pam_issuer.TokenRequest{
+				GrantType: pam_issuer.AuthorizationCode,
 				ClientId:  lo.ToPtr("test-client"),
 			},
 			expectError: true,
@@ -163,8 +163,8 @@ func TestPAMOIDCProvider_Token(t *testing.T) {
 		},
 		{
 			name: "authorization_code grant type - missing client credentials",
-			request: &v1alpha1.TokenRequest{
-				GrantType: v1alpha1.AuthorizationCode,
+			request: &pam_issuer.TokenRequest{
+				GrantType: pam_issuer.AuthorizationCode,
 				Code:      lo.ToPtr("auth-code-123"),
 			},
 			expectError: true,
@@ -172,8 +172,8 @@ func TestPAMOIDCProvider_Token(t *testing.T) {
 		},
 		{
 			name: "authorization_code grant type - empty code",
-			request: &v1alpha1.TokenRequest{
-				GrantType: v1alpha1.AuthorizationCode,
+			request: &pam_issuer.TokenRequest{
+				GrantType: pam_issuer.AuthorizationCode,
 				Code:      lo.ToPtr(""),
 				ClientId:  lo.ToPtr("test-client"),
 			},
@@ -182,8 +182,8 @@ func TestPAMOIDCProvider_Token(t *testing.T) {
 		},
 		{
 			name: "authorization_code grant type - missing client ID",
-			request: &v1alpha1.TokenRequest{
-				GrantType: v1alpha1.AuthorizationCode,
+			request: &pam_issuer.TokenRequest{
+				GrantType: pam_issuer.AuthorizationCode,
 				Code:      lo.ToPtr("auth-code-123"),
 			},
 			expectError: true,
@@ -191,16 +191,16 @@ func TestPAMOIDCProvider_Token(t *testing.T) {
 		},
 		{
 			name: "refresh token grant type - missing refresh token",
-			request: &v1alpha1.TokenRequest{
-				GrantType: v1alpha1.RefreshToken,
+			request: &pam_issuer.TokenRequest{
+				GrantType: pam_issuer.RefreshToken,
 			},
 			expectError: true,
 			errorCode:   "invalid_request",
 		},
 		{
 			name: "refresh token grant type - empty refresh token",
-			request: &v1alpha1.TokenRequest{
-				GrantType:    v1alpha1.RefreshToken,
+			request: &pam_issuer.TokenRequest{
+				GrantType:    pam_issuer.RefreshToken,
 				RefreshToken: lo.ToPtr(""),
 			},
 			expectError: true,
@@ -353,7 +353,7 @@ func TestPAMOIDCProvider_InterfaceCompliance(t *testing.T) {
 	ctx := context.Background()
 
 	// Token method
-	tokenReq := &v1alpha1.TokenRequest{
+	tokenReq := &pam_issuer.TokenRequest{
 		GrantType: "unsupported",
 	}
 	tokenResp, err := provider.Token(ctx, tokenReq)
@@ -406,8 +406,8 @@ func TestPAMOIDCProvider_AuthorizationCodeFlow(t *testing.T) {
 
 	t.Run("invalid_authorization_code", func(t *testing.T) {
 		// Test with invalid authorization code
-		tokenReq := &v1alpha1.TokenRequest{
-			GrantType:    v1alpha1.AuthorizationCode,
+		tokenReq := &pam_issuer.TokenRequest{
+			GrantType:    pam_issuer.AuthorizationCode,
 			Code:         lo.ToPtr("invalid-code"),
 			ClientId:     lo.ToPtr("test-client"),
 			ClientSecret: lo.ToPtr("test-secret"),
@@ -421,8 +421,8 @@ func TestPAMOIDCProvider_AuthorizationCodeFlow(t *testing.T) {
 
 	t.Run("invalid_client_id", func(t *testing.T) {
 		// Test with invalid client ID
-		tokenReq := &v1alpha1.TokenRequest{
-			GrantType: v1alpha1.AuthorizationCode,
+		tokenReq := &pam_issuer.TokenRequest{
+			GrantType: pam_issuer.AuthorizationCode,
 			Code:      lo.ToPtr("valid-code"),
 			ClientId:  lo.ToPtr("wrong-client"),
 		}
@@ -435,8 +435,8 @@ func TestPAMOIDCProvider_AuthorizationCodeFlow(t *testing.T) {
 
 	t.Run("invalid_client_secret_when_provided", func(t *testing.T) {
 		// Test with invalid client secret when provided
-		tokenReq := &v1alpha1.TokenRequest{
-			GrantType:    v1alpha1.AuthorizationCode,
+		tokenReq := &pam_issuer.TokenRequest{
+			GrantType:    pam_issuer.AuthorizationCode,
 			Code:         lo.ToPtr("valid-code"),
 			ClientId:     lo.ToPtr("test-client"),
 			ClientSecret: lo.ToPtr("wrong-secret"),
@@ -450,10 +450,10 @@ func TestPAMOIDCProvider_AuthorizationCodeFlow(t *testing.T) {
 
 	t.Run("successful_authorization_code_flow", func(t *testing.T) {
 		// First, create a valid authorization code by simulating the authorize flow
-		authParams := &v1alpha1.AuthAuthorizeParams{
+		authParams := &pam_issuer.AuthAuthorizeParams{
 			ClientId:     "test-client",
 			RedirectUri:  "https://example.com/callback",
-			ResponseType: v1alpha1.AuthAuthorizeParamsResponseTypeCode,
+			ResponseType: pam_issuer.Code,
 			State:        lo.ToPtr("test-state"),
 		}
 
@@ -483,8 +483,8 @@ func TestPAMOIDCProvider_AuthorizationCodeFlow(t *testing.T) {
 		authCodeValue := authCode[codeStart:codeEnd]
 
 		// Now test the token exchange
-		tokenReq := &v1alpha1.TokenRequest{
-			GrantType:    v1alpha1.AuthorizationCode,
+		tokenReq := &pam_issuer.TokenRequest{
+			GrantType:    pam_issuer.AuthorizationCode,
 			Code:         lo.ToPtr(authCodeValue),
 			ClientId:     lo.ToPtr("test-client"),
 			ClientSecret: lo.ToPtr("test-secret"),
@@ -497,7 +497,7 @@ func TestPAMOIDCProvider_AuthorizationCodeFlow(t *testing.T) {
 		// Verify successful token response
 		require.NotNil(t, response.AccessToken, "Expected response.AccessToken to not be nil")
 		require.NotNil(t, response.TokenType, "Expected response.TokenType to not be nil")
-		assert.Equal(t, v1alpha1.TokenResponseTokenType("Bearer"), *response.TokenType)
+		assert.Equal(t, pam_issuer.TokenResponseTokenType("Bearer"), *response.TokenType)
 		assert.Equal(t, int(time.Hour.Seconds()), *response.ExpiresIn)
 
 		// Verify the access token contains expected claims
@@ -522,10 +522,10 @@ func TestPAMOIDCProvider_AuthorizationCodeFlow(t *testing.T) {
 
 	t.Run("authorization_code_with_offline_access", func(t *testing.T) {
 		// Test authorization code flow with offline_access scope to get refresh token
-		authParams := &v1alpha1.AuthAuthorizeParams{
+		authParams := &pam_issuer.AuthAuthorizeParams{
 			ClientId:     "test-client",
 			RedirectUri:  "https://example.com/callback",
-			ResponseType: v1alpha1.AuthAuthorizeParamsResponseTypeCode,
+			ResponseType: pam_issuer.Code,
 			State:        lo.ToPtr("test-state"),
 			Scope:        lo.ToPtr("openid profile email offline_access"),
 		}
@@ -556,8 +556,8 @@ func TestPAMOIDCProvider_AuthorizationCodeFlow(t *testing.T) {
 		authCodeValue := authCode[codeStart:codeEnd]
 
 		// Test the token exchange
-		tokenReq := &v1alpha1.TokenRequest{
-			GrantType:    v1alpha1.AuthorizationCode,
+		tokenReq := &pam_issuer.TokenRequest{
+			GrantType:    pam_issuer.AuthorizationCode,
 			Code:         lo.ToPtr(authCodeValue),
 			ClientId:     lo.ToPtr("test-client"),
 			ClientSecret: lo.ToPtr("test-secret"),
@@ -571,15 +571,15 @@ func TestPAMOIDCProvider_AuthorizationCodeFlow(t *testing.T) {
 		require.NotNil(t, response.AccessToken, "Expected response.AccessToken to not be nil")
 		require.NotNil(t, response.RefreshToken, "Expected response.RefreshToken to not be nil")
 		require.NotNil(t, response.TokenType, "Expected response.TokenType to not be nil")
-		assert.Equal(t, v1alpha1.TokenResponseTokenType("Bearer"), *response.TokenType)
+		assert.Equal(t, pam_issuer.TokenResponseTokenType("Bearer"), *response.TokenType)
 	})
 
 	t.Run("authorization_code_with_client_secret", func(t *testing.T) {
 		// Test authorization code flow with client secret provided
-		authParams := &v1alpha1.AuthAuthorizeParams{
+		authParams := &pam_issuer.AuthAuthorizeParams{
 			ClientId:     "test-client",
 			RedirectUri:  "https://example.com/callback",
-			ResponseType: v1alpha1.AuthAuthorizeParamsResponseTypeCode,
+			ResponseType: pam_issuer.Code,
 			State:        lo.ToPtr("test-state"),
 		}
 
@@ -609,8 +609,8 @@ func TestPAMOIDCProvider_AuthorizationCodeFlow(t *testing.T) {
 		authCodeValue := authCode[codeStart:codeEnd]
 
 		// Test the token exchange with client secret
-		tokenReq := &v1alpha1.TokenRequest{
-			GrantType:    v1alpha1.AuthorizationCode,
+		tokenReq := &pam_issuer.TokenRequest{
+			GrantType:    pam_issuer.AuthorizationCode,
 			Code:         lo.ToPtr(authCodeValue),
 			ClientId:     lo.ToPtr("test-client"),
 			ClientSecret: lo.ToPtr("test-secret"),
@@ -623,7 +623,7 @@ func TestPAMOIDCProvider_AuthorizationCodeFlow(t *testing.T) {
 		// Verify successful token response
 		require.NotNil(t, response.AccessToken, "Expected response.AccessToken to not be nil")
 		require.NotNil(t, response.TokenType, "Expected response.TokenType to not be nil")
-		assert.Equal(t, v1alpha1.TokenResponseTokenType("Bearer"), *response.TokenType)
+		assert.Equal(t, pam_issuer.TokenResponseTokenType("Bearer"), *response.TokenType)
 	})
 }
 
@@ -654,8 +654,8 @@ func TestPAMOIDCProvider_RefreshTokenFlow(t *testing.T) {
 
 	t.Run("invalid_refresh_token", func(t *testing.T) {
 		// Test with invalid refresh token
-		tokenReq := &v1alpha1.TokenRequest{
-			GrantType:    v1alpha1.RefreshToken,
+		tokenReq := &pam_issuer.TokenRequest{
+			GrantType:    pam_issuer.RefreshToken,
 			RefreshToken: lo.ToPtr("invalid-refresh-token"),
 		}
 
@@ -667,10 +667,10 @@ func TestPAMOIDCProvider_RefreshTokenFlow(t *testing.T) {
 
 	t.Run("successful_refresh_token_flow", func(t *testing.T) {
 		// First, create a valid refresh token by going through the authorization code flow
-		authParams := &v1alpha1.AuthAuthorizeParams{
+		authParams := &pam_issuer.AuthAuthorizeParams{
 			ClientId:     "test-client",
 			RedirectUri:  "https://example.com/callback",
-			ResponseType: v1alpha1.AuthAuthorizeParamsResponseTypeCode,
+			ResponseType: pam_issuer.Code,
 			State:        lo.ToPtr("test-state"),
 			Scope:        lo.ToPtr("openid profile email offline_access"),
 		}
@@ -701,8 +701,8 @@ func TestPAMOIDCProvider_RefreshTokenFlow(t *testing.T) {
 		authCodeValue := authCode[codeStart:codeEnd]
 
 		// Exchange authorization code for tokens
-		tokenReq := &v1alpha1.TokenRequest{
-			GrantType:    v1alpha1.AuthorizationCode,
+		tokenReq := &pam_issuer.TokenRequest{
+			GrantType:    pam_issuer.AuthorizationCode,
 			Code:         lo.ToPtr(authCodeValue),
 			ClientId:     lo.ToPtr("test-client"),
 			ClientSecret: lo.ToPtr("test-secret"),
@@ -716,8 +716,8 @@ func TestPAMOIDCProvider_RefreshTokenFlow(t *testing.T) {
 		require.NotNil(t, response.RefreshToken, "Expected response.RefreshToken to not be nil")
 
 		// Now test the refresh token flow
-		refreshReq := &v1alpha1.TokenRequest{
-			GrantType:    v1alpha1.RefreshToken,
+		refreshReq := &pam_issuer.TokenRequest{
+			GrantType:    pam_issuer.RefreshToken,
 			RefreshToken: response.RefreshToken,
 		}
 
@@ -729,7 +729,7 @@ func TestPAMOIDCProvider_RefreshTokenFlow(t *testing.T) {
 		require.NotNil(t, refreshResponse.AccessToken)
 		require.NotNil(t, refreshResponse.RefreshToken) // New refresh token should be issued
 		require.NotNil(t, refreshResponse.TokenType)
-		assert.Equal(t, v1alpha1.TokenResponseTokenType("Bearer"), *refreshResponse.TokenType)
+		assert.Equal(t, pam_issuer.TokenResponseTokenType("Bearer"), *refreshResponse.TokenType)
 		assert.Equal(t, int(time.Hour.Seconds()), *refreshResponse.ExpiresIn)
 
 		// Verify the new access token contains expected claims
@@ -786,8 +786,8 @@ func TestPAMOIDCProvider_RefreshTokenFlow(t *testing.T) {
 		require.NoError(t, err)
 
 		// Test refresh token flow
-		refreshReq := &v1alpha1.TokenRequest{
-			GrantType:    v1alpha1.RefreshToken,
+		refreshReq := &pam_issuer.TokenRequest{
+			GrantType:    pam_issuer.RefreshToken,
 			RefreshToken: lo.ToPtr(refreshToken),
 		}
 
@@ -852,10 +852,10 @@ func TestPAMOIDCProvider_UserInfoClaims(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create a session and get authorization code
-	authParams := &v1alpha1.AuthAuthorizeParams{
+	authParams := &pam_issuer.AuthAuthorizeParams{
 		ClientId:     "test-client",
 		RedirectUri:  "https://example.com/callback",
-		ResponseType: v1alpha1.AuthAuthorizeParamsResponseTypeCode,
+		ResponseType: pam_issuer.Code,
 		State:        lo.ToPtr("test-state"),
 	}
 
@@ -881,8 +881,8 @@ func TestPAMOIDCProvider_UserInfoClaims(t *testing.T) {
 	authCodeValue := authCode[codeStart:codeEnd]
 
 	// Exchange authorization code for tokens
-	tokenReq := &v1alpha1.TokenRequest{
-		GrantType:    v1alpha1.AuthorizationCode,
+	tokenReq := &pam_issuer.TokenRequest{
+		GrantType:    pam_issuer.AuthorizationCode,
 		Code:         lo.ToPtr(authCodeValue),
 		ClientId:     lo.ToPtr("test-client"),
 		ClientSecret: lo.ToPtr("test-secret"),
@@ -954,10 +954,10 @@ func TestPAMOIDCProvider_EndToEndFlow(t *testing.T) {
 	require.NoError(t, err)
 
 	// Step 1: Authorization Code Flow
-	authParams := &v1alpha1.AuthAuthorizeParams{
+	authParams := &pam_issuer.AuthAuthorizeParams{
 		ClientId:     "test-client",
 		RedirectUri:  "https://example.com/callback",
-		ResponseType: v1alpha1.AuthAuthorizeParamsResponseTypeCode,
+		ResponseType: pam_issuer.Code,
 		State:        lo.ToPtr("test-state"),
 		Scope:        lo.ToPtr("openid profile email offline_access"),
 	}
@@ -984,8 +984,8 @@ func TestPAMOIDCProvider_EndToEndFlow(t *testing.T) {
 	authCodeValue := authCode[codeStart:codeEnd]
 
 	// Step 2: Exchange authorization code for tokens
-	tokenReq := &v1alpha1.TokenRequest{
-		GrantType:    v1alpha1.AuthorizationCode,
+	tokenReq := &pam_issuer.TokenRequest{
+		GrantType:    pam_issuer.AuthorizationCode,
 		Code:         lo.ToPtr(authCodeValue),
 		ClientId:     lo.ToPtr("test-client"),
 		ClientSecret: lo.ToPtr("test-secret"),
@@ -999,7 +999,7 @@ func TestPAMOIDCProvider_EndToEndFlow(t *testing.T) {
 	require.NotNil(t, response.AccessToken)
 	require.NotNil(t, response.RefreshToken)
 	require.NotNil(t, response.TokenType)
-	assert.Equal(t, v1alpha1.TokenResponseTokenType("Bearer"), *response.TokenType)
+	assert.Equal(t, pam_issuer.TokenResponseTokenType("Bearer"), *response.TokenType)
 
 	// Test 1: Verify access token claims
 	parsedToken, err := jwt.Parse([]byte(*response.AccessToken), jwt.WithValidate(false), jwt.WithVerify(false))
@@ -1063,8 +1063,8 @@ func TestPAMOIDCProvider_EndToEndFlow(t *testing.T) {
 	assert.Equal(t, "refresh_token", refreshClaims["token_type"])
 
 	// Test 4: Verify refresh token flow
-	refreshReq := &v1alpha1.TokenRequest{
-		GrantType:    v1alpha1.RefreshToken,
+	refreshReq := &pam_issuer.TokenRequest{
+		GrantType:    pam_issuer.RefreshToken,
 		RefreshToken: response.RefreshToken,
 	}
 

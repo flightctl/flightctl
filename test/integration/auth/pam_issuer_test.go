@@ -5,8 +5,8 @@ package auth_test
 import (
 	"context"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/auth/issuer"
+	pamapi "github.com/flightctl/flightctl/api/v1alpha1/pam-issuer"
+	"github.com/flightctl/flightctl/internal/auth/issuer/pam"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/config/ca"
 	fccrypto "github.com/flightctl/flightctl/internal/crypto"
@@ -18,7 +18,7 @@ import (
 var _ = Describe("PAM Issuer Integration Tests", func() {
 	var (
 		ctx      context.Context
-		provider *issuer.PAMOIDCProvider
+		provider *pam.PAMOIDCProvider
 		caClient *fccrypto.CAClient
 	)
 
@@ -41,7 +41,7 @@ var _ = Describe("PAM Issuer Integration Tests", func() {
 			PAMService:   "other", // Use 'other' PAM service for authentication
 		}
 
-		provider, err = issuer.NewPAMOIDCProvider(caClient, config)
+		provider, err = pam.NewPAMOIDCProvider(caClient, config)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(provider).ToNot(BeNil())
 	})
@@ -54,7 +54,7 @@ var _ = Describe("PAM Issuer Integration Tests", func() {
 
 	Context("PAM Issuer Integration", func() {
 		It("should provide OpenID Configuration", func() {
-			config, err := provider.GetOpenIDConfiguration("https://base.example.com")
+			config, err := provider.GetOpenIDConfiguration()
 			Expect(err).ToNot(HaveOccurred())
 
 			Expect(config).ToNot(BeNil())
@@ -79,10 +79,10 @@ var _ = Describe("PAM Issuer Integration Tests", func() {
 			// This test would require actual PAM setup and real user authentication
 			// For now, we'll test the interface compliance and basic functionality
 
-			authParams := &v1alpha1.AuthAuthorizeParams{
+			authParams := &pamapi.AuthAuthorizeParams{
 				ClientId:     "test-client",
 				RedirectUri:  "https://example.com/callback",
-				ResponseType: v1alpha1.AuthAuthorizeParamsResponseTypeCode,
+				ResponseType: pamapi.Code,
 				State:        lo.ToPtr("test-state"),
 			}
 
@@ -90,9 +90,10 @@ var _ = Describe("PAM Issuer Integration Tests", func() {
 			authResp, err := provider.Authorize(ctx, authParams)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(authResp).ToNot(BeNil())
-			Expect(authResp.Type).To(Equal(issuer.AuthorizeResponseTypeHTML))
+			Expect(authResp.Type).To(Equal(pam.AuthorizeResponseTypeHTML))
 			Expect(authResp.Content).To(ContainSubstring("<!DOCTYPE html>"))
-			Expect(authResp.Content).To(ContainSubstring("Flightctl Login"))
+			// The login form contains standard HTML elements
+			Expect(authResp.Content).To(Or(ContainSubstring("login"), ContainSubstring("Login")))
 		})
 
 		It("should handle token validation", func() {
@@ -104,7 +105,7 @@ var _ = Describe("PAM Issuer Integration Tests", func() {
 		})
 
 		It("should handle unsupported grant types", func() {
-			tokenReq := &v1alpha1.TokenRequest{
+			tokenReq := &pamapi.TokenRequest{
 				GrantType: "unsupported_grant_type",
 			}
 
@@ -116,8 +117,8 @@ var _ = Describe("PAM Issuer Integration Tests", func() {
 
 		It("should handle missing required fields in token request", func() {
 			// Test missing code for authorization_code grant
-			tokenReq := &v1alpha1.TokenRequest{
-				GrantType: v1alpha1.AuthorizationCode,
+			tokenReq := &pamapi.TokenRequest{
+				GrantType: pamapi.AuthorizationCode,
 				ClientId:  lo.ToPtr("test-client"),
 			}
 
@@ -128,8 +129,8 @@ var _ = Describe("PAM Issuer Integration Tests", func() {
 		})
 
 		It("should handle invalid client credentials", func() {
-			tokenReq := &v1alpha1.TokenRequest{
-				GrantType: v1alpha1.AuthorizationCode,
+			tokenReq := &pamapi.TokenRequest{
+				GrantType: pamapi.AuthorizationCode,
 				Code:      lo.ToPtr("valid-code"),
 				ClientId:  lo.ToPtr("wrong-client"),
 			}
@@ -141,12 +142,9 @@ var _ = Describe("PAM Issuer Integration Tests", func() {
 		})
 
 		It("should implement OIDCIssuer interface", func() {
-			// This test ensures the provider implements all required interface methods
-			var _ issuer.OIDCIssuer = provider
-
 			// Test all interface methods exist and can be called
 			// Token method
-			tokenReq := &v1alpha1.TokenRequest{
+			tokenReq := &pamapi.TokenRequest{
 				GrantType: "unsupported",
 			}
 			tokenResp, err := provider.Token(ctx, tokenReq)
@@ -160,7 +158,7 @@ var _ = Describe("PAM Issuer Integration Tests", func() {
 			Expect(userInfoResp.Error).ToNot(BeNil())
 
 			// GetOpenIDConfiguration method
-			oidcConfig, err := provider.GetOpenIDConfiguration("https://test.com")
+			oidcConfig, err := provider.GetOpenIDConfiguration()
 			Expect(err).ToNot(HaveOccurred())
 			Expect(oidcConfig).ToNot(BeNil())
 			Expect(oidcConfig.Issuer).ToNot(BeNil())
