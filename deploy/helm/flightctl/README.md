@@ -224,7 +224,7 @@ For more detailed configuration options, see the [Values](#values) section below
 | alertmanagerProxy.image.image | string | `"quay.io/flightctl/flightctl-alertmanager-proxy"` | Alertmanager proxy container image |
 | alertmanagerProxy.image.pullPolicy | string | `""` | Image pull policy for Alertmanager proxy container |
 | alertmanagerProxy.image.tag | string | `""` | Alertmanager proxy image tag |
-| api | object | `{"baseUIUrl":"","enabled":true,"image":{"image":"quay.io/flightctl/flightctl-api","pullPolicy":"","tag":""},"probes":{"enabled":true,"livenessPath":"/healthz","readinessPath":"/readyz"},"rateLimit":{"authRequests":10,"authWindow":"1h","requests":60,"trustedProxies":["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16"],"window":"1m"}}` | API Server Configuration |
+| api | object | `{"baseUIUrl":"","enabled":true,"image":{"image":"quay.io/flightctl/flightctl-api","pullPolicy":"","tag":""},"probes":{"enabled":true,"livenessPath":"/healthz","readinessPath":"/readyz"},"rateLimit":{"authRequests":20,"authWindow":"1h","enabled":true,"requests":300,"trustedProxies":["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16"],"window":"1m"}}` | API Server Configuration |
 | api.baseUIUrl | string | `""` | Base URL for the web UI (used for CORS and redirects) |
 | api.enabled | bool | `true` | Enable Flight Control API server deployment |
 | api.image.image | string | `"quay.io/flightctl/flightctl-api"` | API server container image |
@@ -233,9 +233,10 @@ For more detailed configuration options, see the [Values](#values) section below
 | api.probes.enabled | bool | `true` | Enable health and readiness probes for API server |
 | api.probes.livenessPath | string | `"/healthz"` | HTTP path for liveness probe |
 | api.probes.readinessPath | string | `"/readyz"` | HTTP path for readiness probe |
-| api.rateLimit.authRequests | int | `10` | Maximum authentication requests per auth window Auth-specific rate limiting |
+| api.rateLimit.authRequests | int | `20` | Maximum authentication requests per auth window Auth-specific rate limiting |
 | api.rateLimit.authWindow | string | `"1h"` | Time window for authentication rate limiting |
-| api.rateLimit.requests | int | `60` | Maximum requests per window for general API endpoints General API rate limiting |
+| api.rateLimit.enabled | bool | `true` | Enable or disable rate limiting |
+| api.rateLimit.requests | int | `300` | Maximum requests per window for general API endpoints General API rate limiting |
 | api.rateLimit.trustedProxies | list | `["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16"]` | List of trusted proxy IP ranges that can set X-Forwarded-For headers Trusted proxies that can set X-Forwarded-For/X-Real-IP headers This should include your load balancer and UI proxy IPs |
 | api.rateLimit.window | string | `"1m"` | Time window for rate limiting (e.g., "1m", "1h") |
 | cliArtifacts | object | `{"enabled":true,"image":{"image":"quay.io/flightctl/flightctl-cli-artifacts","pullPolicy":"","tag":""}}` | CLI Artifacts Configuration |
