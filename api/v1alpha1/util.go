@@ -394,6 +394,42 @@ func (r *RepositoryList) HideSensitiveData() error {
 	return nil
 }
 
+func (a *AuthProvider) HideSensitiveData() error {
+	if a == nil {
+		return nil
+	}
+
+	// Check the discriminator to determine the provider type
+	discriminator, err := a.Spec.Discriminator()
+	if err != nil {
+		return err
+	}
+
+	switch discriminator {
+	case string(Oidc):
+		// ClientSecret is automatically masked by SecureString type
+		// No need to explicitly hide it
+
+	case string(Oauth2):
+		// ClientSecret is automatically masked by SecureString type
+		// No need to explicitly hide it
+	}
+
+	return nil
+}
+
+func (a *AuthProviderList) HideSensitiveData() error {
+	if a == nil {
+		return nil
+	}
+	for i := range a.Items {
+		if err := a.Items[i].HideSensitiveData(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // GetBaseEvent creates a base event with common fields
 func GetBaseEvent(ctx context.Context, resourceKind ResourceKind, resourceName string, reason EventReason, message string, details *EventDetails) *Event {
 	var actorStr string

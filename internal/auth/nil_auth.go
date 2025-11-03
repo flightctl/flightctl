@@ -4,30 +4,42 @@ import (
 	"context"
 	"net/http"
 
+	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/auth/common"
+	"github.com/flightctl/flightctl/internal/org"
 )
 
+// NilAuth is a special auth type that does nothing
 type NilAuth struct{}
 
-func (a NilAuth) ValidateToken(ctx context.Context, token string) error {
-	return nil
-}
-
-func (a NilAuth) GetIdentity(ctx context.Context, token string) (common.Identity, error) {
-	return common.NewBaseIdentity("", "", []string{}), nil
-}
-
-func (a NilAuth) GetAuthConfig() common.AuthConfig {
-	return common.AuthConfig{
-		Type: "",
-		Url:  "",
-	}
-}
-
-func (NilAuth) CheckPermission(ctx context.Context, resource string, op string) (bool, error) {
+func (NilAuth) CheckPermission(_ context.Context, _ string, _ string) (bool, error) {
 	return true, nil
 }
 
-func (NilAuth) GetAuthToken(r *http.Request) (string, error) {
-	return "", nil
+func (NilAuth) ValidateToken(_ context.Context, _ string) error {
+	return nil
+}
+
+func (NilAuth) GetIdentity(_ context.Context, _ string) (Identity, error) {
+	// When auth is disabled, create a default identity with access to the default organization
+	organizations := []common.ReportedOrganization{
+		{
+			Name:         org.DefaultExternalID,
+			IsInternalID: true,
+			ID:           org.DefaultID.String(),
+		},
+	}
+
+	identity := common.NewBaseIdentity("nil-auth-user", "nil-auth-uid", organizations, []string{api.RoleAdmin})
+	return identity, nil
+}
+
+func (NilAuth) GetAuthConfig() *api.AuthConfig {
+	return &api.AuthConfig{
+		ApiVersion: api.AuthConfigAPIVersion,
+	}
+}
+
+func (NilAuth) GetAuthToken(_ *http.Request) (string, error) {
+	return "nil-auth-token", nil
 }

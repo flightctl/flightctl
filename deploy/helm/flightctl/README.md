@@ -302,7 +302,10 @@ For more detailed configuration options, see the [Values](#values) section below
 | global.auth.oidc.enabled | bool | `true` | Whether this OIDC provider is enabled |
 | global.auth.oidc.externalOidcAuthority | string | `""` | The base URL for the OIDC provider that is reachable by clients. Example: https://auth.foo.net/realms/flightctl |
 | global.auth.oidc.issuer | string | `""` | The base URL for the OIDC provider that is reachable by flightctl services. Example: https://auth.foo.internal/realms/flightctl |
-| global.auth.type | string | `"oidc"` | Type of the auth to use. Can be one of 'k8s', 'oidc', 'builtin', 'aap', or 'none' Note: 'builtin' is a legacy mode that translates to 'oidc' with PAM issuer automatically enabled For new deployments, explicitly set type to 'oidc' and configure pamOidcIssuer settings |
+| global.auth.oidc.organizationAssignment | object | `{"organizationName":"default","type":"static"}` | Organization assignment configuration |
+| global.auth.oidc.roleAssignment | object | `{"claimPath":["groups"],"type":"dynamic"}` | Role assignment configuration |
+| global.auth.oidc.usernameClaim | list | `["preferred_username"]` | Username claim to extract from OIDC token (default: "preferred_username") |
+| global.auth.type | string | `"k8s"` | Type of the auth to use. Can be one of 'k8s', 'oidc', 'builtin', 'aap', or 'none' Note: 'builtin' is a legacy mode that translates to 'oidc' with PAM issuer automatically enabled For new deployments, explicitly set type to 'oidc' and configure pamOidcIssuer settings |
 | global.baseDomain | string | `""` | Base domain to construct the FQDN for the service endpoints. |
 | global.baseDomainTls.cert | string | `""` | Certificate for the base domain wildcard certificate, it should be valid for *.${baseDomain}. This certificate is only used for non mTLS endpoints, mTLS endpoints like agent-api, etc will use different certificates. |
 | global.baseDomainTls.key | string | `""` | Key for the base domain wildcard certificate. |

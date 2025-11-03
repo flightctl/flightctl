@@ -22,7 +22,7 @@ global:
     # -- Type of the auth to use. Can be one of 'k8s', 'oidc', 'builtin', 'aap', or 'none'
     # Note: 'builtin' is a legacy mode that translates to 'oidc' with PAM issuer automatically enabled
     # For new deployments, explicitly set type to 'oidc' and configure pamOidcIssuer settings
-    type: "oidc" # k8s, oidc, builtin (legacy), aap, none
+    type: "k8s" # k8s, oidc, builtin (legacy), aap, none
     # -- The custom CA cert.
     caCert: ""
     # -- True if verification of authority TLS cert should be skipped.
@@ -45,6 +45,18 @@ global:
       issuer: ""
       # -- The base URL for the OIDC provider that is reachable by clients. Example: https://auth.foo.net/realms/flightctl
       externalOidcAuthority: ""
+      # -- Organization assignment configuration
+      organizationAssignment:
+        type: "static"
+        organizationName: "default"
+      # -- Username claim to extract from OIDC token (default: "preferred_username")
+      usernameClaim:
+        - "preferred_username"
+      # -- Role assignment configuration
+      roleAssignment:
+        type: "dynamic"
+        claimPath:
+          - "groups"
     aap:
       # -- The URL of the AAP Gateway API endpoint
       apiUrl: ""

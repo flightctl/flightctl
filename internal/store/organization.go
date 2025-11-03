@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -18,6 +19,7 @@ type Organization interface {
 	UpsertMany(ctx context.Context, orgs []*model.Organization) ([]*model.Organization, error)
 	List(ctx context.Context) ([]*model.Organization, error)
 	ListByExternalIDs(ctx context.Context, externalIDs []string) ([]*model.Organization, error)
+	ListByIDs(ctx context.Context, ids []string) ([]*model.Organization, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*model.Organization, error)
 }
 
@@ -57,8 +59,9 @@ func (s *OrganizationStore) InitialMigration(ctx context.Context) error {
 		// If there are no organizations, create a default one
 		if count == 0 {
 			if err := tx.Create(&model.Organization{
-				ID:          NullOrgId,
-				DisplayName: "Default",
+				ID:          org.DefaultID,
+				ExternalID:  org.DefaultExternalID,
+				DisplayName: org.DefaultDisplayName,
 			}).Error; err != nil {
 				return err
 			}
@@ -182,6 +185,21 @@ func (s *OrganizationStore) ListByExternalIDs(ctx context.Context, externalIDs [
 
 	var orgs []*model.Organization
 	if err := db.Where("external_id IN ?", externalIDs).Find(&orgs).Error; err != nil {
+		return nil, err
+	}
+
+	return orgs, nil
+}
+
+func (s *OrganizationStore) ListByIDs(ctx context.Context, ids []string) ([]*model.Organization, error) {
+	if len(ids) == 0 {
+		return []*model.Organization{}, nil
+	}
+
+	db := s.getDB(ctx)
+
+	var orgs []*model.Organization
+	if err := db.Where("id IN ?", ids).Find(&orgs).Error; err != nil {
 		return nil, err
 	}
 

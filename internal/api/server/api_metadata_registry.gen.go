@@ -28,6 +28,36 @@ var APIMetadataMap = map[string]EndpointMetadata{
 		Resource:    "",
 		Action:      "",
 	},
+	"GET:/api/v1/authproviders": {
+		OperationID: "listAuthProviders",
+		Resource:    "",
+		Action:      "",
+	},
+	"POST:/api/v1/authproviders": {
+		OperationID: "createAuthProvider",
+		Resource:    "",
+		Action:      "",
+	},
+	"DELETE:/api/v1/authproviders/{name}": {
+		OperationID: "deleteAuthProvider",
+		Resource:    "",
+		Action:      "",
+	},
+	"GET:/api/v1/authproviders/{name}": {
+		OperationID: "getAuthProvider",
+		Resource:    "",
+		Action:      "",
+	},
+	"PATCH:/api/v1/authproviders/{name}": {
+		OperationID: "patchAuthProvider",
+		Resource:    "",
+		Action:      "",
+	},
+	"PUT:/api/v1/authproviders/{name}": {
+		OperationID: "replaceAuthProvider",
+		Resource:    "",
+		Action:      "",
+	},
 	"GET:/api/v1/certificatesigningrequests": {
 		OperationID: "listCertificateSigningRequests",
 		Resource:    "",

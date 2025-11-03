@@ -49,9 +49,7 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 		workerClient = worker_client.NewWorkerClient(mockQueueProducer, log)
 		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		Expect(err).ToNot(HaveOccurred())
-		orgResolver, err := testutil.NewOrgResolver(cfg, storeInst.Organization(), log)
-		Expect(err).ToNot(HaveOccurred())
-		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{}, orgResolver)
+		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{})
 		resourceSync = tasks.NewResourceSync(serviceHandler, log, nil)
 
 		// Set up mock expectations for the publisher
