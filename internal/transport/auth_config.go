@@ -7,6 +7,7 @@ import (
 	"github.com/flightctl/flightctl/internal/auth"
 )
 
+// AuthConfig returns the authentication configuration
 // (GET /api/v1/auth/config)
 func (h *TransportHandler) AuthConfig(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -16,17 +17,11 @@ func (h *TransportHandler) AuthConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	authConfig := h.authN.GetAuthConfig()
-
-	conf := api.AuthConfig{
-		AuthType: authConfig.Type,
-		AuthURL:  authConfig.Url,
-		AuthOrganizationsConfig: api.AuthOrganizationsConfig{
-			Enabled: authConfig.OrganizationsConfig.Enabled,
-		},
-	}
-	SetResponse(w, conf, api.StatusOK())
+	body, status := h.serviceHandler.GetAuthConfig(r.Context(), authConfig)
+	SetResponse(w, body, status)
 }
 
+// AuthValidate validates an authentication token
 // (GET /api/v1/auth/validate)
 func (h *TransportHandler) AuthValidate(w http.ResponseWriter, r *http.Request, params api.AuthValidateParams) {
 	// auth middleware already checked the token validity

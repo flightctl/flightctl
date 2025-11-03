@@ -8,13 +8,14 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
-	authcommon "github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/config/ca"
 	"github.com/flightctl/flightctl/internal/consts"
 	fcrypto "github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/identity"
 	"github.com/flightctl/flightctl/internal/service/common"
 	devicecommon "github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
 	fccrypto "github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/google/uuid"
@@ -601,8 +602,8 @@ func TestEventEnrollmentRequestApproved(t *testing.T) {
 	_, err = serviceHandler.store.EnrollmentRequest().Create(ctx, store.NullOrgId, &er, eventCallback)
 	require.NoError(err)
 
-	identity := authcommon.NewBaseIdentity("bar", "", []string{})
-	ctx = context.WithValue(ctx, consts.IdentityCtxKey, identity)
+	mappedIdentity := identity.NewMappedIdentity("bar", "", []*model.Organization{}, []string{}, nil)
+	ctx = context.WithValue(ctx, consts.MappedIdentityCtxKey, mappedIdentity)
 	_, stat := serviceHandler.ApproveEnrollmentRequest(ctx, name, approval)
 	require.Equal(statusSuccessCode, stat.Code)
 	expectedEvents := []devicecommon.ResourceUpdate{
