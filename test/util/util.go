@@ -444,3 +444,11 @@ func RunTable[T any](cases []TestCase[T], runFunc func(T)) {
 func EventuallySlow(actual any) types.AsyncAssertion {
 	return Eventually(actual).WithTimeout(LONG_TIMEOUT).WithPolling(LONG_POLLING)
 }
+
+// TruncateString truncates a string to maxLen characters and adds "..." if truncated
+func TruncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
+}
