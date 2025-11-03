@@ -22,11 +22,19 @@ if [ ! -f "$SERVICE_CONFIG_FILE" ]; then
 fi
 
 # Extract base values from service-config.yaml
-BASE_DOMAIN=$(extract_value "baseDomain" "$SERVICE_CONFIG_FILE")
+BASE_DOMAIN=$(extract_value "global.baseDomain" "$SERVICE_CONFIG_FILE")
 
 # Extract auth-related values
-AUTH_TYPE=$(extract_value "type" "$SERVICE_CONFIG_FILE")
-AUTH_INSECURE_SKIP_VERIFY=$(extract_value "insecureSkipTlsVerify" "$SERVICE_CONFIG_FILE")
+AUTH_TYPE=$(extract_value "global.auth.type" "$SERVICE_CONFIG_FILE")
+
+# Translate "builtin" to "oidc" for backwards compatibility
+# builtin is legacy auth that uses OIDC with PAM issuer enabled
+if [ "$AUTH_TYPE" == "builtin" ]; then
+  echo "Auth type 'builtin' detected - translating to 'oidc'"
+  AUTH_TYPE="oidc"
+fi
+
+AUTH_INSECURE_SKIP_VERIFY=$(extract_value "global.auth.insecureSkipTlsVerify" "$SERVICE_CONFIG_FILE")
 AUTH_CLIENT_ID=""
 AUTH_URL=""
 
@@ -43,12 +51,12 @@ fi
 # Process auth settings based on auth type
 if [ "$AUTH_TYPE" == "aap" ]; then
   echo "Configuring AAP authentication"
-  AUTH_CLIENT_ID=$(extract_value "oAuthApplicationClientId" "$SERVICE_CONFIG_FILE")
-  AUTH_URL=$(extract_value "apiUrl" "$SERVICE_CONFIG_FILE")
+  AUTH_CLIENT_ID=$(extract_value "global.auth.aap.oAuthApplicationClientId" "$SERVICE_CONFIG_FILE")
+  AUTH_URL=$(extract_value "global.auth.aap.apiUrl" "$SERVICE_CONFIG_FILE")
 elif [ "$AUTH_TYPE" == "oidc" ]; then
   echo "Configuring OIDC authentication"
-  AUTH_CLIENT_ID=$(extract_value "oidcClientId" "$SERVICE_CONFIG_FILE")
-  AUTH_URL=$(extract_value "oidcAuthority" "$SERVICE_CONFIG_FILE")
+  AUTH_CLIENT_ID=$(extract_value "global.auth.oidc.oidcClientId" "$SERVICE_CONFIG_FILE")
+  AUTH_URL=$(extract_value "global.auth.oidc.oidcAuthority" "$SERVICE_CONFIG_FILE")
 else
   echo "Auth not configured"
 fi

@@ -79,17 +79,17 @@ fi
 kind_load_image "${SQL_IMAGE}:${SQL_VERSION}" keep-tar
 
 API_PORT=3443
-KEYCLOAK_PORT=8081
 GATEWAY_ARGS=""
 if [ "$GATEWAY" ]; then
   API_PORT=4443
-  KEYCLOAK_PORT=4480
   GATEWAY_ARGS="--set global.exposeServicesMethod=gateway --set global.gatewayClass=contour-gateway --set global.gatewayPorts.tls=4443 --set global.gatewayPorts.http=4480"
 fi
 
 AUTH_ARGS=""
 if [ "$AUTH" ]; then
-  AUTH_ARGS="--set global.auth.type=builtin"
+  # Always deploy with Kubernetes auth in this script
+  AUTH_TYPE=k8s
+  AUTH_ARGS="--set global.auth.type=k8s"
 fi
 
 ORGS_ARGS=""
@@ -121,18 +121,31 @@ if [ "$ONLY_DB" ]; then
 fi
 
 if [ "$AUTH" ]; then
-  kubectl rollout status statefulset keycloak-db -n flightctl-external -w --timeout=300s --context kind-kind
-  kubectl rollout status deployment keycloak -n flightctl-external -w --timeout=300s --context kind-kind
+  echo "Waiting for authentication services to be ready..."
 fi
 
 kubectl rollout status deployment flightctl-api -n flightctl-external -w --timeout=300s
 
 LOGGED_IN=false
+
 # attempt to login, it could take some time for API to be stable
 for i in {1..60}; do
   if [ "$AUTH" ]; then
-    PASS=$(kubectl get secret keycloak-demouser-secret -n flightctl-external -o json | jq -r '.data.password' | base64 -d)
-    if ./bin/flightctl login -k https://api.${IP}.nip.io:${API_PORT} -u demouser -p ${PASS}; then
+    # K8s (and OpenShift) login: ServiceAccount token
+    kubectl -n flightctl-external get sa flightctl-user --context kind-kind >/dev/null 2>&1 || \
+      kubectl -n flightctl-external create sa flightctl-user --context kind-kind >/dev/null 2>&1 || true
+    # Bind to namespace-scoped Role 'flightctl-admin'
+    kubectl -n flightctl-external get rolebinding flightctl-user-binding --context kind-kind >/dev/null 2>&1 || \
+      kubectl -n flightctl-external create rolebinding flightctl-user-binding \
+        --role=flightctl-admin \
+        --serviceaccount=flightctl-external:flightctl-user --context kind-kind >/dev/null 2>&1 || true
+    # Bind to namespace-scoped Role 'org-default'
+    kubectl -n flightctl-external get rolebinding flightctl-user-org-binding --context kind-kind >/dev/null 2>&1 || \
+      kubectl -n flightctl-external create rolebinding flightctl-user-org-binding \
+        --role=org-default \
+        --serviceaccount=flightctl-external:flightctl-user --context kind-kind >/dev/null 2>&1 || true
+    TOKEN=$(kubectl -n flightctl-external create token flightctl-user --context kind-kind 2>/dev/null || true)
+    if [ -n "$TOKEN" ] && ./bin/flightctl login -k https://api.${IP}.nip.io:${API_PORT} --token "$TOKEN"; then
       LOGGED_IN=true
       break
     fi

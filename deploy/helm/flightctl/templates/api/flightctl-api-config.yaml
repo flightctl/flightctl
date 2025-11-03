@@ -67,22 +67,23 @@ data:
     kv:
         hostname: flightctl-kv.{{ default .Release.Namespace .Values.global.internalNamespace }}.svc.cluster.local
         port: 6379
+    {{- $effectiveAuthType := include "flightctl.getEffectiveAuthType" . }}
     {{ if not (eq .Values.global.auth.type "none")  }}
     auth:
         insecureSkipTlsVerify: {{ .Values.global.auth.insecureSkipTlsVerify }}
         caCert: {{ .Values.global.auth.caCert }}
-        {{- if or (eq .Values.global.target "acm") (eq .Values.global.auth.type "k8s")  }}
+        {{- if or (eq .Values.global.target "acm") (eq $effectiveAuthType "k8s")  }}
         k8s:
             apiUrl: {{ .Values.global.auth.k8s.apiUrl }}
             externalOpenShiftApiUrl: {{ include "flightctl.getOpenShiftAPIUrl" . }}
             rbacNs: {{ default .Release.Namespace .Values.global.auth.k8s.rbacNs }}
-        {{- else if eq .Values.global.auth.type "aap"}}
+        {{- else if eq $effectiveAuthType "aap"}}
         aap:
           apiUrl: {{ .Values.global.auth.aap.apiUrl }}
           externalApiUrl: {{ .Values.global.auth.aap.externalApiUrl }}
         {{- else }}
         oidc:
-            oidcAuthority: {{ .Values.global.auth.oidc.oidcAuthority }}
+            oidcAuthority: {{ .Values.global.auth.oidc.issuer }}
             externalOidcAuthority: {{ include "flightctl.getOidcAuthorityUrl" . }}
         {{- end }}
     {{ end }}

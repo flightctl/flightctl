@@ -34,7 +34,7 @@ runs:
         run: |
           echo "::group::Installing general dependencies"
           sudo apt update -y # fix broken repo cache
-          sudo apt install -y make python3-pip podman podman-compose libvirt-dev
+          sudo apt install -y make python3-pip podman podman-compose libvirt-dev libpam0g-dev
 
           curl -Lo protoc.zip "https://github.com/protocolbuffers/protobuf/releases/download/v3.14.0/protoc-3.14.0-linux-x86_64.zip"
           sudo unzip -q protoc.zip bin/protoc -d /usr/local

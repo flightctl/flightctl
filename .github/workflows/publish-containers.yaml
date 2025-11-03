@@ -98,7 +98,7 @@ jobs:
   publish-flightctl-containers:
     strategy:
       matrix:
-        image: ['api', 'periodic', 'worker', 'cli-artifacts', 'alert-exporter', 'alertmanager-proxy', 'userinfo-proxy', 'db-setup', 'telemetry-gateway']
+        image: ['api', 'pam-issuer', 'periodic', 'worker', 'cli-artifacts', 'alert-exporter', 'alertmanager-proxy', 'userinfo-proxy', 'db-setup', 'telemetry-gateway']
     needs: [generate-tags]
     runs-on: "ubuntu-24.04"
     steps:
