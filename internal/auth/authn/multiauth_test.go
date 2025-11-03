@@ -92,31 +92,19 @@ func (m *MockAuthNMiddleware) GetIdentity(ctx context.Context, token string) (co
 }
 
 func (m *MockAuthNMiddleware) GetAuthConfig() *api.AuthConfig {
+	providerType := string(api.AuthProviderInfoTypeOidc)
 	providerName := m.issuer
-
-	// Create OIDC provider spec
-	oidcSpec := api.OIDCProviderSpec{
-		Issuer:       m.issuer,
-		ClientId:     "test-client",
-		ClientSecret: lo.ToPtr("test-secret"),
-		ProviderType: api.OIDCProviderSpecProviderType("oidc"),
+	provider := api.AuthProviderInfo{
+		Name:     &providerName,
+		Type:     (*api.AuthProviderInfoType)(&providerType),
+		AuthUrl:  &m.issuer,
+		IsStatic: lo.ToPtr(true),
 	}
-
-	provider := api.AuthProvider{
-		ApiVersion: api.AuthProviderAPIVersion,
-		Kind:       api.AuthProviderKind,
-		Metadata: api.ObjectMeta{
-			Name: &providerName,
-		},
-		Spec: api.AuthProviderSpec{},
-	}
-	_ = provider.Spec.FromOIDCProviderSpec(oidcSpec)
-
 	return &api.AuthConfig{
 		ApiVersion:           api.AuthConfigAPIVersion,
 		DefaultProvider:      &providerName,
 		OrganizationsEnabled: lo.ToPtr(false),
-		Providers:            &[]api.AuthProvider{provider},
+		Providers:            &[]api.AuthProviderInfo{provider},
 	}
 }
 
@@ -320,8 +308,9 @@ func TestMultiAuth_GetAuthConfig(t *testing.T) {
 	assert.Equal(t, "https://test-issuer-1.com", *config.DefaultProvider)
 	assert.NotNil(t, config.Providers)
 	assert.Len(t, *config.Providers, 1)
-	// Verify first provider name
-	assert.Equal(t, "https://test-issuer-1.com", *(*config.Providers)[0].Metadata.Name)
+	// Verify first provider is static
+	assert.Equal(t, "https://test-issuer-1.com", *(*config.Providers)[0].AuthUrl)
+	assert.True(t, *(*config.Providers)[0].IsStatic)
 
 	// Add second static method
 	mockMethod2 := &MockAuthNMiddleware{issuer: "https://test-issuer-2.com", valid: true}
@@ -331,9 +320,9 @@ func TestMultiAuth_GetAuthConfig(t *testing.T) {
 	assert.NotNil(t, config)
 	assert.NotNil(t, config.Providers)
 	assert.Len(t, *config.Providers, 2)
-	// Verify both providers have names
-	assert.NotNil(t, (*config.Providers)[0].Metadata.Name)
-	assert.NotNil(t, (*config.Providers)[1].Metadata.Name)
+	// Verify both providers are static
+	assert.True(t, *(*config.Providers)[0].IsStatic)
+	assert.True(t, *(*config.Providers)[1].IsStatic)
 	// Default provider should still be the first one
 	assert.Equal(t, "https://test-issuer-1.com", *config.DefaultProvider)
 }

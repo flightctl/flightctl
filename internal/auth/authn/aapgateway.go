@@ -41,15 +41,14 @@ func (a *AAPIdentity) IsPlatformAuditor() bool {
 }
 
 type AapGatewayAuth struct {
-	metadata  api.ObjectMeta
-	spec      api.AapProviderSpec
-	aapClient *aap.AAPGatewayClient
-	cache     *ttlcache.Cache[string, *AAPIdentity]
+	externalGatewayUrl string
+	aapClient          *aap.AAPGatewayClient
+	cache              *ttlcache.Cache[string, *AAPIdentity]
 }
 
-func NewAapGatewayAuth(metadata api.ObjectMeta, spec api.AapProviderSpec, clientTlsConfig *tls.Config) (*AapGatewayAuth, error) {
+func NewAapGatewayAuth(gatewayUrl string, externalGatewayUrl string, clientTlsConfig *tls.Config) (*AapGatewayAuth, error) {
 	aapClient, err := aap.NewAAPGatewayClient(aap.AAPGatewayClientOptions{
-		GatewayUrl:      spec.ApiUrl,
+		GatewayUrl:      gatewayUrl,
 		TLSClientConfig: clientTlsConfig,
 	})
 	if err != nil {
@@ -57,10 +56,9 @@ func NewAapGatewayAuth(metadata api.ObjectMeta, spec api.AapProviderSpec, client
 	}
 
 	authN := AapGatewayAuth{
-		metadata:  metadata,
-		spec:      spec,
-		aapClient: aapClient,
-		cache:     ttlcache.New[string, *AAPIdentity](ttlcache.WithTTL[string, *AAPIdentity](5 * time.Second)),
+		aapClient:          aapClient,
+		externalGatewayUrl: externalGatewayUrl,
+		cache:              ttlcache.New[string, *AAPIdentity](ttlcache.WithTTL[string, *AAPIdentity](5 * time.Second)),
 	}
 	go authN.cache.Start()
 	return &authN, nil
@@ -89,13 +87,8 @@ func (a AapGatewayAuth) loadUserInfo(token string) (*AAPIdentity, error) {
 		roles = append(roles, "user") // default role
 	}
 
-	externalApiUrl := a.spec.ApiUrl
-	if a.spec.ExternalApiUrl != nil && *a.spec.ExternalApiUrl != "" {
-		externalApiUrl = *a.spec.ExternalApiUrl
-	}
-
 	userInfo := &AAPIdentity{
-		BaseIdentity:    *common.NewBaseIdentityWithIssuer(aapUserInfo.Username, strconv.Itoa(aapUserInfo.ID), []common.ReportedOrganization{}, roles, identity.NewIssuer(identity.AuthTypeAAP, externalApiUrl)),
+		BaseIdentity:    *common.NewBaseIdentityWithIssuer(aapUserInfo.Username, strconv.Itoa(aapUserInfo.ID), []common.ReportedOrganization{}, roles, identity.NewIssuer(identity.AuthTypeAAP, a.externalGatewayUrl)),
 		superUser:       aapUserInfo.IsSuperuser,
 		platformAuditor: aapUserInfo.IsPlatformAuditor,
 	}
@@ -110,19 +103,20 @@ func (a AapGatewayAuth) ValidateToken(ctx context.Context, token string) error {
 }
 
 func (a AapGatewayAuth) GetAuthConfig() *api.AuthConfig {
-	provider := api.AuthProvider{
-		ApiVersion: api.AuthProviderAPIVersion,
-		Kind:       api.AuthProviderKind,
-		Metadata:   a.metadata,
-		Spec:       api.AuthProviderSpec{},
+	providerType := api.AuthProviderInfoTypeAap
+	providerName := string(api.AuthProviderInfoTypeAap)
+	provider := api.AuthProviderInfo{
+		Name:     &providerName,
+		Type:     &providerType,
+		AuthUrl:  &a.externalGatewayUrl,
+		IsStatic: lo.ToPtr(true),
 	}
-	_ = provider.Spec.FromAapProviderSpec(a.spec)
 
 	return &api.AuthConfig{
 		ApiVersion:           api.AuthConfigAPIVersion,
-		DefaultProvider:      a.metadata.Name,
+		DefaultProvider:      &providerName,
 		OrganizationsEnabled: lo.ToPtr(true),
-		Providers:            &[]api.AuthProvider{provider},
+		Providers:            &[]api.AuthProviderInfo{provider},
 	}
 }
 

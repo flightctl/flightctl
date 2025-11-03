@@ -101,13 +101,9 @@ func InitMultiAuthZ(cfg *config.Config, log logrus.FieldLogger) (AuthZMiddleware
 			return nil, fmt.Errorf("failed to create k8s client for authZ: %w", err)
 		}
 
-		rbacNs := ""
-		if cfg.Auth.K8s.RbacNs != nil {
-			rbacNs = *cfg.Auth.K8s.RbacNs
-		}
 		multiAuthZ.k8sAuthZ = &authz.K8sAuthZ{
 			K8sClient: k8sClient,
-			Namespace: rbacNs,
+			Namespace: cfg.Auth.K8s.RBACNs,
 			Log:       log,
 		}
 	}

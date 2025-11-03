@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net/http"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -250,7 +249,7 @@ func (m *MultiAuth) getProviderKey(provider *api.AuthProvider) (AuthProviderCach
 		}
 		return AuthProviderCacheKey{Issuer: oidcSpec.Issuer, ClientId: oidcSpec.ClientId}, nil
 
-	case string(api.Oauth2):
+	case string(api.OAuth2ProviderSpecProviderTypeOauth2):
 		oauth2Spec, err := provider.Spec.AsOAuth2ProviderSpec()
 		if err != nil {
 			return AuthProviderCacheKey{}, fmt.Errorf("failed to parse OAuth2 provider spec: %w", err)
@@ -276,103 +275,78 @@ func (m *MultiAuth) hasProviderChanged(existingMiddleware common.AuthNMiddleware
 		return true, nil // If we can't get config, assume changed
 	}
 
-	existingProvider := (*existingConfig.Providers)[0]
+	existingProviderInfo := (*existingConfig.Providers)[0]
 
-	// Get existing provider discriminator
-	existingDiscriminator, err := existingProvider.Spec.Discriminator()
+	// Determine provider type
+	discriminator, err := newProvider.Spec.Discriminator()
 	if err != nil {
 		return true, err
-	}
-
-	// Determine new provider type
-	newDiscriminator, err := newProvider.Spec.Discriminator()
-	if err != nil {
-		return true, err
-	}
-
-	// If types differ, provider has changed
-	if existingDiscriminator != newDiscriminator {
-		return true, nil
 	}
 
 	// Compare based on provider type
-	switch newDiscriminator {
+	switch discriminator {
 	case string(api.Oidc):
-		existingOidcSpec, err := existingProvider.Spec.AsOIDCProviderSpec()
-		if err != nil {
-			return true, err
-		}
-		newOidcSpec, err := newProvider.Spec.AsOIDCProviderSpec()
+		oidcSpec, err := newProvider.Spec.AsOIDCProviderSpec()
 		if err != nil {
 			return true, err
 		}
 
 		// Compare relevant fields
-		if existingOidcSpec.Issuer != newOidcSpec.Issuer {
+		if existingProviderInfo.Issuer != nil && *existingProviderInfo.Issuer != oidcSpec.Issuer {
 			return true, nil
 		}
-		if existingOidcSpec.ClientId != newOidcSpec.ClientId {
+		if existingProviderInfo.ClientId != nil && *existingProviderInfo.ClientId != oidcSpec.ClientId {
 			return true, nil
 		}
-		if (existingOidcSpec.DisplayName == nil) != (newOidcSpec.DisplayName == nil) {
+		if existingProviderInfo.DisplayName != nil && oidcSpec.DisplayName != nil && *existingProviderInfo.DisplayName != *oidcSpec.DisplayName {
 			return true, nil
 		}
-		if existingOidcSpec.DisplayName != nil && newOidcSpec.DisplayName != nil && *existingOidcSpec.DisplayName != *newOidcSpec.DisplayName {
-			return true, nil
-		}
-		if !equalStringSlices(existingOidcSpec.UsernameClaim, newOidcSpec.UsernameClaim) {
+		if !equalStringSlices(existingProviderInfo.UsernameClaim, oidcSpec.UsernameClaim) {
 			return true, nil
 		}
 		// Compare scopes
-		if !equalScopes(existingOidcSpec.Scopes, newOidcSpec.Scopes) {
+		if !equalScopes(existingProviderInfo.Scopes, oidcSpec.Scopes) {
 			return true, nil
 		}
 
-	case string(api.Oauth2):
-		existingOauth2Spec, err := existingProvider.Spec.AsOAuth2ProviderSpec()
-		if err != nil {
-			return true, err
-		}
-		newOauth2Spec, err := newProvider.Spec.AsOAuth2ProviderSpec()
+	case string(api.OAuth2ProviderSpecProviderTypeOauth2):
+		oauth2Spec, err := newProvider.Spec.AsOAuth2ProviderSpec()
 		if err != nil {
 			return true, err
 		}
 
 		// Compare relevant fields
-		if (existingOauth2Spec.Issuer == nil) != (newOauth2Spec.Issuer == nil) {
+		if existingProviderInfo.Issuer != nil && oauth2Spec.Issuer != nil && *existingProviderInfo.Issuer != *oauth2Spec.Issuer {
 			return true, nil
 		}
-		if existingOauth2Spec.Issuer != nil && newOauth2Spec.Issuer != nil && *existingOauth2Spec.Issuer != *newOauth2Spec.Issuer {
+		if (existingProviderInfo.Issuer == nil) != (oauth2Spec.Issuer == nil) {
 			return true, nil
 		}
-		if existingOauth2Spec.AuthorizationUrl != newOauth2Spec.AuthorizationUrl {
+		if existingProviderInfo.AuthUrl != nil && *existingProviderInfo.AuthUrl != oauth2Spec.AuthorizationUrl {
 			return true, nil
 		}
-		if existingOauth2Spec.TokenUrl != newOauth2Spec.TokenUrl {
+		if existingProviderInfo.TokenUrl != nil && *existingProviderInfo.TokenUrl != oauth2Spec.TokenUrl {
 			return true, nil
 		}
-		if existingOauth2Spec.UserinfoUrl != newOauth2Spec.UserinfoUrl {
+		if existingProviderInfo.UserinfoUrl != nil && *existingProviderInfo.UserinfoUrl != oauth2Spec.UserinfoUrl {
 			return true, nil
 		}
-		if existingOauth2Spec.ClientId != newOauth2Spec.ClientId {
+		if existingProviderInfo.ClientId != nil && *existingProviderInfo.ClientId != oauth2Spec.ClientId {
 			return true, nil
 		}
-		if (existingOauth2Spec.DisplayName == nil) != (newOauth2Spec.DisplayName == nil) {
+		if existingProviderInfo.DisplayName != nil && oauth2Spec.DisplayName != nil && *existingProviderInfo.DisplayName != *oauth2Spec.DisplayName {
 			return true, nil
 		}
-		if existingOauth2Spec.DisplayName != nil && newOauth2Spec.DisplayName != nil && *existingOauth2Spec.DisplayName != *newOauth2Spec.DisplayName {
-			return true, nil
-		}
-		if !equalStringSlices(existingOauth2Spec.UsernameClaim, newOauth2Spec.UsernameClaim) {
+		if !equalStringSlices(existingProviderInfo.UsernameClaim, oauth2Spec.UsernameClaim) {
 			return true, nil
 		}
 		// Compare scopes
-		if !equalScopes(existingOauth2Spec.Scopes, newOauth2Spec.Scopes) {
+		if !equalScopes(existingProviderInfo.Scopes, oauth2Spec.Scopes) {
 			return true, nil
 		}
 
 	default:
-		return true, fmt.Errorf("unsupported provider type: %s", newDiscriminator)
+		return true, fmt.Errorf("unsupported provider type: %s", discriminator)
 	}
 
 	return false, nil
@@ -447,7 +421,7 @@ func (m *MultiAuth) createAuthMiddlewareFromProvider(provider *api.AuthProvider)
 		}
 		providerKey = AuthProviderCacheKey{Issuer: oidcSpec.Issuer, ClientId: oidcSpec.ClientId}
 
-	case string(api.Oauth2):
+	case string(api.OAuth2ProviderSpecProviderTypeOauth2):
 		oauth2Spec, err := provider.Spec.AsOAuth2ProviderSpec()
 		if err != nil {
 			return AuthProviderCacheKey{}, nil, fmt.Errorf("failed to parse OAuth2 provider spec: %w", err)
@@ -529,7 +503,7 @@ func (m *MultiAuth) GetAuthToken(r *http.Request) (string, error) {
 
 // GetAuthConfig returns the auth configuration with all available providers
 func (m *MultiAuth) GetAuthConfig() *api.AuthConfig {
-	allProviders := []api.AuthProvider{}
+	allProviders := []api.AuthProviderInfo{}
 	var defaultProviderName string
 	var orgEnabled bool
 
@@ -545,13 +519,16 @@ func (m *MultiAuth) GetAuthConfig() *api.AuthConfig {
 
 		// Add all providers from this config
 		if config.Providers != nil {
-			for _, prov := range *config.Providers {
+			for _, providerInfo := range *config.Providers {
+				// Set static flag
+				providerInfo.IsStatic = lo.ToPtr(true)
+
 				// Set default provider name from first provider
-				if isFirst && prov.Metadata.Name != nil {
-					defaultProviderName = *prov.Metadata.Name
+				if isFirst && providerInfo.Name != nil {
+					defaultProviderName = *providerInfo.Name
 				}
 
-				allProviders = append(allProviders, prov)
+				allProviders = append(allProviders, providerInfo)
 				isFirst = false
 			}
 		}
@@ -564,23 +541,15 @@ func (m *MultiAuth) GetAuthConfig() *api.AuthConfig {
 
 		// Add all providers from this config
 		if config.Providers != nil {
-			allProviders = append(allProviders, *config.Providers...)
+			for _, providerInfo := range *config.Providers {
+				// Set static flag for dynamic providers
+				providerInfo.IsStatic = lo.ToPtr(false)
+
+				allProviders = append(allProviders, providerInfo)
+			}
 		}
 	}
 	m.dynamicProvidersMu.RUnlock()
-
-	// Sort providers by name for consistent ordering
-	sort.Slice(allProviders, func(i, j int) bool {
-		nameI := ""
-		nameJ := ""
-		if allProviders[i].Metadata.Name != nil {
-			nameI = *allProviders[i].Metadata.Name
-		}
-		if allProviders[j].Metadata.Name != nil {
-			nameJ = *allProviders[j].Metadata.Name
-		}
-		return nameI < nameJ
-	})
 
 	// If no providers found, return config with nil default provider
 	if len(allProviders) == 0 {
@@ -702,7 +671,7 @@ func createAuthFromProvider(provider *api.AuthProvider, tlsConfig *tls.Config, l
 	switch discriminator {
 	case string(api.Oidc):
 		return createOIDCAuthFromProvider(provider, tlsConfig)
-	case string(api.Oauth2):
+	case string(api.OAuth2ProviderSpecProviderTypeOauth2):
 		return createOAuth2AuthFromProvider(provider, tlsConfig, log)
 	default:
 		return nil, fmt.Errorf("unsupported provider type: %s", discriminator)
@@ -716,8 +685,41 @@ func createOIDCAuthFromProvider(provider *api.AuthProvider, tlsConfig *tls.Confi
 		return nil, fmt.Errorf("failed to parse OIDC provider spec: %w", err)
 	}
 
+	usernameClaim := []string{"preferred_username"}
+	if oidcSpec.UsernameClaim != nil && len(*oidcSpec.UsernameClaim) > 0 {
+		usernameClaim = *oidcSpec.UsernameClaim
+	}
+
+	// Convert organization assignment to org config
+	orgConfig := convertOrganizationAssignmentToOrgConfig(oidcSpec.OrganizationAssignment)
+
+	// Create role extractor from role assignment
+	roleExtractor := NewRoleExtractor(oidcSpec.RoleAssignment)
+
+	// Handle scopes - convert from *[]string to []string
+	var scopes []string
+	if oidcSpec.Scopes != nil {
+		scopes = *oidcSpec.Scopes
+	}
+
+	// Get display name or fallback to provider name
+	displayName := lo.FromPtr(provider.Metadata.Name)
+	if oidcSpec.DisplayName != nil && *oidcSpec.DisplayName != "" {
+		displayName = *oidcSpec.DisplayName
+	}
+
 	// Create OIDCAuth instance for this specific provider
-	oidcAuth, err := NewOIDCAuth(provider.Metadata, oidcSpec, tlsConfig)
+	oidcAuth, err := NewOIDCAuth(
+		lo.FromPtr(provider.Metadata.Name), // Provider name from metadata
+		displayName,                        // Display name from spec or fallback to provider name
+		oidcSpec.Issuer,                    // Issuer for backend operations
+		tlsConfig,                          // Use TLS config from MultiAuth
+		orgConfig,                          // Use org config from provider spec
+		usernameClaim,                      // Use username claim from provider spec
+		roleExtractor,                      // Use role extractor from role assignment
+		oidcSpec.ClientId,                  // Use client ID for audience validation
+		scopes,                             // Use scopes from provider spec
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OIDC auth for provider %s: %w",
 			lo.FromPtr(provider.Metadata.Name), err)
@@ -733,8 +735,46 @@ func createOAuth2AuthFromProvider(provider *api.AuthProvider, tlsConfig *tls.Con
 		return nil, fmt.Errorf("failed to parse OAuth2 provider spec: %w", err)
 	}
 
+	usernameClaim := []string{"preferred_username"}
+	if oauth2Spec.UsernameClaim != nil && len(*oauth2Spec.UsernameClaim) > 0 {
+		usernameClaim = *oauth2Spec.UsernameClaim
+	}
+
+	// Convert organization assignment to org config
+	orgConfig := convertOrganizationAssignmentToOrgConfig(oauth2Spec.OrganizationAssignment)
+
+	// Create role extractor from role assignment
+	roleExtractor := NewRoleExtractor(oauth2Spec.RoleAssignment)
+
+	// Handle scopes - convert from *[]string to []string
+	var scopes []string
+	if oauth2Spec.Scopes != nil {
+		scopes = *oauth2Spec.Scopes
+	}
+
+	// Get display name or fallback to provider name
+	displayName := lo.FromPtr(provider.Metadata.Name)
+	if oauth2Spec.DisplayName != nil && *oauth2Spec.DisplayName != "" {
+		displayName = *oauth2Spec.DisplayName
+	}
+
 	// Create OAuth2Auth instance for this specific provider
-	oauth2Auth, err := NewOAuth2Auth(provider.Metadata, oauth2Spec, tlsConfig, log)
+	oauth2Auth, err := NewOAuth2Auth(
+		lo.FromPtr(provider.Metadata.Name), // Provider name from metadata
+		displayName,                        // Display name from spec or fallback to provider name
+		lo.FromPtr(oauth2Spec.Issuer),
+		oauth2Spec.AuthorizationUrl,
+		oauth2Spec.TokenUrl,
+		oauth2Spec.UserinfoUrl,
+		oauth2Spec.ClientId,
+		lo.FromPtr(oauth2Spec.ClientSecret),
+		scopes,
+		tlsConfig,
+		orgConfig,
+		usernameClaim,
+		roleExtractor,
+		log,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OAuth2 auth for provider %s: %w",
 			lo.FromPtr(provider.Metadata.Name), err)

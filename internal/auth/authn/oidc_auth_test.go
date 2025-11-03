@@ -29,15 +29,10 @@ func createTestOIDCAuth(jwksUri string) *OIDCAuth {
 	}
 	_ = roleAssignment.FromAuthDynamicRoleAssignment(dynamicRoleAssignment)
 
-	oidcSpec := api.OIDCProviderSpec{
-		UsernameClaim: &[]string{"preferred_username"},
-	}
-
 	oidcAuth := &OIDCAuth{
-		metadata:      api.ObjectMeta{},
-		spec:          oidcSpec,
 		jwksUri:       jwksUri,
 		client:        &http.Client{Timeout: 5 * time.Second},
+		usernameClaim: []string{"preferred_username"},
 		roleExtractor: NewRoleExtractor(roleAssignment),
 		organizationExtractor: &OrganizationExtractor{
 			orgConfig: nil, // No org config for basic tests

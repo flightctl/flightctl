@@ -65,7 +65,7 @@ func TestAuthProviderHideSensitiveData(t *testing.T) {
 				}
 
 				oauth2Spec := OAuth2ProviderSpec{
-					ProviderType:           Oauth2,
+					ProviderType:           OAuth2ProviderSpecProviderTypeOauth2,
 					Issuer:                 lo.ToPtr("https://oauth2.example.com"),
 					ClientId:               "oauth2-client-id",
 					ClientSecret:           lo.ToPtr("oauth2-secret"),
@@ -87,7 +87,7 @@ func TestAuthProviderHideSensitiveData(t *testing.T) {
 				}
 				return provider
 			},
-			expectedType:      string(Oauth2),
+			expectedType:      string(OAuth2ProviderSpecProviderTypeOauth2),
 			checkSecretHidden: true,
 		},
 	}
@@ -113,7 +113,7 @@ func TestAuthProviderHideSensitiveData(t *testing.T) {
 					require.NoError(t, err)
 					require.NotNil(t, oidcSpec.ClientSecret)
 					assert.Equal(t, "*****", *oidcSpec.ClientSecret, "OIDC client secret should be hidden")
-				case string(Oauth2):
+				case string(OAuth2ProviderSpecProviderTypeOauth2):
 					oauth2Spec, err := provider.Spec.AsOAuth2ProviderSpec()
 					require.NoError(t, err)
 					require.NotNil(t, oauth2Spec.ClientSecret)
@@ -152,7 +152,7 @@ func TestAuthProviderListHideSensitiveData(t *testing.T) {
 
 	// Create OAuth2 provider
 	oauth2Spec := OAuth2ProviderSpec{
-		ProviderType:           Oauth2,
+		ProviderType:           OAuth2ProviderSpecProviderTypeOauth2,
 		Issuer:                 lo.ToPtr("https://oauth2.example.com"),
 		ClientId:               "oauth2-client-id",
 		ClientSecret:           lo.ToPtr("oauth2-secret"),
@@ -192,7 +192,7 @@ func TestAuthProviderListHideSensitiveData(t *testing.T) {
 	// Verify OAuth2 provider
 	oauth2Discriminator, err := list.Items[1].Spec.Discriminator()
 	require.NoError(t, err)
-	assert.Equal(t, string(Oauth2), oauth2Discriminator, "OAuth2 provider type should be preserved")
+	assert.Equal(t, string(OAuth2ProviderSpecProviderTypeOauth2), oauth2Discriminator, "OAuth2 provider type should be preserved")
 
 	oauth2Spec, err = list.Items[1].Spec.AsOAuth2ProviderSpec()
 	require.NoError(t, err)

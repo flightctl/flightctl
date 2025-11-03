@@ -12,11 +12,6 @@ import (
 	"github.com/oapi-codegen/runtime"
 )
 
-// Defines values for AapProviderSpecProviderType.
-const (
-	Aap AapProviderSpecProviderType = "aap"
-)
-
 // Defines values for AppType.
 const (
 	AppTypeCompose AppType = "compose"
@@ -54,6 +49,14 @@ const (
 // Defines values for AuthPerUserOrganizationAssignmentType.
 const (
 	PerUser AuthPerUserOrganizationAssignmentType = "perUser"
+)
+
+// Defines values for AuthProviderInfoType.
+const (
+	AuthProviderInfoTypeAap    AuthProviderInfoType = "aap"
+	AuthProviderInfoTypeK8s    AuthProviderInfoType = "k8s"
+	AuthProviderInfoTypeOauth2 AuthProviderInfoType = "oauth2"
+	AuthProviderInfoTypeOidc   AuthProviderInfoType = "oidc"
 )
 
 // Defines values for AuthStaticOrganizationAssignmentType.
@@ -315,11 +318,6 @@ const (
 	InternalTaskPermanentlyFailed InternalTaskPermanentlyFailedDetailsDetailType = "InternalTaskPermanentlyFailed"
 )
 
-// Defines values for K8sProviderSpecProviderType.
-const (
-	K8s K8sProviderSpecProviderType = "k8s"
-)
-
 // Defines values for MatchExpressionOperator.
 const (
 	DoesNotExist MatchExpressionOperator = "DoesNotExist"
@@ -330,7 +328,7 @@ const (
 
 // Defines values for OAuth2ProviderSpecProviderType.
 const (
-	Oauth2 OAuth2ProviderSpecProviderType = "oauth2"
+	OAuth2ProviderSpecProviderTypeOauth2 OAuth2ProviderSpecProviderType = "oauth2"
 )
 
 // Defines values for OIDCProviderSpecProviderType.
@@ -410,33 +408,6 @@ const (
 const (
 	ListLabelsParamsKindDevice ListLabelsParamsKind = "Device"
 )
-
-// AapProviderSpec AapProviderSpec describes an Ansible Automation Platform (AAP) provider configuration.
-type AapProviderSpec struct {
-	// ApiUrl The internal AAP API URL.
-	ApiUrl string `json:"apiUrl"`
-
-	// DisplayName Human-readable display name for the provider.
-	DisplayName *string `json:"displayName,omitempty"`
-
-	// Enabled Whether this AAP provider is enabled.
-	Enabled *bool `json:"enabled,omitempty"`
-
-	// ExternalApiUrl The external AAP API URL (for external access).
-	ExternalApiUrl *string `json:"externalApiUrl,omitempty"`
-
-	// OrganizationAssignment AuthOrganizationAssignment defines how users from this auth provider are assigned to organizations.
-	OrganizationAssignment AuthOrganizationAssignment `json:"organizationAssignment"`
-
-	// ProviderType The type of authentication provider.
-	ProviderType AapProviderSpecProviderType `json:"providerType"`
-
-	// RoleAssignment AuthRoleAssignment defines how roles are assigned to users from this auth provider.
-	RoleAssignment AuthRoleAssignment `json:"roleAssignment"`
-}
-
-// AapProviderSpecProviderType The type of authentication provider.
-type AapProviderSpecProviderType string
 
 // AbsolutePath Represents an absolute file path.
 type AbsolutePath struct {
@@ -518,7 +489,7 @@ type AuthConfig struct {
 	OrganizationsEnabled *bool `json:"organizationsEnabled,omitempty"`
 
 	// Providers List of all available authentication providers.
-	Providers *[]AuthProvider `json:"providers,omitempty"`
+	Providers *[]AuthProviderInfo `json:"providers,omitempty"`
 }
 
 // AuthDynamicOrganizationAssignment AuthDynamicOrganizationAssignment assigns users to organizations based on auth provider claims.
@@ -583,6 +554,45 @@ type AuthProvider struct {
 	Metadata ObjectMeta       `json:"metadata"`
 	Spec     AuthProviderSpec `json:"spec"`
 }
+
+// AuthProviderInfo Auth config.
+type AuthProviderInfo struct {
+	// AuthUrl Authentication URL for the provider.
+	AuthUrl *string `json:"authUrl,omitempty"`
+
+	// ClientId Default client ID for OIDC/OAuth2 providers.
+	ClientId *string `json:"clientId,omitempty"`
+
+	// DisplayName Human-readable display name.
+	DisplayName *string `json:"displayName,omitempty"`
+
+	// IsStatic Whether this is a static provider (from config) or dynamic (from database).
+	IsStatic *bool `json:"isStatic,omitempty"`
+
+	// Issuer OIDC issuer URL (for OIDC providers).
+	Issuer *string `json:"issuer,omitempty"`
+
+	// Name Unique identifier for the provider.
+	Name *string `json:"name,omitempty"`
+
+	// Scopes OAuth2 scopes (for OAuth2 providers).
+	Scopes *[]string `json:"scopes,omitempty"`
+
+	// TokenUrl Token endpoint URL (for OAuth2 providers).
+	TokenUrl *string `json:"tokenUrl,omitempty"`
+
+	// Type Type of authentication provider.
+	Type *AuthProviderInfoType `json:"type,omitempty"`
+
+	// UserinfoUrl Userinfo endpoint URL (for OAuth2 providers).
+	UserinfoUrl *string `json:"userinfoUrl,omitempty"`
+
+	// UsernameClaim JSON path to the username claim (for OIDC/OAuth2 providers) as an array of path segments.
+	UsernameClaim *[]string `json:"usernameClaim,omitempty"`
+}
+
+// AuthProviderInfoType Type of authentication provider.
+type AuthProviderInfoType string
 
 // AuthProviderList AuthProviderList is a list of auth providers.
 type AuthProviderList struct {
@@ -1795,36 +1805,6 @@ type InternalTaskPermanentlyFailedDetails struct {
 
 // InternalTaskPermanentlyFailedDetailsDetailType The type of detail for discriminator purposes.
 type InternalTaskPermanentlyFailedDetailsDetailType string
-
-// K8sProviderSpec K8sProviderSpec describes a Kubernetes/OpenShift provider configuration.
-type K8sProviderSpec struct {
-	// ApiUrl The internal Kubernetes API URL.
-	ApiUrl string `json:"apiUrl"`
-
-	// DisplayName Human-readable display name for the provider.
-	DisplayName *string `json:"displayName,omitempty"`
-
-	// Enabled Whether this K8s provider is enabled.
-	Enabled *bool `json:"enabled,omitempty"`
-
-	// ExternalOpenShiftApiUrl The external OpenShift API URL (for external access).
-	ExternalOpenShiftApiUrl *string `json:"externalOpenShiftApiUrl,omitempty"`
-
-	// OrganizationAssignment AuthOrganizationAssignment defines how users from this auth provider are assigned to organizations.
-	OrganizationAssignment AuthOrganizationAssignment `json:"organizationAssignment"`
-
-	// ProviderType The type of authentication provider.
-	ProviderType K8sProviderSpecProviderType `json:"providerType"`
-
-	// RbacNs The RBAC namespace for permissions.
-	RbacNs *string `json:"rbacNs,omitempty"`
-
-	// RoleAssignment AuthRoleAssignment defines how roles are assigned to users from this auth provider.
-	RoleAssignment AuthRoleAssignment `json:"roleAssignment"`
-}
-
-// K8sProviderSpecProviderType The type of authentication provider.
-type K8sProviderSpecProviderType string
 
 // KubernetesSecretProviderSpec defines model for KubernetesSecretProviderSpec.
 type KubernetesSecretProviderSpec struct {
@@ -3199,62 +3179,6 @@ func (t *AuthProviderSpec) MergeOAuth2ProviderSpec(v OAuth2ProviderSpec) error {
 	return err
 }
 
-// AsAapProviderSpec returns the union data inside the AuthProviderSpec as a AapProviderSpec
-func (t AuthProviderSpec) AsAapProviderSpec() (AapProviderSpec, error) {
-	var body AapProviderSpec
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromAapProviderSpec overwrites any union data inside the AuthProviderSpec as the provided AapProviderSpec
-func (t *AuthProviderSpec) FromAapProviderSpec(v AapProviderSpec) error {
-	v.ProviderType = "aap"
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeAapProviderSpec performs a merge with any union data inside the AuthProviderSpec, using the provided AapProviderSpec
-func (t *AuthProviderSpec) MergeAapProviderSpec(v AapProviderSpec) error {
-	v.ProviderType = "aap"
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-// AsK8sProviderSpec returns the union data inside the AuthProviderSpec as a K8sProviderSpec
-func (t AuthProviderSpec) AsK8sProviderSpec() (K8sProviderSpec, error) {
-	var body K8sProviderSpec
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromK8sProviderSpec overwrites any union data inside the AuthProviderSpec as the provided K8sProviderSpec
-func (t *AuthProviderSpec) FromK8sProviderSpec(v K8sProviderSpec) error {
-	v.ProviderType = "k8s"
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeK8sProviderSpec performs a merge with any union data inside the AuthProviderSpec, using the provided K8sProviderSpec
-func (t *AuthProviderSpec) MergeK8sProviderSpec(v K8sProviderSpec) error {
-	v.ProviderType = "k8s"
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
 func (t AuthProviderSpec) Discriminator() (string, error) {
 	var discriminator struct {
 		Discriminator string `json:"providerType"`
@@ -3269,10 +3193,6 @@ func (t AuthProviderSpec) ValueByDiscriminator() (interface{}, error) {
 		return nil, err
 	}
 	switch discriminator {
-	case "aap":
-		return t.AsAapProviderSpec()
-	case "k8s":
-		return t.AsK8sProviderSpec()
 	case "oauth2":
 		return t.AsOAuth2ProviderSpec()
 	case "oidc":

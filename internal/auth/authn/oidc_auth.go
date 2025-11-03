@@ -15,6 +15,7 @@ import (
 	identitypkg "github.com/flightctl/flightctl/internal/identity"
 	"github.com/lestrrat-go/jwx/v2/jwk"
 	"github.com/lestrrat-go/jwx/v2/jwt"
+	"github.com/samber/lo"
 )
 
 const (
@@ -42,13 +43,17 @@ func (i *JWTIdentity) GetClaim(claim string) (interface{}, bool) {
 }
 
 type OIDCAuth struct {
-	metadata              api.ObjectMeta
-	spec                  api.OIDCProviderSpec
+	providerName          string
+	displayName           string
+	oidcAuthority         string
 	jwksUri               string
 	clientTlsConfig       *tls.Config
 	client                *http.Client
 	orgConfig             *common.AuthOrganizationsConfig
+	usernameClaim         []string
 	roleExtractor         *RoleExtractor
+	expectedClientId      string
+	scopes                []string
 	jwksCache             *jwk.Cache
 	organizationExtractor *OrganizationExtractor
 
@@ -64,16 +69,11 @@ type OIDCServerResponse struct {
 	JwksUri       string `json:"jwks_uri"`
 }
 
-func NewOIDCAuth(metadata api.ObjectMeta, spec api.OIDCProviderSpec, clientTlsConfig *tls.Config) (*OIDCAuth, error) {
-	// Convert organization assignment to org config
-	orgConfig := convertOrganizationAssignmentToOrgConfig(spec.OrganizationAssignment)
-
-	// Create role extractor from role assignment
-	roleExtractor := NewRoleExtractor(spec.RoleAssignment)
-
+func NewOIDCAuth(providerName string, displayName string, oidcAuthority string, clientTlsConfig *tls.Config, orgConfig *common.AuthOrganizationsConfig, usernameClaim []string, roleExtractor *RoleExtractor, expectedClientId string, scopes []string) (*OIDCAuth, error) {
 	oidcAuth := &OIDCAuth{
-		metadata:        metadata,
-		spec:            spec,
+		providerName:    providerName,
+		displayName:     displayName,
+		oidcAuthority:   oidcAuthority,
 		clientTlsConfig: clientTlsConfig,
 		client: &http.Client{
 			Transport: &http.Transport{
@@ -81,8 +81,11 @@ func NewOIDCAuth(metadata api.ObjectMeta, spec api.OIDCProviderSpec, clientTlsCo
 			},
 			Timeout: defaultOIDCTimeout,
 		},
-		orgConfig:     orgConfig,
-		roleExtractor: roleExtractor,
+		orgConfig:        orgConfig,
+		usernameClaim:    usernameClaim,
+		roleExtractor:    roleExtractor,
+		expectedClientId: expectedClientId,
+		scopes:           scopes,
 	}
 
 	// Create stateless organization extractor
@@ -98,7 +101,7 @@ func NewOIDCAuth(metadata api.ObjectMeta, spec api.OIDCProviderSpec, clientTlsCo
 // This is called automatically before validating tokens
 func (o *OIDCAuth) ensureDiscovery(ctx context.Context) error {
 	o.discoveryOnce.Do(func() {
-		discoveryURL := fmt.Sprintf("%s/.well-known/openid-configuration", o.spec.Issuer)
+		discoveryURL := fmt.Sprintf("%s/.well-known/openid-configuration", o.oidcAuthority)
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, discoveryURL, nil)
 		if err != nil {
 			o.discoveryErr = fmt.Errorf("failed to create OIDC discovery request: %w", err)
@@ -187,24 +190,24 @@ func (o *OIDCAuth) parseAndCreateIdentity(ctx context.Context, token string) (*J
 	}
 
 	// Validate audience claim contains expected client ID
-	if o.spec.ClientId != "" {
+	if o.expectedClientId != "" {
 		audienceValid := false
 		for _, v := range parsedToken.Audience() {
-			if v == o.spec.ClientId {
+			if v == o.expectedClientId {
 				audienceValid = true
 				break
 			}
 		}
 
 		if !audienceValid {
-			return nil, fmt.Errorf("token audience does not contain expected client ID '%s'", o.spec.ClientId)
+			return nil, fmt.Errorf("token audience does not contain expected client ID '%s'", o.expectedClientId)
 		}
 
 		// Also validate azp claim if present
 		if azp, exists := parsedToken.Get("azp"); exists {
 			if azpStr, ok := azp.(string); ok {
-				if azpStr != o.spec.ClientId {
-					return nil, fmt.Errorf("token authorized party '%s' does not match expected client ID '%s'", azpStr, o.spec.ClientId)
+				if azpStr != o.expectedClientId {
+					return nil, fmt.Errorf("token authorized party '%s' does not match expected client ID '%s'", azpStr, o.expectedClientId)
 				}
 			}
 		}
@@ -227,8 +230,8 @@ func (o *OIDCAuth) parseAndCreateIdentity(ctx context.Context, token string) (*J
 
 	// Extract username using the claim path
 	username := ""
-	if o.spec.UsernameClaim != nil && len(*o.spec.UsernameClaim) > 0 {
-		if usernameValue := o.extractClaimByPath(claimsMap, *o.spec.UsernameClaim); usernameValue != "" {
+	if len(o.usernameClaim) > 0 {
+		if usernameValue := o.extractClaimByPath(claimsMap, o.usernameClaim); usernameValue != "" {
 			username = usernameValue
 			identity.SetUsername(usernameValue)
 		}
@@ -274,27 +277,23 @@ func (o *OIDCAuth) GetAuthConfig() *api.AuthConfig {
 		orgEnabled = o.orgConfig.Enabled
 	}
 
-	provider := api.AuthProvider{
-		ApiVersion: api.AuthProviderAPIVersion,
-		Kind:       api.AuthProviderKind,
-		Metadata:   o.metadata,
-		Spec:       api.AuthProviderSpec{},
+	providerType := api.AuthProviderInfoTypeOidc
+	provider := api.AuthProviderInfo{
+		Name:          &o.providerName,
+		DisplayName:   &o.displayName,
+		Type:          &providerType,
+		Issuer:        &o.oidcAuthority,
+		ClientId:      &o.expectedClientId,
+		Scopes:        &o.scopes,
+		UsernameClaim: &o.usernameClaim,
+		IsStatic:      lo.ToPtr(true),
 	}
-
-	// Create a copy of the spec with masked client secret
-	maskedSpec := o.spec
-	if maskedSpec.ClientSecret != nil && *maskedSpec.ClientSecret != "" {
-		masked := "********"
-		maskedSpec.ClientSecret = &masked
-	}
-
-	_ = provider.Spec.FromOIDCProviderSpec(maskedSpec)
 
 	return &api.AuthConfig{
 		ApiVersion:           api.AuthConfigAPIVersion,
-		DefaultProvider:      o.metadata.Name,
+		DefaultProvider:      provider.Name,
 		OrganizationsEnabled: &orgEnabled,
-		Providers:            &[]api.AuthProvider{provider},
+		Providers:            &[]api.AuthProviderInfo{provider},
 	}
 }
 

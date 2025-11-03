@@ -417,7 +417,7 @@ func (a *AuthProvider) HideSensitiveData() error {
 			return err
 		}
 
-	case string(Oauth2):
+	case string(OAuth2ProviderSpecProviderTypeOauth2):
 		// Hide clientSecret in OAuth2 provider spec
 		oauth2Spec, err := a.Spec.AsOAuth2ProviderSpec()
 		if err != nil {

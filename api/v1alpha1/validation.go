@@ -1321,17 +1321,13 @@ func (a AuthProviderSpec) Validate(ctx context.Context) []error {
 		} else {
 			allErrs = append(allErrs, oidcSpec.Validate(ctx)...)
 		}
-	case string(Oauth2):
+	case string(OAuth2ProviderSpecProviderTypeOauth2):
 		oauth2Spec, err := a.AsOAuth2ProviderSpec()
 		if err != nil {
 			allErrs = append(allErrs, fmt.Errorf("invalid OAuth2 provider spec: %w", err))
 		} else {
 			allErrs = append(allErrs, oauth2Spec.Validate(ctx)...)
 		}
-	case string(K8s):
-		allErrs = append(allErrs, errors.New("k8s provider type can only be created from configuration, not via API"))
-	case string(Aap):
-		allErrs = append(allErrs, errors.New("aap provider type can only be created from configuration, not via API"))
 	default:
 		allErrs = append(allErrs, fmt.Errorf("unknown provider type: %s", discriminator))
 	}

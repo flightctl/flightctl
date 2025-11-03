@@ -87,25 +87,20 @@ var _ = Describe("Auth Config Integration Tests", func() {
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(config).ToNot(BeNil())
 			Expect(config.DefaultProvider).ToNot(BeNil())
-			Expect(*config.DefaultProvider).To(Equal("oidc"))
+			Expect(*config.DefaultProvider).To(Equal(string(api.AuthProviderInfoTypeOidc)))
 			Expect(config.Providers).ToNot(BeNil())
 			Expect(len(*config.Providers)).To(Equal(1))
 
 			// Verify the static provider
 			staticProvider := (*config.Providers)[0]
-			Expect(staticProvider.Metadata.Name).ToNot(BeNil())
-			Expect(*staticProvider.Metadata.Name).To(Equal("oidc"))
-
-			// Verify the spec is OIDC type
-			discriminator, err := staticProvider.Spec.Discriminator()
-			Expect(err).ToNot(HaveOccurred())
-			Expect(discriminator).To(Equal("oidc"))
-
-			// Get OIDC spec and verify issuer
-			oidcSpec, err := staticProvider.Spec.AsOIDCProviderSpec()
-			Expect(err).ToNot(HaveOccurred())
-			Expect(oidcSpec.Issuer).To(Equal("https://static-oidc.example.com"))
-
+			Expect(staticProvider.Name).ToNot(BeNil())
+			Expect(*staticProvider.Name).To(Equal("oidc"))
+			Expect(staticProvider.Type).ToNot(BeNil())
+			Expect(*staticProvider.Type).To(Equal(api.AuthProviderInfoTypeOidc))
+			Expect(staticProvider.Issuer).ToNot(BeNil())
+			Expect(*staticProvider.Issuer).To(Equal("https://static-oidc.example.com"))
+			Expect(staticProvider.IsStatic).ToNot(BeNil())
+			Expect(*staticProvider.IsStatic).To(BeTrue(), "Config provider should have IsStatic=true")
 			// Verify default provider is set correctly
 			Expect(config.DefaultProvider).ToNot(BeNil())
 			Expect(*config.DefaultProvider).To(Equal("oidc"), "First provider should be default")
@@ -136,16 +131,21 @@ var _ = Describe("Auth Config Integration Tests", func() {
 			Expect(len(*config.Providers)).To(Equal(2), "Should have OIDC + AAP")
 
 			// Count providers by type
-			providersByType := make(map[string]int)
+			providersByType := make(map[api.AuthProviderInfoType]int)
 			for _, p := range *config.Providers {
-				discriminator, err := p.Spec.Discriminator()
-				if err == nil {
-					providersByType[discriminator]++
+				if p.Type != nil {
+					providersByType[*p.Type]++
 				}
 			}
 
-			Expect(providersByType["oidc"]).To(Equal(1))
-			Expect(providersByType["aap"]).To(Equal(1))
+			Expect(providersByType[api.AuthProviderInfoTypeOidc]).To(Equal(1))
+			Expect(providersByType[api.AuthProviderInfoTypeAap]).To(Equal(1))
+
+			// Verify all are static
+			for _, p := range *config.Providers {
+				Expect(p.IsStatic).ToNot(BeNil())
+				Expect(*p.IsStatic).To(BeTrue(), "All config providers should be static")
+			}
 		})
 	})
 
@@ -170,30 +170,30 @@ var _ = Describe("Auth Config Integration Tests", func() {
 			Expect(len(*config.Providers)).To(Equal(2), "Should have 1 static + 1 dynamic provider")
 
 			// Find the static and dynamic providers
-			var staticFound *api.AuthProvider
-			var dynamicFound *api.AuthProvider
-			for i := range *config.Providers {
-				p := (*config.Providers)[i]
-				if p.Metadata.Name != nil && *p.Metadata.Name == "oidc" {
+			var staticFound *api.AuthProviderInfo
+			var dynamicFound *api.AuthProviderInfo
+			for _, p := range *config.Providers {
+				if p.Name != nil && *p.Name == "oidc" {
 					staticFound = &p
 				}
-				if p.Metadata.Name != nil && *p.Metadata.Name == "test-dynamic-provider" {
+				if p.Name != nil && *p.Name == "test-dynamic-provider" {
 					dynamicFound = &p
 				}
 			}
 
 			// Verify static provider
 			Expect(staticFound).ToNot(BeNil(), "Static provider should be in auth config")
+			Expect(staticFound.IsStatic).ToNot(BeNil())
+			Expect(*staticFound.IsStatic).To(BeTrue())
 
 			// Verify dynamic provider
 			Expect(dynamicFound).ToNot(BeNil(), "Dynamic provider should be in auth config")
-			dynamicSpec, err := dynamicFound.Spec.AsOIDCProviderSpec()
-			Expect(err).ToNot(HaveOccurred())
-			Expect(dynamicSpec.Issuer).To(Equal("https://accounts.google.com"))
-
-			discriminator, err := dynamicFound.Spec.Discriminator()
-			Expect(err).ToNot(HaveOccurred())
-			Expect(discriminator).To(Equal("oidc"))
+			Expect(dynamicFound.Issuer).ToNot(BeNil())
+			Expect(*dynamicFound.Issuer).To(Equal("https://accounts.google.com"))
+			Expect(dynamicFound.Type).ToNot(BeNil())
+			Expect(*dynamicFound.Type).To(Equal(api.AuthProviderInfoTypeOidc))
+			Expect(dynamicFound.IsStatic).ToNot(BeNil())
+			Expect(*dynamicFound.IsStatic).To(BeFalse(), "Dynamic provider should have IsStatic=false")
 
 			// Verify default provider is set to static provider
 			Expect(authConfig.DefaultProvider).ToNot(BeNil())
@@ -227,17 +227,22 @@ var _ = Describe("Auth Config Integration Tests", func() {
 			Expect(len(*config.Providers)).To(Equal(4), "Should have 1 static + 3 dynamic providers")
 
 			// Verify all dynamic providers are present
-			providerNames := []string{}
+			dynamicProviderNames := []string{}
+			staticProviderCount := 0
 			for _, p := range *config.Providers {
-				if p.Metadata.Name != nil {
-					providerNames = append(providerNames, *p.Metadata.Name)
+				if p.Name != nil {
+					if p.IsStatic != nil && *p.IsStatic {
+						staticProviderCount++
+					} else {
+						dynamicProviderNames = append(dynamicProviderNames, *p.Name)
+					}
 				}
 			}
 
-			Expect(providerNames).To(ContainElement("oidc"), "Should have static oidc provider")
-			Expect(providerNames).To(ContainElement("provider-1"))
-			Expect(providerNames).To(ContainElement("provider-2"))
-			Expect(providerNames).To(ContainElement("provider-3"))
+			Expect(staticProviderCount).To(Equal(1), "Should have 1 static provider")
+			Expect(dynamicProviderNames).To(ContainElement("provider-1"))
+			Expect(dynamicProviderNames).To(ContainElement("provider-2"))
+			Expect(dynamicProviderNames).To(ContainElement("provider-3"))
 		})
 
 		It("should support both OIDC and OAuth2 dynamic providers via service handler", func() {
@@ -253,7 +258,7 @@ var _ = Describe("Auth Config Integration Tests", func() {
 				},
 			}
 			oauth2Spec := api.OAuth2ProviderSpec{
-				ProviderType:           api.Oauth2,
+				ProviderType:           api.OAuth2ProviderSpecProviderTypeOauth2,
 				Issuer:                 lo.ToPtr("https://oauth2.example.com"),
 				ClientId:               "oauth2-client-id",
 				ClientSecret:           lo.ToPtr("oauth2-client-secret"),
@@ -300,14 +305,13 @@ var _ = Describe("Auth Config Integration Tests", func() {
 			Expect(len(*config.Providers)).To(Equal(3), "Should have 1 static + 1 OIDC + 1 OAuth2")
 
 			// Find both dynamic providers
-			var oidcFound, oauth2Found *api.AuthProvider
-			for i := range *config.Providers {
-				p := (*config.Providers)[i]
-				if p.Metadata.Name != nil {
-					if *p.Metadata.Name == "oidc-provider" {
+			var oidcFound, oauth2Found *api.AuthProviderInfo
+			for _, p := range *config.Providers {
+				if p.Name != nil {
+					if *p.Name == "oidc-provider" {
 						oidcFound = &p
 					}
-					if *p.Metadata.Name == "oauth2-provider" {
+					if *p.Name == "oauth2-provider" {
 						oauth2Found = &p
 					}
 				}
@@ -315,27 +319,29 @@ var _ = Describe("Auth Config Integration Tests", func() {
 
 			// Verify OIDC provider
 			Expect(oidcFound).ToNot(BeNil(), "OIDC provider should be in config")
-			oidcDiscriminator, err := oidcFound.Spec.Discriminator()
-			Expect(err).ToNot(HaveOccurred())
-			Expect(oidcDiscriminator).To(Equal("oidc"))
-			oidcSpec, err := oidcFound.Spec.AsOIDCProviderSpec()
-			Expect(err).ToNot(HaveOccurred())
-			Expect(oidcSpec.Issuer).To(Equal("https://oidc.example.com"))
+			Expect(oidcFound.Type).ToNot(BeNil())
+			Expect(*oidcFound.Type).To(Equal(api.AuthProviderInfoTypeOidc))
+			Expect(oidcFound.Issuer).ToNot(BeNil())
+			Expect(*oidcFound.Issuer).To(Equal("https://oidc.example.com"))
+			Expect(oidcFound.IsStatic).ToNot(BeNil())
+			Expect(*oidcFound.IsStatic).To(BeFalse())
 
 			// Verify OAuth2 provider
 			Expect(oauth2Found).ToNot(BeNil(), "OAuth2 provider should be in config")
-			oauth2Discriminator, err := oauth2Found.Spec.Discriminator()
-			Expect(err).ToNot(HaveOccurred())
-			Expect(oauth2Discriminator).To(Equal("oauth2"))
-			oauth2Spec, err = oauth2Found.Spec.AsOAuth2ProviderSpec()
-			Expect(err).ToNot(HaveOccurred())
-			Expect(oauth2Spec.Issuer).ToNot(BeNil())
-			Expect(*oauth2Spec.Issuer).To(Equal("https://oauth2.example.com"))
-			Expect(oauth2Spec.AuthorizationUrl).To(Equal("https://oauth2.example.com/authorize"))
-			Expect(oauth2Spec.TokenUrl).To(Equal("https://oauth2.example.com/token"))
-			Expect(oauth2Spec.UserinfoUrl).To(Equal("https://oauth2.example.com/userinfo"))
-			Expect(oauth2Spec.Scopes).ToNot(BeNil())
-			Expect(*oauth2Spec.Scopes).To(ContainElement("openid"))
+			Expect(oauth2Found.Type).ToNot(BeNil())
+			Expect(*oauth2Found.Type).To(Equal(api.AuthProviderInfoTypeOauth2))
+			Expect(oauth2Found.Issuer).ToNot(BeNil())
+			Expect(*oauth2Found.Issuer).To(Equal("https://oauth2.example.com"))
+			Expect(oauth2Found.AuthUrl).ToNot(BeNil())
+			Expect(*oauth2Found.AuthUrl).To(Equal("https://oauth2.example.com/authorize"))
+			Expect(oauth2Found.TokenUrl).ToNot(BeNil())
+			Expect(*oauth2Found.TokenUrl).To(Equal("https://oauth2.example.com/token"))
+			Expect(oauth2Found.UserinfoUrl).ToNot(BeNil())
+			Expect(*oauth2Found.UserinfoUrl).To(Equal("https://oauth2.example.com/userinfo"))
+			Expect(oauth2Found.Scopes).ToNot(BeNil())
+			Expect(*oauth2Found.Scopes).To(ContainElement("openid"))
+			Expect(oauth2Found.IsStatic).ToNot(BeNil())
+			Expect(*oauth2Found.IsStatic).To(BeFalse())
 		})
 
 		It("should update config when AuthProvider is modified via service handler", func() {
@@ -355,18 +361,15 @@ var _ = Describe("Auth Config Integration Tests", func() {
 			Expect(len(*config.Providers)).To(Equal(2), "Should have 1 static + 1 dynamic")
 
 			// Find the dynamic provider
-			var dynamicProvider *api.AuthProvider
-			for i := range *config.Providers {
-				p := (*config.Providers)[i]
-				if p.Metadata.Name != nil && *p.Metadata.Name == "update-test-provider" {
+			var dynamicProvider *api.AuthProviderInfo
+			for _, p := range *config.Providers {
+				if p.Name != nil && *p.Name == "update-test-provider" {
 					dynamicProvider = &p
 					break
 				}
 			}
 			Expect(dynamicProvider).ToNot(BeNil())
-			dynamicSpec, err := dynamicProvider.Spec.AsOIDCProviderSpec()
-			Expect(err).ToNot(HaveOccurred())
-			Expect(dynamicSpec.Issuer).To(Equal("https://initial.example.com"))
+			Expect(*dynamicProvider.Issuer).To(Equal("https://initial.example.com"))
 
 			// Update the provider with new issuer
 			updatedProvider, getStatus := serviceHandler.GetAuthProvider(ctx, "update-test-provider")
@@ -393,17 +396,14 @@ var _ = Describe("Auth Config Integration Tests", func() {
 
 			// Find the updated dynamic provider
 			dynamicProvider = nil
-			for i := range *config.Providers {
-				p := (*config.Providers)[i]
-				if p.Metadata.Name != nil && *p.Metadata.Name == "update-test-provider" {
+			for _, p := range *config.Providers {
+				if p.Name != nil && *p.Name == "update-test-provider" {
 					dynamicProvider = &p
 					break
 				}
 			}
 			Expect(dynamicProvider).ToNot(BeNil())
-			updatedSpec, err := dynamicProvider.Spec.AsOIDCProviderSpec()
-			Expect(err).ToNot(HaveOccurred())
-			Expect(updatedSpec.Issuer).To(Equal("https://updated.example.com"))
+			Expect(*dynamicProvider.Issuer).To(Equal("https://updated.example.com"))
 		})
 
 		It("should remove provider from config when AuthProvider is deleted via service handler", func() {
@@ -438,15 +438,15 @@ var _ = Describe("Auth Config Integration Tests", func() {
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(len(*config.Providers)).To(Equal(2), "Should have 1 static + 1 dynamic")
 
-			// Verify the remaining providers
-			providerNames := []string{}
+			// Verify the remaining dynamic provider
+			dynamicNames := []string{}
 			for _, p := range *config.Providers {
-				if p.Metadata.Name != nil {
-					providerNames = append(providerNames, *p.Metadata.Name)
+				if p.IsStatic != nil && !*p.IsStatic && p.Name != nil {
+					dynamicNames = append(dynamicNames, *p.Name)
 				}
 			}
-			Expect(providerNames).To(ContainElement("delete-test-2"))
-			Expect(providerNames).ToNot(ContainElement("delete-test-1"))
+			Expect(dynamicNames).To(ContainElement("delete-test-2"))
+			Expect(dynamicNames).ToNot(ContainElement("delete-test-1"))
 		})
 
 		It("should include provider client ID and all fields via service handler", func() {
@@ -466,21 +466,20 @@ var _ = Describe("Auth Config Integration Tests", func() {
 			Expect(len(*config.Providers)).To(Equal(2), "Should have 1 static + 1 dynamic")
 
 			// Find the dynamic provider
-			var dynamicProvider *api.AuthProvider
-			for i := range *config.Providers {
-				p := (*config.Providers)[i]
-				if p.Metadata.Name != nil && *p.Metadata.Name == "full-provider" {
+			var dynamicProvider *api.AuthProviderInfo
+			for _, p := range *config.Providers {
+				if p.Name != nil && *p.Name == "full-provider" {
 					dynamicProvider = &p
 					break
 				}
 			}
 
 			Expect(dynamicProvider).ToNot(BeNil())
-			Expect(*dynamicProvider.Metadata.Name).To(Equal("full-provider"))
-			spec, err := dynamicProvider.Spec.AsOIDCProviderSpec()
-			Expect(err).ToNot(HaveOccurred())
-			Expect(spec.ClientId).To(Equal("test-client-id-full-provider"))
-			Expect(spec.Issuer).To(Equal("https://full.example.com"))
+			Expect(*dynamicProvider.Name).To(Equal("full-provider"))
+			Expect(dynamicProvider.ClientId).ToNot(BeNil())
+			Expect(*dynamicProvider.ClientId).To(Equal("test-client-id-full-provider"))
+			Expect(dynamicProvider.Issuer).ToNot(BeNil())
+			Expect(*dynamicProvider.Issuer).To(Equal("https://full.example.com"))
 		})
 
 		It("should handle disabled AuthProviders via service handler", func() {
@@ -512,15 +511,15 @@ var _ = Describe("Auth Config Integration Tests", func() {
 			// Only enabled provider should be in the config
 			// (Note: implementation may include disabled providers, adjust test as needed)
 			for _, p := range *config.Providers {
-				if p.Metadata.Name != nil && *p.Metadata.Name == "disabled-provider" {
+				if p.Name != nil && *p.Name == "disabled-provider" {
 					Skip("Test needs adjustment based on whether disabled providers are included")
 				}
 			}
 		})
 	})
 
-	Context("GetAuthConfig verifies DefaultProvider", func() {
-		It("should correctly return static and dynamic providers with default provider set via service handler", func() {
+	Context("GetAuthConfig verifies IsStatic and DefaultProvider", func() {
+		It("should correctly mark static vs dynamic and default provider via service handler", func() {
 			// Add a dynamic provider
 			provider := util.ReturnTestAuthProvider(store.NullOrgId, "dynamic-test", "https://dynamic.example.com", nil)
 			_, createStatus := serviceHandler.CreateAuthProvider(ctx, provider)
@@ -536,23 +535,26 @@ var _ = Describe("Auth Config Integration Tests", func() {
 			Expect(config.Providers).ToNot(BeNil())
 			Expect(len(*config.Providers)).To(Equal(2))
 
-			// Find static and dynamic providers
-			var staticProvider, dynamicProvider *api.AuthProvider
-			for i := range *config.Providers {
-				p := (*config.Providers)[i]
-				if p.Metadata.Name != nil && *p.Metadata.Name == "oidc" {
+			// Verify static provider flags
+			var staticProvider, dynamicProvider *api.AuthProviderInfo
+			for _, p := range *config.Providers {
+				if p.Name != nil && *p.Name == "oidc" {
 					staticProvider = &p
 				}
-				if p.Metadata.Name != nil && *p.Metadata.Name == "dynamic-test" {
+				if p.Name != nil && *p.Name == "dynamic-test" {
 					dynamicProvider = &p
 				}
 			}
 
-			// Verify static provider exists
-			Expect(staticProvider).ToNot(BeNil(), "Static provider should be in config")
+			// Static provider should be marked as static
+			Expect(staticProvider).ToNot(BeNil())
+			Expect(staticProvider.IsStatic).ToNot(BeNil())
+			Expect(*staticProvider.IsStatic).To(BeTrue(), "Static provider should have IsStatic=true")
 
-			// Verify dynamic provider exists
-			Expect(dynamicProvider).ToNot(BeNil(), "Dynamic provider should be in config")
+			// Dynamic provider should not be marked as static
+			Expect(dynamicProvider).ToNot(BeNil())
+			Expect(dynamicProvider.IsStatic).ToNot(BeNil())
+			Expect(*dynamicProvider.IsStatic).To(BeFalse(), "Dynamic provider should have IsStatic=false")
 
 			// Default provider should be set to the static provider name
 			Expect(config.DefaultProvider).ToNot(BeNil())

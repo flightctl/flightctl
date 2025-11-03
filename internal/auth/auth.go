@@ -8,7 +8,6 @@ import (
 	"os"
 	"strings"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/auth/authn"
 	"github.com/flightctl/flightctl/internal/auth/authz"
 	"github.com/flightctl/flightctl/internal/auth/common"
@@ -56,16 +55,68 @@ func getTlsConfig(cfg *config.Config) *tls.Config {
 	}
 }
 
+func getOrgConfig(cfg *config.Config) *common.AuthOrganizationsConfig {
+	orgConfig := &common.AuthOrganizationsConfig{
+		Enabled: false,
+	}
+
+	if cfg.Organizations != nil {
+		orgConfig.Enabled = cfg.Organizations.Enabled
+	}
+
+	// Include organization assignment from OIDC config if available
+	if cfg.Auth.OIDC != nil {
+		// Determine the discriminator to check which type it is
+		discriminator, err := cfg.Auth.OIDC.OrganizationAssignment.Discriminator()
+		if err == nil && discriminator != "" {
+			// Convert API type to common type
+			orgAssignment := &common.OrganizationAssignment{
+				Type: discriminator,
+			}
+
+			// Extract the appropriate fields based on type
+			switch discriminator {
+			case "static":
+				if staticAssignment, err := cfg.Auth.OIDC.OrganizationAssignment.AsAuthStaticOrganizationAssignment(); err == nil {
+					orgAssignment.OrganizationName = &staticAssignment.OrganizationName
+				}
+			case "dynamic":
+				if dynamicAssignment, err := cfg.Auth.OIDC.OrganizationAssignment.AsAuthDynamicOrganizationAssignment(); err == nil {
+					orgAssignment.ClaimPath = dynamicAssignment.ClaimPath
+					orgAssignment.OrganizationNamePrefix = dynamicAssignment.OrganizationNamePrefix
+					orgAssignment.OrganizationNameSuffix = dynamicAssignment.OrganizationNameSuffix
+				}
+			case "perUser":
+				if perUserAssignment, err := cfg.Auth.OIDC.OrganizationAssignment.AsAuthPerUserOrganizationAssignment(); err == nil {
+					orgAssignment.OrganizationNamePrefix = perUserAssignment.OrganizationNamePrefix
+					orgAssignment.OrganizationNameSuffix = perUserAssignment.OrganizationNameSuffix
+				}
+			}
+
+			orgConfig.OrganizationAssignment = orgAssignment
+		}
+	}
+
+	return orgConfig
+}
+
 func initOIDCAuth(cfg *config.Config, log logrus.FieldLogger) (common.AuthNMiddleware, error) {
 	oidcUrl := strings.TrimSuffix(cfg.Auth.OIDC.Issuer, "/")
 	log.Infof("OIDC auth enabled: %s", oidcUrl)
-
-	providerName := "oidc"
-	metadata := api.ObjectMeta{
-		Name: &providerName,
+	usernameClaim := []string{"preferred_username"}
+	if cfg.Auth.OIDC.UsernameClaim != nil {
+		usernameClaim = *cfg.Auth.OIDC.UsernameClaim
 	}
 
-	authNProvider, err := authn.NewOIDCAuth(metadata, *cfg.Auth.OIDC, getTlsConfig(cfg))
+	// Use the role assignment from the config
+	roleExtractor := authn.NewRoleExtractor(cfg.Auth.OIDC.RoleAssignment)
+
+	scopes := []string{"openid", "profile", "email", "roles"}
+	if len(cfg.Auth.OIDC.Scopes) > 0 {
+		scopes = cfg.Auth.OIDC.Scopes
+	}
+	clientId := cfg.Auth.OIDC.ClientId
+	authNProvider, err := authn.NewOIDCAuth("oidc", "", oidcUrl, getTlsConfig(cfg), getOrgConfig(cfg), usernameClaim, roleExtractor, clientId, scopes)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OIDC AuthN: %w", err)
 	}
@@ -74,14 +125,9 @@ func initOIDCAuth(cfg *config.Config, log logrus.FieldLogger) (common.AuthNMiddl
 
 func initAAPAuth(cfg *config.Config, log logrus.FieldLogger) (common.AuthNMiddleware, error) {
 	gatewayUrl := strings.TrimSuffix(cfg.Auth.AAP.ApiUrl, "/")
+	gatewayExternalUrl := strings.TrimSuffix(cfg.Auth.AAP.ExternalApiUrl, "/")
 	log.Infof("AAP Gateway auth enabled: %s", gatewayUrl)
-
-	providerName := "aap"
-	metadata := api.ObjectMeta{
-		Name: &providerName,
-	}
-
-	authNProvider, err := authn.NewAapGatewayAuth(metadata, *cfg.Auth.AAP, getTlsConfig(cfg))
+	authNProvider, err := authn.NewAapGatewayAuth(gatewayUrl, gatewayExternalUrl, getTlsConfig(cfg))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create AAP Gateway AuthN: %w", err)
 	}
@@ -90,8 +136,8 @@ func initAAPAuth(cfg *config.Config, log logrus.FieldLogger) (common.AuthNMiddle
 
 func initK8sAuth(cfg *config.Config, log logrus.FieldLogger) (common.AuthNMiddleware, error) {
 	apiUrl := strings.TrimSuffix(cfg.Auth.K8s.ApiUrl, "/")
+	externalOpenShiftApiUrl := strings.TrimSuffix(cfg.Auth.K8s.ExternalOpenShiftApiUrl, "/")
 	log.Infof("k8s auth enabled: %s", apiUrl)
-
 	var k8sClient k8sclient.K8SClient
 	var err error
 	if apiUrl == k8sApiService {
@@ -102,13 +148,7 @@ func initK8sAuth(cfg *config.Config, log logrus.FieldLogger) (common.AuthNMiddle
 	if err != nil {
 		return nil, fmt.Errorf("failed to create k8s client: %w", err)
 	}
-
-	providerName := "k8s"
-	metadata := api.ObjectMeta{
-		Name: &providerName,
-	}
-
-	authNProvider, err := authn.NewK8sAuthN(metadata, *cfg.Auth.K8s, k8sClient)
+	authNProvider, err := authn.NewK8sAuthN(k8sClient, externalOpenShiftApiUrl, cfg.Auth.K8s.RBACNs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create k8s AuthN: %w", err)
 	}

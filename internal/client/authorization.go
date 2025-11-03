@@ -38,11 +38,11 @@ func CreateAuthProvider(authInfo AuthInfo, insecure bool) (login.AuthProvider, e
 
 	c := authInfo.AuthProvider.Config
 	switch authInfo.AuthProvider.Type {
-	case string(api.K8s):
+	case string(api.AuthProviderInfoTypeK8s):
 		return login.NewK8sOAuth2Config(c[AuthCAFileKey], c[AuthClientIdKey], c[AuthUrlKey], insecure), nil
-	case string(api.Oidc):
+	case string(api.AuthProviderInfoTypeOidc):
 		return login.NewOIDCConfig(c[AuthCAFileKey], c[AuthClientIdKey], c[AuthUrlKey], authInfo.OrganizationsEnabled, insecure), nil
-	case "aap":
+	case string(api.AuthProviderInfoTypeAap):
 		return login.NewAAPOAuth2Config(c[AuthCAFileKey], c[AuthClientIdKey], c[AuthUrlKey], insecure), nil
 	default:
 		return nil, fmt.Errorf("unsupported auth provider: %s", authInfo.AuthProvider.Type)

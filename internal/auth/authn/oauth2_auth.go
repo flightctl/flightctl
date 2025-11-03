@@ -12,63 +12,82 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/identity"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
 
 // OAuth2Auth implements OAuth2 authentication using userinfo endpoint validation
 type OAuth2Auth struct {
-	metadata              api.ObjectMeta
-	spec                  api.OAuth2ProviderSpec
+	providerName          string
+	displayName           string
+	issuer                string
+	authorizationUrl      string
+	tokenUrl              string
+	userinfoUrl           string
+	clientId              string
+	clientSecret          string
+	scopes                []string
 	tlsConfig             *tls.Config
 	orgConfig             *common.AuthOrganizationsConfig
+	usernameClaim         []string
 	roleExtractor         *RoleExtractor
 	log                   logrus.FieldLogger
 	organizationExtractor *OrganizationExtractor
 }
 
 // NewOAuth2Auth creates a new OAuth2 authentication instance
-func NewOAuth2Auth(metadata api.ObjectMeta, spec api.OAuth2ProviderSpec, tlsConfig *tls.Config, log logrus.FieldLogger) (*OAuth2Auth, error) {
-	if spec.AuthorizationUrl == "" {
+func NewOAuth2Auth(
+	providerName string,
+	displayName string,
+	issuer, authorizationUrl, tokenUrl, userinfoUrl, clientId, clientSecret string,
+	scopes []string,
+	tlsConfig *tls.Config,
+	orgConfig *common.AuthOrganizationsConfig,
+	usernameClaim []string,
+	roleExtractor *RoleExtractor,
+	log logrus.FieldLogger,
+) (*OAuth2Auth, error) {
+	if authorizationUrl == "" {
 		return nil, fmt.Errorf("authorizationUrl is required")
 	}
-	if spec.TokenUrl == "" {
+	if tokenUrl == "" {
 		return nil, fmt.Errorf("tokenUrl is required")
 	}
-	if spec.UserinfoUrl == "" {
+	if userinfoUrl == "" {
 		return nil, fmt.Errorf("userinfoUrl is required")
 	}
-	if spec.ClientId == "" {
+	if clientId == "" {
 		return nil, fmt.Errorf("clientId is required")
 	}
-	if spec.ClientSecret == nil || *spec.ClientSecret == "" {
+	if clientSecret == "" {
 		return nil, fmt.Errorf("clientSecret is required")
 	}
 
-	// Apply defaults
-	if spec.UsernameClaim == nil || len(*spec.UsernameClaim) == 0 {
-		defaultUsernameClaim := []string{"preferred_username"}
-		spec.UsernameClaim = &defaultUsernameClaim
+	if len(usernameClaim) == 0 {
+		usernameClaim = []string{"preferred_username"}
 	}
 
 	// Use authorizationUrl as issuer if issuer is not provided
-	if spec.Issuer == nil || *spec.Issuer == "" {
-		spec.Issuer = &spec.AuthorizationUrl
+	if issuer == "" {
+		issuer = authorizationUrl
 	}
-
-	// Convert organization assignment to org config
-	orgConfig := convertOrganizationAssignmentToOrgConfig(spec.OrganizationAssignment)
-
-	// Create role extractor from role assignment
-	roleExtractor := NewRoleExtractor(spec.RoleAssignment)
 
 	// Create stateless organization extractor
 	organizationExtractor := NewOrganizationExtractor(orgConfig)
 
 	return &OAuth2Auth{
-		metadata:              metadata,
-		spec:                  spec,
+		providerName:          providerName,
+		displayName:           displayName,
+		issuer:                issuer,
+		authorizationUrl:      authorizationUrl,
+		tokenUrl:              tokenUrl,
+		userinfoUrl:           userinfoUrl,
+		clientId:              clientId,
+		clientSecret:          clientSecret,
+		scopes:                scopes,
 		tlsConfig:             tlsConfig,
 		orgConfig:             orgConfig,
+		usernameClaim:         usernameClaim,
 		roleExtractor:         roleExtractor,
 		log:                   log,
 		organizationExtractor: organizationExtractor,
@@ -103,27 +122,26 @@ func (o *OAuth2Auth) GetAuthConfig() *api.AuthConfig {
 		orgEnabled = o.orgConfig.Enabled
 	}
 
-	provider := api.AuthProvider{
-		ApiVersion: api.AuthProviderAPIVersion,
-		Kind:       api.AuthProviderKind,
-		Metadata:   o.metadata,
-		Spec:       api.AuthProviderSpec{},
+	providerType := string(api.AuthProviderInfoTypeOauth2)
+	provider := api.AuthProviderInfo{
+		Name:          &o.providerName,
+		DisplayName:   &o.displayName,
+		Type:          (*api.AuthProviderInfoType)(&providerType),
+		Issuer:        &o.issuer,
+		AuthUrl:       &o.authorizationUrl,
+		TokenUrl:      &o.tokenUrl,
+		UserinfoUrl:   &o.userinfoUrl,
+		ClientId:      &o.clientId,
+		Scopes:        &o.scopes,
+		UsernameClaim: &o.usernameClaim,
+		IsStatic:      lo.ToPtr(true),
 	}
-
-	// Create a copy of the spec with masked client secret
-	maskedSpec := o.spec
-	if maskedSpec.ClientSecret != nil && *maskedSpec.ClientSecret != "" {
-		masked := "********"
-		maskedSpec.ClientSecret = &masked
-	}
-
-	_ = provider.Spec.FromOAuth2ProviderSpec(maskedSpec)
 
 	return &api.AuthConfig{
 		ApiVersion:           api.AuthConfigAPIVersion,
-		DefaultProvider:      o.metadata.Name,
+		DefaultProvider:      &o.providerName,
 		OrganizationsEnabled: &orgEnabled,
-		Providers:            &[]api.AuthProvider{provider},
+		Providers:            &[]api.AuthProviderInfo{provider},
 	}
 }
 
@@ -147,10 +165,9 @@ func (o *OAuth2Auth) GetIdentity(ctx context.Context, token string) (common.Iden
 	}
 
 	// Extract username from the specified claim
-	usernameClaim := *o.spec.UsernameClaim
-	username := o.extractClaimByPath(userInfo, usernameClaim)
+	username := o.extractClaimByPath(userInfo, o.usernameClaim)
 	if username == "" {
-		return nil, fmt.Errorf("failed to extract username from claim path %v", usernameClaim)
+		return nil, fmt.Errorf("failed to extract username from claim path %v", o.usernameClaim)
 	}
 
 	// Extract roles using the role extractor
@@ -167,7 +184,7 @@ func (o *OAuth2Auth) GetIdentity(ctx context.Context, token string) (common.Iden
 		})
 	}
 	// Create OAuth2 identity
-	oauth2Identity := common.NewBaseIdentityWithIssuer(username, username, reportedOrganizations, roles, identity.NewIssuer(identity.AuthTypeOAuth2, *o.spec.Issuer))
+	oauth2Identity := common.NewBaseIdentityWithIssuer(username, username, reportedOrganizations, roles, identity.NewIssuer(identity.AuthTypeOAuth2, o.issuer))
 
 	return oauth2Identity, nil
 }
@@ -183,7 +200,7 @@ func (o *OAuth2Auth) callUserinfoEndpoint(ctx context.Context, token string) (ma
 	}
 
 	// Create request to userinfo endpoint
-	req, err := http.NewRequestWithContext(ctx, "GET", o.spec.UserinfoUrl, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", o.userinfoUrl, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create userinfo request: %w", err)
 	}

@@ -24,18 +24,18 @@ const (
 )
 
 type K8sAuthN struct {
-	metadata  api.ObjectMeta
-	spec      api.K8sProviderSpec
-	k8sClient k8sclient.K8SClient
-	cache     *ttlcache.Cache[string, *k8sAuthenticationV1.TokenReview]
+	k8sClient               k8sclient.K8SClient
+	externalOpenShiftApiUrl string
+	cache                   *ttlcache.Cache[string, *k8sAuthenticationV1.TokenReview]
+	rbacNamespace           string
 }
 
-func NewK8sAuthN(metadata api.ObjectMeta, spec api.K8sProviderSpec, k8sClient k8sclient.K8SClient) (*K8sAuthN, error) {
+func NewK8sAuthN(k8sClient k8sclient.K8SClient, externalOpenShiftApiUrl string, rbacNamespace string) (*K8sAuthN, error) {
 	authN := &K8sAuthN{
-		metadata:  metadata,
-		spec:      spec,
-		k8sClient: k8sClient,
-		cache:     ttlcache.New(ttlcache.WithTTL[string, *k8sAuthenticationV1.TokenReview](5 * time.Second)),
+		k8sClient:               k8sClient,
+		externalOpenShiftApiUrl: externalOpenShiftApiUrl,
+		cache:                   ttlcache.New(ttlcache.WithTTL[string, *k8sAuthenticationV1.TokenReview](5 * time.Second)),
+		rbacNamespace:           rbacNamespace,
 	}
 	go authN.cache.Start()
 	return authN, nil
@@ -98,17 +98,25 @@ func (o K8sAuthN) GetIdentity(ctx context.Context, token string) (common.Identit
 		return nil, err
 	}
 
+	var roles []string
 	var organizations []string
 
 	// Token doesn't have scopes claim - this is a regular K8s token
 	// Get roles from RoleBindings instead of TokenReview groups
-	roles, _ := o.fetchRoleBindingsForUser(ctx, review.Status.User.Username)
+	rolesFromBindings, _ := o.fetchRoleBindingsForUser(ctx, review.Status.User.Username)
 	scopes, err := o.parseScopesFromToken(token)
 	if err == nil && len(scopes) > 0 {
 		organizations = o.extractOrganizationsFromOpenShiftScopes(token)
 	} else {
 		// Extract organizations from roles for K8s tokens
 		organizations = o.extractOrganizationsFromRoles(roles)
+	}
+	if len(rolesFromBindings) > 0 {
+		roles = rolesFromBindings
+		logrus.WithFields(logrus.Fields{
+			"user":  review.Status.User.Username,
+			"roles": roles,
+		}).Info("Processing regular K8s token with roles from RoleBindings")
 	}
 	logrus.WithFields(logrus.Fields{
 		"user":          review.Status.User.Username,
@@ -173,13 +181,13 @@ func (o K8sAuthN) removeOrganizationsFromRoles(roles []string) []string {
 
 // fetchRoleBindingsForUser fetches RoleBindings for a user in the configured RBAC namespace
 func (o K8sAuthN) fetchRoleBindingsForUser(ctx context.Context, username string) ([]string, error) {
-	if o.spec.RbacNs == nil || *o.spec.RbacNs == "" {
+	if o.rbacNamespace == "" {
 		logrus.Debug("RBAC namespace not configured, skipping RoleBinding lookup")
 		return []string{}, nil
 	}
 
 	// Fetch all RoleBindings in the namespace
-	roleBindingList, err := o.k8sClient.ListRoleBindings(ctx, *o.spec.RbacNs)
+	roleBindingList, err := o.k8sClient.ListRoleBindings(ctx, o.rbacNamespace)
 	if err != nil {
 		logrus.WithError(err).Warn("Failed to fetch RoleBindings")
 		return []string{}, nil // Return empty list instead of error to not break auth flow
@@ -203,7 +211,7 @@ func (o K8sAuthN) fetchRoleBindingsForUser(ctx context.Context, username string)
 
 	logrus.WithFields(logrus.Fields{
 		"user":      username,
-		"namespace": *o.spec.RbacNs,
+		"namespace": o.rbacNamespace,
 		"roles":     roleNames,
 	}).Info("Fetched roles from RoleBindings")
 
@@ -211,19 +219,20 @@ func (o K8sAuthN) fetchRoleBindingsForUser(ctx context.Context, username string)
 }
 
 func (o K8sAuthN) GetAuthConfig() *api.AuthConfig {
-	provider := api.AuthProvider{
-		ApiVersion: api.AuthProviderAPIVersion,
-		Kind:       api.AuthProviderKind,
-		Metadata:   o.metadata,
-		Spec:       api.AuthProviderSpec{},
+	providerType := string(api.AuthProviderInfoTypeK8s)
+	providerName := string(api.AuthProviderInfoTypeK8s)
+	provider := api.AuthProviderInfo{
+		Name:     &providerName,
+		Type:     (*api.AuthProviderInfoType)(&providerType),
+		AuthUrl:  &o.externalOpenShiftApiUrl,
+		IsStatic: lo.ToPtr(true),
 	}
-	_ = provider.Spec.FromK8sProviderSpec(o.spec)
 
 	return &api.AuthConfig{
 		ApiVersion:           api.AuthConfigAPIVersion,
-		DefaultProvider:      o.metadata.Name,
+		DefaultProvider:      &providerName,
 		OrganizationsEnabled: lo.ToPtr(true),
-		Providers:            &[]api.AuthProvider{provider},
+		Providers:            &[]api.AuthProviderInfo{provider},
 	}
 }
 

@@ -5720,7 +5720,7 @@ components:
           type: array
           description: List of all available authentication providers.
           items:
-            $ref: '#/components/schemas/AuthProvider'
+            $ref: '#/components/schemas/AuthProviderInfo'
         defaultProvider:
           type: string
           description: Name of the default authentication provider.
@@ -5729,6 +5729,53 @@ components:
           description: Whether organizations are enabled for authentication.
       required:
         - apiVersion
+    AuthProviderInfo:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Unique identifier for the provider.
+        displayName:
+          type: string
+          description: Human-readable display name.
+        type:
+          type: string
+          enum: [oidc, k8s, aap, oauth2]
+          description: Type of authentication provider.
+        issuer:
+          type: string
+          description: OIDC issuer URL (for OIDC providers).
+        clientId:
+          type: string
+          description: Default client ID for OIDC/OAuth2 providers.
+        authUrl:
+          type: string
+          description: Authentication URL for the provider.
+        tokenUrl:
+          type: string
+          description: Token endpoint URL (for OAuth2 providers).
+        userinfoUrl:
+          type: string
+          description: Userinfo endpoint URL (for OAuth2 providers).
+        scopes:
+          type: array
+          items:
+            type: string
+          description: OAuth2 scopes (for OAuth2 providers).
+        usernameClaim:
+          type: array
+          items:
+            type: string
+          description: JSON path to the username claim (for OIDC/OAuth2 providers) as an array of path segments.
+        isStatic:
+          type: boolean
+          description: Whether this is a static provider (from config) or dynamic (from database).
+          default: false
+      required:
+        - authType
+        - authURL
+        - authOrganizationsConfig
+      description: Auth config.
     ListMeta:
       type: object
       properties:
@@ -6556,15 +6603,11 @@ components:
       oneOf:
         - $ref: '#/components/schemas/OIDCProviderSpec'
         - $ref: '#/components/schemas/OAuth2ProviderSpec'
-        - $ref: '#/components/schemas/AapProviderSpec'
-        - $ref: '#/components/schemas/K8sProviderSpec'
       discriminator:
         propertyName: providerType
         mapping:
           oidc: '#/components/schemas/OIDCProviderSpec'
           oauth2: '#/components/schemas/OAuth2ProviderSpec'
-          aap: '#/components/schemas/AapProviderSpec'
-          k8s: '#/components/schemas/K8sProviderSpec'
       required:
         - providerType
     OIDCProviderSpec:
@@ -6670,69 +6713,6 @@ components:
         - userinfoUrl
         - clientId
         - clientSecret
-        - organizationAssignment
-        - roleAssignment
-    AapProviderSpec:
-      type: object
-      description: AapProviderSpec describes an Ansible Automation Platform (AAP) provider configuration.
-      properties:
-        providerType:
-          type: string
-          enum: [aap]
-          description: The type of authentication provider.
-        displayName:
-          type: string
-          description: Human-readable display name for the provider.
-        apiUrl:
-          type: string
-          description: The internal AAP API URL.
-        externalApiUrl:
-          type: string
-          description: The external AAP API URL (for external access).
-        enabled:
-          type: boolean
-          description: Whether this AAP provider is enabled.
-          default: true
-        organizationAssignment:
-          $ref: '#/components/schemas/AuthOrganizationAssignment'
-        roleAssignment:
-          $ref: '#/components/schemas/AuthRoleAssignment'
-      required:
-        - providerType
-        - apiUrl
-        - organizationAssignment
-        - roleAssignment
-    K8sProviderSpec:
-      type: object
-      description: K8sProviderSpec describes a Kubernetes/OpenShift provider configuration.
-      properties:
-        providerType:
-          type: string
-          enum: [k8s]
-          description: The type of authentication provider.
-        displayName:
-          type: string
-          description: Human-readable display name for the provider.
-        apiUrl:
-          type: string
-          description: The internal Kubernetes API URL.
-        externalOpenShiftApiUrl:
-          type: string
-          description: The external OpenShift API URL (for external access).
-        rbacNs:
-          type: string
-          description: The RBAC namespace for permissions.
-        enabled:
-          type: boolean
-          description: Whether this K8s provider is enabled.
-          default: true
-        organizationAssignment:
-          $ref: '#/components/schemas/AuthOrganizationAssignment'
-        roleAssignment:
-          $ref: '#/components/schemas/AuthRoleAssignment'
-      required:
-        - providerType
-        - apiUrl
         - organizationAssignment
         - roleAssignment
     AuthOrganizationAssignment:

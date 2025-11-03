@@ -113,13 +113,42 @@ type alertmanagerConfig struct {
 }
 
 type authConfig struct {
-	K8s                     *api.K8sProviderSpec  `json:"k8s,omitempty"`
-	OIDC                    *api.OIDCProviderSpec `json:"oidc,omitempty"`
-	AAP                     *api.AapProviderSpec  `json:"aap,omitempty"`
-	CACert                  string                `json:"caCert,omitempty"`
-	InsecureSkipTlsVerify   bool                  `json:"insecureSkipTlsVerify,omitempty"`
-	PAMOIDCIssuer           *PAMOIDCIssuer        `json:"pamOidcIssuer,omitempty"`           // this is the issuer implementation configuration
-	DynamicProviderCacheTTL util.Duration         `json:"dynamicProviderCacheTTL,omitempty"` // TTL for dynamic auth provider cache (default: 5s)
+	K8s                     *k8sAuth       `json:"k8s,omitempty"`
+	OIDC                    *oidcAuth      `json:"oidc,omitempty"`
+	AAP                     *aapAuth       `json:"aap,omitempty"`
+	CACert                  string         `json:"caCert,omitempty"`
+	InsecureSkipTlsVerify   bool           `json:"insecureSkipTlsVerify,omitempty"`
+	PAMOIDCIssuer           *PAMOIDCIssuer `json:"pamOidcIssuer,omitempty"`           // this is the issuer implementation configuration
+	DynamicProviderCacheTTL util.Duration  `json:"dynamicProviderCacheTTL,omitempty"` // TTL for dynamic auth provider cache (default: 5s)
+}
+
+type k8sAuth struct {
+	ApiUrl                  string `json:"apiUrl,omitempty"`
+	ExternalOpenShiftApiUrl string `json:"externalOpenShiftApiUrl,omitempty"`
+	RBACNs                  string `json:"rbacNs,omitempty"`
+}
+
+type oidcAuth struct {
+	// OIDC Client ID
+	ClientId string `json:"clientId,omitempty"`
+	// Whether this OIDC provider is enabled
+	Enabled *bool `json:"enabled,omitempty"`
+	// OIDC Issuer URL (e.g., "https://auth.company.com")
+	Issuer string `json:"issuer,omitempty"`
+	// External OIDC Authority URL (for external access)
+	ExternalOIDCAuthority string `json:"externalOidcAuthority,omitempty"`
+	// Organization assignment configuration
+	OrganizationAssignment api.AuthOrganizationAssignment `json:"organizationAssignment,omitempty"`
+	// OAuth2 scopes to request (e.g., ["openid", "profile", "email", "roles"])
+	Scopes []string `json:"scopes,omitempty"`
+	// Custom claims mapping
+	UsernameClaim  *[]string              `json:"usernameClaim,omitempty"`  // e.g., ["preferred_username"], ["email"]
+	RoleAssignment api.AuthRoleAssignment `json:"roleAssignment,omitempty"` // Role assignment configuration
+}
+
+type aapAuth struct {
+	ApiUrl         string `json:"apiUrl,omitempty"`
+	ExternalApiUrl string `json:"externalApiUrl,omitempty"`
 }
 
 // PAMOIDCIssuer represents an OIDC issuer that uses Linux PAM for authentication
@@ -264,11 +293,10 @@ func WithOIDCAuth(issuer, clientId string, enabled bool) ConfigOption {
 				DynamicProviderCacheTTL: util.Duration(5 * time.Second),
 			}
 		}
-		c.Auth.OIDC = &api.OIDCProviderSpec{
-			Issuer:       issuer,
-			ClientId:     clientId,
-			Enabled:      &enabled,
-			ProviderType: api.Oidc,
+		c.Auth.OIDC = &oidcAuth{
+			Issuer:   issuer,
+			ClientId: clientId,
+			Enabled:  &enabled,
 		}
 	}
 }
@@ -280,10 +308,9 @@ func WithK8sAuth(apiUrl, rbacNs string) ConfigOption {
 				DynamicProviderCacheTTL: util.Duration(5 * time.Second),
 			}
 		}
-		c.Auth.K8s = &api.K8sProviderSpec{
-			ApiUrl:       apiUrl,
-			RbacNs:       &rbacNs,
-			ProviderType: api.K8s,
+		c.Auth.K8s = &k8sAuth{
+			ApiUrl: apiUrl,
+			RBACNs: rbacNs,
 		}
 	}
 }
@@ -295,10 +322,9 @@ func WithAAPAuth(apiUrl, externalApiUrl string) ConfigOption {
 				DynamicProviderCacheTTL: util.Duration(5 * time.Second),
 			}
 		}
-		c.Auth.AAP = &api.AapProviderSpec{
+		c.Auth.AAP = &aapAuth{
 			ApiUrl:         apiUrl,
-			ExternalApiUrl: &externalApiUrl,
-			ProviderType:   "aap",
+			ExternalApiUrl: externalApiUrl,
 		}
 	}
 }
@@ -540,6 +566,9 @@ func Load(cfgFile string) (*Config, error) {
 			}
 			if c.Auth.OIDC.Issuer == "" {
 				c.Auth.OIDC.Issuer = c.Service.BaseUrl
+			}
+			if c.Auth.OIDC.ExternalOIDCAuthority == "" {
+				c.Auth.OIDC.ExternalOIDCAuthority = c.Service.BaseUrl
 			}
 			if c.Auth.OIDC.UsernameClaim == nil {
 				c.Auth.OIDC.UsernameClaim = &[]string{"preferred_username"}

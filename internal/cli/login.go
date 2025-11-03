@@ -277,35 +277,30 @@ func (o *LoginOptions) ensureClientID() {
 		return
 	}
 	provider := o.getDefaultProvider()
-	if provider == nil {
+	if provider == nil || provider.Type == nil {
 		return
 	}
-	// Get the provider type from the spec
-	providerType, err := provider.Spec.Discriminator()
-	if err != nil {
-		return
-	}
-	switch providerType {
-	case string(v1alpha1.K8s):
+	switch *provider.Type {
+	case v1alpha1.AuthProviderInfoTypeK8s:
 		if o.Username != "" {
 			o.ClientId = "openshift-challenging-client"
 		} else {
 			o.ClientId = "openshift-cli-client"
 		}
-	case string(v1alpha1.Oidc):
+	case v1alpha1.AuthProviderInfoTypeOidc:
 		o.ClientId = "flightctl"
 	}
 }
 
 // getDefaultProvider returns the default authentication provider
-func (o *LoginOptions) getDefaultProvider() *v1alpha1.AuthProvider {
+func (o *LoginOptions) getDefaultProvider() *v1alpha1.AuthProviderInfo {
 	if o.authConfig == nil || o.authConfig.Providers == nil {
 		return nil
 	}
 	// Find the default provider by name
 	if o.authConfig.DefaultProvider != nil && *o.authConfig.DefaultProvider != "" {
 		for _, p := range *o.authConfig.Providers {
-			if p.Metadata.Name != nil && *p.Metadata.Name == *o.authConfig.DefaultProvider {
+			if p.Name != nil && *p.Name == *o.authConfig.DefaultProvider {
 				return &p
 			}
 		}
@@ -320,16 +315,14 @@ func (o *LoginOptions) getDefaultProvider() *v1alpha1.AuthProvider {
 // createAuthProvider creates and assigns the auth provider from current config
 func (o *LoginOptions) createAuthProvider() error {
 	provider := o.getDefaultProvider()
-	if provider == nil || provider.Metadata.Name == nil {
+	if provider == nil || provider.Type == nil || provider.Name == nil {
 		return fmt.Errorf("no valid authentication provider found")
 	}
 
-	providerType, err := provider.Spec.Discriminator()
-	if err != nil {
-		return fmt.Errorf("failed to get provider type: %w", err)
+	authURL := ""
+	if provider.AuthUrl != nil {
+		authURL = *provider.AuthUrl
 	}
-
-	authURL := o.extractAuthURL(provider)
 
 	orgEnabled := false
 	if o.authConfig.OrganizationsEnabled != nil {
@@ -338,8 +331,8 @@ func (o *LoginOptions) createAuthProvider() error {
 
 	authProvider, err := client.CreateAuthProvider(client.AuthInfo{
 		AuthProvider: &client.AuthProviderConfig{
-			Name: *provider.Metadata.Name,
-			Type: providerType,
+			Name: *provider.Name,
+			Type: string(*provider.Type),
 			Config: map[string]string{
 				client.AuthUrlKey:      authURL,
 				client.AuthCAFileKey:   o.AuthCAFile,
@@ -355,53 +348,21 @@ func (o *LoginOptions) createAuthProvider() error {
 	return nil
 }
 
-// extractAuthURL extracts the authentication URL from an AuthProvider based on its type
-func (o *LoginOptions) extractAuthURL(provider *v1alpha1.AuthProvider) string {
-	providerType, _ := provider.Spec.Discriminator()
-	switch providerType {
-	case string(v1alpha1.K8s):
-		if k8sSpec, err := provider.Spec.AsK8sProviderSpec(); err == nil {
-			if k8sSpec.ExternalOpenShiftApiUrl != nil {
-				return *k8sSpec.ExternalOpenShiftApiUrl
-			}
-			return k8sSpec.ApiUrl
-		}
-	case string(v1alpha1.Oidc):
-		if oidcSpec, err := provider.Spec.AsOIDCProviderSpec(); err == nil {
-			return oidcSpec.Issuer
-		}
-	case "aap":
-		if aapSpec, err := provider.Spec.AsAapProviderSpec(); err == nil {
-			if aapSpec.ExternalApiUrl != nil {
-				return *aapSpec.ExternalApiUrl
-			}
-			return aapSpec.ApiUrl
-		}
-	case string(v1alpha1.Oauth2):
-		if oauth2Spec, err := provider.Spec.AsOAuth2ProviderSpec(); err == nil {
-			return oauth2Spec.AuthorizationUrl
-		}
-	}
-	return ""
-}
-
 // setAuthProviderInClientConfig writes the provider info into the client config
 func (o *LoginOptions) setAuthProviderInClientConfig() {
 	provider := o.getDefaultProvider()
-	if provider == nil || provider.Metadata.Name == nil {
+	if provider == nil || provider.Type == nil {
 		return
 	}
 
-	providerType, err := provider.Spec.Discriminator()
-	if err != nil {
-		return
+	authURL := ""
+	if provider.AuthUrl != nil {
+		authURL = *provider.AuthUrl
 	}
-
-	authURL := o.extractAuthURL(provider)
 
 	o.clientConfig.AuthInfo.AuthProvider = &client.AuthProviderConfig{
-		Name: *provider.Metadata.Name,
-		Type: providerType,
+		Name: *provider.Name,
+		Type: string(*provider.Type),
 		Config: map[string]string{
 			client.AuthUrlKey:      authURL,
 			client.AuthClientIdKey: o.ClientId,
@@ -419,8 +380,7 @@ func (o *LoginOptions) fetchToken() (string, error) {
 	if err != nil {
 		// Check if this is an Auth certificate issue
 		provider := o.getDefaultProvider()
-		authURL := o.extractAuthURL(provider)
-		if o.authConfig != nil && provider != nil && authURL != "" {
+		if o.authConfig != nil && provider != nil && provider.AuthUrl != nil && *provider.AuthUrl != "" {
 			errorInfo := classifyTLSError(err)
 			if errorInfo.Type != TLSErrorUnknown {
 				// Offer interactive prompt to proceed insecurely
@@ -541,8 +501,8 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 
 	provider := o.getDefaultProvider()
 	providerAuthURL := ""
-	if provider != nil {
-		providerAuthURL = o.extractAuthURL(provider)
+	if provider != nil && provider.AuthUrl != nil {
+		providerAuthURL = *provider.AuthUrl
 	}
 	if o.AccessToken == "" && providerAuthURL == "" {
 		fmt.Printf("You must obtain API token, then login via \"flightctl login %s --token=<token>\"\n", o.clientConfig.Service.Server)
