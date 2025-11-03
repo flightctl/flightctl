@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -34,6 +33,7 @@ type Config struct {
 }
 
 type RateLimitConfig struct {
+	Enabled      bool          `json:"enabled,omitempty"`      // Enable/disable rate limiting
 	Requests     int           `json:"requests,omitempty"`     // max requests per window
 	Window       util.Duration `json:"window,omitempty"`       // e.g. "1m" for one minute
 	AuthRequests int           `json:"authRequests,omitempty"` // max auth requests per window
@@ -429,48 +429,6 @@ func Load(cfgFile string) (*Config, error) {
 	}
 	if dbMigrationPass := os.Getenv("DB_MIGRATION_PASSWORD"); dbMigrationPass != "" {
 		c.Database.MigrationPassword = SecureString(dbMigrationPass)
-	}
-	// Handle rate limit environment variables - create config if env vars are set
-	rateLimitRequests := os.Getenv("RATE_LIMIT_REQUESTS")
-	rateLimitWindow := os.Getenv("RATE_LIMIT_WINDOW")
-	authRateLimitRequests := os.Getenv("AUTH_RATE_LIMIT_REQUESTS")
-	authRateLimitWindow := os.Getenv("AUTH_RATE_LIMIT_WINDOW")
-	trustedProxies := os.Getenv("RATE_LIMIT_TRUSTED_PROXIES")
-
-	if rateLimitRequests != "" || rateLimitWindow != "" || authRateLimitRequests != "" || authRateLimitWindow != "" || trustedProxies != "" {
-		// Create rate limit config if it doesn't exist
-		if c.Service.RateLimit == nil {
-			c.Service.RateLimit = &RateLimitConfig{}
-		}
-
-		if rateLimitRequests != "" {
-			if requests, err := strconv.Atoi(rateLimitRequests); err == nil {
-				c.Service.RateLimit.Requests = requests
-			}
-		}
-		if rateLimitWindow != "" {
-			if window, err := time.ParseDuration(rateLimitWindow); err == nil {
-				c.Service.RateLimit.Window = util.Duration(window)
-			}
-		}
-		if authRateLimitRequests != "" {
-			if requests, err := strconv.Atoi(authRateLimitRequests); err == nil {
-				c.Service.RateLimit.AuthRequests = requests
-			}
-		}
-		if authRateLimitWindow != "" {
-			if window, err := time.ParseDuration(authRateLimitWindow); err == nil {
-				c.Service.RateLimit.AuthWindow = util.Duration(window)
-			}
-		}
-		if trustedProxies != "" {
-			// Split by comma and trim whitespace
-			proxies := strings.Split(trustedProxies, ",")
-			for i, proxy := range proxies {
-				proxies[i] = strings.TrimSpace(proxy)
-			}
-			c.Service.RateLimit.TrustedProxies = proxies
-		}
 	}
 
 	return c, nil
