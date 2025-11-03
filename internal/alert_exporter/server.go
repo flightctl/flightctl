@@ -55,7 +55,7 @@ func (s *Server) Run(ctx context.Context, serviceHandler service.Service) error 
 
 	// Handle shutdown gracefully
 	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(sigCh)
 	go func() {
 		sig := <-sigCh

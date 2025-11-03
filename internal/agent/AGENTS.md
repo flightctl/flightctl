@@ -29,8 +29,9 @@ The agent reconciles `Device.Spec` from control plane, reports resource usage, m
 
 ### Threading & Lifecycle
 - Primarily single-threaded (async requires strong justification)
-- **Graceful Termination** (`agent/shutdown`): Clean shutdown with in-flight completion
-- **Configuration Reload** (`agent/reload`): Runtime updates without restart
+- **Graceful shutdown** (`agent/shutdown`): Phase-based termination with component priorities
+- **Configuration reload** (`agent/reload`): Runtime updates without restart
+- **Signal handling**: Standard signals (`SIGINT`, `SIGHUP`, `SIGTERM`, `SIGQUIT`)
 
 ## Testing Standards
 - Use `testify/require`: `require := require.New(t)`
