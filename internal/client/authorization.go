@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/flightctl/flightctl/internal/auth/common"
+	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/cli/login"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
@@ -37,15 +37,15 @@ func CreateAuthProvider(authInfo AuthInfo, insecure bool) (login.AuthProvider, e
 	}
 
 	c := authInfo.AuthProvider.Config
-	switch authInfo.AuthProvider.Name {
-	case common.AuthTypeK8s:
+	switch authInfo.AuthProvider.Type {
+	case string(api.K8s):
 		return login.NewK8sOAuth2Config(c[AuthCAFileKey], c[AuthClientIdKey], c[AuthUrlKey], insecure), nil
-	case common.AuthTypeOIDC:
+	case string(api.Oidc):
 		return login.NewOIDCConfig(c[AuthCAFileKey], c[AuthClientIdKey], c[AuthUrlKey], authInfo.OrganizationsEnabled, insecure), nil
-	case common.AuthTypeAAP:
+	case "aap":
 		return login.NewAAPOAuth2Config(c[AuthCAFileKey], c[AuthClientIdKey], c[AuthUrlKey], insecure), nil
 	default:
-		return nil, fmt.Errorf("unsupported auth provider: %s", authInfo.AuthProvider.Name)
+		return nil, fmt.Errorf("unsupported auth provider: %s", authInfo.AuthProvider.Type)
 	}
 }
 

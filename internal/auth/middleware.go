@@ -9,10 +9,13 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/server"
+	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/sirupsen/logrus"
 )
+
+type contextKey string
 
 type action string
 
@@ -50,10 +53,11 @@ func stringToAction(s string) action {
 	return action(s)
 }
 
-func CreateAuthNMiddleware(authN AuthNMiddleware, log logrus.FieldLogger) func(http.Handler) http.Handler {
+func CreateAuthNMiddleware(authN common.AuthNMiddleware, log logrus.FieldLogger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		fn := func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path == "/api/v1/auth/config" {
+			// Skip authentication for public auth endpoints
+			if isPublicAuthEndpoint(r.URL.Path) {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -63,18 +67,21 @@ func CreateAuthNMiddleware(authN AuthNMiddleware, log logrus.FieldLogger) func(h
 				writeResponse(w, api.StatusBadRequest("failed to get auth token"), log)
 				return
 			}
+			log.Debugf("Auth middleware: got auth token (length: %d)", len(authToken))
 			err = authN.ValidateToken(r.Context(), authToken)
 			if err != nil {
 				log.WithError(err).Error("failed to validate token")
 				writeResponse(w, api.StatusUnauthorized("failed to validate token"), log)
 				return
 			}
+			log.Debugf("Auth middleware: token validated successfully")
 			ctx := context.WithValue(r.Context(), consts.TokenCtxKey, authToken)
 			identity, err := authN.GetIdentity(ctx, authToken)
 			if err != nil {
 				log.WithError(err).Error("failed to get identity")
 			} else {
 				ctx = context.WithValue(ctx, consts.IdentityCtxKey, identity)
+				log.Debugf("Auth middleware: set identity %s in context", identity.GetUsername())
 			}
 			next.ServeHTTP(w, r.WithContext(ctx))
 		}
@@ -129,10 +136,21 @@ func CreateAuthZMiddleware(authZ AuthZMiddleware, log logrus.FieldLogger) func(h
 				return
 			}
 
-			if !isAllowed(r.Context(), authZ, log, resource, action, w) {
+			// Add HTTP request to context for authorization checks
+			ctx := context.WithValue(r.Context(), contextKey("http_request"), r)
+
+			log.Debugf("AuthZMiddleware: checking authorization for path=%s, method=%s, resource=%s, action=%s",
+				r.URL.Path, r.Method, resource, action)
+
+			if !isAllowed(ctx, authZ, log, resource, action, w) {
 				// http.Error was called in isAllowed
+				log.Debugf("AuthZMiddleware: authorization denied for path=%s, method=%s, resource=%s, action=%s",
+					r.URL.Path, r.Method, resource, action)
 				return
 			}
+
+			log.Debugf("AuthZMiddleware: authorization granted for path=%s, method=%s, resource=%s, action=%s",
+				r.URL.Path, r.Method, resource, action)
 
 			// If authorized, proceed to the next handler
 			next.ServeHTTP(w, r)
@@ -160,6 +178,24 @@ func isAllowed(ctx context.Context, authZ AuthZMiddleware, log logrus.FieldLogge
 	}
 
 	http.Error(w, errForbidden, http.StatusForbidden)
+	return false
+}
+
+// isPublicAuthEndpoint checks if the given path is a public auth endpoint that doesn't require authentication
+func isPublicAuthEndpoint(path string) bool {
+	publicEndpoints := []string{
+		"/api/v1/auth/config",
+		"/api/v1/auth/.well-known/openid-configuration",
+		"/api/v1/auth/jwks",
+		"/api/v1/auth/authorize",
+		"/api/v1/auth/login",
+		"/api/v1/auth/token",
+	}
+	for _, endpoint := range publicEndpoints {
+		if path == endpoint {
+			return true
+		}
+	}
 	return false
 }
 

@@ -6,6 +6,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 )
@@ -127,8 +128,12 @@ func createTestEnrollmentRequest(require *require.Assertions, name string, statu
 		},
 		Status: status,
 	}
+	testStore := &TestStore{}
+	logger := log.InitLogs()
 	serviceHandler := ServiceHandler{
-		store: &TestStore{},
+		eventHandler: NewEventHandler(testStore, nil, logger),
+		store:        testStore,
+		log:          logger,
 	}
 	ctx := context.Background()
 	_, err := serviceHandler.store.EnrollmentRequest().Create(ctx, store.NullOrgId, &enrollmentRequest, nil)

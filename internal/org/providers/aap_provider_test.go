@@ -7,6 +7,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/identity"
 	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/pkg/aap"
 	"github.com/stretchr/testify/require"
@@ -26,8 +27,16 @@ func (m *mockAAPIdentity) GetUID() string {
 	return m.userID
 }
 
-func (m *mockAAPIdentity) GetGroups() []string {
+func (m *mockAAPIdentity) GetOrganizations() []common.ReportedOrganization {
+	return []common.ReportedOrganization{}
+}
+
+func (m *mockAAPIdentity) GetRoles() []string {
 	return []string{}
+}
+
+func (m *mockAAPIdentity) GetIssuer() *identity.Issuer {
+	return nil
 }
 
 func (m *mockAAPIdentity) IsSuperuser() bool {

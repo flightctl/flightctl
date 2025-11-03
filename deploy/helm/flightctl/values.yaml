@@ -45,6 +45,18 @@ global:
       issuer: ""
       # -- The base URL for the OIDC provider that is reachable by clients. Example: https://auth.foo.net/realms/flightctl
       externalOidcAuthority: ""
+      # -- Organization assignment configuration
+      organizationAssignment:
+        type: "static"
+        organizationName: "default"
+      # -- Username claim to extract from OIDC token (default: "preferred_username")
+      usernameClaim:
+        - "preferred_username"
+      # -- Role assignment configuration
+      roleAssignment:
+        type: "dynamic"
+        claimPath:
+          - "groups"
     aap:
       # -- The URL of the AAP Gateway API endpoint
       apiUrl: ""

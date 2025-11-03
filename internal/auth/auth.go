@@ -3,60 +3,95 @@ package auth
 import (
 	"context"
 	"crypto/tls"
-	"crypto/x509"
 	"errors"
 	"fmt"
-	"net/http"
 	"os"
 	"strings"
 
+	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/auth/authn"
 	"github.com/flightctl/flightctl/internal/auth/authz"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
-	"github.com/flightctl/flightctl/internal/org/resolvers"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/sirupsen/logrus"
 )
 
+const DisableAuthEnvKey = "FLIGHTCTL_DISABLE_AUTH"
+
+const k8sApiService = "https://kubernetes.default.svc"
+
+// Supported auth types
 const (
-	// DisableAuthEnvKey is the environment variable key used to disable auth when developing.
-	DisableAuthEnvKey = "FLIGHTCTL_DISABLE_AUTH"
-	k8sCACertPath     = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
-	k8sApiService     = "https://kubernetes.default.svc"
+	AuthTypeNil  = "nil"
+	AuthTypeK8s  = "k8s"
+	AuthTypeOIDC = "oidc"
+	AuthTypeAAP  = "aap"
 )
 
-type AuthNMiddleware interface {
-	GetAuthToken(r *http.Request) (string, error)
-	ValidateToken(ctx context.Context, token string) error
-	GetIdentity(ctx context.Context, token string) (common.Identity, error)
-	GetAuthConfig() common.AuthConfig
+// configuredAuthType stores which auth type is configured
+// This is set during InitAuth() and can be used by handlers
+var configuredAuthType = "nil"
+
+// GetConfiguredAuthType returns the configured auth type
+func GetConfiguredAuthType() string {
+	return configuredAuthType
 }
 
+// AuthNMiddleware is the interface for authentication middleware
+type AuthNMiddleware = common.AuthNMiddleware
+
+// Identity is the interface for user identity
+type Identity = common.Identity
+
+// AuthZMiddleware is the interface for authorization middleware
 type AuthZMiddleware interface {
 	CheckPermission(ctx context.Context, resource string, op string) (bool, error)
 }
 
-type AuthType string
-
-const (
-	AuthTypeNil  AuthType = "nil"
-	AuthTypeK8s  AuthType = "k8s"
-	AuthTypeOIDC AuthType = "oidc"
-	AuthTypeAAP  AuthType = "aap"
-)
-
-func GetConfiguredAuthType() AuthType {
-	return configuredAuthType
+func getTlsConfig(cfg *config.Config) *tls.Config {
+	return &tls.Config{
+		InsecureSkipVerify: cfg.Auth.InsecureSkipTlsVerify, //nolint:gosec
+	}
 }
 
-var configuredAuthType AuthType
+func initOIDCAuth(cfg *config.Config, log logrus.FieldLogger) (common.AuthNMiddleware, error) {
+	oidcUrl := strings.TrimSuffix(cfg.Auth.OIDC.Issuer, "/")
+	log.Infof("OIDC auth enabled: %s", oidcUrl)
 
-func initK8sAuth(cfg *config.Config, log logrus.FieldLogger) (AuthNMiddleware, AuthZMiddleware, error) {
+	providerName := "oidc"
+	metadata := api.ObjectMeta{
+		Name: &providerName,
+	}
+
+	authNProvider, err := authn.NewOIDCAuth(metadata, *cfg.Auth.OIDC, getTlsConfig(cfg))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create OIDC AuthN: %w", err)
+	}
+	return authNProvider, nil
+}
+
+func initAAPAuth(cfg *config.Config, log logrus.FieldLogger) (common.AuthNMiddleware, error) {
+	gatewayUrl := strings.TrimSuffix(cfg.Auth.AAP.ApiUrl, "/")
+	log.Infof("AAP Gateway auth enabled: %s", gatewayUrl)
+
+	providerName := "aap"
+	metadata := api.ObjectMeta{
+		Name: &providerName,
+	}
+
+	authNProvider, err := authn.NewAapGatewayAuth(metadata, *cfg.Auth.AAP, getTlsConfig(cfg))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create AAP Gateway AuthN: %w", err)
+	}
+	return authNProvider, nil
+}
+
+func initK8sAuth(cfg *config.Config, log logrus.FieldLogger) (common.AuthNMiddleware, error) {
 	apiUrl := strings.TrimSuffix(cfg.Auth.K8s.ApiUrl, "/")
-	externalOpenShiftApiUrl := strings.TrimSuffix(cfg.Auth.K8s.ExternalOpenShiftApiUrl, "/")
 	log.Infof("k8s auth enabled: %s", apiUrl)
+
 	var k8sClient k8sclient.K8SClient
 	var err error
 	if apiUrl == k8sApiService {
@@ -65,100 +100,89 @@ func initK8sAuth(cfg *config.Config, log logrus.FieldLogger) (AuthNMiddleware, A
 		k8sClient, err = k8sclient.NewK8SExternalClient(apiUrl, cfg.Auth.InsecureSkipTlsVerify, cfg.Auth.CACert)
 	}
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create k8s client: %w", err)
+		return nil, fmt.Errorf("failed to create k8s client: %w", err)
 	}
-	authZProvider := K8sToK8sAuth{K8sAuthZ: authz.K8sAuthZ{K8sClient: k8sClient, Namespace: cfg.Auth.K8s.RBACNs}}
-	authNProvider, err := authn.NewK8sAuthN(k8sClient, externalOpenShiftApiUrl)
+
+	providerName := "k8s"
+	metadata := api.ObjectMeta{
+		Name: &providerName,
+	}
+
+	authNProvider, err := authn.NewK8sAuthN(metadata, *cfg.Auth.K8s, k8sClient)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create k8s AuthN: %w", err)
+		return nil, fmt.Errorf("failed to create k8s AuthN: %w", err)
 	}
-	return authNProvider, authZProvider, nil
+	return authNProvider, nil
 }
 
-func getTlsConfig(cfg *config.Config) *tls.Config {
-	tlsConfig := &tls.Config{
-		InsecureSkipVerify: cfg.Auth.InsecureSkipTlsVerify, //nolint:gosec
-	}
-	if cfg.Auth.CACert != "" {
-		caCertPool := x509.NewCertPool()
-		caCertPool.AppendCertsFromPEM([]byte(cfg.Auth.CACert))
-		tlsConfig.RootCAs = caCertPool
-	}
-	return tlsConfig
-}
-
-func getOrgConfig(cfg *config.Config) *common.AuthOrganizationsConfig {
-	if cfg.Organizations == nil {
-		return &common.AuthOrganizationsConfig{
-			Enabled: false,
-		}
-	}
-	return &common.AuthOrganizationsConfig{
-		Enabled: cfg.Organizations.Enabled,
-	}
-}
-
-func initOIDCAuth(cfg *config.Config, log logrus.FieldLogger, orgResolver resolvers.Resolver) (AuthNMiddleware, AuthZMiddleware, error) {
-	oidcUrl := strings.TrimSuffix(cfg.Auth.OIDC.OIDCAuthority, "/")
-	externalOidcUrl := strings.TrimSuffix(cfg.Auth.OIDC.ExternalOIDCAuthority, "/")
-	log.Infof("OIDC auth enabled: %s", oidcUrl)
-	authZProvider := authz.NewOrgMembershipAuthZ(orgResolver)
-	authNProvider, err := authn.NewJWTAuth(oidcUrl, externalOidcUrl, getTlsConfig(cfg), getOrgConfig(cfg))
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create OIDC AuthN: %w", err)
-	}
-	return authNProvider, authZProvider, nil
-}
-
-func initAAPAuth(cfg *config.Config, log logrus.FieldLogger, orgResolver resolvers.Resolver) (AuthNMiddleware, AuthZMiddleware, error) {
-	gatewayUrl := strings.TrimSuffix(cfg.Auth.AAP.ApiUrl, "/")
-	gatewayExternalUrl := strings.TrimSuffix(cfg.Auth.AAP.ExternalApiUrl, "/")
-	log.Infof("AAP Gateway auth enabled: %s", gatewayUrl)
-	authZProvider := authz.NewOrgMembershipAuthZ(orgResolver)
-	authNProvider, err := authn.NewAapGatewayAuth(gatewayUrl, gatewayExternalUrl, getTlsConfig(cfg))
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create AAP Gateway AuthN: %w", err)
-	}
-	return authNProvider, authZProvider, nil
-}
-
-func InitAuth(cfg *config.Config, log logrus.FieldLogger, orgResolver resolvers.Resolver) (AuthNMiddleware, AuthZMiddleware, error) {
+// InitMultiAuth initializes authentication with support for multiple methods
+func InitMultiAuth(cfg *config.Config, log logrus.FieldLogger,
+	authProviderService authn.AuthProviderService) (common.AuthNMiddleware, error) {
 	value, exists := os.LookupEnv(DisableAuthEnvKey)
 	if exists && value != "" {
 		log.Warnln("Auth disabled")
 		configuredAuthType = AuthTypeNil
 		authNProvider := NilAuth{}
-		authZProvider := NilAuth{}
-		return authNProvider, authZProvider, nil
-	} else if cfg.Auth != nil {
-		var authNProvider AuthNMiddleware
-		var authZProvider AuthZMiddleware
-		var err error
-		if cfg.Auth.K8s != nil {
-			configuredAuthType = AuthTypeK8s
-			authNProvider, authZProvider, err = initK8sAuth(cfg, log)
-		} else if cfg.Auth.OIDC != nil {
-			configuredAuthType = AuthTypeOIDC
-			authNProvider, authZProvider, err = initOIDCAuth(cfg, log, orgResolver)
-		} else if cfg.Auth.AAP != nil {
-			configuredAuthType = AuthTypeAAP
-			authNProvider, authZProvider, err = initAAPAuth(cfg, log, orgResolver)
-		}
-
-		if err != nil {
-			return nil, nil, err
-		}
-
-		if authNProvider == nil {
-			return nil, nil, errors.New("no authN provider defined")
-		}
-		if authZProvider == nil {
-			return nil, nil, errors.New("no authZ provider defined")
-		}
-		return authNProvider, authZProvider, nil
+		return authNProvider, nil
 	}
 
-	return nil, nil, errors.New("no auth configuration provided")
+	if cfg.Auth == nil {
+		return nil, errors.New("no auth configuration provided")
+	}
+
+	// Create TLS config for OIDC provider connections
+	tlsConfig := getTlsConfig(cfg)
+
+	// Create MultiAuth instance
+	multiAuth := authn.NewMultiAuth(authProviderService, tlsConfig, log)
+
+	// Initialize static authentication methods
+	if cfg.Auth.K8s != nil {
+		log.Infof("K8s auth enabled: %s", cfg.Auth.K8s.ApiUrl)
+		k8sAuthN, err := initK8sAuth(cfg, log)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize K8s auth: %w", err)
+		}
+
+		// Add K8s auth with static "k8s" key
+		multiAuth.AddStaticProvider("k8s", k8sAuthN)
+		configuredAuthType = AuthTypeK8s
+	}
+
+	if cfg.Auth.OIDC != nil {
+		log.Infof("OIDC auth enabled: %s", cfg.Auth.OIDC.Issuer)
+		oidcAuthN, err := initOIDCAuth(cfg, log)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize OIDC auth: %w", err)
+		}
+
+		// Add OIDC auth with issuer:clientId key (required for OIDC token validation)
+		oidcIssuer := strings.TrimSuffix(cfg.Auth.OIDC.Issuer, "/")
+		oidcKey := fmt.Sprintf("%s:%s", oidcIssuer, cfg.Auth.OIDC.ClientId)
+		multiAuth.AddStaticProvider(oidcKey, oidcAuthN)
+		configuredAuthType = AuthTypeOIDC
+	}
+
+	if cfg.Auth.AAP != nil {
+		log.Infof("AAP Gateway auth enabled: %s", cfg.Auth.AAP.ApiUrl)
+		aapAuthN, err := initAAPAuth(cfg, log)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize AAP auth: %w", err)
+		}
+
+		// Add AAP auth (for opaque tokens)
+		multiAuth.AddStaticProvider("aap", aapAuthN)
+		configuredAuthType = AuthTypeAAP
+	}
+
+	if !multiAuth.HasProviders() {
+		return nil, errors.New("no authentication providers configured")
+	}
+
+	// Start the cache background cleanup
+	multiAuth.Start()
+
+	return multiAuth, nil
 }
 
 type K8sToK8sAuth struct {
