@@ -33,19 +33,15 @@ db:
 
 service:
   # Rate limiting configuration
+  # Note: Only flightctl-api and flightctl-alertmanager-proxy services use rate limiting
+  # Other services ignore this configuration
   rateLimit:
-    # General API rate limiting
-    requests: 60
-    window: "1m"
-    # Auth-specific rate limiting
-    authRequests: 10
-    authWindow: "1h"
-    # Trusted proxies that can set X-Forwarded-For/X-Real-IP headers
-    # This should include your load balancer and UI proxy IPs
-    trustedProxies:
-      - "10.0.0.0/8"    # Example: Internal network range
-      - "172.16.0.0/12" # Example: Docker/container network range
-      - "192.168.0.0/16" # Example: Private network range
+    enabled: true
+    requests: 300
+    window: 1m
+    authRequests: 20
+    authWindow: 1h
+    trustedProxies: []
 
 observability:
   grafana:

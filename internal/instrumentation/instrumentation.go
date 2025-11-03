@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"time"
 
@@ -81,7 +80,7 @@ func (m *MetricsServer) Run(ctx context.Context) error {
 		_ = srv.Shutdown(ctxTimeout)
 	}()
 
-	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, net.ErrClosed) {
+	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 
