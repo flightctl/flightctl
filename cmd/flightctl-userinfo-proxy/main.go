@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/shutdown"
 	"github.com/sirupsen/logrus"
 )
 
@@ -37,7 +39,18 @@ type UserInfoResponse struct {
 }
 
 func main() {
+	ctx := context.Background()
+
+	if err := runCmd(ctx); err != nil {
+		log.InitLogs().Fatalf("UserInfo proxy error: %v", err)
+	}
+}
+
+func runCmd(ctx context.Context) error {
 	logger := log.InitLogs()
+
+	logger.Info("Starting UserInfo proxy server")
+	defer logger.Info("UserInfo proxy server stopped")
 
 	config := loadConfig(logger)
 
@@ -56,9 +69,47 @@ func main() {
 		IdleTimeout:       60 * time.Second, // Time to keep idle connections open
 	}
 
-	if err := server.ListenAndServe(); err != nil {
-		logger.Fatal("Server failed to start:", err)
+	// Channel to coordinate shutdown completion
+	shutdownComplete := make(chan struct{})
+
+	// Set up graceful shutdown
+	shutdown.GracefulShutdown(logger, shutdownComplete, func(shutdownCtx context.Context) error {
+		// Shutdown server first
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			logger.WithError(err).Error("Server shutdown error")
+			return err
+		}
+
+		return nil
+	})
+
+	// Start server in background
+	serverDone := make(chan error, 1)
+	go func() {
+		logger.Printf("UserInfo proxy server starting on %s...", server.Addr)
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.WithError(err).Error("Server error")
+			serverDone <- err
+		} else {
+			serverDone <- nil
+		}
+	}()
+
+	logger.Info("UserInfo proxy server started, waiting for shutdown signal...")
+
+	// Wait for either server error or shutdown signal
+	select {
+	case err := <-serverDone:
+		if err != nil {
+			logger.WithError(err).Error("Server failed")
+			return err // Return error for non-zero exit code
+		}
+	case <-shutdownComplete:
+		// Graceful shutdown completed
 	}
+
+	logger.Info("Server stopped, exiting...")
+	return nil
 }
 
 func loadConfig(log *logrus.Logger) *Config {
@@ -90,7 +141,7 @@ func getBoolEnv(key string, defaultValue bool, log *logrus.Logger) bool {
 		case "false", "0", "no", "off":
 			return false
 		default:
-			log.Printf("Warning: Invalid boolean value for %s: %s, using default: %v", key, value, defaultValue)
+			log.Warnf("Invalid boolean value for %s: %s, using default: %v", key, value, defaultValue)
 			return defaultValue
 		}
 	}
@@ -132,9 +183,9 @@ func makeUserInfoHandler(config *Config, log *logrus.Logger) http.HandlerFunc {
 		}
 
 		// Proxy request to upstream AAP
-		aapResp, err := proxyToUpstream(config, authHeader)
+		aapResp, err := proxyToUpstream(config, authHeader, log)
 		if err != nil {
-			log.Printf("Error proxying to upstream AAP: %v", err)
+			log.WithError(err).Error("Error proxying to upstream AAP")
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
@@ -142,7 +193,7 @@ func makeUserInfoHandler(config *Config, log *logrus.Logger) http.HandlerFunc {
 		// Transform AAP response to UserInfo format
 		userInfo, err := transformToUserInfo(aapResp)
 		if err != nil {
-			log.Printf("Error transforming response: %v", err)
+			log.WithError(err).Error("Error transforming response")
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
@@ -150,12 +201,12 @@ func makeUserInfoHandler(config *Config, log *logrus.Logger) http.HandlerFunc {
 		// Return JSON response
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(userInfo); err != nil {
-			log.Printf("Error encoding response: %v", err)
+			log.WithError(err).Error("Error encoding response")
 		}
 	}
 }
 
-func proxyToUpstream(config *Config, authHeader string) (*AAPResponse, error) {
+func proxyToUpstream(config *Config, authHeader string, log *logrus.Logger) (*AAPResponse, error) {
 	client := &http.Client{
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: config.SkipTLSVerification}, // #nosec G402

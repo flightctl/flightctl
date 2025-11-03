@@ -66,8 +66,8 @@ func runRestore(ctx context.Context) error {
 	ctx = store.WithBypassSpanCheck(ctx)
 
 	log := log.InitLogs()
-	log.Println("Starting Flight Control restore preparation")
-	defer log.Println("Flight Control restore preparation completed")
+	log.Info("Starting Flight Control restore preparation")
+	defer log.Info("Flight Control restore preparation completed")
 
 	cfg, err := config.LoadOrGenerate(config.ConfigFile())
 	if err != nil {
@@ -88,7 +88,7 @@ func runRestore(ctx context.Context) error {
 		}
 	}()
 
-	log.Println("Initializing database connection for restore operations")
+	log.Info("Initializing database connection for restore operations")
 	db, err := store.InitDB(cfg, log)
 	if err != nil {
 		log.Fatalf("initializing database: %v", err)
@@ -101,14 +101,14 @@ func runRestore(ctx context.Context) error {
 		}
 	}()
 
-	log.Println("Initializing KV store connection for restore operations")
+	log.Info("Initializing KV store connection for restore operations")
 	kvStore, err := kvstore.NewKVStore(ctx, log, cfg.KV.Hostname, cfg.KV.Port, cfg.KV.Password)
 	if err != nil {
 		log.Fatalf("initializing KV store: %v", err)
 	}
 	defer kvStore.Close()
 
-	log.Println("Creating store and service handler")
+	log.Info("Creating store and service handler")
 	storeInst := store.NewStore(db, log)
 
 	orgCache := cache.NewOrganizationTTL(cache.DefaultTTL)
@@ -120,11 +120,11 @@ func runRestore(ctx context.Context) error {
 
 	serviceHandler := service.NewServiceHandler(storeInst, nil, kvStore, nil, log, "", "", []string{})
 
-	log.Println("Running post-restoration device preparation")
+	log.Info("Running post-restoration device preparation")
 	if err := serviceHandler.PrepareDevicesAfterRestore(ctx); err != nil {
 		log.Fatalf("preparing devices after restore: %v", err)
 	}
 
-	log.Println("Post-restoration device preparation completed successfully")
+	log.Info("Post-restoration device preparation completed successfully")
 	return nil
 }

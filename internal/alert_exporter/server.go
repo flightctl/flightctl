@@ -6,9 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
@@ -52,18 +49,6 @@ func (s *Server) Run(ctx context.Context, serviceHandler service.Service) error 
 	go s.updateUptimeMetric(ctx)
 
 	alertExporter := NewAlertExporter(s.log, serviceHandler, s.cfg)
-
-	// Handle shutdown gracefully
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	defer signal.Stop(sigCh)
-	go func() {
-		sig := <-sigCh
-		logger.WithFields(logrus.Fields{
-			"signal": sig.String(),
-		}).Info("Received shutdown signal, initiating graceful shutdown")
-		cancel()
-	}()
 
 	backoff := time.Second
 	maxBackoff := time.Minute
