@@ -4,11 +4,6 @@ ARG SOURCE_GIT_TAG
 ARG SOURCE_GIT_TREE_STATE
 ARG SOURCE_GIT_COMMIT
 
-# Convert ARGs to ENV so make can use them
-ENV SOURCE_GIT_TAG=${SOURCE_GIT_TAG}
-ENV SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE}
-ENV SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT}
-
 # Switch to root for build operations
 USER 0
 
@@ -31,6 +26,11 @@ COPY ./hack ./hack
 COPY ./internal ./internal
 COPY ./pkg ./pkg
 COPY ./test ./test
+
+# Convert ARGs to ENV so make can use them
+ENV SOURCE_GIT_TAG=${SOURCE_GIT_TAG}
+ENV SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE}
+ENV SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT}
 
 # Use BuildKit cache mounts for Go caching
 RUN --mount=type=cache,target=/opt/app-root/src/.cache/go-build \
