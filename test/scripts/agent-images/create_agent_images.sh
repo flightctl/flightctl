@@ -68,7 +68,7 @@ build_single_image() {
     fi
 
     # Add standard build arguments for caching and versioning
-    args="${args:+${args} }--build-arg=SOURCE_GIT_TAG=${SOURCE_GIT_TAG:-$(git describe --tags --exclude latest 2>/dev/null || echo "latest")}"
+    args="${args:+${args} }--build-arg=SOURCE_GIT_TAG=${SOURCE_GIT_TAG:-$(./hack/current-version)}"
     args="${args:+${args} }--build-arg=SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE:-$( ( ( [ ! -d ".git/" ] || git diff --quiet ) && echo 'clean' ) || echo 'dirty' )}"
     args="${args:+${args} }--build-arg=SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT:-$(git rev-parse --short "HEAD^{commit}" 2>/dev/null || echo "unknown")}"
 
