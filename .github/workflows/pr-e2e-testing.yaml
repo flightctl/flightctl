@@ -1,18 +1,18 @@
 name: "E2E testing (Parallel Build)"
 
-on:
-  workflow_dispatch:
-    inputs:
-      label_filter:
-        description: 'Ginkgo label filter expression to filter e2e tests'
-        required: false
-        default: 'sanity' #By default, only tests labeled with 'sanity' will run.
-        type: string
-  push:
-    branches:
-      - main
-      - 'release-*'
-  pull_request:
+# TEMPORARILY DISABLED - on:
+#   workflow_dispatch:
+#     inputs:
+#       label_filter:
+#         description: 'Ginkgo label filter expression to filter e2e tests'
+#         required: false
+#         default: 'sanity' #By default, only tests labeled with 'sanity' will run.
+#         type: string
+#   push:
+#     branches:
+#       - main
+#       - 'release-*'
+#   pull_request:
 
 permissions:
   contents: read
