@@ -25,6 +25,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/internal/agent/device/systeminfo"
 	"github.com/flightctl/flightctl/internal/agent/identity"
+	"github.com/flightctl/flightctl/internal/agent/instrumentation"
 	"github.com/flightctl/flightctl/internal/agent/reload"
 	"github.com/flightctl/flightctl/internal/agent/shutdown"
 	"github.com/flightctl/flightctl/internal/tpm"
@@ -66,6 +67,9 @@ func (a *Agent) Run(ctx context.Context) error {
 	defer utilruntime.HandleCrash()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+
+	// start early to profile initialization and startup routines
+	go instrumentation.NewPprofServer(a.log, a.config).Run(ctx)
 
 	// create file io writer and reader
 	deviceReadWriter := fileio.NewReadWriter(fileio.WithTestRootDir(a.config.GetTestRootDir()))

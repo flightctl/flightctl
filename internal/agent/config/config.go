@@ -63,6 +63,8 @@ const (
 	DefaultTPMKeyFile = "tpm-blob.yaml"
 	// TestRootDirEnvKey is the environment variable key used to set the file system root when testing.
 	TestRootDirEnvKey = "FLIGHTCTL_TEST_ROOT_DIR"
+	// DefaultProfilingEnabled controls whether runtime profiling (pprof) is active by default.
+	DefaultProfilingEnabled = false
 )
 
 type Config struct {
@@ -120,6 +122,9 @@ type Config struct {
 	// PullRetrySteps defines how many retry attempts are allowed for pulling an OCI target.
 	PullRetrySteps int `json:"pull-retry-steps,omitempty"`
 
+	// ProfilingEnabled turns on the loopback-only pprof server for local debugging.
+	ProfilingEnabled bool `json:"profiling-enabled,omitempty"`
+
 	readWriter fileio.ReadWriter
 }
 
@@ -163,6 +168,7 @@ func NewDefault() *Config {
 		SystemInfoTimeout:    DefaultSystemInfoTimeout,
 		PullTimeout:          DefaultPullTimeout,
 		PullRetrySteps:       DefaultPullRetrySteps,
+		ProfilingEnabled:     DefaultProfilingEnabled,
 		TPM: TPM{
 			Enabled:         false,
 			AuthEnabled:     false,
@@ -394,6 +400,9 @@ func mergeConfigs(base, override *Config) {
 	overrideIfNotEmpty(&base.TPM.AuthEnabled, override.TPM.AuthEnabled)
 	overrideIfNotEmpty(&base.TPM.DevicePath, override.TPM.DevicePath)
 	overrideIfNotEmpty(&base.TPM.StorageFilePath, override.TPM.StorageFilePath)
+
+	// profiling
+	overrideIfNotEmpty(&base.ProfilingEnabled, override.ProfilingEnabled)
 
 	for k, v := range override.DefaultLabels {
 		base.DefaultLabels[k] = v
