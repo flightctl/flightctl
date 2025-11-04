@@ -198,6 +198,16 @@ PEM
 NSING
 multiline
 localhost
+copr
+repo
+rpm
+podman
+Quickstart
+https
+timestamped
+SELinux
+dnf
+rpm.flightctl.io
  - docs/user/api-resources.md
 approvedBy
 creationTimestamp
@@ -326,7 +336,6 @@ misconfigured
 journald
 quadlets
 Sanitization
-SELinux
 SNI
 SSO
 VPN
