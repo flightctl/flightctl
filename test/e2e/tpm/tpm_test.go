@@ -131,7 +131,7 @@ var _ = Describe("Real Hardware TPM Device Authentication", func() {
 	})
 
 	Context("Complete TPM Verification Workflow", func() {
-		It("Should perform full TPM enrollment and verification on real hardware", Label("hardware", "tpm", "real-tpm", "sanity", "83974"), func() {
+		It("Should perform full TPM enrollment and verification on real hardware", Label("hardware", "tpm", "real-tpm", "83974"), func() {
 			By("Step 1: Verifying TPM hardware prerequisites")
 			err := verifyTPMHardwarePrerequisites()
 			Expect(err).ToNot(HaveOccurred(), "TPM hardware prerequisites check failed")

@@ -5,13 +5,13 @@
 // - TPM device presence and functionality
 // - Agent TPM configuration
 // - TPM-based enrollment with attestation data
-// - Certificate upload and verification
+// - Certificate chain validation with swtpm CA certificates
 // - Device status with TPM integrity checks
 //
 // IMPORTANT NOTES:
-// - Virtual TPM verification shows "Failed" status due to lack of certificate chain of trust
-// - This is EXPECTED behavior for virtual/software TPM
-// - Test validates TPM enrollment and attestation functionality works correctly
+// - BeforeSuite installs swtpm-localca CA certificates for proper certificate chain validation
+// - Virtual TPM verification shows "Verified" status when certificates are properly configured
+// - Test validates complete TPM enrollment and attestation workflow
 // - Real hardware TPM tests are in tpm_test.go (marked as "hardware" - skipped in CI)
 //
 // USAGE:
@@ -92,8 +92,8 @@ var _ = Describe("Virtual TPM Device Authentication", func() {
 	})
 
 	Context("Virtual TPM Enrollment and Verification", func() {
-		// NOTE: Virtual TPM verification shows "Failed" status due to lack of chain of trust
-		// This is EXPECTED behavior - test validates TPM functionality works correctly
+		// NOTE: Virtual TPM verification shows "Verified" status when swtpm CA certificates are configured
+		// The BeforeSuite installs the swtpm-localca certificates to enable certificate chain validation
 		It("Should enroll device with virtual TPM and verify attestation data", Label("83974", "tpm", "sanity"), func() {
 			By("verifying TPM device presence")
 			stdout, err := harness.VM.RunSSH([]string{"ls", "-la", "/dev/tpm*"}, nil)
@@ -211,13 +211,13 @@ var _ = Describe("Virtual TPM Device Authentication", func() {
 			Expect(device.Status.Integrity.Tpm).ToNot(BeNil())
 			Expect(device.Status.Integrity.DeviceIdentity).ToNot(BeNil())
 
-			// For virtual TPM, expect "Failed" status (no certificate chain)
-			// This is EXPECTED behavior for virtual/software TPM
-			Expect(device.Status.Integrity.Tpm.Status).To(Equal(v1alpha1.DeviceIntegrityCheckStatusFailed))
-			Expect(device.Status.Integrity.DeviceIdentity.Status).To(Equal(v1alpha1.DeviceIntegrityCheckStatusFailed))
-			Expect(device.Status.Integrity.Status).To(Equal(v1alpha1.DeviceIntegrityStatusFailed))
+			// With swtpm CA certificates configured, expect "Verified" status
+			// The BeforeSuite installs swtpm-localca certificates to enable proper chain validation
+			Expect(device.Status.Integrity.Tpm.Status).To(Equal(v1alpha1.DeviceIntegrityCheckStatusVerified))
+			Expect(device.Status.Integrity.DeviceIdentity.Status).To(Equal(v1alpha1.DeviceIntegrityCheckStatusVerified))
+			Expect(device.Status.Integrity.Status).To(Equal(v1alpha1.DeviceIntegrityStatusVerified))
 
-			logrus.Info("✅ Virtual TPM integrity verification completed with expected 'Failed' status")
+			logrus.Info("✅ Virtual TPM integrity verification completed with 'Verified' status")
 			logrus.Infof("  - TPM: %s", device.Status.Integrity.Tpm.Status)
 			logrus.Infof("  - Device Identity: %s", device.Status.Integrity.DeviceIdentity.Status)
 			logrus.Infof("  - Overall: %s", device.Status.Integrity.Status)
@@ -263,11 +263,11 @@ var _ = Describe("Virtual TPM Device Authentication", func() {
 
 			By("verifying TPM communication is working for device updates")
 			// The fact that configuration was successfully applied proves TPM is working
-			// Virtual TPM can sign requests even though certificate chain validation fails
+			// Virtual TPM successfully signs requests and passes certificate chain validation
 
 			logrus.Info("✅ VIRTUAL TPM VERIFICATION PASSED:")
 			logrus.Info("  - Device enrolled with TPM attestation data")
-			logrus.Info("  - TPM integrity verification completed (expected 'Failed' for virtual TPM)")
+			logrus.Info("  - TPM integrity verification: Verified (swtpm CA certificates configured)")
 			logrus.Info("  - Configuration successfully applied via TPM-signed communication")
 			logrus.Info("  - All TPM functionality verified working correctly with virtual TPM")
 
