@@ -226,10 +226,10 @@ func (s *AgentServer) prepareHTTPHandler(serviceHandler service.Service) (http.H
 	router := chi.NewRouter()
 	router.Use(middlewares...)
 
-	// Rate limiting middleware - applied before validation (only if configured)
+	// Rate limiting middleware - applied before validation (only if configured and enabled)
 	// Note: Agent server doesn't need trusted proxy validation since it's mTLS
-	if s.cfg.Service.RateLimit != nil {
-		requests := 60        // Default requests limit
+	if s.cfg.Service.RateLimit != nil && s.cfg.Service.RateLimit.Enabled {
+		requests := 300       // Default requests limit
 		window := time.Minute // Default window
 		if s.cfg.Service.RateLimit.Requests > 0 {
 			requests = s.cfg.Service.RateLimit.Requests

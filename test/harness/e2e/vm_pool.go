@@ -187,6 +187,10 @@ func (p *VMPool) createVMForWorker(workerID int) (vm.TestVMInterface, error) {
 	}
 	fmt.Printf("✅ [VMPool] Worker %d: Pristine snapshot created successfully\n", workerID)
 
+	// Print agent files right after snapshot is taken - current and desired should not exist
+	fmt.Printf("🔍 [VMPool] Worker %d: Printing agent files after snapshot creation:\n", workerID)
+	printAgentFilesForVM(newVM, "After Snapshot Creation")
+
 	// VM stays running - no shutdown
 	fmt.Printf("✅ [VMPool] Worker %d: VM setup completed, VM is running\n", workerID)
 	return newVM, nil

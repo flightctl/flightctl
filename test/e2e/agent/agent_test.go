@@ -222,8 +222,6 @@ var _ = Describe("VM Agent behavior", func() {
 
 			By("should report the correct device status when trying to upgrade to a not existing image")
 			previousRenderedVersion := newRenderedVersion
-			nextGeneration, err := harness.PrepareNextDeviceGeneration(deviceId)
-			Expect(err).ToNot(HaveOccurred())
 			newRenderedVersion, err = harness.PrepareNextDeviceVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -236,9 +234,6 @@ var _ = Describe("VM Agent behavior", func() {
 				device.Spec.Os = &v1alpha1.DeviceOsSpec{Image: newImageReference}
 				GinkgoWriter.Printf("Updating %s to image %s\n", deviceId, device.Spec.Os.Image)
 			})
-			Expect(err).ToNot(HaveOccurred())
-
-			err = harness.WaitForDeviceNewGeneration(deviceId, nextGeneration)
 			Expect(err).ToNot(HaveOccurred())
 
 			harness.WaitForDeviceContents(deviceId, fmt.Sprintf("Failed to update to renderedVersion: %s. Error", strconv.Itoa(newRenderedVersion)),

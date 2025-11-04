@@ -460,6 +460,15 @@ func TestGetOptionsValidation(t *testing.T) {
 			errorContains: "'--rendered' can only be used when getting a single device",
 		},
 
+		// Last seen validation tests
+		{
+			name:          "last_seen_with_multiple_devices",
+			args:          []string{"device", "test1", "test2"},
+			options:       &GetOptions{LastSeen: true},
+			expectError:   true,
+			errorContains: "'--last-seen' can only be used when getting a single device",
+		},
+
 		// Single resource restriction tests
 		{
 			name:          "get_individual_event",
@@ -501,6 +510,9 @@ func TestGetOptionsValidation(t *testing.T) {
 				}
 				if tc.options.Rendered {
 					opts.Rendered = tc.options.Rendered
+				}
+				if tc.options.LastSeen {
+					opts.LastSeen = tc.options.LastSeen
 				}
 			}
 

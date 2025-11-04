@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
+	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/client"
@@ -19,6 +21,7 @@ import (
 var (
 	unspecifiedResource  = "Error: name must be specified when deleting"
 	resourceCreated      = `(200 OK|201 Created)`
+	invalidResource      = "invalid resource kind"
 	strictfipsruntimeTag = "X:strictfipsruntime"
 	applyOperation       = "apply"
 )
@@ -334,6 +337,47 @@ var _ = Describe("cli operation", func() {
 			_, err = harness.CLI("delete", fmt.Sprintf("%s/%s", util.CertificateSigningRequest, csrNewName))
 			Expect(err).ToNot(HaveOccurred())
 		})
+
+		It("should verify that `flightctl get kind NAME' works", Label("85509", "sanity"), func() {
+			harness := e2e.GetWorkerHarness()
+			testID := harness.GetTestIDFromContext()
+
+			By("Creating a test device")
+			uniqueDeviceYAML, err := util.CreateUniqueYAMLFile("device.yaml", testID)
+			Expect(err).ToNot(HaveOccurred())
+			defer util.CleanupTempYAMLFile(uniqueDeviceYAML)
+
+			out, err := harness.ManageResource("apply", uniqueDeviceYAML)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(MatchRegexp(resourceCreated))
+			device := harness.GetDeviceByYaml(uniqueDeviceYAML)
+			deviceName := *device.Metadata.Name
+
+			By("Confirming device appears in device list")
+			out, err = harness.CLI("get", "devices")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring(deviceName))
+
+			By("Comparing with-slash and no-slash forms for table and JSON output")
+			withSlash, err := harness.CLI("get", "device/"+deviceName)
+			Expect(err).NotTo(HaveOccurred(), "flightctl get device/%s failed", deviceName)
+
+			noSlash, err := harness.CLI("get", "device", deviceName)
+			Expect(err).NotTo(HaveOccurred(), "flightctl get device %s failed", deviceName)
+
+			Expect(collapse(withSlash)).To(Equal(collapse(noSlash)),
+				"no-slash table output must equal with-slash")
+
+			withSlashJSON, err := harness.CLI("get", "device/"+deviceName, "-o", "json")
+			Expect(err).NotTo(HaveOccurred(), "flightctl get device/%s -o json failed", deviceName)
+
+			noSlashJSON, err := harness.CLI("get", "device", deviceName, "-o", "json")
+			Expect(err).NotTo(HaveOccurred(), "flightctl get device %s -o json failed", deviceName)
+
+			Expect(noSlashJSON).To(MatchJSON(withSlashJSON),
+				"no-slash JSON must deep-equal with-slash")
+		})
+
 	})
 
 	Context("CLI Multi-Device Delete", func() {
@@ -694,7 +738,186 @@ var _ = Describe("cli login", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(cfg.AuthInfo.Token).ToNot(Equal(secondToken), "Token should have been refreshed")
 		})
+
+		It("CertificateSigningRequest deny flow validation", Label("85396", "sanity"),
+			func() {
+
+				harness := e2e.GetWorkerHarness()
+
+				By("CertificateSigningRequest: Resources lifecycle")
+				// Prepare a unique CSR YAML and ensure cleanup
+				uniqueCsrYAML, err := util.CreateUniqueYAMLFile("csr.yaml", harness.GetTestIDFromContext())
+				Expect(err).ToNot(HaveOccurred())
+				defer util.CleanupTempYAMLFile(uniqueCsrYAML)
+
+				// Apply CSR
+				var out string
+				Eventually(func() error {
+					var applyErr error
+					out, applyErr = harness.CLI("apply", "-f", uniqueCsrYAML)
+					return applyErr
+				}).Should(BeNil(), "failed to apply CSR")
+				Expect(out).To(MatchRegexp(resourceCreated))
+
+				// Extract CSR name from YAML
+				csr := harness.GetCertificateSigningRequestByYaml(uniqueCsrYAML)
+				Expect(csr.Metadata.Name).ToNot(BeNil(), "csr metadata.name should be set")
+				csrName := *csr.Metadata.Name
+				Expect(csrName).ToNot(BeEmpty())
+
+				By("verifying `flightctl deny -h` prints usage")
+				out, err = harness.ManageResource(util.DenyAction, "-h")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(out).To(ContainSubstring("Deny a certificate signing request."))
+				Expect(out).To(ContainSubstring("Usage:"))
+				Expect(out).To(ContainSubstring("flightctl deny csr/NAME"))
+
+				By(fmt.Sprintf("denying csr/%s", csrName))
+				out, err = harness.ManageResource(util.DenyAction, fmt.Sprintf("csr/%s", csrName))
+				Expect(err).NotTo(HaveOccurred(), "first deny should succeed")
+
+				By("verifying `flightctl get csr` shows CONDITION=Denied for the CSR")
+				out, err = harness.CLI("get", "csr")
+				Expect(err).NotTo(HaveOccurred())
+				AssertTableValue(out, csrName, "CONDITION", "Denied")
+
+				By("denying the same CSR again should fail")
+				out, err = harness.ManageResource(util.DenyAction, fmt.Sprintf("csr/%s", csrName))
+				Expect(err).To(HaveOccurred())
+				Expect(out).To(ContainSubstring("409"))
+
+				By("denying a non-existent CSR should fail with 404")
+				out, err = harness.ManageResource(util.DenyAction, "csr/fake-does-not-exist")
+				Expect(err).To(HaveOccurred())
+				Expect(out).To(ContainSubstring("404"))
+
+				By("accepting --request-timeout flag on successful deny and confirming execution within timeout")
+				out, err = harness.CLI("apply", "-f", uniqueCsrYAML)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(out).To(MatchRegexp(resourceCreated))
+
+				start := time.Now()
+				out, err = harness.ManageResource(util.DenyAction, fmt.Sprintf("csr/%s", csrName), "--request-timeout", "10")
+				elapsed := time.Since(start)
+
+				Expect(err).NotTo(HaveOccurred())
+				Expect(elapsed.Seconds()).To(BeNumerically("<=", 10.5),
+					fmt.Sprintf("deny took too long: %.1fs", elapsed.Seconds()))
+
+				// Verify that the CSR was actually denied after the command
+				out, err = harness.CLI("get", "csr")
+				Expect(err).NotTo(HaveOccurred())
+				AssertTableValue(out, csrName, "CONDITION", "Denied")
+
+				By("calling deny with zero args should error")
+				out, err = harness.ManageResource(util.DenyAction, "")
+				Expect(err).To(HaveOccurred())
+				Expect(out).To(ContainSubstring("Error: accepts 1 arg(s), received 0"))
+
+				By("calling deny with empty resource should fail")
+				out, err = harness.ManageResource(util.DenyAction, "csr")
+				Expect(err).To(HaveOccurred())
+				Expect(out).To(ContainSubstring("Error: specify a specific request resource to deny"))
+
+				By("calling deny with invalid resource kind should error")
+				out, err = harness.ManageResource(util.DenyAction, "1234")
+				Expect(err).To(HaveOccurred())
+				Expect(out).To(ContainSubstring(invalidResource))
+
+			})
+
 	})
+
+	It("Creates a device, edits via headless editor (yaml & json), and validates negatives", Label("83301"), func() {
+		harness := e2e.GetWorkerHarness()
+
+		By("creating a unique Device from template")
+		uniqueDeviceYAML, err := util.CreateUniqueYAMLFile("device.yaml", harness.GetTestIDFromContext())
+		Expect(err).ToNot(HaveOccurred())
+		defer util.CleanupTempYAMLFile(uniqueDeviceYAML)
+
+		out, err := harness.ManageResource("apply", uniqueDeviceYAML)
+		Expect(err).ToNot(HaveOccurred(), out)
+		Expect(out).To(MatchRegexp(resourceCreated), out)
+
+		device := harness.GetDeviceByYaml(uniqueDeviceYAML)
+		Expect(device.Metadata).ToNot(BeNil())
+		Expect(device.Metadata.Name).ToNot(BeNil())
+		Expect(*device.Metadata.Name).ToNot(BeEmpty(), "device name should not be empty")
+
+		devName := *device.Metadata.Name
+		devicePath := "device/" + devName
+
+		newTestKey := "e2e-prelabel"
+		newTestValue := "ok"
+
+		By("patching the device once via API to ensure it is reachable")
+		Eventually(func() error {
+			return harness.UpdateDevice(devName, func(d *v1alpha1.Device) {
+				if d.Metadata.Labels == nil {
+					d.Metadata.Labels = &map[string]string{}
+				}
+				(*d.Metadata.Labels)[newTestKey] = newTestValue
+			})
+		}).Should(BeNil(), "failed to update device preliminarily")
+
+		// -----------------------------
+		// Positive: headless edit (YAML)
+		// -----------------------------
+		By("editing the Device via headless editor in YAML mode")
+		markerYAML := "autotest-edit-yaml-" + time.Now().Format("150405")
+
+		editorYAML, err := harness.HeadlessEditorWrapper(markerYAML)
+		Expect(err).ToNot(HaveOccurred())
+
+		// Use retry helper to tolerate 409 conflicts
+		_, err = harness.EditWithRetry("yaml", editorYAML, devicePath)
+		Expect(err).ToNot(HaveOccurred())
+
+		yamlOut, err := harness.GetYAML(devicePath)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(yamlOut).To(ContainSubstring("autotest-edit: " + markerYAML))
+
+		// -----------------------------
+		// Positive: headless edit (JSON)
+		// -----------------------------
+		By("editing the Device via headless editor in JSON mode")
+		markerJSON := "autotest-edit-json-" + time.Now().Format("150405")
+
+		editorJSON, err := harness.HeadlessEditorWrapper(markerJSON)
+		Expect(err).ToNot(HaveOccurred())
+
+		_, err = harness.EditWithRetry("json", editorJSON, devicePath)
+		Expect(err).ToNot(HaveOccurred())
+
+		yamlOut, err = harness.GetYAML(devicePath)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(yamlOut).To(ContainSubstring("autotest-edit: " + markerJSON))
+
+		// -----------------------------
+		// Negative tests
+		// -----------------------------
+		By("failing when no arguments are provided")
+		out, err = harness.CLI("edit")
+		Expect(err).To(HaveOccurred())
+		Expect(out).To(ContainSubstring("Error: accepts between 1 and 2 arg(s), received 0"))
+
+		By("failing on invalid resource kind (numeric)")
+		out, err = harness.CLI("edit", "1234")
+		Expect(err).To(HaveOccurred())
+		Expect(out).To(ContainSubstring("Error: invalid resource kind: 1234"))
+
+		By("failing on invalid resource kind (empty string)")
+		out, err = harness.CLI("edit", "")
+		Expect(err).To(HaveOccurred())
+		Expect(out).To(ContainSubstring("Error: invalid resource kind:"))
+
+		By("failing when too many arguments are provided")
+		out, err = harness.CLI("edit", "1", "2", "3", "4")
+		Expect(err).To(HaveOccurred())
+		Expect(out).To(ContainSubstring("Error: accepts between 1 and 2 arg(s), received 4"))
+	})
+
 })
 
 // formatResourceEvent formats the event's message and returns it as a string
@@ -762,6 +985,12 @@ func compareDeviceCountCliOutput(output string, expected map[string]int64) []str
 	return notMatched
 }
 
+// collapse collapses all whitespace in a string into single spaces.
+func collapse(s string) string {
+	fields := strings.Fields(strings.TrimSpace(s))
+	return strings.Join(fields, " ")
+}
+
 // Creating a test fleet
 func createTestFleet(fleetTestManager *fleetTestManager, fleetDevicesCount map[string]int64, originalYamlPath string, fleetIdentifier string) (string, error) {
 	uniqueFleetYAML, err := util.CreateUniqueYAMLFile(originalYamlPath, fleetTestManager.testID)
@@ -824,6 +1053,34 @@ func checkDevicesInFleetStatus(harness *e2e.Harness, fleetDevicesCount map[strin
 	}
 
 	return notMatched, err
+}
+
+// AssertTableValue checks that a specific row (identified by resourceName)
+// has the expected value under the specified column name in the table output.
+func AssertTableValue(out, resourceName, column, expected string) {
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	Expect(len(lines)).To(BeNumerically(">=", 2),
+		fmt.Sprintf("expected at least one data row in output:\n%s", out))
+
+	header := strings.Fields(lines[0])
+	colIdx := slices.Index(header, column)
+	Expect(colIdx).To(BeNumerically(">=", 0),
+		fmt.Sprintf("column %q not found in headers: %v", column, header))
+
+	for _, line := range lines[1:] {
+		cols := strings.Fields(line)
+		if len(cols) <= colIdx {
+			continue
+		}
+		if cols[0] == resourceName {
+			Expect(cols[colIdx]).To(Equal(expected),
+				fmt.Sprintf("expected %s[%s] = %s, got %s",
+					resourceName, column, expected, cols[colIdx]))
+			return
+		}
+	}
+
+	Fail(fmt.Sprintf("expected resource %q in output but not found:\n%s", resourceName, out))
 }
 
 // completeFleetYaml defines a YAML template for creating a Fleet resource with specified metadata and spec configuration.

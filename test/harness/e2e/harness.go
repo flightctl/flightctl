@@ -60,6 +60,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -1044,26 +1046,40 @@ func (h *Harness) RunGetEvents(args ...string) (string, error) {
 	return h.CLI(allArgs...)
 }
 
-// ManageResource performs an operation ("apply", "delete", or "approve") on a specified resource.
+// ManageResource performs an operation ("apply", "delete", "approve" or "deny") on a specified resource.
 func (h *Harness) ManageResource(operation, resource string, args ...string) (string, error) {
 	switch operation {
 	case "apply":
 		return h.applyResourceWithTestLabels(resource)
+
 	case "delete":
-		if len(args) > 0 {
-			deleteArgs := append([]string{"delete", resource}, args...)
-			return h.CLI(deleteArgs...)
+		deleteArgs := []string{"delete"}
+		if resource != "" {
+			deleteArgs = append(deleteArgs, resource)
 		}
-		if len(args) == 0 {
-			return h.CLI("delete", resource)
-		}
-		err := h.CleanUpTestResources(resource)
-		if err != nil {
-			return "", fmt.Errorf("failed to clean up test resources: %w", err)
-		}
-		return "", nil
+		deleteArgs = append(deleteArgs, args...)
+		return h.CLI(deleteArgs...)
+
 	case "approve":
-		return h.CLI("approve", resource)
+		approveArgs := []string{"approve"}
+		if resource != "" {
+			approveArgs = append(approveArgs, resource)
+		}
+		approveArgs = append(approveArgs, args...)
+		return h.CLI(approveArgs...)
+
+	case "deny":
+		// If no resource and no extra args → call bare `flightctl deny`
+		if resource == "" && len(args) == 0 {
+			return h.CLI("deny")
+		}
+		denyArgs := []string{"deny"}
+		if resource != "" {
+			denyArgs = append(denyArgs, resource)
+		}
+		denyArgs = append(denyArgs, args...)
+		return h.CLI(denyArgs...)
+
 	default:
 		return "", fmt.Errorf("unsupported operation: %s", operation)
 	}
@@ -1400,6 +1416,9 @@ func (h *Harness) SetupVMFromPoolAndStartAgent(workerID int) error {
 	if err := testVM.WaitForSSHToBeReady(); err != nil {
 		return fmt.Errorf("failed to wait for SSH: %w", err)
 	}
+
+	// Print agent files right after snapshot revert - should be empty/version 0
+	printAgentFilesForVM(testVM, "After Snapshot Revert")
 
 	// Stop the agent to ensure clean state
 	if _, err := testVM.RunSSH([]string{"sudo", "systemctl", "restart", "flightctl-agent"}, nil); err != nil {
@@ -2338,4 +2357,254 @@ func (h *Harness) getVersionByPrefix(output, prefix string) string {
 		}
 	}
 	return ""
+}
+
+// GetYAML returns the YAML output of a given resource name via Harness.CLI.
+// No test framework calls inside; returns (string, error).
+func (h *Harness) GetYAML(name string) (string, error) {
+	out, err := h.CLI("get", name, "-o", "yaml")
+	if err != nil {
+		return out, fmt.Errorf("get -o yaml failed for %s: %v\n%s", name, err, out)
+	}
+	return out, nil
+}
+
+// ApplyTempIfSuggested looks for "Your changes have been saved to:" in CLI output.
+// If found, it automatically applies the saved file to complete the edit flow.
+func (h *Harness) ApplyTempIfSuggested(out string, cliErr error) error {
+	if cliErr == nil {
+		return nil
+	}
+	lower := strings.ToLower(out)
+	if !strings.Contains(lower, "saved to:") {
+		return fmt.Errorf("edit failed without saved-temp-file hint: %v\n%s", cliErr, out)
+	}
+	re := regexp.MustCompile(`(?i)saved to:\s+(.+?)(?:\s*$|\n)`)
+	match := re.FindStringSubmatch(out)
+	if len(match) < 2 {
+		return fmt.Errorf("could not extract temp file path from output:\n%s", out)
+	}
+	tmpPath := match[1]
+
+	applyOut, applyErr := h.CLI("apply", "-f", tmpPath)
+	if applyErr != nil {
+		return fmt.Errorf("failed to apply saved temp file %s:\n%s", tmpPath, applyOut)
+	}
+	return nil
+}
+
+var (
+	editorOnce     sync.Once
+	editorPath     string
+	editorBuildErr error
+)
+
+func buildHeadlessEditor() (string, error) {
+	editorOnce.Do(func() {
+		src := `
+package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+
+	"sigs.k8s.io/yaml"
+)
+
+func firstNonSpace(b []byte) byte {
+	for _, c := range b {
+		if c != ' ' && c != '\t' && c != '\n' && c != '\r' {
+			return c
+		}
+	}
+	return 0
+}
+
+func ensureMap(m map[string]any, key string) map[string]any {
+	if v, ok := m[key]; ok {
+		if mm, ok := v.(map[string]any); ok {
+			return mm
+		}
+	}
+	n := map[string]any{}
+	m[key] = n
+	return n
+}
+
+func editJSON(buf []byte, marker string) ([]byte, error) {
+	var root map[string]any
+	if err := json.Unmarshal(buf, &root); err != nil {
+		return nil, err
+	}
+	md := ensureMap(root, "metadata")
+	labels := ensureMap(md, "labels")
+	labels["autotest-edit"] = marker
+	return json.MarshalIndent(root, "", "  ")
+}
+
+func editYAML(buf []byte, marker string) ([]byte, error) {
+	j, err := yaml.YAMLToJSON(buf)
+	if err != nil {
+		return nil, err
+	}
+	edited, err := editJSON(j, marker)
+	if err != nil {
+		return nil, err
+	}
+	y, err := yaml.JSONToYAML(edited)
+	if err != nil {
+		return nil, err
+	}
+	// YAML must not use tabs for indentation
+	y = bytes.ReplaceAll(y, []byte("\t"), []byte("  "))
+	return y, nil
+}
+
+func main() {
+	if len(os.Args) < 3 {
+		fmt.Fprintln(os.Stderr, "usage: editor <file> <marker>")
+		os.Exit(2)
+	}
+	path := os.Args[1]
+	marker := os.Args[2]
+
+	buf, err := os.ReadFile(path)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "read:", err)
+		os.Exit(1)
+	}
+	var out []byte
+	switch firstNonSpace(buf) {
+	case '{':
+		out, err = editJSON(buf, marker)
+	case 0:
+		err = errors.New("empty file")
+	default:
+		out, err = editYAML(buf, marker)
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "edit:", err)
+		os.Exit(1)
+	}
+	if err := os.WriteFile(path, out, 0600); err != nil {
+		fmt.Fprintln(os.Stderr, "write:", err)
+		os.Exit(1)
+	}
+}
+`
+		td, err := os.MkdirTemp("", "flightctl-editor-src-*")
+		if err != nil {
+			editorBuildErr = fmt.Errorf("mkdtemp: %w", err)
+			return
+		}
+		srcPath := filepath.Join(td, "main.go")
+		if err := os.WriteFile(srcPath, []byte(src), 0600); err != nil {
+			editorBuildErr = fmt.Errorf("write src: %w", err)
+			return
+		}
+		bin := filepath.Join(td, "flightctl-test-editor")
+		if runtime.GOOS == "windows" {
+			bin += ".exe"
+		}
+		cmd := exec.Command("go", "build", "-o", bin, srcPath)
+		cmd.Env = os.Environ()
+		if out, err := cmd.CombinedOutput(); err != nil {
+			editorBuildErr = fmt.Errorf("build editor failed: %v\n%s", err, string(out))
+			return
+		}
+		editorPath = bin
+	})
+	return editorPath, editorBuildErr
+}
+
+func (h *Harness) HeadlessEditorWrapper(marker string) (string, error) {
+	bin, err := buildHeadlessEditor()
+	if err != nil {
+		return "", err
+	}
+
+	dir, err := os.MkdirTemp("", "flightctl-editor-*")
+	if err != nil {
+		return "", fmt.Errorf("mkdtemp: %w", err)
+	}
+
+	wrapper := fmt.Sprintf(`#!/usr/bin/env sh
+set -eu
+exec %s "$1" %s
+`, shellQuote(bin), shellQuote(marker))
+
+	path := filepath.Join(dir, "fake_editor.sh")
+
+	// Write with 0600 (passes gosec G306), then chmod to 0700.
+	if err := os.WriteFile(path, []byte(wrapper), 0o600); err != nil {
+		return "", fmt.Errorf("write wrapper: %w", err)
+	}
+	if err := os.Chmod(path, 0o700); err != nil {
+		return "", fmt.Errorf("chmod wrapper: %w", err)
+	}
+	return path, nil
+}
+
+func shellQuote(s string) string {
+	if s == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'"'"'`) + "'"
+}
+
+// EditWithRetry runs: flightctl edit -o <format> --editor <editor> <resource>
+// Retries briefly if the server responds with a Conflict (resourceVersion race).
+func (h *Harness) EditWithRetry(format, editor, resource string) (string, error) {
+	const tries = 5
+	for i := 1; i <= tries; i++ {
+		out, err := h.CLI("edit", "-o", format, "--editor", editor, resource)
+		// Let ApplyTempIfSuggested handle the saved-temp-file flow
+		if err2 := h.ApplyTempIfSuggested(out, err); err2 == nil {
+			return out, nil
+		} else {
+			// Detect 409 conflict and retry
+			if strings.Contains(out, `"reason":"Conflict"`) || (err != nil && strings.Contains(err.Error(), "Conflict")) {
+				time.Sleep(300 * time.Millisecond)
+				continue
+			}
+			return out, err2
+		}
+	}
+	// last attempt
+	out, err := h.CLI("edit", "-o", format, "--editor", editor, resource)
+	return out, h.ApplyTempIfSuggested(out, err)
+}
+
+// printAgentFilesForVM prints all agent files for debugging
+// This is a shared helper function used by harness and vm_pool.go
+func printAgentFilesForVM(vm vm.TestVMInterface, context string) {
+	fmt.Printf("🔍 [%s] Printing agent files:\n", context)
+
+	// Define agent file paths
+	agentFiles := map[string]string{
+		"current.json": "/var/lib/flightctl/current.json",
+		"desired.json": "/var/lib/flightctl/desired.json",
+		"agent secret": "/etc/flightctl/certs/agent.crt",
+	}
+
+	for fileType, filePath := range agentFiles {
+		fmt.Printf("📄 [%s] %s:\n", context, fileType)
+
+		// Regular file handling
+		stdout, err := vm.RunSSH([]string{"sudo", "cat", filePath}, nil)
+		if err != nil {
+			fmt.Printf("❌ [%s] Failed to read %s: %v\n", context, fileType, err)
+		} else {
+			content := stdout.String()
+			if content == "" {
+				fmt.Printf("📄 [%s] %s: (empty or does not exist)\n", context, fileType)
+			} else {
+				fmt.Printf("%s\n", content)
+			}
+		}
+		fmt.Printf("---\n")
+	}
 }

@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 set -e -x -o pipefail
 
+SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
+source "${SCRIPT_DIR}"/../functions
+
 mkdir -p bin/agent/etc/flightctl/certs
 
 echo Requesting enrollment enrollment certificate/key and config for agent =====
 
-org_id=$(./bin/flightctl get organizations | awk 'NR==2 {print $1}')
-./bin/flightctl config set-organization "$org_id"
+ensure_organization_set
 
 # remove any previous CSR with the same name in case it existed
 ./bin/flightctl delete csr/client-enrollment || true
