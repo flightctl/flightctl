@@ -5,7 +5,6 @@ import (
 	"os"
 
 	"github.com/flightctl/flightctl/internal/config"
-	"github.com/flightctl/flightctl/internal/instrumentation"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
@@ -41,7 +40,7 @@ func InitTracerForTests() func(context.Context) error {
 		opts = append(opts, config.WithTracingEnabled())
 	}
 
-	return instrumentation.InitTracer(
+	return tracing.InitTracer(
 		flightlog.InitLogs(),
 		config.NewDefault(opts...),
 		"flightctl-tests",
@@ -54,7 +53,7 @@ func InitSuiteTracerForGinkgo(description string) context.Context {
 		opts = append(opts, config.WithTracingEnabled())
 	}
 
-	s := instrumentation.InitTracer(
+	s := tracing.InitTracer(
 		flightlog.InitLogs(),
 		config.NewDefault(opts...),
 		"flightctl-tests",

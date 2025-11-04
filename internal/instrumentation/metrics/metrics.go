@@ -3,15 +3,19 @@ package metrics
 import (
 	"compress/gzip"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/expfmt"
+	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel/attribute"
 )
 
@@ -20,6 +24,83 @@ const (
 	contentEncodingHeader = "Content-Encoding"
 	acceptEncodingHeader  = "Accept-Encoding"
 )
+
+const (
+	httpGracefulShutdownTimeout = 5 * time.Second
+	httpReadHeaderTimeout       = 2 * time.Second
+	httpReadTimeout             = 5 * time.Second
+	httpWriteTimeout            = 10 * time.Second
+	httpIdleTimeout             = 60 * time.Second
+)
+
+type MetricsServer struct {
+	log        logrus.FieldLogger
+	cfg        *config.Config
+	collectors []NamedCollector
+}
+
+func NewMetricsServer(
+	log logrus.FieldLogger,
+	cfg *config.Config,
+	collectors ...NamedCollector,
+) *MetricsServer {
+	traced := make([]NamedCollector, 0, len(collectors))
+	for i := range collectors {
+		if collectors[i] != nil {
+			traced = append(traced, WrapWithTrace(collectors[i]))
+		}
+	}
+
+	return &MetricsServer{
+		log:        log,
+		cfg:        cfg,
+		collectors: traced,
+	}
+}
+
+func (m *MetricsServer) Run(ctx context.Context) error {
+	if m.cfg == nil {
+		return fmt.Errorf("configuration is nil")
+	}
+	if m.cfg.Metrics == nil {
+		return fmt.Errorf("metrics configuration is missing")
+	}
+	if !m.cfg.Metrics.Enabled {
+		return fmt.Errorf("metrics server is disabled by configuration")
+	}
+
+	handler := NewHandler(m.collectors...)
+
+	srv := &http.Server{
+		Addr:              m.cfg.Metrics.Address,
+		Handler:           handler,
+		ReadHeaderTimeout: httpReadHeaderTimeout,
+		ReadTimeout:       httpReadTimeout,
+		WriteTimeout:      httpWriteTimeout,
+		IdleTimeout:       httpIdleTimeout,
+	}
+
+	go func() {
+		<-ctx.Done()
+		if m.log != nil {
+			m.log.WithError(ctx.Err()).Info("Shutdown signal received")
+		}
+		ctxTimeout, cancel := context.WithTimeout(context.Background(), httpGracefulShutdownTimeout)
+		defer cancel()
+
+		srv.SetKeepAlivesEnabled(false)
+		if err := srv.Shutdown(ctxTimeout); err != nil && m.log != nil {
+			m.log.WithError(err).Warn("Metrics server shutdown error")
+		}
+
+	}()
+
+	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
+
+	return nil
+}
 
 // NamedCollector is a Prometheus collector that also exposes a consistent name
 // used for tracing purposes.
