@@ -16,7 +16,7 @@
   "name" (printf "%s-dryrun" $baseName)
   "hooks" (list "pre-upgrade")
   "hookWeight" "-10"
-  "hookDeletePolicy" "before-hook-creation,hook-succeeded"
+  "hookDeletePolicy" "before-hook-creation"
   "isDryRun" true
 ) }}
 ---
@@ -28,7 +28,7 @@
   "name" $baseName
   "hooks" (list "pre-upgrade")
   "hookWeight" "10"
-  "hookDeletePolicy" "before-hook-creation,hook-succeeded"
+  "hookDeletePolicy" "before-hook-creation"
   "isDryRun" false
 ) }}
 {{- else if .Release.IsInstall }}
