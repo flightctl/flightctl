@@ -419,7 +419,7 @@ echo "Flightctl Observability Stack uninstalled."
     fi
 
     # Prefer values injected by Makefile/CI; fall back to RPM macros when unset
-    SOURCE_GIT_TAG="%{?SOURCE_GIT_TAG:%{SOURCE_GIT_TAG}}%{!?SOURCE_GIT_TAG:%(echo "v%{version}" | tr '~' '-')}" \
+    SOURCE_GIT_TAG="%{?SOURCE_GIT_TAG:%{SOURCE_GIT_TAG}}%{!?SOURCE_GIT_TAG:%(./hack/current-version)}" \
     SOURCE_GIT_TREE_STATE="%{?SOURCE_GIT_TREE_STATE:%{SOURCE_GIT_TREE_STATE}}%{!?SOURCE_GIT_TREE_STATE:clean}" \
     SOURCE_GIT_COMMIT="%{?SOURCE_GIT_COMMIT:%{SOURCE_GIT_COMMIT}}%{!?SOURCE_GIT_COMMIT:%(echo %{version} | grep -o '[-~]g[0-9a-f]*' | sed 's/[-~]g//' || echo unknown)}" \
     SOURCE_GIT_TAG_NO_V="%{?SOURCE_GIT_TAG_NO_V:%{SOURCE_GIT_TAG_NO_V}}%{!?SOURCE_GIT_TAG_NO_V:%{version}}" \
@@ -496,7 +496,7 @@ echo "Flightctl Observability Stack uninstalled."
      mkdir -p %{buildroot}/etc/grafana/certs
      mkdir -p %{buildroot}/var/lib/prometheus
      mkdir -p %{buildroot}/var/lib/grafana # For Grafana's data
-     mkdir -p %{buildroot}/opt/flightctl-observability/templates # Staging for template files processed in %post
+     mkdir -p %{buildroot}/opt/flightctl-observability/templates # Staging for template files processed in %%post
      mkdir -p %{buildroot}/usr/bin # For the reloader script
      mkdir -p %{buildroot}/usr/lib/systemd/system # For systemd units
 

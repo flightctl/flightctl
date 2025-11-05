@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 
+# Fix git ownership issue in CI environments
+git config --global --add safe.directory /__w/flightctl/flightctl 2>/dev/null || true
+git config --global --add safe.directory "$(pwd)" 2>/dev/null || true
+
 # Prefer proper release tags pointing at this exact commit first, prioritizing the highest version
 # tag. If there is no tag at this commit, then fallback to 'git describe' which will construct a
 # "human-readable" artificial tag.
@@ -7,6 +11,13 @@ tag=$(git -c "versionsort.suffix=-rc" tag --points-at HEAD --sort version:refnam
 
 if [[ -z "$tag" ]]; then
   tag=$(git describe --tags --exclude latest 2>/dev/null || echo -n "v0.0.0-unknown")
+fi
+
+# For RPM packaging (when called from packit), remove the git commit hash suffix
+# since COPR will add its own commit hash, preventing duplication
+if [[ "${PACKIT_BUILD:-}" == "1" ]] || [[ "$1" == "--rpm" ]]; then
+  # Remove the git commit hash part (e.g., "-g1234567") from the tag
+  tag=$(echo "$tag" | sed 's/-g[0-9a-f]*$//')
 fi
 
 echo -n "$tag"

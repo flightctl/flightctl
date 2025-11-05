@@ -29,7 +29,7 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/crypto"
-	"github.com/flightctl/flightctl/internal/instrumentation"
+	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/internal/org/cache"
 	"github.com/flightctl/flightctl/internal/org/resolvers"
@@ -262,7 +262,7 @@ func main() {
 		logger.Fatalf("failed creating TLS config: %v", err)
 	}
 
-	tracerShutdown := instrumentation.InitTracer(logger, cfg, "flightctl-alertmanager-proxy")
+	tracerShutdown := tracing.InitTracer(logger, cfg, "flightctl-alertmanager-proxy")
 	defer func() {
 		if err := tracerShutdown(ctx); err != nil {
 			logger.Fatalf("Failed to shut down tracer: %v", err)

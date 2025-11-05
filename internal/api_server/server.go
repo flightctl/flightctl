@@ -184,6 +184,7 @@ func (s *Server) Run(ctx context.Context) error {
 	router.Use(
 		middleware.RequestSize(int64(s.cfg.Service.HttpMaxRequestSize)),
 		fcmiddleware.RequestSizeLimiter(s.cfg.Service.HttpMaxUrlLength, s.cfg.Service.HttpMaxNumHeaders),
+		fcmiddleware.SecurityHeaders,
 		fcmiddleware.RequestID,
 		fcmiddleware.AddEventMetadataToCtx,
 		fcmiddleware.AddOrgIDToCtx(

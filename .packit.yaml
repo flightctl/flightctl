@@ -10,56 +10,48 @@ packages:
     upstream_package_name: flightctl
     downstream_package_name: flightctl
     upstream_tag_template: v{version} # remove v from the start of the version tags (vx.y.z)->x.y.z
-actions:
-  get-current-version:
-    - bash -c './hack/current-version | sed "s/^v//; s/-/~/g"'
-jobs:
-  - job: copr_build
-    trigger: pull_request
     enable_net: True # this is necessary for go modules to download the sources
-    targets:
-      - fedora-42-x86_64
-      - epel-9-aarch64
-    module_hotfixes: true
     notifications:
       failure_comment:
         message: "/packit build"
+actions:
+  get-current-version:
+    - bash -c './hack/current-version --rpm | sed "s/^v//; s/-/~/g"'
+jobs:
+  - job: copr_build
+    trigger: pull_request
+    targets:
+      - fedora-43-x86_64
+      - epel-9-aarch64
+      - epel-10-aarch64
+    module_hotfixes: true
 
   - job: copr_build
     trigger: commit
     owner: "@redhat-et"
     project: flightctl-dev
     preserve_project: True
-    enable_net: True # this is necessary for go modules to download the sources
     targets:
-      - fedora-41-aarch64
-      - fedora-41-x86_64
       - fedora-42-aarch64
       - fedora-42-x86_64
-      - fedora-rawhide-aarch64
-      - fedora-rawhide-x86_64
+      - fedora-43-aarch64
+      - fedora-43-x86_64
       - epel-9-aarch64
       - epel-9-x86_64
-    notifications:
-      failure_comment:
-        message: "/packit build"
-
+      - epel-10-aarch64
+      - epel-10-x86_64
 
   - job: copr_build
     trigger: release
     owner: "@redhat-et"
     project: flightctl
     preserve_project: True
-    enable_net: True # this is necessary for go modules to download the sources
     targets:
-      - fedora-41-aarch64
-      - fedora-41-x86_64
       - fedora-42-aarch64
       - fedora-42-x86_64
-      - fedora-rawhide-aarch64
-      - fedora-rawhide-x86_64
+      - fedora-43-aarch64
+      - fedora-43-x86_64
       - epel-9-aarch64
       - epel-9-x86_64
-    notifications:
-      failure_comment:
-        message: "/packit build"
+      - epel-10-aarch64
+      - epel-10-x86_64
