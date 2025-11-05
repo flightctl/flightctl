@@ -1,0 +1,385 @@
+name: "PR Build Artifacts"
+
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      expires_after:
+        description: "TTL for images label quay.expires-after (empty = no TTL)"
+        required: false
+        default: "8h"
+        type: string
+
+env:
+  # Enable BuildKit for cache mounts
+  DOCKER_BUILDKIT: 1
+  BUILDKIT_PROGRESS: plain
+  GITHUB_ACTIONS: true
+
+jobs:
+  compute-tag:
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.compute-tag.outputs.tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Compute tag
+        id: compute-tag
+        run: |
+          set -euo pipefail
+          TAG=$(./hack/current-version)
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Computed tag: $TAG"
+
+  build-images:
+    needs: [compute-tag]
+    strategy:
+      matrix:
+        image: ['api', 'periodic', 'worker', 'cli-artifacts', 'alert-exporter', 'alertmanager-proxy', 'userinfo-proxy', 'db-setup', 'telemetry-gateway']
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Prepare version variables
+        id: version-vars
+        run: |
+          set -euo pipefail
+          SOURCE_GIT_TAG=$(git describe --tags --exclude latest 2>/dev/null || echo "v0.0.0-unknown")
+          if [ ! -d ".git" ]; then
+            SOURCE_GIT_TREE_STATE=clean
+          elif git diff --quiet; then
+            SOURCE_GIT_TREE_STATE=clean
+          else
+            SOURCE_GIT_TREE_STATE=dirty
+          fi
+          SOURCE_GIT_COMMIT=$(git rev-parse --short "HEAD^{commit}" 2>/dev/null || echo "unknown")
+
+          {
+            echo "git_tag=${SOURCE_GIT_TAG}"
+            echo "git_tree_state=${SOURCE_GIT_TREE_STATE}"
+            echo "git_commit=${SOURCE_GIT_COMMIT}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Set up build output dir
+        run: |
+          mkdir -p digests
+
+      - name: Build image
+        id: build
+        uses: redhat-actions/buildah-build@v2
+        with:
+          image: quay.io/flightctl/flightctl-${{ matrix.image }}
+          tags: ${{ needs.compute-tag.outputs.tag }}
+          labels: |
+            org.flightctl.flightctl-${{ matrix.image }}.github.repository=${{ github.repository }}
+            org.flightctl.flightctl-${{ matrix.image }}.github.actor=${{ github.actor }}
+            org.flightctl.flightctl-${{ matrix.image }}.github.run_id=${{ github.run_id }}
+            org.flightctl.flightctl-${{ matrix.image }}.github.sha=${{ github.sha }}
+            org.flightctl.flightctl-${{ matrix.image }}.github.ref_name=${{ github.ref_name }}
+            quay.expires-after=${{ inputs.expires_after }}
+          build-args: |
+            SOURCE_GIT_TAG=${{ steps.version-vars.outputs.git_tag }}
+            SOURCE_GIT_TREE_STATE=${{ steps.version-vars.outputs.git_tree_state }}
+            SOURCE_GIT_COMMIT=${{ steps.version-vars.outputs.git_commit }}
+          extra-args: |
+            --ulimit nofile=10000:10000
+          containerfiles: Containerfile.${{ matrix.image }}
+          context: .
+
+      - name: Tag and save image archive
+        id: save
+        env:
+          TAG: ${{ needs.compute-tag.outputs.tag }}
+          IMAGE: ${{ steps.build.outputs.image }}      # e.g. quay.io/org/flightctl
+          MATRIX_IMAGE: ${{ matrix.image }}            # e.g. api, worker
+        run: |
+          set -euo pipefail
+          
+          ARCHIVE_NAME="image-flightctl-${MATRIX_IMAGE}.tar"
+          
+          echo "Saving ${IMAGE}:${TAG} to ${ARCHIVE_NAME}"
+          podman save -o "${ARCHIVE_NAME}" "${IMAGE}:${TAG}"
+          
+          mkdir -p digests
+          
+          DIGEST="$(podman inspect "${IMAGE}:${TAG}" --format '{{.Digest}}' || true)"
+          DIGEST_FILE="digests/${MATRIX_IMAGE}.txt"
+          printf "%s\n" "${DIGEST}" > "${DIGEST_FILE}"
+          
+          {
+            echo "archive=${ARCHIVE_NAME}"
+            echo "digest=${DIGEST}"
+            echo "digest_file=${DIGEST_FILE}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Upload image archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-${{ matrix.image }}
+          path: ${{ steps.save.outputs.archive }}
+          compression-level: 0
+          if-no-files-found: error
+
+      - name: Upload digest artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.image }}
+          path: ${{ steps.save.outputs.digest_file }}
+          if-no-files-found: error
+
+  bundle-images:
+    runs-on: ubuntu-24.04
+    needs: [compute-tag, build-images]
+    steps:
+      - name: Download all image artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: image-*
+          path: images
+          merge-multiple: true
+
+      - name: Load images and create bundle
+        run: |
+          set -euo pipefail
+          TAG="${{ needs.compute-tag.outputs.tag }}"
+          
+          echo "Loading individual image archives..."
+          for archive in images/*.tar; do
+            [ -e "$archive" ] || continue
+            echo "Loading $archive..."
+            podman load -i "$archive"
+          done
+          
+          echo "Getting list of loaded flightctl images with tag: $TAG"
+          mapfile -t loaded_images < <(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${TAG}")
+          
+          echo "Creating bundle with ${#loaded_images[@]} images:"
+          printf '  %s\n' "${loaded_images[@]}"
+          
+          podman save --format docker-archive -o flightctl-images-bundle.tar -m "${loaded_images[@]}"
+          
+          echo "Bundle created: $(ls -lh flightctl-images-bundle.tar)"
+
+      - name: Upload images bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: flightctl-images-bundle
+          path: flightctl-images-bundle.tar
+          compression-level: 0
+
+  service-images-manifest:
+    runs-on: ubuntu-24.04
+    needs: [compute-tag, build-images]
+    steps:
+      - name: Download image digest artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: digest-*
+          path: digests
+          merge-multiple: true
+
+      - name: Produce service images manifest
+        run: |
+          set -euo pipefail
+          TAG='${{ needs.compute-tag.outputs.tag }}'
+          ARTIFACT_BASE_URL="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}#artifacts"
+          images=(
+            flightctl-api
+            flightctl-db-setup
+            flightctl-worker
+            flightctl-periodic
+            flightctl-alert-exporter
+            flightctl-alertmanager-proxy
+            flightctl-cli-artifacts
+            flightctl-userinfo-proxy
+            flightctl-telemetry-gateway
+          )
+          printf '{"serviceImages":{' > service-images.json
+          first=1
+          for img in "${images[@]}"; do
+            artifact_name="image-${img#flightctl-}"
+            archive_name="${img}-${TAG}.tar"
+            digest_file="digests/${img#flightctl-}.txt"
+            if [ ! -f "$digest_file" ]; then
+              echo "Missing digest file: $digest_file" >&2
+              exit 1
+            fi
+            digest=$(cat "$digest_file")
+            if [ $first -eq 0 ]; then printf ',' >> service-images.json; fi
+            first=0
+            printf '"%s":{"archiveName":"%s","artifactName":"%s","artifactUrl":"%s","digest":"%s"}' "$img" "$archive_name" "$artifact_name" "$ARTIFACT_BASE_URL" "$digest" >> service-images.json
+          done
+          printf '}}' >> service-images.json
+          cat service-images.json
+
+      - name: Upload service images manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: service-images-manifest
+          path: service-images.json
+
+  build-rpms:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build RPMs
+        run: make rpm
+
+      - name: Upload RPM artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpms-${{ github.sha }}
+          path: bin/rpm/*.rpm
+
+      - name: Produce rpms manifest
+        run: |
+          set -euo pipefail
+          out='{"rpms":{"packages":['
+          first=1
+          for f in bin/rpm/*.rpm; do
+            [ -e "$f" ] || continue
+            bn=$(basename "$f")
+            if [[ "$bn" =~ ^(.+)-([0-9][^-]*)-([^.]*)\.([^.]+)\.rpm$ ]]; then
+              name="${BASH_REMATCH[1]}"
+              version="${BASH_REMATCH[2]}"
+              release="${BASH_REMATCH[3]}"
+              arch="${BASH_REMATCH[4]}"
+            else
+              # Fallback: best-effort parse
+              name="${bn%%-*}"
+              rest="${bn#*-}"
+              version="${rest%%-*}"
+              rest2="${rest#*-}"
+              release="${rest2%%.*}"
+              arch="${bn##*.}"
+              arch="${arch%.rpm}"
+            fi
+            url="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}#artifacts"
+            pkg=$(jq -cn --arg n "$name" --arg v "$version" --arg r "$release" --arg a "$arch" --arg u "$url" '{name:$n,version:$v,release:$r,architecture:$a,url:$u}')
+            if [ $first -eq 0 ]; then out+="","$pkg"; else out+="$pkg"; fi
+            first=0
+          done
+          out+=']} }'
+          printf '%s' "$out" > rpms.json
+          cat rpms.json
+
+      - name: Upload rpms manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpms-manifest
+          path: rpms.json
+
+  build-helm-charts:
+    runs-on: ubuntu-24.04
+    needs: [compute-tag]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Build helm charts
+        id: build-charts
+        run: |
+          set -euo pipefail
+          TAG="${{ needs.compute-tag.outputs.tag }}"
+          helm dependency build ./deploy/helm/flightctl
+          helm package ./deploy/helm/flightctl \
+            --version "$TAG" \
+            --app-version "$TAG"
+          
+          CHART_FILE="flightctl-${TAG}.tgz"
+          DIGEST=$(sha256sum "$CHART_FILE" | awk '{print $1}')
+          echo "sha256:${DIGEST}" > charts-digest.txt
+          echo "chart_file=$CHART_FILE" >> "$GITHUB_OUTPUT"
+          echo "digest=sha256:${DIGEST}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload helm chart artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: helm-chart
+          path: ${{ steps.build-charts.outputs.chart_file }}
+
+      - name: Produce charts manifest
+        run: |
+          set -euo pipefail
+          name="flightctl"
+          version="${{ needs.compute-tag.outputs.tag }}"
+          artifact_url="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}#artifacts"
+          digest="${{ steps.build-charts.outputs.digest }}"
+          chart_file="${{ steps.build-charts.outputs.chart_file }}"
+          jq -n \
+            --arg n "$name" \
+            --arg v "$version" \
+            --arg u "$artifact_url" \
+            --arg d "$digest" \
+            --arg f "$chart_file" \
+            '{charts:{($n):{version:$v,artifactUrl:$u,digest:$d,chartFile:$f}}}' > charts.json
+          cat charts.json
+
+      - name: Upload charts manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: charts-manifest
+          path: charts.json
+
+  complete:
+    runs-on: ubuntu-24.04
+    needs: [service-images-manifest, build-rpms, build-helm-charts]
+    if: always()
+    steps:
+      - name: Download service images manifest
+        uses: actions/download-artifact@v4
+        with:
+          name: service-images-manifest
+          path: manifests
+          if-no-files-found: ignore
+
+      - name: Download charts manifest
+        uses: actions/download-artifact@v4
+        with:
+          name: charts-manifest
+          path: manifests
+          if-no-files-found: ignore
+
+      - name: Download rpms manifest
+        uses: actions/download-artifact@v4
+        with:
+          name: rpms-manifest
+          path: manifests
+          if-no-files-found: ignore
+
+      - name: Assemble final build manifest
+        run: |
+          set -euo pipefail
+          ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          meta=$(jq -n --arg bid "github-run-${GITHUB_RUN_ID}" --arg sha "${GITHUB_SHA}" --arg ts "$ts" '{buildId:$bid,commitSha:$sha,timestamp:$ts}')
+          parts="{}"
+          for f in manifests/*.json; do
+            [ -e "$f" ] || continue
+            parts=$(jq -s 'reduce .[] as $i ({}; . * $i)' <(echo "$parts") "$f")
+          done
+          jq -s '.[0] * .[1]' <(echo "$meta") <(echo "$parts") > build-manifest.json
+          cat build-manifest.json
+
+      - name: Upload build manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-manifest
+          path: build-manifest.json
+
+
