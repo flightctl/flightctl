@@ -14,6 +14,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
+	"github.com/flightctl/flightctl/internal/agent/device/integrity"
 	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/os"
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
@@ -73,6 +74,9 @@ func (a *Agent) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to initialize TPM client: %w", err)
 	}
+
+	// create integrity exporter
+	integrityExporter := integrity.NewExporter(tpmClient)
 
 	// create identity provider
 	identityProvider := identity.NewProvider(
@@ -224,6 +228,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	)
 
 	// register status exporters
+	statusManager.RegisterStatusExporter(integrityExporter)
 	statusManager.RegisterStatusExporter(applicationManager)
 	statusManager.RegisterStatusExporter(systemdManager)
 	statusManager.RegisterStatusExporter(resourceManager)
