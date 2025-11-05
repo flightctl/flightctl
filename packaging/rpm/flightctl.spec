@@ -411,6 +411,9 @@ echo "Flightctl Observability Stack uninstalled."
 %setup -q %{forgesetupargs}
 
 %build
+    # Fix git ownership issue in CI environments
+    git config --global --add safe.directory $(pwd) || true
+
     # if this is a buggy version of go we need to set GOPROXY as workaround
     # see https://github.com/golang/go/issues/61928
     GOENVFILE=$(go env GOROOT)/go.env
@@ -496,7 +499,7 @@ echo "Flightctl Observability Stack uninstalled."
      mkdir -p %{buildroot}/etc/grafana/certs
      mkdir -p %{buildroot}/var/lib/prometheus
      mkdir -p %{buildroot}/var/lib/grafana # For Grafana's data
-     mkdir -p %{buildroot}/opt/flightctl-observability/templates # Staging for template files processed in %post
+     mkdir -p %{buildroot}/opt/flightctl-observability/templates # Staging for template files processed in %%post
      mkdir -p %{buildroot}/usr/bin # For the reloader script
      mkdir -p %{buildroot}/usr/lib/systemd/system # For systemd units
 
