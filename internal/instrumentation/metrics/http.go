@@ -77,11 +77,6 @@ func NewHTTPMetricsCollector(ctx context.Context, _ *config.Config, serviceName 
 	return collector
 }
 
-// MetricsName returns the name of this collector for tracing purposes
-func (c *HTTPMetricsCollector) MetricsName() string {
-	return "http_otel"
-}
-
 // Describe forwards the Describe call to the OpenTelemetry Prometheus registry
 func (c *HTTPMetricsCollector) Describe(ch chan<- *prometheus.Desc) {
 	c.registry.Describe(ch)

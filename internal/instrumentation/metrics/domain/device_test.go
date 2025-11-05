@@ -214,9 +214,6 @@ func TestDeviceCollectorWithGroupByFleet(t *testing.T) {
 	// Test that the collector implements the required interfaces
 	var _ prometheus.Collector = collector
 
-	// Test MetricsName
-	assert.Equal(t, "device", collector.MetricsName())
-
 	// Test that metrics are collected
 	ch := make(chan prometheus.Metric, 100)
 	go func() {
@@ -264,9 +261,6 @@ func TestDeviceCollectorWithoutGroupByFleet(t *testing.T) {
 
 	// Test that the collector implements the required interfaces
 	var _ prometheus.Collector = collector
-
-	// Test MetricsName
-	assert.Equal(t, "device", collector.MetricsName())
 
 	// Test that metrics are collected
 	ch := make(chan prometheus.Metric, 100)

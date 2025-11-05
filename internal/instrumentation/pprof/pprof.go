@@ -72,20 +72,21 @@ func WithTraceCap(d time.Duration) PprofOption {
 	}
 }
 
-// NewPprofServer creates a new pprof server with the given logger and optional configuration.
+// NewPprofServer creates a new pprof server with the given logger.
 // The server binds exclusively to 127.0.0.1 for security.
-func NewPprofServer(log logrus.FieldLogger, options ...PprofOption) *PprofServer {
-	opts := defaultPprofOptions()
+func NewPprofServer(log logrus.FieldLogger) *PprofServer {
+	return &PprofServer{log: log, opts: defaultPprofOptions()}
+}
+
+// Run starts the pprof HTTP server and blocks until the provided context is canceled
+// or an error occurs. Optional settings can be supplied via PprofOption.
+func (p *PprofServer) Run(ctx context.Context, options ...PprofOption) error {
+	opts := p.opts
 	for _, fn := range options {
 		if fn != nil {
 			fn(&opts)
 		}
 	}
-	return &PprofServer{log: log, opts: opts}
-}
-
-// Run starts the pprof HTTP server and blocks until ctx is canceled or an error occurs.
-func (p *PprofServer) Run(ctx context.Context) error {
 	// Build mux with all standard endpoints under /debug/pprof/*
 	mux := http.NewServeMux()
 
@@ -95,8 +96,8 @@ func (p *PprofServer) Run(ctx context.Context) error {
 	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
 
 	// Profiles (cap CPU/trace via query rewrite)
-	mux.HandleFunc("/debug/pprof/profile", capSeconds(pprof.Profile, p.opts.cpuCap))
-	mux.HandleFunc("/debug/pprof/trace", capSeconds(pprof.Trace, p.opts.traceCap))
+	mux.HandleFunc("/debug/pprof/profile", capSeconds(pprof.Profile, opts.cpuCap))
+	mux.HandleFunc("/debug/pprof/trace", capSeconds(pprof.Trace, opts.traceCap))
 	mux.Handle("/debug/pprof/heap", pprof.Handler("heap"))
 	mux.Handle("/debug/pprof/goroutine", pprof.Handler("goroutine"))
 	mux.Handle("/debug/pprof/allocs", pprof.Handler("allocs"))
@@ -105,27 +106,27 @@ func (p *PprofServer) Run(ctx context.Context) error {
 	mux.Handle("/debug/pprof/block", pprof.Handler("block"))
 
 	// Server pinned to loopback (host not configurable)
-	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(p.opts.port))
+	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(opts.port))
 	srv := &http.Server{
 		Addr:              addr,
 		Handler:           mux,
 		ReadHeaderTimeout: httpReadHeaderTimeout,
 		ReadTimeout:       httpReadTimeout,
-		WriteTimeout:      p.computeWriteTimeout(),
+		WriteTimeout:      computeWriteTimeout(opts),
 		IdleTimeout:       httpIdleTimeout,
 	}
 
 	go func() {
 		<-ctx.Done()
 		if p.log != nil {
-			p.log.WithError(ctx.Err()).Info("Shutdown signal received")
+			p.log.WithError(ctx.Err()).Info("pprof: shutdown signal received")
 		}
 		ctxTimeout, cancel := context.WithTimeout(context.Background(), httpGracefulShutdownTimeout)
 		defer cancel()
 
 		srv.SetKeepAlivesEnabled(false)
 		if err := srv.Shutdown(ctxTimeout); err != nil && p.log != nil {
-			p.log.WithError(err).Warn("pprof server shutdown error")
+			p.log.WithError(err).Warn("pprof: server shutdown error")
 		}
 	}()
 
@@ -162,10 +163,10 @@ func defaultPprofOptions() pprofOptions {
 	}
 }
 
-func (p *PprofServer) computeWriteTimeout() time.Duration {
-	longest := p.opts.cpuCap
-	if p.opts.traceCap > longest {
-		longest = p.opts.traceCap
+func computeWriteTimeout(opts pprofOptions) time.Duration {
+	longest := opts.cpuCap
+	if opts.traceCap > longest {
+		longest = opts.traceCap
 	}
 	return longest + 5*time.Second
 }

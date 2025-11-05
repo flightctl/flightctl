@@ -1,31 +1,19 @@
 package metrics
 
 import (
-	"compress/gzip"
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
-	"strings"
-	"sync"
 	"time"
 
-	"github.com/flightctl/flightctl/internal/config"
-	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/common/expfmt"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
-	"go.opentelemetry.io/otel/attribute"
 )
 
 const (
-	contentTypeHeader     = "Content-Type"
-	contentEncodingHeader = "Content-Encoding"
-	acceptEncodingHeader  = "Accept-Encoding"
-)
-
-const (
+	httpAddrDefault             = "127.0.0.1:15690"
 	httpGracefulShutdownTimeout = 5 * time.Second
 	httpReadHeaderTimeout       = 2 * time.Second
 	httpReadTimeout             = 5 * time.Second
@@ -33,47 +21,107 @@ const (
 	httpIdleTimeout             = 60 * time.Second
 )
 
-type MetricsServer struct {
-	log        logrus.FieldLogger
-	cfg        *config.Config
-	collectors []NamedCollector
+type promLogger struct{ log logrus.FieldLogger }
+
+func newPromLogger(l logrus.FieldLogger) *promLogger { return &promLogger{log: l} }
+
+func (l *promLogger) Println(v ...any) {
+	if l.log != nil {
+		l.log.Debug(v...)
+	}
 }
 
-func NewMetricsServer(
-	log logrus.FieldLogger,
-	cfg *config.Config,
-	collectors ...NamedCollector,
-) *MetricsServer {
-	traced := make([]NamedCollector, 0, len(collectors))
-	for i := range collectors {
-		if collectors[i] != nil {
-			traced = append(traced, WrapWithTrace(collectors[i]))
+// MetricsServer is an HTTP server exposing a Prometheus /metrics endpoint.
+// By default it listens on 127.0.0.1 and serves metrics from the provided collectors.
+type MetricsServer struct {
+	log        logrus.FieldLogger
+	opts       metricsServerOptions
+	collectors []prometheus.Collector
+}
+
+// MetricsServerOption configures a MetricsServer.
+type MetricsServerOption func(*metricsServerOptions)
+
+type metricsServerOptions struct {
+	addr           string
+	handlerWrapper func(http.Handler) http.Handler
+	maxInflight    int
+	scrapeTimeout  time.Duration
+}
+
+// WithListenAddr sets host:port. Examples: "127.0.0.1:15690", "0.0.0.0:15690", "[::]:15690".
+func WithListenAddr(addr string) MetricsServerOption {
+	return func(o *metricsServerOptions) {
+		if addr != "" {
+			o.addr = addr
+		}
+	}
+}
+
+// WithHandlerWrapper injects middleware around /metrics (e.g., OpenTelemetry).
+func WithHandlerWrapper(wrap func(http.Handler) http.Handler) MetricsServerOption {
+	return func(o *metricsServerOptions) { o.handlerWrapper = wrap }
+}
+
+// WithMaxInflight limits concurrent scrapes (0 = unlimited).
+func WithMaxInflight(n int) MetricsServerOption {
+	return func(o *metricsServerOptions) { o.maxInflight = n }
+}
+
+// WithScrapeTimeout sets a server-side cap for a single scrape (0 = no cap).
+func WithScrapeTimeout(d time.Duration) MetricsServerOption {
+	return func(o *metricsServerOptions) { o.scrapeTimeout = d }
+}
+
+// NewMetricsServer creates a Prometheus metrics server with the given logger.
+func NewMetricsServer(log logrus.FieldLogger, collectors ...prometheus.Collector) *MetricsServer {
+	return &MetricsServer{
+		log:        log,
+		opts:       defaultMetricsServerOptions(),
+		collectors: collectors,
+	}
+}
+
+// Run starts the metrics HTTP server and blocks until the provided context is canceled
+// or an error occurs. Optional settings can be supplied via MetricsServerOption.
+func (m *MetricsServer) Run(ctx context.Context, options ...MetricsServerOption) error {
+	opts := m.opts
+	for _, fn := range options {
+		if fn != nil {
+			fn(&opts)
 		}
 	}
 
-	return &MetricsServer{
-		log:        log,
-		cfg:        cfg,
-		collectors: traced,
-	}
-}
-
-func (m *MetricsServer) Run(ctx context.Context) error {
-	if m.cfg == nil {
-		return fmt.Errorf("configuration is nil")
-	}
-	if m.cfg.Metrics == nil {
-		return fmt.Errorf("metrics configuration is missing")
-	}
-	if !m.cfg.Metrics.Enabled {
-		return fmt.Errorf("metrics server is disabled by configuration")
+	reg := prometheus.NewRegistry()
+	for _, c := range m.collectors {
+		if err := reg.Register(c); err != nil {
+			return fmt.Errorf("register collector: %w", err)
+		}
 	}
 
-	handler := NewHandler(m.collectors...)
+	mux := http.NewServeMux()
+
+	// promhttp.HandlerFor serves the registry; InstrumentMetricHandler adds
+	// standard handler-level metrics (e.g., requests total) to the same registry.
+	handler := promhttp.InstrumentMetricHandler(
+		reg,
+		promhttp.HandlerFor(reg, promhttp.HandlerOpts{
+			ErrorLog:            newPromLogger(m.log),
+			MaxRequestsInFlight: opts.maxInflight,
+			Timeout:             opts.scrapeTimeout,
+		}),
+	)
+
+	// Optional: wrap with tracing/auth/etc.
+	if opts.handlerWrapper != nil {
+		handler = opts.handlerWrapper(handler)
+	}
+
+	mux.Handle("/metrics", handler)
 
 	srv := &http.Server{
-		Addr:              m.cfg.Metrics.Address,
-		Handler:           handler,
+		Addr:              opts.addr,
+		Handler:           mux,
 		ReadHeaderTimeout: httpReadHeaderTimeout,
 		ReadTimeout:       httpReadTimeout,
 		WriteTimeout:      httpWriteTimeout,
@@ -83,166 +131,32 @@ func (m *MetricsServer) Run(ctx context.Context) error {
 	go func() {
 		<-ctx.Done()
 		if m.log != nil {
-			m.log.WithError(ctx.Err()).Info("Shutdown signal received")
+			m.log.WithError(ctx.Err()).Info("metrics: shutdown signal received")
 		}
 		ctxTimeout, cancel := context.WithTimeout(context.Background(), httpGracefulShutdownTimeout)
 		defer cancel()
 
 		srv.SetKeepAlivesEnabled(false)
 		if err := srv.Shutdown(ctxTimeout); err != nil && m.log != nil {
-			m.log.WithError(err).Warn("Metrics server shutdown error")
+			m.log.WithError(err).Warn("metrics: server shutdown error")
 		}
-
 	}()
+
+	if m.log != nil {
+		m.log.WithField("addr", opts.addr).Info("metrics: listening")
+	}
 
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
-
 	return nil
 }
 
-// NamedCollector is a Prometheus collector that also exposes a consistent name
-// used for tracing purposes.
-type NamedCollector interface {
-	prometheus.Collector
-	MetricsName() string
-}
-
-// ContextAwareCollector allows injecting context into a wrapped collector.
-type ContextAwareCollector interface {
-	prometheus.Collector
-	WithContext(ctx context.Context) NamedCollector
-}
-
-// tracedCollector wraps a NamedCollector and adds span tracing during collection.
-type tracedCollector struct {
-	ctx         context.Context
-	collector   NamedCollector
-	metricNames []string
-}
-
-func (tc *tracedCollector) MetricsName() string {
-	return tc.collector.MetricsName()
-}
-
-func (tc *tracedCollector) Describe(ch chan<- *prometheus.Desc) {
-	tc.collector.Describe(ch)
-}
-
-func (tc *tracedCollector) Collect(ch chan<- prometheus.Metric) {
-	ctx := ctxOrBackground(tc.ctx)
-	_, span := tracing.StartSpan(ctx, "flightctl/metrics", tc.collector.MetricsName())
-	defer span.End()
-
-	if len(tc.metricNames) > 20 {
-		span.SetAttributes(attribute.Int("collector.metric_count", len(tc.metricNames)))
-	} else {
-		span.SetAttributes(attribute.StringSlice("collector.metrics", tc.metricNames))
+func defaultMetricsServerOptions() metricsServerOptions {
+	return metricsServerOptions{
+		addr:           httpAddrDefault,
+		maxInflight:    0,
+		scrapeTimeout:  0,
+		handlerWrapper: func(h http.Handler) http.Handler { return h },
 	}
-
-	tc.collector.Collect(ch)
-}
-
-func (tc *tracedCollector) WithContext(ctx context.Context) NamedCollector {
-	return &tracedCollector{
-		ctx:         ctxOrBackground(ctx),
-		collector:   tc.collector,
-		metricNames: tc.metricNames,
-	}
-}
-
-// WrapWithTrace wraps a NamedCollector with tracing and precomputes metric descriptor names.
-func WrapWithTrace(c NamedCollector) NamedCollector {
-	descs := make(chan *prometheus.Desc)
-	var metricNames []string
-	var wg sync.WaitGroup
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		localNames := make([]string, 0, 32) // small prealloc
-		for d := range descs {
-			localNames = append(localNames, d.String())
-		}
-		metricNames = localNames
-	}()
-
-	c.Describe(descs)
-	close(descs)
-	wg.Wait()
-
-	return &tracedCollector{
-		collector:   c,
-		metricNames: metricNames,
-	}
-}
-
-// NewHandler returns an HTTP handler that gathers metrics from the provided NamedCollectors.
-// Each collector is wrapped with tracing and the request context (if supported).
-func NewHandler(collectors ...NamedCollector) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx := r.Context()
-		registry := prometheus.NewRegistry()
-
-		for _, c := range collectors {
-			col := prometheus.Collector(c)
-			if ctxAware, ok := c.(ContextAwareCollector); ok {
-				col = ctxAware.WithContext(ctx)
-			}
-			if err := registry.Register(col); err != nil {
-				http.Error(w, fmt.Sprintf("failed to register collector: %v", err), http.StatusInternalServerError)
-				return
-			}
-		}
-
-		metrics, err := registry.Gather()
-		if err != nil {
-			http.Error(w, fmt.Sprintf("failed to gather metrics: %v", err), http.StatusInternalServerError)
-			return
-		}
-
-		contentType := expfmt.Negotiate(r.Header)
-		w.Header().Set(contentTypeHeader, string(contentType))
-
-		var writer io.Writer = w
-		if acceptsGzip(r.Header) {
-			w.Header().Set(contentEncodingHeader, "gzip")
-			gzipWriter := gzip.NewWriter(w)
-			defer gzipWriter.Close()
-			writer = gzipWriter
-		}
-
-		encoder := expfmt.NewEncoder(writer, contentType)
-		for _, mf := range metrics {
-			if err := encoder.Encode(mf); err != nil {
-				http.Error(w, fmt.Sprintf("failed to encode metrics: %v", err), http.StatusInternalServerError)
-				return
-			}
-		}
-
-		if closer, ok := encoder.(expfmt.Closer); ok {
-			if err := closer.Close(); err != nil {
-				http.Error(w, fmt.Sprintf("failed to flush metrics: %v", err), http.StatusInternalServerError)
-			}
-		}
-	})
-}
-
-// ctxOrBackground returns ctx or context.Background if ctx is nil.
-func ctxOrBackground(ctx context.Context) context.Context {
-	if ctx != nil {
-		return ctx
-	}
-	return context.Background()
-}
-
-// acceptsGzip returns true if the request header allows gzip encoding.
-func acceptsGzip(header http.Header) bool {
-	for _, val := range strings.Split(header.Get(acceptEncodingHeader), ",") {
-		if part := strings.TrimSpace(val); part == "gzip" || strings.HasPrefix(part, "gzip;") {
-			return true
-		}
-	}
-	return false
 }

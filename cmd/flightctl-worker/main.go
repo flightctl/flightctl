@@ -19,6 +19,7 @@ import (
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 )
 
@@ -77,7 +78,7 @@ func main() {
 	// Initialize metrics collectors
 	var workerCollector *worker.WorkerCollector
 	if cfg.Metrics != nil && cfg.Metrics.Enabled {
-		var collectors []metrics.NamedCollector
+		var collectors []prometheus.Collector
 		if cfg.Metrics.WorkerCollector != nil && cfg.Metrics.WorkerCollector.Enabled {
 			workerCollector = worker.NewWorkerCollector(ctx, log, cfg, provider)
 			collectors = append(collectors, workerCollector)
@@ -91,8 +92,7 @@ func main() {
 
 		if len(collectors) > 0 {
 			go func() {
-				metricsServer := metrics.NewMetricsServer(log, cfg, collectors...)
-				if err := metricsServer.Run(ctx); err != nil {
+				if err := tracing.RunMetricsServer(ctx, log, cfg.Metrics.Address, collectors...); err != nil {
 					log.Errorf("Error running metrics server: %s", err)
 				}
 				cancel()
