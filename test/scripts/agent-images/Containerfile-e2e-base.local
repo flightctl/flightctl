@@ -2,7 +2,6 @@
 #     ${IP}:5000/flightctl-device:base
 #
 # Base bootc image used for E2E testing and agent-vm with the following features:
-# Cache invalidation: force rebuild for agent version fix (EDM-2269)
 #
 # * User/pw: user/user
 # * Trust on our E2E CA Certificate
