@@ -186,3 +186,25 @@ The script will:
 - Create a timestamped tarball with all collected data
 
 The generated tarball (named `flightctl-services-must-gather-YYYYMMDD-HHMMSS.tgz`) contains all the diagnostic information and can be shared for troubleshooting assistance.
+
+### Podman Artifacts Cleanup
+
+As part of running the services a number of podman artifacts are created - including things like pulled images, volumes, secrets, and networks.  They are not directly managed by the rpm install process and will remain even if the services are all stopped and the rpm uninstalled.  The rpm is shipped with a script to aid in cleaning up these artifacts.
+
+> [!NOTE]
+> Running the cleanup script is an irreversible destructive action that will result in data loss
+
+Run with a --dry-run flag to see what will be deleted:
+
+```bash
+/usr/bin/flightctl-services-cleanup --dry-run
+```
+
+Run the cleanup script - requires user confirmation to delete artifacts:
+
+```bash
+/usr/bin/flightctl-services-cleanup
+```
+
+> [!NOTE]
+> Never run the script while the Flight Control services are running.  Doing so will result in potentially unrecoverable states and some artifacts may be re-created by podman.

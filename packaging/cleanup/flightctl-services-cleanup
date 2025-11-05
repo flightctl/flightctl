@@ -1,0 +1,278 @@
+#!/usr/bin/env bash
+
+set -eo pipefail
+
+ERRORS=0
+REMOVED_COUNT=0
+DRY_RUN=0
+
+# Image patterns to search for during cleanup
+IMAGE_PATTERNS="^(quay.io/flightctl/|registry.access.redhat.com/ubi9/ubi-minimal|docker.io/redis:7.4.1|quay.io/sclorg/postgresql-16-c9s|quay.io/prometheus/alertmanager)"
+
+IMAGES_TO_REMOVE=()
+VOLUMES_TO_REMOVE=()
+SECRETS_TO_REMOVE=()
+NETWORKS_TO_REMOVE=()
+
+usage() {
+    cat << EOF
+Usage: $(basename "$0") [OPTIONS]
+
+Remove Podman artifacts (images, volumes, secrets, networks)
+created when installing and running Flight Control.
+
+OPTIONS:
+    --help      Display this help message
+    --dry-run   Show artifacts that would be deleted without deleting them
+
+WARNING: This is a destructive operation that will permanently delete data.
+
+EXAMPLES:
+    $(basename "$0")
+    $(basename "$0") --dry-run
+
+EOF
+}
+
+check_sudo() {
+    if ! command -v sudo &> /dev/null; then
+        echo "ERROR: sudo command not found" >&2
+        exit 1
+    fi
+
+    # Check if the script is run as root
+    if [ "$EUID" -ne 0 ]; then
+        echo "This script must be run as root. Exiting."
+        exit 1
+    fi
+}
+
+scan_artifacts() {
+    echo "Scanning for Flight Control Podman artifacts..."
+    echo
+
+    while IFS= read -r image; do
+        [[ -n "$image" ]] && IMAGES_TO_REMOVE+=("$image")
+    done < <(sudo podman images --format "{{.Repository}}:{{.Tag}}" | grep -E "$IMAGE_PATTERNS" || true)
+    echo "Found ${#IMAGES_TO_REMOVE[@]} images to remove"
+
+    while IFS= read -r volume; do
+        [[ -n "$volume" ]] && VOLUMES_TO_REMOVE+=("$volume")
+    done < <(sudo podman volume ls --format "{{.Name}}" | grep "^flightctl-" || true)
+    echo "Found ${#VOLUMES_TO_REMOVE[@]} volumes to remove"
+
+    while IFS= read -r secret; do
+        [[ -n "$secret" ]] && SECRETS_TO_REMOVE+=("$secret")
+    done < <(sudo podman secret ls --format "{{.Name}}" | grep "^flightctl-" || true)
+    echo "Found ${#SECRETS_TO_REMOVE[@]} secrets to remove"
+
+    while IFS= read -r network; do
+        [[ -n "$network" ]] && NETWORKS_TO_REMOVE+=("$network")
+    done < <(sudo podman network ls --format "{{.Name}}" | grep "^flightctl$" || true)
+    echo "Found ${#NETWORKS_TO_REMOVE[@]} networks to remove"
+}
+
+print_artifacts_list() {
+    local total_count=$((${#IMAGES_TO_REMOVE[@]} + ${#VOLUMES_TO_REMOVE[@]} + ${#SECRETS_TO_REMOVE[@]} + ${#NETWORKS_TO_REMOVE[@]}))
+    
+    if [[ $total_count -eq 0 ]]; then
+        echo "No Flight Control artifacts found to remove."
+        exit 0
+    fi
+    
+    echo
+    echo "The following artifacts are staged for deletion:"
+    echo "=========================================="
+    
+    if [[ ${#IMAGES_TO_REMOVE[@]} -gt 0 ]]; then
+        echo
+        echo "Images (${#IMAGES_TO_REMOVE[@]}):"
+        for image in "${IMAGES_TO_REMOVE[@]}"; do
+            echo "  - $image"
+        done
+    fi
+    
+    if [[ ${#VOLUMES_TO_REMOVE[@]} -gt 0 ]]; then
+        echo
+        echo "Volumes (${#VOLUMES_TO_REMOVE[@]}):"
+        for volume in "${VOLUMES_TO_REMOVE[@]}"; do
+            echo "  - $volume"
+        done
+    fi
+    
+    if [[ ${#SECRETS_TO_REMOVE[@]} -gt 0 ]]; then
+        echo
+        echo "Secrets (${#SECRETS_TO_REMOVE[@]}):"
+        for secret in "${SECRETS_TO_REMOVE[@]}"; do
+            echo "  - $secret"
+        done
+    fi
+    
+    if [[ ${#NETWORKS_TO_REMOVE[@]} -gt 0 ]]; then
+        echo
+        echo "Networks (${#NETWORKS_TO_REMOVE[@]}):"
+        for network in "${NETWORKS_TO_REMOVE[@]}"; do
+            echo "  - $network"
+        done
+    fi
+    
+    echo
+    echo "=========================================="
+    echo "Total artifacts: $total_count"
+    echo
+}
+
+confirm_cleanup() {
+    echo "Do you want to proceed with the cleanup?"
+    echo "THIS ACTION CANNOT BE UNDONE!"
+    echo "[yes/no]:"
+    read -r response
+    echo
+
+    case "$response" in
+        yes|YES|Yes|y|Y)
+            return 0
+            ;;
+        *)
+            echo "Cleanup cancelled by user."
+            exit 0
+            ;;
+    esac
+}
+
+remove_images() {
+    if [[ ${#IMAGES_TO_REMOVE[@]} -eq 0 ]]; then
+        return
+    fi
+
+    echo "Removing images..."
+    for image in "${IMAGES_TO_REMOVE[@]}"; do
+        echo -n "  Removing image: $image "
+        if sudo podman rmi -f "$image" >/dev/null 2>&1; then
+            echo "✓"
+            REMOVED_COUNT=$((REMOVED_COUNT + 1))
+        else
+            echo "✗"
+            ERRORS=$((ERRORS + 1))
+        fi
+    done
+    echo
+}
+
+remove_volumes() {
+    if [[ ${#VOLUMES_TO_REMOVE[@]} -eq 0 ]]; then
+        return
+    fi
+
+    echo "Removing volumes..."
+    for volume in "${VOLUMES_TO_REMOVE[@]}"; do
+        echo -n "  Removing volume: $volume "
+        if sudo podman volume rm -f "$volume" >/dev/null 2>&1; then
+            echo "✓"
+            REMOVED_COUNT=$((REMOVED_COUNT + 1))
+        else
+            echo "✗"
+            ERRORS=$((ERRORS + 1))
+        fi
+    done
+    echo
+}
+
+remove_secrets() {
+    if [[ ${#SECRETS_TO_REMOVE[@]} -eq 0 ]]; then
+        return
+    fi
+
+    echo "Removing secrets..."
+    for secret in "${SECRETS_TO_REMOVE[@]}"; do
+        echo -n "  Removing secret: $secret "
+        if sudo podman secret rm "$secret" >/dev/null 2>&1; then
+            echo "✓"
+            REMOVED_COUNT=$((REMOVED_COUNT + 1))
+        else
+            echo "✗"
+            ERRORS=$((ERRORS + 1))
+        fi
+    done
+    echo
+}
+
+remove_networks() {
+    if [[ ${#NETWORKS_TO_REMOVE[@]} -eq 0 ]]; then
+        return
+    fi
+
+    echo "Removing networks..."
+    for network in "${NETWORKS_TO_REMOVE[@]}"; do
+        echo -n "  Removing network: $network "
+        if sudo podman network rm "$network" >/dev/null 2>&1; then
+            echo "✓"
+            REMOVED_COUNT=$((REMOVED_COUNT + 1))
+        else
+            echo "✗"
+            ERRORS=$((ERRORS + 1))
+        fi
+    done
+    echo
+}
+
+display_summary() {
+    echo "Cleanup summary:"
+    echo "  Artifacts removed: ${REMOVED_COUNT}"
+    
+    if [[ $ERRORS -gt 0 ]]; then
+        echo "  Errors encountered: ${ERRORS}"
+        echo
+    else
+        echo "  Errors encountered: 0"
+    fi
+    echo
+}
+
+main() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --help|-h)
+                usage
+                exit 0
+                ;;
+            --dry-run)
+                DRY_RUN=1
+                shift
+                ;;
+            *)
+                echo "ERROR: Unknown option: $1" >&2
+                usage
+                exit 1
+                ;;
+        esac
+    done
+
+    check_sudo
+    scan_artifacts
+    print_artifacts_list
+
+    if [[ $DRY_RUN -eq 1 ]]; then
+        echo "Dry-run mode enabled; no changes will be made."
+        exit 0
+    fi
+
+    confirm_cleanup
+
+    echo "Starting cleanup..."
+    echo
+
+    remove_images
+    remove_volumes
+    remove_secrets
+    remove_networks
+
+    display_summary
+
+    if [[ $ERRORS -gt 0 ]]; then
+        exit 1
+    fi
+    exit 0
+}
+
+main "$@"
