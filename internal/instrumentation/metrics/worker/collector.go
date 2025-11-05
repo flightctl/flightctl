@@ -115,10 +115,6 @@ func NewWorkerCollector(ctx context.Context, log logrus.FieldLogger, cfg *config
 	return collector
 }
 
-func (c *WorkerCollector) MetricsName() string {
-	return "worker"
-}
-
 func (c *WorkerCollector) Describe(ch chan<- *prometheus.Desc) {
 	c.messagesInProgressGauge.Describe(ch)
 	c.messagesProcessedCounter.Describe(ch)

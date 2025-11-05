@@ -27,6 +27,7 @@ import (
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 )
 
@@ -216,7 +217,7 @@ func main() {
 	}()
 
 	if cfg.Metrics != nil && cfg.Metrics.Enabled {
-		var collectors []metrics.NamedCollector
+		var collectors []prometheus.Collector
 		if cfg.Metrics.DeviceCollector != nil && cfg.Metrics.DeviceCollector.Enabled {
 			collectors = append(collectors, domain.NewDeviceCollector(ctx, store, log, cfg))
 		}
@@ -251,9 +252,8 @@ func main() {
 		}
 
 		go func() {
-			metricsServer := metrics.NewMetricsServer(log, cfg, collectors...)
-			if err := metricsServer.Run(ctx); err != nil {
-				log.Fatalf("Error running server: %s", err)
+			if err := tracing.RunMetricsServer(ctx, log, cfg.Metrics.Address, collectors...); err != nil {
+				log.Errorf("Error running metrics server: %s", err)
 			}
 			cancel()
 		}()

@@ -208,9 +208,6 @@ func TestFleetCollector(t *testing.T) {
 	// Test that the collector implements the required interfaces
 	var _ prometheus.Collector = collector
 
-	// Test MetricsName
-	assert.Equal(t, "fleet", collector.MetricsName())
-
 	// Test that metrics are collected
 	ch := make(chan prometheus.Metric, 100)
 	go func() {
