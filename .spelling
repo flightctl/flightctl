@@ -208,6 +208,7 @@ timestamped
 SELinux
 dnf
 rpm.flightctl.io
+wildcards
  - docs/user/api-resources.md
 approvedBy
 creationTimestamp

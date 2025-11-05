@@ -180,6 +180,7 @@ services to be running. This package automatically includes the flightctl-teleme
 %dir /etc/grafana
 %dir /etc/grafana/provisioning
 %dir /etc/grafana/provisioning/datasources
+%dir /etc/grafana/provisioning/alerting
 %dir /etc/grafana/provisioning/dashboards
 %dir /etc/grafana/provisioning/dashboards/flightctl
 %dir /etc/grafana/certs
@@ -292,7 +293,7 @@ echo "Running post-install actions for Flightctl Observability Stack..."
 
 # Create necessary directories on the host if they don't already exist.
 /usr/bin/mkdir -p /etc/prometheus /var/lib/prometheus
-/usr/bin/mkdir -p /etc/grafana /etc/grafana/provisioning /etc/grafana/provisioning/datasources /var/lib/grafana
+/usr/bin/mkdir -p /etc/grafana /etc/grafana/provisioning /etc/grafana/provisioning/datasources /etc/grafana/provisioning/alerting /var/lib/grafana
 /usr/bin/mkdir -p /etc/grafana/provisioning/dashboards /etc/grafana/provisioning/dashboards/flightctl
 /usr/bin/mkdir -p /etc/grafana/certs
 /usr/bin/mkdir -p /etc/flightctl /opt/flightctl-observability/templates
@@ -492,6 +493,7 @@ echo "Flightctl Observability Stack uninstalled."
      mkdir -p %{buildroot}/etc/containers/systemd
      mkdir -p %{buildroot}/etc/prometheus
      mkdir -p %{buildroot}/etc/grafana/provisioning/datasources
+     mkdir -p %{buildroot}/etc/grafana/provisioning/alerting
      mkdir -p %{buildroot}/etc/grafana/provisioning/dashboards/flightctl
      mkdir -p %{buildroot}/etc/grafana/certs
      mkdir -p %{buildroot}/var/lib/prometheus
