@@ -21,7 +21,7 @@ for img in $IMAGE_LIST; do
    fi
 
    podman build "${CACHE_FLAGS[@]}" \
-   	--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG:-$(./hack/current-version)} \
+   	--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG:-$("${SCRIPT_DIR}/../../hack/current-version")} \
    	--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE:-$( ( ( [ ! -d ".git/" ] || git diff --quiet ) && echo 'clean' ) || echo 'dirty' )} \
    	--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT:-$(git rev-parse --short "HEAD^{commit}" 2>/dev/null || echo "unknown")} \
    	-f "${SCRIPT_DIR}"/Containerfile-sleep-app-"${img}" -t localhost:5000/sleep-app:${img} .
