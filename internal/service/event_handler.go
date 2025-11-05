@@ -220,7 +220,7 @@ func (h *EventHandler) emitFleetRolloutBatchCompletedEvent(ctx context.Context, 
 }
 
 func (h *EventHandler) emitFleetValidEvents(ctx context.Context, name string, oldFleet, newFleet *api.Fleet) {
-	if newFleet.Status == nil {
+	if newFleet == nil || newFleet.Status == nil {
 		return
 	}
 

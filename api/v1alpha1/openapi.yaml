@@ -4169,8 +4169,10 @@ components:
       description: The type of the application.
       enum:
         - "compose"
+        - "quadlet"
       x-enum-varnames:
         - "AppTypeCompose"
+        - "AppTypeQuadlet"
     ResourceMonitor:
       oneOf:
         - $ref: '#/components/schemas/CpuResourceMonitorSpec'

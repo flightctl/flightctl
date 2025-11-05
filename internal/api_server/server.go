@@ -129,7 +129,7 @@ func oapiMultiErrorHandler(errs openapi3.MultiError) (int, error) {
 		}
 	}
 
-	if allMatchFormat && longestPathErrorIndex >= 0 {
+	if allMatchFormat && longestPathError != nil {
 		shortErrorMessages = append(shortErrorMessages[:longestPathErrorIndex], shortErrorMessages[longestPathErrorIndex+1:]...)
 		response := fmt.Errorf("%d API errors found. The most relevant is likely:\n%s\nOther errors found were:\n%s",
 			len(errs),
