@@ -41,7 +41,6 @@ jobs:
       - epel-10-aarch64
       - epel-10-x86_64
 
-
   - job: copr_build
     trigger: release
     owner: "@redhat-et"
