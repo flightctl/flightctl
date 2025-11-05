@@ -3590,6 +3590,25 @@ paths:
       summary: List organizations
       description: Retrieves a list of organizations.  Only returns organizations that the user has access to.
       operationId: listOrganizations
+      parameters:
+        - name: continue
+          in: query
+          description: An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
+          required: false
+          schema:
+            type: string
+        - name: fieldSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!=' (e.g., "key1=value1,key2!=value2").
+          schema:
+            type: string
+        - name: limit
+          in: query
+          description: The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
+          required: false
+          schema:
+            type: integer
+            format: int32
       responses:
         "200":
           description: OK

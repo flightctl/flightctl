@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
@@ -524,14 +525,46 @@ func (s *DummyOrganization) Create(ctx context.Context, org *model.Organization)
 	return org, nil
 }
 
-func (s *DummyOrganization) List(ctx context.Context) ([]*model.Organization, error) {
+func (s *DummyOrganization) List(ctx context.Context, listParams store.ListParams) ([]*model.Organization, error) {
 	if s.err != nil {
 		return nil, s.err
 	}
 	if s.organizations == nil {
 		return []*model.Organization{}, nil
 	}
-	return *s.organizations, nil
+
+	// Order by ID ascending to mimic store ordering
+	all := make([]*model.Organization, len(*s.organizations))
+	copy(all, *s.organizations)
+	sort.Slice(all, func(i, j int) bool {
+		return all[i].ID.String() < all[j].ID.String()
+	})
+
+	// Apply Continue: start from first element with ID >= continue name (string compare on UUID string)
+	start := 0
+	if listParams.Continue != nil && len(listParams.Continue.Names) == 1 {
+		cont := listParams.Continue.Names[0]
+		for i := 0; i < len(all); i++ {
+			if all[i].ID.String() >= cont {
+				start = i
+				break
+			}
+			if i == len(all)-1 {
+				start = len(all)
+			}
+		}
+	}
+
+	// Apply Limit: return up to limit+1 to signal hasMoreStore when applicable
+	if listParams.Limit > 0 {
+		end := start + listParams.Limit + 1
+		if end > len(all) {
+			end = len(all)
+		}
+		return all[start:end], nil
+	}
+
+	return all[start:], nil
 }
 
 // --------------------------------------> WorkerClient

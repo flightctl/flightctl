@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store/model"
@@ -52,12 +53,30 @@ func setupMockStoreWithError(mockStore *TestStore, err error) {
 	mockStore.Organization().(*DummyOrganization).err = err
 }
 
+// mock resolver that returns a fixed set of user organizations
+type mockResolver struct {
+	orgs []*model.Organization
+}
+
+func (m *mockResolver) EnsureExists(ctx context.Context, id uuid.UUID) error { return nil }
+func (m *mockResolver) IsMemberOf(ctx context.Context, identity common.Identity, id uuid.UUID) (bool, error) {
+	for _, o := range m.orgs {
+		if o.ID == id {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+func (m *mockResolver) GetUserOrganizations(ctx context.Context, identity common.Identity) ([]*model.Organization, error) {
+	return m.orgs, nil
+}
+
 func TestListOrganizations_EmptyResult(t *testing.T) {
 	handler, mockStore := createServiceHandlerWithOrgMockStore(t)
 	setupMockStoreWithOrganizations(mockStore, []*model.Organization{})
 	ctx := context.WithValue(context.Background(), consts.InternalRequestCtxKey, true)
 
-	result, status := handler.ListOrganizations(ctx)
+	result, status := handler.ListOrganizations(ctx, api.ListOrganizationsParams{})
 
 	require.Equal(t, api.StatusOK(), status)
 	require.NotNil(t, result)
@@ -76,7 +95,7 @@ func TestListOrganizations_SingleOrganization(t *testing.T) {
 
 	expectedOrg := createExpectedAPIOrganization(orgID, "Default", "default-external-id")
 
-	result, status := handler.ListOrganizations(ctx)
+	result, status := handler.ListOrganizations(ctx, api.ListOrganizationsParams{})
 
 	require.Equal(t, api.StatusOK(), status)
 	require.NotNil(t, result)
@@ -103,7 +122,7 @@ func TestListOrganizations_MultipleOrganizations(t *testing.T) {
 	expectedOrg1 := createExpectedAPIOrganization(orgID1, "Organization One", "external-id-1")
 	expectedOrg2 := createExpectedAPIOrganization(orgID2, "Organization Two", "external-id-2")
 
-	result, status := handler.ListOrganizations(ctx)
+	result, status := handler.ListOrganizations(ctx, api.ListOrganizationsParams{})
 
 	require.Equal(t, api.StatusOK(), status)
 	require.NotNil(t, result)
@@ -122,7 +141,7 @@ func TestListOrganizations_StoreError(t *testing.T) {
 	setupMockStoreWithError(mockStore, testError)
 	ctx := context.WithValue(context.Background(), consts.InternalRequestCtxKey, true)
 
-	result, status := handler.ListOrganizations(ctx)
+	result, status := handler.ListOrganizations(ctx, api.ListOrganizationsParams{})
 
 	require.Nil(t, result)
 	require.NotEqual(t, api.StatusOK(), status)
@@ -134,9 +153,48 @@ func TestListOrganizations_ResourceNotFoundError(t *testing.T) {
 	setupMockStoreWithError(mockStore, flterrors.ErrResourceNotFound)
 	ctx := context.WithValue(context.Background(), consts.InternalRequestCtxKey, true)
 
-	result, status := handler.ListOrganizations(ctx)
+	result, status := handler.ListOrganizations(ctx, api.ListOrganizationsParams{})
 
 	require.Nil(t, result)
 	require.Equal(t, int32(404), status.Code)
 	require.Contains(t, status.Message, api.OrganizationKind)
+}
+
+func TestListOrganizations_PaginationWithAuthFilteringProducesContinue(t *testing.T) {
+	handler, mockStore := createServiceHandlerWithOrgMockStore(t)
+
+	// Create three orgs ordered by ID: U1 (unauthorized), U2 and U3 (authorized)
+	u1 := uuid.MustParse("00000000-0000-0000-0000-000000000011")
+	u2 := uuid.MustParse("00000000-0000-0000-0000-000000000022")
+	u3 := uuid.MustParse("00000000-0000-0000-0000-000000000033")
+
+	org1 := createTestOrganizationModel(u1, "ext-11", "Org-11")
+	org2 := createTestOrganizationModel(u2, "ext-22", "Org-22")
+	org3 := createTestOrganizationModel(u3, "ext-33", "Org-33")
+	setupMockStoreWithOrganizations(mockStore, []*model.Organization{org1, org2, org3})
+
+	// Inject resolver that authorizes only U2 and U3
+	handler.orgResolver = &mockResolver{orgs: []*model.Organization{org2, org3}}
+
+	// Build external request context with identity (non-internal)
+	identity := common.NewBaseIdentity("tester", "uid-1", []string{})
+	ctx := context.WithValue(context.Background(), consts.IdentityCtxKey, identity)
+
+	// First page: limit=1, expect item U2 and a continue token present
+	var limit int32 = 1
+	list1, status := handler.ListOrganizations(ctx, api.ListOrganizationsParams{Limit: &limit})
+	require.Equal(t, api.StatusOK(), status)
+	require.NotNil(t, list1)
+	require.Len(t, list1.Items, 1)
+	require.NotNil(t, list1.Metadata.Continue)
+	require.Equal(t, u2.String(), *list1.Items[0].Metadata.Name)
+
+	// Second page: use continue from first response, expect U3 and no continue token
+	cont := list1.Metadata.Continue
+	list2, status2 := handler.ListOrganizations(ctx, api.ListOrganizationsParams{Limit: &limit, Continue: cont})
+	require.Equal(t, api.StatusOK(), status2)
+	require.NotNil(t, list2)
+	require.Len(t, list2.Items, 1)
+	require.Nil(t, list2.Metadata.Continue)
+	require.Equal(t, u3.String(), *list2.Items[0].Metadata.Name)
 }

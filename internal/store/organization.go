@@ -6,6 +6,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -16,7 +17,7 @@ type Organization interface {
 
 	Create(ctx context.Context, org *model.Organization) (*model.Organization, error)
 	UpsertMany(ctx context.Context, orgs []*model.Organization) ([]*model.Organization, error)
-	List(ctx context.Context) ([]*model.Organization, error)
+	List(ctx context.Context, listParams ListParams) ([]*model.Organization, error)
 	ListByExternalIDs(ctx context.Context, externalIDs []string) ([]*model.Organization, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*model.Organization, error)
 }
@@ -162,8 +163,35 @@ func (s *OrganizationStore) GetByID(ctx context.Context, id uuid.UUID) (*model.O
 	return &org, nil
 }
 
-func (s *OrganizationStore) List(ctx context.Context) ([]*model.Organization, error) {
-	db := s.getDB(ctx)
+func (s *OrganizationStore) List(ctx context.Context, listParams ListParams) ([]*model.Organization, error) {
+
+	db := s.getDB(ctx).Model(&model.Organization{})
+
+	if listParams.FieldSelector != nil {
+		resolver, err := selector.NewCompositeSelectorResolver(&model.Organization{})
+		if err != nil {
+			return nil, err
+		}
+		q, args, err := listParams.FieldSelector.Parse(ctx, resolver)
+		if err != nil {
+			return nil, err
+		}
+		db = db.Where(q, args...)
+	}
+
+	db = db.Order("id ASC")
+
+	if listParams.Continue != nil && len(listParams.Continue.Names) == 1 {
+		if id, err := uuid.Parse(listParams.Continue.Names[0]); err == nil {
+			db = db.Where("id >= ?", id)
+		} else {
+			db = db.Where("id >= ?", listParams.Continue.Names[0])
+		}
+	}
+
+	if listParams.Limit > 0 {
+		db = db.Limit(listParams.Limit + 1)
+	}
 
 	var orgs []*model.Organization
 	if err := db.Find(&orgs).Error; err != nil {
