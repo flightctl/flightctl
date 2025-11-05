@@ -9,9 +9,9 @@ import (
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
-	"github.com/flightctl/flightctl/internal/instrumentation"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/worker"
+	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
 	workerserver "github.com/flightctl/flightctl/internal/worker_server"
@@ -41,7 +41,7 @@ func main() {
 	}
 	log.SetLevel(logLvl)
 
-	tracerShutdown := instrumentation.InitTracer(log, cfg, "flightctl-worker")
+	tracerShutdown := tracing.InitTracer(log, cfg, "flightctl-worker")
 	defer func() {
 		if err := tracerShutdown(ctx); err != nil {
 			log.Fatalf("failed to shut down tracer: %v", err)
@@ -91,7 +91,7 @@ func main() {
 
 		if len(collectors) > 0 {
 			go func() {
-				metricsServer := instrumentation.NewMetricsServer(log, cfg, collectors...)
+				metricsServer := metrics.NewMetricsServer(log, cfg, collectors...)
 				if err := metricsServer.Run(ctx); err != nil {
 					log.Errorf("Error running metrics server: %s", err)
 				}

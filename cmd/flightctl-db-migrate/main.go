@@ -6,7 +6,7 @@ import (
 	"flag"
 
 	"github.com/flightctl/flightctl/internal/config"
-	"github.com/flightctl/flightctl/internal/instrumentation"
+	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/sirupsen/logrus"
@@ -45,7 +45,7 @@ func main() {
 
 	log.Infof("Using config: %s", cfg)
 
-	tracerShutdown := instrumentation.InitTracer(log, cfg, "flightctl-db-migrate")
+	tracerShutdown := tracing.InitTracer(log, cfg, "flightctl-db-migrate")
 	defer func() {
 		if err = tracerShutdown(ctx); err != nil {
 			log.WithError(err).Fatal("failed to shut down tracer")
