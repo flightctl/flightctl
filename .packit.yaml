@@ -10,45 +10,57 @@ packages:
     upstream_package_name: flightctl
     downstream_package_name: flightctl
     upstream_tag_template: v{version} # remove v from the start of the version tags (vx.y.z)->x.y.z
-
-    # Common targets for all build jobs
-    targets:
-      - fedora-42-aarch64
-      - fedora-42-x86_64
-      - fedora-43-aarch64
-      - fedora-43-x86_64
-      - fedora-rawhide-aarch64
-      - fedora-rawhide-x86_64
-      - epel-9-aarch64
-      - epel-9-x86_64
-      - epel-10-x86_64
-      - epel-10-aarch64
-      - centos-stream-9-x86_64
-      - centos-stream-9-aarch64
-      - centos-stream-10-x86_64
-      - centos-stream-10-aarch64
-
-    # Common settings for all copr_build jobs
-    enable_net: True # this is necessary for go modules to download the sources
-    notifications:
-      failure_comment:
-        message: "/packit build"
 actions:
   get-current-version:
-    - bash -c './hack/current-version | sed "s/^v//; s/-/~/g"'
+    - bash -c './hack/current-version --rpm | sed "s/^v//; s/-/~/g"'
 jobs:
   - job: copr_build
     trigger: pull_request
+    enable_net: True # this is necessary for go modules to download the sources
+    targets:
+      - fedora-43-x86_64
+      - epel-9-aarch64
+      - epel-10-aarch64
     module_hotfixes: true
+    notifications:
+      failure_comment:
+        message: "/packit build"
 
   - job: copr_build
     trigger: commit
     owner: "@redhat-et"
     project: flightctl-dev
     preserve_project: True
+    enable_net: True # this is necessary for go modules to download the sources
+    targets:
+      - fedora-42-aarch64
+      - fedora-42-x86_64
+      - fedora-43-aarch64
+      - fedora-43-x86_64
+      - epel-9-aarch64
+      - epel-9-x86_64
+      - epel-10-aarch64
+      - epel-10-x86_64
+    notifications:
+      failure_comment:
+        message: "/packit build"
+
 
   - job: copr_build
     trigger: release
     owner: "@redhat-et"
     project: flightctl
     preserve_project: True
+    enable_net: True # this is necessary for go modules to download the sources
+    targets:
+      - fedora-42-aarch64
+      - fedora-42-x86_64
+      - fedora-43-aarch64
+      - fedora-43-x86_64
+      - epel-9-aarch64
+      - epel-9-x86_64
+      - epel-10-aarch64
+      - epel-10-x86_64
+    notifications:
+      failure_comment:
+        message: "/packit build"
