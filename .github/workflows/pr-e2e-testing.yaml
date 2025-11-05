@@ -151,6 +151,13 @@ jobs:
           podman pull ${{ env.QUAY_ORG }}/flightctl-telemetry-gateway:cache || true
           podman pull ${{ env.QUAY_TESTS_ORG }}/git-server:cache || true
 
+      - name: Clean e2e agent images cache for version fix
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        run: |
+          # Force rebuild of e2e agent images to pick up version fix
+          rm -f bin/.e2e-agent-images
+          echo "Cleaned e2e agent images cache marker"
+
       - name: Create kind cluster
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         run: make cluster
