@@ -89,6 +89,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
   /api/v1/auth/validate:
     get:
       tags:
@@ -122,6 +128,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "418":
           description: Auth not configured
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
           content:
             application/json:
               schema:
