@@ -1,0 +1,15 @@
+name: " on image ready test"
+
+on:
+  image_version:
+    names:
+      - "quay.io/rh-ee-iskornya/flightctl-test-ilya"
+    versions:
+      - v0.0.2
+jobs:
+  dummy:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Say Hi
+        run: |
+          echo "Hi"
