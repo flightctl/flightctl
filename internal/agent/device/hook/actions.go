@@ -62,7 +62,13 @@ func newActionContext(hook api.DeviceLifecycleHookType, current *api.DeviceSpec,
 	}
 	resetCommandLineVars(actionContext)
 	if current != nil || desired != nil {
-		computeFileDiff(actionContext, current, desired)
+		defaultIfNil := func(spec *api.DeviceSpec) *api.DeviceSpec {
+			if spec == nil {
+				return &api.DeviceSpec{}
+			}
+			return spec
+		}
+		computeFileDiff(actionContext, defaultIfNil(current), defaultIfNil(desired))
 	}
 	return actionContext
 }
