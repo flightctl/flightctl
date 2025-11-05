@@ -137,3 +137,17 @@ func extractOrgIDFromRequestCert(r *http.Request) (uuid.UUID, error) {
 	}
 	return orgID, nil
 }
+
+// SecurityHeaders adds security headers to all HTTP responses.
+// This middleware should be applied early in the middleware chain to ensure
+// all responses include these headers.
+func SecurityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Strict-Transport-Security: Enforce HTTPS for 1 year including subdomains
+		w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		// X-Content-Type-Options: Prevent MIME type sniffing
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+
+		next.ServeHTTP(w, r)
+	})
+}

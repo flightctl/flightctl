@@ -212,6 +212,7 @@ func (s *AgentServer) prepareHTTPHandler(serviceHandler service.Service) (http.H
 	middlewares := [](func(http.Handler) http.Handler){
 		middleware.RequestSize(int64(s.cfg.Service.HttpMaxRequestSize)),
 		tlsmiddleware.RequestSizeLimiter(s.cfg.Service.HttpMaxUrlLength, s.cfg.Service.HttpMaxNumHeaders),
+		tlsmiddleware.SecurityHeaders,
 		tlsmiddleware.RequestID,
 		tlsmiddleware.AddOrgIDToCtx(
 			s.orgResolver,
