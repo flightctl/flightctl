@@ -411,9 +411,6 @@ echo "Flightctl Observability Stack uninstalled."
 %setup -q %{forgesetupargs}
 
 %build
-    # Fix git ownership issue in CI environments
-    git config --global --add safe.directory $(pwd) || true
-
     # if this is a buggy version of go we need to set GOPROXY as workaround
     # see https://github.com/golang/go/issues/61928
     GOENVFILE=$(go env GOROOT)/go.env
