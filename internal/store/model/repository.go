@@ -138,6 +138,9 @@ func (r *Repository) HasSameSpecAs(otherResource any) bool {
 	if other == nil {
 		return false
 	}
+	if r.Spec == nil && other.Spec == nil {
+		return true
+	}
 	if (r.Spec == nil && other.Spec != nil) || (r.Spec != nil && other.Spec == nil) {
 		return false
 	}
