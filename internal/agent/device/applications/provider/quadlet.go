@@ -13,6 +13,7 @@ import (
 	"github.com/coreos/go-systemd/v22/unit"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/quadlet"
 )
 
 const (
@@ -339,27 +340,20 @@ func updateMountValue(value, appID string) (string, error) {
 		return "", fmt.Errorf("invalid mount value %q: expected single record, got %d", value, len(records))
 	}
 
-	// determine mount type (defaults to "volume" if not specified)
-	// see: https://github.com/containers/podman/blob/main/pkg/specgenutilexternal/mount.go
-	mountType := "volume"
-	for _, part := range records[0] {
-		kv := strings.Split(part, "=")
-		if len(kv) != 2 {
-			continue
-		}
-
-		key := strings.TrimSpace(kv[0])
-		val := strings.TrimSpace(kv[1])
-
-		if key == "type" {
-			mountType = val
-			break
-		}
+	mountType, err := quadlet.MountType(value)
+	if err != nil {
+		return "", fmt.Errorf("parsing mount type %q: %w", value, err)
+	}
+	if !slices.Contains([]string{"volume", "image"}, mountType) {
+		return value, nil
 	}
 
-	parts := records[0]
+	mountParts, err := quadlet.MountParts(value)
+	if err != nil {
+		return "", fmt.Errorf("parsing mount parts %q: %w", value, err)
+	}
 
-	for i, part := range parts {
+	for i, part := range mountParts {
 		kv := strings.Split(part, "=")
 		if len(kv) != 2 {
 			continue
@@ -368,14 +362,14 @@ func updateMountValue(value, appID string) (string, error) {
 		key := strings.TrimSpace(kv[0])
 		val := strings.TrimSpace(kv[1])
 
-		if (key == "source" || key == "src") && (mountType == "volume" || mountType == "image") {
-			parts[i] = fmt.Sprintf("%s=%s", key, prefixQuadletReference(val, appID))
+		if key == "source" || key == "src" {
+			mountParts[i] = fmt.Sprintf("%s=%s", key, prefixQuadletReference(val, appID))
 		}
 	}
 
 	var buf strings.Builder
 	writer := csv.NewWriter(&buf)
-	if err := writer.Write(parts); err != nil {
+	if err := writer.Write(mountParts); err != nil {
 		return "", fmt.Errorf("writing mount value: %w", err)
 	}
 	writer.Flush()
