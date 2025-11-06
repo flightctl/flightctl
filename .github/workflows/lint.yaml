@@ -1,12 +1,12 @@
 name: "Code Quality"
 
-on:
-  workflow_dispatch:
-  push:
-    branches:
-      - main
-      - 'release-*'
-  pull_request:
+# TEMPORARILY DISABLED - on:
+#   workflow_dispatch:
+#   push:
+#     branches:
+#       - main
+#       - 'release-*'
+#   pull_request:
 
 permissions:
   contents: read

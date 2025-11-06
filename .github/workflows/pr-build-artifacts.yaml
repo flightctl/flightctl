@@ -1,0 +1,360 @@
+name: "PR Build Artifacts"
+
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      expires_after:
+        description: "TTL for images label quay.expires-after (empty = no TTL)"
+        required: false
+        default: "8h"
+        type: string
+
+env:
+  # Registry/org conventions (tests org)
+  QUAY_TESTS_ORG: quay.io/flightctl-tests
+  QUAY: quay.io
+  REGISTRY: quay.io
+  REGISTRY_OWNER_TESTS: flightctl-tests
+  # Enable BuildKit for cache mounts
+  DOCKER_BUILDKIT: 1
+  BUILDKIT_PROGRESS: plain
+  GITHUB_ACTIONS: true
+
+jobs:
+  build-images:
+    strategy:
+      matrix:
+        image: ['api', 'periodic', 'worker', 'cli-artifacts', 'alert-exporter', 'alertmanager-proxy', 'userinfo-proxy', 'db-setup', 'telemetry-gateway']
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Compute image tag from SOURCE_GIT_TAG
+        id: tag
+        run: |
+          set -euo pipefail
+          TAG=$(./hack/current-version)
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare version variables
+        id: version-vars
+        run: |
+          set -euo pipefail
+          SOURCE_GIT_TAG=$(git describe --tags --exclude latest 2>/dev/null || echo "v0.0.0-unknown")
+          if [ ! -d ".git" ]; then
+            SOURCE_GIT_TREE_STATE=clean
+          elif git diff --quiet; then
+            SOURCE_GIT_TREE_STATE=clean
+          else
+            SOURCE_GIT_TREE_STATE=dirty
+          fi
+          SOURCE_GIT_COMMIT=$(git rev-parse --short "HEAD^{commit}" 2>/dev/null || echo "unknown")
+
+          {
+            echo "git_tag=${SOURCE_GIT_TAG}"
+            echo "git_tree_state=${SOURCE_GIT_TREE_STATE}"
+            echo "git_commit=${SOURCE_GIT_COMMIT}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Set up build output dir
+        run: |
+          mkdir -p digests
+
+      - name: Login to Quay (tests org)
+        run: |
+          set -euo pipefail
+          echo "Log in as ${{ secrets.QUAY_FLIGHTCTL_TESTS_INFRA_ROBOT_USERNAME }}, namespace ${{ vars.QUAY_FLIGHTCTL_TESTS_NAMESPACE }}"
+          if [ -z "${{ secrets.QUAY_FLIGHTCTL_TESTS_INFRA_ROBOT_USERNAME }}" ] || [ -z "${{ secrets.QUAY_FLIGHTCTL_TESTS_INFRA_ROBOT_PASSWORD }}" ]; then
+            echo "ERROR: Missing QUAY_FLIGHTCTL_TESTS_INFRA_ROBOT_USERNAME or QUAY_FLIGHTCTL_TESTS_INFRA_ROBOT_PASSWORD secrets" >&2
+            exit 1
+          fi
+          echo "${{ secrets.QUAY_FLIGHTCTL_TESTS_INFRA_ROBOT_PASSWORD }}" \
+            | podman login quay.io -u "${{ secrets.QUAY_FLIGHTCTL_TESTS_INFRA_ROBOT_USERNAME }}" --password-stdin
+
+      - name: Build image
+        id: build
+        uses: redhat-actions/buildah-build@v2
+        with:
+          image: flightctl-${{ matrix.image }}
+          tags: ${{ steps.tag.outputs.tag }}
+          labels: |
+            org.flightctl.flightctl-${{ matrix.image }}.github.repository=${{ github.repository }}
+            org.flightctl.flightctl-${{ matrix.image }}.github.actor=${{ github.actor }}
+            org.flightctl.flightctl-${{ matrix.image }}.github.run_id=${{ github.run_id }}
+            org.flightctl.flightctl-${{ matrix.image }}.github.sha=${{ github.sha }}
+            org.flightctl.flightctl-${{ matrix.image }}.github.ref_name=${{ github.ref_name }}
+            quay.expires-after=${{ inputs.expires_after }}
+          build-args: |
+            SOURCE_GIT_TAG=${{ steps.version-vars.outputs.git_tag }}
+            SOURCE_GIT_TREE_STATE=${{ steps.version-vars.outputs.git_tree_state }}
+            SOURCE_GIT_COMMIT=${{ steps.version-vars.outputs.git_commit }}
+          extra-args: |
+            --ulimit nofile=10000:10000
+          containerfiles: Containerfile.${{ matrix.image }}
+          context: .
+
+
+      - name: Push to Quay (tests org)
+        id: push
+        uses: redhat-actions/push-to-registry@v2.7
+        with:
+          image: ${{ steps.build.outputs.image }}
+          tags: ${{ steps.build.outputs.tags }}
+          registry: quay.io/${{ vars.QUAY_FLIGHTCTL_TESTS_NAMESPACE }}
+          username: ${{ secrets.QUAY_FLIGHTCTL_TESTS_INFRA_ROBOT_USERNAME }}
+          password: ${{ secrets.QUAY_FLIGHTCTL_TESTS_INFRA_ROBOT_PASSWORD }}
+          digestfile: digests/${{ matrix.image }}.txt
+
+      - name: Upload digest artifact
+        if: ${{ steps.push.conclusion == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.image }}
+          path: digests/${{ matrix.image }}.txt
+
+  service-images-manifest:
+    runs-on: ubuntu-24.04
+    needs: [build-images]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Download image digest artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: digest-*
+          path: digests
+          merge-multiple: true
+
+      - name: Compute image tag
+        id: tag
+        run: |
+          set -euo pipefail
+          TAG=$(./hack/current-version)
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Produce service images manifest
+        run: |
+          set -euo pipefail
+          TAG='${{ steps.tag.outputs.tag }}'
+          images=(
+            flightctl-api
+            flightctl-db-setup
+            flightctl-worker
+            flightctl-periodic
+            flightctl-alert-exporter
+            flightctl-alertmanager-proxy
+            flightctl-cli-artifacts
+            flightctl-userinfo-proxy
+            flightctl-telemetry-gateway
+          )
+          printf '{"serviceImages":{' > service-images.json
+          first=1
+          for img in "${images[@]}"; do
+            url="${QUAY_TESTS_ORG}/${img}:${TAG}"
+            digest_file="digests/${img#flightctl-}.txt"
+            if [ ! -f "$digest_file" ]; then
+              echo "Missing digest file: $digest_file" >&2
+              exit 1
+            fi
+            digest=$(cat "$digest_file")
+            if [ $first -eq 0 ]; then printf ',' >> service-images.json; fi
+            first=0
+            printf '"%s":{"imageUrl":"%s","digest":"%s"}' "$img" "$url" "$digest" >> service-images.json
+          done
+          printf '}}' >> service-images.json
+          cat service-images.json
+
+      - name: Upload service images manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: service-images-manifest
+          path: service-images.json
+
+  build-rpms:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build RPMs
+        run: make rpm
+
+      - name: Upload RPM artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpms-${{ github.sha }}
+          path: bin/rpm/*.rpm
+
+      - name: Produce rpms manifest
+        run: |
+          set -euo pipefail
+          out='{"rpms":{"packages":['
+          first=1
+          for f in bin/rpm/*.rpm; do
+            [ -e "$f" ] || continue
+            bn=$(basename "$f")
+            if [[ "$bn" =~ ^(.+)-([0-9][^-]*)-([^.]*)\.([^.]+)\.rpm$ ]]; then
+              name="${BASH_REMATCH[1]}"
+              version="${BASH_REMATCH[2]}"
+              release="${BASH_REMATCH[3]}"
+              arch="${BASH_REMATCH[4]}"
+            else
+              # Fallback: best-effort parse
+              name="${bn%%-*}"
+              rest="${bn#*-}"
+              version="${rest%%-*}"
+              rest2="${rest#*-}"
+              release="${rest2%%.*}"
+              arch="${bn##*.}"
+              arch="${arch%.rpm}"
+            fi
+            url="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}#artifacts"
+            pkg=$(jq -cn --arg n "$name" --arg v "$version" --arg r "$release" --arg a "$arch" --arg u "$url" '{name:$n,version:$v,release:$r,architecture:$a,url:$u}')
+            if [ $first -eq 0 ]; then out+="","$pkg"; else out+="$pkg"; fi
+            first=0
+          done
+          out+=']} }'
+          printf '%s' "$out" > rpms.json
+          cat rpms.json
+
+      - name: Upload rpms manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpms-manifest
+          path: rpms.json
+
+  build-helm-charts-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Validate Quay tests secrets
+        run: |
+          set -euo pipefail
+          if [ -z "${{ secrets.QUAY_FLIGHTCTL_TESTS_INFRA_ROBOT_USERNAME }}" ] || [ -z "${{ secrets.QUAY_FLIGHTCTL_TESTS_INFRA_ROBOT_PASSWORD }}" ]; then
+            echo "ERROR: Missing QUAY_FLIGHTCTL_TESTS_INFRA_ROBOT_USERNAME or QUAY_FLIGHTCTL_TESTS_INFRA_ROBOT_PASSWORD secrets" >&2
+            exit 1
+          fi
+
+      - name: Compute helm tag from SOURCE_GIT_TAG
+        id: tag
+        run: |
+          set -euo pipefail
+          TAG=$(./hack/current-version)
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Build helm charts
+        run: |
+          set -euo pipefail
+          helm dependency build ./deploy/helm/flightctl
+          helm package ./deploy/helm/flightctl \
+            --version "${{ steps.tag.outputs.tag }}" \
+            --app-version "${{ steps.tag.outputs.tag }}"
+
+      - name: Login helm
+        env:
+          QUAY_PASS: ${{ secrets.QUAY_FLIGHTCTL_TESTS_INFRA_ROBOT_PASSWORD }}
+          QUAY_USER: ${{ secrets.QUAY_FLIGHTCTL_TESTS_INFRA_ROBOT_USERNAME }}
+        run: |
+          set -euo pipefail
+          if [ -z "${QUAY_USER:-}" ] || [ -z "${QUAY_PASS:-}" ]; then
+            echo "Skipping helm login: missing QUAY_USER/QUAY_PASS (likely fork PR)" >&2
+            exit 0
+          fi
+          echo "${QUAY_PASS}" | helm registry login quay.io -u "${QUAY_USER}" --password-stdin
+
+      - name: Push helm charts
+        id: helm-push
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          out=$(helm push "flightctl-${TAG}.tgz" oci://quay.io/flightctl-tests/charts/)
+          echo "$out"
+          echo "$out" | awk '/^Digest:/ {print $2}' > charts-digest.txt
+          echo "digest=$(cat charts-digest.txt)" >> "$GITHUB_OUTPUT"
+
+      - name: Produce charts manifest
+        run: |
+          set -euo pipefail
+          name="flightctl"
+          version="${{ steps.tag.outputs.tag }}"
+          repo="oci://quay.io/flightctl-tests/charts"
+          url="${repo}/${name}:${version}"
+          digest="${{ steps.helm-push.outputs.digest }}"
+          jq -n \
+            --arg n "$name" \
+            --arg v "$version" \
+            --arg r "$repo" \
+            --arg u "$url" \
+            --arg d "$digest" \
+            '{charts:{($n):{version:$v,repo:$r,url:$u,digest:$d}}}' > charts.json
+          cat charts.json
+
+      - name: Upload charts manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: charts-manifest
+          path: charts.json
+
+  complete:
+    runs-on: ubuntu-24.04
+    needs: [service-images-manifest, build-rpms, build-helm-charts-tests]
+    if: always()
+    steps:
+      - name: Download service images manifest
+        uses: actions/download-artifact@v4
+        with:
+          name: service-images-manifest
+          path: manifests
+          if-no-files-found: ignore
+
+      - name: Download charts manifest
+        uses: actions/download-artifact@v4
+        with:
+          name: charts-manifest
+          path: manifests
+          if-no-files-found: ignore
+
+      - name: Download rpms manifest
+        uses: actions/download-artifact@v4
+        with:
+          name: rpms-manifest
+          path: manifests
+          if-no-files-found: ignore
+
+      - name: Assemble final build manifest
+        run: |
+          set -euo pipefail
+          ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          meta=$(jq -n --arg bid "github-run-${GITHUB_RUN_ID}" --arg sha "${GITHUB_SHA}" --arg ts "$ts" '{buildId:$bid,commitSha:$sha,timestamp:$ts}')
+          parts="{}"
+          for f in manifests/*.json; do
+            [ -e "$f" ] || continue
+            parts=$(jq -s 'reduce .[] as $i ({}; . * $i)' <(echo "$parts") "$f")
+          done
+          jq -s '.[0] * .[1]' <(echo "$meta") <(echo "$parts") > build-manifest.json
+          cat build-manifest.json
+
+      - name: Upload build manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-manifest
+          path: build-manifest.json
+
+

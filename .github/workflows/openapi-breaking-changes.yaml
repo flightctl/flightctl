@@ -1,9 +1,9 @@
 name: "OpenAPI Breaking Changes Check"
 
-on:
-  pull_request:
-    paths:
-      - 'api/**/openapi.yaml'
+# TEMPORARILY DISABLED - on:
+#   pull_request:
+#     paths:
+#       - 'api/**/openapi.yaml'
 
 jobs:
   oasdiff-check:

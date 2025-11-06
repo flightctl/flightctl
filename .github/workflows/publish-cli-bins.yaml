@@ -1,13 +1,13 @@
 name: "Release CLI Binaries on GH"
-on:
-  workflow_dispatch:
-  push:
-    branches:
-      - main
-      - 'release-*'
-    tags:
-      - '*'
-  pull_request:
+# TEMPORARILY DISABLED - on:
+#   workflow_dispatch:
+#   push:
+#     branches:
+#       - main
+#       - 'release-*'
+#     tags:
+#       - '*'
+#   pull_request:
 
 jobs:
   setup:

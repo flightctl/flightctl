@@ -1,8 +1,8 @@
 name: Claude PR Assistant
 
-on:
-  pull_request_review_comment:
-    types: [created]
+# TEMPORARILY DISABLED - on:
+#   pull_request_review_comment:
+#     types: [created]
 
 jobs:
   claude-code-action:
