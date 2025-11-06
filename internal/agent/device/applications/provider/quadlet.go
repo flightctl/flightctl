@@ -107,7 +107,8 @@ func installQuadlet(readWriter fileio.ReadWriter, path string, appID string) err
 			}
 
 			ext := filepath.Ext(filename)
-			if _, isQuadlet := client.QuadletSections[ext]; isQuadlet || ext == ".target" {
+			isQuadlet := quadlet.IsQuadletFile(filename)
+			if isQuadlet || ext == ".target" {
 				if isQuadlet {
 					foundTypes[ext] = struct{}{}
 				}
@@ -137,8 +138,8 @@ func installQuadlet(readWriter fileio.ReadWriter, path string, appID string) err
 		if !entry.IsDir() {
 			filename := entry.Name()
 			ext := filepath.Ext(filename)
-
-			if _, ok := client.QuadletSections[ext]; ok || ext == ".target" {
+			isQuadlet := quadlet.IsQuadletFile(filename)
+			if isQuadlet || ext == ".target" {
 				if err := updateQuadletReferences(readWriter, path, appID, filename, ext, quadletBasenames); err != nil {
 					return fmt.Errorf("updating references in %s: %w", filename, err)
 				}
@@ -206,7 +207,7 @@ func namespaceDropInDirectory(readWriter fileio.ReadWriter, dirPath, appID strin
 		ext = fmt.Sprintf(".%s", baseName)
 	}
 
-	if _, ok := client.QuadletSections[ext]; !ok {
+	if _, ok := quadlet.Extensions[ext]; !ok {
 		return nil
 	}
 
@@ -262,20 +263,20 @@ func createQuadletDropIn(readWriter fileio.ReadWriter, dirPath, appID, extension
 		return fmt.Errorf("creating drop-in directory: %w", err)
 	}
 
-	sectionName := client.QuadletSections[extension]
+	sectionName := quadlet.Extensions[extension]
 	unitOpts := make([]*unit.UnitOption, 1, 2)
 	// add label for tracking quadlet events by app id
 	unitOpts[0] = &unit.UnitOption{
 		Section: sectionName,
-		Name:    client.QuadletKeyLabel,
+		Name:    quadlet.LabelKey,
 		Value:   fmt.Sprintf("%s=%s", client.QuadletProjectLabelKey, appID),
 	}
 
 	// Only containers support environment files
-	if hasEnvFile && extension == client.QuadletContainerExtension {
+	if hasEnvFile && extension == quadlet.ContainerExtension {
 		unitOpts = append(unitOpts, &unit.UnitOption{
 			Section: sectionName,
-			Name:    client.QuadletKeyEnvironmentFile,
+			Name:    quadlet.EnvironmentFileKey,
 			Value:   filepath.Join(dirPath, ".env"),
 		})
 	}
@@ -294,7 +295,7 @@ func createQuadletDropIn(readWriter fileio.ReadWriter, dirPath, appID, extension
 
 // prefixQuadletReference prefixes a quadlet filename reference with appID if it's not already prefixed
 func prefixQuadletReference(value, appID string) string {
-	for ext := range client.QuadletSections {
+	for ext := range quadlet.Extensions {
 		if strings.HasSuffix(value, ext) {
 			prefix := fmt.Sprintf("%s-", appID)
 			if !strings.HasPrefix(value, prefix) {
@@ -421,15 +422,15 @@ func updateOptionsByName(sections []*unit.UnitSection, sectionName string, names
 // updateContainerSection updates references in [Container] section
 func updateContainerSection(sections []*unit.UnitSection, appID string) error {
 	var errs []error
-	err := updateOptionsByName(sections, client.QuadletContainerGroup, []string{client.QuadletKeyImage, client.QuadletKeyNetwork, client.QuadletKeyPod}, func(val string) (string, error) {
+	err := updateOptionsByName(sections, quadlet.ContainerGroup, []string{quadlet.ImageKey, quadlet.NetworkKey, quadlet.PodKey}, func(val string) (string, error) {
 		return prefixQuadletReference(val, appID), nil
 	})
 	errs = append(errs, err)
-	err = updateOptionsByName(sections, client.QuadletContainerGroup, []string{client.QuadletKeyMount}, func(val string) (string, error) {
+	err = updateOptionsByName(sections, quadlet.ContainerGroup, []string{quadlet.MountKey}, func(val string) (string, error) {
 		return updateMountValue(val, appID)
 	})
 	errs = append(errs, err)
-	err = updateOptionsByName(sections, client.QuadletContainerGroup, []string{client.QuadletKeyVolume}, func(val string) (string, error) {
+	err = updateOptionsByName(sections, quadlet.ContainerGroup, []string{quadlet.VolumeKey}, func(val string) (string, error) {
 		return updateVolumeValue(val, appID)
 	})
 	errs = append(errs, err)
@@ -439,11 +440,11 @@ func updateContainerSection(sections []*unit.UnitSection, appID string) error {
 // updatePodSection updates references in [Pod] section
 func updatePodSection(sections []*unit.UnitSection, appID string) error {
 	var errs []error
-	err := updateOptionsByName(sections, client.QuadletPodGroup, []string{client.QuadletKeyNetwork}, func(val string) (string, error) {
+	err := updateOptionsByName(sections, quadlet.PodGroup, []string{quadlet.NetworkKey}, func(val string) (string, error) {
 		return prefixQuadletReference(val, appID), nil
 	})
 	errs = append(errs, err)
-	err = updateOptionsByName(sections, client.QuadletPodGroup, []string{client.QuadletKeyVolume}, func(val string) (string, error) {
+	err = updateOptionsByName(sections, quadlet.PodGroup, []string{quadlet.VolumeKey}, func(val string) (string, error) {
 		return updateVolumeValue(val, appID)
 	})
 	errs = append(errs, err)
@@ -452,7 +453,7 @@ func updatePodSection(sections []*unit.UnitSection, appID string) error {
 
 // updateVolumeSection updates references in [Volume] section
 func updateVolumeSection(sections []*unit.UnitSection, appID string) error {
-	return updateOptionsByName(sections, client.QuadletVolumeGroup, []string{client.QuadletKeyImage}, func(val string) (string, error) {
+	return updateOptionsByName(sections, quadlet.VolumeGroup, []string{quadlet.ImageKey}, func(val string) (string, error) {
 		return prefixQuadletReference(val, appID), nil
 	})
 }
@@ -483,15 +484,15 @@ func updateQuadletReferences(readWriter fileio.ReadWriter, dirPath, appID, filen
 	updateSystemdSection(findSectionByName(sections, "Install"), appID, quadletBasenames)
 
 	switch extension {
-	case client.QuadletContainerExtension:
+	case quadlet.ContainerExtension:
 		if err = updateContainerSection(sections, appID); err != nil {
 			return fmt.Errorf("updating container section: %w", err)
 		}
-	case client.QuadletPodExtension:
+	case quadlet.PodExtension:
 		if err = updatePodSection(sections, appID); err != nil {
 			return fmt.Errorf("updating pod section: %w", err)
 		}
-	case client.QuadletVolumeExtension:
+	case quadlet.VolumeExtension:
 		if err = updateVolumeSection(sections, appID); err != nil {
 			return fmt.Errorf("updating volume section: %w", err)
 		}
@@ -525,7 +526,7 @@ func updateDropInReferences(readWriter fileio.ReadWriter, dirPath, appID string,
 	baseName := strings.TrimSuffix(dirname, ".d")
 	ext := filepath.Ext(baseName)
 
-	if _, ok := client.QuadletSections[ext]; !ok {
+	if _, ok := quadlet.Extensions[ext]; !ok {
 		return nil
 	}
 

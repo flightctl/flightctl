@@ -53,6 +53,7 @@ Welcome to the Flight Control user documentation.
 * [Configuring the Flight Control Agent](configuring-agent.md)
 * [PostgreSQL Backup Strategy](postgresql-backup-strategy.md)
 * [Restore Operations](restore.md)
+* [Configuring Organizations](organizations.md)
 * [Troubleshooting](troubleshooting.md)
 
 **References** - Useful references.

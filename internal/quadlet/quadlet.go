@@ -47,8 +47,46 @@ const (
 	ImageKey = "Image"
 	// MountKey is the key name for mount specifications in quadlet unit sections.
 	MountKey = "Mount"
+	// LabelKey is the key name for label specifications in quadlet unit sections.
+	LabelKey = "Label"
+	// VolumeKey is the key name for volume references in quadlet unit sections.
+	VolumeKey = "Volume"
+	// EnvironmentFileKey is the key name for environment file references in quadlet unit sections.
+	EnvironmentFileKey = "EnvironmentFile"
+	// NetworkKey is the key name for network references in quadlet unit sections.
+	NetworkKey = "Network"
+	// PodKey is the key name for pod references in quadlet unit sections.
+	PodKey = "Pod"
 )
 
+// Sections maps quadlet section names to their corresponding file extensions.
+var Sections = map[string]string{
+	ContainerGroup: ContainerExtension,
+	VolumeGroup:    VolumeExtension,
+	ImageGroup:     ImageExtension,
+	PodGroup:       PodExtension,
+	BuildGroup:     BuildExtension,
+	ArtifactGroup:  ArtifactExtension,
+	KubeGroup:      KubeExtension,
+	NetworkGroup:   NetworkExtension,
+}
+
+// Extensions maps quadlet file extensions to their corresponding section names.
+var Extensions = map[string]string{
+	ContainerExtension: ContainerGroup,
+	VolumeExtension:    VolumeGroup,
+	NetworkExtension:   NetworkGroup,
+	PodExtension:       PodGroup,
+	ImageExtension:     ImageGroup,
+	KubeExtension:      KubeGroup,
+	ArtifactExtension:  ArtifactGroup,
+	BuildExtension:     BuildGroup,
+}
+
+// templateParts parses systemd template unit naming conventions from the given filename.
+// It returns the unit name prefix, instance name, and a boolean indicating whether the filename
+// represents a template unit. For example, "foo@bar.container" returns ("foo", "bar", true),
+// while "foo.container" returns ("foo", "", false).
 // see https://github.com/containers/podman/blob/main/pkg/systemd/parser/unitfile.go#L942
 func templateParts(filename string) (string, string, bool) {
 	ext := filepath.Ext(filename)
@@ -95,6 +133,9 @@ func DropinDirectories(quadlet string) []string {
 	return dropinPaths
 }
 
+// MountParts parses a CSV-formatted mount specification into individual parts.
+// Mount specifications are comma-separated key=value pairs (e.g., "type=image,source=myapp.image,destination=/data").
+// Returns an error if the mount string is not valid CSV format or does not contain exactly one record.
 func MountParts(mount string) ([]string, error) {
 	records, err := csv.NewReader(strings.NewReader(mount)).ReadAll()
 	if err != nil {
@@ -161,19 +202,8 @@ func IsBuildReference(ref string) bool {
 	return strings.HasSuffix(ref, BuildExtension)
 }
 
-var quadlets = map[string]struct{}{
-	ContainerExtension: {},
-	VolumeExtension:    {},
-	NetworkExtension:   {},
-	PodExtension:       {},
-	ImageExtension:     {},
-	KubeExtension:      {},
-	ArtifactExtension:  {},
-	BuildExtension:     {},
-}
-
 // IsQuadletFile returns true if the given file path has a recognized quadlet extension.
 func IsQuadletFile(quadlet string) bool {
-	_, ok := quadlets[filepath.Ext(quadlet)]
+	_, ok := Extensions[filepath.Ext(quadlet)]
 	return ok
 }
