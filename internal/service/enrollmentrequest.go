@@ -193,6 +193,21 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 					Info:   lo.ToPtr(tpmErrorMsg),
 				},
 			}
+		} else {
+			// Device enrolled without TPM - integrity verification not supported
+			deviceStatus.Integrity = api.DeviceIntegrityStatus{
+				Status:       api.DeviceIntegrityStatusUnsupported,
+				Info:         lo.ToPtr("TPM not present or not enabled on this device"),
+				LastVerified: &now,
+				DeviceIdentity: &api.DeviceIntegrityCheckStatus{
+					Status: api.DeviceIntegrityCheckStatusUnsupported,
+					Info:   lo.ToPtr("Device does not have TPM enabled"),
+				},
+				Tpm: &api.DeviceIntegrityCheckStatus{
+					Status: api.DeviceIntegrityCheckStatusUnsupported,
+					Info:   lo.ToPtr("TPM not present or not enabled"),
+				},
+			}
 		}
 	}
 
