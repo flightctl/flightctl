@@ -17,11 +17,9 @@ var (
 	ErrNotFound = errors.New("not found")
 )
 
-// storageData represents the structure for persisted TPM data
 type storageData struct {
 	LDevID          *keyData                       `json:"ldevid,omitempty"`
 	LAK             *keyData                       `json:"lak,omitempty"`
-	SealedPassword  *passwordData                  `json:"sealed_password,omitempty"`
 	ApplicationKeys map[string]*applicationKeyData `json:"app_keys,omitempty"`
 }
 
@@ -36,11 +34,6 @@ type applicationKeyData struct {
 	KeyData        keyData `json:"key_data,omitempty"`
 	ParentHandle   uint32  `json:"parent_handle"`
 	ParentPassword *string `json:"parent_password,omitempty"`
-}
-
-// passwordData represents persisted password information
-type passwordData struct {
-	EncodedPassword string `json:"encoded_password"`
 }
 
 func (k *keyData) Public() (*tpm2.TPM2BPublic, error) {
@@ -89,20 +82,21 @@ func (k *applicationKeyData) Update(handle tpm2.TPMHandle, public tpm2.TPM2BPubl
 	return nil
 }
 
-func (p *passwordData) Encoded() (string, error) {
-	if p.EncodedPassword == "" {
-		return "", fmt.Errorf("password is empty in storage")
+func (k *applicationKeyData) UpdateWithPasswords(handle tpm2.TPMHandle, public tpm2.TPM2BPublic, private tpm2.TPM2BPrivate, parentPass, keyPass []byte) error {
+	if err := k.Update(handle, public, private); err != nil {
+		return err
 	}
-	return p.EncodedPassword, nil
-}
 
-func (p *passwordData) Clear() error {
-	p.EncodedPassword = ""
+	if len(parentPass) > 0 {
+		encoded := base64.StdEncoding.EncodeToString(parentPass)
+		k.ParentPassword = &encoded
+	}
+	if len(keyPass) > 0 {
+		encoded := base64.StdEncoding.EncodeToString(keyPass)
+		k.KeyData.Password = &encoded
+	}
+
 	return nil
-}
-
-func (p *passwordData) Update(password []byte) {
-	p.EncodedPassword = base64.StdEncoding.EncodeToString(password)
 }
 
 func (s *storageData) Handle(keyType KeyType) *keyData {
@@ -126,13 +120,6 @@ func (s *storageData) ClearHandle(keyType KeyType) error {
 		return fmt.Errorf("invalid key type: %s", keyType)
 	}
 	return nil
-}
-
-func (s *storageData) Password() (*passwordData, error) {
-	if s.SealedPassword == nil {
-		return nil, fmt.Errorf("password %w", ErrNotFound)
-	}
-	return s.SealedPassword, nil
 }
 
 // fileStorage implements Storage interface for file-based persistence
@@ -302,8 +289,9 @@ func (s *fileStorage) StoreApplicationKey(appName string, keyData AppKeyStoreDat
 		data.ApplicationKeys[appName] = entry
 	}
 
-	// TODO passwords
-	if err := entry.Update(keyData.ParentHandle, keyData.Public, keyData.Private); err != nil {
+	// Store key data with passwords
+	if err := entry.UpdateWithPasswords(keyData.ParentHandle, keyData.Public, keyData.Private,
+		keyData.ParentPass, keyData.Pass); err != nil {
 		return fmt.Errorf("updating key data: %s : %w", appName, err)
 	}
 
@@ -351,79 +339,6 @@ func (s *fileStorage) ClearApplicationKey(appName string) error {
 		return err
 	}
 	delete(data.ApplicationKeys, appName)
-
-	return s.writeData(data)
-}
-
-func (s *fileStorage) GetPassword() ([]byte, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	data, err := s.readData()
-	if err != nil {
-		return nil, err
-	}
-
-	password, err := data.Password()
-	if err != nil {
-		return nil, err
-	}
-
-	encodedPassword, err := password.Encoded()
-	if err != nil {
-		return nil, fmt.Errorf("reading encoded password: %w", err)
-	}
-
-	// decode base64 password to get raw bytes for TPM operations
-	rawPassword, err := base64.StdEncoding.DecodeString(encodedPassword)
-	if err != nil {
-		return nil, fmt.Errorf("decoding base64 password: %w", err)
-	}
-
-	return rawPassword, nil
-}
-
-func (s *fileStorage) StorePassword(newPassword []byte) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	data, err := s.readData()
-	if err != nil {
-		return err
-	}
-
-	// ensure password data exists
-	if data.SealedPassword == nil {
-		data.SealedPassword = &passwordData{}
-	}
-
-	currentPassword, err := data.Password()
-	if err != nil {
-		return err
-	}
-
-	currentPassword.Update(newPassword)
-	return s.writeData(data)
-}
-
-func (s *fileStorage) ClearPassword() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	data, err := s.readData()
-	if err != nil {
-		return err
-	}
-
-	if data.SealedPassword != nil {
-		password, err := data.Password()
-		if err != nil {
-			return fmt.Errorf("getting password: %w", err)
-		}
-		if err := password.Clear(); err != nil {
-			return fmt.Errorf("clearing password in data: %w", err)
-		}
-	}
 
 	return s.writeData(data)
 }

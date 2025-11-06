@@ -13,6 +13,7 @@ import (
 
 const (
 	systemctlCommand        = "/usr/bin/systemctl"
+	systemdCredsCommand     = "systemd-creds"
 	defaultSystemctlTimeout = time.Minute
 )
 
@@ -186,4 +187,37 @@ func (s *Systemd) ListJobs(ctx context.Context) ([]SystemdJob, error) {
 	}
 
 	return jobs, nil
+}
+
+// CredsEncrypt encrypts data using systemd-creds
+// Returns the encrypted data or an error
+func (s *Systemd) CredsEncrypt(ctx context.Context, name, withKey, inputPath, outputPath string) error {
+	args := []string{
+		"encrypt",
+		"--with-key=" + withKey,
+		"--name=" + name,
+		inputPath,
+		outputPath,
+	}
+	_, stderr, exitCode := s.exec.ExecuteWithContext(ctx, systemdCredsCommand, args...)
+	if exitCode != 0 {
+		return fmt.Errorf("systemd-creds encrypt failed: %w", errors.FromStderr(stderr, exitCode))
+	}
+	return nil
+}
+
+// CredsDecrypt decrypts a credential file using systemd-creds
+// Returns the decrypted data or an error
+func (s *Systemd) CredsDecrypt(ctx context.Context, credPath string) ([]byte, error) {
+	stdout, stderr, exitCode := s.exec.ExecuteWithContext(ctx, systemdCredsCommand, "decrypt", credPath, "-")
+	if exitCode != 0 {
+		return nil, fmt.Errorf("systemd-creds decrypt failed: %w", errors.FromStderr(stderr, exitCode))
+	}
+	return []byte(stdout), nil
+}
+
+// CredsHasTPM2 checks if systemd-creds has TPM2 support
+func (s *Systemd) CredsHasTPM2(ctx context.Context) bool {
+	_, _, exitCode := s.exec.ExecuteWithContext(ctx, systemdCredsCommand, "has-tpm2")
+	return exitCode == 0
 }

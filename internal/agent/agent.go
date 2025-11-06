@@ -73,6 +73,7 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	// create file io writer and reader
 	deviceReadWriter := fileio.NewReadWriter(fileio.WithTestRootDir(a.config.GetTestRootDir()))
+	executer := &executer.CommonExecuter{}
 
 	tpmClient, err := a.tryLoadTPM(deviceReadWriter)
 	if err != nil {
@@ -83,6 +84,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	identityProvider := identity.NewProvider(
 		tpmClient,
 		deviceReadWriter,
+		executer,
 		a.config,
 		a.log,
 	)
@@ -100,8 +102,6 @@ func (a *Agent) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to generate CSR: %w", err)
 	}
-
-	executer := &executer.CommonExecuter{}
 
 	// create enrollment client
 	enrollmentClient, err := newEnrollmentClient(a.config, a.log)
