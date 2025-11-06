@@ -43,32 +43,36 @@ var (
 	}
 )
 
-// QuadletReferences represents a Quadlet unit file's parsed references.
+// QuadletReferences represents a parsed Quadlet file's external references.
 type QuadletReferences struct {
-	Type        QuadletType
-	Image       *string
+	// Type defines The quadlet type
+	Type QuadletType
+	// Image defines the Image associated with the quadlet. This can be an OCI image or a reference to an Image quadlet
+	Image *string
+	// MountImages defines a list images associated with the quadlet through mechanisms such as mounts.
+	// These can be OCI images or references to Image quadlets
 	MountImages []string
 }
 
-// ParseQuadletReferences parses unit file data into a QuadletReferences object
+// ParseQuadletReferences parses unit file data into a QuadletSpec
 func ParseQuadletReferences(data []byte) (*QuadletReferences, error) {
-	unit, err := quadlet.NewUnit(data)
-	if err != nil {
-		return nil, fmt.Errorf("parsing quadlet references: %w", err)
-	}
-
-	for group := range UnsupportedQuadletSections {
-		if unit.HasSection(group) {
-			return nil, fmt.Errorf("%w: type: %s", ErrUnsupportedQuadletType, group)
-		}
-	}
-
 	typeSections := map[string]QuadletType{
 		quadlet.ContainerGroup: QuadletTypeContainer,
 		quadlet.VolumeGroup:    QuadletTypeVolume,
 		quadlet.NetworkGroup:   QuadletTypeNetwork,
 		quadlet.ImageGroup:     QuadletTypeImage,
 		quadlet.PodGroup:       QuadletTypePod,
+	}
+
+	unit, err := quadlet.NewUnit(data)
+	if err != nil {
+		return nil, err
+	}
+
+	for section := range UnsupportedQuadletSections {
+		if unit.HasSection(section) {
+			return nil, fmt.Errorf("%w: type: %s", ErrUnsupportedQuadletType, section)
+		}
 	}
 
 	var detectedType QuadletType
@@ -82,7 +86,6 @@ func ParseQuadletReferences(data []byte) (*QuadletReferences, error) {
 			foundCount++
 		}
 	}
-
 	if foundCount == 0 {
 		return nil, ErrNonQuadletType
 	}
