@@ -1,0 +1,479 @@
+openapi: 3.0.1
+info:
+  title: Flight Control PAM OIDC Provider API
+  version: v1alpha1
+  description: |
+    PAM-based OIDC authentication service for Flight Control.
+    This service provides OAuth2/OIDC authentication using system PAM (Pluggable Authentication Modules).
+  contact:
+    name: The Flight Control Team
+    url: https://flightctl.io
+    email: team@flightctl.io
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0.html
+servers:
+  - url: /
+tags:
+  - name: authentication
+    description: OAuth2/OIDC authentication operations.
+paths:
+  /api/v1/auth/.well-known/openid-configuration:
+    get:
+      tags:
+        - authentication
+      description: OpenID Connect discovery endpoint.
+      operationId: authOpenIDConfiguration
+      responses:
+        "200":
+          description: OpenID Connect configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OpenIDConfiguration'
+  /api/v1/auth/authorize:
+    get:
+      tags:
+        - authentication
+      description: OAuth2 authorization endpoint for authorization code flow.
+      operationId: authAuthorize
+      parameters:
+        - name: response_type
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [code, token]
+          description: OAuth2 response type.
+        - name: client_id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: OAuth2 client ID.
+        - name: redirect_uri
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uri
+          description: OAuth2 redirect URI.
+        - name: scope
+          in: query
+          schema:
+            type: string
+          description: OAuth2 scope.
+        - name: state
+          in: query
+          schema:
+            type: string
+          description: OAuth2 state parameter.
+      responses:
+        "200":
+          description: Login form HTML (if user not authenticated)
+          content:
+            text/html:
+              schema:
+                type: string
+        "302":
+          description: Redirect to authorization page or back to client
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+  /api/v1/auth/login:
+    get:
+      tags:
+        - authentication
+      description: Login form endpoint for OAuth2 authorization flow.
+      operationId: authLogin
+      parameters:
+        - name: client_id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: OAuth2 client ID.
+        - name: redirect_uri
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uri
+          description: OAuth2 redirect URI.
+        - name: state
+          in: query
+          schema:
+            type: string
+          description: OAuth2 state parameter.
+      responses:
+        "200":
+          description: Login form HTML
+          content:
+            text/html:
+              schema:
+                type: string
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+    post:
+      tags:
+        - authentication
+      description: Process login form submission.
+      operationId: authLoginPost
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                client_id:
+                  type: string
+                redirect_uri:
+                  type: string
+                state:
+                  type: string
+                username:
+                  type: string
+                password:
+                  type: string
+              required:
+                - username
+                - password
+      responses:
+        "302":
+          description: Redirect to authorization endpoint with session
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Authentication failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+  /api/v1/auth/token:
+    post:
+      tags:
+        - authentication
+      description: OAuth2 token endpoint for authentication and token refresh.
+      operationId: authToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TokenRequest'
+      responses:
+        "200":
+          description: Token response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+  /api/v1/auth/userinfo:
+    get:
+      tags:
+        - authentication
+      description: OIDC UserInfo endpoint for retrieving user information.
+      operationId: authUserInfo
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: User information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserInfoResponse'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserInfoResponse'
+  /api/v1/auth/jwks:
+    get:
+      tags:
+        - authentication
+      description: JSON Web Key Set (JWKS) endpoint for token validation.
+      operationId: authJWKS
+      responses:
+        "200":
+          description: JSON Web Key Set
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JWKSResponse'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT Bearer token authentication
+    oauth2:
+      type: oauth2
+      flows:
+        authorizationCode:
+          authorizationUrl: /api/v1/auth/authorize
+          tokenUrl: /api/v1/auth/token
+          scopes:
+            openid: OpenID Connect scope
+            profile: Access to user profile information
+            email: Access to user email
+            roles: Access to user roles
+            offline_access: Refresh token access
+          refreshUrl: /api/v1/auth/token
+    openIdConnect:
+      type: openIdConnect
+      openIdConnectUrl: /api/v1/auth/.well-known/openid-configuration
+      description: OpenID Connect authentication
+  schemas:
+    Status:
+      type: object
+      properties:
+        apiVersion:
+          type: string
+          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+        kind:
+          type: string
+          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
+        code:
+          type: integer
+          format: int32
+          description: Suggested HTTP return code for this status, 0 if not set.
+        message:
+          type: string
+          description: A human-readable description of the status of this operation.
+        reason:
+          type: string
+          description: A machine-readable description of why this operation is in the "Failure" status. If this value is empty there is no information available. A Reason clarifies an HTTP status code but does not override it.
+        status:
+          type: string
+          description: 'Status of the operation. One of: "Success" or "Failure". More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#spec-and-status.'
+      description: Status is a return value for calls that don't return other objects.
+      required:
+        - apiVersion
+        - kind
+        - status
+        - code
+        - reason
+        - message
+    TokenRequest:
+      type: object
+      required:
+        - grant_type
+      properties:
+        grant_type:
+          type: string
+          enum: [refresh_token, authorization_code]
+          description: OAuth2 grant type.
+        username:
+          type: string
+          nullable: true
+          description: Username for password grant (not used in OIDC flows).
+        password:
+          type: string
+          nullable: true
+          description: Password for password grant (not used in OIDC flows).
+          writeOnly: true
+        refresh_token:
+          type: string
+          nullable: true
+          description: Refresh token for refresh_token grant.
+        code:
+          type: string
+          nullable: true
+          description: Authorization code for authorization_code grant.
+        client_id:
+          type: string
+          nullable: true
+          description: OAuth2 client ID.
+        client_secret:
+          type: string
+          nullable: true
+          description: OAuth2 client secret (optional for public clients).
+          writeOnly: true
+        scope:
+          type: string
+          nullable: true
+          description: OAuth2 scope.
+      description: OAuth2 token request
+    TokenResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+          description: OAuth2 access token.
+        token_type:
+          type: string
+          enum: [Bearer]
+          description: Token type.
+        refresh_token:
+          type: string
+          description: OAuth2 refresh token.
+        expires_in:
+          type: integer
+          description: Token expiration time in seconds.
+        error:
+          type: string
+          description: OAuth2 error code.
+        error_description:
+          type: string
+          description: OAuth2 error description.
+      description: OAuth2 token response
+    UserInfoResponse:
+      type: object
+      properties:
+        sub:
+          type: string
+          description: Subject identifier.
+        preferred_username:
+          type: string
+          description: Preferred username.
+        name:
+          type: string
+          description: Full name.
+        email:
+          type: string
+          description: Email address.
+        email_verified:
+          type: boolean
+          description: Email verification status.
+        roles:
+          type: array
+          items:
+            type: string
+          description: User roles.
+        organizations:
+          type: array
+          items:
+            type: string
+          description: User organizations.
+        error:
+          type: string
+          description: Error code.
+      description: OIDC UserInfo response
+    JWKSResponse:
+      type: object
+      properties:
+        keys:
+          type: array
+          items:
+            type: object
+            properties:
+              kty:
+                type: string
+                description: Key type.
+              use:
+                type: string
+                description: Key use.
+              kid:
+                type: string
+                description: Key ID.
+              alg:
+                type: string
+                description: Algorithm.
+              n:
+                type: string
+                description: RSA modulus (for RSA keys).
+              e:
+                type: string
+                description: RSA exponent (for RSA keys).
+              crv:
+                type: string
+                description: Elliptic curve name (for EC keys, e.g., "P-256").
+              x:
+                type: string
+                description: EC x-coordinate (for EC keys).
+              y:
+                type: string
+                description: EC y-coordinate (for EC keys).
+      description: JSON Web Key Set
+    OpenIDConfiguration:
+      type: object
+      properties:
+        issuer:
+          type: string
+          description: OIDC issuer.
+        authorization_endpoint:
+          type: string
+          description: Authorization endpoint.
+        token_endpoint:
+          type: string
+          description: Token endpoint.
+        userinfo_endpoint:
+          type: string
+          description: UserInfo endpoint.
+        jwks_uri:
+          type: string
+          description: JWKS endpoint.
+        subject_types_supported:
+          type: array
+          items:
+            type: string
+            enum: [public, pairwise]
+          description: Supported subject identifier types.
+        response_types_supported:
+          type: array
+          items:
+            type: string
+          description: Supported response types.
+        grant_types_supported:
+          type: array
+          items:
+            type: string
+          description: Supported grant types.
+        scopes_supported:
+          type: array
+          items:
+            type: string
+          description: Supported scopes.
+        claims_supported:
+          type: array
+          items:
+            type: string
+          description: Supported claims.
+        id_token_signing_alg_values_supported:
+          type: array
+          items:
+            type: string
+          description: Supported signing algorithms.
+        token_endpoint_auth_methods_supported:
+          type: array
+          items:
+            type: string
+          description: Supported authentication methods.
+      description: OpenID Connect configuration
+

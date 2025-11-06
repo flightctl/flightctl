@@ -24,7 +24,7 @@ export SYSTEMD_UNIT_OUTPUT_DIR
 # Tags for dev builds on the main branch look like: 0.6.0-main-119-gf75bcff
 get_services_for_tag() {
     local image_tag="$1"
-    local services=("api" "periodic" "worker" "alert-exporter" "cli-artifacts" "alertmanager-proxy")
+    local services=("api" "periodic" "worker" "alert-exporter" "cli-artifacts" "alertmanager-proxy" "pam-issuer")
 
     if [[ ! "$image_tag" =~ -main- ]]; then
         services+=("ui")
@@ -80,6 +80,7 @@ render_files() {
     render_service "periodic" "${SOURCE_DIR}"
     render_service "worker" "${SOURCE_DIR}"
     render_service "alert-exporter" "${SOURCE_DIR}"
+    render_service "pam-issuer" "${SOURCE_DIR}"
 
     render_service "db" "${SOURCE_DIR}"
 
@@ -94,7 +95,9 @@ render_files() {
 
     # Create writeable directories for certs and services that generate files
     mkdir -p "${CONFIG_WRITEABLE_DIR}/pki"
+    mkdir -p "${CONFIG_WRITEABLE_DIR}/pam-issuer-pki"
     mkdir -p "${CONFIG_WRITEABLE_DIR}/flightctl-api"
+    mkdir -p "${CONFIG_WRITEABLE_DIR}/flightctl-pam-issuer"
     mkdir -p "${CONFIG_WRITEABLE_DIR}/flightctl-ui"
     mkdir -p "${CONFIG_WRITEABLE_DIR}/flightctl-cli-artifacts"
     mkdir -p "${CONFIG_WRITEABLE_DIR}/flightctl-alertmanager-proxy"

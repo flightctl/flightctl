@@ -9,7 +9,7 @@ source "${SCRIPT_DIR}"/shared.sh
 # Function to switch container images from quay.io to locally built ones for development
 switch_to_local_images() {
     echo "Switching container images to locally built ones for development..."
-    local services=("api" "worker" "periodic" "alert-exporter" "alertmanager-proxy" "cli-artifacts" "db-migrate" "db-wait" "db-users-init")
+    local services=("api" "worker" "periodic" "alert-exporter" "alertmanager-proxy" "cli-artifacts" "db-migrate" "db-wait" "db-users-init" "pam-issuer")
 
     for service in "${services[@]}"; do
         container_file="${QUADLET_FILES_OUTPUT_DIR}/flightctl-${service}.container"

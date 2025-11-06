@@ -617,6 +617,7 @@ rm -rf /usr/share/sosreport
     %dir %{_sysconfdir}/flightctl/flightctl-ui
     %dir %{_sysconfdir}/flightctl/flightctl-cli-artifacts
     %dir %{_sysconfdir}/flightctl/flightctl-alertmanager-proxy
+    %dir %{_sysconfdir}/flightctl/flightctl-pam-issuer
     %dir %{_sysconfdir}/flightctl/ssh
     %config(noreplace) %{_sysconfdir}/flightctl/service-config.yaml
     %config(noreplace) %{_sysconfdir}/flightctl/flightctl-services-install.conf
@@ -631,6 +632,7 @@ rm -rf /usr/share/sosreport
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-alertmanager-proxy
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-ui
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-cli-artifacts
+    %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-pam-issuer
     %{_datadir}/flightctl/flightctl-api/config.yaml.template
     %{_datadir}/flightctl/flightctl-api/env.template
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-api/init.sh
@@ -648,6 +650,8 @@ rm -rf /usr/share/sosreport
     %{_datadir}/flightctl/flightctl-alertmanager/alertmanager.yml
     %{_datadir}/flightctl/flightctl-alertmanager-proxy/env.template
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-alertmanager-proxy/init.sh
+    %{_datadir}/flightctl/flightctl-pam-issuer/config.yaml.template
+    %attr(0755,root,root) %{_datadir}/flightctl/flightctl-pam-issuer/init.sh
 
     # Handle permissions for scripts setting host config
     %attr(0755,root,root) %{_datadir}/flightctl/init_host.sh

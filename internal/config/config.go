@@ -111,11 +111,12 @@ type alertmanagerConfig struct {
 }
 
 type authConfig struct {
-	K8s                   *k8sAuth  `json:"k8s,omitempty"`
-	OIDC                  *oidcAuth `json:"oidc,omitempty"`
-	AAP                   *aapAuth  `json:"aap,omitempty"`
-	CACert                string    `json:"caCert,omitempty"`
-	InsecureSkipTlsVerify bool      `json:"insecureSkipTlsVerify,omitempty"`
+	K8s                   *k8sAuth       `json:"k8s,omitempty"`
+	OIDC                  *oidcAuth      `json:"oidc,omitempty"`
+	AAP                   *aapAuth       `json:"aap,omitempty"`
+	CACert                string         `json:"caCert,omitempty"`
+	InsecureSkipTlsVerify bool           `json:"insecureSkipTlsVerify,omitempty"`
+	PAMOIDCIssuer         *PAMOIDCIssuer `json:"pamOidcIssuer,omitempty"` // this is the issuer implementation configuration
 }
 
 type k8sAuth struct {
@@ -132,6 +133,24 @@ type oidcAuth struct {
 type aapAuth struct {
 	ApiUrl         string `json:"apiUrl,omitempty"`
 	ExternalApiUrl string `json:"externalApiUrl,omitempty"`
+}
+
+// PAMOIDCIssuer represents an OIDC issuer that uses Linux PAM for authentication
+type PAMOIDCIssuer struct {
+	// Address is the listen address for the PAM issuer service (e.g., ":8444")
+	Address string `json:"address,omitempty"`
+	// Issuer is the base URL for the OIDC issuer (e.g., "https://flightctl.example.com")
+	Issuer string `json:"issuer,omitempty"`
+	// ClientID is the OAuth2 client ID for this issuer
+	ClientID string `json:"clientId,omitempty"`
+	// ClientSecret is the OAuth2 client secret for this issuer
+	ClientSecret string `json:"clientSecret,omitempty"`
+	// Scopes are the supported OAuth2 scopes
+	Scopes []string `json:"scopes,omitempty"`
+	// RedirectURIs are the allowed redirect URIs for OAuth2 flows
+	RedirectURIs []string `json:"redirectUris,omitempty"`
+	// PAMService is the PAM service name to use for authentication (default: "flightctl")
+	PAMService string `json:"pamService" validate:"required"`
 }
 
 type metricsConfig struct {
@@ -431,6 +450,33 @@ func Load(cfgFile string) (*Config, error) {
 		c.Database.MigrationPassword = SecureString(dbMigrationPass)
 	}
 
+	// Set up OIDC issuer and client defaults only when explicitly configured
+	if c.Auth != nil {
+		// Only apply defaults if PAM OIDC issuer block is provided
+		if c.Auth.PAMOIDCIssuer != nil {
+			if c.Auth.PAMOIDCIssuer.PAMService == "" {
+				c.Auth.PAMOIDCIssuer.PAMService = "flightctl"
+			}
+			if c.Auth.PAMOIDCIssuer.Issuer == "" {
+				c.Auth.PAMOIDCIssuer.Issuer = c.Service.BaseUrl
+			}
+			if c.Auth.PAMOIDCIssuer.ClientID == "" {
+				c.Auth.PAMOIDCIssuer.ClientID = "flightctl-client"
+			}
+			if len(c.Auth.PAMOIDCIssuer.Scopes) == 0 {
+				c.Auth.PAMOIDCIssuer.Scopes = []string{"openid", "profile", "email", "roles"}
+			}
+			if len(c.Auth.PAMOIDCIssuer.RedirectURIs) == 0 {
+				base := c.Service.BaseUIUrl
+				if base == "" {
+					base = c.Service.BaseUrl
+				}
+				if base != "" {
+					c.Auth.PAMOIDCIssuer.RedirectURIs = []string{strings.TrimSuffix(base, "/") + "/auth/callback"}
+				}
+			}
+		}
+	}
 	return c, nil
 }
 
