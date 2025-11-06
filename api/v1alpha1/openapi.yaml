@@ -4457,9 +4457,14 @@ components:
             $ref: '#/components/schemas/Condition'
         systemInfo:
           $ref: "#/components/schemas/DeviceSystemInfo"
+        systemd:
+          type: array
+          description: List of systemd unit statuses.
+          items:
+            $ref: "#/components/schemas/SystemdUnitStatus"
         applications:
           type: array
-          description: List of device application status.
+          description: List of device application statuses.
           items:
             $ref: "#/components/schemas/DeviceApplicationStatus"
         applicationsSummary:
@@ -4527,6 +4532,108 @@ components:
       additionalProperties:
         type: string
         description: A user-defined custom property value.
+    SystemdUnitStatus:
+      type: object
+      required:
+        - unit
+        - description
+        - enableState
+        - loadState
+        - activeState
+        - subState
+      properties:
+        unit:
+          type: string
+          description: The unit name (e.g., "sshd.service").
+          example: "sshd.service"
+        description:
+          type: string
+          description: The human-readable description for the unit.
+          maxLength: 2048
+          example: "OpenSSH server daemon"
+        enableState:
+          $ref: "#/components/schemas/SystemdEnableStateType"
+        loadState:
+          $ref: "#/components/schemas/SystemdLoadStateType"
+        activeState:
+          $ref: "#/components/schemas/SystemdActiveStateType"
+        subState:
+          type: string
+          description: The low-level, unit-type-specific state.
+          maxLength: 64
+          pattern: '^[a-z0-9-]+$'
+          example: "running"
+    SystemdEnableStateType:
+      type: string
+      description: The enable state of the unit file.
+      enum:
+        - "enabled"
+        - "enabled-runtime"
+        - "linked"
+        - "linked-runtime"
+        - "alias"
+        - "masked"
+        - "masked-runtime"
+        - "static"
+        - "disabled"
+        - "indirect"
+        - "generated"
+        - "transient"
+        - "bad"
+      x-enum-varnames:
+        - "SystemdEnableStateEnabled"
+        - "SystemdEnableStateEnabledRuntime"
+        - "SystemdEnableStateLinked"
+        - "SystemdEnableStateLinkedRuntime"
+        - "SystemdEnableStateAlias"
+        - "SystemdEnableStateMasked"
+        - "SystemdEnableStateMaskedRuntime"
+        - "SystemdEnableStateStatic"
+        - "SystemdEnableStateDisabled"
+        - "SystemdEnableStateIndirect"
+        - "SystemdEnableStateGenerated"
+        - "SystemdEnableStateTransient"
+        - "SystemdEnableStateBad"
+    SystemdLoadStateType:
+      type: string
+      description: The load state of the unit file.
+      enum:
+        - "stub"
+        - "loaded"
+        - "not-found"
+        - "bad-setting"
+        - "error"
+        - "merged"
+        - "masked"
+      x-enum-varnames:
+        - "SystemdLoadStateStub"
+        - "SystemdLoadStateLoaded"
+        - "SystemdLoadStateNotFound"
+        - "SystemdLoadStateBadSetting"
+        - "SystemdLoadStateError"
+        - "SystemdLoadStateMerged"
+        - "SystemdLoadStateMasked"
+    SystemdActiveStateType:
+      type: string
+      description: The high-level unit activation state.
+      enum:
+        - "active"
+        - "reloading"
+        - "inactive"
+        - "failed"
+        - "activating"
+        - "deactivating"
+        - "maintenance"
+        - "refreshing"
+      x-enum-varnames:
+        - "SystemdActiveStateActive"
+        - "SystemdActiveStateReloading"
+        - "SystemdActiveStateInactive"
+        - "SystemdActiveStateFailed"
+        - "SystemdActiveStateActivating"
+        - "SystemdActiveStateDeactivating"
+        - "SystemdActiveStateMaintenance"
+        - "SystemdActiveStateRefreshing"
     DeviceApplicationStatus:
       type: object
       required:
