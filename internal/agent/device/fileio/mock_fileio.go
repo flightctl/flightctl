@@ -121,6 +121,25 @@ func (m *MockWriter) EXPECT() *MockWriterMockRecorder {
 	return m.recorder
 }
 
+// CopyDir mocks base method.
+func (m *MockWriter) CopyDir(src, dst string, opts ...CopyDirOption) error {
+	m.ctrl.T.Helper()
+	varargs := []any{src, dst}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "CopyDir", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CopyDir indicates an expected call of CopyDir.
+func (mr *MockWriterMockRecorder) CopyDir(src, dst any, opts ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{src, dst}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CopyDir", reflect.TypeOf((*MockWriter)(nil).CopyDir), varargs...)
+}
+
 // CopyFile mocks base method.
 func (m *MockWriter) CopyFile(src, dst string) error {
 	m.ctrl.T.Helper()
@@ -400,6 +419,25 @@ func NewMockReadWriter(ctrl *gomock.Controller) *MockReadWriter {
 // EXPECT returns an object that allows the caller to indicate expected use.
 func (m *MockReadWriter) EXPECT() *MockReadWriterMockRecorder {
 	return m.recorder
+}
+
+// CopyDir mocks base method.
+func (m *MockReadWriter) CopyDir(src, dst string, opts ...CopyDirOption) error {
+	m.ctrl.T.Helper()
+	varargs := []any{src, dst}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "CopyDir", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CopyDir indicates an expected call of CopyDir.
+func (mr *MockReadWriterMockRecorder) CopyDir(src, dst any, opts ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{src, dst}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CopyDir", reflect.TypeOf((*MockReadWriter)(nil).CopyDir), varargs...)
 }
 
 // CopyFile mocks base method.
