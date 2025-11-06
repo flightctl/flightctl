@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	"github.com/flightctl/flightctl/test/login"
 	. "github.com/onsi/ginkgo/v2"
@@ -84,8 +84,8 @@ var _ = Describe("multiorg operation", Ordered, func() {
 			logrus.Info("organization name: ", orgDisplayName)
 			deviceId, _ := harness.EnrollAndWaitForOnlineStatus()
 			harness.WaitForDeviceContents(deviceId, "The device has completed enrollment and is now online",
-				func(device *v1alpha1.Device) bool {
-					return device.Status.Summary.Status == v1alpha1.DeviceSummaryStatusOnline
+				func(device *v1beta1.Device) bool {
+					return device.Status.Summary.Status == v1beta1.DeviceSummaryStatusOnline
 				}, e2e.TIMEOUT)
 			out1, err1 := harness.CLI("get", "devices")
 			Expect(err1).ToNot(HaveOccurred())
