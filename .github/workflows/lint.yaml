@@ -48,6 +48,18 @@ jobs:
           make tidy
           git diff --exit-code
 
+      - name: Cache golangci-lint volumes
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.local/share/containers/storage/volumes/golangci-lint-cache
+            ~/.local/share/containers/storage/volumes/go-build-cache
+            ~/.local/share/containers/storage/volumes/go-mod-cache
+          key: lint-cache-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            lint-cache-${{ runner.os }}-
+
       - name: Running Linter
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         run: make lint
