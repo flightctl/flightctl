@@ -63,7 +63,9 @@ const (
 	DefaultTPMKeyFile = "tpm-blob.yaml"
 	// TestRootDirEnvKey is the environment variable key used to set the file system root when testing.
 	TestRootDirEnvKey = "FLIGHTCTL_TEST_ROOT_DIR"
-	// DefaultProfilingEnabled controls whether runtime profiling (pprof) is active by default.
+	// DefaultMetricsEnabled controls whether Prometheus metrics are enabled by default.
+	DefaultMetricsEnabled = true
+	// DefaultProfilingEnabled controls whether runtime profiling (pprof) is enabled by default.
 	DefaultProfilingEnabled = false
 )
 
@@ -122,6 +124,9 @@ type Config struct {
 	// PullRetrySteps defines how many retry attempts are allowed for pulling an OCI target.
 	PullRetrySteps int `json:"pull-retry-steps,omitempty"`
 
+	// MetricsEnabled enables the loopback-only Prometheus /metrics endpoint for local observability.
+	MetricsEnabled bool `json:"metrics-enabled,omitempty"`
+
 	// ProfilingEnabled turns on the loopback-only pprof server for local debugging.
 	ProfilingEnabled bool `json:"profiling-enabled,omitempty"`
 
@@ -168,6 +173,7 @@ func NewDefault() *Config {
 		SystemInfoTimeout:    DefaultSystemInfoTimeout,
 		PullTimeout:          DefaultPullTimeout,
 		PullRetrySteps:       DefaultPullRetrySteps,
+		MetricsEnabled:       DefaultMetricsEnabled,
 		ProfilingEnabled:     DefaultProfilingEnabled,
 		TPM: TPM{
 			Enabled:         false,
