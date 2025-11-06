@@ -1,7 +1,7 @@
 global:
   baseDomain:
   auth:
-    type: none # aap, oidc or none
+    type: none # aap, oidc, builtin (legacy, translates to oidc with PAM), or none
     insecureSkipTlsVerify: false
     aap:
       apiUrl:
@@ -12,6 +12,14 @@ global:
       oidcAuthority:
       externalOidcAuthority:
       oidcClientId:
+    pamOidcIssuer:
+      enabled: true
+      issuer: # OIDC issuer URL - must include /api/v1/auth path. Leave empty to auto-configure as https://${baseDomain}:8444/api/v1/auth
+      clientId: flightctl-client
+      clientSecret:
+      scopes: openid,profile,email,roles
+      redirectUris:
+      pamService: flightctl
   organizations:
     # Enable IdP-provided organizations support
     enabled: false

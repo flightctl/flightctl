@@ -23,7 +23,8 @@ if [ ! -f "$SERVICE_CONFIG_FILE" ]; then
 fi
 
 # Extract values
-BASE_DOMAIN=$(extract_value "baseDomain" "$SERVICE_CONFIG_FILE")
+BASE_DOMAIN=$(extract_value "global.baseDomain" "$SERVICE_CONFIG_FILE")
+BASE_URL="https://${BASE_DOMAIN}"
 SRV_CERT_FILE=""
 SRV_KEY_FILE=""
 
@@ -94,8 +95,18 @@ DB_NAME=${DB_NAME:-flightctl}
 DB_USER=${DB_USER:-admin}
 
 # Extract auth-related values
-AUTH_TYPE=$(extract_value "type" "$SERVICE_CONFIG_FILE")
-INSECURE_SKIP_TLS_VERIFY=$(extract_value "insecureSkipTlsVerify" "$SERVICE_CONFIG_FILE")
+AUTH_TYPE=$(extract_value "global.auth.type" "$SERVICE_CONFIG_FILE" | head -1)
+
+# Translate "builtin" to "oidc" for backwards compatibility
+# builtin is legacy auth that uses OIDC with PAM issuer enabled
+if [ "$AUTH_TYPE" == "builtin" ]; then
+  echo "Auth type 'builtin' detected - translating to 'oidc' with PAM issuer enabled"
+  AUTH_TYPE="oidc"
+  # Force PAM issuer to be enabled for builtin auth
+  FORCE_PAM_ISSUER_ENABLED="true"
+fi
+
+INSECURE_SKIP_TLS_VERIFY=$(extract_value "global.auth.insecureSkipTlsVerify" "$SERVICE_CONFIG_FILE" | head -1)
 AUTH_CA_CERT=""
 AAP_API_URL=""
 AAP_EXTERNAL_API_URL=""
@@ -138,9 +149,11 @@ if [ "$AUTH_TYPE" == "aap" ]; then
 
   AUTH_SED_CMDS=(
     -e "/{{if AAP}}/d"
-    -e "/{{elseif OIDC}}/,/{{endif}}/d"
+    -e "/{{endif AAP}}/d"
     -e "s|{{AAP_API_URL}}|$AAP_API_URL|g"
     -e "s|{{AAP_EXTERNAL_API_URL}}|$AAP_EXTERNAL_API_URL|g"
+    -e "/{{if OIDC}}/,/{{endif OIDC}}/d"
+    -e "/{{if PAM_OIDC_ISSUER_ENABLED}}/,/{{endif PAM_OIDC_ISSUER_ENABLED}}/d"
   )
 
   # If client id is not set and we have an oauth token, create a new oauth application
@@ -149,20 +162,113 @@ if [ "$AUTH_TYPE" == "aap" ]; then
   fi
 elif [ "$AUTH_TYPE" == "oidc" ]; then
   echo "Configuring OIDC authentication"
-  OIDC_URL=$(extract_value "oidcAuthority" "$SERVICE_CONFIG_FILE")
-  OIDC_EXTERNAL_URL=$(extract_value "externalOidcAuthority" "$SERVICE_CONFIG_FILE")
+  
+  # Extract OIDC configuration from service-config.yaml (under global.auth.oidc)
+  # Use grep to find values in the oidc section
+  OIDC_CLIENT_ID=$(grep -A 20 "oidc:" "$SERVICE_CONFIG_FILE" | grep "clientId:" | head -1 | sed 's/.*clientId:[[:space:]]*\(.*\)/\1/' | sed 's/[[:space:]]*$//')
+  OIDC_ENABLED=$(grep -A 20 "oidc:" "$SERVICE_CONFIG_FILE" | grep "enabled:" | head -1 | sed 's/.*enabled:[[:space:]]*\(.*\)/\1/' | sed 's/[[:space:]]*$//')
+  OIDC_ISSUER=$(grep -A 20 "oidc:" "$SERVICE_CONFIG_FILE" | grep "issuer:" | head -1 | sed 's/.*issuer:[[:space:]]*\(.*\)/\1/' | sed 's/[[:space:]]*$//')
+  OIDC_EXTERNAL_AUTHORITY=$(grep -A 20 "oidc:" "$SERVICE_CONFIG_FILE" | grep "externalOidcAuthority:" | head -1 | sed 's/.*externalOidcAuthority:[[:space:]]*\(.*\)/\1/' | sed 's/[[:space:]]*$//')
+  OIDC_ORG_ASSIGNMENT_TYPE=$(grep -A 5 "organizationAssignment:" "$SERVICE_CONFIG_FILE" | grep "type:" | head -1 | sed 's/.*type:[[:space:]]*\(.*\)/\1/' | sed 's/[[:space:]]*$//')
+  OIDC_ORG_NAME=$(grep -A 5 "organizationAssignment:" "$SERVICE_CONFIG_FILE" | grep "organizationName:" | head -1 | sed 's/.*organizationName:[[:space:]]*\(.*\)/\1/' | sed 's/[[:space:]]*$//')
+  OIDC_USERNAME_CLAIM=$(grep -A 20 "oidc:" "$SERVICE_CONFIG_FILE" | grep "usernameClaim:" | head -1 | sed 's/.*usernameClaim:[[:space:]]*\(.*\)/\1/' | sed 's/[[:space:]]*$//')
+  OIDC_ROLE_CLAIM=$(grep -A 20 "oidc:" "$SERVICE_CONFIG_FILE" | grep "roleClaim:" | head -1 | sed 's/.*roleClaim:[[:space:]]*\(.*\)/\1/' | sed 's/[[:space:]]*$//')
 
+  # Set defaults if not found
+  OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-flightctl-client}
+  OIDC_ENABLED=${OIDC_ENABLED:-true}
+  OIDC_ISSUER=${OIDC_ISSUER:-${BASE_URL}}
+  OIDC_EXTERNAL_AUTHORITY=${OIDC_EXTERNAL_AUTHORITY:-${BASE_URL}}
+  OIDC_ORG_ASSIGNMENT_TYPE=${OIDC_ORG_ASSIGNMENT_TYPE:-static}
+  OIDC_ORG_NAME=${OIDC_ORG_NAME:-default}
+  OIDC_USERNAME_CLAIM=${OIDC_USERNAME_CLAIM:-preferred_username}
+  OIDC_ROLE_CLAIM=${OIDC_ROLE_CLAIM:-groups}
+
+  # Extract PAM OIDC Issuer configuration (under global.auth.pamOidcIssuer)
+  # Use grep to find values in the pamOidcIssuer section, stripping comments
+  PAM_OIDC_ISSUER_ENABLED=$(grep -A 20 "pamOidcIssuer:" "$SERVICE_CONFIG_FILE" | grep "enabled:" | head -1 | sed 's/.*enabled:[[:space:]]*\(.*\)/\1/' | sed 's/#.*$//' | sed 's/[[:space:]]*$//')
+  PAM_OIDC_ISSUER=$(grep -A 20 "pamOidcIssuer:" "$SERVICE_CONFIG_FILE" | grep "issuer:" | head -1 | sed 's/.*issuer:[[:space:]]*\(.*\)/\1/' | sed 's/#.*$//' | sed 's/[[:space:]]*$//')
+  PAM_OIDC_CLIENT_ID=$(grep -A 20 "pamOidcIssuer:" "$SERVICE_CONFIG_FILE" | grep "clientId:" | head -1 | sed 's/.*clientId:[[:space:]]*\(.*\)/\1/' | sed 's/#.*$//' | sed 's/[[:space:]]*$//')
+  PAM_OIDC_CLIENT_SECRET=$(grep -A 20 "pamOidcIssuer:" "$SERVICE_CONFIG_FILE" | grep "clientSecret:" | head -1 | sed 's/.*clientSecret:[[:space:]]*\(.*\)/\1/' | sed 's/#.*$//' | sed 's/[[:space:]]*$//')
+  PAM_OIDC_SCOPES=$(grep -A 20 "pamOidcIssuer:" "$SERVICE_CONFIG_FILE" | grep "scopes:" | head -1 | sed 's/.*scopes:[[:space:]]*\(.*\)/\1/' | sed 's/#.*$//' | sed 's/[[:space:]]*$//')
+  PAM_OIDC_REDIRECT_URIS=$(grep -A 20 "pamOidcIssuer:" "$SERVICE_CONFIG_FILE" | grep "redirectUris:" | head -1 | sed 's/.*redirectUris:[[:space:]]*\(.*\)/\1/' | sed 's/#.*$//' | sed 's/[[:space:]]*$//')
+  PAM_OIDC_SERVICE=$(grep -A 20 "pamOidcIssuer:" "$SERVICE_CONFIG_FILE" | grep "pamService:" | head -1 | sed 's/.*pamService:[[:space:]]*\(.*\)/\1/' | sed 's/#.*$//' | sed 's/[[:space:]]*$//')
+
+  # Set defaults for PAM
+  # If FORCE_PAM_ISSUER_ENABLED is set (from builtin auth), always enable PAM
+  if [ "$FORCE_PAM_ISSUER_ENABLED" == "true" ]; then
+    PAM_OIDC_ISSUER_ENABLED="true"
+  else
+    PAM_OIDC_ISSUER_ENABLED=${PAM_OIDC_ISSUER_ENABLED:-true}
+  fi
+  PAM_OIDC_ISSUER=${PAM_OIDC_ISSUER:-${BASE_URL}}
+  PAM_OIDC_CLIENT_ID=${PAM_OIDC_CLIENT_ID:-flightctl-client}
+  PAM_OIDC_SERVICE=${PAM_OIDC_SERVICE:-flightctl}
+  
+  # Set PAM OIDC issuer URL for API server to connect to
+  # This is the URL where the PAM issuer service is accessible
+  PAM_OIDC_ISSUER_URL=${PAM_OIDC_ISSUER:-"https://${BASE_DOMAIN}:8444/api/v1/auth"}
+  
+  # Default redirect URI if not specified
+  if [ -z "$PAM_OIDC_REDIRECT_URIS" ]; then
+    PAM_OIDC_REDIRECT_URIS="${BASE_URL}/auth/callback"
+  fi
+
+  # Convert comma-separated list to YAML array format
+  if [ -n "$PAM_OIDC_SCOPES" ]; then
+    PAM_OIDC_SCOPES_YAML=$(echo "$PAM_OIDC_SCOPES" | sed 's/,/", "/g' | sed 's/^/["/' | sed 's/$/"]/')
+  else
+    PAM_OIDC_SCOPES_YAML='["openid", "profile", "email", "roles"]'
+  fi
+
+  if [ -n "$PAM_OIDC_REDIRECT_URIS" ]; then
+    PAM_OIDC_REDIRECT_URIS_YAML=$(echo "$PAM_OIDC_REDIRECT_URIS" | sed 's/,/", "/g' | sed 's/^/["/' | sed 's/$/"]/')
+  else
+    PAM_OIDC_REDIRECT_URIS_YAML='[]'
+  fi
+
+  # Build sed commands for OIDC
   AUTH_SED_CMDS=(
-    -e "/{{if AAP}}/,/{{elseif OIDC}}/d"
-    -e "/{{endif}}/d"
-    -e "s|{{OIDC_URL}}|$OIDC_URL|g"
-    -e "s|{{OIDC_EXTERNAL_URL}}|$OIDC_EXTERNAL_URL|g"
+    -e "/{{if AAP}}/,/{{endif AAP}}/d"
+    -e "/{{if OIDC}}/d"
+    -e "/{{endif OIDC}}/d"
+    -e "s|{{OIDC_CLIENT_ID}}|$OIDC_CLIENT_ID|g"
+    -e "s|{{OIDC_ENABLED}}|$OIDC_ENABLED|g"
+    -e "s|{{OIDC_ISSUER}}|$OIDC_ISSUER|g"
+    -e "s|{{OIDC_EXTERNAL_AUTHORITY}}|$OIDC_EXTERNAL_AUTHORITY|g"
+    -e "s|{{OIDC_ORG_ASSIGNMENT_TYPE}}|$OIDC_ORG_ASSIGNMENT_TYPE|g"
+    -e "s|{{OIDC_ORG_NAME}}|$OIDC_ORG_NAME|g"
+    -e "s|{{OIDC_USERNAME_CLAIM}}|$OIDC_USERNAME_CLAIM|g"
+    -e "s|{{OIDC_ROLE_CLAIM}}|$OIDC_ROLE_CLAIM|g"
+    -e "s|{{PAM_OIDC_ISSUER}}|$PAM_OIDC_ISSUER|g"
+    -e "s|{{PAM_OIDC_CLIENT_ID}}|$PAM_OIDC_CLIENT_ID|g"
+    -e "s|{{PAM_OIDC_CLIENT_SECRET}}|$PAM_OIDC_CLIENT_SECRET|g"
+    -e "s|{{PAM_OIDC_SCOPES}}|$PAM_OIDC_SCOPES_YAML|g"
+    -e "s|{{PAM_OIDC_REDIRECT_URIS}}|$PAM_OIDC_REDIRECT_URIS_YAML|g"
+    -e "s|{{PAM_OIDC_SERVICE}}|$PAM_OIDC_SERVICE|g"
+    -e "s|{{PAM_OIDC_ISSUER_URL}}|$PAM_OIDC_ISSUER_URL|g"
   )
+  
+  # Handle PAM conditional block
+  if [ "$PAM_OIDC_ISSUER_ENABLED" == "true" ]; then
+    # PAM is enabled: remove the conditional markers but keep the content
+    AUTH_SED_CMDS+=(
+      -e "/{{if PAM_OIDC_ISSUER_ENABLED}}/d"
+      -e "/{{endif PAM_OIDC_ISSUER_ENABLED}}/d"
+    )
+  else
+    # PAM is disabled: remove the entire PAM block
+    AUTH_SED_CMDS+=(
+      -e "/{{if PAM_OIDC_ISSUER_ENABLED}}/,/{{endif PAM_OIDC_ISSUER_ENABLED}}/d"
+    )
+  fi
 else
   echo "Auth not configured"
   FLIGHTCTL_DISABLE_AUTH="true"
-  AUTH_SED_CMDS+=(
-    -e "/{{if AAP}}/,/{{endif}}/d"
+  AUTH_SED_CMDS=(
+    -e "/{{if AAP}}/,/{{endif AAP}}/d"
+    -e "/{{if OIDC}}/,/{{endif OIDC}}/d"
+    -e "/{{if PAM_OIDC_ISSUER_ENABLED}}/,/{{endif PAM_OIDC_ISSUER_ENABLED}}/d"
   )
 fi
 

@@ -19,8 +19,10 @@ global:
   # -- Alternative to global.auth.k8s.externalOpenShiftApiUrl with the same meaning, used by the multiclusterhub operator
   apiUrl: "" # alternative to global.auth.k8s.externalOpenShiftApiUrl used by multiclusterhub operator
   auth:
-    # -- Type of the auth to use. Can be one of 'builtin', 'k8s', 'oidc', or 'none'
-    type: "builtin" # builtin, k8s, oidc, aap, none
+    # -- Type of the auth to use. Can be one of 'k8s', 'oidc', 'builtin', 'aap', or 'none'
+    # Note: 'builtin' is a legacy mode that translates to 'oidc' with PAM issuer automatically enabled
+    # For new deployments, explicitly set type to 'oidc' and configure pamOidcIssuer settings
+    type: "oidc" # k8s, oidc, builtin (legacy), aap, none
     # -- The custom CA cert.
     caCert: ""
     # -- True if verification of authority TLS cert should be skipped.
@@ -35,9 +37,13 @@ global:
       # -- Namespace that should be used for the RBAC checks
       rbacNs: ""
     oidc:
-      # -- The base URL for the Keycloak realm that is reachable by flightctl services. Example: https://keycloak.foo.internal/realms/flightctl
-      oidcAuthority: http://keycloak:8081/realms/flightctl
-      # -- The base URL for the Keycloak realm that is reachable by clients. Example: https://keycloak.foo.net/realms/flightctl
+      # -- OIDC Client ID
+      clientId: "flightctl-client"
+      # -- Whether this OIDC provider is enabled
+      enabled: true
+      # -- The base URL for the OIDC provider that is reachable by flightctl services. Example: https://auth.foo.internal/realms/flightctl
+      issuer: ""
+      # -- The base URL for the OIDC provider that is reachable by clients. Example: https://auth.foo.net/realms/flightctl
       externalOidcAuthority: ""
     aap:
       # -- The URL of the AAP Gateway API endpoint
@@ -73,8 +79,6 @@ global:
     agent: 7443
     # -- NodePort for web UI service
     ui: 9000
-    # -- NodePort for Keycloak service
-    keycloak: 8081
     # -- NodePort for Alertmanager proxy service
     alertmanagerProxy: 8443
     # -- NodePort for OTLP telemetry gateway
@@ -195,11 +199,6 @@ alertmanager:
     # -- Image pull policy for Alertmanager container
     pullPolicy: ""
 
-# -- Keycloak Configuration
-keycloak:
-  db:
-    # -- File system group ID for Keycloak database pod security context
-    fsGroup: ""
 
 # -- API Server Configuration
 api:
@@ -243,6 +242,7 @@ api:
     readinessPath: /readyz
     # -- HTTP path for liveness probe
     livenessPath: /healthz
+
 # -- CLI Artifacts Configuration
 cliArtifacts:
   # -- Enable CLI artifacts service

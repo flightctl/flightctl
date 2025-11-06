@@ -1,4 +1,4 @@
-{{- if and .Values.alertmanagerProxy.enabled (eq .Values.global.target "acm") }}
+{{- if and .Values.alertmanagerProxy.enabled (or (eq .Values.global.target "acm") (eq (include "flightctl.getEffectiveAuthType" .) "k8s")) }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
