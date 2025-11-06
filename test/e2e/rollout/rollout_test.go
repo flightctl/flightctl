@@ -657,6 +657,6 @@ func (tc *TestContext) verifyAllDevicesUpdated(expectedCount int) error {
 			}
 		}
 		return nil
-	}, "5m", "10s").Should(Succeed())
+	}, MEDIUMTIMEOUT, "10s").Should(Succeed())
 	return nil
 }
