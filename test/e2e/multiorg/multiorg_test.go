@@ -42,7 +42,7 @@ var _ = Describe("multiorg operation", Ordered, func() {
 	})
 
 	Context("multiorg operation", func() {
-		It("Should list organizations", Label("85918", "sanity"), func() {
+		It("Should list organizations", Label("85918", "integration"), func() {
 			harness := e2e.GetWorkerHarness()
 			orgDisplayNames := GetOrgDisplayNames()
 			for _, orgDisplayName := range orgDisplayNames {
@@ -54,8 +54,7 @@ var _ = Describe("multiorg operation", Ordered, func() {
 				Expect(out).To(ContainSubstring(orgName))
 			}
 		})
-
-		It("Should set organization", Label("85916", "sanity"), func() {
+		It("Should set organization", Label("85916", "integration"), func() {
 			harness := e2e.GetWorkerHarness()
 			orgDisplayNames := GetOrgDisplayNames()
 			for _, orgDisplayName := range orgDisplayNames {
@@ -67,8 +66,8 @@ var _ = Describe("multiorg operation", Ordered, func() {
 				Expect(out).To(ContainSubstring(orgName))
 			}
 		})
+		It("Should enroll device in the current organization", Label("85914", "integration"), func() {
 
-		It("Should enroll device in the current organization", Label("85914", "sanity"), func() {
 			harness := e2e.GetWorkerHarness()
 			// Setup VM from pool, revert to pristine snapshot, and start agent
 			workerID := GinkgoParallelProcess()
@@ -107,8 +106,7 @@ var _ = Describe("multiorg operation", Ordered, func() {
 			Expect(out4).To(Not(ContainSubstring(deviceId)))
 			logrus.Info("device: ", out4)
 		})
-
-		It("Should create 2 devices in the current organization", Label("85913", "sanity"), func() {
+		It("Should create 2 devices in the current organization", Label("85913", "integration"), func() {
 			harness := e2e.GetWorkerHarness()
 			orgNames := GetOrgDisplayNames()
 			orgName := orgNames[0]
@@ -130,7 +128,7 @@ var _ = Describe("multiorg operation", Ordered, func() {
 			logrus.Info("devices created in organization: ", orgName)
 			_ = harness.StopDeviceSimulator(cmd, 5*time.Second)
 		})
-		It("Should create 10 devices in every organization", Label("85912", "sanity"), func() {
+		It("Should create 10 devices in every organization", Label("85912", "integration"), func() {
 			harness := e2e.GetWorkerHarness()
 			orgNames := GetOrgDisplayNames()
 			for idx, orgName := range orgNames {
