@@ -40,65 +40,12 @@ jobs:
           TAG=$(./hack/current-version)
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "Computed tag: $TAG"
-
-      - name: Post initial PR comment
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        if: github.event_name == 'pull_request'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const tag = '${{ steps.compute-tag.outputs.tag }}';
-            const runId = '${{ github.run_id }}';
-            const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${runId}`;
-            
-            const comment = `<!-- flightctl-build-status -->
-            ## ⏳ Build in Progress...
-            
-            Building FlightCtl artifacts for this PR.
-            
-            ### 📋 Build Info
-            
-            - **Image Tag:** \`${tag}\`
-            - **Run ID:** \`${runId}\`
-            - **Status:** 🔄 Building...
-            - **Build logs:** [View workflow run](${runUrl})
-            
-            ---
-            This comment will be updated when the build completes.
-            `;
-            
-            // Find existing comment from this workflow
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-            });
-            
-            const botComment = comments.find(comment => 
-              comment.user.type === 'Bot' && 
-              comment.body.includes('flightctl-build-status')
-            );
-            
-            if (botComment) {
-              // Update existing comment
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: botComment.id,
-                body: comment
-              });
-              console.log('Updated existing comment');
-            } else {
-              // Create new comment
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                body: comment
-              });
-              console.log('Created new comment');
-            }
+          
+          echo "## :rocket: PR Build Artifacts Workflow Started" > $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tag:** \`${TAG}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** \`${GITHUB_SHA:0:7}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch:** \`${GITHUB_REF_NAME}\`" >> $GITHUB_STEP_SUMMARY
 
   build-images:
     ## Todo freeze go version
@@ -113,11 +60,6 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.23'
 
       - name: Prepare version variables
         id: version-vars
@@ -176,14 +118,19 @@ jobs:
           
           ARCHIVE_NAME="image-flightctl-${MATRIX_IMAGE}.tar"
           
+          echo "::group::Saving image to archive"
           echo "Saving ${IMAGE}:${TAG} to ${ARCHIVE_NAME}"
           podman save -o "${ARCHIVE_NAME}" "${IMAGE}:${TAG}"
+          echo "::endgroup::"
           
           mkdir -p digests
           
+          echo "::group::Computing image digest"
           DIGEST="$(podman inspect "${IMAGE}:${TAG}" --format '{{.Digest}}' || true)"
           DIGEST_FILE="digests/${MATRIX_IMAGE}.txt"
           printf "%s\n" "${DIGEST}" > "${DIGEST_FILE}"
+          echo "Digest: ${DIGEST}"
+          echo "::endgroup::"
           
           {
             echo "archive=${ARCHIVE_NAME}"
@@ -224,14 +171,18 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${{ needs.compute-tag.outputs.tag }}"
+          RUN_ID="${{ github.run_id }}"
           
+          echo "::group::Loading individual image archives"
           echo "Loading individual image archives..."
           for archive in images/*.tar; do
             [ -e "$archive" ] || continue
             echo "Loading $archive..."
             podman load -i "$archive"
           done
+          echo "::endgroup::"
           
+          echo "::group::Creating images bundle"
           echo "Getting list of loaded flightctl images with tag: $TAG"
           mapfile -t loaded_images < <(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${TAG}")
           
@@ -241,6 +192,7 @@ jobs:
           podman save --format docker-archive -o flightctl-images-bundle.tar -m "${loaded_images[@]}"
           
           echo "Bundle created: $(ls -lh flightctl-images-bundle.tar)"
+          echo "::endgroup::"
 
       - name: Upload images bundle
         uses: actions/upload-artifact@v4
@@ -321,14 +273,22 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${{ needs.compute-tag.outputs.tag }}"
+          
+          echo "::group::Building helm charts"
           helm dependency build ./deploy/helm/flightctl
           helm package ./deploy/helm/flightctl \
             --version "$TAG" \
             --app-version "$TAG"
+          echo "::endgroup::"
           
+          echo "::group::Computing chart digest"
           CHART_FILE="flightctl-${TAG}.tgz"
           DIGEST=$(sha256sum "$CHART_FILE" | awk '{print $1}')
           echo "sha256:${DIGEST}" > charts-digest.txt
+          echo "Chart file: $CHART_FILE"
+          echo "Digest: sha256:${DIGEST}"
+          echo "::endgroup::"
+          
           echo "chart_file=$CHART_FILE" >> "$GITHUB_OUTPUT"
           echo "digest=sha256:${DIGEST}" >> "$GITHUB_OUTPUT"
 
@@ -378,12 +338,22 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
+      - name: Restore Go modules cache
+        id: cache-go-restore
+        uses: actions/cache/restore@v4
         with:
-          go-version: '1.23'
-
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+#
+#      - name: Setup Go
+#        uses: actions/setup-go@v5
+#        with:
+#          go-version: '1.23'
+#
       - name: Build RPMs
         run: make rpm
 
@@ -404,6 +374,7 @@ jobs:
           for f in bin/rpm/*.rpm; do
             [ -e "$f" ] || continue
             bn=$(basename "$f")
+            echo "::group::Processing $bn"
             if [[ "$bn" =~ ^(.+)-([0-9][^-]*)-([^.]*)\.([^.]+)\.rpm$ ]]; then
               name="${BASH_REMATCH[1]}"
               version="${BASH_REMATCH[2]}"
@@ -419,10 +390,12 @@ jobs:
               arch="${bn##*.}"
               arch="${arch%.rpm}"
             fi
+            echo "Name: $name, Version: $version, Release: $release, Arch: $arch"
             url="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}#artifacts"
             pkg=$(jq -cn --arg n "$name" --arg v "$version" --arg r "$release" --arg a "$arch" --arg u "$url" '{name:$n,version:$v,release:$r,architecture:$a,url:$u}')
             if [ $first -eq 0 ]; then out+="","$pkg"; else out+="$pkg"; fi
             first=0
+            echo "::endgroup::"
           done
           out+=']} }'
           printf '%s' "$out" > rpms.json
@@ -467,30 +440,30 @@ jobs:
             echo "git_commit=${SOURCE_GIT_COMMIT}"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Restore APT cache
-        id: cache-apt-restore
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            /var/cache/apt
-            /var/lib/apt
-          key: ${{ runner.os }}-apt-e2e-${{ hashFiles('.github/actions/setup-dependencies/action.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-apt-e2e-
+#      - name: Restore APT cache
+#        id: cache-apt-restore
+#        uses: actions/cache/restore@v4
+#        with:
+#          path: |
+#            /var/cache/apt
+#            /var/lib/apt
+#          key: ${{ runner.os }}-apt-e2e-${{ hashFiles('.github/actions/setup-dependencies/action.yaml') }}
+#          restore-keys: |
+#            ${{ runner.os }}-apt-e2e-
 
-      - name: Set permissions for APT after restore
-        run: sudo mkdir -p /var/cache/apt /var/lib/apt && sudo chown -R root:root /var/cache/apt /var/lib/apt
+#      - name: Set permissions for APT after restore
+#        run: sudo mkdir -p /var/cache/apt /var/lib/apt && sudo chown -R root:root /var/cache/apt /var/lib/apt
 
-      - name: Restore Go modules cache
-        id: cache-go-restore
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
+#      - name: Restore Go modules cache
+#        id: cache-go-restore
+#        uses: actions/cache/restore@v4
+#        with:
+#          path: |
+#            ~/.cache/go-build
+#            ~/go/pkg/mod
+#          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+#          restore-keys: |
+#            ${{ runner.os }}-go-
 
       - name: Restore DNF cache
         id: cache-dnf-restore
@@ -516,6 +489,7 @@ jobs:
           key: ${{ runner.os }}-bootc-cache-e2e-${{ hashFiles('test/scripts/agent-images/Containerfile-e2e-base.local') }}
           restore-keys: |
             ${{ runner.os }}-bootc-cache-e2e-
+
       - name: Download RPM artifacts
         uses: actions/download-artifact@v4
         with:
@@ -530,82 +504,56 @@ jobs:
           SOURCE_GIT_COMMIT: ${{ steps.version-vars.outputs.git_commit }}
         run: |
           set -euo pipefail
-          
+
           export IMAGE_REPO="quay.io/flightctl/flightctl-device"
           export BUILD_QCOW2=false
           export PARALLEL_JOBS=4
-          
-          ./test/scripts/agent-images-v2/build_agent_images.sh
 
-      - name: Save agent images to bundle
-        env:
-          TAG: ${{ needs.compute-tag.outputs.tag }}
-        run: |
-          set -euo pipefail
-          
-          IMAGE_REPO="quay.io/flightctl/flightctl-device"
-          
-          echo "Creating bundle of agent images..."
-          mapfile -t images < <(podman images --format "{{.Repository}}:{{.Tag}}" | grep "${IMAGE_REPO}:.*-${TAG}")
-          
-          echo "Found ${#images[@]} agent images:"
-          printf '  %s\n' "${images[@]}"
-          
-          podman save --format docker-archive -o agent-images-bundle.tar -m "${images[@]}"
-          
-          echo "Bundle created: $(ls -lh agent-images-bundle.tar)"
+          sudo -E ./test/scripts/agent-images-v2/build_agent_images.sh
 
-      - name: Upload agent images bundle
-        uses: actions/upload-artifact@v4
-        with:
-          name: agent-images-bundle
-          path: agent-images-bundle.tar
-          compression-level: 1
-          if-no-files-found: error
-          retention-days: 1
 
-  build-agent-qcow2:
-    runs-on: ubuntu-24.04
-    needs: [compute-tag, build-agent-images]
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          fetch-tags: true
-
-      - name: Download agent images bundle
-        uses: actions/download-artifact@v4
-        with:
-          name: agent-images-bundle
-
-      - name: Load agent images
-        env:
-          TAG: ${{ needs.compute-tag.outputs.tag }}
-        run: |
-          set -euo pipefail
-          
-          echo "Loading agent images bundle..."
-          podman load -i agent-images-bundle.tar
-          
-          echo "Loaded images:"
-          podman images | grep flightctl-device
+#      - name: Copy base image to root storage
+#        env:
+#          TAG: ${{ needs.compute-tag.outputs.tag }}
+#        run: |
+#          set -euo pipefail
+#
+#          IMAGE_REPO="quay.io/flightctl/flightctl-device"
+#          BASE_IMAGE="${IMAGE_REPO}:base-${TAG}"
+#
+#          echo "::group::Copying base image from user storage to root storage"
+#          echo "bootc-image-builder requires base image to be accessible from root storage"
+#          echo "Copying ${BASE_IMAGE} from user storage to root storage..."
+#
+#          if podman image exists "${BASE_IMAGE}"; then
+#            podman save "${BASE_IMAGE}" | sudo podman load
+#            echo "Successfully copied ${BASE_IMAGE} to root storage"
+#          else
+#            echo "ERROR: Base image ${BASE_IMAGE} not found in user storage"
+#            echo "Available flightctl-device images:"
+#            podman images | grep flightctl-device || echo "No flightctl-device images found"
+#            exit 1
+#          fi
+#          echo "::endgroup::"
 
       - name: Build qcow2 image
         env:
           TAG: ${{ needs.compute-tag.outputs.tag }}
         run: |
           set -euo pipefail
-          
+
+          echo "::group::Preparing qcow2 build environment"
           IMAGE_REPO="quay.io/flightctl/flightctl-device"
           BASE_IMAGE="${IMAGE_REPO}:base-${TAG}"
-          
+
           echo "Building qcow2 image from ${BASE_IMAGE}..."
-          
+
           mkdir -p output
           mkdir -p dnf-cache
           mkdir -p osbuild-cache
-          
+          echo "::endgroup::"
+
+          echo "::group::Building qcow2 with bootc-image-builder"
           sudo podman run --rm \
                           -it \
                           --privileged \
@@ -619,16 +567,46 @@ jobs:
                           build \
                           --type qcow2 \
                           "${BASE_IMAGE}"
-          
+          echo "::endgroup::"
+
+          echo "::group::Finalizing qcow2 image"
           sudo chown -R "${USER}:$(id -gn ${USER})" output
-          
+
           echo "qcow2 image created: $(ls -lh output/qcow2/disk.qcow2)"
+          echo "::endgroup::"
 
       - name: Upload qcow2 image
         uses: actions/upload-artifact@v4
         with:
           name: agent-qcow2-image
           path: output/qcow2/disk.qcow2
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Save agent images to bundle
+        env:
+          TAG: ${{ needs.compute-tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          
+          IMAGE_REPO="quay.io/flightctl/flightctl-device"
+          
+          echo "Creating bundle of agent images..."
+          mapfile -t images < <(sudo podman images --format "{{.Repository}}:{{.Tag}}" | grep "${IMAGE_REPO}:.*-${TAG}")
+          
+          echo "Found ${#images[@]} agent images:"
+          printf '  %s\n' "${images[@]}"
+          
+          sudo -E podman save --format docker-archive -o agent-images-bundle.tar -m "${images[@]}"
+          
+          echo "Bundle created: $(ls -lh agent-images-bundle.tar)"
+
+      - name: Upload agent images bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-images-bundle
+          path: agent-images-bundle.tar
           compression-level: 1
           if-no-files-found: error
           retention-days: 1
@@ -692,15 +670,22 @@ jobs:
 
       - name: Build
         run: |
+          echo "::group::Building CLI for ${{ matrix.os }}-${{ matrix.arch }}"
           DISABLE_FIPS="true" GOOS="${{ matrix.os }}" GOARCH="${{ matrix.arch }}" make build-cli
           mv "bin/flightctl${{ matrix.ext }}" "flightctl-${{ matrix.os }}-${{ matrix.arch}}${{ matrix.ext }}"
+          echo "::endgroup::"
+          
+          echo "::group::Computing checksum and creating archive"
           SHA=$(shasum -a 256 flightctl-${{ matrix.os }}-${{ matrix.arch}}${{ matrix.ext }} | cut -d' ' -f1)
           echo ${SHA} > flightctl-${{ matrix.os }}-${{ matrix.arch}}-sha256.txt
+          echo "SHA256: ${SHA}"
+          
           if [ "${{ matrix.zip }}" = ".zip" ]; then
             zip flightctl-${{ matrix.os }}-${{ matrix.arch}}${{ matrix.zip }} flightctl-${{ matrix.os }}-${{ matrix.arch}}${{ matrix.ext }}
           else
             tar cvf flightctl-${{ matrix.os }}-${{ matrix.arch}}${{ matrix.zip }} flightctl-${{ matrix.os }}-${{ matrix.arch}}${{ matrix.ext }}
           fi
+          echo "::endgroup::"
 
       - name: Save zip
         uses: actions/upload-artifact@v4
@@ -722,8 +707,8 @@ jobs:
 
   artifacts-ready:
     runs-on: ubuntu-24.04
-    needs: [compute-tag, service-images-manifest, build-rpms, build-helm-charts, build-flightctl-cli, bundle-images, build-agent-images, build-agent-qcow2]
-    if: always()
+    needs: [compute-tag, service-images-manifest, build-rpms, build-helm-charts, build-flightctl-cli, build-agent-images]
+    if: ${{ !cancelled() && needs.compute-tag.result == 'success' && needs.service-images-manifest.result == 'success' && needs.build-rpms.result == 'success' && needs.build-helm-charts.result == 'success' && needs.build-flightctl-cli.result == 'success' && needs.build-agent-images.result == 'success' }}
     steps:
       - name: Download service images manifest
         uses: actions/download-artifact@v4
@@ -765,104 +750,132 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-      - name: Update PR comment with artifact info
-        if: github.event_name == 'pull_request'
-        uses: actions/github-script@v7
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Download image manifests for summary
+        uses: actions/download-artifact@v4
         with:
-          script: |
-            const tag = '${{ needs.compute-tag.outputs.tag }}';
-            const runId = '${{ github.run_id }}';
-            const chartFile = `flightctl-${tag}.tgz`;
-            const artifactsUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${runId}#artifacts`;
-            const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${runId}`;
-            
-            const comment = `<!-- flightctl-build-status -->
-            ## 🎉 Build Artifacts Ready!
-            
-            Your PR build has completed successfully. The artifacts are ready to download and test.
-            
-            ### 📦 Artifacts
-            
-            - **Image Tag:** \`${tag}\`
-            - **Helm Chart:** \`${chartFile}\`
-            - **Run ID:** \`${runId}\`
-            - **Status:** ✅ Complete
-            - **Build logs:** [View workflow run](${runUrl})
-            - **All artifacts:** [GitHub Actions Artifacts](${artifactsUrl})
-            
-            ### 🚀 Quick Start Commands
-            
-            #### 1️⃣ Download artifacts:
-            \`\`\`bash
-            gh run download ${runId} -n "helm-chart" -n "flightctl-images-bundle"
-            \`\`\`
-            
-            #### 2️⃣ Load images into kind cluster:
-            \`\`\`bash
-            kind load image-archive flightctl-images-bundle/flightctl-images-bundle.tar
-            \`\`\`
-            
-            #### 3️⃣ Install/upgrade with Helm:
-            \`\`\`bash
-            helm upgrade --install flightctl helm-chart/${chartFile}
-            \`\`\`
-            
-            ### 🧪 E2E Testing Artifacts
-            
-            Agent images for e2e testing are also available:
-            
-            - **Agent Images Bundle:** \`agent-images-bundle.tar\`
-            - **Agent QCOW2 Image:** \`agent-qcow2-image/disk.qcow2\`
-            
-            Download agent images:
-            \`\`\`bash
-            gh run download ${runId} -n "agent-images-bundle" -n "agent-qcow2-image"
-            \`\`\`
-            
-            ---
-            💡 **Tip:** Make sure you have \`gh\` CLI installed and authenticated to download artifacts.
-            `;
-            
-            // Find existing comment from this workflow
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-            });
-            
-            const botComment = comments.find(comment => 
-              comment.user.type === 'Bot' && 
-              comment.body.includes('flightctl-build-status')
-            );
-            
-            if (botComment) {
-              // Update existing comment
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: botComment.id,
-                body: comment
-              });
-              console.log('Updated existing comment');
-            } else {
-              // Create new comment (fallback in case initial comment failed)
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                body: comment
-              });
-              console.log('Created new comment');
-            }
+          name: service-images-manifest
+          path: summary-manifests
+
+      - name: Generate step summary
+        run: |
+          TAG='${{ needs.compute-tag.outputs.tag }}'
+          RUN_ID='${{ github.run_id }}'
+          CHART_FILE="flightctl-${TAG}.tgz"
+          ARTIFACTS_URL="https://github.com/${{ github.repository }}/actions/runs/${RUN_ID}#artifacts"
+
+          echo "## :black_small_square: Build Artifacts Ready" > $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Tag:** \`${TAG}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "**CLI Binaries** and **RPMs** are ready!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "<details>" >> $GITHUB_STEP_SUMMARY
+          echo "<summary><strong>CLI Binaries</strong></summary>" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "# Download CLI for your platform" >> $GITHUB_STEP_SUMMARY
+          echo "gh run download ${RUN_ID} -n flightctl-linux-amd64      # Linux x64" >> $GITHUB_STEP_SUMMARY
+          echo "gh run download ${RUN_ID} -n flightctl-linux-arm64      # Linux ARM64" >> $GITHUB_STEP_SUMMARY
+          echo "gh run download ${RUN_ID} -n flightctl-darwin-amd64     # macOS x64" >> $GITHUB_STEP_SUMMARY
+          echo "gh run download ${RUN_ID} -n flightctl-darwin-arm64     # macOS ARM64" >> $GITHUB_STEP_SUMMARY
+          echo "gh run download ${RUN_ID} -n flightctl-windows-amd64.exe  # Windows x64" >> $GITHUB_STEP_SUMMARY
+          echo "gh run download ${RUN_ID} -n flightctl-windows-arm64.exe  # Windows ARM64" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "</details>" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### RPM Packages" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "# Download RPM packages" >> $GITHUB_STEP_SUMMARY
+          echo "gh run download ${RUN_ID} -n rpms-${{ github.sha }}  # Packages for RHEL/Fedora" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+  services-ready:
+    runs-on: ubuntu-24.04
+    needs: [compute-tag, bundle-images, build-helm-charts]
+    if: ${{ !cancelled() && needs.compute-tag.result == 'success' && needs.bundle-images.result == 'success' && needs.build-helm-charts.result == 'success' }}
+    steps:
+      - name: Services artifacts ready
+        run: |
+          echo "Backend services and Helm chart are ready for deployment"
+          echo "Helm chart: helm-chart"
+
+      - name: Generate services summary
+        run: |
+          TAG='${{ needs.compute-tag.outputs.tag }}'
+          RUN_ID='${{ github.run_id }}'
+          CHART_FILE="flightctl-${TAG}.tgz"
+          ARTIFACTS_URL="https://github.com/${{ github.repository }}/actions/runs/${RUN_ID}#artifacts"
+
+          echo "## :gear: Services Ready for Deployment" > $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Tag:** \`${TAG}\` | [All artifacts](${ARTIFACTS_URL})" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "**Container Images** and **Helm Chart** are ready!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # List container images in collapsible section
+          echo "<details>" >> $GITHUB_STEP_SUMMARY
+          echo "<summary><strong>Container Images (9)</strong></summary>" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- \`quay.io/flightctl/flightctl-api:${TAG}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`quay.io/flightctl/flightctl-periodic:${TAG}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`quay.io/flightctl/flightctl-worker:${TAG}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`quay.io/flightctl/flightctl-cli-artifacts:${TAG}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`quay.io/flightctl/flightctl-alert-exporter:${TAG}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`quay.io/flightctl/flightctl-alertmanager-proxy:${TAG}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`quay.io/flightctl/flightctl-userinfo-proxy:${TAG}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`quay.io/flightctl/flightctl-db-setup:${TAG}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`quay.io/flightctl/flightctl-telemetry-gateway:${TAG}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "</details>" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### :rocket: Deployment" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "# Download deployment artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "gh run download ${RUN_ID} -n helm-chart -n flightctl-images-bundle" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# Load service images into kind" >> $GITHUB_STEP_SUMMARY
+          echo "kind load image-archive flightctl-images-bundle.tar" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# Install with Helm (parameterize with --set as needed)" >> $GITHUB_STEP_SUMMARY
+          echo "helm upgrade --install flightctl ${CHART_FILE}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# Or with the same shell script used in smoke test" >> $GITHUB_STEP_SUMMARY
+          echo "./test/scripts/deploy_with_helm.sh --chart-path=\"${CHART_FILE}\" --image-registry=\"quay.io/flightctl/\" --image-tag=\"${TAG}\"" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+  test-artifacts-ready:
+    runs-on: ubuntu-24.04
+    needs: [compute-tag, build-agent-images]
+    if: ${{ !cancelled() && needs.compute-tag.result == 'success' && needs.build-agent-images.result == 'success' }}
+    steps:
+      - name: Generate test artifacts summary
+        run: |
+          TAG='${{ needs.compute-tag.outputs.tag }}'
+          RUN_ID='${{ github.run_id }}'
+          ARTIFACTS_URL="https://github.com/${{ github.repository }}/actions/runs/${RUN_ID}#artifacts"
+          
+          echo "## :test_tube: Test Artifacts Ready" > $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Tag:** \`${TAG}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "**Agent Images**" >> $GITHUB_STEP_SUMMARY
+          echo "- :black_small_square: \`agent-images-bundle\` - Container images for testing" >> $GITHUB_STEP_SUMMARY
+          echo "- :black_small_square: \`agent-qcow2-image\` - QCOW2 disk image for VM testing" >> $GITHUB_STEP_SUMMARY
 
 ##################
 ### SMOKE TEST ###
 ##################
   smoke:
     runs-on: ubuntu-24.04
-    needs: [artifacts-ready]
+    needs: [compute-tag, bundle-images, build-helm-charts, build-flightctl-cli]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -873,20 +886,90 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: flightctl-images-bundle
-      
-      - name: Download Helm pkg
+
+      - name: Download Helm chart
         uses: actions/download-artifact@v4
         with:
           name: helm-chart
+
+      - name: Download Linux CLI binary
+        uses: actions/download-artifact@v4
+        with:
+          name: flightctl-linux-amd64
+          path: .
+
+      - name: Setup CLI binary
+        run: |
+          mkdir -p bin
+          mv flightctl-linux-amd64 bin/flightctl
+          chmod +x bin/flightctl
 
       - name: List files
         run: ls -la
 
       - name: Create cluster
         run: make cluster
- 
 
+      - name: Load images into kind
+        run: |
+          set -euo pipefail
+          echo "Loading flightctl images bundle into kind cluster..."
+          kind load image-archive flightctl-images-bundle.tar
+          echo "Images loaded successfully"
 
+      - name: Deploy FlightCtl with packaged chart
+        env:
+          TAG: ${{ needs.compute-tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          CHART_FILE="flightctl-${TAG}.tgz"
+
+          echo "::group::Deploying FlightCtl with deploy_with_helm.sh"
+          echo "Chart file: ${CHART_FILE}"
+          echo "Image registry: quay.io/flightctl/"
+          echo "Image tag: ${TAG}"
+          echo "::endgroup::"
+
+          ./test/scripts/deploy_with_helm.sh \
+            --chart-path="${CHART_FILE}" \
+            --image-registry="quay.io/flightctl/" \
+            --image-tag="${TAG}"
+
+      - name: Prepare agent config
+        run: ./test/scripts/agent-images/prepare_agent_config.sh --status-update-interval 0m2s --spec-fetch-interval 0m2s
+
+      - name: Check
+        run: |
+          kubectl get pods --all-namespaces
+
+      - name: Apply device
+        run: bin/flightctl apply -f examples/device.yaml
+
+      - name: Apply fleet
+        run: bin/flightctl apply -f examples/fleet.yaml
+
+      - name: Apply enrollmentrequest
+        run: bin/flightctl apply -f examples/enrollmentrequest.yaml
+
+      - name: Apply repository
+        run: bin/flightctl apply -f examples/repository-flightctl.yaml
+
+      - name: Apply resourcesync
+        run: bin/flightctl apply -f examples/resourcesync.yaml
+
+      - name: Build the simulator
+        run: DISABLE_FIPS="true" make build-devicesimulator
+
+      - name: Simulator run
+        run: bin/devicesimulator --config bin/agent/etc/flightctl/config.yaml --count 1 --stop-after 1m
+
+      - name: Collect and Upload Logs
+        if: always() && steps.changed-files.outputs.any_changed == 'true'
+        uses: ./.github/actions/collect-logs
+        with:
+          namespace-external: 'flightctl-external'
+          namespace-internal: 'flightctl-internal'
+          log-directory: 'smoke-logs'
 
 
 
