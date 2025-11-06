@@ -302,3 +302,4 @@ go test ./test/integration/...
 **Solution**:
 - Don't build `flightctl-pam-issuer` on non-Linux
 - Only build `flightctl-api` (no PAM dependency)
+

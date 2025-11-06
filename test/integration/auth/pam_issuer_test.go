@@ -66,6 +66,12 @@ var _ = Describe("PAM Issuer Integration Tests", func() {
 			Expect(*config.ResponseTypesSupported).To(ContainElement("code"))
 			Expect(config.GrantTypesSupported).ToNot(BeNil())
 			Expect(*config.GrantTypesSupported).To(ContainElements("authorization_code", "refresh_token"))
+			// Verify PKCE support is advertised (only S256, not plain)
+			Expect(config.CodeChallengeMethodsSupported).ToNot(BeNil())
+			Expect(*config.CodeChallengeMethodsSupported).To(ContainElement(
+				pamapi.OpenIDConfigurationCodeChallengeMethodsSupportedS256,
+			))
+			Expect(*config.CodeChallengeMethodsSupported).To(HaveLen(1))
 		})
 
 		It("should provide JWKS endpoint", func() {
