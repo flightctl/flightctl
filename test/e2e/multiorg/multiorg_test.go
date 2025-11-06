@@ -16,10 +16,6 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// _ is a blank identifier used to ignore values or expressions, often applied to satisfy interface or assignment requirements.
-<<<<<<< HEAD
-var _ = Describe("multiorg operation", func() {
-=======
 var _ = Describe("multiorg operation", Ordered, func() {
 	BeforeAll(func() {
 		harness := e2e.GetWorkerHarness()
@@ -37,19 +33,16 @@ var _ = Describe("multiorg operation", Ordered, func() {
 			Skip("Organizations are not enabled on this deployment; skipping multiorg tests")
 		}
 	})
->>>>>>> 80c428bc (EDM-1931: Multiorg E2E test suite)
+
 	BeforeEach(func() {
 		// Get harness directly - no shared package-level variable
 		harness := e2e.GetWorkerHarness()
 		authMethod := login.WithPassword(harness)
 		Expect(authMethod).To(Equal(login.AuthUsernamePassword))
 	})
+
 	Context("multiorg operation", func() {
-<<<<<<< HEAD
-		It("Should list organizations", Label("85918", "integration"), func() {
-=======
 		It("Should list organizations", Label("85918", "sanity"), func() {
->>>>>>> 80c428bc (EDM-1931: Multiorg E2E test suite)
 			harness := e2e.GetWorkerHarness()
 			orgDisplayNames := GetOrgDisplayNames()
 			for _, orgDisplayName := range orgDisplayNames {
@@ -61,11 +54,8 @@ var _ = Describe("multiorg operation", Ordered, func() {
 				Expect(out).To(ContainSubstring(orgName))
 			}
 		})
-<<<<<<< HEAD
-		It("Should set organization", Label("85916", "integration"), func() {
-=======
+
 		It("Should set organization", Label("85916", "sanity"), func() {
->>>>>>> 80c428bc (EDM-1931: Multiorg E2E test suite)
 			harness := e2e.GetWorkerHarness()
 			orgDisplayNames := GetOrgDisplayNames()
 			for _, orgDisplayName := range orgDisplayNames {
@@ -77,11 +67,8 @@ var _ = Describe("multiorg operation", Ordered, func() {
 				Expect(out).To(ContainSubstring(orgName))
 			}
 		})
-<<<<<<< HEAD
-		It("Should enroll device in the current organization", Label("85914", "integration"), func() {
-=======
+
 		It("Should enroll device in the current organization", Label("85914", "sanity"), func() {
->>>>>>> 80c428bc (EDM-1931: Multiorg E2E test suite)
 			harness := e2e.GetWorkerHarness()
 			// Setup VM from pool, revert to pristine snapshot, and start agent
 			workerID := GinkgoParallelProcess()
@@ -122,10 +109,14 @@ var _ = Describe("multiorg operation", Ordered, func() {
 		})
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 		It("Should create 2 devices in the current organization", Label("85913", "integration"), func() {
 =======
 		It("Should create 2 devices in the current organization", Label("85913", "sanity"), func() {
 >>>>>>> 80c428bc (EDM-1931: Multiorg E2E test suite)
+=======
+		It("Should create 2 devices in the current organization", Label("85913", "sanity"), func() {
+>>>>>>> eb936b78 (EDM-1931: Multiorg E2E test suite)
 			harness := e2e.GetWorkerHarness()
 			orgNames := GetOrgDisplayNames()
 			orgName := orgNames[0]
