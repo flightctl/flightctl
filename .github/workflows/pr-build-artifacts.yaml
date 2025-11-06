@@ -124,17 +124,20 @@ jobs:
       - name: Upload image archive
         uses: actions/upload-artifact@v4
         with:
-          name: image-${{ matrix.image }}
+          name: image-flightctl-${{ matrix.image }}
           path: ${{ steps.save.outputs.archive }}
-          compression-level: 0
+          compression-level: 1
           if-no-files-found: error
+          retention-days: 1
 
       - name: Upload digest artifact
         uses: actions/upload-artifact@v4
         with:
           name: digest-${{ matrix.image }}
           path: ${{ steps.save.outputs.digest_file }}
+          compression-level: 0
           if-no-files-found: error
+          retention-days: 1
 
   bundle-images:
     runs-on: ubuntu-24.04
@@ -174,7 +177,9 @@ jobs:
         with:
           name: flightctl-images-bundle
           path: flightctl-images-bundle.tar
-          compression-level: 0
+          compression-level: 1
+          if-no-files-found: error
+          retention-days: 1
 
   service-images-manifest:
     runs-on: ubuntu-24.04
@@ -226,6 +231,9 @@ jobs:
         with:
           name: service-images-manifest
           path: service-images.json
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
 
   build-rpms:
     runs-on: ubuntu-24.04
@@ -243,6 +251,9 @@ jobs:
         with:
           name: rpms-${{ github.sha }}
           path: bin/rpm/*.rpm
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
 
       - name: Produce rpms manifest
         run: |
@@ -281,6 +292,9 @@ jobs:
         with:
           name: rpms-manifest
           path: rpms.json
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
 
   build-helm-charts:
     runs-on: ubuntu-24.04
@@ -313,6 +327,9 @@ jobs:
         with:
           name: helm-chart
           path: ${{ steps.build-charts.outputs.chart_file }}
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
 
       - name: Produce charts manifest
         run: |
@@ -336,6 +353,9 @@ jobs:
         with:
           name: charts-manifest
           path: charts.json
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
 
   complete:
     runs-on: ubuntu-24.04
@@ -347,21 +367,18 @@ jobs:
         with:
           name: service-images-manifest
           path: manifests
-          if-no-files-found: ignore
 
       - name: Download charts manifest
         uses: actions/download-artifact@v4
         with:
           name: charts-manifest
           path: manifests
-          if-no-files-found: ignore
 
       - name: Download rpms manifest
         uses: actions/download-artifact@v4
         with:
           name: rpms-manifest
           path: manifests
-          if-no-files-found: ignore
 
       - name: Assemble final build manifest
         run: |
@@ -381,5 +398,39 @@ jobs:
         with:
           name: build-manifest
           path: build-manifest.json
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+
+   
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
