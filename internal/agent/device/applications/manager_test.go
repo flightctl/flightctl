@@ -3,6 +3,7 @@ package applications
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os/exec"
 	"testing"
 
@@ -109,6 +110,78 @@ func TestManager(t *testing.T) {
 			},
 			wantAppNames: []string{"app-update"},
 		},
+		{
+			name:    "add new quadlet application",
+			current: &v1alpha1.DeviceSpec{},
+			desired: newTestDeviceWithApplicationType(t, "quadlet-new", []testInlineDetails{
+				{Content: quadlet1, Path: "test-app.container"},
+			}, v1alpha1.AppTypeQuadlet),
+			setupMocks: func(mockExec *executer.MockExecuter, mockReadWriter *fileio.MockReadWriter) {
+				// Set up quadlet file mocks
+				mockReadQuadletFiles(mockReadWriter, quadlet1)
+
+				gomock.InOrder(
+					// start new quadlet app
+					mockExecSystemdDaemonReload(mockExec),
+					mockExecSystemdStart(mockExec, "test-app.service"),
+					mockExecPodmanEvents(mockExec),
+				)
+			},
+			wantAppNames: []string{"quadlet-new"},
+		},
+		{
+			name: "remove existing quadlet application",
+			current: newTestDeviceWithApplicationType(t, "quadlet-remove", []testInlineDetails{
+				{Content: quadlet1, Path: "test-app.container"},
+			}, v1alpha1.AppTypeQuadlet),
+			desired: &v1alpha1.DeviceSpec{},
+			setupMocks: func(mockExec *executer.MockExecuter, mockReadWriter *fileio.MockReadWriter) {
+				// Set up quadlet file mocks
+				mockReadQuadletFiles(mockReadWriter, quadlet1)
+
+				gomock.InOrder(
+					// start current quadlet app (Ensure call)
+					mockExecSystemdDaemonReload(mockExec),
+					mockExecSystemdStart(mockExec, "test-app.service"),
+
+					// remove quadlet app (syncProviders call)
+					mockExecSystemdStop(mockExec, "test-app.service"),
+					mockExecSystemdDaemonReload(mockExec),
+
+					// no podman events mock needed since no apps remain after removal
+				)
+			},
+		},
+		{
+			name: "update existing quadlet application",
+			current: newTestDeviceWithApplicationType(t, "quadlet-update", []testInlineDetails{
+				{Content: quadlet1, Path: "test-app.container"},
+			}, v1alpha1.AppTypeQuadlet),
+			desired: newTestDeviceWithApplicationType(t, "quadlet-update", []testInlineDetails{
+				{Content: quadlet2, Path: "test-app.container"},
+			}, v1alpha1.AppTypeQuadlet),
+			setupMocks: func(mockExec *executer.MockExecuter, mockReadWriter *fileio.MockReadWriter) {
+				// Set up quadlet file mocks - will return different content as needed
+				mockReadQuadletFiles(mockReadWriter, quadlet1)
+				mockReadQuadletFiles(mockReadWriter, quadlet2)
+
+				gomock.InOrder(
+					// start current quadlet app
+					mockExecSystemdDaemonReload(mockExec),
+					mockExecSystemdStart(mockExec, "test-app.service"),
+
+					// stop current quadlet app
+					mockExecSystemdStop(mockExec, "test-app.service"),
+					mockExecSystemdDaemonReload(mockExec),
+
+					// start updated quadlet app
+					mockExecSystemdDaemonReload(mockExec),
+					mockExecSystemdStart(mockExec, "test-app.service"),
+					mockExecPodmanEvents(mockExec),
+				)
+			},
+			wantAppNames: []string{"quadlet-update"},
+		},
 	}
 
 	for _, tc := range testCases {
@@ -123,6 +196,7 @@ func TestManager(t *testing.T) {
 			mockReadWriter := fileio.NewMockReadWriter(ctrl)
 			mockExec := executer.NewMockExecuter(ctrl)
 			mockPodmanClient := client.NewPodman(log, mockExec, mockReadWriter, testutil.NewPollConfig())
+			mockSystemdClient := client.NewSystemd(mockExec)
 
 			tmpDir := t.TempDir()
 			readWriter.SetRootdir(tmpDir)
@@ -137,7 +211,7 @@ func TestManager(t *testing.T) {
 
 			manager := &manager{
 				readWriter:    readWriter,
-				podmanMonitor: NewPodmanMonitor(log, mockPodmanClient, "", readWriter),
+				podmanMonitor: NewPodmanMonitor(log, mockPodmanClient, mockSystemdClient, "", mockReadWriter),
 				log:           log,
 			}
 
@@ -181,6 +255,7 @@ func TestManagerRemoveApplication(t *testing.T) {
 	mockReadWriter := fileio.NewMockReadWriter(ctrl)
 	mockExec := executer.NewMockExecuter(ctrl)
 	mockPodmanClient := client.NewPodman(log, mockExec, mockReadWriter, testutil.NewPollConfig())
+	mockSystemdClient := client.NewSystemd(mockExec)
 
 	readWriter := fileio.NewReadWriter()
 	tmpDir := t.TempDir()
@@ -212,7 +287,7 @@ func TestManagerRemoveApplication(t *testing.T) {
 
 	manager := &manager{
 		readWriter:    readWriter,
-		podmanMonitor: NewPodmanMonitor(log, mockPodmanClient, "", readWriter),
+		podmanMonitor: NewPodmanMonitor(log, mockPodmanClient, mockSystemdClient, "", mockReadWriter),
 		log:           log,
 	}
 
@@ -317,6 +392,10 @@ type testInlineDetails struct {
 }
 
 func newTestDeviceWithApplications(t *testing.T, name string, details []testInlineDetails) *v1alpha1.DeviceSpec {
+	return newTestDeviceWithApplicationType(t, name, details, v1alpha1.AppTypeCompose)
+}
+
+func newTestDeviceWithApplicationType(t *testing.T, name string, details []testInlineDetails, appType v1alpha1.AppType) *v1alpha1.DeviceSpec {
 	t.Helper()
 
 	inline := v1alpha1.InlineApplicationProviderSpec{
@@ -331,7 +410,7 @@ func newTestDeviceWithApplications(t *testing.T, name string, details []testInli
 	}
 
 	providerSpec := v1alpha1.ApplicationProviderSpec{
-		AppType: lo.ToPtr(v1alpha1.AppTypeCompose),
+		AppType: lo.ToPtr(appType),
 		Name:    lo.ToPtr(name),
 	}
 	err := providerSpec.FromInlineApplicationProviderSpec(inline)
@@ -363,3 +442,76 @@ services:
     image: quay.io/flightctl-tests/alpine:v1
     command: ["sleep", "infinity"]
 `
+
+var quadlet1 = `[Container]
+Image=quay.io/flightctl-tests/alpine:v1
+Exec=sleep infinity
+
+[Service]
+Restart=always
+`
+
+var quadlet2 = `[Container]
+Image=quay.io/flightctl-tests/alpine:v2
+Exec=sleep infinity
+
+[Service]
+Restart=always
+`
+
+func mockExecSystemdDaemonReload(mockExec *executer.MockExecuter) *gomock.Call {
+	return mockExec.EXPECT().ExecuteWithContext(
+		gomock.Any(),
+		"/usr/bin/systemctl",
+		[]string{"daemon-reload"},
+	).Return("", "", 0)
+}
+
+func mockExecSystemdStart(mockExec *executer.MockExecuter, services ...string) *gomock.Call {
+	args := append([]string{"start"}, services...)
+	return mockExec.EXPECT().ExecuteWithContext(
+		gomock.Any(),
+		"/usr/bin/systemctl",
+		args,
+	).Return("", "", 0)
+}
+
+func mockExecSystemdStop(mockExec *executer.MockExecuter, services ...string) *gomock.Call {
+	args := append([]string{"stop"}, services...)
+	return mockExec.EXPECT().ExecuteWithContext(
+		gomock.Any(),
+		"/usr/bin/systemctl",
+		args,
+	).Return("", "", 0)
+}
+
+func mockReadQuadletFiles(mockReadWriter *fileio.MockReadWriter, quadletContent string) {
+	// Mock ReadDir to return .container file
+	mockReadWriter.EXPECT().ReadDir(gomock.Any()).Return([]fs.DirEntry{
+		&mockDirEntry{name: "test-app.container", isDir: false},
+	}, nil).AnyTimes()
+
+	// Mock ReadFile to return quadlet content
+	mockReadWriter.EXPECT().ReadFile(gomock.Any()).Return([]byte(quadletContent), nil).AnyTimes()
+}
+
+type mockDirEntry struct {
+	name  string
+	isDir bool
+}
+
+func (m *mockDirEntry) Name() string {
+	return m.name
+}
+
+func (m *mockDirEntry) IsDir() bool {
+	return m.isDir
+}
+
+func (m *mockDirEntry) Type() fs.FileMode {
+	return 0
+}
+
+func (m *mockDirEntry) Info() (fs.FileInfo, error) {
+	return nil, nil
+}

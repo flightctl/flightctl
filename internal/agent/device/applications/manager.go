@@ -40,7 +40,7 @@ func NewManager(
 	bootTime := systemInfo.BootTime()
 	return &manager{
 		readWriter:    readWriter,
-		podmanMonitor: NewPodmanMonitor(log, podmanClient, bootTime, readWriter),
+		podmanMonitor: NewPodmanMonitor(log, podmanClient, systemdClient, bootTime, readWriter),
 		podmanClient:  podmanClient,
 		systemdClient: systemdClient,
 		log:           log,
@@ -50,7 +50,7 @@ func NewManager(
 func (m *manager) Ensure(ctx context.Context, provider provider.Provider) error {
 	appType := provider.Spec().AppType
 	switch appType {
-	case v1alpha1.AppTypeCompose:
+	case v1alpha1.AppTypeCompose, v1alpha1.AppTypeQuadlet:
 		if m.podmanMonitor.Has(provider.Spec().ID) {
 			return nil
 		}
@@ -66,7 +66,7 @@ func (m *manager) Ensure(ctx context.Context, provider provider.Provider) error 
 func (m *manager) Remove(ctx context.Context, provider provider.Provider) error {
 	appType := provider.Spec().AppType
 	switch appType {
-	case v1alpha1.AppTypeCompose:
+	case v1alpha1.AppTypeCompose, v1alpha1.AppTypeQuadlet:
 		if err := provider.Remove(ctx); err != nil {
 			return fmt.Errorf("removing application: %w", err)
 		}
@@ -79,7 +79,7 @@ func (m *manager) Remove(ctx context.Context, provider provider.Provider) error 
 func (m *manager) Update(ctx context.Context, provider provider.Provider) error {
 	appType := provider.Spec().AppType
 	switch appType {
-	case v1alpha1.AppTypeCompose:
+	case v1alpha1.AppTypeCompose, v1alpha1.AppTypeQuadlet:
 		if err := provider.Remove(ctx); err != nil {
 			return fmt.Errorf("removing application: %w", err)
 		}
