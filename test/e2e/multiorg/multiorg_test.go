@@ -17,7 +17,27 @@ import (
 )
 
 // _ is a blank identifier used to ignore values or expressions, often applied to satisfy interface or assignment requirements.
+<<<<<<< HEAD
 var _ = Describe("multiorg operation", func() {
+=======
+var _ = Describe("multiorg operation", Ordered, func() {
+	BeforeAll(func() {
+		harness := e2e.GetWorkerHarness()
+
+		By("Verifying authorization is enabled")
+		authMethod := login.WithPassword(harness)
+		if authMethod == login.AuthDisabled {
+			Skip("Authorization is disabled; skipping multiorg tests")
+		}
+
+		By("Verifying organizations support is enabled")
+		resp, err := harness.Client.AuthConfigWithResponse(harness.Context)
+		Expect(err).ToNot(HaveOccurred(), "failed to query auth config")
+		if resp.JSON200 == nil || !resp.JSON200.AuthOrganizationsConfig.Enabled {
+			Skip("Organizations are not enabled on this deployment; skipping multiorg tests")
+		}
+	})
+>>>>>>> 80c428bc (EDM-1931: Multiorg E2E test suite)
 	BeforeEach(func() {
 		// Get harness directly - no shared package-level variable
 		harness := e2e.GetWorkerHarness()
@@ -25,7 +45,11 @@ var _ = Describe("multiorg operation", func() {
 		Expect(authMethod).To(Equal(login.AuthUsernamePassword))
 	})
 	Context("multiorg operation", func() {
+<<<<<<< HEAD
 		It("Should list organizations", Label("85918", "integration"), func() {
+=======
+		It("Should list organizations", Label("85918", "sanity"), func() {
+>>>>>>> 80c428bc (EDM-1931: Multiorg E2E test suite)
 			harness := e2e.GetWorkerHarness()
 			orgDisplayNames := GetOrgDisplayNames()
 			for _, orgDisplayName := range orgDisplayNames {
@@ -37,7 +61,11 @@ var _ = Describe("multiorg operation", func() {
 				Expect(out).To(ContainSubstring(orgName))
 			}
 		})
+<<<<<<< HEAD
 		It("Should set organization", Label("85916", "integration"), func() {
+=======
+		It("Should set organization", Label("85916", "sanity"), func() {
+>>>>>>> 80c428bc (EDM-1931: Multiorg E2E test suite)
 			harness := e2e.GetWorkerHarness()
 			orgDisplayNames := GetOrgDisplayNames()
 			for _, orgDisplayName := range orgDisplayNames {
@@ -49,7 +77,11 @@ var _ = Describe("multiorg operation", func() {
 				Expect(out).To(ContainSubstring(orgName))
 			}
 		})
+<<<<<<< HEAD
 		It("Should enroll device in the current organization", Label("85914", "integration"), func() {
+=======
+		It("Should enroll device in the current organization", Label("85914", "sanity"), func() {
+>>>>>>> 80c428bc (EDM-1931: Multiorg E2E test suite)
 			harness := e2e.GetWorkerHarness()
 			// Setup VM from pool, revert to pristine snapshot, and start agent
 			workerID := GinkgoParallelProcess()
@@ -89,7 +121,11 @@ var _ = Describe("multiorg operation", func() {
 			logrus.Info("device: ", out4)
 		})
 
+<<<<<<< HEAD
 		It("Should create 2 devices in the current organization", Label("85913", "integration"), func() {
+=======
+		It("Should create 2 devices in the current organization", Label("85913", "sanity"), func() {
+>>>>>>> 80c428bc (EDM-1931: Multiorg E2E test suite)
 			harness := e2e.GetWorkerHarness()
 			orgNames := GetOrgDisplayNames()
 			orgName := orgNames[0]
@@ -111,24 +147,17 @@ var _ = Describe("multiorg operation", func() {
 			logrus.Info("devices created in organization: ", orgName)
 			_ = harness.StopDeviceSimulator(cmd, 5*time.Second)
 		})
-		It("Should create 10 devices in every organization", Label("85912", "integration"), func() {
+		It("Should create 10 devices in every organization", Label("85912", "sanity"), func() {
 			harness := e2e.GetWorkerHarness()
 			orgNames := GetOrgDisplayNames()
 			for idx, orgName := range orgNames {
 				logrus.Info("setting organization: ", orgName)
 				orgName1 := GetOrgNameByDisplayName(orgName)
-				out, err := harness.CLI("config", "set-organization", orgName1)
-				Expect(err).ToNot(HaveOccurred())
-				Expect(out).To(ContainSubstring(orgName1))
-				// Verify the current organization context
-				outCur, errCur := harness.CLI("config", "current-organization")
-				Expect(errCur).ToNot(HaveOccurred())
-				Expect(outCur).To(ContainSubstring(orgName1))
-
-				_, err = harness.SetupDeviceSimulatorAgentConfig(harness.RegistryEndpoint(), "info", 2*time.Second, 2*time.Second)
+				switchOrganization(harness, orgName1)
+				_, err := harness.SetupDeviceSimulatorAgentConfig(harness.RegistryEndpoint(), "info", 2*time.Second, 2*time.Second)
 				Expect(err).ToNot(HaveOccurred())
 
-				cmd, err := harness.RunDeviceSimulator(context.Background(), "--count", "10", "--log-level", "info", "--label", "organization="+orgName1)
+				cmd, err := harness.RunDeviceSimulator(context.Background(), "--count", "10", "--log-level", "info", "--label", "organization="+orgName)
 				Expect(err).ToNot(HaveOccurred())
 
 				expectDevicesVisible(harness, 0, 10)
@@ -145,22 +174,9 @@ var _ = Describe("multiorg operation", func() {
 					neighborOrgDisplay := orgNames[neighborIdx]
 					neighborOrg := GetOrgNameByDisplayName(neighborOrgDisplay)
 
-					outSet, errSet := harness.CLI("config", "set-organization", neighborOrg)
-					Expect(errSet).ToNot(HaveOccurred())
-					Expect(outSet).To(ContainSubstring(neighborOrg))
+					switchOrganization(harness, neighborOrg)
 
-					outDevicesOther, errDevicesOther := harness.CLI("get", "devices")
-					Expect(errDevicesOther).ToNot(HaveOccurred())
-					Expect(outDevicesOther).To(Not(ContainSubstring("device-00000")))
-					Expect(outDevicesOther).To(Not(ContainSubstring("device-00001")))
-					Expect(outDevicesOther).To(Not(ContainSubstring("device-00002")))
-					Expect(outDevicesOther).To(Not(ContainSubstring("device-00003")))
-					Expect(outDevicesOther).To(Not(ContainSubstring("device-00004")))
-					Expect(outDevicesOther).To(Not(ContainSubstring("device-00005")))
-					Expect(outDevicesOther).To(Not(ContainSubstring("device-00006")))
-					Expect(outDevicesOther).To(Not(ContainSubstring("device-00007")))
-					Expect(outDevicesOther).To(Not(ContainSubstring("device-00008")))
-					Expect(outDevicesOther).To(Not(ContainSubstring("device-00009")))
+					expectDevicesNotVisible(harness, 0, 10)
 
 					outFleetsOther, errFleetsOther := harness.CLI("get", "fleets")
 					Expect(errFleetsOther).ToNot(HaveOccurred())
@@ -174,18 +190,14 @@ var _ = Describe("multiorg operation", func() {
 					logrus.Error("error deleting devices: ", err)
 				}
 				logrus.Info("devices created in organization: ", orgName)
-				logrus.Info("devices: ", out)
 
 			}
 		})
-		It("generates and applies multi-fleet YAML on current organization", Label("85917", "integration"), func() {
+		It("generates and applies multi-fleet YAML on current organization", Label("85917", "sanity"), func() {
 			harness := e2e.GetWorkerHarness()
 			orgNames := GetOrgDisplayNames()
 			orgName1 := GetOrgNameByDisplayName(orgNames[0])
-			out, err := harness.CLI("config", "set-organization", orgName1)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(out).To(ContainSubstring(orgName1))
-			logrus.Info("organization name: ", orgName1)
+			switchOrganization(harness, orgName1)
 			yamlDoc, err := harness.GenerateFleetYAMLsForSimulator(2, 10, "sim-fleet")
 			logrus.Info("yamlDoc: ", yamlDoc)
 			Expect(err).ToNot(HaveOccurred())
@@ -217,19 +229,10 @@ var _ = Describe("multiorg operation", func() {
 			orgName2 := GetOrgDisplayNames()[1]
 			logrus.Info("organization name: ", orgName2)
 			orgName21 := GetOrgNameByDisplayName(orgName2)
-			out2, err2 := harness.CLI("config", "set-organization", orgName21)
+			switchOrganization(harness, orgName21)
 			logrus.Info("organization name: ", orgName21)
-			Expect(err2).ToNot(HaveOccurred())
-			Expect(out2).To(ContainSubstring(orgName21))
-			out3, err3 := harness.CLI("get", "fleets")
-			logrus.Info("fleets: ", out3)
-			Expect(err3).ToNot(HaveOccurred())
-			Expect(out3).To(Not(ContainSubstring("sim-fleet-00")))
-			Expect(out3).To(Not(ContainSubstring("sim-fleet-01")))
-			out3, err3 = harness.CLI("config", "set-organization", orgName1)
+			switchOrganization(harness, orgName1)
 			logrus.Info("organization name: ", orgName1)
-			Expect(err3).ToNot(HaveOccurred())
-			Expect(out3).To(ContainSubstring(orgName1))
 			_, _ = harness.CLI("delete", "fleets", "-l", fmt.Sprintf("test-id=%s", harness.GetTestIDFromContext()))
 			err = harness.StopDeviceSimulator(cmd, 5*time.Second)
 			Expect(err).ToNot(HaveOccurred())
@@ -242,20 +245,15 @@ var _ = Describe("multiorg operation", func() {
 			Expect(errDeleteDevices1).ToNot(HaveOccurred())
 			logrus.Info("devices deleted: ", deleteDevices1)
 		})
-		It("Should create 10 devices in a fleet in all organizations", Label("85915", "integration"), func() {
+		It("Should create 10 devices in a fleet in all organizations", Label("85915", "sanity"), func() {
 			harness := e2e.GetWorkerHarness()
 			orgNames := GetOrgDisplayNames()
 			for idx, orgName := range orgNames {
 				logrus.Info("setting organization: ", orgName)
 				orgName1 := GetOrgNameByDisplayName(orgName)
-				out, err := harness.CLI("config", "set-organization", orgName1)
-				Expect(err).ToNot(HaveOccurred())
-				Expect(out).To(ContainSubstring(orgName1))
-				outCurrentOrganization, errCurrentOrganization := harness.CLI("config", "current-organization")
-				Expect(errCurrentOrganization).ToNot(HaveOccurred())
-				Expect(outCurrentOrganization).To(ContainSubstring(orgName1))
-				logrus.Info("current organization: ", outCurrentOrganization)
-				_, err = harness.SetupDeviceSimulatorAgentConfig(harness.RegistryEndpoint(), "info", 2*time.Second, 2*time.Second)
+				switchOrganization(harness, orgName1)
+				logrus.Info("current organization: ", orgName1)
+				_, err := harness.SetupDeviceSimulatorAgentConfig(harness.RegistryEndpoint(), "info", 2*time.Second, 2*time.Second)
 				Expect(err).ToNot(HaveOccurred())
 				yamlDoc, err := harness.GenerateFleetYAMLsForSimulator(1, 10, "sim-fleet")
 				Expect(err).ToNot(HaveOccurred())
@@ -296,7 +294,6 @@ var _ = Describe("multiorg operation", func() {
 					logrus.Error("error deleting devices: ", errDelete)
 				}
 				logrus.Info("devices created in organization: ", orgName)
-				logrus.Info("devices: ", out)
 			}
 		})
 	})
@@ -313,6 +310,18 @@ func expectDevicesVisible(harness *e2e.Harness, startIndex int, numDevices int) 
 			g.Expect(out).To(ContainSubstring(fmt.Sprintf("device-%05d", i)))
 		}
 	}, 120*time.Second, 2*time.Second).Should(Succeed())
+}
+
+// expectDevicesNotVisible asserts that devices from startIndex to startIndex+numDevices-1
+// are not present in the flightctl devices list.
+func expectDevicesNotVisible(harness *e2e.Harness, startIndex int, numDevices int) {
+	Eventually(func(g Gomega) {
+		out, err := harness.CLI("get", "devices")
+		g.Expect(err).ToNot(HaveOccurred())
+		for i := startIndex; i < startIndex+numDevices; i++ {
+			g.Expect(out).To(Not(ContainSubstring(fmt.Sprintf("device-%05d", i))))
+		}
+	}, 60*time.Second, 2*time.Second).Should(Succeed())
 }
 
 // switchOrganization sets the current CLI organization to the provided orgName
@@ -354,10 +363,12 @@ func GetOrgDisplayNames() []string {
 	harness := e2e.GetWorkerHarness()
 	out, err := harness.CLI("get", "organizations")
 	if err != nil {
+		Fail("no organizations found: failed to get organizations")
 		return nil
 	}
 	lines := strings.Split(strings.TrimSpace(out), "\n")
 	if len(lines) < 2 {
+		Fail("no organizations found")
 		return []string{}
 	}
 	var displayNames []string
