@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-IMAGE_TAG=9.6-1758714456
+IMAGE_TAG=9.6-1762316544
 
 container=$(buildah from registry.redhat.io/ubi9-micro:$IMAGE_TAG)
 
