@@ -281,11 +281,8 @@ func (h *Harness) DeleteAllResourcesFound() ([]string, []string, error) {
 // GenerateFleetYAMLsForSimulator returns a multi-document Fleet YAML string with
 // fleetCount Fleet objects, each selecting devices labeled with its fleet name,
 // and annotates each Fleet with the desired devices-per-fleet count for clarity.
-// It validates inputs are positive and returns an error otherwise.
-// GenerateFleetYAMLsForSimulator returns a multi-document Fleet YAML string with
-// fleetCount Fleet objects, each selecting devices labeled with its fleet name.
-// fleetBaseName controls the base of the generated Fleet names; names are
-// formatted as "<fleetBaseName>-%02d".
+// fleetBaseName controls the base of the generated Fleet names (formatted as
+// "<fleetBaseName>-%02d"). It validates inputs are positive and returns an error otherwise.
 func (h *Harness) GenerateFleetYAMLsForSimulator(fleetCount, devicesPerFleet int, fleetBaseName string) (string, error) {
 	if fleetCount <= 0 {
 		return "", fmt.Errorf("fleetCount must be > 0")
