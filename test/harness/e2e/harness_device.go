@@ -780,6 +780,12 @@ func (h *Harness) SetupDeviceWithTPM(workerID int) error {
 		return fmt.Errorf("failed to stop agent: %w", err)
 	}
 
+	// Clean CSR from non-TPM agent start to avoid device ID mismatch
+	_, err = h.VM.RunSSH([]string{"sudo", "rm", "-f", "/var/lib/flightctl/certs/agent.csr"}, nil)
+	if err != nil {
+		logrus.Warnf("Failed to clean stale CSR: %v", err)
+	}
+
 	// 3. Wait for TPM hardware initialization
 	err = h.WaitForTPMInitialization()
 	if err != nil {

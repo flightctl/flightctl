@@ -53,6 +53,8 @@ const (
 	GeneratedCertFile = "agent.crt"
 	// name of the agent's key file
 	KeyFile = "agent.key"
+	// CSRFile is the name of the persisted CSR file (temporary, deleted after enrollment)
+	CSRFile = "agent.csr"
 	// name of the enrollment certificate file
 	EnrollmentCertFile = "client-enrollment.crt"
 	// name of the enrollment key file

@@ -376,10 +376,10 @@ func (o *LoginOptions) getAbsAuthCAFile() (string, error) {
 }
 
 // validateTokenWithServer validates the token with the server, handling TLS prompts and a single retry
-func (o *LoginOptions) validateTokenWithServer(ctx context.Context, token string) error {
+func (o *LoginOptions) validateTokenWithServer(ctx context.Context, token string) (*apiClient.ClientWithResponses, error) {
 	c, err := client.NewFromConfig(o.clientConfig, o.ConfigFilePath)
 	if err != nil {
-		return fmt.Errorf("creating client: %w", err)
+		return nil, fmt.Errorf("creating client: %w", err)
 	}
 
 	headerVal := "Bearer " + token
@@ -398,13 +398,13 @@ func (o *LoginOptions) validateTokenWithServer(ctx context.Context, token string
 		}
 		if err != nil {
 			friendlyErr := getUserFriendlyTLSError(err)
-			return fmt.Errorf("validating token:\n%s", friendlyErr)
+			return nil, fmt.Errorf("validating token:\n%s", friendlyErr)
 		}
 	}
 	if err := validateHttpResponse(res.Body, res.StatusCode(), http.StatusOK); err != nil {
-		return err
+		return nil, err
 	}
-	return nil
+	return c, nil
 }
 
 func (o *LoginOptions) Run(ctx context.Context, args []string) error {
@@ -470,8 +470,31 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 	o.clientConfig.AuthInfo.AuthProvider.Config[client.AuthCAFileKey] = authCAFile
 
 	// Validate token with API server (handles TLS prompt/retry)
-	if err := o.validateTokenWithServer(ctx, token); err != nil {
+	c, err := o.validateTokenWithServer(ctx, token)
+	if err != nil {
 		return err
+	}
+
+	// Auto-select organization if enabled and user has access to only one
+	if o.authConfig.AuthOrganizationsConfig.Enabled {
+		if response, err := c.ListOrganizationsWithResponse(ctx); err == nil && response.StatusCode() == http.StatusOK && response.JSON200 != nil && len(response.JSON200.Items) == 1 {
+			org := response.JSON200.Items[0]
+			if org.Metadata.Name != nil {
+				orgName := *org.Metadata.Name
+				o.clientConfig.Organization = orgName
+
+				displayName := ""
+				if org.Spec != nil && org.Spec.DisplayName != nil {
+					displayName = *org.Spec.DisplayName
+				}
+
+				if displayName != "" {
+					fmt.Printf("Auto-selected organization: %s %s\n", orgName, displayName)
+				} else {
+					fmt.Printf("Auto-selected organization: %s\n", orgName)
+				}
+			}
+		}
 	}
 
 	if err := o.clientConfig.Persist(o.ConfigFilePath); err != nil {
