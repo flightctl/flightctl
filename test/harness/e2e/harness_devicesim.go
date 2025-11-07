@@ -43,6 +43,7 @@ func (h *Harness) EnsureDeviceSimulatorBinary() (string, error) {
 
 // RunDeviceSimulator starts the devicesimulator in the background with the provided args and returns the running command.
 // The process is detached from the provided context and will continue running until explicitly stopped by the caller.
+// The context parameter is currently unused but reserved for future use (e.g., cancellation during setup).
 func (h *Harness) RunDeviceSimulator(ctx context.Context, args ...string) (*exec.Cmd, error) {
 	// Ensure the simulator exists (build if necessary)
 	simPath, err := h.EnsureDeviceSimulatorBinary()
@@ -74,6 +75,8 @@ func (h *Harness) RunDeviceSimulator(ctx context.Context, args ...string) (*exec
 
 	logrus.Infof("starting devicesimulator: %s", strings.Join(cmd.Args, " "))
 	if err := cmd.Start(); err != nil {
+		// Close the log file if we fail to start
+		_ = f.Close()
 		return nil, fmt.Errorf("starting devicesimulator: %w", err)
 	}
 	return cmd, nil
@@ -116,56 +119,71 @@ func (h *Harness) StopDeviceSimulator(cmd *exec.Cmd, timeout time.Duration) erro
 	}
 
 	// Close any attached log file writers, if used
-	if f1, ok1 := cmd.Stdout.(*os.File); ok1 {
-		if f2, ok2 := cmd.Stderr.(*os.File); ok2 {
-			if f1 == f2 {
-				_ = f1.Close()
-			} else {
-				_ = f1.Close()
-				_ = f2.Close()
-			}
-		} else {
-			_ = f1.Close()
-		}
-	} else if c, ok := cmd.Stdout.(interface{ Close() error }); ok { // fallback for custom closers
-		_ = c.Close()
-	}
-	if _, ok := cmd.Stdout.(*os.File); !ok { // only attempt stderr fallback if stdout wasn't handled as file
-		if c, ok := cmd.Stderr.(interface{ Close() error }); ok {
-			_ = c.Close()
-		}
+	closeFileIfNeeded(cmd.Stdout)
+	// Only close stderr if it's different from stdout
+	if cmd.Stderr != cmd.Stdout {
+		closeFileIfNeeded(cmd.Stderr)
 	}
 
 	return stopErr
 }
 
+// closeFileIfNeeded attempts to close a file-like object if it implements the Close method.
+// This is a helper to safely close log files attached to command stdout/stderr.
+func closeFileIfNeeded(writer io.Writer) {
+	if closer, ok := writer.(interface{ Close() error }); ok {
+		if err := closer.Close(); err != nil {
+			logrus.Warnf("error closing log file: %v", err)
+		}
+	}
+}
+
+// copyFile copies a file from source to destination, creating the destination directory if needed.
 func copyFile(from, to string) error {
-	if _, err := os.Stat(from); err != nil {
-		return err
+	srcInfo, err := os.Stat(from)
+	if err != nil {
+		return fmt.Errorf("stat source file %s: %w", from, err)
 	}
-	if err := os.MkdirAll(filepath.Dir(to), 0700); err != nil {
-		return err
+	if srcInfo.IsDir() {
+		return fmt.Errorf("source %s is a directory, not a file", from)
 	}
+
+	if err := os.MkdirAll(filepath.Dir(to), 0755); err != nil {
+		return fmt.Errorf("creating destination directory: %w", err)
+	}
+
 	r, err := os.Open(from)
 	if err != nil {
-		return err
+		return fmt.Errorf("opening source file: %w", err)
 	}
 	defer r.Close()
+
 	w, err := os.Create(to)
 	if err != nil {
-		return err
+		return fmt.Errorf("creating destination file: %w", err)
 	}
 	defer w.Close()
-	_, err = io.Copy(w, r)
-	return err
+
+	if _, err := io.Copy(w, r); err != nil {
+		return fmt.Errorf("copying file content: %w", err)
+	}
+
+	// Preserve file permissions
+	if err := os.Chmod(to, srcInfo.Mode()); err != nil {
+		return fmt.Errorf("setting destination file permissions: %w", err)
+	}
+
+	return nil
 }
 
 // SetupDeviceSimulatorAgentConfig generates an agent configuration file for the device simulator
 // and copies required certificates into the expected locations under ~/.flightctl.
-// If server is non-empty, it overrides the enrollment and management server endpoints in the template.
-// If logLevel is non-empty, it overrides the log level. Non-zero durations override fetch/update intervals.
+// The server and logLevel parameters are reserved for future use.
+// Non-zero durations override fetch/update intervals; zero values default to 2 seconds.
 // Returns the path to the generated agent config file.
 func (h *Harness) SetupDeviceSimulatorAgentConfig(server string, logLevel string, specFetch time.Duration, statusUpdate time.Duration) (string, error) {
+	_ = server   // Reserved for future use
+	_ = logLevel // Reserved for future use
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("getting user home: %w", err)
@@ -239,13 +257,18 @@ func (h *Harness) SetupDeviceSimulatorAgentConfig(server string, logLevel string
 
 // DeleteAllResourcesFound deletes all fleets first and then all devices.
 // Returns the names of deleted fleets and IDs of deleted devices, in order processed.
+// Partial results are returned even if an error occurs during deletion.
 func (h *Harness) DeleteAllResourcesFound() ([]string, []string, error) {
+	var deletedFleets []string
+	var deletedDevices []string
+	var deleteErr error
+
 	// Delete fleets first so they stop selecting devices
 	fleetsOut, err := h.CLI("get", "fleets", "-o", "name")
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("listing fleets: %w", err)
 	}
-	var deletedFleets []string
+
 	for _, line := range strings.Split(strings.TrimSpace(fleetsOut), "\n") {
 		name := strings.TrimSpace(line)
 		if name == "" {
@@ -253,7 +276,9 @@ func (h *Harness) DeleteAllResourcesFound() ([]string, []string, error) {
 		}
 		name = strings.TrimPrefix(name, "fleet/")
 		if _, err := h.ManageResource("delete", "fleet/"+name); err != nil {
-			return deletedFleets, nil, err
+			deleteErr = fmt.Errorf("deleting fleet %s: %w", name, err)
+			logrus.Warnf("failed to delete fleet %s: %v", name, err)
+			continue // Continue with remaining fleets
 		}
 		deletedFleets = append(deletedFleets, name)
 	}
@@ -261,9 +286,12 @@ func (h *Harness) DeleteAllResourcesFound() ([]string, []string, error) {
 	// Then delete devices
 	devicesOut, err := h.CLI("get", "devices", "-o", "name")
 	if err != nil {
-		return deletedFleets, nil, err
+		if deleteErr != nil {
+			return deletedFleets, deletedDevices, fmt.Errorf("fleet deletion errors: %w; listing devices: %w", deleteErr, err)
+		}
+		return deletedFleets, deletedDevices, fmt.Errorf("listing devices: %w", err)
 	}
-	var deletedDevices []string
+
 	for _, line := range strings.Split(strings.TrimSpace(devicesOut), "\n") {
 		id := strings.TrimSpace(line)
 		if id == "" {
@@ -271,11 +299,18 @@ func (h *Harness) DeleteAllResourcesFound() ([]string, []string, error) {
 		}
 		id = strings.TrimPrefix(id, "device/")
 		if _, err := h.ManageResource("delete", "device/"+id); err != nil {
-			return deletedFleets, deletedDevices, err
+			if deleteErr == nil {
+				deleteErr = fmt.Errorf("deleting device %s: %w", id, err)
+			} else {
+				deleteErr = fmt.Errorf("%v; deleting device %s: %w", deleteErr, id, err)
+			}
+			logrus.Warnf("failed to delete device %s: %v", id, err)
+			continue // Continue with remaining devices
 		}
 		deletedDevices = append(deletedDevices, id)
 	}
-	return deletedFleets, deletedDevices, nil
+
+	return deletedFleets, deletedDevices, deleteErr
 }
 
 // GenerateFleetYAMLsForSimulator returns a multi-document Fleet YAML string with
@@ -331,11 +366,13 @@ func (h *Harness) GenerateFleetYAMLsForSimulator(fleetCount, devicesPerFleet int
 
 // ValidateFleetYAMLDevicesPerFleet performs a basic consistency check on the generated YAML,
 // ensuring it contains the expected number of Fleet documents and the devices-per-fleet annotation.
+// Note: This uses simple string matching for YAML parsing and may not catch all malformed YAML.
 func (h *Harness) ValidateFleetYAMLDevicesPerFleet(yamlContent string, expectedDevicesPerFleet int, expectedFleetCount int) error {
 	if yamlContent == "" {
 		return fmt.Errorf("yaml content is empty")
 	}
-	// Split K8s multi-document YAMLs (leading doc counts as one)
+
+	// Count K8s multi-document YAML separators (leading doc counts as one)
 	docs := 1
 	for _, line := range strings.Split(yamlContent, "\n") {
 		if strings.TrimSpace(line) == "---" {
@@ -345,9 +382,13 @@ func (h *Harness) ValidateFleetYAMLDevicesPerFleet(yamlContent string, expectedD
 	if docs != expectedFleetCount {
 		return fmt.Errorf("expected %d fleet docs, found %d", expectedFleetCount, docs)
 	}
+
+	// Check for the expected annotation (must appear expectedFleetCount times)
 	expectedAnno := fmt.Sprintf("devices-per-fleet: \"%d\"", expectedDevicesPerFleet)
-	if !strings.Contains(yamlContent, expectedAnno) {
-		return fmt.Errorf("expected annotation %q not found", expectedAnno)
+	count := strings.Count(yamlContent, expectedAnno)
+	if count != expectedFleetCount {
+		return fmt.Errorf("expected annotation %q found %d times, expected %d", expectedAnno, count, expectedFleetCount)
 	}
+
 	return nil
 }
