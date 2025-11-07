@@ -149,15 +149,9 @@ func TestEditOptions_Complete(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			// Set up environment
-			oldFlightctlEditor := os.Getenv("FLIGHTCTL_EDITOR")
-			oldEditor := os.Getenv("EDITOR")
-			defer func() {
-				os.Setenv("FLIGHTCTL_EDITOR", oldFlightctlEditor)
-				os.Setenv("EDITOR", oldEditor)
-			}()
-
-			os.Setenv("FLIGHTCTL_EDITOR", tc.kubeEditor)
-			os.Setenv("EDITOR", tc.editor)
+			t.Setenv("FLIGHTCTL_EDITOR", tc.kubeEditor)
+			t.Setenv("EDITOR", tc.editor)
+			t.Setenv("VISUAL", tc.editor)
 
 			opts := DefaultEditOptions()
 			opts.Editor = tc.editorFlag
@@ -215,7 +209,7 @@ func TestEditOptions_resourceToYAML(t *testing.T) {
 func TestEditOptions_applyChanges(t *testing.T) {
 	tests := []struct {
 		name          string
-		kind          string
+		kind          ResourceKind
 		resourceName  string
 		yamlContent   string
 		setupClient   func(t *testing.T) *apiclient.ClientWithResponses
@@ -238,7 +232,7 @@ spec: {}
 					StatusCode: 200,
 					Body:       io.NopCloser(strings.NewReader("")),
 				}
-				client, _ := newTestClient(t, []*http.Response{response})
+				client, _ := newTestClient(t, response)
 				return client
 			},
 			expectError: false,
@@ -249,7 +243,7 @@ spec: {}
 			resourceName: "test-device",
 			yamlContent:  "invalid: yaml: content:",
 			setupClient: func(t *testing.T) *apiclient.ClientWithResponses {
-				client, _ := newTestClient(t, []*http.Response{})
+				client, _ := newTestClient(t)
 				return client
 			},
 			expectError:   true,
@@ -264,7 +258,7 @@ metadata:
   name: test-device
 `,
 			setupClient: func(t *testing.T) *apiclient.ClientWithResponses {
-				client, _ := newTestClient(t, []*http.Response{})
+				client, _ := newTestClient(t)
 				return client
 			},
 			expectError:   true,
@@ -280,7 +274,7 @@ metadata:
   name: test-device
 `,
 			setupClient: func(t *testing.T) *apiclient.ClientWithResponses {
-				client, _ := newTestClient(t, []*http.Response{})
+				client, _ := newTestClient(t)
 				return client
 			},
 			expectError:   true,
@@ -296,7 +290,7 @@ metadata:
   name: different-name
 `,
 			setupClient: func(t *testing.T) *apiclient.ClientWithResponses {
-				client, _ := newTestClient(t, []*http.Response{})
+				client, _ := newTestClient(t)
 				return client
 			},
 			expectError:   true,
@@ -320,7 +314,7 @@ spec:
 					Status:     "500 Internal Server Error",
 					Body:       io.NopCloser(strings.NewReader("")),
 				}
-				client, _ := newTestClient(t, []*http.Response{response})
+				client, _ := newTestClient(t, response)
 				return client
 			},
 			expectError:   true,
@@ -345,7 +339,7 @@ spec:
 					Status:     "409 Conflict",
 					Body:       io.NopCloser(strings.NewReader(`{"error": "resourceVersion conflict"}`)),
 				}
-				client, _ := newTestClient(t, []*http.Response{response})
+				client, _ := newTestClient(t, response)
 				return client
 			},
 			expectError:   true,
@@ -437,7 +431,7 @@ spec:
 func TestEditOptions_saveToTempFile(t *testing.T) {
 	opts := DefaultEditOptions()
 	content := []byte("test content")
-	kind := "device"
+	kind := DeviceKind
 	name := "test-device"
 
 	tempFile, err := opts.saveToTempFile(content, kind, name)
@@ -469,19 +463,19 @@ func TestEditOptions_Run_ArgumentHandling(t *testing.T) {
 	tests := []struct {
 		name         string
 		args         []string
-		expectedKind string
+		expectedKind ResourceKind
 		expectedName string
 	}{
 		{
 			name:         "TYPE/NAME format",
 			args:         []string{"device/test-device"},
-			expectedKind: "device",
+			expectedKind: DeviceKind,
 			expectedName: "test-device",
 		},
 		{
 			name:         "TYPE NAME format",
 			args:         []string{"device", "test-device"},
-			expectedKind: "device",
+			expectedKind: DeviceKind,
 			expectedName: "test-device",
 		},
 	}

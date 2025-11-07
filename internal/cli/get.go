@@ -41,7 +41,7 @@ const (
 
 type FlagContextualRule struct {
 	FlagName     string
-	ResourceKind []string
+	ResourceKind []ResourceKind
 	Operations   []string // "list", "single", "any"
 }
 
@@ -76,10 +76,15 @@ func DefaultGetOptions() *GetOptions {
 func NewCmdGet() *cobra.Command {
 	o := DefaultGetOptions()
 	cmd := &cobra.Command{
-		Use:       "get (TYPE | TYPE/NAME | TYPE NAME [NAME ...])",
-		Short:     "Display one or many resources.",
-		Args:      cobra.MinimumNArgs(1),
-		ValidArgs: getValidResourceKinds(),
+		Use:   "get (TYPE | TYPE/NAME | TYPE NAME [NAME ...])",
+		Short: "Display one or many resources.",
+		Args:  cobra.MinimumNArgs(1),
+		ValidArgsFunction: KindNameAutocomplete{
+			Options:            o,
+			AllowMultipleNames: true,
+			AllowedKinds:       validResourceKinds,
+			FleetName:          &o.FleetName,
+		}.ValidArgsFunction,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := o.Complete(cmd, args); err != nil {
 				return err
@@ -121,11 +126,11 @@ func (o *GetOptions) Bind(fs *pflag.FlagSet) {
 }
 
 var flagContextualRules = []FlagContextualRule{
-	{FlagSummaryOnly, []string{DeviceKind}, []string{"list"}},
-	{FlagSummary, []string{DeviceKind, FleetKind}, []string{"list"}},
-	{FlagRendered, []string{DeviceKind}, []string{"single"}},
-	{FlagLastSeen, []string{DeviceKind}, []string{"single"}},
-	{FlagFleetName, []string{TemplateVersionKind}, []string{"any"}},
+	{FlagSummaryOnly, []ResourceKind{DeviceKind}, []string{"list"}},
+	{FlagSummary, []ResourceKind{DeviceKind, FleetKind}, []string{"list"}},
+	{FlagRendered, []ResourceKind{DeviceKind}, []string{"single"}},
+	{FlagLastSeen, []ResourceKind{DeviceKind}, []string{"single"}},
+	{FlagFleetName, []ResourceKind{TemplateVersionKind}, []string{"any"}},
 }
 
 func (o *GetOptions) hideHelpContextualFlags(fs *pflag.FlagSet) {
@@ -180,7 +185,7 @@ func (o *GetOptions) extractResourceArgsFromCmdLine(args []string) []string {
 	return nil
 }
 
-func (o *GetOptions) shouldShowHelpFlag(rule FlagContextualRule, resourceKind, operation string) bool {
+func (o *GetOptions) shouldShowHelpFlag(rule FlagContextualRule, resourceKind ResourceKind, operation string) bool {
 	if !slices.Contains(rule.ResourceKind, resourceKind) {
 		return false
 	}
@@ -255,7 +260,7 @@ func (o *GetOptions) validateSelectors(names []string) error {
 }
 
 // validateSummary validates the usage of the --summary flag.
-func (o *GetOptions) validateSummary(kind string, names []string) error {
+func (o *GetOptions) validateSummary(kind ResourceKind, names []string) error {
 	if !o.Summary {
 		return nil
 	}
@@ -269,7 +274,7 @@ func (o *GetOptions) validateSummary(kind string, names []string) error {
 }
 
 // validateSummaryOnly validates the usage of the --summary-only flag.
-func (o *GetOptions) validateSummaryOnly(kind string, names []string) error {
+func (o *GetOptions) validateSummaryOnly(kind ResourceKind, names []string) error {
 	if !o.SummaryOnly {
 		return nil
 	}
@@ -286,7 +291,7 @@ func (o *GetOptions) validateSummaryOnly(kind string, names []string) error {
 }
 
 // validateTemplateVersion ensures a fleet name is provided when listing templateversions.
-func (o *GetOptions) validateTemplateVersion(kind string) error {
+func (o *GetOptions) validateTemplateVersion(kind ResourceKind) error {
 	if kind == TemplateVersionKind && len(o.FleetName) == 0 {
 		return fmt.Errorf("a fleet name must be specified when getting a list of templateversions")
 	}
@@ -302,7 +307,7 @@ func (o *GetOptions) validateOutputFormat() error {
 }
 
 // validateRendered guards the --rendered flag usage.
-func (o *GetOptions) validateRendered(kind string, names []string) error {
+func (o *GetOptions) validateRendered(kind ResourceKind, names []string) error {
 	if o.Rendered && (kind != DeviceKind || len(names) != 1) {
 		return fmt.Errorf("'--rendered' can only be used when getting a single device")
 	}
@@ -310,7 +315,7 @@ func (o *GetOptions) validateRendered(kind string, names []string) error {
 }
 
 // validateSingleResourceRestrictions covers kinds that cannot be fetched individually.
-func (o *GetOptions) validateSingleResourceRestrictions(kind string, names []string) error {
+func (o *GetOptions) validateSingleResourceRestrictions(kind ResourceKind, names []string) error {
 	if len(names) == 0 {
 		return nil // list request – no restriction applies
 	}
@@ -336,7 +341,7 @@ func (o *GetOptions) validateLimit() error {
 }
 
 // validateLastSeen checks the usage of the --last-seen flag.
-func (o *GetOptions) validateLastSeen(kind string, names []string) error {
+func (o *GetOptions) validateLastSeen(kind ResourceKind, names []string) error {
 	if o.LastSeen && (kind != DeviceKind || len(names) != 1) {
 		return fmt.Errorf("'--last-seen' can only be used when getting a single device")
 	}
@@ -366,7 +371,7 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error {
 	// Handle list case (no specific names)
 	if len(names) == 0 {
 		if err := o.handleList(ctx, formatter, clientWithResponses, kind); err != nil {
-			return fmt.Errorf("listing %s: %w", plural(kind), err)
+			return fmt.Errorf("listing %s: %w", kind.ToPlural(), err)
 		}
 		return nil
 	}
@@ -379,7 +384,7 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error {
 }
 
 // handleSingle fetches and displays a single resource.
-func (o *GetOptions) handleSingle(ctx context.Context, formatter display.OutputFormatter, c *apiclient.ClientWithResponses, kind, name string) error {
+func (o *GetOptions) handleSingle(ctx context.Context, formatter display.OutputFormatter, c *apiclient.ClientWithResponses, kind ResourceKind, name string) error {
 	response, err := o.getSingleResource(ctx, c, kind, name)
 	if err != nil {
 		return err
@@ -391,7 +396,7 @@ func (o *GetOptions) handleSingle(ctx context.Context, formatter display.OutputF
 }
 
 // handleMultiple fetches and displays multiple resources using field selector with IN operator.
-func (o *GetOptions) handleMultiple(ctx context.Context, formatter display.OutputFormatter, c *apiclient.ClientWithResponses, kind string, names []string) error {
+func (o *GetOptions) handleMultiple(ctx context.Context, formatter display.OutputFormatter, c *apiclient.ClientWithResponses, kind ResourceKind, names []string) error {
 	// Construct field selector: metadata.name in (name1,name2,name3)
 	fieldSelector := fmt.Sprintf("metadata.name in (%s)", strings.Join(names, ","))
 
@@ -403,7 +408,7 @@ func (o *GetOptions) handleMultiple(ctx context.Context, formatter display.Outpu
 	return o.handleList(ctx, formatter, c, kind)
 }
 
-func (o *GetOptions) getSingleResource(ctx context.Context, c *apiclient.ClientWithResponses, kind, name string) (interface{}, error) {
+func (o *GetOptions) getSingleResource(ctx context.Context, c *apiclient.ClientWithResponses, kind ResourceKind, name string) (interface{}, error) {
 	switch kind {
 	case DeviceKind:
 		if o.LastSeen {
@@ -430,7 +435,7 @@ func (o *GetOptions) handleList(
 	ctx context.Context,
 	formatter display.OutputFormatter,
 	c *apiclient.ClientWithResponses,
-	kind string,
+	kind ResourceKind,
 ) error {
 	// Batching is only supported for table output
 	isTableOutput := o.Output == ""
@@ -447,7 +452,7 @@ func (o *GetOptions) handleList(
 }
 
 // handleList fetches and displays a list of resources, optionally processing the list in batches
-func (o *GetOptions) handleListBatching(ctx context.Context, formatter display.OutputFormatter, c *apiclient.ClientWithResponses, kind string, requestedLimit int32) error {
+func (o *GetOptions) handleListBatching(ctx context.Context, formatter display.OutputFormatter, c *apiclient.ClientWithResponses, kind ResourceKind, requestedLimit int32) error {
 	var printedCount int32 = 0
 	o.Limit = 0 // Request server-side maximum (0 == capped)
 	summary := o.Summary
@@ -497,7 +502,7 @@ func (o *GetOptions) handleListBatching(ctx context.Context, formatter display.O
 	return nil
 }
 
-func (o *GetOptions) listOnce(ctx context.Context, formatter display.OutputFormatter, c *apiclient.ClientWithResponses, kind string) (interface{}, error) {
+func (o *GetOptions) listOnce(ctx context.Context, formatter display.OutputFormatter, c *apiclient.ClientWithResponses, kind ResourceKind) (interface{}, error) {
 	response, err := o.getResourceList(ctx, c, kind)
 	if err != nil {
 		return nil, err
@@ -508,7 +513,7 @@ func (o *GetOptions) listOnce(ctx context.Context, formatter display.OutputForma
 	return response, o.displayResponse(formatter, response, kind, "")
 }
 
-func (o *GetOptions) getResourceList(ctx context.Context, c *apiclient.ClientWithResponses, kind string) (interface{}, error) {
+func (o *GetOptions) getResourceList(ctx context.Context, c *apiclient.ClientWithResponses, kind ResourceKind) (interface{}, error) {
 	switch kind {
 	case DeviceKind:
 		params := api.ListDevicesParams{
@@ -582,9 +587,9 @@ func (o *GetOptions) getResourceList(ctx context.Context, c *apiclient.ClientWit
 	}
 }
 
-func (o *GetOptions) displayResponse(formatter display.OutputFormatter, response interface{}, kind string, name string) error {
+func (o *GetOptions) displayResponse(formatter display.OutputFormatter, response interface{}, kind ResourceKind, name string) error {
 	options := display.FormatOptions{
-		Kind:        kind,
+		Kind:        kind.String(),
 		Name:        name,
 		Summary:     o.Summary,
 		SummaryOnly: o.SummaryOnly,

@@ -37,8 +37,8 @@ func DefaultEditOptions() *EditOptions {
 }
 
 // getValidEditResourceKinds returns the resource kinds that support editing
-func getValidEditResourceKinds() []string {
-	return []string{
+func getValidEditResourceKinds() []ResourceKind {
+	return []ResourceKind{
 		DeviceKind,
 		FleetKind,
 		RepositoryKind,
@@ -68,8 +68,12 @@ that contains your unapplied changes. The most common error when updating a reso
 is another editor changing the resource on the server. When this occurs, you will have
 to apply your changes to the newer version of the resource, or update your temporary
 saved copy to include the latest resource version.`,
-		Args:      cobra.RangeArgs(1, 2),
-		ValidArgs: getValidEditResourceKinds(),
+		Args: cobra.RangeArgs(1, 2),
+		ValidArgsFunction: KindNameAutocomplete{
+			Options:            o,
+			AllowMultipleNames: false,
+			AllowedKinds:       getValidEditResourceKinds(),
+		}.ValidArgsFunction,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := o.Complete(cmd, args); err != nil {
 				return err
@@ -220,7 +224,7 @@ func (o *EditOptions) Run(ctx context.Context, args []string) error {
 	return nil
 }
 
-func (o *EditOptions) editInEditor(content []byte, kind, name string) ([]byte, error) {
+func (o *EditOptions) editInEditor(content []byte, kind ResourceKind, name string) ([]byte, error) {
 	// Create temporary file with appropriate extension
 	extension := o.Output
 	tempFile, err := os.CreateTemp("", fmt.Sprintf("flightctl-edit-%s-%s-*.%s", kind, name, extension))
@@ -348,7 +352,7 @@ func (o *EditOptions) calculateJSONPatch(originalResource, editedResource interf
 	return json.Marshal(filteredOps)
 }
 
-func (o *EditOptions) applyChanges(ctx context.Context, client *apiclient.ClientWithResponses, content []byte, kind, name string, originalResource interface{}) error {
+func (o *EditOptions) applyChanges(ctx context.Context, client *apiclient.ClientWithResponses, content []byte, kind ResourceKind, name string, originalResource interface{}) error {
 	// Parse and validate the edited content
 	resource, err := o.parseEditedContent(content)
 	if err != nil {
@@ -397,12 +401,12 @@ func (o *EditOptions) parseEditedContent(content []byte) (map[string]interface{}
 }
 
 // validateEditedResource validates the edited resource structure and required fields
-func (o *EditOptions) validateEditedResource(resource map[string]interface{}, kind, name string) error {
+func (o *EditOptions) validateEditedResource(resource map[string]interface{}, kind ResourceKind, name string) error {
 	resourceKind, ok := resource["kind"].(string)
 	if !ok {
 		return fmt.Errorf("edited resource missing 'kind' field")
 	}
-	if strings.ToLower(resourceKind) != kind {
+	if strings.ToLower(resourceKind) != kind.String() {
 		return fmt.Errorf("cannot change resource kind from %s to %s", kind, resourceKind)
 	}
 
@@ -455,7 +459,7 @@ func (o *EditOptions) isPatchEmpty(patchJSON []byte) bool {
 }
 
 // applyPatch applies the JSON patch to the resource using the appropriate PATCH operation
-func (o *EditOptions) applyPatch(ctx context.Context, client *apiclient.ClientWithResponses, kind, name string, patchJSON []byte) error {
+func (o *EditOptions) applyPatch(ctx context.Context, client *apiclient.ClientWithResponses, kind ResourceKind, name string, patchJSON []byte) error {
 	httpResponse, responseBody, err := o.executePatchOperation(ctx, client, kind, name, patchJSON)
 	if err != nil {
 		return err
@@ -465,7 +469,7 @@ func (o *EditOptions) applyPatch(ctx context.Context, client *apiclient.ClientWi
 }
 
 // executePatchOperation executes the appropriate PATCH operation based on resource kind
-func (o *EditOptions) executePatchOperation(ctx context.Context, client *apiclient.ClientWithResponses, kind, name string, patchJSON []byte) (*http.Response, []byte, error) {
+func (o *EditOptions) executePatchOperation(ctx context.Context, client *apiclient.ClientWithResponses, kind ResourceKind, name string, patchJSON []byte) (*http.Response, []byte, error) {
 	reader := bytes.NewReader(patchJSON)
 	contentType := "application/json-patch+json"
 
@@ -533,7 +537,7 @@ func (o *EditOptions) handlePatchResponse(httpResponse *http.Response, responseB
 	return fmt.Errorf("server returned status: %s", httpResponse.Status)
 }
 
-func (o *EditOptions) saveToTempFile(content []byte, kind, name string) (string, error) {
+func (o *EditOptions) saveToTempFile(content []byte, kind ResourceKind, name string) (string, error) {
 	extension := o.Output
 	tempFile, err := os.CreateTemp("", fmt.Sprintf("flightctl-edit-failed-%s-%s-*.%s", kind, name, extension))
 	if err != nil {
