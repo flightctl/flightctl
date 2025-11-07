@@ -23,11 +23,12 @@ const (
 var _ Manager = (*manager)(nil)
 
 type manager struct {
-	podmanMonitor *PodmanMonitor
-	podmanClient  *client.Podman
-	systemdClient *client.Systemd
-	readWriter    fileio.ReadWriter
-	log           *log.PrefixLogger
+	podmanMonitor   *PodmanMonitor
+	podmanClient    *client.Podman
+	systemdClient   *client.Systemd
+	readWriter      fileio.ReadWriter
+	prefetchManager dependency.PrefetchManager
+	log             *log.PrefixLogger
 }
 
 func NewManager(
@@ -36,14 +37,16 @@ func NewManager(
 	podmanClient *client.Podman,
 	systemInfo systeminfo.Manager,
 	systemdClient *client.Systemd,
+	prefetchManager dependency.PrefetchManager,
 ) Manager {
 	bootTime := systemInfo.BootTime()
 	return &manager{
-		readWriter:    readWriter,
-		podmanMonitor: NewPodmanMonitor(log, podmanClient, systemdClient, bootTime, readWriter),
-		podmanClient:  podmanClient,
-		systemdClient: systemdClient,
-		log:           log,
+		readWriter:      readWriter,
+		podmanMonitor:   NewPodmanMonitor(log, podmanClient, systemdClient, bootTime, readWriter),
+		podmanClient:    podmanClient,
+		systemdClient:   systemdClient,
+		prefetchManager: prefetchManager,
+		log:             log,
 	}
 }
 
@@ -100,7 +103,12 @@ func (m *manager) BeforeUpdate(ctx context.Context, desired *v1alpha1.DeviceSpec
 	m.log.Debug("Pre-checking application dependencies")
 	defer m.log.Debug("Finished pre-checking application dependencies")
 
-	providers, err := provider.FromDeviceSpec(ctx, m.log, m.podmanMonitor.client, m.readWriter, desired, provider.WithEmbedded())
+	secret, err := m.resolvePullSecret(desired)
+	if err != nil {
+		return fmt.Errorf("resolving pull secret: %w", err)
+	}
+
+	providers, err := provider.FromDeviceSpec(ctx, m.log, m.podmanMonitor.client, m.readWriter, desired, provider.WithEmbedded(), provider.WithPrefetchManager(m.prefetchManager), provider.WithPullSecret(secret))
 	if err != nil {
 		return fmt.Errorf("parsing apps: %w", err)
 	}

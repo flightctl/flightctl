@@ -180,11 +180,12 @@ func (p *Podman) pullArtifact(ctx context.Context, artifact string, options *cli
 // https://github.com/opencontainers/image-spec/blob/main/manifest.md#guidelines-for-artifact-usage
 // for details on the expected structure of artifacts. Regular images are considered artifacts by
 // podman due to the intentional looseness of the spec.
+//
+// Requires podman >= 5.5.0
 func (p *Podman) ExtractArtifact(ctx context.Context, artifact, destination string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()
 
-	// TODO: only available in podman >= 4.5.0
 	args := []string{"artifact", "extract", artifact, destination}
 	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	if exitCode != 0 {
@@ -223,7 +224,7 @@ func (p *Podman) ArtifactExists(ctx context.Context, artifact string) bool {
 	ctx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()
 
-	args := []string{"artifact", "inspect", artifact}
+	args := []string{"inspect", artifact}
 	_, _, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	return exitCode == 0
 }

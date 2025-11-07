@@ -190,6 +190,9 @@ func (a *Agent) Run(ctx context.Context) error {
 	// create hook manager
 	hookManager := hook.NewManager(deviceReadWriter, executer, a.log)
 
+	// create prefetch manager
+	prefetchManager := dependency.NewPrefetchManager(a.log, podmanClient, deviceReadWriter, a.config.PullTimeout)
+
 	// create application manager
 	applicationsManager := applications.NewManager(
 		a.log,
@@ -197,6 +200,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		podmanClient,
 		systemInfoManager,
 		systemdClient,
+		prefetchManager,
 	)
 
 	// register the application manager with the shutdown manager
@@ -207,9 +211,6 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	// create os manager
 	osManager := os.NewManager(a.log, osClient, deviceReadWriter, podmanClient)
-
-	// create prefetch manager
-	prefetchManager := dependency.NewPrefetchManager(a.log, podmanClient, deviceReadWriter, a.config.PullTimeout)
 
 	// create status manager
 	statusManager := status.NewManager(
