@@ -110,9 +110,9 @@ func (h *Harness) StopDeviceSimulator(cmd *exec.Cmd, timeout time.Duration) erro
 		stopErr = <-done
 	}
 
-	// After stopping the simulator, delete all devices created by it (best-effort)
-	if _, delErr := h.DeleteAllDevicesFound(); delErr != nil {
-		logrus.Errorf("error deleting devices after stopping simulator: %v", delErr)
+	// After stopping the simulator, delete resources created by it (best-effort)
+	if _, _, delErr := h.DeleteAllResourcesFound(); delErr != nil {
+		logrus.Errorf("error deleting resources after stopping simulator: %v", delErr)
 	}
 
 	// Close any attached log file writers, if used
@@ -233,54 +233,49 @@ func (h *Harness) SetupDeviceSimulatorAgentConfig(server string, logLevel string
 		}
 	}
 
-	// Do not modify the generated/copied config file content here.
-
 	logrus.Infof("device simulator agent config prepared at %s; certs in %s", destConfigPath, destCertsDir)
 	return destConfigPath, nil
 }
 
-// DeleteAllDevicesFound lists all devices and deletes each one. It returns the
-// device IDs that were deleted, in the order processed.
-func (h *Harness) DeleteAllDevicesFound() ([]string, error) {
-	out, err := h.CLI("get", "devices", "-o", "name")
+// DeleteAllResourcesFound deletes all fleets first and then all devices.
+// Returns the names of deleted fleets and IDs of deleted devices, in order processed.
+func (h *Harness) DeleteAllResourcesFound() ([]string, []string, error) {
+	// Delete fleets first so they stop selecting devices
+	fleetsOut, err := h.CLI("get", "fleets", "-o", "name")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	var deleted []string
-	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
-		id := strings.TrimSpace(line)
-		if id == "" {
-			continue
-		}
-		id = strings.TrimPrefix(id, "device/")
-		if _, err := h.ManageResource("delete", "device/"+id); err != nil {
-			return deleted, err
-		}
-		deleted = append(deleted, id)
-	}
-	return deleted, nil
-}
-
-// DeleteAllFleetsFound lists all fleets and deletes each one. It returns the
-// fleet names that were deleted, in the order processed.
-func (h *Harness) DeleteAllFleetsFound() ([]string, error) {
-	out, err := h.CLI("get", "fleets", "-o", "name")
-	if err != nil {
-		return nil, err
-	}
-	var deleted []string
-	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+	var deletedFleets []string
+	for _, line := range strings.Split(strings.TrimSpace(fleetsOut), "\n") {
 		name := strings.TrimSpace(line)
 		if name == "" {
 			continue
 		}
 		name = strings.TrimPrefix(name, "fleet/")
 		if _, err := h.ManageResource("delete", "fleet/"+name); err != nil {
-			return deleted, err
+			return deletedFleets, nil, err
 		}
-		deleted = append(deleted, name)
+		deletedFleets = append(deletedFleets, name)
 	}
-	return deleted, nil
+
+	// Then delete devices
+	devicesOut, err := h.CLI("get", "devices", "-o", "name")
+	if err != nil {
+		return deletedFleets, nil, err
+	}
+	var deletedDevices []string
+	for _, line := range strings.Split(strings.TrimSpace(devicesOut), "\n") {
+		id := strings.TrimSpace(line)
+		if id == "" {
+			continue
+		}
+		id = strings.TrimPrefix(id, "device/")
+		if _, err := h.ManageResource("delete", "device/"+id); err != nil {
+			return deletedFleets, deletedDevices, err
+		}
+		deletedDevices = append(deletedDevices, id)
+	}
+	return deletedFleets, deletedDevices, nil
 }
 
 // GenerateFleetYAMLsForSimulator returns a multi-document Fleet YAML string with
