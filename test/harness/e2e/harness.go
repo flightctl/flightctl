@@ -1417,6 +1417,11 @@ func (h *Harness) SetupVMFromPoolAndStartAgent(workerID int) error {
 		return fmt.Errorf("failed to wait for SSH: %w", err)
 	}
 
+	// Clean any stale CSR from previous tests
+	_, err = testVM.RunSSH([]string{"sudo", "rm", "-f", "/var/lib/flightctl/certs/agent.csr"}, nil)
+	if err != nil {
+		logrus.Warnf("Failed to clean stale CSR: %v", err)
+	}
 	// Print agent files right after snapshot revert - should be empty/version 0
 	printAgentFilesForVM(testVM, "After Snapshot Revert")
 
