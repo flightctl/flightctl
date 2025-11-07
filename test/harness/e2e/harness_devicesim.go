@@ -255,59 +255,88 @@ func (h *Harness) SetupDeviceSimulatorAgentConfig(server string, logLevel string
 	return destConfigPath, nil
 }
 
-// DeleteAllResourcesFound deletes all fleets first and then all devices.
+// DeleteAllResourcesFound deletes only fleets and devices created by the current test (identified by test-id label).
 // Returns the names of deleted fleets and IDs of deleted devices, in order processed.
 // Partial results are returned even if an error occurs during deletion.
 func (h *Harness) DeleteAllResourcesFound() ([]string, []string, error) {
+	testID := h.GetTestIDFromContext()
+	logrus.Infof("Deleting test resources with test-id: %s", testID)
+
 	var deletedFleets []string
 	var deletedDevices []string
 	var deleteErr error
 
 	// Delete fleets first so they stop selecting devices
-	fleetsOut, err := h.CLI("get", "fleets", "-o", "name")
+	// Only get fleets with the test-id label
+	fleetsOut, err := h.CLI("get", util.Fleet, "-l", fmt.Sprintf("test-id=%s", testID), "-o", "name")
 	if err != nil {
-		return nil, nil, fmt.Errorf("listing fleets: %w", err)
+		// If no fleets found, that's fine
+		logrus.Debugf("No fleets found with test-id %s: %v", testID, err)
+	} else {
+		fleetsOut = strings.TrimSpace(fleetsOut)
+		if fleetsOut != "" {
+			// Parse fleet names from the output
+			// Output format: "fleet/name1\nfleet/name2\n..."
+			for _, line := range strings.Split(fleetsOut, "\n") {
+				name := strings.TrimSpace(line)
+				if name == "" {
+					continue
+				}
+				// Extract just the name part from "fleet/name"
+				name = strings.TrimPrefix(name, "fleet/")
+				if _, err := h.ManageResource("delete", "fleet/"+name); err != nil {
+					if deleteErr == nil {
+						deleteErr = fmt.Errorf("deleting fleet %s: %w", name, err)
+					} else {
+						deleteErr = fmt.Errorf("%v; deleting fleet %s: %w", deleteErr, name, err)
+					}
+					logrus.Warnf("failed to delete fleet %s: %v", name, err)
+					continue // Continue with remaining fleets
+				}
+				deletedFleets = append(deletedFleets, name)
+			}
+		}
 	}
 
-	for _, line := range strings.Split(strings.TrimSpace(fleetsOut), "\n") {
-		name := strings.TrimSpace(line)
-		if name == "" {
-			continue
-		}
-		name = strings.TrimPrefix(name, "fleet/")
-		if _, err := h.ManageResource("delete", "fleet/"+name); err != nil {
-			deleteErr = fmt.Errorf("deleting fleet %s: %w", name, err)
-			logrus.Warnf("failed to delete fleet %s: %v", name, err)
-			continue // Continue with remaining fleets
-		}
-		deletedFleets = append(deletedFleets, name)
-	}
-
-	// Then delete devices
-	devicesOut, err := h.CLI("get", "devices", "-o", "name")
+	// Then delete devices with the test-id label
+	devicesOut, err := h.CLI("get", util.Device, "-l", fmt.Sprintf("test-id=%s", testID), "-o", "name")
 	if err != nil {
 		if deleteErr != nil {
 			return deletedFleets, deletedDevices, fmt.Errorf("fleet deletion errors: %w; listing devices: %w", deleteErr, err)
 		}
-		return deletedFleets, deletedDevices, fmt.Errorf("listing devices: %w", err)
+		// If no devices found, that's fine
+		logrus.Debugf("No devices found with test-id %s: %v", testID, err)
+		return deletedFleets, deletedDevices, deleteErr
 	}
 
-	for _, line := range strings.Split(strings.TrimSpace(devicesOut), "\n") {
-		id := strings.TrimSpace(line)
-		if id == "" {
-			continue
-		}
-		id = strings.TrimPrefix(id, "device/")
-		if _, err := h.ManageResource("delete", "device/"+id); err != nil {
-			if deleteErr == nil {
-				deleteErr = fmt.Errorf("deleting device %s: %w", id, err)
-			} else {
-				deleteErr = fmt.Errorf("%v; deleting device %s: %w", deleteErr, id, err)
+	devicesOut = strings.TrimSpace(devicesOut)
+	if devicesOut != "" {
+		// Parse device names from the output
+		// Output format: "device/name1\ndevice/name2\n..."
+		for _, line := range strings.Split(devicesOut, "\n") {
+			id := strings.TrimSpace(line)
+			if id == "" {
+				continue
 			}
-			logrus.Warnf("failed to delete device %s: %v", id, err)
-			continue // Continue with remaining devices
+			// Extract just the name part from "device/name"
+			id = strings.TrimPrefix(id, "device/")
+			if _, err := h.ManageResource("delete", "device/"+id); err != nil {
+				if deleteErr == nil {
+					deleteErr = fmt.Errorf("deleting device %s: %w", id, err)
+				} else {
+					deleteErr = fmt.Errorf("%v; deleting device %s: %w", deleteErr, id, err)
+				}
+				logrus.Warnf("failed to delete device %s: %v", id, err)
+				continue // Continue with remaining devices
+			}
+			deletedDevices = append(deletedDevices, id)
 		}
-		deletedDevices = append(deletedDevices, id)
+	}
+
+	if len(deletedFleets) > 0 || len(deletedDevices) > 0 {
+		logrus.Infof("Deleted %d fleets and %d devices with test-id %s", len(deletedFleets), len(deletedDevices), testID)
+	} else {
+		logrus.Debugf("No test resources found to delete with test-id %s", testID)
 	}
 
 	return deletedFleets, deletedDevices, deleteErr
