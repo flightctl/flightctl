@@ -105,7 +105,7 @@ ssh -i ${SSH_PRIVATE_KEY_PATH} -o StrictHostKeyChecking=no -o UserKnownHostsFile
   sudo dnf install -y \
   https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm
   sudo dnf repolist
-  sudo dnf install -y libvirt libvirt-client virt-install swtpm \
+  sudo dnf install -y libvirt libvirt-client virt-install pam-devel swtpm \
                     make golang git \
                     podman qemu-kvm sshpass
   sudo dnf --enablerepo=crb install -y libvirt-devel

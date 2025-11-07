@@ -96,9 +96,27 @@ func (a *Agent) Run(ctx context.Context) error {
 		return fmt.Errorf("failed to get device name: %w", err)
 	}
 
-	csr, err := identityProvider.GenerateCSR(deviceName)
+	clientCSRPath := identity.GetCSRPath(a.config.DataDir)
+
+	// Try to load persisted CSR first, generate a new one only if not found
+	csr, found, err := identity.LoadCSR(deviceReadWriter, clientCSRPath)
 	if err != nil {
-		return fmt.Errorf("failed to generate CSR: %w", err)
+		return fmt.Errorf("failed to load CSR: %w", err)
+	}
+
+	if !found {
+		a.log.Infof("No persisted CSR found, generating new CSR for enrollment")
+		csr, err = identityProvider.GenerateCSR(deviceName)
+		if err != nil {
+			return fmt.Errorf("failed to generate CSR: %w", err)
+		}
+
+		if err := identity.StoreCSR(deviceReadWriter, clientCSRPath, csr); err != nil {
+			return fmt.Errorf("failed to store CSR: %w", err)
+		}
+		a.log.Infof("CSR generated and persisted successfully")
+	} else {
+		a.log.Infof("Using persisted CSR for enrollment")
 	}
 
 	executer := &executer.CommonExecuter{}
