@@ -77,6 +77,16 @@ func (q *Quadlet) remove(ctx context.Context, action *Action) error {
 		if err != nil {
 			return fmt.Errorf("stopping units: %w", err)
 		}
+		// a service that is ultimately stopped via sigkill may result in a failed service
+		// if it's not reset, systemd may keep the unit around even though it no longer exists
+		// clearing this flag will result in the unit being removed
+		failedServices := q.getFailedServices(ctx, services)
+		if len(failedServices) > 0 {
+			q.log.Debugf("Resetting failed state for services: %q", strings.Join(failedServices, ","))
+			if resetErr := q.systemd.ResetFailed(ctx, failedServices...); resetErr != nil {
+				q.log.Warnf("Failed to reset-failed for services %q: %v", strings.Join(failedServices, ","), resetErr)
+			}
+		}
 	}
 
 	if err := q.systemd.DaemonReload(ctx); err != nil {
@@ -184,4 +194,20 @@ func (q *Quadlet) collectTargets(path string) ([]string, error) {
 	// ensure that targets are processed first and services are
 	// secondary.
 	return append(targets, services...), nil
+}
+
+func (q *Quadlet) getFailedServices(ctx context.Context, services []string) []string {
+	units, err := q.systemd.ListUnitsByMatchPattern(ctx, services)
+	if err != nil {
+		q.log.Warnf("Failed to list units to check for failed state: %v", err)
+		return nil
+	}
+
+	var failedServices []string
+	for _, u := range units {
+		if u.ActiveState == client.SystemDActiveStateFailed {
+			failedServices = append(failedServices, u.Unit)
+		}
+	}
+	return failedServices
 }

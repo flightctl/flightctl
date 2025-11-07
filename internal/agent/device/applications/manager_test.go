@@ -146,6 +146,7 @@ func TestManager(t *testing.T) {
 
 					// remove quadlet app (syncProviders call)
 					mockExecSystemdStop(mockExec, "test-app.service"),
+					mockExecSystemdListUnits(mockExec, "test-app.service"),
 					mockExecSystemdDaemonReload(mockExec),
 
 					// no podman events mock needed since no apps remain after removal
@@ -172,6 +173,7 @@ func TestManager(t *testing.T) {
 
 					// stop current quadlet app
 					mockExecSystemdStop(mockExec, "test-app.service"),
+					mockExecSystemdListUnits(mockExec, "test-app.service"),
 					mockExecSystemdDaemonReload(mockExec),
 
 					// start updated quadlet app
@@ -483,6 +485,15 @@ func mockExecSystemdStop(mockExec *executer.MockExecuter, services ...string) *g
 		"/usr/bin/systemctl",
 		args,
 	).Return("", "", 0)
+}
+
+func mockExecSystemdListUnits(mockExec *executer.MockExecuter, services ...string) *gomock.Call {
+	args := append([]string{"list-units", "--all", "--output", "json"}, services...)
+	return mockExec.EXPECT().ExecuteWithContext(
+		gomock.Any(),
+		"/usr/bin/systemctl",
+		args,
+	).Return("[]", "", 0)
 }
 
 func mockReadQuadletFiles(mockReadWriter *fileio.MockReadWriter, quadletContent string) {

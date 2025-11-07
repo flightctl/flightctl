@@ -124,6 +124,18 @@ func (s *Systemd) DaemonReload(ctx context.Context) error {
 	return nil
 }
 
+func (s *Systemd) ResetFailed(ctx context.Context, units ...string) error {
+	if len(units) == 0 {
+		return ErrNoSystemDUnits
+	}
+	args := append([]string{"reset-failed"}, units...)
+	_, stderr, exitCode := s.exec.ExecuteWithContext(ctx, systemctlCommand, args...)
+	if exitCode != 0 {
+		return fmt.Errorf("reset-failed systemd unit(s): %q: %w", strings.Join(units, ","), errors.FromStderr(stderr, exitCode))
+	}
+	return nil
+}
+
 type SystemDUnitListEntry struct {
 	Unit        string                 `json:"unit"`
 	LoadState   string                 `json:"load"`
