@@ -284,6 +284,145 @@ func TestFileLogger_DisabledLogging(t *testing.T) {
 	require.NoError(err)
 }
 
+func TestFileLogger_RotationConfiguration(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	config := NewDefaultAuditConfig()
+	mockRW := fileio.NewMockReadWriter(ctrl)
+	logger := log.NewPrefixLogger("test")
+
+	// Setup validation mocks
+	mockRW.EXPECT().PathExists("/var/log/flightctl").Return(true, nil)
+
+	auditLogger, err := NewFileLogger(config, mockRW, "test-device", "test-agent-version", logger)
+	require.NoError(err)
+	require.NotNil(auditLogger.rotatingLog)
+
+	// Verify lumberjack configuration matches hardcoded defaults
+	require.Equal(DefaultLogPath, auditLogger.rotatingLog.Filename)
+	require.Equal(DefaultMaxSizeKB/1024, auditLogger.rotatingLog.MaxSize, "MaxSize should be 2MB")
+	require.Equal(DefaultMaxBackups, auditLogger.rotatingLog.MaxBackups, "Should keep 3 backup files")
+	require.Equal(DefaultMaxAge, auditLogger.rotatingLog.MaxAge, "No time-based pruning")
+	require.False(auditLogger.rotatingLog.Compress, "Files should not be compressed")
+}
+
+func TestFileLogger_RotationBehavior(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping rotation test in short mode - writes >1MB of data")
+	}
+
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	// Create a temporary directory for test logs
+	tmpDir := t.TempDir()
+	testLogPath := tmpDir + "/audit.log"
+
+	// Create a FileLogger with mocked readWriter to bypass validation
+	config := NewDefaultAuditConfig()
+	mockRW := fileio.NewMockReadWriter(ctrl)
+	logger := log.NewPrefixLogger("test")
+
+	// Mock validation calls
+	mockRW.EXPECT().PathExists("/var/log/flightctl").Return(true, nil)
+
+	auditLogger, err := NewFileLogger(config, mockRW, "test-device", "v1.0.0", logger)
+	require.NoError(err)
+
+	// Set very small MaxSize to trigger rotation quickly (100KB instead of 2MB)
+	auditLogger.rotatingLog.Filename = testLogPath
+	auditLogger.rotatingLog.MaxSize = 1    // 1MB
+	auditLogger.rotatingLog.MaxBackups = 2 // Only keep 2 backups for testing
+
+	ctx := context.Background()
+
+	// Mock PathFor to return "" → triggers production mode (lumberjack)
+	mockRW.EXPECT().PathFor("").Return("").AnyTimes()
+
+	// Calculate how many events needed to exceed 1MB
+	// Each event is ~90 bytes (measured: 7000 events = 631KB)
+	// Need ~12,000 events to exceed 1MB, write 15,000 to ensure rotation
+	eventCount := 15000
+	t.Logf("Writing %d events to trigger rotation...", eventCount)
+
+	for i := 0; i < eventCount; i++ {
+		auditInfo := &AuditEventInfo{
+			Device:               "test-device-with-a-long-name-to-increase-event-size",
+			OldVersion:           "1",
+			NewVersion:           "2",
+			Result:               AuditResultSuccess,
+			Type:                 AuditTypeUpgrade,
+			FleetTemplateVersion: "template-version-12345",
+			StartTime:            time.Now(),
+		}
+		err := auditLogger.LogEvent(ctx, auditInfo)
+		require.NoError(err)
+	}
+
+	// Close the logger to ensure all writes are flushed
+	err = auditLogger.Close()
+	require.NoError(err)
+
+	// Check for backup files created by rotation
+	realRW := fileio.NewReadWriter()
+
+	// List all files in temp directory to see what was created
+	files, err := realRW.ReadDir(tmpDir)
+	require.NoError(err)
+	t.Logf("Files in temp directory:")
+	for _, file := range files {
+		if !file.IsDir() {
+			// Get file info to see size
+			info, err := file.Info()
+			if err == nil {
+				t.Logf("  - %s (%d bytes)", file.Name(), info.Size())
+			} else {
+				t.Logf("  - %s (size unknown)", file.Name())
+			}
+		}
+	}
+
+	// Main log file should exist
+	mainExists, err := realRW.PathExists(testLogPath)
+	require.NoError(err)
+	require.True(mainExists, "Main audit log file should exist")
+
+	// Count backup files (lumberjack creates timestamp-based backups, not numbered)
+	// Pattern: audit-YYYY-MM-DDTHH-MM-SS.mmm.log
+	backupCount := 0
+	var backupSizes []int
+	for _, file := range files {
+		if !file.IsDir() && strings.HasPrefix(file.Name(), "audit-") && strings.HasSuffix(file.Name(), ".log") {
+			backupCount++
+			info, _ := file.Info()
+			if info != nil {
+				backupSizes = append(backupSizes, int(info.Size()))
+				t.Logf("Backup file: %s (%d bytes, %.2f MB)", file.Name(), info.Size(), float64(info.Size())/(1024*1024))
+			}
+		}
+	}
+
+	// Get main file size
+	mainData, err := realRW.ReadFile(testLogPath)
+	require.NoError(err)
+	mainSize := len(mainData)
+	t.Logf("Main log file: %d bytes (%.2f MB)", mainSize, float64(mainSize)/(1024*1024))
+	t.Logf("Total backup files created: %d", backupCount)
+
+	// Verify rotation actually happened
+	require.Greater(backupCount, 0, "Log rotation should have created at least one backup file")
+
+	// Verify backup files are approximately 1MB (allowing for some variation)
+	for i, size := range backupSizes {
+		sizeMB := float64(size) / (1024 * 1024)
+		require.Greater(sizeMB, 0.9, "Backup file %d should be close to 1MB, got %.2f MB", i+1, sizeMB)
+		require.Less(sizeMB, 1.2, "Backup file %d should be close to 1MB, got %.2f MB", i+1, sizeMB)
+	}
+}
+
 func TestFileLogger_Close(t *testing.T) {
 	require := require.New(t)
 	ctrl := gomock.NewController(t)
