@@ -353,8 +353,11 @@ func (s *manager) Rollback(ctx context.Context, opts ...RollbackOption) error {
 		opt(cfg)
 	}
 
+	// Capture the failed desired version BEFORE any disk operations (for audit log)
+	failedDesiredVersion := s.cache.getRenderedVersion(Desired)
+
 	if cfg.setFailed {
-		version, err := stringToInt64(s.cache.getRenderedVersion(Desired))
+		version, err := stringToInt64(failedDesiredVersion)
 		if err != nil {
 			return err
 		}
@@ -371,9 +374,6 @@ func (s *manager) Rollback(ctx context.Context, opts ...RollbackOption) error {
 	if err != nil {
 		return err
 	}
-
-	// Capture the failed desired version BEFORE updating the cache (for audit log)
-	failedDesiredVersion := s.cache.getRenderedVersion(Desired)
 
 	// add the current spec back to the priority queue to ensure future resync
 	s.queue.Add(ctx, current)
@@ -524,6 +524,9 @@ func (s *manager) getDeviceFromQueue(ctx context.Context) (*v1alpha1.Device, boo
 			s.log.Infof("Writing new desired rendered spec to disk version: %s", desired.Version())
 		}
 
+		// Capture old desired version BEFORE writing to disk (for audit log)
+		oldDesiredVersion := s.cache.getRenderedVersion(Desired)
+
 		if err := s.write(Desired, desired); err != nil {
 			return nil, false, err
 		}
@@ -538,11 +541,10 @@ func (s *manager) getDeviceFromQueue(ctx context.Context) (*v1alpha1.Device, boo
 				}
 			}
 
-			// Get the current effective version (not the old desired version)
-			oldVersion := s.cache.getRenderedVersion(Current)
+			// For sync event: track desired spec transition (old desired → new desired)
 			auditInfo := &audit.AuditEventInfo{
 				Device:               s.deviceName,
-				OldVersion:           oldVersion,
+				OldVersion:           oldDesiredVersion,
 				NewVersion:           desired.Version(),
 				Result:               audit.AuditResultSuccess,
 				Type:                 audit.AuditTypeSync, // New spec received from API
@@ -550,7 +552,7 @@ func (s *manager) getDeviceFromQueue(ctx context.Context) (*v1alpha1.Device, boo
 				StartTime:            time.Now(),
 			}
 			if err := s.auditLogger.LogEvent(ctx, auditInfo); err != nil {
-				s.log.Warnf("Failed to write audit log for sync from %s to %s: %v", oldVersion, desired.Version(), err)
+				s.log.Warnf("Failed to write audit log for sync from %s to %s: %v", oldDesiredVersion, desired.Version(), err)
 			}
 		}
 	}
