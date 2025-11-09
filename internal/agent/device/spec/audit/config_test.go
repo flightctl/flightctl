@@ -138,7 +138,7 @@ func TestConstants(t *testing.T) {
 	require.Equal(true, DefaultEnabled)
 
 	// Test hardcoded rotation constants (non-configurable)
-	require.Equal(1024, DefaultMaxSizeKB) // 1MB for ~10k records
-	require.Equal(1, DefaultMaxBackups)   // Minimal rotations
+	require.Equal(2048, DefaultMaxSizeKB) // 2MB per file (≈6,990 records)
+	require.Equal(3, DefaultMaxBackups)   // 3 backups (8 MB total with active file)
 	require.Equal(0, DefaultMaxAge)       // No time-based pruning
 }

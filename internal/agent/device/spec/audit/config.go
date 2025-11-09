@@ -14,9 +14,9 @@ const (
 	DefaultEnabled = true
 
 	// Hardcoded rotation defaults - non-configurable by users
-	// ~10k records (kilobytes)
-	DefaultMaxSizeKB  = 1024 // 1MB (approximately 10k records)
-	DefaultMaxBackups = 1    // Minimal rotations - keep only 1 backup
+	// 2 MB per file, 3 backups = 8 MB total (≈27,960 records)
+	DefaultMaxSizeKB  = 2048 // 2MB per file (approximately 6,990 records)
+	DefaultMaxBackups = 3    // Keep 3 backup files (1 active + 3 backups = 8 MB total)
 	DefaultMaxAge     = 0    // No time-based pruning
 )
 
