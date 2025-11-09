@@ -24,6 +24,17 @@ spec:
             - containerPort: 22
               protocol: TCP
           imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: ssh-keys
+              mountPath: /tmp/ssh-keys
+              readOnly: true
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              cp /tmp/ssh-keys/id_rsa.pub /home/user/.ssh/authorized_keys
+              chown user:user /home/user/.ssh/authorized_keys
+              chmod 600 /home/user/.ssh/authorized_keys
+              while true; do /usr/sbin/sshd -D -e; sleep 1; done
           #TODO(make sure the container works with this security context in openshift)
           #securityContext:
           #  allowPrivilegeEscalation: true
@@ -31,4 +42,8 @@ spec:
           #    add:
           #    - NET_BIND_SERVICE
           #    - SYS_CHROOT
+      volumes:
+        - name: ssh-keys
+          secret:
+            secretName: e2e-gitserver-keys
       restartPolicy: Always

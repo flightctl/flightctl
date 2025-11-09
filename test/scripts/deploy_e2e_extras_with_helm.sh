@@ -14,6 +14,11 @@ if in_kind; then
     kind_load_image quay.io/flightctl/e2eregistry:2
 fi
 
+# Override git-server image if GITSERVER_IMAGE is set
+if [ -n "${GITSERVER_IMAGE:-}" ]; then
+    ARGS="${ARGS} --set gitserver.image=${GITSERVER_IMAGE}"
+fi
+
 REPOADDR=$(registry_address)
 
 # deploy E2E local services for testing: local registry, eventually a git server, ostree repos, etc...
