@@ -11,7 +11,9 @@ type AuditType string
 const (
 	// AuditTypeBootstrap represents initial device enrollment
 	AuditTypeBootstrap AuditType = "bootstrap"
-	// AuditTypeUpgrade represents applying a new desired spec
+	// AuditTypeSync represents receiving a new spec from the management API (desired.json write)
+	AuditTypeSync AuditType = "sync"
+	// AuditTypeUpgrade represents applying a new desired spec (current.json write)
 	AuditTypeUpgrade AuditType = "upgrade"
 	// AuditTypeRollback represents reverting to a previous working spec
 	AuditTypeRollback AuditType = "rollback"
@@ -34,7 +36,7 @@ type AuditEvent struct {
 	OldVersion           string      `json:"old_version"`            // current effective version before the attempt
 	NewVersion           string      `json:"new_version"`            // target version
 	Result               AuditResult `json:"result"`                 // success | failure
-	Type                 AuditType   `json:"type"`                   // bootstrap/upgrade/rollback
+	Type                 AuditType   `json:"type"`                   // bootstrap/sync/upgrade/rollback
 	FleetTemplateVersion string      `json:"fleet_template_version"` // from metadata.annotations["fleet-controller/templateVersion"]
 	AgentVersion         string      `json:"agent_version"`          // e.g., 0.10.0
 }
