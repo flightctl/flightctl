@@ -130,6 +130,10 @@ func (s *manager) Initialize(ctx context.Context) error {
 }
 
 func (s *manager) Ensure() error {
+	// Track if this is the first time initializing (bootstrap)
+	var isBootstrap bool
+	var filesCreated int
+
 	for _, specType := range []Type{Current, Desired, Rollback} {
 		exists, err := s.exists(specType)
 		if err != nil {
@@ -141,8 +145,12 @@ func (s *manager) Ensure() error {
 			if err := s.write(specType, newVersionedDevice("0")); err != nil {
 				return err
 			}
+			filesCreated++
 		}
 	}
+
+	// If all 3 files were just created, this is a bootstrap event
+	isBootstrap = filesCreated == 3
 
 	current, err := s.Read(Current)
 	if err != nil {
@@ -165,6 +173,23 @@ func (s *manager) Ensure() error {
 	// add the desired spec to the queue this ensures that the device will
 	// reconcile the desired spec on startup.
 	s.queue.Add(context.TODO(), desired)
+
+	// Log bootstrap event if this is the first time initializing (all 3 files were just created)
+	if isBootstrap && s.auditLogger != nil {
+		auditInfo := &audit.AuditEventInfo{
+			Device:               s.deviceName,
+			OldVersion:           "",  // No previous version for bootstrap
+			NewVersion:           "0", // Initial version
+			Result:               audit.AuditResultSuccess,
+			Type:                 audit.AuditTypeBootstrap, // Initial device enrollment
+			FleetTemplateVersion: "",                       // No fleet template on bootstrap
+			StartTime:            time.Now(),
+		}
+		if err := s.auditLogger.LogEvent(context.TODO(), auditInfo); err != nil {
+			s.log.Warnf("Failed to write audit log for bootstrap: %v", err)
+		}
+	}
+
 	return nil
 }
 
