@@ -4,80 +4,11 @@ This document describes the deployment configurations for the new `flightctl-pam
 
 ## Overview
 
-The PAM issuer has been separated into its own container with dedicated deployment configurations for both Helm (Kubernetes) and Quadlet (Podman/systemd) deployments.
+The PAM issuer has been separated into its own container with dedicated deployment configurations for Quadlet (Podman/systemd) deployments.
 
 ## Deployment Files
 
-### Helm (Kubernetes) Deployment
-
-Location: `deploy/helm/flightctl/templates/pam-issuer/`
-
-The following Helm templates have been created:
-
-1. **flightctl-pam-issuer-deployment.yaml**
-   - Kubernetes Deployment resource for the PAM issuer
-   - Configures container with environment variables, volumes, and probes
-   - No database or Redis dependencies (uses in-memory storage)
-   - Exposes port 8444 for OIDC endpoints
-
-2. **flightctl-pam-issuer-service.yaml**
-   - Kubernetes Service resource
-   - Exposes the PAM issuer on port 8444
-   - Supports NodePort configuration via values
-
-3. **flightctl-pam-issuer-config.yaml**
-   - ConfigMap containing the PAM issuer configuration
-   - Templates database connection, KV store, and PAM OIDC settings
-   - Automatically configured based on Helm values
-
-4. **flightctl-pam-issuer-certs-persistentvolumeclaim.yaml**
-   - PVC for storing TLS certificates
-   - 100Mi storage for certificate management
-
-5. **flightctl-pam-issuer-serviceaccount.yaml**
-   - Service account for RBAC configuration
-
-6. **flightctl-pam-issuer-route.yaml**
-   - OpenShift Route for exposing the service (route mode)
-   - Configured for passthrough TLS termination
-   - Hostname: `pam-issuer.<baseDomain>`
-
-7. **flightctl-pam-issuer-gateway-route.yaml**
-   - Gateway API HTTPRoute for exposing the service (gateway mode)
-   - Alternative to OpenShift Route for Kubernetes Gateway API
-
-### Helm Values Configuration
-
-Add the following to your `values.yaml`:
-
-```yaml
-global:
-  nodePorts:
-    pamIssuer: 8444  # NodePort for PAM issuer service
-
-  auth:
-    pamOidcIssuer:
-      issuer: ""  # Base URL for the OIDC issuer (must include /api/v1/auth path, e.g., https://pam-issuer.example.com:8444/api/v1/auth)
-      clientId: "flightctl-client"
-      clientSecret: ""
-      scopes: ["openid", "profile", "email", "roles"]
-      redirectUris: []
-      pamService: "flightctl"
-
-pamIssuer:
-  enabled: true
-  image:
-    image: quay.io/flightctl/flightctl-pam-issuer
-    pullPolicy: ""
-    tag: ""
-  env: {}
-  probes:
-    enabled: true
-    readinessPath: /api/v1/auth/.well-known/openid-configuration
-    livenessPath: /api/v1/auth/.well-known/openid-configuration
-```
-
-### Quadlet (Podman/systemd) Deployment
+### Quadlet (Podman/systemd)
 
 Location: `deploy/podman/flightctl-pam-issuer/`
 
@@ -136,18 +67,6 @@ The PAM issuer service configuration includes:
 
 ## Deployment
 
-### Helm Deployment
-
-```bash
-# Install/upgrade with Helm
-helm upgrade --install flightctl ./deploy/helm/flightctl \
-  --set pamIssuer.enabled=true \
-  --set global.auth.pamOidcIssuer.clientId=flightctl-client \
-  --set global.auth.pamOidcIssuer.clientSecret=<your-secret>
-```
-
-### Quadlet Deployment
-
 ```bash
 # Copy Quadlet files to systemd directory
 sudo cp deploy/podman/flightctl-pam-issuer/*.container /etc/containers/systemd/
@@ -165,13 +84,8 @@ sudo systemctl start flightctl-pam-issuer.service
 
 ## Accessing the Service
 
-### Kubernetes/OpenShift
-- Route mode: `https://pam-issuer.<baseDomain>`
-- NodePort mode: `https://<node-ip>:8444`
-- Gateway mode: `https://pam-issuer.<baseDomain>` (via Gateway API)
-
-### Podman
-- Local: `https://localhost:8444`
+The PAM issuer service is accessible at:
+- `https://localhost:8444`
 
 ## OIDC Discovery
 
@@ -180,13 +94,13 @@ According to the OIDC Discovery specification, the issuer URL must match the bas
 The PAM issuer exposes its OIDC configuration at:
 
 ```text
-https://pam-issuer.<baseDomain>:8444/api/v1/auth/.well-known/openid-configuration
+https://localhost:8444/api/v1/auth/.well-known/openid-configuration
 ```
 
 Therefore, the issuer URL must be configured as:
 
 ```text
-https://pam-issuer.<baseDomain>:8444/api/v1/auth
+https://localhost:8444/api/v1/auth
 ```
 
 This endpoint provides:
@@ -199,21 +113,15 @@ This endpoint provides:
 
 1. **TLS**: The PAM issuer uses mTLS for secure communication
 2. **PAM Authentication**: User credentials are validated against Linux PAM
-3. **Session Management**: Sessions are stored in Redis with expiration
+3. **Session Management**: Sessions are stored in-memory with expiration
 4. **Token Signing**: JWT tokens are signed with RS256 or ES256 keys
 5. **Client Authentication**: Supports both public clients (CLI) and confidential clients (backend services)
+6. **PKCE Requirement**: By default, PKCE (Proof Key for Code Exchange) is required for public clients per OAuth 2.0 Security Best Current Practice. This can be disabled via the `allowPublicClientWithoutPKCE` configuration option, but this is not recommended for production environments
 
 ## Troubleshooting
 
-### Check Pod/Container Status
+### Check Container Status
 
-Kubernetes:
-```bash
-kubectl get pods -l flightctl.service=flightctl-pam-issuer
-kubectl logs -l flightctl.service=flightctl-pam-issuer
-```
-
-Podman:
 ```bash
 sudo systemctl status flightctl-pam-issuer.service
 sudo journalctl -u flightctl-pam-issuer.service -f
@@ -223,9 +131,7 @@ sudo journalctl -u flightctl-pam-issuer.service -f
 
 1. **Port Conflicts**: Ensure port 8444 is not already in use
 2. **Certificate Errors**: Verify certificates are properly mounted and valid
-3. **Database Connection**: Check database credentials and connectivity
-4. **PAM Configuration**: Ensure `/etc/pam.d/flightctl` exists in the container
-5. **KV Store**: Verify Redis is running and accessible
+3. **PAM Configuration**: Ensure `/etc/pam.d/flightctl` exists in the container
 
 ## Integration with Main API Server
 
@@ -236,7 +142,7 @@ auth:
   oidc:
     - clientId: flightctl-client
       enabled: true
-      issuer: https://pam-issuer.<baseDomain>:8444/api/v1/auth
+      issuer: https://localhost:8444/api/v1/auth
       # ... other OIDC configuration
 ```
 

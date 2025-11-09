@@ -151,6 +151,10 @@ type PAMOIDCIssuer struct {
 	RedirectURIs []string `json:"redirectUris,omitempty"`
 	// PAMService is the PAM service name to use for authentication (default: "flightctl")
 	PAMService string `json:"pamService" validate:"required"`
+	// AllowPublicClientWithoutPKCE allows public clients (no client secret) to skip PKCE
+	// SECURITY WARNING: This should only be enabled for testing or backward compatibility
+	// Default: false (PKCE required for public clients per OAuth 2.0 Security BCP)
+	AllowPublicClientWithoutPKCE bool `json:"allowPublicClientWithoutPKCE,omitempty"`
 }
 
 type metricsConfig struct {

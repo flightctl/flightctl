@@ -6,6 +6,25 @@ set -eo pipefail
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 source "${SCRIPT_DIR}"/shared.sh
 
+# Function to configure auth and organizations in service-config.yaml
+configure_service_config() {
+    local service_config="${CONFIG_WRITEABLE_DIR}/service-config.yaml"
+    
+    # Configure authentication if AUTH environment variable is set
+    if [ -n "$AUTH" ] && [ "$AUTH" != "false" ] && [ "$AUTH" != "FALSE" ]; then
+        echo "Enabling authentication (OIDC with PAM issuer)..."
+        # Set auth type to oidc (PAM issuer is enabled by default in service-config.yaml)
+        sed -i '/^  auth:/,/^  [^ ]/ { s/type: none.*/type: oidc/ }' "$service_config"
+    fi
+    
+    # Configure organizations if ORGS environment variable is set
+    if [ -n "$ORGS" ] && [ "$ORGS" != "false" ] && [ "$ORGS" != "FALSE" ]; then
+        echo "Enabling organizations support..."
+        # Find the organizations section and change enabled to true
+        sed -i '/^  organizations:/,/^  [^ ]/ { s/enabled: false/enabled: true/ }' "$service_config"
+    fi
+}
+
 # Function to switch container images from quay.io to locally built ones for development
 switch_to_local_images() {
     echo "Switching container images to locally built ones for development..."
@@ -29,6 +48,9 @@ if ! deploy/scripts/install.sh; then
     echo "Error: Installation failed"
     exit 1
 fi
+
+# Configure service-config.yaml based on environment variables (AUTH and ORGS)
+configure_service_config
 
 # Switch to locally built container images for development
 switch_to_local_images

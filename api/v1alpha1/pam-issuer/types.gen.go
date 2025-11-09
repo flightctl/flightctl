@@ -7,6 +7,11 @@ const (
 	BearerAuthScopes = "bearerAuth.Scopes"
 )
 
+// Defines values for OpenIDConfigurationCodeChallengeMethodsSupported.
+const (
+	OpenIDConfigurationCodeChallengeMethodsSupportedS256 OpenIDConfigurationCodeChallengeMethodsSupported = "S256"
+)
+
 // Defines values for OpenIDConfigurationSubjectTypesSupported.
 const (
 	Pairwise OpenIDConfigurationSubjectTypesSupported = "pairwise"
@@ -28,6 +33,11 @@ const (
 const (
 	Code  AuthAuthorizeParamsResponseType = "code"
 	Token AuthAuthorizeParamsResponseType = "token"
+)
+
+// Defines values for AuthAuthorizeParamsCodeChallengeMethod.
+const (
+	AuthAuthorizeParamsCodeChallengeMethodS256 AuthAuthorizeParamsCodeChallengeMethod = "S256"
 )
 
 // JWKSResponse JSON Web Key Set
@@ -70,6 +80,9 @@ type OpenIDConfiguration struct {
 	// ClaimsSupported Supported claims.
 	ClaimsSupported *[]string `json:"claims_supported,omitempty"`
 
+	// CodeChallengeMethodsSupported Supported PKCE code challenge methods.
+	CodeChallengeMethodsSupported *[]OpenIDConfigurationCodeChallengeMethodsSupported `json:"code_challenge_methods_supported,omitempty"`
+
 	// GrantTypesSupported Supported grant types.
 	GrantTypesSupported *[]string `json:"grant_types_supported,omitempty"`
 
@@ -100,6 +113,9 @@ type OpenIDConfiguration struct {
 	// UserinfoEndpoint UserInfo endpoint.
 	UserinfoEndpoint *string `json:"userinfo_endpoint,omitempty"`
 }
+
+// OpenIDConfigurationCodeChallengeMethodsSupported defines model for OpenIDConfiguration.CodeChallengeMethodsSupported.
+type OpenIDConfigurationCodeChallengeMethodsSupported string
 
 // OpenIDConfigurationSubjectTypesSupported defines model for OpenIDConfiguration.SubjectTypesSupported.
 type OpenIDConfigurationSubjectTypesSupported string
@@ -135,6 +151,9 @@ type TokenRequest struct {
 
 	// Code Authorization code for authorization_code grant.
 	Code *string `json:"code"`
+
+	// CodeVerifier PKCE code verifier.
+	CodeVerifier *string `json:"code_verifier"`
 
 	// GrantType OAuth2 grant type.
 	GrantType TokenRequestGrantType `json:"grant_type"`
@@ -222,10 +241,19 @@ type AuthAuthorizeParams struct {
 
 	// State OAuth2 state parameter.
 	State *string `form:"state,omitempty" json:"state,omitempty"`
+
+	// CodeChallenge PKCE code challenge.
+	CodeChallenge *string `form:"code_challenge,omitempty" json:"code_challenge,omitempty"`
+
+	// CodeChallengeMethod PKCE code challenge method (only S256 supported).
+	CodeChallengeMethod *AuthAuthorizeParamsCodeChallengeMethod `form:"code_challenge_method,omitempty" json:"code_challenge_method,omitempty"`
 }
 
 // AuthAuthorizeParamsResponseType defines parameters for AuthAuthorize.
 type AuthAuthorizeParamsResponseType string
+
+// AuthAuthorizeParamsCodeChallengeMethod defines parameters for AuthAuthorize.
+type AuthAuthorizeParamsCodeChallengeMethod string
 
 // AuthLoginParams defines parameters for AuthLogin.
 type AuthLoginParams struct {

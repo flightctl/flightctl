@@ -68,6 +68,17 @@ paths:
           schema:
             type: string
           description: OAuth2 state parameter.
+        - name: code_challenge
+          in: query
+          schema:
+            type: string
+          description: PKCE code challenge.
+        - name: code_challenge_method
+          in: query
+          schema:
+            type: string
+            enum: [S256]
+          description: PKCE code challenge method (only S256 supported).
       responses:
         "200":
           description: Login form HTML (if user not authenticated)
@@ -329,6 +340,10 @@ components:
           type: string
           nullable: true
           description: OAuth2 scope.
+        code_verifier:
+          type: string
+          nullable: true
+          description: PKCE code verifier.
       description: OAuth2 token request
     TokenResponse:
       type: object
@@ -475,5 +490,11 @@ components:
           items:
             type: string
           description: Supported authentication methods.
+        code_challenge_methods_supported:
+          type: array
+          items:
+            type: string
+            enum: [S256]
+          description: Supported PKCE code challenge methods.
       description: OpenID Connect configuration
 
