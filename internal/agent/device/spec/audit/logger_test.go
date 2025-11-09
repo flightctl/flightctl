@@ -127,7 +127,7 @@ func TestFileLogger_LogEventApply(t *testing.T) {
 			require.Equal("test-device", event.Device)
 			require.Equal("1", event.OldVersion)
 			require.Equal("2", event.NewVersion)
-			require.Equal(AuditTypeDesired, event.Type)
+			require.Equal(AuditTypeUpgrade, event.Type)
 			require.Equal(AuditResultSuccess, event.Result)
 			require.NotEmpty(event.Ts)
 			require.Equal("template-v1", event.FleetTemplateVersion)
@@ -141,7 +141,7 @@ func TestFileLogger_LogEventApply(t *testing.T) {
 		OldVersion:           "1",
 		NewVersion:           "2",
 		Result:               AuditResultSuccess,
-		Type:                 AuditTypeDesired,
+		Type:                 AuditTypeUpgrade,
 		FleetTemplateVersion: "template-v1",
 		StartTime:            time.Now(),
 	}
@@ -180,7 +180,7 @@ func TestFileLogger_LogEventFailure(t *testing.T) {
 			require.Equal("test-device", event.Device)
 			require.Equal("2", event.OldVersion)
 			require.Equal("3", event.NewVersion)
-			require.Equal(AuditTypeDesired, event.Type) // Failed transition to desired state
+			require.Equal(AuditTypeUpgrade, event.Type) // Failed upgrade attempt
 			require.Equal(AuditResultFailure, event.Result)
 			require.NotEmpty(event.Ts)
 			require.Equal("template-v2", event.FleetTemplateVersion)
@@ -194,7 +194,7 @@ func TestFileLogger_LogEventFailure(t *testing.T) {
 		OldVersion:           "2",
 		NewVersion:           "3",
 		Result:               AuditResultFailure,
-		Type:                 AuditTypeDesired, // Failed transition to desired state
+		Type:                 AuditTypeUpgrade, // Failed upgrade attempt
 		FleetTemplateVersion: "template-v2",
 		StartTime:            time.Now(),
 	}
@@ -276,7 +276,7 @@ func TestFileLogger_DisabledLogging(t *testing.T) {
 		OldVersion:           "1",
 		NewVersion:           "2",
 		Result:               AuditResultSuccess,
-		Type:                 AuditTypeDesired,
+		Type:                 AuditTypeUpgrade,
 		FleetTemplateVersion: "template-disabled",
 		StartTime:            time.Now(),
 	}

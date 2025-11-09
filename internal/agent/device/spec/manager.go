@@ -109,6 +109,23 @@ func (s *manager) Initialize(ctx context.Context) error {
 	}
 	// reconcile the initial spec even though its empty
 	s.queue.Add(ctx, newVersionedDevice("0"))
+
+	// Audit the bootstrap event
+	if s.auditLogger != nil {
+		auditInfo := &audit.AuditEventInfo{
+			Device:               s.deviceName,
+			OldVersion:           "",  // No previous version for bootstrap
+			NewVersion:           "0", // Initial version
+			Result:               audit.AuditResultSuccess,
+			Type:                 audit.AuditTypeBootstrap, // Initial device enrollment
+			FleetTemplateVersion: "",                       // No fleet template on bootstrap
+			StartTime:            time.Now(),
+		}
+		if err := s.auditLogger.LogEvent(ctx, auditInfo); err != nil {
+			s.log.Warnf("Failed to write audit log for bootstrap: %v", err)
+		}
+	}
+
 	return nil
 }
 
@@ -232,7 +249,7 @@ func (s *manager) Upgrade(ctx context.Context) error {
 				OldVersion:           currentVersion,
 				NewVersion:           desired.Version(),
 				Result:               audit.AuditResultSuccess,
-				Type:                 audit.AuditTypeDesired, // Transitioning to desired state
+				Type:                 audit.AuditTypeUpgrade, // Applying new desired spec
 				FleetTemplateVersion: fleetTemplateVersion,
 				StartTime:            time.Now(),
 			}
@@ -276,7 +293,7 @@ func (s *manager) SetUpgradeFailed(version string) error {
 			OldVersion:           currentVersion,
 			NewVersion:           version,
 			Result:               audit.AuditResultFailure,
-			Type:                 audit.AuditTypeDesired, // Failed transition to desired state
+			Type:                 audit.AuditTypeUpgrade, // Failed upgrade attempt
 			FleetTemplateVersion: fleetTemplateVersion,
 			StartTime:            time.Now(),
 		}
@@ -379,7 +396,7 @@ func (s *manager) Rollback(ctx context.Context, opts ...RollbackOption) error {
 			OldVersion:           desiredVersion,
 			NewVersion:           current.Version(),
 			Result:               audit.AuditResultSuccess,
-			Type:                 audit.AuditTypeRollback, // Transitioning to rollback state
+			Type:                 audit.AuditTypeRollback, // Reverting to previous working spec
 			FleetTemplateVersion: fleetTemplateVersion,
 			StartTime:            time.Now(),
 		}
