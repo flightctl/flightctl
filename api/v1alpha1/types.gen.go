@@ -15,6 +15,7 @@ import (
 // Defines values for AppType.
 const (
 	AppTypeCompose AppType = "compose"
+	AppTypeQuadlet AppType = "quadlet"
 )
 
 // Defines values for ApplicationStatusType.

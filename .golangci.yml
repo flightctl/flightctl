@@ -55,6 +55,7 @@ issues:
     - hack
     - packaging
     - reports
+    - internal/auth/issuer/pam
 
 linters:
   enable:

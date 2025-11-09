@@ -647,10 +647,10 @@ func createSimulatorFleet(ctx context.Context, serviceClient *apiClient.ClientWi
 		return fmt.Errorf("creating fleet: %w", err)
 	}
 
-	if createResponse.HTTPResponse != nil && createResponse.HTTPResponse.StatusCode >= 200 && createResponse.HTTPResponse.StatusCode < 300 {
+	if createResponse.StatusCode() >= 200 && createResponse.StatusCode() < 300 {
 		log.Infof("Successfully created fleet: %s", fleetName)
 		return nil
 	}
 
-	return fmt.Errorf("failed to create fleet: status %d, body: %s", createResponse.HTTPResponse.StatusCode, string(createResponse.Body))
+	return fmt.Errorf("failed to create fleet: status %d, body: %s", createResponse.StatusCode(), string(createResponse.Body))
 }

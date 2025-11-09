@@ -162,3 +162,4 @@ To validate the implementation:
 - Systemd services enabled: flightctl-agent, firewalld, podman
 - Custom info collectors included for testing
 
+

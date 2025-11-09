@@ -18,12 +18,12 @@ func TestStatus(t *testing.T) {
 	tests := []struct {
 		name          string
 		matchPatterns []string
-		units         []SystemDUnitListEntry
+		units         []client.SystemDUnitListEntry
 		expected      []v1alpha1.DeviceApplicationStatus
 	}{
 		{
 			name: "running unit",
-			units: []SystemDUnitListEntry{
+			units: []client.SystemDUnitListEntry{
 				{Unit: "test.service", LoadState: "loaded", ActiveState: "active", Sub: "running", Description: "A test service"},
 			},
 			expected: []v1alpha1.DeviceApplicationStatus{
@@ -33,7 +33,7 @@ func TestStatus(t *testing.T) {
 		},
 		{
 			name: "failed unit",
-			units: []SystemDUnitListEntry{
+			units: []client.SystemDUnitListEntry{
 				{Unit: "test.service", LoadState: "loaded", ActiveState: "failed", Sub: "failed", Description: "A failed service"},
 			},
 			expected: []v1alpha1.DeviceApplicationStatus{
@@ -43,7 +43,7 @@ func TestStatus(t *testing.T) {
 		},
 		{
 			name: "completed one-shot unit",
-			units: []SystemDUnitListEntry{
+			units: []client.SystemDUnitListEntry{
 				{Unit: "test.service", LoadState: "loaded", ActiveState: "active", Sub: "exited", Description: "A one-shot service"},
 			},
 			expected: []v1alpha1.DeviceApplicationStatus{
@@ -53,7 +53,7 @@ func TestStatus(t *testing.T) {
 		},
 		{
 			name: "starting unit",
-			units: []SystemDUnitListEntry{
+			units: []client.SystemDUnitListEntry{
 				{Unit: "test.service", LoadState: "loaded", ActiveState: "activating", Sub: "start-pre", Description: "A starting service"},
 			},
 			expected: []v1alpha1.DeviceApplicationStatus{
@@ -63,7 +63,7 @@ func TestStatus(t *testing.T) {
 		},
 		{
 			name: "unknown unit",
-			units: []SystemDUnitListEntry{
+			units: []client.SystemDUnitListEntry{
 				{Unit: "test.service", LoadState: "", ActiveState: "", Sub: "", Description: "An unknown service"},
 			},
 			expected: []v1alpha1.DeviceApplicationStatus{

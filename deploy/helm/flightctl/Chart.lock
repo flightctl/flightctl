@@ -1,9 +1,6 @@
 dependencies:
-- name: keycloak
-  repository: ""
-  version: 0.0.1
 - name: ui
   repository: ""
   version: 0.0.1
-digest: sha256:a96b793b9f1d0f0d6caab5d977319bc61278d5c1a7e62745c45e5f2d2b33ecc3
-generated: "2024-11-26T10:15:49.093396111+01:00"
+digest: sha256:417cd175189794bc4ea6c70272d339097c81b87ffe7b9b8f616f0eeca55d647e
+generated: "2025-10-20T09:35:32.840330774+03:00"

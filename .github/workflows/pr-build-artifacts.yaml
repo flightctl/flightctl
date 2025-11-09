@@ -833,13 +833,13 @@ jobs:
           echo "gh run download ${RUN_ID} -n helm-chart -n flightctl-images-bundle" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "# Load service images into kind" >> $GITHUB_STEP_SUMMARY
-          echo "kind load image-archive flightctl-images-bundle.tar" >> $GITHUB_STEP_SUMMARY
+          echo "kind load image-archive flightctl-images-bundle/flightctl-images-bundle.tar" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "# Install with Helm (parameterize with --set as needed)" >> $GITHUB_STEP_SUMMARY
-          echo "helm upgrade --install flightctl ${CHART_FILE}" >> $GITHUB_STEP_SUMMARY
+          echo "helm upgrade --install flightctl helm-chart/${CHART_FILE}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "# Or with a script:" >> $GITHUB_STEP_SUMMARY
-          echo "./test/scripts/deploy_with_helm.sh --chart-path=\"${CHART_FILE}\" --image-registry=\"quay.io/flightctl/\" --image-tag=\"${TAG}\"" >> $GITHUB_STEP_SUMMARY
+          echo "./test/scripts/deploy_with_helm.sh --chart-path=\"helm-chart/${CHART_FILE}\" --image-registry=\"quay.io/flightctl/\" --image-tag=\"${TAG}\"" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
 
   test-artifacts-ready:
@@ -1181,6 +1181,7 @@ jobs:
         run: make run-e2e-test VERBOSE=true 
         env:
           GINKGO_LABEL_FILTER: 'sanity'
+          DEBUG_VM_CONSOLE: '1'
           GINKGO_TOTAL_NODES: ${{ env.GINKGO_TOTAL_NODES }}
           GINKGO_NODE: ${{ matrix.ginkgo_node }}
 

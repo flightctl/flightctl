@@ -70,6 +70,7 @@ deploy-quadlets: build-containers
 	podman save flightctl-alert-exporter:latest | sudo podman load
 	podman save flightctl-cli-artifacts:latest | sudo podman load
 	podman save flightctl-alertmanager-proxy:latest | sudo podman load
+	podman save flightctl-pam-issuer:latest | sudo podman load
 	sudo -E deploy/scripts/deploy_quadlets.sh
 
 kill-db:

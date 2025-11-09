@@ -5,10 +5,11 @@ GO_TESTING_FLAGS= -count=1 -race $(GO_BUILD_FLAGS)
 
 GO_UNITTEST_DIRS 		= ./internal/... ./api/... ./pkg/...
 GO_INTEGRATIONTEST_DIRS ?= ./test/integration/...
+TEST_DIR ?= 
 GO_E2E_DIRS 			= ./test/e2e/...
 
 GO_UNITTEST_FLAGS 		 = $(GO_TESTING_FLAGS) $(GO_UNITTEST_DIRS)        -coverprofile=$(REPORTS)/unit-coverage.out
-GO_INTEGRATIONTEST_FLAGS = $(GO_TESTING_FLAGS) $(GO_INTEGRATIONTEST_DIRS) -coverprofile=$(REPORTS)/integration-coverage.out
+GO_INTEGRATIONTEST_FLAGS = $(GO_TESTING_FLAGS) $(if $(TEST_DIR),$(TEST_DIR),$(GO_INTEGRATIONTEST_DIRS)) $(if $(TESTS),-run $(TESTS)) -coverprofile=$(REPORTS)/integration-coverage.out
 
 # Common environment flags for test tracing enforcement
 ENV_TRACE_FLAGS = TRACE_TESTS=false GORM_TRACE_ENFORCE_FATAL=true GORM_TRACE_INCLUDE_QUERY_VARIABLES=true
@@ -17,6 +18,7 @@ ifeq ($(VERBOSE), true)
 	GO_TEST_FORMAT=standard-verbose
 	GO_UNITTEST_FLAGS += -v
 	GO_INTEGRATIONTEST_FLAGS += -v
+	ENV_TRACE_FLAGS += LOG_LEVEL=debug
 endif
 
 GO_TEST_FLAGS := 			 --format=$(GO_TEST_FORMAT) --junitfile $(REPORTS)/junit_unit_test.xml $(GOTEST_PUBLISH_FLAGS)
@@ -47,7 +49,7 @@ unit-test:
 	$(ENV_TRACE_FLAGS) $(MAKE) _unit_test TEST="$(or $(TEST),$(shell go list ./pkg/... ./internal/... ./cmd/...))"
 
 run-integration-test:
-	$(ENV_TRACE_FLAGS) $(MAKE) _integration_test TEST="$(or $(TEST),$(shell go list ./test/integration/...))"
+	$(ENV_TRACE_FLAGS) $(MAKE) _integration_test TEST="$(or $(TEST),$(shell go list $(if $(TEST_DIR),$(TEST_DIR),./test/integration/...)))"
 
 
 integration-test: export FLIGHTCTL_KV_PASSWORD=adminpass

@@ -10,7 +10,6 @@ A helm chart for flightctl
 
 | Repository | Name | Version |
 |------------|------|---------|
-| keycloak | keycloak | 0.0.1 |
 | ui | ui | 0.0.1 |
 
 ## Installation
@@ -151,20 +150,31 @@ After installation, flightctl will be available in your cluster.
 ### Configuration Examples
 
 ```yaml
-# Example: Standalone deployment with custom domain
-global:
-  target: "standalone"
-  baseDomain: "flightctl.example.com"
-  auth:
-    type: "builtin"
-
 # Example: ACM integration
 global:
   target: "acm"
   auth:
     type: "k8s"
     k8s:
-      apiUrl: "https://api.cluster.example.com:6443"
+      externalOpenShiftApiUrl: "https://api.cluster.example.com:6443"
+
+# Example: OpenShift standalone deployment
+global:
+  target: "standalone"
+  baseDomain: "apps.cluster.example.com"
+  auth:
+    type: "k8s"
+    k8s:
+      externalOpenShiftApiUrl: "https://api.cluster.example.com:6443"
+
+# Example: Kubernetes standalone deployment
+global:
+  target: "standalone"
+  baseDomain: "flightctl.example.com"
+  auth:
+    type: "k8s"
+    k8s:
+      apiUrl: "https://kubernetes.default.svc"
 ```
 
 ### TLS/SSL Certificate Configuration
@@ -288,9 +298,11 @@ For more detailed configuration options, see the [Values](#values) section below
 | global.auth.k8s.externalApiToken | string | `""` | In case flightctl is not running within a cluster, you can provide api token |
 | global.auth.k8s.externalOpenShiftApiUrl | string | `""` | API URL of OpenShift cluster that can be accessed by external client to retrieve auth token |
 | global.auth.k8s.rbacNs | string | `""` | Namespace that should be used for the RBAC checks |
-| global.auth.oidc.externalOidcAuthority | string | `""` | The base URL for the Keycloak realm that is reachable by clients. Example: https://keycloak.foo.net/realms/flightctl |
-| global.auth.oidc.oidcAuthority | string | `"http://keycloak:8081/realms/flightctl"` | The base URL for the Keycloak realm that is reachable by flightctl services. Example: https://keycloak.foo.internal/realms/flightctl |
-| global.auth.type | string | `"builtin"` | Type of the auth to use. Can be one of 'builtin', 'k8s', 'oidc', or 'none' |
+| global.auth.oidc.clientId | string | `"flightctl-client"` | OIDC Client ID |
+| global.auth.oidc.enabled | bool | `true` | Whether this OIDC provider is enabled |
+| global.auth.oidc.externalOidcAuthority | string | `""` | The base URL for the OIDC provider that is reachable by clients. Example: https://auth.foo.net/realms/flightctl |
+| global.auth.oidc.issuer | string | `""` | The base URL for the OIDC provider that is reachable by flightctl services. Example: https://auth.foo.internal/realms/flightctl |
+| global.auth.type | string | `"oidc"` | Type of the auth to use. Can be one of 'k8s', 'oidc', 'builtin', 'aap', or 'none' Note: 'builtin' is a legacy mode that translates to 'oidc' with PAM issuer automatically enabled For new deployments, explicitly set type to 'oidc' and configure pamOidcIssuer settings |
 | global.baseDomain | string | `""` | Base domain to construct the FQDN for the service endpoints. |
 | global.baseDomainTls.cert | string | `""` | Certificate for the base domain wildcard certificate, it should be valid for *.${baseDomain}. This certificate is only used for non mTLS endpoints, mTLS endpoints like agent-api, etc will use different certificates. |
 | global.baseDomainTls.key | string | `""` | Key for the base domain wildcard certificate. |
@@ -308,7 +320,6 @@ For more detailed configuration options, see the [Values](#values) section below
 | global.nodePorts.alertmanagerProxy | int | `8443` | NodePort for Alertmanager proxy service |
 | global.nodePorts.api | int | `3443` | NodePort for Flight Control API service |
 | global.nodePorts.cliArtifacts | int | `8090` | NodePort for CLI artifacts service |
-| global.nodePorts.keycloak | int | `8081` | NodePort for Keycloak service |
 | global.nodePorts.telemetryGatewayOtlp | int | `4317` | NodePort for OTLP telemetry gateway |
 | global.nodePorts.telemetryGatewayProm | int | `9464` | NodePort for Prometheus telemetry gateway |
 | global.nodePorts.ui | int | `9000` | NodePort for web UI service |
@@ -319,8 +330,6 @@ For more detailed configuration options, see the [Values](#values) section below
 | global.tracing.enabled | bool | `false` | Enable distributed tracing with OpenTelemetry |
 | global.tracing.endpoint | string | `"jaeger-collector.flightctl-e2e.svc.cluster.local:4318"` | OpenTelemetry collector endpoint for trace data |
 | global.tracing.insecure | bool | `true` | Use insecure connection to tracing endpoint (development only) |
-| keycloak | object | `{"db":{"fsGroup":""}}` | Keycloak Configuration |
-| keycloak.db.fsGroup | string | `""` | File system group ID for Keycloak database pod security context |
 | kv | object | `{"enabled":true,"fsGroup":"","image":{"image":"quay.io/sclorg/redis-7-c9s","pullPolicy":"","tag":"20250108"},"loglevel":"warning","maxmemory":"1gb","maxmemoryPolicy":"allkeys-lru","password":""}` | Key-Value Store Configuration |
 | kv.enabled | bool | `true` | Enable Redis key-value store for caching and session storage |
 | kv.fsGroup | string | `""` | File system group ID for Redis pod security context |

@@ -69,7 +69,7 @@ jobs:
         uses: jlumbroso/free-disk-space@main
         with:
           tool-cache: false
-          large-packages: false # disabling this will result in ~4.6 GB not freed, but will save 2-3 minutes of exec time
+          large-packages: true # disabling this will result in ~4.6 GB not freed, but will save 2-3 minutes of exec time
 
       - name: Restore APT cache
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}

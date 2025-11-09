@@ -54,13 +54,13 @@ func generateTestCertificate(t *testing.T) string {
 func TestLifecycleManager_verifyEnrollment(t *testing.T) {
 	tests := []struct {
 		name           string
-		setupMocks     func(*client.MockEnrollment, *identity.MockProvider)
+		setupMocks     func(*client.MockEnrollment, *identity.MockProvider, *fileio.MockReadWriter)
 		expectedResult bool
 		expectedError  string
 	}{
 		{
 			name: "identity proof required and succeeds",
-			setupMocks: func(mockEnrollment *client.MockEnrollment, mockIdentity *identity.MockProvider) {
+			setupMocks: func(mockEnrollment *client.MockEnrollment, mockIdentity *identity.MockProvider, mockReadWriter *fileio.MockReadWriter) {
 				enrollmentRequest := &v1alpha1.EnrollmentRequest{
 					Status: &v1alpha1.EnrollmentRequestStatus{
 						Conditions: []v1alpha1.Condition{
@@ -76,7 +76,7 @@ func TestLifecycleManager_verifyEnrollment(t *testing.T) {
 		},
 		{
 			name: "identity proof fails with ErrIdentityProofFailed",
-			setupMocks: func(mockEnrollment *client.MockEnrollment, mockIdentity *identity.MockProvider) {
+			setupMocks: func(mockEnrollment *client.MockEnrollment, mockIdentity *identity.MockProvider, mockReadWriter *fileio.MockReadWriter) {
 				enrollmentRequest := &v1alpha1.EnrollmentRequest{
 					Status: &v1alpha1.EnrollmentRequestStatus{
 						Conditions: []v1alpha1.Condition{
@@ -92,7 +92,7 @@ func TestLifecycleManager_verifyEnrollment(t *testing.T) {
 		},
 		{
 			name: "identity proof fails with other error",
-			setupMocks: func(mockEnrollment *client.MockEnrollment, mockIdentity *identity.MockProvider) {
+			setupMocks: func(mockEnrollment *client.MockEnrollment, mockIdentity *identity.MockProvider, mockReadWriter *fileio.MockReadWriter) {
 				enrollmentRequest := &v1alpha1.EnrollmentRequest{
 					Status: &v1alpha1.EnrollmentRequestStatus{
 						Conditions: []v1alpha1.Condition{
@@ -108,7 +108,7 @@ func TestLifecycleManager_verifyEnrollment(t *testing.T) {
 		},
 		{
 			name: "enrollment denied",
-			setupMocks: func(mockEnrollment *client.MockEnrollment, mockIdentity *identity.MockProvider) {
+			setupMocks: func(mockEnrollment *client.MockEnrollment, mockIdentity *identity.MockProvider, mockReadWriter *fileio.MockReadWriter) {
 				enrollmentRequest := &v1alpha1.EnrollmentRequest{
 					Status: &v1alpha1.EnrollmentRequestStatus{
 						Conditions: []v1alpha1.Condition{
@@ -127,7 +127,7 @@ func TestLifecycleManager_verifyEnrollment(t *testing.T) {
 		},
 		{
 			name: "enrollment failed",
-			setupMocks: func(mockEnrollment *client.MockEnrollment, mockIdentity *identity.MockProvider) {
+			setupMocks: func(mockEnrollment *client.MockEnrollment, mockIdentity *identity.MockProvider, mockReadWriter *fileio.MockReadWriter) {
 				enrollmentRequest := &v1alpha1.EnrollmentRequest{
 					Status: &v1alpha1.EnrollmentRequestStatus{
 						Conditions: []v1alpha1.Condition{
@@ -146,7 +146,7 @@ func TestLifecycleManager_verifyEnrollment(t *testing.T) {
 		},
 		{
 			name: "enrollment approved with certificate",
-			setupMocks: func(mockEnrollment *client.MockEnrollment, mockIdentity *identity.MockProvider) {
+			setupMocks: func(mockEnrollment *client.MockEnrollment, mockIdentity *identity.MockProvider, mockReadWriter *fileio.MockReadWriter) {
 				certificate := generateTestCertificate(t)
 				enrollmentRequest := &v1alpha1.EnrollmentRequest{
 					Status: &v1alpha1.EnrollmentRequestStatus{
@@ -160,13 +160,18 @@ func TestLifecycleManager_verifyEnrollment(t *testing.T) {
 				}
 				mockEnrollment.EXPECT().GetEnrollmentRequest(gomock.Any(), "test-device").Return(enrollmentRequest, nil)
 				mockIdentity.EXPECT().StoreCertificate([]byte(certificate)).Return(nil)
+				// CSR cleanup now uses standalone functions (identity.LoadCSR/StoreCSR) with mockReadWriter
+				mockReadWriter.EXPECT().PathExists("certs/agent.csr").Return(true, nil)
+				mockReadWriter.EXPECT().ReadFile("certs/agent.csr").Return([]byte("test-csr"), nil)
+				mockReadWriter.EXPECT().PathExists("certs/agent.csr").Return(true, nil)
+				mockReadWriter.EXPECT().OverwriteAndWipe("certs/agent.csr").Return(nil)
 			},
 			expectedResult: true,
 			expectedError:  "",
 		},
 		{
 			name: "enrollment approved but no certificate yet",
-			setupMocks: func(mockEnrollment *client.MockEnrollment, mockIdentity *identity.MockProvider) {
+			setupMocks: func(mockEnrollment *client.MockEnrollment, mockIdentity *identity.MockProvider, mockReadWriter *fileio.MockReadWriter) {
 				enrollmentRequest := &v1alpha1.EnrollmentRequest{
 					Status: &v1alpha1.EnrollmentRequestStatus{
 						Conditions: []v1alpha1.Condition{
@@ -204,7 +209,7 @@ func TestLifecycleManager_verifyEnrollment(t *testing.T) {
 				log:              log.NewPrefixLogger("test"),
 			}
 
-			tt.setupMocks(mockEnrollment, mockIdentity)
+			tt.setupMocks(mockEnrollment, mockIdentity, mockReadWriter)
 
 			ctx := context.Background()
 			result, err := manager.verifyEnrollment(ctx)

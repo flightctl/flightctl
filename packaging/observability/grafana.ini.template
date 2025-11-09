@@ -55,4 +55,5 @@ scopes = ${GRAFANA_OAUTH_SCOPES}
 role_attribute_path = (contains(roles[*], 'grafana-admin') || contains(roles[*], 'Admin')) && 'Admin' ||  (contains(roles[*], 'grafana-editor') || contains(roles[*], 'Editor')) && 'Editor' ||  'Viewer'
 tls_skip_verify_insecure = ${GRAFANA_TLS_SKIP_VERIFY}
 
-
+[plugins]
+allow_loading_unsigned_plugins = ${GRAFANA_ALLOWED_UNSIGNED_PLUGINS}

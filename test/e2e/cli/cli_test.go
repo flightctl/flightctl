@@ -812,12 +812,12 @@ var _ = Describe("cli login", func() {
 				By("calling deny with zero args should error")
 				out, err = harness.ManageResource(util.DenyAction, "")
 				Expect(err).To(HaveOccurred())
-				Expect(out).To(ContainSubstring("Error: accepts 1 arg(s), received 0"))
+				Expect(out).To(ContainSubstring("Error: accepts between 1 and 2 arg(s), received 0"))
 
 				By("calling deny with empty resource should fail")
 				out, err = harness.ManageResource(util.DenyAction, "csr")
 				Expect(err).To(HaveOccurred())
-				Expect(out).To(ContainSubstring("Error: specify a specific request resource to deny"))
+				Expect(out).To(ContainSubstring("Error: exactly one resource name must be specified"))
 
 				By("calling deny with invalid resource kind should error")
 				out, err = harness.ManageResource(util.DenyAction, "1234")

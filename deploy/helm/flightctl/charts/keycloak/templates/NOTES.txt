@@ -1,7 +1,0 @@
-Thank you for installing Keycloak.
-
-You can access the Keycloak UI at https://auth.{{ include "flightctl.getBaseDomain" . }}/realms/flightctl/account
-
-A demo user "demouser" has been created for you. You can retrieve its password by running:
-
-    kubectl get secret -n {{ .Release.namespace }} keycloak-demouser-secret -o=jsonpath='{.data.password}' | base64 -d

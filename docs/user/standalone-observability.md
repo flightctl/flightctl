@@ -348,6 +348,7 @@ observability:
     https:
       cert_file: /etc/grafana/certs/grafana.crt
       cert_key: /etc/grafana/certs/grafana.key
+    allowed_unsigned_plugins: ""  # Optional: comma-separated list of plugin IDs to allow unsigned plugins
 ```
 
 ### Prometheus Metrics
@@ -501,6 +502,9 @@ observability:
     https:
       cert_file: /etc/grafana/certs/grafana.crt
       cert_key: /etc/grafana/certs/grafana.key
+    
+    # Plugin Configuration (Optional)
+    allowed_unsigned_plugins: ""  # Comma-separated list of plugin IDs to allow unsigned plugins
 
   # Prometheus Configuration (internal only)
   prometheus:
@@ -1085,6 +1089,17 @@ This section provides detailed documentation for every configuration variable av
 - **Default**: `http://localhost:3000`
 - **Description**: Root URL for Grafana. Used for OAuth redirects and asset loading. Should match the external URL where Grafana is accessible.
 - **Example**: `https://grafana.yourdomain.com`, `http://server-ip:3000`
+
+#### Plugin Configuration
+
+**`observability.grafana.allowed_unsigned_plugins`**
+
+- **Type**: String (comma-separated list)
+- **Default**: Empty (no unsigned plugins allowed)
+- **Description**: Comma-separated list of plugin IDs that are allowed to load even if they are not signed by Grafana Labs. This is useful for custom plugins or community plugins that haven't been signed. Use with caution as unsigned plugins can pose security risks.
+- **Security**: Only specify plugins you trust. Use specific plugin IDs rather than wildcards in production environments.
+- **Example**: `my-custom-plugin,another-plugin`
+- **Warning**: Setting this to `*` allows all unsigned plugins, which is not recommended for security reasons.
 
 ### Prometheus Configuration Variables
 

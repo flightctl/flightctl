@@ -22,6 +22,9 @@ Volume=/etc/grafana/provisioning/datasources:/etc/grafana/provisioning/datasourc
 # Mount directory for TLS certificates (if using HTTPS)
 Volume=/etc/grafana/certs:/etc/grafana/certs:ro,z
 
+# Downstream grafana image expects this
+Volume=/etc/grafana/provisioning/alerting:/etc/grafana/provisioning/alerting:ro,z
+
 Network=flightctl
 
 [Service]

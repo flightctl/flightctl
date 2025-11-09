@@ -58,3 +58,4 @@ RUN echo -e '#!/bin/bash\necho "my site"' > /usr/lib/flightctl/custom-info.d/sit
     echo -e '#!/bin/bash\necho "no-show"' > /usr/lib/flightctl/custom-info.d/keyNotShown && \
     chmod 755 /usr/lib/flightctl/custom-info.d/*
 
+

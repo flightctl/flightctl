@@ -11,6 +11,7 @@ import (
 
 const TIMEOUT = "5m"
 const POLLING = "125ms"
+const MEDIUMTIMEOUT = "10m"
 const LONGTIMEOUT = "15m"
 
 func TestRollout(t *testing.T) {

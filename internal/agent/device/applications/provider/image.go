@@ -98,6 +98,10 @@ func (p *imageProvider) Verify(ctx context.Context) error {
 		p.spec.AppType = appType
 	}
 
+	if p.spec.AppType != v1alpha1.AppTypeCompose {
+		return fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, p.spec.AppType)
+	}
+
 	if err := ensureDependenciesFromAppType(p.spec.AppType); err != nil {
 		return fmt.Errorf("%w: ensuring dependencies: %w", errors.ErrNoRetry, err)
 	}

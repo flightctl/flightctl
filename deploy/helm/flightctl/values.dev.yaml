@@ -1,8 +1,6 @@
 global:
   auth:
     type: "none"
-    oidc:
-      oidcAuthority: http://keycloak.flightctl-external.svc.cluster.local:8081/realms/flightctl
   tracing:
     enabled: true
     endpoint: jaeger-collector.flightctl-e2e.svc.cluster.local:4318
@@ -17,7 +15,6 @@ global:
     kv: 6379
     alertmanager: 9093
     alertmanagerProxy: 8443
-    keycloak: 8081
     telemetryGatewayOtlp: 4317
     telemetryGatewayProm: 9464
     gitserver: 3222
@@ -107,12 +104,3 @@ telemetryGateway:
     listen: { device: "0.0.0.0:4317" }
     export: { prometheus: "0.0.0.0:9464" }
 
-keycloak:
-  realm:
-    redirectUris:
-      - /realms/flightctl/account/*
-      - http://127.0.0.1/callback
-      - http://localhost:9000
-      - http://localhost:9000/callback
-    webOrigins:
-      - http://localhost:9000

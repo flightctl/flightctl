@@ -1,4 +1,3 @@
-{{ if eq .Values.global.target "acm" }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -64,6 +63,7 @@ rules:
     resources:
       - repositories
       - fleets/templateversions
+      - alerts
   # Device lifecycle actions (granular subresource approach)
   - verbs:
       - update  # Standard Kubernetes verb for resume action
@@ -101,4 +101,3 @@ rules:
       - flightctl.io
     resources:
       - certificatesigningrequests
-{{ end }}

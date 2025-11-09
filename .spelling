@@ -208,6 +208,7 @@ timestamped
 SELinux
 dnf
 rpm.flightctl.io
+wildcards
  - docs/user/api-resources.md
 approvedBy
 creationTimestamp
@@ -401,3 +402,14 @@ SAN
  - docs/user/service-observability.md
 https
 http
+ - docs/user/pam-authentication.md
+OAuth2
+clientId
+clientSecret
+redirectUris
+URIs
+PKCE
+SSSD
+nsswitch.conf
+NSSwitch
+PAM

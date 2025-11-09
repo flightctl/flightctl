@@ -14,7 +14,7 @@ NGINX_CONFIG_OUTPUT="/config-destination/nginx.conf"
 CERTS_SOURCE_PATH="/certs-source"
 CERTS_DEST_PATH="/certs-destination"
 
-BASE_DOMAIN=$(extract_value "baseDomain" "$SERVICE_CONFIG_FILE")
+BASE_DOMAIN=$(extract_value "global.baseDomain" "$SERVICE_CONFIG_FILE")
 
 # Verify baseDomain was found
 if [ -z "$BASE_DOMAIN" ]; then

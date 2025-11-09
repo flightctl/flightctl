@@ -145,6 +145,9 @@ func (f *Fleet) HasSameSpecAs(otherResource any) bool {
 	if other == nil {
 		return false
 	}
+	if f.Spec == nil && other.Spec == nil {
+		return true
+	}
 	if (f.Spec == nil && other.Spec != nil) || (f.Spec != nil && other.Spec == nil) {
 		return false
 	}

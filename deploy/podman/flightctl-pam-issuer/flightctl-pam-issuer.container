@@ -1,0 +1,26 @@
+[Unit]
+Description=Flight Control PAM OIDC Issuer server
+PartOf=flightctl.target
+After=flightctl-pam-issuer-init.service
+Wants=flightctl-pam-issuer-init.service
+
+[Container]
+ContainerName=flightctl-pam-issuer
+Image=quay.io/flightctl/flightctl-pam-issuer:latest
+Pull=newer
+Network=flightctl.network
+
+PublishPort=8444:8444
+Volume=/etc/flightctl/pam-issuer-pki:/root/.flightctl/certs:rw,z
+Volume=flightctl-pam-issuer-etc:/etc:rw
+Volume=/etc/flightctl/flightctl-pam-issuer/config.yaml:/root/.flightctl/config.yaml:ro,z
+
+[Service]
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=flightctl.target
+
+
+

@@ -18,9 +18,6 @@ nodes:
   - containerPort: 7443 # flightctl agent endpoint API
     hostPort: 7443
     protocol: TCP
-  - containerPort: 8081 # keycloak
-    hostPort: 8081
-    protocol: TCP
   - containerPort: 5432 # postgresql DB
     hostPort: 5432
     protocol: TCP

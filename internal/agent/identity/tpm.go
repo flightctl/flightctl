@@ -37,6 +37,7 @@ type tpmProvider struct {
 	deviceName      string
 	certificateData []byte
 	clientCertPath  string
+	clientCSRPath   string
 	rw              fileio.ReadWriter
 }
 
@@ -45,6 +46,7 @@ func newTPMProvider(
 	client tpm.Client,
 	config *agent_config.Config,
 	clientCertPath string,
+	clientCSRPath string,
 	rw fileio.ReadWriter,
 	log *log.PrefixLogger,
 ) *tpmProvider {
@@ -52,6 +54,7 @@ func newTPMProvider(
 		client:         client,
 		config:         config,
 		clientCertPath: clientCertPath,
+		clientCSRPath:  clientCSRPath,
 		rw:             rw,
 		log:            log,
 	}
@@ -331,12 +334,7 @@ func (t *tpmProvider) StoreCertificate(certPEM []byte) error {
 }
 
 func (t *tpmProvider) HasCertificate() bool {
-	exists, err := t.rw.PathExists(t.clientCertPath)
-	if err != nil {
-		t.log.Warnf("Failed to check certificate existence: %v", err)
-		return false
-	}
-	return exists
+	return hasCertificate(t.rw, t.clientCertPath, t.log)
 }
 
 func (t *tpmProvider) createCertificate() (*tls.Certificate, error) {
@@ -456,6 +454,13 @@ func (t *tpmProvider) WipeCredentials() error {
 		t.log.Infof("Wiping certificate file %s", t.clientCertPath)
 		if err := t.rw.OverwriteAndWipe(t.clientCertPath); err != nil {
 			errs = append(errs, fmt.Errorf("failed to wipe certificate file %s: %w", t.clientCertPath, err))
+		}
+	}
+
+	if t.clientCSRPath != "" {
+		t.log.Infof("Wiping CSR file %s", t.clientCSRPath)
+		if err := t.rw.OverwriteAndWipe(t.clientCSRPath); err != nil {
+			errs = append(errs, fmt.Errorf("failed to wipe CSR file %s: %w", t.clientCSRPath, err))
 		}
 	}
 

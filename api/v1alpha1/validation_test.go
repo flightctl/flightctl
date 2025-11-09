@@ -451,15 +451,24 @@ services:
   app:
     image: nginx:latest`
 
+	quadletContainerSpec := `[Container]
+Image=quay.io/podman/hello:latest
+PublishPort=8080:80`
+
+	quadletBuildSpec := `[Build]
+ContextDir=/tmp/build`
+
 	base64Content := base64.StdEncoding.EncodeToString([]byte(composeSpec))
 	tests := []struct {
 		name          string
+		appType       AppType
 		spec          InlineApplicationProviderSpec
 		fleetTemplate bool
 		expectErr     bool
 	}{
 		{
-			name: "valid plain content",
+			name:    "valid plain content",
+			appType: AppTypeCompose,
 			spec: InlineApplicationProviderSpec{
 				Inline: []ApplicationContent{
 					{
@@ -472,7 +481,8 @@ services:
 			expectErr: false,
 		},
 		{
-			name: "duplicate path",
+			name:    "duplicate path",
+			appType: AppTypeCompose,
 			spec: InlineApplicationProviderSpec{
 				Inline: []ApplicationContent{
 					{Path: "docker-compose.yaml", Content: lo.ToPtr("abc"), ContentEncoding: &plain},
@@ -482,7 +492,8 @@ services:
 			expectErr: true,
 		},
 		{
-			name: "invalid base64 content",
+			name:    "invalid base64 content",
+			appType: AppTypeCompose,
 			spec: InlineApplicationProviderSpec{
 				Inline: []ApplicationContent{
 					{Path: "podman-compose.yaml", Content: lo.ToPtr(composeSpec), ContentEncoding: &base64Enc},
@@ -491,7 +502,8 @@ services:
 			expectErr: true,
 		},
 		{
-			name: "valid base64 content",
+			name:    "valid base64 content",
+			appType: AppTypeCompose,
 			spec: InlineApplicationProviderSpec{
 				Inline: []ApplicationContent{
 					{Path: "podman-compose.yml", Content: &base64Content, ContentEncoding: &base64Enc},
@@ -500,7 +512,8 @@ services:
 			expectErr: false,
 		},
 		{
-			name: "unknown encoding",
+			name:    "unknown encoding",
+			appType: AppTypeCompose,
 			spec: InlineApplicationProviderSpec{
 				Inline: []ApplicationContent{
 					{Path: "docker-compose.yaml", Content: lo.ToPtr(composeSpec), ContentEncoding: lo.ToPtr(EncodingType("unknown"))},
@@ -509,7 +522,8 @@ services:
 			expectErr: true,
 		},
 		{
-			name: "invalid compose path",
+			name:    "invalid compose path",
+			appType: AppTypeCompose,
 			spec: InlineApplicationProviderSpec{
 				Inline: []ApplicationContent{
 					{Path: "invalid-compose.yaml", Content: lo.ToPtr(composeSpec), ContentEncoding: &plain},
@@ -518,7 +532,8 @@ services:
 			expectErr: true,
 		},
 		{
-			name: "invalid use of container_name",
+			name:    "invalid use of container_name",
+			appType: AppTypeCompose,
 			spec: InlineApplicationProviderSpec{
 				Inline: []ApplicationContent{
 					{Path: "docker-compose.yaml", Content: lo.ToPtr(composeInvalidSpecContainerName), ContentEncoding: &plain},
@@ -527,10 +542,31 @@ services:
 			expectErr: true,
 		},
 		{
-			name: "invalid container short name",
+			name:    "invalid container short name",
+			appType: AppTypeCompose,
 			spec: InlineApplicationProviderSpec{
 				Inline: []ApplicationContent{
 					{Path: "docker-compose.yaml", Content: lo.ToPtr(composeInvalidSpecContainerShortname), ContentEncoding: &plain},
+				},
+			},
+			expectErr: true,
+		},
+		{
+			name:    "valid quadlet container file",
+			appType: AppTypeQuadlet,
+			spec: InlineApplicationProviderSpec{
+				Inline: []ApplicationContent{
+					{Path: "app.container", Content: lo.ToPtr(quadletContainerSpec), ContentEncoding: &plain},
+				},
+			},
+			expectErr: false,
+		},
+		{
+			name:    "unsupported quadlet build type",
+			appType: AppTypeQuadlet,
+			spec: InlineApplicationProviderSpec{
+				Inline: []ApplicationContent{
+					{Path: "app.build", Content: lo.ToPtr(quadletBuildSpec), ContentEncoding: &plain},
 				},
 			},
 			expectErr: true,
@@ -539,7 +575,7 @@ services:
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			errs := tt.spec.Validate(lo.ToPtr(AppTypeCompose), tt.fleetTemplate)
+			errs := tt.spec.Validate(lo.ToPtr(tt.appType), tt.fleetTemplate)
 			if tt.expectErr {
 				require.NotEmpty(t, errs, "expected errors but got none")
 			} else {
@@ -1108,4 +1144,128 @@ func createMemoryMonitor(t *testing.T) ResourceMonitor {
 		t.Fatalf("Failed to create Memory monitor: %v", err)
 	}
 	return monitor
+}
+
+func TestValidateApplicationContentQuadlet(t *testing.T) {
+	require := require.New(t)
+
+	tests := []struct {
+		name          string
+		content       string
+		path          string
+		wantErrCount  int
+		wantErrSubstr string
+	}{
+		{
+			name: "valid container quadlet with OCI image",
+			content: `[Container]
+Image=quay.io/podman/hello:latest
+PublishPort=8080:80`,
+			path:         "test.container",
+			wantErrCount: 0,
+		},
+		{
+			name: "valid container quadlet with .image reference",
+			content: `[Container]
+Image=my-app.image
+PublishPort=8080:80`,
+			path:         "test.container",
+			wantErrCount: 0,
+		},
+		{
+			name: "valid volume quadlet",
+			content: `[Volume]
+Image=quay.io/containers/volume:latest`,
+			path:         "test.volume",
+			wantErrCount: 0,
+		},
+		{
+			name: "valid image quadlet",
+			content: `[Image]
+Image=quay.io/fedora/fedora:latest`,
+			path:         "test.image",
+			wantErrCount: 0,
+		},
+		{
+			name: "valid network quadlet",
+			content: `[Network]
+Subnet=10.0.0.0/24`,
+			path:         "test.network",
+			wantErrCount: 0,
+		},
+		{
+			name: "valid pod quadlet",
+			content: `[Pod]
+PodName=my-pod`,
+			path:         "test.pod",
+			wantErrCount: 0,
+		},
+		{
+			name: "invalid quadlet - parsing error (bad INI)",
+			content: `[Container
+Image=test`,
+			path:          "test.container",
+			wantErrCount:  1,
+			wantErrSubstr: "parse quadlet spec",
+		},
+		{
+			name: "invalid quadlet - .build reference",
+			content: `[Container]
+Image=my-app.build`,
+			path:          "test.container",
+			wantErrCount:  1,
+			wantErrSubstr: ".build quadlet types are unsupported",
+		},
+		{
+			name: "invalid quadlet - short OCI reference",
+			content: `[Container]
+Image=nginx:latest`,
+			path:          "test.container",
+			wantErrCount:  1,
+			wantErrSubstr: "container.image",
+		},
+		{
+			name: "invalid quadlet - image type missing Image key",
+			content: `[Image]
+Label=test`,
+			wantErrCount:  1,
+			path:          "test.image",
+			wantErrSubstr: ".image quadlet must have an Image key",
+		},
+		{
+			name: "invalid quadlet - unsupported Build type",
+			content: `[Build]
+ContextDir=/tmp/build`,
+			path:          "test.build",
+			wantErrCount:  1,
+			wantErrSubstr: "parse quadlet spec",
+		},
+		{
+			name: "non-quadlet systemd file",
+			content: `[Service]
+Type=simple
+ExecStart=/usr/bin/myapp`,
+			path:          "test.container",
+			wantErrCount:  1,
+			wantErrSubstr: "non quadlet type",
+		},
+		{
+			name:         "non-quadlet config file",
+			content:      `{"key": "val"}`,
+			path:         "conf.json",
+			wantErrCount: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			content := []byte(tt.content)
+			errs := ValidateApplicationContent(content, AppTypeQuadlet, tt.path)
+
+			require.Len(errs, tt.wantErrCount, "expected %d errors, got %d: %v", tt.wantErrCount, len(errs), errs)
+			if tt.wantErrSubstr != "" && len(errs) > 0 {
+				require.Contains(errs[0].Error(), tt.wantErrSubstr)
+			}
+		})
+	}
 }

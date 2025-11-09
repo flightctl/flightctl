@@ -174,20 +174,31 @@ After installation, {{ .Name }} will be available in your cluster.
 ### Configuration Examples
 
 ```yaml
-# Example: Standalone deployment with custom domain
-global:
-  target: "standalone"
-  baseDomain: "flightctl.example.com"
-  auth:
-    type: "builtin"
-
 # Example: ACM integration
 global:
   target: "acm"
   auth:
     type: "k8s"
     k8s:
-      apiUrl: "https://api.cluster.example.com:6443"
+      externalOpenShiftApiUrl: "https://api.cluster.example.com:6443"
+
+# Example: OpenShift standalone deployment
+global:
+  target: "standalone"
+  baseDomain: "apps.cluster.example.com"
+  auth:
+    type: "k8s"
+    k8s:
+      externalOpenShiftApiUrl: "https://api.cluster.example.com:6443"
+
+# Example: Kubernetes standalone deployment
+global:
+  target: "standalone"
+  baseDomain: "flightctl.example.com"
+  auth:
+    type: "k8s"
+    k8s:
+      apiUrl: "https://kubernetes.default.svc"
 ```
 
 ### TLS/SSL Certificate Configuration

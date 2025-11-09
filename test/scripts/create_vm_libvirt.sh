@@ -110,7 +110,7 @@ echo "Executing commands in the VM..."
 ssh -i ${SSH_PRIVATE_KEY_PATH} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ${USER}@${VM_DEFAULT_IP} <<EOF
 
   # Install necessary packages
-  sudo dnf install -y epel-release libvirt libvirt-client virt-install swtpm \
+  sudo dnf install -y epel-release libvirt libvirt-client virt-install pam-devel swtpm \
                     make golang git \
                     podman qemu-kvm sshpass
   sudo dnf --enablerepo=crb install -y libvirt-devel

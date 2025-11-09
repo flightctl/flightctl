@@ -23,7 +23,8 @@ if [ ! -f "$SERVICE_CONFIG_FILE" ]; then
 fi
 
 # Extract values
-BASE_DOMAIN=$(extract_value "baseDomain" "$SERVICE_CONFIG_FILE")
+BASE_DOMAIN=$(extract_value "global.baseDomain" "$SERVICE_CONFIG_FILE")
+BASE_URL="https://${BASE_DOMAIN}"
 SRV_CERT_FILE=""
 SRV_KEY_FILE=""
 
@@ -94,8 +95,21 @@ DB_NAME=${DB_NAME:-flightctl}
 DB_USER=${DB_USER:-admin}
 
 # Extract auth-related values
-AUTH_TYPE=$(extract_value "type" "$SERVICE_CONFIG_FILE")
-INSECURE_SKIP_TLS_VERIFY=$(extract_value "insecureSkipTlsVerify" "$SERVICE_CONFIG_FILE")
+echo "Extracting auth type from service config..."
+AUTH_TYPE=$(extract_value "global.auth.type" "$SERVICE_CONFIG_FILE" | head -1)
+echo "Extracted AUTH_TYPE='$AUTH_TYPE'"
+
+# Translate "builtin" to "oidc" for backwards compatibility
+# builtin is legacy auth that uses OIDC with PAM issuer enabled
+if [ "$AUTH_TYPE" == "builtin" ]; then
+  echo "Auth type 'builtin' detected - translating to 'oidc' with PAM issuer enabled"
+  AUTH_TYPE="oidc"
+  # Force PAM issuer to be enabled for builtin auth
+  FORCE_PAM_ISSUER_ENABLED="true"
+fi
+echo "Final AUTH_TYPE after processing='$AUTH_TYPE'"
+
+INSECURE_SKIP_TLS_VERIFY=$(extract_value "global.auth.insecureSkipTlsVerify" "$SERVICE_CONFIG_FILE" | head -1)
 AUTH_CA_CERT=""
 AAP_API_URL=""
 AAP_EXTERNAL_API_URL=""
@@ -138,9 +152,11 @@ if [ "$AUTH_TYPE" == "aap" ]; then
 
   AUTH_SED_CMDS=(
     -e "/{{if AAP}}/d"
-    -e "/{{elseif OIDC}}/,/{{endif}}/d"
+    -e "/{{endif AAP}}/d"
     -e "s|{{AAP_API_URL}}|$AAP_API_URL|g"
     -e "s|{{AAP_EXTERNAL_API_URL}}|$AAP_EXTERNAL_API_URL|g"
+    -e "/{{if OIDC}}/,/{{endif OIDC}}/d"
+    -e "/{{if PAM_OIDC_ISSUER_ENABLED}}/,/{{endif PAM_OIDC_ISSUER_ENABLED}}/d"
   )
 
   # If client id is not set and we have an oauth token, create a new oauth application
@@ -149,43 +165,121 @@ if [ "$AUTH_TYPE" == "aap" ]; then
   fi
 elif [ "$AUTH_TYPE" == "oidc" ]; then
   echo "Configuring OIDC authentication"
-  OIDC_URL=$(extract_value "oidcAuthority" "$SERVICE_CONFIG_FILE")
-  OIDC_EXTERNAL_URL=$(extract_value "externalOidcAuthority" "$SERVICE_CONFIG_FILE")
+  
+  echo "Extracting OIDC configuration values..."
+  # Extract OIDC configuration from service-config.yaml (under global.auth.oidc)
+  OIDC_CLIENT_ID=$(extract_value "global.auth.oidc.oidcClientId" "$SERVICE_CONFIG_FILE")
+  OIDC_ISSUER=$(extract_value "global.auth.oidc.oidcAuthority" "$SERVICE_CONFIG_FILE")
+  OIDC_EXTERNAL_AUTHORITY=$(extract_value "global.auth.oidc.externalOidcAuthority" "$SERVICE_CONFIG_FILE")
+  
+  # These fields may not exist in current config but keep for compatibility
+  OIDC_ENABLED=$(extract_value "global.auth.oidc.enabled" "$SERVICE_CONFIG_FILE")
+  OIDC_ORG_ASSIGNMENT_TYPE=$(extract_value "global.auth.oidc.organizationAssignment.type" "$SERVICE_CONFIG_FILE")
+  OIDC_ORG_NAME=$(extract_value "global.auth.oidc.organizationAssignment.organizationName" "$SERVICE_CONFIG_FILE")
+  OIDC_USERNAME_CLAIM=$(extract_value "global.auth.oidc.usernameClaim" "$SERVICE_CONFIG_FILE")
+  OIDC_ROLE_CLAIM=$(extract_value "global.auth.oidc.roleClaim" "$SERVICE_CONFIG_FILE")
 
+  echo "Extracting PAM OIDC Issuer configuration..."
+  # Extract PAM OIDC Issuer configuration (under global.auth.pamOidcIssuer)
+  PAM_OIDC_ISSUER_ENABLED=$(extract_value "global.auth.pamOidcIssuer.enabled" "$SERVICE_CONFIG_FILE")
+  PAM_OIDC_ISSUER=$(extract_value "global.auth.pamOidcIssuer.issuer" "$SERVICE_CONFIG_FILE")
+  PAM_OIDC_CLIENT_ID=$(extract_value "global.auth.pamOidcIssuer.clientId" "$SERVICE_CONFIG_FILE")
+  PAM_OIDC_CLIENT_SECRET=$(extract_value "global.auth.pamOidcIssuer.clientSecret" "$SERVICE_CONFIG_FILE")
+  PAM_OIDC_SCOPES=$(extract_value "global.auth.pamOidcIssuer.scopes" "$SERVICE_CONFIG_FILE")
+  PAM_OIDC_REDIRECT_URIS=$(extract_value "global.auth.pamOidcIssuer.redirectUris" "$SERVICE_CONFIG_FILE")
+  PAM_OIDC_SERVICE=$(extract_value "global.auth.pamOidcIssuer.pamService" "$SERVICE_CONFIG_FILE")
+
+  echo "Setting PAM defaults..."
+  # Set defaults for PAM
+  # If FORCE_PAM_ISSUER_ENABLED is set (from builtin auth), always enable PAM
+  if [ "$FORCE_PAM_ISSUER_ENABLED" == "true" ]; then
+    PAM_OIDC_ISSUER_ENABLED="true"
+  else
+    PAM_OIDC_ISSUER_ENABLED=${PAM_OIDC_ISSUER_ENABLED:-true}
+  fi
+  PAM_OIDC_CLIENT_ID=${PAM_OIDC_CLIENT_ID:-flightctl-client}
+  PAM_OIDC_SERVICE=${PAM_OIDC_SERVICE:-flightctl}
+  
+  echo "Setting PAM OIDC issuer URL..."
+  # Set PAM OIDC issuer URL for API server to connect to
+  # This is the URL where the PAM issuer service is accessible
+  # Default to port 8444 with /api/v1/auth path if not specified
+  if [ -z "$PAM_OIDC_ISSUER" ]; then
+    PAM_OIDC_ISSUER_URL="https://${BASE_DOMAIN}:8444/api/v1/auth"
+  else
+    PAM_OIDC_ISSUER_URL="$PAM_OIDC_ISSUER"
+  fi
+
+  echo "Setting OIDC defaults..."
+  # Set defaults if not found
+  OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-flightctl-client}
+  OIDC_ENABLED=${OIDC_ENABLED:-true}
+  OIDC_ORG_ASSIGNMENT_TYPE=${OIDC_ORG_ASSIGNMENT_TYPE:-static}
+  OIDC_ORG_NAME=${OIDC_ORG_NAME:-default}
+  OIDC_USERNAME_CLAIM=${OIDC_USERNAME_CLAIM:-preferred_username}
+  OIDC_ROLE_CLAIM=${OIDC_ROLE_CLAIM:-groups}
+  
+  # When PAM issuer is enabled, OIDC authority should point to PAM issuer (port 8444)
+  if [ "$PAM_OIDC_ISSUER_ENABLED" == "true" ]; then
+    OIDC_ISSUER=${OIDC_ISSUER:-"$PAM_OIDC_ISSUER_URL"}
+    OIDC_EXTERNAL_AUTHORITY=${OIDC_EXTERNAL_AUTHORITY:-"$PAM_OIDC_ISSUER_URL"}
+  else
+    OIDC_ISSUER=${OIDC_ISSUER:-${BASE_URL}}
+    OIDC_EXTERNAL_AUTHORITY=${OIDC_EXTERNAL_AUTHORITY:-${BASE_URL}}
+  fi
+  
+  echo "Building sed commands for OIDC configuration..."
+  # Build sed commands for OIDC
   AUTH_SED_CMDS=(
-    -e "/{{if AAP}}/,/{{elseif OIDC}}/d"
-    -e "/{{endif}}/d"
-    -e "s|{{OIDC_URL}}|$OIDC_URL|g"
-    -e "s|{{OIDC_EXTERNAL_URL}}|$OIDC_EXTERNAL_URL|g"
+    -e "/{{if AAP}}/,/{{endif AAP}}/d"
+    -e "/{{if OIDC}}/d"
+    -e "/{{endif OIDC}}/d"
+    -e "s|{{OIDC_CLIENT_ID}}|$OIDC_CLIENT_ID|g"
+    -e "s|{{OIDC_ENABLED}}|$OIDC_ENABLED|g"
+    -e "s|{{OIDC_ISSUER}}|$OIDC_ISSUER|g"
+    -e "s|{{OIDC_EXTERNAL_AUTHORITY}}|$OIDC_EXTERNAL_AUTHORITY|g"
+    -e "s|{{OIDC_ORG_ASSIGNMENT_TYPE}}|$OIDC_ORG_ASSIGNMENT_TYPE|g"
+    -e "s|{{OIDC_ORG_NAME}}|$OIDC_ORG_NAME|g"
+    -e "s|{{OIDC_USERNAME_CLAIM}}|$OIDC_USERNAME_CLAIM|g"
+    -e "s|{{OIDC_ROLE_CLAIM}}|$OIDC_ROLE_CLAIM|g"
   )
+  
+  echo "OIDC configuration complete"
 else
   echo "Auth not configured"
   FLIGHTCTL_DISABLE_AUTH="true"
-  AUTH_SED_CMDS+=(
-    -e "/{{if AAP}}/,/{{endif}}/d"
+  AUTH_SED_CMDS=(
+    -e "/{{if AAP}}/,/{{endif AAP}}/d"
+    -e "/{{if OIDC}}/,/{{endif OIDC}}/d"
   )
 fi
 
+echo "Auth configuration complete, setting up certificates..."
 
 # Set cert paths
 # If there are no server certs provided, they will be generated
 # The variables set are relative to the container's filesystem
 if [ -f "$CERTS_SOURCE_PATH/server.crt" ]; then
   SRV_CERT_FILE="$CERTS_DEST_PATH/server.crt"
+  echo "Found server certificate at $CERTS_SOURCE_PATH/server.crt"
 fi
 if [ -f "$CERTS_SOURCE_PATH/server.key" ]; then
   SRV_KEY_FILE="$CERTS_DEST_PATH/server.key"
+  echo "Found server key at $CERTS_SOURCE_PATH/server.key"
 fi
 if [ -f "$CERTS_SOURCE_PATH/auth/ca.crt" ]; then
   AUTH_CA_CERT="$CERTS_DEST_PATH/auth/ca.crt"
+  echo "Found auth CA cert at $CERTS_SOURCE_PATH/auth/ca.crt"
 fi
 
+echo "Creating SSL config file..."
 # Create SSL config replacement file if needed
 SSL_CONFIG_FILE=$(mktemp)
 if [ -n "$DB_SSL_CONFIG" ]; then
   echo "$DB_SSL_CONFIG" > "$SSL_CONFIG_FILE"
 fi
 
+echo "Templating configuration file from $CONFIG_TEMPLATE to $CONFIG_OUTPUT..."
 # Template the configuration file
 sed -e "s|{{BASE_DOMAIN}}|$BASE_DOMAIN|g" \
     -e "s|{{DB_HOSTNAME}}|$DB_HOSTNAME|g" \
@@ -205,6 +299,7 @@ sed -e "s|{{BASE_DOMAIN}}|$BASE_DOMAIN|g" \
     "${AUTH_SED_CMDS[@]}" \
     "$CONFIG_TEMPLATE" > "$CONFIG_OUTPUT.tmp"
 
+echo "Processing SSL config replacement..."
 # Handle SSL config replacement using awk for multi-line support
 awk -v ssl_config_file="$SSL_CONFIG_FILE" '
 /{{DB_SSL_CONFIG}}/ {
@@ -220,11 +315,16 @@ awk -v ssl_config_file="$SSL_CONFIG_FILE" '
 { print }
 ' "$CONFIG_OUTPUT.tmp" > "$CONFIG_OUTPUT"
 
+echo "Configuration file created successfully"
+
 # Clean up temporary files
 rm -f "$CONFIG_OUTPUT.tmp" "$SSL_CONFIG_FILE"
+echo "Temporary files cleaned up"
 
+echo "Templating environment file from $ENV_TEMPLATE to $ENV_OUTPUT..."
 # Template the environment file
 sed -e "s|{{FLIGHTCTL_DISABLE_AUTH}}|$FLIGHTCTL_DISABLE_AUTH|g" \
     "$ENV_TEMPLATE" > "$ENV_OUTPUT"
 
+echo "Environment file created successfully"
 echo "Initialization complete"

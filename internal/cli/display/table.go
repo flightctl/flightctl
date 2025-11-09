@@ -243,16 +243,15 @@ func (f *TableFormatter) printFleetsTable(w *tabwriter.Writer, showSummary bool,
 			selector = strings.Join(util.LabelMapToArray(fleet.Spec.Selector.MatchLabels), ",")
 		}
 		valid := "Unknown"
+		numDevices := "Unknown"
 		if fleet.Status != nil {
 			condition := api.FindStatusCondition(fleet.Status.Conditions, api.ConditionTypeFleetValid)
 			if condition != nil {
 				valid = string(condition.Status)
 			}
-		}
-
-		numDevices := "Unknown"
-		if showSummary && fleet.Status.DevicesSummary != nil {
-			numDevices = fmt.Sprintf("%d", fleet.Status.DevicesSummary.Total)
+			if showSummary && fleet.Status.DevicesSummary != nil {
+				numDevices = fmt.Sprintf("%d", fleet.Status.DevicesSummary.Total)
+			}
 		}
 
 		f.printTableRow(w,

@@ -182,7 +182,7 @@ func applyFromReader(ctx context.Context, client *apiclient.ClientWithResponses,
 
 	errs := make([]error, 0)
 	for _, resource := range resources {
-		kind, ok := resource["kind"].(string)
+		kindLike, ok := resource["kind"].(string)
 		if !ok {
 			errs = append(errs, fmt.Errorf("%s: skipping resource of unspecified kind: %v", filename, resource))
 			continue
@@ -199,19 +199,20 @@ func applyFromReader(ctx context.Context, client *apiclient.ClientWithResponses,
 		}
 
 		if dryRun {
-			fmt.Printf("%s: applying %s/%s (dry run only)\n", strings.ToLower(kind), filename, resourceName)
+			fmt.Printf("%s: applying %s/%s (dry run only)\n", filename, strings.ToLower(kindLike), resourceName)
 			continue
 		}
-		fmt.Printf("%s: applying %s/%s: ", strings.ToLower(kind), filename, resourceName)
+		fmt.Printf("%s: applying %s/%s: ", filename, strings.ToLower(kindLike), resourceName)
 		buf, err := json.Marshal(resource)
 		if err != nil {
-			errs = append(errs, fmt.Errorf("%s: skipping resource of kind %q: %w", filename, kind, err))
+			errs = append(errs, fmt.Errorf("%s: skipping resource of kind %q: %w", filename, kindLike, err))
 		}
 
 		var httpResponse *http.Response
 		var message string
 
-		switch strings.ToLower(kind) {
+		kind, _ := ResourceKindFromString(kindLike)
+		switch kind {
 		case DeviceKind:
 			var response *apiclient.ReplaceDeviceResponse
 			response, err = client.ReplaceDeviceWithBodyWithResponse(ctx, resourceName, "application/json", bytes.NewReader(buf))
@@ -266,7 +267,7 @@ func applyFromReader(ctx context.Context, client *apiclient.ClientWithResponses,
 			fmt.Printf("%s\n", httpResponse.Status)
 			// bad HTTP Responses don't generate an error on the OpenAPI client, we need to check the status code manually
 			if httpResponse.StatusCode != http.StatusOK && httpResponse.StatusCode != http.StatusCreated {
-				errs = append(errs, fmt.Errorf("%s: failed to apply %s/%s: %s", strings.ToLower(kind), filename, resourceName, httpResponse.Status))
+				errs = append(errs, fmt.Errorf("%s: failed to apply %s/%s: %s", strings.ToLower(kindLike), filename, resourceName, httpResponse.Status))
 				fmt.Printf("%s\n", message)
 			}
 		}

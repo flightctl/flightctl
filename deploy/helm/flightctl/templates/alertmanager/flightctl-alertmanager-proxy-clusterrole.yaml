@@ -1,4 +1,4 @@
-{{- if and .Values.alertmanagerProxy.enabled (eq .Values.global.target "acm") }}
+{{- if and .Values.alertmanagerProxy.enabled (or (eq .Values.global.target "acm") (eq (include "flightctl.getEffectiveAuthType" .) "k8s")) }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -8,5 +8,8 @@ metadata:
 rules:
   - apiGroups: ["authentication.k8s.io"]
     resources: ["tokenreviews"]
+    verbs: ["create"]
+  - apiGroups: ["authorization.k8s.io"]
+    resources: ["selfsubjectaccessreviews"]
     verbs: ["create"]
 {{ end }}
