@@ -218,6 +218,21 @@ func (p *Podman) ImageExists(ctx context.Context, image string) bool {
 	return exitCode == 0
 }
 
+// ImageDigest returns the digest of the specified image.
+// Returns empty string and error if the image does not exist or cannot be inspected.
+func (p *Podman) ImageDigest(ctx context.Context, image string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, p.timeout)
+	defer cancel()
+
+	args := []string{"image", "inspect", "--format", "{{.Digest}}", image}
+	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
+	if exitCode != 0 {
+		return "", fmt.Errorf("get image digest: %s: %w", image, errors.FromStderr(stderr, exitCode))
+	}
+	digest := strings.TrimSpace(stdout)
+	return digest, nil
+}
+
 // ArtifactExists returns true if the artifact exists in storage otherwise false.
 func (p *Podman) ArtifactExists(ctx context.Context, artifact string) bool {
 	ctx, cancel := context.WithTimeout(ctx, p.timeout)

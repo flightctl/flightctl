@@ -77,10 +77,10 @@ func (m *manager) BeforeUpdate(ctx context.Context, current, desired *v1alpha1.D
 	return nil
 }
 
-func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]dependency.OCIPullTarget, error) {
+func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1alpha1.DeviceSpec) (*dependency.OCICollection, error) {
 	if desired.Os == nil {
 		m.log.Debug("No OS spec to collect OCI targets from")
-		return nil, nil
+		return &dependency.OCICollection{}, nil
 	}
 
 	osImage := desired.Os.Image
@@ -97,12 +97,12 @@ func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1alp
 	if isDesiredImageRunning {
 		// desired OS image is already booted, no need to pull it
 		m.log.Debugf("Desired OS image is currently booted: %s", osImage)
-		return nil, nil
+		return &dependency.OCICollection{}, nil
 	}
 
 	if m.podmanClient.ImageExists(ctx, osImage) {
 		m.log.Debugf("OS image already exists in container storage: %s", osImage)
-		return nil, nil
+		return &dependency.OCICollection{}, nil
 	}
 
 	target := dependency.OCIPullTarget{
@@ -121,7 +121,7 @@ func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1alp
 	}
 
 	m.log.Debugf("Collected 1 OCI target from OS spec: %s", osImage)
-	return []dependency.OCIPullTarget{target}, nil
+	return &dependency.OCICollection{Targets: []dependency.OCIPullTarget{target}}, nil
 }
 
 func (m *manager) AfterUpdate(ctx context.Context, desired *v1alpha1.DeviceSpec) error {
