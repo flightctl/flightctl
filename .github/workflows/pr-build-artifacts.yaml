@@ -20,6 +20,8 @@ env:
   DOCKER_BUILDKIT: 1
   BUILDKIT_PROGRESS: plain
   GITHUB_ACTIONS: true
+  # Define the total number of parallel nodes for Ginkgo
+  GINKGO_TOTAL_NODES: 8
 
 jobs:
   compute-tag:
@@ -153,6 +155,61 @@ jobs:
           name: digest-${{ matrix.image }}
           path: ${{ steps.save.outputs.digest_file }}
           compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+
+  build-auxiliary-images:
+    runs-on: ubuntu-24.04
+    needs: [compute-tag]
+    strategy:
+      matrix:
+        image: ['git-server']
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Build image
+        id: build
+        uses: redhat-actions/buildah-build@v2
+        with:
+          image: quay.io/flightctl-tests/${{ matrix.image }}
+          tags: ${{ needs.compute-tag.outputs.tag }}
+          labels: |
+            org.flightctl.${{ matrix.image }}.github.repository=${{ github.repository }}
+            org.flightctl.${{ matrix.image }}.github.actor=${{ github.actor }}
+            org.flightctl.${{ matrix.image }}.github.run_id=${{ github.run_id }}
+            org.flightctl.${{ matrix.image }}.github.sha=${{ github.sha }}
+            org.flightctl.${{ matrix.image }}.github.ref_name=${{ github.ref_name }}
+          containerfiles: test/scripts/auxiliary-images-v2/Containerfile.${{ matrix.image }}
+          context: .
+
+      - name: Save image archive
+        id: save
+        env:
+          TAG: ${{ needs.compute-tag.outputs.tag }}
+          IMAGE: ${{ steps.build.outputs.image }}
+          MATRIX_IMAGE: ${{ matrix.image }}
+        run: |
+          set -euo pipefail
+          
+          ARCHIVE_NAME="auxiliary-image-${MATRIX_IMAGE}.tar"
+          
+          echo "::group::Saving image to archive"
+          echo "Saving ${IMAGE}:${TAG} to ${ARCHIVE_NAME}"
+          podman save -o "${ARCHIVE_NAME}" "${IMAGE}:${TAG}"
+          echo "::endgroup::"
+          
+          echo "archive=${ARCHIVE_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: auxiliary-image-${{ matrix.image }}
+          path: ${{ steps.save.outputs.archive }}
+          compression-level: 1
           if-no-files-found: error
           retention-days: 1
 
@@ -440,31 +497,6 @@ jobs:
             echo "git_commit=${SOURCE_GIT_COMMIT}"
           } >> "$GITHUB_OUTPUT"
 
-#      - name: Restore APT cache
-#        id: cache-apt-restore
-#        uses: actions/cache/restore@v4
-#        with:
-#          path: |
-#            /var/cache/apt
-#            /var/lib/apt
-#          key: ${{ runner.os }}-apt-e2e-${{ hashFiles('.github/actions/setup-dependencies/action.yaml') }}
-#          restore-keys: |
-#            ${{ runner.os }}-apt-e2e-
-
-#      - name: Set permissions for APT after restore
-#        run: sudo mkdir -p /var/cache/apt /var/lib/apt && sudo chown -R root:root /var/cache/apt /var/lib/apt
-
-#      - name: Restore Go modules cache
-#        id: cache-go-restore
-#        uses: actions/cache/restore@v4
-#        with:
-#          path: |
-#            ~/.cache/go-build
-#            ~/go/pkg/mod
-#          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-#          restore-keys: |
-#            ${{ runner.os }}-go-
-
       - name: Restore DNF cache
         id: cache-dnf-restore
         uses: actions/cache/restore@v4
@@ -486,7 +518,7 @@ jobs:
           path: |
             bin/dnf-cache
             bin/osbuild-cache
-          key: ${{ runner.os }}-bootc-cache-e2e-${{ hashFiles('test/scripts/agent-images/Containerfile-e2e-base.local') }}
+          key: ${{ runner.os }}-bootc-cache-e2e-${{ hashFiles('test/scripts/agent-images-v2/Containerfile-base') }}
           restore-keys: |
             ${{ runner.os }}-bootc-cache-e2e-
 
@@ -496,83 +528,70 @@ jobs:
           name: rpms-${{ github.sha }}
           path: rpms
 
-      - name: Build agent container images
+      - name: Build base agent image in root context
         env:
           TAG: ${{ needs.compute-tag.outputs.tag }}
+          IMAGE_REPO: quay.io/flightctl/flightctl-device
           SOURCE_GIT_TAG: ${{ steps.version-vars.outputs.git_tag }}
           SOURCE_GIT_TREE_STATE: ${{ steps.version-vars.outputs.git_tree_state }}
           SOURCE_GIT_COMMIT: ${{ steps.version-vars.outputs.git_commit }}
         run: |
           set -euo pipefail
+          echo "::group::Building base agent image in root context"
+          sudo -E ./test/scripts/agent-images-v2/build_agent_images.sh --mode base
+          echo "::endgroup::"
 
-          export IMAGE_REPO="quay.io/flightctl/flightctl-device"
-          export BUILD_QCOW2=false
-          export PARALLEL_JOBS=4
+      - name: Build all variant images in root context
+        env:
+          TAG: ${{ needs.compute-tag.outputs.tag }}
+          IMAGE_REPO: quay.io/flightctl/flightctl-device
+          PARALLEL_JOBS: 10
+        run: |
+          set -euo pipefail
+          echo "::group::Building variant images in root context"
+          sudo -E ./test/scripts/agent-images-v2/build_agent_images.sh --mode variants
+          echo "::endgroup::"
 
-          sudo -E ./test/scripts/agent-images-v2/build_agent_images.sh
-
-
-#      - name: Copy base image to root storage
-#        env:
-#          TAG: ${{ needs.compute-tag.outputs.tag }}
-#        run: |
-#          set -euo pipefail
-#
-#          IMAGE_REPO="quay.io/flightctl/flightctl-device"
-#          BASE_IMAGE="${IMAGE_REPO}:base-${TAG}"
-#
-#          echo "::group::Copying base image from user storage to root storage"
-#          echo "bootc-image-builder requires base image to be accessible from root storage"
-#          echo "Copying ${BASE_IMAGE} from user storage to root storage..."
-#
-#          if podman image exists "${BASE_IMAGE}"; then
-#            podman save "${BASE_IMAGE}" | sudo podman load
-#            echo "Successfully copied ${BASE_IMAGE} to root storage"
-#          else
-#            echo "ERROR: Base image ${BASE_IMAGE} not found in user storage"
-#            echo "Available flightctl-device images:"
-#            podman images | grep flightctl-device || echo "No flightctl-device images found"
-#            exit 1
-#          fi
-#          echo "::endgroup::"
-
-      - name: Build qcow2 image
+      - name: Create agent images bundle
         env:
           TAG: ${{ needs.compute-tag.outputs.tag }}
         run: |
           set -euo pipefail
-
-          echo "::group::Preparing qcow2 build environment"
+          
           IMAGE_REPO="quay.io/flightctl/flightctl-device"
-          BASE_IMAGE="${IMAGE_REPO}:base-${TAG}"
-
-          echo "Building qcow2 image from ${BASE_IMAGE}..."
-
-          mkdir -p output
-          mkdir -p dnf-cache
-          mkdir -p osbuild-cache
+          
+          echo "::group::Creating bundle of all agent images"
+          echo "Getting list of agent images with tag: $TAG"
+          mapfile -t agent_images < <(sudo podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-device:.*-${TAG}")
+          
+          echo "Creating bundle with ${#agent_images[@]} images:"
+          printf '  %s\n' "${agent_images[@]}"
+          
+          sudo podman save --format docker-archive -o agent-images-bundle.tar -m "${agent_images[@]}"
+          sudo chown runner:runner agent-images-bundle.tar
+          
+          echo "Agent images bundle created: $(ls -lh agent-images-bundle.tar)"
           echo "::endgroup::"
 
-          echo "::group::Building qcow2 with bootc-image-builder"
-          sudo podman run --rm \
-                          -it \
-                          --privileged \
-                          --pull=newer \
-                          --security-opt label=type:unconfined_t \
-                          -v "$(pwd)"/output:/output \
-                          -v "$(pwd)"/dnf-cache:/var/cache/dnf:Z \
-                          -v "$(pwd)"/osbuild-cache:/var/cache/osbuild:Z \
-                          -v /var/lib/containers/storage:/var/lib/containers/storage \
-                          quay.io/centos-bootc/bootc-image-builder:latest \
-                          build \
-                          --type qcow2 \
-                          "${BASE_IMAGE}"
-          echo "::endgroup::"
+      - name: Upload agent images bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-images-bundle
+          path: agent-images-bundle.tar
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
 
-          echo "::group::Finalizing qcow2 image"
-          sudo chown -R "${USER}:$(id -gn ${USER})" output
-
-          echo "qcow2 image created: $(ls -lh output/qcow2/disk.qcow2)"
+      - name: Build qcow2 image in root context
+        env:
+          TAG: ${{ needs.compute-tag.outputs.tag }}
+          IMAGE_REPO: quay.io/flightctl/flightctl-device
+        run: |
+          set -euo pipefail
+          
+          echo "::group::Building qcow2 image in root context"
+          sudo -E ./test/scripts/agent-images-v2/build_agent_images.sh --mode qcow2
+          sudo chown -R runner:runner output/
           echo "::endgroup::"
 
       - name: Upload qcow2 image
@@ -581,33 +600,6 @@ jobs:
           name: agent-qcow2-image
           path: output/qcow2/disk.qcow2
           compression-level: 0
-          if-no-files-found: error
-          retention-days: 1
-
-      - name: Save agent images to bundle
-        env:
-          TAG: ${{ needs.compute-tag.outputs.tag }}
-        run: |
-          set -euo pipefail
-          
-          IMAGE_REPO="quay.io/flightctl/flightctl-device"
-          
-          echo "Creating bundle of agent images..."
-          mapfile -t images < <(sudo podman images --format "{{.Repository}}:{{.Tag}}" | grep "${IMAGE_REPO}:.*-${TAG}")
-          
-          echo "Found ${#images[@]} agent images:"
-          printf '  %s\n' "${images[@]}"
-          
-          sudo -E podman save --format docker-archive -o agent-images-bundle.tar -m "${images[@]}"
-          
-          echo "Bundle created: $(ls -lh agent-images-bundle.tar)"
-
-      - name: Upload agent images bundle
-        uses: actions/upload-artifact@v4
-        with:
-          name: agent-images-bundle
-          path: agent-images-bundle.tar
-          compression-level: 1
           if-no-files-found: error
           retention-days: 1
 
@@ -846,7 +838,7 @@ jobs:
           echo "# Install with Helm (parameterize with --set as needed)" >> $GITHUB_STEP_SUMMARY
           echo "helm upgrade --install flightctl ${CHART_FILE}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "# Or with the same shell script used in smoke test" >> $GITHUB_STEP_SUMMARY
+          echo "# Or with a script:" >> $GITHUB_STEP_SUMMARY
           echo "./test/scripts/deploy_with_helm.sh --chart-path=\"${CHART_FILE}\" --image-registry=\"quay.io/flightctl/\" --image-tag=\"${TAG}\"" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
 
@@ -875,7 +867,7 @@ jobs:
 ##################
   smoke:
     runs-on: ubuntu-24.04
-    needs: [compute-tag, bundle-images, build-helm-charts, build-flightctl-cli]
+    needs: [compute-tag, bundle-images, build-helm-charts, build-flightctl-cli, build-auxiliary-images]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -971,10 +963,252 @@ jobs:
           namespace-internal: 'flightctl-internal'
           log-directory: 'smoke-logs'
 
+  e2e-tests:
+    runs-on: ubuntu-24.04
+    needs: [compute-tag, bundle-images, build-helm-charts, build-flightctl-cli, build-agent-images, build-auxiliary-images]
+    strategy:
+      fail-fast: false
+      matrix:
+        ginkgo_node: [1,2,3,4,5,6,7,8]
+    steps:
+      # ========== PREPARE ENVIRONMENT ==========
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
+      # ========== SETUP DEPENDENCIES ==========
+      - name: Setup dependencies (KVM, libvirt, etc)
+        uses: ./.github/actions/setup-dependencies
+        with:
+          setup_kvm: yes
 
+      # ========== DOWNLOAD ALL ARTIFACTS ==========
+      - name: Download backend images bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: flightctl-images-bundle
+          path: artifacts
 
+      - name: Download Helm chart
+        uses: actions/download-artifact@v4
+        with:
+          name: helm-chart
+          path: artifacts
 
+      - name: Download CLI binary
+        uses: actions/download-artifact@v4
+        with:
+          name: flightctl-linux-amd64
+          path: artifacts
+
+      - name: Download git-server image
+        uses: actions/download-artifact@v4
+        with:
+          name: auxiliary-image-git-server
+          path: artifacts
+
+      - name: Download agent images bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: agent-images-bundle
+          path: artifacts
+
+      - name: Download qcow2 image
+        uses: actions/download-artifact@v4
+        with:
+          name: agent-qcow2-image
+          path: bin/output/qcow2
+
+      - name: Setup CLI binary
+        run: |
+          set -euo pipefail
+          mkdir -p bin
+          mv artifacts/flightctl-linux-amd64 bin/flightctl
+          chmod +x bin/flightctl
+          echo "CLI binary ready at bin/flightctl"
+
+      # ========== INITIALIZE KIND CLUSTER ==========
+      - name: Create kind cluster
+        run: make cluster
+
+      # ========== LOAD IMAGES INTO KIND ==========
+      - name: Load backend images into kind
+        run: |
+          set -euo pipefail
+          echo "::group::Loading backend service images into kind"
+          kind load image-archive artifacts/flightctl-images-bundle.tar
+          echo "Backend images loaded successfully"
+          echo "::endgroup::"
+
+      - name: Load git-server image into kind
+        run: |
+          set -euo pipefail
+          echo "::group::Loading git-server image into kind"
+          kind load image-archive artifacts/auxiliary-image-git-server.tar
+          echo "Git-server image loaded successfully"
+          echo "::endgroup::"
+
+      - name: Load agent images into root podman (for e2e VM tests)
+        run: |
+          set -euo pipefail
+          echo "::group::Loading agent images into root podman storage"
+          echo "Agent images needed in root storage for libvirt/VM-based e2e tests"
+          sudo podman load -i artifacts/agent-images-bundle.tar
+          echo "Agent images loaded successfully"
+          echo "::endgroup::"
+
+      - name: Clean up image bundle files
+        run: |
+          set -euo pipefail
+          echo "::group::Cleaning up image bundle files"
+          echo "Removing image bundle files to free up disk space..."
+          rm -f artifacts/*.tar
+          echo "Removed all .tar files from artifacts/"
+          echo "::endgroup::"
+          
+          echo "::group::Disk space after cleanup"
+          df -h
+          echo "::endgroup::"
+
+      # ========== DEPLOY BACKEND WITH HELM ==========
+      - name: Deploy FlightCtl backend with packaged chart
+        env:
+          TAG: ${{ needs.compute-tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          CHART_FILE="artifacts/flightctl-${TAG}.tgz"
+
+          echo "::group::Deploying FlightCtl backend services"
+          echo "Chart file: ${CHART_FILE}"
+          echo "Image registry: quay.io/flightctl/"
+          echo "Image tag: ${TAG}"
+          
+          ./test/scripts/deploy_with_helm.sh \
+            --chart-path="${CHART_FILE}" \
+            --image-registry="quay.io/flightctl/" \
+            --image-tag="${TAG}"
+          echo "::endgroup::"
+
+      # ========== SETUP E2E ENVIRONMENT ==========
+      - name: Create E2E certificates and SSH keys
+        run: |
+          set -euo pipefail
+          echo "::group::Creating E2E certificates and SSH keys"
+          ./test/scripts/create_e2e_certs.sh
+          echo "::endgroup::"
+
+      - name: Deploy E2E extras (registry, git-server)
+        env:
+          TAG: ${{ needs.compute-tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          echo "::group::Deploying E2E extras"
+          export GITSERVER_IMAGE="quay.io/flightctl-tests/git-server:${TAG}"
+          ./test/scripts/deploy_e2e_extras_with_helm.sh
+          echo "::endgroup::"
+
+      - name: Prepare agent configuration
+        run: |
+          set -euo pipefail
+          echo "::group::Preparing agent configuration"
+          ./test/scripts/agent-images-v2/prepare_agent_config.sh --status-update-interval 0m2s --spec-fetch-interval 0m2s
+          echo "::endgroup::"
+
+      - name: Inject agent files into qcow2
+        run: |
+          set -euo pipefail
+          echo "::group::Injecting agent config and certs into qcow2"
+          QCOW="bin/output/qcow2/disk.qcow2"
+          if [ ! -f "$QCOW" ]; then
+            echo "QCOW file not found at $QCOW"
+            exit 1
+          fi
+          sudo modprobe nbd max_part=16
+          sudo qemu-nbd --connect=/dev/nbd0 "$QCOW"
+          # Wait for device nodes and rescan partitions
+          sudo udevadm settle || true
+          for i in $(seq 1 8); do
+            sudo partprobe /dev/nbd0 >/dev/null 2>&1 || true
+            sudo partx -u /dev/nbd0 >/dev/null 2>&1 || true
+            sleep 1
+            echo "Attempt ${i}: partitions on /dev/nbd0:"
+            lsblk -lnpo NAME,TYPE,FSTYPE,SIZE /dev/nbd0 || true
+          done
+          # Select the largest Linux filesystem partition (ext4/xfs/btrfs)
+          part="$(lsblk -lnpo NAME,FSTYPE,SIZE /dev/nbd0 | awk '/(ext4|xfs|btrfs)/ {print $1, $3}' | sort -k2 -h | tail -1 | awk '{print $1}')"
+          # Fallback to whole device if it is itself a filesystem without partition table
+          if [ -z "$part" ]; then
+            fs_type="$(sudo blkid -s TYPE -o value /dev/nbd0 2>/dev/null || true)"
+            if echo "$fs_type" | grep -Eq '^(ext4|xfs|btrfs)$'; then
+              part="/dev/nbd0"
+              echo "No partitions found; using whole device ($fs_type)"
+            fi
+          fi
+          if [ -z "$part" ]; then
+            echo "No partition found on $QCOW"
+            sudo qemu-nbd --disconnect /dev/nbd0 || true
+            exit 1
+          fi
+          echo "Using partition: $part"
+          sudo mkdir -p /mnt/qcow
+          sudo mount "$part" /mnt/qcow
+          sudo mkdir -p /mnt/qcow/etc/flightctl/certs
+          sudo install -m 0644 bin/agent/etc/flightctl/config.yaml /mnt/qcow/etc/flightctl/config.yaml
+          if [ -d bin/agent/etc/flightctl/certs ]; then
+            sudo cp -a bin/agent/etc/flightctl/certs/. /mnt/qcow/etc/flightctl/certs/
+            if ls bin/agent/etc/flightctl/certs/*.key >/dev/null 2>&1; then
+              sudo chmod 600 /mnt/qcow/etc/flightctl/certs/*.key || true
+            fi
+          fi
+          echo "Verifying injected files:"
+          sudo ls -l /mnt/qcow/etc/flightctl || true
+          sudo ls -l /mnt/qcow/etc/flightctl/certs || true
+          sync
+          sudo umount /mnt/qcow
+          sudo qemu-nbd --disconnect /dev/nbd0
+          echo "::endgroup::"
+
+      - name: Setup E2E test environment
+        run: |
+          set -euo pipefail
+          echo "::group::Setting up E2E environment"
+          ./test/scripts/setup_e2e_environment.sh
+          echo "::endgroup::"
+
+      # ========== RUN E2E TESTS ==========
+      - name: Run E2E tests (agent tests only)
+        run: make run-e2e-test VERBOSE=true 
+        env:
+          GINKGO_LABEL_FILTER: 'sanity'
+          GINKGO_TOTAL_NODES: ${{ env.GINKGO_TOTAL_NODES }}
+          GINKGO_NODE: ${{ matrix.ginkgo_node }}
+
+      - name: Collect and Upload Logs
+        if: always()
+        uses: ./.github/actions/collect-logs
+        with:
+          namespace-external: 'flightctl-external'
+          namespace-internal: 'flightctl-internal'
+          log-directory: 'e2e-logs-node-${{ matrix.ginkgo_node }}'
+
+  e2e-test:
+    runs-on: ubuntu-latest
+    needs: e2e-tests
+    if: always()
+    steps:
+      - name: Check E2E Test Results
+        run: |
+          if [[ "${{ needs.e2e-tests.result }}" == "success" ]]; then
+            echo "All E2E tests passed!"
+            exit 0
+          elif [[ "${{ needs.e2e-tests.result }}" == "skipped" ]]; then
+            echo "E2E tests were skipped"
+            exit 0
+          else
+            echo "E2E tests failed or were cancelled"
+            exit 1
+          fi
 
 
 

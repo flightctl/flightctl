@@ -1417,6 +1417,15 @@ func (h *Harness) SetupVMFromPoolAndStartAgent(workerID int) error {
 		return fmt.Errorf("failed to wait for SSH: %w", err)
 	}
 
+	// Ensure SELinux contexts are correct for injected files (config/certs)
+	// Offline qcow edits can leave files as unlabeled_t; restore contexts before starting agent.
+	if _, err := testVM.RunSSH([]string{"sudo", "restorecon", "-Rv", "/etc/flightctl"}, nil); err != nil {
+		logrus.Warnf("Failed to restore SELinux context for /etc/flightctl: %v", err)
+	}
+	if _, err := testVM.RunSSH([]string{"sudo", "restorecon", "-Rv", "/var/lib/flightctl"}, nil); err != nil {
+		logrus.Debugf("restorecon for /var/lib/flightctl (optional) failed: %v", err)
+	}
+
 	// Print agent files right after snapshot revert - should be empty/version 0
 	printAgentFilesForVM(testVM, "After Snapshot Revert")
 
