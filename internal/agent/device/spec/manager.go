@@ -372,6 +372,9 @@ func (s *manager) Rollback(ctx context.Context, opts ...RollbackOption) error {
 		return err
 	}
 
+	// Capture the failed desired version BEFORE updating the cache (for audit log)
+	failedDesiredVersion := s.cache.getRenderedVersion(Desired)
+
 	// add the current spec back to the priority queue to ensure future resync
 	s.queue.Add(ctx, current)
 
@@ -381,7 +384,6 @@ func (s *manager) Rollback(ctx context.Context, opts ...RollbackOption) error {
 	// Log successful rollback to audit log
 	if s.auditLogger != nil {
 		// For rollback: old version is the failed desired version, new version is the current (rollback target)
-		desiredVersion := s.cache.getRenderedVersion(Desired)
 
 		// Extract fleet template version from current spec (rollback target)
 		var fleetTemplateVersion string
@@ -393,7 +395,7 @@ func (s *manager) Rollback(ctx context.Context, opts ...RollbackOption) error {
 
 		auditInfo := &audit.AuditEventInfo{
 			Device:               s.deviceName,
-			OldVersion:           desiredVersion,
+			OldVersion:           failedDesiredVersion,
 			NewVersion:           current.Version(),
 			Result:               audit.AuditResultSuccess,
 			Type:                 audit.AuditTypeRollback, // Reverting to previous working spec
@@ -401,7 +403,7 @@ func (s *manager) Rollback(ctx context.Context, opts ...RollbackOption) error {
 			StartTime:            time.Now(),
 		}
 		if err := s.auditLogger.LogEvent(ctx, auditInfo); err != nil {
-			s.log.Warnf("Failed to write audit log for rollback from %s to %s: %v", desiredVersion, current.Version(), err)
+			s.log.Warnf("Failed to write audit log for rollback from %s to %s: %v", failedDesiredVersion, current.Version(), err)
 		}
 	}
 
@@ -524,6 +526,32 @@ func (s *manager) getDeviceFromQueue(ctx context.Context) (*v1alpha1.Device, boo
 
 		if err := s.write(Desired, desired); err != nil {
 			return nil, false, err
+		}
+
+		// Audit the sync event (new spec received from management API)
+		if s.auditLogger != nil {
+			// Extract fleet template version from annotations
+			fleetTemplateVersion := ""
+			if desired.Metadata.Annotations != nil {
+				if templateVersion, exists := (*desired.Metadata.Annotations)[v1alpha1.DeviceAnnotationRenderedTemplateVersion]; exists {
+					fleetTemplateVersion = templateVersion
+				}
+			}
+
+			// Get the current effective version (not the old desired version)
+			oldVersion := s.cache.getRenderedVersion(Current)
+			auditInfo := &audit.AuditEventInfo{
+				Device:               s.deviceName,
+				OldVersion:           oldVersion,
+				NewVersion:           desired.Version(),
+				Result:               audit.AuditResultSuccess,
+				Type:                 audit.AuditTypeSync, // New spec received from API
+				FleetTemplateVersion: fleetTemplateVersion,
+				StartTime:            time.Now(),
+			}
+			if err := s.auditLogger.LogEvent(ctx, auditInfo); err != nil {
+				s.log.Warnf("Failed to write audit log for sync from %s to %s: %v", oldVersion, desired.Version(), err)
+			}
 		}
 	}
 
