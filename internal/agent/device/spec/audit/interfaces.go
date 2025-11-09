@@ -5,15 +5,15 @@ import (
 	"time"
 )
 
-// AuditType represents the type of audit event.
+// AuditType represents the type of audit event (action-based).
 type AuditType string
 
 const (
-	// AuditTypeCurrent represents transitioning to current state
-	AuditTypeCurrent AuditType = "current"
-	// AuditTypeDesired represents transitioning to desired state
-	AuditTypeDesired AuditType = "desired"
-	// AuditTypeRollback represents transitioning to rollback state
+	// AuditTypeBootstrap represents initial device enrollment
+	AuditTypeBootstrap AuditType = "bootstrap"
+	// AuditTypeUpgrade represents applying a new desired spec
+	AuditTypeUpgrade AuditType = "upgrade"
+	// AuditTypeRollback represents reverting to a previous working spec
 	AuditTypeRollback AuditType = "rollback"
 )
 
@@ -34,7 +34,7 @@ type AuditEvent struct {
 	OldVersion           string      `json:"old_version"`            // current effective version before the attempt
 	NewVersion           string      `json:"new_version"`            // target version
 	Result               AuditResult `json:"result"`                 // success | failure
-	Type                 AuditType   `json:"type"`                   // current/desired/rollback
+	Type                 AuditType   `json:"type"`                   // bootstrap/upgrade/rollback
 	FleetTemplateVersion string      `json:"fleet_template_version"` // from metadata.annotations["fleet-controller/templateVersion"]
 	AgentVersion         string      `json:"agent_version"`          // e.g., 0.10.0
 }
