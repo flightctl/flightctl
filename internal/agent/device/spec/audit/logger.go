@@ -74,6 +74,8 @@ func NewFileLogger(
 }
 
 // LogEvent logs a complete audit event with all required fields.
+// The ctx parameter is currently unused but reserved for future extensibility
+// (e.g., context-aware logging, distributed tracing, cancellation support).
 func (f *FileLogger) LogEvent(ctx context.Context, info *AuditEventInfo) error {
 	if !f.config.Enabled {
 		return nil

@@ -42,6 +42,7 @@ type AuditEvent struct {
 }
 
 // AuditEventInfo contains all the information needed to log an audit event.
+// Note: AgentVersion is not included here as it's provided by the FileLogger at construction time.
 type AuditEventInfo struct {
 	Device               string
 	OldVersion           string
@@ -49,7 +50,6 @@ type AuditEventInfo struct {
 	Result               AuditResult
 	Type                 AuditType
 	FleetTemplateVersion string
-	AgentVersion         string
 	StartTime            time.Time // When the operation started
 }
 
