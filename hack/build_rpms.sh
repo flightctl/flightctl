@@ -22,13 +22,23 @@ fi
 # the RPM in a known environment.
 echo "Building RPMs in container"
 
-cat >bin/build_rpms.sh <<EOF
-if ! dnf install -y go-rpm-macros; then
-    echo "Failed to install go-rpm-macros package"
-    exit 1
-fi
-./hack/build_rpms_packit.sh
+mkdir -p bin
+cat >bin/build_rpms.sh <<'EOF'
+set -ex
+/work/hack/build_rpms_packit.sh
 EOF
 
 podman pull "${CI_RPM_IMAGE}"
-podman run --privileged --rm -t -v "$(pwd)":/work "${CI_RPM_IMAGE}" bash /work/bin/build_rpms.sh
+# Reuse Go build/module caches from the host to speed up builds
+HOST_GOMODCACHE="${GOMODCACHE:-$HOME/go/pkg/mod}"
+HOST_GOCACHE="${GOCACHE:-$HOME/.cache/go-build}"
+mkdir -p "${HOST_GOMODCACHE}" "${HOST_GOCACHE}"
+
+podman run --privileged --rm -t \
+  -v "$(pwd)":/work \
+  -v "${HOST_GOMODCACHE}":/root/go/pkg/mod \
+  -v "${HOST_GOCACHE}":/root/.cache/go-build \
+  -e GOPATH=/root/go \
+  -e GOMODCACHE=/root/go/pkg/mod \
+  -e GOCACHE=/root/.cache/go-build \
+  "${CI_RPM_IMAGE}" bash /work/bin/build_rpms.sh

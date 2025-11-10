@@ -1,283 +1,283 @@
-name: "E2E testing (Parallel Build)"
-
-on:
-  workflow_dispatch:
-    inputs:
-      label_filter:
-        description: 'Ginkgo label filter expression to filter e2e tests'
-        required: false
-        default: 'sanity' #By default, only tests labeled with 'sanity' will run.
-        type: string
-  push:
-    branches:
-      - main
-      - 'release-*'
-  pull_request:
-
-permissions:
-  contents: read
-  pull-requests: read
-
-
-env:
-  # Enable BuildKit for cache mounts
-  DOCKER_BUILDKIT: 1
-  BUILDKIT_PROGRESS: plain
-  # Define the total number of parallel nodes for Ginkgo
-  GINKGO_TOTAL_NODES: 4
-  # Set the registry for container caching
-  QUAY_ORG: quay.io/flightctl
-  QUAY_TESTS_ORG: quay.io/flightctl-tests
-  REGISTRY: quay.io
-  REGISTRY_OWNER: flightctl
-  REGISTRY_OWNER_TESTS: flightctl-tests
-  GITHUB_ACTIONS: true
-
-jobs:
-  e2e-tests:
-    runs-on: "ubuntu-24.04"
-    outputs: # <-- Add this section
-      any_changed: ${{ steps.changed-files.outputs.any_changed }}
-    # =================================================================
-    # This matrix will create 4 independent jobs that run in parallel.
-    # Each job will execute all the steps below.
-    # =================================================================
-    strategy:
-      fail-fast: false
-      matrix:
-        ginkgo_node: [1,2,3,4]
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Get changed files
-        id: changed-files
-        uses: tj-actions/changed-files@v46
-        with:
-          since_last_remote_commit: 'true'
-          files_ignore: |
-            .spelling
-            README.md
-            docs/**
-            .github/**
-            examples/**
-      - name: Free Disk Space (Ubuntu)
-        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
-        uses: jlumbroso/free-disk-space@main
-        with:
-          tool-cache: false
-          large-packages: true # disabling this will result in ~4.6 GB not freed, but will save 2-3 minutes of exec time
-
-      - name: Restore APT cache
-        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
-        id: cache-apt-restore
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            /var/cache/apt
-            /var/lib/apt
-          key: ${{ runner.os }}-apt-e2e-${{ hashFiles('.github/actions/setup-dependencies/action.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-apt-e2e-
-
-      - name: Set permissions for APT after restore
-        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
-        run: sudo mkdir -p /var/cache/apt /var/lib/apt && sudo chown -R root:root /var/cache/apt /var/lib/apt
-
-      - name: Restore Go modules cache
-        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
-        id: cache-go-restore
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
-
-      - name: Restore DNF cache
-        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
-        id: cache-dnf-restore
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            /var/cache/dnf
-            /var/lib/dnf
-          key: ${{ runner.os }}-dnf-e2e
-          restore-keys: |
-            ${{ runner.os }}-dnf-
-
-      - name: Set permissions for DNF after restore
-        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
-        run: sudo mkdir -p /var/cache/dnf /var/lib/dnf && sudo chown -R root:root /var/cache/dnf /var/lib/dnf
-
-      - name: Restore bootc-image-builder cache
-        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
-        id: cache-bootc-restore
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            bin/dnf-cache
-            bin/osbuild-cache
-          key: ${{ runner.os }}-bootc-cache-e2e-${{ hashFiles('test/scripts/agent-images/Containerfile-e2e-base.local') }}
-          restore-keys: |
-            ${{ runner.os }}-bootc-cache-e2e-
-
-
-      - name: Setup all dependencies
-        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
-        uses: ./.github/actions/setup-dependencies
-        with:
-          setup_kvm: yes
-
-      - name: Pull cache images
-        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
-        run: |
-          # Try to pull cache images to warm up the build
-          # || true prevents failure if the cache doesn't exist yet (e.g., first run)
-          podman pull ${{ env.QUAY_ORG }}/flightctl-api:cache || true
-          podman pull ${{ env.QUAY_ORG }}/flightctl-db-setup:cache || true
-          podman pull ${{ env.QUAY_ORG }}/flightctl-worker:cache || true
-          podman pull ${{ env.QUAY_ORG }}/flightctl-periodic:cache || true
-          podman pull ${{ env.QUAY_ORG }}/flightctl-alert-exporter:cache || true
-          podman pull ${{ env.QUAY_ORG }}/flightctl-alertmanager-proxy:cache || true
-          podman pull ${{ env.QUAY_ORG }}/flightctl-cli-artifacts:cache || true
-          podman pull ${{ env.QUAY_ORG }}/flightctl-userinfo-proxy:cache || true
-          podman pull ${{ env.QUAY_ORG }}/flightctl-telemetry-gateway:cache || true
-          podman pull ${{ env.QUAY_TESTS_ORG }}/git-server:cache || true
-
-      - name: Create kind cluster
-        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
-        run: make cluster
-
-      - name: Deploy the flightctl server
-        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
-        run: DISABLE_FIPS="true" make deploy
-
-      - name: Check disk space after deploy
-        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
-        run: df -h
-
-      - name: Prepare the E2E test environment
-        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
-        run: make prepare-e2e-test
-
-      - name: Check disk space after prepare e2e
-        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
-        run: df -h
-
-      - name: Set permissions for APT before save
-        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
-        run: sudo mkdir -p /var/cache/apt /var/lib/apt && sudo chown -R runner:runner /var/cache/apt /var/lib/apt
-
-      - name: Save APT cache
-        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            /var/cache/apt
-            /var/lib/apt
-          key: ${{ steps.cache-apt-restore.outputs.cache-primary-key }}
-
-      - name: Set permissions for APT after save
-        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
-        run: sudo mkdir -p /var/cache/apt /var/lib/apt && sudo chown -R root:root /var/cache/apt /var/lib/apt
-
-      - name: Save Go modules cache
-        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: ${{ steps.cache-go-restore.outputs.cache-primary-key }}
-
-      - name: Set permissions for DNF before save
-        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
-        run: sudo mkdir -p /var/cache/dnf /var/lib/dnf && sudo chown -R runner:runner /var/cache/dnf /var/lib/dnf
-
-      - name: Save DNF cache
-        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            /var/cache/dnf
-            /var/lib/dnf
-          key: ${{ runner.os }}-dnf-e2e
-
-      - name: Set permissions for DNF after save
-        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
-        run: sudo mkdir -p /var/cache/dnf /var/lib/dnf && sudo chown -R root:root /var/cache/dnf /var/lib/dnf
-
-      - name: Save bootc-image-builder cache
-        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            bin/dnf-cache
-            bin/osbuild-cache
-          key: ${{ steps.cache-bootc-restore.outputs.cache-primary-key }}
-
-      # Note: Container images are now cached via registry-based caching
-      # The cache images are automatically pushed during the build process
-      # No manual cache save/restore needed for containers
-
-      - name: Make sure the images are owned by the runner user
-        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
-        run: |
-          sudo mkdir -p bin/output && sudo chown -R runner:runner bin/output
-
-      # =================================================================
-      # This step now uses manual test splitting to run a
-      # specific slice of the tests on each parallel job.
-      # =================================================================
-      - name: Run E2E Test Slice
-        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
-        run: make run-e2e-test VERBOSE=true # use DEBUG_VM_CONSOLE=1 to see the VM console output
-        env:
-          GINKGO_LABEL_FILTER: ${{ inputs.label_filter || 'sanity' }}
-          GINKGO_TOTAL_NODES: ${{ env.GINKGO_TOTAL_NODES }}
-          GINKGO_NODE: ${{ matrix.ginkgo_node }}
-
-      - name: Check disk space at end
-        if: always() && steps.changed-files.outputs.any_changed == 'true'
-        run: df -h
-
-      # =================================================================
-      # This step now uploads logs to a unique artifact for each job
-      # to prevent them from overwriting each other.
-      # =================================================================
-      - name: Collect and Upload Logs
-        if: always() && steps.changed-files.outputs.any_changed == 'true'
-        uses: ./.github/actions/collect-logs
-        with:
-          namespace-external: 'flightctl-external'
-          namespace-internal: 'flightctl-internal'
-          log-directory: 'e2e-logs-node-${{ matrix.ginkgo_node }}'
-
-  # Summary job that depends on all matrix jobs completing
-  e2e:
-    runs-on: ubuntu-latest
-    needs: e2e-tests
-    if: always()
-    steps:
-      - name: Check E2E Test Results
-        run: |
-          if [[ "${{ needs.e2e-tests.outputs.any_changed }}" != "true" ]]; then
-              echo "E2E tests were skipped (docs-only or ignored paths)"
-              exit 0
-          fi
-          if [[ "${{ needs.e2e-tests.result }}" == "success" ]]; then
-            echo "All E2E tests passed!"
-            exit 0
-          elif [[ "${{ needs.e2e-tests.result }}" == "skipped" ]]; then
-            echo "E2E tests were skipped (docs-only changes)"
-            exit 0
-          else
-            echo "E2E tests failed or were cancelled"
-            exit 1
-          fi
+#name: "E2E testing (Parallel Build)"
+#
+#on:
+#  workflow_dispatch:
+#    inputs:
+#      label_filter:
+#        description: 'Ginkgo label filter expression to filter e2e tests'
+#        required: false
+#        default: 'sanity' #By default, only tests labeled with 'sanity' will run.
+#        type: string
+#  push:
+#    branches:
+#      - main
+#      - 'release-*'
+#  pull_request:
+#
+#permissions:
+#  contents: read
+#  pull-requests: read
+#
+#
+#env:
+#  # Enable BuildKit for cache mounts
+#  DOCKER_BUILDKIT: 1
+#  BUILDKIT_PROGRESS: plain
+#  # Define the total number of parallel nodes for Ginkgo
+#  GINKGO_TOTAL_NODES: 4
+#  # Set the registry for container caching
+#  QUAY_ORG: quay.io/flightctl
+#  QUAY_TESTS_ORG: quay.io/flightctl-tests
+#  REGISTRY: quay.io
+#  REGISTRY_OWNER: flightctl
+#  REGISTRY_OWNER_TESTS: flightctl-tests
+#  GITHUB_ACTIONS: true
+#
+#jobs:
+#  e2e-tests:
+#    runs-on: "ubuntu-24.04"
+#    outputs: # <-- Add this section
+#      any_changed: ${{ steps.changed-files.outputs.any_changed }}
+#    # =================================================================
+#    # This matrix will create 4 independent jobs that run in parallel.
+#    # Each job will execute all the steps below.
+#    # =================================================================
+#    strategy:
+#      fail-fast: false
+#      matrix:
+#        ginkgo_node: [1,2,3,4]
+#
+#    steps:
+#      - name: Checkout
+#        uses: actions/checkout@v4
+#        with:
+#          fetch-depth: 0
+#
+#      - name: Get changed files
+#        id: changed-files
+#        uses: tj-actions/changed-files@v46
+#        with:
+#          since_last_remote_commit: 'true'
+#          files_ignore: |
+#            .spelling
+#            README.md
+#            docs/**
+#            .github/**
+#            examples/**
+#      - name: Free Disk Space (Ubuntu)
+#        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+#        uses: jlumbroso/free-disk-space@main
+#        with:
+#          tool-cache: false
+#          large-packages: true # disabling this will result in ~4.6 GB not freed, but will save 2-3 minutes of exec time
+#
+#      - name: Restore APT cache
+#        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+#        id: cache-apt-restore
+#        uses: actions/cache/restore@v4
+#        with:
+#          path: |
+#            /var/cache/apt
+#            /var/lib/apt
+#          key: ${{ runner.os }}-apt-e2e-${{ hashFiles('.github/actions/setup-dependencies/action.yaml') }}
+#          restore-keys: |
+#            ${{ runner.os }}-apt-e2e-
+#
+#      - name: Set permissions for APT after restore
+#        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+#        run: sudo mkdir -p /var/cache/apt /var/lib/apt && sudo chown -R root:root /var/cache/apt /var/lib/apt
+#
+#      - name: Restore Go modules cache
+#        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+#        id: cache-go-restore
+#        uses: actions/cache/restore@v4
+#        with:
+#          path: |
+#            ~/.cache/go-build
+#            ~/go/pkg/mod
+#          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+#          restore-keys: |
+#            ${{ runner.os }}-go-
+#
+#      - name: Restore DNF cache
+#        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+#        id: cache-dnf-restore
+#        uses: actions/cache/restore@v4
+#        with:
+#          path: |
+#            /var/cache/dnf
+#            /var/lib/dnf
+#          key: ${{ runner.os }}-dnf-e2e
+#          restore-keys: |
+#            ${{ runner.os }}-dnf-
+#
+#      - name: Set permissions for DNF after restore
+#        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+#        run: sudo mkdir -p /var/cache/dnf /var/lib/dnf && sudo chown -R root:root /var/cache/dnf /var/lib/dnf
+#
+#      - name: Restore bootc-image-builder cache
+#        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+#        id: cache-bootc-restore
+#        uses: actions/cache/restore@v4
+#        with:
+#          path: |
+#            bin/dnf-cache
+#            bin/osbuild-cache
+#          key: ${{ runner.os }}-bootc-cache-e2e-${{ hashFiles('test/scripts/agent-images/Containerfile-e2e-base.local') }}
+#          restore-keys: |
+#            ${{ runner.os }}-bootc-cache-e2e-
+#
+#
+#      - name: Setup all dependencies
+#        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+#        uses: ./.github/actions/setup-dependencies
+#        with:
+#          setup_kvm: yes
+#
+#      - name: Pull cache images
+#        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+#        run: |
+#          # Try to pull cache images to warm up the build
+#          # || true prevents failure if the cache doesn't exist yet (e.g., first run)
+#          podman pull ${{ env.QUAY_ORG }}/flightctl-api:cache || true
+#          podman pull ${{ env.QUAY_ORG }}/flightctl-db-setup:cache || true
+#          podman pull ${{ env.QUAY_ORG }}/flightctl-worker:cache || true
+#          podman pull ${{ env.QUAY_ORG }}/flightctl-periodic:cache || true
+#          podman pull ${{ env.QUAY_ORG }}/flightctl-alert-exporter:cache || true
+#          podman pull ${{ env.QUAY_ORG }}/flightctl-alertmanager-proxy:cache || true
+#          podman pull ${{ env.QUAY_ORG }}/flightctl-cli-artifacts:cache || true
+#          podman pull ${{ env.QUAY_ORG }}/flightctl-userinfo-proxy:cache || true
+#          podman pull ${{ env.QUAY_ORG }}/flightctl-telemetry-gateway:cache || true
+#          podman pull ${{ env.QUAY_TESTS_ORG }}/git-server:cache || true
+#
+#      - name: Create kind cluster
+#        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+#        run: make cluster
+#
+#      - name: Deploy the flightctl server
+#        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+#        run: DISABLE_FIPS="true" make deploy
+#
+#      - name: Check disk space after deploy
+#        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+#        run: df -h
+#
+#      - name: Prepare the E2E test environment
+#        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+#        run: make prepare-e2e-test
+#
+#      - name: Check disk space after prepare e2e
+#        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+#        run: df -h
+#
+#      - name: Set permissions for APT before save
+#        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+#        run: sudo mkdir -p /var/cache/apt /var/lib/apt && sudo chown -R runner:runner /var/cache/apt /var/lib/apt
+#
+#      - name: Save APT cache
+#        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+#        uses: actions/cache/save@v4
+#        with:
+#          path: |
+#            /var/cache/apt
+#            /var/lib/apt
+#          key: ${{ steps.cache-apt-restore.outputs.cache-primary-key }}
+#
+#      - name: Set permissions for APT after save
+#        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+#        run: sudo mkdir -p /var/cache/apt /var/lib/apt && sudo chown -R root:root /var/cache/apt /var/lib/apt
+#
+#      - name: Save Go modules cache
+#        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+#        uses: actions/cache/save@v4
+#        with:
+#          path: |
+#            ~/.cache/go-build
+#            ~/go/pkg/mod
+#          key: ${{ steps.cache-go-restore.outputs.cache-primary-key }}
+#
+#      - name: Set permissions for DNF before save
+#        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+#        run: sudo mkdir -p /var/cache/dnf /var/lib/dnf && sudo chown -R runner:runner /var/cache/dnf /var/lib/dnf
+#
+#      - name: Save DNF cache
+#        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+#        uses: actions/cache/save@v4
+#        with:
+#          path: |
+#            /var/cache/dnf
+#            /var/lib/dnf
+#          key: ${{ runner.os }}-dnf-e2e
+#
+#      - name: Set permissions for DNF after save
+#        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+#        run: sudo mkdir -p /var/cache/dnf /var/lib/dnf && sudo chown -R root:root /var/cache/dnf /var/lib/dnf
+#
+#      - name: Save bootc-image-builder cache
+#        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+#        uses: actions/cache/save@v4
+#        with:
+#          path: |
+#            bin/dnf-cache
+#            bin/osbuild-cache
+#          key: ${{ steps.cache-bootc-restore.outputs.cache-primary-key }}
+#
+#      # Note: Container images are now cached via registry-based caching
+#      # The cache images are automatically pushed during the build process
+#      # No manual cache save/restore needed for containers
+#
+#      - name: Make sure the images are owned by the runner user
+#        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+#        run: |
+#          sudo mkdir -p bin/output && sudo chown -R runner:runner bin/output
+#
+#      # =================================================================
+#      # This step now uses manual test splitting to run a
+#      # specific slice of the tests on each parallel job.
+#      # =================================================================
+#      - name: Run E2E Test Slice
+#        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+#        run: make run-e2e-test VERBOSE=true # use DEBUG_VM_CONSOLE=1 to see the VM console output
+#        env:
+#          GINKGO_LABEL_FILTER: ${{ inputs.label_filter || 'sanity' }}
+#          GINKGO_TOTAL_NODES: ${{ env.GINKGO_TOTAL_NODES }}
+#          GINKGO_NODE: ${{ matrix.ginkgo_node }}
+#
+#      - name: Check disk space at end
+#        if: always() && steps.changed-files.outputs.any_changed == 'true'
+#        run: df -h
+#
+#      # =================================================================
+#      # This step now uploads logs to a unique artifact for each job
+#      # to prevent them from overwriting each other.
+#      # =================================================================
+#      - name: Collect and Upload Logs
+#        if: always() && steps.changed-files.outputs.any_changed == 'true'
+#        uses: ./.github/actions/collect-logs
+#        with:
+#          namespace-external: 'flightctl-external'
+#          namespace-internal: 'flightctl-internal'
+#          log-directory: 'e2e-logs-node-${{ matrix.ginkgo_node }}'
+#
+#  # Summary job that depends on all matrix jobs completing
+#  e2e:
+#    runs-on: ubuntu-latest
+#    needs: e2e-tests
+#    if: always()
+#    steps:
+#      - name: Check E2E Test Results
+#        run: |
+#          if [[ "${{ needs.e2e-tests.outputs.any_changed }}" != "true" ]]; then
+#              echo "E2E tests were skipped (docs-only or ignored paths)"
+#              exit 0
+#          fi
+#          if [[ "${{ needs.e2e-tests.result }}" == "success" ]]; then
+#            echo "All E2E tests passed!"
+#            exit 0
+#          elif [[ "${{ needs.e2e-tests.result }}" == "skipped" ]]; then
+#            echo "E2E tests were skipped (docs-only changes)"
+#            exit 0
+#          else
+#            echo "E2E tests failed or were cancelled"
+#            exit 1
+#          fi

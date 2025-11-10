@@ -7,9 +7,11 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 # Default values
 TAG="${TAG:-latest}"
 IMAGE_REPO="${IMAGE_REPO:-quay.io/flightctl/flightctl-device}"
+SLEEP_APP_REPO="${SLEEP_APP_REPO:-quay.io/flightctl/sleep-app}"
 PARALLEL_JOBS="${PARALLEL_JOBS:-4}"
 BUILD_MODE="${BUILD_MODE:-all}"
 VARIANTS="${VARIANTS:-v2 v3 v4 v5 v6 v8 v9 v10}"
+SLEEP_APP_VARIANTS="${SLEEP_APP_VARIANTS:-v1 v2 v3}"
 
 # Version build args
 SOURCE_GIT_TAG="${SOURCE_GIT_TAG:-$(git describe --tags --exclude latest 2>/dev/null || echo "v0.0.0-unknown")}"
@@ -27,17 +29,24 @@ while [[ $# -gt 0 ]]; do
             VARIANTS="$2"
             shift 2
             ;;
+        --sleep-variants)
+            SLEEP_APP_VARIANTS="$2"
+            shift 2
+            ;;
         --help)
             echo "Usage: $0 [OPTIONS]"
             echo ""
             echo "Options:"
-            echo "  --mode MODE       Build mode: all, base, variants, qcow2 (default: all)"
-            echo "  --variants LIST   Space-separated list of variants to build (default: v2 v3 v4 v5 v6 v8 v9 v10)"
+            echo "  --mode MODE         Build mode: all, base, variants, sleep-apps, qcow2 (default: all)"
+            echo "  --variants LIST     Space-separated list of agent variants to build (default: v2 v3 v4 v5 v6 v8 v9 v10)"
+            echo "  --sleep-variants LIST  Space-separated list of sleep app variants to build (default: v1 v2 v3)"
             echo ""
             echo "Environment variables:"
             echo "  TAG               Image tag (default: latest)"
-            echo "  IMAGE_REPO        Image repository (default: quay.io/flightctl/flightctl-device)"
+            echo "  IMAGE_REPO        Agent image repository (default: quay.io/flightctl/flightctl-device)"
+            echo "  SLEEP_APP_REPO    Sleep app image repository (default: quay.io/flightctl/sleep-app)"
             echo "  PARALLEL_JOBS     Number of parallel jobs for variant builds (default: 4)"
+            echo "  PREBASE_IMAGE     If set, use this image as base for RPM layering (skips prebase build)"
             echo "  SOURCE_GIT_TAG    Git tag for build args"
             echo "  SOURCE_GIT_TREE_STATE  Git tree state for build args"
             echo "  SOURCE_GIT_COMMIT Git commit for build args"
@@ -54,25 +63,47 @@ done
 echo "Build mode: ${BUILD_MODE}"
 echo "TAG: ${TAG}"
 echo "IMAGE_REPO: ${IMAGE_REPO}"
+echo "SLEEP_APP_REPO: ${SLEEP_APP_REPO}"
 echo "SOURCE_GIT_TAG: ${SOURCE_GIT_TAG}"
 echo "SOURCE_GIT_COMMIT: ${SOURCE_GIT_COMMIT}"
 
 cd "$PROJECT_ROOT"
 
-build_base_image() {
-    local image_name="${IMAGE_REPO}:base-${TAG}"
-
-    echo -e "\033[32mBuilding base image ${image_name}\033[m"
-
+build_prebase_image() {
+    local image_name="${IMAGE_REPO}:prebase-${TAG}"
+    echo -e "\033[32mBuilding prebase image ${image_name}\033[m"
     podman build \
         --build-arg SOURCE_GIT_TAG="${SOURCE_GIT_TAG}" \
         --build-arg SOURCE_GIT_TREE_STATE="${SOURCE_GIT_TREE_STATE}" \
         --build-arg SOURCE_GIT_COMMIT="${SOURCE_GIT_COMMIT}" \
-        -f "${SCRIPT_DIR}/Containerfile-base" \
+        -f "${SCRIPT_DIR}/Containerfile-prebase" \
         -t "${image_name}" \
         .
-
     echo -e "\033[32mSuccessfully built ${image_name}\033[m"
+}
+
+build_base_image() {
+    local final_image="${IMAGE_REPO}:base-${TAG}"
+    local prebase="${PREBASE_IMAGE:-}"
+
+    if [ -z "${prebase}" ]; then
+        prebase="${IMAGE_REPO}:prebase-${TAG}"
+        echo -e "\033[33mPREBASE_IMAGE not provided, building ${prebase}\033[m"
+        build_prebase_image
+    else
+        echo -e "\033[33mUsing provided PREBASE_IMAGE=${prebase}\033[m"
+    fi
+
+    echo -e "\033[32mBuilding final base image ${final_image} from ${prebase}\033[m"
+    podman build \
+        --build-arg PREBASE_IMAGE="${prebase}" \
+        --build-arg SOURCE_GIT_TAG="${SOURCE_GIT_TAG}" \
+        --build-arg SOURCE_GIT_TREE_STATE="${SOURCE_GIT_TREE_STATE}" \
+        --build-arg SOURCE_GIT_COMMIT="${SOURCE_GIT_COMMIT}" \
+        -f "${SCRIPT_DIR}/Containerfile-base-rpm" \
+        -t "${final_image}" \
+        .
+    echo -e "\033[32mSuccessfully built ${final_image}\033[m"
 }
 
 build_variant_image() {
@@ -144,6 +175,48 @@ build_qcow2_image() {
     echo -e "\033[32mqcow2 image created at output/qcow2/disk.qcow2\033[m"
 }
 
+build_sleep_app() {
+    local variant="$1"
+    local image_name="${SLEEP_APP_REPO}:${variant}-${TAG}"
+
+    echo -e "\033[32mBuilding sleep app image ${image_name}\033[m"
+
+    podman build \
+        --build-arg SOURCE_GIT_TAG="${SOURCE_GIT_TAG}" \
+        --build-arg SOURCE_GIT_TREE_STATE="${SOURCE_GIT_TREE_STATE}" \
+        --build-arg SOURCE_GIT_COMMIT="${SOURCE_GIT_COMMIT}" \
+        -f "${SCRIPT_DIR}/Containerfile-sleep-app-${variant}" \
+        -t "${image_name}" \
+        .
+
+    echo -e "\033[32mSuccessfully built ${image_name}\033[m"
+}
+
+build_sleep_apps() {
+    if ! [[ "$PARALLEL_JOBS" =~ ^[0-9]+$ ]] || [ "$PARALLEL_JOBS" -lt 1 ]; then
+        echo -e "\033[31mError: PARALLEL_JOBS must be a positive integer, got: $PARALLEL_JOBS\033[m"
+        echo -e "\033[33mFalling back to PARALLEL_JOBS=1\033[m"
+        PARALLEL_JOBS=1
+    fi
+
+    echo -e "\033[33mUsing PARALLEL_JOBS=$PARALLEL_JOBS for parallel sleep app builds\033[m"
+    echo -e "\033[33mBuilding sleep app images in parallel (max $PARALLEL_JOBS jobs)...\033[m"
+    echo -e "\033[33mSleep app variants to build: ${SLEEP_APP_VARIANTS}\033[m"
+
+    local job_count=0
+    for variant in $SLEEP_APP_VARIANTS; do
+        while [ $job_count -ge $PARALLEL_JOBS ]; do
+            wait -n
+            job_count=$((job_count - 1))
+        done
+        build_sleep_app "$variant" &
+        job_count=$((job_count + 1))
+    done
+    wait
+
+    echo -e "\033[32mAll sleep app images built successfully\033[m"
+}
+
 # Execute based on build mode
 case "$BUILD_MODE" in
     base)
@@ -158,15 +231,24 @@ case "$BUILD_MODE" in
         echo -e "\033[33mBuilding qcow2 image only...\033[m"
         build_qcow2_image
         ;;
+    sleep-apps)
+        echo -e "\033[33mBuilding sleep app images only...\033[m"
+        build_sleep_apps
+        ;;
+    prebase)
+        echo -e "\033[33mBuilding prebase image only...\033[m"
+        build_prebase_image
+        ;;
     all)
         echo -e "\033[33mBuilding all images...\033[m"
         build_base_image
         build_variants
+        build_sleep_apps
         build_qcow2_image
         ;;
     *)
         echo -e "\033[31mError: Invalid build mode: $BUILD_MODE\033[m"
-        echo "Valid modes: base, variants, qcow2, all"
+        echo "Valid modes: base, variants, sleep-apps, qcow2, all"
         exit 1
         ;;
 esac
