@@ -364,7 +364,7 @@ func (o *LoginOptions) getAuthProvider(ctx context.Context) (login.AuthProvider,
 			CAFile:             o.AuthCAFile,
 			InsecureSkipVerify: o.InsecureSkipVerify,
 		},
-		OrganizationsEnabled: true,
+		OrganizationsEnabled: o.organizationsEnabled(),
 	}
 	authProvider, err := client.CreateAuthProviderWithCredentials(authInfo, o.InsecureSkipVerify, o.clientConfig.Service.Server, o.CallbackPort, o.Username, o.Password, o.Web)
 	if err != nil {
@@ -497,6 +497,7 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 	o.clientConfig.AuthInfo.RefreshToken = authInfo.RefreshToken
 	o.clientConfig.AuthInfo.IdToken = authInfo.IdToken
 	o.clientConfig.AuthInfo.TokenToUse = client.TokenToUseType(authInfo.TokenToUse)
+	o.clientConfig.AuthInfo.OrganizationsEnabled = o.organizationsEnabled()
 
 	// Resolve auth CA file path if provided (only for web-based auth)
 	if o.AccessToken == "" {
@@ -523,31 +524,48 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 		return err
 	}
 
-	// Auto-select organization if enabled and user has access to only one
-	if response, err := c.ListOrganizationsWithResponse(ctx, &v1beta1.ListOrganizationsParams{}); err == nil && response.StatusCode() == http.StatusOK && response.JSON200 != nil && len(response.JSON200.Items) == 1 {
-		org := response.JSON200.Items[0]
-		if org.Metadata.Name != nil {
-			orgName := *org.Metadata.Name
-			o.clientConfig.Organization = orgName
-
-			displayName := ""
-			if org.Spec != nil && org.Spec.DisplayName != nil {
-				displayName = *org.Spec.DisplayName
-			}
-
-			if displayName != "" {
-				fmt.Printf("Auto-selected organization: %s %s\n", orgName, displayName)
-			} else {
-				fmt.Printf("Auto-selected organization: %s\n", orgName)
-			}
-		}
-	}
-
 	if err := o.clientConfig.Persist(o.ConfigFilePath); err != nil {
 		return fmt.Errorf("persisting client config: %w", err)
 	}
 
 	fmt.Println("Login successful.")
+
+	// Handle organization selection if enabled
+	if o.organizationsEnabled() {
+		response, err := c.ListOrganizationsWithResponse(ctx, &v1beta1.ListOrganizationsParams{})
+		if err != nil || response == nil || response.StatusCode() != http.StatusOK || response.JSON200 == nil || response.JSON200.Items == nil {
+			fmt.Fprintln(os.Stderr, "Warning: couldn't retrieve your organizations after login.")
+		} else {
+			orgCount := len(response.JSON200.Items)
+
+			if orgCount == 0 {
+				fmt.Fprintln(os.Stderr, "No organizations were found for your account.")
+			} else if orgCount == 1 {
+				org := response.JSON200.Items[0]
+				if org.Metadata.Name != nil {
+					orgName := *org.Metadata.Name
+					o.clientConfig.Organization = orgName
+
+					displayName := ""
+					if org.Spec != nil && org.Spec.DisplayName != nil {
+						displayName = *org.Spec.DisplayName
+					}
+
+					if displayName != "" {
+						fmt.Printf("Using organization %q (%s).\n", orgName, displayName)
+					} else {
+						fmt.Printf("Using organization %q.\n", orgName)
+					}
+
+					if err := o.clientConfig.Persist(o.ConfigFilePath); err != nil {
+						return fmt.Errorf("persisting client config: %w", err)
+					}
+				}
+			} else {
+				o.displayMultipleOrganizations(response.JSON200.Items)
+			}
+		}
+	}
 	return nil
 }
 
@@ -657,6 +675,16 @@ func (o *LoginOptions) getAuthConfig(ctx context.Context) (*v1beta1.AuthConfig, 
 	return resp.JSON200, nil
 }
 
+func (o *LoginOptions) organizationsEnabled() bool {
+	if o.authConfig == nil {
+		return false
+	}
+	if o.authConfig.OrganizationsEnabled != nil {
+		return *o.authConfig.OrganizationsEnabled
+	}
+	return false
+}
+
 func (o *LoginOptions) getClientConfig(apiUrl string) (*client.Config, error) {
 	config := &client.Config{
 		Service: client.Service{
@@ -718,6 +746,33 @@ func (o *LoginOptions) promptUseInsecure(errorInfo TLSErrorInfo) bool {
 	_, _ = fmt.Scanln(&resp)
 	resp = strings.TrimSpace(strings.ToLower(resp))
 	return resp == "y" || resp == "yes"
+}
+
+// displayMultipleOrganizations displays the list of organizations and informs user about their options
+func (o *LoginOptions) displayMultipleOrganizations(orgs []v1beta1.Organization) {
+	fmt.Println("\nYou have access to multiple organizations:")
+
+	for _, org := range orgs {
+		if org.Metadata.Name != nil {
+			orgName := *org.Metadata.Name
+			displayName := ""
+			if org.Spec != nil && org.Spec.DisplayName != nil {
+				displayName = *org.Spec.DisplayName
+			}
+
+			if displayName != "" {
+				fmt.Printf("  * %s (%s)\n", orgName, displayName)
+			} else {
+				fmt.Printf("  * %s\n", orgName)
+			}
+		}
+	}
+
+	fmt.Println("\nNo current organization set.")
+	fmt.Println("Set one using:")
+	fmt.Println("  flightctl config set-organization <organization-id>")
+	fmt.Println("\nOr specify per command with:")
+	fmt.Println("  flightctl <command> --org <organization-id>")
 }
 
 // validateURLFormat provides helpful suggestions when URL format issues are detected after failed login attempts

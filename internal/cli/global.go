@@ -50,10 +50,29 @@ func (o *GlobalOptions) Complete(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func (o *GlobalOptions) Validate(args []string) error {
+type globalValidateConfig struct {
+	requireOrganization bool
+}
+
+type GlobalValidateOption func(*globalValidateConfig)
+
+func WithoutOrganizationRequirement() GlobalValidateOption {
+	return func(cfg *globalValidateConfig) {
+		cfg.requireOrganization = false
+	}
+}
+
+func (o *GlobalOptions) Validate(args []string, opts ...GlobalValidateOption) error {
 	// 0 is a default value and is used as a flag to use a system-wide timeout
 	if o.RequestTimeout < 0 {
 		return fmt.Errorf("request-timeout must be greater than 0")
+	}
+
+	cfg := globalValidateConfig{
+		requireOrganization: true,
+	}
+	for _, opt := range opts {
+		opt(&cfg)
 	}
 
 	// If user provided --config-dir, validate it's actually a directory
@@ -76,6 +95,11 @@ func (o *GlobalOptions) Validate(args []string) error {
 		}
 		return fmt.Errorf("you must log in to perform this operation. Please use the 'login' command to authenticate before proceeding")
 	}
+	if cfg.requireOrganization {
+		if err := o.requireOrganizationSelection(); err != nil {
+			return err
+		}
+	}
 	return o.ValidateCmd(args)
 }
 
@@ -92,8 +116,13 @@ func (o *GlobalOptions) ValidateCmd(args []string) error {
 // BuildClient constructs a FlightCTL API client using configuration derived
 // from the global options (config file path, organization override, etc.).
 func (o *GlobalOptions) BuildClient() (*apiclient.ClientWithResponses, error) {
+	config, err := client.ParseConfigFile(o.ConfigFilePath)
+	if err != nil {
+		return nil, err
+	}
+
 	organization := o.GetEffectiveOrganization()
-	return client.NewFromConfigFile(o.ConfigFilePath, client.WithOrganization(organization), client.WithUserAgentHeader("flightctl-cli"))
+	return client.NewFromConfig(config, o.ConfigFilePath, client.WithOrganization(organization), client.WithUserAgentHeader("flightctl-cli"))
 }
 
 // GetEffectiveOrganization returns the organization ID to use for API requests.
@@ -106,6 +135,17 @@ func (o *GlobalOptions) GetEffectiveOrganization() string {
 		return ""
 	}
 	return config.Organization
+}
+
+func (o *GlobalOptions) requireOrganizationSelection() error {
+	config, err := client.ParseConfigFile(o.ConfigFilePath)
+	if err != nil {
+		return err
+	}
+	if !config.AuthInfo.OrganizationsEnabled || o.Organization != "" || config.Organization != "" {
+		return nil
+	}
+	return fmt.Errorf("organization is required. Please set a default organization using 'flightctl config set-organization <organization-id>' or pass '--org <organization-id>' with your command")
 }
 
 func (o *GlobalOptions) WithTimeout(ctx context.Context) (context.Context, context.CancelFunc) {

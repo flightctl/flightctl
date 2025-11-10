@@ -17,6 +17,8 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
+const testOrganizationID = "00000000-0000-0000-0000-000000000000"
+
 func TestEditOptions_Validate(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -89,7 +91,7 @@ func TestEditOptions_Validate(t *testing.T) {
 			// Mock the config file path to avoid login requirement
 			tempDir := t.TempDir()
 			configPath := filepath.Join(tempDir, "client.yaml")
-			writeTestConfig(t, configPath, "test-org")
+			writeTestConfig(t, configPath, testOrganizationID)
 			opts.ConfigFilePath = configPath
 
 			err := opts.Validate(tc.args)
@@ -492,7 +494,7 @@ func TestEditOptions_Run_ArgumentHandling(t *testing.T) {
 			// Mock the config file path to avoid login requirement
 			tempDir := t.TempDir()
 			configPath := filepath.Join(tempDir, "client.yaml")
-			writeTestConfig(t, configPath, "test-org")
+			writeTestConfig(t, configPath, testOrganizationID)
 			opts.ConfigFilePath = configPath
 
 			// We can't easily test the full Run method without mocking the client,

@@ -211,12 +211,17 @@ func (o *GetOptions) Complete(cmd *cobra.Command, args []string) error {
 }
 
 func (o *GetOptions) Validate(args []string) error {
-	if err := o.GlobalOptions.Validate(args); err != nil {
+	kind, names, err := parseAndValidateKindNameFromArgs(args)
+	if err != nil {
 		return err
 	}
 
-	kind, names, err := parseAndValidateKindNameFromArgs(args)
-	if err != nil {
+	var validateOpts []GlobalValidateOption
+	if kind == OrganizationKind {
+		validateOpts = append(validateOpts, WithoutOrganizationRequirement())
+	}
+
+	if err := o.GlobalOptions.Validate(args, validateOpts...); err != nil {
 		return err
 	}
 
@@ -356,16 +361,14 @@ func (o *GetOptions) validateLastSeen(kind ResourceKind, names []string) error {
 }
 
 func (o *GetOptions) Run(ctx context.Context, args []string) error {
-	clientWithResponses, err := o.BuildClient()
-	if err != nil {
-		return fmt.Errorf("creating client: %w", err)
-	}
-
 	kind, names, err := parseAndValidateKindNameFromArgs(args)
 	if err != nil {
 		return err
 	}
-
+	clientWithResponses, err := o.BuildClient()
+	if err != nil {
+		return fmt.Errorf("creating client: %w", err)
+	}
 	formatter := display.NewFormatter(display.OutputFormat(o.Output))
 
 	// Handle list case (no specific names)
