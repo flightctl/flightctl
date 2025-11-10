@@ -27,9 +27,17 @@ fi
 
 # Check if we need to copy the base disk
 if [ ! -f "$LIBVIRT_BASE_DISK" ] || [ "$PROJECT_BASE_DISK" -nt "$LIBVIRT_BASE_DISK" ]; then
-    echo "📋 Copying base disk to libvirt images directory..."
-    cp "$PROJECT_BASE_DISK" "$LIBVIRT_BASE_DISK"
-    echo "✅ Base disk copied to $LIBVIRT_BASE_DISK"
+    echo "📋 Updating base disk in libvirt images directory..."
+    if ln -f "$PROJECT_BASE_DISK" "$LIBVIRT_BASE_DISK" 2>/dev/null; then
+        echo "✅ Hard link created at $LIBVIRT_BASE_DISK"
+    else
+        if cp --reflink=auto --sparse=always "$PROJECT_BASE_DISK" "$LIBVIRT_BASE_DISK"; then
+            echo "✅ Placed base disk at $LIBVIRT_BASE_DISK (reflink/CoW if supported)"
+        else
+            echo "❌ Failed to place base disk at $LIBVIRT_BASE_DISK"
+            exit 1
+        fi
+    fi
 else
     echo "✅ Base disk already up to date in libvirt images directory"
 fi

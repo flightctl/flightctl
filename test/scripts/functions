@@ -62,15 +62,34 @@ kind_load_image() {
 }
 
 function registry_address() {
-
-    KUBECONTEXT=${KUBECONTEXT:-$(kubectl config current-context)}
-
-    if [[ $KUBECONTEXT == *"kind"* ]]; then
-        REPOADDR=$(get_ext_ip):5000
-    else
-        REPOADDR="e2eregistry.$(kubectl get ingresses.config/cluster -o jsonpath={.spec.domain})"
+    # Prefer explicit override if provided
+    if [[ -n "${E2E_REGISTRY_ADDRESS:-}" ]]; then
+        echo "${E2E_REGISTRY_ADDRESS}"
+        return 0
     fi
-    echo $REPOADDR
+
+    local REPOADDR=""
+    local KUBECONTEXT_VAL=""
+    local DOMAIN=""
+
+    if command -v kubectl >/dev/null 2>&1; then
+        KUBECONTEXT_VAL="$(kubectl config current-context 2>/dev/null || echo "")"
+    fi
+
+    if [[ "${KUBECONTEXT_VAL}" == *"kind"* ]]; then
+        REPOADDR="$(get_ext_ip):5000"
+    else
+        if command -v kubectl >/dev/null 2>&1; then
+            DOMAIN="$(kubectl get ingresses.config/cluster -o jsonpath={.spec.domain} 2>/dev/null || echo "")"
+        fi
+        if [[ -n "${DOMAIN}" ]]; then
+            REPOADDR="e2eregistry.${DOMAIN}"
+        else
+            # Fallback to local development IP:port when cluster context/domain is unavailable
+            REPOADDR="$(get_ext_ip):5000"
+        fi
+    fi
+    echo "${REPOADDR}"
 }
 
 

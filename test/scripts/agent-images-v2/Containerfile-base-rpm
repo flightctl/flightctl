@@ -1,0 +1,22 @@
+# Final base image that layers flightctl RPMs on top of a provided PREBASE_IMAGE.
+#
+ARG PREBASE_IMAGE
+FROM ${PREBASE_IMAGE}
+
+ARG SOURCE_GIT_TAG
+ARG SOURCE_GIT_TREE_STATE
+ARG SOURCE_GIT_COMMIT
+
+LABEL org.opencontainers.image.source="https://github.com/flightctl/flightctl"
+LABEL org.opencontainers.image.version="${SOURCE_GIT_TAG}"
+LABEL org.opencontainers.image.revision="${SOURCE_GIT_COMMIT}"
+
+COPY rpms/*.rpm /tmp/rpms/
+
+RUN echo "Installing flightctl-agent RPMs" && \
+    dnf install -y /tmp/rpms/flightctl-agent-*.rpm /tmp/rpms/flightctl-selinux-*.rpm && \
+    systemctl enable flightctl-agent.service && \
+    echo "Cleaning up RPMs" && \
+    rm -rf /tmp/rpms
+
+
