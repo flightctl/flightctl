@@ -205,7 +205,7 @@ func TestResumeOptions_runSingleResume(t *testing.T) {
 				Body:       io.NopCloser(bytes.NewReader([]byte(tt.responseBody))),
 			}
 
-			client, _ := newTestClient(t, []*http.Response{response})
+			client, _ := newTestClient(t, response)
 
 			opts := &ResumeOptions{}
 
@@ -298,7 +298,7 @@ func TestResumeOptions_runBulkResume(t *testing.T) {
 				Body:       io.NopCloser(bytes.NewReader([]byte(tt.responseBody))),
 			}
 
-			client, _ := newTestClient(t, []*http.Response{response})
+			client, _ := newTestClient(t, response)
 
 			opts := &ResumeOptions{
 				LabelSelector: tt.labelSelector,

@@ -10,7 +10,7 @@ func TestParseAndValidateKindNameFromArgsApprove(t *testing.T) {
 	tests := []struct {
 		name          string
 		args          []string
-		expectedKind  string
+		expectedKind  ResourceKind
 		expectedName  string
 		expectError   bool
 		errorContains string

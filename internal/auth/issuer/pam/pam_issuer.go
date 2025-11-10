@@ -5,6 +5,8 @@ package pam
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -36,14 +38,16 @@ var defaultGroupRoleMap = map[string]string{
 
 // AuthorizationCodeData represents stored authorization code data
 type AuthorizationCodeData struct {
-	Code        string
-	ClientID    string
-	RedirectURI string
-	Scope       string
-	State       string
-	Username    string
-	ExpiresAt   time.Time
-	CreatedAt   time.Time
+	Code                string
+	ClientID            string
+	RedirectURI         string
+	Scope               string
+	State               string
+	Username            string
+	ExpiresAt           time.Time
+	CreatedAt           time.Time
+	CodeChallenge       string                                        // PKCE code challenge
+	CodeChallengeMethod pamapi.AuthAuthorizeParamsCodeChallengeMethod // PKCE code challenge method (plain or S256)
 }
 
 // AuthorizationCodeStore manages temporary authorization codes
@@ -127,6 +131,22 @@ func generateAuthorizationCode() (string, error) {
 	return hex.EncodeToString(bytes), nil
 }
 
+// verifyPKCEChallenge verifies that the code_verifier matches the stored code_challenge
+// according to RFC 7636 (Proof Key for Code Exchange)
+// Only S256 method is supported (plain is not secure and not allowed)
+// Assumes both codeChallenge and codeVerifier are non-empty (enforced by caller)
+func verifyPKCEChallenge(codeVerifier, codeChallenge string, codeChallengeMethod pamapi.AuthAuthorizeParamsCodeChallengeMethod) bool {
+	if codeVerifier == "" || codeChallenge == "" {
+		// Both must be provided
+		return false
+	}
+
+	// S256: BASE64URL(SHA256(ASCII(code_verifier)))
+	hash := sha256.Sum256([]byte(codeVerifier))
+	computedChallenge := base64.RawURLEncoding.EncodeToString(hash[:])
+	return computedChallenge == codeChallenge
+}
+
 // PAMOIDCProvider handles OIDC-compliant authentication flows using PAM/NSS
 
 // NewPAMOIDCProvider creates a new PAM-based OIDC provider
@@ -176,14 +196,14 @@ func (s *PAMOIDCProvider) Token(ctx context.Context, req *pamapi.TokenRequest) (
 func (s *PAMOIDCProvider) handleRefreshTokenGrant(ctx context.Context, req *pamapi.TokenRequest) (*pamapi.TokenResponse, error) {
 	// Validate required fields for refresh token flow
 	if req.RefreshToken == nil || *req.RefreshToken == "" {
-		s.log.Errorf("handleRefreshTokenGrant: missing refresh token")
+		s.log.Warnf("handleRefreshTokenGrant: missing refresh token")
 		return &pamapi.TokenResponse{Error: lo.ToPtr(ErrorInvalidRequest)}, nil
 	}
 
 	// Validate the refresh token and ensure it's actually a refresh token
 	identity, err := s.jwtGenerator.ValidateTokenWithType(*req.RefreshToken, TokenTypeRefresh)
 	if err != nil {
-		s.log.Errorf("handleRefreshTokenGrant: failed to validate refresh token - %v", err)
+		s.log.Warnf("handleRefreshTokenGrant: failed to validate refresh token - %v", err)
 		return &pamapi.TokenResponse{Error: lo.ToPtr(ErrorInvalidGrant)}, nil
 	}
 
@@ -260,20 +280,18 @@ func (s *PAMOIDCProvider) handleAuthorizationCodeGrant(ctx context.Context, req 
 
 	// Validate client authentication based on whether a secret is configured
 	// If clientSecret is configured (non-empty), this is a confidential client and we require authentication
-	// If clientSecret is empty, this is a public client (CLI, SPA) and we don't require secret (should use PKCE in production)
+	// If clientSecret is empty, this is a public client (CLI, SPA) and PKCE is required
 	if s.config.ClientSecret != "" {
 		// Confidential client - require client_secret_post authentication
 		if req.ClientSecret == nil {
-			s.log.Errorf("handleAuthorizationCodeGrant: missing client secret")
+			s.log.Warnf("handleAuthorizationCodeGrant: missing client secret")
 			return &pamapi.TokenResponse{Error: lo.ToPtr(ErrorInvalidClient)}, nil
 		}
 		if *req.ClientSecret != s.config.ClientSecret {
-			s.log.Errorf("handleAuthorizationCodeGrant: invalid client secret")
+			s.log.Warnf("handleAuthorizationCodeGrant: invalid client secret")
 			return &pamapi.TokenResponse{Error: lo.ToPtr(ErrorInvalidClient)}, nil
 		}
 	}
-	// For public clients (empty secret), we accept the request without secret validation
-	// In production, this should be combined with PKCE (code_challenge/code_verifier) for security
 
 	// Validate and retrieve authorization code
 	codeData, exists := s.codeStore.GetCode(*req.Code)
@@ -288,6 +306,27 @@ func (s *PAMOIDCProvider) handleAuthorizationCodeGrant(ctx context.Context, req 
 		return &pamapi.TokenResponse{Error: lo.ToPtr(ErrorInvalidGrant)}, nil
 	}
 
+	// SECURITY: Verify PKCE for public clients (required unless config allows) and confidential clients (if used)
+	// Public clients MUST use PKCE per OAuth 2.0 Security BCP, unless explicitly allowed by config
+	// SECURITY: Require PKCE for public clients (no client secret configured)
+	// Per OAuth 2.0 Security BCP, public clients MUST use PKCE unless explicitly allowed by config
+
+	codeVerifier := lo.FromPtrOr(req.CodeVerifier, "")
+	codeChallenge := codeData.CodeChallenge
+	if codeChallenge == "" && codeVerifier != "" {
+		s.log.Warnf("handleAuthorizationCodeGrant: code_challenge required when code_verifier is provided")
+		return &pamapi.TokenResponse{Error: lo.ToPtr(ErrorInvalidGrant)}, nil
+	}
+	if codeChallenge != "" && codeVerifier == "" {
+		s.log.Warnf("handleAuthorizationCodeGrant: code_verifier required when code_challenge is provided")
+		return &pamapi.TokenResponse{Error: lo.ToPtr(ErrorInvalidGrant)}, nil
+	}
+	if codeChallenge != "" {
+		if !verifyPKCEChallenge(codeVerifier, codeChallenge, codeData.CodeChallengeMethod) {
+			s.log.Warnf("handleAuthorizationCodeGrant: PKCE verification failed for public client")
+			return &pamapi.TokenResponse{Error: lo.ToPtr(ErrorInvalidGrant)}, nil
+		}
+	}
 	// Get user information from NSS
 	systemUser, err := s.pamAuthenticator.LookupUser(codeData.Username)
 	if err != nil {
@@ -390,6 +429,28 @@ func (s *PAMOIDCProvider) Authorize(ctx context.Context, req *pamapi.AuthAuthori
 	}
 	s.log.Debugf("Authorize: response type validation passed - %s", req.ResponseType)
 
+	// SECURITY: Require PKCE for public clients (no client secret configured)
+	// Per OAuth 2.0 Security BCP, public clients MUST use PKCE unless explicitly allowed by config
+	isPublicClient := s.config.ClientSecret == ""
+	codeChallenge := lo.FromPtrOr(req.CodeChallenge, "")
+	codeChallengeMethod := lo.FromPtrOr(req.CodeChallengeMethod, "")
+	if codeChallenge != "" && codeChallengeMethod == "" {
+		s.log.Warnf("Authorize: code_challenge_method required when code_challenge is provided")
+		return nil, errors.New(ErrorInvalidRequest)
+	}
+	if codeChallengeMethod != "" && codeChallenge == "" {
+		s.log.Warnf("Authorize: code_challenge required when code_challenge_method is provided")
+		return nil, errors.New(ErrorInvalidRequest)
+	}
+	if codeChallengeMethod != "" && codeChallengeMethod != pamapi.AuthAuthorizeParamsCodeChallengeMethodS256 {
+		s.log.Warnf("Authorize: unsupported code_challenge_method - %s (only S256 supported)", codeChallengeMethod)
+		return nil, errors.New(ErrorInvalidRequest)
+	}
+	if isPublicClient && codeChallenge == "" && !s.config.AllowPublicClientWithoutPKCE {
+		s.log.Warnf("Authorize: PKCE required for public client but code_challenge not provided")
+		return nil, errors.New(ErrorInvalidRequest)
+	}
+
 	// Authorization flow:
 	// 1. Check if user is already authenticated (session/cookie)
 	// 2. If not authenticated, return embedded login form
@@ -404,8 +465,8 @@ func (s *PAMOIDCProvider) Authorize(ctx context.Context, req *pamapi.AuthAuthori
 	// Check if user is already authenticated via session
 	if sessionID == "" {
 		s.log.Debugf("Authorize: no session ID found, returning login form")
-		// User not authenticated, return embedded login form
-		loginForm := s.GetLoginForm(req.ClientId, req.RedirectUri, lo.FromPtrOr(req.State, ""))
+		// User not authenticated, return embedded login form with PKCE parameters
+		loginForm := s.GetLoginForm(req.ClientId, req.RedirectUri, lo.FromPtrOr(req.State, ""), codeChallenge, string(codeChallengeMethod))
 		return &AuthorizeResponse{
 			Type:    AuthorizeResponseTypeHTML,
 			Content: loginForm,
@@ -416,8 +477,8 @@ func (s *PAMOIDCProvider) Authorize(ctx context.Context, req *pamapi.AuthAuthori
 	sessionData, exists := s.IsUserAuthenticated(sessionID)
 	if !exists {
 		s.log.Debugf("Authorize: session not found or expired, returning login form")
-		// Session invalid or expired, return login form
-		loginForm := s.GetLoginForm(req.ClientId, req.RedirectUri, lo.FromPtrOr(req.State, ""))
+		// Session invalid or expired, return login form with PKCE parameters
+		loginForm := s.GetLoginForm(req.ClientId, req.RedirectUri, lo.FromPtrOr(req.State, ""), codeChallenge, string(codeChallengeMethod))
 		return &AuthorizeResponse{
 			Type:    AuthorizeResponseTypeHTML,
 			Content: loginForm,
@@ -444,6 +505,14 @@ func (s *PAMOIDCProvider) Authorize(ctx context.Context, req *pamapi.AuthAuthori
 		return nil, errors.New(ErrorInvalidRequest)
 	}
 
+	// SECURITY: Use PKCE parameters from session if available (prevents tampering)
+	// When a user returns after authentication, PKCE params should be in the session
+	if sessionData.CodeChallenge != "" {
+		codeChallenge = sessionData.CodeChallenge
+		codeChallengeMethod = sessionData.CodeChallengeMethod
+		s.log.Debugf("Authorize: using PKCE parameters from session")
+	}
+
 	// Generate OAuth2 authorization code (step 4: used to exchange for access token)
 	authCode, err := generateAuthorizationCode()
 	if err != nil {
@@ -459,14 +528,16 @@ func (s *PAMOIDCProvider) Authorize(ctx context.Context, req *pamapi.AuthAuthori
 	// Store authorization code with expiration (10 minutes)
 	// Use values from session (which were validated above) to prevent parameter tampering
 	codeData := &AuthorizationCodeData{
-		Code:        authCode,
-		ClientID:    sessionData.ClientID,
-		RedirectURI: sessionData.RedirectURI,
-		Scope:       scopes,
-		State:       sessionData.State,
-		Username:    username,
-		ExpiresAt:   time.Now().Add(10 * time.Minute),
-		CreatedAt:   time.Now(),
+		Code:                authCode,
+		ClientID:            sessionData.ClientID,
+		RedirectURI:         sessionData.RedirectURI,
+		Scope:               scopes,
+		State:               sessionData.State,
+		Username:            username,
+		ExpiresAt:           time.Now().Add(10 * time.Minute),
+		CreatedAt:           time.Now(),
+		CodeChallenge:       codeChallenge,
+		CodeChallengeMethod: codeChallengeMethod,
 	}
 
 	s.codeStore.StoreCode(codeData)
@@ -497,7 +568,7 @@ func (s *PAMOIDCProvider) Authorize(ctx context.Context, req *pamapi.AuthAuthori
 }
 
 // Login handles the login form submission
-func (s *PAMOIDCProvider) Login(ctx context.Context, username, password, clientID, redirectURI, state string) (*LoginResult, error) {
+func (s *PAMOIDCProvider) Login(ctx context.Context, username, password, clientID, redirectURI, state, codeChallenge, codeChallengeMethod string) (*LoginResult, error) {
 	s.log.Debugf("Login: attempting authentication for user %s", username)
 
 	// Validate credentials with PAM/NSS
@@ -516,11 +587,13 @@ func (s *PAMOIDCProvider) Login(ctx context.Context, username, password, clientI
 	}
 	s.log.Debugf("Login: generated session ID for user %s", username)
 
-	// Create user session
-	s.CreateUserSession(sessionID, username, clientID, redirectURI, state)
+	// Create user session with PKCE parameters
+	// SECURITY: Store PKCE parameters in session so they persist through the redirect
+	s.CreateUserSession(sessionID, username, clientID, redirectURI, state, codeChallenge, codeChallengeMethod)
 	s.log.Debugf("Login: created user session for %s", username)
 
-	// Redirect back to authorization endpoint without session ID in URL
+	// Redirect back to authorization endpoint
+	// Note: PKCE parameters are stored in session, not passed in URL (more secure)
 	authURL := fmt.Sprintf("/api/v1/auth/authorize?response_type=code&client_id=%s&redirect_uri=%s", clientID, redirectURI)
 	if state != "" {
 		authURL += fmt.Sprintf("&state=%s", state)
@@ -535,12 +608,14 @@ func (s *PAMOIDCProvider) Login(ctx context.Context, username, password, clientI
 
 // SessionData represents user session information
 type SessionData struct {
-	Username    string
-	LoginTime   time.Time
-	ExpiresAt   time.Time
-	ClientID    string
-	RedirectURI string
-	State       string
+	Username            string
+	LoginTime           time.Time
+	ExpiresAt           time.Time
+	ClientID            string
+	RedirectURI         string
+	State               string
+	CodeChallenge       string                                        // PKCE code challenge
+	CodeChallengeMethod pamapi.AuthAuthorizeParamsCodeChallengeMethod // PKCE code challenge method
 }
 
 // SessionStore manages user sessions
@@ -718,6 +793,12 @@ func (s *PAMOIDCProvider) GetOpenIDConfiguration() (*pamapi.OpenIDConfiguration,
 		tokenEndpointAuthMethods = []string{AuthMethodNone, AuthMethodClientSecretPost}
 	}
 
+	// Advertise PKCE support as per RFC 7636
+	// Only S256 code challenge method is supported (plain is not secure)
+	codeChallengeMethodsSupported := []pamapi.OpenIDConfigurationCodeChallengeMethodsSupported{
+		pamapi.OpenIDConfigurationCodeChallengeMethodsSupportedS256,
+	}
+
 	return &pamapi.OpenIDConfiguration{
 		Issuer:                            &issuer,
 		AuthorizationEndpoint:             &authzEndpoint,
@@ -731,6 +812,7 @@ func (s *PAMOIDCProvider) GetOpenIDConfiguration() (*pamapi.OpenIDConfiguration,
 		IdTokenSigningAlgValuesSupported:  &idTokenSigningAlgs,
 		TokenEndpointAuthMethodsSupported: &tokenEndpointAuthMethods,
 		SubjectTypesSupported:             &subjectTypesSupported,
+		CodeChallengeMethodsSupported:     &codeChallengeMethodsSupported,
 	}, nil
 }
 
@@ -820,14 +902,16 @@ func (s *PAMOIDCProvider) IsUserAuthenticated(sessionID string) (*SessionData, b
 }
 
 // CreateUserSession creates a new user session
-func (s *PAMOIDCProvider) CreateUserSession(sessionID string, username, clientID, redirectURI, state string) {
+func (s *PAMOIDCProvider) CreateUserSession(sessionID string, username, clientID, redirectURI, state, codeChallenge, codeChallengeMethod string) {
 	sessionData := &SessionData{
-		Username:    username,
-		LoginTime:   time.Now(),
-		ExpiresAt:   time.Now().Add(30 * time.Minute), // 30 minute session
-		ClientID:    clientID,
-		RedirectURI: redirectURI,
-		State:       state,
+		Username:            username,
+		LoginTime:           time.Now(),
+		ExpiresAt:           time.Now().Add(30 * time.Minute), // 30 minute session
+		ClientID:            clientID,
+		RedirectURI:         redirectURI,
+		State:               state,
+		CodeChallenge:       codeChallenge,
+		CodeChallengeMethod: pamapi.AuthAuthorizeParamsCodeChallengeMethod(codeChallengeMethod),
 	}
 	s.sessionStore.CreateSession(sessionID, sessionData)
 }
@@ -844,11 +928,13 @@ func (s *PAMOIDCProvider) extractSessionID(ctx context.Context, req *pamapi.Auth
 }
 
 // GetLoginForm returns the HTML for the login form
-func (s *PAMOIDCProvider) GetLoginForm(clientID, redirectURI, state string) string {
+func (s *PAMOIDCProvider) GetLoginForm(clientID, redirectURI, state, codeChallenge, codeChallengeMethod string) string {
 	// Escape all variables to prevent XSS attacks
 	escClientID := html.EscapeString(clientID)
 	escRedirectURI := html.EscapeString(redirectURI)
 	escState := html.EscapeString(state)
+	escCodeChallenge := html.EscapeString(codeChallenge)
+	escCodeChallengeMethod := html.EscapeString(codeChallengeMethod)
 
 	return fmt.Sprintf(`
 <!DOCTYPE html>
@@ -995,6 +1081,8 @@ func (s *PAMOIDCProvider) GetLoginForm(clientID, redirectURI, state string) stri
             <input type="hidden" name="client_id" value="%s">
             <input type="hidden" name="redirect_uri" value="%s">
             <input type="hidden" name="state" value="%s">
+            <input type="hidden" name="code_challenge" value="%s">
+            <input type="hidden" name="code_challenge_method" value="%s">
             
             <div class="form-group">
                 <label for="username">Username:</label>
@@ -1012,5 +1100,5 @@ func (s *PAMOIDCProvider) GetLoginForm(clientID, redirectURI, state string) stri
         </form>
     </div>
 </body>
-</html>`, escClientID, escRedirectURI, escState)
+</html>`, escClientID, escRedirectURI, escState, escCodeChallenge, escCodeChallengeMethod)
 }
