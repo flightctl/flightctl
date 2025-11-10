@@ -256,6 +256,114 @@ func TestFileLogger_LogEventRollback(t *testing.T) {
 	require.NoError(err)
 }
 
+func TestFileLogger_LogEventBootstrap(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	ctx := context.Background()
+	config := NewDefaultAuditConfig()
+	mockRW := fileio.NewMockReadWriter(ctrl)
+	logger := log.NewPrefixLogger("test")
+
+	// Setup validation mocks
+	mockRW.EXPECT().PathExists("/var/log/flightctl").Return(true, nil)
+
+	auditLogger, err := NewFileLogger(config, mockRW, "test-device", "test-agent-version", logger)
+	require.NoError(err)
+
+	// Test bootstrap event logging
+	mockRW.EXPECT().PathFor("").Return("/test/root")
+	mockRW.EXPECT().AppendFile(DefaultLogPath, gomock.Any(), fileio.DefaultFilePermissions).DoAndReturn(
+		func(path string, data []byte, perm interface{}, opts ...interface{}) error {
+			// Verify the JSON structure
+			lines := strings.Split(string(data), "\n")
+			require.Len(lines, 2) // Event line + empty line from newline
+			require.NotEmpty(lines[0])
+
+			var event AuditEvent
+			err := json.Unmarshal([]byte(lines[0]), &event)
+			require.NoError(err)
+
+			require.Equal("test-device", event.Device)
+			require.Equal("", event.OldVersion)  // Bootstrap has no old version
+			require.Equal("0", event.NewVersion) // Bootstrap starts at version 0
+			require.Equal(AuditTypeBootstrap, event.Type)
+			require.Equal(AuditResultSuccess, event.Result)
+			require.NotEmpty(event.Ts)
+			require.Equal("", event.FleetTemplateVersion) // No fleet template on bootstrap
+			require.Equal("test-agent-version", event.AgentVersion)
+
+			return nil
+		})
+
+	auditInfo := &AuditEventInfo{
+		Device:               "test-device",
+		OldVersion:           "", // No previous version for bootstrap
+		NewVersion:           "0",
+		Result:               AuditResultSuccess,
+		Type:                 AuditTypeBootstrap,
+		FleetTemplateVersion: "", // No fleet template on bootstrap
+		StartTime:            time.Now(),
+	}
+	err = auditLogger.LogEvent(ctx, auditInfo)
+	require.NoError(err)
+}
+
+func TestFileLogger_LogEventSync(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	ctx := context.Background()
+	config := NewDefaultAuditConfig()
+	mockRW := fileio.NewMockReadWriter(ctrl)
+	logger := log.NewPrefixLogger("test")
+
+	// Setup validation mocks
+	mockRW.EXPECT().PathExists("/var/log/flightctl").Return(true, nil)
+
+	auditLogger, err := NewFileLogger(config, mockRW, "test-device", "test-agent-version", logger)
+	require.NoError(err)
+
+	// Test sync event logging
+	mockRW.EXPECT().PathFor("").Return("/test/root")
+	mockRW.EXPECT().AppendFile(DefaultLogPath, gomock.Any(), fileio.DefaultFilePermissions).DoAndReturn(
+		func(path string, data []byte, perm interface{}, opts ...interface{}) error {
+			// Verify the JSON structure
+			lines := strings.Split(string(data), "\n")
+			require.Len(lines, 2) // Event line + empty line from newline
+			require.NotEmpty(lines[0])
+
+			var event AuditEvent
+			err := json.Unmarshal([]byte(lines[0]), &event)
+			require.NoError(err)
+
+			require.Equal("test-device", event.Device)
+			require.Equal("1", event.OldVersion) // Previous desired version
+			require.Equal("2", event.NewVersion) // New desired version from API
+			require.Equal(AuditTypeSync, event.Type)
+			require.Equal(AuditResultSuccess, event.Result)
+			require.NotEmpty(event.Ts)
+			require.Equal("template-v2", event.FleetTemplateVersion)
+			require.Equal("test-agent-version", event.AgentVersion)
+
+			return nil
+		})
+
+	auditInfo := &AuditEventInfo{
+		Device:               "test-device",
+		OldVersion:           "1", // Old desired version
+		NewVersion:           "2", // New desired version from management API
+		Result:               AuditResultSuccess,
+		Type:                 AuditTypeSync,
+		FleetTemplateVersion: "template-v2",
+		StartTime:            time.Now(),
+	}
+	err = auditLogger.LogEvent(ctx, auditInfo)
+	require.NoError(err)
+}
+
 func TestFileLogger_DisabledLogging(t *testing.T) {
 	require := require.New(t)
 	ctrl := gomock.NewController(t)

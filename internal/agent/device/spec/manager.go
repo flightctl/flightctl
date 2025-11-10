@@ -111,26 +111,16 @@ func (s *manager) Initialize(ctx context.Context) error {
 	s.queue.Add(ctx, newVersionedDevice("0"))
 
 	// Audit the bootstrap event
-	if s.auditLogger != nil {
-		auditInfo := &audit.AuditEventInfo{
-			Device:               s.deviceName,
-			OldVersion:           "",  // No previous version for bootstrap
-			NewVersion:           "0", // Initial version
-			Result:               audit.AuditResultSuccess,
-			Type:                 audit.AuditTypeBootstrap, // Initial device enrollment
-			FleetTemplateVersion: "",                       // No fleet template on bootstrap
-			StartTime:            time.Now(),
-		}
-		if err := s.auditLogger.LogEvent(ctx, auditInfo); err != nil {
-			s.log.Warnf("Failed to write audit log for bootstrap: %v", err)
-		}
-	}
+	s.logAudit(ctx, nil, "", "0", audit.AuditResultSuccess, audit.AuditTypeBootstrap)
 
 	return nil
 }
 
 func (s *manager) Ensure() error {
 	// Track if this is the first time initializing (bootstrap)
+	// Note: Bootstrap is only detected when ALL 3 spec files are created together.
+	// Edge case: If files are partially corrupted/deleted (e.g., only 1-2 missing),
+	// they will be recreated but not logged as a bootstrap event.
 	var isBootstrap bool
 	var filesCreated int
 
@@ -175,19 +165,8 @@ func (s *manager) Ensure() error {
 	s.queue.Add(context.TODO(), desired)
 
 	// Log bootstrap event if this is the first time initializing (all 3 files were just created)
-	if isBootstrap && s.auditLogger != nil {
-		auditInfo := &audit.AuditEventInfo{
-			Device:               s.deviceName,
-			OldVersion:           "",  // No previous version for bootstrap
-			NewVersion:           "0", // Initial version
-			Result:               audit.AuditResultSuccess,
-			Type:                 audit.AuditTypeBootstrap, // Initial device enrollment
-			FleetTemplateVersion: "",                       // No fleet template on bootstrap
-			StartTime:            time.Now(),
-		}
-		if err := s.auditLogger.LogEvent(context.TODO(), auditInfo); err != nil {
-			s.log.Warnf("Failed to write audit log for bootstrap: %v", err)
-		}
+	if isBootstrap {
+		s.logAudit(context.TODO(), nil, "", "0", audit.AuditResultSuccess, audit.AuditTypeBootstrap)
 	}
 
 	return nil
@@ -260,28 +239,7 @@ func (s *manager) Upgrade(ctx context.Context) error {
 		s.log.Infof("Spec reconciliation complete: current version %s", desired.Version())
 
 		// Log successful spec application to audit log
-		if s.auditLogger != nil {
-			// Extract fleet template version from device annotations
-			var fleetTemplateVersion string
-			if desired.Metadata.Annotations != nil {
-				if version, exists := (*desired.Metadata.Annotations)[v1alpha1.DeviceAnnotationRenderedTemplateVersion]; exists {
-					fleetTemplateVersion = version
-				}
-			}
-
-			auditInfo := &audit.AuditEventInfo{
-				Device:               s.deviceName,
-				OldVersion:           currentVersion,
-				NewVersion:           desired.Version(),
-				Result:               audit.AuditResultSuccess,
-				Type:                 audit.AuditTypeUpgrade, // Applying new desired spec
-				FleetTemplateVersion: fleetTemplateVersion,
-				StartTime:            time.Now(),
-			}
-			if err := s.auditLogger.LogEvent(ctx, auditInfo); err != nil {
-				s.log.Warnf("Failed to write audit log for successful upgrade from %s to %s: %v", currentVersion, desired.Version(), err)
-			}
-		}
+		s.logAudit(ctx, desired, currentVersion, desired.Version(), audit.AuditResultSuccess, audit.AuditTypeUpgrade)
 	}
 
 	// remove reconciled desired spec from the queue
@@ -302,30 +260,10 @@ func (s *manager) SetUpgradeFailed(version string) error {
 	s.queue.SetFailed(versionInt)
 
 	// Log failed spec application to audit log
-	if s.auditLogger != nil {
-		currentVersion := s.cache.getRenderedVersion(Current)
-
-		// Try to get fleet template version from desired spec (if available)
-		var fleetTemplateVersion string
-		if desired, err := s.Read(Desired); err == nil && desired.Metadata.Annotations != nil {
-			if templateVersion, exists := (*desired.Metadata.Annotations)[v1alpha1.DeviceAnnotationRenderedTemplateVersion]; exists {
-				fleetTemplateVersion = templateVersion
-			}
-		}
-
-		auditInfo := &audit.AuditEventInfo{
-			Device:               s.deviceName,
-			OldVersion:           currentVersion,
-			NewVersion:           version,
-			Result:               audit.AuditResultFailure,
-			Type:                 audit.AuditTypeUpgrade, // Failed upgrade attempt
-			FleetTemplateVersion: fleetTemplateVersion,
-			StartTime:            time.Now(),
-		}
-		if err := s.auditLogger.LogEvent(context.Background(), auditInfo); err != nil {
-			s.log.Warnf("Failed to write audit log for upgrade failure from %s to %s: %v", currentVersion, version, err)
-		}
-	}
+	currentVersion := s.cache.getRenderedVersion(Current)
+	// Try to get desired spec for fleet template version
+	desired, _ := s.Read(Desired)
+	s.logAudit(context.Background(), desired, currentVersion, version, audit.AuditResultFailure, audit.AuditTypeUpgrade)
 
 	return nil
 }
@@ -407,30 +345,7 @@ func (s *manager) Rollback(ctx context.Context, opts ...RollbackOption) error {
 	s.cache.update(Desired, current)
 
 	// Log successful rollback to audit log
-	if s.auditLogger != nil {
-		// For rollback: old version is the failed desired version, new version is the current (rollback target)
-
-		// Extract fleet template version from current spec (rollback target)
-		var fleetTemplateVersion string
-		if current.Metadata.Annotations != nil {
-			if templateVersion, exists := (*current.Metadata.Annotations)[v1alpha1.DeviceAnnotationRenderedTemplateVersion]; exists {
-				fleetTemplateVersion = templateVersion
-			}
-		}
-
-		auditInfo := &audit.AuditEventInfo{
-			Device:               s.deviceName,
-			OldVersion:           failedDesiredVersion,
-			NewVersion:           current.Version(),
-			Result:               audit.AuditResultSuccess,
-			Type:                 audit.AuditTypeRollback, // Reverting to previous working spec
-			FleetTemplateVersion: fleetTemplateVersion,
-			StartTime:            time.Now(),
-		}
-		if err := s.auditLogger.LogEvent(ctx, auditInfo); err != nil {
-			s.log.Warnf("Failed to write audit log for rollback from %s to %s: %v", failedDesiredVersion, current.Version(), err)
-		}
-	}
+	s.logAudit(ctx, current, failedDesiredVersion, current.Version(), audit.AuditResultSuccess, audit.AuditTypeRollback)
 
 	return nil
 }
@@ -557,29 +472,7 @@ func (s *manager) getDeviceFromQueue(ctx context.Context) (*v1alpha1.Device, boo
 		}
 
 		// Audit the sync event (new spec received from management API)
-		if s.auditLogger != nil {
-			// Extract fleet template version from annotations
-			fleetTemplateVersion := ""
-			if desired.Metadata.Annotations != nil {
-				if templateVersion, exists := (*desired.Metadata.Annotations)[v1alpha1.DeviceAnnotationRenderedTemplateVersion]; exists {
-					fleetTemplateVersion = templateVersion
-				}
-			}
-
-			// For sync event: track desired spec transition (old desired → new desired)
-			auditInfo := &audit.AuditEventInfo{
-				Device:               s.deviceName,
-				OldVersion:           oldDesiredVersion,
-				NewVersion:           desired.Version(),
-				Result:               audit.AuditResultSuccess,
-				Type:                 audit.AuditTypeSync, // New spec received from API
-				FleetTemplateVersion: fleetTemplateVersion,
-				StartTime:            time.Now(),
-			}
-			if err := s.auditLogger.LogEvent(ctx, auditInfo); err != nil {
-				s.log.Warnf("Failed to write audit log for sync from %s to %s: %v", oldDesiredVersion, desired.Version(), err)
-			}
-		}
+		s.logAudit(ctx, desired, oldDesiredVersion, desired.Version(), audit.AuditResultSuccess, audit.AuditTypeSync)
 	}
 
 	return desired, false, nil
@@ -744,6 +637,36 @@ func IsRollback(current *v1alpha1.Device, desired *v1alpha1.Device) bool {
 		return false
 	}
 	return currentVersion > desiredVersion
+}
+
+// logAudit logs an audit event for spec transitions. It extracts the fleet template
+// version from device annotations and handles nil device for bootstrap events.
+func (s *manager) logAudit(ctx context.Context, device *v1alpha1.Device, oldVersion, newVersion string, result audit.AuditResult, auditType audit.AuditType) {
+	if s.auditLogger == nil {
+		return
+	}
+
+	// Extract fleet template version from device annotations
+	fleetTemplateVersion := ""
+	if device != nil && device.Metadata.Annotations != nil {
+		if version, exists := (*device.Metadata.Annotations)[v1alpha1.DeviceAnnotationRenderedTemplateVersion]; exists {
+			fleetTemplateVersion = version
+		}
+	}
+
+	auditInfo := &audit.AuditEventInfo{
+		Device:               s.deviceName,
+		OldVersion:           oldVersion,
+		NewVersion:           newVersion,
+		Result:               result,
+		Type:                 auditType,
+		FleetTemplateVersion: fleetTemplateVersion,
+		StartTime:            time.Now(),
+	}
+
+	if err := s.auditLogger.LogEvent(ctx, auditInfo); err != nil {
+		s.log.Warnf("Failed to write %s audit log (%s->%s): %v", auditType, oldVersion, newVersion, err)
+	}
 }
 
 type rollbackConfig struct {
