@@ -515,3 +515,29 @@ overrides:
       - "**#/paths/~1api~1v1~1organizations"
     rules:
       collection-verbs-required: off
+  # OIDC spec endpoints must follow OIDC specification standards
+  - files:
+      - "**#/paths/~1api~1v1~1auth~1authorize"
+      - "**#/paths/~1api~1v1~1auth~1login"
+      - "**#/paths/~1api~1v1~1auth~1token"
+      - "**#/paths/~1api~1v1~1auth~1userinfo"
+      - "**#/paths/~1api~1v1~1auth~1.well-known~1openid-configuration"
+    rules:
+      query-is-camelcase: off
+      response-media-type-2xx: off
+      request-media-type-post-put: off
+      response-schema-4xx-5xx: off
+      paths-are-lowercase: off
+  # OIDC spec component names must follow OIDC/OAuth2 naming conventions
+  - files:
+      - "**#/components/schemas/JWKSResponse"
+      - "**#/components/schemas/OpenIDConfiguration"
+      - "**#/components/schemas/OIDCProviderSpec"
+    rules:
+      component-name-is-pascalcase: off
+  # OIDC spec components follow OAuth2/OIDC standards
+  - files:
+      - "**#/components/schemas/JWKSResponse"
+      - "**#/components/schemas/AuthProviderSpec"
+    rules:
+      properties-description-required: off

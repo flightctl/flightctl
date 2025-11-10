@@ -7,6 +7,7 @@ metadata:
     {{- include "flightctl.standardLabels" . | nindent 4 }}
 data:
   FLIGHTCTL_SERVER: {{ .Values.api.url | quote }}
+  FLIGHTCTL_SERVER_EXTERNAL: {{ include "flightctl.getApiUrl" . }}
   {{- if .Values.cliArtifacts.enabled }}
   FLIGHTCTL_CLI_ARTIFACTS_SERVER: {{ include "flightctl.getInternalCliArtifactsUrl" . }}
   {{- end }}
@@ -27,9 +28,7 @@ data:
   BASE_UI_URL: {{ include "flightctl.getUIUrl" . }}
   {{- end }}
   {{- if eq (.Values.global).target "standalone" }}
-  {{- if eq ((.Values.global).auth).type "builtin" }}
-  INTERNAL_AUTH_URL: http://keycloak:8081/realms/flightctl
-  {{- else if eq ((.Values.global).auth).type "oidc" }}
+  {{- if eq ((.Values.global).auth).type "oidc" }}
   INTERNAL_AUTH_URL: {{ default (((.Values.global).auth).oidc).oidcAuthority .Values.auth.internalAuthUrl | quote }}
   {{- else if eq ((.Values.global).auth).type "aap" }}
   INTERNAL_AUTH_URL: {{ default (((.Values.global).auth).aap).apiUrl .Values.auth.internalAuthUrl | quote }}

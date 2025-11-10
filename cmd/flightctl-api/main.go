@@ -15,9 +15,9 @@ import (
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
-	"github.com/flightctl/flightctl/internal/instrumentation"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/domain"
+	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/org/cache"
 	"github.com/flightctl/flightctl/internal/org/resolvers"
@@ -121,7 +121,7 @@ func main() {
 		log.Fatalf("writing client config: %v", err)
 	}
 
-	tracerShutdown := instrumentation.InitTracer(log, cfg, "flightctl-api")
+	tracerShutdown := tracing.InitTracer(log, cfg, "flightctl-api")
 	defer func() {
 		if err := tracerShutdown(ctx); err != nil {
 			log.Fatalf("failed to shut down tracer: %v", err)
@@ -251,7 +251,7 @@ func main() {
 		}
 
 		go func() {
-			metricsServer := instrumentation.NewMetricsServer(log, cfg, collectors...)
+			metricsServer := metrics.NewMetricsServer(log, cfg, collectors...)
 			if err := metricsServer.Run(ctx); err != nil {
 				log.Fatalf("Error running server: %s", err)
 			}

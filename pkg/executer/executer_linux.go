@@ -20,10 +20,22 @@ func (e *CommonExecuter) execute(ctx context.Context, cmd *exec.Cmd) (stdout str
 	var stdoutBytes, stderrBytes bytes.Buffer
 	cmd.Stdout = &stdoutBytes
 	cmd.Stderr = &stderrBytes
-	// Set Pdeathsig to SIGTERM to kill the process and its children when the parent process is killed.
-	// This should prevent orphaned processes and allow for the subprocess to gracefully terminate.
-	// ref. https://github.com/golang/go/blob/release-branch.go1.23/src/syscall/exec_linux.go#L92
-	cmd.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGTERM}
+	// Setpgid ensures that all child processes are in the same process group.
+	// Pdeathsig ensures cleanup if the parent Go process dies unexpectedly.
+	// ref. https://pkg.go.dev/syscall#SysProcAttr
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setpgid:   true,
+		Pdeathsig: syscall.SIGTERM,
+	}
+	// if context is canceled, kill the entire process group
+	cmd.Cancel = func() error {
+		if cmd.Process != nil {
+			// negative PID kills the process group
+			// ref. https://man7.org/linux/man-pages/man2/kill.2.html
+			return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		}
+		return nil
+	}
 
 	if err := cmd.Run(); err != nil {
 		// handle timeout error

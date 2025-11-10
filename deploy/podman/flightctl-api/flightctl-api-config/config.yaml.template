@@ -1,9 +1,9 @@
 database:
-  hostname: flightctl-db
+  hostname: {{DB_HOSTNAME}}
   type: pgsql
-  port: 5432
-  name: flightctl
-  user: admin
+  port: {{DB_PORT}}
+  name: {{DB_NAME}}
+  user: {{DB_USER}}{{DB_SSL_CONFIG}}
 service:
   address: flightctl-api:3443
   agentEndpointAddress: flightctl-api:7443
@@ -16,6 +16,7 @@ service:
   srvCertificateFile: {{SRV_CERT_FILE}}
   srvKeyFile: {{SRV_KEY_FILE}}
   rateLimit:
+    enabled: {{RATE_LIMIT_ENABLED}}
     requests: {{RATE_LIMIT_REQUESTS}}
     window: {{RATE_LIMIT_WINDOW}}
     authRequests: {{RATE_LIMIT_AUTH_REQUESTS}}
@@ -32,8 +33,16 @@ auth:
   aap:
     apiUrl: {{AAP_API_URL}}
     externalApiUrl: {{AAP_EXTERNAL_API_URL}}
-  {{elseif OIDC}}
+  {{endif AAP}}
+  {{if OIDC}}
   oidc:
-    oidcAuthority: {{OIDC_URL}}
-    externalOidcAuthority: {{OIDC_EXTERNAL_URL}}
-  {{endif}}
+    oidcAuthority: {{OIDC_ISSUER}}
+    externalOidcAuthority: {{OIDC_EXTERNAL_AUTHORITY}}
+    clientId: {{OIDC_CLIENT_ID}}
+    enabled: {{OIDC_ENABLED}}
+    usernameClaim: {{OIDC_USERNAME_CLAIM}}
+    roleClaim: {{OIDC_ROLE_CLAIM}}
+    organizationAssignment:
+      type: {{OIDC_ORG_ASSIGNMENT_TYPE}}
+      organizationName: {{OIDC_ORG_NAME}}
+  {{endif OIDC}}

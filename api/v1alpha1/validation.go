@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/api/common"
+	"github.com/flightctl/flightctl/internal/quadlet"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/robfig/cron/v3"
@@ -69,11 +70,7 @@ func (r DeviceSpec) Validate(fleetTemplate bool) []error {
 		allErrs = append(allErrs, fmt.Errorf("consoles are not supported through this api"))
 	}
 	if r.Os != nil {
-		containsParams, paramErrs := validateParametersInString(&r.Os.Image, "spec.os.image", fleetTemplate)
-		allErrs = append(allErrs, paramErrs...)
-		if !containsParams {
-			allErrs = append(allErrs, validation.ValidateOciImageReference(&r.Os.Image, "spec.os.image")...)
-		}
+		allErrs = append(allErrs, validateOciImageReference(&r.Os.Image, "spec.os.image", fleetTemplate)...)
 	}
 	if r.Config != nil {
 		allErrs = append(allErrs, validateConfigs(*r.Config, fleetTemplate)...)
@@ -777,18 +774,22 @@ func (a InlineApplicationProviderSpec) Validate(appTypeRef *AppType, fleetTempla
 		} else {
 			seenPath[path] = struct{}{}
 		}
-
 		allErrs = append(allErrs, a.Inline[i].Validate(i, appType, fleetTemplate)...)
 	}
 
-	if appType == AppTypeCompose {
-		paths := make([]string, 0, len(seenPath))
-		for path := range seenPath {
-			paths = append(paths, path)
-		}
-		if err := validation.ValidateComposePaths(paths); err != nil {
-			allErrs = append(allErrs, fmt.Errorf("spec.applications[].inline[].path: %w", err))
-		}
+	paths := make([]string, 0, len(seenPath))
+	for path := range seenPath {
+		paths = append(paths, path)
+	}
+	var pathErr error
+	switch appType {
+	case AppTypeCompose:
+		pathErr = validation.ValidateComposePaths(paths)
+	case AppTypeQuadlet:
+		pathErr = validation.ValidateQuadletPaths(paths)
+	}
+	if pathErr != nil {
+		allErrs = append(allErrs, fmt.Errorf("spec.applications[].inline[].path: %w", pathErr))
 	}
 
 	return allErrs
@@ -833,7 +834,7 @@ func (c ApplicationContent) Validate(index int, appType AppType, fleetTemplate b
 	allErrs = append(allErrs, validation.ValidateString(&decodedStr, contentPath, 0, maxInlineLength, nil, "")...)
 	_, paramErrs = validateParametersInString(&decodedStr, contentPath, fleetTemplate)
 	allErrs = append(allErrs, paramErrs...)
-	allErrs = append(allErrs, ValidateApplicationContent(decodedBytes, appType)...)
+	allErrs = append(allErrs, ValidateApplicationContent(decodedBytes, appType, c.Path)...)
 
 	return allErrs
 }
@@ -846,7 +847,7 @@ func (c ApplicationContent) IsPlain() bool {
 	return c.ContentEncoding == nil || *c.ContentEncoding == EncodingPlain
 }
 
-func ValidateApplicationContent(content []byte, appType AppType) []error {
+func ValidateApplicationContent(content []byte, appType AppType, path string) []error {
 	var allErrs []error
 	switch appType {
 	case AppTypeCompose:
@@ -855,6 +856,16 @@ func ValidateApplicationContent(content []byte, appType AppType) []error {
 			return []error{fmt.Errorf("parse compose spec: %w", err)}
 		}
 		allErrs = append(allErrs, validation.ValidateComposeSpec(composeSpec)...)
+	case AppTypeQuadlet:
+		// Quadlet apps can come with misc files, so only validate that the quadlet files are defined correctly
+		if quadlet.IsQuadletFile(path) {
+			quadletSpec, err := common.ParseQuadletReferences(content)
+			if err != nil {
+				allErrs = append(allErrs, fmt.Errorf("parse quadlet spec %q: %w", path, err))
+			} else {
+				allErrs = append(allErrs, validation.ValidateQuadletSpec(quadletSpec, path)...)
+			}
+		}
 	default:
 		allErrs = append(allErrs, fmt.Errorf("unsupported application type: %s", appType))
 	}
@@ -897,7 +908,10 @@ func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []
 			if provider.Image == "" && app.Name == nil {
 				allErrs = append(allErrs, fmt.Errorf("image reference cannot be empty when application name is not provided"))
 			}
-			allErrs = append(allErrs, validation.ValidateOciImageReference(&provider.Image, fmt.Sprintf("spec.applications[%s].image", appName))...)
+			if lo.FromPtr(app.AppType) == AppTypeQuadlet {
+				allErrs = append(allErrs, fmt.Errorf("image application provider does not support %q application type", AppTypeQuadlet))
+			}
+			allErrs = append(allErrs, validateOciImageReference(&provider.Image, fmt.Sprintf("spec.applications[%s].image", appName), fleetTemplate)...)
 			volumes = provider.Volumes
 
 		case InlineApplicationProviderType:
@@ -910,7 +924,11 @@ func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []
 				allErrs = append(allErrs, fmt.Errorf("inline application type cannot be empty"))
 			}
 			allErrs = append(allErrs, provider.Validate(app.AppType, fleetTemplate)...)
-			volumes = provider.Volumes
+			if len(lo.FromPtr(provider.Volumes)) > 0 && lo.FromPtr(app.AppType) == AppTypeQuadlet {
+				allErrs = append(allErrs, fmt.Errorf("quadlet application volumes should be defined as quadlets"))
+			} else {
+				volumes = provider.Volumes
+			}
 
 		default:
 			allErrs = append(allErrs, fmt.Errorf("no validations implemented for application provider type: %s", providerType))
@@ -929,7 +947,7 @@ func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []
 				seenVolumeNames[vol.Name] = struct{}{}
 
 				allErrs = append(allErrs, validation.ValidateString(&vol.Name, path+".name", 1, 253, validation.GenericNameRegexp, "")...)
-				allErrs = append(allErrs, validateVolume(vol, path)...)
+				allErrs = append(allErrs, validateVolume(vol, path, fleetTemplate)...)
 			}
 		}
 	}
@@ -937,7 +955,7 @@ func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []
 	return allErrs
 }
 
-func validateVolume(vol ApplicationVolume, path string) []error {
+func validateVolume(vol ApplicationVolume, path string, fleetTemplate bool) []error {
 	var errs []error
 
 	providerType, err := vol.Type()
@@ -951,7 +969,7 @@ func validateVolume(vol ApplicationVolume, path string) []error {
 		if err != nil {
 			errs = append(errs, fmt.Errorf("invalid image application volume provider: %w", err))
 		} else {
-			errs = append(errs, validation.ValidateOciImageReference(&imgProvider.Image.Reference, path+".image.reference")...)
+			errs = append(errs, validateOciImageReference(&imgProvider.Image.Reference, path+".image.reference", fleetTemplate)...)
 		}
 
 	default:
@@ -1087,6 +1105,20 @@ func validateGraceDuration(schedule cron.Schedule, duration string) error {
 	}
 
 	return nil
+}
+
+// validateOciImageReference validates an OCI image reference, with template support if fleetTemplate is true
+func validateOciImageReference(imageRef *string, path string, fleetTemplate bool) []error {
+	containsParams, paramErrs := validateParametersInString(imageRef, path, fleetTemplate)
+	allErrs := append([]error{}, paramErrs...)
+
+	if !containsParams {
+		allErrs = append(allErrs, validation.ValidateOciImageReference(imageRef, path)...)
+	} else {
+		allErrs = append(allErrs, validation.ValidateOciImageReferenceWithTemplates(imageRef, path)...)
+	}
+
+	return allErrs
 }
 
 func validateParametersInString(s *string, path string, fleetTemplate bool) (bool, []error) {

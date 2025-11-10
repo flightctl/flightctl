@@ -30,9 +30,14 @@ func DefaultApproveOptions() *ApproveOptions {
 func NewCmdApprove() *cobra.Command {
 	o := DefaultApproveOptions()
 	cmd := &cobra.Command{
-		Use:   "approve TYPE/NAME",
+		Use:   "approve TYPE/NAME or TYPE NAME",
 		Short: "Approve a certificate signing or enrollment request.",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.RangeArgs(1, 2),
+		ValidArgsFunction: KindNameAutocomplete{
+			Options:            o,
+			AllowMultipleNames: false,
+			AllowedKinds:       []ResourceKind{EnrollmentRequestKind, CertificateSigningRequestKind},
+		}.ValidArgsFunction,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := o.Complete(cmd, args); err != nil {
 				return err
@@ -69,7 +74,7 @@ func (o *ApproveOptions) Validate(args []string) error {
 		return err
 	}
 
-	kind, name, err := parseAndValidateKindName(args[0])
+	kind, name, err := parseAndValidateKindNameFromArgsSingle(args)
 	if err != nil {
 		return err
 	}
@@ -95,7 +100,7 @@ func (o *ApproveOptions) Run(ctx context.Context, args []string) error {
 		return fmt.Errorf("creating client: %w", err)
 	}
 
-	kind, name, err := parseAndValidateKindName(args[0])
+	kind, name, err := parseAndValidateKindNameFromArgsSingle(args)
 	if err != nil {
 		return err
 	}
@@ -143,7 +148,7 @@ func (o *ApproveOptions) Run(ctx context.Context, args []string) error {
 	return processApprovalReponse(response, err, kind, name)
 }
 
-func processApprovalReponse(response *http.Response, err error, kind string, name string) error {
+func processApprovalReponse(response *http.Response, err error, kind ResourceKind, name string) error {
 	errorPrefix := fmt.Sprintf("approving %s/%s", kind, name)
 	if err != nil {
 		return fmt.Errorf("%s: %w", errorPrefix, err)

@@ -63,6 +63,12 @@ paths:
             application/json:
               schema:
                 $ref: '../openapi.yaml#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
     patch:
       tags:
         - device
@@ -108,6 +114,12 @@ paths:
                 $ref: '../openapi.yaml#/components/schemas/Status'
         "404":
           description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
           content:
             application/json:
               schema:
@@ -168,6 +180,12 @@ paths:
             application/json:
               schema:
                 $ref: '../openapi.yaml#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
   /api/v1/enrollmentrequests/{name}:
     # $ref: '../openapi.yaml#/paths/~1api~1v1~1enrollmentrequests~1{name}' (same oapi-codegen bug as above)
     get:
@@ -203,6 +221,12 @@ paths:
                 $ref: '../openapi.yaml#/components/schemas/Status'
         "404":
           description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
           content:
             application/json:
               schema:
@@ -256,6 +280,12 @@ paths:
             application/json:
               schema:
                 $ref: '../openapi.yaml#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
         "503":
           description: Service Unavailable
           content:
@@ -305,6 +335,12 @@ paths:
             application/json:
               schema:
                 $ref: '../openapi.yaml#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
         "503":
           description: ServiceUnavailable
           content:
@@ -347,6 +383,12 @@ paths:
                 $ref: '../openapi.yaml#/components/schemas/Status'
         "404":
           description: NotFound
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
           content:
             application/json:
               schema:

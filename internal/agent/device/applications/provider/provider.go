@@ -13,6 +13,8 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/api/common"
+	"github.com/flightctl/flightctl/internal/quadlet"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/samber/lo"
@@ -255,6 +257,12 @@ func pathFromAppType(appType v1alpha1.AppType, name string, embedded bool) (stri
 			break
 		}
 		typePath = lifecycle.ComposeAppPath
+	case v1alpha1.AppTypeQuadlet:
+		if embedded {
+			typePath = lifecycle.EmbeddedQuadletAppPath
+			break
+		}
+		typePath = lifecycle.QuadletAppPath
 	default:
 		return "", fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
 	}
@@ -274,6 +282,25 @@ func ensureCompose(readWriter fileio.ReadWriter, appPath string) error {
 		return fmt.Errorf("validating compose spec: %w", errors.Join(errs...))
 	}
 
+	return nil
+}
+
+func ensureQuadlet(readWriter fileio.ReadWriter, appPath string) error {
+	spec, err := client.ParseQuadletReferencesFromDir(readWriter, appPath)
+	if err != nil {
+		return fmt.Errorf("parsing quadlet spec: %w", err)
+	}
+
+	var errs []error
+	for path, quad := range spec {
+		if e := validation.ValidateQuadletSpec(quad, path); len(e) > 0 {
+			errs = append(errs, e...)
+		}
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("validating quadlets spec: %w", errors.Join(errs...))
+	}
 	return nil
 }
 
@@ -298,6 +325,8 @@ func ensureDependenciesFromAppType(appType v1alpha1.AppType) error {
 	switch appType {
 	case v1alpha1.AppTypeCompose:
 		deps = []string{"docker-compose", "podman-compose"}
+	case v1alpha1.AppTypeQuadlet:
+		deps = []string{"podman"}
 	default:
 		return fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
 	}
@@ -319,6 +348,29 @@ func validateEnvVars(envVars map[string]string) error {
 		}
 	}
 	return nil
+}
+
+func extractQuadletTargets(quad *common.QuadletReferences, pullSecret *client.PullSecret) []dependency.OCIPullTarget {
+	var targets []dependency.OCIPullTarget
+	if quad.Image != nil && !quadlet.IsImageReference(*quad.Image) {
+		targets = append(targets, dependency.OCIPullTarget{
+			Type:       dependency.OCITypeImage,
+			Reference:  *quad.Image,
+			PullPolicy: v1alpha1.PullIfNotPresent,
+			PullSecret: pullSecret,
+		})
+	}
+	for _, image := range quad.MountImages {
+		if !quadlet.IsImageReference(image) {
+			targets = append(targets, dependency.OCIPullTarget{
+				Type:       dependency.OCITypeImage,
+				Reference:  image,
+				PullPolicy: v1alpha1.PullIfNotPresent,
+				PullSecret: pullSecret,
+			})
+		}
+	}
+	return targets
 }
 
 func extractVolumeTargets(vols *[]v1alpha1.ApplicationVolume, pullSecret *client.PullSecret) ([]dependency.OCIPullTarget, error) {

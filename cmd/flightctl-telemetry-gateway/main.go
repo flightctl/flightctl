@@ -7,7 +7,7 @@ import (
 	"syscall"
 
 	"github.com/flightctl/flightctl/internal/config"
-	"github.com/flightctl/flightctl/internal/instrumentation"
+	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	tg "github.com/flightctl/flightctl/internal/telemetry_gateway"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/sirupsen/logrus"
@@ -31,7 +31,7 @@ func main() {
 	}
 	log.SetLevel(logLvl)
 
-	tracerShutdown := instrumentation.InitTracer(log, cfg, "flightctl-telemetry-gateway")
+	tracerShutdown := tracing.InitTracer(log, cfg, "flightctl-telemetry-gateway")
 	defer func() {
 		if err := tracerShutdown(ctx); err != nil {
 			log.Fatalf("failed to shut down tracer: %v", err)

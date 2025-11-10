@@ -175,8 +175,10 @@ allow flightctl_agent_t var_log_t:file { read open getattr };
 # Systemd service management
 systemd_manage_all_unit_files(flightctl_agent_t)
 systemd_start_all_unit_files(flightctl_agent_t)
+systemd_status_all_unit_files(flightctl_agent_t)
 systemd_reload_all_services(flightctl_agent_t)
 systemd_start_all_services(flightctl_agent_t)
+systemd_stop_systemd_services(flightctl_agent_t)
 allow flightctl_agent_t init_t:system status;
 
 # sshd config/service permissions

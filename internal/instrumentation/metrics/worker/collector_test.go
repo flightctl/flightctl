@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
-	"github.com/flightctl/flightctl/internal/instrumentation"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/prometheus/client_golang/prometheus"
@@ -410,7 +409,7 @@ func TestWorkerCollector_MetricsServerDisabled(t *testing.T) {
 	// Create config with no metrics configuration (disabled)
 	cfg := &config.Config{}
 
-	metricsServer := instrumentation.NewMetricsServer(log, cfg)
+	metricsServer := metrics.NewMetricsServer(log, cfg)
 
 	// Should return error when disabled
 	err := metricsServer.Run(ctx)

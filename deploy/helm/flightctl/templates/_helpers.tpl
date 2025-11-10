@@ -2,11 +2,17 @@
   {{- if .Values.global.baseDomain }}
     {{- printf .Values.global.baseDomain }}
   {{- else }}
-    {{- $openShiftBaseDomain := (lookup "config.openshift.io/v1" "DNS" "" "cluster").spec.baseDomain }}
-    {{- if .noNs }}
-      {{- printf "apps.%s" $openShiftBaseDomain }}
+    {{- /* For OpenShift deployments, try to lookup the base domain */}}
+    {{- $dnsConfig := (lookup "config.openshift.io/v1" "DNS" "" "cluster") }}
+    {{- if and $dnsConfig $dnsConfig.spec $dnsConfig.spec.baseDomain }}
+      {{- $openShiftBaseDomain := $dnsConfig.spec.baseDomain }}
+      {{- if .noNs }}
+        {{- printf "apps.%s" $openShiftBaseDomain }}
+      {{- else }}
+        {{- printf "%s.apps.%s" .Release.Namespace $openShiftBaseDomain }}
+      {{- end }}
     {{- else }}
-      {{- printf "%s.apps.%s" .Release.Namespace $openShiftBaseDomain }}
+      {{- fail "Unable to determine base domain. Please set global.baseDomain or deploy on OpenShift" }}
     {{- end }}
   {{- end }}
 {{- end }}
@@ -37,9 +43,16 @@ app.kubernetes.io/version: {{ .Chart.AppVersion }}
     {{- printf .Values.global.auth.k8s.externalOpenShiftApiUrl }}
   {{- else if .Values.global.apiUrl }}
     {{- printf .Values.global.apiUrl }}
+  {{- else if .Values.global.auth.k8s.apiUrl }}
+    {{- printf .Values.global.auth.k8s.apiUrl }}
   {{- else }}
-    {{- $openShiftBaseDomain := (lookup "config.openshift.io/v1" "DNS" "" "cluster").spec.baseDomain }}
-    {{- printf "https://api.%s:6443" $openShiftBaseDomain }}
+    {{- /* For OpenShift deployments, try to lookup the API URL */}}
+    {{- $dnsConfig := (lookup "config.openshift.io/v1" "DNS" "" "cluster") }}
+    {{- if and $dnsConfig $dnsConfig.spec $dnsConfig.spec.baseDomain }}
+      {{- printf "https://api.%s:6443" $dnsConfig.spec.baseDomain }}
+    {{- else }}
+      {{- fail "Unable to determine API URL. Please set global.auth.k8s.externalOpenShiftApiUrl, global.apiUrl, global.auth.k8s.apiUrl, or deploy on OpenShift" }}
+    {{- end }}
   {{- end }}
 {{- end }}
 
@@ -94,25 +107,25 @@ app.kubernetes.io/version: {{ .Chart.AppVersion }}
 {{- define "flightctl.getOidcAuthorityUrl" }}
   {{- if .Values.global.auth.oidc.externalOidcAuthority }}
     {{- printf .Values.global.auth.oidc.externalOidcAuthority }}
+  {{- else if .Values.global.auth.oidc.issuer }}
+    {{- printf .Values.global.auth.oidc.issuer }}
   {{- else }}
-    {{- $baseDomain := (include "flightctl.getBaseDomain" . )}}
-    {{- $scheme := (include "flightctl.getHttpScheme" . )}}
-    {{- $exposeMethod := (include "flightctl.getServiceExposeMethod" .)}}
-    {{- if eq $exposeMethod "nodePort" }}
-      {{- printf "%s://%s:%v/realms/flightctl" $scheme $baseDomain .Values.global.nodePorts.keycloak }}
-    {{- else if eq $exposeMethod "gateway" }}
-      {{- if and (eq $scheme "http") (not (eq (int .Values.global.gatewayPorts.http) 80)) }}
-        {{- printf "%s://auth.%s:%v/realms/flightctl" $scheme $baseDomain .Values.global.gatewayPorts.http }}
-      {{- else if and (eq $scheme "https") (not (eq (int .Values.global.gatewayPorts.tls) 443))}}
-        {{- printf "%s://auth.%s:%v/realms/flightctl" $scheme $baseDomain .Values.global.gatewayPorts.tls }}
-      {{- else }}
-        {{- printf "%s://auth.%s/realms/flightctl" $scheme $baseDomain }}
-      {{- end }}
-    {{- else }}
-      {{- printf "%s://auth.%s/realms/flightctl" $scheme $baseDomain }}
-    {{- end }}
+    {{- include "flightctl.getApiUrl" . }}
   {{- end }}
 {{- end }}
+
+{{- /*
+Get the effective auth type, translating 'builtin' to 'oidc' for backwards compatibility.
+Usage: {{- $authType := include "flightctl.getEffectiveAuthType" . }}
+*/}}
+{{- define "flightctl.getEffectiveAuthType" }}
+  {{- if eq .Values.global.auth.type "builtin" }}
+    {{- print "oidc" }}
+  {{- else }}
+    {{- print .Values.global.auth.type }}
+  {{- end }}
+{{- end }}
+
 
 {{- define "flightctl.getInternalCliArtifactsUrl" }}
   {{- print "http://flightctl-cli-artifacts:8090"}}

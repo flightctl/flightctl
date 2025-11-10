@@ -42,7 +42,7 @@ jobs:
             echo "image_tags,helm_tag=${image_tags[@]}"
 
           else
-            version=$(git describe --long --tags --exclude latest)
+            version=$(./hack/current-version)
             # image tags should not have the leading v, and we tag rcs with ~rc1..rcX for rpm version ordering
             version=$(echo "${version#v}" | sed 's/~/-/g')
 
@@ -98,7 +98,7 @@ jobs:
   publish-flightctl-containers:
     strategy:
       matrix:
-        image: ['api', 'periodic', 'worker', 'cli-artifacts', 'alert-exporter', 'alertmanager-proxy', 'userinfo-proxy', 'db-setup', 'telemetry-gateway']
+        image: ['api', 'pam-issuer', 'periodic', 'worker', 'cli-artifacts', 'alert-exporter', 'alertmanager-proxy', 'userinfo-proxy', 'db-setup', 'telemetry-gateway']
     needs: [generate-tags]
     runs-on: "ubuntu-24.04"
     steps:
@@ -165,11 +165,11 @@ jobs:
           image: flightctl-${{ matrix.image }}
           tags: ${{ needs.generate-tags.outputs.image_tags }}
           labels: |
-            org.flightctl.flightctl-${{ matrix.image }}.github.repository=${{ github.repository }}
-            org.flightctl.flightctl-${{ matrix.image }}.github.actor=${{ github.actor }}
-            org.flightctl.flightctl-${{ matrix.image }}.github.run_id=${{ github.run_id }}
-            org.flightctl.flightctl-${{ matrix.image }}.github.sha=${{ github.sha }}
-            org.flightctl.flightctl-${{ matrix.image }}.github.ref_name=${{ github.ref_name }}
+            io.flightctl.flightctl-${{ matrix.image }}.github.repository=${{ github.repository }}
+            io.flightctl.flightctl-${{ matrix.image }}.github.actor=${{ github.actor }}
+            io.flightctl.flightctl-${{ matrix.image }}.github.run_id=${{ github.run_id }}
+            io.flightctl.flightctl-${{ matrix.image }}.github.sha=${{ github.sha }}
+            io.flightctl.flightctl-${{ matrix.image }}.github.ref_name=${{ github.ref_name }}
           build-args: |
             SOURCE_GIT_TAG=${{ steps.version-vars.outputs.git_tag }}
             SOURCE_GIT_TREE_STATE=${{ steps.version-vars.outputs.git_tree_state }}

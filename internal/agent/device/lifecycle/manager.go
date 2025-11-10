@@ -307,6 +307,15 @@ func (m *LifecycleManager) verifyEnrollment(ctx context.Context) (bool, error) {
 		return false, fmt.Errorf("failed to store certificate: %w", err)
 	}
 
+	// Clear the persisted CSR once certificate is obtained
+	clientCSRPath := identity.GetCSRPath(m.dataDir)
+	if _, found, err := identity.LoadCSR(m.deviceReadWriter, clientCSRPath); err == nil && found {
+		m.log.Infof("Clearing persisted CSR after successful enrollment")
+		if err := identity.StoreCSR(m.deviceReadWriter, clientCSRPath, nil); err != nil {
+			m.log.Warnf("Failed to clear persisted CSR: %v", err)
+		}
+	}
+
 	return true, nil
 }
 

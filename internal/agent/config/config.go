@@ -16,7 +16,6 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/sirupsen/logrus"
-	"k8s.io/klog/v2"
 	"sigs.k8s.io/yaml"
 )
 
@@ -27,6 +26,8 @@ const (
 	DefaultStatusUpdateInterval = util.Duration(60 * time.Second)
 	// DefaultSystemInfoTimeout is the default timeout for collecting system info
 	DefaultSystemInfoTimeout = util.Duration(2 * time.Minute)
+	// MaxSystemInfoTimeout is the maximum timeout for collecting system info
+	MaxSystemInfoTimeout = util.Duration(2 * time.Minute)
 	// DefaultPullRetrySteps is the default retry attempts are allowed for pulling an OCI target.
 	DefaultPullRetrySteps = 6
 	// DefaultPullTimeout is the default timeout for pulling a single OCI
@@ -52,6 +53,8 @@ const (
 	GeneratedCertFile = "agent.crt"
 	// name of the agent's key file
 	KeyFile = "agent.key"
+	// CSRFile is the name of the persisted CSR file (temporary, deleted after enrollment)
+	CSRFile = "agent.csr"
 	// name of the enrollment certificate file
 	EnrollmentCertFile = "client-enrollment.crt"
 	// name of the enrollment key file
@@ -62,6 +65,8 @@ const (
 	DefaultTPMKeyFile = "tpm-blob.yaml"
 	// TestRootDirEnvKey is the environment variable key used to set the file system root when testing.
 	TestRootDirEnvKey = "FLIGHTCTL_TEST_ROOT_DIR"
+	// DefaultProfilingEnabled controls whether runtime profiling (pprof) is active by default.
+	DefaultProfilingEnabled = false
 )
 
 type Config struct {
@@ -119,6 +124,9 @@ type Config struct {
 	// PullRetrySteps defines how many retry attempts are allowed for pulling an OCI target.
 	PullRetrySteps int `json:"pull-retry-steps,omitempty"`
 
+	// ProfilingEnabled turns on the loopback-only pprof server for local debugging.
+	ProfilingEnabled bool `json:"profiling-enabled,omitempty"`
+
 	readWriter fileio.ReadWriter
 }
 
@@ -162,6 +170,7 @@ func NewDefault() *Config {
 		SystemInfoTimeout:    DefaultSystemInfoTimeout,
 		PullTimeout:          DefaultPullTimeout,
 		PullRetrySteps:       DefaultPullRetrySteps,
+		ProfilingEnabled:     DefaultProfilingEnabled,
 		TPM: TPM{
 			Enabled:         false,
 			AuthEnabled:     false,
@@ -171,7 +180,7 @@ func NewDefault() *Config {
 	}
 
 	if value := os.Getenv(TestRootDirEnvKey); value != "" {
-		klog.Warning("Setting testRootDir is intended for testing only. Do not use in production.")
+		fmt.Fprintf(os.Stderr, "WARNING: Setting testRootDir is intended for testing only. Do not use in production.\n")
 		c.testRootDir = filepath.Clean(value)
 	}
 
@@ -249,6 +258,10 @@ func (cfg *Config) Validate() error {
 		return err
 	}
 
+	if cfg.SystemInfoTimeout > MaxSystemInfoTimeout {
+		return fmt.Errorf("system-info-timeout cannot exceed %s, got %s", MaxSystemInfoTimeout, cfg.SystemInfoTimeout)
+	}
+
 	if cfg.TPM.AuthEnabled && !cfg.TPM.Enabled {
 		return fmt.Errorf("cannot enable TPM password authentication when TPM device identity is disabled")
 	}
@@ -273,7 +286,6 @@ func (cfg *Config) Validate() error {
 			}
 			if !exists {
 				// ensure required paths exist
-				klog.Infof("Creating missing required directory: %s", field.value)
 				if err := cfg.readWriter.MkdirAll(field.value, fileio.DefaultDirectoryPermissions); err != nil {
 					return fmt.Errorf("creating %s: %w", field.name, err)
 				}
@@ -304,6 +316,28 @@ func (cfg *Config) String() string {
 		return "<error>"
 	}
 	return string(contents)
+}
+
+// StringSanitized returns a JSON representation of the config with sensitive fields removed
+func (cfg *Config) StringSanitized() string {
+	contents, err := json.Marshal(cfg)
+	if err != nil {
+		return "<error>"
+	}
+
+	var configMap map[string]interface{}
+	if err := json.Unmarshal(contents, &configMap); err != nil {
+		return "<error>"
+	}
+
+	delete(configMap, "enrollment-service")
+	delete(configMap, "management-service")
+
+	sanitized, err := json.Marshal(configMap)
+	if err != nil {
+		return "<error>"
+	}
+	return string(sanitized)
 }
 
 func (cfg *Config) validateSyncIntervals() error {
@@ -368,6 +402,9 @@ func mergeConfigs(base, override *Config) {
 	overrideIfNotEmpty(&base.TPM.AuthEnabled, override.TPM.AuthEnabled)
 	overrideIfNotEmpty(&base.TPM.DevicePath, override.TPM.DevicePath)
 	overrideIfNotEmpty(&base.TPM.StorageFilePath, override.TPM.StorageFilePath)
+
+	// profiling
+	overrideIfNotEmpty(&base.ProfilingEnabled, override.ProfilingEnabled)
 
 	for k, v := range override.DefaultLabels {
 		base.DefaultLabels[k] = v

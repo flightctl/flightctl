@@ -180,6 +180,7 @@ services to be running. This package automatically includes the flightctl-teleme
 %dir /etc/grafana
 %dir /etc/grafana/provisioning
 %dir /etc/grafana/provisioning/datasources
+%dir /etc/grafana/provisioning/alerting
 %dir /etc/grafana/provisioning/dashboards
 %dir /etc/grafana/provisioning/dashboards/flightctl
 %dir /etc/grafana/certs
@@ -262,7 +263,7 @@ if command -v podman >/dev/null 2>&1; then
     /usr/bin/podman secret rm telemetry-gateway-tls-key >/dev/null 2>&1 || :
     /usr/bin/podman secret rm flightctl-ca-secret >/dev/null 2>&1 || :
     echo "Podman secrets cleanup completed"
-    
+
 else
     echo "Podman not available, skipping cleanup"
 fi
@@ -292,7 +293,7 @@ echo "Running post-install actions for Flightctl Observability Stack..."
 
 # Create necessary directories on the host if they don't already exist.
 /usr/bin/mkdir -p /etc/prometheus /var/lib/prometheus
-/usr/bin/mkdir -p /etc/grafana /etc/grafana/provisioning /etc/grafana/provisioning/datasources /var/lib/grafana
+/usr/bin/mkdir -p /etc/grafana /etc/grafana/provisioning /etc/grafana/provisioning/datasources /etc/grafana/provisioning/alerting /var/lib/grafana
 /usr/bin/mkdir -p /etc/grafana/provisioning/dashboards /etc/grafana/provisioning/dashboards/flightctl
 /usr/bin/mkdir -p /etc/grafana/certs
 /usr/bin/mkdir -p /etc/flightctl /opt/flightctl-observability/templates
@@ -419,7 +420,7 @@ echo "Flightctl Observability Stack uninstalled."
     fi
 
     # Prefer values injected by Makefile/CI; fall back to RPM macros when unset
-    SOURCE_GIT_TAG="%{?SOURCE_GIT_TAG:%{SOURCE_GIT_TAG}}%{!?SOURCE_GIT_TAG:%(echo "v%{version}" | tr '~' '-')}" \
+    SOURCE_GIT_TAG="%{?SOURCE_GIT_TAG:%{SOURCE_GIT_TAG}}%{!?SOURCE_GIT_TAG:%(./hack/current-version)}" \
     SOURCE_GIT_TREE_STATE="%{?SOURCE_GIT_TREE_STATE:%{SOURCE_GIT_TREE_STATE}}%{!?SOURCE_GIT_TREE_STATE:clean}" \
     SOURCE_GIT_COMMIT="%{?SOURCE_GIT_COMMIT:%{SOURCE_GIT_COMMIT}}%{!?SOURCE_GIT_COMMIT:%(echo %{version} | grep -o '[-~]g[0-9a-f]*' | sed 's/[-~]g//' || echo unknown)}" \
     SOURCE_GIT_TAG_NO_V="%{?SOURCE_GIT_TAG_NO_V:%{SOURCE_GIT_TAG_NO_V}}%{!?SOURCE_GIT_TAG_NO_V:%{version}}" \
@@ -448,6 +449,10 @@ echo "Flightctl Observability Stack uninstalled."
     cp packaging/hooks.d/afterupdating/00-default.yaml %{buildroot}/usr/lib/flightctl/hooks.d/afterupdating
     cp packaging/systemd/flightctl-agent.service %{buildroot}/usr/lib/systemd/system
     echo "d /var/lib/flightctl 0755 root root -" > %{buildroot}/usr/lib/tmpfiles.d/flightctl.conf
+    echo "# systemd-tmpfiles configuration for CentOS bootc buildinfo directories" > %{buildroot}/usr/lib/tmpfiles.d/centos-buildinfo.conf
+    echo "d /var/roothome 0755 root root -" >> %{buildroot}/usr/lib/tmpfiles.d/centos-buildinfo.conf
+    echo "d /var/roothome/buildinfo 0755 root root -" >> %{buildroot}/usr/lib/tmpfiles.d/centos-buildinfo.conf
+    echo "d /var/roothome/buildinfo/content_manifests 0755 root root -" >> %{buildroot}/usr/lib/tmpfiles.d/centos-buildinfo.conf
     bin/flightctl completion bash > flightctl-completion.bash
     install -Dpm 0644 flightctl-completion.bash -t %{buildroot}/%{_datadir}/bash-completion/completions
     bin/flightctl completion fish > flightctl-completion.fish
@@ -473,9 +478,8 @@ echo "Flightctl Observability Stack uninstalled."
     IMAGE_TAG=$(echo %{version} | tr '~' '-') \
     deploy/scripts/install.sh
 
-    # Copy external database configuration files
-    mkdir -p %{buildroot}%{_datadir}/flightctl/flightctl-db
-    cp deploy/podman/flightctl-db/flightctl-db-external.container %{buildroot}%{_datadir}/flightctl/flightctl-db/
+    # Copy services must gather script
+    cp packaging/must-gather/flightctl-services-must-gather %{buildroot}%{_bindir}
 
     # Copy sos report flightctl plugin
     mkdir -p %{buildroot}/usr/share/sosreport
@@ -489,11 +493,12 @@ echo "Flightctl Observability Stack uninstalled."
      mkdir -p %{buildroot}/etc/containers/systemd
      mkdir -p %{buildroot}/etc/prometheus
      mkdir -p %{buildroot}/etc/grafana/provisioning/datasources
+     mkdir -p %{buildroot}/etc/grafana/provisioning/alerting
      mkdir -p %{buildroot}/etc/grafana/provisioning/dashboards/flightctl
      mkdir -p %{buildroot}/etc/grafana/certs
      mkdir -p %{buildroot}/var/lib/prometheus
      mkdir -p %{buildroot}/var/lib/grafana # For Grafana's data
-     mkdir -p %{buildroot}/opt/flightctl-observability/templates # Staging for template files processed in %post
+     mkdir -p %{buildroot}/opt/flightctl-observability/templates # Staging for template files processed in %%post
      mkdir -p %{buildroot}/usr/bin # For the reloader script
      mkdir -p %{buildroot}/usr/lib/systemd/system # For systemd units
 
@@ -573,6 +578,7 @@ fi
     /usr/lib/flightctl/hooks.d/afterupdating/00-default.yaml
     /usr/lib/systemd/system/flightctl-agent.service
     /usr/lib/tmpfiles.d/flightctl.conf
+    /usr/lib/tmpfiles.d/centos-buildinfo.conf
     /usr/lib/greenboot/check/required.d/20_check_flightctl_agent.sh
     /usr/share/sosreport/flightctl.py
 
@@ -584,6 +590,13 @@ fi
     chown root:root /var/lib/flightctl && \
     chmod 0755 /var/lib/flightctl
 }
+
+# These files prevent tmpfiles.d from managing the /var/roothome/buildinfo directory
+rm -f /var/roothome/buildinfo/content_manifests/content-sets.json
+rm -f /var/roothome/buildinfo/labels.json
+# Remove the directories so tmpfiles.d can recreate them properly
+rmdir /var/roothome/buildinfo/content_manifests 2>/dev/null || true
+rmdir /var/roothome/buildinfo 2>/dev/null || true
 
 INSTALL_DIR="/usr/lib/python$(python3 --version | sed 's/^.* \(3[.][0-9]*\).*$/\1/')/site-packages/sos/report/plugins"
 mkdir -p $INSTALL_DIR
@@ -604,6 +617,7 @@ rm -rf /usr/share/sosreport
     %dir %{_sysconfdir}/flightctl/flightctl-ui
     %dir %{_sysconfdir}/flightctl/flightctl-cli-artifacts
     %dir %{_sysconfdir}/flightctl/flightctl-alertmanager-proxy
+    %dir %{_sysconfdir}/flightctl/flightctl-pam-issuer
     %dir %{_sysconfdir}/flightctl/ssh
     %config(noreplace) %{_sysconfdir}/flightctl/service-config.yaml
     %config(noreplace) %{_sysconfdir}/flightctl/flightctl-services-install.conf
@@ -614,15 +628,18 @@ rm -rf /usr/share/sosreport
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-api
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-alert-exporter
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-db
+    %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-kv
+    %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-alertmanager-proxy
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-ui
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-cli-artifacts
+    %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-pam-issuer
     %{_datadir}/flightctl/flightctl-api/config.yaml.template
     %{_datadir}/flightctl/flightctl-api/env.template
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-api/init.sh
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-api/create_aap_application.sh
     %{_datadir}/flightctl/flightctl-alert-exporter/config.yaml
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-db/enable-superuser.sh
-    %{_datadir}/flightctl/flightctl-db/flightctl-db-external.container
+    %{_datadir}/flightctl/flightctl-kv/redis.conf
     %{_datadir}/flightctl/flightctl-ui/env.template
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-ui/init.sh
     %attr(0755,root,root) %{_datadir}/flightctl/init_utils.sh
@@ -633,18 +650,23 @@ rm -rf /usr/share/sosreport
     %{_datadir}/flightctl/flightctl-alertmanager/alertmanager.yml
     %{_datadir}/flightctl/flightctl-alertmanager-proxy/env.template
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-alertmanager-proxy/init.sh
+    %{_datadir}/flightctl/flightctl-pam-issuer/config.yaml.template
+    %attr(0755,root,root) %{_datadir}/flightctl/flightctl-pam-issuer/init.sh
 
     # Handle permissions for scripts setting host config
     %attr(0755,root,root) %{_datadir}/flightctl/init_host.sh
     %attr(0755,root,root) %{_datadir}/flightctl/secrets.sh
     %attr(0755,root,root) %{_datadir}/flightctl/yaml_helpers.py
-    
+
     # flightctl-services pre upgrade checks
     %dir %{_libexecdir}/flightctl
     %attr(0755,root,root) %{_libexecdir}/flightctl/pre-upgrade-dry-run.sh
 
     # Files mounted to lib dir
     /usr/lib/systemd/system/flightctl.target
+
+    # Files mounted to bin dir
+    %attr(0755,root,root) %{_bindir}/flightctl-services-must-gather
 
 # Optional pre-upgrade database migration dry-run
 %pre services
@@ -668,6 +690,9 @@ fi
 %post services
 # On initial install: apply preset policy to enable/disable services based on system defaults
 %systemd_post %{flightctl_target}
+
+# Reload systemd to recognize new container files
+/usr/bin/systemctl daemon-reload >/dev/null 2>&1 || :
 
 cfg="%{_sysconfdir}/flightctl/flightctl-services-install.conf"
 
@@ -706,7 +731,7 @@ fi
 
 %preun services
 # On package removal: stop and disable all services
-%systemd_preun %{flightctl_target} 
+%systemd_preun %{flightctl_target}
 %systemd_preun flightctl-network.service
 
 %postun services
@@ -714,7 +739,11 @@ fi
 %systemd_postun_with_restart %{flightctl_services_restart}
 %systemd_postun %{flightctl_target}
 
+# If contexts were managed via policy, no cleanup is needed here.
+
 %changelog
+* Mon Oct 27 2025 Dakota Crowder <dcrowder@redhat.com> - 1.0
+- Add must-gather script for the services sub package
 * Wed Oct 8 2025 Ilya Skornyakov <iskornya@redhat.com> - 0.10.0
 - Add pre-upgrade database migration dry-run capability
 * Tue Jul 15 2025 Sam Batschelet <sbatsche@redhat.com> - 0.9.0-2

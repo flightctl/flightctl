@@ -13,6 +13,7 @@ const (
 
 	//resource related
 	ApplyAction    = "apply"
+	DenyAction     = "deny"
 	DeviceResource = "Device"
 	RepoResource   = "Repository"
 	ErResource     = "EnrollmentRequest"

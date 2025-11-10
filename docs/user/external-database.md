@@ -64,13 +64,49 @@ GRANT CREATE ON DATABASE flightctl TO flightctl_migrator;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO flightctl_migrator WITH GRANT OPTION;
 
 -- Set up automatic permissions for future tables
-ALTER DEFAULT PRIVILEGES IN SCHEMA public 
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO flightctl_app;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public 
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
   GRANT USAGE, SELECT ON SEQUENCES TO flightctl_app;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
     GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO flightctl_migrator WITH GRANT OPTION;
+
+-- Grant permissions on existing tables/sequences (for any pre-existing objects)
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO flightctl_app;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO flightctl_app;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO flightctl_migrator;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO flightctl_migrator;
+
+-- Create function to grant permissions on existing tables (called after migrations)
+CREATE OR REPLACE FUNCTION grant_app_permissions_on_existing_tables()
+RETURNS void AS $$
+BEGIN
+    -- Grant table permissions
+    EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO %I', 'flightctl_app');
+    -- Grant sequence permissions
+    EXECUTE format('GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO %I', 'flightctl_app');
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create event trigger function for automatic permission granting
+CREATE OR REPLACE FUNCTION grant_app_permissions()
+RETURNS event_trigger AS $$
+BEGIN
+    -- Grant permissions on newly created tables/sequences
+    EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO %I', 'flightctl_app');
+    EXECUTE format('GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO %I', 'flightctl_app');
+END;
+$$ LANGUAGE plpgsql;
+
+-- Set up automatic permission granting for future table creation
+DROP EVENT TRIGGER IF EXISTS grant_app_permissions_trigger;
+CREATE EVENT TRIGGER grant_app_permissions_trigger
+    ON ddl_command_end
+    WHEN TAG IN ('CREATE TABLE', 'CREATE SEQUENCE')
+    EXECUTE FUNCTION grant_app_permissions();
 ```
+
+**Important**: The automatic permission management functions and event trigger above ensure that `flightctl_app` user automatically receives proper permissions on all tables and sequences created by the migration process. This replicates the same automatic permission handling that FlightCtl provides for internal databases.
 
 ### 2. Configure SSL (Recommended)
 
@@ -82,13 +118,26 @@ See the [TLS/SSL Configuration](#tlsssl-configuration) section below for detaile
 
 ### Password Management
 
+Flight Control uses secure password management through secrets infrastructure. Password management differs between deployment methods:
+
+#### Kubernetes Deployment
+
 Flight Control uses a three-tier password precedence system for database credentials:
 
-#### Password Priority Order
+##### Password Priority Order
 
 1. **values.yaml/values.dev.yaml** (Highest Priority)
 2. **Existing Kubernetes Secrets** (Medium Priority)
 3. **Auto-generated** (Lowest Priority/Fallback)
+
+#### Podman Quadlet Deployment
+
+Flight Control uses **Podman secrets exclusively** for all database passwords (both internal and external):
+
+1. **Existing Podman Secrets** (Highest Priority)
+2. **Auto-generated** (Fallback for internal databases only)
+
+**Important**: For external databases with Podman deployment, you **must** create Podman secrets manually before installation.
 
 #### Password Management Options
 
@@ -102,9 +151,8 @@ db:
   name: flightctl
   user: flightctl_app
   migrationUser: flightctl_migrator
-  userPassword: "your_app_password"
-  migrationPassword: "your_migration_password"
-  # masterPassword: "your_admin_password"  # Optional: for automatic user creation
+  # Note: Passwords are NOT specified in YAML for security
+  # Use Podman secrets instead (see Password Management section below)
 ```
 
 ##### Option 2: Using Kubernetes Secrets (Production)
@@ -195,6 +243,40 @@ The following resources will NOT be created when `db.external=enabled`:
 
 Instead, a `flightctl-db` ExternalName service will be created pointing to your external database.
 
+**Verification Commands:**
+
+```bash
+# Check all services are running
+kubectl get pods -n flightctl
+
+# Verify no internal database deployment exists
+kubectl get deployment flightctl-db -n flightctl
+# Should return: Error from server (NotFound)
+
+# Check migration job completed successfully
+kubectl get jobs -n flightctl
+kubectl logs job/flightctl-db-migration-<revision> -n flightctl
+```
+
+**Common Issues During Deployment:**
+
+1. **Connection Issues**:
+
+   ```bash
+   # Check network connectivity from cluster
+   kubectl run test-connection --image=postgres:16 --rm -it -- \
+     psql -h your-postgres-hostname.example.com -p 5432 -U flightctl_app -d flightctl -c "SELECT 1"
+   ```
+
+2. **Check service logs**:
+
+   ```bash
+   kubectl logs -f deployment/flightctl-api -n flightctl
+   kubectl logs -f job/flightctl-db-migration-<revision> -n flightctl
+   ```
+
+3. **Permission Issues**: Ensure the migration user has CREATE privileges and application user has data access privileges
+
 ### Podman Quadlet
 
 #### 1. Update service-config.yaml
@@ -209,32 +291,145 @@ db:
   name: flightctl
   user: flightctl_app
   migrationUser: flightctl_migrator
+  # Note: Passwords are managed through Podman secrets, not YAML config
 ```
 
-**Note**: The `service-config.yaml` file is always required for quadlet deployments (for baseDomain, auth settings, etc.). For internal database deployments, the `db:` section can be omitted entirely or set to `external: "disabled"`.
+**Note**: The `service-config.yaml` file is always required for quadlet deployments (for baseDomain, auth settings, etc.). For internal database deployments, the `db:` section can be omitted entirely or set to `external: "disabled"`. **Passwords are never stored in YAML files** - they are managed through Podman secrets for security.
 
 #### 2. Set up secrets
 
 ```bash
 # Create password secrets
-echo "your_app_password" | podman secret create flightctl-postgresql-user-password -
-echo "your_migration_password" | podman secret create flightctl-postgresql-migrator-password -
+echo -n "your_app_password" | podman secret create flightctl-postgresql-user-password -
+echo -n "your_migration_password" | podman secret create flightctl-postgresql-migrator-password -
 ```
 
 #### 3. Deploy
 
-The quadlet deployment automatically detects external database configuration:
+After RPM installation, configure and deploy Flight Control with external database:
 
 ```bash
-# Deploy Flight Control (will automatically use external database based on service-config.yaml)
+# 1. Configure external database connection
+sudo vi /etc/flightctl/service-config.yaml
+# Set: external: "enabled" and your database connection details
+
+# 2. Disable internal database services (they conflict with external database)
+sudo systemctl mask flightctl-db.service flightctl-db-users-init.service
+
+# 3. Deploy Flight Control services
 sudo systemctl start flightctl.target
+
+# 4. Verify external database connection
+sudo systemctl status flightctl-db-wait.service  # Should succeed connecting to external DB
+sudo systemctl status flightctl-db-migrate.service  # Should complete schema migration
+sudo podman ps -a  # Should show services but NO flightctl-db container
 ```
 
-The deployment script will:
+**Deployment Steps Explained:**
 
-- **Automatically select** `flightctl-db-external.container` (placeholder container) when `db.external: "enabled"`
-- **Skip database readiness checks** since no local PostgreSQL will be running
-- **Use regular** `flightctl-db.container` (PostgreSQL container) when `db.external: "disabled"` or omitted
+1. **Service Configuration**: Edit `/etc/flightctl/service-config.yaml` (installed by RPM) to specify external database connection details
+2. **Disable Internal Database**: Use `systemctl mask` to prevent internal PostgreSQL container from starting
+3. **Migration and Wait Services**: These remain enabled and will:
+   - Wait for your external database to be ready (`flightctl-db-wait.service`)
+   - Run schema migrations against your external database (`flightctl-db-migrate.service`)
+4. **Service Startup**: All Flight Control services connect to your external database
+
+**Configuration Requirements:**
+
+- **Password Management**:
+  - **Both internal and external databases**: Passwords managed securely through Podman secrets
+  - **Internal databases**: Passwords auto-generated if secrets don't exist
+  - **External databases**: Users must create Podman secrets manually before deployment
+  - **Security**: Passwords are never stored in YAML configuration files
+- **SSL Certificate Setup**: SSL certificates are not auto-mounted and must be manually placed on the host at `/etc/flightctl/pki/` with paths specified in service-config.yaml
+- **Service Dependencies**: Migration and database wait services still run for external databases to ensure schema setup and connectivity
+- **Configuration Precedence**: Environment variables always take precedence over config file values, allowing flexible overrides without modifying files
+
+#### 4. Verify Deployment
+
+**Check all services are running properly:**
+
+```bash
+# Should show services but NO internal database
+sudo podman ps -a | grep flightctl
+
+# All services should be active/running
+sudo systemctl list-units 'flightctl*' --state=active
+
+# Database migration should have completed successfully
+sudo systemctl status flightctl-db-migrate.service
+```
+
+**Common Issues During Quadlet Deployment:**
+
+1. **Internal Database Container Still Running**:
+
+   **Problem**: After configuring external database, you still see `flightctl-db` container running:
+
+   ```bash
+   sudo podman ps -a
+   # Shows: flightctl-db container running (should not be present)
+   ```
+
+   **Solution**: Disable the internal database services that conflict with external database:
+
+   ```bash
+   # Stop all services
+   sudo systemctl stop flightctl.target
+
+   # Disable internal database services
+   sudo systemctl mask flightctl-db.service flightctl-db-users-init.service
+
+   # Restart services
+   sudo systemctl start flightctl.target
+
+   # Verify - should show NO flightctl-db container
+   sudo podman ps -a
+   ```
+
+2. **Migration or Connection Failures**:
+
+   **Problem**: Services fail to connect to external database or migrations fail.
+
+   **Diagnosis**:
+
+   ```bash
+   # Check database wait service (tests connectivity)
+   sudo systemctl status flightctl-db-wait.service
+   sudo journalctl -u flightctl-db-wait.service
+
+   # Check migration service (runs schema setup)
+   sudo systemctl status flightctl-db-migrate.service
+   sudo journalctl -u flightctl-db-migrate.service
+
+   # Check API service logs for database connection errors
+   sudo journalctl -u flightctl-api.service | grep -i database
+   ```
+
+   **Common Causes**:
+   - **Network connectivity**: Verify firewall rules and network routing to external database
+   - **Authentication**: Check usernames and passwords in service-config.yaml
+   - **SSL configuration**: Verify SSL certificates and connection parameters
+   - **Database permissions**: Ensure migration user has sufficient privileges
+
+3. **Password Authentication Issues**:
+
+   **Problem**: Migration service fails with "password authentication failed"
+
+   **Solution**: Check and fix Podman secrets:
+
+   ```bash
+   # Check actual secret contents
+   sudo podman secret inspect flightctl-postgresql-migrator-password --showsecret
+   sudo podman secret inspect flightctl-postgresql-user-password --showsecret
+
+   # If passwords don't match your database, recreate secrets:
+   sudo podman secret rm flightctl-postgresql-migrator-password
+   echo -n "your_migration_password" | sudo podman secret create flightctl-postgresql-migrator-password -
+
+   # Restart migration service
+   sudo systemctl restart flightctl-db-migrate.service
+   ```
 
 ## Migration and Schema Management
 
@@ -349,33 +544,7 @@ db:
   sslrootcert: "/etc/ssl/postgres/ca-cert.pem"
 ```
 
-##### Step 3: Update quadlet container files
-
-Add the TLS/SSL certificate volume mount to each database-connected service's `.container` file. The following services connect to the database and require TLS/SSL certificates:
-
-- `deploy/podman/flightctl-api/flightctl-api.container`
-- `deploy/podman/flightctl-worker/flightctl-worker.container`
-- `deploy/podman/flightctl-periodic/flightctl-periodic.container`
-- `deploy/podman/flightctl-db-migrate/flightctl-db-migrate.container`
-
-Add this line to the `[Container]` section of each file:
-
-```ini
-Volume=/etc/flightctl/ssl/postgres:/etc/ssl/postgres:ro,Z
-```
-
-**Example for `flightctl-api.container`:**
-
-```ini
-[Container]
-ContainerName=flightctl-api
-Image=quay.io/flightctl/flightctl-api:latest
-# ... existing configuration ...
-Volume=/etc/flightctl/pki:/root/.flightctl/certs:rw,z
-Volume=/etc/flightctl/flightctl-api/config.yaml:/root/.flightctl/config.yaml:ro,z
-Volume=/etc/flightctl/ssl/postgres:/etc/ssl/postgres:ro,Z
-# ... rest of configuration ...
-```
+**Note**: SSL certificates are automatically mounted in all Flight Control services when using the certificate paths above in your service-config.yaml.
 
 ### TLS/SSL Certificate Generation Example
 
@@ -427,44 +596,9 @@ PGPASSWORD=your_password psql \
   --set=sslrootcert=/path/to/ca-cert.pem
 ```
 
-## Troubleshooting
-
-### Connection Issues
-
-1. **Check network connectivity**:
-
-   ```bash
-   # From your Kubernetes cluster or container environment
-   telnet your-postgres-hostname.example.com 5432
-   ```
-
-2. **Verify PostgreSQL configuration**:
-   - Ensure `listen_addresses` includes your Flight Control network
-   - Check `pg_hba.conf` for proper authentication rules
-   - Verify firewall rules allow connections
-
-3. **Check logs**:
-
-   ```bash
-   # Kubernetes
-   kubectl logs -f deployment/flightctl-api
-   kubectl logs -f job/flightctl-db-migration-<revision>
-   
-   # Podman
-   podman logs flightctl-api
-   ```
-
-### Permission Issues
-
-If you see permission errors, ensure:
-
-1. The migration user has CREATE privileges on the database and schema
-2. The application user has appropriate data access privileges
-3. The admin user can create other users
-
 ### TLS/SSL Issues
 
-**Common TLS/SSL connection problems:**
+**Common TLS/SSL connection problems during deployment:**
 
 1. **Certificate not found errors**:
    - Verify certificate paths match mounted locations (`/etc/ssl/postgres/`)

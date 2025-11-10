@@ -97,16 +97,22 @@ func (c *ResourceSyncCollector) updateResourceSyncMetrics() {
 
 	// Update resource syncs metric
 	c.resourceSyncsGauge.Reset()
-	for _, result := range resourceSyncCounts {
-		orgIdLabel := result.OrgID
-		if orgIdLabel == "" {
-			orgIdLabel = "unknown"
+
+	if len(resourceSyncCounts) == 0 {
+		// Always emit at least one metric to indicate "no resource syncs" rather than "metric absent"
+		c.resourceSyncsGauge.WithLabelValues("unknown", "none").Set(0)
+	} else {
+		for _, result := range resourceSyncCounts {
+			orgIdLabel := result.OrgID
+			if orgIdLabel == "" {
+				orgIdLabel = "unknown"
+			}
+			status := result.Status
+			if status == "" {
+				status = "none"
+			}
+			c.resourceSyncsGauge.WithLabelValues(orgIdLabel, status).Set(float64(result.Count))
 		}
-		status := result.Status
-		if status == "" {
-			status = "none"
-		}
-		c.resourceSyncsGauge.WithLabelValues(orgIdLabel, status).Set(float64(result.Count))
 	}
 
 	c.log.WithFields(logrus.Fields{

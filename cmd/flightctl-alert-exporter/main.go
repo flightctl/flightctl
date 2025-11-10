@@ -7,7 +7,7 @@ import (
 	"github.com/flightctl/flightctl/internal/alert_exporter"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
-	"github.com/flightctl/flightctl/internal/instrumentation"
+	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/org/cache"
 	"github.com/flightctl/flightctl/internal/org/resolvers"
@@ -39,7 +39,7 @@ func main() {
 	}
 	log.SetLevel(logLvl)
 
-	tracerShutdown := instrumentation.InitTracer(log, cfg, "flightctl-alert-exporter")
+	tracerShutdown := tracing.InitTracer(log, cfg, "flightctl-alert-exporter")
 	defer func() {
 		if err := tracerShutdown(ctx); err != nil {
 			log.Fatalf("failed to shut down tracer: %v", err)
@@ -48,6 +48,7 @@ func main() {
 
 	ctx = context.WithValue(ctx, consts.EventSourceComponentCtxKey, "flightctl-alert-exporter")
 	ctx = context.WithValue(ctx, consts.EventActorCtxKey, "service:flightctl-alert-exporter")
+	ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
 
 	log.Println("Initializing data store")
 	db, err := store.InitDB(cfg, log)

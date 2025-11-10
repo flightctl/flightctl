@@ -20,6 +20,7 @@ type fileProvider struct {
 	deviceName     string
 	clientKeyPath  string
 	clientCertPath string
+	clientCSRPath  string
 	privateKey     crypto.PrivateKey
 	rw             fileio.ReadWriter
 	log            *log.PrefixLogger
@@ -29,12 +30,14 @@ type fileProvider struct {
 func newFileProvider(
 	clientKeyPath string,
 	clientCertPath string,
+	clientCSRPath string,
 	rw fileio.ReadWriter,
 	log *log.PrefixLogger,
 ) *fileProvider {
 	return &fileProvider{
 		clientKeyPath:  clientKeyPath,
 		clientCertPath: clientCertPath,
+		clientCSRPath:  clientCSRPath,
 		rw:             rw,
 		log:            log,
 	}
@@ -114,12 +117,7 @@ func (f *fileProvider) StoreCertificate(certPEM []byte) error {
 }
 
 func (f *fileProvider) HasCertificate() bool {
-	exists, err := f.rw.PathExists(f.clientCertPath)
-	if err != nil {
-		f.log.Warnf("Failed to check certificate existence: %v", err)
-		return false
-	}
-	return exists
+	return hasCertificate(f.rw, f.clientCertPath, f.log)
 }
 
 func (f *fileProvider) CreateManagementClient(config *baseclient.Config, metricsCallback client.RPCMetricsCallback) (client.Management, error) {
@@ -165,6 +163,13 @@ func (f *fileProvider) WipeCredentials() error {
 		f.log.Infof("Wiping certificate file %s", f.clientCertPath)
 		if err := f.rw.OverwriteAndWipe(f.clientCertPath); err != nil {
 			errs = append(errs, fmt.Errorf("failed to wipe certificate file %s: %w", f.clientCertPath, err))
+		}
+	}
+
+	if f.clientCSRPath != "" {
+		f.log.Infof("Wiping CSR file %s", f.clientCSRPath)
+		if err := f.rw.OverwriteAndWipe(f.clientCSRPath); err != nil {
+			errs = append(errs, fmt.Errorf("failed to wipe CSR file %s: %w", f.clientCSRPath, err))
 		}
 	}
 

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -34,6 +33,7 @@ type Config struct {
 }
 
 type RateLimitConfig struct {
+	Enabled      bool          `json:"enabled,omitempty"`      // Enable/disable rate limiting
 	Requests     int           `json:"requests,omitempty"`     // max requests per window
 	Window       util.Duration `json:"window,omitempty"`       // e.g. "1m" for one minute
 	AuthRequests int           `json:"authRequests,omitempty"` // max auth requests per window
@@ -111,11 +111,12 @@ type alertmanagerConfig struct {
 }
 
 type authConfig struct {
-	K8s                   *k8sAuth  `json:"k8s,omitempty"`
-	OIDC                  *oidcAuth `json:"oidc,omitempty"`
-	AAP                   *aapAuth  `json:"aap,omitempty"`
-	CACert                string    `json:"caCert,omitempty"`
-	InsecureSkipTlsVerify bool      `json:"insecureSkipTlsVerify,omitempty"`
+	K8s                   *k8sAuth       `json:"k8s,omitempty"`
+	OIDC                  *oidcAuth      `json:"oidc,omitempty"`
+	AAP                   *aapAuth       `json:"aap,omitempty"`
+	CACert                string         `json:"caCert,omitempty"`
+	InsecureSkipTlsVerify bool           `json:"insecureSkipTlsVerify,omitempty"`
+	PAMOIDCIssuer         *PAMOIDCIssuer `json:"pamOidcIssuer,omitempty"` // this is the issuer implementation configuration
 }
 
 type k8sAuth struct {
@@ -132,6 +133,28 @@ type oidcAuth struct {
 type aapAuth struct {
 	ApiUrl         string `json:"apiUrl,omitempty"`
 	ExternalApiUrl string `json:"externalApiUrl,omitempty"`
+}
+
+// PAMOIDCIssuer represents an OIDC issuer that uses Linux PAM for authentication
+type PAMOIDCIssuer struct {
+	// Address is the listen address for the PAM issuer service (e.g., ":8444")
+	Address string `json:"address,omitempty"`
+	// Issuer is the base URL for the OIDC issuer (e.g., "https://flightctl.example.com")
+	Issuer string `json:"issuer,omitempty"`
+	// ClientID is the OAuth2 client ID for this issuer
+	ClientID string `json:"clientId,omitempty"`
+	// ClientSecret is the OAuth2 client secret for this issuer
+	ClientSecret string `json:"clientSecret,omitempty"`
+	// Scopes are the supported OAuth2 scopes
+	Scopes []string `json:"scopes,omitempty"`
+	// RedirectURIs are the allowed redirect URIs for OAuth2 flows
+	RedirectURIs []string `json:"redirectUris,omitempty"`
+	// PAMService is the PAM service name to use for authentication (default: "flightctl")
+	PAMService string `json:"pamService" validate:"required"`
+	// AllowPublicClientWithoutPKCE allows public clients (no client secret) to skip PKCE
+	// SECURITY WARNING: This should only be enabled for testing or backward compatibility
+	// Default: false (PKCE required for public clients per OAuth 2.0 Security BCP)
+	AllowPublicClientWithoutPKCE bool `json:"allowPublicClientWithoutPKCE,omitempty"`
 }
 
 type metricsConfig struct {
@@ -430,49 +453,34 @@ func Load(cfgFile string) (*Config, error) {
 	if dbMigrationPass := os.Getenv("DB_MIGRATION_PASSWORD"); dbMigrationPass != "" {
 		c.Database.MigrationPassword = SecureString(dbMigrationPass)
 	}
-	// Handle rate limit environment variables - create config if env vars are set
-	rateLimitRequests := os.Getenv("RATE_LIMIT_REQUESTS")
-	rateLimitWindow := os.Getenv("RATE_LIMIT_WINDOW")
-	authRateLimitRequests := os.Getenv("AUTH_RATE_LIMIT_REQUESTS")
-	authRateLimitWindow := os.Getenv("AUTH_RATE_LIMIT_WINDOW")
-	trustedProxies := os.Getenv("RATE_LIMIT_TRUSTED_PROXIES")
 
-	if rateLimitRequests != "" || rateLimitWindow != "" || authRateLimitRequests != "" || authRateLimitWindow != "" || trustedProxies != "" {
-		// Create rate limit config if it doesn't exist
-		if c.Service.RateLimit == nil {
-			c.Service.RateLimit = &RateLimitConfig{}
-		}
-
-		if rateLimitRequests != "" {
-			if requests, err := strconv.Atoi(rateLimitRequests); err == nil {
-				c.Service.RateLimit.Requests = requests
+	// Set up OIDC issuer and client defaults only when explicitly configured
+	if c.Auth != nil {
+		// Only apply defaults if PAM OIDC issuer block is provided
+		if c.Auth.PAMOIDCIssuer != nil {
+			if c.Auth.PAMOIDCIssuer.PAMService == "" {
+				c.Auth.PAMOIDCIssuer.PAMService = "flightctl"
 			}
-		}
-		if rateLimitWindow != "" {
-			if window, err := time.ParseDuration(rateLimitWindow); err == nil {
-				c.Service.RateLimit.Window = util.Duration(window)
+			if c.Auth.PAMOIDCIssuer.Issuer == "" {
+				c.Auth.PAMOIDCIssuer.Issuer = c.Service.BaseUrl
 			}
-		}
-		if authRateLimitRequests != "" {
-			if requests, err := strconv.Atoi(authRateLimitRequests); err == nil {
-				c.Service.RateLimit.AuthRequests = requests
+			if c.Auth.PAMOIDCIssuer.ClientID == "" {
+				c.Auth.PAMOIDCIssuer.ClientID = "flightctl-client"
 			}
-		}
-		if authRateLimitWindow != "" {
-			if window, err := time.ParseDuration(authRateLimitWindow); err == nil {
-				c.Service.RateLimit.AuthWindow = util.Duration(window)
+			if len(c.Auth.PAMOIDCIssuer.Scopes) == 0 {
+				c.Auth.PAMOIDCIssuer.Scopes = []string{"openid", "profile", "email", "roles"}
 			}
-		}
-		if trustedProxies != "" {
-			// Split by comma and trim whitespace
-			proxies := strings.Split(trustedProxies, ",")
-			for i, proxy := range proxies {
-				proxies[i] = strings.TrimSpace(proxy)
+			if len(c.Auth.PAMOIDCIssuer.RedirectURIs) == 0 {
+				base := c.Service.BaseUIUrl
+				if base == "" {
+					base = c.Service.BaseUrl
+				}
+				if base != "" {
+					c.Auth.PAMOIDCIssuer.RedirectURIs = []string{strings.TrimSuffix(base, "/") + "/auth/callback"}
+				}
 			}
-			c.Service.RateLimit.TrustedProxies = proxies
 		}
 	}
-
 	return c, nil
 }
 

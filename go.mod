@@ -12,7 +12,7 @@ require (
 	github.com/creack/pty v1.1.24
 	github.com/dustin/go-humanize v1.0.1
 	github.com/evanphx/json-patch v5.9.0+incompatible
-	github.com/getkin/kin-openapi v0.131.0
+	github.com/getkin/kin-openapi v0.132.0
 	github.com/gliderlabs/ssh v0.3.8
 	github.com/go-chi/chi/v5 v5.2.2
 	github.com/go-chi/httprate v0.15.0
@@ -104,8 +104,10 @@ require (
 )
 
 require (
+	github.com/coreos/go-systemd/v22 v22.5.0
 	github.com/goccy/go-yaml v1.18.0
 	github.com/mattbaird/jsonpatch v0.0.0-20240118010651-0ba75a80ca38
+	github.com/msteinert/pam/v2 v2.1.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/exporter/prometheusexporter v0.130.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/exporter/prometheusremotewriteexporter v0.130.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/receiver/prometheusreceiver v0.130.0
@@ -162,7 +164,6 @@ require (
 	github.com/containers/storage v1.53.0 // indirect
 	github.com/coreos/go-json v0.0.0-20230131223807-18775e0fb4fb // indirect
 	github.com/coreos/go-semver v0.3.1 // indirect
-	github.com/coreos/go-systemd/v22 v22.5.0 // indirect
 	github.com/coreos/vcontext v0.0.0-20230201181013-d72178a18687 // indirect
 	github.com/cyphar/filepath-securejoin v0.4.1 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect

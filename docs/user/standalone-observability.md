@@ -245,7 +245,7 @@ observability:
     config:
       telemetryGateway:
         export:
-          prometheus: "your-prometheus.company.com:9090"
+          prometheus: 0.0.0.0:9464
         forward:
           endpoint: "your-otel-collector.company.com:4317"
           tls:
@@ -339,7 +339,7 @@ observability:
       enabled: false
       client_id: your-oauth-client-id
       auth_url: https://your-aap.com/o/authorize
-      token_url: https://your-aap.com/o/token
+      token_url: https://your-aap.com/o/token/
       api_url: http://flightctl-userinfo-proxy:8080/userinfo
       tls_skip_verify: false
       local_admin_user: admin
@@ -348,6 +348,7 @@ observability:
     https:
       cert_file: /etc/grafana/certs/grafana.crt
       cert_key: /etc/grafana/certs/grafana.key
+    allowed_unsigned_plugins: ""  # Optional: comma-separated list of plugin IDs to allow unsigned plugins
 ```
 
 ### Prometheus Metrics
@@ -426,7 +427,7 @@ observability:
         listen:
           device: "0.0.0.0:4317"
         export:
-          prometheus: "flightctl-prometheus:9090"  # Internal Prometheus
+          prometheus: "0.0.0.0:9464"  # Internal Prometheus
         forward:
           endpoint: "external-collector.company.com:4317"
           tls:
@@ -436,7 +437,7 @@ observability:
             caFile: "/etc/telemetry-gateway/certs/ca.crt"
 ```
 
-**Note**: The `config` field contains the telemetry gateway configuration as a YAML object. The `flightctl-render-observability` script extracts this configuration using Python and `jq`, and writes it to `/etc/flightctl/telemetry-gateway/config.yaml`.
+**Note**: The `config` field contains the telemetry gateway configuration as a YAML object. The `flightctl-render-observability` script extracts this configuration using Python and `PyYAML`, and writes it to `/etc/flightctl/telemetry-gateway/config.yaml`.
 
 ### UserInfo Proxy
 
@@ -484,7 +485,7 @@ observability:
       enabled: true
       client_id: your-oauth-client-id
       auth_url: https://your-idp.com/o/authorize
-      token_url: https://your-idp.com/o/token
+      token_url: https://your-idp.com/o/token/
       api_url: http://flightctl-userinfo-proxy:8080/userinfo  # Internal container communication
       scopes: read  # OAuth scopes to request
       tls_skip_verify: false  # Skip TLS verification for OAuth endpoints
@@ -501,6 +502,9 @@ observability:
     https:
       cert_file: /etc/grafana/certs/grafana.crt
       cert_key: /etc/grafana/certs/grafana.key
+    
+    # Plugin Configuration (Optional)
+    allowed_unsigned_plugins: ""  # Comma-separated list of plugin IDs to allow unsigned plugins
 
   # Prometheus Configuration (internal only)
   prometheus:
@@ -633,7 +637,7 @@ observability:
       enabled: true
       client_id: your-oauth-client-id
       auth_url: https://your-idp.com/o/authorize
-      token_url: https://your-idp.com/o/token
+      token_url: https://your-idp.com/o/token/
       api_url: http://flightctl-userinfo-proxy:8080/userinfo  # Points to internal proxy
       
   userinfo_proxy:
@@ -729,10 +733,10 @@ observability:
           tls:
             insecureSkipTlsVerify: false
         export:
-          prometheus: "your-prometheus.company.com:9090"
+          prometheus: 0.0.0.0:9464
 ```
 
-**Note**: The telemetry gateway configuration is provided as a YAML object in the `config` field. The `flightctl-render-observability` script extracts this configuration using Python and `jq`, and writes it to `/etc/flightctl/telemetry-gateway/config.yaml`.
+**Note**: The telemetry gateway configuration is provided as a YAML object in the `config` field. The `flightctl-render-observability` script extracts this configuration using Python and `PyYAML`, and writes it to `/etc/flightctl/telemetry-gateway/config.yaml`.
 
 **Management Commands Available**:
 
@@ -769,7 +773,7 @@ observability:
     config:
       telemetryGateway:
         export:
-          prometheus: "flightctl-prometheus:9090"
+          prometheus: "0.0.0.0:9464"
 ```
 
 ### OAuth Integration with AAP
@@ -785,7 +789,7 @@ observability:
       enabled: true
       client_id: flightctl-grafana-client
       auth_url: https://your-aap-instance.com/o/authorize
-      token_url: https://your-aap-instance.com/o/token
+      token_url: https://your-aap-instance.com/o/token/
       api_url: http://flightctl-userinfo-proxy:8080/userinfo
       scopes: read
       tls_skip_verify: false
@@ -803,7 +807,7 @@ observability:
     config:
       telemetryGateway:
         export:
-          prometheus: "flightctl-prometheus:9090"
+          prometheus: "0.0.0.0:9464"
 
   userinfo_proxy:
     image: flightctl/userinfo-proxy:latest
@@ -828,7 +832,7 @@ observability:
       enabled: true
       client_id: flightctl-grafana-client
       auth_url: https://your-aap-instance.com/o/authorize
-      token_url: https://your-aap-instance.com/o/token
+      token_url: https://your-aap-instance.com/o/token/
       api_url: http://flightctl-userinfo-proxy:8080/userinfo
       scopes: read
       tls_skip_verify: false
@@ -843,7 +847,7 @@ observability:
     config:
       telemetryGateway:
         export:
-          prometheus: "flightctl-prometheus:9090"
+          prometheus: "0.0.0.0:9464"
 
   userinfo_proxy:
     image: flightctl/userinfo-proxy:latest
@@ -875,7 +879,7 @@ observability:
       enabled: true
       client_id: dev-grafana-client
       auth_url: https://dev-auth.local/o/authorize
-      token_url: https://dev-auth.local/o/token
+      token_url: https://dev-auth.local/o/token/
       api_url: http://flightctl-userinfo-proxy:8080/userinfo
       scopes: read
       tls_skip_verify: true  # OK for development
@@ -893,7 +897,7 @@ observability:
     config:
       telemetryGateway:
         export:
-          prometheus: "flightctl-prometheus:9090"
+          prometheus: "0.0.0.0:9464"
 
   userinfo_proxy:
     image: flightctl/userinfo-proxy:latest
@@ -918,7 +922,7 @@ observability:
           tls:
             insecureSkipTlsVerify: false
         export:
-          prometheus: "your-prometheus.company.com:9090"
+          prometheus: 0.0.0.0:9464
 ```
 
 **Note**: The telemetry gateway automatically configures itself based on the `observability.telemetry_gateway.config.telemetryGateway` section in `service-config.yaml`. No manual OpenTelemetry configuration files are needed.
@@ -948,7 +952,7 @@ observability:
     config:
       telemetryGateway:
         export:
-          prometheus: "flightctl-prometheus:9090"
+          prometheus: "0.0.0.0:9464"
 ```
 
 **Access with custom ports**:
@@ -1033,9 +1037,9 @@ This section provides detailed documentation for every configuration variable av
 
 - **Type**: String (URL)
 - **Default**: Empty
-- **Description**: OAuth token endpoint URL. Grafana exchanges authorization codes for access tokens here.
+- **Description**: OAuth token endpoint URL. Grafana exchanges authorization codes for access tokens here. Must end with a '/' character.
 - **Required**: When `oauth.enabled: true`
-- **Example**: `https://your-aap.com/o/token`
+- **Example**: `https://your-aap.com/o/token/`
 
 **`observability.grafana.oauth.api_url`**
 
@@ -1086,6 +1090,17 @@ This section provides detailed documentation for every configuration variable av
 - **Description**: Root URL for Grafana. Used for OAuth redirects and asset loading. Should match the external URL where Grafana is accessible.
 - **Example**: `https://grafana.yourdomain.com`, `http://server-ip:3000`
 
+#### Plugin Configuration
+
+**`observability.grafana.allowed_unsigned_plugins`**
+
+- **Type**: String (comma-separated list)
+- **Default**: Empty (no unsigned plugins allowed)
+- **Description**: Comma-separated list of plugin IDs that are allowed to load even if they are not signed by Grafana Labs. This is useful for custom plugins or community plugins that haven't been signed. Use with caution as unsigned plugins can pose security risks.
+- **Security**: Only specify plugins you trust. Use specific plugin IDs rather than wildcards in production environments.
+- **Example**: `my-custom-plugin,another-plugin`
+- **Warning**: Setting this to `*` allows all unsigned plugins, which is not recommended for security reasons.
+
 ### Prometheus Configuration Variables
 
 **`observability.prometheus.image`**
@@ -1126,7 +1141,7 @@ The telemetry gateway uses a nested YAML object in the `config` field for its in
 
 - **Type**: YAML Object
 - **Default**: Empty
-- **Description**: Telemetry gateway configuration as a YAML object. The `flightctl-render-observability` script extracts this configuration using Python and `jq`, and writes it to `/etc/flightctl/telemetry-gateway/config.yaml`.
+- **Description**: Telemetry gateway configuration as a YAML object. The `flightctl-render-observability` script extracts this configuration using Python and `PyYAML`, and writes it to `/etc/flightctl/telemetry-gateway/config.yaml`.
 - **Example**: See the sample configurations above for complete examples.
 
 **Configuration Structure**:
@@ -1143,7 +1158,7 @@ telemetryGateway:
   listen:
     device: "0.0.0.0:4317"           # Address and port for device connections
   export:
-    prometheus: "0.0.0.0:9090"  # Prometheus export endpoint
+    prometheus: "0.0.0.0:9464"  # Prometheus export endpoint
   forward:
     endpoint: "external-collector.company.com:4317"  # External forwarding endpoint
     tls:

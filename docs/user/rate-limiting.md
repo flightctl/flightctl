@@ -28,17 +28,48 @@ Flight Control applies different rate limits for different types of requests:
 
 Rate limiting is configured in your Flight Control configuration file:
 
+**For Helm deployments:**
+
+```yaml
+api:
+  rateLimit:
+    # Enable or disable rate limiting
+    enabled: true
+
+    # General API rate limiting
+    requests: 300       # Maximum requests per window
+    window: "1m"        # Time window (e.g., "1m", "1h", "1d")
+
+    # Authentication-specific rate limiting (stricter)
+    authRequests: 20    # Maximum auth requests per window
+    authWindow: "1h"    # Auth time window
+
+    # Trusted proxies that can set True-Client-IP/X-Forwarded-For/X-Real-IP headers
+    # This should include your load balancer and UI proxy IPs
+    trustedProxies:
+      - "10.0.0.0/8"     # Internal network range
+      - "172.16.0.0/12"  # Docker/container network range
+      - "192.168.0.0/16" # Private network range
+```
+
+**For Quadlet deployments:**
+
+Edit `deploy/podman/service-config.yaml`:
+
 ```yaml
 service:
   rateLimit:
+    # Enable or disable rate limiting
+    enabled: true
+
     # General API rate limiting
-    requests: 60        # Maximum requests per window
+    requests: 300       # Maximum requests per window
     window: "1m"        # Time window (e.g., "1m", "1h", "1d")
-    
+
     # Authentication-specific rate limiting (stricter)
-    authRequests: 10    # Maximum auth requests per window
+    authRequests: 20    # Maximum auth requests per window
     authWindow: "1h"    # Auth time window
-    
+
     # Trusted proxies that can set True-Client-IP/X-Forwarded-For/X-Real-IP headers
     # This should include your load balancer and UI proxy IPs
     trustedProxies:
@@ -49,36 +80,33 @@ service:
 
 ### Default Values
 
-If not configured, rate limiting is **disabled by default**. To enable it, you must explicitly set the configuration values.
+If no rate limiting configuration is provided at all, rate limiting is **disabled by default**. However, both Quadlet and Helm deployments include rate limiting configuration with `enabled: true` by default, so rate limiting is **enabled by default** in standard deployments.
 
 **Important**: When using reverse proxies (load balancers, API gateways, etc.), you **must** configure `trustedProxies` to include the IP ranges of your proxy infrastructure. Without this configuration, proxy headers will be ignored for security reasons, and all requests will be rate-limited based on the proxy's IP address rather than the real client IP.
 
-### Environment Variables
+### Disabling Rate Limiting
 
-You can also configure rate limiting using environment variables:
+To disable rate limiting, set the `enabled` field to `false` in your configuration:
 
-```bash
-# General rate limiting
-export RATE_LIMIT_REQUESTS=60
-export RATE_LIMIT_WINDOW=1m
+**For Helm deployments:**
 
-# Auth-specific rate limiting
-export AUTH_RATE_LIMIT_REQUESTS=10
-export AUTH_RATE_LIMIT_WINDOW=1h
-
-# Trusted proxies (comma-separated list)
-export RATE_LIMIT_TRUSTED_PROXIES="10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+```yaml
+api:
+  rateLimit:
+    enabled: false
 ```
 
-**Important**: Environment variables **override** settings in the configuration file. The configuration loading process works as follows:
+**For Quadlet deployments:**
 
-1. **Config file is loaded first** with default values
-2. **Environment variables are processed second** and override any corresponding config file settings
-3. **Only non-empty environment variables** override config file values
+Edit `deploy/podman/service-config.yaml`:
 
-**Note**: The `RATE_LIMIT_TRUSTED_PROXIES` environment variable accepts a comma-separated list of CIDR ranges. Each CIDR should be in standard format (e.g., `10.0.0.0/8`, `172.16.0.0/12`).
+```yaml
+service:
+  rateLimit:
+    enabled: false
+```
 
-**Example**: If your config file has `requests: 100` but you set `RATE_LIMIT_REQUESTS=60`, the final value will be `60` (the environment variable takes precedence).
+**Note**: Setting `requests=0` or `authRequests=0` will **not** disable rate limiting. Instead, it will use the hard-coded default values (300 requests/minute for general API, 20 requests/hour for auth). To disable rate limiting, set `enabled: false`.
 
 ## Reverse Proxy Configuration
 
@@ -140,18 +168,18 @@ Flight Control includes rate limit information in response headers:
 **Successful request:**
 
 ```text
-X-RateLimit-Limit: 60
-X-RateLimit-Remaining: 45
+X-RateLimit-Limit: 300
+X-RateLimit-Remaining: 299
 X-RateLimit-Reset: 1640995200
 ```
 
 **Rate limited request:**
 
 ```text
-X-RateLimit-Limit: 60
+X-RateLimit-Limit: 300
 X-RateLimit-Remaining: 0
 X-RateLimit-Reset: 1640995200
-Retry-After: 3600
+Retry-After: 60
 ```
 
 ## Rate Limit Responses
@@ -201,7 +229,7 @@ To verify that rate limiting is working correctly:
    curl -H "X-Forwarded-For: 203.0.113.100" \
         -H "Authorization: Bearer $TOKEN" \
         https://api.flightctl.example.com/api/v1/fleets
-   
+
    # Test from untrusted IP (should ignore headers)
    curl -H "X-Forwarded-For: 203.0.113.100" \
         -H "Authorization: Bearer $TOKEN" \
@@ -394,9 +422,9 @@ service:
 ```yaml
 service:
   rateLimit:
-    requests: 60      # Conservative limits for production
+    requests: 300     # Conservative limits for production
     window: "1m"
-    authRequests: 10  # Stricter auth limits
+    authRequests: 20  # Stricter auth limits
     authWindow: "1h"
 ```
 

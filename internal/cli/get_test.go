@@ -35,7 +35,7 @@ func (f *fakeHTTPClient) Do(_ *http.Request) (*http.Response, error) {
 
 // newTestClient wires the fake client into a ClientWithResponses instance and
 // returns both so the caller can assert on the number of calls.
-func newTestClient(t *testing.T, responses []*http.Response) (*apiclient.ClientWithResponses, *fakeHTTPClient) {
+func newTestClient(t *testing.T, responses ...*http.Response) (*apiclient.ClientWithResponses, *fakeHTTPClient) {
 	t.Helper()
 
 	fake := &fakeHTTPClient{responses: responses}
@@ -165,7 +165,7 @@ func TestHandleListBatching(t *testing.T) {
 				responses = append(responses, makeDeviceListPage(t, numItems, continueToken, remaining))
 			}
 
-			clientWithResponses, fakeClient := newTestClient(t, responses)
+			clientWithResponses, fakeClient := newTestClient(t, responses...)
 
 			opts := DefaultGetOptions()
 			opts.Output = testCase.output
@@ -190,7 +190,7 @@ func TestParseAndValidateKindNameFromArgs(t *testing.T) {
 	tests := []struct {
 		name          string
 		args          []string
-		expectedKind  string
+		expectedKind  ResourceKind
 		expectedNames []string
 		expectError   bool
 		errorContains string
@@ -460,6 +460,15 @@ func TestGetOptionsValidation(t *testing.T) {
 			errorContains: "'--rendered' can only be used when getting a single device",
 		},
 
+		// Last seen validation tests
+		{
+			name:          "last_seen_with_multiple_devices",
+			args:          []string{"device", "test1", "test2"},
+			options:       &GetOptions{LastSeen: true},
+			expectError:   true,
+			errorContains: "'--last-seen' can only be used when getting a single device",
+		},
+
 		// Single resource restriction tests
 		{
 			name:          "get_individual_event",
@@ -501,6 +510,9 @@ func TestGetOptionsValidation(t *testing.T) {
 				}
 				if tc.options.Rendered {
 					opts.Rendered = tc.options.Rendered
+				}
+				if tc.options.LastSeen {
+					opts.LastSeen = tc.options.LastSeen
 				}
 			}
 

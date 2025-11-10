@@ -125,6 +125,9 @@ func (e *EnrollmentRequest) HasSameSpecAs(otherResource any) bool {
 	if other == nil {
 		return false
 	}
+	if e.Spec == nil && other.Spec == nil {
+		return true
+	}
 	if (e.Spec == nil && other.Spec != nil) || (e.Spec != nil && other.Spec == nil) {
 		return false
 	}

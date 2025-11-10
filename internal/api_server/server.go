@@ -129,7 +129,7 @@ func oapiMultiErrorHandler(errs openapi3.MultiError) (int, error) {
 		}
 	}
 
-	if allMatchFormat && longestPathErrorIndex >= 0 {
+	if allMatchFormat && longestPathError != nil {
 		shortErrorMessages = append(shortErrorMessages[:longestPathErrorIndex], shortErrorMessages[longestPathErrorIndex+1:]...)
 		response := fmt.Errorf("%d API errors found. The most relevant is likely:\n%s\nOther errors found were:\n%s",
 			len(errs),
@@ -184,6 +184,7 @@ func (s *Server) Run(ctx context.Context) error {
 	router.Use(
 		middleware.RequestSize(int64(s.cfg.Service.HttpMaxRequestSize)),
 		fcmiddleware.RequestSizeLimiter(s.cfg.Service.HttpMaxUrlLength, s.cfg.Service.HttpMaxNumHeaders),
+		fcmiddleware.SecurityHeaders,
 		fcmiddleware.RequestID,
 		fcmiddleware.AddEventMetadataToCtx,
 		fcmiddleware.AddOrgIDToCtx(
@@ -204,10 +205,10 @@ func (s *Server) Run(ctx context.Context) error {
 		// to avoid issues with websocket connections
 		r.Use(oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts))
 		r.Use(authMiddewares...)
-		// Add general rate limiting (only if configured)
-		if s.cfg.Service.RateLimit != nil {
+		// Add general rate limiting (only if configured and enabled)
+		if s.cfg.Service.RateLimit != nil && s.cfg.Service.RateLimit.Enabled {
 			trustedProxies := s.cfg.Service.RateLimit.TrustedProxies
-			requests := 60        // Default requests limit
+			requests := 300       // Default requests limit
 			window := time.Minute // Default window
 			if s.cfg.Service.RateLimit.Requests > 0 {
 				requests = s.cfg.Service.RateLimit.Requests
@@ -248,10 +249,10 @@ func (s *Server) Run(ctx context.Context) error {
 		r.Use(oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts))
 		r.Use(authMiddewares...)
 
-		// Add auth-specific rate limiting (only if configured)
-		if s.cfg.Service.RateLimit != nil {
+		// Add auth-specific rate limiting (only if configured and enabled)
+		if s.cfg.Service.RateLimit != nil && s.cfg.Service.RateLimit.Enabled {
 			trustedProxies := s.cfg.Service.RateLimit.TrustedProxies
-			authRequests := 10      // Default auth requests limit
+			authRequests := 20      // Default auth requests limit
 			authWindow := time.Hour // Default auth window
 			if s.cfg.Service.RateLimit.AuthRequests > 0 {
 				authRequests = s.cfg.Service.RateLimit.AuthRequests
@@ -283,10 +284,10 @@ func (s *Server) Run(ctx context.Context) error {
 	router.Group(func(r chi.Router) {
 		r.Use(fcmiddleware.CreateRouteExistsMiddleware(r))
 		r.Use(authMiddewares...)
-		// Add websocket rate limiting (only if configured)
-		if s.cfg.Service.RateLimit != nil {
+		// Add websocket rate limiting (only if configured and enabled)
+		if s.cfg.Service.RateLimit != nil && s.cfg.Service.RateLimit.Enabled {
 			trustedProxies := s.cfg.Service.RateLimit.TrustedProxies
-			requests := 60        // Default requests limit
+			requests := 300       // Default requests limit
 			window := time.Minute // Default window
 			if s.cfg.Service.RateLimit.Requests > 0 {
 				requests = s.cfg.Service.RateLimit.Requests
