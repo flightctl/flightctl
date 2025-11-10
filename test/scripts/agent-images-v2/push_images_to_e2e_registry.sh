@@ -4,69 +4,87 @@ set -euo pipefail
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 
 # Source functions to get registry address
+# expects a function registry_address that prints host:port
+# shellcheck source=/dev/null
 source "${SCRIPT_DIR}/../functions"
-REGISTRY_ADDRESS=$(registry_address)
+REGISTRY_ADDRESS="$(registry_address)"
 
-echo "E2E registry address: ${REGISTRY_ADDRESS}"
+TLS_VERIFY="${TLS_VERIFY:-false}"   # set to true if your host trusts the registry cert
+echo "E2E registry address: ${REGISTRY_ADDRESS} (tls-verify=${TLS_VERIFY})"
 
-# Function to push images with simplified tags
+# Tag+push helper. Uses --all when src is a manifest list.
+push_one() {
+  local src_ref="$1" dst_ref="$2"
+  echo "Tagging:  ${src_ref} -> ${dst_ref}"
+  podman tag "${src_ref}" "${dst_ref}"
+
+  # If src_ref is a manifest list, push with --all, otherwise normal push
+  if podman manifest inspect "${src_ref}" >/dev/null 2>&1; then
+    echo "Pushing (manifest list): ${dst_ref}"
+    podman push --all --tls-verify="${TLS_VERIFY}" "${dst_ref}"
+  else
+    echo "Pushing: ${dst_ref}"
+    podman push --tls-verify="${TLS_VERIFY}" "${dst_ref}"
+  fi
+}
+
+# Push images that match a repo regex, retagging to target_repo with two tags:
+#   <variant> and <variant>-<tag>  where source tag is "<variant>-<tag>"
 push_images() {
-    local image_pattern="$1"
-    local target_repo="$2"
+  local image_regex="$1"      # grep -E against "REPOSITORY:TAG"
+  local target_repo="$2"      # path on the local registry, e.g. "flightctl/flightctl-device"
 
-    echo "Processing images matching: ${image_pattern}"
+  echo "Processing images matching: ${image_regex}"
+  mapfile -t images < <(podman images --format "{{.Repository}}:{{.Tag}}" | grep -E "${image_regex}" || true)
 
-    # Find matching images
-    mapfile -t images < <(podman images --format "{{.Repository}}:{{.Tag}}" | grep -E "${image_pattern}" || true)
+  if [[ ${#images[@]} -eq 0 ]]; then
+    echo "No images found for pattern: ${image_regex}"
+    return 0
+  fi
 
-    if [ ${#images[@]} -eq 0 ]; then
-        echo "No images found matching pattern: ${image_pattern}"
-        return 0
+  for src in "${images[@]}"; do
+    # Split out tag
+    tag="${src##*:}"
+    # Expect tags like "<variant>-vX.Y.Z..." -> capture variant and the rest starting with v
+    if [[ "$tag" =~ ^([^:]+)-(v[0-9]+\.[0-9]+\.[0-9].*)$ ]]; then
+      variant="${BASH_REMATCH[1]}"
+      tag_suffix="${BASH_REMATCH[2]}"
+    else
+      echo "Skipping unexpected tag format: ${src}"
+      continue
     fi
 
-    for image in "${images[@]}"; do
-        # Extract variant from tag (e.g., v2, v3, v8, base)
-        if [[ "$image" =~ .*:(.*)-v[0-9]+\.[0-9]+\.[0-9]+-.*$ ]]; then
-            variant="${BASH_REMATCH[1]}"
-        else
-            echo "Skipping image with unexpected format: $image"
-            continue
-        fi
+    dst_base="${REGISTRY_ADDRESS}/${target_repo}:${variant}"
+    dst_with_tag="${REGISTRY_ADDRESS}/${target_repo}:${variant}-${tag_suffix}"
 
-        # Create e2e registry tag
-        e2e_image="${REGISTRY_ADDRESS}/${target_repo}:${variant}"
+    push_one "${src}" "${dst_base}"
+    push_one "${src}" "${dst_with_tag}"
+  done
 
-        echo "Tagging: ${image} → ${e2e_image}"
-        podman tag "${image}" "${e2e_image}"
-
-        echo "Pushing: ${e2e_image}"
-        podman push "${e2e_image}" --tls-verify=false
-    done
+  # Verify via registry API
+  echo "Listing tags for ${target_repo}:"
+  curl -fsSk "https://${REGISTRY_ADDRESS}/v2/${target_repo}/tags/list" \
+    || curl -fsS "http://${REGISTRY_ADDRESS}/v2/${target_repo}/tags/list" \
+    || echo "Failed to query tags for ${target_repo}"
+  echo
 }
 
 echo "=========================================="
 echo "Pushing Agent Images to E2E Registry"
 echo "=========================================="
-
-# Push flightctl-device images (agent images)
-push_images "quay\.io/flightctl/flightctl-device:.*-v[0-9]+\.[0-9]+\.[0-9]+-.*" "flightctl-device"
+# Examples of source refs:
+# quay.io/flightctl/flightctl-device:base-v1.2.3-abc
+# quay.io/flightctl/flightctl-device:v1-v1.2.3-abc
+push_images "^quay\.io/flightctl/flightctl-device:base-v[0-9]+\.[0-9]+\.[0-9].*" "flightctl/flightctl-device"
+push_images "^quay\.io/flightctl/flightctl-device:base-v[0-9]+\.[0-9]+\.[0-9].*" "flightctl-device"
+push_images "^quay\.io/flightctl/flightctl-device:.*-v[0-9]+\.[0-9]+\.[0-9].*" "flightctl/flightctl-device"
+push_images "^quay\.io/flightctl/flightctl-device:.*-v[0-9]+\.[0-9]+\.[0-9].*" "flightctl-device"
 
 echo "=========================================="
 echo "Pushing Sleep App Images to E2E Registry"
 echo "=========================================="
+# Example:
+# quay.io/flightctl/sleep-app:base-v1.2.3-abc  or v1-v1.2.3-abc
+push_images "^quay\.io/flightctl/sleep-app:.*-v[0-9]+\.[0-9]+\.[0-9].*" "sleep-app"
 
-# Push sleep-app images
-push_images "quay\.io/flightctl/sleep-app:.*-v[0-9]+\.[0-9]+\.[0-9]+-.*" "sleep-app"
-
-echo "=========================================="
-echo "Verifying Images in E2E Registry"
-echo "=========================================="
-
-# Verify images are in registry
-echo "Agent images in registry:"
-curl -k "https://${REGISTRY_ADDRESS}/v2/flightctl-device/tags/list" 2>/dev/null || curl "http://${REGISTRY_ADDRESS}/v2/flightctl-device/tags/list" 2>/dev/null || echo "Failed to query agent images"
-
-echo -e "\nSleep app images in registry:"
-curl -k "https://${REGISTRY_ADDRESS}/v2/sleep-app/tags/list" 2>/dev/null || curl "http://${REGISTRY_ADDRESS}/v2/sleep-app/tags/list" 2>/dev/null || echo "Failed to query sleep app images"
-
-echo -e "\n✅ All images pushed to E2E registry successfully!"
+echo "✅ Done"
