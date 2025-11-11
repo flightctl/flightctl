@@ -111,6 +111,35 @@ func (s *AuthorizationCodeStore) CleanupExpiredCodes() {
 	})
 }
 
+// isLoopbackRedirectURI checks if a redirect URI is a loopback address (localhost or 127.0.0.1)
+// Per RFC 8252 Section 7.3, loopback redirects are allowed for native applications (CLI)
+// Examples: http://127.0.0.1:12345/callback, http://localhost:8080/callback, http://[::1]:9090/callback
+func isLoopbackRedirectURI(redirectURI string) bool {
+	parsed, err := url.Parse(redirectURI)
+	if err != nil {
+		return false
+	}
+
+	// Only allow http scheme for loopback (https not required for localhost per RFC 8252)
+	if parsed.Scheme != "http" {
+		return false
+	}
+
+	hostname := parsed.Hostname()
+	// Check for IPv4 loopback (127.0.0.0/8)
+	if hostname == "localhost" || hostname == "127.0.0.1" || strings.HasPrefix(hostname, "127.") {
+		return true
+	}
+
+	// Check for IPv6 loopback (::1)
+	// Note: parsed.Hostname() strips brackets, so we only check for "::1" without brackets
+	if hostname == "::1" {
+		return true
+	}
+
+	return false
+}
+
 // generateSessionID generates a cryptographically secure session ID
 // Used for tracking authenticated browser sessions (stored in cookies)
 func generateSessionID() (string, error) {
@@ -268,13 +297,13 @@ func (s *PAMOIDCProvider) handleAuthorizationCodeGrant(ctx context.Context, req 
 		return &pamapi.TokenResponse{Error: lo.ToPtr(ErrorInvalidRequest)}, nil
 	}
 
-	// Validate client ID
-	if req.ClientId == nil || *req.ClientId == "" {
+	// Validate client ID (now a required string field, not a pointer)
+	if req.ClientId == "" {
 		s.log.Warnf("handleAuthorizationCodeGrant: missing client ID")
 		return &pamapi.TokenResponse{Error: lo.ToPtr(ErrorInvalidClient)}, nil
 	}
-	if s.config == nil || s.config.ClientID != *req.ClientId {
-		s.log.Warnf("handleAuthorizationCodeGrant: invalid client ID - expected=%s, got=%s", s.config.ClientID, *req.ClientId)
+	if s.config == nil || s.config.ClientID != req.ClientId {
+		s.log.Warnf("handleAuthorizationCodeGrant: invalid client ID - expected=%s, got=%s", s.config.ClientID, req.ClientId)
 		return &pamapi.TokenResponse{Error: lo.ToPtr(ErrorInvalidClient)}, nil
 	}
 
@@ -301,8 +330,8 @@ func (s *PAMOIDCProvider) handleAuthorizationCodeGrant(ctx context.Context, req 
 	}
 
 	// Validate that the client ID matches the stored code
-	if codeData.ClientID != *req.ClientId {
-		s.log.Warnf("handleAuthorizationCodeGrant: invalid client ID - expected=%s, got=%s", codeData.ClientID, *req.ClientId)
+	if codeData.ClientID != req.ClientId {
+		s.log.Warnf("handleAuthorizationCodeGrant: invalid client ID - expected=%s, got=%s", codeData.ClientID, req.ClientId)
 		return &pamapi.TokenResponse{Error: lo.ToPtr(ErrorInvalidGrant)}, nil
 	}
 
@@ -409,11 +438,22 @@ func (s *PAMOIDCProvider) Authorize(ctx context.Context, req *pamapi.AuthAuthori
 	validRedirect := false
 	if s.config != nil {
 		s.log.Debugf("Authorize: checking redirect URI - requested=%s, allowed=%v", req.RedirectUri, s.config.RedirectURIs)
+
+		// Check against configured redirect URIs
 		for _, uri := range s.config.RedirectURIs {
 			if uri == req.RedirectUri {
 				validRedirect = true
 				s.log.Debugf("Authorize: redirect URI validation passed - %s", req.RedirectUri)
 				break
+			}
+		}
+
+		// Per OAuth 2.0 for Native Apps (RFC 8252), allow loopback redirects for public clients (CLI)
+		// This enables CLI authentication with dynamic ports (e.g., http://127.0.0.1:12345/callback)
+		if !validRedirect && s.config.ClientSecret == "" {
+			if isLoopbackRedirectURI(req.RedirectUri) {
+				validRedirect = true
+				s.log.Debugf("Authorize: loopback redirect URI allowed for public client - %s", req.RedirectUri)
 			}
 		}
 	}

@@ -280,6 +280,13 @@ func (o *LoginOptions) ensureClientID() {
 	if provider == nil || provider.Type == nil {
 		return
 	}
+	
+	// For OIDC, use the client ID from the provider config if available
+	if *provider.Type == v1alpha1.AuthProviderInfoTypeOidc && provider.ClientId != nil && *provider.ClientId != "" {
+		o.ClientId = *provider.ClientId
+		return
+	}
+	
 	switch *provider.Type {
 	case v1alpha1.AuthProviderInfoTypeK8s:
 		if o.Username != "" {
@@ -288,7 +295,7 @@ func (o *LoginOptions) ensureClientID() {
 			o.ClientId = "openshift-cli-client"
 		}
 	case v1alpha1.AuthProviderInfoTypeOidc:
-		o.ClientId = "flightctl"
+		o.ClientId = "flightctl-client"
 	}
 }
 
@@ -319,8 +326,12 @@ func (o *LoginOptions) createAuthProvider() error {
 		return fmt.Errorf("no valid authentication provider found")
 	}
 
+	// For OIDC providers, use the issuer URL instead of the authorization endpoint
+	// The issuer URL is used to fetch the OIDC discovery document (.well-known/openid-configuration)
 	authURL := ""
-	if provider.AuthUrl != nil {
+	if *provider.Type == v1alpha1.AuthProviderInfoTypeOidc && provider.Issuer != nil {
+		authURL = *provider.Issuer
+	} else if provider.AuthUrl != nil {
 		authURL = *provider.AuthUrl
 	}
 
@@ -355,8 +366,11 @@ func (o *LoginOptions) setAuthProviderInClientConfig() {
 		return
 	}
 
+	// For OIDC providers, use the issuer URL instead of the authorization endpoint
 	authURL := ""
-	if provider.AuthUrl != nil {
+	if *provider.Type == v1alpha1.AuthProviderInfoTypeOidc && provider.Issuer != nil {
+		authURL = *provider.Issuer
+	} else if provider.AuthUrl != nil {
 		authURL = *provider.AuthUrl
 	}
 

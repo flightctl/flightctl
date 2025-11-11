@@ -143,8 +143,8 @@ type Status struct {
 
 // TokenRequest OAuth2 token request
 type TokenRequest struct {
-	// ClientId OAuth2 client ID.
-	ClientId *string `json:"client_id"`
+	// ClientId OAuth2 client ID (required).
+	ClientId string `json:"client_id"`
 
 	// ClientSecret OAuth2 client secret (optional for public clients).
 	ClientSecret *string `json:"client_secret"`
@@ -160,6 +160,9 @@ type TokenRequest struct {
 
 	// Password Password for password grant (not used in OIDC flows).
 	Password *string `json:"password"`
+
+	// RedirectUri Redirect URI (must match the one used in authorization request).
+	RedirectUri *string `json:"redirect_uri"`
 
 	// RefreshToken Refresh token for refresh_token grant.
 	RefreshToken *string `json:"refresh_token"`
@@ -269,11 +272,13 @@ type AuthLoginParams struct {
 
 // AuthLoginPostFormdataBody defines parameters for AuthLoginPost.
 type AuthLoginPostFormdataBody struct {
-	ClientId    *string `form:"client_id,omitempty" json:"client_id,omitempty"`
-	Password    string  `form:"password" json:"password"`
-	RedirectUri *string `form:"redirect_uri,omitempty" json:"redirect_uri,omitempty"`
-	State       *string `form:"state,omitempty" json:"state,omitempty"`
-	Username    string  `form:"username" json:"username"`
+	ClientId            *string `form:"client_id,omitempty" json:"client_id,omitempty"`
+	CodeChallenge       *string `form:"code_challenge" json:"code_challenge"`
+	CodeChallengeMethod *string `form:"code_challenge_method" json:"code_challenge_method"`
+	Password            string  `form:"password" json:"password"`
+	RedirectUri         *string `form:"redirect_uri,omitempty" json:"redirect_uri,omitempty"`
+	State               *string `form:"state" json:"state"`
+	Username            string  `form:"username" json:"username"`
 }
 
 // AuthLoginPostFormdataRequestBody defines body for AuthLoginPost for application/x-www-form-urlencoded ContentType.

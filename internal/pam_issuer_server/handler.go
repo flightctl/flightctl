@@ -317,7 +317,7 @@ func (h *Handler) AuthToken(w http.ResponseWriter, r *http.Request) {
 			req.Code = &code
 		}
 		if clientID := r.FormValue("client_id"); clientID != "" {
-			req.ClientId = &clientID
+			req.ClientId = clientID
 		}
 		if clientSecret := r.FormValue("client_secret"); clientSecret != "" {
 			req.ClientSecret = &clientSecret

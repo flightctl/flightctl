@@ -46,6 +46,7 @@ type OIDCAuth struct {
 	providerName          string
 	displayName           string
 	oidcAuthority         string
+	externalOidcAuthority string
 	jwksUri               string
 	clientTlsConfig       *tls.Config
 	client                *http.Client
@@ -69,12 +70,18 @@ type OIDCServerResponse struct {
 	JwksUri       string `json:"jwks_uri"`
 }
 
-func NewOIDCAuth(providerName string, displayName string, oidcAuthority string, clientTlsConfig *tls.Config, orgConfig *common.AuthOrganizationsConfig, usernameClaim []string, roleExtractor *RoleExtractor, expectedClientId string, scopes []string) (*OIDCAuth, error) {
+func NewOIDCAuth(providerName string, displayName string, oidcAuthority string, externalOidcAuthority string, clientTlsConfig *tls.Config, orgConfig *common.AuthOrganizationsConfig, usernameClaim []string, roleExtractor *RoleExtractor, expectedClientId string, scopes []string) (*OIDCAuth, error) {
+	// If external authority is not provided, use the internal authority
+	if externalOidcAuthority == "" {
+		externalOidcAuthority = oidcAuthority
+	}
+
 	oidcAuth := &OIDCAuth{
-		providerName:    providerName,
-		displayName:     displayName,
-		oidcAuthority:   oidcAuthority,
-		clientTlsConfig: clientTlsConfig,
+		providerName:          providerName,
+		displayName:           displayName,
+		oidcAuthority:         oidcAuthority,
+		externalOidcAuthority: externalOidcAuthority,
+		clientTlsConfig:       clientTlsConfig,
 		client: &http.Client{
 			Transport: &http.Transport{
 				TLSClientConfig: clientTlsConfig,
@@ -278,11 +285,15 @@ func (o *OIDCAuth) GetAuthConfig() *api.AuthConfig {
 	}
 
 	providerType := api.AuthProviderInfoTypeOidc
+	// Use external authority for client-facing configuration
+	// The external authority is what clients use to connect (may be different from internal)
+	authUrl := o.externalOidcAuthority + "/authorize"
 	provider := api.AuthProviderInfo{
 		Name:          &o.providerName,
 		DisplayName:   &o.displayName,
 		Type:          &providerType,
-		Issuer:        &o.oidcAuthority,
+		Issuer:        &o.externalOidcAuthority,
+		AuthUrl:       &authUrl,
 		ClientId:      &o.expectedClientId,
 		Scopes:        &o.scopes,
 		UsernameClaim: &o.usernameClaim,

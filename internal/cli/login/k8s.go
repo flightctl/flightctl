@@ -31,10 +31,10 @@ func NewK8sOAuth2Config(caFile, clientId, authUrl string, insecure bool) K8sOaut
 	}
 }
 
-func (k K8sOauth) getOAuth2Client(callback string) (*osincli.Client, error) {
+func (k K8sOauth) getOAuth2Client(callback string) (*osincli.Client, string, error) {
 	oauthServerResponse, err := getOAuth2Config(k.ConfigUrl, k.CAFile, k.InsecureSkipVerify)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	redirectUrl := callback
@@ -52,23 +52,23 @@ func (k K8sOauth) getOAuth2Client(callback string) (*osincli.Client, error) {
 
 	client, err := osincli.NewClient(config)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create oauth2 client: %w", err)
+		return nil, "", fmt.Errorf("failed to create oauth2 client: %w", err)
 	}
 
 	tlsConfig, err := getAuthClientTlsConfig(k.CAFile, k.InsecureSkipVerify)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	client.Transport = &http.Transport{
 		TLSClientConfig: tlsConfig,
 	}
 
-	return client, nil
+	return client, k.ClientId, nil
 }
 
 func (k K8sOauth) authHeadless(username, password string) (AuthInfo, error) {
 	ret := AuthInfo{}
-	client, err := k.getOAuth2Client("")
+	client, clientId, err := k.getOAuth2Client("")
 	if err != nil {
 		return ret, err
 	}
@@ -94,7 +94,8 @@ func (k K8sOauth) authHeadless(username, password string) (AuthInfo, error) {
 			return ret, err
 		}
 
-		return getOAuth2AccessToken(client, authorizeRequest, req)
+		// osincli automatically sends redirect_uri from ClientConfig.RedirectUrl
+		return getOAuth2AccessToken(client, clientId, authorizeRequest, req)
 	}
 	return ret, fmt.Errorf("unexpected http code: %v", resp.StatusCode)
 }

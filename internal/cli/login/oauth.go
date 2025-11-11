@@ -14,15 +14,23 @@ import (
 	"github.com/pkg/browser"
 )
 
-type GetClientFunc func(callbackURL string) (*osincli.Client, error)
+type GetClientFunc func(callbackURL string) (*osincli.Client, string, error)
 
-func getOAuth2AccessToken(client *osincli.Client, authorizeRequest *osincli.AuthorizeRequest, r *http.Request) (AuthInfo, error) {
+func getOAuth2AccessToken(client *osincli.Client, clientId string, authorizeRequest *osincli.AuthorizeRequest, r *http.Request) (AuthInfo, error) {
 	areqdata, err := authorizeRequest.HandleRequest(r)
 	if err != nil {
 		return AuthInfo{}, err
 	}
 
 	treq := client.NewAccessRequest(osincli.AUTHORIZATION_CODE, areqdata)
+
+	if clientId != "" {
+		if treq.CustomParameters == nil {
+			treq.CustomParameters = make(map[string]string)
+		}
+		treq.CustomParameters["client_id"] = clientId
+	}
+
 	// exchange the authorize token for the access token
 	ad, err := treq.GetToken()
 
@@ -59,14 +67,14 @@ func oauth2AuthCodeFlow(getClient GetClientFunc) (AuthInfo, error) {
 	defer server.Close()
 	callback := fmt.Sprintf("http://127.0.0.1:%d/callback", port)
 
-	client, err := getClient(callback)
+	client, clientId, err := getClient(callback)
 	if err != nil {
 		return ret, err
 	}
 	authorizeRequest := client.NewAuthorizeRequest(osincli.CODE)
 
 	mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
-		ret, err = getOAuth2AccessToken(client, authorizeRequest, r)
+		ret, err = getOAuth2AccessToken(client, clientId, authorizeRequest, r)
 		if err != nil {
 			_, err = fmt.Fprintf(w, "ERROR: %s\n", err)
 			if err != nil {
@@ -109,13 +117,22 @@ func oauth2RefreshTokenFlow(refreshToken string, getClient GetClientFunc) (AuthI
 
 	// callback url is not used in refresh token flow, but has to be set, otherwise osincli fails
 	// the value should not matter
-	client, err := getClient("http://127.0.0.1")
+	client, clientId, err := getClient("http://127.0.0.1")
 	if err != nil {
 		return ret, err
 	}
 
 	// Create a refresh token request
 	req := client.NewAccessRequest(osincli.REFRESH_TOKEN, &osincli.AuthorizeData{Code: refreshToken})
+
+	// Explicitly add client_id to the refresh token request
+	// This is required per OAuth 2.0 spec even for public clients
+	if clientId != "" {
+		if req.CustomParameters == nil {
+			req.CustomParameters = make(map[string]string)
+		}
+		req.CustomParameters["client_id"] = clientId
+	}
 
 	// Exchange refresh token for a new access token
 	accessData, err := req.GetToken()

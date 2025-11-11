@@ -11,5 +11,6 @@ auth:
     scopes: {{PAM_OIDC_SCOPES}}
     redirectUris: {{PAM_OIDC_REDIRECT_URIS}}
     pamService: {{PAM_OIDC_SERVICE}}
+    allowPublicClientWithoutPKCE: {{PAM_OIDC_ALLOW_PUBLIC_WITHOUT_PKCE}}
 
 

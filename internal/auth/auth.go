@@ -102,7 +102,8 @@ func getOrgConfig(cfg *config.Config) *common.AuthOrganizationsConfig {
 
 func initOIDCAuth(cfg *config.Config, log logrus.FieldLogger) (common.AuthNMiddleware, error) {
 	oidcUrl := strings.TrimSuffix(cfg.Auth.OIDC.Issuer, "/")
-	log.Infof("OIDC auth enabled: %s", oidcUrl)
+	externalOidcUrl := strings.TrimSuffix(cfg.Auth.OIDC.ExternalOIDCAuthority, "/")
+	log.Infof("OIDC auth enabled: %s (external: %s)", oidcUrl, externalOidcUrl)
 	usernameClaim := []string{"preferred_username"}
 	if cfg.Auth.OIDC.UsernameClaim != nil {
 		usernameClaim = *cfg.Auth.OIDC.UsernameClaim
@@ -116,7 +117,7 @@ func initOIDCAuth(cfg *config.Config, log logrus.FieldLogger) (common.AuthNMiddl
 		scopes = cfg.Auth.OIDC.Scopes
 	}
 	clientId := cfg.Auth.OIDC.ClientId
-	authNProvider, err := authn.NewOIDCAuth("oidc", "", oidcUrl, getTlsConfig(cfg), getOrgConfig(cfg), usernameClaim, roleExtractor, clientId, scopes)
+	authNProvider, err := authn.NewOIDCAuth("oidc", "", oidcUrl, externalOidcUrl, getTlsConfig(cfg), getOrgConfig(cfg), usernameClaim, roleExtractor, clientId, scopes)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OIDC AuthN: %w", err)
 	}

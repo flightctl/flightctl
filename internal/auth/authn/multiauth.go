@@ -713,6 +713,7 @@ func createOIDCAuthFromProvider(provider *api.AuthProvider, tlsConfig *tls.Confi
 		lo.FromPtr(provider.Metadata.Name), // Provider name from metadata
 		displayName,                        // Display name from spec or fallback to provider name
 		oidcSpec.Issuer,                    // Issuer for backend operations
+		oidcSpec.Issuer,                    // External issuer (same as internal for dynamic providers)
 		tlsConfig,                          // Use TLS config from MultiAuth
 		orgConfig,                          // Use org config from provider spec
 		usernameClaim,                      // Use username claim from provider spec

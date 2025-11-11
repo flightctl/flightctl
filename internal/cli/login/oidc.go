@@ -35,10 +35,10 @@ func NewOIDCConfig(caFile, clientId, authUrl string, requestOrganizations bool, 
 	}
 }
 
-func (o OIDC) getOIDCClient(callback string) (*osincli.Client, error) {
+func (o OIDC) getOIDCClient(callback string) (*osincli.Client, string, error) {
 	oauthServerResponse, err := getOAuth2Config(o.ConfigUrl, o.CAFile, o.InsecureSkipVerify)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	config := &osincli.ClientConfig{
@@ -52,16 +52,16 @@ func (o OIDC) getOIDCClient(callback string) (*osincli.Client, error) {
 
 	client, err := osincli.NewClient(config)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create oidc client: %w", err)
+		return nil, "", fmt.Errorf("failed to create oidc client: %w", err)
 	}
 
 	tlsConfig, err := getAuthClientTlsConfig(o.CAFile, o.InsecureSkipVerify)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	client.Transport = &http.Transport{TLSClientConfig: tlsConfig}
 
-	return client, nil
+	return client, o.ClientId, nil
 }
 
 func (o OIDC) authHeadless(username, password string) (AuthInfo, error) {

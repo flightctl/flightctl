@@ -47,7 +47,7 @@ func (o AAPOAuth) getOAuth2Config() OauthServerResponse {
 	}
 }
 
-func (o AAPOAuth) getOAuth2Client(callback string) (*osincli.Client, error) {
+func (o AAPOAuth) getOAuth2Client(callback string) (*osincli.Client, string, error) {
 	oauthServerResponse := o.getOAuth2Config()
 
 	config := &osincli.ClientConfig{
@@ -62,12 +62,12 @@ func (o AAPOAuth) getOAuth2Client(callback string) (*osincli.Client, error) {
 
 	client, err := osincli.NewClient(config)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create oauth2 client: %w", err)
+		return nil, "", fmt.Errorf("failed to create oauth2 client: %w", err)
 	}
 
 	tlsConfig, err := getAuthClientTlsConfig(o.CAFile, o.InsecureSkipVerify)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	client.Transport = &AAPRoundTripper{
@@ -76,7 +76,7 @@ func (o AAPOAuth) getOAuth2Client(callback string) (*osincli.Client, error) {
 		},
 	}
 
-	return client, nil
+	return client, o.ClientId, nil
 }
 
 func (o AAPOAuth) Auth(web bool, username, password string) (AuthInfo, error) {

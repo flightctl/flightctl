@@ -30,9 +30,10 @@ global:
       scopes: openid,profile,email,roles
       redirectUris:
       pamService: flightctl
+      allowPublicClientWithoutPKCE: true # Required for CLI web login without PKCE
   organizations:
     # Enable IdP-provided organizations support
-    enabled: false
+    enabled: true
 
 db:
   # external: Set to "enabled" to use external PostgreSQL database

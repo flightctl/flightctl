@@ -162,6 +162,13 @@ paths:
                   type: string
                 state:
                   type: string
+                  nullable: true
+                code_challenge:
+                  type: string
+                  nullable: true
+                code_challenge_method:
+                  type: string
+                  nullable: true
                 username:
                   type: string
                 password:
@@ -305,6 +312,7 @@ components:
       type: object
       required:
         - grant_type
+        - client_id
       properties:
         grant_type:
           type: string
@@ -329,13 +337,16 @@ components:
           description: Authorization code for authorization_code grant.
         client_id:
           type: string
-          nullable: true
-          description: OAuth2 client ID.
+          description: OAuth2 client ID (required).
         client_secret:
           type: string
           nullable: true
           description: OAuth2 client secret (optional for public clients).
           writeOnly: true
+        redirect_uri:
+          type: string
+          nullable: true
+          description: Redirect URI (must match the one used in authorization request).
         scope:
           type: string
           nullable: true

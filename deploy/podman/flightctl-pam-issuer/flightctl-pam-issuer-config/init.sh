@@ -37,10 +37,12 @@ PAM_OIDC_CLIENT_SECRET=$(grep -A 20 "pamOidcIssuer:" "$SERVICE_CONFIG_FILE" | gr
 PAM_OIDC_SCOPES=$(grep -A 20 "pamOidcIssuer:" "$SERVICE_CONFIG_FILE" | grep "scopes:" | head -1 | sed 's/.*scopes:[[:space:]]*\(.*\)/\1/' | sed 's/[[:space:]]*$//')
 PAM_OIDC_REDIRECT_URIS=$(grep -A 20 "pamOidcIssuer:" "$SERVICE_CONFIG_FILE" | grep "redirectUris:" | head -1 | sed 's/.*redirectUris:[[:space:]]*\(.*\)/\1/' | sed 's/[[:space:]]*$//')
 PAM_OIDC_SERVICE=$(grep -A 20 "pamOidcIssuer:" "$SERVICE_CONFIG_FILE" | grep "pamService:" | head -1 | sed 's/.*pamService:[[:space:]]*\(.*\)/\1/' | sed 's/[[:space:]]*$//')
+PAM_OIDC_ALLOW_PUBLIC_WITHOUT_PKCE=$(grep -A 20 "pamOidcIssuer:" "$SERVICE_CONFIG_FILE" | grep "allowPublicClientWithoutPKCE:" | head -1 | sed 's/.*allowPublicClientWithoutPKCE:[[:space:]]*\(.*\)/\1/' | sed 's/[[:space:]]*$//')
 
 # Set defaults
 PAM_OIDC_CLIENT_ID=${PAM_OIDC_CLIENT_ID:-flightctl-client}
 PAM_OIDC_SERVICE=${PAM_OIDC_SERVICE:-flightctl}
+PAM_OIDC_ALLOW_PUBLIC_WITHOUT_PKCE=${PAM_OIDC_ALLOW_PUBLIC_WITHOUT_PKCE:-true}
 
 # Set issuer URL - if not specified in config, use BASE_DOMAIN:8444/api/v1/auth
 if [ -z "$PAM_OIDC_ISSUER" ]; then
@@ -73,6 +75,7 @@ sed -e "s|{{BASE_DOMAIN}}|$BASE_DOMAIN|g" \
     -e "s|{{PAM_OIDC_SCOPES}}|$PAM_OIDC_SCOPES_YAML|g" \
     -e "s|{{PAM_OIDC_REDIRECT_URIS}}|$PAM_OIDC_REDIRECT_URIS_YAML|g" \
     -e "s|{{PAM_OIDC_SERVICE}}|$PAM_OIDC_SERVICE|g" \
+    -e "s|{{PAM_OIDC_ALLOW_PUBLIC_WITHOUT_PKCE}}|$PAM_OIDC_ALLOW_PUBLIC_WITHOUT_PKCE|g" \
     "$CONFIG_TEMPLATE" > "$CONFIG_OUTPUT"
 
 echo "PAM issuer initialization complete"
