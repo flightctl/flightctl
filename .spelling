@@ -228,7 +228,12 @@ orgs
 LDAP
 SSO
 backend
+ORAS
+kibibytes
+mebibytes
+gibibytes
  - docs/user/references/api-resources.md
+namespacing
 approvedBy
 creationTimestamp
 deletionTimestamp
