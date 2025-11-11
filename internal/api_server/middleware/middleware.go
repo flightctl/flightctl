@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/auth"
@@ -143,11 +144,31 @@ func extractOrgIDFromRequestCert(r *http.Request) (uuid.UUID, error) {
 // all responses include these headers.
 func SecurityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Strict-Transport-Security: Enforce HTTPS for 1 year including subdomains
-		w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
-		// X-Content-Type-Options: Prevent MIME type sniffing
 		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("X-XSS-Protection", "1; mode=block")
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+// UserAgentLogger logs the User-Agent header from incoming requests
+func UserAgentLogger(log interface {
+	Infof(format string, args ...interface{})
+}) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			userAgent := r.Header.Get("User-Agent")
+
+			// Skip logging for health check endpoints and kube-probe to reduce noise
+			isHealthCheck := r.URL.Path == "/healthz" || r.URL.Path == "/readyz"
+			isKubeProbe := strings.HasPrefix(userAgent, "kube-probe")
+
+			if userAgent != "" && !isHealthCheck && !isKubeProbe {
+				log.Infof("User-Agent: %s [%s %s]", userAgent, r.Method, r.URL.Path)
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
 }

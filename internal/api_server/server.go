@@ -191,6 +191,7 @@ func (s *Server) Run(ctx context.Context) error {
 			s.orgResolver,
 			fcmiddleware.QueryOrgIDExtractor,
 		),
+		fcmiddleware.UserAgentLogger(s.log),
 		middleware.Logger,
 		middleware.Recoverer,
 	)
