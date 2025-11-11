@@ -17,6 +17,7 @@ import (
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/poll"
 	"github.com/flightctl/flightctl/pkg/reqid"
+	"github.com/flightctl/flightctl/pkg/version"
 	"github.com/go-chi/chi/v5/middleware"
 )
 
@@ -42,6 +43,9 @@ func NewFromConfig(config *baseclient.Config, log *log.PrefixLogger, opts ...HTT
 
 	ref := client.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
 		req.Header.Set(middleware.RequestIDHeader, reqid.NextRequestID())
+		userAgent := version.NewUserAgent("flightctl-agent").String()
+		req.Header.Set("User-Agent", userAgent)
+
 		return nil
 	})
 	return client.NewClientWithResponses(config.Service.Server, client.WithHTTPClient(httpClient), ref)

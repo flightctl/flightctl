@@ -23,6 +23,7 @@ import (
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/pkg/reqid"
+	"github.com/flightctl/flightctl/pkg/version"
 	"github.com/go-chi/chi/v5/middleware"
 	"golang.org/x/net/http2"
 	"google.golang.org/grpc"
@@ -252,6 +253,8 @@ func NewFromConfig(config *Config, configFilePath string, opts ...client.ClientO
 	}
 	ref := client.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
 		req.Header.Set(middleware.RequestIDHeader, reqid.NextRequestID())
+		userAgent := version.NewUserAgent("flightctl-cli").String()
+		req.Header.Set("User-Agent", userAgent)
 		accessToken := GetAccessToken(config, configFilePath)
 		if accessToken != "" {
 			req.Header.Set(common.AuthHeader, fmt.Sprintf("Bearer %s", accessToken))
