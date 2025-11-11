@@ -1,8 +1,6 @@
 package audit
 
 import (
-	"errors"
-	"path/filepath"
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -77,44 +75,14 @@ func TestAuditConfig_Validate(t *testing.T) {
 			},
 		},
 		{
-			name: "valid config with existing directory",
+			name: "audit enabled - pure validation with no side effects",
 			config: &AuditConfig{
 				Enabled: &enabled,
 			},
 			setupMocks: func(mockRW *fileio.MockReadWriter) {
-				mockRW.EXPECT().PathExists(filepath.Dir(DefaultLogPath)).Return(true, nil)
+				// No expectations - validation is pure with no directory creation
+				// Directory will be created lazily on first write
 			},
-		},
-		{
-			name: "valid config with non-existing directory - creates it",
-			config: &AuditConfig{
-				Enabled: &enabled,
-			},
-			setupMocks: func(mockRW *fileio.MockReadWriter) {
-				mockRW.EXPECT().PathExists(filepath.Dir(DefaultLogPath)).Return(false, nil)
-				mockRW.EXPECT().MkdirAll(filepath.Dir(DefaultLogPath), fileio.DefaultDirectoryPermissions).Return(nil)
-			},
-		},
-		{
-			name: "error checking directory existence",
-			config: &AuditConfig{
-				Enabled: &enabled,
-			},
-			setupMocks: func(mockRW *fileio.MockReadWriter) {
-				mockRW.EXPECT().PathExists(filepath.Dir(DefaultLogPath)).Return(false, errors.New("path check failed"))
-			},
-			expectedError: "checking audit log directory",
-		},
-		{
-			name: "error creating directory",
-			config: &AuditConfig{
-				Enabled: &enabled,
-			},
-			setupMocks: func(mockRW *fileio.MockReadWriter) {
-				mockRW.EXPECT().PathExists(filepath.Dir(DefaultLogPath)).Return(false, nil)
-				mockRW.EXPECT().MkdirAll(filepath.Dir(DefaultLogPath), fileio.DefaultDirectoryPermissions).Return(errors.New("mkdir failed"))
-			},
-			expectedError: "creating audit log directory",
 		},
 	}
 

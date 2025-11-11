@@ -66,8 +66,7 @@ func TestNewFileLogger(t *testing.T) {
 			deviceID:   "test-device",
 			log:        log.NewPrefixLogger("test"),
 			setupMocks: func(mockRW *fileio.MockReadWriter) {
-				// Mock the validation calls
-				mockRW.EXPECT().PathExists("/var/log/flightctl").Return(true, nil)
+				// No mocks needed - validation is pure with no side effects
 			},
 		},
 	}
@@ -104,9 +103,6 @@ func TestFileLogger_LogEventApply(t *testing.T) {
 	config := NewDefaultAuditConfig()
 	mockRW := fileio.NewMockReadWriter(ctrl)
 	logger := log.NewPrefixLogger("test")
-
-	// Setup validation mocks
-	mockRW.EXPECT().PathExists("/var/log/flightctl").Return(true, nil)
 
 	auditLogger, err := NewFileLogger(config, mockRW, "test-device", "test-agent-version", logger)
 	require.NoError(err)
@@ -159,9 +155,6 @@ func TestFileLogger_LogEventFailure(t *testing.T) {
 	mockRW := fileio.NewMockReadWriter(ctrl)
 	logger := log.NewPrefixLogger("test")
 
-	// Setup validation mocks
-	mockRW.EXPECT().PathExists("/var/log/flightctl").Return(true, nil)
-
 	auditLogger, err := NewFileLogger(config, mockRW, "test-device", "test-agent-version", logger)
 	require.NoError(err)
 
@@ -211,9 +204,6 @@ func TestFileLogger_LogEventRollback(t *testing.T) {
 	config := NewDefaultAuditConfig()
 	mockRW := fileio.NewMockReadWriter(ctrl)
 	logger := log.NewPrefixLogger("test")
-
-	// Setup validation mocks
-	mockRW.EXPECT().PathExists("/var/log/flightctl").Return(true, nil)
 
 	auditLogger, err := NewFileLogger(config, mockRW, "test-device", "test-agent-version", logger)
 	require.NoError(err)
@@ -266,9 +256,6 @@ func TestFileLogger_LogEventBootstrap(t *testing.T) {
 	mockRW := fileio.NewMockReadWriter(ctrl)
 	logger := log.NewPrefixLogger("test")
 
-	// Setup validation mocks
-	mockRW.EXPECT().PathExists("/var/log/flightctl").Return(true, nil)
-
 	auditLogger, err := NewFileLogger(config, mockRW, "test-device", "test-agent-version", logger)
 	require.NoError(err)
 
@@ -319,9 +306,6 @@ func TestFileLogger_LogEventSync(t *testing.T) {
 	config := NewDefaultAuditConfig()
 	mockRW := fileio.NewMockReadWriter(ctrl)
 	logger := log.NewPrefixLogger("test")
-
-	// Setup validation mocks
-	mockRW.EXPECT().PathExists("/var/log/flightctl").Return(true, nil)
 
 	auditLogger, err := NewFileLogger(config, mockRW, "test-device", "test-agent-version", logger)
 	require.NoError(err)
@@ -402,9 +386,6 @@ func TestFileLogger_RotationConfiguration(t *testing.T) {
 	mockRW := fileio.NewMockReadWriter(ctrl)
 	logger := log.NewPrefixLogger("test")
 
-	// Setup validation mocks
-	mockRW.EXPECT().PathExists("/var/log/flightctl").Return(true, nil)
-
 	auditLogger, err := NewFileLogger(config, mockRW, "test-device", "test-agent-version", logger)
 	require.NoError(err)
 	require.NotNil(auditLogger.rotatingLog)
@@ -434,9 +415,6 @@ func TestFileLogger_RotationBehavior(t *testing.T) {
 	config := NewDefaultAuditConfig()
 	mockRW := fileio.NewMockReadWriter(ctrl)
 	logger := log.NewPrefixLogger("test")
-
-	// Mock validation calls
-	mockRW.EXPECT().PathExists("/var/log/flightctl").Return(true, nil)
 
 	auditLogger, err := NewFileLogger(config, mockRW, "test-device", "v1.0.0", logger)
 	require.NoError(err)
@@ -540,9 +518,6 @@ func TestFileLogger_Close(t *testing.T) {
 	config := NewDefaultAuditConfig()
 	mockRW := fileio.NewMockReadWriter(ctrl)
 	logger := log.NewPrefixLogger("test")
-
-	// Setup validation mocks
-	mockRW.EXPECT().PathExists("/var/log/flightctl").Return(true, nil)
 
 	auditLogger, err := NewFileLogger(config, mockRW, "test-device", "test-agent-version", logger)
 	require.NoError(err)
