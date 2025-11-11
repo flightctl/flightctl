@@ -16,13 +16,16 @@ func TestNewDefaultAuditConfig(t *testing.T) {
 	config := NewDefaultAuditConfig()
 
 	require.NotNil(config)
-	require.Equal(DefaultEnabled, config.Enabled)
+	require.NotNil(config.Enabled)
+	require.Equal(DefaultEnabled, *config.Enabled)
 }
 
 func TestAuditConfig_Complete(t *testing.T) {
 	require := require.New(t)
 
 	// Test that Complete() doesn't modify the config since rotation settings are hardcoded
+	enabled := true
+	disabled := false
 	testCases := []struct {
 		name   string
 		config *AuditConfig
@@ -30,13 +33,13 @@ func TestAuditConfig_Complete(t *testing.T) {
 		{
 			name: "enabled config unchanged",
 			config: &AuditConfig{
-				Enabled: true,
+				Enabled: &enabled,
 			},
 		},
 		{
 			name: "disabled config unchanged",
 			config: &AuditConfig{
-				Enabled: false,
+				Enabled: &disabled,
 			},
 		},
 	}
@@ -56,6 +59,8 @@ func TestAuditConfig_Validate(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
+	disabled := false
+	enabled := true
 	testCases := []struct {
 		name          string
 		config        *AuditConfig
@@ -65,7 +70,7 @@ func TestAuditConfig_Validate(t *testing.T) {
 		{
 			name: "audit disabled - validation skipped",
 			config: &AuditConfig{
-				Enabled: false,
+				Enabled: &disabled,
 			},
 			setupMocks: func(mockRW *fileio.MockReadWriter) {
 				// No expectations - validation should be skipped
@@ -74,7 +79,7 @@ func TestAuditConfig_Validate(t *testing.T) {
 		{
 			name: "valid config with existing directory",
 			config: &AuditConfig{
-				Enabled: true,
+				Enabled: &enabled,
 			},
 			setupMocks: func(mockRW *fileio.MockReadWriter) {
 				mockRW.EXPECT().PathExists(filepath.Dir(DefaultLogPath)).Return(true, nil)
@@ -83,7 +88,7 @@ func TestAuditConfig_Validate(t *testing.T) {
 		{
 			name: "valid config with non-existing directory - creates it",
 			config: &AuditConfig{
-				Enabled: true,
+				Enabled: &enabled,
 			},
 			setupMocks: func(mockRW *fileio.MockReadWriter) {
 				mockRW.EXPECT().PathExists(filepath.Dir(DefaultLogPath)).Return(false, nil)
@@ -93,7 +98,7 @@ func TestAuditConfig_Validate(t *testing.T) {
 		{
 			name: "error checking directory existence",
 			config: &AuditConfig{
-				Enabled: true,
+				Enabled: &enabled,
 			},
 			setupMocks: func(mockRW *fileio.MockReadWriter) {
 				mockRW.EXPECT().PathExists(filepath.Dir(DefaultLogPath)).Return(false, errors.New("path check failed"))
@@ -103,7 +108,7 @@ func TestAuditConfig_Validate(t *testing.T) {
 		{
 			name: "error creating directory",
 			config: &AuditConfig{
-				Enabled: true,
+				Enabled: &enabled,
 			},
 			setupMocks: func(mockRW *fileio.MockReadWriter) {
 				mockRW.EXPECT().PathExists(filepath.Dir(DefaultLogPath)).Return(false, nil)
