@@ -67,10 +67,6 @@ func NewDeviceCollector(ctx context.Context, store store.Store, log logrus.Field
 	return collector
 }
 
-func (c *DeviceCollector) MetricsName() string {
-	return "device"
-}
-
 func (c *DeviceCollector) Describe(ch chan<- *prometheus.Desc) {
 	c.devicesSummaryGauge.Describe(ch)
 	c.devicesApplicationGauge.Describe(ch)

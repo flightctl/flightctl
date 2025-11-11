@@ -31,16 +31,22 @@ func TestComputeWriteTimeout(t *testing.T) {
 	logger.SetOutput(io.Discard)
 
 	// case 1: cpuCap > traceCap
-	s := NewPprofServer(logger, WithCPUCap(3*time.Second), WithTraceCap(1*time.Second))
-	got := s.computeWriteTimeout()
+	opts := defaultPprofOptions()
+	WithCPUCap(3 * time.Second)(&opts)
+	WithTraceCap(1 * time.Second)(&opts)
+
+	got := computeWriteTimeout(opts)
 	want := 3*time.Second + 5*time.Second
 	if got != want {
 		t.Fatalf("computeWriteTimeout (cpu larger) = %v, want %v", got, want)
 	}
 
 	// case 2: traceCap > cpuCap
-	s = NewPprofServer(logger, WithCPUCap(1*time.Second), WithTraceCap(4*time.Second))
-	got = s.computeWriteTimeout()
+	opts = defaultPprofOptions()
+	WithCPUCap(1 * time.Second)(&opts)
+	WithTraceCap(4 * time.Second)(&opts)
+
+	got = computeWriteTimeout(opts)
 	want = 4*time.Second + 5*time.Second
 	if got != want {
 		t.Fatalf("computeWriteTimeout (trace larger) = %v, want %v", got, want)
@@ -99,18 +105,18 @@ func TestRun_StartsServesAndShutsDown(t *testing.T) {
 	cpuCap := 1 * time.Second
 	traceCap := 1 * time.Second
 
-	s := NewPprofServer(
-		logger,
-		WithPort(port),
-		WithCPUCap(cpuCap),
-		WithTraceCap(traceCap),
-	)
+	s := NewPprofServer(logger)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	errCh := make(chan error, 1)
-	go func() { errCh <- s.Run(ctx) }()
+	go func() {
+		errCh <- s.Run(ctx,
+			WithPort(port),
+			WithCPUCap(cpuCap),
+			WithTraceCap(traceCap))
+	}()
 
 	// Wait for readiness: /debug/pprof/ should respond 200
 	baseURL := "http://127.0.0.1:" + strconv.Itoa(port)

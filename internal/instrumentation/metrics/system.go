@@ -55,10 +55,6 @@ func NewSystemCollector(ctx context.Context, cfg *config.Config) *SystemCollecto
 	return collector
 }
 
-func (c *SystemCollector) MetricsName() string {
-	return "system"
-}
-
 func (c *SystemCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- c.cpuGauge.Desc()
 	ch <- c.memGauge.Desc()
