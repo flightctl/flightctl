@@ -1,9 +1,6 @@
 package audit
 
 import (
-	"fmt"
-	"path/filepath"
-
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 )
 
@@ -52,17 +49,13 @@ func (c *AuditConfig) Validate(readWriter fileio.ReadWriter) error {
 		return nil
 	}
 
-	// Validate that the hardcoded log directory exists or can be created
-	logDir := filepath.Dir(DefaultLogPath)
-	exists, err := readWriter.PathExists(logDir)
-	if err != nil {
-		return fmt.Errorf("checking audit log directory %q: %w", logDir, err)
-	}
-	if !exists {
-		if err := readWriter.MkdirAll(logDir, fileio.DefaultDirectoryPermissions); err != nil {
-			return fmt.Errorf("creating audit log directory %q: %w", logDir, err)
-		}
-	}
+	// Pure validation with no side effects.
+	// Unlike required paths (DataDir, ConfigDir), audit logs are optional - failures
+	// writing audit logs should not prevent agent startup.
+	// Directory creation is deferred to first write:
+	// - Production: lumberjack creates parent directories automatically
+	// - Tests: test setup creates temporary directories
+	// This allows the device simulator to start without /var/log write permissions.
 
 	// Rotation settings are hardcoded and don't need validation
 	return nil
