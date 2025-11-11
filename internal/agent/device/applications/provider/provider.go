@@ -119,10 +119,8 @@ func FromDeviceSpec(
 	return providers, nil
 }
 
-func parseEmbedded(ctx context.Context, log *log.PrefixLogger, podman *client.Podman, readWriter fileio.ReadWriter, providers *[]Provider) error {
-	// discover embedded compose applications
-	appType := v1alpha1.AppTypeCompose
-	elements, err := readWriter.ReadDir(lifecycle.EmbeddedComposeAppPath)
+func discoverEmbeddedApplications(ctx context.Context, log *log.PrefixLogger, podman *client.Podman, readWriter fileio.ReadWriter, providers *[]Provider, basePath string, appType v1alpha1.AppType, patterns []string) error {
+	elements, err := readWriter.ReadDir(basePath)
 	if err != nil {
 		return err
 	}
@@ -132,19 +130,15 @@ func parseEmbedded(ctx context.Context, log *log.PrefixLogger, podman *client.Po
 			continue
 		}
 
-		suffixPatterns := []string{"*.yml", "*.yaml"}
-		for _, pattern := range suffixPatterns {
+		for _, pattern := range patterns {
 			name := element.Name()
-			// search for compose files
-			files, err := filepath.Glob(readWriter.PathFor(filepath.Join(lifecycle.EmbeddedComposeAppPath, name, pattern)))
+			files, err := filepath.Glob(readWriter.PathFor(filepath.Join(basePath, name, pattern)))
 			if err != nil {
 				log.Warnf("Error searching for pattern %s: %v", pattern, err)
 				continue
 			}
-			// TODO: we could do podman config here to verify further.
 			if len(files) > 0 {
-				log.Debugf("Discovered embedded compose application: %s", name)
-				// ensure the embedded application
+				log.Debugf("Discovered embedded %s application: %s", appType, name)
 				provider, err := newEmbedded(log, podman, readWriter, name, appType)
 				if err != nil {
 					return err
@@ -153,6 +147,29 @@ func parseEmbedded(ctx context.Context, log *log.PrefixLogger, podman *client.Po
 				break
 			}
 		}
+	}
+	return nil
+}
+
+func parseEmbeddedCompose(ctx context.Context, log *log.PrefixLogger, podman *client.Podman, readWriter fileio.ReadWriter, providers *[]Provider) error {
+	patterns := []string{"*.yml", "*.yaml"}
+	return discoverEmbeddedApplications(ctx, log, podman, readWriter, providers, lifecycle.EmbeddedComposeAppPath, v1alpha1.AppTypeCompose, patterns)
+}
+
+func parseEmbeddedQuadlet(ctx context.Context, log *log.PrefixLogger, podman *client.Podman, readWriter fileio.ReadWriter, providers *[]Provider) error {
+	var patterns []string
+	for ext := range common.SupportedQuadletExtensions {
+		patterns = append(patterns, fmt.Sprintf("*%s", ext))
+	}
+	return discoverEmbeddedApplications(ctx, log, podman, readWriter, providers, lifecycle.EmbeddedQuadletAppPath, v1alpha1.AppTypeQuadlet, patterns)
+}
+
+func parseEmbedded(ctx context.Context, log *log.PrefixLogger, podman *client.Podman, readWriter fileio.ReadWriter, providers *[]Provider) error {
+	if err := parseEmbeddedCompose(ctx, log, podman, readWriter, providers); err != nil {
+		return fmt.Errorf("parsing embedded compose: %w", err)
+	}
+	if err := parseEmbeddedQuadlet(ctx, log, podman, readWriter, providers); err != nil {
+		return fmt.Errorf("parsing embedded quadlet: %w", err)
 	}
 	return nil
 }
@@ -258,10 +275,8 @@ func pathFromAppType(appType v1alpha1.AppType, name string, embedded bool) (stri
 		}
 		typePath = lifecycle.ComposeAppPath
 	case v1alpha1.AppTypeQuadlet:
-		if embedded {
-			typePath = lifecycle.EmbeddedQuadletAppPath
-			break
-		}
+		// embedded quadlets must be moved to the default quadlet path (so that contents can be mutated)
+		// discovery checks EmbeddedQuadletAppPath, but the application's actual path is the default path
 		typePath = lifecycle.QuadletAppPath
 	default:
 		return "", fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)

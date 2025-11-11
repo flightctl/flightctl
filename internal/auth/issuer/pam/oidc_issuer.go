@@ -37,7 +37,7 @@ type OIDCIssuer interface {
 	Authorize(ctx context.Context, req *pamapi.AuthAuthorizeParams) (*AuthorizeResponse, error)
 
 	// Login handles the login form submission
-	Login(ctx context.Context, username, password, clientID, redirectURI, state string) (*LoginResult, error)
+	Login(ctx context.Context, username, password, clientID, redirectURI, state, codeChallenge, codeChallengeMethod string) (*LoginResult, error)
 
 	// Discovery and Configuration
 	GetOpenIDConfiguration() (*pamapi.OpenIDConfiguration, error)

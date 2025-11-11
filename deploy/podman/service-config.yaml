@@ -2,7 +2,7 @@ global:
   baseDomain:
   auth:
     type: none # aap, oidc, builtin (legacy, translates to oidc with PAM), or none
-    insecureSkipTlsVerify: false
+    insecureSkipTlsVerify: true
     aap:
       apiUrl:
       externalApiUrl:

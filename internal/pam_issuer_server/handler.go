@@ -168,6 +168,7 @@ func (h *Handler) AuthOpenIDConfiguration(w http.ResponseWriter, r *http.Request
 		ClaimsSupported:                   v1Config.ClaimsSupported,
 		IdTokenSigningAlgValuesSupported:  v1Config.IdTokenSigningAlgValuesSupported,
 		TokenEndpointAuthMethodsSupported: v1Config.TokenEndpointAuthMethodsSupported,
+		CodeChallengeMethodsSupported:     v1Config.CodeChallengeMethodsSupported,
 	}
 	writeJSON(w, http.StatusOK, &config)
 }
@@ -210,8 +211,12 @@ func (h *Handler) AuthAuthorize(w http.ResponseWriter, r *http.Request, params p
 // AuthLogin handles GET request to login form
 // (GET /api/v1/auth/login)
 func (h *Handler) AuthLogin(w http.ResponseWriter, r *http.Request, params pamapi.AuthLoginParams) {
-	// Return HTML login form
-	loginForm := h.pamProvider.GetLoginForm(params.ClientId, params.RedirectUri, lo.FromPtrOr(params.State, ""))
+	// Extract PKCE parameters from query string if present
+	codeChallenge := r.URL.Query().Get("code_challenge")
+	codeChallengeMethod := r.URL.Query().Get("code_challenge_method")
+
+	// Return HTML login form with PKCE parameters
+	loginForm := h.pamProvider.GetLoginForm(params.ClientId, params.RedirectUri, lo.FromPtrOr(params.State, ""), codeChallenge, codeChallengeMethod)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	if _, err := w.Write([]byte(loginForm)); err != nil {
@@ -235,6 +240,8 @@ func (h *Handler) AuthLoginPost(w http.ResponseWriter, r *http.Request) {
 	clientID := r.FormValue("client_id")
 	redirectURI := r.FormValue("redirect_uri")
 	state := r.FormValue("state")
+	codeChallenge := r.FormValue("code_challenge")
+	codeChallengeMethod := r.FormValue("code_challenge_method")
 
 	h.log.Infof("Login request - username=%s, clientID=%s, redirectURI=%s", username, clientID, redirectURI)
 
@@ -246,8 +253,8 @@ func (h *Handler) AuthLoginPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Call PAM provider's Login method
-	loginResult, err := h.pamProvider.Login(r.Context(), username, password, clientID, redirectURI, state)
+	// Call PAM provider's Login method with PKCE parameters
+	loginResult, err := h.pamProvider.Login(r.Context(), username, password, clientID, redirectURI, state, codeChallenge, codeChallengeMethod)
 	if err != nil {
 		h.log.Errorf("Login failed for user %s: %v", username, err)
 		// Return just the error message for the JavaScript to display
@@ -317,6 +324,9 @@ func (h *Handler) AuthToken(w http.ResponseWriter, r *http.Request) {
 		}
 		if scope := r.FormValue("scope"); scope != "" {
 			req.Scope = &scope
+		}
+		if codeVerifier := r.FormValue("code_verifier"); codeVerifier != "" {
+			req.CodeVerifier = &codeVerifier
 		}
 	} else {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
