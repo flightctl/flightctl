@@ -371,7 +371,8 @@ func TestFileLogger_DisabledLogging(t *testing.T) {
 
 	ctx := context.Background()
 	config := NewDefaultAuditConfig()
-	config.Enabled = false // Disable logging
+	disabled := false
+	config.Enabled = &disabled // Disable logging
 	mockRW := fileio.NewMockReadWriter(ctrl)
 	logger := log.NewPrefixLogger("test")
 

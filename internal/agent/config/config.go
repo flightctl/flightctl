@@ -420,7 +420,9 @@ func mergeConfigs(base, override *Config) {
 	overrideIfNotEmpty(&base.TPM.StorageFilePath, override.TPM.StorageFilePath)
 
 	// audit
-	overrideIfNotEmpty(&base.Audit.Enabled, override.Audit.Enabled)
+	if override.Audit.Enabled != nil {
+		base.Audit.Enabled = override.Audit.Enabled
+	}
 
 	// instrumentation
 	overrideIfNotEmpty(&base.MetricsEnabled, override.MetricsEnabled)

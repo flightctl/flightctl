@@ -77,7 +77,7 @@ func NewFileLogger(
 // The ctx parameter is currently unused but reserved for future extensibility
 // (e.g., context-aware logging, distributed tracing, cancellation support).
 func (f *FileLogger) LogEvent(ctx context.Context, info *AuditEventInfo) error {
-	if !f.config.Enabled {
+	if f.config.Enabled == nil || !*f.config.Enabled {
 		return nil
 	}
 
@@ -123,7 +123,14 @@ func (f *FileLogger) writeEvent(event AuditEvent) error {
 			return fmt.Errorf("appending audit event to %q: %w", DefaultLogPath, err)
 		}
 	} else {
-		// Production mode: use lumberjack for rotation
+		// Production mode: use lumberjack directly for log rotation.
+		// ARCHITECTURAL NOTE: This bypasses the FileIO abstraction, which is an accepted
+		// tradeoff because:
+		// 1. lumberjack provides battle-tested rotation logic
+		// 2. audit logs are append-only with low risk surface
+		// 3. tests still use FileIO mock via PathFor() detection
+		// 4. extending FileIO for rotation would add complexity for a single use case
+		// This pattern should be reconsidered if rotation becomes needed elsewhere.
 		if _, err := f.rotatingLog.Write(eventBytes); err != nil {
 			return fmt.Errorf("writing audit event to rotating log: %w", err)
 		}

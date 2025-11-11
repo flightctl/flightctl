@@ -23,15 +23,18 @@ const (
 // AuditConfig holds audit logging configuration.
 // Flat enable/disable configuration only - rotation settings are hardcoded.
 type AuditConfig struct {
-	// Enabled enables or disables audit logging
-	Enabled bool `json:"enabled,omitempty"`
+	// Enabled enables or disables audit logging.
+	// Using *bool to distinguish between unset (nil) and explicitly set (true/false).
+	// This allows config overrides to explicitly disable audit logging with "enabled: false".
+	Enabled *bool `json:"enabled,omitempty"`
 }
 
 // NewDefaultAuditConfig creates a new audit config with default values.
 // Following the pattern from config.NewDefault().
 func NewDefaultAuditConfig() *AuditConfig {
+	enabled := DefaultEnabled
 	return &AuditConfig{
-		Enabled: DefaultEnabled,
+		Enabled: &enabled,
 	}
 }
 
@@ -45,7 +48,7 @@ func (c *AuditConfig) Complete() error {
 // Validate checks that the configuration is valid.
 // Following the pattern from agent config.Validate().
 func (c *AuditConfig) Validate(readWriter fileio.ReadWriter) error {
-	if !c.Enabled {
+	if c.Enabled == nil || !*c.Enabled {
 		return nil
 	}
 
