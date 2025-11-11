@@ -46,10 +46,6 @@ func NewResourceSyncCollector(ctx context.Context, store store.Store, log logrus
 	return collector
 }
 
-func (c *ResourceSyncCollector) MetricsName() string {
-	return "resourcesync"
-}
-
 func (c *ResourceSyncCollector) Describe(ch chan<- *prometheus.Desc) {
 	c.resourceSyncsGauge.Describe(ch)
 }
