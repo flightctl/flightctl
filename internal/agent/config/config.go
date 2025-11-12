@@ -66,7 +66,7 @@ const (
 	// TestRootDirEnvKey is the environment variable key used to set the file system root when testing.
 	TestRootDirEnvKey = "FLIGHTCTL_TEST_ROOT_DIR"
 	// DefaultMetricsEnabled controls whether Prometheus metrics are enabled by default.
-	DefaultMetricsEnabled = true
+	DefaultMetricsEnabled = false
 	// DefaultProfilingEnabled controls whether runtime profiling (pprof) is enabled by default.
 	DefaultProfilingEnabled = false
 )
