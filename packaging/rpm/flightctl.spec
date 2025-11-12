@@ -42,6 +42,7 @@ Requires: openssl
 # cli sub-package
 %package cli
 Summary: Flight Control CLI
+Recommends: bash-completion
 %description cli
 flightctl is the CLI for controlling the Flight Control service.
 
