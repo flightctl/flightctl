@@ -488,7 +488,7 @@ func mockExecSystemdStop(mockExec *executer.MockExecuter, services ...string) *g
 }
 
 func mockExecSystemdListUnits(mockExec *executer.MockExecuter, services ...string) *gomock.Call {
-	args := append([]string{"list-units", "--all", "--output", "json"}, services...)
+	args := append([]string{"list-units", "--all", "--output", "json", "--"}, services...)
 	return mockExec.EXPECT().ExecuteWithContext(
 		gomock.Any(),
 		"/usr/bin/systemctl",

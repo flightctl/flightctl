@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"testing"
 
+	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
@@ -313,10 +314,10 @@ func TestQuadlet_remove(t *testing.T) {
 			setupMocks: func(mockExec *executer.MockExecuter, mockRW *fileio.MockReadWriter) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "stop", "app-123-web.service").Return("", "", 0)
 				units := []client.SystemDUnitListEntry{
-					{Unit: "app-123-web.service", LoadState: "loaded", ActiveState: "inactive", Sub: "dead", Description: "Test service"},
+					{Unit: "app-123-web.service", LoadState: "loaded", ActiveState: string(api.SystemdActiveStateInactive), SubState: "dead", Description: "Test service"},
 				}
 				unitBytes, _ := json.Marshal(units)
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "list-units", "--all", "--output", "json", "app-123-web.service").Return(string(unitBytes), "", 0)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "list-units", "--all", "--output", "json", "--", "app-123-web.service").Return(string(unitBytes), "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "daemon-reload").Return("", "", 0)
 			},
 			setupServices: func(q *Quadlet) {
@@ -357,10 +358,10 @@ func TestQuadlet_remove(t *testing.T) {
 			setupMocks: func(mockExec *executer.MockExecuter, mockRW *fileio.MockReadWriter) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "stop", "app-failed-1-web.service").Return("", "", 0)
 				units := []client.SystemDUnitListEntry{
-					{Unit: "app-failed-1-web.service", LoadState: "loaded", ActiveState: client.SystemDActiveStateFailed, Sub: "failed", Description: "Test service"},
+					{Unit: "app-failed-1-web.service", LoadState: "loaded", ActiveState: string(api.SystemdActiveStateFailed), SubState: "failed", Description: "Test service"},
 				}
 				unitBytes, _ := json.Marshal(units)
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "list-units", "--all", "--output", "json", "app-failed-1-web.service").Return(string(unitBytes), "", 0)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "list-units", "--all", "--output", "json", "--", "app-failed-1-web.service").Return(string(unitBytes), "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "reset-failed", "app-failed-1-web.service").Return("", "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "daemon-reload").Return("", "", 0)
 			},
@@ -378,11 +379,11 @@ func TestQuadlet_remove(t *testing.T) {
 			setupMocks: func(mockExec *executer.MockExecuter, mockRW *fileio.MockReadWriter) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "stop", "app-multi-web.service", "app-multi-db.service").Return("", "", 0)
 				units := []client.SystemDUnitListEntry{
-					{Unit: "app-multi-web.service", LoadState: "loaded", ActiveState: client.SystemDActiveStateFailed, Sub: "failed", Description: "Web service"},
-					{Unit: "app-multi-db.service", LoadState: "loaded", ActiveState: "inactive", Sub: "dead", Description: "DB service"},
+					{Unit: "app-multi-web.service", LoadState: "loaded", ActiveState: string(api.SystemdActiveStateFailed), SubState: "failed", Description: "Web service"},
+					{Unit: "app-multi-db.service", LoadState: "loaded", ActiveState: "inactive", SubState: "dead", Description: "DB service"},
 				}
 				unitBytes, _ := json.Marshal(units)
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "list-units", "--all", "--output", "json", "app-multi-web.service", "app-multi-db.service").Return(string(unitBytes), "", 0)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "list-units", "--all", "--output", "json", "--", "app-multi-web.service", "app-multi-db.service").Return(string(unitBytes), "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "reset-failed", "app-multi-web.service").Return("", "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "daemon-reload").Return("", "", 0)
 			},
@@ -400,10 +401,10 @@ func TestQuadlet_remove(t *testing.T) {
 			setupMocks: func(mockExec *executer.MockExecuter, mockRW *fileio.MockReadWriter) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "stop", "app-reset-fail-web.service").Return("", "", 0)
 				units := []client.SystemDUnitListEntry{
-					{Unit: "app-reset-fail-web.service", LoadState: "loaded", ActiveState: client.SystemDActiveStateFailed, Sub: "failed", Description: "Test service"},
+					{Unit: "app-reset-fail-web.service", LoadState: "loaded", ActiveState: string(api.SystemdActiveStateFailed), SubState: "failed", Description: "Test service"},
 				}
 				unitBytes, _ := json.Marshal(units)
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "list-units", "--all", "--output", "json", "app-reset-fail-web.service").Return(string(unitBytes), "", 0)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "list-units", "--all", "--output", "json", "--", "app-reset-fail-web.service").Return(string(unitBytes), "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "reset-failed", "app-reset-fail-web.service").Return("", "reset failed", 1)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "daemon-reload").Return("", "", 0)
 			},
@@ -420,7 +421,7 @@ func TestQuadlet_remove(t *testing.T) {
 			},
 			setupMocks: func(mockExec *executer.MockExecuter, mockRW *fileio.MockReadWriter) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "stop", "app-list-fail-web.service").Return("", "", 0)
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "list-units", "--all", "--output", "json", "app-list-fail-web.service").Return("", "list failed", 1)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "list-units", "--all", "--output", "json", "--", "app-list-fail-web.service").Return("", "list failed", 1)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "daemon-reload").Return("", "", 0)
 			},
 			setupServices: func(q *Quadlet) {
@@ -437,10 +438,10 @@ func TestQuadlet_remove(t *testing.T) {
 			setupMocks: func(mockExec *executer.MockExecuter, mockRW *fileio.MockReadWriter) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "stop", "app-000-db.service").Return("", "", 0)
 				units := []client.SystemDUnitListEntry{
-					{Unit: "app-000-db.service", LoadState: "loaded", ActiveState: "inactive", Sub: "dead", Description: "Test service"},
+					{Unit: "app-000-db.service", LoadState: "loaded", ActiveState: string(api.SystemdActiveStateInactive), SubState: "dead", Description: "Test service"},
 				}
 				unitBytes, _ := json.Marshal(units)
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "list-units", "--all", "--output", "json", "app-000-db.service").Return(string(unitBytes), "", 0)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "list-units", "--all", "--output", "json", "--", "app-000-db.service").Return(string(unitBytes), "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "daemon-reload").Return("", "reload failed", 1)
 			},
 			setupServices: func(q *Quadlet) {
