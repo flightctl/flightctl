@@ -34,12 +34,7 @@ EXAMPLES:
 EOF
 }
 
-check_sudo() {
-    if ! command -v sudo &> /dev/null; then
-        echo "ERROR: sudo command not found" >&2
-        exit 1
-    fi
-
+check_root() {
     # Check if the script is run as root
     if [ "$EUID" -ne 0 ]; then
         echo "This script must be run as root. Exiting."
@@ -148,12 +143,15 @@ remove_images() {
     echo "Removing images..."
     for image in "${IMAGES_TO_REMOVE[@]}"; do
         echo -n "  Removing image: $image "
-        if sudo podman rmi -f "$image" >/dev/null 2>&1; then
-            echo "✓"
-            REMOVED_COUNT=$((REMOVED_COUNT + 1))
-        else
-            echo "✗"
-            ERRORS=$((ERRORS + 1))
+        if error_output=$(sudo podman rmi -f "$image" 2>&1); then
+            if [[ -z "$error_output" ]]; then
+                echo "✓"
+                REMOVED_COUNT=$((REMOVED_COUNT + 1))
+            else
+                echo "✗"
+                echo "Error: $error_output"
+                ERRORS=$((ERRORS + 1))
+            fi
         fi
     done
     echo
@@ -167,12 +165,15 @@ remove_volumes() {
     echo "Removing volumes..."
     for volume in "${VOLUMES_TO_REMOVE[@]}"; do
         echo -n "  Removing volume: $volume "
-        if sudo podman volume rm -f "$volume" >/dev/null 2>&1; then
-            echo "✓"
-            REMOVED_COUNT=$((REMOVED_COUNT + 1))
-        else
-            echo "✗"
-            ERRORS=$((ERRORS + 1))
+        if error_output=$(sudo podman volume rm -f "$volume" 2>&1); then
+            if [[ -z "$error_output" ]]; then
+                echo "✓"
+                REMOVED_COUNT=$((REMOVED_COUNT + 1))
+            else
+                echo "✗"
+                echo "Error: $error_output"
+                ERRORS=$((ERRORS + 1))
+            fi
         fi
     done
     echo
@@ -186,12 +187,14 @@ remove_secrets() {
     echo "Removing secrets..."
     for secret in "${SECRETS_TO_REMOVE[@]}"; do
         echo -n "  Removing secret: $secret "
-        if sudo podman secret rm "$secret" >/dev/null 2>&1; then
+        if error_output=$(sudo podman secret rm "$secret" 2>&1); then
             echo "✓"
             REMOVED_COUNT=$((REMOVED_COUNT + 1))
-        else
-            echo "✗"
-            ERRORS=$((ERRORS + 1))
+            else
+                echo "✗"
+                echo "Error: $error_output"
+                ERRORS=$((ERRORS + 1))
+            fi
         fi
     done
     echo
@@ -205,12 +208,14 @@ remove_networks() {
     echo "Removing networks..."
     for network in "${NETWORKS_TO_REMOVE[@]}"; do
         echo -n "  Removing network: $network "
-        if sudo podman network rm "$network" >/dev/null 2>&1; then
+        if error_output=$(sudo podman network rm "$network" 2>&1); then
             echo "✓"
             REMOVED_COUNT=$((REMOVED_COUNT + 1))
-        else
-            echo "✗"
-            ERRORS=$((ERRORS + 1))
+            else
+                echo "✗"
+                echo "Error: $error_output"
+                ERRORS=$((ERRORS + 1))
+            fi
         fi
     done
     echo
@@ -248,7 +253,7 @@ main() {
         esac
     done
 
-    check_sudo
+    check_root
     scan_artifacts
     print_artifacts_list
 

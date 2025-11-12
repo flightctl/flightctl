@@ -193,6 +193,7 @@ As part of running the services a number of podman artifacts are created - inclu
 
 > [!NOTE]
 > Running the cleanup script is an irreversible destructive action that will result in data loss
+> Never run the script while the Flight Control services are running.  Doing so will result in potentially unrecoverable states and some artifacts may be re-created by podman.
 
 Run with a --dry-run flag to see what will be deleted:
 
@@ -205,6 +206,3 @@ Run the cleanup script - requires user confirmation to delete artifacts:
 ```bash
 /usr/bin/flightctl-services-cleanup
 ```
-
-> [!NOTE]
-> Never run the script while the Flight Control services are running.  Doing so will result in potentially unrecoverable states and some artifacts may be re-created by podman.
