@@ -587,23 +587,18 @@ func isEqual(a, b Provider) bool {
 	return reflect.DeepEqual(a.Spec(), b.Spec())
 }
 
-func pathFromAppType(appType v1alpha1.AppType, name string, embedded bool) (string, error) {
-	var typePath string
-	switch appType {
-	case v1alpha1.AppTypeCompose:
-		if embedded {
-			typePath = lifecycle.EmbeddedComposeAppPath
-			break
-		}
-		typePath = lifecycle.ComposeAppPath
-	case v1alpha1.AppTypeQuadlet:
-		// embedded quadlets must be moved to the default quadlet path (so that contents can be mutated)
-		// discovery checks EmbeddedQuadletAppPath, but the application's actual path is the default path
-		typePath = lifecycle.QuadletAppPath
-	default:
-		return "", fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
-	}
-	return filepath.Join(typePath, name), nil
+type appTypeHandler interface {
+	Verify(ctx context.Context, dir string) error
+	// Install the application content to the device.
+	Install(ctx context.Context) error
+	// Remove the application content from the device.
+	Remove(ctx context.Context) error
+	// AppPath returns the path the app is to be installed at
+	AppPath() string
+	// ID returns the Identifier
+	ID() string
+	// Volumes returns any Volume that is defined as part of the spec itself
+	Volumes() ([]*Volume, error)
 }
 
 // AppData holds the extracted application data and cleanup function

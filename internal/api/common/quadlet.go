@@ -52,6 +52,8 @@ type QuadletReferences struct {
 	// MountImages defines a list images associated with the quadlet through mechanisms such as mounts.
 	// These can be OCI images or references to Image quadlets
 	MountImages []string
+	// The Name of the quadlet if the default will be overwritten
+	Name *string
 }
 
 // ParseQuadletReferences parses unit file data into a QuadletSpec
@@ -122,6 +124,15 @@ func ParseQuadletReferences(data []byte) (*QuadletReferences, error) {
 				spec.MountImages = append(spec.MountImages, mountImage)
 			}
 		}
+	}
+
+	name, err := unit.Lookup(detectedSection, quadlet.VolumeNameKey)
+	if err != nil {
+		if !errors.Is(err, quadlet.ErrKeyNotFound) {
+			return nil, fmt.Errorf("finding volume name: %w", err)
+		}
+	} else {
+		spec.Name = &name
 	}
 
 	return spec, nil

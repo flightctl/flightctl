@@ -181,6 +181,7 @@ func (q *Quadlet) serviceName(file string, quadletSection string, defaultName st
 	if err != nil {
 		return "", fmt.Errorf("parsing quadlet %q: %w", file, err)
 	}
+
 	name, err := unit.Lookup(quadletSection, quadlet.ServiceNameKey)
 	if err != nil {
 		if errors.Is(err, quadlet.ErrKeyNotFound) {
