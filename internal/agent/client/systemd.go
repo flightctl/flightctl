@@ -1,6 +1,7 @@
 package client
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -18,22 +19,6 @@ const (
 
 var (
 	ErrNoSystemDUnits = errors.New("no units defined")
-)
-
-type SystemDActiveStateType string
-type SystemDSubStateType string
-
-const (
-	SystemDActiveStateActivating SystemDActiveStateType = "activating"
-	SystemDActiveStateActive     SystemDActiveStateType = "active"
-	SystemDActiveStateFailed     SystemDActiveStateType = "failed"
-	SystemDActiveStateInactive   SystemDActiveStateType = "inactive"
-
-	SystemDSubStateStartPre  SystemDSubStateType = "start-pre"
-	SystemDSubStateStartPost SystemDSubStateType = "start-post"
-	SystemDSubStateRunning   SystemDSubStateType = "running"
-	SystemDSubStateExited    SystemDSubStateType = "exited"
-	SystemDSubStateDead      SystemDSubStateType = "dead"
 )
 
 func NewSystemd(exec executer.Executer) *Systemd {
@@ -137,25 +122,71 @@ func (s *Systemd) ResetFailed(ctx context.Context, units ...string) error {
 }
 
 type SystemDUnitListEntry struct {
-	Unit        string                 `json:"unit"`
-	LoadState   string                 `json:"load"`
-	ActiveState SystemDActiveStateType `json:"active"`
-	Sub         SystemDSubStateType    `json:"sub"`
-	Description string                 `json:"description"`
+	Unit        string `json:"unit"`
+	LoadState   string `json:"load"`
+	ActiveState string `json:"active"`
+	SubState    string `json:"sub"`
+	Description string `json:"description"`
 }
 
 func (s *Systemd) ListUnitsByMatchPattern(ctx context.Context, matchPatterns []string) ([]SystemDUnitListEntry, error) {
 	execCtx, cancel := context.WithTimeout(ctx, defaultSystemctlTimeout)
 	defer cancel()
-	args := append([]string{"list-units", "--all", "--output", "json"}, matchPatterns...)
+
+	args := append([]string{"list-units", "--all", "--output", "json", "--"}, matchPatterns...)
 	stdout, stderr, exitCode := s.exec.ExecuteWithContext(execCtx, systemctlCommand, args...)
 	if exitCode != 0 {
 		return nil, fmt.Errorf("list systemd units: %w", errors.FromStderr(stderr, exitCode))
 	}
+
 	var units []SystemDUnitListEntry
 	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &units); err != nil {
 		return nil, fmt.Errorf("unmarshalling systemctl list-units output: %w", err)
 	}
+	return units, nil
+}
+
+func (s *Systemd) ShowByMatchPattern(ctx context.Context, matchPatterns []string) ([]map[string]string, error) {
+	execCtx, cancel := context.WithTimeout(ctx, defaultSystemctlTimeout)
+	defer cancel()
+
+	args := append([]string{"show", "--all", "--"}, matchPatterns...)
+	stdout, stderr, exitCode := s.exec.ExecuteWithContext(execCtx, systemctlCommand, args...)
+	if exitCode != 0 {
+		return nil, fmt.Errorf("show systemd units: %w", errors.FromStderr(stderr, exitCode))
+	}
+
+	var units []map[string]string
+	currentUnit := make(map[string]string)
+
+	scanner := bufio.NewScanner(strings.NewReader(stdout))
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		if line == "" {
+			if len(currentUnit) > 0 {
+				units = append(units, currentUnit)
+				currentUnit = make(map[string]string)
+			}
+			continue
+		}
+
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) == 2 {
+			key := parts[0]
+			value := parts[1]
+			currentUnit[key] = value
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+
+	// Add the last unit if the output does not end with a blank line
+	if len(currentUnit) > 0 {
+		units = append(units, currentUnit)
+	}
+
 	return units, nil
 }
 
