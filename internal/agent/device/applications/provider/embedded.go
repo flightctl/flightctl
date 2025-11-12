@@ -32,13 +32,24 @@ func newEmbedded(log *log.PrefixLogger, podman *client.Podman, readWriter fileio
 		return nil, fmt.Errorf("getting app path: %w", err)
 	}
 
+	id := client.NewComposeID(name)
+	if appType == v1alpha1.AppTypeQuadlet {
+		vols, err := extractQuadletVolumesFromDir(id, readWriter, filepath.Join(lifecycle.EmbeddedQuadletAppPath, name))
+		if err != nil {
+			return nil, fmt.Errorf("extracting quadlet volumes: %w", err)
+		}
+		for _, vol := range vols {
+			volumeManager.Add(vol)
+		}
+	}
+
 	return &embeddedProvider{
 		log:        log,
 		podman:     podman,
 		readWriter: readWriter,
 		spec: &ApplicationSpec{
 			Name:     name,
-			ID:       client.NewComposeID(name),
+			ID:       id,
 			AppType:  appType,
 			Embedded: true,
 			EnvVars:  make(map[string]string),

@@ -1,16 +1,16 @@
 package lifecycle
 
 import (
-	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
 
-	"github.com/coreos/go-systemd/v22/unit"
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/quadlet"
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
@@ -128,27 +128,19 @@ func (q *Quadlet) serviceName(file string, quadletSection string, defaultName st
 	if err != nil {
 		return "", fmt.Errorf("reading quadlet %s: %w", file, err)
 	}
-	sections, err := unit.DeserializeSections(bytes.NewReader(contents))
+	u, err := quadlet.NewUnit(contents)
 	if err != nil {
 		return "", fmt.Errorf("parsing quadlet %q: %w", file, err)
 	}
-	var section *unit.UnitSection
-	for _, s := range sections {
-		if s.Section == quadletSection {
-			section = s
-			break
-		}
-	}
-	if section == nil {
-		return "", fmt.Errorf("quadlet %q section %q not found", file, quadletSection)
-	}
 
-	for _, entry := range section.Entries {
-		if entry.Name == "ServiceName" {
-			return entry.Value, nil
+	name, err := u.Lookup(quadletSection, quadlet.ServiceNameKey)
+	if err != nil {
+		if errors.Is(err, quadlet.ErrKeyNotFound) {
+			return defaultName, nil
 		}
+		return "", fmt.Errorf("looking up %q: %w", quadletSection, err)
 	}
-	return defaultName, nil
+	return name, nil
 }
 
 func (q *Quadlet) collectTargets(path string) ([]string, error) {
@@ -171,12 +163,21 @@ func (q *Quadlet) collectTargets(path string) ([]string, error) {
 		var sectionName string
 		var defaultName string
 		switch ext {
-		case ".container":
-			sectionName = "Container"
+		case quadlet.ContainerExtension:
+			sectionName = quadlet.ContainerGroup
 			defaultName = fmt.Sprintf("%s.service", baseName)
-		case ".pod":
-			sectionName = "Pod"
+		case quadlet.PodExtension:
+			sectionName = quadlet.PodGroup
 			defaultName = fmt.Sprintf("%s-pod.service", baseName)
+		case quadlet.VolumeExtension:
+			sectionName = quadlet.VolumeGroup
+			defaultName = fmt.Sprintf("%s-volume.service", baseName)
+		case quadlet.NetworkExtension:
+			sectionName = quadlet.NetworkGroup
+			defaultName = fmt.Sprintf("%s-network.service", baseName)
+		case quadlet.ImageExtension:
+			sectionName = quadlet.ImageGroup
+			defaultName = fmt.Sprintf("%s-image.service", baseName)
 		case ".target":
 			targets = append(targets, filename)
 			continue

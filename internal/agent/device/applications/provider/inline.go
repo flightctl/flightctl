@@ -55,8 +55,17 @@ func newInline(log *log.PrefixLogger, podman *client.Podman, spec *v1alpha1.Appl
 	p.spec.Path = path
 	p.spec.ID = client.NewComposeID(p.spec.Name)
 
-	return p, nil
+	if p.spec.AppType == v1alpha1.AppTypeQuadlet {
+		vols, err := extractQuadletVolumesFromSpec(p.spec.ID, p.spec.InlineProvider.Inline)
+		if err != nil {
+			return nil, fmt.Errorf("extracting quadlet volumes: %w", err)
+		}
+		for _, vol := range vols {
+			p.spec.Volume.Add(vol)
+		}
+	}
 
+	return p, nil
 }
 
 func (p *inlineProvider) OCITargets(pullSecret *client.PullSecret) ([]dependency.OCIPullTarget, error) {

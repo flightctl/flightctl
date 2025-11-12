@@ -11,6 +11,8 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/api/common"
+	"github.com/flightctl/flightctl/internal/quadlet"
 	"github.com/flightctl/flightctl/pkg/log"
 	"sigs.k8s.io/yaml"
 )
@@ -243,4 +245,38 @@ func ToLifecycleVolumes(volumes []*Volume) []lifecycle.Volume {
 		}
 	}
 	return out
+}
+
+func extractQuadletVolumes(appID string, quadlets map[string]*common.QuadletReferences) []*Volume {
+	var volumes []*Volume
+	for name, quad := range quadlets {
+		// Only track volume's with images
+		if quad.Type != common.QuadletTypeVolume || quad.Image == nil {
+			continue
+		}
+
+		volumes = append(volumes, &Volume{
+			Name:      name,
+			ID:        quadlet.VolumeName(quad.Name, namespacedQuadlet(appID, name)),
+			Reference: *quad.Image,
+			Available: true, // TODO: event support is broken for volumes.  https://github.com/containers/podman/issues/26480
+		})
+	}
+	return volumes
+}
+
+func extractQuadletVolumesFromSpec(appID string, contents []v1alpha1.ApplicationContent) ([]*Volume, error) {
+	quadlets, err := client.ParseQuadletReferencesFromSpec(contents)
+	if err != nil {
+		return nil, fmt.Errorf("parsing quadlet spec: %w", err)
+	}
+	return extractQuadletVolumes(appID, quadlets), nil
+}
+
+func extractQuadletVolumesFromDir(appID string, rw fileio.ReadWriter, path string) ([]*Volume, error) {
+	quadlets, err := client.ParseQuadletReferencesFromDir(rw, path)
+	if err != nil {
+		return nil, fmt.Errorf("parsing quadlet spec: %w", err)
+	}
+	return extractQuadletVolumes(appID, quadlets), nil
 }
