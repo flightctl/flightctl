@@ -354,6 +354,46 @@ const (
 	RolloutStrategyBatchSequence RolloutStrategy = "BatchSequence"
 )
 
+// Defines values for SystemdActiveStateType.
+const (
+	SystemdActiveStateActivating   SystemdActiveStateType = "activating"
+	SystemdActiveStateActive       SystemdActiveStateType = "active"
+	SystemdActiveStateDeactivating SystemdActiveStateType = "deactivating"
+	SystemdActiveStateFailed       SystemdActiveStateType = "failed"
+	SystemdActiveStateInactive     SystemdActiveStateType = "inactive"
+	SystemdActiveStateMaintenance  SystemdActiveStateType = "maintenance"
+	SystemdActiveStateRefreshing   SystemdActiveStateType = "refreshing"
+	SystemdActiveStateReloading    SystemdActiveStateType = "reloading"
+)
+
+// Defines values for SystemdEnableStateType.
+const (
+	SystemdEnableStateAlias          SystemdEnableStateType = "alias"
+	SystemdEnableStateBad            SystemdEnableStateType = "bad"
+	SystemdEnableStateDisabled       SystemdEnableStateType = "disabled"
+	SystemdEnableStateEnabled        SystemdEnableStateType = "enabled"
+	SystemdEnableStateEnabledRuntime SystemdEnableStateType = "enabled-runtime"
+	SystemdEnableStateGenerated      SystemdEnableStateType = "generated"
+	SystemdEnableStateIndirect       SystemdEnableStateType = "indirect"
+	SystemdEnableStateLinked         SystemdEnableStateType = "linked"
+	SystemdEnableStateLinkedRuntime  SystemdEnableStateType = "linked-runtime"
+	SystemdEnableStateMasked         SystemdEnableStateType = "masked"
+	SystemdEnableStateMaskedRuntime  SystemdEnableStateType = "masked-runtime"
+	SystemdEnableStateStatic         SystemdEnableStateType = "static"
+	SystemdEnableStateTransient      SystemdEnableStateType = "transient"
+)
+
+// Defines values for SystemdLoadStateType.
+const (
+	SystemdLoadStateBadSetting SystemdLoadStateType = "bad-setting"
+	SystemdLoadStateError      SystemdLoadStateType = "error"
+	SystemdLoadStateLoaded     SystemdLoadStateType = "loaded"
+	SystemdLoadStateMasked     SystemdLoadStateType = "masked"
+	SystemdLoadStateMerged     SystemdLoadStateType = "merged"
+	SystemdLoadStateNotFound   SystemdLoadStateType = "not-found"
+	SystemdLoadStateStub       SystemdLoadStateType = "stub"
+)
+
 // Defines values for ListEventsParamsOrder.
 const (
 	Asc  ListEventsParamsOrder = "asc"
@@ -872,7 +912,7 @@ type DeviceSpec struct {
 
 // DeviceStatus DeviceStatus represents information about the status of a device. Status may trail the actual state of a device.
 type DeviceStatus struct {
-	// Applications List of device application status.
+	// Applications List of device application statuses.
 	Applications []DeviceApplicationStatus `json:"applications"`
 
 	// ApplicationsSummary A summary of the health of applications on the device.
@@ -904,6 +944,9 @@ type DeviceStatus struct {
 
 	// SystemInfo System information collected from the device.
 	SystemInfo DeviceSystemInfo `json:"systemInfo"`
+
+	// Systemd List of systemd unit statuses.
+	Systemd *[]SystemdUnitStatus `json:"systemd,omitempty"`
 
 	// Updated Current status of the device update.
 	Updated DeviceUpdatedStatus `json:"updated"`
@@ -2038,6 +2081,36 @@ type Status struct {
 
 	// Status Status of the operation. One of: "Success" or "Failure". More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#spec-and-status.
 	Status string `json:"status"`
+}
+
+// SystemdActiveStateType The high-level unit activation state.
+type SystemdActiveStateType string
+
+// SystemdEnableStateType The enable state of the unit file.
+type SystemdEnableStateType string
+
+// SystemdLoadStateType The load state of the unit file.
+type SystemdLoadStateType string
+
+// SystemdUnitStatus defines model for SystemdUnitStatus.
+type SystemdUnitStatus struct {
+	// ActiveState The high-level unit activation state.
+	ActiveState SystemdActiveStateType `json:"activeState"`
+
+	// Description The human-readable description for the unit.
+	Description string `json:"description"`
+
+	// EnableState The enable state of the unit file.
+	EnableState SystemdEnableStateType `json:"enableState"`
+
+	// LoadState The load state of the unit file.
+	LoadState SystemdLoadStateType `json:"loadState"`
+
+	// SubState The low-level, unit-type-specific state.
+	SubState string `json:"subState"`
+
+	// Unit The unit name (e.g., "sshd.service").
+	Unit string `json:"unit"`
 }
 
 // TemplateVersion TemplateVersion represents a version of a template.
