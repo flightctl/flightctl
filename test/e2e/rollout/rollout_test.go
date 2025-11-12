@@ -537,7 +537,7 @@ func setupTestContext(ctx context.Context) *TestContext {
 	harness := e2e.GetWorkerHarness()
 
 	extIP := harness.RegistryEndpoint()
-	sleepAppImage := fmt.Sprintf("%s/sleep-app:v1", extIP)
+	sleepAppImage := harness.FullImageRef(fmt.Sprintf("%s/sleep-app", extIP), "v1")
 
 	applicationConfig := api.ImageApplicationProviderSpec{
 		Image: sleepAppImage,
@@ -626,7 +626,7 @@ func (tc *TestContext) createDeviceSpec() (api.DeviceSpec, error) {
 
 func (tc *TestContext) updateAppVersion(version string) error {
 	tc.applicationSpec.Name = lo.ToPtr(fmt.Sprintf("sleepapp-%s", version))
-	tc.applicationConfig.Image = fmt.Sprintf("%s/sleep-app:%s", tc.harness.RegistryEndpoint(), version)
+	tc.applicationConfig.Image = tc.harness.FullImageRef(fmt.Sprintf("%s/sleep-app", tc.harness.RegistryEndpoint()), version)
 	return tc.applicationSpec.FromImageApplicationProviderSpec(tc.applicationConfig)
 }
 

@@ -21,6 +21,14 @@ SOURCE_GIT_COMMIT="${SOURCE_GIT_COMMIT:-$(git rev-parse --short "HEAD^{commit}" 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
+        --verbose|-v)
+            VERBOSE=1
+            shift
+            ;;
+        --jobs)
+            JOBS="$2"
+            shift 2
+            ;;
         --mode)
             BUILD_MODE="$2"
             shift 2
@@ -40,12 +48,17 @@ while [[ $# -gt 0 ]]; do
             echo "  --mode MODE         Build mode: all, base, variants, sleep-apps, qcow2 (default: all)"
             echo "  --variants LIST     Space-separated list of agent variants to build (default: v2 v3 v4 v5 v6 v8 v9 v10)"
             echo "  --sleep-variants LIST  Space-separated list of sleep app variants to build (default: v1 v2 v3)"
+            echo "  --jobs N            Max concurrent variant builds (default: nproc; env: JOBS or PARALLEL_JOBS)"
+            echo "  -v, --verbose       Enable verbose output (sets shell -x and debug logging)"
             echo ""
             echo "Environment variables:"
             echo "  TAG               Image tag (default: latest)"
             echo "  IMAGE_REPO        Agent image repository (default: quay.io/flightctl/flightctl-device)"
             echo "  SLEEP_APP_REPO    Sleep app image repository (default: quay.io/flightctl/sleep-app)"
-            echo "  PARALLEL_JOBS     Number of parallel jobs for variant builds (default: 4)"
+            echo "  JOBS              Max concurrent variant builds (overrides default nproc)"
+            echo "  PARALLEL_JOBS     Deprecated alias for JOBS (still honored)"
+            echo "  PODMAN_LOG_LEVEL  Podman build log level (debug, info, warn). Default: info"
+            echo "  PODMAN_BUILD_EXTRA_FLAGS  Extra flags appended to every podman build (e.g. \"--no-cache --network=host\")"
             echo "  PREBASE_IMAGE     If set, use this image as base for RPM layering (skips prebase build)"
             echo "  SOURCE_GIT_TAG    Git tag for build args"
             echo "  SOURCE_GIT_TREE_STATE  Git tree state for build args"
@@ -60,24 +73,58 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+
+DEFAULT_JOBS="$(command -v nproc >/dev/null && nproc || echo 1)"
+# Precedence: CLI --jobs > JOBS env > PARALLEL_JOBS env > DEFAULT_JOBS
+if [ -z "${JOBS:-}" ]; then
+    if [ -n "${PARALLEL_JOBS:-}" ]; then
+        JOBS="${PARALLEL_JOBS}"
+    else
+        JOBS="${DEFAULT_JOBS}"
+    fi
+fi
+
+if [ "${VERBOSE:-0}" = "1" ]; then
+    set -x
+fi
+
 echo "Build mode: ${BUILD_MODE}"
 echo "TAG: ${TAG}"
 echo "IMAGE_REPO: ${IMAGE_REPO}"
 echo "SLEEP_APP_REPO: ${SLEEP_APP_REPO}"
 echo "SOURCE_GIT_TAG: ${SOURCE_GIT_TAG}"
 echo "SOURCE_GIT_COMMIT: ${SOURCE_GIT_COMMIT}"
+echo "JOBS: ${JOBS}"
 
 cd "$PROJECT_ROOT"
+
+# Configure cache flags similar to other image-building scripts
+if [ "${GITHUB_ACTIONS:-false}" = "true" ]; then
+    REGISTRY="${REGISTRY:-}"
+    REGISTRY_OWNER_TESTS="${REGISTRY_OWNER_TESTS:-flightctl-tests}"
+    if [ -n "${REGISTRY}" ] && [ "${REGISTRY}" != "localhost" ]; then
+        CACHE_FLAGS=("--cache-from=${REGISTRY}/${REGISTRY_OWNER_TESTS}/flightctl-device")
+    else
+        echo "Skipping remote cache-from in CI (no valid REGISTRY configured)"
+        CACHE_FLAGS=()
+    fi
+else
+    CACHE_FLAGS=()
+fi
+
+PODMAN_LOG_LEVEL="${PODMAN_LOG_LEVEL:-info}"
+PODMAN_BUILD_FLAGS=(--jobs "${JOBS}" --log-level "${PODMAN_LOG_LEVEL}" --pull=missing --layers=true --network=host)
 
 build_prebase_image() {
     local image_name="${IMAGE_REPO}:prebase-${TAG}"
     echo -e "\033[32mBuilding prebase image ${image_name}\033[m"
-    podman build \
+    podman build "${CACHE_FLAGS[@]}" "${PODMAN_BUILD_FLAGS[@]}" ${PODMAN_BUILD_EXTRA_FLAGS:-} \
         --build-arg SOURCE_GIT_TAG="${SOURCE_GIT_TAG}" \
         --build-arg SOURCE_GIT_TREE_STATE="${SOURCE_GIT_TREE_STATE}" \
         --build-arg SOURCE_GIT_COMMIT="${SOURCE_GIT_COMMIT}" \
-        -f "${SCRIPT_DIR}/Containerfile-prebase" \
-        -t "${image_name}" \
+        --target prebase \
+        -f "${SCRIPT_DIR}/Containerfile-base" \
+        -t "${image_name}" -t "${IMAGE_REPO}:prebase" \
         .
     echo -e "\033[32mSuccessfully built ${image_name}\033[m"
 }
@@ -88,21 +135,39 @@ build_base_image() {
 
     if [ -z "${prebase}" ]; then
         prebase="${IMAGE_REPO}:prebase-${TAG}"
-        echo -e "\033[33mPREBASE_IMAGE not provided, building ${prebase}\033[m"
-        build_prebase_image
+        echo -e "\033[33mPREBASE_IMAGE not provided, attempting to reuse or pull ${prebase}\033[m"
+        if podman image exists "${prebase}" >/dev/null 2>&1 || podman pull "${prebase}" >/dev/null 2>&1; then
+            echo -e "\033[33mFound prebase image ${prebase}, will reuse it\033[m"
+        else
+            echo -e "\033[33mPrebase image ${prebase} not found, building it locally\033[m"
+            build_prebase_image
+        fi
     else
         echo -e "\033[33mUsing provided PREBASE_IMAGE=${prebase}\033[m"
     fi
 
-    echo -e "\033[32mBuilding final base image ${final_image} from ${prebase}\033[m"
-    podman build \
-        --build-arg PREBASE_IMAGE="${prebase}" \
-        --build-arg SOURCE_GIT_TAG="${SOURCE_GIT_TAG}" \
-        --build-arg SOURCE_GIT_TREE_STATE="${SOURCE_GIT_TREE_STATE}" \
-        --build-arg SOURCE_GIT_COMMIT="${SOURCE_GIT_COMMIT}" \
-        -f "${SCRIPT_DIR}/Containerfile-base-rpm" \
-        -t "${final_image}" \
-        .
+    echo -e "\033[32mBuilding final base image ${final_image}\033[m"
+    if [ -n "${prebase}" ]; then
+        echo -e "\033[33mUsing external PREBASE_IMAGE for base build: ${prebase}\033[m"
+        podman build "${CACHE_FLAGS[@]}" "${PODMAN_BUILD_FLAGS[@]}" ${PODMAN_BUILD_EXTRA_FLAGS:-} \
+            --build-arg PREBASE_IMAGE="${prebase}" \
+            --build-arg SOURCE_GIT_TAG="${SOURCE_GIT_TAG}" \
+            --build-arg SOURCE_GIT_TREE_STATE="${SOURCE_GIT_TREE_STATE}" \
+            --build-arg SOURCE_GIT_COMMIT="${SOURCE_GIT_COMMIT}" \
+            --target base-external \
+            -f "${SCRIPT_DIR}/Containerfile-base" \
+            -t "${final_image}" -t "${IMAGE_REPO}:base" \
+            .
+    else
+        podman build "${CACHE_FLAGS[@]}" "${PODMAN_BUILD_FLAGS[@]}" ${PODMAN_BUILD_EXTRA_FLAGS:-} \
+            --build-arg SOURCE_GIT_TAG="${SOURCE_GIT_TAG}" \
+            --build-arg SOURCE_GIT_TREE_STATE="${SOURCE_GIT_TREE_STATE}" \
+            --build-arg SOURCE_GIT_COMMIT="${SOURCE_GIT_COMMIT}" \
+            --target base \
+            -f "${SCRIPT_DIR}/Containerfile-base" \
+            -t "${final_image}" -t "${IMAGE_REPO}:base" \
+            .
+    fi
     echo -e "\033[32mSuccessfully built ${final_image}\033[m"
 }
 
@@ -116,31 +181,44 @@ build_variant_image() {
     podman build \
         --build-arg BASE_IMAGE="${base_image}" \
         -f "${SCRIPT_DIR}/Containerfile-${variant}" \
-        -t "${variant_image}" \
+        -t "${variant_image}" -t "${IMAGE_REPO}:${variant}" \
         .
 
     echo -e "\033[32mSuccessfully built ${variant_image}\033[m"
 }
 
 build_variants() {
-    if ! [[ "$PARALLEL_JOBS" =~ ^[0-9]+$ ]] || [ "$PARALLEL_JOBS" -lt 1 ]; then
-        echo -e "\033[31mError: PARALLEL_JOBS must be a positive integer, got: $PARALLEL_JOBS\033[m"
-        PARALLEL_JOBS=1
-    fi
-
-    echo -e "\033[33mBuilding variant images in parallel (max $PARALLEL_JOBS jobs)...\033[m"
+    echo -e "\033[33mBuilding variant images with xargs (-P ${JOBS})...\033[m"
     echo -e "\033[33mVariants to build: ${VARIANTS}\033[m"
 
-    local job_count=0
-    for variant in $VARIANTS; do
-        while [ $job_count -ge $PARALLEL_JOBS ]; do
-            wait -n
-            job_count=$((job_count - 1))
+    local base_image="${IMAGE_REPO}:base-${TAG}"
+
+    # Join cache and build flags into strings for safe interpolation
+    local CACHE_FLAGS_JOINED=""
+    if [ "${#CACHE_FLAGS[@]}" -gt 0 ]; then
+        for f in "${CACHE_FLAGS[@]}"; do
+            CACHE_FLAGS_JOINED+=" ${f}"
         done
-        build_variant_image "$variant" &
-        job_count=$((job_count + 1))
-    done
-    wait
+    fi
+    local PODMAN_BUILD_FLAGS_JOINED=""
+    if [ "${#PODMAN_BUILD_FLAGS[@]}" -gt 0 ]; then
+        for f in "${PODMAN_BUILD_FLAGS[@]}"; do
+            PODMAN_BUILD_FLAGS_JOINED+=" ${f}"
+        done
+    fi
+    local EXTRA_FLAGS="${PODMAN_BUILD_EXTRA_FLAGS:-}"
+
+    # Export variables used by the xargs command
+    export IMAGE_REPO TAG SCRIPT_DIR PROJECT_ROOT base_image CACHE_FLAGS_JOINED PODMAN_BUILD_FLAGS_JOINED EXTRA_FLAGS
+
+    # Build all variants in parallel using xargs
+    printf '%s\n' ${VARIANTS} | xargs -n1 -P "${JOBS}" -I {} bash -lc '\
+        echo -e "\033[32mBuilding variant image ${IMAGE_REPO}:{}-${TAG}\033[m"; \
+        podman build'"${CACHE_FLAGS_JOINED}"' '"${PODMAN_BUILD_FLAGS_JOINED}"' '"${EXTRA_FLAGS}"' \
+          --build-arg BASE_IMAGE="${base_image}" \
+          -f "${SCRIPT_DIR}/Containerfile-{}" \
+          -t "${IMAGE_REPO}:{}-${TAG}" -t "${IMAGE_REPO}:{}" \
+          "${PROJECT_ROOT}"'
 
     echo -e "\033[32mAll variant images built successfully\033[m"
 }
@@ -181,12 +259,12 @@ build_sleep_app() {
 
     echo -e "\033[32mBuilding sleep app image ${image_name}\033[m"
 
-    podman build \
+    podman build "${PODMAN_BUILD_FLAGS[@]}" ${PODMAN_BUILD_EXTRA_FLAGS:-} \
         --build-arg SOURCE_GIT_TAG="${SOURCE_GIT_TAG}" \
         --build-arg SOURCE_GIT_TREE_STATE="${SOURCE_GIT_TREE_STATE}" \
         --build-arg SOURCE_GIT_COMMIT="${SOURCE_GIT_COMMIT}" \
         -f "${SCRIPT_DIR}/Containerfile-sleep-app-${variant}" \
-        -t "${image_name}" \
+        -t "${image_name}" -t "${SLEEP_APP_REPO}:${variant}" \
         .
 
     echo -e "\033[32mSuccessfully built ${image_name}\033[m"

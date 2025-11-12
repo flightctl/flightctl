@@ -47,3 +47,4 @@ RUN echo -e '#!/bin/bash\necho "my site"' > /usr/lib/flightctl/custom-info.d/sit
     chmod 755 /usr/lib/flightctl/custom-info.d/*
 
 
+

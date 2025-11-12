@@ -18,7 +18,7 @@ func (h *Harness) CreateFleetDeviceSpec(deviceImageTag string, additionalConfigs
 	// Set Os.Image only if deviceImageTag is provided
 	if deviceImageTag != "" {
 		deviceSpec.Os = &v1alpha1.DeviceOsSpec{
-			Image: fmt.Sprintf("%s/flightctl-device:%s", h.RegistryEndpoint(), deviceImageTag),
+			Image: h.FullImageRef(fmt.Sprintf("%s/flightctl-device", h.RegistryEndpoint()), deviceImageTag),
 		}
 	}
 

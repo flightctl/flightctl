@@ -209,8 +209,7 @@ func (h *Harness) WaitForBootstrapAndUpdateToVersion(deviceId string, version st
 	err = h.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
 		currentImage := device.Status.Os.Image
 		logrus.Infof("current image for %s is %s", deviceId, currentImage)
-		repo, _ := h.parseImageReference(currentImage)
-		newImageReference = repo + version
+		newImageReference = h.FullImageRef(currentImage, version)
 		device.Spec.Os = &v1alpha1.DeviceOsSpec{Image: newImageReference}
 		logrus.Infof("updating %s to image %s", deviceId, device.Spec.Os.Image)
 	})
