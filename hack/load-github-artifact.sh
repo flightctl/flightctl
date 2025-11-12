@@ -47,16 +47,28 @@ else
 
     echo "Looking up artifact '$ARTIFACT_NAME' in run $RUN_ID from $REPO"
 
-    # Find artifact ID by name (use high per_page to get all artifacts)
-    ARTIFACT_ID=$(gh api "/repos/${REPO}/actions/runs/${RUN_ID}/artifacts?per_page=100" \
-        --jq ".artifacts[] | select(.name==\"${ARTIFACT_NAME}\").id")
+    # Find artifacts by name (use high per_page to get all artifacts)
+    ARTIFACTS_JSON=$(gh api "/repos/${REPO}/actions/runs/${RUN_ID}/artifacts?per_page=100")
+    MATCHES_JSON=$(echo "$ARTIFACTS_JSON" | jq --arg name "$ARTIFACT_NAME" '[.artifacts[] | select(.name==$name)]')
+    MATCH_COUNT=$(echo "$MATCHES_JSON" | jq 'length')
 
-    if [[ -z "$ARTIFACT_ID" ]]; then
+    if [[ "$MATCH_COUNT" -eq 0 ]]; then
         echo "Error: Artifact '$ARTIFACT_NAME' not found in run $RUN_ID"
         exit 1
+    elif [[ "$MATCH_COUNT" -eq 1 ]]; then
+        ARTIFACT_ID=$(echo "$MATCHES_JSON" | jq -r '.[0].id')
+        echo "Found artifact ID: $ARTIFACT_ID"
+    else
+        DIGESTS_UNIQUE_COUNT=$(echo "$MATCHES_JSON" | jq '[.[].digest // ""] | unique | length')
+        if [[ "$DIGESTS_UNIQUE_COUNT" -gt 1 ]]; then
+            echo "Error: Multiple artifacts named '$ARTIFACT_NAME' found in run $RUN_ID with differing digests:"
+            echo "$MATCHES_JSON" | jq -r '.[] | "  id=\(.id) digest=\(.digest // "null") created_at=\(.created_at)"'
+            exit 1
+        fi
+        ARTIFACT_ID=$(echo "$MATCHES_JSON" | jq -r '.[0].id')
+        SHARED_DIGEST=$(echo "$MATCHES_JSON" | jq -r '.[0].digest // ""')
+        echo "Note: Found $MATCH_COUNT artifacts named '$ARTIFACT_NAME' with identical digest '$SHARED_DIGEST'. Using artifact ID: $ARTIFACT_ID"
     fi
-
-    echo "Found artifact ID: $ARTIFACT_ID"
 fi
 
 # Download and load into podman

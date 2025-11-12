@@ -1,12 +1,13 @@
-# quay.io/flightctl/flightctl-device:base
 #
-# Base bootc image used for E2E testing with the following features:
+# Multi-stage base image build for flightctl device images.
+# Targets:
+#   - prebase: bootc base with repos, tooling, users, services (no flightctl RPMs)
+#   - base:    final base image starting from prebase and layering flightctl RPMs
+#   - base-external: same as base, but uses an external image provided via PREBASE_IMAGE
 #
-# * User/pw: user/user
-# * flightctl-agent installed (without configuration/certificates)
-# * greenboot and podman-compose installed with podman service enabled
 
-FROM quay.io/centos-bootc/centos-bootc:stream9
+# ---------- Stage: prebase ----------
+FROM quay.io/centos-bootc/centos-bootc:stream9 AS prebase
 
 ARG SOURCE_GIT_TAG
 ARG SOURCE_GIT_TREE_STATE
@@ -16,22 +17,17 @@ LABEL org.opencontainers.image.source="https://github.com/flightctl/flightctl"
 LABEL org.opencontainers.image.version="${SOURCE_GIT_TAG}"
 LABEL org.opencontainers.image.revision="${SOURCE_GIT_COMMIT}"
 
-COPY rpms/*.rpm /tmp/rpms/
-
-RUN echo "Installing flightctl-agent RPMs" && \
-    dnf install -y /tmp/rpms/flightctl-agent-*.rpm /tmp/rpms/flightctl-selinux-*.rpm && \
-    systemctl enable flightctl-agent.service && \
-    echo "Cleaning up RPMs" && \
-    rm -rf /tmp/rpms
-
+# Enable EPEL repos
 RUN --mount=type=cache,target=/var/cache/dnf \
     --mount=type=cache,target=/var/lib/dnf \
     dnf install -y epel-release epel-next-release
 
+# Utilities used by tests
 RUN --mount=type=cache,target=/var/cache/dnf \
     --mount=type=cache,target=/var/lib/dnf \
     dnf install -y python-dotenv
 
+# Base services and tooling that don't depend on our RPMs
 RUN --mount=type=cache,target=/var/cache/dnf \
     --mount=type=cache,target=/var/lib/dnf \
     dnf install -y greenboot greenboot-default-health-checks podman-compose && \
@@ -39,14 +35,10 @@ RUN --mount=type=cache,target=/var/cache/dnf \
     systemctl enable firewalld.service && \
     systemctl enable podman.service
 
+# Create test user
 RUN useradd -ms /bin/bash user && \
     echo "user:user" | chpasswd && \
     echo "user ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
-
-# Create flightctl directories for runtime configuration
-# RUN mkdir -p /etc/flightctl/certs && \
-#    chmod 755 /etc/flightctl && \
-#    chmod 755 /etc/flightctl/certs
 
 # Create flightctl custom info directory
 RUN mkdir -p /usr/lib/flightctl/custom-info.d && \
@@ -57,6 +49,52 @@ RUN echo -e '#!/bin/bash\necho "my site"' > /usr/lib/flightctl/custom-info.d/sit
     echo -e '#!/bin/bash\necho ""' > /usr/lib/flightctl/custom-info.d/emptyValue && \
     echo -e '#!/bin/bash\necho "no-show"' > /usr/lib/flightctl/custom-info.d/keyNotShown && \
     chmod 755 /usr/lib/flightctl/custom-info.d/*
+
+
+# ---------- Stage: base (from prebase) ----------
+FROM prebase AS base
+
+ARG SOURCE_GIT_TAG
+ARG SOURCE_GIT_TREE_STATE
+ARG SOURCE_GIT_COMMIT
+
+LABEL org.opencontainers.image.source="https://github.com/flightctl/flightctl"
+LABEL org.opencontainers.image.version="${SOURCE_GIT_TAG}"
+LABEL org.opencontainers.image.revision="${SOURCE_GIT_COMMIT}"
+
+COPY rpms/*.rpm /tmp/rpms/
+RUN --mount=type=cache,target=/var/cache/dnf \
+    --mount=type=cache,target=/var/lib/dnf \
+    echo "Installing flightctl-agent RPMs" && \
+    dnf install -y /tmp/rpms/flightctl-agent-*.rpm /tmp/rpms/flightctl-selinux-*.rpm && \
+    systemctl enable flightctl-agent.service && \
+    echo "Cleaning up RPMs" && \
+    rm -rf /tmp/rpms
+
+
+# ---------- Stage: base-external (from provided PREBASE_IMAGE) ----------
+ARG PREBASE_IMAGE
+FROM ${PREBASE_IMAGE} AS base-external
+
+ARG SOURCE_GIT_TAG
+ARG SOURCE_GIT_TREE_STATE
+ARG SOURCE_GIT_COMMIT
+
+LABEL org.opencontainers.image.source="https://github.com/flightctl/flightctl"
+LABEL org.opencontainers.image.version="${SOURCE_GIT_TAG}"
+LABEL org.opencontainers.image.revision="${SOURCE_GIT_COMMIT}"
+
+COPY rpms/*.rpm /tmp/rpms/
+RUN --mount=type=cache,target=/var/cache/dnf \
+    --mount=type=cache,target=/var/lib/dnf \
+    echo "Installing flightctl-agent RPMs" && \
+    dnf install -y /tmp/rpms/flightctl-agent-*.rpm /tmp/rpms/flightctl-selinux-*.rpm && \
+    systemctl enable flightctl-agent.service && \
+    echo "Cleaning up RPMs" && \
+    rm -rf /tmp/rpms
+
+# End of multi-stage Containerfile for base images
+
 
 
 

@@ -121,19 +121,15 @@ jobs:
           
           ARCHIVE_NAME="image-flightctl-${MATRIX_IMAGE}.tar"
           
-          echo "::group::Saving image to archive"
           echo "Saving ${IMAGE}:${TAG} to ${ARCHIVE_NAME}"
           podman save -o "${ARCHIVE_NAME}" "${IMAGE}:${TAG}"
-          echo "::endgroup::"
           
           mkdir -p digests
           
-          echo "::group::Computing image digest"
           DIGEST="$(podman inspect "${IMAGE}:${TAG}" --format '{{.Digest}}' || true)"
           DIGEST_FILE="digests/${MATRIX_IMAGE}.txt"
           printf "%s\n" "${DIGEST}" > "${DIGEST_FILE}"
           echo "Digest: ${DIGEST}"
-          echo "::endgroup::"
           
           {
             echo "archive=${ARCHIVE_NAME}"
@@ -198,10 +194,8 @@ jobs:
           
           ARCHIVE_NAME="auxiliary-image-${MATRIX_IMAGE}.tar"
           
-          echo "::group::Saving image to archive"
           echo "Saving ${IMAGE}:${TAG} to ${ARCHIVE_NAME}"
           podman save -o "${ARCHIVE_NAME}" "${IMAGE}:${TAG}"
-          echo "::endgroup::"
           
           echo "archive=${ARCHIVE_NAME}" >> "$GITHUB_OUTPUT"
 
@@ -408,6 +402,16 @@ jobs:
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-
+      - name: Restore RPM DNF cache
+        id: rpm-dnf-cache-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            bin/rpm-dnf-cache
+            bin/rpm-dnf-lib
+          key: ${{ runner.os }}-rpm-dnf
+          restore-keys: |
+            ${{ runner.os }}-rpm-dnf
 #
 #      - name: Setup Go
 #        uses: actions/setup-go@v5
@@ -426,7 +430,78 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+      - name: Produce rpms manifest
+        run: |
+          set -euo pipefail
+          out='{"rpms":{"packages":['
+          first=1
+          for f in bin/rpm/*.rpm; do
+            [ -e "$f" ] || continue
+            bn=$(basename "$f")
+            echo "::group::Processing $bn"
+            if [[ "$bn" =~ ^(.+)-([0-9][^-]*)-([^.]*)\.([^.]+)\.rpm$ ]]; then
+              name="${BASH_REMATCH[1]}"
+              version="${BASH_REMATCH[2]}"
+              release="${BASH_REMATCH[3]}"
+              arch="${BASH_REMATCH[4]}"
+            else
+              # Fallback: best-effort parse
+              name="${bn%%-*}"
+              rest="${bn#*-}"
+              version="${rest%%-*}"
+              rest2="${rest#*-}"
+              release="${rest2%%.*}"
+              arch="${bn##*.}"
+              arch="${arch%.rpm}"
+            fi
+            echo "Name: $name, Version: $version, Release: $release, Arch: $arch"
+            url="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}#artifacts"
+            pkg=$(jq -cn --arg n "$name" --arg v "$version" --arg r "$release" --arg a "$arch" --arg u "$url" '{name:$n,version:$v,release:$r,architecture:$a,url:$u}')
+            if [ $first -eq 0 ]; then out+="","$pkg"; else out+="$pkg"; fi
+            first=0
+            echo "::endgroup::"
+          done
+          out+=']} }'
+          printf '%s' "$out" > rpms.json
+          cat rpms.json
+
+      - name: Upload rpms manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpms-manifest
+          path: rpms.json
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Save RPM DNF cache
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            bin/rpm-dnf-cache
+            bin/rpm-dnf-lib
+          key: ${{ runner.os }}-rpm-dnf
+
+  # =============================================================================
+  # AGENT IMAGES BUILD FLOW
+  # =============================================================================
+  # Agent images are built in multiple stages:
+  # 1. Prebase image: Base OS with flightctl dependencies (no RPMs yet)
+  # 2. Base image: Prebase + flightctl RPMs installed
+  # 3. Variants: Multiple specialized images built from base (podman/non-podman, various configs)
+  # 4. QCOW2: Virtual machine disk image created from base image
+  # 
+  # Traditional flow (multi-job):
+  #   build-rpms → build-agent-prebase-image → build-agent-base-image → ┬→ build-agent-variants
+  #                                                                      └→ build-qcow2
+  # 
+  # New unified flow (single job):
+  #   build-agent-images-unified: Fetches RPMs, builds prebase, builds base,
+  #                               then runs variants+qcow2 in parallel
+  # =============================================================================
+
   build-agent-prebase-image:
+    if: false  # Skipped in favor of build-agent-images-unified
     runs-on: ubuntu-24.04
     needs: [compute-tag]
     steps:
@@ -467,8 +542,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-dnf-
 
-      - name: Set permissions for DNF after restore
-        run: sudo mkdir -p /var/cache/dnf /var/lib/dnf && sudo chown -R root:root /var/cache/dnf /var/lib/dnf
+      # Removed root permission tweaks; prebase build runs rootless
 
       - name: Restore bootc-image-builder cache
         id: prebase-cache-bootc-restore
@@ -492,9 +566,7 @@ jobs:
           SOURCE_GIT_COMMIT: ${{ steps.prebase-version-vars.outputs.git_commit }}
         run: |
           set -euo pipefail
-          echo "::group::Building prebase agent image"
-          sudo -E ./test/scripts/agent-images-v2/build_agent_images.sh --mode prebase
-          echo "::endgroup::"
+          ./test/scripts/agent-images-v2/build_agent_images.sh --mode prebase
 
       - name: Save prebase image as artifact
         env:
@@ -502,10 +574,7 @@ jobs:
           IMAGE_REPO: quay.io/flightctl/flightctl-device
         run: |
           set -euo pipefail
-          echo "::group::Saving prebase image as artifact"
-          sudo podman save -o agent-image-prebase.tar "${IMAGE_REPO}:prebase-${TAG}"
-          sudo chown $USER:$USER agent-image-prebase.tar
-          echo "::endgroup::"
+          podman save -o agent-image-prebase.tar "${IMAGE_REPO}:prebase-${TAG}" "${IMAGE_REPO}:prebase"
 
       - name: Upload prebase image artifact
         uses: actions/upload-artifact@v4
@@ -571,6 +640,7 @@ jobs:
           retention-days: 1
 
   build-agent-base-image:
+    if: false  # Skipped in favor of build-agent-images-unified
     runs-on: ubuntu-24.04
     needs: [compute-tag, build-rpms, build-agent-prebase-image]
     steps:
@@ -611,8 +681,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-dnf-
 
-      - name: Set permissions for DNF after restore
-        run: sudo mkdir -p /var/cache/dnf /var/lib/dnf && sudo chown -R root:root /var/cache/dnf /var/lib/dnf
+      # Removed root permission tweaks; base build runs rootless
 
       - name: Restore bootc-image-builder cache
         id: cache-bootc-restore
@@ -634,7 +703,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "Loading prebase image artifact..."
-          sudo -E ./hack/load-github-artifact.sh agent-image-prebase "$RUN_ID" "$REPO"
+          ./hack/load-github-artifact.sh agent-image-prebase "$RUN_ID" "$REPO"
 
       - name: Download RPM artifacts
         uses: actions/download-artifact@v4
@@ -652,9 +721,7 @@ jobs:
           SOURCE_GIT_COMMIT: ${{ steps.version-vars.outputs.git_commit }}
         run: |
           set -euo pipefail
-          echo "::group::Building base agent image"
-          sudo -E ./test/scripts/agent-images-v2/build_agent_images.sh --mode base
-          echo "::endgroup::"
+          ./test/scripts/agent-images-v2/build_agent_images.sh --mode base
 
       - name: Save base image as artifact
         env:
@@ -662,10 +729,7 @@ jobs:
           IMAGE_REPO: quay.io/flightctl/flightctl-device
         run: |
           set -euo pipefail
-          echo "::group::Saving base image as artifact"
-          sudo podman save -o agent-image-base.tar "${IMAGE_REPO}:base-${TAG}"
-          sudo chown $USER:$USER agent-image-base.tar
-          echo "::endgroup::"
+          podman save -o agent-image-base.tar "${IMAGE_REPO}:base-${TAG}" "${IMAGE_REPO}:base"
 
       - name: Upload base image artifact
         uses: actions/upload-artifact@v4
@@ -687,6 +751,7 @@ jobs:
           key: ${{ runner.os }}-bootc-cache-e2e-${{ hashFiles('test/scripts/agent-images-v2/Containerfile-base') }}
 
   build-agent-variants:
+    if: false  # Skipped in favor of build-agent-images-unified
     runs-on: ubuntu-24.04
     needs: [compute-tag, build-agent-base-image]
     steps:
@@ -703,7 +768,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "Loading base image artifact..."
-          sudo -E ./hack/load-github-artifact.sh agent-image-base "$RUN_ID" "$REPO"
+          ./hack/load-github-artifact.sh agent-image-base "$RUN_ID" "$REPO"
 
       - name: Build variant images
         env:
@@ -712,26 +777,26 @@ jobs:
           PARALLEL_JOBS: 10
         run: |
           set -euo pipefail
-          echo "::group::Building variant images"
-          sudo -E ./test/scripts/agent-images-v2/build_agent_images.sh --mode variants
-          echo "::endgroup::"
+          ./test/scripts/agent-images-v2/build_agent_images.sh --mode variants
 
-      - name: Create variants bundle
+      - name: Create agent images bundle
         env:
           TAG: ${{ needs.compute-tag.outputs.tag }}
         run: |
           set -euo pipefail
-          echo "::group::Creating variants bundle"
-          mapfile -t agent_images < <(sudo podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-device:.*-${TAG}")
-          sudo podman save --format docker-archive -o agent-variants-bundle.tar -m "${agent_images[@]}"
-          sudo chown $USER:$USER agent-variants-bundle.tar
+          echo "::group::Creating agent images bundle (base + variants) with dual tags"
+          # Collect all flightctl-device images (both versioned and plain tags), excluding prebase
+          mapfile -t all_images < <(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-device:" | grep -v ":prebase")
+          echo "Found ${#all_images[@]} agent images (base + variants with all tags):"
+          printf '  %s\n' "${all_images[@]}"
+          podman save --format docker-archive -o agent-images-bundle.tar -m "${all_images[@]}"
           echo "::endgroup::"
 
-      - name: Upload variants bundle
+      - name: Upload agent images bundle
         uses: actions/upload-artifact@v4
         with:
-          name: agent-variants-bundle
-          path: agent-variants-bundle.tar
+          name: agent-images-bundle
+          path: agent-images-bundle.tar
           compression-level: 1
           if-no-files-found: error
           retention-days: 1
@@ -745,27 +810,49 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
+      
+      - name: Prepare version variables
+        id: sleep-version-vars
+        run: |
+          set -euo pipefail
+          SOURCE_GIT_TAG=$(git describe --tags --exclude latest 2>/dev/null || echo "v0.0.0-unknown")
+          if [ ! -d ".git" ]; then
+            SOURCE_GIT_TREE_STATE=clean
+          elif git diff --quiet; then
+            SOURCE_GIT_TREE_STATE=clean
+          else
+            SOURCE_GIT_TREE_STATE=dirty
+          fi
+          SOURCE_GIT_COMMIT=$(git rev-parse --short "HEAD^{commit}" 2>/dev/null || echo "unknown")
+          {
+            echo "git_tag=${SOURCE_GIT_TAG}"
+            echo "git_tree_state=${SOURCE_GIT_TREE_STATE}"
+            echo "git_commit=${SOURCE_GIT_COMMIT}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Build sleep app images
         env:
           TAG: ${{ needs.compute-tag.outputs.tag }}
           SLEEP_APP_REPO: quay.io/flightctl/sleep-app
           PARALLEL_JOBS: 4
+          SOURCE_GIT_TAG: ${{ steps.sleep-version-vars.outputs.git_tag }}
+          SOURCE_GIT_TREE_STATE: ${{ steps.sleep-version-vars.outputs.git_tree_state }}
+          SOURCE_GIT_COMMIT: ${{ steps.sleep-version-vars.outputs.git_commit }}
         run: |
           set -euo pipefail
-          echo "::group::Building sleep app images"
-          sudo -E ./test/scripts/agent-images-v2/build_agent_images.sh --mode sleep-apps
-          echo "::endgroup::"
+          ./test/scripts/agent-images-v2/build_agent_images.sh --mode sleep-apps
 
       - name: Create sleep app bundle
         env:
           TAG: ${{ needs.compute-tag.outputs.tag }}
         run: |
           set -euo pipefail
-          echo "::group::Creating sleep app bundle"
-          mapfile -t sleep_app_images < <(sudo podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/sleep-app:.*-${TAG}")
-          sudo podman save --format docker-archive -o sleep-app-images-bundle.tar -m "${sleep_app_images[@]}"
-          sudo chown $USER:$USER sleep-app-images-bundle.tar
+          echo "::group::Creating sleep app images bundle with dual tags"
+          # Collect all sleep-app images (both versioned and plain tags)
+          mapfile -t all_sleep_images < <(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/sleep-app:")
+          echo "Found ${#all_sleep_images[@]} sleep app images (all tags):"
+          printf '  %s\n' "${all_sleep_images[@]}"
+          podman save --format docker-archive -o sleep-app-images-bundle.tar -m "${all_sleep_images[@]}"
           echo "::endgroup::"
 
       - name: Upload sleep app bundle
@@ -778,6 +865,7 @@ jobs:
           retention-days: 1
 
   build-qcow2:
+    if: false  # Skipped in favor of build-agent-images-unified
     runs-on: ubuntu-24.04
     needs: [compute-tag, build-agent-base-image]
     steps:
@@ -814,10 +902,8 @@ jobs:
           IMAGE_REPO: quay.io/flightctl/flightctl-device
         run: |
           set -euo pipefail
-          echo "::group::Building qcow2 image"
           sudo -E ./test/scripts/agent-images-v2/build_agent_images.sh --mode qcow2
           sudo chown -R runner:runner output/
-          echo "::endgroup::"
 
       - name: Upload qcow2 image
         uses: actions/upload-artifact@v4
@@ -838,9 +924,9 @@ jobs:
             osbuild-cache
           key: ${{ runner.os }}-bootc-cache-e2e-${{ hashFiles('test/scripts/agent-images-v2/Containerfile-base') }}
 
-  bundle-agent-images:
+  build-agent-images-unified:
     runs-on: ubuntu-24.04
-    needs: [compute-tag, build-agent-variants, build-sleep-app-images]
+    needs: [compute-tag, build-rpms]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -848,37 +934,160 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
-      - name: Load bundles using artifact loader script
-        env:
-          RUN_ID: ${{ github.run_id }}
-          REPO: ${{ github.repository }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Prepare version variables
+        id: version-vars
         run: |
           set -euo pipefail
-          echo "Loading variant and sleep app bundles..."
-          sudo -E ./hack/load-github-artifact.sh agent-variants-bundle "$RUN_ID" "$REPO"
-          sudo -E ./hack/load-github-artifact.sh sleep-app-images-bundle "$RUN_ID" "$REPO"
+          SOURCE_GIT_TAG=$(git describe --tags --exclude latest 2>/dev/null || echo "v0.0.0-unknown")
+          if [ ! -d ".git" ]; then
+            SOURCE_GIT_TREE_STATE=clean
+          elif git diff --quiet; then
+            SOURCE_GIT_TREE_STATE=clean
+          else
+            SOURCE_GIT_TREE_STATE=dirty
+          fi
+          SOURCE_GIT_COMMIT=$(git rev-parse --short "HEAD^{commit}" 2>/dev/null || echo "unknown")
 
-      - name: Create agent images bundle
+          {
+            echo "git_tag=${SOURCE_GIT_TAG}"
+            echo "git_tree_state=${SOURCE_GIT_TREE_STATE}"
+            echo "git_commit=${SOURCE_GIT_COMMIT}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Restore DNF cache
+        id: cache-dnf-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            /var/cache/dnf
+            /var/lib/dnf
+          key: ${{ runner.os }}-dnf-e2e
+          restore-keys: |
+            ${{ runner.os }}-dnf-
+
+      - name: Restore bootc-image-builder cache
+        id: cache-bootc-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            bin/dnf-cache
+            bin/osbuild-cache
+            dnf-cache
+            osbuild-cache
+          key: ${{ runner.os }}-bootc-cache-e2e-unified-${{ hashFiles('test/scripts/agent-images-v2/Containerfile-prebase', 'test/scripts/agent-images-v2/Containerfile-base') }}
+          restore-keys: |
+            ${{ runner.os }}-bootc-cache-e2e-
+
+      - name: Download RPM artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: rpms-${{ github.sha }}
+          path: rpms
+
+      - name: Build base agent image (includes prebase)
         env:
           TAG: ${{ needs.compute-tag.outputs.tag }}
+          IMAGE_REPO: quay.io/flightctl/flightctl-device
+          SOURCE_GIT_TAG: ${{ steps.version-vars.outputs.git_tag }}
+          SOURCE_GIT_TREE_STATE: ${{ steps.version-vars.outputs.git_tree_state }}
+          SOURCE_GIT_COMMIT: ${{ steps.version-vars.outputs.git_commit }}
         run: |
           set -euo pipefail
-          IMAGE_REPO="quay.io/flightctl/flightctl-device"
-          SLEEP_APP_REPO="quay.io/flightctl/sleep-app"
-          echo "::group::Creating final bundle of all agent and sleep app images"
-          mapfile -t agent_images < <(sudo podman images --format "{{.Repository}}:{{.Tag}}" | grep "${IMAGE_REPO}:.*-${TAG}")
-          mapfile -t sleep_app_images < <(sudo podman images --format "{{.Repository}}:{{.Tag}}" | grep "${SLEEP_APP_REPO}:.*-${TAG}")
-          all_images=()
-          if [ ${#agent_images[@]} -gt 0 ]; then all_images+=("${agent_images[@]}"); fi
-          if [ ${#sleep_app_images[@]} -gt 0 ]; then all_images+=("${sleep_app_images[@]}"); fi
-          if [ ${#all_images[@]} -eq 0 ]; then
-            echo "No images found to bundle" >&2
-            exit 1
-          fi
-          sudo podman save --format docker-archive -o agent-images-bundle.tar -m "${all_images[@]}"
-          sudo chown runner:runner agent-images-bundle.tar
+          echo "::group::Building base image with prebase included"
+          sudo -E ./test/scripts/agent-images-v2/build_agent_images.sh --mode base
           echo "::endgroup::"
+
+      - name: Build variants+bundle and qcow2 in parallel
+        env:
+          TAG: ${{ needs.compute-tag.outputs.tag }}
+          IMAGE_REPO: quay.io/flightctl/flightctl-device
+          PARALLEL_JOBS: 10
+        run: |
+          set -euo pipefail
+          
+          # Create log files
+          VARIANTS_LOG=$(mktemp)
+          QCOW2_LOG=$(mktemp)
+          
+          echo "Starting parallel builds with sudo..."
+          echo "Variants+bundle log: $VARIANTS_LOG"
+          echo "QCOW2 log: $QCOW2_LOG"
+          
+          # Function to prefix logs
+          prefix_logs() {
+            local prefix="$1"
+            local logfile="$2"
+            while IFS= read -r line; do
+              echo "[$prefix] $line"
+            done < "$logfile"
+          }
+          
+          # Build variants and create bundle in same thread
+          (
+            echo "::group::Building agent variants and creating bundle"
+            
+            # Build variants
+            echo "[VARIANTS] Building agent variants..."
+            sudo -E ./test/scripts/agent-images-v2/build_agent_images.sh --mode variants 2>&1 | tee "$VARIANTS_LOG"
+            
+            # Create bundle immediately after variants are built
+            echo "[VARIANTS] Creating agent images bundle..."
+            mapfile -t all_images < <(sudo podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-device:" | grep -v ":prebase")
+            echo "[VARIANTS] Found ${#all_images[@]} agent images (base + variants with all tags):"
+            printf '[VARIANTS]   %s\n' "${all_images[@]}"
+            sudo podman save --format docker-archive -o agent-images-bundle.tar -m "${all_images[@]}"
+            sudo chown runner:runner agent-images-bundle.tar
+            echo "[VARIANTS] Bundle created: agent-images-bundle.tar"
+            
+            echo "::endgroup::"
+          ) &
+          VARIANTS_PID=$!
+          
+          # Build qcow2 in background with sudo
+          (
+            echo "::group::Building qcow2 image"
+            sudo -E ./test/scripts/agent-images-v2/build_agent_images.sh --mode qcow2 2>&1 | tee "$QCOW2_LOG"
+            echo "::endgroup::"
+          ) &
+          QCOW2_PID=$!
+          
+          # Wait for both processes and capture exit codes
+          VARIANTS_EXIT=0
+          QCOW2_EXIT=0
+          
+          wait $VARIANTS_PID || VARIANTS_EXIT=$?
+          wait $QCOW2_PID || QCOW2_EXIT=$?
+          
+          # Print prefixed logs
+          echo "::group::Variants+bundle build output"
+          prefix_logs "VARIANTS" "$VARIANTS_LOG"
+          echo "::endgroup::"
+          
+          echo "::group::QCOW2 build output"
+          prefix_logs "QCOW2" "$QCOW2_LOG"
+          echo "::endgroup::"
+          
+          # Clean up log files
+          rm -f "$VARIANTS_LOG" "$QCOW2_LOG"
+          
+          # Check if either build failed
+          if [ $VARIANTS_EXIT -ne 0 ]; then
+            echo "::error::Variants+bundle build failed with exit code $VARIANTS_EXIT"
+            exit $VARIANTS_EXIT
+          fi
+          
+          if [ $QCOW2_EXIT -ne 0 ]; then
+            echo "::error::QCOW2 build failed with exit code $QCOW2_EXIT"
+            exit $QCOW2_EXIT
+          fi
+          
+          echo "Both parallel builds completed successfully"
+          
+          # Fix ownership of all output files
+          echo "Fixing ownership of output directories..."
+          sudo chown -R runner:runner output/ || true
+          sudo chown -R runner:runner dnf-cache/ || true
+          sudo chown -R runner:runner osbuild-cache/ || true
 
       - name: Upload agent images bundle
         uses: actions/upload-artifact@v4
@@ -889,12 +1098,34 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+      - name: Upload qcow2 image
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-qcow2-image
+          path: output/qcow2/disk.qcow2
+          compression-level: 1
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Save caches
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            bin/dnf-cache
+            bin/osbuild-cache
+            dnf-cache
+            osbuild-cache
+          key: ${{ runner.os }}-bootc-cache-e2e-unified-${{ hashFiles('test/scripts/agent-images-v2/Containerfile-prebase', 'test/scripts/agent-images-v2/Containerfile-base') }}
+
+ 
+
   build-flightctl-cli:
     name: Build Flightctl CLI Binaries
     needs: [compute-tag]
     strategy:
       matrix:
-        tag: [ "linux-amd64", "linux-arm64", "darwin-amd64", "darwin-arm64", "windows-amd64", "windows-arm64" ]
+        tag: [ "linux-amd64" ]
+        # tag: [ "linux-amd64", "linux-arm64", "darwin-amd64", "darwin-arm64", "windows-amd64", "windows-arm64" ]
         include:
           # Linux builds
           - tag: linux-amd64
@@ -902,33 +1133,33 @@ jobs:
             os: linux
             zip: .tar.gz
             ext: ""
-          - tag: linux-arm64
-            arch: arm64
-            os: linux
-            zip: .tar.gz
-            ext: ""
-          # macOS builds
-          - tag: darwin-amd64
-            arch: amd64
-            os: darwin
-            zip: .zip
-            ext: ""
-          - tag: darwin-arm64
-            arch: arm64
-            os: darwin
-            zip: .zip
-            ext: ""
-          # Windows builds
-          - tag: windows-amd64
-            arch: amd64
-            os: windows
-            zip: .zip
-            ext: .exe
-          - tag: windows-arm64
-            arch: arm64
-            os: windows
-            zip: .zip
-            ext: .exe
+          # - tag: linux-arm64
+          #   arch: arm64
+          #   os: linux
+          #   zip: .tar.gz
+          #   ext: ""
+          # # macOS builds
+          # - tag: darwin-amd64
+          #   arch: amd64
+          #   os: darwin
+          #   zip: .zip
+          #   ext: ""
+          # - tag: darwin-arm64
+          #   arch: arm64
+          #   os: darwin
+          #   zip: .zip
+          #   ext: ""
+          # # Windows builds
+          # - tag: windows-amd64
+          #   arch: amd64
+          #   os: windows
+          #   zip: .zip
+          #   ext: .exe
+          # - tag: windows-arm64
+          #   arch: arm64
+          #   os: windows
+          #   zip: .zip
+          #   ext: .exe
 
     runs-on: ubuntu-24.04
     steps:
@@ -948,10 +1179,8 @@ jobs:
 
       - name: Build
         run: |
-          echo "::group::Building CLI for ${{ matrix.os }}-${{ matrix.arch }}"
           DISABLE_FIPS="true" GOOS="${{ matrix.os }}" GOARCH="${{ matrix.arch }}" make build-cli
           mv "bin/flightctl${{ matrix.ext }}" "flightctl-${{ matrix.os }}-${{ matrix.arch}}${{ matrix.ext }}"
-          echo "::endgroup::"
           
           echo "::group::Computing checksum and creating archive"
           SHA=$(shasum -a 256 flightctl-${{ matrix.os }}-${{ matrix.arch}}${{ matrix.ext }} | cut -d' ' -f1)
@@ -985,8 +1214,8 @@ jobs:
 
   artifacts-ready:
     runs-on: ubuntu-24.04
-    needs: [compute-tag, service-images-manifest, build-rpms, build-helm-charts, build-flightctl-cli, build-agent-variants, build-qcow2]
-    if: ${{ !cancelled() && needs.compute-tag.result == 'success' && needs.service-images-manifest.result == 'success' && needs.build-rpms.result == 'success' && needs.build-helm-charts.result == 'success' && needs.build-flightctl-cli.result == 'success' && needs.build-agent-variants.result == 'success' && needs.build-qcow2.result == 'success' }}
+    needs: [compute-tag, service-images-manifest, build-rpms, build-helm-charts, build-flightctl-cli, build-agent-images-unified]
+    if: ${{ !cancelled() && needs.compute-tag.result == 'success' && needs.service-images-manifest.result == 'success' && needs.build-rpms.result == 'success' && needs.build-helm-charts.result == 'success' && needs.build-flightctl-cli.result == 'success' && needs.build-agent-images-unified.result == 'success' }}
     steps:
       - name: Download service images manifest
         uses: actions/download-artifact@v4
@@ -1130,8 +1359,8 @@ jobs:
 
   test-artifacts-ready:
     runs-on: ubuntu-24.04
-    needs: [compute-tag, bundle-agent-images, build-qcow2]
-    if: ${{ !cancelled() && needs.compute-tag.result == 'success' && needs.bundle-agent-images.result == 'success' && needs.build-qcow2.result == 'success' }}
+    needs: [compute-tag, build-agent-images-unified]
+    if: ${{ !cancelled() && needs.compute-tag.result == 'success' && needs.build-agent-images-unified.result == 'success' }}
     steps:
       - name: Generate test artifacts summary
         run: |
@@ -1202,11 +1431,9 @@ jobs:
           set -euo pipefail
           CHART_FILE="flightctl-${TAG}.tgz"
 
-          echo "::group::Deploying FlightCtl with deploy_with_helm.sh"
           echo "Chart file: ${CHART_FILE}"
           echo "Image registry: quay.io/flightctl/"
           echo "Image tag: ${TAG}"
-          echo "::endgroup::"
 
           ./test/scripts/deploy_with_helm.sh \
             --chart-path="${CHART_FILE}" \
@@ -1251,7 +1478,7 @@ jobs:
 
   e2e-tests:
     runs-on: ubuntu-24.04
-    needs: [compute-tag, bundle-images, build-helm-charts, build-flightctl-cli, bundle-agent-images, build-qcow2, build-auxiliary-images]
+    needs: [compute-tag, bundle-images, build-helm-charts, build-flightctl-cli, build-agent-images-unified, build-sleep-app-images, build-auxiliary-images]
     strategy:
       fail-fast: false
       matrix:
@@ -1262,12 +1489,47 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android >/dev/null 2>&1 &
+          echo "Started background removal of /usr/local/lib/android (PID: $!)"
+          df -h
 
-      - name: Free Disk Space (Ubuntu)
-        uses: jlumbroso/free-disk-space@main
-        with:
-          tool-cache: false
-          large-packages: true # disabling this will result in ~4.6 GB not freed, but will save 2-3 minutes of exec time
+      - name: Start disk space monitoring
+        run: |
+          cat > /tmp/disk_monitor.sh << 'EOF'
+          #!/bin/bash
+          prev_percent=0
+
+          # Cleanup function
+          cleanup() {
+            echo "Disk monitoring stopped"
+            exit 0
+          }
+
+          # Handle termination signals
+          trap cleanup TERM INT EXIT
+
+          while [ ! -f /tmp/stop_disk_monitor ]; do
+            usage=$(df / | tail -1 | awk '{print $5}' | sed 's/%//')
+            echo "$usage" > /tmp/disk_usage_percent.txt
+
+            if [ "$usage" -gt 90 ] && [ "$usage" -gt "$prev_percent" ]; then
+              echo "::warning::Disk usage is at ${usage}% and growing"
+              prev_percent=$usage
+            fi
+
+            sleep 1
+          done
+
+          cleanup
+          EOF
+          chmod +x /tmp/disk_monitor.sh
+          /tmp/disk_monitor.sh &
+          MONITOR_PID=$!
+          echo "MONITOR_PID=$MONITOR_PID" >> $GITHUB_ENV
+          echo "Disk monitoring started in background (PID: $MONITOR_PID)"
 
       # ========== SETUP DEPENDENCIES ==========
       - name: Setup dependencies (KVM, libvirt, etc)
@@ -1279,7 +1541,7 @@ jobs:
       - name: Download required test artifacts (one step)
         uses: actions/download-artifact@v4
         with:
-          pattern: "{flightctl-images-bundle,helm-chart,flightctl-linux-amd64,auxiliary-image-git-server,agent-images-bundle,agent-qcow2-image}"
+          pattern: "{flightctl-images-bundle,helm-chart,flightctl-linux-amd64,auxiliary-image-git-server,agent-images-bundle,sleep-app-images-bundle,agent-qcow2-image}"
           path: artifacts
           merge-multiple: true
 
@@ -1299,7 +1561,7 @@ jobs:
             echo "disk.qcow2 not found in artifacts" >&2
             exit 1
           fi
-          cp -f "${src}" bin/output/qcow2/disk.qcow2
+          mv -f "${src}" bin/output/qcow2/disk.qcow2
 
       - name: Setup CLI binary
         run: |
@@ -1317,42 +1579,27 @@ jobs:
       - name: Load backend images into kind
         run: |
           set -euo pipefail
-          echo "::group::Loading backend service images into kind"
+          echo "Loading backend service images into kind"
           kind load image-archive artifacts/flightctl-images-bundle.tar
           echo "Backend images loaded successfully"
-          echo "::endgroup::"
 
       - name: Load git-server image into kind
         run: |
           set -euo pipefail
-          echo "::group::Loading git-server image into kind"
+          echo "Loading git-server image into kind"
           kind load image-archive artifacts/auxiliary-image-git-server.tar
           echo "Git-server image loaded successfully"
-          echo "::endgroup::"
 
-      - name: Load agent images into root podman (for e2e VM tests)
-        env:
-          RUN_ID: ${{ github.run_id }}
-          REPO: ${{ github.repository }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          echo "::group::Loading agent images into root podman storage"
-          echo "Agent images needed in root storage for libvirt/VM-based e2e tests"
-          sudo -E ./hack/load-github-artifact.sh agent-images-bundle "$RUN_ID" "$REPO"
-          echo "Agent images loaded successfully"
-          echo "::endgroup::"
+      # Assume skopeo and jq are available on the runner; avoid sudo outside qcow job
 
       - name: Clean up image bundle files
         run: |
           set -euo pipefail
           echo "::group::Cleaning up image bundle files"
-          echo "Removing image bundle files to free up disk space..."
-          rm -f artifacts/*.tar
-          echo "Removed all .tar files from artifacts/"
-          echo "::endgroup::"
-          
-          echo "::group::Disk space after cleanup"
+          echo "Removing backend and auxiliary image bundles (no longer needed after loading into kind)..."
+          rm -f artifacts/flightctl-images-bundle.tar
+          rm -f artifacts/auxiliary-image-git-server.tar
+          echo "Kept agent-images-bundle.tar and sleep-app-images-bundle.tar (needed for E2E registry push)"
           df -h
           echo "::endgroup::"
 
@@ -1379,45 +1626,78 @@ jobs:
       - name: Create E2E certificates and SSH keys
         run: |
           set -euo pipefail
-          echo "::group::Creating E2E certificates and SSH keys"
           ./test/scripts/create_e2e_certs.sh
-          echo "::endgroup::"
 
       - name: Deploy E2E extras (registry, git-server)
         env:
           TAG: ${{ needs.compute-tag.outputs.tag }}
         run: |
           set -euo pipefail
-          echo "::group::Deploying E2E extras"
           export GITSERVER_IMAGE="quay.io/flightctl-tests/git-server:${TAG}"
           ./test/scripts/deploy_e2e_extras_with_helm.sh
-          echo "::endgroup::"
 
       - name: Push agent and sleep app images to E2E registry
         run: |
           set -euo pipefail
           echo "::group::Pushing agent and sleep app images to E2E registry"
-          sudo ./test/scripts/agent-images-v2/push_images_to_e2e_registry.sh
+          
+          # Verify required files exist
+          if [ ! -f artifacts/agent-images-bundle.tar ]; then
+            echo "::error::artifacts/agent-images-bundle.tar not found"
+            exit 1
+          fi
+          if [ ! -f artifacts/sleep-app-images-bundle.tar ]; then
+            echo "::error::artifacts/sleep-app-images-bundle.tar not found"
+            exit 1
+          fi
+          
+          source ./test/scripts/functions
+          export REGISTRY_ENDPOINT="$(registry_address)"
+          echo "Using REGISTRY_ENDPOINT=${REGISTRY_ENDPOINT}"
+          
+          echo "Pushing agent images bundle..."
+          ./test/scripts/agent-images-v2/upload-images.sh artifacts/agent-images-bundle.tar --insecure --jobs 2
+          agent_exit=$?
+          if [ $agent_exit -ne 0 ]; then
+            echo "::error::Failed to push agent images (exit code: $agent_exit)"
+            exit $agent_exit
+          fi
+          
+          echo "Pushing sleep app images bundle..."
+          ./test/scripts/agent-images-v2/upload-images.sh artifacts/sleep-app-images-bundle.tar --insecure --jobs 2
+          sleep_exit=$?
+          if [ $sleep_exit -ne 0 ]; then
+            echo "::error::Failed to push sleep app images (exit code: $sleep_exit)"
+            exit $sleep_exit
+          fi
+          
+          echo "Successfully pushed all images to registry"
+          echo "::endgroup::"
+
+      - name: Clean up agent and sleep app bundles
+        run: |
+          set -euo pipefail
+          echo "::group::Cleaning up agent and sleep app bundle files"
+          echo "Removing agent and sleep app bundles (no longer needed after push to E2E registry)..."
+          rm -f artifacts/agent-images-bundle.tar
+          rm -f artifacts/sleep-app-images-bundle.tar
+          echo "All bundle files cleaned up"
+          df -h
           echo "::endgroup::"
 
       - name: Prune Podman images (post-push)
         run: |
           set -euo pipefail
           echo "::group::Pruning Podman images to free space"
-          sudo podman image prune -af
-          sudo podman system df || true
-          echo "::endgroup::"
-
-          echo "::group::Disk space after cleanup"
+          podman image prune -af
+          podman system df || true
           df -h
           echo "::endgroup::"
 
       - name: Prepare agent configuration
         run: |
           set -euo pipefail
-          echo "::group::Preparing agent configuration"
           ./test/scripts/agent-images-v2/prepare_agent_config.sh --status-update-interval 0m2s --spec-fetch-interval 0m2s
-          echo "::endgroup::"
 
       - name: Inject agent files into qcow2
         run: |
@@ -1436,12 +1716,8 @@ jobs:
       - name: Setup E2E test environment
         run: |
           set -euo pipefail
-          echo "::group::Setting up E2E environment"
           ./test/scripts/setup_e2e_environment.sh
-          echo "::endgroup::"
-          echo "::group::Disk space"
           df -h
-          echo "::endgroup::"
       # ========== RUN E2E TESTS ==========
       - name: Run E2E tests (agent tests only)
         run: |
@@ -1461,6 +1737,17 @@ jobs:
           namespace-external: 'flightctl-external'
           namespace-internal: 'flightctl-internal'
           log-directory: 'e2e-logs-node-${{ matrix.ginkgo_node }}'
+
+      - name: Stop disk space monitoring
+        if: always()
+        run: |
+          echo "Stopping disk monitoring..."
+          touch /tmp/stop_disk_monitor
+          if [ -n "${MONITOR_PID:-}" ]; then
+            kill $MONITOR_PID 2>/dev/null || true
+          fi
+          echo "Disk monitoring stopped"
+          df -h
 
   e2e-test:
     runs-on: ubuntu-latest

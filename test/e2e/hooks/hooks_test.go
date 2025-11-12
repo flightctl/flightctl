@@ -33,7 +33,7 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 			nextRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())
 
-			deviceImage := fmt.Sprintf("%s/flightctl-device:v6", harness.RegistryEndpoint())
+			deviceImage := harness.FullImageRef(fmt.Sprintf("%s/flightctl-device", harness.RegistryEndpoint()), "v6")
 
 			var osImageSpec = v1alpha1.DeviceOsSpec{
 				Image: deviceImage,
@@ -138,7 +138,7 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 			By("Check pre/after update and pre/after reboot hooks from inline config works")
 			nextRenderedVersion, err = harness.PrepareNextDeviceVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())
-			deviceImage = fmt.Sprintf("%s/flightctl-device:base", harness.RegistryEndpoint())
+			deviceImage = harness.FullImageRef(fmt.Sprintf("%s/flightctl-device", harness.RegistryEndpoint()), "base")
 
 			osImageSpec.Image = deviceImage
 			err = inlineConfigProviderSpec.FromInlineConfigProviderSpec(inlineConfigValidLifecycle)

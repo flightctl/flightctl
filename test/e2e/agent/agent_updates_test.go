@@ -112,7 +112,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
 				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusType("Online")))
 
-			GinkgoWriter.Printf("Device updated to new image %s 🎉\n", "flightctl-device:v4")
+			GinkgoWriter.Printf("Device updated to new image %s 🎉\n", "flightctl/flightctl-device:v4")
 			GinkgoWriter.Printf("We expect containers with sleep infinity process to be present but not running\n")
 			stdout, err := harness.VM.RunSSH([]string{"sudo", "podman", "ps"}, nil)
 			Expect(err).NotTo(HaveOccurred())
@@ -156,7 +156,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
 				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusType("Online")))
 
-			GinkgoWriter.Printf("Device updated to new image %s 🎉\n", "flightctl-device:base")
+			GinkgoWriter.Printf("Device updated to new image %s 🎉\n", "flightctl/flightctl-device:base")
 			Expect(device.Spec.Applications).To(BeNil())
 			GinkgoWriter.Printf("Application demo_embedded_app is not present in new image 🌞\n")
 
