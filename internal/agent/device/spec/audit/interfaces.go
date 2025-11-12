@@ -5,17 +5,29 @@ import (
 	"time"
 )
 
-// AuditType represents the type of audit event (action-based).
+// AuditReason represents why the state change is happening (lifecycle phase).
+type AuditReason string
+
+const (
+	// AuditReasonBootstrap represents initial device enrollment
+	AuditReasonBootstrap AuditReason = "bootstrap"
+	// AuditReasonSync represents receiving a new spec from the management API
+	AuditReasonSync AuditReason = "sync"
+	// AuditReasonUpgrade represents applying a new desired spec
+	AuditReasonUpgrade AuditReason = "upgrade"
+	// AuditReasonRollback represents reverting to a previous working spec
+	AuditReasonRollback AuditReason = "rollback"
+)
+
+// AuditType represents the type of spec file operation.
 type AuditType string
 
 const (
-	// AuditTypeBootstrap represents initial device enrollment
-	AuditTypeBootstrap AuditType = "bootstrap"
-	// AuditTypeSync represents receiving a new spec from the management API (desired.json write)
-	AuditTypeSync AuditType = "sync"
-	// AuditTypeUpgrade represents applying a new desired spec (current.json write)
-	AuditTypeUpgrade AuditType = "upgrade"
-	// AuditTypeRollback represents reverting to a previous working spec
+	// AuditTypeCurrent represents writing to current.json (effective spec)
+	AuditTypeCurrent AuditType = "current"
+	// AuditTypeDesired represents writing to desired.json (target spec from API)
+	AuditTypeDesired AuditType = "desired"
+	// AuditTypeRollback represents reverting to a previous version
 	AuditTypeRollback AuditType = "rollback"
 )
 
@@ -36,7 +48,8 @@ type AuditEvent struct {
 	OldVersion           string      `json:"old_version"`            // current effective version before the attempt
 	NewVersion           string      `json:"new_version"`            // target version
 	Result               AuditResult `json:"result"`                 // success | failure
-	Type                 AuditType   `json:"type"`                   // bootstrap/sync/upgrade/rollback
+	Reason               AuditReason `json:"reason"`                 // bootstrap/sync/upgrade/rollback (WHY)
+	Type                 AuditType   `json:"type"`                   // current/desired/rollback (WHAT file operation)
 	FleetTemplateVersion string      `json:"fleet_template_version"` // from metadata.annotations["fleet-controller/templateVersion"]
 	AgentVersion         string      `json:"agent_version"`          // e.g., 0.10.0
 }
@@ -48,7 +61,8 @@ type AuditEventInfo struct {
 	OldVersion           string
 	NewVersion           string
 	Result               AuditResult
-	Type                 AuditType
+	Reason               AuditReason // WHY: bootstrap/sync/upgrade/rollback
+	Type                 AuditType   // WHAT: current/desired/rollback
 	FleetTemplateVersion string
 	StartTime            time.Time // When the operation started
 }

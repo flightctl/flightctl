@@ -31,8 +31,6 @@ type Writer interface {
 	PathFor(filePath string) string
 	// WriteFile writes the provided data to the file at the path with the provided permissions and ownership information
 	WriteFile(name string, data []byte, perm fs.FileMode, opts ...FileOption) error
-	// AppendFile appends the provided data to the file at the path, creating the file if it doesn't exist
-	AppendFile(name string, data []byte, perm fs.FileMode, opts ...FileOption) error
 	// RemoveFile removes the file at the given path
 	RemoveFile(file string) error
 	// RemoveAll removes the file or directory at the given path

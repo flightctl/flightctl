@@ -121,25 +121,6 @@ func (m *MockWriter) EXPECT() *MockWriterMockRecorder {
 	return m.recorder
 }
 
-// AppendFile mocks base method.
-func (m *MockWriter) AppendFile(name string, data []byte, perm fs.FileMode, opts ...FileOption) error {
-	m.ctrl.T.Helper()
-	varargs := []any{name, data, perm}
-	for _, a := range opts {
-		varargs = append(varargs, a)
-	}
-	ret := m.ctrl.Call(m, "AppendFile", varargs...)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// AppendFile indicates an expected call of AppendFile.
-func (mr *MockWriterMockRecorder) AppendFile(name, data, perm any, opts ...any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	varargs := append([]any{name, data, perm}, opts...)
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AppendFile", reflect.TypeOf((*MockWriter)(nil).AppendFile), varargs...)
-}
-
 // CopyDir mocks base method.
 func (m *MockWriter) CopyDir(src, dst string, opts ...CopyDirOption) error {
 	m.ctrl.T.Helper()
@@ -438,25 +419,6 @@ func NewMockReadWriter(ctrl *gomock.Controller) *MockReadWriter {
 // EXPECT returns an object that allows the caller to indicate expected use.
 func (m *MockReadWriter) EXPECT() *MockReadWriterMockRecorder {
 	return m.recorder
-}
-
-// AppendFile mocks base method.
-func (m *MockReadWriter) AppendFile(name string, data []byte, perm fs.FileMode, opts ...FileOption) error {
-	m.ctrl.T.Helper()
-	varargs := []any{name, data, perm}
-	for _, a := range opts {
-		varargs = append(varargs, a)
-	}
-	ret := m.ctrl.Call(m, "AppendFile", varargs...)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// AppendFile indicates an expected call of AppendFile.
-func (mr *MockReadWriterMockRecorder) AppendFile(name, data, perm any, opts ...any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	varargs := append([]any{name, data, perm}, opts...)
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AppendFile", reflect.TypeOf((*MockReadWriter)(nil).AppendFile), varargs...)
 }
 
 // CopyDir mocks base method.
