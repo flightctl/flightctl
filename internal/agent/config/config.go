@@ -90,8 +90,8 @@ type Config struct {
 	// TPM holds all TPM-related configuration
 	TPM TPM `json:"tpm,omitempty"`
 
-	// Audit holds all audit logging configuration
-	Audit audit.AuditConfig `json:"audit,omitempty"`
+	// AuditLog holds all audit logging configuration
+	AuditLog audit.AuditConfig `json:"audit,omitempty"`
 
 	// LogLevel is the level of logging. can be:  "panic", "fatal", "error", "warn"/"warning",
 	// "info", "debug" or "trace", any other will be treated as "info"
@@ -187,7 +187,7 @@ func NewDefault() *Config {
 			DevicePath:      DefaultTPMDevicePath,
 			StorageFilePath: filepath.Join(DefaultDataDir, DefaultTPMKeyFile),
 		},
-		Audit: *audit.NewDefaultAuditConfig(),
+		AuditLog: *audit.NewDefaultAuditConfig(),
 	}
 
 	if value := os.Getenv(TestRootDirEnvKey); value != "" {
@@ -277,9 +277,9 @@ func (cfg *Config) Validate() error {
 		return fmt.Errorf("cannot enable TPM password authentication when TPM device identity is disabled")
 	}
 
-	// Validate audit configuration
-	if err := cfg.Audit.Validate(cfg.readWriter); err != nil {
-		return fmt.Errorf("audit configuration validation failed: %w", err)
+	// Validate audit log configuration
+	if err := cfg.AuditLog.Validate(cfg.readWriter); err != nil {
+		return fmt.Errorf("audit log configuration validation failed: %w", err)
 	}
 
 	requiredFields := []struct {
@@ -419,10 +419,8 @@ func mergeConfigs(base, override *Config) {
 	overrideIfNotEmpty(&base.TPM.DevicePath, override.TPM.DevicePath)
 	overrideIfNotEmpty(&base.TPM.StorageFilePath, override.TPM.StorageFilePath)
 
-	// audit
-	if override.Audit.Enabled != nil {
-		base.Audit.Enabled = override.Audit.Enabled
-	}
+	// audit log
+	overrideIfNotEmpty(&base.AuditLog.Enabled, override.AuditLog.Enabled)
 
 	// instrumentation
 	overrideIfNotEmpty(&base.MetricsEnabled, override.MetricsEnabled)

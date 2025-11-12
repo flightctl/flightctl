@@ -130,52 +130,6 @@ func (w *writer) WriteFile(name string, data []byte, perm fs.FileMode, opts ...F
 	return writeFileAtomically(filepath.Join(w.rootDir, name), data, DefaultDirectoryPermissions, perm, uid, gid)
 }
 
-func (w *writer) AppendFile(name string, data []byte, perm fs.FileMode, opts ...FileOption) error {
-	fopts := &fileOptions{}
-	for _, opt := range opts {
-		opt(fopts)
-	}
-
-	var uid, gid int
-	// if rootDir is set use the default UID and GID
-	if w.rootDir != "" {
-		defaultUID, defaultGID, err := getUserIdentity()
-		if err != nil {
-			return err
-		}
-		uid = defaultUID
-		gid = defaultGID
-	} else {
-		uid = fopts.uid
-		gid = fopts.gid
-	}
-
-	filePath := filepath.Join(w.rootDir, name)
-
-	// Create directory if it doesn't exist
-	if err := os.MkdirAll(filepath.Dir(filePath), DefaultDirectoryPermissions); err != nil {
-		return err
-	}
-
-	// Open file for appending, create if not exists
-	file, err := os.OpenFile(filePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, perm)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	// Set ownership if specified
-	if uid != 0 || gid != 0 {
-		if err := file.Chown(uid, gid); err != nil {
-			return err
-		}
-	}
-
-	// Append data
-	_, err = file.Write(data)
-	return err
-}
-
 func (w *writer) RemoveFile(file string) error {
 	if err := os.Remove(filepath.Join(w.rootDir, file)); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove file %q: %w", file, err)
@@ -663,4 +617,56 @@ func WriteTmpFile(rw ReadWriter, prefix, filename string, content []byte, perm o
 		_ = rw.RemoveAll(tmpDir)
 	}
 	return tmpPath, cleanup, nil
+}
+
+// AppendFile appends the provided data to the file at the path, creating the file if it doesn't exist.
+// This is a standalone function rather than a Writer interface method to keep the interface focused
+// on core operations. It's primarily used for audit logging.
+func AppendFile(w Writer, name string, data []byte, perm fs.FileMode, opts ...FileOption) error {
+	fopts := &fileOptions{}
+	for _, opt := range opts {
+		opt(fopts)
+	}
+
+	var uid, gid int
+	// Check if we're in test mode by checking if PathFor returns a modified path
+	testPath := w.PathFor("")
+	if testPath != "" {
+		// Test mode: use default UID and GID
+		defaultUID, defaultGID, err := getUserIdentity()
+		if err != nil {
+			return err
+		}
+		uid = defaultUID
+		gid = defaultGID
+	} else {
+		// Production mode: use provided or default ownership
+		uid = fopts.uid
+		gid = fopts.gid
+	}
+
+	filePath := w.PathFor(name)
+
+	// Create directory if it doesn't exist
+	if err := os.MkdirAll(filepath.Dir(filePath), DefaultDirectoryPermissions); err != nil {
+		return err
+	}
+
+	// Open file for appending, create if not exists
+	file, err := os.OpenFile(filePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, perm)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	// Set ownership if specified (use -1 as "don't change ownership" sentinel)
+	if uid != -1 && gid != -1 {
+		if err := file.Chown(uid, gid); err != nil {
+			return err
+		}
+	}
+
+	// Append data
+	_, err = file.Write(data)
+	return err
 }

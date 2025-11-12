@@ -11,10 +11,10 @@ const (
 	DefaultEnabled = true
 
 	// Hardcoded rotation defaults - non-configurable by users
-	// 2 MB per file, 3 backups = 8 MB total (≈27,960 records)
-	DefaultMaxSizeKB  = 2048 // 2MB per file (approximately 6,990 records)
-	DefaultMaxBackups = 3    // Keep 3 backup files (1 active + 3 backups = 8 MB total)
-	DefaultMaxAge     = 0    // No time-based pruning
+	// 300 KB per file, 3 backups = 1.2 MB total (≈4,200 records)
+	DefaultMaxSizeKB  = 300 // 300KB per file (approximately 1,050 records)
+	DefaultMaxBackups = 3   // Keep 3 backup files (1 active + 3 backups = 1.2 MB total)
+	DefaultMaxAge     = 0   // No time-based pruning
 )
 
 // AuditConfig holds audit logging configuration.

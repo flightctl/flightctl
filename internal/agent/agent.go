@@ -191,7 +191,7 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	// create audit logger
 	auditLogger, err := audit.NewFileLogger(
-		&a.config.Audit,
+		&a.config.AuditLog,
 		deviceReadWriter,
 		deviceName,
 		version.Get().String(),

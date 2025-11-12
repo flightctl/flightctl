@@ -55,9 +55,14 @@ func NewFileLogger(
 	}
 
 	// Initialize lumberjack logger with hardcoded rotation settings
+	// Convert KB to MB with proper rounding up and enforce minimum of 1 MB
+	maxSizeMB := (DefaultMaxSizeKB + 1023) / 1024
+	if maxSizeMB < 1 {
+		maxSizeMB = 1
+	}
 	rotatingLog := &lumberjack.Logger{
 		Filename:   DefaultLogPath,
-		MaxSize:    DefaultMaxSizeKB / 1024, // Convert KB to MB for lumberjack
+		MaxSize:    maxSizeMB, // MB (300KB rounds up to 1MB)
 		MaxBackups: DefaultMaxBackups,
 		MaxAge:     DefaultMaxAge,
 		Compress:   false, // Keep uncompressed for easier debugging
@@ -87,6 +92,7 @@ func (f *FileLogger) LogEvent(ctx context.Context, info *AuditEventInfo) error {
 		OldVersion:           info.OldVersion,
 		NewVersion:           info.NewVersion,
 		Result:               info.Result,
+		Reason:               info.Reason,
 		Type:                 info.Type,
 		FleetTemplateVersion: info.FleetTemplateVersion,
 		AgentVersion:         f.agentVersion,
@@ -118,8 +124,8 @@ func (f *FileLogger) writeEvent(event AuditEvent) error {
 	// Check if we're in test mode (fileio has PathFor method that indicates testing)
 	// In tests, use fileio AppendFile for mockability. In production, use lumberjack for rotation.
 	if testPath := f.readWriter.PathFor(""); testPath != "" {
-		// Test mode: use fileio AppendFile (allows mocking)
-		if err := f.readWriter.AppendFile(DefaultLogPath, eventBytes, fileio.DefaultFilePermissions); err != nil {
+		// Test mode: use fileio AppendFile standalone function (allows testing with concrete writer)
+		if err := fileio.AppendFile(f.readWriter, DefaultLogPath, eventBytes, fileio.DefaultFilePermissions); err != nil {
 			return fmt.Errorf("appending audit event to %q: %w", DefaultLogPath, err)
 		}
 	} else {
@@ -136,7 +142,7 @@ func (f *FileLogger) writeEvent(event AuditEvent) error {
 		}
 	}
 
-	f.log.Debugf("Wrote audit event: %s %s->%s %s", event.Type, event.OldVersion, event.NewVersion, event.Result)
+	f.log.Debugf("Wrote audit event: reason=%s type=%s %s->%s %s", event.Reason, event.Type, event.OldVersion, event.NewVersion, event.Result)
 
 	return nil
 }
