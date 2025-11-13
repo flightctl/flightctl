@@ -137,7 +137,6 @@ func (c *cache) update(specType Type, device *v1alpha1.Device) {
 	}
 
 	renderedVersion := device.Version()
-
 	switch specType {
 	case Current:
 		c.current.renderedVersion = renderedVersion

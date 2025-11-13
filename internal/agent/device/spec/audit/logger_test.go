@@ -66,7 +66,8 @@ func TestNewFileLogger(t *testing.T) {
 			deviceID:   "test-device",
 			log:        log.NewPrefixLogger("test"),
 			setupMocks: func(mockRW *fileio.MockReadWriter) {
-				// No mocks needed - validation is pure with no side effects
+				// Mock PathFor call for lumberjack initialization
+				mockRW.EXPECT().PathFor(DefaultLogPath).Return("/tmp/test/var/log/flightctl/audit.log")
 			},
 		},
 	}

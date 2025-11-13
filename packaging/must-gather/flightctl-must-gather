@@ -30,7 +30,7 @@ echo "### Flightctl Spec Files..."
 cp /var/lib/flightctl/*.json "$temp_dir/" 2>/dev/null || true
 
 echo "### Flightctl Audit Log..."
-cp /var/log/flightctl/audit.log "$temp_dir/" 2>/dev/null || true
+cp /var/log/flightctl/audit.log* "$temp_dir/" 2>/dev/null || true
 
 output_file="$temp_dir/system_info.txt"
 

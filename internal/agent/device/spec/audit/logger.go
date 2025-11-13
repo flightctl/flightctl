@@ -60,8 +60,12 @@ func NewFileLogger(
 	if maxSizeMB < 1 {
 		maxSizeMB = 1
 	}
+
+	// Use readWriter to get the correct log path (handles test vs production)
+	logPath := readWriter.PathFor(DefaultLogPath)
+
 	rotatingLog := &lumberjack.Logger{
-		Filename:   DefaultLogPath,
+		Filename:   logPath,
 		MaxSize:    maxSizeMB, // MB (300KB rounds up to 1MB)
 		MaxBackups: DefaultMaxBackups,
 		MaxAge:     DefaultMaxAge,
@@ -113,8 +117,8 @@ func (f *FileLogger) Close() error {
 	return nil
 }
 
-// writeEvent writes an audit event to the log file with rotation.
-// Uses lumberjack for rotation in production, fileio for testing.
+// writeEvent writes an audit event to the log file with rotation using lumberjack.
+// Lumberjack handles rotation automatically based on the configured size/age limits.
 func (f *FileLogger) writeEvent(event Event) error {
 	// Marshal event to JSON
 	eventBytes, err := json.Marshal(event)
@@ -125,25 +129,9 @@ func (f *FileLogger) writeEvent(event Event) error {
 	// Add newline for JSON lines format
 	eventBytes = append(eventBytes, '\n')
 
-	// Check if we're in test mode (fileio has PathFor method that indicates testing)
-	// In tests, use fileio AppendFile for mockability. In production, use lumberjack for rotation.
-	if testPath := f.readWriter.PathFor(""); testPath != "" {
-		// Test mode: use fileio AppendFile standalone function (allows testing with concrete writer)
-		if err := fileio.AppendFile(f.readWriter, DefaultLogPath, eventBytes, fileio.DefaultFilePermissions); err != nil {
-			return fmt.Errorf("appending audit event to %q: %w", DefaultLogPath, err)
-		}
-	} else {
-		// Production mode: use lumberjack directly for log rotation.
-		// ARCHITECTURAL NOTE: This bypasses the FileIO abstraction, which is an accepted
-		// tradeoff because:
-		// 1. lumberjack provides battle-tested rotation logic
-		// 2. audit logs are append-only with low risk surface
-		// 3. tests still use FileIO mock via PathFor() detection
-		// 4. extending FileIO for rotation would add complexity for a single use case
-		// This pattern should be reconsidered if rotation becomes needed elsewhere.
-		if _, err := f.rotatingLog.Write(eventBytes); err != nil {
-			return fmt.Errorf("writing audit event to rotating log: %w", err)
-		}
+	// Write using lumberjack for automatic rotation (works in both test and production)
+	if _, err := f.rotatingLog.Write(eventBytes); err != nil {
+		return fmt.Errorf("writing audit event to rotating log: %w", err)
 	}
 
 	f.log.Debugf("Wrote audit event: reason=%s type=%s %s->%s %s", event.Reason, event.Type, event.OldVersion, event.NewVersion, event.Result)

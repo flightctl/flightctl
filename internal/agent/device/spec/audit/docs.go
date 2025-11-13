@@ -10,4 +10,4 @@
 // (2MB per file, 3 backups, 8MB total capacity).
 package audit
 
-//go:generate go run -modfile=../../../../../tools/go.mod go.uber.org/mock/mockgen -source=interfaces.go -destination=mock_audit.go -package=audit
+//go:generate go run -modfile=../../../../../tools/go.mod go.uber.org/mock/mockgen -source=audit.go -destination=mock_audit.go -package=audit
