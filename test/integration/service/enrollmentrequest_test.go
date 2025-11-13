@@ -5,8 +5,9 @@ import (
 	"net/http"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	authcommon "github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/identity"
+	"github.com/flightctl/flightctl/internal/store/model"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	. "github.com/onsi/gomega/gstruct"
@@ -235,8 +236,8 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 				var setupResult *api.EnrollmentRequest
 				if approveFirst {
 					By("approving the EnrollmentRequest first")
-					identity := authcommon.NewBaseIdentity("testuser", "", []string{})
-					ctxApproval := context.WithValue(ctx, consts.IdentityCtxKey, identity)
+					mappedIdentity := identity.NewMappedIdentity("testuser", "testuser", []*model.Organization{}, []string{}, nil)
+					ctxApproval := context.WithValue(ctx, consts.MappedIdentityCtxKey, mappedIdentity)
 
 					approval := api.EnrollmentRequestApproval{
 						Approved: true,
@@ -379,8 +380,8 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 			erName := lo.FromPtr(er.Metadata.Name)
 
 			// Set up identity context
-			identity := authcommon.NewBaseIdentity("testuser", "", []string{})
-			ctx := context.WithValue(suite.Ctx, consts.IdentityCtxKey, identity)
+			mappedIdentity := identity.NewMappedIdentity("testuser", "testuser", []*model.Organization{}, []string{}, nil)
+			ctx := context.WithValue(suite.Ctx, consts.MappedIdentityCtxKey, mappedIdentity)
 
 			By("creating initial EnrollmentRequest")
 			created, status := suite.Handler.CreateEnrollmentRequest(ctx, er)

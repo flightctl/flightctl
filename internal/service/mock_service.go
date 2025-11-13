@@ -88,6 +88,21 @@ func (mr *MockServiceMockRecorder) CountDevicesByLabels(ctx, params, annotationS
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountDevicesByLabels", reflect.TypeOf((*MockService)(nil).CountDevicesByLabels), ctx, params, annotationSelector, groupBy)
 }
 
+// CreateAuthProvider mocks base method.
+func (m *MockService) CreateAuthProvider(ctx context.Context, authProvider v1alpha1.AuthProvider) (*v1alpha1.AuthProvider, v1alpha1.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateAuthProvider", ctx, authProvider)
+	ret0, _ := ret[0].(*v1alpha1.AuthProvider)
+	ret1, _ := ret[1].(v1alpha1.Status)
+	return ret0, ret1
+}
+
+// CreateAuthProvider indicates an expected call of CreateAuthProvider.
+func (mr *MockServiceMockRecorder) CreateAuthProvider(ctx, authProvider any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateAuthProvider", reflect.TypeOf((*MockService)(nil).CreateAuthProvider), ctx, authProvider)
+}
+
 // CreateCertificateSigningRequest mocks base method.
 func (m *MockService) CreateCertificateSigningRequest(ctx context.Context, csr v1alpha1.CertificateSigningRequest) (*v1alpha1.CertificateSigningRequest, v1alpha1.Status) {
 	m.ctrl.T.Helper()
@@ -220,6 +235,20 @@ func (mr *MockServiceMockRecorder) DecommissionDevice(ctx, name, decom any) *gom
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DecommissionDevice", reflect.TypeOf((*MockService)(nil).DecommissionDevice), ctx, name, decom)
 }
 
+// DeleteAuthProvider mocks base method.
+func (m *MockService) DeleteAuthProvider(ctx context.Context, name string) v1alpha1.Status {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteAuthProvider", ctx, name)
+	ret0, _ := ret[0].(v1alpha1.Status)
+	return ret0
+}
+
+// DeleteAuthProvider indicates an expected call of DeleteAuthProvider.
+func (mr *MockServiceMockRecorder) DeleteAuthProvider(ctx, name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteAuthProvider", reflect.TypeOf((*MockService)(nil).DeleteAuthProvider), ctx, name)
+}
+
 // DeleteCertificateSigningRequest mocks base method.
 func (m *MockService) DeleteCertificateSigningRequest(ctx context.Context, name string) v1alpha1.Status {
 	m.ctrl.T.Helper()
@@ -331,6 +360,66 @@ func (m *MockService) DeleteTemplateVersion(ctx context.Context, fleet, name str
 func (mr *MockServiceMockRecorder) DeleteTemplateVersion(ctx, fleet, name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteTemplateVersion", reflect.TypeOf((*MockService)(nil).DeleteTemplateVersion), ctx, fleet, name)
+}
+
+// GetAuthConfig mocks base method.
+func (m *MockService) GetAuthConfig(ctx context.Context, authConfig *v1alpha1.AuthConfig) (*v1alpha1.AuthConfig, v1alpha1.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAuthConfig", ctx, authConfig)
+	ret0, _ := ret[0].(*v1alpha1.AuthConfig)
+	ret1, _ := ret[1].(v1alpha1.Status)
+	return ret0, ret1
+}
+
+// GetAuthConfig indicates an expected call of GetAuthConfig.
+func (mr *MockServiceMockRecorder) GetAuthConfig(ctx, authConfig any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAuthConfig", reflect.TypeOf((*MockService)(nil).GetAuthConfig), ctx, authConfig)
+}
+
+// GetAuthProvider mocks base method.
+func (m *MockService) GetAuthProvider(ctx context.Context, name string) (*v1alpha1.AuthProvider, v1alpha1.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAuthProvider", ctx, name)
+	ret0, _ := ret[0].(*v1alpha1.AuthProvider)
+	ret1, _ := ret[1].(v1alpha1.Status)
+	return ret0, ret1
+}
+
+// GetAuthProvider indicates an expected call of GetAuthProvider.
+func (mr *MockServiceMockRecorder) GetAuthProvider(ctx, name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAuthProvider", reflect.TypeOf((*MockService)(nil).GetAuthProvider), ctx, name)
+}
+
+// GetAuthProviderByAuthorizationUrl mocks base method.
+func (m *MockService) GetAuthProviderByAuthorizationUrl(ctx context.Context, authorizationUrl string) (*v1alpha1.AuthProvider, v1alpha1.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAuthProviderByAuthorizationUrl", ctx, authorizationUrl)
+	ret0, _ := ret[0].(*v1alpha1.AuthProvider)
+	ret1, _ := ret[1].(v1alpha1.Status)
+	return ret0, ret1
+}
+
+// GetAuthProviderByAuthorizationUrl indicates an expected call of GetAuthProviderByAuthorizationUrl.
+func (mr *MockServiceMockRecorder) GetAuthProviderByAuthorizationUrl(ctx, authorizationUrl any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAuthProviderByAuthorizationUrl", reflect.TypeOf((*MockService)(nil).GetAuthProviderByAuthorizationUrl), ctx, authorizationUrl)
+}
+
+// GetAuthProviderByIssuerAndClientId mocks base method.
+func (m *MockService) GetAuthProviderByIssuerAndClientId(ctx context.Context, issuer, clientId string) (*v1alpha1.AuthProvider, v1alpha1.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAuthProviderByIssuerAndClientId", ctx, issuer, clientId)
+	ret0, _ := ret[0].(*v1alpha1.AuthProvider)
+	ret1, _ := ret[1].(v1alpha1.Status)
+	return ret0, ret1
+}
+
+// GetAuthProviderByIssuerAndClientId indicates an expected call of GetAuthProviderByIssuerAndClientId.
+func (mr *MockServiceMockRecorder) GetAuthProviderByIssuerAndClientId(ctx, issuer, clientId any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAuthProviderByIssuerAndClientId", reflect.TypeOf((*MockService)(nil).GetAuthProviderByIssuerAndClientId), ctx, issuer, clientId)
 }
 
 // GetCertificateSigningRequest mocks base method.
@@ -663,6 +752,21 @@ func (mr *MockServiceMockRecorder) GetTemplateVersion(ctx, fleet, name any) *gom
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetTemplateVersion", reflect.TypeOf((*MockService)(nil).GetTemplateVersion), ctx, fleet, name)
 }
 
+// ListAuthProviders mocks base method.
+func (m *MockService) ListAuthProviders(ctx context.Context, params v1alpha1.ListAuthProvidersParams) (*v1alpha1.AuthProviderList, v1alpha1.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListAuthProviders", ctx, params)
+	ret0, _ := ret[0].(*v1alpha1.AuthProviderList)
+	ret1, _ := ret[1].(v1alpha1.Status)
+	return ret0, ret1
+}
+
+// ListAuthProviders indicates an expected call of ListAuthProviders.
+func (mr *MockServiceMockRecorder) ListAuthProviders(ctx, params any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAuthProviders", reflect.TypeOf((*MockService)(nil).ListAuthProviders), ctx, params)
+}
+
 // ListCertificateSigningRequests mocks base method.
 func (m *MockService) ListCertificateSigningRequests(ctx context.Context, params v1alpha1.ListCertificateSigningRequestsParams) (*v1alpha1.CertificateSigningRequestList, v1alpha1.Status) {
 	m.ctrl.T.Helper()
@@ -925,6 +1029,21 @@ func (mr *MockServiceMockRecorder) OverwriteFleetRepositoryRefs(ctx, name any, r
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OverwriteFleetRepositoryRefs", reflect.TypeOf((*MockService)(nil).OverwriteFleetRepositoryRefs), varargs...)
 }
 
+// PatchAuthProvider mocks base method.
+func (m *MockService) PatchAuthProvider(ctx context.Context, name string, patch v1alpha1.PatchRequest) (*v1alpha1.AuthProvider, v1alpha1.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PatchAuthProvider", ctx, name, patch)
+	ret0, _ := ret[0].(*v1alpha1.AuthProvider)
+	ret1, _ := ret[1].(v1alpha1.Status)
+	return ret0, ret1
+}
+
+// PatchAuthProvider indicates an expected call of PatchAuthProvider.
+func (mr *MockServiceMockRecorder) PatchAuthProvider(ctx, name, patch any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PatchAuthProvider", reflect.TypeOf((*MockService)(nil).PatchAuthProvider), ctx, name, patch)
+}
+
 // PatchCertificateSigningRequest mocks base method.
 func (m *MockService) PatchCertificateSigningRequest(ctx context.Context, name string, patch v1alpha1.PatchRequest) (*v1alpha1.CertificateSigningRequest, v1alpha1.Status) {
 	m.ctrl.T.Helper()
@@ -1028,6 +1147,21 @@ func (m *MockService) PatchResourceSync(ctx context.Context, name string, patch 
 func (mr *MockServiceMockRecorder) PatchResourceSync(ctx, name, patch any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PatchResourceSync", reflect.TypeOf((*MockService)(nil).PatchResourceSync), ctx, name, patch)
+}
+
+// ReplaceAuthProvider mocks base method.
+func (m *MockService) ReplaceAuthProvider(ctx context.Context, name string, authProvider v1alpha1.AuthProvider) (*v1alpha1.AuthProvider, v1alpha1.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReplaceAuthProvider", ctx, name, authProvider)
+	ret0, _ := ret[0].(*v1alpha1.AuthProvider)
+	ret1, _ := ret[1].(v1alpha1.Status)
+	return ret0, ret1
+}
+
+// ReplaceAuthProvider indicates an expected call of ReplaceAuthProvider.
+func (mr *MockServiceMockRecorder) ReplaceAuthProvider(ctx, name, authProvider any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceAuthProvider", reflect.TypeOf((*MockService)(nil).ReplaceAuthProvider), ctx, name, authProvider)
 }
 
 // ReplaceCertificateSigningRequest mocks base method.

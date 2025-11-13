@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
@@ -39,6 +40,7 @@ var _ = Describe("OrganizationStore Integration Tests", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(orgs).To(HaveLen(1))
 			Expect(orgs[0].ID).To(Equal(store.NullOrgId))
+			Expect(orgs[0].ExternalID).To(Equal(org.DefaultExternalID))
 			Expect(orgs[0].DisplayName).To(Equal("Default"))
 		})
 

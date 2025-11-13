@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -19,6 +20,7 @@ const (
 type K8SClient interface {
 	GetSecret(ctx context.Context, namespace, name string) (*corev1.Secret, error)
 	PostCRD(ctx context.Context, crdGVK string, body []byte, opts ...Option) ([]byte, error)
+	ListRoleBindings(ctx context.Context, namespace string) (*rbacv1.RoleBindingList, error)
 }
 
 type k8sClient struct {
@@ -73,6 +75,14 @@ func (k *k8sClient) PostCRD(ctx context.Context, crdGVK string, body []byte, opt
 		opt(req)
 	}
 	return req.DoRaw(ctx)
+}
+
+func (k *k8sClient) ListRoleBindings(ctx context.Context, namespace string) (*rbacv1.RoleBindingList, error) {
+	roleBindings, err := k.clientset.RbacV1().RoleBindings(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list rolebindings in namespace %s: %w", namespace, err)
+	}
+	return roleBindings, nil
 }
 
 type Option func(*rest.Request)

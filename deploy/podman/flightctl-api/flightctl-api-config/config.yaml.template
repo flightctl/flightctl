@@ -36,12 +36,16 @@ auth:
   {{endif AAP}}
   {{if OIDC}}
   oidc:
-    oidcAuthority: {{OIDC_ISSUER}}
+    issuer: {{OIDC_ISSUER}}
     externalOidcAuthority: {{OIDC_EXTERNAL_AUTHORITY}}
     clientId: {{OIDC_CLIENT_ID}}
     enabled: {{OIDC_ENABLED}}
-    usernameClaim: {{OIDC_USERNAME_CLAIM}}
-    roleClaim: {{OIDC_ROLE_CLAIM}}
+    usernameClaim:
+      - {{OIDC_USERNAME_CLAIM}}
+    roleAssignment:
+      type: {{OIDC_ROLE_ASSIGNMENT_TYPE}}
+      claimPath:
+        - {{OIDC_ROLE_ASSIGNMENT_CLAIM_PATH}}
     organizationAssignment:
       type: {{OIDC_ORG_ASSIGNMENT_TYPE}}
       organizationName: {{OIDC_ORG_NAME}}

@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/auth/common"
+	"github.com/flightctl/flightctl/internal/contextutil"
 	"github.com/flightctl/flightctl/internal/store/model"
 )
 
@@ -57,15 +57,11 @@ func (h *ServiceHandler) listAllOrganizations(ctx context.Context) ([]*model.Org
 }
 
 func (h *ServiceHandler) listUserOrganizations(ctx context.Context) ([]*model.Organization, error) {
-	identity, err := common.GetIdentity(ctx)
-	if err != nil {
-		return nil, err
+	// Get mapped identity from context (set by identity mapping middleware)
+	mappedIdentity, ok := contextutil.GetMappedIdentityFromContext(ctx)
+	if !ok {
+		return nil, fmt.Errorf("no mapped identity found in context")
 	}
 
-	orgs, err := h.orgResolver.GetUserOrganizations(ctx, identity)
-	if err != nil {
-		return nil, err
-	}
-
-	return orgs, nil
+	return mappedIdentity.Organizations, nil
 }
