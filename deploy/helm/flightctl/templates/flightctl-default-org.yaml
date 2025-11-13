@@ -1,0 +1,7 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: org-default
+  namespace: {{ default .Release.Namespace .Values.global.auth.k8s.rbacNs }}
+rules: []
+

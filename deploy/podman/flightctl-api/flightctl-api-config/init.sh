@@ -177,7 +177,8 @@ elif [ "$AUTH_TYPE" == "oidc" ]; then
   OIDC_ORG_ASSIGNMENT_TYPE=$(extract_value "global.auth.oidc.organizationAssignment.type" "$SERVICE_CONFIG_FILE")
   OIDC_ORG_NAME=$(extract_value "global.auth.oidc.organizationAssignment.organizationName" "$SERVICE_CONFIG_FILE")
   OIDC_USERNAME_CLAIM=$(extract_value "global.auth.oidc.usernameClaim" "$SERVICE_CONFIG_FILE")
-  OIDC_ROLE_CLAIM=$(extract_value "global.auth.oidc.roleClaim" "$SERVICE_CONFIG_FILE")
+  OIDC_ROLE_ASSIGNMENT_TYPE=$(extract_value "global.auth.oidc.roleAssignment.type" "$SERVICE_CONFIG_FILE")
+  OIDC_ROLE_ASSIGNMENT_CLAIM_PATH=$(extract_value "global.auth.oidc.roleAssignment.claimPath" "$SERVICE_CONFIG_FILE")
 
   echo "Extracting PAM OIDC Issuer configuration..."
   # Extract PAM OIDC Issuer configuration (under global.auth.pamOidcIssuer)
@@ -217,12 +218,14 @@ elif [ "$AUTH_TYPE" == "oidc" ]; then
   OIDC_ORG_ASSIGNMENT_TYPE=${OIDC_ORG_ASSIGNMENT_TYPE:-static}
   OIDC_ORG_NAME=${OIDC_ORG_NAME:-default}
   OIDC_USERNAME_CLAIM=${OIDC_USERNAME_CLAIM:-preferred_username}
-  OIDC_ROLE_CLAIM=${OIDC_ROLE_CLAIM:-groups}
+  OIDC_ROLE_ASSIGNMENT_TYPE=${OIDC_ROLE_ASSIGNMENT_TYPE:-dynamic}
+  OIDC_ROLE_ASSIGNMENT_CLAIM_PATH=${OIDC_ROLE_ASSIGNMENT_CLAIM_PATH:-groups}
   
   # When PAM issuer is enabled, OIDC authority should point to PAM issuer (port 8444)
   if [ "$PAM_OIDC_ISSUER_ENABLED" == "true" ]; then
-    OIDC_ISSUER=${OIDC_ISSUER:-"$PAM_OIDC_ISSUER_URL"}
-    OIDC_EXTERNAL_AUTHORITY=${OIDC_EXTERNAL_AUTHORITY:-"$PAM_OIDC_ISSUER_URL"}
+    # Force OIDC issuer to use PAM issuer URL when PAM is enabled
+    OIDC_ISSUER="$PAM_OIDC_ISSUER_URL"
+    OIDC_EXTERNAL_AUTHORITY="${OIDC_EXTERNAL_AUTHORITY:-$PAM_OIDC_ISSUER_URL}"
   else
     OIDC_ISSUER=${OIDC_ISSUER:-${BASE_URL}}
     OIDC_EXTERNAL_AUTHORITY=${OIDC_EXTERNAL_AUTHORITY:-${BASE_URL}}
@@ -241,7 +244,8 @@ elif [ "$AUTH_TYPE" == "oidc" ]; then
     -e "s|{{OIDC_ORG_ASSIGNMENT_TYPE}}|$OIDC_ORG_ASSIGNMENT_TYPE|g"
     -e "s|{{OIDC_ORG_NAME}}|$OIDC_ORG_NAME|g"
     -e "s|{{OIDC_USERNAME_CLAIM}}|$OIDC_USERNAME_CLAIM|g"
-    -e "s|{{OIDC_ROLE_CLAIM}}|$OIDC_ROLE_CLAIM|g"
+    -e "s|{{OIDC_ROLE_ASSIGNMENT_TYPE}}|$OIDC_ROLE_ASSIGNMENT_TYPE|g"
+    -e "s|{{OIDC_ROLE_ASSIGNMENT_CLAIM_PATH}}|$OIDC_ROLE_ASSIGNMENT_CLAIM_PATH|g"
   )
   
   echo "OIDC configuration complete"
