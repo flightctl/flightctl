@@ -93,6 +93,16 @@ type ClientInterface interface {
 	// AuthConfig request
 	AuthConfig(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// AuthTokenWithBody request with any body
+	AuthTokenWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	AuthToken(ctx context.Context, body AuthTokenJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	AuthTokenWithFormdataBody(ctx context.Context, body AuthTokenFormdataRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AuthUserInfo request
+	AuthUserInfo(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// AuthValidate request
 	AuthValidate(ctx context.Context, params *AuthValidateParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -356,6 +366,54 @@ type ClientInterface interface {
 
 func (c *Client) AuthConfig(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewAuthConfigRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) AuthTokenWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAuthTokenRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) AuthToken(ctx context.Context, body AuthTokenJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAuthTokenRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) AuthTokenWithFormdataBody(ctx context.Context, body AuthTokenFormdataRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAuthTokenRequestWithFormdataBody(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) AuthUserInfo(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAuthUserInfoRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -1540,6 +1598,84 @@ func NewAuthConfigRequest(server string) (*http.Request, error) {
 	}
 
 	operationPath := fmt.Sprintf("/api/v1/auth/config")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewAuthTokenRequest calls the generic AuthToken builder with application/json body
+func NewAuthTokenRequest(server string, body AuthTokenJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewAuthTokenRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewAuthTokenRequestWithFormdataBody calls the generic AuthToken builder with application/x-www-form-urlencoded body
+func NewAuthTokenRequestWithFormdataBody(server string, body AuthTokenFormdataRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	bodyStr, err := runtime.MarshalForm(body, nil)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = strings.NewReader(bodyStr.Encode())
+	return NewAuthTokenRequestWithBody(server, "application/x-www-form-urlencoded", bodyReader)
+}
+
+// NewAuthTokenRequestWithBody generates requests for AuthToken with any type of body
+func NewAuthTokenRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/auth/token")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewAuthUserInfoRequest generates requests for AuthUserInfo
+func NewAuthUserInfoRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/auth/userinfo")
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -4926,6 +5062,16 @@ type ClientWithResponsesInterface interface {
 	// AuthConfigWithResponse request
 	AuthConfigWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*AuthConfigResponse, error)
 
+	// AuthTokenWithBodyWithResponse request with any body
+	AuthTokenWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AuthTokenResponse, error)
+
+	AuthTokenWithResponse(ctx context.Context, body AuthTokenJSONRequestBody, reqEditors ...RequestEditorFn) (*AuthTokenResponse, error)
+
+	AuthTokenWithFormdataBodyWithResponse(ctx context.Context, body AuthTokenFormdataRequestBody, reqEditors ...RequestEditorFn) (*AuthTokenResponse, error)
+
+	// AuthUserInfoWithResponse request
+	AuthUserInfoWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*AuthUserInfoResponse, error)
+
 	// AuthValidateWithResponse request
 	AuthValidateWithResponse(ctx context.Context, params *AuthValidateParams, reqEditors ...RequestEditorFn) (*AuthValidateResponse, error)
 
@@ -5205,6 +5351,59 @@ func (r AuthConfigResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r AuthConfigResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type AuthTokenResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *TokenResponse
+	JSON400      *Status
+	JSON401      *Status
+	JSON418      *Status
+	JSON429      *Status
+	JSON500      *Status
+}
+
+// Status returns HTTPResponse.Status
+func (r AuthTokenResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r AuthTokenResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type AuthUserInfoResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *UserInfoResponse
+	JSON401      *Status
+	JSON418      *Status
+	JSON429      *Status
+	JSON500      *Status
+}
+
+// Status returns HTTPResponse.Status
+func (r AuthUserInfoResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r AuthUserInfoResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -7055,6 +7254,40 @@ func (c *ClientWithResponses) AuthConfigWithResponse(ctx context.Context, reqEdi
 	return ParseAuthConfigResponse(rsp)
 }
 
+// AuthTokenWithBodyWithResponse request with arbitrary body returning *AuthTokenResponse
+func (c *ClientWithResponses) AuthTokenWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AuthTokenResponse, error) {
+	rsp, err := c.AuthTokenWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAuthTokenResponse(rsp)
+}
+
+func (c *ClientWithResponses) AuthTokenWithResponse(ctx context.Context, body AuthTokenJSONRequestBody, reqEditors ...RequestEditorFn) (*AuthTokenResponse, error) {
+	rsp, err := c.AuthToken(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAuthTokenResponse(rsp)
+}
+
+func (c *ClientWithResponses) AuthTokenWithFormdataBodyWithResponse(ctx context.Context, body AuthTokenFormdataRequestBody, reqEditors ...RequestEditorFn) (*AuthTokenResponse, error) {
+	rsp, err := c.AuthTokenWithFormdataBody(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAuthTokenResponse(rsp)
+}
+
+// AuthUserInfoWithResponse request returning *AuthUserInfoResponse
+func (c *ClientWithResponses) AuthUserInfoWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*AuthUserInfoResponse, error) {
+	rsp, err := c.AuthUserInfo(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAuthUserInfoResponse(rsp)
+}
+
 // AuthValidateWithResponse request returning *AuthValidateResponse
 func (c *ClientWithResponses) AuthValidateWithResponse(ctx context.Context, params *AuthValidateParams, reqEditors ...RequestEditorFn) (*AuthValidateResponse, error) {
 	rsp, err := c.AuthValidate(ctx, params, reqEditors...)
@@ -7931,6 +8164,121 @@ func ParseAuthConfigResponse(rsp *http.Response) (*AuthConfigResponse, error) {
 			return nil, err
 		}
 		response.JSON429 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseAuthTokenResponse parses an HTTP response from a AuthTokenWithResponse call
+func ParseAuthTokenResponse(rsp *http.Response) (*AuthTokenResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &AuthTokenResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest TokenResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 418:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON418 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseAuthUserInfoResponse parses an HTTP response from a AuthUserInfoWithResponse call
+func ParseAuthUserInfoResponse(rsp *http.Response) (*AuthUserInfoResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &AuthUserInfoResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest UserInfoResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 418:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON418 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
 
 	}
 

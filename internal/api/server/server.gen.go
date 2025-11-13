@@ -4,6 +4,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 
@@ -17,6 +18,12 @@ type ServerInterface interface {
 
 	// (GET /api/v1/auth/config)
 	AuthConfig(w http.ResponseWriter, r *http.Request)
+
+	// (POST /api/v1/auth/token)
+	AuthToken(w http.ResponseWriter, r *http.Request)
+
+	// (GET /api/v1/auth/userinfo)
+	AuthUserInfo(w http.ResponseWriter, r *http.Request)
 
 	// (GET /api/v1/auth/validate)
 	AuthValidate(w http.ResponseWriter, r *http.Request, params AuthValidateParams)
@@ -223,6 +230,16 @@ type Unimplemented struct{}
 
 // (GET /api/v1/auth/config)
 func (_ Unimplemented) AuthConfig(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /api/v1/auth/token)
+func (_ Unimplemented) AuthToken(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /api/v1/auth/userinfo)
+func (_ Unimplemented) AuthUserInfo(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -572,6 +589,38 @@ func (siw *ServerInterfaceWrapper) AuthConfig(w http.ResponseWriter, r *http.Req
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.AuthConfig(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// AuthToken operation middleware
+func (siw *ServerInterfaceWrapper) AuthToken(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AuthToken(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// AuthUserInfo operation middleware
+func (siw *ServerInterfaceWrapper) AuthUserInfo(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AuthUserInfo(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2651,6 +2700,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/auth/config", wrapper.AuthConfig)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/auth/token", wrapper.AuthToken)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/auth/userinfo", wrapper.AuthUserInfo)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/auth/validate", wrapper.AuthValidate)

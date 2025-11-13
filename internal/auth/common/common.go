@@ -149,6 +149,7 @@ func ExtractBearerToken(r *http.Request) (string, error) {
 func IsPublicAuthEndpoint(path string) bool {
 	publicEndpoints := []string{
 		"/api/v1/auth/config",
+		"/api/v1/auth/token",
 	}
 	for _, endpoint := range publicEndpoints {
 		if path == endpoint {
