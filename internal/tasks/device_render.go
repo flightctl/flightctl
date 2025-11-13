@@ -75,7 +75,7 @@ func NewDeviceRenderLogic(log logrus.FieldLogger, serviceHandler service.Service
 }
 
 func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
-	device, status := t.serviceHandler.GetDevice(ctx, t.event.InvolvedObject.Name)
+	device, status := t.serviceHandler.GetDevice(ctx, t.orgId, t.event.InvolvedObject.Name)
 	if status.Code != http.StatusOK {
 		return fmt.Errorf("failed getting device %s/%s: %s", t.orgId, t.event.InvolvedObject.Name, status.Message)
 	}
@@ -142,7 +142,7 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 	// This only applies to devices that don't belong to a fleet, because otherwise the fleet will be
 	// notified about changes to the repository.
 	if device.Metadata.Owner == nil || *device.Metadata.Owner == "" {
-		status = t.serviceHandler.OverwriteDeviceRepositoryRefs(ctx, *device.Metadata.Name, referencedRepos...)
+		status = t.serviceHandler.OverwriteDeviceRepositoryRefs(ctx, t.orgId, *device.Metadata.Name, referencedRepos...)
 		if status.Code != http.StatusOK {
 			return t.setStatus(ctx, fmt.Errorf("setting repository references: %s", status.Message))
 		}
@@ -157,7 +157,7 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 		return t.setStatus(ctx, err)
 	}
 
-	status = t.serviceHandler.UpdateRenderedDevice(ctx, t.event.InvolvedObject.Name, string(renderedConfig), string(renderedApplications), specHash)
+	status = t.serviceHandler.UpdateRenderedDevice(ctx, t.orgId, t.event.InvolvedObject.Name, string(renderedConfig), string(renderedApplications), specHash)
 	return t.setStatus(ctx, service.ApiStatusToErr(status))
 }
 
@@ -173,7 +173,7 @@ func (t *DeviceRenderLogic) setStatus(ctx context.Context, renderErr error) erro
 		condition.Message = renderErr.Error()
 	}
 
-	status := t.serviceHandler.SetDeviceServiceConditions(ctx, t.event.InvolvedObject.Name, []api.Condition{condition})
+	status := t.serviceHandler.SetDeviceServiceConditions(ctx, t.orgId, t.event.InvolvedObject.Name, []api.Condition{condition})
 	if status.Code != http.StatusOK {
 		t.log.Errorf("Failed setting condition for device %s/%s: %s", t.orgId, t.event.InvolvedObject.Name, status.Message)
 	}
@@ -313,7 +313,7 @@ func (t *DeviceRenderLogic) renderGitConfig(ctx context.Context, configItem *api
 		return nil, nil, fmt.Errorf("%w: failed getting config item as GitConfigProviderSpec: %w", ErrUnknownConfigName, err)
 	}
 
-	repo, status := t.serviceHandler.GetRepository(ctx, gitSpec.GitRef.Repository)
+	repo, status := t.serviceHandler.GetRepository(ctx, t.orgId, gitSpec.GitRef.Repository)
 	if status.Code != http.StatusOK {
 		return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("failed fetching specified Repository definition %s/%s: %s", t.orgId, gitSpec.GitRef.Repository, status.Message)
 	}
@@ -442,7 +442,7 @@ func (t *DeviceRenderLogic) renderHttpProviderConfig(ctx context.Context, config
 	if err != nil {
 		return nil, nil, fmt.Errorf("%w: failed getting config item as HttpConfigProviderSpec: %w", ErrUnknownConfigName, err)
 	}
-	repo, status := t.serviceHandler.GetRepository(ctx, httpConfigProviderSpec.HttpRef.Repository)
+	repo, status := t.serviceHandler.GetRepository(ctx, t.orgId, httpConfigProviderSpec.HttpRef.Repository)
 	if status.Code != http.StatusOK {
 		return &httpConfigProviderSpec.Name, &httpConfigProviderSpec.HttpRef.Repository, fmt.Errorf("failed fetching specified Repository definition %s/%s: %s", t.orgId, httpConfigProviderSpec.HttpRef.Repository, status.Message)
 	}
