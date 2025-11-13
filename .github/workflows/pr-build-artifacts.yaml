@@ -29,6 +29,9 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       tag: ${{ steps.compute-tag.outputs.tag }}
+      git_tag: ${{ steps.compute-tag.outputs.git_tag }}
+      git_tree_state: ${{ steps.compute-tag.outputs.git_tree_state }}
+      git_commit: ${{ steps.compute-tag.outputs.git_commit }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -43,6 +46,22 @@ jobs:
           TAG=$(./hack/current-version)
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "Computed tag: $TAG"
+          
+          SOURCE_GIT_TAG=$(git describe --tags --exclude latest 2>/dev/null || echo "v0.0.0-unknown")
+          if [ ! -d ".git" ]; then
+            SOURCE_GIT_TREE_STATE=clean
+          elif git diff --quiet; then
+            SOURCE_GIT_TREE_STATE=clean
+          else
+            SOURCE_GIT_TREE_STATE=dirty
+          fi
+          SOURCE_GIT_COMMIT=$(git rev-parse --short "HEAD^{commit}" 2>/dev/null || echo "unknown")
+          
+          {
+            echo "git_tag=${SOURCE_GIT_TAG}"
+            echo "git_tree_state=${SOURCE_GIT_TREE_STATE}"
+            echo "git_commit=${SOURCE_GIT_COMMIT}"
+          } >> "$GITHUB_OUTPUT"
           
           echo "## :rocket: PR Build Artifacts Workflow Started" > $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -64,26 +83,6 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
-      - name: Prepare version variables
-        id: version-vars
-        run: |
-          set -euo pipefail
-          SOURCE_GIT_TAG=$(git describe --tags --exclude latest 2>/dev/null || echo "v0.0.0-unknown")
-          if [ ! -d ".git" ]; then
-            SOURCE_GIT_TREE_STATE=clean
-          elif git diff --quiet; then
-            SOURCE_GIT_TREE_STATE=clean
-          else
-            SOURCE_GIT_TREE_STATE=dirty
-          fi
-          SOURCE_GIT_COMMIT=$(git rev-parse --short "HEAD^{commit}" 2>/dev/null || echo "unknown")
-
-          {
-            echo "git_tag=${SOURCE_GIT_TAG}"
-            echo "git_tree_state=${SOURCE_GIT_TREE_STATE}"
-            echo "git_commit=${SOURCE_GIT_COMMIT}"
-          } >> "$GITHUB_OUTPUT"
-
       - name: Set up build output dir
         run: |
           mkdir -p digests
@@ -102,9 +101,9 @@ jobs:
             org.flightctl.flightctl-${{ matrix.image }}.github.ref_name=${{ github.ref_name }}
             quay.expires-after=${{ inputs.expires_after }}
           build-args: |
-            SOURCE_GIT_TAG=${{ steps.version-vars.outputs.git_tag }}
-            SOURCE_GIT_TREE_STATE=${{ steps.version-vars.outputs.git_tree_state }}
-            SOURCE_GIT_COMMIT=${{ steps.version-vars.outputs.git_commit }}
+            SOURCE_GIT_TAG=${{ needs.compute-tag.outputs.git_tag }}
+            SOURCE_GIT_TREE_STATE=${{ needs.compute-tag.outputs.git_tree_state }}
+            SOURCE_GIT_COMMIT=${{ needs.compute-tag.outputs.git_commit }}
           extra-args: |
             --ulimit nofile=10000:10000
           containerfiles: Containerfile.${{ matrix.image }}
@@ -412,12 +411,7 @@ jobs:
           key: ${{ runner.os }}-rpm-dnf
           restore-keys: |
             ${{ runner.os }}-rpm-dnf
-#
-#      - name: Setup Go
-#        uses: actions/setup-go@v5
-#        with:
-#          go-version: '1.23'
-#
+
       - name: Build RPMs
         run: make rpm
 
@@ -511,26 +505,6 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
-      - name: Prepare version variables
-        id: prebase-version-vars
-        run: |
-          set -euo pipefail
-          SOURCE_GIT_TAG=$(git describe --tags --exclude latest 2>/dev/null || echo "v0.0.0-unknown")
-          if [ ! -d ".git" ]; then
-            SOURCE_GIT_TREE_STATE=clean
-          elif git diff --quiet; then
-            SOURCE_GIT_TREE_STATE=clean
-          else
-            SOURCE_GIT_TREE_STATE=dirty
-          fi
-          SOURCE_GIT_COMMIT=$(git rev-parse --short "HEAD^{commit}" 2>/dev/null || echo "unknown")
-
-          {
-            echo "git_tag=${SOURCE_GIT_TAG}"
-            echo "git_tree_state=${SOURCE_GIT_TREE_STATE}"
-            echo "git_commit=${SOURCE_GIT_COMMIT}"
-          } >> "$GITHUB_OUTPUT"
-
       - name: Restore DNF cache
         id: prebase-cache-dnf-restore
         uses: actions/cache/restore@v4
@@ -561,9 +535,9 @@ jobs:
         env:
           TAG: ${{ needs.compute-tag.outputs.tag }}
           IMAGE_REPO: quay.io/flightctl/flightctl-device
-          SOURCE_GIT_TAG: ${{ steps.prebase-version-vars.outputs.git_tag }}
-          SOURCE_GIT_TREE_STATE: ${{ steps.prebase-version-vars.outputs.git_tree_state }}
-          SOURCE_GIT_COMMIT: ${{ steps.prebase-version-vars.outputs.git_commit }}
+          SOURCE_GIT_TAG: ${{ needs.compute-tag.outputs.git_tag }}
+          SOURCE_GIT_TREE_STATE: ${{ needs.compute-tag.outputs.git_tree_state }}
+          SOURCE_GIT_COMMIT: ${{ needs.compute-tag.outputs.git_commit }}
         run: |
           set -euo pipefail
           ./test/scripts/agent-images-v2/build_agent_images.sh --mode prebase
@@ -650,26 +624,6 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
-      - name: Prepare version variables
-        id: version-vars
-        run: |
-          set -euo pipefail
-          SOURCE_GIT_TAG=$(git describe --tags --exclude latest 2>/dev/null || echo "v0.0.0-unknown")
-          if [ ! -d ".git" ]; then
-            SOURCE_GIT_TREE_STATE=clean
-          elif git diff --quiet; then
-            SOURCE_GIT_TREE_STATE=clean
-          else
-            SOURCE_GIT_TREE_STATE=dirty
-          fi
-          SOURCE_GIT_COMMIT=$(git rev-parse --short "HEAD^{commit}" 2>/dev/null || echo "unknown")
-
-          {
-            echo "git_tag=${SOURCE_GIT_TAG}"
-            echo "git_tree_state=${SOURCE_GIT_TREE_STATE}"
-            echo "git_commit=${SOURCE_GIT_COMMIT}"
-          } >> "$GITHUB_OUTPUT"
-
       - name: Restore DNF cache
         id: cache-dnf-restore
         uses: actions/cache/restore@v4
@@ -716,9 +670,9 @@ jobs:
           TAG: ${{ needs.compute-tag.outputs.tag }}
           IMAGE_REPO: quay.io/flightctl/flightctl-device
           PREBASE_IMAGE: quay.io/flightctl/flightctl-device:prebase-${{ needs.compute-tag.outputs.tag }}
-          SOURCE_GIT_TAG: ${{ steps.version-vars.outputs.git_tag }}
-          SOURCE_GIT_TREE_STATE: ${{ steps.version-vars.outputs.git_tree_state }}
-          SOURCE_GIT_COMMIT: ${{ steps.version-vars.outputs.git_commit }}
+          SOURCE_GIT_TAG: ${{ needs.compute-tag.outputs.git_tag }}
+          SOURCE_GIT_TREE_STATE: ${{ needs.compute-tag.outputs.git_tree_state }}
+          SOURCE_GIT_COMMIT: ${{ needs.compute-tag.outputs.git_commit }}
         run: |
           set -euo pipefail
           ./test/scripts/agent-images-v2/build_agent_images.sh --mode base
@@ -810,34 +764,15 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
-      
-      - name: Prepare version variables
-        id: sleep-version-vars
-        run: |
-          set -euo pipefail
-          SOURCE_GIT_TAG=$(git describe --tags --exclude latest 2>/dev/null || echo "v0.0.0-unknown")
-          if [ ! -d ".git" ]; then
-            SOURCE_GIT_TREE_STATE=clean
-          elif git diff --quiet; then
-            SOURCE_GIT_TREE_STATE=clean
-          else
-            SOURCE_GIT_TREE_STATE=dirty
-          fi
-          SOURCE_GIT_COMMIT=$(git rev-parse --short "HEAD^{commit}" 2>/dev/null || echo "unknown")
-          {
-            echo "git_tag=${SOURCE_GIT_TAG}"
-            echo "git_tree_state=${SOURCE_GIT_TREE_STATE}"
-            echo "git_commit=${SOURCE_GIT_COMMIT}"
-          } >> "$GITHUB_OUTPUT"
 
       - name: Build sleep app images
         env:
           TAG: ${{ needs.compute-tag.outputs.tag }}
           SLEEP_APP_REPO: quay.io/flightctl/sleep-app
           PARALLEL_JOBS: 4
-          SOURCE_GIT_TAG: ${{ steps.sleep-version-vars.outputs.git_tag }}
-          SOURCE_GIT_TREE_STATE: ${{ steps.sleep-version-vars.outputs.git_tree_state }}
-          SOURCE_GIT_COMMIT: ${{ steps.sleep-version-vars.outputs.git_commit }}
+          SOURCE_GIT_TAG: ${{ needs.compute-tag.outputs.git_tag }}
+          SOURCE_GIT_TREE_STATE: ${{ needs.compute-tag.outputs.git_tree_state }}
+          SOURCE_GIT_COMMIT: ${{ needs.compute-tag.outputs.git_commit }}
         run: |
           set -euo pipefail
           ./test/scripts/agent-images-v2/build_agent_images.sh --mode sleep-apps
@@ -934,26 +869,6 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
-      - name: Prepare version variables
-        id: version-vars
-        run: |
-          set -euo pipefail
-          SOURCE_GIT_TAG=$(git describe --tags --exclude latest 2>/dev/null || echo "v0.0.0-unknown")
-          if [ ! -d ".git" ]; then
-            SOURCE_GIT_TREE_STATE=clean
-          elif git diff --quiet; then
-            SOURCE_GIT_TREE_STATE=clean
-          else
-            SOURCE_GIT_TREE_STATE=dirty
-          fi
-          SOURCE_GIT_COMMIT=$(git rev-parse --short "HEAD^{commit}" 2>/dev/null || echo "unknown")
-
-          {
-            echo "git_tag=${SOURCE_GIT_TAG}"
-            echo "git_tree_state=${SOURCE_GIT_TREE_STATE}"
-            echo "git_commit=${SOURCE_GIT_COMMIT}"
-          } >> "$GITHUB_OUTPUT"
-
       - name: Restore DNF cache
         id: cache-dnf-restore
         uses: actions/cache/restore@v4
@@ -988,9 +903,9 @@ jobs:
         env:
           TAG: ${{ needs.compute-tag.outputs.tag }}
           IMAGE_REPO: quay.io/flightctl/flightctl-device
-          SOURCE_GIT_TAG: ${{ steps.version-vars.outputs.git_tag }}
-          SOURCE_GIT_TREE_STATE: ${{ steps.version-vars.outputs.git_tree_state }}
-          SOURCE_GIT_COMMIT: ${{ steps.version-vars.outputs.git_commit }}
+          SOURCE_GIT_TAG: ${{ needs.compute-tag.outputs.git_tag }}
+          SOURCE_GIT_TREE_STATE: ${{ needs.compute-tag.outputs.git_tree_state }}
+          SOURCE_GIT_COMMIT: ${{ needs.compute-tag.outputs.git_commit }}
         run: |
           set -euo pipefail
           echo "::group::Building base image with prebase included"
