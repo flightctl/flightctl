@@ -4530,6 +4530,13 @@ components:
             image:
               type: string
               description: Reference to the container image for the application package.
+            ports:
+              type: array
+              description: Port mappings.
+              items:
+                $ref: '#/components/schemas/ApplicationPort'
+            resources:
+              $ref: '#/components/schemas/ApplicationResources'
           required:
             - image
     InlineApplicationProviderSpec:
@@ -4565,6 +4572,18 @@ components:
             - name
         - oneOf:
             - $ref: "#/components/schemas/ImageVolumeProviderSpec"
+            - $ref: "#/components/schemas/MountVolumeProviderSpec"
+            - $ref: "#/components/schemas/ImageMountVolumeProviderSpec"
+    VolumeMount:
+      type: object
+      description: Mount configuration for a volume.
+      properties:
+        path:
+          type: string
+          description: Mount path in the container with support for options.
+          example: "/etc/nginx/conf.d:ro"
+      required:
+        - path
     ImageVolumeProviderSpec:
       type: object
       properties:
@@ -4583,6 +4602,25 @@ components:
           $ref: '#/components/schemas/ImagePullPolicy'
       required:
         - reference
+    MountVolumeProviderSpec:
+      type: object
+      description: Named volume mount configuration.
+      properties:
+        mount:
+          $ref: '#/components/schemas/VolumeMount'
+      required:
+        - mount
+    ImageMountVolumeProviderSpec:
+      type: object
+      description: Volume from OCI image mounted at specified path.
+      properties:
+        image:
+          $ref: '#/components/schemas/ImageVolumeSource'
+        mount:
+          $ref: '#/components/schemas/VolumeMount'
+      required:
+        - image
+        - mount
     ApplicationContent:
         allOf:
           - $ref: '#/components/schemas/FileContent'
@@ -4598,15 +4636,42 @@ components:
           description: Environment variable key-value pairs, injected during runtime. The key and value each must be between 1 and 253 characters.
           additionalProperties:
             type: string
+    ApplicationPort:
+      type: string
+      description: Port mapping in format "hostPort:containerPort" (e.g., "8080:80").
+      pattern: '^\d+:\d+$'
+      example: "8080:80"
+    ApplicationResourceLimits:
+      type: object
+      description: Resource limits for the application.
+      properties:
+        cpu:
+          type: string
+          description: CPU limit in cores (e.g., "1", "0.75").
+          pattern: '^\d+(\.\d+)?$'
+          example: "0.75"
+        memory:
+          type: string
+          description: Memory limit with unit (e.g., "256m", "2g") using Podman format (b=bytes, k=kibibytes, m=mebibytes, g=gibibytes).
+          pattern: '^\d+[bkmg]$'
+          example: "256m"
+    ApplicationResources:
+      type: object
+      description: Resource constraints for the application.
+      properties:
+        limits:
+          $ref: '#/components/schemas/ApplicationResourceLimits'
     AppType:
       type: string
       description: The type of the application.
       enum:
         - "compose"
         - "quadlet"
+        - "container"
       x-enum-varnames:
         - "AppTypeCompose"
         - "AppTypeQuadlet"
+        - "AppTypeContainer"
     ResourceMonitor:
       oneOf:
         - $ref: '#/components/schemas/CpuResourceMonitorSpec'
