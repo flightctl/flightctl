@@ -70,8 +70,12 @@ auth:
       organizationAssignment:
         type: static
         organizationName: default
-      usernameClaim: preferred_username
-      roleClaim: roles
+      usernameClaim:
+        - preferred_username
+      roleAssignment:
+        type: dynamic
+        claimPath:
+          - roles
 ```
 
 This means the API server will:
@@ -398,8 +402,12 @@ auth:
       organizationAssignment:
         type: static
         organizationName: default
-      usernameClaim: preferred_username
-      roleClaim: roles
+      usernameClaim:
+        - preferred_username
+      roleAssignment:
+        type: dynamic
+        claimPath:
+          - roles
 ```
 
 This means the API server will:

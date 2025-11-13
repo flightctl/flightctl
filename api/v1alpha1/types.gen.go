@@ -12,6 +12,11 @@ import (
 	"github.com/oapi-codegen/runtime"
 )
 
+// Defines values for AapProviderSpecProviderType.
+const (
+	Aap AapProviderSpecProviderType = "aap"
+)
+
 // Defines values for AppType.
 const (
 	AppTypeCompose AppType = "compose"
@@ -34,6 +39,31 @@ const (
 	ApplicationsSummaryStatusError    ApplicationsSummaryStatusType = "Error"
 	ApplicationsSummaryStatusHealthy  ApplicationsSummaryStatusType = "Healthy"
 	ApplicationsSummaryStatusUnknown  ApplicationsSummaryStatusType = "Unknown"
+)
+
+// Defines values for AuthDynamicOrganizationAssignmentType.
+const (
+	AuthDynamicOrganizationAssignmentTypeDynamic AuthDynamicOrganizationAssignmentType = "dynamic"
+)
+
+// Defines values for AuthDynamicRoleAssignmentType.
+const (
+	AuthDynamicRoleAssignmentTypeDynamic AuthDynamicRoleAssignmentType = "dynamic"
+)
+
+// Defines values for AuthPerUserOrganizationAssignmentType.
+const (
+	PerUser AuthPerUserOrganizationAssignmentType = "perUser"
+)
+
+// Defines values for AuthStaticOrganizationAssignmentType.
+const (
+	AuthStaticOrganizationAssignmentTypeStatic AuthStaticOrganizationAssignmentType = "static"
+)
+
+// Defines values for AuthStaticRoleAssignmentType.
+const (
+	AuthStaticRoleAssignmentTypeStatic AuthStaticRoleAssignmentType = "static"
 )
 
 // Defines values for ConditionStatus.
@@ -285,12 +315,27 @@ const (
 	InternalTaskPermanentlyFailed InternalTaskPermanentlyFailedDetailsDetailType = "InternalTaskPermanentlyFailed"
 )
 
+// Defines values for K8sProviderSpecProviderType.
+const (
+	K8s K8sProviderSpecProviderType = "k8s"
+)
+
 // Defines values for MatchExpressionOperator.
 const (
 	DoesNotExist MatchExpressionOperator = "DoesNotExist"
 	Exists       MatchExpressionOperator = "Exists"
 	In           MatchExpressionOperator = "In"
 	NotIn        MatchExpressionOperator = "NotIn"
+)
+
+// Defines values for OAuth2ProviderSpecProviderType.
+const (
+	Oauth2 OAuth2ProviderSpecProviderType = "oauth2"
+)
+
+// Defines values for OIDCProviderSpecProviderType.
+const (
+	Oidc OIDCProviderSpecProviderType = "oidc"
 )
 
 // Defines values for PatchRequestOp.
@@ -321,6 +366,7 @@ const (
 
 // Defines values for ResourceKind.
 const (
+	ResourceKindAuthProvider              ResourceKind = "AuthProvider"
 	ResourceKindCertificateSigningRequest ResourceKind = "CertificateSigningRequest"
 	ResourceKindDevice                    ResourceKind = "Device"
 	ResourceKindEnrollmentRequest         ResourceKind = "EnrollmentRequest"
@@ -354,6 +400,46 @@ const (
 	RolloutStrategyBatchSequence RolloutStrategy = "BatchSequence"
 )
 
+// Defines values for SystemdActiveStateType.
+const (
+	SystemdActiveStateActivating   SystemdActiveStateType = "activating"
+	SystemdActiveStateActive       SystemdActiveStateType = "active"
+	SystemdActiveStateDeactivating SystemdActiveStateType = "deactivating"
+	SystemdActiveStateFailed       SystemdActiveStateType = "failed"
+	SystemdActiveStateInactive     SystemdActiveStateType = "inactive"
+	SystemdActiveStateMaintenance  SystemdActiveStateType = "maintenance"
+	SystemdActiveStateRefreshing   SystemdActiveStateType = "refreshing"
+	SystemdActiveStateReloading    SystemdActiveStateType = "reloading"
+)
+
+// Defines values for SystemdEnableStateType.
+const (
+	SystemdEnableStateAlias          SystemdEnableStateType = "alias"
+	SystemdEnableStateBad            SystemdEnableStateType = "bad"
+	SystemdEnableStateDisabled       SystemdEnableStateType = "disabled"
+	SystemdEnableStateEnabled        SystemdEnableStateType = "enabled"
+	SystemdEnableStateEnabledRuntime SystemdEnableStateType = "enabled-runtime"
+	SystemdEnableStateGenerated      SystemdEnableStateType = "generated"
+	SystemdEnableStateIndirect       SystemdEnableStateType = "indirect"
+	SystemdEnableStateLinked         SystemdEnableStateType = "linked"
+	SystemdEnableStateLinkedRuntime  SystemdEnableStateType = "linked-runtime"
+	SystemdEnableStateMasked         SystemdEnableStateType = "masked"
+	SystemdEnableStateMaskedRuntime  SystemdEnableStateType = "masked-runtime"
+	SystemdEnableStateStatic         SystemdEnableStateType = "static"
+	SystemdEnableStateTransient      SystemdEnableStateType = "transient"
+)
+
+// Defines values for SystemdLoadStateType.
+const (
+	SystemdLoadStateBadSetting SystemdLoadStateType = "bad-setting"
+	SystemdLoadStateError      SystemdLoadStateType = "error"
+	SystemdLoadStateLoaded     SystemdLoadStateType = "loaded"
+	SystemdLoadStateMasked     SystemdLoadStateType = "masked"
+	SystemdLoadStateMerged     SystemdLoadStateType = "merged"
+	SystemdLoadStateNotFound   SystemdLoadStateType = "not-found"
+	SystemdLoadStateStub       SystemdLoadStateType = "stub"
+)
+
 // Defines values for ListEventsParamsOrder.
 const (
 	Asc  ListEventsParamsOrder = "asc"
@@ -364,6 +450,33 @@ const (
 const (
 	ListLabelsParamsKindDevice ListLabelsParamsKind = "Device"
 )
+
+// AapProviderSpec AapProviderSpec describes an Ansible Automation Platform (AAP) provider configuration.
+type AapProviderSpec struct {
+	// ApiUrl The internal AAP API URL.
+	ApiUrl string `json:"apiUrl"`
+
+	// DisplayName Human-readable display name for the provider.
+	DisplayName *string `json:"displayName,omitempty"`
+
+	// Enabled Whether this AAP provider is enabled.
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// ExternalApiUrl The external AAP API URL (for external access).
+	ExternalApiUrl *string `json:"externalApiUrl,omitempty"`
+
+	// OrganizationAssignment AuthOrganizationAssignment defines how users from this auth provider are assigned to organizations.
+	OrganizationAssignment AuthOrganizationAssignment `json:"organizationAssignment"`
+
+	// ProviderType The type of authentication provider.
+	ProviderType AapProviderSpecProviderType `json:"providerType"`
+
+	// RoleAssignment AuthRoleAssignment defines how roles are assigned to users from this auth provider.
+	RoleAssignment AuthRoleAssignment `json:"roleAssignment"`
+}
+
+// AapProviderSpecProviderType The type of authentication provider.
+type AapProviderSpecProviderType string
 
 // AbsolutePath Represents an absolute file path.
 type AbsolutePath struct {
@@ -433,23 +546,132 @@ type ApplicationVolumeStatus struct {
 // ApplicationsSummaryStatusType Status of all applications on the device.
 type ApplicationsSummaryStatusType string
 
-// AuthConfig Auth config.
+// AuthConfig defines model for AuthConfig.
 type AuthConfig struct {
-	// AuthOrganizationsConfig Auth related organizations configuration.
-	AuthOrganizationsConfig AuthOrganizationsConfig `json:"authOrganizationsConfig"`
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
+	ApiVersion string `json:"apiVersion"`
 
-	// AuthType Auth type.
-	AuthType string `json:"authType"`
+	// DefaultProvider Name of the default authentication provider.
+	DefaultProvider *string `json:"defaultProvider,omitempty"`
 
-	// AuthURL Auth URL.
-	AuthURL string `json:"authURL"`
+	// OrganizationsEnabled Whether organizations are enabled for authentication.
+	OrganizationsEnabled *bool `json:"organizationsEnabled,omitempty"`
+
+	// Providers List of all available authentication providers.
+	Providers *[]AuthProvider `json:"providers,omitempty"`
 }
 
-// AuthOrganizationsConfig Auth related organizations configuration.
-type AuthOrganizationsConfig struct {
-	// Enabled If true, support for IdP provided organizations is enabled.
-	Enabled bool `json:"enabled"`
+// AuthDynamicOrganizationAssignment AuthDynamicOrganizationAssignment assigns users to organizations based on auth provider claims.
+type AuthDynamicOrganizationAssignment struct {
+	// ClaimPath The JSON path to the claim that contains the organization identifier (e.g., ["groups", "0"] or ["custom", "org"]).
+	ClaimPath []string `json:"claimPath"`
+
+	// OrganizationNamePrefix The prefix for the organization name (e.g., "org-").
+	OrganizationNamePrefix *string `json:"organizationNamePrefix,omitempty"`
+
+	// OrganizationNameSuffix The suffix for the organization name (e.g., "-org").
+	OrganizationNameSuffix *string `json:"organizationNameSuffix,omitempty"`
+
+	// Type The type of organization assignment.
+	Type AuthDynamicOrganizationAssignmentType `json:"type"`
 }
+
+// AuthDynamicOrganizationAssignmentType The type of organization assignment.
+type AuthDynamicOrganizationAssignmentType string
+
+// AuthDynamicRoleAssignment AuthDynamicRoleAssignment extracts roles from auth provider claims using a JSON path.
+type AuthDynamicRoleAssignment struct {
+	// ClaimPath The JSON path to the role/group claim (e.g., ["groups"], ["roles"], ["realm_access", "roles"]).
+	ClaimPath []string `json:"claimPath"`
+
+	// Type The type of role assignment.
+	Type AuthDynamicRoleAssignmentType `json:"type"`
+}
+
+// AuthDynamicRoleAssignmentType The type of role assignment.
+type AuthDynamicRoleAssignmentType string
+
+// AuthOrganizationAssignment AuthOrganizationAssignment defines how users from this auth provider are assigned to organizations.
+type AuthOrganizationAssignment struct {
+	union json.RawMessage
+}
+
+// AuthPerUserOrganizationAssignment AuthPerUserOrganizationAssignment creates a separate organization for each user.
+type AuthPerUserOrganizationAssignment struct {
+	// OrganizationNamePrefix The prefix for the user-specific organization name (e.g., "user-org-").
+	OrganizationNamePrefix *string `json:"organizationNamePrefix,omitempty"`
+
+	// OrganizationNameSuffix The suffix for the user-specific organization name (e.g., "-org").
+	OrganizationNameSuffix *string `json:"organizationNameSuffix,omitempty"`
+
+	// Type The type of organization assignment.
+	Type AuthPerUserOrganizationAssignmentType `json:"type"`
+}
+
+// AuthPerUserOrganizationAssignmentType The type of organization assignment.
+type AuthPerUserOrganizationAssignmentType string
+
+// AuthProvider AuthProvider represents an authentication provider configuration supporting both OIDC and OAuth2.
+type AuthProvider struct {
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
+	ApiVersion string `json:"apiVersion"`
+
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
+	Kind string `json:"kind"`
+
+	// Metadata ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
+	Metadata ObjectMeta       `json:"metadata"`
+	Spec     AuthProviderSpec `json:"spec"`
+}
+
+// AuthProviderList AuthProviderList is a list of auth providers.
+type AuthProviderList struct {
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
+	ApiVersion string `json:"apiVersion"`
+
+	// Items List of auth providers.
+	Items []AuthProvider `json:"items"`
+
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
+	Kind string `json:"kind"`
+
+	// Metadata ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
+	Metadata ListMeta `json:"metadata"`
+}
+
+// AuthProviderSpec defines model for AuthProviderSpec.
+type AuthProviderSpec struct {
+	union json.RawMessage
+}
+
+// AuthRoleAssignment AuthRoleAssignment defines how roles are assigned to users from this auth provider.
+type AuthRoleAssignment struct {
+	union json.RawMessage
+}
+
+// AuthStaticOrganizationAssignment AuthStaticOrganizationAssignment assigns all users from this auth provider to a single static organization.
+type AuthStaticOrganizationAssignment struct {
+	// OrganizationName The name of the organization where all users will be assigned.
+	OrganizationName string `json:"organizationName"`
+
+	// Type The type of organization assignment.
+	Type AuthStaticOrganizationAssignmentType `json:"type"`
+}
+
+// AuthStaticOrganizationAssignmentType The type of organization assignment.
+type AuthStaticOrganizationAssignmentType string
+
+// AuthStaticRoleAssignment AuthStaticRoleAssignment assigns a static set of roles to all users from this auth provider.
+type AuthStaticRoleAssignment struct {
+	// Roles The list of role names to assign to all users.
+	Roles []string `json:"roles"`
+
+	// Type The type of role assignment.
+	Type AuthStaticRoleAssignmentType `json:"type"`
+}
+
+// AuthStaticRoleAssignmentType The type of role assignment.
+type AuthStaticRoleAssignmentType string
 
 // Batch Batch is an element in batch sequence.
 type Batch struct {
@@ -872,7 +1094,7 @@ type DeviceSpec struct {
 
 // DeviceStatus DeviceStatus represents information about the status of a device. Status may trail the actual state of a device.
 type DeviceStatus struct {
-	// Applications List of device application status.
+	// Applications List of device application statuses.
 	Applications []DeviceApplicationStatus `json:"applications"`
 
 	// ApplicationsSummary A summary of the health of applications on the device.
@@ -904,6 +1126,9 @@ type DeviceStatus struct {
 
 	// SystemInfo System information collected from the device.
 	SystemInfo DeviceSystemInfo `json:"systemInfo"`
+
+	// Systemd List of systemd unit statuses.
+	Systemd *[]SystemdUnitStatus `json:"systemd,omitempty"`
 
 	// Updated Current status of the device update.
 	Updated DeviceUpdatedStatus `json:"updated"`
@@ -1614,6 +1839,36 @@ type InternalTaskPermanentlyFailedDetails struct {
 // InternalTaskPermanentlyFailedDetailsDetailType The type of detail for discriminator purposes.
 type InternalTaskPermanentlyFailedDetailsDetailType string
 
+// K8sProviderSpec K8sProviderSpec describes a Kubernetes/OpenShift provider configuration.
+type K8sProviderSpec struct {
+	// ApiUrl The internal Kubernetes API URL.
+	ApiUrl string `json:"apiUrl"`
+
+	// DisplayName Human-readable display name for the provider.
+	DisplayName *string `json:"displayName,omitempty"`
+
+	// Enabled Whether this K8s provider is enabled.
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// ExternalOpenShiftApiUrl The external OpenShift API URL (for external access).
+	ExternalOpenShiftApiUrl *string `json:"externalOpenShiftApiUrl,omitempty"`
+
+	// OrganizationAssignment AuthOrganizationAssignment defines how users from this auth provider are assigned to organizations.
+	OrganizationAssignment AuthOrganizationAssignment `json:"organizationAssignment"`
+
+	// ProviderType The type of authentication provider.
+	ProviderType K8sProviderSpecProviderType `json:"providerType"`
+
+	// RbacNs The RBAC namespace for permissions.
+	RbacNs *string `json:"rbacNs,omitempty"`
+
+	// RoleAssignment AuthRoleAssignment defines how roles are assigned to users from this auth provider.
+	RoleAssignment AuthRoleAssignment `json:"roleAssignment"`
+}
+
+// K8sProviderSpecProviderType The type of authentication provider.
+type K8sProviderSpecProviderType string
+
 // KubernetesSecretProviderSpec defines model for KubernetesSecretProviderSpec.
 type KubernetesSecretProviderSpec struct {
 	// Name The name of the config provider.
@@ -1682,6 +1937,87 @@ type MemoryResourceMonitorSpec struct {
 	// SamplingInterval Duration between monitor samples. Format: positive integer followed by 's' for seconds, 'm' for minutes, 'h' for hours.
 	SamplingInterval string `json:"samplingInterval"`
 }
+
+// OAuth2ProviderSpec OAuth2ProviderSpec describes an OAuth2 provider configuration.
+type OAuth2ProviderSpec struct {
+	// AuthorizationUrl The OAuth2 authorization endpoint URL.
+	AuthorizationUrl string `json:"authorizationUrl"`
+
+	// ClientId The OAuth2 client ID.
+	ClientId string `json:"clientId"`
+
+	// ClientSecret The OAuth2 client secret.
+	ClientSecret *SecureString `json:"clientSecret,omitempty"`
+
+	// DisplayName Human-readable display name for the provider.
+	DisplayName *string `json:"displayName,omitempty"`
+
+	// Enabled Whether this OAuth2 provider is enabled.
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// Issuer The OAuth2 issuer identifier (used for issuer identification in tokens).
+	Issuer *string `json:"issuer,omitempty"`
+
+	// OrganizationAssignment AuthOrganizationAssignment defines how users from this auth provider are assigned to organizations.
+	OrganizationAssignment AuthOrganizationAssignment `json:"organizationAssignment"`
+
+	// ProviderType The type of authentication provider.
+	ProviderType OAuth2ProviderSpecProviderType `json:"providerType"`
+
+	// RoleAssignment AuthRoleAssignment defines how roles are assigned to users from this auth provider.
+	RoleAssignment AuthRoleAssignment `json:"roleAssignment"`
+
+	// Scopes List of OAuth2 scopes to request.
+	Scopes *[]string `json:"scopes,omitempty"`
+
+	// TokenUrl The OAuth2 token endpoint URL.
+	TokenUrl string `json:"tokenUrl"`
+
+	// UserinfoUrl The OAuth2 userinfo endpoint URL.
+	UserinfoUrl string `json:"userinfoUrl"`
+
+	// UsernameClaim JSON path to the username claim in the userinfo response as an array of path segments (e.g., ["preferred_username"], ["email"], ["sub"]).
+	UsernameClaim *[]string `json:"usernameClaim,omitempty"`
+}
+
+// OAuth2ProviderSpecProviderType The type of authentication provider.
+type OAuth2ProviderSpecProviderType string
+
+// OIDCProviderSpec OIDCProviderSpec describes an OIDC provider configuration.
+type OIDCProviderSpec struct {
+	// ClientId The OIDC client ID.
+	ClientId string `json:"clientId"`
+
+	// ClientSecret The OIDC client secret.
+	ClientSecret *SecureString `json:"clientSecret,omitempty"`
+
+	// DisplayName Human-readable display name for the provider.
+	DisplayName *string `json:"displayName,omitempty"`
+
+	// Enabled Whether this OIDC provider is enabled.
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// Issuer The OIDC issuer URL (e.g., https://accounts.google.com).
+	Issuer string `json:"issuer"`
+
+	// OrganizationAssignment AuthOrganizationAssignment defines how users from this auth provider are assigned to organizations.
+	OrganizationAssignment AuthOrganizationAssignment `json:"organizationAssignment"`
+
+	// ProviderType The type of authentication provider.
+	ProviderType OIDCProviderSpecProviderType `json:"providerType"`
+
+	// RoleAssignment AuthRoleAssignment defines how roles are assigned to users from this auth provider.
+	RoleAssignment AuthRoleAssignment `json:"roleAssignment"`
+
+	// Scopes List of OIDC scopes to request.
+	Scopes *[]string `json:"scopes,omitempty"`
+
+	// UsernameClaim JSON path to the username claim in the JWT token as an array of path segments (e.g., ["preferred_username"], ["email"], ["sub"]).
+	UsernameClaim *[]string `json:"usernameClaim,omitempty"`
+}
+
+// OIDCProviderSpecProviderType The type of authentication provider.
+type OIDCProviderSpecProviderType string
 
 // ObjectMeta ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
 type ObjectMeta struct {
@@ -2040,6 +2376,36 @@ type Status struct {
 	Status string `json:"status"`
 }
 
+// SystemdActiveStateType The high-level unit activation state.
+type SystemdActiveStateType string
+
+// SystemdEnableStateType The enable state of the unit file.
+type SystemdEnableStateType string
+
+// SystemdLoadStateType The load state of the unit file.
+type SystemdLoadStateType string
+
+// SystemdUnitStatus defines model for SystemdUnitStatus.
+type SystemdUnitStatus struct {
+	// ActiveState The high-level unit activation state.
+	ActiveState SystemdActiveStateType `json:"activeState"`
+
+	// Description The human-readable description for the unit.
+	Description string `json:"description"`
+
+	// EnableState The enable state of the unit file.
+	EnableState SystemdEnableStateType `json:"enableState"`
+
+	// LoadState The load state of the unit file.
+	LoadState SystemdLoadStateType `json:"loadState"`
+
+	// SubState The low-level, unit-type-specific state.
+	SubState string `json:"subState"`
+
+	// Unit The unit name (e.g., "sshd.service").
+	Unit string `json:"unit"`
+}
+
 // TemplateVersion TemplateVersion represents a version of a template.
 type TemplateVersion struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
@@ -2143,6 +2509,21 @@ type Version struct {
 type AuthValidateParams struct {
 	// Authorization The authentication token to validate.
 	Authorization *string `json:"Authorization,omitempty"`
+}
+
+// ListAuthProvidersParams defines parameters for ListAuthProviders.
+type ListAuthProvidersParams struct {
+	// Continue An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
+	Continue *string `form:"continue,omitempty" json:"continue,omitempty"`
+
+	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
+	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
+
+	// FieldSelector A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!=' (e.g., "key1=value1,key2!=value2").
+	FieldSelector *string `form:"fieldSelector,omitempty" json:"fieldSelector,omitempty"`
+
+	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
+	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // ListCertificateSigningRequestsParams defines parameters for ListCertificateSigningRequests.
@@ -2309,6 +2690,15 @@ type ListResourceSyncsParams struct {
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 }
+
+// CreateAuthProviderJSONRequestBody defines body for CreateAuthProvider for application/json ContentType.
+type CreateAuthProviderJSONRequestBody = AuthProvider
+
+// PatchAuthProviderApplicationJSONPatchPlusJSONRequestBody defines body for PatchAuthProvider for application/json-patch+json ContentType.
+type PatchAuthProviderApplicationJSONPatchPlusJSONRequestBody = PatchRequest
+
+// ReplaceAuthProviderJSONRequestBody defines body for ReplaceAuthProvider for application/json ContentType.
+type ReplaceAuthProviderJSONRequestBody = AuthProvider
 
 // CreateCertificateSigningRequestJSONRequestBody defines body for CreateCertificateSigningRequest for application/json ContentType.
 type CreateCertificateSigningRequestJSONRequestBody = CertificateSigningRequest
@@ -2704,6 +3094,363 @@ func (t *ApplicationVolume) UnmarshalJSON(b []byte) error {
 		}
 	}
 
+	return err
+}
+
+// AsAuthStaticOrganizationAssignment returns the union data inside the AuthOrganizationAssignment as a AuthStaticOrganizationAssignment
+func (t AuthOrganizationAssignment) AsAuthStaticOrganizationAssignment() (AuthStaticOrganizationAssignment, error) {
+	var body AuthStaticOrganizationAssignment
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAuthStaticOrganizationAssignment overwrites any union data inside the AuthOrganizationAssignment as the provided AuthStaticOrganizationAssignment
+func (t *AuthOrganizationAssignment) FromAuthStaticOrganizationAssignment(v AuthStaticOrganizationAssignment) error {
+	v.Type = "static"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAuthStaticOrganizationAssignment performs a merge with any union data inside the AuthOrganizationAssignment, using the provided AuthStaticOrganizationAssignment
+func (t *AuthOrganizationAssignment) MergeAuthStaticOrganizationAssignment(v AuthStaticOrganizationAssignment) error {
+	v.Type = "static"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsAuthDynamicOrganizationAssignment returns the union data inside the AuthOrganizationAssignment as a AuthDynamicOrganizationAssignment
+func (t AuthOrganizationAssignment) AsAuthDynamicOrganizationAssignment() (AuthDynamicOrganizationAssignment, error) {
+	var body AuthDynamicOrganizationAssignment
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAuthDynamicOrganizationAssignment overwrites any union data inside the AuthOrganizationAssignment as the provided AuthDynamicOrganizationAssignment
+func (t *AuthOrganizationAssignment) FromAuthDynamicOrganizationAssignment(v AuthDynamicOrganizationAssignment) error {
+	v.Type = "dynamic"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAuthDynamicOrganizationAssignment performs a merge with any union data inside the AuthOrganizationAssignment, using the provided AuthDynamicOrganizationAssignment
+func (t *AuthOrganizationAssignment) MergeAuthDynamicOrganizationAssignment(v AuthDynamicOrganizationAssignment) error {
+	v.Type = "dynamic"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsAuthPerUserOrganizationAssignment returns the union data inside the AuthOrganizationAssignment as a AuthPerUserOrganizationAssignment
+func (t AuthOrganizationAssignment) AsAuthPerUserOrganizationAssignment() (AuthPerUserOrganizationAssignment, error) {
+	var body AuthPerUserOrganizationAssignment
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAuthPerUserOrganizationAssignment overwrites any union data inside the AuthOrganizationAssignment as the provided AuthPerUserOrganizationAssignment
+func (t *AuthOrganizationAssignment) FromAuthPerUserOrganizationAssignment(v AuthPerUserOrganizationAssignment) error {
+	v.Type = "perUser"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAuthPerUserOrganizationAssignment performs a merge with any union data inside the AuthOrganizationAssignment, using the provided AuthPerUserOrganizationAssignment
+func (t *AuthOrganizationAssignment) MergeAuthPerUserOrganizationAssignment(v AuthPerUserOrganizationAssignment) error {
+	v.Type = "perUser"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t AuthOrganizationAssignment) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"type"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t AuthOrganizationAssignment) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "dynamic":
+		return t.AsAuthDynamicOrganizationAssignment()
+	case "perUser":
+		return t.AsAuthPerUserOrganizationAssignment()
+	case "static":
+		return t.AsAuthStaticOrganizationAssignment()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t AuthOrganizationAssignment) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *AuthOrganizationAssignment) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsOIDCProviderSpec returns the union data inside the AuthProviderSpec as a OIDCProviderSpec
+func (t AuthProviderSpec) AsOIDCProviderSpec() (OIDCProviderSpec, error) {
+	var body OIDCProviderSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromOIDCProviderSpec overwrites any union data inside the AuthProviderSpec as the provided OIDCProviderSpec
+func (t *AuthProviderSpec) FromOIDCProviderSpec(v OIDCProviderSpec) error {
+	v.ProviderType = "oidc"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeOIDCProviderSpec performs a merge with any union data inside the AuthProviderSpec, using the provided OIDCProviderSpec
+func (t *AuthProviderSpec) MergeOIDCProviderSpec(v OIDCProviderSpec) error {
+	v.ProviderType = "oidc"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsOAuth2ProviderSpec returns the union data inside the AuthProviderSpec as a OAuth2ProviderSpec
+func (t AuthProviderSpec) AsOAuth2ProviderSpec() (OAuth2ProviderSpec, error) {
+	var body OAuth2ProviderSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromOAuth2ProviderSpec overwrites any union data inside the AuthProviderSpec as the provided OAuth2ProviderSpec
+func (t *AuthProviderSpec) FromOAuth2ProviderSpec(v OAuth2ProviderSpec) error {
+	v.ProviderType = "oauth2"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeOAuth2ProviderSpec performs a merge with any union data inside the AuthProviderSpec, using the provided OAuth2ProviderSpec
+func (t *AuthProviderSpec) MergeOAuth2ProviderSpec(v OAuth2ProviderSpec) error {
+	v.ProviderType = "oauth2"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsAapProviderSpec returns the union data inside the AuthProviderSpec as a AapProviderSpec
+func (t AuthProviderSpec) AsAapProviderSpec() (AapProviderSpec, error) {
+	var body AapProviderSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAapProviderSpec overwrites any union data inside the AuthProviderSpec as the provided AapProviderSpec
+func (t *AuthProviderSpec) FromAapProviderSpec(v AapProviderSpec) error {
+	v.ProviderType = "aap"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAapProviderSpec performs a merge with any union data inside the AuthProviderSpec, using the provided AapProviderSpec
+func (t *AuthProviderSpec) MergeAapProviderSpec(v AapProviderSpec) error {
+	v.ProviderType = "aap"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsK8sProviderSpec returns the union data inside the AuthProviderSpec as a K8sProviderSpec
+func (t AuthProviderSpec) AsK8sProviderSpec() (K8sProviderSpec, error) {
+	var body K8sProviderSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromK8sProviderSpec overwrites any union data inside the AuthProviderSpec as the provided K8sProviderSpec
+func (t *AuthProviderSpec) FromK8sProviderSpec(v K8sProviderSpec) error {
+	v.ProviderType = "k8s"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeK8sProviderSpec performs a merge with any union data inside the AuthProviderSpec, using the provided K8sProviderSpec
+func (t *AuthProviderSpec) MergeK8sProviderSpec(v K8sProviderSpec) error {
+	v.ProviderType = "k8s"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t AuthProviderSpec) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"providerType"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t AuthProviderSpec) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "aap":
+		return t.AsAapProviderSpec()
+	case "k8s":
+		return t.AsK8sProviderSpec()
+	case "oauth2":
+		return t.AsOAuth2ProviderSpec()
+	case "oidc":
+		return t.AsOIDCProviderSpec()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t AuthProviderSpec) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *AuthProviderSpec) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsAuthStaticRoleAssignment returns the union data inside the AuthRoleAssignment as a AuthStaticRoleAssignment
+func (t AuthRoleAssignment) AsAuthStaticRoleAssignment() (AuthStaticRoleAssignment, error) {
+	var body AuthStaticRoleAssignment
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAuthStaticRoleAssignment overwrites any union data inside the AuthRoleAssignment as the provided AuthStaticRoleAssignment
+func (t *AuthRoleAssignment) FromAuthStaticRoleAssignment(v AuthStaticRoleAssignment) error {
+	v.Type = "static"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAuthStaticRoleAssignment performs a merge with any union data inside the AuthRoleAssignment, using the provided AuthStaticRoleAssignment
+func (t *AuthRoleAssignment) MergeAuthStaticRoleAssignment(v AuthStaticRoleAssignment) error {
+	v.Type = "static"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsAuthDynamicRoleAssignment returns the union data inside the AuthRoleAssignment as a AuthDynamicRoleAssignment
+func (t AuthRoleAssignment) AsAuthDynamicRoleAssignment() (AuthDynamicRoleAssignment, error) {
+	var body AuthDynamicRoleAssignment
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAuthDynamicRoleAssignment overwrites any union data inside the AuthRoleAssignment as the provided AuthDynamicRoleAssignment
+func (t *AuthRoleAssignment) FromAuthDynamicRoleAssignment(v AuthDynamicRoleAssignment) error {
+	v.Type = "dynamic"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAuthDynamicRoleAssignment performs a merge with any union data inside the AuthRoleAssignment, using the provided AuthDynamicRoleAssignment
+func (t *AuthRoleAssignment) MergeAuthDynamicRoleAssignment(v AuthDynamicRoleAssignment) error {
+	v.Type = "dynamic"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t AuthRoleAssignment) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"type"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t AuthRoleAssignment) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "dynamic":
+		return t.AsAuthDynamicRoleAssignment()
+	case "static":
+		return t.AsAuthStaticRoleAssignment()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t AuthRoleAssignment) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *AuthRoleAssignment) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
 	return err
 }
 

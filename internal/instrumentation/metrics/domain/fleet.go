@@ -46,10 +46,6 @@ func NewFleetCollector(ctx context.Context, store store.Store, log logrus.FieldL
 	return collector
 }
 
-func (c *FleetCollector) MetricsName() string {
-	return "fleet"
-}
-
 func (c *FleetCollector) Describe(ch chan<- *prometheus.Desc) {
 	c.totalFleetsGauge.Describe(ch)
 }

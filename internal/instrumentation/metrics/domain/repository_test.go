@@ -35,6 +35,7 @@ func (m *MockRepositoryStore) ResourceSync() store.ResourceSync                 
 func (m *MockRepositoryStore) Event() store.Event                                         { return nil }
 func (m *MockRepositoryStore) Checkpoint() store.Checkpoint                               { return nil }
 func (m *MockRepositoryStore) Organization() store.Organization                           { return nil }
+func (m *MockRepositoryStore) AuthProvider() store.AuthProvider                           { return nil }
 func (m *MockRepositoryStore) RunMigrations(context.Context) error                        { return nil }
 func (m *MockRepositoryStore) Close() error                                               { return nil }
 func (m *MockRepositoryStore) CheckHealth(context.Context) error                          { return nil }
@@ -107,9 +108,6 @@ func TestRepositoryCollector(t *testing.T) {
 
 	// Test that the collector implements the required interfaces
 	var _ prometheus.Collector = collector
-
-	// Test MetricsName
-	assert.Equal(t, "repository", collector.MetricsName())
 
 	// Test that metrics are collected
 	ch := make(chan prometheus.Metric, 100)

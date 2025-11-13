@@ -44,6 +44,8 @@ type Writer interface {
 	MkdirTemp(prefix string) (string, error)
 	// CopyFile copies a file from src to dst, creating the destination directory if it does not exist.
 	CopyFile(src, dst string) error
+	// CopyDir recursively copies a directory from src to dst, preserving file permissions.
+	CopyDir(src, dst string, opts ...CopyDirOption) error
 	// CreateManagedFile creates a managed file with the given spec.
 	CreateManagedFile(file v1alpha1.FileSpec) (ManagedFile, error)
 	// OverwriteAndWipe overwrites the file at the given path with zeros and then deletes it.

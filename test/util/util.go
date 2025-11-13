@@ -23,9 +23,11 @@ import (
 	"github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
-	"github.com/flightctl/flightctl/internal/org/resolvers"
+	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/util"
+	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
@@ -43,6 +45,18 @@ const (
 	serverCertName              = "server"
 	clientBootstrapCertName     = "client-enrollment"
 )
+
+// InitLogsWithDebug creates a logger with debug level if LOG_LEVEL=debug is set
+func InitLogsWithDebug() *logrus.Logger {
+	log := flightlog.InitLogs()
+
+	// Enable debug logging if LOG_LEVEL is set to debug
+	if os.Getenv("LOG_LEVEL") == "debug" {
+		log.SetLevel(logrus.DebugLevel)
+	}
+
+	return log
+}
 
 type testProvider struct {
 	queue       chan []byte
@@ -206,7 +220,7 @@ func IsAcmInstalled() (bool, bool, error) {
 }
 
 // NewTestApiServer creates a new test server and returns the server and the listener listening on localhost's next available port.
-func NewTestApiServer(log logrus.FieldLogger, cfg *config.Config, store store.Store, ca *crypto.CAClient, serverCerts *crypto.TLSCertificateConfig, queuesProvider queues.Provider, orgResolver resolvers.Resolver) (*apiserver.Server, net.Listener, error) {
+func NewTestApiServer(log logrus.FieldLogger, cfg *config.Config, store store.Store, ca *crypto.CAClient, serverCerts *crypto.TLSCertificateConfig, queuesProvider queues.Provider) (*apiserver.Server, net.Listener, error) {
 
 	// create a listener using the next available port
 	tlsConfig, _, err := crypto.TLSConfigForServer(ca.GetCABundleX509(), serverCerts)
@@ -220,11 +234,11 @@ func NewTestApiServer(log logrus.FieldLogger, cfg *config.Config, store store.St
 		return nil, nil, fmt.Errorf("NewTLSListener: error creating TLS certs: %w", err)
 	}
 
-	return apiserver.New(log, cfg, store, ca, listener, queuesProvider, nil, orgResolver), listener, nil
+	return apiserver.New(log, cfg, store, ca, listener, queuesProvider, nil), listener, nil
 }
 
 // NewTestAgentServer creates a new test server and returns the server and the listener listening on localhost's next available port.
-func NewTestAgentServer(ctx context.Context, log logrus.FieldLogger, cfg *config.Config, store store.Store, ca *crypto.CAClient, serverCerts *crypto.TLSCertificateConfig, queuesProvider queues.Provider, orgResolver resolvers.Resolver) (*agentserver.AgentServer, net.Listener, error) {
+func NewTestAgentServer(ctx context.Context, log logrus.FieldLogger, cfg *config.Config, store store.Store, ca *crypto.CAClient, serverCerts *crypto.TLSCertificateConfig, queuesProvider queues.Provider) (*agentserver.AgentServer, net.Listener, error) {
 	// create a listener using the next available port
 	_, tlsConfig, err := crypto.TLSConfigForServer(ca.GetCABundleX509(), serverCerts)
 	if err != nil {
@@ -237,7 +251,7 @@ func NewTestAgentServer(ctx context.Context, log logrus.FieldLogger, cfg *config
 		return nil, nil, fmt.Errorf("NewTestAgentServer: error creating TLS certs: %w", err)
 	}
 
-	agentServer, err := agentserver.New(ctx, log, cfg, store, ca, listener, queuesProvider, tlsConfig, orgResolver)
+	agentServer, err := agentserver.New(ctx, log, cfg, store, ca, listener, queuesProvider, tlsConfig)
 	if err != nil {
 		_ = listener.Close()
 		return nil, nil, fmt.Errorf("NewTestAgentServer: error creating agent server: %w", err)
@@ -295,7 +309,10 @@ func NewTestCerts(cfg *config.Config) (*crypto.CAClient, *crypto.TLSCertificateC
 		return nil, nil, nil, fmt.Errorf("NewTestCerts: Ensuring server certificate: %w", err)
 	}
 
-	enrollmentCerts, _, err := ca.EnsureClientCertificate(ctx, crypto.CertStorePath("client-enrollment.crt", cfg.Service.CertStore), crypto.CertStorePath("client-enrollment.key", cfg.Service.CertStore), clientBootstrapCertName, clientBootStrapValidityDays)
+	// Create enrollment certificate with organization ID extension
+	// Use the default organization ID for test certificates
+	orgCtx := util.WithOrganizationID(ctx, org.DefaultID)
+	enrollmentCerts, _, err := ca.EnsureClientCertificate(orgCtx, crypto.CertStorePath("client-enrollment.crt", cfg.Service.CertStore), crypto.CertStorePath("client-enrollment.key", cfg.Service.CertStore), clientBootstrapCertName, clientBootStrapValidityDays)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("NewTestCerts: Ensuring client enrollment certificate: %w", err)
 	}
@@ -355,19 +372,6 @@ func (c *TestOrgCache) Set(id uuid.UUID, org *model.Organization) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.orgs[id] = org
-}
-
-func NewOrgResolver(cfg *config.Config, orgStore resolvers.OrgStore, log logrus.FieldLogger) (resolvers.Resolver, error) {
-	orgCache := &TestOrgCache{
-		orgs: make(map[uuid.UUID]*model.Organization),
-	}
-	buildResolverOpts := resolvers.BuildResolverOptions{
-		Config: cfg,
-		Store:  orgStore,
-		Log:    log,
-		Cache:  orgCache,
-	}
-	return resolvers.BuildResolver(buildResolverOpts)
 }
 
 func TestEnrollmentApproval() *v1alpha1.EnrollmentRequestApproval {

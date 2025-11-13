@@ -84,7 +84,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/flightctl/flightctl/internal/config"
+	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/reqid"
@@ -118,7 +118,7 @@ type redisProvider struct {
 	retryConfig RetryConfig
 }
 
-func NewRedisProvider(ctx context.Context, log logrus.FieldLogger, processID string, hostname string, port uint, password config.SecureString, retryConfig RetryConfig) (Provider, error) {
+func NewRedisProvider(ctx context.Context, log logrus.FieldLogger, processID string, hostname string, port uint, password api.SecureString, retryConfig RetryConfig) (Provider, error) {
 	if processID == "" {
 		return nil, errors.New("processID cannot be empty")
 	}

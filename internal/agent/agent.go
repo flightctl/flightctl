@@ -68,8 +68,8 @@ func (a *Agent) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	// start early to profile initialization and startup routines
-	go instrumentation.NewPprofServer(a.log, a.config).Run(ctx)
+	// start instrumentation early so startup paths are observable.
+	go instrumentation.NewAgentInstrumentation(a.log, a.config).Run(ctx)
 
 	// create file io writer and reader
 	deviceReadWriter := fileio.NewReadWriter(fileio.WithTestRootDir(a.config.GetTestRootDir()))

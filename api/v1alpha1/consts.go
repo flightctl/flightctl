@@ -72,6 +72,12 @@ const (
 	RepositoryKind       = "Repository"
 	RepositoryListKind   = "RepositoryList"
 
+	AuthProviderAPIVersion = "v1alpha1"
+	AuthProviderKind       = "AuthProvider"
+	AuthProviderListKind   = "AuthProviderList"
+
+	AuthConfigAPIVersion = "v1alpha1"
+
 	ResourceSyncAPIVersion = "v1alpha1"
 	ResourceSyncKind       = "ResourceSync"
 	ResourceSyncListKind   = "ResourceSyncList"
@@ -94,6 +100,12 @@ const (
 	SystemKind           = "System"
 	SystemComponentDB    = "database"
 	SystemComponentQueue = "queue"
+
+	// Role constants for flightctl user roles
+	RoleAdmin     = "admin"     // Full access to all resources
+	RoleOperator  = "operator"  // Manage devices, fleets, resourcesyncs
+	RoleViewer    = "viewer"    // Read-only access to devices, fleets, resourcesyncs
+	RoleInstaller = "installer" // Limited access for device installation
 )
 
 type UpdateState string

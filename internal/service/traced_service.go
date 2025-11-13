@@ -611,3 +611,68 @@ func (t *TracedService) ListOrganizations(ctx context.Context) (*api.Organizatio
 	endSpan(span, st)
 	return resp, st
 }
+
+// --- AuthProvider ---
+func (t *TracedService) CreateAuthProvider(ctx context.Context, authProvider api.AuthProvider) (*api.AuthProvider, api.Status) {
+	ctx, span := startSpan(ctx, "CreateAuthProvider")
+	resp, st := t.inner.CreateAuthProvider(ctx, authProvider)
+	endSpan(span, st)
+	return resp, st
+}
+
+func (t *TracedService) ListAuthProviders(ctx context.Context, params api.ListAuthProvidersParams) (*api.AuthProviderList, api.Status) {
+	ctx, span := startSpan(ctx, "ListAuthProviders")
+	resp, st := t.inner.ListAuthProviders(ctx, params)
+	endSpan(span, st)
+	return resp, st
+}
+
+func (t *TracedService) GetAuthProvider(ctx context.Context, name string) (*api.AuthProvider, api.Status) {
+	ctx, span := startSpan(ctx, "GetAuthProvider")
+	resp, st := t.inner.GetAuthProvider(ctx, name)
+	endSpan(span, st)
+	return resp, st
+}
+
+func (t *TracedService) GetAuthProviderByIssuerAndClientId(ctx context.Context, issuer string, clientId string) (*api.AuthProvider, api.Status) {
+	ctx, span := startSpan(ctx, "GetAuthProviderByIssuerAndClientId")
+	resp, st := t.inner.GetAuthProviderByIssuerAndClientId(ctx, issuer, clientId)
+	endSpan(span, st)
+	return resp, st
+}
+
+func (t *TracedService) GetAuthProviderByAuthorizationUrl(ctx context.Context, authorizationUrl string) (*api.AuthProvider, api.Status) {
+	ctx, span := startSpan(ctx, "GetAuthProviderByAuthorizationUrl")
+	resp, st := t.inner.GetAuthProviderByAuthorizationUrl(ctx, authorizationUrl)
+	endSpan(span, st)
+	return resp, st
+}
+
+func (t *TracedService) ReplaceAuthProvider(ctx context.Context, name string, authProvider api.AuthProvider) (*api.AuthProvider, api.Status) {
+	ctx, span := startSpan(ctx, "ReplaceAuthProvider")
+	resp, st := t.inner.ReplaceAuthProvider(ctx, name, authProvider)
+	endSpan(span, st)
+	return resp, st
+}
+
+func (t *TracedService) PatchAuthProvider(ctx context.Context, name string, patch api.PatchRequest) (*api.AuthProvider, api.Status) {
+	ctx, span := startSpan(ctx, "PatchAuthProvider")
+	resp, st := t.inner.PatchAuthProvider(ctx, name, patch)
+	endSpan(span, st)
+	return resp, st
+}
+
+func (t *TracedService) DeleteAuthProvider(ctx context.Context, name string) api.Status {
+	ctx, span := startSpan(ctx, "DeleteAuthProvider")
+	st := t.inner.DeleteAuthProvider(ctx, name)
+	endSpan(span, st)
+	return st
+}
+
+// --- Auth ---
+func (t *TracedService) GetAuthConfig(ctx context.Context, authConfig *api.AuthConfig) (*api.AuthConfig, api.Status) {
+	ctx, span := startSpan(ctx, "GetAuthConfig")
+	resp, st := t.inner.GetAuthConfig(ctx, authConfig)
+	endSpan(span, st)
+	return resp, st
+}

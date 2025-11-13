@@ -141,6 +141,7 @@ dev_read_kmsg(flightctl_agent_t)
 # Network connections
 corenet_tcp_connect_all_ports(flightctl_agent_t)
 corenet_sendrecv_all_client_packets(flightctl_agent_t)
+corenet_tcp_bind_unreserved_ports(flightctl_agent_t)
 sysnet_dns_name_resolve(flightctl_agent_t)
 
 # Socket permissions

@@ -8,14 +8,15 @@ import (
 	"strings"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	authcommon "github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/config/ca"
 	"github.com/flightctl/flightctl/internal/consts"
 	icrypto "github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/identity"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	fcrypto "github.com/flightctl/flightctl/pkg/crypto"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
@@ -81,9 +82,7 @@ var _ = Describe("EnrollmentRequest store restore operations", func() {
 		caClient, _, err := icrypto.EnsureCA(caCfg)
 		Expect(err).ToNot(HaveOccurred())
 
-		orgResolver, err := util.NewOrgResolver(cfg, storeInst.Organization(), log)
-		Expect(err).ToNot(HaveOccurred())
-		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, caClient, log, "", "", []string{}, orgResolver)
+		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, caClient, log, "", "", []string{})
 	})
 
 	AfterEach(func() {
@@ -162,8 +161,8 @@ var _ = Describe("EnrollmentRequest store restore operations", func() {
 			By(fmt.Sprintf("Debug: Created ER annotations: %+v", createdER.Metadata.Annotations))
 
 			// Approve one enrollment request using the service layer
-			identity := authcommon.NewBaseIdentity("testuser", "", []string{})
-			ctxApproval := context.WithValue(ctx, consts.IdentityCtxKey, identity)
+			mappedIdentity := identity.NewMappedIdentity("testuser", "testuser", []*model.Organization{}, []string{}, nil)
+			ctxApproval := context.WithValue(ctx, consts.MappedIdentityCtxKey, mappedIdentity)
 
 			approval := api.EnrollmentRequestApproval{
 				Approved: true,
@@ -306,8 +305,8 @@ var _ = Describe("EnrollmentRequest store restore operations", func() {
 			Expect(st.Code).To(BeEquivalentTo(201))
 
 			// Approve the enrollment request using the service layer
-			identity := authcommon.NewBaseIdentity("testuser", "", []string{})
-			ctxApproval := context.WithValue(ctx, consts.IdentityCtxKey, identity)
+			mappedIdentity := identity.NewMappedIdentity("testuser", "testuser", []*model.Organization{}, []string{}, nil)
+			ctxApproval := context.WithValue(ctx, consts.MappedIdentityCtxKey, mappedIdentity)
 
 			approval := api.EnrollmentRequestApproval{
 				Approved: true,

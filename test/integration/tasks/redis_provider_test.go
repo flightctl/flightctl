@@ -8,7 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/flightctl/flightctl/internal/config"
+	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
@@ -155,7 +155,7 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 
 		// Create a Redis provider with a short retry config for testing - this will skip the test if Redis is not available
 		var err error
-		provider, err = queues.NewRedisProvider(ctx, log, processID, "localhost", 6379, config.SecureString("adminpass"), queues.RetryConfig{
+		provider, err = queues.NewRedisProvider(ctx, log, processID, "localhost", 6379, api.SecureString("adminpass"), queues.RetryConfig{
 			BaseDelay:    100 * time.Millisecond, // Short delays for testing
 			MaxRetries:   3,
 			MaxDelay:     500 * time.Millisecond,
