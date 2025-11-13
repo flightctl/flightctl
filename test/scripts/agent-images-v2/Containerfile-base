@@ -7,7 +7,7 @@
 #
 
 # ---------- Stage: prebase ----------
-FROM quay.io/centos-bootc/centos-bootc:stream9 AS prebase
+FROM quay.io/centos-bootc/centos-bootc:stream10 AS prebase
 
 ARG SOURCE_GIT_TAG
 ARG SOURCE_GIT_TREE_STATE

@@ -32,6 +32,7 @@ jobs:
       git_tag: ${{ steps.compute-tag.outputs.git_tag }}
       git_tree_state: ${{ steps.compute-tag.outputs.git_tree_state }}
       git_commit: ${{ steps.compute-tag.outputs.git_commit }}
+      helm_tag: ${{ steps.compute-tag.outputs.helm_tag }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -46,6 +47,10 @@ jobs:
           TAG=$(./hack/current-version)
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "Computed tag: $TAG"
+          
+          # Normalize for helm (drop leading v, replace ~ with -)
+          HELM_TAG=$(echo "${TAG#v}" | sed 's/~/-/g')
+          echo "helm_tag=${HELM_TAG}" >> "$GITHUB_OUTPUT"
           
           SOURCE_GIT_TAG=$(git describe --tags --exclude latest 2>/dev/null || echo "v0.0.0-unknown")
           if [ ! -d ".git" ]; then
@@ -70,7 +75,6 @@ jobs:
           echo "- **Branch:** \`${GITHUB_REF_NAME}\`" >> $GITHUB_STEP_SUMMARY
 
   build-images:
-    ## Todo freeze go version
     needs: [compute-tag]
     strategy:
       matrix:
@@ -94,11 +98,11 @@ jobs:
           image: quay.io/flightctl/flightctl-${{ matrix.image }}
           tags: ${{ needs.compute-tag.outputs.tag }}
           labels: |
-            org.flightctl.flightctl-${{ matrix.image }}.github.repository=${{ github.repository }}
-            org.flightctl.flightctl-${{ matrix.image }}.github.actor=${{ github.actor }}
-            org.flightctl.flightctl-${{ matrix.image }}.github.run_id=${{ github.run_id }}
-            org.flightctl.flightctl-${{ matrix.image }}.github.sha=${{ github.sha }}
-            org.flightctl.flightctl-${{ matrix.image }}.github.ref_name=${{ github.ref_name }}
+            io.flightctl.flightctl-${{ matrix.image }}.github.repository=${{ github.repository }}
+            io.flightctl.flightctl-${{ matrix.image }}.github.actor=${{ github.actor }}
+            io.flightctl.flightctl-${{ matrix.image }}.github.run_id=${{ github.run_id }}
+            io.flightctl.flightctl-${{ matrix.image }}.github.sha=${{ github.sha }}
+            io.flightctl.flightctl-${{ matrix.image }}.github.ref_name=${{ github.ref_name }}
             quay.expires-after=${{ inputs.expires_after }}
           build-args: |
             SOURCE_GIT_TAG=${{ needs.compute-tag.outputs.git_tag }}
@@ -325,7 +329,7 @@ jobs:
         id: build-charts
         run: |
           set -euo pipefail
-          TAG="${{ needs.compute-tag.outputs.tag }}"
+          TAG="${{ needs.compute-tag.outputs.helm_tag }}"
           
           echo "::group::Building helm charts"
           helm dependency build ./deploy/helm/flightctl
@@ -358,7 +362,7 @@ jobs:
         run: |
           set -euo pipefail
           name="flightctl"
-          version="${{ needs.compute-tag.outputs.tag }}"
+          version="${{ needs.compute-tag.outputs.helm_tag }}"
           artifact_url="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}#artifacts"
           digest="${{ steps.build-charts.outputs.digest }}"
           chart_file="${{ steps.build-charts.outputs.chart_file }}"
@@ -1180,7 +1184,7 @@ jobs:
 
       - name: Generate step summary
         run: |
-          TAG='${{ needs.compute-tag.outputs.tag }}'
+          TAG='${{ needs.compute-tag.outputs.helm_tag }}'
           RUN_ID='${{ github.run_id }}'
           CHART_FILE="flightctl-${TAG}.tgz"
           ARTIFACTS_URL="https://github.com/${{ github.repository }}/actions/runs/${RUN_ID}#artifacts"
@@ -1227,7 +1231,7 @@ jobs:
 
       - name: Generate services summary
         run: |
-          TAG='${{ needs.compute-tag.outputs.tag }}'
+          TAG='${{ needs.compute-tag.outputs.helm_tag }}'
           RUN_ID='${{ github.run_id }}'
           CHART_FILE="flightctl-${TAG}.tgz"
           ARTIFACTS_URL="https://github.com/${{ github.repository }}/actions/runs/${RUN_ID}#artifacts"
@@ -1344,7 +1348,7 @@ jobs:
           TAG: ${{ needs.compute-tag.outputs.tag }}
         run: |
           set -euo pipefail
-          CHART_FILE="flightctl-${TAG}.tgz"
+          CHART_FILE="flightctl-${{ needs.compute-tag.outputs.helm_tag }}.tgz"
 
           echo "Chart file: ${CHART_FILE}"
           echo "Image registry: quay.io/flightctl/"
@@ -1384,7 +1388,7 @@ jobs:
         run: bin/devicesimulator --config bin/agent/etc/flightctl/config.yaml --count 1 --stop-after 1m
 
       - name: Collect and Upload Logs
-        if: always() && steps.changed-files.outputs.any_changed == 'true'
+        if: always()
         uses: ./.github/actions/collect-logs
         with:
           namespace-external: 'flightctl-external'
@@ -1524,7 +1528,7 @@ jobs:
           TAG: ${{ needs.compute-tag.outputs.tag }}
         run: |
           set -euo pipefail
-          CHART_FILE="artifacts/flightctl-${TAG}.tgz"
+          CHART_FILE="artifacts/flightctl-${{ needs.compute-tag.outputs.helm_tag }}.tgz"
 
           echo "::group::Deploying FlightCtl backend services"
           echo "Chart file: ${CHART_FILE}"
