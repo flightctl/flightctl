@@ -344,6 +344,10 @@ components:
           type: string
           nullable: true
           description: PKCE code verifier.
+        redirect_uri:
+          type: string
+          nullable: true
+          description: OAuth2 redirect URI (required for authorization_code grant if included in authorization request).
       description: OAuth2 token request
     TokenResponse:
       type: object

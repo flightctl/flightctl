@@ -161,6 +161,9 @@ type TokenRequest struct {
 	// Password Password for password grant (not used in OIDC flows).
 	Password *string `json:"password"`
 
+	// RedirectUri OAuth2 redirect URI (required for authorization_code grant if included in authorization request).
+	RedirectUri *string `json:"redirect_uri"`
+
 	// RefreshToken Refresh token for refresh_token grant.
 	RefreshToken *string `json:"refresh_token"`
 
