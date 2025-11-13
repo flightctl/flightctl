@@ -10,7 +10,7 @@
 ARG PREBASE_IMAGE
 
 # ---------- Stage: prebase ----------
-FROM quay.io/centos-bootc/centos-bootc:stream9 AS prebase
+FROM quay.io/centos-bootc/centos-bootc:stream10 AS prebase
 
 ARG SOURCE_GIT_TAG
 ARG SOURCE_GIT_TREE_STATE
@@ -20,10 +20,12 @@ LABEL org.opencontainers.image.source="https://github.com/flightctl/flightctl"
 LABEL org.opencontainers.image.version="${SOURCE_GIT_TAG}"
 LABEL org.opencontainers.image.revision="${SOURCE_GIT_COMMIT}"
 
+RUN sudo dnf config-manager --set-enabled crb
+
 # Enable EPEL repos
 RUN --mount=type=cache,target=/var/cache/dnf \
     --mount=type=cache,target=/var/lib/dnf \
-    dnf install -y epel-release epel-next-release
+    dnf install -y epel-release
 
 # Utilities used by tests
 RUN --mount=type=cache,target=/var/cache/dnf \

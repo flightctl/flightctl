@@ -251,7 +251,11 @@ func (h *Harness) Cleanup(printConsole bool) {
 			fmt.Println("============ systemctl status flightctl-agent ============")
 			fmt.Println(stdout.String())
 			fmt.Println("=============== logs for flightctl-agent =================")
-			fmt.Println(h.ReadPrimaryVMAgentLogs("", util.FLIGHTCTL_AGENT_SERVICE))
+			if agentLogs, err := h.ReadPrimaryVMAgentLogs("", util.FLIGHTCTL_AGENT_SERVICE); err != nil {
+				fmt.Printf("Failed to read agent logs: %v\n", err)
+			} else {
+				fmt.Println(agentLogs)
+			}
 			if printConsole {
 				fmt.Println("======================= VM Console =======================")
 				fmt.Println(h.VM.GetConsoleOutput())
@@ -285,6 +289,23 @@ func (h *Harness) GetServiceLogs(serviceName string) (string, error) {
 // This is useful for debugging service output and capturing logs from the latest service invocation.
 func (h *Harness) GetFlightctlAgentLogs() (string, error) {
 	return h.VM.GetServiceLogs("flightctl-agent")
+}
+
+// PrintAgentLogsOnFailure prints agent logs if the current test has failed.
+// This is a helper function for test suites to use in their AfterEach blocks.
+func (h *Harness) PrintAgentLogsOnFailure() {
+	testFailed := CurrentSpecReport().Failed()
+	if testFailed && h.VM != nil {
+		fmt.Printf("\n==========================================================\n")
+		fmt.Printf("TEST FAILED: %s\n", CurrentSpecReport().FullText())
+		fmt.Printf("=============== logs for flightctl-agent =================\n")
+		if agentLogs, err := h.ReadPrimaryVMAgentLogs("", "flightctl-agent"); err != nil {
+			fmt.Printf("Failed to read agent logs: %v\n", err)
+		} else {
+			fmt.Println(agentLogs)
+		}
+		fmt.Printf("==========================================================\n\n")
+	}
 }
 
 // GetEnrollmentIDFromServiceLogs returns the enrollment ID from the service logs using journalctl.
