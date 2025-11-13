@@ -53,7 +53,7 @@ ENV SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT}
 # Use BuildKit cache mounts for Go caching
 RUN --mount=type=cache,target=/opt/app-root/src/.cache/go-build \
     --mount=type=cache,target=/opt/app-root/src/go/pkg/mod \
-    make build-pam-issuer
+    make build-pam-issuer build-service-setup
 
 FROM quay.io/flightctl/flightctl-base:9.6-1762316544
 WORKDIR /app
@@ -74,6 +74,7 @@ COPY --from=build /runtime-root/ /
 COPY --from=build /app/deploy/podman/flightctl-pam-issuer/pam-flightctl /etc/pam.d/flightctl
 
 COPY --from=build /app/bin/flightctl-pam-issuer .
+COPY --from=build /app/bin/flightctl-service-setup .
 
 # Note: User database files (/etc/passwd, /etc/shadow, /etc/group) are managed
 # inside the container. Use a named volume mount for /etc to persist users across restarts.

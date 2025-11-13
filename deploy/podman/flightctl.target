@@ -12,6 +12,7 @@ Wants=flightctl-db-migrate.service
 Wants=flightctl-db-wait.service
 Wants=flightctl-kv.service
 Wants=flightctl-api-init.service
+Wants=flightctl-api-post-init.service
 Wants=flightctl-api.service
 Wants=flightctl-worker.service
 Wants=flightctl-periodic.service
@@ -20,8 +21,10 @@ Wants=flightctl-alertmanager.service
 Wants=flightctl-alertmanager-proxy-init.service
 Wants=flightctl-alertmanager-proxy.service
 Wants=flightctl-ui-init.service
+Wants=flightctl-ui-post-init.service
 Wants=flightctl-ui.service
 Wants=flightctl-cli-artifacts-init.service
+Wants=flightctl-cli-artifacts-post-init.service
 Wants=flightctl-cli-artifacts.service
 
 After=network.target
@@ -31,6 +34,7 @@ After=flightctl-db-migrate.service
 After=flightctl-db-wait.service
 After=flightctl-kv.service
 After=flightctl-api-init.service
+After=flightctl-api-post-init.service
 After=flightctl-api.service
 After=flightctl-worker.service
 After=flightctl-periodic.service
@@ -39,8 +43,10 @@ After=flightctl-alertmanager.service
 After=flightctl-alertmanager-proxy-init.service
 After=flightctl-alertmanager-proxy.service
 After=flightctl-ui-init.service
+After=flightctl-ui-post-init.service
 After=flightctl-ui.service
 After=flightctl-cli-artifacts-init.service
+After=flightctl-cli-artifacts-post-init.service
 After=flightctl-cli-artifacts.service
 
 [Install]

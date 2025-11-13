@@ -5,14 +5,13 @@ After=flightctl-alertmanager.service
 Wants=flightctl-alertmanager.service
 
 [Container]
-Image=registry.access.redhat.com/ubi9/ubi-minimal
+Image=quay.io/flightctl/flightctl-alertmanager-proxy:latest
 ContainerName=flightctl-alertmanager-proxy-init
 Network=flightctl.network
-Volume=/usr/share/flightctl/flightctl-alertmanager-proxy:/config-source:ro,z
-Volume=/usr/share/flightctl/init_utils.sh:/utils/init_utils.sh:ro,z
-Volume=/etc/flightctl/flightctl-alertmanager-proxy:/config-destination:rw,z
-Volume=/etc/flightctl/service-config.yaml:/service-config.yaml:ro,z
-Exec=/bin/sh /config-source/init.sh
+Volume=/etc/flightctl/service-config.yaml:/app/service-config.yaml:ro,z
+Volume=/usr/share/flightctl/flightctl-alertmanager-proxy/env.template:/app/templates/env.template:ro,z
+Volume=/etc/flightctl/flightctl-alertmanager-proxy:/app/rendered:rw,z
+Exec=/app/flightctl-service-setup
 
 [Service]
 Type=oneshot

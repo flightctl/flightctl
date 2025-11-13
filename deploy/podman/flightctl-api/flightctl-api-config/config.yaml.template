@@ -1,48 +1,49 @@
 database:
-  hostname: {{DB_HOSTNAME}}
+  hostname: {{if eq .db.external "enabled"}}{{.db.hostname}}{{else}}flightctl-db{{end}}
   type: pgsql
-  port: {{DB_PORT}}
-  name: {{DB_NAME}}
-  user: {{DB_USER}}{{DB_SSL_CONFIG}}
+  port: {{if .db.port}}{{.db.port}}{{else}}5432{{end}}
+  name: {{if .db.name}}{{.db.name}}{{else}}flightctl{{end}}
+  user: {{if .db.user}}{{.db.user}}{{else}}admin{{end}}
+{{if eq .db.external "enabled"}}
+  {{if .db.sslmode}}sslmode: {{.db.sslmode}}{{end}}
+  {{if .db.sslcert}}sslcert: {{.db.sslcert}}{{end}}
+  {{if .db.sslkey}}sslkey: {{.db.sslkey}}{{end}}
+  {{if .db.sslrootcert}}sslrootcert: {{.db.sslrootcert}}{{end}}
+{{end}}
 service:
   address: flightctl-api:3443
   agentEndpointAddress: flightctl-api:7443
-  baseUrl: https://{{BASE_DOMAIN}}:3443/
-  baseAgentEndpointUrl: https://{{BASE_DOMAIN}}:7443/
-  baseUIUrl: https://{{BASE_DOMAIN}}:443
+  baseUrl: https://{{.global.baseDomain}}:3443/
+  baseAgentEndpointUrl: https://{{.global.baseDomain}}:7443/
+  baseUIUrl: https://{{.global.baseDomain}}:443
   altNames:
-    - {{BASE_DOMAIN}}
+    - {{.global.baseDomain}}
     - flightctl-api
-  srvCertificateFile: {{SRV_CERT_FILE}}
-  srvKeyFile: {{SRV_KEY_FILE}}
   rateLimit:
-    enabled: {{RATE_LIMIT_ENABLED}}
-    requests: {{RATE_LIMIT_REQUESTS}}
-    window: {{RATE_LIMIT_WINDOW}}
-    authRequests: {{RATE_LIMIT_AUTH_REQUESTS}}
-    authWindow: {{RATE_LIMIT_AUTH_WINDOW}}
+    enabled: {{.service.rateLimit.enabled}}
+    requests: {{if .service.rateLimit.requests}}{{.service.rateLimit.requests}}{{else}}300{{end}}
+    window: {{if .service.rateLimit.window}}{{.service.rateLimit.window}}{{else}}1m{{end}}
+    authRequests: {{if .service.rateLimit.authRequests}}{{.service.rateLimit.authRequests}}{{else}}20{{end}}
+    authWindow: {{if .service.rateLimit.authWindow}}{{.service.rateLimit.authWindow}}{{else}}1h{{end}}
 kv:
   hostname: flightctl-kv
   port: 6379
 organizations:
-  enabled: {{ORGANIZATIONS_ENABLED}}
+  enabled: {{if .global.organizations.enabled}}{{.global.organizations.enabled}}{{else}}false{{end}}
 auth:
-  insecureSkipTlsVerify: {{INSECURE_SKIP_TLS_VERIFY}}
-  caCert: {{AUTH_CA_CERT}}
-  {{if AAP}}
+  insecureSkipTlsVerify: {{.global.auth.insecureSkipTlsVerify}}
+  {{if not .global.auth.insecureSkipTlsVerify}}caCert: /root/.flightctl/certs/auth/ca.crt{{end}}
+{{- if eq .global.auth.type "aap"}}
   aap:
-    apiUrl: {{AAP_API_URL}}
-    externalApiUrl: {{AAP_EXTERNAL_API_URL}}
-  {{endif AAP}}
-  {{if OIDC}}
+    apiUrl: {{.global.auth.aap.apiUrl}}
+    externalApiUrl: {{.global.auth.aap.externalApiUrl}}
+{{- else if eq .global.auth.type "oidc"}}
   oidc:
-    oidcAuthority: {{OIDC_ISSUER}}
-    externalOidcAuthority: {{OIDC_EXTERNAL_AUTHORITY}}
-    clientId: {{OIDC_CLIENT_ID}}
-    enabled: {{OIDC_ENABLED}}
-    usernameClaim: {{OIDC_USERNAME_CLAIM}}
-    roleClaim: {{OIDC_ROLE_CLAIM}}
-    organizationAssignment:
-      type: {{OIDC_ORG_ASSIGNMENT_TYPE}}
-      organizationName: {{OIDC_ORG_NAME}}
-  {{endif OIDC}}
+    {{if .global.auth.pamOidcIssuer.enabled}}
+    oidcAuthority: {{if .global.auth.pamOidcIssuer.issuer}}{{.global.auth.pamOidcIssuer.issuer}}{{else}}https://{{.global.baseDomain}}:8444/api/v1/auth{{end}}
+    externalOidcAuthority: {{if .global.auth.oidc.externalOidcAuthority}}{{.global.auth.oidc.externalOidcAuthority}}{{else}}https://{{.global.baseDomain}}:8444/api/v1/auth{{end}}
+    {{else}}
+    oidcAuthority: {{.global.auth.oidc.oidcAuthority}}
+    externalOidcAuthority: {{.global.auth.oidc.externalOidcAuthority}}
+    {{end}}
+{{- end}}

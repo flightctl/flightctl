@@ -61,7 +61,10 @@ deploy-alertmanager:
 deploy-alertmanager-proxy:
 	sudo -E deploy/scripts/deploy_quadlet_service.sh alertmanager-proxy
 
-deploy-quadlets: build-containers
+# Can set the SKIP_BUILD variable to skip the build step and use existing containers
+deploy-quadlets:
+ifndef SKIP_BUILD
+	$(MAKE) build-containers
 	@echo "Copying containers from user to root context for systemd services..."
 	podman save flightctl-api:latest | sudo podman load
 	podman save flightctl-db-setup:latest | sudo podman load
@@ -71,6 +74,8 @@ deploy-quadlets: build-containers
 	podman save flightctl-cli-artifacts:latest | sudo podman load
 	podman save flightctl-alertmanager-proxy:latest | sudo podman load
 	podman save flightctl-pam-issuer:latest | sudo podman load
+	podman save flightctl-ui-setup:latest | sudo podman load
+endif
 	sudo -E deploy/scripts/deploy_quadlets.sh
 
 kill-db:
