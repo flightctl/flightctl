@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	v1alpha1 "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/auth/authz"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/config"
@@ -230,6 +231,102 @@ func (m *MultiAuthZ) CheckPermission(ctx context.Context, resource string, op st
 	// For all other issuer types, use static authZ
 	m.log.Debugf("Using static authZ for identity from issuer: %s", issuer.String())
 	return m.getStaticAuthZ().CheckPermission(ctx, resource, op)
+}
+
+// GetUserPermissions gets all permissions for the user based on the identity's issuer type
+func (m *MultiAuthZ) GetUserPermissions(ctx context.Context) (*v1alpha1.PermissionList, error) {
+	// Get identity from context
+	identityVal := ctx.Value(consts.IdentityCtxKey)
+	if identityVal == nil {
+		m.log.Debug("No identity in context, using static authZ")
+		return m.getStaticAuthZ().GetUserPermissions(ctx)
+	}
+
+	ident, ok := identityVal.(common.Identity)
+	if !ok {
+		m.log.Warnf("Identity in context has incorrect type: %T", identityVal)
+		return m.getStaticAuthZ().GetUserPermissions(ctx)
+	}
+
+	// Check issuer type
+	issuer := ident.GetIssuer()
+	if issuer == nil {
+		m.log.Debug("Identity has no issuer, using static authZ")
+		return m.getStaticAuthZ().GetUserPermissions(ctx)
+	}
+
+	// Check if this is an OpenShift identity
+	if openshiftIdent, ok := ident.(*common.OpenShiftIdentity); ok && m.openshiftAuthZCache != nil {
+		m.log.Debugf("Using OpenShift authZ for identity from issuer: %s", issuer.String())
+
+		// Get token from context
+		tokenVal := ctx.Value(consts.TokenCtxKey)
+		if tokenVal == nil {
+			m.log.Warn("OpenShift identity but no token in context")
+			return nil, fmt.Errorf("no OpenShift token in context")
+		}
+		token, ok := tokenVal.(string)
+		if !ok {
+			m.log.Warnf("OpenShift token in context has incorrect type: %T", tokenVal)
+			return nil, fmt.Errorf("OpenShift token has incorrect type")
+		}
+
+		// Get control plane URL from identity
+		controlPlaneUrl := openshiftIdent.GetControlPlaneUrl()
+		if controlPlaneUrl == "" {
+			m.log.Warn("OpenShift identity has no control plane URL")
+			return nil, fmt.Errorf("OpenShift identity has no control plane URL")
+		}
+
+		// Get or create openshiftAuthZ for this control plane
+		openshiftAuthZ, err := m.getOpenShiftAuthZ(controlPlaneUrl)
+		if err != nil {
+			m.log.WithError(err).Errorf("Failed to initialize OpenShift authZ for %s", controlPlaneUrl)
+			return nil, err
+		}
+
+		return openshiftAuthZ.GetUserPermissions(ctx, token)
+	}
+
+	// Check if this is a K8s identity
+	if k8sIdent, ok := ident.(*common.K8sIdentity); ok && m.k8sAuthZCache != nil {
+		m.log.Debugf("Using K8s authZ for identity from issuer: %s", issuer.String())
+
+		// Get token from context
+		tokenVal := ctx.Value(consts.TokenCtxKey)
+		if tokenVal == nil {
+			m.log.Warn("K8s identity but no token in context")
+			return nil, fmt.Errorf("no k8s token in context")
+		}
+		token, ok := tokenVal.(string)
+		if !ok {
+			m.log.Warnf("K8s token in context has incorrect type: %T", tokenVal)
+			return nil, fmt.Errorf("k8s token has incorrect type")
+		}
+
+		// Get control plane URL from identity
+		controlPlaneUrl := k8sIdent.GetControlPlaneUrl()
+		if controlPlaneUrl == "" {
+			m.log.Warn("K8s identity has no control plane URL")
+			return nil, fmt.Errorf("K8s identity has no control plane URL")
+		}
+
+		// Get rbac namespace from identity
+		rbacNs := k8sIdent.GetRbacNs()
+
+		// Get or create k8sAuthZ for this control plane
+		k8sAuthZ, err := m.getK8sAuthZ(controlPlaneUrl, rbacNs)
+		if err != nil {
+			m.log.WithError(err).Errorf("Failed to initialize k8s authZ for %s", controlPlaneUrl)
+			return nil, err
+		}
+
+		return k8sAuthZ.GetUserPermissions(ctx, token)
+	}
+
+	// For all other issuer types, use static authZ
+	m.log.Debugf("Using static authZ for identity from issuer: %s", issuer.String())
+	return m.getStaticAuthZ().GetUserPermissions(ctx)
 }
 
 // InitMultiAuthZ initializes authorization with support for multiple methods
