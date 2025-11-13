@@ -92,7 +92,17 @@ func (o *GlobalOptions) ValidateCmd(args []string) error {
 // BuildClient constructs a FlightCTL API client using configuration derived
 // from the global options (config file path, organization override, etc.).
 func (o *GlobalOptions) BuildClient() (*apiclient.ClientWithResponses, error) {
+	config, err := client.ParseConfigFile(o.ConfigFilePath)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check if organization is required but not provided
 	organization := o.GetEffectiveOrganization()
+	if config.AuthInfo.OrganizationsEnabled && organization == "" {
+		return nil, fmt.Errorf("organization is required. Please set a default organization using 'flightctl config set-organization <organization-id>' or pass '--org <organization-id>' with your command")
+	}
+
 	return client.NewFromConfigFile(o.ConfigFilePath, client.WithOrganization(organization))
 }
 
