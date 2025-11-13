@@ -111,7 +111,7 @@ jobs:
         id: version-vars
         run: |
           set -euo pipefail
-          SOURCE_GIT_TAG=$(git describe --tags --exclude latest 2>/dev/null || echo "v0.0.0-unknown")
+          SOURCE_GIT_TAG=$(./hack/current-version)
           if [ ! -d ".git" ]; then
             SOURCE_GIT_TREE_STATE=clean
           elif git diff --quiet; then
