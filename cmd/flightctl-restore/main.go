@@ -67,8 +67,8 @@ func runRestore(ctx context.Context) error {
 	ctx = store.WithBypassSpanCheck(ctx)
 
 	log := log.InitLogs()
-	log.Println("Starting Flight Control restore preparation")
-	defer log.Println("Flight Control restore preparation completed")
+	log.Info("Starting Flight Control restore preparation")
+	defer log.Info("Flight Control restore preparation completed")
 
 	cfg, err := config.LoadOrGenerate(config.ConfigFile())
 	if err != nil {

@@ -18,9 +18,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
-	"os/signal"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/api_server/middleware"
@@ -36,6 +34,7 @@ import (
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
 	fclog "github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/shutdown"
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
@@ -370,24 +369,33 @@ func main() {
 		logger.Fatalf("creating TLS listener: %v", err)
 	}
 
-	// Handle graceful shutdown
-	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)
+	// Create shutdown manager for coordinated shutdown
+	shutdownManager := shutdown.NewShutdownManager(logger)
+
+	// Register HTTP server for graceful shutdown
+	shutdownManager.RegisterHTTPServerShutdown("alertmanager-proxy-server", server, shutdown.PriorityHighest, shutdown.TimeoutServer)
+
+	// Handle graceful shutdown (SIGHUP excluded as it's typically used for config reload)
+	ctx, cancel := shutdown.SetupGracefulShutdownContext(ctx)
 	defer cancel()
 
+	// Start server in background
 	go func() {
-		<-ctx.Done()
-		logger.Println("Shutdown signal received")
-
-		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer shutdownCancel()
-
-		if err := server.Shutdown(shutdownCtx); err != nil {
-			logger.Errorf("Server shutdown error: %v", err)
+		logger.Printf("Alertmanager proxy listening on https://%s, proxying to %s", proxyPort, proxy.target.String())
+		if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
+			logger.Errorf("Server error: %v", err)
 		}
 	}()
 
-	logger.Printf("Alertmanager proxy listening on https://%s, proxying to %s", proxyPort, proxy.target.String())
-	if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
-		logger.Fatalf("Server error: %v", err)
+	// Wait for shutdown signal
+	<-ctx.Done()
+	logger.Println("Shutdown signal received, initiating graceful shutdown")
+
+	// Execute coordinated shutdown
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdown.DefaultGracefulShutdownTimeout)
+	defer shutdownCancel()
+
+	if err := shutdownManager.Shutdown(shutdownCtx); err != nil {
+		logger.Fatalf("Shutdown failed: %v", err)
 	}
 }

@@ -4,9 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	apiserver "github.com/flightctl/flightctl/internal/api_server"
@@ -26,22 +23,39 @@ import (
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
+	"github.com/flightctl/flightctl/pkg/shutdown"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 )
 
-//nolint:gocyclo
 func main() {
-	ctx := context.Background()
-
 	log := log.InitLogs()
-	log.Println("Starting API service")
-	defer log.Println("API service stopped")
+
+	// Create shutdown manager for coordinated shutdown
+	shutdownManager := shutdown.NewShutdownManager(log)
+
+	// Create a context for fail-fast behavior
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Enable fail-fast behavior to maintain original server restart semantics
+	shutdownManager.EnableFailFast(cancel)
+
+	shutdown.HandleSignalsWithManager(log, shutdownManager, shutdown.DefaultGracefulShutdownTimeout)
+	if err := runCmd(ctx, shutdownManager, log); err != nil {
+		log.Fatalf("API service error: %v", err)
+	}
+}
+
+//nolint:gocyclo
+func runCmd(ctx context.Context, shutdownManager *shutdown.ShutdownManager, log *logrus.Logger) error {
+	log.Info("Starting API service")
+	defer log.Info("API service stopped")
 
 	cfg, err := config.LoadOrGenerate(config.ConfigFile())
 	if err != nil {
-		log.Fatalf("reading configuration: %v", err)
+		return err
 	}
 	log.Printf("Using config: %s", cfg)
 
@@ -53,7 +67,7 @@ func main() {
 
 	ca, _, err := crypto.EnsureCA(cfg.CA)
 	if err != nil {
-		log.Fatalf("ensuring CA cert: %v", err)
+		return err
 	}
 
 	var serverCerts *crypto.TLSCertificateConfig
@@ -61,12 +75,12 @@ func main() {
 	// check for user-provided certificate files
 	if cfg.Service.SrvCertFile != "" || cfg.Service.SrvKeyFile != "" {
 		if canReadCertAndKey, err := crypto.CanReadCertAndKey(cfg.Service.SrvCertFile, cfg.Service.SrvKeyFile); !canReadCertAndKey {
-			log.Fatalf("cannot read provided server certificate or key: %v", err)
+			return err
 		}
 
 		serverCerts, err = crypto.GetTLSCertificateConfig(cfg.Service.SrvCertFile, cfg.Service.SrvKeyFile)
 		if err != nil {
-			log.Fatalf("failed to load provided certificate: %v", err)
+			return err
 		}
 	} else {
 		srvCertFile := crypto.CertStorePath(cfg.Service.ServerCertName+".crt", cfg.Service.CertStore)
@@ -76,7 +90,7 @@ func main() {
 		if canReadCertAndKey, _ := crypto.CanReadCertAndKey(srvCertFile, srvKeyFile); canReadCertAndKey {
 			serverCerts, err = crypto.GetTLSCertificateConfig(srvCertFile, srvKeyFile)
 			if err != nil {
-				log.Fatalf("failed to load existing self-signed certificate: %v", err)
+				return err
 			}
 		} else {
 			// default to localhost if no alternative names are set
@@ -86,7 +100,7 @@ func main() {
 
 			serverCerts, err = ca.MakeAndWriteServerCertificate(ctx, srvCertFile, srvKeyFile, cfg.Service.AltNames, cfg.CA.ServerCertValidityDays)
 			if err != nil {
-				log.Fatalf("failed to create self-signed certificate: %v", err)
+				return err
 			}
 		}
 	}
@@ -107,70 +121,90 @@ func main() {
 	clientKeyFile := crypto.CertStorePath(cfg.CA.ClientBootstrapCertName+".key", cfg.Service.CertStore)
 	_, _, err = ca.EnsureClientCertificate(ctx, clientCertFile, clientKeyFile, cfg.CA.ClientBootstrapCommonName, cfg.CA.ClientBootstrapValidityDays)
 	if err != nil {
-		log.Fatalf("ensuring bootstrap client cert: %v", err)
+		return err
 	}
 
 	// also write out a client config file
 
 	caPemBytes, err := ca.GetCABundle()
 	if err != nil {
-		log.Fatalf("loading CA certificate bundle: %v", err)
+		return err
 	}
 
 	err = client.WriteConfig(config.ClientConfigFile(), cfg.Service.BaseUrl, "", caPemBytes, nil)
 	if err != nil {
-		log.Fatalf("writing client config: %v", err)
+		return err
 	}
 
 	tracerShutdown := tracing.InitTracer(log, cfg, "flightctl-api")
-	defer func() {
-		if err := tracerShutdown(ctx); err != nil {
-			log.Fatalf("failed to shut down tracer: %v", err)
-		}
-	}()
 
 	log.Println("Initializing data store")
 	db, err := store.InitDB(cfg, log)
 	if err != nil {
-		log.Fatalf("initializing data store: %v", err)
+		return err
 	}
 
 	store := store.NewStore(db, log.WithField("pkg", "store"))
-	defer store.Close()
+
+	// Register database cleanup with high priority
+	shutdownManager.Register("database", shutdown.PriorityLowest, shutdown.TimeoutDatabase, func(ctx context.Context) error {
+		log.Info("Closing database connections")
+		store.Close()
+		return nil
+	})
 
 	tlsConfig, agentTlsConfig, err := crypto.TLSConfigForServer(ca.GetCABundleX509(), serverCerts)
 	if err != nil {
-		log.Fatalf("failed creating TLS config: %v", err)
+		return err
 	}
-
-	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
 
 	processID := fmt.Sprintf("api-%s-%s", util.GetHostname(), uuid.New().String())
 	provider, err := queues.NewRedisProvider(ctx, log, processID, cfg.KV.Hostname, cfg.KV.Port, cfg.KV.Password, queues.DefaultRetryConfig())
 	if err != nil {
-		log.Fatalf("failed connecting to Redis queue: %v", err)
+		return err
 	}
 
 	kvStore, err := kvstore.NewKVStore(ctx, log, cfg.KV.Hostname, cfg.KV.Port, cfg.KV.Password)
 	if err != nil {
-		log.Fatalf("creating kvstore: %v", err)
+		return err
 	}
+
+	// Register KV store cleanup
+	shutdownManager.Register("kvstore", shutdown.PriorityLowest, shutdown.TimeoutStandard, func(ctx context.Context) error {
+		log.Info("Closing KV store connections")
+		kvStore.Close()
+		return nil
+	})
+
+	// Register queue provider cleanup
+	shutdownManager.Register("queues", shutdown.PriorityLowest, shutdown.TimeoutDatabase, func(ctx context.Context) error {
+		log.Info("Stopping queue provider")
+		provider.Stop()
+		provider.Wait()
+		return nil
+	})
 	if err = rendered.Bus.Initialize(ctx, kvStore, provider, time.Duration(cfg.Service.RenderedWaitTimeout), log); err != nil {
-		log.Fatalf("creating rendered version manager: %v", err)
+		return err
 	}
 	if err = rendered.Bus.Instance().Start(ctx); err != nil {
-		log.Fatalf("starting rendered version manager: %v", err)
+		return err
 	}
 
 	// create the agent service listener as tcp (combined HTTP+gRPC)
 	agentListener, err := net.Listen("tcp", cfg.Service.AgentEndpointAddress)
 	if err != nil {
-		log.Fatalf("creating listener: %s", err)
+		return err
 	}
 
 	orgCache := cache.NewOrganizationTTL(cache.DefaultTTL)
 	go orgCache.Start()
-	defer orgCache.Stop()
+
+	// Register organization cache cleanup
+	shutdownManager.Register("org-cache", shutdown.PriorityLow, shutdown.TimeoutStandard, func(ctx context.Context) error {
+		log.Info("Stopping organization cache")
+		orgCache.Stop()
+		return nil
+	})
 
 	buildResolverOpts := resolvers.BuildResolverOptions{
 		Config: cfg,
@@ -182,39 +216,63 @@ func main() {
 	if cfg.Auth != nil && cfg.Auth.AAP != nil {
 		membershipCache := cache.NewMembershipTTL(cache.DefaultTTL)
 		go membershipCache.Start()
-		defer membershipCache.Stop()
+
+		// Register membership cache cleanup
+		shutdownManager.Register("membership-cache", shutdown.PriorityLow, shutdown.TimeoutStandard, func(ctx context.Context) error {
+			log.Info("Stopping membership cache")
+			membershipCache.Stop()
+			return nil
+		})
+
 		buildResolverOpts.MembershipCache = membershipCache
 	}
 
 	orgResolver, err := resolvers.BuildResolver(buildResolverOpts)
 	if err != nil {
-		log.Fatalf("failed to build organization resolver: %v", err)
+		return err
 	}
 
 	agentServer, err := agentserver.New(ctx, log, cfg, store, ca, agentListener, provider, agentTlsConfig, orgResolver)
 	if err != nil {
-		log.Fatalf("initializing agent server: %v", err)
+		return err
 	}
 
+	// Create API server listener and server
+	listener, err := middleware.NewTLSListener(cfg.Service.Address, tlsConfig)
+	if err != nil {
+		return err
+	}
+	// we pass the grpc server for now, to let the console sessions to establish a connection in grpc
+	apiServer := apiserver.New(log, cfg, store, ca, listener, provider, agentServer.GetGRPCServer(), orgResolver)
+
+	// Start servers in background and register for shutdown
+	serverCtx, serverCancel := context.WithCancel(ctx)
+
+	// Start API server
 	go func() {
-		listener, err := middleware.NewTLSListener(cfg.Service.Address, tlsConfig)
-		if err != nil {
-			log.Fatalf("creating listener: %s", err)
+		log.Info("Starting API server")
+		if err := apiServer.Run(serverCtx); err != nil {
+			log.Errorf("API server error: %v", err)
+			shutdownManager.TriggerFailFast("api-server", err)
 		}
-		// we pass the grpc server for now, to let the console sessions to establish a connection in grpc
-		server := apiserver.New(log, cfg, store, ca, listener, provider, agentServer.GetGRPCServer(), orgResolver)
-		if err := server.Run(ctx); err != nil {
-			log.Fatalf("Error running server: %s", err)
-		}
-		cancel()
 	}()
 
+	// Start Agent server
 	go func() {
-		if err := agentServer.Run(ctx); err != nil {
-			log.Fatalf("Error running server: %s", err)
+		log.Info("Starting Agent server (gRPC)")
+		if err := agentServer.Run(serverCtx); err != nil {
+			log.Errorf("Agent server error: %v", err)
+			shutdownManager.TriggerFailFast("agent-server", err)
 		}
-		cancel()
 	}()
+
+	// Register server shutdown - highest priority (graceful server stop)
+	shutdownManager.Register("servers", shutdown.PriorityHighest, shutdown.TimeoutServer, func(ctx context.Context) error {
+		log.Info("Gracefully stopping HTTP/gRPC servers")
+		serverCancel()
+		// TODO: Add graceful shutdown support to servers
+		return nil
+	})
 
 	if cfg.Metrics != nil && cfg.Metrics.Enabled {
 		var collectors []prometheus.Collector
@@ -251,13 +309,44 @@ func main() {
 			}
 		}
 
+		// Start Metrics server
 		go func() {
-			if err := tracing.RunMetricsServer(ctx, log, cfg.Metrics.Address, collectors...); err != nil {
-				log.Errorf("Error running metrics server: %s", err)
+			log.Info("Starting Metrics server")
+			metricsServer := metrics.NewMetricsServer(log, collectors...)
+			if err := metricsServer.Run(serverCtx); err != nil {
+				log.Errorf("Metrics server error: %v", err)
+				shutdownManager.TriggerFailFast("metrics-server", err)
 			}
-			cancel()
 		}()
 	}
 
-	<-ctx.Done()
+	// Register tracer shutdown
+	shutdownManager.Register("tracer", shutdown.PriorityLowest, shutdown.TimeoutStandard, func(ctx context.Context) error {
+		log.Info("Shutting down tracer")
+		return tracerShutdown(ctx)
+	})
+
+	log.Info("All servers started, waiting for shutdown signal...")
+
+	// Create a done channel that will be closed when shutdown is complete
+	done := make(chan struct{})
+
+	// Register a final shutdown callback that signals completion
+	shutdownManager.Register("completion", shutdown.PriorityLast, shutdown.TimeoutCompletion, func(ctx context.Context) error {
+		close(done)
+		return nil
+	})
+
+	// Wait for either shutdown completion or fail-fast trigger
+	select {
+	case <-done:
+		log.Info("All components shut down successfully")
+		return nil
+	case <-ctx.Done():
+		// Fail-fast was triggered, wait a moment for shutdown to be handled by signal handler
+		log.Info("Fail-fast shutdown triggered, waiting for coordinated shutdown...")
+		<-done
+		log.Info("Emergency shutdown completed")
+		return fmt.Errorf("service failed and triggered emergency shutdown")
+	}
 }

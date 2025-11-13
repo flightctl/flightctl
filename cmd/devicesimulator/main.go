@@ -180,7 +180,7 @@ func main() {
 	})
 
 	sigShutdown := make(chan os.Signal, 1)
-	signal.Notify(sigShutdown, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(sigShutdown, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		sig := <-sigShutdown
 		signal.Stop(sigShutdown)

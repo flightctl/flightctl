@@ -114,3 +114,115 @@ func (t *TracedService) ListCertificateSigningRequests(ctx context.Context, p ap
 - Standardizes status and error reporting
 - Keeps all span logic consistent and easy to audit
 
+---
+
+## Graceful Shutdown Integration
+
+All FlightCtl services implement standardized graceful shutdown that works seamlessly with OpenTelemetry tracing. The shutdown process ensures spans are properly flushed before service termination.
+
+### Standard Shutdown Pattern
+
+All services follow this pattern for coordinated shutdown:
+
+```go
+func main() {
+    startTime := time.Now()
+    ctx := context.Background()
+
+    log := log.InitLogs()
+    log.Info("Starting service")
+    defer func() {
+        log.WithField("uptime", time.Since(startTime)).Info("Service stopped")
+    }()
+
+    // Initialize tracer with shutdown function
+    tracerShutdown := instrumentation.InitTracer(log, cfg, "service-name")
+    defer func() {
+        if err := tracerShutdown(ctx); err != nil {
+            log.Fatalf("failed to shut down tracer: %v", err)
+        }
+    }()
+
+    // Set up signal handling for graceful shutdown
+    ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
+    defer cancel()
+
+    // Start services in goroutines...
+
+    // Wait for shutdown signal or error
+    select {
+    case <-ctx.Done():
+        log.Info("Shutdown signal received, initiating graceful shutdown")
+    case err := <-serverErrors:
+        log.Errorf("Server error received: %v", err)
+        cancel()
+    }
+
+    // Coordinated shutdown with timeout
+    const shutdownTimeout = 30 * time.Second
+    log.Infof("Starting coordinated shutdown (timeout: %v)", shutdownTimeout)
+
+    shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownTimeout)
+    defer shutdownCancel()
+
+    // Shutdown logic ensures tracer flush happens before timeout
+}
+```
+
+### Shutdown Signal Handling
+
+**Supported Signals:**
+- `SIGINT` (Ctrl+C) - Interactive shutdown
+- `SIGHUP` - Hangup/reload signal
+- `SIGTERM` - Graceful termination (default for `kubectl delete pod`)
+- `SIGQUIT` - Quit with core dump
+
+**Signal Processing:**
+- Uses `signal.NotifyContext()` for cross-platform compatibility
+- 30-second timeout for graceful shutdown operations
+- Tracer shutdown happens automatically via defer before timeout
+
+### Shutdown Observability
+
+**Structured Logging:**
+```go
+// Service startup
+log.WithField("version", version).Info("Starting service")
+
+// Shutdown initiated
+log.Info("Shutdown signal received, initiating graceful shutdown")
+
+// Shutdown completed
+log.WithField("uptime", time.Since(startTime)).Info("Service stopped")
+```
+
+**Tracing Integration:**
+- Active spans are completed before shutdown
+- Tracer flush occurs during shutdown sequence
+- No spans are lost during graceful termination
+
+### Error Handling During Shutdown
+
+Services handle shutdown errors gracefully:
+
+```go
+// Example: Coordinated server shutdown
+go func() {
+    if err := server.Run(ctx); err != nil {
+        log.Errorf("Server error: %v", err)
+        serverErrors <- err  // Signal main thread, don't exit immediately
+    }
+}()
+
+// Main thread coordinates shutdown
+select {
+case <-ctx.Done():
+    // Signal-based shutdown
+case err := <-serverErrors:
+    // Error-based shutdown - still allows tracer cleanup
+    log.Errorf("Initiating shutdown due to error: %v", err)
+}
+```
+
+This ensures that even during error conditions, OpenTelemetry spans are properly flushed and observability data is preserved.
+

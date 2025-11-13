@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -10,6 +11,9 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/flightctl/flightctl/pkg/shutdown"
+	"github.com/sirupsen/logrus"
 )
 
 // Config holds the configuration for the userinfo proxy
@@ -42,6 +46,7 @@ func main() {
 	log.Printf("Starting UserInfo proxy server on port %s", config.ListenPort)
 	log.Printf("Proxying to upstream: %s", config.UpstreamURL)
 	log.Printf("TLS verification: %s", map[bool]string{true: "enabled", false: "disabled"}[!config.SkipTLSVerification])
+	defer log.Println("UserInfo proxy server stopped")
 
 	// Create server with proper timeouts to prevent DoS attacks
 	server := &http.Server{
@@ -52,8 +57,34 @@ func main() {
 		IdleTimeout:       60 * time.Second, // Time to keep idle connections open
 	}
 
-	if err := server.ListenAndServe(); err != nil {
-		log.Fatal("Server failed to start:", err)
+	// Create shutdown manager for coordinated shutdown
+	shutdownManager := shutdown.NewShutdownManager(logrus.New())
+
+	// Register HTTP server for graceful shutdown
+	shutdownManager.RegisterHTTPServerShutdown("userinfo-proxy-server", server, shutdown.PriorityHighest, shutdown.TimeoutServer)
+
+	// Handle graceful shutdown with signal handling
+	ctx, cancel := shutdown.SetupGracefulShutdownContext(context.Background())
+	defer cancel()
+
+	// Start server in background
+	go func() {
+		log.Printf("UserInfo proxy server starting on %s...", server.Addr)
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("Server error: %v", err)
+		}
+	}()
+
+	// Wait for shutdown signal
+	<-ctx.Done()
+	log.Println("Shutdown signal received, initiating graceful shutdown")
+
+	// Execute coordinated shutdown
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdown.DefaultGracefulShutdownTimeout)
+	defer shutdownCancel()
+
+	if err := shutdownManager.Shutdown(shutdownCtx); err != nil {
+		log.Fatalf("Shutdown failed: %v", err)
 	}
 }
 
