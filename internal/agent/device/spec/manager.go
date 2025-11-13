@@ -95,35 +95,28 @@ func NewManager(
 }
 
 func (s *manager) Initialize(ctx context.Context) error {
-	// current
-	if err := s.write(Current, newVersionedDevice("0")); err != nil {
+	// current - audit bootstrap event
+	if err := s.write(ctx, Current, newVersionedDevice("0"), audit.ReasonBootstrap); err != nil {
 		return err
 	}
-	// desired
-	if err := s.write(Desired, newVersionedDevice("0")); err != nil {
+	// desired - audit bootstrap event
+	if err := s.write(ctx, Desired, newVersionedDevice("0"), audit.ReasonBootstrap); err != nil {
 		return err
 	}
-	// rollback
-	if err := s.write(Rollback, newVersionedDevice("0")); err != nil {
+	// rollback - no audit
+	if err := s.write(ctx, Rollback, newVersionedDevice("0"), ""); err != nil {
 		return err
 	}
 	// reconcile the initial spec even though its empty
 	s.queue.Add(ctx, newVersionedDevice("0"))
 
-	// Audit the bootstrap event
-	s.logAudit(ctx, nil, "", "0", audit.ResultSuccess, audit.ReasonBootstrap, audit.TypeCurrent)
-
 	return nil
 }
 
 func (s *manager) Ensure() error {
-	// Track if this is the first time initializing (bootstrap)
-	// Note: Bootstrap is only detected when ALL 3 spec files are created together.
-	// Edge case: If files are partially corrupted/deleted (e.g., only 1-2 missing),
-	// they will be recreated but not logged as a bootstrap event.
-	var isBootstrap bool
-	var filesCreated int
-
+	// Check and recreate missing spec files (recovery scenario)
+	// Note: This is NOT bootstrap - Initialize() handles that.
+	// This handles corruption/deletion of files and should not be audited.
 	for _, specType := range []Type{Current, Desired, Rollback} {
 		exists, err := s.exists(specType)
 		if err != nil {
@@ -132,15 +125,12 @@ func (s *manager) Ensure() error {
 
 		if !exists {
 			s.log.Warnf("Spec file does not exist %s. Resetting state to empty...", specType)
-			if err := s.write(specType, newVersionedDevice("0")); err != nil {
+			// No audit - this is recovery, not a state transition
+			if err := s.write(context.TODO(), specType, newVersionedDevice("0"), ""); err != nil {
 				return err
 			}
-			filesCreated++
 		}
 	}
-
-	// If all 3 files were just created, this is a bootstrap event
-	isBootstrap = filesCreated == 3
 
 	current, err := s.Read(Current)
 	if err != nil {
@@ -163,11 +153,6 @@ func (s *manager) Ensure() error {
 	// add the desired spec to the queue this ensures that the device will
 	// reconcile the desired spec on startup.
 	s.queue.Add(context.TODO(), desired)
-
-	// Log bootstrap event if this is the first time initializing (all 3 files were just created)
-	if isBootstrap {
-		s.logAudit(context.TODO(), nil, "", "0", audit.ResultSuccess, audit.ReasonBootstrap, audit.TypeCurrent)
-	}
 
 	return nil
 }
@@ -220,15 +205,13 @@ func (s *manager) Upgrade(ctx context.Context) error {
 
 	// only upgrade if the device is in the process of reconciling the desired spec
 	if s.IsUpgrading() {
-		// Get current version before upgrade for audit logging
-		currentVersion := s.cache.getRenderedVersion(Current)
-
 		desired, err := s.Read(Desired)
 		if err != nil {
 			return err
 		}
 
-		if err := s.write(Current, desired); err != nil {
+		// Write current spec and audit upgrade (audit happens inside write())
+		if err := s.write(ctx, Current, desired, audit.ReasonUpgrade); err != nil {
 			return err
 		}
 
@@ -237,9 +220,6 @@ func (s *manager) Upgrade(ctx context.Context) error {
 		}
 
 		s.log.Infof("Spec reconciliation complete: current version %s", desired.Version())
-
-		// Log successful spec application to audit log
-		s.logAudit(ctx, desired, currentVersion, desired.Version(), audit.ResultSuccess, audit.ReasonUpgrade, audit.TypeCurrent)
 	}
 
 	// remove reconciled desired spec from the queue
@@ -258,12 +238,6 @@ func (s *manager) SetUpgradeFailed(version string) error {
 		return err
 	}
 	s.queue.SetFailed(versionInt)
-
-	// Log failed spec application to audit log
-	currentVersion := s.cache.getRenderedVersion(Current)
-	// Try to get desired spec for fleet template version
-	desired, _ := s.Read(Desired)
-	s.logAudit(context.Background(), desired, currentVersion, version, audit.ResultFailure, audit.ReasonUpgrade, audit.TypeCurrent)
 
 	return nil
 }
@@ -298,14 +272,16 @@ func (s *manager) CreateRollback(ctx context.Context) error {
 		Os: &v1alpha1.DeviceOsSpec{Image: currentOSImage},
 	}
 
-	if err := s.write(Rollback, rollback); err != nil {
+	// No audit for creating rollback file
+	if err := s.write(ctx, Rollback, rollback, ""); err != nil {
 		return err
 	}
 	return nil
 }
 
 func (s *manager) ClearRollback() error {
-	return s.write(Rollback, newVersionedDevice(""))
+	// No audit for clearing rollback file
+	return s.write(context.TODO(), Rollback, newVersionedDevice(""), "")
 }
 
 func (s *manager) Rollback(ctx context.Context, opts ...RollbackOption) error {
@@ -344,8 +320,8 @@ func (s *manager) Rollback(ctx context.Context, opts ...RollbackOption) error {
 	// rollback in-memory cache current == desired
 	s.cache.update(Desired, current)
 
-	// Log successful rollback to audit log
-	s.logAudit(ctx, current, failedDesiredVersion, current.Version(), audit.ResultSuccess, audit.ReasonRollback, audit.TypeRollback)
+	// Log successful rollback to audit log (desired file was modified via copy)
+	s.logAudit(ctx, current, failedDesiredVersion, current.Version(), audit.ResultSuccess, audit.ReasonRollback, audit.TypeDesired)
 
 	return nil
 }
@@ -464,15 +440,10 @@ func (s *manager) getDeviceFromQueue(ctx context.Context) (*v1alpha1.Device, boo
 			s.log.Infof("Writing new desired rendered spec to disk version: %s", desired.Version())
 		}
 
-		// Capture old desired version BEFORE writing to disk (for audit log)
-		oldDesiredVersion := s.cache.getRenderedVersion(Desired)
-
-		if err := s.write(Desired, desired); err != nil {
+		// Write desired spec and audit sync (audit happens inside write())
+		if err := s.write(ctx, Desired, desired, audit.ReasonSync); err != nil {
 			return nil, false, err
 		}
-
-		// Audit the sync event (new spec received from management API)
-		s.logAudit(ctx, desired, oldDesiredVersion, desired.Version(), audit.ResultSuccess, audit.ReasonSync, audit.TypeDesired)
 	}
 
 	return desired, false, nil
@@ -531,11 +502,27 @@ func (s *manager) Publisher() Publisher {
 	return s.publisher
 }
 
-func (s *manager) write(specType Type, device *v1alpha1.Device) error {
+// write atomically writes a device spec to disk and optionally audits the operation.
+// It captures the old version before writing, updates the in-memory cache, and logs
+// an audit event if a reason is provided.
+//
+// Parameters:
+//   - ctx: Context for cancellation propagation (used in audit logging)
+//   - specType: Which spec file to write (Current, Desired, or Rollback)
+//   - device: The device spec to write
+//   - reason: Audit reason (bootstrap, sync, upgrade, rollback). Empty string ("") skips audit.
+//
+// Audit behavior:
+//   - If reason is empty, only writes to disk (no audit)
+//   - If reason is non-empty, audits the state transition for Current, Desired, and Rollback files
+func (s *manager) write(ctx context.Context, specType Type, device *v1alpha1.Device, reason audit.Reason) error {
 	filePath, err := s.pathFromType(specType)
 	if err != nil {
 		return err
 	}
+
+	// Capture old version BEFORE writing (for audit log)
+	oldVersion := s.cache.getRenderedVersion(specType)
 
 	err = writeDeviceToFile(s.deviceReadWriter, device, filePath)
 	if err != nil {
@@ -543,6 +530,20 @@ func (s *manager) write(specType Type, device *v1alpha1.Device) error {
 	}
 
 	s.cache.update(specType, device)
+
+	// Audit successful write (skip if reason is empty)
+	if reason != "" {
+		var auditType audit.Type
+		switch specType {
+		case Current:
+			auditType = audit.TypeCurrent
+		case Desired:
+			auditType = audit.TypeDesired
+		case Rollback:
+			auditType = audit.TypeRollback
+		}
+		s.logAudit(ctx, device, oldVersion, device.Version(), audit.ResultSuccess, reason, auditType)
+	}
 
 	return nil
 }
