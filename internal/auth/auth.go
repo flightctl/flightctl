@@ -51,6 +51,7 @@ type Identity = common.Identity
 // AuthZMiddleware is the interface for authorization middleware
 type AuthZMiddleware interface {
 	CheckPermission(ctx context.Context, resource string, op string) (bool, error)
+	GetUserPermissions(ctx context.Context) (*api.PermissionList, error)
 }
 
 func getTlsConfig(cfg *config.Config) *tls.Config {
@@ -292,4 +293,13 @@ func (o K8sToK8sAuth) CheckPermission(ctx context.Context, resource string, op s
 	}
 	k8sToken := k8sTokenVal.(string)
 	return o.K8sAuthZ.CheckPermission(ctx, k8sToken, resource, op)
+}
+
+func (o K8sToK8sAuth) GetUserPermissions(ctx context.Context) (*api.PermissionList, error) {
+	k8sTokenVal := ctx.Value(consts.TokenCtxKey)
+	if k8sTokenVal == nil {
+		return nil, fmt.Errorf("no k8s token in context")
+	}
+	k8sToken := k8sTokenVal.(string)
+	return o.K8sAuthZ.GetUserPermissions(ctx, k8sToken)
 }
