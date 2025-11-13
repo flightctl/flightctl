@@ -179,6 +179,12 @@ func (s *Server) Run(ctx context.Context) error {
 		auth.CreateAuthZMiddleware(s.authZ, s.log),
 	}
 
+	// Apply TrustedRealIP first for proper proxy handling
+	// This ensures all subsequent middleware (logging, rate limiting, etc.) get the real client IP
+	if len(s.cfg.Service.TrustedProxies) > 0 {
+		router.Use(fcmiddleware.TrustedRealIP(s.cfg.Service.TrustedProxies))
+	}
+
 	// general middleware stack for all route groups
 	// request size limits should come before logging to prevent DoS attacks from filling logs
 	router.Use(
@@ -207,7 +213,6 @@ func (s *Server) Run(ctx context.Context) error {
 		r.Use(authMiddewares...)
 		// Add general rate limiting (only if configured and enabled)
 		if s.cfg.Service.RateLimit != nil && s.cfg.Service.RateLimit.Enabled {
-			trustedProxies := s.cfg.Service.RateLimit.TrustedProxies
 			requests := 300       // Default requests limit
 			window := time.Minute // Default window
 			if s.cfg.Service.RateLimit.Requests > 0 {
@@ -216,12 +221,12 @@ func (s *Server) Run(ctx context.Context) error {
 			if s.cfg.Service.RateLimit.Window > 0 {
 				window = time.Duration(s.cfg.Service.RateLimit.Window)
 			}
-			fcmiddleware.InstallRateLimiter(r, fcmiddleware.RateLimitOptions{
-				Requests:       requests,
-				Window:         window,
-				Message:        "Rate limit exceeded, please try again later",
-				TrustedProxies: trustedProxies,
-			})
+			// Use user identity rate limiter instead of IP-based
+			r.Use(fcmiddleware.UserIdentityRateLimiter(
+				requests,
+				window,
+				"Rate limit exceeded, please try again later",
+			))
 		}
 
 		h := transport.NewTransportHandler(serviceHandler, s.authN)
@@ -251,7 +256,6 @@ func (s *Server) Run(ctx context.Context) error {
 
 		// Add auth-specific rate limiting (only if configured and enabled)
 		if s.cfg.Service.RateLimit != nil && s.cfg.Service.RateLimit.Enabled {
-			trustedProxies := s.cfg.Service.RateLimit.TrustedProxies
 			authRequests := 20      // Default auth requests limit
 			authWindow := time.Hour // Default auth window
 			if s.cfg.Service.RateLimit.AuthRequests > 0 {
@@ -260,12 +264,12 @@ func (s *Server) Run(ctx context.Context) error {
 			if s.cfg.Service.RateLimit.AuthWindow > 0 {
 				authWindow = time.Duration(s.cfg.Service.RateLimit.AuthWindow)
 			}
-			fcmiddleware.InstallRateLimiter(r, fcmiddleware.RateLimitOptions{
-				Requests:       authRequests,
-				Window:         authWindow,
-				Message:        "Login rate limit exceeded, please try again later",
-				TrustedProxies: trustedProxies,
-			})
+			// Use IP-based rate limiting for auth endpoints (pre-auth stage)
+			r.Use(fcmiddleware.IPRateLimiter(
+				authRequests,
+				authWindow,
+				"Login rate limit exceeded, please try again later",
+			))
 		}
 
 		h := transport.NewTransportHandler(serviceHandler, s.authN)
@@ -286,7 +290,6 @@ func (s *Server) Run(ctx context.Context) error {
 		r.Use(authMiddewares...)
 		// Add websocket rate limiting (only if configured and enabled)
 		if s.cfg.Service.RateLimit != nil && s.cfg.Service.RateLimit.Enabled {
-			trustedProxies := s.cfg.Service.RateLimit.TrustedProxies
 			requests := 300       // Default requests limit
 			window := time.Minute // Default window
 			if s.cfg.Service.RateLimit.Requests > 0 {
@@ -295,12 +298,12 @@ func (s *Server) Run(ctx context.Context) error {
 			if s.cfg.Service.RateLimit.Window > 0 {
 				window = time.Duration(s.cfg.Service.RateLimit.Window)
 			}
-			fcmiddleware.InstallRateLimiter(r, fcmiddleware.RateLimitOptions{
-				Requests:       requests,
-				Window:         window,
-				Message:        "Rate limit exceeded, please try again later",
-				TrustedProxies: trustedProxies,
-			})
+			// Use user identity rate limiter instead of IP-based
+			r.Use(fcmiddleware.UserIdentityRateLimiter(
+				requests,
+				window,
+				"Rate limit exceeded, please try again later",
+			))
 		}
 
 		consoleSessionManager := console.NewConsoleSessionManager(serviceHandler, s.log, s.consoleEndpointReg)
