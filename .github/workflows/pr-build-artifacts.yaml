@@ -24,7 +24,6 @@ env:
   GINKGO_TOTAL_NODES: 8
 
 jobs:
-  # todo build agent base before rpm
   compute-tag:
     runs-on: ubuntu-24.04
     outputs:
@@ -390,6 +389,13 @@ jobs:
   build-rpms:
     runs-on: ubuntu-24.04
     needs: [compute-tag]
+    strategy:
+      matrix:
+        include:
+          - suffix: el9-x86_64
+            root: centos-stream+epel-next-9-x86_64
+          - suffix: el10-x86_64
+            root: epel-10-x86_64
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -416,14 +422,25 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-rpm-dnf
 
-      - name: Build RPMs
-        run: make rpm
+      - name: Build RPMs (matrix)
+        env:
+          SOURCE_GIT_TAG: ${{ needs.compute-tag.outputs.git_tag }}
+          SOURCE_GIT_TREE_STATE: ${{ needs.compute-tag.outputs.git_tree_state }}
+          SOURCE_GIT_COMMIT: ${{ needs.compute-tag.outputs.git_commit }}
+          SOURCE_GIT_TAG_NO_V: ${{ needs.compute-tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p rpms
+          echo "::group::Building RPMs for root=${{ matrix.root }}"
+          sudo -E ./hack/build_rpms_container.sh --root "${{ matrix.root }}"
+          cp -f bin/rpm/*.rpm rpms/ || true
+          echo "::endgroup::"
 
       - name: Upload RPM artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: rpms-${{ github.sha }}
-          path: bin/rpm/*.rpm
+          name: rpms-${{ matrix.suffix }}
+          path: rpms/*.rpm
           compression-level: 0
           if-no-files-found: error
           retention-days: 1
@@ -433,7 +450,7 @@ jobs:
           set -euo pipefail
           out='{"rpms":{"packages":['
           first=1
-          for f in bin/rpm/*.rpm; do
+          for f in rpms/*.rpm; do
             [ -e "$f" ] || continue
             bn=$(basename "$f")
             echo "::group::Processing $bn"
@@ -466,11 +483,20 @@ jobs:
       - name: Upload rpms manifest
         uses: actions/upload-artifact@v4
         with:
-          name: rpms-manifest
+          name: rpms-manifest-${{ matrix.suffix }}
           path: rpms.json
           compression-level: 0
           if-no-files-found: error
           retention-days: 1
+
+      - name: Save Go modules cache
+        if: ${{ always() }}
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
 
       - name: Save RPM DNF cache
         uses: actions/cache/save@v4
@@ -866,6 +892,13 @@ jobs:
   build-agent-images-unified:
     runs-on: ubuntu-24.04
     needs: [compute-tag, build-rpms]
+    strategy:
+      matrix:
+        include:
+          - os_id: cs9
+            rpm_suffix: el9-x86_64
+          - os_id: cs10
+            rpm_suffix: el10-x86_64
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -893,135 +926,74 @@ jobs:
             bin/osbuild-cache
             dnf-cache
             osbuild-cache
-          key: ${{ runner.os }}-bootc-cache-e2e-unified-${{ hashFiles('test/scripts/agent-images-v2/Containerfile-prebase', 'test/scripts/agent-images-v2/Containerfile-base') }}
+          key: ${{ runner.os }}-bootc-cache-e2e-unified-${{ hashFiles('test/scripts/agent-images-v2/base/Containerfile') }}
           restore-keys: |
             ${{ runner.os }}-bootc-cache-e2e-
 
       - name: Download RPM artifacts
         uses: actions/download-artifact@v4
         with:
-          name: rpms-${{ github.sha }}
+          name: rpms-${{ matrix.rpm_suffix }}
           path: rpms
-
-      - name: Build base agent image (includes prebase)
+      - name: Build agent images for flavor
         env:
           TAG: ${{ needs.compute-tag.outputs.tag }}
           IMAGE_REPO: quay.io/flightctl/flightctl-device
           SOURCE_GIT_TAG: ${{ needs.compute-tag.outputs.git_tag }}
           SOURCE_GIT_TREE_STATE: ${{ needs.compute-tag.outputs.git_tree_state }}
           SOURCE_GIT_COMMIT: ${{ needs.compute-tag.outputs.git_commit }}
+          FLAVORS: ${{ matrix.os_id }}
         run: |
           set -euo pipefail
-          echo "::group::Building base image with prebase included"
-          sudo -E ./test/scripts/agent-images-v2/build_agent_images.sh --mode base
+          echo "::group::Building base for flavor ${FLAVORS}"
+          sudo -E ./test/scripts/agent-images-v2/scripts/build.sh --base-only
           echo "::endgroup::"
 
-      - name: Build variants+bundle and qcow2 in parallel
+      - name: Build variants+bundle and qcow2 in parallel (per flavor)
         env:
           TAG: ${{ needs.compute-tag.outputs.tag }}
           IMAGE_REPO: quay.io/flightctl/flightctl-device
-          PARALLEL_JOBS: 10
+          OS_ID: ${{ matrix.os_id }}
         run: |
           set -euo pipefail
-          
-          # Create log files
-          VARIANTS_LOG=$(mktemp)
-          QCOW2_LOG=$(mktemp)
-          
-          echo "Starting parallel builds with sudo..."
-          echo "Variants+bundle log: $VARIANTS_LOG"
-          echo "QCOW2 log: $QCOW2_LOG"
-          
-          # Function to prefix logs
-          prefix_logs() {
-            local prefix="$1"
-            local logfile="$2"
-            while IFS= read -r line; do
-              echo "[$prefix] $line"
-            done < "$logfile"
-          }
-          
-          # Build variants and create bundle in same thread
-          (
-            echo "::group::Building agent variants and creating bundle"
-            
-            # Build variants
-            echo "[VARIANTS] Building agent variants..."
-            sudo -E ./test/scripts/agent-images-v2/build_agent_images.sh --mode variants 2>&1 | tee "$VARIANTS_LOG"
-            
-            # Create bundle immediately after variants are built
-            echo "[VARIANTS] Creating agent images bundle..."
-            mapfile -t all_images < <(sudo podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-device:" | grep -v ":prebase")
-            echo "[VARIANTS] Found ${#all_images[@]} agent images (base + variants with all tags):"
-            printf '[VARIANTS]   %s\n' "${all_images[@]}"
-            sudo podman save --format docker-archive -o agent-images-bundle.tar -m "${all_images[@]}"
-            sudo chown runner:runner agent-images-bundle.tar
-            echo "[VARIANTS] Bundle created: agent-images-bundle.tar"
-            
-            echo "::endgroup::"
-          ) &
-          VARIANTS_PID=$!
-          
-          # Build qcow2 in background with sudo
-          (
-            echo "::group::Building qcow2 image"
-            sudo -E ./test/scripts/agent-images-v2/build_agent_images.sh --mode qcow2 2>&1 | tee "$QCOW2_LOG"
-            echo "::endgroup::"
-          ) &
-          QCOW2_PID=$!
-          
-          # Wait for both processes and capture exit codes
-          VARIANTS_EXIT=0
-          QCOW2_EXIT=0
-          
-          wait $VARIANTS_PID || VARIANTS_EXIT=$?
-          wait $QCOW2_PID || QCOW2_EXIT=$?
-          
-          # Print prefixed logs
-          echo "::group::Variants+bundle build output"
-          prefix_logs "VARIANTS" "$VARIANTS_LOG"
-          echo "::endgroup::"
-          
-          echo "::group::QCOW2 build output"
-          prefix_logs "QCOW2" "$QCOW2_LOG"
-          echo "::endgroup::"
-          
-          # Clean up log files
-          rm -f "$VARIANTS_LOG" "$QCOW2_LOG"
-          
-          # Check if either build failed
-          if [ $VARIANTS_EXIT -ne 0 ]; then
-            echo "::error::Variants+bundle build failed with exit code $VARIANTS_EXIT"
-            exit $VARIANTS_EXIT
-          fi
-          
-          if [ $QCOW2_EXIT -ne 0 ]; then
-            echo "::error::QCOW2 build failed with exit code $QCOW2_EXIT"
-            exit $QCOW2_EXIT
-          fi
-          
-          echo "Both parallel builds completed successfully"
-          
-          # Fix ownership of all output files
-          echo "Fixing ownership of output directories..."
-          sudo chown -R runner:runner output/ || true
-          sudo chown -R runner:runner dnf-cache/ || true
-          sudo chown -R runner:runner osbuild-cache/ || true
+          sudo -E ./test/scripts/agent-images-v2/scripts/build_and_qcow2.sh --os-id "${OS_ID}"
 
-      - name: Upload agent images bundle
+      - name: Print parallel build logs (per flavor)
+        if: always()
+        env:
+          OS_ID: ${{ matrix.os_id }}
+        run: |
+          set -euo pipefail
+          LOG_DIR="artifacts/logs-${OS_ID}"
+          echo "::group::Variants+bundle output"
+          if [ -f "${LOG_DIR}/variants.log" ]; then
+            cat "${LOG_DIR}/variants.log"
+          else
+            echo "No variants.log found at ${LOG_DIR}/variants.log"
+          fi
+          echo "::endgroup::"
+          echo "::group::QCOW2 output"
+          if [ -f "${LOG_DIR}/qcow2.log" ]; then
+            cat "${LOG_DIR}/qcow2.log"
+          else
+            echo "No qcow2.log found at ${LOG_DIR}/qcow2.log"
+          fi
+          echo "::endgroup::"
+
+      - name: Upload agent images bundle (per flavor)
         uses: actions/upload-artifact@v4
         with:
-          name: agent-images-bundle
-          path: agent-images-bundle.tar
+          name: agent-images-bundle-${{ matrix.os_id }}
+          path: artifacts/agent-images-bundle-${{ matrix.os_id }}.tar
           compression-level: 1
           if-no-files-found: error
           retention-days: 1
 
-      - name: Upload qcow2 image
+      - name: Upload qcow2 image (per flavor)
         uses: actions/upload-artifact@v4
         with:
-          name: agent-qcow2-image
-          path: output/qcow2/disk.qcow2
+          name: agent-qcow2-image-${{ matrix.os_id }}
+          path: artifacts/agent-qcow2-${{ matrix.os_id }}/qcow2/disk.qcow2
           compression-level: 1
           if-no-files-found: error
           retention-days: 1
@@ -1034,7 +1006,7 @@ jobs:
             bin/osbuild-cache
             dnf-cache
             osbuild-cache
-          key: ${{ runner.os }}-bootc-cache-e2e-unified-${{ hashFiles('test/scripts/agent-images-v2/Containerfile-prebase', 'test/scripts/agent-images-v2/Containerfile-base') }}
+          key: ${{ runner.os }}-bootc-cache-e2e-unified-${{ hashFiles('test/scripts/agent-images-v2/base/Containerfile') }}
 
  
 
@@ -1148,11 +1120,12 @@ jobs:
           name: charts-manifest
           path: manifests
 
-      - name: Download rpms manifest
+      - name: Download rpms manifests
         uses: actions/download-artifact@v4
         with:
-          name: rpms-manifest
+          pattern: "rpms-manifest-*"
           path: manifests
+          merge-multiple: true
 
       - name: Assemble final build manifest
         run: |
@@ -1231,14 +1204,15 @@ jobs:
 
       - name: Generate services summary
         run: |
-          TAG='${{ needs.compute-tag.outputs.helm_tag }}'
+          IMAGE_TAG='${{ needs.compute-tag.outputs.tag }}'
+          HELM_TAG='${{ needs.compute-tag.outputs.helm_tag }}'
           RUN_ID='${{ github.run_id }}'
-          CHART_FILE="flightctl-${TAG}.tgz"
+          CHART_FILE="helm-chart/flightctl-${HELM_TAG}.tgz"
           ARTIFACTS_URL="https://github.com/${{ github.repository }}/actions/runs/${RUN_ID}#artifacts"
 
           echo "## :gear: Services Ready for Deployment" > $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Tag:** \`${TAG}\` | [All artifacts](${ARTIFACTS_URL})" >> $GITHUB_STEP_SUMMARY
+          echo "**Tag:** \`${IMAGE_TAG}\` | [All artifacts](${ARTIFACTS_URL})" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
           echo "**Container Images** and **Helm Chart** are ready!" >> $GITHUB_STEP_SUMMARY
@@ -1248,15 +1222,15 @@ jobs:
           echo "<details>" >> $GITHUB_STEP_SUMMARY
           echo "<summary><strong>Container Images (9)</strong></summary>" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- \`quay.io/flightctl/flightctl-api:${TAG}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- \`quay.io/flightctl/flightctl-periodic:${TAG}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- \`quay.io/flightctl/flightctl-worker:${TAG}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- \`quay.io/flightctl/flightctl-cli-artifacts:${TAG}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- \`quay.io/flightctl/flightctl-alert-exporter:${TAG}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- \`quay.io/flightctl/flightctl-alertmanager-proxy:${TAG}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- \`quay.io/flightctl/flightctl-userinfo-proxy:${TAG}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- \`quay.io/flightctl/flightctl-db-setup:${TAG}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- \`quay.io/flightctl/flightctl-telemetry-gateway:${TAG}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`quay.io/flightctl/flightctl-api:${IMAGE_TAG}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`quay.io/flightctl/flightctl-periodic:${IMAGE_TAG}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`quay.io/flightctl/flightctl-worker:${IMAGE_TAG}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`quay.io/flightctl/flightctl-cli-artifacts:${IMAGE_TAG}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`quay.io/flightctl/flightctl-alert-exporter:${IMAGE_TAG}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`quay.io/flightctl/flightctl-alertmanager-proxy:${IMAGE_TAG}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`quay.io/flightctl/flightctl-userinfo-proxy:${IMAGE_TAG}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`quay.io/flightctl/flightctl-db-setup:${IMAGE_TAG}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`quay.io/flightctl/flightctl-telemetry-gateway:${IMAGE_TAG}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "</details>" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -1267,13 +1241,13 @@ jobs:
           echo "gh run download ${RUN_ID} -n helm-chart -n flightctl-images-bundle" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "# Load service images into kind" >> $GITHUB_STEP_SUMMARY
-          echo "kind load image-archive flightctl-images-bundle.tar" >> $GITHUB_STEP_SUMMARY
+          echo "kind load image-archive flightctl-images-bundle/flightctl-images-bundle.tar" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "# Install with Helm (parameterize with --set as needed)" >> $GITHUB_STEP_SUMMARY
           echo "helm upgrade --install flightctl ${CHART_FILE}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "# Or with a script:" >> $GITHUB_STEP_SUMMARY
-          echo "./test/scripts/deploy_with_helm.sh --chart-path=\"${CHART_FILE}\" --image-registry=\"quay.io/flightctl/\" --image-tag=\"${TAG}\"" >> $GITHUB_STEP_SUMMARY
+          echo "./test/scripts/deploy_with_helm.sh --chart-path=\"${CHART_FILE}\" --image-registry=\"quay.io/flightctl/\" --image-tag=\"${IMAGE_TAG}\"" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
 
   test-artifacts-ready:
@@ -1401,7 +1375,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ginkgo_node: [1,2,3,4,5,6,7,8]
+        os_id: [cs9, cs10]
+        ginkgo_node: [2,5]
     steps:
       # ========== PREPARE ENVIRONMENT ==========
       - name: Checkout
@@ -1460,9 +1435,17 @@ jobs:
       - name: Download required test artifacts (one step)
         uses: actions/download-artifact@v4
         with:
-          pattern: "{flightctl-images-bundle,helm-chart,flightctl-linux-amd64,auxiliary-image-git-server,agent-images-bundle,sleep-app-images-bundle,agent-qcow2-image}"
+          pattern: "{flightctl-images-bundle,helm-chart,flightctl-linux-amd64,auxiliary-image-git-server,agent-images-bundle-${{ matrix.os_id }},sleep-app-images-bundle,agent-qcow2-image-${{ matrix.os_id }}}"
           path: artifacts
           merge-multiple: true
+
+      - name: Normalize agent images bundle name
+        run: |
+          set -euo pipefail
+          src="artifacts/agent-images-bundle-${{ matrix.os_id }}.tar"
+          if [ -f "${src}" ]; then
+            mv -f "${src}" artifacts/agent-images-bundle.tar
+          fi
 
       - name: Normalize qcow2 path for downstream steps
         run: |

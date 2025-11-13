@@ -1,22 +1,39 @@
-# quay.io/flightctl/flightctl-device:prebase
+# syntax=docker/dockerfile:1.6
 #
-# Prebase bootc image with everything except flightctl RPMs.
-# This can be built in parallel with RPM creation.
+# Multi-stage base image build for flightctl device images.
+# Targets:
+#   - prebase: bootc base with repos, tooling, users, services (no flightctl RPMs)
+#   - base:    final base image starting from prebase and layering flightctl RPMs
 #
-FROM quay.io/centos-bootc/centos-bootc:stream9
 
+ARG BOOTC_BASE_IMAGE=quay.io/centos-bootc/centos-bootc:stream9
 ARG SOURCE_GIT_TAG
 ARG SOURCE_GIT_TREE_STATE
 ARG SOURCE_GIT_COMMIT
+ARG ENABLE_CRB=0
+ARG EPEL_NEXT=1
+# ---------- Stage: prebase ----------
+FROM ${BOOTC_BASE_IMAGE} AS prebase
+
 
 LABEL org.opencontainers.image.source="https://github.com/flightctl/flightctl"
 LABEL org.opencontainers.image.version="${SOURCE_GIT_TAG}"
 LABEL org.opencontainers.image.revision="${SOURCE_GIT_COMMIT}"
 
+# Enable CRB (for CentOS Stream 10) if requested
+RUN if [ "${ENABLE_CRB}" = "1" ]; then \
+      dnf -y install dnf-plugins-core && \
+      dnf config-manager --set-enabled crb ; \
+    fi
+
 # Enable EPEL repos
 RUN --mount=type=cache,target=/var/cache/dnf \
     --mount=type=cache,target=/var/lib/dnf \
-    dnf install -y epel-release epel-next-release
+    sh -exc '\
+      pkgs="epel-release"; \
+      if [ "${EPEL_NEXT}" = "1" ]; then pkgs="$pkgs epel-next-release"; fi; \
+      dnf install -y $pkgs \
+    '
 
 # Utilities used by tests
 RUN --mount=type=cache,target=/var/cache/dnf \
@@ -47,6 +64,20 @@ RUN echo -e '#!/bin/bash\necho "my site"' > /usr/lib/flightctl/custom-info.d/sit
     chmod 755 /usr/lib/flightctl/custom-info.d/*
 
 
+# ---------- Stage: base (from prebase) ----------
+FROM prebase AS base
 
+LABEL org.opencontainers.image.source="https://github.com/flightctl/flightctl"
+LABEL org.opencontainers.image.version="${SOURCE_GIT_TAG}"
+LABEL org.opencontainers.image.revision="${SOURCE_GIT_COMMIT}"
+
+COPY rpms/*.rpm /tmp/rpms/
+RUN --mount=type=cache,target=/var/cache/dnf \
+    --mount=type=cache,target=/var/lib/dnf \
+    echo "Installing flightctl-agent RPMs" && \
+    dnf install -y /tmp/rpms/flightctl-agent-*.rpm /tmp/rpms/flightctl-selinux-*.rpm && \
+    systemctl enable flightctl-agent.service && \
+    echo "Cleaning up RPMs" && \
+    rm -rf /tmp/rpms
 
 

@@ -251,7 +251,11 @@ func (h *Harness) Cleanup(printConsole bool) {
 			fmt.Println("============ systemctl status flightctl-agent ============")
 			fmt.Println(stdout.String())
 			fmt.Println("=============== logs for flightctl-agent =================")
-			fmt.Println(h.ReadPrimaryVMAgentLogs("", util.FLIGHTCTL_AGENT_SERVICE))
+			if agentLogs, err := h.ReadPrimaryVMAgentLogs("", util.FLIGHTCTL_AGENT_SERVICE); err != nil {
+				fmt.Printf("Failed to read agent logs: %v\n", err)
+			} else {
+				fmt.Println(agentLogs)
+			}
 			if printConsole {
 				fmt.Println("======================= VM Console =======================")
 				fmt.Println(h.VM.GetConsoleOutput())
@@ -285,6 +289,23 @@ func (h *Harness) GetServiceLogs(serviceName string) (string, error) {
 // This is useful for debugging service output and capturing logs from the latest service invocation.
 func (h *Harness) GetFlightctlAgentLogs() (string, error) {
 	return h.VM.GetServiceLogs("flightctl-agent")
+}
+
+// PrintAgentLogsOnFailure prints agent logs if the current test has failed.
+// This is a helper function for test suites to use in their AfterEach blocks.
+func (h *Harness) PrintAgentLogsOnFailure() {
+	testFailed := CurrentSpecReport().Failed()
+	if testFailed && h.VM != nil {
+		fmt.Printf("\n==========================================================\n")
+		fmt.Printf("TEST FAILED: %s\n", CurrentSpecReport().FullText())
+		fmt.Printf("=============== logs for flightctl-agent =================\n")
+		if agentLogs, err := h.ReadPrimaryVMAgentLogs("", "flightctl-agent"); err != nil {
+			fmt.Printf("Failed to read agent logs: %v\n", err)
+		} else {
+			fmt.Println(agentLogs)
+		}
+		fmt.Printf("==========================================================\n\n")
+	}
 }
 
 // GetEnrollmentIDFromServiceLogs returns the enrollment ID from the service logs using journalctl.
@@ -1491,7 +1512,14 @@ func (h *Harness) SetupVMFromPoolAndStartAgent(workerID int) error {
 	// Start the agent after snapshot revert
 	GinkgoWriter.Printf("🔄 Starting flightctl-agent after snapshot revert\n")
 	if _, err := testVM.RunSSH([]string{"sudo", "systemctl", "start", "flightctl-agent"}, nil); err != nil {
-		return fmt.Errorf("failed to start flightctl-agent: %w", err)
+		logs, logsErr := h.VM.JournalLogs(vm.JournalOpts{
+			Unit:  "flightctl-agent",
+		})
+		if logsErr != nil {
+			logs = "Failed to get journal logs"
+		}
+
+		return fmt.Errorf("failed to start flightctl-agent: %w, logs: %s", err, logs)
 	}
 	GinkgoWriter.Printf("✅ flightctl-agent started successfully after snapshot revert\n")
 
@@ -2379,7 +2407,7 @@ func (h *Harness) GetAgentVersion() (string, error) {
 	// Extract version using the existing helper function
 	agentVersion := h.getVersionByPrefix(output, versionPrefix)
 	if agentVersion == "" {
-		return "", fmt.Errorf("failed to parse agent version from output")
+		return "", fmt.Errorf("failed to parse agent version from output: %s", output)
 	}
 
 	return agentVersion, nil

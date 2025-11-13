@@ -1,0 +1,22 @@
+FROM registry.access.redhat.com/ubi10/go-toolset:1.24.6-1762240400
+
+USER 0
+
+RUN dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-10.noarch.rpm 
+
+RUN dnf install -y make \
+      openssl-devel \
+      go-rpm-macros \
+      selinux-policy \
+      packit \
+      sudo
+
+RUN dnf clean all && \
+    rm -rf /var/cache/dnf && \
+    mkdir /work
+
+      # packit \
+      # pam-devel && \
+      # selinux-policy-devel \
+
+WORKDIR /work

@@ -10,7 +10,7 @@ git config --global --add safe.directory "$(pwd)" 2>/dev/null || true
 tag=$(git -c "versionsort.suffix=-rc" tag --points-at HEAD --sort version:refname | tail -n 1 2>/dev/null)
 
 if [[ -z "$tag" ]]; then
-  tag=$(git describe --tags --exclude latest 2>/dev/null || echo -n "v0.0.0-unknown")
+  tag=$(git describe --tags --exclude latest 2>/dev/null || echo -n "v0.0.0-unknown-0-g00000000")
 fi
 
 # For RPM packaging (when called from packit), remove git commit hash but preserve main branch info
