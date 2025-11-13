@@ -18,6 +18,11 @@ type EndpointMetadata struct {
 
 // APIMetadataMap provides O(1) lookup for endpoint metadata using pattern+method as key
 var APIMetadataMap = map[string]EndpointMetadata{
+	"POST:/api/v1/auth/checkpermission": {
+		OperationID: "authCheckPermission",
+		Resource:    "",
+		Action:      "",
+	},
 	"GET:/api/v1/auth/config": {
 		OperationID: "authConfig",
 		Resource:    "",

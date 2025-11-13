@@ -90,6 +90,11 @@ func WithRequestEditorFn(fn RequestEditorFn) ClientOption {
 
 // The interface specification for the client above.
 type ClientInterface interface {
+	// AuthCheckPermissionWithBody request with any body
+	AuthCheckPermissionWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	AuthCheckPermission(ctx context.Context, body AuthCheckPermissionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// AuthConfig request
 	AuthConfig(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -352,6 +357,30 @@ type ClientInterface interface {
 
 	// GetVersion request
 	GetVersion(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+}
+
+func (c *Client) AuthCheckPermissionWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAuthCheckPermissionRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) AuthCheckPermission(ctx context.Context, body AuthCheckPermissionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAuthCheckPermissionRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
 }
 
 func (c *Client) AuthConfig(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -1528,6 +1557,46 @@ func (c *Client) GetVersion(ctx context.Context, reqEditors ...RequestEditorFn) 
 		return nil, err
 	}
 	return c.Client.Do(req)
+}
+
+// NewAuthCheckPermissionRequest calls the generic AuthCheckPermission builder with application/json body
+func NewAuthCheckPermissionRequest(server string, body AuthCheckPermissionJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewAuthCheckPermissionRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewAuthCheckPermissionRequestWithBody generates requests for AuthCheckPermission with any type of body
+func NewAuthCheckPermissionRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/auth/checkpermission")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
 }
 
 // NewAuthConfigRequest generates requests for AuthConfig
@@ -4923,6 +4992,11 @@ func WithBaseURL(baseURL string) ClientOption {
 
 // ClientWithResponsesInterface is the interface specification for the client with responses above.
 type ClientWithResponsesInterface interface {
+	// AuthCheckPermissionWithBodyWithResponse request with any body
+	AuthCheckPermissionWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AuthCheckPermissionResponse, error)
+
+	AuthCheckPermissionWithResponse(ctx context.Context, body AuthCheckPermissionJSONRequestBody, reqEditors ...RequestEditorFn) (*AuthCheckPermissionResponse, error)
+
 	// AuthConfigWithResponse request
 	AuthConfigWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*AuthConfigResponse, error)
 
@@ -5185,6 +5259,33 @@ type ClientWithResponsesInterface interface {
 
 	// GetVersionWithResponse request
 	GetVersionWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetVersionResponse, error)
+}
+
+type AuthCheckPermissionResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *PermissionCheckResponse
+	JSON400      *Status
+	JSON401      *Status
+	JSON418      *Status
+	JSON429      *Status
+	JSON500      *Status
+}
+
+// Status returns HTTPResponse.Status
+func (r AuthCheckPermissionResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r AuthCheckPermissionResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
 }
 
 type AuthConfigResponse struct {
@@ -7046,6 +7147,23 @@ func (r GetVersionResponse) StatusCode() int {
 	return 0
 }
 
+// AuthCheckPermissionWithBodyWithResponse request with arbitrary body returning *AuthCheckPermissionResponse
+func (c *ClientWithResponses) AuthCheckPermissionWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AuthCheckPermissionResponse, error) {
+	rsp, err := c.AuthCheckPermissionWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAuthCheckPermissionResponse(rsp)
+}
+
+func (c *ClientWithResponses) AuthCheckPermissionWithResponse(ctx context.Context, body AuthCheckPermissionJSONRequestBody, reqEditors ...RequestEditorFn) (*AuthCheckPermissionResponse, error) {
+	rsp, err := c.AuthCheckPermission(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAuthCheckPermissionResponse(rsp)
+}
+
 // AuthConfigWithResponse request returning *AuthConfigResponse
 func (c *ClientWithResponses) AuthConfigWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*AuthConfigResponse, error) {
 	rsp, err := c.AuthConfig(ctx, reqEditors...)
@@ -7895,6 +8013,67 @@ func (c *ClientWithResponses) GetVersionWithResponse(ctx context.Context, reqEdi
 		return nil, err
 	}
 	return ParseGetVersionResponse(rsp)
+}
+
+// ParseAuthCheckPermissionResponse parses an HTTP response from a AuthCheckPermissionWithResponse call
+func ParseAuthCheckPermissionResponse(rsp *http.Response) (*AuthCheckPermissionResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &AuthCheckPermissionResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest PermissionCheckResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 418:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON418 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
 }
 
 // ParseAuthConfigResponse parses an HTTP response from a AuthConfigWithResponse call

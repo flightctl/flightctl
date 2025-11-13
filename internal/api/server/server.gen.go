@@ -15,6 +15,9 @@ import (
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 
+	// (POST /api/v1/auth/checkpermission)
+	AuthCheckPermission(w http.ResponseWriter, r *http.Request)
+
 	// (GET /api/v1/auth/config)
 	AuthConfig(w http.ResponseWriter, r *http.Request)
 
@@ -220,6 +223,11 @@ type ServerInterface interface {
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
 
 type Unimplemented struct{}
+
+// (POST /api/v1/auth/checkpermission)
+func (_ Unimplemented) AuthCheckPermission(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
 
 // (GET /api/v1/auth/config)
 func (_ Unimplemented) AuthConfig(w http.ResponseWriter, r *http.Request) {
@@ -565,6 +573,21 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// AuthCheckPermission operation middleware
+func (siw *ServerInterfaceWrapper) AuthCheckPermission(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AuthCheckPermission(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
 
 // AuthConfig operation middleware
 func (siw *ServerInterfaceWrapper) AuthConfig(w http.ResponseWriter, r *http.Request) {
@@ -2649,6 +2672,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		ErrorHandlerFunc:   options.ErrorHandlerFunc,
 	}
 
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/auth/checkpermission", wrapper.AuthCheckPermission)
+	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/auth/config", wrapper.AuthConfig)
 	})
