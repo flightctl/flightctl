@@ -501,30 +501,20 @@ func (m *MultiAuth) GetAuthToken(r *http.Request) (string, error) {
 // GetAuthConfig returns the auth configuration with all available providers
 func (m *MultiAuth) GetAuthConfig() *api.AuthConfig {
 	allProviders := []api.AuthProvider{}
-	var defaultProviderName string
 	var orgEnabled bool
 
 	// Collect all static providers
-	isFirst := true
 	for _, provider := range m.staticProviders {
 		config := provider.GetAuthConfig()
 
-		// Get org config from first provider
-		if isFirst && config.OrganizationsEnabled != nil {
+		// Get org config from first provider config
+		if config.OrganizationsEnabled != nil {
 			orgEnabled = *config.OrganizationsEnabled
 		}
 
 		// Add all providers from this config
 		if config.Providers != nil {
-			for _, prov := range *config.Providers {
-				// Set default provider name from first provider
-				if isFirst && prov.Metadata.Name != nil {
-					defaultProviderName = *prov.Metadata.Name
-				}
-
-				allProviders = append(allProviders, prov)
-				isFirst = false
-			}
+			allProviders = append(allProviders, *config.Providers...)
 		}
 	}
 
@@ -561,6 +551,12 @@ func (m *MultiAuth) GetAuthConfig() *api.AuthConfig {
 			OrganizationsEnabled: &orgEnabled,
 			Providers:            &allProviders,
 		}
+	}
+
+	// Set default provider to the first provider in the sorted list
+	var defaultProviderName string
+	if allProviders[0].Metadata.Name != nil {
+		defaultProviderName = *allProviders[0].Metadata.Name
 	}
 
 	return &api.AuthConfig{
