@@ -482,6 +482,10 @@ echo "Flightctl Observability Stack uninstalled."
     # Copy services must gather script
     cp packaging/must-gather/flightctl-services-must-gather %{buildroot}%{_bindir}
 
+    # Copy services cleanup script
+    cp packaging/cleanup/flightctl-services-cleanup %{buildroot}%{_bindir}/flightctl-services-cleanup
+    chmod 0755 %{buildroot}%{_bindir}/flightctl-services-cleanup
+
     # Copy sos report flightctl plugin
     mkdir -p %{buildroot}/usr/share/sosreport
     cp packaging/sosreport/sos/report/plugins/flightctl.py %{buildroot}/usr/share/sosreport
@@ -668,6 +672,7 @@ rm -rf /usr/share/sosreport
 
     # Files mounted to bin dir
     %attr(0755,root,root) %{_bindir}/flightctl-services-must-gather
+    %attr(0755,root,root) %{_bindir}/flightctl-services-cleanup
 
 # Optional pre-upgrade database migration dry-run
 %pre services
