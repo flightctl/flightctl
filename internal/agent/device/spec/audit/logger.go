@@ -65,7 +65,7 @@ func NewFileLogger(
 		MaxSize:    maxSizeMB, // MB (300KB rounds up to 1MB)
 		MaxBackups: DefaultMaxBackups,
 		MaxAge:     DefaultMaxAge,
-		Compress:   false, // Keep uncompressed for easier debugging
+		Compress:   true, // Compress rotated files to minimize footprint
 	}
 
 	return &FileLogger{
@@ -79,14 +79,18 @@ func NewFileLogger(
 }
 
 // LogEvent logs a complete audit event with all required fields.
-// The ctx parameter is currently unused but reserved for future extensibility
-// (e.g., context-aware logging, distributed tracing, cancellation support).
-func (f *FileLogger) LogEvent(ctx context.Context, info *AuditEventInfo) error {
+// The ctx parameter is used to check for cancellation before performing work.
+func (f *FileLogger) LogEvent(ctx context.Context, info *EventInfo) error {
+	// Check context before doing work
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	if f.config.Enabled == nil || !*f.config.Enabled {
 		return nil
 	}
 
-	event := AuditEvent{
+	event := Event{
 		Ts:                   info.StartTime.UTC().Format(time.RFC3339),
 		Device:               info.Device,
 		OldVersion:           info.OldVersion,
@@ -111,7 +115,7 @@ func (f *FileLogger) Close() error {
 
 // writeEvent writes an audit event to the log file with rotation.
 // Uses lumberjack for rotation in production, fileio for testing.
-func (f *FileLogger) writeEvent(event AuditEvent) error {
+func (f *FileLogger) writeEvent(event Event) error {
 	// Marshal event to JSON
 	eventBytes, err := json.Marshal(event)
 	if err != nil {

@@ -108,13 +108,13 @@ func TestFileLogger_LogEventApply(t *testing.T) {
 	require.NoError(err)
 
 	// Test successful log entry
-	auditInfo := &AuditEventInfo{
+	auditInfo := &EventInfo{
 		Device:               "test-device",
 		OldVersion:           "1",
 		NewVersion:           "2",
-		Result:               AuditResultSuccess,
-		Reason:               AuditReasonUpgrade,
-		Type:                 AuditTypeCurrent,
+		Result:               ResultSuccess,
+		Reason:               ReasonUpgrade,
+		Type:                 TypeCurrent,
 		FleetTemplateVersion: "template-v1",
 		StartTime:            time.Now(),
 	}
@@ -129,16 +129,16 @@ func TestFileLogger_LogEventApply(t *testing.T) {
 	require.Len(lines, 2) // Event line + empty line from newline
 	require.NotEmpty(lines[0])
 
-	var event AuditEvent
+	var event Event
 	err = json.Unmarshal([]byte(lines[0]), &event)
 	require.NoError(err)
 
 	require.Equal("test-device", event.Device)
 	require.Equal("1", event.OldVersion)
 	require.Equal("2", event.NewVersion)
-	require.Equal(AuditReasonUpgrade, event.Reason)
-	require.Equal(AuditTypeCurrent, event.Type)
-	require.Equal(AuditResultSuccess, event.Result)
+	require.Equal(ReasonUpgrade, event.Reason)
+	require.Equal(TypeCurrent, event.Type)
+	require.Equal(ResultSuccess, event.Result)
 	require.NotEmpty(event.Ts)
 	require.Equal("template-v1", event.FleetTemplateVersion)
 	require.Equal("test-agent-version", event.AgentVersion)
@@ -158,13 +158,13 @@ func TestFileLogger_LogEventFailure(t *testing.T) {
 	require.NoError(err)
 
 	// Test failure logging
-	auditInfo := &AuditEventInfo{
+	auditInfo := &EventInfo{
 		Device:               "test-device",
 		OldVersion:           "2",
 		NewVersion:           "3",
-		Result:               AuditResultFailure,
-		Reason:               AuditReasonUpgrade,
-		Type:                 AuditTypeCurrent, // Failed upgrade attempt
+		Result:               ResultFailure,
+		Reason:               ReasonUpgrade,
+		Type:                 TypeCurrent, // Failed upgrade attempt
 		FleetTemplateVersion: "template-v2",
 		StartTime:            time.Now(),
 	}
@@ -178,16 +178,16 @@ func TestFileLogger_LogEventFailure(t *testing.T) {
 	lines := strings.Split(string(data), "\n")
 	require.NotEmpty(lines[0])
 
-	var event AuditEvent
+	var event Event
 	err = json.Unmarshal([]byte(lines[0]), &event)
 	require.NoError(err)
 
 	require.Equal("test-device", event.Device)
 	require.Equal("2", event.OldVersion)
 	require.Equal("3", event.NewVersion)
-	require.Equal(AuditReasonUpgrade, event.Reason) // Failed upgrade attempt
-	require.Equal(AuditTypeCurrent, event.Type)
-	require.Equal(AuditResultFailure, event.Result)
+	require.Equal(ReasonUpgrade, event.Reason) // Failed upgrade attempt
+	require.Equal(TypeCurrent, event.Type)
+	require.Equal(ResultFailure, event.Result)
 	require.NotEmpty(event.Ts)
 	require.Equal("template-v2", event.FleetTemplateVersion)
 	require.Equal("test-agent-version", event.AgentVersion)
@@ -207,13 +207,13 @@ func TestFileLogger_LogEventRollback(t *testing.T) {
 	require.NoError(err)
 
 	// Test successful log rollback
-	auditInfo := &AuditEventInfo{
+	auditInfo := &EventInfo{
 		Device:               "test-device",
 		OldVersion:           "3",
 		NewVersion:           "2",
-		Result:               AuditResultSuccess,
-		Reason:               AuditReasonRollback,
-		Type:                 AuditTypeRollback,
+		Result:               ResultSuccess,
+		Reason:               ReasonRollback,
+		Type:                 TypeRollback,
 		FleetTemplateVersion: "template-rollback",
 		StartTime:            time.Now(),
 	}
@@ -228,16 +228,16 @@ func TestFileLogger_LogEventRollback(t *testing.T) {
 	require.Len(lines, 2) // Event line + empty line from newline
 	require.NotEmpty(lines[0])
 
-	var event AuditEvent
+	var event Event
 	err = json.Unmarshal([]byte(lines[0]), &event)
 	require.NoError(err)
 
 	require.Equal("test-device", event.Device)
 	require.Equal("3", event.OldVersion)
 	require.Equal("2", event.NewVersion)
-	require.Equal(AuditReasonRollback, event.Reason)
-	require.Equal(AuditTypeRollback, event.Type)
-	require.Equal(AuditResultSuccess, event.Result)
+	require.Equal(ReasonRollback, event.Reason)
+	require.Equal(TypeRollback, event.Type)
+	require.Equal(ResultSuccess, event.Result)
 	require.NotEmpty(event.Ts)
 	require.Equal("template-rollback", event.FleetTemplateVersion)
 	require.Equal("test-agent-version", event.AgentVersion)
@@ -257,13 +257,13 @@ func TestFileLogger_LogEventBootstrap(t *testing.T) {
 	require.NoError(err)
 
 	// Test bootstrap event logging
-	auditInfo := &AuditEventInfo{
+	auditInfo := &EventInfo{
 		Device:               "test-device",
 		OldVersion:           "", // No previous version for bootstrap
 		NewVersion:           "0",
-		Result:               AuditResultSuccess,
-		Reason:               AuditReasonBootstrap,
-		Type:                 AuditTypeCurrent,
+		Result:               ResultSuccess,
+		Reason:               ReasonBootstrap,
+		Type:                 TypeCurrent,
 		FleetTemplateVersion: "", // No fleet template on bootstrap
 		StartTime:            time.Now(),
 	}
@@ -278,16 +278,16 @@ func TestFileLogger_LogEventBootstrap(t *testing.T) {
 	require.Len(lines, 2) // Event line + empty line from newline
 	require.NotEmpty(lines[0])
 
-	var event AuditEvent
+	var event Event
 	err = json.Unmarshal([]byte(lines[0]), &event)
 	require.NoError(err)
 
 	require.Equal("test-device", event.Device)
 	require.Equal("", event.OldVersion)  // Bootstrap has no old version
 	require.Equal("0", event.NewVersion) // Bootstrap starts at version 0
-	require.Equal(AuditReasonBootstrap, event.Reason)
-	require.Equal(AuditTypeCurrent, event.Type)
-	require.Equal(AuditResultSuccess, event.Result)
+	require.Equal(ReasonBootstrap, event.Reason)
+	require.Equal(TypeCurrent, event.Type)
+	require.Equal(ResultSuccess, event.Result)
 	require.NotEmpty(event.Ts)
 	require.Equal("", event.FleetTemplateVersion) // No fleet template on bootstrap
 	require.Equal("test-agent-version", event.AgentVersion)
@@ -307,13 +307,13 @@ func TestFileLogger_LogEventSync(t *testing.T) {
 	require.NoError(err)
 
 	// Test sync event logging
-	auditInfo := &AuditEventInfo{
+	auditInfo := &EventInfo{
 		Device:               "test-device",
 		OldVersion:           "1",
 		NewVersion:           "2",
-		Result:               AuditResultSuccess,
-		Reason:               AuditReasonSync,
-		Type:                 AuditTypeDesired,
+		Result:               ResultSuccess,
+		Reason:               ReasonSync,
+		Type:                 TypeDesired,
 		FleetTemplateVersion: "template-sync",
 		StartTime:            time.Now(),
 	}
@@ -328,16 +328,16 @@ func TestFileLogger_LogEventSync(t *testing.T) {
 	require.Len(lines, 2) // Event line + empty line from newline
 	require.NotEmpty(lines[0])
 
-	var event AuditEvent
+	var event Event
 	err = json.Unmarshal([]byte(lines[0]), &event)
 	require.NoError(err)
 
 	require.Equal("test-device", event.Device)
 	require.Equal("1", event.OldVersion)
 	require.Equal("2", event.NewVersion)
-	require.Equal(AuditReasonSync, event.Reason)
-	require.Equal(AuditTypeDesired, event.Type)
-	require.Equal(AuditResultSuccess, event.Result)
+	require.Equal(ReasonSync, event.Reason)
+	require.Equal(TypeDesired, event.Type)
+	require.Equal(ResultSuccess, event.Result)
 	require.NotEmpty(event.Ts)
 	require.Equal("template-sync", event.FleetTemplateVersion)
 	require.Equal("test-agent-version", event.AgentVersion)
@@ -358,65 +358,65 @@ func TestFileLogger_DifferentEventTypes(t *testing.T) {
 
 	// Test different event types
 	events := []struct {
-		info           *AuditEventInfo
-		expectedReason AuditReason
-		expectedType   AuditType
+		info           *EventInfo
+		expectedReason Reason
+		expectedType   Type
 	}{
 		{
-			info: &AuditEventInfo{
+			info: &EventInfo{
 				Device:               "test-device",
 				OldVersion:           "",
 				NewVersion:           "0",
-				Result:               AuditResultSuccess,
-				Reason:               AuditReasonBootstrap,
-				Type:                 AuditTypeCurrent,
+				Result:               ResultSuccess,
+				Reason:               ReasonBootstrap,
+				Type:                 TypeCurrent,
 				FleetTemplateVersion: "",
 				StartTime:            time.Now(),
 			},
-			expectedReason: AuditReasonBootstrap,
-			expectedType:   AuditTypeCurrent,
+			expectedReason: ReasonBootstrap,
+			expectedType:   TypeCurrent,
 		},
 		{
-			info: &AuditEventInfo{
+			info: &EventInfo{
 				Device:               "test-device",
 				OldVersion:           "0",
 				NewVersion:           "1",
-				Result:               AuditResultSuccess,
-				Reason:               AuditReasonSync,
-				Type:                 AuditTypeDesired,
+				Result:               ResultSuccess,
+				Reason:               ReasonSync,
+				Type:                 TypeDesired,
 				FleetTemplateVersion: "template-v1",
 				StartTime:            time.Now(),
 			},
-			expectedReason: AuditReasonSync,
-			expectedType:   AuditTypeDesired,
+			expectedReason: ReasonSync,
+			expectedType:   TypeDesired,
 		},
 		{
-			info: &AuditEventInfo{
+			info: &EventInfo{
 				Device:               "test-device",
 				OldVersion:           "0",
 				NewVersion:           "1",
-				Result:               AuditResultSuccess,
-				Reason:               AuditReasonUpgrade,
-				Type:                 AuditTypeCurrent,
+				Result:               ResultSuccess,
+				Reason:               ReasonUpgrade,
+				Type:                 TypeCurrent,
 				FleetTemplateVersion: "template-v1",
 				StartTime:            time.Now(),
 			},
-			expectedReason: AuditReasonUpgrade,
-			expectedType:   AuditTypeCurrent,
+			expectedReason: ReasonUpgrade,
+			expectedType:   TypeCurrent,
 		},
 		{
-			info: &AuditEventInfo{
+			info: &EventInfo{
 				Device:               "test-device",
 				OldVersion:           "1",
 				NewVersion:           "0",
-				Result:               AuditResultSuccess,
-				Reason:               AuditReasonRollback,
-				Type:                 AuditTypeRollback,
+				Result:               ResultSuccess,
+				Reason:               ReasonRollback,
+				Type:                 TypeRollback,
 				FleetTemplateVersion: "template-v0",
 				StartTime:            time.Now(),
 			},
-			expectedReason: AuditReasonRollback,
-			expectedType:   AuditTypeRollback,
+			expectedReason: ReasonRollback,
+			expectedType:   TypeRollback,
 		},
 	}
 
@@ -433,7 +433,7 @@ func TestFileLogger_DifferentEventTypes(t *testing.T) {
 	require.Len(lines, len(events)+1) // Events + final newline
 
 	for i, e := range events {
-		var event AuditEvent
+		var event Event
 		err := json.Unmarshal([]byte(lines[i]), &event)
 		require.NoError(err)
 		require.Equal(e.expectedReason, event.Reason)
@@ -456,13 +456,13 @@ func TestFileLogger_RotationBehavior(t *testing.T) {
 
 	// Write multiple events to verify append behavior
 	for i := 0; i < 5; i++ {
-		auditInfo := &AuditEventInfo{
+		auditInfo := &EventInfo{
 			Device:               "test-device",
 			OldVersion:           "1",
 			NewVersion:           "2",
-			Result:               AuditResultSuccess,
-			Reason:               AuditReasonUpgrade,
-			Type:                 AuditTypeCurrent,
+			Result:               ResultSuccess,
+			Reason:               ReasonUpgrade,
+			Type:                 TypeCurrent,
 			FleetTemplateVersion: "template-v1",
 			StartTime:            time.Now(),
 		}
@@ -497,13 +497,13 @@ func TestFileLogger_DisabledLogging(t *testing.T) {
 	require.NoError(err)
 
 	// Try to log an event
-	auditInfo := &AuditEventInfo{
+	auditInfo := &EventInfo{
 		Device:               "test-device",
 		OldVersion:           "1",
 		NewVersion:           "2",
-		Result:               AuditResultSuccess,
-		Reason:               AuditReasonUpgrade,
-		Type:                 AuditTypeCurrent,
+		Result:               ResultSuccess,
+		Reason:               ReasonUpgrade,
+		Type:                 TypeCurrent,
 		FleetTemplateVersion: "template-v1",
 		StartTime:            time.Now(),
 	}
