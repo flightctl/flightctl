@@ -66,17 +66,7 @@ spec:
             value: /app/serving-cert/tls.crt
           - name: IS_OCP_PLUGIN
             value: "true"
-          - name: K8S_RBAC_NS
-            valueFrom:
-              configMapKeyRef:
-                name: flightctl-ui
-                key: K8S_RBAC_NS
-          {{- else }}
-          - name: INTERNAL_AUTH_URL
-            valueFrom:
-              configMapKeyRef:
-                name: flightctl-ui
-                key: INTERNAL_AUTH_URL
+          {{- end }}
           - name: BASE_UI_URL
             valueFrom:
               configMapKeyRef:
@@ -92,12 +82,6 @@ spec:
               configMapKeyRef:
                 name: flightctl-ui
                 key: IS_RHEM
-          - name: AUTH_CLIENT_ID
-            valueFrom:
-              configMapKeyRef:
-                name: flightctl-ui
-                key: AUTH_CLIENT_ID
-          {{- end }}
           {{- if eq (.Values.global).target "acm" }}
           image: {{ .Values.ui.image.pluginImage }}:{{ default .Chart.AppVersion .Values.ui.image.tag }}
           {{- else }}
