@@ -100,8 +100,12 @@ func TestImageProvider(t *testing.T) {
 					"!nvalid": "bar",
 				}),
 			},
-			composeSpec:   util.NewComposeSpec(),
-			setupMocks:    func(mockExec *executer.MockExecuter, appLabels string) {},
+			composeSpec: util.NewComposeSpec(),
+			setupMocks: func(mockExec *executer.MockExecuter, appLabels string) {
+				gomock.InOrder(
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"inspect", appImage}).Return(appLabels, "", 0),
+				)
+			},
 			wantVerifyErr: errors.ErrInvalidSpec,
 		},
 		{
@@ -141,6 +145,7 @@ services:
 image: quay.io/flightctl-tests/alpine:v1`,
 			setupMocks: func(mockExec *executer.MockExecuter, appLabels string) {
 				gomock.InOrder(
+					// Inspect to determine appType from image label
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"inspect", appImage}).Return(appLabels, "", 0),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"unshare", "podman", "image", "mount", appImage}).Return("/mount", "", 0),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "unmount", appImage}).Return("", "", 0),
@@ -174,8 +179,6 @@ image: quay.io/flightctl-tests/alpine:v1`,
 			err = provider.FromImageApplicationProviderSpec(spec)
 			require.NoError(err)
 
-			imageProvider, err := newImage(log, podman, provider, rw)
-			require.NoError(err)
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
@@ -184,6 +187,23 @@ image: quay.io/flightctl-tests/alpine:v1`,
 			require.NoError(err)
 
 			tt.setupMocks(mockExec, string(inspectBytes))
+
+			appType := lo.FromPtr(tt.spec.AppType)
+			if appType == "" {
+				appType, err = typeFromImage(ctx, podman, spec.Image)
+				if err != nil && tt.wantVerifyErr != nil {
+					require.ErrorIs(err, tt.wantVerifyErr)
+					return
+				}
+			}
+
+			imageProvider, err := newImage(log, podman, provider, rw, appType)
+			if tt.wantVerifyErr != nil && err != nil {
+				require.ErrorIs(err, tt.wantVerifyErr)
+				return
+			}
+			require.NoError(err)
+
 			err = imageProvider.Verify(ctx)
 			if tt.wantVerifyErr != nil {
 				require.Error(err)
