@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Orchestrates per-flavor build: variants+bundle and qcow2 in parallel.
+# Requirements:
+#   - Environment:
+#       TAG            (image tag)
+#       IMAGE_REPO     (quay.io/flightctl/flightctl-device by default in callers)
+#       OS_ID          (flavor id, e.g., cs9 or cs10)
+#   - Tools:
+#       ./build.sh, ./bundle.sh, ./qcow2.sh in the same directory
+#
+# Usage:
+#   OS_ID=cs9 TAG=vX IMAGE_REPO=... ./build_and_qcow2.sh
+#   ./build_and_qcow2.sh --os-id cs10
+#
+
+SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
+ROOT_DIR="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
+
+OS_ID_ENV="${OS_ID:-}"
+TAG="${TAG:-latest}"
+IMAGE_REPO="${IMAGE_REPO:-quay.io/flightctl/flightctl-device}"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --os-id)
+      OS_ID_ENV="$2"
+      shift 2
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      echo "Usage: $0 [--os-id OS_ID]" >&2
+      exit 1
+      ;;
+  esac
+done
+
+if [ -z "${OS_ID_ENV}" ]; then
+  echo "OS_ID must be provided via env or --os-id" >&2
+  exit 1
+fi
+
+export OS_ID="${OS_ID_ENV}"
+export FLAVORS="${OS_ID}"
+
+LOG_DIR="${ROOT_DIR}/artifacts/logs-${OS_ID}"
+mkdir -p "${LOG_DIR}"
+variants_log="${LOG_DIR}/variants.log"
+qcow2_log="${LOG_DIR}/qcow2.log"
+
+(
+  set -euo pipefail
+  echo "::group::Building variants and creating bundle for ${OS_ID}"
+  "${SCRIPT_DIR}/build.sh" --variants-only 2>&1 | tee "${variants_log}"
+  "${SCRIPT_DIR}/bundle.sh" 2>&1 | tee -a "${variants_log}"
+  sudo chown -R "$(id -un)":"$(id -gn)" "${ROOT_DIR}/artifacts" || true
+  echo "::endgroup::"
+) &
+VARIANTS_PID=$!
+
+(
+  set -euo pipefail
+  echo "::group::Building qcow2 for ${OS_ID}"
+  "${SCRIPT_DIR}/qcow2.sh" 2>&1 | tee "${qcow2_log}"
+  sudo chown -R "$(id -un)":"$(id -gn)" "${ROOT_DIR}/artifacts" || true
+  echo "::endgroup::"
+) &
+QCOW2_PID=$!
+
+variants_exit=0
+qcow2_exit=0
+wait "${VARIANTS_PID}" || variants_exit=$?
+wait "${QCOW2_PID}" || qcow2_exit=$?
+
+if [ "${variants_exit}" -ne 0 ]; then
+  echo "::error::Variants+bundle build failed with exit code ${variants_exit}"
+  exit "${variants_exit}"
+fi
+if [ "${qcow2_exit}" -ne 0 ]; then
+  echo "::error::QCOW2 build failed with exit code ${qcow2_exit}"
+  exit "${qcow2_exit}"
+fi
+
+echo "Build and qcow2 for ${OS_ID} completed successfully."
+
+

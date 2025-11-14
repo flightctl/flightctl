@@ -4,6 +4,11 @@ SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 METHOD=install
 ONLY_DB=
 DB_SIZE_PARAMS=
+NO_VALUES=
+CHART_PATH="./deploy/helm/flightctl/"
+VALUES_PATH="./deploy/helm/flightctl/values.dev.yaml"
+IMAGE_REGISTRY="localhost/"
+IMAGE_TAG="latest"
 # If using images from a private registry, specify a path to a Kubernetes Secret yaml for your pull secret (in the flightctl-internal namespace)
 # IMAGE_PULL_SECRET_PATH=
 SQL_VERSION=${SQL_VERSION:-"latest"}
@@ -11,19 +16,26 @@ SQL_IMAGE=${SQL_IMAGE:-"quay.io/sclorg/postgresql-16-c9s"}
 KV_VERSION=${KV_VERSION:-"7.4.1"}
 KV_IMAGE=${KV_IMAGE:-"docker.io/redis"}
 
+echo "::group::Preparing the cluster..."
+
 source "${SCRIPT_DIR}"/functions
 IP=$(get_ext_ip)
 
 # Use external getopt for long options
-options=$(getopt -o adh --long only-db,db-size:,auth,help -n "$0" -- "$@")
+options=$(getopt -o adh --long only-db,db-size:,auth,help,chart-path:,values-path:,no-values,image-registry:,image-tag: -n "$0" -- "$@")
 eval set -- "$options"
 
-usage="[--only-db] [db-size=e2e|small-1k|medium-10k]"
+usage="[--only-db] [--db-size=e2e|small-1k|medium-10k] [--chart-path=PATH] [--values-path=PATH] [--no-values] [--image-registry=REGISTRY] [--image-tag=TAG]"
 
 while true; do
   case "$1" in
     -a|--only-db) ONLY_DB="--set api.enabled=false --set worker.enabled=false --set periodic.enabled=false --set kv.enabled=false --set alertExporter.enabled=false --set alertmanager.enabled=false --set telemetryGateway.enabled=false" ; shift ;;
     -h|--help) echo "Usage: $0 $usage"; exit 0 ;;
+    --chart-path) CHART_PATH="$2" ; shift 2 ;;
+    --values-path) VALUES_PATH="$2" ; shift 2 ;;
+    --no-values) NO_VALUES=true ; shift ;;
+    --image-registry) IMAGE_REGISTRY="$2" ; shift 2 ;;
+    --image-tag) IMAGE_TAG="$2" ; shift 2 ;;
     --db-size)
       db_size=$2
       if [ "$db_size" == "e2e" ]; then
@@ -56,9 +68,14 @@ kubectl create namespace flightctl-e2e      --context kind-kind 2>/dev/null || t
 # if we are only deploying the database, we don't need inject the server container
 if [ -z "$ONLY_DB" ]; then
 
-  for suffix in periodic api worker alert-exporter alertmanager-proxy cli-artifacts db-setup telemetry-gateway ; do
-    kind_load_image localhost/flightctl-${suffix}:latest
-  done
+  # Load images only if using localhost registry OR latest tag
+  if [ "$IMAGE_REGISTRY" == "localhost/" ] || [ "$IMAGE_TAG" == "latest" ]; then
+    for suffix in periodic api worker alert-exporter alertmanager-proxy cli-artifacts db-setup telemetry-gateway ; do
+      kind_load_image "${IMAGE_REGISTRY%/}/flightctl-${suffix}:${IMAGE_TAG}"
+    done
+  else
+    echo "Using custom registry ${IMAGE_REGISTRY} with tag ${IMAGE_TAG}, skipping local image loading for FlightCtl images"
+  fi
 
   kind_load_image "${KV_IMAGE}:${KV_VERSION}" keep-tar
 fi
@@ -78,6 +95,10 @@ fi
 
 kind_load_image "${SQL_IMAGE}:${SQL_VERSION}" keep-tar
 
+echo "::endgroup::"
+
+echo "::group::Deployment"
+
 API_PORT=3443
 GATEWAY_ARGS=""
 if [ "$GATEWAY" ]; then
@@ -92,24 +113,53 @@ if [ "$AUTH" ]; then
   AUTH_ARGS="--set global.auth.type=k8s"
 fi
 
+# Ensure IMAGE_REGISTRY ends with /
+if [[ ! "$IMAGE_REGISTRY" == */ ]]; then
+  IMAGE_REGISTRY="${IMAGE_REGISTRY}/"
+fi
+
 ORGS_ARGS=""
 if [ "$ORGS" ]; then
   ORGS_ARGS="--set global.organizations.enabled=true"
 fi
 
-helm dependency build ./deploy/helm/flightctl
+# Build image override arguments using a loop
+IMAGE_ARGS=""
+if [ "$IMAGE_REGISTRY" != "localhost/" ] || [ "$IMAGE_TAG" != "latest" ]; then
+  for component in api:api cliArtifacts:cli-artifacts worker:worker periodic:periodic alertExporter:alert-exporter alertmanagerProxy:alertmanager-proxy dbSetup:db-setup telemetryGateway:telemetry-gateway; do
+    helm_key="${component%:*}"
+    image_suffix="${component#*:}"
+    IMAGE_ARGS="$IMAGE_ARGS --set ${helm_key}.image.image=${IMAGE_REGISTRY}flightctl-${image_suffix}"
+    IMAGE_ARGS="$IMAGE_ARGS --set ${helm_key}.image.tag=${IMAGE_TAG}"
+  done
+fi
+
+# Check if chart is a packaged .tgz file
+if [[ "${CHART_PATH}" == *.tgz ]]; then
+  echo "Chart is a packaged .tgz file, skipping dependency build"
+else
+  helm dependency build "${CHART_PATH}"
+fi
+
+VALUES_ARG=""
+if [ -z "$NO_VALUES" ]; then
+  VALUES_ARG="--values ${VALUES_PATH}"
+fi
 
 helm upgrade --install --namespace flightctl-external \
-                  --values ./deploy/helm/flightctl/values.dev.yaml \
+                  ${VALUES_ARG} \
                   --set global.baseDomain=${IP}.nip.io \
-                  ${ONLY_DB} ${DB_SIZE_PARAMS} ${AUTH_ARGS} ${SQL_ARG} ${GATEWAY_ARGS} ${KV_ARG} ${ORGS_ARGS} flightctl \
-              ./deploy/helm/flightctl/ --kube-context kind-kind
+                  ${ONLY_DB} ${DB_SIZE_PARAMS} ${AUTH_ARGS} ${SQL_ARG} ${GATEWAY_ARGS} ${KV_ARG} ${ORGS_ARGS} ${IMAGE_ARGS} flightctl \
+              "${CHART_PATH}" --kube-context kind-kind
 
 "${SCRIPT_DIR}"/wait_for_postgres.sh
 
 # Wait for Redis deployment to be ready
 kubectl rollout status deployment flightctl-kv -n flightctl-internal -w --timeout=300s --context kind-kind
 
+echo "::endgroup::"
+
+echo "::group::Check deployment"
 # Make sure the database is usable from the unit tests
 DB_POD=$(kubectl get pod -n flightctl-internal -l flightctl.service=flightctl-db --no-headers -o custom-columns=":metadata.name" --context kind-kind )
 kubectl exec -n flightctl-internal --context kind-kind "${DB_POD}" -- psql -c 'ALTER ROLE admin WITH SUPERUSER'
@@ -173,3 +223,4 @@ if ! "${SCRIPT_DIR}"/setup_telemetry_gateway_certs.sh \
   echo "WARNING: Failed to setup telemetry gateway certificates. Deployment will continue without them."
   echo "You can manually run the certificate setup later if needed."
 fi
+echo "::endgroup::"

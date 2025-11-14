@@ -11,8 +11,8 @@
 Name:           flightctl
 # Version and Release are automatically updated by Packit during build
 # Do not manually change these values - they will be overwritten
-Version:        0.6.0
-Release:        1%{?dist}
+Version:        1.0.0
+Release:        1.20251113140656860923.decoupled.builds.images.252.g5f96d2fc%{?dist}
 Summary:        Flight Control service
 
 %gometa
@@ -20,7 +20,7 @@ Summary:        Flight Control service
 License:        Apache-2.0 AND BSD-2-Clause AND BSD-3-Clause AND ISC AND MIT
 URL:            %{gourl}
 
-Source0:        1%{?dist}
+Source0:        flightctl-1.0.0.tar.gz
 
 BuildRequires:  golang
 BuildRequires:  make
@@ -410,7 +410,7 @@ echo "Flightctl Observability Stack uninstalled."
 
 %prep
 %goprep -A
-%setup -q %{forgesetupargs}
+%setup -q %{forgesetupargs} -n flightctl-1.0.0
 
 %build
     # if this is a buggy version of go we need to set GOPROXY as workaround
@@ -743,6 +743,154 @@ fi
 # If contexts were managed via policy, no cleanup is needed here.
 
 %changelog
+* Thu Nov 13 2025 Super User - 1.0.0-1.20251113140656860923.decoupled.builds.images.252.g5f96d2fc
+- EDM-2477: test stream10 (Ilya Skornyakov)
+- EDM-2477: refactor (Ilya Skornyakov)
+- EDM-2477: performance (Ilya Skornyakov)
+- EDM-2477: directly stream artifacts into podman (Ilya Skornyakov)
+- EDM-2477: agent - dont create /etc/flightctl (Ilya Skornyakov)
+- EDM-2477: agent builds (Ilya Skornyakov)
+- NO-ISSUE: speed up build (Asaf Ben Natan)
+- EDM-2509: enforcing PKCE for public clients (Asaf Ben Natan)
+- EDM-2234: CLI Kind/Name Autocomplete (#1871) (Ben Keith)
+- NO-ISSUE: use systemd stop selinux macro (#1928) (kkyrazis)
+- EDM-2294: Quadlet reset failed systemd units on remove (#1919) (kkyrazis)
+- NO-ISSUE: add dependency to test vms (sserafin)
+- EDM-2230: Persist CSR Until enrollment (Siddarth R)
+- EDM-2329: Auto select org on login (Siddarth R)
+- NO-ISSUE: add link to orgs user docs from main nav (Dakota Crowder)
+- EDM-2443: Add Inline Provider for Quadlet Apps (#1913) (kkyrazis)
+- EDM-2477: agent builds (Ilya Skornyakov)
+- EDM-2269: Upstream flightctl services rpm version is incorrect (remove branch info) (#1914) (Gregory Shilin)
+- EDM-2477: setup cluster with published artifacts (Ilya Skornyakov)
+- EDM-2265: fix E2E rollout tests beforeEach in OCP (sserafin)
+- EDM-2477: update compression & retention (Ilya Skornyakov)
+- EDM-2346: replaced keycloak with PAM issuer (Asaf Ben Natan)
+- EDM-2358: fix lint cache (Asaf Ben Natan)
+- EDM-2395: Add Inline Quadlet Validation (Kyle Kyrazis)
+- EDM-2294: Add Quadlet App Lifecycle Handler (#1875) (kkyrazis)
+- EDM-2393: Added quadlet spec definition (#1855) (kkyrazis)
+- EDM-2414: grafana starts but there are warnings and errors (Ori Amizur)
+- EDM-2477: upload CI artifacts to github (Ilya Skornyakov)
+- EDM-1116: Audit the use of rate limiting controls (Ori Amizur)
+- EDM-2455: Add quadlet installation logic (#1881) (kkyrazis)
+- EDM-2269: Upstream flightctl services rpm version is incorrect (#1897) (Gregory Shilin)
+- EDM-2465: Add upstream RHEL/CS-10 targes targets (#1895) (Gregory Shilin)
+- NO-ISSUE: Fix TLD in image labels (Frank A. Zdarsky)
+- EDM-2459: add pprof server for runtime profiling (#1887) (Assaf Albo)
+- EDM-2302: User quadlet docs (Dakota Crowder)
+- EDM-2495: Add HSTS and X-Content-Type-Options headers (Avishay Traeger)
+- EDM-2424: helm - preserve migration job (#1866) (Ilya)
+- EDM-1124: null_method_call: Calling a method on null object (Ori Amizur)
+- EDM-2250: Treat graceful HTTP shutdown correctly in metrics server (#1888) (Assaf Albo)
+- NO-ISSUE: Temporarily disable backward compatibility integration tests (Avishay Traeger)
+- EDM-2404: Add debug logs to snapshot restore (sserafin)
+- NO-ISSUE: Remove rate limit environment variables (Avishay Traeger)
+- NO-ISSUE: Add explicit enabled field for rate limiting configuration (Avishay Traeger)
+- EDM-2405: Increase default rate limiting from 60/10 to 300/20 requests (Avishay Traeger)
+- EDM-2378: automate flightctl edit (Eldar Weiss)
+- EDM-2240: Default to YAML format when using --rendered (Celia Amador)
+- EDM-2240: Fix bug lastSeen allowed for multiple devices but info not shown (Celia Amador)
+- EDM-2240: Flags shown in help for 'get' commands are contextual (Celia Amador)
+- EDM-2300: Services must-gather script (Dakota Crowder)
+- NO-ISSUE: Use selected organization when creating new devices with agent-vm (Celia Amador)
+- EDM-2739: automate new get format (Eldar Weiss)
+- EDM-2233: Automation of Deny feature (Eldar Weiss)
+- EDM-2168: Fix for [It] VM Agent behavior status Device status tests (Itzik Brown)
+- EDM-2031: Added checking number of devices in each fleet test (Hadar Ferber)
+- NO-ISSUE: add missing labels (#1861) (Ilya)
+- EDM-2419: fixed meter collector to have a single label (Asaf Ben Natan)
+- EDM-2412: store: return not found if checkpoint does not exist (Sam Batschelet)
+- EDM-2408: Move redis config for quadlets kv service to a .conf file to prevent directory permissions issues (Dakota Crowder)
+- EDM-2409: Add internal ctx key to alert exporter service (Dakota Crowder)
+- EDM-2400: Fix bootc linting issue for CentOS buildinfo directories (Gal Elharar)
+- EDM-2385:Redis integration test race  condition fix (amalykhi)
+- EDM-1961: Enhance CLI Login error handling and Docs (Siddarth R)
+- EDM-2396: Fix build source tag detection (Ben Keith)
+- EDM-2387: Allow flightctl_agent_t to get status of systemd services (Ben Keith)
+- NO-ISSUE: Fix commit message check for backport branches (Avishay Traeger)
+- EDM-2322: Flightctl is using the Internal database when enabling the … (#1797) (Gregory Shilin)
+- EDM-2354: agent: remove klog as dependency (Sam Batschelet)
+- EDM-2354: device/systeminfo: improve context handling (Sam Batschelet)
+- EDM-2354: packaging/greenboot: bump timeout (Sam Batschelet)
+- EDM-2354: test/agent: use drop-in for system-info config (Sam Batschelet)
+- EDM-2350-v2: Fix documentation to reference correct telemetery gateway export listen port (9464) for prometheus (Ori Amizur)
+- NO-ISSUE: move files (JasonN3)
+- EDM-2350: [documenttion] Telemetry quadlets configuration is wrong in the doc (Ori Amizur)
+- EDM-2236: use require package for approve command tests (Gal Elharar)
+- EDM-2351: Update doc refs from new utilty usage, accept stdin input in py yaml utility (Dakota Crowder)
+- EDM-2253: Add hostname support to systeminfo and improve agent config (Gal Elharar)
+- EDM-2251: remove start condition for db-migrate (#1815) (Ilya)
+- NO-ISSUE: workflow disk cleanup config update (Ilya)
+- EDM-2367: Separate last seen from device (Ori Amizur)
+- EDM-2161: detect integration tests base (#1809) (Ilya)
+- EDM-2236: Add support for space-separated approve command syntax (Gal Elharar)
+- EDM-2341: flightctl-userinfo-proxy container doesn't support the Memory setting (Ori Amizur)
+- EDM-1834: Agent attempts to reconcile before reboot on OS upgrade (noga-magen)
+- EDM-2351: Add python utility for transforming yaml (Dakota Crowder)
+- EDM-2352: improve e2e beforeEach stability (sserafin)
+- EDM-1392: Add fallback for immediate /var/lib/flightctl creation (Gal Elharar)
+- EDM-2214: create migration pod just once and retry without a limit (#1794) (Ilya)
+- EDM-2288: remove yq dependency (Siddarth R)
+- EDM-1601: Prevent Invalid Memory monitor type path fields (Gal Elharar)
+- EDM-1601: Add unit tests for ResourceMonitor validation (Gal Elharar)
+- EDM-1601: Prevent duplicate monitorType and invalid CPU path fields (Gal Elharar)
+- EDM-1601: Add validation to prevent duplicate monitorType in fleet resources (Gal Elharar)
+- NO-ISSUE: dont shutdown deployments in ACM (#1793) (Ilya)
+- NO-ISSUE: fix broken link (#1796) (Ilya)
+- NO-ISSUE: Fix custom-info examples in agent-vm (Celia Amador)
+- NO-ISSUE: Fix git container on deploy (#1772) (Siddarth Royapally)
+- EDM-2214: helm add migration wait init containers to services (#1785) (Siddarth Royapally)
+- EDM-2286: Add correct selinux policy to custom-info directory (#1788) (kkyrazis)
+- EDM-2259: Fix draining workloads on shutdown (#1786) (kkyrazis)
+- NO-ISSUE: deploy/helm: fix doc links (Sam Batschelet)
+- EMD-2207: Remove Docs and duplicate licenses from RPMs (#1781) (kkyrazis)
+- Merge pull request #1779 from keitwb/rhel-build-note (Ben Keith)
+- EDM-2254: Fix directory drop in reference for db/kv (Dakota Crowder)
+- Add doc on how to access downstream builds (#1774) (Ben Keith)
+- NO-ISSUE: Various doc fixes (Frank A. Zdarsky)
+- EDM-2043: Create SSH known_hosts file during installation (#1775) (Siddarth Royapally)
+- EDM-2273: device/dependency: ensure stale images are removed on version change (Sam Batschelet)
+- EDM-2271: Fix TPM Activate Credential with tracing disabled (#1763) (kkyrazis)
+- EDM-2255: added flightctl-restore to the rpm (Asaf Ben Natan)
+- EDM-2272: device/application/podman: ensure pods are cleaned up on removal (Sam Batschelet)
+- EDM-2266: Append org id param to console requests from cli and address outdated const refs (Dakota Crowder)
+- EDM-1870: automation of quadlets installation in RHEL9 vm (sserafin)
+- NO-ISSUE: Update repo to rpm.flightctl.io (Frank A. Zdarsky)
+- EDM-2254: fixed quadlets docs, added restore version option (Asaf Ben Natan)
+- EDM-1183: Encapsulate template detection logic (Gal Elharar)
+- EDM-2171: Update dry run script (Siddarth R)
+- EDM-2043: bypass known_hosts check for skip verification (#1602) (Siddarth Royapally)
+- EDM-2036: CLI Update Flightctl completion (#1601) (Siddarth Royapally)
+- EDM-2211: docs: clarify bootc image building dep (Sam Batschelet)
+- EDM-2248: Replace yq dep with jq/pyyaml (Dakota Crowder)
+- EDM-2246: Ensure alertmanager-proxy tag is updated from :latest when installing rpm (Dakota Crowder)
+- NO-ISSUE: agent: remove stop and unnecessary locking (Sam Batschelet)
+- EDM-2088: docs: revert downgrade support (Sam Batschelet)
+- EDM-2232: Explicitly set device fields unset by ApplyJSONPatch (Dakota Crowder)
+- NO-ISSUE: fixed race condition when stop is called before start is finished on agent (Asaf Ben Natan)
+- NO-ISSUE: create clean snap and verify snapshot revert (Asaf Ben Natan)
+- EDM-2224: setting awaitingReconnect annotation on ERs based on renderedVersion parameter ( new parameter) (Asaf Ben Natan)
+- EDM-2169: ERs marked when restoring (Asaf Ben Natan)
+- EDM-1246: Add FIPS validator (Frank A. Zdarsky)
+- NO-ISSUE: Fix mismatch in RPM version calculation across builds (#1729) (#1730) (Assaf Albo)
+- NO-ISSUE: agent: clarify concurrency model (Sam Batschelet)
+- EDM-959: Add documentation for device observability with Telemetry Gateway and otelcol (#1695) (Assaf Albo)
+- EDM-552: support for cli format (Asaf Ben Natan)
+- EDM-2228: Installation fails when using an external database with sslmode verify-ca (#1716) (Gregory Shilin)
+- Bump tj-actions/changed-files from 44 to 46 in /.github/workflows (dependabot[bot])
+- EDM-2133: Ensure only valid orgs can be selected in CLI (noga-magen)
+- NO-ISSUE: Update base image version to 9.6-1758714456 (#1715) (Assaf Albo)
+- NO-ISSUE: LastSeen CLI use "never" not "none" (Avishay Traeger)
+- EDM-2016: Credential Challenge documentation (#1709) (kkyrazis)
+- EDM-2196: Add AAP details and update org docs (Dakota Crowder)
+- NO-ISSUE: Include pkg in unit tests (#1712) (kkyrazis)
+- EDM-1183: Add comprehensive unit tests for template OCI image validation (Gal Elharar)
+- EDM-2138: Add support for telemetry gateway for standalone observability (Ori Amizur)
+- EDM-1183: Enhance OCI image reference validation to support template parameters (Gal Elharar)
+- EDM-1392: Remove test containerfiles (Gal Elharar)
+- EDM-1392: Fix bootc linting issue with tmpfiles.d configuration (Gal Elharar)
+
 * Mon Oct 27 2025 Dakota Crowder <dcrowder@redhat.com> - 1.0
 - Add must-gather script for the services sub package
 * Wed Oct 8 2025 Ilya Skornyakov <iskornya@redhat.com> - 0.10.0

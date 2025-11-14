@@ -72,6 +72,7 @@ import (
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/client"
 	service "github.com/flightctl/flightctl/internal/service/common"
+	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/flightctl/flightctl/test/harness/e2e/vm"
 	"github.com/flightctl/flightctl/test/util"
 	"github.com/google/uuid"
@@ -250,7 +251,11 @@ func (h *Harness) Cleanup(printConsole bool) {
 			fmt.Println("============ systemctl status flightctl-agent ============")
 			fmt.Println(stdout.String())
 			fmt.Println("=============== logs for flightctl-agent =================")
-			fmt.Println(h.ReadPrimaryVMAgentLogs("", util.FLIGHTCTL_AGENT_SERVICE))
+			if agentLogs, err := h.ReadPrimaryVMAgentLogs("", util.FLIGHTCTL_AGENT_SERVICE); err != nil {
+				fmt.Printf("Failed to read agent logs: %v\n", err)
+			} else {
+				fmt.Println(agentLogs)
+			}
 			if printConsole {
 				fmt.Println("======================= VM Console =======================")
 				fmt.Println(h.VM.GetConsoleOutput())
@@ -284,6 +289,23 @@ func (h *Harness) GetServiceLogs(serviceName string) (string, error) {
 // This is useful for debugging service output and capturing logs from the latest service invocation.
 func (h *Harness) GetFlightctlAgentLogs() (string, error) {
 	return h.VM.GetServiceLogs("flightctl-agent")
+}
+
+// PrintAgentLogsOnFailure prints agent logs if the current test has failed.
+// This is a helper function for test suites to use in their AfterEach blocks.
+func (h *Harness) PrintAgentLogsOnFailure() {
+	testFailed := CurrentSpecReport().Failed()
+	if testFailed && h.VM != nil {
+		fmt.Printf("\n==========================================================\n")
+		fmt.Printf("TEST FAILED: %s\n", CurrentSpecReport().FullText())
+		fmt.Printf("=============== logs for flightctl-agent =================\n")
+		if agentLogs, err := h.ReadPrimaryVMAgentLogs("", "flightctl-agent"); err != nil {
+			fmt.Printf("Failed to read agent logs: %v\n", err)
+		} else {
+			fmt.Println(agentLogs)
+		}
+		fmt.Printf("==========================================================\n\n")
+	}
 }
 
 // GetEnrollmentIDFromServiceLogs returns the enrollment ID from the service logs using journalctl.
@@ -585,16 +607,69 @@ func (h *Harness) TestEnrollmentApproval(labels ...map[string]string) *v1alpha1.
 }
 
 func (h *Harness) parseImageReference(image string) (string, string) {
-	// Split the image string by the colon to separate the repository and the tag.
-	parts := strings.Split(image, ":")
+	matches := validation.OciImageReferenceRegexp.FindStringSubmatch(image)
+	if len(matches) == 0 {
+		// Fallback to naive split if regex doesn't match
+		parts := strings.Split(image, ":")
+		if len(parts) > 1 {
+			tag := parts[len(parts)-1]
+			repo := strings.Join(parts[:len(parts)-1], ":")
+			return repo, tag
+		}
+		return image, ""
+	}
 
-	// The tag is the last part after the last colon.
-	tag := parts[len(parts)-1]
+	// The OciImageReferenceRegexp has 3 capture groups: base, tag, and digest
+	base := matches[1]
+	tag := matches[2]
+	// digest := matches[3] // not used for this purpose
 
-	// The repository is composed of all parts before the last colon, joined back together with colons.
-	repo := strings.Join(parts[:len(parts)-1], ":")
+	return base, tag
+}
 
-	return repo, tag
+// ImageNamespace returns the container image namespace (org) to be used in image references.
+// It can be overridden via IMAGE_NAMESPACE env var; defaults to "flightctl".
+func (h *Harness) ImageNamespace() string {
+	if ns := os.Getenv("IMAGE_NAMESPACE"); ns != "" {
+		return ns
+	}
+	return "flightctl"
+}
+
+// FullImageRef returns a normalized image reference using the repository from image
+// and the provided tag. If tag is empty, it preserves the tag from image.
+// Ensures the configured namespace is present after the registry if missing.
+func (h *Harness) FullImageRef(image string, tag string) string {
+	repo, existingTag := h.parseImageReference(image)
+
+	// Ensure the '<namespace>/' namespace immediately after the registry/host component
+	ns := h.ImageNamespace()
+	pathParts := strings.Split(repo, "/")
+	switch len(pathParts) {
+	case 0:
+		// nothing to do
+	case 1:
+		// no registry, ensure namespace prefix
+		if !strings.HasPrefix(pathParts[0], ns+"/") {
+			repo = ns + "/" + pathParts[0]
+		}
+	default:
+		// registry present, ensure path starts with flightctl/
+		host := pathParts[0]
+		path := strings.Join(pathParts[1:], "/")
+		if !strings.HasPrefix(path, ns+"/") {
+			repo = host + "/" + ns + "/" + path
+		}
+	}
+
+	newTag := strings.TrimPrefix(tag, ":")
+	if newTag == "" {
+		newTag = existingTag
+	}
+	if newTag == "" {
+		return repo
+	}
+	return repo + ":" + newTag
 }
 
 func (h *Harness) CleanUpAllTestResources() error {
@@ -1415,6 +1490,15 @@ func (h *Harness) SetupVMFromPoolAndStartAgent(workerID int) error {
 	// Wait for SSH to be ready
 	if err := testVM.WaitForSSHToBeReady(); err != nil {
 		return fmt.Errorf("failed to wait for SSH: %w", err)
+	}
+
+	// Ensure SELinux contexts are correct for injected files (config/certs)
+	// Offline qcow edits can leave files as unlabeled_t; restore contexts before starting agent.
+	if _, err := testVM.RunSSH([]string{"sudo", "restorecon", "-Rv", "/etc/flightctl"}, nil); err != nil {
+		logrus.Warnf("Failed to restore SELinux context for /etc/flightctl: %v", err)
+	}
+	if _, err := testVM.RunSSH([]string{"sudo", "restorecon", "-Rv", "/var/lib/flightctl"}, nil); err != nil {
+		logrus.Debugf("restorecon for /var/lib/flightctl (optional) failed: %v", err)
 	}
 
 	// Clean any stale CSR from previous tests

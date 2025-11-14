@@ -1,0 +1,26 @@
+FROM quay.io/packit/packit:latest
+
+USER 0
+
+RUN dnf install -y \
+      golang \
+      openssl-devel \
+      go-rpm-macros \
+      selinux-policy \
+      pam-devel \
+      selinux-policy-devel
+
+RUN dnf clean all
+
+# Ensure mock always has networking and uses host resolv.conf
+RUN mkdir -p /etc/mock && \
+    printf "%s\n" \
+      "config_opts['rpmbuild_networking'] = True" \
+      "config_opts['use_host_resolv'] = True" \
+      >> /etc/mock/site-defaults.cfg
+
+RUN rm -rf /var/cache/dnf && mkdir /work
+
+RUN git config --global --add safe.directory /work
+
+WORKDIR /work
