@@ -13,6 +13,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/os"
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
+	"github.com/flightctl/flightctl/internal/agent/device/spec/audit"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -27,6 +28,7 @@ type manager struct {
 	desiredPath  string
 	rollbackPath string
 
+	deviceName       string
 	deviceReadWriter fileio.ReadWriter
 	osClient         os.Client
 	publisher        Publisher
@@ -34,6 +36,7 @@ type manager struct {
 	cache            *cache
 	queue            PriorityQueue
 	policyManager    policy.Manager
+	auditLogger      audit.Logger
 
 	lastConsumedDevice *v1alpha1.Device
 	log                *log.PrefixLogger
@@ -52,6 +55,7 @@ func NewManager(
 	fetchInterval util.Duration,
 	backoff wait.Backoff,
 	deviceNotFoundHandler func() error,
+	auditLogger audit.Logger,
 	log *log.PrefixLogger,
 ) *manager {
 	cache := newCache(log)
@@ -68,10 +72,12 @@ func NewManager(
 		currentPath:      filepath.Join(dataDir, string(Current)+".json"),
 		desiredPath:      filepath.Join(dataDir, string(Desired)+".json"),
 		rollbackPath:     filepath.Join(dataDir, string(Rollback)+".json"),
+		deviceName:       deviceName,
 		deviceReadWriter: deviceReadWriter,
 		osClient:         osClient,
 		cache:            cache,
 		policyManager:    policyManager,
+		auditLogger:      auditLogger,
 		queue:            queue,
 		log:              log,
 	}
@@ -89,24 +95,28 @@ func NewManager(
 }
 
 func (s *manager) Initialize(ctx context.Context) error {
-	// current
-	if err := s.write(Current, newVersionedDevice("0")); err != nil {
+	// current - audit bootstrap event
+	if err := s.write(ctx, Current, newVersionedDevice("0"), audit.ReasonBootstrap); err != nil {
 		return err
 	}
-	// desired
-	if err := s.write(Desired, newVersionedDevice("0")); err != nil {
+	// desired - audit bootstrap event
+	if err := s.write(ctx, Desired, newVersionedDevice("0"), audit.ReasonBootstrap); err != nil {
 		return err
 	}
-	// rollback
-	if err := s.write(Rollback, newVersionedDevice("0")); err != nil {
+	// rollback - no audit
+	if err := s.write(ctx, Rollback, newVersionedDevice("0"), ""); err != nil {
 		return err
 	}
 	// reconcile the initial spec even though its empty
 	s.queue.Add(ctx, newVersionedDevice("0"))
+
 	return nil
 }
 
 func (s *manager) Ensure() error {
+	// Check and recreate missing spec files (recovery scenario)
+	// Note: This is NOT bootstrap - Initialize() handles that.
+	// This handles corruption/deletion of files and should not be audited.
 	for _, specType := range []Type{Current, Desired, Rollback} {
 		exists, err := s.exists(specType)
 		if err != nil {
@@ -115,7 +125,8 @@ func (s *manager) Ensure() error {
 
 		if !exists {
 			s.log.Warnf("Spec file does not exist %s. Resetting state to empty...", specType)
-			if err := s.write(specType, newVersionedDevice("0")); err != nil {
+			// No audit - this is recovery, not a state transition
+			if err := s.write(context.TODO(), specType, newVersionedDevice("0"), ""); err != nil {
 				return err
 			}
 		}
@@ -142,6 +153,7 @@ func (s *manager) Ensure() error {
 	// add the desired spec to the queue this ensures that the device will
 	// reconcile the desired spec on startup.
 	s.queue.Add(context.TODO(), desired)
+
 	return nil
 }
 
@@ -198,7 +210,8 @@ func (s *manager) Upgrade(ctx context.Context) error {
 			return err
 		}
 
-		if err := s.write(Current, desired); err != nil {
+		// Write current spec and audit upgrade (audit happens inside write())
+		if err := s.write(ctx, Current, desired, audit.ReasonUpgrade); err != nil {
 			return err
 		}
 
@@ -225,6 +238,7 @@ func (s *manager) SetUpgradeFailed(version string) error {
 		return err
 	}
 	s.queue.SetFailed(versionInt)
+
 	return nil
 }
 
@@ -258,14 +272,16 @@ func (s *manager) CreateRollback(ctx context.Context) error {
 		Os: &v1alpha1.DeviceOsSpec{Image: currentOSImage},
 	}
 
-	if err := s.write(Rollback, rollback); err != nil {
+	// No audit for creating rollback file
+	if err := s.write(ctx, Rollback, rollback, ""); err != nil {
 		return err
 	}
 	return nil
 }
 
 func (s *manager) ClearRollback() error {
-	return s.write(Rollback, newVersionedDevice(""))
+	// No audit for clearing rollback file
+	return s.write(context.TODO(), Rollback, newVersionedDevice(""), "")
 }
 
 func (s *manager) Rollback(ctx context.Context, opts ...RollbackOption) error {
@@ -276,8 +292,11 @@ func (s *manager) Rollback(ctx context.Context, opts ...RollbackOption) error {
 		opt(cfg)
 	}
 
+	// Capture the failed desired version BEFORE any disk operations (for audit log)
+	failedDesiredVersion := s.cache.getRenderedVersion(Desired)
+
 	if cfg.setFailed {
-		version, err := stringToInt64(s.cache.getRenderedVersion(Desired))
+		version, err := stringToInt64(failedDesiredVersion)
 		if err != nil {
 			return err
 		}
@@ -300,6 +319,10 @@ func (s *manager) Rollback(ctx context.Context, opts ...RollbackOption) error {
 
 	// rollback in-memory cache current == desired
 	s.cache.update(Desired, current)
+
+	// Log successful rollback to audit log (desired file was modified via copy)
+	s.logAudit(ctx, current, failedDesiredVersion, current.Version(), audit.ResultSuccess, audit.ReasonRollback, audit.TypeDesired)
+
 	return nil
 }
 
@@ -417,7 +440,8 @@ func (s *manager) getDeviceFromQueue(ctx context.Context) (*v1alpha1.Device, boo
 			s.log.Infof("Writing new desired rendered spec to disk version: %s", desired.Version())
 		}
 
-		if err := s.write(Desired, desired); err != nil {
+		// Write desired spec and audit sync (audit happens inside write())
+		if err := s.write(ctx, Desired, desired, audit.ReasonSync); err != nil {
 			return nil, false, err
 		}
 	}
@@ -478,11 +502,27 @@ func (s *manager) Publisher() Publisher {
 	return s.publisher
 }
 
-func (s *manager) write(specType Type, device *v1alpha1.Device) error {
+// write atomically writes a device spec to disk and optionally audits the operation.
+// It captures the old version before writing, updates the in-memory cache, and logs
+// an audit event if a reason is provided.
+//
+// Parameters:
+//   - ctx: Context for cancellation propagation (used in audit logging)
+//   - specType: Which spec file to write (Current, Desired, or Rollback)
+//   - device: The device spec to write
+//   - reason: Audit reason (bootstrap, sync, upgrade, rollback). Empty string ("") skips audit.
+//
+// Audit behavior:
+//   - If reason is empty, only writes to disk (no audit)
+//   - If reason is non-empty, audits the state transition for Current, Desired, and Rollback files
+func (s *manager) write(ctx context.Context, specType Type, device *v1alpha1.Device, reason audit.Reason) error {
 	filePath, err := s.pathFromType(specType)
 	if err != nil {
 		return err
 	}
+
+	// Capture old version BEFORE writing (for audit log)
+	oldVersion := s.cache.getRenderedVersion(specType)
 
 	err = writeDeviceToFile(s.deviceReadWriter, device, filePath)
 	if err != nil {
@@ -490,6 +530,20 @@ func (s *manager) write(specType Type, device *v1alpha1.Device) error {
 	}
 
 	s.cache.update(specType, device)
+
+	// Audit successful write (skip if reason is empty)
+	if reason != "" {
+		var auditType audit.Type
+		switch specType {
+		case Current:
+			auditType = audit.TypeCurrent
+		case Desired:
+			auditType = audit.TypeDesired
+		case Rollback:
+			auditType = audit.TypeRollback
+		}
+		s.logAudit(ctx, device, oldVersion, device.Version(), audit.ResultSuccess, reason, auditType)
+	}
 
 	return nil
 }
@@ -584,6 +638,37 @@ func IsRollback(current *v1alpha1.Device, desired *v1alpha1.Device) bool {
 		return false
 	}
 	return currentVersion > desiredVersion
+}
+
+// logAudit logs an audit event for spec transitions. It extracts the fleet template
+// version from device annotations and handles nil device for bootstrap events.
+func (s *manager) logAudit(ctx context.Context, device *v1alpha1.Device, oldVersion, newVersion string, result audit.Result, reason audit.Reason, auditType audit.Type) {
+	if s.auditLogger == nil {
+		return
+	}
+
+	// Extract fleet template version from device annotations
+	fleetTemplateVersion := ""
+	if device != nil && device.Metadata.Annotations != nil {
+		if version, exists := (*device.Metadata.Annotations)[v1alpha1.DeviceAnnotationRenderedTemplateVersion]; exists {
+			fleetTemplateVersion = version
+		}
+	}
+
+	auditInfo := &audit.EventInfo{
+		Device:               s.deviceName,
+		OldVersion:           oldVersion,
+		NewVersion:           newVersion,
+		Result:               result,
+		Reason:               reason,
+		Type:                 auditType,
+		FleetTemplateVersion: fleetTemplateVersion,
+		StartTime:            time.Now(),
+	}
+
+	if err := s.auditLogger.LogEvent(ctx, auditInfo); err != nil {
+		s.log.Warnf("Failed to write %s audit log (%s->%s, reason=%s): %v", auditType, oldVersion, newVersion, reason, err)
+	}
 }
 
 type rollbackConfig struct {

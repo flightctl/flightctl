@@ -12,6 +12,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/spec/audit"
 	baseclient "github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/util"
@@ -88,6 +89,9 @@ type Config struct {
 
 	// TPM holds all TPM-related configuration
 	TPM TPM `json:"tpm,omitempty"`
+
+	// AuditLog holds all audit logging configuration
+	AuditLog audit.AuditConfig `json:"audit,omitempty"`
 
 	// LogLevel is the level of logging. can be:  "panic", "fatal", "error", "warn"/"warning",
 	// "info", "debug" or "trace", any other will be treated as "info"
@@ -183,6 +187,7 @@ func NewDefault() *Config {
 			DevicePath:      DefaultTPMDevicePath,
 			StorageFilePath: filepath.Join(DefaultDataDir, DefaultTPMKeyFile),
 		},
+		AuditLog: *audit.NewDefaultAuditConfig(),
 	}
 
 	if value := os.Getenv(TestRootDirEnvKey); value != "" {
@@ -270,6 +275,11 @@ func (cfg *Config) Validate() error {
 
 	if cfg.TPM.AuthEnabled && !cfg.TPM.Enabled {
 		return fmt.Errorf("cannot enable TPM password authentication when TPM device identity is disabled")
+	}
+
+	// Validate audit log configuration
+	if err := cfg.AuditLog.Validate(cfg.readWriter); err != nil {
+		return fmt.Errorf("audit log configuration validation failed: %w", err)
 	}
 
 	requiredFields := []struct {
@@ -408,6 +418,9 @@ func mergeConfigs(base, override *Config) {
 	overrideIfNotEmpty(&base.TPM.AuthEnabled, override.TPM.AuthEnabled)
 	overrideIfNotEmpty(&base.TPM.DevicePath, override.TPM.DevicePath)
 	overrideIfNotEmpty(&base.TPM.StorageFilePath, override.TPM.StorageFilePath)
+
+	// audit log
+	overrideIfNotEmpty(&base.AuditLog.Enabled, override.AuditLog.Enabled)
 
 	// instrumentation
 	overrideIfNotEmpty(&base.MetricsEnabled, override.MetricsEnabled)

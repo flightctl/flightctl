@@ -8,6 +8,7 @@ policy_module(flightctl_agent, 1.0.0)
 type flightctl_agent_t;
 type flightctl_agent_exec_t;
 type flightctl_agent_var_lib_t;
+type flightctl_agent_var_log_t;
 type flightctl_agent_tmp_t;
 type flightctl_agent_custom_info_exec_t;
 
@@ -43,6 +44,7 @@ gen_require(`
 
 init_daemon_domain(flightctl_agent_t, flightctl_agent_exec_t)
 files_type(flightctl_agent_var_lib_t)
+files_type(flightctl_agent_var_log_t)
 files_tmp_file(flightctl_agent_tmp_t)
 files_type(flightctl_agent_custom_info_exec_t)
 
@@ -77,6 +79,12 @@ manage_dirs_pattern(flightctl_agent_t, flightctl_agent_var_lib_t, flightctl_agen
 manage_files_pattern(flightctl_agent_t, flightctl_agent_var_lib_t, flightctl_agent_var_lib_t)
 manage_lnk_files_pattern(flightctl_agent_t, flightctl_agent_var_lib_t, flightctl_agent_var_lib_t)
 files_var_lib_filetrans(flightctl_agent_t, flightctl_agent_var_lib_t, dir, "flightctl")
+
+# /var/log/flightctl management
+manage_dirs_pattern(flightctl_agent_t, flightctl_agent_var_log_t, flightctl_agent_var_log_t)
+manage_files_pattern(flightctl_agent_t, flightctl_agent_var_log_t, flightctl_agent_var_log_t)
+manage_lnk_files_pattern(flightctl_agent_t, flightctl_agent_var_log_t, flightctl_agent_var_log_t)
+logging_log_filetrans(flightctl_agent_t, flightctl_agent_var_log_t, dir, "flightctl")
 
 # /tmp management
 files_tmp_filetrans(flightctl_agent_t, flightctl_agent_tmp_t, { file dir })
@@ -170,6 +178,7 @@ allow flightctl_agent_t devlog_t:sock_file write;
 
 # Journal access permissions
 allow flightctl_agent_t syslogd_var_run_t:dir { read search };
+# Read-only access to /var/log for journal/syslog reading
 allow flightctl_agent_t var_log_t:dir { read watch search };
 allow flightctl_agent_t var_log_t:file { read open getattr };
 

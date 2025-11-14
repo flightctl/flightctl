@@ -800,9 +800,9 @@ func TestRollback(t *testing.T) {
 
 			tc.setupMocks(mockPolicyManager)
 
-			err := s.write(Current, newVersionedDevice(tc.currentVersion))
+			err := s.write(ctx, Current, newVersionedDevice(tc.currentVersion), "")
 			require.NoError(err)
-			err = s.write(Desired, newVersionedDevice(tc.desiredVersion))
+			err = s.write(ctx, Desired, newVersionedDevice(tc.desiredVersion), "")
 			require.NoError(err)
 
 			opts := []RollbackOption{}

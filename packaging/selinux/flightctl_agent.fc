@@ -1,3 +1,4 @@
 /usr/bin/flightctl-agent                        --  gen_context(system_u:object_r:flightctl_agent_exec_t,s0)
 /var/lib/flightctl(/.*)?                            gen_context(system_u:object_r:flightctl_agent_var_lib_t,s0)
+/var/log/flightctl(/.*)?                            gen_context(system_u:object_r:flightctl_agent_var_log_t,s0)
 /usr/lib/flightctl/custom-info.d(/.*)?              gen_context(system_u:object_r:flightctl_agent_custom_info_exec_t,s0)
