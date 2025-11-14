@@ -1,0 +1,21 @@
+database:
+  hostname: {{if eq .db.external "enabled"}}{{.db.hostname}}{{else}}flightctl-db{{end}}
+  type: pgsql
+  port: {{if .db.port}}{{.db.port}}{{else}}5432{{end}}
+  name: {{if .db.name}}{{.db.name}}{{else}}flightctl{{end}}
+  user: {{if .db.user}}{{.db.user}}{{else}}admin{{end}}
+{{if eq .db.external "enabled"}}
+  {{if .db.sslmode}}sslmode: {{.db.sslmode}}{{end}}
+  {{if .db.sslcert}}sslcert: {{.db.sslcert}}{{end}}
+  {{if .db.sslkey}}sslkey: {{.db.sslkey}}{{end}}
+  {{if .db.sslrootcert}}sslrootcert: {{.db.sslrootcert}}{{end}}
+{{end}}
+kv:
+  hostname: flightctl-kv
+  port: 6379
+service:
+  alertPollingInterval: "1m"
+alertmanager:
+  hostname: flightctl-alertmanager
+  port: 9093
+
