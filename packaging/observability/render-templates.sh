@@ -30,16 +30,26 @@ render_templates() {
     declare -A SYSTEMD_SERVICES
 
     # Step 1: Parse definitions
-    while IFS='|' read -r env_var config_path default_value template_file output_file; do
+    while IFS='|' read -r env_var config_path default_value template_file output_file format; do
         env_var=$(echo "$env_var" | xargs)
         config_path=$(echo "$config_path" | xargs)
         default_value=$(echo "$default_value" | xargs)
         template_file=$(echo "$template_file" | xargs)
         output_file=$(echo "$output_file" | xargs)
+        format=$(echo "$format" | xargs)
 
         [[ "$env_var" =~ ^#.*$ || -z "$env_var" ]] && continue
 
         value=$(python3 /usr/share/flightctl/yaml_helpers.py extract "$config_path" "$config_file" --default "$default_value")
+
+        # Apply format if specified and value is not empty
+        if [[ -n "$format" && -n "$value" ]]; then
+            # Escape special characters for sed replacement: & and \ (we use | as delimiter, so / doesn't need escaping)
+            escaped_value=$(printf '%s\n' "$value" | sed 's/[&\\]/\\&/g')
+            # Replace ${input} first (longer pattern to avoid partial matches), then $input
+            formatted_value=$(printf '%s\n' "$format" | sed "s|\\\${input}|$escaped_value|g; s|\\\$input|$escaped_value|g")
+            value="$formatted_value"
+        fi
 
         export "$env_var"="$value"
 

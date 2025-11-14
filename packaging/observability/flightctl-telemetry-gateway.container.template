@@ -20,6 +20,10 @@ Secret=flightctl-ca-secret,target=/etc/telemetry-gateway/certs/ca.crt
 Secret=telemetry-gateway-tls,target=/etc/telemetry-gateway/certs/server.crt
 Secret=telemetry-gateway-tls-key,target=/etc/telemetry-gateway/certs/server.key
 
+${TELEMETRY_GATEWAY_FORWARD_CA_VOLUME}
+${TELEMETRY_GATEWAY_FORWARD_CERT_VOLUME}
+${TELEMETRY_GATEWAY_FORWARD_KEY_VOLUME}
+
 [Service]
 Restart=on-failure
 

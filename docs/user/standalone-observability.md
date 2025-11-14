@@ -1177,6 +1177,51 @@ telemetryGateway:
 - **`forward.*`**: Configuration for forwarding telemetry to external systems
 - **`forward.tls.*`**: Client-side TLS configuration for external forwarding
 
+#### Forward TLS Configuration Variables
+
+These variables configure TLS client certificates for mTLS (mutual TLS) authentication when forwarding telemetry data to external OTLP collectors.
+
+**`observability.telemetry_gateway.config.telemetryGateway.forward.tls.caFile`**
+
+- **Type**: String (file path)
+- **Default**: Empty
+- **Description**: Path to the CA certificate file used to verify the external OTLP collector's server certificate. This certificate must be trusted to establish a secure connection to the external collector. The file path must be accessible from within the telemetry gateway container.
+- **Required**: When using TLS with external forwarding (unless `insecureSkipTlsVerify` is set to `true`)
+- **Example**: `/etc/telemetry-gateway/certs/forward-ca.crt`
+- **Security**: Use a trusted CA certificate to verify the external collector's identity
+
+**`observability.telemetry_gateway.config.telemetryGateway.forward.tls.certFile`**
+
+- **Type**: String (file path)
+- **Default**: Empty
+- **Description**: Path to the client certificate file used for mTLS authentication when connecting to the external OTLP collector. This certificate is presented to the external collector to authenticate the telemetry gateway. The certificate must be signed by a CA trusted by the external collector. The file path must be accessible from within the telemetry gateway container.
+- **Required**: When using mTLS authentication with external forwarding
+- **Example**: `/etc/telemetry-gateway/certs/forward-client.crt`
+- **Security**: Use a properly signed client certificate for secure authentication
+
+**`observability.telemetry_gateway.config.telemetryGateway.forward.tls.keyFile`**
+
+- **Type**: String (file path)
+- **Default**: Empty
+- **Description**: Path to the client private key file corresponding to the client certificate used for mTLS authentication. This key must match the certificate specified in `certFile`. The file path must be accessible from within the telemetry gateway container and must have restricted permissions (typically 600).
+- **Required**: When using mTLS authentication with external forwarding (must be specified together with `certFile`)
+- **Example**: `/etc/telemetry-gateway/certs/forward-client.key`
+- **Security**: Ensure the private key file has restricted permissions and is kept secure
+
+**TLS Forward Configuration Notes**:
+
+- **File Paths**: All TLS certificate and key file paths must be accessible from within the telemetry gateway container. The files are mounted as volumes when specified in the configuration.
+- **mTLS Setup**: For mutual TLS authentication, you must provide both `certFile` and `keyFile` (and optionally `caFile` for server verification).
+- **Certificate Requirements**:
+  - The client certificate must be signed by a CA trusted by the external collector
+  - The CA certificate (`caFile`) must be trusted to verify the external collector's server certificate
+  - Certificates must be in PEM format
+- **Security Best Practices**:
+  - Use proper certificate management and rotation
+  - Restrict file permissions on private keys (600)
+  - Use trusted CAs for production environments
+  - Avoid using `insecureSkipTlsVerify: true` in production
+
 ### UserInfo Proxy Configuration Variables
 
 **`observability.userinfo_proxy.image`**
