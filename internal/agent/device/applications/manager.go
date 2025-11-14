@@ -287,7 +287,7 @@ func (m *manager) collectNestedTargets(
 		}
 
 		// cache miss or invalid - extract nested targets for this image
-		nestedTargets, appData, err := m.extractNestedTargetsForImage(ctx, appSpec, &imageSpec, secret)
+		appData, err := m.extractNestedTargetsForImage(ctx, appSpec, &imageSpec, secret)
 		if err != nil {
 			return nil, false, nil, fmt.Errorf("extracting nested targets for app %s: %w", appName, err)
 		}
@@ -303,12 +303,12 @@ func (m *manager) collectNestedTargets(
 				Reference: imageRef,
 				Digest:    digest,
 			},
-			Children: nestedTargets,
+			Children: appData.Targets,
 		}
 		m.ociTargetCache.Set(cacheEntry)
-		m.log.Debugf("Cached %d nested targets for app %s (digest: %s)", len(nestedTargets), appName, digest)
+		m.log.Debugf("Cached %d nested targets for app %s (digest: %s)", len(appData.Targets), appName, digest)
 
-		allNestedTargets = append(allNestedTargets, nestedTargets...)
+		allNestedTargets = append(allNestedTargets, appData.Targets...)
 	}
 
 	return allNestedTargets, needsRequeue, activeAppNames, nil
@@ -320,7 +320,7 @@ func (m *manager) extractNestedTargetsForImage(
 	appSpec v1alpha1.ApplicationProviderSpec,
 	imageSpec *v1alpha1.ImageApplicationProviderSpec,
 	secret *client.PullSecret,
-) ([]dependency.OCIPullTarget, *provider.AppData, error) {
+) (*provider.AppData, error) {
 	return provider.ExtractNestedTargetsFromImage(
 		ctx,
 		m.log,

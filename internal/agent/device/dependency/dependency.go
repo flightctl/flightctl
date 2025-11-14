@@ -35,7 +35,7 @@ const (
 type OCIPullTarget struct {
 	Type       OCIType
 	Reference  string
-	Digest     string 
+	Digest     string
 	PullPolicy v1alpha1.ImagePullPolicy
 	PullSecret *client.PullSecret
 }

@@ -114,6 +114,7 @@ func CollectBaseOCITargets(
 			// Extract images from inline content based on app type
 			switch appType {
 			case v1alpha1.AppTypeCompose:
+				// Inline compose specs are already validated by the API
 				spec, err := client.ParseComposeFromSpec(inlineSpec.Inline)
 				if err != nil {
 					return nil, fmt.Errorf("parsing compose spec: %w", err)
@@ -170,6 +171,29 @@ func collectEmbeddedOCITargets(ctx context.Context, readWriter fileio.ReadWriter
 	var targets []dependency.OCIPullTarget
 
 	// discover embedded compose applications
+	composeTargets, err := collectEmbeddedComposeTargets(ctx, readWriter, pullSecret)
+	if err != nil {
+		return nil, fmt.Errorf("collecting embedded compose targets: %w", err)
+	}
+	targets = append(targets, composeTargets...)
+
+	// discover embedded quadlet applications
+	quadletTargets, err := collectEmbeddedQuadletTargets(ctx, readWriter, pullSecret)
+	if err != nil {
+		return nil, fmt.Errorf("collecting embedded quadlet targets: %w", err)
+	}
+	targets = append(targets, quadletTargets...)
+
+	return targets, nil
+}
+
+func collectEmbeddedComposeTargets(ctx context.Context, readWriter fileio.ReadWriter, pullSecret *client.PullSecret) ([]dependency.OCIPullTarget, error) {
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+
+	var targets []dependency.OCIPullTarget
+
 	elements, err := readWriter.ReadDir(lifecycle.EmbeddedComposeAppPath)
 	if err != nil {
 		// nothing to do
@@ -225,98 +249,47 @@ func collectEmbeddedOCITargets(ctx context.Context, readWriter fileio.ReadWriter
 	return targets, nil
 }
 
-// CollectNestedOCITargets collects nested OCI targets from image providers after base images
-// have been fetched, and aggregates them with the provided base targets.
-// This is used in phase 2 of prefetching.
-func CollectNestedOCITargets(
-	ctx context.Context,
-	log *log.PrefixLogger,
-	podman *client.Podman,
-	readWriter fileio.ReadWriter,
-	spec *v1alpha1.DeviceSpec,
-	pullSecret *client.PullSecret,
-) ([]dependency.OCIPullTarget, bool, error) {
-	if spec.Applications == nil {
-		return nil, false, nil
+func collectEmbeddedQuadletTargets(ctx context.Context, readWriter fileio.ReadWriter, pullSecret *client.PullSecret) ([]dependency.OCIPullTarget, error) {
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
 	}
 
 	var targets []dependency.OCIPullTarget
-	var missingImages []string
 
-	for _, providerSpec := range lo.FromPtr(spec.Applications) {
-		providerType, err := providerSpec.Type()
-		if err != nil {
-			return nil, false, err
-		}
-
-		if providerType != v1alpha1.ImageApplicationProviderType {
-			continue
-		}
-
-		imageSpec, err := providerSpec.AsImageApplicationProviderSpec()
-		if err != nil {
-			return nil, false, fmt.Errorf("getting image provider spec: %w", err)
-		}
-
-		if !podman.ImageExists(ctx, imageSpec.Image) {
-			log.Debugf("Base image %s not available yet, skipping nested target extraction", imageSpec.Image)
-			missingImages = append(missingImages, imageSpec.Image)
-			continue
-		}
-
-		appType := lo.FromPtr(providerSpec.AppType)
-		if appType == "" {
-			appType, err = typeFromImage(ctx, podman, imageSpec.Image)
-			if err != nil {
-				return nil, false, fmt.Errorf("getting app type for image %s: %w", imageSpec.Image, err)
-			}
-		}
-
-		if appType != v1alpha1.AppTypeCompose && appType != v1alpha1.AppTypeQuadlet {
-			return nil, false, fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
-		}
-
-		cachedAppData, err := extractAppDataFromOCITarget(
-			ctx,
-			podman,
-			readWriter,
-			imageSpec.Image,
-			appType,
-			pullSecret,
-		)
-		if err != nil {
-			if !errors.IsRetryable(err) {
-				return nil, false, fmt.Errorf("extracting nested targets from %s: %w", imageSpec.Image, err)
-			}
-			log.Debugf("Retryable error extracting from %s: %v", imageSpec.Image, err)
-			missingImages = append(missingImages, imageSpec.Image)
-			continue
-		}
-
-		// ensure cleanup of extracted data in loop
-		appData := cachedAppData
-		defer func() {
-			if appData != nil {
-				if cleanupErr := appData.Cleanup(); cleanupErr != nil {
-					log.Warnf("Failed to cleanup cached app data: %v", cleanupErr)
-				}
-			}
-		}()
-
-		targets = append(targets, cachedAppData.Targets...)
+	elements, err := readWriter.ReadDir(lifecycle.EmbeddedQuadletAppPath)
+	if err != nil {
+		// nothing to do
+		return nil, nil
 	}
 
-	if len(missingImages) > 0 {
-		log.Debugf("Collected %d partial nested targets, %d image(s) not ready", len(targets), len(missingImages))
-		return targets, true, nil
+	for _, element := range elements {
+		if !element.IsDir() {
+			continue
+		}
+
+		name := element.Name()
+		appPath := filepath.Join(lifecycle.EmbeddedQuadletAppPath, name)
+
+		// parse quadlet references from directory
+		refs, err := client.ParseQuadletReferencesFromDir(readWriter, appPath)
+		if err != nil {
+			// skip apps that can't be parsed
+			continue
+		}
+
+		// extract images from quadlet references using the helper function
+		// which handles IsImageReference checks properly
+		for _, ref := range refs {
+			targets = append(targets, extractQuadletTargets(ref, pullSecret)...)
+		}
 	}
 
-	return targets, false, nil
+	return targets, nil
 }
 
 // ExtractNestedTargetsFromImage extracts nested OCI targets from a single image-based application.
 // This is used by the manager for per-application caching.
-// Returns both the targets and the extracted app data. Caller is responsible for cleanup.
+// Returns the extracted app data with targets. Caller is responsible for cleanup.
 func ExtractNestedTargetsFromImage(
 	ctx context.Context,
 	log *log.PrefixLogger,
@@ -325,19 +298,24 @@ func ExtractNestedTargetsFromImage(
 	appSpec *v1alpha1.ApplicationProviderSpec,
 	imageSpec *v1alpha1.ImageApplicationProviderSpec,
 	pullSecret *client.PullSecret,
-) ([]dependency.OCIPullTarget, *AppData, error) {
+) (*AppData, error) {
+	appName := lo.FromPtr(appSpec.Name)
+	if appName == "" {
+		appName = imageSpec.Image
+	}
+
 	// determine app type
 	appType := lo.FromPtr(appSpec.AppType)
 	if appType == "" {
 		var err error
 		appType, err = typeFromImage(ctx, podman, imageSpec.Image)
 		if err != nil {
-			return nil, nil, fmt.Errorf("getting app type for image %s: %w", imageSpec.Image, err)
+			return nil, fmt.Errorf("getting app type for app %s (%s): %w", appName, imageSpec.Image, err)
 		}
 	}
 
 	if appType != v1alpha1.AppTypeCompose && appType != v1alpha1.AppTypeQuadlet {
-		return nil, nil, fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
+		return nil, fmt.Errorf("%w for app %s: %s", errors.ErrUnsupportedAppType, appName, appType)
 	}
 
 	// extract nested targets
@@ -345,15 +323,16 @@ func ExtractNestedTargetsFromImage(
 		ctx,
 		podman,
 		readWriter,
+		appName,
 		imageSpec.Image,
 		appType,
 		pullSecret,
 	)
 	if err != nil {
-		return nil, nil, fmt.Errorf("extracting nested targets from %s: %w", imageSpec.Image, err)
+		return nil, err
 	}
 
-	return cachedAppData.Targets, cachedAppData, nil
+	return cachedAppData, nil
 }
 
 // FromDeviceSpec parses the application spec and returns a list of providers.
@@ -497,6 +476,16 @@ func parseEmbedded(ctx context.Context, log *log.PrefixLogger, podman *client.Po
 	if err := parseEmbeddedQuadlet(ctx, log, podman, readWriter, providers); err != nil {
 		return fmt.Errorf("parsing embedded quadlet: %w", err)
 	}
+
+	// Embedded apps can be verified immediately because no fetch is required
+	for _, p := range *providers {
+		if p.Spec().Embedded {
+			if err := p.Verify(ctx); err != nil {
+				return fmt.Errorf("verify embedded app %s: %w", p.Name(), err)
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -558,11 +547,10 @@ type Diff struct {
 type ParseOpt func(*parseConfig)
 
 type parseConfig struct {
-	embedded                bool
-	verify                  bool
-	extractNestedOCITargets bool
-	providerTypes           map[v1alpha1.ApplicationProviderType]struct{}
-	appDataCache            map[string]*AppData
+	embedded      bool
+	verify        bool
+	providerTypes map[v1alpha1.ApplicationProviderType]struct{}
+	appDataCache  map[string]*AppData
 }
 
 func WithEmbedded() ParseOpt {
@@ -574,12 +562,6 @@ func WithEmbedded() ParseOpt {
 func WithVerify() ParseOpt {
 	return func(c *parseConfig) {
 		c.verify = true
-	}
-}
-
-func WithExtractNestedOCITargets() ParseOpt {
-	return func(c *parseConfig) {
-		c.extractNestedOCITargets = true
 	}
 }
 
@@ -650,13 +632,14 @@ func extractAppDataFromOCITarget(
 	ctx context.Context,
 	podman *client.Podman,
 	readWriter fileio.ReadWriter,
+	appName string,
 	imageRef string,
 	appType v1alpha1.AppType,
 	pullSecret *client.PullSecret,
 ) (*AppData, error) {
 	tmpAppPath, err := readWriter.MkdirTemp("app_temp")
 	if err != nil {
-		return nil, fmt.Errorf("creating tmp dir: %w", err)
+		return nil, fmt.Errorf("creating tmp dir for app %s (%s): %w", appName, imageRef, err)
 	}
 
 	cleanupFn := func() error {
@@ -665,9 +648,9 @@ func extractAppDataFromOCITarget(
 
 	if err := podman.CopyContainerData(ctx, imageRef, tmpAppPath); err != nil {
 		if rmErr := cleanupFn(); rmErr != nil {
-			return nil, fmt.Errorf("copy image contents: %w (cleanup failed: %v)", err, rmErr)
+			return nil, fmt.Errorf("copying image contents for app %s (%s): %w (cleanup failed: %v)", appName, imageRef, err, rmErr)
 		}
-		return nil, fmt.Errorf("copy image contents: %w", err)
+		return nil, fmt.Errorf("copying image contents for app %s (%s): %w", appName, imageRef, err)
 	}
 
 	var targets []dependency.OCIPullTarget
@@ -678,12 +661,20 @@ func extractAppDataFromOCITarget(
 		spec, err := client.ParseComposeSpecFromDir(readWriter, tmpAppPath)
 		if err != nil {
 			if rmErr := cleanupFn(); rmErr != nil {
-				return nil, fmt.Errorf("parsing compose spec: %w (cleanup failed: %v)", err, rmErr)
+				return nil, fmt.Errorf("parsing compose spec for app %s (%s): %w (cleanup failed: %v)", appName, imageRef, err, rmErr)
 			}
-			return nil, fmt.Errorf("parsing compose spec: %w", err)
+			return nil, fmt.Errorf("parsing compose spec for app %s (%s): %w", appName, imageRef, err)
 		}
 
-		// extract images from compose services
+		// validate the compose spec
+		if errs := validation.ValidateComposeSpec(spec); len(errs) > 0 {
+			if rmErr := cleanupFn(); rmErr != nil {
+				return nil, fmt.Errorf("validating compose spec for app %s (%s): %w (cleanup failed: %v)", appName, imageRef, errors.Join(errs...), rmErr)
+			}
+			return nil, fmt.Errorf("validating compose spec for app %s (%s): %w", appName, imageRef, errors.Join(errs...))
+		}
+
+		// extract images
 		for _, svc := range spec.Services {
 			if svc.Image != "" {
 				targets = append(targets, dependency.OCIPullTarget{
@@ -700,21 +691,35 @@ func extractAppDataFromOCITarget(
 		spec, err := client.ParseQuadletReferencesFromDir(readWriter, tmpAppPath)
 		if err != nil {
 			if rmErr := cleanupFn(); rmErr != nil {
-				return nil, fmt.Errorf("parsing quadlet spec: %w (cleanup failed: %v)", err, rmErr)
+				return nil, fmt.Errorf("parsing quadlet spec for app %s (%s): %w (cleanup failed: %v)", appName, imageRef, err, rmErr)
 			}
-			return nil, fmt.Errorf("parsing quadlet spec: %w", err)
+			return nil, fmt.Errorf("parsing quadlet spec for app %s (%s): %w", appName, imageRef, err)
 		}
 
-		// extract images from quadlet units
+		// validate all quadlets before extracting targets
+		var validationErrs []error
+		for quadletPath, quad := range spec {
+			if errs := validation.ValidateQuadletSpec(quad, quadletPath); len(errs) > 0 {
+				validationErrs = append(validationErrs, errs...)
+			}
+		}
+		if len(validationErrs) > 0 {
+			if rmErr := cleanupFn(); rmErr != nil {
+				return nil, fmt.Errorf("validating quadlet spec for app %s (%s): %w (cleanup failed: %v)", appName, imageRef, errors.Join(validationErrs...), rmErr)
+			}
+			return nil, fmt.Errorf("validating quadlet spec for app %s (%s): %w", appName, imageRef, errors.Join(validationErrs...))
+		}
+
+		// extract images
 		for _, quad := range spec {
 			targets = append(targets, extractQuadletTargets(quad, pullSecret)...)
 		}
 
 	default:
 		if rmErr := cleanupFn(); rmErr != nil {
-			return nil, fmt.Errorf("%w: %s (cleanup failed: %v)", errors.ErrUnsupportedAppType, appType, rmErr)
+			return nil, fmt.Errorf("%w for app %s (%s): %s (cleanup failed: %v)", errors.ErrUnsupportedAppType, appName, imageRef, appType, rmErr)
 		}
-		return nil, fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
+		return nil, fmt.Errorf("%w for app %s (%s): %s", errors.ErrUnsupportedAppType, appName, imageRef, appType)
 	}
 
 	return &AppData{
