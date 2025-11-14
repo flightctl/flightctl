@@ -1,0 +1,12 @@
+[copr:copr.fedorainfracloud.org:group_redhat-et:flightctl]
+name=Copr repo for flightctl owned by @redhat-et
+baseurl=https://download.copr.fedorainfracloud.org/results/@redhat-et/flightctl/rhel-9-$basearch/
+type=rpm-md
+skip_if_unavailable=True
+gpgcheck=1
+gpgkey=https://download.copr.fedorainfracloud.org/results/@redhat-et/flightctl/pubkey.gpg
+repo_gpgcheck=0
+enabled=1
+enabled_metadata=1
+
+# Copy from https://github.com/flightctl/flightctl-demos/blob/main/demos/basic-nginx-demo/bootc/etc/yum.repos.d/flightctl.repo and change to flightctl instead of fligtctl-dev.
