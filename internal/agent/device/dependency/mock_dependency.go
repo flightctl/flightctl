@@ -116,10 +116,10 @@ func (m *MockOCICollector) EXPECT() *MockOCICollectorMockRecorder {
 }
 
 // CollectOCITargets mocks base method.
-func (m *MockOCICollector) CollectOCITargets(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error) {
+func (m *MockOCICollector) CollectOCITargets(ctx context.Context, current, desired *v1alpha1.DeviceSpec) (*OCICollection, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CollectOCITargets", ctx, current, desired)
-	ret0, _ := ret[0].([]OCIPullTarget)
+	ret0, _ := ret[0].(*OCICollection)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
