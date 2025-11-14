@@ -42,8 +42,8 @@ var _ = Describe("CLI - device console", func() {
 		harness := e2e.GetWorkerHarness()
 
 		cs := harness.NewConsoleSession(deviceID)
-		cs.MustSend("ls")
-		cs.MustExpect(".*bin")
+		cs.MustSend("pwd")
+		cs.MustExpect("/root")
 		cs.Close()
 	})
 
@@ -55,7 +55,7 @@ var _ = Describe("CLI - device console", func() {
 		cs2 := harness.NewConsoleSession(deviceID)
 
 		cs2.MustSend("pwd")
-		cs2.MustExpect("/")
+		cs2.MustExpect("/root")
 
 		cs1.MustSend("echo Session1 > /var/home/user/file.txt")
 		cs2.MustSend("cat /var/home/user/file.txt")
