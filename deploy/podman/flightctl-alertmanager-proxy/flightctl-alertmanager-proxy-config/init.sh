@@ -43,7 +43,7 @@ else
 fi
 
 # Extract database configuration
-DB_EXTERNAL=$(sed -n '/^db:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n 's/^[[:space:]]*external:[[:space:]]*[\"'"'"']*\([^\"'"'"'[:space:]]*\)[\"'"'"']*.*/\1/p' | head -1)
+DB_EXTERNAL=$(extract_value "db.external" "$SERVICE_CONFIG_FILE")
 if [ "$DB_EXTERNAL" == "enabled" ]; then
   echo "External database - password will come from Podman secret"
 else
