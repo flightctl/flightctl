@@ -25,7 +25,6 @@ import (
 type MockMonitor struct {
 	ctrl     *gomock.Controller
 	recorder *MockMonitorMockRecorder
-	isgomock struct{}
 }
 
 // MockMonitorMockRecorder is the mock recorder for MockMonitor.
@@ -75,7 +74,6 @@ func (mr *MockMonitorMockRecorder) Status() *gomock.Call {
 type MockManager struct {
 	ctrl     *gomock.Controller
 	recorder *MockManagerMockRecorder
-	isgomock struct{}
 }
 
 // MockManagerMockRecorder is the mock recorder for MockManager.
@@ -139,31 +137,31 @@ func (mr *MockManagerMockRecorder) CollectOCITargets(ctx, current, desired any) 
 }
 
 // Ensure mocks base method.
-func (m *MockManager) Ensure(ctx context.Context, arg1 provider.Provider) error {
+func (m *MockManager) Ensure(ctx context.Context, provider provider.Provider) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Ensure", ctx, arg1)
+	ret := m.ctrl.Call(m, "Ensure", ctx, provider)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Ensure indicates an expected call of Ensure.
-func (mr *MockManagerMockRecorder) Ensure(ctx, arg1 any) *gomock.Call {
+func (mr *MockManagerMockRecorder) Ensure(ctx, provider any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Ensure", reflect.TypeOf((*MockManager)(nil).Ensure), ctx, arg1)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Ensure", reflect.TypeOf((*MockManager)(nil).Ensure), ctx, provider)
 }
 
 // Remove mocks base method.
-func (m *MockManager) Remove(ctx context.Context, arg1 provider.Provider) error {
+func (m *MockManager) Remove(ctx context.Context, provider provider.Provider) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Remove", ctx, arg1)
+	ret := m.ctrl.Call(m, "Remove", ctx, provider)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Remove indicates an expected call of Remove.
-func (mr *MockManagerMockRecorder) Remove(ctx, arg1 any) *gomock.Call {
+func (mr *MockManagerMockRecorder) Remove(ctx, provider any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Remove", reflect.TypeOf((*MockManager)(nil).Remove), ctx, arg1)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Remove", reflect.TypeOf((*MockManager)(nil).Remove), ctx, provider)
 }
 
 // Shutdown mocks base method.
@@ -200,24 +198,23 @@ func (mr *MockManagerMockRecorder) Status(arg0, arg1 any, arg2 ...any) *gomock.C
 }
 
 // Update mocks base method.
-func (m *MockManager) Update(ctx context.Context, arg1 provider.Provider) error {
+func (m *MockManager) Update(ctx context.Context, provider provider.Provider) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Update", ctx, arg1)
+	ret := m.ctrl.Call(m, "Update", ctx, provider)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Update indicates an expected call of Update.
-func (mr *MockManagerMockRecorder) Update(ctx, arg1 any) *gomock.Call {
+func (mr *MockManagerMockRecorder) Update(ctx, provider any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Update", reflect.TypeOf((*MockManager)(nil).Update), ctx, arg1)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Update", reflect.TypeOf((*MockManager)(nil).Update), ctx, provider)
 }
 
 // MockApplication is a mock of Application interface.
 type MockApplication struct {
 	ctrl     *gomock.Controller
 	recorder *MockApplicationMockRecorder
-	isgomock struct{}
 }
 
 // MockApplicationMockRecorder is the mock recorder for MockApplication.

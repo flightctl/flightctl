@@ -55,6 +55,7 @@ func newImage(log *log.PrefixLogger, podman *client.Podman, spec *v1alpha1.Appli
 		readWriter: readWriter,
 		spec: &ApplicationSpec{
 			Name:          appName,
+			ID:            client.NewComposeID(appName),
 			AppType:       appType,
 			Path:          path,
 			EnvVars:       lo.FromPtr(spec.EnvVars),
@@ -87,7 +88,7 @@ func (p *imageProvider) Verify(ctx context.Context) error {
 
 	if p.AppData != nil {
 		tmpAppPath = p.AppData.TmpPath
-		shouldCleanup = true
+		shouldCleanup = false
 	} else {
 		// no cache, extract the image contents
 		var err error
@@ -117,15 +118,11 @@ func (p *imageProvider) Verify(ctx context.Context) error {
 
 	switch p.spec.AppType {
 	case v1alpha1.AppTypeCompose:
-		p.spec.ID = client.NewComposeID(p.spec.Name)
-
 		// ensure the compose application content in tmp dir is valid
 		if err := ensureCompose(p.readWriter, tmpAppPath); err != nil {
 			return fmt.Errorf("ensuring compose: %w", err)
 		}
 	case v1alpha1.AppTypeQuadlet:
-		p.spec.ID = client.NewComposeID(p.spec.Name)
-
 		if err := ensureQuadlet(p.readWriter, tmpAppPath); err != nil {
 			return fmt.Errorf("ensuring quadlet: %w", err)
 		}
