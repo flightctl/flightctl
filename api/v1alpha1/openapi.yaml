@@ -146,6 +146,55 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+  /api/v1/auth/checkpermission:
+    post:
+      tags:
+        - authentication
+      description: Check permissions for multiple resource-operation pairs.
+      operationId: authCheckPermission
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PermissionCheckRequest'
+      responses:
+        "200":
+          description: Permission check results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PermissionCheckResponse'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "418":
+          description: Auth not configured
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "500":
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
   # NOTE: OIDC issuer endpoints (/auth/authorize, /auth/login, /auth/token, 
   # /auth/userinfo, /auth/jwks, /.well-known/openid-configuration) have been 
   # moved to the separate flightctl-pam-issuer service. See api/v1alpha1/pam-issuer/openapi.yaml
@@ -6978,3 +7027,55 @@ components:
         - metadata
         - items
       description: AuthProviderList is a list of auth providers.
+    PermissionCheckRequest:
+      type: object
+      description: Request to check multiple permissions.
+      properties:
+        permissions:
+          type: array
+          description: List of resource-operation pairs to check.
+          items:
+            $ref: '#/components/schemas/PermissionCheckItem'
+      required:
+        - permissions
+    PermissionCheckItem:
+      type: object
+      description: A single permission check request item.
+      properties:
+        resource:
+          type: string
+          description: The resource to check (e.g., "devices", "fleets").
+        op:
+          type: string
+          description: The operation to check (e.g., "read", "write", "delete").
+      required:
+        - resource
+        - op
+    PermissionCheckResponse:
+      type: object
+      description: Response containing permission check results.
+      properties:
+        results:
+          type: array
+          description: List of permission check results.
+          items:
+            $ref: '#/components/schemas/PermissionCheckResult'
+      required:
+        - results
+    PermissionCheckResult:
+      type: object
+      description: Result of a single permission check.
+      properties:
+        resource:
+          type: string
+          description: The resource that was checked.
+        op:
+          type: string
+          description: The operation that was checked.
+        allowed:
+          type: boolean
+          description: Whether the operation is allowed on the resource.
+      required:
+        - resource
+        - op
+        - allowed

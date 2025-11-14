@@ -2112,6 +2112,39 @@ type PatchRequestOp string
 // Percentage Percentage is the string format representing percentage string.
 type Percentage = string
 
+// PermissionCheckItem A single permission check request item.
+type PermissionCheckItem struct {
+	// Op The operation to check (e.g., "read", "write", "delete").
+	Op string `json:"op"`
+
+	// Resource The resource to check (e.g., "devices", "fleets").
+	Resource string `json:"resource"`
+}
+
+// PermissionCheckRequest Request to check multiple permissions.
+type PermissionCheckRequest struct {
+	// Permissions List of resource-operation pairs to check.
+	Permissions []PermissionCheckItem `json:"permissions"`
+}
+
+// PermissionCheckResponse Response containing permission check results.
+type PermissionCheckResponse struct {
+	// Results List of permission check results.
+	Results []PermissionCheckResult `json:"results"`
+}
+
+// PermissionCheckResult Result of a single permission check.
+type PermissionCheckResult struct {
+	// Allowed Whether the operation is allowed on the resource.
+	Allowed bool `json:"allowed"`
+
+	// Op The operation that was checked.
+	Op string `json:"op"`
+
+	// Resource The resource that was checked.
+	Resource string `json:"resource"`
+}
+
 // ReferencedRepositoryUpdatedDetails defines model for ReferencedRepositoryUpdatedDetails.
 type ReferencedRepositoryUpdatedDetails struct {
 	// DetailType The type of detail for discriminator purposes.
@@ -2690,6 +2723,9 @@ type ListResourceSyncsParams struct {
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 }
+
+// AuthCheckPermissionJSONRequestBody defines body for AuthCheckPermission for application/json ContentType.
+type AuthCheckPermissionJSONRequestBody = PermissionCheckRequest
 
 // CreateAuthProviderJSONRequestBody defines body for CreateAuthProvider for application/json ContentType.
 type CreateAuthProviderJSONRequestBody = AuthProvider

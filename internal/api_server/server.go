@@ -250,7 +250,7 @@ func (s *Server) Run(ctx context.Context) error {
 			})
 		}
 
-		h := transport.NewTransportHandler(serviceHandler, s.authN)
+		h := transport.NewTransportHandler(serviceHandler, s.authN, s.authZ)
 
 		// Register all other endpoints with general rate limiting (already applied at router level)
 		// Create a custom handler that excludes the auth validate endpoint
@@ -295,7 +295,7 @@ func (s *Server) Run(ctx context.Context) error {
 			})
 		}
 
-		h := transport.NewTransportHandler(serviceHandler, s.authN)
+		h := transport.NewTransportHandler(serviceHandler, s.authN, s.authZ)
 		// Use the wrapper to handle the AuthValidate method signature
 		wrapper := &server.ServerInterfaceWrapper{
 			Handler:            h,
