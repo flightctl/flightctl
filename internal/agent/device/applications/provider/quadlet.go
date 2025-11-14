@@ -1,16 +1,13 @@
 package provider
 
 import (
-	"bytes"
 	"encoding/csv"
 	"errors"
 	"fmt"
-	"io"
 	"path/filepath"
 	"slices"
 	"strings"
 
-	"github.com/coreos/go-systemd/v22/unit"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/quadlet"
@@ -162,12 +159,19 @@ func installQuadlet(readWriter fileio.ReadWriter, path string, appID string) err
 }
 
 func namespacedQuadlet(appID string, name string) string {
+	if isNamespaced(name, appID) {
+		return name
+	}
 	return fmt.Sprintf("%s-%s", appID, name)
+}
+
+func isNamespaced(name, appID string) bool {
+	return strings.HasPrefix(name, fmt.Sprintf("%s-", appID))
 }
 
 // namespaceQuadletFile renames a quadlet file to include the appID prefix if it doesn't already have it
 func namespaceQuadletFile(readWriter fileio.ReadWriter, dirPath, appID, filename string) error {
-	if strings.HasPrefix(filename, fmt.Sprintf("%s-", appID)) {
+	if isNamespaced(filename, appID) {
 		return nil
 	}
 
@@ -211,8 +215,7 @@ func namespaceDropInDirectory(readWriter fileio.ReadWriter, dirPath, appID strin
 		return nil
 	}
 
-	prefix := fmt.Sprintf("%s-", appID)
-	if strings.HasPrefix(dirname, prefix) {
+	if isNamespaced(dirname, appID) {
 		return nil
 	}
 
@@ -264,24 +267,17 @@ func createQuadletDropIn(readWriter fileio.ReadWriter, dirPath, appID, extension
 	}
 
 	sectionName := quadlet.Extensions[extension]
-	unitOpts := make([]*unit.UnitOption, 1, 2)
+
+	unit := quadlet.NewEmptyUnit()
 	// add label for tracking quadlet events by app id
-	unitOpts[0] = &unit.UnitOption{
-		Section: sectionName,
-		Name:    quadlet.LabelKey,
-		Value:   fmt.Sprintf("%s=%s", client.QuadletProjectLabelKey, appID),
-	}
+	unit.Add(sectionName, quadlet.LabelKey, fmt.Sprintf("%s=%s", client.QuadletProjectLabelKey, appID))
 
 	// Only containers support environment files
 	if hasEnvFile && extension == quadlet.ContainerExtension {
-		unitOpts = append(unitOpts, &unit.UnitOption{
-			Section: sectionName,
-			Name:    quadlet.EnvironmentFileKey,
-			Value:   filepath.Join(dirPath, ".env"),
-		})
+		unit.Add(sectionName, quadlet.EnvironmentFileKey, filepath.Join(dirPath, ".env"))
 	}
 
-	contents, err := io.ReadAll(unit.Serialize(unitOpts))
+	contents, err := unit.Write()
 	if err != nil {
 		return fmt.Errorf("serializing drop-in: %w", err)
 	}
@@ -304,6 +300,54 @@ func prefixQuadletReference(value, appID string) string {
 			return value
 		}
 	}
+	return value
+}
+
+// namespaceVolumeName namespaces volume names while preserving host paths and anonymous volumes
+func namespaceVolumeName(value, appID string) string {
+	parts := strings.SplitN(value, ":", 2)
+	if len(parts) == 0 {
+		return value
+	}
+
+	volumePart := parts[0]
+	if strings.HasPrefix(volumePart, "/") {
+		return value
+	}
+
+	prefix := fmt.Sprintf("%s-", appID)
+	if !strings.HasPrefix(volumePart, prefix) {
+		parts[0] = namespacedQuadlet(appID, volumePart)
+	}
+
+	return strings.Join(parts, ":")
+}
+
+// namespaceNetworkName namespaces custom network names while preserving built-in network modes
+func namespaceNetworkName(value, appID string) string {
+	// see https://docs.podman.io/en/latest/markdown/podman-run.1.html#network-mode-net
+	builtInModes := map[string]struct{}{"bridge": {}, "host": {}, "none": {}, "private": {}, "slirp4netns": {}, "pasta": {}}
+	parts := strings.Split(value, ":")
+	baseName := parts[0]
+	if _, ok := builtInModes[baseName]; ok {
+		return value
+	}
+
+	if baseName == "container" && len(parts) > 1 {
+		parts[1] = namespacedQuadlet(appID, parts[1])
+		return strings.Join(parts, ":")
+	}
+
+	prefixed := prefixQuadletReference(value, appID)
+	if prefixed != value {
+		return prefixed
+	}
+
+	prefix := fmt.Sprintf("%s-", appID)
+	if !strings.HasPrefix(value, prefix) {
+		return namespacedQuadlet(appID, value)
+	}
+
 	return value
 }
 
@@ -333,14 +377,6 @@ func updateSpaceSeparatedReferences(value, appID string, quadletBasenames map[st
 
 // updateMountValue updates Mount= parameter values to prefix quadlet references
 func updateMountValue(value, appID string) (string, error) {
-	records, err := csv.NewReader(strings.NewReader(value)).ReadAll()
-	if err != nil {
-		return "", fmt.Errorf("parsing mount value %q: %w", value, err)
-	}
-	if len(records) != 1 {
-		return "", fmt.Errorf("invalid mount value %q: expected single record, got %d", value, len(records))
-	}
-
 	mountType, err := quadlet.MountType(value)
 	if err != nil {
 		return "", fmt.Errorf("parsing mount type %q: %w", value, err)
@@ -364,7 +400,13 @@ func updateMountValue(value, appID string) (string, error) {
 		val := strings.TrimSpace(kv[1])
 
 		if key == "source" || key == "src" {
-			mountParts[i] = fmt.Sprintf("%s=%s", key, prefixQuadletReference(val, appID))
+			var namespacedValue string
+			if mountType == "volume" {
+				namespacedValue = namespaceVolumeName(val, appID)
+			} else {
+				namespacedValue = prefixQuadletReference(val, appID)
+			}
+			mountParts[i] = fmt.Sprintf("%s=%s", key, namespacedValue)
 		}
 	}
 
@@ -380,91 +422,105 @@ func updateMountValue(value, appID string) (string, error) {
 	return strings.TrimSpace(buf.String()), nil
 }
 
-// updateVolumeValue updates Volume= parameter values to prefix quadlet references
+// updateVolumeValue updates Volume= parameter values to namespace volume names
 func updateVolumeValue(value, appID string) (string, error) {
-	parts := strings.SplitN(value, ":", 2)
-	if len(parts) >= 1 {
-		parts[0] = prefixQuadletReference(parts[0], appID)
-	}
-	return strings.Join(parts, ":"), nil
+	return namespaceVolumeName(value, appID), nil
 }
 
 // updateSystemdSection updates references in [Unit] or [Install] sections
-func updateSystemdSection(section *unit.UnitSection, appID string, quadletBasenames map[string]struct{}) {
-	if section == nil {
-		return
-	}
-
-	for _, entry := range section.Entries {
-		entry.Value = updateSpaceSeparatedReferences(entry.Value, appID, quadletBasenames)
-	}
-}
-
-// updateOptionsByName updates all options matching the given section and names using the transform function
-func updateOptionsByName(sections []*unit.UnitSection, sectionName string, names []string, transform func(string) (string, error)) error {
-	section := findSectionByName(sections, sectionName)
-	if section == nil {
-		return nil
-	}
-
-	for _, entry := range section.Entries {
-		if slices.Contains(names, entry.Name) {
-			newValue, err := transform(entry.Value)
-			if err != nil {
-				return fmt.Errorf("failed to update %s in section %s: %w", entry.Name, sectionName, err)
-			}
-			entry.Value = newValue
-		}
+func updateSystemdSection(unit *quadlet.Unit, section string, appID string, quadletBasenames map[string]struct{}) error {
+	if unit.HasSection(section) {
+		return unit.TransformAll(section, func(_, value string) (string, error) {
+			return updateSpaceSeparatedReferences(value, appID, quadletBasenames), nil
+		})
 	}
 	return nil
 }
 
-// updateContainerSection updates references in [Container] section
-func updateContainerSection(sections []*unit.UnitSection, appID string) error {
-	var errs []error
-	err := updateOptionsByName(sections, quadlet.ContainerGroup, []string{quadlet.ImageKey, quadlet.NetworkKey, quadlet.PodKey}, func(val string) (string, error) {
-		return prefixQuadletReference(val, appID), nil
-	})
-	errs = append(errs, err)
-	err = updateOptionsByName(sections, quadlet.ContainerGroup, []string{quadlet.MountKey}, func(val string) (string, error) {
-		return updateMountValue(val, appID)
-	})
-	errs = append(errs, err)
-	err = updateOptionsByName(sections, quadlet.ContainerGroup, []string{quadlet.VolumeKey}, func(val string) (string, error) {
-		return updateVolumeValue(val, appID)
-	})
-	errs = append(errs, err)
-	return errors.Join(errs...)
-}
-
-// updatePodSection updates references in [Pod] section
-func updatePodSection(sections []*unit.UnitSection, appID string) error {
-	var errs []error
-	err := updateOptionsByName(sections, quadlet.PodGroup, []string{quadlet.NetworkKey}, func(val string) (string, error) {
-		return prefixQuadletReference(val, appID), nil
-	})
-	errs = append(errs, err)
-	err = updateOptionsByName(sections, quadlet.PodGroup, []string{quadlet.VolumeKey}, func(val string) (string, error) {
-		return updateVolumeValue(val, appID)
-	})
-	errs = append(errs, err)
-	return errors.Join(errs...)
-}
-
-// updateVolumeSection updates references in [Volume] section
-func updateVolumeSection(sections []*unit.UnitSection, appID string) error {
-	return updateOptionsByName(sections, quadlet.VolumeGroup, []string{quadlet.ImageKey}, func(val string) (string, error) {
-		return prefixQuadletReference(val, appID), nil
-	})
-}
-
-func findSectionByName(sections []*unit.UnitSection, name string) *unit.UnitSection {
-	for _, section := range sections {
-		if section.Section == name {
-			return section
-		}
-	}
-	return nil
+var quadletNamespaceRules = map[string][]struct {
+	key       string
+	transform func(string) quadlet.UnitEntryTransformFn
+}{
+	quadlet.ContainerGroup: {
+		{
+			key: quadlet.ImageKey,
+			transform: func(appID string) quadlet.UnitEntryTransformFn {
+				return func(val string) (string, error) { return prefixQuadletReference(val, appID), nil }
+			},
+		},
+		{
+			key: quadlet.PodKey,
+			transform: func(appID string) quadlet.UnitEntryTransformFn {
+				return func(val string) (string, error) { return prefixQuadletReference(val, appID), nil }
+			},
+		},
+		{
+			key: quadlet.NetworkKey,
+			transform: func(appID string) quadlet.UnitEntryTransformFn {
+				return func(val string) (string, error) { return namespaceNetworkName(val, appID), nil }
+			},
+		},
+		{
+			key: quadlet.MountKey,
+			transform: func(appID string) quadlet.UnitEntryTransformFn {
+				return func(val string) (string, error) { return updateMountValue(val, appID) }
+			},
+		},
+		{
+			key: quadlet.VolumeKey,
+			transform: func(appID string) quadlet.UnitEntryTransformFn {
+				return func(val string) (string, error) { return updateVolumeValue(val, appID) }
+			},
+		},
+		{
+			key: quadlet.ContainerNameKey,
+			transform: func(appID string) quadlet.UnitEntryTransformFn {
+				return func(val string) (string, error) { return namespacedQuadlet(appID, val), nil }
+			},
+		},
+	},
+	quadlet.PodGroup: {
+		{
+			key: quadlet.NetworkKey,
+			transform: func(appID string) quadlet.UnitEntryTransformFn {
+				return func(val string) (string, error) { return namespaceNetworkName(val, appID), nil }
+			},
+		},
+		{
+			key: quadlet.VolumeKey,
+			transform: func(appID string) quadlet.UnitEntryTransformFn {
+				return func(val string) (string, error) { return updateVolumeValue(val, appID) }
+			},
+		},
+		{
+			key: quadlet.PodNameKey,
+			transform: func(appID string) quadlet.UnitEntryTransformFn {
+				return func(val string) (string, error) { return namespacedQuadlet(appID, val), nil }
+			},
+		},
+	},
+	quadlet.VolumeGroup: {
+		{
+			key: quadlet.ImageKey,
+			transform: func(appID string) quadlet.UnitEntryTransformFn {
+				return func(val string) (string, error) { return prefixQuadletReference(val, appID), nil }
+			},
+		},
+		{
+			key: quadlet.VolumeNameKey,
+			transform: func(appID string) quadlet.UnitEntryTransformFn {
+				return func(val string) (string, error) { return namespacedQuadlet(appID, val), nil }
+			},
+		},
+	},
+	quadlet.NetworkGroup: {
+		{
+			key: quadlet.NetworkNameKey,
+			transform: func(appID string) quadlet.UnitEntryTransformFn {
+				return func(val string) (string, error) { return namespacedQuadlet(appID, val), nil }
+			},
+		},
+	},
 }
 
 // updateQuadletReferences updates cross-references within a quadlet file after it has been namespaced
@@ -475,30 +531,35 @@ func updateQuadletReferences(readWriter fileio.ReadWriter, dirPath, appID, filen
 		return fmt.Errorf("reading file: %w", err)
 	}
 
-	sections, err := unit.DeserializeSections(bytes.NewReader(content))
+	unit, err := quadlet.NewUnit(content)
 	if err != nil {
-		return fmt.Errorf("deserializing sections: %w", err)
+		return fmt.Errorf("deserializing quadlet: %w", err)
 	}
 
-	updateSystemdSection(findSectionByName(sections, "Unit"), appID, quadletBasenames)
-	updateSystemdSection(findSectionByName(sections, "Install"), appID, quadletBasenames)
+	if err := updateSystemdSection(unit, "Unit", appID, quadletBasenames); err != nil {
+		return fmt.Errorf("updating systemd Unit section: %w", err)
+	}
+	if err := updateSystemdSection(unit, "Install", appID, quadletBasenames); err != nil {
+		return fmt.Errorf("updating systemd Install section: %w", err)
+	}
 
-	switch extension {
-	case quadlet.ContainerExtension:
-		if err = updateContainerSection(sections, appID); err != nil {
-			return fmt.Errorf("updating container section: %w", err)
+	// if updating the references within a quadlet file, apply the specified rules
+	if section, ok := quadlet.Extensions[extension]; ok {
+		var transformErrs []error
+		for _, rule := range quadletNamespaceRules[section] {
+			if !unit.HasSection(section) {
+				continue
+			}
+			if err := unit.Transform(section, rule.key, rule.transform(appID)); err != nil {
+				transformErrs = append(transformErrs, err)
+			}
 		}
-	case quadlet.PodExtension:
-		if err = updatePodSection(sections, appID); err != nil {
-			return fmt.Errorf("updating pod section: %w", err)
-		}
-	case quadlet.VolumeExtension:
-		if err = updateVolumeSection(sections, appID); err != nil {
-			return fmt.Errorf("updating volume section: %w", err)
+		if len(transformErrs) > 0 {
+			return fmt.Errorf("applying quadlet namespacing rules: %w", errors.Join(transformErrs...))
 		}
 	}
 
-	contents, err := io.ReadAll(unit.SerializeSections(sections))
+	contents, err := unit.Write()
 	if err != nil {
 		return fmt.Errorf("serializing sections: %w", err)
 	}
@@ -518,8 +579,7 @@ func updateDropInReferences(readWriter fileio.ReadWriter, dirPath, appID string,
 		return nil
 	}
 
-	prefix := fmt.Sprintf("%s-", appID)
-	if !strings.HasPrefix(dirname, prefix) {
+	if !isNamespaced(dirname, appID) {
 		return nil
 	}
 
