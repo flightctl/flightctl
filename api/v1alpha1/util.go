@@ -159,6 +159,26 @@ func (c ApplicationVolume) Type() (ApplicationVolumeProviderType, error) {
 	return "", fmt.Errorf("unable to determine application volume type: %+v", data)
 }
 
+// GetReference returns the OCI reference (either image or artifact) from the ImageApplicationProviderSpec.
+// Returns an error if neither or both are specified.
+func (i ImageApplicationProviderSpec) GetReference() (string, error) {
+	if i.Image != nil && i.Artifact != nil {
+		return "", fmt.Errorf("both image and artifact specified, only one is allowed")
+	}
+	if i.Image == nil && i.Artifact == nil {
+		return "", fmt.Errorf("neither image nor artifact specified, one is required")
+	}
+	if i.Image != nil {
+		return *i.Image, nil
+	}
+	return *i.Artifact, nil
+}
+
+// IsArtifact returns true if this spec uses an artifact reference, false if it uses an image reference.
+func (i ImageApplicationProviderSpec) IsArtifact() bool {
+	return i.Artifact != nil
+}
+
 func PercentageAsInt(p Percentage) (int, error) {
 	index := strings.Index(p, "%")
 	if index <= 0 || index != len(p)-1 {

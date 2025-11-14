@@ -4096,8 +4096,14 @@ components:
             image:
               type: string
               description: Reference to the container image for the application package.
-          required:
-            - image
+            artifact:
+              type: string
+              description: Reference to the OCI artifact for the application package (e.g., quadlet bundles).
+          oneOf:
+            - required:
+                - image
+            - required:
+                - artifact
     InlineApplicationProviderSpec:
       type: object
       allOf:

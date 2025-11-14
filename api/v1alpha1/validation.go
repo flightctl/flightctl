@@ -905,11 +905,28 @@ func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []
 				allErrs = append(allErrs, fmt.Errorf("invalid image application provider: %w", err))
 				continue
 			}
-			if provider.Image == "" && app.Name == nil {
-				allErrs = append(allErrs, fmt.Errorf("image reference cannot be empty when application name is not provided"))
+			// Get the reference (image or artifact)
+			reference, err := provider.GetReference()
+			if err != nil {
+				allErrs = append(allErrs, fmt.Errorf("image application provider: %w", err))
+				continue
 			}
-			// Image provider now supports both compose and quadlet
-			allErrs = append(allErrs, validateOciImageReference(&provider.Image, fmt.Sprintf("spec.applications[%s].image", appName), fleetTemplate)...)
+			if reference == "" && app.Name == nil {
+				allErrs = append(allErrs, fmt.Errorf("image/artifact reference cannot be empty when application name is not provided"))
+			}
+
+			// Enforce: image field is only for compose, artifact field is only for quadlet
+			if app.AppType != nil {
+				if provider.Image != nil && *app.AppType != AppTypeCompose {
+					allErrs = append(allErrs, fmt.Errorf("'image' field can only be used with appType 'compose', got '%s'", *app.AppType))
+				}
+				if provider.Artifact != nil && *app.AppType != AppTypeQuadlet {
+					allErrs = append(allErrs, fmt.Errorf("'artifact' field can only be used with appType 'quadlet', got '%s'", *app.AppType))
+				}
+			}
+
+			// Validate OCI reference
+			allErrs = append(allErrs, validateOciImageReference(&reference, fmt.Sprintf("spec.applications[%s].image", appName), fleetTemplate)...)
 			volumes = provider.Volumes
 
 		case InlineApplicationProviderType:
@@ -1001,12 +1018,16 @@ func ensureAppName(app ApplicationProviderSpec, appType ApplicationProviderType)
 			return "", fmt.Errorf("invalid image application provider: %w", err)
 		}
 
-		// default name to provider image if not provided
+		// default name to provider reference if not provided
 		if app.Name == nil {
-			if provider.Image == "" {
-				return "", fmt.Errorf("provider image cannot be empty when application name is not provided")
+			reference, err := provider.GetReference()
+			if err != nil {
+				return "", fmt.Errorf("getting reference: %w", err)
 			}
-			return provider.Image, nil
+			if reference == "" {
+				return "", fmt.Errorf("provider image/artifact cannot be empty when application name is not provided")
+			}
+			return reference, nil
 		}
 
 		return *app.Name, nil

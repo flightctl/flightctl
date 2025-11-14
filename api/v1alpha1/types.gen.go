@@ -1535,12 +1535,22 @@ type HttpRepoSpec struct {
 
 // ImageApplicationProviderSpec defines model for ImageApplicationProviderSpec.
 type ImageApplicationProviderSpec struct {
+	// Artifact Reference to the OCI artifact for the application package (e.g., quadlet bundles).
+	Artifact *string `json:"artifact,omitempty"`
+
 	// Image Reference to the container image for the application package.
-	Image string `json:"image"`
+	Image *string `json:"image,omitempty"`
 
 	// Volumes List of application volumes.
 	Volumes *[]ApplicationVolume `json:"volumes,omitempty"`
+	union   json.RawMessage
 }
+
+// ImageApplicationProviderSpec0 defines model for .
+type ImageApplicationProviderSpec0 = interface{}
+
+// ImageApplicationProviderSpec1 defines model for .
+type ImageApplicationProviderSpec1 = interface{}
 
 // ImagePullPolicy Optional. Defaults to 'IfNotPresent'. When set to 'Always', the image is pulled every time. When set to 'Never', the image must already exist on the device.
 type ImagePullPolicy string
@@ -3585,6 +3595,130 @@ func (t HookCondition) MarshalJSON() ([]byte, error) {
 
 func (t *HookCondition) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsImageApplicationProviderSpec0 returns the union data inside the ImageApplicationProviderSpec as a ImageApplicationProviderSpec0
+func (t ImageApplicationProviderSpec) AsImageApplicationProviderSpec0() (ImageApplicationProviderSpec0, error) {
+	var body ImageApplicationProviderSpec0
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromImageApplicationProviderSpec0 overwrites any union data inside the ImageApplicationProviderSpec as the provided ImageApplicationProviderSpec0
+func (t *ImageApplicationProviderSpec) FromImageApplicationProviderSpec0(v ImageApplicationProviderSpec0) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeImageApplicationProviderSpec0 performs a merge with any union data inside the ImageApplicationProviderSpec, using the provided ImageApplicationProviderSpec0
+func (t *ImageApplicationProviderSpec) MergeImageApplicationProviderSpec0(v ImageApplicationProviderSpec0) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsImageApplicationProviderSpec1 returns the union data inside the ImageApplicationProviderSpec as a ImageApplicationProviderSpec1
+func (t ImageApplicationProviderSpec) AsImageApplicationProviderSpec1() (ImageApplicationProviderSpec1, error) {
+	var body ImageApplicationProviderSpec1
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromImageApplicationProviderSpec1 overwrites any union data inside the ImageApplicationProviderSpec as the provided ImageApplicationProviderSpec1
+func (t *ImageApplicationProviderSpec) FromImageApplicationProviderSpec1(v ImageApplicationProviderSpec1) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeImageApplicationProviderSpec1 performs a merge with any union data inside the ImageApplicationProviderSpec, using the provided ImageApplicationProviderSpec1
+func (t *ImageApplicationProviderSpec) MergeImageApplicationProviderSpec1(v ImageApplicationProviderSpec1) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t ImageApplicationProviderSpec) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+	object := make(map[string]json.RawMessage)
+	if t.union != nil {
+		err = json.Unmarshal(b, &object)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if t.Artifact != nil {
+		object["artifact"], err = json.Marshal(t.Artifact)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'artifact': %w", err)
+		}
+	}
+
+	if t.Image != nil {
+		object["image"], err = json.Marshal(t.Image)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'image': %w", err)
+		}
+	}
+
+	if t.Volumes != nil {
+		object["volumes"], err = json.Marshal(t.Volumes)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'volumes': %w", err)
+		}
+	}
+	b, err = json.Marshal(object)
+	return b, err
+}
+
+func (t *ImageApplicationProviderSpec) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	if err != nil {
+		return err
+	}
+	object := make(map[string]json.RawMessage)
+	err = json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["artifact"]; found {
+		err = json.Unmarshal(raw, &t.Artifact)
+		if err != nil {
+			return fmt.Errorf("error reading 'artifact': %w", err)
+		}
+	}
+
+	if raw, found := object["image"]; found {
+		err = json.Unmarshal(raw, &t.Image)
+		if err != nil {
+			return fmt.Errorf("error reading 'image': %w", err)
+		}
+	}
+
+	if raw, found := object["volumes"]; found {
+		err = json.Unmarshal(raw, &t.Volumes)
+		if err != nil {
+			return fmt.Errorf("error reading 'volumes': %w", err)
+		}
+	}
+
 	return err
 }
 
