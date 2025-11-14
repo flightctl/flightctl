@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	goerrors "errors"
 	"fmt"
 	"path/filepath"
 	"reflect"
@@ -86,7 +87,7 @@ func FromDeviceSpec(
 
 		switch providerType {
 		case v1alpha1.ImageApplicationProviderType:
-			provider, err := newImage(log, podman, &providerSpec, readWriter)
+			provider, err := newImage(log, podman, &providerSpec, readWriter, cfg.prefetchManager, cfg.pullSecret)
 			if err != nil {
 				return nil, err
 			}
@@ -232,9 +233,11 @@ type Diff struct {
 type ParseOpt func(*parseConfig)
 
 type parseConfig struct {
-	embedded      bool
-	verify        bool
-	providerTypes map[v1alpha1.ApplicationProviderType]struct{}
+	embedded        bool
+	verify          bool
+	providerTypes   map[v1alpha1.ApplicationProviderType]struct{}
+	prefetchManager dependency.PrefetchManager
+	pullSecret      *client.PullSecret
 }
 
 func WithEmbedded() ParseOpt {
@@ -246,6 +249,18 @@ func WithEmbedded() ParseOpt {
 func WithVerify() ParseOpt {
 	return func(c *parseConfig) {
 		c.verify = true
+	}
+}
+
+func WithPrefetchManager(pm dependency.PrefetchManager) ParseOpt {
+	return func(c *parseConfig) {
+		c.prefetchManager = pm
+	}
+}
+
+func WithPullSecret(secret *client.PullSecret) ParseOpt {
+	return func(c *parseConfig) {
+		c.pullSecret = secret
 	}
 }
 
@@ -300,23 +315,95 @@ func ensureCompose(readWriter fileio.ReadWriter, appPath string) error {
 	return nil
 }
 
-func ensureQuadlet(readWriter fileio.ReadWriter, appPath string) error {
-	spec, err := client.ParseQuadletReferencesFromDir(readWriter, appPath)
+// ensureQuadlet validates that the directory contains valid quadlet files.
+// For artifacts, quadlet files must be at the top level only (nested quadlet definitions are invalid).
+func ensureQuadlet(readWriter fileio.ReadWriter, path string) error {
+	entries, err := readWriter.ReadDir(path)
 	if err != nil {
-		return fmt.Errorf("parsing quadlet spec: %w", err)
+		return fmt.Errorf("reading directory: %w", err)
 	}
 
-	var errs []error
-	for path, quad := range spec {
-		if e := validation.ValidateQuadletSpec(quad, path); len(e) > 0 {
-			errs = append(errs, e...)
+	quadletCount := 0
+	var validationErrors []error
+	var nestedQuadletDirs []string
+
+	// Check for quadlet files in top-level directory
+	for _, entry := range entries {
+		filename := entry.Name()
+
+		if entry.IsDir() {
+			// Check if subdirectory contains quadlet files (which is invalid for artifacts)
+			subPath := filepath.Join(path, filename)
+			hasQuadletFiles, err := hasQuadletFilesInDir(readWriter, subPath)
+			if err != nil {
+				validationErrors = append(validationErrors,
+					fmt.Errorf("checking subdirectory %s: %w", filename, err))
+				continue
+			}
+			if hasQuadletFiles {
+				nestedQuadletDirs = append(nestedQuadletDirs, filename)
+			}
+			continue
+		}
+
+		if !quadlet.IsQuadletFile(filename) {
+			continue
+		}
+
+		quadletCount++
+
+		filePath := filepath.Join(path, filename)
+		content, err := readWriter.ReadFile(filePath)
+		if err != nil {
+			validationErrors = append(validationErrors,
+				fmt.Errorf("reading quadlet file %s: %w", filename, err))
+			continue
+		}
+
+		quadletSpec, err := common.ParseQuadletReferences(content)
+		if err != nil {
+			validationErrors = append(validationErrors,
+				fmt.Errorf("parse quadlet file %s: %w", filename, err))
+			continue
+		}
+
+		errs := validation.ValidateQuadletSpec(quadletSpec, filename)
+		if len(errs) > 0 {
+			for _, e := range errs {
+				validationErrors = append(validationErrors,
+					fmt.Errorf("validate quadlet file %s: %w", filename, e))
+			}
 		}
 	}
 
-	if len(errs) > 0 {
-		return fmt.Errorf("validating quadlets spec: %w", errors.Join(errs...))
+	if len(nestedQuadletDirs) > 0 {
+		return fmt.Errorf("invalid quadlet artifact: quadlet files found in nested directories: %v. Quadlet files must be at the top level only", nestedQuadletDirs)
 	}
+
+	if quadletCount == 0 {
+		return fmt.Errorf("no valid quadlet files found in artifact")
+	}
+
+	if len(validationErrors) > 0 {
+		return fmt.Errorf("quadlet validation failed: %w", goerrors.Join(validationErrors...))
+	}
+
 	return nil
+}
+
+// hasQuadletFilesInDir checks if a directory contains any quadlet files
+func hasQuadletFilesInDir(readWriter fileio.ReadWriter, dir string) (bool, error) {
+	entries, err := readWriter.ReadDir(dir)
+	if err != nil {
+		return false, err
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() && quadlet.IsQuadletFile(entry.Name()) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // writeENVFile writes the environment variables to a .env file in the appPath
