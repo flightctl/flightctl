@@ -12,6 +12,10 @@ import (
 	"github.com/oapi-codegen/runtime"
 )
 
+const (
+	BearerAuthScopes = "bearerAuth.Scopes"
+)
+
 // Defines values for AapProviderSpecProviderType.
 const (
 	Aap AapProviderSpecProviderType = "aap"
@@ -438,6 +442,17 @@ const (
 	SystemdLoadStateMerged     SystemdLoadStateType = "merged"
 	SystemdLoadStateNotFound   SystemdLoadStateType = "not-found"
 	SystemdLoadStateStub       SystemdLoadStateType = "stub"
+)
+
+// Defines values for TokenRequestGrantType.
+const (
+	AuthorizationCode TokenRequestGrantType = "authorization_code"
+	RefreshToken      TokenRequestGrantType = "refresh_token"
+)
+
+// Defines values for TokenResponseTokenType.
+const (
+	Bearer TokenResponseTokenType = "Bearer"
 )
 
 // Defines values for ListEventsParamsOrder.
@@ -2484,6 +2499,54 @@ type TemplateVersionStatus struct {
 // TimeZone Time zone identifiers follow the IANA format AREA/LOCATION, where AREA represents a continent or ocean, and LOCATION specifies a particular site within that area, for example America/New_York, Europe/Paris. Only unambiguous 3-character time zones are supported ("GMT", "UTC").
 type TimeZone = string
 
+// TokenRequest OAuth2 token request
+type TokenRequest struct {
+	// Code Authorization code for authorization_code grant.
+	Code *string `json:"code"`
+
+	// CodeVerifier PKCE code verifier.
+	CodeVerifier *string `json:"code_verifier"`
+
+	// GrantType OAuth2 grant type.
+	GrantType TokenRequestGrantType `json:"grant_type"`
+
+	// ProviderName Name of the authentication provider to use.
+	ProviderName string `json:"provider_name"`
+
+	// RefreshToken Refresh token for refresh_token grant.
+	RefreshToken *string `json:"refresh_token"`
+
+	// Scope OAuth2 scope.
+	Scope *string `json:"scope"`
+}
+
+// TokenRequestGrantType OAuth2 grant type.
+type TokenRequestGrantType string
+
+// TokenResponse OAuth2 token response
+type TokenResponse struct {
+	// AccessToken OAuth2 access token.
+	AccessToken *string `json:"access_token,omitempty"`
+
+	// Error OAuth2 error code.
+	Error *string `json:"error,omitempty"`
+
+	// ErrorDescription OAuth2 error description.
+	ErrorDescription *string `json:"error_description,omitempty"`
+
+	// ExpiresIn Token expiration time in seconds.
+	ExpiresIn *int `json:"expires_in,omitempty"`
+
+	// RefreshToken OAuth2 refresh token.
+	RefreshToken *string `json:"refresh_token,omitempty"`
+
+	// TokenType Token type.
+	TokenType *TokenResponseTokenType `json:"token_type,omitempty"`
+}
+
+// TokenResponseTokenType Token type.
+type TokenResponseTokenType string
+
 // UpdateSchedule Defines the schedule for automatic downloading and updates, including timing and optional timeout.
 type UpdateSchedule struct {
 	// At Cron expression format for scheduling times.
@@ -2497,6 +2560,24 @@ type UpdateSchedule struct {
 
 	// TimeZone Time zone identifiers follow the IANA format AREA/LOCATION, where AREA represents a continent or ocean, and LOCATION specifies a particular site within that area, for example America/New_York, Europe/Paris. Only unambiguous 3-character time zones are supported ("GMT", "UTC").
 	TimeZone *TimeZone `json:"timeZone,omitempty"`
+}
+
+// UserInfoResponse OIDC UserInfo response
+type UserInfoResponse struct {
+	// Error Error code.
+	Error *string `json:"error,omitempty"`
+
+	// Name Full name.
+	Name *string `json:"name,omitempty"`
+
+	// Organizations User organizations.
+	Organizations *[]Organization `json:"organizations,omitempty"`
+
+	// PreferredUsername Preferred username.
+	PreferredUsername *string `json:"preferred_username,omitempty"`
+
+	// Sub Subject identifier.
+	Sub *string `json:"sub,omitempty"`
 }
 
 // Version defines model for Version.
@@ -2690,6 +2771,12 @@ type ListResourceSyncsParams struct {
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 }
+
+// AuthTokenJSONRequestBody defines body for AuthToken for application/json ContentType.
+type AuthTokenJSONRequestBody = TokenRequest
+
+// AuthTokenFormdataRequestBody defines body for AuthToken for application/x-www-form-urlencoded ContentType.
+type AuthTokenFormdataRequestBody = TokenRequest
 
 // CreateAuthProviderJSONRequestBody defines body for CreateAuthProvider for application/json ContentType.
 type CreateAuthProviderJSONRequestBody = AuthProvider

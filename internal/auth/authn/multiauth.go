@@ -39,6 +39,7 @@ const (
 // AuthProviderService interface for auth provider operations
 type AuthProviderService interface {
 	ListAuthProviders(ctx context.Context, params api.ListAuthProvidersParams) (*api.AuthProviderList, api.Status)
+	GetAuthProvider(ctx context.Context, name string) (*api.AuthProvider, api.Status)
 	GetAuthProviderByIssuerAndClientId(ctx context.Context, issuer string, clientId string) (*api.AuthProvider, api.Status)
 }
 
@@ -88,6 +89,60 @@ func (m *MultiAuth) AddStaticProvider(issuer string, provider common.AuthNMiddle
 // HasProviders returns true if any providers are configured
 func (m *MultiAuth) HasProviders() bool {
 	return len(m.staticProviders) > 0
+}
+
+// GetAuthProviderByName retrieves an auth provider by name from static or dynamic providers
+func (m *MultiAuth) GetAuthProviderByName(ctx context.Context, name string) (*api.AuthProvider, api.Status) {
+	// First check if this is a known static provider name
+	for issuer, provider := range m.staticProviders {
+		config := provider.GetAuthConfig()
+		if config.Providers != nil {
+			for _, prov := range *config.Providers {
+				if prov.Metadata.Name != nil && *prov.Metadata.Name == name {
+					return &prov, api.StatusOK()
+				}
+			}
+		}
+		// Also support lookup by issuer for backward compatibility
+		if issuer == name || strings.HasSuffix(issuer, "/"+name) {
+			config := provider.GetAuthConfig()
+			if config.Providers != nil && len(*config.Providers) > 0 {
+				return &(*config.Providers)[0], api.StatusOK()
+			}
+		}
+	}
+
+	// Check dynamic providers
+	m.dynamicProvidersMu.RLock()
+	for _, provider := range m.dynamicProviders {
+		config := provider.GetAuthConfig()
+		if config.Providers != nil {
+			for _, prov := range *config.Providers {
+				if prov.Metadata.Name != nil && *prov.Metadata.Name == name {
+					m.dynamicProvidersMu.RUnlock()
+					return &prov, api.StatusOK()
+				}
+			}
+		}
+	}
+	m.dynamicProvidersMu.RUnlock()
+
+	// Not found in cached providers, try service
+	if m.authProviderService != nil {
+		return m.authProviderService.GetAuthProvider(ctx, name)
+	}
+
+	return nil, api.StatusResourceNotFound("AuthProvider", name)
+}
+
+// GetTLSConfig returns the TLS configuration
+func (m *MultiAuth) GetTLSConfig() *tls.Config {
+	return m.tlsConfig
+}
+
+// GetLogger returns the logger
+func (m *MultiAuth) GetLogger() logrus.FieldLogger {
+	return m.log
 }
 
 // Start starts the background loader goroutine and blocks until context is cancelled
