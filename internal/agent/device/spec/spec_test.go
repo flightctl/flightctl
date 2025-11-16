@@ -852,9 +852,9 @@ func TestRollback(t *testing.T) {
 
 			tc.setupMocks(mockPolicyManager)
 
-			err := s.write(ctx, Current, newVersionedDevice(tc.currentVersion), audit.ReasonBootstrap)
+			err := s.write(ctx, Current, newVersionedDevice(tc.currentVersion), audit.ReasonInitialization)
 			require.NoError(err)
-			err = s.write(ctx, Desired, newVersionedDevice(tc.desiredVersion), audit.ReasonBootstrap)
+			err = s.write(ctx, Desired, newVersionedDevice(tc.desiredVersion), audit.ReasonInitialization)
 			require.NoError(err)
 
 			opts := []RollbackOption{}

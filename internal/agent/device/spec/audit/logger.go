@@ -91,6 +91,7 @@ func (f *FileLogger) LogEvent(ctx context.Context, info *EventInfo) error {
 	}
 
 	if f.config.Enabled == nil || !*f.config.Enabled {
+		f.log.Debug("Audit logging is disabled, skipping event")
 		return nil
 	}
 

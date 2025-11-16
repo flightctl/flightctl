@@ -367,6 +367,7 @@ clean: clean-agent-vm clean-e2e-agent-images clean-quadlets clean-swtpm-certs
 	- rm -rf $(shell uname -m)
 	- rm -rf obj-*-linux-gnu
 	- rm -rf debian
+	- rm -rf .output/stamps
 # Qcow2 disk depends on the touch file
 bin/output/qcow2/disk.qcow2: bin/.e2e-agent-images
 
@@ -388,14 +389,16 @@ LINT_CONTAINER := podman run --rm \
 	-v go-mod-cache:/go/pkg/mod \
 	-w /app --user 0 $(LINT_IMAGE)
 
-.PHONY: tools lint-image
+.PHONY: tools
 tools:
 
-lint-image:
+.output/stamps/lint-image: Containerfile.lint go.mod go.sum
+	@mkdir -p .output/stamps
 	podman build -f Containerfile.lint -t $(LINT_IMAGE)
+	@touch .output/stamps/lint-image
 
 .PHONY: lint
-lint: lint-image
+lint: .output/stamps/lint-image
 	$(LINT_CONTAINER) golangci-lint run -v
 
 .PHONY: rpmlint
@@ -412,15 +415,23 @@ rpmlint-ci:
 check-rpmlint:
 	@command -v rpmlint > /dev/null || (echo "rpmlint not found. Install with: sudo apt-get install rpmlint (Ubuntu/Debian) or sudo dnf install rpmlint (Fedora/RHEL)" && exit 1)
 
-.PHONY: lint-openapi
-lint-openapi:
+.output/stamps/lint-openapi: api/v1alpha1/openapi.yaml .spectral.yaml
+	@mkdir -p .output/stamps
 	@echo "Linting OpenAPI spec"
 	podman run --rm -it -v $(shell pwd):/workdir:Z docker.io/stoplight/spectral:6.14.2 lint --ruleset=/workdir/.spectral.yaml --fail-severity=warn /workdir/api/v1alpha1/openapi.yaml
+	@touch .output/stamps/lint-openapi
 
-.PHONY: lint-docs
-lint-docs:
+.PHONY: lint-openapi
+lint-openapi: .output/stamps/lint-openapi
+
+.output/stamps/lint-docs: $(wildcard docs/user/*.md)
+	@mkdir -p .output/stamps
 	@echo "Linting user documentation markdown files"
 	podman run --rm -v $(shell pwd):/workdir:Z docker.io/davidanson/markdownlint-cli2:v0.16.0 "docs/user/**/*.md"
+	@touch .output/stamps/lint-docs
+
+.PHONY: lint-docs
+lint-docs: .output/stamps/lint-docs
 
 .PHONY: lint-diagrams
 lint-diagrams:
@@ -436,10 +447,14 @@ lint-diagrams:
 		done ; \
 	done
 
-.PHONY: spellcheck-docs
-spellcheck-docs:
+.output/stamps/spellcheck-docs: $(wildcard docs/user/*.md)
+	@mkdir -p .output/stamps
 	@echo "Checking user documentation for spelling issues"
 	podman run --rm -v $(shell pwd):/workdir:Z docker.io/tmaier/markdown-spellcheck:latest --en-us --ignore-numbers --report "docs/user/**/*.md"
+	@touch .output/stamps/spellcheck-docs
+
+.PHONY: spellcheck-docs
+spellcheck-docs: .output/stamps/spellcheck-docs
 
 .PHONY: fix-spelling
 fix-spelling:
