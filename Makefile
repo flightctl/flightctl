@@ -363,16 +363,16 @@ deb: bin/arm64 bin/amd64 bin/riscv64
 
 clean: clean-agent-vm clean-e2e-agent-images clean-quadlets clean-swtpm-certs
 	- kind delete cluster
-	- rm -r ~/.flightctl
-	- rm -f -r $(shell uname -m)
-	- rm -f -r obj-*-linux-gnu
-	- rm -f -r debian
+	- rm -rf ~/.flightctl
+	- rm -rf $(shell uname -m)
+	- rm -rf obj-*-linux-gnu
+	- rm -rf debian
 # Qcow2 disk depends on the touch file
 bin/output/qcow2/disk.qcow2: bin/.e2e-agent-images
 
 # Full cleanup including bin directory and all artifacts
 clean-all: clean clean-containers
-	- rm -f -r bin
+	- rm -rf bin
 
 clean-quadlets:
 	sudo deploy/scripts/clean_quadlets.sh
