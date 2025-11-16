@@ -84,12 +84,10 @@ If no rate limiting configuration is provided at all, rate limiting is **disable
 
 **Important**: When using reverse proxies (load balancers, API gateways, etc.), you **must** configure `trustedProxies` to include the IP ranges of your proxy infrastructure. Without this configuration, proxy headers will be ignored for security reasons, and all requests will be rate-limited based on the proxy's IP address rather than the real client IP.
 
-<<<<<<< HEAD
 ### Disabling Rate Limiting
 
 To disable rate limiting, set the `enabled` field to `false` in your configuration:
 
-<<<<<<< HEAD
 **For Helm deployments:**
 
 ```yaml

@@ -101,8 +101,16 @@ const (
 	SystemComponentDB    = "database"
 	SystemComponentQueue = "queue"
 
-	// Role constants for flightctl user roles
+	// External role names - these come from authentication providers and are mapped to internal roles
+	ExternalRoleAdmin     = "flightctl-admin"
+	ExternalRoleOrgAdmin  = "flightctl-org-admin"
+	ExternalRoleOperator  = "flightctl-operator"
+	ExternalRoleViewer    = "flightctl-viewer"
+	ExternalRoleInstaller = "flightctl-installer"
+
+	// Internal role constants - used within flightctl for authorization
 	RoleAdmin     = "admin"     // Full access to all resources
+	RoleOrgAdmin  = "org-admin" // Full access to all resources within an organization
 	RoleOperator  = "operator"  // Manage devices, fleets, resourcesyncs
 	RoleViewer    = "viewer"    // Read-only access to devices, fleets, resourcesyncs
 	RoleInstaller = "installer" // Limited access for device installation

@@ -1,28 +1,16 @@
 package lifecycle
 
 import (
-<<<<<<< HEAD
 	"context"
 	"errors"
-=======
-	"bytes"
-	"context"
->>>>>>> 33a1cb77 (fix)
 	"fmt"
 	"path/filepath"
 	"strings"
 
-<<<<<<< HEAD
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/quadlet"
-=======
-	"github.com/coreos/go-systemd/v22/unit"
-	"github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/agent/client"
-	"github.com/flightctl/flightctl/internal/agent/device/fileio"
->>>>>>> 33a1cb77 (fix)
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
@@ -35,25 +23,16 @@ var _ ActionHandler = (*Quadlet)(nil)
 
 type Quadlet struct {
 	systemd        *client.Systemd
-<<<<<<< HEAD
 	podman         *client.Podman
-=======
->>>>>>> 33a1cb77 (fix)
 	rw             fileio.ReadWriter
 	log            *log.PrefixLogger
 	actionServices map[string][]string
 }
 
-<<<<<<< HEAD
 func NewQuadlet(log *log.PrefixLogger, rw fileio.ReadWriter, systemd *client.Systemd, podman *client.Podman) *Quadlet {
 	return &Quadlet{
 		systemd:        systemd,
 		podman:         podman,
-=======
-func NewQuadlet(log *log.PrefixLogger, rw fileio.ReadWriter, systemd *client.Systemd) *Quadlet {
-	return &Quadlet{
-		systemd:        systemd,
->>>>>>> 33a1cb77 (fix)
 		rw:             rw,
 		log:            log,
 		actionServices: make(map[string][]string),
@@ -119,7 +98,6 @@ func (q *Quadlet) remove(ctx context.Context, action *Action) error {
 
 	delete(q.actionServices, action.ID)
 	q.log.Infof("Removed quadlet application: %s", appName)
-<<<<<<< HEAD
 
 	// the labels applied to quadlets are only directly applied to that quadlet. They do not apply to
 	// any resources created indirectly. As an example, a container quadlet can create multiple volumes without referencing
@@ -164,8 +142,6 @@ func (q *Quadlet) remove(ctx context.Context, action *Action) error {
 	if len(errs) > 0 {
 		return errors.Join(errs...)
 	}
-=======
->>>>>>> 33a1cb77 (fix)
 	return nil
 }
 
@@ -198,7 +174,6 @@ func (q *Quadlet) serviceName(file string, quadletSection string, defaultName st
 	if err != nil {
 		return "", fmt.Errorf("reading quadlet %s: %w", file, err)
 	}
-<<<<<<< HEAD
 	unit, err := quadlet.NewUnit(contents)
 	if err != nil {
 		return "", fmt.Errorf("parsing quadlet %q: %w", file, err)
@@ -211,29 +186,6 @@ func (q *Quadlet) serviceName(file string, quadletSection string, defaultName st
 		return "", fmt.Errorf("looking up %q: %w", quadletSection, err)
 	}
 	return name, nil
-=======
-	sections, err := unit.DeserializeSections(bytes.NewReader(contents))
-	if err != nil {
-		return "", fmt.Errorf("parsing quadlet %q: %w", file, err)
-	}
-	var section *unit.UnitSection
-	for _, s := range sections {
-		if s.Section == quadletSection {
-			section = s
-			break
-		}
-	}
-	if section == nil {
-		return "", fmt.Errorf("quadlet %q section %q not found", file, quadletSection)
-	}
-
-	for _, entry := range section.Entries {
-		if entry.Name == "ServiceName" {
-			return entry.Value, nil
-		}
-	}
-	return defaultName, nil
->>>>>>> 33a1cb77 (fix)
 }
 
 func (q *Quadlet) collectTargets(path string) ([]string, error) {
@@ -256,7 +208,6 @@ func (q *Quadlet) collectTargets(path string) ([]string, error) {
 		var sectionName string
 		var defaultName string
 		switch ext {
-<<<<<<< HEAD
 		case quadlet.ContainerExtension:
 			sectionName = quadlet.ContainerGroup
 			defaultName = fmt.Sprintf("%s.service", baseName)
@@ -272,14 +223,6 @@ func (q *Quadlet) collectTargets(path string) ([]string, error) {
 		case quadlet.ImageExtension:
 			sectionName = quadlet.ImageGroup
 			defaultName = fmt.Sprintf("%s-image.service", baseName)
-=======
-		case ".container":
-			sectionName = "Container"
-			defaultName = fmt.Sprintf("%s.service", baseName)
-		case ".pod":
-			sectionName = "Pod"
-			defaultName = fmt.Sprintf("%s-pod.service", baseName)
->>>>>>> 33a1cb77 (fix)
 		case ".target":
 			targets = append(targets, filename)
 			continue

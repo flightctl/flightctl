@@ -31,10 +31,6 @@ func (m *mockAAPIdentity) GetOrganizations() []common.ReportedOrganization {
 	return []common.ReportedOrganization{}
 }
 
-func (m *mockAAPIdentity) GetRoles() []string {
-	return []string{}
-}
-
 func (m *mockAAPIdentity) GetIssuer() *identity.Issuer {
 	return nil
 }
@@ -45,6 +41,13 @@ func (m *mockAAPIdentity) IsSuperuser() bool {
 
 func (m *mockAAPIdentity) IsPlatformAuditor() bool {
 	return m.platformAuditor
+}
+
+func (m *mockAAPIdentity) IsSuperAdmin() bool {
+	return false
+}
+
+func (m *mockAAPIdentity) SetSuperAdmin(bool) {
 }
 
 type mockAAPClient struct {
