@@ -270,6 +270,12 @@ func main() {
 		logger.Fatalf("Failed to initialize authZ: %v", err)
 	}
 
+	// Start multiAuthZ to initialize cache lifecycle management
+	if multiAuthZ, ok := authZ.(*auth.MultiAuthZ); ok {
+		multiAuthZ.Start(ctx)
+		logger.Debug("Started MultiAuthZ with context-based cache lifecycle")
+	}
+
 	// Create identity mapper for mapping identities to database objects
 	identityMapper := service.NewIdentityMapper(dataStore, logger)
 	go func() {

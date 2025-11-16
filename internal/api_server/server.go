@@ -198,6 +198,12 @@ func (s *Server) Run(ctx context.Context) error {
 		return fmt.Errorf("failed initializing authZ: %w", err)
 	}
 
+	// Start multiAuthZ to initialize cache lifecycle management
+	if multiAuthZ, ok := s.authZ.(*auth.MultiAuthZ); ok {
+		multiAuthZ.Start(ctx)
+		s.log.Debug("Started MultiAuthZ with context-based cache lifecycle")
+	}
+
 	router := chi.NewRouter()
 
 	// Create identity mapping middleware

@@ -21,6 +21,8 @@ type K8SClient interface {
 	GetSecret(ctx context.Context, namespace, name string) (*corev1.Secret, error)
 	PostCRD(ctx context.Context, crdGVK string, body []byte, opts ...Option) ([]byte, error)
 	ListRoleBindings(ctx context.Context, namespace string) (*rbacv1.RoleBindingList, error)
+	ListProjects(ctx context.Context, token string) ([]byte, error)
+	ListRoleBindingsForUser(ctx context.Context, namespace, username string) ([]string, error)
 }
 
 type k8sClient struct {
@@ -83,6 +85,43 @@ func (k *k8sClient) ListRoleBindings(ctx context.Context, namespace string) (*rb
 		return nil, fmt.Errorf("failed to list rolebindings in namespace %s: %w", namespace, err)
 	}
 	return roleBindings, nil
+}
+
+func (k *k8sClient) ListProjects(ctx context.Context, token string) ([]byte, error) {
+	req := k.clientset.RESTClient().Get().AbsPath("/apis/project.openshift.io/v1/projects")
+	if token != "" {
+		req.SetHeader("Authorization", fmt.Sprintf("Bearer %s", token))
+	}
+	return req.DoRaw(ctx)
+}
+
+func (k *k8sClient) ListRoleBindingsForUser(ctx context.Context, namespace, username string) ([]string, error) {
+	roleBindings, err := k.ListRoleBindings(ctx, namespace)
+	if err != nil {
+		return nil, err
+	}
+
+	var roleNames []string
+	for _, binding := range roleBindings.Items {
+		for _, subject := range binding.Subjects {
+			if subject.Kind == "User" && subject.Name == username {
+				roleNames = append(roleNames, binding.RoleRef.Name)
+				break
+			}
+			if subject.Kind == "ServiceAccount" {
+				namespace := subject.Namespace
+				if namespace == "" {
+					namespace = binding.Namespace
+				}
+				if fmt.Sprintf("system:serviceaccount:%s:%s", namespace, subject.Name) == username {
+					roleNames = append(roleNames, binding.RoleRef.Name)
+					break
+				}
+			}
+		}
+	}
+
+	return roleNames, nil
 }
 
 type Option func(*rest.Request)

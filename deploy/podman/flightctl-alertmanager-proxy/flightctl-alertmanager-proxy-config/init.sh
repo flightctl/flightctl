@@ -24,13 +24,6 @@ if [ -z "$AUTH_TYPE" ]; then
   exit 1
 fi
 
-# Translate "builtin" to "oidc" for backwards compatibility
-# builtin is legacy auth that uses OIDC with PAM issuer enabled
-if [ "$AUTH_TYPE" == "builtin" ]; then
-  echo "Auth type 'builtin' detected - translating to 'oidc'"
-  AUTH_TYPE="oidc"
-fi
-
 FLIGHTCTL_DISABLE_AUTH=""
 
 # Process auth settings based on auth type

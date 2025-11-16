@@ -25,10 +25,12 @@ const k8sApiService = "https://kubernetes.default.svc"
 
 // Supported auth types
 const (
-	AuthTypeNil  = "nil"
-	AuthTypeK8s  = "k8s"
-	AuthTypeOIDC = "oidc"
-	AuthTypeAAP  = "aap"
+	AuthTypeNil       = "nil"
+	AuthTypeK8s       = "k8s"
+	AuthTypeOIDC      = "oidc"
+	AuthTypeAAP       = "aap"
+	AuthTypeOpenShift = "openshift"
+	AuthTypeOauth2    = "oauth2"
 )
 
 // configuredAuthType stores which auth type is configured
@@ -63,6 +65,18 @@ func getTlsConfig(cfg *config.Config) *tls.Config {
 	return tlsConfig
 }
 
+func initOAuth2Auth(cfg *config.Config, log logrus.FieldLogger) (common.AuthNMiddleware, error) {
+	providerName := "oauth2"
+	metadata := api.ObjectMeta{
+		Name: &providerName,
+	}
+
+	authNProvider, err := authn.NewOAuth2Auth(metadata, *cfg.Auth.OAuth2, getTlsConfig(cfg), log)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create OAuth2 AuthN: %w", err)
+	}
+	return authNProvider, nil
+}
 func initOIDCAuth(cfg *config.Config, log logrus.FieldLogger) (common.AuthNMiddleware, error) {
 	oidcUrl := strings.TrimSuffix(cfg.Auth.OIDC.Issuer, "/")
 	log.Infof("OIDC auth enabled: %s", oidcUrl)
@@ -122,6 +136,43 @@ func initK8sAuth(cfg *config.Config, log logrus.FieldLogger) (common.AuthNMiddle
 	return authNProvider, nil
 }
 
+func initOpenShiftAuth(cfg *config.Config, log logrus.FieldLogger) (common.AuthNMiddleware, error) {
+	if cfg.Auth.OpenShift == nil {
+		return nil, errors.New("OpenShift auth configuration is nil")
+	}
+	if cfg.Auth.OpenShift.ClusterControlPlaneUrl == nil {
+		return nil, errors.New("OpenShift ClusterControlPlaneUrl is required but not configured")
+	}
+	if *cfg.Auth.OpenShift.ClusterControlPlaneUrl == "" {
+		return nil, errors.New("OpenShift ClusterControlPlaneUrl cannot be empty")
+	}
+
+	apiUrl := strings.TrimSuffix(*cfg.Auth.OpenShift.ClusterControlPlaneUrl, "/")
+	log.Infof("OpenShift auth enabled: %s", apiUrl)
+
+	var k8sClient k8sclient.K8SClient
+	var err error
+	if apiUrl == k8sApiService {
+		k8sClient, err = k8sclient.NewK8SClient()
+	} else {
+		k8sClient, err = k8sclient.NewK8SExternalClient(apiUrl, cfg.Auth.InsecureSkipTlsVerify, cfg.Auth.CACert)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to create k8s client: %w", err)
+	}
+
+	providerName := "openshift"
+	metadata := api.ObjectMeta{
+		Name: &providerName,
+	}
+
+	authNProvider, err := authn.NewOpenShiftAuth(metadata, *cfg.Auth.OpenShift, k8sClient, getTlsConfig(cfg), log)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create OpenShift AuthN: %w", err)
+	}
+	return authNProvider, nil
+}
+
 // InitMultiAuth initializes authentication with support for multiple methods
 func InitMultiAuth(cfg *config.Config, log logrus.FieldLogger,
 	authProviderService authn.AuthProviderService) (common.AuthNMiddleware, error) {
@@ -156,6 +207,32 @@ func InitMultiAuth(cfg *config.Config, log logrus.FieldLogger,
 		configuredAuthType = AuthTypeK8s
 	}
 
+	if cfg.Auth.OpenShift != nil {
+		if cfg.Auth.OpenShift.ClusterControlPlaneUrl == nil || *cfg.Auth.OpenShift.ClusterControlPlaneUrl == "" {
+			return nil, errors.New("OpenShift ClusterControlPlaneUrl is required but not configured")
+		}
+		if cfg.Auth.OpenShift.AuthorizationUrl == nil || *cfg.Auth.OpenShift.AuthorizationUrl == "" {
+			return nil, errors.New("OpenShift AuthorizationUrl is required but not configured")
+		}
+		if cfg.Auth.OpenShift.ClientId == nil || *cfg.Auth.OpenShift.ClientId == "" {
+			return nil, errors.New("OpenShift ClientId is required but not configured")
+		}
+
+		apiUrl := *cfg.Auth.OpenShift.ClusterControlPlaneUrl
+		log.Infof("OpenShift auth enabled: %s", apiUrl)
+
+		openshiftAuthN, err := initOpenShiftAuth(cfg, log)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize OpenShift auth: %w", err)
+		}
+
+		// Add OpenShift auth with issuer:clientId key
+		openshiftIssuer := strings.TrimSuffix(*cfg.Auth.OpenShift.AuthorizationUrl, "/")
+		openshiftKey := fmt.Sprintf("%s:%s", openshiftIssuer, *cfg.Auth.OpenShift.ClientId)
+		multiAuth.AddStaticProvider(openshiftKey, openshiftAuthN)
+		configuredAuthType = AuthTypeOpenShift
+	}
+
 	if cfg.Auth.OIDC != nil {
 		log.Infof("OIDC auth enabled: %s", cfg.Auth.OIDC.Issuer)
 		oidcAuthN, err := initOIDCAuth(cfg, log)
@@ -168,6 +245,18 @@ func InitMultiAuth(cfg *config.Config, log logrus.FieldLogger,
 		oidcKey := fmt.Sprintf("%s:%s", oidcIssuer, cfg.Auth.OIDC.ClientId)
 		multiAuth.AddStaticProvider(oidcKey, oidcAuthN)
 		configuredAuthType = AuthTypeOIDC
+	}
+
+	if cfg.Auth.OAuth2 != nil {
+		log.Infof("OAuth2 auth enabled: %s", cfg.Auth.OAuth2.AuthorizationUrl)
+		oauth2AuthN, err := initOAuth2Auth(cfg, log)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize OAuth2 auth: %w", err)
+		}
+		oauth2Issuer := strings.TrimSuffix(cfg.Auth.OAuth2.AuthorizationUrl, "/")
+		oauth2Key := fmt.Sprintf("%s:%s", oauth2Issuer, cfg.Auth.OAuth2.ClientId)
+		multiAuth.AddStaticProvider(oauth2Key, oauth2AuthN)
+		configuredAuthType = AuthTypeOauth2
 	}
 
 	if cfg.Auth.AAP != nil {
