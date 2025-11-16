@@ -99,14 +99,6 @@ echo "Extracting auth type from service config..."
 AUTH_TYPE=$(extract_value "global.auth.type" "$SERVICE_CONFIG_FILE" | head -1)
 echo "Extracted AUTH_TYPE='$AUTH_TYPE'"
 
-# Translate "builtin" to "oidc" for backwards compatibility
-# builtin is legacy auth that uses OIDC with PAM issuer enabled
-if [ "$AUTH_TYPE" == "builtin" ]; then
-  echo "Auth type 'builtin' detected - translating to 'oidc' with PAM issuer enabled"
-  AUTH_TYPE="oidc"
-  # Force PAM issuer to be enabled for builtin auth
-  FORCE_PAM_ISSUER_ENABLED="true"
-fi
 echo "Final AUTH_TYPE after processing='$AUTH_TYPE'"
 
 INSECURE_SKIP_TLS_VERIFY=$(extract_value "global.auth.insecureSkipTlsVerify" "$SERVICE_CONFIG_FILE" | head -1)
@@ -193,12 +185,7 @@ elif [ "$AUTH_TYPE" == "oidc" ]; then
 
   echo "Setting PAM defaults..."
   # Set defaults for PAM
-  # If FORCE_PAM_ISSUER_ENABLED is set (from builtin auth), always enable PAM
-  if [ "$FORCE_PAM_ISSUER_ENABLED" == "true" ]; then
-    PAM_OIDC_ISSUER_ENABLED="true"
-  else
-    PAM_OIDC_ISSUER_ENABLED=${PAM_OIDC_ISSUER_ENABLED:-true}
-  fi
+  PAM_OIDC_ISSUER_ENABLED=${PAM_OIDC_ISSUER_ENABLED:-true}
   PAM_OIDC_CLIENT_ID=${PAM_OIDC_CLIENT_ID:-flightctl-client}
   PAM_OIDC_SERVICE=${PAM_OIDC_SERVICE:-flightctl}
   

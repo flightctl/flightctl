@@ -21,6 +21,10 @@ spec:
         role: frontend
         {{- include "flightctl.standardLabels" . | nindent 8 }}
     spec:
+      {{- if .Values.global.imagePullSecretName }}
+      imagePullSecrets:
+        - name: {{ .Values.global.imagePullSecretName }}
+      {{- end }}
       containers:
         - env:
           - name: API_PORT

@@ -75,7 +75,8 @@ func (s *ServiceTestSuite) Setup() {
 		Username:      "test-admin",
 		UID:           uuid.New().String(),
 		Organizations: []*model.Organization{testOrg},
-		Roles:         []string{string(api.RoleAdmin)},
+		OrgRoles:      map[string][]string{"*": {string(api.RoleAdmin)}},
+		SuperAdmin:    true, // Super admin required for service tests
 	}
 	s.Ctx = context.WithValue(s.Ctx, consts.MappedIdentityCtxKey, adminIdentity)
 

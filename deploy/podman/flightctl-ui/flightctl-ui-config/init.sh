@@ -27,13 +27,6 @@ BASE_DOMAIN=$(extract_value "global.baseDomain" "$SERVICE_CONFIG_FILE")
 # Extract auth-related values
 AUTH_TYPE=$(extract_value "global.auth.type" "$SERVICE_CONFIG_FILE")
 
-# Translate "builtin" to "oidc" for backwards compatibility
-# builtin is legacy auth that uses OIDC with PAM issuer enabled
-if [ "$AUTH_TYPE" == "builtin" ]; then
-  echo "Auth type 'builtin' detected - translating to 'oidc'"
-  AUTH_TYPE="oidc"
-fi
-
 AUTH_INSECURE_SKIP_VERIFY=$(extract_value "global.auth.insecureSkipTlsVerify" "$SERVICE_CONFIG_FILE")
 
 # Extract organizations enabled value (defaults to false if not configured)

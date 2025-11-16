@@ -27,10 +27,12 @@ func (NilAuth) GetIdentity(_ context.Context, _ string) (Identity, error) {
 			Name:         org.DefaultExternalID,
 			IsInternalID: true,
 			ID:           org.DefaultID.String(),
+			Roles:        []string{api.ExternalRoleAdmin}, // Admin role for nil auth
 		},
 	}
 
-	identity := common.NewBaseIdentity("nil-auth-user", "nil-auth-uid", organizations, []string{api.RoleAdmin})
+	identity := common.NewBaseIdentity("nil-auth-user", "nil-auth-uid", organizations)
+	identity.SetSuperAdmin(true) // Nil auth users are super admins
 	return identity, nil
 }
 

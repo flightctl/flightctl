@@ -602,7 +602,7 @@ func TestEventEnrollmentRequestApproved(t *testing.T) {
 	_, err = serviceHandler.store.EnrollmentRequest().Create(ctx, store.NullOrgId, &er, eventCallback)
 	require.NoError(err)
 
-	mappedIdentity := identity.NewMappedIdentity("bar", "", []*model.Organization{}, []string{}, nil)
+	mappedIdentity := identity.NewMappedIdentity("bar", "", []*model.Organization{}, map[string][]string{}, false, nil)
 	ctx = context.WithValue(ctx, consts.MappedIdentityCtxKey, mappedIdentity)
 	_, stat := serviceHandler.ApproveEnrollmentRequest(ctx, name, approval)
 	require.Equal(statusSuccessCode, stat.Code)
