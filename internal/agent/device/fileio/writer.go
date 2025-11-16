@@ -103,7 +103,7 @@ func (w *writer) PathFor(filePath string) string {
 
 // WriteFile writes the provided data to the file at the path with the provided permissions and ownership information
 func (w *writer) WriteFile(name string, data []byte, perm fs.FileMode, opts ...FileOption) error {
-	fopts := &fileOptions{}
+	fopts := &fileOptions{uid: -1, gid: -1}
 	for _, opt := range opts {
 		opt(fopts)
 	}
@@ -620,10 +620,8 @@ func WriteTmpFile(rw ReadWriter, prefix, filename string, content []byte, perm o
 }
 
 // AppendFile appends the provided data to the file at the path, creating the file if it doesn't exist.
-// This is a standalone function rather than a Writer interface method to keep the interface focused
-// on core operations. It's primarily used for audit logging.
 func AppendFile(w Writer, name string, data []byte, perm fs.FileMode, opts ...FileOption) error {
-	fopts := &fileOptions{}
+	fopts := &fileOptions{uid: -1, gid: -1}
 	for _, opt := range opts {
 		opt(fopts)
 	}
