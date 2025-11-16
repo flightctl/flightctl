@@ -95,16 +95,14 @@ func NewManager(
 }
 
 func (s *manager) Initialize(ctx context.Context) error {
-	// current - audit bootstrap event
+	// Create all files during bootstrap - all use bootstrap reason
 	if err := s.write(ctx, Current, newVersionedDevice("0"), audit.ReasonBootstrap); err != nil {
 		return err
 	}
-	// desired - audit bootstrap event
 	if err := s.write(ctx, Desired, newVersionedDevice("0"), audit.ReasonBootstrap); err != nil {
 		return err
 	}
-	// rollback - no audit
-	if err := s.write(ctx, Rollback, newVersionedDevice("0"), ""); err != nil {
+	if err := s.write(ctx, Rollback, newVersionedDevice("0"), audit.ReasonBootstrap); err != nil {
 		return err
 	}
 	// reconcile the initial spec even though its empty
@@ -114,9 +112,23 @@ func (s *manager) Initialize(ctx context.Context) error {
 }
 
 func (s *manager) Ensure() error {
-	// Check and recreate missing spec files (recovery scenario)
-	// Note: This is NOT bootstrap - Initialize() handles that.
-	// This handles corruption/deletion of files and should not be audited.
+	// Check and recreate missing spec files.
+	// Distinguishes between first startup (bootstrap) and recovery from corruption.
+
+	// Determine if this is first startup by checking if ALL files are missing
+	allMissing := true
+	for _, specType := range []Type{Current, Desired, Rollback} {
+		exists, err := s.exists(specType)
+		if err != nil {
+			return err
+		}
+		if exists {
+			allMissing = false
+			break
+		}
+	}
+
+	// Create missing files with appropriate reason
 	for _, specType := range []Type{Current, Desired, Rollback} {
 		exists, err := s.exists(specType)
 		if err != nil {
@@ -124,9 +136,22 @@ func (s *manager) Ensure() error {
 		}
 
 		if !exists {
-			s.log.Warnf("Spec file does not exist %s. Resetting state to empty...", specType)
-			// No audit - this is recovery, not a state transition
-			if err := s.write(context.TODO(), specType, newVersionedDevice("0"), ""); err != nil {
+			var reason audit.Reason
+			if allMissing {
+				// First startup - all files created during bootstrap
+				reason = audit.ReasonBootstrap
+				s.log.Infof("First startup: creating %s spec file", specType)
+			} else {
+				// File corruption recovery - use appropriate reason
+				if specType == Rollback {
+					reason = audit.ReasonInitialization
+				} else {
+					reason = audit.ReasonRecovery
+				}
+				s.log.Warnf("Spec file does not exist %s. Resetting state to empty...", specType)
+			}
+
+			if err := s.write(context.TODO(), specType, newVersionedDevice("0"), reason); err != nil {
 				return err
 			}
 		}
@@ -210,7 +235,6 @@ func (s *manager) Upgrade(ctx context.Context) error {
 			return err
 		}
 
-		// Write current spec and audit upgrade (audit happens inside write())
 		if err := s.write(ctx, Current, desired, audit.ReasonUpgrade); err != nil {
 			return err
 		}
@@ -272,16 +296,14 @@ func (s *manager) CreateRollback(ctx context.Context) error {
 		Os: &v1alpha1.DeviceOsSpec{Image: currentOSImage},
 	}
 
-	// No audit for creating rollback file
-	if err := s.write(ctx, Rollback, rollback, ""); err != nil {
+	if err := s.write(ctx, Rollback, rollback, audit.ReasonInitialization); err != nil {
 		return err
 	}
 	return nil
 }
 
 func (s *manager) ClearRollback() error {
-	// No audit for clearing rollback file
-	return s.write(context.TODO(), Rollback, newVersionedDevice(""), "")
+	return s.write(context.TODO(), Rollback, newVersionedDevice(""), audit.ReasonInitialization)
 }
 
 func (s *manager) Rollback(ctx context.Context, opts ...RollbackOption) error {
@@ -292,7 +314,6 @@ func (s *manager) Rollback(ctx context.Context, opts ...RollbackOption) error {
 		opt(cfg)
 	}
 
-	// Capture the failed desired version BEFORE any disk operations (for audit log)
 	failedDesiredVersion := s.cache.getRenderedVersion(Desired)
 
 	if cfg.setFailed {
@@ -320,7 +341,6 @@ func (s *manager) Rollback(ctx context.Context, opts ...RollbackOption) error {
 	// rollback in-memory cache current == desired
 	s.cache.update(Desired, current)
 
-	// Log successful rollback to audit log (desired file was modified via copy)
 	s.logAudit(ctx, current, failedDesiredVersion, current.Version(), audit.ResultSuccess, audit.ReasonRollback, audit.TypeDesired)
 
 	return nil
@@ -440,7 +460,6 @@ func (s *manager) getDeviceFromQueue(ctx context.Context) (*v1alpha1.Device, boo
 			s.log.Infof("Writing new desired rendered spec to disk version: %s", desired.Version())
 		}
 
-		// Write desired spec and audit sync (audit happens inside write())
 		if err := s.write(ctx, Desired, desired, audit.ReasonSync); err != nil {
 			return nil, false, err
 		}
@@ -502,26 +521,12 @@ func (s *manager) Publisher() Publisher {
 	return s.publisher
 }
 
-// write atomically writes a device spec to disk and optionally audits the operation.
-// It captures the old version before writing, updates the in-memory cache, and logs
-// an audit event if a reason is provided.
-//
-// Parameters:
-//   - ctx: Context for cancellation propagation (used in audit logging)
-//   - specType: Which spec file to write (Current, Desired, or Rollback)
-//   - device: The device spec to write
-//   - reason: Audit reason (bootstrap, sync, upgrade, rollback). Empty string ("") skips audit.
-//
-// Audit behavior:
-//   - If reason is empty, only writes to disk (no audit)
-//   - If reason is non-empty, audits the state transition for Current, Desired, and Rollback files
 func (s *manager) write(ctx context.Context, specType Type, device *v1alpha1.Device, reason audit.Reason) error {
 	filePath, err := s.pathFromType(specType)
 	if err != nil {
 		return err
 	}
 
-	// Capture old version BEFORE writing (for audit log)
 	oldVersion := s.cache.getRenderedVersion(specType)
 
 	err = writeDeviceToFile(s.deviceReadWriter, device, filePath)
@@ -531,19 +536,22 @@ func (s *manager) write(ctx context.Context, specType Type, device *v1alpha1.Dev
 
 	s.cache.update(specType, device)
 
-	// Audit successful write (skip if reason is empty)
-	if reason != "" {
-		var auditType audit.Type
-		switch specType {
-		case Current:
-			auditType = audit.TypeCurrent
-		case Desired:
-			auditType = audit.TypeDesired
-		case Rollback:
-			auditType = audit.TypeRollback
-		}
-		s.logAudit(ctx, device, oldVersion, device.Version(), audit.ResultSuccess, reason, auditType)
+	// Validate reason is provided
+	if reason == "" {
+		return fmt.Errorf("reason is required for writing %s spec", specType)
 	}
+
+	// Audit all disk writes
+	var auditType audit.Type
+	switch specType {
+	case Current:
+		auditType = audit.TypeCurrent
+	case Desired:
+		auditType = audit.TypeDesired
+	case Rollback:
+		auditType = audit.TypeRollback
+	}
+	s.logAudit(ctx, device, oldVersion, device.Version(), audit.ResultSuccess, reason, auditType)
 
 	return nil
 }

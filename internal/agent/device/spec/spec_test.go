@@ -14,6 +14,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/os"
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
+	"github.com/flightctl/flightctl/internal/agent/device/spec/audit"
 	"github.com/flightctl/flightctl/internal/container"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/stretchr/testify/require"
@@ -173,40 +174,75 @@ func TestInitialize(t *testing.T) {
 
 func TestEnsure(t *testing.T) {
 	require := require.New(t)
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockReadWriter := fileio.NewMockReadWriter(ctrl)
-	mockPriorityQueue := NewMockPriorityQueue(ctrl)
-	log := log.NewPrefixLogger("test")
-
-	s := &manager{
-		log:              log,
-		deviceReadWriter: mockReadWriter,
-		queue:            mockPriorityQueue,
-		cache:            newCache(log),
-	}
 
 	fileErr := errors.New("invalid file")
 
 	t.Run("error checking if file exists", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockReadWriter := fileio.NewMockReadWriter(ctrl)
+		mockPriorityQueue := NewMockPriorityQueue(ctrl)
+		log := log.NewPrefixLogger("test")
+
+		s := &manager{
+			log:              log,
+			deviceReadWriter: mockReadWriter,
+			queue:            mockPriorityQueue,
+			cache:            newCache(log),
+		}
+
 		mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(false, fileErr)
 		err := s.Ensure()
 		require.ErrorIs(err, errors.ErrCheckingFileExists)
 	})
 
 	t.Run("error writing file when it does not exist", func(t *testing.T) {
-		mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(false, nil)
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockReadWriter := fileio.NewMockReadWriter(ctrl)
+		mockPriorityQueue := NewMockPriorityQueue(ctrl)
+		log := log.NewPrefixLogger("test")
+
+		s := &manager{
+			log:              log,
+			deviceReadWriter: mockReadWriter,
+			queue:            mockPriorityQueue,
+			cache:            newCache(log),
+		}
+
+		// First loop: check all 3 files for allMissing detection (all return false)
+		mockReadWriter.EXPECT().PathExists(gomock.Any()).Times(3).Return(false, nil)
+		// Second loop: check current file, find it missing, attempt write and fail
+		mockReadWriter.EXPECT().PathExists(gomock.Any()).Times(1).Return(false, nil)
 		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Return(fileErr)
 		err := s.Ensure()
 		require.ErrorIs(err, errors.ErrWritingRenderedSpec)
 	})
 
 	t.Run("files are written when they don't exist", func(t *testing.T) {
-		// First two files checked exist
-		mockReadWriter.EXPECT().PathExists(gomock.Any()).Times(2).Return(true, nil)
-		// Third file does not exist, so then expect a write
-		mockReadWriter.EXPECT().PathExists(gomock.Any()).Times(1).Return(false, nil)
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockReadWriter := fileio.NewMockReadWriter(ctrl)
+		mockPriorityQueue := NewMockPriorityQueue(ctrl)
+		log := log.NewPrefixLogger("test")
+
+		s := &manager{
+			log:              log,
+			deviceReadWriter: mockReadWriter,
+			queue:            mockPriorityQueue,
+			cache:            newCache(log),
+		}
+
+		// First loop: check first file, it exists, break early
+		mockReadWriter.EXPECT().PathExists(gomock.Any()).Times(1).Return(true, nil)
+		// Second loop: check all 3 files
+		mockReadWriter.EXPECT().PathExists(gomock.Any()).Times(1).Return(true, nil)  // current exists
+		mockReadWriter.EXPECT().PathExists(gomock.Any()).Times(1).Return(true, nil)  // desired exists
+		mockReadWriter.EXPECT().PathExists(gomock.Any()).Times(1).Return(false, nil) // rollback missing
+		// Write the missing file
 		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Times(1).Return(nil)
 		mockReadWriter.EXPECT().ReadFile(gomock.Any()).Return([]byte(`{}`), nil).Times(3)
 		mockPriorityQueue.EXPECT().Add(gomock.Any(), gomock.Any()).Times(1)
@@ -215,8 +251,24 @@ func TestEnsure(t *testing.T) {
 	})
 
 	t.Run("no files are written when they all exist", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockReadWriter := fileio.NewMockReadWriter(ctrl)
+		mockPriorityQueue := NewMockPriorityQueue(ctrl)
+		log := log.NewPrefixLogger("test")
+
+		s := &manager{
+			log:              log,
+			deviceReadWriter: mockReadWriter,
+			queue:            mockPriorityQueue,
+			cache:            newCache(log),
+		}
+
+		// First loop: check all 3 files for allMissing detection - all exist, break early
+		mockReadWriter.EXPECT().PathExists(gomock.Any()).Times(1).Return(true, nil)
+		// Second loop: check each file before potentially creating - all exist
 		mockReadWriter.EXPECT().PathExists(gomock.Any()).Times(3).Return(true, nil)
-		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
 		mockReadWriter.EXPECT().ReadFile(gomock.Any()).Return([]byte(`{}`), nil).Times(3)
 		mockPriorityQueue.EXPECT().Add(gomock.Any(), gomock.Any()).Times(1)
 		err := s.Ensure()
@@ -800,9 +852,9 @@ func TestRollback(t *testing.T) {
 
 			tc.setupMocks(mockPolicyManager)
 
-			err := s.write(ctx, Current, newVersionedDevice(tc.currentVersion), "")
+			err := s.write(ctx, Current, newVersionedDevice(tc.currentVersion), audit.ReasonBootstrap)
 			require.NoError(err)
-			err = s.write(ctx, Desired, newVersionedDevice(tc.desiredVersion), "")
+			err = s.write(ctx, Desired, newVersionedDevice(tc.desiredVersion), audit.ReasonBootstrap)
 			require.NoError(err)
 
 			opts := []RollbackOption{}

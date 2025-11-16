@@ -5,11 +5,12 @@ import (
 	"time"
 )
 
-// Reason represents why the state change is happening (lifecycle phase).
+// Reason represents why a spec file was written to disk.
+// All disk writes are audited - the reason field documents the purpose of each write.
 type Reason string
 
 const (
-	// ReasonBootstrap represents initial device enrollment
+	// ReasonBootstrap represents initial device enrollment and first file creation
 	ReasonBootstrap Reason = "bootstrap"
 	// ReasonSync represents receiving a new spec from the management API
 	ReasonSync Reason = "sync"
@@ -17,6 +18,10 @@ const (
 	ReasonUpgrade Reason = "upgrade"
 	// ReasonRollback represents reverting to a previous working spec
 	ReasonRollback Reason = "rollback"
+	// ReasonRecovery represents recovery operations (recreating corrupted/deleted files)
+	ReasonRecovery Reason = "recovery"
+	// ReasonInitialization represents internal initialization operations (creating rollback snapshots)
+	ReasonInitialization Reason = "initialization"
 )
 
 // Type represents the type of spec file operation.
@@ -48,7 +53,7 @@ type Event struct {
 	OldVersion           string `json:"old_version"`            // current effective version before the attempt
 	NewVersion           string `json:"new_version"`            // target version
 	Result               Result `json:"result"`                 // success | failure
-	Reason               Reason `json:"reason"`                 // bootstrap/sync/upgrade/rollback (WHY)
+	Reason               Reason `json:"reason"`                 // why the write happened (bootstrap/sync/upgrade/rollback/recovery/initialization)
 	Type                 Type   `json:"type"`                   // current/desired/rollback (WHAT file operation)
 	FleetTemplateVersion string `json:"fleet_template_version"` // from metadata.annotations["fleet-controller/templateVersion"]
 	AgentVersion         string `json:"agent_version"`          // e.g., 0.10.0
@@ -61,7 +66,7 @@ type EventInfo struct {
 	OldVersion           string
 	NewVersion           string
 	Result               Result
-	Reason               Reason // WHY: bootstrap/sync/upgrade/rollback
+	Reason               Reason // WHY: bootstrap/sync/upgrade/rollback/recovery/initialization
 	Type                 Type   // WHAT: current/desired/rollback
 	FleetTemplateVersion string
 	StartTime            time.Time // When the operation started
