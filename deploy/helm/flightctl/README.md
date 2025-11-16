@@ -149,8 +149,7 @@ global:
   target: "acm"
   auth:
     type: "k8s"
-    k8s:
-      externalOpenShiftApiUrl: "https://api.cluster.example.com:6443"
+  apiUrl: "https://api.cluster.example.com:6443"
 
 # Example: OpenShift standalone deployment
 global:
@@ -158,8 +157,7 @@ global:
   baseDomain: "apps.cluster.example.com"
   auth:
     type: "k8s"
-    k8s:
-      externalOpenShiftApiUrl: "https://api.cluster.example.com:6443"
+  apiUrl: "https://api.cluster.example.com:6443"
 
 # Example: Kubernetes standalone deployment
 global:
@@ -290,23 +288,30 @@ For more detailed configuration options, see the [Values](#values) section below
 | dbSetup.wait.timeout | int | `60` | Seconds to wait for database readiness before failing Default timeout for database wait (can be overridden per deployment) |
 | global.additionalPVCLabels | string | `nil` | Additional labels for PVCs. |
 | global.additionalRouteLabels | string | `nil` | Additional labels for routes. |
-| global.apiUrl | string | `""` | Alternative to global.auth.k8s.externalOpenShiftApiUrl with the same meaning, used by the multiclusterhub operator |
+| global.apiUrl | string | `""` | External API URL for client access and authentication, used by the multiclusterhub operator |
 | global.auth.aap.apiUrl | string | `""` | The URL of the AAP Gateway API endpoint |
 | global.auth.aap.externalApiUrl | string | `""` | The URL of the AAP Gateway API endpoint that is reachable by clients |
 | global.auth.caCert | string | `""` | The custom CA cert. |
 | global.auth.insecureSkipTlsVerify | bool | `false` | True if verification of authority TLS cert should be skipped. |
 | global.auth.k8s.apiUrl | string | `"https://kubernetes.default.svc"` | API URL of k8s cluster that will be used as authentication authority |
+| global.auth.k8s.createAdminUser | bool | `true` | Create default flightctl-admin ServiceAccount with admin access |
 | global.auth.k8s.externalApiToken | string | `""` | In case flightctl is not running within a cluster, you can provide api token |
-| global.auth.k8s.externalOpenShiftApiUrl | string | `""` | API URL of OpenShift cluster that can be accessed by external client to retrieve auth token |
 | global.auth.k8s.rbacNs | string | `""` | Namespace that should be used for the RBAC checks |
 | global.auth.oidc.clientId | string | `"flightctl-client"` | OIDC Client ID |
-| global.auth.oidc.enabled | bool | `true` | Whether this OIDC provider is enabled |
 | global.auth.oidc.externalOidcAuthority | string | `""` | The base URL for the OIDC provider that is reachable by clients. Example: https://auth.foo.net/realms/flightctl |
 | global.auth.oidc.issuer | string | `""` | The base URL for the OIDC provider that is reachable by flightctl services. Example: https://auth.foo.internal/realms/flightctl |
 | global.auth.oidc.organizationAssignment | object | `{"organizationName":"default","type":"static"}` | Organization assignment configuration |
 | global.auth.oidc.roleAssignment | object | `{"claimPath":["groups"],"type":"dynamic"}` | Role assignment configuration |
 | global.auth.oidc.usernameClaim | list | `["preferred_username"]` | Username claim to extract from OIDC token (default: "preferred_username") |
-| global.auth.type | string | `"k8s"` | Type of the auth to use. Can be one of 'k8s', 'oidc', 'builtin', 'aap', or 'none' Note: 'builtin' is a legacy mode that translates to 'oidc' with PAM issuer automatically enabled For new deployments, explicitly set type to 'oidc' and configure pamOidcIssuer settings |
+| global.auth.openshift.authorizationUrl | string | `""` | OAuth authorization URL (leave empty to auto-detect from OpenShift cluster) |
+| global.auth.openshift.clientId | string | `""` | OAuth client ID (will be set to flightctl-{releaseName}) |
+| global.auth.openshift.clientSecret | string | `""` | OAuth client secret (leave empty for auto-generation) |
+| global.auth.openshift.clusterControlPlaneUrl | string | `"https://kubernetes.default.svc"` | OpenShift cluster control plane API URL for RBAC checks (leave empty for auto-detection) |
+| global.auth.openshift.createAdminUser | bool | `true` | Create default flightctl-admin ServiceAccount with admin access |
+| global.auth.openshift.externalApiToken | string | `""` | In case flightctl is not running within a cluster, you can provide api token |
+| global.auth.openshift.issuer | string | `""` | OAuth issuer URL (defaults to authorizationUrl if not specified) |
+| global.auth.openshift.tokenUrl | string | `""` | OAuth token URL (leave empty to auto-detect from OpenShift cluster) |
+| global.auth.type | string | `""` | Type of authentication to use. Allowed values: 'k8s', 'oidc', 'aap', 'openshift', 'oauth2', or 'none'. When left empty (default and recommended), authentication type is auto-detected: 'openshift' on OpenShift clusters, 'k8s' otherwise. |
 | global.baseDomain | string | `""` | Base domain to construct the FQDN for the service endpoints. |
 | global.baseDomainTls.cert | string | `""` | Certificate for the base domain wildcard certificate, it should be valid for *.${baseDomain}. This certificate is only used for non mTLS endpoints, mTLS endpoints like agent-api, etc will use different certificates. |
 | global.baseDomainTls.key | string | `""` | Key for the base domain wildcard certificate. |
@@ -317,7 +322,7 @@ For more detailed configuration options, see the [Values](#values) section below
 | global.gatewayPorts.tls | int | `443` | TLS port for Gateway API configuration |
 | global.generateSecrets | bool | `true` | Generate secrets when deploying Flight Control. This should be set to false if you want to provide your own secrets or when upgrading Flight Control to avoid overriding the existing secrets |
 | global.imagePullPolicy | string | `"IfNotPresent"` | Image pull policy for all containers |
-| global.imagePullSecretName | string | `""` | Name of the image pull secret for accessing private container registries |
+| global.imagePullSecretName | string | `""` | Name of the image pull secret for accessing private container registries You must create this secret manually before deployment |
 | global.internalNamespace | string | `""` | Namespace where internal components are deployed |
 | global.metrics.enabled | bool | `true` | Enable metrics exporting and service |
 | global.nodePorts.agent | int | `7443` | NodePort for agent communication service |

@@ -32,12 +32,15 @@ func (m *mockTokenIdentity) GetOrganizations() []common.ReportedOrganization {
 	return []common.ReportedOrganization{}
 }
 
-func (m *mockTokenIdentity) GetRoles() []string {
-	return []string{}
-}
-
 func (m *mockTokenIdentity) GetIssuer() *identity.Issuer {
 	return nil
+}
+
+func (m *mockTokenIdentity) IsSuperAdmin() bool {
+	return false
+}
+
+func (m *mockTokenIdentity) SetSuperAdmin(bool) {
 }
 
 func TestClaimsProvider_GetUserOrganizations(t *testing.T) {

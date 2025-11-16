@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	api "github.com/flightctl/flightctl/api/v1alpha1"
 	pamapi "github.com/flightctl/flightctl/api/v1alpha1/pam-issuer"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/config/ca"
@@ -50,7 +51,7 @@ func (m *MockAuthenticator) GetUserGroups(systemUser *user.User) ([]string, erro
 	if m.getUserGroupsFunc != nil {
 		return m.getUserGroupsFunc(systemUser)
 	}
-	return []string{"flightctl-admin"}, nil
+	return []string{api.ExternalRoleAdmin}, nil
 }
 
 func (m *MockAuthenticator) Close() error {

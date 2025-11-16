@@ -24,17 +24,6 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// Default group to role mapping
-var defaultGroupRoleMap = map[string]string{
-	"flightctl-admin":     "admin",
-	"flightctl-operator":  "operator",
-	"flightctl-viewer":    "viewer",
-	"flightctl-installer": "installer",
-	"wheel":               "admin",    // Traditional Unix admin group
-	"sudo":                "admin",    // Sudo users get admin access
-	"adm":                 "operator", // System administration group
-}
-
 // AuthorizationCodeData represents stored authorization code data
 type AuthorizationCodeData struct {
 	Code                string
@@ -912,29 +901,34 @@ func (s *PAMOIDCProvider) GetJWKS() (*pamapi.JWKSResponse, error) {
 
 // mapGroupsToRoles maps system groups to flightctl roles
 // Groups starting with "org-" are treated as organizations, not roles
+// Groups containing a dot (e.g., "myorg.role1") have the first dot replaced with colon (myorg:role1)
+//
+// All other groups are returned as-is and become roles
 func (s *PAMOIDCProvider) mapGroupsToRoles(groups []string) []string {
 	var roles []string
 	roleSet := make(map[string]struct{}) // Use set to avoid duplicates
 
-	// Map groups to roles
 	for _, group := range groups {
 		// Skip organization groups (they start with "org-")
 		if strings.HasPrefix(group, OrgPrefix) {
 			continue
 		}
 
-		if role, exists := defaultGroupRoleMap[group]; exists {
-			// Use mapped role
+		// Check if group contains a dot (e.g., "myorg.role1")
+		// Replace first dot with colon: myorg.role1 -> myorg:role1
+		if strings.Contains(group, ".") {
+			role := strings.Replace(group, ".", ":", 1)
 			if _, exists := roleSet[role]; !exists {
 				roles = append(roles, role)
 				roleSet[role] = struct{}{}
 			}
-		} else {
-			// Keep unmapped groups as-is (they become roles)
-			if _, exists := roleSet[group]; !exists {
-				roles = append(roles, group)
-				roleSet[group] = struct{}{}
-			}
+			continue
+		}
+
+		// Keep groups as-is (they become roles)
+		if _, exists := roleSet[group]; !exists {
+			roles = append(roles, group)
+			roleSet[group] = struct{}{}
 		}
 	}
 

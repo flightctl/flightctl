@@ -492,7 +492,8 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 				Username:      "testuser",
 				UID:           "testuser-id",
 				Organizations: []*model.Organization{testOrg},
-				Roles:         []string{"user"},
+				OrgRoles:      map[string][]string{"*": {"user"}},
+				SuperAdmin:    false,
 			}
 			return context.WithValue(suite.Ctx, consts.MappedIdentityCtxKey, mappedIdentity)
 		}
@@ -509,7 +510,8 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 				Username:      "adminuser",
 				UID:           "adminuser-id",
 				Organizations: []*model.Organization{testOrg},
-				Roles:         []string{string(api.RoleAdmin)},
+				OrgRoles:      map[string][]string{"*": {string(api.RoleAdmin)}},
+				SuperAdmin:    true, // Super admin required for creating auth providers with dynamic org assignment
 			}
 			return context.WithValue(suite.Ctx, consts.MappedIdentityCtxKey, mappedIdentity)
 		}

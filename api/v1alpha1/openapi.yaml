@@ -6889,6 +6889,7 @@ components:
       oneOf:
         - $ref: '#/components/schemas/OIDCProviderSpec'
         - $ref: '#/components/schemas/OAuth2ProviderSpec'
+        - $ref: '#/components/schemas/OpenShiftProviderSpec'
         - $ref: '#/components/schemas/AapProviderSpec'
         - $ref: '#/components/schemas/K8sProviderSpec'
       discriminator:
@@ -6896,6 +6897,7 @@ components:
         mapping:
           oidc: '#/components/schemas/OIDCProviderSpec'
           oauth2: '#/components/schemas/OAuth2ProviderSpec'
+          openshift: '#/components/schemas/OpenShiftProviderSpec'
           aap: '#/components/schemas/AapProviderSpec'
           k8s: '#/components/schemas/K8sProviderSpec'
       required:
@@ -7005,6 +7007,47 @@ components:
         - clientSecret
         - organizationAssignment
         - roleAssignment
+    OpenShiftProviderSpec:
+      type: object
+      description: OpenShiftProviderSpec describes an OpenShift OAuth provider configuration.
+      properties:
+        providerType:
+          type: string
+          enum: [openshift]
+          description: The type of authentication provider.
+        displayName:
+          type: string
+          description: Human-readable display name for the provider.
+        issuer:
+          type: string
+          description: The OAuth2 issuer identifier (used for issuer identification in tokens).
+        authorizationUrl:
+          type: string
+          description: The OAuth2 authorization endpoint URL.
+        tokenUrl:
+          type: string
+          description: The OAuth2 token endpoint URL.
+        clientId:
+          type: string
+          description: The OAuth2 client ID.
+        clientSecret:
+          type: string
+          description: The OAuth2 client secret.
+          writeOnly: true
+        enabled:
+          type: boolean
+          description: Whether this OpenShift provider is enabled.
+          default: true
+        scopes:
+          type: array
+          items:
+            type: string
+          description: List of OAuth2 scopes to request.
+        clusterControlPlaneUrl:
+          type: string
+          description: The OpenShift cluster control plane URL.
+      required:
+        - providerType
     AapProviderSpec:
       type: object
       description: AapProviderSpec describes an Ansible Automation Platform (AAP) provider configuration.
@@ -7049,9 +7092,6 @@ components:
         apiUrl:
           type: string
           description: The internal Kubernetes API URL.
-        externalOpenShiftApiUrl:
-          type: string
-          description: The external OpenShift API URL (for external access).
         rbacNs:
           type: string
           description: The RBAC namespace for permissions.
@@ -7177,6 +7217,10 @@ components:
           items:
             type: string
           description: The JSON path to the role/group claim (e.g., ["groups"], ["roles"], ["realm_access", "roles"]).
+        separator:
+          type: string
+          description: Separator for org:role format (default ':'). Roles containing the separator are split into organization-scoped roles. Roles without separator are global and apply to all organizations.
+          default: ":"
       required:
         - type
         - claimPath
