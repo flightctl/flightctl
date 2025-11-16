@@ -3,6 +3,10 @@ WORKDIR /app
 
 # Switch to root for build operations
 USER 0
+# Use BuildKit cache mounts for dnf package caching
+RUN --mount=type=cache,target=/var/cache/dnf \
+    --mount=type=cache,target=/var/lib/dnf \
+    dnf install --nodocs -y jq
 
 # Copy dependencies first (most stable)
 COPY go.* ./
@@ -26,10 +30,6 @@ COPY ./test ./test
 COPY ./packaging/containers/cli-artifacts/nginx.conf ./packaging/containers/cli-artifacts/nginx.conf
 COPY ./packaging/containers/cli-artifacts/entrypoint.sh ./packaging/containers/cli-artifacts/entrypoint.sh
 
-# Use BuildKit cache mounts for dnf package caching
-RUN --mount=type=cache,target=/var/cache/dnf \
-    --mount=type=cache,target=/var/lib/dnf \
-    dnf install --nodocs -y jq
 
 # Define version info ARGs right before build
 ARG SOURCE_GIT_TAG
