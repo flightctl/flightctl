@@ -39,7 +39,7 @@ AUTH_CLIENT_ID=""
 AUTH_URL=""
 
 # Extract organizations enabled value (defaults to false if not configured)
-ORGANIZATIONS_ENABLED=$(sed -n '/^global:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n '/^[[:space:]]*organizations:/,/^[^[:space:]]/p' | sed -n '/^[[:space:]]*enabled:[[:space:]]*\([^[:space:]]*\).*/s//\1/p' | head -1)
+ORGANIZATIONS_ENABLED=$(extract_value "global.organizations.enabled" "$SERVICE_CONFIG_FILE")
 ORGANIZATIONS_ENABLED=${ORGANIZATIONS_ENABLED:-false}
 
 # Verify required values were found

@@ -7,7 +7,6 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
-	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -59,49 +58,6 @@ func newInline(log *log.PrefixLogger, podman *client.Podman, spec *v1alpha1.Appl
 
 }
 
-func (p *inlineProvider) OCITargets(pullSecret *client.PullSecret) ([]dependency.OCIPullTarget, error) {
-	var targets []dependency.OCIPullTarget
-	switch p.spec.AppType {
-	case v1alpha1.AppTypeCompose:
-		// parse compose content from the inline spec
-		spec, err := client.ParseComposeFromSpec(p.spec.InlineProvider.Inline)
-		if err != nil {
-			return nil, err
-		}
-
-		// extract images from inline service
-		for _, svc := range spec.Services {
-			if svc.Image != "" {
-				targets = append(targets, dependency.OCIPullTarget{
-					Type:       dependency.OCITypeImage,
-					Reference:  svc.Image,
-					PullPolicy: v1alpha1.PullIfNotPresent,
-					PullSecret: pullSecret,
-				})
-			}
-		}
-	case v1alpha1.AppTypeQuadlet:
-		spec, err := client.ParseQuadletReferencesFromSpec(p.spec.InlineProvider.Inline)
-		if err != nil {
-			return nil, fmt.Errorf("parse quadlet spec: %w", err)
-		}
-
-		for _, quad := range spec {
-			targets = append(targets, extractQuadletTargets(quad, pullSecret)...)
-		}
-	default:
-		return nil, fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, p.spec.AppType)
-	}
-
-	volTargets, err := extractVolumeTargets(p.spec.InlineProvider.Volumes, pullSecret)
-	if err != nil {
-		return nil, err
-	}
-	targets = append(targets, volTargets...)
-
-	return targets, nil
-}
-
 func (p *inlineProvider) Verify(ctx context.Context) error {
 	if err := validateEnvVars(p.spec.EnvVars); err != nil {
 		return fmt.Errorf("%w: validating env vars: %w", errors.ErrInvalidSpec, err)
@@ -119,13 +75,11 @@ func (p *inlineProvider) Verify(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("creating tmp dir: %w", err)
 	}
-
-	cleanup := func() {
+	defer func() {
 		if err := p.readWriter.RemoveAll(tmpAppPath); err != nil {
-			p.log.Errorf("Cleaning up temporary directory %q: %v", tmpAppPath, err)
+			p.log.Warnf("Failed to cleanup temporary directory %q: %v", tmpAppPath, err)
 		}
-	}
-	defer cleanup()
+	}()
 
 	// copy image contents to a tmp directory for further processing
 	if err := p.writeInlineContent(tmpAppPath, p.spec.InlineProvider.Inline); err != nil {

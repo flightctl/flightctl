@@ -122,10 +122,10 @@ func (mr *MockManagerMockRecorder) BeforeUpdate(ctx, desired any) *gomock.Call {
 }
 
 // CollectOCITargets mocks base method.
-func (m *MockManager) CollectOCITargets(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]dependency.OCIPullTarget, error) {
+func (m *MockManager) CollectOCITargets(ctx context.Context, current, desired *v1alpha1.DeviceSpec) (*dependency.OCICollection, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CollectOCITargets", ctx, current, desired)
-	ret0, _ := ret[0].([]dependency.OCIPullTarget)
+	ret0, _ := ret[0].(*dependency.OCICollection)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

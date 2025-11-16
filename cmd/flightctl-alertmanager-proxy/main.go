@@ -376,7 +376,7 @@ func main() {
 		}
 	}()
 
-	logger.Printf("Alertmanager proxy listening on https://%s, proxying to %s", proxyPort, proxy.target.String())
+	logger.Printf("Alertmanager proxy listening on port %s, proxying to %s", proxyPort[1:], proxy.target.String())
 	if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
 		logger.Fatalf("Server error: %v", err)
 	}

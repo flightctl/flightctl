@@ -231,8 +231,8 @@ func TestEnsureScheduled(t *testing.T) {
 			manager := NewPrefetchManager(log, podman, rw, timeout)
 
 			// register a collector that returns the test targets
-			manager.RegisterOCICollector(newTestOCICollector(func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error) {
-				return tt.targets, nil
+			manager.RegisterOCICollector(newTestOCICollector(func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) (*OCICollection, error) {
+				return &OCICollection{Targets: tt.targets}, nil
 			}))
 
 			ctx, cancel := context.WithCancel(context.Background())
@@ -370,8 +370,8 @@ func TestStatus(t *testing.T) {
 		},
 	}
 
-	manager.RegisterOCICollector(newTestOCICollector(func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error) {
-		return targets, nil
+	manager.RegisterOCICollector(newTestOCICollector(func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) (*OCICollection, error) {
+		return &OCICollection{Targets: targets}, nil
 	}))
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -393,7 +393,7 @@ func TestStatus(t *testing.T) {
 func TestBeforeUpdate(t *testing.T) {
 	tests := []struct {
 		name       string
-		collectors []func() ([]OCIPullTarget, error)
+		collectors []func() (*OCICollection, error)
 		setupMocks func(*executer.MockExecuter)
 		wantErr    error
 	}{
@@ -405,9 +405,9 @@ func TestBeforeUpdate(t *testing.T) {
 		},
 		{
 			name: "empty device specs with registered collectors",
-			collectors: []func() ([]OCIPullTarget, error){
-				func() ([]OCIPullTarget, error) {
-					return []OCIPullTarget{}, nil
+			collectors: []func() (*OCICollection, error){
+				func() (*OCICollection, error) {
+					return &OCICollection{Targets: []OCIPullTarget{}}, nil
 				},
 			},
 			setupMocks: func(mockExec *executer.MockExecuter) {
@@ -416,9 +416,9 @@ func TestBeforeUpdate(t *testing.T) {
 		},
 		{
 			name: "single collector with missing images",
-			collectors: []func() ([]OCIPullTarget, error){
-				func() ([]OCIPullTarget, error) {
-					return []OCIPullTarget{
+			collectors: []func() (*OCICollection, error){
+				func() (*OCICollection, error) {
+					return &OCICollection{Targets: []OCIPullTarget{
 						{
 							Type:       OCITypeImage,
 							Reference:  testImageV1,
@@ -429,7 +429,7 @@ func TestBeforeUpdate(t *testing.T) {
 							Reference:  testImageV2,
 							PullPolicy: v1alpha1.PullIfNotPresent,
 						},
-					}, nil
+					}}, nil
 				},
 			},
 			setupMocks: func(mockExec *executer.MockExecuter) {
@@ -444,9 +444,9 @@ func TestBeforeUpdate(t *testing.T) {
 		},
 		{
 			name: "single collector with all images present",
-			collectors: []func() ([]OCIPullTarget, error){
-				func() ([]OCIPullTarget, error) {
-					return []OCIPullTarget{
+			collectors: []func() (*OCICollection, error){
+				func() (*OCICollection, error) {
+					return &OCICollection{Targets: []OCIPullTarget{
 						{
 							Type:       OCITypeImage,
 							Reference:  testImageV1,
@@ -457,7 +457,7 @@ func TestBeforeUpdate(t *testing.T) {
 							Reference:  testImageV2,
 							PullPolicy: v1alpha1.PullIfNotPresent,
 						},
-					}, nil
+					}}, nil
 				},
 			},
 			setupMocks: func(mockExec *executer.MockExecuter) {
@@ -471,9 +471,9 @@ func TestBeforeUpdate(t *testing.T) {
 		},
 		{
 			name: "single collector with mixed image availability",
-			collectors: []func() ([]OCIPullTarget, error){
-				func() ([]OCIPullTarget, error) {
-					return []OCIPullTarget{
+			collectors: []func() (*OCICollection, error){
+				func() (*OCICollection, error) {
+					return &OCICollection{Targets: []OCIPullTarget{
 						{
 							Type:       OCITypeImage,
 							Reference:  testImageV1,
@@ -484,7 +484,7 @@ func TestBeforeUpdate(t *testing.T) {
 							Reference:  testImageV2,
 							PullPolicy: v1alpha1.PullIfNotPresent,
 						},
-					}, nil
+					}}, nil
 				},
 			},
 			setupMocks: func(mockExec *executer.MockExecuter) {
@@ -499,10 +499,10 @@ func TestBeforeUpdate(t *testing.T) {
 		},
 		{
 			name: "multiple collectors with different image sets",
-			collectors: []func() ([]OCIPullTarget, error){
+			collectors: []func() (*OCICollection, error){
 				// app collector
-				func() ([]OCIPullTarget, error) {
-					return []OCIPullTarget{
+				func() (*OCICollection, error) {
+					return &OCICollection{Targets: []OCIPullTarget{
 						{
 							Type:       OCITypeImage,
 							Reference:  testImageV1,
@@ -513,17 +513,17 @@ func TestBeforeUpdate(t *testing.T) {
 							Reference:  testImageV2,
 							PullPolicy: v1alpha1.PullIfNotPresent,
 						},
-					}, nil
+					}}, nil
 				},
 				// os collector
-				func() ([]OCIPullTarget, error) {
-					return []OCIPullTarget{
+				func() (*OCICollection, error) {
+					return &OCICollection{Targets: []OCIPullTarget{
 						{
 							Type:       OCITypeImage,
 							Reference:  testOSImage,
 							PullPolicy: v1alpha1.PullIfNotPresent,
 						},
-					}, nil
+					}}, nil
 				},
 			},
 			setupMocks: func(mockExec *executer.MockExecuter) {
@@ -540,8 +540,8 @@ func TestBeforeUpdate(t *testing.T) {
 		},
 		{
 			name: "collector returns error",
-			collectors: []func() ([]OCIPullTarget, error){
-				func() ([]OCIPullTarget, error) {
+			collectors: []func() (*OCICollection, error){
+				func() (*OCICollection, error) {
 					return nil, fmt.Errorf("failed to collect OCI targets")
 				},
 			},
@@ -552,15 +552,15 @@ func TestBeforeUpdate(t *testing.T) {
 		},
 		{
 			name: "artifact target with missing image",
-			collectors: []func() ([]OCIPullTarget, error){
-				func() ([]OCIPullTarget, error) {
-					return []OCIPullTarget{
+			collectors: []func() (*OCICollection, error){
+				func() (*OCICollection, error) {
+					return &OCICollection{Targets: []OCIPullTarget{
 						{
 							Type:       OCITypeArtifact,
 							Reference:  "quay.io/test/artifact:latest",
 							PullPolicy: v1alpha1.PullIfNotPresent,
 						},
-					}, nil
+					}}, nil
 				},
 			},
 			setupMocks: func(mockExec *executer.MockExecuter) {
@@ -572,15 +572,15 @@ func TestBeforeUpdate(t *testing.T) {
 		},
 		{
 			name: "artifact target with existing artifact",
-			collectors: []func() ([]OCIPullTarget, error){
-				func() ([]OCIPullTarget, error) {
-					return []OCIPullTarget{
+			collectors: []func() (*OCICollection, error){
+				func() (*OCICollection, error) {
+					return &OCICollection{Targets: []OCIPullTarget{
 						{
 							Type:       OCITypeArtifact,
 							Reference:  "quay.io/test/existing-artifact:latest",
 							PullPolicy: v1alpha1.PullIfNotPresent,
 						},
-					}, nil
+					}}, nil
 				},
 			},
 			setupMocks: func(mockExec *executer.MockExecuter) {
@@ -591,9 +591,9 @@ func TestBeforeUpdate(t *testing.T) {
 		},
 		{
 			name: "mixed image and artifact targets with some missing",
-			collectors: []func() ([]OCIPullTarget, error){
-				func() ([]OCIPullTarget, error) {
-					return []OCIPullTarget{
+			collectors: []func() (*OCICollection, error){
+				func() (*OCICollection, error) {
+					return &OCICollection{Targets: []OCIPullTarget{
 						{
 							Type:       OCITypeImage,
 							Reference:  "quay.io/test/existing-image:latest",
@@ -604,7 +604,7 @@ func TestBeforeUpdate(t *testing.T) {
 							Reference:  "quay.io/test/missing-artifact:latest",
 							PullPolicy: v1alpha1.PullIfNotPresent,
 						},
-					}, nil
+					}}, nil
 				},
 			},
 			setupMocks: func(mockExec *executer.MockExecuter) {
@@ -619,9 +619,9 @@ func TestBeforeUpdate(t *testing.T) {
 		},
 		{
 			name: "mixed image and artifact targets all existing",
-			collectors: []func() ([]OCIPullTarget, error){
-				func() ([]OCIPullTarget, error) {
-					return []OCIPullTarget{
+			collectors: []func() (*OCICollection, error){
+				func() (*OCICollection, error) {
+					return &OCICollection{Targets: []OCIPullTarget{
 						{
 							Type:       OCITypeImage,
 							Reference:  "quay.io/test/existing-image:latest",
@@ -632,7 +632,7 @@ func TestBeforeUpdate(t *testing.T) {
 							Reference:  "quay.io/test/existing-artifact:latest",
 							PullPolicy: v1alpha1.PullIfNotPresent,
 						},
-					}, nil
+					}}, nil
 				},
 			},
 			setupMocks: func(mockExec *executer.MockExecuter) {
@@ -646,15 +646,15 @@ func TestBeforeUpdate(t *testing.T) {
 		},
 		{
 			name: "pull always policy with existing artifact",
-			collectors: []func() ([]OCIPullTarget, error){
-				func() ([]OCIPullTarget, error) {
-					return []OCIPullTarget{
+			collectors: []func() (*OCICollection, error){
+				func() (*OCICollection, error) {
+					return &OCICollection{Targets: []OCIPullTarget{
 						{
 							Type:       OCITypeArtifact,
 							Reference:  "quay.io/test/always-artifact:latest",
 							PullPolicy: v1alpha1.PullAlways,
 						},
-					}, nil
+					}}, nil
 				},
 			},
 			setupMocks: func(mockExec *executer.MockExecuter) {
@@ -665,15 +665,15 @@ func TestBeforeUpdate(t *testing.T) {
 		},
 		{
 			name: "pull always policy with existing image",
-			collectors: []func() ([]OCIPullTarget, error){
-				func() ([]OCIPullTarget, error) {
-					return []OCIPullTarget{
+			collectors: []func() (*OCICollection, error){
+				func() (*OCICollection, error) {
+					return &OCICollection{Targets: []OCIPullTarget{
 						{
 							Type:       OCITypeImage,
 							Reference:  testImageV1,
 							PullPolicy: v1alpha1.PullAlways,
 						},
-					}, nil
+					}}, nil
 				},
 			},
 			setupMocks: func(mockExec *executer.MockExecuter) {
@@ -705,7 +705,7 @@ func TestBeforeUpdate(t *testing.T) {
 
 			// Register collectors
 			for _, collector := range tt.collectors {
-				manager.RegisterOCICollector(newTestOCICollector(func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error) {
+				manager.RegisterOCICollector(newTestOCICollector(func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) (*OCICollection, error) {
 					return collector()
 				}))
 			}
@@ -833,15 +833,15 @@ func TestPullSecretCleanup(t *testing.T) {
 	}
 
 	// simulate a collector that would be called by applications manager
-	appCollector := func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error) {
-		return []OCIPullTarget{
+	appCollector := func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) (*OCICollection, error) {
+		return &OCICollection{Targets: []OCIPullTarget{
 			{
 				Type:       OCITypeImage,
 				Reference:  "registry.example.com/app:latest",
 				PullPolicy: v1alpha1.PullIfNotPresent,
 				PullSecret: appPullSecret,
 			},
-		}, nil
+		}}, nil
 	}
 
 	// register the collector
@@ -886,14 +886,14 @@ type taskState struct {
 
 // testOCICollector is a test helper that implements OCICollector interface
 type testOCICollector struct {
-	collectFn func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error)
+	collectFn func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) (*OCICollection, error)
 }
 
-func (t *testOCICollector) CollectOCITargets(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error) {
+func (t *testOCICollector) CollectOCITargets(ctx context.Context, current, desired *v1alpha1.DeviceSpec) (*OCICollection, error) {
 	return t.collectFn(ctx, current, desired)
 }
 
-func newTestOCICollector(fn func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error)) OCICollector {
+func newTestOCICollector(fn func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) (*OCICollection, error)) OCICollector {
 	return &testOCICollector{collectFn: fn}
 }
 
