@@ -19,6 +19,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -54,7 +55,7 @@ type PodmanMonitor struct {
 func NewPodmanMonitor(
 	log *log.PrefixLogger,
 	podman *client.Podman,
-	systemd *client.Systemd,
+	systemdManager systemd.Manager,
 	bootTime string,
 	rw fileio.ReadWriter,
 ) *PodmanMonitor {
@@ -62,7 +63,7 @@ func NewPodmanMonitor(
 		client: podman,
 		handlers: map[v1alpha1.AppType]lifecycle.ActionHandler{
 			v1alpha1.AppTypeCompose: lifecycle.NewCompose(log, rw, podman),
-			v1alpha1.AppTypeQuadlet: lifecycle.NewQuadlet(log, rw, systemd, podman),
+			v1alpha1.AppTypeQuadlet: lifecycle.NewQuadlet(log, rw, systemdManager, podman),
 		},
 		apps:          make(map[string]Application),
 		lastEventTime: bootTime,
