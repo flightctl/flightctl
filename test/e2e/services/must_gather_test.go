@@ -12,7 +12,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("FlightCtl Services Must-Gather Script", Label("OCP-85998", "must-gather"), func() {
+var _ = Describe("FlightCtl Services Must-Gather Script", Label("OCP-85998", "must-gather", "services"), func() {
 
 	var scriptPath string
 	var tempDir string
@@ -198,7 +198,7 @@ var _ = Describe("FlightCtl Services Must-Gather Script", Label("OCP-85998", "mu
 		Expect(err).ToNot(HaveOccurred())
 
 		podmanPsStr := string(podmanPsContent)
-		GinkgoWriter.Printf("podman-ps.log content preview (first 200 chars):\n%s\n", 
+		GinkgoWriter.Printf("podman-ps.log content preview (first 200 chars):\n%s\n",
 			util.TruncateString(podmanPsStr, 200))
 
 		// Check if it contains container info or the expected error message
