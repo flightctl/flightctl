@@ -50,3 +50,12 @@ func GetSELinuxStatus() (string, error) {
 	return strings.TrimSpace(string(output)), nil
 }
 
+// ExecCommand executes a command and returns its output
+func ExecCommand(name string, args ...string) (string, error) {
+	cmd := exec.Command(name, args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("command failed: %w, output: %s", err, string(output))
+	}
+	return string(output), nil
+}
