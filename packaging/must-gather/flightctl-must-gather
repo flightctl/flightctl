@@ -27,7 +27,10 @@ echo "### Collecting journal logs..."
 journalctl --since "24 hours ago" > "$temp_dir/journal.log"
 
 echo "### Flightctl Spec Files..."
-cp /var/lib/flightctl/*.json "$temp_dir/"
+cp /var/lib/flightctl/*.json "$temp_dir/" 2>/dev/null || true
+
+echo "### Flightctl Audit Log..."
+cp /var/log/flightctl/audit.log* "$temp_dir/" 2>/dev/null || true
 
 output_file="$temp_dir/system_info.txt"
 
