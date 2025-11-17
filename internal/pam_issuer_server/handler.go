@@ -328,6 +328,9 @@ func (h *Handler) AuthToken(w http.ResponseWriter, r *http.Request) {
 		if codeVerifier := r.FormValue("code_verifier"); codeVerifier != "" {
 			req.CodeVerifier = &codeVerifier
 		}
+		if redirectUri := r.FormValue("redirect_uri"); redirectUri != "" {
+			req.RedirectUri = &redirectUri
+		}
 	} else {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			h.log.Errorf("Failed to decode JSON request: %v", err)

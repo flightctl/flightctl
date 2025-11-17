@@ -177,13 +177,21 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 	s.authN = authN
 
-	// Start auth provider loader if MultiAuth is configured (not NilAuth)
+	// Create auth proxies (token and userinfo)
+	var authTokenProxy *service.AuthTokenProxy
+	var authUserInfoProxy *service.AuthUserInfoProxy
+
 	if multiAuth, ok := authN.(*authn.MultiAuth); ok {
+		// Create auth token proxy with MultiAuth
+		authTokenProxy = service.NewAuthTokenProxy(multiAuth)
+
+		// Start auth provider loader
 		go func() {
 			multiAuth.Start(ctx)
 			s.log.Warn("Auth provider loader stopped unexpectedly")
 		}()
 	}
+	authUserInfoProxy = service.NewAuthUserInfoProxy(s.authN)
 
 	s.authZ, err = auth.InitMultiAuthZ(s.cfg, s.log)
 	if err != nil {
@@ -250,7 +258,7 @@ func (s *Server) Run(ctx context.Context) error {
 			})
 		}
 
-		h := transport.NewTransportHandler(serviceHandler, s.authN)
+		h := transport.NewTransportHandler(serviceHandler, s.authN, authTokenProxy, authUserInfoProxy)
 
 		// Register all other endpoints with general rate limiting (already applied at router level)
 		// Create a custom handler that excludes the auth validate endpoint
@@ -295,7 +303,7 @@ func (s *Server) Run(ctx context.Context) error {
 			})
 		}
 
-		h := transport.NewTransportHandler(serviceHandler, s.authN)
+		h := transport.NewTransportHandler(serviceHandler, s.authN, authTokenProxy, authUserInfoProxy)
 		// Use the wrapper to handle the AuthValidate method signature
 		wrapper := &server.ServerInterfaceWrapper{
 			Handler:            h,

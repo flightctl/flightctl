@@ -168,8 +168,9 @@ elif [ "$AUTH_TYPE" == "oidc" ]; then
   
   echo "Extracting OIDC configuration values..."
   # Extract OIDC configuration from service-config.yaml (under global.auth.oidc)
-  OIDC_CLIENT_ID=$(extract_value "global.auth.oidc.oidcClientId" "$SERVICE_CONFIG_FILE")
-  OIDC_ISSUER=$(extract_value "global.auth.oidc.oidcAuthority" "$SERVICE_CONFIG_FILE")
+  OIDC_CLIENT_ID=$(extract_value "global.auth.oidc.clientId" "$SERVICE_CONFIG_FILE")
+  OIDC_CLIENT_SECRET=$(extract_value "global.auth.oidc.clientSecret" "$SERVICE_CONFIG_FILE")
+  OIDC_ISSUER=$(extract_value "global.auth.oidc.issuer" "$SERVICE_CONFIG_FILE")
   OIDC_EXTERNAL_AUTHORITY=$(extract_value "global.auth.oidc.externalOidcAuthority" "$SERVICE_CONFIG_FILE")
   
   # These fields may not exist in current config but keep for compatibility
@@ -214,12 +215,13 @@ elif [ "$AUTH_TYPE" == "oidc" ]; then
   echo "Setting OIDC defaults..."
   # Set defaults if not found
   OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-flightctl-client}
+  OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET:-}
   OIDC_ENABLED=${OIDC_ENABLED:-true}
   OIDC_ORG_ASSIGNMENT_TYPE=${OIDC_ORG_ASSIGNMENT_TYPE:-static}
   OIDC_ORG_NAME=${OIDC_ORG_NAME:-default}
   OIDC_USERNAME_CLAIM=${OIDC_USERNAME_CLAIM:-preferred_username}
   OIDC_ROLE_ASSIGNMENT_TYPE=${OIDC_ROLE_ASSIGNMENT_TYPE:-dynamic}
-  OIDC_ROLE_ASSIGNMENT_CLAIM_PATH=${OIDC_ROLE_ASSIGNMENT_CLAIM_PATH:-groups}
+  OIDC_ROLE_ASSIGNMENT_CLAIM_PATH=${OIDC_ROLE_ASSIGNMENT_CLAIM_PATH:-roles}
   
   # When PAM issuer is enabled, OIDC authority should point to PAM issuer (port 8444)
   if [ "$PAM_OIDC_ISSUER_ENABLED" == "true" ]; then
@@ -238,6 +240,7 @@ elif [ "$AUTH_TYPE" == "oidc" ]; then
     -e "/{{if OIDC}}/d"
     -e "/{{endif OIDC}}/d"
     -e "s|{{OIDC_CLIENT_ID}}|$OIDC_CLIENT_ID|g"
+    -e "s|{{OIDC_CLIENT_SECRET}}|$OIDC_CLIENT_SECRET|g"
     -e "s|{{OIDC_ENABLED}}|$OIDC_ENABLED|g"
     -e "s|{{OIDC_ISSUER}}|$OIDC_ISSUER|g"
     -e "s|{{OIDC_EXTERNAL_AUTHORITY}}|$OIDC_EXTERNAL_AUTHORITY|g"

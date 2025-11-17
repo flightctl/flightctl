@@ -440,6 +440,17 @@ const (
 	SystemdLoadStateStub       SystemdLoadStateType = "stub"
 )
 
+// Defines values for TokenRequestGrantType.
+const (
+	AuthorizationCode TokenRequestGrantType = "authorization_code"
+	RefreshToken      TokenRequestGrantType = "refresh_token"
+)
+
+// Defines values for TokenResponseTokenType.
+const (
+	Bearer TokenResponseTokenType = "Bearer"
+)
+
 // Defines values for ListEventsParamsOrder.
 const (
 	Asc  ListEventsParamsOrder = "asc"
@@ -1947,7 +1958,7 @@ type OAuth2ProviderSpec struct {
 	ClientId string `json:"clientId"`
 
 	// ClientSecret The OAuth2 client secret.
-	ClientSecret *SecureString `json:"clientSecret,omitempty"`
+	ClientSecret *string `json:"clientSecret,omitempty"`
 
 	// DisplayName Human-readable display name for the provider.
 	DisplayName *string `json:"displayName,omitempty"`
@@ -1989,7 +2000,7 @@ type OIDCProviderSpec struct {
 	ClientId string `json:"clientId"`
 
 	// ClientSecret The OIDC client secret.
-	ClientSecret *SecureString `json:"clientSecret,omitempty"`
+	ClientSecret *string `json:"clientSecret,omitempty"`
 
 	// DisplayName Human-readable display name for the provider.
 	DisplayName *string `json:"displayName,omitempty"`
@@ -2484,6 +2495,57 @@ type TemplateVersionStatus struct {
 // TimeZone Time zone identifiers follow the IANA format AREA/LOCATION, where AREA represents a continent or ocean, and LOCATION specifies a particular site within that area, for example America/New_York, Europe/Paris. Only unambiguous 3-character time zones are supported ("GMT", "UTC").
 type TimeZone = string
 
+// TokenRequest OAuth2 token request
+type TokenRequest struct {
+	// ClientId OAuth2 client identifier.
+	ClientId string `form:"client_id" json:"client_id"`
+
+	// Code Authorization code for authorization_code grant.
+	Code *string `form:"code,omitempty" json:"code"`
+
+	// CodeVerifier PKCE code verifier.
+	CodeVerifier *string `form:"code_verifier,omitempty" json:"code_verifier"`
+
+	// GrantType OAuth2 grant type.
+	GrantType TokenRequestGrantType `form:"grant_type" json:"grant_type"`
+
+	// RedirectUri OAuth2 redirect URI (required for authorization_code grant if included in authorization request).
+	RedirectUri *string `form:"redirect_uri,omitempty" json:"redirect_uri"`
+
+	// RefreshToken Refresh token for refresh_token grant.
+	RefreshToken *string `form:"refresh_token,omitempty" json:"refresh_token"`
+
+	// Scope OAuth2 scope.
+	Scope *string `form:"scope,omitempty" json:"scope"`
+}
+
+// TokenRequestGrantType OAuth2 grant type.
+type TokenRequestGrantType string
+
+// TokenResponse OAuth2 token response
+type TokenResponse struct {
+	// AccessToken OAuth2 access token.
+	AccessToken *string `json:"access_token,omitempty"`
+
+	// Error OAuth2 error code.
+	Error *string `json:"error,omitempty"`
+
+	// ErrorDescription OAuth2 error description.
+	ErrorDescription *string `json:"error_description,omitempty"`
+
+	// ExpiresIn Token expiration time in seconds.
+	ExpiresIn *int `json:"expires_in,omitempty"`
+
+	// RefreshToken OAuth2 refresh token.
+	RefreshToken *string `json:"refresh_token,omitempty"`
+
+	// TokenType Token type.
+	TokenType *TokenResponseTokenType `json:"token_type,omitempty"`
+}
+
+// TokenResponseTokenType Token type.
+type TokenResponseTokenType string
+
 // UpdateSchedule Defines the schedule for automatic downloading and updates, including timing and optional timeout.
 type UpdateSchedule struct {
 	// At Cron expression format for scheduling times.
@@ -2497,6 +2559,24 @@ type UpdateSchedule struct {
 
 	// TimeZone Time zone identifiers follow the IANA format AREA/LOCATION, where AREA represents a continent or ocean, and LOCATION specifies a particular site within that area, for example America/New_York, Europe/Paris. Only unambiguous 3-character time zones are supported ("GMT", "UTC").
 	TimeZone *TimeZone `json:"timeZone,omitempty"`
+}
+
+// UserInfoResponse OIDC UserInfo response
+type UserInfoResponse struct {
+	// Error Error code.
+	Error *string `json:"error,omitempty"`
+
+	// Name Full name.
+	Name *string `json:"name,omitempty"`
+
+	// Organizations User organizations.
+	Organizations *[]Organization `json:"organizations,omitempty"`
+
+	// PreferredUsername Preferred username.
+	PreferredUsername *string `json:"preferred_username,omitempty"`
+
+	// Sub Subject identifier.
+	Sub *string `json:"sub,omitempty"`
 }
 
 // Version defines model for Version.
@@ -2690,6 +2770,12 @@ type ListResourceSyncsParams struct {
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 }
+
+// AuthTokenJSONRequestBody defines body for AuthToken for application/json ContentType.
+type AuthTokenJSONRequestBody = TokenRequest
+
+// AuthTokenFormdataRequestBody defines body for AuthToken for application/x-www-form-urlencoded ContentType.
+type AuthTokenFormdataRequestBody = TokenRequest
 
 // CreateAuthProviderJSONRequestBody defines body for CreateAuthProvider for application/json ContentType.
 type CreateAuthProviderJSONRequestBody = AuthProvider

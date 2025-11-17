@@ -147,13 +147,12 @@ func ExtractBearerToken(r *http.Request) (string, error) {
 // Only includes endpoints served by the main API server. OIDC/OAuth2 endpoints (authorize, token, jwks, etc.)
 // are served by the PAM issuer on a separate server and are not included here.
 func IsPublicAuthEndpoint(path string) bool {
-	publicEndpoints := []string{
-		"/api/v1/auth/config",
+	if path == "/api/v1/auth/config" {
+		return true
 	}
-	for _, endpoint := range publicEndpoints {
-		if path == endpoint {
-			return true
-		}
+	// Match /api/v1/auth/{providername}/token pattern
+	if strings.HasPrefix(path, "/api/v1/auth/") && strings.HasSuffix(path, "/token") {
+		return true
 	}
 	return false
 }
