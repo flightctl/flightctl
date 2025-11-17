@@ -96,6 +96,19 @@ type Service interface {
 	GetRepositoryFleetReferences(ctx context.Context, name string) (*api.FleetList, api.Status)
 	GetRepositoryDeviceReferences(ctx context.Context, name string) (*api.DeviceList, api.Status)
 
+	// AuthProvider
+	CreateAuthProvider(ctx context.Context, authProvider api.AuthProvider) (*api.AuthProvider, api.Status)
+	ListAuthProviders(ctx context.Context, params api.ListAuthProvidersParams) (*api.AuthProviderList, api.Status)
+	GetAuthProvider(ctx context.Context, name string) (*api.AuthProvider, api.Status)
+	GetAuthProviderByIssuerAndClientId(ctx context.Context, issuer string, clientId string) (*api.AuthProvider, api.Status)
+	GetAuthProviderByAuthorizationUrl(ctx context.Context, authorizationUrl string) (*api.AuthProvider, api.Status)
+	ReplaceAuthProvider(ctx context.Context, name string, authProvider api.AuthProvider) (*api.AuthProvider, api.Status)
+	PatchAuthProvider(ctx context.Context, name string, patch api.PatchRequest) (*api.AuthProvider, api.Status)
+	DeleteAuthProvider(ctx context.Context, name string) api.Status
+
+	// Auth
+	GetAuthConfig(ctx context.Context, authConfig *api.AuthConfig) (*api.AuthConfig, api.Status)
+
 	// ResourceSync
 	CreateResourceSync(ctx context.Context, rs api.ResourceSync) (*api.ResourceSync, api.Status)
 	ListResourceSyncs(ctx context.Context, params api.ListResourceSyncsParams) (*api.ResourceSyncList, api.Status)

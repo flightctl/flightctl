@@ -36,6 +36,10 @@ func NewUnit(b []byte) (*Unit, error) {
 	return NewUnitFromReader(bytes.NewReader(b))
 }
 
+func NewEmptyUnit() *Unit {
+	return &Unit{}
+}
+
 // Merge merges another Unit into this Unit, combining sections and entries.
 func (u *Unit) Merge(o *Unit) {
 	for _, section := range o.sections {
@@ -102,4 +106,64 @@ func (u *Unit) findSection(name string) *unit.UnitSection {
 		}
 	}
 	return nil
+}
+
+type UnitEntryTransformFn func(value string) (string, error)
+
+// Transform applies the specified UnitEntryTransformFn to all entries in the specified section for the supplied key.
+// The returned value from transform is set as the new value
+func (u *Unit) Transform(section, key string, transformFn UnitEntryTransformFn) error {
+	sec := u.findSection(section)
+	if sec == nil {
+		return ErrSectionNotFound
+	}
+
+	for _, entry := range sec.Entries {
+		if entry.Name == key {
+			res, err := transformFn(entry.Value)
+			if err != nil {
+				return err
+			}
+			entry.Value = res
+		}
+	}
+	return nil
+}
+
+type UnitEntryTransformAllFn func(key, value string) (string, error)
+
+// TransformAll applies the specified UnitEntryTransformAllFn to all entries in specified section. The returned
+// value is set as the new value
+func (u *Unit) TransformAll(section string, transformFn UnitEntryTransformAllFn) error {
+	sec := u.findSection(section)
+	if sec == nil {
+		return ErrSectionNotFound
+	}
+
+	for _, entry := range sec.Entries {
+		res, err := transformFn(entry.Name, entry.Value)
+		if err != nil {
+			return err
+		}
+		entry.Value = res
+	}
+	return nil
+}
+
+// Add adds the specified key value pair to the section. If the section doesn't exist a new section is created. The
+// Unit is returned to allow chaining Add calls
+func (u *Unit) Add(section string, key string, value string) *Unit {
+	sec := u.findSection(section)
+	if sec == nil {
+		sec = &unit.UnitSection{
+			Section: section,
+			Entries: nil,
+		}
+		u.sections = append(u.sections, sec)
+	}
+	sec.Entries = append(sec.Entries, &unit.UnitEntry{
+		Name:  key,
+		Value: value,
+	})
+	return u
 }

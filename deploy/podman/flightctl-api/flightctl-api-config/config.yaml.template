@@ -33,8 +33,20 @@ auth:
   aap:
     apiUrl: {{AAP_API_URL}}
     externalApiUrl: {{AAP_EXTERNAL_API_URL}}
-  {{elseif OIDC}}
+  {{endif AAP}}
+  {{if OIDC}}
   oidc:
-    oidcAuthority: {{OIDC_URL}}
-    externalOidcAuthority: {{OIDC_EXTERNAL_URL}}
-  {{endif}}
+    issuer: {{OIDC_ISSUER}}
+    externalOidcAuthority: {{OIDC_EXTERNAL_AUTHORITY}}
+    clientId: {{OIDC_CLIENT_ID}}
+    enabled: {{OIDC_ENABLED}}
+    usernameClaim:
+      - {{OIDC_USERNAME_CLAIM}}
+    roleAssignment:
+      type: {{OIDC_ROLE_ASSIGNMENT_TYPE}}
+      claimPath:
+        - {{OIDC_ROLE_ASSIGNMENT_CLAIM_PATH}}
+    organizationAssignment:
+      type: {{OIDC_ORG_ASSIGNMENT_TYPE}}
+      organizationName: {{OIDC_ORG_NAME}}
+  {{endif OIDC}}

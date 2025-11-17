@@ -21,6 +21,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
+	"github.com/flightctl/flightctl/internal/agent/device/spec/audit"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/internal/agent/device/systeminfo"
@@ -32,6 +33,7 @@ import (
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/poll"
+	"github.com/flightctl/flightctl/pkg/version"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 )
@@ -68,8 +70,8 @@ func (a *Agent) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	// start early to profile initialization and startup routines
-	go instrumentation.NewPprofServer(a.log, a.config).Run(ctx)
+	// start instrumentation early so startup paths are observable.
+	go instrumentation.NewAgentInstrumentation(a.log, a.config).Run(ctx)
 
 	// create file io writer and reader
 	deviceReadWriter := fileio.NewReadWriter(fileio.WithTestRootDir(a.config.GetTestRootDir()))
@@ -187,6 +189,23 @@ func (a *Agent) Run(ctx context.Context) error {
 		return wipeCertificateAndRestart(ctx, identityProvider, executer, a.log)
 	}
 
+	// create audit logger
+	auditLogger, err := audit.NewFileLogger(
+		&a.config.AuditLog,
+		deviceReadWriter,
+		deviceName,
+		version.Get().String(),
+		a.log,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create audit logger: %w", err)
+	}
+	defer func() {
+		if err := auditLogger.Close(); err != nil {
+			a.log.Errorf("Failed to close audit logger: %v", err)
+		}
+	}()
+
 	// create spec manager
 	specManager := spec.NewManager(
 		deviceName,
@@ -197,6 +216,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.config.SpecFetchInterval,
 		backoff,
 		deviceNotFoundHandler,
+		auditLogger,
 		a.log,
 	)
 

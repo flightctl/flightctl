@@ -18,7 +18,7 @@ func createAuthZMiddleware(authZ AuthZMiddleware) http.Handler {
 	}))
 }
 
-func createAuthNMiddleware(authN AuthNMiddleware) http.Handler {
+func createAuthNMiddleware(authN common.AuthNMiddleware) http.Handler {
 	return CreateAuthNMiddleware(authN, logrus.New())(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))

@@ -18,26 +18,33 @@ class Flightctl(Plugin, RedHatPlugin):
     def setup(self):
         self.add_copy_spec([
             "/etc/flightctl",
-            "/var/lib/flightctl"
+            "/var/lib/flightctl",
+            "/var/log/flightctl"
         ])
         self.add_forbidden_path("/etc/flightctl/certs")
         self.add_forbidden_path("/var/lib/flightctl/certs")
 
+        # Prometheus metrics
+        self.add_cmd_output(
+            "curl -fsS --max-time 10 -H 'Accept: text/plain' 'http://127.0.0.1:15690/metrics'",
+            suggest_filename="flightctl-metrics.txt",
+        )
+
         # Goroutines
         self.add_cmd_output(
-            f"curl -fsS --max-time 10 'http://127.0.0.1:15689/debug/pprof/goroutine?debug=2'",
+            "curl -fsS --max-time 10 'http://127.0.0.1:15689/debug/pprof/goroutine?debug=2'",
             suggest_filename="flightctl-goroutines.txt",
         )
 
         # Heap (binary)
         self.add_cmd_output(
-            f"curl -fsS --max-time 10 'http://127.0.0.1:15689/debug/pprof/heap'",
+            "curl -fsS --max-time 10 'http://127.0.0.1:15689/debug/pprof/heap'",
             suggest_filename="flightctl-pprof-heap.pprof", binary=True, to_file=True
         )
 
         # CPU profile 5s (binary)
         self.add_cmd_output(
-            f"curl -fsS --max-time 10 'http://127.0.0.1:15689/debug/pprof/profile?seconds=5'",
+            "curl -fsS --max-time 10 'http://127.0.0.1:15689/debug/pprof/profile?seconds=5'",
             suggest_filename="flightctl-pprof-cpu.pprof", binary=True, to_file=True
         )
 

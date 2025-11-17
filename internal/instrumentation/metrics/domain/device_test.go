@@ -61,6 +61,10 @@ func (m *MockStore) Organization() store.Organization {
 	return nil
 }
 
+func (m *MockStore) AuthProvider() store.AuthProvider {
+	return nil
+}
+
 func (m *MockStore) RunMigrations(context.Context) error {
 	return nil
 }
@@ -214,9 +218,6 @@ func TestDeviceCollectorWithGroupByFleet(t *testing.T) {
 	// Test that the collector implements the required interfaces
 	var _ prometheus.Collector = collector
 
-	// Test MetricsName
-	assert.Equal(t, "device", collector.MetricsName())
-
 	// Test that metrics are collected
 	ch := make(chan prometheus.Metric, 100)
 	go func() {
@@ -264,9 +265,6 @@ func TestDeviceCollectorWithoutGroupByFleet(t *testing.T) {
 
 	// Test that the collector implements the required interfaces
 	var _ prometheus.Collector = collector
-
-	// Test MetricsName
-	assert.Equal(t, "device", collector.MetricsName())
 
 	// Test that metrics are collected
 	ch := make(chan prometheus.Metric, 100)

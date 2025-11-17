@@ -26,6 +26,67 @@ type writer struct {
 	rootDir string
 }
 
+type symlinkBehavior int
+
+const (
+	symlinkSkip symlinkBehavior = iota
+	symlinkError
+	symlinkPreserve
+	symlinkFollow
+	symlinkFollowWithinRoot
+	symlinkPreserveWithinRoot
+)
+
+type copyDirOptions struct {
+	symlinkBehavior symlinkBehavior
+	rootDir         string
+}
+
+// CopyDirOption is a functional option for CopyDir
+type CopyDirOption func(*copyDirOptions)
+
+// WithSkipSymlink skips symlinks during directory copy
+func WithSkipSymlink() CopyDirOption {
+	return func(opts *copyDirOptions) {
+		opts.symlinkBehavior = symlinkSkip
+	}
+}
+
+// WithErrorOnSymlink returns an error if a symlink is encountered during directory copy
+func WithErrorOnSymlink() CopyDirOption {
+	return func(opts *copyDirOptions) {
+		opts.symlinkBehavior = symlinkError
+	}
+}
+
+// WithPreserveSymlink preserves symlinks as-is during directory copy
+func WithPreserveSymlink() CopyDirOption {
+	return func(opts *copyDirOptions) {
+		opts.symlinkBehavior = symlinkPreserve
+	}
+}
+
+// WithFollowSymlink follows symlinks during directory copy with validation
+func WithFollowSymlink() CopyDirOption {
+	return func(opts *copyDirOptions) {
+		opts.symlinkBehavior = symlinkFollow
+	}
+}
+
+// WithFollowSymlinkWithinRoot follows symlinks only if they resolve within the source root directory
+func WithFollowSymlinkWithinRoot() CopyDirOption {
+	return func(opts *copyDirOptions) {
+		opts.symlinkBehavior = symlinkFollowWithinRoot
+	}
+}
+
+// WithPreserveSymlinkWithinRoot preserves symlinks only if they resolve within the source root directory
+func WithPreserveSymlinkWithinRoot() CopyDirOption {
+	return func(opts *copyDirOptions) {
+		opts.symlinkBehavior = symlinkPreserveWithinRoot
+	}
+}
+
 // New creates a new writer
 func NewWriter() *writer {
 	return &writer{}
@@ -42,7 +103,7 @@ func (w *writer) PathFor(filePath string) string {
 
 // WriteFile writes the provided data to the file at the path with the provided permissions and ownership information
 func (w *writer) WriteFile(name string, data []byte, perm fs.FileMode, opts ...FileOption) error {
-	fopts := &fileOptions{}
+	fopts := &fileOptions{uid: -1, gid: -1}
 	for _, opt := range opts {
 		opt(fopts)
 	}
@@ -177,6 +238,193 @@ func (w *writer) copyFile(src, dst string) error {
 	}
 
 	return nil
+}
+
+func (w *writer) CopyDir(src, dst string, opts ...CopyDirOption) error {
+	options := &copyDirOptions{
+		symlinkBehavior: symlinkSkip,
+	}
+	for _, opt := range opts {
+		opt(options)
+	}
+	fullSrc := filepath.Join(w.rootDir, src)
+	fullDst := filepath.Join(w.rootDir, dst)
+	absSrc, err := filepath.Abs(fullSrc)
+	if err != nil {
+		return fmt.Errorf("failed to get absolute path for source: %w", err)
+	}
+	options.rootDir = absSrc
+	return w.copyDirWithVisited(fullSrc, fullDst, options, make(map[string]bool))
+}
+
+func (w *writer) copyDirWithVisited(src, dst string, opts *copyDirOptions, visited map[string]bool) error {
+	srcInfo, err := os.Lstat(src)
+	if err != nil {
+		return fmt.Errorf("failed to stat source directory: %w", err)
+	}
+
+	if srcInfo.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("source is a symlink: %s", src)
+	}
+
+	if !srcInfo.IsDir() {
+		return fmt.Errorf("source is not a directory: %s", src)
+	}
+
+	absSrc, err := filepath.Abs(src)
+	if err != nil {
+		return fmt.Errorf("failed to get absolute path for %s: %w", src, err)
+	}
+
+	if visited[absSrc] {
+		return fmt.Errorf("circular symlink detected: %s (already being processed)", src)
+	}
+	visited[absSrc] = true
+	defer delete(visited, absSrc)
+
+	if err := os.MkdirAll(dst, srcInfo.Mode()); err != nil {
+		return fmt.Errorf("failed to create destination directory: %w", err)
+	}
+
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return fmt.Errorf("failed to read source directory: %w", err)
+	}
+
+	for _, entry := range entries {
+		srcPath := filepath.Join(src, entry.Name())
+		dstPath := filepath.Join(dst, entry.Name())
+
+		if entry.Type()&os.ModeSymlink != 0 {
+			if err := w.handleSymlink(srcPath, dstPath, opts, visited); err != nil {
+				return err
+			}
+			continue
+		}
+
+		if entry.IsDir() {
+			if err := w.copyDirWithVisited(srcPath, dstPath, opts, visited); err != nil {
+				return err
+			}
+		} else {
+			if err := w.copyFile(srcPath, dstPath); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func (w *writer) handleSymlink(srcPath, dstPath string, opts *copyDirOptions, visited map[string]bool) error {
+	switch opts.symlinkBehavior {
+	case symlinkSkip:
+		return nil
+	case symlinkError:
+		return fmt.Errorf("symlink encountered: %s", srcPath)
+	case symlinkPreserve:
+		return w.preserveSymlink(srcPath, dstPath)
+	case symlinkFollow:
+		return w.followSymlink(srcPath, dstPath, opts, visited)
+	case symlinkFollowWithinRoot:
+		return w.followSymlinkWithinRoot(srcPath, dstPath, opts, visited)
+	case symlinkPreserveWithinRoot:
+		return w.preserveSymlinkWithinRoot(srcPath, dstPath, opts)
+	default:
+		return fmt.Errorf("unknown symlink behavior: %d", opts.symlinkBehavior)
+	}
+}
+
+func (w *writer) preserveSymlink(srcPath, dstPath string) error {
+	linkTarget, err := os.Readlink(srcPath)
+	if err != nil {
+		return fmt.Errorf("failed to read symlink %s: %w", srcPath, err)
+	}
+	if err := os.Symlink(linkTarget, dstPath); err != nil {
+		return fmt.Errorf("failed to create symlink %s: %w", dstPath, err)
+	}
+	return nil
+}
+
+func (w *writer) followSymlink(srcPath, dstPath string, opts *copyDirOptions, visited map[string]bool) error {
+	resolved, err := filepath.EvalSymlinks(srcPath)
+	if err != nil {
+		return fmt.Errorf("failed to resolve symlink %s: %w", srcPath, err)
+	}
+
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return fmt.Errorf("failed to stat symlink target %s: %w", resolved, err)
+	}
+
+	if info.IsDir() {
+		return w.copyDirWithVisited(resolved, dstPath, opts, visited)
+	}
+	return w.copyFile(resolved, dstPath)
+}
+
+func isWithinRoot(targetPath, rootDir string) (bool, error) {
+	absTarget, err := filepath.Abs(targetPath)
+	if err != nil {
+		return false, err
+	}
+
+	absRoot, err := filepath.Abs(rootDir)
+	if err != nil {
+		return false, err
+	}
+
+	if absTarget == absRoot {
+		return true, nil
+	}
+
+	// confirm that target is prefixed with the root directory
+	if strings.HasPrefix(absTarget, fmt.Sprintf("%s/", absRoot)) {
+		return true, nil
+	}
+	return false, nil
+}
+
+func (w *writer) followSymlinkWithinRoot(srcPath, dstPath string, opts *copyDirOptions, visited map[string]bool) error {
+	resolved, err := filepath.EvalSymlinks(srcPath)
+	if err != nil {
+		return fmt.Errorf("resolve symlink %s: %w", srcPath, err)
+	}
+
+	within, err := isWithinRoot(resolved, opts.rootDir)
+	if err != nil {
+		return fmt.Errorf("symlink within root: %w", err)
+	}
+	if !within {
+		return nil
+	}
+
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return fmt.Errorf("stat symlink target %s: %w", resolved, err)
+	}
+
+	if info.IsDir() {
+		return w.copyDirWithVisited(resolved, dstPath, opts, visited)
+	}
+	return w.copyFile(resolved, dstPath)
+}
+
+func (w *writer) preserveSymlinkWithinRoot(srcPath, dstPath string, opts *copyDirOptions) error {
+	resolved, err := filepath.EvalSymlinks(srcPath)
+	if err != nil {
+		return fmt.Errorf("resolve symlink %s: %w", srcPath, err)
+	}
+
+	within, err := isWithinRoot(resolved, opts.rootDir)
+	if err != nil {
+		return fmt.Errorf("symlink within root: %w", err)
+	}
+	if !within {
+		return nil
+	}
+
+	return w.preserveSymlink(srcPath, dstPath)
 }
 
 func (w *writer) CreateManagedFile(file v1alpha1.FileSpec) (ManagedFile, error) {
@@ -369,4 +617,54 @@ func WriteTmpFile(rw ReadWriter, prefix, filename string, content []byte, perm o
 		_ = rw.RemoveAll(tmpDir)
 	}
 	return tmpPath, cleanup, nil
+}
+
+// AppendFile appends the provided data to the file at the path, creating the file if it doesn't exist.
+func AppendFile(w Writer, name string, data []byte, perm fs.FileMode, opts ...FileOption) error {
+	fopts := &fileOptions{uid: -1, gid: -1}
+	for _, opt := range opts {
+		opt(fopts)
+	}
+
+	var uid, gid int
+	// Check if we're in test mode by checking if PathFor returns a modified path
+	testPath := w.PathFor("")
+	if testPath != "" {
+		// Test mode: use default UID and GID
+		defaultUID, defaultGID, err := getUserIdentity()
+		if err != nil {
+			return err
+		}
+		uid = defaultUID
+		gid = defaultGID
+	} else {
+		// Production mode: use provided or default ownership
+		uid = fopts.uid
+		gid = fopts.gid
+	}
+
+	filePath := w.PathFor(name)
+
+	// Create directory if it doesn't exist
+	if err := os.MkdirAll(filepath.Dir(filePath), DefaultDirectoryPermissions); err != nil {
+		return err
+	}
+
+	// Open file for appending, create if not exists
+	file, err := os.OpenFile(filePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, perm)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	// Set ownership if specified (use -1 as "don't change ownership" sentinel)
+	if uid != -1 && gid != -1 {
+		if err := file.Chown(uid, gid); err != nil {
+			return err
+		}
+	}
+
+	// Append data
+	_, err = file.Write(data)
+	return err
 }

@@ -5,17 +5,20 @@ import (
 	"testing"
 	"time"
 
+	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/config/ca"
+	"github.com/flightctl/flightctl/internal/consts"
 	icrypto "github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/identity"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/worker_client"
-	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
 	testutil "github.com/flightctl/flightctl/test/util"
+	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
@@ -57,9 +60,24 @@ type ServiceTestSuite struct {
 // Setup performs common initialization for service tests
 func (s *ServiceTestSuite) Setup() {
 	s.Ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
-	s.Log = flightlog.InitLogs()
+	s.Log = testutil.InitLogsWithDebug()
 
 	s.Store, s.cfg, s.dbName, s.db = store.PrepareDBForUnitTests(s.Ctx, s.Log)
+
+	// Add a default admin mapped identity to the context for tests
+	// This is required by auth provider validation
+	testOrg := &model.Organization{
+		ID:          store.NullOrgId,
+		ExternalID:  "test-org",
+		DisplayName: "Test Organization",
+	}
+	adminIdentity := &identity.MappedIdentity{
+		Username:      "test-admin",
+		UID:           uuid.New().String(),
+		Organizations: []*model.Organization{testOrg},
+		Roles:         []string{string(api.RoleAdmin)},
+	}
+	s.Ctx = context.WithValue(s.Ctx, consts.MappedIdentityCtxKey, adminIdentity)
 
 	s.ctrl = gomock.NewController(GinkgoT())
 	s.mockQueueProducer = queues.NewMockQueueProducer(s.ctrl)
@@ -75,9 +93,7 @@ func (s *ServiceTestSuite) Setup() {
 	s.caClient, _, err = icrypto.EnsureCA(caCfg)
 	Expect(err).ToNot(HaveOccurred())
 
-	orgResolver, err := testutil.NewOrgResolver(s.cfg, s.Store.Organization(), s.Log)
-	Expect(err).ToNot(HaveOccurred())
-	s.Handler = service.NewServiceHandler(s.Store, s.workerClient, kvStore, s.caClient, s.Log, "", "", []string{}, orgResolver)
+	s.Handler = service.NewServiceHandler(s.Store, s.workerClient, kvStore, s.caClient, s.Log, "", "", []string{})
 }
 
 // Teardown performs common cleanup for service tests

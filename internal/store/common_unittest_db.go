@@ -30,7 +30,7 @@ func createRandomTestDB(ctx context.Context, log *logrus.Logger) (*config.Config
 	cfg := config.NewDefault()
 
 	randomDBName := generateRandomDBName()
-	log.Infof("DB name: %s", randomDBName)
+	log.Debugf("DB name: %s", randomDBName)
 
 	strategy := os.Getenv("FLIGHTCTL_TEST_DB_STRATEGY")
 	if strategy == "" {
@@ -107,7 +107,7 @@ func setupTemplateStrategy(ctx context.Context, cfg *config.Config, dbName strin
 		templateDB = "flightctl_tmpl"
 	}
 
-	log.Infof("Creating test database from template: %s", templateDB)
+	log.Debugf("Creating test database from template: %s", templateDB)
 	res := adminDB.WithContext(ctx).Exec(fmt.Sprintf("CREATE DATABASE %s TEMPLATE %s;", dbName, templateDB))
 	if res.Error != nil {
 		return nil, nil, fmt.Errorf("creating database from template: %w", res.Error)
@@ -129,7 +129,7 @@ func setupLocalStrategy(ctx context.Context, cfg *config.Config, dbName string, 
 	}
 	defer CloseDB(dbTemp)
 
-	log.Infof("Creating test database with local migrations")
+	log.Debugf("Creating test database with local migrations")
 	res := dbTemp.WithContext(ctx).Exec(fmt.Sprintf("CREATE DATABASE %s;", dbName))
 	if res.Error != nil {
 		return nil, nil, fmt.Errorf("creating empty database: %w", res.Error)
@@ -141,7 +141,7 @@ func setupLocalStrategy(ctx context.Context, cfg *config.Config, dbName string, 
 		return nil, nil, fmt.Errorf("initializing data store: %w", err)
 	}
 
-	log.Infof("Running local migrations on test database")
+	log.Debugf("Running local migrations on test database")
 	store := NewStore(gormDb, log.WithField("pkg", "store"))
 	if err = store.RunMigrations(ctx); err != nil {
 		_ = store.Close() // ensure pool is closed on failure

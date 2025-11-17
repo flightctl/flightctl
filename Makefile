@@ -29,34 +29,29 @@ CACHE_FLAGS_TEMPLATE := --cache-from=$(REGISTRY)/$(REGISTRY_OWNER)/%
 
 
 
-GOBASE=$(shell pwd)
-GOBIN=$(GOBASE)/bin/
-GO_BUILD_FLAGS := ${GO_BUILD_FLAGS}
 ROOT_DIR := $(or ${ROOT_DIR},$(shell dirname $(realpath $(firstword $(MAKEFILE_LIST)))))
-GO_FILES := $(shell find ./ -name "*.go" -not -path "./bin" -not -path "./packaging/*")
+GOBASE=$(ROOT_DIR)
+GOBIN=$(ROOT_DIR)/bin/
+GO_BUILD_FLAGS := ${GO_BUILD_FLAGS}
+GO_FILES = $(shell find $(ROOT_DIR)/ -name "*.go" -not -path "$(ROOT_DIR)/bin" -not -path "$(ROOT_DIR)/packaging/*")
 TIMEOUT ?= 30m
-GOOS := $(shell go env GOOS)
-GOARCH := $(shell go env GOARCH)
+GOOS = $(shell go env GOOS)
+GOARCH = $(shell go env GOARCH)
 
 VERBOSE ?= false
 
-SOURCE_GIT_TAG ?=$(shell ./hack/current-version)
-SOURCE_GIT_TREE_STATE ?=$(shell ( ( [ ! -d ".git/" ] || git diff --quiet ) && echo 'clean' ) || echo 'dirty')
-SOURCE_GIT_COMMIT ?=$(shell git rev-parse --short "HEAD^{commit}" 2>/dev/null || echo "unknown")
+SOURCE_GIT_TAG ?=$(shell $(ROOT_DIR)/hack/current-version)
+SOURCE_GIT_TREE_STATE ?=$(shell ( ( [ ! -d "$(ROOT_DIR)/.git/" ] || git -C $(ROOT_DIR) diff --quiet ) && echo 'clean' ) || echo 'dirty')
+SOURCE_GIT_COMMIT ?=$(shell git -C $(ROOT_DIR) rev-parse --short "HEAD^{commit}" 2>/dev/null || echo "unknown")
 BIN_TIMESTAMP ?=$(shell date +'%Y%m%d')
-SOURCE_GIT_TAG_NO_V := $(shell echo $(SOURCE_GIT_TAG) | sed 's/^v//')
-MAJOR := $(shell echo $(SOURCE_GIT_TAG_NO_V) | awk -F'[._~-]' '{print $$1}')
-MINOR := $(shell echo $(SOURCE_GIT_TAG_NO_V) | awk -F'[._~-]' '{print $$2}')
-PATCH := $(shell echo $(SOURCE_GIT_TAG_NO_V) | awk -F'[._~-]' '{print $$3}')
+SOURCE_GIT_TAG_NO_V = $(shell echo $(SOURCE_GIT_TAG) | sed 's/^v//')
+MAJOR = $(shell echo $(SOURCE_GIT_TAG_NO_V) | awk -F'[._~-]' '{print $$1}')
+MINOR = $(shell echo $(SOURCE_GIT_TAG_NO_V) | awk -F'[._~-]' '{print $$2}')
+PATCH = $(shell echo $(SOURCE_GIT_TAG_NO_V) | awk -F'[._~-]' '{print $$3}')
 
 # If a FIPS-validated Go toolset is found, build in FIPS mode unless explicitly disabled by the user using DISABLE_FIPS="true"
-FIPS_VALIDATED_TOOLSET := $(shell go env GOVERSION | grep -q "Red Hat"; if [ $$? -eq 0 ]; then echo "true"; fi)
-GOENV := CGO_ENABLED=0
-ifeq ($(FIPS_VALIDATED_TOOLSET),true)
-	ifneq ($(DISABLE_FIPS),true)
-		GOENV := CGO_ENABLED=1 CGO_CFLAGS=-flto GOEXPERIMENT=strictfipsruntime
-	endif
-endif
+FIPS_VALIDATED_TOOLSET = $(shell go env GOVERSION | grep -q "Red Hat" && echo "true" || echo "false")
+GOENV = $(if $(filter true,$(DISABLE_FIPS)),CGO_ENABLED=0,$(if $(filter true,$(FIPS_VALIDATED_TOOLSET)),CGO_ENABLED=1 CGO_CFLAGS=-flto GOEXPERIMENT=strictfipsruntime,CGO_ENABLED=0))
 
 ifeq ($(DEBUG),true)
 	# throw all the debug info in!
@@ -68,7 +63,7 @@ else
 	GC_FLAGS :=
 endif
 
-GO_LD_FLAGS := $(GC_FLAGS) -ldflags "\
+GO_LD_FLAGS = $(GC_FLAGS) -ldflags "\
 	-X github.com/flightctl/flightctl/pkg/version.majorFromGit=$(MAJOR) \
 	-X github.com/flightctl/flightctl/pkg/version.minorFromGit=$(MINOR) \
 	-X github.com/flightctl/flightctl/pkg/version.patchFromGit=$(PATCH) \
@@ -79,7 +74,8 @@ GO_LD_FLAGS := $(GC_FLAGS) -ldflags "\
 	$(LD_FLAGS)"
 GO_BUILD_FLAGS += $(GO_LD_FLAGS)
 
-.EXPORT_ALL_VARIABLES:
+# Removed .EXPORT_ALL_VARIABLES as it forces evaluation of all variables (even lazy ones)
+# causing massive slowdown. Export only what's needed explicitly above.
 
 all: build build-containers
 
@@ -105,6 +101,7 @@ help:
 	@echo "    deploy-kv:       deploy only the key-value store as a container, for testing"
 	@echo "    deploy-quadlets: deploy the complete Flight Control service using Quadlets"
 	@echo "                     (includes proper startup ordering: DB -> KV -> other services)"
+	@echo "                     Supports AUTH=true and ORGS=true environment variables"
 	@echo "    clean:           clean up all containers and volumes"
 	@echo "    clean-all:       full cleanup including containers and bin directory"
 	@echo "    rebuild-containers: force rebuild all containers"
@@ -330,8 +327,8 @@ bin:
 	mkdir -p bin
 
 # only trigger the rpm build when not built before or changes happened to the codebase
-bin/.rpm: bin $(shell find ./ -name "*.go" -not -path "./packaging/*") packaging/rpm/flightctl.spec packaging/systemd/flightctl-agent.service hack/build_rpms.sh $(shell find packaging/selinux -type f)
-	./hack/build_rpms.sh
+bin/.rpm: bin $(shell find $(ROOT_DIR)/ -name "*.go" -not -path "$(ROOT_DIR)/packaging/*") packaging/rpm/flightctl.spec packaging/systemd/flightctl-agent.service hack/build_rpms.sh $(shell find $(ROOT_DIR)/packaging/selinux -type f)
+	$(ROOT_DIR)/hack/build_rpms.sh
 	touch bin/.rpm
 
 rpm: bin/.rpm
@@ -366,16 +363,17 @@ deb: bin/arm64 bin/amd64 bin/riscv64
 
 clean: clean-agent-vm clean-e2e-agent-images clean-quadlets clean-swtpm-certs
 	- kind delete cluster
-	- rm -r ~/.flightctl
-	- rm -f -r $(shell uname -m)
-	- rm -f -r obj-*-linux-gnu
-	- rm -f -r debian
+	- rm -rf ~/.flightctl
+	- rm -rf $(shell uname -m)
+	- rm -rf obj-*-linux-gnu
+	- rm -rf debian
+	- rm -rf .output/stamps
 # Qcow2 disk depends on the touch file
 bin/output/qcow2/disk.qcow2: bin/.e2e-agent-images
 
 # Full cleanup including bin directory and all artifacts
 clean-all: clean clean-containers
-	- rm -f -r bin
+	- rm -rf bin
 
 clean-quadlets:
 	sudo deploy/scripts/clean_quadlets.sh
@@ -391,14 +389,16 @@ LINT_CONTAINER := podman run --rm \
 	-v go-mod-cache:/go/pkg/mod \
 	-w /app --user 0 $(LINT_IMAGE)
 
-.PHONY: tools lint-image
+.PHONY: tools
 tools:
 
-lint-image:
+.output/stamps/lint-image: Containerfile.lint go.mod go.sum
+	@mkdir -p .output/stamps
 	podman build -f Containerfile.lint -t $(LINT_IMAGE)
+	@touch .output/stamps/lint-image
 
 .PHONY: lint
-lint: lint-image
+lint: .output/stamps/lint-image
 	$(LINT_CONTAINER) golangci-lint run -v
 
 .PHONY: rpmlint
@@ -415,15 +415,23 @@ rpmlint-ci:
 check-rpmlint:
 	@command -v rpmlint > /dev/null || (echo "rpmlint not found. Install with: sudo apt-get install rpmlint (Ubuntu/Debian) or sudo dnf install rpmlint (Fedora/RHEL)" && exit 1)
 
-.PHONY: lint-openapi
-lint-openapi:
+.output/stamps/lint-openapi: api/v1alpha1/openapi.yaml .spectral.yaml
+	@mkdir -p .output/stamps
 	@echo "Linting OpenAPI spec"
 	podman run --rm -it -v $(shell pwd):/workdir:Z docker.io/stoplight/spectral:6.14.2 lint --ruleset=/workdir/.spectral.yaml --fail-severity=warn /workdir/api/v1alpha1/openapi.yaml
+	@touch .output/stamps/lint-openapi
 
-.PHONY: lint-docs
-lint-docs:
+.PHONY: lint-openapi
+lint-openapi: .output/stamps/lint-openapi
+
+.output/stamps/lint-docs: $(wildcard docs/user/*.md)
+	@mkdir -p .output/stamps
 	@echo "Linting user documentation markdown files"
 	podman run --rm -v $(shell pwd):/workdir:Z docker.io/davidanson/markdownlint-cli2:v0.16.0 "docs/user/**/*.md"
+	@touch .output/stamps/lint-docs
+
+.PHONY: lint-docs
+lint-docs: .output/stamps/lint-docs
 
 .PHONY: lint-diagrams
 lint-diagrams:
@@ -439,10 +447,14 @@ lint-diagrams:
 		done ; \
 	done
 
-.PHONY: spellcheck-docs
-spellcheck-docs:
+.output/stamps/spellcheck-docs: $(wildcard docs/user/*.md)
+	@mkdir -p .output/stamps
 	@echo "Checking user documentation for spelling issues"
 	podman run --rm -v $(shell pwd):/workdir:Z docker.io/tmaier/markdown-spellcheck:latest --en-us --ignore-numbers --report "docs/user/**/*.md"
+	@touch .output/stamps/spellcheck-docs
+
+.PHONY: spellcheck-docs
+spellcheck-docs: .output/stamps/spellcheck-docs
 
 .PHONY: fix-spelling
 fix-spelling:

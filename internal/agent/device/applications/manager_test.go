@@ -10,6 +10,8 @@ import (
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
+	"github.com/flightctl/flightctl/internal/agent/device/dependency"
+	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -488,7 +490,7 @@ func mockExecSystemdStop(mockExec *executer.MockExecuter, services ...string) *g
 }
 
 func mockExecSystemdListUnits(mockExec *executer.MockExecuter, services ...string) *gomock.Call {
-	args := append([]string{"list-units", "--all", "--output", "json"}, services...)
+	args := append([]string{"list-units", "--all", "--output", "json", "--"}, services...)
 	return mockExec.EXPECT().ExecuteWithContext(
 		gomock.Any(),
 		"/usr/bin/systemctl",
@@ -525,4 +527,193 @@ func (m *mockDirEntry) Type() fs.FileMode {
 
 func (m *mockDirEntry) Info() (fs.FileInfo, error) {
 	return nil, nil
+}
+
+func TestCollectOCITargetsCache(t *testing.T) {
+	require := require.New(t)
+	log := log.NewPrefixLogger("test")
+	log.SetLevel(logrus.DebugLevel)
+
+	cache := provider.NewOCITargetCache()
+
+	// populate cache with nested targets for two applications
+	nestedTargets := []dependency.OCIPullTarget{
+		{Type: dependency.OCITypeImage, Reference: "quay.io/nested/image1:v1"},
+		{Type: dependency.OCITypeImage, Reference: "quay.io/nested/image2:v1"},
+	}
+
+	entry1 := provider.CacheEntry{
+		Name:     "app1",
+		Parent:   dependency.OCIPullTarget{Reference: "quay.io/parent:v1", Digest: "sha256:digest1"},
+		Children: nestedTargets,
+	}
+	entry2 := provider.CacheEntry{
+		Name:     "app2",
+		Parent:   dependency.OCIPullTarget{Reference: "quay.io/parent:v2", Digest: "sha256:digest2"},
+		Children: nestedTargets,
+	}
+
+	cache.Set(entry1)
+	cache.Set(entry2)
+
+	// verify cache retrieval
+	require.Equal(2, cache.Len())
+
+	cachedEntry1, found := cache.Get("app1")
+	require.True(found)
+	require.Len(cachedEntry1.Children, 2)
+	require.Equal("sha256:digest1", cachedEntry1.Parent.Digest)
+
+	cachedEntry2, found := cache.Get("app2")
+	require.True(found)
+	require.Len(cachedEntry2.Children, 2)
+	require.Equal("sha256:digest2", cachedEntry2.Parent.Digest)
+
+	// test GC removes unreferenced applications
+	cache.GC([]string{"app1"})
+	require.Equal(1, cache.Len())
+
+	_, found = cache.Get("app1")
+	require.True(found, "app1 should remain")
+
+	_, found = cache.Get("app2")
+	require.False(found, "app2 should be removed by GC")
+
+	// test clear
+	cache.Clear()
+	require.Equal(0, cache.Len())
+}
+
+func TestCollectOCITargetsErrorHandling(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	log := log.NewPrefixLogger("test")
+	log.SetLevel(logrus.DebugLevel)
+
+	testCases := []struct {
+		name          string
+		setupManager  func(*testing.T) *manager
+		expectError   bool
+		errorContains string
+		isRetryable   bool
+		expectRequeue bool
+	}{
+		{
+			name: "base image not available - returns base targets with Requeue=true",
+			setupManager: func(t *testing.T) *manager {
+				ctrl := gomock.NewController(t)
+				mockReadWriter := fileio.NewMockReadWriter(ctrl)
+				mockExec := executer.NewMockExecuter(ctrl)
+
+				mockExec.EXPECT().ExecuteWithContext(
+					gomock.Any(),
+					"podman",
+					[]string{"image", "exists", "quay.io/test/image:v1"},
+				).Return("", "", 1).AnyTimes() // exit code 1 = does not exist
+
+				mockPodmanClient := client.NewPodman(log, mockExec, mockReadWriter, testutil.NewPollConfig())
+				mockSystemdClient := client.NewSystemd(mockExec)
+				readWriter := fileio.NewReadWriter()
+				tmpDir := t.TempDir()
+				readWriter.SetRootdir(tmpDir)
+
+				return &manager{
+					readWriter:     readWriter,
+					podmanMonitor:  NewPodmanMonitor(log, mockPodmanClient, mockSystemdClient, "", mockReadWriter),
+					podmanClient:   mockPodmanClient,
+					systemdClient:  mockSystemdClient,
+					log:            log,
+					ociTargetCache: provider.NewOCITargetCache(),
+					appDataCache:   provider.NewAppDataCache(),
+				}
+			},
+			expectError:   false,
+			expectRequeue: true,
+		},
+		{
+			name: "hard failure during extraction - fails immediately",
+			setupManager: func(t *testing.T) *manager {
+				ctrl := gomock.NewController(t)
+				mockReadWriter := fileio.NewMockReadWriter(ctrl)
+				mockExec := executer.NewMockExecuter(ctrl)
+
+				mockExec.EXPECT().ExecuteWithContext(
+					gomock.Any(),
+					"podman",
+					[]string{"image", "exists", "quay.io/test/image:v1"},
+				).Return("", "", 0).AnyTimes() // exit code 0 = exists
+
+				// expect ImageDigest call (which will fail in this test)
+				mockExec.EXPECT().ExecuteWithContext(
+					gomock.Any(),
+					"podman",
+					[]string{"image", "inspect", "--format", "{{.Digest}}", "quay.io/test/image:v1"},
+				).Return("", "fatal error: disk full", 1).AnyTimes()
+
+				mockExec.EXPECT().ExecuteWithContext(
+					gomock.Any(),
+					"podman",
+					gomock.Any(),
+				).Return("", "fatal error: disk full", 1).AnyTimes()
+
+				mockPodmanClient := client.NewPodman(log, mockExec, mockReadWriter, testutil.NewPollConfig())
+				mockSystemdClient := client.NewSystemd(mockExec)
+				readWriter := fileio.NewReadWriter()
+				tmpDir := t.TempDir()
+				readWriter.SetRootdir(tmpDir)
+
+				return &manager{
+					readWriter:     readWriter,
+					podmanMonitor:  NewPodmanMonitor(log, mockPodmanClient, mockSystemdClient, "", mockReadWriter),
+					podmanClient:   mockPodmanClient,
+					systemdClient:  mockSystemdClient,
+					log:            log,
+					ociTargetCache: provider.NewOCITargetCache(),
+					appDataCache:   provider.NewAppDataCache(),
+				}
+			},
+			expectError:   true,
+			errorContains: "collecting nested OCI targets",
+			isRetryable:   false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			manager := tc.setupManager(t)
+
+			providerSpec := v1alpha1.ApplicationProviderSpec{
+				Name:    lo.ToPtr("test-app"),
+				AppType: lo.ToPtr(v1alpha1.AppTypeCompose),
+			}
+			_ = providerSpec.FromImageApplicationProviderSpec(v1alpha1.ImageApplicationProviderSpec{
+				Image: "quay.io/test/image:v1",
+			})
+			spec := &v1alpha1.DeviceSpec{
+				Applications: &[]v1alpha1.ApplicationProviderSpec{providerSpec},
+			}
+
+			result, err := manager.CollectOCITargets(ctx, &v1alpha1.DeviceSpec{}, spec)
+
+			if tc.expectError {
+				require.Error(err)
+				require.Nil(result)
+				if tc.errorContains != "" {
+					require.Contains(err.Error(), tc.errorContains)
+				}
+				if tc.isRetryable {
+					require.True(errors.IsRetryable(err), "Error should be retryable, got: %v", err)
+				} else {
+					require.False(errors.IsRetryable(err), "Error should NOT be retryable, got: %v", err)
+				}
+			} else {
+				require.NoError(err)
+				require.NotNil(result)
+				if tc.expectRequeue {
+					require.True(result.Requeue, "Expected Requeue=true, got false")
+					require.NotEmpty(result.Targets, "Expected base targets to be returned")
+				}
+			}
+		})
+	}
 }

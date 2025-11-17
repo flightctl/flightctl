@@ -21,6 +21,9 @@ FOCUS_FLAG=""
 go install github.com/onsi/ginkgo/v2/ginkgo
 
 GOBIN=$(go env GOBIN)
+if [ -z "$GOBIN" ]; then
+    GOBIN=$(go env GOPATH)/bin
+fi
 
 export API_ENDPOINT=https://$(get_endpoint_host flightctl-api-route)
 export REGISTRY_ENDPOINT=$(registry_address)

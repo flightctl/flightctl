@@ -1,6 +1,7 @@
 package v1alpha1
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -14,6 +15,8 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/api/common"
+	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/identity"
 	"github.com/flightctl/flightctl/internal/quadlet"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/util/validation"
@@ -35,6 +38,21 @@ var (
 	ErrDuplicateMonitorType                  = errors.New("duplicate monitorType in resources")
 	ErrInvalidCPUMonitorField                = errors.New("invalid field for CPU monitor")
 	ErrInvalidMemoryMonitorField             = errors.New("invalid field for Memory monitor")
+	ErrClaimPathRequiredDynamicOrg           = errors.New("claimPath is required for dynamic assignment")
+	ErrClaimPathRequiredDynamicRole          = errors.New("claimPath is required for dynamic role assignment")
+	ErrMappedIdentityNotFound                = errors.New("mapped identity not found in context")
+	ErrInvalidMappedIdentityType             = errors.New("invalid mapped identity type in context")
+	ErrIssuerRequired                        = errors.New("issuer is required")
+	ErrClientIdRequired                      = errors.New("clientId is required")
+	ErrAuthorizationUrlRequired              = errors.New("authorizationUrl is required")
+	ErrTokenUrlRequired                      = errors.New("tokenUrl is required")
+	ErrUserinfoUrlRequired                   = errors.New("userinfoUrl is required")
+	ErrOrganizationNameRequired              = errors.New("organizationName is required for static assignment")
+	ErrRolesRequired                         = errors.New("at least one role is required for static role assignment")
+	ErrK8sProviderConfigOnly                 = errors.New("k8s provider type can only be created from configuration, not via API")
+	ErrAapProviderConfigOnly                 = errors.New("aap provider type can only be created from configuration, not via API")
+	ErrDynamicOrgMappingAdminOnly            = errors.New("only flightctl-admin users are allowed to create auth providers with dynamic organization mapping")
+	ErrPerUserOrgMappingAdminOnly            = errors.New("only flightctl-admin users are allowed to create auth providers with per-user organization mapping")
 )
 
 type Validator interface {
@@ -1245,4 +1263,314 @@ func hasPathField(rawJSON []byte) bool {
 	}
 	_, exists := data["path"]
 	return exists
+}
+
+func (a AuthProvider) Validate(ctx context.Context) []error {
+	allErrs := []error{}
+	allErrs = append(allErrs, validation.ValidateResourceName(a.Metadata.Name)...)
+	allErrs = append(allErrs, validation.ValidateLabels(a.Metadata.Labels)...)
+	allErrs = append(allErrs, validation.ValidateAnnotations(a.Metadata.Annotations)...)
+	allErrs = append(allErrs, a.Spec.Validate(ctx)...)
+
+	return allErrs
+}
+
+func (o OIDCProviderSpec) Validate(ctx context.Context) []error {
+	allErrs := []error{}
+
+	if o.Issuer == "" {
+		allErrs = append(allErrs, ErrIssuerRequired)
+	}
+	if o.ClientId == "" {
+		allErrs = append(allErrs, ErrClientIdRequired)
+	}
+
+	// Validate organization assignment
+	allErrs = append(allErrs, o.OrganizationAssignment.Validate(ctx)...)
+
+	// Validate role assignment
+	allErrs = append(allErrs, o.RoleAssignment.Validate(ctx)...)
+
+	return allErrs
+}
+
+func (o OAuth2ProviderSpec) Validate(ctx context.Context) []error {
+	allErrs := []error{}
+
+	if o.AuthorizationUrl == "" {
+		allErrs = append(allErrs, ErrAuthorizationUrlRequired)
+	}
+	if o.TokenUrl == "" {
+		allErrs = append(allErrs, ErrTokenUrlRequired)
+	}
+	if o.UserinfoUrl == "" {
+		allErrs = append(allErrs, ErrUserinfoUrlRequired)
+	}
+	if o.ClientId == "" {
+		allErrs = append(allErrs, ErrClientIdRequired)
+	}
+	// Validate organization assignment
+	allErrs = append(allErrs, o.OrganizationAssignment.Validate(ctx)...)
+
+	// Validate role assignment
+	allErrs = append(allErrs, o.RoleAssignment.Validate(ctx)...)
+
+	return allErrs
+}
+
+func (a AuthProviderSpec) Validate(ctx context.Context) []error {
+	allErrs := []error{}
+
+	// Get the discriminator to determine which type of provider this is
+	discriminator, err := a.Discriminator()
+	if err != nil {
+		allErrs = append(allErrs, fmt.Errorf("invalid auth provider spec: %w", err))
+		return allErrs
+	}
+
+	switch discriminator {
+	case string(Oidc):
+		oidcSpec, err := a.AsOIDCProviderSpec()
+		if err != nil {
+			allErrs = append(allErrs, fmt.Errorf("invalid OIDC provider spec: %w", err))
+		} else {
+			allErrs = append(allErrs, oidcSpec.Validate(ctx)...)
+		}
+	case string(Oauth2):
+		oauth2Spec, err := a.AsOAuth2ProviderSpec()
+		if err != nil {
+			allErrs = append(allErrs, fmt.Errorf("invalid OAuth2 provider spec: %w", err))
+		} else {
+			allErrs = append(allErrs, oauth2Spec.Validate(ctx)...)
+		}
+	case string(K8s):
+		allErrs = append(allErrs, ErrK8sProviderConfigOnly)
+	case string(Aap):
+		allErrs = append(allErrs, ErrAapProviderConfigOnly)
+	default:
+		allErrs = append(allErrs, fmt.Errorf("unknown provider type: %s", discriminator))
+	}
+
+	return allErrs
+}
+
+func (a AuthOrganizationAssignment) Validate(ctx context.Context) []error {
+	allErrs := []error{}
+
+	// Get the discriminator to determine which type of assignment this is
+	discriminator, err := a.Discriminator()
+	if err != nil {
+		allErrs = append(allErrs, fmt.Errorf("invalid organization assignment: %w", err))
+		return allErrs
+	}
+
+	switch discriminator {
+	case string(AuthStaticOrganizationAssignmentTypeStatic):
+		static, err := a.AsAuthStaticOrganizationAssignment()
+		if err != nil {
+			allErrs = append(allErrs, fmt.Errorf("invalid static organization assignment: %w", err))
+		} else {
+			allErrs = append(allErrs, static.Validate(ctx)...)
+		}
+	case string(AuthDynamicOrganizationAssignmentTypeDynamic):
+		dynamic, err := a.AsAuthDynamicOrganizationAssignment()
+		if err != nil {
+			allErrs = append(allErrs, fmt.Errorf("invalid dynamic organization assignment: %w", err))
+		} else {
+			allErrs = append(allErrs, dynamic.Validate(ctx)...)
+		}
+	case string(PerUser):
+		perUser, err := a.AsAuthPerUserOrganizationAssignment()
+		if err != nil {
+			allErrs = append(allErrs, fmt.Errorf("invalid per-user organization assignment: %w", err))
+		} else {
+			allErrs = append(allErrs, perUser.Validate(ctx)...)
+		}
+	default:
+		allErrs = append(allErrs, fmt.Errorf("unknown organization assignment type: %s", discriminator))
+	}
+
+	return allErrs
+}
+
+func (a AuthStaticOrganizationAssignment) Validate(ctx context.Context) []error {
+	allErrs := []error{}
+
+	if a.OrganizationName == "" {
+		allErrs = append(allErrs, ErrOrganizationNameRequired)
+	}
+
+	// For non-admin users, validate that the static organization matches their current organization
+	// Access mapped identity directly from context
+	mappedIdentityVal := ctx.Value(consts.MappedIdentityCtxKey)
+	if mappedIdentityVal == nil {
+		allErrs = append(allErrs, ErrMappedIdentityNotFound)
+		return allErrs
+	}
+
+	mappedIdentity, ok := mappedIdentityVal.(*identity.MappedIdentity)
+	if !ok {
+		allErrs = append(allErrs, ErrInvalidMappedIdentityType)
+		return allErrs
+	}
+
+	// Check if user has admin role
+	hasAdminRole := false
+	for _, role := range mappedIdentity.GetRoles() {
+		if role == RoleAdmin {
+			hasAdminRole = true
+			break
+		}
+	}
+
+	// If user is not admin, they can only assign to their current organization
+	if !hasAdminRole {
+		organizations := mappedIdentity.GetOrganizations()
+		// Check if the organization name matches any of the user's organizations
+		hasMatchingOrg := false
+		for _, org := range organizations {
+			if org.ExternalID == a.OrganizationName {
+				hasMatchingOrg = true
+				break
+			}
+		}
+		if !hasMatchingOrg {
+			// Build a list of valid organization names for error message
+			validOrgs := make([]string, len(organizations))
+			for i, org := range organizations {
+				validOrgs[i] = org.ExternalID
+			}
+			allErrs = append(allErrs, fmt.Errorf("non-admin users can only assign to one of their current organizations: %v", validOrgs))
+		}
+	}
+
+	return allErrs
+}
+
+func (a AuthDynamicOrganizationAssignment) Validate(ctx context.Context) []error {
+	allErrs := []error{}
+
+	if len(a.ClaimPath) == 0 {
+		allErrs = append(allErrs, ErrClaimPathRequiredDynamicOrg)
+	}
+
+	// Only flightctl-admin is allowed to create auth providers with dynamic org mapping
+	// Access mapped identity directly from context
+	mappedIdentityVal := ctx.Value(consts.MappedIdentityCtxKey)
+	if mappedIdentityVal == nil {
+		allErrs = append(allErrs, ErrMappedIdentityNotFound)
+		return allErrs
+	}
+
+	mappedIdentity, ok := mappedIdentityVal.(*identity.MappedIdentity)
+	if !ok {
+		allErrs = append(allErrs, ErrInvalidMappedIdentityType)
+		return allErrs
+	}
+
+	hasAdminRole := false
+	for _, role := range mappedIdentity.GetRoles() {
+		if role == RoleAdmin {
+			hasAdminRole = true
+			break
+		}
+	}
+	if !hasAdminRole {
+		allErrs = append(allErrs, ErrDynamicOrgMappingAdminOnly)
+	}
+
+	return allErrs
+}
+
+func (a AuthPerUserOrganizationAssignment) Validate(ctx context.Context) []error {
+	allErrs := []error{}
+
+	// Per-user assignment doesn't require additional validation
+	// The organization name will be generated from the user's identity
+
+	// Only flightctl-admin is allowed to create auth providers with per-user org mapping
+	// Access mapped identity directly from context
+	mappedIdentityVal := ctx.Value(consts.MappedIdentityCtxKey)
+	if mappedIdentityVal == nil {
+		allErrs = append(allErrs, ErrMappedIdentityNotFound)
+		return allErrs
+	}
+
+	mappedIdentity, ok := mappedIdentityVal.(*identity.MappedIdentity)
+	if !ok {
+		allErrs = append(allErrs, ErrInvalidMappedIdentityType)
+		return allErrs
+	}
+
+	hasAdminRole := false
+	for _, role := range mappedIdentity.GetRoles() {
+		if role == RoleAdmin {
+			hasAdminRole = true
+			break
+		}
+	}
+	if !hasAdminRole {
+		allErrs = append(allErrs, ErrPerUserOrgMappingAdminOnly)
+	}
+
+	return allErrs
+}
+
+func (a AuthRoleAssignment) Validate(ctx context.Context) []error {
+	allErrs := []error{}
+
+	// Get the discriminator to determine which type of assignment this is
+	discriminator, err := a.Discriminator()
+	if err != nil {
+		allErrs = append(allErrs, fmt.Errorf("invalid role assignment: %w", err))
+		return allErrs
+	}
+
+	switch discriminator {
+	case string(AuthStaticRoleAssignmentTypeStatic):
+		static, err := a.AsAuthStaticRoleAssignment()
+		if err != nil {
+			allErrs = append(allErrs, fmt.Errorf("invalid static role assignment: %w", err))
+		} else {
+			allErrs = append(allErrs, static.Validate(ctx)...)
+		}
+	case string(AuthDynamicRoleAssignmentTypeDynamic):
+		dynamic, err := a.AsAuthDynamicRoleAssignment()
+		if err != nil {
+			allErrs = append(allErrs, fmt.Errorf("invalid dynamic role assignment: %w", err))
+		} else {
+			allErrs = append(allErrs, dynamic.Validate(ctx)...)
+		}
+	default:
+		allErrs = append(allErrs, fmt.Errorf("unknown role assignment type: %s", discriminator))
+	}
+
+	return allErrs
+}
+
+func (a AuthStaticRoleAssignment) Validate(ctx context.Context) []error {
+	allErrs := []error{}
+
+	if len(a.Roles) == 0 {
+		allErrs = append(allErrs, ErrRolesRequired)
+	}
+
+	// Validate that all roles are non-empty strings
+	for i, role := range a.Roles {
+		if role == "" {
+			allErrs = append(allErrs, fmt.Errorf("role at index %d cannot be empty", i))
+		}
+	}
+
+	return allErrs
+}
+
+func (a AuthDynamicRoleAssignment) Validate(ctx context.Context) []error {
+	allErrs := []error{}
+
+	if len(a.ClaimPath) == 0 {
+		allErrs = append(allErrs, ErrClaimPathRequiredDynamicRole)
+	}
+
+	return allErrs
 }

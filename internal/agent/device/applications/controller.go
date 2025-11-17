@@ -42,7 +42,6 @@ func (c *Controller) Sync(ctx context.Context, current, desired *v1alpha1.Device
 		c.podman,
 		c.readWriter,
 		current,
-		provider.WithVerify(),
 	)
 	if err != nil {
 		return fmt.Errorf("current app providers: %w", err)
@@ -54,7 +53,6 @@ func (c *Controller) Sync(ctx context.Context, current, desired *v1alpha1.Device
 		c.podman,
 		c.readWriter,
 		desired,
-		provider.WithVerify(),
 		provider.WithEmbedded(),
 	)
 	if err != nil {
