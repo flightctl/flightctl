@@ -248,7 +248,8 @@ func main() {
 	defer orgCache.Stop()
 
 	// Create service handler for auth provider access
-	serviceHandler := service.NewServiceHandler(dataStore, nil, nil, nil, logger, "", "", nil)
+	baseServiceHandler := service.NewServiceHandler(dataStore, nil, nil, nil, logger, "", "", nil)
+	serviceHandler := service.WrapWithTracing(baseServiceHandler)
 
 	// Initialize auth system
 	authN, err := auth.InitMultiAuth(cfg, logger, serviceHandler)

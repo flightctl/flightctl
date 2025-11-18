@@ -544,9 +544,18 @@ func (m *MultiAuth) GetAuthToken(r *http.Request) (string, error) {
 func (m *MultiAuth) GetAuthConfig() *api.AuthConfig {
 	allProviders := []api.AuthProvider{}
 	var orgEnabled bool
+	var firstStaticProviderName string
 
-	// Collect all static providers
-	for _, provider := range m.staticProviders {
+	// Collect static provider names and sort them for consistent ordering
+	staticProviderNames := make([]string, 0, len(m.staticProviders))
+	for name := range m.staticProviders {
+		staticProviderNames = append(staticProviderNames, name)
+	}
+	sort.Strings(staticProviderNames)
+
+	// Collect all static providers in sorted order
+	for _, name := range staticProviderNames {
+		provider := m.staticProviders[name]
 		config := provider.GetAuthConfig()
 
 		// Get org config from first provider config
@@ -556,6 +565,10 @@ func (m *MultiAuth) GetAuthConfig() *api.AuthConfig {
 
 		// Add all providers from this config
 		if config.Providers != nil {
+			// Capture the first static provider name (from first sorted provider)
+			if firstStaticProviderName == "" && len(*config.Providers) > 0 && (*config.Providers)[0].Metadata.Name != nil {
+				firstStaticProviderName = *(*config.Providers)[0].Metadata.Name
+			}
 			allProviders = append(allProviders, *config.Providers...)
 		}
 	}
@@ -595,11 +608,8 @@ func (m *MultiAuth) GetAuthConfig() *api.AuthConfig {
 		}
 	}
 
-	// Set default provider to the first provider in the sorted list
-	var defaultProviderName string
-	if allProviders[0].Metadata.Name != nil {
-		defaultProviderName = *allProviders[0].Metadata.Name
-	}
+	// Set default provider to the first static provider
+	defaultProviderName := firstStaticProviderName
 
 	return &api.AuthConfig{
 		ApiVersion:           api.AuthConfigAPIVersion,
