@@ -1,4 +1,4 @@
-name: "PR Build Artifacts"
+name: "PR Run E2E Matrix"
 permissions:
   pull-requests: write
   issues: write
@@ -67,322 +67,22 @@ jobs:
             echo "git_commit=${SOURCE_GIT_COMMIT}"
           } >> "$GITHUB_OUTPUT"
           
-          echo "## :rocket: PR Build Artifacts Workflow Started" > $GITHUB_STEP_SUMMARY
+          echo "## :rocket: PR Run E2E Matrix Workflow Started" > $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- **Tag:** \`${TAG}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Commit:** \`${GITHUB_SHA:0:7}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Branch:** \`${GITHUB_REF_NAME}\`" >> $GITHUB_STEP_SUMMARY
 
-  build-images:
+  build-images-and-charts:
     needs: [compute-tag]
-    strategy:
-      matrix:
-        image: ['api', 'periodic', 'worker', 'cli-artifacts', 'alert-exporter', 'alertmanager-proxy', 'userinfo-proxy', 'db-setup', 'telemetry-gateway']
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          fetch-tags: true
-
-      - name: Set up build output dir
-        run: |
-          mkdir -p digests
-
-      - name: Build image
-        id: build
-        uses: redhat-actions/buildah-build@v2
-        with:
-          image: quay.io/flightctl/flightctl-${{ matrix.image }}
-          tags: ${{ needs.compute-tag.outputs.tag }}
-          labels: |
-            io.flightctl.flightctl-${{ matrix.image }}.github.repository=${{ github.repository }}
-            io.flightctl.flightctl-${{ matrix.image }}.github.actor=${{ github.actor }}
-            io.flightctl.flightctl-${{ matrix.image }}.github.run_id=${{ github.run_id }}
-            io.flightctl.flightctl-${{ matrix.image }}.github.sha=${{ github.sha }}
-            io.flightctl.flightctl-${{ matrix.image }}.github.ref_name=${{ github.ref_name }}
-            quay.expires-after=${{ inputs.expires_after }}
-          build-args: |
-            SOURCE_GIT_TAG=${{ needs.compute-tag.outputs.git_tag }}
-            SOURCE_GIT_TREE_STATE=${{ needs.compute-tag.outputs.git_tree_state }}
-            SOURCE_GIT_COMMIT=${{ needs.compute-tag.outputs.git_commit }}
-          extra-args: |
-            --ulimit nofile=10000:10000
-          containerfiles: Containerfile.${{ matrix.image }}
-          context: .
-
-      - name: Tag and save image archive
-        id: save
-        env:
-          TAG: ${{ needs.compute-tag.outputs.tag }}
-          IMAGE: ${{ steps.build.outputs.image }}      # e.g. quay.io/org/flightctl
-          MATRIX_IMAGE: ${{ matrix.image }}            # e.g. api, worker
-        run: |
-          set -euo pipefail
-          
-          ARCHIVE_NAME="image-flightctl-${MATRIX_IMAGE}.tar"
-          
-          echo "Saving ${IMAGE}:${TAG} to ${ARCHIVE_NAME}"
-          podman save -o "${ARCHIVE_NAME}" "${IMAGE}:${TAG}"
-          
-          mkdir -p digests
-          
-          DIGEST="$(podman inspect "${IMAGE}:${TAG}" --format '{{.Digest}}' || true)"
-          DIGEST_FILE="digests/${MATRIX_IMAGE}.txt"
-          printf "%s\n" "${DIGEST}" > "${DIGEST_FILE}"
-          echo "Digest: ${DIGEST}"
-          
-          {
-            echo "archive=${ARCHIVE_NAME}"
-            echo "digest=${DIGEST}"
-            echo "digest_file=${DIGEST_FILE}"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Upload image archive
-        uses: actions/upload-artifact@v4
-        with:
-          name: image-flightctl-${{ matrix.image }}
-          path: ${{ steps.save.outputs.archive }}
-          compression-level: 1
-          if-no-files-found: error
-          retention-days: 1
-
-      - name: Upload digest artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: digest-${{ matrix.image }}
-          path: ${{ steps.save.outputs.digest_file }}
-          compression-level: 0
-          if-no-files-found: error
-          retention-days: 1
-
-  build-auxiliary-images:
-    runs-on: ubuntu-24.04
-    needs: [compute-tag]
-    strategy:
-      matrix:
-        image: ['git-server']
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          fetch-tags: true
-
-      - name: Build image
-        id: build
-        uses: redhat-actions/buildah-build@v2
-        with:
-          image: quay.io/flightctl-tests/${{ matrix.image }}
-          tags: ${{ needs.compute-tag.outputs.tag }}
-          labels: |
-            org.flightctl.${{ matrix.image }}.github.repository=${{ github.repository }}
-            org.flightctl.${{ matrix.image }}.github.actor=${{ github.actor }}
-            org.flightctl.${{ matrix.image }}.github.run_id=${{ github.run_id }}
-            org.flightctl.${{ matrix.image }}.github.sha=${{ github.sha }}
-            org.flightctl.${{ matrix.image }}.github.ref_name=${{ github.ref_name }}
-          containerfiles: test/scripts/auxiliary-images-v2/Containerfile.${{ matrix.image }}
-          context: .
-
-      - name: Save image archive
-        id: save
-        env:
-          TAG: ${{ needs.compute-tag.outputs.tag }}
-          IMAGE: ${{ steps.build.outputs.image }}
-          MATRIX_IMAGE: ${{ matrix.image }}
-        run: |
-          set -euo pipefail
-          
-          ARCHIVE_NAME="auxiliary-image-${MATRIX_IMAGE}.tar"
-          
-          echo "Saving ${IMAGE}:${TAG} to ${ARCHIVE_NAME}"
-          podman save -o "${ARCHIVE_NAME}" "${IMAGE}:${TAG}"
-          
-          echo "archive=${ARCHIVE_NAME}" >> "$GITHUB_OUTPUT"
-
-      - name: Upload image artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: auxiliary-image-${{ matrix.image }}
-          path: ${{ steps.save.outputs.archive }}
-          compression-level: 1
-          if-no-files-found: error
-          retention-days: 1
-
-  bundle-images:
-    runs-on: ubuntu-24.04
-    needs: [compute-tag, build-images]
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Load images using artifact loader script
-        env:
-          TAG: ${{ needs.compute-tag.outputs.tag }}
-          RUN_ID: ${{ github.run_id }}
-          REPO: ${{ github.repository }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-
-          echo "::group::Loading individual image archives using artifact loader"
-          images=('api' 'periodic' 'worker' 'cli-artifacts' 'alert-exporter' 'alertmanager-proxy' 'userinfo-proxy' 'db-setup' 'telemetry-gateway')
-
-          for image in "${images[@]}"; do
-            artifact_name="image-flightctl-${image}"
-            echo "Loading artifact: $artifact_name"
-            ./hack/load-github-artifact.sh "$artifact_name" "$RUN_ID" "$REPO"
-          done
-          echo "::endgroup::"
-
-          echo "::group::Creating images bundle"
-          echo "Getting list of loaded flightctl images with tag: $TAG"
-          mapfile -t loaded_images < <(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${TAG}")
-
-          echo "Creating bundle with ${#loaded_images[@]} images:"
-          printf '  %s\n' "${loaded_images[@]}"
-
-          podman save --format docker-archive -o flightctl-images-bundle.tar -m "${loaded_images[@]}"
-
-          echo "Bundle created: $(ls -lh flightctl-images-bundle.tar)"
-          echo "::endgroup::"
-
-      - name: Upload images bundle
-        uses: actions/upload-artifact@v4
-        with:
-          name: flightctl-images-bundle
-          path: flightctl-images-bundle.tar
-          compression-level: 1
-          if-no-files-found: error
-          retention-days: 1
-
-  service-images-manifest:
-    runs-on: ubuntu-24.04
-    needs: [compute-tag, build-images]
-    steps:
-      - name: Download image digest artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: digest-*
-          path: digests
-          merge-multiple: true
-
-      - name: Produce service images manifest
-        run: |
-          set -euo pipefail
-          TAG='${{ needs.compute-tag.outputs.tag }}'
-          ARTIFACT_BASE_URL="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}#artifacts"
-          images=(
-            flightctl-api
-            flightctl-db-setup
-            flightctl-worker
-            flightctl-periodic
-            flightctl-alert-exporter
-            flightctl-alertmanager-proxy
-            flightctl-cli-artifacts
-            flightctl-userinfo-proxy
-            flightctl-telemetry-gateway
-          )
-          printf '{"serviceImages":{' > service-images.json
-          first=1
-          for img in "${images[@]}"; do
-            artifact_name="image-${img#flightctl-}"
-            archive_name="${img}-${TAG}.tar"
-            digest_file="digests/${img#flightctl-}.txt"
-            if [ ! -f "$digest_file" ]; then
-              echo "Missing digest file: $digest_file" >&2
-              exit 1
-            fi
-            digest=$(cat "$digest_file")
-            if [ $first -eq 0 ]; then printf ',' >> service-images.json; fi
-            first=0
-            printf '"%s":{"archiveName":"%s","artifactName":"%s","artifactUrl":"%s","digest":"%s"}' "$img" "$archive_name" "$artifact_name" "$ARTIFACT_BASE_URL" "$digest" >> service-images.json
-          done
-          printf '}}' >> service-images.json
-          cat service-images.json
-
-      - name: Upload service images manifest
-        uses: actions/upload-artifact@v4
-        with:
-          name: service-images-manifest
-          path: service-images.json
-          compression-level: 0
-          if-no-files-found: error
-          retention-days: 1
-
-
-  build-helm-charts:
-    runs-on: ubuntu-24.04
-    needs: [compute-tag]
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          fetch-tags: true
-
-      - name: Build helm charts
-        id: build-charts
-        run: |
-          set -euo pipefail
-          TAG="${{ needs.compute-tag.outputs.helm_tag }}"
-          
-          echo "::group::Building helm charts"
-          helm dependency build ./deploy/helm/flightctl
-          helm package ./deploy/helm/flightctl \
-            --version "$TAG" \
-            --app-version "$TAG"
-          echo "::endgroup::"
-          
-          echo "::group::Computing chart digest"
-          CHART_FILE="flightctl-${TAG}.tgz"
-          DIGEST=$(sha256sum "$CHART_FILE" | awk '{print $1}')
-          echo "sha256:${DIGEST}" > charts-digest.txt
-          echo "Chart file: $CHART_FILE"
-          echo "Digest: sha256:${DIGEST}"
-          echo "::endgroup::"
-          
-          echo "chart_file=$CHART_FILE" >> "$GITHUB_OUTPUT"
-          echo "digest=sha256:${DIGEST}" >> "$GITHUB_OUTPUT"
-
-      - name: Upload helm chart artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: helm-chart
-          path: ${{ steps.build-charts.outputs.chart_file }}
-          compression-level: 0
-          if-no-files-found: error
-          retention-days: 1
-
-      - name: Produce charts manifest
-        run: |
-          set -euo pipefail
-          name="flightctl"
-          version="${{ needs.compute-tag.outputs.helm_tag }}"
-          artifact_url="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}#artifacts"
-          digest="${{ steps.build-charts.outputs.digest }}"
-          chart_file="${{ steps.build-charts.outputs.chart_file }}"
-          jq -n \
-            --arg n "$name" \
-            --arg v "$version" \
-            --arg u "$artifact_url" \
-            --arg d "$digest" \
-            --arg f "$chart_file" \
-            '{charts:{($n):{version:$v,artifactUrl:$u,digest:$d,chartFile:$f}}}' > charts.json
-          cat charts.json
-
-      - name: Upload charts manifest
-        uses: actions/upload-artifact@v4
-        with:
-          name: charts-manifest
-          path: charts.json
-          compression-level: 0
-          if-no-files-found: error
-          retention-days: 1
-
+    uses: ./.github/workflows/build-images-and-charts.yaml
+    with:
+      tag: ${{ needs.compute-tag.outputs.tag }}
+      helm_tag: ${{ needs.compute-tag.outputs.helm_tag }}
+      git_tag: ${{ needs.compute-tag.outputs.git_tag }}
+      git_tree_state: ${{ needs.compute-tag.outputs.git_tree_state }}
+      git_commit: ${{ needs.compute-tag.outputs.git_commit }}
+      expires_after: ${{ inputs.expires_after }}
 
   build-rpms:
     needs: [compute-tag]
@@ -555,8 +255,8 @@ jobs:
 
   artifacts-ready:
     runs-on: ubuntu-24.04
-    needs: [compute-tag, service-images-manifest, build-rpms, build-helm-charts, build-flightctl-cli, build-agent-images-unified]
-    if: ${{ !cancelled() && needs.compute-tag.result == 'success' && needs.service-images-manifest.result == 'success' && needs.build-rpms.result == 'success' && needs.build-helm-charts.result == 'success' && needs.build-flightctl-cli.result == 'success' && needs.build-agent-images-unified.result == 'success' }}
+    needs: [compute-tag, build-images-and-charts, build-rpms, build-flightctl-cli, build-agent-images-unified]
+    if: ${{ !cancelled() && needs.compute-tag.result == 'success' && needs.build-images-and-charts.result == 'success' && needs.build-rpms.result == 'success' && needs.build-flightctl-cli.result == 'success' && needs.build-agent-images-unified.result == 'success' }}
     steps:
       - name: Download service images manifest
         uses: actions/download-artifact@v4
@@ -644,8 +344,8 @@ jobs:
 
   services-ready:
     runs-on: ubuntu-24.04
-    needs: [compute-tag, bundle-images, build-helm-charts]
-    if: ${{ !cancelled() && needs.compute-tag.result == 'success' && needs.bundle-images.result == 'success' && needs.build-helm-charts.result == 'success' }}
+    needs: [compute-tag, build-images-and-charts]
+    if: ${{ !cancelled() && needs.compute-tag.result == 'success' && needs.build-images-and-charts.result == 'success' }}
     steps:
       - name: Services artifacts ready
         run: |
@@ -725,63 +425,18 @@ jobs:
 ##################
   smoke:
     runs-on: ubuntu-24.04
-    needs: [compute-tag, bundle-images, build-helm-charts, build-flightctl-cli, build-auxiliary-images]
+    needs: [compute-tag, build-images-and-charts, build-flightctl-cli]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-     
-      - name: Download backend images
-        uses: actions/download-artifact@v4
+
+      - name: Deploy backend with Helm
+        uses: ./.github/actions/deploy-backend-with-helm
         with:
-          name: flightctl-images-bundle
-
-      - name: Download Helm chart
-        uses: actions/download-artifact@v4
-        with:
-          name: helm-chart
-
-      - name: Download Linux CLI binary
-        uses: actions/download-artifact@v4
-        with:
-          name: flightctl-linux-amd64
-          path: .
-
-      - name: Setup CLI binary
-        run: |
-          mkdir -p bin
-          mv flightctl-linux-amd64 bin/flightctl
-          chmod +x bin/flightctl
-
-      - name: List files
-        run: ls -la
-
-      - name: Create cluster
-        run: make cluster
-
-      - name: Load images into kind
-        run: |
-          set -euo pipefail
-          echo "Loading flightctl images bundle into kind cluster..."
-          kind load image-archive flightctl-images-bundle.tar
-          echo "Images loaded successfully"
-
-      - name: Deploy FlightCtl with packaged chart
-        env:
-          TAG: ${{ needs.compute-tag.outputs.tag }}
-        run: |
-          set -euo pipefail
-          CHART_FILE="flightctl-${{ needs.compute-tag.outputs.helm_tag }}.tgz"
-
-          echo "Chart file: ${CHART_FILE}"
-          echo "Image registry: quay.io/flightctl/"
-          echo "Image tag: ${TAG}"
-
-          ./test/scripts/deploy_with_helm.sh \
-            --chart-path="${CHART_FILE}" \
-            --image-registry="quay.io/flightctl/" \
-            --image-tag="${TAG}"
+          tag: ${{ needs.compute-tag.outputs.tag }}
+          helm-tag: ${{ needs.compute-tag.outputs.helm_tag }}
 
       - name: Prepare agent config
         run: ./test/scripts/agent-images/prepare_agent_config.sh --status-update-interval 0m2s --spec-fetch-interval 0m2s
@@ -820,7 +475,7 @@ jobs:
           log-directory: 'smoke-logs'
 
   e2e-tests:
-    needs: [compute-tag, bundle-images, build-helm-charts, build-flightctl-cli, build-agent-images-unified, build-sleep-app-images, build-auxiliary-images]
+    needs: [compute-tag, build-images-and-charts, build-flightctl-cli, build-agent-images-unified, build-sleep-app-images]
     strategy:
       fail-fast: false
       matrix:
@@ -828,6 +483,7 @@ jobs:
     uses: ./.github/workflows/run-e2e-tests.yaml
     with:
       os_id: ${{ matrix.os_id }}
+      backend_type: helm
       ginkgo_total_nodes: 8
       ginkgo_label_filter: 'sanity'
       tag: ${{ needs.compute-tag.outputs.tag }}

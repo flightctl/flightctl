@@ -7,6 +7,11 @@ on:
         description: "OS identifier for agent (e.g., cs9, cs10)"
         required: true
         type: string
+      backend_type:
+        description: "Backend deployment type (helm)"
+        required: false
+        type: string
+        default: 'helm'
       ginkgo_total_nodes:
         description: "Total number of Ginkgo nodes"
         required: false
@@ -100,11 +105,19 @@ jobs:
         with:
           setup_kvm: yes
 
-      # ========== DOWNLOAD ALL ARTIFACTS ==========
-      - name: Download required test artifacts (one step)
+      # ========== DEPLOY BACKEND WITH HELM ==========
+      - name: Deploy backend with Helm
+        if: inputs.backend_type == 'helm'
+        uses: ./.github/actions/deploy-backend-with-helm
+        with:
+          tag: ${{ inputs.tag }}
+          helm-tag: ${{ inputs.helm_tag }}
+
+      # ========== SETUP E2E ENVIRONMENT ==========
+      - name: Download E2E artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: "{flightctl-images-bundle,helm-chart,flightctl-linux-amd64,auxiliary-image-git-server,agent-images-bundle-${{ inputs.os_id }},sleep-app-images-bundle,agent-qcow2-image-${{ inputs.os_id }}}"
+          pattern: "{auxiliary-image-git-server,agent-images-bundle-${{ inputs.os_id }},sleep-app-images-bundle,agent-qcow2-image-${{ inputs.os_id }}}"
           path: artifacts
           merge-multiple: true
 
@@ -116,7 +129,7 @@ jobs:
             mv -f "${src}" artifacts/agent-images-bundle.tar
           fi
 
-      - name: Normalize qcow2 path for downstream steps
+      - name: Normalize qcow2 path
         run: |
           set -euo pipefail
           mkdir -p bin/output/qcow2
@@ -134,26 +147,6 @@ jobs:
           fi
           mv -f "${src}" bin/output/qcow2/disk.qcow2
 
-      - name: Setup CLI binary
-        run: |
-          set -euo pipefail
-          mkdir -p bin
-          mv artifacts/flightctl-linux-amd64 bin/flightctl
-          chmod +x bin/flightctl
-          echo "CLI binary ready at bin/flightctl"
-
-      # ========== INITIALIZE KIND CLUSTER ==========
-      - name: Create kind cluster
-        run: make cluster
-
-      # ========== LOAD IMAGES INTO KIND ==========
-      - name: Load backend images into kind
-        run: |
-          set -euo pipefail
-          echo "Loading backend service images into kind"
-          kind load image-archive artifacts/flightctl-images-bundle.tar
-          echo "Backend images loaded successfully"
-
       - name: Load git-server image into kind
         run: |
           set -euo pipefail
@@ -161,48 +154,22 @@ jobs:
           kind load image-archive artifacts/auxiliary-image-git-server.tar
           echo "Git-server image loaded successfully"
 
-      - name: Clean up image bundle files
+      - name: Clean up auxiliary bundle
         run: |
           set -euo pipefail
-          echo "::group::Cleaning up image bundle files"
-          echo "Removing backend and auxiliary image bundles (no longer needed after loading into kind)..."
-          rm -f artifacts/flightctl-images-bundle.tar
+          echo "Removing git-server bundle..."
           rm -f artifacts/auxiliary-image-git-server.tar
-          echo "Kept agent-images-bundle.tar and sleep-app-images-bundle.tar (needed for E2E registry push)"
           df -h
-          echo "::endgroup::"
 
-      # ========== DEPLOY BACKEND WITH HELM ==========
-      - name: Deploy FlightCtl backend with packaged chart
-        env:
-          TAG: ${{ inputs.tag }}
-        run: |
-          set -euo pipefail
-          CHART_FILE="artifacts/flightctl-${{ inputs.helm_tag }}.tgz"
-
-          echo "::group::Deploying FlightCtl backend services"
-          echo "Chart file: ${CHART_FILE}"
-          echo "Image registry: quay.io/flightctl/"
-          echo "Image tag: ${TAG}"
-          
-          ./test/scripts/deploy_with_helm.sh \
-            --chart-path="${CHART_FILE}" \
-            --image-registry="quay.io/flightctl/" \
-            --image-tag="${TAG}"
-          echo "::endgroup::"
-
-      # ========== SETUP E2E ENVIRONMENT ==========
       - name: Create E2E certificates and SSH keys
         run: |
           set -euo pipefail
           ./test/scripts/create_e2e_certs.sh
 
       - name: Deploy E2E extras (registry, git-server)
-        env:
-          TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
-          export GITSERVER_IMAGE="quay.io/flightctl-tests/git-server:${TAG}"
+          export GITSERVER_IMAGE="quay.io/flightctl-tests/git-server:${{ inputs.tag }}"
           ./test/scripts/deploy_e2e_extras_with_helm.sh
 
       - name: Push agent and sleep app images to E2E registry
