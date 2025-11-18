@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"text/template"
 
-	"gopkg.in/yaml.v2"
+	"sigs.k8s.io/yaml"
 )
 
 func Render(inputFile string, templateFile string, outputFile string) error {

@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/flightctl/flightctl/internal/quadlet/renderer"
+	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -23,13 +24,14 @@ func NewRenderQuadletsCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "render-quadlets",
-		Short: "Render FlightCtl service quadlet files",
-		Long:  "A tool to render FlightCtl service quadlet files and systemd units from templates",
+		Short: "Render Flight Control service quadlet files",
+		Long:  "A tool to render Flight Control service quadlet files and systemd units from templates",
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			return initConfig(cfgFile, config)
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return renderer.RenderQuadlets(config)
+			logger := log.InitLogs()
+			return renderer.RenderQuadlets(config, logger)
 		},
 	}
 

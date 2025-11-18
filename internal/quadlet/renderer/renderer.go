@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"text/template"
+
+	"github.com/sirupsen/logrus"
 )
 
 type ActionType int
@@ -71,32 +73,32 @@ func NewRendererConfig() *RendererConfig {
 	}
 }
 
-func processInstallManifest(manifest []InstallAction, config *RendererConfig) error {
+func processInstallManifest(manifest []InstallAction, config *RendererConfig, log logrus.FieldLogger) error {
 	for _, action := range manifest {
 		switch action.Action {
 		case ActionCopyFile:
 			if err := processFile(action.Source, action.Destination, action.Template, action.Mode, config); err != nil {
 				return fmt.Errorf("failed to process file %s: %w", action.Source, err)
 			}
-			fmt.Printf("Processed file: %s -> %s (template=%t)\n", action.Source, action.Destination, action.Template)
+			log.Infof("Processed file: %s -> %s (template=%t)", action.Source, action.Destination, action.Template)
 
 		case ActionCopyDir:
 			if err := copyDir(action.Source, action.Destination, action.Mode); err != nil {
 				return fmt.Errorf("failed to copy directory %s to %s: %w", action.Source, action.Destination, err)
 			}
-			fmt.Printf("Copied directory: %s -> %s\n", action.Source, action.Destination)
+			log.Infof("Copied directory: %s -> %s", action.Source, action.Destination)
 
 		case ActionCreateEmptyFile:
-			if err := createEmptyFile(action.Destination, action.Mode); err != nil {
+			if err := createEmptyFile(action.Destination, action.Mode, log); err != nil {
 				return fmt.Errorf("failed to create empty file %s: %w", action.Destination, err)
 			}
-			fmt.Printf("Created empty file: %s\n", action.Destination)
+			log.Infof("Created empty file: %s", action.Destination)
 
 		case ActionCreateEmptyDir:
-			if err := createEmptyDirectory(action.Destination, action.Mode); err != nil {
+			if err := createEmptyDirectory(action.Destination, action.Mode, log); err != nil {
 				return fmt.Errorf("failed to create empty directory %s: %w", action.Destination, err)
 			}
-			fmt.Printf("Created empty directory: %s\n", action.Destination)
+			log.Infof("Created empty directory: %s", action.Destination)
 
 		default:
 			return fmt.Errorf("unknown action type: %v", action.Action)
@@ -139,14 +141,14 @@ func processFile(sourcePath, destPath string, isTemplate bool, mode os.FileMode,
 	return nil
 }
 
-func createEmptyFile(destPath string, mode os.FileMode) error {
+func createEmptyFile(destPath string, mode os.FileMode, log logrus.FieldLogger) error {
 	destDir := filepath.Dir(destPath)
 	if err := os.MkdirAll(destDir, ExecutableFileMode); err != nil {
 		return fmt.Errorf("failed to create destination directory %s: %w", destDir, err)
 	}
 
 	if _, err := os.Stat(destPath); err == nil {
-		fmt.Printf("File already exists, skipping: %s\n", destPath)
+		log.Infof("File already exists, skipping: %s", destPath)
 		return nil
 	}
 
@@ -163,10 +165,10 @@ func createEmptyFile(destPath string, mode os.FileMode) error {
 	return nil
 }
 
-func createEmptyDirectory(destPath string, mode os.FileMode) error {
+func createEmptyDirectory(destPath string, mode os.FileMode, log logrus.FieldLogger) error {
 	if stat, err := os.Stat(destPath); err == nil {
 		if stat.IsDir() {
-			fmt.Printf("Directory already exists, skipping: %s\n", destPath)
+			log.Infof("Directory already exists, skipping: %s", destPath)
 			return nil
 		}
 		return fmt.Errorf("path exists but is not a directory: %s", destPath)
@@ -231,13 +233,13 @@ func copyFile(src, dst string, mode os.FileMode) error {
 	return nil
 }
 
-func (config *RendererConfig) ApplyFlightctlServicesTagOverride() {
+func (config *RendererConfig) ApplyFlightctlServicesTagOverride(log logrus.FieldLogger) {
 	if config.FlightctlServicesTagOverride == "" {
 		return
 	}
 
 	tag := config.FlightctlServicesTagOverride
-	fmt.Printf("Applying flightctl services tag override: %s\n", tag)
+	log.Infof("Applying flightctl services tag override: %s", tag)
 
 	config.Api.Tag = tag
 	config.Periodic.Tag = tag
@@ -251,16 +253,16 @@ func (config *RendererConfig) ApplyFlightctlServicesTagOverride() {
 }
 
 // RenderQuadlets orchestrates all installation operations
-func RenderQuadlets(config *RendererConfig) error {
-	fmt.Println("Starting installation")
+func RenderQuadlets(config *RendererConfig, log logrus.FieldLogger) error {
+	log.Info("Starting installation")
 
-	config.ApplyFlightctlServicesTagOverride()
+	config.ApplyFlightctlServicesTagOverride(log)
 
 	manifest := servicesManifest(config)
-	if err := processInstallManifest(manifest, config); err != nil {
+	if err := processInstallManifest(manifest, config, log); err != nil {
 		return fmt.Errorf("failed to process install manifest: %w", err)
 	}
 
-	fmt.Println("Installation complete")
+	log.Info("Installation complete")
 	return nil
 }
