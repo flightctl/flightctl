@@ -6,12 +6,6 @@ A helm chart for flightctl
 
 **Homepage:** <https://github.com/flightctl/flightctl>
 
-## Requirements
-
-| Repository | Name | Version |
-|------------|------|---------|
-| ui | ui | 0.0.1 |
-
 ## Installation
 
 ### Install Chart
@@ -353,9 +347,18 @@ For more detailed configuration options, see the [Values](#values) section below
 | prometheus.enabled | bool | `false` | Enable Prometheus deployment |
 | telemetryGateway | object | `{"enabled":false}` | Telemetry Gateway Configuration |
 | telemetryGateway.enabled | bool | `false` | Enable telemetry gateway service |
-| ui | object | `{"api":{"insecureSkipTlsVerify":true},"enabled":true}` | UI Configuration |
+| ui | object | `{"api":{"insecureSkipTlsVerify":true},"auth":{"caCert":"","clientId":"flightctl","insecureSkipTlsVerify":false,"internalAuthUrl":""},"enabled":true,"image":{"image":"quay.io/flightctl/flightctl-ui","pluginImage":"quay.io/flightctl/flightctl-ocp-ui","pullPolicy":"","tag":""},"isRHEM":false}` | UI Configuration |
 | ui.api.insecureSkipTlsVerify | bool | `true` | Skip TLS verification for UI API calls |
+| ui.auth.caCert | string | `""` | A custom CA cert for Auth TLS. |
+| ui.auth.clientId | string | `"flightctl"` | Id of auth Client. |
+| ui.auth.insecureSkipTlsVerify | bool | `false` | Set to true if auth TLS certificate validation should be skipped. |
+| ui.auth.internalAuthUrl | string | `""` | URL of Auth authority that is accessible by UI backend. |
 | ui.enabled | bool | `true` | Enable web UI deployment |
+| ui.image.image | string | `"quay.io/flightctl/flightctl-ui"` | UI container image |
+| ui.image.pluginImage | string | `"quay.io/flightctl/flightctl-ocp-ui"` | UI Plugin container image |
+| ui.image.pullPolicy | string | `""` | Image pull policy for UI container |
+| ui.image.tag | string | `""` | UI container image tag |
+| ui.isRHEM | bool | `false` | Set to true if RHEM branding should be used |
 | upgradeHooks | object | `{"databaseMigrationDryRun":true,"scaleDown":{"condition":"chart","deployments":["flightctl-periodic","flightctl-worker"],"timeoutSeconds":120}}` | Upgrade hooks |
 | upgradeHooks.databaseMigrationDryRun | bool | `true` | Enable pre-upgrade DB migration dry-run as a hook |
 | upgradeHooks.scaleDown.condition | string | `"chart"` | When to run pre-upgrade scale down job: "always", "never", or "chart" (default). "chart" runs only if helm.sh/chart changed. |

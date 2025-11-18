@@ -328,9 +328,29 @@ prometheus:
 ui:
   # -- Enable web UI deployment
   enabled: true
+  image:
+    # -- UI container image
+    image: "quay.io/flightctl/flightctl-ui"
+    # -- UI Plugin container image
+    pluginImage: "quay.io/flightctl/flightctl-ocp-ui"
+    # -- UI container image tag
+    tag: ""
+    # -- Image pull policy for UI container
+    pullPolicy: ""
   api:
     # -- Skip TLS verification for UI API calls
     insecureSkipTlsVerify: true
+  # -- Set to true if RHEM branding should be used
+  isRHEM: false
+  auth:
+    # -- URL of Auth authority that is accessible by UI backend.
+    internalAuthUrl: ""
+    # -- Set to true if auth TLS certificate validation should be skipped.
+    insecureSkipTlsVerify: false
+    # -- A custom CA cert for Auth TLS.
+    caCert: ""
+    # -- Id of auth Client.
+    clientId: flightctl
 
 # -- Cluster CLI Configuration
 clusterCli:
