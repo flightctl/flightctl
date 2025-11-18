@@ -34,6 +34,7 @@ func servicesManifest(config *RendererConfig) []InstallAction {
 		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-db-migrate/flightctl-db-migrate.container", Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl-db-migrate.container"), Template: true, Mode: RegularFileMode},
 		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-db-migrate/flightctl-db-wait.container", Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl-db-wait.container"), Template: true, Mode: RegularFileMode},
 		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-db-migrate/flightctl-db-users-init.container", Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl-db-users-init.container"), Template: true, Mode: RegularFileMode},
+		{Action: ActionCopyDir, Source: "deploy/podman/flightctl-db-migrate/flightctl-db-migrate-config/", Destination: filepath.Join(config.ReadOnlyConfigOutputDir, "flightctl-db-migrate/"), Template: false, Mode: RegularFileMode},
 
 		// KV service
 		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-kv/flightctl-kv.container", Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl-kv.container"), Template: true, Mode: RegularFileMode},
@@ -89,6 +90,6 @@ func servicesManifest(config *RendererConfig) []InstallAction {
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-cli-artifacts"), Mode: ExecutableFileMode},
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-alertmanager-proxy"), Mode: ExecutableFileMode},
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-pam-issuer"), Mode: ExecutableFileMode},
-		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-db"), Mode: ExecutableFileMode},
+		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-db-migrate"), Mode: ExecutableFileMode},
 	}
 }
