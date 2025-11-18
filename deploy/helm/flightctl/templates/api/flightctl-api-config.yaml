@@ -36,9 +36,9 @@ data:
         {{- if eq (include "flightctl.getServiceExposeMethod" .) "nodePort" }}
         baseUrl: https://api.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.nodePorts.api }}/
         baseAgentEndpointUrl: https://agent-api.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.nodePorts.agent }}/
-        {{- else if and (eq (include "flightctl.getServiceExposeMethod" .) "gateway") (not (eq (int .Values.global.gatewayPorts.tls) 443)) }}
-        baseUrl: https://api.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.gatewayPorts.tls }}/
-        baseAgentEndpointUrl: https://agent-api.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.gatewayPorts.tls }}/
+        {{- else if and (eq (include "flightctl.getServiceExposeMethod" .) "gateway") (not (eq (int .Values.global.gateway.ports.tls) 443)) }}
+        baseUrl: https://api.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.gateway.ports.tls }}/
+        baseAgentEndpointUrl: https://agent-api.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.gateway.ports.tls }}/
         {{- else }}
         baseUrl: https://api.{{ include "flightctl.getBaseDomain" . }}/
         baseAgentEndpointUrl: https://agent-api.{{ include "flightctl.getBaseDomain" . }}/

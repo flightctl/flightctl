@@ -289,22 +289,16 @@ For more detailed configuration options, see the [Values](#values) section below
 | global.clusterLevelSecretAccess | bool | `false` | Allow flightctl-worker to access secrets at the cluster level for embedding in device configs |
 | global.enableMulticlusterExtensions | string | `"auto"` | Enable MultiCluster Engine extensions - one of 'auto', 'true', 'false'. |
 | global.enableOpenShiftExtensions | string | `"auto"` | Enable OpenShift extensions - one of 'auto', 'true', 'false'. |
-| global.exposeServicesMethod | string | `""` | How the Flight Control services should be exposed. Can be one of 'nodePort', 'route', or 'gateway' |
-| global.gatewayClass | string | `""` | Gateway API class name for gateway exposure method |
-| global.gatewayPorts.http | int | `80` | HTTP port for Gateway API configuration |
-| global.gatewayPorts.tls | int | `443` | TLS port for Gateway API configuration |
+| global.exposeServicesMethod | string | `"auto"` | How the Flight Control services should be exposed. Can be either 'auto', 'route', 'gateway' (experimental) or 'none' |
+| global.gateway | object | `{"gatewayClassName":"","ports":{"http":80,"tls":443}}` | Configuration for 'gateway' service exposure method |
+| global.gateway.gatewayClassName | string | `""` | Gateway API class name for gateway exposure method |
+| global.gateway.ports.http | int | `80` | HTTP port for Gateway API configuration |
+| global.gateway.ports.tls | int | `443` | TLS port for Gateway API configuration |
 | global.generateSecrets | bool | `true` | Generate secrets when deploying Flight Control. This should be set to false if you want to provide your own secrets or when upgrading Flight Control to avoid overriding the existing secrets |
 | global.imagePullPolicy | string | `"IfNotPresent"` | Image pull policy for all containers |
 | global.imagePullSecretName | string | `""` | Name of the image pull secret for accessing private container registries You must create this secret manually before deployment |
 | global.internalNamespace | string | `""` | Namespace where internal components are deployed |
 | global.metrics.enabled | bool | `true` | Enable metrics exporting and service |
-| global.nodePorts.agent | int | `7443` | NodePort for agent communication service |
-| global.nodePorts.alertmanagerProxy | int | `8443` | NodePort for Alertmanager proxy service |
-| global.nodePorts.api | int | `3443` | NodePort for Flight Control API service |
-| global.nodePorts.cliArtifacts | int | `8090` | NodePort for CLI artifacts service |
-| global.nodePorts.telemetryGatewayOtlp | int | `4317` | NodePort for OTLP telemetry gateway |
-| global.nodePorts.telemetryGatewayProm | int | `9464` | NodePort for Prometheus telemetry gateway |
-| global.nodePorts.ui | int | `9000` | NodePort for web UI service |
 | global.organizations.enabled | bool | `false` | Enable IDP-provided organizations support |
 | global.rbac.create | bool | `true` | Create RBAC resources (roles, bindings, service accounts) |
 | global.sshKnownHosts.data | string | `""` | SSH known hosts file content for Git repository host key verification. |
