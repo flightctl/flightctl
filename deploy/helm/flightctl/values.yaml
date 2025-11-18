@@ -91,30 +91,17 @@ global:
   internalNamespace: ""
   # -- Allow flightctl-worker to access secrets at the cluster level for embedding in device configs
   clusterLevelSecretAccess: false
-  # -- How the Flight Control services should be exposed. Can be one of 'nodePort', 'route', or 'gateway'
-  exposeServicesMethod: ""
-  # -- Gateway API class name for gateway exposure method
-  gatewayClass: ""
-  nodePorts:
-    # -- NodePort for Flight Control API service
-    api: 3443
-    # -- NodePort for CLI artifacts service
-    cliArtifacts: 8090
-    # -- NodePort for agent communication service
-    agent: 7443
-    # -- NodePort for web UI service
-    ui: 9000
-    # -- NodePort for Alertmanager proxy service
-    alertmanagerProxy: 8443
-    # -- NodePort for OTLP telemetry gateway
-    telemetryGatewayOtlp: 4317
-    # -- NodePort for Prometheus telemetry gateway
-    telemetryGatewayProm: 9464
-  gatewayPorts:
-    # -- TLS port for Gateway API configuration
-    tls: 443
-    # -- HTTP port for Gateway API configuration
-    http: 80
+  # -- How the Flight Control services should be exposed. Can be either 'auto', 'route', 'gateway' (experimental) or 'none'
+  exposeServicesMethod: "auto"
+  # -- Configuration for 'gateway' service exposure method
+  gateway:
+    # -- Gateway API class name for gateway exposure method
+    gatewayClassName: ""
+    ports:
+      # -- TLS port for Gateway API configuration
+      tls: 443
+      # -- HTTP port for Gateway API configuration
+      http: 80
   # -- Generate secrets when deploying Flight Control. This should be set to false if you want to provide your own secrets or when upgrading Flight Control to avoid overriding the existing secrets
   generateSecrets: true
   # -- Image pull policy for all containers
