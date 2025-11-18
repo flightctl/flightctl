@@ -1,3 +1,4 @@
+{{ if .Values.ui.enabled }}
 {{ if and (not (eq .Values.global.target "acm")) (eq (include "flightctl.getServiceExposeMethod" .) "route") }}
 kind: Route
 apiVersion: route.openshift.io/v1
@@ -12,11 +13,7 @@ metadata:
     shard: external
     {{- end }}
 spec:
-  {{- if .Values.baseURL }}
-  host:  {{ .Values.baseURL }}
-  {{- else }}
   host:  ui.{{ include "flightctl.getBaseDomain" . }}
-  {{- end }}
   to:
     kind: Service
     name: flightctl-ui
@@ -33,5 +30,6 @@ spec:
     {{- end }}
   {{- end }}
   wildcardPolicy: None
+{{ end }}
 {{ end }}
     
