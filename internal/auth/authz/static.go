@@ -23,6 +23,7 @@ var resourcePermissions = map[string]map[string][]string{
 		"devices":       {"create", "update", "patch", "delete"},
 		"fleets":        {"create", "update", "patch", "delete"},
 		"resourcesyncs": {"create", "update", "patch", "delete"},
+		"repositories":  {"create", "update", "patch", "delete"},
 		"*":             {"get", "list"},
 	},
 	v1alpha1.RoleViewer: {
