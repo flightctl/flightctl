@@ -2,12 +2,13 @@
 apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
-  {{- if .Values.global.appCode }}
   labels:
-    external-exposed: "true"
-    paas.redhat.com/appcode: {{ .Values.global.appCode }}
-    shard: external
-  {{- end }}
+    {{- with .Values.global.additionalRouteLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    {{- with .Values.cliArtifacts.additionalRouteLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
   name: flightctl-cli-artifacts-route
   namespace: {{ .Release.Namespace }}
 spec:
