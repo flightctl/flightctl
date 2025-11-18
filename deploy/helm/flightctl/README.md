@@ -218,7 +218,9 @@ For more detailed configuration options, see the [Values](#values) section below
 | alertExporter.image.image | string | `"quay.io/flightctl/flightctl-alert-exporter"` | Alert exporter container image |
 | alertExporter.image.pullPolicy | string | `""` | Image pull policy for alert exporter container |
 | alertExporter.image.tag | string | `""` | Alert exporter image tag |
-| alertmanager | object | `{"enabled":true,"image":{"image":"quay.io/prometheus/alertmanager","pullPolicy":"","tag":"v0.28.1"}}` | Alertmanager Configuration |
+| alertmanager | object | `{"additionalPVCLabels":null,"additionalRouteLabels":null,"enabled":true,"image":{"image":"quay.io/prometheus/alertmanager","pullPolicy":"","tag":"v0.28.1"}}` | Alertmanager Configuration |
+| alertmanager.additionalPVCLabels | string | `nil` | Additional labels for Alert Manager PVCs. |
+| alertmanager.additionalRouteLabels | string | `nil` | Additional labels for Alert Manager routes. |
 | alertmanager.enabled | bool | `true` | Enable Alertmanager for alert handling |
 | alertmanager.image.image | string | `"quay.io/prometheus/alertmanager"` | Alertmanager container image |
 | alertmanager.image.pullPolicy | string | `""` | Image pull policy for Alertmanager container |
@@ -228,7 +230,9 @@ For more detailed configuration options, see the [Values](#values) section below
 | alertmanagerProxy.image.image | string | `"quay.io/flightctl/flightctl-alertmanager-proxy"` | Alertmanager proxy container image |
 | alertmanagerProxy.image.pullPolicy | string | `""` | Image pull policy for Alertmanager proxy container |
 | alertmanagerProxy.image.tag | string | `""` | Alertmanager proxy image tag |
-| api | object | `{"baseUIUrl":"","enabled":true,"image":{"image":"quay.io/flightctl/flightctl-api","pullPolicy":"","tag":""},"probes":{"enabled":true,"livenessPath":"/healthz","readinessPath":"/readyz"},"rateLimit":{"authRequests":20,"authWindow":"1h","enabled":true,"requests":300,"trustedProxies":["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16"],"window":"1m"}}` | API Server Configuration |
+| api | object | `{"additionalPVCLabels":null,"additionalRouteLabels":null,"baseUIUrl":"","enabled":true,"image":{"image":"quay.io/flightctl/flightctl-api","pullPolicy":"","tag":""},"probes":{"enabled":true,"livenessPath":"/healthz","readinessPath":"/readyz"},"rateLimit":{"authRequests":20,"authWindow":"1h","enabled":true,"requests":300,"trustedProxies":["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16"],"window":"1m"}}` | API Server Configuration |
+| api.additionalPVCLabels | string | `nil` | Additional labels for API PVCs. |
+| api.additionalRouteLabels | string | `nil` | Additional labels for API routes. |
 | api.baseUIUrl | string | `""` | Base URL for the web UI (used for CORS and redirects) |
 | api.enabled | bool | `true` | Enable Flight Control API server deployment |
 | api.image.image | string | `"quay.io/flightctl/flightctl-api"` | API server container image |
@@ -243,7 +247,8 @@ For more detailed configuration options, see the [Values](#values) section below
 | api.rateLimit.requests | int | `300` | Maximum requests per window for general API endpoints General API rate limiting |
 | api.rateLimit.trustedProxies | list | `["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16"]` | List of trusted proxy IP ranges that can set X-Forwarded-For headers Trusted proxies that can set X-Forwarded-For/X-Real-IP headers This should include your load balancer and UI proxy IPs |
 | api.rateLimit.window | string | `"1m"` | Time window for rate limiting (e.g., "1m", "1h") |
-| cliArtifacts | object | `{"enabled":true,"image":{"image":"quay.io/flightctl/flightctl-cli-artifacts","pullPolicy":"","tag":""}}` | CLI Artifacts Configuration |
+| cliArtifacts | object | `{"additionalRouteLabels":null,"enabled":true,"image":{"image":"quay.io/flightctl/flightctl-cli-artifacts","pullPolicy":"","tag":""}}` | CLI Artifacts Configuration |
+| cliArtifacts.additionalRouteLabels | string | `nil` | Additional labels for CLI Artifacts routes. |
 | cliArtifacts.enabled | bool | `true` | Enable CLI artifacts service |
 | cliArtifacts.image.image | string | `"quay.io/flightctl/flightctl-cli-artifacts"` | CLI artifacts container image |
 | cliArtifacts.image.pullPolicy | string | `""` | Image pull policy for CLI artifacts container |
@@ -252,7 +257,8 @@ For more detailed configuration options, see the [Values](#values) section below
 | clusterCli.image.image | string | `"quay.io/openshift/origin-cli"` | Cluster CLI container image |
 | clusterCli.image.pullPolicy | string | `""` | Image pull policy for cluster CLI container |
 | clusterCli.image.tag | string | `"4.20.0"` | Cluster CLI image tag |
-| db | object | `{"external":"disabled","fsGroup":"","image":{"image":"quay.io/sclorg/postgresql-16-c9s","pullPolicy":"","tag":"20250214"},"masterPassword":"","masterUser":"admin","maxConnections":200,"migrationPassword":"","migrationUser":"flightctl_migrator","name":"flightctl","port":5432,"resources":{"requests":{"cpu":"512m","memory":"512Mi"}},"sslConfigMap":"","sslSecret":"","sslmode":"","storage":{"size":"60Gi"},"type":"pgsql","user":"flightctl_app","userPassword":""}` | Database Configuration |
+| db | object | `{"additionalPVCLabels":null,"external":"disabled","fsGroup":"","image":{"image":"quay.io/sclorg/postgresql-16-c9s","pullPolicy":"","tag":"20250214"},"masterPassword":"","masterUser":"admin","maxConnections":200,"migrationPassword":"","migrationUser":"flightctl_migrator","name":"flightctl","port":5432,"resources":{"requests":{"cpu":"512m","memory":"512Mi"}},"sslConfigMap":"","sslSecret":"","sslmode":"","storage":{"size":"60Gi"},"type":"pgsql","user":"flightctl_app","userPassword":""}` | Database Configuration |
+| db.additionalPVCLabels | string | `nil` | Additional labels for DB PVCs. |
 | db.external | string | `"disabled"` | Use external PostgreSQL database instead of deploying internal one external: Set to "enabled" to use external PostgreSQL database instead of deploying internal one When enabled, configure hostname, port, name, user credentials to point to your external database |
 | db.fsGroup | string | `""` | File system group ID for database pod security context |
 | db.image.image | string | `"quay.io/sclorg/postgresql-16-c9s"` | PostgreSQL container image |
@@ -282,8 +288,9 @@ For more detailed configuration options, see the [Values](#values) section below
 | dbSetup.migration.backoffLimit | int | `2147483647` | Number of retries for the migration Job on failure  |
 | dbSetup.wait.sleep | int | `2` | Seconds to sleep between database connection attempts Default sleep interval between connection attempts |
 | dbSetup.wait.timeout | int | `60` | Seconds to wait for database readiness before failing Default timeout for database wait (can be overridden per deployment) |
+| global.additionalPVCLabels | string | `nil` | Additional labels for PVCs. |
+| global.additionalRouteLabels | string | `nil` | Additional labels for routes. |
 | global.apiUrl | string | `""` | Alternative to global.auth.k8s.externalOpenShiftApiUrl with the same meaning, used by the multiclusterhub operator |
-| global.appCode | string | `""` | This is only related to deployment in Red Hat's PAAS. |
 | global.auth.aap.apiUrl | string | `""` | The URL of the AAP Gateway API endpoint |
 | global.auth.aap.externalApiUrl | string | `""` | The URL of the AAP Gateway API endpoint that is reachable by clients |
 | global.auth.caCert | string | `""` | The custom CA cert. |
@@ -345,9 +352,11 @@ For more detailed configuration options, see the [Values](#values) section below
 | periodic.image.tag | string | `""` | Periodic image tag |
 | prometheus | object | `{"enabled":false}` | Prometheus Configuration |
 | prometheus.enabled | bool | `false` | Enable Prometheus deployment |
-| telemetryGateway | object | `{"enabled":false}` | Telemetry Gateway Configuration |
+| telemetryGateway | object | `{"additionalRouteLabels":null,"enabled":false}` | Telemetry Gateway Configuration |
+| telemetryGateway.additionalRouteLabels | string | `nil` | Additional labels for Telemetry Gateway routes. |
 | telemetryGateway.enabled | bool | `false` | Enable telemetry gateway service |
-| ui | object | `{"api":{"insecureSkipTlsVerify":true},"auth":{"caCert":"","clientId":"flightctl","insecureSkipTlsVerify":false,"internalAuthUrl":""},"enabled":true,"image":{"image":"quay.io/flightctl/flightctl-ui","pluginImage":"quay.io/flightctl/flightctl-ocp-ui","pullPolicy":"","tag":""},"isRHEM":false}` | UI Configuration |
+| ui | object | `{"additionalRouteLabels":null,"api":{"insecureSkipTlsVerify":true},"auth":{"caCert":"","clientId":"flightctl","insecureSkipTlsVerify":false,"internalAuthUrl":""},"enabled":true,"image":{"image":"quay.io/flightctl/flightctl-ui","pluginImage":"quay.io/flightctl/flightctl-ocp-ui","pullPolicy":"","tag":""},"isRHEM":false}` | UI Configuration |
+| ui.additionalRouteLabels | string | `nil` | Additional labels for UI routes. |
 | ui.api.insecureSkipTlsVerify | bool | `true` | Skip TLS verification for UI API calls |
 | ui.auth.caCert | string | `""` | A custom CA cert for Auth TLS. |
 | ui.auth.clientId | string | `"flightctl"` | Id of auth Client. |
