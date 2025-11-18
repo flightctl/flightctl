@@ -88,6 +88,7 @@ The flightctl-services package provides installation and setup of files for runn
 
 %package telemetry-gateway
 Summary: Telemetry Gateway for FlightCtl
+Requires:       flightctl-services = %{version}-%{release}
 Requires:       podman
 Requires:       python3-pyyaml
 Requires(post): python3-pyyaml gettext
@@ -102,6 +103,7 @@ independently of core FlightCtl services. Includes certificate tooling for Podma
 %package observability
 Summary: Complete FlightCtl observability stack
 Requires:       flightctl-telemetry-gateway = %{version}-%{release}
+Requires:       flightctl-services = %{version}-%{release}
 Requires:       /usr/sbin/semanage
 Requires:       /usr/sbin/restorecon
 Requires:       podman
@@ -614,6 +616,7 @@ rm -rf /usr/share/sosreport
     # Files mounted to system config
     %dir %{_sysconfdir}/flightctl
     %dir %{_sysconfdir}/flightctl/pki
+    %dir %{_sysconfdir}/flightctl/pam-issuer-pki
     %dir %{_sysconfdir}/flightctl/flightctl-api
     %dir %{_sysconfdir}/flightctl/flightctl-ui
     %dir %{_sysconfdir}/flightctl/flightctl-cli-artifacts
@@ -743,6 +746,8 @@ fi
 # If contexts were managed via policy, no cleanup is needed here.
 
 %changelog
+* Wed Nov 12 2025 Ben Keith <bkeith@redhat.com> - 1.0
+- Make observability and telemetry-gateway packages require services package
 * Mon Oct 27 2025 Dakota Crowder <dcrowder@redhat.com> - 1.0
 - Add must-gather script for the services sub package
 * Wed Oct 8 2025 Ilya Skornyakov <iskornya@redhat.com> - 0.10.0

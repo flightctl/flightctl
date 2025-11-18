@@ -1,3 +1,4 @@
+{{ if .Values.ui.enabled }}
 {{- if eq (.Values.global).target "acm" }}
 apiVersion: console.openshift.io/v1
 kind: ConsolePlugin
@@ -26,3 +27,4 @@ spec:
           port: 8080
         type: Service
 {{- end }}
+{{ end }}

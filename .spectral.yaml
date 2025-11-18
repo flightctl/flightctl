@@ -520,6 +520,7 @@ overrides:
       - "**#/paths/~1api~1v1~1auth~1authorize"
       - "**#/paths/~1api~1v1~1auth~1login"
       - "**#/paths/~1api~1v1~1auth~1token"
+      - "**#/paths/~1api~1v1~1auth~1%7Bprovidername%7D~1token"
       - "**#/paths/~1api~1v1~1auth~1userinfo"
       - "**#/paths/~1api~1v1~1auth~1.well-known~1openid-configuration"
     rules:

@@ -39,6 +39,7 @@ const (
 // AuthProviderService interface for auth provider operations
 type AuthProviderService interface {
 	ListAuthProviders(ctx context.Context, params api.ListAuthProvidersParams) (*api.AuthProviderList, api.Status)
+	GetAuthProvider(ctx context.Context, name string) (*api.AuthProvider, api.Status)
 	GetAuthProviderByIssuerAndClientId(ctx context.Context, issuer string, clientId string) (*api.AuthProvider, api.Status)
 }
 
@@ -88,6 +89,47 @@ func (m *MultiAuth) AddStaticProvider(issuer string, provider common.AuthNMiddle
 // HasProviders returns true if any providers are configured
 func (m *MultiAuth) HasProviders() bool {
 	return len(m.staticProviders) > 0
+}
+
+// GetProviderMiddleware retrieves the provider middleware directly by name (for internal use with secrets intact)
+func (m *MultiAuth) GetProviderMiddleware(name string) (common.AuthNMiddleware, api.Status) {
+	// Check static providers by name
+	for _, provider := range m.staticProviders {
+		config := provider.GetAuthConfig()
+		if config.Providers != nil {
+			for _, prov := range *config.Providers {
+				if prov.Metadata.Name != nil && *prov.Metadata.Name == name {
+					return provider, api.StatusOK()
+				}
+			}
+		}
+	}
+
+	// Check dynamic providers by name
+	m.dynamicProvidersMu.RLock()
+	defer m.dynamicProvidersMu.RUnlock()
+	for _, provider := range m.dynamicProviders {
+		config := provider.GetAuthConfig()
+		if config.Providers != nil {
+			for _, prov := range *config.Providers {
+				if prov.Metadata.Name != nil && *prov.Metadata.Name == name {
+					return provider, api.StatusOK()
+				}
+			}
+		}
+	}
+
+	return nil, api.StatusResourceNotFound("AuthProvider", name)
+}
+
+// GetTLSConfig returns the TLS configuration
+func (m *MultiAuth) GetTLSConfig() *tls.Config {
+	return m.tlsConfig
+}
+
+// GetLogger returns the logger
+func (m *MultiAuth) GetLogger() logrus.FieldLogger {
+	return m.log
 }
 
 // Start starts the background loader goroutine and blocks until context is cancelled
@@ -502,9 +544,18 @@ func (m *MultiAuth) GetAuthToken(r *http.Request) (string, error) {
 func (m *MultiAuth) GetAuthConfig() *api.AuthConfig {
 	allProviders := []api.AuthProvider{}
 	var orgEnabled bool
+	var firstStaticProviderName string
 
-	// Collect all static providers
-	for _, provider := range m.staticProviders {
+	// Collect static provider names and sort them for consistent ordering
+	staticProviderNames := make([]string, 0, len(m.staticProviders))
+	for name := range m.staticProviders {
+		staticProviderNames = append(staticProviderNames, name)
+	}
+	sort.Strings(staticProviderNames)
+
+	// Collect all static providers in sorted order
+	for _, name := range staticProviderNames {
+		provider := m.staticProviders[name]
 		config := provider.GetAuthConfig()
 
 		// Get org config from first provider config
@@ -514,6 +565,10 @@ func (m *MultiAuth) GetAuthConfig() *api.AuthConfig {
 
 		// Add all providers from this config
 		if config.Providers != nil {
+			// Capture the first static provider name (from first sorted provider)
+			if firstStaticProviderName == "" && len(*config.Providers) > 0 && (*config.Providers)[0].Metadata.Name != nil {
+				firstStaticProviderName = *(*config.Providers)[0].Metadata.Name
+			}
 			allProviders = append(allProviders, *config.Providers...)
 		}
 	}
@@ -553,11 +608,8 @@ func (m *MultiAuth) GetAuthConfig() *api.AuthConfig {
 		}
 	}
 
-	// Set default provider to the first provider in the sorted list
-	var defaultProviderName string
-	if allProviders[0].Metadata.Name != nil {
-		defaultProviderName = *allProviders[0].Metadata.Name
-	}
+	// Set default provider to the first static provider
+	defaultProviderName := firstStaticProviderName
 
 	return &api.AuthConfig{
 		ApiVersion:           api.AuthConfigAPIVersion,

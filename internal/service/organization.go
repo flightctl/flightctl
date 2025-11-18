@@ -11,6 +11,20 @@ import (
 
 var organizationApiVersion = fmt.Sprintf("%s/%s", api.APIGroup, api.OrganizationAPIVersion)
 
+// organizationModelToAPI converts a model.Organization to api.Organization
+func organizationModelToAPI(org *model.Organization) api.Organization {
+	name := org.ID.String()
+	return api.Organization{
+		ApiVersion: organizationApiVersion,
+		Kind:       api.OrganizationKind,
+		Metadata:   api.ObjectMeta{Name: &name},
+		Spec: &api.OrganizationSpec{
+			ExternalId:  &org.ExternalID,
+			DisplayName: &org.DisplayName,
+		},
+	}
+}
+
 func (h *ServiceHandler) ListOrganizations(ctx context.Context) (*api.OrganizationList, api.Status) {
 	var orgs []*model.Organization
 	var err error
@@ -27,16 +41,7 @@ func (h *ServiceHandler) ListOrganizations(ctx context.Context) (*api.Organizati
 
 	apiOrgs := make([]api.Organization, len(orgs))
 	for i, org := range orgs {
-		name := org.ID.String()
-		apiOrgs[i] = api.Organization{
-			ApiVersion: organizationApiVersion,
-			Kind:       api.OrganizationKind,
-			Metadata:   api.ObjectMeta{Name: &name},
-			Spec: &api.OrganizationSpec{
-				ExternalId:  &org.ExternalID,
-				DisplayName: &org.DisplayName,
-			},
-		}
+		apiOrgs[i] = organizationModelToAPI(org)
 	}
 
 	return &api.OrganizationList{

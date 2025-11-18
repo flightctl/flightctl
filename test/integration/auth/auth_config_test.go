@@ -255,7 +255,7 @@ var _ = Describe("Auth Config Integration Tests", func() {
 				ProviderType:           api.Oauth2,
 				Issuer:                 lo.ToPtr("https://oauth2.example.com"),
 				ClientId:               "oauth2-client-id",
-				ClientSecret:           lo.ToPtr(api.SecureString("oauth2-client-secret")),
+				ClientSecret:           lo.ToPtr("oauth2-client-secret"),
 				AuthorizationUrl:       "https://oauth2.example.com/authorize",
 				TokenUrl:               "https://oauth2.example.com/token",
 				UserinfoUrl:            "https://oauth2.example.com/userinfo",
@@ -553,9 +553,9 @@ var _ = Describe("Auth Config Integration Tests", func() {
 			// Verify dynamic provider exists
 			Expect(dynamicProvider).ToNot(BeNil(), "Dynamic provider should be in config")
 
-			// Default provider should be set to the first provider alphabetically
+			// Default provider should be set to the first static provider
 			Expect(config.DefaultProvider).ToNot(BeNil())
-			Expect(*config.DefaultProvider).To(Equal("dynamic-test"), "Default provider should be dynamic-test (alphabetically first)")
+			Expect(*config.DefaultProvider).To(Equal("oidc"), "Default provider should be oidc (first static provider)")
 		})
 	})
 })
