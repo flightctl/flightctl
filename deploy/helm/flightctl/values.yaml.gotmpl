@@ -146,9 +146,9 @@ db:
   # Internal database deployment configuration (ignored when external: "enabled")
   image:
     # -- PostgreSQL container image
-    image: quay.io/sclorg/postgresql-16-c9s
+    image: {{ .Images.db.Image }}
     # -- PostgreSQL image tag
-    tag: "20250214"
+    tag: "{{ .Images.db.Tag }}"
     # -- Image pull policy for database container
     pullPolicy: ""
   # -- Database master/admin username
@@ -188,9 +188,9 @@ kv:
   enabled: true
   image:
     # -- Redis container image
-    image: quay.io/sclorg/redis-7-c9s
+    image: {{ .Images.kv.Image }}
     # -- Redis image tag
-    tag: "20250108"
+    tag: "{{ .Images.kv.Tag}}"
     # -- Image pull policy for Redis container
     pullPolicy: ""
   # -- Redis password (leave empty for auto-generation)
@@ -212,9 +212,9 @@ alertmanager:
   enabled: true
   image:
     # -- Alertmanager container image
-    image: quay.io/prometheus/alertmanager
+    image: {{ .Images.alertmanager.Image }}
     # -- Alertmanager image tag
-    tag: "v0.28.1"
+    tag: "{{ .Images.alertmanager.Tag }}"
     # -- Image pull policy for Alertmanager container
     pullPolicy: ""
   # -- Additional labels for Alert Manager routes.
@@ -229,7 +229,7 @@ api:
   enabled: true
   image:
     # -- API server container image
-    image: quay.io/flightctl/flightctl-api
+    image: {{ .Images.api.Image }}
     # -- API server image tag (leave empty to use chart appVersion)
     tag: ""
     # -- Image pull policy for API server container
@@ -276,7 +276,7 @@ cliArtifacts:
   enabled: true
   image:
     # -- CLI artifacts container image
-    image: quay.io/flightctl/flightctl-cli-artifacts
+    image: {{ .Images.cliArtifacts.Image }}
     # -- CLI artifacts image tag
     tag: ""
     # -- Image pull policy for CLI artifacts container
@@ -290,7 +290,7 @@ worker:
   enabled: true
   image:
     # -- Worker container image
-    image: quay.io/flightctl/flightctl-worker
+    image: {{ .Images.worker.Image }}
     # -- Image pull policy for worker container
     pullPolicy: ""
     # -- Worker image tag
@@ -302,7 +302,7 @@ periodic:
   enabled: true
   image:
     # -- Periodic container image
-    image: quay.io/flightctl/flightctl-periodic
+    image: {{ .Images.periodic.Image }}
     # -- Periodic image tag
     tag: ""
     # -- Image pull policy for periodic container
@@ -316,7 +316,7 @@ alertExporter:
   enabled: true
   image:
     # -- Alert exporter container image
-    image: quay.io/flightctl/flightctl-alert-exporter
+    image: {{ .Images.alertExporter.Image }}
     # -- Alert exporter image tag
     tag: ""
     # -- Image pull policy for alert exporter container
@@ -328,7 +328,7 @@ alertmanagerProxy:
   enabled: true
   image:
     # -- Alertmanager proxy container image
-    image: quay.io/flightctl/flightctl-alertmanager-proxy
+    image: {{ .Images.alertmanagerProxy.Image }}
     # -- Alertmanager proxy image tag
     tag: ""
     # -- Image pull policy for Alertmanager proxy container
@@ -345,9 +345,9 @@ ui:
   enabled: true
   image:
     # -- UI container image
-    image: quay.io/flightctl/flightctl-ui
+    image: {{ .Images.ui.Image }}
     # -- UI Plugin container image
-    pluginImage: quay.io/flightctl/flightctl-ocp-ui
+    pluginImage: {{ .Images.uiPlugin.Image }}
     # -- UI container image tag
     tag: ""
     # -- Image pull policy for UI container
@@ -371,16 +371,16 @@ ui:
 clusterCli:
   image:
     # -- Cluster CLI container image
-    image: quay.io/openshift/origin-cli
+    image: {{ .Images.clusterCli.Image }}
     # -- Cluster CLI image tag
-    tag: "4.20.0"
+    tag: "{{ .Images.clusterCli.Tag }}"
     # -- Image pull policy for cluster CLI container
     pullPolicy: ""
 # -- Database Setup Configuration
 dbSetup:
   image:
     # -- Database setup container image
-    image: quay.io/flightctl/flightctl-db-setup
+    image: {{ .Images.dbSetup.Image }}
     # -- Database setup image tag
     tag: ""
     # -- Image pull policy for database setup container
