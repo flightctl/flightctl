@@ -109,11 +109,11 @@ func TestStaticAuthZ_CheckPermission(t *testing.T) {
 			expected: false,
 		},
 		{
-			name:     "operator cannot create repositories",
+			name:     "operator can create repositories",
 			roles:    []string{v1alpha1.RoleOperator},
 			resource: "repositories",
 			op:       "create",
-			expected: false,
+			expected: true,
 		},
 	}
 
