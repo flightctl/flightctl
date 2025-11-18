@@ -3,8 +3,10 @@ package renderer
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
+
+	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/stretchr/testify/require"
 )
 
 // Helper function to create a test config with temporary directories
@@ -34,13 +36,11 @@ func createTempFile(t *testing.T, dir, filename, content string) string {
 	t.Helper()
 
 	filePath := filepath.Join(dir, filename)
-	if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
-		t.Fatalf("Failed to create directory: %v", err)
-	}
+	err := os.MkdirAll(filepath.Dir(filePath), 0755)
+	require.NoError(t, err, "Failed to create directory")
 
-	if err := os.WriteFile(filePath, []byte(content), 0600); err != nil {
-		t.Fatalf("Failed to write temp file: %v", err)
-	}
+	err = os.WriteFile(filePath, []byte(content), 0600)
+	require.NoError(t, err, "Failed to write temp file")
 
 	return filePath
 }
@@ -49,9 +49,8 @@ func createTempDir(t *testing.T, baseDir string) string {
 	t.Helper()
 
 	dirPath := filepath.Join(baseDir, "testdir")
-	if err := os.MkdirAll(dirPath, 0755); err != nil {
-		t.Fatalf("Failed to create directory: %v", err)
-	}
+	err := os.MkdirAll(dirPath, 0755)
+	require.NoError(t, err, "Failed to create directory")
 
 	// Create some files in the directory
 	createTempFile(t, dirPath, "file1.txt", "content1")
@@ -59,9 +58,8 @@ func createTempDir(t *testing.T, baseDir string) string {
 
 	// Create a subdirectory with a file
 	subDir := filepath.Join(dirPath, "subdir")
-	if err := os.MkdirAll(subDir, 0755); err != nil {
-		t.Fatalf("Failed to create subdirectory: %v", err)
-	}
+	err = os.MkdirAll(subDir, 0755)
+	require.NoError(t, err, "Failed to create subdirectory")
 	createTempFile(t, subDir, "file3.txt", "content3")
 
 	return dirPath
@@ -71,52 +69,32 @@ func verifyFileContent(t *testing.T, path, expectedContent string) {
 	t.Helper()
 
 	content, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("Failed to read file %s: %v", path, err)
-	}
-
-	if string(content) != expectedContent {
-		t.Errorf("File content mismatch.\nExpected: %q\nGot: %q", expectedContent, string(content))
-	}
+	require.NoError(t, err, "Failed to read file %s", path)
+	require.Equal(t, expectedContent, string(content), "File content mismatch for %s", path)
 }
 
 func verifyFileMode(t *testing.T, path string, expectedMode os.FileMode) {
 	t.Helper()
 
 	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("Failed to stat file %s: %v", path, err)
-	}
-
-	if info.Mode().Perm() != expectedMode {
-		t.Errorf("File mode mismatch for %s.\nExpected: %o\nGot: %o", path, expectedMode, info.Mode().Perm())
-	}
+	require.NoError(t, err, "Failed to stat file %s", path)
+	require.Equal(t, expectedMode, info.Mode().Perm(), "File mode mismatch for %s", path)
 }
 
 func verifyDirExists(t *testing.T, path string) {
 	t.Helper()
 
 	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("Directory does not exist: %s: %v", path, err)
-	}
-
-	if !info.IsDir() {
-		t.Errorf("Path exists but is not a directory: %s", path)
-	}
+	require.NoError(t, err, "Directory does not exist: %s", path)
+	require.True(t, info.IsDir(), "Path exists but is not a directory: %s", path)
 }
 
 func verifyFileExists(t *testing.T, path string) {
 	t.Helper()
 
 	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("File does not exist: %s: %v", path, err)
-	}
-
-	if info.IsDir() {
-		t.Errorf("Path exists but is a directory: %s", path)
-	}
+	require.NoError(t, err, "File does not exist: %s", path)
+	require.False(t, info.IsDir(), "Path exists but is a directory: %s", path)
 }
 
 func TestProcessInstallManifest(t *testing.T) {
@@ -290,12 +268,10 @@ func TestProcessInstallManifest(t *testing.T) {
 			name: "create empty file that already exists",
 			setup: func(t *testing.T, sourceDir string, config *RendererConfig) []InstallAction {
 				destPath := filepath.Join(config.WriteableConfigOutputDir, "existing.txt")
-				if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
-					t.Fatalf("Failed to create directory: %v", err)
-				}
-				if err := os.WriteFile(destPath, []byte("existing content"), 0600); err != nil {
-					t.Fatalf("Failed to create existing file: %v", err)
-				}
+				err := os.MkdirAll(filepath.Dir(destPath), 0755)
+				require.NoError(t, err, "Failed to create directory")
+				err = os.WriteFile(destPath, []byte("existing content"), 0600)
+				require.NoError(t, err, "Failed to create existing file")
 
 				return []InstallAction{
 					{
@@ -316,9 +292,8 @@ func TestProcessInstallManifest(t *testing.T) {
 			name: "create empty directory that already exists",
 			setup: func(t *testing.T, sourceDir string, config *RendererConfig) []InstallAction {
 				destPath := filepath.Join(config.WriteableConfigOutputDir, "existingdir")
-				if err := os.MkdirAll(destPath, 0755); err != nil {
-					t.Fatalf("Failed to create existing directory: %v", err)
-				}
+				err := os.MkdirAll(destPath, 0755)
+				require.NoError(t, err, "Failed to create existing directory")
 
 				return []InstallAction{
 					{
@@ -377,21 +352,18 @@ func TestProcessInstallManifest(t *testing.T) {
 
 			manifest := tt.setup(t, sourceDir, config)
 
-			err := processInstallManifest(manifest, config)
+			logger := log.NewPrefixLogger("test")
+			err := processInstallManifest(manifest, config, logger)
 
 			if tt.expectError {
-				if err == nil {
-					t.Fatalf("Expected error but got none")
-				}
-				if tt.errorSubstring != "" && !strings.Contains(err.Error(), tt.errorSubstring) {
-					t.Errorf("Expected error to contain %q, got: %v", tt.errorSubstring, err)
+				require.Error(t, err, "Expected error but got none")
+				if tt.errorSubstring != "" {
+					require.Contains(t, err.Error(), tt.errorSubstring, "Expected error to contain %q", tt.errorSubstring)
 				}
 				return
 			}
 
-			if err != nil {
-				t.Fatalf("Unexpected error: %v", err)
-			}
+			require.NoError(t, err, "Unexpected error")
 
 			tt.verify(t, config)
 		})
