@@ -926,6 +926,9 @@ func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []
 			if provider.Image == "" && app.Name == nil {
 				allErrs = append(allErrs, fmt.Errorf("image reference cannot be empty when application name is not provided"))
 			}
+			if lo.FromPtr(app.AppType) == AppTypeQuadlet {
+				allErrs = append(allErrs, fmt.Errorf("image application provider does not support %q application type", AppTypeQuadlet))
+			}
 			allErrs = append(allErrs, validateOciImageReference(&provider.Image, fmt.Sprintf("spec.applications[%s].image", appName), fleetTemplate)...)
 			volumes = provider.Volumes
 

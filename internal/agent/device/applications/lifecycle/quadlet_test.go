@@ -12,7 +12,10 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
+<<<<<<< HEAD
 	testutil "github.com/flightctl/flightctl/test/util"
+=======
+>>>>>>> 33a1cb77 (fix)
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
@@ -27,6 +30,7 @@ func (m *mockDirEntry) IsDir() bool                { return m.isDir }
 func (m *mockDirEntry) Type() fs.FileMode          { return 0 }
 func (m *mockDirEntry) Info() (fs.FileInfo, error) { return nil, nil }
 
+<<<<<<< HEAD
 // allows for matching the first N arguments in a variadic list
 type variadicMatcher struct {
 	expected []string
@@ -57,6 +61,8 @@ func newMatcher(expected ...string) gomock.Matcher {
 	return &variadicMatcher{expected: expected}
 }
 
+=======
+>>>>>>> 33a1cb77 (fix)
 func TestQuadlet_Execute(t *testing.T) {
 	require := require.New(t)
 	ctrl := gomock.NewController(t)
@@ -91,6 +97,7 @@ func TestQuadlet_Execute(t *testing.T) {
 				ID:   "test-id",
 			},
 			setupMocks: func(mockExec *executer.MockExecuter, mockRW *fileio.MockReadWriter) {
+<<<<<<< HEAD
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "daemon-reload").Return("", "", 0).Times(1)
 
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume")).Return("[]", "", 0).AnyTimes()
@@ -98,6 +105,9 @@ func TestQuadlet_Execute(t *testing.T) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("rm")).Return("", "", 0).Times(1)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("ps")).Return("", "", 0).Times(1)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("network")).Return("", "", 0).Times(1)
+=======
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "daemon-reload").Return("", "", 0)
+>>>>>>> 33a1cb77 (fix)
 			},
 			setupServices: func(q *Quadlet) {
 				q.actionServices["test-id"] = []string{}
@@ -116,6 +126,7 @@ func TestQuadlet_Execute(t *testing.T) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "daemon-reload").Return("", "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "daemon-reload").Return("", "", 0)
 				mockRW.EXPECT().ReadDir("/test/path").Return([]fs.DirEntry{}, nil)
+<<<<<<< HEAD
 
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume")).Return("[]", "", 0).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("stop")).Return("", "", 0).AnyTimes()
@@ -123,6 +134,8 @@ func TestQuadlet_Execute(t *testing.T) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("ps")).Return("", "", 0).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("network")).Return("", "", 0).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("pod")).Return("", "", 0).AnyTimes()
+=======
+>>>>>>> 33a1cb77 (fix)
 			},
 			setupServices: func(q *Quadlet) {
 				q.actionServices["test-id"] = []string{}
@@ -148,9 +161,14 @@ func TestQuadlet_Execute(t *testing.T) {
 			tc.setupMocks(mockExec, mockRW)
 
 			systemd := client.NewSystemd(mockExec)
+<<<<<<< HEAD
 			podman := client.NewPodman(log.NewPrefixLogger("test"), mockExec, mockRW, testutil.NewPollConfig())
 			logger := log.NewPrefixLogger("test")
 			q := NewQuadlet(logger, mockRW, systemd, podman)
+=======
+			logger := log.NewPrefixLogger("test")
+			q := NewQuadlet(logger, mockRW, systemd)
+>>>>>>> 33a1cb77 (fix)
 
 			if tc.setupServices != nil {
 				tc.setupServices(q)
@@ -325,9 +343,14 @@ func TestQuadlet_add(t *testing.T) {
 			tc.setupMocks(mockExec, mockRW)
 
 			systemd := client.NewSystemd(mockExec)
+<<<<<<< HEAD
 			podman := client.NewPodman(log.NewPrefixLogger("test"), mockExec, mockRW, testutil.NewPollConfig())
 			logger := log.NewPrefixLogger("test")
 			q := NewQuadlet(logger, mockRW, systemd, podman)
+=======
+			logger := log.NewPrefixLogger("test")
+			q := NewQuadlet(logger, mockRW, systemd)
+>>>>>>> 33a1cb77 (fix)
 
 			err := q.add(context.Background(), tc.action)
 			if tc.wantErr {
@@ -365,6 +388,7 @@ func TestQuadlet_remove(t *testing.T) {
 				unitBytes, _ := json.Marshal(units)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "list-units", "--all", "--output", "json", "--", "app-123-web.service").Return(string(unitBytes), "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "daemon-reload").Return("", "", 0)
+<<<<<<< HEAD
 
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume")).Return("[]", "", 0).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("stop")).Return("", "", 0).AnyTimes()
@@ -372,6 +396,8 @@ func TestQuadlet_remove(t *testing.T) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("ps")).Return("", "", 0).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("network")).Return("", "", 0).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("pod")).Return("", "", 0).AnyTimes()
+=======
+>>>>>>> 33a1cb77 (fix)
 			},
 			setupServices: func(q *Quadlet) {
 				q.actionServices["app-123"] = []string{"app-123-web.service"}
@@ -417,6 +443,7 @@ func TestQuadlet_remove(t *testing.T) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "list-units", "--all", "--output", "json", "--", "app-failed-1-web.service").Return(string(unitBytes), "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "reset-failed", "app-failed-1-web.service").Return("", "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "daemon-reload").Return("", "", 0)
+<<<<<<< HEAD
 
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume")).Return("[]", "", 0).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("stop")).Return("", "", 0).AnyTimes()
@@ -424,6 +451,8 @@ func TestQuadlet_remove(t *testing.T) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("ps")).Return("", "", 0).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("network")).Return("", "", 0).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("pod")).Return("", "", 0).AnyTimes()
+=======
+>>>>>>> 33a1cb77 (fix)
 			},
 			setupServices: func(q *Quadlet) {
 				q.actionServices["app-failed-1"] = []string{"app-failed-1-web.service"}
@@ -446,6 +475,7 @@ func TestQuadlet_remove(t *testing.T) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "list-units", "--all", "--output", "json", "--", "app-multi-web.service", "app-multi-db.service").Return(string(unitBytes), "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "reset-failed", "app-multi-web.service").Return("", "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "daemon-reload").Return("", "", 0)
+<<<<<<< HEAD
 
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume")).Return("[]", "", 0).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("stop")).Return("", "", 0).AnyTimes()
@@ -453,6 +483,8 @@ func TestQuadlet_remove(t *testing.T) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("ps")).Return("", "", 0).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("network")).Return("", "", 0).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("pod")).Return("", "", 0).AnyTimes()
+=======
+>>>>>>> 33a1cb77 (fix)
 			},
 			setupServices: func(q *Quadlet) {
 				q.actionServices["app-multi"] = []string{"app-multi-web.service", "app-multi-db.service"}
@@ -474,6 +506,7 @@ func TestQuadlet_remove(t *testing.T) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "list-units", "--all", "--output", "json", "--", "app-reset-fail-web.service").Return(string(unitBytes), "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "reset-failed", "app-reset-fail-web.service").Return("", "reset failed", 1)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "daemon-reload").Return("", "", 0)
+<<<<<<< HEAD
 
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume")).Return("[]", "", 0).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("stop")).Return("", "", 0).AnyTimes()
@@ -481,6 +514,8 @@ func TestQuadlet_remove(t *testing.T) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("ps")).Return("", "", 0).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("network")).Return("", "", 0).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("pod")).Return("", "", 0).AnyTimes()
+=======
+>>>>>>> 33a1cb77 (fix)
 			},
 			setupServices: func(q *Quadlet) {
 				q.actionServices["app-reset-fail"] = []string{"app-reset-fail-web.service"}
@@ -497,6 +532,7 @@ func TestQuadlet_remove(t *testing.T) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "stop", "app-list-fail-web.service").Return("", "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "list-units", "--all", "--output", "json", "--", "app-list-fail-web.service").Return("", "list failed", 1)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "daemon-reload").Return("", "", 0)
+<<<<<<< HEAD
 
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume")).Return("[]", "", 0).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("stop")).Return("", "", 0).AnyTimes()
@@ -504,6 +540,8 @@ func TestQuadlet_remove(t *testing.T) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("ps")).Return("", "", 0).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("network")).Return("", "", 0).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("pod")).Return("", "", 0).AnyTimes()
+=======
+>>>>>>> 33a1cb77 (fix)
 			},
 			setupServices: func(q *Quadlet) {
 				q.actionServices["app-list-fail"] = []string{"app-list-fail-web.service"}
@@ -539,9 +577,14 @@ func TestQuadlet_remove(t *testing.T) {
 			tc.setupMocks(mockExec, mockRW)
 
 			systemd := client.NewSystemd(mockExec)
+<<<<<<< HEAD
 			podman := client.NewPodman(log.NewPrefixLogger("test"), mockExec, mockRW, testutil.NewPollConfig())
 			logger := log.NewPrefixLogger("test")
 			q := NewQuadlet(logger, mockRW, systemd, podman)
+=======
+			logger := log.NewPrefixLogger("test")
+			q := NewQuadlet(logger, mockRW, systemd)
+>>>>>>> 33a1cb77 (fix)
 
 			if tc.setupServices != nil {
 				tc.setupServices(q)
@@ -584,6 +627,7 @@ func TestQuadlet_update(t *testing.T) {
 				}, nil)
 				mockRW.EXPECT().ReadFile("/test/path/app.container").Return([]byte("[Container]\nImage=nginx\n"), nil)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "start", "app.service").Return("", "", 0)
+<<<<<<< HEAD
 
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume")).Return("[]", "", 0).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("stop")).Return("", "", 0).AnyTimes()
@@ -591,6 +635,8 @@ func TestQuadlet_update(t *testing.T) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("ps")).Return("", "", 0).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("network")).Return("", "", 0).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("pod")).Return("", "", 0).AnyTimes()
+=======
+>>>>>>> 33a1cb77 (fix)
 			},
 			setupServices: func(q *Quadlet) {
 				q.actionServices["app-123"] = []string{}
@@ -622,6 +668,7 @@ func TestQuadlet_update(t *testing.T) {
 			setupMocks: func(mockExec *executer.MockExecuter, mockRW *fileio.MockReadWriter) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "daemon-reload").Return("", "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "daemon-reload").Return("", "reload failed", 1)
+<<<<<<< HEAD
 
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume")).Return("[]", "", 0).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("stop")).Return("", "", 0).AnyTimes()
@@ -629,6 +676,8 @@ func TestQuadlet_update(t *testing.T) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("ps")).Return("", "", 0).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("network")).Return("", "", 0).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("pod")).Return("", "", 0).AnyTimes()
+=======
+>>>>>>> 33a1cb77 (fix)
 			},
 			setupServices: func(q *Quadlet) {
 				q.actionServices["app-789"] = []string{}
@@ -644,9 +693,14 @@ func TestQuadlet_update(t *testing.T) {
 			tc.setupMocks(mockExec, mockRW)
 
 			systemd := client.NewSystemd(mockExec)
+<<<<<<< HEAD
 			podman := client.NewPodman(log.NewPrefixLogger("test"), mockExec, mockRW, testutil.NewPollConfig())
 			logger := log.NewPrefixLogger("test")
 			q := NewQuadlet(logger, mockRW, systemd, podman)
+=======
+			logger := log.NewPrefixLogger("test")
+			q := NewQuadlet(logger, mockRW, systemd)
+>>>>>>> 33a1cb77 (fix)
 
 			if tc.setupServices != nil {
 				tc.setupServices(q)

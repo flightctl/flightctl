@@ -553,9 +553,15 @@ var _ = Describe("Auth Config Integration Tests", func() {
 			// Verify dynamic provider exists
 			Expect(dynamicProvider).ToNot(BeNil(), "Dynamic provider should be in config")
 
+<<<<<<< HEAD
 			// Default provider should be set to the first static provider
 			Expect(config.DefaultProvider).ToNot(BeNil())
 			Expect(*config.DefaultProvider).To(Equal("oidc"), "Default provider should be oidc (first static provider)")
+=======
+			// Default provider should be set to the first provider alphabetically
+			Expect(config.DefaultProvider).ToNot(BeNil())
+			Expect(*config.DefaultProvider).To(Equal("dynamic-test"), "Default provider should be dynamic-test (alphabetically first)")
+>>>>>>> 33a1cb77 (fix)
 		})
 	})
 })

@@ -52,7 +52,11 @@ const (
 // Organization and Group Prefixes
 const (
 	// OrgPrefix is the prefix for organization group names
+<<<<<<< HEAD
 	OrgPrefix = "org-"
+=======
+	OrgPrefix = "org:"
+>>>>>>> 33a1cb77 (fix)
 )
 
 // Token Endpoint Authentication Methods
