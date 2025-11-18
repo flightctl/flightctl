@@ -393,25 +393,46 @@ func (s *PAMOIDCProvider) handleAuthorizationCodeGrant(ctx context.Context, req 
 	return tokenResponse, nil
 }
 
+// maskSensitiveValue truncates a sensitive value for logging/error messages
+// Shows first 8 characters and last 4 characters, with "..." in between
+func maskSensitiveValue(value string) string {
+	if value == "" {
+		return "<empty>"
+	}
+	if len(value) <= 12 {
+		return "***" // Don't reveal short values at all
+	}
+	return value[:8] + "..." + value[len(value)-4:]
+}
+
 // Authorize handles the authorization endpoint for authorization code flow
 func (s *PAMOIDCProvider) Authorize(ctx context.Context, req *pamapi.AuthAuthorizeParams) (*AuthorizeResponse, error) {
+	stateValue := lo.FromPtrOr(req.State, "")
+	maskedState := maskSensitiveValue(stateValue)
 	s.log.Debugf("Authorize: starting authorization request - ClientId=%s, RedirectUri=%s, ResponseType=%s, Scope=%s, State=%s",
-		req.ClientId, req.RedirectUri, req.ResponseType, lo.FromPtrOr(req.Scope, ""), lo.FromPtrOr(req.State, ""))
+		req.ClientId, req.RedirectUri, req.ResponseType, lo.FromPtrOr(req.Scope, ""), maskedState)
 
 	// Validate required fields
-	if req.ClientId == "" || req.RedirectUri == "" {
-		s.log.Warnf("Authorize: missing required fields - ClientId=%s, RedirectUri=%s", req.ClientId, req.RedirectUri)
-		return nil, errors.New(ErrorInvalidRequest)
+	var missingFields []string
+	if req.ClientId == "" {
+		missingFields = append(missingFields, "client_id")
+	}
+	if req.RedirectUri == "" {
+		missingFields = append(missingFields, "redirect_uri")
+	}
+	if len(missingFields) > 0 {
+		s.log.Warnf("Authorize: missing required fields - %v", missingFields)
+		return nil, fmt.Errorf("%s: missing required parameter(s): %s", ErrorInvalidRequest, strings.Join(missingFields, ", "))
 	}
 
 	// Validate client ID
 	if s.config == nil {
 		s.log.Errorf("Authorize: config is nil")
-		return nil, errors.New(ErrorInvalidClient)
+		return nil, fmt.Errorf("%s: PAM issuer configuration not initialized", ErrorInvalidClient)
 	}
 	if s.config.ClientID != req.ClientId {
 		s.log.Warnf("Authorize: invalid client ID - expected=%s, got=%s", s.config.ClientID, req.ClientId)
-		return nil, errors.New(ErrorInvalidClient)
+		return nil, fmt.Errorf("%s: client_id mismatch. Expected: %s, got: %s", ErrorInvalidClient, s.config.ClientID, req.ClientId)
 	}
 	s.log.Debugf("Authorize: client ID validation passed - %s", req.ClientId)
 
@@ -428,14 +449,25 @@ func (s *PAMOIDCProvider) Authorize(ctx context.Context, req *pamapi.AuthAuthori
 		}
 	}
 	if !validRedirect {
-		s.log.Warnf("Authorize: invalid redirect URI - %s", req.RedirectUri)
-		return nil, errors.New(ErrorInvalidRequest)
+		var allowedURIs string
+		var allowedURIsForLog string
+		if s.config != nil && len(s.config.RedirectURIs) > 0 {
+			// For logs: show full list (server-side only)
+			allowedURIsForLog = fmt.Sprintf(" Allowed redirect URIs: %v", s.config.RedirectURIs)
+			// For client error: show count only to avoid revealing internal configuration
+			allowedURIs = fmt.Sprintf(" %d redirect URI(s) configured", len(s.config.RedirectURIs))
+		} else {
+			allowedURIs = " No redirect URIs configured"
+			allowedURIsForLog = allowedURIs
+		}
+		s.log.Warnf("Authorize: invalid redirect URI - requested=%s.%s", req.RedirectUri, allowedURIsForLog)
+		return nil, fmt.Errorf("%s: redirect_uri mismatch. Requested: %s.%s", ErrorInvalidRequest, req.RedirectUri, allowedURIs)
 	}
 
 	// Validate response type
 	if req.ResponseType != pamapi.Code {
-		s.log.Warnf("Authorize: unsupported response type - %s", req.ResponseType)
-		return nil, errors.New(ErrorUnsupportedGrantType)
+		s.log.Warnf("Authorize: unsupported response type - %s (only 'code' is supported)", req.ResponseType)
+		return nil, fmt.Errorf("%s: unsupported response_type. Requested: %s, supported: code", ErrorUnsupportedGrantType, req.ResponseType)
 	}
 	s.log.Debugf("Authorize: response type validation passed - %s", req.ResponseType)
 
@@ -446,19 +478,19 @@ func (s *PAMOIDCProvider) Authorize(ctx context.Context, req *pamapi.AuthAuthori
 	codeChallengeMethod := lo.FromPtrOr(req.CodeChallengeMethod, "")
 	if codeChallenge != "" && codeChallengeMethod == "" {
 		s.log.Warnf("Authorize: code_challenge_method required when code_challenge is provided")
-		return nil, errors.New(ErrorInvalidRequest)
+		return nil, fmt.Errorf("%s: code_challenge_method is required when code_challenge is provided", ErrorInvalidRequest)
 	}
 	if codeChallengeMethod != "" && codeChallenge == "" {
 		s.log.Warnf("Authorize: code_challenge required when code_challenge_method is provided")
-		return nil, errors.New(ErrorInvalidRequest)
+		return nil, fmt.Errorf("%s: code_challenge is required when code_challenge_method is provided", ErrorInvalidRequest)
 	}
 	if codeChallengeMethod != "" && codeChallengeMethod != pamapi.AuthAuthorizeParamsCodeChallengeMethodS256 {
 		s.log.Warnf("Authorize: unsupported code_challenge_method - %s (only S256 supported)", codeChallengeMethod)
-		return nil, errors.New(ErrorInvalidRequest)
+		return nil, fmt.Errorf("%s: unsupported code_challenge_method. Requested: %s, supported: S256", ErrorInvalidRequest, codeChallengeMethod)
 	}
 	if isPublicClient && codeChallenge == "" && !s.config.AllowPublicClientWithoutPKCE {
 		s.log.Warnf("Authorize: PKCE required for public client but code_challenge not provided")
-		return nil, errors.New(ErrorInvalidRequest)
+		return nil, fmt.Errorf("%s: PKCE is required for public clients. code_challenge parameter is missing", ErrorInvalidRequest)
 	}
 
 	// Authorization flow:
@@ -504,15 +536,19 @@ func (s *PAMOIDCProvider) Authorize(ctx context.Context, req *pamapi.AuthAuthori
 	// These must match the current authorize request to ensure this is the same OAuth flow
 	if sessionData.ClientID != req.ClientId {
 		s.log.Warnf("Authorize: client_id mismatch - session=%s, request=%s", sessionData.ClientID, req.ClientId)
-		return nil, errors.New(ErrorInvalidRequest)
+		return nil, fmt.Errorf("%s: client_id mismatch. Session: %s, request: %s", ErrorInvalidRequest, sessionData.ClientID, req.ClientId)
 	}
 	if sessionData.RedirectURI != req.RedirectUri {
 		s.log.Warnf("Authorize: redirect_uri mismatch - session=%s, request=%s", sessionData.RedirectURI, req.RedirectUri)
-		return nil, errors.New(ErrorInvalidRequest)
+		return nil, fmt.Errorf("%s: redirect_uri mismatch. Session: %s, request: %s", ErrorInvalidRequest, sessionData.RedirectURI, req.RedirectUri)
 	}
 	if sessionData.State != lo.FromPtrOr(req.State, "") {
-		s.log.Warnf("Authorize: state mismatch - session=%s, request=%s", sessionData.State, lo.FromPtrOr(req.State, ""))
-		return nil, errors.New(ErrorInvalidRequest)
+		requestState := lo.FromPtrOr(req.State, "")
+		maskedSessionState := maskSensitiveValue(sessionData.State)
+		maskedRequestState := maskSensitiveValue(requestState)
+		s.log.Warnf("Authorize: state mismatch - session=%s, request=%s", maskedSessionState, maskedRequestState)
+		// Don't reveal state values in client-facing error messages
+		return nil, fmt.Errorf("%s: state parameter mismatch (CSRF protection)", ErrorInvalidRequest)
 	}
 
 	// SECURITY: Use PKCE parameters from session if available (prevents tampering)
