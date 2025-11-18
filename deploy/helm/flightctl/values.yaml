@@ -76,8 +76,6 @@ global:
   internalNamespace: ""
   # -- Allow flightctl-worker to access secrets at the cluster level for embedding in device configs
   clusterLevelSecretAccess: false
-  # -- This is only related to deployment in Red Hat's PAAS.
-  appCode: ""
   # -- How the Flight Control services should be exposed. Can be either nodePort or route
   exposeServicesMethod: "route" # route, nodePort, gateway
   # -- Gateway API class name for gateway exposure method
@@ -115,6 +113,10 @@ global:
   sshKnownHosts:
     # -- SSH known hosts file content for Git repository host key verification.
     data: ""
+  # -- Additional labels for routes.
+  additionalRouteLabels: null
+  # -- Additional labels for PVCs.
+  additionalPVCLabels: null
 
 
 # -- Component specific parameters
@@ -176,6 +178,9 @@ db:
       memory: "512Mi"
   # -- File system group ID for database pod security context
   fsGroup: ""
+  # -- Additional labels for DB PVCs.
+  additionalPVCLabels: null
+
 # -- Key-Value Store Configuration
 kv:
   # -- Enable Redis key-value store for caching and session storage
@@ -210,6 +215,10 @@ alertmanager:
     tag: "v0.28.1"
     # -- Image pull policy for Alertmanager container
     pullPolicy: ""
+  # -- Additional labels for Alert Manager routes.
+  additionalRouteLabels: null
+  # -- Additional labels for Alert Manager PVCs.
+  additionalPVCLabels: null
 
 
 # -- API Server Configuration
@@ -254,6 +263,10 @@ api:
     readinessPath: /readyz
     # -- HTTP path for liveness probe
     livenessPath: /healthz
+  # -- Additional labels for API routes.
+  additionalRouteLabels: null
+  # -- Additional labels for API PVCs.
+  additionalPVCLabels: null
 
 # -- CLI Artifacts Configuration
 cliArtifacts:
@@ -266,6 +279,8 @@ cliArtifacts:
     pullPolicy: ""
     # -- CLI artifacts image tag
     tag: ""
+  # -- Additional labels for CLI Artifacts routes.
+  additionalRouteLabels: null
 
 # -- Worker Configuration
 worker:
@@ -351,6 +366,8 @@ ui:
     caCert: ""
     # -- Id of auth Client.
     clientId: flightctl
+  # -- Additional labels for UI routes.
+  additionalRouteLabels: null
 
 # -- Cluster CLI Configuration
 clusterCli:
@@ -402,3 +419,5 @@ upgradeHooks:
 telemetryGateway:
   # -- Enable telemetry gateway service
   enabled: false
+  # -- Additional labels for Telemetry Gateway routes.
+  additionalRouteLabels: null

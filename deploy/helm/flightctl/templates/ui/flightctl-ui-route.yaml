@@ -7,10 +7,11 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "flightctl.standardLabels" . | nindent 4 }}
-    {{- if (.Values.global).appCode }}
-    external-exposed: 'true'
-    paas.redhat.com/appcode: {{ .Values.global.appCode }}
-    shard: external
+    {{- with .Values.global.additionalRouteLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    {{- with .Values.ui.additionalRouteLabels }}
+    {{- toYaml . | nindent 4 }}
     {{- end }}
 spec:
   host:  ui.{{ include "flightctl.getBaseDomain" . }}
