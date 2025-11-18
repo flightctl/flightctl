@@ -40,7 +40,7 @@ GOARCH = $(shell go env GOARCH)
 
 VERBOSE ?= false
 
-SOURCE_GIT_TAG ?=$(shell $(ROOT_DIR)/hack/current-version)
+SOURCE_GIT_TAG ?=$(shell git describe --tags --exclude latest 2>/dev/null || echo "v0.0.0-unknown")
 SOURCE_GIT_TREE_STATE ?=$(shell ( ( [ ! -d "$(ROOT_DIR)/.git/" ] || git -C $(ROOT_DIR) diff --quiet ) && echo 'clean' ) || echo 'dirty')
 SOURCE_GIT_COMMIT ?=$(shell git -C $(ROOT_DIR) rev-parse --short "HEAD^{commit}" 2>/dev/null || echo "unknown")
 BIN_TIMESTAMP ?=$(shell date +'%Y%m%d')
@@ -151,7 +151,7 @@ build: bin build-cli build-pam-issuer
 		./cmd/flightctl-userinfo-proxy \
 		./cmd/flightctl-db-migrate \
 		./cmd/flightctl-restore \
-		./cmd/flightctl-telemetry-gateway 
+		./cmd/flightctl-telemetry-gateway
 
 bin/flightctl-agent: bin $(GO_FILES)
 	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-agent
