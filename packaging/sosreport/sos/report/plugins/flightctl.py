@@ -18,7 +18,8 @@ class Flightctl(Plugin, RedHatPlugin):
     def setup(self):
         self.add_copy_spec([
             "/etc/flightctl",
-            "/var/lib/flightctl"
+            "/var/lib/flightctl",
+            "/var/log/flightctl"
         ])
         self.add_forbidden_path("/etc/flightctl/certs")
         self.add_forbidden_path("/var/lib/flightctl/certs")

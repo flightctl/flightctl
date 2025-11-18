@@ -8,9 +8,12 @@ import (
 	"strconv"
 	"time"
 
+	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/auth/common"
+	"github.com/flightctl/flightctl/internal/identity"
 	"github.com/flightctl/flightctl/pkg/aap"
 	"github.com/jellydator/ttlcache/v3"
+	"github.com/samber/lo"
 )
 
 type AAPGatewayUserIdentity interface {
@@ -38,14 +41,15 @@ func (a *AAPIdentity) IsPlatformAuditor() bool {
 }
 
 type AapGatewayAuth struct {
-	externalGatewayUrl string
-	aapClient          *aap.AAPGatewayClient
-	cache              *ttlcache.Cache[string, *AAPIdentity]
+	metadata  api.ObjectMeta
+	spec      api.AapProviderSpec
+	aapClient *aap.AAPGatewayClient
+	cache     *ttlcache.Cache[string, *AAPIdentity]
 }
 
-func NewAapGatewayAuth(gatewayUrl string, externalGatewayUrl string, clientTlsConfig *tls.Config) (*AapGatewayAuth, error) {
+func NewAapGatewayAuth(metadata api.ObjectMeta, spec api.AapProviderSpec, clientTlsConfig *tls.Config) (*AapGatewayAuth, error) {
 	aapClient, err := aap.NewAAPGatewayClient(aap.AAPGatewayClientOptions{
-		GatewayUrl:      gatewayUrl,
+		GatewayUrl:      spec.ApiUrl,
 		TLSClientConfig: clientTlsConfig,
 	})
 	if err != nil {
@@ -53,9 +57,10 @@ func NewAapGatewayAuth(gatewayUrl string, externalGatewayUrl string, clientTlsCo
 	}
 
 	authN := AapGatewayAuth{
-		aapClient:          aapClient,
-		externalGatewayUrl: externalGatewayUrl,
-		cache:              ttlcache.New[string, *AAPIdentity](ttlcache.WithTTL[string, *AAPIdentity](5 * time.Second)),
+		metadata:  metadata,
+		spec:      spec,
+		aapClient: aapClient,
+		cache:     ttlcache.New[string, *AAPIdentity](ttlcache.WithTTL[string, *AAPIdentity](5 * time.Second)),
 	}
 	go authN.cache.Start()
 	return &authN, nil
@@ -72,8 +77,25 @@ func (a AapGatewayAuth) loadUserInfo(token string) (*AAPIdentity, error) {
 		return nil, err
 	}
 
+	// Map AAP permissions to roles
+	roles := []string{}
+	if aapUserInfo.IsSuperuser {
+		roles = append(roles, "admin")
+	}
+	if aapUserInfo.IsPlatformAuditor {
+		roles = append(roles, "auditor")
+	}
+	if len(roles) == 0 {
+		roles = append(roles, "user") // default role
+	}
+
+	externalApiUrl := a.spec.ApiUrl
+	if a.spec.ExternalApiUrl != nil && *a.spec.ExternalApiUrl != "" {
+		externalApiUrl = *a.spec.ExternalApiUrl
+	}
+
 	userInfo := &AAPIdentity{
-		BaseIdentity:    *common.NewBaseIdentity(aapUserInfo.Username, strconv.Itoa(aapUserInfo.ID), []string{}),
+		BaseIdentity:    *common.NewBaseIdentityWithIssuer(aapUserInfo.Username, strconv.Itoa(aapUserInfo.ID), []common.ReportedOrganization{}, roles, identity.NewIssuer(identity.AuthTypeAAP, externalApiUrl)),
 		superUser:       aapUserInfo.IsSuperuser,
 		platformAuditor: aapUserInfo.IsPlatformAuditor,
 	}
@@ -87,10 +109,20 @@ func (a AapGatewayAuth) ValidateToken(ctx context.Context, token string) error {
 	return err
 }
 
-func (a AapGatewayAuth) GetAuthConfig() common.AuthConfig {
-	return common.AuthConfig{
-		Type: common.AuthTypeAAP,
-		Url:  a.externalGatewayUrl,
+func (a AapGatewayAuth) GetAuthConfig() *api.AuthConfig {
+	provider := api.AuthProvider{
+		ApiVersion: api.AuthProviderAPIVersion,
+		Kind:       api.AuthProviderKind,
+		Metadata:   a.metadata,
+		Spec:       api.AuthProviderSpec{},
+	}
+	_ = provider.Spec.FromAapProviderSpec(a.spec)
+
+	return &api.AuthConfig{
+		ApiVersion:           api.AuthConfigAPIVersion,
+		DefaultProvider:      a.metadata.Name,
+		OrganizationsEnabled: lo.ToPtr(true),
+		Providers:            &[]api.AuthProvider{provider},
 	}
 }
 
@@ -104,5 +136,92 @@ func (a AapGatewayAuth) GetIdentity(ctx context.Context, token string) (common.I
 		return nil, fmt.Errorf("failed to get identity: %w", err)
 	}
 
+	// Get user organizations from AAP
+	organizations, err := a.getUserOrganizations(ctx, token, userInfo)
+	if err != nil {
+		// Log error but don't fail authentication - organizations are optional
+		// TODO: Add proper logging here
+		organizations = []string{}
+	}
+	reportedOrganizations := make([]common.ReportedOrganization, 0, len(organizations))
+	for _, org := range organizations {
+		reportedOrganizations = append(reportedOrganizations, common.ReportedOrganization{
+			Name:         org,
+			IsInternalID: false,
+			ID:           org,
+		})
+	}
+	userInfo.SetOrganizations(reportedOrganizations)
+
 	return userInfo, nil
+}
+
+// getUserOrganizations retrieves organizations for the user from AAP
+func (a AapGatewayAuth) getUserOrganizations(ctx context.Context, token string, userInfo *AAPIdentity) ([]string, error) {
+	var organizations []string
+	var err error
+
+	// Superusers and platform auditors get access to all organizations
+	if userInfo.IsSuperuser() || userInfo.IsPlatformAuditor() {
+		organizations, err = a.getAllOrganizations(ctx, token)
+	} else {
+		organizations, err = a.getUserScopedOrganizations(ctx, token, userInfo.GetUID())
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	return organizations, nil
+}
+
+// getAllOrganizations gets all organizations from AAP
+func (a AapGatewayAuth) getAllOrganizations(ctx context.Context, token string) ([]string, error) {
+	aapOrganizations, err := a.aapClient.ListOrganizations(token)
+	if err != nil {
+		return nil, err
+	}
+
+	organizations := make([]string, 0, len(aapOrganizations))
+	for _, org := range aapOrganizations {
+		organizations = append(organizations, org.Name)
+	}
+
+	return organizations, nil
+}
+
+// getUserScopedOrganizations gets organizations for a specific user
+func (a AapGatewayAuth) getUserScopedOrganizations(ctx context.Context, token string, userID string) ([]string, error) {
+	// Get user's direct organizations
+	aapOrganizations, err := a.aapClient.ListUserOrganizations(token, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get user's teams and their organizations
+	aapTeams, err := a.aapClient.ListUserTeams(token, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create a map to deduplicate organizations
+	orgMap := make(map[string]bool)
+
+	// Add direct organizations
+	for _, org := range aapOrganizations {
+		orgMap[org.Name] = true
+	}
+
+	// Add organizations from teams
+	for _, team := range aapTeams {
+		orgMap[team.SummaryFields.Organization.Name] = true
+	}
+
+	// Convert map to slice
+	organizations := make([]string, 0, len(orgMap))
+	for orgName := range orgMap {
+		organizations = append(organizations, orgName)
+	}
+
+	return organizations, nil
 }

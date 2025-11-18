@@ -57,6 +57,14 @@ const (
 	NetworkKey = "Network"
 	// PodKey is the key name for pod references in quadlet unit sections.
 	PodKey = "Pod"
+	// ContainerNameKey is the key name for specifying a custom container name in the [Container] section.
+	ContainerNameKey = "ContainerName"
+	// VolumeNameKey is the key name for specifying a custom volume name in the [Volume] section.
+	VolumeNameKey = "VolumeName"
+	// PodNameKey is the key name for specifying a custom pod name in the [Pod] section.
+	PodNameKey = "PodName"
+	// NetworkNameKey is the key name for specifying a custom network name in the [Network] section.
+	NetworkNameKey = "NetworkName"
 )
 
 // Sections maps quadlet section names to their corresponding file extensions.

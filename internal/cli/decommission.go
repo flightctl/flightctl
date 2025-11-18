@@ -35,6 +35,11 @@ func NewCmdDecommission() *cobra.Command {
 		Use:   "decommission device/NAME",
 		Short: "Decommission a device.",
 		Args:  cobra.MinimumNArgs(1),
+		ValidArgsFunction: KindNameAutocomplete{
+			Options:            o,
+			AllowMultipleNames: false,
+			AllowedKinds:       []ResourceKind{DeviceKind},
+		}.ValidArgsFunction,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := o.Complete(cmd, args); err != nil {
 				return err
@@ -70,7 +75,7 @@ func (o *DecommissionOptions) Validate(args []string) error {
 		return err
 	}
 
-	kind, name, err := parseAndValidateKindName(args[0])
+	kind, name, err := parseAndValidateKindNameFromArgsSingle(args)
 	if err != nil {
 		return err
 	}
@@ -99,7 +104,7 @@ func (o *DecommissionOptions) Run(ctx context.Context, args []string) error {
 		return fmt.Errorf("creating client: %w", err)
 	}
 
-	_, name, err := parseAndValidateKindName(args[0])
+	_, name, err := parseAndValidateKindNameFromArgsSingle(args)
 	if err != nil {
 		return err
 	}

@@ -12,41 +12,12 @@ import (
 
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/crypto/signer"
-	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/identity"
 	"github.com/flightctl/flightctl/internal/org"
-	"github.com/flightctl/flightctl/internal/org/cache"
-	"github.com/flightctl/flightctl/internal/org/providers"
-	"github.com/flightctl/flightctl/internal/org/resolvers"
-	"github.com/flightctl/flightctl/internal/store/model"
-	"github.com/flightctl/flightctl/internal/util"
+	orgmodel "github.com/flightctl/flightctl/internal/org/model"
 	"github.com/google/uuid"
-	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 )
-
-type mockOrgStore struct {
-	t       *testing.T
-	wantID  uuid.UUID
-	respOrg *model.Organization
-	respErr error
-	called  bool
-}
-
-func (m *mockOrgStore) GetByID(_ context.Context, id uuid.UUID) (*model.Organization, error) {
-	if m.t != nil && m.wantID != uuid.Nil && m.wantID != id {
-		m.t.Errorf("unexpected id: got %v, want %v", id, m.wantID)
-	}
-	m.called = true
-	return m.respOrg, m.respErr
-}
-
-func (m *mockOrgStore) ListByExternalIDs(_ context.Context, ids []string) ([]*model.Organization, error) {
-	return nil, m.respErr
-}
-
-func (m *mockOrgStore) UpsertMany(_ context.Context, orgs []*model.Organization) ([]*model.Organization, error) {
-	return nil, m.respErr
-}
 
 // createCertWithOrgID returns an *x509.Certificate with the organization ID
 // stored in an extension identified by signer.OIDOrgID.
@@ -89,7 +60,7 @@ func TestExtractOrgIDFromRequestQuery(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			r := httptest.NewRequest(http.MethodGet, "/?"+tc.rawQuery, nil)
-			got, err := extractOrgIDFromRequestQuery(r)
+			got, err := extractOrgIDFromRequestQuery(context.Background(), r)
 			if tc.wantErr {
 				assert.Error(t, err)
 				assert.Equal(t, uuid.Nil, got)
@@ -106,6 +77,20 @@ func TestExtractOrgIDFromRequestQuery(t *testing.T) {
 // -----------------------------------------------------------------------------
 func TestExtractOrgIDFromRequestCert(t *testing.T) {
 	validID := uuid.New()
+	orgEntity := &orgmodel.Organization{
+		ID:         validID,
+		ExternalID: validID.String(),
+	}
+
+	// Helper to create context with cert and mapped identity
+	contextWithCertAndOrg := func(cert *x509.Certificate, org *orgmodel.Organization) context.Context {
+		ctx := context.WithValue(context.Background(), consts.TLSPeerCertificateCtxKey, cert)
+		if org != nil {
+			mappedIdentity := identity.NewMappedIdentity("test-user", "test-uid", []*orgmodel.Organization{org}, []string{}, identity.NewIssuer("test", "test-issuer"))
+			ctx = context.WithValue(ctx, consts.MappedIdentityCtxKey, mappedIdentity)
+		}
+		return ctx
+	}
 
 	cases := []struct {
 		name    string
@@ -113,9 +98,9 @@ func TestExtractOrgIDFromRequestCert(t *testing.T) {
 		wantID  uuid.UUID
 		wantErr bool
 	}{
-		{"no certificate", context.Background(), org.DefaultID, false},
-		{"cert without extension", contextWithCert(&x509.Certificate{}), org.DefaultID, false},
-		{"cert with valid extension", contextWithCert(createCertWithOrgID(validID)), validID, false},
+		{"no certificate", context.Background(), uuid.Nil, true},
+		{"cert without extension", contextWithCert(&x509.Certificate{}), uuid.Nil, true},
+		{"cert with valid extension", contextWithCertAndOrg(createCertWithOrgID(validID), orgEntity), validID, false},
 		{"cert with invalid uuid", contextWithCert(func() *x509.Certificate {
 			encoded, _ := asn1.Marshal("not-a-uuid")
 			return &x509.Certificate{ExtraExtensions: []pkix.Extension{{Id: signer.OIDOrgID, Value: encoded}}}
@@ -125,114 +110,13 @@ func TestExtractOrgIDFromRequestCert(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			r := httptest.NewRequest(http.MethodGet, "/", nil).WithContext(tc.ctx)
-			got, err := extractOrgIDFromRequestCert(r)
+			got, err := extractOrgIDFromRequestCert(tc.ctx, r)
 			if tc.wantErr {
 				assert.Error(t, err)
 			} else {
 				assert.NoError(t, err)
 			}
 			assert.Equal(t, tc.wantID, got)
-		})
-	}
-}
-
-// -----------------------------------------------------------------------------
-// Tests for AddOrgIDToCtx middleware. We focus on integration of the extractor
-// and the resolver plus context injection.
-// -----------------------------------------------------------------------------
-func TestAddOrgIDToCtx(t *testing.T) {
-	validID := uuid.New()
-
-	type storeResponse struct {
-		org *model.Organization
-		err error
-	}
-
-	cases := []struct {
-		name             string
-		extractor        func(*http.Request) (uuid.UUID, error)
-		storeResp        storeResponse
-		wantCode         int
-		wantCtxID        uuid.UUID
-		wantBodyContains string
-		expectNextCalled bool
-	}{
-		{
-			name:             "happy path",
-			extractor:        func(r *http.Request) (uuid.UUID, error) { return validID, nil },
-			storeResp:        storeResponse{org: &model.Organization{ID: validID}},
-			wantCode:         http.StatusTeapot,
-			wantCtxID:        validID,
-			expectNextCalled: true,
-		},
-		{
-			name:             "extractor error returns 400",
-			extractor:        func(r *http.Request) (uuid.UUID, error) { return uuid.Nil, fmt.Errorf("bad param") },
-			wantCode:         http.StatusBadRequest,
-			wantBodyContains: "bad param",
-		},
-		{
-			name:      "org not found returns 404",
-			extractor: func(r *http.Request) (uuid.UUID, error) { return validID, nil },
-			storeResp: storeResponse{err: flterrors.ErrResourceNotFound},
-			wantCode:  http.StatusNotFound,
-		},
-		{
-			name:             "resolver internal error returns 500",
-			extractor:        func(r *http.Request) (uuid.UUID, error) { return validID, nil },
-			storeResp:        storeResponse{err: fmt.Errorf("DB down")},
-			wantCode:         http.StatusInternalServerError,
-			wantBodyContains: "Failed to validate organization",
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			storeMock := &mockOrgStore{t: t}
-			if tc.storeResp.org != nil || tc.storeResp.err != nil {
-				storeMock.respOrg = tc.storeResp.org
-				storeMock.respErr = tc.storeResp.err
-				storeMock.wantID = validID
-			}
-
-			orgCache := cache.NewOrganizationTTL(cache.DefaultTTL)
-			go orgCache.Start()
-			defer orgCache.Stop()
-			resolver := resolvers.NewExternalResolver(storeMock, orgCache, &providers.ClaimsProvider{}, logrus.New())
-			mw := AddOrgIDToCtx(resolver, tc.extractor)
-
-			var (
-				gotCtxID   uuid.UUID
-				nextCalled bool
-			)
-
-			next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				nextCalled = true
-				gotCtxID, _ = util.GetOrgIdFromContext(r.Context())
-				w.WriteHeader(http.StatusTeapot)
-			})
-
-			rr := httptest.NewRecorder()
-			mw(next).ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/", nil))
-
-			assert.Equal(t, tc.wantCode, rr.Code)
-
-			if tc.expectNextCalled {
-				assert.True(t, nextCalled, "next handler should be called")
-				assert.Equal(t, tc.wantCtxID, gotCtxID)
-			} else {
-				assert.False(t, nextCalled, "next handler should not be called")
-			}
-
-			if tc.wantBodyContains != "" {
-				assert.Contains(t, rr.Body.String(), tc.wantBodyContains)
-			}
-
-			if tc.storeResp.org != nil || tc.storeResp.err != nil {
-				assert.True(t, storeMock.called, "store mock should be called")
-			} else {
-				assert.False(t, storeMock.called, "store mock should not be called")
-			}
 		})
 	}
 }

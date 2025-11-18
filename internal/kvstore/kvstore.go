@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/flightctl/flightctl/internal/config"
+	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/redis/go-redis/extra/redisotel/v9"
 	"github.com/redis/go-redis/v9"
@@ -30,7 +30,7 @@ type kvStore struct {
 	setIfGreaterScript *redis.Script
 }
 
-func NewKVStore(ctx context.Context, log logrus.FieldLogger, hostname string, port uint, password config.SecureString) (KVStore, error) {
+func NewKVStore(ctx context.Context, log logrus.FieldLogger, hostname string, port uint, password api.SecureString) (KVStore, error) {
 	ctx, span := tracing.StartSpan(ctx, "flightctl/kvstore", "KVStore")
 	defer span.End()
 

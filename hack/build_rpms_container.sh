@@ -40,6 +40,9 @@ HOST_GOMODCACHE="${GOMODCACHE:-$HOME/go/pkg/mod}"
 HOST_GOCACHE="${GOCACHE:-$HOME/.cache/go-build}"
 mkdir -p "${HOST_GOMODCACHE}" "${HOST_GOCACHE}"
 
+HOST_MOCK_CACHE="${MOCKCACHE:-/var/cache/mock}"
+mkdir -p "${HOST_MOCK_CACHE}"
+
 # Get the repository root directory (parent of hack/)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -53,70 +56,52 @@ mkdir -p "${RPM_DNF_CACHE_DIR}" "${RPM_DNF_LIB_DIR}"
 # Change to repo root for consistent path resolution
 cd "${REPO_ROOT}"
 
-if [[ -z "${SOURCE_GIT_TAG:-}" ]]; then
-  SOURCE_GIT_TAG="$(./hack/current-version)"
-fi
-
-if [[ -z "${SOURCE_GIT_TREE_STATE:-}" ]]; then
-  if [[ ! -d ".git/" ]] || git diff --quiet; then
-    SOURCE_GIT_TREE_STATE="clean"
-  else
-    SOURCE_GIT_TREE_STATE="dirty"
-  fi
-fi
-
-if [[ -z "${SOURCE_GIT_COMMIT:-}" ]]; then
-  SOURCE_GIT_COMMIT="$(git rev-parse --short "HEAD^{commit}" 2>/dev/null || echo "unknown")"
-fi
-
-if [[ -z "${BIN_TIMESTAMP:-}" ]]; then
-  BIN_TIMESTAMP="$(date +'%Y%m%d')"
-fi
-
-if [[ -z "${SOURCE_GIT_TAG_NO_V:-}" ]]; then
-  SOURCE_GIT_TAG_NO_V="$(echo "${SOURCE_GIT_TAG}" | sed 's/^v//')"
-fi
-
-# Debug: Print computed version variables
-echo "Version variables:"
-echo "  SOURCE_GIT_TAG=${SOURCE_GIT_TAG}"
-echo "  SOURCE_GIT_TAG_NO_V=${SOURCE_GIT_TAG_NO_V}"
-echo "  SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE}"
-echo "  SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT}"
-echo "  BIN_TIMESTAMP=${BIN_TIMESTAMP}"
 
 CONTAINER_GOPATH="/root/go"
 CONTAINER_GOMODCACHE="${CONTAINER_GOPATH}/pkg/mod"
 CONTAINER_GOCACHE="/root/.cache/go-build"
+CONTAINER_MOCKCACHE="/var/cache/mock"
+
 
 PACKIT_BUILDER_IMAGE="${PACKIT_BUILDER_IMAGE:-quay.io/flightctl-tests/packit-builder:latest}"
 
 if [[ "${REBUILD_IMAGE}" == "true" ]]; then
-  podman build -f hack/Containerfile.packit_builder -t "${PACKIT_BUILDER_IMAGE}"
+  BASE_IMAGE="${PACKIT_BUILDER_IMAGE}-base"
+
+  # 1. Build base image
+  podman build --network=host --no-cache \
+    -f hack/Containerfile.packit_builder \
+    -t "${BASE_IMAGE}"
+
+  # 2. Create a container that will run the prewarm script as PID 1
+  CID="$(podman create \
+    --privileged \
+    --network=host \
+    "${BASE_IMAGE}" \
+    /usr/bin/mock_prewarm_caches.sh)"
+
+  # 3. Run the script and wait for it to finish
+  podman start -a "${CID}"
+
+  # 4. Commit the resulting filesystem as the final image
+  podman commit "${CID}" "${PACKIT_BUILDER_IMAGE}"
+
+  # 5. Cleanup the temp container
+  podman rm "${CID}"
 else
   podman pull "${PACKIT_BUILDER_IMAGE}"
 fi
 
-  # -v "${RPM_DNF_CACHE_DIR}:/var/cache/dnf:Z" \
-  # -v "${RPM_DNF_LIB_DIR}:/var/lib/dnf:Z" \
 # Run the build in the container, mounting the repo root
 podman run --rm \
   --privileged \
   --network=host \
   -v "${REPO_ROOT}:/work:z" \
-  -v "${REPO_ROOT}/hack/mock-site-defaults.cfg:/etc/mock/site-defaults.cfg:Z" \
   -v "${HOST_GOMODCACHE}:${CONTAINER_GOMODCACHE}" \
   -v "${HOST_GOCACHE}:${CONTAINER_GOCACHE}" \
   -e GOPATH="${CONTAINER_GOPATH}" \
   -e GOMODCACHE="${CONTAINER_GOMODCACHE}" \
   -e GOCACHE="${CONTAINER_GOCACHE}" \
-  -v "${RPM_DNF_CACHE_DIR}:/var/cache/dnf:Z" \
-  -v "${RPM_DNF_LIB_DIR}:/var/lib/dnf:Z" \
-  -e SOURCE_GIT_TAG="${SOURCE_GIT_TAG}" \
-  -e SOURCE_GIT_TREE_STATE="${SOURCE_GIT_TREE_STATE}" \
-  -e SOURCE_GIT_COMMIT="${SOURCE_GIT_COMMIT}" \
-  -e SOURCE_GIT_TAG_NO_V="${SOURCE_GIT_TAG_NO_V}" \
-  -e BIN_TIMESTAMP="${BIN_TIMESTAMP}" \
   -w /work \
   "${PACKIT_BUILDER_IMAGE}" \
   ./hack/build_rpms_packit.sh ${ROOT_OPTS[@]+"${ROOT_OPTS[@]}"}

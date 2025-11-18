@@ -1376,7 +1376,7 @@ jobs:
       fail-fast: false
       matrix:
         os_id: [cs9, cs10]
-        ginkgo_node: [2,5]
+        ginkgo_node: [1,2,3,4,5,6,7,8]
     steps:
       # ========== PREPARE ENVIRONMENT ==========
       - name: Checkout

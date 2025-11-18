@@ -117,6 +117,7 @@ require (
 	go.opentelemetry.io/otel/sdk/metric v1.37.0
 	go.uber.org/zap v1.27.0
 	golang.org/x/net v0.46.0
+	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 )
 
 require (

@@ -2,7 +2,7 @@ package transport
 
 import (
 	"github.com/flightctl/flightctl/internal/api/server"
-	"github.com/flightctl/flightctl/internal/auth"
+	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/console"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/service"
@@ -11,8 +11,10 @@ import (
 )
 
 type TransportHandler struct {
-	serviceHandler service.Service
-	authN          auth.AuthNMiddleware
+	serviceHandler    service.Service
+	authN             common.AuthNMiddleware
+	authTokenProxy    *service.AuthTokenProxy
+	authUserInfoProxy *service.AuthUserInfoProxy
 }
 
 type WebsocketHandler struct {
@@ -24,9 +26,13 @@ type WebsocketHandler struct {
 // Make sure we conform to servers Transport interface
 var _ server.Transport = (*TransportHandler)(nil)
 
-func NewTransportHandler(serviceHandler service.Service, authN auth.AuthNMiddleware) *TransportHandler {
-
-	return &TransportHandler{serviceHandler: serviceHandler, authN: authN}
+func NewTransportHandler(serviceHandler service.Service, authN common.AuthNMiddleware, authTokenProxy *service.AuthTokenProxy, authUserInfoProxy *service.AuthUserInfoProxy) *TransportHandler {
+	return &TransportHandler{
+		serviceHandler:    serviceHandler,
+		authN:             authN,
+		authTokenProxy:    authTokenProxy,
+		authUserInfoProxy: authUserInfoProxy,
+	}
 }
 
 func NewWebsocketHandler(ca *crypto.CAClient, log logrus.FieldLogger, consoleSessionManager *console.ConsoleSessionManager) *WebsocketHandler {

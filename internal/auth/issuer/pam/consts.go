@@ -2,11 +2,12 @@
 
 package pam
 
-// contextKey is a custom type for context keys to avoid collisions
-type contextKey string
+import (
+	"github.com/flightctl/flightctl/internal/auth/common"
+)
 
 // SessionCookieCtxKey is the context key for storing session cookies
-const SessionCookieCtxKey contextKey = "session_cookie"
+const SessionCookieCtxKey common.ContextKey = "session_cookie"
 
 // OAuth2 Scopes
 const (

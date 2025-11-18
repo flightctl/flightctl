@@ -182,6 +182,7 @@ var _ = Describe("PAM Issuer Unit Tests", func() {
 					GrantType:    pamapi.AuthorizationCode,
 					Code:         lo.ToPtr(authCode),
 					ClientId:     lo.ToPtr("public-client"),
+					RedirectUri:  lo.ToPtr("https://example.com/callback"),
 					CodeVerifier: lo.ToPtr(codeVerifier),
 				}
 
@@ -214,6 +215,7 @@ var _ = Describe("PAM Issuer Unit Tests", func() {
 					GrantType:    pamapi.AuthorizationCode,
 					Code:         lo.ToPtr(authCode),
 					ClientId:     lo.ToPtr("public-client"),
+					RedirectUri:  lo.ToPtr("https://example.com/callback"),
 					CodeVerifier: lo.ToPtr("wrong-verifier"),
 				}
 
@@ -243,9 +245,10 @@ var _ = Describe("PAM Issuer Unit Tests", func() {
 				testProvider.codeStore.StoreCode(codeData)
 
 				tokenReq := &pamapi.TokenRequest{
-					GrantType: pamapi.AuthorizationCode,
-					Code:      lo.ToPtr(authCode),
-					ClientId:  lo.ToPtr("public-client"),
+					GrantType:   pamapi.AuthorizationCode,
+					Code:        lo.ToPtr(authCode),
+					ClientId:    lo.ToPtr("public-client"),
+					RedirectUri: lo.ToPtr("https://example.com/callback"),
 					// No CodeVerifier provided
 				}
 
@@ -355,6 +358,7 @@ var _ = Describe("PAM Issuer Unit Tests", func() {
 					GrantType:    pamapi.AuthorizationCode,
 					Code:         lo.ToPtr(authCode),
 					ClientId:     lo.ToPtr("confidential-client"),
+					RedirectUri:  lo.ToPtr("https://example.com/callback"),
 					ClientSecret: lo.ToPtr("super-secret-value"),
 				}
 
@@ -382,6 +386,7 @@ var _ = Describe("PAM Issuer Unit Tests", func() {
 					GrantType:    pamapi.AuthorizationCode,
 					Code:         lo.ToPtr(authCode),
 					ClientId:     lo.ToPtr("confidential-client"),
+					RedirectUri:  lo.ToPtr("https://example.com/callback"),
 					ClientSecret: lo.ToPtr("wrong-secret"),
 				}
 
@@ -406,9 +411,10 @@ var _ = Describe("PAM Issuer Unit Tests", func() {
 				testProvider.codeStore.StoreCode(codeData)
 
 				tokenReq := &pamapi.TokenRequest{
-					GrantType: pamapi.AuthorizationCode,
-					Code:      lo.ToPtr(authCode),
-					ClientId:  lo.ToPtr("confidential-client"),
+					GrantType:   pamapi.AuthorizationCode,
+					Code:        lo.ToPtr(authCode),
+					ClientId:    lo.ToPtr("confidential-client"),
+					RedirectUri: lo.ToPtr("https://example.com/callback"),
 				}
 
 				response, err := testProvider.Token(ctx, tokenReq)
@@ -476,6 +482,7 @@ var _ = Describe("PAM Issuer Unit Tests", func() {
 					GrantType:    pamapi.AuthorizationCode,
 					Code:         lo.ToPtr(authCode),
 					ClientId:     lo.ToPtr("confidential-client-pkce"),
+					RedirectUri:  lo.ToPtr("https://example.com/callback"),
 					ClientSecret: lo.ToPtr("super-secret-value"),
 					CodeVerifier: lo.ToPtr(codeVerifier),
 				}
@@ -509,6 +516,7 @@ var _ = Describe("PAM Issuer Unit Tests", func() {
 					GrantType:    pamapi.AuthorizationCode,
 					Code:         lo.ToPtr(authCode),
 					ClientId:     lo.ToPtr("confidential-client-pkce"),
+					RedirectUri:  lo.ToPtr("https://example.com/callback"),
 					ClientSecret: lo.ToPtr("super-secret-value"),
 					CodeVerifier: lo.ToPtr("wrong-verifier"),
 				}
@@ -542,6 +550,7 @@ var _ = Describe("PAM Issuer Unit Tests", func() {
 					GrantType:    pamapi.AuthorizationCode,
 					Code:         lo.ToPtr(authCode),
 					ClientId:     lo.ToPtr("confidential-client-pkce"),
+					RedirectUri:  lo.ToPtr("https://example.com/callback"),
 					ClientSecret: lo.ToPtr("wrong-secret"),
 					CodeVerifier: lo.ToPtr(codeVerifier),
 				}
@@ -575,6 +584,7 @@ var _ = Describe("PAM Issuer Unit Tests", func() {
 					GrantType:    pamapi.AuthorizationCode,
 					Code:         lo.ToPtr(authCode),
 					ClientId:     lo.ToPtr("confidential-client-pkce"),
+					RedirectUri:  lo.ToPtr("https://example.com/callback"),
 					ClientSecret: lo.ToPtr("super-secret-value"),
 					// Missing CodeVerifier
 				}
