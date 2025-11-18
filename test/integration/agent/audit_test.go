@@ -2,61 +2,57 @@ package agent
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/agent/device/spec/audit"
 	"github.com/flightctl/flightctl/test/harness"
+	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
 
 var _ = Describe("Agent Audit Log", func() {
 	var (
-		h *harness.TestHarness
+		ctx context.Context
+		h   *harness.TestHarness
 	)
 
 	BeforeEach(func() {
+		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
+
 		var err error
-		testDirPath := GinkgoT().TempDir()
-		goRoutineErrorHandler := func(err error) {
-			if err != nil {
-				Fail(err.Error())
-			}
-		}
-		h, err = harness.NewTestHarness(suiteCtx, testDirPath, goRoutineErrorHandler, harness.WithAgentAudit())
+		h, err = harness.NewTestHarness(ctx, GinkgoT().TempDir(), func(err error) {
+			// this inline function handles any errors that are returned from go routines
+			fmt.Fprintf(os.Stderr, "Error in test harness go routine: %v\n", err)
+			GinkgoWriter.Printf("Error in go routine: %v\n", err)
+			GinkgoRecover()
+		}, harness.WithAgentAudit())
+		// check for test harness creation errors
 		Expect(err).ToNot(HaveOccurred())
 	})
 
 	AfterEach(func() {
-		if h != nil {
-			h.Cleanup()
-		}
+		h.Cleanup()
 	})
 
 	It("creates audit log file after agent starts", func() {
-		// Wait for agent to initialize
-		time.Sleep(2 * time.Second)
-
-		// Verify audit log file exists
 		auditLogPath := filepath.Join(h.TestDirPath, "var", "log", "flightctl", "audit.log")
-		_, err := os.Stat(auditLogPath)
-		Expect(err).ToNot(HaveOccurred(), "audit log file should exist")
+
+		// Wait for audit log file to be created
+		Eventually(func() bool {
+			_, err := os.Stat(auditLogPath)
+			return err == nil
+		}, TIMEOUT, POLLING).Should(BeTrue(), "audit log file should exist")
 	})
 
 	It("logs bootstrap events correctly", func() {
-		// Wait for agent to initialize
-		time.Sleep(2 * time.Second)
-
-		// Read audit log
-		auditLogPath := filepath.Join(h.TestDirPath, "var", "log", "flightctl", "audit.log")
-		events, err := readAuditLog(auditLogPath)
-		Expect(err).ToNot(HaveOccurred())
-
-		// Verify bootstrap events (should be at least 3: current, desired, rollback)
-		Expect(len(events)).To(BeNumerically(">=", 3), "should have at least 3 bootstrap events")
+		// Wait for at least 3 bootstrap events to be logged
+		events := waitForAuditEvents(h, 3)
 
 		// Verify first 3 events are bootstrap events
 		bootstrapEvents := events[:3]
@@ -78,14 +74,8 @@ var _ = Describe("Agent Audit Log", func() {
 	})
 
 	It("validates audit event JSON structure", func() {
-		// Wait for agent to initialize
-		time.Sleep(2 * time.Second)
-
-		// Read audit log
-		auditLogPath := filepath.Join(h.TestDirPath, "var", "log", "flightctl", "audit.log")
-		events, err := readAuditLog(auditLogPath)
-		Expect(err).ToNot(HaveOccurred())
-		Expect(len(events)).To(BeNumerically(">", 0), "should have at least one audit event")
+		// Wait for at least one audit event
+		events := waitForAuditEvents(h, 1)
 
 		// Validate first event structure
 		event := events[0]
@@ -99,7 +89,7 @@ var _ = Describe("Agent Audit Log", func() {
 		Expect(event.AgentVersion).NotTo(BeEmpty(), "agent_version field should not be empty")
 
 		// Validate timestamp format (RFC3339)
-		_, err = time.Parse(time.RFC3339, event.Ts)
+		_, err := time.Parse(time.RFC3339, event.Ts)
 		Expect(err).ToNot(HaveOccurred(), "timestamp should be in RFC3339 format")
 
 		// Validate reason is one of the valid values
@@ -126,11 +116,15 @@ var _ = Describe("Agent Audit Log", func() {
 	})
 
 	It("uses JSONL format (one JSON object per line)", func() {
-		// Wait for agent to initialize
-		time.Sleep(2 * time.Second)
+		auditLogPath := filepath.Join(h.TestDirPath, "var", "log", "flightctl", "audit.log")
+
+		// Wait for audit log file to exist and have content
+		Eventually(func() bool {
+			info, err := os.Stat(auditLogPath)
+			return err == nil && info.Size() > 0
+		}, TIMEOUT, POLLING).Should(BeTrue(), "audit log file should exist and have content")
 
 		// Read audit log file line by line
-		auditLogPath := filepath.Join(h.TestDirPath, "var", "log", "flightctl", "audit.log")
 		file, err := os.Open(auditLogPath)
 		Expect(err).ToNot(HaveOccurred())
 		defer file.Close()
@@ -151,6 +145,23 @@ var _ = Describe("Agent Audit Log", func() {
 		Expect(lineCount).To(BeNumerically(">", 0), "should have at least one line")
 	})
 })
+
+// waitForAuditEvents waits for audit log events to be available
+func waitForAuditEvents(h *harness.TestHarness, minEvents int) []audit.Event {
+	auditLogPath := filepath.Join(h.TestDirPath, "var", "log", "flightctl", "audit.log")
+
+	var events []audit.Event
+	Eventually(func() int {
+		var err error
+		events, err = readAuditLog(auditLogPath)
+		if err != nil {
+			return 0
+		}
+		return len(events)
+	}, TIMEOUT, POLLING).Should(BeNumerically(">=", minEvents), "should have at least %d audit event(s)", minEvents)
+
+	return events
+}
 
 // readAuditLog reads the audit log file and returns parsed events
 func readAuditLog(path string) ([]audit.Event, error) {
