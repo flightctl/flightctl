@@ -152,6 +152,9 @@ func (a *Agent) Run(ctx context.Context) error {
 	// create podman client
 	podmanClient := client.NewPodman(a.log, executer, deviceReadWriter, pollBackoff)
 
+	// create skopeo client
+	skopeoClient := client.NewSkopeo(a.log, executer, deviceReadWriter)
+
 	// create systemd client
 	systemdClient := client.NewSystemd(executer)
 
@@ -247,7 +250,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	osManager := os.NewManager(a.log, osClient, deviceReadWriter, podmanClient)
 
 	// create prefetch manager
-	prefetchManager := dependency.NewPrefetchManager(a.log, podmanClient, deviceReadWriter, a.config.PullTimeout)
+	prefetchManager := dependency.NewPrefetchManager(a.log, podmanClient, skopeoClient, deviceReadWriter, a.config.PullTimeout)
 
 	// create status manager
 	statusManager := status.NewManager(
