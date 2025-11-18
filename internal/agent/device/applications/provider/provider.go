@@ -87,7 +87,7 @@ func CollectBaseOCITargets(
 			// Add base image with PullIfNotPresent policy
 			policy := v1alpha1.PullIfNotPresent
 			targets = append(targets, dependency.OCIPullTarget{
-				Type:       dependency.OCITypeImage,
+				Type:       dependency.OCITypeAuto,
 				Reference:  imageSpec.Image,
 				PullPolicy: policy,
 				PullSecret: pullSecret,
