@@ -35,8 +35,15 @@ const (
 type OCIPullTarget struct {
 	Type       OCIType
 	Reference  string
+	Digest     string
 	PullPolicy v1alpha1.ImagePullPolicy
 	PullSecret *client.PullSecret
+}
+
+// OCICollection represents the result of collecting OCI targets
+type OCICollection struct {
+	Targets []OCIPullTarget
+	Requeue bool // true if collection is incomplete and should be retried
 }
 
 // PrefetchStatus provides the current status of prefetch operations
@@ -61,8 +68,8 @@ type PrefetchManager interface {
 
 // OCICollector interface for components that can collect OCI targets
 type OCICollector interface {
-	// CollectOCITargets returns a function that collects and processes OCI targets
-	CollectOCITargets(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error)
+	// CollectOCITargets collects OCI targets and indicates if requeue is needed
+	CollectOCITargets(ctx context.Context, current, desired *v1alpha1.DeviceSpec) (*OCICollection, error)
 }
 
 type prefetchManager struct {
@@ -163,25 +170,35 @@ func (m *prefetchManager) isTargetsChanged(seenTargets map[string]struct{}) bool
 func (m *prefetchManager) BeforeUpdate(ctx context.Context, current, desired *v1alpha1.DeviceSpec) error {
 	m.log.Debug("Collecting OCI targets from all dependency sources")
 
-	// collect all OCI targets from registered functions
 	var allTargets []OCIPullTarget
+	var requeueNeeded bool
 	m.mu.Lock()
 	collectors := slices.Clone(m.collectors)
 	m.mu.Unlock()
 
 	for i, collector := range collectors {
-		targets, err := collector.CollectOCITargets(ctx, current, desired)
+		result, err := collector.CollectOCITargets(ctx, current, desired)
 		if err != nil {
 			return fmt.Errorf("prefetch collector %d failed: %w", i, err)
 		}
-		allTargets = append(allTargets, targets...)
+		allTargets = append(allTargets, result.Targets...)
+		if result.Requeue {
+			requeueNeeded = true
+		}
 	}
 
-	seenTargets := make(map[string]struct{}, len(allTargets))
+	seenTargets := make(map[string]struct{})
+	newTargets := make([]OCIPullTarget, 0)
 	for _, target := range allTargets {
-		seenTargets[target.Reference] = struct{}{}
+		if _, seen := seenTargets[target.Reference]; !seen {
+			newTargets = append(newTargets, target)
+			seenTargets[target.Reference] = struct{}{}
+		}
 	}
 
+	m.log.Debugf("Collected %d unique OCI targets", len(seenTargets))
+
+	// clean up stale prefetch tasks if targets have changed
 	m.mu.Lock()
 	if m.isTargetsChanged(seenTargets) {
 		m.log.Debug("OCI targets changed, cleaning up stale prefetch tasks")
@@ -189,14 +206,24 @@ func (m *prefetchManager) BeforeUpdate(ctx context.Context, current, desired *v1
 	}
 	m.mu.Unlock()
 
-	if len(allTargets) > 0 {
-		m.log.Debugf("Scheduling %d total OCI targets for prefetching", len(allTargets))
-		if err := m.Schedule(ctx, allTargets); err != nil {
+	if len(newTargets) > 0 {
+		m.log.Debugf("Scheduling %d new targets for prefetch", len(newTargets))
+		if err := m.Schedule(ctx, newTargets); err != nil {
 			return fmt.Errorf("scheduling prefetch targets: %w", err)
 		}
 	}
 
-	return m.checkReady(ctx)
+	if err := m.checkReady(ctx); err != nil {
+		return err
+	}
+
+	// collector requested a requeue, return retryable error to trigger another iteration
+	if requeueNeeded {
+		m.log.Debug("Requeue requested by collector, will retry after current targets are fetched")
+		return errors.ErrPrefetchNotReady
+	}
+
+	return nil
 }
 
 func (m *prefetchManager) checkReady(ctx context.Context) error {
@@ -222,6 +249,7 @@ func (m *prefetchManager) checkReady(ctx context.Context) error {
 	}
 
 	if len(pending) > 0 {
+		// ensure retry
 		return fmt.Errorf("%w: %v", errors.ErrPrefetchNotReady, pending)
 	}
 	return nil

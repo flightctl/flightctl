@@ -75,11 +75,6 @@ jobs:
       - name: Build helm charts
         run: |
           echo packaging "${{ needs.generate-tags.outputs.helm_tag }}"
-          if ${{ github.ref_type == 'tag'  }}; then
-            # Use release tag for UI chart too
-            sed -i 's/^appVersion:.*/appVersion: "${{ needs.generate-tags.outputs.helm_tag }}"/' ./deploy/helm/flightctl/charts/ui/Chart.yaml
-          fi
-          helm dependency build ./deploy/helm/flightctl
           helm package ./deploy/helm/flightctl \
               --version "${{ needs.generate-tags.outputs.helm_tag }}" \
               --app-version "${{ needs.generate-tags.outputs.helm_tag }}"
@@ -111,7 +106,7 @@ jobs:
         id: version-vars
         run: |
           set -euo pipefail
-          SOURCE_GIT_TAG=$(git describe --tags --exclude latest 2>/dev/null || echo "v0.0.0-unknown")
+          SOURCE_GIT_TAG=$(./hack/current-version)
           if [ ! -d ".git" ]; then
             SOURCE_GIT_TREE_STATE=clean
           elif git diff --quiet; then

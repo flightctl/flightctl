@@ -23,8 +23,18 @@ var APIMetadataMap = map[string]EndpointMetadata{
 		Resource:    "",
 		Action:      "",
 	},
+	"GET:/api/v1/auth/userinfo": {
+		OperationID: "authUserInfo",
+		Resource:    "",
+		Action:      "",
+	},
 	"GET:/api/v1/auth/validate": {
 		OperationID: "authValidate",
+		Resource:    "",
+		Action:      "",
+	},
+	"POST:/api/v1/auth/{providername}/token": {
+		OperationID: "authToken",
 		Resource:    "",
 		Action:      "",
 	},

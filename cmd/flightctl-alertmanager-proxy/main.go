@@ -248,7 +248,8 @@ func main() {
 	defer orgCache.Stop()
 
 	// Create service handler for auth provider access
-	serviceHandler := service.NewServiceHandler(dataStore, nil, nil, nil, logger, "", "", nil)
+	baseServiceHandler := service.NewServiceHandler(dataStore, nil, nil, nil, logger, "", "", nil)
+	serviceHandler := service.WrapWithTracing(baseServiceHandler)
 
 	// Initialize auth system
 	authN, err := auth.InitMultiAuth(cfg, logger, serviceHandler)
@@ -376,7 +377,7 @@ func main() {
 		}
 	}()
 
-	logger.Printf("Alertmanager proxy listening on https://%s, proxying to %s", proxyPort, proxy.target.String())
+	logger.Printf("Alertmanager proxy listening on port %s, proxying to %s", proxyPort[1:], proxy.target.String())
 	if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
 		logger.Fatalf("Server error: %v", err)
 	}

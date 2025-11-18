@@ -29,19 +29,19 @@ SRV_CERT_FILE=""
 SRV_KEY_FILE=""
 
 # Extract database configuration
-DB_EXTERNAL=$(sed -n '/^db:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n 's/^[[:space:]]*external:[[:space:]]*[\"'"'"']*\([^\"'"'"'[:space:]]*\)[\"'"'"']*.*/\1/p' | head -1)
+DB_EXTERNAL=$(extract_value "db.external" "$SERVICE_CONFIG_FILE")
 if [ "$DB_EXTERNAL" == "enabled" ]; then
   echo "Configuring external database connection"
-  DB_HOSTNAME=$(sed -n '/^db:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n 's/^[[:space:]]*hostname:[[:space:]]*[\"'"'"']*\([^\"'"'"'[:space:]]*\)[\"'"'"']*.*/\1/p' | head -1)
-  DB_PORT=$(sed -n '/^db:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n 's/^[[:space:]]*port:[[:space:]]*\([^[:space:]]*\).*/\1/p' | head -1)
-  DB_NAME=$(sed -n '/^db:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n 's/^[[:space:]]*name:[[:space:]]*[\"'"'"']*\([^\"'"'"'[:space:]]*\)[\"'"'"']*.*/\1/p' | head -1)
-  DB_USER=$(sed -n '/^db:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n 's/^[[:space:]]*user:[[:space:]]*[\"'"'"']*\([^\"'"'"'[:space:]]*\)[\"'"'"']*.*/\1/p' | head -1)
+  DB_HOSTNAME=$(extract_value "db.hostname" "$SERVICE_CONFIG_FILE")
+  DB_PORT=$(extract_value "db.port" "$SERVICE_CONFIG_FILE")
+  DB_NAME=$(extract_value "db.name" "$SERVICE_CONFIG_FILE")
+  DB_USER=$(extract_value "db.user" "$SERVICE_CONFIG_FILE")
 
   # Extract SSL configuration for external database
-  DB_SSL_MODE=$(sed -n '/^db:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n 's/^[[:space:]]*sslmode:[[:space:]]*[\"'"'"']*\([^\"'"'"'[:space:]]*\)[\"'"'"']*.*/\1/p' | head -1)
-  DB_SSL_CERT=$(sed -n '/^db:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n 's/^[[:space:]]*sslcert:[[:space:]]*[\"'"'"']*\([^\"'"'"'[:space:]]*\)[\"'"'"']*.*/\1/p' | head -1)
-  DB_SSL_KEY=$(sed -n '/^db:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n 's/^[[:space:]]*sslkey:[[:space:]]*[\"'"'"']*\([^\"'"'"'[:space:]]*\)[\"'"'"']*.*/\1/p' | head -1)
-  DB_SSL_ROOT_CERT=$(sed -n '/^db:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n 's/^[[:space:]]*sslrootcert:[[:space:]]*[\"'"'"']*\([^\"'"'"'[:space:]]*\)[\"'"'"']*.*/\1/p' | head -1)
+  DB_SSL_MODE=$(extract_value "db.sslmode" "$SERVICE_CONFIG_FILE")
+  DB_SSL_CERT=$(extract_value "db.sslcert" "$SERVICE_CONFIG_FILE")
+  DB_SSL_KEY=$(extract_value "db.sslkey" "$SERVICE_CONFIG_FILE")
+  DB_SSL_ROOT_CERT=$(extract_value "db.sslrootcert" "$SERVICE_CONFIG_FILE")
 
   # Build SSL configuration block
   DB_SSL_CONFIG=""
@@ -117,11 +117,11 @@ FLIGHTCTL_DISABLE_AUTH=""
 
 
 # Extract rate limit values from service-config.yaml
-RATE_LIMIT_ENABLED=$(sed -n '/^service:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n '/^[[:space:]]*rateLimit:/,/^[^[:space:]]/p' | sed -n '/^[[:space:]]*enabled:[[:space:]]*\([^[:space:]]*\).*/s//\1/p' | head -1)
-RATE_LIMIT_REQUESTS=$(sed -n '/^service:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n '/^[[:space:]]*rateLimit:/,/^[^[:space:]]/p' | sed -n '/^[[:space:]]*requests:[[:space:]]*\([^[:space:]]*\).*/s//\1/p' | head -1)
-RATE_LIMIT_WINDOW=$(sed -n '/^service:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n '/^[[:space:]]*rateLimit:/,/^[^[:space:]]/p' | sed -n '/^[[:space:]]*window:[[:space:]]*\([^[:space:]]*\).*/s//\1/p' | head -1)
-RATE_LIMIT_AUTH_REQUESTS=$(sed -n '/^service:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n '/^[[:space:]]*rateLimit:/,/^[^[:space:]]/p' | sed -n '/^[[:space:]]*authRequests:[[:space:]]*\([^[:space:]]*\).*/s//\1/p' | head -1)
-RATE_LIMIT_AUTH_WINDOW=$(sed -n '/^service:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n '/^[[:space:]]*rateLimit:/,/^[^[:space:]]/p' | sed -n '/^[[:space:]]*authWindow:[[:space:]]*\([^[:space:]]*\).*/s//\1/p' | head -1)
+RATE_LIMIT_ENABLED=$(extract_value "service.rateLimit.enabled" "$SERVICE_CONFIG_FILE")
+RATE_LIMIT_REQUESTS=$(extract_value "service.rateLimit.requests" "$SERVICE_CONFIG_FILE")
+RATE_LIMIT_WINDOW=$(extract_value "service.rateLimit.window" "$SERVICE_CONFIG_FILE")
+RATE_LIMIT_AUTH_REQUESTS=$(extract_value "service.rateLimit.authRequests" "$SERVICE_CONFIG_FILE")
+RATE_LIMIT_AUTH_WINDOW=$(extract_value "service.rateLimit.authWindow" "$SERVICE_CONFIG_FILE")
 
 # Set defaults if not configured
 RATE_LIMIT_ENABLED=${RATE_LIMIT_ENABLED:-true}
@@ -131,7 +131,7 @@ RATE_LIMIT_AUTH_REQUESTS=${RATE_LIMIT_AUTH_REQUESTS:-20}
 RATE_LIMIT_AUTH_WINDOW=${RATE_LIMIT_AUTH_WINDOW:-1h}
 
 # Extract organizations enabled value (defaults to false if not configured)
-ORGANIZATIONS_ENABLED=$(sed -n '/^global:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_FILE" | sed -n '/^[[:space:]]*organizations:/,/^[^[:space:]]/p' | sed -n '/^[[:space:]]*enabled:[[:space:]]*\([^[:space:]]*\).*/s//\1/p' | head -1)
+ORGANIZATIONS_ENABLED=$(extract_value "global.organizations.enabled" "$SERVICE_CONFIG_FILE")
 ORGANIZATIONS_ENABLED=${ORGANIZATIONS_ENABLED:-false}
 
 # Verify required values were found
@@ -145,10 +145,10 @@ AUTH_SED_CMDS=()
 # Process auth settings based on auth type
 if [ "$AUTH_TYPE" == "aap" ]; then
   echo "Configuring AAP authentication"
-  AAP_API_URL=$(extract_value "apiUrl" "$SERVICE_CONFIG_FILE")
-  AAP_EXTERNAL_API_URL=$(extract_value "externalApiUrl" "$SERVICE_CONFIG_FILE")
-  AAP_OAUTH_TOKEN=$(extract_value "oAuthToken" "$SERVICE_CONFIG_FILE")
-  AAP_CLIENT_ID=$(extract_value "oAuthApplicationClientId" "$SERVICE_CONFIG_FILE")
+  AAP_API_URL=$(extract_value "global.auth.aap.apiUrl" "$SERVICE_CONFIG_FILE")
+  AAP_EXTERNAL_API_URL=$(extract_value "global.auth.aap.externalApiUrl" "$SERVICE_CONFIG_FILE")
+  AAP_OAUTH_TOKEN=$(extract_value "global.auth.aap.oAuthToken" "$SERVICE_CONFIG_FILE")
+  AAP_CLIENT_ID=$(extract_value "global.auth.aap.oAuthApplicationClientId" "$SERVICE_CONFIG_FILE")
 
   AUTH_SED_CMDS=(
     -e "/{{if AAP}}/d"
@@ -168,8 +168,9 @@ elif [ "$AUTH_TYPE" == "oidc" ]; then
   
   echo "Extracting OIDC configuration values..."
   # Extract OIDC configuration from service-config.yaml (under global.auth.oidc)
-  OIDC_CLIENT_ID=$(extract_value "global.auth.oidc.oidcClientId" "$SERVICE_CONFIG_FILE")
-  OIDC_ISSUER=$(extract_value "global.auth.oidc.oidcAuthority" "$SERVICE_CONFIG_FILE")
+  OIDC_CLIENT_ID=$(extract_value "global.auth.oidc.clientId" "$SERVICE_CONFIG_FILE")
+  OIDC_CLIENT_SECRET=$(extract_value "global.auth.oidc.clientSecret" "$SERVICE_CONFIG_FILE")
+  OIDC_ISSUER=$(extract_value "global.auth.oidc.issuer" "$SERVICE_CONFIG_FILE")
   OIDC_EXTERNAL_AUTHORITY=$(extract_value "global.auth.oidc.externalOidcAuthority" "$SERVICE_CONFIG_FILE")
   
   # These fields may not exist in current config but keep for compatibility
@@ -214,12 +215,13 @@ elif [ "$AUTH_TYPE" == "oidc" ]; then
   echo "Setting OIDC defaults..."
   # Set defaults if not found
   OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-flightctl-client}
+  OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET:-}
   OIDC_ENABLED=${OIDC_ENABLED:-true}
   OIDC_ORG_ASSIGNMENT_TYPE=${OIDC_ORG_ASSIGNMENT_TYPE:-static}
   OIDC_ORG_NAME=${OIDC_ORG_NAME:-default}
   OIDC_USERNAME_CLAIM=${OIDC_USERNAME_CLAIM:-preferred_username}
   OIDC_ROLE_ASSIGNMENT_TYPE=${OIDC_ROLE_ASSIGNMENT_TYPE:-dynamic}
-  OIDC_ROLE_ASSIGNMENT_CLAIM_PATH=${OIDC_ROLE_ASSIGNMENT_CLAIM_PATH:-groups}
+  OIDC_ROLE_ASSIGNMENT_CLAIM_PATH=${OIDC_ROLE_ASSIGNMENT_CLAIM_PATH:-roles}
   
   # When PAM issuer is enabled, OIDC authority should point to PAM issuer (port 8444)
   if [ "$PAM_OIDC_ISSUER_ENABLED" == "true" ]; then
@@ -238,6 +240,7 @@ elif [ "$AUTH_TYPE" == "oidc" ]; then
     -e "/{{if OIDC}}/d"
     -e "/{{endif OIDC}}/d"
     -e "s|{{OIDC_CLIENT_ID}}|$OIDC_CLIENT_ID|g"
+    -e "s|{{OIDC_CLIENT_SECRET}}|$OIDC_CLIENT_SECRET|g"
     -e "s|{{OIDC_ENABLED}}|$OIDC_ENABLED|g"
     -e "s|{{OIDC_ISSUER}}|$OIDC_ISSUER|g"
     -e "s|{{OIDC_EXTERNAL_AUTHORITY}}|$OIDC_EXTERNAL_AUTHORITY|g"

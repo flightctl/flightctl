@@ -8,7 +8,6 @@ import (
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
-	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -46,42 +45,6 @@ func newEmbedded(log *log.PrefixLogger, podman *client.Podman, readWriter fileio
 			Path:     appPath,
 		},
 	}, nil
-}
-
-func (p *embeddedProvider) OCITargets(pullSecret *client.PullSecret) ([]dependency.OCIPullTarget, error) {
-	switch p.spec.AppType {
-	case v1alpha1.AppTypeCompose:
-		spec, err := client.ParseComposeSpecFromDir(p.readWriter, p.spec.Path)
-		if err != nil {
-			return nil, fmt.Errorf("parsing compose spec: %w", err)
-		}
-		// extract images from service
-		var targets []dependency.OCIPullTarget
-		for _, svc := range spec.Services {
-			if svc.Image != "" {
-				targets = append(targets, dependency.OCIPullTarget{
-					Type:       dependency.OCITypeImage,
-					Reference:  svc.Image,
-					PullPolicy: v1alpha1.PullIfNotPresent,
-					PullSecret: pullSecret,
-				})
-			}
-		}
-
-		return targets, nil
-	case v1alpha1.AppTypeQuadlet:
-		quadlets, err := client.ParseQuadletReferencesFromDir(p.readWriter, filepath.Join(lifecycle.EmbeddedQuadletAppPath, p.spec.Name))
-		if err != nil {
-			return nil, fmt.Errorf("parsing quadlet spec: %w", err)
-		}
-		var targets []dependency.OCIPullTarget
-		for _, quad := range quadlets {
-			targets = append(targets, extractQuadletTargets(quad, pullSecret)...)
-		}
-		return targets, nil
-	default:
-		return nil, fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, p.spec.AppType)
-	}
 }
 
 func (p *embeddedProvider) Verify(ctx context.Context) error {

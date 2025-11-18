@@ -40,7 +40,7 @@ func NewOAuth2Auth(metadata api.ObjectMeta, spec api.OAuth2ProviderSpec, tlsConf
 	if spec.ClientId == "" {
 		return nil, fmt.Errorf("clientId is required")
 	}
-	if spec.ClientSecret == nil || spec.ClientSecret.Value() == "" {
+	if spec.ClientSecret == nil || *spec.ClientSecret == "" {
 		return nil, fmt.Errorf("clientSecret is required")
 	}
 
@@ -73,6 +73,11 @@ func NewOAuth2Auth(metadata api.ObjectMeta, spec api.OAuth2ProviderSpec, tlsConf
 		log:                   log,
 		organizationExtractor: organizationExtractor,
 	}, nil
+}
+
+// GetOAuth2Spec returns the internal OAuth2 spec with client secret intact (for internal use only)
+func (o *OAuth2Auth) GetOAuth2Spec() api.OAuth2ProviderSpec {
+	return o.spec
 }
 
 // GetAuthToken extracts the OAuth2 access token from the HTTP request

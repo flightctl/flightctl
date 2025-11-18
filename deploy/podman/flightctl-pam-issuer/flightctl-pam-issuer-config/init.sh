@@ -31,12 +31,12 @@ if [ -z "$BASE_DOMAIN" ]; then
 fi
 
 # Extract PAM OIDC Issuer configuration
-PAM_OIDC_ISSUER=$(grep -A 20 "pamOidcIssuer:" "$SERVICE_CONFIG_FILE" | grep "issuer:" | head -1 | sed 's/.*issuer:[[:space:]]*\(.*\)/\1/' | sed 's/[[:space:]]*$//' | sed 's/#.*$//')
-PAM_OIDC_CLIENT_ID=$(grep -A 20 "pamOidcIssuer:" "$SERVICE_CONFIG_FILE" | grep "clientId:" | head -1 | sed 's/.*clientId:[[:space:]]*\(.*\)/\1/' | sed 's/[[:space:]]*$//')
-PAM_OIDC_CLIENT_SECRET=$(grep -A 20 "pamOidcIssuer:" "$SERVICE_CONFIG_FILE" | grep "clientSecret:" | head -1 | sed 's/.*clientSecret:[[:space:]]*\(.*\)/\1/' | sed 's/[[:space:]]*$//')
-PAM_OIDC_SCOPES=$(grep -A 20 "pamOidcIssuer:" "$SERVICE_CONFIG_FILE" | grep "scopes:" | head -1 | sed 's/.*scopes:[[:space:]]*\(.*\)/\1/' | sed 's/[[:space:]]*$//')
-PAM_OIDC_REDIRECT_URIS=$(grep -A 20 "pamOidcIssuer:" "$SERVICE_CONFIG_FILE" | grep "redirectUris:" | head -1 | sed 's/.*redirectUris:[[:space:]]*\(.*\)/\1/' | sed 's/[[:space:]]*$//')
-PAM_OIDC_SERVICE=$(grep -A 20 "pamOidcIssuer:" "$SERVICE_CONFIG_FILE" | grep "pamService:" | head -1 | sed 's/.*pamService:[[:space:]]*\(.*\)/\1/' | sed 's/[[:space:]]*$//')
+PAM_OIDC_ISSUER=$(extract_value "global.auth.pamOidcIssuer.issuer" "$SERVICE_CONFIG_FILE")
+PAM_OIDC_CLIENT_ID=$(extract_value "global.auth.pamOidcIssuer.clientId" "$SERVICE_CONFIG_FILE")
+PAM_OIDC_CLIENT_SECRET=$(extract_value "global.auth.pamOidcIssuer.clientSecret" "$SERVICE_CONFIG_FILE")
+PAM_OIDC_SCOPES=$(extract_value "global.auth.pamOidcIssuer.scopes" "$SERVICE_CONFIG_FILE")
+PAM_OIDC_REDIRECT_URIS=$(extract_value "global.auth.pamOidcIssuer.redirectUris" "$SERVICE_CONFIG_FILE")
+PAM_OIDC_SERVICE=$(extract_value "global.auth.pamOidcIssuer.pamService" "$SERVICE_CONFIG_FILE")
 
 # Set defaults
 PAM_OIDC_CLIENT_ID=${PAM_OIDC_CLIENT_ID:-flightctl-client}
