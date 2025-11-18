@@ -14,7 +14,6 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	apiClient "github.com/flightctl/flightctl/internal/api/client"
-	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/cli/login"
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/spf13/cobra"
@@ -277,44 +276,134 @@ func (o *LoginOptions) ensureClientID() {
 	if o.ClientId != "" {
 		return
 	}
-	switch o.authConfig.AuthType {
-	case common.AuthTypeK8s:
+	provider := o.getDefaultProvider()
+	if provider == nil {
+		return
+	}
+	// Get the provider type from the spec
+	providerType, err := provider.Spec.Discriminator()
+	if err != nil {
+		return
+	}
+	switch providerType {
+	case string(v1alpha1.K8s):
 		if o.Username != "" {
 			o.ClientId = "openshift-challenging-client"
 		} else {
 			o.ClientId = "openshift-cli-client"
 		}
-	case common.AuthTypeOIDC:
+	case string(v1alpha1.Oidc):
 		o.ClientId = "flightctl"
 	}
 }
 
+// getDefaultProvider returns the default authentication provider
+func (o *LoginOptions) getDefaultProvider() *v1alpha1.AuthProvider {
+	if o.authConfig == nil || o.authConfig.Providers == nil {
+		return nil
+	}
+	// Find the default provider by name
+	if o.authConfig.DefaultProvider != nil && *o.authConfig.DefaultProvider != "" {
+		for _, p := range *o.authConfig.Providers {
+			if p.Metadata.Name != nil && *p.Metadata.Name == *o.authConfig.DefaultProvider {
+				return &p
+			}
+		}
+	}
+	// If no default is set, return the first provider
+	if len(*o.authConfig.Providers) > 0 {
+		return &(*o.authConfig.Providers)[0]
+	}
+	return nil
+}
+
 // createAuthProvider creates and assigns the auth provider from current config
 func (o *LoginOptions) createAuthProvider() error {
-	provider, err := client.CreateAuthProvider(client.AuthInfo{
+	provider := o.getDefaultProvider()
+	if provider == nil || provider.Metadata.Name == nil {
+		return fmt.Errorf("no valid authentication provider found")
+	}
+
+	providerType, err := provider.Spec.Discriminator()
+	if err != nil {
+		return fmt.Errorf("failed to get provider type: %w", err)
+	}
+
+	authURL := o.extractAuthURL(provider)
+
+	orgEnabled := false
+	if o.authConfig.OrganizationsEnabled != nil {
+		orgEnabled = *o.authConfig.OrganizationsEnabled
+	}
+
+	authProvider, err := client.CreateAuthProvider(client.AuthInfo{
 		AuthProvider: &client.AuthProviderConfig{
-			Name: o.authConfig.AuthType,
+			Name: *provider.Metadata.Name,
+			Type: providerType,
 			Config: map[string]string{
-				client.AuthUrlKey:      o.authConfig.AuthURL,
+				client.AuthUrlKey:      authURL,
 				client.AuthCAFileKey:   o.AuthCAFile,
 				client.AuthClientIdKey: o.ClientId,
 			},
 		},
-		OrganizationsEnabled: o.authConfig.AuthOrganizationsConfig.Enabled,
+		OrganizationsEnabled: orgEnabled,
 	}, o.InsecureSkipVerify)
 	if err != nil {
 		return fmt.Errorf("creating auth provider: %w", err)
 	}
-	o.authProvider = provider
+	o.authProvider = authProvider
 	return nil
+}
+
+// extractAuthURL extracts the authentication URL from an AuthProvider based on its type
+func (o *LoginOptions) extractAuthURL(provider *v1alpha1.AuthProvider) string {
+	providerType, _ := provider.Spec.Discriminator()
+	switch providerType {
+	case string(v1alpha1.K8s):
+		if k8sSpec, err := provider.Spec.AsK8sProviderSpec(); err == nil {
+			if k8sSpec.ExternalOpenShiftApiUrl != nil {
+				return *k8sSpec.ExternalOpenShiftApiUrl
+			}
+			return k8sSpec.ApiUrl
+		}
+	case string(v1alpha1.Oidc):
+		if oidcSpec, err := provider.Spec.AsOIDCProviderSpec(); err == nil {
+			return oidcSpec.Issuer
+		}
+	case "aap":
+		if aapSpec, err := provider.Spec.AsAapProviderSpec(); err == nil {
+			if aapSpec.ExternalApiUrl != nil {
+				return *aapSpec.ExternalApiUrl
+			}
+			return aapSpec.ApiUrl
+		}
+	case string(v1alpha1.Oauth2):
+		if oauth2Spec, err := provider.Spec.AsOAuth2ProviderSpec(); err == nil {
+			return oauth2Spec.AuthorizationUrl
+		}
+	}
+	return ""
 }
 
 // setAuthProviderInClientConfig writes the provider info into the client config
 func (o *LoginOptions) setAuthProviderInClientConfig() {
+	provider := o.getDefaultProvider()
+	if provider == nil || provider.Metadata.Name == nil {
+		return
+	}
+
+	providerType, err := provider.Spec.Discriminator()
+	if err != nil {
+		return
+	}
+
+	authURL := o.extractAuthURL(provider)
+
 	o.clientConfig.AuthInfo.AuthProvider = &client.AuthProviderConfig{
-		Name: o.authConfig.AuthType,
+		Name: *provider.Metadata.Name,
+		Type: providerType,
 		Config: map[string]string{
-			client.AuthUrlKey:      o.authConfig.AuthURL,
+			client.AuthUrlKey:      authURL,
 			client.AuthClientIdKey: o.ClientId,
 		},
 	}
@@ -329,7 +418,9 @@ func (o *LoginOptions) fetchToken() (string, error) {
 	authInfo, err := o.authProvider.Auth(o.Web, o.Username, o.Password)
 	if err != nil {
 		// Check if this is an Auth certificate issue
-		if o.authConfig != nil && o.authConfig.AuthURL != "" {
+		provider := o.getDefaultProvider()
+		authURL := o.extractAuthURL(provider)
+		if o.authConfig != nil && provider != nil && authURL != "" {
 			errorInfo := classifyTLSError(err)
 			if errorInfo.Type != TLSErrorUnknown {
 				// Offer interactive prompt to proceed insecurely
@@ -376,10 +467,10 @@ func (o *LoginOptions) getAbsAuthCAFile() (string, error) {
 }
 
 // validateTokenWithServer validates the token with the server, handling TLS prompts and a single retry
-func (o *LoginOptions) validateTokenWithServer(ctx context.Context, token string) error {
+func (o *LoginOptions) validateTokenWithServer(ctx context.Context, token string) (*apiClient.ClientWithResponses, error) {
 	c, err := client.NewFromConfig(o.clientConfig, o.ConfigFilePath)
 	if err != nil {
-		return fmt.Errorf("creating client: %w", err)
+		return nil, fmt.Errorf("creating client: %w", err)
 	}
 
 	headerVal := "Bearer " + token
@@ -398,13 +489,13 @@ func (o *LoginOptions) validateTokenWithServer(ctx context.Context, token string
 		}
 		if err != nil {
 			friendlyErr := getUserFriendlyTLSError(err)
-			return fmt.Errorf("validating token:\n%s", friendlyErr)
+			return nil, fmt.Errorf("validating token:\n%s", friendlyErr)
 		}
 	}
 	if err := validateHttpResponse(res.Body, res.StatusCode(), http.StatusOK); err != nil {
-		return err
+		return nil, err
 	}
-	return nil
+	return c, nil
 }
 
 func (o *LoginOptions) Run(ctx context.Context, args []string) error {
@@ -448,7 +539,12 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 		return err
 	}
 
-	if o.AccessToken == "" && o.authConfig.AuthURL == "" {
+	provider := o.getDefaultProvider()
+	providerAuthURL := ""
+	if provider != nil {
+		providerAuthURL = o.extractAuthURL(provider)
+	}
+	if o.AccessToken == "" && providerAuthURL == "" {
 		fmt.Printf("You must obtain API token, then login via \"flightctl login %s --token=<token>\"\n", o.clientConfig.Service.Server)
 		return fmt.Errorf("must provide --token")
 	}
@@ -470,8 +566,31 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 	o.clientConfig.AuthInfo.AuthProvider.Config[client.AuthCAFileKey] = authCAFile
 
 	// Validate token with API server (handles TLS prompt/retry)
-	if err := o.validateTokenWithServer(ctx, token); err != nil {
+	c, err := o.validateTokenWithServer(ctx, token)
+	if err != nil {
 		return err
+	}
+
+	// Auto-select organization if enabled and user has access to only one
+	if o.authConfig.OrganizationsEnabled != nil && *o.authConfig.OrganizationsEnabled {
+		if response, err := c.ListOrganizationsWithResponse(ctx); err == nil && response.StatusCode() == http.StatusOK && response.JSON200 != nil && len(response.JSON200.Items) == 1 {
+			org := response.JSON200.Items[0]
+			if org.Metadata.Name != nil {
+				orgName := *org.Metadata.Name
+				o.clientConfig.Organization = orgName
+
+				displayName := ""
+				if org.Spec != nil && org.Spec.DisplayName != nil {
+					displayName = *org.Spec.DisplayName
+				}
+
+				if displayName != "" {
+					fmt.Printf("Auto-selected organization: %s %s\n", orgName, displayName)
+				} else {
+					fmt.Printf("Auto-selected organization: %s\n", orgName)
+				}
+			}
+		}
 	}
 
 	if err := o.clientConfig.Persist(o.ConfigFilePath); err != nil {

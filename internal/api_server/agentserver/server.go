@@ -7,17 +7,17 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	agent "github.com/flightctl/flightctl/api/v1alpha1/agent"
 	server "github.com/flightctl/flightctl/internal/api/server/agent"
-	tlsmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
+	fcmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/healthchecker"
 	"github.com/flightctl/flightctl/internal/kvstore"
-	"github.com/flightctl/flightctl/internal/org/resolvers"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	transport "github.com/flightctl/flightctl/internal/transport/agent"
@@ -33,6 +33,7 @@ import (
 
 const (
 	gracefulShutdownTimeout = 5 * time.Second
+	enrollmentRequestsPath  = "/api/v1/enrollmentrequests"
 )
 
 type AgentServer struct {
@@ -44,7 +45,6 @@ type AgentServer struct {
 	queuesProvider  queues.Provider
 	tlsConfig       *tls.Config
 	agentGrpcServer *AgentGrpcServer
-	orgResolver     resolvers.Resolver
 	serviceHandler  service.Service
 	kvStore         kvstore.KVStore
 }
@@ -59,7 +59,6 @@ func New(
 	listener net.Listener,
 	queuesProvider queues.Provider,
 	tlsConfig *tls.Config,
-	orgResolver resolvers.Resolver,
 ) (*AgentServer, error) {
 	s := &AgentServer{
 		log:            log,
@@ -69,7 +68,6 @@ func New(
 		listener:       listener,
 		queuesProvider: queuesProvider,
 		tlsConfig:      tlsConfig,
-		orgResolver:    orgResolver,
 	}
 
 	if err := s.init(ctx); err != nil {
@@ -97,7 +95,7 @@ func (s *AgentServer) init(ctx context.Context) error {
 	workerClient := worker_client.NewWorkerClient(publisher, s.log)
 
 	s.serviceHandler = service.WrapWithTracing(
-		service.NewServiceHandler(s.store, workerClient, s.kvStore, s.ca, s.log, s.cfg.Service.AgentEndpointAddress, s.cfg.Service.BaseUIUrl, s.cfg.Service.TPMCAPaths, s.orgResolver))
+		service.NewServiceHandler(s.store, workerClient, s.kvStore, s.ca, s.log, s.cfg.Service.AgentEndpointAddress, s.cfg.Service.BaseUIUrl, s.cfg.Service.TPMCAPaths))
 
 	s.agentGrpcServer = NewAgentGrpcServer(s.log, s.cfg, s.serviceHandler)
 	return nil
@@ -131,13 +129,13 @@ func oapiErrorHandler(w http.ResponseWriter, message string, statusCode int) {
 func (s *AgentServer) Run(ctx context.Context) error {
 	s.log.Println("Starting Agent-side API server")
 
-	httpAPIHandler, err := s.prepareHTTPHandler(s.serviceHandler)
+	httpAPIHandler, err := s.prepareHTTPHandler(ctx, s.serviceHandler)
 	if err != nil {
 		return err
 	}
 
 	handler := grpcMuxHandlerFunc(s.agentGrpcServer.server, httpAPIHandler, s.log)
-	srv := tlsmiddleware.NewHTTPServerWithTLSContext(handler, s.log, s.cfg.Service.AgentEndpointAddress, s.cfg)
+	srv := fcmiddleware.NewHTTPServerWithTLSContext(handler, s.log, s.cfg.Service.AgentEndpointAddress, s.cfg)
 
 	go func() {
 		<-ctx.Done()
@@ -196,7 +194,20 @@ func addAgentContext(next http.Handler) http.Handler {
 	})
 }
 
-func (s *AgentServer) prepareHTTPHandler(serviceHandler service.Service) (http.Handler, error) {
+// isEnrollmentRequest checks if the request is for enrollment-related operations
+func isEnrollmentRequest(r *http.Request) bool {
+	// POST to /api/v1/enrollmentrequests (create enrollment request)
+	if r.Method == "POST" && r.URL.Path == enrollmentRequestsPath {
+		return true
+	}
+	// GET to /api/v1/enrollmentrequests/{name} (check enrollment status)
+	if r.Method == "GET" && strings.HasPrefix(r.URL.Path, enrollmentRequestsPath+"/") {
+		return true
+	}
+	return false
+}
+
+func (s *AgentServer) prepareHTTPHandler(ctx context.Context, serviceHandler service.Service) (http.Handler, error) {
 	swagger, err := agent.GetSwagger()
 	if err != nil {
 		return nil, fmt.Errorf("prepareHTTPHandler: failed loading swagger spec: %w", err)
@@ -208,20 +219,77 @@ func (s *AgentServer) prepareHTTPHandler(serviceHandler service.Service) (http.H
 		ErrorHandler: oapiErrorHandler,
 	}
 
+	// Create agent authentication middleware for device operations
+	agentAuthMiddleware := fcmiddleware.NewAgentAuthMiddleware(s.ca, s.log)
+	go agentAuthMiddleware.Start()
+
+	// Create enrollment authentication middleware for enrollment/bootstrap operations
+	enrollmentAuthMiddleware := fcmiddleware.NewEnrollmentAuthMiddleware(s.ca, s.log)
+	go enrollmentAuthMiddleware.Start()
+
+	// Create identity mapping middleware (handles both user and agent identities)
+	identityMapper := service.NewIdentityMapper(s.store, s.log)
+	go func() {
+		identityMapper.Start(ctx)
+		s.log.Warn("Identity mapper stopped unexpectedly")
+	}()
+	identityMappingMiddleware := fcmiddleware.NewIdentityMappingMiddleware(identityMapper, s.log)
+
+	// Create organization extraction and validation middlewares once
+	extractOrgMiddleware := fcmiddleware.ExtractOrgIDToCtx(fcmiddleware.CertOrgIDExtractor, s.log)
+	validateOrgMiddleware := fcmiddleware.ValidateOrgMembership(s.log)
+
+	// Create authentication routing middleware once
+	authRoutingMiddleware := func(next http.Handler) http.Handler {
+		// --- Create these handlers ONCE ---
+		// These are created when authRoutingMiddleware is called (at server setup),
+		// not when a request comes in.
+		enrollmentAuthHandler := enrollmentAuthMiddleware.AuthenticateEnrollment(next)
+		agentAuthHandler := agentAuthMiddleware.AuthenticateAgent(next)
+		// ------------------------------------
+
+		// Return the handler that will run on every request
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// This closure "captures" the handlers created above.
+
+			// Check if this is an enrollment request
+			if isEnrollmentRequest(r) {
+				// Route to the pre-built enrollment handler
+				enrollmentAuthHandler.ServeHTTP(w, r)
+				return
+			}
+
+			// For all other requests, route to the pre-built agent handler
+			agentAuthHandler.ServeHTTP(w, r)
+		})
+	}
+
+	// Create auth middlewares chain - flat and simple
+	authMiddlewares := []func(http.Handler) http.Handler{
+		authRoutingMiddleware,
+		identityMappingMiddleware.MapIdentityToDB,
+		extractOrgMiddleware,
+		validateOrgMiddleware,
+	}
+
 	// request size limits should come before logging to prevent DoS attacks from filling logs
 	middlewares := [](func(http.Handler) http.Handler){
 		middleware.RequestSize(int64(s.cfg.Service.HttpMaxRequestSize)),
-		tlsmiddleware.RequestSizeLimiter(s.cfg.Service.HttpMaxUrlLength, s.cfg.Service.HttpMaxNumHeaders),
-		tlsmiddleware.RequestID,
-		tlsmiddleware.AddOrgIDToCtx(
-			s.orgResolver,
-			tlsmiddleware.CertOrgIDExtractor,
-		),
+		fcmiddleware.RequestSizeLimiter(s.cfg.Service.HttpMaxUrlLength, s.cfg.Service.HttpMaxNumHeaders),
+		fcmiddleware.SecurityHeaders,
+		fcmiddleware.RequestID,
+	}
+
+	// Add auth middlewares
+	middlewares = append(middlewares, authMiddlewares...)
+
+	// Add remaining middlewares
+	middlewares = append(middlewares, []func(http.Handler) http.Handler{
 		filteredLogger(s.log),
 		addAgentContext,
 		middleware.Recoverer,
 		oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts),
-	}
+	}...)
 
 	router := chi.NewRouter()
 	router.Use(middlewares...)
@@ -237,7 +305,7 @@ func (s *AgentServer) prepareHTTPHandler(serviceHandler service.Service) (http.H
 		if s.cfg.Service.RateLimit.Window > 0 {
 			window = time.Duration(s.cfg.Service.RateLimit.Window)
 		}
-		tlsmiddleware.InstallRateLimiter(router, tlsmiddleware.RateLimitOptions{
+		fcmiddleware.InstallRateLimiter(router, fcmiddleware.RateLimitOptions{
 			Requests:       requests,
 			Window:         window,
 			Message:        "Rate limit exceeded, please try again later",

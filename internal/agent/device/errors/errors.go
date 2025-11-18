@@ -35,6 +35,9 @@ var (
 	ErrNoComposeFile     = errors.New("no valid compose file found")
 	ErrNoComposeServices = errors.New("no services found in compose spec")
 
+	// quadlet
+	ErrNoQuadletFile = errors.New("no quadlet file found")
+
 	// application status
 	ErrUnknownApplicationStatus = errors.New("unknown application status")
 
@@ -85,7 +88,8 @@ var (
 	ErrInvalidPolicyType      = errors.New("invalid policy type")
 
 	// prefetch
-	ErrPrefetchNotReady = errors.New("oci prefetch not ready")
+	ErrPrefetchNotReady     = errors.New("oci prefetch not ready")
+	ErrOCICollectorNotReady = errors.New("oci target collector not ready")
 
 	// bootc
 	ErrBootcStatusInvalidJSON = errors.New("bootc status did not return valid JSON")
@@ -109,7 +113,7 @@ func IsRetryable(err error) bool {
 		return true
 	case errors.Is(err, ErrDownloadPolicyNotReady), errors.Is(err, ErrUpdatePolicyNotReady):
 		return true
-	case errors.Is(err, ErrPrefetchNotReady):
+	case errors.Is(err, ErrPrefetchNotReady), errors.Is(err, ErrOCICollectorNotReady):
 		return true
 	case errors.Is(err, ErrNoContent):
 		// no content is a retryable error it means the server does not have a

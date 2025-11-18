@@ -9,9 +9,9 @@ import (
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
-	"github.com/flightctl/flightctl/internal/instrumentation"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/worker"
+	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
 	workerserver "github.com/flightctl/flightctl/internal/worker_server"
@@ -19,6 +19,7 @@ import (
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 )
 
@@ -41,7 +42,7 @@ func main() {
 	}
 	log.SetLevel(logLvl)
 
-	tracerShutdown := instrumentation.InitTracer(log, cfg, "flightctl-worker")
+	tracerShutdown := tracing.InitTracer(log, cfg, "flightctl-worker")
 	defer func() {
 		if err := tracerShutdown(ctx); err != nil {
 			log.Fatalf("failed to shut down tracer: %v", err)
@@ -77,7 +78,7 @@ func main() {
 	// Initialize metrics collectors
 	var workerCollector *worker.WorkerCollector
 	if cfg.Metrics != nil && cfg.Metrics.Enabled {
-		var collectors []metrics.NamedCollector
+		var collectors []prometheus.Collector
 		if cfg.Metrics.WorkerCollector != nil && cfg.Metrics.WorkerCollector.Enabled {
 			workerCollector = worker.NewWorkerCollector(ctx, log, cfg, provider)
 			collectors = append(collectors, workerCollector)
@@ -91,8 +92,7 @@ func main() {
 
 		if len(collectors) > 0 {
 			go func() {
-				metricsServer := instrumentation.NewMetricsServer(log, cfg, collectors...)
-				if err := metricsServer.Run(ctx); err != nil {
+				if err := tracing.RunMetricsServer(ctx, log, cfg.Metrics.Address, collectors...); err != nil {
 					log.Errorf("Error running metrics server: %s", err)
 				}
 				cancel()

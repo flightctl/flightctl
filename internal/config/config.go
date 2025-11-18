@@ -8,7 +8,9 @@ import (
 	"strings"
 	"time"
 
+	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config/ca"
+	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/internal/util"
 	"sigs.k8s.io/yaml"
 )
@@ -44,15 +46,15 @@ type RateLimitConfig struct {
 }
 
 type dbConfig struct {
-	Type     string       `json:"type,omitempty"`
-	Hostname string       `json:"hostname,omitempty"`
-	Port     uint         `json:"port,omitempty"`
-	Name     string       `json:"name,omitempty"`
-	User     string       `json:"user,omitempty"`
-	Password SecureString `json:"password,omitempty"`
+	Type     string           `json:"type,omitempty"`
+	Hostname string           `json:"hostname,omitempty"`
+	Port     uint             `json:"port,omitempty"`
+	Name     string           `json:"name,omitempty"`
+	User     string           `json:"user,omitempty"`
+	Password api.SecureString `json:"password,omitempty"`
 	// Migration user configuration for schema changes
-	MigrationUser     string       `json:"migrationUser,omitempty"`
-	MigrationPassword SecureString `json:"migrationPassword,omitempty"`
+	MigrationUser     string           `json:"migrationUser,omitempty"`
+	MigrationPassword api.SecureString `json:"migrationPassword,omitempty"`
 	// SSL configuration
 	SSLMode     string `json:"sslmode,omitempty"`
 	SSLCert     string `json:"sslcert,omitempty"`
@@ -97,9 +99,9 @@ type healthChecks struct {
 }
 
 type kvConfig struct {
-	Hostname string       `json:"hostname,omitempty"`
-	Port     uint         `json:"port,omitempty"`
-	Password SecureString `json:"password,omitempty"`
+	Hostname string           `json:"hostname,omitempty"`
+	Port     uint             `json:"port,omitempty"`
+	Password api.SecureString `json:"password,omitempty"`
 }
 
 type alertmanagerConfig struct {
@@ -111,27 +113,35 @@ type alertmanagerConfig struct {
 }
 
 type authConfig struct {
-	K8s                   *k8sAuth  `json:"k8s,omitempty"`
-	OIDC                  *oidcAuth `json:"oidc,omitempty"`
-	AAP                   *aapAuth  `json:"aap,omitempty"`
-	CACert                string    `json:"caCert,omitempty"`
-	InsecureSkipTlsVerify bool      `json:"insecureSkipTlsVerify,omitempty"`
+	K8s                     *api.K8sProviderSpec  `json:"k8s,omitempty"`
+	OIDC                    *api.OIDCProviderSpec `json:"oidc,omitempty"`
+	AAP                     *api.AapProviderSpec  `json:"aap,omitempty"`
+	CACert                  string                `json:"caCert,omitempty"`
+	InsecureSkipTlsVerify   bool                  `json:"insecureSkipTlsVerify,omitempty"`
+	PAMOIDCIssuer           *PAMOIDCIssuer        `json:"pamOidcIssuer,omitempty"`           // this is the issuer implementation configuration
+	DynamicProviderCacheTTL util.Duration         `json:"dynamicProviderCacheTTL,omitempty"` // TTL for dynamic auth provider cache (default: 5s)
 }
 
-type k8sAuth struct {
-	ApiUrl                  string `json:"apiUrl,omitempty"`
-	ExternalOpenShiftApiUrl string `json:"externalOpenShiftApiUrl,omitempty"`
-	RBACNs                  string `json:"rbacNs,omitempty"`
-}
-
-type oidcAuth struct {
-	OIDCAuthority         string `json:"oidcAuthority,omitempty"`
-	ExternalOIDCAuthority string `json:"externalOidcAuthority,omitempty"`
-}
-
-type aapAuth struct {
-	ApiUrl         string `json:"apiUrl,omitempty"`
-	ExternalApiUrl string `json:"externalApiUrl,omitempty"`
+// PAMOIDCIssuer represents an OIDC issuer that uses Linux PAM for authentication
+type PAMOIDCIssuer struct {
+	// Address is the listen address for the PAM issuer service (e.g., ":8444")
+	Address string `json:"address,omitempty"`
+	// Issuer is the base URL for the OIDC issuer (e.g., "https://flightctl.example.com")
+	Issuer string `json:"issuer,omitempty"`
+	// ClientID is the OAuth2 client ID for this issuer
+	ClientID string `json:"clientId,omitempty"`
+	// ClientSecret is the OAuth2 client secret for this issuer
+	ClientSecret string `json:"clientSecret,omitempty"`
+	// Scopes are the supported OAuth2 scopes
+	Scopes []string `json:"scopes,omitempty"`
+	// RedirectURIs are the allowed redirect URIs for OAuth2 flows
+	RedirectURIs []string `json:"redirectUris,omitempty"`
+	// PAMService is the PAM service name to use for authentication (default: "flightctl")
+	PAMService string `json:"pamService" validate:"required"`
+	// AllowPublicClientWithoutPKCE allows public clients (no client secret) to skip PKCE
+	// SECURITY WARNING: This should only be enabled for testing or backward compatibility
+	// Default: false (PKCE required for public clients per OAuth 2.0 Security BCP)
+	AllowPublicClientWithoutPKCE bool `json:"allowPublicClientWithoutPKCE,omitempty"`
 }
 
 type metricsConfig struct {
@@ -243,6 +253,68 @@ func WithTracingEnabled() ConfigOption {
 	return func(c *Config) {
 		c.Tracing = &tracingConfig{
 			Enabled: true,
+		}
+	}
+}
+
+func WithOIDCAuth(issuer, clientId string, enabled bool) ConfigOption {
+	return func(c *Config) {
+		if c.Auth == nil {
+			c.Auth = &authConfig{
+				DynamicProviderCacheTTL: util.Duration(5 * time.Second),
+			}
+		}
+		c.Auth.OIDC = &api.OIDCProviderSpec{
+			Issuer:       issuer,
+			ClientId:     clientId,
+			Enabled:      &enabled,
+			ProviderType: api.Oidc,
+		}
+	}
+}
+
+func WithK8sAuth(apiUrl, rbacNs string) ConfigOption {
+	return func(c *Config) {
+		if c.Auth == nil {
+			c.Auth = &authConfig{
+				DynamicProviderCacheTTL: util.Duration(5 * time.Second),
+			}
+		}
+		c.Auth.K8s = &api.K8sProviderSpec{
+			ApiUrl:       apiUrl,
+			RbacNs:       &rbacNs,
+			ProviderType: api.K8s,
+		}
+	}
+}
+
+func WithAAPAuth(apiUrl, externalApiUrl string) ConfigOption {
+	return func(c *Config) {
+		if c.Auth == nil {
+			c.Auth = &authConfig{
+				DynamicProviderCacheTTL: util.Duration(5 * time.Second),
+			}
+		}
+		c.Auth.AAP = &api.AapProviderSpec{
+			ApiUrl:         apiUrl,
+			ExternalApiUrl: &externalApiUrl,
+			ProviderType:   "aap",
+		}
+	}
+}
+
+func WithPAMOIDCIssuer(issuer, clientId, clientSecret, pamService string) ConfigOption {
+	return func(c *Config) {
+		if c.Auth == nil {
+			c.Auth = &authConfig{
+				DynamicProviderCacheTTL: util.Duration(5 * time.Second),
+			}
+		}
+		c.Auth.PAMOIDCIssuer = &PAMOIDCIssuer{
+			Issuer:       issuer,
+			ClientID:     clientId,
+			ClientSecret: clientSecret,
+			PAMService:   pamService,
 		}
 	}
 }
@@ -371,6 +443,9 @@ func NewDefault(opts ...ConfigOption) *Config {
 				"/metadata/resourceVersion",
 			},
 		},
+		Auth: &authConfig{
+			DynamicProviderCacheTTL: util.Duration(5 * time.Second),
+		},
 	}
 	c.CA = ca.NewDefault(CertificateDir())
 	// CA certs are stored in the same location as Server Certs by default
@@ -416,19 +491,78 @@ func Load(cfgFile string) (*Config, error) {
 	}
 
 	if kvPass := os.Getenv("KV_PASSWORD"); kvPass != "" {
-		c.KV.Password = SecureString(kvPass)
+		c.KV.Password = api.SecureString(kvPass)
 	}
 	if dbUser := os.Getenv("DB_USER"); dbUser != "" {
 		c.Database.User = dbUser
 	}
 	if dbPass := os.Getenv("DB_PASSWORD"); dbPass != "" {
-		c.Database.Password = SecureString(dbPass)
+		c.Database.Password = api.SecureString(dbPass)
 	}
 	if dbMigrationUser := os.Getenv("DB_MIGRATION_USER"); dbMigrationUser != "" {
 		c.Database.MigrationUser = dbMigrationUser
 	}
 	if dbMigrationPass := os.Getenv("DB_MIGRATION_PASSWORD"); dbMigrationPass != "" {
-		c.Database.MigrationPassword = SecureString(dbMigrationPass)
+		c.Database.MigrationPassword = api.SecureString(dbMigrationPass)
+	}
+
+	// Set up OIDC issuer and client defaults only when explicitly configured
+	if c.Auth != nil {
+		// Only apply defaults if PAM OIDC issuer block is provided
+		if c.Auth.PAMOIDCIssuer != nil {
+			if c.Auth.PAMOIDCIssuer.PAMService == "" {
+				c.Auth.PAMOIDCIssuer.PAMService = "flightctl"
+			}
+			if c.Auth.PAMOIDCIssuer.Issuer == "" {
+				c.Auth.PAMOIDCIssuer.Issuer = c.Service.BaseUrl
+			}
+			if c.Auth.PAMOIDCIssuer.ClientID == "" {
+				c.Auth.PAMOIDCIssuer.ClientID = "flightctl-client"
+			}
+			if len(c.Auth.PAMOIDCIssuer.Scopes) == 0 {
+				c.Auth.PAMOIDCIssuer.Scopes = []string{"openid", "profile", "email", "roles"}
+			}
+			if len(c.Auth.PAMOIDCIssuer.RedirectURIs) == 0 {
+				base := c.Service.BaseUIUrl
+				if base == "" {
+					base = c.Service.BaseUrl
+				}
+				if base != "" {
+					c.Auth.PAMOIDCIssuer.RedirectURIs = []string{strings.TrimSuffix(base, "/") + "/auth/callback"}
+				}
+			}
+		}
+
+		// Only apply OIDC client defaults if OIDC block is provided
+		if c.Auth.OIDC != nil {
+			if c.Auth.OIDC.ClientId == "" {
+				c.Auth.OIDC.ClientId = "flightctl-client"
+			}
+			if c.Auth.OIDC.Issuer == "" {
+				c.Auth.OIDC.Issuer = c.Service.BaseUrl
+			}
+			if c.Auth.OIDC.UsernameClaim == nil {
+				c.Auth.OIDC.UsernameClaim = &[]string{"preferred_username"}
+			}
+			// Set default role assignment if not provided
+			if _, err := c.Auth.OIDC.RoleAssignment.Discriminator(); err != nil {
+				// Create a default dynamic role assignment
+				dynamicRoleAssignment := api.AuthDynamicRoleAssignment{
+					Type:      api.AuthDynamicRoleAssignmentTypeDynamic,
+					ClaimPath: []string{"groups"},
+				}
+				_ = c.Auth.OIDC.RoleAssignment.FromAuthDynamicRoleAssignment(dynamicRoleAssignment)
+			}
+			// Set default organization assignment if not provided
+			if _, err := c.Auth.OIDC.OrganizationAssignment.Discriminator(); err != nil {
+				// Create a default static organization assignment
+				staticAssignment := api.AuthStaticOrganizationAssignment{
+					OrganizationName: org.DefaultExternalID,
+					Type:             api.AuthStaticOrganizationAssignmentTypeStatic,
+				}
+				_ = c.Auth.OIDC.OrganizationAssignment.FromAuthStaticOrganizationAssignment(staticAssignment)
+			}
+		}
 	}
 
 	return c, nil

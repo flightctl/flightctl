@@ -1417,13 +1417,20 @@ func (h *Harness) SetupVMFromPoolAndStartAgent(workerID int) error {
 		return fmt.Errorf("failed to wait for SSH: %w", err)
 	}
 
+	// Clean any stale CSR from previous tests
+	_, err = testVM.RunSSH([]string{"sudo", "rm", "-f", "/var/lib/flightctl/certs/agent.csr"}, nil)
+	if err != nil {
+		logrus.Warnf("Failed to clean stale CSR: %v", err)
+	}
 	// Print agent files right after snapshot revert - should be empty/version 0
 	printAgentFilesForVM(testVM, "After Snapshot Revert")
 
-	// Stop the agent to ensure clean state
-	if _, err := testVM.RunSSH([]string{"sudo", "systemctl", "restart", "flightctl-agent"}, nil); err != nil {
-		return fmt.Errorf("failed to stop flightctl-agent: %w", err)
+	// Start the agent after snapshot revert
+	GinkgoWriter.Printf("🔄 Starting flightctl-agent after snapshot revert\n")
+	if _, err := testVM.RunSSH([]string{"sudo", "systemctl", "start", "flightctl-agent"}, nil); err != nil {
+		return fmt.Errorf("failed to start flightctl-agent: %w", err)
 	}
+	GinkgoWriter.Printf("✅ flightctl-agent started successfully after snapshot revert\n")
 
 	return nil
 }

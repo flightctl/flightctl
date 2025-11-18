@@ -12,6 +12,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/spec/audit"
 	baseclient "github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/util"
@@ -53,6 +54,8 @@ const (
 	GeneratedCertFile = "agent.crt"
 	// name of the agent's key file
 	KeyFile = "agent.key"
+	// CSRFile is the name of the persisted CSR file (temporary, deleted after enrollment)
+	CSRFile = "agent.csr"
 	// name of the enrollment certificate file
 	EnrollmentCertFile = "client-enrollment.crt"
 	// name of the enrollment key file
@@ -63,6 +66,10 @@ const (
 	DefaultTPMKeyFile = "tpm-blob.yaml"
 	// TestRootDirEnvKey is the environment variable key used to set the file system root when testing.
 	TestRootDirEnvKey = "FLIGHTCTL_TEST_ROOT_DIR"
+	// DefaultMetricsEnabled controls whether Prometheus metrics are enabled by default.
+	DefaultMetricsEnabled = false
+	// DefaultProfilingEnabled controls whether runtime profiling (pprof) is enabled by default.
+	DefaultProfilingEnabled = false
 )
 
 type Config struct {
@@ -82,6 +89,9 @@ type Config struct {
 
 	// TPM holds all TPM-related configuration
 	TPM TPM `json:"tpm,omitempty"`
+
+	// AuditLog holds all audit logging configuration
+	AuditLog audit.AuditConfig `json:"audit,omitempty"`
 
 	// LogLevel is the level of logging. can be:  "panic", "fatal", "error", "warn"/"warning",
 	// "info", "debug" or "trace", any other will be treated as "info"
@@ -119,6 +129,12 @@ type Config struct {
 
 	// PullRetrySteps defines how many retry attempts are allowed for pulling an OCI target.
 	PullRetrySteps int `json:"pull-retry-steps,omitempty"`
+
+	// MetricsEnabled enables the loopback-only Prometheus /metrics endpoint for local observability.
+	MetricsEnabled bool `json:"metrics-enabled,omitempty"`
+
+	// ProfilingEnabled turns on the loopback-only pprof server for local debugging.
+	ProfilingEnabled bool `json:"profiling-enabled,omitempty"`
 
 	readWriter fileio.ReadWriter
 }
@@ -163,12 +179,15 @@ func NewDefault() *Config {
 		SystemInfoTimeout:    DefaultSystemInfoTimeout,
 		PullTimeout:          DefaultPullTimeout,
 		PullRetrySteps:       DefaultPullRetrySteps,
+		MetricsEnabled:       DefaultMetricsEnabled,
+		ProfilingEnabled:     DefaultProfilingEnabled,
 		TPM: TPM{
 			Enabled:         false,
 			AuthEnabled:     false,
 			DevicePath:      DefaultTPMDevicePath,
 			StorageFilePath: filepath.Join(DefaultDataDir, DefaultTPMKeyFile),
 		},
+		AuditLog: *audit.NewDefaultAuditConfig(),
 	}
 
 	if value := os.Getenv(TestRootDirEnvKey); value != "" {
@@ -256,6 +275,11 @@ func (cfg *Config) Validate() error {
 
 	if cfg.TPM.AuthEnabled && !cfg.TPM.Enabled {
 		return fmt.Errorf("cannot enable TPM password authentication when TPM device identity is disabled")
+	}
+
+	// Validate audit log configuration
+	if err := cfg.AuditLog.Validate(cfg.readWriter); err != nil {
+		return fmt.Errorf("audit log configuration validation failed: %w", err)
 	}
 
 	requiredFields := []struct {
@@ -394,6 +418,13 @@ func mergeConfigs(base, override *Config) {
 	overrideIfNotEmpty(&base.TPM.AuthEnabled, override.TPM.AuthEnabled)
 	overrideIfNotEmpty(&base.TPM.DevicePath, override.TPM.DevicePath)
 	overrideIfNotEmpty(&base.TPM.StorageFilePath, override.TPM.StorageFilePath)
+
+	// audit log
+	overrideIfNotEmpty(&base.AuditLog.Enabled, override.AuditLog.Enabled)
+
+	// instrumentation
+	overrideIfNotEmpty(&base.MetricsEnabled, override.MetricsEnabled)
+	overrideIfNotEmpty(&base.ProfilingEnabled, override.ProfilingEnabled)
 
 	for k, v := range override.DefaultLabels {
 		base.DefaultLabels[k] = v

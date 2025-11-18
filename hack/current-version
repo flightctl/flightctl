@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 
+# Fix git ownership issue in CI environments
+git config --global --add safe.directory /__w/flightctl/flightctl 2>/dev/null || true
+git config --global --add safe.directory "$(pwd)" 2>/dev/null || true
+
 # Prefer proper release tags pointing at this exact commit first, prioritizing the highest version
 # tag. If there is no tag at this commit, then fallback to 'git describe' which will construct a
 # "human-readable" artificial tag.

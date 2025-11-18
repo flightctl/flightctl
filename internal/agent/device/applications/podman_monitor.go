@@ -44,9 +44,9 @@ type PodmanMonitor struct {
 	apps    map[string]Application
 	actions []lifecycle.Action
 
-	compose lifecycle.ActionHandler
-	client  *client.Podman
-	writer  fileio.Writer
+	handlers map[v1alpha1.AppType]lifecycle.ActionHandler
+	client   *client.Podman
+	rw       fileio.ReadWriter
 
 	log *log.PrefixLogger
 }
@@ -54,16 +54,20 @@ type PodmanMonitor struct {
 func NewPodmanMonitor(
 	log *log.PrefixLogger,
 	podman *client.Podman,
+	systemd *client.Systemd,
 	bootTime string,
-	writer fileio.Writer,
+	rw fileio.ReadWriter,
 ) *PodmanMonitor {
 	return &PodmanMonitor{
-		client:        podman,
-		compose:       lifecycle.NewCompose(log, writer, podman),
+		client: podman,
+		handlers: map[v1alpha1.AppType]lifecycle.ActionHandler{
+			v1alpha1.AppTypeCompose: lifecycle.NewCompose(log, rw, podman),
+			v1alpha1.AppTypeQuadlet: lifecycle.NewQuadlet(log, rw, systemd),
+		},
 		apps:          make(map[string]Application),
 		lastEventTime: bootTime,
 		log:           log,
-		writer:        writer,
+		rw:            rw,
 	}
 }
 
@@ -378,12 +382,14 @@ func (m *PodmanMonitor) ExecuteActions(ctx context.Context) error {
 	actions := m.drainActions()
 	for i := range actions {
 		action := actions[i]
-		if action.AppType == v1alpha1.AppTypeCompose {
-			if err := m.compose.Execute(ctx, &action); err != nil {
-				// this error should result in a failed status for the revision
-				// and not retried.
-				return err
-			}
+		handler, ok := m.handlers[action.AppType]
+		if !ok {
+			return fmt.Errorf("%w: no action handler registered", errors.ErrUnsupportedAppType)
+		}
+		if err := handler.Execute(ctx, &action); err != nil {
+			// this error should result in a failed status for the revision
+			// and not retried
+			return err
 		}
 	}
 
@@ -488,6 +494,16 @@ func (m *PodmanMonitor) listenForEvents(ctx context.Context, stdoutPipe io.ReadC
 	}
 }
 
+func appIDFromEvent(event *client.PodmanEvent) string {
+	if appID, ok := event.Attributes[client.ComposeDockerProjectLabelKey]; ok {
+		return appID
+	}
+	if appID, ok := event.Attributes[client.QuadletProjectLabelKey]; ok {
+		return appID
+	}
+	return ""
+}
+
 func (m *PodmanMonitor) handleEvent(ctx context.Context, data []byte) {
 	var event client.PodmanEvent
 	if err := json.Unmarshal(data, &event); err != nil {
@@ -505,17 +521,17 @@ func (m *PodmanMonitor) handleEvent(ctx context.Context, data []byte) {
 		return
 	}
 
-	projectName, ok := event.Attributes[client.ComposeDockerProjectLabelKey]
-	if !ok {
-		m.log.Debugf("Application name not found in event attributes: %v", event)
+	appID := appIDFromEvent(&event)
+	if appID == "" {
+		m.log.Debugf("Application id not found in event attributes: %v", event)
 		return
 	}
 
 	m.mu.Lock()
-	app, ok := m.apps[projectName]
+	app, ok := m.apps[appID]
 	m.mu.Unlock()
 	if !ok {
-		m.log.Debugf("Application project not found: %s", projectName)
+		m.log.Debugf("Application not found: %s", appID)
 		return
 	}
 	m.updateAppStatus(ctx, app, &event)

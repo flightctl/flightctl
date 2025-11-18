@@ -13,6 +13,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -209,7 +210,8 @@ func TestListenForEvents(t *testing.T) {
 			require.NoError(err)
 
 			podman := client.NewPodman(log, execMock, rw, util.NewPollConfig())
-			podmanMonitor := NewPodmanMonitor(log, podman, "", rw)
+			systemd := client.NewSystemd(execMock)
+			podmanMonitor := NewPodmanMonitor(log, podman, systemd, "", rw)
 
 			// add test apps to the monitor
 			for _, testApp := range tc.apps {
@@ -356,7 +358,8 @@ func TestApplicationAddRemove(t *testing.T) {
 			execMock := executer.NewMockExecuter(ctrl)
 
 			podman := client.NewPodman(log, execMock, readWriter, util.NewPollConfig())
-			podmanMonitor := NewPodmanMonitor(log, podman, "", readWriter)
+			systemd := client.NewSystemd(execMock)
+			podmanMonitor := NewPodmanMonitor(log, podman, systemd, "", readWriter)
 			testApp := createTestApplication(require, tc.appName, v1alpha1.ApplicationStatusPreparing)
 
 			switch tc.action {
@@ -376,7 +379,11 @@ func TestApplicationAddRemove(t *testing.T) {
 }
 
 func createTestApplication(require *require.Assertions, name string, status v1alpha1.ApplicationStatusType) Application {
-	provider := newMockProvider(require, name)
+	return createTestApplicationWithType(require, name, status, v1alpha1.AppTypeCompose)
+}
+
+func createTestApplicationWithType(require *require.Assertions, name string, status v1alpha1.ApplicationStatusType, appType v1alpha1.AppType) Application {
+	provider := newMockProvider(require, name, appType)
 	app := NewApplication(provider)
 	app.status.Status = status
 	return app
@@ -444,13 +451,14 @@ func BenchmarkNewComposeID(b *testing.B) {
 	}
 }
 
-func newMockProvider(require *require.Assertions, name string) provider.Provider {
-	return &mockProvider{name: name, require: require}
+func newMockProvider(require *require.Assertions, name string, appType v1alpha1.AppType) provider.Provider {
+	return &mockProvider{name: name, require: require, appType: appType}
 }
 
 type mockProvider struct {
 	name    string
 	require *require.Assertions
+	appType v1alpha1.AppType
 }
 
 func (m *mockProvider) Name() string {
@@ -461,13 +469,14 @@ func (m *mockProvider) Spec() *provider.ApplicationSpec {
 	volManager, err := provider.NewVolumeManager(nil, m.name, nil)
 	m.require.NoError(err)
 	return &provider.ApplicationSpec{
-		ID:     client.NewComposeID(m.name),
-		Name:   m.name,
-		Volume: volManager,
+		ID:      client.NewComposeID(m.name),
+		Name:    m.name,
+		Volume:  volManager,
+		AppType: m.appType,
 	}
 }
 
-func (m *mockProvider) OCITargets(pullSecret *client.PullSecret) ([]dependency.OCIPullTarget, error) {
+func (m *mockProvider) OCITargets(ctx context.Context, pullSecret *client.PullSecret) ([]dependency.OCIPullTarget, error) {
 	return nil, nil
 }
 
@@ -495,6 +504,7 @@ func TestPodmanMonitorMultipleAddRemoveCycles(t *testing.T) {
 	mockReadWriter := fileio.NewMockReadWriter(ctrl)
 	mockExec := executer.NewMockExecuter(ctrl)
 	mockPodmanClient := client.NewPodman(log, mockExec, mockReadWriter, util.NewPollConfig())
+	mockSystemdClient := client.NewSystemd(mockExec)
 
 	readWriter := fileio.NewReadWriter()
 	tmpDir := t.TempDir()
@@ -507,7 +517,15 @@ func TestPodmanMonitorMultipleAddRemoveCycles(t *testing.T) {
 			return exec.CommandContext(ctx, "echo", fmt.Sprintf(`{"timeNano": %d}`, now)) //nolint:gosec
 		}).AnyTimes()
 
-	podmanMonitor := NewPodmanMonitor(log, mockPodmanClient, "", readWriter)
+	podmanMonitor := NewPodmanMonitor(log, mockPodmanClient, mockSystemdClient, "", readWriter)
+
+	// Override lifecycle handlers with no-op mocks to avoid file/exec expectations
+	mockComposeHandler := lifecycle.NewMockActionHandler(ctrl)
+	mockQuadletHandler := lifecycle.NewMockActionHandler(ctrl)
+	mockComposeHandler.EXPECT().Execute(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	mockQuadletHandler.EXPECT().Execute(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	podmanMonitor.handlers[v1alpha1.AppTypeCompose] = mockComposeHandler
+	podmanMonitor.handlers[v1alpha1.AppTypeQuadlet] = mockQuadletHandler
 
 	// Create test applications
 	app1 := createTestApplication(require, "app1", v1alpha1.ApplicationStatusPreparing)
@@ -577,4 +595,98 @@ func TestPodmanMonitorMultipleAddRemoveCycles(t *testing.T) {
 	require.NoError(err)
 	require.False(podmanMonitor.isRunning()) // Stopped again
 	require.False(podmanMonitor.Has(app1ID))
+}
+
+func TestPodmanMonitorHandlerSelection(t *testing.T) {
+	require := require.New(t)
+
+	ctx := context.Background()
+	log := log.NewPrefixLogger("test")
+	log.SetLevel(logrus.DebugLevel)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockReadWriter := fileio.NewMockReadWriter(ctrl)
+	mockExec := executer.NewMockExecuter(ctrl)
+	mockPodmanClient := client.NewPodman(log, mockExec, mockReadWriter, util.NewPollConfig())
+	mockSystemdClient := client.NewSystemd(mockExec)
+
+	readWriter := fileio.NewReadWriter()
+	tmpDir := t.TempDir()
+	readWriter.SetRootdir(tmpDir)
+
+	mockExec.EXPECT().CommandContext(gomock.Any(), "podman", gomock.Any()).
+		DoAndReturn(func(ctx context.Context, name string, args ...string) *exec.Cmd {
+			now := time.Now().UnixNano()
+			return exec.CommandContext(ctx, "echo", fmt.Sprintf(`{"timeNano": %d}`, now)) //nolint:gosec
+		}).AnyTimes()
+
+	podmanMonitor := NewPodmanMonitor(log, mockPodmanClient, mockSystemdClient, "", readWriter)
+
+	// Create separate mock handlers to track which one gets called
+	mockComposeHandler := lifecycle.NewMockActionHandler(ctrl)
+	mockQuadletHandler := lifecycle.NewMockActionHandler(ctrl)
+
+	// Track calls to each handler
+	var composeActions []*lifecycle.Action
+	var quadletActions []*lifecycle.Action
+
+	mockComposeHandler.EXPECT().Execute(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, action *lifecycle.Action) error {
+			composeActions = append(composeActions, action)
+			return nil
+		}).AnyTimes()
+
+	mockQuadletHandler.EXPECT().Execute(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, action *lifecycle.Action) error {
+			quadletActions = append(quadletActions, action)
+			return nil
+		}).AnyTimes()
+
+	podmanMonitor.handlers[v1alpha1.AppTypeCompose] = mockComposeHandler
+	podmanMonitor.handlers[v1alpha1.AppTypeQuadlet] = mockQuadletHandler
+
+	// Create apps with different types
+	composeApp := createTestApplicationWithType(require, "compose-app", v1alpha1.ApplicationStatusPreparing, v1alpha1.AppTypeCompose)
+	quadletApp := createTestApplicationWithType(require, "quadlet-app", v1alpha1.ApplicationStatusPreparing, v1alpha1.AppTypeQuadlet)
+
+	// Ensure both apps
+	err := podmanMonitor.Ensure(composeApp)
+	require.NoError(err)
+	err = podmanMonitor.Ensure(quadletApp)
+	require.NoError(err)
+
+	// Execute actions
+	err = podmanMonitor.ExecuteActions(ctx)
+	require.NoError(err)
+
+	// Verify compose handler was called for compose app
+	require.Equal(1, len(composeActions), "Compose handler should be called once")
+	require.Equal(composeApp.ID(), composeActions[0].ID)
+	require.Equal(v1alpha1.AppTypeCompose, composeActions[0].AppType)
+	require.Equal(lifecycle.ActionAdd, composeActions[0].Type)
+
+	// Verify quadlet handler was called for quadlet app
+	require.Equal(1, len(quadletActions), "Quadlet handler should be called once")
+	require.Equal(quadletApp.ID(), quadletActions[0].ID)
+	require.Equal(v1alpha1.AppTypeQuadlet, quadletActions[0].AppType)
+	require.Equal(lifecycle.ActionAdd, quadletActions[0].Type)
+
+	// Reset tracking
+	composeActions = nil
+	quadletActions = nil
+
+	// Remove compose app
+	err = podmanMonitor.Remove(composeApp)
+	require.NoError(err)
+	err = podmanMonitor.ExecuteActions(ctx)
+	require.NoError(err)
+
+	// Verify compose handler was called for removal
+	require.Equal(1, len(composeActions), "Compose handler should be called once for removal")
+	require.Equal(composeApp.ID(), composeActions[0].ID)
+	require.Equal(lifecycle.ActionRemove, composeActions[0].Type)
+
+	// Verify quadlet handler was NOT called
+	require.Equal(0, len(quadletActions), "Quadlet handler should not be called")
 }

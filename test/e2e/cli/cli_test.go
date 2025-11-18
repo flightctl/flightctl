@@ -15,6 +15,7 @@ import (
 	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"k8s.io/apimachinery/pkg/util/json"
 	"sigs.k8s.io/yaml"
 )
 
@@ -609,6 +610,59 @@ var _ = Describe("cli operation", func() {
 			Expect(notMatched).To(BeEmpty())
 		})
 	})
+
+	Context("Verify fleet check shows aggregated device status", func() {
+		It("Show aggregated device status for each fleet", Label("84270", "sanity"), func() {
+			harness := e2e.GetWorkerHarness()
+			testID := harness.GetTestIDFromContext()
+
+			By("Creating a fleet")
+			uniqueFleetYAML, err := util.CreateUniqueYAMLFile("fleet.yaml", testID)
+			Expect(err).NotTo(HaveOccurred())
+			defer util.CleanupTempYAMLFile(uniqueFleetYAML)
+
+			// Checking the fleet was created
+			out, err := harness.ManageResource(applyOperation, uniqueFleetYAML)
+			fleet := harness.GetFleetByYaml(uniqueFleetYAML)
+			fleetName := *fleet.Metadata.Name
+			Expect(err).NotTo(HaveOccurred())
+			Expect(out).To(MatchRegexp(resourceCreated))
+
+			By("Verify the device summary matches expected count")
+			count, err := validateDevicesSummary(harness, fleetName, 0)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(count).To(Equal(0))
+
+			By("Creating a device in the fleet")
+			uniqueDeviceYAML, err := util.CreateUniqueYAMLFile("device.yaml", testID)
+			Expect(err).NotTo(HaveOccurred())
+			defer util.CleanupTempYAMLFile(uniqueDeviceYAML)
+
+			// Checking the device was created
+			out, err = harness.ManageResource(applyOperation, uniqueDeviceYAML)
+			device := harness.GetDeviceByYaml(uniqueDeviceYAML)
+			deviceName := *device.Metadata.Name
+			Expect(err).NotTo(HaveOccurred())
+			Expect(out).To(MatchRegexp(resourceCreated))
+
+			By("Verify the device summary matches expected count")
+			count, err = validateDevicesSummary(harness, fleetName, 1)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(count).To(Equal(1))
+
+			By("Deleting a device from the fleet")
+			out, err = harness.CLI("delete", util.Device, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(ContainSubstring("completed"))
+
+			By("Verify the device summary matches expected count")
+			count, err = validateDevicesSummary(harness, fleetName, 0)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(count).To(Equal(0))
+
+		})
+	})
+
 })
 
 var _ = Describe("cli login", func() {
@@ -791,6 +845,10 @@ var _ = Describe("cli login", func() {
 				Expect(err).To(HaveOccurred())
 				Expect(out).To(ContainSubstring("404"))
 
+				By("deleting the CSR before testing timeout flag")
+				out, err = harness.CLI("delete", fmt.Sprintf("csr/%s", csrName))
+				Expect(err).NotTo(HaveOccurred())
+
 				By("accepting --request-timeout flag on successful deny and confirming execution within timeout")
 				out, err = harness.CLI("apply", "-f", uniqueCsrYAML)
 				Expect(err).NotTo(HaveOccurred())
@@ -812,12 +870,12 @@ var _ = Describe("cli login", func() {
 				By("calling deny with zero args should error")
 				out, err = harness.ManageResource(util.DenyAction, "")
 				Expect(err).To(HaveOccurred())
-				Expect(out).To(ContainSubstring("Error: accepts 1 arg(s), received 0"))
+				Expect(out).To(ContainSubstring("Error: accepts between 1 and 2 arg(s), received 0"))
 
 				By("calling deny with empty resource should fail")
 				out, err = harness.ManageResource(util.DenyAction, "csr")
 				Expect(err).To(HaveOccurred())
-				Expect(out).To(ContainSubstring("Error: specify a specific request resource to deny"))
+				Expect(out).To(ContainSubstring("Error: exactly one resource name must be specified"))
 
 				By("calling deny with invalid resource kind should error")
 				out, err = harness.ManageResource(util.DenyAction, "1234")
@@ -952,7 +1010,7 @@ func GetVersionByPrefix(output, prefix string) string {
 }
 
 // Comparing devices count output in yaml with fleet data in map
-func compareDeviceCountCliOutput(output string, expected map[string]int64) []string {
+func compareDeviceCountCliOutput(output string, expectedDevicesCount map[string]int64) []string {
 
 	var notMatched []string
 
@@ -976,7 +1034,7 @@ func compareDeviceCountCliOutput(output string, expected map[string]int64) []str
 
 	// Compare each item against expected map
 	for _, fleet := range parsed.Fleets {
-		expectedCount, ok := expected[fleet.Name]
+		expectedCount, ok := expectedDevicesCount[fleet.Name]
 		if !ok || fleet.Status.DevicesSummary.Total != expectedCount {
 			notMatched = append(notMatched, fleet.Name)
 		}
@@ -1045,6 +1103,7 @@ func createDeviceInFleet(fleetTestManager *fleetTestManager, fleetDevicesCount m
 func checkDevicesInFleetStatus(harness *e2e.Harness, fleetDevicesCount map[string]int64) ([]string, error) {
 
 	out, err := harness.CLI("get", "fleet", "-s", "-o", "yaml")
+
 	notMatched := compareDeviceCountCliOutput(out, fleetDevicesCount)
 
 	// Printing unmatched fleets names
@@ -1053,6 +1112,59 @@ func checkDevicesInFleetStatus(harness *e2e.Harness, fleetDevicesCount map[strin
 	}
 
 	return notMatched, err
+}
+
+// Checking the devicesSummary of a fleet
+func validateDevicesSummary(harness *e2e.Harness, fleetName string, expectedDevicesCount int) (int, error) {
+
+	total := 0
+
+	out, err := harness.CLI("get", "fleet/"+fleetName, "-s", "-o", "json")
+	if err != nil {
+		return total, err
+	}
+
+	// Parsing output to get the fleet data in json format
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(out), &parsed); err != nil {
+		return total, fmt.Errorf("failed to parse JSON: %w", err)
+	}
+
+	// Extracting devicesSummary from output
+	status, _ := parsed["status"].(map[string]any)
+	devicesSummary, ok := status["devicesSummary"].(map[string]any)
+	if !ok {
+		return total, fmt.Errorf("missing devicesSummary")
+	}
+
+	// Extracting total device count
+	totalVal, ok := devicesSummary["total"].(int64)
+	if !ok {
+		return total, fmt.Errorf("missing or invalid 'total' in devicesSummary")
+	}
+	total = int(totalVal)
+
+	for _, statusKey := range []string{"applicationStatus", "summaryStatus", "updateStatus"} {
+		statusMap, _ := devicesSummary[statusKey].(map[string]any)
+
+		// Map should be empty if there are no devices
+		if expectedDevicesCount == 0 {
+			if len(statusMap) > 0 {
+				return total, fmt.Errorf("%s should be empty but has %d entries", statusKey, len(statusMap))
+			}
+		} else {
+
+			// All value of the keys must be equal to expectedDevicesCount
+			for _, value := range statusMap {
+				count := value.(int64)
+				if int(count) != expectedDevicesCount {
+					return total, fmt.Errorf("%s has wrong value: %d, expected %d", statusKey, count, expectedDevicesCount)
+				}
+			}
+		}
+	}
+
+	return total, err
 }
 
 // AssertTableValue checks that a specific row (identified by resourceName)

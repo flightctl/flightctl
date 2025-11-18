@@ -3,8 +3,8 @@ bin/output/qcow2/disk.qcow2: bin/.e2e-agent-images
 
 bin/.e2e-agent-images: deploy-e2e-extras rpm bin/flightctl-agent bin/e2e-certs
 	./test/scripts/agent-images/prepare_agent_config.sh
-	BUILD_TYPE=$(BUILD_TYPE) BREW_BUILD_URL=$(BREW_BUILD_URL) ./test/scripts/agent-images/create_agent_images.sh
-	./test/scripts/agent-images/create_application_image.sh
+	BUILD_TYPE=$(BUILD_TYPE) BREW_BUILD_URL=$(BREW_BUILD_URL) SOURCE_GIT_TAG=$(SOURCE_GIT_TAG) SOURCE_GIT_TREE_STATE=$(SOURCE_GIT_TREE_STATE) SOURCE_GIT_COMMIT=$(SOURCE_GIT_COMMIT) ./test/scripts/agent-images/create_agent_images.sh
+	SOURCE_GIT_TAG=$(SOURCE_GIT_TAG) SOURCE_GIT_TREE_STATE=$(SOURCE_GIT_TREE_STATE) SOURCE_GIT_COMMIT=$(SOURCE_GIT_COMMIT) ./test/scripts/agent-images/create_application_image.sh
 	touch bin/.e2e-agent-images
 
 .PHONY: e2e-agent-images

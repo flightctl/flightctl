@@ -6,7 +6,6 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
-	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -23,9 +22,12 @@ type imageProvider struct {
 	readWriter fileio.ReadWriter
 	log        *log.PrefixLogger
 	spec       *ApplicationSpec
+
+	// AppData stores the extracted app data from OCITargets to reuse in Verify
+	AppData *AppData
 }
 
-func newImage(log *log.PrefixLogger, podman *client.Podman, spec *v1alpha1.ApplicationProviderSpec, readWriter fileio.ReadWriter) (*imageProvider, error) {
+func newImage(log *log.PrefixLogger, podman *client.Podman, spec *v1alpha1.ApplicationProviderSpec, readWriter fileio.ReadWriter, appType v1alpha1.AppType) (*imageProvider, error) {
 	provider, err := spec.AsImageApplicationProviderSpec()
 	if err != nil {
 		return nil, fmt.Errorf("getting provider spec:%w", err)
@@ -37,7 +39,7 @@ func newImage(log *log.PrefixLogger, podman *client.Podman, spec *v1alpha1.Appli
 		appName = provider.Image
 	}
 	embedded := false
-	path, err := pathFromAppType(v1alpha1.AppTypeCompose, appName, embedded)
+	path, err := pathFromAppType(appType, appName, embedded)
 	if err != nil {
 		return nil, fmt.Errorf("getting app path: %w", err)
 	}
@@ -53,7 +55,8 @@ func newImage(log *log.PrefixLogger, podman *client.Podman, spec *v1alpha1.Appli
 		readWriter: readWriter,
 		spec: &ApplicationSpec{
 			Name:          appName,
-			AppType:       lo.FromPtr(spec.AppType),
+			ID:            client.NewComposeID(appName),
+			AppType:       appType,
 			Path:          path,
 			EnvVars:       lo.FromPtr(spec.EnvVars),
 			Embedded:      embedded,
@@ -63,39 +66,13 @@ func newImage(log *log.PrefixLogger, podman *client.Podman, spec *v1alpha1.Appli
 	}, nil
 }
 
-func (p *imageProvider) OCITargets(pullSecret *client.PullSecret) ([]dependency.OCIPullTarget, error) {
-	policy := v1alpha1.PullIfNotPresent
-	var targets []dependency.OCIPullTarget
-	targets = append(targets, dependency.OCIPullTarget{
-		Type:       dependency.OCITypeImage,
-		Reference:  p.spec.ImageProvider.Image,
-		PullPolicy: policy,
-		PullSecret: pullSecret,
-	})
-
-	// volume artifacts
-	volTargets, err := extractVolumeTargets(p.spec.ImageProvider.Volumes, pullSecret)
-	if err != nil {
-		return nil, fmt.Errorf("parsing volume targets: %w", err)
-	}
-	targets = append(targets, volTargets...)
-
-	return targets, nil
-}
-
 func (p *imageProvider) Verify(ctx context.Context) error {
 	if err := validateEnvVars(p.spec.EnvVars); err != nil {
 		return fmt.Errorf("%w: validating env vars: %w", errors.ErrInvalidSpec, err)
 	}
 
-	// type declared in the spec overrides the type from the image
-	image := p.spec.ImageProvider.Image
-	if p.spec.AppType == "" {
-		appType, err := typeFromImage(ctx, p.podman, image)
-		if err != nil {
-			return fmt.Errorf("getting app type: %w", err)
-		}
-		p.spec.AppType = appType
+	if p.spec.AppType != v1alpha1.AppTypeCompose && p.spec.AppType != v1alpha1.AppTypeQuadlet {
+		return fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, p.spec.AppType)
 	}
 
 	if err := ensureDependenciesFromAppType(p.spec.AppType); err != nil {
@@ -106,36 +83,48 @@ func (p *imageProvider) Verify(ctx context.Context) error {
 		return fmt.Errorf("%w: ensuring volume dependencies: %w", errors.ErrNoRetry, err)
 	}
 
-	// create a temporary directory to copy the image contents
-	tmpAppPath, err := p.readWriter.MkdirTemp("app_temp")
-	if err != nil {
-		return fmt.Errorf("creating tmp dir: %w", err)
-	}
+	var tmpAppPath string
+	var shouldCleanup bool
 
-	cleanup := func() {
-		if err := p.readWriter.RemoveAll(tmpAppPath); err != nil {
-			p.log.Errorf("Cleaning up temporary directory %q: %v", tmpAppPath, err)
+	if p.AppData != nil {
+		tmpAppPath = p.AppData.TmpPath
+		shouldCleanup = false
+	} else {
+		// no cache, extract the image contents
+		var err error
+		tmpAppPath, err = p.readWriter.MkdirTemp("app_temp")
+		if err != nil {
+			return fmt.Errorf("creating tmp dir: %w", err)
+		}
+		shouldCleanup = true
+
+		// copy image contents to a tmp directory for further processing
+		if err := p.podman.CopyContainerData(ctx, p.spec.ImageProvider.Image, tmpAppPath); err != nil {
+			if rmErr := p.readWriter.RemoveAll(tmpAppPath); rmErr != nil {
+				p.log.Warnf("Failed to cleanup temporary directory %q: %v", tmpAppPath, rmErr)
+			}
+			return fmt.Errorf("copy image contents: %w", err)
 		}
 	}
-	defer cleanup()
 
-	// copy image contents to a tmp directory for further processing
-	if err := p.podman.CopyContainerData(ctx, image, tmpAppPath); err != nil {
-		return fmt.Errorf("copy image contents: %w", err)
-	}
+	defer func() {
+		if shouldCleanup && tmpAppPath != "" {
+			if err := p.readWriter.RemoveAll(tmpAppPath); err != nil {
+				p.log.Warnf("Failed to cleanup temporary directory %q: %v", tmpAppPath, err)
+			}
+			p.AppData = nil
+		}
+	}()
 
 	switch p.spec.AppType {
 	case v1alpha1.AppTypeCompose:
-		p.spec.ID = client.NewComposeID(p.spec.Name)
-		path, err := pathFromAppType(p.spec.AppType, p.spec.Name, p.spec.Embedded)
-		if err != nil {
-			return fmt.Errorf("getting app path: %w", err)
-		}
-		p.spec.Path = path
-
 		// ensure the compose application content in tmp dir is valid
 		if err := ensureCompose(p.readWriter, tmpAppPath); err != nil {
 			return fmt.Errorf("ensuring compose: %w", err)
+		}
+	case v1alpha1.AppTypeQuadlet:
+		if err := ensureQuadlet(p.readWriter, tmpAppPath); err != nil {
+			return fmt.Errorf("ensuring quadlet: %w", err)
 		}
 	default:
 		return fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, p.spec.AppType)
@@ -145,6 +134,15 @@ func (p *imageProvider) Verify(ctx context.Context) error {
 }
 
 func (p *imageProvider) Install(ctx context.Context) error {
+	// cleanup any cached extracted path from OCITargets since Install will extract to final location
+	if p.AppData != nil {
+		p.log.Debugf("Cleaning up cached app data before Install")
+		if cleanupErr := p.AppData.Cleanup(); cleanupErr != nil {
+			p.log.Warnf("Failed to cleanup cached app data: %v", cleanupErr)
+		}
+		p.AppData = nil
+	}
+
 	if p.spec.ImageProvider == nil {
 		return fmt.Errorf("image application spec is nil")
 	}
@@ -157,14 +155,32 @@ func (p *imageProvider) Install(ctx context.Context) error {
 		return fmt.Errorf("writing env file: %w", err)
 	}
 
-	if err := writeComposeOverride(p.log, p.spec.Path, p.spec.Volume, p.readWriter, client.ComposeOverrideFilename); err != nil {
-		return fmt.Errorf("writing override file %w", err)
+	switch p.spec.AppType {
+	case v1alpha1.AppTypeCompose:
+		if err := writeComposeOverride(p.log, p.spec.Path, p.spec.Volume, p.readWriter, client.ComposeOverrideFilename); err != nil {
+			return fmt.Errorf("writing override file %w", err)
+		}
+	case v1alpha1.AppTypeQuadlet:
+		if err := installQuadlet(p.readWriter, p.spec.Path, p.spec.ID); err != nil {
+			return fmt.Errorf("installing quadlet: %w", err)
+		}
+	default:
+		return fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, p.spec.AppType)
 	}
 
 	return nil
 }
 
 func (p *imageProvider) Remove(ctx context.Context) error {
+	// cleanup any cached extracted path
+	if p.AppData != nil {
+		p.log.Debugf("Cleaning up cached app data before Remove")
+		if cleanupErr := p.AppData.Cleanup(); cleanupErr != nil {
+			p.log.Warnf("Failed to cleanup cached app data: %v", cleanupErr)
+		}
+		p.AppData = nil
+	}
+
 	if err := p.readWriter.RemoveAll(p.spec.Path); err != nil {
 		return fmt.Errorf("removing application: %w", err)
 	}

@@ -9,10 +9,9 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
-	"github.com/flightctl/flightctl/internal/instrumentation"
-	"github.com/flightctl/flightctl/internal/instrumentation/metrics"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	dto "github.com/prometheus/client_model/go"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -84,7 +83,6 @@ func TestWorkerCollector_NewWorkerCollector(t *testing.T) {
 	collector := NewWorkerCollector(ctx, log, cfg, mockProvider)
 
 	assert.NotNil(t, collector)
-	assert.Equal(t, "worker", collector.MetricsName())
 	assert.Equal(t, log, collector.log)
 	assert.Equal(t, cfg, collector.cfg)
 	assert.Equal(t, mockProvider, collector.queuesProvider)
@@ -363,7 +361,11 @@ func TestWorkerCollector_HTTPMetricsEndpoint(t *testing.T) {
 	workerCollector.SetRedisConnectionStatus(true)
 
 	// Create a simple HTTP handler using the metrics package
-	handler := metrics.NewHandler(workerCollector)
+	registry := prometheus.NewRegistry()
+	err := registry.Register(workerCollector)
+	require.NoError(t, err)
+
+	handler := promhttp.HandlerFor(registry, promhttp.HandlerOpts{})
 
 	ts := httptest.NewServer(handler)
 	defer ts.Close()
@@ -400,22 +402,6 @@ func TestWorkerCollector_HTTPMetricsEndpoint(t *testing.T) {
 	assert.Contains(t, bodyStr, `flightctl_worker_consumers_active 3`)
 
 	// Server auto-closes via defer
-}
-
-func TestWorkerCollector_MetricsServerDisabled(t *testing.T) {
-	ctx := context.Background()
-	log := logrus.New()
-	log.SetLevel(logrus.ErrorLevel)
-
-	// Create config with no metrics configuration (disabled)
-	cfg := &config.Config{}
-
-	metricsServer := instrumentation.NewMetricsServer(log, cfg)
-
-	// Should return error when disabled
-	err := metricsServer.Run(ctx)
-	assert.Error(t, err)
-	// The exact error message depends on the configuration validation
 }
 
 // ============================================================================

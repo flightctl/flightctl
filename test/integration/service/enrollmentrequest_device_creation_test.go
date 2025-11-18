@@ -5,8 +5,10 @@ import (
 	"net/http"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	authcommon "github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/identity"
+	"github.com/flightctl/flightctl/internal/org"
+	"github.com/flightctl/flightctl/internal/store/model"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	. "github.com/onsi/gomega/gstruct"
@@ -46,8 +48,13 @@ var _ = Describe("EnrollmentRequest Device Creation Unit Tests", func() {
 				Expect(created).ToNot(BeNil())
 
 				By("approving the enrollment request")
-				identity := authcommon.NewBaseIdentity("testuser", "", []string{})
-				ctxApproval := context.WithValue(suite.Ctx, consts.IdentityCtxKey, identity)
+				defaultOrg := &model.Organization{
+					ID:          org.DefaultID,
+					ExternalID:  org.DefaultID.String(),
+					DisplayName: org.DefaultID.String(),
+				}
+				mappedIdentity := identity.NewMappedIdentity("testuser", "", []*model.Organization{defaultOrg}, []string{}, nil)
+				ctxApproval := context.WithValue(suite.Ctx, consts.MappedIdentityCtxKey, mappedIdentity)
 
 				approval := api.EnrollmentRequestApproval{
 					Approved: true,
@@ -111,8 +118,13 @@ var _ = Describe("EnrollmentRequest Device Creation Unit Tests", func() {
 			Expect(created).ToNot(BeNil())
 
 			By("approving the enrollment request with additional labels")
-			identity := authcommon.NewBaseIdentity("testuser", "", []string{})
-			ctxApproval := context.WithValue(suite.Ctx, consts.IdentityCtxKey, identity)
+			defaultOrg := &model.Organization{
+				ID:          org.DefaultID,
+				ExternalID:  org.DefaultID.String(),
+				DisplayName: org.DefaultID.String(),
+			}
+			mappedIdentity := identity.NewMappedIdentity("testuser", "", []*model.Organization{defaultOrg}, []string{}, nil)
+			ctxApproval := context.WithValue(suite.Ctx, consts.MappedIdentityCtxKey, mappedIdentity)
 
 			approval := api.EnrollmentRequestApproval{
 				Approved: true,
@@ -153,8 +165,13 @@ var _ = Describe("EnrollmentRequest Device Creation Unit Tests", func() {
 			Expect(created).ToNot(BeNil())
 
 			By("approving the enrollment request")
-			identity := authcommon.NewBaseIdentity("testuser", "", []string{})
-			ctxApproval := context.WithValue(suite.Ctx, consts.IdentityCtxKey, identity)
+			defaultOrg := &model.Organization{
+				ID:          org.DefaultID,
+				ExternalID:  org.DefaultID.String(),
+				DisplayName: org.DefaultID.String(),
+			}
+			mappedIdentity := identity.NewMappedIdentity("testuser", "", []*model.Organization{defaultOrg}, []string{}, nil)
+			ctxApproval := context.WithValue(suite.Ctx, consts.MappedIdentityCtxKey, mappedIdentity)
 
 			approval := api.EnrollmentRequestApproval{
 				Approved: true,

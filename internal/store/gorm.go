@@ -9,6 +9,7 @@ import (
 	"runtime/debug"
 	"time"
 
+	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel/trace"
@@ -17,7 +18,6 @@ import (
 	"gorm.io/gorm/logger"
 	"gorm.io/plugin/opentelemetry/tracing"
 	"gorm.io/plugin/prometheus"
-	"k8s.io/klog/v2"
 )
 
 func InitDB(cfg *config.Config, log *logrus.Logger) (*gorm.DB, error) {
@@ -28,12 +28,12 @@ func InitMigrationDB(cfg *config.Config, log *logrus.Logger) (*gorm.DB, error) {
 	return initDBWithUser(cfg, log, cfg.Database.MigrationUser, cfg.Database.MigrationPassword)
 }
 
-func initDBWithUser(cfg *config.Config, log *logrus.Logger, user string, password config.SecureString) (*gorm.DB, error) {
+func initDBWithUser(cfg *config.Config, log *logrus.Logger, user string, password api.SecureString) (*gorm.DB, error) {
 	var dia gorm.Dialector
 
 	if cfg.Database.Type != "pgsql" {
 		errString := fmt.Sprintf("failed to connect database %s: only PostgreSQL is supported", cfg.Database.Type)
-		klog.Fatal(errString)
+		log.Fatal(errString)
 		return nil, errors.New(errString)
 	}
 	dsn := createDSN(cfg, user, password)
@@ -52,7 +52,7 @@ func initDBWithUser(cfg *config.Config, log *logrus.Logger, user string, passwor
 
 	newDB, err := gorm.Open(dia, &gorm.Config{Logger: newLogger, TranslateError: true})
 	if err != nil {
-		klog.Fatalf("failed to connect database: %v", err)
+		log.Fatalf("failed to connect database: %v", err)
 		return nil, err
 	}
 
@@ -65,13 +65,13 @@ func initDBWithUser(cfg *config.Config, log *logrus.Logger, user string, passwor
 	}))
 
 	if err != nil {
-		klog.Fatalf("Failed to register prometheus exporter: %v", err)
+		log.Fatalf("Failed to register prometheus exporter: %v", err)
 		return nil, err
 	}
 
 	sqlDB, err := newDB.DB()
 	if err != nil {
-		klog.Fatalf("failed to configure connections: %v", err)
+		log.Fatalf("failed to configure connections: %v", err)
 		return nil, err
 	}
 	sqlDB.SetMaxIdleConns(10)
@@ -79,14 +79,14 @@ func initDBWithUser(cfg *config.Config, log *logrus.Logger, user string, passwor
 
 	var serverVersion string
 	if res := newDB.Raw("SHOW server_version").Scan(&serverVersion); res.Error != nil {
-		klog.Warningf("could not read PostgreSQL version (continuing): %v", res.Error)
+		log.Warningf("could not read PostgreSQL version (continuing): %v", res.Error)
 	} else {
-		klog.Infof("PostgreSQL server_version: %s", serverVersion)
+		log.Debugf("PostgreSQL server_version: %s", serverVersion)
 	}
 
 	if cfg.Tracing != nil && cfg.Tracing.Enabled {
 		if err = newDB.Use(NewTraceContextEnforcer()); err != nil {
-			klog.Fatalf("failed to register OpenTelemetry GORM plugin: %v", err)
+			log.Fatalf("failed to register OpenTelemetry GORM plugin: %v", err)
 			return nil, err
 		}
 	}
@@ -100,14 +100,14 @@ func initDBWithUser(cfg *config.Config, log *logrus.Logger, user string, passwor
 	}
 
 	if err = newDB.Use(tracing.NewPlugin(traceOpts...)); err != nil {
-		klog.Fatalf("failed to register OpenTelemetry GORM plugin: %v", err)
+		log.Fatalf("failed to register OpenTelemetry GORM plugin: %v", err)
 		return nil, err
 	}
 
 	return newDB, nil
 }
 
-func createDSN(cfg *config.Config, user string, password config.SecureString) string {
+func createDSN(cfg *config.Config, user string, password api.SecureString) string {
 	dsn := fmt.Sprintf("host=%s user=%s password=%s port=%d",
 		cfg.Database.Hostname,
 		user,

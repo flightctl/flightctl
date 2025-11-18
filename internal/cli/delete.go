@@ -31,7 +31,7 @@ func NewCmdDelete() *cobra.Command {
 		Use:       "delete (TYPE NAME [NAME...] | TYPE/NAME)",
 		Short:     "Delete one or more resources by name.",
 		Args:      cobra.MinimumNArgs(1),
-		ValidArgs: getValidResourceKinds(),
+		ValidArgs: getValidPluralResourceKinds(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := o.Complete(cmd, args); err != nil {
 				return err
@@ -122,7 +122,7 @@ func (o *DeleteOptions) Run(ctx context.Context, args []string) error {
 	return o.deleteMultiple(ctx, c, kind, names)
 }
 
-func (o *DeleteOptions) deleteMultiple(ctx context.Context, c *apiclient.ClientWithResponses, kind string, names []string) error {
+func (o *DeleteOptions) deleteMultiple(ctx context.Context, c *apiclient.ClientWithResponses, kind ResourceKind, names []string) error {
 	var errorCount int
 
 	for _, name := range names {
@@ -144,7 +144,7 @@ func (o *DeleteOptions) deleteMultiple(ctx context.Context, c *apiclient.ClientW
 	return nil
 }
 
-func (o *DeleteOptions) deleteOne(ctx context.Context, c *apiclient.ClientWithResponses, kind string, name string) (interface{}, error) {
+func (o *DeleteOptions) deleteOne(ctx context.Context, c *apiclient.ClientWithResponses, kind ResourceKind, name string) (interface{}, error) {
 	var response interface{}
 	var err error
 
@@ -170,7 +170,7 @@ func (o *DeleteOptions) deleteOne(ctx context.Context, c *apiclient.ClientWithRe
 	return response, err
 }
 
-func processDeletionReponse(response interface{}, err error, kind string, name string) error {
+func processDeletionReponse(response interface{}, err error, kind ResourceKind, name string) error {
 	errorPrefix := fmt.Sprintf("deleting %s", kind)
 	if len(name) > 0 {
 		errorPrefix = fmt.Sprintf("deleting %s/%s", kind, name)

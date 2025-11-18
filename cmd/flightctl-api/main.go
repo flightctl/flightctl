@@ -15,18 +15,17 @@ import (
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
-	"github.com/flightctl/flightctl/internal/instrumentation"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/domain"
+	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/kvstore"
-	"github.com/flightctl/flightctl/internal/org/cache"
-	"github.com/flightctl/flightctl/internal/org/resolvers"
 	"github.com/flightctl/flightctl/internal/rendered"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 )
 
@@ -121,7 +120,7 @@ func main() {
 		log.Fatalf("writing client config: %v", err)
 	}
 
-	tracerShutdown := instrumentation.InitTracer(log, cfg, "flightctl-api")
+	tracerShutdown := tracing.InitTracer(log, cfg, "flightctl-api")
 	defer func() {
 		if err := tracerShutdown(ctx); err != nil {
 			log.Fatalf("failed to shut down tracer: %v", err)
@@ -167,30 +166,7 @@ func main() {
 		log.Fatalf("creating listener: %s", err)
 	}
 
-	orgCache := cache.NewOrganizationTTL(cache.DefaultTTL)
-	go orgCache.Start()
-	defer orgCache.Stop()
-
-	buildResolverOpts := resolvers.BuildResolverOptions{
-		Config: cfg,
-		Store:  store.Organization(),
-		Log:    log,
-		Cache:  orgCache,
-	}
-
-	if cfg.Auth != nil && cfg.Auth.AAP != nil {
-		membershipCache := cache.NewMembershipTTL(cache.DefaultTTL)
-		go membershipCache.Start()
-		defer membershipCache.Stop()
-		buildResolverOpts.MembershipCache = membershipCache
-	}
-
-	orgResolver, err := resolvers.BuildResolver(buildResolverOpts)
-	if err != nil {
-		log.Fatalf("failed to build organization resolver: %v", err)
-	}
-
-	agentServer, err := agentserver.New(ctx, log, cfg, store, ca, agentListener, provider, agentTlsConfig, orgResolver)
+	agentServer, err := agentserver.New(ctx, log, cfg, store, ca, agentListener, provider, agentTlsConfig)
 	if err != nil {
 		log.Fatalf("initializing agent server: %v", err)
 	}
@@ -201,7 +177,7 @@ func main() {
 			log.Fatalf("creating listener: %s", err)
 		}
 		// we pass the grpc server for now, to let the console sessions to establish a connection in grpc
-		server := apiserver.New(log, cfg, store, ca, listener, provider, agentServer.GetGRPCServer(), orgResolver)
+		server := apiserver.New(log, cfg, store, ca, listener, provider, agentServer.GetGRPCServer())
 		if err := server.Run(ctx); err != nil {
 			log.Fatalf("Error running server: %s", err)
 		}
@@ -216,7 +192,7 @@ func main() {
 	}()
 
 	if cfg.Metrics != nil && cfg.Metrics.Enabled {
-		var collectors []metrics.NamedCollector
+		var collectors []prometheus.Collector
 		if cfg.Metrics.DeviceCollector != nil && cfg.Metrics.DeviceCollector.Enabled {
 			collectors = append(collectors, domain.NewDeviceCollector(ctx, store, log, cfg))
 		}
@@ -251,9 +227,8 @@ func main() {
 		}
 
 		go func() {
-			metricsServer := instrumentation.NewMetricsServer(log, cfg, collectors...)
-			if err := metricsServer.Run(ctx); err != nil {
-				log.Fatalf("Error running server: %s", err)
+			if err := tracing.RunMetricsServer(ctx, log, cfg.Metrics.Address, collectors...); err != nil {
+				log.Errorf("Error running metrics server: %s", err)
 			}
 			cancel()
 		}()

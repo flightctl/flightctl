@@ -2,7 +2,6 @@ package systemd
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -12,36 +11,13 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/pkg/log"
-)
-
-type ActiveStateType string
-type SubStateType string
-
-const (
-	ActiveStateActivating ActiveStateType = "activating"
-	ActiveStateActive     ActiveStateType = "active"
-	ActiveStateFailed     ActiveStateType = "failed"
-	ActiveStateInactive   ActiveStateType = "inactive"
-
-	SubStateStartPre  SubStateType = "start-pre"
-	SubStateStartPost SubStateType = "start-post"
-	SubStateRunning   SubStateType = "running"
-	SubStateExited    SubStateType = "exited"
-	SubStateDead      SubStateType = "dead"
+	"github.com/samber/lo"
 )
 
 type Manager interface {
 	// EnsurePatterns sets the match patterns for systemd units.
 	EnsurePatterns([]string) error
 	status.Exporter
-}
-
-type SystemDUnitListEntry struct {
-	Unit        string          `json:"unit"`
-	LoadState   string          `json:"load"`
-	ActiveState ActiveStateType `json:"active"`
-	Sub         SubStateType    `json:"sub"`
-	Description string          `json:"description"`
 }
 
 type manager struct {
@@ -72,46 +48,24 @@ func (m *manager) Status(ctx context.Context, device *v1alpha1.DeviceStatus, _ .
 		return nil
 	}
 
-	status, err := m.client.ListUnitsByMatchPattern(ctx, m.patterns)
+	units, err := m.client.ShowByMatchPattern(ctx, m.patterns)
 	if err != nil {
 		return err
 	}
 
-	var units []SystemDUnitListEntry
-	if err := json.Unmarshal([]byte(status), &units); err != nil {
-		return fmt.Errorf("failed unmarshalling systemctl list-units output: %w", err)
+	systemdUnits := make([]v1alpha1.SystemdUnitStatus, len(units))
+	for i, unit := range units {
+		systemdUnits[i] = v1alpha1.SystemdUnitStatus{
+			Unit:        unit["Id"],
+			Description: unit["Description"],
+			EnableState: v1alpha1.SystemdEnableStateType(unit["UnitFileState"]),
+			LoadState:   v1alpha1.SystemdLoadStateType(unit["LoadState"]),
+			ActiveState: v1alpha1.SystemdActiveStateType(unit["ActiveState"]),
+			SubState:    unit["SubState"],
+		}
 	}
-
-	appStatus := make([]v1alpha1.DeviceApplicationStatus, 0, len(units))
-	for _, u := range units {
-		status, ready := parseApplicationStatusType(u)
-		appStatus = append(appStatus, v1alpha1.DeviceApplicationStatus{
-			Name:   u.Unit,
-			Status: status,
-			Ready:  ready,
-		})
-	}
-
-	device.Applications = append(device.Applications, appStatus...)
-
+	device.Systemd = lo.ToPtr(systemdUnits)
 	return nil
-}
-
-func parseApplicationStatusType(unit SystemDUnitListEntry) (v1alpha1.ApplicationStatusType, string) {
-	switch {
-	case unit.ActiveState == ActiveStateActivating &&
-		(unit.Sub == SubStateStartPre || unit.Sub == SubStateStartPost):
-		return v1alpha1.ApplicationStatusStarting, "0/1"
-	case unit.ActiveState == ActiveStateActive && unit.Sub == SubStateRunning:
-		return v1alpha1.ApplicationStatusRunning, "1/1"
-	case unit.ActiveState == ActiveStateActive && unit.Sub == SubStateExited,
-		unit.ActiveState == ActiveStateInactive && unit.Sub == SubStateDead:
-		return v1alpha1.ApplicationStatusCompleted, "0/1"
-	case unit.ActiveState == ActiveStateFailed:
-		return v1alpha1.ApplicationStatusError, "0/1"
-	default:
-		return v1alpha1.ApplicationStatusUnknown, "0/1"
-	}
 }
 
 func validatePatterns(patterns []string) error {

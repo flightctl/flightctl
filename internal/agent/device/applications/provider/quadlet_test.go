@@ -1,0 +1,1209 @@
+package provider
+
+import (
+	"path/filepath"
+	"testing"
+
+	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/stretchr/testify/require"
+)
+
+func TestNamespacedQuadlet(t *testing.T) {
+	tests := []struct {
+		name     string
+		appID    string
+		filename string
+		expected string
+	}{
+		{
+			name:     "container file",
+			appID:    "myapp",
+			filename: "web.container",
+			expected: "myapp-web.container",
+		},
+		{
+			name:     "volume file",
+			appID:    "testapp",
+			filename: "data.volume",
+			expected: "testapp-data.volume",
+		},
+		{
+			name:     "with dashes in name",
+			appID:    "my-app",
+			filename: "my-service.container",
+			expected: "my-app-my-service.container",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := namespacedQuadlet(tt.appID, tt.filename)
+			require.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestPrefixQuadletReference(t *testing.T) {
+	tests := []struct {
+		name     string
+		value    string
+		appID    string
+		expected string
+	}{
+		{
+			name:     "container not prefixed",
+			value:    "web.container",
+			appID:    "myapp",
+			expected: "myapp-web.container",
+		},
+		{
+			name:     "container already prefixed",
+			value:    "myapp-web.container",
+			appID:    "myapp",
+			expected: "myapp-web.container",
+		},
+		{
+			name:     "volume not prefixed",
+			value:    "data.volume",
+			appID:    "myapp",
+			expected: "myapp-data.volume",
+		},
+		{
+			name:     "network not prefixed",
+			value:    "app-net.network",
+			appID:    "myapp",
+			expected: "myapp-app-net.network",
+		},
+		{
+			name:     "image not prefixed",
+			value:    "base.image",
+			appID:    "myapp",
+			expected: "myapp-base.image",
+		},
+		{
+			name:     "pod not prefixed",
+			value:    "services.pod",
+			appID:    "myapp",
+			expected: "myapp-services.pod",
+		},
+		{
+			name:     "non-quadlet file",
+			value:    "some-service.service",
+			appID:    "myapp",
+			expected: "some-service.service",
+		},
+		{
+			name:     "regular string",
+			value:    "nginx:latest",
+			appID:    "myapp",
+			expected: "nginx:latest",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := prefixQuadletReference(tt.value, tt.appID)
+			require.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestUpdateSystemdReference(t *testing.T) {
+	tests := []struct {
+		name             string
+		value            string
+		appID            string
+		quadletBasenames map[string]struct{}
+		expected         string
+	}{
+		{
+			name:  "service from our app",
+			value: "web.service",
+			appID: "myapp",
+			quadletBasenames: map[string]struct{}{
+				"web": {},
+			},
+			expected: "myapp-web.service",
+		},
+		{
+			name:  "external service",
+			value: "chronyd.service",
+			appID: "myapp",
+			quadletBasenames: map[string]struct{}{
+				"web": {},
+			},
+			expected: "chronyd.service",
+		},
+		{
+			name:  "direct quadlet reference",
+			value: "db.container",
+			appID: "myapp",
+			quadletBasenames: map[string]struct{}{
+				"web": {},
+				"db":  {},
+			},
+			expected: "myapp-db.container",
+		},
+		{
+			name:  "already prefixed service",
+			value: "myapp-web.service",
+			appID: "myapp",
+			quadletBasenames: map[string]struct{}{
+				"web": {},
+			},
+			expected: "myapp-web.service",
+		},
+		{
+			name:  "volume reference",
+			value: "data.volume",
+			appID: "myapp",
+			quadletBasenames: map[string]struct{}{
+				"data": {},
+			},
+			expected: "myapp-data.volume",
+		},
+		{
+			name:  "target from our app",
+			value: "app-services.target",
+			appID: "myapp",
+			quadletBasenames: map[string]struct{}{
+				"app-services": {},
+			},
+			expected: "myapp-app-services.target",
+		},
+		{
+			name:  "system target",
+			value: "multi-user.target",
+			appID: "myapp",
+			quadletBasenames: map[string]struct{}{
+				"app-services": {},
+			},
+			expected: "multi-user.target",
+		},
+		{
+			name:  "already prefixed target",
+			value: "myapp-app-services.target",
+			appID: "myapp",
+			quadletBasenames: map[string]struct{}{
+				"app-services": {},
+			},
+			expected: "myapp-app-services.target",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := updateSystemdReference(tt.value, tt.appID, tt.quadletBasenames)
+			require.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestUpdateSpaceSeparatedReferences(t *testing.T) {
+	tests := []struct {
+		name             string
+		value            string
+		appID            string
+		quadletBasenames map[string]struct{}
+		expected         string
+	}{
+		{
+			name:  "single reference",
+			value: "web.service",
+			appID: "myapp",
+			quadletBasenames: map[string]struct{}{
+				"web": {},
+			},
+			expected: "myapp-web.service",
+		},
+		{
+			name:  "multiple app services",
+			value: "web.service db.service",
+			appID: "myapp",
+			quadletBasenames: map[string]struct{}{
+				"web": {},
+				"db":  {},
+			},
+			expected: "myapp-web.service myapp-db.service",
+		},
+		{
+			name:  "mixed app and external services",
+			value: "web.service chronyd.service db.service",
+			appID: "myapp",
+			quadletBasenames: map[string]struct{}{
+				"web": {},
+				"db":  {},
+			},
+			expected: "myapp-web.service chronyd.service myapp-db.service",
+		},
+		{
+			name:  "quadlet references",
+			value: "db.container data.volume",
+			appID: "myapp",
+			quadletBasenames: map[string]struct{}{
+				"db":   {},
+				"data": {},
+			},
+			expected: "myapp-db.container myapp-data.volume",
+		},
+		{
+			name:  "empty string",
+			value: "",
+			appID: "myapp",
+			quadletBasenames: map[string]struct{}{
+				"web": {},
+			},
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := updateSpaceSeparatedReferences(tt.value, tt.appID, tt.quadletBasenames)
+			require.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestUpdateMountValue(t *testing.T) {
+	tests := []struct {
+		name     string
+		value    string
+		appID    string
+		expected string
+	}{
+		{
+			name:     "volume mount",
+			value:    "type=volume,source=data.volume,destination=/data",
+			appID:    "myapp",
+			expected: "type=volume,source=myapp-data.volume,destination=/data",
+		},
+		{
+			name:     "image mount",
+			value:    "type=image,source=config.image,destination=/config",
+			appID:    "myapp",
+			expected: "type=image,source=myapp-config.image,destination=/config",
+		},
+		{
+			name:     "bind mount",
+			value:    "type=bind,source=/host/path,destination=/container",
+			appID:    "myapp",
+			expected: "type=bind,source=/host/path,destination=/container",
+		},
+		{
+			name:     "already prefixed volume",
+			value:    "type=volume,source=myapp-data.volume,destination=/data",
+			appID:    "myapp",
+			expected: "type=volume,source=myapp-data.volume,destination=/data",
+		},
+		{
+			name:     "volume mount with options",
+			value:    "type=volume,source=data.volume,destination=/data,ro=true",
+			appID:    "myapp",
+			expected: "type=volume,source=myapp-data.volume,destination=/data,ro=true",
+		},
+		{
+			name:     "source before type",
+			value:    "source=data.volume,destination=/data,type=volume",
+			appID:    "myapp",
+			expected: "source=myapp-data.volume,destination=/data,type=volume",
+		},
+		{
+			name:     "destination first with image",
+			value:    "destination=/config,type=image,source=config.image",
+			appID:    "myapp",
+			expected: "destination=/config,type=image,source=myapp-config.image",
+		},
+		{
+			name:     "no type specified defaults to volume",
+			value:    "source=data.volume,destination=/data",
+			appID:    "myapp",
+			expected: "source=myapp-data.volume,destination=/data",
+		},
+		{
+			name:     "using src instead of source",
+			value:    "src=data.volume,destination=/data",
+			appID:    "myapp",
+			expected: "src=myapp-data.volume,destination=/data",
+		},
+		{
+			name:     "named volume mount without extension",
+			value:    "type=volume,source=my-data,destination=/data",
+			appID:    "myapp",
+			expected: "type=volume,source=myapp-my-data,destination=/data",
+		},
+		{
+			name:     "named volume with src shorthand",
+			value:    "type=volume,src=cache,dst=/cache",
+			appID:    "myapp",
+			expected: "type=volume,src=myapp-cache,dst=/cache",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := updateMountValue(tt.value, tt.appID)
+			require.NoError(t, err)
+			require.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestUpdateVolumeValue(t *testing.T) {
+	tests := []struct {
+		name     string
+		value    string
+		appID    string
+		expected string
+	}{
+		{
+			name:     "quadlet volume simple",
+			value:    "data.volume:/data",
+			appID:    "myapp",
+			expected: "myapp-data.volume:/data",
+		},
+		{
+			name:     "quadlet volume with options",
+			value:    "data.volume:/data:ro",
+			appID:    "myapp",
+			expected: "myapp-data.volume:/data:ro",
+		},
+		{
+			name:     "host path volume",
+			value:    "/host/path:/container",
+			appID:    "myapp",
+			expected: "/host/path:/container",
+		},
+		{
+			name:     "already prefixed",
+			value:    "myapp-data.volume:/data",
+			appID:    "myapp",
+			expected: "myapp-data.volume:/data",
+		},
+		{
+			name:     "volume only source",
+			value:    "data.volume",
+			appID:    "myapp",
+			expected: "myapp-data.volume",
+		},
+		{
+			name:     "named volume without extension",
+			value:    "my-data:/data",
+			appID:    "myapp",
+			expected: "myapp-my-data:/data",
+		},
+		{
+			name:     "named volume with ro option",
+			value:    "cache:/cache:ro",
+			appID:    "myapp",
+			expected: "myapp-cache:/cache:ro",
+		},
+		{
+			name:     "anonymous volume single path",
+			value:    "/data",
+			appID:    "myapp",
+			expected: "/data",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := updateVolumeValue(tt.value, tt.appID)
+			require.NoError(t, err)
+			require.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestInstallQuadlet(t *testing.T) {
+	tests := []struct {
+		name              string
+		files             map[string][]byte
+		appID             string
+		expectedFiles     []string
+		expectedDropIns   map[string]bool
+		checkFileContents map[string]func(*testing.T, []byte)
+	}{
+		{
+			name: "simple container with no references",
+			files: map[string][]byte{
+				"web.container": []byte(`[Container]
+Image=nginx:latest
+`),
+			},
+			appID: "myapp",
+			expectedFiles: []string{
+				"myapp-web.container",
+				"myapp-.container.d/99-flightctl.conf",
+			},
+			expectedDropIns: map[string]bool{
+				"myapp-.container.d": true,
+			},
+			checkFileContents: map[string]func(*testing.T, []byte){
+				"myapp-web.container": func(t *testing.T, content []byte) {
+					require.Contains(t, string(content), "[Container]")
+					require.Contains(t, string(content), "nginx:latest")
+				},
+				"myapp-.container.d/99-flightctl.conf": func(t *testing.T, content []byte) {
+					require.Contains(t, string(content), "[Container]")
+					require.Contains(t, string(content), "io.flightctl.quadlet.project=myapp")
+				},
+			},
+		},
+		{
+			name: "container with volume and network references",
+			files: map[string][]byte{
+				"web.container": []byte(`[Container]
+Image=nginx:latest
+Volume=data.volume:/data
+Network=app-net.network
+`),
+				"data.volume": []byte(`[Volume]
+`),
+				"app-net.network": []byte(`[Network]
+`),
+			},
+			appID: "myapp",
+			expectedFiles: []string{
+				"myapp-web.container",
+				"myapp-data.volume",
+				"myapp-app-net.network",
+				"myapp-.container.d/99-flightctl.conf",
+				"myapp-.volume.d/99-flightctl.conf",
+				"myapp-.network.d/99-flightctl.conf",
+			},
+			checkFileContents: map[string]func(*testing.T, []byte){
+				"myapp-web.container": func(t *testing.T, content []byte) {
+					require.Contains(t, string(content), "myapp-data.volume:/data")
+					require.Contains(t, string(content), "myapp-app-net.network")
+				},
+			},
+		},
+		{
+			name: "container with .env file",
+			files: map[string][]byte{
+				"web.container": []byte(`[Container]
+Image=nginx:latest
+`),
+				".env": []byte("ENV_VAR=value\n"),
+			},
+			appID: "myapp",
+			expectedFiles: []string{
+				"myapp-web.container",
+				".env",
+				"myapp-.container.d/99-flightctl.conf",
+			},
+			checkFileContents: map[string]func(*testing.T, []byte){
+				"myapp-.container.d/99-flightctl.conf": func(t *testing.T, content []byte) {
+					require.Contains(t, string(content), "EnvironmentFile")
+					require.Contains(t, string(content), ".env")
+				},
+			},
+		},
+		{
+			name: "container with unit dependencies",
+			files: map[string][]byte{
+				"web.container": []byte(`[Unit]
+After=db.container chronyd.service
+
+[Container]
+Image=nginx:latest
+`),
+				"db.container": []byte(`[Container]
+Image=postgres:latest
+`),
+			},
+			appID: "myapp",
+			expectedFiles: []string{
+				"myapp-web.container",
+				"myapp-db.container",
+			},
+			checkFileContents: map[string]func(*testing.T, []byte){
+				"myapp-web.container": func(t *testing.T, content []byte) {
+					require.Contains(t, string(content), "myapp-db.container chronyd.service")
+				},
+			},
+		},
+		{
+			name: "already namespaced files",
+			files: map[string][]byte{
+				"myapp-web.container": []byte(`[Container]
+Image=nginx:latest
+Volume=myapp-data.volume:/data
+`),
+				"myapp-data.volume": []byte(`[Volume]
+`),
+			},
+			appID: "myapp",
+			expectedFiles: []string{
+				"myapp-web.container",
+				"myapp-data.volume",
+			},
+			checkFileContents: map[string]func(*testing.T, []byte){
+				"myapp-web.container": func(t *testing.T, content []byte) {
+					require.Contains(t, string(content), "myapp-data.volume:/data")
+				},
+			},
+		},
+		{
+			name: "all reference types",
+			files: map[string][]byte{
+				"app.container": []byte(`[Unit]
+After=db.service init.container chronyd.service
+Requires=db.service network.target
+Before=services.pod
+
+[Install]
+WantedBy=multi-user.target default.target
+
+[Container]
+Image=base.image
+Network=app-net.network
+Pod=services.pod
+Volume=data.volume:/data
+Volume=logs.volume:/logs:ro
+Mount=type=volume,source=cache.volume,destination=/cache
+Mount=type=image,source=config.image,destination=/config
+Mount=type=bind,source=/host/path,destination=/bind
+`),
+				"db.container": []byte(`[Unit]
+After=network.target
+
+[Container]
+Image=postgres:latest
+Volume=data.volume:/var/lib/postgresql
+`),
+				"init.container": []byte(`[Container]
+Image=alpine:latest
+`),
+				"services.pod": []byte(`[Unit]
+After=app-net.network
+
+[Pod]
+Network=app-net.network
+Volume=shared.volume:/shared
+`),
+				"data.volume": []byte(`[Volume]
+`),
+				"logs.volume": []byte(`[Volume]
+`),
+				"cache.volume": []byte(`[Volume]
+`),
+				"shared.volume": []byte(`[Volume]
+`),
+				"cache-vol.volume": []byte(`[Volume]
+Image=vol-base.image
+`),
+				"base.image": []byte(`[Image]
+`),
+				"config.image": []byte(`[Image]
+`),
+				"vol-base.image": []byte(`[Image]
+`),
+				"app-net.network": []byte(`[Network]
+`),
+				".env": []byte("ENV_VAR=value\n"),
+			},
+			appID: "myapp",
+			expectedFiles: []string{
+				"myapp-app.container",
+				"myapp-db.container",
+				"myapp-init.container",
+				"myapp-services.pod",
+				"myapp-data.volume",
+				"myapp-logs.volume",
+				"myapp-cache.volume",
+				"myapp-shared.volume",
+				"myapp-cache-vol.volume",
+				"myapp-base.image",
+				"myapp-config.image",
+				"myapp-vol-base.image",
+				"myapp-app-net.network",
+				".env",
+				"myapp-.container.d/99-flightctl.conf",
+				"myapp-.pod.d/99-flightctl.conf",
+				"myapp-.volume.d/99-flightctl.conf",
+				"myapp-.image.d/99-flightctl.conf",
+				"myapp-.network.d/99-flightctl.conf",
+			},
+			checkFileContents: map[string]func(*testing.T, []byte){
+				"myapp-app.container": func(t *testing.T, content []byte) {
+					contentStr := string(content)
+					// Unit section - mix of quadlet services, direct quadlets, and external services
+					require.Contains(t, contentStr, "myapp-db.service")
+					require.Contains(t, contentStr, "myapp-init.container")
+					require.Contains(t, contentStr, "chronyd.service")
+					require.Contains(t, contentStr, "myapp-services.pod")
+					// Install section
+					require.Contains(t, contentStr, "multi-user.target")
+					// Container section - all reference types
+					require.Contains(t, contentStr, "myapp-base.image")
+					require.Contains(t, contentStr, "myapp-app-net.network")
+					require.Contains(t, contentStr, "myapp-services.pod")
+					require.Contains(t, contentStr, "myapp-data.volume:/data")
+					require.Contains(t, contentStr, "myapp-logs.volume:/logs:ro")
+					require.Contains(t, contentStr, "source=myapp-cache.volume")
+					require.Contains(t, contentStr, "source=myapp-config.image")
+					// Bind mount should NOT be prefixed
+					require.Contains(t, contentStr, "source=/host/path")
+				},
+				"myapp-db.container": func(t *testing.T, content []byte) {
+					require.Contains(t, string(content), "myapp-data.volume:/var/lib/postgresql")
+				},
+				"myapp-services.pod": func(t *testing.T, content []byte) {
+					contentStr := string(content)
+					require.Contains(t, contentStr, "myapp-app-net.network")
+					require.Contains(t, contentStr, "myapp-shared.volume:/shared")
+				},
+				"myapp-cache-vol.volume": func(t *testing.T, content []byte) {
+					require.Contains(t, string(content), "myapp-vol-base.image")
+				},
+				"myapp-.container.d/99-flightctl.conf": func(t *testing.T, content []byte) {
+					contentStr := string(content)
+					require.Contains(t, contentStr, "io.flightctl.quadlet.project=myapp")
+					require.Contains(t, contentStr, "EnvironmentFile")
+					require.Contains(t, contentStr, ".env")
+				},
+			},
+		},
+		{
+			name: "simple drop-in",
+			files: map[string][]byte{
+				"web.container": []byte(`[Container]
+Image=nginx:latest
+`),
+				"web.container.d/10-custom.conf": []byte(`[Container]
+Network=backend.network
+`),
+				"backend.network": []byte(`[Network]
+`),
+			},
+			appID: "myapp",
+			expectedFiles: []string{
+				"myapp-web.container",
+				"myapp-backend.network",
+				"myapp-web.container.d/10-custom.conf",
+				"myapp-.container.d/99-flightctl.conf",
+				"myapp-.network.d/99-flightctl.conf",
+			},
+			checkFileContents: map[string]func(*testing.T, []byte){
+				"myapp-web.container.d/10-custom.conf": func(t *testing.T, content []byte) {
+					require.Contains(t, string(content), "myapp-backend.network")
+				},
+			},
+		},
+		{
+			name: "top-level drop-in",
+			files: map[string][]byte{
+				"web.container": []byte(`[Container]
+Image=nginx:latest
+`),
+				"container.d/05-base.conf": []byte(`[Container]
+Volume=logs.volume:/logs
+`),
+				"logs.volume": []byte(`[Volume]
+`),
+			},
+			appID: "myapp",
+			expectedFiles: []string{
+				"myapp-web.container",
+				"myapp-logs.volume",
+				"myapp-.container.d/05-base.conf",
+				"myapp-.container.d/99-flightctl.conf",
+				"myapp-.volume.d/99-flightctl.conf",
+			},
+			checkFileContents: map[string]func(*testing.T, []byte){
+				"myapp-.container.d/05-base.conf": func(t *testing.T, content []byte) {
+					require.Contains(t, string(content), "myapp-logs.volume:/logs")
+				},
+			},
+		},
+		{
+			name: "hierarchical drop-ins",
+			files: map[string][]byte{
+				"foo-bar.container": []byte(`[Container]
+Image=test:latest
+`),
+				"container.d/01-global.conf": []byte(`[Unit]
+After=network.target
+`),
+				"foo-.container.d/02-foo.conf": []byte(`[Container]
+Network=foo-net.network
+`),
+				"foo-bar.container.d/03-specific.conf": []byte(`[Container]
+Volume=data.volume:/data
+`),
+				"foo-net.network": []byte(`[Network]
+`),
+				"data.volume": []byte(`[Volume]
+`),
+			},
+			appID: "myapp",
+			expectedFiles: []string{
+				"myapp-foo-bar.container",
+				"myapp-foo-net.network",
+				"myapp-data.volume",
+				"myapp-.container.d/01-global.conf",
+				"myapp-foo-.container.d/02-foo.conf",
+				"myapp-foo-bar.container.d/03-specific.conf",
+				"myapp-.container.d/99-flightctl.conf",
+				"myapp-.network.d/99-flightctl.conf",
+				"myapp-.volume.d/99-flightctl.conf",
+			},
+			checkFileContents: map[string]func(*testing.T, []byte){
+				"myapp-.container.d/01-global.conf": func(t *testing.T, content []byte) {
+					require.Contains(t, string(content), "[Unit]")
+					require.Contains(t, string(content), "network.target")
+				},
+				"myapp-foo-.container.d/02-foo.conf": func(t *testing.T, content []byte) {
+					require.Contains(t, string(content), "myapp-foo-net.network")
+				},
+				"myapp-foo-bar.container.d/03-specific.conf": func(t *testing.T, content []byte) {
+					require.Contains(t, string(content), "myapp-data.volume:/data")
+				},
+			},
+		},
+		{
+			name: "drop-in with multiple references",
+			files: map[string][]byte{
+				"app.container": []byte(`[Container]
+Image=app:latest
+`),
+				"app.container.d/10-config.conf": []byte(`[Unit]
+After=db.container init.container
+
+[Container]
+Network=app-net.network
+Volume=data.volume:/data
+Volume=logs.volume:/logs
+Mount=type=volume,source=cache.volume,destination=/cache
+`),
+				"db.container": []byte(`[Container]
+Image=db:latest
+`),
+				"init.container": []byte(`[Container]
+Image=init:latest
+`),
+				"app-net.network": []byte(`[Network]
+`),
+				"data.volume": []byte(`[Volume]
+`),
+				"logs.volume": []byte(`[Volume]
+`),
+				"cache.volume": []byte(`[Volume]
+`),
+			},
+			appID: "myapp",
+			expectedFiles: []string{
+				"myapp-app.container",
+				"myapp-db.container",
+				"myapp-init.container",
+				"myapp-app-net.network",
+				"myapp-data.volume",
+				"myapp-logs.volume",
+				"myapp-cache.volume",
+				"myapp-app.container.d/10-config.conf",
+			},
+			checkFileContents: map[string]func(*testing.T, []byte){
+				"myapp-app.container.d/10-config.conf": func(t *testing.T, content []byte) {
+					contentStr := string(content)
+					require.Contains(t, contentStr, "myapp-db.container")
+					require.Contains(t, contentStr, "myapp-init.container")
+					require.Contains(t, contentStr, "myapp-app-net.network")
+					require.Contains(t, contentStr, "myapp-data.volume:/data")
+					require.Contains(t, contentStr, "myapp-logs.volume:/logs")
+					require.Contains(t, contentStr, "source=myapp-cache.volume")
+				},
+			},
+		},
+		{
+			name: "target file with quadlet service references",
+			files: map[string][]byte{
+				"web.container": []byte(`[Container]
+Image=nginx:latest
+`),
+				"db.container": []byte(`[Container]
+Image=postgres:latest
+`),
+				"app-services.target": []byte(`[Unit]
+Description=Application services target
+Requires=web.service db.service
+After=web.service db.service network.target
+
+[Install]
+WantedBy=multi-user.target
+`),
+			},
+			appID: "myapp",
+			expectedFiles: []string{
+				"myapp-web.container",
+				"myapp-db.container",
+				"myapp-app-services.target",
+				"myapp-.container.d/99-flightctl.conf",
+			},
+			checkFileContents: map[string]func(*testing.T, []byte){
+				"myapp-app-services.target": func(t *testing.T, content []byte) {
+					contentStr := string(content)
+					// Quadlet services should be namespaced
+					require.Contains(t, contentStr, "myapp-web.service")
+					require.Contains(t, contentStr, "myapp-db.service")
+					// External system targets should NOT be namespaced
+					require.Contains(t, contentStr, "network.target")
+					require.Contains(t, contentStr, "multi-user.target")
+				},
+			},
+		},
+		{
+			name: "service with target references in Unit and Install sections",
+			files: map[string][]byte{
+				"web.container": []byte(`[Container]
+Image=nginx:latest
+
+[Unit]
+After=app-services.target
+
+[Install]
+WantedBy=app-services.target
+`),
+				"app-services.target": []byte(`[Unit]
+Description=Application services target
+
+[Install]
+WantedBy=multi-user.target
+`),
+			},
+			appID: "myapp",
+			expectedFiles: []string{
+				"myapp-web.container",
+				"myapp-app-services.target",
+				"myapp-.container.d/99-flightctl.conf",
+			},
+			checkFileContents: map[string]func(*testing.T, []byte){
+				"myapp-web.container": func(t *testing.T, content []byte) {
+					contentStr := string(content)
+					// App-specific target should be namespaced
+					require.Contains(t, contentStr, "After=myapp-app-services.target")
+					require.Contains(t, contentStr, "WantedBy=myapp-app-services.target")
+				},
+				"myapp-app-services.target": func(t *testing.T, content []byte) {
+					contentStr := string(content)
+					// System target should NOT be namespaced
+					require.Contains(t, contentStr, "WantedBy=multi-user.target")
+				},
+			},
+		},
+		{
+			name: "container with named volumes and custom networks",
+			files: map[string][]byte{
+				"web.container": []byte(`[Container]
+Image=nginx:latest
+ContainerName=my-web-container
+Volume=app-data:/data
+Volume=cache:/cache:ro
+Mount=type=volume,source=logs,destination=/logs
+Network=backend
+`),
+				"db.container": []byte(`[Container]
+Image=postgres:latest
+ContainerName=database
+Volume=db-data:/var/lib/postgresql
+Network=backend
+`),
+				"backend.network": []byte(`[Network]
+NetworkName=app-backend
+`),
+				"cache.volume": []byte(`[Volume]
+VolumeName=app-cache
+`),
+			},
+			appID: "myapp",
+			expectedFiles: []string{
+				"myapp-web.container",
+				"myapp-db.container",
+				"myapp-backend.network",
+				"myapp-cache.volume",
+				"myapp-.container.d/99-flightctl.conf",
+				"myapp-.network.d/99-flightctl.conf",
+				"myapp-.volume.d/99-flightctl.conf",
+			},
+			checkFileContents: map[string]func(*testing.T, []byte){
+				"myapp-web.container": func(t *testing.T, content []byte) {
+					contentStr := string(content)
+					require.Contains(t, contentStr, "ContainerName=myapp-my-web-container")
+					require.Contains(t, contentStr, "Volume=myapp-app-data:/data")
+					require.Contains(t, contentStr, "Volume=myapp-cache:/cache:ro")
+					require.Contains(t, contentStr, "source=myapp-logs")
+					require.Contains(t, contentStr, "Network=myapp-backend")
+				},
+				"myapp-db.container": func(t *testing.T, content []byte) {
+					contentStr := string(content)
+					require.Contains(t, contentStr, "ContainerName=myapp-database")
+					require.Contains(t, contentStr, "Volume=myapp-db-data:/var/lib/postgresql")
+					require.Contains(t, contentStr, "Network=myapp-backend")
+				},
+				"myapp-backend.network": func(t *testing.T, content []byte) {
+					require.Contains(t, string(content), "NetworkName=myapp-app-backend")
+				},
+				"myapp-cache.volume": func(t *testing.T, content []byte) {
+					require.Contains(t, string(content), "VolumeName=myapp-app-cache")
+				},
+			},
+		},
+		{
+			name: "container with built-in network modes",
+			files: map[string][]byte{
+				"web.container": []byte(`[Container]
+Image=nginx:latest
+Network=host
+`),
+				"app.container": []byte(`[Container]
+Image=app:latest
+Network=bridge
+`),
+				"test.container": []byte(`[Container]
+Image=test:latest
+Network=none
+`),
+			},
+			appID: "myapp",
+			expectedFiles: []string{
+				"myapp-web.container",
+				"myapp-app.container",
+				"myapp-test.container",
+				"myapp-.container.d/99-flightctl.conf",
+			},
+			checkFileContents: map[string]func(*testing.T, []byte){
+				"myapp-web.container": func(t *testing.T, content []byte) {
+					require.Contains(t, string(content), "Network=host")
+					require.NotContains(t, string(content), "myapp-host")
+				},
+				"myapp-app.container": func(t *testing.T, content []byte) {
+					require.Contains(t, string(content), "Network=bridge")
+					require.NotContains(t, string(content), "myapp-bridge")
+				},
+				"myapp-test.container": func(t *testing.T, content []byte) {
+					require.Contains(t, string(content), "Network=none")
+					require.NotContains(t, string(content), "myapp-none")
+				},
+			},
+		},
+		{
+			name: "pod with custom name and resources",
+			files: map[string][]byte{
+				"services.pod": []byte(`[Pod]
+PodName=app-services-pod
+Network=app-net
+Volume=shared:/shared
+`),
+				"app-net.network": []byte(`[Network]
+NetworkName=application-network
+`),
+			},
+			appID: "myapp",
+			expectedFiles: []string{
+				"myapp-services.pod",
+				"myapp-app-net.network",
+				"myapp-.pod.d/99-flightctl.conf",
+				"myapp-.network.d/99-flightctl.conf",
+			},
+			checkFileContents: map[string]func(*testing.T, []byte){
+				"myapp-services.pod": func(t *testing.T, content []byte) {
+					contentStr := string(content)
+					require.Contains(t, contentStr, "PodName=myapp-app-services-pod")
+					require.Contains(t, contentStr, "Network=myapp-app-net")
+					require.Contains(t, contentStr, "Volume=myapp-shared:/shared")
+				},
+				"myapp-app-net.network": func(t *testing.T, content []byte) {
+					require.Contains(t, string(content), "NetworkName=myapp-application-network")
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			rw := fileio.NewReadWriter()
+			rw.SetRootdir(tmpDir)
+
+			for filename, content := range tt.files {
+				// Create parent directory if file is in a subdirectory
+				dir := filepath.Dir(filename)
+				if dir != "." && dir != "/" {
+					err := rw.MkdirAll(dir, fileio.DefaultDirectoryPermissions)
+					require.NoError(t, err)
+				}
+				err := rw.WriteFile(filename, content, fileio.DefaultFilePermissions)
+				require.NoError(t, err)
+			}
+
+			err := installQuadlet(rw, "/", tt.appID)
+			require.NoError(t, err)
+
+			for _, expectedFile := range tt.expectedFiles {
+				content, err := rw.ReadFile(expectedFile)
+				require.NoError(t, err, "expected file %s to exist", expectedFile)
+				require.NotEmpty(t, content, "expected file %s to have content", expectedFile)
+
+				if checkFn, ok := tt.checkFileContents[expectedFile]; ok {
+					checkFn(t, content)
+				}
+			}
+
+			err = installQuadlet(rw, "/", tt.appID)
+			require.NoError(t, err, "second call to installQuadlet should succeed (idempotency)")
+
+			for _, expectedFile := range tt.expectedFiles {
+				content, err := rw.ReadFile(expectedFile)
+				require.NoError(t, err, "expected file %s to still exist after second run", expectedFile)
+				require.NotEmpty(t, content, "expected file %s to still have content after second run", expectedFile)
+
+				if checkFn, ok := tt.checkFileContents[expectedFile]; ok {
+					checkFn(t, content)
+				}
+			}
+		})
+	}
+}
+
+func TestNamespaceVolumeName(t *testing.T) {
+	tests := []struct {
+		name     string
+		value    string
+		appID    string
+		expected string
+	}{
+		{
+			name:     "named volume simple",
+			value:    "my-data:/data",
+			appID:    "myapp",
+			expected: "myapp-my-data:/data",
+		},
+		{
+			name:     "named volume with options",
+			value:    "my-data:/data:ro",
+			appID:    "myapp",
+			expected: "myapp-my-data:/data:ro",
+		},
+		{
+			name:     "host path volume",
+			value:    "/host/path:/container",
+			appID:    "myapp",
+			expected: "/host/path:/container",
+		},
+		{
+			name:     "anonymous volume",
+			value:    "/data",
+			appID:    "myapp",
+			expected: "/data",
+		},
+		{
+			name:     "already prefixed named volume",
+			value:    "myapp-my-data:/data",
+			appID:    "myapp",
+			expected: "myapp-my-data:/data",
+		},
+		{
+			name:     "volume name only",
+			value:    "my-data",
+			appID:    "myapp",
+			expected: "myapp-my-data",
+		},
+		{
+			name:     "quadlet volume reference",
+			value:    "data.volume:/data",
+			appID:    "myapp",
+			expected: "myapp-data.volume:/data",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := namespaceVolumeName(tt.value, tt.appID)
+			require.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestNamespaceNetworkName(t *testing.T) {
+	tests := []struct {
+		name     string
+		value    string
+		appID    string
+		expected string
+	}{
+		{
+			name:     "custom network name",
+			value:    "my-net",
+			appID:    "myapp",
+			expected: "myapp-my-net",
+		},
+		{
+			name:     "quadlet network reference",
+			value:    "my-net.network",
+			appID:    "myapp",
+			expected: "myapp-my-net.network",
+		},
+		{
+			name:     "already prefixed network",
+			value:    "myapp-my-net",
+			appID:    "myapp",
+			expected: "myapp-my-net",
+		},
+		{
+			name:     "bridge mode",
+			value:    "bridge",
+			appID:    "myapp",
+			expected: "bridge",
+		},
+		{
+			name:     "host mode",
+			value:    "host",
+			appID:    "myapp",
+			expected: "host",
+		},
+		{
+			name:     "none mode",
+			value:    "none",
+			appID:    "myapp",
+			expected: "none",
+		},
+		{
+			name:     "private mode",
+			value:    "private",
+			appID:    "myapp",
+			expected: "private",
+		},
+		{
+			name:     "slirp4netns mode",
+			value:    "slirp4netns",
+			appID:    "myapp",
+			expected: "slirp4netns",
+		},
+		{
+			name:     "pasta mode",
+			value:    "pasta",
+			appID:    "myapp",
+			expected: "pasta",
+		},
+		{
+			name:     "bridge with options",
+			value:    "bridge:ip=10.0.0.1",
+			appID:    "myapp",
+			expected: "bridge:ip=10.0.0.1",
+		},
+		{
+			name:     "container network reference",
+			value:    "container:mycontainer",
+			appID:    "myapp",
+			expected: "container:myapp-mycontainer",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := namespaceNetworkName(tt.value, tt.appID)
+			require.Equal(t, tt.expected, result)
+		})
+	}
+}

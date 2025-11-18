@@ -100,6 +100,8 @@ type AuthInfo struct {
 type AuthProviderConfig struct {
 	// Name is the name of the authentication provider
 	Name string `json:"name"`
+	// Type is the type of the authentication provider
+	Type string `json:"type"`
 	// Config is a map of authentication provider-specific configuration
 	Config map[string]string `json:"config,omitempty"`
 }
@@ -145,7 +147,7 @@ func (a *AuthProviderConfig) Equal(a2 *AuthProviderConfig) bool {
 	if a == nil || a2 == nil {
 		return false
 	}
-	return a.Name == a2.Name && maps.Equal(a.Config, a2.Config)
+	return a.Name == a2.Name && a.Type == a2.Type && maps.Equal(a.Config, a2.Config)
 }
 
 func (c *Config) DeepCopy() *Config {

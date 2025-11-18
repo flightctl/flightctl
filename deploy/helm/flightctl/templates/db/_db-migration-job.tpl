@@ -13,7 +13,7 @@ Parameters:
 {{- $name := .name }}
 {{- $hooks := .hooks | default (list) }}
 {{- $hookWeight := .hookWeight | default "10" }}
-{{- $deletePolicy := .hookDeletePolicy | default "hook-succeeded" }}
+{{- $deletePolicy := .hookDeletePolicy | default "before-hook-creation" }}
 {{- $isDryRun := .isDryRun | default false }}
 apiVersion: batch/v1
 kind: Job

@@ -21,16 +21,19 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
+	"github.com/flightctl/flightctl/internal/agent/device/spec/audit"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/internal/agent/device/systeminfo"
 	"github.com/flightctl/flightctl/internal/agent/identity"
+	"github.com/flightctl/flightctl/internal/agent/instrumentation"
 	"github.com/flightctl/flightctl/internal/agent/reload"
 	"github.com/flightctl/flightctl/internal/agent/shutdown"
 	"github.com/flightctl/flightctl/internal/tpm"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/poll"
+	"github.com/flightctl/flightctl/pkg/version"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 )
@@ -67,6 +70,9 @@ func (a *Agent) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	// start instrumentation early so startup paths are observable.
+	go instrumentation.NewAgentInstrumentation(a.log, a.config).Run(ctx)
+
 	// create file io writer and reader
 	deviceReadWriter := fileio.NewReadWriter(fileio.WithTestRootDir(a.config.GetTestRootDir()))
 
@@ -92,9 +98,27 @@ func (a *Agent) Run(ctx context.Context) error {
 		return fmt.Errorf("failed to get device name: %w", err)
 	}
 
-	csr, err := identityProvider.GenerateCSR(deviceName)
+	clientCSRPath := identity.GetCSRPath(a.config.DataDir)
+
+	// Try to load persisted CSR first, generate a new one only if not found
+	csr, found, err := identity.LoadCSR(deviceReadWriter, clientCSRPath)
 	if err != nil {
-		return fmt.Errorf("failed to generate CSR: %w", err)
+		return fmt.Errorf("failed to load CSR: %w", err)
+	}
+
+	if !found {
+		a.log.Infof("No persisted CSR found, generating new CSR for enrollment")
+		csr, err = identityProvider.GenerateCSR(deviceName)
+		if err != nil {
+			return fmt.Errorf("failed to generate CSR: %w", err)
+		}
+
+		if err := identity.StoreCSR(deviceReadWriter, clientCSRPath, csr); err != nil {
+			return fmt.Errorf("failed to store CSR: %w", err)
+		}
+		a.log.Infof("CSR generated and persisted successfully")
+	} else {
+		a.log.Infof("Using persisted CSR for enrollment")
 	}
 
 	executer := &executer.CommonExecuter{}
@@ -165,6 +189,23 @@ func (a *Agent) Run(ctx context.Context) error {
 		return wipeCertificateAndRestart(ctx, identityProvider, executer, a.log)
 	}
 
+	// create audit logger
+	auditLogger, err := audit.NewFileLogger(
+		&a.config.AuditLog,
+		deviceReadWriter,
+		deviceName,
+		version.Get().String(),
+		a.log,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create audit logger: %w", err)
+	}
+	defer func() {
+		if err := auditLogger.Close(); err != nil {
+			a.log.Errorf("Failed to close audit logger: %v", err)
+		}
+	}()
+
 	// create spec manager
 	specManager := spec.NewManager(
 		deviceName,
@@ -175,6 +216,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.config.SpecFetchInterval,
 		backoff,
 		deviceNotFoundHandler,
+		auditLogger,
 		a.log,
 	)
 

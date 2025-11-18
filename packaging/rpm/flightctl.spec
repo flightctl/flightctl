@@ -42,6 +42,7 @@ Requires: openssl
 # cli sub-package
 %package cli
 Summary: Flight Control CLI
+Recommends: bash-completion
 %description cli
 flightctl is the CLI for controlling the Flight Control service.
 
@@ -180,6 +181,7 @@ services to be running. This package automatically includes the flightctl-teleme
 %dir /etc/grafana
 %dir /etc/grafana/provisioning
 %dir /etc/grafana/provisioning/datasources
+%dir /etc/grafana/provisioning/alerting
 %dir /etc/grafana/provisioning/dashboards
 %dir /etc/grafana/provisioning/dashboards/flightctl
 %dir /etc/grafana/certs
@@ -292,7 +294,7 @@ echo "Running post-install actions for Flightctl Observability Stack..."
 
 # Create necessary directories on the host if they don't already exist.
 /usr/bin/mkdir -p /etc/prometheus /var/lib/prometheus
-/usr/bin/mkdir -p /etc/grafana /etc/grafana/provisioning /etc/grafana/provisioning/datasources /var/lib/grafana
+/usr/bin/mkdir -p /etc/grafana /etc/grafana/provisioning /etc/grafana/provisioning/datasources /etc/grafana/provisioning/alerting /var/lib/grafana
 /usr/bin/mkdir -p /etc/grafana/provisioning/dashboards /etc/grafana/provisioning/dashboards/flightctl
 /usr/bin/mkdir -p /etc/grafana/certs
 /usr/bin/mkdir -p /etc/flightctl /opt/flightctl-observability/templates
@@ -419,7 +421,7 @@ echo "Flightctl Observability Stack uninstalled."
     fi
 
     # Prefer values injected by Makefile/CI; fall back to RPM macros when unset
-    SOURCE_GIT_TAG="%{?SOURCE_GIT_TAG:%{SOURCE_GIT_TAG}}%{!?SOURCE_GIT_TAG:%(echo "v%{version}" | tr '~' '-')}" \
+    SOURCE_GIT_TAG="%{?SOURCE_GIT_TAG:%{SOURCE_GIT_TAG}}%{!?SOURCE_GIT_TAG:%(./hack/current-version)}" \
     SOURCE_GIT_TREE_STATE="%{?SOURCE_GIT_TREE_STATE:%{SOURCE_GIT_TREE_STATE}}%{!?SOURCE_GIT_TREE_STATE:clean}" \
     SOURCE_GIT_COMMIT="%{?SOURCE_GIT_COMMIT:%{SOURCE_GIT_COMMIT}}%{!?SOURCE_GIT_COMMIT:%(echo %{version} | grep -o '[-~]g[0-9a-f]*' | sed 's/[-~]g//' || echo unknown)}" \
     SOURCE_GIT_TAG_NO_V="%{?SOURCE_GIT_TAG_NO_V:%{SOURCE_GIT_TAG_NO_V}}%{!?SOURCE_GIT_TAG_NO_V:%{version}}" \
@@ -492,11 +494,12 @@ echo "Flightctl Observability Stack uninstalled."
      mkdir -p %{buildroot}/etc/containers/systemd
      mkdir -p %{buildroot}/etc/prometheus
      mkdir -p %{buildroot}/etc/grafana/provisioning/datasources
+     mkdir -p %{buildroot}/etc/grafana/provisioning/alerting
      mkdir -p %{buildroot}/etc/grafana/provisioning/dashboards/flightctl
      mkdir -p %{buildroot}/etc/grafana/certs
      mkdir -p %{buildroot}/var/lib/prometheus
      mkdir -p %{buildroot}/var/lib/grafana # For Grafana's data
-     mkdir -p %{buildroot}/opt/flightctl-observability/templates # Staging for template files processed in %post
+     mkdir -p %{buildroot}/opt/flightctl-observability/templates # Staging for template files processed in %%post
      mkdir -p %{buildroot}/usr/bin # For the reloader script
      mkdir -p %{buildroot}/usr/lib/systemd/system # For systemd units
 
@@ -611,10 +614,12 @@ rm -rf /usr/share/sosreport
     # Files mounted to system config
     %dir %{_sysconfdir}/flightctl
     %dir %{_sysconfdir}/flightctl/pki
+    %dir %{_sysconfdir}/flightctl/pam-issuer-pki
     %dir %{_sysconfdir}/flightctl/flightctl-api
     %dir %{_sysconfdir}/flightctl/flightctl-ui
     %dir %{_sysconfdir}/flightctl/flightctl-cli-artifacts
     %dir %{_sysconfdir}/flightctl/flightctl-alertmanager-proxy
+    %dir %{_sysconfdir}/flightctl/flightctl-pam-issuer
     %dir %{_sysconfdir}/flightctl/ssh
     %config(noreplace) %{_sysconfdir}/flightctl/service-config.yaml
     %config(noreplace) %{_sysconfdir}/flightctl/flightctl-services-install.conf
@@ -629,6 +634,7 @@ rm -rf /usr/share/sosreport
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-alertmanager-proxy
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-ui
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-cli-artifacts
+    %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-pam-issuer
     %{_datadir}/flightctl/flightctl-api/config.yaml.template
     %{_datadir}/flightctl/flightctl-api/env.template
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-api/init.sh
@@ -646,6 +652,8 @@ rm -rf /usr/share/sosreport
     %{_datadir}/flightctl/flightctl-alertmanager/alertmanager.yml
     %{_datadir}/flightctl/flightctl-alertmanager-proxy/env.template
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-alertmanager-proxy/init.sh
+    %{_datadir}/flightctl/flightctl-pam-issuer/config.yaml.template
+    %attr(0755,root,root) %{_datadir}/flightctl/flightctl-pam-issuer/init.sh
 
     # Handle permissions for scripts setting host config
     %attr(0755,root,root) %{_datadir}/flightctl/init_host.sh
