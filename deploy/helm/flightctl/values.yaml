@@ -3,8 +3,10 @@
 # This section contains parameters common to all the components in the deployment, including sub-charts, ui charts, etc.
 
 global:
-  # -- The type of Flightctl to deploy - either 'standalone' or 'acm'.
-  target: "standalone" # standalone, acm, aap
+  # -- Enable OpenShift extensions - one of 'auto', 'true', 'false'.
+  enableOpenShiftExtensions: "auto"
+  # -- Enable MultiCluster Engine extensions - one of 'auto', 'true', 'false'.
+  enableMulticlusterExtensions: "auto"
   # -- Base domain to construct the FQDN for the service endpoints.
   baseDomain: ""
   baseDomainTls:
@@ -17,8 +19,6 @@ global:
   # -- Name of the image pull secret for accessing private container registries
   # You must create this secret manually before deployment
   imagePullSecretName: ""
-  # -- External API URL for client access and authentication, used by the multiclusterhub operator
-  apiUrl: ""
   auth:
     # -- Type of authentication to use. Allowed values: 'k8s', 'oidc', 'aap', 'openshift', 'oauth2', or 'none'.
     # When left empty (default and recommended), authentication type is auto-detected: 'openshift' on OpenShift clusters, 'k8s' otherwise.
@@ -91,8 +91,8 @@ global:
   internalNamespace: ""
   # -- Allow flightctl-worker to access secrets at the cluster level for embedding in device configs
   clusterLevelSecretAccess: false
-  # -- How the Flight Control services should be exposed. Can be either nodePort or route
-  exposeServicesMethod: "route" # route, nodePort, gateway
+  # -- How the Flight Control services should be exposed. Can be one of 'nodePort', 'route', or 'gateway'
+  exposeServicesMethod: ""
   # -- Gateway API class name for gateway exposure method
   gatewayClass: ""
   nodePorts:

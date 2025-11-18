@@ -1,18 +1,45 @@
+{{- define "flightctl.enableOpenShiftExtensions" }}
+  {{- $isOpenShift := "false" }}
+  {{- if eq .Values.global.enableOpenShiftExtensions "true" }}
+    {{- $isOpenShift = "true" }}
+  {{- else if eq .Values.global.enableOpenShiftExtensions "auto" }}
+    {{- if .Capabilities.APIVersions.Has "config.openshift.io/v1" -}}
+      {{- $isOpenShift = "true" }}
+    {{- end }}
+  {{- end }}
+  {{- $isOpenShift }}
+{{- end }}
+
+{{- define "flightctl.enableMulticlusterExtensions" }}
+  {{- $enabled := "false" }}
+  {{- if eq .Values.global.enableMulticlusterExtensions "true" }}
+    {{- $enabled = "true" }}
+  {{- else if eq .Values.global.enableMulticlusterExtensions "auto" }}
+    {{- /* Check if the MultiClusterEngine CRD exists */}}
+    {{- if .Capabilities.APIVersions.Has "multicluster.openshift.io/v1" -}}
+      {{- $enabled = "true" }}
+    {{- end }}
+  {{- end }}
+  {{- $enabled }}
+{{- end }}
+
 {{- define "flightctl.getBaseDomain" }}
+  {{- $baseDomain := "" }}
   {{- if .Values.global.baseDomain }}
-    {{- printf .Values.global.baseDomain }}
+    {{- $baseDomain = .Values.global.baseDomain }}
   {{- else }}
-    {{- /* For OpenShift deployments, try to lookup the base domain */}}
-    {{- $dnsConfig := (lookup "config.openshift.io/v1" "DNS" "" "cluster") }}
-    {{- if and $dnsConfig $dnsConfig.spec $dnsConfig.spec.baseDomain }}
-      {{- $openShiftBaseDomain := $dnsConfig.spec.baseDomain }}
-      {{- if .noNs }}
-        {{- printf "apps.%s" $openShiftBaseDomain }}
-      {{- else }}
-        {{- printf "%s.apps.%s" .Release.Namespace $openShiftBaseDomain }}
+    {{- $isOpenShift := (include "flightctl.enableOpenShiftExtensions" . )}}
+    {{- if eq $isOpenShift "true"}}
+      {{- /* For OpenShift deployments, try to lookup the base domain */}}
+      {{- $dnsConfig := (lookup "config.openshift.io/v1" "DNS" "" "cluster") }}
+      {{- if and $dnsConfig $dnsConfig.spec $dnsConfig.spec.baseDomain }}
+        {{- $openShiftBaseDomain := $dnsConfig.spec.baseDomain }}
+        {{- if .noNs }}
+          {{- $baseDomain = printf "apps.%s" $openShiftBaseDomain }}
+        {{- else }}
+          {{- $baseDomain = printf "%s.apps.%s" .Release.Namespace $openShiftBaseDomain }}
+        {{- end }}
       {{- end }}
-    {{- else }}
-      {{- fail "Unable to determine base domain. Please set global.baseDomain or deploy on OpenShift" }}
     {{- end }}
   {{- end }}
 {{- end }}
@@ -39,16 +66,11 @@ app.kubernetes.io/version: {{ .Chart.AppVersion }}
 {{- end -}}
 
 {{- define "flightctl.getOpenShiftAPIUrl" }}
-  {{- /* Returns the OpenShift Kubernetes API server URL (e.g., https://api.example.com:6443) */}}
-  {{- if .Values.global.apiUrl }}
-    {{- printf .Values.global.apiUrl }}
+  {{- $dnsConfig := (lookup "config.openshift.io/v1" "DNS" "" "cluster") }}
+  {{- if and $dnsConfig $dnsConfig.spec $dnsConfig.spec.baseDomain }}
+    {{- printf "https://api.%s:6443" $dnsConfig.spec.baseDomain }}
   {{- else }}
-    {{- $dnsConfig := (lookup "config.openshift.io/v1" "DNS" "" "cluster") }}
-    {{- if and $dnsConfig $dnsConfig.spec $dnsConfig.spec.baseDomain }}
-      {{- printf "https://api.%s:6443" $dnsConfig.spec.baseDomain }}
-    {{- else }}
-      {{- fail "Unable to determine OpenShift API URL. Please set global.apiUrl or deploy on OpenShift" }}
-    {{- end }}
+    {{- fail "Unable to determine OpenShift API URL. Please set global.apiUrl or deploy on OpenShift" }}
   {{- end }}
 {{- end }}
 
@@ -119,10 +141,11 @@ Follows the same pattern as database secrets: lookup existing, fallback to value
       {{- randAlphaNum 32 }}
     {{- end }}
   {{- end }}
+  {{- $apiURL }}
 {{- end }}
 
 {{- define "flightctl.getHttpScheme" }}
-  {{- if or (or (eq .Values.global.target "acm") (eq .Values.global.exposeServicesMethod "route")) (.Values.global.baseDomainTls).cert }}
+  {{- if or (eq (include "flightctl.getServiceExposeMethod" . ) "route") (.Values.global.baseDomainTls).cert }}
     {{- printf "https" }}
   {{- else }}
     {{- printf "http" }}
@@ -132,7 +155,8 @@ Follows the same pattern as database secrets: lookup existing, fallback to value
 {{- define "flightctl.getUIUrl" }}
   {{- $scheme := (include "flightctl.getHttpScheme" .) }}
   {{- $baseDomain := (include "flightctl.getBaseDomain" . )}}
-  {{- if eq .Values.global.target "acm" }}
+  {{- $enableMulticlusterExtensions := (include "flightctl.enableMulticlusterExtensions" . )}}
+  {{- if eq $enableMulticlusterExtensions "true" }}
     {{- $baseDomain := (include "flightctl.getBaseDomain" (deepCopy . | merge (dict "noNs" "true"))) }}
     {{- printf "%s://console-openshift-console.%s/edge" $scheme $baseDomain }}
   {{- else if eq (include "flightctl.getServiceExposeMethod" .) "nodePort" }}
@@ -151,11 +175,17 @@ Follows the same pattern as database secrets: lookup existing, fallback to value
 {{- end }}
 
 {{- define "flightctl.getServiceExposeMethod" }}
-  {{- if eq .Values.global.target "acm" }}
-    {{- printf "route" }}
-  {{- else }}
-    {{- printf .Values.global.exposeServicesMethod }}
-  {{- end}}
+  {{- $exposeMethod := .Values.global.exposeServicesMethod }}
+  {{- if empty $exposeMethod }}
+    {{- $isOpenShift := (include "flightctl.enableOpenShiftExtensions" . )}}
+    {{- if eq $isOpenShift "true" }}
+      {{- $exposeMethod = "route" }}
+    {{- end }}
+  {{- end }}
+  {{- if empty $exposeMethod }}
+    {{- fail " Please set global.exposeServicesMethod, or deploy on OpenShift" }}
+  {{- end }}
+  {{- $exposeMethod }}
 {{- end }}
 
 {{- define "flightctl.getApiUrl" }}
@@ -180,18 +210,6 @@ Follows the same pattern as database secrets: lookup existing, fallback to value
 {{- end }}
 
 {{- /*
-Detect if running on OpenShift by checking for OpenShift-specific resources
-*/}}
-{{- define "flightctl.isOpenShift" }}
-  {{- $dnsConfig := (lookup "config.openshift.io/v1" "DNS" "" "cluster") }}
-  {{- if $dnsConfig }}
-    {{- print "true" }}
-  {{- else }}
-    {{- print "false" }}
-  {{- end }}
-{{- end }}
-
-{{- /*
 Get the effective auth type with auto-detection:
 - Auto-detects OpenShift and sets type to "openshift" if not explicitly set
 - Falls back to k8s if no auth type specified and not on OpenShift
@@ -202,7 +220,7 @@ Usage: {{- $authType := include "flightctl.getEffectiveAuthType" . }}
     {{- print .Values.global.auth.type }}
   {{- else }}
     {{- /* Auto-detect: if on OpenShift, use openshift auth, otherwise k8s */}}
-    {{- if eq (include "flightctl.isOpenShift" .) "true" }}
+    {{- if eq (include "flightctl.enableOpenShiftExtensions" .) "true" }}
       {{- print "openshift" }}
     {{- else }}
       {{- print "k8s" }}
