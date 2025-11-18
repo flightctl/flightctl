@@ -328,7 +328,7 @@ bin:
 
 # only trigger the rpm build when not built before or changes happened to the codebase
 bin/.rpm: bin $(shell find $(ROOT_DIR)/ -name "*.go" -not -path "$(ROOT_DIR)/packaging/*") packaging/rpm/flightctl.spec packaging/systemd/flightctl-agent.service hack/build_rpms.sh $(shell find $(ROOT_DIR)/packaging/selinux -type f)
-	sudo $(ROOT_DIR)/hack/build_rpms_container.sh
+	sudo $(ROOT_DIR)/hack/build_rpms.sh
 	touch bin/.rpm
 
 rpm: bin/.rpm

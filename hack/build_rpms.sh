@@ -1,51 +1,99 @@
 #!/usr/bin/env bash
-
-if [[ -n "$(git status -s)" ]]; then
-  # See https://packit.dev/source-git/work-with-source-git/build-locally
-  echo "WARNING: There are uncommitted git changes. This RPM build will NOT include them."
-  echo "         Please commit or stash them first."
-  sleep 1
-fi
-
 set -ex
 
-CI_RPM_IMAGE=${CI_RPM_IMAGE:-quay.io/flightctl/ci-rpm-builder:latest}
+# This script runs the RPM build process using packit inside a Podman container.
+# Inside the container, the RPM build is done in a mock chroot environment, making it closer to a "real" RPM build environment.
 
-# if FLIGHTCTL_RPM is set, exit
-if [ -n "${FLIGHTCTL_RPM:-}" ]; then
-    echo "Skipping rpm build, as FLIGHTCTL_RPM is set to ${FLIGHTCTL_RPM}"
-    rm bin/rpm/* 2>/dev/null || true
-    exit 0
+
+
+# Require root (run this script with sudo or as root)
+if [[ "$EUID" -ne 0 ]]; then
+  echo "This script must be run as root (use sudo)." >&2
+  exit 1
 fi
 
-# Given that the SELinux policies are so sensitive to versioning issues, make sure to always build
-# the RPM in a known environment.
-echo "Building RPMs in container"
+usage() {
+  echo "Usage: $0 [--root MOCK_ROOT] [--rebuild-image]" >&2
+  exit 1
+}
 
-mkdir -p bin
-cat >bin/build_rpms.sh <<'EOF'
-set -ex
-/work/hack/build_rpms_packit.sh
-EOF
+ROOT_OPTS=()
+REBUILD_IMAGE=false
+PACKIT_BUILDER_IMAGE="${PACKIT_BUILDER_IMAGE:-quay.io/flightctl-tests/packit-builder:latest}"
 
-podman pull "${CI_RPM_IMAGE}"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --root)
+      if [[ -n "${2-}" ]]; then
+        ROOT_OPTS=(--root "$2")
+        shift 2
+      else
+        usage
+      fi
+      ;;
+    --rebuild-image)
+      REBUILD_IMAGE=true
+      shift
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+# Get the repository root directory (parent of hack/)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
 # Reuse Go build/module caches from the host to speed up builds
 HOST_GOMODCACHE="${GOMODCACHE:-$HOME/go/pkg/mod}"
 HOST_GOCACHE="${GOCACHE:-$HOME/.cache/go-build}"
 mkdir -p "${HOST_GOMODCACHE}" "${HOST_GOCACHE}"
 
-# Reuse DNF caches to speed up RPM builds (persisted on host)
-RPM_DNF_CACHE_DIR="$(pwd)/bin/rpm-dnf-cache"
-RPM_DNF_LIB_DIR="$(pwd)/bin/rpm-dnf-lib"
-mkdir -p "${RPM_DNF_CACHE_DIR}" "${RPM_DNF_LIB_DIR}"
+CONTAINER_GOPATH="/root/go"
+CONTAINER_GOMODCACHE="${CONTAINER_GOPATH}/pkg/mod"
+CONTAINER_GOCACHE="/root/.cache/go-build"
+CONTAINER_MOCKCACHE="/var/cache/mock"
 
-podman run --privileged --rm -t \
-  -v "$(pwd)":/work \
-  -v "${HOST_GOMODCACHE}":/root/go/pkg/mod \
-  -v "${HOST_GOCACHE}":/root/.cache/go-build \
-  -v "${RPM_DNF_CACHE_DIR}":/var/cache/dnf:Z \
-  -v "${RPM_DNF_LIB_DIR}":/var/lib/dnf:Z \
-  -e GOPATH=/root/go \
-  -e GOMODCACHE=/root/go/pkg/mod \
-  -e GOCACHE=/root/.cache/go-build \
-  "${CI_RPM_IMAGE}" bash /work/bin/build_rpms.sh
+cd "${REPO_ROOT}"
+
+if [[ "${REBUILD_IMAGE}" == "true" ]]; then
+  BASE_IMAGE="${PACKIT_BUILDER_IMAGE}-base"
+  # 1. Build base image
+  podman build --network=host --no-cache \
+    -f hack/Containerfile.packit_builder \
+    -t "${BASE_IMAGE}"
+
+  # 2. Create a container that will run the prewarm script as PID 1
+  CID="$(podman create \
+    --privileged \
+    --network=host \
+    "${BASE_IMAGE}" \
+    /usr/bin/mock_prewarm_caches.sh)"
+
+  # 3. Run the script and wait for it to finish
+  podman start -a "${CID}"
+
+  # 4. Commit the resulting filesystem as the final image
+  podman commit "${CID}" "${PACKIT_BUILDER_IMAGE}"
+
+  # 5. Cleanup the temp container
+  podman rm "${CID}"
+else
+  podman pull "${PACKIT_BUILDER_IMAGE}"
+fi
+
+# Run the build in the container, mounting the repo root
+podman run --rm \
+  --privileged \
+  --network=host \
+  -v "${REPO_ROOT}:/work:z" \
+  -v "${HOST_GOMODCACHE}:${CONTAINER_GOMODCACHE}" \
+  -v "${HOST_GOCACHE}:${CONTAINER_GOCACHE}" \
+  -e GOPATH="${CONTAINER_GOPATH}" \
+  -e GOMODCACHE="${CONTAINER_GOMODCACHE}" \
+  -e GOCACHE="${CONTAINER_GOCACHE}" \
+  -w /work \
+  "${PACKIT_BUILDER_IMAGE}" \
+  ./hack/build_rpms_packit.sh ${ROOT_OPTS[@]+"${ROOT_OPTS[@]}"}
+

@@ -1,0 +1,143 @@
+name: "Build Agent Images"
+
+on:
+  workflow_call:
+    inputs:
+      os_id:
+        description: "OS identifier (e.g., cs9, cs10)"
+        required: true
+        type: string
+      rpm_suffix:
+        description: "RPM artifact suffix (e.g., el9-x86_64, el10-x86_64)"
+        required: true
+        type: string
+      tag:
+        description: "Image tag"
+        required: true
+        type: string
+      git_tag:
+        description: "Git tag for the build"
+        required: true
+        type: string
+      git_tree_state:
+        description: "Git tree state (clean/dirty)"
+        required: true
+        type: string
+      git_commit:
+        description: "Git commit SHA"
+        required: true
+        type: string
+
+jobs:
+  build-agent-images:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Restore DNF cache
+        id: cache-dnf-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            /var/cache/dnf
+            /var/lib/dnf
+          key: ${{ runner.os }}-dnf-e2e
+          restore-keys: |
+            ${{ runner.os }}-dnf-
+
+      - name: Restore bootc-image-builder cache
+        id: cache-bootc-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            bin/dnf-cache
+            bin/osbuild-cache
+            dnf-cache
+            osbuild-cache
+          key: ${{ runner.os }}-bootc-cache-e2e-unified-${{ hashFiles('test/scripts/agent-images-v2/base/Containerfile') }}
+          restore-keys: |
+            ${{ runner.os }}-bootc-cache-e2e-
+
+      - name: Download RPM artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: rpms-${{ inputs.rpm_suffix }}
+          path: rpms
+
+      - name: Build agent images for flavor
+        env:
+          TAG: ${{ inputs.tag }}
+          IMAGE_REPO: quay.io/flightctl/flightctl-device
+          SOURCE_GIT_TAG: ${{ inputs.git_tag }}
+          SOURCE_GIT_TREE_STATE: ${{ inputs.git_tree_state }}
+          SOURCE_GIT_COMMIT: ${{ inputs.git_commit }}
+          FLAVORS: ${{ inputs.os_id }}
+        run: |
+          set -euo pipefail
+          echo "::group::Building base for flavor ${FLAVORS}"
+          sudo -E ./test/scripts/agent-images-v2/scripts/build.sh --base-only
+          echo "::endgroup::"
+
+      - name: Build variants+bundle and qcow2 in parallel (per flavor)
+        env:
+          TAG: ${{ inputs.tag }}
+          IMAGE_REPO: quay.io/flightctl/flightctl-device
+          OS_ID: ${{ inputs.os_id }}
+        run: |
+          set -euo pipefail
+          sudo -E ./test/scripts/agent-images-v2/scripts/build_and_qcow2.sh --os-id "${OS_ID}"
+
+      - name: Print parallel build logs (per flavor)
+        if: always()
+        env:
+          OS_ID: ${{ inputs.os_id }}
+        run: |
+          set -euo pipefail
+          LOG_DIR="artifacts/logs-${OS_ID}"
+          echo "::group::Variants+bundle output"
+          if [ -f "${LOG_DIR}/variants.log" ]; then
+            cat "${LOG_DIR}/variants.log"
+          else
+            echo "No variants.log found at ${LOG_DIR}/variants.log"
+          fi
+          echo "::endgroup::"
+          echo "::group::QCOW2 output"
+          if [ -f "${LOG_DIR}/qcow2.log" ]; then
+            cat "${LOG_DIR}/qcow2.log"
+          else
+            echo "No qcow2.log found at ${LOG_DIR}/qcow2.log"
+          fi
+          echo "::endgroup::"
+
+      - name: Upload agent images bundle (per flavor)
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-images-bundle-${{ inputs.os_id }}
+          path: artifacts/agent-images-bundle-${{ inputs.os_id }}.tar
+          compression-level: 1
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload qcow2 image (per flavor)
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-qcow2-image-${{ inputs.os_id }}
+          path: artifacts/agent-qcow2-${{ inputs.os_id }}/qcow2/disk.qcow2
+          compression-level: 1
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Save caches
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            bin/dnf-cache
+            bin/osbuild-cache
+            dnf-cache
+            osbuild-cache
+          key: ${{ runner.os }}-bootc-cache-e2e-unified-${{ hashFiles('test/scripts/agent-images-v2/base/Containerfile') }}
+
