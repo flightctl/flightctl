@@ -305,6 +305,17 @@ func (s *PAMOIDCProvider) handleAuthorizationCodeGrant(ctx context.Context, req 
 		return &pamapi.TokenResponse{Error: lo.ToPtr(ErrorInvalidGrant)}, nil
 	}
 
+	// SECURITY: Validate redirect_uri matches the one from authorization request (RFC 6749 Section 4.1.3)
+	// This prevents authorization code interception attacks
+	if req.RedirectUri == nil || *req.RedirectUri == "" {
+		s.log.Warnf("handleAuthorizationCodeGrant: missing redirect_uri")
+		return &pamapi.TokenResponse{Error: lo.ToPtr(ErrorInvalidRequest)}, nil
+	}
+	if codeData.RedirectURI != *req.RedirectUri {
+		s.log.Warnf("handleAuthorizationCodeGrant: redirect_uri mismatch - expected=%s, got=%s", codeData.RedirectURI, *req.RedirectUri)
+		return &pamapi.TokenResponse{Error: lo.ToPtr(ErrorInvalidGrant)}, nil
+	}
+
 	// SECURITY: Verify PKCE for public clients (required unless config allows) and confidential clients (if used)
 	// Public clients MUST use PKCE per OAuth 2.0 Security BCP, unless explicitly allowed by config
 	// SECURITY: Require PKCE for public clients (no client secret configured)

@@ -19,8 +19,9 @@ const (
 
 // Defines values for AppType.
 const (
-	AppTypeCompose AppType = "compose"
-	AppTypeQuadlet AppType = "quadlet"
+	AppTypeCompose   AppType = "compose"
+	AppTypeContainer AppType = "container"
+	AppTypeQuadlet   AppType = "quadlet"
 )
 
 // Defines values for ApplicationStatusType.
@@ -440,6 +441,17 @@ const (
 	SystemdLoadStateStub       SystemdLoadStateType = "stub"
 )
 
+// Defines values for TokenRequestGrantType.
+const (
+	AuthorizationCode TokenRequestGrantType = "authorization_code"
+	RefreshToken      TokenRequestGrantType = "refresh_token"
+)
+
+// Defines values for TokenResponseTokenType.
+const (
+	Bearer TokenResponseTokenType = "Bearer"
+)
+
 // Defines values for ListEventsParamsOrder.
 const (
 	Asc  ListEventsParamsOrder = "asc"
@@ -505,6 +517,9 @@ type ApplicationEnvVars struct {
 	EnvVars *map[string]string `json:"envVars,omitempty"`
 }
 
+// ApplicationPort Port mapping in format "hostPort:containerPort" (e.g., "8080:80").
+type ApplicationPort = string
+
 // ApplicationProviderSpec defines model for ApplicationProviderSpec.
 type ApplicationProviderSpec struct {
 	// AppType The type of the application.
@@ -516,6 +531,21 @@ type ApplicationProviderSpec struct {
 	// Name The application name must be 1–253 characters long, start with a letter or number, and contain no whitespace.
 	Name  *string `json:"name,omitempty"`
 	union json.RawMessage
+}
+
+// ApplicationResourceLimits Resource limits for the application.
+type ApplicationResourceLimits struct {
+	// Cpu CPU limit in cores (e.g., "1", "0.75").
+	Cpu *string `json:"cpu,omitempty"`
+
+	// Memory Memory limit with unit (e.g., "256m", "2g") using Podman format (b=bytes, k=kibibytes, m=mebibytes, g=gibibytes).
+	Memory *string `json:"memory,omitempty"`
+}
+
+// ApplicationResources Resource constraints for the application.
+type ApplicationResources struct {
+	// Limits Resource limits for the application.
+	Limits *ApplicationResourceLimits `json:"limits,omitempty"`
 }
 
 // ApplicationStatusType Status of a single application on the device.
@@ -1763,8 +1793,23 @@ type ImageApplicationProviderSpec struct {
 	// Image Reference to the container image for the application package.
 	Image string `json:"image"`
 
+	// Ports Port mappings.
+	Ports *[]ApplicationPort `json:"ports,omitempty"`
+
+	// Resources Resource constraints for the application.
+	Resources *ApplicationResources `json:"resources,omitempty"`
+
 	// Volumes List of application volumes.
 	Volumes *[]ApplicationVolume `json:"volumes,omitempty"`
+}
+
+// ImageMountVolumeProviderSpec Volume from OCI image mounted at specified path.
+type ImageMountVolumeProviderSpec struct {
+	// Image Describes the source of an OCI-compliant image or artifact.
+	Image ImageVolumeSource `json:"image"`
+
+	// Mount Mount configuration for a volume.
+	Mount VolumeMount `json:"mount"`
 }
 
 // ImagePullPolicy Optional. Defaults to 'IfNotPresent'. When set to 'Always', the image is pulled every time. When set to 'Never', the image must already exist on the device.
@@ -1938,6 +1983,12 @@ type MemoryResourceMonitorSpec struct {
 	SamplingInterval string `json:"samplingInterval"`
 }
 
+// MountVolumeProviderSpec Named volume mount configuration.
+type MountVolumeProviderSpec struct {
+	// Mount Mount configuration for a volume.
+	Mount VolumeMount `json:"mount"`
+}
+
 // OAuth2ProviderSpec OAuth2ProviderSpec describes an OAuth2 provider configuration.
 type OAuth2ProviderSpec struct {
 	// AuthorizationUrl The OAuth2 authorization endpoint URL.
@@ -1947,7 +1998,7 @@ type OAuth2ProviderSpec struct {
 	ClientId string `json:"clientId"`
 
 	// ClientSecret The OAuth2 client secret.
-	ClientSecret *SecureString `json:"clientSecret,omitempty"`
+	ClientSecret *string `json:"clientSecret,omitempty"`
 
 	// DisplayName Human-readable display name for the provider.
 	DisplayName *string `json:"displayName,omitempty"`
@@ -1989,7 +2040,7 @@ type OIDCProviderSpec struct {
 	ClientId string `json:"clientId"`
 
 	// ClientSecret The OIDC client secret.
-	ClientSecret *SecureString `json:"clientSecret,omitempty"`
+	ClientSecret *string `json:"clientSecret,omitempty"`
 
 	// DisplayName Human-readable display name for the provider.
 	DisplayName *string `json:"displayName,omitempty"`
@@ -2484,6 +2535,57 @@ type TemplateVersionStatus struct {
 // TimeZone Time zone identifiers follow the IANA format AREA/LOCATION, where AREA represents a continent or ocean, and LOCATION specifies a particular site within that area, for example America/New_York, Europe/Paris. Only unambiguous 3-character time zones are supported ("GMT", "UTC").
 type TimeZone = string
 
+// TokenRequest OAuth2 token request
+type TokenRequest struct {
+	// ClientId OAuth2 client identifier.
+	ClientId string `form:"client_id" json:"client_id"`
+
+	// Code Authorization code for authorization_code grant.
+	Code *string `form:"code,omitempty" json:"code"`
+
+	// CodeVerifier PKCE code verifier.
+	CodeVerifier *string `form:"code_verifier,omitempty" json:"code_verifier"`
+
+	// GrantType OAuth2 grant type.
+	GrantType TokenRequestGrantType `form:"grant_type" json:"grant_type"`
+
+	// RedirectUri OAuth2 redirect URI (required for authorization_code grant if included in authorization request).
+	RedirectUri *string `form:"redirect_uri,omitempty" json:"redirect_uri"`
+
+	// RefreshToken Refresh token for refresh_token grant.
+	RefreshToken *string `form:"refresh_token,omitempty" json:"refresh_token"`
+
+	// Scope OAuth2 scope.
+	Scope *string `form:"scope,omitempty" json:"scope"`
+}
+
+// TokenRequestGrantType OAuth2 grant type.
+type TokenRequestGrantType string
+
+// TokenResponse OAuth2 token response
+type TokenResponse struct {
+	// AccessToken OAuth2 access token.
+	AccessToken *string `json:"access_token,omitempty"`
+
+	// Error OAuth2 error code.
+	Error *string `json:"error,omitempty"`
+
+	// ErrorDescription OAuth2 error description.
+	ErrorDescription *string `json:"error_description,omitempty"`
+
+	// ExpiresIn Token expiration time in seconds.
+	ExpiresIn *int `json:"expires_in,omitempty"`
+
+	// RefreshToken OAuth2 refresh token.
+	RefreshToken *string `json:"refresh_token,omitempty"`
+
+	// TokenType Token type.
+	TokenType *TokenResponseTokenType `json:"token_type,omitempty"`
+}
+
+// TokenResponseTokenType Token type.
+type TokenResponseTokenType string
+
 // UpdateSchedule Defines the schedule for automatic downloading and updates, including timing and optional timeout.
 type UpdateSchedule struct {
 	// At Cron expression format for scheduling times.
@@ -2499,10 +2601,34 @@ type UpdateSchedule struct {
 	TimeZone *TimeZone `json:"timeZone,omitempty"`
 }
 
+// UserInfoResponse OIDC UserInfo response
+type UserInfoResponse struct {
+	// Error Error code.
+	Error *string `json:"error,omitempty"`
+
+	// Name Full name.
+	Name *string `json:"name,omitempty"`
+
+	// Organizations User organizations.
+	Organizations *[]Organization `json:"organizations,omitempty"`
+
+	// PreferredUsername Preferred username.
+	PreferredUsername *string `json:"preferred_username,omitempty"`
+
+	// Sub Subject identifier.
+	Sub *string `json:"sub,omitempty"`
+}
+
 // Version defines model for Version.
 type Version struct {
 	// Version Git version of the service.
 	Version string `json:"version"`
+}
+
+// VolumeMount Mount configuration for a volume.
+type VolumeMount struct {
+	// Path Mount path in the container with support for options.
+	Path string `json:"path"`
 }
 
 // AuthValidateParams defines parameters for AuthValidate.
@@ -2690,6 +2816,12 @@ type ListResourceSyncsParams struct {
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 }
+
+// AuthTokenJSONRequestBody defines body for AuthToken for application/json ContentType.
+type AuthTokenJSONRequestBody = TokenRequest
+
+// AuthTokenFormdataRequestBody defines body for AuthToken for application/x-www-form-urlencoded ContentType.
+type AuthTokenFormdataRequestBody = TokenRequest
 
 // CreateAuthProviderJSONRequestBody defines body for CreateAuthProvider for application/json ContentType.
 type CreateAuthProviderJSONRequestBody = AuthProvider
@@ -3044,6 +3176,58 @@ func (t *ApplicationVolume) FromImageVolumeProviderSpec(v ImageVolumeProviderSpe
 
 // MergeImageVolumeProviderSpec performs a merge with any union data inside the ApplicationVolume, using the provided ImageVolumeProviderSpec
 func (t *ApplicationVolume) MergeImageVolumeProviderSpec(v ImageVolumeProviderSpec) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsMountVolumeProviderSpec returns the union data inside the ApplicationVolume as a MountVolumeProviderSpec
+func (t ApplicationVolume) AsMountVolumeProviderSpec() (MountVolumeProviderSpec, error) {
+	var body MountVolumeProviderSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromMountVolumeProviderSpec overwrites any union data inside the ApplicationVolume as the provided MountVolumeProviderSpec
+func (t *ApplicationVolume) FromMountVolumeProviderSpec(v MountVolumeProviderSpec) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeMountVolumeProviderSpec performs a merge with any union data inside the ApplicationVolume, using the provided MountVolumeProviderSpec
+func (t *ApplicationVolume) MergeMountVolumeProviderSpec(v MountVolumeProviderSpec) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsImageMountVolumeProviderSpec returns the union data inside the ApplicationVolume as a ImageMountVolumeProviderSpec
+func (t ApplicationVolume) AsImageMountVolumeProviderSpec() (ImageMountVolumeProviderSpec, error) {
+	var body ImageMountVolumeProviderSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromImageMountVolumeProviderSpec overwrites any union data inside the ApplicationVolume as the provided ImageMountVolumeProviderSpec
+func (t *ApplicationVolume) FromImageMountVolumeProviderSpec(v ImageMountVolumeProviderSpec) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeImageMountVolumeProviderSpec performs a merge with any union data inside the ApplicationVolume, using the provided ImageMountVolumeProviderSpec
+func (t *ApplicationVolume) MergeImageMountVolumeProviderSpec(v ImageMountVolumeProviderSpec) error {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err

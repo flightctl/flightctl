@@ -268,6 +268,11 @@ func (o *OIDCAuth) GetIdentity(ctx context.Context, token string) (common.Identi
 	return identity, nil
 }
 
+// GetOIDCSpec returns the internal OIDC spec with client secret intact (for internal use only)
+func (o *OIDCAuth) GetOIDCSpec() api.OIDCProviderSpec {
+	return o.spec
+}
+
 func (o *OIDCAuth) GetAuthConfig() *api.AuthConfig {
 	orgEnabled := false
 	if o.orgConfig != nil {
@@ -281,7 +286,7 @@ func (o *OIDCAuth) GetAuthConfig() *api.AuthConfig {
 		Spec:       api.AuthProviderSpec{},
 	}
 
-	// Create a copy of the spec - client secret is automatically masked by SecureString
+	// Create a copy of the spec - client secret will be masked during JSON marshaling
 	maskedSpec := o.spec
 
 	_ = provider.Spec.FromOIDCProviderSpec(maskedSpec)
