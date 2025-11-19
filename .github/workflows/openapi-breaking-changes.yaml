@@ -2,8 +2,10 @@ name: "OpenAPI Breaking Changes Check"
 
 on:
   pull_request:
-    paths:
-      - 'api/**/openapi.yaml'
+    # Temporarily disabled for testing - re-enable by uncommenting paths below
+    # paths:
+    #   - 'api/**/openapi.yaml'
+  workflow_dispatch:
 
 jobs:
   oasdiff-check:
@@ -15,13 +17,92 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
 
-      - name: Checkout base branch for comparison
+      - name: Checkout previous release for comparison
         run: |
-          # TODO: checkout previously released version after 0.10 release
-          git fetch origin ${{ github.event.pull_request.base.ref }}
+          git fetch origin 'refs/heads/release-*:refs/remotes/origin/release-*'
+          git fetch --tags
+          
+          BASE_REF="${{ github.event.pull_request.base.ref }}"
+          COMPARE_BRANCH=""
+          
+          # Case 1: PR targets a release branch (e.g., release-0.10)
+          if [[ "$BASE_REF" =~ ^release-[0-9]+\.[0-9]+$ ]]; then
+            echo "PR targets release branch: $BASE_REF"
+            
+            # Extract version from branch name (e.g., release-0.10 -> 0.10)
+            BRANCH_VERSION=$(echo "$BASE_REF" | sed 's/release-//')
+            
+            # Check if this release branch has any official release tag (vX.Y.0 or later patches)
+            # Release branches get v0.10.0 first, then hotfixes like v0.10.1, v0.10.2, etc.
+            LATEST_PATCH=$(git tag -l | grep -E "^v${BRANCH_VERSION}\.[0-9]+$" | sed "s/^v${BRANCH_VERSION}\.//" | sort -n | tail -1)
+            
+            if [ -n "$LATEST_PATCH" ]; then
+              LATEST_BRANCH_TAG="${BRANCH_VERSION}.${LATEST_PATCH}"
+              echo "Release branch has been released (latest: v${LATEST_BRANCH_TAG})"
+              echo "Comparing against the release branch itself"
+              COMPARE_BRANCH="$BASE_REF"
+            else
+              echo "Release branch has no official tag yet (no vX.Y.Z tags found)"
+              echo "Finding previous released version..."
+              
+              # Find the latest released tag from a previous release line
+              ALL_TAGS=$(git tag -l | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sed 's/^v//')
+              PREVIOUS_TAG=""
+              
+              for tag in $(echo "$ALL_TAGS" | sort -V); do
+                # Extract major.minor from tag (e.g., 0.10.5 -> 0.10)
+                TAG_MINOR=$(echo "$tag" | cut -d. -f1-2)
+                # Compare: if tag's minor version < branch version, it's a candidate
+                if [ "$(printf '%s\n%s' "$TAG_MINOR" "$BRANCH_VERSION" | sort -V | head -1)" = "$TAG_MINOR" ] && [ "$TAG_MINOR" != "$BRANCH_VERSION" ]; then
+                  PREVIOUS_TAG="$tag"
+                fi
+              done
+              
+              if [ -z "$PREVIOUS_TAG" ]; then
+                echo "No previous release found (from older release lines)"
+                echo "Comparing against target branch"
+                COMPARE_BRANCH="$BASE_REF"
+              else
+                # Convert tag to release branch (e.g., v0.9.4 -> release-0.9)
+                PREVIOUS_RELEASE_VERSION=$(echo "$PREVIOUS_TAG" | cut -d. -f1-2)
+                COMPARE_BRANCH="release-${PREVIOUS_RELEASE_VERSION}"
+                echo "Comparing against previous release: $COMPARE_BRANCH (from tag v$PREVIOUS_TAG)"
+              fi
+            fi
+          else
+            # Case 2: PR targets main or other branch
+            echo "PR targets non-release branch: $BASE_REF"
+            
+            # Find all release tags (vX.Y.Z format, excluding RCs)
+            LATEST_TAG=$(git tag -l | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sed 's/^v//' | sort -V | tail -1)
+            
+            if [ -z "$LATEST_TAG" ]; then
+              echo "No release tags found (vX.Y.Z format)"
+              echo "Cannot determine comparison baseline"
+              mkdir -p base-api/v1alpha1/agent
+              touch base-api/v1alpha1/openapi.yaml
+              touch base-api/v1alpha1/agent/openapi.yaml
+              exit 0
+            fi
+            
+            # Convert tag to release branch (e.g., v0.10.0 -> release-0.10)
+            RELEASE_VERSION=$(echo "$LATEST_TAG" | cut -d. -f1-2)
+            COMPARE_BRANCH="release-${RELEASE_VERSION}"
+            echo "Latest released version (from tag v$LATEST_TAG): $COMPARE_BRANCH"
+          fi
+          
+          if [ -z "$COMPARE_BRANCH" ]; then
+            echo "No release branch found for comparison, check will be skipped"
+            mkdir -p base-api/v1alpha1/agent
+            touch base-api/v1alpha1/openapi.yaml
+            touch base-api/v1alpha1/agent/openapi.yaml
+            exit 0
+          fi
+          
+          echo "Comparing against: $COMPARE_BRANCH"
           mkdir -p base-api/v1alpha1/agent
-          git show origin/${{ github.event.pull_request.base.ref }}:api/v1alpha1/openapi.yaml > base-api/v1alpha1/openapi.yaml || true
-          git show origin/${{ github.event.pull_request.base.ref }}:api/v1alpha1/agent/openapi.yaml > base-api/v1alpha1/agent/openapi.yaml || true
+          git show origin/$COMPARE_BRANCH:api/v1alpha1/openapi.yaml > base-api/v1alpha1/openapi.yaml || true
+          git show origin/$COMPARE_BRANCH:api/v1alpha1/agent/openapi.yaml > base-api/v1alpha1/agent/openapi.yaml || true
 
       - name: Check if override label exists
         id: check_override
