@@ -436,7 +436,7 @@ lint-helm:
 .output/stamps/lint-docs: $(wildcard docs/user/*.md)
 	@mkdir -p .output/stamps
 	@echo "Linting user documentation markdown files"
-	podman run --rm -v $(shell pwd):/workdir:Z docker.io/davidanson/markdownlint-cli2:v0.16.0 "docs/user/**/*.md"
+	podman run --rm -v $(shell pwd):/workdir:Z docker.io/davidanson/markdownlint-cli2:v0.19.0 "docs/user/**/*.md"
 	@touch .output/stamps/lint-docs
 
 .PHONY: lint-docs
