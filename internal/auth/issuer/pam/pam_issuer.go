@@ -900,7 +900,11 @@ func (s *PAMOIDCProvider) GetJWKS() (*pamapi.JWKSResponse, error) {
 }
 
 // mapGroupsToRoles maps system groups to flightctl roles
+<<<<<<< HEAD
 // Groups starting with "org:" are treated as organizations, not roles
+=======
+// Groups starting with "org-" are treated as organizations, not roles
+>>>>>>> upstream/main
 // Groups containing a dot (e.g., "myorg.role1") have the first dot replaced with colon (myorg:role1)
 //
 // All other groups are returned as-is and become roles
