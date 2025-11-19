@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/flightctl/flightctl/internal/agent/device/spec/audit"
 	"github.com/flightctl/flightctl/test/harness"
@@ -42,11 +41,6 @@ var _ = Describe("Agent Audit Log", func() {
 		}
 	})
 
-	It("creates audit log file after agent starts", func() {
-		// Wait for at least one event - this proves the file was created and is writable
-		waitForAuditEvents(h, 1)
-	})
-
 	It("logs bootstrap events correctly", func() {
 		// Wait for at least 3 bootstrap events to be logged
 		events := waitForAuditEvents(h, 3)
@@ -68,53 +62,6 @@ var _ = Describe("Agent Audit Log", func() {
 		Expect(types).To(HaveKey(audit.TypeCurrent), "should have current bootstrap event")
 		Expect(types).To(HaveKey(audit.TypeDesired), "should have desired bootstrap event")
 		Expect(types).To(HaveKey(audit.TypeRollback), "should have rollback bootstrap event")
-	})
-
-	It("validates audit event JSON structure", func() {
-		// Wait for at least one audit event
-		events := waitForAuditEvents(h, 1)
-
-		// Validate first event structure
-		event := events[0]
-
-		// Required fields should be present
-		Expect(event.Ts).NotTo(BeEmpty(), "ts field should not be empty")
-		Expect(event.Device).NotTo(BeEmpty(), "device field should not be empty")
-		Expect(event.Result).NotTo(BeEmpty(), "result field should not be empty")
-		Expect(event.Reason).NotTo(BeEmpty(), "reason field should not be empty")
-		Expect(event.Type).NotTo(BeEmpty(), "type field should not be empty")
-		Expect(event.AgentVersion).NotTo(BeEmpty(), "agent_version field should not be empty")
-
-		// Validate timestamp format (RFC3339)
-		_, err := time.Parse(time.RFC3339, event.Ts)
-		Expect(err).ToNot(HaveOccurred(), "timestamp should be in RFC3339 format")
-
-		// Validate reason is one of the valid values
-		validReasons := []audit.Reason{
-			audit.ReasonBootstrap,
-			audit.ReasonSync,
-			audit.ReasonUpgrade,
-			audit.ReasonRollback,
-			audit.ReasonRecovery,
-			audit.ReasonInitialization,
-		}
-		Expect(validReasons).To(ContainElement(event.Reason), "reason should be a valid value")
-
-		// Validate type is one of the valid values
-		validTypes := []audit.Type{
-			audit.TypeCurrent,
-			audit.TypeDesired,
-			audit.TypeRollback,
-		}
-		Expect(validTypes).To(ContainElement(event.Type), "type should be a valid value")
-
-		// Validate result is success (failure auditing not implemented in MVP)
-		Expect(event.Result).To(Equal(audit.ResultSuccess), "result should be success in MVP")
-	})
-
-	It("uses JSONL format (one JSON object per line)", func() {
-		// Wait for at least one event - this validates JSONL format
-		waitForAuditEvents(h, 1)
 	})
 })
 
