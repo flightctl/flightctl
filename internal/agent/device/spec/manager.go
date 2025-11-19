@@ -17,7 +17,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
-	"k8s.io/apimachinery/pkg/util/wait"
+	"github.com/flightctl/flightctl/pkg/poll"
 )
 
 var _ Manager = (*manager)(nil)
@@ -53,7 +53,7 @@ func NewManager(
 	deviceReadWriter fileio.ReadWriter,
 	osClient os.Client,
 	fetchInterval util.Duration,
-	backoff wait.Backoff,
+	backoff poll.Config,
 	deviceNotFoundHandler func() error,
 	auditLogger audit.Logger,
 	log *log.PrefixLogger,

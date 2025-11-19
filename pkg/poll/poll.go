@@ -31,8 +31,8 @@ type Config struct {
 }
 
 // NewConfig creates a new Config with a properly seeded random number generator.
-func NewConfig(baseDelay time.Duration, factor float64) *Config {
-	return &Config{
+func NewConfig(baseDelay time.Duration, factor float64) Config {
+	return Config{
 		BaseDelay:    baseDelay,
 		Factor:       factor,
 		JitterFactor: 0.1,                                             // Default jitter factor

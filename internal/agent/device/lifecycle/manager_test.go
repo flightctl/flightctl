@@ -18,9 +18,9 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/agent/identity"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/poll"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
-	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 // generateTestCertificate creates a valid test certificate for testing
@@ -205,7 +205,7 @@ func TestLifecycleManager_verifyEnrollment(t *testing.T) {
 				identityProvider: mockIdentity,
 				statusManager:    mockStatus,
 				deviceReadWriter: mockReadWriter,
-				backoff:          wait.Backoff{},
+				backoff:          poll.NewConfig(time.Millisecond, 1.0),
 				log:              log.NewPrefixLogger("test"),
 			}
 

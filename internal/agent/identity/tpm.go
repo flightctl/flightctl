@@ -19,12 +19,12 @@ import (
 	agent_client "github.com/flightctl/flightctl/internal/api/client/agent"
 	base_client "github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/tpm"
+	"github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/samber/lo"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
-	certutil "k8s.io/client-go/util/cert"
 )
 
 var _ Provider = (*tpmProvider)(nil)
@@ -262,7 +262,7 @@ func (t *tpmProvider) createTLSConfig(config *base_client.Config, clientCerts ..
 	}
 
 	if len(config.Service.CertificateAuthorityData) > 0 {
-		caPool, err := certutil.NewPoolFromBytes(config.Service.CertificateAuthorityData)
+		caPool, err := crypto.NewPoolFromBytes(config.Service.CertificateAuthorityData)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse CA certificates: %w", err)
 		}

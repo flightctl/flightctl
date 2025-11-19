@@ -28,12 +28,12 @@ import (
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/poll"
 	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
-	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 func TestSync(t *testing.T) {
@@ -333,7 +333,7 @@ func TestRollbackDevice(t *testing.T) {
 				readWriter,
 				mockOSClient,
 				util.Duration(time.Second),
-				wait.Backoff{Steps: 1},
+				poll.NewConfig(time.Millisecond, 1.0),
 				func() error { return nil },
 				mockAuditLogger,
 				log,

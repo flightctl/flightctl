@@ -13,8 +13,6 @@ import (
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/samber/lo"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/remotecommand"
 )
 
 type outgoingStreams struct {
@@ -170,16 +168,16 @@ func (o *outgoingErrorStream) emit(err error) {
 		o.log.Errorf("unexpected error type %T: %v", err, err)
 		exitCode = 255
 	}
-	status := metav1.Status{
-		Status: lo.Ternary[string](exitCode == 0, metav1.StatusSuccess, metav1.StatusFailure),
+	status := Status{
+		Status: lo.Ternary[string](exitCode == 0, StatusSuccess, StatusFailure),
 		Code:   int32(exitCode),
 	}
 	if exitCode != 0 {
-		status.Reason = remotecommand.NonZeroExitCodeReason
-		status.Details = &metav1.StatusDetails{
-			Causes: []metav1.StatusCause{
+		status.Reason = NonZeroExitCodeReason
+		status.Details = &StatusDetails{
+			Causes: []StatusCause{
 				{
-					Type: remotecommand.ExitCodeCauseType,
+					Type: ExitCodeCauseType,
 					// The client-go library expects the message to be a string representation of the exit code as unsigned
 					Message: fmt.Sprintf("%d", util.Abs(exitCode)),
 				},

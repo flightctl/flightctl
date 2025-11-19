@@ -10,9 +10,9 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/poll"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
-	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 type vars struct {
@@ -47,14 +47,12 @@ func setupWithInitialVersion(t *testing.T, initialVersion string) *vars {
 	}
 
 	n := &publisher{
-		managementClient: mockClient,
-		deviceName:       deviceName,
-		log:              log.NewPrefixLogger(""),
-		interval:         time.Second,
-		lastKnownVersion: initialVersion,
-		backoff: wait.Backoff{
-			Steps: 1,
-		},
+		managementClient:      mockClient,
+		deviceName:            deviceName,
+		log:                   log.NewPrefixLogger(""),
+		interval:              time.Second,
+		lastKnownVersion:      initialVersion,
+		backoff:               poll.NewConfig(time.Millisecond, 1.0),
 		deviceNotFoundHandler: deviceNotFoundHandler,
 	}
 
@@ -287,13 +285,11 @@ func TestDevicePublisher_DeviceNotFoundHandling(t *testing.T) {
 			}
 
 			publisher := &publisher{
-				managementClient: v.mockClient,
-				deviceName:       v.deviceName,
-				log:              log.NewPrefixLogger(""),
-				interval:         time.Second,
-				backoff: wait.Backoff{
-					Steps: 1,
-				},
+				managementClient:      v.mockClient,
+				deviceName:            v.deviceName,
+				log:                   log.NewPrefixLogger(""),
+				interval:              time.Second,
+				backoff:               poll.NewConfig(time.Millisecond, 1.0),
 				deviceNotFoundHandler: deviceNotFoundHandler,
 			}
 
@@ -494,7 +490,7 @@ func TestVersionComparisonWithRealAPI(t *testing.T) {
 func TestNewWithInitialVersion(t *testing.T) {
 	t.Run("creates publisher with initial version", func(t *testing.T) {
 		initialVersion := "42"
-		p := newPublisher("test-device", time.Second, wait.Backoff{}, initialVersion, nil, log.NewPrefixLogger(""))
+		p := newPublisher("test-device", time.Second, poll.NewConfig(time.Millisecond, 1.0), initialVersion, nil, log.NewPrefixLogger(""))
 
 		publisher, ok := p.(*publisher)
 		require.True(t, ok)
@@ -503,7 +499,7 @@ func TestNewWithInitialVersion(t *testing.T) {
 
 	t.Run("creates publisher with empty initial version", func(t *testing.T) {
 		initialVersion := ""
-		p := newPublisher("test-device", time.Second, wait.Backoff{}, initialVersion, nil, log.NewPrefixLogger(""))
+		p := newPublisher("test-device", time.Second, poll.NewConfig(time.Millisecond, 1.0), initialVersion, nil, log.NewPrefixLogger(""))
 
 		publisher, ok := p.(*publisher)
 		require.True(t, ok)

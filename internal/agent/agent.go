@@ -33,9 +33,8 @@ import (
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/poll"
+	"github.com/flightctl/flightctl/pkg/runtime"
 	"github.com/flightctl/flightctl/pkg/version"
-	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 const (
@@ -66,7 +65,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	a.log.Infof("Starting agent...")
 	defer a.log.Infof("Agent stopped")
 
-	defer utilruntime.HandleCrash()
+	defer runtime.HandleCrash()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -129,20 +128,20 @@ func (a *Agent) Run(ctx context.Context) error {
 		return err
 	}
 
-	// TODO: replace wait with poll
-	backoff := wait.Backoff{
-		Cap:      1 * time.Minute,
-		Duration: 10 * time.Second,
-		Factor:   1.5,
-		Steps:    6,
+	backoff := poll.Config{
+		MaxDelay:  1 * time.Minute,
+		BaseDelay: 10 * time.Second,
+		Factor:    1.5,
+		MaxSteps:  6,
+		Rand:      rand.New(rand.NewSource(time.Now().UnixNano())), //nolint:gosec
 	}
 
-	pollBackoff := poll.Config{
+	podmanBackoff := poll.Config{
 		MaxDelay:     1 * time.Minute,
 		BaseDelay:    10 * time.Second,
 		Factor:       1.5,
 		MaxSteps:     a.config.PullRetrySteps,
-		JitterFactor: 0.1,                                             // jitterFactor (10% jitter to prevent thundering herd)
+		JitterFactor: 0.1,
 		Rand:         rand.New(rand.NewSource(time.Now().UnixNano())), //nolint:gosec
 	}
 
@@ -150,7 +149,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	osClient := os.NewClient(a.log, executer)
 
 	// create podman client
-	podmanClient := client.NewPodman(a.log, executer, deviceReadWriter, pollBackoff)
+	podmanClient := client.NewPodman(a.log, executer, deviceReadWriter, podmanBackoff)
 
 	// create skopeo client
 	skopeoClient := client.NewSkopeo(a.log, executer, deviceReadWriter)
