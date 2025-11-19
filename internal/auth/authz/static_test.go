@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestStaticAuthZ_CheckPermission(t *testing.T) {
@@ -145,4 +146,249 @@ func TestStaticAuthZ_CheckPermission(t *testing.T) {
 			assert.Equal(t, tt.expected, allowed)
 		})
 	}
+}
+
+func TestStaticAuthZ_GetUserPermissions(t *testing.T) {
+	log := logrus.New()
+	log.SetLevel(logrus.DebugLevel)
+	authZ := NewStaticAuthZ(log)
+
+	tests := []struct {
+		name                string
+		roles               []string
+		expectedPermissions []v1alpha1.Permission
+	}{
+		{
+			name:  "admin user has all permissions",
+			roles: []string{v1alpha1.RoleAdmin},
+			expectedPermissions: []v1alpha1.Permission{
+				{
+					Resource:   "*",
+					Operations: []string{"*"},
+				},
+			},
+		},
+		{
+			name:  "operator user has specific permissions",
+			roles: []string{v1alpha1.RoleOperator},
+			expectedPermissions: []v1alpha1.Permission{
+				{
+					Resource:   "*",
+					Operations: []string{"get", "list"},
+				},
+				{
+					Resource:   "devices",
+					Operations: []string{"create", "delete", "patch", "update"},
+				},
+				{
+					Resource:   "fleets",
+					Operations: []string{"create", "delete", "patch", "update"},
+				},
+				{
+					Resource:   "repositories",
+					Operations: []string{"create", "delete", "patch", "update"},
+				},
+				{
+					Resource:   "resourcesyncs",
+					Operations: []string{"create", "delete", "patch", "update"},
+				},
+			},
+		},
+		{
+			name:  "viewer user has read-only permissions",
+			roles: []string{v1alpha1.RoleViewer},
+			expectedPermissions: []v1alpha1.Permission{
+				{
+					Resource:   "*",
+					Operations: []string{"get", "list"},
+				},
+			},
+		},
+		{
+			name:  "installer user has limited read permissions",
+			roles: []string{v1alpha1.RoleInstaller},
+			expectedPermissions: []v1alpha1.Permission{
+				{
+					Resource:   "devices",
+					Operations: []string{"get", "list"},
+				},
+				{
+					Resource:   "fleets",
+					Operations: []string{"get", "list"},
+				},
+				{
+					Resource:   "repositories",
+					Operations: []string{"get", "list"},
+				},
+			},
+		},
+		{
+			name:  "user with multiple roles has merged permissions",
+			roles: []string{v1alpha1.RoleViewer, v1alpha1.RoleInstaller},
+			expectedPermissions: []v1alpha1.Permission{
+				{
+					Resource:   "*",
+					Operations: []string{"get", "list"},
+				},
+				{
+					Resource:   "devices",
+					Operations: []string{"get", "list"},
+				},
+				{
+					Resource:   "fleets",
+					Operations: []string{"get", "list"},
+				},
+				{
+					Resource:   "repositories",
+					Operations: []string{"get", "list"},
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create an organization with ID
+			orgID := uuid.New()
+			testOrg := &model.Organization{
+				ID:          orgID,
+				ExternalID:  "test-org",
+				DisplayName: "Test Organization",
+			}
+
+			// Create mapped identity with roles using NewMappedIdentity
+			// Pass roles mapped to the organization ID
+			orgRoles := map[string][]string{orgID.String(): tt.roles}
+			mappedIdentity := identity.NewMappedIdentity("testuser", "testuser", []*model.Organization{testOrg}, orgRoles, false, nil)
+
+			// Create context with mapped identity and organization ID
+			ctx := context.WithValue(context.Background(), consts.MappedIdentityCtxKey, mappedIdentity)
+			ctx = util.WithOrganizationID(ctx, orgID)
+
+			// Test get user permissions
+			permissionList, err := authZ.GetUserPermissions(ctx)
+
+			require.NoError(t, err)
+			require.NotNil(t, permissionList)
+			assert.Equal(t, len(tt.expectedPermissions), len(permissionList.Permissions))
+
+			// Check that all expected permissions are present (order may vary due to map iteration)
+			for _, expected := range tt.expectedPermissions {
+				found := false
+				for _, actual := range permissionList.Permissions {
+					if actual.Resource == expected.Resource {
+						found = true
+						assert.ElementsMatch(t, expected.Operations, actual.Operations,
+							"operations mismatch for resource %s", expected.Resource)
+						break
+					}
+				}
+				assert.True(t, found, "expected permission for resource %s not found", expected.Resource)
+			}
+		})
+	}
+}
+
+func TestStaticAuthZ_GetUserPermissions_NoIdentity(t *testing.T) {
+	log := logrus.New()
+	log.SetLevel(logrus.DebugLevel)
+	authZ := NewStaticAuthZ(log)
+
+	// Create context without mapped identity
+	ctx := context.Background()
+
+	// Test get user permissions
+	permissionList, err := authZ.GetUserPermissions(ctx)
+
+	assert.Error(t, err)
+	assert.Nil(t, permissionList)
+	assert.Contains(t, err.Error(), "no mapped identity found in context")
+}
+
+func TestStaticAuthZ_GetUserPermissions_NoOrgContext(t *testing.T) {
+	log := logrus.New()
+	log.SetLevel(logrus.DebugLevel)
+	authZ := NewStaticAuthZ(log)
+
+	// Create organization with ID
+	orgID := uuid.New()
+	testOrg := &model.Organization{
+		ID:          orgID,
+		ExternalID:  "test-org",
+		DisplayName: "Test Organization",
+	}
+
+	// Create mapped identity with roles
+	orgRoles := map[string][]string{orgID.String(): {v1alpha1.RoleViewer}}
+	mappedIdentity := identity.NewMappedIdentity("testuser", "testuser", []*model.Organization{testOrg}, orgRoles, false, nil)
+
+	// Create context with mapped identity but WITHOUT organization ID
+	ctx := context.WithValue(context.Background(), consts.MappedIdentityCtxKey, mappedIdentity)
+
+	// Test get user permissions
+	permissionList, err := authZ.GetUserPermissions(ctx)
+
+	assert.Error(t, err)
+	assert.Nil(t, permissionList)
+	assert.Contains(t, err.Error(), "no organization ID found in context")
+}
+
+func TestStaticAuthZ_GetUserPermissions_NoRolesInOrg(t *testing.T) {
+	log := logrus.New()
+	log.SetLevel(logrus.DebugLevel)
+	authZ := NewStaticAuthZ(log)
+
+	// Create organization with ID
+	orgID := uuid.New()
+	testOrg := &model.Organization{
+		ID:          orgID,
+		ExternalID:  "test-org",
+		DisplayName: "Test Organization",
+	}
+
+	// Create mapped identity with NO roles for this organization
+	orgRoles := map[string][]string{} // Empty roles
+	mappedIdentity := identity.NewMappedIdentity("testuser", "testuser", []*model.Organization{testOrg}, orgRoles, false, nil)
+
+	// Create context with mapped identity and organization ID
+	ctx := context.WithValue(context.Background(), consts.MappedIdentityCtxKey, mappedIdentity)
+	ctx = util.WithOrganizationID(ctx, orgID)
+
+	// Test get user permissions
+	permissionList, err := authZ.GetUserPermissions(ctx)
+
+	require.NoError(t, err)
+	require.NotNil(t, permissionList)
+	assert.Equal(t, 0, len(permissionList.Permissions))
+}
+
+func TestStaticAuthZ_GetUserPermissions_SuperAdmin(t *testing.T) {
+	log := logrus.New()
+	log.SetLevel(logrus.DebugLevel)
+	authZ := NewStaticAuthZ(log)
+
+	// Create organization with ID
+	orgID := uuid.New()
+	testOrg := &model.Organization{
+		ID:          orgID,
+		ExternalID:  "test-org",
+		DisplayName: "Test Organization",
+	}
+
+	// Create mapped identity as super admin
+	orgRoles := map[string][]string{} // Super admins don't need org-specific roles
+	mappedIdentity := identity.NewMappedIdentity("admin", "admin", []*model.Organization{testOrg}, orgRoles, true, nil)
+
+	// Create context with mapped identity
+	ctx := context.WithValue(context.Background(), consts.MappedIdentityCtxKey, mappedIdentity)
+	ctx = util.WithOrganizationID(ctx, orgID)
+
+	// Test get user permissions
+	permissionList, err := authZ.GetUserPermissions(ctx)
+
+	require.NoError(t, err)
+	require.NotNil(t, permissionList)
+	assert.Equal(t, 1, len(permissionList.Permissions))
+	assert.Equal(t, "*", permissionList.Permissions[0].Resource)
+	assert.Equal(t, []string{"*"}, permissionList.Permissions[0].Operations)
 }
