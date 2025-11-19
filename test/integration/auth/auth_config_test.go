@@ -49,7 +49,8 @@ var _ = Describe("Auth Config Integration Tests", func() {
 			Username:      "test-admin",
 			UID:           uuid.New().String(),
 			Organizations: []*model.Organization{testOrg},
-			Roles:         []string{string(api.RoleAdmin)},
+			OrgRoles:      map[string][]string{"*": {string(api.RoleAdmin)}},
+			SuperAdmin:    true, // Super admin required for creating auth providers with dynamic org assignment
 		}
 		ctx = context.WithValue(ctx, consts.MappedIdentityCtxKey, adminIdentity)
 

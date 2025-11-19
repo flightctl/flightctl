@@ -339,6 +339,11 @@ const (
 	Oidc OIDCProviderSpecProviderType = "oidc"
 )
 
+// Defines values for OpenShiftProviderSpecProviderType.
+const (
+	Openshift OpenShiftProviderSpecProviderType = "openshift"
+)
+
 // Defines values for PatchRequestOp.
 const (
 	Add     PatchRequestOp = "add"
@@ -613,6 +618,9 @@ type AuthDynamicOrganizationAssignmentType string
 type AuthDynamicRoleAssignment struct {
 	// ClaimPath The JSON path to the role/group claim (e.g., ["groups"], ["roles"], ["realm_access", "roles"]).
 	ClaimPath []string `json:"claimPath"`
+
+	// Separator Separator for org:role format (default ':'). Roles containing the separator are split into organization-scoped roles. Roles without separator are global and apply to all organizations.
+	Separator *string `json:"separator,omitempty"`
 
 	// Type The type of role assignment.
 	Type AuthDynamicRoleAssignmentType `json:"type"`
@@ -1895,9 +1903,6 @@ type K8sProviderSpec struct {
 	// Enabled Whether this K8s provider is enabled.
 	Enabled *bool `json:"enabled,omitempty"`
 
-	// ExternalOpenShiftApiUrl The external OpenShift API URL (for external access).
-	ExternalOpenShiftApiUrl *string `json:"externalOpenShiftApiUrl,omitempty"`
-
 	// OrganizationAssignment AuthOrganizationAssignment defines how users from this auth provider are assigned to organizations.
 	OrganizationAssignment AuthOrganizationAssignment `json:"organizationAssignment"`
 
@@ -2105,6 +2110,42 @@ type ObjectReference struct {
 	// Name The name of the referenced object.
 	Name string `json:"name"`
 }
+
+// OpenShiftProviderSpec OpenShiftProviderSpec describes an OpenShift OAuth provider configuration.
+type OpenShiftProviderSpec struct {
+	// AuthorizationUrl The OAuth2 authorization endpoint URL.
+	AuthorizationUrl *string `json:"authorizationUrl,omitempty"`
+
+	// ClientId The OAuth2 client ID.
+	ClientId *string `json:"clientId,omitempty"`
+
+	// ClientSecret The OAuth2 client secret.
+	ClientSecret *string `json:"clientSecret,omitempty"`
+
+	// ClusterControlPlaneUrl The OpenShift cluster control plane URL.
+	ClusterControlPlaneUrl *string `json:"clusterControlPlaneUrl,omitempty"`
+
+	// DisplayName Human-readable display name for the provider.
+	DisplayName *string `json:"displayName,omitempty"`
+
+	// Enabled Whether this OpenShift provider is enabled.
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// Issuer The OAuth2 issuer identifier (used for issuer identification in tokens).
+	Issuer *string `json:"issuer,omitempty"`
+
+	// ProviderType The type of authentication provider.
+	ProviderType OpenShiftProviderSpecProviderType `json:"providerType"`
+
+	// Scopes List of OAuth2 scopes to request.
+	Scopes *[]string `json:"scopes,omitempty"`
+
+	// TokenUrl The OAuth2 token endpoint URL.
+	TokenUrl *string `json:"tokenUrl,omitempty"`
+}
+
+// OpenShiftProviderSpecProviderType The type of authentication provider.
+type OpenShiftProviderSpecProviderType string
 
 // Organization defines model for Organization.
 type Organization struct {
@@ -3456,6 +3497,34 @@ func (t *AuthProviderSpec) MergeOAuth2ProviderSpec(v OAuth2ProviderSpec) error {
 	return err
 }
 
+// AsOpenShiftProviderSpec returns the union data inside the AuthProviderSpec as a OpenShiftProviderSpec
+func (t AuthProviderSpec) AsOpenShiftProviderSpec() (OpenShiftProviderSpec, error) {
+	var body OpenShiftProviderSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromOpenShiftProviderSpec overwrites any union data inside the AuthProviderSpec as the provided OpenShiftProviderSpec
+func (t *AuthProviderSpec) FromOpenShiftProviderSpec(v OpenShiftProviderSpec) error {
+	v.ProviderType = "openshift"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeOpenShiftProviderSpec performs a merge with any union data inside the AuthProviderSpec, using the provided OpenShiftProviderSpec
+func (t *AuthProviderSpec) MergeOpenShiftProviderSpec(v OpenShiftProviderSpec) error {
+	v.ProviderType = "openshift"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
 // AsAapProviderSpec returns the union data inside the AuthProviderSpec as a AapProviderSpec
 func (t AuthProviderSpec) AsAapProviderSpec() (AapProviderSpec, error) {
 	var body AapProviderSpec
@@ -3534,6 +3603,8 @@ func (t AuthProviderSpec) ValueByDiscriminator() (interface{}, error) {
 		return t.AsOAuth2ProviderSpec()
 	case "oidc":
 		return t.AsOIDCProviderSpec()
+	case "openshift":
+		return t.AsOpenShiftProviderSpec()
 	default:
 		return nil, errors.New("unknown discriminator value: " + discriminator)
 	}

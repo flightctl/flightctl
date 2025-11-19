@@ -21,6 +21,10 @@ spec:
         {{- include "flightctl.standardLabels" . | nindent 8 }}
     spec:
       serviceAccountName: flightctl-api
+      {{- if .Values.global.imagePullSecretName }}
+      imagePullSecrets:
+        - name: {{ .Values.global.imagePullSecretName }}
+      {{- end }}
       initContainers:
       {{- include "flightctl.databaseWaitInitContainer" (dict "context" . "userType" "app" "timeout" 60 "sleep" 1) | nindent 6 }}
       {{- include "flightctl.migrationWaitInitContainer" (dict "context" . "timeout" 600) | nindent 6 }}
@@ -105,6 +109,11 @@ spec:
               name: flightctl-api-k8s-token
               readOnly: true
             {{- end}}
+            {{- if .Values.global.auth.openshift.externalApiToken}}
+            - mountPath: /var/flightctl/k8s
+              name: flightctl-api-openshift-token
+              readOnly: true
+            {{- end}}
             {{- include "flightctl.dbSslVolumeMounts" . | nindent 12 }}
 
       restartPolicy: Always
@@ -119,6 +128,11 @@ spec:
         - name: flightctl-api-k8s-token
           secret:
             secretName: flightctl-api-k8s-token
+        {{- end}}
+        {{- if .Values.global.auth.openshift.externalApiToken}}
+        - name: flightctl-api-openshift-token
+          secret:
+            secretName: flightctl-api-openshift-token
         {{- end}}
         {{- include "flightctl.dbSslVolumes" . | nindent 8 }}
 {{ end }}

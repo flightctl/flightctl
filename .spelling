@@ -275,6 +275,7 @@ NotContains
 NotEquals
 NotIn
  - docs/user/kubernetes-auth.md
+global.apiUrl
 global.auth.type
 insecureSkipTlsVerify
 internalOpenShiftApiUrl

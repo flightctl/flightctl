@@ -228,7 +228,7 @@ func TestEnsureScheduled(t *testing.T) {
 			podman := client.NewPodman(log, mockExec, rw, poll.Config{})
 
 			timeout := util.Duration(5 * time.Second)
-			manager := NewPrefetchManager(log, podman, rw, timeout)
+			manager := NewPrefetchManager(log, podman, client.NewSkopeo(log, mockExec, rw), rw, timeout)
 
 			// register a collector that returns the test targets
 			manager.RegisterOCICollector(newTestOCICollector(func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) (*OCICollection, error) {
@@ -308,7 +308,7 @@ func TestIsReady(t *testing.T) {
 			podman := client.NewPodman(log, mockExec, rw, poll.Config{})
 
 			timeout := util.Duration(5 * time.Second)
-			manager := NewPrefetchManager(log, podman, rw, timeout)
+			manager := NewPrefetchManager(log, podman, client.NewSkopeo(log, mockExec, rw), rw, timeout)
 
 			for _, image := range tt.scheduledImages {
 				state := tt.imageStates[image]
@@ -355,7 +355,7 @@ func TestStatus(t *testing.T) {
 	podman := client.NewPodman(log, mockExec, rw, poll.Config{})
 
 	timeout := util.Duration(5 * time.Second)
-	manager := NewPrefetchManager(log, podman, rw, timeout)
+	manager := NewPrefetchManager(log, podman, client.NewSkopeo(log, mockExec, rw), rw, timeout)
 
 	targets := []OCIPullTarget{
 		{
@@ -701,7 +701,7 @@ func TestBeforeUpdate(t *testing.T) {
 			podman := client.NewPodman(log, mockExec, rw, poll.Config{})
 
 			timeout := util.Duration(5 * time.Second)
-			manager := NewPrefetchManager(log, podman, rw, timeout)
+			manager := NewPrefetchManager(log, podman, client.NewSkopeo(log, mockExec, rw), rw, timeout)
 
 			// Register collectors
 			for _, collector := range tt.collectors {
@@ -819,7 +819,7 @@ func TestPullSecretCleanup(t *testing.T) {
 	rw := fileio.NewReadWriter()
 	podman := client.NewPodman(log, mockExec, rw, poll.Config{})
 	timeout := util.Duration(5 * time.Second)
-	manager := NewPrefetchManager(log, podman, rw, timeout)
+	manager := NewPrefetchManager(log, podman, client.NewSkopeo(log, mockExec, rw), rw, timeout)
 
 	// simulate the complete lifecycle of pull secret cleanup
 	var cleanupCalls []string
@@ -1107,9 +1107,10 @@ func TestSetResultAfterCleanup(t *testing.T) {
 	mockExec := executer.NewMockExecuter(ctrl)
 	readWriter := fileio.NewReadWriter()
 	podmanClient := client.NewPodman(logger, mockExec, readWriter, poll.Config{})
+	skopeoClient := client.NewSkopeo(logger, mockExec, readWriter)
 	pullTimeout := util.Duration(5 * time.Minute)
 
-	pm := NewPrefetchManager(logger, podmanClient, readWriter, pullTimeout)
+	pm := NewPrefetchManager(logger, podmanClient, skopeoClient, readWriter, pullTimeout)
 
 	testImage := "quay.io/test/image:latest"
 	pm.tasks[testImage] = &prefetchTask{
@@ -1358,6 +1359,132 @@ func BenchmarkPrefetchTargetChange(b *testing.B) {
 					manager.cleanupStaleTasks(newRefs)
 				}
 				manager.mu.Unlock()
+			}
+		})
+	}
+}
+
+func TestDetectOCIType(t *testing.T) {
+	tests := []struct {
+		name         string
+		manifest     *client.OCIManifest
+		expectedType OCIType
+		expectedErr  bool
+	}{
+		{
+			name:         "nil manifest returns error",
+			manifest:     nil,
+			expectedType: "",
+			expectedErr:  true,
+		},
+		{
+			name: "standard OCI image",
+			manifest: &client.OCIManifest{
+				MediaType: "application/vnd.oci.image.manifest.v1+json",
+				Config: &client.OCIDescriptor{
+					MediaType: "application/vnd.oci.image.config.v1+json",
+					Digest:    "sha256:abc123",
+					Size:      677,
+				},
+			},
+			expectedType: OCITypeImage,
+			expectedErr:  false,
+		},
+		{
+			name: "OCI artifact with artifactType field",
+			manifest: &client.OCIManifest{
+				MediaType:    "application/vnd.oci.image.manifest.v1+json",
+				ArtifactType: "application/vnd.example.artifact",
+				Config: &client.OCIDescriptor{
+					MediaType: "application/vnd.oci.empty.v1+json",
+					Digest:    "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+					Size:      2,
+				},
+			},
+			expectedType: OCITypeArtifact,
+			expectedErr:  false,
+		},
+		{
+			name: "OCI artifact with empty config",
+			manifest: &client.OCIManifest{
+				MediaType: "application/vnd.oci.image.manifest.v1+json",
+				Config: &client.OCIDescriptor{
+					MediaType: "application/vnd.oci.empty.v1+json",
+					Digest:    "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+					Size:      2,
+				},
+			},
+			expectedType: OCITypeArtifact,
+			expectedErr:  false,
+		},
+		{
+			name: "OCI artifact with custom config media type",
+			manifest: &client.OCIManifest{
+				MediaType: "application/vnd.oci.image.manifest.v1+json",
+				Config: &client.OCIDescriptor{
+					MediaType: "application/vnd.example.config",
+					Digest:    "sha256:xyz789",
+					Size:      100,
+				},
+			},
+			expectedType: OCITypeArtifact,
+			expectedErr:  false,
+		},
+		{
+			name: "manifest index (multi-platform image)",
+			manifest: &client.OCIManifest{
+				MediaType: "application/vnd.oci.image.index.v1+json",
+				Manifests: []byte(`[{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":"sha256:aaa111","size":2567}]`),
+			},
+			expectedType: OCITypeImage,
+			expectedErr:  false,
+		},
+		{
+			name: "ML model artifact (from research)",
+			manifest: &client.OCIManifest{
+				MediaType:    "application/vnd.oci.image.manifest.v1+json",
+				ArtifactType: "application/vnd.oci.image.index.v1+json",
+				Config: &client.OCIDescriptor{
+					MediaType: "application/vnd.oci.empty.v1+json",
+					Digest:    "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+					Size:      2,
+				},
+			},
+			expectedType: OCITypeArtifact,
+			expectedErr:  false,
+		},
+		{
+			name: "text artifact (from research)",
+			manifest: &client.OCIManifest{
+				MediaType: "application/vnd.oci.image.manifest.v1+json",
+				Config: &client.OCIDescriptor{
+					MediaType: "application/vnd.oci.empty.v1+json",
+					Digest:    "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+					Size:      2,
+				},
+			},
+			expectedType: OCITypeArtifact,
+			expectedErr:  false,
+		},
+		{
+			name: "manifest without config defaults to image",
+			manifest: &client.OCIManifest{
+				MediaType: "application/vnd.oci.image.manifest.v1+json",
+			},
+			expectedType: OCITypeImage,
+			expectedErr:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := detectOCIType(tt.manifest)
+
+			if tt.expectedErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tt.expectedType, result)
 			}
 		})
 	}

@@ -22,6 +22,7 @@ func TestStatus(t *testing.T) {
 		mockExitCode  int
 		expected      *[]v1alpha1.SystemdUnitStatus
 		expectError   bool
+		exclusions    []string
 	}{
 		{
 			name:          "typical systemd output with multiple units",
@@ -54,6 +55,38 @@ UnitFileState=enabled
 			},
 		},
 		{
+			name:          "typical systemd output with multiple units and exclusions",
+			matchPatterns: []string{"*.service"},
+			mockStdout: `Id=sshd.service
+Description=OpenSSH server daemon
+LoadState=loaded
+ActiveState=active
+SubState=running
+UnitFileState=enabled
+
+Id=nginx.service
+Description=The nginx HTTP server
+LoadState=loaded
+ActiveState=failed
+SubState=failed
+UnitFileState=enabled
+
+Id=systemd-resolved.service
+Description=Network Name Resolution
+LoadState=loaded
+ActiveState=active
+SubState=running
+UnitFileState=enabled
+`,
+			expected: &[]v1alpha1.SystemdUnitStatus{
+				{Unit: "sshd.service", LoadState: "loaded", ActiveState: "active", SubState: "running", Description: "OpenSSH server daemon", EnableState: "enabled"},
+				{Unit: "systemd-resolved.service", LoadState: "loaded", ActiveState: "active", SubState: "running", Description: "Network Name Resolution", EnableState: "enabled"},
+			},
+			exclusions: []string{
+				"nginx.service",
+			},
+		},
+		{
 			name:          "different unit types (service, socket, timer)",
 			matchPatterns: []string{"test*"},
 			mockStdout: `Id=test.service
@@ -77,6 +110,39 @@ ActiveState=active
 SubState=waiting
 UnitFileState=enabled
 `,
+			expected: &[]v1alpha1.SystemdUnitStatus{
+				{Unit: "test.service", LoadState: "loaded", ActiveState: "active", SubState: "running", Description: "Test service", EnableState: "enabled"},
+				{Unit: "test.socket", LoadState: "loaded", ActiveState: "listening", SubState: "listening", Description: "Test socket", EnableState: "static"},
+				{Unit: "test.timer", LoadState: "loaded", ActiveState: "active", SubState: "waiting", Description: "Test timer", EnableState: "enabled"},
+			},
+		},
+		{
+			name:          "non-matching exclusions",
+			matchPatterns: []string{"test*"},
+			mockStdout: `Id=test.service
+Description=Test service
+LoadState=loaded
+ActiveState=active
+SubState=running
+UnitFileState=enabled
+
+Id=test.socket
+Description=Test socket
+LoadState=loaded
+ActiveState=listening
+SubState=listening
+UnitFileState=static
+
+Id=test.timer
+Description=Test timer
+LoadState=loaded
+ActiveState=active
+SubState=waiting
+UnitFileState=enabled
+`,
+			exclusions: []string{
+				"nginx.service",
+			},
 			expected: &[]v1alpha1.SystemdUnitStatus{
 				{Unit: "test.service", LoadState: "loaded", ActiveState: "active", SubState: "running", Description: "Test service", EnableState: "enabled"},
 				{Unit: "test.socket", LoadState: "loaded", ActiveState: "listening", SubState: "listening", Description: "Test socket", EnableState: "static"},
@@ -229,15 +295,21 @@ UnitFileState=enabled
 
 			log := log.NewPrefixLogger("test")
 			client := client.NewSystemd(execMock)
+
 			m := &manager{
-				log:      log,
-				client:   client,
-				patterns: tt.matchPatterns,
+				log:              log,
+				client:           client,
+				patterns:         tt.matchPatterns,
+				excludedServices: make(map[string]struct{}),
 			}
 
 			if len(tt.matchPatterns) > 0 {
 				args := append([]string{"show", "--all", "--"}, tt.matchPatterns...)
 				execMock.EXPECT().ExecuteWithContext(gomock.Any(), gomock.Any(), args).Return(tt.mockStdout, tt.mockStderr, tt.mockExitCode)
+			}
+
+			if len(tt.exclusions) > 0 {
+				m.AddExclusions(tt.exclusions...)
 			}
 
 			status := v1alpha1.NewDeviceStatus()
