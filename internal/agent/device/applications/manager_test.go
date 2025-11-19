@@ -150,9 +150,11 @@ func TestManager(t *testing.T) {
 					mockExecSystemdStop(mockExec, "test-app.service"),
 					mockExecSystemdListUnits(mockExec, "test-app.service"),
 					mockExecSystemdDaemonReload(mockExec),
-
-					// no podman events mock needed since no apps remain after removal
 				)
+				// podman cleanup happens after systemd operations (not strictly ordered with above)
+				mockExecQuadletCleanup(mockExec, "quadlet-remove")
+
+				// no podman events mock needed since no apps remain after removal
 			},
 		},
 		{
@@ -183,6 +185,8 @@ func TestManager(t *testing.T) {
 					mockExecSystemdStart(mockExec, "test-app.service"),
 					mockExecPodmanEvents(mockExec),
 				)
+				// podman cleanup happens during the update (not strictly ordered with above)
+				mockExecQuadletCleanup(mockExec, "quadlet-update")
 			},
 			wantAppNames: []string{"quadlet-update"},
 		},
@@ -496,6 +500,65 @@ func mockExecSystemdListUnits(mockExec *executer.MockExecuter, services ...strin
 		"/usr/bin/systemctl",
 		args,
 	).Return("[]", "", 0)
+}
+
+func mockExecPodmanVolumeList(mockExec *executer.MockExecuter, name string) *gomock.Call {
+	id := client.NewComposeID(name)
+	return mockExec.
+		EXPECT().
+		ExecuteWithContext(
+			gomock.Any(),
+			"podman",
+			[]string{
+				"volume", "ls",
+				"--format", "json",
+				"--filter", "label=io.flightctl.quadlet.project=" + id,
+				"--filter", "name=" + id + "-*",
+			},
+		).
+		Return("[]", "", 0)
+}
+
+func mockExecQuadletPodmanNetworkList(mockExec *executer.MockExecuter, name string) *gomock.Call {
+	id := client.NewComposeID(name)
+	return mockExec.
+		EXPECT().
+		ExecuteWithContext(
+			gomock.Any(),
+			"podman",
+			[]string{
+				"network", "ls",
+				"--format", "{{.Network.ID}}",
+				"--filter", "label=io.flightctl.quadlet.project=" + id,
+				"--filter", "name=" + id + "-*",
+			},
+		).
+		Return("", "", 0)
+}
+
+func mockExecQuadletPodmanPodList(mockExec *executer.MockExecuter, name string) *gomock.Call {
+	id := client.NewComposeID(name)
+	return mockExec.
+		EXPECT().
+		ExecuteWithContext(
+			gomock.Any(),
+			"podman",
+			[]string{
+				"ps", "-a",
+				"--format", "{{.Pod}}",
+				"--filter", "label=io.flightctl.quadlet.project=" + id,
+			},
+		).
+		Return("", "", 0)
+}
+
+func mockExecQuadletCleanup(mockExec *executer.MockExecuter, name string) {
+	id := client.NewComposeID(name)
+	mockExecQuadletPodmanNetworkList(mockExec, name)
+	mockExecQuadletPodmanPodList(mockExec, name)
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"stop", "--filter", "label=io.flightctl.quadlet.project=" + id}).Return("", "", 0)
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"rm", "--filter", "label=io.flightctl.quadlet.project=" + id}).Return("", "", 0)
+	mockExecPodmanVolumeList(mockExec, name)
 }
 
 func mockReadQuadletFiles(mockReadWriter *fileio.MockReadWriter, quadletContent string) {
