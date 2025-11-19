@@ -19,7 +19,7 @@ Volume=/etc/flightctl/flightctl-alert-exporter/config.yaml:/root/.flightctl/conf
 Restart=always
 RestartSec=30
 
-ExecStartPre=/usr/bin/flightctl-ground-crew render --input-file /usr/share/flightctl/flightctl-alert-exporter/config.yaml.template --output-file /etc/flightctl/flightctl-alert-exporter/config.yaml
+ExecStartPre=/usr/bin/flightctl-standalone render template --input-file /usr/share/flightctl/flightctl-alert-exporter/config.yaml.template --output-file /etc/flightctl/flightctl-alert-exporter/config.yaml
 
 [Install]
 WantedBy=flightctl.target

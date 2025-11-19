@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/flightctl/flightctl/internal/quadlet/renderer"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -10,20 +9,12 @@ import (
 	"github.com/spf13/viper"
 )
 
-func main() {
-	command := NewRenderQuadletsCommand()
-	if err := command.Execute(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
-}
-
 func NewRenderQuadletsCommand() *cobra.Command {
 	var cfgFile string
 	config := renderer.NewRendererConfig()
 
 	cmd := &cobra.Command{
-		Use:   "render-quadlets",
+		Use:   "quadlets",
 		Short: "Render Flight Control service quadlet files",
 		Long:  "A tool to render Flight Control service quadlet files and systemd units from templates",
 		PreRunE: func(cmd *cobra.Command, args []string) error {
