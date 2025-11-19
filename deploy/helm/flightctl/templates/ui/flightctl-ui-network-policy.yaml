@@ -1,4 +1,5 @@
-{{ if and (not (eq .Values.global.target "acm")) (eq (include "flightctl.getServiceExposeMethod" .) "route") }}
+{{ if .Values.ui.enabled }}
+{{ if and (eq (include "flightctl.enableMulticlusterExtensions" .) "false") (eq (include "flightctl.getServiceExposeMethod" .) "route") }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -17,4 +18,5 @@ spec:
       role: frontend
   policyTypes:
   - Ingress
+{{ end }}
 {{ end }}

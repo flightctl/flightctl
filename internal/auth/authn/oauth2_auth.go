@@ -40,7 +40,7 @@ func NewOAuth2Auth(metadata api.ObjectMeta, spec api.OAuth2ProviderSpec, tlsConf
 	if spec.ClientId == "" {
 		return nil, fmt.Errorf("clientId is required")
 	}
-	if spec.ClientSecret == nil || spec.ClientSecret.Value() == "" {
+	if spec.ClientSecret == nil || *spec.ClientSecret == "" {
 		return nil, fmt.Errorf("clientSecret is required")
 	}
 
@@ -73,6 +73,11 @@ func NewOAuth2Auth(metadata api.ObjectMeta, spec api.OAuth2ProviderSpec, tlsConf
 		log:                   log,
 		organizationExtractor: organizationExtractor,
 	}, nil
+}
+
+// GetOAuth2Spec returns the internal OAuth2 spec with client secret intact (for internal use only)
+func (o *OAuth2Auth) GetOAuth2Spec() api.OAuth2ProviderSpec {
+	return o.spec
 }
 
 // GetAuthToken extracts the OAuth2 access token from the HTTP request
@@ -146,21 +151,18 @@ func (o *OAuth2Auth) GetIdentity(ctx context.Context, token string) (common.Iden
 		return nil, fmt.Errorf("failed to extract username from claim path %v", usernameClaim)
 	}
 
-	// Extract roles using the role extractor
-	roles := o.roleExtractor.ExtractRolesFromMap(userInfo)
+	// Extract org-scoped roles using the role extractor
+	orgRoles := o.roleExtractor.ExtractOrgRolesFromMap(userInfo)
 
 	// Extract organizations using stateless organization extractor with userinfo map
 	organizations := o.organizationExtractor.ExtractOrganizations(userInfo, username)
-	reportedOrganizations := make([]common.ReportedOrganization, 0, len(organizations))
-	for _, org := range organizations {
-		reportedOrganizations = append(reportedOrganizations, common.ReportedOrganization{
-			Name:         org,
-			IsInternalID: false,
-			ID:           org,
-		})
-	}
+
+	// Build ReportedOrganization with roles embedded
+	reportedOrganizations, isSuperAdmin := common.BuildReportedOrganizations(organizations, orgRoles, false)
+
 	// Create OAuth2 identity
-	oauth2Identity := common.NewBaseIdentityWithIssuer(username, username, reportedOrganizations, roles, identity.NewIssuer(identity.AuthTypeOAuth2, *o.spec.Issuer))
+	oauth2Identity := common.NewBaseIdentityWithIssuer(username, username, reportedOrganizations, identity.NewIssuer(identity.AuthTypeOAuth2, *o.spec.Issuer))
+	oauth2Identity.SetSuperAdmin(isSuperAdmin)
 
 	return oauth2Identity, nil
 }

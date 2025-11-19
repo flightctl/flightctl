@@ -122,17 +122,37 @@ func writeJSON(w http.ResponseWriter, statusCode int, data interface{}) {
 	}
 }
 
-// Helper function to write error response
+// Helper function to write error response (now using OAuth2Error for all endpoints)
 func writeError(w http.ResponseWriter, statusCode int, message string) {
-	status := pamapi.Status{
-		ApiVersion: "v1alpha1",
-		Kind:       "Status",
-		Code:       int32(statusCode), //nolint:gosec // HTTP status codes are always within int32 range
-		Message:    message,
-		Reason:     "Error",
-		Status:     "Failure",
+	// Map HTTP status codes to OAuth2 error codes
+	errorCode := pamapi.ServerError
+	if statusCode == http.StatusBadRequest {
+		errorCode = pamapi.InvalidRequest
+	} else if statusCode == http.StatusUnauthorized {
+		errorCode = pamapi.InvalidClient
 	}
-	writeJSON(w, statusCode, status)
+
+	oauth2Error := &pamapi.OAuth2Error{
+		Code:             errorCode,
+		ErrorDescription: lo.ToPtr(message),
+	}
+	writeJSON(w, statusCode, oauth2Error)
+}
+
+// Helper function to write OAuth2 error response (RFC 6749 Section 5.2)
+func writeOAuth2Error(w http.ResponseWriter, errorCode pamapi.OAuth2ErrorError, errorDescription string) {
+	// Determine HTTP status code based on error type
+	statusCode := http.StatusBadRequest
+	if errorCode == pamapi.InvalidClient {
+		// Per RFC 6749, invalid_client should return 401
+		statusCode = http.StatusUnauthorized
+	}
+
+	oauth2Error := &pamapi.OAuth2Error{
+		Code:             errorCode,
+		ErrorDescription: &errorDescription,
+	}
+	writeJSON(w, statusCode, oauth2Error)
 }
 
 // extractSessionContext extracts session information from HTTP request and adds it to context
@@ -297,7 +317,7 @@ func (h *Handler) AuthToken(w http.ResponseWriter, r *http.Request) {
 	if strings.Contains(contentType, "application/x-www-form-urlencoded") {
 		if err := r.ParseForm(); err != nil {
 			h.log.Errorf("Failed to parse form data: %v", err)
-			writeError(w, http.StatusBadRequest, "Failed to parse form data")
+			writeOAuth2Error(w, pamapi.InvalidRequest, "Failed to parse form data")
 			return
 		}
 
@@ -328,10 +348,13 @@ func (h *Handler) AuthToken(w http.ResponseWriter, r *http.Request) {
 		if codeVerifier := r.FormValue("code_verifier"); codeVerifier != "" {
 			req.CodeVerifier = &codeVerifier
 		}
+		if redirectUri := r.FormValue("redirect_uri"); redirectUri != "" {
+			req.RedirectUri = &redirectUri
+		}
 	} else {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			h.log.Errorf("Failed to decode JSON request: %v", err)
-			writeError(w, http.StatusBadRequest, "Failed to decode request")
+			writeOAuth2Error(w, pamapi.InvalidRequest, "Failed to decode request body")
 			return
 		}
 	}
@@ -342,24 +365,23 @@ func (h *Handler) AuthToken(w http.ResponseWriter, r *http.Request) {
 	// Call PAM provider's Token method directly with pamapi types
 	tokenResponse, err := h.pamProvider.Token(ctx, &req)
 	if err != nil {
-		h.log.Errorf("Token request failed: %v", err)
-		errorCode := "invalid_request"
-		errDesc := err.Error()
-		tokenResponse = &pamapi.TokenResponse{
-			Error:            &errorCode,
-			ErrorDescription: &errDesc,
+		// Check if it's an OAuth2 error (type assertion)
+		if oauth2Err, ok := pamapi.IsOAuth2Error(err); ok {
+			// OAuth2 error - return with proper HTTP status and JSON
+			statusCode := http.StatusBadRequest
+			if oauth2Err.Code == pamapi.InvalidClient {
+				statusCode = http.StatusUnauthorized
+			}
+			writeJSON(w, statusCode, oauth2Err)
+			return
 		}
-		writeJSON(w, http.StatusBadRequest, tokenResponse)
+		// System error - shouldn't happen, but handle it
+		h.log.Errorf("Token request failed with system error: %v", err)
+		writeOAuth2Error(w, pamapi.ServerError, "Internal server error processing token request")
 		return
 	}
 
-	// Check if the TokenResponse itself contains an OAuth2 error
-	if tokenResponse.Error != nil {
-		// Return 400 Bad Request for OAuth2 errors
-		writeJSON(w, http.StatusBadRequest, tokenResponse)
-		return
-	}
-
+	// Success - return token response
 	writeJSON(w, http.StatusOK, tokenResponse)
 }
 
@@ -370,41 +392,34 @@ func (h *Handler) AuthUserInfo(w http.ResponseWriter, r *http.Request) {
 	authHeader := r.Header.Get("Authorization")
 	if !strings.HasPrefix(authHeader, "Bearer ") {
 		h.log.Warnf("Invalid authorization header")
-		errorCode := "invalid_token"
-		userInfoResponse := pamapi.UserInfoResponse{
-			Error: &errorCode,
+		oauth2Error := &pamapi.OAuth2Error{
+			Code:             "invalid_token",
+			ErrorDescription: lo.ToPtr("Missing or invalid Authorization header"),
 		}
-		writeJSON(w, http.StatusUnauthorized, userInfoResponse)
+		writeJSON(w, http.StatusUnauthorized, oauth2Error)
 		return
 	}
 
 	accessToken := strings.TrimPrefix(authHeader, "Bearer ")
 
 	// Call PAM provider's UserInfo method
-	v1UserInfoResponse, err := h.pamProvider.UserInfo(r.Context(), accessToken)
+	userInfoResponse, err := h.pamProvider.UserInfo(r.Context(), accessToken)
 	if err != nil {
-		h.log.Errorf("UserInfo request failed: %v", err)
-		errorCode := "invalid_token"
-		userInfoResponse := pamapi.UserInfoResponse{
-			Error: &errorCode,
+		// Check if it's an OAuth2 error (type assertion)
+		if oauth2Err, ok := pamapi.IsOAuth2Error(err); ok {
+			// OAuth2 error - return with 401
+			h.log.Warnf("UserInfo request failed: %v", err)
+			writeJSON(w, http.StatusUnauthorized, oauth2Err)
+			return
 		}
-		writeJSON(w, http.StatusUnauthorized, &userInfoResponse)
+		// System error - shouldn't happen, but handle it
+		h.log.Errorf("UserInfo request failed with system error: %v", err)
+		writeOAuth2Error(w, pamapi.ServerError, "Internal server error retrieving user information")
 		return
 	}
 
-	// Convert v1alpha1 UserInfoResponse to pamapi UserInfoResponse
-	userInfoResponse := pamapi.UserInfoResponse{
-		Sub:               v1UserInfoResponse.Sub,
-		PreferredUsername: v1UserInfoResponse.PreferredUsername,
-		Name:              v1UserInfoResponse.Name,
-		Email:             v1UserInfoResponse.Email,
-		EmailVerified:     v1UserInfoResponse.EmailVerified,
-		Roles:             v1UserInfoResponse.Roles,
-		Organizations:     v1UserInfoResponse.Organizations,
-		Error:             v1UserInfoResponse.Error,
-	}
-
-	writeJSON(w, http.StatusOK, &userInfoResponse)
+	// Return userinfo response directly
+	writeJSON(w, http.StatusOK, userInfoResponse)
 }
 
 // AuthJWKS handles JWKS endpoint

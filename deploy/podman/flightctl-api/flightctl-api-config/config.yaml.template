@@ -39,6 +39,7 @@ auth:
     issuer: {{OIDC_ISSUER}}
     externalOidcAuthority: {{OIDC_EXTERNAL_AUTHORITY}}
     clientId: {{OIDC_CLIENT_ID}}
+    clientSecret: {{OIDC_CLIENT_SECRET}}
     enabled: {{OIDC_ENABLED}}
     usernameClaim:
       - {{OIDC_USERNAME_CLAIM}}

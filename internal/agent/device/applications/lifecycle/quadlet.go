@@ -1,16 +1,17 @@
 package lifecycle
 
 import (
-	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
 
-	"github.com/coreos/go-systemd/v22/unit"
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/systemd"
+	"github.com/flightctl/flightctl/internal/quadlet"
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
@@ -22,15 +23,17 @@ const (
 var _ ActionHandler = (*Quadlet)(nil)
 
 type Quadlet struct {
-	systemd        *client.Systemd
+	systemdManager systemd.Manager
+	podman         *client.Podman
 	rw             fileio.ReadWriter
 	log            *log.PrefixLogger
 	actionServices map[string][]string
 }
 
-func NewQuadlet(log *log.PrefixLogger, rw fileio.ReadWriter, systemd *client.Systemd) *Quadlet {
+func NewQuadlet(log *log.PrefixLogger, rw fileio.ReadWriter, systemdManager systemd.Manager, podman *client.Podman) *Quadlet {
 	return &Quadlet{
-		systemd:        systemd,
+		systemdManager: systemdManager,
+		podman:         podman,
 		rw:             rw,
 		log:            log,
 		actionServices: make(map[string][]string),
@@ -41,7 +44,7 @@ func (q *Quadlet) add(ctx context.Context, action *Action) error {
 	appName := action.Name
 	q.log.Debugf("Starting quadlet application: %s path: %s", appName, action.Path)
 
-	if err := q.systemd.DaemonReload(ctx); err != nil {
+	if err := q.systemdManager.DaemonReload(ctx); err != nil {
 		return fmt.Errorf("daemon reload: %w", err)
 	}
 
@@ -52,9 +55,10 @@ func (q *Quadlet) add(ctx context.Context, action *Action) error {
 
 	if len(services) > 0 {
 		q.log.Debugf("Starting quadlet: %s services: %q", appName, strings.Join(services, ","))
-		if err := q.systemd.Start(ctx, services...); err != nil {
+		if err := q.systemdManager.Start(ctx, services...); err != nil {
 			return fmt.Errorf("starting units: %w", err)
 		}
+		q.systemdManager.AddExclusions(services...)
 	}
 	q.actionServices[action.ID] = services
 
@@ -74,7 +78,7 @@ func (q *Quadlet) remove(ctx context.Context, action *Action) error {
 
 	if len(services) > 0 {
 		q.log.Debugf("Stopping quadlet: %s services: %q", appName, strings.Join(services, ","))
-		err := q.systemd.Stop(ctx, services...)
+		err := q.systemdManager.Stop(ctx, services...)
 		if err != nil {
 			return fmt.Errorf("stopping units: %w", err)
 		}
@@ -84,18 +88,63 @@ func (q *Quadlet) remove(ctx context.Context, action *Action) error {
 		failedServices := q.getFailedServices(ctx, services)
 		if len(failedServices) > 0 {
 			q.log.Debugf("Resetting failed state for services: %q", strings.Join(failedServices, ","))
-			if resetErr := q.systemd.ResetFailed(ctx, failedServices...); resetErr != nil {
+			if resetErr := q.systemdManager.ResetFailed(ctx, failedServices...); resetErr != nil {
 				q.log.Warnf("Failed to reset-failed for services %q: %v", strings.Join(failedServices, ","), resetErr)
 			}
 		}
+		q.systemdManager.RemoveExclusions(services...)
 	}
 
-	if err := q.systemd.DaemonReload(ctx); err != nil {
+	if err := q.systemdManager.DaemonReload(ctx); err != nil {
 		return fmt.Errorf("daemon reload: %w", err)
 	}
 
 	delete(q.actionServices, action.ID)
 	q.log.Infof("Removed quadlet application: %s", appName)
+
+	// the labels applied to quadlets are only directly applied to that quadlet. They do not apply to
+	// any resources created indirectly. As an example, a container quadlet can create multiple volumes without referencing
+	// a volume quadlet. The label applied to the container will not be applied to the volumes, but since we are
+	// namespacing, we can remove any resources that are directly tied to our application
+	labels := []string{
+		fmt.Sprintf("%s=%s", client.QuadletProjectLabelKey, action.ID),
+	}
+	filters := []string{
+		// any resource that has a name that is prefixed with the quadlet's ID
+		fmt.Sprintf("name=%s-*", action.ID),
+	}
+	var errs []error
+	if err := cleanPodmanResources(ctx, q.podman, labels, filters); err != nil {
+		errs = append(errs, fmt.Errorf("cleaning podman resources: %w", err))
+	}
+
+	// The agent currently doesn't distinguish between "stop for a graceful shutdown", and "remove application". Both elicit
+	// a "remove" operation. Most resources are fine to remove and recreate on startup, as they should be application specific,
+	// but volumes MUST survive restarts. Image backed volumes are removed to allow for updating to newer images if updated,
+	// and on restart, repopulating the volume from the already downloaded image is non-destructive
+	volumes, err := q.podman.ListVolumes(ctx, labels, filters)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("listing volumes: %w", err))
+	}
+	var volsToRemove []string
+	for _, volume := range volumes {
+		driver, err := q.podman.InspectVolumeDriver(ctx, volume)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("inspecting volume %q: %w", volume, err))
+			continue
+		}
+		if driver == "image" {
+			volsToRemove = append(volsToRemove, volume)
+		}
+	}
+	if len(volsToRemove) > 0 {
+		if err := q.podman.RemoveVolumes(ctx, volsToRemove...); err != nil {
+			errs = append(errs, fmt.Errorf("removing volumes: %w", err))
+		}
+	}
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
 	return nil
 }
 
@@ -128,27 +177,18 @@ func (q *Quadlet) serviceName(file string, quadletSection string, defaultName st
 	if err != nil {
 		return "", fmt.Errorf("reading quadlet %s: %w", file, err)
 	}
-	sections, err := unit.DeserializeSections(bytes.NewReader(contents))
+	unit, err := quadlet.NewUnit(contents)
 	if err != nil {
 		return "", fmt.Errorf("parsing quadlet %q: %w", file, err)
 	}
-	var section *unit.UnitSection
-	for _, s := range sections {
-		if s.Section == quadletSection {
-			section = s
-			break
+	name, err := unit.Lookup(quadletSection, quadlet.ServiceNameKey)
+	if err != nil {
+		if errors.Is(err, quadlet.ErrKeyNotFound) {
+			return defaultName, nil
 		}
+		return "", fmt.Errorf("looking up %q: %w", quadletSection, err)
 	}
-	if section == nil {
-		return "", fmt.Errorf("quadlet %q section %q not found", file, quadletSection)
-	}
-
-	for _, entry := range section.Entries {
-		if entry.Name == "ServiceName" {
-			return entry.Value, nil
-		}
-	}
-	return defaultName, nil
+	return name, nil
 }
 
 func (q *Quadlet) collectTargets(path string) ([]string, error) {
@@ -171,12 +211,21 @@ func (q *Quadlet) collectTargets(path string) ([]string, error) {
 		var sectionName string
 		var defaultName string
 		switch ext {
-		case ".container":
-			sectionName = "Container"
+		case quadlet.ContainerExtension:
+			sectionName = quadlet.ContainerGroup
 			defaultName = fmt.Sprintf("%s.service", baseName)
-		case ".pod":
-			sectionName = "Pod"
+		case quadlet.PodExtension:
+			sectionName = quadlet.PodGroup
 			defaultName = fmt.Sprintf("%s-pod.service", baseName)
+		case quadlet.VolumeExtension:
+			sectionName = quadlet.VolumeGroup
+			defaultName = fmt.Sprintf("%s-volume.service", baseName)
+		case quadlet.NetworkExtension:
+			sectionName = quadlet.NetworkGroup
+			defaultName = fmt.Sprintf("%s-network.service", baseName)
+		case quadlet.ImageExtension:
+			sectionName = quadlet.ImageGroup
+			defaultName = fmt.Sprintf("%s-image.service", baseName)
 		case ".target":
 			targets = append(targets, filename)
 			continue
@@ -198,7 +247,7 @@ func (q *Quadlet) collectTargets(path string) ([]string, error) {
 }
 
 func (q *Quadlet) getFailedServices(ctx context.Context, services []string) []string {
-	units, err := q.systemd.ListUnitsByMatchPattern(ctx, services)
+	units, err := q.systemdManager.ListUnitsByMatchPattern(ctx, services)
 	if err != nil {
 		q.log.Warnf("Failed to list units to check for failed state: %v", err)
 		return nil

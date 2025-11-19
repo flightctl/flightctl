@@ -269,8 +269,13 @@ func createQuadletDropIn(readWriter fileio.ReadWriter, dirPath, appID, extension
 	sectionName := quadlet.Extensions[extension]
 
 	unit := quadlet.NewEmptyUnit()
-	// add label for tracking quadlet events by app id
-	unit.Add(sectionName, quadlet.LabelKey, fmt.Sprintf("%s=%s", client.QuadletProjectLabelKey, appID))
+	// Pod quadlets don't have first class support for the LabelKey until v5.6
+	if extension == quadlet.PodExtension {
+		unit.Add(sectionName, quadlet.PodmanArgsKey, fmt.Sprintf("--label=%s=%s", client.QuadletProjectLabelKey, appID))
+	} else {
+		// add label for tracking quadlet events by app id
+		unit.Add(sectionName, quadlet.LabelKey, fmt.Sprintf("%s=%s", client.QuadletProjectLabelKey, appID))
+	}
 
 	// Only containers support environment files
 	if hasEnvFile && extension == quadlet.ContainerExtension {

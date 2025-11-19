@@ -86,7 +86,7 @@ func TestExtractOrgIDFromRequestCert(t *testing.T) {
 	contextWithCertAndOrg := func(cert *x509.Certificate, org *orgmodel.Organization) context.Context {
 		ctx := context.WithValue(context.Background(), consts.TLSPeerCertificateCtxKey, cert)
 		if org != nil {
-			mappedIdentity := identity.NewMappedIdentity("test-user", "test-uid", []*orgmodel.Organization{org}, []string{}, identity.NewIssuer("test", "test-issuer"))
+			mappedIdentity := identity.NewMappedIdentity("test-user", "test-uid", []*orgmodel.Organization{org}, map[string][]string{}, false, identity.NewIssuer("test", "test-issuer"))
 			ctx = context.WithValue(ctx, consts.MappedIdentityCtxKey, mappedIdentity)
 		}
 		return ctx

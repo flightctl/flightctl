@@ -21,6 +21,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
+	"github.com/flightctl/flightctl/internal/agent/device/spec/audit"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/internal/agent/device/systeminfo"
@@ -32,6 +33,7 @@ import (
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/poll"
+	"github.com/flightctl/flightctl/pkg/version"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 )
@@ -150,6 +152,9 @@ func (a *Agent) Run(ctx context.Context) error {
 	// create podman client
 	podmanClient := client.NewPodman(a.log, executer, deviceReadWriter, pollBackoff)
 
+	// create skopeo client
+	skopeoClient := client.NewSkopeo(a.log, executer, deviceReadWriter)
+
 	// create systemd client
 	systemdClient := client.NewSystemd(executer)
 
@@ -187,6 +192,23 @@ func (a *Agent) Run(ctx context.Context) error {
 		return wipeCertificateAndRestart(ctx, identityProvider, executer, a.log)
 	}
 
+	// create audit logger
+	auditLogger, err := audit.NewFileLogger(
+		&a.config.AuditLog,
+		deviceReadWriter,
+		deviceName,
+		version.Get().String(),
+		a.log,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create audit logger: %w", err)
+	}
+	defer func() {
+		if err := auditLogger.Close(); err != nil {
+			a.log.Errorf("Failed to close audit logger: %v", err)
+		}
+	}()
+
 	// create spec manager
 	specManager := spec.NewManager(
 		deviceName,
@@ -197,6 +219,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.config.SpecFetchInterval,
 		backoff,
 		deviceNotFoundHandler,
+		auditLogger,
 		a.log,
 	)
 
@@ -208,26 +231,26 @@ func (a *Agent) Run(ctx context.Context) error {
 	// create hook manager
 	hookManager := hook.NewManager(deviceReadWriter, executer, a.log)
 
+	// create systemd manager
+	systemdManager := systemd.NewManager(a.log, systemdClient)
+
 	// create application manager
 	applicationsManager := applications.NewManager(
 		a.log,
 		deviceReadWriter,
 		podmanClient,
 		systemInfoManager,
-		systemdClient,
+		systemdManager,
 	)
 
 	// register the application manager with the shutdown manager
 	shutdownManager.Register("applications", applicationsManager.Shutdown)
 
-	// create systemd manager
-	systemdManager := systemd.NewManager(a.log, systemdClient)
-
 	// create os manager
 	osManager := os.NewManager(a.log, osClient, deviceReadWriter, podmanClient)
 
 	// create prefetch manager
-	prefetchManager := dependency.NewPrefetchManager(a.log, podmanClient, deviceReadWriter, a.config.PullTimeout)
+	prefetchManager := dependency.NewPrefetchManager(a.log, podmanClient, skopeoClient, deviceReadWriter, a.config.PullTimeout)
 
 	// create status manager
 	statusManager := status.NewManager(

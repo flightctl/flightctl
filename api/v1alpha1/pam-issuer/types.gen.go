@@ -7,6 +7,18 @@ const (
 	BearerAuthScopes = "bearerAuth.Scopes"
 )
 
+// Defines values for OAuth2ErrorError.
+const (
+	InvalidClient          OAuth2ErrorError = "invalid_client"
+	InvalidGrant           OAuth2ErrorError = "invalid_grant"
+	InvalidRequest         OAuth2ErrorError = "invalid_request"
+	InvalidScope           OAuth2ErrorError = "invalid_scope"
+	ServerError            OAuth2ErrorError = "server_error"
+	TemporarilyUnavailable OAuth2ErrorError = "temporarily_unavailable"
+	UnauthorizedClient     OAuth2ErrorError = "unauthorized_client"
+	UnsupportedGrantType   OAuth2ErrorError = "unsupported_grant_type"
+)
+
 // Defines values for OpenIDConfigurationCodeChallengeMethodsSupported.
 const (
 	OpenIDConfigurationCodeChallengeMethodsSupportedS256 OpenIDConfigurationCodeChallengeMethodsSupported = "S256"
@@ -72,6 +84,21 @@ type JWKSResponse struct {
 	} `json:"keys,omitempty"`
 }
 
+// OAuth2Error OAuth2 error response (RFC 6749 Section 5.2)
+type OAuth2Error struct {
+	// Code OAuth2 error code (RFC 6749 Section 5.2).
+	Code OAuth2ErrorError `json:"error"`
+
+	// ErrorDescription Human-readable ASCII text providing additional information.
+	ErrorDescription *string `json:"error_description,omitempty"`
+
+	// ErrorUri URI identifying a human-readable web page with information about the error.
+	ErrorUri *string `json:"error_uri,omitempty"`
+}
+
+// OAuth2ErrorError OAuth2 error code (RFC 6749 Section 5.2).
+type OAuth2ErrorError string
+
 // OpenIDConfiguration OpenID Connect configuration
 type OpenIDConfiguration struct {
 	// AuthorizationEndpoint Authorization endpoint.
@@ -120,27 +147,6 @@ type OpenIDConfigurationCodeChallengeMethodsSupported string
 // OpenIDConfigurationSubjectTypesSupported defines model for OpenIDConfiguration.SubjectTypesSupported.
 type OpenIDConfigurationSubjectTypesSupported string
 
-// Status Status is a return value for calls that don't return other objects.
-type Status struct {
-	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
-	ApiVersion string `json:"apiVersion"`
-
-	// Code Suggested HTTP return code for this status, 0 if not set.
-	Code int32 `json:"code"`
-
-	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
-	Kind string `json:"kind"`
-
-	// Message A human-readable description of the status of this operation.
-	Message string `json:"message"`
-
-	// Reason A machine-readable description of why this operation is in the "Failure" status. If this value is empty there is no information available. A Reason clarifies an HTTP status code but does not override it.
-	Reason string `json:"reason"`
-
-	// Status Status of the operation. One of: "Success" or "Failure". More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#spec-and-status.
-	Status string `json:"status"`
-}
-
 // TokenRequest OAuth2 token request
 type TokenRequest struct {
 	// ClientId OAuth2 client ID.
@@ -161,6 +167,9 @@ type TokenRequest struct {
 	// Password Password for password grant (not used in OIDC flows).
 	Password *string `json:"password"`
 
+	// RedirectUri OAuth2 redirect URI (required for authorization_code grant if included in authorization request).
+	RedirectUri *string `json:"redirect_uri"`
+
 	// RefreshToken Refresh token for refresh_token grant.
 	RefreshToken *string `json:"refresh_token"`
 
@@ -174,16 +183,10 @@ type TokenRequest struct {
 // TokenRequestGrantType OAuth2 grant type.
 type TokenRequestGrantType string
 
-// TokenResponse OAuth2 token response
+// TokenResponse OAuth2 successful token response
 type TokenResponse struct {
 	// AccessToken OAuth2 access token.
-	AccessToken *string `json:"access_token,omitempty"`
-
-	// Error OAuth2 error code.
-	Error *string `json:"error,omitempty"`
-
-	// ErrorDescription OAuth2 error description.
-	ErrorDescription *string `json:"error_description,omitempty"`
+	AccessToken string `json:"access_token"`
 
 	// ExpiresIn Token expiration time in seconds.
 	ExpiresIn *int `json:"expires_in,omitempty"`
@@ -192,7 +195,7 @@ type TokenResponse struct {
 	RefreshToken *string `json:"refresh_token,omitempty"`
 
 	// TokenType Token type.
-	TokenType *TokenResponseTokenType `json:"token_type,omitempty"`
+	TokenType TokenResponseTokenType `json:"token_type"`
 }
 
 // TokenResponseTokenType Token type.
@@ -205,9 +208,6 @@ type UserInfoResponse struct {
 
 	// EmailVerified Email verification status.
 	EmailVerified *bool `json:"email_verified,omitempty"`
-
-	// Error Error code.
-	Error *string `json:"error,omitempty"`
 
 	// Name Full name.
 	Name *string `json:"name,omitempty"`
@@ -222,7 +222,7 @@ type UserInfoResponse struct {
 	Roles *[]string `json:"roles,omitempty"`
 
 	// Sub Subject identifier.
-	Sub *string `json:"sub,omitempty"`
+	Sub string `json:"sub"`
 }
 
 // AuthAuthorizeParams defines parameters for AuthAuthorize.

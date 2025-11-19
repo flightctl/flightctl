@@ -1,7 +1,7 @@
 global:
   baseDomain:
   auth:
-    type: oidc # aap, oidc, builtin (legacy, translates to oidc with PAM), or none
+    type: oidc # k8s, oidc, aap, openshift, oauth2, or none
     insecureSkipTlsVerify: true
     aap:
       apiUrl:
@@ -10,6 +10,7 @@ global:
       oAuthToken:
     oidc:
       clientId: flightctl-client
+      clientSecret:  # Optional: Client secret for OIDC provider (injected by token proxy)
       enabled: true
       issuer:
       externalOidcAuthority:
@@ -20,6 +21,7 @@ global:
         - preferred_username
       roleAssignment:
         type: dynamic
+        separator: ":"
         claimPath:
           - roles
     pamOidcIssuer:

@@ -17,6 +17,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/test/util"
@@ -210,8 +211,10 @@ func TestListenForEvents(t *testing.T) {
 			require.NoError(err)
 
 			podman := client.NewPodman(log, execMock, rw, util.NewPollConfig())
-			systemd := client.NewSystemd(execMock)
-			podmanMonitor := NewPodmanMonitor(log, podman, systemd, "", rw)
+			systemdMgr := systemd.NewMockManager(ctrl)
+			systemdMgr.EXPECT().AddExclusions(gomock.Any()).AnyTimes()
+			systemdMgr.EXPECT().RemoveExclusions(gomock.Any()).AnyTimes()
+			podmanMonitor := NewPodmanMonitor(log, podman, systemdMgr, "", rw)
 
 			// add test apps to the monitor
 			for _, testApp := range tc.apps {
@@ -358,8 +361,10 @@ func TestApplicationAddRemove(t *testing.T) {
 			execMock := executer.NewMockExecuter(ctrl)
 
 			podman := client.NewPodman(log, execMock, readWriter, util.NewPollConfig())
-			systemd := client.NewSystemd(execMock)
-			podmanMonitor := NewPodmanMonitor(log, podman, systemd, "", readWriter)
+			systemdMgr := systemd.NewMockManager(ctrl)
+			systemdMgr.EXPECT().AddExclusions(gomock.Any()).AnyTimes()
+			systemdMgr.EXPECT().RemoveExclusions(gomock.Any()).AnyTimes()
+			podmanMonitor := NewPodmanMonitor(log, podman, systemdMgr, "", readWriter)
 			testApp := createTestApplication(require, tc.appName, v1alpha1.ApplicationStatusPreparing)
 
 			switch tc.action {
@@ -476,7 +481,7 @@ func (m *mockProvider) Spec() *provider.ApplicationSpec {
 	}
 }
 
-func (m *mockProvider) OCITargets(pullSecret *client.PullSecret) ([]dependency.OCIPullTarget, error) {
+func (m *mockProvider) OCITargets(ctx context.Context, pullSecret *client.PullSecret) ([]dependency.OCIPullTarget, error) {
 	return nil, nil
 }
 
@@ -504,7 +509,6 @@ func TestPodmanMonitorMultipleAddRemoveCycles(t *testing.T) {
 	mockReadWriter := fileio.NewMockReadWriter(ctrl)
 	mockExec := executer.NewMockExecuter(ctrl)
 	mockPodmanClient := client.NewPodman(log, mockExec, mockReadWriter, util.NewPollConfig())
-	mockSystemdClient := client.NewSystemd(mockExec)
 
 	readWriter := fileio.NewReadWriter()
 	tmpDir := t.TempDir()
@@ -517,7 +521,7 @@ func TestPodmanMonitorMultipleAddRemoveCycles(t *testing.T) {
 			return exec.CommandContext(ctx, "echo", fmt.Sprintf(`{"timeNano": %d}`, now)) //nolint:gosec
 		}).AnyTimes()
 
-	podmanMonitor := NewPodmanMonitor(log, mockPodmanClient, mockSystemdClient, "", readWriter)
+	podmanMonitor := NewPodmanMonitor(log, mockPodmanClient, systemd.NewMockManager(ctrl), "", readWriter)
 
 	// Override lifecycle handlers with no-op mocks to avoid file/exec expectations
 	mockComposeHandler := lifecycle.NewMockActionHandler(ctrl)
@@ -609,7 +613,6 @@ func TestPodmanMonitorHandlerSelection(t *testing.T) {
 	mockReadWriter := fileio.NewMockReadWriter(ctrl)
 	mockExec := executer.NewMockExecuter(ctrl)
 	mockPodmanClient := client.NewPodman(log, mockExec, mockReadWriter, util.NewPollConfig())
-	mockSystemdClient := client.NewSystemd(mockExec)
 
 	readWriter := fileio.NewReadWriter()
 	tmpDir := t.TempDir()
@@ -621,7 +624,7 @@ func TestPodmanMonitorHandlerSelection(t *testing.T) {
 			return exec.CommandContext(ctx, "echo", fmt.Sprintf(`{"timeNano": %d}`, now)) //nolint:gosec
 		}).AnyTimes()
 
-	podmanMonitor := NewPodmanMonitor(log, mockPodmanClient, mockSystemdClient, "", readWriter)
+	podmanMonitor := NewPodmanMonitor(log, mockPodmanClient, systemd.NewMockManager(ctrl), "", readWriter)
 
 	// Create separate mock handlers to track which one gets called
 	mockComposeHandler := lifecycle.NewMockActionHandler(ctrl)

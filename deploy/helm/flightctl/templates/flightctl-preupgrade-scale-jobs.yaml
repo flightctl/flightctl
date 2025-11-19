@@ -22,7 +22,7 @@
   {{- end -}}
 {{- end -}}
 
-{{- if and (gt (len $deploymentsToScale) 0) (ne .Values.global.target "acm") }}
+{{- if gt (len $deploymentsToScale) 0 }}
 ---
 # ServiceAccount and RBAC for pre-upgrade scaling
 apiVersion: v1

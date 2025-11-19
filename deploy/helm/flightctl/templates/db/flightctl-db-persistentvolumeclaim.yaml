@@ -4,10 +4,13 @@ kind: PersistentVolumeClaim
 metadata:
   annotations:
     kubernetes.io/reclaimPolicy: Delete
-  {{- if .Values.global.appCode }}
   labels:
-    paas.redhat.com/appcode: {{ .Values.global.appCode }}
-  {{- end }}
+    {{- with .Values.global.additionalPVCLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    {{- with .Values.db.additionalPVCLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
   name: flightctl-db
   namespace:  {{ default .Release.Namespace .Values.global.internalNamespace }}
 spec:

@@ -20,6 +20,10 @@ spec:
         flightctl.service: flightctl-cli-artifacts
         {{- include "flightctl.standardLabels" . | nindent 8 }}
     spec:
+      {{- if .Values.global.imagePullSecretName }}
+      imagePullSecrets:
+        - name: {{ .Values.global.imagePullSecretName }}
+      {{- end }}
       containers:
         - name: flightctl-cli-artifacts
           image: {{ .Values.cliArtifacts.image.image }}:{{ default .Chart.AppVersion .Values.cliArtifacts.image.tag }}

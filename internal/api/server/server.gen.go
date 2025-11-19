@@ -18,8 +18,17 @@ type ServerInterface interface {
 	// (GET /api/v1/auth/config)
 	AuthConfig(w http.ResponseWriter, r *http.Request)
 
+	// (GET /api/v1/auth/permissions)
+	AuthGetPermissions(w http.ResponseWriter, r *http.Request)
+
+	// (GET /api/v1/auth/userinfo)
+	AuthUserInfo(w http.ResponseWriter, r *http.Request)
+
 	// (GET /api/v1/auth/validate)
 	AuthValidate(w http.ResponseWriter, r *http.Request, params AuthValidateParams)
+
+	// (POST /api/v1/auth/{providername}/token)
+	AuthToken(w http.ResponseWriter, r *http.Request, providername string)
 
 	// (GET /api/v1/authproviders)
 	ListAuthProviders(w http.ResponseWriter, r *http.Request, params ListAuthProvidersParams)
@@ -226,8 +235,23 @@ func (_ Unimplemented) AuthConfig(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// (GET /api/v1/auth/permissions)
+func (_ Unimplemented) AuthGetPermissions(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /api/v1/auth/userinfo)
+func (_ Unimplemented) AuthUserInfo(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // (GET /api/v1/auth/validate)
 func (_ Unimplemented) AuthValidate(w http.ResponseWriter, r *http.Request, params AuthValidateParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /api/v1/auth/{providername}/token)
+func (_ Unimplemented) AuthToken(w http.ResponseWriter, r *http.Request, providername string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -581,6 +605,36 @@ func (siw *ServerInterfaceWrapper) AuthConfig(w http.ResponseWriter, r *http.Req
 	handler.ServeHTTP(w, r.WithContext(ctx))
 }
 
+// AuthGetPermissions operation middleware
+func (siw *ServerInterfaceWrapper) AuthGetPermissions(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AuthGetPermissions(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// AuthUserInfo operation middleware
+func (siw *ServerInterfaceWrapper) AuthUserInfo(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AuthUserInfo(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
 // AuthValidate operation middleware
 func (siw *ServerInterfaceWrapper) AuthValidate(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -613,6 +667,32 @@ func (siw *ServerInterfaceWrapper) AuthValidate(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.AuthValidate(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// AuthToken operation middleware
+func (siw *ServerInterfaceWrapper) AuthToken(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var err error
+
+	// ------------- Path parameter "providername" -------------
+	var providername string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "providername", chi.URLParam(r, "providername"), &providername, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "providername", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AuthToken(w, r, providername)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2653,7 +2733,16 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/api/v1/auth/config", wrapper.AuthConfig)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/auth/permissions", wrapper.AuthGetPermissions)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/auth/userinfo", wrapper.AuthUserInfo)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/auth/validate", wrapper.AuthValidate)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/auth/{providername}/token", wrapper.AuthToken)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/authproviders", wrapper.ListAuthProviders)
