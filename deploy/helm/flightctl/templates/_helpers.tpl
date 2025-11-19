@@ -39,19 +39,84 @@ app.kubernetes.io/version: {{ .Chart.AppVersion }}
 {{- end -}}
 
 {{- define "flightctl.getOpenShiftAPIUrl" }}
-  {{- if .Values.global.auth.k8s.externalOpenShiftApiUrl }}
-    {{- printf .Values.global.auth.k8s.externalOpenShiftApiUrl }}
-  {{- else if .Values.global.apiUrl }}
+  {{- /* Returns the OpenShift Kubernetes API server URL (e.g., https://api.example.com:6443) */}}
+  {{- if .Values.global.apiUrl }}
     {{- printf .Values.global.apiUrl }}
-  {{- else if .Values.global.auth.k8s.apiUrl }}
-    {{- printf .Values.global.auth.k8s.apiUrl }}
   {{- else }}
-    {{- /* For OpenShift deployments, try to lookup the API URL */}}
     {{- $dnsConfig := (lookup "config.openshift.io/v1" "DNS" "" "cluster") }}
     {{- if and $dnsConfig $dnsConfig.spec $dnsConfig.spec.baseDomain }}
       {{- printf "https://api.%s:6443" $dnsConfig.spec.baseDomain }}
     {{- else }}
-      {{- fail "Unable to determine API URL. Please set global.auth.k8s.externalOpenShiftApiUrl, global.apiUrl, global.auth.k8s.apiUrl, or deploy on OpenShift" }}
+      {{- fail "Unable to determine OpenShift API URL. Please set global.apiUrl or deploy on OpenShift" }}
+    {{- end }}
+  {{- end }}
+{{- end }}
+
+{{- define "flightctl.getOpenShiftOAuthServerUrl" }}
+  {{- /* Returns the OpenShift OAuth server URL by looking up the oauth-openshift route */}}
+  {{- $oauthRoute := (lookup "route.openshift.io/v1" "Route" "openshift-authentication" "oauth-openshift") }}
+  {{- if and $oauthRoute $oauthRoute.spec $oauthRoute.spec.host }}
+    {{- printf "https://%s" $oauthRoute.spec.host }}
+  {{- else }}
+    {{- fail "Unable to find oauth-openshift route in openshift-authentication namespace. For HyperShift or non-standard OpenShift clusters, you must manually set authorizationUrl, tokenUrl, and issuer in global.auth.openshift" }}
+  {{- end }}
+{{- end }}
+
+{{- define "flightctl.getOpenShiftOAuthAuthorizationUrl" }}
+  {{- if .Values.global.auth.openshift.authorizationUrl }}
+    {{- printf .Values.global.auth.openshift.authorizationUrl }}
+  {{- else }}
+    {{- $oauthUrl := (include "flightctl.getOpenShiftOAuthServerUrl" .) }}
+    {{- printf "%s/oauth/authorize" $oauthUrl }}
+  {{- end }}
+{{- end }}
+
+{{- define "flightctl.getOpenShiftOAuthTokenUrl" }}
+  {{- if .Values.global.auth.openshift.tokenUrl }}
+    {{- printf .Values.global.auth.openshift.tokenUrl }}
+  {{- else }}
+    {{- $oauthUrl := (include "flightctl.getOpenShiftOAuthServerUrl" .) }}
+    {{- printf "%s/oauth/token" $oauthUrl }}
+  {{- end }}
+{{- end }}
+
+{{- define "flightctl.getOpenShiftOAuthIssuer" }}
+  {{- if .Values.global.auth.openshift.issuer }}
+    {{- printf .Values.global.auth.openshift.issuer }}
+  {{- else if .Values.global.auth.openshift.authorizationUrl }}
+    {{- printf .Values.global.auth.openshift.authorizationUrl }}
+  {{- else }}
+    {{- $oauthUrl := (include "flightctl.getOpenShiftOAuthServerUrl" .) }}
+    {{- printf "%s/oauth/authorize" $oauthUrl }}
+  {{- end }}
+{{- end }}
+
+{{- define "flightctl.getOpenShiftOAuthClientId" }}
+  {{- if .Values.global.auth.openshift.clientId }}
+    {{- printf .Values.global.auth.openshift.clientId }}
+  {{- else }}
+    {{- printf "flightctl-%s" .Release.Name }}
+  {{- end }}
+{{- end }}
+
+{{/*
+Get or generate a stable OAuth client secret.
+Follows the same pattern as database secrets: lookup existing, fallback to value, or generate new.
+*/}}
+{{- define "flightctl.getOpenShiftOAuthClientSecret" }}
+  {{- if .Values.global.auth.openshift.clientSecret }}
+    {{- printf .Values.global.auth.openshift.clientSecret }}
+  {{- else }}
+    {{- $secretName := printf "%s-secret" (include "flightctl.getOpenShiftOAuthClientId" .) }}
+    {{- $existingSecret := (lookup "v1" "Secret" "openshift-config" $secretName) }}
+    {{- if $existingSecret }}
+      {{- if and (hasKey $existingSecret "data") (hasKey $existingSecret.data "clientSecret") }}
+        {{- index $existingSecret.data "clientSecret" | b64dec }}
+      {{- else }}
+        {{- fail (printf "Secret %s is missing data.clientSecret – delete it or add the key." $secretName) }}
+      {{- end }}
+    {{- else }}
+      {{- randAlphaNum 32 }}
     {{- end }}
   {{- end }}
 {{- end }}
@@ -115,14 +180,33 @@ app.kubernetes.io/version: {{ .Chart.AppVersion }}
 {{- end }}
 
 {{- /*
-Get the effective auth type, translating 'builtin' to 'oidc' for backwards compatibility.
+Detect if running on OpenShift by checking for OpenShift-specific resources
+*/}}
+{{- define "flightctl.isOpenShift" }}
+  {{- $dnsConfig := (lookup "config.openshift.io/v1" "DNS" "" "cluster") }}
+  {{- if $dnsConfig }}
+    {{- print "true" }}
+  {{- else }}
+    {{- print "false" }}
+  {{- end }}
+{{- end }}
+
+{{- /*
+Get the effective auth type with auto-detection:
+- Auto-detects OpenShift and sets type to "openshift" if not explicitly set
+- Falls back to k8s if no auth type specified and not on OpenShift
 Usage: {{- $authType := include "flightctl.getEffectiveAuthType" . }}
 */}}
 {{- define "flightctl.getEffectiveAuthType" }}
-  {{- if eq .Values.global.auth.type "builtin" }}
-    {{- print "oidc" }}
-  {{- else }}
+  {{- if .Values.global.auth.type }}
     {{- print .Values.global.auth.type }}
+  {{- else }}
+    {{- /* Auto-detect: if on OpenShift, use openshift auth, otherwise k8s */}}
+    {{- if eq (include "flightctl.isOpenShift" .) "true" }}
+      {{- print "openshift" }}
+    {{- else }}
+      {{- print "k8s" }}
+    {{- end }}
   {{- end }}
 {{- end }}
 
