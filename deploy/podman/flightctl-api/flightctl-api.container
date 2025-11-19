@@ -26,8 +26,8 @@ Restart=always
 RestartSec=30
 LimitNOFILE=300000
 
-ExecStartPre=/usr/bin/flightctl-ground-crew render --input-file /usr/share/flightctl/flightctl-api/config.yaml.template --output-file /etc/flightctl/flightctl-api/config.yaml
-ExecStartPre=/usr/bin/flightctl-ground-crew render --input-file /usr/share/flightctl/flightctl-api/env.template --output-file /etc/flightctl/flightctl-api/env
+ExecStartPre=/usr/bin/flightctl-standalone render template --input-file /usr/share/flightctl/flightctl-api/config.yaml.template --output-file /etc/flightctl/flightctl-api/config.yaml
+ExecStartPre=/usr/bin/flightctl-standalone render template --input-file /usr/share/flightctl/flightctl-api/env.template --output-file /etc/flightctl/flightctl-api/env
 
 [Install]
 WantedBy=flightctl.target

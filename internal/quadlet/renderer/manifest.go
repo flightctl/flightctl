@@ -73,8 +73,8 @@ func servicesManifest(config *RendererConfig) []InstallAction {
 		{Action: ActionCopyFile, Source: "deploy/scripts/secrets.sh", Destination: filepath.Join(config.ReadOnlyConfigOutputDir, "secrets.sh"), Template: false, Mode: ExecutableFileMode},
 		{Action: ActionCopyFile, Source: "deploy/scripts/yaml_helpers.py", Destination: filepath.Join(config.ReadOnlyConfigOutputDir, "yaml_helpers.py"), Template: false, Mode: RegularFileMode},
 
-		// Ground crew binary
-		{Action: ActionCopyFile, Source: "bin/flightctl-ground-crew", Destination: filepath.Join(config.BinOutputDir, "flightctl-ground-crew"), Template: false, Mode: ExecutableFileMode},
+		// Standalone binary
+		{Action: ActionCopyFile, Source: "bin/flightctl-standalone", Destination: filepath.Join(config.BinOutputDir, "flightctl-standalone"), Template: false, Mode: ExecutableFileMode},
 
 		// Empty files
 		{Action: ActionCreateEmptyFile, Destination: filepath.Join(config.WriteableConfigOutputDir, "ssh", "known_hosts"), Mode: RegularFileMode},

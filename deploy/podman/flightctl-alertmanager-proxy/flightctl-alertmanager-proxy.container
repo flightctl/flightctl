@@ -19,8 +19,8 @@ Environment=DB_USER=flightctl_app
 Restart=always
 RestartSec=30
 
-ExecStartPre=/usr/bin/flightctl-ground-crew render --input-file /usr/share/flightctl/flightctl-alertmanager-proxy/config.yaml.template --output-file /etc/flightctl/flightctl-alertmanager-proxy/config.yaml
-ExecStartPre=/usr/bin/flightctl-ground-crew render --input-file /usr/share/flightctl/flightctl-alertmanager-proxy/env.template --output-file /etc/flightctl/flightctl-alertmanager-proxy/env
+ExecStartPre=/usr/bin/flightctl-standalone render template --input-file /usr/share/flightctl/flightctl-alertmanager-proxy/config.yaml.template --output-file /etc/flightctl/flightctl-alertmanager-proxy/config.yaml
+ExecStartPre=/usr/bin/flightctl-standalone render template --input-file /usr/share/flightctl/flightctl-alertmanager-proxy/env.template --output-file /etc/flightctl/flightctl-alertmanager-proxy/env
 
 [Install]
 WantedBy=flightctl.target

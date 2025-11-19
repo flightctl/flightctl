@@ -1,45 +1,21 @@
 package main
 
 import (
-	"fmt"
-	"os"
-
 	"github.com/flightctl/flightctl/pkg/template"
 	"github.com/spf13/cobra"
 )
 
-func main() {
-	command := NewGroundCrewCommand()
-	if err := command.Execute(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
-}
-
-func NewGroundCrewCommand() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "flightctl-ground-crew [command]",
-		Short: "Flight Control utility functions for quadlet services",
-		Run: func(cmd *cobra.Command, args []string) {
-			_ = cmd.Help()
-			os.Exit(0)
-		},
-	}
-	cmd.AddCommand(NewRenderCommand())
-	return cmd
-}
-
-type RenderOptions struct {
+type RenderTemplateOptions struct {
 	Config     string
 	InputFile  string
 	OutputFile string
 }
 
-func NewRenderCommand() *cobra.Command {
-	opts := &RenderOptions{}
+func NewRenderTemplateCommand() *cobra.Command {
+	opts := &RenderTemplateOptions{}
 
 	cmd := &cobra.Command{
-		Use:   "render",
+		Use:   "template",
 		Short: "Render templates from config data",
 		Long:  `Render templates using configuration data from a YAML file.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -57,6 +33,6 @@ func NewRenderCommand() *cobra.Command {
 	return cmd
 }
 
-func (o *RenderOptions) Run() error {
+func (o *RenderTemplateOptions) Run() error {
 	return template.Render(o.Config, o.InputFile, o.OutputFile)
 }

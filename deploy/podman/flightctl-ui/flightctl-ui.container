@@ -19,7 +19,7 @@ Volume=flightctl-ui-certs:/app/certs:ro,z
 Restart=always
 RestartSec=30
 
-ExecStartPre=/usr/bin/flightctl-ground-crew render --input-file /usr/share/flightctl/flightctl-ui/env.template --output-file /etc/flightctl/flightctl-ui/env
+ExecStartPre=/usr/bin/flightctl-standalone render template --input-file /usr/share/flightctl/flightctl-ui/env.template --output-file /etc/flightctl/flightctl-ui/env
 
 [Install]
 WantedBy=flightctl.target

@@ -21,4 +21,4 @@ PublishPort=8090:8090
 Restart=always
 RestartSec=30
 
-ExecStartPre=/usr/bin/flightctl-ground-crew render --input-file /usr/share/flightctl/flightctl-cli-artifacts/env.template --output-file /etc/flightctl/flightctl-cli-artifacts/env
+ExecStartPre=/usr/bin/flightctl-standalone render template --input-file /usr/share/flightctl/flightctl-cli-artifacts/env.template --output-file /etc/flightctl/flightctl-cli-artifacts/env

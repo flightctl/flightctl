@@ -428,9 +428,9 @@ echo "Flightctl Observability Stack uninstalled."
     SOURCE_GIT_COMMIT="%{?SOURCE_GIT_COMMIT:%{SOURCE_GIT_COMMIT}}%{!?SOURCE_GIT_COMMIT:%(echo %{version} | grep -o '[-~]g[0-9a-f]*' | sed 's/[-~]g//' || echo unknown)}" \
     SOURCE_GIT_TAG_NO_V="%{?SOURCE_GIT_TAG_NO_V:%{SOURCE_GIT_TAG_NO_V}}%{!?SOURCE_GIT_TAG_NO_V:%{version}}" \
     %if 0%{?rhel} == 9
-        %make_build build-cli build-agent build-restore build-render-quadlets build-ground-crew
+        %make_build build-cli build-agent build-restore build-standalone
     %else
-        DISABLE_FIPS="true" %make_build build-cli build-agent build-restore build-render-quadlets build-ground-crew
+        DISABLE_FIPS="true" %make_build build-cli build-agent build-restore build-standalone
     %endif
 
     # SELinux modules build
@@ -468,14 +468,14 @@ echo "Flightctl Observability Stack uninstalled."
     install -Dpm 0644 packaging/flightctl-services-install.conf %{buildroot}%{_sysconfdir}/flightctl/flightctl-services-install.conf
 
     # flightctl-services sub-package steps
-    # Use the render-quadlets binary to generate quadlet files with the correct image tags.
+    # Use the flightctl-standalone render quadlets command to generate quadlet files with the correct image tags.
     #
     # The IMAGE_TAG is derived from the RPM version, which may include tildes (~)
     # for proper version sorting (e.g., 0.5.1~rc1-1). However, the tagged images
     # always use hyphens (-) instead of tildes (~). To ensure valid image tags we need
     # to transform the version string by replacing tildes with hyphens.
     IMAGE_TAG=$(echo %{version} | tr '~' '-')
-    bin/render-quadlets \
+    bin/flightctl-standalone render quadlets \
         --config deploy/podman/images.yaml \
         --flightctl-services-tag-override "${IMAGE_TAG}" \
         --readonly-config-dir "%{buildroot}%{_datadir}/flightctl" \
@@ -680,7 +680,7 @@ rm -rf /usr/share/sosreport
 
     # Files mounted to bin dir
     %attr(0755,root,root) %{_bindir}/flightctl-services-must-gather
-    %attr(0755,root,root) %{_bindir}/flightctl-ground-crew
+    %attr(0755,root,root) %{_bindir}/flightctl-standalone
 
 # Optional pre-upgrade database migration dry-run
 %pre services
@@ -757,7 +757,7 @@ fi
 
 %changelog
 * Mon Nov 17 2025 Dakota Crowder <dcrowder@redhat.com> - 1.0-1
-- Refactoring quadlet install
+- Refactoring quadlet install, add standalone utils
 * Wed Nov 12 2025 Ben Keith <bkeith@redhat.com> - 1.0-1
 - Make observability and telemetry-gateway packages require services package
 * Mon Oct 27 2025 Dakota Crowder <dcrowder@redhat.com> - 1.0-1
