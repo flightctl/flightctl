@@ -25,12 +25,14 @@ var _ = Describe("Agent Audit Log", func() {
 		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
 
 		var err error
-		h, err = harness.NewTestHarness(ctx, GinkgoT().TempDir(), func(err error) {
-			// this inline function handles any errors that are returned from go routines
-			fmt.Fprintf(os.Stderr, "Error in test harness go routine: %v\n", err)
-			GinkgoWriter.Printf("Error in go routine: %v\n", err)
-			GinkgoRecover()
-		}, harness.WithAgentAudit())
+		h, err = harness.NewTestHarness(ctx,
+			GinkgoT().TempDir(),
+			func(err error) {
+				// this inline function handles any errors that are returned from go routines
+				fmt.Fprintf(os.Stderr, "Error in test harness go routine: %v\n", err)
+				GinkgoWriter.Printf("Error in go routine: %v\n", err)
+				GinkgoRecover()
+			}, harness.WithAgentAudit())
 		// check for test harness creation errors
 		Expect(err).ToNot(HaveOccurred())
 	})
