@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"syscall"
 
 	"github.com/flightctl/flightctl/pkg/poll"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -33,6 +34,9 @@ var (
 	// compose
 	ErrNoComposeFile     = errors.New("no valid compose file found")
 	ErrNoComposeServices = errors.New("no services found in compose spec")
+
+	// quadlet
+	ErrNoQuadletFile = errors.New("no quadlet file found")
 
 	// application status
 	ErrUnknownApplicationStatus = errors.New("unknown application status")
@@ -84,15 +88,23 @@ var (
 	ErrInvalidPolicyType      = errors.New("invalid policy type")
 
 	// prefetch
-	ErrPrefetchNotReady = errors.New("oci prefetch not ready")
+	ErrPrefetchNotReady     = errors.New("oci prefetch not ready")
+	ErrOCICollectorNotReady = errors.New("oci target collector not ready")
 
 	// bootc
 	ErrBootcStatusInvalidJSON = errors.New("bootc status did not return valid JSON")
+
+	// Certificate management errors
+	ErrCreateCertificateSigningRequest = errors.New("failed to create certificate signing request")
 )
 
 // TODO: tighten up the retryable errors ideally all retryable errors should be explicitly defined
 func IsRetryable(err error) bool {
+	var dnsErr *net.DNSError
 	switch {
+	case errors.As(err, &dnsErr):
+		// see https://pkg.go.dev/net#DNSError
+		return dnsErr.Temporary()
 	case IsTimeoutError(err):
 		return true
 	case errors.Is(err, ErrRetryable):
@@ -101,7 +113,7 @@ func IsRetryable(err error) bool {
 		return true
 	case errors.Is(err, ErrDownloadPolicyNotReady), errors.Is(err, ErrUpdatePolicyNotReady):
 		return true
-	case errors.Is(err, ErrPrefetchNotReady):
+	case errors.Is(err, ErrPrefetchNotReady), errors.Is(err, ErrOCICollectorNotReady):
 		return true
 	case errors.Is(err, ErrNoContent):
 		// no content is a retryable error it means the server does not have a
@@ -113,6 +125,9 @@ func IsRetryable(err error) bool {
 		// retry the request as the error is transient.
 		return true
 	case errors.Is(err, poll.ErrMaxSteps):
+		return true
+	case errors.Is(err, syscall.ECONNRESET):
+		// connection reset by peer is a transient network error
 		return true
 	case errors.Is(err, ErrNoRetry):
 		return false
@@ -143,6 +158,10 @@ func IsTimeoutError(err error) bool {
 	}
 
 	if wait.Interrupted(err) {
+		return true
+	}
+
+	if errors.Is(err, syscall.ETIMEDOUT) {
 		return true
 	}
 

@@ -1,33 +1,67 @@
 global:
   baseDomain:
   auth:
-    type: none # aap, oidc or none
-    insecureSkipTlsVerify: false
+    type: oidc # k8s, oidc, aap, openshift, oauth2, or none
+    insecureSkipTlsVerify: true
     aap:
       apiUrl:
       externalApiUrl:
       oAuthApplicationClientId:
       oAuthToken:
     oidc:
-      oidcAuthority:
+      clientId: flightctl-client
+      clientSecret:  # Optional: Client secret for OIDC provider (injected by token proxy)
+      enabled: true
+      issuer:
       externalOidcAuthority:
-      oidcClientId:
+      organizationAssignment:
+        type: static
+        organizationName: default
+      usernameClaim:
+        - preferred_username
+      roleAssignment:
+        type: dynamic
+        separator: ":"
+        claimPath:
+          - roles
+    pamOidcIssuer:
+      enabled: true
+      issuer: # OIDC issuer URL - must include /api/v1/auth path. Leave empty to auto-configure as https://${baseDomain}:8444/api/v1/auth
+      clientId: flightctl-client
+      clientSecret:
+      scopes: openid,profile,email,roles
+      redirectUris:
+      pamService: flightctl
+  organizations:
+    # Enable IdP-provided organizations support
+    enabled: false
+
+db:
+  # external: Set to "enabled" to use external PostgreSQL database
+  # When enabled, set hostname, port, name to point to your external database
+  external: "disabled"  # "disabled" (default) | "enabled"
+  hostname: ""  # External DB hostname (required when external: "enabled")
+  port: 5432
+  name: flightctl
+  user: flightctl_app
+  migrationUser: flightctl_migrator
+  # SSL configuration for secure database connections
+  sslmode: ""       # SSL mode: disable, allow, prefer, require, verify-ca, verify-full
+  sslcert: ""       # Path to SSL client certificate file
+  sslkey: ""        # Path to SSL client key file
+  sslrootcert: ""   # Path to SSL root certificate file (CA certificate)
 
 service:
   # Rate limiting configuration
+  # Note: Only flightctl-api and flightctl-alertmanager-proxy services use rate limiting
+  # Other services ignore this configuration
   rateLimit:
-    # General API rate limiting
-    requests: 60
-    window: "1m"
-    # Auth-specific rate limiting
-    authRequests: 10
-    authWindow: "1h"
-    # Trusted proxies that can set X-Forwarded-For/X-Real-IP headers
-    # This should include your load balancer and UI proxy IPs
-    trustedProxies:
-      - "10.0.0.0/8"    # Example: Internal network range
-      - "172.16.0.0/12" # Example: Docker/container network range
-      - "192.168.0.0/16" # Example: Private network range
+    enabled: true
+    requests: 300
+    window: 1m
+    authRequests: 20
+    authWindow: 1h
+    trustedProxies: []
 
 observability:
   grafana:
@@ -42,19 +76,28 @@ observability:
       auth_url:
       token_url:
       api_url:
+      scopes:
 
       client_id:
 
-      local_admin_user:
-      local_admin_password:
+    local_admin_user:
+    local_admin_password:
+    root_url:
 
   prometheus:
     image:
 
-  otel_collector:
+  telemetry_gateway:
     image:
-    http_port:
+    prometheus_port:
     grpc_port:
+    config:
+      telemetryGateway:
+        export:
+          prometheus:
+        forward:
+          endpoint:
+
 
   userinfo_proxy:
     image:

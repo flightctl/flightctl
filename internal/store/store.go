@@ -7,7 +7,7 @@ import (
 	"fmt"
 
 	"github.com/flightctl/flightctl/internal/config"
-	"github.com/flightctl/flightctl/internal/instrumentation"
+	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/sirupsen/logrus"
@@ -30,7 +30,9 @@ type Store interface {
 	Event() Event
 	Checkpoint() Checkpoint
 	Organization() Organization
+	AuthProvider() AuthProvider
 	RunMigrations(context.Context) error
+	CheckHealth(context.Context) error
 	Close() error
 }
 
@@ -45,6 +47,7 @@ type DataStore struct {
 	event                     Event
 	checkpoint                Checkpoint
 	organization              Organization
+	authProvider              AuthProvider
 
 	db *gorm.DB
 }
@@ -61,6 +64,7 @@ func NewStore(db *gorm.DB, log logrus.FieldLogger) Store {
 		event:                     NewEvent(db, log),
 		checkpoint:                NewCheckpoint(db, log),
 		organization:              NewOrganization(db),
+		authProvider:              NewAuthProvider(db, log),
 		db:                        db,
 	}
 }
@@ -105,8 +109,33 @@ func (s *DataStore) Organization() Organization {
 	return s.organization
 }
 
+func (s *DataStore) AuthProvider() AuthProvider {
+	return s.authProvider
+}
+
+// CheckHealth verifies database connectivity and ensures the instance is not in recovery.
+func (s *DataStore) CheckHealth(ctx context.Context) error {
+	if s.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+	// Connectivity
+	sqlDB, err := s.db.DB()
+	if err != nil {
+		return fmt.Errorf("db handle error: %w", err)
+	}
+	if err := sqlDB.PingContext(ctx); err != nil {
+		return fmt.Errorf("db ping error: %w", err)
+	}
+	// Execute a simple query to confirm basic read capability
+	var one int
+	if err := s.db.WithContext(ctx).Raw("SELECT 1").Scan(&one).Error; err != nil {
+		return fmt.Errorf("db simple query error: %w", err)
+	}
+	return nil
+}
+
 func (s *DataStore) RunMigrationWithMigrationUser(ctx context.Context, cfg *config.Config, log *logrus.Logger) error {
-	ctx, span := instrumentation.StartSpan(ctx, "flightctl/store", "RunMigrationWithMigrationUser")
+	ctx, span := tracing.StartSpan(ctx, "flightctl/store", "RunMigrationWithMigrationUser")
 	defer span.End()
 
 	// Create migration database connection
@@ -114,11 +143,6 @@ func (s *DataStore) RunMigrationWithMigrationUser(ctx context.Context, cfg *conf
 	if err != nil {
 		return fmt.Errorf("failed to create migration database connection: %w", err)
 	}
-	defer func() {
-		if sqlDB, err := migrationDB.DB(); err == nil {
-			sqlDB.Close()
-		}
-	}()
 
 	// Create migration store with migration user
 	migrationStore := NewStore(migrationDB, log.WithField("pkg", "migration-store"))
@@ -162,6 +186,9 @@ func (s *DataStore) RunMigrations(ctx context.Context) error {
 		return err
 	}
 	if err := s.Organization().InitialMigration(ctx); err != nil {
+		return err
+	}
+	if err := s.AuthProvider().InitialMigration(ctx); err != nil {
 		return err
 	}
 	return s.customizeMigration(ctx)
@@ -241,7 +268,7 @@ func ParseContinueString(contStr *string) (*Continue, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := json.Unmarshal(sDec, &cont); err != nil {
+	if err = json.Unmarshal(sDec, &cont); err != nil {
 		return nil, err
 	}
 	if cont.Version != CurrentContinueVersion {

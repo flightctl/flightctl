@@ -48,11 +48,13 @@ Services are configured with proper startup ordering through systemd dependencie
 
 ```ini
 [Unit]
-After=flightctl-db.service flightctl-kv.service
-Requires=flightctl-db.service flightctl-kv.service
+After=flightctl-db-wait.service flightctl-kv.service
+Wants=flightctl-db-wait.service flightctl-kv.service
 ```
 
 The dependency graph is configured between the individual `.container` files.
+
+> **Note:** The `flightctl-db-wait.service` is preferred over depending directly on `flightctl-db.service` because it ensures that not only the database container is up, but also verifies the database is ready by running a basic query.
 
 ## Configuration Management
 
@@ -95,11 +97,7 @@ deploy/podman/
 
 #### Static Configuration
 
-Services such as `flightctl-kv` have static files like a `redis.conf` used for any running instances of the service.  The .conf file is installed to a standardized location (more on this further below) then referenced in the `.container` file like
-
-```ini
-Volume=/usr/share/flightctl/flightctl-kv/redis.conf:/usr/local/etc/redis/redis.conf
-```
+Services such as `flightctl-kv` can have static configuration files, though the current implementation generates Redis configuration dynamically using environment variables within the container.
 
 #### Dynamic Configuration
 
@@ -125,12 +123,128 @@ Secret=flightctl-postgresql-master-password,type=env,target=DB_PASSWORD
 
 Secrets are automatically generated during deployment and injected as environment variables to the running containers.
 
+### External Database Configuration
+
+Flight Control supports both internal (containerized) and external database deployments using a unified container architecture. Both database modes use the same container definitions and authentication mechanisms.
+
+#### Unified Container Architecture
+
+All database-connected services use single container files that work with both internal and external databases:
+
+- `flightctl-api.container` - Works with both internal and external databases
+- `flightctl-worker.container` - Works with both internal and external databases
+- `flightctl-periodic.container` - Works with both internal and external databases
+- `flightctl-alert-exporter.container` - Works with both internal and external databases
+- `flightctl-db-migrate.container` - Works with both internal and external databases
+
+#### Configuration Integration
+
+When external database mode is enabled in `service-config.yaml`:
+
+```yaml
+db:
+  external: "enabled"
+  hostname: "postgres.example.com"
+  port: 5432
+  user: "flightctl_app"
+  userPassword: "external_password"
+  # ... other database settings including SSL
+```
+
+The system automatically:
+
+1. **Creates Podman secrets** from external database passwords in service-config.yaml
+2. **Templates database connection details** into service configuration files during initialization
+3. **Generates SSL configuration blocks** if SSL parameters are provided
+4. **Uses the same authentication pattern** as internal database mode
+
+#### Unified Authentication Pattern
+
+Both internal and external database modes use identical authentication mechanisms:
+
+```ini
+[Container]
+ContainerName=flightctl-api
+Image=quay.io/flightctl/flightctl-api:latest
+Network=flightctl.network
+EnvironmentFile=/etc/flightctl/flightctl-api/env
+Secret=flightctl-postgresql-user-password,type=env,target=DB_PASSWORD
+Secret=flightctl-kv-password,type=env,target=KV_PASSWORD
+Environment=DB_USER=flightctl_app
+Volume=/etc/flightctl/flightctl-api/config.yaml:/root/.flightctl/config.yaml:ro,z
+```
+
+This unified approach provides:
+
+- **Consistent authentication** using Podman secrets for both database modes
+- **Simplified maintenance** with single container definitions
+- **Reduced complexity** by eliminating duplicate container variants
+- **Proven security model** following the same pattern used by internal database mode
+
+### Deployment-time Configuration
+
+The `deploy-quadlets` target supports environment variables to configure authentication and organization features during deployment:
+
+#### AUTH Environment Variable
+
+Setting `AUTH=true` enables authentication by modifying the `service-config.yaml` during deployment:
+
+```bash
+AUTH=true make deploy-quadlets
+```
+
+This changes:
+```yaml
+global:
+  auth:
+    type: none    # Changes to: type: oidc
+```
+
+This enables OIDC authentication with the PAM issuer service (which is enabled by default in the service-config.yaml), which:
+- Deploys the `flightctl-pam-issuer` service on port 8444
+- Configures the API to use OIDC authentication with the PAM issuer as the identity provider
+- Enables PAM-based user authentication (validates against system users)
+
+#### ORGS Environment Variable
+
+Setting `ORGS=true` enables organization support by modifying the `service-config.yaml` during deployment:
+
+```bash
+AUTH=true ORGS=true make deploy-quadlets
+```
+
+This changes:
+```yaml
+global:
+  organizations:
+    enabled: false    # Changes to: enabled: true
+```
+
+When organizations are enabled, the system:
+- Allows IdP-provided organization assignments via OIDC claims
+- Supports multi-tenant deployments with organization-based resource isolation
+- Requires AUTH to be enabled (organizations work in conjunction with authentication)
+
+These environment variables modify `/etc/flightctl/service-config.yaml` after installation, before the init containers process the configuration templates.
+
 ## Local Deployment
 
 Deploy all services:
 
 ```bash
 make deploy-quadlets
+```
+
+Deploy with authentication enabled (uses OIDC with PAM issuer):
+
+```bash
+AUTH=true make deploy-quadlets
+```
+
+Deploy with organizations support enabled:
+
+```bash
+AUTH=true ORGS=true make deploy-quadlets
 ```
 
 Deploy individual services:
@@ -191,6 +305,22 @@ sudo systemctl restart flightctl-api.service
 
 # Check service status
 sudo systemctl status flightctl-api.service
+
+# List all flightctl units and their statuses
+systemctl list-units 'flightctl*' --all
+```
+
+### API Health Check
+
+A basic API health check can be performed by calling `/readyz` via the API that will verify that the API is up and running and the connection with database and key-value store is established. A status 200 is returned when healthy.
+
+```bash
+# Using localhost
+curl -fk https://localhost:3443/readyz && echo OK || echo FAIL
+
+# Using domain from config file
+DOMAIN="$(python3 /usr/share/flightctl/yaml_helpers.py extract .global.baseDomain /etc/flightctl/service-config.yaml --default localhost)"
+curl -fk "https://${DOMAIN}:3443/readyz" && echo OK || echo FAIL
 ```
 
 ### Viewing Logs
@@ -218,16 +348,57 @@ sudo podman exec -it flightctl-api ls
 sudo podman logs flightctl-api
 ```
 
-## RPM Installation and Deployment
+## RPM Installation, Upgrade and Deployment
 
 The service Quadlets are also available to install via an RPM.  Installation steps for the latest release:
 
+Get dnf version:
+
 ```bash
-sudo dnf copr enable -y @redhat-et/flightctl
+dnf --version
+```
+
+Install with dnf 4:
+
+```bash
+sudo dnf config-manager --add-repo https://rpm.flightctl.io/flightctl-epel.repo
 sudo dnf install -y flightctl-services
 sudo systemctl start flightctl.target
 sudo systemctl enable flightctl.target # To enable starting on reboot
 ```
+
+Install with dnf 5:
+
+```bash
+sudo dnf config-manager addrepo --from-repofile=https://rpm.flightctl.io/flightctl-epel.repo
+dnf install -y flightctl-services
+sudo systemctl start flightctl.target
+sudo systemctl enable flightctl.target # To enable starting on reboot
+```
+
+### Upgrading Flight Control Services
+
+To upgrade Flight Control services via DNF:
+
+```bash
+# Update to the latest version
+sudo dnf update flightctl-services
+
+# Or upgrade using a specific RPM file
+sudo rpm -Uvh flightctl-services-*.rpm
+```
+
+The RPM upgrade process includes:
+
+1. **Pre-upgrade checks** - A database migration dry-run is performed to verify compatibility
+2. **Service restart** - Flight Control services are automatically restarted with the new version
+3. **Configuration preservation** - Existing configuration files are preserved during upgrade
+
+> [!NOTE]
+> Database migration dry-run can be enabled/disabled by editing `/etc/flightctl/flightctl-services-install.conf` and setting `FLIGHTCTL_MIGRATION_DRY_RUN=1`. This is recommended to catch potential migration issues before they affect production.
+
+> [!NOTE] 
+> Downgrades are not supported. Be sure to back up your system before upgrading. If an upgrade fails, follow the [Flight Control Restore Operations](../user/restore.md).
 
 ### Running the Services Container
 

@@ -5,9 +5,11 @@ import (
 	"reflect"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -15,15 +17,17 @@ import (
 
 // EventHandler handles all event emission logic for the service
 type EventHandler struct {
-	store store.Store
-	log   logrus.FieldLogger
+	store        store.Store
+	workerClient worker_client.WorkerClient
+	log          logrus.FieldLogger
 }
 
 // NewEventHandler creates a new EventHandler instance
-func NewEventHandler(store store.Store, log logrus.FieldLogger) *EventHandler {
+func NewEventHandler(store store.Store, workerClient worker_client.WorkerClient, log logrus.FieldLogger) *EventHandler {
 	return &EventHandler{
-		store: store,
-		log:   log,
+		store:        store,
+		workerClient: workerClient,
+		log:          log,
 	}
 }
 
@@ -37,7 +41,13 @@ func (h *EventHandler) CreateEvent(ctx context.Context, event *api.Event) {
 
 	err := h.store.Event().Create(ctx, orgId, event)
 	if err != nil {
-		h.log.Errorf("failed emitting <%s> resource updated %s event for %s %s/%s: %v", *event.Metadata.Name, event.Reason, event.InvolvedObject.Kind, orgId, event.InvolvedObject.Name, err)
+		h.log.Errorf("failed emitting event <%s> (%s) for %s %s/%s: %v",
+			*event.Metadata.Name, event.Reason, event.InvolvedObject.Kind, orgId, event.InvolvedObject.Name, err)
+		return
+	}
+
+	if h.workerClient != nil {
+		h.workerClient.EmitEvent(ctx, orgId, event)
 	}
 }
 
@@ -77,19 +87,36 @@ func (h *EventHandler) HandleDeviceUpdatedEvents(ctx context.Context, resourceKi
 	// Only generate status change events when the device is not being created
 	if !created {
 		statusUpdates := common.ComputeDeviceStatusChanges(ctx, oldDevice, newDevice, orgId, h.store)
+
+		// Deduplicate DeviceDisconnected events - if multiple status fields changed to Unknown,
+		// only emit one DeviceDisconnected event
+		deviceDisconnectedEmitted := false
 		for _, update := range statusUpdates {
-			h.CreateEvent(ctx, common.GetDeviceEventFromUpdateDetails(ctx, name, update))
+			if update.Reason == api.EventReasonDeviceDisconnected {
+				if !deviceDisconnectedEmitted {
+					h.CreateEvent(ctx, common.GetDeviceEventFromUpdateDetails(ctx, name, update))
+					deviceDisconnectedEmitted = true
+				}
+			} else {
+				h.CreateEvent(ctx, common.GetDeviceEventFromUpdateDetails(ctx, name, update))
+			}
 		}
 	}
 
 	// Generate resource creation/update events
 	if created {
-		h.CreateEvent(ctx, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, true, api.DeviceKind, name, nil, h.log))
+		h.CreateEvent(ctx, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, true, api.DeviceKind, name, nil, h.log, nil))
 	} else {
 		updateDetails := h.computeResourceUpdatedDetails(oldDevice.Metadata, newDevice.Metadata)
 		// Generate ResourceUpdated event if there are spec changes or status changes
 		if updateDetails != nil {
-			h.CreateEvent(ctx, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, false, api.DeviceKind, name, updateDetails, h.log))
+			annotations := map[string]string{}
+			delayDeviceRender, ok := ctx.Value(consts.DelayDeviceRenderCtxKey).(bool)
+			if ok && delayDeviceRender {
+				annotations[api.EventAnnotationDelayDeviceRender] = "true"
+			}
+
+			h.CreateEvent(ctx, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, false, api.DeviceKind, name, updateDetails, h.log, annotations))
 		}
 	}
 }
@@ -152,7 +179,7 @@ func (h *EventHandler) HandleFleetUpdatedEvents(ctx context.Context, resourceKin
 				}
 			}
 		}
-		event = common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, api.FleetKind, name, updateDetails, nil)
+		event = common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, api.FleetKind, name, updateDetails, h.log, nil)
 	}
 
 	// Emit a created/updated event (if nil, no event is emitted)
@@ -193,7 +220,7 @@ func (h *EventHandler) emitFleetRolloutBatchCompletedEvent(ctx context.Context, 
 }
 
 func (h *EventHandler) emitFleetValidEvents(ctx context.Context, name string, oldFleet, newFleet *api.Fleet) {
-	if newFleet.Status == nil {
+	if newFleet == nil || newFleet.Status == nil {
 		return
 	}
 
@@ -291,7 +318,7 @@ func (h *EventHandler) HandleRepositoryUpdatedEvents(ctx context.Context, resour
 
 	// Emit success event for create/update
 	if created {
-		h.CreateEvent(ctx, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, api.RepositoryKind, name, nil, h.log))
+		h.CreateEvent(ctx, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, api.RepositoryKind, name, nil, h.log, nil))
 	} else if oldRepository != nil && newRepository != nil {
 		// Check if the Accessible condition changed
 		var oldConditions, newConditions []api.Condition
@@ -320,8 +347,44 @@ func (h *EventHandler) HandleRepositoryUpdatedEvents(ctx context.Context, resour
 		updateDetails := h.computeResourceUpdatedDetails(oldRepository.Metadata, newRepository.Metadata)
 
 		// Also emit the standard update event
-		h.CreateEvent(ctx, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, api.RepositoryKind, name, updateDetails, h.log))
+		h.CreateEvent(ctx, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, api.RepositoryKind, name, updateDetails, h.log, nil))
 	}
+}
+
+//////////////////////////////////////////////////////
+//                 AuthProvider Events              //
+//////////////////////////////////////////////////////
+
+// HandleAuthProviderUpdatedEvents handles auth provider update event emission logic
+func (h *EventHandler) HandleAuthProviderUpdatedEvents(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
+	if err != nil {
+		status := StoreErrorToApiStatus(err, created, api.AuthProviderKind, &name)
+		h.CreateEvent(ctx, common.GetResourceCreatedOrUpdatedFailureEvent(ctx, created, api.AuthProviderKind, name, status, nil))
+		return
+	}
+
+	// Emit success event for create
+	if created {
+		h.CreateEvent(ctx, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, api.AuthProviderKind, name, nil, h.log, nil))
+	} else {
+		// Handle update events
+		var oldAuthProvider, newAuthProvider *api.AuthProvider
+		var ok bool
+		if oldAuthProvider, newAuthProvider, ok = castResources[api.AuthProvider](oldResource, newResource); !ok {
+			return
+		}
+
+		updateDetails := h.computeResourceUpdatedDetails(oldAuthProvider.Metadata, newAuthProvider.Metadata)
+		// Generate ResourceUpdated event if there are spec changes
+		if updateDetails != nil {
+			h.CreateEvent(ctx, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, false, api.AuthProviderKind, name, updateDetails, h.log, nil))
+		}
+	}
+}
+
+// HandleAuthProviderDeletedEvents handles auth provider deletion event emission logic
+func (h *EventHandler) HandleAuthProviderDeletedEvents(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
+	h.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
 }
 
 //////////////////////////////////////////////////////
@@ -345,7 +408,7 @@ func (h *EventHandler) HandleEnrollmentRequestUpdatedEvents(ctx context.Context,
 				updateDetails = h.computeResourceUpdatedDetails(oldEnrollmentRequest.Metadata, newEnrollmentRequest.Metadata)
 			}
 		}
-		h.CreateEvent(ctx, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, resourceKind, name, updateDetails, h.log))
+		h.CreateEvent(ctx, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, resourceKind, name, updateDetails, h.log, nil))
 	}
 }
 
@@ -383,10 +446,10 @@ func (h *EventHandler) HandleResourceSyncUpdatedEvents(ctx context.Context, reso
 
 	// Emit success event for create/update
 	if created {
-		h.CreateEvent(ctx, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, resourceKind, name, nil, h.log))
+		h.CreateEvent(ctx, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, resourceKind, name, nil, h.log, nil))
 	} else if oldResourceSync != nil && newResourceSync != nil {
 		updateDetails := h.computeResourceUpdatedDetails(oldResourceSync.Metadata, newResourceSync.Metadata)
-		h.CreateEvent(ctx, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, resourceKind, name, updateDetails, h.log))
+		h.CreateEvent(ctx, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, resourceKind, name, updateDetails, h.log, nil))
 	}
 
 	// Emit condition-specific events
@@ -414,7 +477,7 @@ func (h *EventHandler) HandleCertificateSigningRequestUpdatedEvents(ctx context.
 				updateDetails = h.computeResourceUpdatedDetails(oldCSR.Metadata, newCSR.Metadata)
 			}
 		}
-		h.CreateEvent(ctx, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, resourceKind, name, updateDetails, h.log))
+		h.CreateEvent(ctx, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, resourceKind, name, updateDetails, h.log, nil))
 	}
 }
 
@@ -439,7 +502,7 @@ func (h *EventHandler) HandleTemplateVersionUpdatedEvents(ctx context.Context, r
 				updateDetails = h.computeResourceUpdatedDetails(oldTemplateVersion.Metadata, newTemplateVersion.Metadata)
 			}
 		}
-		h.CreateEvent(ctx, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, resourceKind, name, updateDetails, h.log))
+		h.CreateEvent(ctx, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, resourceKind, name, updateDetails, h.log, nil))
 	}
 }
 

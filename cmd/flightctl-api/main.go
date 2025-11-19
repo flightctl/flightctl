@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"os"
 	"os/signal"
@@ -14,13 +15,21 @@ import (
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
-	"github.com/flightctl/flightctl/internal/instrumentation"
+	"github.com/flightctl/flightctl/internal/instrumentation/metrics"
+	"github.com/flightctl/flightctl/internal/instrumentation/metrics/domain"
+	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
+	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/rendered"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
+	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 )
 
+//nolint:gocyclo
 func main() {
 	ctx := context.Background()
 
@@ -111,7 +120,7 @@ func main() {
 		log.Fatalf("writing client config: %v", err)
 	}
 
-	tracerShutdown := instrumentation.InitTracer(log, cfg, "flightctl-api")
+	tracerShutdown := tracing.InitTracer(log, cfg, "flightctl-api")
 	defer func() {
 		if err := tracerShutdown(ctx); err != nil {
 			log.Fatalf("failed to shut down tracer: %v", err)
@@ -134,12 +143,22 @@ func main() {
 
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
 
-	provider, err := queues.NewRedisProvider(ctx, log, cfg.KV.Hostname, cfg.KV.Port, cfg.KV.Password)
+	processID := fmt.Sprintf("api-%s-%s", util.GetHostname(), uuid.New().String())
+	provider, err := queues.NewRedisProvider(ctx, log, processID, cfg.KV.Hostname, cfg.KV.Port, cfg.KV.Password, queues.DefaultRetryConfig())
 	if err != nil {
 		log.Fatalf("failed connecting to Redis queue: %v", err)
 	}
 
-	metrics := instrumentation.NewApiMetrics(cfg)
+	kvStore, err := kvstore.NewKVStore(ctx, log, cfg.KV.Hostname, cfg.KV.Port, cfg.KV.Password)
+	if err != nil {
+		log.Fatalf("creating kvstore: %v", err)
+	}
+	if err = rendered.Bus.Initialize(ctx, kvStore, provider, time.Duration(cfg.Service.RenderedWaitTimeout), log); err != nil {
+		log.Fatalf("creating rendered version manager: %v", err)
+	}
+	if err = rendered.Bus.Instance().Start(ctx); err != nil {
+		log.Fatalf("starting rendered version manager: %v", err)
+	}
 
 	// create the agent service listener as tcp (combined HTTP+gRPC)
 	agentListener, err := net.Listen("tcp", cfg.Service.AgentEndpointAddress)
@@ -147,7 +166,10 @@ func main() {
 		log.Fatalf("creating listener: %s", err)
 	}
 
-	agentserver := agentserver.New(log, cfg, store, ca, agentListener, provider, agentTlsConfig, metrics)
+	agentServer, err := agentserver.New(ctx, log, cfg, store, ca, agentListener, provider, agentTlsConfig)
+	if err != nil {
+		log.Fatalf("initializing agent server: %v", err)
+	}
 
 	go func() {
 		listener, err := middleware.NewTLSListener(cfg.Service.Address, tlsConfig)
@@ -155,7 +177,7 @@ func main() {
 			log.Fatalf("creating listener: %s", err)
 		}
 		// we pass the grpc server for now, to let the console sessions to establish a connection in grpc
-		server := apiserver.New(log, cfg, store, ca, listener, provider, metrics, agentserver.GetGRPCServer())
+		server := apiserver.New(log, cfg, store, ca, listener, provider, agentServer.GetGRPCServer())
 		if err := server.Run(ctx); err != nil {
 			log.Fatalf("Error running server: %s", err)
 		}
@@ -163,17 +185,50 @@ func main() {
 	}()
 
 	go func() {
-		if err := agentserver.Run(ctx); err != nil {
+		if err := agentServer.Run(ctx); err != nil {
 			log.Fatalf("Error running server: %s", err)
 		}
 		cancel()
 	}()
 
-	if cfg.Prometheus != nil {
+	if cfg.Metrics != nil && cfg.Metrics.Enabled {
+		var collectors []prometheus.Collector
+		if cfg.Metrics.DeviceCollector != nil && cfg.Metrics.DeviceCollector.Enabled {
+			collectors = append(collectors, domain.NewDeviceCollector(ctx, store, log, cfg))
+		}
+		if cfg.Metrics.FleetCollector != nil && cfg.Metrics.FleetCollector.Enabled {
+			collectors = append(collectors, domain.NewFleetCollector(ctx, store, log, cfg))
+		}
+		if cfg.Metrics.RepositoryCollector != nil && cfg.Metrics.RepositoryCollector.Enabled {
+			collectors = append(collectors, domain.NewRepositoryCollector(ctx, store, log, cfg))
+		}
+		if cfg.Metrics.ResourceSyncCollector != nil && cfg.Metrics.ResourceSyncCollector.Enabled {
+			collectors = append(collectors, domain.NewResourceSyncCollector(ctx, store, log, cfg))
+		}
+		if cfg.Metrics.SystemCollector != nil && cfg.Metrics.SystemCollector.Enabled {
+			if systemMetricsCollector := metrics.NewSystemCollector(ctx, cfg); systemMetricsCollector != nil {
+				collectors = append(collectors, systemMetricsCollector)
+				defer func() {
+					if err := systemMetricsCollector.Shutdown(); err != nil {
+						log.Errorf("Failed to shutdown system metrics collector: %v", err)
+					}
+				}()
+			}
+		}
+		if cfg.Metrics.HttpCollector != nil && cfg.Metrics.HttpCollector.Enabled {
+			if httpMetricsCollector := metrics.NewHTTPMetricsCollector(ctx, cfg, "flightctl-api", log); httpMetricsCollector != nil {
+				collectors = append(collectors, httpMetricsCollector)
+				defer func() {
+					if err := httpMetricsCollector.Shutdown(); err != nil {
+						log.Errorf("Failed to shutdown HTTP metrics collector: %v", err)
+					}
+				}()
+			}
+		}
+
 		go func() {
-			metricsServer := instrumentation.NewMetricsServer(log, cfg, metrics)
-			if err := metricsServer.Run(ctx); err != nil {
-				log.Fatalf("Error running server: %s", err)
+			if err := tracing.RunMetricsServer(ctx, log, cfg.Metrics.Address, collectors...); err != nil {
+				log.Errorf("Error running metrics server: %s", err)
 			}
 			cancel()
 		}()

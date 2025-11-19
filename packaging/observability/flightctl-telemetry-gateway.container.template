@@ -1,0 +1,27 @@
+[Unit]
+Description=FlightCtl Telemetry Gateway
+After=flightctl-network.service
+Wants=flightctl-network.service
+PartOf=flightctl-telemetry-gateway.target flightctl-observability.target
+
+[Container]
+Image=${TELEMETRY_GATEWAY_IMAGE}
+Pull=newer
+
+ContainerName=flightctl-telemetry-gateway
+
+Volume=/etc/flightctl/telemetry-gateway/config.yaml:/root/.flightctl/config.yaml:ro,z
+
+PublishPort=${TELEMETRY_GATEWAY_GRPC_PORT}:4317/tcp
+PublishPort=${TELEMETRY_GATEWAY_PROMETHEUS_PORT}:9464/tcp
+
+Network=flightctl
+Secret=flightctl-ca-secret,target=/etc/telemetry-gateway/certs/ca.crt
+Secret=telemetry-gateway-tls,target=/etc/telemetry-gateway/certs/server.crt
+Secret=telemetry-gateway-tls-key,target=/etc/telemetry-gateway/certs/server.key
+
+[Service]
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

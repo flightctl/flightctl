@@ -1,0 +1,28 @@
+{{- if .Values.alertmanagerProxy.enabled -}}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    flightctl.service: flightctl-alertmanager-proxy
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+  name: flightctl-alertmanager-proxy
+  namespace: {{ .Release.Namespace }}
+spec:
+  {{- if and (eq (include "flightctl.getServiceExposeMethod" .) "nodePort") .Values.global.nodePorts.alertmanagerProxy }}
+  type: NodePort
+  {{- else }}
+  type: ClusterIP
+  {{- end }}
+  ports:
+    - name: proxy
+      port: 8443
+      protocol: TCP
+      targetPort: 8443
+      {{- if and (eq (include "flightctl.getServiceExposeMethod" .) "nodePort") .Values.global.nodePorts.alertmanagerProxy }}
+      nodePort: {{ .Values.global.nodePorts.alertmanagerProxy }}
+      {{- end }}
+  selector:
+    flightctl.service: flightctl-alertmanager-proxy
+{{- end }}

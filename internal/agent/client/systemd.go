@@ -1,7 +1,9 @@
 package client
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -13,6 +15,10 @@ import (
 const (
 	systemctlCommand        = "/usr/bin/systemctl"
 	defaultSystemctlTimeout = time.Minute
+)
+
+var (
+	ErrNoSystemDUnits = errors.New("no units defined")
 )
 
 func NewSystemd(exec executer.Executer) *Systemd {
@@ -34,21 +40,26 @@ func (s *Systemd) Reload(ctx context.Context, name string) error {
 	return nil
 }
 
-func (s *Systemd) Start(ctx context.Context, name string) error {
-	args := []string{"start", name}
+func (s *Systemd) Start(ctx context.Context, units ...string) error {
+	if len(units) == 0 {
+		return ErrNoSystemDUnits
+	}
+	args := append([]string{"start"}, units...)
 	_, stderr, exitCode := s.exec.ExecuteWithContext(ctx, systemctlCommand, args...)
 	if exitCode != 0 {
-		return fmt.Errorf("start systemd unit: %s: %w", name, errors.FromStderr(stderr, exitCode))
+		return fmt.Errorf("start systemd unit(s): %q: %w", strings.Join(units, ","), errors.FromStderr(stderr, exitCode))
 	}
-
 	return nil
 }
 
-func (s *Systemd) Stop(ctx context.Context, name string) error {
-	args := []string{"stop", name}
+func (s *Systemd) Stop(ctx context.Context, units ...string) error {
+	if len(units) == 0 {
+		return ErrNoSystemDUnits
+	}
+	args := append([]string{"stop"}, units...)
 	_, stderr, exitCode := s.exec.ExecuteWithContext(ctx, systemctlCommand, args...)
 	if exitCode != 0 {
-		return fmt.Errorf("stop systemd unit: %s: %w", name, errors.FromStderr(stderr, exitCode))
+		return fmt.Errorf("stop systemd unit(s): %q: %w", strings.Join(units, ","), errors.FromStderr(stderr, exitCode))
 	}
 	return nil
 }
@@ -98,14 +109,124 @@ func (s *Systemd) DaemonReload(ctx context.Context) error {
 	return nil
 }
 
-func (s *Systemd) ListUnitsByMatchPattern(ctx context.Context, matchPatterns []string) (string, error) {
+func (s *Systemd) ResetFailed(ctx context.Context, units ...string) error {
+	if len(units) == 0 {
+		return ErrNoSystemDUnits
+	}
+	args := append([]string{"reset-failed"}, units...)
+	_, stderr, exitCode := s.exec.ExecuteWithContext(ctx, systemctlCommand, args...)
+	if exitCode != 0 {
+		return fmt.Errorf("reset-failed systemd unit(s): %q: %w", strings.Join(units, ","), errors.FromStderr(stderr, exitCode))
+	}
+	return nil
+}
+
+type SystemDUnitListEntry struct {
+	Unit        string `json:"unit"`
+	LoadState   string `json:"load"`
+	ActiveState string `json:"active"`
+	SubState    string `json:"sub"`
+	Description string `json:"description"`
+}
+
+func (s *Systemd) ListUnitsByMatchPattern(ctx context.Context, matchPatterns []string) ([]SystemDUnitListEntry, error) {
 	execCtx, cancel := context.WithTimeout(ctx, defaultSystemctlTimeout)
 	defer cancel()
-	args := append([]string{"list-units", "--all", "--output", "json"}, matchPatterns...)
+
+	args := append([]string{"list-units", "--all", "--output", "json", "--"}, matchPatterns...)
 	stdout, stderr, exitCode := s.exec.ExecuteWithContext(execCtx, systemctlCommand, args...)
 	if exitCode != 0 {
-		return "", fmt.Errorf("list systemd units: %w", errors.FromStderr(stderr, exitCode))
+		return nil, fmt.Errorf("list systemd units: %w", errors.FromStderr(stderr, exitCode))
 	}
-	out := strings.TrimSpace(stdout)
-	return out, nil
+
+	var units []SystemDUnitListEntry
+	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &units); err != nil {
+		return nil, fmt.Errorf("unmarshalling systemctl list-units output: %w", err)
+	}
+	return units, nil
+}
+
+func (s *Systemd) ShowByMatchPattern(ctx context.Context, matchPatterns []string) ([]map[string]string, error) {
+	execCtx, cancel := context.WithTimeout(ctx, defaultSystemctlTimeout)
+	defer cancel()
+
+	args := append([]string{"show", "--all", "--"}, matchPatterns...)
+	stdout, stderr, exitCode := s.exec.ExecuteWithContext(execCtx, systemctlCommand, args...)
+	if exitCode != 0 {
+		return nil, fmt.Errorf("show systemd units: %w", errors.FromStderr(stderr, exitCode))
+	}
+
+	var units []map[string]string
+	currentUnit := make(map[string]string)
+
+	scanner := bufio.NewScanner(strings.NewReader(stdout))
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		if line == "" {
+			if len(currentUnit) > 0 {
+				units = append(units, currentUnit)
+				currentUnit = make(map[string]string)
+			}
+			continue
+		}
+
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) == 2 {
+			key := parts[0]
+			value := parts[1]
+			currentUnit[key] = value
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+
+	// Add the last unit if the output does not end with a blank line
+	if len(currentUnit) > 0 {
+		units = append(units, currentUnit)
+	}
+
+	return units, nil
+}
+
+// SystemdJob represents a systemd job from list-jobs
+type SystemdJob struct {
+	Job     string
+	Unit    string
+	JobType string
+	State   string
+}
+
+// ListJobs lists current systemd jobs in progress
+// This is more reliable than is-active for detecting pending shutdown/reboot
+func (s *Systemd) ListJobs(ctx context.Context) ([]SystemdJob, error) {
+	ctx, cancel := context.WithTimeout(ctx, defaultSystemctlTimeout)
+	defer cancel()
+
+	args := []string{"list-jobs", "--no-pager", "--no-legend"}
+	stdout, stderr, exitCode := s.exec.ExecuteWithContext(ctx, systemctlCommand, args...)
+	if exitCode != 0 {
+		return nil, fmt.Errorf("systemctl list-jobs: %w", errors.FromStderr(stderr, exitCode))
+	}
+
+	var jobs []SystemdJob
+	lines := strings.Split(strings.TrimSpace(stdout), "\n")
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+
+		fields := strings.Fields(line)
+		if len(fields) >= 4 {
+			jobs = append(jobs, SystemdJob{
+				Job:     fields[0],
+				Unit:    fields[1],
+				JobType: fields[2],
+				State:   fields[3],
+			})
+		}
+	}
+
+	return jobs, nil
 }

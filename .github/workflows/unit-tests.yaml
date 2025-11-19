@@ -17,24 +17,30 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - uses: dorny/paths-filter@v3
-        id: filter
         with:
-          filters: |
-            notdocs:
-              - '!.spelling'
-              - '!README.md'
-              - '!docs/**'
+          fetch-depth: 0
+
+      - name: Get changed files
+        id: changed-files
+        uses: tj-actions/changed-files@v46
+        with:
+          since_last_remote_commit: 'true'
+          files_ignore: |
+            .spelling
+            README.md
+            docs/**
+            .github/**
+            examples/**
+            packaging/rpm/**
 
       - name: Setup all dependencies
-        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         uses: ./.github/actions/setup-dependencies
         with:
           unit_tests: 'true'
 
       - name: Running Unit tests
-        if: ${{ steps.filter.outputs.notdocs == 'true' }}
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         run: make unit-test
         env:
           DISABLE_FIPS: "true"

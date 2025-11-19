@@ -31,7 +31,9 @@ func verifyDevicePatchFailed(require *require.Assertions, status api.Status) {
 
 func testDevicePatch(require *require.Assertions, patch api.PatchRequest) (*api.Device, api.Device, api.Status) {
 	_ = os.Setenv(auth.DisableAuthEnvKey, "true")
-	_ = auth.InitAuth(nil, log.InitLogs())
+	_, err := auth.InitMultiAuth(nil, log.InitLogs(), nil)
+	require.NoError(err)
+
 	status := api.NewDeviceStatus()
 	device := api.Device{
 		ApiVersion: "v1",
@@ -45,13 +47,15 @@ func testDevicePatch(require *require.Assertions, patch api.PatchRequest) (*api.
 		},
 		Status: &status,
 	}
+	ts := &TestStore{}
+	wc := &DummyWorkerClient{}
 	serviceHandler := ServiceHandler{
-		EventHandler:    NewEventHandler(&TestStore{}, log.InitLogs()),
-		store:           &TestStore{},
-		callbackManager: dummyCallbackManager(),
+		eventHandler: NewEventHandler(ts, wc, log.InitLogs()),
+		store:        ts,
+		workerClient: wc,
 	}
 	ctx := context.Background()
-	_, err := serviceHandler.store.Device().Create(ctx, store.NullOrgId, &device, nil, nil)
+	_, err = serviceHandler.store.Device().Create(ctx, store.NullOrgId, &device, nil)
 	require.NoError(err)
 	resp, retStatus := serviceHandler.PatchDevice(ctx, "foo", patch)
 	require.NotEqual(statusFailedCode, retStatus.Code)
@@ -60,14 +64,18 @@ func testDevicePatch(require *require.Assertions, patch api.PatchRequest) (*api.
 
 func testDeviceStatusPatch(require *require.Assertions, orig api.Device, patch api.PatchRequest) (*api.Device, api.Status) {
 	_ = os.Setenv(auth.DisableAuthEnvKey, "true")
-	_ = auth.InitAuth(nil, log.InitLogs())
+	_, err := auth.InitMultiAuth(nil, log.InitLogs(), nil)
+	require.NoError(err)
+
+	ts := &TestStore{}
+	wc := &DummyWorkerClient{}
 	serviceHandler := &ServiceHandler{
-		EventHandler:    NewEventHandler(&TestStore{}, log.InitLogs()),
-		store:           &TestStore{},
-		callbackManager: dummyCallbackManager(),
+		eventHandler: NewEventHandler(ts, wc, log.InitLogs()),
+		store:        ts,
+		workerClient: wc,
 	}
 	ctx := context.Background()
-	_, err := serviceHandler.store.Device().Create(ctx, store.NullOrgId, &orig, nil, nil)
+	_, err = serviceHandler.store.Device().Create(ctx, store.NullOrgId, &orig, nil)
 	require.NoError(err)
 	resp, retStatus := serviceHandler.PatchDeviceStatus(ctx, "foo", patch)
 	require.NotEqual(statusFailedCode, retStatus.Code)
@@ -338,15 +346,17 @@ func TestDeviceNonExistingResource(t *testing.T) {
 		{Op: "replace", Path: "/metadata/labels/labelKey", Value: &value},
 	}
 
+	ts := &TestStore{}
+	wc := &DummyWorkerClient{}
 	serviceHandler := ServiceHandler{
-		EventHandler:    NewEventHandler(&TestStore{}, log.InitLogs()),
-		store:           &TestStore{},
-		callbackManager: dummyCallbackManager(),
+		eventHandler: NewEventHandler(ts, wc, log.InitLogs()),
+		store:        ts,
+		workerClient: wc,
 	}
 	ctx := context.Background()
 	_, err := serviceHandler.store.Device().Create(ctx, store.NullOrgId, &api.Device{
 		Metadata: api.ObjectMeta{Name: lo.ToPtr("foo")},
-	}, nil, nil)
+	}, nil)
 	require.NoError(err)
 	_, retStatus := serviceHandler.PatchDevice(ctx, "bar", pr)
 	require.Equal(statusNotFoundCode, retStatus.Code)
@@ -356,11 +366,13 @@ func TestDeviceNonExistingResource(t *testing.T) {
 func TestDeviceDisconnected(t *testing.T) {
 	require := require.New(t)
 
+	ts := &TestStore{}
+	wc := &DummyWorkerClient{}
 	serviceHandler := &ServiceHandler{
-		EventHandler:    NewEventHandler(&TestStore{}, logrus.New()),
-		store:           &TestStore{},
-		callbackManager: dummyCallbackManager(),
-		log:             logrus.New(),
+		eventHandler: NewEventHandler(ts, wc, logrus.New()),
+		store:        ts,
+		workerClient: wc,
+		log:          logrus.New(),
 	}
 	ctx := context.Background()
 	ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
@@ -372,7 +384,7 @@ func TestDeviceDisconnected(t *testing.T) {
 	// Make it disconnected
 	//device, err = serviceHandler.store.Device().Get(ctx, store.NullOrgId, *device.Metadata.Name)
 	//require.NoError(err)
-	device.Status.LastSeen = time.Now().Add(-10 * time.Minute)
+	device.Status.LastSeen = lo.ToPtr(time.Now().Add(-10 * time.Minute))
 	device.Status.Summary.Status = api.DeviceSummaryStatusOnline
 	changed := serviceHandler.UpdateServiceSideDeviceStatus(ctx, *device)
 	require.Equal(true, changed)

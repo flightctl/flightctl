@@ -1,0 +1,192 @@
+name: Push E2E containers
+
+on:
+  push:
+    branches:
+      - main
+env:
+  QUAY_TESTS_ORG: quay.io/flightctl-tests
+  QUAY: quay.io
+  REGISTRY: quay.io
+  REGISTRY_OWNER: flightctl
+  REGISTRY_OWNER_TESTS: flightctl-tests
+  # Enable BuildKit for cache mounts
+  DOCKER_BUILDKIT: 1
+  BUILDKIT_PROGRESS: plain
+  REGISTRY_ADDRESS: "10.100.102.70:5000"
+
+jobs:
+  publish-base-containers:
+    strategy:
+      matrix:
+        image:
+          - {name: 'git-server',   containerfile: 'test/scripts/Containerfile.gitserver'}
+          - {name: 'e2e-base',     containerfile: 'test/scripts/agent-images/Containerfile-e2e-base.local'}
+    runs-on: "ubuntu-24.04"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: |
+            image=moby/buildkit:v0.12.4
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Cache DNF packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            /var/cache/dnf
+            /var/lib/dnf
+          key: ${{ runner.os }}-dnf-${{ matrix.image.name }}
+          restore-keys: |
+            ${{ runner.os }}-dnf-
+
+      - name: Generate SSH keys for containers
+        run: |
+          test/scripts/create_e2e_certs.sh
+
+      - name: Build RPMs
+        run: |
+          make rpm
+
+      - name: Build
+        id: build
+        uses: redhat-actions/buildah-build@v2
+        with:
+          image: ${{ matrix.image.name }}
+          tags: cache
+          labels: |
+            io.flightctl.flightctl-${{ matrix.image.name }}.github.repository=${{ github.repository }}
+            io.flightctl.flightctl-${{ matrix.image.name }}.github.actor=${{ github.actor }}
+            io.flightctl.flightctl-${{ matrix.image.name }}.github.run_id=${{ github.run_id }}
+            io.flightctl.flightctl-${{ matrix.image.name }}.github.sha=${{ github.sha }}
+            io.flightctl.flightctl-${{ matrix.image.name }}.github.ref_name=${{ github.ref_name }}
+          build-args: |
+            REGISTRY_ADDRESS=${{ env.REGISTRY_ADDRESS }}
+          extra-args: |
+            --ulimit nofile=10000:10000
+          containerfiles: ${{ matrix.image.containerfile }}
+          context: .
+
+      - name: Login to Quay.io
+        uses: redhat-actions/podman-login@v1
+        with:
+          registry: ${{ env.QUAY }}
+          username: ${{ secrets.QUAY_FLIGHTCTL_TESTS_INFRA_ROBOT_USERNAME }}
+          password: ${{ secrets.QUAY_FLIGHTCTL_TESTS_INFRA_ROBOT_PASSWORD }}
+
+      - name: Push to Quay.io
+        id: push
+        uses: redhat-actions/push-to-registry@v2.7
+        with:
+          image: ${{ matrix.image.name }}
+          tags: cache
+          registry: ${{ env.QUAY_TESTS_ORG }}
+          username: ${{ secrets.QUAY_FLIGHTCTL_TESTS_INFRA_ROBOT_USERNAME }}
+          password: ${{ secrets.QUAY_FLIGHTCTL_TESTS_INFRA_ROBOT_PASSWORD }}
+
+  publish-dependent-e2e-containers:
+    needs: publish-base-containers
+    strategy:
+      matrix:
+        image:
+          - {name: 'e2e-v2',       containerfile: 'test/scripts/agent-images/Containerfile-e2e-v2.local'}
+          - {name: 'e2e-v3',       containerfile: 'test/scripts/agent-images/Containerfile-e2e-v3.local'}
+          - {name: 'e2e-v4',       containerfile: 'test/scripts/agent-images/Containerfile-e2e-v4.local'}
+          - {name: 'e2e-v5',       containerfile: 'test/scripts/agent-images/Containerfile-e2e-v5.local'}
+          - {name: 'e2e-v6',       containerfile: 'test/scripts/agent-images/Containerfile-e2e-v6.local'}
+          - {name: 'e2e-v7',       containerfile: 'test/scripts/agent-images/Containerfile-e2e-v7.local'}
+          - {name: 'e2e-v8',       containerfile: 'test/scripts/agent-images/Containerfile-e2e-v8.local'}
+          - {name: 'e2e-v9',       containerfile: 'test/scripts/agent-images/Containerfile-e2e-v9.local'}
+          - {name: 'e2e-v10',       containerfile: 'test/scripts/agent-images/Containerfile-e2e-10.local'}
+          - {name: 'sleep-app-v1', containerfile: 'test/scripts/agent-images/Containerfile-sleep-app-v1'}
+          - {name: 'sleep-app-v2', containerfile: 'test/scripts/agent-images/Containerfile-sleep-app-v2'}
+          - {name: 'sleep-app-v3', containerfile: 'test/scripts/agent-images/Containerfile-sleep-app-v3'}
+    runs-on: "ubuntu-24.04"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: |
+            image=moby/buildkit:v0.12.4
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Cache DNF packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            /var/cache/dnf
+            /var/lib/dnf
+          key: ${{ runner.os }}-dnf-${{ matrix.image.name }}
+          restore-keys: |
+            ${{ runner.os }}-dnf-
+
+      - name: Login to Quay.io
+        uses: redhat-actions/podman-login@v1
+        with:
+          registry: ${{ env.QUAY }}
+          username: ${{ secrets.QUAY_FLIGHTCTL_TESTS_INFRA_ROBOT_USERNAME }}
+          password: ${{ secrets.QUAY_FLIGHTCTL_TESTS_INFRA_ROBOT_PASSWORD }}
+
+      - name: Pull e2e-base image
+        run: |
+          podman pull ${{ env.QUAY_TESTS_ORG }}/e2e-base:cache
+
+      - name: Tag e2e-base for local use
+        run: |
+          podman tag ${{ env.QUAY_TESTS_ORG }}/e2e-base:cache localhost:5000/flightctl-device:base
+
+      - name: Build
+        id: build
+        uses: redhat-actions/buildah-build@v2
+        with:
+          image: ${{ matrix.image.name }}
+          tags: cache
+          labels: |
+            io.flightctl.flightctl-${{ matrix.image.name }}.github.repository=${{ github.repository }}
+            io.flightctl.flightctl-${{ matrix.image.name }}.github.actor=${{ github.actor }}
+            io.flightctl.flightctl-${{ matrix.image.name }}.github.run_id=${{ github.run_id }}
+            io.flightctl.flightctl-${{ matrix.image.name }}.github.sha=${{ github.sha }}
+            io.flightctl.flightctl-${{ matrix.image.name }}.github.ref_name=${{ github.ref_name }}
+          extra-args: |
+            --ulimit nofile=10000:10000
+          containerfiles: ${{ matrix.image.containerfile }}
+          context: .
+
+      - name: Push to Quay.io
+        id: push
+        uses: redhat-actions/push-to-registry@v2.7
+        with:
+          image: ${{ matrix.image.name }}
+          tags: cache
+          registry: ${{ env.QUAY_TESTS_ORG }}
+          username: ${{ secrets.QUAY_FLIGHTCTL_TESTS_INFRA_ROBOT_USERNAME }}
+          password: ${{ secrets.QUAY_FLIGHTCTL_TESTS_INFRA_ROBOT_PASSWORD }}

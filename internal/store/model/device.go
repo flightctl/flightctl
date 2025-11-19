@@ -39,6 +39,34 @@ type Device struct {
 
 	// Join table with the relationship of devices to repositories (only maintained for standalone devices)
 	Repositories []Repository `gorm:"many2many:device_repos;constraint:OnDelete:CASCADE;"`
+
+	DeviceTimestamp DeviceTimestamp `gorm:"foreignKey:OrgID,Name;references:OrgID,Name;constraint:OnDelete:CASCADE"`
+}
+
+type DeviceTimestamp struct {
+	OrgID uuid.UUID `gorm:"type:uuid;primaryKey;index:,composite:org_name,priority:1"`
+	// Uniquely identifies the resource within an organization and schema.
+	// Depending on the schema (kind), assigned by the device management system or the crypto identity of the device (public key). Immutable.
+	// This may become a URN later, so it's important API users treat this as an opaque handle.
+	Name string `gorm:"primaryKey;index:,composite:org_name,priority:2" selector:"metadata.name"`
+
+	// The last time the device was seen (reported status).  Since this is updated frequently,
+	// we store it in a separate table to avoid bloating the main device table.  In addition we don't index this field
+	// because the effort of maintaining the index outweighs the benefit of querying by last seen.
+	LastSeen *time.Time
+}
+
+type DeviceWithTimestamp struct {
+	Device
+	LastSeen *time.Time
+}
+
+type DeviceType interface {
+	Device | DeviceWithTimestamp
+}
+
+type DeviceTypePtr interface {
+	ToApiResource(opts ...APIResourceOption) (*api.Device, error)
 }
 
 type DeviceLabel struct {
@@ -77,6 +105,7 @@ func NewDeviceFromApiResource(resource *api.Device) (*Device, error) {
 	if status.Conditions == nil {
 		status.Conditions = []api.Condition{}
 	}
+
 	var resourceVersion *int64
 	if resource.Metadata.ResourceVersion != nil {
 		i, err := strconv.ParseInt(lo.FromPtr(resource.Metadata.ResourceVersion), 10, 64)
@@ -142,8 +171,22 @@ func (d *Device) ToApiResource(opts ...APIResourceOption) (*api.Device, error) {
 
 		// if we have a console request we ignore the rendered version
 		// TODO: bump the rendered version instead?
-		if len(consoles) == 0 && apiOpts.knownRenderedVersion != nil && renderedVersion == *apiOpts.knownRenderedVersion {
-			return nil, nil
+		if len(consoles) == 0 && apiOpts.knownRenderedVersion != nil {
+			// Try numeric comparison first, fall back to lexicographic if parsing fails
+			renderedVersionInt, err1 := strconv.ParseInt(renderedVersion, 10, 64)
+			knownRenderedVersionInt, err2 := strconv.ParseInt(*apiOpts.knownRenderedVersion, 10, 64)
+
+			if err1 == nil && err2 == nil {
+				// Both versions are numeric, use numeric comparison
+				if renderedVersionInt <= knownRenderedVersionInt {
+					return nil, nil
+				}
+			} else {
+				// Fall back to lexicographic comparison for non-numeric versions
+				if renderedVersion <= *apiOpts.knownRenderedVersion {
+					return nil, nil
+				}
+			}
 		}
 		// TODO: handle multiple consoles, for now we just encapsulate our one console in a list
 		spec.Config = d.RenderedConfig.Data
@@ -156,11 +199,13 @@ func (d *Device) ToApiResource(opts ...APIResourceOption) (*api.Device, error) {
 		status = d.Status.Data
 	}
 
-	if d.ServiceConditions != nil && d.ServiceConditions.Data.Conditions != nil {
-		if status.Conditions == nil {
-			status.Conditions = []api.Condition{}
+	if !apiOpts.withoutServiceConditions {
+		if d.ServiceConditions != nil && d.ServiceConditions.Data.Conditions != nil {
+			if status.Conditions == nil {
+				status.Conditions = []api.Condition{}
+			}
+			status.Conditions = append(status.Conditions, *d.ServiceConditions.Data.Conditions...)
 		}
-		status.Conditions = append(status.Conditions, *d.ServiceConditions.Data.Conditions...)
 	}
 
 	var resourceVersion *string
@@ -184,13 +229,17 @@ func (d *Device) ToApiResource(opts ...APIResourceOption) (*api.Device, error) {
 	}, nil
 }
 
-func DevicesToApiResource(devices []Device, cont *string, numRemaining *int64) (api.DeviceList, error) {
+func DevicesToApiResource[D DeviceType](devices []D, cont *string, numRemaining *int64) (api.DeviceList, error) {
 	deviceList := make([]api.Device, len(devices))
 	applicationStatuses := make(map[string]int64)
 	summaryStatuses := make(map[string]int64)
 	updateStatuses := make(map[string]int64)
 	for i, device := range devices {
-		apiResource, _ := device.ToApiResource()
+		dptr, ok := any(&device).(DeviceTypePtr)
+		if !ok {
+			return api.DeviceList{}, fmt.Errorf("type assertion to DeviceTypePtr failed")
+		}
+		apiResource, _ := dptr.ToApiResource()
 		deviceList[i] = *apiResource
 		applicationStatus := string(deviceList[i].Status.ApplicationsSummary.Status)
 		applicationStatuses[applicationStatus] = applicationStatuses[applicationStatus] + 1
@@ -234,6 +283,9 @@ func (d *Device) HasSameSpecAs(otherResource any) bool {
 	if other == nil {
 		return false
 	}
+	if d.Spec == nil && other.Spec == nil {
+		return true
+	}
 	if (d.Spec == nil && other.Spec != nil) || (d.Spec != nil && other.Spec == nil) {
 		return false
 	}
@@ -242,4 +294,18 @@ func (d *Device) HasSameSpecAs(otherResource any) bool {
 
 func (d *Device) GetStatusAsJson() ([]byte, error) {
 	return d.Status.MarshalJSON()
+}
+
+func (d *DeviceWithTimestamp) ToApiResource(opts ...APIResourceOption) (*api.Device, error) {
+	if d == nil {
+		return &api.Device{}, nil
+	}
+	baseDevice, err := d.Device.ToApiResource(opts...)
+	if err != nil {
+		return nil, err
+	}
+	if d.LastSeen != nil {
+		baseDevice.Status.LastSeen = lo.ToPtr(d.LastSeen.UTC())
+	}
+	return baseDevice, nil
 }

@@ -7,7 +7,6 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
-	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -59,35 +58,6 @@ func newInline(log *log.PrefixLogger, podman *client.Podman, spec *v1alpha1.Appl
 
 }
 
-func (p *inlineProvider) OCITargets(pullSecret *client.PullSecret) ([]dependency.OCIPullTarget, error) {
-	// parse compose content from the inline spec
-	spec, err := client.ParseComposeFromSpec(p.spec.InlineProvider.Inline)
-	if err != nil {
-		return nil, err
-	}
-
-	// extract images from inline service
-	var targets []dependency.OCIPullTarget
-	for _, svc := range spec.Services {
-		if svc.Image != "" {
-			targets = append(targets, dependency.OCIPullTarget{
-				Type:       dependency.OCITypeImage,
-				Reference:  svc.Image,
-				PullPolicy: v1alpha1.PullIfNotPresent,
-				PullSecret: pullSecret,
-			})
-		}
-	}
-
-	volTargets, err := extractVolumeTargets(p.spec.InlineProvider.Volumes, pullSecret)
-	if err != nil {
-		return nil, err
-	}
-	targets = append(targets, volTargets...)
-
-	return targets, nil
-}
-
 func (p *inlineProvider) Verify(ctx context.Context) error {
 	if err := validateEnvVars(p.spec.EnvVars); err != nil {
 		return fmt.Errorf("%w: validating env vars: %w", errors.ErrInvalidSpec, err)
@@ -105,13 +75,11 @@ func (p *inlineProvider) Verify(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("creating tmp dir: %w", err)
 	}
-
-	cleanup := func() {
+	defer func() {
 		if err := p.readWriter.RemoveAll(tmpAppPath); err != nil {
-			p.log.Errorf("Cleaning up temporary directory %q: %v", tmpAppPath, err)
+			p.log.Warnf("Failed to cleanup temporary directory %q: %v", tmpAppPath, err)
 		}
-	}
-	defer cleanup()
+	}()
 
 	// copy image contents to a tmp directory for further processing
 	if err := p.writeInlineContent(tmpAppPath, p.spec.InlineProvider.Inline); err != nil {
@@ -122,6 +90,10 @@ func (p *inlineProvider) Verify(ctx context.Context) error {
 	case v1alpha1.AppTypeCompose:
 		if err := ensureCompose(p.readWriter, tmpAppPath); err != nil {
 			return fmt.Errorf("ensuring compose: %w", err)
+		}
+	case v1alpha1.AppTypeQuadlet:
+		if err := ensureQuadlet(p.readWriter, tmpAppPath); err != nil {
+			return fmt.Errorf("ensuring quadlet: %w", err)
 		}
 	default:
 		return fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, p.spec.AppType)
@@ -138,8 +110,17 @@ func (p *inlineProvider) Install(ctx context.Context) error {
 		return fmt.Errorf("writing env file: %w", err)
 	}
 
-	if err := writeComposeOverride(p.log, p.spec.Path, p.spec.Volume, p.readWriter, client.ComposeOverrideFilename); err != nil {
-		return fmt.Errorf("writing override file %w", err)
+	switch p.spec.AppType {
+	case v1alpha1.AppTypeCompose:
+		if err := writeComposeOverride(p.log, p.spec.Path, p.spec.Volume, p.readWriter, client.ComposeOverrideFilename); err != nil {
+			return fmt.Errorf("writing override file %w", err)
+		}
+	case v1alpha1.AppTypeQuadlet:
+		if err := installQuadlet(p.readWriter, p.spec.Path, p.spec.ID); err != nil {
+			return fmt.Errorf("installing quadlet: %w", err)
+		}
+	default:
+		return fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, p.spec.AppType)
 	}
 
 	return nil

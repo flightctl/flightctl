@@ -1,16 +1,17 @@
 [Unit]
 Description=FlightCtl UserInfo Proxy for OAuth Integration
-After=flightctl-observability-network.service
-Wants=flightctl-observability-network.service
+After=flightctl-network.service
+Wants=flightctl-network.service
 PartOf=flightctl-observability.target
 
 [Container]
 Image=${USERINFO_PROXY_IMAGE}
 Pull=newer
+
 ContainerName=flightctl-userinfo-proxy
 
 # Network configuration
-Network=flightctl-observability
+Network=flightctl
 
 # Environment variables for configuration
 Environment=USERINFO_LISTEN_PORT=8080
@@ -19,9 +20,6 @@ Environment=USERINFO_SKIP_TLS_VERIFY=${USERINFO_SKIP_TLS_VERIFY}
 
 # Security
 User=1001:1001
-
-# Resource limits
-Memory=64m
 
 [Service]
 Restart=on-failure

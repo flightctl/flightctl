@@ -11,93 +11,11 @@ package auth
 
 import (
 	context "context"
-	http "net/http"
 	reflect "reflect"
 
-	common "github.com/flightctl/flightctl/internal/auth/common"
+	v1alpha1 "github.com/flightctl/flightctl/api/v1alpha1"
 	gomock "go.uber.org/mock/gomock"
 )
-
-// MockAuthNMiddleware is a mock of AuthNMiddleware interface.
-type MockAuthNMiddleware struct {
-	ctrl     *gomock.Controller
-	recorder *MockAuthNMiddlewareMockRecorder
-}
-
-// MockAuthNMiddlewareMockRecorder is the mock recorder for MockAuthNMiddleware.
-type MockAuthNMiddlewareMockRecorder struct {
-	mock *MockAuthNMiddleware
-}
-
-// NewMockAuthNMiddleware creates a new mock instance.
-func NewMockAuthNMiddleware(ctrl *gomock.Controller) *MockAuthNMiddleware {
-	mock := &MockAuthNMiddleware{ctrl: ctrl}
-	mock.recorder = &MockAuthNMiddlewareMockRecorder{mock}
-	return mock
-}
-
-// EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockAuthNMiddleware) EXPECT() *MockAuthNMiddlewareMockRecorder {
-	return m.recorder
-}
-
-// GetAuthConfig mocks base method.
-func (m *MockAuthNMiddleware) GetAuthConfig() common.AuthConfig {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetAuthConfig")
-	ret0, _ := ret[0].(common.AuthConfig)
-	return ret0
-}
-
-// GetAuthConfig indicates an expected call of GetAuthConfig.
-func (mr *MockAuthNMiddlewareMockRecorder) GetAuthConfig() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAuthConfig", reflect.TypeOf((*MockAuthNMiddleware)(nil).GetAuthConfig))
-}
-
-// GetAuthToken mocks base method.
-func (m *MockAuthNMiddleware) GetAuthToken(r *http.Request) (string, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetAuthToken", r)
-	ret0, _ := ret[0].(string)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetAuthToken indicates an expected call of GetAuthToken.
-func (mr *MockAuthNMiddlewareMockRecorder) GetAuthToken(r any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAuthToken", reflect.TypeOf((*MockAuthNMiddleware)(nil).GetAuthToken), r)
-}
-
-// GetIdentity mocks base method.
-func (m *MockAuthNMiddleware) GetIdentity(ctx context.Context, token string) (*common.Identity, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetIdentity", ctx, token)
-	ret0, _ := ret[0].(*common.Identity)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetIdentity indicates an expected call of GetIdentity.
-func (mr *MockAuthNMiddlewareMockRecorder) GetIdentity(ctx, token any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetIdentity", reflect.TypeOf((*MockAuthNMiddleware)(nil).GetIdentity), ctx, token)
-}
-
-// ValidateToken mocks base method.
-func (m *MockAuthNMiddleware) ValidateToken(ctx context.Context, token string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ValidateToken", ctx, token)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// ValidateToken indicates an expected call of ValidateToken.
-func (mr *MockAuthNMiddlewareMockRecorder) ValidateToken(ctx, token any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ValidateToken", reflect.TypeOf((*MockAuthNMiddleware)(nil).ValidateToken), ctx, token)
-}
 
 // MockAuthZMiddleware is a mock of AuthZMiddleware interface.
 type MockAuthZMiddleware struct {
@@ -135,4 +53,19 @@ func (m *MockAuthZMiddleware) CheckPermission(ctx context.Context, resource, op 
 func (mr *MockAuthZMiddlewareMockRecorder) CheckPermission(ctx, resource, op any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CheckPermission", reflect.TypeOf((*MockAuthZMiddleware)(nil).CheckPermission), ctx, resource, op)
+}
+
+// GetUserPermissions mocks base method.
+func (m *MockAuthZMiddleware) GetUserPermissions(ctx context.Context) (*v1alpha1.PermissionList, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetUserPermissions", ctx)
+	ret0, _ := ret[0].(*v1alpha1.PermissionList)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetUserPermissions indicates an expected call of GetUserPermissions.
+func (mr *MockAuthZMiddlewareMockRecorder) GetUserPermissions(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUserPermissions", reflect.TypeOf((*MockAuthZMiddleware)(nil).GetUserPermissions), ctx)
 }

@@ -1,11 +1,35 @@
 package tpm
 
 import (
+	"context"
+	"crypto"
 	"regexp"
 
 	legacy "github.com/google/go-tpm/legacy/tpm2"
 	"github.com/google/go-tpm/tpm2"
 )
+
+// Client defines the interface for interacting with the TPM
+type Client interface {
+	// Public returns the public key corresponding to the LDevID private key
+	Public() crypto.PublicKey
+	// MakeCSR generates a TCG-CSR-IDEVID structure for enrollment requests
+	MakeCSR(deviceName string, qualifyingData []byte) ([]byte, error)
+	// SolveChallenge uses TPM2_ActivateCredential to decrypt an encrypted secret
+	SolveChallenge(credentialBlob, encryptedSecret []byte) ([]byte, error)
+	// GetSigner returns the crypto.Signer interface for this client
+	GetSigner() crypto.Signer
+	// UpdateNonce updates the nonce used for TPM operations
+	UpdateNonce(nonce []byte) error
+	// Clear clears any stored TPM data
+	Clear() error
+	// Close closes the TPM session
+	Close() error
+	// VendorInfoCollector collects vendor information from the TPM
+	VendorInfoCollector(ctx context.Context) string
+	// CreateApplicationKey generates a TCG CSR IDEVID bundle and a TSS2 PEM encoded file for the specified application
+	CreateApplicationKey(name string) ([]byte, []byte, error)
+}
 
 const (
 	MinNonceLength = 8
@@ -40,6 +64,14 @@ const (
 	RSA   KeyAlgorithm = "rsa"
 )
 
+type AppKeyStoreData struct {
+	ParentHandle tpm2.TPMHandle
+	ParentPass   []byte
+	Public       tpm2.TPM2BPublic
+	Private      tpm2.TPM2BPrivate
+	Pass         []byte
+}
+
 // Storage handles pure disk persistence of TPM data on disk
 type Storage interface {
 	// GetKey retrieves stored key data for the specified key type
@@ -49,6 +81,14 @@ type Storage interface {
 	StoreKey(keyType KeyType, public tpm2.TPM2BPublic, private tpm2.TPM2BPrivate) error
 	// ClearKey clears key data for the specified key type
 	ClearKey(keyType KeyType) error
+	// GetApplicationKey returns the AppKeyStoreData for a given application
+	GetApplicationKey(string) (*AppKeyStoreData, error)
+	// StoreApplicationKey stores the AppKeyStoreData for a given application
+	StoreApplicationKey(string, AppKeyStoreData) error
+	// ClearApplicationKey removes the stored info for the application
+	ClearApplicationKey(string) error
+	// ClearApplicationKeys removes all application keys
+	ClearApplicationKeys() error
 	// GetPassword retrieves the stored storage hierarchy password
 	GetPassword() ([]byte, error)
 	// StorePassword stores the storage hierarchy password
@@ -59,24 +99,53 @@ type Storage interface {
 	Close() error
 }
 
+// Certifiable defines an interface for keys that are certifiable
+type Certifiable interface {
+	// Handle returns the Handle of the Key to certify
+	Handle() tpm2.AuthHandle
+}
+
+// DeviceID defines an interface for Keys that represent an identity
+type DeviceID interface {
+	crypto.Signer
+	Certifiable
+	// Close flushes the key
+	Close() error
+	// PublicBlob returns the serialized TPM2Public portion of the key
+	PublicBlob() []byte
+}
+
+// ExportableDeviceID defines an interface for DeviceIDs that can be exported
+type ExportableDeviceID interface {
+	DeviceID
+	// Export generates a TSS2 PEM formatted file
+	Export() ([]byte, error)
+}
+
 // Session manages active TPM state and operations
 type Session interface {
-	// GetHandle returns the active handle for a key type
-	GetHandle(keyType KeyType) (*tpm2.NamedHandle, error)
 	// CreateKey creates a new key of the specified type
 	CreateKey(keyType KeyType) (*tpm2.CreateResponse, error)
 	// LoadKey loads a key into the TPM and returns its handle
 	LoadKey(keyType KeyType) (*tpm2.NamedHandle, error)
 	// CertifyKey certifies a key with the LAK
 	CertifyKey(keyType KeyType, qualifyingData []byte) (certifyInfo, signature []byte, err error)
+	// Certify certifies a key with the LAK
+	Certify(key Certifiable, qualifyingData []byte) (certifyInfo, signature []byte, err error)
+	// LoadApplicationKey creates or returns an already existing DeviceID
+	LoadApplicationKey(appName string) (ExportableDeviceID, error)
+	// RemoveApplicationKey removes the key for the specified application
+	RemoveApplicationKey(appName string) error
 	// Sign signs data with the specified key
 	Sign(keyType KeyType, digest []byte) ([]byte, error)
 	// GetPublicKey gets the public key for a key type
 	GetPublicKey(keyType KeyType) (*tpm2.TPM2BPublic, error)
 	// GetEndorsementKeyCert returns the endorsement key certificate
 	GetEndorsementKeyCert() ([]byte, error)
-	// FlushAllTransientHandles aggressively flushes all transient handles
-	FlushAllTransientHandles() error
+	// GenerateChallenge creates a credential challenge used to prove ownership
+	GenerateChallenge(secret []byte) ([]byte, []byte, error)
+	// SolveChallenge decrypts the encryptedSecret to prove ownership of the credentials
+	SolveChallenge(credentialBlob, encryptedSecret []byte) ([]byte, error)
 	// Clear performs a best-effort clear of the TPM, resetting keys and auth
 	Clear() error
 	// Close closes the session and flushes handles

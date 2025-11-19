@@ -35,6 +35,7 @@ type queueManager struct {
 	policyManager  policy.Manager
 	failedVersions map[int64]struct{}
 	requeueLookup  map[int64]*requeueState
+	specCache      *cache
 	// maxRetries is the number of times a template version can be requeued before being removed.
 	// A value of 0 means infinite retries.
 	maxRetries int
@@ -44,17 +45,19 @@ type queueManager struct {
 	log *log.PrefixLogger
 }
 
-// newPriorityQueue returns a new priority queue.
-func newPriorityQueue(
+// newQueueManager returns a new queue manager.
+func newQueueManager(
 	maxSize int,
 	maxRetries int,
 	pollConfig poll.Config,
 	policyManager policy.Manager,
+	specCache *cache,
 	log *log.PrefixLogger,
 ) PriorityQueue {
 	return &queueManager{
 		queue:          newQueue(log, maxSize),
 		policyManager:  policyManager,
+		specCache:      specCache,
 		failedVersions: make(map[int64]struct{}),
 		requeueLookup:  make(map[int64]*requeueState),
 		maxRetries:     maxRetries,
@@ -78,21 +81,30 @@ func (m *queueManager) Add(ctx context.Context, device *v1alpha1.Device) {
 		m.log.Errorf("Failed to create queue item: %v", err)
 		return
 	}
-	version := item.Version
-	if _, failed := m.failedVersions[version]; failed {
-		m.log.Debugf("Skipping adding failed template version: %d", version)
+	proposedVersion := item.Version
+	if _, failed := m.failedVersions[proposedVersion]; failed {
+		m.log.Debugf("Skipping adding failed template version: %d", proposedVersion)
+		return
+	}
+	currentRenderedVersion, err := stringToInt64(m.specCache.current.renderedVersion)
+	if err != nil {
+		m.log.Errorf("Failed to parse device version: %s error: %v", device.Version(), err)
+		return
+	}
+	if proposedVersion < currentRenderedVersion {
+		m.log.Errorf("Skipping adding template version less than current rendered version: %d < %d", proposedVersion, currentRenderedVersion)
 		return
 	}
 
 	m.pruneRequeueStatus()
 
-	state := m.getOrCreateRequeueState(ctx, version)
+	state := m.getOrCreateRequeueState(ctx, proposedVersion)
 	if m.shouldEnforceDelay(state) {
-		m.log.Debugf("Enforcing delay for version: %d", version)
+		m.log.Debugf("Enforcing delay for version: %d", proposedVersion)
 	}
 
-	if m.hasExceededMaxRetries(state, version) {
-		m.setFailed(version)
+	if m.hasExceededMaxRetries(state, proposedVersion) {
+		m.setFailed(proposedVersion)
 		return
 	}
 

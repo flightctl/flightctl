@@ -13,10 +13,11 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/alert_exporter"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/tasks_client"
+	"github.com/flightctl/flightctl/internal/worker_client"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
 	testutil "github.com/flightctl/flightctl/test/util"
@@ -51,8 +52,8 @@ var _ = Describe("Alert Exporter", func() {
 		cfg               *config.Config
 		db                *gorm.DB
 		dbName            string
-		callbackManager   tasks_client.CallbackManager
-		mockPublisher     *queues.MockPublisher
+		workerClient      worker_client.WorkerClient
+		mockProducer      *queues.MockQueueProducer
 		ctrl              *gomock.Controller
 		checkpointManager *alert_exporter.CheckpointManager
 		eventProcessor    *alert_exporter.EventProcessor
@@ -61,15 +62,16 @@ var _ = Describe("Alert Exporter", func() {
 
 	BeforeEach(func() {
 		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
+		ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
 		log = flightlog.InitLogs()
 		storeInst, cfg, dbName, db = store.PrepareDBForUnitTests(ctx, log)
 		ctrl = gomock.NewController(GinkgoT())
-		mockPublisher = queues.NewMockPublisher(ctrl)
-		callbackManager = tasks_client.NewCallbackManager(mockPublisher, log)
-		mockPublisher.EXPECT().Publish(gomock.Any(), gomock.Any()).AnyTimes()
+		mockProducer = queues.NewMockQueueProducer(ctrl)
+		workerClient = worker_client.NewWorkerClient(mockProducer, log)
+		mockProducer.EXPECT().Enqueue(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		Expect(err).ToNot(HaveOccurred())
-		serviceHandler = service.NewServiceHandler(storeInst, callbackManager, kvStore, nil, log, "", "", []string{})
+		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{})
 		checkpointManager = alert_exporter.NewCheckpointManager(log, serviceHandler)
 		eventProcessor = alert_exporter.NewEventProcessor(log, serviceHandler)
 		alertSender = alert_exporter.NewAlertSender(log, cfg.Alertmanager.Hostname, cfg.Alertmanager.Port, cfg)
@@ -353,7 +355,7 @@ var _ = Describe("Alert Exporter", func() {
 			// This should fail with a clear database error
 			_, err = eventProcessor.ProcessLatestEvents(ctx, checkpoint, &alert_exporter.ProcessingMetrics{})
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("Failed to list events"))
+			Expect(err.Error()).To(ContainSubstring("failed to list organizations"))
 		})
 
 		It("recovers from malformed checkpoint data", func() {

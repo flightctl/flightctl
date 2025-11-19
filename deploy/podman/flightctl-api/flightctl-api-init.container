@@ -1,7 +1,7 @@
 [Unit]
 PartOf=flightctl.target
-After=flightctl-db.service
-Wants=flightctl-db.service
+After=flightctl-db-wait.service
+Wants=flightctl-db-wait.service
 
 [Container]
 Image=registry.access.redhat.com/ubi9/ubi-minimal
@@ -17,6 +17,7 @@ Exec=/bin/sh /config-source/init.sh
 [Service]
 Type=oneshot
 RemainAfterExit=true
+Restart=on-failure
 RestartSec=5s
 
 [Install]

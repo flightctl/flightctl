@@ -3,8 +3,11 @@ package cli
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"strings"
 
 	"github.com/flightctl/flightctl/internal/client"
+	"github.com/flightctl/flightctl/internal/org"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
@@ -97,7 +100,12 @@ func (o *ConfigOptions) RunCurrentOrganization(ctx context.Context, args []strin
 	if config.Organization == "" {
 		fmt.Println("No current organization set")
 	} else {
-		fmt.Println(config.Organization)
+		displayName, err := o.getOrganizationDisplayName(ctx, config.Organization)
+		if err != nil || displayName == "" {
+			fmt.Println(config.Organization)
+		} else {
+			fmt.Printf("%s %s\n", config.Organization, displayName)
+		}
 	}
 	return nil
 }
@@ -105,20 +113,32 @@ func (o *ConfigOptions) RunCurrentOrganization(ctx context.Context, args []strin
 func (o *ConfigOptions) RunSetOrganization(ctx context.Context, args []string) error {
 	organizationId := args[0]
 
-	// Validate organization ID unless it's empty (empty string unsets the organization)
-	if organizationId != "" {
-		if err := validateOrganizationID(organizationId); err != nil {
-			return fmt.Errorf("cannot set organization: %w", err)
-		}
-	}
-
 	config, err := client.ParseConfigFile(o.ConfigFilePath)
 	if err != nil {
 		return fmt.Errorf("reading config: %w", err)
 	}
 	if config.Organization == organizationId {
-		fmt.Println("Current organization unchanged")
+		if organizationId == "" {
+			fmt.Println("Current organization already unset")
+		} else {
+			if displayName, err := o.getOrganizationDisplayName(ctx, organizationId); err == nil && displayName != "" {
+				fmt.Printf("Current organization unchanged: %s %s\n", organizationId, displayName)
+			} else {
+				fmt.Printf("Current organization unchanged: %s\n", organizationId)
+			}
+		}
 		return nil
+	}
+
+	var displayName string
+	if organizationId != "" {
+		if err := validateOrganizationID(organizationId); err != nil {
+			return fmt.Errorf("cannot set organization: %w", err)
+		}
+		displayName, err = o.getOrganizationDisplayName(ctx, organizationId)
+		if err != nil {
+			return fmt.Errorf("cannot set organization: %w", err)
+		}
 	}
 
 	config.Organization = organizationId
@@ -130,7 +150,53 @@ func (o *ConfigOptions) RunSetOrganization(ctx context.Context, args []string) e
 	if organizationId == "" {
 		fmt.Println("Current organization unset")
 	} else {
-		fmt.Printf("Current organization set to: %s\n", organizationId)
+		if displayName != "" {
+			fmt.Printf("Current organization set to: %s %s\n", organizationId, displayName)
+		} else {
+			fmt.Printf("Current organization set to: %s\n", organizationId)
+		}
 	}
 	return nil
+}
+
+func (o *ConfigOptions) getOrganizationDisplayName(ctx context.Context, organizationId string) (string, error) {
+	if organizationId == "" || organizationId == org.DefaultID.String() {
+		return "", nil
+	}
+
+	c, err := client.NewFromConfigFile(o.ConfigFilePath, client.WithOrganization(""))
+	if err != nil {
+		return "", fmt.Errorf("failed to create API client: %w", err)
+	}
+
+	response, err := c.ListOrganizationsWithResponse(ctx)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch organizations: %w", err)
+	}
+
+	if response.StatusCode() != http.StatusOK || response.JSON200 == nil || response.JSON200.Items == nil {
+		return "", fmt.Errorf("failed to fetch organizations: invalid response (status: %d)", response.StatusCode())
+	}
+
+	availableOrgs := make([]string, 0, len(response.JSON200.Items))
+	for _, item := range response.JSON200.Items {
+		if item.Metadata.Name == nil {
+			continue
+		}
+		name := *item.Metadata.Name
+		displayName := ""
+		if item.Spec != nil && item.Spec.DisplayName != nil {
+			displayName = *item.Spec.DisplayName
+		}
+		if displayName != "" {
+			availableOrgs = append(availableOrgs, fmt.Sprintf("%s (%s)", name, displayName))
+		} else {
+			availableOrgs = append(availableOrgs, name)
+		}
+		if name != organizationId {
+			continue
+		}
+		return displayName, nil
+	}
+	return "", fmt.Errorf("organization %q not found - available organizations: %s", organizationId, strings.Join(availableOrgs, ", "))
 }

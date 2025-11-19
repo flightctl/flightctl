@@ -14,16 +14,16 @@ import (
 	"github.com/flightctl/flightctl/internal/api/server"
 	fcmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/auth"
+	"github.com/flightctl/flightctl/internal/auth/authn"
+	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/console"
 	"github.com/flightctl/flightctl/internal/crypto"
-	"github.com/flightctl/flightctl/internal/instrumentation"
 	"github.com/flightctl/flightctl/internal/kvstore"
-	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/tasks_client"
 	"github.com/flightctl/flightctl/internal/transport"
+	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/go-chi/chi/v5"
@@ -56,9 +56,9 @@ type Server struct {
 	ca                 *crypto.CAClient
 	listener           net.Listener
 	queuesProvider     queues.Provider
-	metrics            *instrumentation.ApiMetrics
 	consoleEndpointReg console.InternalSessionRegistration
-	orgResolver        *org.Resolver
+	authN              common.AuthNMiddleware
+	authZ              auth.AuthZMiddleware
 }
 
 // New returns a new instance of a flightctl server.
@@ -69,10 +69,8 @@ func New(
 	ca *crypto.CAClient,
 	listener net.Listener,
 	queuesProvider queues.Provider,
-	metrics *instrumentation.ApiMetrics,
 	consoleEndpointReg console.InternalSessionRegistration,
 ) *Server {
-	resolver := org.NewResolver(st.Organization(), 5*time.Minute)
 	return &Server{
 		log:                log,
 		cfg:                cfg,
@@ -80,9 +78,7 @@ func New(
 		ca:                 ca,
 		listener:           listener,
 		queuesProvider:     queuesProvider,
-		metrics:            metrics,
 		consoleEndpointReg: consoleEndpointReg,
-		orgResolver:        resolver,
 	}
 }
 
@@ -131,7 +127,7 @@ func oapiMultiErrorHandler(errs openapi3.MultiError) (int, error) {
 		}
 	}
 
-	if allMatchFormat && longestPathErrorIndex >= 0 {
+	if allMatchFormat && longestPathError != nil {
 		shortErrorMessages = append(shortErrorMessages[:longestPathErrorIndex], shortErrorMessages[longestPathErrorIndex+1:]...)
 		response := fmt.Errorf("%d API errors found. The most relevant is likely:\n%s\nOther errors found were:\n%s",
 			len(errs),
@@ -146,7 +142,7 @@ func oapiMultiErrorHandler(errs openapi3.MultiError) (int, error) {
 
 func (s *Server) Run(ctx context.Context) error {
 	s.log.Println("Initializing async jobs")
-	publisher, err := tasks_client.TaskQueuePublisher(s.queuesProvider)
+	publisher, err := worker_client.QueuePublisher(ctx, s.queuesProvider)
 	if err != nil {
 		return err
 	}
@@ -154,7 +150,7 @@ func (s *Server) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	callbackManager := tasks_client.NewCallbackManager(publisher, s.log)
+	workerClient := worker_client.NewWorkerClient(publisher, s.log)
 
 	s.log.Println("Initializing API server")
 	swagger, err := api.GetSwagger()
@@ -169,16 +165,65 @@ func (s *Server) Run(ctx context.Context) error {
 		MultiErrorHandler: oapiMultiErrorHandler,
 	}
 
-	err = auth.InitAuth(s.cfg, s.log)
+	// Create service handler and wrap with tracing
+	baseServiceHandler := service.NewServiceHandler(
+		s.store, workerClient, kvStore, s.ca, s.log, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl, s.cfg.Service.TPMCAPaths)
+	serviceHandler := service.WrapWithTracing(baseServiceHandler)
+
+	// Initialize auth with traced service handler for OIDC provider access
+	authN, err := auth.InitMultiAuth(s.cfg, s.log, serviceHandler)
 	if err != nil {
 		return fmt.Errorf("failed initializing auth: %w", err)
+	}
+	s.authN = authN
+
+	// Create auth proxies (token and userinfo)
+	var authTokenProxy *service.AuthTokenProxy
+	var authUserInfoProxy *service.AuthUserInfoProxy
+
+	if multiAuth, ok := authN.(*authn.MultiAuth); ok {
+		// Create auth token proxy with MultiAuth
+		authTokenProxy = service.NewAuthTokenProxy(multiAuth)
+
+		// Start auth provider loader
+		go func() {
+			multiAuth.Start(ctx)
+			s.log.Warn("Auth provider loader stopped unexpectedly")
+		}()
+	}
+	authUserInfoProxy = service.NewAuthUserInfoProxy(s.authN)
+
+	s.authZ, err = auth.InitMultiAuthZ(s.cfg, s.log)
+	if err != nil {
+		return fmt.Errorf("failed initializing authZ: %w", err)
+	}
+
+	// Start multiAuthZ to initialize cache lifecycle management
+	if multiAuthZ, ok := s.authZ.(*auth.MultiAuthZ); ok {
+		multiAuthZ.Start(ctx)
+		s.log.Debug("Started MultiAuthZ with context-based cache lifecycle")
 	}
 
 	router := chi.NewRouter()
 
+	// Create identity mapping middleware
+	identityMapper := service.NewIdentityMapper(s.store, s.log)
+	go func() {
+		identityMapper.Start(ctx)
+		s.log.Warn("Identity mapper stopped unexpectedly")
+	}()
+	identityMappingMiddleware := fcmiddleware.NewIdentityMappingMiddleware(identityMapper, s.log)
+
+	// Create organization extraction and validation middlewares once
+	extractOrgMiddleware := fcmiddleware.ExtractOrgIDToCtx(fcmiddleware.QueryOrgIDExtractor, s.log)
+	validateOrgMiddleware := fcmiddleware.ValidateOrgMembership(s.log)
+
 	authMiddewares := []func(http.Handler) http.Handler{
-		auth.CreateAuthNMiddleware(s.log),
-		auth.CreateAuthZMiddleware(s.log),
+		auth.CreateAuthNMiddleware(s.authN, s.log),
+		identityMappingMiddleware.MapIdentityToDB,
+		extractOrgMiddleware,
+		validateOrgMiddleware,
+		auth.CreateAuthZMiddleware(s.authZ, s.log),
 	}
 
 	// general middleware stack for all route groups
@@ -186,33 +231,24 @@ func (s *Server) Run(ctx context.Context) error {
 	router.Use(
 		middleware.RequestSize(int64(s.cfg.Service.HttpMaxRequestSize)),
 		fcmiddleware.RequestSizeLimiter(s.cfg.Service.HttpMaxUrlLength, s.cfg.Service.HttpMaxNumHeaders),
+		fcmiddleware.SecurityHeaders,
 		fcmiddleware.RequestID,
 		fcmiddleware.AddEventMetadataToCtx,
-		fcmiddleware.AddOrgIDToCtx(
-			s.orgResolver,
-			fcmiddleware.QueryOrgIDExtractor,
-		),
 		middleware.Logger,
 		middleware.Recoverer,
 	)
-
-	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(
-		s.store, callbackManager, kvStore, s.ca, s.log, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl, s.cfg.Service.TPMCAPaths))
 
 	// a group is a new mux copy, with its own copy of the middleware stack
 	// this one handles the OpenAPI handling of the service (excluding auth validate endpoint)
 	router.Group(func(r chi.Router) {
 		//NOTE(majopela): keeping metrics middleware separate from the rest of the middleware stack
 		// to avoid issues with websocket connections
-		if s.metrics != nil {
-			r.Use(s.metrics.ApiServerMiddleware)
-		}
 		r.Use(oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts))
 		r.Use(authMiddewares...)
-		// Add general rate limiting (only if configured)
-		if s.cfg.Service.RateLimit != nil {
+		// Add general rate limiting (only if configured and enabled)
+		if s.cfg.Service.RateLimit != nil && s.cfg.Service.RateLimit.Enabled {
 			trustedProxies := s.cfg.Service.RateLimit.TrustedProxies
-			requests := 60        // Default requests limit
+			requests := 300       // Default requests limit
 			window := time.Minute // Default window
 			if s.cfg.Service.RateLimit.Requests > 0 {
 				requests = s.cfg.Service.RateLimit.Requests
@@ -228,7 +264,7 @@ func (s *Server) Run(ctx context.Context) error {
 			})
 		}
 
-		h := transport.NewTransportHandler(serviceHandler)
+		h := transport.NewTransportHandler(serviceHandler, s.authN, authTokenProxy, authUserInfoProxy, s.authZ)
 
 		// Register all other endpoints with general rate limiting (already applied at router level)
 		// Create a custom handler that excludes the auth validate endpoint
@@ -236,20 +272,28 @@ func (s *Server) Run(ctx context.Context) error {
 		server.HandlerFromMux(customHandler, r)
 	})
 
+	// health endpoints: bypass OpenAPI + auth, but keep global safety middlewares
+	router.Group(func(r chi.Router) {
+		if s.cfg != nil && s.cfg.Service != nil && s.cfg.Service.HealthChecks != nil && s.cfg.Service.HealthChecks.Enabled {
+			hc := s.cfg.Service.HealthChecks
+			r.Method(http.MethodGet, hc.ReadinessPath,
+				ReadyzHandler(time.Duration(hc.ReadinessTimeout), s.store, s.queuesProvider))
+			r.Method(http.MethodGet, hc.LivenessPath, HealthzHandler())
+		}
+	})
+
 	// Register auth validate endpoint with stricter rate limiting (outside main API group)
 	// This ensures it gets all the necessary middleware with stricter rate limiting
 	router.Group(func(r chi.Router) {
 		// Add conditional middleware
-		if s.metrics != nil {
-			r.Use(s.metrics.ApiServerMiddleware)
-		}
 		r.Use(oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts))
 		r.Use(authMiddewares...)
+		r.Use(identityMappingMiddleware.MapIdentityToDB) // Map identity to DB objects AFTER authentication
 
-		// Add auth-specific rate limiting (only if configured)
-		if s.cfg.Service.RateLimit != nil {
+		// Add auth-specific rate limiting (only if configured and enabled)
+		if s.cfg.Service.RateLimit != nil && s.cfg.Service.RateLimit.Enabled {
 			trustedProxies := s.cfg.Service.RateLimit.TrustedProxies
-			authRequests := 10      // Default auth requests limit
+			authRequests := 20      // Default auth requests limit
 			authWindow := time.Hour // Default auth window
 			if s.cfg.Service.RateLimit.AuthRequests > 0 {
 				authRequests = s.cfg.Service.RateLimit.AuthRequests
@@ -265,7 +309,7 @@ func (s *Server) Run(ctx context.Context) error {
 			})
 		}
 
-		h := transport.NewTransportHandler(serviceHandler)
+		h := transport.NewTransportHandler(serviceHandler, s.authN, authTokenProxy, authUserInfoProxy, s.authZ)
 		// Use the wrapper to handle the AuthValidate method signature
 		wrapper := &server.ServerInterfaceWrapper{
 			Handler:            h,
@@ -281,10 +325,11 @@ func (s *Server) Run(ctx context.Context) error {
 	router.Group(func(r chi.Router) {
 		r.Use(fcmiddleware.CreateRouteExistsMiddleware(r))
 		r.Use(authMiddewares...)
-		// Add websocket rate limiting (only if configured)
-		if s.cfg.Service.RateLimit != nil {
+		r.Use(identityMappingMiddleware.MapIdentityToDB) // Map identity to DB objects AFTER authentication
+		// Add websocket rate limiting (only if configured and enabled)
+		if s.cfg.Service.RateLimit != nil && s.cfg.Service.RateLimit.Enabled {
 			trustedProxies := s.cfg.Service.RateLimit.TrustedProxies
-			requests := 60        // Default requests limit
+			requests := 300       // Default requests limit
 			window := time.Minute // Default window
 			if s.cfg.Service.RateLimit.Requests > 0 {
 				requests = s.cfg.Service.RateLimit.Requests
@@ -316,14 +361,14 @@ func (s *Server) Run(ctx context.Context) error {
 
 		srv.SetKeepAlivesEnabled(false)
 		_ = srv.Shutdown(ctxTimeout)
+		identityMapper.Stop()
 		kvStore.Close()
-		s.orgResolver.Close()
 		s.queuesProvider.Stop()
 		s.queuesProvider.Wait()
 	}()
 
 	s.log.Printf("Listening on %s...", s.listener.Addr().String())
-	if err := srv.Serve(s.listener); err != nil && !errors.Is(err, net.ErrClosed) {
+	if err := srv.Serve(s.listener); err != nil && !errors.Is(err, net.ErrClosed) && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 

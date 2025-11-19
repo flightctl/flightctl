@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
@@ -18,23 +19,24 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/os"
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
-	"github.com/flightctl/flightctl/internal/agent/device/publisher"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
+	"github.com/flightctl/flightctl/internal/agent/device/spec/audit"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/internal/agent/device/systeminfo"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
-	"github.com/flightctl/flightctl/test/util"
+	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
+	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 func TestSync(t *testing.T) {
-	require := require.New(t)
 	deviceName := "test-device"
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -199,15 +201,14 @@ func TestSync(t *testing.T) {
 			readWriter := fileio.NewReadWriter()
 			readWriter.SetRootdir(tmpDir)
 
-			podmanClient := client.NewPodman(log, mockExec, readWriter, util.NewPollConfig())
-			consoleController := console.NewController(mockRouterService, deviceName, mockExec, publisher.NewSubscription(), log)
+			podmanClient := client.NewPodman(log, mockExec, readWriter, testutil.NewPollConfig())
+			mockWatcher := spec.NewMockWatcher(ctrl)
+			consoleManager := console.NewManager(mockRouterService, deviceName, mockExec, mockWatcher, log)
 			appController := applications.NewController(podmanClient, mockAppManager, readWriter, log)
 			statusManager := status.NewManager(deviceName, log)
 			statusManager.SetClient(mockManagementClient)
 			configController := config.NewController(readWriter, log)
 			resourceController := resource.NewController(log, mockResourceManager)
-			devicePublisher := publisher.NewSubscription()
-			require.NoError(devicePublisher.Push(tc.desired))
 
 			agent := Agent{
 				log:                    log,
@@ -218,7 +219,7 @@ func TestSync(t *testing.T) {
 				appManager:             mockAppManager,
 				applicationsController: appController,
 				hookManager:            mockHookManager,
-				consoleController:      consoleController,
+				consoleManager:         consoleManager,
 				configController:       configController,
 				resourceController:     resourceController,
 				systemdManager:         mockSystemdManager,
@@ -238,7 +239,6 @@ func TestSync(t *testing.T) {
 }
 
 func TestRollbackDevice(t *testing.T) {
-	require := require.New(t)
 	deviceName := "test-device"
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -301,6 +301,7 @@ func TestRollbackDevice(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
 			// mocks
 			ctrl := gomock.NewController(t)
 			mockOSClient := os.NewMockClient(ctrl)
@@ -322,13 +323,19 @@ func TestRollbackDevice(t *testing.T) {
 			policyManager := policy.NewManager(log)
 			statusManager := status.NewManager(deviceName, log)
 			statusManager.SetClient(mockManagementClient)
-			devicePublisher := publisher.NewSubscription()
+			mockAuditLogger := audit.NewMockLogger(ctrl)
+			mockAuditLogger.EXPECT().Close().Return(nil).AnyTimes()
+			mockAuditLogger.EXPECT().LogEvent(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 			specManager := spec.NewManager(
+				"test-device",
 				dataDir,
 				policyManager,
 				readWriter,
 				mockOSClient,
-				devicePublisher,
+				util.Duration(time.Second),
+				wait.Backoff{Steps: 1},
+				func() error { return nil },
+				mockAuditLogger,
 				log,
 			)
 

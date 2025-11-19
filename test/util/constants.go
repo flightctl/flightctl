@@ -13,17 +13,46 @@ const (
 
 	//resource related
 	ApplyAction    = "apply"
-	DeviceYAMLPath = "device.yaml"
+	DenyAction     = "deny"
 	DeviceResource = "Device"
 	RepoResource   = "Repository"
 	ErResource     = "EnrollmentRequest"
 	FleetResource  = "Fleet"
+	SystemResource = "System"
+
+	//example yaml names
+	DeviceYAMLName = "device.yaml"
+	FleetYAMLName  = "fleet.yaml"
+	FleetBYAMLName = "fleet-b.yaml"
+	RepoYAMLName   = "repository-flightctl.yaml"
+	ErYAMLName     = "enrollmentrequest.yaml"
 
 	// events
 	ForceFlag    = "-f"
 	EventCreated = "created"
 	EventDeleted = "deleted"
 	EventUpdated = "updated"
+
+	//Event reasons
+	ResourceCreated          = "ResourceCreated"
+	DeviceApplicationError   = "DeviceApplicationError"
+	DeviceApplicationHealthy = "DeviceApplicationHealthy"
+	DeviceSpecInvalid        = "DeviceSpecInvalid"
+	DeviceSpecValid          = "DeviceSpecValid"
+	DeviceContentOutOfDate   = "DeviceContentOutOfDate"
+	DeviceContentUpToDate    = "DeviceContentUpToDate"
+	DeviceUpdateFailed       = "DeviceUpdateFailed"
+
+	// Eventually polling timeout/interval constants
+	TIMEOUT      = time.Minute
+	LONG_TIMEOUT = 10 * time.Minute
+	POLLING      = time.Second
+	LONG_POLLING = 10 * time.Second
+
+	DURATION_TIMEOUT = 5 * time.Minute
+	SHORT_POLLING    = "250ms"
+	TIMEOUT_5M       = "5m"
+	LONGTIMEOUT      = "10m"
 )
 
 var ResourceTypes = [...]string{
@@ -49,15 +78,11 @@ var DefaultSystemInfo = []string{
 	"netMacDefault",
 }
 
-const TIMEOUT = "5m"
-const POLLING = "250ms"
-const LONGTIMEOUT = "10m"
-const DURATION_TIMEOUT = 5 * time.Minute
-
 const E2E_NAMESPACE = "flightctl-e2e"
 const E2E_REGISTRY_NAME = "registry"
 const KIND = "KIND"
 const OCP = "OCP"
+const FLIGHTCTL_AGENT_SERVICE = "flightctl-agent"
 
 // Define a type for messages.
 type Message string

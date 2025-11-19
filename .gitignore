@@ -8,6 +8,8 @@ test/e2e/cli/*.key
 /packaging/rpm/flightctl-*-vendor.tar.bz2
 flightctl-*.rpm
 *.tar
+/packaging/rpm/flightctl-*/
+**/*.test
 
 # All temporary files should be created here
 /.output/
@@ -18,3 +20,4 @@ flightctl-*.rpm
 /.idea/
 /.cursor/
 /.serena/
+CLAUDE.md

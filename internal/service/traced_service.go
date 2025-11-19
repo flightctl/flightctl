@@ -8,7 +8,7 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/instrumentation"
+	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"go.opentelemetry.io/otel/attribute"
@@ -28,7 +28,7 @@ func WrapWithTracing(svc Service) Service {
 }
 
 func startSpan(ctx context.Context, method string) (context.Context, trace.Span) {
-	ctx, span := instrumentation.StartSpan(ctx, "flightctl/service", method)
+	ctx, span := tracing.StartSpan(ctx, "flightctl/service", method)
 	return ctx, span
 }
 
@@ -94,12 +94,33 @@ func (t *TracedService) CreateDevice(ctx context.Context, d api.Device) (*api.De
 	endSpan(span, st)
 	return resp, st
 }
+
+func (t *TracedService) SetOutOfDate(ctx context.Context, owner string) error {
+	ctx, span := startSpan(ctx, "UpdateToOutOfDateByOwner")
+	defer span.End()
+	return t.inner.SetOutOfDate(ctx, owner)
+}
+
+func (t *TracedService) UpdateServerSideDeviceStatus(ctx context.Context, name string) error {
+	ctx, span := startSpan(ctx, "UpdateServerSideDeviceStatus")
+	defer span.End()
+	return t.inner.UpdateServerSideDeviceStatus(ctx, name)
+}
+
 func (t *TracedService) ListDevices(ctx context.Context, params api.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (*api.DeviceList, api.Status) {
 	ctx, span := startSpan(ctx, "ListDevices")
 	resp, st := t.inner.ListDevices(ctx, params, annotationSelector)
 	endSpan(span, st)
 	return resp, st
 }
+
+func (t *TracedService) ListDisconnectedDevices(ctx context.Context, params api.ListDevicesParams, cutoffTime time.Time) (*api.DeviceList, api.Status) {
+	ctx, span := startSpan(ctx, "ListDisconnectedDevices")
+	resp, st := t.inner.ListDisconnectedDevices(ctx, params, cutoffTime)
+	endSpan(span, st)
+	return resp, st
+}
+
 func (t *TracedService) ListDevicesByServiceCondition(ctx context.Context, conditionType string, conditionStatus string, listParams store.ListParams) (*api.DeviceList, api.Status) {
 	ctx, span := startSpan(ctx, "ListDevicesByServiceCondition")
 	resp, st := t.inner.ListDevicesByServiceCondition(ctx, conditionType, conditionStatus, listParams)
@@ -136,6 +157,12 @@ func (t *TracedService) GetDeviceStatus(ctx context.Context, name string) (*api.
 	endSpan(span, st)
 	return resp, st
 }
+func (t *TracedService) GetDeviceLastSeen(ctx context.Context, name string) (*api.DeviceLastSeen, api.Status) {
+	ctx, span := startSpan(ctx, "GetDeviceLastSeen")
+	resp, st := t.inner.GetDeviceLastSeen(ctx, name)
+	endSpan(span, st)
+	return resp, st
+}
 func (t *TracedService) ReplaceDeviceStatus(ctx context.Context, name string, device api.Device) (*api.Device, api.Status) {
 	ctx, span := startSpan(ctx, "ReplaceDeviceStatus")
 	resp, st := t.inner.ReplaceDeviceStatus(ctx, name, device)
@@ -166,15 +193,22 @@ func (t *TracedService) DecommissionDevice(ctx context.Context, name string, dec
 	endSpan(span, st)
 	return resp, st
 }
+
+func (t *TracedService) ResumeDevices(ctx context.Context, request api.DeviceResumeRequest) (api.DeviceResumeResponse, api.Status) {
+	ctx, span := startSpan(ctx, "ResumeDevices")
+	resp, st := t.inner.ResumeDevices(ctx, request)
+	endSpan(span, st)
+	return resp, st
+}
 func (t *TracedService) UpdateDeviceAnnotations(ctx context.Context, name string, annotations map[string]string, deleteKeys []string) api.Status {
 	ctx, span := startSpan(ctx, "UpdateDeviceAnnotations")
 	st := t.inner.UpdateDeviceAnnotations(ctx, name, annotations, deleteKeys)
 	endSpan(span, st)
 	return st
 }
-func (t *TracedService) UpdateRenderedDevice(ctx context.Context, name, renderedConfig, renderedApps string) api.Status {
+func (t *TracedService) UpdateRenderedDevice(ctx context.Context, name, renderedConfig, renderedApps, specHash string) api.Status {
 	ctx, span := startSpan(ctx, "UpdateRenderedDevice")
-	st := t.inner.UpdateRenderedDevice(ctx, name, renderedConfig, renderedApps)
+	st := t.inner.UpdateRenderedDevice(ctx, name, renderedConfig, renderedApps, specHash)
 	endSpan(span, st)
 	return st
 }
@@ -574,6 +608,71 @@ func (t *TracedService) GetDatabaseTime(ctx context.Context) (time.Time, api.Sta
 func (t *TracedService) ListOrganizations(ctx context.Context) (*api.OrganizationList, api.Status) {
 	ctx, span := startSpan(ctx, "ListOrganizations")
 	resp, st := t.inner.ListOrganizations(ctx)
+	endSpan(span, st)
+	return resp, st
+}
+
+// --- AuthProvider ---
+func (t *TracedService) CreateAuthProvider(ctx context.Context, authProvider api.AuthProvider) (*api.AuthProvider, api.Status) {
+	ctx, span := startSpan(ctx, "CreateAuthProvider")
+	resp, st := t.inner.CreateAuthProvider(ctx, authProvider)
+	endSpan(span, st)
+	return resp, st
+}
+
+func (t *TracedService) ListAuthProviders(ctx context.Context, params api.ListAuthProvidersParams) (*api.AuthProviderList, api.Status) {
+	ctx, span := startSpan(ctx, "ListAuthProviders")
+	resp, st := t.inner.ListAuthProviders(ctx, params)
+	endSpan(span, st)
+	return resp, st
+}
+
+func (t *TracedService) GetAuthProvider(ctx context.Context, name string) (*api.AuthProvider, api.Status) {
+	ctx, span := startSpan(ctx, "GetAuthProvider")
+	resp, st := t.inner.GetAuthProvider(ctx, name)
+	endSpan(span, st)
+	return resp, st
+}
+
+func (t *TracedService) GetAuthProviderByIssuerAndClientId(ctx context.Context, issuer string, clientId string) (*api.AuthProvider, api.Status) {
+	ctx, span := startSpan(ctx, "GetAuthProviderByIssuerAndClientId")
+	resp, st := t.inner.GetAuthProviderByIssuerAndClientId(ctx, issuer, clientId)
+	endSpan(span, st)
+	return resp, st
+}
+
+func (t *TracedService) GetAuthProviderByAuthorizationUrl(ctx context.Context, authorizationUrl string) (*api.AuthProvider, api.Status) {
+	ctx, span := startSpan(ctx, "GetAuthProviderByAuthorizationUrl")
+	resp, st := t.inner.GetAuthProviderByAuthorizationUrl(ctx, authorizationUrl)
+	endSpan(span, st)
+	return resp, st
+}
+
+func (t *TracedService) ReplaceAuthProvider(ctx context.Context, name string, authProvider api.AuthProvider) (*api.AuthProvider, api.Status) {
+	ctx, span := startSpan(ctx, "ReplaceAuthProvider")
+	resp, st := t.inner.ReplaceAuthProvider(ctx, name, authProvider)
+	endSpan(span, st)
+	return resp, st
+}
+
+func (t *TracedService) PatchAuthProvider(ctx context.Context, name string, patch api.PatchRequest) (*api.AuthProvider, api.Status) {
+	ctx, span := startSpan(ctx, "PatchAuthProvider")
+	resp, st := t.inner.PatchAuthProvider(ctx, name, patch)
+	endSpan(span, st)
+	return resp, st
+}
+
+func (t *TracedService) DeleteAuthProvider(ctx context.Context, name string) api.Status {
+	ctx, span := startSpan(ctx, "DeleteAuthProvider")
+	st := t.inner.DeleteAuthProvider(ctx, name)
+	endSpan(span, st)
+	return st
+}
+
+// --- Auth ---
+func (t *TracedService) GetAuthConfig(ctx context.Context, authConfig *api.AuthConfig) (*api.AuthConfig, api.Status) {
+	ctx, span := startSpan(ctx, "GetAuthConfig")
+	resp, st := t.inner.GetAuthConfig(ctx, authConfig)
 	endSpan(span, st)
 	return resp, st
 }

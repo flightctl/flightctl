@@ -16,19 +16,21 @@ import (
 )
 
 const (
-	ApplicationStatusInfoHealthy   = "Device's application workloads are healthy."
-	ApplicationStatusInfoUndefined = "Device has no application workloads defined."
-	DeviceStatusInfoHealthy        = "Device's system resources are healthy."
-	DeviceStatusInfoRebooting      = "Device is rebooting."
-	CPUIsCritical                  = "CPU utilization has reached a critical level."
-	CPUIsWarning                   = "CPU utilization has reached a warning level."
-	CPUIsNormal                    = "CPU utilization has returned to normal."
-	MemoryIsCritical               = "Memory utilization has reached a critical level."
-	MemoryIsWarning                = "Memory utilization has reached a warning level."
-	MemoryIsNormal                 = "Memory utilization has returned to normal."
-	DiskIsCritical                 = "Disk utilization has reached a critical level."
-	DiskIsWarning                  = "Disk utilization has reached a warning level."
-	DiskIsNormal                   = "Disk utilization has returned to normal."
+	ApplicationStatusInfoHealthy      = "Device's application workloads are healthy."
+	ApplicationStatusInfoUndefined    = "Device has no application workloads defined."
+	DeviceStatusInfoHealthy           = "Device's system resources are healthy."
+	DeviceStatusInfoRebooting         = "Device is rebooting."
+	DeviceStatusInfoAwaitingReconnect = "Device has not reconnected since restore to confirm its current state."
+	DeviceStatusInfoConflictPaused    = "Device reconciliation is paused due to a state conflict between the service and the device's agent; manual intervention is required."
+	CPUIsCritical                     = "CPU utilization has reached a critical level."
+	CPUIsWarning                      = "CPU utilization has reached a warning level."
+	CPUIsNormal                       = "CPU utilization has returned to normal."
+	MemoryIsCritical                  = "Memory utilization has reached a critical level."
+	MemoryIsWarning                   = "Memory utilization has reached a warning level."
+	MemoryIsNormal                    = "Memory utilization has returned to normal."
+	DiskIsCritical                    = "Disk utilization has reached a critical level."
+	DiskIsWarning                     = "Disk utilization has reached a warning level."
+	DiskIsNormal                      = "Disk utilization has returned to normal."
 )
 
 type DeviceSuccessEvent func(ctx context.Context, created bool, resourceKind api.ResourceKind, resourceName string, updateDetails *api.ResourceUpdatedDetailsUpdatedFields, log logrus.FieldLogger) *api.Event
@@ -65,7 +67,6 @@ var (
 )
 
 func UpdateServiceSideStatus(ctx context.Context, orgId uuid.UUID, device *api.Device, st store.Store, log logrus.FieldLogger) bool {
-
 	if device == nil {
 		return false
 	}
@@ -74,11 +75,8 @@ func UpdateServiceSideStatus(ctx context.Context, orgId uuid.UUID, device *api.D
 	}
 
 	deviceStatusChanged := updateServerSideDeviceStatus(device)
-
 	updatedStatusChanged := updateServerSideDeviceUpdatedStatus(device, ctx, st, log, orgId)
-
 	applicationStatusChanged := updateServerSideApplicationStatus(device)
-
 	lifecycleStatusChanged := updateServerSideLifecycleStatus(device)
 
 	return deviceStatusChanged || updatedStatusChanged || applicationStatusChanged || lifecycleStatusChanged
@@ -113,6 +111,25 @@ func resourcesDisk(disk api.DeviceResourceStatusType, resourceErrors *[]string, 
 
 func updateServerSideDeviceStatus(device *api.Device) bool {
 	lastDeviceStatus := device.Status.Summary.Status
+
+	// Check for special annotations first - these take precedence over ALL other status checks
+	annotations := lo.FromPtr(device.Metadata.Annotations)
+
+	// AwaitingReconnect annotation takes highest precedence - overrides everything
+	if annotations[api.DeviceAnnotationAwaitingReconnect] == "true" {
+		device.Status.Summary.Status = api.DeviceSummaryStatusAwaitingReconnect
+		device.Status.Summary.Info = lo.ToPtr(DeviceStatusInfoAwaitingReconnect)
+		return device.Status.Summary.Status != lastDeviceStatus
+	}
+
+	// ConflictPaused annotation takes second highest precedence
+	if annotations[api.DeviceAnnotationConflictPaused] == "true" {
+		device.Status.Summary.Status = api.DeviceSummaryStatusConflictPaused
+		device.Status.Summary.Info = lo.ToPtr(DeviceStatusInfoConflictPaused)
+		return device.Status.Summary.Status != lastDeviceStatus
+	}
+
+	// Standard status checks follow normal priority order
 	if device.IsDisconnected(api.DeviceDisconnectedTimeout) {
 		device.Status.Summary.Status = api.DeviceSummaryStatusUnknown
 		device.Status.Summary.Info = lo.ToPtr(fmt.Sprintf("Device is disconnected (last seen more than %s).", humanize.Time(time.Now().Add(-api.DeviceDisconnectedTimeout))))
@@ -179,7 +196,7 @@ func updateServerSideLifecycleStatus(device *api.Device) bool {
 
 func updateServerSideDeviceUpdatedStatus(device *api.Device, ctx context.Context, st store.Store, log logrus.FieldLogger, orgId uuid.UUID) bool {
 	lastUpdateStatus := device.Status.Updated.Status
-	if device.IsDisconnected(api.DeviceDisconnectedTimeout) && !device.Status.LastSeen.IsZero() {
+	if device.IsDisconnected(api.DeviceDisconnectedTimeout) && device.Status != nil && device.Status.LastSeen != nil && !device.Status.LastSeen.IsZero() {
 		device.Status.Updated.Status = api.DeviceUpdatedStatusUnknown
 		device.Status.Updated.Info = lo.ToPtr(fmt.Sprintf("Device is disconnected (last seen more than %s).", humanize.Time(time.Now().Add(-api.DeviceDisconnectedTimeout))))
 		return device.Status.Updated.Status != lastUpdateStatus
@@ -195,7 +212,7 @@ func updateServerSideDeviceUpdatedStatus(device *api.Device, ctx context.Context
 	}
 	if !device.IsManaged() && !device.IsUpdatedToDeviceSpec() {
 		device.Status.Updated.Status = api.DeviceUpdatedStatusOutOfDate
-		baseMessage := "Device has not been updated to the latest device spec"
+		baseMessage := api.DeviceOutOfDateText
 		var errorMessage string
 
 		// Prefer update condition error if available
@@ -242,7 +259,7 @@ func updateServerSideDeviceUpdatedStatus(device *api.Device, ctx context.Context
 				}
 			}
 			if errorMessage == "" {
-				errorMessage = "Device has not yet been scheduled for update to the fleet's latest spec."
+				errorMessage = api.DeviceOutOfSyncWithFleetText
 			}
 			device.Status.Updated.Info = lo.ToPtr(errorMessage)
 		}
@@ -313,6 +330,14 @@ func KeepDBDeviceStatus(device, dbDevice *api.Device) {
 	if device.Status.Integrity.Status == api.DeviceIntegrityStatusUnknown {
 		device.Status.Integrity = dbDevice.Status.Integrity
 	}
+
+	// Preserve service-side statuses that should take precedence over agent-reported status
+	// These statuses are set by the service based on annotations and should not be overwritten
+	if dbDevice.Status.Summary.Status == api.DeviceSummaryStatusAwaitingReconnect ||
+		dbDevice.Status.Summary.Status == api.DeviceSummaryStatusConflictPaused {
+		device.Status.Summary.Status = dbDevice.Status.Summary.Status
+		device.Status.Summary.Info = dbDevice.Status.Summary.Info
+	}
 }
 
 func ComputeDeviceStatusChanges(ctx context.Context, oldDevice, newDevice *api.Device, orgId uuid.UUID, st store.Store) ResourceUpdates {
@@ -330,6 +355,8 @@ func ComputeDeviceStatusChanges(ctx context.Context, oldDevice, newDevice *api.D
 			resourceUpdates = append(resourceUpdates, ResourceUpdate{Reason: api.EventReasonDeviceIsRebooting, Details: lo.FromPtr(newDevice.Status.Summary.Info)})
 		} else if newDevice.Status.Summary.Status == api.DeviceSummaryStatusOnline {
 			resourceUpdates = append(resourceUpdates, ResourceUpdate{Reason: api.EventReasonDeviceConnected, Details: lo.FromPtr(newDevice.Status.Summary.Info)})
+		} else if newDevice.Status.Summary.Status == api.DeviceSummaryStatusConflictPaused {
+			resourceUpdates = append(resourceUpdates, ResourceUpdate{Reason: api.EventReasonDeviceConflictPaused, Details: lo.FromPtr(newDevice.Status.Summary.Info)})
 		}
 	}
 

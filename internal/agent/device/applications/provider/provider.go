@@ -13,6 +13,8 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/api/common"
+	"github.com/flightctl/flightctl/internal/quadlet"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/samber/lo"
@@ -21,8 +23,6 @@ import (
 // Provider defines the interface for supplying and managing an application's spec
 // and lifecycle operations for installation to disk.
 type Provider interface {
-	// OCITargets returns the list of OCI images and artifacts required by the provider.
-	OCITargets(pullSecret *client.PullSecret) ([]dependency.OCIPullTarget, error)
 	// Verify the application content is valid and dependencies are met.
 	Verify(ctx context.Context) error
 	// Install the application content to the device.
@@ -56,6 +56,285 @@ type ApplicationSpec struct {
 	InlineProvider *v1alpha1.InlineApplicationProviderSpec
 }
 
+// CollectBaseOCITargets collects only the base OCI targets (images and volumes) from the device spec
+// without creating providers or extracting nested targets. This is used in phase 1 of prefetching
+// before the base images are available locally.
+func CollectBaseOCITargets(
+	ctx context.Context,
+	readWriter fileio.ReadWriter,
+	spec *v1alpha1.DeviceSpec,
+	pullSecret *client.PullSecret,
+) ([]dependency.OCIPullTarget, error) {
+	if spec.Applications == nil {
+		return nil, nil
+	}
+
+	var targets []dependency.OCIPullTarget
+
+	for _, providerSpec := range lo.FromPtr(spec.Applications) {
+		providerType, err := providerSpec.Type()
+		if err != nil {
+			return nil, err
+		}
+
+		switch providerType {
+		case v1alpha1.ImageApplicationProviderType:
+			imageSpec, err := providerSpec.AsImageApplicationProviderSpec()
+			if err != nil {
+				return nil, fmt.Errorf("getting image provider spec: %w", err)
+			}
+
+			// Add base image with PullIfNotPresent policy
+			policy := v1alpha1.PullIfNotPresent
+			targets = append(targets, dependency.OCIPullTarget{
+				Type:       dependency.OCITypeAuto,
+				Reference:  imageSpec.Image,
+				PullPolicy: policy,
+				PullSecret: pullSecret,
+			})
+
+			// Add volume artifacts
+			volTargets, err := extractVolumeTargets(imageSpec.Volumes, pullSecret)
+			if err != nil {
+				return nil, fmt.Errorf("extracting volume targets: %w", err)
+			}
+			targets = append(targets, volTargets...)
+
+		case v1alpha1.InlineApplicationProviderType:
+			inlineSpec, err := providerSpec.AsInlineApplicationProviderSpec()
+			if err != nil {
+				return nil, fmt.Errorf("getting inline provider spec: %w", err)
+			}
+
+			appType := lo.FromPtr(providerSpec.AppType)
+			if appType == "" {
+				return nil, fmt.Errorf("appType is required for inline providers")
+			}
+
+			// Extract images from inline content based on app type
+			switch appType {
+			case v1alpha1.AppTypeCompose:
+				// Inline compose specs are already validated by the API
+				spec, err := client.ParseComposeFromSpec(inlineSpec.Inline)
+				if err != nil {
+					return nil, fmt.Errorf("parsing compose spec: %w", err)
+				}
+				for _, svc := range spec.Services {
+					if svc.Image != "" {
+						targets = append(targets, dependency.OCIPullTarget{
+							Type:       dependency.OCITypeImage,
+							Reference:  svc.Image,
+							PullPolicy: v1alpha1.PullIfNotPresent,
+							PullSecret: pullSecret,
+						})
+					}
+				}
+			case v1alpha1.AppTypeQuadlet:
+				spec, err := client.ParseQuadletReferencesFromSpec(inlineSpec.Inline)
+				if err != nil {
+					return nil, fmt.Errorf("parsing quadlet spec: %w", err)
+				}
+				for _, quad := range spec {
+					targets = append(targets, extractQuadletTargets(quad, pullSecret)...)
+				}
+			default:
+				return nil, fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
+			}
+
+			// Add volume artifacts
+			volTargets, err := extractVolumeTargets(inlineSpec.Volumes, pullSecret)
+			if err != nil {
+				return nil, fmt.Errorf("extracting volume targets: %w", err)
+			}
+			targets = append(targets, volTargets...)
+
+		default:
+			return nil, fmt.Errorf("unsupported application provider type: %s", providerType)
+		}
+	}
+
+	embeddedTargets, err := collectEmbeddedOCITargets(ctx, readWriter, pullSecret)
+	if err != nil {
+		return nil, fmt.Errorf("collecting embedded OCI targets: %w", err)
+	}
+	targets = append(targets, embeddedTargets...)
+
+	return targets, nil
+}
+
+// collectEmbeddedOCITargets discovers embedded applications and extracts their OCI targets
+func collectEmbeddedOCITargets(ctx context.Context, readWriter fileio.ReadWriter, pullSecret *client.PullSecret) ([]dependency.OCIPullTarget, error) {
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+
+	var targets []dependency.OCIPullTarget
+
+	// discover embedded compose applications
+	composeTargets, err := collectEmbeddedComposeTargets(ctx, readWriter, pullSecret)
+	if err != nil {
+		return nil, fmt.Errorf("collecting embedded compose targets: %w", err)
+	}
+	targets = append(targets, composeTargets...)
+
+	// discover embedded quadlet applications
+	quadletTargets, err := collectEmbeddedQuadletTargets(ctx, readWriter, pullSecret)
+	if err != nil {
+		return nil, fmt.Errorf("collecting embedded quadlet targets: %w", err)
+	}
+	targets = append(targets, quadletTargets...)
+
+	return targets, nil
+}
+
+func collectEmbeddedComposeTargets(ctx context.Context, readWriter fileio.ReadWriter, pullSecret *client.PullSecret) ([]dependency.OCIPullTarget, error) {
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+
+	var targets []dependency.OCIPullTarget
+
+	elements, err := readWriter.ReadDir(lifecycle.EmbeddedComposeAppPath)
+	if err != nil {
+		// nothing to do
+		return nil, nil
+	}
+
+	for _, element := range elements {
+		if !element.IsDir() {
+			continue
+		}
+
+		name := element.Name()
+		appPath := filepath.Join(lifecycle.EmbeddedComposeAppPath, name)
+
+		// search for compose files
+		suffixPatterns := []string{"*.yml", "*.yaml"}
+		var composeFound bool
+		for _, pattern := range suffixPatterns {
+			files, err := filepath.Glob(readWriter.PathFor(filepath.Join(appPath, pattern)))
+			if err != nil {
+				continue
+			}
+			if len(files) > 0 {
+				composeFound = true
+				break
+			}
+		}
+
+		if !composeFound {
+			continue
+		}
+
+		// parse compose spec to extract images
+		spec, err := client.ParseComposeSpecFromDir(readWriter, appPath)
+		if err != nil {
+			// skip apps that can't be parsed
+			continue
+		}
+
+		// extract images from services
+		for _, svc := range spec.Services {
+			if svc.Image != "" {
+				targets = append(targets, dependency.OCIPullTarget{
+					Type:       dependency.OCITypeImage,
+					Reference:  svc.Image,
+					PullPolicy: v1alpha1.PullIfNotPresent,
+					PullSecret: pullSecret,
+				})
+			}
+		}
+	}
+
+	return targets, nil
+}
+
+func collectEmbeddedQuadletTargets(ctx context.Context, readWriter fileio.ReadWriter, pullSecret *client.PullSecret) ([]dependency.OCIPullTarget, error) {
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+
+	var targets []dependency.OCIPullTarget
+
+	elements, err := readWriter.ReadDir(lifecycle.EmbeddedQuadletAppPath)
+	if err != nil {
+		// nothing to do
+		return nil, nil
+	}
+
+	for _, element := range elements {
+		if !element.IsDir() {
+			continue
+		}
+
+		name := element.Name()
+		appPath := filepath.Join(lifecycle.EmbeddedQuadletAppPath, name)
+
+		// parse quadlet references from directory
+		refs, err := client.ParseQuadletReferencesFromDir(readWriter, appPath)
+		if err != nil {
+			// skip apps that can't be parsed
+			continue
+		}
+
+		// extract images from quadlet references using the helper function
+		// which handles IsImageReference checks properly
+		for _, ref := range refs {
+			targets = append(targets, extractQuadletTargets(ref, pullSecret)...)
+		}
+	}
+
+	return targets, nil
+}
+
+// ExtractNestedTargetsFromImage extracts nested OCI targets from a single image-based application.
+// This is used by the manager for per-application caching.
+// Returns the extracted app data with targets. Caller is responsible for cleanup.
+func ExtractNestedTargetsFromImage(
+	ctx context.Context,
+	log *log.PrefixLogger,
+	podman *client.Podman,
+	readWriter fileio.ReadWriter,
+	appSpec *v1alpha1.ApplicationProviderSpec,
+	imageSpec *v1alpha1.ImageApplicationProviderSpec,
+	pullSecret *client.PullSecret,
+) (*AppData, error) {
+	appName := lo.FromPtr(appSpec.Name)
+	if appName == "" {
+		appName = imageSpec.Image
+	}
+
+	// determine app type
+	appType := lo.FromPtr(appSpec.AppType)
+	if appType == "" {
+		var err error
+		appType, err = typeFromImage(ctx, podman, imageSpec.Image)
+		if err != nil {
+			return nil, fmt.Errorf("getting app type for app %s (%s): %w", appName, imageSpec.Image, err)
+		}
+	}
+
+	if appType != v1alpha1.AppTypeCompose && appType != v1alpha1.AppTypeQuadlet {
+		return nil, fmt.Errorf("%w for app %s: %s", errors.ErrUnsupportedAppType, appName, appType)
+	}
+
+	// extract nested targets
+	cachedAppData, err := extractAppDataFromOCITarget(
+		ctx,
+		podman,
+		readWriter,
+		appName,
+		imageSpec.Image,
+		appType,
+		pullSecret,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return cachedAppData, nil
+}
+
 // FromDeviceSpec parses the application spec and returns a list of providers.
 func FromDeviceSpec(
 	ctx context.Context,
@@ -84,11 +363,39 @@ func FromDeviceSpec(
 
 		switch providerType {
 		case v1alpha1.ImageApplicationProviderType:
-			provider, err := newImage(log, podman, &providerSpec, readWriter)
+			// determine app type for image provider
+			appType := lo.FromPtr(providerSpec.AppType)
+			if appType == "" {
+				imageSpec, err := providerSpec.AsImageApplicationProviderSpec()
+				if err != nil {
+					return nil, fmt.Errorf("getting image provider spec: %w", err)
+				}
+				appType, err = typeFromImage(ctx, podman, imageSpec.Image)
+				if err != nil {
+					return nil, fmt.Errorf("getting app type for image %s: %w", imageSpec.Image, err)
+				}
+			}
+			if appType != v1alpha1.AppTypeCompose && appType != v1alpha1.AppTypeQuadlet {
+				return nil, fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
+			}
+			imgProvider, err := newImage(log, podman, &providerSpec, readWriter, appType)
 			if err != nil {
 				return nil, err
 			}
-			providers = append(providers, provider)
+			// inject extraction cache if available
+			if cfg.appDataCache != nil {
+				appName := lo.FromPtr(providerSpec.Name)
+				if appName == "" {
+					imageSpec, err := providerSpec.AsImageApplicationProviderSpec()
+					if err == nil {
+						appName = imageSpec.Image
+					}
+				}
+				if cachedData, found := cfg.appDataCache[appName]; found {
+					imgProvider.AppData = cachedData
+				}
+			}
+			providers = append(providers, imgProvider)
 		case v1alpha1.InlineApplicationProviderType:
 			provider, err := newInline(log, podman, &providerSpec, readWriter)
 			if err != nil {
@@ -117,10 +424,8 @@ func FromDeviceSpec(
 	return providers, nil
 }
 
-func parseEmbedded(ctx context.Context, log *log.PrefixLogger, podman *client.Podman, readWriter fileio.ReadWriter, providers *[]Provider) error {
-	// discover embedded compose applications
-	appType := v1alpha1.AppTypeCompose
-	elements, err := readWriter.ReadDir(lifecycle.EmbeddedComposeAppPath)
+func discoverEmbeddedApplications(ctx context.Context, log *log.PrefixLogger, podman *client.Podman, readWriter fileio.ReadWriter, providers *[]Provider, basePath string, appType v1alpha1.AppType, patterns []string) error {
+	elements, err := readWriter.ReadDir(basePath)
 	if err != nil {
 		return err
 	}
@@ -130,19 +435,15 @@ func parseEmbedded(ctx context.Context, log *log.PrefixLogger, podman *client.Po
 			continue
 		}
 
-		suffixPatterns := []string{"*.yml", "*.yaml"}
-		for _, pattern := range suffixPatterns {
+		for _, pattern := range patterns {
 			name := element.Name()
-			// search for compose files
-			files, err := filepath.Glob(readWriter.PathFor(filepath.Join(lifecycle.EmbeddedComposeAppPath, name, pattern)))
+			files, err := filepath.Glob(readWriter.PathFor(filepath.Join(basePath, name, pattern)))
 			if err != nil {
 				log.Warnf("Error searching for pattern %s: %v", pattern, err)
 				continue
 			}
-			// TODO: we could do podman config here to verify further.
 			if len(files) > 0 {
-				log.Debugf("Discovered embedded compose application: %s", name)
-				// ensure the embedded application
+				log.Debugf("Discovered embedded %s application: %s", appType, name)
 				provider, err := newEmbedded(log, podman, readWriter, name, appType)
 				if err != nil {
 					return err
@@ -152,6 +453,39 @@ func parseEmbedded(ctx context.Context, log *log.PrefixLogger, podman *client.Po
 			}
 		}
 	}
+	return nil
+}
+
+func parseEmbeddedCompose(ctx context.Context, log *log.PrefixLogger, podman *client.Podman, readWriter fileio.ReadWriter, providers *[]Provider) error {
+	patterns := []string{"*.yml", "*.yaml"}
+	return discoverEmbeddedApplications(ctx, log, podman, readWriter, providers, lifecycle.EmbeddedComposeAppPath, v1alpha1.AppTypeCompose, patterns)
+}
+
+func parseEmbeddedQuadlet(ctx context.Context, log *log.PrefixLogger, podman *client.Podman, readWriter fileio.ReadWriter, providers *[]Provider) error {
+	var patterns []string
+	for ext := range common.SupportedQuadletExtensions {
+		patterns = append(patterns, fmt.Sprintf("*%s", ext))
+	}
+	return discoverEmbeddedApplications(ctx, log, podman, readWriter, providers, lifecycle.EmbeddedQuadletAppPath, v1alpha1.AppTypeQuadlet, patterns)
+}
+
+func parseEmbedded(ctx context.Context, log *log.PrefixLogger, podman *client.Podman, readWriter fileio.ReadWriter, providers *[]Provider) error {
+	if err := parseEmbeddedCompose(ctx, log, podman, readWriter, providers); err != nil {
+		return fmt.Errorf("parsing embedded compose: %w", err)
+	}
+	if err := parseEmbeddedQuadlet(ctx, log, podman, readWriter, providers); err != nil {
+		return fmt.Errorf("parsing embedded quadlet: %w", err)
+	}
+
+	// Embedded apps can be verified immediately because no fetch is required
+	for _, p := range *providers {
+		if p.Spec().Embedded {
+			if err := p.Verify(ctx); err != nil {
+				return fmt.Errorf("verify embedded app %s: %w", p.Name(), err)
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -216,6 +550,7 @@ type parseConfig struct {
 	embedded      bool
 	verify        bool
 	providerTypes map[v1alpha1.ApplicationProviderType]struct{}
+	appDataCache  map[string]*AppData
 }
 
 func WithEmbedded() ParseOpt {
@@ -241,6 +576,12 @@ func WithProviderTypes(providerTypes ...v1alpha1.ApplicationProviderType) ParseO
 	}
 }
 
+func WithAppDataCache(cache map[string]*AppData) ParseOpt {
+	return func(c *parseConfig) {
+		c.appDataCache = cache
+	}
+}
+
 // isEqual compares two application providers and returns true if they are equal.
 func isEqual(a, b Provider) bool {
 	return reflect.DeepEqual(a.Spec(), b.Spec())
@@ -255,10 +596,137 @@ func pathFromAppType(appType v1alpha1.AppType, name string, embedded bool) (stri
 			break
 		}
 		typePath = lifecycle.ComposeAppPath
+	case v1alpha1.AppTypeQuadlet:
+		// embedded quadlets must be moved to the default quadlet path (so that contents can be mutated)
+		// discovery checks EmbeddedQuadletAppPath, but the application's actual path is the default path
+		typePath = lifecycle.QuadletAppPath
 	default:
 		return "", fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
 	}
 	return filepath.Join(typePath, name), nil
+}
+
+// AppData holds the extracted application data and cleanup function
+type AppData struct {
+	Targets   []dependency.OCIPullTarget
+	TmpPath   string
+	CleanupFn func() error
+}
+
+// NewAppDataCache creates a new app data cache
+func NewAppDataCache() map[string]*AppData {
+	return make(map[string]*AppData)
+}
+
+func (e *AppData) Cleanup() error {
+	if e.CleanupFn != nil {
+		return e.CleanupFn()
+	}
+	return nil
+}
+
+// extractAppDataFromOCITarget extracts and parses a container image to find application images
+// based on the app type. It creates a temporary directory, copies the container contents,
+// parses the spec, and returns OCI targets for all images found in the application.
+func extractAppDataFromOCITarget(
+	ctx context.Context,
+	podman *client.Podman,
+	readWriter fileio.ReadWriter,
+	appName string,
+	imageRef string,
+	appType v1alpha1.AppType,
+	pullSecret *client.PullSecret,
+) (*AppData, error) {
+	tmpAppPath, err := readWriter.MkdirTemp("app_temp")
+	if err != nil {
+		return nil, fmt.Errorf("creating tmp dir for app %s (%s): %w", appName, imageRef, err)
+	}
+
+	cleanupFn := func() error {
+		return readWriter.RemoveAll(tmpAppPath)
+	}
+
+	if err := podman.CopyContainerData(ctx, imageRef, tmpAppPath); err != nil {
+		if rmErr := cleanupFn(); rmErr != nil {
+			return nil, fmt.Errorf("copying image contents for app %s (%s): %w (cleanup failed: %v)", appName, imageRef, err, rmErr)
+		}
+		return nil, fmt.Errorf("copying image contents for app %s (%s): %w", appName, imageRef, err)
+	}
+
+	var targets []dependency.OCIPullTarget
+
+	switch appType {
+	case v1alpha1.AppTypeCompose:
+		// parse compose spec from tmpdir
+		spec, err := client.ParseComposeSpecFromDir(readWriter, tmpAppPath)
+		if err != nil {
+			if rmErr := cleanupFn(); rmErr != nil {
+				return nil, fmt.Errorf("parsing compose spec for app %s (%s): %w (cleanup failed: %v)", appName, imageRef, err, rmErr)
+			}
+			return nil, fmt.Errorf("parsing compose spec for app %s (%s): %w", appName, imageRef, err)
+		}
+
+		// validate the compose spec
+		if errs := validation.ValidateComposeSpec(spec); len(errs) > 0 {
+			if rmErr := cleanupFn(); rmErr != nil {
+				return nil, fmt.Errorf("validating compose spec for app %s (%s): %w (cleanup failed: %v)", appName, imageRef, errors.Join(errs...), rmErr)
+			}
+			return nil, fmt.Errorf("validating compose spec for app %s (%s): %w", appName, imageRef, errors.Join(errs...))
+		}
+
+		// extract images
+		for _, svc := range spec.Services {
+			if svc.Image != "" {
+				targets = append(targets, dependency.OCIPullTarget{
+					Type:       dependency.OCITypeImage,
+					Reference:  svc.Image,
+					PullPolicy: v1alpha1.PullIfNotPresent,
+					PullSecret: pullSecret,
+				})
+			}
+		}
+
+	case v1alpha1.AppTypeQuadlet:
+		// parse quadlet spec from tmpdir
+		spec, err := client.ParseQuadletReferencesFromDir(readWriter, tmpAppPath)
+		if err != nil {
+			if rmErr := cleanupFn(); rmErr != nil {
+				return nil, fmt.Errorf("parsing quadlet spec for app %s (%s): %w (cleanup failed: %v)", appName, imageRef, err, rmErr)
+			}
+			return nil, fmt.Errorf("parsing quadlet spec for app %s (%s): %w", appName, imageRef, err)
+		}
+
+		// validate all quadlets before extracting targets
+		var validationErrs []error
+		for quadletPath, quad := range spec {
+			if errs := validation.ValidateQuadletSpec(quad, quadletPath); len(errs) > 0 {
+				validationErrs = append(validationErrs, errs...)
+			}
+		}
+		if len(validationErrs) > 0 {
+			if rmErr := cleanupFn(); rmErr != nil {
+				return nil, fmt.Errorf("validating quadlet spec for app %s (%s): %w (cleanup failed: %v)", appName, imageRef, errors.Join(validationErrs...), rmErr)
+			}
+			return nil, fmt.Errorf("validating quadlet spec for app %s (%s): %w", appName, imageRef, errors.Join(validationErrs...))
+		}
+
+		// extract images
+		for _, quad := range spec {
+			targets = append(targets, extractQuadletTargets(quad, pullSecret)...)
+		}
+
+	default:
+		if rmErr := cleanupFn(); rmErr != nil {
+			return nil, fmt.Errorf("%w for app %s (%s): %s (cleanup failed: %v)", errors.ErrUnsupportedAppType, appName, imageRef, appType, rmErr)
+		}
+		return nil, fmt.Errorf("%w for app %s (%s): %s", errors.ErrUnsupportedAppType, appName, imageRef, appType)
+	}
+
+	return &AppData{
+		Targets:   targets,
+		TmpPath:   tmpAppPath,
+		CleanupFn: cleanupFn,
+	}, nil
 }
 
 func ensureCompose(readWriter fileio.ReadWriter, appPath string) error {
@@ -274,6 +742,25 @@ func ensureCompose(readWriter fileio.ReadWriter, appPath string) error {
 		return fmt.Errorf("validating compose spec: %w", errors.Join(errs...))
 	}
 
+	return nil
+}
+
+func ensureQuadlet(readWriter fileio.ReadWriter, appPath string) error {
+	spec, err := client.ParseQuadletReferencesFromDir(readWriter, appPath)
+	if err != nil {
+		return fmt.Errorf("parsing quadlet spec: %w", err)
+	}
+
+	var errs []error
+	for path, quad := range spec {
+		if e := validation.ValidateQuadletSpec(quad, path); len(e) > 0 {
+			errs = append(errs, e...)
+		}
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("validating quadlets spec: %w", errors.Join(errs...))
+	}
 	return nil
 }
 
@@ -298,6 +785,8 @@ func ensureDependenciesFromAppType(appType v1alpha1.AppType) error {
 	switch appType {
 	case v1alpha1.AppTypeCompose:
 		deps = []string{"docker-compose", "podman-compose"}
+	case v1alpha1.AppTypeQuadlet:
+		deps = []string{"podman"}
 	default:
 		return fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
 	}
@@ -319,6 +808,29 @@ func validateEnvVars(envVars map[string]string) error {
 		}
 	}
 	return nil
+}
+
+func extractQuadletTargets(quad *common.QuadletReferences, pullSecret *client.PullSecret) []dependency.OCIPullTarget {
+	var targets []dependency.OCIPullTarget
+	if quad.Image != nil && !quadlet.IsImageReference(*quad.Image) {
+		targets = append(targets, dependency.OCIPullTarget{
+			Type:       dependency.OCITypeImage,
+			Reference:  *quad.Image,
+			PullPolicy: v1alpha1.PullIfNotPresent,
+			PullSecret: pullSecret,
+		})
+	}
+	for _, image := range quad.MountImages {
+		if !quadlet.IsImageReference(image) {
+			targets = append(targets, dependency.OCIPullTarget{
+				Type:       dependency.OCITypeImage,
+				Reference:  image,
+				PullPolicy: v1alpha1.PullIfNotPresent,
+				PullSecret: pullSecret,
+			})
+		}
+	}
+	return targets
 }
 
 func extractVolumeTargets(vols *[]v1alpha1.ApplicationVolume, pullSecret *client.PullSecret) ([]dependency.OCIPullTarget, error) {

@@ -1,7 +1,6 @@
 package microshift
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -13,7 +12,6 @@ import (
 	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/sirupsen/logrus"
 )
 
 var _ = Describe("Microshift cluster ACM enrollment tests", func() {
@@ -21,59 +19,52 @@ var _ = Describe("Microshift cluster ACM enrollment tests", func() {
 	Describe("Test Setup", Ordered, func() {
 
 		BeforeAll(func() {
-			isAcmInstalled, err := isAcmInstalled()
+			_, isAcmRunning, err := util.IsAcmInstalled()
 			if err != nil {
-				logrus.Warnf("An error happened %v", err)
+				GinkgoWriter.Printf("An error happened %v\n", err)
 			}
-			if !isAcmInstalled {
+			if !isAcmRunning {
 				Skip("Skipping test suite because ACM is not installed.")
 			}
 		})
 
 		var (
-			ctx      context.Context
-			harness  *e2e.Harness
 			deviceId string
 		)
 
 		BeforeEach(func() {
-			ctx = util.StartSpecTracerForGinkgo(suiteCtx)
-			harness = e2e.NewTestHarness(ctx)
-			deviceId = harness.StartVMAndEnroll()
-		})
-
-		AfterEach(func() {
-			if harness != nil { // when the test is skipped harness is nil
-				harness.Cleanup(false)
-				err := harness.CleanUpAllResources()
-				Expect(err).ToNot(HaveOccurred())
-			}
+			// Get harness directly - no shared package-level variable
+			harness := e2e.GetWorkerHarness()
+			deviceId, _ = harness.EnrollAndWaitForOnlineStatus()
 		})
 
 		Context("microshift", func() {
 			It(`Verifies that a microshift cluster can enroll to acm`, Label("75967"), func() {
+				// Get harness directly - no shared package-level variable
+				harness := e2e.GetWorkerHarness()
+
 				By("Getting the host")
 				out, err := exec.Command("bash", "-c", "oc get route -n multicluster-engine agent-registration -o=jsonpath=\"{.spec.host}\"").CombinedOutput()
 				Expect(err).ToNot(HaveOccurred())
 				agentRegistrationHost := string(out)
-				logrus.Infof("This is the agent registration host: %s", agentRegistrationHost)
+				GinkgoWriter.Printf("This is the agent registration host: %s\n", agentRegistrationHost)
 
 				By("Getting the ca_cert")
 				out, err = exec.Command("bash", "-c", "oc get configmap -n kube-system kube-root-ca.crt -o=jsonpath=\"{.data['ca\\.crt']}\" | base64 -w0").CombinedOutput()
 				Expect(err).ToNot(HaveOccurred())
 				caCrt := string(out)
-				logrus.Infof("This is the caCrt: %s", caCrt)
+				GinkgoWriter.Printf("This is the caCrt: %s\n", caCrt)
 
 				By("Applying resources")
 				_, err = exec.Command("bash", "-c", "oc apply -f $(pwd)/data/content.yaml").CombinedOutput()
 				Expect(err).ToNot(HaveOccurred())
-				logrus.Infof("Enrollment resources were applied")
+				GinkgoWriter.Printf("Enrollment resources were applied\n")
 
 				By("Get the token")
 				out, err = exec.Command("bash", "-c", "oc get secret -n multicluster-engine managed-cluster-import-agent-registration-sa-token -o=jsonpath='{.data.token}' | base64 -d").CombinedOutput()
 				Expect(err).ToNot(HaveOccurred())
 				token := string(out)
-				logrus.Infof("This is the token: %s", token)
+				GinkgoWriter.Printf("This is the token: %s\n", token)
 
 				By("Create the acm-registration repository")
 				httpRepoUrl := fmt.Sprintf("https://%s", agentRegistrationHost)
@@ -96,13 +87,13 @@ var _ = Describe("Microshift cluster ACM enrollment tests", func() {
 
 				err = harness.CreateRepository(httpRepositoryspec, httpRepoMetadata)
 				Expect(err).ToNot(HaveOccurred())
-				logrus.Infof("Created git repository %s", *httpRepoMetadata.Name)
+				GinkgoWriter.Printf("Created git repository %s\n", *httpRepoMetadata.Name)
 
 				By("Get the Pull-Secret")
 				out, err = exec.Command("bash", "-c", "oc get secret/pull-secret -n openshift-config -o json | jq '.data.\".dockerconfigjson\"' | base64 -di").CombinedOutput()
 				Expect(err).ToNot(HaveOccurred())
 				pullSecret := string(out)
-				logrus.Infof("This is the pull-secret %s", pullSecret)
+				GinkgoWriter.Printf("This is the pull-secret %s\n", pullSecret)
 
 				By("Upgrade to the microshift image, and add the pull-secret to the device")
 				nextRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
@@ -135,7 +126,7 @@ var _ = Describe("Microshift cluster ACM enrollment tests", func() {
 
 				err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
 					device.Spec = &deviceSpec
-					logrus.Infof("Updating %s with a new image and pull-secret configuration", deviceId)
+					GinkgoWriter.Printf("Updating %s with a new image and pull-secret configuration\n", deviceId)
 				})
 				Expect(err).ToNot(HaveOccurred())
 
@@ -146,13 +137,13 @@ var _ = Describe("Microshift cluster ACM enrollment tests", func() {
 				By("Make sure the pull-secret was injected")
 				psPath := "/etc/crio/openshift-pull-secret"
 				readyMsg := "The file was found"
-				stdout, err := harness.WaitForFileInDevice(psPath, util.TIMEOUT, util.POLLING)
+				stdout, err := harness.WaitForFileInDevice(psPath, util.TIMEOUT_5M, util.SHORT_POLLING)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(stdout.String()).To(ContainSubstring(readyMsg))
 
 				By("Wait for the kubeconfig to be in place")
 				kubeconfigPath := "/var/lib/microshift/resources/kubeadmin/kubeconfig"
-				stdout, err = harness.WaitForFileInDevice(kubeconfigPath, util.TIMEOUT, util.POLLING)
+				stdout, err = harness.WaitForFileInDevice(kubeconfigPath, util.TIMEOUT_5M, util.SHORT_POLLING)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(stdout.String()).To(ContainSubstring(readyMsg))
 
@@ -166,7 +157,7 @@ var _ = Describe("Microshift cluster ACM enrollment tests", func() {
 
 				err = harness.CreateOrUpdateTestFleet(testFleetName, testFleetSelector, testFleetDeviceSpec)
 				Expect(err).ToNot(HaveOccurred())
-				logrus.Infof("The fleet %s is created", testFleetName)
+				GinkgoWriter.Printf("The fleet %s is created\n", testFleetName)
 
 				By("Patch the mch of the hub cluster with annotation: mch-imageRepository=brew.registry.redhat.io")
 				acmNamespace, err := getAcmNamespace()
@@ -176,12 +167,12 @@ var _ = Describe("Microshift cluster ACM enrollment tests", func() {
 
 				_, err = exec.Command("bash", "-c", args).CombinedOutput()
 				Expect(err).ToNot(HaveOccurred())
-				logrus.Info("The multiclusterhub is patched")
+				GinkgoWriter.Printf("The multiclusterhub is patched\n")
 
 				By("Enable the auto-approver")
 				_, err = exec.Command("bash", "-c", "oc patch clustermanager cluster-manager --type=merge -p '{\"spec\":{\"registrationConfiguration\":{\"featureGates\":[{\"feature\": \"ManagedClusterAutoApproval\", \"mode\": \"Enable\"}], \"autoApproveUsers\":[\"system:serviceaccount:multicluster-engine:agent-registration-bootstrap\"]}}}'").CombinedOutput()
 				Expect(err).ToNot(HaveOccurred())
-				logrus.Info("The auto-approver is enabled")
+				GinkgoWriter.Printf("The auto-approver is enabled\n")
 
 				By("Check that the device status is Online")
 				_, err = harness.CheckDeviceStatus(deviceId, v1alpha1.DeviceSummaryStatusOnline)
@@ -192,10 +183,10 @@ var _ = Describe("Microshift cluster ACM enrollment tests", func() {
 				Expect(err).ToNot(HaveOccurred())
 
 				err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
-					device.Metadata.Labels = &map[string]string{
+					harness.SetLabelsForDeviceMetadata(&device.Metadata, map[string]string{
 						fleetSelectorKey: fleetSelectorValue,
-					}
-					logrus.Infof("Updating %s with label %s=%s", deviceId,
+					})
+					GinkgoWriter.Printf("Updating %s with label %s=%s\n", deviceId,
 						fleetSelectorKey, fleetSelectorValue)
 				})
 				Expect(err).ToNot(HaveOccurred())
@@ -327,26 +318,9 @@ func getAcmNamespace() (string, error) {
 	outputClean := string(output)
 	outputClean = strings.ReplaceAll(outputClean, "\\\"", "")
 	outputClean = strings.ReplaceAll(outputClean, "\n", "")
-	logrus.Infof("This is the Acm namespace: %s", outputClean)
+	GinkgoWriter.Printf("This is the Acm namespace: %s\n", outputClean)
 
 	return outputClean, nil
-}
-
-func isAcmInstalled() (bool, error) {
-	cmd := exec.Command("oc", "get", "multiclusterhub", "-A")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return false, err
-	}
-	outputString := string(output)
-	if outputString == "error: the server doesn't have a resource type \"multiclusterhub\"" {
-		return false, fmt.Errorf("ACM is not installed: %s", outputString)
-	}
-	if strings.Contains(outputString, "Running") || strings.Contains(outputString, "Paused") {
-		logrus.Infof("The cluster has ACM installed")
-		return true, nil
-	}
-	return false, fmt.Errorf("multiclusterhub is not in Running status")
 }
 
 func waitForMicroshiftReady(harness *e2e.Harness, kubeconfigPath string) error {

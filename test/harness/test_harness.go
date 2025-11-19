@@ -57,12 +57,44 @@ type TestHarness struct {
 	TestDirPath string
 }
 
+type TestHarnessOption func(h *TestHarness)
+
+// WithAgentMetrics enables the agent's Prometheus metrics endpoint when the
+// harness starts the agent.
+func WithAgentMetrics() TestHarnessOption {
+	return func(h *TestHarness) {
+		if h.agentConfig != nil {
+			h.agentConfig.MetricsEnabled = true
+		}
+	}
+}
+
+// WithAgentPprof enables the agent's pprof HTTP server when the harness starts
+// the agent.
+func WithAgentPprof() TestHarnessOption {
+	return func(h *TestHarness) {
+		if h.agentConfig != nil {
+			h.agentConfig.ProfilingEnabled = true
+		}
+	}
+}
+
+// WithAgentAudit enables the agent's audit logging when the harness starts the agent.
+// Note: Audit logging is enabled by default, so this option is primarily for test clarity.
+func WithAgentAudit() TestHarnessOption {
+	return func(h *TestHarness) {
+		if h.agentConfig != nil {
+			enabled := true
+			h.agentConfig.AuditLog.Enabled = &enabled
+		}
+	}
+}
+
 // NewTestHarness creates a new test harness and returns a new test harness
 // The test harness can be used from testing code to interact with a
 // set of agent/server/store instances.
 // It provides the necessary elements to perform tests against the agent and server.
-func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandler func(error)) (*TestHarness, error) {
-
+func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandler func(error), opts ...TestHarnessOption) (*TestHarness, error) {
 	err := makeTestDirs(testDirPath, []string{"/etc/flightctl/certs", "/etc/issue.d/", "/var/lib/flightctl/", "/proc/net"})
 	if err != nil {
 		return nil, fmt.Errorf("NewTestHarness failed creating temporary directories: %w", err)
@@ -91,27 +123,28 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 		return nil, fmt.Errorf("NewTestHarness: %w", err)
 	}
 
+	ctx, cancel := context.WithCancel(ctx)
+
 	provider := testutil.NewTestProvider(serverLog)
 	// create server
-
 	apiServer, listener, err := testutil.NewTestApiServer(serverLog, &serverCfg, store, ca, serverCerts, provider)
 	if err != nil {
+		cancel()
 		return nil, fmt.Errorf("NewTestHarness: %w", err)
 	}
 
 	ctrl := gomock.NewController(GinkgoT())
 	mockK8sClient := k8sclient.NewMockK8SClient(ctrl)
-	workerServer := workerserver.New(&serverCfg, serverLog, store, provider, mockK8sClient)
+	workerServer := workerserver.New(&serverCfg, serverLog, store, provider, mockK8sClient, nil)
 
-	agentServer, agentListener, err := testutil.NewTestAgentServer(serverLog, &serverCfg, store, ca, serverCerts, provider)
+	agentServer, agentListener, err := testutil.NewTestAgentServer(ctx, serverLog, &serverCfg, store, ca, serverCerts, provider)
 	if err != nil {
+		cancel()
 		return nil, fmt.Errorf("NewTestHarness: %w", err)
 	}
 
 	serverCfg.Service.Address = listener.Addr().String()
 	serverCfg.Service.AgentEndpointAddress = agentListener.Addr().String()
-
-	ctx, cancel := context.WithCancel(ctx)
 
 	// start main api server
 	go func() {
@@ -189,6 +222,13 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 		mockK8sClient:         mockK8sClient,
 		ctrl:                  ctrl,
 		TestDirPath:           testDirPath}
+
+	// Apply test harness options before starting the agent
+	for _, o := range opts {
+		if o != nil {
+			o(testHarness)
+		}
+	}
 
 	testHarness.StartAgent()
 

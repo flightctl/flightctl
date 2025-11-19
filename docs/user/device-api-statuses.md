@@ -8,13 +8,15 @@ The Device Status represents the availability and health of the device's hardwar
 
 The `device.status.summary` field can have the following values:
 
-| Status | Description | Formal Definition<sup>1</sub> |
-| ------ | ----------- | ----------------------------- |
-| `Online` | All hardware resources and operating system services are reported to be healthy. | `!deviceIsDisconnected && !deviceIsRebooting && ∀ r∈{CPU, Memory, Disk}, status.resources[r]∈{Healthy}` |
-| `Degraded` | One or more hardware resources or operating system services are reported to be degraded but in a still functional or recovering state. | `!deviceIsDisconnected && !deviceIsRebooting && ∀ r∈{CPU, Memory, Disk}, status.resources[r]∉{Error, Critical} && ∃ r∈{CPU, Memory, Disk}, status.resources[r]∈{Degraded}` |
-| `Error` | One or more hardware resources or operating system services are reported to be in error or critical state. | `!deviceIsDisconnected && !deviceIsRebooting && ∃ r∈{CPU, Memory, Disk}, status.resources[r]∈{Error, Critical}` |
-| `Rebooting` | The device is rebooting. | `!deviceIsDisconnected && deviceIsRebooting` |
-| `Offline` | The device is disconnected from the service but may still be running. | `deviceIsDisconnected` |
+| Status              | Description                                                                                                                            | Formal Definition<sup>1</sup> |
+|---------------------|----------------------------------------------------------------------------------------------------------------------------------------| ----------------------------- |
+| `Online`            | All hardware resources and operating system services are reported to be healthy.                                                       | `!deviceIsDisconnected && !deviceIsRebooting && ∀ r∈{CPU, Memory, Disk}, status.resources[r]∈{Healthy}` |
+| `Degraded`          | One or more hardware resources or operating system services are reported to be degraded but in a still functional or recovering state. | `!deviceIsDisconnected && !deviceIsRebooting && ∀ r∈{CPU, Memory, Disk}, status.resources[r]∉{Error, Critical} && ∃ r∈{CPU, Memory, Disk}, status.resources[r]∈{Degraded}` |
+| `Error`             | One or more hardware resources or operating system services are reported to be in error or critical state.                             | `!deviceIsDisconnected && !deviceIsRebooting && ∃ r∈{CPU, Memory, Disk}, status.resources[r]∈{Error, Critical}` |
+| `Rebooting`         | The device is rebooting.                                                                                                               | `!deviceIsDisconnected && deviceIsRebooting` |
+| `Offline`           | The device is disconnected from the service but may still be running.                                                                  | `deviceIsDisconnected` |
+| `AwaitingReconnect` | The device is awaiting reconnection after the system was restored.                                                                     | `deviceIsDisconnected` |
+| `ConflictPaused`    | The device is paused because the device reported a renderedVersion not known to the service.                                           | `deviceIsDisconnected` |
 
 <sup>1</sup> For the detailed definitions derived from the device specs and statuses, see [Helper Definitions](#helper-definitions).
 
@@ -77,7 +79,7 @@ The Device Update Status represents whether the device's currently running speci
 
 The `device.status.updated.status` field can have the following values:
 
-| Status | Description | Formal Definition<sup>1</sub> |
+| Status | Description | Formal Definition<sup>1</sup> |
 | ------ | ----------- | ----------------------------- |
 | `UpToDate` | The device is updated to its device spec. If the device is member of a fleet, its device spec is at the same template version as its fleet's device template. | `!deviceIsUpdating && deviceIsUpdatedToDeviceSpec && (deviceIsNotManaged \|\| deviceIsUpdatedToFleetSpec)` |
 | `Updating` | The device is in the process of updating to its device spec. | `deviceIsUpdating` |
@@ -166,7 +168,7 @@ The Application Status represents a summary of the availability and health of al
 
 The `device.status.applicationSummary` field can have the following values:
 
-| Status | Description | Formal Definition<sup>1</sub> |
+| Status | Description | Formal Definition<sup>1</sup> |
 | ------ | ----------- | ----------------------------- |
 | `Healthy` | All applications are reported to be in service or have successfully completed. | `!deviceIsDisconnected && ∀ a∈status.applications, status.applications[a]∈{Running, Completed}` |
 | `Degraded` | One or more applications are reported to not be in service but still in a starting or recovering state. | `!deviceIsDisconnected && ∀ a∈status.applications, status.applications[a]∉{Error} && ∃ a∈status.applications, status.applications[a]∈{Preparing, Starting}` |
@@ -215,7 +217,7 @@ The formal definition uses the following helper definitions:
 
 ```golang
 // A device is assumed disconnected if its agent hasn't sent an update for the duration of a disconnectionTimeout.
-deviceIsDisconnected := device.status.lastSeen + disconnectionTimeout < time.Now()
+deviceIsDisconnected := device.lastSeen + disconnectionTimeout < time.Now()
 
 // A device is not managed by a fleet if its owner field is unset.
 deviceIsNotManaged := len(device.metadata.owner) == 0

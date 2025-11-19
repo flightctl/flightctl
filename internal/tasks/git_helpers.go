@@ -25,6 +25,7 @@ import (
 	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	gitmemory "github.com/go-git/go-git/v5/storage/memory"
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 // Ref: https://github.com/git/git/blob/master/Documentation/urls.txt#L37
@@ -113,18 +114,26 @@ func GetAuth(repository *api.Repository) (transport.AuthMethod, error) {
 			if err != nil {
 				return nil, err
 			}
-			if sshSpec.SshConfig.SkipServerVerification != nil && *sshSpec.SshConfig.SkipServerVerification {
-				auth.HostKeyCallbackHelper = gitssh.HostKeyCallbackHelper{
-					HostKeyCallback: ssh.InsecureIgnoreHostKey(), //nolint:gosec
-				}
-			}
 		}
+
+		// Configure host key verification
 		if sshSpec.SshConfig.SkipServerVerification != nil && *sshSpec.SshConfig.SkipServerVerification {
 			if auth == nil {
 				auth = &gitssh.PublicKeys{}
 			}
 			auth.HostKeyCallbackHelper = gitssh.HostKeyCallbackHelper{
 				HostKeyCallback: ssh.InsecureIgnoreHostKey(), //nolint:gosec
+			}
+		} else {
+			callback, cbErr := buildKnownHostsCallback()
+			if cbErr != nil {
+				return nil, cbErr
+			}
+			if callback != nil {
+				if auth == nil {
+					auth = &gitssh.PublicKeys{}
+				}
+				auth.HostKeyCallbackHelper = gitssh.HostKeyCallbackHelper{HostKeyCallback: callback}
 			}
 		}
 		return auth, nil
@@ -196,6 +205,14 @@ func configureRepoHTTPSClient(httpConfig api.HttpConfig) error {
 		},
 	))
 	return nil
+}
+
+func buildKnownHostsCallback() (ssh.HostKeyCallback, error) {
+	cb, err := knownhosts.New("/etc/flightctl/ssh/known_hosts")
+	if err != nil {
+		return nil, fmt.Errorf("failed to load SSH known_hosts: %w", err)
+	}
+	return cb, nil
 }
 
 // ConvertFileSystemToIgnition converts a filesystem to an ignition config

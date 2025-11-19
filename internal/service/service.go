@@ -28,13 +28,16 @@ type Service interface {
 	ReplaceDevice(ctx context.Context, name string, device api.Device, fieldsToUnset []string) (*api.Device, api.Status)
 	DeleteDevice(ctx context.Context, name string) api.Status
 	GetDeviceStatus(ctx context.Context, name string) (*api.Device, api.Status)
+	GetDeviceLastSeen(ctx context.Context, name string) (*api.DeviceLastSeen, api.Status)
 	ReplaceDeviceStatus(ctx context.Context, name string, device api.Device) (*api.Device, api.Status)
 	PatchDeviceStatus(ctx context.Context, name string, patch api.PatchRequest) (*api.Device, api.Status)
 	GetRenderedDevice(ctx context.Context, name string, params api.GetRenderedDeviceParams) (*api.Device, api.Status)
 	PatchDevice(ctx context.Context, name string, patch api.PatchRequest) (*api.Device, api.Status)
 	DecommissionDevice(ctx context.Context, name string, decom api.DeviceDecommission) (*api.Device, api.Status)
+
+	ResumeDevices(ctx context.Context, request api.DeviceResumeRequest) (api.DeviceResumeResponse, api.Status)
 	UpdateDeviceAnnotations(ctx context.Context, name string, annotations map[string]string, deleteKeys []string) api.Status
-	UpdateRenderedDevice(ctx context.Context, name, renderedConfig, renderedApplications string) api.Status
+	UpdateRenderedDevice(ctx context.Context, name, renderedConfig, renderedApplications, specHash string) api.Status
 	SetDeviceServiceConditions(ctx context.Context, name string, conditions []api.Condition) api.Status
 	OverwriteDeviceRepositoryRefs(ctx context.Context, name string, repositoryNames ...string) api.Status
 	GetDeviceRepositoryRefs(ctx context.Context, name string) (*api.RepositoryList, api.Status)
@@ -45,6 +48,9 @@ type Service interface {
 	CountDevicesByLabels(ctx context.Context, params api.ListDevicesParams, annotationSelector *selector.AnnotationSelector, groupBy []string) ([]map[string]any, api.Status)
 	GetDevicesSummary(ctx context.Context, params api.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (*api.DevicesSummary, api.Status)
 	UpdateServiceSideDeviceStatus(ctx context.Context, device api.Device) bool
+	SetOutOfDate(ctx context.Context, owner string) error
+	UpdateServerSideDeviceStatus(ctx context.Context, name string) error
+	ListDisconnectedDevices(ctx context.Context, params api.ListDevicesParams, cutoffTime time.Time) (*api.DeviceList, api.Status)
 
 	// EnrollmentConfig
 	GetEnrollmentConfig(ctx context.Context, params api.GetEnrollmentConfigParams) (*api.EnrollmentConfig, api.Status)
@@ -89,6 +95,19 @@ type Service interface {
 	ReplaceRepositoryStatusByError(ctx context.Context, name string, repository api.Repository, err error) (*api.Repository, api.Status)
 	GetRepositoryFleetReferences(ctx context.Context, name string) (*api.FleetList, api.Status)
 	GetRepositoryDeviceReferences(ctx context.Context, name string) (*api.DeviceList, api.Status)
+
+	// AuthProvider
+	CreateAuthProvider(ctx context.Context, authProvider api.AuthProvider) (*api.AuthProvider, api.Status)
+	ListAuthProviders(ctx context.Context, params api.ListAuthProvidersParams) (*api.AuthProviderList, api.Status)
+	GetAuthProvider(ctx context.Context, name string) (*api.AuthProvider, api.Status)
+	GetAuthProviderByIssuerAndClientId(ctx context.Context, issuer string, clientId string) (*api.AuthProvider, api.Status)
+	GetAuthProviderByAuthorizationUrl(ctx context.Context, authorizationUrl string) (*api.AuthProvider, api.Status)
+	ReplaceAuthProvider(ctx context.Context, name string, authProvider api.AuthProvider) (*api.AuthProvider, api.Status)
+	PatchAuthProvider(ctx context.Context, name string, patch api.PatchRequest) (*api.AuthProvider, api.Status)
+	DeleteAuthProvider(ctx context.Context, name string) api.Status
+
+	// Auth
+	GetAuthConfig(ctx context.Context, authConfig *api.AuthConfig) (*api.AuthConfig, api.Status)
 
 	// ResourceSync
 	CreateResourceSync(ctx context.Context, rs api.ResourceSync) (*api.ResourceSync, api.Status)

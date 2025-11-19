@@ -12,9 +12,16 @@ import (
 	"github.com/oapi-codegen/runtime"
 )
 
+// Defines values for AapProviderSpecProviderType.
+const (
+	Aap AapProviderSpecProviderType = "aap"
+)
+
 // Defines values for AppType.
 const (
-	AppTypeCompose AppType = "compose"
+	AppTypeCompose   AppType = "compose"
+	AppTypeContainer AppType = "container"
+	AppTypeQuadlet   AppType = "quadlet"
 )
 
 // Defines values for ApplicationStatusType.
@@ -35,6 +42,31 @@ const (
 	ApplicationsSummaryStatusUnknown  ApplicationsSummaryStatusType = "Unknown"
 )
 
+// Defines values for AuthDynamicOrganizationAssignmentType.
+const (
+	AuthDynamicOrganizationAssignmentTypeDynamic AuthDynamicOrganizationAssignmentType = "dynamic"
+)
+
+// Defines values for AuthDynamicRoleAssignmentType.
+const (
+	AuthDynamicRoleAssignmentTypeDynamic AuthDynamicRoleAssignmentType = "dynamic"
+)
+
+// Defines values for AuthPerUserOrganizationAssignmentType.
+const (
+	PerUser AuthPerUserOrganizationAssignmentType = "perUser"
+)
+
+// Defines values for AuthStaticOrganizationAssignmentType.
+const (
+	AuthStaticOrganizationAssignmentTypeStatic AuthStaticOrganizationAssignmentType = "static"
+)
+
+// Defines values for AuthStaticRoleAssignmentType.
+const (
+	AuthStaticRoleAssignmentTypeStatic AuthStaticRoleAssignmentType = "static"
+)
+
 // Defines values for ConditionStatus.
 const (
 	ConditionStatusFalse   ConditionStatus = "False"
@@ -44,20 +76,22 @@ const (
 
 // Defines values for ConditionType.
 const (
-	ConditionTypeCertificateSigningRequestApproved ConditionType = "Approved"
-	ConditionTypeCertificateSigningRequestDenied   ConditionType = "Denied"
-	ConditionTypeCertificateSigningRequestFailed   ConditionType = "Failed"
-	ConditionTypeDeviceDecommissioning             ConditionType = "DeviceDecommissioning"
-	ConditionTypeDeviceMultipleOwners              ConditionType = "MultipleOwners"
-	ConditionTypeDeviceSpecValid                   ConditionType = "SpecValid"
-	ConditionTypeDeviceUpdating                    ConditionType = "Updating"
-	ConditionTypeEnrollmentRequestApproved         ConditionType = "Approved"
-	ConditionTypeFleetRolloutInProgress            ConditionType = "RolloutInProgress"
-	ConditionTypeFleetValid                        ConditionType = "Valid"
-	ConditionTypeRepositoryAccessible              ConditionType = "Accessible"
-	ConditionTypeResourceSyncAccessible            ConditionType = "Accessible"
-	ConditionTypeResourceSyncResourceParsed        ConditionType = "ResourceParsed"
-	ConditionTypeResourceSyncSynced                ConditionType = "Synced"
+	ConditionTypeCertificateSigningRequestApproved    ConditionType = "Approved"
+	ConditionTypeCertificateSigningRequestDenied      ConditionType = "Denied"
+	ConditionTypeCertificateSigningRequestFailed      ConditionType = "Failed"
+	ConditionTypeCertificateSigningRequestTPMVerified ConditionType = "TPMVerified"
+	ConditionTypeDeviceDecommissioning                ConditionType = "DeviceDecommissioning"
+	ConditionTypeDeviceMultipleOwners                 ConditionType = "MultipleOwners"
+	ConditionTypeDeviceSpecValid                      ConditionType = "SpecValid"
+	ConditionTypeDeviceUpdating                       ConditionType = "Updating"
+	ConditionTypeEnrollmentRequestApproved            ConditionType = "Approved"
+	ConditionTypeEnrollmentRequestTPMVerified         ConditionType = "TPMVerified"
+	ConditionTypeFleetRolloutInProgress               ConditionType = "RolloutInProgress"
+	ConditionTypeFleetValid                           ConditionType = "Valid"
+	ConditionTypeRepositoryAccessible                 ConditionType = "Accessible"
+	ConditionTypeResourceSyncAccessible               ConditionType = "Accessible"
+	ConditionTypeResourceSyncResourceParsed           ConditionType = "ResourceParsed"
+	ConditionTypeResourceSyncSynced                   ConditionType = "Synced"
 )
 
 // Defines values for DeviceDecommissionTargetType.
@@ -131,12 +165,14 @@ const (
 
 // Defines values for DeviceSummaryStatusType.
 const (
-	DeviceSummaryStatusDegraded   DeviceSummaryStatusType = "Degraded"
-	DeviceSummaryStatusError      DeviceSummaryStatusType = "Error"
-	DeviceSummaryStatusOnline     DeviceSummaryStatusType = "Online"
-	DeviceSummaryStatusPoweredOff DeviceSummaryStatusType = "PoweredOff"
-	DeviceSummaryStatusRebooting  DeviceSummaryStatusType = "Rebooting"
-	DeviceSummaryStatusUnknown    DeviceSummaryStatusType = "Unknown"
+	DeviceSummaryStatusAwaitingReconnect DeviceSummaryStatusType = "AwaitingReconnect"
+	DeviceSummaryStatusConflictPaused    DeviceSummaryStatusType = "ConflictPaused"
+	DeviceSummaryStatusDegraded          DeviceSummaryStatusType = "Degraded"
+	DeviceSummaryStatusError             DeviceSummaryStatusType = "Error"
+	DeviceSummaryStatusOnline            DeviceSummaryStatusType = "Online"
+	DeviceSummaryStatusPoweredOff        DeviceSummaryStatusType = "PoweredOff"
+	DeviceSummaryStatusRebooting         DeviceSummaryStatusType = "Rebooting"
+	DeviceSummaryStatusUnknown           DeviceSummaryStatusType = "Unknown"
 )
 
 // Defines values for DeviceUpdatedStatusType.
@@ -161,6 +197,8 @@ const (
 	EventReasonDeviceCPUCritical               EventReason = "DeviceCPUCritical"
 	EventReasonDeviceCPUNormal                 EventReason = "DeviceCPUNormal"
 	EventReasonDeviceCPUWarning                EventReason = "DeviceCPUWarning"
+	EventReasonDeviceConflictPaused            EventReason = "DeviceConflictPaused"
+	EventReasonDeviceConflictResolved          EventReason = "DeviceConflictResolved"
 	EventReasonDeviceConnected                 EventReason = "DeviceConnected"
 	EventReasonDeviceContentOutOfDate          EventReason = "DeviceContentOutOfDate"
 	EventReasonDeviceContentUpToDate           EventReason = "DeviceContentUpToDate"
@@ -192,6 +230,7 @@ const (
 	EventReasonFleetRolloutStarted             EventReason = "FleetRolloutStarted"
 	EventReasonFleetValid                      EventReason = "FleetValid"
 	EventReasonInternalTaskFailed              EventReason = "InternalTaskFailed"
+	EventReasonInternalTaskPermanentlyFailed   EventReason = "InternalTaskPermanentlyFailed"
 	EventReasonReferencedRepositoryUpdated     EventReason = "ReferencedRepositoryUpdated"
 	EventReasonRepositoryAccessible            EventReason = "RepositoryAccessible"
 	EventReasonRepositoryInaccessible          EventReason = "RepositoryInaccessible"
@@ -208,6 +247,7 @@ const (
 	EventReasonResourceSyncSynced              EventReason = "ResourceSyncSynced"
 	EventReasonResourceUpdateFailed            EventReason = "ResourceUpdateFailed"
 	EventReasonResourceUpdated                 EventReason = "ResourceUpdated"
+	EventReasonSystemRestored                  EventReason = "SystemRestored"
 )
 
 // Defines values for EventType.
@@ -271,6 +311,16 @@ const (
 	InternalTaskFailed InternalTaskFailedDetailsDetailType = "InternalTaskFailed"
 )
 
+// Defines values for InternalTaskPermanentlyFailedDetailsDetailType.
+const (
+	InternalTaskPermanentlyFailed InternalTaskPermanentlyFailedDetailsDetailType = "InternalTaskPermanentlyFailed"
+)
+
+// Defines values for K8sProviderSpecProviderType.
+const (
+	K8s K8sProviderSpecProviderType = "k8s"
+)
+
 // Defines values for MatchExpressionOperator.
 const (
 	DoesNotExist MatchExpressionOperator = "DoesNotExist"
@@ -279,11 +329,27 @@ const (
 	NotIn        MatchExpressionOperator = "NotIn"
 )
 
+// Defines values for OAuth2ProviderSpecProviderType.
+const (
+	Oauth2 OAuth2ProviderSpecProviderType = "oauth2"
+)
+
+// Defines values for OIDCProviderSpecProviderType.
+const (
+	Oidc OIDCProviderSpecProviderType = "oidc"
+)
+
+// Defines values for OpenShiftProviderSpecProviderType.
+const (
+	Openshift OpenShiftProviderSpecProviderType = "openshift"
+)
+
 // Defines values for PatchRequestOp.
 const (
 	Add     PatchRequestOp = "add"
 	Remove  PatchRequestOp = "remove"
 	Replace PatchRequestOp = "replace"
+	Test    PatchRequestOp = "test"
 )
 
 // Defines values for ReferencedRepositoryUpdatedDetailsDetailType.
@@ -306,6 +372,7 @@ const (
 
 // Defines values for ResourceKind.
 const (
+	ResourceKindAuthProvider              ResourceKind = "AuthProvider"
 	ResourceKindCertificateSigningRequest ResourceKind = "CertificateSigningRequest"
 	ResourceKindDevice                    ResourceKind = "Device"
 	ResourceKindEnrollmentRequest         ResourceKind = "EnrollmentRequest"
@@ -339,6 +406,57 @@ const (
 	RolloutStrategyBatchSequence RolloutStrategy = "BatchSequence"
 )
 
+// Defines values for SystemdActiveStateType.
+const (
+	SystemdActiveStateActivating   SystemdActiveStateType = "activating"
+	SystemdActiveStateActive       SystemdActiveStateType = "active"
+	SystemdActiveStateDeactivating SystemdActiveStateType = "deactivating"
+	SystemdActiveStateFailed       SystemdActiveStateType = "failed"
+	SystemdActiveStateInactive     SystemdActiveStateType = "inactive"
+	SystemdActiveStateMaintenance  SystemdActiveStateType = "maintenance"
+	SystemdActiveStateRefreshing   SystemdActiveStateType = "refreshing"
+	SystemdActiveStateReloading    SystemdActiveStateType = "reloading"
+)
+
+// Defines values for SystemdEnableStateType.
+const (
+	SystemdEnableStateAlias          SystemdEnableStateType = "alias"
+	SystemdEnableStateBad            SystemdEnableStateType = "bad"
+	SystemdEnableStateDisabled       SystemdEnableStateType = "disabled"
+	SystemdEnableStateEnabled        SystemdEnableStateType = "enabled"
+	SystemdEnableStateEnabledRuntime SystemdEnableStateType = "enabled-runtime"
+	SystemdEnableStateGenerated      SystemdEnableStateType = "generated"
+	SystemdEnableStateIndirect       SystemdEnableStateType = "indirect"
+	SystemdEnableStateLinked         SystemdEnableStateType = "linked"
+	SystemdEnableStateLinkedRuntime  SystemdEnableStateType = "linked-runtime"
+	SystemdEnableStateMasked         SystemdEnableStateType = "masked"
+	SystemdEnableStateMaskedRuntime  SystemdEnableStateType = "masked-runtime"
+	SystemdEnableStateStatic         SystemdEnableStateType = "static"
+	SystemdEnableStateTransient      SystemdEnableStateType = "transient"
+)
+
+// Defines values for SystemdLoadStateType.
+const (
+	SystemdLoadStateBadSetting SystemdLoadStateType = "bad-setting"
+	SystemdLoadStateError      SystemdLoadStateType = "error"
+	SystemdLoadStateLoaded     SystemdLoadStateType = "loaded"
+	SystemdLoadStateMasked     SystemdLoadStateType = "masked"
+	SystemdLoadStateMerged     SystemdLoadStateType = "merged"
+	SystemdLoadStateNotFound   SystemdLoadStateType = "not-found"
+	SystemdLoadStateStub       SystemdLoadStateType = "stub"
+)
+
+// Defines values for TokenRequestGrantType.
+const (
+	AuthorizationCode TokenRequestGrantType = "authorization_code"
+	RefreshToken      TokenRequestGrantType = "refresh_token"
+)
+
+// Defines values for TokenResponseTokenType.
+const (
+	Bearer TokenResponseTokenType = "Bearer"
+)
+
 // Defines values for ListEventsParamsOrder.
 const (
 	Asc  ListEventsParamsOrder = "asc"
@@ -349,6 +467,33 @@ const (
 const (
 	ListLabelsParamsKindDevice ListLabelsParamsKind = "Device"
 )
+
+// AapProviderSpec AapProviderSpec describes an Ansible Automation Platform (AAP) provider configuration.
+type AapProviderSpec struct {
+	// ApiUrl The internal AAP API URL.
+	ApiUrl string `json:"apiUrl"`
+
+	// DisplayName Human-readable display name for the provider.
+	DisplayName *string `json:"displayName,omitempty"`
+
+	// Enabled Whether this AAP provider is enabled.
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// ExternalApiUrl The external AAP API URL (for external access).
+	ExternalApiUrl *string `json:"externalApiUrl,omitempty"`
+
+	// OrganizationAssignment AuthOrganizationAssignment defines how users from this auth provider are assigned to organizations.
+	OrganizationAssignment AuthOrganizationAssignment `json:"organizationAssignment"`
+
+	// ProviderType The type of authentication provider.
+	ProviderType AapProviderSpecProviderType `json:"providerType"`
+
+	// RoleAssignment AuthRoleAssignment defines how roles are assigned to users from this auth provider.
+	RoleAssignment AuthRoleAssignment `json:"roleAssignment"`
+}
+
+// AapProviderSpecProviderType The type of authentication provider.
+type AapProviderSpecProviderType string
 
 // AbsolutePath Represents an absolute file path.
 type AbsolutePath struct {
@@ -377,6 +522,9 @@ type ApplicationEnvVars struct {
 	EnvVars *map[string]string `json:"envVars,omitempty"`
 }
 
+// ApplicationPort Port mapping in format "hostPort:containerPort" (e.g., "8080:80").
+type ApplicationPort = string
+
 // ApplicationProviderSpec defines model for ApplicationProviderSpec.
 type ApplicationProviderSpec struct {
 	// AppType The type of the application.
@@ -388,6 +536,21 @@ type ApplicationProviderSpec struct {
 	// Name The application name must be 1–253 characters long, start with a letter or number, and contain no whitespace.
 	Name  *string `json:"name,omitempty"`
 	union json.RawMessage
+}
+
+// ApplicationResourceLimits Resource limits for the application.
+type ApplicationResourceLimits struct {
+	// Cpu CPU limit in cores (e.g., "1", "0.75").
+	Cpu *string `json:"cpu,omitempty"`
+
+	// Memory Memory limit with unit (e.g., "256m", "2g") using Podman format (b=bytes, k=kibibytes, m=mebibytes, g=gibibytes).
+	Memory *string `json:"memory,omitempty"`
+}
+
+// ApplicationResources Resource constraints for the application.
+type ApplicationResources struct {
+	// Limits Resource limits for the application.
+	Limits *ApplicationResourceLimits `json:"limits,omitempty"`
 }
 
 // ApplicationStatusType Status of a single application on the device.
@@ -418,14 +581,135 @@ type ApplicationVolumeStatus struct {
 // ApplicationsSummaryStatusType Status of all applications on the device.
 type ApplicationsSummaryStatusType string
 
-// AuthConfig Auth config.
+// AuthConfig defines model for AuthConfig.
 type AuthConfig struct {
-	// AuthType Auth type.
-	AuthType string `json:"authType"`
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
+	ApiVersion string `json:"apiVersion"`
 
-	// AuthURL Auth URL.
-	AuthURL string `json:"authURL"`
+	// DefaultProvider Name of the default authentication provider.
+	DefaultProvider *string `json:"defaultProvider,omitempty"`
+
+	// OrganizationsEnabled Whether organizations are enabled for authentication.
+	OrganizationsEnabled *bool `json:"organizationsEnabled,omitempty"`
+
+	// Providers List of all available authentication providers.
+	Providers *[]AuthProvider `json:"providers,omitempty"`
 }
+
+// AuthDynamicOrganizationAssignment AuthDynamicOrganizationAssignment assigns users to organizations based on auth provider claims.
+type AuthDynamicOrganizationAssignment struct {
+	// ClaimPath The JSON path to the claim that contains the organization identifier (e.g., ["groups", "0"] or ["custom", "org"]).
+	ClaimPath []string `json:"claimPath"`
+
+	// OrganizationNamePrefix The prefix for the organization name (e.g., "org-").
+	OrganizationNamePrefix *string `json:"organizationNamePrefix,omitempty"`
+
+	// OrganizationNameSuffix The suffix for the organization name (e.g., "-org").
+	OrganizationNameSuffix *string `json:"organizationNameSuffix,omitempty"`
+
+	// Type The type of organization assignment.
+	Type AuthDynamicOrganizationAssignmentType `json:"type"`
+}
+
+// AuthDynamicOrganizationAssignmentType The type of organization assignment.
+type AuthDynamicOrganizationAssignmentType string
+
+// AuthDynamicRoleAssignment AuthDynamicRoleAssignment extracts roles from auth provider claims using a JSON path.
+type AuthDynamicRoleAssignment struct {
+	// ClaimPath The JSON path to the role/group claim (e.g., ["groups"], ["roles"], ["realm_access", "roles"]).
+	ClaimPath []string `json:"claimPath"`
+
+	// Separator Separator for org:role format (default ':'). Roles containing the separator are split into organization-scoped roles. Roles without separator are global and apply to all organizations.
+	Separator *string `json:"separator,omitempty"`
+
+	// Type The type of role assignment.
+	Type AuthDynamicRoleAssignmentType `json:"type"`
+}
+
+// AuthDynamicRoleAssignmentType The type of role assignment.
+type AuthDynamicRoleAssignmentType string
+
+// AuthOrganizationAssignment AuthOrganizationAssignment defines how users from this auth provider are assigned to organizations.
+type AuthOrganizationAssignment struct {
+	union json.RawMessage
+}
+
+// AuthPerUserOrganizationAssignment AuthPerUserOrganizationAssignment creates a separate organization for each user.
+type AuthPerUserOrganizationAssignment struct {
+	// OrganizationNamePrefix The prefix for the user-specific organization name (e.g., "user-org-").
+	OrganizationNamePrefix *string `json:"organizationNamePrefix,omitempty"`
+
+	// OrganizationNameSuffix The suffix for the user-specific organization name (e.g., "-org").
+	OrganizationNameSuffix *string `json:"organizationNameSuffix,omitempty"`
+
+	// Type The type of organization assignment.
+	Type AuthPerUserOrganizationAssignmentType `json:"type"`
+}
+
+// AuthPerUserOrganizationAssignmentType The type of organization assignment.
+type AuthPerUserOrganizationAssignmentType string
+
+// AuthProvider AuthProvider represents an authentication provider configuration supporting both OIDC and OAuth2.
+type AuthProvider struct {
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
+	ApiVersion string `json:"apiVersion"`
+
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
+	Kind string `json:"kind"`
+
+	// Metadata ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
+	Metadata ObjectMeta       `json:"metadata"`
+	Spec     AuthProviderSpec `json:"spec"`
+}
+
+// AuthProviderList AuthProviderList is a list of auth providers.
+type AuthProviderList struct {
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
+	ApiVersion string `json:"apiVersion"`
+
+	// Items List of auth providers.
+	Items []AuthProvider `json:"items"`
+
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
+	Kind string `json:"kind"`
+
+	// Metadata ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
+	Metadata ListMeta `json:"metadata"`
+}
+
+// AuthProviderSpec defines model for AuthProviderSpec.
+type AuthProviderSpec struct {
+	union json.RawMessage
+}
+
+// AuthRoleAssignment AuthRoleAssignment defines how roles are assigned to users from this auth provider.
+type AuthRoleAssignment struct {
+	union json.RawMessage
+}
+
+// AuthStaticOrganizationAssignment AuthStaticOrganizationAssignment assigns all users from this auth provider to a single static organization.
+type AuthStaticOrganizationAssignment struct {
+	// OrganizationName The name of the organization where all users will be assigned.
+	OrganizationName string `json:"organizationName"`
+
+	// Type The type of organization assignment.
+	Type AuthStaticOrganizationAssignmentType `json:"type"`
+}
+
+// AuthStaticOrganizationAssignmentType The type of organization assignment.
+type AuthStaticOrganizationAssignmentType string
+
+// AuthStaticRoleAssignment AuthStaticRoleAssignment assigns a static set of roles to all users from this auth provider.
+type AuthStaticRoleAssignment struct {
+	// Roles The list of role names to assign to all users.
+	Roles []string `json:"roles"`
+
+	// Type The type of role assignment.
+	Type AuthStaticRoleAssignmentType `json:"type"`
+}
+
+// AuthStaticRoleAssignmentType The type of role assignment.
+type AuthStaticRoleAssignmentType string
 
 // Batch Batch is an element in batch sequence.
 type Batch struct {
@@ -677,6 +961,12 @@ type DeviceIntegrityStatus struct {
 // DeviceIntegrityStatusSummaryType Status of the integrity of the device.
 type DeviceIntegrityStatusSummaryType string
 
+// DeviceLastSeen DeviceLastSeen represents the last seen timestamp of a device.
+type DeviceLastSeen struct {
+	// LastSeen The last time the device was seen by the service.
+	LastSeen time.Time `json:"lastSeen"`
+}
+
 // DeviceLifecycleHookType defines model for DeviceLifecycleHookType.
 type DeviceLifecycleHookType string
 
@@ -788,6 +1078,28 @@ type DeviceResourceStatus struct {
 // DeviceResourceStatusType The types of resource statuses.
 type DeviceResourceStatusType string
 
+// DeviceResumeRequest Request to resume devices based on label selector and/or field selector. At least one selector must be provided.
+type DeviceResumeRequest struct {
+	// FieldSelector A selector to restrict the list of devices to resume by their fields. Uses the same format as Kubernetes field selectors (e.g., "metadata.name=device1,status.phase!=Pending").
+	FieldSelector *string `json:"fieldSelector,omitempty"`
+
+	// LabelSelector A selector to restrict the list of devices to resume by their labels. Uses the same format as Kubernetes label selectors (e.g., "key1=value1,key2!=value2").
+	LabelSelector *string `json:"labelSelector,omitempty"`
+	union         json.RawMessage
+}
+
+// DeviceResumeRequest0 defines model for .
+type DeviceResumeRequest0 = interface{}
+
+// DeviceResumeRequest1 defines model for .
+type DeviceResumeRequest1 = interface{}
+
+// DeviceResumeResponse Response from resuming devices.
+type DeviceResumeResponse struct {
+	// ResumedDevices Number of devices that were successfully resumed.
+	ResumedDevices int `json:"resumedDevices"`
+}
+
 // DeviceSpec DeviceSpec describes a device.
 type DeviceSpec struct {
 	// Applications List of application providers.
@@ -820,7 +1132,7 @@ type DeviceSpec struct {
 
 // DeviceStatus DeviceStatus represents information about the status of a device. Status may trail the actual state of a device.
 type DeviceStatus struct {
-	// Applications List of device application status.
+	// Applications List of device application statuses.
 	Applications []DeviceApplicationStatus `json:"applications"`
 
 	// ApplicationsSummary A summary of the health of applications on the device.
@@ -835,8 +1147,8 @@ type DeviceStatus struct {
 	// Integrity Summary status of the integrity of the device.
 	Integrity DeviceIntegrityStatus `json:"integrity"`
 
-	// LastSeen The last time the device was seen by the service.
-	LastSeen time.Time `json:"lastSeen"`
+	// LastSeen The last time the device was seen by the service (NOTE: this property is not returned by the API).
+	LastSeen *time.Time `json:"-"`
 
 	// Lifecycle Current status of the device lifecycle.
 	Lifecycle DeviceLifecycleStatus `json:"lifecycle"`
@@ -852,6 +1164,9 @@ type DeviceStatus struct {
 
 	// SystemInfo System information collected from the device.
 	SystemInfo DeviceSystemInfo `json:"systemInfo"`
+
+	// Systemd List of systemd unit statuses.
+	Systemd *[]SystemdUnitStatus `json:"systemd,omitempty"`
 
 	// Updated Current status of the device update.
 	Updated DeviceUpdatedStatus `json:"updated"`
@@ -1028,6 +1343,9 @@ type EnrollmentRequestSpec struct {
 	// DeviceStatus DeviceStatus represents information about the status of a device. Status may trail the actual state of a device.
 	DeviceStatus *DeviceStatus `json:"deviceStatus,omitempty"`
 
+	// KnownRenderedVersion The rendered version of the device from desired.json (optional).
+	KnownRenderedVersion *string `json:"knownRenderedVersion,omitempty"`
+
 	// Labels A set of labels that the service will apply to this device when its enrollment is approved.
 	Labels *map[string]string `json:"labels,omitempty"`
 }
@@ -1074,7 +1392,7 @@ type EnrollmentServiceService struct {
 	Server string `json:"server"`
 }
 
-// Event defines model for Event.
+// Event Event represents a single event that occurred in the system.
 type Event struct {
 	// Actor The name of the user or service that triggered the event. The value will be prefixed by either user: (for human users) or service: (for automated services).
 	Actor string `json:"actor"`
@@ -1483,8 +1801,23 @@ type ImageApplicationProviderSpec struct {
 	// Image Reference to the container image for the application package.
 	Image string `json:"image"`
 
+	// Ports Port mappings.
+	Ports *[]ApplicationPort `json:"ports,omitempty"`
+
+	// Resources Resource constraints for the application.
+	Resources *ApplicationResources `json:"resources,omitempty"`
+
 	// Volumes List of application volumes.
 	Volumes *[]ApplicationVolume `json:"volumes,omitempty"`
+}
+
+// ImageMountVolumeProviderSpec Volume from OCI image mounted at specified path.
+type ImageMountVolumeProviderSpec struct {
+	// Image Describes the source of an OCI-compliant image or artifact.
+	Image ImageVolumeSource `json:"image"`
+
+	// Mount Mount configuration for a volume.
+	Mount VolumeMount `json:"mount"`
 }
 
 // ImagePullPolicy Optional. Defaults to 'IfNotPresent'. When set to 'Always', the image is pulled every time. When set to 'Never', the image must already exist on the device.
@@ -1531,18 +1864,60 @@ type InternalTaskFailedDetails struct {
 	// ErrorMessage The error message describing the failure.
 	ErrorMessage string `json:"errorMessage"`
 
+	// OriginalEvent Event represents a single event that occurred in the system.
+	OriginalEvent Event `json:"originalEvent"`
+
 	// RetryCount Number of times the task has been retried.
 	RetryCount *int `json:"retryCount,omitempty"`
-
-	// TaskParameters Parameters needed to retry the task.
-	TaskParameters *map[string]string `json:"taskParameters,omitempty"`
-
-	// TaskType The type of internal task that failed.
-	TaskType string `json:"taskType"`
 }
 
 // InternalTaskFailedDetailsDetailType The type of detail for discriminator purposes.
 type InternalTaskFailedDetailsDetailType string
+
+// InternalTaskPermanentlyFailedDetails defines model for InternalTaskPermanentlyFailedDetails.
+type InternalTaskPermanentlyFailedDetails struct {
+	// DetailType The type of detail for discriminator purposes.
+	DetailType InternalTaskPermanentlyFailedDetailsDetailType `json:"detailType"`
+
+	// ErrorMessage The error message describing the permanent failure.
+	ErrorMessage string `json:"errorMessage"`
+
+	// OriginalEvent Event represents a single event that occurred in the system.
+	OriginalEvent Event `json:"originalEvent"`
+
+	// RetryCount Number of times the task was retried before being marked as permanently failed.
+	RetryCount int `json:"retryCount"`
+}
+
+// InternalTaskPermanentlyFailedDetailsDetailType The type of detail for discriminator purposes.
+type InternalTaskPermanentlyFailedDetailsDetailType string
+
+// K8sProviderSpec K8sProviderSpec describes a Kubernetes/OpenShift provider configuration.
+type K8sProviderSpec struct {
+	// ApiUrl The internal Kubernetes API URL.
+	ApiUrl string `json:"apiUrl"`
+
+	// DisplayName Human-readable display name for the provider.
+	DisplayName *string `json:"displayName,omitempty"`
+
+	// Enabled Whether this K8s provider is enabled.
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// OrganizationAssignment AuthOrganizationAssignment defines how users from this auth provider are assigned to organizations.
+	OrganizationAssignment AuthOrganizationAssignment `json:"organizationAssignment"`
+
+	// ProviderType The type of authentication provider.
+	ProviderType K8sProviderSpecProviderType `json:"providerType"`
+
+	// RbacNs The RBAC namespace for permissions.
+	RbacNs *string `json:"rbacNs,omitempty"`
+
+	// RoleAssignment AuthRoleAssignment defines how roles are assigned to users from this auth provider.
+	RoleAssignment AuthRoleAssignment `json:"roleAssignment"`
+}
+
+// K8sProviderSpecProviderType The type of authentication provider.
+type K8sProviderSpecProviderType string
 
 // KubernetesSecretProviderSpec defines model for KubernetesSecretProviderSpec.
 type KubernetesSecretProviderSpec struct {
@@ -1613,6 +1988,93 @@ type MemoryResourceMonitorSpec struct {
 	SamplingInterval string `json:"samplingInterval"`
 }
 
+// MountVolumeProviderSpec Named volume mount configuration.
+type MountVolumeProviderSpec struct {
+	// Mount Mount configuration for a volume.
+	Mount VolumeMount `json:"mount"`
+}
+
+// OAuth2ProviderSpec OAuth2ProviderSpec describes an OAuth2 provider configuration.
+type OAuth2ProviderSpec struct {
+	// AuthorizationUrl The OAuth2 authorization endpoint URL.
+	AuthorizationUrl string `json:"authorizationUrl"`
+
+	// ClientId The OAuth2 client ID.
+	ClientId string `json:"clientId"`
+
+	// ClientSecret The OAuth2 client secret.
+	ClientSecret *string `json:"clientSecret,omitempty"`
+
+	// DisplayName Human-readable display name for the provider.
+	DisplayName *string `json:"displayName,omitempty"`
+
+	// Enabled Whether this OAuth2 provider is enabled.
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// Issuer The OAuth2 issuer identifier (used for issuer identification in tokens).
+	Issuer *string `json:"issuer,omitempty"`
+
+	// OrganizationAssignment AuthOrganizationAssignment defines how users from this auth provider are assigned to organizations.
+	OrganizationAssignment AuthOrganizationAssignment `json:"organizationAssignment"`
+
+	// ProviderType The type of authentication provider.
+	ProviderType OAuth2ProviderSpecProviderType `json:"providerType"`
+
+	// RoleAssignment AuthRoleAssignment defines how roles are assigned to users from this auth provider.
+	RoleAssignment AuthRoleAssignment `json:"roleAssignment"`
+
+	// Scopes List of OAuth2 scopes to request.
+	Scopes *[]string `json:"scopes,omitempty"`
+
+	// TokenUrl The OAuth2 token endpoint URL.
+	TokenUrl string `json:"tokenUrl"`
+
+	// UserinfoUrl The OAuth2 userinfo endpoint URL.
+	UserinfoUrl string `json:"userinfoUrl"`
+
+	// UsernameClaim JSON path to the username claim in the userinfo response as an array of path segments (e.g., ["preferred_username"], ["email"], ["sub"]).
+	UsernameClaim *[]string `json:"usernameClaim,omitempty"`
+}
+
+// OAuth2ProviderSpecProviderType The type of authentication provider.
+type OAuth2ProviderSpecProviderType string
+
+// OIDCProviderSpec OIDCProviderSpec describes an OIDC provider configuration.
+type OIDCProviderSpec struct {
+	// ClientId The OIDC client ID.
+	ClientId string `json:"clientId"`
+
+	// ClientSecret The OIDC client secret.
+	ClientSecret *string `json:"clientSecret,omitempty"`
+
+	// DisplayName Human-readable display name for the provider.
+	DisplayName *string `json:"displayName,omitempty"`
+
+	// Enabled Whether this OIDC provider is enabled.
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// Issuer The OIDC issuer URL (e.g., https://accounts.google.com).
+	Issuer string `json:"issuer"`
+
+	// OrganizationAssignment AuthOrganizationAssignment defines how users from this auth provider are assigned to organizations.
+	OrganizationAssignment AuthOrganizationAssignment `json:"organizationAssignment"`
+
+	// ProviderType The type of authentication provider.
+	ProviderType OIDCProviderSpecProviderType `json:"providerType"`
+
+	// RoleAssignment AuthRoleAssignment defines how roles are assigned to users from this auth provider.
+	RoleAssignment AuthRoleAssignment `json:"roleAssignment"`
+
+	// Scopes List of OIDC scopes to request.
+	Scopes *[]string `json:"scopes,omitempty"`
+
+	// UsernameClaim JSON path to the username claim in the JWT token as an array of path segments (e.g., ["preferred_username"], ["email"], ["sub"]).
+	UsernameClaim *[]string `json:"usernameClaim,omitempty"`
+}
+
+// OIDCProviderSpecProviderType The type of authentication provider.
+type OIDCProviderSpecProviderType string
+
 // ObjectMeta ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
 type ObjectMeta struct {
 	// Annotations Properties set by the service.
@@ -1648,6 +2110,42 @@ type ObjectReference struct {
 	// Name The name of the referenced object.
 	Name string `json:"name"`
 }
+
+// OpenShiftProviderSpec OpenShiftProviderSpec describes an OpenShift OAuth provider configuration.
+type OpenShiftProviderSpec struct {
+	// AuthorizationUrl The OAuth2 authorization endpoint URL.
+	AuthorizationUrl *string `json:"authorizationUrl,omitempty"`
+
+	// ClientId The OAuth2 client ID.
+	ClientId *string `json:"clientId,omitempty"`
+
+	// ClientSecret The OAuth2 client secret.
+	ClientSecret *string `json:"clientSecret,omitempty"`
+
+	// ClusterControlPlaneUrl The OpenShift cluster control plane URL.
+	ClusterControlPlaneUrl *string `json:"clusterControlPlaneUrl,omitempty"`
+
+	// DisplayName Human-readable display name for the provider.
+	DisplayName *string `json:"displayName,omitempty"`
+
+	// Enabled Whether this OpenShift provider is enabled.
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// Issuer The OAuth2 issuer identifier (used for issuer identification in tokens).
+	Issuer *string `json:"issuer,omitempty"`
+
+	// ProviderType The type of authentication provider.
+	ProviderType OpenShiftProviderSpecProviderType `json:"providerType"`
+
+	// Scopes List of OAuth2 scopes to request.
+	Scopes *[]string `json:"scopes,omitempty"`
+
+	// TokenUrl The OAuth2 token endpoint URL.
+	TokenUrl *string `json:"tokenUrl,omitempty"`
+}
+
+// OpenShiftProviderSpecProviderType The type of authentication provider.
+type OpenShiftProviderSpecProviderType string
 
 // Organization defines model for Organization.
 type Organization struct {
@@ -1705,6 +2203,21 @@ type PatchRequestOp string
 
 // Percentage Percentage is the string format representing percentage string.
 type Percentage = string
+
+// Permission A permission defining allowed operations on a resource.
+type Permission struct {
+	// Operations List of allowed operations (e.g., "get", "list", "create", "update", "patch", "delete", "*" for all operations).
+	Operations []string `json:"operations"`
+
+	// Resource The resource (e.g., "devices", "fleets", "*" for all resources).
+	Resource string `json:"resource"`
+}
+
+// PermissionList List of available permissions for a user.
+type PermissionList struct {
+	// Permissions List of permissions available to the user.
+	Permissions []Permission `json:"permissions"`
+}
 
 // ReferencedRepositoryUpdatedDetails defines model for ReferencedRepositoryUpdatedDetails.
 type ReferencedRepositoryUpdatedDetails struct {
@@ -1970,6 +2483,36 @@ type Status struct {
 	Status string `json:"status"`
 }
 
+// SystemdActiveStateType The high-level unit activation state.
+type SystemdActiveStateType string
+
+// SystemdEnableStateType The enable state of the unit file.
+type SystemdEnableStateType string
+
+// SystemdLoadStateType The load state of the unit file.
+type SystemdLoadStateType string
+
+// SystemdUnitStatus defines model for SystemdUnitStatus.
+type SystemdUnitStatus struct {
+	// ActiveState The high-level unit activation state.
+	ActiveState SystemdActiveStateType `json:"activeState"`
+
+	// Description The human-readable description for the unit.
+	Description string `json:"description"`
+
+	// EnableState The enable state of the unit file.
+	EnableState SystemdEnableStateType `json:"enableState"`
+
+	// LoadState The load state of the unit file.
+	LoadState SystemdLoadStateType `json:"loadState"`
+
+	// SubState The low-level, unit-type-specific state.
+	SubState string `json:"subState"`
+
+	// Unit The unit name (e.g., "sshd.service").
+	Unit string `json:"unit"`
+}
+
 // TemplateVersion TemplateVersion represents a version of a template.
 type TemplateVersion struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
@@ -2048,6 +2591,57 @@ type TemplateVersionStatus struct {
 // TimeZone Time zone identifiers follow the IANA format AREA/LOCATION, where AREA represents a continent or ocean, and LOCATION specifies a particular site within that area, for example America/New_York, Europe/Paris. Only unambiguous 3-character time zones are supported ("GMT", "UTC").
 type TimeZone = string
 
+// TokenRequest OAuth2 token request
+type TokenRequest struct {
+	// ClientId OAuth2 client identifier.
+	ClientId string `form:"client_id" json:"client_id"`
+
+	// Code Authorization code for authorization_code grant.
+	Code *string `form:"code,omitempty" json:"code"`
+
+	// CodeVerifier PKCE code verifier.
+	CodeVerifier *string `form:"code_verifier,omitempty" json:"code_verifier"`
+
+	// GrantType OAuth2 grant type.
+	GrantType TokenRequestGrantType `form:"grant_type" json:"grant_type"`
+
+	// RedirectUri OAuth2 redirect URI (required for authorization_code grant if included in authorization request).
+	RedirectUri *string `form:"redirect_uri,omitempty" json:"redirect_uri"`
+
+	// RefreshToken Refresh token for refresh_token grant.
+	RefreshToken *string `form:"refresh_token,omitempty" json:"refresh_token"`
+
+	// Scope OAuth2 scope.
+	Scope *string `form:"scope,omitempty" json:"scope"`
+}
+
+// TokenRequestGrantType OAuth2 grant type.
+type TokenRequestGrantType string
+
+// TokenResponse OAuth2 token response
+type TokenResponse struct {
+	// AccessToken OAuth2 access token.
+	AccessToken *string `json:"access_token,omitempty"`
+
+	// Error OAuth2 error code.
+	Error *string `json:"error,omitempty"`
+
+	// ErrorDescription OAuth2 error description.
+	ErrorDescription *string `json:"error_description,omitempty"`
+
+	// ExpiresIn Token expiration time in seconds.
+	ExpiresIn *int `json:"expires_in,omitempty"`
+
+	// RefreshToken OAuth2 refresh token.
+	RefreshToken *string `json:"refresh_token,omitempty"`
+
+	// TokenType Token type.
+	TokenType *TokenResponseTokenType `json:"token_type,omitempty"`
+}
+
+// TokenResponseTokenType Token type.
+type TokenResponseTokenType string
+
 // UpdateSchedule Defines the schedule for automatic downloading and updates, including timing and optional timeout.
 type UpdateSchedule struct {
 	// At Cron expression format for scheduling times.
@@ -2063,16 +2657,55 @@ type UpdateSchedule struct {
 	TimeZone *TimeZone `json:"timeZone,omitempty"`
 }
 
+// UserInfoResponse OIDC UserInfo response
+type UserInfoResponse struct {
+	// Error Error code.
+	Error *string `json:"error,omitempty"`
+
+	// Name Full name.
+	Name *string `json:"name,omitempty"`
+
+	// Organizations User organizations.
+	Organizations *[]Organization `json:"organizations,omitempty"`
+
+	// PreferredUsername Preferred username.
+	PreferredUsername *string `json:"preferred_username,omitempty"`
+
+	// Sub Subject identifier.
+	Sub *string `json:"sub,omitempty"`
+}
+
 // Version defines model for Version.
 type Version struct {
 	// Version Git version of the service.
 	Version string `json:"version"`
 }
 
+// VolumeMount Mount configuration for a volume.
+type VolumeMount struct {
+	// Path Mount path in the container with support for options.
+	Path string `json:"path"`
+}
+
 // AuthValidateParams defines parameters for AuthValidate.
 type AuthValidateParams struct {
 	// Authorization The authentication token to validate.
 	Authorization *string `json:"Authorization,omitempty"`
+}
+
+// ListAuthProvidersParams defines parameters for ListAuthProviders.
+type ListAuthProvidersParams struct {
+	// Continue An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
+	Continue *string `form:"continue,omitempty" json:"continue,omitempty"`
+
+	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
+	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
+
+	// FieldSelector A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!=' (e.g., "key1=value1,key2!=value2").
+	FieldSelector *string `form:"fieldSelector,omitempty" json:"fieldSelector,omitempty"`
+
+	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
+	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // ListCertificateSigningRequestsParams defines parameters for ListCertificateSigningRequests.
@@ -2240,6 +2873,21 @@ type ListResourceSyncsParams struct {
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// AuthTokenJSONRequestBody defines body for AuthToken for application/json ContentType.
+type AuthTokenJSONRequestBody = TokenRequest
+
+// AuthTokenFormdataRequestBody defines body for AuthToken for application/x-www-form-urlencoded ContentType.
+type AuthTokenFormdataRequestBody = TokenRequest
+
+// CreateAuthProviderJSONRequestBody defines body for CreateAuthProvider for application/json ContentType.
+type CreateAuthProviderJSONRequestBody = AuthProvider
+
+// PatchAuthProviderApplicationJSONPatchPlusJSONRequestBody defines body for PatchAuthProvider for application/json-patch+json ContentType.
+type PatchAuthProviderApplicationJSONPatchPlusJSONRequestBody = PatchRequest
+
+// ReplaceAuthProviderJSONRequestBody defines body for ReplaceAuthProvider for application/json ContentType.
+type ReplaceAuthProviderJSONRequestBody = AuthProvider
+
 // CreateCertificateSigningRequestJSONRequestBody defines body for CreateCertificateSigningRequest for application/json ContentType.
 type CreateCertificateSigningRequestJSONRequestBody = CertificateSigningRequest
 
@@ -2251,6 +2899,9 @@ type ReplaceCertificateSigningRequestJSONRequestBody = CertificateSigningRequest
 
 // UpdateCertificateSigningRequestApprovalJSONRequestBody defines body for UpdateCertificateSigningRequestApproval for application/json ContentType.
 type UpdateCertificateSigningRequestApprovalJSONRequestBody = CertificateSigningRequest
+
+// ResumeDevicesJSONRequestBody defines body for ResumeDevices for application/json ContentType.
+type ResumeDevicesJSONRequestBody = DeviceResumeRequest
 
 // CreateDeviceJSONRequestBody defines body for CreateDevice for application/json ContentType.
 type CreateDeviceJSONRequestBody = Device
@@ -2591,6 +3242,58 @@ func (t *ApplicationVolume) MergeImageVolumeProviderSpec(v ImageVolumeProviderSp
 	return err
 }
 
+// AsMountVolumeProviderSpec returns the union data inside the ApplicationVolume as a MountVolumeProviderSpec
+func (t ApplicationVolume) AsMountVolumeProviderSpec() (MountVolumeProviderSpec, error) {
+	var body MountVolumeProviderSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromMountVolumeProviderSpec overwrites any union data inside the ApplicationVolume as the provided MountVolumeProviderSpec
+func (t *ApplicationVolume) FromMountVolumeProviderSpec(v MountVolumeProviderSpec) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeMountVolumeProviderSpec performs a merge with any union data inside the ApplicationVolume, using the provided MountVolumeProviderSpec
+func (t *ApplicationVolume) MergeMountVolumeProviderSpec(v MountVolumeProviderSpec) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsImageMountVolumeProviderSpec returns the union data inside the ApplicationVolume as a ImageMountVolumeProviderSpec
+func (t ApplicationVolume) AsImageMountVolumeProviderSpec() (ImageMountVolumeProviderSpec, error) {
+	var body ImageMountVolumeProviderSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromImageMountVolumeProviderSpec overwrites any union data inside the ApplicationVolume as the provided ImageMountVolumeProviderSpec
+func (t *ApplicationVolume) FromImageMountVolumeProviderSpec(v ImageMountVolumeProviderSpec) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeImageMountVolumeProviderSpec performs a merge with any union data inside the ApplicationVolume, using the provided ImageMountVolumeProviderSpec
+func (t *ApplicationVolume) MergeImageMountVolumeProviderSpec(v ImageMountVolumeProviderSpec) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
 func (t ApplicationVolume) MarshalJSON() ([]byte, error) {
 	b, err := t.union.MarshalJSON()
 	if err != nil {
@@ -2631,6 +3334,393 @@ func (t *ApplicationVolume) UnmarshalJSON(b []byte) error {
 		}
 	}
 
+	return err
+}
+
+// AsAuthStaticOrganizationAssignment returns the union data inside the AuthOrganizationAssignment as a AuthStaticOrganizationAssignment
+func (t AuthOrganizationAssignment) AsAuthStaticOrganizationAssignment() (AuthStaticOrganizationAssignment, error) {
+	var body AuthStaticOrganizationAssignment
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAuthStaticOrganizationAssignment overwrites any union data inside the AuthOrganizationAssignment as the provided AuthStaticOrganizationAssignment
+func (t *AuthOrganizationAssignment) FromAuthStaticOrganizationAssignment(v AuthStaticOrganizationAssignment) error {
+	v.Type = "static"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAuthStaticOrganizationAssignment performs a merge with any union data inside the AuthOrganizationAssignment, using the provided AuthStaticOrganizationAssignment
+func (t *AuthOrganizationAssignment) MergeAuthStaticOrganizationAssignment(v AuthStaticOrganizationAssignment) error {
+	v.Type = "static"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsAuthDynamicOrganizationAssignment returns the union data inside the AuthOrganizationAssignment as a AuthDynamicOrganizationAssignment
+func (t AuthOrganizationAssignment) AsAuthDynamicOrganizationAssignment() (AuthDynamicOrganizationAssignment, error) {
+	var body AuthDynamicOrganizationAssignment
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAuthDynamicOrganizationAssignment overwrites any union data inside the AuthOrganizationAssignment as the provided AuthDynamicOrganizationAssignment
+func (t *AuthOrganizationAssignment) FromAuthDynamicOrganizationAssignment(v AuthDynamicOrganizationAssignment) error {
+	v.Type = "dynamic"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAuthDynamicOrganizationAssignment performs a merge with any union data inside the AuthOrganizationAssignment, using the provided AuthDynamicOrganizationAssignment
+func (t *AuthOrganizationAssignment) MergeAuthDynamicOrganizationAssignment(v AuthDynamicOrganizationAssignment) error {
+	v.Type = "dynamic"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsAuthPerUserOrganizationAssignment returns the union data inside the AuthOrganizationAssignment as a AuthPerUserOrganizationAssignment
+func (t AuthOrganizationAssignment) AsAuthPerUserOrganizationAssignment() (AuthPerUserOrganizationAssignment, error) {
+	var body AuthPerUserOrganizationAssignment
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAuthPerUserOrganizationAssignment overwrites any union data inside the AuthOrganizationAssignment as the provided AuthPerUserOrganizationAssignment
+func (t *AuthOrganizationAssignment) FromAuthPerUserOrganizationAssignment(v AuthPerUserOrganizationAssignment) error {
+	v.Type = "perUser"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAuthPerUserOrganizationAssignment performs a merge with any union data inside the AuthOrganizationAssignment, using the provided AuthPerUserOrganizationAssignment
+func (t *AuthOrganizationAssignment) MergeAuthPerUserOrganizationAssignment(v AuthPerUserOrganizationAssignment) error {
+	v.Type = "perUser"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t AuthOrganizationAssignment) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"type"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t AuthOrganizationAssignment) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "dynamic":
+		return t.AsAuthDynamicOrganizationAssignment()
+	case "perUser":
+		return t.AsAuthPerUserOrganizationAssignment()
+	case "static":
+		return t.AsAuthStaticOrganizationAssignment()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t AuthOrganizationAssignment) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *AuthOrganizationAssignment) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsOIDCProviderSpec returns the union data inside the AuthProviderSpec as a OIDCProviderSpec
+func (t AuthProviderSpec) AsOIDCProviderSpec() (OIDCProviderSpec, error) {
+	var body OIDCProviderSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromOIDCProviderSpec overwrites any union data inside the AuthProviderSpec as the provided OIDCProviderSpec
+func (t *AuthProviderSpec) FromOIDCProviderSpec(v OIDCProviderSpec) error {
+	v.ProviderType = "oidc"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeOIDCProviderSpec performs a merge with any union data inside the AuthProviderSpec, using the provided OIDCProviderSpec
+func (t *AuthProviderSpec) MergeOIDCProviderSpec(v OIDCProviderSpec) error {
+	v.ProviderType = "oidc"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsOAuth2ProviderSpec returns the union data inside the AuthProviderSpec as a OAuth2ProviderSpec
+func (t AuthProviderSpec) AsOAuth2ProviderSpec() (OAuth2ProviderSpec, error) {
+	var body OAuth2ProviderSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromOAuth2ProviderSpec overwrites any union data inside the AuthProviderSpec as the provided OAuth2ProviderSpec
+func (t *AuthProviderSpec) FromOAuth2ProviderSpec(v OAuth2ProviderSpec) error {
+	v.ProviderType = "oauth2"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeOAuth2ProviderSpec performs a merge with any union data inside the AuthProviderSpec, using the provided OAuth2ProviderSpec
+func (t *AuthProviderSpec) MergeOAuth2ProviderSpec(v OAuth2ProviderSpec) error {
+	v.ProviderType = "oauth2"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsOpenShiftProviderSpec returns the union data inside the AuthProviderSpec as a OpenShiftProviderSpec
+func (t AuthProviderSpec) AsOpenShiftProviderSpec() (OpenShiftProviderSpec, error) {
+	var body OpenShiftProviderSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromOpenShiftProviderSpec overwrites any union data inside the AuthProviderSpec as the provided OpenShiftProviderSpec
+func (t *AuthProviderSpec) FromOpenShiftProviderSpec(v OpenShiftProviderSpec) error {
+	v.ProviderType = "openshift"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeOpenShiftProviderSpec performs a merge with any union data inside the AuthProviderSpec, using the provided OpenShiftProviderSpec
+func (t *AuthProviderSpec) MergeOpenShiftProviderSpec(v OpenShiftProviderSpec) error {
+	v.ProviderType = "openshift"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsAapProviderSpec returns the union data inside the AuthProviderSpec as a AapProviderSpec
+func (t AuthProviderSpec) AsAapProviderSpec() (AapProviderSpec, error) {
+	var body AapProviderSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAapProviderSpec overwrites any union data inside the AuthProviderSpec as the provided AapProviderSpec
+func (t *AuthProviderSpec) FromAapProviderSpec(v AapProviderSpec) error {
+	v.ProviderType = "aap"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAapProviderSpec performs a merge with any union data inside the AuthProviderSpec, using the provided AapProviderSpec
+func (t *AuthProviderSpec) MergeAapProviderSpec(v AapProviderSpec) error {
+	v.ProviderType = "aap"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsK8sProviderSpec returns the union data inside the AuthProviderSpec as a K8sProviderSpec
+func (t AuthProviderSpec) AsK8sProviderSpec() (K8sProviderSpec, error) {
+	var body K8sProviderSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromK8sProviderSpec overwrites any union data inside the AuthProviderSpec as the provided K8sProviderSpec
+func (t *AuthProviderSpec) FromK8sProviderSpec(v K8sProviderSpec) error {
+	v.ProviderType = "k8s"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeK8sProviderSpec performs a merge with any union data inside the AuthProviderSpec, using the provided K8sProviderSpec
+func (t *AuthProviderSpec) MergeK8sProviderSpec(v K8sProviderSpec) error {
+	v.ProviderType = "k8s"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t AuthProviderSpec) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"providerType"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t AuthProviderSpec) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "aap":
+		return t.AsAapProviderSpec()
+	case "k8s":
+		return t.AsK8sProviderSpec()
+	case "oauth2":
+		return t.AsOAuth2ProviderSpec()
+	case "oidc":
+		return t.AsOIDCProviderSpec()
+	case "openshift":
+		return t.AsOpenShiftProviderSpec()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t AuthProviderSpec) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *AuthProviderSpec) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsAuthStaticRoleAssignment returns the union data inside the AuthRoleAssignment as a AuthStaticRoleAssignment
+func (t AuthRoleAssignment) AsAuthStaticRoleAssignment() (AuthStaticRoleAssignment, error) {
+	var body AuthStaticRoleAssignment
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAuthStaticRoleAssignment overwrites any union data inside the AuthRoleAssignment as the provided AuthStaticRoleAssignment
+func (t *AuthRoleAssignment) FromAuthStaticRoleAssignment(v AuthStaticRoleAssignment) error {
+	v.Type = "static"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAuthStaticRoleAssignment performs a merge with any union data inside the AuthRoleAssignment, using the provided AuthStaticRoleAssignment
+func (t *AuthRoleAssignment) MergeAuthStaticRoleAssignment(v AuthStaticRoleAssignment) error {
+	v.Type = "static"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsAuthDynamicRoleAssignment returns the union data inside the AuthRoleAssignment as a AuthDynamicRoleAssignment
+func (t AuthRoleAssignment) AsAuthDynamicRoleAssignment() (AuthDynamicRoleAssignment, error) {
+	var body AuthDynamicRoleAssignment
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAuthDynamicRoleAssignment overwrites any union data inside the AuthRoleAssignment as the provided AuthDynamicRoleAssignment
+func (t *AuthRoleAssignment) FromAuthDynamicRoleAssignment(v AuthDynamicRoleAssignment) error {
+	v.Type = "dynamic"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAuthDynamicRoleAssignment performs a merge with any union data inside the AuthRoleAssignment, using the provided AuthDynamicRoleAssignment
+func (t *AuthRoleAssignment) MergeAuthDynamicRoleAssignment(v AuthDynamicRoleAssignment) error {
+	v.Type = "dynamic"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t AuthRoleAssignment) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"type"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t AuthRoleAssignment) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "dynamic":
+		return t.AsAuthDynamicRoleAssignment()
+	case "static":
+		return t.AsAuthStaticRoleAssignment()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t AuthRoleAssignment) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *AuthRoleAssignment) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
 	return err
 }
 
@@ -2810,6 +3900,116 @@ func (t *ConfigProviderSpec) UnmarshalJSON(b []byte) error {
 	return err
 }
 
+// AsDeviceResumeRequest0 returns the union data inside the DeviceResumeRequest as a DeviceResumeRequest0
+func (t DeviceResumeRequest) AsDeviceResumeRequest0() (DeviceResumeRequest0, error) {
+	var body DeviceResumeRequest0
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromDeviceResumeRequest0 overwrites any union data inside the DeviceResumeRequest as the provided DeviceResumeRequest0
+func (t *DeviceResumeRequest) FromDeviceResumeRequest0(v DeviceResumeRequest0) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeDeviceResumeRequest0 performs a merge with any union data inside the DeviceResumeRequest, using the provided DeviceResumeRequest0
+func (t *DeviceResumeRequest) MergeDeviceResumeRequest0(v DeviceResumeRequest0) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsDeviceResumeRequest1 returns the union data inside the DeviceResumeRequest as a DeviceResumeRequest1
+func (t DeviceResumeRequest) AsDeviceResumeRequest1() (DeviceResumeRequest1, error) {
+	var body DeviceResumeRequest1
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromDeviceResumeRequest1 overwrites any union data inside the DeviceResumeRequest as the provided DeviceResumeRequest1
+func (t *DeviceResumeRequest) FromDeviceResumeRequest1(v DeviceResumeRequest1) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeDeviceResumeRequest1 performs a merge with any union data inside the DeviceResumeRequest, using the provided DeviceResumeRequest1
+func (t *DeviceResumeRequest) MergeDeviceResumeRequest1(v DeviceResumeRequest1) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t DeviceResumeRequest) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+	object := make(map[string]json.RawMessage)
+	if t.union != nil {
+		err = json.Unmarshal(b, &object)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if t.FieldSelector != nil {
+		object["fieldSelector"], err = json.Marshal(t.FieldSelector)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'fieldSelector': %w", err)
+		}
+	}
+
+	if t.LabelSelector != nil {
+		object["labelSelector"], err = json.Marshal(t.LabelSelector)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'labelSelector': %w", err)
+		}
+	}
+	b, err = json.Marshal(object)
+	return b, err
+}
+
+func (t *DeviceResumeRequest) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	if err != nil {
+		return err
+	}
+	object := make(map[string]json.RawMessage)
+	err = json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["fieldSelector"]; found {
+		err = json.Unmarshal(raw, &t.FieldSelector)
+		if err != nil {
+			return fmt.Errorf("error reading 'fieldSelector': %w", err)
+		}
+	}
+
+	if raw, found := object["labelSelector"]; found {
+		err = json.Unmarshal(raw, &t.LabelSelector)
+		if err != nil {
+			return fmt.Errorf("error reading 'labelSelector': %w", err)
+		}
+	}
+
+	return err
+}
+
 // AsResourceUpdatedDetails returns the union data inside the EventDetails as a ResourceUpdatedDetails
 func (t EventDetails) AsResourceUpdatedDetails() (ResourceUpdatedDetails, error) {
 	var body ResourceUpdatedDetails
@@ -2940,6 +4140,34 @@ func (t *EventDetails) FromInternalTaskFailedDetails(v InternalTaskFailedDetails
 // MergeInternalTaskFailedDetails performs a merge with any union data inside the EventDetails, using the provided InternalTaskFailedDetails
 func (t *EventDetails) MergeInternalTaskFailedDetails(v InternalTaskFailedDetails) error {
 	v.DetailType = "InternalTaskFailed"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsInternalTaskPermanentlyFailedDetails returns the union data inside the EventDetails as a InternalTaskPermanentlyFailedDetails
+func (t EventDetails) AsInternalTaskPermanentlyFailedDetails() (InternalTaskPermanentlyFailedDetails, error) {
+	var body InternalTaskPermanentlyFailedDetails
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromInternalTaskPermanentlyFailedDetails overwrites any union data inside the EventDetails as the provided InternalTaskPermanentlyFailedDetails
+func (t *EventDetails) FromInternalTaskPermanentlyFailedDetails(v InternalTaskPermanentlyFailedDetails) error {
+	v.DetailType = "InternalTaskPermanentlyFailed"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeInternalTaskPermanentlyFailedDetails performs a merge with any union data inside the EventDetails, using the provided InternalTaskPermanentlyFailedDetails
+func (t *EventDetails) MergeInternalTaskPermanentlyFailedDetails(v InternalTaskPermanentlyFailedDetails) error {
+	v.DetailType = "InternalTaskPermanentlyFailed"
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -3208,6 +4436,8 @@ func (t EventDetails) ValueByDiscriminator() (interface{}, error) {
 		return t.AsFleetRolloutStartedDetails()
 	case "InternalTaskFailed":
 		return t.AsInternalTaskFailedDetails()
+	case "InternalTaskPermanentlyFailed":
+		return t.AsInternalTaskPermanentlyFailedDetails()
 	case "ReferencedRepositoryUpdated":
 		return t.AsReferencedRepositoryUpdatedDetails()
 	case "ResourceSyncCompleted":

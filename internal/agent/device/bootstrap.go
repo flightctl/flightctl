@@ -10,7 +10,6 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
 	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
-	"github.com/flightctl/flightctl/internal/agent/device/publisher"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/agent/device/systeminfo"
@@ -31,7 +30,6 @@ type Bootstrap struct {
 	executer          executer.Executer
 	deviceReadWriter  fileio.ReadWriter
 	specManager       spec.Manager
-	devicePublisher   publisher.Publisher
 	statusManager     status.Manager
 	hookManager       hook.Manager
 	systemInfoManager systeminfo.Manager
@@ -52,7 +50,6 @@ func NewBootstrap(
 	executer executer.Executer,
 	deviceReadWriter fileio.ReadWriter,
 	specManager spec.Manager,
-	devicePublisher publisher.Publisher,
 	statusManager status.Manager,
 	hookManager hook.Manager,
 	lifecycleInitializer lifecycle.Initializer,
@@ -68,7 +65,6 @@ func NewBootstrap(
 		executer:                  executer,
 		deviceReadWriter:          deviceReadWriter,
 		specManager:               specManager,
-		devicePublisher:           devicePublisher,
 		statusManager:             statusManager,
 		hookManager:               hookManager,
 		lifecycle:                 lifecycleInitializer,
@@ -184,21 +180,9 @@ func (b *Bootstrap) updateStatus(ctx context.Context) {
 }
 
 func (b *Bootstrap) ensureSpecFiles(ctx context.Context) error {
-	if b.lifecycle.IsInitialized() {
-		// it is unexpected to have a missing spec files when the device is
-		// enrolled. reset the spec files to empty if they are missing to allow
-		// us to make progress. on the next sync, the device will get the latest
-		// desired spec and continue as expected.
-		if err := b.specManager.Ensure(); err != nil {
-			return fmt.Errorf("resetting spec files: %w", err)
-		}
-	} else {
-		b.log.Info("Device is not enrolled, initializing spec files")
-		if err := b.specManager.Initialize(ctx); err != nil {
-			return fmt.Errorf("initializing spec files: %w", err)
-		}
+	if err := b.specManager.Ensure(); err != nil {
+		return fmt.Errorf("ensuring spec files: %w", err)
 	}
-
 	return nil
 }
 
@@ -291,6 +275,11 @@ func (b *Bootstrap) setManagementClient() error {
 
 	// initialize the management client for spec and status managers
 	b.statusManager.SetClient(b.managementClient)
-	b.devicePublisher.SetClient(b.managementClient)
+	b.specManager.SetClient(b.managementClient)
 	return nil
+}
+
+// ManagementClient returns the management client for use by other components.
+func (b *Bootstrap) ManagementClient() client.Management {
+	return b.managementClient
 }

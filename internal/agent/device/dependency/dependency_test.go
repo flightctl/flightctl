@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -227,11 +228,11 @@ func TestEnsureScheduled(t *testing.T) {
 			podman := client.NewPodman(log, mockExec, rw, poll.Config{})
 
 			timeout := util.Duration(5 * time.Second)
-			manager := NewPrefetchManager(log, podman, rw, timeout)
+			manager := NewPrefetchManager(log, podman, client.NewSkopeo(log, mockExec, rw), rw, timeout)
 
 			// register a collector that returns the test targets
-			manager.RegisterOCICollector(newTestOCICollector(func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error) {
-				return tt.targets, nil
+			manager.RegisterOCICollector(newTestOCICollector(func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) (*OCICollection, error) {
+				return &OCICollection{Targets: tt.targets}, nil
 			}))
 
 			ctx, cancel := context.WithCancel(context.Background())
@@ -307,7 +308,7 @@ func TestIsReady(t *testing.T) {
 			podman := client.NewPodman(log, mockExec, rw, poll.Config{})
 
 			timeout := util.Duration(5 * time.Second)
-			manager := NewPrefetchManager(log, podman, rw, timeout)
+			manager := NewPrefetchManager(log, podman, client.NewSkopeo(log, mockExec, rw), rw, timeout)
 
 			for _, image := range tt.scheduledImages {
 				state := tt.imageStates[image]
@@ -320,7 +321,12 @@ func TestIsReady(t *testing.T) {
 				manager.mu.Unlock()
 			}
 
-			ready := manager.isTargetReady(tt.imageToCheck)
+			// Check if target is ready
+			manager.mu.Lock()
+			task, ok := manager.tasks[tt.imageToCheck]
+			ready := ok && task.err == nil && task.done
+			manager.mu.Unlock()
+
 			require.Equal(tt.expectedReady, ready)
 
 			manager.Cleanup()
@@ -349,7 +355,7 @@ func TestStatus(t *testing.T) {
 	podman := client.NewPodman(log, mockExec, rw, poll.Config{})
 
 	timeout := util.Duration(5 * time.Second)
-	manager := NewPrefetchManager(log, podman, rw, timeout)
+	manager := NewPrefetchManager(log, podman, client.NewSkopeo(log, mockExec, rw), rw, timeout)
 
 	targets := []OCIPullTarget{
 		{
@@ -364,8 +370,8 @@ func TestStatus(t *testing.T) {
 		},
 	}
 
-	manager.RegisterOCICollector(newTestOCICollector(func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error) {
-		return targets, nil
+	manager.RegisterOCICollector(newTestOCICollector(func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) (*OCICollection, error) {
+		return &OCICollection{Targets: targets}, nil
 	}))
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -387,7 +393,7 @@ func TestStatus(t *testing.T) {
 func TestBeforeUpdate(t *testing.T) {
 	tests := []struct {
 		name       string
-		collectors []func() ([]OCIPullTarget, error)
+		collectors []func() (*OCICollection, error)
 		setupMocks func(*executer.MockExecuter)
 		wantErr    error
 	}{
@@ -399,9 +405,9 @@ func TestBeforeUpdate(t *testing.T) {
 		},
 		{
 			name: "empty device specs with registered collectors",
-			collectors: []func() ([]OCIPullTarget, error){
-				func() ([]OCIPullTarget, error) {
-					return []OCIPullTarget{}, nil
+			collectors: []func() (*OCICollection, error){
+				func() (*OCICollection, error) {
+					return &OCICollection{Targets: []OCIPullTarget{}}, nil
 				},
 			},
 			setupMocks: func(mockExec *executer.MockExecuter) {
@@ -410,9 +416,9 @@ func TestBeforeUpdate(t *testing.T) {
 		},
 		{
 			name: "single collector with missing images",
-			collectors: []func() ([]OCIPullTarget, error){
-				func() ([]OCIPullTarget, error) {
-					return []OCIPullTarget{
+			collectors: []func() (*OCICollection, error){
+				func() (*OCICollection, error) {
+					return &OCICollection{Targets: []OCIPullTarget{
 						{
 							Type:       OCITypeImage,
 							Reference:  testImageV1,
@@ -423,7 +429,7 @@ func TestBeforeUpdate(t *testing.T) {
 							Reference:  testImageV2,
 							PullPolicy: v1alpha1.PullIfNotPresent,
 						},
-					}, nil
+					}}, nil
 				},
 			},
 			setupMocks: func(mockExec *executer.MockExecuter) {
@@ -438,9 +444,9 @@ func TestBeforeUpdate(t *testing.T) {
 		},
 		{
 			name: "single collector with all images present",
-			collectors: []func() ([]OCIPullTarget, error){
-				func() ([]OCIPullTarget, error) {
-					return []OCIPullTarget{
+			collectors: []func() (*OCICollection, error){
+				func() (*OCICollection, error) {
+					return &OCICollection{Targets: []OCIPullTarget{
 						{
 							Type:       OCITypeImage,
 							Reference:  testImageV1,
@@ -451,7 +457,7 @@ func TestBeforeUpdate(t *testing.T) {
 							Reference:  testImageV2,
 							PullPolicy: v1alpha1.PullIfNotPresent,
 						},
-					}, nil
+					}}, nil
 				},
 			},
 			setupMocks: func(mockExec *executer.MockExecuter) {
@@ -465,9 +471,9 @@ func TestBeforeUpdate(t *testing.T) {
 		},
 		{
 			name: "single collector with mixed image availability",
-			collectors: []func() ([]OCIPullTarget, error){
-				func() ([]OCIPullTarget, error) {
-					return []OCIPullTarget{
+			collectors: []func() (*OCICollection, error){
+				func() (*OCICollection, error) {
+					return &OCICollection{Targets: []OCIPullTarget{
 						{
 							Type:       OCITypeImage,
 							Reference:  testImageV1,
@@ -478,7 +484,7 @@ func TestBeforeUpdate(t *testing.T) {
 							Reference:  testImageV2,
 							PullPolicy: v1alpha1.PullIfNotPresent,
 						},
-					}, nil
+					}}, nil
 				},
 			},
 			setupMocks: func(mockExec *executer.MockExecuter) {
@@ -493,10 +499,10 @@ func TestBeforeUpdate(t *testing.T) {
 		},
 		{
 			name: "multiple collectors with different image sets",
-			collectors: []func() ([]OCIPullTarget, error){
+			collectors: []func() (*OCICollection, error){
 				// app collector
-				func() ([]OCIPullTarget, error) {
-					return []OCIPullTarget{
+				func() (*OCICollection, error) {
+					return &OCICollection{Targets: []OCIPullTarget{
 						{
 							Type:       OCITypeImage,
 							Reference:  testImageV1,
@@ -507,17 +513,17 @@ func TestBeforeUpdate(t *testing.T) {
 							Reference:  testImageV2,
 							PullPolicy: v1alpha1.PullIfNotPresent,
 						},
-					}, nil
+					}}, nil
 				},
 				// os collector
-				func() ([]OCIPullTarget, error) {
-					return []OCIPullTarget{
+				func() (*OCICollection, error) {
+					return &OCICollection{Targets: []OCIPullTarget{
 						{
 							Type:       OCITypeImage,
 							Reference:  testOSImage,
 							PullPolicy: v1alpha1.PullIfNotPresent,
 						},
-					}, nil
+					}}, nil
 				},
 			},
 			setupMocks: func(mockExec *executer.MockExecuter) {
@@ -534,8 +540,8 @@ func TestBeforeUpdate(t *testing.T) {
 		},
 		{
 			name: "collector returns error",
-			collectors: []func() ([]OCIPullTarget, error){
-				func() ([]OCIPullTarget, error) {
+			collectors: []func() (*OCICollection, error){
+				func() (*OCICollection, error) {
 					return nil, fmt.Errorf("failed to collect OCI targets")
 				},
 			},
@@ -546,15 +552,15 @@ func TestBeforeUpdate(t *testing.T) {
 		},
 		{
 			name: "artifact target with missing image",
-			collectors: []func() ([]OCIPullTarget, error){
-				func() ([]OCIPullTarget, error) {
-					return []OCIPullTarget{
+			collectors: []func() (*OCICollection, error){
+				func() (*OCICollection, error) {
+					return &OCICollection{Targets: []OCIPullTarget{
 						{
 							Type:       OCITypeArtifact,
 							Reference:  "quay.io/test/artifact:latest",
 							PullPolicy: v1alpha1.PullIfNotPresent,
 						},
-					}, nil
+					}}, nil
 				},
 			},
 			setupMocks: func(mockExec *executer.MockExecuter) {
@@ -566,15 +572,15 @@ func TestBeforeUpdate(t *testing.T) {
 		},
 		{
 			name: "artifact target with existing artifact",
-			collectors: []func() ([]OCIPullTarget, error){
-				func() ([]OCIPullTarget, error) {
-					return []OCIPullTarget{
+			collectors: []func() (*OCICollection, error){
+				func() (*OCICollection, error) {
+					return &OCICollection{Targets: []OCIPullTarget{
 						{
 							Type:       OCITypeArtifact,
 							Reference:  "quay.io/test/existing-artifact:latest",
 							PullPolicy: v1alpha1.PullIfNotPresent,
 						},
-					}, nil
+					}}, nil
 				},
 			},
 			setupMocks: func(mockExec *executer.MockExecuter) {
@@ -585,9 +591,9 @@ func TestBeforeUpdate(t *testing.T) {
 		},
 		{
 			name: "mixed image and artifact targets with some missing",
-			collectors: []func() ([]OCIPullTarget, error){
-				func() ([]OCIPullTarget, error) {
-					return []OCIPullTarget{
+			collectors: []func() (*OCICollection, error){
+				func() (*OCICollection, error) {
+					return &OCICollection{Targets: []OCIPullTarget{
 						{
 							Type:       OCITypeImage,
 							Reference:  "quay.io/test/existing-image:latest",
@@ -598,7 +604,7 @@ func TestBeforeUpdate(t *testing.T) {
 							Reference:  "quay.io/test/missing-artifact:latest",
 							PullPolicy: v1alpha1.PullIfNotPresent,
 						},
-					}, nil
+					}}, nil
 				},
 			},
 			setupMocks: func(mockExec *executer.MockExecuter) {
@@ -613,9 +619,9 @@ func TestBeforeUpdate(t *testing.T) {
 		},
 		{
 			name: "mixed image and artifact targets all existing",
-			collectors: []func() ([]OCIPullTarget, error){
-				func() ([]OCIPullTarget, error) {
-					return []OCIPullTarget{
+			collectors: []func() (*OCICollection, error){
+				func() (*OCICollection, error) {
+					return &OCICollection{Targets: []OCIPullTarget{
 						{
 							Type:       OCITypeImage,
 							Reference:  "quay.io/test/existing-image:latest",
@@ -626,7 +632,7 @@ func TestBeforeUpdate(t *testing.T) {
 							Reference:  "quay.io/test/existing-artifact:latest",
 							PullPolicy: v1alpha1.PullIfNotPresent,
 						},
-					}, nil
+					}}, nil
 				},
 			},
 			setupMocks: func(mockExec *executer.MockExecuter) {
@@ -640,15 +646,15 @@ func TestBeforeUpdate(t *testing.T) {
 		},
 		{
 			name: "pull always policy with existing artifact",
-			collectors: []func() ([]OCIPullTarget, error){
-				func() ([]OCIPullTarget, error) {
-					return []OCIPullTarget{
+			collectors: []func() (*OCICollection, error){
+				func() (*OCICollection, error) {
+					return &OCICollection{Targets: []OCIPullTarget{
 						{
 							Type:       OCITypeArtifact,
 							Reference:  "quay.io/test/always-artifact:latest",
 							PullPolicy: v1alpha1.PullAlways,
 						},
-					}, nil
+					}}, nil
 				},
 			},
 			setupMocks: func(mockExec *executer.MockExecuter) {
@@ -659,15 +665,15 @@ func TestBeforeUpdate(t *testing.T) {
 		},
 		{
 			name: "pull always policy with existing image",
-			collectors: []func() ([]OCIPullTarget, error){
-				func() ([]OCIPullTarget, error) {
-					return []OCIPullTarget{
+			collectors: []func() (*OCICollection, error){
+				func() (*OCICollection, error) {
+					return &OCICollection{Targets: []OCIPullTarget{
 						{
 							Type:       OCITypeImage,
 							Reference:  testImageV1,
 							PullPolicy: v1alpha1.PullAlways,
 						},
-					}, nil
+					}}, nil
 				},
 			},
 			setupMocks: func(mockExec *executer.MockExecuter) {
@@ -695,11 +701,11 @@ func TestBeforeUpdate(t *testing.T) {
 			podman := client.NewPodman(log, mockExec, rw, poll.Config{})
 
 			timeout := util.Duration(5 * time.Second)
-			manager := NewPrefetchManager(log, podman, rw, timeout)
+			manager := NewPrefetchManager(log, podman, client.NewSkopeo(log, mockExec, rw), rw, timeout)
 
 			// Register collectors
 			for _, collector := range tt.collectors {
-				manager.RegisterOCICollector(newTestOCICollector(func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error) {
+				manager.RegisterOCICollector(newTestOCICollector(func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) (*OCICollection, error) {
 					return collector()
 				}))
 			}
@@ -813,7 +819,7 @@ func TestPullSecretCleanup(t *testing.T) {
 	rw := fileio.NewReadWriter()
 	podman := client.NewPodman(log, mockExec, rw, poll.Config{})
 	timeout := util.Duration(5 * time.Second)
-	manager := NewPrefetchManager(log, podman, rw, timeout)
+	manager := NewPrefetchManager(log, podman, client.NewSkopeo(log, mockExec, rw), rw, timeout)
 
 	// simulate the complete lifecycle of pull secret cleanup
 	var cleanupCalls []string
@@ -827,15 +833,15 @@ func TestPullSecretCleanup(t *testing.T) {
 	}
 
 	// simulate a collector that would be called by applications manager
-	appCollector := func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error) {
-		return []OCIPullTarget{
+	appCollector := func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) (*OCICollection, error) {
+		return &OCICollection{Targets: []OCIPullTarget{
 			{
 				Type:       OCITypeImage,
 				Reference:  "registry.example.com/app:latest",
 				PullPolicy: v1alpha1.PullIfNotPresent,
 				PullSecret: appPullSecret,
 			},
-		}, nil
+		}}, nil
 	}
 
 	// register the collector
@@ -880,14 +886,14 @@ type taskState struct {
 
 // testOCICollector is a test helper that implements OCICollector interface
 type testOCICollector struct {
-	collectFn func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error)
+	collectFn func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) (*OCICollection, error)
 }
 
-func (t *testOCICollector) CollectOCITargets(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error) {
+func (t *testOCICollector) CollectOCITargets(ctx context.Context, current, desired *v1alpha1.DeviceSpec) (*OCICollection, error) {
 	return t.collectFn(ctx, current, desired)
 }
 
-func newTestOCICollector(fn func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error)) OCICollector {
+func newTestOCICollector(fn func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) (*OCICollection, error)) OCICollector {
 	return &testOCICollector{collectFn: fn}
 }
 
@@ -1085,6 +1091,400 @@ func TestCleanupPartialLayers(t *testing.T) {
 				dirPath := filepath.Join(tmpDir, dir)
 				_, err := os.Stat(dirPath)
 				require.True(os.IsNotExist(err), "expected directory %s to be removed", dir)
+			}
+		})
+	}
+}
+
+func TestSetResultAfterCleanup(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	logger := log.NewPrefixLogger("test")
+	logger.SetLevel(logrus.DebugLevel)
+
+	mockExec := executer.NewMockExecuter(ctrl)
+	readWriter := fileio.NewReadWriter()
+	podmanClient := client.NewPodman(logger, mockExec, readWriter, poll.Config{})
+	skopeoClient := client.NewSkopeo(logger, mockExec, readWriter)
+	pullTimeout := util.Duration(5 * time.Minute)
+
+	pm := NewPrefetchManager(logger, podmanClient, skopeoClient, readWriter, pullTimeout)
+
+	testImage := "quay.io/test/image:latest"
+	pm.tasks[testImage] = &prefetchTask{
+		ociType: OCITypeImage,
+		done:    false,
+	}
+
+	pm.Cleanup()
+
+	require.Empty(pm.tasks)
+	pm.setResult(testImage, nil)
+	// ensure still empty
+	require.Empty(pm.tasks)
+	pm.setResult(testImage, fmt.Errorf("test error"))
+	// ensure still empty
+	require.Empty(pm.tasks)
+}
+
+func TestSelectiveCleanup(t *testing.T) {
+	logger := log.NewPrefixLogger("test")
+	pullTimeout := util.Duration(5 * time.Minute)
+
+	manager := &prefetchManager{
+		log:         logger,
+		pullTimeout: time.Duration(pullTimeout),
+		tasks:       make(map[string]*prefetchTask),
+		queue:       make(chan string, maxQueueSize),
+	}
+
+	initialImages := []string{
+		"registry.example.com/app:v1",
+		"registry.example.com/sidecar:v1",
+		"registry.example.com/database:v1",
+	}
+	for _, ref := range initialImages {
+		manager.tasks[ref] = &prefetchTask{
+			done:     false,
+			cancelFn: func() {},
+		}
+	}
+
+	newTargets := []OCIPullTarget{
+		{Type: OCITypeImage, Reference: "registry.example.com/app:v1"},
+		{Type: OCITypeImage, Reference: "registry.example.com/sidecar:v1"},
+		{Type: OCITypeImage, Reference: "registry.example.com/cache:v1"},
+	}
+
+	newRefs := make(map[string]struct{}, len(newTargets))
+	for _, target := range newTargets {
+		newRefs[target.Reference] = struct{}{}
+	}
+
+	manager.mu.Lock()
+	manager.cleanupStaleTasks(newRefs)
+	manager.mu.Unlock()
+
+	// app and sidecar tasks should still exist
+	_, appExists := manager.tasks["registry.example.com/app:v1"]
+	require.True(t, appExists, "app:v1 task should be preserved")
+
+	_, sidecarExists := manager.tasks["registry.example.com/sidecar:v1"]
+	require.True(t, sidecarExists, "sidecar:v1 task should be preserved")
+
+	// database should be removed
+	_, databaseExists := manager.tasks["registry.example.com/database:v1"]
+	require.False(t, databaseExists, "database:v1 task should be removed")
+
+	// cache task should NOT exist yet
+	_, cacheExists := manager.tasks["registry.example.com/cache:v1"]
+	require.False(t, cacheExists, "cache:v1 task should not exist (not scheduled)")
+
+	require.Equal(t, 2, len(manager.tasks), "should have exactly 2 tasks remaining")
+}
+
+func TestTargetChangeCleanup(t *testing.T) {
+	require := require.New(t)
+
+	testCases := []struct {
+		name           string
+		initialTargets []string
+		newTargets     []string
+		expectCleanup  bool
+	}{
+		{
+			name:           "different images triggers cleanup",
+			initialTargets: []string{"registry.example.com/app:v1"},
+			newTargets:     []string{"registry.example.com/app:v2"},
+			expectCleanup:  true,
+		},
+		{
+			name:           "same images does not trigger cleanup",
+			initialTargets: []string{"registry.example.com/app:v1"},
+			newTargets:     []string{"registry.example.com/app:v1"},
+			expectCleanup:  false,
+		},
+		{
+			name:           "first call with no previous targets triggers change detection",
+			initialTargets: nil,
+			newTargets:     []string{"registry.example.com/app:v1"},
+			expectCleanup:  true, // targets changed but selective cleanup won't remove anything
+		},
+		{
+			name:           "adding image triggers cleanup",
+			initialTargets: []string{"registry.example.com/app:v1"},
+			newTargets:     []string{"registry.example.com/app:v1", "registry.example.com/sidecar:v1"},
+			expectCleanup:  true,
+		},
+		{
+			name:           "removing image triggers cleanup",
+			initialTargets: []string{"registry.example.com/app:v1", "registry.example.com/sidecar:v1"},
+			newTargets:     []string{"registry.example.com/app:v1"},
+			expectCleanup:  true,
+		},
+		{
+			name:           "version bump with same images does not cleanup",
+			initialTargets: []string{"registry.example.com/app:stable"},
+			newTargets:     []string{"registry.example.com/app:stable"},
+			expectCleanup:  false,
+		},
+	}
+
+	for _, tt := range testCases {
+		t.Run(tt.name, func(t *testing.T) {
+			logger := log.NewPrefixLogger("test")
+			pullTimeout := util.Duration(5 * time.Minute)
+
+			manager := &prefetchManager{
+				log:         logger,
+				pullTimeout: time.Duration(pullTimeout),
+				tasks:       make(map[string]*prefetchTask),
+				queue:       make(chan string, maxQueueSize),
+			}
+
+			if len(tt.initialTargets) > 0 {
+				for _, ref := range tt.initialTargets {
+					manager.tasks[ref] = &prefetchTask{done: false}
+				}
+			}
+
+			initialTaskCount := len(manager.tasks)
+
+			newTargets := make([]OCIPullTarget, len(tt.newTargets))
+			for i, ref := range tt.newTargets {
+				newTargets[i] = OCIPullTarget{
+					Type:       OCITypeImage,
+					Reference:  ref,
+					PullPolicy: v1alpha1.PullIfNotPresent,
+				}
+			}
+
+			newRefs := make(map[string]struct{}, len(newTargets))
+			for _, target := range newTargets {
+				newRefs[target.Reference] = struct{}{}
+			}
+
+			manager.mu.Lock()
+			targetsChanged := manager.isTargetsChanged(newRefs)
+			manager.mu.Unlock()
+
+			require.Equal(tt.expectCleanup, targetsChanged,
+				"target change detection should match expectation")
+
+			// simulate selective cleanup if targets changed
+			if targetsChanged {
+				manager.mu.Lock()
+				manager.cleanupStaleTasks(newRefs)
+				manager.mu.Unlock()
+
+				// ensure only stale tasks were removed
+				for _, ref := range tt.newTargets {
+					if slices.Contains(tt.initialTargets, ref) {
+						_, exists := manager.tasks[ref]
+						require.True(exists, "existing task for %s should be preserved", ref)
+					}
+				}
+
+				// tasks for removed targets should be gone
+				for _, ref := range tt.initialTargets {
+					if !slices.Contains(tt.newTargets, ref) {
+						_, exists := manager.tasks[ref]
+						require.False(exists, "stale task for %s should be removed", ref)
+					}
+				}
+			} else {
+				require.Equal(initialTaskCount, len(manager.tasks),
+					"tasks should not be cleared when targets don't change")
+			}
+		})
+	}
+}
+
+func BenchmarkPrefetchTargetChange(b *testing.B) {
+	benchmarks := []struct {
+		name         string
+		initialCount int
+		newCount     int
+		overlap      int
+	}{
+		{"small_partial_change", 5, 5, 3},
+		{"medium_partial_change", 20, 20, 10},
+		{"large_partial_change", 100, 100, 50},
+	}
+
+	for _, bm := range benchmarks {
+		b.Run(bm.name, func(b *testing.B) {
+			logger := log.NewPrefixLogger("bench")
+			for i := 0; i < b.N; i++ {
+				b.StopTimer()
+				manager := &prefetchManager{
+					log:         logger,
+					pullTimeout: 5 * time.Minute,
+					tasks:       make(map[string]*prefetchTask),
+					queue:       make(chan string, maxQueueSize),
+				}
+
+				for j := 0; j < bm.initialCount; j++ {
+					ref := fmt.Sprintf("registry.example.com/image-%d:v1", j)
+					manager.tasks[ref] = &prefetchTask{
+						done:     false,
+						cancelFn: func() {},
+					}
+				}
+
+				// new targets
+				allTargets := make([]OCIPullTarget, bm.newCount)
+				for j := 0; j < bm.newCount; j++ {
+					var ref string
+					if j < bm.overlap {
+						ref = fmt.Sprintf("registry.example.com/image-%d:v1", j)
+					} else {
+						ref = fmt.Sprintf("registry.example.com/new-image-%d:v1", j)
+					}
+					allTargets[j] = OCIPullTarget{
+						Type:      OCITypeImage,
+						Reference: ref,
+					}
+				}
+
+				b.StartTimer()
+				manager.mu.Lock()
+				newRefs := make(map[string]struct{}, len(allTargets))
+				for _, target := range allTargets {
+					newRefs[target.Reference] = struct{}{}
+				}
+				if manager.isTargetsChanged(newRefs) {
+					manager.cleanupStaleTasks(newRefs)
+				}
+				manager.mu.Unlock()
+			}
+		})
+	}
+}
+
+func TestDetectOCIType(t *testing.T) {
+	tests := []struct {
+		name         string
+		manifest     *client.OCIManifest
+		expectedType OCIType
+		expectedErr  bool
+	}{
+		{
+			name:         "nil manifest returns error",
+			manifest:     nil,
+			expectedType: "",
+			expectedErr:  true,
+		},
+		{
+			name: "standard OCI image",
+			manifest: &client.OCIManifest{
+				MediaType: "application/vnd.oci.image.manifest.v1+json",
+				Config: &client.OCIDescriptor{
+					MediaType: "application/vnd.oci.image.config.v1+json",
+					Digest:    "sha256:abc123",
+					Size:      677,
+				},
+			},
+			expectedType: OCITypeImage,
+			expectedErr:  false,
+		},
+		{
+			name: "OCI artifact with artifactType field",
+			manifest: &client.OCIManifest{
+				MediaType:    "application/vnd.oci.image.manifest.v1+json",
+				ArtifactType: "application/vnd.example.artifact",
+				Config: &client.OCIDescriptor{
+					MediaType: "application/vnd.oci.empty.v1+json",
+					Digest:    "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+					Size:      2,
+				},
+			},
+			expectedType: OCITypeArtifact,
+			expectedErr:  false,
+		},
+		{
+			name: "OCI artifact with empty config",
+			manifest: &client.OCIManifest{
+				MediaType: "application/vnd.oci.image.manifest.v1+json",
+				Config: &client.OCIDescriptor{
+					MediaType: "application/vnd.oci.empty.v1+json",
+					Digest:    "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+					Size:      2,
+				},
+			},
+			expectedType: OCITypeArtifact,
+			expectedErr:  false,
+		},
+		{
+			name: "OCI artifact with custom config media type",
+			manifest: &client.OCIManifest{
+				MediaType: "application/vnd.oci.image.manifest.v1+json",
+				Config: &client.OCIDescriptor{
+					MediaType: "application/vnd.example.config",
+					Digest:    "sha256:xyz789",
+					Size:      100,
+				},
+			},
+			expectedType: OCITypeArtifact,
+			expectedErr:  false,
+		},
+		{
+			name: "manifest index (multi-platform image)",
+			manifest: &client.OCIManifest{
+				MediaType: "application/vnd.oci.image.index.v1+json",
+				Manifests: []byte(`[{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":"sha256:aaa111","size":2567}]`),
+			},
+			expectedType: OCITypeImage,
+			expectedErr:  false,
+		},
+		{
+			name: "ML model artifact (from research)",
+			manifest: &client.OCIManifest{
+				MediaType:    "application/vnd.oci.image.manifest.v1+json",
+				ArtifactType: "application/vnd.oci.image.index.v1+json",
+				Config: &client.OCIDescriptor{
+					MediaType: "application/vnd.oci.empty.v1+json",
+					Digest:    "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+					Size:      2,
+				},
+			},
+			expectedType: OCITypeArtifact,
+			expectedErr:  false,
+		},
+		{
+			name: "text artifact (from research)",
+			manifest: &client.OCIManifest{
+				MediaType: "application/vnd.oci.image.manifest.v1+json",
+				Config: &client.OCIDescriptor{
+					MediaType: "application/vnd.oci.empty.v1+json",
+					Digest:    "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+					Size:      2,
+				},
+			},
+			expectedType: OCITypeArtifact,
+			expectedErr:  false,
+		},
+		{
+			name: "manifest without config defaults to image",
+			manifest: &client.OCIManifest{
+				MediaType: "application/vnd.oci.image.manifest.v1+json",
+			},
+			expectedType: OCITypeImage,
+			expectedErr:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := detectOCIType(tt.manifest)
+
+			if tt.expectedErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tt.expectedType, result)
 			}
 		})
 	}

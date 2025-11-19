@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math/rand"
 	"strings"
 	"time"
 
@@ -18,8 +19,11 @@ import (
 )
 
 func CreateTestOrganization(ctx context.Context, storeInst store.Store, orgId uuid.UUID) error {
+	externalID := fmt.Sprintf("external-id-%s", orgId.String())
 	org := &model.Organization{
-		ID: orgId,
+		ID:          orgId,
+		ExternalID:  externalID,
+		DisplayName: "Test Organization",
 	}
 	_, err := storeInst.Organization().Create(ctx, org)
 	if err != nil {
@@ -90,8 +94,8 @@ func ReturnTestDevice(orgId uuid.UUID, name string, owner *string, tv *string, l
 
 func CreateTestDevice(ctx context.Context, deviceStore store.Device, orgId uuid.UUID, name string, owner *string, tv *string, labels *map[string]string) {
 	resource := ReturnTestDevice(orgId, name, owner, tv, labels)
-	callback := store.DeviceStoreCallback(func(context.Context, uuid.UUID, *api.Device, *api.Device) {})
-	_, _, err := deviceStore.CreateOrUpdate(ctx, orgId, &resource, nil, false, nil, callback, nil)
+	callback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
+	_, err := deviceStore.Create(ctx, orgId, &resource, callback)
 	if err != nil {
 		log.Fatalf("creating device: %v", err)
 	}
@@ -126,8 +130,8 @@ func CreateTestFleet(ctx context.Context, fleetStore store.Fleet, orgId uuid.UUI
 	if selector != nil {
 		resource.Spec.Selector = &api.LabelSelector{MatchLabels: selector}
 	}
-	callback := store.FleetStoreCallback(func(context.Context, uuid.UUID, *api.Fleet, *api.Fleet) {})
-	_, err := fleetStore.Create(ctx, orgId, &resource, callback, nil)
+	callback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
+	_, err := fleetStore.Create(ctx, orgId, &resource, callback)
 	if err != nil {
 		log.Fatalf("creating fleet: %v", err)
 	}
@@ -159,9 +163,8 @@ func CreateTestTemplateVersion(ctx context.Context, tvStore store.TemplateVersio
 		resource.Status = status
 	}
 
-	callback := store.TemplateVersionStoreCallback(func(context.Context, uuid.UUID, *api.TemplateVersion, *api.TemplateVersion) {})
-	eventCallback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
-	_, err := tvStore.Create(ctx, orgId, &resource, callback, eventCallback)
+	callback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
+	_, err := tvStore.Create(ctx, orgId, &resource, callback)
 
 	return err
 }
@@ -195,7 +198,7 @@ func CreateRepositories(ctx context.Context, numRepositories int, storeInst stor
 		}
 
 		callback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
-		_, err = storeInst.Repository().Create(ctx, orgId, &resource, nil, callback)
+		_, err = storeInst.Repository().Create(ctx, orgId, &resource, callback)
 		if err != nil {
 			return err
 		}
@@ -257,9 +260,11 @@ func NewBackoff() wait.Backoff {
 
 func NewPollConfig() poll.Config {
 	return poll.Config{
-		BaseDelay: 1 * time.Millisecond,
-		Factor:    1.0,
-		MaxDelay:  1 * time.Millisecond,
+		BaseDelay:    1 * time.Millisecond,
+		Factor:       1.0,
+		MaxDelay:     1 * time.Millisecond,
+		JitterFactor: 0.1,
+		Rand:         rand.New(rand.NewSource(time.Now().UnixNano())), //nolint:gosec
 	}
 }
 
@@ -281,4 +286,253 @@ services:
 	}
 
 	return sb.String()
+}
+
+// ReturnTestAuthProvider creates a test auth provider with the given parameters
+func ReturnTestAuthProvider(orgId uuid.UUID, name string, issuer string, labels *map[string]string) api.AuthProvider {
+	if issuer == "" {
+		issuer = "https://accounts.google.com"
+	}
+
+	// Create organization assignment
+	assignment := api.AuthOrganizationAssignment{}
+	staticAssignment := api.AuthStaticOrganizationAssignment{
+		Type:             api.AuthStaticOrganizationAssignmentTypeStatic,
+		OrganizationName: "test-org",
+	}
+	if err := assignment.FromAuthStaticOrganizationAssignment(staticAssignment); err != nil {
+		panic(fmt.Sprintf("failed to create organization assignment: %v", err))
+	}
+
+	// Create role assignment
+	roleAssignment := api.AuthRoleAssignment{}
+	staticRoleAssignment := api.AuthStaticRoleAssignment{
+		Type:  api.AuthStaticRoleAssignmentTypeStatic,
+		Roles: []string{"viewer"},
+	}
+	if err := roleAssignment.FromAuthStaticRoleAssignment(staticRoleAssignment); err != nil {
+		panic(fmt.Sprintf("failed to create role assignment: %v", err))
+	}
+
+	// Create OIDC provider spec
+	oidcSpec := api.OIDCProviderSpec{
+		ProviderType:           api.Oidc,
+		Issuer:                 issuer,
+		ClientId:               fmt.Sprintf("test-client-id-%s", name),
+		ClientSecret:           lo.ToPtr("test-client-secret"),
+		Scopes:                 lo.ToPtr([]string{"openid", "profile", "email"}),
+		Enabled:                lo.ToPtr(true),
+		UsernameClaim:          lo.ToPtr([]string{"preferred_username"}),
+		RoleAssignment:         roleAssignment,
+		OrganizationAssignment: assignment,
+	}
+
+	// Create AuthProvider with OIDC spec
+	authProvider := api.AuthProvider{
+		Metadata: api.ObjectMeta{
+			Name:   lo.ToPtr(name),
+			Labels: labels,
+		},
+	}
+	if err := authProvider.Spec.FromOIDCProviderSpec(oidcSpec); err != nil {
+		panic(fmt.Sprintf("failed to create auth provider spec: %v", err))
+	}
+
+	return authProvider
+}
+
+// CreateTestAuthProvider creates a test auth provider in the store
+func CreateTestAuthProvider(ctx context.Context, authStore store.AuthProvider, orgId uuid.UUID, name string, issuer string, labels *map[string]string) {
+	resource := ReturnTestAuthProvider(orgId, name, issuer, labels)
+	callback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
+	_, err := authStore.Create(ctx, orgId, &resource, callback)
+	if err != nil {
+		log.Fatalf("creating auth provider: %v", err)
+	}
+}
+
+// CreateTestAuthProviders creates multiple test auth providers
+func CreateTestAuthProviders(ctx context.Context, numProviders int, authStore store.AuthProvider, orgId uuid.UUID, sameVals bool) {
+	CreateTestAuthProvidersWithOffset(ctx, numProviders, authStore, orgId, sameVals, 0)
+}
+
+// CreateTestAuthProvidersWithOffset creates multiple test OIDC providers with an offset
+func CreateTestAuthProvidersWithOffset(ctx context.Context, numProviders int, authStore store.AuthProvider, orgId uuid.UUID, sameVals bool, offset int) {
+	issuers := []string{
+		"https://accounts.google.com",
+		"https://login.microsoftonline.com",
+		"https://auth0.com",
+		"https://keycloak.example.com",
+		"https://okta.com",
+	}
+
+	for i := 1; i <= numProviders; i++ {
+		num := i + offset
+		labels := map[string]string{
+			"key":      fmt.Sprintf("value-%d", num),
+			"otherkey": "othervalue",
+			"version":  fmt.Sprintf("%d", num),
+			"type":     "oidc",
+		}
+		if sameVals {
+			labels["key"] = "value"
+			labels["version"] = "1"
+		}
+
+		issuer := issuers[(num-1)%len(issuers)]
+		CreateTestAuthProvider(ctx, authStore, orgId, fmt.Sprintf("myoidcprovider-%d", num), issuer, &labels)
+	}
+}
+
+// CreateTestAuthProviderWithStaticOrg creates a test OIDC provider with static organization assignment
+func CreateTestAuthProviderWithStaticOrg(ctx context.Context, authStore store.AuthProvider, orgId uuid.UUID, name string, orgName string) {
+	assignment := api.AuthOrganizationAssignment{}
+	staticAssignment := api.AuthStaticOrganizationAssignment{
+		Type:             api.AuthStaticOrganizationAssignmentTypeStatic,
+		OrganizationName: orgName,
+	}
+	if err := assignment.FromAuthStaticOrganizationAssignment(staticAssignment); err != nil {
+		log.Fatalf("failed to create organization assignment: %v", err)
+	}
+
+	// Create OIDC provider spec
+	oidcSpec := api.OIDCProviderSpec{
+		ProviderType:           api.Oidc,
+		Issuer:                 "https://accounts.google.com",
+		ClientId:               fmt.Sprintf("test-client-id-%s", name),
+		ClientSecret:           lo.ToPtr("test-client-secret"),
+		Scopes:                 lo.ToPtr([]string{"openid", "profile", "email"}),
+		Enabled:                lo.ToPtr(true),
+		UsernameClaim:          lo.ToPtr([]string{"preferred_username"}),
+		OrganizationAssignment: assignment,
+	}
+
+	provider := api.AuthProvider{
+		Metadata: api.ObjectMeta{
+			Name: lo.ToPtr(name),
+		},
+	}
+	if err := provider.Spec.FromOIDCProviderSpec(oidcSpec); err != nil {
+		log.Fatalf("failed to create auth provider spec: %v", err)
+	}
+
+	callback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
+	_, err := authStore.Create(ctx, orgId, &provider, callback)
+	if err != nil {
+		log.Fatalf("creating OIDC provider with static org: %v", err)
+	}
+}
+
+// CreateTestAuthProviderWithDynamicOrg creates a test OIDC provider with dynamic organization assignment
+func CreateTestAuthProviderWithDynamicOrg(ctx context.Context, authStore store.AuthProvider, orgId uuid.UUID, name string) {
+	assignment := api.AuthOrganizationAssignment{}
+	dynamicAssignment := api.AuthDynamicOrganizationAssignment{
+		Type:      api.AuthDynamicOrganizationAssignmentTypeDynamic,
+		ClaimPath: []string{"organization"},
+	}
+	if err := assignment.FromAuthDynamicOrganizationAssignment(dynamicAssignment); err != nil {
+		log.Fatalf("failed to create organization assignment: %v", err)
+	}
+
+	// Create role assignment
+	roleAssignment := api.AuthRoleAssignment{}
+	staticRoleAssignment := api.AuthStaticRoleAssignment{
+		Type:  api.AuthStaticRoleAssignmentTypeStatic,
+		Roles: []string{"viewer"},
+	}
+	if err := roleAssignment.FromAuthStaticRoleAssignment(staticRoleAssignment); err != nil {
+		log.Fatalf("failed to create role assignment: %v", err)
+	}
+
+	// Create OIDC provider spec
+	oidcSpec := api.OIDCProviderSpec{
+		ProviderType:           api.Oidc,
+		Issuer:                 "https://accounts.google.com",
+		ClientId:               fmt.Sprintf("test-client-id-%s", name),
+		ClientSecret:           lo.ToPtr("test-client-secret"),
+		Scopes:                 lo.ToPtr([]string{"openid", "profile", "email"}),
+		Enabled:                lo.ToPtr(true),
+		UsernameClaim:          lo.ToPtr([]string{"preferred_username"}),
+		RoleAssignment:         roleAssignment,
+		OrganizationAssignment: assignment,
+	}
+
+	provider := api.AuthProvider{
+		Metadata: api.ObjectMeta{
+			Name: lo.ToPtr(name),
+		},
+	}
+	if err := provider.Spec.FromOIDCProviderSpec(oidcSpec); err != nil {
+		log.Fatalf("failed to create auth provider spec: %v", err)
+	}
+
+	callback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
+	_, err := authStore.Create(ctx, orgId, &provider, callback)
+	if err != nil {
+		log.Fatalf("creating OIDC provider with dynamic org: %v", err)
+	}
+}
+
+// CreateTestAuthProviderWithPerUserOrg creates a test OIDC provider with per-user organization assignment
+func CreateTestAuthProviderWithPerUserOrg(ctx context.Context, authStore store.AuthProvider, orgId uuid.UUID, name string, prefix *string, suffix *string) {
+	assignment := api.AuthOrganizationAssignment{}
+	perUserAssignment := api.AuthPerUserOrganizationAssignment{
+		Type:                   api.PerUser,
+		OrganizationNamePrefix: prefix,
+		OrganizationNameSuffix: suffix,
+	}
+	if err := assignment.FromAuthPerUserOrganizationAssignment(perUserAssignment); err != nil {
+		log.Fatalf("failed to create organization assignment: %v", err)
+	}
+
+	// Create role assignment
+	roleAssignment := api.AuthRoleAssignment{}
+	staticRoleAssignment := api.AuthStaticRoleAssignment{
+		Type:  api.AuthStaticRoleAssignmentTypeStatic,
+		Roles: []string{"viewer"},
+	}
+	if err := roleAssignment.FromAuthStaticRoleAssignment(staticRoleAssignment); err != nil {
+		log.Fatalf("failed to create role assignment: %v", err)
+	}
+
+	// Create OIDC provider spec
+	oidcSpec := api.OIDCProviderSpec{
+		ProviderType:           api.Oidc,
+		Issuer:                 "https://accounts.google.com",
+		ClientId:               fmt.Sprintf("test-client-id-%s", name),
+		ClientSecret:           lo.ToPtr("test-client-secret"),
+		Scopes:                 lo.ToPtr([]string{"openid", "profile", "email"}),
+		Enabled:                lo.ToPtr(true),
+		UsernameClaim:          lo.ToPtr([]string{"preferred_username"}),
+		RoleAssignment:         roleAssignment,
+		OrganizationAssignment: assignment,
+	}
+
+	provider := api.AuthProvider{
+		Metadata: api.ObjectMeta{
+			Name: lo.ToPtr(name),
+		},
+	}
+	if err := provider.Spec.FromOIDCProviderSpec(oidcSpec); err != nil {
+		log.Fatalf("failed to create auth provider spec: %v", err)
+	}
+
+	callback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
+	_, err := authStore.Create(ctx, orgId, &provider, callback)
+	if err != nil {
+		log.Fatalf("creating OIDC provider with per-user org: %v", err)
+	}
+}
+
+// CreateTestOrganizationAssignment creates a test organization assignment
+func CreateTestOrganizationAssignment() api.AuthOrganizationAssignment {
+	assignment := api.AuthOrganizationAssignment{}
+	staticAssignment := api.AuthStaticOrganizationAssignment{
+		Type:             api.AuthStaticOrganizationAssignmentTypeStatic,
+		OrganizationName: "default-org",
+	}
+	if err := assignment.FromAuthStaticOrganizationAssignment(staticAssignment); err != nil {
+		panic(fmt.Sprintf("failed to create organization assignment: %v", err))
+	}
+	return assignment
 }

@@ -18,11 +18,12 @@ if [ ! -f "$SERVICE_CONFIG_FILE" ]; then
 fi
 
 # Extract auth-related values
-AUTH_TYPE=$(extract_value "type" "$SERVICE_CONFIG_FILE" || true)
+AUTH_TYPE=$(extract_value "global.auth.type" "$SERVICE_CONFIG_FILE" || true)
 if [ -z "$AUTH_TYPE" ]; then
   echo "Error: unable to determine auth.type from $SERVICE_CONFIG_FILE"
   exit 1
 fi
+
 FLIGHTCTL_DISABLE_AUTH=""
 
 # Process auth settings based on auth type
@@ -34,8 +35,17 @@ else
   FLIGHTCTL_DISABLE_AUTH="true"
 fi
 
+# Extract database configuration
+DB_EXTERNAL=$(extract_value "db.external" "$SERVICE_CONFIG_FILE")
+if [ "$DB_EXTERNAL" == "enabled" ]; then
+  echo "External database - password will come from Podman secret"
+else
+  echo "Internal database - password will come from Podman secret"
+fi
+
 # Template the environment file
 mkdir -p "$(dirname "$ENV_OUTPUT")"
-sed "s|{{FLIGHTCTL_DISABLE_AUTH}}|$FLIGHTCTL_DISABLE_AUTH|g" "$ENV_TEMPLATE" > "$ENV_OUTPUT"
+sed -e "s|{{FLIGHTCTL_DISABLE_AUTH}}|$FLIGHTCTL_DISABLE_AUTH|g" \
+    "$ENV_TEMPLATE" > "$ENV_OUTPUT"
 
 echo "Initialization complete" 

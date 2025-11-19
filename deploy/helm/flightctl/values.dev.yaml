@@ -1,14 +1,12 @@
 global:
   auth:
     type: "none"
-    oidc:
-      oidcAuthority: http://keycloak.flightctl-external.svc.cluster.local:8081/realms/flightctl
   tracing:
     enabled: true
     endpoint: jaeger-collector.flightctl-e2e.svc.cluster.local:4318
     insecure: true
   internalNamespace: flightctl-internal
-  storageClassName: standard
+  # storageClassName: standard
   exposeServicesMethod: "nodePort"
   nodePorts:
     api: 3443
@@ -17,10 +15,20 @@ global:
     kv: 6379
     alertmanager: 9093
     alertmanagerProxy: 8443
-    keycloak: 8081
-    prometheus: 9090
+    telemetryGatewayOtlp: 4317
+    telemetryGatewayProm: 9464
     gitserver: 3222
     registry: 5000
+
+db:
+  # hostname: <set to external DB host to override cluster default>
+  port: 5432
+  name: "flightctl"
+  type: "pgsql"
+  sslmode: ""
+  sslcert: ""
+  sslkey: ""
+  sslrootcert: ""
 
 api:
   image:
@@ -32,6 +40,11 @@ api:
   env:
     GORM_TRACE_ENFORCE_FATAL: "true"
     GORM_TRACE_INCLUDE_QUERY_VARIABLES: "true"
+  # Health probes configuration
+  probes:
+    enabled: true
+    readinessPath: /readyz
+    livenessPath: /healthz
 cliArtifacts:
   enabled: true
   image:
@@ -67,17 +80,27 @@ prometheus:
 ui:
   enabled: false
 
+## @param dbSetup.wait.timeout Seconds to wait for database readiness before failing
+## @param dbSetup.wait.sleep Seconds to sleep between database connection attempts
+## @param dbSetup.migration.backoffLimit Number of retries for the migration Job on failure
+## @param dbSetup.migration.activeDeadlineSeconds Maximum runtime in seconds for the migration Job
 dbSetup:
   image:
     image: localhost/flightctl-db-setup
     tag: latest
+  wait:
+    timeout: 60
+    sleep: 2
+  migration:
+    backoffLimit: 3
+    activeDeadlineSeconds: 600
 
-keycloak:
-  realm:
-    redirectUris:
-      - /realms/flightctl/account/*
-      - http://127.0.0.1/callback
-      - http://localhost:9000
-      - http://localhost:9000/callback
-    webOrigins:
-      - http://localhost:9000
+telemetryGateway:
+  enabled: true
+  image:
+    image: localhost/flightctl-telemetry-gateway
+    tag: latest
+  config:
+    listen: { device: "0.0.0.0:4317" }
+    export: { prometheus: "0.0.0.0:9464" }
+

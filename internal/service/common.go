@@ -13,7 +13,6 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/flterrors"
-	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/getkin/kin-openapi/openapi3filter"
 	"github.com/getkin/kin-openapi/routers/gorillamux"
@@ -22,6 +21,7 @@ import (
 
 const (
 	MaxRecordsPerListRequest = 1000
+	MaxConcurrentAgents      = 15
 )
 
 func IsInternalRequest(ctx context.Context) bool {
@@ -165,5 +165,5 @@ func getOrgIdFromContext(ctx context.Context) uuid.UUID {
 	if orgId, ok := util.GetOrgIdFromContext(ctx); ok {
 		return orgId
 	}
-	return store.NullOrgId
+	return uuid.Nil
 }

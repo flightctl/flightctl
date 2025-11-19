@@ -24,13 +24,19 @@ import (
 
 	"github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/auth"
+	"github.com/flightctl/flightctl/internal/auth/authn"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
+	"github.com/flightctl/flightctl/internal/org/cache"
+	"github.com/flightctl/flightctl/internal/service"
+	"github.com/flightctl/flightctl/internal/store"
 	fclog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/sirupsen/logrus"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 const (
@@ -38,14 +44,15 @@ const (
 	defaultAlertmanagerURL = "http://localhost:9093"
 	alertsResource         = "alerts"
 	getAction              = "get"
+	healthPath             = "/health"
+	statusPath             = "/api/v2/status"
 )
 
 type AlertmanagerProxy struct {
-	log          logrus.FieldLogger
-	cfg          *config.Config
-	proxy        *httputil.ReverseProxy
-	target       *url.URL
-	authDisabled bool
+	log    logrus.FieldLogger
+	cfg    *config.Config
+	proxy  *httputil.ReverseProxy
+	target *url.URL
 }
 
 func NewAlertmanagerProxy(cfg *config.Config, log logrus.FieldLogger) (*AlertmanagerProxy, error) {
@@ -62,68 +69,85 @@ func NewAlertmanagerProxy(cfg *config.Config, log logrus.FieldLogger) (*Alertman
 
 	proxy := httputil.NewSingleHostReverseProxy(target)
 
-	authDisabled := false
-	value, exists := os.LookupEnv(auth.DisableAuthEnvKey)
-	if exists && value != "" {
-		authDisabled = true
-	}
-
 	return &AlertmanagerProxy{
-		log:          log,
-		cfg:          cfg,
-		proxy:        proxy,
-		target:       target,
-		authDisabled: authDisabled,
+		log:    log,
+		cfg:    cfg,
+		proxy:  proxy,
+		target: target,
 	}, nil
 }
 
 func (p *AlertmanagerProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Health check endpoint - doesn't require auth and doesn't depend on Alertmanager
-	if r.URL.Path == "/health" {
+	if r.URL.Path == healthPath {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("OK"))
 		return
 	}
 
-	if p.authDisabled {
+	// Status endpoint is not scoped to a specific org or user context, if the user has a valid token they can access it
+	// (authentication and identity mapping are handled by middleware, but we skip org validation and authZ)
+	if r.URL.Path == statusPath {
 		p.proxy.ServeHTTP(w, r)
 		return
 	}
 
-	// Extract bearer token from Authorization header using FlightControl's utility
-	token, err := common.ExtractBearerToken(r)
-	if err != nil {
-		p.log.WithError(err).Error("Failed to extract bearer token")
-		http.Error(w, "Invalid Authorization header", http.StatusUnauthorized)
-		return
-	}
-
-	// Validate token using FlightControl's auth system
-	if err := auth.GetAuthN().ValidateToken(r.Context(), token); err != nil {
-		p.log.WithError(err).Error("Token validation failed")
-		http.Error(w, "Invalid token", http.StatusUnauthorized)
-		return
-	}
-
-	// Create context with token for authorization check (using proper context key)
-	ctx := context.WithValue(r.Context(), common.TokenCtxKey, token)
-
-	// Check if user has permission to access alerts
-	allowed, err := auth.GetAuthZ().CheckPermission(ctx, alertsResource, getAction)
-	if err != nil {
-		p.log.WithError(err).Error("Authorization check failed")
-		http.Error(w, "Authorization service unavailable", http.StatusServiceUnavailable)
-		return
-	}
-
-	if !allowed {
-		p.log.Warn("User denied access to alerts")
-		http.Error(w, "Forbidden", http.StatusForbidden)
-		return
-	}
-
-	// Proxy the request to Alertmanager
+	// For all other endpoints, authentication, identity mapping, organization extraction/validation,
+	// and authorization are handled by the middleware chain
 	p.proxy.ServeHTTP(w, r)
+}
+
+// createConditionalAuthMiddleware creates a middleware that conditionally applies authentication
+// and authorization based on the request path:
+// - /health and /api/v2/status: skip auth (just continue)
+// - all other endpoints: full auth chain (auth -> identity mapping -> org extract -> org validate -> authZ)
+func createConditionalAuthMiddleware(
+	authN common.AuthNMiddleware,
+	authZ auth.AuthZMiddleware,
+	identityMappingMiddleware *middleware.IdentityMappingMiddleware,
+	extractOrgMiddleware func(http.Handler) http.Handler,
+	validateOrgMiddleware func(http.Handler) http.Handler,
+	logger logrus.FieldLogger,
+) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		// Pre-create the full auth chain once
+		fullAuthHandler := auth.CreateAuthNMiddleware(authN, logger)(
+			identityMappingMiddleware.MapIdentityToDB(
+				extractOrgMiddleware(
+					validateOrgMiddleware(
+						http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+							// Check if user has permission to access alerts
+							allowed, err := authZ.CheckPermission(r.Context(), alertsResource, getAction)
+							if err != nil {
+								logger.WithError(err).Error("Authorization check failed")
+								http.Error(w, "Authorization service unavailable", http.StatusServiceUnavailable)
+								return
+							}
+
+							if !allowed {
+								logger.Warn("User denied access to alerts")
+								http.Error(w, "Forbidden", http.StatusForbidden)
+								return
+							}
+
+							next.ServeHTTP(w, r)
+						}),
+					),
+				),
+			),
+		)
+
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Skip auth for health and status endpoints
+			if r.URL.Path == healthPath || r.URL.Path == statusPath {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			// For all other endpoints - apply full auth chain
+			fullAuthHandler.ServeHTTP(w, r)
+		})
+	}
 }
 
 func main() {
@@ -196,10 +220,74 @@ func main() {
 		logger.Fatalf("failed creating TLS config: %v", err)
 	}
 
+	tracerShutdown := tracing.InitTracer(logger, cfg, "flightctl-alertmanager-proxy")
+	defer func() {
+		if err := tracerShutdown(ctx); err != nil {
+			logger.Fatalf("Failed to shut down tracer: %v", err)
+		}
+	}()
+
+	// Initialize data store
+	db, err := store.InitDB(cfg, logger)
+	if err != nil {
+		logger.Fatalf("Initializing data store: %v", err)
+	}
+
+	dataStore := store.NewStore(db, logger.WithField("pkg", "store"))
+	defer dataStore.Close()
+
+	// Handle graceful shutdown
+	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)
+	defer cancel()
+
+	orgCache := cache.NewOrganizationTTL(cache.DefaultTTL)
+	go func() {
+		orgCache.Start(ctx)
+		cancel() // Trigger coordinated shutdown if cache exits
+	}()
+	defer orgCache.Stop()
+
+	// Create service handler for auth provider access
+	baseServiceHandler := service.NewServiceHandler(dataStore, nil, nil, nil, logger, "", "", nil)
+	serviceHandler := service.WrapWithTracing(baseServiceHandler)
+
 	// Initialize auth system
-	if err := auth.InitAuth(cfg, logger); err != nil {
+	authN, err := auth.InitMultiAuth(cfg, logger, serviceHandler)
+	if err != nil {
 		logger.Fatalf("Failed to initialize auth: %v", err)
 	}
+
+	// Start auth provider loader if MultiAuth is configured (not NilAuth)
+	if multiAuth, ok := authN.(*authn.MultiAuth); ok {
+		go func() {
+			multiAuth.Start(ctx)
+			cancel() // Trigger coordinated shutdown if auth loader exits
+		}()
+	}
+
+	authZ, err := auth.InitMultiAuthZ(cfg, logger)
+	if err != nil {
+		logger.Fatalf("Failed to initialize authZ: %v", err)
+	}
+
+	// Start multiAuthZ to initialize cache lifecycle management
+	if multiAuthZ, ok := authZ.(*auth.MultiAuthZ); ok {
+		multiAuthZ.Start(ctx)
+		logger.Debug("Started MultiAuthZ with context-based cache lifecycle")
+	}
+
+	// Create identity mapper for mapping identities to database objects
+	identityMapper := service.NewIdentityMapper(dataStore, logger)
+	go func() {
+		identityMapper.Start(ctx)
+		cancel() // Trigger coordinated shutdown if identity mapper exits
+	}()
+	defer identityMapper.Stop()
+	identityMappingMiddleware := middleware.NewIdentityMappingMiddleware(identityMapper, logger)
+
+	// Create organization extraction and validation middlewares
+	extractOrgMiddleware := middleware.ExtractOrgIDToCtx(middleware.QueryOrgIDExtractor, logger)
+	validateOrgMiddleware := middleware.ValidateOrgMembership(logger)
 
 	// Create proxy
 	proxy, err := NewAlertmanagerProxy(cfg, logger)
@@ -207,11 +295,25 @@ func main() {
 		logger.Fatalf("Failed to create alertmanager proxy: %v", err)
 	}
 
-	if proxy.authDisabled {
+	// Check if auth is disabled
+	authDisabled := false
+	value, exists := os.LookupEnv(auth.DisableAuthEnvKey)
+	if exists && value != "" {
+		authDisabled = true
 		logger.Warn("Auth is disabled")
 	}
 
-	// Create router with logging middleware
+	// Create conditional auth middleware
+	conditionalAuthMiddleware := createConditionalAuthMiddleware(
+		authN,
+		authZ,
+		identityMappingMiddleware,
+		extractOrgMiddleware,
+		validateOrgMiddleware,
+		logger,
+	)
+
+	// Create router with base middleware
 	router := chi.NewRouter()
 	router.Use(chimiddleware.RequestSize(int64(cfg.Service.HttpMaxRequestSize)))
 	router.Use(middleware.RequestSizeLimiter(cfg.Service.HttpMaxUrlLength, cfg.Service.HttpMaxNumHeaders))
@@ -222,7 +324,7 @@ func main() {
 	router.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Skip logging for health checks to reduce noise
-			if r.URL.Path == "/health" {
+			if r.URL.Path == healthPath {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -230,6 +332,11 @@ func main() {
 			chimiddleware.Logger(next).ServeHTTP(w, r)
 		})
 	})
+
+	// Apply conditional auth middleware (unless auth is disabled)
+	if !authDisabled {
+		router.Use(conditionalAuthMiddleware)
+	}
 
 	// Add rate limiting (only if configured)
 	// Alertmanager doesn't have built-in rate limiting, so we add it here to prevent abuse
@@ -253,18 +360,16 @@ func main() {
 
 	router.Mount("/", proxy)
 
+	// Wrap router with OpenTelemetry handler to enable tracing spans
+	handler := otelhttp.NewHandler(router, "alertmanager-proxy-http-server")
 	// Create HTTPS server using FlightControl's TLS middleware
-	server := middleware.NewHTTPServer(router, logger, proxyPort, cfg)
+	server := middleware.NewHTTPServer(handler, logger, proxyPort, cfg)
 
 	// Create TLS listener
 	listener, err := middleware.NewTLSListener(proxyPort, tlsConfig)
 	if err != nil {
 		logger.Fatalf("creating TLS listener: %v", err)
 	}
-
-	// Handle graceful shutdown
-	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)
-	defer cancel()
 
 	go func() {
 		<-ctx.Done()
@@ -278,7 +383,7 @@ func main() {
 		}
 	}()
 
-	logger.Printf("Alertmanager proxy listening on https://%s, proxying to %s", proxyPort, proxy.target.String())
+	logger.Printf("Alertmanager proxy listening on port %s, proxying to %s", proxyPort[1:], proxy.target.String())
 	if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
 		logger.Fatalf("Server error: %v", err)
 	}

@@ -2,18 +2,24 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
-	"github.com/flightctl/flightctl/internal/instrumentation"
+	"github.com/flightctl/flightctl/internal/instrumentation/metrics"
+	"github.com/flightctl/flightctl/internal/instrumentation/metrics/worker"
+	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/util"
 	workerserver "github.com/flightctl/flightctl/internal/worker_server"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
+	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 )
 
@@ -36,7 +42,7 @@ func main() {
 	}
 	log.SetLevel(logLvl)
 
-	tracerShutdown := instrumentation.InitTracer(log, cfg, "flightctl-worker")
+	tracerShutdown := tracing.InitTracer(log, cfg, "flightctl-worker")
 	defer func() {
 		if err := tracerShutdown(ctx); err != nil {
 			log.Fatalf("failed to shut down tracer: %v", err)
@@ -57,7 +63,8 @@ func main() {
 	ctx = context.WithValue(ctx, consts.EventSourceComponentCtxKey, "flightctl-worker")
 	ctx = context.WithValue(ctx, consts.EventActorCtxKey, "service:flightctl-worker")
 
-	provider, err := queues.NewRedisProvider(ctx, log, cfg.KV.Hostname, cfg.KV.Port, cfg.KV.Password)
+	processID := fmt.Sprintf("worker-%s-%s", util.GetHostname(), uuid.New().String())
+	provider, err := queues.NewRedisProvider(ctx, log, processID, cfg.KV.Hostname, cfg.KV.Port, cfg.KV.Password, queues.DefaultRetryConfig())
 	if err != nil {
 		log.Fatalf("failed connecting to Redis queue: %v", err)
 	}
@@ -68,7 +75,32 @@ func main() {
 		k8sClient = nil
 	}
 
-	server := workerserver.New(cfg, log, store, provider, k8sClient)
+	// Initialize metrics collectors
+	var workerCollector *worker.WorkerCollector
+	if cfg.Metrics != nil && cfg.Metrics.Enabled {
+		var collectors []prometheus.Collector
+		if cfg.Metrics.WorkerCollector != nil && cfg.Metrics.WorkerCollector.Enabled {
+			workerCollector = worker.NewWorkerCollector(ctx, log, cfg, provider)
+			collectors = append(collectors, workerCollector)
+		}
+
+		if cfg.Metrics.SystemCollector != nil && cfg.Metrics.SystemCollector.Enabled {
+			if systemMetricsCollector := metrics.NewSystemCollector(ctx, cfg); systemMetricsCollector != nil {
+				collectors = append(collectors, systemMetricsCollector)
+			}
+		}
+
+		if len(collectors) > 0 {
+			go func() {
+				if err := tracing.RunMetricsServer(ctx, log, cfg.Metrics.Address, collectors...); err != nil {
+					log.Errorf("Error running metrics server: %s", err)
+				}
+				cancel()
+			}()
+		}
+	}
+
+	server := workerserver.New(cfg, log, store, provider, k8sClient, workerCollector)
 	if err := server.Run(ctx); err != nil {
 		log.Fatalf("Error running server: %s", err)
 	}

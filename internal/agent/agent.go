@@ -3,12 +3,14 @@ package agent
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/agent/client"
 	agent_config "github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/internal/agent/device"
 	"github.com/flightctl/flightctl/internal/agent/device/applications"
+	"github.com/flightctl/flightctl/internal/agent/device/certmanager"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/console"
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
@@ -17,19 +19,21 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/os"
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
-	"github.com/flightctl/flightctl/internal/agent/device/publisher"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
+	"github.com/flightctl/flightctl/internal/agent/device/spec/audit"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/internal/agent/device/systeminfo"
 	"github.com/flightctl/flightctl/internal/agent/identity"
+	"github.com/flightctl/flightctl/internal/agent/instrumentation"
 	"github.com/flightctl/flightctl/internal/agent/reload"
 	"github.com/flightctl/flightctl/internal/agent/shutdown"
 	"github.com/flightctl/flightctl/internal/tpm"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/poll"
+	"github.com/flightctl/flightctl/pkg/version"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 )
@@ -66,6 +70,9 @@ func (a *Agent) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	// start instrumentation early so startup paths are observable.
+	go instrumentation.NewAgentInstrumentation(a.log, a.config).Run(ctx)
+
 	// create file io writer and reader
 	deviceReadWriter := fileio.NewReadWriter(fileio.WithTestRootDir(a.config.GetTestRootDir()))
 
@@ -91,15 +98,33 @@ func (a *Agent) Run(ctx context.Context) error {
 		return fmt.Errorf("failed to get device name: %w", err)
 	}
 
-	csr, err := identityProvider.GenerateCSR(deviceName)
+	clientCSRPath := identity.GetCSRPath(a.config.DataDir)
+
+	// Try to load persisted CSR first, generate a new one only if not found
+	csr, found, err := identity.LoadCSR(deviceReadWriter, clientCSRPath)
 	if err != nil {
-		return fmt.Errorf("failed to generate CSR: %w", err)
+		return fmt.Errorf("failed to load CSR: %w", err)
+	}
+
+	if !found {
+		a.log.Infof("No persisted CSR found, generating new CSR for enrollment")
+		csr, err = identityProvider.GenerateCSR(deviceName)
+		if err != nil {
+			return fmt.Errorf("failed to generate CSR: %w", err)
+		}
+
+		if err := identity.StoreCSR(deviceReadWriter, clientCSRPath, csr); err != nil {
+			return fmt.Errorf("failed to store CSR: %w", err)
+		}
+		a.log.Infof("CSR generated and persisted successfully")
+	} else {
+		a.log.Infof("Using persisted CSR for enrollment")
 	}
 
 	executer := &executer.CommonExecuter{}
 
 	// create enrollment client
-	enrollmentClient, err := newEnrollmentClient(a.config)
+	enrollmentClient, err := newEnrollmentClient(a.config, a.log)
 	if err != nil {
 		return err
 	}
@@ -113,10 +138,12 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 
 	pollBackoff := poll.Config{
-		MaxDelay:  1 * time.Minute,
-		BaseDelay: 10 * time.Second,
-		Factor:    1.5,
-		MaxSteps:  a.config.PullRetrySteps,
+		MaxDelay:     1 * time.Minute,
+		BaseDelay:    10 * time.Second,
+		Factor:       1.5,
+		MaxSteps:     a.config.PullRetrySteps,
+		JitterFactor: 0.1,                                             // jitterFactor (10% jitter to prevent thundering herd)
+		Rand:         rand.New(rand.NewSource(time.Now().UnixNano())), //nolint:gosec
 	}
 
 	// create os client
@@ -124,6 +151,9 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	// create podman client
 	podmanClient := client.NewPodman(a.log, executer, deviceReadWriter, pollBackoff)
+
+	// create skopeo client
+	skopeoClient := client.NewSkopeo(a.log, executer, deviceReadWriter)
 
 	// create systemd client
 	systemdClient := client.NewSystemd(executer)
@@ -143,29 +173,53 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 
 	// create shutdown manager
-	shutdownManager := shutdown.NewManager(a.log, gracefulShutdownTimeout, cancel)
+	shutdownManager := shutdown.NewManager(a.log, systemdClient, deviceReadWriter, gracefulShutdownTimeout, cancel)
 
 	if tpmClient != nil {
 		systemInfoManager.RegisterCollector(ctx, "tpmVendorInfo", tpmClient.VendorInfoCollector)
-		shutdownManager.Register("tpmClient", tpmClient.Close)
+		defer func() {
+			if err = tpmClient.Close(); err != nil {
+				a.log.Errorf("Failed to close TPM client: %v", err)
+			}
+		}()
 	}
 
 	reloadManager := reload.NewManager(a.configFile, a.log)
 
 	policyManager := policy.NewManager(a.log)
 
-	devicePublisher := publisher.New(deviceName,
-		time.Duration(a.config.SpecFetchInterval),
-		backoff,
-		a.log)
+	deviceNotFoundHandler := func() error {
+		return wipeCertificateAndRestart(ctx, identityProvider, executer, a.log)
+	}
+
+	// create audit logger
+	auditLogger, err := audit.NewFileLogger(
+		&a.config.AuditLog,
+		deviceReadWriter,
+		deviceName,
+		version.Get().String(),
+		a.log,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create audit logger: %w", err)
+	}
+	defer func() {
+		if err := auditLogger.Close(); err != nil {
+			a.log.Errorf("Failed to close audit logger: %v", err)
+		}
+	}()
 
 	// create spec manager
 	specManager := spec.NewManager(
+		deviceName,
 		a.config.DataDir,
 		policyManager,
 		deviceReadWriter,
 		osClient,
-		devicePublisher.Subscribe(),
+		a.config.SpecFetchInterval,
+		backoff,
+		deviceNotFoundHandler,
+		auditLogger,
 		a.log,
 	)
 
@@ -177,28 +231,26 @@ func (a *Agent) Run(ctx context.Context) error {
 	// create hook manager
 	hookManager := hook.NewManager(deviceReadWriter, executer, a.log)
 
+	// create systemd manager
+	systemdManager := systemd.NewManager(a.log, systemdClient)
+
 	// create application manager
-	applicationManager := applications.NewManager(
+	applicationsManager := applications.NewManager(
 		a.log,
 		deviceReadWriter,
 		podmanClient,
 		systemInfoManager,
+		systemdManager,
 	)
 
 	// register the application manager with the shutdown manager
-	shutdownManager.Register("applications", applicationManager.Stop)
-
-	// register identity provider with shutdown manager
-	shutdownManager.Register("identity", identityProvider.Close)
-
-	// create systemd manager
-	systemdManager := systemd.NewManager(a.log, systemdClient)
+	shutdownManager.Register("applications", applicationsManager.Shutdown)
 
 	// create os manager
 	osManager := os.NewManager(a.log, osClient, deviceReadWriter, podmanClient)
 
 	// create prefetch manager
-	prefetchManager := dependency.NewPrefetchManager(a.log, podmanClient, deviceReadWriter, a.config.PullTimeout)
+	prefetchManager := dependency.NewPrefetchManager(a.log, podmanClient, skopeoClient, deviceReadWriter, a.config.PullTimeout)
 
 	// create status manager
 	statusManager := status.NewManager(
@@ -212,6 +264,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.config.EnrollmentService.EnrollmentUIEndpoint,
 		a.config.ManagementService.GetClientCertificatePath(),
 		a.config.ManagementService.GetClientKeyPath(),
+		a.config.DataDir,
 		deviceReadWriter,
 		enrollmentClient,
 		csr,
@@ -224,7 +277,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	)
 
 	// register status exporters
-	statusManager.RegisterStatusExporter(applicationManager)
+	statusManager.RegisterStatusExporter(applicationsManager)
 	statusManager.RegisterStatusExporter(systemdManager)
 	statusManager.RegisterStatusExporter(resourceManager)
 	statusManager.RegisterStatusExporter(osManager)
@@ -242,7 +295,6 @@ func (a *Agent) Run(ctx context.Context) error {
 		executer,
 		deviceReadWriter,
 		specManager,
-		devicePublisher,
 		statusManager,
 		hookManager,
 		lifecycleManager,
@@ -259,6 +311,25 @@ func (a *Agent) Run(ctx context.Context) error {
 		return fmt.Errorf("bootstrap failed: %w", err)
 	}
 
+	// Initialize certificate manager
+	certManager, err := certmanager.NewManager(
+		ctx, a.log,
+		certmanager.WithBuiltins(
+			deviceName,
+			bootstrap.ManagementClient(),
+			deviceReadWriter,
+			a.config,
+			identity.NewExportableFactory(tpmClient, a.log),
+		),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to initialize certificate manager: %w", err)
+	}
+
+	if err := certManager.Sync(ctx, a.config); err != nil {
+		a.log.Warnf("Failed to sync certificate manager: %v", err)
+	}
+
 	// create the gRPC client this must be done after bootstrap
 	grpcClient, err := identityProvider.CreateGRPCClient(&a.config.ManagementService.Config)
 	if err != nil {
@@ -271,18 +342,18 @@ func (a *Agent) Run(ctx context.Context) error {
 		resourceManager,
 	)
 
-	// create console controller
-	consoleController := console.NewController(
+	// create console manager
+	consoleManager := console.NewManager(
 		grpcClient,
 		deviceName,
 		executer,
-		devicePublisher.Subscribe(),
+		specManager.Watch(),
 		a.log,
 	)
 
 	applicationsController := applications.NewController(
 		podmanClient,
-		applicationManager,
+		applicationsManager,
 		deviceReadWriter,
 		a.log,
 	)
@@ -293,8 +364,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		deviceReadWriter,
 		statusManager,
 		specManager,
-		devicePublisher,
-		applicationManager,
+		applicationsManager,
 		systemdManager,
 		a.config.SpecFetchInterval,
 		a.config.StatusUpdateInterval,
@@ -305,7 +375,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		applicationsController,
 		configController,
 		resourceController,
-		consoleController,
+		consoleManager,
 		osClient,
 		podmanClient,
 		prefetchManager,
@@ -313,31 +383,61 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.log,
 	)
 
-	// register agent with shutdown manager
-	shutdownManager.Register("agent", agent.Stop)
-
 	// register reloader with reload manager
 	reloadManager.Register(agent.ReloadConfig)
 	reloadManager.Register(systemInfoManager.ReloadConfig)
 	reloadManager.Register(statusManager.ReloadCollect)
+	reloadManager.Register(certManager.Sync)
 
+	// agent is serial by default. only a small number of operations run async.
+	// device reconciliation, status updates, and spec application happen serially.
+
+	// async to handle OS signals (SIGTERM, SIGINT) for graceful shutdown
 	go shutdownManager.Run(ctx)
+
+	// async to watch config file changes without blocking reconciliation
 	go reloadManager.Run(ctx)
+
+	// async monitors for various resources (cpu, memory, disk)
+	// monitoring must not be blocked by other operations to detect resource changes promptly
 	go resourceManager.Run(ctx)
+
+	// async to pre-pull container images without blocking the main loop
+	// image pulls can take minutes and should not delay device reconciliation
 	go prefetchManager.Run(ctx)
 
+	// async to handle bidirectional gRPC streams for remote shell access
+	// must run independently to maintain persistent console connections
+	go consoleManager.Run(ctx)
+
+	// publisher is async to poll management server for spec updates at regular intervals
+	// fetching is async, but spec management remains serial in the main agent loop
+	go specManager.Publisher().Run(ctx)
+
+	// main agent loop: all critical work happens here serially
 	return agent.Run(ctx)
 }
 
-func newEnrollmentClient(cfg *agent_config.Config) (client.Enrollment, error) {
-	httpClient, err := client.NewFromConfig(&cfg.EnrollmentService.Config)
+func newEnrollmentClient(cfg *agent_config.Config, log *log.PrefixLogger) (client.Enrollment, error) {
+	// Create infinite retry policy for enrollment requests using same config as management client
+	// but with infinite retries (MaxSteps: 0)
+	infiniteRetryConfig := poll.Config{
+		BaseDelay:    10 * time.Second,                                // baseDelay (same as management client)
+		Factor:       1.5,                                             // factor (same as management client)
+		MaxDelay:     1 * time.Minute,                                 // maxDelay (same as management client)
+		MaxSteps:     0,                                               // maxSteps (0 means infinite retries until context timeout)
+		JitterFactor: 0.1,                                             // jitterFactor (10% jitter to prevent thundering herd)
+		Rand:         rand.New(rand.NewSource(time.Now().UnixNano())), //nolint:gosec
+	}
+
+	httpClient, err := client.NewFromConfig(&cfg.EnrollmentService.Config, log, client.WithHTTPRetry(infiniteRetryConfig))
 	if err != nil {
 		return nil, err
 	}
 	return client.NewEnrollment(httpClient, cfg.GetEnrollmentMetricsCallback()), nil
 }
 
-func (a *Agent) tryLoadTPM(writer fileio.ReadWriter) (*tpm.Client, error) {
+func (a *Agent) tryLoadTPM(writer fileio.ReadWriter) (tpm.Client, error) {
 	if !a.config.TPM.Enabled {
 		a.log.Info("TPM device identity is disabled. Skipping TPM setup.")
 		return nil, nil
@@ -348,4 +448,23 @@ func (a *Agent) tryLoadTPM(writer fileio.ReadWriter) (*tpm.Client, error) {
 		return nil, fmt.Errorf("creating TPM client: %w", err)
 	}
 	return tpmClient, nil
+}
+
+// wipeCertificateAndRestart wipes only the certificate (not keys or CSR) and restarts the flightctl-agent service
+func wipeCertificateAndRestart(ctx context.Context, identityProvider identity.Provider, executer executer.Executer, log *log.PrefixLogger) error {
+	log.Warn("Device not found on management server - wiping certificate and restarting agent")
+
+	// Wipe only the certificate, preserving keys and CSR
+	if err := identityProvider.WipeCertificateOnly(); err != nil {
+		return fmt.Errorf("failed to wipe certificate: %w", err)
+	}
+
+	// Restart the flightctl-agent service
+	systemdClient := client.NewSystemd(executer)
+	if err := systemdClient.Restart(ctx, "flightctl-agent"); err != nil {
+		return fmt.Errorf("failed to restart flightctl-agent service: %w", err)
+	}
+
+	log.Info("Successfully wiped certificate and restarted flightctl-agent service")
+	return nil
 }

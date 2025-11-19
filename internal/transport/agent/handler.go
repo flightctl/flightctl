@@ -3,15 +3,14 @@ package agenttransport
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	agentServer "github.com/flightctl/flightctl/internal/api/server/agent"
+	"github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/crypto"
-	"github.com/flightctl/flightctl/internal/crypto/signer"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/transport"
 	"github.com/flightctl/flightctl/internal/util"
@@ -27,47 +26,6 @@ type AgentTransportHandler struct {
 // Make sure we conform to servers Service interface
 var _ agentServer.Transport = (*AgentTransportHandler)(nil)
 
-func ValidateDeviceAccessFromContext(ctx context.Context, name string, ca *crypto.CAClient, log logrus.FieldLogger) (string, error) {
-	if s := ca.PeerCertificateSignerFromCtx(ctx); s != nil && s.Name() != ca.Cfg.DeviceEnrollmentSignerName {
-		log.Warnf("unexpected client certificate signer: expected %q, got %q", ca.Cfg.DeviceEnrollmentSignerName, s.Name())
-		return "", fmt.Errorf("unexpected client certificate signer: expected %q, got %q", ca.Cfg.DeviceEnrollmentSignerName, s.Name())
-	}
-
-	peerCertificate, err := ca.PeerCertificateFromCtx(ctx)
-	if err != nil {
-		return "", err
-	}
-
-	fingerprint, err := signer.DeviceFingerprintFromCN(ca.Cfg, peerCertificate.Subject.CommonName)
-	if err != nil {
-		return "", err
-	}
-
-	// If a specific device name is expected, check that it matches the CN-derived fingerprint
-	if name != "" && fingerprint != name {
-		log.Errorf("attempt to access device %q with certificate fingerprint %q has been detected", name, fingerprint)
-		return "", errors.New("invalid TLS CN for device")
-	}
-	// all good, you shall pass
-	return fingerprint, nil
-}
-
-func ValidateEnrollmentAccessFromContext(ctx context.Context, ca *crypto.CAClient, log logrus.FieldLogger) error {
-	signer := ca.PeerCertificateSignerFromCtx(ctx)
-
-	got := "<nil>"
-	if signer != nil {
-		got = signer.Name()
-	}
-
-	if signer == nil || signer.Name() != ca.Cfg.ClientBootstrapSignerName {
-		log.Warnf("unexpected client certificate signer: expected %q, got %q", ca.Cfg.ClientBootstrapSignerName, got)
-		return fmt.Errorf("unexpected client certificate signer: expected %q, got %q", ca.Cfg.ClientBootstrapSignerName, got)
-	}
-	// all good, you shall pass
-	return nil
-}
-
 func NewAgentTransportHandler(serviceHandler service.Service, ca *crypto.CAClient, log logrus.FieldLogger) *AgentTransportHandler {
 	return &AgentTransportHandler{serviceHandler: serviceHandler, ca: ca, log: log}
 }
@@ -76,8 +34,26 @@ func NewAgentTransportHandler(serviceHandler service.Service, ca *crypto.CAClien
 func (s *AgentTransportHandler) GetRenderedDevice(w http.ResponseWriter, r *http.Request, name string, params api.GetRenderedDeviceParams) {
 	ctx := r.Context()
 
-	fingerprint, err := ValidateDeviceAccessFromContext(ctx, name, s.ca, s.log)
-	if err != nil {
+	// Extract device fingerprint from context (set by middleware)
+	val := ctx.Value(consts.IdentityCtxKey)
+	if val == nil {
+		s.log.Error("agent identity is missing from context")
+		status := api.StatusUnauthorized(http.StatusText(http.StatusUnauthorized))
+		transport.SetResponse(w, status, status)
+		return
+	}
+	identity, ok := val.(*middleware.AgentIdentity)
+	if !ok {
+		s.log.Error("invalid agent identity type in context")
+		status := api.StatusInternalServerError(http.StatusText(http.StatusInternalServerError))
+		transport.SetResponse(w, status, status)
+		return
+	}
+	fingerprint := identity.GetUsername() // This is the device fingerprint for agents
+
+	// Validate that the authenticated device matches the requested device name
+	if fingerprint != name {
+		s.log.Errorf("attempt to access device %q with certificate fingerprint %q has been detected", name, fingerprint)
 		status := api.StatusUnauthorized(http.StatusText(http.StatusUnauthorized))
 		transport.SetResponse(w, status, status)
 		return
@@ -91,8 +67,26 @@ func (s *AgentTransportHandler) GetRenderedDevice(w http.ResponseWriter, r *http
 func (s *AgentTransportHandler) ReplaceDeviceStatus(w http.ResponseWriter, r *http.Request, name string) {
 	ctx := r.Context()
 
-	fingerprint, err := ValidateDeviceAccessFromContext(ctx, name, s.ca, s.log)
-	if err != nil {
+	// Extract device fingerprint from context (set by middleware)
+	val := ctx.Value(consts.IdentityCtxKey)
+	if val == nil {
+		s.log.Error("agent identity is missing from context")
+		status := api.StatusUnauthorized(http.StatusText(http.StatusUnauthorized))
+		transport.SetResponse(w, status, status)
+		return
+	}
+	identity, ok := val.(*middleware.AgentIdentity)
+	if !ok {
+		s.log.Error("invalid agent identity type in context")
+		status := api.StatusInternalServerError(http.StatusText(http.StatusInternalServerError))
+		transport.SetResponse(w, status, status)
+		return
+	}
+	fingerprint := identity.GetUsername() // This is the device fingerprint for agents
+
+	// Validate that the authenticated device matches the requested device name
+	if fingerprint != name {
+		s.log.Errorf("attempt to access device %q with certificate fingerprint %q has been detected", name, fingerprint)
 		status := api.StatusUnauthorized(http.StatusText(http.StatusUnauthorized))
 		transport.SetResponse(w, status, status)
 		return
@@ -112,8 +106,26 @@ func (s *AgentTransportHandler) ReplaceDeviceStatus(w http.ResponseWriter, r *ht
 func (s *AgentTransportHandler) PatchDeviceStatus(w http.ResponseWriter, r *http.Request, name string) {
 	ctx := r.Context()
 
-	fingerprint, err := ValidateDeviceAccessFromContext(ctx, name, s.ca, s.log)
-	if err != nil {
+	// Extract device fingerprint from context (set by middleware)
+	val := ctx.Value(consts.IdentityCtxKey)
+	if val == nil {
+		s.log.Error("agent identity is missing from context")
+		status := api.StatusUnauthorized(http.StatusText(http.StatusUnauthorized))
+		transport.SetResponse(w, status, status)
+		return
+	}
+	identity, ok := val.(*middleware.AgentIdentity)
+	if !ok {
+		s.log.Error("invalid agent identity type in context")
+		status := api.StatusInternalServerError(http.StatusText(http.StatusInternalServerError))
+		transport.SetResponse(w, status, status)
+		return
+	}
+	fingerprint := identity.GetUsername() // This is the device fingerprint for agents
+
+	// Validate that the authenticated device matches the requested device name
+	if fingerprint != name {
+		s.log.Errorf("attempt to access device %q with certificate fingerprint %q has been detected", name, fingerprint)
 		status := api.StatusUnauthorized(http.StatusText(http.StatusUnauthorized))
 		transport.SetResponse(w, status, status)
 		return
@@ -133,8 +145,19 @@ func (s *AgentTransportHandler) PatchDeviceStatus(w http.ResponseWriter, r *http
 func (s *AgentTransportHandler) CreateEnrollmentRequest(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	if err := ValidateEnrollmentAccessFromContext(ctx, s.ca, s.log); err != nil {
+	// Extract enrollment identity from context (set by middleware)
+	// The middleware should have already validated the certificate and set the identity
+	val := ctx.Value(consts.IdentityCtxKey)
+	if val == nil {
+		s.log.Error("enrollment identity is missing from context")
 		status := api.StatusUnauthorized(http.StatusText(http.StatusUnauthorized))
+		transport.SetResponse(w, status, status)
+		return
+	}
+	_, ok := val.(*middleware.EnrollmentIdentity)
+	if !ok {
+		s.log.Error("invalid enrollment identity type in context")
+		status := api.StatusInternalServerError(http.StatusText(http.StatusInternalServerError))
 		transport.SetResponse(w, status, status)
 		return
 	}
@@ -153,8 +176,19 @@ func (s *AgentTransportHandler) CreateEnrollmentRequest(w http.ResponseWriter, r
 func (s *AgentTransportHandler) GetEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string) {
 	ctx := r.Context()
 
-	if err := ValidateEnrollmentAccessFromContext(ctx, s.ca, s.log); err != nil {
+	// Extract enrollment identity from context (set by middleware)
+	// The middleware should have already validated the certificate and set the identity
+	val := ctx.Value(consts.IdentityCtxKey)
+	if val == nil {
+		s.log.Error("enrollment identity is missing from context")
 		status := api.StatusUnauthorized(http.StatusText(http.StatusUnauthorized))
+		transport.SetResponse(w, status, status)
+		return
+	}
+	_, ok := val.(*middleware.EnrollmentIdentity)
+	if !ok {
+		s.log.Error("invalid enrollment identity type in context")
+		status := api.StatusInternalServerError(http.StatusText(http.StatusInternalServerError))
 		transport.SetResponse(w, status, status)
 		return
 	}
@@ -167,12 +201,22 @@ func (s *AgentTransportHandler) GetEnrollmentRequest(w http.ResponseWriter, r *h
 func (s *AgentTransportHandler) CreateCertificateSigningRequest(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	fingerprint, err := ValidateDeviceAccessFromContext(ctx, "", s.ca, s.log)
-	if err != nil {
+	// Extract device fingerprint from context (set by middleware)
+	val := ctx.Value(consts.IdentityCtxKey)
+	if val == nil {
+		s.log.Error("agent identity is missing from context")
 		status := api.StatusUnauthorized(http.StatusText(http.StatusUnauthorized))
 		transport.SetResponse(w, status, status)
 		return
 	}
+	identity, ok := val.(*middleware.AgentIdentity)
+	if !ok {
+		s.log.Error("invalid agent identity type in context")
+		status := api.StatusInternalServerError(http.StatusText(http.StatusInternalServerError))
+		transport.SetResponse(w, status, status)
+		return
+	}
+	fingerprint := identity.GetUsername() // This is the device fingerprint for agents
 
 	device, st := s.serviceHandler.GetDevice(ctx, fingerprint)
 	if st.Code != http.StatusOK {
@@ -205,8 +249,11 @@ func (s *AgentTransportHandler) CreateCertificateSigningRequest(w http.ResponseW
 		return
 	}
 
+	failedTPMVerification := api.IsStatusConditionFalse(csr.Status.Conditions, api.ConditionTypeCertificateSigningRequestTPMVerified)
+
 	// auto approve for DeviceSvcClientSignerName if it pass the signer verification we're good
-	if csr.Spec.SignerName == s.ca.Cfg.DeviceSvcClientSignerName {
+	// if tpm verification explicitly fails, a manual approval is required
+	if csr.Spec.SignerName == s.ca.Cfg.DeviceSvcClientSignerName && !failedTPMVerification {
 		if _, status := s.autoApprove(ctx, csr); status.Code != http.StatusOK {
 			status := api.StatusInternalServerError(http.StatusText(http.StatusInternalServerError))
 			transport.SetResponse(w, status, status)
@@ -220,12 +267,22 @@ func (s *AgentTransportHandler) CreateCertificateSigningRequest(w http.ResponseW
 func (s *AgentTransportHandler) GetCertificateSigningRequest(w http.ResponseWriter, r *http.Request, name string) {
 	ctx := r.Context()
 
-	fingerprint, err := ValidateDeviceAccessFromContext(ctx, "", s.ca, s.log)
-	if err != nil {
+	// Extract device fingerprint from context (set by middleware)
+	val := ctx.Value(consts.IdentityCtxKey)
+	if val == nil {
+		s.log.Error("agent identity is missing from context")
 		status := api.StatusUnauthorized(http.StatusText(http.StatusUnauthorized))
 		transport.SetResponse(w, status, status)
 		return
 	}
+	identity, ok := val.(*middleware.AgentIdentity)
+	if !ok {
+		s.log.Error("invalid agent identity type in context")
+		status := api.StatusInternalServerError(http.StatusText(http.StatusInternalServerError))
+		transport.SetResponse(w, status, status)
+		return
+	}
+	fingerprint := identity.GetUsername() // This is the device fingerprint for agents
 
 	csr, status := s.serviceHandler.GetCertificateSigningRequest(ctx, name)
 	if status.Code != http.StatusOK {

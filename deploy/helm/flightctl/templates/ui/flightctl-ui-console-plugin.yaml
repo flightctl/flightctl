@@ -1,0 +1,30 @@
+{{ if .Values.ui.enabled }}
+{{- if eq (include "flightctl.enableMulticlusterExtensions" .) "true" }}
+apiVersion: console.openshift.io/v1
+kind: ConsolePlugin
+metadata:
+  name: flightctl-plugin
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+spec:
+  backend:
+    service:
+      basePath: /
+      name: flightctl-ui
+      namespace: {{ .Release.Namespace }}
+      port: 8080
+    type: Service
+  displayName: FCTL Plugin
+  i18n:
+    loadType: Preload
+  proxy:
+    - alias: api-proxy
+      authorization: UserToken
+      endpoint:
+        service:
+          name: flightctl-ui
+          namespace: {{ .Release.Namespace }}
+          port: 8080
+        type: Service
+{{- end }}
+{{ end }}

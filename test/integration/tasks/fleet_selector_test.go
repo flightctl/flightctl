@@ -12,7 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/tasks"
-	"github.com/flightctl/flightctl/internal/tasks_client"
+	"github.com/flightctl/flightctl/internal/worker_client"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
 	testutil "github.com/flightctl/flightctl/test/util"
@@ -26,18 +26,18 @@ import (
 
 var _ = Describe("FleetSelector", func() {
 	var (
-		log             *logrus.Logger
-		ctx             context.Context
-		orgId           uuid.UUID
-		deviceStore     store.Device
-		fleetStore      store.Fleet
-		eventStore      store.Event
-		storeInst       store.Store
-		serviceHandler  service.Service
-		cfg             *config.Config
-		dbName          string
-		callbackManager tasks_client.CallbackManager
-		logic           tasks.FleetSelectorMatchingLogic
+		log            *logrus.Logger
+		ctx            context.Context
+		orgId          uuid.UUID
+		deviceStore    store.Device
+		fleetStore     store.Fleet
+		eventStore     store.Event
+		storeInst      store.Store
+		serviceHandler service.Service
+		cfg            *config.Config
+		dbName         string
+		workerClient   worker_client.WorkerClient
+		logic          tasks.FleetSelectorMatchingLogic
 	)
 
 	BeforeEach(func() {
@@ -52,13 +52,20 @@ var _ = Describe("FleetSelector", func() {
 		fleetStore = storeInst.Fleet()
 		eventStore = storeInst.Event()
 		ctrl := gomock.NewController(GinkgoT())
-		publisher := queues.NewMockPublisher(ctrl)
-		publisher.EXPECT().Publish(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-		callbackManager = tasks_client.NewCallbackManager(publisher, log)
+		producer := queues.NewMockQueueProducer(ctrl)
+		producer.EXPECT().Enqueue(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+		workerClient = worker_client.NewWorkerClient(producer, log)
 		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		Expect(err).ToNot(HaveOccurred())
-		serviceHandler = service.NewServiceHandler(storeInst, callbackManager, kvStore, nil, log, "", "", []string{})
-		logic = tasks.NewFleetSelectorMatchingLogic(callbackManager, log, serviceHandler, tasks_client.ResourceReference{OrgID: orgId, Name: "fleet", Kind: api.FleetKind})
+		serviceHandler = service.NewServiceHandler(storeInst, workerClient, kvStore, nil, log, "", "", []string{})
+		event := api.Event{
+			Reason: api.EventReasonResourceUpdated,
+			InvolvedObject: api.ObjectReference{
+				Kind: api.FleetKind,
+				Name: "fleet",
+			},
+		}
+		logic = tasks.NewFleetSelectorMatchingLogic(log, serviceHandler, orgId, event)
 		logic.SetItemsPerPage(2)
 	})
 
@@ -180,8 +187,6 @@ var _ = Describe("FleetSelector", func() {
 
 				details, err := event.Details.AsInternalTaskFailedDetails()
 				Expect(err).ToNot(HaveOccurred())
-
-				Expect(details.TaskType).To(Equal(expectedTaskType))
 				Expect(details.ErrorMessage).ToNot(BeEmpty())
 				found = true
 				break
@@ -422,8 +427,14 @@ var _ = Describe("FleetSelector", func() {
 			Expect(len(devices.Items)).To(Equal(6))
 
 			for _, device := range devices.Items {
-				resourceRef := tasks_client.ResourceReference{OrgID: orgId, Name: *device.Metadata.Name, Kind: api.DeviceKind}
-				deviceLogic := tasks.NewFleetSelectorMatchingLogic(callbackManager, log, serviceHandler, resourceRef)
+				event := api.Event{
+					Reason: api.EventReasonResourceUpdated,
+					InvolvedObject: api.ObjectReference{
+						Kind: api.DeviceKind,
+						Name: *device.Metadata.Name,
+					},
+				}
+				deviceLogic := tasks.NewFleetSelectorMatchingLogic(log, serviceHandler, orgId, event)
 				deviceLogic.SetItemsPerPage(2)
 
 				err = deviceLogic.DeviceLabelsUpdated(ctx)
@@ -472,15 +483,14 @@ var _ = Describe("FleetSelector", func() {
 			Expect(err).ToNot(HaveOccurred())
 			device.Spec.Decommissioning = &api.DeviceDecommission{}
 			callback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
-			_, _, err = deviceStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, nil, callback)
+			_, _, err = deviceStore.CreateOrUpdate(ctx, orgId, device, nil, false, nil, callback)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Change fleet selector so device no longer matches
 			fleet, err := fleetStore.Get(ctx, orgId, "fleet")
 			Expect(err).ToNot(HaveOccurred())
 			fleet.Spec.Selector.MatchLabels = &map[string]string{"different": "value"}
-			fleetCallback := store.FleetStoreCallback(func(context.Context, uuid.UUID, *api.Fleet, *api.Fleet) {})
-			_, _, err = fleetStore.CreateOrUpdate(ctx, orgId, fleet, nil, false, fleetCallback, nil)
+			_, _, err = fleetStore.CreateOrUpdate(ctx, orgId, fleet, nil, false, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			err = logic.FleetSelectorUpdated(ctx)
@@ -541,8 +551,14 @@ var _ = Describe("FleetSelector", func() {
 			// Create device with owner but no labels
 			testutil.CreateTestDevice(ctx, deviceStore, orgId, "no-labels-device", lo.ToPtr("Fleet/fleet1"), nil, nil)
 
-			resourceRef := tasks_client.ResourceReference{OrgID: orgId, Name: "no-labels-device", Kind: api.DeviceKind}
-			deviceLogic := tasks.NewFleetSelectorMatchingLogic(callbackManager, log, serviceHandler, resourceRef)
+			event := api.Event{
+				Reason: api.EventReasonResourceUpdated,
+				InvolvedObject: api.ObjectReference{
+					Kind: api.DeviceKind,
+					Name: "no-labels-device",
+				},
+			}
+			deviceLogic := tasks.NewFleetSelectorMatchingLogic(log, serviceHandler, orgId, event)
 			deviceLogic.SetItemsPerPage(2)
 
 			err := deviceLogic.DeviceLabelsUpdated(ctx)
@@ -564,8 +580,14 @@ var _ = Describe("FleetSelector", func() {
 			// Create device with owner but empty labels
 			testutil.CreateTestDevice(ctx, deviceStore, orgId, "empty-labels-device", lo.ToPtr("Fleet/fleet1"), nil, &map[string]string{})
 
-			resourceRef := tasks_client.ResourceReference{OrgID: orgId, Name: "empty-labels-device", Kind: api.DeviceKind}
-			deviceLogic := tasks.NewFleetSelectorMatchingLogic(callbackManager, log, serviceHandler, resourceRef)
+			event := api.Event{
+				Reason: api.EventReasonResourceUpdated,
+				InvolvedObject: api.ObjectReference{
+					Kind: api.DeviceKind,
+					Name: "empty-labels-device",
+				},
+			}
+			deviceLogic := tasks.NewFleetSelectorMatchingLogic(log, serviceHandler, orgId, event)
 			deviceLogic.SetItemsPerPage(2)
 
 			err := deviceLogic.DeviceLabelsUpdated(ctx)
@@ -587,8 +609,14 @@ var _ = Describe("FleetSelector", func() {
 			// Create device with non-fleet owner
 			testutil.CreateTestDevice(ctx, deviceStore, orgId, "non-fleet-owner-device", lo.ToPtr("User/user1"), nil, &map[string]string{"key1": "val1"})
 
-			resourceRef := tasks_client.ResourceReference{OrgID: orgId, Name: "non-fleet-owner-device", Kind: api.DeviceKind}
-			deviceLogic := tasks.NewFleetSelectorMatchingLogic(callbackManager, log, serviceHandler, resourceRef)
+			event := api.Event{
+				Reason: api.EventReasonResourceUpdated,
+				InvolvedObject: api.ObjectReference{
+					Kind: api.DeviceKind,
+					Name: "non-fleet-owner-device",
+				},
+			}
+			deviceLogic := tasks.NewFleetSelectorMatchingLogic(log, serviceHandler, orgId, event)
 			deviceLogic.SetItemsPerPage(2)
 
 			err := deviceLogic.DeviceLabelsUpdated(ctx)

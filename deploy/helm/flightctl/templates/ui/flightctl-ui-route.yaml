@@ -1,0 +1,36 @@
+{{ if .Values.ui.enabled }}
+{{ if and (eq (include "flightctl.enableMulticlusterExtensions" .) "false") (eq (include "flightctl.getServiceExposeMethod" .) "route") }}
+kind: Route
+apiVersion: route.openshift.io/v1
+metadata:
+  name: flightctl-ui
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    {{- with .Values.global.additionalRouteLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    {{- with .Values.ui.additionalRouteLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  host:  ui.{{ include "flightctl.getBaseDomain" . }}
+  to:
+    kind: Service
+    name: flightctl-ui
+    weight: 100
+  port:
+    targetPort: 8080-tcp
+  {{- if eq (include "flightctl.getHttpScheme" .) "https" }}
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+    {{- if (.Values.global.baseDomainTls).cert }}
+    certificate: {{ .Values.global.baseDomainTls.cert | quote }}
+    key: {{ .Values.global.baseDomainTls.key | quote }}
+    {{- end }}
+  {{- end }}
+  wildcardPolicy: None
+{{ end }}
+{{ end }}
+    

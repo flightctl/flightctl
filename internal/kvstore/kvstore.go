@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/flightctl/flightctl/internal/config"
-	"github.com/flightctl/flightctl/internal/instrumentation"
+	api "github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/redis/go-redis/extra/redisotel/v9"
 	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
@@ -15,6 +15,7 @@ import (
 type KVStore interface {
 	Close()
 	SetNX(ctx context.Context, key string, value []byte) (bool, error)
+	SetIfGreater(ctx context.Context, key string, newVal int64) (bool, error)
 	Get(ctx context.Context, key string) ([]byte, error)
 	GetOrSetNX(ctx context.Context, key string, value []byte) ([]byte, error)
 	DeleteKeysForTemplateVersion(ctx context.Context, key string) error
@@ -23,13 +24,14 @@ type KVStore interface {
 }
 
 type kvStore struct {
-	log            logrus.FieldLogger
-	client         *redis.Client
-	getSetNxScript *redis.Script
+	log                logrus.FieldLogger
+	client             *redis.Client
+	getSetNxScript     *redis.Script
+	setIfGreaterScript *redis.Script
 }
 
-func NewKVStore(ctx context.Context, log logrus.FieldLogger, hostname string, port uint, password config.SecureString) (KVStore, error) {
-	ctx, span := instrumentation.StartSpan(ctx, "flightctl/kvstore", "KVStore")
+func NewKVStore(ctx context.Context, log logrus.FieldLogger, hostname string, port uint, password api.SecureString) (KVStore, error) {
+	ctx, span := tracing.StartSpan(ctx, "flightctl/kvstore", "KVStore")
 	defer span.End()
 
 	client := redis.NewClient(&redis.Options{
@@ -61,10 +63,23 @@ func NewKVStore(ctx context.Context, log logrus.FieldLogger, hostname string, po
 		return value
 	`)
 
+	// Lua script to set the key to a new value only if the current value is less than the new value
+	setIfGreaterScript := redis.NewScript(`
+local current = tonumber(redis.call("get", KEYS[1]))
+local newval = tonumber(ARGV[1])
+if not current or newval > current then
+    redis.call("set", KEYS[1], newval)
+    return 1
+else
+    return 0
+end
+`)
+
 	return &kvStore{
-		log:            log,
-		client:         client,
-		getSetNxScript: luaScript,
+		log:                log,
+		client:             client,
+		getSetNxScript:     luaScript,
+		setIfGreaterScript: setIfGreaterScript,
 	}, nil
 }
 
@@ -90,6 +105,15 @@ func (s *kvStore) SetNX(ctx context.Context, key string, value []byte) (bool, er
 		return false, fmt.Errorf("failed storing key: %w", err)
 	}
 	return success, nil
+}
+
+// Sets the key to value, only if the key does not already exist or if its current value is less than the new value.
+func (s *kvStore) SetIfGreater(ctx context.Context, key string, newVal int64) (bool, error) {
+	res, err := s.setIfGreaterScript.Run(ctx, s.client, []string{key}, newVal).Result()
+	if err != nil {
+		return false, err
+	}
+	return res.(int64) == 1, nil
 }
 
 // Gets the value for the specified key.

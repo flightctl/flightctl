@@ -1,0 +1,138 @@
+{{ if .Values.api.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    flightctl.service: flightctl-api
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+  name: flightctl-api
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      flightctl.service: flightctl-api
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        flightctl.service: flightctl-api
+        {{- include "flightctl.standardLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: flightctl-api
+      {{- if .Values.global.imagePullSecretName }}
+      imagePullSecrets:
+        - name: {{ .Values.global.imagePullSecretName }}
+      {{- end }}
+      initContainers:
+      {{- include "flightctl.databaseWaitInitContainer" (dict "context" . "userType" "app" "timeout" 60 "sleep" 1) | nindent 6 }}
+      {{- include "flightctl.migrationWaitInitContainer" (dict "context" . "timeout" 600) | nindent 6 }}
+      containers:
+        - name: flightctl-api
+          image: {{ .Values.api.image.image }}:{{ default .Chart.AppVersion .Values.api.image.tag }}
+          imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.api.image.pullPolicy }}
+          env:
+            - name: HOME
+              value: "/root"
+            - name: KV_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-kv-secret
+                  key: password
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-db-app-secret
+                  key: userPassword
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-db-app-secret
+                  key: user
+            {{- if eq .Values.global.auth.type "none" }}
+            - name: FLIGHTCTL_DISABLE_AUTH
+              value: "true"
+            {{- end }}
+            {{- if .Values.api.env }}
+            {{- range $key, $value := .Values.api.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+            {{- end }}
+          ports:
+            - containerPort: 3443
+              name: service-api
+              protocol: TCP
+            - containerPort: 7443
+              name: agent-api
+              protocol: TCP
+            - containerPort: 15690
+              name: api-prom-target
+              protocol: TCP
+            - containerPort: 15691
+              name: db-prom-target
+              protocol: TCP
+
+          {{- if .Values.api.probes.enabled }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.api.probes.readinessPath }}
+              port: service-api
+              scheme: HTTPS
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+            successThreshold: 1
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.api.probes.livenessPath }}
+              port: service-api
+              scheme: HTTPS
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 10
+            successThreshold: 1
+          {{- end }}
+
+          volumeMounts:
+            - mountPath: /root/.flightctl/
+              name: flightctl-api-certs
+            - mountPath: /root/.flightctl/config.yaml
+              name: flightctl-api-config
+              subPath: config.yaml
+              readOnly: true
+            {{- if .Values.global.auth.k8s.externalApiToken}}
+            - mountPath: /var/flightctl/k8s
+              name: flightctl-api-k8s-token
+              readOnly: true
+            {{- end}}
+            {{- if .Values.global.auth.openshift.externalApiToken}}
+            - mountPath: /var/flightctl/k8s
+              name: flightctl-api-openshift-token
+              readOnly: true
+            {{- end}}
+            {{- include "flightctl.dbSslVolumeMounts" . | nindent 12 }}
+
+      restartPolicy: Always
+      volumes:
+        - name: flightctl-api-certs
+          persistentVolumeClaim:
+            claimName: flightctl-api-certs
+        - name: flightctl-api-config
+          configMap:
+            name: flightctl-api-config
+        {{- if .Values.global.auth.k8s.externalApiToken}}
+        - name: flightctl-api-k8s-token
+          secret:
+            secretName: flightctl-api-k8s-token
+        {{- end}}
+        {{- if .Values.global.auth.openshift.externalApiToken}}
+        - name: flightctl-api-openshift-token
+          secret:
+            secretName: flightctl-api-openshift-token
+        {{- end}}
+        {{- include "flightctl.dbSslVolumes" . | nindent 8 }}
+{{ end }}

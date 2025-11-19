@@ -2,7 +2,6 @@ package tasks
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -36,16 +35,11 @@ func (t *DeviceDisconnected) Poll(ctx context.Context) {
 	defer cancel()
 
 	// Calculate the cutoff time for disconnected devices
-	cutoffTime := time.Now().Add(-api.DeviceDisconnectedTimeout)
-
-	// Create a field selector to only get devices that haven't been seen for more than DeviceDisconnectedTimeout
-	// and don't already have "Unknown" status to avoid reprocessing the same devices
-	fieldSelectorStr := fmt.Sprintf("status.lastSeen<%s,status.summary.status!=Unknown", cutoffTime.Format(time.RFC3339))
+	cutoffTime := time.Now().UTC().Add(-api.DeviceDisconnectedTimeout)
 
 	// List devices that match the disconnection criteria with pagination
 	listParams := api.ListDevicesParams{
-		FieldSelector: &fieldSelectorStr,
-		Limit:         lo.ToPtr(int32(ItemsPerPage)),
+		Limit: lo.ToPtr(int32(ItemsPerPage)),
 	}
 
 	totalProcessed := 0
@@ -56,13 +50,14 @@ func (t *DeviceDisconnected) Poll(ctx context.Context) {
 			return
 		}
 
-		devices, status := t.serviceHandler.ListDevices(ctx, listParams, nil)
+		devices, status := t.serviceHandler.ListDisconnectedDevices(ctx, listParams, cutoffTime)
 		if status.Code != 200 {
 			t.log.Errorf("Failed to list devices: %s", status.Message)
 			return
 		}
 
 		if len(devices.Items) == 0 {
+			t.log.Debug("No devices found, stopping")
 			break
 		}
 
@@ -75,14 +70,10 @@ func (t *DeviceDisconnected) Poll(ctx context.Context) {
 				return
 			}
 
-			changed := t.serviceHandler.UpdateServiceSideDeviceStatus(ctx, device)
-			if !changed {
-				continue
-			}
-
-			_, status := t.serviceHandler.ReplaceDeviceStatus(ctx, *device.Metadata.Name, device)
-			if status.Code != 200 {
-				t.log.Errorf("Failed to replace device status for %s: %s", *device.Metadata.Name, status.Message)
+			t.log.Debugf("Updating server-side device status for %s", *device.Metadata.Name)
+			err := t.serviceHandler.UpdateServerSideDeviceStatus(ctx, *device.Metadata.Name)
+			if err != nil {
+				t.log.Errorf("Failed to update server-side device status for %s: %s", *device.Metadata.Name, err.Error())
 				continue
 			}
 

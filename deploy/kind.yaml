@@ -15,9 +15,6 @@ nodes:
   - containerPort: 7443 # flightctl agent endpoint API
     hostPort: 7443
     protocol: TCP
-  - containerPort: 8081 # keycloak
-    hostPort: 8081
-    protocol: TCP
   - containerPort: 9000 # ui
     hostPort: 9000
     protocol: TCP
@@ -26,4 +23,10 @@ nodes:
     protocol: TCP
   - containerPort: 16686 # jaeger ui
     hostPort: 16686
+    protocol: TCP
+  - containerPort: 4317 # telemetry-gateway OTLP
+    hostPort: 4317
+    protocol: TCP
+  - containerPort: 9464 # telemetry-gateway Prometheus
+    hostPort: 9464
     protocol: TCP

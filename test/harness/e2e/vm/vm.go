@@ -15,21 +15,23 @@ import (
 const sshWaitTimeout time.Duration = 60 * time.Second
 
 type TestVM struct {
-	TestDir       string
-	VMName        string
-	LibvirtUri    string //linux only
-	DiskImagePath string
-	VMUser        string //user to use when connecting to the VM
-	CloudInitDir  string
-	NoCredentials bool
-	CloudInitData bool
-	SSHPassword   string
-	SSHPort       int
-	Cmd           []string
-	RemoveVm      bool
-	pidFile       string
-	hasCloudInit  bool
-	cloudInitArgs string
+	TestDir        string
+	VMName         string
+	LibvirtUri     string //linux only
+	DiskImagePath  string
+	VMUser         string //user to use when connecting to the VM
+	CloudInitDir   string
+	NoCredentials  bool
+	CloudInitData  bool
+	SSHPassword    string
+	SSHPort        int
+	Cmd            []string
+	RemoveVm       bool
+	pidFile        string
+	hasCloudInit   bool
+	cloudInitArgs  string
+	MemoryFilePath string // Path for external snapshot memory file
+	DiskSizeGB     int
 }
 
 type TestVMInterface interface {
@@ -46,14 +48,26 @@ type TestVMInterface interface {
 	RunSSHWithUser(inputArgs []string, stdin *bytes.Buffer, user string) (*bytes.Buffer, error)
 	Exists() (bool, error)
 	GetConsoleOutput() string
+	EnsureConsoleStream() error
 	JournalLogs(opts JournalOpts) (string, error)
+	GetServiceLogs(serviceName string) (string, error)
+	// Snapshot methods for performance optimization
+	CreateSnapshot(name string) error
+	RevertToSnapshot(name string) error
+	DeleteSnapshot(name string) error
+	Pause() error
+	Resume() error
+	HasSnapshot(name string) (bool, error)
+	// Domain creation without starting
+	CreateDomain() error
 }
 
 // JournalOpts collects optional filters.
 // Zero values mean "all units" / "start of journal".
 type JournalOpts struct {
-	Unit  string
-	Since string // time string like "20 minutes ago" or empty for all logs
+	Unit     string
+	Since    string // time string like "20 minutes ago" or empty for all logs
+	LastBoot bool   // false by default, when true restricts logs to current boot
 }
 
 func (v *TestVM) WaitForSSHToBeReady() error {
@@ -139,11 +153,18 @@ func (v *TestVM) RunSSH(inputArgs []string, stdin *bytes.Buffer) (*bytes.Buffer,
 }
 
 func (v *TestVM) JournalLogs(opts JournalOpts) (string, error) {
-	args := []string{"sudo", "journalctl", "--no-pager", "--no-hostname", "--boot=all"}
+	args := []string{"sudo", "journalctl", "--no-pager", "--no-hostname"}
 
 	if opts.Unit != "" {
 		args = append(args, "-u", opts.Unit)
 	}
+	if opts.LastBoot {
+		// Add systemd invocation ID to get logs from the latest service invocation
+		args = append(args, fmt.Sprintf("_SYSTEMD_INVOCATION_ID=$(systemctl show -p InvocationID --value %s)", opts.Unit))
+	} else {
+		args = append(args, "--boot=all")
+	}
+
 	if opts.Since != "" {
 		args = append(args, "--since", fmt.Sprintf("%q", opts.Since))
 	}
@@ -152,6 +173,24 @@ func (v *TestVM) JournalLogs(opts JournalOpts) (string, error) {
 	stdout, err := v.RunSSH(args, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to read journal logs: %w", err)
+	}
+	return stdout.String(), nil
+}
+
+// GetServiceLogs returns the logs from the specified service using journalctl.
+// This method uses the systemd invocation ID to get logs from the latest service invocation.
+func (v *TestVM) GetServiceLogs(serviceName string) (string, error) {
+	args := []string{
+		"sudo",
+		"journalctl",
+		fmt.Sprintf("_SYSTEMD_INVOCATION_ID=$(systemctl show -p InvocationID --value %s.service)", serviceName),
+		"--no-pager",
+	}
+
+	logrus.Infof("Reading service logs for %s with command: %s", serviceName, strings.Join(args, " "))
+	stdout, err := v.RunSSH(args, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to get service logs for %s: %w", serviceName, err)
 	}
 	return stdout.String(), nil
 }

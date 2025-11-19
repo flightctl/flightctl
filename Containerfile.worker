@@ -1,22 +1,45 @@
-FROM registry.access.redhat.com/ubi9/go-toolset:1.23.9-1751538372 as build
+FROM registry.access.redhat.com/ubi9/go-toolset:1.24.6-1762373805 as build
 WORKDIR /app
-COPY ./api api
-COPY ./cmd cmd
-COPY ./deploy deploy
-COPY ./hack hack
-COPY ./internal internal
-COPY ./go.* ./
-COPY ./pkg pkg
-COPY ./test test
-COPY ./Makefile .
-# make sure that version extraction works
-COPY .git .git
 
+# Switch to root for build operations
 USER 0
-RUN make build-worker
 
+# Copy dependencies first (most stable)
+COPY go.* ./
+COPY go.mod go.sum ./
 
-FROM quay.io/flightctl/flightctl-base:9.6-1752500771
+# Download dependencies (cached layer)
+RUN --mount=type=cache,target=/opt/app-root/src/go/pkg/mod \
+    go mod download
+
+# Copy build tools and configs
+COPY Makefile .
+
+# Copy source code directories
+COPY ./api ./api
+COPY ./cmd ./cmd
+COPY ./deploy ./deploy
+COPY ./hack ./hack
+COPY ./internal ./internal
+COPY ./pkg ./pkg
+COPY ./test ./test
+
+# Define version info ARGs right before build
+ARG SOURCE_GIT_TAG
+ARG SOURCE_GIT_TREE_STATE
+ARG SOURCE_GIT_COMMIT
+
+# Convert ARGs to ENV so make can use them
+ENV SOURCE_GIT_TAG=${SOURCE_GIT_TAG}
+ENV SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE}
+ENV SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT}
+
+# Use BuildKit cache mounts for Go caching
+RUN --mount=type=cache,target=/opt/app-root/src/.cache/go-build \
+    --mount=type=cache,target=/opt/app-root/src/go/pkg/mod \
+    make build-worker
+
+FROM quay.io/flightctl/flightctl-base:9.6-1762316544
 WORKDIR /app
 LABEL \
   com.redhat.component="flightctl-worker-container" \
@@ -25,7 +48,5 @@ LABEL \
   io.k8s.display-name="Flight Control Asynchronous Job Worker" \
   name="flightctl-worker" \
   summary="Flight Control Edge management service, async job worker"
-
 COPY --from=build /app/bin/flightctl-worker .
-
 CMD ./flightctl-worker

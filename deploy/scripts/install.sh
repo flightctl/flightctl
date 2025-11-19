@@ -24,12 +24,10 @@ export SYSTEMD_UNIT_OUTPUT_DIR
 # Tags for dev builds on the main branch look like: 0.6.0-main-119-gf75bcff
 get_services_for_tag() {
     local image_tag="$1"
-    local services=()
+    local services=("api" "periodic" "worker" "alert-exporter" "cli-artifacts" "alertmanager-proxy" "pam-issuer")
 
-    if [[ "$image_tag" =~ -main- ]]; then
-        services+=("api" "periodic" "worker" "cli-artifacts")
-    else
-        services+=("api" "periodic" "worker" "ui" "cli-artifacts")
+    if [[ ! "$image_tag" =~ -main- ]]; then
+        services+=("ui")
     fi
 
     echo "${services[@]}"
@@ -63,23 +61,18 @@ update_image_tags() {
         fi
     done
 
-    # Update db-setup image in service files
-    db_migrate_service="${SYSTEMD_UNIT_OUTPUT_DIR}/flightctl-db-migrate.service"
-    if [[ -f "$db_migrate_service" ]] && grep -q "flightctl-db-setup:latest" "$db_migrate_service"; then
-        sed -i "s|flightctl-db-setup:latest|flightctl-db-setup:${image_tag}|g" "$db_migrate_service"
-        echo "Updated $db_migrate_service with db-setup image tag: $image_tag"
-    else
-        echo "Skipping $db_migrate_service (not found or no matching image reference)"
-    fi
 
-    # Update db-setup image in container files
-    db_migrate_container="${QUADLET_FILES_OUTPUT_DIR}/flightctl-db-migrate.container"
-    if [[ -f "$db_migrate_container" ]] && grep -q "flightctl-db-setup:latest" "$db_migrate_container"; then
-        sed -i "s|flightctl-db-setup:latest|flightctl-db-setup:${image_tag}|g" "$db_migrate_container"
-        echo "Updated $db_migrate_container with db-setup image tag: $image_tag"
-    else
-        echo "Skipping $db_migrate_container (not found or no matching image reference)"
-    fi
+    # Update db-setup image in db-related container files
+    for f in "${QUADLET_FILES_OUTPUT_DIR}/flightctl-db-migrate.container" \
+             "${QUADLET_FILES_OUTPUT_DIR}/flightctl-db-wait.container" \
+             "${QUADLET_FILES_OUTPUT_DIR}/flightctl-db-users-init.container"; do
+        if [[ -f "$f" ]] && grep -q "flightctl-db-setup:" "$f"; then
+            sed -i "s|\(.*flightctl-db-setup:\)[^[:space:]]*|\1${image_tag}|g" "$f"
+            echo "Updated $f with db-setup image tag: $image_tag"
+        else
+            echo "Skipping $f (not found or no matching image reference)"
+        fi
+    done
 }
 
 render_files() {
@@ -87,7 +80,10 @@ render_files() {
     render_service "periodic" "${SOURCE_DIR}"
     render_service "worker" "${SOURCE_DIR}"
     render_service "alert-exporter" "${SOURCE_DIR}"
+    render_service "pam-issuer" "${SOURCE_DIR}"
+
     render_service "db" "${SOURCE_DIR}"
+
     render_service "db-migrate" "${SOURCE_DIR}"
     render_service "kv" "${SOURCE_DIR}"
     render_service "alertmanager" "${SOURCE_DIR}"
@@ -99,10 +95,19 @@ render_files() {
 
     # Create writeable directories for certs and services that generate files
     mkdir -p "${CONFIG_WRITEABLE_DIR}/pki"
+    mkdir -p "${CONFIG_WRITEABLE_DIR}/pam-issuer-pki"
     mkdir -p "${CONFIG_WRITEABLE_DIR}/flightctl-api"
+    mkdir -p "${CONFIG_WRITEABLE_DIR}/flightctl-pam-issuer"
     mkdir -p "${CONFIG_WRITEABLE_DIR}/flightctl-ui"
     mkdir -p "${CONFIG_WRITEABLE_DIR}/flightctl-cli-artifacts"
     mkdir -p "${CONFIG_WRITEABLE_DIR}/flightctl-alertmanager-proxy"
+    mkdir -p "${CONFIG_WRITEABLE_DIR}/ssh"
+
+    # Create an empty known_hosts file if it doesn't exist
+    if [ ! -f "${CONFIG_WRITEABLE_DIR}/ssh/known_hosts" ]; then
+        touch "${CONFIG_WRITEABLE_DIR}/ssh/known_hosts"
+        chmod 644 "${CONFIG_WRITEABLE_DIR}/ssh/known_hosts"
+    fi
 
     move_shared_files "${SOURCE_DIR}"
 }

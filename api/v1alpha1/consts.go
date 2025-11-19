@@ -1,6 +1,14 @@
 package v1alpha1
 
-import "time"
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
+
+var (
+	NullOrgId = uuid.MustParse("00000000-0000-0000-0000-000000000000")
+)
 
 const (
 	APIGroup = "flightctl.io"
@@ -15,10 +23,16 @@ const (
 
 	DeviceAnnotationConsole         = "device-controller/console"
 	DeviceAnnotationRenderedVersion = "device-controller/renderedVersion"
+	// Used After database restore , all devices will be marked with this annotation
+	DeviceAnnotationAwaitingReconnect = "device-controller/awaitingReconnect"
+	// After restore when device has a new spec version than what we know,
+	DeviceAnnotationConflictPaused = "device-controller/conflictPaused"
 	// This annotation is populated after a device was rolled out by the fleet-rollout task
 	DeviceAnnotationTemplateVersion = "fleet-controller/templateVersion"
 	// This annotation is populated after a device was rendered by the device-render task
 	DeviceAnnotationRenderedTemplateVersion = "fleet-controller/renderedTemplateVersion"
+	// This annotation stores the hash of the device spec that was last rendered
+	DeviceAnnotationRenderedSpecHash = "device-controller/renderedSpecHash"
 	// When this annotation is present, it means that the device has been selected for rollout in a batch
 	DeviceAnnotationSelectedForRollout = "fleet-controller/selectedForRollout"
 	DeviceAnnotationLastRolloutError   = "fleet-controller/lastRolloutError"
@@ -58,6 +72,12 @@ const (
 	RepositoryKind       = "Repository"
 	RepositoryListKind   = "RepositoryList"
 
+	AuthProviderAPIVersion = "v1alpha1"
+	AuthProviderKind       = "AuthProvider"
+	AuthProviderListKind   = "AuthProviderList"
+
+	AuthConfigAPIVersion = "v1alpha1"
+
 	ResourceSyncAPIVersion = "v1alpha1"
 	ResourceSyncKind       = "ResourceSync"
 	ResourceSyncListKind   = "ResourceSyncList"
@@ -70,9 +90,30 @@ const (
 	EventKind       = "Event"
 	EventListKind   = "EventList"
 
+	EventAnnotationDelayDeviceRender = "fleet-controller/delayDeviceRender"
+
 	OrganizationAPIVersion = "v1alpha1"
 	OrganizationKind       = "Organization"
 	OrganizationListKind   = "OrganizationList"
+	OrganizationIDQueryKey = "org_id"
+
+	SystemKind           = "System"
+	SystemComponentDB    = "database"
+	SystemComponentQueue = "queue"
+
+	// External role names - these come from authentication providers and are mapped to internal roles
+	ExternalRoleAdmin     = "flightctl-admin"
+	ExternalRoleOrgAdmin  = "flightctl-org-admin"
+	ExternalRoleOperator  = "flightctl-operator"
+	ExternalRoleViewer    = "flightctl-viewer"
+	ExternalRoleInstaller = "flightctl-installer"
+
+	// Internal role constants - used within flightctl for authorization
+	RoleAdmin     = "admin"     // Full access to all resources
+	RoleOrgAdmin  = "org-admin" // Full access to all resources within an organization
+	RoleOperator  = "operator"  // Manage devices, fleets, resourcesyncs
+	RoleViewer    = "viewer"    // Read-only access to devices, fleets, resourcesyncs
+	RoleInstaller = "installer" // Limited access for device installation
 )
 
 type UpdateState string
@@ -137,4 +178,23 @@ const (
 	PreliminaryBatchName = "preliminary batch"
 	// The name of the final implicit batch
 	FinalImplicitBatchName = "final implicit batch"
+
+	// System-level resource name for events
+	FlightCtlSystemResourceName = "flightctl-system"
+
+	// TPM Validation Reasons
+
+	// TPMVerificationFailedReason indicates a TPM Request failed initial validation
+	TPMVerificationFailedReason = "TPMVerificationFailed"
+	// TPMChallengeRequiredReason indicates a TPM Challenge is required
+	TPMChallengeRequiredReason = "TPMChallengeRequired"
+	// TPMChallengeFailedReason indicates that a TPM Challenge attempt failed
+	TPMChallengeFailedReason = "TPMChallengeFailed"
+	// TPMChallengeSucceededReason indicates that a TPM Challenge attempt succeed
+	TPMChallengeSucceededReason = "TPMChallengeSucceeded"
+)
+
+const (
+	DeviceOutOfDateText          = "Device has not been updated to the latest device spec"
+	DeviceOutOfSyncWithFleetText = "Device has not yet been scheduled for update to the fleet's latest spec."
 )

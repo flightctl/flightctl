@@ -1,7 +1,7 @@
 [Unit]
 Description=FlightCtl Grafana Dashboard
-After=flightctl-observability-network.service flightctl-prometheus.service
-Wants=flightctl-observability-network.service flightctl-prometheus.service
+After=flightctl-network.service flightctl-prometheus.service
+Wants=flightctl-network.service flightctl-prometheus.service
 PartOf=flightctl-observability.target
 
 [Container]
@@ -22,7 +22,10 @@ Volume=/etc/grafana/provisioning/datasources:/etc/grafana/provisioning/datasourc
 # Mount directory for TLS certificates (if using HTTPS)
 Volume=/etc/grafana/certs:/etc/grafana/certs:ro,z
 
-Network=flightctl-observability
+# Downstream grafana image expects this
+Volume=/etc/grafana/provisioning/alerting:/etc/grafana/provisioning/alerting:ro,z
+
+Network=flightctl
 
 [Service]
 Restart=on-failure

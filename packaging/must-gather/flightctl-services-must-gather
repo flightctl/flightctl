@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# Ensure script is run with sudo available
+if ! sudo -n true 2>/dev/null; then
+    echo "This script requires sudo privileges. Please run with a user that has sudo access."
+    exit 1
+fi
+
+echo "Warning: This operation could generate a very large file in the current directory."
+read -p "Do you have enough storage space? (y/n): " -n 1 -r
+echo ""
+
+# Check the user's response
+if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+  echo "Operation canceled by the user."
+  exit 1
+fi
+
+echo "Beginning Must Gather Collection..."
+
+timestamp=$(date +"%Y%m%d-%H%M%S")
+temp_dir=$(mktemp -d)
+trap 'rm -rf "$temp_dir"' EXIT
+
+echo "# Collecting system information..."
+uname -a > "$temp_dir/uname-info.log" || true
+cat /etc/os-release > "$temp_dir/os-release.log" || true
+getenforce > "$temp_dir/selinux-status.log" || echo "SELinux not available" > "$temp_dir/selinux-status.log"
+sudo dnf list installed flightctl-services > "$temp_dir/services-version.log" || echo "Package not found or dnf not available" > "$temp_dir/services-version.log"
+
+echo "# Collecting systemd information..."
+sudo systemctl list-dependencies flightctl.target > "$temp_dir/target-list-dependencies.log" || echo "flightctl.target not found" > "$temp_dir/target-list-dependencies.log"
+sudo systemctl status 'flightctl*' > "$temp_dir/systemd-status.log" || echo "No flightctl services found" > "$temp_dir/systemd-status.log"
+sudo systemctl list-units 'flightctl*' > "$temp_dir/systemd-list-units.log" || echo "No flightctl units found" > "$temp_dir/systemd-list-units.log"
+
+echo "# Collecting journal logs..."
+for service in $(sudo systemctl list-units --no-legend 'flightctl*' 2>/dev/null |
+awk '{print $1}' || true); do
+    if [ -n "$service" ]; then
+        echo "## Collecting logs for $service..."
+        sudo journalctl -u "$service" --since "24 hours ago" --no-pager > "$temp_dir/${service}.log" || echo "Failed to collect logs for $service" > "$temp_dir/${service}.log"
+    fi
+done
+
+echo "# Collecting podman information..."
+sudo podman ps -a > "$temp_dir/podman-ps.log" || echo "podman ps failed" > "$temp_dir/podman-ps.log"
+sudo podman images -a > "$temp_dir/podman-images.log" || echo "podman images failed" > "$temp_dir/podman-images.log"
+sudo podman volume ls > "$temp_dir/podman-volumes.log" || echo "podman volume ls failed" > "$temp_dir/podman-volumes.log"
+sudo podman network ls > "$temp_dir/podman-networks.log" || echo "podman network ls failed" > "$temp_dir/podman-networks.log"
+sudo podman secret ls > "$temp_dir/podman-secrets.log" || echo "podman secret ls failed" > "$temp_dir/podman-secrets.log"
+if sudo podman network exists flightctl 2>/dev/null; then
+    sudo podman network inspect flightctl > "$temp_dir/podman-network-flightctl.log" || echo "Failed to inspect flightctl network" > "$temp_dir/podman-network-flightctl.log"
+else
+    echo "Network does not exist" > "$temp_dir/podman-network-flightctl.log"
+fi
+
+echo "# Collecting must-gather script itself..."
+cp "$0" "$temp_dir/flightctl-services-must-gather.txt"
+
+echo "# Creating must-gather archive..."
+filename="flightctl-services-must-gather-$timestamp.tgz"
+
+tar -czf "$filename" -C "$temp_dir" .
+rm -rf "$temp_dir"
+
+echo "$filename created successfully."

@@ -33,6 +33,7 @@ func (s *SignerClientBootstrap) Verify(ctx context.Context, request SignRequest)
 	if _, err := PeerCertificateFromCtx(ctx); err == nil {
 		return fmt.Errorf("bootstrap certificates cannot be requested using client certificates issued by the system")
 	}
+
 	return nil
 }
 

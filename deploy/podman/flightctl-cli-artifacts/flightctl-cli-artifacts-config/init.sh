@@ -14,7 +14,7 @@ NGINX_CONFIG_OUTPUT="/config-destination/nginx.conf"
 CERTS_SOURCE_PATH="/certs-source"
 CERTS_DEST_PATH="/certs-destination"
 
-BASE_DOMAIN=$(extract_value "baseDomain" "$SERVICE_CONFIG_FILE")
+BASE_DOMAIN=$(extract_value "global.baseDomain" "$SERVICE_CONFIG_FILE")
 
 # Verify baseDomain was found
 if [ -z "$BASE_DOMAIN" ]; then
@@ -33,6 +33,9 @@ cp "$NGINX_CONFIG_FILE" "$NGINX_CONFIG_OUTPUT"
 sed '/^\s*listen\s*\[::\]:8090/d' "$NGINX_CONFIG_OUTPUT" > "${NGINX_CONFIG_OUTPUT}.ipv4" && \
 # Removes IPv4 listen directive for the IPv6 configuration
 sed '/^\s*listen\s*8090 ssl/d' "$NGINX_CONFIG_OUTPUT" > "${NGINX_CONFIG_OUTPUT}.ipv6"
+
+# Wait for certificates
+wait_for_files "$CERTS_SOURCE_PATH/server.crt" "$CERTS_SOURCE_PATH/server.key"
 
 # Handle server certificates
 #

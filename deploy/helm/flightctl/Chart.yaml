@@ -5,9 +5,3 @@ home: https://github.com/flightctl/flightctl
 type: application
 version: 0.1.0
 appVersion: "latest" # this is replaced at packaging with the hash of the image release
-dependencies:
-  - name: keycloak
-    version: "0.0.1"
-  - name: ui
-    condition: ui.enabled
-    version: "0.0.1"

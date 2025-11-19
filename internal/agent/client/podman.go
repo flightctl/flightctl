@@ -218,6 +218,21 @@ func (p *Podman) ImageExists(ctx context.Context, image string) bool {
 	return exitCode == 0
 }
 
+// ImageDigest returns the digest of the specified image.
+// Returns empty string and error if the image does not exist or cannot be inspected.
+func (p *Podman) ImageDigest(ctx context.Context, image string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, p.timeout)
+	defer cancel()
+
+	args := []string{"image", "inspect", "--format", "{{.Digest}}", image}
+	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
+	if exitCode != 0 {
+		return "", fmt.Errorf("get image digest: %s: %w", image, errors.FromStderr(stderr, exitCode))
+	}
+	digest := strings.TrimSpace(stdout)
+	return digest, nil
+}
+
 // ArtifactExists returns true if the artifact exists in storage otherwise false.
 func (p *Podman) ArtifactExists(ctx context.Context, artifact string) bool {
 	ctx, cancel := context.WithTimeout(ctx, p.timeout)
@@ -361,6 +376,41 @@ func (p *Podman) CreateVolume(ctx context.Context, name string, labels []string)
 	return mountpoint, nil
 }
 
+type podmanVolume struct {
+	Name string `json:"Name"`
+}
+
+func (p *Podman) ListVolumes(ctx context.Context, labels []string, filters []string) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, p.timeout)
+	defer cancel()
+
+	args := []string{
+		"volume",
+		"ls",
+		"--format",
+		"json",
+	}
+	args = applyFilters(args, labels, filters)
+	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
+	if exitCode != 0 {
+		return nil, fmt.Errorf("list volumes: %w", errors.FromStderr(stderr, exitCode))
+	}
+	var podVols []podmanVolume
+	err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &podVols)
+	if err != nil {
+		return nil, fmt.Errorf("unmarshal volumes: %w", err)
+	}
+	volumesSeen := make(map[string]struct{})
+	volumes := make([]string, 0, len(podVols))
+	for _, volume := range podVols {
+		if _, ok := volumesSeen[volume.Name]; !ok {
+			volumesSeen[volume.Name] = struct{}{}
+			volumes = append(volumes, volume.Name)
+		}
+	}
+	return volumes, nil
+}
+
 func (p *Podman) VolumeExists(ctx context.Context, name string) bool {
 	ctx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()
@@ -370,17 +420,25 @@ func (p *Podman) VolumeExists(ctx context.Context, name string) bool {
 	return exitCode == 0
 }
 
-func (p *Podman) InspectVolumeMount(ctx context.Context, name string) (string, error) {
+func (p *Podman) inspectVolumeProperty(ctx context.Context, name string, property string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()
 
-	args := []string{"volume", "inspect", name, "--format", "{{.Mountpoint}}"}
+	args := []string{"volume", "inspect", name, "--format", property}
 	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	if exitCode != 0 {
-		return "", fmt.Errorf("inspect volume mountpoint: %w", errors.FromStderr(stderr, exitCode))
+		return "", fmt.Errorf("inspect volume property %s: %w", property, errors.FromStderr(stderr, exitCode))
 	}
 
 	return strings.TrimSpace(stdout), nil
+}
+
+func (p *Podman) InspectVolumeDriver(ctx context.Context, name string) (string, error) {
+	return p.inspectVolumeProperty(ctx, name, "{{.Driver}}")
+}
+
+func (p *Podman) InspectVolumeMount(ctx context.Context, name string) (string, error) {
+	return p.inspectVolumeProperty(ctx, name, "{{.Mountpoint}}")
 }
 
 func (p *Podman) RemoveVolumes(ctx context.Context, volumes ...string) error {
@@ -397,7 +455,18 @@ func (p *Podman) RemoveVolumes(ctx context.Context, volumes ...string) error {
 	return nil
 }
 
-func (p *Podman) ListNetworks(ctx context.Context, labels []string) ([]string, error) {
+func applyFilters(args, labels, filters []string) []string {
+	for _, label := range labels {
+		args = append(args, "--filter", fmt.Sprintf("label=%s", label))
+	}
+
+	for _, filter := range filters {
+		args = append(args, "--filter", filter)
+	}
+	return args
+}
+
+func (p *Podman) ListNetworks(ctx context.Context, labels []string, filters []string) ([]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()
 
@@ -407,13 +476,11 @@ func (p *Podman) ListNetworks(ctx context.Context, labels []string) ([]string, e
 		"--format",
 		"{{.Network.ID}}",
 	}
-	for _, label := range labels {
-		args = append(args, "--filter", fmt.Sprintf("label=%s", label))
-	}
+	args = applyFilters(args, labels, filters)
 
 	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	if exitCode != 0 {
-		return nil, fmt.Errorf("list containers: %w", errors.FromStderr(stderr, exitCode))
+		return nil, fmt.Errorf("list networks: %w", errors.FromStderr(stderr, exitCode))
 	}
 
 	lines := strings.Split(strings.TrimSpace(stdout), "\n")
@@ -446,6 +513,57 @@ func (p *Podman) RemoveNetworks(ctx context.Context, networks ...string) error {
 			return fmt.Errorf("remove networks: %w", errors.FromStderr(stderr, exitCode))
 		}
 		p.log.Infof("Removed network %s", network)
+	}
+	return nil
+}
+
+func (p *Podman) ListPods(ctx context.Context, labels []string) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, p.timeout)
+	defer cancel()
+
+	// pods created by podman-compose don't have the compose project label,
+	// so we need to get pod IDs from the containers that do have the label
+	args := []string{
+		"ps",
+		"-a",
+		"--format",
+		"{{.Pod}}",
+	}
+	args = applyFilters(args, labels, []string{})
+
+	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
+	if exitCode != 0 {
+		return nil, fmt.Errorf("list pods: %w", errors.FromStderr(stderr, exitCode))
+	}
+
+	lines := strings.Split(strings.TrimSpace(stdout), "\n")
+	podSeen := make(map[string]struct{})
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		// skip empty lines and containers not in a pod
+		if line == "" || line == "--" {
+			continue
+		}
+		podSeen[line] = struct{}{}
+	}
+
+	var pods []string
+	for pod := range podSeen {
+		pods = append(pods, pod)
+	}
+	return pods, nil
+}
+
+func (p *Podman) RemovePods(ctx context.Context, pods ...string) error {
+	for _, pod := range pods {
+		nctx, cancel := context.WithTimeout(ctx, p.timeout)
+		args := []string{"pod", "rm", pod}
+		_, stderr, exitCode := p.exec.ExecuteWithContext(nctx, podmanCmd, args...)
+		cancel()
+		if exitCode != 0 {
+			return fmt.Errorf("remove pods: %w", errors.FromStderr(stderr, exitCode))
+		}
+		p.log.Infof("Removed pod %s", pod)
 	}
 	return nil
 }

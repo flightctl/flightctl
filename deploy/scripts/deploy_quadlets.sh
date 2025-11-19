@@ -6,38 +6,39 @@ set -eo pipefail
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 source "${SCRIPT_DIR}"/shared.sh
 
+# Function to configure auth and organizations in service-config.yaml
+configure_service_config() {
+    local service_config="${CONFIG_WRITEABLE_DIR}/service-config.yaml"
+    
+    # Configure authentication if AUTH environment variable is set
+    if [ -n "$AUTH" ] && [ "$AUTH" != "false" ] && [ "$AUTH" != "FALSE" ]; then
+        echo "Enabling authentication (OIDC with PAM issuer)..."
+        # Set auth type to oidc (PAM issuer is enabled by default in service-config.yaml)
+        sed -i '/^  auth:/,/^  [^ ]/ { s/type: none.*/type: oidc/ }' "$service_config"
+    fi
+    
+    # Configure organizations if ORGS environment variable is set
+    if [ -n "$ORGS" ] && [ "$ORGS" != "false" ] && [ "$ORGS" != "FALSE" ]; then
+        echo "Enabling organizations support..."
+        # Find the organizations section and change enabled to true
+        sed -i '/^  organizations:/,/^  [^ ]/ { s/enabled: false/enabled: true/ }' "$service_config"
+    fi
+}
+
 # Function to switch container images from quay.io to locally built ones for development
 switch_to_local_images() {
     echo "Switching container images to locally built ones for development..."
-    local services=("api" "worker" "periodic" "alert-exporter" "alertmanager-proxy" "cli-artifacts")
+    local services=("api" "worker" "periodic" "alert-exporter" "alertmanager-proxy" "cli-artifacts" "db-migrate" "db-wait" "db-users-init" "pam-issuer")
 
     for service in "${services[@]}"; do
         container_file="${QUADLET_FILES_OUTPUT_DIR}/flightctl-${service}.container"
         if [[ -f "$container_file" ]] && grep -q "Image=quay.io/flightctl/" "$container_file"; then
-            sed -i "s|Image=quay.io/flightctl/flightctl-${service}:latest|Image=flightctl-${service}:latest|" "$container_file"
+            sed -i 's|Image=quay.io/flightctl/flightctl-\([^:][^:]*\):latest|Image=flightctl-\1:latest|' "$container_file"
             echo "Updated $container_file to use local image"
         else
             echo "Skipping $container_file (not found or no matching image reference)"
         fi
     done
-
-    # Update db-setup image in service files to use locally built image
-    db_migrate_service="${SYSTEMD_UNIT_OUTPUT_DIR}/flightctl-db-migrate.service"
-    if [[ -f "$db_migrate_service" ]] && grep -q "flightctl-db-setup:" "$db_migrate_service"; then
-        sed -i "s|flightctl-db-setup:[^ ]*|flightctl-db-setup:latest|g" "$db_migrate_service"
-        echo "Updated $db_migrate_service to use local db-setup image"
-    else
-        echo "Skipping $db_migrate_service (not found or no matching image reference)"
-    fi
-
-    # Update db-setup image in container files to use locally built image
-    db_migrate_container="${QUADLET_FILES_OUTPUT_DIR}/flightctl-db-migrate.container"
-    if [[ -f "$db_migrate_container" ]] && grep -q "flightctl-db-setup:" "$db_migrate_container"; then
-        sed -i "s|flightctl-db-setup:[^ ]*|flightctl-db-setup:latest|g" "$db_migrate_container"
-        echo "Updated $db_migrate_container to use local db-setup image"
-    else
-        echo "Skipping $db_migrate_container (not found or no matching image reference)"
-    fi
 }
 
 echo "Starting Deployment"
@@ -47,6 +48,9 @@ if ! deploy/scripts/install.sh; then
     echo "Error: Installation failed"
     exit 1
 fi
+
+# Configure service-config.yaml based on environment variables (AUTH and ORGS)
+configure_service_config
 
 # Switch to locally built container images for development
 switch_to_local_images
@@ -62,18 +66,24 @@ echo "Starting all FlightCtl services via target..."
 start_service "flightctl.target"
 
 echo "Waiting for services to initialize..."
-# Wait for database to be ready first
-timeout --foreground 120s bash -c '
-    while true; do
-        if podman ps --quiet --filter "name=flightctl-db" | grep -q . && \
-           podman exec flightctl-db pg_isready -U postgres >/dev/null 2>&1; then
-            echo "Database is ready"
-            break
-        fi
-        echo "Waiting for database to become ready..."
-        sleep 3
-    done
-'
+
+# Check if we're using external database
+if is_external_database_enabled; then
+    echo "External database configured - skipping local database readiness check"
+else
+    # Wait for database to be ready first
+    timeout --foreground 120s bash -c '
+        while true; do
+            if podman ps --quiet --filter "name=flightctl-db" | grep -q . && \
+               podman exec flightctl-db pg_isready -U postgres >/dev/null 2>&1; then
+                echo "Database is ready"
+                break
+            fi
+            echo "Waiting for database to become ready..."
+            sleep 3
+        done
+    '
+fi
 
 # Wait for database migration to complete
 echo "Waiting for database migration to complete..."

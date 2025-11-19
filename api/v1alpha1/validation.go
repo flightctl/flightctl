@@ -1,7 +1,9 @@
 package v1alpha1
 
 import (
+	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -13,6 +15,9 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/api/common"
+	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/identity"
+	"github.com/flightctl/flightctl/internal/quadlet"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/robfig/cron/v3"
@@ -30,6 +35,24 @@ var (
 	ErrInfoAlertLessThanCritical             = errors.New("info alert percentage must be less than critical")
 	ErrWarnAlertLessThanCritical             = errors.New("warning alert percentage must be less than critical")
 	ErrDuplicateAlertSeverity                = errors.New("duplicate alertRule severity")
+	ErrDuplicateMonitorType                  = errors.New("duplicate monitorType in resources")
+	ErrInvalidCPUMonitorField                = errors.New("invalid field for CPU monitor")
+	ErrInvalidMemoryMonitorField             = errors.New("invalid field for Memory monitor")
+	ErrClaimPathRequiredDynamicOrg           = errors.New("claimPath is required for dynamic assignment")
+	ErrClaimPathRequiredDynamicRole          = errors.New("claimPath is required for dynamic role assignment")
+	ErrMappedIdentityNotFound                = errors.New("mapped identity not found in context")
+	ErrInvalidMappedIdentityType             = errors.New("invalid mapped identity type in context")
+	ErrIssuerRequired                        = errors.New("issuer is required")
+	ErrClientIdRequired                      = errors.New("clientId is required")
+	ErrAuthorizationUrlRequired              = errors.New("authorizationUrl is required")
+	ErrTokenUrlRequired                      = errors.New("tokenUrl is required")
+	ErrUserinfoUrlRequired                   = errors.New("userinfoUrl is required")
+	ErrOrganizationNameRequired              = errors.New("organizationName is required for static assignment")
+	ErrRolesRequired                         = errors.New("at least one role is required for static role assignment")
+	ErrK8sProviderConfigOnly                 = errors.New("k8s provider type can only be created from configuration, not via API")
+	ErrAapProviderConfigOnly                 = errors.New("aap provider type can only be created from configuration, not via API")
+	ErrDynamicOrgMappingAdminOnly            = errors.New("only flightctl-admin users are allowed to create auth providers with dynamic organization mapping")
+	ErrPerUserOrgMappingAdminOnly            = errors.New("only flightctl-admin users are allowed to create auth providers with per-user organization mapping")
 )
 
 type Validator interface {
@@ -65,11 +88,7 @@ func (r DeviceSpec) Validate(fleetTemplate bool) []error {
 		allErrs = append(allErrs, fmt.Errorf("consoles are not supported through this api"))
 	}
 	if r.Os != nil {
-		containsParams, paramErrs := validateParametersInString(&r.Os.Image, "spec.os.image", fleetTemplate)
-		allErrs = append(allErrs, paramErrs...)
-		if !containsParams {
-			allErrs = append(allErrs, validation.ValidateOciImageReference(&r.Os.Image, "spec.os.image")...)
-		}
+		allErrs = append(allErrs, validateOciImageReference(&r.Os.Image, "spec.os.image", fleetTemplate)...)
 	}
 	if r.Config != nil {
 		allErrs = append(allErrs, validateConfigs(*r.Config, fleetTemplate)...)
@@ -78,9 +97,13 @@ func (r DeviceSpec) Validate(fleetTemplate bool) []error {
 		allErrs = append(allErrs, validateApplications(*r.Applications, fleetTemplate)...)
 	}
 	if r.Resources != nil {
+		// Individual resource validation
 		for _, resource := range *r.Resources {
 			allErrs = append(allErrs, resource.Validate()...)
 		}
+
+		// Cross-resource validation
+		allErrs = append(allErrs, validateResourceMonitor(*r.Resources)...)
 	}
 	if r.Systemd != nil && r.Systemd.MatchPatterns != nil {
 		for i, matchPattern := range *r.Systemd.MatchPatterns {
@@ -230,6 +253,10 @@ func (r ResourceMonitor) Validate() []error {
 		if err != nil {
 			allErrs = append(allErrs, err)
 		}
+		// CPU monitors should not have a path field
+		if hasPathField(r.union) {
+			allErrs = append(allErrs, fmt.Errorf("%w: CPU monitors cannot have a path field", ErrInvalidCPUMonitorField))
+		}
 		allErrs = append(allErrs, validateAlertRules(spec.AlertRules, spec.SamplingInterval)...)
 	case "Disk":
 		spec, err := r.AsDiskResourceMonitorSpec()
@@ -242,6 +269,10 @@ func (r ResourceMonitor) Validate() []error {
 		spec, err := r.AsMemoryResourceMonitorSpec()
 		if err != nil {
 			allErrs = append(allErrs, err)
+		}
+		// Memory monitors should not have a path field
+		if hasPathField(r.union) {
+			allErrs = append(allErrs, fmt.Errorf("%w: Memory monitors cannot have a path field", ErrInvalidMemoryMonitorField))
 		}
 		allErrs = append(allErrs, validateAlertRules(spec.AlertRules, spec.SamplingInterval)...)
 	default:
@@ -435,7 +466,7 @@ func (r CertificateSigningRequest) Validate() []error {
 	allErrs = append(allErrs, validation.ValidateCSRUsages(r.Spec.Usages)...)
 	allErrs = append(allErrs, validation.ValidateExpirationSeconds(r.Spec.ExpirationSeconds)...)
 	allErrs = append(allErrs, validation.ValidateSignerName(r.Spec.SignerName)...)
-	allErrs = append(allErrs, validation.ValidateCSR(r.Spec.Request)...)
+	allErrs = append(allErrs, validation.ValidateCSRWithTCGSupport(r.Spec.Request)...)
 	return allErrs
 }
 
@@ -761,18 +792,22 @@ func (a InlineApplicationProviderSpec) Validate(appTypeRef *AppType, fleetTempla
 		} else {
 			seenPath[path] = struct{}{}
 		}
-
 		allErrs = append(allErrs, a.Inline[i].Validate(i, appType, fleetTemplate)...)
 	}
 
-	if appType == AppTypeCompose {
-		paths := make([]string, 0, len(seenPath))
-		for path := range seenPath {
-			paths = append(paths, path)
-		}
-		if err := validation.ValidateComposePaths(paths); err != nil {
-			allErrs = append(allErrs, fmt.Errorf("spec.applications[].inline[].path: %w", err))
-		}
+	paths := make([]string, 0, len(seenPath))
+	for path := range seenPath {
+		paths = append(paths, path)
+	}
+	var pathErr error
+	switch appType {
+	case AppTypeCompose:
+		pathErr = validation.ValidateComposePaths(paths)
+	case AppTypeQuadlet:
+		pathErr = validation.ValidateQuadletPaths(paths)
+	}
+	if pathErr != nil {
+		allErrs = append(allErrs, fmt.Errorf("spec.applications[].inline[].path: %w", pathErr))
 	}
 
 	return allErrs
@@ -817,7 +852,7 @@ func (c ApplicationContent) Validate(index int, appType AppType, fleetTemplate b
 	allErrs = append(allErrs, validation.ValidateString(&decodedStr, contentPath, 0, maxInlineLength, nil, "")...)
 	_, paramErrs = validateParametersInString(&decodedStr, contentPath, fleetTemplate)
 	allErrs = append(allErrs, paramErrs...)
-	allErrs = append(allErrs, ValidateApplicationContent(decodedBytes, appType)...)
+	allErrs = append(allErrs, ValidateApplicationContent(decodedBytes, appType, c.Path)...)
 
 	return allErrs
 }
@@ -830,7 +865,7 @@ func (c ApplicationContent) IsPlain() bool {
 	return c.ContentEncoding == nil || *c.ContentEncoding == EncodingPlain
 }
 
-func ValidateApplicationContent(content []byte, appType AppType) []error {
+func ValidateApplicationContent(content []byte, appType AppType, path string) []error {
 	var allErrs []error
 	switch appType {
 	case AppTypeCompose:
@@ -839,6 +874,16 @@ func ValidateApplicationContent(content []byte, appType AppType) []error {
 			return []error{fmt.Errorf("parse compose spec: %w", err)}
 		}
 		allErrs = append(allErrs, validation.ValidateComposeSpec(composeSpec)...)
+	case AppTypeQuadlet:
+		// Quadlet apps can come with misc files, so only validate that the quadlet files are defined correctly
+		if quadlet.IsQuadletFile(path) {
+			quadletSpec, err := common.ParseQuadletReferences(content)
+			if err != nil {
+				allErrs = append(allErrs, fmt.Errorf("parse quadlet spec %q: %w", path, err))
+			} else {
+				allErrs = append(allErrs, validation.ValidateQuadletSpec(quadletSpec, path)...)
+			}
+		}
 	default:
 		allErrs = append(allErrs, fmt.Errorf("unsupported application type: %s", appType))
 	}
@@ -881,7 +926,7 @@ func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []
 			if provider.Image == "" && app.Name == nil {
 				allErrs = append(allErrs, fmt.Errorf("image reference cannot be empty when application name is not provided"))
 			}
-			allErrs = append(allErrs, validation.ValidateOciImageReference(&provider.Image, fmt.Sprintf("spec.applications[%s].image", appName))...)
+			allErrs = append(allErrs, validateOciImageReference(&provider.Image, fmt.Sprintf("spec.applications[%s].image", appName), fleetTemplate)...)
 			volumes = provider.Volumes
 
 		case InlineApplicationProviderType:
@@ -894,7 +939,11 @@ func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []
 				allErrs = append(allErrs, fmt.Errorf("inline application type cannot be empty"))
 			}
 			allErrs = append(allErrs, provider.Validate(app.AppType, fleetTemplate)...)
-			volumes = provider.Volumes
+			if len(lo.FromPtr(provider.Volumes)) > 0 && lo.FromPtr(app.AppType) == AppTypeQuadlet {
+				allErrs = append(allErrs, fmt.Errorf("quadlet application volumes should be defined as quadlets"))
+			} else {
+				volumes = provider.Volumes
+			}
 
 		default:
 			allErrs = append(allErrs, fmt.Errorf("no validations implemented for application provider type: %s", providerType))
@@ -913,7 +962,7 @@ func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []
 				seenVolumeNames[vol.Name] = struct{}{}
 
 				allErrs = append(allErrs, validation.ValidateString(&vol.Name, path+".name", 1, 253, validation.GenericNameRegexp, "")...)
-				allErrs = append(allErrs, validateVolume(vol, path)...)
+				allErrs = append(allErrs, validateVolume(vol, path, fleetTemplate)...)
 			}
 		}
 	}
@@ -921,7 +970,7 @@ func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []
 	return allErrs
 }
 
-func validateVolume(vol ApplicationVolume, path string) []error {
+func validateVolume(vol ApplicationVolume, path string, fleetTemplate bool) []error {
 	var errs []error
 
 	providerType, err := vol.Type()
@@ -935,7 +984,7 @@ func validateVolume(vol ApplicationVolume, path string) []error {
 		if err != nil {
 			errs = append(errs, fmt.Errorf("invalid image application volume provider: %w", err))
 		} else {
-			errs = append(errs, validation.ValidateOciImageReference(&imgProvider.Image.Reference, path+".image.reference")...)
+			errs = append(errs, validateOciImageReference(&imgProvider.Image.Reference, path+".image.reference", fleetTemplate)...)
 		}
 
 	default:
@@ -1073,6 +1122,20 @@ func validateGraceDuration(schedule cron.Schedule, duration string) error {
 	return nil
 }
 
+// validateOciImageReference validates an OCI image reference, with template support if fleetTemplate is true
+func validateOciImageReference(imageRef *string, path string, fleetTemplate bool) []error {
+	containsParams, paramErrs := validateParametersInString(imageRef, path, fleetTemplate)
+	allErrs := append([]error{}, paramErrs...)
+
+	if !containsParams {
+		allErrs = append(allErrs, validation.ValidateOciImageReference(imageRef, path)...)
+	} else {
+		allErrs = append(allErrs, validation.ValidateOciImageReferenceWithTemplates(imageRef, path)...)
+	}
+
+	return allErrs
+}
+
 func validateParametersInString(s *string, path string, fleetTemplate bool) (bool, []error) {
 	// If we're not dealing with a fleet template, assume no parameters
 	if s == nil || !fleetTemplate {
@@ -1166,4 +1229,327 @@ func validateImmutableCoreFields(currentName, newName *string, currentAPIVersion
 		errs = append(errs, fmt.Errorf("status is immutable"))
 	}
 	return errs
+}
+
+// validateResourceMonitor performs cross-resource validation for ResourceMonitor arrays
+func validateResourceMonitor(resources []ResourceMonitor) []error {
+	var allErrs []error
+
+	// Validate no duplicate monitorTypes exist across resources
+	// Each monitorType (CPU, Disk, Memory) should only appear once in the resources array
+	seenMonitorTypes := make(map[string]struct{})
+	for _, resource := range resources {
+		monitorType, err := resource.Discriminator()
+		if err == nil {
+			if _, exists := seenMonitorTypes[monitorType]; exists {
+				allErrs = append(allErrs, fmt.Errorf("%w: %s", ErrDuplicateMonitorType, monitorType))
+			} else {
+				seenMonitorTypes[monitorType] = struct{}{}
+			}
+		}
+	}
+
+	return allErrs
+}
+
+// hasPathField checks if the raw JSON contains a "path" field
+func hasPathField(rawJSON []byte) bool {
+	var data map[string]interface{}
+	if err := json.Unmarshal(rawJSON, &data); err != nil {
+		return false
+	}
+	_, exists := data["path"]
+	return exists
+}
+
+func (a AuthProvider) Validate(ctx context.Context) []error {
+	allErrs := []error{}
+	allErrs = append(allErrs, validation.ValidateResourceName(a.Metadata.Name)...)
+	allErrs = append(allErrs, validation.ValidateLabels(a.Metadata.Labels)...)
+	allErrs = append(allErrs, validation.ValidateAnnotations(a.Metadata.Annotations)...)
+	allErrs = append(allErrs, a.Spec.Validate(ctx)...)
+
+	return allErrs
+}
+
+func (o OIDCProviderSpec) Validate(ctx context.Context) []error {
+	allErrs := []error{}
+
+	if o.Issuer == "" {
+		allErrs = append(allErrs, ErrIssuerRequired)
+	}
+	if o.ClientId == "" {
+		allErrs = append(allErrs, ErrClientIdRequired)
+	}
+
+	// Validate organization assignment
+	allErrs = append(allErrs, o.OrganizationAssignment.Validate(ctx)...)
+
+	// Validate role assignment
+	allErrs = append(allErrs, o.RoleAssignment.Validate(ctx)...)
+
+	return allErrs
+}
+
+func (o OAuth2ProviderSpec) Validate(ctx context.Context) []error {
+	allErrs := []error{}
+
+	if o.AuthorizationUrl == "" {
+		allErrs = append(allErrs, ErrAuthorizationUrlRequired)
+	}
+	if o.TokenUrl == "" {
+		allErrs = append(allErrs, ErrTokenUrlRequired)
+	}
+	if o.UserinfoUrl == "" {
+		allErrs = append(allErrs, ErrUserinfoUrlRequired)
+	}
+	if o.ClientId == "" {
+		allErrs = append(allErrs, ErrClientIdRequired)
+	}
+	// Validate organization assignment
+	allErrs = append(allErrs, o.OrganizationAssignment.Validate(ctx)...)
+
+	// Validate role assignment
+	allErrs = append(allErrs, o.RoleAssignment.Validate(ctx)...)
+
+	return allErrs
+}
+
+func (a AuthProviderSpec) Validate(ctx context.Context) []error {
+	allErrs := []error{}
+
+	// Get the discriminator to determine which type of provider this is
+	discriminator, err := a.Discriminator()
+	if err != nil {
+		allErrs = append(allErrs, fmt.Errorf("invalid auth provider spec: %w", err))
+		return allErrs
+	}
+
+	switch discriminator {
+	case string(Oidc):
+		oidcSpec, err := a.AsOIDCProviderSpec()
+		if err != nil {
+			allErrs = append(allErrs, fmt.Errorf("invalid OIDC provider spec: %w", err))
+		} else {
+			allErrs = append(allErrs, oidcSpec.Validate(ctx)...)
+		}
+	case string(Oauth2):
+		oauth2Spec, err := a.AsOAuth2ProviderSpec()
+		if err != nil {
+			allErrs = append(allErrs, fmt.Errorf("invalid OAuth2 provider spec: %w", err))
+		} else {
+			allErrs = append(allErrs, oauth2Spec.Validate(ctx)...)
+		}
+	case string(K8s):
+		allErrs = append(allErrs, ErrK8sProviderConfigOnly)
+	case string(Aap):
+		allErrs = append(allErrs, ErrAapProviderConfigOnly)
+	default:
+		allErrs = append(allErrs, fmt.Errorf("unknown provider type: %s", discriminator))
+	}
+
+	return allErrs
+}
+
+func (a AuthOrganizationAssignment) Validate(ctx context.Context) []error {
+	allErrs := []error{}
+
+	// Get the discriminator to determine which type of assignment this is
+	discriminator, err := a.Discriminator()
+	if err != nil {
+		allErrs = append(allErrs, fmt.Errorf("invalid organization assignment: %w", err))
+		return allErrs
+	}
+
+	switch discriminator {
+	case string(AuthStaticOrganizationAssignmentTypeStatic):
+		static, err := a.AsAuthStaticOrganizationAssignment()
+		if err != nil {
+			allErrs = append(allErrs, fmt.Errorf("invalid static organization assignment: %w", err))
+		} else {
+			allErrs = append(allErrs, static.Validate(ctx)...)
+		}
+	case string(AuthDynamicOrganizationAssignmentTypeDynamic):
+		dynamic, err := a.AsAuthDynamicOrganizationAssignment()
+		if err != nil {
+			allErrs = append(allErrs, fmt.Errorf("invalid dynamic organization assignment: %w", err))
+		} else {
+			allErrs = append(allErrs, dynamic.Validate(ctx)...)
+		}
+	case string(PerUser):
+		perUser, err := a.AsAuthPerUserOrganizationAssignment()
+		if err != nil {
+			allErrs = append(allErrs, fmt.Errorf("invalid per-user organization assignment: %w", err))
+		} else {
+			allErrs = append(allErrs, perUser.Validate(ctx)...)
+		}
+	default:
+		allErrs = append(allErrs, fmt.Errorf("unknown organization assignment type: %s", discriminator))
+	}
+
+	return allErrs
+}
+
+func (a AuthStaticOrganizationAssignment) Validate(ctx context.Context) []error {
+	allErrs := []error{}
+
+	if a.OrganizationName == "" {
+		allErrs = append(allErrs, ErrOrganizationNameRequired)
+	}
+
+	// For non-admin users, validate that the static organization matches their current organization
+	// Access mapped identity directly from context
+	mappedIdentityVal := ctx.Value(consts.MappedIdentityCtxKey)
+	if mappedIdentityVal == nil {
+		allErrs = append(allErrs, ErrMappedIdentityNotFound)
+		return allErrs
+	}
+
+	mappedIdentity, ok := mappedIdentityVal.(*identity.MappedIdentity)
+	if !ok {
+		allErrs = append(allErrs, ErrInvalidMappedIdentityType)
+		return allErrs
+	}
+
+	// Check if user is super admin
+	hasAdminRole := mappedIdentity.IsSuperAdmin()
+
+	// If user is not admin, they can only assign to their current organization
+	if !hasAdminRole {
+		organizations := mappedIdentity.GetOrganizations()
+		// Check if the organization name matches any of the user's organizations
+		hasMatchingOrg := false
+		for _, org := range organizations {
+			if org.ExternalID == a.OrganizationName {
+				hasMatchingOrg = true
+				break
+			}
+		}
+		if !hasMatchingOrg {
+			// Build a list of valid organization names for error message
+			validOrgs := make([]string, len(organizations))
+			for i, org := range organizations {
+				validOrgs[i] = org.ExternalID
+			}
+			allErrs = append(allErrs, fmt.Errorf("non-admin users can only assign to one of their current organizations: %v", validOrgs))
+		}
+	}
+
+	return allErrs
+}
+
+func (a AuthDynamicOrganizationAssignment) Validate(ctx context.Context) []error {
+	allErrs := []error{}
+
+	if len(a.ClaimPath) == 0 {
+		allErrs = append(allErrs, ErrClaimPathRequiredDynamicOrg)
+	}
+
+	// Only flightctl-admin is allowed to create auth providers with dynamic org mapping
+	// Access mapped identity directly from context
+	mappedIdentityVal := ctx.Value(consts.MappedIdentityCtxKey)
+	if mappedIdentityVal == nil {
+		allErrs = append(allErrs, ErrMappedIdentityNotFound)
+		return allErrs
+	}
+
+	mappedIdentity, ok := mappedIdentityVal.(*identity.MappedIdentity)
+	if !ok {
+		allErrs = append(allErrs, ErrInvalidMappedIdentityType)
+		return allErrs
+	}
+
+	// Only super admin users can create dynamic organization mappings
+	if !mappedIdentity.IsSuperAdmin() {
+		allErrs = append(allErrs, ErrDynamicOrgMappingAdminOnly)
+	}
+
+	return allErrs
+}
+
+func (a AuthPerUserOrganizationAssignment) Validate(ctx context.Context) []error {
+	allErrs := []error{}
+
+	// Per-user assignment doesn't require additional validation
+	// The organization name will be generated from the user's identity
+
+	// Only flightctl-admin is allowed to create auth providers with per-user org mapping
+	// Access mapped identity directly from context
+	mappedIdentityVal := ctx.Value(consts.MappedIdentityCtxKey)
+	if mappedIdentityVal == nil {
+		allErrs = append(allErrs, ErrMappedIdentityNotFound)
+		return allErrs
+	}
+
+	mappedIdentity, ok := mappedIdentityVal.(*identity.MappedIdentity)
+	if !ok {
+		allErrs = append(allErrs, ErrInvalidMappedIdentityType)
+		return allErrs
+	}
+
+	// Only super admin users can create per-user organization mappings
+	if !mappedIdentity.IsSuperAdmin() {
+		allErrs = append(allErrs, ErrPerUserOrgMappingAdminOnly)
+	}
+
+	return allErrs
+}
+
+func (a AuthRoleAssignment) Validate(ctx context.Context) []error {
+	allErrs := []error{}
+
+	// Get the discriminator to determine which type of assignment this is
+	discriminator, err := a.Discriminator()
+	if err != nil {
+		allErrs = append(allErrs, fmt.Errorf("invalid role assignment: %w", err))
+		return allErrs
+	}
+
+	switch discriminator {
+	case string(AuthStaticRoleAssignmentTypeStatic):
+		static, err := a.AsAuthStaticRoleAssignment()
+		if err != nil {
+			allErrs = append(allErrs, fmt.Errorf("invalid static role assignment: %w", err))
+		} else {
+			allErrs = append(allErrs, static.Validate(ctx)...)
+		}
+	case string(AuthDynamicRoleAssignmentTypeDynamic):
+		dynamic, err := a.AsAuthDynamicRoleAssignment()
+		if err != nil {
+			allErrs = append(allErrs, fmt.Errorf("invalid dynamic role assignment: %w", err))
+		} else {
+			allErrs = append(allErrs, dynamic.Validate(ctx)...)
+		}
+	default:
+		allErrs = append(allErrs, fmt.Errorf("unknown role assignment type: %s", discriminator))
+	}
+
+	return allErrs
+}
+
+func (a AuthStaticRoleAssignment) Validate(ctx context.Context) []error {
+	allErrs := []error{}
+
+	if len(a.Roles) == 0 {
+		allErrs = append(allErrs, ErrRolesRequired)
+	}
+
+	// Validate that all roles are non-empty strings
+	for i, role := range a.Roles {
+		if role == "" {
+			allErrs = append(allErrs, fmt.Errorf("role at index %d cannot be empty", i))
+		}
+	}
+
+	return allErrs
+}
+
+func (a AuthDynamicRoleAssignment) Validate(ctx context.Context) []error {
+	allErrs := []error{}
+
+	if len(a.ClaimPath) == 0 {
+		allErrs = append(allErrs, ErrClaimPathRequiredDynamicRole)
+	}
+
+	return allErrs
 }

@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
 set -e -x -o pipefail
 
+SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
+source "${SCRIPT_DIR}"/../functions
+
 mkdir -p bin/agent/etc/flightctl/certs
 
 echo Requesting enrollment enrollment certificate/key and config for agent =====
+
+ensure_organization_set
+
 # remove any previous CSR with the same name in case it existed
 ./bin/flightctl delete csr/client-enrollment || true
 
@@ -24,8 +30,12 @@ while true; do
   esac
 done
 
-# enforce the agent to fetch the spec and update status every 2 seconds to improve the E2E test speed
+# - Enforce the agent to fetch the spec and update status every 2 seconds to improve the E2E test speed
+# - Include the custom system info collectors that were defined in the container image
 cat <<EOF | tee -a  bin/agent/etc/flightctl/config.yaml
 spec-fetch-interval: $spec_fetch_interval
 status-update-interval: $status_update_interval
+system-info-custom:
+  - siteName
+  - emptyValue
 EOF

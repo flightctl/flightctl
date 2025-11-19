@@ -83,6 +83,7 @@ pluggable
 Podman
 PostgreSQL
 pre-update
+pre-upgrade
 qcow2
 QEMU
 Quadlet
@@ -183,6 +184,31 @@ UEFI
 AIA
 NVRAM
 RSA
+KV
+Redis
+AwaitingReconnect
+ConflictPaused
+pg_restore
+psql
+redis-cli
+pg_isready
+renderedVersion
+quadlets
+PEM
+NSING
+multiline
+localhost
+copr
+repo
+rpm
+podman
+Quickstart
+https
+timestamped
+SELinux
+dnf
+rpm.flightctl.io
+wildcards
  - docs/user/api-resources.md
 approvedBy
 creationTimestamp
@@ -249,6 +275,7 @@ NotContains
 NotEquals
 NotIn
  - docs/user/kubernetes-auth.md
+global.apiUrl
 global.auth.type
 insecureSkipTlsVerify
 internalOpenShiftApiUrl
@@ -311,7 +338,6 @@ misconfigured
 journald
 quadlets
 Sanitization
-SELinux
 SNI
 SSO
 VPN
@@ -331,3 +357,60 @@ real_ip
 untrusted
  - docs/user/tpm-authentication.md
 TN1330
+www.infineon.com
+cms
+optiga-embedded-security-solutions
+- docs/user/metrics.md
+sloMax
+SLO
+- docs/user/postgresql-backup-strategy.md
+RPOs
+RPO
+Bitbucket
+GitLab
+GitHub
+Configs
+- docs/user/external-database.md
+JSONB
+pg_trgm
+gin_trgm_ops
+GIN
+PL/pgSQL
+OrgID
+queryin
+trig
+roduction
+ExternalName
+baseDomain
+containe
+values.yaml
+PersistentVolumeClaim
+service-config.yaml
+service-config
+Update
+update
+yaml
+1.
+SSL/TLS
+SSL
+PL/pgSQL
+PL
+pgSQL
+values.yaml
+values.dev.yaml
+CN
+SAN
+ - docs/user/service-observability.md
+https
+http
+ - docs/user/pam-authentication.md
+OAuth2
+clientId
+clientSecret
+redirectUris
+URIs
+PKCE
+SSSD
+nsswitch.conf
+NSSwitch
+PAM

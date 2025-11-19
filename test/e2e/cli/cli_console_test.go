@@ -1,10 +1,7 @@
 package cli_test
 
 import (
-	"context"
 	"fmt"
-	"regexp"
-	"strings"
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
@@ -14,8 +11,6 @@ import (
 	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/onsi/gomega/types"
-	"github.com/sirupsen/logrus"
 )
 
 // Test constants
@@ -27,37 +22,40 @@ const (
 // Console test-suite
 // -----------------------------------------------------------------------------
 
-var _ = Describe("CLI - device console", Serial, func() {
+var _ = Describe("CLI - device console", func() {
 	var (
-		ctx      context.Context
-		harness  *e2e.Harness
 		deviceID string
 	)
 
 	BeforeEach(func() {
-		ctx = util.StartSpecTracerForGinkgo(suiteCtx)
-		harness = e2e.NewTestHarness(ctx)
+		// Get harness directly - no shared package-level variable
+		harness := e2e.GetWorkerHarness()
+
 		login.LoginToAPIWithToken(harness)
 
-		By("booting a VM and enrolling the device")
-		deviceID = harness.StartVMAndEnroll()
+		By("enrolling the device")
+		deviceID, _ = harness.EnrollAndWaitForOnlineStatus()
 	})
 
-	AfterEach(func() { harness.Cleanup(false) })
-
 	It("connects to a device and executes a simple command", Label("80483", "sanity"), func() {
+		// Get harness directly - no shared package-level variable
+		harness := e2e.GetWorkerHarness()
+
 		cs := harness.NewConsoleSession(deviceID)
-		cs.MustSend("ls")
-		cs.MustExpect(".*bin")
+		cs.MustSend("pwd")
+		cs.MustExpect("/root")
 		cs.Close()
 	})
 
 	It("supports multiple simultaneous console sessions", Label("81737", "sanity"), func() {
+		// Get harness directly - no shared package-level variable
+		harness := e2e.GetWorkerHarness()
+
 		cs1 := harness.NewConsoleSession(deviceID)
 		cs2 := harness.NewConsoleSession(deviceID)
 
 		cs2.MustSend("pwd")
-		cs2.MustExpect("/")
+		cs2.MustExpect("/root")
 
 		cs1.MustSend("echo Session1 > /var/home/user/file.txt")
 		cs2.MustSend("cat /var/home/user/file.txt")
@@ -72,6 +70,9 @@ var _ = Describe("CLI - device console", Serial, func() {
 	})
 
 	It("keeps console sessions open during a device update", Label("81786"), func() {
+		// Get harness directly - no shared package-level variable
+		harness := e2e.GetWorkerHarness()
+
 		const sessionsToOpen = 4
 		const expectedRenderedVersion = 2 + sessionsToOpen*2
 
@@ -94,7 +95,7 @@ var _ = Describe("CLI - device console", Serial, func() {
 		}
 
 		By("waiting for the update to finish")
-		eventuallySlow(resources.GetJSONByName[*v1alpha1.Device]).
+		util.EventuallySlow(resources.GetJSONByName[*v1alpha1.Device]).
 			WithArguments(harness, resources.Devices, deviceID).
 			Should(WithTransform((*v1alpha1.Device).IsUpdatedToDeviceSpec, BeTrue()))
 
@@ -115,56 +116,72 @@ var _ = Describe("CLI - device console", Serial, func() {
 		Expect(out).To(ContainSubstring("not found"))
 	})
 
-	It("allows tuning spec-fetch-interval", Label("82538"), func() {
-		const (
-			cfgFile              = "/etc/flightctl/config.yaml"
-			specFetchKey         = "spec-fetch-interval"
-			specFetchIntervalSec = 20
-			rootPwd              = "user"
-		)
+	// Commenting since this feature is deprecated
+	// It("allows tuning spec-fetch-interval", Label("82538"), func() {
+	// 	// Get harness directly - no shared package-level variable
+	// 	harness := e2e.GetWorkerHarness()
 
-		sendAsRoot := func(cs *e2e.ConsoleSession, cmd string) {
-			cs.MustSend(fmt.Sprintf("echo '%s' | sudo -S %s", rootPwd, cmd))
-		}
+	// 	const (
+	// 		cfgFile              = "/etc/flightctl/config.yaml"
+	// 		specFetchKey         = "spec-fetch-interval"
+	// 		specFetchIntervalSec = 20
+	// 		rootPwd              = "user"
+	// 	)
 
-		cs := harness.NewConsoleSession(deviceID)
+	// 	sendAsRoot := func(cs *e2e.ConsoleSession, cmd string) {
+	// 		cs.MustSend(fmt.Sprintf("echo '%s' | sudo -S %s", rootPwd, cmd))
+	// 	}
 
-		// show current config & ensure the key is present
-		sendAsRoot(cs, "cat "+cfgFile)
-		cs.MustExpect(specFetchKey)
+	// 	cs := harness.NewConsoleSession(deviceID)
 
-		// patch config
-		sedExpr := fmt.Sprintf("sed -i -E 's/%s: .+m.+s/%s: 0m%ds/g' %s && cat %s", specFetchKey, specFetchKey,
-			specFetchIntervalSec, cfgFile, cfgFile)
-		sendAsRoot(cs, sedExpr)
-		cs.MustExpect(fmt.Sprintf("%s: 0m%ds", specFetchKey, specFetchIntervalSec))
-		sendAsRoot(cs, fmt.Sprintf("sh -c \"echo 'log-level: debug' >> %s\" && cat %s", cfgFile, cfgFile))
-		cs.MustExpect("log-level: debug")
+	// 	// show current config & ensure the key is present
+	// 	sendAsRoot(cs, "cat "+cfgFile)
+	// 	cs.MustExpect(specFetchKey)
 
-		sendAsRoot(cs, "systemctl restart flightctl-agent")
-		cs.Close()
+	// 	// patch config
+	// 	sedExpr := fmt.Sprintf("sed -i -E 's/%s: .+m.+s/%s: 0m%ds/g' %s && cat %s", specFetchKey, specFetchKey,
+	// 		specFetchIntervalSec, cfgFile, cfgFile)
+	// 	sendAsRoot(cs, sedExpr)
+	// 	cs.MustExpect(fmt.Sprintf("%s: 0m%ds", specFetchKey, specFetchIntervalSec))
+	// 	sendAsRoot(cs, fmt.Sprintf("sh -c \"echo 'log-level: debug' >> %s\" && cat %s", cfgFile, cfgFile))
+	// 	cs.MustExpect("log-level: debug")
 
-		By("waiting for publisher logs with the new interval")
-		// Wait for the target log messages to appear
-		eventuallySlow(harness.ReadPrimaryVMAgentLogs).
-			WithArguments(logLookbackDuration).
-			Should(And(
-				ContainSubstring("No new template version from management service"),
-				ContainSubstring("publisher.go"),
-			))
+	// 	sendAsRoot(cs, "systemctl restart flightctl-agent")
+	// 	cs.Close()
 
-		// Now validate the timing intervals
-		logPattern := regexp.MustCompile(`.*time="([^"]+).*No new template version from management service.*publisher\.go.*"`)
-		expectedInterval := time.Duration(specFetchIntervalSec) * time.Second
-		Eventually(func() bool {
-			logs, err := harness.ReadPrimaryVMAgentLogs(logLookbackDuration)
-			Expect(err).ToNot(HaveOccurred())
+	// 	By("waiting for publisher logs with the new interval")
+	// 	// Wait for the target log messages to appear
+	// 	opts := vm.JournalOpts{
+	// 		Unit:     "flightctl-agent",
+	// 		Since:    logLookbackDuration,
+	// 		LastBoot: true,
+	// 	}
+	// 	util.EventuallySlow(harness.VM.JournalLogs).
+	// 		WithArguments(opts).
+	// 		Should(And(
+	// 			ContainSubstring("No new template version from management service"),
+	// 			ContainSubstring("publisher.go"),
+	// 		))
 
-			return validateTimestampIntervals(logs, logPattern, expectedInterval)
-		}, 2*time.Minute, 10*time.Second).Should(BeTrue())
-	})
+	// 	// Now validate the timing intervals
+	// 	logPattern := regexp.MustCompile(`.*time="([^"]+).*No new template version from management service.*publisher\.go.*"`)
+	// 	expectedInterval := time.Duration(specFetchIntervalSec) * time.Second
+	// 	Eventually(func() bool {
+	// 		logs, err := harness.VM.JournalLogs(vm.JournalOpts{
+	// 			Unit:     "flightctl-agent",
+	// 			Since:    logLookbackDuration,
+	// 			LastBoot: true,
+	// 		})
+	// 		Expect(err).ToNot(HaveOccurred())
+
+	// 		return validateTimestampIntervals(logs, logPattern, expectedInterval)
+	// 	}, 2*time.Minute, 10*time.Second).Should(BeTrue())
+	// })
 
 	It("recovers from image pull network disruption", Label("82541"), func() {
+		// Get harness directly - no shared package-level variable
+		harness := e2e.GetWorkerHarness()
+
 		const disruptionTime = 1 * time.Minute
 		_, _, err := harness.WaitForBootstrapAndUpdateToVersion(deviceID, ":v4")
 		Expect(err).ToNot(HaveOccurred())
@@ -173,16 +190,17 @@ var _ = Describe("CLI - device console", Serial, func() {
 			WithArguments(harness, resources.Devices, deviceID).
 			Should(WithTransform((*v1alpha1.Device).IsUpdating, BeTrue()))
 
-		logrus.Infof("Simulating network failure")
+		GinkgoWriter.Printf("Simulating network failure\n")
+		DeferCleanup(func() { _ = harness.FixNetworkFailure() })
 		err = harness.SimulateNetworkFailure()
 		Expect(err).ToNot(HaveOccurred())
 
-		logrus.Infof("Waiting for image pull activity")
-		eventuallySlow(harness.ReadPrimaryVMAgentLogs).
-			WithArguments(logLookbackDuration).
+		GinkgoWriter.Printf("Waiting for image pull activity\n")
+		util.EventuallySlow(harness.ReadPrimaryVMAgentLogs).
+			WithArguments(logLookbackDuration, util.FLIGHTCTL_AGENT_SERVICE).
 			Should(ContainSubstring("Pulling image"))
 
-		logrus.Infof("Simulating network disruption for %s", disruptionTime)
+		GinkgoWriter.Printf("Simulating network disruption for %s\n", disruptionTime)
 		Consistently(resources.GetJSONByName[*v1alpha1.Device]).
 			WithTimeout(disruptionTime).
 			WithPolling(disruptionTime/10).
@@ -192,32 +210,36 @@ var _ = Describe("CLI - device console", Serial, func() {
 		err = harness.FixNetworkFailure()
 		Expect(err).ToNot(HaveOccurred())
 
-		logrus.Infof("Network disruption fixed. Waiting for the device to finish updating")
-		eventuallySlow(resources.GetJSONByName[*v1alpha1.Device]).
+		GinkgoWriter.Printf("Network disruption fixed. Waiting for the device to finish updating\n")
+		util.EventuallySlow(resources.GetJSONByName[*v1alpha1.Device]).
 			WithArguments(harness, resources.Devices, deviceID).
 			Should(WithTransform((*v1alpha1.Device).IsUpdatedToDeviceSpec, BeTrue()))
 	})
 
 	It("recovers from image pull network connection error", Label("83029"), func() {
-		logrus.Infof("Simulating network failure")
+		// Get harness directly - no shared package-level variable
+		harness := e2e.GetWorkerHarness()
+
+		GinkgoWriter.Printf("Simulating network failure\n")
+		DeferCleanup(func() { _ = harness.FixNetworkFailure() })
 		err := harness.SimulateNetworkFailure()
 		Expect(err).ToNot(HaveOccurred())
 
 		_, _, err = harness.WaitForBootstrapAndUpdateToVersion(deviceID, ":v4")
 		Expect(err).ToNot(HaveOccurred())
 
-		logrus.Infof("Waiting for image pull activity")
+		GinkgoWriter.Printf("Waiting for image pull activity\n")
 		Eventually(resources.GetJSONByName[*v1alpha1.Device]).
 			WithArguments(harness, resources.Devices, deviceID).
 			Should(WithTransform((*v1alpha1.Device).IsUpdating, BeTrue()))
 
-		eventuallySlow(harness.ReadPrimaryVMAgentLogs).
-			WithArguments(logLookbackDuration).
+		util.EventuallySlow(harness.ReadPrimaryVMAgentLogs).
+			WithArguments(logLookbackDuration, util.FLIGHTCTL_AGENT_SERVICE).
 			Should(ContainSubstring("Pulling image"))
 
-		logrus.Infof("Waiting for image pull failure. It will take a while...")
-		eventuallySlow(harness.ReadPrimaryVMAgentLogs).
-			WithArguments(logLookbackDuration).
+		GinkgoWriter.Printf("Waiting for image pull failure. It will take a while...\n")
+		util.EventuallySlow(harness.ReadPrimaryVMAgentLogs).
+			WithArguments(logLookbackDuration, util.FLIGHTCTL_AGENT_SERVICE).
 			Should(And(
 				ContainSubstring("Error"),
 				Or(
@@ -227,17 +249,20 @@ var _ = Describe("CLI - device console", Serial, func() {
 			),
 			)
 
-		logrus.Infof("Image pull failure detected!")
+		GinkgoWriter.Printf("Image pull failure detected!\n")
 		err = harness.FixNetworkFailure()
 		Expect(err).ToNot(HaveOccurred())
 
-		logrus.Infof("Waiting for the device to finish updating")
-		eventuallySlow(resources.GetJSONByName[*v1alpha1.Device]).
+		GinkgoWriter.Printf("Waiting for the device to finish updating\n")
+		util.EventuallySlow(resources.GetJSONByName[*v1alpha1.Device]).
 			WithArguments(harness, resources.Devices, deviceID).
 			Should(WithTransform((*v1alpha1.Device).IsUpdatedToDeviceSpec, BeTrue()))
 	})
 
 	It("provides console --help and auxiliary features", Label("81866", "sanity"), func() {
+		// Get harness directly - no shared package-level variable
+		harness := e2e.GetWorkerHarness()
+
 		out, err := harness.CLI("console", "--help")
 		Expect(err).ToNot(HaveOccurred())
 		Expect(out).To(
@@ -275,71 +300,67 @@ var _ = Describe("CLI - device console", Serial, func() {
 	})
 })
 
-func eventuallySlow(actual any) types.AsyncAssertion {
-	return Eventually(actual).WithTimeout(LONG_TIMEOUT).WithPolling(LONG_POLLING)
-}
-
 // -----------------------------------------------------------------------------
-// Helper functions
+// Helper functions for deprecated test
 // -----------------------------------------------------------------------------
 
 // extractTimestampsFromLogs extracts and parses timestamps from log lines that match the given regex pattern.
 // Returns a slice of valid timestamps found in the logs.
-func extractTimestampsFromLogs(logs string, logPattern *regexp.Regexp) []time.Time {
-	lines := strings.Split(strings.TrimSpace(logs), "\n")
-	logrus.Infof("Read %d log lines from agent journal", len(lines))
+// func extractTimestampsFromLogs(logs string, logPattern *regexp.Regexp) []time.Time {
+// 	lines := strings.Split(strings.TrimSpace(logs), "\n")
+// 	GinkgoWriter.Printf("Read %d log lines from agent journal\n", len(lines))
 
-	var validTimestamps []time.Time
+// 	var validTimestamps []time.Time
 
-	for _, line := range lines {
-		if m := logPattern.FindStringSubmatch(line); m != nil {
-			if t, err := time.Parse(time.RFC3339Nano, m[1]); err != nil {
-				logrus.Warnf("Failed to parse timestamp %q: %v", m[1], err)
-			} else {
-				validTimestamps = append(validTimestamps, t)
-				logrus.Infof("Found matching log line with timestamp: %s", t.Format(time.RFC3339))
-			}
-		}
-	}
+// 	for _, line := range lines {
+// 		if m := logPattern.FindStringSubmatch(line); m != nil {
+// 			if t, err := time.Parse(time.RFC3339Nano, m[1]); err != nil {
+// 				GinkgoWriter.Printf("Failed to parse timestamp %q: %v\n", m[1], err)
+// 			} else {
+// 				validTimestamps = append(validTimestamps, t)
+// 				GinkgoWriter.Printf("Found matching log line with timestamp: %s\n", t.Format(time.RFC3339))
+// 			}
+// 		}
+// 	}
 
-	logrus.Infof("Found %d lines matching the pattern", len(validTimestamps))
-	return validTimestamps
-}
+// 	GinkgoWriter.Printf("Found %d lines matching the pattern\n", len(validTimestamps))
+// 	return validTimestamps
+// }
 
 // validateIntervalTiming checks if intervals between consecutive timestamps are within tolerance.
 // Returns true if all intervals are within 1 second of the expected interval.
-func validateIntervalTiming(timestamps []time.Time, expectedInterval time.Duration) bool {
-	const toleranceThreshold = time.Second
+// func validateIntervalTiming(timestamps []time.Time, expectedInterval time.Duration) bool {
+// 	const toleranceThreshold = time.Second
 
-	logrus.Infof("Validating intervals between %d timestamps", len(timestamps))
+// 	GinkgoWriter.Printf("Validating intervals between %d timestamps\n", len(timestamps))
 
-	for i := 1; i < len(timestamps); i++ {
-		delta := timestamps[i].Sub(timestamps[i-1])
-		deviation := (delta - expectedInterval).Abs()
+// 	for i := 1; i < len(timestamps); i++ {
+// 		delta := timestamps[i].Sub(timestamps[i-1])
+// 		deviation := (delta - expectedInterval).Abs()
 
-		logrus.Infof("Timestamp %d->%d: delta=%v, expected=%v, deviation=%v",
-			i-1, i, delta, expectedInterval, deviation)
+// 		GinkgoWriter.Printf("Timestamp %d->%d: delta=%v, expected=%v, deviation=%v\n",
+// 			i-1, i, delta, expectedInterval, deviation)
 
-		if deviation > toleranceThreshold {
-			logrus.Infof("Interval not as expected - deviation %v > %v threshold", deviation, toleranceThreshold)
-			return false
-		}
-	}
+// 		if deviation > toleranceThreshold {
+// 			GinkgoWriter.Printf("Interval not as expected - deviation %v > %v threshold\n", deviation, toleranceThreshold)
+// 			return false
+// 		}
+// 	}
 
-	logrus.Infof("All %d intervals are stable within %v tolerance", len(timestamps)-1, toleranceThreshold)
-	return true
-}
+// 	GinkgoWriter.Printf("All %d intervals are stable within %v tolerance\n", len(timestamps)-1, toleranceThreshold)
+// 	return true
+// }
 
 // validateTimestampIntervals validates that the intervals between log timestamps match the expected interval.
 // It returns true if at least 2 timestamps are found and all intervals are within 1 second of the expected interval.
-func validateTimestampIntervals(logs string, logPattern *regexp.Regexp, expectedInterval time.Duration) bool {
-	timestamps := extractTimestampsFromLogs(logs, logPattern)
+// func validateTimestampIntervals(logs string, logPattern *regexp.Regexp, expectedInterval time.Duration) bool {
+// 	timestamps := extractTimestampsFromLogs(logs, logPattern)
 
-	const minRequired = 2
-	if len(timestamps) < minRequired {
-		logrus.Infof("Need at least %d matching timestamps, only have %d - waiting for more logs", minRequired, len(timestamps))
-		return false
-	}
+// 	const minRequired = 2
+// 	if len(timestamps) < minRequired {
+// 		GinkgoWriter.Printf("Need at least %d matching timestamps, only have %d - waiting for more logs\n", minRequired, len(timestamps))
+// 		return false
+// 	}
 
-	return validateIntervalTiming(timestamps, expectedInterval)
-}
+// 	return validateIntervalTiming(timestamps, expectedInterval)
+// }

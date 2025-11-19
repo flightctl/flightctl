@@ -47,7 +47,7 @@ helm list
 
 ### Standalone Flight Control on k8s/KIND
 
-Start your k8s/KIND cluster. For KIND cluster you can use [example config](../../deploy/kind.yaml).
+Start your k8s/KIND cluster. For KIND cluster you can use [example config](https://github.com/flightctl/flightctl/blob/main/deploy/kind.yaml).
 
 ```console
 kind create cluster --config kind.yaml
@@ -174,6 +174,8 @@ FC_API_URL=<API_URL>
 
 ```
 
+For managing ongoing Flight Control deployments including upgrades and monitoring, refer to the [Helm Chart Documentation](https://github.com/flightctl/flightctl/blob/main/deploy/helm/flightctl/README.md).
+
 ## Installing the Flight Control CLI
 
 In a terminal, select the appropriate Flight Control CLI binary for your OS (linux or darwin) and CPU architecture (amd64 or arm64), for example:
@@ -249,16 +251,57 @@ flightctl login ${FC_API_URL} -t $(oc whoami -t)
 
 > 📌 You can also login with your ACM login credentials using the `--web` or `--username` and `--password` flags
 
-### Self-signed certificates
+### Certificate Configuration and Troubleshooting
 
-The CLI uses the host's certificate authority (CA) pool to verify the Flight Control service's identity. When using self-signed certificates, this can lead to a TLS verification error if you have not added your CA's certificate to that pool. You can:
+The CLI uses the host's certificate authority (CA) pool to verify the Flight Control service's identity. If certificate verification fails, the CLI prints the underlying error message. The tips below cover common cases and may not apply to every environment; if they don’t help, verify the API URL and certificate chain or contact your administrator.
 
-* add the path for the CA certificate via the `--certificate-authority=<path_to_ca_crt>` flag to your command
-* or bypass the server verification (insecure!) by adding the `--insecure-skip-tls-verify` flag to your command
+#### Common Certificate Issues
+
+#### Certificate Not Trusted
+
+If you see "Cause: certificate not trusted", the server uses a custom certificate authority:
+
+```console
+flightctl login ${FC_API_URL} --certificate-authority=/path/to/ca.crt
+```
+
+#### Self-Signed Certificates
+
+For self-signed certificates, you can either:
+
+```console
+flightctl login ${FC_API_URL} --insecure-skip-tls-verify
+```
+
+or provide the certificate as a CA:
+
+```console
+flightctl login ${FC_API_URL} --certificate-authority=<path_to_ca_crt>
+```
+
+#### Hostname Mismatch
+
+If the certificate hostname doesn't match the URL, verify you're using the correct API endpoint. The error message will show valid hostnames for the certificate.
+
+#### OAuth Certificate Issues
+
+When OAuth endpoints use different certificates than the main API, use the dedicated OAuth CA flag:
+
+```console
+flightctl login ${FC_API_URL} --auth-certificate-authority=<path_to_oauth-ca_crt>
+```
+
+#### Certificate Flags Reference
+
+| Flag | Purpose |
+|------|---------|
+| `--certificate-authority=<path>` | Specify CA certificate for API endpoints |
+| `--auth-certificate-authority=<path>` | Specify CA certificate for OAuth endpoints |
+| `--insecure-skip-tls-verify` | Skip all certificate verification |
 
 ## Building a Bootable Container Image including the Flight Control Agent
 
-Next, we will use [Podman](https://github.com/containers/podman) to build a [bootable container image (bootc)](https://containers.github.io/bootc/) that includes the Flight Control Agent binary and configuration. The configuration contains the connection details and credentials required by the agent to discover the service and send an enrollment request to the service.
+Next, we will use [Podman](https://github.com/containers/podman) to build a [bootable container image (bootc)](https://bootc-dev.github.io/bootc/) that includes the Flight Control Agent binary and configuration. The configuration contains the connection details and credentials required by the agent to discover the service and send an enrollment request to the service.
 
 Retrieve the agent configuration with enrollment credentials by running:
 
@@ -287,7 +330,7 @@ $ cat Containerfile
 
 FROM quay.io/centos-bootc/centos-bootc:stream9
 
-RUN dnf -y copr enable @redhat-et/flightctl && \
+RUN dnf -y config-manager --add-repo https://rpm.flightctl.io/flightctl-epel.repo && \
     dnf -y install flightctl-agent; \
     dnf -y clean all; \
     systemctl enable flightctl-agent.service
@@ -373,8 +416,8 @@ After the enrollment completes, you can find the device in the list of devices:
 ```console
 $ flightctl get devices
 
-NAME                                                  OWNER   SYSTEM  UPDATED     APPLICATIONS  LAST SEEN
-54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg  <none>  Online  Up-to-date  <none>        3 seconds ago
+NAME                                                  OWNER   SYSTEM  UPDATED     APPLICATIONS
+54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg  <none>  Online  Up-to-date  <none>
 ```
 
 ## Where to go from here

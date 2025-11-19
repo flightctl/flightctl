@@ -1,9 +1,7 @@
-{{ if eq .Values.global.target "acm" }}
 apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
+kind: ClusterRole
 metadata:
   name: flightctl-admin
-  namespace: {{ default .Release.Namespace .Values.global.auth.k8s.rbacNs }}
 rules:
   - verbs:
       - '*'
@@ -14,10 +12,9 @@ rules:
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
+kind: ClusterRole
 metadata:
   name: flightctl-viewer
-  namespace: {{ default .Release.Namespace .Values.global.auth.k8s.rbacNs }}
 rules:
   - verbs:
       - get
@@ -28,13 +25,13 @@ rules:
       - devices
       - fleets
       - resourcesyncs
+      - organizations
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
+kind: ClusterRole
 metadata:
   name: flightctl-operator
-  namespace: {{ default .Release.Namespace .Values.global.auth.k8s.rbacNs }}
 rules:
   - verbs:
       - get
@@ -49,28 +46,37 @@ rules:
       - devices
       - fleets
       - resourcesyncs
+      - repositories
   - verbs:
       - get
     apiGroups:
       - flightctl.io
     resources:
       - devices/console
+      - devices/lastseen
   - verbs:
       - get
       - list
     apiGroups:
       - flightctl.io
     resources:
-      - repositories
       - fleets/templateversions
+      - alerts
+      - organizations
+  # Device lifecycle actions (granular subresource approach)
+  - verbs:
+      - update  # Standard Kubernetes verb for resume action
+    apiGroups:
+      - flightctl.io
+    resources:
+      - devices/resume
 
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
+kind: ClusterRole
 metadata:
   name: flightctl-installer
-  namespace: {{ default .Release.Namespace .Values.global.auth.k8s.rbacNs }}
 rules:
   - verbs:
       - get
@@ -79,6 +85,7 @@ rules:
       - flightctl.io
     resources:
       - enrollmentrequests
+      - organizations
   - verbs:
       - post
     apiGroups:
@@ -93,4 +100,3 @@ rules:
       - flightctl.io
     resources:
       - certificatesigningrequests
-{{ end }}

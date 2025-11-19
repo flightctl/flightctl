@@ -78,6 +78,7 @@ func NewAgentCommand() *agentCmd {
 	}
 
 	a.log.Level(a.config.LogLevel)
+	a.log.Infof("Loaded configuration: %s", a.config.StringSanitized())
 
 	return a
 }
@@ -122,7 +123,7 @@ func (s *systemInfoCmd) Execute() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	exec := &executer.CommonExecuter{}
-	info, err := systeminfo.Collect(ctx, s.log, exec, reader, nil, s.hardwareMapPath, systeminfo.WithAllCustom())
+	info, err := systeminfo.Collect(ctx, s.log, exec, reader, nil, s.hardwareMapPath, systeminfo.WithAll())
 	if err != nil {
 		s.log.Fatalf("Error collecting system info: %v", err)
 	}

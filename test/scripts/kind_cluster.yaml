@@ -18,9 +18,6 @@ nodes:
   - containerPort: 7443 # flightctl agent endpoint API
     hostPort: 7443
     protocol: TCP
-  - containerPort: 8081 # keycloak
-    hostPort: 8081
-    protocol: TCP
   - containerPort: 5432 # postgresql DB
     hostPort: 5432
     protocol: TCP
@@ -41,4 +38,10 @@ nodes:
     protocol: TCP
   - containerPort: 4480 # gateway HTTP
     hostPort: 4480
+    protocol: TCP
+  - containerPort: 4317 # telemetry-gateway OTLP
+    hostPort: 4317
+    protocol: TCP
+  - containerPort: 9464 # telemetry-gateway Prometheus
+    hostPort: 9464
     protocol: TCP

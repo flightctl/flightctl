@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/sirupsen/logrus"
 )
 
 // Config holds the configuration for the userinfo proxy
@@ -35,14 +37,15 @@ type UserInfoResponse struct {
 }
 
 func main() {
-	config := loadConfig()
+	logger := log.InitLogs()
 
-	http.HandleFunc("/userinfo", makeUserInfoHandler(config))
-	http.HandleFunc("/health", healthHandler)
+	config := loadConfig(logger)
 
-	log.Printf("Starting UserInfo proxy server on port %s", config.ListenPort)
-	log.Printf("Proxying to upstream: %s", config.UpstreamURL)
-	log.Printf("TLS verification: %s", map[bool]string{true: "enabled", false: "disabled"}[!config.SkipTLSVerification])
+	http.HandleFunc("/userinfo", makeUserInfoHandler(config, logger))
+
+	logger.Infof("Starting UserInfo proxy server on port %s", config.ListenPort)
+	logger.Infof("Proxying to upstream: %s", config.UpstreamURL)
+	logger.Infof("TLS verification: %s", map[bool]string{true: "enabled", false: "disabled"}[!config.SkipTLSVerification])
 
 	// Create server with proper timeouts to prevent DoS attacks
 	server := &http.Server{
@@ -54,15 +57,15 @@ func main() {
 	}
 
 	if err := server.ListenAndServe(); err != nil {
-		log.Fatal("Server failed to start:", err)
+		logger.Fatal("Server failed to start:", err)
 	}
 }
 
-func loadConfig() *Config {
+func loadConfig(log *logrus.Logger) *Config {
 	config := &Config{
 		ListenPort:          getEnv("USERINFO_LISTEN_PORT", "8080"),
 		UpstreamURL:         getEnv("USERINFO_UPSTREAM_URL", ""),
-		SkipTLSVerification: getBoolEnv("USERINFO_SKIP_TLS_VERIFY", false),
+		SkipTLSVerification: getBoolEnv("USERINFO_SKIP_TLS_VERIFY", false, log),
 	}
 
 	if config.UpstreamURL == "" {
@@ -79,7 +82,7 @@ func getEnv(key, defaultValue string) string {
 	return defaultValue
 }
 
-func getBoolEnv(key string, defaultValue bool) bool {
+func getBoolEnv(key string, defaultValue bool, log *logrus.Logger) bool {
 	if value := os.Getenv(key); value != "" {
 		switch strings.ToLower(value) {
 		case "true", "1", "yes", "on":
@@ -113,7 +116,7 @@ type AAPUser struct {
 	IsAuditor   bool   `json:"is_platform_auditor"`
 }
 
-func makeUserInfoHandler(config *Config) http.HandlerFunc {
+func makeUserInfoHandler(config *Config, log *logrus.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Only allow GET requests
 		if r.Method != http.MethodGet {
@@ -227,13 +230,4 @@ func transformToUserInfo(aapResp *AAPResponse) (*UserInfoResponse, error) {
 	}
 
 	return userInfo, nil
-}
-
-func healthHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(map[string]string{
-		"status": "healthy",
-		"time":   time.Now().Format(time.RFC3339),
-	})
 }

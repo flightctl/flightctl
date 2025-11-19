@@ -17,6 +17,7 @@ import (
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
@@ -59,8 +60,7 @@ func TestAlreadyApprovedEnrollmentRequestApprove(t *testing.T) {
 func TestNotFoundReplaceEnrollmentRequestStatus(t *testing.T) {
 	require := require.New(t)
 	serviceHandler := ServiceHandler{
-		store:           &TestStore{},
-		callbackManager: dummyCallbackManager(),
+		store: &TestStore{},
 	}
 	ctx := context.Background()
 
@@ -140,9 +140,12 @@ func createTestEnrollmentRequest(require *require.Assertions, name string, statu
 		},
 		Status: status,
 	}
+	testStore := &TestStore{}
+	logger := log.InitLogs()
 	serviceHandler := ServiceHandler{
-		store:           &TestStore{},
-		callbackManager: dummyCallbackManager(),
+		eventHandler: NewEventHandler(testStore, nil, logger),
+		store:        testStore,
+		log:          logger,
 	}
 	ctx := context.Background()
 	_, err := serviceHandler.store.EnrollmentRequest().Create(ctx, store.NullOrgId, &enrollmentRequest, nil)

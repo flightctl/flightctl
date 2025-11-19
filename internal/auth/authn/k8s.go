@@ -7,25 +7,35 @@ import (
 	"net/http"
 	"time"
 
+	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/auth/common"
+	"github.com/flightctl/flightctl/internal/identity"
+	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/jellydator/ttlcache/v3"
+	"github.com/samber/lo"
+	"github.com/sirupsen/logrus"
 	k8sAuthenticationV1 "k8s.io/api/authentication/v1"
 )
 
 type K8sAuthN struct {
-	k8sClient               k8sclient.K8SClient
-	externalOpenShiftApiUrl string
-	cache                   *ttlcache.Cache[string, *k8sAuthenticationV1.TokenReview]
+	metadata      api.ObjectMeta
+	spec          api.K8sProviderSpec
+	k8sClient     k8sclient.K8SClient
+	cache         *ttlcache.Cache[string, *k8sAuthenticationV1.TokenReview]
+	identityCache *ttlcache.Cache[string, common.Identity]
 }
 
-func NewK8sAuthN(k8sClient k8sclient.K8SClient, externalOpenShiftApiUrl string) (*K8sAuthN, error) {
+func NewK8sAuthN(metadata api.ObjectMeta, spec api.K8sProviderSpec, k8sClient k8sclient.K8SClient) (*K8sAuthN, error) {
 	authN := &K8sAuthN{
-		k8sClient:               k8sClient,
-		externalOpenShiftApiUrl: externalOpenShiftApiUrl,
-		cache:                   ttlcache.New[string, *k8sAuthenticationV1.TokenReview](ttlcache.WithTTL[string, *k8sAuthenticationV1.TokenReview](5 * time.Second)),
+		metadata:      metadata,
+		spec:          spec,
+		k8sClient:     k8sClient,
+		cache:         ttlcache.New(ttlcache.WithTTL[string, *k8sAuthenticationV1.TokenReview](5 * time.Second)),
+		identityCache: ttlcache.New(ttlcache.WithTTL[string, common.Identity](30 * time.Second)),
 	}
 	go authN.cache.Start()
+	go authN.identityCache.Start()
 	return authN, nil
 }
 
@@ -34,6 +44,7 @@ func (o K8sAuthN) loadTokenReview(ctx context.Context, token string) (*k8sAuthen
 	if item != nil {
 		return item.Value(), nil
 	}
+	// Standard TokenReview without audiences; API server validates bound SA tokens
 	body, err := json.Marshal(k8sAuthenticationV1.TokenReview{
 		Spec: k8sAuthenticationV1.TokenReviewSpec{
 			Token: token,
@@ -44,13 +55,22 @@ func (o K8sAuthN) loadTokenReview(ctx context.Context, token string) (*k8sAuthen
 	}
 	res, err := o.k8sClient.PostCRD(ctx, "authentication.k8s.io/v1/tokenreviews", body)
 	if err != nil {
+		logrus.WithError(err).Warn("TokenReview request failed")
 		return nil, err
 	}
 
 	review := &k8sAuthenticationV1.TokenReview{}
 	if err := json.Unmarshal(res, review); err != nil {
+		logrus.WithError(err).Warn("TokenReview unmarshal failed")
 		return nil, err
 	}
+	// Debug log the TokenReview status (without logging the token)
+	logrus.WithFields(logrus.Fields{
+		"authenticated": review.Status.Authenticated,
+		"user":          review.Status.User.Username,
+		"audiences":     review.Status.Audiences,
+		"error":         review.Status.Error,
+	}).Debug("TokenReview status")
 	o.cache.Set(token, review, ttlcache.DefaultTTL)
 	return review, nil
 }
@@ -70,21 +90,91 @@ func (o K8sAuthN) GetAuthToken(r *http.Request) (string, error) {
 	return common.ExtractBearerToken(r)
 }
 
-func (o K8sAuthN) GetIdentity(ctx context.Context, token string) (*common.Identity, error) {
+func (o K8sAuthN) GetIdentity(ctx context.Context, token string) (common.Identity, error) {
 	review, err := o.loadTokenReview(ctx, token)
 	if err != nil {
 		return nil, err
 	}
-	return &common.Identity{
-		Username: review.Status.User.Username,
-		UID:      review.Status.User.UID,
-		Groups:   review.Status.User.Groups,
-	}, nil
+
+	// Compute cache key: prefer UID, fallback to Username
+	cacheKey := review.Status.User.UID
+	if cacheKey == "" {
+		cacheKey = review.Status.User.Username
+	}
+
+	// Check identity cache first using computed key
+	if cacheKey != "" {
+		if item := o.identityCache.Get(cacheKey); item != nil {
+			logrus.WithFields(logrus.Fields{
+				"user":     review.Status.User.Username,
+				"uid":      review.Status.User.UID,
+				"cacheKey": cacheKey,
+			}).Debug("K8s identity retrieved from cache")
+			return item.Value(), nil
+		}
+	}
+
+	// Always use the default organization
+	organizations := []string{org.DefaultExternalID}
+
+	// Fetch role bindings from the rbac namespace
+	var roles []string
+	if o.spec.RbacNs != nil && *o.spec.RbacNs != "" {
+		var err error
+		roles, err = o.k8sClient.ListRoleBindingsForUser(ctx, *o.spec.RbacNs, review.Status.User.Username)
+		if err != nil {
+			logrus.WithError(err).WithField("namespace", *o.spec.RbacNs).Warn("Failed to list role bindings")
+			roles = []string{}
+		}
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"user":          review.Status.User.Username,
+		"organizations": organizations,
+		"roles":         roles,
+		"rbacNs":        o.spec.RbacNs,
+	}).Debug("K8s identity created")
+
+	// Create issuer with K8s cluster information
+	issuer := identity.NewIssuer(identity.AuthTypeK8s, "k8s-cluster") // TODO: Get actual cluster name from config
+
+	// Build ReportedOrganization with roles embedded
+	// K8s roles are global - apply to all organizations
+	orgRoles := map[string][]string{
+		"*": roles, // All K8s roles are global
+	}
+	reportedOrganizations, isSuperAdmin := common.BuildReportedOrganizations(organizations, orgRoles, false)
+
+	// Get rbac namespace, default to empty string if not set
+	rbacNs := ""
+	if o.spec.RbacNs != nil {
+		rbacNs = *o.spec.RbacNs
+	}
+
+	k8sIdentity := common.NewK8sIdentity(review.Status.User.Username, review.Status.User.UID, reportedOrganizations, issuer, o.spec.ApiUrl, rbacNs)
+	k8sIdentity.SetSuperAdmin(isSuperAdmin)
+
+	// Cache the identity using the same key logic (skip if both UID and Username are empty)
+	if cacheKey != "" {
+		o.identityCache.Set(cacheKey, k8sIdentity, ttlcache.DefaultTTL)
+	}
+
+	return k8sIdentity, nil
 }
 
-func (o K8sAuthN) GetAuthConfig() common.AuthConfig {
-	return common.AuthConfig{
-		Type: common.AuthTypeK8s,
-		Url:  o.externalOpenShiftApiUrl,
+func (o K8sAuthN) GetAuthConfig() *api.AuthConfig {
+	provider := api.AuthProvider{
+		ApiVersion: api.AuthProviderAPIVersion,
+		Kind:       api.AuthProviderKind,
+		Metadata:   o.metadata,
+		Spec:       api.AuthProviderSpec{},
+	}
+	_ = provider.Spec.FromK8sProviderSpec(o.spec)
+
+	return &api.AuthConfig{
+		ApiVersion:           api.AuthConfigAPIVersion,
+		DefaultProvider:      o.metadata.Name,
+		OrganizationsEnabled: lo.ToPtr(true),
+		Providers:            &[]api.AuthProvider{provider},
 	}
 }

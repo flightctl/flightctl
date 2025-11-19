@@ -1,0 +1,81 @@
+{{ if .Values.periodic.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    flightctl.service: flightctl-periodic
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+  name: flightctl-periodic
+  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      flightctl.service: flightctl-periodic
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        flightctl.service: flightctl-periodic
+        {{- include "flightctl.standardLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: flightctl-periodic
+      {{- if .Values.global.imagePullSecretName }}
+      imagePullSecrets:
+        - name: {{ .Values.global.imagePullSecretName }}
+      {{- end }}
+      initContainers:
+      {{- include "flightctl.databaseWaitInitContainer" (dict "context" . "userType" "app") | nindent 6 }}
+      {{- include "flightctl.migrationWaitInitContainer" (dict "context" . "timeout" 600) | nindent 6 }}
+      containers:
+        - name: periodic
+          image: {{ .Values.periodic.image.image }}:{{ default .Chart.AppVersion .Values.periodic.image.tag }}
+          imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.periodic.image.pullPolicy }}
+          env:
+            - name: HOME
+              value: "/root"
+            - name: KV_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-kv-secret
+                  key: password
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-db-app-secret
+                  key: userPassword
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: flightctl-db-app-secret
+                  key: user
+            {{- if .Values.periodic.env }}
+            {{- range $key, $value := .Values.periodic.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+            {{- end }}
+          volumeMounts:
+            - mountPath: /root/.flightctl/config.yaml
+              name: flightctl-periodic-config
+              subPath: config.yaml
+              readOnly: true
+            - mountPath: /etc/flightctl/ssh
+              name: flightctl-ssh-known-hosts
+              readOnly: true
+            {{- include "flightctl.dbSslVolumeMounts" . | nindent 12 }}
+
+      restartPolicy: Always
+      volumes:
+        - name: flightctl-periodic-config
+          configMap:
+            name: flightctl-periodic-config
+        - name: flightctl-ssh-known-hosts
+          configMap:
+            name: flightctl-known-hosts
+            items:
+              - key: known_hosts
+                path: known_hosts
+        {{- include "flightctl.dbSslVolumes" . | nindent 8 }}
+{{ end }}

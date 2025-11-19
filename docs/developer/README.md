@@ -1,13 +1,9 @@
-# Flight Control
-Flight Control is a service for declarative, GitOps-driven management of edge device fleets running [ostree-based](https://github.com/ostreedev/ostree) Linux system images.
-
-> [!NOTE]
-> Flight Control is still in early stage development!
+# Developer Documentation
 
 ## Building
 
 Prerequisites:
-* `git`, `make`, and `go` (>= 1.23), `openssl`, `openssl-devel`, `buildah`, `podman`, `podman-compose`, and `go-rpm-macros` (in case one needs to build RPM's)
+* `git`, `make`, and `go` (>= 1.23), `openssl`, `openssl-devel`, `buildah`, `podman`, `podman-compose`, `container-selinux` (>= 2.241), `go-rpm-macros` (in case one needs to build RPM's), `python3`, and `python3-pyyaml` (or install PyYAML via pip)
 
 Flightctl agent reports the status of running rootless containers. Ensure the podman socket is enabled:
 
@@ -46,6 +42,28 @@ To deploy with auth enabled:
 AUTH=true make deploy
 ```
 
+To deploy with IdP provided organizations configured:
+```
+AUTH=true ORGS=true make deploy
+```
+
+### Deployment using Quadlets
+
+The service can also be deployed using systemd Quadlets (Podman containers managed by systemd):
+```
+make deploy-quadlets
+```
+
+To deploy with auth enabled (uses OIDC with PAM issuer):
+```
+AUTH=true make deploy-quadlets
+```
+
+To deploy with organizations support enabled:
+```
+AUTH=true ORGS=true make deploy-quadlets
+```
+
 Note it stores its generated CA cert, server cert, and client-bootstrap cert in `$HOME/.flightctl/certs`
 and the client configuration in `$HOME/.flightctl/client.yaml`.
 
@@ -55,6 +73,7 @@ Use the `flightctl` CLI to login and then apply, get, or delete resources:
 bin/flightctl login $(cat ~/.flightctl/client.yaml | grep server | awk '{print $2}') --web --certificate-authority ~/.flightctl/certs/ca.crt
 bin/flightctl apply -f examples/fleet.yaml
 bin/flightctl get fleets
+bin/flightctl get fleet fleet1 fleet2  # Get multiple specific resources
 ```
 
 Note: If deployed without auth enabled, then there is no need to login.
@@ -85,9 +104,11 @@ make agent-vm agent-vm-console # user/password is user/user
 ```
 
 The agent-vm target accepts multiple parameters:
+
 - VMNAME: the name of the VM to create (default: flightctl-device-default)
 - VMCPUS: the number of CPUs to allocate to the VM (default: 1)
-- VMMEM: the amount of memory to allocate to the VM (default: 512)
+- VMRAM: the amount of memory to allocate to the VM (default: 512)
+- VMDISKSIZE: the disk size for the VM (default: 10G)
 - VMWAIT: the amount of minutes to wait on the console during first boot (default: 0)
 
 It is possible to create multiple VMs with different names:

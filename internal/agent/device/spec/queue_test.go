@@ -112,6 +112,7 @@ func TestRequeueThreshold(t *testing.T) {
 	q := &queueManager{
 		queue:          newQueue(log, maxSize),
 		policyManager:  mockPolicyManager,
+		specCache:      newCache(log),
 		failedVersions: make(map[int64]struct{}),
 		requeueLookup:  make(map[int64]*requeueState),
 		maxRetries:     maxRetries,
@@ -186,6 +187,7 @@ func TestRequeueRollback(t *testing.T) {
 	maxRetries := 0
 	q := &queueManager{
 		queue:          newQueue(log, maxSize),
+		specCache:      newCache(log),
 		policyManager:  mockPolicyManager,
 		failedVersions: make(map[int64]struct{}),
 		requeueLookup:  make(map[int64]*requeueState),
@@ -342,6 +344,7 @@ func TestPolicy(t *testing.T) {
 			maxRetries := 0
 			q := &queueManager{
 				queue:          newQueue(log, maxSize),
+				specCache:      newCache(log),
 				policyManager:  mockPolicyManager,
 				failedVersions: make(map[int64]struct{}),
 				requeueLookup:  make(map[int64]*requeueState),
@@ -392,4 +395,61 @@ func TestCalculateBackoffDelay(t *testing.T) {
 	require.Equal(400*time.Millisecond, q.calculateBackoffDelay(3), "Third try should double again")
 	require.Equal(500*time.Millisecond, q.calculateBackoffDelay(4), "Fourth try should cap at max delay")
 	require.Equal(500*time.Millisecond, q.calculateBackoffDelay(5), "Fifth try should remain at max delay")
+}
+
+func TestRejectOldVersions(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockPolicyManager := policy.NewMockManager(ctrl)
+	mockPolicyManager.EXPECT().IsReady(gomock.Any(), gomock.Any()).Return(true).AnyTimes()
+
+	log := log.NewPrefixLogger("test")
+	log.SetLevel(logrus.DebugLevel)
+
+	cache := newCache(log)
+	cache.current.renderedVersion = "5"
+
+	q := &queueManager{
+		queue:          newQueue(log, 10),
+		policyManager:  mockPolicyManager,
+		specCache:      cache,
+		failedVersions: make(map[int64]struct{}),
+		requeueLookup:  make(map[int64]*requeueState),
+		maxRetries:     0,
+		pollConfig: poll.Config{
+			BaseDelay: time.Second,
+			Factor:    2.0,
+			MaxDelay:  5 * time.Second,
+		},
+		log: log,
+	}
+
+	// add old version 3
+	oldDevice := newVersionedDevice("3")
+	q.Add(ctx, oldDevice)
+
+	// verify old version is not in queue
+	_, exists := q.Next(ctx)
+	require.False(exists, "old version should not be added to queue")
+
+	// add newer version 5
+	currentDevice := newVersionedDevice("5")
+	q.Add(ctx, currentDevice)
+
+	// verify current version is in queue
+	device, exists := q.Next(ctx)
+	require.True(exists, "current version should be in queue")
+	require.Equal("5", device.Version())
+
+	// add newer version 7
+	newerDevice := newVersionedDevice("7")
+	q.Add(ctx, newerDevice)
+
+	// verify newer version is in queue
+	device, exists = q.Next(ctx)
+	require.True(exists, "newer version should be in queue")
+	require.Equal("7", device.Version())
 }

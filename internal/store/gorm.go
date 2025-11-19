@@ -9,17 +9,15 @@ import (
 	"runtime/debug"
 	"time"
 
+	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel/trace"
-	"go.opentelemetry.io/otel/trace/noop"
 	"gorm.io/driver/postgres"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 	"gorm.io/plugin/opentelemetry/tracing"
 	"gorm.io/plugin/prometheus"
-	"k8s.io/klog/v2"
 )
 
 func InitDB(cfg *config.Config, log *logrus.Logger) (*gorm.DB, error) {
@@ -30,23 +28,16 @@ func InitMigrationDB(cfg *config.Config, log *logrus.Logger) (*gorm.DB, error) {
 	return initDBWithUser(cfg, log, cfg.Database.MigrationUser, cfg.Database.MigrationPassword)
 }
 
-func initDBWithUser(cfg *config.Config, log *logrus.Logger, user string, password config.SecureString) (*gorm.DB, error) {
+func initDBWithUser(cfg *config.Config, log *logrus.Logger, user string, password api.SecureString) (*gorm.DB, error) {
 	var dia gorm.Dialector
 
-	if cfg.Database.Type == "pgsql" {
-		dsn := fmt.Sprintf("host=%s user=%s password=%s port=%d",
-			cfg.Database.Hostname,
-			user,
-			password.Value(),
-			cfg.Database.Port,
-		)
-		if cfg.Database.Name != "" {
-			dsn = fmt.Sprintf("%s dbname=%s", dsn, cfg.Database.Name)
-		}
-		dia = postgres.Open(dsn)
-	} else {
-		dia = sqlite.Open(cfg.Database.Name)
+	if cfg.Database.Type != "pgsql" {
+		errString := fmt.Sprintf("failed to connect database %s: only PostgreSQL is supported", cfg.Database.Type)
+		log.Fatal(errString)
+		return nil, errors.New(errString)
 	}
+	dsn := createDSN(cfg, user, password)
+	dia = postgres.Open(dsn)
 
 	newLogger := logger.New(
 		log,
@@ -61,7 +52,7 @@ func initDBWithUser(cfg *config.Config, log *logrus.Logger, user string, passwor
 
 	newDB, err := gorm.Open(dia, &gorm.Config{Logger: newLogger, TranslateError: true})
 	if err != nil {
-		klog.Fatalf("failed to connect database: %v", err)
+		log.Fatalf("failed to connect database: %v", err)
 		return nil, err
 	}
 
@@ -74,31 +65,30 @@ func initDBWithUser(cfg *config.Config, log *logrus.Logger, user string, passwor
 	}))
 
 	if err != nil {
-		klog.Fatalf("Failed to register prometheus exporter: %v", err)
+		log.Fatalf("Failed to register prometheus exporter: %v", err)
 		return nil, err
 	}
 
 	sqlDB, err := newDB.DB()
 	if err != nil {
-		klog.Fatalf("failed to configure connections: %v", err)
+		log.Fatalf("failed to configure connections: %v", err)
 		return nil, err
 	}
 	sqlDB.SetMaxIdleConns(10)
 	sqlDB.SetMaxOpenConns(100)
 
-	if cfg.Database.Type == "pgsql" {
-		var minorVersion string
-		if result := newDB.Raw("SELECT version()").Scan(&minorVersion); result.Error != nil {
-			klog.Infoln(result.Error.Error())
-			return nil, result.Error
-		}
-
-		klog.Infof("PostgreSQL information: '%s'", minorVersion)
+	var serverVersion string
+	if res := newDB.Raw("SHOW server_version").Scan(&serverVersion); res.Error != nil {
+		log.Warningf("could not read PostgreSQL version (continuing): %v", res.Error)
+	} else {
+		log.Debugf("PostgreSQL server_version: %s", serverVersion)
 	}
 
-	if err := newDB.Use(NewTraceContextEnforcer()); err != nil {
-		klog.Fatalf("failed to register OpenTelemetry GORM plugin: %v", err)
-		return nil, err
+	if cfg.Tracing != nil && cfg.Tracing.Enabled {
+		if err = newDB.Use(NewTraceContextEnforcer()); err != nil {
+			log.Fatalf("failed to register OpenTelemetry GORM plugin: %v", err)
+			return nil, err
+		}
 	}
 
 	traceOpts := []tracing.Option{
@@ -109,12 +99,40 @@ func initDBWithUser(cfg *config.Config, log *logrus.Logger, user string, passwor
 		traceOpts = append(traceOpts, tracing.WithoutQueryVariables())
 	}
 
-	if err := newDB.Use(tracing.NewPlugin(traceOpts...)); err != nil {
-		klog.Fatalf("failed to register OpenTelemetry GORM plugin: %v", err)
+	if err = newDB.Use(tracing.NewPlugin(traceOpts...)); err != nil {
+		log.Fatalf("failed to register OpenTelemetry GORM plugin: %v", err)
 		return nil, err
 	}
 
 	return newDB, nil
+}
+
+func createDSN(cfg *config.Config, user string, password api.SecureString) string {
+	dsn := fmt.Sprintf("host=%s user=%s password=%s port=%d",
+		cfg.Database.Hostname,
+		user,
+		password.Value(),
+		cfg.Database.Port,
+	)
+	if cfg.Database.Name != "" {
+		dsn = fmt.Sprintf("%s dbname=%s", dsn, cfg.Database.Name)
+	}
+
+	// Add SSL parameters if they are configured
+	if cfg.Database.SSLMode != "" {
+		dsn = fmt.Sprintf("%s sslmode=%s", dsn, cfg.Database.SSLMode)
+	}
+	if cfg.Database.SSLCert != "" {
+		dsn = fmt.Sprintf("%s sslcert=%s", dsn, cfg.Database.SSLCert)
+	}
+	if cfg.Database.SSLKey != "" {
+		dsn = fmt.Sprintf("%s sslkey=%s", dsn, cfg.Database.SSLKey)
+	}
+	if cfg.Database.SSLRootCert != "" {
+		dsn = fmt.Sprintf("%s sslrootcert=%s", dsn, cfg.Database.SSLRootCert)
+	}
+
+	return dsn
 }
 
 type bypassSpanCheckKey struct{}
@@ -124,8 +142,7 @@ func WithBypassSpanCheck(ctx context.Context) context.Context {
 	return context.WithValue(ctx, bypassSpanCheckKey{}, true)
 }
 
-type traceContextEnforcer struct {
-}
+type traceContextEnforcer struct{}
 
 func NewTraceContextEnforcer() gorm.Plugin {
 	return &traceContextEnforcer{}
@@ -163,7 +180,7 @@ func (p *traceContextEnforcer) enforce() func(tx *gorm.DB) {
 		ctx := tx.Statement.Context
 		if !isBypassSpanCheck(ctx) {
 			span := trace.SpanFromContext(ctx)
-			if !span.SpanContext().IsValid() && !isNoopSpan(span) {
+			if !span.SpanContext().IsValid() {
 				msg := "missing tracing span in GORM context"
 				if value := os.Getenv("GORM_TRACE_ENFORCE_FATAL"); value != "" {
 					debug.PrintStack()
@@ -181,10 +198,4 @@ func isBypassSpanCheck(ctx context.Context) bool {
 	val := ctx.Value(bypassSpanCheckKey{})
 	bypass, _ := val.(bool)
 	return bypass
-}
-
-// IsNoopSpan checks if the given span is a no-op span (e.g., from an uninitialized tracer).
-func isNoopSpan(span trace.Span) bool {
-	_, ok := span.(noop.Span)
-	return ok
 }

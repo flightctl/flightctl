@@ -10,15 +10,17 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	authcommon "github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/config/ca"
+	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/contextutil"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/crypto/signer"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service/common"
-	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/tpm"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 )
@@ -45,25 +47,20 @@ func (h *ServiceHandler) verifyTPMEnrollmentRequest(er *api.EnrollmentRequest, n
 	}
 
 	trustedRoots := h.getTPMCAPool()
+	condition := api.Condition{
+		Type:   api.ConditionTypeEnrollmentRequestTPMVerified,
+		Status: api.ConditionStatusFalse,
+	}
 	if err := tpm.VerifyTCGCSRChainOfTrustWithRoots(csrBytes, trustedRoots); err != nil {
-		condition := api.Condition{
-			Type:    "TPMVerified",
-			Status:  api.ConditionStatusFalse,
-			Reason:  "TPMVerificationFailed",
-			Message: err.Error(),
-		}
-		api.SetStatusCondition(&er.Status.Conditions, condition)
+		condition.Reason = api.TPMVerificationFailedReason
+		condition.Message = err.Error()
 		h.log.Warnf("TPM verification failed for enrollment request %s: %v", name, err)
 	} else {
-		condition := api.Condition{
-			Type:    "TPMVerified",
-			Status:  api.ConditionStatusTrue,
-			Reason:  "TPMVerificationSucceeded",
-			Message: "TPM chain of trust verified successfully",
-		}
-		api.SetStatusCondition(&er.Status.Conditions, condition)
-		h.log.Debugf("TPM verification passed for enrollment request %s", name)
+		condition.Reason = api.TPMChallengeRequiredReason
+		condition.Message = "TPM chain of trust partially verified, activate credential challenge required"
+		h.log.Debugf("TPM chain partially verified for enrollment request %s, challenge required", name)
 	}
+	api.SetStatusCondition(&er.Status.Conditions, condition)
 	return nil
 }
 
@@ -131,8 +128,8 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 	isTPMVerified := false
 	var tpmVerificationError string
 	if enrollmentRequest.Status != nil {
-		if condition := api.FindStatusCondition(enrollmentRequest.Status.Conditions, "TPMVerified"); condition != nil {
-			isTPMVerified = (condition.Status == api.ConditionStatusTrue)
+		if condition := api.FindStatusCondition(enrollmentRequest.Status.Conditions, api.ConditionTypeEnrollmentRequestTPMVerified); condition != nil {
+			isTPMVerified = condition.Status == api.ConditionStatusTrue
 			if !isTPMVerified {
 				tpmVerificationError = condition.Message
 			}
@@ -220,21 +217,69 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 	if errs := apiResource.Validate(); len(errs) > 0 {
 		return fmt.Errorf("failed validating new device: %w", errors.Join(errs...))
 	}
-	if enrollmentRequest.Status.Approval != nil {
+	if enrollmentRequest.Status != nil && enrollmentRequest.Status.Approval != nil {
 		apiResource.Metadata.Labels = enrollmentRequest.Status.Approval.Labels
 	}
-	common.UpdateServiceSideStatus(ctx, orgId, apiResource, h.store, h.log)
 
-	_, err := h.store.Device().Create(ctx, orgId, apiResource, h.callbackManager.DeviceUpdatedCallback, h.callbackDeviceUpdated)
+	// Transfer awaitingReconnect annotation from enrollment request to device if present
+	if enrollmentRequest.Metadata.Annotations != nil {
+		if awaitingReconnect, exists := (*enrollmentRequest.Metadata.Annotations)[api.DeviceAnnotationAwaitingReconnect]; exists && awaitingReconnect == "true" {
+			if apiResource.Metadata.Annotations == nil {
+				apiResource.Metadata.Annotations = &map[string]string{}
+			}
+			(*apiResource.Metadata.Annotations)[api.DeviceAnnotationAwaitingReconnect] = "true"
+
+			// Set device status to awaiting reconnection
+			deviceStatus.Summary = api.DeviceSummaryStatus{
+				Status: api.DeviceSummaryStatusAwaitingReconnect,
+				Info:   lo.ToPtr(common.DeviceStatusInfoAwaitingReconnect),
+			}
+			// Add awaiting reconnection key to KV store
+			key := kvstore.AwaitingReconnectionKey{
+				OrgID:      orgId,
+				DeviceName: name,
+			}
+			keyStr := key.ComposeKey()
+			_, err := h.kvStore.SetNX(ctx, keyStr, []byte("true"))
+			if err != nil {
+				h.log.WithError(err).Errorf("Failed to add awaiting reconnection key for device %s in org %s", name, orgId)
+			}
+		}
+	}
+	_ = common.UpdateServiceSideStatus(ctx, orgId, apiResource, h.store, h.log)
+
+	_, _, err := h.store.Device().CreateOrUpdate(ctx, orgId, apiResource, nil, false, func(ctx context.Context, before *api.Device, after *api.Device) error {
+		// Prevent overwriting existing devices during enrollment request approval
+		if before != nil {
+			return fmt.Errorf("device %s already exists and cannot be overwritten during enrollment request approval", *after.Metadata.Name)
+		}
+		return nil
+	}, func(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
+		// Only invoke callback on success
+		if err == nil {
+			h.callbackDeviceUpdated(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+		}
+	})
 	return err
 }
 
 func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, er api.EnrollmentRequest) (*api.EnrollmentRequest, api.Status) {
 	orgId := getOrgIdFromContext(ctx)
-
-	// don't set fields that are managed by the service
 	er.Status = nil
 	addStatusIfNeeded(&er)
+
+	// don't set fields that are managed by the service for external requests
+	if !IsInternalRequest(ctx) {
+		NilOutManagedObjectMetaProperties(&er.Metadata)
+	}
+
+	// Check if knownRenderedVersion is provided and not "0", add awaitingReconnect annotation
+	if er.Spec.KnownRenderedVersion != nil && *er.Spec.KnownRenderedVersion != "" && *er.Spec.KnownRenderedVersion != "0" {
+		annotations := util.EnsureMap(lo.FromPtr(er.Metadata.Annotations))
+		annotations[api.DeviceAnnotationAwaitingReconnect] = "true"
+		er.Metadata.Annotations = &annotations
+		h.log.Infof("Adding awaitingReconnect annotation for knownRenderedVersion: %s", *er.Spec.KnownRenderedVersion)
+	}
 
 	if errs := er.Validate(); len(errs) > 0 {
 		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
@@ -252,8 +297,14 @@ func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, er api.Enr
 			return nil, api.StatusBadRequest(err.Error())
 		}
 	}
+	if _, isAgent := ctx.Value(consts.AgentCtxKey).(string); isAgent {
+		if h.agentGate.Acquire(ctx, 1) == nil {
+			defer h.agentGate.Release(1)
+		}
+	}
 
-	result, err := h.store.EnrollmentRequest().Create(ctx, orgId, &er, h.callbackEnrollmentRequestUpdated)
+	// Use fromAPI=false for internal requests to preserve annotations
+	result, err := h.store.EnrollmentRequest().CreateWithFromAPI(ctx, orgId, &er, false, h.callbackEnrollmentRequestUpdated)
 	return result, StoreErrorToApiStatus(err, true, api.EnrollmentRequestKind, er.Metadata.Name)
 }
 
@@ -283,6 +334,11 @@ func (h *ServiceHandler) ListEnrollmentRequests(ctx context.Context, params api.
 func (h *ServiceHandler) GetEnrollmentRequest(ctx context.Context, name string) (*api.EnrollmentRequest, api.Status) {
 	orgId := getOrgIdFromContext(ctx)
 
+	if _, isAgent := ctx.Value(consts.AgentCtxKey).(string); isAgent {
+		if h.agentGate.Acquire(ctx, 1) == nil {
+			defer h.agentGate.Release(1)
+		}
+	}
 	result, err := h.store.EnrollmentRequest().Get(ctx, orgId, name)
 	return result, StoreErrorToApiStatus(err, false, api.EnrollmentRequestKind, &name)
 }
@@ -368,7 +424,7 @@ func (h *ServiceHandler) PatchEnrollmentRequest(ctx context.Context, name string
 func (h *ServiceHandler) DeleteEnrollmentRequest(ctx context.Context, name string) api.Status {
 	orgId := getOrgIdFromContext(ctx)
 
-	exists, err := h.deviceExists(ctx, name)
+	exists, err := h.deviceExists(ctx, orgId, name)
 	if err != nil {
 		return StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 	}
@@ -407,16 +463,16 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, name stri
 			return nil, api.StatusBadRequest("Enrollment request is already approved")
 		}
 
-		identity, err := authcommon.GetIdentity(ctx)
-		if err != nil {
-			status := api.StatusInternalServerError(fmt.Sprintf("failed to retrieve user identity while approving enrollment request: %v", err))
+		identity, ok := contextutil.GetMappedIdentityFromContext(ctx)
+		if !ok {
+			status := api.StatusInternalServerError("failed to retrieve user identity while approving enrollment request")
 			h.CreateEvent(ctx, common.GetEnrollmentRequestApprovalFailedEvent(ctx, name, status, h.log))
 			return nil, status
 		}
 
 		approvedBy := "unknown"
-		if identity != nil && len(identity.Username) > 0 {
-			approvedBy = identity.Username
+		if identity != nil && len(identity.GetUsername()) > 0 {
+			approvedBy = identity.GetUsername()
 		}
 
 		approvalStatus := api.EnrollmentRequestApprovalStatus{
@@ -494,8 +550,8 @@ func (h *ServiceHandler) allowCreationOrUpdate(ctx context.Context, orgId uuid.U
 
 // deviceExists checks if a device with the given name exists in the store.
 // Error is returned if there is an error other than ErrResourceNotFound.
-func (h *ServiceHandler) deviceExists(ctx context.Context, name string) (bool, error) {
-	dev, err := h.store.Device().Get(ctx, store.NullOrgId, name)
+func (h *ServiceHandler) deviceExists(ctx context.Context, orgId uuid.UUID, name string) (bool, error) {
+	dev, err := h.store.Device().Get(ctx, orgId, name)
 	if errors.Is(err, flterrors.ErrResourceNotFound) {
 		return false, nil
 	}
@@ -504,15 +560,15 @@ func (h *ServiceHandler) deviceExists(ctx context.Context, name string) (bool, e
 
 // callbackEnrollmentRequestUpdated is the enrollment request-specific callback that handles enrollment request events
 func (h *ServiceHandler) callbackEnrollmentRequestUpdated(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	h.HandleEnrollmentRequestUpdatedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+	h.eventHandler.HandleEnrollmentRequestUpdatedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
 }
 
 // callbackEnrollmentRequestDeleted is the enrollment request-specific callback that handles enrollment request deletion events
 func (h *ServiceHandler) callbackEnrollmentRequestDeleted(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	h.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+	h.eventHandler.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
 }
 
 // callbackEnrollmentRequestApproved is the enrollment request-specific callback that handles enrollment request approval events
 func (h *ServiceHandler) callbackEnrollmentRequestApproved(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	h.HandleEnrollmentRequestApprovedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+	h.eventHandler.HandleEnrollmentRequestApprovedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
 }

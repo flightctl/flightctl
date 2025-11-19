@@ -14,16 +14,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          fetch-depth: 0
 
-      - uses: dorny/paths-filter@v3
-        id: filter
+      - name: Get changed files
+        id: changed-files
+        uses: tj-actions/changed-files@v46
         with:
-          filters: |
-            api:
-              - '.spectral.yaml'
-              - 'api/**/openapi.yaml'
+          since_last_remote_commit: 'true'
+          files: |
+            .spectral.yaml
+            api/**/openapi.yaml
 
       - name: Running Spectral Linter
-        if: ${{ steps.filter.outputs.api == 'true' }}
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         run: make lint-openapi

@@ -5,11 +5,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
+	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config/ca"
+	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/internal/util"
 	"sigs.k8s.io/yaml"
 )
@@ -19,18 +20,22 @@ const (
 )
 
 type Config struct {
-	Database     *dbConfig           `json:"database,omitempty"`
-	Service      *svcConfig          `json:"service,omitempty"`
-	KV           *kvConfig           `json:"kv,omitempty"`
-	Alertmanager *alertmanagerConfig `json:"alertmanager,omitempty"`
-	Auth         *authConfig         `json:"auth,omitempty"`
-	Prometheus   *prometheusConfig   `json:"prometheus,omitempty"`
-	CA           *ca.Config          `json:"ca,omitempty"`
-	Tracing      *tracingConfig      `json:"tracing,omitempty"`
-	GitOps       *gitOpsConfig       `json:"gitOps,omitempty"`
+	Database         *dbConfig               `json:"database,omitempty"`
+	Service          *svcConfig              `json:"service,omitempty"`
+	KV               *kvConfig               `json:"kv,omitempty"`
+	Alertmanager     *alertmanagerConfig     `json:"alertmanager,omitempty"`
+	Auth             *authConfig             `json:"auth,omitempty"`
+	Metrics          *metricsConfig          `json:"metrics,omitempty"`
+	CA               *ca.Config              `json:"ca,omitempty"`
+	Tracing          *tracingConfig          `json:"tracing,omitempty"`
+	GitOps           *gitOpsConfig           `json:"gitOps,omitempty"`
+	Periodic         *periodicConfig         `json:"periodic,omitempty"`
+	Organizations    *organizationsConfig    `json:"organizations,omitempty"`
+	TelemetryGateway *telemetryGatewayConfig `json:"telemetrygateway,omitempty"`
 }
 
 type RateLimitConfig struct {
+	Enabled      bool          `json:"enabled,omitempty"`      // Enable/disable rate limiting
 	Requests     int           `json:"requests,omitempty"`     // max requests per window
 	Window       util.Duration `json:"window,omitempty"`       // e.g. "1m" for one minute
 	AuthRequests int           `json:"authRequests,omitempty"` // max auth requests per window
@@ -41,15 +46,20 @@ type RateLimitConfig struct {
 }
 
 type dbConfig struct {
-	Type     string       `json:"type,omitempty"`
-	Hostname string       `json:"hostname,omitempty"`
-	Port     uint         `json:"port,omitempty"`
-	Name     string       `json:"name,omitempty"`
-	User     string       `json:"user,omitempty"`
-	Password SecureString `json:"password,omitempty"`
+	Type     string           `json:"type,omitempty"`
+	Hostname string           `json:"hostname,omitempty"`
+	Port     uint             `json:"port,omitempty"`
+	Name     string           `json:"name,omitempty"`
+	User     string           `json:"user,omitempty"`
+	Password api.SecureString `json:"password,omitempty"`
 	// Migration user configuration for schema changes
-	MigrationUser     string       `json:"migrationUser,omitempty"`
-	MigrationPassword SecureString `json:"migrationPassword,omitempty"`
+	MigrationUser     string           `json:"migrationUser,omitempty"`
+	MigrationPassword api.SecureString `json:"migrationPassword,omitempty"`
+	// SSL configuration
+	SSLMode     string `json:"sslmode,omitempty"`
+	SSLCert     string `json:"sslcert,omitempty"`
+	SSLKey      string `json:"sslkey,omitempty"`
+	SSLRootCert string `json:"sslrootcert,omitempty"`
 }
 
 type svcConfig struct {
@@ -75,14 +85,23 @@ type svcConfig struct {
 	HttpMaxRequestSize     int              `json:"httpMaxRequestSize,omitempty"`
 	EventRetentionPeriod   util.Duration    `json:"eventRetentionPeriod,omitempty"`
 	AlertPollingInterval   util.Duration    `json:"alertPollingInterval,omitempty"`
+	RenderedWaitTimeout    util.Duration    `json:"renderedWaitTimeout,omitempty"`
 	RateLimit              *RateLimitConfig `json:"rateLimit,omitempty"`
 	TPMCAPaths             []string         `json:"tpmCAPaths,omitempty"`
+	HealthChecks           *healthChecks    `json:"healthChecks,omitempty"`
+}
+
+type healthChecks struct {
+	Enabled          bool          `json:"enabled,omitempty"`
+	ReadinessPath    string        `json:"readinessPath,omitempty"`
+	LivenessPath     string        `json:"livenessPath,omitempty"`
+	ReadinessTimeout util.Duration `json:"readinessTimeout,omitempty"`
 }
 
 type kvConfig struct {
-	Hostname string       `json:"hostname,omitempty"`
-	Port     uint         `json:"port,omitempty"`
-	Password SecureString `json:"password,omitempty"`
+	Hostname string           `json:"hostname,omitempty"`
+	Port     uint             `json:"port,omitempty"`
+	Password api.SecureString `json:"password,omitempty"`
 }
 
 type alertmanagerConfig struct {
@@ -94,33 +113,86 @@ type alertmanagerConfig struct {
 }
 
 type authConfig struct {
-	K8s                   *k8sAuth  `json:"k8s,omitempty"`
-	OIDC                  *oidcAuth `json:"oidc,omitempty"`
-	AAP                   *aapAuth  `json:"aap,omitempty"`
-	CACert                string    `json:"caCert,omitempty"`
-	InsecureSkipTlsVerify bool      `json:"insecureSkipTlsVerify,omitempty"`
+	K8s                     *api.K8sProviderSpec       `json:"k8s,omitempty"`
+	OpenShift               *api.OpenShiftProviderSpec `json:"openshift,omitempty"`
+	OIDC                    *api.OIDCProviderSpec      `json:"oidc,omitempty"`
+	OAuth2                  *api.OAuth2ProviderSpec    `json:"oauth2,omitempty"`
+	AAP                     *api.AapProviderSpec       `json:"aap,omitempty"`
+	CACert                  string                     `json:"caCert,omitempty"`
+	InsecureSkipTlsVerify   bool                       `json:"insecureSkipTlsVerify,omitempty"`
+	PAMOIDCIssuer           *PAMOIDCIssuer             `json:"pamOidcIssuer,omitempty"`           // this is the issuer implementation configuration
+	DynamicProviderCacheTTL util.Duration              `json:"dynamicProviderCacheTTL,omitempty"` // TTL for dynamic auth provider cache (default: 5s)
 }
 
-type k8sAuth struct {
-	ApiUrl                  string `json:"apiUrl,omitempty"`
-	ExternalOpenShiftApiUrl string `json:"externalOpenShiftApiUrl,omitempty"`
-	RBACNs                  string `json:"rbacNs,omitempty"`
+// PAMOIDCIssuer represents an OIDC issuer that uses Linux PAM for authentication
+type PAMOIDCIssuer struct {
+	// Address is the listen address for the PAM issuer service (e.g., ":8444")
+	Address string `json:"address,omitempty"`
+	// Issuer is the base URL for the OIDC issuer (e.g., "https://flightctl.example.com")
+	Issuer string `json:"issuer,omitempty"`
+	// ClientID is the OAuth2 client ID for this issuer
+	ClientID string `json:"clientId,omitempty"`
+	// ClientSecret is the OAuth2 client secret for this issuer
+	ClientSecret string `json:"clientSecret,omitempty"`
+	// Scopes are the supported OAuth2 scopes
+	Scopes []string `json:"scopes,omitempty"`
+	// RedirectURIs are the allowed redirect URIs for OAuth2 flows
+	RedirectURIs []string `json:"redirectUris,omitempty"`
+	// PAMService is the PAM service name to use for authentication (default: "flightctl")
+	PAMService string `json:"pamService" validate:"required"`
+	// AllowPublicClientWithoutPKCE allows public clients (no client secret) to skip PKCE
+	// SECURITY WARNING: This should only be enabled for testing or backward compatibility
+	// Default: false (PKCE required for public clients per OAuth 2.0 Security BCP)
+	AllowPublicClientWithoutPKCE bool `json:"allowPublicClientWithoutPKCE,omitempty"`
 }
 
-type oidcAuth struct {
-	OIDCAuthority         string `json:"oidcAuthority,omitempty"`
-	ExternalOIDCAuthority string `json:"externalOidcAuthority,omitempty"`
+type metricsConfig struct {
+	Enabled               bool                         `json:"enabled,omitempty"`
+	Address               string                       `json:"address,omitempty"`
+	SystemCollector       *systemCollectorConfig       `json:"systemCollector,omitempty"`
+	HttpCollector         *httpCollectorConfig         `json:"httpCollector,omitempty"`
+	DeviceCollector       *deviceCollectorConfig       `json:"deviceCollector,omitempty"`
+	FleetCollector        *fleetCollectorConfig        `json:"fleetCollector,omitempty"`
+	RepositoryCollector   *repositoryCollectorConfig   `json:"repositoryCollector,omitempty"`
+	ResourceSyncCollector *resourceSyncCollectorConfig `json:"resourceSyncCollector,omitempty"`
+	WorkerCollector       *workerCollectorConfig       `json:"workerCollector,omitempty"`
+}
+type collectorConfig struct {
+	Enabled bool `json:"enabled,omitempty"`
 }
 
-type aapAuth struct {
-	ApiUrl         string `json:"apiUrl,omitempty"`
-	ExternalApiUrl string `json:"externalApiUrl,omitempty"`
+type periodicCollectorConfig struct {
+	Enabled        bool          `json:"enabled,omitempty"`
+	TickerInterval util.Duration `json:"tickerInterval,omitempty"`
 }
 
-type prometheusConfig struct {
-	Address        string    `json:"address,omitempty"`
-	SloMax         float64   `json:"sloMax,omitempty"`
-	ApiLatencyBins []float64 `json:"apiLatencyBins,omitempty"`
+type systemCollectorConfig struct {
+	periodicCollectorConfig
+}
+
+type httpCollectorConfig struct {
+	collectorConfig
+}
+
+type deviceCollectorConfig struct {
+	periodicCollectorConfig
+	GroupByFleet bool `json:"groupByFleet,omitempty"`
+}
+
+type fleetCollectorConfig struct {
+	periodicCollectorConfig
+}
+
+type repositoryCollectorConfig struct {
+	periodicCollectorConfig
+}
+
+type resourceSyncCollectorConfig struct {
+	periodicCollectorConfig
+}
+
+type workerCollectorConfig struct {
+	collectorConfig
 }
 
 type tracingConfig struct {
@@ -135,12 +207,136 @@ type gitOpsConfig struct {
 	IgnoreResourceUpdates []string `json:"ignoreResourceUpdates,omitempty"`
 }
 
+type periodicConfig struct {
+	Consumers int `json:"consumers,omitempty"`
+}
+
+type organizationsConfig struct {
+	Enabled bool `json:"enabled,omitempty"`
+}
+
+type telemetryGatewayConfig struct {
+	LogLevel string                    `json:"logLevel,omitempty"`
+	TLS      telemetryGatewayTLSConfig `json:"tls,omitempty"`
+	Listen   telemetryGatewayListen    `json:"listen,omitempty"`
+	Export   *telemetryGatewayExport   `json:"export,omitempty"`
+	Forward  *telemetryGatewayForward  `json:"forward,omitempty"`
+}
+
+type telemetryGatewayTLSConfig struct {
+	CertFile string `json:"certFile,omitempty"`
+	KeyFile  string `json:"keyFile,omitempty"`
+	CACert   string `json:"caCert,omitempty"`
+}
+
+type telemetryGatewayListen struct {
+	Device string `json:"device,omitempty"`
+}
+
+type telemetryGatewayExport struct {
+	Prometheus string `json:"prometheus,omitempty"`
+}
+
+type telemetryGatewayForward struct {
+	Endpoint string                      `json:"endpoint,omitempty"`
+	TLS      *telemetryGatewayForwardTLS `json:"tls,omitempty"`
+}
+
+type telemetryGatewayForwardTLS struct {
+	InsecureSkipTlsVerify bool   `json:"insecureSkipTlsVerify,omitempty"`
+	CAFile                string `json:"caFile,omitempty"`
+	CertFile              string `json:"certFile,omitempty"`
+	KeyFile               string `json:"keyFile,omitempty"`
+}
+
 type ConfigOption func(*Config)
 
 func WithTracingEnabled() ConfigOption {
 	return func(c *Config) {
 		c.Tracing = &tracingConfig{
 			Enabled: true,
+		}
+	}
+}
+
+func WithOIDCAuth(issuer, clientId string, enabled bool) ConfigOption {
+	return func(c *Config) {
+		if c.Auth == nil {
+			c.Auth = &authConfig{
+				DynamicProviderCacheTTL: util.Duration(5 * time.Second),
+			}
+		}
+		c.Auth.OIDC = &api.OIDCProviderSpec{
+			Issuer:       issuer,
+			ClientId:     clientId,
+			Enabled:      &enabled,
+			ProviderType: api.Oidc,
+		}
+	}
+}
+
+func WithOAuth2Auth(authorizationUrl, tokenUrl, userinfoUrl, issuer, clientId string, enabled bool) ConfigOption {
+
+	return func(c *Config) {
+		if c.Auth == nil {
+			c.Auth = &authConfig{
+				DynamicProviderCacheTTL: util.Duration(5 * time.Second),
+			}
+		}
+		c.Auth.OAuth2 = &api.OAuth2ProviderSpec{
+			AuthorizationUrl: authorizationUrl,
+			TokenUrl:         tokenUrl,
+			UserinfoUrl:      userinfoUrl,
+			Issuer:           &issuer,
+			ClientId:         clientId,
+			Enabled:          &enabled,
+			ProviderType:     api.Oauth2,
+		}
+	}
+}
+
+func WithK8sAuth(apiUrl, rbacNs string) ConfigOption {
+	return func(c *Config) {
+		if c.Auth == nil {
+			c.Auth = &authConfig{
+				DynamicProviderCacheTTL: util.Duration(5 * time.Second),
+			}
+		}
+		c.Auth.K8s = &api.K8sProviderSpec{
+			ApiUrl:       apiUrl,
+			RbacNs:       &rbacNs,
+			ProviderType: api.K8s,
+		}
+	}
+}
+
+func WithAAPAuth(apiUrl, externalApiUrl string) ConfigOption {
+	return func(c *Config) {
+		if c.Auth == nil {
+			c.Auth = &authConfig{
+				DynamicProviderCacheTTL: util.Duration(5 * time.Second),
+			}
+		}
+		c.Auth.AAP = &api.AapProviderSpec{
+			ApiUrl:         apiUrl,
+			ExternalApiUrl: &externalApiUrl,
+			ProviderType:   "aap",
+		}
+	}
+}
+
+func WithPAMOIDCIssuer(issuer, clientId, clientSecret, pamService string) ConfigOption {
+	return func(c *Config) {
+		if c.Auth == nil {
+			c.Auth = &authConfig{
+				DynamicProviderCacheTTL: util.Duration(5 * time.Second),
+			}
+		}
+		c.Auth.PAMOIDCIssuer = &PAMOIDCIssuer{
+			Issuer:       issuer,
+			ClientID:     clientId,
+			ClientSecret: clientSecret,
+			PAMService:   pamService,
 		}
 	}
 }
@@ -192,6 +388,13 @@ func NewDefault(opts ...ConfigOption) *Config {
 			HttpMaxRequestSize:     50 * 1024 * 1024,                  // 50MB
 			EventRetentionPeriod:   util.Duration(7 * 24 * time.Hour), // 1 week
 			AlertPollingInterval:   util.Duration(1 * time.Minute),
+			RenderedWaitTimeout:    util.Duration(2 * time.Minute),
+			HealthChecks: &healthChecks{
+				Enabled:          true,
+				ReadinessPath:    "/readyz",
+				LivenessPath:     "/healthz",
+				ReadinessTimeout: util.Duration(2 * time.Second),
+			},
 			// Rate limiting is disabled by default - set RateLimit to enable
 		},
 		KV: &kvConfig{
@@ -206,15 +409,64 @@ func NewDefault(opts ...ConfigOption) *Config {
 			BaseDelay:  "500ms",
 			MaxDelay:   "10s",
 		},
-		Prometheus: &prometheusConfig{
-			Address:        ":15690",
-			SloMax:         4.0,
-			ApiLatencyBins: []float64{1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1e0},
+		TelemetryGateway: &telemetryGatewayConfig{
+			LogLevel: "info",
+			TLS: telemetryGatewayTLSConfig{
+				CertFile: "/etc/telemetry-gateway/certs/server.crt",
+				KeyFile:  "/etc/telemetry-gateway/certs/server.key",
+				CACert:   "/etc/telemetry-gateway/certs/ca.crt",
+			},
+			Listen: telemetryGatewayListen{Device: "0.0.0.0:4317"},
+			// Export: nil  (no Prom until explicitly set)
+			// Forward: nil (no upstream until explicitly set)
+		},
+		Metrics: &metricsConfig{
+			Enabled: true,
+			Address: ":15690",
+			SystemCollector: &systemCollectorConfig{
+				periodicCollectorConfig: periodicCollectorConfig{
+					Enabled:        true,
+					TickerInterval: util.Duration(5 * time.Second),
+				},
+			},
+			HttpCollector: &httpCollectorConfig{
+				collectorConfig: collectorConfig{
+					Enabled: true,
+				},
+			},
+			DeviceCollector: &deviceCollectorConfig{
+				periodicCollectorConfig: periodicCollectorConfig{
+					Enabled:        true,
+					TickerInterval: util.Duration(30 * time.Second),
+				},
+				GroupByFleet: true,
+			},
+			FleetCollector: &fleetCollectorConfig{
+				periodicCollectorConfig: periodicCollectorConfig{
+					Enabled:        true,
+					TickerInterval: util.Duration(30 * time.Second),
+				},
+			},
+			RepositoryCollector: &repositoryCollectorConfig{
+				periodicCollectorConfig: periodicCollectorConfig{
+					Enabled:        true,
+					TickerInterval: util.Duration(30 * time.Second),
+				},
+			},
+			ResourceSyncCollector: &resourceSyncCollectorConfig{
+				periodicCollectorConfig: periodicCollectorConfig{
+					Enabled:        true,
+					TickerInterval: util.Duration(30 * time.Second),
+				},
+			},
 		},
 		GitOps: &gitOpsConfig{
 			IgnoreResourceUpdates: []string{
 				"/metadata/resourceVersion",
 			},
+		},
+		Auth: &authConfig{
+			DynamicProviderCacheTTL: util.Duration(5 * time.Second),
 		},
 	}
 	c.CA = ca.NewDefault(CertificateDir())
@@ -260,65 +512,132 @@ func Load(cfgFile string) (*Config, error) {
 		return nil, fmt.Errorf("decoding config: %v", err)
 	}
 
+	applyEnvVarOverrides(c)
+	applyAuthDefaults(c)
+
+	return c, nil
+}
+
+func applyEnvVarOverrides(c *Config) {
 	if kvPass := os.Getenv("KV_PASSWORD"); kvPass != "" {
-		c.KV.Password = SecureString(kvPass)
+		c.KV.Password = api.SecureString(kvPass)
 	}
 	if dbUser := os.Getenv("DB_USER"); dbUser != "" {
 		c.Database.User = dbUser
 	}
 	if dbPass := os.Getenv("DB_PASSWORD"); dbPass != "" {
-		c.Database.Password = SecureString(dbPass)
+		c.Database.Password = api.SecureString(dbPass)
 	}
 	if dbMigrationUser := os.Getenv("DB_MIGRATION_USER"); dbMigrationUser != "" {
 		c.Database.MigrationUser = dbMigrationUser
 	}
 	if dbMigrationPass := os.Getenv("DB_MIGRATION_PASSWORD"); dbMigrationPass != "" {
-		c.Database.MigrationPassword = SecureString(dbMigrationPass)
+		c.Database.MigrationPassword = api.SecureString(dbMigrationPass)
 	}
-	// Handle rate limit environment variables - create config if env vars are set
-	rateLimitRequests := os.Getenv("RATE_LIMIT_REQUESTS")
-	rateLimitWindow := os.Getenv("RATE_LIMIT_WINDOW")
-	authRateLimitRequests := os.Getenv("AUTH_RATE_LIMIT_REQUESTS")
-	authRateLimitWindow := os.Getenv("AUTH_RATE_LIMIT_WINDOW")
-	trustedProxies := os.Getenv("RATE_LIMIT_TRUSTED_PROXIES")
+}
 
-	if rateLimitRequests != "" || rateLimitWindow != "" || authRateLimitRequests != "" || authRateLimitWindow != "" || trustedProxies != "" {
-		// Create rate limit config if it doesn't exist
-		if c.Service.RateLimit == nil {
-			c.Service.RateLimit = &RateLimitConfig{}
-		}
-
-		if rateLimitRequests != "" {
-			if requests, err := strconv.Atoi(rateLimitRequests); err == nil {
-				c.Service.RateLimit.Requests = requests
-			}
-		}
-		if rateLimitWindow != "" {
-			if window, err := time.ParseDuration(rateLimitWindow); err == nil {
-				c.Service.RateLimit.Window = util.Duration(window)
-			}
-		}
-		if authRateLimitRequests != "" {
-			if requests, err := strconv.Atoi(authRateLimitRequests); err == nil {
-				c.Service.RateLimit.AuthRequests = requests
-			}
-		}
-		if authRateLimitWindow != "" {
-			if window, err := time.ParseDuration(authRateLimitWindow); err == nil {
-				c.Service.RateLimit.AuthWindow = util.Duration(window)
-			}
-		}
-		if trustedProxies != "" {
-			// Split by comma and trim whitespace
-			proxies := strings.Split(trustedProxies, ",")
-			for i, proxy := range proxies {
-				proxies[i] = strings.TrimSpace(proxy)
-			}
-			c.Service.RateLimit.TrustedProxies = proxies
-		}
+func applyAuthDefaults(c *Config) {
+	if c.Auth == nil {
+		return
 	}
 
-	return c, nil
+	applyAuthProviderEnabledDefaults(c.Auth)
+	applyPAMOIDCIssuerDefaults(c)
+	applyOIDCClientDefaults(c)
+}
+
+func applyAuthProviderEnabledDefaults(auth *authConfig) {
+	if auth.OIDC != nil && auth.OIDC.Enabled == nil {
+		enabled := true
+		auth.OIDC.Enabled = &enabled
+	}
+	if auth.OpenShift != nil && auth.OpenShift.Enabled == nil {
+		enabled := true
+		auth.OpenShift.Enabled = &enabled
+	}
+	if auth.K8s != nil && auth.K8s.Enabled == nil {
+		enabled := true
+		auth.K8s.Enabled = &enabled
+	}
+	if auth.OAuth2 != nil && auth.OAuth2.Enabled == nil {
+		enabled := true
+		auth.OAuth2.Enabled = &enabled
+	}
+	if auth.AAP != nil && auth.AAP.Enabled == nil {
+		enabled := true
+		auth.AAP.Enabled = &enabled
+	}
+}
+
+func applyPAMOIDCIssuerDefaults(c *Config) {
+	if c.Auth.PAMOIDCIssuer == nil {
+		return
+	}
+
+	if c.Auth.PAMOIDCIssuer.PAMService == "" {
+		c.Auth.PAMOIDCIssuer.PAMService = "flightctl"
+	}
+	if c.Auth.PAMOIDCIssuer.Issuer == "" {
+		c.Auth.PAMOIDCIssuer.Issuer = c.Service.BaseUrl
+	}
+	if c.Auth.PAMOIDCIssuer.ClientID == "" {
+		c.Auth.PAMOIDCIssuer.ClientID = "flightctl-client"
+	}
+	if len(c.Auth.PAMOIDCIssuer.Scopes) == 0 {
+		c.Auth.PAMOIDCIssuer.Scopes = []string{"openid", "profile", "email", "roles"}
+	}
+	if len(c.Auth.PAMOIDCIssuer.RedirectURIs) == 0 {
+		applyPAMOIDCIssuerRedirectURIDefaults(c)
+	}
+}
+
+func applyPAMOIDCIssuerRedirectURIDefaults(c *Config) {
+	base := c.Service.BaseUIUrl
+	if base == "" {
+		base = c.Service.BaseUrl
+	}
+	if base != "" {
+		c.Auth.PAMOIDCIssuer.RedirectURIs = []string{strings.TrimSuffix(base, "/") + "/callback"}
+	}
+}
+
+func applyOIDCClientDefaults(c *Config) {
+	if c.Auth.OIDC == nil {
+		return
+	}
+
+	if c.Auth.OIDC.ClientId == "" {
+		c.Auth.OIDC.ClientId = "flightctl-client"
+	}
+	if c.Auth.OIDC.Issuer == "" {
+		c.Auth.OIDC.Issuer = c.Service.BaseUrl
+	}
+	if c.Auth.OIDC.UsernameClaim == nil {
+		c.Auth.OIDC.UsernameClaim = &[]string{"preferred_username"}
+	}
+
+	applyOIDCRoleAssignmentDefaults(c.Auth.OIDC)
+	applyOIDCOrganizationAssignmentDefaults(c.Auth.OIDC)
+}
+
+func applyOIDCRoleAssignmentDefaults(oidc *api.OIDCProviderSpec) {
+	if _, err := oidc.RoleAssignment.Discriminator(); err != nil {
+		dynamicRoleAssignment := api.AuthDynamicRoleAssignment{
+			Type:      api.AuthDynamicRoleAssignmentTypeDynamic,
+			ClaimPath: []string{"groups"},
+		}
+		_ = oidc.RoleAssignment.FromAuthDynamicRoleAssignment(dynamicRoleAssignment)
+	}
+}
+
+func applyOIDCOrganizationAssignmentDefaults(oidc *api.OIDCProviderSpec) {
+	if _, err := oidc.OrganizationAssignment.Discriminator(); err != nil {
+		staticAssignment := api.AuthStaticOrganizationAssignment{
+			OrganizationName: org.DefaultExternalID,
+			Type:             api.AuthStaticOrganizationAssignmentTypeStatic,
+		}
+		_ = oidc.OrganizationAssignment.FromAuthStaticOrganizationAssignment(staticAssignment)
+	}
 }
 
 func Save(cfg *Config, cfgFile string) error {
@@ -342,6 +661,28 @@ func Validate(cfg *Config) error {
 			if _, ok := allowedGitOpsIgnoreResourceUpdates[path]; !ok {
 				return fmt.Errorf("invalid ignoreResourceUpdates value: %s", path)
 			}
+		}
+	}
+
+	if cfg.Service != nil && cfg.Service.HealthChecks != nil && cfg.Service.HealthChecks.Enabled {
+		hc := cfg.Service.HealthChecks
+		if strings.TrimSpace(hc.ReadinessPath) == "" {
+			return fmt.Errorf("readinessPath must be non-empty")
+		}
+		if !strings.HasPrefix(hc.ReadinessPath, "/") {
+			return fmt.Errorf("readinessPath must start with '/'")
+		}
+		if strings.TrimSpace(hc.LivenessPath) == "" {
+			return fmt.Errorf("livenessPath must be non-empty")
+		}
+		if !strings.HasPrefix(hc.LivenessPath, "/") {
+			return fmt.Errorf("livenessPath must start with '/'")
+		}
+		if hc.ReadinessTimeout <= 0 {
+			return fmt.Errorf("readinessTimeout must be greater than 0")
+		}
+		if hc.ReadinessPath == hc.LivenessPath {
+			return fmt.Errorf("readinessPath and livenessPath must not be identical")
 		}
 	}
 	return nil

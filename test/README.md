@@ -87,11 +87,44 @@ a server and an agent together, building any necessary crypto material,
 providing a test database and a mock directory for the agent to interact with.
 
 can be run with:
+
 ```bash
 make integration-test # or run-integration-test if you have a DB/deployment ready
 ```
 
 For mocking specific interfaces please refer to the unit-test mocking section.
+
+### Database Setup Strategies
+
+Integration tests support two database setup strategies:
+
+#### Local (default)
+
+```bash
+make integration-test
+```
+
+- Each test starts from an empty DB and runs the app’s migrations locally with GORM.
+- No external migration image is used.
+
+#### Template
+
+```bash
+FLIGHTCTL_TEST_DB_STRATEGY=template make integration-test
+```
+
+- A migration container prepares a **template database** with all migrations applied.
+- Tests then create their databases by **cloning from that template** (fast and consistent per test run).
+
+#### Environment Variables
+
+```bash
+FLIGHTCTL_TEST_DB_STRATEGY=local|template   # Default: local
+MIGRATION_IMAGE=<repo/name:tag|@digest>     # Optional; template strategy only
+```
+
+- If `MIGRATION_IMAGE` **is set**, it must exist; otherwise the run fails.
+- If `MIGRATION_IMAGE` **is not set**, a fresh `flightctl-db-setup:latest` image is built from the current source and used.
 
 ### Note on coverage testing
 
@@ -145,15 +178,16 @@ make e2e-test GO_E2E_DIRS=test/e2e/cli
 
 or, if we ran e2e-test before and all the necessary artifacts and deployments are
 in place, we could speed up furter by using the `run-e2e-test` target.
-```
+
+```bash
 make run-e2e-test GO_E2E_DIRS=test/e2e/cli
 ```
 
 You can also filter by providing the GINKGO_FOCUS environment variable, which
 will filter the tests by the provided string.
-````
+```
 make e2e-test GINKGO_FOCUS="should create a new project"
-````
+```
 
 Additionally, you can filter tests using Ginkgo labels with the GINKGO_LABEL_FILTER
 environment variable. When running locally with make, all tests run by default (no label filtering).
@@ -267,12 +301,34 @@ export FLIGHTCTL_RPM=devel/0.3.0.rc2-1.20241104145530808450.main.19.ga531984
 make in-cluster-e2e-test
 ```
 
+#### Using Brew Registry Builds
+
+You can also use RPMs from the Red Hat Brew registry by specifying a `BREW_BUILD_URL`. This is useful for testing
+specific builds from the Red Hat internal build system.
+
+To use a brew build for both the agent image and CLI, set the `BREW_BUILD_URL` environment variable:
+
+```bash
+export FLIGHTCTL_NS=flightctl
+export KUBEADMIN_PASS=your-oc-password-for-kubeadmin
+export BREW_BUILD_URL=brew-registry-build-url
+
+make in-cluster-e2e-test
+```
+
+The `BREW_BUILD_URL` should be a valid URL to the Red Hat Brew system task page. Both the agent image and CLI will be built
+using the RPMs downloaded from the specified brew URL.
+
 #### If your host system is not suitable for bootc image builder
 
 * Create a test vm. Note the ssh command in the cmd output.
 ```bash
 KUBECONFIG_PATH=/path/to/your/kubeconfig make deploy-e2e-ocp-test-vm
 ```
+The default image for the VM is 10G which,by default is increased by 30G to 40G.
+You can set the `VM_DISK_SIZE_INC` environment variable to change it so the VM
+will have a bigger disk.
+
 * Ssh into the vm.
 ```bash
 ssh kni@${VM_IP}
@@ -293,6 +349,78 @@ oc delete ns flightctl-e2e
 
 make clean build in-cluster-e2e-test
 
+```
+
+#### Deploying FlightCtl with Quadlets on RHEL
+
+For testing FlightCtl deployment using systemd Quadlets on RHEL, you can use the `deploy-quadlets-vm` target to create a RHEL VM with FlightCtl services pre-installed and running.
+
+**Prerequisites:**
+
+1. **Red Hat Account**: You need a Red Hat account with active subscriptions to register the RHEL9 VM.
+
+2. **SSH Keys**: You need to have SSH private and public keys in `~/.ssh/` (typically `~/.ssh/id_rsa` and `~/.ssh/id_rsa.pub`). If you don't have them, generate them with:
+```bash
+ssh-keygen -t rsa -b 4096 -C "your-email@example.com"
+```
+
+**Deploy the VM:**
+The standard command format is:
+```bash
+USER='your-user' REDHAT_USER='user@redhat.com' REDHAT_PASSWORD='your-redhat-password' make deploy-quadlets-vm
+```
+
+Replace the values with your own:
+- `USER`: Your local username (will be created in the VM)
+- `REDHAT_USER`: Your Red Hat account email
+- `REDHAT_PASSWORD`: Your Red Hat account password
+
+**Alternative using environment variables:**
+You can also export the variables first:
+```bash
+export USER="your-username"
+export REDHAT_USER="your-email@redhat.com"
+export REDHAT_PASSWORD="your-password"
+make deploy-quadlets-vm
+```
+
+**Optional configuration:**
+- Set custom disk size increment (default is 30G):
+```bash
+USER=redhat-user REDHAT_USER=redhat-user@redhat.com REDHAT_PASSWORD='your-password' VM_DISK_SIZE_INC=50 make deploy-quadlets-vm
+```
+
+**Access the VM:**
+After deployment, you'll get the VM IP address. SSH into it:
+```bash
+ssh ${USER}@${VM_IP}
+```
+
+**Inside the VM:**
+The VM comes pre-configured with:
+- FlightCtl services running via systemd Quadlets
+- All necessary dependencies installed
+- FlightCtl CLI available
+- OpenShift client (oc) installed
+
+You can check the status of FlightCtl services:
+```bash
+sudo systemctl list-units flightctl-*.service
+sudo podman ps
+
+```
+
+**Clean up:**
+To remove the VM and all associated files:
+```bash
+make clean-quadlets-vm
+```
+
+Or manually:
+```bash
+sudo virsh destroy quadlets-vm
+sudo virsh undefine quadlets-vm
+sudo rm -f /var/lib/libvirt/images/quadlets-vm*.qcow2
 ```
 ## Command line tool testing
 

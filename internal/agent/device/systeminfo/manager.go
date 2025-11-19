@@ -17,7 +17,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
-	status "github.com/flightctl/flightctl/internal/agent/device/status"
+	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -117,7 +117,37 @@ func (m *manager) ReloadConfig(ctx context.Context, cfg *config.Config) error {
 
 	if !reflect.DeepEqual(m.infoKeys, cfg.SystemInfo) {
 		m.log.Infof("Updating system info keys: %v -> %v", m.infoKeys, cfg.SystemInfo)
+
+		oldConfig := collectCfg{}
+
+		// Ignore errors for previous and new. We're just trying to diff the two to see if there
+		// is something new that should be collected
+		opts, _ := collectionOptsFromInfoKeys(m.infoKeys)
+		for _, opt := range opts {
+			opt(&oldConfig)
+		}
+
+		newConfig := collectCfg{}
+		opts, _ = collectionOptsFromInfoKeys(cfg.SystemInfo)
+		for _, opt := range opts {
+			opt(&newConfig)
+		}
+
 		m.infoKeys = cfg.SystemInfo
+
+		// If the newConfig only removes required collectors but doesn't add any
+		// new collectors, there is no need to trigger a recollection
+		hasNewCollectors := false
+		for cType := range newConfig.enabledTypes {
+			if !oldConfig.hasCollector(cType) {
+				hasNewCollectors = true
+				break
+			}
+		}
+
+		if hasNewCollectors {
+			m.collected = false
+		}
 	}
 
 	if !reflect.DeepEqual(m.customKeys, cfg.SystemInfoCustom) {
@@ -232,7 +262,14 @@ func collectDeviceSystemInfo(
 	hardwareMapPath string,
 ) (v1alpha1.DeviceSystemInfo, error) {
 	agentVersion := version.Get()
-	info, err := Collect(ctx, log, exec, reader, customKeys, hardwareMapPath)
+
+	collectionOpts, err := collectionOptsFromInfoKeys(infoKeys)
+	// Don't block collection for a few unknown keys. Try our best to grab everything we can
+	if err != nil {
+		log.Warnf("Failed to handle system info keys: %v", err)
+	}
+
+	info, err := Collect(ctx, log, exec, reader, customKeys, hardwareMapPath, collectionOpts...)
 	if err != nil {
 		log.Errorf("Failed to collect system info: %v", err)
 		return v1alpha1.DeviceSystemInfo{}, err

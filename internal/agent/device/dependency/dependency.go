@@ -23,20 +23,62 @@ const (
 	maxQueueSize       = 10
 )
 
+const (
+	ociImageConfigMediaType = "application/vnd.oci.image.config.v1+json"
+)
+
 // OCIType represents the type of OCI target for prefetching
 type OCIType string
 
 const (
 	OCITypeImage    OCIType = "Image"
 	OCITypeArtifact OCIType = "Artifact"
+	OCITypeAuto     OCIType = "Auto"
 )
+
+// detectOCIType analyzes an OCI manifest to determine if it's an image or artifact
+func detectOCIType(manifest *client.OCIManifest) (OCIType, error) {
+	if manifest == nil {
+		return "", fmt.Errorf("manifest is nil")
+	}
+
+	if len(manifest.Manifests) > 0 {
+		return OCITypeImage, nil
+	}
+
+	if manifest.ArtifactType != "" {
+		return OCITypeArtifact, nil
+	}
+
+	if manifest.Config != nil {
+		switch manifest.Config.MediaType {
+		case ociImageConfigMediaType:
+			return OCITypeImage, nil
+		case "":
+			return "", fmt.Errorf("media type not set")
+		default:
+			// artifact types could be anything, so default to artifact
+			// if there is any value here that isn't the default image type
+			return OCITypeArtifact, nil
+		}
+	}
+
+	return OCITypeImage, nil
+}
 
 // OCIPullTarget represents an OCI target to be prefetched
 type OCIPullTarget struct {
 	Type       OCIType
 	Reference  string
+	Digest     string
 	PullPolicy v1alpha1.ImagePullPolicy
 	PullSecret *client.PullSecret
+}
+
+// OCICollection represents the result of collecting OCI targets
+type OCICollection struct {
+	Targets []OCIPullTarget
+	Requeue bool // true if collection is incomplete and should be retried
 }
 
 // PrefetchStatus provides the current status of prefetch operations
@@ -61,13 +103,14 @@ type PrefetchManager interface {
 
 // OCICollector interface for components that can collect OCI targets
 type OCICollector interface {
-	// CollectOCITargets returns a function that collects and processes OCI targets
-	CollectOCITargets(ctx context.Context, current, desired *v1alpha1.DeviceSpec) ([]OCIPullTarget, error)
+	// CollectOCITargets collects OCI targets and indicates if requeue is needed
+	CollectOCITargets(ctx context.Context, current, desired *v1alpha1.DeviceSpec) (*OCICollection, error)
 }
 
 type prefetchManager struct {
 	log          *log.PrefixLogger
 	podmanClient *client.Podman
+	skopeoClient *client.Skopeo
 	readWriter   fileio.ReadWriter
 	// pullTimeout is the duration that each target will wait unless it
 	// encounters an error
@@ -93,12 +136,14 @@ type prefetchTask struct {
 func NewPrefetchManager(
 	log *log.PrefixLogger,
 	podmanClient *client.Podman,
+	skopeoClient *client.Skopeo,
 	readWriter fileio.ReadWriter,
 	pullTimeout util.Duration,
 ) *prefetchManager {
 	return &prefetchManager{
 		log:          log,
 		podmanClient: podmanClient,
+		skopeoClient: skopeoClient,
 		readWriter:   readWriter,
 		pullTimeout:  time.Duration(pullTimeout),
 		tasks:        make(map[string]*prefetchTask),
@@ -140,31 +185,83 @@ func (m *prefetchManager) RegisterOCICollector(collector OCICollector) {
 	m.collectors = append(m.collectors, collector)
 }
 
+// isTargetsChanged checks if targets changed using pre-built reference set
+// caller must hold m.mu lock
+func (m *prefetchManager) isTargetsChanged(seenTargets map[string]struct{}) bool {
+	if len(m.tasks) == 0 {
+		return len(seenTargets) > 0
+	}
+
+	if len(seenTargets) != len(m.tasks) {
+		return true
+	}
+
+	for existingRef := range m.tasks {
+		if _, exists := seenTargets[existingRef]; !exists {
+			return true
+		}
+	}
+
+	return false
+}
+
 func (m *prefetchManager) BeforeUpdate(ctx context.Context, current, desired *v1alpha1.DeviceSpec) error {
 	m.log.Debug("Collecting OCI targets from all dependency sources")
 
-	// collect all OCI targets from registered functions
 	var allTargets []OCIPullTarget
+	var requeueNeeded bool
 	m.mu.Lock()
 	collectors := slices.Clone(m.collectors)
 	m.mu.Unlock()
 
 	for i, collector := range collectors {
-		targets, err := collector.CollectOCITargets(ctx, current, desired)
+		result, err := collector.CollectOCITargets(ctx, current, desired)
 		if err != nil {
 			return fmt.Errorf("prefetch collector %d failed: %w", i, err)
 		}
-		allTargets = append(allTargets, targets...)
+		allTargets = append(allTargets, result.Targets...)
+		if result.Requeue {
+			requeueNeeded = true
+		}
 	}
 
-	if len(allTargets) > 0 {
-		m.log.Debugf("Scheduling %d total OCI targets for prefetching", len(allTargets))
-		if err := m.Schedule(ctx, allTargets); err != nil {
+	seenTargets := make(map[string]struct{})
+	newTargets := make([]OCIPullTarget, 0)
+	for _, target := range allTargets {
+		if _, seen := seenTargets[target.Reference]; !seen {
+			newTargets = append(newTargets, target)
+			seenTargets[target.Reference] = struct{}{}
+		}
+	}
+
+	m.log.Debugf("Collected %d unique OCI targets", len(seenTargets))
+
+	// clean up stale prefetch tasks if targets have changed
+	m.mu.Lock()
+	if m.isTargetsChanged(seenTargets) {
+		m.log.Debug("OCI targets changed, cleaning up stale prefetch tasks")
+		m.cleanupStaleTasks(seenTargets)
+	}
+	m.mu.Unlock()
+
+	if len(newTargets) > 0 {
+		m.log.Debugf("Scheduling %d new targets for prefetch", len(newTargets))
+		if err := m.Schedule(ctx, newTargets); err != nil {
 			return fmt.Errorf("scheduling prefetch targets: %w", err)
 		}
 	}
 
-	return m.checkReady(ctx)
+	if err := m.checkReady(ctx); err != nil {
+		return err
+	}
+
+	// collector requested a requeue, return retryable error to trigger another iteration
+	if requeueNeeded {
+		m.log.Debug("Requeue requested by collector, will retry after current targets are fetched")
+		return errors.ErrPrefetchNotReady
+	}
+
+	return nil
 }
 
 func (m *prefetchManager) checkReady(ctx context.Context) error {
@@ -190,6 +287,7 @@ func (m *prefetchManager) checkReady(ctx context.Context) error {
 	}
 
 	if len(pending) > 0 {
+		// ensure retry
 		return fmt.Errorf("%w: %v", errors.ErrPrefetchNotReady, pending)
 	}
 	return nil
@@ -256,6 +354,29 @@ func (m *prefetchManager) pull(ctx context.Context, target string, task *prefetc
 		_, err = m.podmanClient.Pull(ctx, target, task.clientOps...)
 	case OCITypeArtifact:
 		_, err = m.podmanClient.PullArtifact(ctx, target, task.clientOps...)
+	case OCITypeAuto:
+		m.log.Debugf("Auto-detecting OCI type for %s", target)
+		manifest, err := m.skopeoClient.InspectManifest(ctx, target, task.clientOps...)
+		if err != nil {
+			return fmt.Errorf("inspecting manifest for auto-detection: %w", err)
+		}
+
+		detectedType, err := detectOCIType(manifest)
+		if err != nil {
+			return fmt.Errorf("detecting OCI type: %w", err)
+		}
+
+		m.log.Infof("Detected OCI type for %s: %s", target, detectedType)
+
+		switch detectedType {
+		case OCITypeImage:
+			_, err = m.podmanClient.Pull(ctx, target, task.clientOps...)
+		case OCITypeArtifact:
+			_, err = m.podmanClient.PullArtifact(ctx, target, task.clientOps...)
+		default:
+			return fmt.Errorf("unexpected detected OCI type: %s", detectedType)
+		}
+		return err
 	default:
 		return fmt.Errorf("invalid oci type %s", ociType)
 	}
@@ -265,7 +386,11 @@ func (m *prefetchManager) pull(ctx context.Context, target string, task *prefetc
 func (m *prefetchManager) setResult(image string, err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	task := m.tasks[image]
+	task, ok := m.tasks[image]
+	if !ok {
+		m.log.Debugf("Task for %s no longer exists, skipping result update", image)
+		return
+	}
 	task.err = err
 	task.done = true
 }
@@ -278,7 +403,9 @@ func (m *prefetchManager) Schedule(ctx context.Context, targets []OCIPullTarget)
 		var cleanupFns []func()
 		if target.PullSecret != nil {
 			opts = append(opts, client.WithPullSecret(target.PullSecret.Path))
-			cleanupFns = append(cleanupFns, target.PullSecret.Cleanup)
+			if target.PullSecret.Cleanup != nil {
+				cleanupFns = append(cleanupFns, target.PullSecret.Cleanup)
+			}
 		}
 		if err := m.schedule(ctx, target.Reference, target.Type, cleanupFns, opts...); err != nil {
 			return fmt.Errorf("prefetch schedule: %w", err)
@@ -301,6 +428,10 @@ func (m *prefetchManager) schedule(ctx context.Context, target string, ociType O
 		targetExists = m.podmanClient.ImageExists(ctx, target)
 	case OCITypeArtifact:
 		targetExists = m.podmanClient.ArtifactExists(ctx, target)
+	case OCITypeAuto:
+		// attempt to resolve whether the dependency already exists as an artifact or an image.
+		// avoids making a network call to determine the actual type
+		targetExists = m.podmanClient.ImageExists(ctx, target) || m.podmanClient.ArtifactExists(ctx, target)
 	default:
 		m.mu.Unlock()
 		return fmt.Errorf("invalid oci type %s", ociType)
@@ -367,14 +498,28 @@ func (m *prefetchManager) IsReady(ctx context.Context) bool {
 	return true
 }
 
-func (m *prefetchManager) isTargetReady(image string) bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	task, ok := m.tasks[image]
-	if !ok {
-		return false
+// cleanupStaleTasks removes tasks not in the provided target set
+// caller must hold m.mu lock
+func (m *prefetchManager) cleanupStaleTasks(seenTargets map[string]struct{}) {
+	var removed int
+	for ref, task := range m.tasks {
+		if _, exists := seenTargets[ref]; !exists {
+			if task.cancelFn != nil {
+				task.cancelFn()
+			}
+			for _, cleanup := range task.cleanupFns {
+				if cleanup != nil {
+					cleanup()
+				}
+			}
+			delete(m.tasks, ref)
+			removed++
+		}
 	}
-	return task.err == nil && task.done
+
+	if removed > 0 {
+		m.log.Debugf("Cleaned up %d stale prefetch tasks", removed)
+	}
 }
 
 func (m *prefetchManager) Cleanup() {
@@ -389,7 +534,9 @@ func (m *prefetchManager) Cleanup() {
 		}
 		// fire cleanups
 		for _, cleanup := range task.cleanupFns {
-			cleanup()
+			if cleanup != nil {
+				cleanup()
+			}
 		}
 	}
 

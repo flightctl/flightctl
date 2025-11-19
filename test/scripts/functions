@@ -226,3 +226,102 @@ function get_ocp_nodes_network() {
   done
 }
 
+# download_brew_rpms downloads RPMs from brew registry to a target directory
+# Usage: download_brew_rpms <target_dir> [required_patterns...]
+# Environment Variables:
+#   BREW_BUILD_URL - Full URL to brew page (required)
+# Example: BREW_BUILD_URL="https://brewweb.engineering.redhat.com/brew/taskinfo?taskID=68817381" download_brew_rpms "bin/brew-rpm" "flightctl-agent-*" "flightctl-selinux*"
+download_brew_rpms() {
+    local target_dir="$1"
+    shift 1
+    local required_patterns=("$@")
+
+    # Check if BREW_BUILD_URL is set
+    if [[ -z "${BREW_BUILD_URL:-}" ]]; then
+        echo "ERROR: BREW_BUILD_URL environment variable is required"
+        return 1
+    fi
+
+    mkdir -p "${target_dir}"
+    echo "🧹 Cleaning ${target_dir} directory of old builds..."
+    rm -f "${target_dir}"/*.rpm "${target_dir}"/flightctl 2>/dev/null || true
+
+    cd "${target_dir}"
+
+    # Use BREW_BUILD_URL directly
+    local brew_url="${BREW_BUILD_URL}"
+    echo "Using BREW_BUILD_URL: ${brew_url}"
+
+    # Fetch and validate brew page
+    echo "Fetching RPM URLs from brew..."
+    local brew_page
+    brew_page=$(curl -k -s "${brew_url}")
+    if [ $? -ne 0 ]; then
+        echo "ERROR: Failed to fetch brew page from URL: ${brew_url}"
+        return 1
+    fi
+
+    local rpm_urls
+    rpm_urls=$(echo "${brew_page}" | grep -oP 'https://[^"]+\.rpm')
+
+    if [[ -z "${rpm_urls}" ]]; then
+        echo "ERROR: No RPM URLs found in brew page"
+        echo "Brew URL: ${brew_url}"
+        echo "Brew page content:"
+        echo "${brew_page}" | head -20
+        return 1
+    fi
+
+    # Download RPMs
+    echo "Downloading RPMs..."
+    while IFS= read -r url; do
+        local filename=$(basename "$url")
+        echo "Downloading $filename..."
+        if wget --no-check-certificate -O "$filename" "$url"; then
+            echo "✅ Successfully downloaded $filename"
+        else
+            echo "❌ Failed to download $filename"
+            return 1
+        fi
+    done <<< "${rpm_urls}"
+
+    # Verify required patterns
+    for pattern in "${required_patterns[@]}"; do
+        if ! ls ${pattern} >/dev/null 2>&1; then
+            echo "ERROR: Required RPM pattern '${pattern}' not found in brew page"
+            echo "Brew URL: ${brew_url}"
+            return 1
+        fi
+    done
+
+    cd - > /dev/null
+    return 0
+}
+
+# Function to ensure an organization is selected in the CLI context
+# If no organization is currently set, it will automatically select the first available one
+function ensure_organization_set() {
+    local output
+    output=$(./bin/flightctl config current-organization 2>/dev/null)
+    
+    local current_org=""
+    if [ -n "$output" ]; then
+        # Output can be "organization-id (<optional>display-name)", or a message to the user
+        # If the output contains a UUID, then an organization is set
+        local first_field=$(echo "$output" | awk '{print $1}')
+        if [[ "$first_field" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
+            current_org="$first_field"
+        fi
+    fi
+
+    if [ -z "$current_org" ]; then
+        echo "No organization currently set, selecting first available organization"
+        local org_id
+        org_id=$(./bin/flightctl get organizations | awk 'NR==2 {print $1}')
+        ./bin/flightctl config set-organization "$org_id"
+        echo "Set organization to: $org_id"
+    else
+        echo "Organization already set to: $current_org"
+    fi
+    return 0
+}

@@ -1,0 +1,26 @@
+{{- if ne .Values.db.external "enabled" }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  annotations:
+    kubernetes.io/reclaimPolicy: Delete
+  labels:
+    {{- with .Values.global.additionalPVCLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    {{- with .Values.db.additionalPVCLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  name: flightctl-db
+  namespace:  {{ default .Release.Namespace .Values.global.internalNamespace }}
+spec:
+  {{- with .Values.global.storageClassName }}
+  storageClassName: {{ . }}
+  {{- end }}
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.db.storage.size }}
+{{- end }}
+

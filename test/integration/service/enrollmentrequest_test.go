@@ -5,8 +5,9 @@ import (
 	"net/http"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
-	authcommon "github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/identity"
+	"github.com/flightctl/flightctl/internal/store/model"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	. "github.com/onsi/gomega/gstruct"
@@ -235,8 +236,8 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 				var setupResult *api.EnrollmentRequest
 				if approveFirst {
 					By("approving the EnrollmentRequest first")
-					identity := authcommon.Identity{Username: "testuser"}
-					ctxApproval := context.WithValue(ctx, authcommon.IdentityCtxKey, &identity)
+					mappedIdentity := identity.NewMappedIdentity("testuser", "testuser", []*model.Organization{}, map[string][]string{}, false, nil)
+					ctxApproval := context.WithValue(ctx, consts.MappedIdentityCtxKey, mappedIdentity)
 
 					approval := api.EnrollmentRequestApproval{
 						Approved: true,
@@ -379,8 +380,8 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 			erName := lo.FromPtr(er.Metadata.Name)
 
 			// Set up identity context
-			identity := authcommon.Identity{Username: "testuser"}
-			ctx := context.WithValue(suite.Ctx, authcommon.IdentityCtxKey, &identity)
+			mappedIdentity := identity.NewMappedIdentity("testuser", "testuser", []*model.Organization{}, map[string][]string{}, false, nil)
+			ctx := context.WithValue(suite.Ctx, consts.MappedIdentityCtxKey, mappedIdentity)
 
 			By("creating initial EnrollmentRequest")
 			created, status := suite.Handler.CreateEnrollmentRequest(ctx, er)
@@ -438,5 +439,107 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 				Not(HaveField("Status.Approval.Labels", PointTo(HaveKeyWithValue("denied", "later")))),
 			))
 		})
+	})
+
+	// POST /api/v1/enrollmentrequests - knownRenderedVersion functionality
+	Context("CreateEnrollmentRequest with knownRenderedVersion", func() {
+		It("should add awaitingReconnect annotation when knownRenderedVersion is provided and not '0'", func() {
+			er := CreateTestER()
+			erName := lo.FromPtr(er.Metadata.Name)
+
+			// Set knownRenderedVersion to a non-zero value
+			knownRenderedVersion := "5"
+			er.Spec.KnownRenderedVersion = &knownRenderedVersion
+
+			By("creating enrollment request with knownRenderedVersion")
+			created, status := suite.Handler.CreateEnrollmentRequest(suite.Ctx, er)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+			Expect(created).ToNot(BeNil())
+			Expect(created.Metadata.Annotations).ToNot(BeNil())
+			Expect(*created.Metadata.Annotations).To(HaveKeyWithValue(api.DeviceAnnotationAwaitingReconnect, "true"))
+
+			By("verifying the annotation persists after read back")
+			retrieved, status := suite.Handler.GetEnrollmentRequest(suite.Ctx, erName)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+			Expect(retrieved.Metadata.Annotations).ToNot(BeNil())
+			Expect(*retrieved.Metadata.Annotations).To(HaveKeyWithValue(api.DeviceAnnotationAwaitingReconnect, "true"))
+		})
+
+		It("should not add awaitingReconnect annotation when knownRenderedVersion is '0'", func() {
+			er := CreateTestER()
+			erName := lo.FromPtr(er.Metadata.Name)
+
+			// Set knownRenderedVersion to "0"
+			knownRenderedVersion := "0"
+			er.Spec.KnownRenderedVersion = &knownRenderedVersion
+
+			By("creating enrollment request with knownRenderedVersion='0'")
+			created, status := suite.Handler.CreateEnrollmentRequest(suite.Ctx, er)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+			Expect(created).ToNot(BeNil())
+
+			// Should not have awaitingReconnect annotation
+			if created.Metadata.Annotations != nil {
+				Expect(*created.Metadata.Annotations).ToNot(HaveKey(api.DeviceAnnotationAwaitingReconnect))
+			}
+
+			By("verifying no annotation after read back")
+			retrieved, status := suite.Handler.GetEnrollmentRequest(suite.Ctx, erName)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+			if retrieved.Metadata.Annotations != nil {
+				Expect(*retrieved.Metadata.Annotations).ToNot(HaveKey(api.DeviceAnnotationAwaitingReconnect))
+			}
+		})
+
+		It("should not add awaitingReconnect annotation when knownRenderedVersion is empty string", func() {
+			er := CreateTestER()
+			erName := lo.FromPtr(er.Metadata.Name)
+
+			// Set knownRenderedVersion to empty string
+			knownRenderedVersion := ""
+			er.Spec.KnownRenderedVersion = &knownRenderedVersion
+
+			By("creating enrollment request with empty knownRenderedVersion")
+			created, status := suite.Handler.CreateEnrollmentRequest(suite.Ctx, er)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+			Expect(created).ToNot(BeNil())
+
+			// Should not have awaitingReconnect annotation
+			if created.Metadata.Annotations != nil {
+				Expect(*created.Metadata.Annotations).ToNot(HaveKey(api.DeviceAnnotationAwaitingReconnect))
+			}
+
+			By("verifying no annotation after read back")
+			retrieved, status := suite.Handler.GetEnrollmentRequest(suite.Ctx, erName)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+			if retrieved.Metadata.Annotations != nil {
+				Expect(*retrieved.Metadata.Annotations).ToNot(HaveKey(api.DeviceAnnotationAwaitingReconnect))
+			}
+		})
+
+		It("should not add awaitingReconnect annotation when knownRenderedVersion is nil", func() {
+			er := CreateTestER()
+			erName := lo.FromPtr(er.Metadata.Name)
+
+			// knownRenderedVersion is nil by default
+
+			By("creating enrollment request without knownRenderedVersion")
+			created, status := suite.Handler.CreateEnrollmentRequest(suite.Ctx, er)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+			Expect(created).ToNot(BeNil())
+
+			// Should not have awaitingReconnect annotation
+			if created.Metadata.Annotations != nil {
+				Expect(*created.Metadata.Annotations).ToNot(HaveKey(api.DeviceAnnotationAwaitingReconnect))
+			}
+
+			By("verifying no annotation after read back")
+			retrieved, status := suite.Handler.GetEnrollmentRequest(suite.Ctx, erName)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+			if retrieved.Metadata.Annotations != nil {
+				Expect(*retrieved.Metadata.Annotations).ToNot(HaveKey(api.DeviceAnnotationAwaitingReconnect))
+			}
+		})
+
 	})
 })

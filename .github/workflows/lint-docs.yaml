@@ -14,25 +14,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          fetch-depth: 0
 
-      - uses: dorny/paths-filter@v3
-        id: filter
+      - name: Get changed files
+        id: changed-files
+        uses: tj-actions/changed-files@v46
         with:
-          filters: |
-            docs:
-              - '.spelling'
-              - 'README.md'
-              - 'docs/**'
+          since_last_remote_commit: 'true'
+          files: |
+            .spelling
+            README.md
+            docs/**
 
       - name: Running Markdown Linter
-        if: ${{ steps.filter.outputs.docs == 'true' }}
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         run: make lint-docs
 
       - name: Running Spellchecker
-        if: ${{ steps.filter.outputs.docs == 'true' }}
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         run: make spellcheck-docs
 
       - name: Verifying diagrams have source embedded
-        if: ${{ steps.filter.outputs.docs == 'true' }}
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         run: make lint-diagrams

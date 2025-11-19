@@ -8,13 +8,14 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
-	authcommon "github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/config/ca"
 	"github.com/flightctl/flightctl/internal/consts"
 	fcrypto "github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/identity"
 	"github.com/flightctl/flightctl/internal/service/common"
 	devicecommon "github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
 	fccrypto "github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/google/uuid"
@@ -22,21 +23,42 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sync/semaphore"
 )
+
+// MockKVStore implements kvstore.KVStore for testing
+type MockKVStore struct{}
+
+func (m *MockKVStore) Close() {}
+func (m *MockKVStore) SetNX(ctx context.Context, key string, value []byte) (bool, error) {
+	return true, nil
+}
+func (m *MockKVStore) SetIfGreater(ctx context.Context, key string, newVal int64) (bool, error) {
+	return true, nil
+}
+func (m *MockKVStore) Get(ctx context.Context, key string) ([]byte, error) { return nil, nil }
+func (m *MockKVStore) GetOrSetNX(ctx context.Context, key string, value []byte) ([]byte, error) {
+	return value, nil
+}
+func (m *MockKVStore) DeleteKeysForTemplateVersion(ctx context.Context, key string) error { return nil }
+func (m *MockKVStore) DeleteAllKeys(ctx context.Context) error                            { return nil }
+func (m *MockKVStore) PrintAllKeys(ctx context.Context)                                   {}
 
 func serviceHandler() *ServiceHandler {
 	testStore := &TestStore{}
 	return &ServiceHandler{
-		EventHandler:    NewEventHandler(testStore, logrus.New()),
-		store:           testStore,
-		callbackManager: dummyCallbackManager(),
-		log:             logrus.New(),
+		eventHandler: NewEventHandler(testStore, nil, logrus.New()),
+		store:        testStore,
+		workerClient: &DummyWorkerClient{},
+		kvStore:      &MockKVStore{},
+		log:          logrus.New(),
+		agentGate:    semaphore.NewWeighted(MaxConcurrentAgents),
 	}
 }
 
 func prepareDevice(orgId uuid.UUID, name string) *api.Device {
 	deviceStatus := api.NewDeviceStatus()
-	deviceStatus.LastSeen = time.Now()
+	deviceStatus.LastSeen = lo.ToPtr(time.Now())
 	deviceStatus.SystemInfo = api.DeviceSystemInfo{
 		AgentVersion:    "1",
 		Architecture:    "2",
@@ -190,7 +212,7 @@ func TestEventDeviceReplaceDeviceStatus1(t *testing.T) {
 	assert.NotNil(t, result)
 
 	newDevice := prepareDevice(uuid.New(), "foo")
-	newDevice.Status.LastSeen = time.Now()
+	newDevice.Status.LastSeen = lo.ToPtr(time.Now())
 	newDevice.Status.Resources.Cpu = "Healthy"
 	newDevice.Status.Resources.Disk = "Healthy"
 	newDevice.Status.Resources.Memory = "Healthy"
@@ -214,11 +236,44 @@ func TestEventHandler_HandleDeviceUpdatedEmptyOldDevice(t *testing.T) {
 	device := prepareDevice(uuid.New(), "foo")
 	device.Status.Updated.Status = api.DeviceUpdatedStatusUpToDate
 	oldDevice := &api.Device{}
-	serviceHandler.EventHandler.HandleDeviceUpdatedEvents(ctx, api.DeviceKind, uuid.New(), "foo", oldDevice, device, false, nil)
+	serviceHandler.eventHandler.HandleDeviceUpdatedEvents(ctx, api.DeviceKind, uuid.New(), "foo", oldDevice, device, false, nil)
 
 	events, err := serviceHandler.store.Event().List(context.Background(), uuid.New(), store.ListParams{})
 	assert.NoError(t, err)
 	assert.Equal(t, 1, len(events.Items))
+}
+
+func TestEventHandler_DeviceDisconnectedEventDeduplication(t *testing.T) {
+	serviceHandler := serviceHandler()
+
+	ctx := context.Background()
+
+	// Create old device with all statuses as non-Unknown
+	oldDevice := prepareDevice(uuid.New(), "foo")
+	oldDevice.Status.Summary.Status = api.DeviceSummaryStatusOnline
+	oldDevice.Status.Updated.Status = api.DeviceUpdatedStatusUpToDate
+	oldDevice.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
+
+	// Create new device with all statuses as Unknown (simulating disconnection)
+	newDevice := prepareDevice(uuid.New(), "foo")
+	newDevice.Status.Summary.Status = api.DeviceSummaryStatusUnknown
+	newDevice.Status.Updated.Status = api.DeviceUpdatedStatusUnknown
+	newDevice.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusUnknown
+
+	// This should trigger multiple DeviceDisconnected events, but only one should be emitted
+	serviceHandler.eventHandler.HandleDeviceUpdatedEvents(ctx, api.DeviceKind, uuid.New(), "foo", oldDevice, newDevice, false, nil)
+
+	events, err := serviceHandler.store.Event().List(context.Background(), uuid.New(), store.ListParams{})
+	assert.NoError(t, err)
+
+	// Should only have 1 DeviceDisconnected event, not 3
+	deviceDisconnectedCount := 0
+	for _, event := range events.Items {
+		if event.Reason == api.EventReasonDeviceDisconnected {
+			deviceDisconnectedCount++
+		}
+	}
+	assert.Equal(t, 1, deviceDisconnectedCount, "Should only emit one DeviceDisconnected event when multiple status fields change to Unknown")
 }
 
 func TestEventDevicePatchDeviceStatus(t *testing.T) {
@@ -302,7 +357,7 @@ func TestEventDeviceCreatedAndIsAlive(t *testing.T) {
 		{Reason: api.EventReasonDeviceConnected, Details: "Device's system resources are healthy."},
 		{Reason: api.EventReasonDeviceApplicationHealthy, Details: "Device has no application workloads defined."},
 	}...)
-	device.Status.LastSeen = time.Now()
+	device.Status.LastSeen = lo.ToPtr(time.Now())
 	device, err = serviceHandler.UpdateDevice(ctx, *device.Metadata.Name, *device, nil)
 	require.NoError(err)
 	events, _ = serviceHandler.store.Event().List(context.Background(), uuid.New(), store.ListParams{})
@@ -310,7 +365,7 @@ func TestEventDeviceCreatedAndIsAlive(t *testing.T) {
 
 	// Device I-am-alive
 	// No new expected events
-	device.Status.LastSeen = time.Now()
+	device.Status.LastSeen = lo.ToPtr(time.Now())
 	_, err = serviceHandler.UpdateDevice(ctx, *device.Metadata.Name, *device, nil)
 	require.NoError(err)
 	events, err = serviceHandler.store.Event().List(context.Background(), uuid.New(), store.ListParams{})
@@ -345,7 +400,7 @@ func TestEventDeviceUpdated(t *testing.T) {
 		Memory: api.DeviceResourceStatusHealthy,
 		Disk:   api.DeviceResourceStatusHealthy,
 	}
-	device.Status.LastSeen = time.Now()
+	device.Status.LastSeen = lo.ToPtr(time.Now())
 	device, err = serviceHandler.UpdateDevice(ctx, *device.Metadata.Name, *device, nil)
 	require.NoError(err)
 	events, err = serviceHandler.store.Event().List(context.Background(), uuid.New(), store.ListParams{})
@@ -398,7 +453,7 @@ func TestEventHandler_EmitFleetValidEvents(t *testing.T) {
 			},
 		}
 
-		handler.emitFleetValidEvents(ctx, fleetName, oldFleet, newFleet)
+		handler.eventHandler.emitFleetValidEvents(ctx, fleetName, oldFleet, newFleet)
 
 		// Verify that a valid event was created
 		events := *handler.store.(*TestStore).events.events
@@ -443,7 +498,7 @@ func TestEventHandler_EmitFleetValidEvents(t *testing.T) {
 			},
 		}
 
-		handler.emitFleetValidEvents(ctx, fleetName, oldFleet, newFleet)
+		handler.eventHandler.emitFleetValidEvents(ctx, fleetName, oldFleet, newFleet)
 
 		// Verify that an invalid event was created
 		events := *handler.store.(*TestStore).events.events
@@ -474,7 +529,7 @@ func TestEventHandler_EmitFleetValidEvents(t *testing.T) {
 			},
 		}
 
-		handler.emitFleetValidEvents(ctx, fleetName, fleet, fleet)
+		handler.eventHandler.emitFleetValidEvents(ctx, fleetName, fleet, fleet)
 
 		// Verify that no event was created
 		events := *handler.store.(*TestStore).events.events
@@ -490,7 +545,7 @@ func TestEventHandler_EmitFleetValidEvents(t *testing.T) {
 			Status:   nil,
 		}
 
-		handler.emitFleetValidEvents(ctx, fleetName, fleet, fleet)
+		handler.eventHandler.emitFleetValidEvents(ctx, fleetName, fleet, fleet)
 
 		// Verify that no event was created
 		events := *handler.store.(*TestStore).events.events
@@ -541,16 +596,14 @@ func TestEventEnrollmentRequestApproved(t *testing.T) {
 			status := StoreErrorToApiStatus(err, created, api.EnrollmentRequestKind, &name)
 			serviceHandler.CreateEvent(ctx, common.GetResourceCreatedOrUpdatedFailureEvent(ctx, created, api.EnrollmentRequestKind, name, status, nil))
 		} else {
-			serviceHandler.CreateEvent(ctx, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, api.EnrollmentRequestKind, name, nil, serviceHandler.log))
+			serviceHandler.CreateEvent(ctx, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, api.EnrollmentRequestKind, name, nil, serviceHandler.log, nil))
 		}
 	}
 	_, err = serviceHandler.store.EnrollmentRequest().Create(ctx, store.NullOrgId, &er, eventCallback)
 	require.NoError(err)
 
-	identity := authcommon.Identity{
-		Username: "bar",
-	}
-	ctx = context.WithValue(ctx, authcommon.IdentityCtxKey, &identity)
+	mappedIdentity := identity.NewMappedIdentity("bar", "", []*model.Organization{}, map[string][]string{}, false, nil)
+	ctx = context.WithValue(ctx, consts.MappedIdentityCtxKey, mappedIdentity)
 	_, stat := serviceHandler.ApproveEnrollmentRequest(ctx, name, approval)
 	require.Equal(statusSuccessCode, stat.Code)
 	expectedEvents := []devicecommon.ResourceUpdate{
@@ -717,38 +770,6 @@ func TestGetDeviceMultipleOwnersResolvedEvent(t *testing.T) {
 	}
 }
 
-func TestGetInternalTaskFailedEvent(t *testing.T) {
-	require := require.New(t)
-	logger := logrus.New()
-
-	ctx := context.Background()
-	resourceKind := api.ResourceKind(api.DeviceKind)
-	resourceName := "test-device"
-	taskType := "sync"
-	errorMessage := "connection timeout"
-	retryCount := lo.ToPtr(3)
-	taskParameters := map[string]string{"param1": "value1", "param2": "value2"}
-
-	event := common.GetInternalTaskFailedEvent(ctx, resourceKind, resourceName, taskType, errorMessage, retryCount, taskParameters, logger)
-
-	require.NotNil(event)
-	require.Equal(resourceKind, api.ResourceKind(event.InvolvedObject.Kind))
-	require.Equal(resourceName, event.InvolvedObject.Name)
-	require.Equal(api.EventReasonInternalTaskFailed, event.Reason)
-	require.Equal(api.Warning, event.Type)
-	require.Equal("Device internal task failed: sync - connection timeout.", event.Message)
-	require.NotNil(event.Metadata.Name)
-	require.NotNil(event.Details)
-
-	// Verify the event details
-	detailsStruct, err := event.Details.AsInternalTaskFailedDetails()
-	require.NoError(err)
-	require.Equal(taskType, detailsStruct.TaskType)
-	require.Equal(errorMessage, detailsStruct.ErrorMessage)
-	require.Equal(retryCount, detailsStruct.RetryCount)
-	require.Equal(&taskParameters, detailsStruct.TaskParameters)
-}
-
 func TestGetResourceCreatedOrUpdatedEvent(t *testing.T) {
 	require := require.New(t)
 	logger := logrus.New()
@@ -763,7 +784,7 @@ func TestGetResourceCreatedOrUpdatedEvent(t *testing.T) {
 	}
 
 	t.Run("Created", func(t *testing.T) {
-		event := common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, true, resourceKind, resourceName, nil, logger)
+		event := common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, true, resourceKind, resourceName, nil, logger, nil)
 
 		require.NotNil(event)
 		require.Equal(resourceKind, api.ResourceKind(event.InvolvedObject.Kind))
@@ -776,7 +797,7 @@ func TestGetResourceCreatedOrUpdatedEvent(t *testing.T) {
 	})
 
 	t.Run("Updated", func(t *testing.T) {
-		event := common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, false, resourceKind, resourceName, updateDetails, logger)
+		event := common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, false, resourceKind, resourceName, updateDetails, logger, nil)
 
 		require.NotNil(event)
 		require.Equal(resourceKind, api.ResourceKind(event.InvolvedObject.Kind))
@@ -795,7 +816,7 @@ func TestGetResourceCreatedOrUpdatedEvent(t *testing.T) {
 	})
 
 	t.Run("UpdatedWithNilDetails", func(t *testing.T) {
-		event := common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, false, resourceKind, resourceName, nil, logger)
+		event := common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, false, resourceKind, resourceName, nil, logger, nil)
 
 		require.Nil(event)
 	})
@@ -804,7 +825,7 @@ func TestGetResourceCreatedOrUpdatedEvent(t *testing.T) {
 		emptyUpdateDetails := &api.ResourceUpdatedDetails{
 			UpdatedFields: []api.ResourceUpdatedDetailsUpdatedFields{},
 		}
-		event := common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, false, resourceKind, resourceName, emptyUpdateDetails, logger)
+		event := common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, false, resourceKind, resourceName, emptyUpdateDetails, logger, nil)
 
 		require.Nil(event)
 	})
@@ -885,7 +906,7 @@ func TestGetBaseEvent(t *testing.T) {
 func TestComputeResourceUpdatedDetails(t *testing.T) {
 	require := require.New(t)
 	logger := logrus.New()
-	handler := NewEventHandler(nil, logger)
+	handler := NewEventHandler(nil, nil, logger)
 
 	t.Run("DeviceWithSpecChange", func(t *testing.T) {
 		oldDevice := &api.Device{

@@ -50,6 +50,11 @@ func NewConsoleCmd() *cobra.Command {
 		Use:   "console device/NAME [-- COMMAND [ARG...]]",
 		Short: "Connect a console to the remote device through the server.",
 		Args:  cobra.MinimumNArgs(1),
+		ValidArgsFunction: KindNameAutocomplete{
+			Options:            o,
+			AllowMultipleNames: false,
+			AllowedKinds:       []ResourceKind{DeviceKind},
+		}.ValidArgsFunction,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Split args at "--"
 			var flagArgs, passThroughArgs []string
@@ -108,10 +113,10 @@ func (o *ConsoleOptions) Complete(cmd *cobra.Command, args []string) error {
 }
 
 func (o *ConsoleOptions) Validate(args []string) error {
-	if len(args) != 1 {
-		return fmt.Errorf("single argument having the form device/NAME is required")
+	if len(args) > 2 {
+		return fmt.Errorf("arguments must be of the form 'device/NAME' or 'device NAME'")
 	}
-	kind, name, err := parseAndValidateKindName(args[0])
+	kind, name, err := parseAndValidateKindNameFromArgsSingle(args)
 	if err != nil {
 		return err
 	}
@@ -120,7 +125,7 @@ func (o *ConsoleOptions) Validate(args []string) error {
 		return fmt.Errorf("only devices can be connected to a console")
 	}
 
-	if len(name) == 0 {
+	if len(name) == 0 || name == "--" {
 		return fmt.Errorf("device name is required")
 	}
 
@@ -136,7 +141,7 @@ func (o *ConsoleOptions) Run(ctx context.Context, flagArgs, passThroughArgs []st
 		return fmt.Errorf("parsing config file: %w", err)
 	}
 
-	_, name, err := parseAndValidateKindName(flagArgs[0])
+	_, name, err := parseAndValidateKindNameFromArgsSingle(flagArgs)
 	if err != nil {
 		return err
 	}
@@ -181,6 +186,7 @@ func (o *ConsoleOptions) buildURL(baseURL, metadata string) (string, error) {
 	// Create query parameters
 	query := url.Values{}
 	query.Set(api.DeviceQueryConsoleSessionMetadata, metadata)
+	query.Set(api.OrganizationIDQueryKey, o.GetEffectiveOrganization())
 
 	// Encode the query parameters and attach them to the URL
 	u.RawQuery = query.Encode()

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"reflect"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
@@ -23,7 +24,7 @@ type IntegrationTestCallback func()
 // A is the API resource, for example: api.Device
 // AL is the API list, for example: api.DeviceList
 type Model interface {
-	model.CertificateSigningRequest | model.Device | model.EnrollmentRequest | model.Fleet | model.Repository | model.ResourceSync | model.TemplateVersion | model.Event
+	model.AuthProvider | model.CertificateSigningRequest | model.Device | model.EnrollmentRequest | model.Fleet | model.Repository | model.ResourceSync | model.TemplateVersion | model.Event
 }
 type extInt[M any] interface {
 	model.ResourceInterface
@@ -69,25 +70,25 @@ func (s *GenericStore[P, M, A, AL]) getDB(ctx context.Context) *gorm.DB {
 	return s.dbHandler.WithContext(ctx)
 }
 
-func (s *GenericStore[P, M, A, AL]) Create(ctx context.Context, orgId uuid.UUID, resource *A, callback func(ctx context.Context, orgId uuid.UUID, before, after *A)) (*A, error) {
-	updated, _, _, _, err := s.createOrUpdate(ctx, orgId, resource, nil, true, ModeCreateOnly, nil, callback)
+func (s *GenericStore[P, M, A, AL]) Create(ctx context.Context, orgId uuid.UUID, resource *A) (*A, error) {
+	updated, _, _, _, err := s.createOrUpdate(ctx, orgId, resource, nil, true, ModeCreateOnly, nil)
 	return updated, err
 }
 
-func (s *GenericStore[P, M, A, AL]) Update(ctx context.Context, orgId uuid.UUID, resource *A, fieldsToUnset []string, fromAPI bool, validationCallback func(ctx context.Context, before, after *A) error, callback func(ctx context.Context, orgId uuid.UUID, before, after *A)) (*A, *A, error) {
+func (s *GenericStore[P, M, A, AL]) Update(ctx context.Context, orgId uuid.UUID, resource *A, fieldsToUnset []string, fromAPI bool, validationCallback func(ctx context.Context, before, after *A) error) (*A, *A, error) {
 	updated, before, _, err := retryCreateOrUpdate(func() (*A, *A, bool, bool, error) {
-		return s.createOrUpdate(ctx, orgId, resource, fieldsToUnset, fromAPI, ModeUpdateOnly, validationCallback, callback)
+		return s.createOrUpdate(ctx, orgId, resource, fieldsToUnset, fromAPI, ModeUpdateOnly, validationCallback)
 	})
 	return updated, before, err
 }
 
-func (s *GenericStore[P, M, A, AL]) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *A, fieldsToUnset []string, fromAPI bool, validationCallback func(ctx context.Context, before, after *A) error, callback func(ctx context.Context, orgId uuid.UUID, before, after *A)) (*A, *A, bool, error) {
+func (s *GenericStore[P, M, A, AL]) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *A, fieldsToUnset []string, fromAPI bool, validationCallback func(ctx context.Context, before, after *A) error) (*A, *A, bool, error) {
 	return retryCreateOrUpdate(func() (*A, *A, bool, bool, error) {
-		return s.createOrUpdate(ctx, orgId, resource, fieldsToUnset, fromAPI, ModeCreateOrUpdate, validationCallback, callback)
+		return s.createOrUpdate(ctx, orgId, resource, fieldsToUnset, fromAPI, ModeCreateOrUpdate, validationCallback)
 	})
 }
 
-func (s *GenericStore[P, M, A, AL]) createOrUpdate(ctx context.Context, orgId uuid.UUID, resource *A, fieldsToUnset []string, fromAPI bool, mode CreateOrUpdateMode, validationCallback func(ctx context.Context, before, after *A) error, callback func(ctx context.Context, orgId uuid.UUID, before, after *A)) (*A, *A, bool, bool, error) {
+func (s *GenericStore[P, M, A, AL]) createOrUpdate(ctx context.Context, orgId uuid.UUID, resource *A, fieldsToUnset []string, fromAPI bool, mode CreateOrUpdateMode, validationCallback func(ctx context.Context, before, after *A) error) (*A, *A, bool, bool, error) {
 	if resource == nil {
 		return nil, nil, false, false, flterrors.ErrResourceIsNil
 	}
@@ -148,15 +149,6 @@ func (s *GenericStore[P, M, A, AL]) createOrUpdate(ctx context.Context, orgId uu
 		return nil, existingAPIResource, creating, retry, err
 	}
 
-	if callback != nil {
-		modifiedAPIResource, err := s.modelPtrToAPI(modelInst)
-		if err != nil {
-			return nil, existingAPIResource, creating, false, err
-		}
-
-		callback(ctx, orgId, existingAPIResource, modifiedAPIResource)
-	}
-
 	apiResource, err := s.modelPtrToAPI(modelInst)
 
 	return apiResource, existingAPIResource, creating, false, err
@@ -186,18 +178,25 @@ func (s *GenericStore[P, M, A, AL]) createResource(ctx context.Context, resource
 }
 
 func (s *GenericStore[P, M, A, AL]) updateResource(ctx context.Context, fromAPI bool, existing, resource P, fieldsToUnset []string) (bool, error) {
+	hasOwner := len(lo.FromPtr(existing.GetOwner())) != 0
+
 	sameSpec := resource.HasSameSpecAs(existing)
 	if !sameSpec {
-		if fromAPI {
-			hasOwner := len(lo.FromPtr(existing.GetOwner())) != 0
-			if hasOwner {
-				// Don't let the user update the spec if it has an owner
-				return false, flterrors.ErrUpdatingResourceWithOwnerNotAllowed
-			}
+		if fromAPI && hasOwner {
+			// Don't let the user update the spec if it has an owner
+			return false, flterrors.ErrUpdatingResourceWithOwnerNotAllowed
 		}
 
 		// Update the generation if the spec was updated
 		resource.SetGeneration(lo.ToPtr(lo.FromPtr(existing.GetGeneration()) + 1))
+	}
+
+	// Don't let the user update a fleet's labels if it has an owner
+	if fromAPI && hasOwner && resource.GetKind() == api.FleetKind {
+		sameLabels := reflect.DeepEqual(existing.GetLabels(), resource.GetLabels())
+		if !sameLabels {
+			return false, flterrors.ErrUpdatingResourceWithOwnerNotAllowed
+		}
 	}
 
 	if resource.GetResourceVersion() != nil &&
@@ -242,7 +241,7 @@ func (s *GenericStore[P, M, A, AL]) Get(ctx context.Context, orgId uuid.UUID, na
 	return apiResource, err
 }
 
-func (s *GenericStore[P, M, A, AL]) Delete(ctx context.Context, resource M, callback func(ctx context.Context, orgId uuid.UUID, before, after *A), associatedResources ...Resource) (bool, error) {
+func (s *GenericStore[P, M, A, AL]) Delete(ctx context.Context, resource M, associatedResources ...Resource) (bool, error) {
 	var deleted bool
 	var err error
 
@@ -255,13 +254,6 @@ func (s *GenericStore[P, M, A, AL]) Delete(ctx context.Context, resource M, call
 		return false, err
 	}
 
-	if deleted && callback != nil {
-		apiResource, err := s.modelPtrToAPI(&resource)
-		if err != nil {
-			return false, err
-		}
-		callback(ctx, P(&resource).GetOrgID(), apiResource, nil)
-	}
 	return deleted, nil
 }
 
