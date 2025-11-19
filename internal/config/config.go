@@ -528,7 +528,7 @@ func Load(cfgFile string) (*Config, error) {
 					base = c.Service.BaseUrl
 				}
 				if base != "" {
-					c.Auth.PAMOIDCIssuer.RedirectURIs = []string{strings.TrimSuffix(base, "/") + "/auth/callback"}
+					c.Auth.PAMOIDCIssuer.RedirectURIs = []string{strings.TrimSuffix(base, "/") + "/callback"}
 				}
 			}
 		}
