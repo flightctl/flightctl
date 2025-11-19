@@ -678,6 +678,8 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 				return waitForRedisFailedMessagesState(ctx, queueName, 1, 2*time.Second)
 			}, 5*time.Second, 100*time.Millisecond).Should(BeTrue())
 
+			producer.Close()
+			consumer.Close()
 			// Create a fresh consumer to receive retried messages BEFORE retry operation
 			// Don't reuse the original consumer as its Redis client may be closed
 			consumer2, err := provider.NewQueueConsumer(ctx, queueName)
