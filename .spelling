@@ -41,6 +41,7 @@ filesystem
 FIPS
 firewalld
 fleetless
+Fluentd
 flightctl
 frontend
 GitLab
@@ -52,7 +53,9 @@ HTTPS
 i.e.
 infos
 IP
+jq
 JSON-encoded
+JSONL
 JWT
 Keycloak
 Klusterlet
@@ -62,6 +65,8 @@ KVM
 lifecycle
 lifecycle-bound
 linux
+Loki
+logrotate
 macOS
 metadata
 microservices
@@ -84,6 +89,7 @@ Podman
 PostgreSQL
 pre-update
 pre-upgrade
+Promtail
 qcow2
 QEMU
 Quadlet
