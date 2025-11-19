@@ -55,13 +55,39 @@ func waitForRedisFailedMessagesState(ctx context.Context, queueName string, expe
 	failedSetKey := "failed_messages:" + queueName
 	deadline := time.Now().Add(timeout)
 
+	logrus.WithFields(logrus.Fields{
+		"queueName":     queueName,
+		"expectedCount": expectedCount,
+		"failedSetKey":  failedSetKey,
+	}).Debug("waitForRedisFailedMessagesState starting")
+
 	for time.Now().Before(deadline) {
 		count, err := redisClient.ZCard(ctx, failedSetKey).Result()
-		if err == nil && int(count) == expectedCount {
-			return true
+		if err != nil {
+			logrus.WithError(err).Debug("ZCARD failed")
+		} else {
+			logrus.WithFields(logrus.Fields{
+				"actualCount":   count,
+				"expectedCount": expectedCount,
+			}).Debug("Checking failed message count")
+
+			if int(count) == expectedCount {
+				logrus.Debug("Expected count reached!")
+				return true
+			}
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
+
+	// One more check at the end with details
+	count, _ := redisClient.ZCard(ctx, failedSetKey).Result()
+	allEntries, _ := redisClient.ZRangeWithScores(ctx, failedSetKey, 0, -1).Result()
+	logrus.WithFields(logrus.Fields{
+		"finalCount":    count,
+		"expectedCount": expectedCount,
+		"allEntries":    allEntries,
+	}).Warn("waitForRedisFailedMessagesState timeout")
+
 	return false
 }
 
@@ -671,38 +697,45 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 
 			// Stop consumer to avoid race conditions with retry operations
 			consumerCancel()
+			log.Info("Consumer1 context canceled")
 
 			// Poll until Redis failure state is consistent (message should be in failed set)
 			// This is crucial for the retry mechanism to work properly
 			Eventually(func() bool {
 				return waitForRedisFailedMessagesState(ctx, queueName, 1, 2*time.Second)
 			}, 5*time.Second, 100*time.Millisecond).Should(BeTrue())
+			log.Info("Failed message found in Redis set")
 
-			producer.Close()
-			consumer.Close()
 			// Create a fresh consumer to receive retried messages BEFORE retry operation
 			// Don't reuse the original consumer as its Redis client may be closed
+			log.Infof("Creating consumer2 for queue: %s", queueName)
 			consumer2, err := provider.NewQueueConsumer(ctx, queueName)
 			Expect(err).ToNot(HaveOccurred())
+			log.Infof("Consumer2 created. Same object as consumer1? %v", consumer == consumer2)
 			defer consumer2.Close()
 
 			consumerCtx2, consumerCancel2 := context.WithCancel(ctx)
 			defer consumerCancel2()
 
+			log.Info("Starting consumer2.Consume()")
 			err = consumer2.Consume(consumerCtx2, func(ctx context.Context, payload []byte, entryID string, consumer queues.QueueConsumer, log logrus.FieldLogger) error {
+				log.Infof("Consumer2 received message: %s", string(payload))
 				messageReceived <- payload
 				// Complete successfully this time using the correct consumer instance
 				return consumer2.Complete(ctx, entryID, payload, nil)
 			})
 			Expect(err).ToNot(HaveOccurred())
+			log.Info("Consumer2.Consume() started successfully")
 
 			// Give consumer2 time to fully register and start listening
 			// Need to ensure the consumer goroutine is actively polling Redis
 			time.Sleep(1 * time.Second)
+			log.Info("Waited 1 second for consumer2 to be ready")
 
 			// Now retry failed messages using the SAME retry configuration
 			// that was used when the message was originally failed
-			_, err = provider.RetryFailedMessages(ctx, queueName, queues.RetryConfig{
+			log.Infof("Calling RetryFailedMessages for queue: %s", queueName)
+			retriedCount, err := provider.RetryFailedMessages(ctx, queueName, queues.RetryConfig{
 				BaseDelay:    100 * time.Millisecond, // Same as provider config
 				MaxRetries:   3,
 				MaxDelay:     500 * time.Millisecond,
@@ -712,6 +745,7 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 				return nil
 			})
 			Expect(err).ToNot(HaveOccurred())
+			log.Infof("RetryFailedMessages returned: retriedCount=%d", retriedCount)
 
 			// Expect the retried delivery (with longer timeout for exponential backoff)
 			var second []byte
