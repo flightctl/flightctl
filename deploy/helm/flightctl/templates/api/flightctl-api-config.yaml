@@ -36,9 +36,9 @@ data:
         {{- if eq (include "flightctl.getServiceExposeMethod" .) "nodePort" }}
         baseUrl: https://api.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.nodePorts.api }}/
         baseAgentEndpointUrl: https://agent-api.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.nodePorts.agent }}/
-        {{- else if and (eq (include "flightctl.getServiceExposeMethod" .) "gateway") (not (eq (int .Values.global.gatewayPorts.tls) 443)) }}
-        baseUrl: https://api.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.gatewayPorts.tls }}/
-        baseAgentEndpointUrl: https://agent-api.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.gatewayPorts.tls }}/
+        {{- else if and (eq (include "flightctl.getServiceExposeMethod" .) "gateway") (not (eq (int .Values.global.gateway.ports.tls) 443)) }}
+        baseUrl: https://api.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.gateway.ports.tls }}/
+        baseAgentEndpointUrl: https://agent-api.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.gateway.ports.tls }}/
         {{- else }}
         baseUrl: https://api.{{ include "flightctl.getBaseDomain" . }}/
         baseAgentEndpointUrl: https://agent-api.{{ include "flightctl.getBaseDomain" . }}/
@@ -72,7 +72,7 @@ data:
     auth:
         insecureSkipTlsVerify: {{ .Values.global.auth.insecureSkipTlsVerify }}
         caCert: {{ .Values.global.auth.caCert }}
-        {{- if or (eq .Values.global.target "acm") (eq $effectiveAuthType "k8s")  }}
+        {{- if eq $effectiveAuthType "k8s"  }}
         k8s:
             apiUrl: {{ .Values.global.auth.k8s.apiUrl }}
             rbacNs: {{ default .Release.Namespace .Values.global.auth.k8s.rbacNs }}
