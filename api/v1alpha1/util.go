@@ -407,12 +407,24 @@ func (a *AuthProvider) HideSensitiveData() error {
 
 	switch discriminator {
 	case string(Oidc):
-		// ClientSecret is automatically masked by SecureString type
-		// No need to explicitly hide it
+		oidcSpec, err := a.Spec.AsOIDCProviderSpec()
+		if err != nil {
+			return err
+		}
+		hideValue(oidcSpec.ClientSecret)
+		if err := a.Spec.FromOIDCProviderSpec(oidcSpec); err != nil {
+			return err
+		}
 
 	case string(Oauth2):
-		// ClientSecret is automatically masked by SecureString type
-		// No need to explicitly hide it
+		oauth2Spec, err := a.Spec.AsOAuth2ProviderSpec()
+		if err != nil {
+			return err
+		}
+		hideValue(oauth2Spec.ClientSecret)
+		if err := a.Spec.FromOAuth2ProviderSpec(oauth2Spec); err != nil {
+			return err
+		}
 	}
 
 	return nil

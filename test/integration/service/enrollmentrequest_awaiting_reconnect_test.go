@@ -52,7 +52,7 @@ var _ = Describe("EnrollmentRequest AwaitingReconnect Integration Tests", func()
 				ExternalID:  org.DefaultID.String(),
 				DisplayName: org.DefaultID.String(),
 			}
-			mappedIdentity := identity.NewMappedIdentity("testuser", "", []*model.Organization{defaultOrg}, []string{}, nil)
+			mappedIdentity := identity.NewMappedIdentity("testuser", "", []*model.Organization{defaultOrg}, map[string][]string{}, false, nil)
 			ctxApproval := context.WithValue(suite.Ctx, consts.MappedIdentityCtxKey, mappedIdentity)
 
 			approval := api.EnrollmentRequestApproval{
@@ -92,7 +92,7 @@ var _ = Describe("EnrollmentRequest AwaitingReconnect Integration Tests", func()
 				ExternalID:  org.DefaultID.String(),
 				DisplayName: org.DefaultID.String(),
 			}
-			mappedIdentity := identity.NewMappedIdentity("testuser", "", []*model.Organization{defaultOrg}, []string{}, nil)
+			mappedIdentity := identity.NewMappedIdentity("testuser", "", []*model.Organization{defaultOrg}, map[string][]string{}, false, nil)
 			ctxApproval := context.WithValue(suite.Ctx, consts.MappedIdentityCtxKey, mappedIdentity)
 
 			approval := api.EnrollmentRequestApproval{
@@ -135,7 +135,7 @@ var _ = Describe("EnrollmentRequest AwaitingReconnect Integration Tests", func()
 				ExternalID:  org.DefaultID.String(),
 				DisplayName: org.DefaultID.String(),
 			}
-			mappedIdentity := identity.NewMappedIdentity("testuser", "", []*model.Organization{defaultOrg}, []string{}, nil)
+			mappedIdentity := identity.NewMappedIdentity("testuser", "", []*model.Organization{defaultOrg}, map[string][]string{}, false, nil)
 			ctxApproval := context.WithValue(suite.Ctx, consts.MappedIdentityCtxKey, mappedIdentity)
 
 			approval := api.EnrollmentRequestApproval{
@@ -180,7 +180,7 @@ var _ = Describe("EnrollmentRequest AwaitingReconnect Integration Tests", func()
 				ExternalID:  org.DefaultID.String(),
 				DisplayName: org.DefaultID.String(),
 			}
-			mappedIdentity := identity.NewMappedIdentity("testuser", "", []*model.Organization{defaultOrg}, []string{}, nil)
+			mappedIdentity := identity.NewMappedIdentity("testuser", "", []*model.Organization{defaultOrg}, map[string][]string{}, false, nil)
 			ctxApproval := context.WithValue(suite.Ctx, consts.MappedIdentityCtxKey, mappedIdentity)
 
 			approval := api.EnrollmentRequestApproval{
@@ -235,7 +235,7 @@ var _ = Describe("EnrollmentRequest AwaitingReconnect Integration Tests", func()
 				ExternalID:  org.DefaultID.String(),
 				DisplayName: org.DefaultID.String(),
 			}
-			mappedIdentity := identity.NewMappedIdentity("testuser", "", []*model.Organization{defaultOrg}, []string{}, nil)
+			mappedIdentity := identity.NewMappedIdentity("testuser", "", []*model.Organization{defaultOrg}, map[string][]string{}, false, nil)
 			ctxApproval := context.WithValue(suite.Ctx, consts.MappedIdentityCtxKey, mappedIdentity)
 
 			approval := api.EnrollmentRequestApproval{

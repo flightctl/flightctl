@@ -1,4 +1,5 @@
-{{- if eq (.Values.global).target "acm" }}
+{{ if .Values.ui.enabled }}
+{{- if eq (include "flightctl.enableMulticlusterExtensions" .) "true" }}
 apiVersion: console.openshift.io/v1
 kind: ConsolePlugin
 metadata:
@@ -26,3 +27,4 @@ spec:
           port: 8080
         type: Service
 {{- end }}
+{{ end }}

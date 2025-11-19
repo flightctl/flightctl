@@ -146,9 +146,78 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
-  # NOTE: OIDC issuer endpoints (/auth/authorize, /auth/login, /auth/token, 
-  # /auth/userinfo, /auth/jwks, /.well-known/openid-configuration) have been 
-  # moved to the separate flightctl-pam-issuer service. See api/v1alpha1/pam-issuer/openapi.yaml
+  /api/v1/auth/{providername}/token:
+    post:
+      tags:
+        - authentication
+      description: OAuth2 token exchange endpoint. Proxies token requests to the configured authentication provider (PAM issuer) for authorization code flow with PKCE support.
+      operationId: authToken
+      parameters:
+        - name: providername
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Name of the authentication provider to use.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TokenRequest'
+      responses:
+        "200":
+          description: Token response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+  /api/v1/auth/userinfo:
+    get:
+      tags:
+        - authentication
+      description: OIDC UserInfo endpoint. Proxies the request to the configured authentication provider to retrieve user information.
+      operationId: authUserInfo
+      responses:
+        "200":
+          description: User information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserInfoResponse'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "418":
+          description: Auth not configured
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "500":
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
   /api/v1/resourcesyncs:
     get:
       tags:
@@ -4461,6 +4530,13 @@ components:
             image:
               type: string
               description: Reference to the container image for the application package.
+            ports:
+              type: array
+              description: Port mappings.
+              items:
+                $ref: '#/components/schemas/ApplicationPort'
+            resources:
+              $ref: '#/components/schemas/ApplicationResources'
           required:
             - image
     InlineApplicationProviderSpec:
@@ -4496,6 +4572,18 @@ components:
             - name
         - oneOf:
             - $ref: "#/components/schemas/ImageVolumeProviderSpec"
+            - $ref: "#/components/schemas/MountVolumeProviderSpec"
+            - $ref: "#/components/schemas/ImageMountVolumeProviderSpec"
+    VolumeMount:
+      type: object
+      description: Mount configuration for a volume.
+      properties:
+        path:
+          type: string
+          description: Mount path in the container with support for options.
+          example: "/etc/nginx/conf.d:ro"
+      required:
+        - path
     ImageVolumeProviderSpec:
       type: object
       properties:
@@ -4514,6 +4602,25 @@ components:
           $ref: '#/components/schemas/ImagePullPolicy'
       required:
         - reference
+    MountVolumeProviderSpec:
+      type: object
+      description: Named volume mount configuration.
+      properties:
+        mount:
+          $ref: '#/components/schemas/VolumeMount'
+      required:
+        - mount
+    ImageMountVolumeProviderSpec:
+      type: object
+      description: Volume from OCI image mounted at specified path.
+      properties:
+        image:
+          $ref: '#/components/schemas/ImageVolumeSource'
+        mount:
+          $ref: '#/components/schemas/VolumeMount'
+      required:
+        - image
+        - mount
     ApplicationContent:
         allOf:
           - $ref: '#/components/schemas/FileContent'
@@ -4529,15 +4636,42 @@ components:
           description: Environment variable key-value pairs, injected during runtime. The key and value each must be between 1 and 253 characters.
           additionalProperties:
             type: string
+    ApplicationPort:
+      type: string
+      description: Port mapping in format "hostPort:containerPort" (e.g., "8080:80").
+      pattern: '^\d+:\d+$'
+      example: "8080:80"
+    ApplicationResourceLimits:
+      type: object
+      description: Resource limits for the application.
+      properties:
+        cpu:
+          type: string
+          description: CPU limit in cores (e.g., "1", "0.75").
+          pattern: '^\d+(\.\d+)?$'
+          example: "0.75"
+        memory:
+          type: string
+          description: Memory limit with unit (e.g., "256m", "2g") using Podman format (b=bytes, k=kibibytes, m=mebibytes, g=gibibytes).
+          pattern: '^\d+[bkmg]$'
+          example: "256m"
+    ApplicationResources:
+      type: object
+      description: Resource constraints for the application.
+      properties:
+        limits:
+          $ref: '#/components/schemas/ApplicationResourceLimits'
     AppType:
       type: string
       description: The type of the application.
       enum:
         - "compose"
         - "quadlet"
+        - "container"
       x-enum-varnames:
         - "AppTypeCompose"
         - "AppTypeQuadlet"
+        - "AppTypeContainer"
     ResourceMonitor:
       oneOf:
         - $ref: '#/components/schemas/CpuResourceMonitorSpec'
@@ -5836,6 +5970,98 @@ components:
           description: Whether organizations are enabled for authentication.
       required:
         - apiVersion
+    TokenRequest:
+      type: object
+      required:
+        - grant_type
+        - client_id
+      properties:
+        grant_type:
+          type: string
+          enum: [refresh_token, authorization_code]
+          description: OAuth2 grant type.
+          x-oapi-codegen-extra-tags:
+            form: grant_type
+        client_id:
+          type: string
+          description: OAuth2 client identifier.
+          x-oapi-codegen-extra-tags:
+            form: client_id
+        refresh_token:
+          type: string
+          nullable: true
+          description: Refresh token for refresh_token grant.
+          x-oapi-codegen-extra-tags:
+            form: refresh_token,omitempty
+        code:
+          type: string
+          nullable: true
+          description: Authorization code for authorization_code grant.
+          x-oapi-codegen-extra-tags:
+            form: code,omitempty
+        scope:
+          type: string
+          nullable: true
+          description: OAuth2 scope.
+          x-oapi-codegen-extra-tags:
+            form: scope,omitempty
+        code_verifier:
+          type: string
+          nullable: true
+          description: PKCE code verifier.
+          x-oapi-codegen-extra-tags:
+            form: code_verifier,omitempty
+        redirect_uri:
+          type: string
+          nullable: true
+          description: OAuth2 redirect URI (required for authorization_code grant if included in authorization request).
+          x-oapi-codegen-extra-tags:
+            form: redirect_uri,omitempty
+      description: OAuth2 token request
+    TokenResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+          description: OAuth2 access token.
+        token_type:
+          type: string
+          enum: [Bearer]
+          description: Token type.
+        refresh_token:
+          type: string
+          description: OAuth2 refresh token.
+        expires_in:
+          type: integer
+          description: Token expiration time in seconds.
+        error:
+          type: string
+          description: OAuth2 error code.
+        error_description:
+          type: string
+          description: OAuth2 error description.
+      description: OAuth2 token response
+    UserInfoResponse:
+      type: object
+      properties:
+        sub:
+          type: string
+          description: Subject identifier.
+        preferred_username:
+          type: string
+          description: Preferred username.
+        name:
+          type: string
+          description: Full name.
+        organizations:
+          type: array
+          items:
+            $ref: '#/components/schemas/Organization'
+          description: User organizations.
+        error:
+          type: string
+          description: Error code.
+      description: OIDC UserInfo response
     ListMeta:
       type: object
       properties:
@@ -6663,6 +6889,7 @@ components:
       oneOf:
         - $ref: '#/components/schemas/OIDCProviderSpec'
         - $ref: '#/components/schemas/OAuth2ProviderSpec'
+        - $ref: '#/components/schemas/OpenShiftProviderSpec'
         - $ref: '#/components/schemas/AapProviderSpec'
         - $ref: '#/components/schemas/K8sProviderSpec'
       discriminator:
@@ -6670,6 +6897,7 @@ components:
         mapping:
           oidc: '#/components/schemas/OIDCProviderSpec'
           oauth2: '#/components/schemas/OAuth2ProviderSpec'
+          openshift: '#/components/schemas/OpenShiftProviderSpec'
           aap: '#/components/schemas/AapProviderSpec'
           k8s: '#/components/schemas/K8sProviderSpec'
       required:
@@ -6695,7 +6923,6 @@ components:
           type: string
           description: The OIDC client secret.
           writeOnly: true
-          x-go-type: SecureString
         enabled:
           type: boolean
           description: Whether this OIDC provider is enabled.
@@ -6752,7 +6979,6 @@ components:
           type: string
           description: The OAuth2 client secret.
           writeOnly: true
-          x-go-type: SecureString
         enabled:
           type: boolean
           description: Whether this OAuth2 provider is enabled.
@@ -6781,6 +7007,47 @@ components:
         - clientSecret
         - organizationAssignment
         - roleAssignment
+    OpenShiftProviderSpec:
+      type: object
+      description: OpenShiftProviderSpec describes an OpenShift OAuth provider configuration.
+      properties:
+        providerType:
+          type: string
+          enum: [openshift]
+          description: The type of authentication provider.
+        displayName:
+          type: string
+          description: Human-readable display name for the provider.
+        issuer:
+          type: string
+          description: The OAuth2 issuer identifier (used for issuer identification in tokens).
+        authorizationUrl:
+          type: string
+          description: The OAuth2 authorization endpoint URL.
+        tokenUrl:
+          type: string
+          description: The OAuth2 token endpoint URL.
+        clientId:
+          type: string
+          description: The OAuth2 client ID.
+        clientSecret:
+          type: string
+          description: The OAuth2 client secret.
+          writeOnly: true
+        enabled:
+          type: boolean
+          description: Whether this OpenShift provider is enabled.
+          default: true
+        scopes:
+          type: array
+          items:
+            type: string
+          description: List of OAuth2 scopes to request.
+        clusterControlPlaneUrl:
+          type: string
+          description: The OpenShift cluster control plane URL.
+      required:
+        - providerType
     AapProviderSpec:
       type: object
       description: AapProviderSpec describes an Ansible Automation Platform (AAP) provider configuration.
@@ -6825,9 +7092,6 @@ components:
         apiUrl:
           type: string
           description: The internal Kubernetes API URL.
-        externalOpenShiftApiUrl:
-          type: string
-          description: The external OpenShift API URL (for external access).
         rbacNs:
           type: string
           description: The RBAC namespace for permissions.
@@ -6953,6 +7217,10 @@ components:
           items:
             type: string
           description: The JSON path to the role/group claim (e.g., ["groups"], ["roles"], ["realm_access", "roles"]).
+        separator:
+          type: string
+          description: Separator for org:role format (default ':'). Roles containing the separator are split into organization-scoped roles. Roles without separator are global and apply to all organizations.
+          default: ":"
       required:
         - type
         - claimPath

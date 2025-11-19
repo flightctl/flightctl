@@ -161,7 +161,7 @@ var _ = Describe("EnrollmentRequest store restore operations", func() {
 			By(fmt.Sprintf("Debug: Created ER annotations: %+v", createdER.Metadata.Annotations))
 
 			// Approve one enrollment request using the service layer
-			mappedIdentity := identity.NewMappedIdentity("testuser", "testuser", []*model.Organization{}, []string{}, nil)
+			mappedIdentity := identity.NewMappedIdentity("testuser", "testuser", []*model.Organization{}, map[string][]string{}, false, nil)
 			ctxApproval := context.WithValue(ctx, consts.MappedIdentityCtxKey, mappedIdentity)
 
 			approval := api.EnrollmentRequestApproval{
@@ -305,7 +305,7 @@ var _ = Describe("EnrollmentRequest store restore operations", func() {
 			Expect(st.Code).To(BeEquivalentTo(201))
 
 			// Approve the enrollment request using the service layer
-			mappedIdentity := identity.NewMappedIdentity("testuser", "testuser", []*model.Organization{}, []string{}, nil)
+			mappedIdentity := identity.NewMappedIdentity("testuser", "testuser", []*model.Organization{}, map[string][]string{}, false, nil)
 			ctxApproval := context.WithValue(ctx, consts.MappedIdentityCtxKey, mappedIdentity)
 
 			approval := api.EnrollmentRequestApproval{

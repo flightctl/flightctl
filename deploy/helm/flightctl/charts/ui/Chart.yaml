@@ -1,7 +1,0 @@
-apiVersion: v2
-name: ui
-description: A helm chart for flightctl UI
-type: application
-version: 0.0.1
-appVersion: "latest"
-

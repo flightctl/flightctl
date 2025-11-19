@@ -1,20 +1,51 @@
-{{- define "flightctl.getBaseDomain" }}
-  {{- if .Values.global.baseDomain }}
-    {{- printf .Values.global.baseDomain }}
-  {{- else }}
-    {{- /* For OpenShift deployments, try to lookup the base domain */}}
-    {{- $dnsConfig := (lookup "config.openshift.io/v1" "DNS" "" "cluster") }}
-    {{- if and $dnsConfig $dnsConfig.spec $dnsConfig.spec.baseDomain }}
-      {{- $openShiftBaseDomain := $dnsConfig.spec.baseDomain }}
-      {{- if .noNs }}
-        {{- printf "apps.%s" $openShiftBaseDomain }}
-      {{- else }}
-        {{- printf "%s.apps.%s" .Release.Namespace $openShiftBaseDomain }}
-      {{- end }}
-    {{- else }}
-      {{- fail "Unable to determine base domain. Please set global.baseDomain or deploy on OpenShift" }}
+{{- define "flightctl.enableOpenShiftExtensions" }}
+  {{- $isOpenShift := "false" }}
+  {{- if eq .Values.global.enableOpenShiftExtensions "true" }}
+    {{- $isOpenShift = "true" }}
+  {{- else if eq .Values.global.enableOpenShiftExtensions "auto" }}
+    {{- if .Capabilities.APIVersions.Has "config.openshift.io/v1" -}}
+      {{- $isOpenShift = "true" }}
     {{- end }}
   {{- end }}
+  {{- $isOpenShift }}
+{{- end }}
+
+{{- define "flightctl.enableMulticlusterExtensions" }}
+  {{- $enabled := "false" }}
+  {{- if eq .Values.global.enableMulticlusterExtensions "true" }}
+    {{- $enabled = "true" }}
+  {{- else if eq .Values.global.enableMulticlusterExtensions "auto" }}
+    {{- /* Check if the MultiClusterEngine CRD exists */}}
+    {{- if .Capabilities.APIVersions.Has "multicluster.openshift.io/v1" -}}
+      {{- $enabled = "true" }}
+    {{- end }}
+  {{- end }}
+  {{- $enabled }}
+{{- end }}
+
+{{- define "flightctl.getBaseDomain" }}
+  {{- $baseDomain := "" }}
+  {{- if .Values.global.baseDomain }}
+    {{- $baseDomain = .Values.global.baseDomain }}
+  {{- else }}
+    {{- $isOpenShift := (include "flightctl.enableOpenShiftExtensions" . )}}
+    {{- if eq $isOpenShift "true"}}
+      {{- /* For OpenShift deployments, try to lookup the base domain */}}
+      {{- $dnsConfig := (lookup "config.openshift.io/v1" "DNS" "" "cluster") }}
+      {{- if and $dnsConfig $dnsConfig.spec $dnsConfig.spec.baseDomain }}
+        {{- $openShiftBaseDomain := $dnsConfig.spec.baseDomain }}
+        {{- if .noNs }}
+          {{- $baseDomain = printf "apps.%s" $openShiftBaseDomain }}
+        {{- else }}
+          {{- $baseDomain = printf "%s.apps.%s" .Release.Namespace $openShiftBaseDomain }}
+        {{- end }}
+      {{- end }}
+    {{- end }}
+  {{- end }}
+  {{- if empty $baseDomain }}
+    {{- fail "Unable to determine base domain. Please set global.baseDomain or deploy on OpenShift" }}
+  {{- end }}
+  {{- $baseDomain }}
 {{- end }}
 
 {{- /*
@@ -38,26 +69,77 @@ app.kubernetes.io/version: {{ .Chart.AppVersion }}
 {{- end }}
 {{- end -}}
 
-{{- define "flightctl.getOpenShiftAPIUrl" }}
-  {{- if .Values.global.auth.k8s.externalOpenShiftApiUrl }}
-    {{- printf .Values.global.auth.k8s.externalOpenShiftApiUrl }}
-  {{- else if .Values.global.apiUrl }}
-    {{- printf .Values.global.apiUrl }}
-  {{- else if .Values.global.auth.k8s.apiUrl }}
-    {{- printf .Values.global.auth.k8s.apiUrl }}
+{{- define "flightctl.getOpenShiftOAuthServerUrl" }}
+  {{- /* Returns the OpenShift OAuth server URL by looking up the oauth-openshift route */}}
+  {{- $oauthRoute := (lookup "route.openshift.io/v1" "Route" "openshift-authentication" "oauth-openshift") }}
+  {{- if and $oauthRoute $oauthRoute.spec $oauthRoute.spec.host }}
+    {{- printf "https://%s" $oauthRoute.spec.host }}
   {{- else }}
-    {{- /* For OpenShift deployments, try to lookup the API URL */}}
-    {{- $dnsConfig := (lookup "config.openshift.io/v1" "DNS" "" "cluster") }}
-    {{- if and $dnsConfig $dnsConfig.spec $dnsConfig.spec.baseDomain }}
-      {{- printf "https://api.%s:6443" $dnsConfig.spec.baseDomain }}
+    {{- fail "Unable to find oauth-openshift route in openshift-authentication namespace. For HyperShift or non-standard OpenShift clusters, you must manually set authorizationUrl, tokenUrl, and issuer in global.auth.openshift" }}
+  {{- end }}
+{{- end }}
+
+{{- define "flightctl.getOpenShiftOAuthAuthorizationUrl" }}
+  {{- if .Values.global.auth.openshift.authorizationUrl }}
+    {{- printf .Values.global.auth.openshift.authorizationUrl }}
+  {{- else }}
+    {{- $oauthUrl := (include "flightctl.getOpenShiftOAuthServerUrl" .) }}
+    {{- printf "%s/oauth/authorize" $oauthUrl }}
+  {{- end }}
+{{- end }}
+
+{{- define "flightctl.getOpenShiftOAuthTokenUrl" }}
+  {{- if .Values.global.auth.openshift.tokenUrl }}
+    {{- printf .Values.global.auth.openshift.tokenUrl }}
+  {{- else }}
+    {{- $oauthUrl := (include "flightctl.getOpenShiftOAuthServerUrl" .) }}
+    {{- printf "%s/oauth/token" $oauthUrl }}
+  {{- end }}
+{{- end }}
+
+{{- define "flightctl.getOpenShiftOAuthIssuer" }}
+  {{- if .Values.global.auth.openshift.issuer }}
+    {{- printf .Values.global.auth.openshift.issuer }}
+  {{- else if .Values.global.auth.openshift.authorizationUrl }}
+    {{- printf .Values.global.auth.openshift.authorizationUrl }}
+  {{- else }}
+    {{- $oauthUrl := (include "flightctl.getOpenShiftOAuthServerUrl" .) }}
+    {{- printf "%s/oauth/authorize" $oauthUrl }}
+  {{- end }}
+{{- end }}
+
+{{- define "flightctl.getOpenShiftOAuthClientId" }}
+  {{- if .Values.global.auth.openshift.clientId }}
+    {{- printf .Values.global.auth.openshift.clientId }}
+  {{- else }}
+    {{- printf "flightctl-%s" .Release.Name }}
+  {{- end }}
+{{- end }}
+
+{{/*
+Get or generate a stable OAuth client secret.
+Follows the same pattern as database secrets: lookup existing, fallback to value, or generate new.
+*/}}
+{{- define "flightctl.getOpenShiftOAuthClientSecret" }}
+  {{- if .Values.global.auth.openshift.clientSecret }}
+    {{- printf .Values.global.auth.openshift.clientSecret }}
+  {{- else }}
+    {{- $secretName := printf "%s-secret" (include "flightctl.getOpenShiftOAuthClientId" .) }}
+    {{- $existingSecret := (lookup "v1" "Secret" "openshift-config" $secretName) }}
+    {{- if $existingSecret }}
+      {{- if and (hasKey $existingSecret "data") (hasKey $existingSecret.data "clientSecret") }}
+        {{- index $existingSecret.data "clientSecret" | b64dec }}
+      {{- else }}
+        {{- fail (printf "Secret %s is missing data.clientSecret – delete it or add the key." $secretName) }}
+      {{- end }}
     {{- else }}
-      {{- fail "Unable to determine API URL. Please set global.auth.k8s.externalOpenShiftApiUrl, global.apiUrl, global.auth.k8s.apiUrl, or deploy on OpenShift" }}
+      {{- randAlphaNum 32 }}
     {{- end }}
   {{- end }}
 {{- end }}
 
 {{- define "flightctl.getHttpScheme" }}
-  {{- if or (or (eq .Values.global.target "acm") (eq .Values.global.exposeServicesMethod "route")) (.Values.global.baseDomainTls).cert }}
+  {{- if or (eq (include "flightctl.getServiceExposeMethod" . ) "route") (.Values.global.baseDomainTls).cert }}
     {{- printf "https" }}
   {{- else }}
     {{- printf "http" }}
@@ -67,16 +149,17 @@ app.kubernetes.io/version: {{ .Chart.AppVersion }}
 {{- define "flightctl.getUIUrl" }}
   {{- $scheme := (include "flightctl.getHttpScheme" .) }}
   {{- $baseDomain := (include "flightctl.getBaseDomain" . )}}
-  {{- if eq .Values.global.target "acm" }}
+  {{- $enableMulticlusterExtensions := (include "flightctl.enableMulticlusterExtensions" . )}}
+  {{- if eq $enableMulticlusterExtensions "true" }}
     {{- $baseDomain := (include "flightctl.getBaseDomain" (deepCopy . | merge (dict "noNs" "true"))) }}
     {{- printf "%s://console-openshift-console.%s/edge" $scheme $baseDomain }}
   {{- else if eq (include "flightctl.getServiceExposeMethod" .) "nodePort" }}
     {{- printf "%s://%s:%v" $scheme $baseDomain .Values.global.nodePorts.ui }}
   {{- else if eq (include "flightctl.getServiceExposeMethod" .) "gateway" }}
-    {{- if and (eq $scheme "http") (not (eq (int .Values.global.gatewayPorts.http) 80))}}
-      {{- printf "%s://ui.%s:%v" $scheme $baseDomain .Values.global.gatewayPorts.http }}
-    {{- else if and (eq $scheme "https") (not (eq (int .Values.global.gatewayPorts.tls) 443))}}
-      {{- printf "%s://ui.%s:%v" $scheme $baseDomain .Values.global.gatewayPorts.tls }}
+    {{- if and (eq $scheme "http") (not (eq (int .Values.global.gateway.ports.http) 80))}}
+      {{- printf "%s://ui.%s:%v" $scheme $baseDomain .Values.global.gateway.ports.http }}
+    {{- else if and (eq $scheme "https") (not (eq (int .Values.global.gateway.ports.tls) 443))}}
+      {{- printf "%s://ui.%s:%v" $scheme $baseDomain .Values.global.gateway.ports.tls }}
     {{- else }}
       {{- printf "%s://ui.%s" $scheme $baseDomain }}
     {{- end }}
@@ -86,19 +169,26 @@ app.kubernetes.io/version: {{ .Chart.AppVersion }}
 {{- end }}
 
 {{- define "flightctl.getServiceExposeMethod" }}
-  {{- if eq .Values.global.target "acm" }}
-    {{- printf "route" }}
-  {{- else }}
-    {{- printf .Values.global.exposeServicesMethod }}
-  {{- end}}
+  {{- $exposeMethod := .Values.global.exposeServicesMethod }}
+  {{- if eq $exposeMethod "auto" }}
+    {{- $isOpenShift := (include "flightctl.enableOpenShiftExtensions" . )}}
+    {{- if eq $isOpenShift "true" }}
+      {{- $exposeMethod = "route" }}
+    {{- else if .Capabilities.APIVersions.Has "gateway.networking.k8s.io/v1" -}}
+      {{- $exposeMethod = "gateway" }}
+    {{- else }}
+      {{- fail "Could not detect OpenShift, nor Gateway resources. Please set global.exposeServicesMethod" }}
+    {{- end }}
+  {{- end }}
+  {{- $exposeMethod }}
 {{- end }}
 
 {{- define "flightctl.getApiUrl" }}
   {{- $baseDomain := (include "flightctl.getBaseDomain" . )}}
   {{- if eq (include "flightctl.getServiceExposeMethod" .) "nodePort" }}
     {{- printf "https://%s:%v" $baseDomain .Values.global.nodePorts.api }}
-  {{- else if and (eq (include "flightctl.getServiceExposeMethod" .) "gateway") (not (eq (int .Values.global.gatewayPorts.tls) 443)) }}
-    {{- printf "https://api.%s:%v" $baseDomain .Values.global.gatewayPorts.tls }}
+  {{- else if and (eq (include "flightctl.getServiceExposeMethod" .) "gateway") (not (eq (int .Values.global.gateway.ports.tls) 443)) }}
+    {{- printf "https://api.%s:%v" $baseDomain .Values.global.gateway.ports.tls }}
   {{- else }}
     {{- printf "https://api.%s" $baseDomain }}
   {{- end }}
@@ -115,14 +205,21 @@ app.kubernetes.io/version: {{ .Chart.AppVersion }}
 {{- end }}
 
 {{- /*
-Get the effective auth type, translating 'builtin' to 'oidc' for backwards compatibility.
+Get the effective auth type with auto-detection:
+- Auto-detects OpenShift and sets type to "openshift" if not explicitly set
+- Falls back to k8s if no auth type specified and not on OpenShift
 Usage: {{- $authType := include "flightctl.getEffectiveAuthType" . }}
 */}}
 {{- define "flightctl.getEffectiveAuthType" }}
-  {{- if eq .Values.global.auth.type "builtin" }}
-    {{- print "oidc" }}
-  {{- else }}
+  {{- if .Values.global.auth.type }}
     {{- print .Values.global.auth.type }}
+  {{- else }}
+    {{- /* Auto-detect: if on OpenShift, use openshift auth, otherwise k8s */}}
+    {{- if eq (include "flightctl.enableOpenShiftExtensions" .) "true" }}
+      {{- print "openshift" }}
+    {{- else }}
+      {{- print "k8s" }}
+    {{- end }}
   {{- end }}
 {{- end }}
 
@@ -138,10 +235,10 @@ Usage: {{- $authType := include "flightctl.getEffectiveAuthType" . }}
   {{- if eq $exposeMethod "nodePort" }}
     {{- printf "%s://%s:%v" $scheme $baseDomain .Values.global.nodePorts.cliArtifacts }}
   {{- else if eq $exposeMethod "gateway" }}
-    {{- if and (eq $scheme "http") (not (eq (int .Values.global.gatewayPorts.http) 80))}}
-      {{- printf "%s://cli-artifacts.%s:%v" $scheme $baseDomain .Values.global.gatewayPorts.http }}
-    {{- else if and (eq $scheme "https") (not (eq (int .Values.global.gatewayPorts.tls) 443))}}
-      {{- printf "%s://cli-artifacts.%s:%v" $scheme $baseDomain .Values.global.gatewayPorts.tls }}
+    {{- if and (eq $scheme "http") (not (eq (int .Values.global.gateway.ports.http) 80))}}
+      {{- printf "%s://cli-artifacts.%s:%v" $scheme $baseDomain .Values.global.gateway.ports.http }}
+    {{- else if and (eq $scheme "https") (not (eq (int .Values.global.gateway.ports.tls) 443))}}
+      {{- printf "%s://cli-artifacts.%s:%v" $scheme $baseDomain .Values.global.gateway.ports.tls }}
     {{- else }}
       {{- printf "%s://cli-artifacts.%s" $scheme $baseDomain }}
     {{- end }}
@@ -157,10 +254,10 @@ Usage: {{- $authType := include "flightctl.getEffectiveAuthType" . }}
   {{- if eq $exposeMethod "nodePort" }}
     {{- printf "%s://flightctl-alertmanager-proxy:8443" $scheme }}
   {{- else if eq $exposeMethod "gateway" }}
-    {{- if and (eq $scheme "http") (not (eq (int .Values.global.gatewayPorts.http) 80))}}
-      {{- printf "%s://alertmanager-proxy.%s:%v" $scheme $baseDomain .Values.global.gatewayPorts.http }}
-    {{- else if and (eq $scheme "https") (not (eq (int .Values.global.gatewayPorts.tls) 443))}}
-      {{- printf "%s://alertmanager-proxy.%s:%v" $scheme $baseDomain .Values.global.gatewayPorts.tls }}
+    {{- if and (eq $scheme "http") (not (eq (int .Values.global.gateway.ports.http) 80))}}
+      {{- printf "%s://alertmanager-proxy.%s:%v" $scheme $baseDomain .Values.global.gateway.ports.http }}
+    {{- else if and (eq $scheme "https") (not (eq (int .Values.global.gateway.ports.tls) 443))}}
+      {{- printf "%s://alertmanager-proxy.%s:%v" $scheme $baseDomain .Values.global.gateway.ports.tls }}
     {{- else }}
       {{- printf "%s://alertmanager-proxy.%s" $scheme $baseDomain }}
     {{- end }}

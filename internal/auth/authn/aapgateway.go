@@ -77,25 +77,13 @@ func (a AapGatewayAuth) loadUserInfo(token string) (*AAPIdentity, error) {
 		return nil, err
 	}
 
-	// Map AAP permissions to roles
-	roles := []string{}
-	if aapUserInfo.IsSuperuser {
-		roles = append(roles, "admin")
-	}
-	if aapUserInfo.IsPlatformAuditor {
-		roles = append(roles, "auditor")
-	}
-	if len(roles) == 0 {
-		roles = append(roles, "user") // default role
-	}
-
 	externalApiUrl := a.spec.ApiUrl
 	if a.spec.ExternalApiUrl != nil && *a.spec.ExternalApiUrl != "" {
 		externalApiUrl = *a.spec.ExternalApiUrl
 	}
 
 	userInfo := &AAPIdentity{
-		BaseIdentity:    *common.NewBaseIdentityWithIssuer(aapUserInfo.Username, strconv.Itoa(aapUserInfo.ID), []common.ReportedOrganization{}, roles, identity.NewIssuer(identity.AuthTypeAAP, externalApiUrl)),
+		BaseIdentity:    *common.NewBaseIdentityWithIssuer(aapUserInfo.Username, strconv.Itoa(aapUserInfo.ID), []common.ReportedOrganization{}, identity.NewIssuer(identity.AuthTypeAAP, externalApiUrl)),
 		superUser:       aapUserInfo.IsSuperuser,
 		platformAuditor: aapUserInfo.IsPlatformAuditor,
 	}
@@ -143,15 +131,24 @@ func (a AapGatewayAuth) GetIdentity(ctx context.Context, token string) (common.I
 		// TODO: Add proper logging here
 		organizations = []string{}
 	}
-	reportedOrganizations := make([]common.ReportedOrganization, 0, len(organizations))
-	for _, org := range organizations {
-		reportedOrganizations = append(reportedOrganizations, common.ReportedOrganization{
-			Name:         org,
-			IsInternalID: false,
-			ID:           org,
-		})
+
+	// Map AAP permissions to roles (global roles that apply to all orgs)
+	roles := []string{}
+	if userInfo.IsSuperuser() {
+		roles = append(roles, api.ExternalRoleAdmin)
 	}
+	if userInfo.IsPlatformAuditor() {
+		roles = append(roles, api.ExternalRoleViewer)
+	}
+
+	// Build ReportedOrganization with roles embedded
+	// AAP roles are global - apply to all organizations
+	orgRoles := map[string][]string{
+		"*": roles, // All AAP roles are global
+	}
+	reportedOrganizations, isSuperAdmin := common.BuildReportedOrganizations(organizations, orgRoles, false)
 	userInfo.SetOrganizations(reportedOrganizations)
+	userInfo.SetSuperAdmin(isSuperAdmin)
 
 	return userInfo, nil
 }

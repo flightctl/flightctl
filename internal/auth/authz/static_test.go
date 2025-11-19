@@ -8,6 +8,8 @@ import (
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/identity"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/util"
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 )
@@ -109,21 +111,32 @@ func TestStaticAuthZ_CheckPermission(t *testing.T) {
 			expected: false,
 		},
 		{
-			name:     "operator cannot create repositories",
+			name:     "operator can create repositories",
 			roles:    []string{v1alpha1.RoleOperator},
 			resource: "repositories",
 			op:       "create",
-			expected: false,
+			expected: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create mapped identity with roles using NewMappedIdentity
-			mappedIdentity := identity.NewMappedIdentity("testuser", "testuser", []*model.Organization{}, tt.roles, nil)
+			// Create an organization with ID
+			orgID := uuid.New()
+			testOrg := &model.Organization{
+				ID:          orgID,
+				ExternalID:  "test-org",
+				DisplayName: "Test Organization",
+			}
 
-			// Create context with mapped identity
+			// Create mapped identity with roles using NewMappedIdentity
+			// Pass roles mapped to the organization ID
+			orgRoles := map[string][]string{orgID.String(): tt.roles}
+			mappedIdentity := identity.NewMappedIdentity("testuser", "testuser", []*model.Organization{testOrg}, orgRoles, false, nil)
+
+			// Create context with mapped identity and organization ID
 			ctx := context.WithValue(context.Background(), consts.MappedIdentityCtxKey, mappedIdentity)
+			ctx = util.WithOrganizationID(ctx, orgID)
 
 			// Test permission check
 			allowed, err := authZ.CheckPermission(ctx, tt.resource, tt.op)

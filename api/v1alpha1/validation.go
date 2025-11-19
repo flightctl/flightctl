@@ -926,9 +926,6 @@ func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []
 			if provider.Image == "" && app.Name == nil {
 				allErrs = append(allErrs, fmt.Errorf("image reference cannot be empty when application name is not provided"))
 			}
-			if lo.FromPtr(app.AppType) == AppTypeQuadlet {
-				allErrs = append(allErrs, fmt.Errorf("image application provider does not support %q application type", AppTypeQuadlet))
-			}
 			allErrs = append(allErrs, validateOciImageReference(&provider.Image, fmt.Sprintf("spec.applications[%s].image", appName), fleetTemplate)...)
 			volumes = provider.Volumes
 
@@ -1414,14 +1411,8 @@ func (a AuthStaticOrganizationAssignment) Validate(ctx context.Context) []error 
 		return allErrs
 	}
 
-	// Check if user has admin role
-	hasAdminRole := false
-	for _, role := range mappedIdentity.GetRoles() {
-		if role == RoleAdmin {
-			hasAdminRole = true
-			break
-		}
-	}
+	// Check if user is super admin
+	hasAdminRole := mappedIdentity.IsSuperAdmin()
 
 	// If user is not admin, they can only assign to their current organization
 	if !hasAdminRole {
@@ -1468,14 +1459,8 @@ func (a AuthDynamicOrganizationAssignment) Validate(ctx context.Context) []error
 		return allErrs
 	}
 
-	hasAdminRole := false
-	for _, role := range mappedIdentity.GetRoles() {
-		if role == RoleAdmin {
-			hasAdminRole = true
-			break
-		}
-	}
-	if !hasAdminRole {
+	// Only super admin users can create dynamic organization mappings
+	if !mappedIdentity.IsSuperAdmin() {
 		allErrs = append(allErrs, ErrDynamicOrgMappingAdminOnly)
 	}
 
@@ -1502,14 +1487,8 @@ func (a AuthPerUserOrganizationAssignment) Validate(ctx context.Context) []error
 		return allErrs
 	}
 
-	hasAdminRole := false
-	for _, role := range mappedIdentity.GetRoles() {
-		if role == RoleAdmin {
-			hasAdminRole = true
-			break
-		}
-	}
-	if !hasAdminRole {
+	// Only super admin users can create per-user organization mappings
+	if !mappedIdentity.IsSuperAdmin() {
 		allErrs = append(allErrs, ErrPerUserOrgMappingAdminOnly)
 	}
 

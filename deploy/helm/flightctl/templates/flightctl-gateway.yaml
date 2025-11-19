@@ -7,13 +7,13 @@ metadata:
   labels:
     {{- include "flightctl.standardLabels" . | nindent 4 }}
 spec:
-  gatewayClassName: {{ .Values.global.gatewayClass }}
+  gatewayClassName: {{ .Values.global.gateway.gatewayClassName }}
   listeners:
   {{- if .Values.ui.enabled }}
   - name: ui
     hostname: ui.{{ include "flightctl.getBaseDomain" . }}
     {{- if .Values.global.baseDomainTls.cert }}
-    port: {{ .Values.global.gatewayPorts.tls }}
+    port: {{ .Values.global.gateway.ports.tls }}
     protocol: HTTPS
     tls:
       mode: Terminate
@@ -21,13 +21,13 @@ spec:
       - kind: Secret
         name: gateway-cert
     {{- else }}
-    port: {{ .Values.global.gatewayPorts.http }}
+    port: {{ .Values.global.gateway.ports.http }}
     protocol: HTTP
     {{- end }}
   - name: cli-artifacts
     hostname: cli-artifacts.{{ include "flightctl.getBaseDomain" . }}
     {{- if .Values.global.baseDomainTls.cert }}
-    port: {{ .Values.global.gatewayPorts.tls }}
+    port: {{ .Values.global.gateway.ports.tls }}
     protocol: HTTPS
     tls:
       mode: Terminate
@@ -35,13 +35,13 @@ spec:
       - kind: Secret
         name: gateway-cert
     {{- else }}
-    port: {{ .Values.global.gatewayPorts.http }}
+    port: {{ .Values.global.gateway.ports.http }}
     protocol: HTTP
     {{- end }}
   {{- end }}
   - name: api
     hostname: '*.{{ include "flightctl.getBaseDomain" . }}'
-    port: {{ .Values.global.gatewayPorts.tls }}
+    port: {{ .Values.global.gateway.ports.tls }}
     protocol: TLS
     tls:
       mode: Passthrough

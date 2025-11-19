@@ -248,7 +248,8 @@ func main() {
 	defer orgCache.Stop()
 
 	// Create service handler for auth provider access
-	serviceHandler := service.NewServiceHandler(dataStore, nil, nil, nil, logger, "", "", nil)
+	baseServiceHandler := service.NewServiceHandler(dataStore, nil, nil, nil, logger, "", "", nil)
+	serviceHandler := service.WrapWithTracing(baseServiceHandler)
 
 	// Initialize auth system
 	authN, err := auth.InitMultiAuth(cfg, logger, serviceHandler)
@@ -267,6 +268,12 @@ func main() {
 	authZ, err := auth.InitMultiAuthZ(cfg, logger)
 	if err != nil {
 		logger.Fatalf("Failed to initialize authZ: %v", err)
+	}
+
+	// Start multiAuthZ to initialize cache lifecycle management
+	if multiAuthZ, ok := authZ.(*auth.MultiAuthZ); ok {
+		multiAuthZ.Start(ctx)
+		logger.Debug("Started MultiAuthZ with context-based cache lifecycle")
 	}
 
 	// Create identity mapper for mapping identities to database objects

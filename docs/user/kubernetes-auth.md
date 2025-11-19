@@ -15,7 +15,7 @@ If you want to use a different cluster as auth authority, the following variable
 * Set **global.auth.k8s.apiUrl** to API URL of the external k8s cluster
 * Set **global.auth.k8s.externalApiToken** to a token which has permission to CREATE `authentication.k8s.io/tokenreview` resource in the external k8s cluster
 
-If the k8s cluster is an OpenShift cluster, you can also set **global.auth.k8s.externalOpenShiftApiUrl** which enables interactive login for the CLI (`flightctl login <fctl_url> --web`)
+If the k8s cluster is an OpenShift cluster, interactive login for the CLI (`flightctl login <fctl_url> --web`) works out of the box.
 
 If deploying on ACM  (by global.target: acm), the k8s auth values are automatically calculated.
 

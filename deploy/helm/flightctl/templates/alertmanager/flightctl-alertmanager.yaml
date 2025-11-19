@@ -77,10 +77,13 @@ spec:
   volumeClaimTemplates:
     - metadata:
         name: flightctl-alertmanager-data
-        {{- if .Values.global.appCode }}
         labels:
-          paas.redhat.com/appcode: {{ .Values.global.appCode }}
-        {{- end }}
+          {{- with .Values.global.additionalPVCLabels }}
+          {{- toYaml . | nindent 4 }}
+          {{- end }}
+          {{- with .Values.alertmanager.additionalPVCLabels }}
+          {{- toYaml . | nindent 4 }}
+          {{- end }}
       spec:
         {{- with .Values.global.storageClassName }}
         storageClassName: {{ . }}
@@ -100,14 +103,14 @@ metadata:
   labels:
     flightctl.service: flightctl-alertmanager
 spec:
-  {{- if and .Values.global.nodePorts.alertmanager (eq (include "flightctl.getServiceExposeMethod" .) "nodePort") }}
+  {{- if and (eq (include "flightctl.getServiceExposeMethod" .) "nodePort") .Values.global.nodePorts.alertmanager }}
   type: NodePort
   {{- end }}
   ports:
     - name: "9093"
       port: 9093
       targetPort: 9093
-      {{- if and .Values.global.nodePorts.alertmanager (eq (include "flightctl.getServiceExposeMethod" .) "nodePort") }}
+      {{- if and (eq (include "flightctl.getServiceExposeMethod" .) "nodePort") .Values.global.nodePorts.alertmanager }}
       nodePort: {{ .Values.global.nodePorts.alertmanager }}
       {{- end }}
   selector:

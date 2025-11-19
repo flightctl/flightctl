@@ -33,26 +33,10 @@ const (
 	TokenTypeRefresh = "refresh_token"
 )
 
-// OAuth2 Error Codes
-const (
-	// ErrorInvalidRequest indicates the request is missing a required parameter
-	ErrorInvalidRequest = "invalid_request"
-	// ErrorInvalidClient indicates client authentication failed
-	ErrorInvalidClient = "invalid_client"
-	// ErrorInvalidGrant indicates the authorization code or refresh token is invalid
-	ErrorInvalidGrant = "invalid_grant"
-	// ErrorUnsupportedGrantType indicates the grant type is not supported
-	ErrorUnsupportedGrantType = "unsupported_grant_type"
-	// ErrorServerError indicates an internal server error occurred
-	ErrorServerError = "server_error"
-	// ErrorInvalidToken indicates the access token is invalid or expired
-	ErrorInvalidToken = "invalid_token"
-)
-
 // Organization and Group Prefixes
 const (
 	// OrgPrefix is the prefix for organization group names
-	OrgPrefix = "org:"
+	OrgPrefix = "org-"
 )
 
 // Token Endpoint Authentication Methods
