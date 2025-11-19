@@ -37,7 +37,9 @@ var _ = Describe("Agent Audit Log", func() {
 	})
 
 	AfterEach(func() {
-		h.Cleanup()
+		if h != nil {
+			h.Cleanup()
+		}
 	})
 
 	It("creates audit log file after agent starts", func() {
