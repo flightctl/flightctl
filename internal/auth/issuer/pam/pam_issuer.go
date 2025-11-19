@@ -833,14 +833,14 @@ func (s *PAMOIDCProvider) GetJWKS() (*pamapi.JWKSResponse, error) {
 }
 
 // mapGroupsToRoles maps system groups to flightctl roles
-// Groups starting with "org:" are treated as organizations, not roles
+// Groups starting with "org-" are treated as organizations, not roles
 func (s *PAMOIDCProvider) mapGroupsToRoles(groups []string) []string {
 	var roles []string
 	roleSet := make(map[string]struct{}) // Use set to avoid duplicates
 
 	// Map groups to roles
 	for _, group := range groups {
-		// Skip organization groups (they start with "org:")
+		// Skip organization groups (they start with "org-")
 		if strings.HasPrefix(group, OrgPrefix) {
 			continue
 		}
@@ -864,14 +864,14 @@ func (s *PAMOIDCProvider) mapGroupsToRoles(groups []string) []string {
 }
 
 // extractOrganizations extracts organization names from groups
-// Groups starting with "org:" are treated as organizations
+// Groups starting with "org-" are treated as organizations
 func (s *PAMOIDCProvider) extractOrganizations(groups []string) []string {
 	var organizations []string
 	orgSet := make(map[string]struct{}) // Use set to avoid duplicates
 
 	for _, group := range groups {
 		if strings.HasPrefix(group, OrgPrefix) {
-			// Extract organization name (remove "org:" prefix)
+			// Extract organization name (remove "org-" prefix)
 			orgName := strings.TrimPrefix(group, OrgPrefix)
 			if _, exists := orgSet[orgName]; orgName != "" && !exists {
 				organizations = append(organizations, orgName)
