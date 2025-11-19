@@ -231,20 +231,20 @@ func (a *Agent) Run(ctx context.Context) error {
 	// create hook manager
 	hookManager := hook.NewManager(deviceReadWriter, executer, a.log)
 
+	// create systemd manager
+	systemdManager := systemd.NewManager(a.log, systemdClient)
+
 	// create application manager
 	applicationsManager := applications.NewManager(
 		a.log,
 		deviceReadWriter,
 		podmanClient,
 		systemInfoManager,
-		systemdClient,
+		systemdManager,
 	)
 
 	// register the application manager with the shutdown manager
 	shutdownManager.Register("applications", applicationsManager.Shutdown)
-
-	// create systemd manager
-	systemdManager := systemd.NewManager(a.log, systemdClient)
 
 	// create os manager
 	osManager := os.NewManager(a.log, osClient, deviceReadWriter, podmanClient)
