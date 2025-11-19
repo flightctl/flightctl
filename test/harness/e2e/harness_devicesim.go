@@ -16,6 +16,19 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// defaultAgentInterval is the default interval for agent spec-fetch and status-update
+// when no explicit value is provided.
+const defaultAgentInterval = 2 * time.Second
+
+// appendError appends a new error to an existing error chain, handling nil cases.
+func appendError(existing error, format string, args ...interface{}) error {
+	newErr := fmt.Errorf(format, args...)
+	if existing == nil {
+		return newErr
+	}
+	return fmt.Errorf("%v; %w", existing, newErr)
+}
+
 // EnsureDeviceSimulatorBinary returns the path to the devicesimulator binary, building it if missing.
 func (h *Harness) EnsureDeviceSimulatorBinary() (string, error) {
 	// Compute the expected path under the repo top-level bin directory
@@ -42,9 +55,10 @@ func (h *Harness) EnsureDeviceSimulatorBinary() (string, error) {
 }
 
 // RunDeviceSimulator starts the devicesimulator in the background with the provided args and returns the running command.
-// The process is detached from the provided context and will continue running until explicitly stopped by the caller.
-// The context parameter is currently unused but reserved for future use (e.g., cancellation during setup).
-func (h *Harness) RunDeviceSimulator(ctx context.Context, args ...string) (*exec.Cmd, error) {
+// The process will continue running until explicitly stopped via StopDeviceSimulator.
+// IMPORTANT: The caller MUST call StopDeviceSimulator to clean up the process and close the log file.
+// The context parameter is reserved for future use (e.g., cancellation during setup).
+func (h *Harness) RunDeviceSimulator(_ context.Context, args ...string) (*exec.Cmd, error) {
 	// Ensure the simulator exists (build if necessary)
 	simPath, err := h.EnsureDeviceSimulatorBinary()
 	if err != nil {
@@ -58,22 +72,20 @@ func (h *Harness) RunDeviceSimulator(ctx context.Context, args ...string) (*exec
 	// Always log only to a file under the repo root .output/devicesim folder (collected by CI)
 	repoRoot := util.GetTopLevelDir()
 	logDir := filepath.Join(repoRoot, ".output", "devicesim")
-	if err := os.MkdirAll(logDir, 0755); err != nil {
+	if err := os.MkdirAll(logDir, 0o755); err != nil {
 		return nil, fmt.Errorf("creating log directory: %w", err)
 	}
 	// Timestamped filename to avoid collisions between parallel tests
 	ts := time.Now().Format("20060102-150405.000000000")
 	logPath := filepath.Join(logDir, fmt.Sprintf("devicesimulator-%s.log", ts))
-	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return nil, fmt.Errorf("opening log file %s: %w", logPath, err)
 	}
 	// Write only to the log file (no mirroring to Ginkgo)
 	cmd.Stdout = f
 	cmd.Stderr = f
-	logrus.Infof("starting devicesimulator (logging only to %s)", logPath)
-
-	logrus.Infof("starting devicesimulator: %s", strings.Join(cmd.Args, " "))
+	logrus.Infof("starting devicesimulator: %s (log: %s)", strings.Join(cmd.Args, " "), logPath)
 	if err := cmd.Start(); err != nil {
 		// Close the log file if we fail to start
 		_ = f.Close()
@@ -140,12 +152,9 @@ func closeFileIfNeeded(writer io.Writer) {
 
 // SetupDeviceSimulatorAgentConfig generates an agent configuration file for the device simulator
 // and copies required certificates into the expected locations under ~/.flightctl.
-// The server and logLevel parameters are reserved for future use.
 // Non-zero durations override fetch/update intervals; zero values default to 2 seconds.
 // Returns the path to the generated agent config file.
-func (h *Harness) SetupDeviceSimulatorAgentConfig(server string, logLevel string, specFetch time.Duration, statusUpdate time.Duration) (string, error) {
-	_ = server   // Reserved for future use
-	_ = logLevel // Reserved for future use
+func (h *Harness) SetupDeviceSimulatorAgentConfig(specFetch time.Duration, statusUpdate time.Duration) (string, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("getting user home: %w", err)
@@ -157,7 +166,7 @@ func (h *Harness) SetupDeviceSimulatorAgentConfig(server string, logLevel string
 	destConfigPath := filepath.Join(simBaseDir, "agent.yaml")
 
 	// Ensure destination directories exist
-	if err := os.MkdirAll(destCertsDir, 0755); err != nil {
+	if err := os.MkdirAll(destCertsDir, 0o755); err != nil {
 		return "", fmt.Errorf("creating simulator certs directory: %w", err)
 	}
 
@@ -167,14 +176,14 @@ func (h *Harness) SetupDeviceSimulatorAgentConfig(server string, logLevel string
 		return "", fmt.Errorf("missing prepare_agent_config.sh at %s: %w", scriptPath, err)
 	}
 
-	// Always pass intervals; default to 0m2s when zero
+	// Always pass intervals; use defaultAgentInterval when zero
 	effectiveStatusUpdate := statusUpdate
 	effectiveSpecFetch := specFetch
 	if effectiveStatusUpdate == 0 {
-		effectiveStatusUpdate = 2 * time.Second
+		effectiveStatusUpdate = defaultAgentInterval
 	}
 	if effectiveSpecFetch == 0 {
-		effectiveSpecFetch = 2 * time.Second
+		effectiveSpecFetch = defaultAgentInterval
 	}
 	args := []string{
 		"--status-update-interval", effectiveStatusUpdate.String(),
@@ -247,11 +256,7 @@ func (h *Harness) DeleteAllResourcesFound() ([]string, []string, error) {
 				// Extract just the name part from "fleet/name"
 				name = strings.TrimPrefix(name, "fleet/")
 				if _, err := h.ManageResource("delete", "fleet/"+name); err != nil {
-					if deleteErr == nil {
-						deleteErr = fmt.Errorf("deleting fleet %s: %w", name, err)
-					} else {
-						deleteErr = fmt.Errorf("%v; deleting fleet %s: %w", deleteErr, name, err)
-					}
+					deleteErr = appendError(deleteErr, "deleting fleet %s: %w", name, err)
 					logrus.Warnf("failed to delete fleet %s: %v", name, err)
 					continue // Continue with remaining fleets
 				}
@@ -283,11 +288,7 @@ func (h *Harness) DeleteAllResourcesFound() ([]string, []string, error) {
 			// Extract just the name part from "device/name"
 			id = strings.TrimPrefix(id, "device/")
 			if _, err := h.ManageResource("delete", "device/"+id); err != nil {
-				if deleteErr == nil {
-					deleteErr = fmt.Errorf("deleting device %s: %w", id, err)
-				} else {
-					deleteErr = fmt.Errorf("%v; deleting device %s: %w", deleteErr, id, err)
-				}
+				deleteErr = appendError(deleteErr, "deleting device %s: %w", id, err)
 				logrus.Warnf("failed to delete device %s: %v", id, err)
 				continue // Continue with remaining devices
 			}
@@ -332,6 +333,8 @@ func (h *Harness) GenerateFleetYAMLsForSimulator(fleetCount, devicesPerFleet int
 		b.WriteString("kind: Fleet\n")
 		b.WriteString("metadata:\n")
 		b.WriteString(fmt.Sprintf("  name: %s\n", fleetName))
+		b.WriteString("  labels:\n")
+		b.WriteString(fmt.Sprintf("    test-id: %s\n", h.GetTestIDFromContext()))
 		b.WriteString("  annotations:\n")
 		b.WriteString(fmt.Sprintf("    devices-per-fleet: \"%d\"\n", devicesPerFleet))
 		b.WriteString("spec:\n")
