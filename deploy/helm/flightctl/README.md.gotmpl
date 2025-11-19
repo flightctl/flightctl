@@ -179,8 +179,7 @@ global:
   target: "acm"
   auth:
     type: "k8s"
-    k8s:
-      externalOpenShiftApiUrl: "https://api.cluster.example.com:6443"
+  apiUrl: "https://api.cluster.example.com:6443"
 
 # Example: OpenShift standalone deployment
 global:
@@ -188,8 +187,7 @@ global:
   baseDomain: "apps.cluster.example.com"
   auth:
     type: "k8s"
-    k8s:
-      externalOpenShiftApiUrl: "https://api.cluster.example.com:6443"
+  apiUrl: "https://api.cluster.example.com:6443"
 
 # Example: Kubernetes standalone deployment
 global:
