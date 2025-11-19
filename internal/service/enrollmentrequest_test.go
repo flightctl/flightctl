@@ -2,11 +2,23 @@ package service
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"os"
 	"testing"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/auth/common"
+	"github.com/flightctl/flightctl/internal/config/ca"
+	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/samber/lo"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 )
 
@@ -136,4 +148,91 @@ func createTestEnrollmentRequest(require *require.Assertions, name string, statu
 	_, err := serviceHandler.store.EnrollmentRequest().Create(ctx, store.NullOrgId, &enrollmentRequest, nil)
 	require.NoError(err)
 	return &serviceHandler, ctx, enrollmentRequest
+}
+
+func TestApproveEnrollmentRequestUnsupportedIntegrity(t *testing.T) {
+	require := require.New(t)
+
+	// Create a temporary directory for certs
+	tmpDir, err := os.MkdirTemp("", "flightctl-test-certs")
+	require.NoError(err)
+	defer os.RemoveAll(tmpDir)
+
+	// Create a CAClient
+	caConfig := &ca.Config{
+		InternalConfig: &ca.InternalCfg{
+			CertStore:        tmpDir,
+			CertFile:         "ca.crt",
+			KeyFile:          "ca.key",
+			SerialFile:       "ca.serial",
+			SignerCertName:   "flightctl-test-ca",
+			CertValidityDays: 365,
+		},
+		DeviceEnrollmentSignerName: "device-enrollment",
+	}
+	caClient, _, err := crypto.EnsureCA(caConfig)
+	require.NoError(err)
+
+	// Create a private key for the CSR
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(err)
+
+	// Create a CSR
+	csrTemplate := x509.CertificateRequest{
+		Subject: pkix.Name{
+			CommonName: "test-device-fingerprint-long",
+		},
+		SignatureAlgorithm: x509.ECDSAWithSHA256,
+	}
+	csrBytes, err := x509.CreateCertificateRequest(rand.Reader, &csrTemplate, privateKey)
+	require.NoError(err)
+	csrPem := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csrBytes})
+
+	// Create a ServiceHandler
+	testStore := &TestStore{}
+	log := logrus.New()
+	serviceHandler := ServiceHandler{
+		store:           testStore,
+		callbackManager: dummyCallbackManager(),
+		ca:              caClient,
+		EventHandler:    NewEventHandler(testStore, log),
+		log:             log,
+	}
+	orgId := store.NullOrgId
+	identity := &common.Identity{Username: "test"}
+	ctx := context.WithValue(context.Background(), consts.OrganizationIDCtxKey, orgId)
+	ctx = context.WithValue(ctx, common.IdentityCtxKey, identity)
+
+	// Create an enrollment request
+	enrollmentRequest := v1alpha1.EnrollmentRequest{
+		ApiVersion: "v1",
+		Kind:       "EnrollmentRequest",
+		Metadata: v1alpha1.ObjectMeta{
+			Name: lo.ToPtr("test-device-fingerprint-long"),
+		},
+		Spec: v1alpha1.EnrollmentRequestSpec{
+			Csr: string(csrPem),
+		},
+	}
+	_, status := serviceHandler.CreateEnrollmentRequest(ctx, enrollmentRequest)
+	require.Equal(v1alpha1.StatusCreated(), status)
+
+	// Approve the enrollment request
+	approval := v1alpha1.EnrollmentRequestApproval{
+		Approved: true,
+	}
+	_, status = serviceHandler.ApproveEnrollmentRequest(ctx, "test-device-fingerprint-long", approval)
+	require.Equal(v1alpha1.StatusOK(), status)
+
+	// Get the device and check its integrity status
+	device, err := serviceHandler.store.Device().Get(ctx, orgId, "test-device-fingerprint-long")
+	require.NoError(err)
+	require.NotNil(device)
+	require.NotNil(device.Status)
+	require.NotNil(device.Status.Integrity)
+	require.Equal(v1alpha1.DeviceIntegrityStatusUnsupported, device.Status.Integrity.Status)
+	require.NotNil(device.Status.Integrity.DeviceIdentity)
+	require.Equal(v1alpha1.DeviceIntegrityCheckStatusUnsupported, device.Status.Integrity.DeviceIdentity.Status)
+	require.NotNil(device.Status.Integrity.Tpm)
+	require.Equal(v1alpha1.DeviceIntegrityCheckStatusUnsupported, device.Status.Integrity.Tpm.Status)
 }
