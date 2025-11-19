@@ -60,6 +60,7 @@ Welcome to the Flight Control user documentation.
 * **Solving Specific Use Cases** - How to solve specific use cases in Flight Control.
   * [Auto-Registering Devices with MicroShift into ACM](using/registering-microshift-devices-acm.md)
   * [Adding Device Observability](using/device-observability.md)
+  * [Device Audit Logs](using/device-audit-logs.md)
 
 **Building for Flight Control** - How to build OS images and application packages compatible with Flight Control.
 
