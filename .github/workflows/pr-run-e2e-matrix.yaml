@@ -137,7 +137,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "::group::Building app images"
-          ./test/scripts/agent-images-v2/scripts/build.sh --apps
+          ./test/scripts/agent-images/scripts/build.sh --apps
           echo "::endgroup::"
 
       - name: Create sleep app bundle

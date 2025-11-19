@@ -192,7 +192,7 @@ jobs:
           echo "Using REGISTRY_ENDPOINT=${REGISTRY_ENDPOINT}"
           
           echo "Pushing agent images bundle..."
-          ./test/scripts/agent-images-v2/scripts/upload-images.sh artifacts/agent-images-bundle.tar --insecure --jobs 2
+          ./test/scripts/agent-images/scripts/upload-images.sh artifacts/agent-images-bundle.tar --insecure --jobs 2
           agent_exit=$?
           if [ $agent_exit -ne 0 ]; then
             echo "::error::Failed to push agent images (exit code: $agent_exit)"
@@ -200,7 +200,7 @@ jobs:
           fi
           
           echo "Pushing sleep app images bundle..."
-          ./test/scripts/agent-images-v2/scripts/upload-images.sh artifacts/sleep-app-images-bundle.tar --insecure --jobs 2
+          ./test/scripts/agent-images/scripts/upload-images.sh artifacts/sleep-app-images-bundle.tar --insecure --jobs 2
           sleep_exit=$?
           if [ $sleep_exit -ne 0 ]; then
             echo "::error::Failed to push sleep app images (exit code: $sleep_exit)"
@@ -233,7 +233,7 @@ jobs:
       - name: Prepare agent configuration
         run: |
           set -euo pipefail
-          ./test/scripts/agent-images-v2/prepare_agent_config.sh --status-update-interval 0m2s --spec-fetch-interval 0m2s
+          ./test/scripts/agent-images/prepare_agent_config.sh --status-update-interval 0m2s --spec-fetch-interval 0m2s
 
       - name: Inject agent files into qcow2
         run: |

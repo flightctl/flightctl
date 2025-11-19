@@ -58,7 +58,7 @@ jobs:
             bin/osbuild-cache
             dnf-cache
             osbuild-cache
-          key: ${{ runner.os }}-bootc-cache-e2e-unified-${{ hashFiles('test/scripts/agent-images-v2/base/Containerfile') }}
+          key: ${{ runner.os }}-bootc-cache-e2e-unified-${{ hashFiles('test/scripts/agent-images/base/Containerfile') }}
           restore-keys: |
             ${{ runner.os }}-bootc-cache-e2e-
 
@@ -79,7 +79,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "::group::Building base for flavor ${FLAVORS}"
-          sudo -E ./test/scripts/agent-images-v2/scripts/build.sh --base
+          sudo -E ./test/scripts/agent-images/scripts/build.sh --base
           echo "::endgroup::"
 
       - name: Build variants+bundle and qcow2 in parallel (per flavor)
@@ -89,7 +89,7 @@ jobs:
           OS_ID: ${{ inputs.os_id }}
         run: |
           set -euo pipefail
-          sudo -E ./test/scripts/agent-images-v2/scripts/build_and_qcow2.sh --os-id "${OS_ID}"
+          sudo -E ./test/scripts/agent-images/scripts/build_and_qcow2.sh --os-id "${OS_ID}"
 
       - name: Print parallel build logs (per flavor)
         if: always()
@@ -139,6 +139,6 @@ jobs:
             bin/osbuild-cache
             dnf-cache
             osbuild-cache
-          key: ${{ runner.os }}-bootc-cache-e2e-unified-${{ hashFiles('test/scripts/agent-images-v2/base/Containerfile') }}
+          key: ${{ runner.os }}-bootc-cache-e2e-unified-${{ hashFiles('test/scripts/agent-images/base/Containerfile') }}
 
 

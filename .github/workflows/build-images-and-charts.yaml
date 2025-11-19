@@ -30,10 +30,7 @@ on:
         default: ""
 
 jobs:
-  build-images:
-    strategy:
-      matrix:
-        image: ['api', 'periodic', 'worker', 'cli-artifacts', 'alert-exporter', 'alertmanager-proxy', 'userinfo-proxy', 'db-setup', 'telemetry-gateway']
+  build-backend-containers:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -42,76 +39,66 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
-      - name: Set up build output dir
-        run: |
-          mkdir -p digests
-
-      - name: Build image
-        id: build
-        uses: redhat-actions/buildah-build@v2
+      - name: Restore Go cache
+        id: cache-go-restore
+        uses: actions/cache/restore@v4
         with:
-          image: quay.io/flightctl/flightctl-${{ matrix.image }}
-          tags: ${{ inputs.tag }}
-          labels: |
-            io.flightctl.flightctl-${{ matrix.image }}.github.repository=${{ github.repository }}
-            io.flightctl.flightctl-${{ matrix.image }}.github.actor=${{ github.actor }}
-            io.flightctl.flightctl-${{ matrix.image }}.github.run_id=${{ github.run_id }}
-            io.flightctl.flightctl-${{ matrix.image }}.github.sha=${{ github.sha }}
-            io.flightctl.flightctl-${{ matrix.image }}.github.ref_name=${{ github.ref_name }}
-            quay.expires-after=${{ inputs.expires_after }}
-          build-args: |
-            SOURCE_GIT_TAG=${{ inputs.git_tag }}
-            SOURCE_GIT_TREE_STATE=${{ inputs.git_tree_state }}
-            SOURCE_GIT_COMMIT=${{ inputs.git_commit }}
-          extra-args: |
-            --ulimit nofile=10000:10000
-          containerfiles: Containerfile.${{ matrix.image }}
-          context: .
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
 
-      - name: Tag and save image archive
-        id: save
+      - name: Build backend containers
         env:
-          TAG: ${{ inputs.tag }}
-          IMAGE: ${{ steps.build.outputs.image }}
-          MATRIX_IMAGE: ${{ matrix.image }}
+          SOURCE_GIT_TAG: ${{ inputs.git_tag }}
+          SOURCE_GIT_TREE_STATE: ${{ inputs.git_tree_state }}
+          SOURCE_GIT_COMMIT: ${{ inputs.git_commit }}
+          GITHUB_ACTIONS: true
+          REGISTRY: quay.io
+          REGISTRY_OWNER: flightctl
         run: |
           set -euo pipefail
           
-          ARCHIVE_NAME="image-flightctl-${MATRIX_IMAGE}.tar"
-          
-          echo "Saving ${IMAGE}:${TAG} to ${ARCHIVE_NAME}"
-          podman save -o "${ARCHIVE_NAME}" "${IMAGE}:${TAG}"
-          
-          mkdir -p digests
-          
-          DIGEST="$(podman inspect "${IMAGE}:${TAG}" --format '{{.Digest}}' || true)"
-          DIGEST_FILE="digests/${MATRIX_IMAGE}.txt"
-          printf "%s\n" "${DIGEST}" > "${DIGEST_FILE}"
-          echo "Digest: ${DIGEST}"
-          
-          {
-            echo "archive=${ARCHIVE_NAME}"
-            echo "digest=${DIGEST}"
-            echo "digest_file=${DIGEST_FILE}"
-          } >> "$GITHUB_OUTPUT"
+          echo "::group::Building backend containers"
+          make build-containers
+          echo "::endgroup::"
 
-      - name: Upload image archive
+      - name: Bundle images
+        env:
+          TAG: ${{ inputs.git_tag }}
+        run: |
+          set -euo pipefail
+          
+          echo "::group::Creating images bundle"
+          echo "Getting list of loaded flightctl images with tag: $TAG"
+          mapfile -t loaded_images < <(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${TAG}")
+
+          echo "Creating bundle with ${#loaded_images[@]} images:"
+          printf '  %s\n' "${loaded_images[@]}"
+
+          podman save --format docker-archive -o flightctl-images-bundle.tar -m "${loaded_images[@]}"
+
+          echo "Bundle created: $(ls -lh flightctl-images-bundle.tar)"
+          echo "::endgroup::"
+
+      - name: Upload images bundle
         uses: actions/upload-artifact@v4
         with:
-          name: image-flightctl-${{ matrix.image }}
-          path: ${{ steps.save.outputs.archive }}
+          name: flightctl-images-bundle
+          path: flightctl-images-bundle.tar
           compression-level: 1
           if-no-files-found: error
           retention-days: 1
 
-      - name: Upload digest artifact
-        uses: actions/upload-artifact@v4
+      - name: Save Go cache
+        uses: actions/cache/save@v4
         with:
-          name: digest-${{ matrix.image }}
-          path: ${{ steps.save.outputs.digest_file }}
-          compression-level: 0
-          if-no-files-found: error
-          retention-days: 1
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
 
   build-auxiliary-images:
     runs-on: ubuntu-24.04
@@ -165,70 +152,56 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  bundle-images:
-    runs-on: ubuntu-24.04
-    needs: [build-images]
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Load images using artifact loader script
-        env:
-          TAG: ${{ inputs.tag }}
-          RUN_ID: ${{ github.run_id }}
-          REPO: ${{ github.repository }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-
-          echo "::group::Loading individual image archives using artifact loader"
-          images=('api' 'periodic' 'worker' 'cli-artifacts' 'alert-exporter' 'alertmanager-proxy' 'userinfo-proxy' 'db-setup' 'telemetry-gateway')
-
-          for image in "${images[@]}"; do
-            artifact_name="image-flightctl-${image}"
-            echo "Loading artifact: $artifact_name"
-            ./hack/load-github-artifact.sh "$artifact_name" "$RUN_ID" "$REPO"
-          done
-          echo "::endgroup::"
-
-          echo "::group::Creating images bundle"
-          echo "Getting list of loaded flightctl images with tag: $TAG"
-          mapfile -t loaded_images < <(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${TAG}")
-
-          echo "Creating bundle with ${#loaded_images[@]} images:"
-          printf '  %s\n' "${loaded_images[@]}"
-
-          podman save --format docker-archive -o flightctl-images-bundle.tar -m "${loaded_images[@]}"
-
-          echo "Bundle created: $(ls -lh flightctl-images-bundle.tar)"
-          echo "::endgroup::"
-
-      - name: Upload images bundle
-        uses: actions/upload-artifact@v4
-        with:
-          name: flightctl-images-bundle
-          path: flightctl-images-bundle.tar
-          compression-level: 1
-          if-no-files-found: error
-          retention-days: 1
-
   service-images-manifest:
     runs-on: ubuntu-24.04
-    needs: [build-images]
+    needs: [build-backend-containers]
     steps:
-      - name: Download image digest artifacts
+      - name: Download images bundle
         uses: actions/download-artifact@v4
         with:
-          pattern: digest-*
-          path: digests
-          merge-multiple: true
+          name: flightctl-images-bundle
+          path: .
+
+      - name: Load images and extract digests
+        env:
+          TAG: ${{ inputs.git_tag }}
+        run: |
+          set -euo pipefail
+          
+          echo "::group::Loading images bundle"
+          podman load -i flightctl-images-bundle.tar
+          echo "::endgroup::"
+          
+          echo "::group::Extracting image digests"
+          mkdir -p digests
+          images=(
+            flightctl-api
+            flightctl-db-setup
+            flightctl-worker
+            flightctl-periodic
+            flightctl-alert-exporter
+            flightctl-alertmanager-proxy
+            flightctl-cli-artifacts
+            flightctl-userinfo-proxy
+            flightctl-telemetry-gateway
+          )
+          
+          for img in "${images[@]}"; do
+            image_name="quay.io/flightctl/${img}:${TAG}"
+            digest=$(podman inspect "${image_name}" --format '{{.Digest}}' || true)
+            if [ -n "$digest" ]; then
+              echo "$digest" > "digests/${img#flightctl-}.txt"
+              echo "Extracted digest for ${img}: ${digest}"
+            else
+              echo "Warning: Could not extract digest for ${img}" >&2
+            fi
+          done
+          echo "::endgroup::"
 
       - name: Produce service images manifest
         run: |
           set -euo pipefail
-          TAG='${{ inputs.tag }}'
+          TAG='${{ inputs.git_tag }}'
           ARTIFACT_BASE_URL="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}#artifacts"
           images=(
             flightctl-api
@@ -244,8 +217,8 @@ jobs:
           printf '{"serviceImages":{' > service-images.json
           first=1
           for img in "${images[@]}"; do
-            artifact_name="image-${img#flightctl-}"
-            archive_name="${img}-${TAG}.tar"
+            archive_name="flightctl-images-bundle.tar"
+            artifact_name="flightctl-images-bundle"
             digest_file="digests/${img#flightctl-}.txt"
             if [ ! -f "$digest_file" ]; then
               echo "Missing digest file: $digest_file" >&2

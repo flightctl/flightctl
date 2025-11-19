@@ -9,7 +9,7 @@ The build system creates bootable device images based on bootc, with multiple va
 ## Directory Structure
 
 ```
-agent-images-v2/
+agent-images/
 ├── base/                  # Base image Containerfile
 ├── variants/              # Variant-specific files
 │   ├── v2/, v3/, ..., v10/
@@ -345,7 +345,7 @@ In GitHub Actions, use with environment variables:
     SOURCE_GIT_TREE_STATE: ${{ needs.compute-tag.outputs.git_tree_state }}
     SOURCE_GIT_COMMIT: ${{ needs.compute-tag.outputs.git_commit }}
     FLAVORS: cs9-bootc
-  run: sudo -E ./test/scripts/agent-images-v2/scripts/build.sh --base
+  run: sudo -E ./test/scripts/agent-images/scripts/build.sh --base
 ```
 
 ## Common Workflows
