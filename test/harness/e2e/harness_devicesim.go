@@ -196,7 +196,7 @@ func (h *Harness) SetupDeviceSimulatorAgentConfig(server string, logLevel string
 	srcCertsDir := filepath.Join(srcBase, "certs")
 	srcConfigPath := filepath.Join(srcBase, "config.yaml")
 
-	if err := CopyFile(srcConfigPath, destConfigPath); err != nil {
+	if err := util.CopyFile(srcConfigPath, destConfigPath); err != nil {
 		return "", fmt.Errorf("copying generated agent config: %w", err)
 	}
 
@@ -208,7 +208,7 @@ func (h *Harness) SetupDeviceSimulatorAgentConfig(server string, logLevel string
 		if entry.IsDir() {
 			continue
 		}
-		if err := CopyFile(filepath.Join(srcCertsDir, entry.Name()), filepath.Join(destCertsDir, entry.Name())); err != nil {
+		if err := util.CopyFile(filepath.Join(srcCertsDir, entry.Name()), filepath.Join(destCertsDir, entry.Name())); err != nil {
 			return "", fmt.Errorf("copying cert %s: %w", entry.Name(), err)
 		}
 	}
