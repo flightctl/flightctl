@@ -542,7 +542,10 @@ func (o *GetOptions) getResourceList(ctx context.Context, c *apiclient.ClientWit
 		}
 		return c.ListFleetsWithResponse(ctx, &params)
 	case OrganizationKind:
-		return c.ListOrganizationsWithResponse(ctx)
+		params := api.ListOrganizationsParams{
+			FieldSelector: util.ToPtrWithNilDefault(o.FieldSelector),
+		}
+		return c.ListOrganizationsWithResponse(ctx, &params)
 	case TemplateVersionKind:
 		params := api.ListTemplateVersionsParams{
 			LabelSelector: util.ToPtrWithNilDefault(o.LabelSelector),

@@ -136,5 +136,5 @@ type Service interface {
 	GetDatabaseTime(ctx context.Context) (time.Time, api.Status)
 
 	// Organization
-	ListOrganizations(ctx context.Context) (*api.OrganizationList, api.Status)
+	ListOrganizations(ctx context.Context, params api.ListOrganizationsParams) (*api.OrganizationList, api.Status)
 }
