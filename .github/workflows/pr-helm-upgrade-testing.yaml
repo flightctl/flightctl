@@ -1,0 +1,202 @@
+name: "Helm upgrade test"
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - 'release-*'
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+env:
+  # Enable BuildKit for cache mounts
+  DOCKER_BUILDKIT: 1
+  BUILDKIT_PROGRESS: plain
+
+  QUAY_ORG: quay.io/flightctl
+  REGISTRY: quay.io
+  REGISTRY_OWNER: flightctl
+  REGISTRY_OWNER_TESTS: flightctl-tests
+  GITHUB_ACTIONS: true
+
+jobs:
+  # This line defines a job with the ID `check-links` that is stored within the `jobs` key.
+  smoke:
+    runs-on: "ubuntu-24.04"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get changed files
+        id: changed-files
+        uses: tj-actions/changed-files@v46
+        with:
+          since_last_remote_commit: 'true'
+#           .github/**
+          files_ignore: |
+            .spelling
+            README.md
+            docs/**
+            examples/**
+            packaging/rpm/**
+
+      - name: Free Disk Space (Ubuntu)
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          large-packages: false # disabling this will result in ~4.6 GB not freed, but will save 2-3 minutes of exec time
+
+      - name: Setup all dependencies
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        uses: ./.github/actions/setup-dependencies
+
+      - name: Cache Go modules
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Cache DNF packages
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        uses: actions/cache@v4
+        with:
+          path: |
+            /var/cache/dnf
+            /var/lib/dnf
+          key: ${{ runner.os }}-dnf-smoke
+          restore-keys: |
+            ${{ runner.os }}-dnf-
+
+      - name: Cache bootc-image-builder
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        uses: actions/cache@v4
+        with:
+          path: |
+            bin/dnf-cache
+            bin/osbuild-cache
+          key: ${{ runner.os }}-bootc-cache-smoke-${{ hashFiles('test/scripts/agent-images/Containerfile-e2e-base.local') }}
+          restore-keys: |
+            ${{ runner.os }}-bootc-cache-smoke-
+
+      - name: Create cluster
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        run: make cluster
+
+      - name: Get IP
+        id: get-ip
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        run: |
+          source ./test/scripts/functions
+          BASE_DOMAIN=$(get_ext_ip).nip.io
+          echo "$BASE_DOMAIN"
+          echo "base-domain=$BASE_DOMAIN" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy v0.10
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        env:
+          BASE_DOMAIN: ${{ steps.get-ip.outputs.base-domain }}
+        run: |
+          kubectl create namespace flightctl-internal 
+          kubectl create namespace flightctl-external
+
+          helm upgrade --install --version 0.10.0 \
+              --namespace flightctl-external \
+              flightctl oci://quay.io/flightctl/charts/flightctl \
+              --set global.baseDomain=${BASE_DOMAIN} \
+              --set global.exposeServicesMethod=nodePort \
+              --set global.auth.type=none \
+              --debug --wait --timeout=10m
+
+      - name: Check
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        run: |
+          kubectl get pods --all-namespaces
+
+      - name: Download v0.10 CLI
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        run: |
+          curl -LO https://github.com/flightctl/flightctl/releases/download/v0.10.0/flightctl-linux-amd64
+          mkdir bin
+          mv flightctl-linux-amd64 bin/flightctl
+          chmod +x bin/flightctl
+          bin/flightctl version
+
+      - name: Apply device
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        run: bin/flightctl apply -f examples/device.yaml
+
+      - name: Apply fleet
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        run: bin/flightctl apply -f examples/fleet.yaml
+
+      - name: Apply enrollmentrequest
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        run: bin/flightctl apply -f examples/enrollmentrequest.yaml
+
+      - name: Apply repository
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        run: bin/flightctl apply -f examples/repository-flightctl.yaml
+
+      - name: Apply resourcesync
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        run: bin/flightctl apply -f examples/resourcesync.yaml
+
+      - name: Build this version
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        run: make build-containers
+
+      - name: Load the new images
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        run: |
+          for suffix in api worker periodic alert-exporter alertmanager-proxy cli-artifacts db-setup telemetry-gateway; do 
+            kind load image-archive <(podman save localhost/flightctl-${suffix}:prev); done
+
+      - name: Helm upgrade
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        env:
+          BASE_DOMAIN: ${{ steps.get-ip.outputs.base-domain }}
+        run: |
+          helm upgrade flightctl --namespace flightctl-external ./deploy/helm/flightctl -f ./deploy/helm/flightctl/values.dev.yaml \
+              --set global.baseDomain=${BASE_DOMAIN} \
+              --debug --wait
+
+      - name: Check the upgraded deployment
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        run: |
+          helm list --all-namespaces
+          kubectl get pods --all-namespaces
+
+      - name: Build the new cli
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        run: |
+          rm bin/flightctl
+          make build-cli
+          bin/flightctl version
+
+      - name: Build the simulator
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        run: DISABLE_FIPS="true" make build-devicesimulator
+
+      - name: Simulator run
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        run: bin/devicesimulator --config bin/agent/etc/flightctl/config.yaml --count 1 --stop-after 1m
+
+      - name: Collect and Upload Logs
+        if: always() && steps.changed-files.outputs.any_changed == 'true'
+        uses: ./.github/actions/collect-logs
+        with:
+          namespace-external: 'flightctl-external'
+          namespace-internal: 'flightctl-internal'
+          log-directory: 'smoke-logs'
