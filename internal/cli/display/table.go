@@ -74,6 +74,8 @@ func (f *TableFormatter) formatList(w *tabwriter.Writer, data interface{}, optio
 		return f.printCSRTable(w, data.(*apiclient.ListCertificateSigningRequestsResponse).JSON200.Items...)
 	case strings.EqualFold(options.Kind, api.EventKind):
 		return f.printEventsTable(w, data.(*apiclient.ListEventsResponse).JSON200.Items...)
+	case strings.EqualFold(options.Kind, api.AuthProviderKind):
+		return f.printAuthProvidersTable(w, data.(*apiclient.ListAuthProvidersResponse).JSON200.Items...)
 	default:
 		return fmt.Errorf("unknown resource type %s", options.Kind)
 	}
@@ -117,6 +119,8 @@ func (f *TableFormatter) formatSingle(w *tabwriter.Writer, data interface{}, opt
 		return f.printResourceSyncsTable(w, *data.(*apiclient.GetResourceSyncResponse).JSON200)
 	case strings.EqualFold(options.Kind, api.CertificateSigningRequestKind):
 		return f.printCSRTable(w, *data.(*apiclient.GetCertificateSigningRequestResponse).JSON200)
+	case strings.EqualFold(options.Kind, api.AuthProviderKind):
+		return f.printAuthProvidersTable(w, *data.(*apiclient.GetAuthProviderResponse).JSON200)
 	default:
 		return fmt.Errorf("unknown resource type %s", options.Kind)
 	}
@@ -392,6 +396,45 @@ func (f *TableFormatter) printEventsTable(w *tabwriter.Writer, events ...api.Eve
 			string(e.Type),
 			e.Message,
 		)
+	}
+	return nil
+}
+
+func (f *TableFormatter) printAuthProvidersTable(w *tabwriter.Writer, authProviders ...api.AuthProvider) error {
+	f.printHeaderRowLn(w, "NAME", "TYPE", "ISSUER", "CLIENT ID")
+	for _, ap := range authProviders {
+		name := ""
+		if ap.Metadata.Name != nil {
+			name = *ap.Metadata.Name
+		}
+
+		providerType := ""
+		issuer := ""
+		clientId := ""
+
+		// Extract type from the discriminator
+		if discriminator, err := ap.Spec.Discriminator(); err == nil {
+			providerType = discriminator
+		}
+
+		// Extract issuer and clientId based on type
+		switch providerType {
+		case "oidc":
+			if oidcSpec, err := ap.Spec.AsOIDCProviderSpec(); err == nil {
+				issuer = oidcSpec.Issuer
+				clientId = oidcSpec.ClientId
+			}
+		case "oauth2":
+			// OAuth2 providers include AAP and K8s implementations
+			if oauth2Spec, err := ap.Spec.AsOAuth2ProviderSpec(); err == nil {
+				if oauth2Spec.Issuer != nil {
+					issuer = *oauth2Spec.Issuer
+				}
+				clientId = oauth2Spec.ClientId
+			}
+		}
+
+		f.printTableRowLn(w, name, providerType, issuer, clientId)
 	}
 	return nil
 }
