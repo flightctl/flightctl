@@ -209,6 +209,7 @@ SELinux
 dnf
 rpm.flightctl.io
 wildcards
+namespacing
  - docs/user/api-resources.md
 approvedBy
 creationTimestamp
