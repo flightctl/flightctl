@@ -65,6 +65,10 @@ const (
 	PodNameKey = "PodName"
 	// NetworkNameKey is the key name for specifying a custom network name in the [Network] section.
 	NetworkNameKey = "NetworkName"
+	// PodmanArgsKey is the key name for specifying arbitrary arguments to podman
+	PodmanArgsKey = "PodmanArgs"
+	// ServiceNameKey is the key name for overriding the default service name
+	ServiceNameKey = "ServiceName"
 )
 
 // Sections maps quadlet section names to their corresponding file extensions.
