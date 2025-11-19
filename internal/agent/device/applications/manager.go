@@ -11,6 +11,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
+	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/internal/agent/device/systeminfo"
 	"github.com/flightctl/flightctl/internal/agent/shutdown"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -26,7 +27,6 @@ var _ Manager = (*manager)(nil)
 type manager struct {
 	podmanMonitor *PodmanMonitor
 	podmanClient  *client.Podman
-	systemdClient *client.Systemd
 	readWriter    fileio.ReadWriter
 	log           *log.PrefixLogger
 
@@ -42,14 +42,13 @@ func NewManager(
 	readWriter fileio.ReadWriter,
 	podmanClient *client.Podman,
 	systemInfo systeminfo.Manager,
-	systemdClient *client.Systemd,
+	systemdManager systemd.Manager,
 ) Manager {
 	bootTime := systemInfo.BootTime()
 	return &manager{
 		readWriter:     readWriter,
-		podmanMonitor:  NewPodmanMonitor(log, podmanClient, systemdClient, bootTime, readWriter),
+		podmanMonitor:  NewPodmanMonitor(log, podmanClient, systemdManager, bootTime, readWriter),
 		podmanClient:   podmanClient,
-		systemdClient:  systemdClient,
 		log:            log,
 		ociTargetCache: provider.NewOCITargetCache(),
 		appDataCache:   provider.NewAppDataCache(),

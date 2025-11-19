@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/internal/quadlet"
 	"github.com/flightctl/flightctl/pkg/log"
 )
@@ -22,16 +23,16 @@ const (
 var _ ActionHandler = (*Quadlet)(nil)
 
 type Quadlet struct {
-	systemd        *client.Systemd
+	systemdManager systemd.Manager
 	podman         *client.Podman
 	rw             fileio.ReadWriter
 	log            *log.PrefixLogger
 	actionServices map[string][]string
 }
 
-func NewQuadlet(log *log.PrefixLogger, rw fileio.ReadWriter, systemd *client.Systemd, podman *client.Podman) *Quadlet {
+func NewQuadlet(log *log.PrefixLogger, rw fileio.ReadWriter, systemdManager systemd.Manager, podman *client.Podman) *Quadlet {
 	return &Quadlet{
-		systemd:        systemd,
+		systemdManager: systemdManager,
 		podman:         podman,
 		rw:             rw,
 		log:            log,
@@ -43,7 +44,7 @@ func (q *Quadlet) add(ctx context.Context, action *Action) error {
 	appName := action.Name
 	q.log.Debugf("Starting quadlet application: %s path: %s", appName, action.Path)
 
-	if err := q.systemd.DaemonReload(ctx); err != nil {
+	if err := q.systemdManager.DaemonReload(ctx); err != nil {
 		return fmt.Errorf("daemon reload: %w", err)
 	}
 
@@ -54,9 +55,10 @@ func (q *Quadlet) add(ctx context.Context, action *Action) error {
 
 	if len(services) > 0 {
 		q.log.Debugf("Starting quadlet: %s services: %q", appName, strings.Join(services, ","))
-		if err := q.systemd.Start(ctx, services...); err != nil {
+		if err := q.systemdManager.Start(ctx, services...); err != nil {
 			return fmt.Errorf("starting units: %w", err)
 		}
+		q.systemdManager.AddExclusions(services...)
 	}
 	q.actionServices[action.ID] = services
 
@@ -76,7 +78,7 @@ func (q *Quadlet) remove(ctx context.Context, action *Action) error {
 
 	if len(services) > 0 {
 		q.log.Debugf("Stopping quadlet: %s services: %q", appName, strings.Join(services, ","))
-		err := q.systemd.Stop(ctx, services...)
+		err := q.systemdManager.Stop(ctx, services...)
 		if err != nil {
 			return fmt.Errorf("stopping units: %w", err)
 		}
@@ -86,13 +88,14 @@ func (q *Quadlet) remove(ctx context.Context, action *Action) error {
 		failedServices := q.getFailedServices(ctx, services)
 		if len(failedServices) > 0 {
 			q.log.Debugf("Resetting failed state for services: %q", strings.Join(failedServices, ","))
-			if resetErr := q.systemd.ResetFailed(ctx, failedServices...); resetErr != nil {
+			if resetErr := q.systemdManager.ResetFailed(ctx, failedServices...); resetErr != nil {
 				q.log.Warnf("Failed to reset-failed for services %q: %v", strings.Join(failedServices, ","), resetErr)
 			}
 		}
+		q.systemdManager.RemoveExclusions(services...)
 	}
 
-	if err := q.systemd.DaemonReload(ctx); err != nil {
+	if err := q.systemdManager.DaemonReload(ctx); err != nil {
 		return fmt.Errorf("daemon reload: %w", err)
 	}
 
@@ -244,7 +247,7 @@ func (q *Quadlet) collectTargets(path string) ([]string, error) {
 }
 
 func (q *Quadlet) getFailedServices(ctx context.Context, services []string) []string {
-	units, err := q.systemd.ListUnitsByMatchPattern(ctx, services)
+	units, err := q.systemdManager.ListUnitsByMatchPattern(ctx, services)
 	if err != nil {
 		q.log.Warnf("Failed to list units to check for failed state: %v", err)
 		return nil
