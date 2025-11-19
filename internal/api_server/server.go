@@ -228,6 +228,7 @@ func (s *Server) Run(ctx context.Context) error {
 		fcmiddleware.SecurityHeaders,
 		fcmiddleware.RequestID,
 		fcmiddleware.AddEventMetadataToCtx,
+		fcmiddleware.UserAgentLogger(s.log),
 		middleware.Logger,
 		middleware.Recoverer,
 	)
