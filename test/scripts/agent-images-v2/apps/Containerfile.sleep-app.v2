@@ -2,7 +2,7 @@
 FROM scratch
 
 # Copy the application configuration
-COPY ./test/scripts/agent-images-v2/test-podman-compose-sleep-work-v2.yaml /podman-compose.yaml
+COPY --from=common test-podman-compose-sleep-work-v2.yaml /podman-compose.yaml
 
 # Labels updated for version v2
 LABEL app="sleep" \

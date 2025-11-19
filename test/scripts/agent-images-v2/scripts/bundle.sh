@@ -17,9 +17,9 @@ mkdir -p "${ART_DIR}"
 
 declare -a refs=()
 
-if [ -f "${BASE_DIR}/flavors/${OS_ID}.env" ]; then
+if [ -f "${BASE_DIR}/flavors/${OS_ID}.conf" ]; then
   # shellcheck source=/dev/null
-  source "${BASE_DIR}/flavors/${OS_ID}.env"
+  source "${BASE_DIR}/flavors/${OS_ID}.conf"
 fi
 
 variants_list="${VARIANTS}"
@@ -38,31 +38,26 @@ if [ -n "${EXCLUDE_VARIANTS:-}" ]; then
   variants_list="$(echo "${tmp}" | xargs -n999 echo)"
 fi
 
-rebuild_tags() {
+collect_tags() {
   local name="$1" # base or vN
   local canonical="${IMAGE_REPO}:${name}-${OS_ID}-${TAG}"
   local plain="${IMAGE_REPO}:${name}"
   local os_tag="${IMAGE_REPO}:${name}-${OS_ID}"
   local ver_tag="${IMAGE_REPO}:${name}-${TAG}"
 
-  # Create additional tags for bundling
   if podman image exists "${canonical}" >/dev/null 2>&1; then
-    podman tag "${canonical}" "${plain}"
-    podman tag "${canonical}" "${os_tag}"
-    podman tag "${canonical}" "${ver_tag}"
     refs+=("${plain}" "${os_tag}" "${ver_tag}" "${canonical}")
   else
     echo "Skipping ${canonical} (not built)"
   fi
-
 }
 
 # base
-rebuild_tags "base"
+collect_tags "base"
 
 # variants
 for v in ${variants_list}; do
-  rebuild_tags "${v}"
+  collect_tags "${v}"
 done
 
 echo -e "\033[32mSaving bundle to ${OUT_TAR}\033[m"

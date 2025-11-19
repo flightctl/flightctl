@@ -6,7 +6,7 @@ ARG BASE_IMAGE=quay.io/flightctl/flightctl-device:base
 
 FROM ${BASE_IMAGE}
 
-ADD test/scripts/agent-images-v2/etc etc
+ADD --from=variant-context etc etc
 
 # Install microshift without dnf cache mounts
 RUN dnf install -y microshift && \

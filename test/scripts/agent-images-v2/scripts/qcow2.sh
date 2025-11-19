@@ -36,3 +36,4 @@ echo -e "\033[32mqcow2 image created at ${OUT_DIR}/qcow2/disk.qcow2\033[m"
 
 
 
+

@@ -1,7 +1,7 @@
 # empty base image
 FROM scratch
 
-COPY ./test/scripts/agent-images-v2/test-podman-compose-sleep-work.yaml /podman-compose.yaml
+COPY --from=common test-podman-compose-sleep-work.yaml /podman-compose.yaml
 
 # set the working directory to /
 WORKDIR /

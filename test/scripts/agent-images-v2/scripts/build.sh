@@ -7,11 +7,10 @@ BASE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 TAG="${TAG:-latest}"
 IMAGE_REPO="${IMAGE_REPO:-quay.io/flightctl/flightctl-device}"
-FLAVORS="${FLAVORS:-cs9 cs10}"
+APP_REPO="${APP_REPO:-quay.io/flightctl}"
+FLAVORS="${FLAVORS:-cs9-bootc cs10-bootc}"
 VARIANTS="${VARIANTS:-v2 v3 v4 v5 v6 v7 v8 v9 v10}"
 JOBS="${JOBS:-$(command -v nproc >/dev/null && nproc || echo 1)}"
-# Default variant parallelism: equals nproc unless overridden
-VARIANT_JOBS="${VARIANT_JOBS:-$(command -v nproc >/dev/null && nproc || echo 1)}"
 PODMAN_LOG_LEVEL="${PODMAN_LOG_LEVEL:-info}"
 PODMAN_BUILD_EXTRA_FLAGS="${PODMAN_BUILD_EXTRA_FLAGS:-}"
 
@@ -19,64 +18,74 @@ SOURCE_GIT_TAG="${SOURCE_GIT_TAG:-$(git describe --tags --exclude latest 2>/dev/
 SOURCE_GIT_TREE_STATE="${SOURCE_GIT_TREE_STATE:-$( ( ( [ ! -d ".git/" ] || git diff --quiet ) && echo 'clean' ) || echo 'dirty' )}"
 SOURCE_GIT_COMMIT="${SOURCE_GIT_COMMIT:-$(git rev-parse --short "HEAD^{commit}" 2>/dev/null || echo "unknown")}"
 
-PODMAN_BUILD_FLAGS=(--jobs "${JOBS}" --log-level "${PODMAN_LOG_LEVEL}" --pull=missing --layers=true --network=host)
 
 # CLI args
-MODE="all"  # base-only | variants-only | all
+BUILD_BASE=false
+BUILD_VARIANTS=false
+BUILD_APPS=false
+
+# If no options specified, default to building base only
+if [ $# -eq 0 ]; then
+  BUILD_BASE=true
+fi
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --base-only)
-      MODE="base-only"
+    --base)
+      BUILD_BASE=true
       shift
       ;;
-    --variants-only)
-      MODE="variants-only"
+    --variants)
+      BUILD_VARIANTS=true
+      shift
+      ;;
+    --apps)
+      BUILD_APPS=true
       shift
       ;;
     --jobs)
       JOBS="$2"
-      PODMAN_BUILD_FLAGS=(--jobs "${JOBS}" --log-level "${PODMAN_LOG_LEVEL}" --pull=missing --layers=true --network=host)
-      shift 2
-      ;;
-    --variant-jobs)
-      VARIANT_JOBS="$2"
       shift 2
       ;;
     *)
       echo "Unknown option: $1" >&2
-      echo "Usage: $0 [--base-only|--variants-only] [--jobs N] [--variant-jobs N]" >&2
+      echo "Usage: $0 [--base] [--variants] [--apps] [--jobs N]" >&2
       exit 1
       ;;
   esac
 done
 
-# Configure cache flags similar to legacy script (only in CI when REGISTRY is set)
-if [ "${GITHUB_ACTIONS:-false}" = "true" ]; then
-  REGISTRY="${REGISTRY:-}"
-  REGISTRY_OWNER_TESTS="${REGISTRY_OWNER_TESTS:-flightctl-tests}"
-  if [ -n "${REGISTRY}" ] && [ "${REGISTRY}" != "localhost" ]; then
-    CACHE_FLAGS=("--cache-from=${REGISTRY}/${REGISTRY_OWNER_TESTS}/flightctl-device")
-  else
-    echo "Skipping remote cache-from in CI (no valid REGISTRY configured)"
-    CACHE_FLAGS=()
-  fi
-else
-  CACHE_FLAGS=()
-fi
+PODMAN_BUILD_FLAGS=(--jobs "${JOBS}" --log-level "${PODMAN_LOG_LEVEL}" --pull=missing --layers=true --network=host)
 
-echo "Building flavors: ${FLAVORS}"
-echo "TAG: ${TAG}"
-echo "IMAGE_REPO: ${IMAGE_REPO}"
+echo "Build configuration:"
+echo "  BUILD_BASE: ${BUILD_BASE}"
+echo "  BUILD_VARIANTS: ${BUILD_VARIANTS}"
+echo "  BUILD_APPS: ${BUILD_APPS}"
+echo "  FLAVORS: ${FLAVORS}"
+echo "  TAG: ${TAG}"
+echo "  IMAGE_REPO: ${IMAGE_REPO}"
+echo "  APP_REPO: ${APP_REPO}"
 
 cd "$ROOT_DIR"
 
 for flavor in ${FLAVORS}; do
+  flavor_conf="${BASE_DIR}/flavors/${flavor}.conf"
+  
+  if [ ! -f "${flavor_conf}" ]; then
+    echo "[ERROR] Flavor configuration not found: ${flavor_conf}" >&2
+    exit 1
+  fi
+  
   # shellcheck source=/dev/null
-  source "${BASE_DIR}/flavors/${flavor}.env"
-  : "${OS_ID:?OS_ID must be set in flavor env}"
-  : "${BOOTC_BASE_IMAGE:?BOOTC_BASE_IMAGE must be set in flavor env}"
+  source "${flavor_conf}"
+  : "${OS_ID:?OS_ID must be set in flavor conf}"
+  : "${DEVICE_BASE_IMAGE:?DEVICE_BASE_IMAGE must be set in flavor conf}"
 
   base_img_canonical="${IMAGE_REPO}:base-${OS_ID}-${TAG}"
+  base_img_plain="${IMAGE_REPO}:base"
+  base_img_os="${IMAGE_REPO}:base-${OS_ID}"
+  base_img_ver="${IMAGE_REPO}:base-${TAG}"
+
   variants_list="${VARIANTS}"
   if [ -n "${ONLY_VARIANTS:-}" ]; then
     variants_list="${ONLY_VARIANTS}"
@@ -93,35 +102,32 @@ for flavor in ${FLAVORS}; do
     variants_list="$(echo "${tmp}" | xargs -n999 echo)"
   fi
 
-  if [ "${MODE}" = "all" ] || [ "${MODE}" = "base-only" ]; then
+  if [ "${BUILD_BASE}" = "true" ]; then
     echo -e "\033[32m[${OS_ID}] Building base ${base_img_canonical}\033[m"
-    podman build "${CACHE_FLAGS[@]}" "${PODMAN_BUILD_FLAGS[@]}" ${PODMAN_BUILD_EXTRA_FLAGS} \
-      --build-arg BOOTC_BASE_IMAGE="${BOOTC_BASE_IMAGE}" \
-      --build-arg ENABLE_CRB="${ENABLE_CRB:-0}" \
-      --build-arg EPEL_NEXT="${EPEL_NEXT:-1}" \
+    podman build "${PODMAN_BUILD_FLAGS[@]}" ${PODMAN_BUILD_EXTRA_FLAGS} \
+      --build-context "project-root=${ROOT_DIR}" \
+      --build-arg-file "${flavor_conf}" \
       --build-arg SOURCE_GIT_TAG="${SOURCE_GIT_TAG}" \
       --build-arg SOURCE_GIT_TREE_STATE="${SOURCE_GIT_TREE_STATE}" \
       --build-arg SOURCE_GIT_COMMIT="${SOURCE_GIT_COMMIT}" \
       -f "${BASE_DIR}/base/Containerfile" \
       -t "${base_img_canonical}" \
+      -t "${base_img_plain}" \
+      -t "${base_img_os}" \
+      -t "${base_img_ver}" \
       "${ROOT_DIR}"
   fi
 
-  if [ "${MODE}" = "all" ] || [ "${MODE}" = "variants-only" ]; then
+  if [ "${BUILD_VARIANTS}" = "true" ]; then
     # Ensure the base image exists locally to avoid registry pulls
     if ! podman image exists "${base_img_canonical}"; then
       echo "[ERROR] Base image not found locally: ${base_img_canonical}" >&2
-      echo "        Did you run --base-only successfully in this environment (same user/root)?" >&2
+      echo "        Cannot build variants without base image." >&2
+      echo "        Run with --base first or ensure base image exists." >&2
       exit 1
     fi
     echo -e "\033[32m[${OS_ID}] Building variants: ${variants_list}\033[m"
-  # Join cache and build flags into strings for safe interpolation in xargs
-  CACHE_FLAGS_JOINED=""
-  if [ "${#CACHE_FLAGS[@]}" -gt 0 ]; then
-    for f in "${CACHE_FLAGS[@]}"; do
-      CACHE_FLAGS_JOINED+=" ${f}"
-    done
-  fi
+  # Join build flags into strings for safe interpolation in xargs
   PODMAN_BUILD_FLAGS_JOINED=""
   if [ "${#PODMAN_BUILD_FLAGS[@]}" -gt 0 ]; then
     for f in "${PODMAN_BUILD_FLAGS[@]}"; do
@@ -130,19 +136,73 @@ for flavor in ${FLAVORS}; do
   fi
   EXTRA_FLAGS="${PODMAN_BUILD_EXTRA_FLAGS:-}"
 
-  export IMAGE_REPO TAG OS_ID BASE_DIR ROOT_DIR base_img_canonical CACHE_FLAGS_JOINED PODMAN_BUILD_FLAGS_JOINED EXTRA_FLAGS
-  printf '%s\n' ${variants_list} | xargs -n1 -P "${VARIANT_JOBS}" -I {} bash -lc '\
+  export IMAGE_REPO TAG OS_ID BASE_DIR ROOT_DIR base_img_canonical PODMAN_BUILD_FLAGS_JOINED EXTRA_FLAGS
+  printf '%s\n' ${variants_list} | xargs -n1 -P "${JOBS}" -I {} bash -lc '\
     set -euo pipefail; \
     v_img_canonical="${IMAGE_REPO}:{}-'"${OS_ID}"'-'"${TAG}"'"; \
+    v_img_plain="${IMAGE_REPO}:{}"; \
+    v_img_os="${IMAGE_REPO}:{}-'"${OS_ID}"'"; \
+    v_img_ver="${IMAGE_REPO}:{}-'"${TAG}"'"; \
     prefix() { while IFS= read -r line; do printf "[%s] %s\n" "$v_img_canonical" "$line"; done; }; \
     printf "\033[32m['"${OS_ID}"'] Building variant %s\033[m\n" "$v_img_canonical" | prefix; \
-    podman build'"${CACHE_FLAGS_JOINED}"' '"${PODMAN_BUILD_FLAGS_JOINED}"' --pull=never '"${EXTRA_FLAGS}"' \
+    podman build '"${PODMAN_BUILD_FLAGS_JOINED}"' --pull=never '"${EXTRA_FLAGS}"' \
+      --build-context "project-root='"${ROOT_DIR}"'" \
+      --build-context "variant-context='"${BASE_DIR}"'/variants/{}" \
+      --build-context "common='"${BASE_DIR}"'/common" \
       --build-arg BASE_IMAGE="'"${base_img_canonical}"'" \
       -f "'"${BASE_DIR}"'/variants/{}/Containerfile" \
       -t "$v_img_canonical" \
-      "'"${ROOT_DIR}"'" 2>&1 | prefix'
+      -t "$v_img_plain" \
+      -t "$v_img_os" \
+      -t "$v_img_ver" \
+      "'"${BASE_DIR}"'" 2>&1 | prefix'
   fi
 done
+
+# Build apps if requested
+if [ "${BUILD_APPS}" = "true" ]; then
+  echo -e "\033[32mBuilding app images\033[m"
+  
+  # Auto-detect app Containerfiles in apps directory
+  # Pattern: Containerfile.<app-name>.<version>
+  for containerfile in "${BASE_DIR}/apps/Containerfile."*; do
+    [ -e "${containerfile}" ] || continue
+    
+    filename=$(basename "${containerfile}")
+    
+    # Extract app name and version from Containerfile.<app-name>.<version>
+    # Remove "Containerfile." prefix
+    name_version="${filename#Containerfile.}"
+    
+    # Extract version (everything after last dot)
+    version="${name_version##*.}"
+    
+    # Extract app name (everything before last dot)
+    app_name="${name_version%.*}"
+    
+    if [ -z "${app_name}" ] || [ -z "${version}" ]; then
+      echo "Warning: Could not parse app name/version from ${filename}, skipping..."
+      continue
+    fi
+
+    app_img_canonical="${APP_REPO}/${app_name}:${version}-${TAG}"
+    app_img_plain="${APP_REPO}/${app_name}:${version}"
+
+    echo -e "\033[32mBuilding app image ${app_img_canonical} (${app_name}, version ${version})\033[m"
+    
+    podman build \
+      --build-context "common=${BASE_DIR}/common" \
+      --build-arg SOURCE_GIT_TAG="${SOURCE_GIT_TAG}" \
+      --build-arg SOURCE_GIT_TREE_STATE="${SOURCE_GIT_TREE_STATE}" \
+      --build-arg SOURCE_GIT_COMMIT="${SOURCE_GIT_COMMIT}" \
+      -f "${containerfile}" \
+      -t "${app_img_canonical}" \
+      -t "${app_img_plain}" \
+      "${BASE_DIR}"
+
+    echo -e "\033[32mSuccessfully built ${app_img_canonical}\033[m"
+  done
+fi
 
 echo -e "\033[32mBuild completed successfully.\033[m"
 

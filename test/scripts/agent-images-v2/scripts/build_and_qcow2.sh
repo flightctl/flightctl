@@ -6,13 +6,13 @@ set -euo pipefail
 #   - Environment:
 #       TAG            (image tag)
 #       IMAGE_REPO     (quay.io/flightctl/flightctl-device by default in callers)
-#       OS_ID          (flavor id, e.g., cs9 or cs10)
+#       OS_ID          (flavor id, e.g., cs9-bootc or cs10-bootc)
 #   - Tools:
 #       ./build.sh, ./bundle.sh, ./qcow2.sh in the same directory
 #
 # Usage:
-#   OS_ID=cs9 TAG=vX IMAGE_REPO=... ./build_and_qcow2.sh
-#   ./build_and_qcow2.sh --os-id cs10
+#   OS_ID=cs9-bootc TAG=vX IMAGE_REPO=... ./build_and_qcow2.sh
+#   ./build_and_qcow2.sh --os-id cs10-bootc
 #
 
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
@@ -51,20 +51,19 @@ qcow2_log="${LOG_DIR}/qcow2.log"
 
 (
   set -euo pipefail
-  echo "::group::Building variants and creating bundle for ${OS_ID}"
-  "${SCRIPT_DIR}/build.sh" --variants-only 2>&1 | tee "${variants_log}"
+  echo "Building variants and creating bundle for ${OS_ID}"
+  "${SCRIPT_DIR}/build.sh" --variants 2>&1 | tee "${variants_log}"
   "${SCRIPT_DIR}/bundle.sh" 2>&1 | tee -a "${variants_log}"
   sudo chown -R "$(id -un)":"$(id -gn)" "${ROOT_DIR}/artifacts" || true
-  echo "::endgroup::"
 ) &
 VARIANTS_PID=$!
 
 (
   set -euo pipefail
-  echo "::group::Building qcow2 for ${OS_ID}"
+  echo "Building qcow2 for ${OS_ID}"
   "${SCRIPT_DIR}/qcow2.sh" 2>&1 | tee "${qcow2_log}"
   sudo chown -R "$(id -un)":"$(id -gn)" "${ROOT_DIR}/artifacts" || true
-  echo "::endgroup::"
+  echo "endgroup"
 ) &
 QCOW2_PID=$!
 

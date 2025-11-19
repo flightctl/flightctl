@@ -7,7 +7,8 @@ ARG BASE_IMAGE=quay.io/flightctl/flightctl-device:base
 
 FROM ${BASE_IMAGE}
 
-COPY test/scripts/agent-images-v2/test-podman-compose-sleep-work.yaml /usr/local/etc/compose/manifests/embedded-demo-app/podman-compose.yaml
+COPY --from=common test-podman-compose-sleep-work.yaml /usr/local/etc/compose/manifests/embedded-demo-app/podman-compose.yaml
+
 
 
 

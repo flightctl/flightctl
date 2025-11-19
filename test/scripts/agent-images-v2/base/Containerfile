@@ -6,14 +6,14 @@
 #   - base:    final base image starting from prebase and layering flightctl RPMs
 #
 
-ARG BOOTC_BASE_IMAGE=quay.io/centos-bootc/centos-bootc:stream9
+ARG DEVICE_BASE_IMAGE=quay.io/centos-bootc/centos-bootc:stream9
 ARG SOURCE_GIT_TAG
 ARG SOURCE_GIT_TREE_STATE
 ARG SOURCE_GIT_COMMIT
 ARG ENABLE_CRB=0
 ARG EPEL_NEXT=1
 # ---------- Stage: prebase ----------
-FROM ${BOOTC_BASE_IMAGE} AS prebase
+FROM ${DEVICE_BASE_IMAGE} AS prebase
 
 
 LABEL org.opencontainers.image.source="https://github.com/flightctl/flightctl"
@@ -67,11 +67,45 @@ RUN echo -e '#!/bin/bash\necho "my site"' > /usr/lib/flightctl/custom-info.d/sit
 # ---------- Stage: base (from prebase) ----------
 FROM prebase AS base
 
+ARG RPMS_FROM=rpms
+ARG TRUST_CA_FROM=
+ARG AGENT_CONFIG_FROM=
+ARG AGENT_CERTS_FROM=
+
 LABEL org.opencontainers.image.source="https://github.com/flightctl/flightctl"
 LABEL org.opencontainers.image.version="${SOURCE_GIT_TAG}"
 LABEL org.opencontainers.image.revision="${SOURCE_GIT_COMMIT}"
 
-COPY rpms/*.rpm /tmp/rpms/
+# Install CA trust if provided
+RUN --mount=type=bind,source=.,target=/build-context \
+    if [ -n "${TRUST_CA_FROM}" ]; then \
+      echo "Installing custom CA certificate" && \
+      cp "/build-context/${TRUST_CA_FROM}" /etc/pki/ca-trust/source/anchors/ && \
+      update-ca-trust; \
+    fi
+
+
+# Install agent config if provided
+RUN --mount=type=bind,source=.,target=/build-context \
+    if [ -n "${AGENT_CONFIG_FROM}" ]; then \
+      echo "Installing agent config" && \
+      mkdir -p /etc/flightctl && \
+      cp "/build-context/${AGENT_CONFIG_FROM}" /etc/flightctl/config.yaml; \
+    fi
+
+# Install agent certificates if provided
+RUN --mount=type=bind,source=.,target=/build-context \
+    if [ -n "${AGENT_CERTS_FROM}" ]; then \
+      echo "Installing agent certificates" && \
+      mkdir -p /etc/flightctl/certs && \
+      cp "/build-context/${AGENT_CERTS_FROM}"/* /etc/flightctl/certs/; \
+    fi
+
+
+
+COPY ${RPMS_FROM}/flightctl-agent-*.rpm /tmp/rpms/
+COPY ${RPMS_FROM}/flightctl-selinux-*.rpm /tmp/rpms/
+
 RUN --mount=type=cache,target=/var/cache/dnf \
     --mount=type=cache,target=/var/lib/dnf \
     echo "Installing flightctl-agent RPMs" && \
@@ -79,5 +113,3 @@ RUN --mount=type=cache,target=/var/cache/dnf \
     systemctl enable flightctl-agent.service && \
     echo "Cleaning up RPMs" && \
     rm -rf /tmp/rpms
-
-

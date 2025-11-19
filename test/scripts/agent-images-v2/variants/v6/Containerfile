@@ -7,7 +7,8 @@ ARG BASE_IMAGE=quay.io/flightctl/flightctl-device:base
 
 FROM ${BASE_IMAGE}
 
-COPY test/e2e/hooks/sshd-hook.yaml /usr/lib/flightctl/hooks.d/afterupdating/sshd-hook.yaml
+COPY --from=variant-context sshd-hook.yaml /usr/lib/flightctl/hooks.d/afterupdating/sshd-hook.yaml
+
 
 
 

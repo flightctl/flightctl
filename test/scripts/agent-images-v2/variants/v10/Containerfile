@@ -11,7 +11,7 @@ ARG OTEL_VERSION=0.130.1
 ARG TARGETARCH
 
 # We need go.mod available to try extracting the version
-COPY go.mod /tmp/go.mod
+COPY --from=project-root go.mod /tmp/go.mod
 
 # Tools: curl for download, yq (Go), tar/gzip, coreutils, shadow-utils for user/group
 RUN dnf -y install --setopt=install_weak_deps=0 --nodocs \
@@ -102,8 +102,8 @@ RUN printf '%s\n' \
   && chown root:otelcol /etc/otelcol/config.yaml && chmod 0640 /etc/otelcol/config.yaml
 
 # Prep script and unit
-COPY test/scripts/agent-images-v2/common/files/prepare_otel_config.sh /usr/local/bin/prepare_otel_config.sh
-COPY test/scripts/agent-images-v2/common/files/otelcol.service        /usr/lib/systemd/system/otelcol.service
+COPY --from=variant-context prepare_otel_config.sh /usr/local/bin/prepare_otel_config.sh
+COPY --from=variant-context otelcol.service /usr/lib/systemd/system/otelcol.service
 RUN chmod +x /usr/local/bin/prepare_otel_config.sh
 
 # Enable via preset (bootc-preferred) and also add wants-symlink as fallback

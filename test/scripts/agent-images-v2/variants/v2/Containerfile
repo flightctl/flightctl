@@ -9,11 +9,12 @@ ARG BASE_IMAGE=quay.io/flightctl/flightctl-device:base
 
 FROM ${BASE_IMAGE}
 
-COPY test/scripts/agent-images-v2/test-e2e-dummy.service /etc/systemd/system/
-COPY test/scripts/agent-images-v2/test-e2e-crashing.service /etc/systemd/system/
+COPY --from=variant-context test-e2e-dummy.service /etc/systemd/system/
+COPY --from=variant-context test-e2e-crashing.service /etc/systemd/system/
 
 RUN systemctl enable test-e2e-dummy.service && \
     systemctl enable test-e2e-crashing.service
+
 
 
 

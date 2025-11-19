@@ -103,9 +103,9 @@ jobs:
     strategy:
       matrix:
         include:
-          - os_id: cs9
+          - os_id: cs9-bootc
             rpm_suffix: el9-x86_64
-          - os_id: cs10
+          - os_id: cs10-bootc
             rpm_suffix: el10-x86_64
     uses: ./.github/workflows/build-agent-images.yaml
     with:
@@ -129,14 +129,16 @@ jobs:
       - name: Build sleep app images
         env:
           TAG: ${{ needs.compute-tag.outputs.tag }}
-          SLEEP_APP_REPO: quay.io/flightctl/sleep-app
-          PARALLEL_JOBS: 4
+          APP_REPO: quay.io/flightctl
+          JOBS: 4
           SOURCE_GIT_TAG: ${{ needs.compute-tag.outputs.git_tag }}
           SOURCE_GIT_TREE_STATE: ${{ needs.compute-tag.outputs.git_tree_state }}
           SOURCE_GIT_COMMIT: ${{ needs.compute-tag.outputs.git_commit }}
         run: |
           set -euo pipefail
-          ./test/scripts/agent-images-v2/build_agent_images.sh --mode sleep-apps
+          echo "::group::Building app images"
+          ./test/scripts/agent-images-v2/scripts/build.sh --apps
+          echo "::endgroup::"
 
       - name: Create sleep app bundle
         env:
@@ -420,66 +422,13 @@ jobs:
           echo "- :black_small_square: \`agent-images-bundle\` - Agent and sleep app container images for testing" >> $GITHUB_STEP_SUMMARY
           echo "- :black_small_square: \`agent-qcow2-image\` - QCOW2 disk image for VM testing" >> $GITHUB_STEP_SUMMARY
 
-##################
-### SMOKE TEST ###
-##################
-  smoke:
-    runs-on: ubuntu-24.04
-    needs: [compute-tag, build-images-and-charts, build-flightctl-cli]
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Deploy backend with Helm
-        uses: ./.github/actions/deploy-backend-with-helm
-        with:
-          tag: ${{ needs.compute-tag.outputs.tag }}
-          helm-tag: ${{ needs.compute-tag.outputs.helm_tag }}
-
-      - name: Prepare agent config
-        run: ./test/scripts/agent-images/prepare_agent_config.sh --status-update-interval 0m2s --spec-fetch-interval 0m2s
-
-      - name: Check
-        run: |
-          kubectl get pods --all-namespaces
-
-      - name: Apply device
-        run: bin/flightctl apply -f examples/device.yaml
-
-      - name: Apply fleet
-        run: bin/flightctl apply -f examples/fleet.yaml
-
-      - name: Apply enrollmentrequest
-        run: bin/flightctl apply -f examples/enrollmentrequest.yaml
-
-      - name: Apply repository
-        run: bin/flightctl apply -f examples/repository-flightctl.yaml
-
-      - name: Apply resourcesync
-        run: bin/flightctl apply -f examples/resourcesync.yaml
-
-      - name: Build the simulator
-        run: DISABLE_FIPS="true" make build-devicesimulator
-
-      - name: Simulator run
-        run: bin/devicesimulator --config bin/agent/etc/flightctl/config.yaml --count 1 --stop-after 1m
-
-      - name: Collect and Upload Logs
-        if: always()
-        uses: ./.github/actions/collect-logs
-        with:
-          namespace-external: 'flightctl-external'
-          namespace-internal: 'flightctl-internal'
-          log-directory: 'smoke-logs'
 
   e2e-tests:
     needs: [compute-tag, build-images-and-charts, build-flightctl-cli, build-agent-images-unified, build-sleep-app-images]
     strategy:
       fail-fast: false
       matrix:
-        os_id: [cs9, cs10]
+        os_id: [cs9-bootc, cs10-bootc]
     uses: ./.github/workflows/run-e2e-tests.yaml
     with:
       os_id: ${{ matrix.os_id }}

@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       os_id:
-        description: "OS identifier for agent (e.g., cs9, cs10)"
+        description: "OS identifier for agent (e.g., cs9-bootc, cs10-bootc)"
         required: true
         type: string
       backend_type:
@@ -192,7 +192,7 @@ jobs:
           echo "Using REGISTRY_ENDPOINT=${REGISTRY_ENDPOINT}"
           
           echo "Pushing agent images bundle..."
-          ./test/scripts/agent-images-v2/upload-images.sh artifacts/agent-images-bundle.tar --insecure --jobs 2
+          ./test/scripts/agent-images-v2/scripts/upload-images.sh artifacts/agent-images-bundle.tar --insecure --jobs 2
           agent_exit=$?
           if [ $agent_exit -ne 0 ]; then
             echo "::error::Failed to push agent images (exit code: $agent_exit)"
@@ -200,7 +200,7 @@ jobs:
           fi
           
           echo "Pushing sleep app images bundle..."
-          ./test/scripts/agent-images-v2/upload-images.sh artifacts/sleep-app-images-bundle.tar --insecure --jobs 2
+          ./test/scripts/agent-images-v2/scripts/upload-images.sh artifacts/sleep-app-images-bundle.tar --insecure --jobs 2
           sleep_exit=$?
           if [ $sleep_exit -ne 0 ]; then
             echo "::error::Failed to push sleep app images (exit code: $sleep_exit)"

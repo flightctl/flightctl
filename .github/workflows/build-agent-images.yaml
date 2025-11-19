@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       os_id:
-        description: "OS identifier (e.g., cs9, cs10)"
+        description: "OS identifier (e.g., cs9-bootc, cs10-bootc)"
         required: true
         type: string
       rpm_suffix:
@@ -79,7 +79,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "::group::Building base for flavor ${FLAVORS}"
-          sudo -E ./test/scripts/agent-images-v2/scripts/build.sh --base-only
+          sudo -E ./test/scripts/agent-images-v2/scripts/build.sh --base
           echo "::endgroup::"
 
       - name: Build variants+bundle and qcow2 in parallel (per flavor)
@@ -140,4 +140,5 @@ jobs:
             dnf-cache
             osbuild-cache
           key: ${{ runner.os }}-bootc-cache-e2e-unified-${{ hashFiles('test/scripts/agent-images-v2/base/Containerfile') }}
+
 
