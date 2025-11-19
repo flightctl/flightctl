@@ -43,13 +43,8 @@ var _ = Describe("Agent Audit Log", func() {
 	})
 
 	It("creates audit log file after agent starts", func() {
-		auditLogPath := filepath.Join(h.TestDirPath, "var", "log", "flightctl", "audit.log")
-
-		// Wait for audit log file to be created
-		Eventually(func() bool {
-			_, err := os.Stat(auditLogPath)
-			return err == nil
-		}, TIMEOUT, POLLING).Should(BeTrue(), "audit log file should exist")
+		// Wait for at least one event - this proves the file was created and is writable
+		waitForAuditEvents(h, 1)
 	})
 
 	It("logs bootstrap events correctly", func() {
@@ -118,33 +113,8 @@ var _ = Describe("Agent Audit Log", func() {
 	})
 
 	It("uses JSONL format (one JSON object per line)", func() {
-		auditLogPath := filepath.Join(h.TestDirPath, "var", "log", "flightctl", "audit.log")
-
-		// Wait for audit log file to exist and have content
-		Eventually(func() bool {
-			info, err := os.Stat(auditLogPath)
-			return err == nil && info.Size() > 0
-		}, TIMEOUT, POLLING).Should(BeTrue(), "audit log file should exist and have content")
-
-		// Read audit log file line by line
-		file, err := os.Open(auditLogPath)
-		Expect(err).ToNot(HaveOccurred())
-		defer file.Close()
-
-		scanner := bufio.NewScanner(file)
-		lineCount := 0
-		for scanner.Scan() {
-			lineCount++
-			line := scanner.Text()
-
-			// Each line should be valid JSON
-			var event audit.Event
-			err := json.Unmarshal([]byte(line), &event)
-			Expect(err).ToNot(HaveOccurred(), "line %d should be valid JSON", lineCount)
-		}
-
-		Expect(scanner.Err()).ToNot(HaveOccurred())
-		Expect(lineCount).To(BeNumerically(">", 0), "should have at least one line")
+		// Wait for at least one event - this validates JSONL format
+		waitForAuditEvents(h, 1)
 	})
 })
 
