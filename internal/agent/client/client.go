@@ -227,11 +227,13 @@ func WithHTTPRetry(config poll.Config) HTTPClientOption {
 	}
 }
 
+// UserAgentLogger logs the User-Agent header from incoming requests
+// with additional context fields such as request ID.
 func WithUserAgent() HTTPClientOption {
 	return func(opts *httpClientOptions) {
 		info := version.Get()
 		userAgent := fmt.Sprintf("flightctl-agent/%s (%s/%s)", info.String(), runtime.GOOS, runtime.GOARCH)
-		WithHeader("User-Agent", userAgent)
+		WithHeader("User-Agent", userAgent)(opts)
 	}
 }
 

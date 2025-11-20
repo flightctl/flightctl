@@ -261,9 +261,11 @@ func WithHeader(key, value string) client.ClientOption {
 }
 
 // WithUserAgentHeader returns a ClientOption that sets the User-Agent header.
-func WithUserAgentHeader() client.ClientOption {
+// The component parameter specifies the component name (e.g., "flightctl-cli")
+// to include in the User-Agent string.
+func WithUserAgentHeader(component string) client.ClientOption {
 	info := version.Get()
-	userAgent := fmt.Sprintf("flightctl-cli/%s (%s/%s)", info.String(), runtime.GOOS, runtime.GOARCH)
+	userAgent := fmt.Sprintf("%s/%s (%s/%s)", component, info.String(), runtime.GOOS, runtime.GOARCH)
 	return WithHeader("User-Agent", userAgent)
 }
 
