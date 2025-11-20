@@ -1,4 +1,4 @@
-{{ if and (.Values.api.enabled) (eq (include "flightctl.getServiceExposeMethod" .) "gateway") }}
+{{ if eq (include "flightctl.getServiceExposeMethod" .) "gateway" }}
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:

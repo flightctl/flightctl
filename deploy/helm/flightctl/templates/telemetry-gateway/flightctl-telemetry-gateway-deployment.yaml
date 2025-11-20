@@ -1,4 +1,4 @@
-{{- if .Values.telemetryGateway.enabled }}
+{{- if .Values.telemetryGateway }}
 ---
 apiVersion: apps/v1
 kind: Deployment
