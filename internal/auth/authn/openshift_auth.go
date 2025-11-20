@@ -74,6 +74,11 @@ func hashToken(token string) string {
 	return hex.EncodeToString(hash[:])
 }
 
+// GetOpenShiftSpec returns the internal OpenShift spec with client secret intact (for internal use only)
+func (o *OpenShiftAuth) GetOpenShiftSpec() api.OpenShiftProviderSpec {
+	return o.spec
+}
+
 // GetAuthToken extracts the Bearer token from the HTTP request
 func (o *OpenShiftAuth) GetAuthToken(r *http.Request) (string, error) {
 	return common.ExtractBearerToken(r)

@@ -1,4 +1,4 @@
-{{- if and (eq .Values.global.auth.type "openshift") .Values.global.auth.openshift.oauth.enabled }}
+{{- if eq (include "flightctl.getEffectiveAuthType" .) "openshift" }}
 apiVersion: oauth.openshift.io/v1
 kind: OAuthClient
 metadata:

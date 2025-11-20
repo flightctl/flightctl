@@ -46,9 +46,15 @@ Welcome to the Flight Control user documentation.
 
 * Installing and Configuring the Flight Control Service and UI
   * [Configuring External PostgreSQL Database](external-database.md)
-  * [Configuring Flight Control to use k8s auth](kubernetes-auth.md)
-  * [PAM Authentication](pam-authentication.md)
-  * [TPM Device Authentication](tpm-authentication.md)
+  * **Authentication and Authorization**
+    * [Authentication Overview](authentication-overview.md) - Choosing the right authentication method
+    * [OIDC Authentication](oidc-auth.md) - OpenID Connect providers
+    * [OAuth2 Authentication](oauth2-auth.md) - Generic OAuth2 providers
+    * [Kubernetes Authentication](kubernetes-auth.md) - Kubernetes RBAC integration
+    * [OpenShift Authentication](openshift-auth.md) - OpenShift OAuth integration
+    * [AAP Authentication](aap-auth.md) - AAP Gateway integration
+    * [PAM Issuer](pam-authentication.md) - Bundled OIDC provider for Linux Deployment
+    * [TPM Device Authentication](tpm-authentication.md) - Device authentication
 * [Installing the Flight Control CLI](install-cli.md)
 * Using the Flight Control CLI
 * [Configuring the Flight Control Agent](configuring-agent.md)
@@ -60,4 +66,5 @@ Welcome to the Flight Control user documentation.
 **References** - Useful references.
 
 * [API Resources](api-resources.md)
+* [Authentication Resources](auth-resources.md) - API endpoints for authentication
 * [Device Status Definitions](device-api-statuses.md)

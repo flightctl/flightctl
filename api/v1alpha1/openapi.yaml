@@ -6065,6 +6065,9 @@ components:
           type: string
           enum: [Bearer]
           description: Token type.
+        id_token:
+          type: string
+          description: OIDC ID token (JWT). Present when using OIDC with openid scope.
         refresh_token:
           type: string
           description: OAuth2 refresh token.

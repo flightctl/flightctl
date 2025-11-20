@@ -582,6 +582,14 @@ func (o *GetOptions) getResourceList(ctx context.Context, c *apiclient.ClientWit
 			Continue:      util.ToPtrWithNilDefault(o.Continue),
 		}
 		return c.ListEventsWithResponse(ctx, &params)
+	case AuthProviderKind:
+		params := api.ListAuthProvidersParams{
+			LabelSelector: util.ToPtrWithNilDefault(o.LabelSelector),
+			FieldSelector: util.ToPtrWithNilDefault(o.FieldSelector),
+			Limit:         util.ToPtrWithNilDefault(o.Limit),
+			Continue:      util.ToPtrWithNilDefault(o.Continue),
+		}
+		return c.ListAuthProvidersWithResponse(ctx, &params)
 	default:
 		return nil, fmt.Errorf("unsupported resource kind: %s", kind)
 	}

@@ -2632,6 +2632,9 @@ type TokenResponse struct {
 	// ExpiresIn Token expiration time in seconds.
 	ExpiresIn *int `json:"expires_in,omitempty"`
 
+	// IdToken OIDC ID token (JWT). Present when using OIDC with openid scope.
+	IdToken *string `json:"id_token,omitempty"`
+
 	// RefreshToken OAuth2 refresh token.
 	RefreshToken *string `json:"refresh_token,omitempty"`
 
