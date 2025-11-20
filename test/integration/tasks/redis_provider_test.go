@@ -673,7 +673,9 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 			consumerCtx, consumerCancel := context.WithCancel(ctx)
 			defer consumerCancel()
 
+			completionDone := make(chan struct{})
 			err = consumer.Consume(consumerCtx, func(ctx context.Context, payload []byte, entryID string, consumer queues.QueueConsumer, log logrus.FieldLogger) error {
+				defer close(completionDone)
 				messageReceived <- payload
 				// Complete with error to trigger retry
 				return consumer.Complete(ctx, entryID, payload, fmt.Errorf("processing error"))
@@ -694,6 +696,15 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 				}
 			}, 5*time.Second, 100*time.Millisecond).Should(BeTrue())
 			Expect(first).To(Equal(testPayload))
+
+			// Wait for the handler's Complete() call to finish before canceling context
+			// This ensures the message is properly added to the failed set
+			select {
+			case <-completionDone:
+				log.Info("Message handler completed")
+			case <-time.After(2 * time.Second):
+				log.Warn("Timeout waiting for handler completion")
+			}
 
 			// Stop consumer to avoid race conditions with retry operations
 			consumerCancel()
