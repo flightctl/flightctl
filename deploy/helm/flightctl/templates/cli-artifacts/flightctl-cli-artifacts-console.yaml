@@ -1,4 +1,4 @@
-{{ if and (.Values.cliArtifacts.enabled) (eq .Values.global.target "acm")}}
+{{ if and (.Values.cliArtifacts.enabled) (eq (include "flightctl.enableMulticlusterExtensions" .) "true")}}
 {{- $url := (include "flightctl.getCliArtifactsUrl" . )}}
 apiVersion: console.openshift.io/v1
 kind: ConsoleCLIDownload

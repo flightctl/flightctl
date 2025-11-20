@@ -146,6 +146,43 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+  /api/v1/auth/permissions:
+    get:
+      tags:
+        - authentication
+      description: Get the list of available permissions for the authenticated user.
+      operationId: authGetPermissions
+      responses:
+        "200":
+          description: List of available permissions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PermissionList'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "418":
+          description: Auth not configured
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "500":
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
   /api/v1/auth/{providername}/token:
     post:
       tags:
@@ -7246,3 +7283,29 @@ components:
         - metadata
         - items
       description: AuthProviderList is a list of auth providers.
+    PermissionList:
+      type: object
+      description: List of available permissions for a user.
+      properties:
+        permissions:
+          type: array
+          description: List of permissions available to the user.
+          items:
+            $ref: '#/components/schemas/Permission'
+      required:
+        - permissions
+    Permission:
+      type: object
+      description: A permission defining allowed operations on a resource.
+      properties:
+        resource:
+          type: string
+          description: The resource (e.g., "devices", "fleets", "*" for all resources).
+        operations:
+          type: array
+          description: List of allowed operations (e.g., "get", "list", "create", "update", "patch", "delete", "*" for all operations).
+          items:
+            type: string
+      required:
+        - resource
+        - operations

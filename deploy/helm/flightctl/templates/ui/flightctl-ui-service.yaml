@@ -7,7 +7,7 @@ metadata:
   labels:
     app: flightctl-ui
     {{- include "flightctl.standardLabels" . | nindent 4 }}
-  {{- if eq .Values.global.target "acm" }}
+  {{- if eq (include "flightctl.enableMulticlusterExtensions" .) "true" }}
   annotations:
     service.alpha.openshift.io/serving-cert-secret-name: flightctl-ui-serving-cert
   {{- end }}
