@@ -1,14 +1,22 @@
 package login
 
 import (
+	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"reflect"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/openshift/osincli"
 	"github.com/pkg/browser"
@@ -16,88 +24,134 @@ import (
 
 type GetClientFunc func(callbackURL string) (*osincli.Client, error)
 
+func generatePKCEVerifier() (verifier string, challenge string, err error) {
+	verifierBytes := make([]byte, 32)
+	if _, err := rand.Read(verifierBytes); err != nil {
+		return "", "", fmt.Errorf("failed to generate PKCE verifier: %w", err)
+	}
+	verifier = base64.RawURLEncoding.EncodeToString(verifierBytes)
+	hash := sha256.Sum256([]byte(verifier))
+	challenge = base64.RawURLEncoding.EncodeToString(hash[:])
+	return verifier, challenge, nil
+}
+
 func getOAuth2AccessToken(client *osincli.Client, authorizeRequest *osincli.AuthorizeRequest, r *http.Request) (AuthInfo, error) {
 	areqdata, err := authorizeRequest.HandleRequest(r)
 	if err != nil {
-		return AuthInfo{}, err
+		return AuthInfo{}, fmt.Errorf("failed to handle authorization request: %w", err)
 	}
 
 	treq := client.NewAccessRequest(osincli.AUTHORIZATION_CODE, areqdata)
 	// exchange the authorize token for the access token
 	ad, err := treq.GetToken()
-
 	if err != nil {
-		return AuthInfo{}, err
+		return AuthInfo{}, fmt.Errorf("failed to exchange authorization code for access token: %w", err)
 	}
 
 	expiresIn, err := getExpiresIn(ad.ResponseData)
 	if err != nil {
-		return AuthInfo{}, err
+		return AuthInfo{}, fmt.Errorf("failed to parse token expiration: %w", err)
 	}
-
+	idTokenString := getIdToken(ad.ResponseData)
 	return AuthInfo{
 		AccessToken:  ad.AccessToken,
 		RefreshToken: ad.RefreshToken,
+		IdToken:      idTokenString,
 		ExpiresIn:    expiresIn,
 	}, nil
 }
 
-func oauth2AuthCodeFlow(getClient GetClientFunc) (AuthInfo, error) {
-	ret := AuthInfo{}
+func generateState() (string, error) {
+	stateBytes := make([]byte, 16)
+	if _, err := rand.Read(stateBytes); err != nil {
+		return "", fmt.Errorf("failed to generate state: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(stateBytes), nil
+}
 
-	// find free port
-	listener, err := net.Listen("tcp", "")
+// oauth2AuthCodeFlow performs the auth flow with a local proxy workaround
+func oauth2AuthCodeFlow(getClient GetClientFunc, port int) (AuthInfo, error) {
+
+	state, err := generateState()
 	if err != nil {
-		return ret, fmt.Errorf("failed to open listener: %w", err)
+		return AuthInfo{}, fmt.Errorf("state gen failed: %w", err)
+	}
+
+	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	if err != nil {
+		return AuthInfo{}, fmt.Errorf("port %d required but unavailable: %w", port, err)
 	}
 	defer listener.Close()
 
-	port := listener.Addr().(*net.TCPAddr).Port
-	done := make(chan error, 1)
-	mux := http.NewServeMux()
-	server := &http.Server{Handler: mux} // #nosec G112
-	defer server.Close()
-	callback := fmt.Sprintf("http://127.0.0.1:%d/callback", port)
-
-	client, err := getClient(callback)
+	callbackURL := fmt.Sprintf("http://localhost:%d/callback", port)
+	client, err := getClient(callbackURL)
 	if err != nil {
-		return ret, err
+		return AuthInfo{}, err
 	}
-	authorizeRequest := client.NewAuthorizeRequest(osincli.CODE)
+
+	authReq := client.NewAuthorizeRequest(osincli.CODE)
+
+	done := make(chan error, 1)
+	var result AuthInfo
+	mux := http.NewServeMux()
 
 	mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
-		ret, err = getOAuth2AccessToken(client, authorizeRequest, r)
+		// Validate state parameter to prevent CSRF attacks
+		receivedState := r.URL.Query().Get("state")
+		if receivedState == "" {
+			http.Error(w, "Authentication failed: missing state parameter", http.StatusBadRequest)
+			done <- fmt.Errorf("authentication failed: missing state parameter")
+			return
+		}
+
+		// Use constant-time comparison to prevent timing attacks
+		if subtle.ConstantTimeCompare([]byte(state), []byte(receivedState)) != 1 {
+			http.Error(w, "Authentication failed: state parameter mismatch", http.StatusBadRequest)
+			done <- fmt.Errorf("authentication failed: state parameter mismatch")
+			return
+		}
+
+		result, err = getOAuth2AccessToken(client, authReq, r)
 		if err != nil {
-			_, err = fmt.Fprintf(w, "ERROR: %s\n", err)
-			if err != nil {
-				fmt.Printf("failed to write response %s\n", err.Error())
-			}
+			fmt.Fprintf(w, "ERROR: %s", err)
 			done <- err
 			return
 		}
-		_, err = w.Write([]byte("Login successful. You can close this window and return to CLI."))
-		if err != nil {
-			fmt.Printf("failed to write response %s\n", err.Error())
-		}
+		_, _ = w.Write([]byte("Login successful. Return to CLI."))
 		done <- nil
 	})
 
+	server := &http.Server{
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
 	go func() {
-		err = server.Serve(listener) // #nosec G114
-		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			fmt.Printf("failed to start local http server %s\n", err.Error())
+		serveErr := server.Serve(listener) // #nosec G114
+		if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+			fmt.Printf("failed to start local http server %s\n", serveErr.Error())
+			// Try to send the error, but don't block if done is already populated
+			select {
+			case done <- serveErr:
+			default:
+			}
 		}
 	}()
 
-	loginUrl := authorizeRequest.GetAuthorizeUrl().String()
+	loginUrl := authReq.GetAuthorizeUrlWithParams(state).String()
 	fmt.Printf("Opening login URL in default browser: %s\n", loginUrl)
 	err = browser.OpenURL(loginUrl)
 	if err != nil {
-		return ret, fmt.Errorf("failed to open URL in default browser: %w", err)
+		return result, fmt.Errorf("failed to open URL in default browser: %w", err)
 	}
 
 	err = <-done
-	return ret, err
+
+	// Shutdown the server gracefully with a timeout to allow the response to be sent
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = server.Shutdown(ctx)
+
+	return result, err
 }
 
 func oauth2RefreshTokenFlow(refreshToken string, getClient GetClientFunc) (AuthInfo, error) {
@@ -134,16 +188,17 @@ func oauth2RefreshTokenFlow(refreshToken string, getClient GetClientFunc) (AuthI
 	return ret, nil
 }
 
-func getOAuth2Config(configUrl, caFile string, insecure bool) (OauthServerResponse, error) {
-	oauthResponse := OauthServerResponse{}
-	req, err := http.NewRequest(http.MethodGet, configUrl, nil)
+// getOIDCDiscoveryConfig fetches the OIDC discovery document
+func getOIDCDiscoveryConfig(discoveryUrl, caFile string, insecure bool) (OIDCDiscoveryResponse, error) {
+	oidcResponse := OIDCDiscoveryResponse{}
+	req, err := http.NewRequest(http.MethodGet, discoveryUrl, nil)
 	if err != nil {
-		return oauthResponse, fmt.Errorf("failed to create http request: %w", err)
+		return oidcResponse, fmt.Errorf("failed to create http request: %w", err)
 	}
 
 	tlsConfig, err := getAuthClientTlsConfig(caFile, insecure)
 	if err != nil {
-		return oauthResponse, err
+		return oidcResponse, err
 	}
 
 	httpClient := http.Client{
@@ -154,22 +209,21 @@ func getOAuth2Config(configUrl, caFile string, insecure bool) (OauthServerRespon
 
 	res, err := httpClient.Do(req)
 	if err != nil {
-		return oauthResponse, fmt.Errorf("failed to fetch oauth2 config: %w", err)
+		return oidcResponse, fmt.Errorf("failed to fetch OIDC discovery config: %w", err)
 	}
+	defer res.Body.Close()
 
 	if res.StatusCode != http.StatusOK {
-		return oauthResponse, fmt.Errorf("failed to fetch oauth2 config, status: %d", res.StatusCode)
+		return oidcResponse, fmt.Errorf("failed to fetch OIDC discovery config, status: %d", res.StatusCode)
 	}
-
-	defer res.Body.Close()
 	bodyBytes, err := io.ReadAll(res.Body)
 	if err != nil {
-		return oauthResponse, fmt.Errorf("failed to read oauth2 config: %w", err)
+		return oidcResponse, fmt.Errorf("failed to read OIDC discovery config: %w", err)
 	}
-	if err := json.Unmarshal(bodyBytes, &oauthResponse); err != nil {
-		return oauthResponse, fmt.Errorf("failed to parse oauth2 config: %w", err)
+	if err := json.Unmarshal(bodyBytes, &oidcResponse); err != nil {
+		return oidcResponse, fmt.Errorf("failed to parse OIDC discovery config: %w", err)
 	}
-	return oauthResponse, nil
+	return oidcResponse, nil
 }
 
 // based on GetToken() from osincli which parses the expires_in to int32 that may overflow
@@ -193,4 +247,104 @@ func getExpiresIn(ret osincli.ResponseData) (*int64, error) {
 		}
 	}
 	return nil, nil
+}
+
+// getIdToken safely extracts the id_token from response data without panicking
+func getIdToken(ret osincli.ResponseData) string {
+	idTokenRaw, ok := ret["id_token"]
+	if !ok {
+		return ""
+	}
+
+	if idTokenRaw == nil {
+		return ""
+	}
+
+	switch v := idTokenRaw.(type) {
+	case string:
+		return v
+	case []byte:
+		return string(v)
+	default:
+		return fmt.Sprint(v)
+	}
+}
+
+// oauth2PasswordFlow performs the password grant flow
+func oauth2PasswordFlow(tokenURL, clientID, username, password, scope, caFile string, insecure bool) (AuthInfo, error) {
+	tlsConfig, err := getAuthClientTlsConfig(caFile, insecure)
+	if err != nil {
+		return AuthInfo{}, err
+	}
+
+	httpClient := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: tlsConfig,
+		},
+	}
+
+	data := url.Values{}
+	data.Set("grant_type", "password")
+	data.Set("username", username)
+	data.Set("password", password)
+	data.Set("client_id", clientID)
+	if scope != "" {
+		data.Set("scope", scope)
+	}
+
+	req, err := http.NewRequest(http.MethodPost, tokenURL, strings.NewReader(data.Encode()))
+	if err != nil {
+		return AuthInfo{}, fmt.Errorf("failed to create token request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return AuthInfo{}, fmt.Errorf("failed to request token: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return AuthInfo{}, fmt.Errorf("failed to read token response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return AuthInfo{}, fmt.Errorf("token request failed with status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var tokenResponse map[string]interface{}
+	if err := json.Unmarshal(bodyBytes, &tokenResponse); err != nil {
+		return AuthInfo{}, fmt.Errorf("failed to parse token response: %w", err)
+	}
+
+	accessToken, _ := tokenResponse["access_token"].(string)
+	if accessToken == "" {
+		return AuthInfo{}, fmt.Errorf("no access token in response")
+	}
+
+	refreshToken, _ := tokenResponse["refresh_token"].(string)
+	idToken, _ := tokenResponse["id_token"].(string)
+
+	var expiresIn *int64
+	if expiresInRaw, ok := tokenResponse["expires_in"]; ok {
+		switch v := expiresInRaw.(type) {
+		case float64:
+			exp := int64(v)
+			expiresIn = &exp
+		case int64:
+			expiresIn = &v
+		case string:
+			if exp, err := strconv.ParseInt(v, 10, 64); err == nil {
+				expiresIn = &exp
+			}
+		}
+	}
+
+	return AuthInfo{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+		IdToken:      idToken,
+		ExpiresIn:    expiresIn,
+	}, nil
 }

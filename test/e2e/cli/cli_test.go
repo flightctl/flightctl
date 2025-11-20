@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	"github.com/flightctl/flightctl/test/login"
 	"github.com/flightctl/flightctl/test/util"
@@ -745,7 +744,7 @@ var _ = Describe("cli login", func() {
 			By("Read the current access token")
 			cfg, err := harness.ReadClientConfig(configPath)
 			Expect(err).ToNot(HaveOccurred(), "Failed to read client config")
-			initialToken := cfg.AuthInfo.Token
+			initialToken := cfg.AuthInfo.AccessToken
 
 			By("Expire the current access token and run an action")
 			err = harness.MarkClientAccessTokenExpired(configPath)
@@ -758,11 +757,11 @@ var _ = Describe("cli login", func() {
 			// Note: The old token is still valid at this point as it hasn't actually expired
 			cfg, err = harness.ReadClientConfig(configPath)
 			Expect(err).ToNot(HaveOccurred(), "Failed to read client config after expiring token")
-			secondToken := cfg.AuthInfo.Token
+			secondToken := cfg.AuthInfo.AccessToken
 			Expect(secondToken).ToNot(Equal(initialToken), "Token should have been refreshed")
 
 			By("Remove connectivity to the auth service")
-			providerUrl := cfg.AuthInfo.AuthProvider.Config[client.AuthUrlKey]
+			providerUrl := e2e.ExtractAuthURL(&cfg.AuthInfo.AuthProvider.AuthProvider)
 			Expect(providerUrl).ToNot(BeEmpty(), "Auth provider URL should not be empty")
 			authIp, authPort, err := util.ParseURIForIPAndPort(providerUrl)
 			Expect(err).ToNot(HaveOccurred())
@@ -783,7 +782,7 @@ var _ = Describe("cli login", func() {
 			By("Token should not have been refreshed")
 			cfg, err = harness.ReadClientConfig(configPath)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(cfg.AuthInfo.Token).To(Equal(secondToken), "Token should not have been refreshed")
+			Expect(cfg.AuthInfo.AccessToken).To(Equal(secondToken), "Token should not have been refreshed")
 
 			By("Bring the auth service back up")
 			err = restoreAuth()
@@ -794,7 +793,7 @@ var _ = Describe("cli login", func() {
 			_, _ = harness.RunGetDevices()
 			cfg, err = harness.ReadClientConfig(configPath)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(cfg.AuthInfo.Token).ToNot(Equal(secondToken), "Token should have been refreshed")
+			Expect(cfg.AuthInfo.AccessToken).ToNot(Equal(secondToken), "Token should have been refreshed")
 		})
 
 		It("CertificateSigningRequest deny flow validation", Label("85396", "sanity"),
