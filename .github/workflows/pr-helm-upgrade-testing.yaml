@@ -32,13 +32,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          fetch-tags: true
 
       - name: Get changed files
         id: changed-files
         uses: tj-actions/changed-files@v46
         with:
           since_last_remote_commit: 'true'
-#           .github/**
+          #           .github/**
           files_ignore: |
             .spelling
             README.md
@@ -52,6 +53,13 @@ jobs:
           sudo rm -rf /usr/local/lib/android >/dev/null 2>&1 &
           echo "Started background removal of /usr/local/lib/android (PID: $!)"
           df -h
+
+      - name: Checkout v0.10.0
+        uses: actions/checkout@v4
+        with:
+          repository: flightctl/flightctl
+          ref: v0.10.0
+          fetch-depth: 0
 
       - name: Setup all dependencies
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
@@ -79,27 +87,25 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-dnf-
 
-      - name: Cache bootc-image-builder
-        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
-        uses: actions/cache@v4
-        with:
-          path: |
-            bin/dnf-cache
-            bin/osbuild-cache
-          key: ${{ runner.os }}-bootc-cache-smoke-${{ hashFiles('test/scripts/agent-images/Containerfile-e2e-base.local') }}
-          restore-keys: |
-            ${{ runner.os }}-bootc-cache-smoke-
-
-      - name: Add Keycloak port mapping to kind config
+      - name: Download v0.10 CLI
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         run: |
-          yq eval '.nodes[0].extraPortMappings += [{"containerPort": 8081, "hostPort": 8081, "protocol": "TCP"}]' -i test/scripts/kind_cluster.yaml
+          curl -LO https://github.com/flightctl/flightctl/releases/download/v0.10.0/flightctl-linux-amd64
+          mkdir -p bin
+          mv flightctl-linux-amd64 bin/flightctl
+          chmod +x bin/flightctl
+          bin/flightctl version
+
+#      - name: Add Keycloak port mapping to kind config
+#        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+#        run: |
+#          yq eval '.nodes[0].extraPortMappings += [{"containerPort": 8081, "hostPort": 8081, "protocol": "TCP"}]' -i test/scripts/kind_cluster.yaml
 
       - name: Create cluster
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         run: make cluster
 
-      - name: Get IP
+      - name: Get base domain
         id: get-ip
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         run: |
@@ -119,6 +125,7 @@ jobs:
           helm upgrade --install --version 0.10.0 \
                 --namespace flightctl-external \
                 flightctl oci://quay.io/flightctl/charts/flightctl \
+                --set global.internalNamespace=flightctl-internal \
                 --set global.target=standalone \
                 --set global.baseDomain=${BASE_DOMAIN} \
                 --set global.exposeServicesMethod=nodePort \
@@ -129,14 +136,14 @@ jobs:
         run: |
           kubectl get pods --all-namespaces
 
-      - name: Download v0.10 CLI
+      - name: Login with demouser
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        env:
+          BASE_DOMAIN: ${{ steps.get-ip.outputs.base-domain }}
         run: |
-          curl -LO https://github.com/flightctl/flightctl/releases/download/v0.10.0/flightctl-linux-amd64
-          mkdir -p bin
-          mv flightctl-linux-amd64 bin/flightctl
-          chmod +x bin/flightctl
-          bin/flightctl version
+          FC_PASS=$(kubectl get secret -n flightctl-external keycloak-demouser-secret -o=jsonpath='{.data.password}' | base64 -d)
+          echo "Demo password: $FC_PASS"
+          ./bin/flightctl login https://${BASE_DOMAIN}:3443 --insecure-skip-tls-verify  --username=demouser --password="${FC_PASS}"
 
       - name: Apply device
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
@@ -158,23 +165,102 @@ jobs:
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         run: bin/flightctl apply -f examples/resourcesync.yaml
 
-      - name: Build this version
+      - name: Prepare agent config
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
-        run: make build-containers
+        run: make prepare-agent-config
+
+      - name: Build the simulator
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        run: DISABLE_FIPS="true" make build-devicesimulator
+
+      - name: Simulator run
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        run: bin/devicesimulator --config bin/agent/etc/flightctl/config.yaml --count 1 --stop-after 1m
+
+      - name: Checkout the new version
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Delete old binaries (if any)
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        run: |
+          rm -f bin/flightctl 
+          rm -f bin/devicesimulator
+
+      - name: Build CLI
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        run: |
+          make build-cli
+          bin/flightctl version
+
+      - name: Build containers
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+
+        run: make -j2 build-containers
+
 
       - name: Load the new images
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         run: |
           for suffix in api worker periodic alert-exporter alertmanager-proxy cli-artifacts db-setup telemetry-gateway; do 
-            kind load image-archive <(podman save localhost/flightctl-${suffix}:prev); done
+            kind load image-archive <(podman save localhost/flightctl-${suffix}:latest); done
+          
+          
+      - name: Fix the v0.10 Helm deployment
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        run: |
+          # Since some resources in v0.10 miss the required labels, they are populated manually as a workaround
+
+          patch_helm_meta() {
+            local kind="$1"   # e.g. secret
+            local name="$2"   # resource name
+            local ns="$3"     # namespace
+
+            kubectl label "$kind" "$name" -n "$ns" \
+              app.kubernetes.io/managed-by=Helm \
+              --overwrite
+
+            kubectl annotate "$kind" "$name" -n "$ns" \
+              meta.helm.sh/release-name=flightctl \
+              meta.helm.sh/release-namespace="flightctl-external" \
+              --overwrite
+          }
+
+          for ns in flightctl-internal flightctl-external; do
+            for sec in \
+              flightctl-db-admin-secret \
+              flightctl-db-app-secret \
+              flightctl-db-migration-secret \
+              flightctl-kv-secret
+            do
+              patch_helm_meta secret "$sec" "$ns"
+            done
+          done
 
       - name: Helm upgrade
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         env:
           BASE_DOMAIN: ${{ steps.get-ip.outputs.base-domain }}
         run: |
-          helm upgrade flightctl --namespace flightctl-external ./deploy/helm/flightctl -f ./deploy/helm/flightctl/values.dev.yaml \
+          ( kubectl get pods --all-namespaces -w | sed 's/^/[cluster upgrade] /' ) &
+
+          helm upgrade flightctl --namespace flightctl-external ./deploy/helm/flightctl -f ./deploy/helm/flightctl/values.yaml \
               --set global.baseDomain=${BASE_DOMAIN} \
+              --set global.baseDomain=${BASE_DOMAIN} \
+              --set global.exposeServicesMethod="nodePort" \
+              --set global.nodePorts.agent=7443 \
+              --set global.nodePorts.alertmanager=9093 \
+              --set global.nodePorts.alertmanagerProxy=8443 \
+              --set global.nodePorts.api=3443 \
+              --set global.nodePorts.db=5432 \
+              --set global.nodePorts.gitserver=3222 \
+              --set global.nodePorts.kv=6379 \
+              --set global.nodePorts.registry=5000 \
+              --set global.nodePorts.telemetryGatewayOtlp=4317 \
+              --set global.nodePorts.telemetryGatewayProm=9464 \
+              --set global.nodePorts.ui=9000 \
+              --set global.internalNamespace=flightctl-internal \
               --debug --wait
 
       - name: Check the upgraded deployment
@@ -182,13 +268,28 @@ jobs:
         run: |
           helm list --all-namespaces
           kubectl get pods --all-namespaces
-
-      - name: Build the new cli
-        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
-        run: |
-          rm bin/flightctl
-          make build-cli
           bin/flightctl version
+
+
+      - name: Get devices
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        run: ./bin/flightctl get dev
+
+      - name: Get fleets
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        run: ./bin/flightctl get fleet
+
+      - name: Get enrollmentrequests
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        run: bin/flightctl get er
+
+      - name: Get repositories
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        run: bin/flightctl get repo
+
+      - name: Get resourcesyncs
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        run: bin/flightctl get rs
 
       - name: Build the simulator
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
