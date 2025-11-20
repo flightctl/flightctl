@@ -163,6 +163,8 @@ func (o *DeleteOptions) deleteOne(ctx context.Context, c *apiclient.ClientWithRe
 		response, err = c.DeleteResourceSyncWithResponse(ctx, name)
 	case CertificateSigningRequestKind:
 		response, err = c.DeleteCertificateSigningRequestWithResponse(ctx, name)
+	case AuthProviderKind:
+		response, err = c.DeleteAuthProviderWithResponse(ctx, name)
 	default:
 		return nil, fmt.Errorf("unsupported resource kind: %s", kind)
 	}
