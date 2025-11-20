@@ -1,10 +1,11 @@
-# PAM Authentication
+# PAM Issuer - OIDC Provider with PAM Authentication
 
-This document describes how to use PAM authentication with Flight Control.
+This document describes how to use Flight Control's PAM Issuer, a built-in OpenID Connect (OIDC) provider that uses Linux PAM for user authentication.
 
 ## Table of Contents
 
 - [Overview](#overview)
+- [Architecture](#architecture)
 - [Prerequisites](#prerequisites)
 - [User Management](#user-management)
   - [Adding Users to PAM Issuer](#adding-users-to-pam-issuer)
@@ -13,9 +14,50 @@ This document describes how to use PAM authentication with Flight Control.
 
 ## Overview
 
-The PAM issuer is an OpenID Connect (OIDC) implementation that Flight Control provides out of the box for standalone and Quadlet deployments. It enables user authentication using Linux PAM (Pluggable Authentication Modules), allowing administrators to authenticate users with standard Linux user credentials.
+For standalone and Quadlet deployments, Flight Control is configured to use **OIDC (OpenID Connect) authentication**. To provide a complete authentication solution without external dependencies, Flight Control deploys its own **OIDC provider implementation called PAM Issuer**.
 
-The PAM issuer runs as a separate service (`flightctl-pam-issuer`) and provides OIDC-compliant authentication endpoints that integrate with the main Flight Control API server.
+**Key Points:**
+
+- **Flight Control uses OIDC authentication** (the same protocol as external OIDC providers)
+- **PAM Issuer is the OIDC provider** (Flight Control's built-in implementation)
+- **PAM is used for user validation** (Linux PAM within the PAM Issuer container)
+
+This architecture provides a complete, self-contained authentication solution while maintaining compatibility with standard OIDC flows.
+
+## Architecture
+
+### Components
+
+1. **Flight Control API Server**
+   - Configured with OIDC authentication type
+   - Points to PAM Issuer as its OIDC provider
+   - Validates JWT tokens issued by PAM Issuer
+
+2. **PAM Issuer Service** (`flightctl-pam-issuer`)
+   - Implements OpenID Connect (OIDC) provider specification
+   - Provides standard OIDC endpoints (authorization, token, userinfo, etc.)
+   - Uses Linux PAM for user credential validation
+   - Manages its own user database within its container
+   - Issues JWT tokens upon successful authentication
+
+3. **Linux PAM**
+   - Validates user credentials
+   - Manages password policies
+   - Can be extended with additional PAM modules (LDAP, SSSD, etc.)
+
+### Authentication Flow
+
+1. User initiates login: `flightctl login --web`
+2. Flight Control API redirects to **PAM Issuer's OIDC authorization endpoint**
+3. PAM Issuer presents login form to user
+4. User submits credentials (username/password)
+5. PAM Issuer validates credentials using **Linux PAM**
+6. Upon successful validation, PAM Issuer issues **OIDC-compliant JWT token**
+7. Token is returned to Flight Control API
+8. API validates the JWT token (signature, expiry, claims)
+9. User is authenticated and can access Flight Control
+
+This is the **same flow** as using an external OIDC provider (Google, Azure AD, etc.), except PAM Issuer is the OIDC provider and PAM is the user validation backend.
 
 ## Prerequisites
 
@@ -80,29 +122,227 @@ For security reasons, the PAM issuer manages its own users within its container.
 
 To add a user to the PAM issuer:
 
-1. **Create a new user:**
+#### Step 1: Create role groups (these are not created by default)
+
+```bash
+# Create the flightctl-admin group for global administrators
+sudo podman exec -i flightctl-pam-issuer groupadd flightctl-admin
+
+# Optionally create other role groups as needed
+sudo podman exec -i flightctl-pam-issuer groupadd flightctl-operator
+sudo podman exec -i flightctl-pam-issuer groupadd flightctl-viewer
+```
+
+**Note:** Role groups must be created manually. Future versions will create these automatically.
+
+#### Step 2: Create a new user
 
 ```bash
 sudo podman exec flightctl-pam-issuer adduser <USER>
 ```
 
-1. **Set the user's password:**
+#### Step 3: Set the user's password using `chpasswd`
 
 ```bash
-sudo podman exec flightctl-pam-issuer passwd <USER>
+sudo podman exec -i flightctl-pam-issuer sh -c 'echo "<USER>:<PASSWORD>" | chpasswd'
+```
+
+#### Step 4: Add the user to a role group
+
+```bash
+sudo podman exec -i flightctl-pam-issuer usermod -aG flightctl-admin <USER>
 ```
 
 **Example:**
 
 ```bash
-# Add user 'alice'
+# Step 1: Create the flightctl-admin group
+sudo podman exec -i flightctl-pam-issuer groupadd flightctl-admin
+
+# Step 2: Add user 'alice'
 sudo podman exec flightctl-pam-issuer adduser alice
 
-# Set password for 'alice'
-sudo podman exec flightctl-pam-issuer passwd alice
+# Step 3: Set password for 'alice'
+sudo podman exec -i flightctl-pam-issuer sh -c 'echo "alice:mypassword" | chpasswd'
+
+# Step 4: Add alice to flightctl-admin group
+sudo podman exec -i flightctl-pam-issuer usermod -aG flightctl-admin alice
 ```
 
-You will be prompted to enter and confirm the password.
+**Complete one-liner for convenience:**
+
+```bash
+# Create group, create user, set password, and add to admin group
+USER=alice
+PASSWORD=mypassword
+sudo podman exec -i flightctl-pam-issuer groupadd flightctl-admin 2>/dev/null || true && \
+sudo podman exec flightctl-pam-issuer adduser $USER && \
+sudo podman exec -i flightctl-pam-issuer sh -c "echo \"$USER:$PASSWORD\" | chpasswd" && \
+sudo podman exec -i flightctl-pam-issuer usermod -aG flightctl-admin $USER
+```
+
+**Note:** The `2>/dev/null || true` suppresses the error if the group already exists.
+
+**Note:** Currently, role groups are not created automatically in the PAM issuer container. You must create them manually using `groupadd` before assigning users to roles. If you get an error that a group already exists, you can safely ignore it and proceed with creating users.
+
+## Roles and Organizations
+
+PAM authentication uses Linux groups to manage user roles and organization membership. Understanding this mapping is essential for configuring proper access control.
+
+### Organization Assignment
+
+Users are assigned to organizations by adding them to groups with the naming pattern `org-<ORGANIZATION_NAME>`:
+
+- Group name: `org-XXX`
+- Organization: `XXX`
+
+**Example:**
+
+```bash
+# Create organization groups
+sudo podman exec -i flightctl-pam-issuer groupadd org-engineering
+sudo podman exec -i flightctl-pam-issuer groupadd org-operations
+
+# Add user to the 'engineering' organization
+sudo podman exec -i flightctl-pam-issuer usermod -aG org-engineering alice
+
+# Add user to the 'operations' organization
+sudo podman exec -i flightctl-pam-issuer usermod -aG org-operations bob
+```
+
+A user can belong to multiple organizations by being a member of multiple `org-*` groups.
+
+### Role Assignment
+
+Roles control what actions users can perform. Roles can be either **global** (apply across all organizations) or **organization-scoped** (apply only within a specific organization).
+
+#### Global Roles
+
+Global roles are assigned using group names without an organization prefix:
+
+- Group name: `role-name`
+- Scope: Global (all organizations)
+
+**Example:**
+
+```bash
+# Create global role groups
+sudo podman exec -i flightctl-pam-issuer groupadd flightctl-admin
+sudo podman exec -i flightctl-pam-issuer groupadd flightctl-viewer
+
+# Add user to global admin role
+sudo podman exec -i flightctl-pam-issuer usermod -aG flightctl-admin alice
+```
+
+#### Organization-Scoped Roles
+
+Organization-scoped roles are assigned using the pattern `<ORGANIZATION>.<ROLE>`:
+
+- Group name: `XXX.my-role`
+- Organization: `XXX`
+- Role: `my-role` (within organization XXX)
+
+**Example:**
+
+```bash
+# Create organization-scoped role groups
+sudo podman exec -i flightctl-pam-issuer groupadd engineering.flightctl-operator
+sudo podman exec -i flightctl-pam-issuer groupadd operations.flightctl-org-admin
+
+# Add user to 'flightctl-operator' role in 'engineering' organization
+sudo podman exec -i flightctl-pam-issuer usermod -aG engineering.flightctl-operator alice
+
+# Add user to 'flightctl-org-admin' role in 'operations' organization
+sudo podman exec -i flightctl-pam-issuer usermod -aG operations.flightctl-org-admin bob
+```
+
+### Common Roles
+
+Flight Control supports the following external role names:
+
+| Role Name | Description | Typical Scope |
+|-----------|-------------|---------------|
+| `flightctl-admin` | Full administrative access | **Must be global** |
+| `flightctl-org-admin` | Organization administrator | Can be org-scoped or global |
+| `flightctl-operator` | Operator access (manage devices/fleets) | Can be org-scoped or global |
+| `flightctl-viewer` | Read-only viewer access | Can be org-scoped or global |
+| `flightctl-installer` | Installer access for device provisioning | Can be org-scoped or global |
+
+**Important Notes:**
+
+- The `flightctl-admin` role **must be global** and cannot be organization-scoped
+- **These groups are not created automatically** - you must create them manually using `groupadd`
+- Future versions will create these groups automatically
+
+### Complete User Setup Example
+
+Here's a complete example setting up users with organizations and roles:
+
+```bash
+# Create organization groups
+sudo podman exec -i flightctl-pam-issuer groupadd org-engineering
+sudo podman exec -i flightctl-pam-issuer groupadd org-operations
+
+# Create global role groups (NOTE: not created by default, must be created manually)
+sudo podman exec -i flightctl-pam-issuer groupadd flightctl-admin
+sudo podman exec -i flightctl-pam-issuer groupadd flightctl-viewer
+sudo podman exec -i flightctl-pam-issuer groupadd flightctl-operator
+sudo podman exec -i flightctl-pam-issuer groupadd flightctl-org-admin
+sudo podman exec -i flightctl-pam-issuer groupadd flightctl-installer
+
+# Create organization-scoped role groups
+sudo podman exec -i flightctl-pam-issuer groupadd engineering.flightctl-operator
+sudo podman exec -i flightctl-pam-issuer groupadd operations.flightctl-org-admin
+
+# Create admin user with global access
+sudo podman exec flightctl-pam-issuer adduser admin
+sudo podman exec -i flightctl-pam-issuer sh -c 'echo "admin:adminpass" | chpasswd'
+sudo podman exec -i flightctl-pam-issuer usermod -aG flightctl-admin admin
+
+# Create engineering operator
+sudo podman exec flightctl-pam-issuer adduser alice
+sudo podman exec -i flightctl-pam-issuer sh -c 'echo "alice:alicepass" | chpasswd'
+sudo podman exec -i flightctl-pam-issuer usermod -aG org-engineering alice
+sudo podman exec -i flightctl-pam-issuer usermod -aG engineering.flightctl-operator alice
+
+# Create operations organization admin
+sudo podman exec flightctl-pam-issuer adduser bob
+sudo podman exec -i flightctl-pam-issuer sh -c 'echo "bob:bobpass" | chpasswd'
+sudo podman exec -i flightctl-pam-issuer usermod -aG org-operations bob
+sudo podman exec -i flightctl-pam-issuer usermod -aG operations.flightctl-org-admin bob
+
+# Create read-only viewer with global access
+sudo podman exec flightctl-pam-issuer adduser charlie
+sudo podman exec -i flightctl-pam-issuer sh -c 'echo "charlie:charliepass" | chpasswd'
+sudo podman exec -i flightctl-pam-issuer usermod -aG flightctl-viewer charlie
+```
+
+In this example:
+
+- **admin**: Global administrator (all permissions everywhere)
+- **alice**: Operator in the engineering organization
+- **bob**: Organization admin in the operations organization
+- **charlie**: Read-only viewer globally
+
+### Viewing User Groups
+
+To verify which groups (and thus roles/organizations) a user belongs to:
+
+```bash
+sudo podman exec flightctl-pam-issuer groups <USER>
+```
+
+**Example:**
+
+```bash
+$ sudo podman exec flightctl-pam-issuer groups alice
+alice : alice org-engineering engineering.flightctl-operator
+```
+
+This shows that `alice` belongs to:
+
+- The `engineering` organization (via `org-engineering`)
+- The `flightctl-operator` role within the `engineering` organization (via `engineering.flightctl-operator`)
 
 ### Using Host System Users (Advanced)
 

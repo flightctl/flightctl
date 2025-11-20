@@ -2204,6 +2204,21 @@ type PatchRequestOp string
 // Percentage Percentage is the string format representing percentage string.
 type Percentage = string
 
+// Permission A permission defining allowed operations on a resource.
+type Permission struct {
+	// Operations List of allowed operations (e.g., "get", "list", "create", "update", "patch", "delete", "*" for all operations).
+	Operations []string `json:"operations"`
+
+	// Resource The resource (e.g., "devices", "fleets", "*" for all resources).
+	Resource string `json:"resource"`
+}
+
+// PermissionList List of available permissions for a user.
+type PermissionList struct {
+	// Permissions List of permissions available to the user.
+	Permissions []Permission `json:"permissions"`
+}
+
 // ReferencedRepositoryUpdatedDetails defines model for ReferencedRepositoryUpdatedDetails.
 type ReferencedRepositoryUpdatedDetails struct {
 	// DetailType The type of detail for discriminator purposes.
@@ -2616,6 +2631,9 @@ type TokenResponse struct {
 
 	// ExpiresIn Token expiration time in seconds.
 	ExpiresIn *int `json:"expires_in,omitempty"`
+
+	// IdToken OIDC ID token (JWT). Present when using OIDC with openid scope.
+	IdToken *string `json:"id_token,omitempty"`
 
 	// RefreshToken OAuth2 refresh token.
 	RefreshToken *string `json:"refresh_token,omitempty"`

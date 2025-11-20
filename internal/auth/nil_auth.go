@@ -16,6 +16,18 @@ func (NilAuth) CheckPermission(_ context.Context, _ string, _ string) (bool, err
 	return true, nil
 }
 
+func (NilAuth) GetUserPermissions(_ context.Context) (*api.PermissionList, error) {
+	// When auth is disabled, return all permissions
+	return &api.PermissionList{
+		Permissions: []api.Permission{
+			{
+				Resource:   "*",
+				Operations: []string{"*"},
+			},
+		},
+	}, nil
+}
+
 func (NilAuth) ValidateToken(_ context.Context, _ string) error {
 	return nil
 }
