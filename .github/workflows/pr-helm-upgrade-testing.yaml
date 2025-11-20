@@ -90,6 +90,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bootc-cache-smoke-
 
+      - name: Add Keycloak port mapping to kind config
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        run: |
+          yq eval '.nodes[0].extraPortMappings += [{"containerPort": 8081, "hostPort": 8081, "protocol": "TCP"}]' -i test/scripts/kind_cluster.yaml
+
       - name: Create cluster
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         run: make cluster
@@ -128,7 +133,7 @@ jobs:
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         run: |
           curl -LO https://github.com/flightctl/flightctl/releases/download/v0.10.0/flightctl-linux-amd64
-          mkdir bin
+          mkdir -p bin
           mv flightctl-linux-amd64 bin/flightctl
           chmod +x bin/flightctl
           bin/flightctl version
