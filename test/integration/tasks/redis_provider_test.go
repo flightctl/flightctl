@@ -605,7 +605,7 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 				payload []byte
 				entryID string
 				err     error
-			}, 1)
+			}) // Unbuffered: handler blocks on send until test receives, ensuring Complete() finishes
 
 			consumerCtx, consumerCancel := context.WithCancel(ctx)
 			defer consumerCancel()
@@ -627,23 +627,21 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 			err = producer.Enqueue(ctx, testPayload, time.Now().UnixMicro())
 			Expect(err).ToNot(HaveOccurred())
 
+			// Wait for message to be processed
+			// Receiving from unbuffered channel means Complete() has finished
 			var result struct {
 				payload []byte
 				entryID string
 				err     error
 			}
-			Eventually(func() bool {
-				select {
-				case result = <-messageProcessed:
-					return true
-				default:
-					return false
-				}
-			}, 5*time.Second, 100*time.Millisecond).Should(BeTrue())
-
-			Expect(result.payload).To(Equal(testPayload))
-			Expect(result.entryID).ToNot(BeEmpty())
-			Expect(result.err).ToNot(HaveOccurred())
+			select {
+			case result = <-messageProcessed:
+				Expect(result.payload).To(Equal(testPayload))
+				Expect(result.entryID).ToNot(BeEmpty())
+				Expect(result.err).ToNot(HaveOccurred())
+			case <-time.After(5 * time.Second):
+				Fail("Timeout waiting for message to be processed")
+			}
 
 			// Stop consumer gracefully
 			consumerCancel()
