@@ -1,0 +1,6 @@
+services:
+  service1:
+    image: quay.io/flightctl-tests/alpine:v1
+    command: ["sleep", "infinity"]
+    volumes:
+      - testvol:/opt/testvol

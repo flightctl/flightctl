@@ -195,7 +195,7 @@ var _ = Describe("Template variables in the device configuraion", func() {
 				configProviderSpec := []v1alpha1.ConfigProviderSpec{gitConfigProviderSpec, inlineConfigProviderSpec, httpConfigProviderSpec}
 
 				GinkgoWriter.Printf("this is the configProviderSpec %s\n", configProviderSpec)
-				deviceImage := fmt.Sprintf("%s/flightctl-device:{{ .metadata.labels.alias }}", harness.RegistryEndpoint())
+				deviceImage := harness.FullImageRef(fmt.Sprintf("%s/flightctl-device", harness.RegistryEndpoint()), "{{ .metadata.labels.alias }}")
 
 				var osImageSpec = v1alpha1.DeviceOsSpec{
 					Image: deviceImage,

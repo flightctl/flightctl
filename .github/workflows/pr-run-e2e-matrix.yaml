@@ -1,0 +1,485 @@
+name: "PR Run E2E Matrix"
+permissions:
+  pull-requests: write
+  issues: write
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      expires_after:
+        description: "TTL for images label quay.expires-after (empty = no TTL)"
+        required: false
+        default: "8h"
+        type: string
+
+env:
+  # Enable BuildKit for cache mounts
+  DOCKER_BUILDKIT: 1
+  BUILDKIT_PROGRESS: plain
+  GITHUB_ACTIONS: true
+  # Define the total number of parallel nodes for Ginkgo
+  GINKGO_TOTAL_NODES: 8
+
+jobs:
+  compute-tag:
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.compute-tag.outputs.tag }}
+      git_tag: ${{ steps.compute-tag.outputs.git_tag }}
+      git_tree_state: ${{ steps.compute-tag.outputs.git_tree_state }}
+      git_commit: ${{ steps.compute-tag.outputs.git_commit }}
+      helm_tag: ${{ steps.compute-tag.outputs.helm_tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Compute tag
+        id: compute-tag
+        run: |
+          set -euo pipefail
+          TAG=$(./hack/current-version)
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Computed tag: $TAG"
+          
+          # Normalize for helm (drop leading v, replace ~ with -)
+          HELM_TAG=$(echo "${TAG#v}" | sed 's/~/-/g')
+          echo "helm_tag=${HELM_TAG}" >> "$GITHUB_OUTPUT"
+          
+          SOURCE_GIT_TAG=$(git describe --tags --exclude latest 2>/dev/null || echo "v0.0.0-unknown")
+          if [ ! -d ".git" ]; then
+            SOURCE_GIT_TREE_STATE=clean
+          elif git diff --quiet; then
+            SOURCE_GIT_TREE_STATE=clean
+          else
+            SOURCE_GIT_TREE_STATE=dirty
+          fi
+          SOURCE_GIT_COMMIT=$(git rev-parse --short "HEAD^{commit}" 2>/dev/null || echo "unknown")
+          
+          {
+            echo "git_tag=${SOURCE_GIT_TAG}"
+            echo "git_tree_state=${SOURCE_GIT_TREE_STATE}"
+            echo "git_commit=${SOURCE_GIT_COMMIT}"
+          } >> "$GITHUB_OUTPUT"
+          
+          echo "## :rocket: PR Run E2E Matrix Workflow Started" > $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tag:** \`${TAG}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** \`${GITHUB_SHA:0:7}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch:** \`${GITHUB_REF_NAME}\`" >> $GITHUB_STEP_SUMMARY
+
+  build-images-and-charts:
+    needs: [compute-tag]
+    uses: ./.github/workflows/build-images-and-charts.yaml
+    with:
+      tag: ${{ needs.compute-tag.outputs.tag }}
+      helm_tag: ${{ needs.compute-tag.outputs.helm_tag }}
+      git_tag: ${{ needs.compute-tag.outputs.git_tag }}
+      git_tree_state: ${{ needs.compute-tag.outputs.git_tree_state }}
+      git_commit: ${{ needs.compute-tag.outputs.git_commit }}
+      expires_after: ${{ inputs.expires_after }}
+
+  build-rpms:
+    needs: [compute-tag]
+    strategy:
+      matrix:
+        include:
+          - suffix: el9-x86_64
+            root: centos-stream+epel-next-9-x86_64
+          - suffix: el10-x86_64
+            root: epel-10-x86_64
+    uses: ./.github/workflows/build-rpms.yaml
+    with:
+      root: ${{ matrix.root }}
+      suffix: ${{ matrix.suffix }}
+
+  build-agent-images-unified:
+    needs: [compute-tag, build-rpms]
+    strategy:
+      matrix:
+        include:
+          - os_id: cs9-bootc
+            rpm_suffix: el9-x86_64
+          - os_id: cs10-bootc
+            rpm_suffix: el10-x86_64
+    uses: ./.github/workflows/build-agent-images.yaml
+    with:
+      os_id: ${{ matrix.os_id }}
+      rpm_suffix: ${{ matrix.rpm_suffix }}
+      tag: ${{ needs.compute-tag.outputs.tag }}
+      git_tag: ${{ needs.compute-tag.outputs.git_tag }}
+      git_tree_state: ${{ needs.compute-tag.outputs.git_tree_state }}
+      git_commit: ${{ needs.compute-tag.outputs.git_commit }}
+
+  build-sleep-app-images:
+    runs-on: ubuntu-24.04
+    needs: [compute-tag]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Build sleep app images
+        env:
+          TAG: ${{ needs.compute-tag.outputs.tag }}
+          APP_REPO: quay.io/flightctl
+          JOBS: 4
+          SOURCE_GIT_TAG: ${{ needs.compute-tag.outputs.git_tag }}
+          SOURCE_GIT_TREE_STATE: ${{ needs.compute-tag.outputs.git_tree_state }}
+          SOURCE_GIT_COMMIT: ${{ needs.compute-tag.outputs.git_commit }}
+        run: |
+          set -euo pipefail
+          echo "::group::Building app images"
+          ./test/scripts/agent-images/scripts/build.sh --apps
+          echo "::endgroup::"
+
+      - name: Create sleep app bundle
+        env:
+          TAG: ${{ needs.compute-tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          echo "::group::Creating sleep app images bundle with dual tags"
+          # Collect all sleep-app images (both versioned and plain tags)
+          mapfile -t all_sleep_images < <(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/sleep-app:")
+          echo "Found ${#all_sleep_images[@]} sleep app images (all tags):"
+          printf '  %s\n' "${all_sleep_images[@]}"
+          podman save --format docker-archive -o sleep-app-images-bundle.tar -m "${all_sleep_images[@]}"
+          echo "::endgroup::"
+
+      - name: Upload sleep app bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: sleep-app-images-bundle
+          path: sleep-app-images-bundle.tar
+          compression-level: 1
+          if-no-files-found: error
+          retention-days: 1
+
+  build-flightctl-cli:
+    name: Build Flightctl CLI Binaries
+    needs: [compute-tag]
+    strategy:
+      matrix:
+        tag: [ "linux-amd64" ]
+        # tag: [ "linux-amd64", "linux-arm64", "darwin-amd64", "darwin-arm64", "windows-amd64", "windows-arm64" ]
+        include:
+          # Linux builds
+          - tag: linux-amd64
+            arch: amd64
+            os: linux
+            zip: .tar.gz
+            ext: ""
+          # - tag: linux-arm64
+          #   arch: arm64
+          #   os: linux
+          #   zip: .tar.gz
+          #   ext: ""
+          # # macOS builds
+          # - tag: darwin-amd64
+          #   arch: amd64
+          #   os: darwin
+          #   zip: .zip
+          #   ext: ""
+          # - tag: darwin-arm64
+          #   arch: arm64
+          #   os: darwin
+          #   zip: .zip
+          #   ext: ""
+          # # Windows builds
+          # - tag: windows-amd64
+          #   arch: amd64
+          #   os: windows
+          #   zip: .zip
+          #   ext: .exe
+          # - tag: windows-arm64
+          #   arch: arm64
+          #   os: windows
+          #   zip: .zip
+          #   ext: .exe
+
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      # Install dependencies
+      - name: Install Dependencies
+        run: go mod tidy
+
+      - name: Build
+        run: |
+          DISABLE_FIPS="true" GOOS="${{ matrix.os }}" GOARCH="${{ matrix.arch }}" make build-cli
+          mv "bin/flightctl${{ matrix.ext }}" "flightctl-${{ matrix.os }}-${{ matrix.arch}}${{ matrix.ext }}"
+          
+          echo "::group::Computing checksum and creating archive"
+          SHA=$(shasum -a 256 flightctl-${{ matrix.os }}-${{ matrix.arch}}${{ matrix.ext }} | cut -d' ' -f1)
+          echo ${SHA} > flightctl-${{ matrix.os }}-${{ matrix.arch}}-sha256.txt
+          echo "SHA256: ${SHA}"
+          
+          if [ "${{ matrix.zip }}" = ".zip" ]; then
+            zip flightctl-${{ matrix.os }}-${{ matrix.arch}}${{ matrix.zip }} flightctl-${{ matrix.os }}-${{ matrix.arch}}${{ matrix.ext }}
+          else
+            tar cvf flightctl-${{ matrix.os }}-${{ matrix.arch}}${{ matrix.zip }} flightctl-${{ matrix.os }}-${{ matrix.arch}}${{ matrix.ext }}
+          fi
+          echo "::endgroup::"
+
+      - name: Save zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: flightctl-${{ matrix.os }}-${{ matrix.arch}}${{ matrix.zip }}
+          path: flightctl-${{ matrix.os }}-${{ matrix.arch}}${{ matrix.zip }}
+
+      - name: Save binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: flightctl-${{ matrix.os }}-${{ matrix.arch}}${{ matrix.ext }}
+          path: flightctl-${{ matrix.os }}-${{ matrix.arch}}${{ matrix.ext }}
+
+      - name: Save checksum
+        uses: actions/upload-artifact@v4
+        with:
+          path: flightctl-${{ matrix.os }}-${{ matrix.arch}}-sha256.txt
+          name: flightctl-${{ matrix.os }}-${{ matrix.arch}}-sha256.txt
+
+  artifacts-ready:
+    runs-on: ubuntu-24.04
+    needs: [compute-tag, build-images-and-charts, build-rpms, build-flightctl-cli, build-agent-images-unified]
+    if: ${{ !cancelled() && needs.compute-tag.result == 'success' && needs.build-images-and-charts.result == 'success' && needs.build-rpms.result == 'success' && needs.build-flightctl-cli.result == 'success' && needs.build-agent-images-unified.result == 'success' }}
+    steps:
+      - name: Download service images manifest
+        uses: actions/download-artifact@v4
+        with:
+          name: service-images-manifest
+          path: manifests
+
+      - name: Download charts manifest
+        uses: actions/download-artifact@v4
+        with:
+          name: charts-manifest
+          path: manifests
+
+      - name: Download rpms manifests
+        uses: actions/download-artifact@v4
+        with:
+          pattern: "rpms-manifest-*"
+          path: manifests
+          merge-multiple: true
+
+      - name: Assemble final build manifest
+        run: |
+          set -euo pipefail
+          ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          meta=$(jq -n --arg bid "github-run-${GITHUB_RUN_ID}" --arg sha "${GITHUB_SHA}" --arg ts "$ts" '{buildId:$bid,commitSha:$sha,timestamp:$ts}')
+          parts="{}"
+          for f in manifests/*.json; do
+            [ -e "$f" ] || continue
+            parts=$(jq -s 'reduce .[] as $i ({}; . * $i)' <(echo "$parts") "$f")
+          done
+          jq -s '.[0] * .[1]' <(echo "$meta") <(echo "$parts") > build-manifest.json
+          cat build-manifest.json
+
+      - name: Upload build manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-manifest
+          path: build-manifest.json
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Download image manifests for summary
+        uses: actions/download-artifact@v4
+        with:
+          name: service-images-manifest
+          path: summary-manifests
+
+      - name: Generate step summary
+        run: |
+          TAG='${{ needs.compute-tag.outputs.helm_tag }}'
+          RUN_ID='${{ github.run_id }}'
+          CHART_FILE="flightctl-${TAG}.tgz"
+          ARTIFACTS_URL="https://github.com/${{ github.repository }}/actions/runs/${RUN_ID}#artifacts"
+
+          echo "## :black_small_square: Build Artifacts Ready" > $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Tag:** \`${TAG}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "**CLI Binaries** and **RPMs** are ready!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "<details>" >> $GITHUB_STEP_SUMMARY
+          echo "<summary><strong>CLI Binaries</strong></summary>" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "# Download CLI for your platform" >> $GITHUB_STEP_SUMMARY
+          echo "gh run download ${RUN_ID} -n flightctl-linux-amd64      # Linux x64" >> $GITHUB_STEP_SUMMARY
+          echo "gh run download ${RUN_ID} -n flightctl-linux-arm64      # Linux ARM64" >> $GITHUB_STEP_SUMMARY
+          echo "gh run download ${RUN_ID} -n flightctl-darwin-amd64     # macOS x64" >> $GITHUB_STEP_SUMMARY
+          echo "gh run download ${RUN_ID} -n flightctl-darwin-arm64     # macOS ARM64" >> $GITHUB_STEP_SUMMARY
+          echo "gh run download ${RUN_ID} -n flightctl-windows-amd64.exe  # Windows x64" >> $GITHUB_STEP_SUMMARY
+          echo "gh run download ${RUN_ID} -n flightctl-windows-arm64.exe  # Windows ARM64" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "</details>" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### RPM Packages" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "# Download RPM packages" >> $GITHUB_STEP_SUMMARY
+          echo "gh run download ${RUN_ID} -n rpms-${{ github.sha }}  # Packages for RHEL/Fedora" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+  services-ready:
+    runs-on: ubuntu-24.04
+    needs: [compute-tag, build-images-and-charts]
+    if: ${{ !cancelled() && needs.compute-tag.result == 'success' && needs.build-images-and-charts.result == 'success' }}
+    steps:
+      - name: Services artifacts ready
+        run: |
+          echo "Backend services and Helm chart are ready for deployment"
+          echo "Helm chart: helm-chart"
+
+      - name: Generate services summary
+        run: |
+          IMAGE_TAG='${{ needs.compute-tag.outputs.tag }}'
+          HELM_TAG='${{ needs.compute-tag.outputs.helm_tag }}'
+          RUN_ID='${{ github.run_id }}'
+          CHART_FILE="helm-chart/flightctl-${HELM_TAG}.tgz"
+          ARTIFACTS_URL="https://github.com/${{ github.repository }}/actions/runs/${RUN_ID}#artifacts"
+
+          echo "## :gear: Services Ready for Deployment" > $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Tag:** \`${IMAGE_TAG}\` | [All artifacts](${ARTIFACTS_URL})" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "**Container Images** and **Helm Chart** are ready!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # List container images in collapsible section
+          echo "<details>" >> $GITHUB_STEP_SUMMARY
+          echo "<summary><strong>Container Images (9)</strong></summary>" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- \`quay.io/flightctl/flightctl-api:${IMAGE_TAG}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`quay.io/flightctl/flightctl-periodic:${IMAGE_TAG}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`quay.io/flightctl/flightctl-worker:${IMAGE_TAG}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`quay.io/flightctl/flightctl-cli-artifacts:${IMAGE_TAG}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`quay.io/flightctl/flightctl-alert-exporter:${IMAGE_TAG}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`quay.io/flightctl/flightctl-alertmanager-proxy:${IMAGE_TAG}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`quay.io/flightctl/flightctl-userinfo-proxy:${IMAGE_TAG}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`quay.io/flightctl/flightctl-db-setup:${IMAGE_TAG}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`quay.io/flightctl/flightctl-telemetry-gateway:${IMAGE_TAG}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "</details>" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### :rocket: Deployment" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "# Download deployment artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "gh run download ${RUN_ID} -n helm-chart -n flightctl-images-bundle" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# Load service images into kind" >> $GITHUB_STEP_SUMMARY
+          echo "kind load image-archive flightctl-images-bundle/flightctl-images-bundle.tar" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# Install with Helm (parameterize with --set as needed)" >> $GITHUB_STEP_SUMMARY
+          echo "helm upgrade --install flightctl ${CHART_FILE}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# Or with a script:" >> $GITHUB_STEP_SUMMARY
+          echo "./test/scripts/deploy_with_helm.sh --chart-path=\"${CHART_FILE}\" --image-registry=\"quay.io/flightctl/\" --image-tag=\"${IMAGE_TAG}\"" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+  test-artifacts-ready:
+    runs-on: ubuntu-24.04
+    needs: [compute-tag, build-agent-images-unified]
+    if: ${{ !cancelled() && needs.compute-tag.result == 'success' && needs.build-agent-images-unified.result == 'success' }}
+    steps:
+      - name: Generate test artifacts summary
+        run: |
+          TAG='${{ needs.compute-tag.outputs.tag }}'
+          RUN_ID='${{ github.run_id }}'
+          ARTIFACTS_URL="https://github.com/${{ github.repository }}/actions/runs/${RUN_ID}#artifacts"
+          
+          echo "## :test_tube: Test Artifacts Ready" > $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Tag:** \`${TAG}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "**Test Images**" >> $GITHUB_STEP_SUMMARY
+          echo "- :black_small_square: \`agent-images-bundle\` - Agent and sleep app container images for testing" >> $GITHUB_STEP_SUMMARY
+          echo "- :black_small_square: \`agent-qcow2-image\` - QCOW2 disk image for VM testing" >> $GITHUB_STEP_SUMMARY
+
+
+  e2e-tests:
+    needs: [compute-tag, build-images-and-charts, build-flightctl-cli, build-agent-images-unified, build-sleep-app-images]
+    strategy:
+      fail-fast: false
+      matrix:
+        os_id: [cs9-bootc, cs10-bootc]
+    uses: ./.github/workflows/run-e2e-tests.yaml
+    with:
+      os_id: ${{ matrix.os_id }}
+      backend_type: helm
+      ginkgo_total_nodes: 8
+      ginkgo_label_filter: 'sanity'
+      tag: ${{ needs.compute-tag.outputs.tag }}
+      helm_tag: ${{ needs.compute-tag.outputs.helm_tag }}
+
+  e2e-test:
+    runs-on: ubuntu-latest
+    needs: e2e-tests
+    if: always()
+    steps:
+      - name: Check E2E Test Results
+        run: |
+          if [[ "${{ needs.e2e-tests.result }}" == "success" ]]; then
+            echo "All E2E tests passed!"
+            exit 0
+          elif [[ "${{ needs.e2e-tests.result }}" == "skipped" ]]; then
+            echo "E2E tests were skipped"
+            exit 0
+          else
+            echo "E2E tests failed or were cancelled"
+            exit 1
+          fi
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

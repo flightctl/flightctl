@@ -1,0 +1,25 @@
+FROM registry.access.redhat.com/ubi9/ubi:latest
+
+# Use BuildKit cache mounts for dnf package caching
+RUN --mount=type=cache,target=/var/cache/dnf \
+    --mount=type=cache,target=/var/lib/dnf \
+    dnf install -y git git-core openssh-server
+RUN ssh-keygen -A
+
+
+RUN adduser -d /home/user -s /usr/bin/git-shell user
+
+RUN echo "user:user" | chpasswd
+RUN mkdir -p /home/user/.ssh && chown user:user /home/user/.ssh && chmod 700 /home/user/.ssh
+
+RUN mkdir -p /home/user/repos && chown user:user /home/user/repos
+RUN mkdir /home/user/git-shell-commands
+COPY test/scripts/auxiliary-images-v2/git-server-cmds/* /home/user/git-shell-commands/
+RUN chown -R user:user /home/user/
+USER user
+RUN git config --global init.defaultBranch main
+USER root
+
+EXPOSE 22
+# run in a while loop otherwise sshd exits sometimes in -D mode
+CMD ["/bin/sh", "-c", "while true; do /usr/sbin/sshd -D -e; sleep 1; done"]

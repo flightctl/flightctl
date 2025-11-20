@@ -9,6 +9,7 @@ import (
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -229,8 +230,7 @@ var _ = Describe("VM Agent behavior", func() {
 			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
 				currentImage := device.Status.Os.Image
 				GinkgoWriter.Printf("Current image for %s is %s\n", deviceId, currentImage)
-				repo, _ := parseImageReference(currentImage)
-				newImageReference = repo + ":not-existing"
+				newImageReference = harness.FullImageRef(currentImage, "not-existing")
 				device.Spec.Os = &v1alpha1.DeviceOsSpec{Image: newImageReference}
 				GinkgoWriter.Printf("Updating %s to image %s\n", deviceId, device.Spec.Os.Image)
 			})
@@ -652,18 +652,21 @@ var httpConfigInvalidPath = v1alpha1.HttpConfigProviderSpec{
 // It returns the repository and tag as separate strings.
 // If no tag is present, the returned tag string will be empty.
 func parseImageReference(image string) (string, string) {
-	// Split the image string by the colon to separate the repository and the tag.
-	parts := strings.Split(image, ":")
-
-	tag := ""
-	repo := ""
-
-	// The tag is the last part after the last colon.
-	if len(parts) > 1 {
-		tag = parts[len(parts)-1]
-		// The repository is composed of all parts before the last colon, joined back together with colons.
-		repo = strings.Join(parts[:len(parts)-1], ":")
+	matches := validation.OciImageReferenceRegexp.FindStringSubmatch(image)
+	if len(matches) == 0 {
+		// Fallback to naive split if regex doesn't match
+		parts := strings.Split(image, ":")
+		if len(parts) > 1 {
+			tag := parts[len(parts)-1]
+			repo := strings.Join(parts[:len(parts)-1], ":")
+			return repo, tag
+		}
+		return image, ""
 	}
 
-	return repo, tag
+	// The OciImageReferenceRegexp has 3 capture groups: base, tag, and digest
+	base := matches[1]
+	tag := matches[2]
+
+	return base, tag
 }

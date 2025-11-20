@@ -103,7 +103,14 @@ func (p *VMPool) createVMForWorker(workerID int) (vm.TestVMInterface, error) {
 	// Use sync.Once to ensure the shared base disk is created exactly once
 	p.sharedDiskOnce.Do(func() {
 		fmt.Printf("🔄 [VMPool] Worker %d: Creating shared base disk at %s\n", workerID, sharedBaseDisk)
-		cmd := exec.Command("cp", "--sparse=always", p.config.BaseDiskPath, sharedBaseDisk) //nolint:gosec
+		_ = os.Remove(sharedBaseDisk)
+		if err := os.Link(p.config.BaseDiskPath, sharedBaseDisk); err == nil {
+			// Hard link created successfully; no chmod to avoid changing original inode perms
+			fmt.Printf("✅ [VMPool] Worker %d: Shared base disk hard-linked successfully\n", workerID)
+			return
+		}
+		// Fallback to CoW/sparse copy
+		cmd := exec.Command("cp", "--reflink=auto", "--sparse=always", p.config.BaseDiskPath, sharedBaseDisk) //nolint:gosec
 		if output, err := cmd.CombinedOutput(); err != nil {
 			p.sharedDiskError = fmt.Errorf("failed to create shared base disk: %w, output: %s", err, string(output))
 			return
@@ -112,7 +119,7 @@ func (p *VMPool) createVMForWorker(workerID int) (vm.TestVMInterface, error) {
 			p.sharedDiskError = fmt.Errorf("failed to set permissions on shared base disk: %w", err)
 			return
 		}
-		fmt.Printf("✅ [VMPool] Worker %d: Shared base disk created successfully\n", workerID)
+		fmt.Printf("✅ [VMPool] Worker %d: Shared base disk copied successfully\n", workerID)
 	})
 
 	// Check if there was an error during shared disk creation
