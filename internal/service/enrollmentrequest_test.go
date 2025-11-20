@@ -12,10 +12,11 @@ import (
 	"testing"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/config/ca"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/identity"
+	"github.com/flightctl/flightctl/internal/org/model"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
@@ -42,8 +43,8 @@ func newTestServiceHandler(t *testing.T, s store.Store, caClient *crypto.CAClien
 		eventHandler: NewEventHandler(s, callbackManager, logger),
 	}
 	ctx := context.WithValue(context.Background(), consts.OrganizationIDCtxKey, store.NullOrgId)
-	identity := common.NewBaseIdentity("test", "test-uid", []common.ReportedOrganization{})
-	ctx = context.WithValue(ctx, consts.IdentityCtxKey, identity)
+	mappedIdentity := identity.NewMappedIdentity("test", "test-uid", []*model.Organization{}, map[string][]string{}, false, nil)
+	ctx = context.WithValue(ctx, consts.MappedIdentityCtxKey, mappedIdentity)
 	return handler, ctx
 }
 
