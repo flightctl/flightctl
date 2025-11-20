@@ -546,10 +546,10 @@ type ApplicationProviderSpec struct {
 
 // ApplicationResourceLimits Resource limits for the application.
 type ApplicationResourceLimits struct {
-	// Cpu CPU limit in cores (e.g., "1", "0.75").
+	// Cpu CPU limit in cores. Format restricted based on application type.
 	Cpu *string `json:"cpu,omitempty"`
 
-	// Memory Memory limit with unit (e.g., "256m", "2g") using Podman format (b=bytes, k=kibibytes, m=mebibytes, g=gibibytes).
+	// Memory Memory limit with optional unit. Format restricted based on application type.
 	Memory *string `json:"memory,omitempty"`
 }
 

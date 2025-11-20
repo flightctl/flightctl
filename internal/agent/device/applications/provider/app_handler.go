@@ -15,8 +15,6 @@ import (
 )
 
 type appTypeHandler interface {
-	// Dependencies returns the required applications required for the app to work
-	Dependencies() []string
 	// Verify the contents of the specified directory
 	Verify(ctx context.Context, dir string) error
 	// Install the application content to the device.
@@ -47,6 +45,9 @@ func (b *quadletHandler) Dependencies() []string {
 }
 
 func (b *quadletHandler) Verify(ctx context.Context, path string) error {
+	if err := ensureDependenciesFromAppType([]string{"podman"}); err != nil {
+		return fmt.Errorf("ensuring dependencies: %w", err)
+	}
 	if err := ensureQuadlet(b.rw, path); err != nil {
 		return fmt.Errorf("ensuring quadlet: %w", err)
 	}
@@ -89,11 +90,10 @@ type composeHandler struct {
 	specVolumes []v1beta1.ApplicationVolume
 }
 
-func (b *composeHandler) Dependencies() []string {
-	return []string{"docker-compose", "podman-compose"}
-}
-
 func (b *composeHandler) Verify(ctx context.Context, path string) error {
+	if err := ensureDependenciesFromAppType([]string{"docker-compose", "podman-compose"}); err != nil {
+		return fmt.Errorf("ensuring dependencies: %w", err)
+	}
 	if err := ensureCompose(b.rw, path); err != nil {
 		return fmt.Errorf("ensuring compose: %w", err)
 	}
@@ -141,10 +141,15 @@ func (b *containerHandler) Dependencies() []string {
 }
 
 func (b *containerHandler) Verify(ctx context.Context, path string) error {
+	errs := v1beta1.ValidateContainerImageApplicationSpec(b.name, b.spec)
+	if err := ensureDependenciesFromAppType([]string{"podman"}); err != nil {
+		errs = append(errs, fmt.Errorf("ensuring dependencies: %w", err))
+	}
 	for _, vol := range lo.FromPtr(b.spec.Volumes) {
 		volType, err := vol.Type()
 		if err != nil {
-			return fmt.Errorf("volume type: %w", err)
+			errs = append(errs, fmt.Errorf("volume type: %w", err))
+			continue
 		}
 		switch volType {
 		// mount and image_mount are supported to allow creating volumes within containers. The regular image provider
@@ -152,10 +157,10 @@ func (b *containerHandler) Verify(ctx context.Context, path string) error {
 		case v1beta1.MountApplicationVolumeProviderType, v1beta1.ImageMountApplicationVolumeProviderType:
 			break
 		default:
-			return fmt.Errorf("%w: container %s", errors.ErrUnsupportedVolumeType, volType)
+			errs = append(errs, fmt.Errorf("%w: container %s", errors.ErrUnsupportedVolumeType, volType))
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 func (b *containerHandler) Install(ctx context.Context) error {
