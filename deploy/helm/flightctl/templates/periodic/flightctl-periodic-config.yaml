@@ -1,4 +1,3 @@
-{{ if .Values.periodic.enabled }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -29,10 +28,9 @@ data:
         port: 6379
     periodic:
         consumers: {{ .Values.periodic.consumers }}
-    {{ if .Values.global.tracing.enabled }}
+    {{ if .Values.global.tracing }}
     tracing:
         enabled: true
         endpoint: {{ .Values.global.tracing.endpoint }}
         insecure: {{ .Values.global.tracing.insecure }}
     {{ end }}
-{{ end }}

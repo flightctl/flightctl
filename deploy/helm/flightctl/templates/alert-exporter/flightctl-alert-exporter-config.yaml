@@ -33,7 +33,7 @@ data:
     alertmanager:
         hostname: flightctl-alertmanager.{{ default .Release.Namespace .Values.global.internalNamespace }}.svc.cluster.local
         port: 9093
-    {{ if .Values.global.tracing.enabled }}
+    {{ if .Values.global.tracing }}
     tracing:
         enabled: true
         endpoint: {{ .Values.global.tracing.endpoint }}
