@@ -49,7 +49,7 @@ fi
 
 # Default redirect URI if not specified
 if [ -z "$PAM_OIDC_REDIRECT_URIS" ]; then
-  PAM_OIDC_REDIRECT_URIS="https://${BASE_DOMAIN}:443/auth/callback"
+  PAM_OIDC_REDIRECT_URIS="https://${BASE_DOMAIN}:443/callback"
 fi
 
 # Convert comma-separated list to YAML array format
