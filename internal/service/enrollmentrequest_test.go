@@ -224,7 +224,8 @@ func TestApproveEnrollmentRequestUnsupportedIntegrity(t *testing.T) {
 			Name: lo.ToPtr("test-device-fingerprint-long"),
 		},
 		Spec: v1alpha1.EnrollmentRequestSpec{
-			Csr: string(csrPem),
+			Csr:          string(csrPem),
+			DeviceStatus: lo.ToPtr(v1alpha1.NewDeviceStatus()),
 		},
 	}
 	_, status := serviceHandler.CreateEnrollmentRequest(ctx, enrollmentRequest)
