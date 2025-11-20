@@ -14,6 +14,7 @@ import (
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/config/ca"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -28,7 +29,7 @@ type dummyCallbackManager struct{}
 func (c dummyCallbackManager) C(ctx context.Context, resourceKind v1alpha1.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
 }
 
-func (c dummyCallbackManager) EmitEvent(ctx context.Context, event *v1alpha1.Event) {
+func (c dummyCallbackManager) EmitEvent(ctx context.Context, orgId uuid.UUID, event *v1alpha1.Event) {
 }
 
 func newTestServiceHandler(t *testing.T, store store.Store, caClient *crypto.CAClient) (*ServiceHandler, context.Context) {
@@ -40,9 +41,9 @@ func newTestServiceHandler(t *testing.T, store store.Store, caClient *crypto.CAC
 		ca:           caClient,
 		eventHandler: NewEventHandler(store, callbackManager, logger),
 	}
-	ctx := context.WithValue(context.Background(), store.OrganizationIDCtxKey, store.NullOrgId)
-	identity := common.NewBaseIdentity("test")
-	ctx = context.WithValue(ctx, common.IdentityCtxKey, identity)
+	ctx := context.WithValue(context.Background(), consts.OrganizationIDCtxKey, store.NullOrgId)
+	identity := common.NewBaseIdentity("test", []string{}, []string{})
+	ctx = context.WithValue(ctx, consts.IdentityCtxKey, identity)
 	return handler, ctx
 }
 
