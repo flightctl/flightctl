@@ -810,6 +810,248 @@ func TestValidateApplications(t *testing.T) {
 			},
 			wantErrs: []string{"spec.applications[app1].volumes[0].image.reference"},
 		},
+		{
+			name: "container app with image volume - invalid",
+			apps: []ApplicationProviderSpec{
+				newTestApplicationWithVolume(require, "app1", AppTypeContainer, "quay.io/app/image:1", createImageVolume(t, "vol1", "quay.io/vol/image:1")),
+			},
+			wantErrs: []string{"image application volume provider invalid for app type: container"},
+		},
+		{
+			name: "container app with mount volume - valid",
+			apps: []ApplicationProviderSpec{
+				newTestApplicationWithVolume(require, "app1", AppTypeContainer, "quay.io/app/image:1", createMountVolume(t, "vol1", "/host:/container")),
+			},
+		},
+		{
+			name: "container app with image-mount volume - valid",
+			apps: []ApplicationProviderSpec{
+				newTestApplicationWithVolume(require, "app1", AppTypeContainer, "quay.io/app/image:1", createImageMountVolume(t, "vol1", "quay.io/vol/image:1", "/host:/container")),
+			},
+		},
+		{
+			name: "compose app with image volume - valid",
+			apps: []ApplicationProviderSpec{
+				newTestApplicationWithVolume(require, "app1", AppTypeCompose, "quay.io/app/image:1", createImageVolume(t, "vol1", "quay.io/vol/image:1")),
+			},
+		},
+		{
+			name: "compose app with mount volume - invalid",
+			apps: []ApplicationProviderSpec{
+				newTestApplicationWithVolume(require, "app1", AppTypeCompose, "quay.io/app/image:1", createMountVolume(t, "vol1", "/host:/container")),
+			},
+			wantErrs: []string{"mount application volume provider invalid for app type: compose"},
+		},
+		{
+			name: "compose app with image-mount volume - invalid",
+			apps: []ApplicationProviderSpec{
+				newTestApplicationWithVolume(require, "app1", AppTypeCompose, "quay.io/app/image:1", createImageMountVolume(t, "vol1", "quay.io/vol/image:1", "/host:/container")),
+			},
+			wantErrs: []string{"image mount application volume provider invalid for app type: compose"},
+		},
+		{
+			name: "quadlet app with image volume - valid",
+			apps: []ApplicationProviderSpec{
+				newTestApplicationWithVolume(require, "app1", AppTypeQuadlet, "quay.io/app/image:1", createImageVolume(t, "vol1", "quay.io/vol/image:1")),
+			},
+		},
+		{
+			name: "quadlet app with mount volume - invalid",
+			apps: []ApplicationProviderSpec{
+				newTestApplicationWithVolume(require, "app1", AppTypeQuadlet, "quay.io/app/image:1", createMountVolume(t, "vol1", "/host:/container")),
+			},
+			wantErrs: []string{"mount application volume provider invalid for app type: quadlet"},
+		},
+		{
+			name: "quadlet app with image-mount volume - invalid",
+			apps: []ApplicationProviderSpec{
+				newTestApplicationWithVolume(require, "app1", AppTypeQuadlet, "quay.io/app/image:1", createImageMountVolume(t, "vol1", "quay.io/vol/image:1", "/host:/container")),
+			},
+			wantErrs: []string{"image mount application volume provider invalid for app type: quadlet"},
+		},
+		{
+			name: "container app with ports - valid",
+			apps: []ApplicationProviderSpec{
+				newTestApplicationWithPortsAndResources(require, "app1", AppTypeContainer, "quay.io/app/image:1", []string{"8080:80"}, nil),
+			},
+		},
+		{
+			name: "container app with ports out of range",
+			apps: []ApplicationProviderSpec{
+				newTestApplicationWithPortsAndResources(require, "app1", AppTypeContainer, "quay.io/app/image:1", []string{"0:65536"}, nil),
+			},
+			wantErrs: []string{"must be a number in the valid port range", "must be a number in the valid port range"},
+		},
+		{
+			name: "container app with resources - valid",
+			apps: []ApplicationProviderSpec{
+				newTestApplicationWithPortsAndResources(require, "app1", AppTypeContainer, "quay.io/app/image:1", nil, &ApplicationResources{
+					Limits: &ApplicationResourceLimits{
+						Cpu:    lo.ToPtr("1"),
+						Memory: lo.ToPtr("512m"),
+					},
+				}),
+			},
+		},
+		{
+			name: "container app with resources - valid",
+			apps: []ApplicationProviderSpec{
+				newTestApplicationWithPortsAndResources(require, "app1", AppTypeContainer, "quay.io/app/image:1", nil, &ApplicationResources{
+					Limits: &ApplicationResourceLimits{
+						Cpu:    lo.ToPtr("1e3"),
+						Memory: lo.ToPtr("512000000"),
+					},
+				}),
+			},
+		},
+		{
+			name: "compose app with ports - invalid",
+			apps: []ApplicationProviderSpec{
+				newTestApplicationWithPortsAndResources(require, "app1", AppTypeCompose, "quay.io/app/image:1", []string{"8080:80"}, nil),
+			},
+			wantErrs: []string{"ports can only be defined for container applications"},
+		},
+		{
+			name: "compose app with resources - invalid",
+			apps: []ApplicationProviderSpec{
+				newTestApplicationWithPortsAndResources(require, "app1", AppTypeCompose, "quay.io/app/image:1", nil, &ApplicationResources{
+					Limits: &ApplicationResourceLimits{
+						Cpu:    lo.ToPtr("1"),
+						Memory: lo.ToPtr("512m"),
+					},
+				}),
+			},
+			wantErrs: []string{"resources can only be defined for container applications"},
+		},
+		{
+			name: "quadlet app with ports - invalid",
+			apps: []ApplicationProviderSpec{
+				newTestApplicationWithPortsAndResources(require, "app1", AppTypeQuadlet, "quay.io/app/image:1", []string{"8080:80"}, nil),
+			},
+			wantErrs: []string{"ports can only be defined for container applications"},
+		},
+		{
+			name: "quadlet app with resources - invalid",
+			apps: []ApplicationProviderSpec{
+				newTestApplicationWithPortsAndResources(require, "app1", AppTypeQuadlet, "quay.io/app/image:1", nil, &ApplicationResources{
+					Limits: &ApplicationResourceLimits{
+						Cpu:    lo.ToPtr("1"),
+						Memory: lo.ToPtr("512m"),
+					},
+				}),
+			},
+			wantErrs: []string{"resources can only be defined for container applications"},
+		},
+		{
+			name: "container app with valid port format",
+			apps: []ApplicationProviderSpec{
+				newTestApplicationWithPortsAndResources(require, "app1", AppTypeContainer, "quay.io/app/image:1", []string{"8080:80", "443:443"}, nil),
+			},
+		},
+		{
+			name: "container app with invalid port format - no colon",
+			apps: []ApplicationProviderSpec{
+				newTestApplicationWithPortsAndResources(require, "app1", AppTypeContainer, "quay.io/app/image:1", []string{"8080"}, nil),
+			},
+			wantErrs: []string{"must be in format 'portnumber:portnumber'"},
+		},
+		{
+			name: "container app with invalid port format - not numbers",
+			apps: []ApplicationProviderSpec{
+				newTestApplicationWithPortsAndResources(require, "app1", AppTypeContainer, "quay.io/app/image:1", []string{"abc:def"}, nil),
+			},
+			wantErrs: []string{"must be in format 'portnumber:portnumber'"},
+		},
+		{
+			name: "container app with invalid port format - too many colons",
+			apps: []ApplicationProviderSpec{
+				newTestApplicationWithPortsAndResources(require, "app1", AppTypeContainer, "quay.io/app/image:1", []string{"8080:80:90"}, nil),
+			},
+			wantErrs: []string{"must be in format 'portnumber:portnumber'"},
+		},
+		{
+			name: "container app with valid CPU formats",
+			apps: []ApplicationProviderSpec{
+				newTestApplicationWithPortsAndResources(require, "app1", AppTypeContainer, "quay.io/app/image:1", nil, &ApplicationResources{
+					Limits: &ApplicationResourceLimits{
+						Cpu: lo.ToPtr("1.5"),
+					},
+				}),
+			},
+		},
+		{
+			name: "container app with invalid CPU format",
+			apps: []ApplicationProviderSpec{
+				newTestApplicationWithPortsAndResources(require, "app1", AppTypeContainer, "quay.io/app/image:1", nil, &ApplicationResources{
+					Limits: &ApplicationResourceLimits{
+						Cpu: lo.ToPtr("not-a-number"),
+					},
+				}),
+			},
+			wantErrs: []string{"must be a valid number"},
+		},
+		{
+			name: "container app with valid memory formats",
+			apps: []ApplicationProviderSpec{
+				newTestApplicationWithPortsAndResources(require, "app1", AppTypeContainer, "quay.io/app/image:1", nil, &ApplicationResources{
+					Limits: &ApplicationResourceLimits{
+						Memory: lo.ToPtr("512m"),
+					},
+				}),
+			},
+		},
+		{
+			name: "container app with valid memory format - bytes",
+			apps: []ApplicationProviderSpec{
+				newTestApplicationWithPortsAndResources(require, "app1", AppTypeContainer, "quay.io/app/image:1", nil, &ApplicationResources{
+					Limits: &ApplicationResourceLimits{
+						Memory: lo.ToPtr("1024b"),
+					},
+				}),
+			},
+		},
+		{
+			name: "container app with valid memory format - kibibytes",
+			apps: []ApplicationProviderSpec{
+				newTestApplicationWithPortsAndResources(require, "app1", AppTypeContainer, "quay.io/app/image:1", nil, &ApplicationResources{
+					Limits: &ApplicationResourceLimits{
+						Memory: lo.ToPtr("256k"),
+					},
+				}),
+			},
+		},
+		{
+			name: "container app with valid memory format - gibibytes",
+			apps: []ApplicationProviderSpec{
+				newTestApplicationWithPortsAndResources(require, "app1", AppTypeContainer, "quay.io/app/image:1", nil, &ApplicationResources{
+					Limits: &ApplicationResourceLimits{
+						Memory: lo.ToPtr("2g"),
+					},
+				}),
+			},
+		},
+		{
+			name: "container app with invalid memory format - wrong unit",
+			apps: []ApplicationProviderSpec{
+				newTestApplicationWithPortsAndResources(require, "app1", AppTypeContainer, "quay.io/app/image:1", nil, &ApplicationResources{
+					Limits: &ApplicationResourceLimits{
+						Memory: lo.ToPtr("1gb"),
+					},
+				}),
+			},
+			wantErrs: []string{"must be in format 'number[unit]' where unit is b, k, m, or g"},
+		},
+		{
+			name: "container app with invalid memory format - uppercase unit",
+			apps: []ApplicationProviderSpec{
+				newTestApplicationWithPortsAndResources(require, "app1", AppTypeContainer, "quay.io/app/image:1", nil, &ApplicationResources{
+					Limits: &ApplicationResourceLimits{
+						Memory: lo.ToPtr("512M"),
+					},
+				}),
+			},
+			wantErrs: []string{"must be in format 'number[unit]' where unit is b, k, m, or g"},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -853,6 +1095,155 @@ func newTestApplication(require *require.Assertions, name string, appImage, volI
 	require.NoError(app.FromImageApplicationProviderSpec(provider))
 
 	return app
+}
+
+func newTestApplicationWithVolume(require *require.Assertions, name string, appType AppType, appImage string, volume ApplicationVolume) ApplicationProviderSpec {
+	app := ApplicationProviderSpec{
+		Name:    lo.ToPtr(name),
+		AppType: lo.ToPtr(appType),
+	}
+
+	volumes := []ApplicationVolume{volume}
+
+	provider := ImageApplicationProviderSpec{
+		Image:   appImage,
+		Volumes: &volumes,
+	}
+	require.NoError(app.FromImageApplicationProviderSpec(provider))
+
+	return app
+}
+
+func newTestApplicationWithPortsAndResources(require *require.Assertions, name string, appType AppType, appImage string, ports []string, resources *ApplicationResources) ApplicationProviderSpec {
+	app := ApplicationProviderSpec{
+		Name:    lo.ToPtr(name),
+		AppType: lo.ToPtr(appType),
+	}
+
+	var appPorts *[]ApplicationPort
+	if len(ports) > 0 {
+		appPorts = &ports
+	}
+
+	provider := ImageApplicationProviderSpec{
+		Image:     appImage,
+		Ports:     appPorts,
+		Resources: resources,
+	}
+	require.NoError(app.FromImageApplicationProviderSpec(provider))
+
+	return app
+}
+
+func TestValidateVolumeAppTypeCompatibility(t *testing.T) {
+	require := require.New(t)
+	tests := []struct {
+		name          string
+		appType       AppType
+		volume        func(t *testing.T) ApplicationVolume
+		fleetTemplate bool
+		expectErr     bool
+		errorSubstr   string
+	}{
+		{
+			name:          "image volume with container app - invalid",
+			appType:       AppTypeContainer,
+			volume:        func(t *testing.T) ApplicationVolume { return createImageVolume(t, "vol1", "quay.io/test/image:v1") },
+			fleetTemplate: false,
+			expectErr:     true,
+			errorSubstr:   "image application volume provider invalid for app type: container",
+		},
+		{
+			name:          "image volume with compose app - valid",
+			appType:       AppTypeCompose,
+			volume:        func(t *testing.T) ApplicationVolume { return createImageVolume(t, "vol1", "quay.io/test/image:v1") },
+			fleetTemplate: false,
+			expectErr:     false,
+		},
+		{
+			name:          "image volume with quadlet app - valid",
+			appType:       AppTypeQuadlet,
+			volume:        func(t *testing.T) ApplicationVolume { return createImageVolume(t, "vol1", "quay.io/test/image:v1") },
+			fleetTemplate: false,
+			expectErr:     false,
+		},
+		{
+			name:          "mount volume with container app - valid",
+			appType:       AppTypeContainer,
+			volume:        func(t *testing.T) ApplicationVolume { return createMountVolume(t, "vol1", "/host:/container") },
+			fleetTemplate: false,
+			expectErr:     false,
+		},
+		{
+			name:          "mount volume with compose app - invalid",
+			appType:       AppTypeCompose,
+			volume:        func(t *testing.T) ApplicationVolume { return createMountVolume(t, "vol1", "/host:/container") },
+			fleetTemplate: false,
+			expectErr:     true,
+			errorSubstr:   "mount application volume provider invalid for app type: compose",
+		},
+		{
+			name:          "mount volume with quadlet app - invalid",
+			appType:       AppTypeQuadlet,
+			volume:        func(t *testing.T) ApplicationVolume { return createMountVolume(t, "vol1", "/host:/container") },
+			fleetTemplate: false,
+			expectErr:     true,
+			errorSubstr:   "mount application volume provider invalid for app type: quadlet",
+		},
+		{
+			name:    "image-mount volume with container app - valid",
+			appType: AppTypeContainer,
+			volume: func(t *testing.T) ApplicationVolume {
+				return createImageMountVolume(t, "vol1", "quay.io/test/image:v1", "/host:/container")
+			},
+			fleetTemplate: false,
+			expectErr:     false,
+		},
+		{
+			name:    "image-mount volume with compose app - invalid",
+			appType: AppTypeCompose,
+			volume: func(t *testing.T) ApplicationVolume {
+				return createImageMountVolume(t, "vol1", "quay.io/test/image:v1", "/host:/container")
+			},
+			fleetTemplate: false,
+			expectErr:     true,
+			errorSubstr:   "image mount application volume provider invalid for app type: compose",
+		},
+		{
+			name:    "image-mount volume with quadlet app - invalid",
+			appType: AppTypeQuadlet,
+			volume: func(t *testing.T) ApplicationVolume {
+				return createImageMountVolume(t, "vol1", "quay.io/test/image:v1", "/host:/container")
+			},
+			fleetTemplate: false,
+			expectErr:     true,
+			errorSubstr:   "image mount application volume provider invalid for app type: quadlet",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			vol := tt.volume(t)
+			path := "spec.applications[test].volumes[0]"
+			errs := validateVolume(vol, path, tt.fleetTemplate, tt.appType)
+
+			if tt.expectErr {
+				require.NotEmpty(errs, "expected errors but got none")
+				if tt.errorSubstr != "" {
+					found := false
+					for _, err := range errs {
+						if strings.Contains(err.Error(), tt.errorSubstr) {
+							found = true
+							break
+						}
+					}
+					require.True(found, "expected error containing %q, got errors: %v", tt.errorSubstr, errs)
+				}
+			} else {
+				require.Empty(errs, "expected no errors but got: %v", errs)
+			}
+		})
+	}
 }
 
 func TestValidateResourceMonitor(t *testing.T) {
@@ -1144,6 +1535,56 @@ func createMemoryMonitor(t *testing.T) ResourceMonitor {
 		t.Fatalf("Failed to create Memory monitor: %v", err)
 	}
 	return monitor
+}
+
+func createImageVolume(t *testing.T, name, imageRef string) ApplicationVolume {
+	var volume ApplicationVolume
+	volume.Name = name
+	imageVolumeProvider := ImageVolumeProviderSpec{
+		Image: ImageVolumeSource{
+			Reference:  imageRef,
+			PullPolicy: lo.ToPtr(PullIfNotPresent),
+		},
+	}
+	err := volume.FromImageVolumeProviderSpec(imageVolumeProvider)
+	if err != nil {
+		t.Fatalf("Failed to create image volume: %v", err)
+	}
+	return volume
+}
+
+func createMountVolume(t *testing.T, name, path string) ApplicationVolume {
+	var volume ApplicationVolume
+	volume.Name = name
+	mountVolumeProvider := MountVolumeProviderSpec{
+		Mount: VolumeMount{
+			Path: path,
+		},
+	}
+	err := volume.FromMountVolumeProviderSpec(mountVolumeProvider)
+	if err != nil {
+		t.Fatalf("Failed to create mount volume: %v", err)
+	}
+	return volume
+}
+
+func createImageMountVolume(t *testing.T, name, imageRef, path string) ApplicationVolume {
+	var volume ApplicationVolume
+	volume.Name = name
+	imageMountVolumeProvider := ImageMountVolumeProviderSpec{
+		Image: ImageVolumeSource{
+			Reference:  imageRef,
+			PullPolicy: lo.ToPtr(PullIfNotPresent),
+		},
+		Mount: VolumeMount{
+			Path: path,
+		},
+	}
+	err := volume.FromImageMountVolumeProviderSpec(imageMountVolumeProvider)
+	if err != nil {
+		t.Fatalf("Failed to create image-mount volume: %v", err)
+	}
+	return volume
 }
 
 func TestValidateApplicationContentQuadlet(t *testing.T) {

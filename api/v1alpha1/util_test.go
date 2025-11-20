@@ -368,3 +368,108 @@ func TestAuthConfigHideSensitiveData(t *testing.T) {
 	require.NotNil(t, openshiftSpec.ClientSecret)
 	assert.Equal(t, "*****", *openshiftSpec.ClientSecret, "OpenShift client secret should be hidden")
 }
+
+func TestApplicationVolumeType(t *testing.T) {
+	tests := []struct {
+		name           string
+		setupVolume    func(t *testing.T) ApplicationVolume
+		expectedType   ApplicationVolumeProviderType
+		expectError    bool
+		errorSubstring string
+	}{
+		{
+			name: "image only volume",
+			setupVolume: func(t *testing.T) ApplicationVolume {
+				var volume ApplicationVolume
+				imageVolumeProvider := ImageVolumeProviderSpec{
+					Image: ImageVolumeSource{
+						Reference:  "quay.io/test/image:v1",
+						PullPolicy: lo.ToPtr(PullIfNotPresent),
+					},
+				}
+				err := volume.FromImageVolumeProviderSpec(imageVolumeProvider)
+				require.NoError(t, err)
+				return volume
+			},
+			expectedType: ImageApplicationVolumeProviderType,
+			expectError:  false,
+		},
+		{
+			name: "mount only volume",
+			setupVolume: func(t *testing.T) ApplicationVolume {
+				var volume ApplicationVolume
+				mountVolumeProvider := MountVolumeProviderSpec{
+					Mount: VolumeMount{
+						Path: "/host/path:/container/path",
+					},
+				}
+				err := volume.FromMountVolumeProviderSpec(mountVolumeProvider)
+				require.NoError(t, err)
+				return volume
+			},
+			expectedType: MountApplicationVolumeProviderType,
+			expectError:  false,
+		},
+		{
+			name: "image-mount volume",
+			setupVolume: func(t *testing.T) ApplicationVolume {
+				var volume ApplicationVolume
+				imageMountVolumeProvider := ImageMountVolumeProviderSpec{
+					Image: ImageVolumeSource{
+						Reference:  "quay.io/test/image:v1",
+						PullPolicy: lo.ToPtr(PullIfNotPresent),
+					},
+					Mount: VolumeMount{
+						Path: "/host/path:/container/path",
+					},
+				}
+				err := volume.FromImageMountVolumeProviderSpec(imageMountVolumeProvider)
+				require.NoError(t, err)
+				return volume
+			},
+			expectedType: ImageMountApplicationVolumeProviderType,
+			expectError:  false,
+		},
+		{
+			name: "empty volume",
+			setupVolume: func(t *testing.T) ApplicationVolume {
+				return ApplicationVolume{
+					Name:  "empty-vol",
+					union: []byte("{}"),
+				}
+			},
+			expectedType:   "",
+			expectError:    true,
+			errorSubstring: "unable to determine application volume type",
+		},
+		{
+			name: "invalid JSON in union",
+			setupVolume: func(t *testing.T) ApplicationVolume {
+				return ApplicationVolume{
+					Name:  "invalid-vol",
+					union: []byte("not valid json"),
+				}
+			},
+			expectedType:   "",
+			expectError:    true,
+			errorSubstring: "invalid character",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			volume := tt.setupVolume(t)
+			volumeType, err := volume.Type()
+
+			if tt.expectError {
+				require.Error(t, err)
+				if tt.errorSubstring != "" {
+					require.Contains(t, err.Error(), tt.errorSubstring)
+				}
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.expectedType, volumeType)
+			}
+		})
+	}
+}
