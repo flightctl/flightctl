@@ -16,10 +16,10 @@ import (
 )
 
 type AAPClientInterface interface {
-	GetOrganization(token string, organizationID string) (*aap.AAPOrganization, error)
-	ListUserTeams(token string, userID string) ([]*aap.AAPTeam, error)
-	ListOrganizations(token string) ([]*aap.AAPOrganization, error)
-	ListUserOrganizations(token string, userID string) ([]*aap.AAPOrganization, error)
+	GetOrganization(ctx context.Context, token string, organizationID string) (*aap.AAPOrganization, error)
+	ListUserTeams(ctx context.Context, token string, userID string) ([]*aap.AAPTeam, error)
+	ListOrganizations(ctx context.Context, token string) ([]*aap.AAPOrganization, error)
+	ListUserOrganizations(ctx context.Context, token string, userID string) ([]*aap.AAPOrganization, error)
 }
 
 type AAPProvider struct {
@@ -82,7 +82,7 @@ func (p *AAPProvider) getAllOrganizations(ctx context.Context) ([]org.ExternalOr
 		return nil, fmt.Errorf("token is required")
 	}
 
-	organizations, err := p.client.ListOrganizations(token)
+	organizations, err := p.client.ListOrganizations(ctx, token)
 	if err != nil {
 		return nil, err
 	}
@@ -103,12 +103,12 @@ func (p *AAPProvider) getUserScopedOrganizations(ctx context.Context, userID str
 		return nil, fmt.Errorf("token is required")
 	}
 
-	aapOrganizations, err := p.client.ListUserOrganizations(token, userID)
+	aapOrganizations, err := p.client.ListUserOrganizations(ctx, token, userID)
 	if err != nil {
 		return nil, err
 	}
 
-	aapTeams, err := p.client.ListUserTeams(token, userID)
+	aapTeams, err := p.client.ListUserTeams(ctx, token, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -170,7 +170,7 @@ func (p *AAPProvider) organizationExists(ctx context.Context, externalOrgID stri
 		return false, fmt.Errorf("token is required")
 	}
 
-	_, err := p.client.GetOrganization(token, externalOrgID)
+	_, err := p.client.GetOrganization(ctx, token, externalOrgID)
 	if err != nil {
 		return false, err
 	}
@@ -184,7 +184,7 @@ func (p *AAPProvider) userHasMembership(ctx context.Context, userID string, exte
 		return false, fmt.Errorf("token is required")
 	}
 
-	org, err := p.client.GetOrganization(token, externalOrgID)
+	org, err := p.client.GetOrganization(ctx, token, externalOrgID)
 	if err == nil && org != nil {
 		// If we can get the organization directly, the user has access
 		return true, nil
@@ -194,7 +194,7 @@ func (p *AAPProvider) userHasMembership(ctx context.Context, userID string, exte
 	}
 
 	// If we can't get the organization directly, we have to double check team-based membership
-	teams, err := p.client.ListUserTeams(token, userID)
+	teams, err := p.client.ListUserTeams(ctx, token, userID)
 	if err != nil {
 		return false, err
 	}
