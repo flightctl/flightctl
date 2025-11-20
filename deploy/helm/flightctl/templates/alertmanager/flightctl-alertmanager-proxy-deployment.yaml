@@ -63,12 +63,12 @@ spec:
             - name: DB_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: flightctl-db-app-secret
+                  name: {{ default "flightctl-db-app-secret" .Values.db.applicationUserSecretName }}
                   key: userPassword
             - name: DB_USER
               valueFrom:
                 secretKeyRef:
-                  name: flightctl-db-app-secret
+                  name: {{ default "flightctl-db-app-secret" .Values.db.applicationUserSecretName }}
                   key: user
           volumeMounts:
             - mountPath: /app/certs
