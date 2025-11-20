@@ -17,6 +17,7 @@ import (
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -29,6 +30,9 @@ type dummyCallbackManager struct{}
 func (c dummyCallbackManager) C(ctx context.Context, resourceKind v1alpha1.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
 }
 
+func (c dummyCallbackManager) EmitEvent(ctx context.Context, resourceKind v1alpha1.ResourceKind, orgId uuid.UUID, name string, eventType string, message string) {
+}
+
 func newTestServiceHandler(t *testing.T, store store.Store, caClient *crypto.CAClient) (*ServiceHandler, context.Context) {
 	logger := log.InitLogs()
 	callbackManager := dummyCallbackManager{}
@@ -38,9 +42,9 @@ func newTestServiceHandler(t *testing.T, store store.Store, caClient *crypto.CAC
 		ca:           caClient,
 		eventHandler: NewEventHandler(store, callbackManager, logger),
 	}
-	ctx := context.WithValue(context.Background(), consts.OrganizationIDCtxKey, store.NullOrgId)
-	identity := &common.Identity{Username: "test"}
-	ctx = context.WithValue(ctx, common.IdentityCtxKey, identity)
+	ctx := context.WithValue(context.Background(), consts.OrganizationIDCtxKey, consts.NullOrgID)
+	identity := common.NewIdentity("test")
+	ctx = context.WithValue(ctx, consts.IdentityCtxKey, identity)
 	return handler, ctx
 }
 
@@ -64,7 +68,7 @@ func createTestEnrollmentRequest(t *testing.T, name string, status *v1alpha1.Enr
 		Status: status,
 	}
 
-	_, err := serviceHandler.store.EnrollmentRequest().Create(ctx, store.NullOrgId, &enrollmentRequest, nil)
+	_, err := serviceHandler.store.EnrollmentRequest().Create(ctx, consts.NullOrgID, &enrollmentRequest, nil)
 	require.NoError(err)
 	return serviceHandler, ctx, enrollmentRequest
 }
@@ -100,7 +104,7 @@ func TestAlreadyApprovedEnrollmentRequestApprove(t *testing.T) {
 	require.Equal(statusBadRequestCode, stat.Code)
 	require.Equal("Enrollment request is already approved", stat.Message)
 
-	event, _ := serviceHandler.store.Event().List(ctx, store.NullOrgId, store.ListParams{})
+	event, _ := serviceHandler.store.Event().List(ctx, consts.NullOrgID, store.ListParams{})
 	require.Len(event.Items, 0)
 }
 
@@ -211,7 +215,7 @@ func TestApproveEnrollmentRequestUnsupportedIntegrity(t *testing.T) {
 	// Create a ServiceHandler
 	testStore := &TestStore{}
 	serviceHandler, ctx := newTestServiceHandler(t, testStore, caClient)
-	orgId := store.NullOrgId
+	orgId := consts.NullOrgID
 
 	// Create an enrollment request
 	enrollmentRequest := v1alpha1.EnrollmentRequest{
