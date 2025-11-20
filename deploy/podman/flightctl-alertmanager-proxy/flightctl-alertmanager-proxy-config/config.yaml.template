@@ -11,23 +11,12 @@ database:
   {{if .db.sslrootcert}}sslrootcert: {{.db.sslrootcert}}{{end}}
 {{end}}
 service:
-  address: flightctl-api:3443
-  agentEndpointAddress: flightctl-api:7443
-  baseUrl: https://{{.global.baseDomain}}:3443/
-  baseAgentEndpointUrl: https://{{.global.baseDomain}}:7443/
-  baseUIUrl: https://{{.global.baseDomain}}:443
-  altNames:
-    - {{.global.baseDomain}}
-    - flightctl-api
   rateLimit:
     enabled: {{.service.rateLimit.enabled}}
     requests: {{if .service.rateLimit.requests}}{{.service.rateLimit.requests}}{{else}}300{{end}}
     window: {{if .service.rateLimit.window}}{{.service.rateLimit.window}}{{else}}1m{{end}}
     authRequests: {{if .service.rateLimit.authRequests}}{{.service.rateLimit.authRequests}}{{else}}20{{end}}
     authWindow: {{if .service.rateLimit.authWindow}}{{.service.rateLimit.authWindow}}{{else}}1h{{end}}
-kv:
-  hostname: flightctl-kv
-  port: 6379
 organizations:
   enabled: {{if .global.organizations.enabled}}{{.global.organizations.enabled}}{{else}}false{{end}}
 auth:
@@ -43,25 +32,28 @@ auth:
     {{if .global.auth.pamOidcIssuer.enabled}}
     issuer: {{if .global.auth.pamOidcIssuer.issuer}}{{.global.auth.pamOidcIssuer.issuer}}{{else}}https://{{.global.baseDomain}}:8444/api/v1/auth{{end}}
     clientId: {{if .global.auth.pamOidcIssuer.clientId}}{{.global.auth.pamOidcIssuer.clientId}}{{else}}flightctl-client{{end}}
-    clientSecret: {{.global.auth.pamOidcIssuer.clientSecret}}
     {{else}}
     issuer: {{.global.auth.oidc.issuer}}
     clientId: {{.global.auth.oidc.clientId}}
-    clientSecret: {{.global.auth.oidc.clientSecret}}
     {{end}}
+    {{if .global.auth.oidc.usernameClaim}}
     usernameClaim:
-      {{if .global.auth.oidc.usernameClaim}}{{range .global.auth.oidc.usernameClaim}}- {{.}}
-      {{end}}{{else}}- preferred_username
+      {{range .global.auth.oidc.usernameClaim}}- {{.}}
       {{end}}
+    {{end}}
+    {{if .global.auth.oidc.roleAssignment}}
     roleAssignment:
-      type: {{if .global.auth.oidc.roleAssignment.type}}{{.global.auth.oidc.roleAssignment.type}}{{else}}dynamic{{end}}
+      type: {{.global.auth.oidc.roleAssignment.type}}
+      {{with .global.auth.oidc.roleAssignment.claimPath}}
       claimPath:
-        {{if .global.auth.oidc.roleAssignment.claimPath}}{{range .global.auth.oidc.roleAssignment.claimPath}}- {{.}}
-        {{end}}{{else}}- roles
+        {{range .}}- {{.}}
         {{end}}
+      {{end}}
+    {{end}}
+    {{if .global.auth.oidc.organizationAssignment}}
     organizationAssignment:
-      type: {{if .global.auth.oidc.organizationAssignment.type}}{{.global.auth.oidc.organizationAssignment.type}}{{else}}static{{end}}
-      organizationName: {{if .global.auth.oidc.organizationAssignment.organizationName}}{{.global.auth.oidc.organizationAssignment.organizationName}}{{else}}default{{end}}
+      type: {{.global.auth.oidc.organizationAssignment.type}}
+      {{with .global.auth.oidc.organizationAssignment.organizationName}}organizationName: {{.}}{{end}}
       {{with .global.auth.oidc.organizationAssignment.claimPath}}
       claimPath:
         {{range .}}- {{.}}
@@ -69,4 +61,6 @@ auth:
       {{end}}
       {{with .global.auth.oidc.organizationAssignment.organizationNamePrefix}}organizationNamePrefix: {{.}}{{end}}
       {{with .global.auth.oidc.organizationAssignment.organizationNameSuffix}}organizationNameSuffix: {{.}}{{end}}
+    {{end}}
 {{- end}}
+

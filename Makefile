@@ -151,7 +151,8 @@ build: bin build-cli build-pam-issuer
 		./cmd/flightctl-userinfo-proxy \
 		./cmd/flightctl-db-migrate \
 		./cmd/flightctl-restore \
-		./cmd/flightctl-telemetry-gateway 
+		./cmd/flightctl-telemetry-gateway \
+		./cmd/flightctl-standalone
 
 bin/flightctl-agent: bin $(GO_FILES)
 	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-agent
@@ -197,6 +198,9 @@ build-telemetry-gateway: bin
 
 build-devicesimulator: bin
 	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/devicesimulator
+
+build-standalone: bin
+	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-standalone
 
 # Container builds - Environment-aware caching
 flightctl-api-container: Containerfile.api go.mod go.sum $(GO_FILES)
@@ -333,7 +337,7 @@ bin/.rpm: bin $(shell find $(ROOT_DIR)/ -name "*.go" -not -path "$(ROOT_DIR)/pac
 
 rpm: bin/.rpm
 
-.PHONY: rpm build build-api build-pam-issuer build-periodic build-worker build-alert-exporter build-alertmanager-proxy build-userinfo-proxy
+.PHONY: rpm build build-api build-pam-issuer build-periodic build-worker build-alert-exporter build-alertmanager-proxy build-userinfo-proxy build-standalone
 
 # cross-building for deb pkg
 bin/amd64:
