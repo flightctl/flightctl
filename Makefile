@@ -89,6 +89,7 @@ help:
 	@echo "    lint-openapi:    run spectral to lint and rulecheck the OpenAPI spec"
 	@echo "    lint-docs:       run markdownlint on documentation"
 	@echo "    lint-diagrams:   verify that diagrams from Excalidraw have the source code embedded"
+	@echo "    lint-helm:       run helm lint"
 	@echo "    spellcheck-docs: run markdown-spellcheck on documentation"
 	@echo "    fix-spelling:    run markdown-spellcheck interactively to fix spelling issues"
 	@echo "    build:           run all builds"
@@ -427,6 +428,10 @@ check-rpmlint:
 
 .PHONY: lint-openapi
 lint-openapi: .output/stamps/lint-openapi
+
+.PHONY: lint-helm
+lint-helm:
+	helm lint deploy/helm/flightctl --values deploy/helm/flightctl/lint-values.yaml
 
 .output/stamps/lint-docs: $(wildcard docs/user/*.md)
 	@mkdir -p .output/stamps
