@@ -7,6 +7,7 @@ on:
       - main
       - 'release-*'
   pull_request:
+  merge_group:
 
 permissions:
   contents: read
@@ -63,7 +64,7 @@ jobs:
           FLIGHTCTL_TEST_DB_STRATEGY: template
 
       - name: Detect baseline for compatibility testing
-        if: ${{ steps.changed-files.outputs.any_changed == 'true' && github.event_name == 'pull_request' }}
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
         id: detect_baseline
         env:
           GH_TOKEN: ${{ github.token }}
@@ -82,8 +83,13 @@ jobs:
             BASELINE_REF="${LATEST_RELEASE_TAG}"
             echo "Using latest release as baseline: ${BASELINE_REF}"
           else
-            BASELINE_REF="${{ github.event.pull_request.base.sha }}"
-            echo "Failed to detect latest release, falling back to PR base: ${BASELINE_REF}"
+            # Use the appropriate base depending on event type
+            if [ "${{ github.event_name }}" = "pull_request" ]; then
+              BASELINE_REF="${{ github.event.pull_request.base.sha }}"
+            else
+              BASELINE_REF="${{ github.event.merge_group.base_sha }}"
+            fi
+            echo "Failed to detect latest release, falling back to base: ${BASELINE_REF}"
           fi
           echo ""
           echo "================================================"
@@ -93,7 +99,7 @@ jobs:
           echo "baseline_ref=${BASELINE_REF}" >> "$GITHUB_OUTPUT"
 
       - name: Checkout baseline branch
-        if: ${{ steps.changed-files.outputs.any_changed == 'true' && github.event_name == 'pull_request' }}
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
         uses: actions/checkout@v4
         with:
           repository: flightctl/flightctl
