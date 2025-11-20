@@ -68,6 +68,8 @@ linux
 Loki
 logrotate
 macOS
+must-gather
+sosreport
 metadata
 microservices
 MicroShift
