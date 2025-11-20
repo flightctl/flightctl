@@ -58,7 +58,7 @@ func NewManager(
 func (m *manager) Ensure(ctx context.Context, provider provider.Provider) error {
 	appType := provider.Spec().AppType
 	switch appType {
-	case v1alpha1.AppTypeCompose, v1alpha1.AppTypeQuadlet:
+	case v1alpha1.AppTypeCompose, v1alpha1.AppTypeQuadlet, v1alpha1.AppTypeContainer:
 		if m.podmanMonitor.Has(provider.Spec().ID) {
 			return nil
 		}
@@ -74,7 +74,7 @@ func (m *manager) Ensure(ctx context.Context, provider provider.Provider) error 
 func (m *manager) Remove(ctx context.Context, provider provider.Provider) error {
 	appType := provider.Spec().AppType
 	switch appType {
-	case v1alpha1.AppTypeCompose, v1alpha1.AppTypeQuadlet:
+	case v1alpha1.AppTypeCompose, v1alpha1.AppTypeQuadlet, v1alpha1.AppTypeContainer:
 		if err := provider.Remove(ctx); err != nil {
 			return fmt.Errorf("removing application: %w", err)
 		}
@@ -87,7 +87,7 @@ func (m *manager) Remove(ctx context.Context, provider provider.Provider) error 
 func (m *manager) Update(ctx context.Context, provider provider.Provider) error {
 	appType := provider.Spec().AppType
 	switch appType {
-	case v1alpha1.AppTypeCompose, v1alpha1.AppTypeQuadlet:
+	case v1alpha1.AppTypeCompose, v1alpha1.AppTypeQuadlet, v1alpha1.AppTypeContainer:
 		if err := provider.Remove(ctx); err != nil {
 			return fmt.Errorf("removing application: %w", err)
 		}

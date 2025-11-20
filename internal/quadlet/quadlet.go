@@ -69,6 +69,10 @@ const (
 	PodmanArgsKey = "PodmanArgs"
 	// ServiceNameKey is the key name for overriding the default service name
 	ServiceNameKey = "ServiceName"
+	// PublishPortKey is the key name for exposing ports from a container
+	PublishPortKey = "PublishPort"
+	// DriverKey is the key name for specifying a Volume driver
+	DriverKey = "Driver"
 )
 
 // Sections maps quadlet section names to their corresponding file extensions.
