@@ -565,8 +565,9 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 			defer consumerCancel()
 
 			err = consumer.Consume(consumerCtx, func(ctx context.Context, payload []byte, entryID string, consumer queues.QueueConsumer, log logrus.FieldLogger) error {
+				err := consumer.Complete(ctx, entryID, payload, fmt.Errorf("handler error"))
 				messageProcessed <- true
-				return consumer.Complete(ctx, entryID, payload, fmt.Errorf("handler error"))
+				return err
 			})
 			Expect(err).ToNot(HaveOccurred())
 
@@ -730,8 +731,13 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 
 			// Give consumer2 time to fully register and start listening
 			// Need to ensure the consumer goroutine is actively polling Redis
-			time.Sleep(1 * time.Second)
-			log.Info("Waited 1 second for consumer2 to be ready")
+			time.Sleep(100 * time.Millisecond)
+			log.Info("Waited for consumer2 to be ready")
+
+			// Wait for the backoff period to expire before retrying
+			// Backoff delay is 200ms (observed in logs), so wait for that plus buffer
+			time.Sleep(500 * time.Millisecond)
+			log.Info("Waited for backoff period to expire")
 
 			// Now retry failed messages using the SAME retry configuration
 			// that was used when the message was originally failed
