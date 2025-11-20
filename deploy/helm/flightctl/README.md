@@ -160,11 +160,12 @@ kubectl create secret generic postgres-client-certs \
 ```yaml
 # Configure in values.yaml
 db:
-  external: "enabled"
-  hostname: "postgres.example.com"
-  sslmode: "verify-ca"
-  sslConfigMap: "postgres-ca-cert"     # ConfigMap containing CA certificate
-  sslSecret: "postgres-client-certs"   # Secret containing client certificates
+  type: "external"
+  external:
+    hostname: "postgres.example.com"
+    sslmode: "verify-ca"
+    tlsConfigMapName: "postgres-ca-cert"     # ConfigMap containing CA certificate
+    tlsSecretName: "postgres-client-certs"   # Secret containing client certificates
 ```
 
 **TLS/SSL Modes:**
@@ -222,29 +223,29 @@ For more detailed configuration options, see the [Values](#values) section below
 | clusterCli.image.image | string | `"quay.io/openshift/origin-cli"` | Cluster CLI container image |
 | clusterCli.image.pullPolicy | string | `""` | Image pull policy for cluster CLI container |
 | clusterCli.image.tag | string | `"4.20.0"` | Cluster CLI image tag |
-| db | object | `{"additionalPVCLabels":null,"external":"disabled","fsGroup":"","image":{"image":"quay.io/sclorg/postgresql-16-c9s","pullPolicy":"","tag":"20250214"},"masterPassword":"","masterUser":"admin","maxConnections":200,"migrationPassword":"","migrationUser":"flightctl_migrator","name":"flightctl","port":5432,"resources":{"requests":{"cpu":"512m","memory":"512Mi"}},"sslConfigMap":"","sslSecret":"","sslmode":"","storage":{"size":"60Gi"},"type":"pgsql","user":"flightctl_app","userPassword":""}` | Database Configuration |
-| db.additionalPVCLabels | string | `nil` | Additional labels for DB PVCs. |
-| db.external | string | `"disabled"` | Use external PostgreSQL database instead of deploying internal one external: Set to "enabled" to use external PostgreSQL database instead of deploying internal one When enabled, configure hostname, port, name, user credentials to point to your external database |
-| db.fsGroup | string | `""` | File system group ID for database pod security context |
-| db.image.image | string | `"quay.io/sclorg/postgresql-16-c9s"` | PostgreSQL container image |
-| db.image.pullPolicy | string | `""` | Image pull policy for database container |
-| db.image.tag | string | `"20250214"` | PostgreSQL image tag |
-| db.masterPassword | string | `""` | Master user password (leave empty for auto-generation) masterPassword: Leave empty to auto-generate secure password, or set to use a specific password. |
-| db.masterUser | string | `"admin"` | Database master/admin username |
-| db.maxConnections | int | `200` | Maximum number of database connections |
-| db.migrationPassword | string | `""` | Migration user password (leave empty for auto-generation) migrationPassword: Leave empty to auto-generate secure password, or set to use a specific password. |
-| db.migrationUser | string | `"flightctl_migrator"` | Database migration username |
+| db | object | `{"builtin":{"additionalPVCLabels":null,"applicationUserSecretName":"","fsGroup":"","image":{"image":"quay.io/sclorg/postgresql-16-c9s","pullPolicy":"","tag":"20250214"},"masterUserSecretName":"","maxConnections":200,"migrationUserSecretName":"","resources":{"requests":{"cpu":"512m","memory":"512Mi"}},"storage":{"size":"60Gi"}},"external":{"applicationUserSecretName":"","hostname":"","migrationUserSecretName":"","port":5432,"sslmode":"","tlsConfigMapName":"","tlsSecretName":""},"name":"flightctl","type":"builtin"}` | Database Configuration |
+| db.builtin | object | `{"additionalPVCLabels":null,"applicationUserSecretName":"","fsGroup":"","image":{"image":"quay.io/sclorg/postgresql-16-c9s","pullPolicy":"","tag":"20250214"},"masterUserSecretName":"","maxConnections":200,"migrationUserSecretName":"","resources":{"requests":{"cpu":"512m","memory":"512Mi"}},"storage":{"size":"60Gi"}}` | Settings for builtin DB |
+| db.builtin.additionalPVCLabels | string | `nil` | Additional labels for DB PVCs. |
+| db.builtin.applicationUserSecretName | string | `""` | Database application user secret name containing username/password. If not provided, the secret will be generated |
+| db.builtin.fsGroup | string | `""` | File system group ID for database pod security context |
+| db.builtin.image.image | string | `"quay.io/sclorg/postgresql-16-c9s"` | PostgreSQL container image |
+| db.builtin.image.pullPolicy | string | `""` | Image pull policy for database container |
+| db.builtin.image.tag | string | `"20250214"` | PostgreSQL image tag |
+| db.builtin.masterUserSecretName | string | `""` | Database master/admin secret name containing username/password. If not provided, the secret will be generated |
+| db.builtin.maxConnections | int | `200` | Maximum number of database connections |
+| db.builtin.migrationUserSecretName | string | `""` | Database migration user secret name containing username/password. If not provided, the secret will be generated |
+| db.builtin.resources.requests.cpu | string | `"512m"` | CPU resource requests for database pod |
+| db.builtin.resources.requests.memory | string | `"512Mi"` | Memory resource requests for database pod |
+| db.builtin.storage.size | string | `"60Gi"` | Persistent volume size for database storage |
+| db.external.applicationUserSecretName | string | `""` | Database application user secret name containing username/password. |
+| db.external.hostname | string | `""` | External database hostname |
+| db.external.migrationUserSecretName | string | `""` | Database migration user secret name containing username/password. |
+| db.external.port | int | `5432` | Database port number |
+| db.external.sslmode | string | `""` | SSL mode for database connections (disable, allow, prefer, require, verify-ca, verify-full) |
+| db.external.tlsConfigMapName | string | `""` | ConfigMap containing CA certificate (automatically mounted at /etc/ssl/postgres/) |
+| db.external.tlsSecretName | string | `""` | Secret containing client certificates (automatically mounted at /etc/ssl/postgres/) |
 | db.name | string | `"flightctl"` | Database name for Flight Control |
-| db.port | int | `5432` | Database port number |
-| db.resources.requests.cpu | string | `"512m"` | CPU resource requests for database pod |
-| db.resources.requests.memory | string | `"512Mi"` | Memory resource requests for database pod |
-| db.sslConfigMap | string | `""` | ConfigMap containing CA certificate (automatically mounted at /etc/ssl/postgres/) |
-| db.sslSecret | string | `""` | Secret containing client certificates (automatically mounted at /etc/ssl/postgres/) |
-| db.sslmode | string | `""` | SSL mode for database connections (disable, allow, prefer, require, verify-ca, verify-full) |
-| db.storage.size | string | `"60Gi"` | Persistent volume size for database storage |
-| db.type | string | `"pgsql"` | Database type (currently only 'pgsql' is supported) |
-| db.user | string | `"flightctl_app"` | Application database username |
-| db.userPassword | string | `""` | Application user password (leave empty for auto-generation) userPassword: Leave empty to auto-generate secure password, or set to use a specific password. |
+| db.type | string | `"builtin"` | Type of database to use. Can be 'builtin' or 'external'. Only PostgreSQL DB is supported. |
 | dbSetup | object | `{"image":{"image":"quay.io/flightctl/flightctl-db-setup","pullPolicy":"","tag":""},"migration":{"activeDeadlineSeconds":0,"backoffLimit":2147483647},"wait":{"sleep":2,"timeout":60}}` | Database Setup Configuration |
 | dbSetup.image.image | string | `"quay.io/flightctl/flightctl-db-setup"` | Database setup container image |
 | dbSetup.image.pullPolicy | string | `""` | Image pull policy for database setup container |
