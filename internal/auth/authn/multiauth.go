@@ -85,6 +85,9 @@ func NewMultiAuth(authProviderService AuthProviderService, tlsConfig *tls.Config
 func (m *MultiAuth) AddStaticProvider(issuer string, provider common.AuthNMiddleware) {
 	m.staticProviders[issuer] = provider
 }
+func (m *MultiAuth) IsEnabled() bool {
+	return true
+}
 
 // HasProviders returns true if any providers are configured
 func (m *MultiAuth) HasProviders() bool {
@@ -333,6 +336,12 @@ func (m *MultiAuth) hasProviderChanged(existingMiddleware common.AuthNMiddleware
 		if existingOidcSpec.DisplayName != nil && newOidcSpec.DisplayName != nil && *existingOidcSpec.DisplayName != *newOidcSpec.DisplayName {
 			return true, nil
 		}
+		if (existingOidcSpec.Enabled == nil) != (newOidcSpec.Enabled == nil) {
+			return true, nil
+		}
+		if existingOidcSpec.Enabled != nil && newOidcSpec.Enabled != nil && *existingOidcSpec.Enabled != *newOidcSpec.Enabled {
+			return true, nil
+		}
 		if !equalStringSlices(existingOidcSpec.UsernameClaim, newOidcSpec.UsernameClaim) {
 			return true, nil
 		}
@@ -374,6 +383,12 @@ func (m *MultiAuth) hasProviderChanged(existingMiddleware common.AuthNMiddleware
 			return true, nil
 		}
 		if existingOauth2Spec.DisplayName != nil && newOauth2Spec.DisplayName != nil && *existingOauth2Spec.DisplayName != *newOauth2Spec.DisplayName {
+			return true, nil
+		}
+		if (existingOauth2Spec.Enabled == nil) != (newOauth2Spec.Enabled == nil) {
+			return true, nil
+		}
+		if existingOauth2Spec.Enabled != nil && newOauth2Spec.Enabled != nil && *existingOauth2Spec.Enabled != *newOauth2Spec.Enabled {
 			return true, nil
 		}
 		if !equalStringSlices(existingOauth2Spec.UsernameClaim, newOauth2Spec.UsernameClaim) {
@@ -563,24 +578,32 @@ func (m *MultiAuth) GetAuthConfig() *api.AuthConfig {
 			orgEnabled = *config.OrganizationsEnabled
 		}
 
-		// Add all providers from this config
+		// Add all providers from this config (filter by enabled=true)
 		if config.Providers != nil {
-			// Capture the first static provider name (from first sorted provider)
-			if firstStaticProviderName == "" && len(*config.Providers) > 0 && (*config.Providers)[0].Metadata.Name != nil {
-				firstStaticProviderName = *(*config.Providers)[0].Metadata.Name
+			for _, prov := range *config.Providers {
+				if m.isProviderEnabled(&prov) {
+					// Capture the first enabled static provider name
+					if firstStaticProviderName == "" && prov.Metadata.Name != nil {
+						firstStaticProviderName = *prov.Metadata.Name
+					}
+					allProviders = append(allProviders, prov)
+				}
 			}
-			allProviders = append(allProviders, *config.Providers...)
 		}
 	}
 
-	// Collect all dynamic providers
+	// Collect all dynamic providers (filter by enabled=true)
 	m.dynamicProvidersMu.RLock()
 	for _, provider := range m.dynamicProviders {
 		config := provider.GetAuthConfig()
 
-		// Add all providers from this config
+		// Add all enabled providers from this config
 		if config.Providers != nil {
-			allProviders = append(allProviders, *config.Providers...)
+			for _, prov := range *config.Providers {
+				if m.isProviderEnabled(&prov) {
+					allProviders = append(allProviders, prov)
+				}
+			}
 		}
 	}
 	m.dynamicProvidersMu.RUnlock()
@@ -619,23 +642,62 @@ func (m *MultiAuth) GetAuthConfig() *api.AuthConfig {
 	}
 }
 
+// isProviderEnabled checks if a provider has enabled=true
+func (m *MultiAuth) isProviderEnabled(provider *api.AuthProvider) bool {
+	// Check the provider spec's Enabled field based on provider type
+	providerType, err := provider.Spec.Discriminator()
+	if err != nil {
+		return false
+	}
+
+	switch providerType {
+	case string(api.Oidc):
+		if spec, err := provider.Spec.AsOIDCProviderSpec(); err == nil {
+			return spec.Enabled != nil && *spec.Enabled
+		}
+	case string(api.Oauth2):
+		if spec, err := provider.Spec.AsOAuth2ProviderSpec(); err == nil {
+			return spec.Enabled != nil && *spec.Enabled
+		}
+	case string(api.Openshift):
+		if spec, err := provider.Spec.AsOpenShiftProviderSpec(); err == nil {
+			return spec.Enabled != nil && *spec.Enabled
+		}
+	case string(api.Aap):
+		if spec, err := provider.Spec.AsAapProviderSpec(); err == nil {
+			return spec.Enabled != nil && *spec.Enabled
+		}
+	case string(api.K8s):
+		if spec, err := provider.Spec.AsK8sProviderSpec(); err == nil {
+			return spec.Enabled != nil && *spec.Enabled
+		}
+	}
+
+	// If no Enabled field found or if provider type is unknown, don't include it
+	return false
+}
+
 // getPossibleProviders extracts possible providers from a token
 // Returns a list of providers and the parsed JWT token (nil if not a JWT)
 func (m *MultiAuth) getPossibleProviders(token string) ([]common.AuthNMiddleware, jwt.Token, error) {
 	// Try to parse as JWT token
 	parsedToken, err := parseToken(token)
 	if err != nil || parsedToken.Issuer() == "" {
-		// Not a JWT token or JWT without issuer - return all possible providers for opaque tokens
+		// Not a JWT token or JWT without issuer - return all possible enabled providers for opaque tokens
 		providers := []common.AuthNMiddleware{}
 
-		// Add all static providers
+		// Add all enabled static providers
 		for _, provider := range m.staticProviders {
-			providers = append(providers, provider)
+			if provider.IsEnabled() {
+				providers = append(providers, provider)
+			}
 		}
-		// Add all cached dynamic providers
+		// Add all enabled cached dynamic providers
 		m.dynamicProvidersMu.RLock()
 		for _, provider := range m.dynamicProviders {
-			providers = append(providers, provider)
+			if provider.IsEnabled() {
+				providers = append(providers, provider)
+			}
 		}
 		m.dynamicProvidersMu.RUnlock()
 
@@ -649,12 +711,15 @@ func (m *MultiAuth) getPossibleProviders(token string) ([]common.AuthNMiddleware
 	case TokenTypeK8s:
 		// K8s tokens: use static "k8s" key
 		if provider, exists := m.staticProviders["k8s"]; exists {
-			return []common.AuthNMiddleware{provider}, parsedToken, nil
+			if provider.IsEnabled() {
+				return []common.AuthNMiddleware{provider}, parsedToken, nil
+			}
+			return []common.AuthNMiddleware{}, parsedToken, fmt.Errorf("K8s provider is disabled")
 		}
 		return []common.AuthNMiddleware{}, parsedToken, fmt.Errorf("no K8s provider found")
 
 	case TokenTypeOIDC:
-		// OIDC tokens: collect all providers matching issuer+clientId
+		// OIDC tokens: collect all enabled providers matching issuer+clientId
 		issuer := parsedToken.Issuer()
 		clientIds := parsedToken.Audience()
 		if len(clientIds) == 0 {
@@ -662,22 +727,26 @@ func (m *MultiAuth) getPossibleProviders(token string) ([]common.AuthNMiddleware
 		}
 
 		providers := []common.AuthNMiddleware{}
-		// Try each client ID to find matching providers
+		// Try each client ID to find matching enabled providers
 		for _, clientId := range clientIds {
 			// 1. Check static config-based providers (using string key)
 			staticKey := fmt.Sprintf("%s:%s", issuer, clientId)
 			if provider, exists := m.staticProviders[staticKey]; exists {
-				providers = append(providers, provider)
+				if provider.IsEnabled() {
+					providers = append(providers, provider)
+				}
 			}
 
 			// 2. Check cached dynamic auth providers (pre-loaded and synced via events)
 			if provider, exists := m.getDynamicAuthProvider(issuer, clientId); exists {
-				providers = append(providers, provider)
+				if provider.IsEnabled() {
+					providers = append(providers, provider)
+				}
 			}
 		}
 
 		if len(providers) == 0 {
-			return []common.AuthNMiddleware{}, parsedToken, fmt.Errorf("no OIDC provider found for issuer: %s, clientIds: %v", issuer, clientIds)
+			return []common.AuthNMiddleware{}, parsedToken, fmt.Errorf("no enabled OIDC provider found for issuer: %s, clientIds: %v", issuer, clientIds)
 		}
 
 		return providers, parsedToken, nil

@@ -51,6 +51,7 @@ type AuthNMiddleware interface {
 	ValidateToken(ctx context.Context, token string) error
 	GetIdentity(ctx context.Context, token string) (Identity, error)
 	GetAuthConfig() *v1alpha1.AuthConfig
+	IsEnabled() bool
 }
 
 type BaseIdentity struct {

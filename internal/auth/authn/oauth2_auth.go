@@ -75,6 +75,10 @@ func NewOAuth2Auth(metadata api.ObjectMeta, spec api.OAuth2ProviderSpec, tlsConf
 	}, nil
 }
 
+func (o *OAuth2Auth) IsEnabled() bool {
+	return o.spec.Enabled != nil && *o.spec.Enabled
+}
+
 // GetOAuth2Spec returns the internal OAuth2 spec with client secret intact (for internal use only)
 func (o *OAuth2Auth) GetOAuth2Spec() api.OAuth2ProviderSpec {
 	return o.spec
