@@ -15,6 +15,7 @@ import (
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/initialization"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/domain"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
@@ -26,10 +27,95 @@ import (
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/spf13/cobra"
 )
 
-//nolint:gocyclo
 func main() {
+	command := NewAPICommand()
+	if err := command.Execute(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func NewAPICommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "flightctl-api [command]",
+		Short: "Flight Control API server",
+		Long:  "Flight Control API server",
+		Run: func(cmd *cobra.Command, args []string) {
+			// Default behavior: run serve command
+			serveCmd := NewServeCommand()
+			serveCmd.SetArgs(args)
+			if err := serveCmd.Execute(); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+		},
+	}
+
+	cmd.AddCommand(NewInitCommand())
+	cmd.AddCommand(NewServeCommand())
+
+	return cmd
+}
+
+func NewInitCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "init",
+		Short: "Initialize certificates",
+		Long:  "Generate CA and server certificates without starting the API server",
+		Run: func(cmd *cobra.Command, args []string) {
+			if err := runInit(); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+		},
+	}
+}
+
+func NewServeCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "serve",
+		Short: "Start the API server",
+		Long:  "Start the Flight Control API server",
+		Run: func(cmd *cobra.Command, args []string) {
+			if err := runServe(); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+		},
+	}
+}
+
+func runInit() error {
+	ctx := context.Background()
+
+	cfg, err := config.LoadOrGenerate(config.ConfigFile())
+	if err != nil {
+		return fmt.Errorf("reading configuration: %w", err)
+	}
+
+	log := log.InitLogs(cfg.Service.LogLevel)
+	log.Println("Initializing certificates")
+
+	log.Printf("Using config: %s", cfg)
+	ca, _, err := initialization.ServerCertificates(ctx, cfg, log)
+	if err != nil {
+		return fmt.Errorf("initializing certificates: %w", err)
+	}
+
+	err = initialization.BootstrapClientCertificates(ctx, cfg, ca)
+	if err != nil {
+		return fmt.Errorf("initializing bootstrap client certificates: %w", err)
+	}
+
+	log.Println("Successfully initialized certificates")
+	return nil
+}
+
+//nolint:gocyclo
+func runServe() error {
 	ctx := context.Background()
 
 	cfg, err := config.LoadOrGenerate(config.ConfigFile())
@@ -42,67 +128,19 @@ func main() {
 	defer log.Println("API service stopped")
 	log.Printf("Using config: %s", cfg)
 
-	ca, _, err := crypto.EnsureCA(cfg.CA)
+	// Initialize service and bootstrap client certificates
+	// This functionality is also exposed via the service init subcommand, but keeping these here for backwards compatibility
+	ca, serverCerts, err := initialization.ServerCertificates(ctx, cfg, log)
 	if err != nil {
-		log.Fatalf("ensuring CA cert: %v", err)
+		log.Fatalf("initializing certificates: %v", err)
 	}
 
-	var serverCerts *crypto.TLSCertificateConfig
-
-	// check for user-provided certificate files
-	if cfg.Service.SrvCertFile != "" || cfg.Service.SrvKeyFile != "" {
-		if canReadCertAndKey, err := crypto.CanReadCertAndKey(cfg.Service.SrvCertFile, cfg.Service.SrvKeyFile); !canReadCertAndKey {
-			log.Fatalf("cannot read provided server certificate or key: %v", err)
-		}
-
-		serverCerts, err = crypto.GetTLSCertificateConfig(cfg.Service.SrvCertFile, cfg.Service.SrvKeyFile)
-		if err != nil {
-			log.Fatalf("failed to load provided certificate: %v", err)
-		}
-	} else {
-		srvCertFile := crypto.CertStorePath(cfg.Service.ServerCertName+".crt", cfg.Service.CertStore)
-		srvKeyFile := crypto.CertStorePath(cfg.Service.ServerCertName+".key", cfg.Service.CertStore)
-
-		// check if existing self-signed certificate is available
-		if canReadCertAndKey, _ := crypto.CanReadCertAndKey(srvCertFile, srvKeyFile); canReadCertAndKey {
-			serverCerts, err = crypto.GetTLSCertificateConfig(srvCertFile, srvKeyFile)
-			if err != nil {
-				log.Fatalf("failed to load existing self-signed certificate: %v", err)
-			}
-		} else {
-			// default to localhost if no alternative names are set
-			if len(cfg.Service.AltNames) == 0 {
-				cfg.Service.AltNames = []string{"localhost"}
-			}
-
-			serverCerts, err = ca.MakeAndWriteServerCertificate(ctx, srvCertFile, srvKeyFile, cfg.Service.AltNames, cfg.CA.ServerCertValidityDays)
-			if err != nil {
-				log.Fatalf("failed to create self-signed certificate: %v", err)
-			}
-		}
-	}
-
-	// check for expired certificate
-	for _, x509Cert := range serverCerts.Certs {
-		expired := time.Now().After(x509Cert.NotAfter)
-		log.Printf("checking certificate: subject='%s', issuer='%s', expiry='%v'",
-			x509Cert.Subject.CommonName, x509Cert.Issuer.CommonName, x509Cert.NotAfter)
-
-		if expired {
-			log.Warnf("server certificate for '%s' issued by '%s' has expired on: %v",
-				x509Cert.Subject.CommonName, x509Cert.Issuer.CommonName, x509Cert.NotAfter)
-		}
-	}
-
-	clientCertFile := crypto.CertStorePath(cfg.CA.ClientBootstrapCertName+".crt", cfg.Service.CertStore)
-	clientKeyFile := crypto.CertStorePath(cfg.CA.ClientBootstrapCertName+".key", cfg.Service.CertStore)
-	_, _, err = ca.EnsureClientCertificate(ctx, clientCertFile, clientKeyFile, cfg.CA.ClientBootstrapCommonName, cfg.CA.ClientBootstrapValidityDays)
+	err = initialization.BootstrapClientCertificates(ctx, cfg, ca)
 	if err != nil {
-		log.Fatalf("ensuring bootstrap client cert: %v", err)
+		log.Fatalf("initializing bootstrap client certificates: %v", err)
 	}
 
-	// also write out a client config file
-
+	// Write out a client config file
 	caPemBytes, err := ca.GetCABundle()
 	if err != nil {
 		log.Fatalf("loading CA certificate bundle: %v", err)
@@ -228,4 +266,5 @@ func main() {
 	}
 
 	<-ctx.Done()
+	return nil
 }

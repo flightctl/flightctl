@@ -1,8 +1,15 @@
 global:
   baseDomain:
+  baseDomainTls: 
+    # customServerCerts - if true services will load server certificates from 
+    # /etc/flightctl/pki/custom/server.crt and /etc/flightctl/pki/custom/server.key
+    customServerCerts: false
   auth:
     type: oidc # oidc, aap, oauth2, or none
-    insecureSkipTlsVerify: true
+    insecureSkipTlsVerify: false
+    # customCaCert - if true services will load the CA certificate from
+    # /etc/flightctl/pki/custom/auth/ca.crt
+    customCaCert: false
     aap:
       apiUrl:
       externalApiUrl:
