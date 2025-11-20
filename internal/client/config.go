@@ -6,7 +6,6 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
-	"maps"
 	"net"
 	"net/http"
 	"net/url"
@@ -18,6 +17,7 @@ import (
 	"time"
 
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
+	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/crypto"
@@ -72,6 +72,13 @@ type Service struct {
 	InsecureSkipVerify       bool   `json:"insecureSkipVerify,omitempty"`
 }
 
+type TokenToUseType string
+
+const (
+	TokenToUseAccessToken TokenToUseType = "access"
+	TokenToUseIdToken     TokenToUseType = "id"
+)
+
 // AuthInfo contains information for authenticating Flight Control API clients.
 type AuthInfo struct {
 	// ClientCertificate is the path to a client cert file for TLS.
@@ -86,10 +93,22 @@ type AuthInfo struct {
 	// ClientKeyData contains PEM-encoded data from a client key file for TLS. Overrides ClientKey.
 	// +optional
 	ClientKeyData []byte `json:"client-key-data,omitempty" datapolicy:"security-key"`
-	// Bearer token for authentication
+	// AccessToken is the OAuth2/OIDC access token for API authentication
 	// +optional
-	Token string `json:"token,omitempty"`
-	// The authentication provider (i.e. k8s, OIDC)
+	AccessToken string `json:"access-token,omitempty"`
+	// AccessTokenExpiry is the expiration time of the access token (RFC3339 format)
+	// +optional
+	AccessTokenExpiry string `json:"access-token-expiry,omitempty"`
+	// RefreshToken is the OAuth2/OIDC refresh token for obtaining new access tokens
+	// +optional
+	RefreshToken string `json:"refresh-token,omitempty"`
+	// IdToken is the OIDC ID token containing user identity information
+	// +optional
+	IdToken string `json:"id-token,omitempty"`
+	// TokenToUse is the type of token to use for API authentication
+	// +optional
+	TokenToUse TokenToUseType `json:"token-to-use,omitempty"`
+	// The authentication provider (i.e. OIDC, AAP, OAuth2, OpenShift)
 	// +optional
 	AuthProvider *AuthProviderConfig `json:"auth-provider,omitempty"`
 	// Organizations indicates the configured IdP supports organizations.
@@ -98,12 +117,12 @@ type AuthInfo struct {
 }
 
 type AuthProviderConfig struct {
-	// Name is the name of the authentication provider
-	Name string `json:"name"`
-	// Type is the type of the authentication provider
-	Type string `json:"type"`
-	// Config is a map of authentication provider-specific configuration
-	Config map[string]string `json:"config,omitempty"`
+	// AuthProvider is the authentication provider from the API
+	AuthProvider api.AuthProvider `json:"auth-provider"`
+	// CAFile is the path to a cert file for the certificate authority of the auth provider.
+	CAFile string `json:"ca-file,omitempty"`
+	// InsecureSkipVerify skips TLS verification when connecting to the auth provider
+	InsecureSkipVerify bool `json:"insecureSkipVerify,omitempty"`
 }
 
 func (c *Config) Equal(c2 *Config) bool {
@@ -135,9 +154,25 @@ func (a *AuthInfo) Equal(a2 *AuthInfo) bool {
 	if a == nil || a2 == nil {
 		return false
 	}
+	// Compare AuthProvider presence and equality
+	if a.AuthProvider == nil && a2.AuthProvider == nil {
+		// Both nil, continue with other fields
+	} else if a.AuthProvider == nil || a2.AuthProvider == nil {
+		// One nil, one not nil => not equal
+		return false
+	} else if !a.AuthProvider.Equal(a2.AuthProvider) {
+		// Both non-nil, use Equal method
+		return false
+	}
 	return a.ClientCertificate == a2.ClientCertificate && a.ClientKey == a2.ClientKey &&
 		bytes.Equal(a.ClientCertificateData, a2.ClientCertificateData) &&
-		bytes.Equal(a.ClientKeyData, a2.ClientKeyData)
+		bytes.Equal(a.ClientKeyData, a2.ClientKeyData) &&
+		a.AccessToken == a2.AccessToken &&
+		a.AccessTokenExpiry == a2.AccessTokenExpiry &&
+		a.RefreshToken == a2.RefreshToken &&
+		a.IdToken == a2.IdToken &&
+		a.TokenToUse == a2.TokenToUse &&
+		a.OrganizationsEnabled == a2.OrganizationsEnabled
 }
 
 func (a *AuthProviderConfig) Equal(a2 *AuthProviderConfig) bool {
@@ -147,7 +182,16 @@ func (a *AuthProviderConfig) Equal(a2 *AuthProviderConfig) bool {
 	if a == nil || a2 == nil {
 		return false
 	}
-	return a.Name == a2.Name && a.Type == a2.Type && maps.Equal(a.Config, a2.Config)
+
+	// Compare AuthProvider using YAML marshaling
+	a1Yaml, err1 := yaml.Marshal(a.AuthProvider)
+	a2Yaml, err2 := yaml.Marshal(a2.AuthProvider)
+	if err1 != nil || err2 != nil || !bytes.Equal(a1Yaml, a2Yaml) {
+		return false
+	}
+
+	return a.CAFile == a2.CAFile &&
+		a.InsecureSkipVerify == a2.InsecureSkipVerify
 }
 
 func (c *Config) DeepCopy() *Config {
@@ -180,7 +224,9 @@ func (a *AuthInfo) DeepCopy() *AuthInfo {
 	a2 := *a
 	a2.ClientCertificateData = bytes.Clone(a.ClientCertificateData)
 	a2.ClientKeyData = bytes.Clone(a.ClientKeyData)
-	a2.AuthProvider = a.AuthProvider.DeepCopy()
+	if a.AuthProvider != nil {
+		a2.AuthProvider = a.AuthProvider.DeepCopy()
+	}
 	return &a2
 }
 
@@ -189,7 +235,6 @@ func (a *AuthProviderConfig) DeepCopy() *AuthProviderConfig {
 		return nil
 	}
 	a2 := *a
-	a2.Config = maps.Clone(a.Config)
 	return &a2
 }
 

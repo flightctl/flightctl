@@ -211,6 +211,36 @@ func (h *Harness) ReadClientConfig(filePath string) (*client.Config, error) {
 	return client.ParseConfigFile(filePath)
 }
 
+// ExtractAuthURL extracts the authentication URL from an AuthProvider based on its type
+func ExtractAuthURL(provider *v1alpha1.AuthProvider) string {
+	if provider == nil {
+		return ""
+	}
+	providerType, _ := provider.Spec.Discriminator()
+	switch providerType {
+	case string(v1alpha1.K8s):
+		if k8sSpec, err := provider.Spec.AsK8sProviderSpec(); err == nil {
+			return k8sSpec.ApiUrl
+		}
+	case string(v1alpha1.Oidc):
+		if oidcSpec, err := provider.Spec.AsOIDCProviderSpec(); err == nil {
+			return oidcSpec.Issuer
+		}
+	case "aap":
+		if aapSpec, err := provider.Spec.AsAapProviderSpec(); err == nil {
+			if aapSpec.ExternalApiUrl != nil {
+				return *aapSpec.ExternalApiUrl
+			}
+			return aapSpec.ApiUrl
+		}
+	case string(v1alpha1.Oauth2):
+		if oauth2Spec, err := provider.Spec.AsOAuth2ProviderSpec(); err == nil {
+			return oauth2Spec.AuthorizationUrl
+		}
+	}
+	return ""
+}
+
 // MarkClientAccessTokenExpired updates the client configuration at the specified path by marking the token as expired
 // If no path is supplied, the default config path will be used
 func (h *Harness) MarkClientAccessTokenExpired(filePath string) error {
@@ -226,7 +256,7 @@ func (h *Harness) MarkClientAccessTokenExpired(filePath string) error {
 		return err
 	}
 	// expire the token by making setting the time to one minute ago
-	cfg.AuthInfo.AuthProvider.Config[client.AuthAccessTokenExpiryKey] = time.Now().Add(-1 * time.Minute).Format(time.RFC3339Nano)
+	cfg.AuthInfo.AccessTokenExpiry = time.Now().Add(-1 * time.Minute).Format(time.RFC3339Nano)
 	return cfg.Persist(filePath)
 }
 
