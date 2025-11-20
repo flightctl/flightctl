@@ -18,13 +18,60 @@ import (
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/google/uuid"
 	"github.com/samber/lo"
-	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 )
 
-func testEnrollmentRequestPatch(require *require.Assertions, patch v1alpha1.PatchRequest) (*v1alpha1.EnrollmentRequest, v1alpha1.EnrollmentRequest, v1alpha1.Status) {
-	serviceHandler, ctx, enrollmentRequest := createTestEnrollmentRequest(require, "validname", nil)
+// A dummy callback manager that does nothing.
+type dummyCallbackManager struct{}
+
+func (c dummyCallbackManager) C(ctx context.Context, resourceKind v1alpha1.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
+}
+
+func newTestServiceHandler(t *testing.T, store store.Store, caClient *crypto.CAClient) (*ServiceHandler, context.Context) {
+	logger := log.InitLogs()
+	callbackManager := dummyCallbackManager{}
+	handler := &ServiceHandler{
+		store:        store,
+		log:          logger,
+		ca:           caClient,
+		eventHandler: NewEventHandler(store, callbackManager, logger),
+	}
+	ctx := context.WithValue(context.Background(), consts.OrganizationIDCtxKey, store.NullOrgId)
+	identity := &common.Identity{Username: "test"}
+	ctx = context.WithValue(ctx, common.IdentityCtxKey, identity)
+	return handler, ctx
+}
+
+func createTestEnrollmentRequest(t *testing.T, name string, status *v1alpha1.EnrollmentRequestStatus) (*ServiceHandler, context.Context, v1alpha1.EnrollmentRequest) {
+	require := require.New(t)
+	testStore := &TestStore{}
+	serviceHandler, ctx := newTestServiceHandler(t, testStore, nil)
+
+	deviceStatus := v1alpha1.NewDeviceStatus()
+	enrollmentRequest := v1alpha1.EnrollmentRequest{
+		ApiVersion: "v1",
+		Kind:       "EnrollmentRequest",
+		Metadata: v1alpha1.ObjectMeta{
+			Name:   lo.ToPtr(name),
+			Labels: &map[string]string{"labelKey": "labelValue"},
+		},
+		Spec: v1alpha1.EnrollmentRequestSpec{
+			Csr:          "TestCSR",
+			DeviceStatus: &deviceStatus,
+		},
+		Status: status,
+	}
+
+	_, err := serviceHandler.store.EnrollmentRequest().Create(ctx, store.NullOrgId, &enrollmentRequest, nil)
+	require.NoError(err)
+	return serviceHandler, ctx, enrollmentRequest
+}
+
+func testEnrollmentRequestPatch(t *testing.T, patch v1alpha1.PatchRequest) (*v1alpha1.EnrollmentRequest, v1alpha1.EnrollmentRequest, v1alpha1.Status) {
+	require := require.New(t)
+	serviceHandler, ctx, enrollmentRequest := createTestEnrollmentRequest(t, "validname", nil)
 	resp, status := serviceHandler.PatchEnrollmentRequest(ctx, "validname", patch)
 	require.NotEqual(statusFailedCode, status.Code)
 	return resp, enrollmentRequest, status
@@ -42,7 +89,7 @@ func TestAlreadyApprovedEnrollmentRequestApprove(t *testing.T) {
 			Message: "Approved by "}},
 	}
 
-	serviceHandler, ctx, _ := createTestEnrollmentRequest(require, "foo", approvedStatus)
+	serviceHandler, ctx, _ := createTestEnrollmentRequest(t, "foo", approvedStatus)
 
 	approval := v1alpha1.EnrollmentRequestApproval{
 		Approved: true,
@@ -59,9 +106,7 @@ func TestAlreadyApprovedEnrollmentRequestApprove(t *testing.T) {
 
 func TestNotFoundReplaceEnrollmentRequestStatus(t *testing.T) {
 	require := require.New(t)
-	serviceHandler := ServiceHandler{
-		store: &TestStore{},
-	}
+	serviceHandler, _ := newTestServiceHandler(t, &TestStore{}, nil)
 	ctx := context.Background()
 
 	invalidER := v1alpha1.EnrollmentRequest{
@@ -115,7 +160,7 @@ func TestEnrollmentRequestPatchInvalidRequests(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, _, status := testEnrollmentRequestPatch(require, tc.patchRequest)
+			_, _, status := testEnrollmentRequestPatch(t, tc.patchRequest)
 			verifyERPatchFailed(require, status)
 		})
 	}
@@ -123,34 +168,6 @@ func TestEnrollmentRequestPatchInvalidRequests(t *testing.T) {
 
 func verifyERPatchFailed(require *require.Assertions, status v1alpha1.Status) {
 	require.Equal(statusBadRequestCode, status.Code)
-}
-
-func createTestEnrollmentRequest(require *require.Assertions, name string, status *v1alpha1.EnrollmentRequestStatus) (*ServiceHandler, context.Context, v1alpha1.EnrollmentRequest) {
-	deviceStatus := v1alpha1.NewDeviceStatus()
-	enrollmentRequest := v1alpha1.EnrollmentRequest{
-		ApiVersion: "v1",
-		Kind:       "EnrollmentRequest",
-		Metadata: v1alpha1.ObjectMeta{
-			Name:   lo.ToPtr(name),
-			Labels: &map[string]string{"labelKey": "labelValue"},
-		},
-		Spec: v1alpha1.EnrollmentRequestSpec{
-			Csr:          "TestCSR",
-			DeviceStatus: &deviceStatus,
-		},
-		Status: status,
-	}
-	testStore := &TestStore{}
-	logger := log.InitLogs()
-	serviceHandler := ServiceHandler{
-		eventHandler: NewEventHandler(testStore, nil, logger),
-		store:        testStore,
-		log:          logger,
-	}
-	ctx := context.Background()
-	_, err := serviceHandler.store.EnrollmentRequest().Create(ctx, store.NullOrgId, &enrollmentRequest, nil)
-	require.NoError(err)
-	return &serviceHandler, ctx, enrollmentRequest
 }
 
 func TestApproveEnrollmentRequestUnsupportedIntegrity(t *testing.T) {
@@ -193,18 +210,8 @@ func TestApproveEnrollmentRequestUnsupportedIntegrity(t *testing.T) {
 
 	// Create a ServiceHandler
 	testStore := &TestStore{}
-	log := logrus.New()
-	serviceHandler := ServiceHandler{
-		store:           testStore,
-		callbackManager: dummyCallbackManager(),
-		ca:              caClient,
-		EventHandler:    NewEventHandler(testStore, log),
-		log:             log,
-	}
+	serviceHandler, ctx := newTestServiceHandler(t, testStore, caClient)
 	orgId := store.NullOrgId
-	identity := &common.Identity{Username: "test"}
-	ctx := context.WithValue(context.Background(), consts.OrganizationIDCtxKey, orgId)
-	ctx = context.WithValue(ctx, common.IdentityCtxKey, identity)
 
 	// Create an enrollment request
 	enrollmentRequest := v1alpha1.EnrollmentRequest{
