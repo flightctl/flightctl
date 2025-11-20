@@ -1207,3 +1207,165 @@ func TestNamespaceNetworkName(t *testing.T) {
 		})
 	}
 }
+
+func TestEnsureQuadlet(t *testing.T) {
+	require := require.New(t)
+
+	tests := []struct {
+		name          string
+		files         map[string]string
+		expectError   bool
+		errorContains string
+	}{
+		{
+			name: "valid top-level quadlet files",
+			files: map[string]string{
+				"app.container": `[Container]
+Image=quay.io/test/image:v1
+`,
+				"db.container": `[Container]
+Image=quay.io/test/db:v1
+`,
+			},
+			expectError: false,
+		},
+		{
+			name: "quadlet files in subdirectory (invalid)",
+			files: map[string]string{
+				"app1/app.container": `[Container]
+Image=quay.io/test/image:v1
+`,
+				"app2/app.container": `[Container]
+Image=quay.io/test/image:v2
+`,
+			},
+			expectError:   true,
+			errorContains: "must reside at the top level",
+		},
+		{
+			name: "invalid no quadlet files",
+			files: map[string]string{
+				"README.md": "# My App",
+				"LICENSE":   "MIT",
+			},
+			expectError:   true,
+			errorContains: "no valid quadlet files",
+		},
+		{
+			name: "mixed top-level and subdirectory (valid)",
+			files: map[string]string{
+				"app.container": `[Container]
+Image=quay.io/test/image:v1
+`,
+				"docs/README.md": "# Documentation",
+			},
+			expectError: false,
+		},
+		{
+			name: "valid with dropin configs",
+			files: map[string]string{
+				"app.container": `[Container]
+Image=quay.io/test/image:v1
+`,
+				"app.container.d/10-override.conf": `[Container]
+Environment=FOO=bar
+`,
+			},
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			rw := fileio.NewReadWriter()
+			rw.SetRootdir(tmpDir)
+
+			// Create test files
+			for path, content := range tt.files {
+				dir := filepath.Dir(path)
+				if dir != "." {
+					err := rw.MkdirAll(dir, fileio.DefaultDirectoryPermissions)
+					require.NoError(err)
+				}
+				err := rw.WriteFile(path, []byte(content), fileio.DefaultFilePermissions)
+				require.NoError(err)
+			}
+
+			err := ensureQuadlet(rw, ".")
+
+			if tt.expectError {
+				require.Error(err)
+				if tt.errorContains != "" {
+					require.Contains(err.Error(), tt.errorContains)
+				}
+			} else {
+				require.NoError(err)
+			}
+		})
+	}
+}
+
+func TestHasQuadletFiles(t *testing.T) {
+	require := require.New(t)
+
+	tests := []struct {
+		name        string
+		files       []string
+		expectFound bool
+	}{
+		{
+			name:        "directory with container file",
+			files:       []string{"app.container"},
+			expectFound: true,
+		},
+		{
+			name:        "directory with volume file",
+			files:       []string{"data.volume"},
+			expectFound: true,
+		},
+		{
+			name:        "directory with network file",
+			files:       []string{"mynet.network"},
+			expectFound: true,
+		},
+		{
+			name:        "directory with no quadlet files",
+			files:       []string{"README.md", "LICENSE"},
+			expectFound: false,
+		},
+		{
+			name:        "empty directory",
+			files:       []string{},
+			expectFound: false,
+		},
+		{
+			name:        "mixed files",
+			files:       []string{"app.container", "README.md"},
+			expectFound: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			rw := fileio.NewReadWriter()
+			rw.SetRootdir(tmpDir)
+
+			testDir := filepath.Join(tmpDir, "test")
+			err := rw.MkdirAll(testDir, fileio.DefaultDirectoryPermissions)
+			require.NoError(err)
+
+			// Create test files
+			for _, filename := range tt.files {
+				fullPath := filepath.Join(testDir, filename)
+				err = rw.WriteFile(fullPath, []byte("test content"), fileio.DefaultFilePermissions)
+				require.NoError(err)
+			}
+
+			found, err := hasQuadletFiles(rw, testDir)
+			require.NoError(err)
+			require.Equal(tt.expectFound, found)
+		})
+	}
+}
