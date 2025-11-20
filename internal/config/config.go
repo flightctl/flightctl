@@ -302,10 +302,12 @@ func WithK8sAuth(apiUrl, rbacNs string) ConfigOption {
 				DynamicProviderCacheTTL: util.Duration(5 * time.Second),
 			}
 		}
+		enabled := true
 		c.Auth.K8s = &api.K8sProviderSpec{
 			ApiUrl:       apiUrl,
 			RbacNs:       &rbacNs,
 			ProviderType: api.K8s,
+			Enabled:      &enabled,
 		}
 	}
 }
@@ -317,10 +319,12 @@ func WithAAPAuth(apiUrl, externalApiUrl string) ConfigOption {
 				DynamicProviderCacheTTL: util.Duration(5 * time.Second),
 			}
 		}
+		enabled := true
 		c.Auth.AAP = &api.AapProviderSpec{
 			ApiUrl:         apiUrl,
 			ExternalApiUrl: &externalApiUrl,
 			ProviderType:   "aap",
+			Enabled:        &enabled,
 		}
 	}
 }

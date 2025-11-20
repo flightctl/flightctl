@@ -500,22 +500,37 @@ var _ = Describe("Auth Config Integration Tests", func() {
 			_, createStatus = serviceHandler.CreateAuthProvider(ctx, disabledProvider)
 			Expect(createStatus.Code).To(Equal(int32(201)))
 
-			// Sync - disabled providers should be filtered out during creation
+			// Sync - disabled providers should be filtered out from auth config
 			err = multiAuth.LoadAllAuthProviders(ctx)
 			Expect(err).ToNot(HaveOccurred())
 
+			// Get auth config - should only contain enabled providers
 			authConfig := multiAuth.GetAuthConfig()
 			config, status := serviceHandler.GetAuthConfig(ctx, authConfig)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(config.Providers).ToNot(BeNil())
 
-			// Only enabled provider should be in the config
-			// (Note: implementation may include disabled providers, adjust test as needed)
+			// Verify that enabled provider is present and disabled provider is NOT present
+			var foundEnabled, foundDisabled bool
 			for _, p := range *config.Providers {
-				if p.Metadata.Name != nil && *p.Metadata.Name == "disabled-provider" {
-					Skip("Test needs adjustment based on whether disabled providers are included")
+				if p.Metadata.Name != nil {
+					if *p.Metadata.Name == "enabled-provider" {
+						foundEnabled = true
+					}
+					if *p.Metadata.Name == "disabled-provider" {
+						foundDisabled = true
+					}
 				}
 			}
+
+			Expect(foundEnabled).To(BeTrue(), "Enabled provider should be in auth config")
+			Expect(foundDisabled).To(BeFalse(), "Disabled provider should NOT be in auth config")
+
+			// For authproviders list API, both should be present
+			providerList, listStatus := serviceHandler.ListAuthProviders(ctx, api.ListAuthProvidersParams{})
+			Expect(listStatus.Code).To(Equal(int32(200)))
+			Expect(providerList).ToNot(BeNil())
+			Expect(len(providerList.Items)).To(Equal(2), "Both enabled and disabled providers should be in list API")
 		})
 	})
 

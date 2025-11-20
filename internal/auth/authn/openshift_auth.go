@@ -68,6 +68,10 @@ func NewOpenShiftAuth(metadata api.ObjectMeta, spec api.OpenShiftProviderSpec, k
 	return auth, nil
 }
 
+func (o *OpenShiftAuth) IsEnabled() bool {
+	return o.spec.Enabled != nil && *o.spec.Enabled
+}
+
 // hashToken creates a SHA256 hash of the token for cache key
 func hashToken(token string) string {
 	hash := sha256.Sum256([]byte(token))

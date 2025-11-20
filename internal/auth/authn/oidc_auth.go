@@ -94,6 +94,10 @@ func NewOIDCAuth(metadata api.ObjectMeta, spec api.OIDCProviderSpec, clientTlsCo
 	return oidcAuth, nil
 }
 
+func (o *OIDCAuth) IsEnabled() bool {
+	return o.spec.Enabled != nil && *o.spec.Enabled
+}
+
 // ensureDiscovery performs lazy OIDC discovery on first use
 // This is called automatically before validating tokens
 func (o *OIDCAuth) ensureDiscovery(ctx context.Context) error {
