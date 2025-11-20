@@ -5,7 +5,7 @@ After=flightctl-db.service
 
 [Container]
 ContainerName=flightctl-db-wait
-Image=quay.io/flightctl/flightctl-db-setup:latest
+Image={{ .DbSetup.Image }}:{{ .DbSetup.Tag }}
 Network=flightctl.network
 AutoUpdate=none
 Environment=DB_USER=flightctl_app
