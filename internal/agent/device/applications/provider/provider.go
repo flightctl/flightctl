@@ -587,20 +587,6 @@ func isEqual(a, b Provider) bool {
 	return reflect.DeepEqual(a.Spec(), b.Spec())
 }
 
-type appTypeHandler interface {
-	Verify(ctx context.Context, dir string) error
-	// Install the application content to the device.
-	Install(ctx context.Context) error
-	// Remove the application content from the device.
-	Remove(ctx context.Context) error
-	// AppPath returns the path the app is to be installed at
-	AppPath() string
-	// ID returns the Identifier
-	ID() string
-	// Volumes returns any Volume that is defined as part of the spec itself
-	Volumes() ([]*Volume, error)
-}
-
 // AppData holds the extracted application data and cleanup function
 type AppData struct {
 	Targets   []dependency.OCIPullTarget
@@ -775,17 +761,8 @@ func writeENVFile(appPath string, writer fileio.Writer, envVars map[string]strin
 }
 
 // ensureDependenciesFromAppType ensures that the dependencies required for the given app type are available.
-func ensureDependenciesFromAppType(appType v1alpha1.AppType) error {
-	var deps []string
-	switch appType {
-	case v1alpha1.AppTypeCompose:
-		deps = []string{"docker-compose", "podman-compose"}
-	case v1alpha1.AppTypeQuadlet:
-		deps = []string{"podman"}
-	default:
-		return fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
-	}
-
+func ensureDependenciesFromAppType(handler appTypeHandler) error {
+	deps := handler.Dependencies()
 	for _, dep := range deps {
 		if client.IsCommandAvailable(dep) {
 			return nil

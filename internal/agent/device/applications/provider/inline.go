@@ -24,7 +24,7 @@ type inlineProvider struct {
 func newInlineHandler(appType v1alpha1.AppType, name string, rw fileio.ReadWriter, spec *v1alpha1.InlineApplicationProviderSpec, l *log.PrefixLogger, vm VolumeManager) (appTypeHandler, error) {
 	switch appType {
 	case v1alpha1.AppTypeQuadlet:
-		qb := &quadletBehavior{
+		qb := &quadletHandler{
 			name: name,
 			rw:   rw,
 		}
@@ -33,7 +33,7 @@ func newInlineHandler(appType v1alpha1.AppType, name string, rw fileio.ReadWrite
 		}
 		return qb, nil
 	case v1alpha1.AppTypeCompose:
-		return &composeBehavior{
+		return &composeHandler{
 			name: name,
 			rw:   rw,
 			log:  l,
@@ -89,7 +89,7 @@ func (p *inlineProvider) Verify(ctx context.Context) error {
 	if err := validateEnvVars(p.spec.EnvVars); err != nil {
 		return fmt.Errorf("%w: validating env vars: %w", errors.ErrInvalidSpec, err)
 	}
-	if err := ensureDependenciesFromAppType(p.spec.AppType); err != nil {
+	if err := ensureDependenciesFromAppType(p.handler); err != nil {
 		return fmt.Errorf("%w: ensuring app dependencies: %w", errors.ErrNoRetry, err)
 	}
 

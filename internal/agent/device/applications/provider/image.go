@@ -3,11 +3,9 @@ package provider
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
-	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -33,7 +31,7 @@ type imageProvider struct {
 func newImageHandler(appType v1alpha1.AppType, name string, rw fileio.ReadWriter, l *log.PrefixLogger, vm VolumeManager) (appTypeHandler, error) {
 	switch appType {
 	case v1alpha1.AppTypeQuadlet:
-		qb := &quadletBehavior{
+		qb := &quadletHandler{
 			name: name,
 			rw:   rw,
 		}
@@ -42,7 +40,7 @@ func newImageHandler(appType v1alpha1.AppType, name string, rw fileio.ReadWriter
 		}
 		return qb, nil
 	case v1alpha1.AppTypeCompose:
-		return &composeBehavior{
+		return &composeHandler{
 			name: name,
 			rw:   rw,
 			log:  l,
@@ -98,11 +96,7 @@ func (p *imageProvider) Verify(ctx context.Context) error {
 		return fmt.Errorf("%w: validating env vars: %w", errors.ErrInvalidSpec, err)
 	}
 
-	if p.spec.AppType != v1alpha1.AppTypeCompose && p.spec.AppType != v1alpha1.AppTypeQuadlet {
-		return fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, p.spec.AppType)
-	}
-
-	if err := ensureDependenciesFromAppType(p.spec.AppType); err != nil {
+	if err := ensureDependenciesFromAppType(p.handler); err != nil {
 		return fmt.Errorf("%w: ensuring dependencies: %w", errors.ErrNoRetry, err)
 	}
 
@@ -218,77 +212,4 @@ func typeFromImage(ctx context.Context, podman *client.Podman, image string) (v1
 		return "", fmt.Errorf("%w: %s", errors.ErrParseAppType, appTypeLabel)
 	}
 	return appType, nil
-}
-
-var _ appTypeHandler = (*quadletBehavior)(nil)
-var _ appTypeHandler = (*composeBehavior)(nil)
-
-type quadletBehavior struct {
-	name           string
-	rw             fileio.ReadWriter
-	volumeProvider volumeProvider
-}
-
-func (b *quadletBehavior) Verify(ctx context.Context, path string) error {
-	return ensureQuadlet(b.rw, path)
-}
-
-func (b *quadletBehavior) Install(ctx context.Context) error {
-	if err := installQuadlet(b.rw, b.AppPath(), b.ID()); err != nil {
-		return fmt.Errorf("installing quadlet: %w", err)
-	}
-	return nil
-}
-
-func (b *quadletBehavior) Remove(ctx context.Context) error {
-	return nil
-}
-
-func (b *quadletBehavior) AppPath() string {
-	return filepath.Join(lifecycle.QuadletAppPath, b.name)
-}
-
-func (b *quadletBehavior) ID() string {
-	return client.NewComposeID(b.name)
-}
-
-func (b *quadletBehavior) Volumes() ([]*Volume, error) {
-	return b.volumeProvider()
-}
-
-type composeBehavior struct {
-	name string
-	rw   fileio.ReadWriter
-	log  *log.PrefixLogger
-	vm   VolumeManager
-}
-
-func (b *composeBehavior) Verify(ctx context.Context, path string) error {
-	if err := ensureCompose(b.rw, path); err != nil {
-		return fmt.Errorf("ensuring compose: %w", err)
-	}
-	return nil
-}
-
-func (b *composeBehavior) Install(ctx context.Context) error {
-	if err := writeComposeOverride(b.log, b.AppPath(), b.vm, b.rw, client.ComposeOverrideFilename); err != nil {
-		return fmt.Errorf("writing override file %w", err)
-	}
-	return nil
-}
-
-func (b *composeBehavior) Remove(ctx context.Context) error {
-	return nil
-}
-
-func (b *composeBehavior) AppPath() string {
-	return filepath.Join(lifecycle.ComposeAppPath, b.name)
-}
-
-func (b *composeBehavior) ID() string {
-	return client.NewComposeID(b.name)
-}
-
-func (b *composeBehavior) Volumes() ([]*Volume, error) {
-	return nil, nil
 }
