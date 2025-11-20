@@ -118,26 +118,120 @@ sudo journalctl -u flightctl-agent | grep -i audit
 
 ### Parsing with jq
 
-Since audit logs use JSONL format, they're easily parsed with `jq`:
+Since audit logs use JSONL format, they're easily parsed with `jq`.
+
+**Prerequisites:**
+- Root or sudo access to the device
+- `jq` installed (typically available by default on RHEL-based systems)
+
+**Basic Filtering**
+
+View all events in readable format:
 
 ```bash
-# View all events in readable format
-cat /var/log/flightctl/audit.log | jq .
+sudo cat /var/log/flightctl/audit.log | jq .
+```
 
-# Filter by reason
-cat /var/log/flightctl/audit.log | jq 'select(.reason == "sync")'
+Filter by reason (e.g., show only sync events):
 
-# Filter by spec type
-cat /var/log/flightctl/audit.log | jq 'select(.type == "current")'
+```bash
+sudo cat /var/log/flightctl/audit.log | jq 'select(.reason == "sync")'
+```
 
-# Count events by reason
-cat /var/log/flightctl/audit.log | jq -r '.reason' | sort | uniq -c
+**Example output:**
+```json
+{
+  "ts": "2024-11-19T14:22:15Z",
+  "device": "c860jhsr1uj96sugum9csciop392mbnmsjrslpv0r7s22i76misg",
+  "old_version": "5",
+  "new_version": "6",
+  "result": "success",
+  "reason": "sync",
+  "type": "current",
+  "fleet_template_version": "42",
+  "agent_version": "v1.0.0-main-322-g16f0ccea"
+}
+```
 
-# Get latest 5 events
-tail -5 /var/log/flightctl/audit.log | jq .
+Filter by spec type:
 
-# Extract specific fields
-cat /var/log/flightctl/audit.log | jq '{ts, device, reason, old_version, new_version}'
+```bash
+sudo cat /var/log/flightctl/audit.log | jq 'select(.type == "current")'
+```
+
+**Advanced Filtering**
+
+Filter by multiple conditions (e.g., successful upgrades only):
+
+```bash
+sudo cat /var/log/flightctl/audit.log | jq 'select(.reason == "upgrade" and .result == "success")'
+```
+
+Filter by version transitions (e.g., find specific upgrade path):
+
+```bash
+sudo cat /var/log/flightctl/audit.log | jq 'select(.old_version == "5" and .new_version == "6")'
+```
+
+Exclude bootstrap events:
+
+```bash
+sudo cat /var/log/flightctl/audit.log | jq 'select(.reason != "bootstrap")'
+```
+
+Filter by time range (events from the last hour):
+
+```bash
+sudo cat /var/log/flightctl/audit.log | jq --arg cutoff "$(date -u -d '1 hour ago' '+%Y-%m-%dT%H:%M:%SZ')" 'select(.ts > $cutoff)'
+```
+
+**Aggregation and Analysis**
+
+Count events by reason:
+
+```bash
+sudo cat /var/log/flightctl/audit.log | jq -r '.reason' | sort | uniq -c
+```
+
+**Example output:**
+```
+      3 bootstrap
+     15 sync
+      2 upgrade
+      1 rollback
+```
+
+Count events by device and reason:
+
+```bash
+sudo cat /var/log/flightctl/audit.log | jq -r '[.device, .reason] | @tsv' | sort | uniq -c
+```
+
+Get latest 5 events:
+
+```bash
+sudo tail -5 /var/log/flightctl/audit.log | jq .
+```
+
+**Custom Output Format**
+
+Extract only specific fields:
+
+```bash
+sudo cat /var/log/flightctl/audit.log | jq '{ts, device, reason, old_version, new_version}'
+```
+
+Create a compact timeline (TSV format):
+
+```bash
+sudo cat /var/log/flightctl/audit.log | jq -r '[.ts, .device, .reason, .type, .old_version + "->" + .new_version] | @tsv'
+```
+
+**Example output:**
+```
+2024-11-19T10:00:00Z	dev-01	bootstrap	current	->0
+2024-11-19T10:15:23Z	dev-01	sync	current	0->1
+2024-11-19T11:30:45Z	dev-01	upgrade	desired	1->2
 ```
 
 ### Integration with Log Aggregation
@@ -221,15 +315,12 @@ These settings are hardcoded and not user-configurable:
 
 | Setting         | Value                                      |
 |-----------------|--------------------------------------------|
-| **Max Size**    | 1 MB per file (configured as 300 KB but rounds up to 1 MB due to lumberjack's integer-only API limitation) |
+| **Max Size**    | 1 MB per file |
 | **Max Backups** | 3 backup files                             |
 | **Max Age**     | No time-based pruning                      |
 | **Compression** | Enabled (rotated files are compressed)     |
 | **Total Space** | ≈4 MB (1 active + 3 backups)               |
 | **Capacity**    | ~3,495 records per file, ~13,980 records total |
-
-> [!NOTE]
-> The lumberjack library's `MaxSize` field only accepts integer megabytes (no fractional values). The code maintains `DefaultMaxSizeKB = 300` for clarity, but the actual rotation boundary is 1 MB (the minimum allowed by lumberjack's API). This still provides a 50% reduction in footprint compared to the original 2MB/8MB configuration.
 
 ### Rotation Behavior
 
@@ -240,82 +331,351 @@ These settings are hardcoded and not user-configurable:
 - New empty `audit.log` file created
 - No agent restart or reload required
 
+## Debugging and Troubleshooting
+
+### Investigating Device State Changes
+
+When a device experiences unexpected behavior, audit logs provide a historical record of state transitions.
+
+**Scenario: Device reverted to an older configuration**
+
+Find all rollback events and identify the version transition:
+
+```bash
+sudo cat /var/log/flightctl/audit.log | jq 'select(.reason == "rollback")'
+```
+
+Check what version the device rolled back from and to:
+
+```bash
+sudo cat /var/log/flightctl/audit.log | jq -r 'select(.reason == "rollback") | "Rolled back from \(.old_version) to \(.new_version) at \(.ts)"'
+```
+
+**Example output:**
+```
+Rolled back from 6 to 5 at 2024-11-19T15:30:00Z
+```
+
+**Scenario: Tracking upgrade progression**
+
+Verify an upgrade completed across all spec types:
+
+```bash
+sudo cat /var/log/flightctl/audit.log | jq 'select(.reason == "upgrade") | {ts, type, old_version, new_version}'
+```
+
+**Scenario: Device not reflecting expected configuration**
+
+Check the last successful sync event to see when the device last applied desired state:
+
+```bash
+sudo cat /var/log/flightctl/audit.log | jq 'select(.reason == "sync" and .type == "current") | {ts, old_version, new_version}' | tail -1
+```
+
+**Scenario: Checking bootstrap history**
+
+Verify device enrollment or re-enrollment events:
+
+```bash
+sudo cat /var/log/flightctl/audit.log | jq 'select(.reason == "bootstrap") | {ts, type, agent_version}'
+```
+
+## Gathering Audit Logs for Support
+
+When reporting issues to support or development teams, use one of the diagnostic tools to collect audit logs along with relevant system context. These tools automatically gather audit logs, device specifications, journal logs, and system information.
+
+#### Option 1: Using must-gather (Recommended)
+
+The `flightctl-must-gather` tool collects comprehensive diagnostic data including audit logs, device specs, and system information.
+
+**Procedure:**
+
+1. Run the `flightctl-must-gather` command:
+
+```bash
+sudo flightctl-must-gather
+```
+
+The tool will:
+- Prompt for confirmation (generates large files)
+- Collect journal logs from the last 24 hours
+- Copy all FlightCtl device spec files (`/var/lib/flightctl/*.json`)
+- Copy all audit logs (`/var/log/flightctl/audit.log*`, including rotated backups)
+- Gather system information (uname, disk usage, agent version, bootc status)
+- Create a compressed archive: `must-gather-YYYYMMDD-HHMMSS.tgz`
+
+2. Locate the generated archive in the current working directory:
+
+```bash
+ls -lh must-gather-*.tgz
+```
+
+**Example output:**
+```
+-rw-r--r--. 1 root root 2.3M Nov 19 16:45 must-gather-20241119-164512.tgz
+```
+
+3. **Copy the archive to your local machine** for analysis or submission:
+
+```bash
+scp user@<device-hostname>:/path/to/must-gather-*.tgz .
+```
+
+Replace `<device-hostname>` with the actual device hostname or IP address.
+
+4. **Extract and inspect the archive** on your local machine:
+
+```bash
+tar -xzf must-gather-20241119-164512.tgz
+cd must-gather-*
+ls -lh  # View collected files
+```
+
+The archive contains:
+- `audit.log*` - All audit log files
+- `*.json` - Device specs and state files
+- System information and journal logs
+
+5. Share the compressed file with your support team or attach it to your support case.
+
+> [!NOTE]
+> The must-gather tool requires root privileges and collects data from the last 24 hours by default.
+
+#### Option 2: Using sosreport (sos report)
+
+The `sos report` tool with the FlightCtl plugin provides detailed system diagnostics, including audit logs.
+
+**Prerequisites:**
+- `sos` package installed (available in RHEL and Fedora repositories)
+
+**Procedure:**
+
+1. Run `sos report` with the FlightCtl plugin enabled:
+
+```bash
+sudo sos report -o flightctl
+```
+
+For a specific time range (e.g., last 2 hours):
+
+```bash
+sudo sos report -o flightctl -k flightctl.journal_since="2 hours ago"
+```
+
+The FlightCtl plugin collects:
+- Configuration files from `/etc/flightctl` (excluding certificates)
+- Device state and specs from `/var/lib/flightctl` (excluding certificates)
+- **All audit logs** from `/var/log/flightctl` (including `audit.log*`)
+- Goroutine dumps for debugging
+- Performance profiles (heap, CPU)
+- Journal logs for `flightctl-agent.service`
+
+2. Wait for `sos report` to complete. The archive location will be displayed:
+
+**Example output:**
+```
+Your sos report has been generated and saved in:
+  /var/tmp/sosreport-localhost-2025-11-20-bglzmdy.tar.xz
+```
+
+3. **Copy the archive to your local machine** for analysis or submission:
+
+```bash
+# First, make the file readable (it's owned by root)
+sudo chmod 644 /var/tmp/sosreport-*.tar.xz
+
+# Copy to your local machine
+scp user@<device-hostname>:/var/tmp/sosreport-*.tar.xz .
+```
+
+Replace `<device-hostname>` with the actual device hostname or IP address.
+
+4. **Extract and inspect the archive** on your local machine:
+
+```bash
+tar -xJf sosreport-localhost-2025-11-20-bglzmdy.tar.xz
+cd sosreport-*/
+ls -lh var/log/flightctl/  # View audit logs
+```
+
+The archive contains comprehensive system diagnostics including FlightCtl audit logs, configuration, and system state.
+
+5. Share the compressed file with your support team or attach it to the [Red Hat Customer Support](https://access.redhat.com/support/) portal.
+
+> [!TIP]
+> Use `sos report` when you need comprehensive system diagnostics beyond just FlightCtl. Use `must-gather` for a lighter-weight, FlightCtl-focused collection.
+>
+> **Note**: The legacy `sosreport` command is deprecated. Always use `sos report` instead.
+
+#### Option 3: Manual Collection
+
+For quick troubleshooting without diagnostic tools:
+
+```bash
+# Collect only audit logs (current + rotated backups)
+sudo tar -czf /tmp/flightctl-audit-$(hostname)-$(date +%Y%m%d-%H%M%S).tar.gz \
+  /var/log/flightctl/audit.log* 2>/dev/null
+```
+
+**To extract and view on your local machine:**
+
+```bash
+# Copy from device
+scp user@<device-hostname>:/tmp/flightctl-audit-*.tar.gz .
+
+# Extract the archive
+tar -xzf flightctl-audit-*.tar.gz
+
+# View the logs
+ls -lh var/log/flightctl/
+```
+
+Replace `<device-hostname>` with the actual device hostname or IP address.
+
+#### Comparison of Diagnostic Tools
+
+| Tool | Size | Collection Scope | Use Case |
+|------|------|------------------|----------|
+| **must-gather** | Medium | FlightCtl-focused: audit logs, specs, journal, system info | First-line debugging, FlightCtl-specific issues |
+| **sos report** | Large | Comprehensive: all above + system-wide diagnostics | Complex issues, suspected OS/system problems |
+| **Manual** | Small | Audit logs only | Quick log review, compliance auditing |
+
+### Validating Audit Log Integrity
+
+Check if audit log is being written correctly:
+
+```bash
+# Verify the log file exists and has recent entries
+sudo ls -lh /var/log/flightctl/audit.log
+sudo stat /var/log/flightctl/audit.log | grep Modify
+
+# Verify JSONL format (each line should be valid JSON)
+sudo cat /var/log/flightctl/audit.log | while IFS= read -r line; do
+  echo "$line" | jq empty || echo "Invalid JSON found: $line"
+done
+```
+
+Check log rotation status:
+
+```bash
+# List all audit log files (current + rotated backups)
+sudo ls -lh /var/log/flightctl/audit.log*
+```
+
+**Example output:**
+```
+-rw-r--r--. 1 root root 512K Nov 19 15:00 /var/log/flightctl/audit.log
+-rw-r--r--. 1 root root 1.0M Nov 19 14:00 /var/log/flightctl/audit.log.1.gz
+-rw-r--r--. 1 root root 1.0M Nov 19 13:00 /var/log/flightctl/audit.log.2.gz
+-rw-r--r--. 1 root root 1.0M Nov 19 12:00 /var/log/flightctl/audit.log.3.gz
+```
+
 ## Use Cases
 
 ### Compliance and Auditing
 
-Track all configuration changes for compliance requirements:
+Track all configuration changes for compliance requirements.
+
+**Show all upgrades in the last 24 hours:**
 
 ```bash
-# Show all upgrades in the last 24 hours
-cat /var/log/flightctl/audit.log | jq -r \
-  'select(.reason == "upgrade") | select(.ts > (now - 86400 | strftime("%Y-%m-%dT%H:%M:%SZ")))'
+sudo cat /var/log/flightctl/audit.log | jq --arg cutoff "$(date -u -d '24 hours ago' '+%Y-%m-%dT%H:%M:%SZ')" \
+  'select(.reason == "upgrade" and .ts > $cutoff)'
 ```
 
-### Troubleshooting Rollbacks
-
-Identify what triggered a rollback:
+**Generate compliance report:**
 
 ```bash
-# Find rollback events
-cat /var/log/flightctl/audit.log | jq 'select(.reason == "rollback")'
+sudo cat /var/log/flightctl/audit.log | jq -r '[.ts, .device, .reason, .old_version, .new_version, .result] | @csv' > audit-report.csv
 ```
 
-### Change Timeline
-
-Build a timeline of device configuration changes:
+**To copy the CSV file to your local machine** for analysis:
 
 ```bash
-# Show chronological change history
-cat /var/log/flightctl/audit.log | jq -r '[.ts, .reason, .type, .old_version, .new_version] | @tsv'
+scp user@<device-hostname>:~/audit-report.csv .
+```
+
+Replace `<device-hostname>` with the actual device hostname or IP address.
+
+### Monitoring Fleet Operations
+
+**Track fleet template version deployment:**
+
+```bash
+sudo cat /var/log/flightctl/audit.log | jq 'select(.fleet_template_version != "") | {ts, fleet_template_version, new_version}'
+```
+
+**Count successful vs. failed operations** (when failure auditing is available):
+
+```bash
+sudo cat /var/log/flightctl/audit.log | jq -r '.result' | sort | uniq -c
 ```
 
 ### Alerting on Events
 
-Monitor for specific patterns using log aggregation alert rules:
+Monitor for specific patterns using log aggregation alert rules.
+
+**Example: Loki/Promtail alert rule for rollback events:**
 
 ```yaml
-# Example: Alert on rollback events
 - alert: DeviceRolledBack
   expr: count_over_time({job="flightctl-audit"} |~ "rollback"[5m]) > 0
   annotations:
     summary: "Device {{ $labels.device }} performed a rollback"
+    description: "Device may have encountered issues requiring rollback to previous configuration"
 ```
 
-## Considerations
+**Example: Alert on frequent upgrades (potential flapping):**
 
-### Disk Space
+```yaml
+- alert: FrequentUpgrades
+  expr: count_over_time({job="flightctl-audit"} | json | reason="upgrade" [1h]) > 5
+  annotations:
+    summary: "Device {{ $labels.device }} upgraded {{ $value }} times in 1 hour"
+```
 
-- Audit logs are automatically managed with built-in rotation (max ~4 MB total)
-- Estimate ~300 bytes per event on average
-- A device with 100 spec changes per day generates ~30KB/day (~13,980 events fit in 4 MB capacity)
+## Quick Reference
 
-### Performance
+### Common Commands
 
-- Audit logging has minimal performance impact (<1% CPU overhead)
-- Writes are buffered and asynchronous
-- No impact on spec reconciliation timing
+| Task | Command |
+|------|---------|
+| View audit log | `sudo cat /var/log/flightctl/audit.log` |
+| Follow in real-time | `sudo tail -f /var/log/flightctl/audit.log` |
+| Pretty print all events | `sudo cat /var/log/flightctl/audit.log \| jq .` |
+| Filter by reason | `sudo cat /var/log/flightctl/audit.log \| jq 'select(.reason == "sync")'` |
+| Count events by type | `sudo cat /var/log/flightctl/audit.log \| jq -r '.reason' \| sort \| uniq -c` |
+| Find rollbacks | `sudo cat /var/log/flightctl/audit.log \| jq 'select(.reason == "rollback")'` |
+| Check log rotation | `sudo ls -lh /var/log/flightctl/audit.log*` |
+| Gather for support (recommended) | `sudo flightctl-must-gather` |
+| Gather with sos report | `sudo sos report -o flightctl` |
+| Manual audit log collection | `sudo tar -czf /tmp/audit-logs.tar.gz /var/log/flightctl/audit.log*` |
 
-### Privacy and Security
+### Key Facts
 
-- Audit logs may contain device identifiers and version information
-- Logs are created by the agent running as root
-- Consider encryption when shipping logs off-device
-- Ensure compliance with data retention policies
+- **Default**: Enabled automatically, no configuration required
+- **Location**: `/var/log/flightctl/audit.log` (not configurable)
+- **Format**: JSONL (one JSON object per line)
+- **Rotation**: Automatic, 1 MB per file, 3 backups, ~4 MB total
+- **Permissions**: Requires root/sudo access to read
+- **Fields**: 9 fields per event (ts, device, old_version, new_version, result, reason, type, fleet_template_version, agent_version)
 
-### High Availability
+### Event Reasons Quick Reference
 
-- Audit logs are local to each device
-- For centralized auditing, configure log forwarding to external systems
-- Consider redundant log storage for critical compliance use cases
+| Reason | When It Occurs |
+|--------|----------------|
+| `bootstrap` | Device enrollment or first boot |
+| `sync` | Desired spec applied successfully |
+| `upgrade` | OS or application update |
+| `rollback` | Revert to previous configuration |
+| `recovery` | Automated recovery from failed state |
+| `initialization` | Agent start or restart |
 
-## Future Enhancements
+## Additional Resources
 
-The following features are planned for future releases:
-
-- **Failure event logging** – Capture failed state transitions with error details
-- **User attribution** – Record which user or system triggered the change
-- **Cryptographic signing** – Sign audit events for tamper detection
-- **Direct API streaming** – Ship audit events directly to Flight Control service
-- **Retention policies** – Configurable on-device retention and automatic cleanup
-
+- [Configuring the Agent](./configuring-agent.md) - Agent configuration reference including audit settings
+- [Managing Devices](./managing-devices.md) - Understanding device specs and state transitions
+- [Troubleshooting Guide](./troubleshooting.md) - Common device issues and solutions
+- [Device Observability](./device-observability.md) - Monitoring and metrics for devices
+- [jq Manual](https://jqlang.github.io/jq/manual/) - Advanced JSON filtering techniques
+- [Red Hat sosreport Documentation](https://access.redhat.com/solutions/3592) - Using sosreport for system diagnostics
