@@ -28,17 +28,17 @@ spec:
         - name: KV_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: flightctl-kv-secret
+              name: {{ default "flightctl-kv-secret" .Values.kv.passwordSecretName }}
               key: password
         - name: DB_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: flightctl-db-app-secret
+              name: {{ include "flightctl.dbAppUserSecret" . }}
               key: userPassword
         - name: DB_USER
           valueFrom:
             secretKeyRef:
-              name: flightctl-db-app-secret
+              name: {{ include "flightctl.dbAppUserSecret" . }}
               key: user
         image: "{{ .Values.telemetryGateway.image.image }}:{{ default .Chart.AppVersion .Values.telemetryGateway.image.tag }}"
         imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.telemetryGateway.image.pullPolicy }}
