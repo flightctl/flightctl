@@ -74,6 +74,8 @@ func (f *TableFormatter) formatList(w *tabwriter.Writer, data interface{}, optio
 		return f.printCSRTable(w, data.(*apiclient.ListCertificateSigningRequestsResponse).JSON200.Items...)
 	case strings.EqualFold(options.Kind, api.EventKind):
 		return f.printEventsTable(w, data.(*apiclient.ListEventsResponse).JSON200.Items...)
+	case strings.EqualFold(options.Kind, api.AuthProviderKind):
+		return f.printAuthProvidersTable(w, data.(*apiclient.ListAuthProvidersResponse).JSON200.Items...)
 	default:
 		return fmt.Errorf("unknown resource type %s", options.Kind)
 	}
@@ -117,6 +119,8 @@ func (f *TableFormatter) formatSingle(w *tabwriter.Writer, data interface{}, opt
 		return f.printResourceSyncsTable(w, *data.(*apiclient.GetResourceSyncResponse).JSON200)
 	case strings.EqualFold(options.Kind, api.CertificateSigningRequestKind):
 		return f.printCSRTable(w, *data.(*apiclient.GetCertificateSigningRequestResponse).JSON200)
+	case strings.EqualFold(options.Kind, api.AuthProviderKind):
+		return f.printAuthProvidersTable(w, *data.(*apiclient.GetAuthProviderResponse).JSON200)
 	default:
 		return fmt.Errorf("unknown resource type %s", options.Kind)
 	}
@@ -392,6 +396,85 @@ func (f *TableFormatter) printEventsTable(w *tabwriter.Writer, events ...api.Eve
 			string(e.Type),
 			e.Message,
 		)
+	}
+	return nil
+}
+
+func (f *TableFormatter) printAuthProvidersTable(w *tabwriter.Writer, authProviders ...api.AuthProvider) error {
+	f.printHeaderRowLn(w, "NAME", "TYPE", "ISSUER", "CLIENT ID", "ENABLED")
+	for _, ap := range authProviders {
+		name := NoneString
+		if ap.Metadata.Name != nil {
+			name = *ap.Metadata.Name
+		}
+
+		issuer := NoneString
+		clientId := NoneString
+		enabled := NoneString
+
+		// Extract type from the discriminator
+		providerType, err := ap.Spec.Discriminator()
+		if err != nil {
+			return fmt.Errorf("failed to get discriminator for provider %s: %w", name, err)
+		}
+
+		// Extract issuer, clientId, and enabled based on type
+		switch providerType {
+		case string(api.Oidc):
+			oidcSpec, err := ap.Spec.AsOIDCProviderSpec()
+			if err != nil {
+				return fmt.Errorf("failed to parse OIDC provider spec for %s: %w", name, err)
+			}
+			issuer = oidcSpec.Issuer
+			clientId = oidcSpec.ClientId
+			if oidcSpec.Enabled != nil {
+				enabled = util.BoolToStr(*oidcSpec.Enabled, "true", "false")
+			}
+		case string(api.Oauth2):
+			oauth2Spec, err := ap.Spec.AsOAuth2ProviderSpec()
+			if err != nil {
+				return fmt.Errorf("failed to parse OAuth2 provider spec for %s: %w", name, err)
+			}
+			if oauth2Spec.Issuer != nil {
+				issuer = *oauth2Spec.Issuer
+			}
+			clientId = oauth2Spec.ClientId
+			if oauth2Spec.Enabled != nil {
+				enabled = util.BoolToStr(*oauth2Spec.Enabled, "true", "false")
+			}
+		case string(api.Openshift):
+			openshiftSpec, err := ap.Spec.AsOpenShiftProviderSpec()
+			if err != nil {
+				return fmt.Errorf("failed to parse OpenShift provider spec for %s: %w", name, err)
+			}
+			if openshiftSpec.Issuer != nil {
+				issuer = *openshiftSpec.Issuer
+			}
+			if openshiftSpec.ClientId != nil {
+				clientId = *openshiftSpec.ClientId
+			}
+			if openshiftSpec.Enabled != nil {
+				enabled = util.BoolToStr(*openshiftSpec.Enabled, "true", "false")
+			}
+		case string(api.Aap):
+			aapSpec, err := ap.Spec.AsAapProviderSpec()
+			if err != nil {
+				return fmt.Errorf("failed to parse AAP provider spec for %s: %w", name, err)
+			}
+			if aapSpec.Enabled != nil {
+				enabled = util.BoolToStr(*aapSpec.Enabled, "true", "false")
+			}
+		case string(api.K8s):
+			k8sSpec, err := ap.Spec.AsK8sProviderSpec()
+			if err != nil {
+				return fmt.Errorf("failed to parse K8s provider spec for %s: %w", name, err)
+			}
+			if k8sSpec.Enabled != nil {
+				enabled = util.BoolToStr(*k8sSpec.Enabled, "true", "false")
+			}
+		}
+
+		f.printTableRowLn(w, name, providerType, issuer, clientId, enabled)
 	}
 	return nil
 }

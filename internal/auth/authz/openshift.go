@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/contextutil"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/jellydator/ttlcache/v3"
 	"github.com/sirupsen/logrus"
@@ -72,11 +72,12 @@ func (osAuth OpenShiftAuthZ) CheckPermission(ctx context.Context, token string, 
 	}
 
 	// 3. Get organization ID from context
-	orgID, ok := ctx.Value(consts.OrganizationIDCtxKey).(string)
-	if !ok || orgID == "" {
+	orgUUID, ok := util.GetOrgIdFromContext(ctx)
+	if !ok {
 		osAuth.Log.Debug("OpenShiftAuthZ: no organization ID found in context")
 		return false, fmt.Errorf("no organization ID found in context")
 	}
+	orgID := orgUUID.String()
 
 	// 4. Verify user has access to the selected organization
 	roles := mappedIdentity.GetRolesForOrg(orgID)
@@ -163,11 +164,12 @@ func (osAuth OpenShiftAuthZ) GetUserPermissions(ctx context.Context, token strin
 	}
 
 	// 3. Get organization ID from context
-	orgID, ok := ctx.Value(consts.OrganizationIDCtxKey).(string)
-	if !ok || orgID == "" {
+	orgUUID, ok := util.GetOrgIdFromContext(ctx)
+	if !ok {
 		osAuth.Log.Debug("OpenShiftAuthZ: no organization ID found in context")
 		return nil, fmt.Errorf("no organization ID found in context")
 	}
+	orgID := orgUUID.String()
 
 	// 4. Verify user has access to the selected organization
 	roles := mappedIdentity.GetRolesForOrg(orgID)

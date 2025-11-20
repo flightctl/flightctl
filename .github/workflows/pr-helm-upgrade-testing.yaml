@@ -192,13 +192,10 @@ jobs:
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         run: |
           make build-cli
-          bin/flightctl version
 
       - name: Build containers
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
-
-        run: make -j2 build-containers
-
+        run: make -j4 build-containers
 
       - name: Load the new images
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
@@ -268,8 +265,21 @@ jobs:
         run: |
           helm list --all-namespaces
           kubectl get pods --all-namespaces
-          bin/flightctl version
 
+      - name: Remove the old client config
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        run: |
+          cat ~/.config/flightctl/client.yaml || true
+          # rm -f ~/.config/flightctl/client.yaml
+
+      - name: Login again
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        env:
+          BASE_DOMAIN: ${{ steps.get-ip.outputs.base-domain }}
+        run: |
+          bin/flightctl login https://${BASE_DOMAIN}:3443 --insecure-skip-tls-verify  
+          cat ~/.config/flightctl/client.yaml || true
+          bin/flightctl version
 
       - name: Get devices
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
