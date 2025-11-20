@@ -90,6 +90,34 @@ func TestAuthProviderHideSensitiveData(t *testing.T) {
 			expectedType:      string(Oauth2),
 			checkSecretHidden: true,
 		},
+		{
+			name: "OpenShift provider type preserved",
+			setupProvider: func() *AuthProvider {
+				openshiftSpec := OpenShiftProviderSpec{
+					ProviderType:           Openshift,
+					Issuer:                 lo.ToPtr("https://openshift.example.com"),
+					ClientId:               lo.ToPtr("openshift-client-id"),
+					ClientSecret:           lo.ToPtr("openshift-secret"),
+					AuthorizationUrl:       lo.ToPtr("https://openshift.example.com/authorize"),
+					TokenUrl:               lo.ToPtr("https://openshift.example.com/token"),
+					ClusterControlPlaneUrl: lo.ToPtr("https://api.openshift.example.com"),
+					Enabled:                lo.ToPtr(true),
+				}
+
+				provider := &AuthProvider{
+					Metadata: ObjectMeta{
+						Name: lo.ToPtr("openshift-provider"),
+					},
+				}
+				err := provider.Spec.FromOpenShiftProviderSpec(openshiftSpec)
+				if err != nil {
+					panic(err) // Should never happen in setup
+				}
+				return provider
+			},
+			expectedType:      string(Openshift),
+			checkSecretHidden: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -118,6 +146,11 @@ func TestAuthProviderHideSensitiveData(t *testing.T) {
 					require.NoError(t, err)
 					require.NotNil(t, oauth2Spec.ClientSecret)
 					assert.Equal(t, "*****", *oauth2Spec.ClientSecret, "OAuth2 client secret should be hidden")
+				case string(Openshift):
+					openshiftSpec, err := provider.Spec.AsOpenShiftProviderSpec()
+					require.NoError(t, err)
+					require.NotNil(t, openshiftSpec.ClientSecret)
+					assert.Equal(t, "*****", *openshiftSpec.ClientSecret, "OpenShift client secret should be hidden")
 				}
 			}
 		})
@@ -170,9 +203,28 @@ func TestAuthProviderListHideSensitiveData(t *testing.T) {
 	err2 := oauth2Provider.Spec.FromOAuth2ProviderSpec(oauth2Spec)
 	require.NoError(t, err2)
 
+	// Create OpenShift provider
+	openshiftSpec := OpenShiftProviderSpec{
+		ProviderType:           Openshift,
+		Issuer:                 lo.ToPtr("https://openshift.example.com"),
+		ClientId:               lo.ToPtr("openshift-client-id"),
+		ClientSecret:           lo.ToPtr("openshift-secret"),
+		AuthorizationUrl:       lo.ToPtr("https://openshift.example.com/authorize"),
+		TokenUrl:               lo.ToPtr("https://openshift.example.com/token"),
+		ClusterControlPlaneUrl: lo.ToPtr("https://api.openshift.example.com"),
+		Enabled:                lo.ToPtr(true),
+	}
+	openshiftProvider := AuthProvider{
+		Metadata: ObjectMeta{
+			Name: lo.ToPtr("openshift-provider"),
+		},
+	}
+	err3 := openshiftProvider.Spec.FromOpenShiftProviderSpec(openshiftSpec)
+	require.NoError(t, err3)
+
 	// Create list
 	list := &AuthProviderList{
-		Items: []AuthProvider{oidcProvider, oauth2Provider},
+		Items: []AuthProvider{oidcProvider, oauth2Provider, openshiftProvider},
 	}
 
 	// Hide sensitive data
@@ -198,4 +250,121 @@ func TestAuthProviderListHideSensitiveData(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, oauth2Spec.ClientSecret)
 	assert.Equal(t, "*****", *oauth2Spec.ClientSecret, "OAuth2 client secret should be hidden")
+
+	// Verify OpenShift provider
+	openshiftDiscriminator, err := list.Items[2].Spec.Discriminator()
+	require.NoError(t, err)
+	assert.Equal(t, string(Openshift), openshiftDiscriminator, "OpenShift provider type should be preserved")
+
+	openshiftSpec, err = list.Items[2].Spec.AsOpenShiftProviderSpec()
+	require.NoError(t, err)
+	require.NotNil(t, openshiftSpec.ClientSecret)
+	assert.Equal(t, "*****", *openshiftSpec.ClientSecret, "OpenShift client secret should be hidden")
+}
+
+func TestAuthConfigHideSensitiveData(t *testing.T) {
+	assignment := AuthOrganizationAssignment{}
+	staticAssignment := AuthStaticOrganizationAssignment{
+		Type:             AuthStaticOrganizationAssignmentTypeStatic,
+		OrganizationName: "test-org",
+	}
+	err := assignment.FromAuthStaticOrganizationAssignment(staticAssignment)
+	require.NoError(t, err)
+
+	// Create OIDC provider
+	oidcSpec := OIDCProviderSpec{
+		ProviderType:           Oidc,
+		Issuer:                 "https://oidc.example.com",
+		ClientId:               "oidc-client-id",
+		ClientSecret:           lo.ToPtr("oidc-secret"),
+		Enabled:                lo.ToPtr(true),
+		OrganizationAssignment: assignment,
+	}
+	oidcProvider := AuthProvider{
+		Metadata: ObjectMeta{
+			Name: lo.ToPtr("oidc-provider"),
+		},
+	}
+	err = oidcProvider.Spec.FromOIDCProviderSpec(oidcSpec)
+	require.NoError(t, err)
+
+	// Create OAuth2 provider
+	oauth2Spec := OAuth2ProviderSpec{
+		ProviderType:           Oauth2,
+		Issuer:                 lo.ToPtr("https://oauth2.example.com"),
+		ClientId:               "oauth2-client-id",
+		ClientSecret:           lo.ToPtr("oauth2-secret"),
+		AuthorizationUrl:       "https://oauth2.example.com/authorize",
+		TokenUrl:               "https://oauth2.example.com/token",
+		UserinfoUrl:            "https://oauth2.example.com/userinfo",
+		Enabled:                lo.ToPtr(true),
+		OrganizationAssignment: assignment,
+	}
+	oauth2Provider := AuthProvider{
+		Metadata: ObjectMeta{
+			Name: lo.ToPtr("oauth2-provider"),
+		},
+	}
+	err2 := oauth2Provider.Spec.FromOAuth2ProviderSpec(oauth2Spec)
+	require.NoError(t, err2)
+
+	// Create OpenShift provider
+	openshiftSpec := OpenShiftProviderSpec{
+		ProviderType:           Openshift,
+		Issuer:                 lo.ToPtr("https://openshift.example.com"),
+		ClientId:               lo.ToPtr("openshift-client-id"),
+		ClientSecret:           lo.ToPtr("openshift-secret"),
+		AuthorizationUrl:       lo.ToPtr("https://openshift.example.com/authorize"),
+		TokenUrl:               lo.ToPtr("https://openshift.example.com/token"),
+		ClusterControlPlaneUrl: lo.ToPtr("https://api.openshift.example.com"),
+		Enabled:                lo.ToPtr(true),
+	}
+	openshiftProvider := AuthProvider{
+		Metadata: ObjectMeta{
+			Name: lo.ToPtr("openshift-provider"),
+		},
+	}
+	err3 := openshiftProvider.Spec.FromOpenShiftProviderSpec(openshiftSpec)
+	require.NoError(t, err3)
+
+	// Create AuthConfig with providers
+	providers := []AuthProvider{oidcProvider, oauth2Provider, openshiftProvider}
+	config := &AuthConfig{
+		ApiVersion: "v1alpha1",
+		Providers:  &providers,
+	}
+
+	// Hide sensitive data
+	err = config.HideSensitiveData()
+	require.NoError(t, err)
+
+	// Verify OIDC provider
+	oidcDiscriminator, err := (*config.Providers)[0].Spec.Discriminator()
+	require.NoError(t, err)
+	assert.Equal(t, string(Oidc), oidcDiscriminator, "OIDC provider type should be preserved")
+
+	oidcSpec, err = (*config.Providers)[0].Spec.AsOIDCProviderSpec()
+	require.NoError(t, err)
+	require.NotNil(t, oidcSpec.ClientSecret)
+	assert.Equal(t, "*****", *oidcSpec.ClientSecret, "OIDC client secret should be hidden")
+
+	// Verify OAuth2 provider
+	oauth2Discriminator, err := (*config.Providers)[1].Spec.Discriminator()
+	require.NoError(t, err)
+	assert.Equal(t, string(Oauth2), oauth2Discriminator, "OAuth2 provider type should be preserved")
+
+	oauth2Spec, err = (*config.Providers)[1].Spec.AsOAuth2ProviderSpec()
+	require.NoError(t, err)
+	require.NotNil(t, oauth2Spec.ClientSecret)
+	assert.Equal(t, "*****", *oauth2Spec.ClientSecret, "OAuth2 client secret should be hidden")
+
+	// Verify OpenShift provider
+	openshiftDiscriminator, err := (*config.Providers)[2].Spec.Discriminator()
+	require.NoError(t, err)
+	assert.Equal(t, string(Openshift), openshiftDiscriminator, "OpenShift provider type should be preserved")
+
+	openshiftSpec, err = (*config.Providers)[2].Spec.AsOpenShiftProviderSpec()
+	require.NoError(t, err)
+	require.NotNil(t, openshiftSpec.ClientSecret)
+	assert.Equal(t, "*****", *openshiftSpec.ClientSecret, "OpenShift client secret should be hidden")
 }
