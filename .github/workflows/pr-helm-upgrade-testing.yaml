@@ -110,14 +110,14 @@ jobs:
         run: |
           kubectl create namespace flightctl-internal 
           kubectl create namespace flightctl-external
-
+          ( kubectl get pods --all-namespaces -w | sed 's/^/[cluster status] /' ) &
           helm upgrade --install --version 0.10.0 \
-              --namespace flightctl-external \
-              flightctl oci://quay.io/flightctl/charts/flightctl \
-              --set global.baseDomain=${BASE_DOMAIN} \
-              --set global.exposeServicesMethod=nodePort \
-              --set global.auth.type=none \
-              --debug --wait --timeout=10m
+                --namespace flightctl-external \
+                flightctl oci://quay.io/flightctl/charts/flightctl \
+                --set global.target=standalone \
+                --set global.baseDomain=${BASE_DOMAIN} \
+                --set global.exposeServicesMethod=nodePort \
+                --debug --wait --timeout=10m
 
       - name: Check
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
