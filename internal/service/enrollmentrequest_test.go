@@ -32,17 +32,17 @@ func (c dummyCallbackManager) C(ctx context.Context, resourceKind v1alpha1.Resou
 func (c dummyCallbackManager) EmitEvent(ctx context.Context, orgId uuid.UUID, event *v1alpha1.Event) {
 }
 
-func newTestServiceHandler(t *testing.T, store store.Store, caClient *crypto.CAClient) (*ServiceHandler, context.Context) {
+func newTestServiceHandler(t *testing.T, s store.Store, caClient *crypto.CAClient) (*ServiceHandler, context.Context) {
 	logger := log.InitLogs()
 	callbackManager := dummyCallbackManager{}
 	handler := &ServiceHandler{
-		store:        store,
+		store:        s,
 		log:          logger,
 		ca:           caClient,
-		eventHandler: NewEventHandler(store, callbackManager, logger),
+		eventHandler: NewEventHandler(s, callbackManager, logger),
 	}
 	ctx := context.WithValue(context.Background(), consts.OrganizationIDCtxKey, store.NullOrgId)
-	identity := common.NewBaseIdentity("test", []string{}, []string{})
+	identity := common.NewBaseIdentity("test", "test-uid", []common.ReportedOrganization{})
 	ctx = context.WithValue(ctx, consts.IdentityCtxKey, identity)
 	return handler, ctx
 }
