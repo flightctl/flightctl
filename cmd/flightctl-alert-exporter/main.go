@@ -2,7 +2,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/alert_exporter"
 	"github.com/flightctl/flightctl/internal/config"
@@ -20,71 +24,136 @@ import (
 )
 
 func main() {
-	ctx := context.Background()
-
 	cfg, err := config.LoadOrGenerate(config.ConfigFile())
 	if err != nil {
-		log.InitLogs().Fatalf("reading configuration: %v", err)
+		log.InitLogs().WithError(err).Fatal("reading configuration")
 	}
 
-	log := log.InitLogs(cfg.Service.LogLevel)
-	log.Println("Starting alert exporter")
-	log.Printf("Using config: %s", cfg)
+	if err = runCmd(cfg); err != nil {
+		log.InitLogs().WithError(err).Fatal("Alert exporter error")
+	}
+}
 
-	tracerShutdown := tracing.InitTracer(log, cfg, "flightctl-alert-exporter")
+func runCmd(cfg *config.Config) error {
+	logger := log.InitLogs(cfg.Service.LogLevel)
+
+	logger.Info("Starting alert exporter")
+	defer logger.Info("Alert exporter stopped")
+	logger.Infof("Using config: %s", cfg)
+
+	// Single context with signal handling - OS signal cancels context
+	ctx, cancel := signal.NotifyContext(context.Background(),
+		syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
+
+	// Build cleanup functions incrementally as resources are created
+	var cleanupFuncs []func() error
 	defer func() {
-		if err := tracerShutdown(ctx); err != nil {
-			log.Fatalf("failed to shut down tracer: %v", err)
+		// First cancel context to signal all goroutines to stop
+		logger.Info("Cancelling context to stop all servers")
+		cancel()
+
+		// Then run cleanup in reverse order after goroutines have stopped
+		logger.Info("Starting cleanup")
+		for i := len(cleanupFuncs) - 1; i >= 0; i-- {
+			if err := cleanupFuncs[i](); err != nil {
+				logger.WithError(err).Error("Cleanup error")
+			}
 		}
+		logger.Info("Cleanup completed")
 	}()
+
+	tracerShutdown := tracing.InitTracer(logger, cfg, "flightctl-alert-exporter")
+	if tracerShutdown != nil {
+		cleanupFuncs = append(cleanupFuncs, func() error {
+			logger.Info("Shutting down tracer")
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			return tracerShutdown(ctx)
+		})
+	}
 
 	ctx = context.WithValue(ctx, consts.EventSourceComponentCtxKey, "flightctl-alert-exporter")
 	ctx = context.WithValue(ctx, consts.EventActorCtxKey, "service:flightctl-alert-exporter")
 	ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
 
-	log.Println("Initializing data store")
-	db, err := store.InitDB(cfg, log)
+	logger.Info("Initializing data store")
+	db, err := store.InitDB(cfg, logger)
 	if err != nil {
-		log.Fatalf("initializing data store: %v", err)
+		return fmt.Errorf("initializing data store: %w", err)
 	}
 
-	store := store.NewStore(db, log.WithField("pkg", "store"))
-	defer store.Close()
+	store := store.NewStore(db, logger.WithField("pkg", "store"))
+	cleanupFuncs = append(cleanupFuncs, func() error {
+		logger.Info("Closing database connections")
+		return store.Close()
+	})
 
 	processID := fmt.Sprintf("alert-exporter-%s-%s", util.GetHostname(), uuid.New().String())
-	queuesProvider, err := queues.NewRedisProvider(ctx, log, processID, cfg.KV.Hostname, cfg.KV.Port, cfg.KV.Password, queues.DefaultRetryConfig())
+	queuesProvider, err := queues.NewRedisProvider(ctx, logger, processID, cfg.KV.Hostname, cfg.KV.Port, cfg.KV.Password, queues.DefaultRetryConfig())
 	if err != nil {
-		log.Fatalf("initializing queue provider: %v", err)
+		return fmt.Errorf("initializing queue provider: %w", err)
 	}
-	defer func() {
+	cleanupFuncs = append(cleanupFuncs, func() error {
+		logger.Info("Stopping queue provider")
 		queuesProvider.Stop()
 		queuesProvider.Wait()
-	}()
+		return nil
+	})
 
-	kvStore, err := kvstore.NewKVStore(ctx, log, cfg.KV.Hostname, cfg.KV.Port, cfg.KV.Password)
+	kvStore, err := kvstore.NewKVStore(ctx, logger, cfg.KV.Hostname, cfg.KV.Port, cfg.KV.Password)
 	if err != nil {
-		log.Fatalf("initializing kv store: %v", err)
+		return fmt.Errorf("initializing kv store: %w", err)
 	}
-	defer kvStore.Close()
+	cleanupFuncs = append(cleanupFuncs, func() error {
+		logger.Info("Closing KV store connections")
+		kvStore.Close()
+		return nil
+	})
 
 	publisher, err := worker_client.QueuePublisher(ctx, queuesProvider)
 	if err != nil {
-		log.Fatalf("initializing task queue publisher: %v", err)
+		return fmt.Errorf("initializing task queue publisher: %w", err)
 	}
-	defer publisher.Close()
-	workerClient := worker_client.NewWorkerClient(publisher, log)
+	cleanupFuncs = append(cleanupFuncs, func() error {
+		logger.Info("Closing publisher")
+		publisher.Close()
+		return nil
+	})
+
+	workerClient := worker_client.NewWorkerClient(publisher, logger)
 
 	orgCache := cache.NewOrganizationTTL(cache.DefaultTTL)
 	go func() {
 		orgCache.Start(ctx)
-		log.Warn("Organization cache stopped unexpectedly")
+		if ctx.Err() == nil {
+			logger.Warn("Organization cache stopped unexpectedly")
+		}
 	}()
-	defer orgCache.Stop()
+	cleanupFuncs = append(cleanupFuncs, func() error {
+		logger.Info("Stopping organization cache")
+		orgCache.Stop()
+		return nil
+	})
 
-	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(store, workerClient, kvStore, nil, log, "", "", []string{}))
+	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(store, workerClient, kvStore, nil, logger, "", "", []string{}))
+	server := alert_exporter.New(cfg, logger)
 
-	server := alert_exporter.New(cfg, log)
-	if err := server.Run(ctx, serviceHandler); err != nil {
-		log.Fatalf("Error running server: %s", err)
+	// Start server and wait for completion or signal
+	logger.Info("Starting alert exporter server")
+	err = server.Run(ctx, serviceHandler)
+	if err != nil {
+		err = fmt.Errorf("alert exporter server: %w", err)
 	}
+
+	// Handle shutdown reason
+	if errors.Is(err, context.Canceled) {
+		logger.Info("Server stopped due to shutdown signal")
+		return nil // Normal shutdown
+	} else if err != nil {
+		logger.WithError(err).Error("Server stopped with error")
+		return err // Error shutdown
+	}
+
+	logger.Info("Server stopped normally")
+	return nil // Normal completion
 }
