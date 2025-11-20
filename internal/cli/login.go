@@ -271,19 +271,19 @@ func (o *LoginOptions) Validate(args []string) error {
 	return nil
 }
 
-// ensureClientID sets a default ClientId when not provided based on auth type and flags
-func (o *LoginOptions) ensureClientID() {
+// ensureClientID extracts the ClientId from the provider config based on auth type
+func (o *LoginOptions) ensureClientID() error {
 	if o.ClientId != "" {
-		return
+		return nil
 	}
 	provider := o.getDefaultProvider()
 	if provider == nil {
-		return
+		return fmt.Errorf("no authentication provider found")
 	}
 	// Get the provider type from the spec
 	providerType, err := provider.Spec.Discriminator()
 	if err != nil {
-		return
+		return fmt.Errorf("failed to determine provider type: %w", err)
 	}
 	switch providerType {
 	case string(v1alpha1.K8s):
@@ -292,9 +292,25 @@ func (o *LoginOptions) ensureClientID() {
 		} else {
 			o.ClientId = "openshift-cli-client"
 		}
+		return nil
 	case string(v1alpha1.Oidc):
-		o.ClientId = "flightctl"
+		if oidcSpec, err := provider.Spec.AsOIDCProviderSpec(); err == nil {
+			if oidcSpec.ClientId != "" {
+				o.ClientId = oidcSpec.ClientId
+				return nil
+			}
+		}
+		return fmt.Errorf("client ID is required for OIDC authentication but was not provided by the API")
+	case string(v1alpha1.Oauth2):
+		if oauth2Spec, err := provider.Spec.AsOAuth2ProviderSpec(); err == nil {
+			if oauth2Spec.ClientId != "" {
+				o.ClientId = oauth2Spec.ClientId
+				return nil
+			}
+		}
+		return fmt.Errorf("client ID is required for OAuth2 authentication but was not provided by the API")
 	}
+	return nil
 }
 
 // getDefaultProvider returns the default authentication provider
@@ -330,21 +346,37 @@ func (o *LoginOptions) createAuthProvider() error {
 	}
 
 	authURL := o.extractAuthURL(provider)
+	scopes := o.extractScopes(provider)
+	providerName := ""
+	if provider.Metadata.Name != nil {
+		providerName = *provider.Metadata.Name
+	}
 
 	orgEnabled := false
 	if o.authConfig.OrganizationsEnabled != nil {
 		orgEnabled = *o.authConfig.OrganizationsEnabled
 	}
 
+	configMap := map[string]string{
+		client.AuthUrlKey:      authURL,
+		client.AuthCAFileKey:   o.AuthCAFile,
+		client.AuthClientIdKey: o.ClientId,
+	}
+	if scopes != "" {
+		configMap[client.AuthScopesKey] = scopes
+	}
+	if o.clientConfig.Service.Server != "" {
+		configMap[client.AuthServerUrlKey] = o.clientConfig.Service.Server
+	}
+	if providerName != "" {
+		configMap[client.AuthProviderNameKey] = providerName
+	}
+
 	authProvider, err := client.CreateAuthProvider(client.AuthInfo{
 		AuthProvider: &client.AuthProviderConfig{
-			Name: *provider.Metadata.Name,
-			Type: providerType,
-			Config: map[string]string{
-				client.AuthUrlKey:      authURL,
-				client.AuthCAFileKey:   o.AuthCAFile,
-				client.AuthClientIdKey: o.ClientId,
-			},
+			Name:   *provider.Metadata.Name,
+			Type:   providerType,
+			Config: configMap,
 		},
 		OrganizationsEnabled: orgEnabled,
 	}, o.InsecureSkipVerify)
@@ -377,6 +409,33 @@ func (o *LoginOptions) extractAuthURL(provider *v1alpha1.AuthProvider) string {
 	case string(v1alpha1.Oauth2):
 		if oauth2Spec, err := provider.Spec.AsOAuth2ProviderSpec(); err == nil {
 			return oauth2Spec.AuthorizationUrl
+		}
+	}
+	return ""
+}
+
+// extractScopes extracts scopes from an AuthProvider as a space-delimited string
+// Returns empty string if scopes are not configured (provider will use default)
+func (o *LoginOptions) extractScopes(provider *v1alpha1.AuthProvider) string {
+	providerType, _ := provider.Spec.Discriminator()
+	switch providerType {
+	case string(v1alpha1.Oidc):
+		if oidcSpec, err := provider.Spec.AsOIDCProviderSpec(); err == nil {
+			if oidcSpec.Scopes != nil && len(*oidcSpec.Scopes) > 0 {
+				return strings.Join(*oidcSpec.Scopes, " ")
+			}
+		}
+	case string(v1alpha1.Oauth2):
+		if oauth2Spec, err := provider.Spec.AsOAuth2ProviderSpec(); err == nil {
+			if oauth2Spec.Scopes != nil && len(*oauth2Spec.Scopes) > 0 {
+				return strings.Join(*oauth2Spec.Scopes, " ")
+			}
+		}
+	case "openshift":
+		if openshiftSpec, err := provider.Spec.AsOpenShiftProviderSpec(); err == nil {
+			if openshiftSpec.Scopes != nil && len(*openshiftSpec.Scopes) > 0 {
+				return strings.Join(*openshiftSpec.Scopes, " ")
+			}
 		}
 	}
 	return ""
@@ -516,7 +575,10 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 	}
 
 	// Set up ClientId if not provided
-	o.ensureClientID()
+	// Extract client ID from provider config
+	if err := o.ensureClientID(); err != nil {
+		return err
+	}
 
 	// Create auth provider
 	if err := o.createAuthProvider(); err != nil {
