@@ -209,6 +209,25 @@ SELinux
 dnf
 rpm.flightctl.io
 wildcards
+OAuth2
+RoleBindings
+ClusterRoles
+TokenReview
+userinfo
+resourcesyncs
+AuthProvider
+enrollmentrequests
+Auth0
+Azure
+Entra
+Okta
+Kind
+K3s
+corporate
+orgs
+LDAP
+SSO
+backend
  - docs/user/api-resources.md
 approvedBy
 creationTimestamp
@@ -339,7 +358,6 @@ journald
 quadlets
 Sanitization
 SNI
-SSO
 VPN
 - docs/user/events.md
 lifecycles
@@ -404,7 +422,6 @@ SAN
 https
 http
  - docs/user/pam-authentication.md
-OAuth2
 clientId
 clientSecret
 redirectUris
@@ -414,3 +431,6 @@ SSSD
 nsswitch.conf
 NSSwitch
 PAM
+alice
+bob
+charlie
