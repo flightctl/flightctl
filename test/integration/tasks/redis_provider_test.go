@@ -55,13 +55,39 @@ func waitForRedisFailedMessagesState(ctx context.Context, queueName string, expe
 	failedSetKey := "failed_messages:" + queueName
 	deadline := time.Now().Add(timeout)
 
+	logrus.WithFields(logrus.Fields{
+		"queueName":     queueName,
+		"expectedCount": expectedCount,
+		"failedSetKey":  failedSetKey,
+	}).Debug("waitForRedisFailedMessagesState starting")
+
 	for time.Now().Before(deadline) {
 		count, err := redisClient.ZCard(ctx, failedSetKey).Result()
-		if err == nil && int(count) == expectedCount {
-			return true
+		if err != nil {
+			logrus.WithError(err).Debug("ZCARD failed")
+		} else {
+			logrus.WithFields(logrus.Fields{
+				"actualCount":   count,
+				"expectedCount": expectedCount,
+			}).Debug("Checking failed message count")
+
+			if int(count) == expectedCount {
+				logrus.Debug("Expected count reached!")
+				return true
+			}
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
+
+	// One more check at the end with details
+	count, _ := redisClient.ZCard(ctx, failedSetKey).Result()
+	allEntries, _ := redisClient.ZRangeWithScores(ctx, failedSetKey, 0, -1).Result()
+	logrus.WithFields(logrus.Fields{
+		"finalCount":    count,
+		"expectedCount": expectedCount,
+		"allEntries":    allEntries,
+	}).Warn("waitForRedisFailedMessagesState timeout")
+
 	return false
 }
 
@@ -539,8 +565,9 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 			defer consumerCancel()
 
 			err = consumer.Consume(consumerCtx, func(ctx context.Context, payload []byte, entryID string, consumer queues.QueueConsumer, log logrus.FieldLogger) error {
+				err := consumer.Complete(ctx, entryID, payload, fmt.Errorf("handler error"))
 				messageProcessed <- true
-				return consumer.Complete(ctx, entryID, payload, fmt.Errorf("handler error"))
+				return err
 			})
 			Expect(err).ToNot(HaveOccurred())
 
@@ -579,7 +606,7 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 				payload []byte
 				entryID string
 				err     error
-			}, 1)
+			}) // Unbuffered: handler blocks on send until test receives, ensuring Complete() finishes
 
 			consumerCtx, consumerCancel := context.WithCancel(ctx)
 			defer consumerCancel()
@@ -601,23 +628,21 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 			err = producer.Enqueue(ctx, testPayload, time.Now().UnixMicro())
 			Expect(err).ToNot(HaveOccurred())
 
+			// Wait for message to be processed
+			// Receiving from unbuffered channel means Complete() has finished
 			var result struct {
 				payload []byte
 				entryID string
 				err     error
 			}
-			Eventually(func() bool {
-				select {
-				case result = <-messageProcessed:
-					return true
-				default:
-					return false
-				}
-			}, 5*time.Second, 100*time.Millisecond).Should(BeTrue())
-
-			Expect(result.payload).To(Equal(testPayload))
-			Expect(result.entryID).ToNot(BeEmpty())
-			Expect(result.err).ToNot(HaveOccurred())
+			select {
+			case result = <-messageProcessed:
+				Expect(result.payload).To(Equal(testPayload))
+				Expect(result.entryID).ToNot(BeEmpty())
+				Expect(result.err).ToNot(HaveOccurred())
+			case <-time.After(5 * time.Second):
+				Fail("Timeout waiting for message to be processed")
+			}
 
 			// Stop consumer gracefully
 			consumerCancel()
@@ -648,59 +673,76 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 			defer consumerCancel()
 
 			err = consumer.Consume(consumerCtx, func(ctx context.Context, payload []byte, entryID string, consumer queues.QueueConsumer, log logrus.FieldLogger) error {
-				messageReceived <- payload
 				// Complete with error to trigger retry
-				return consumer.Complete(ctx, entryID, payload, fmt.Errorf("processing error"))
+				err := consumer.Complete(ctx, entryID, payload, fmt.Errorf("processing error"))
+				// Send to channel AFTER Complete() finishes to signal handler completion
+				messageReceived <- payload
+				return err
 			})
 			Expect(err).ToNot(HaveOccurred())
 
 			err = producer.Enqueue(ctx, testPayload, time.Now().UnixMicro())
 			Expect(err).ToNot(HaveOccurred())
 
-			// Wait for original message
+			// Wait for original message (with timeout)
+			// Receiving from channel means Complete() has finished
 			var first []byte
-			Eventually(func() bool {
-				select {
-				case first = <-messageReceived:
-					return true
-				default:
-					return false
-				}
-			}, 5*time.Second, 100*time.Millisecond).Should(BeTrue())
-			Expect(first).To(Equal(testPayload))
+			select {
+			case first = <-messageReceived:
+				Expect(first).To(Equal(testPayload))
+				log.Info("Message handler completed")
+			case <-time.After(5 * time.Second):
+				Fail("Timeout waiting for first message")
+			}
 
 			// Stop consumer to avoid race conditions with retry operations
 			consumerCancel()
+			log.Info("Consumer1 context canceled")
 
 			// Poll until Redis failure state is consistent (message should be in failed set)
 			// This is crucial for the retry mechanism to work properly
 			Eventually(func() bool {
 				return waitForRedisFailedMessagesState(ctx, queueName, 1, 2*time.Second)
 			}, 5*time.Second, 100*time.Millisecond).Should(BeTrue())
+			log.Info("Failed message found in Redis set")
 
 			// Create a fresh consumer to receive retried messages BEFORE retry operation
 			// Don't reuse the original consumer as its Redis client may be closed
+			log.Infof("Creating consumer2 for queue: %s", queueName)
 			consumer2, err := provider.NewQueueConsumer(ctx, queueName)
 			Expect(err).ToNot(HaveOccurred())
+			log.Infof("Consumer2 created. Same object as consumer1? %v", consumer == consumer2)
 			defer consumer2.Close()
 
 			consumerCtx2, consumerCancel2 := context.WithCancel(ctx)
 			defer consumerCancel2()
 
+			log.Info("Starting consumer2.Consume()")
 			err = consumer2.Consume(consumerCtx2, func(ctx context.Context, payload []byte, entryID string, consumer queues.QueueConsumer, log logrus.FieldLogger) error {
-				messageReceived <- payload
+				log.Infof("Consumer2 received message: %s", string(payload))
 				// Complete successfully this time using the correct consumer instance
-				return consumer2.Complete(ctx, entryID, payload, nil)
+				err := consumer2.Complete(ctx, entryID, payload, nil)
+				// Send to channel AFTER Complete() finishes to signal handler completion
+				messageReceived <- payload
+				return err
 			})
 			Expect(err).ToNot(HaveOccurred())
+			log.Info("Consumer2.Consume() started successfully")
 
 			// Give consumer2 time to fully register and start listening
 			// Need to ensure the consumer goroutine is actively polling Redis
-			time.Sleep(1 * time.Second)
+			time.Sleep(100 * time.Millisecond)
+			log.Info("Waited for consumer2 to be ready")
+
+			// Wait for the backoff period to expire before retrying
+			// Backoff delay is 200ms (observed in logs), so wait for that plus buffer
+			time.Sleep(500 * time.Millisecond)
+			log.Info("Waited for backoff period to expire")
 
 			// Now retry failed messages using the SAME retry configuration
 			// that was used when the message was originally failed
-			_, err = provider.RetryFailedMessages(ctx, queueName, queues.RetryConfig{
+			log.Infof("Calling RetryFailedMessages for queue: %s", queueName)
+			retriedCount, err := provider.RetryFailedMessages(ctx, queueName, queues.RetryConfig{
 				BaseDelay:    100 * time.Millisecond, // Same as provider config
 				MaxRetries:   3,
 				MaxDelay:     500 * time.Millisecond,
@@ -710,18 +752,16 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 				return nil
 			})
 			Expect(err).ToNot(HaveOccurred())
+			log.Infof("RetryFailedMessages returned: retriedCount=%d", retriedCount)
 
 			// Expect the retried delivery (with longer timeout for exponential backoff)
 			var second []byte
-			Eventually(func() bool {
-				select {
-				case second = <-messageReceived:
-					return true
-				default:
-					return false
-				}
-			}, 15*time.Second, 100*time.Millisecond).Should(BeTrue())
-			Expect(second).To(Equal(testPayload))
+			select {
+			case second = <-messageReceived:
+				Expect(second).To(Equal(testPayload))
+			case <-time.After(15 * time.Second):
+				Fail("Timeout waiting for retried message")
+			}
 
 			// Stop second consumer
 			consumerCancel2()
@@ -870,17 +910,19 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			testPayload := []byte("test retry count message")
-			retryCounts := make(chan int, 3) // Track retry counts
+			retryCounts := make(chan int) // Unbuffered for synchronization
 
 			consumerCtx, consumerCancel := context.WithCancel(ctx)
 			defer consumerCancel()
 
 			err = consumer.Consume(consumerCtx, func(ctx context.Context, payload []byte, entryID string, consumer queues.QueueConsumer, log logrus.FieldLogger) error {
-				// For now, assume retry count 0 (first message)
+				// Complete with error to trigger retry
+				completeErr := consumer.Complete(ctx, entryID, payload, fmt.Errorf("processing error"))
+
+				// Signal after Complete finishes (retry count 0 for first message)
 				retryCounts <- 0
 
-				// Complete with error to trigger retry
-				return consumer.Complete(ctx, entryID, payload, fmt.Errorf("processing error"))
+				return completeErr
 			})
 			Expect(err).ToNot(HaveOccurred())
 
@@ -889,14 +931,12 @@ var _ = Describe("Redis Provider Integration Tests", func() {
 
 			// Wait for original message (should have retry count 0)
 			var retryCount int
-			Eventually(func() bool {
-				select {
-				case retryCount = <-retryCounts:
-					return true
-				default:
-					return false
-				}
-			}, 5*time.Second, 100*time.Millisecond).Should(BeTrue())
+			select {
+			case retryCount = <-retryCounts:
+				// Message received and Complete() finished
+			case <-time.After(5 * time.Second):
+				Fail("timeout waiting for message processing")
+			}
 			Expect(retryCount).To(Equal(0))
 
 			// Wait for failure to be recorded in Redis BEFORE cancelling consumer

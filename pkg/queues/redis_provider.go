@@ -181,18 +181,28 @@ func (r *redisProvider) newQueue(ctx context.Context, queueName string) (*redisQ
 	// Deduplicate: return existing active queue if present.
 	for _, q := range r.queues {
 		if q.name == queueName && !q.closed.Load() {
+			r.log.WithField("queueName", queueName).Debug("Returning existing queue object (deduplication)")
 			return q, nil
 		}
 	}
+
+	r.log.WithField("queueName", queueName).Debug("Creating fresh queue object")
 
 	// Create consumer group name and consumer name
 	groupName := fmt.Sprintf("%s-group", queueName)
 	consumerName := fmt.Sprintf("%s-consumer-%s", queueName, r.processID)
 
 	// Ensure stream+group exist with passed context.
+	r.log.WithFields(logrus.Fields{
+		"queueName": queueName,
+		"groupName": groupName,
+	}).Debug("Calling XGroupCreateMkStream")
+
 	if err := r.client.XGroupCreateMkStream(ctx, queueName, groupName, "0").Err(); err != nil && !strings.Contains(err.Error(), "BUSYGROUP") {
+		r.log.WithError(err).Error("XGroupCreateMkStream failed")
 		return nil, fmt.Errorf("failed to create consumer group: %w", err)
 	}
+	r.log.Debug("XGroupCreateMkStream succeeded or group already exists")
 
 	queue := &redisQueue{
 		name:         queueName,
@@ -585,17 +595,25 @@ func (r *redisQueue) Enqueue(ctx context.Context, payload []byte, timestamp int6
 }
 
 func (r *redisQueue) Consume(ctx context.Context, handler ConsumeHandler) error {
+	r.log.WithFields(logrus.Fields{
+		"queueName": r.name,
+		"closed":    r.closed.Load(),
+	}).Debug("Consume() called")
+
 	r.wg.Add(1)
 
 	go func() {
 		defer r.wg.Done()
+		r.log.WithField("queueName", r.name).Debug("Consume goroutine started")
 
 		for {
 			select {
 			case <-ctx.Done():
+				r.log.WithField("queueName", r.name).Debug("Consume goroutine context canceled, exiting")
 				return
 			default:
 				if r.closed.Load() {
+					r.log.WithField("queueName", r.name).Debug("Consume goroutine detected closed queue, exiting")
 					return
 				}
 
@@ -779,10 +797,12 @@ func (r *redisQueue) consumeOnce(ctx context.Context, handler ConsumeHandler) er
 
 func (r *redisQueue) Complete(ctx context.Context, entryID string, body []byte, processingErr error) error {
 	if r.closed.Load() {
+		r.log.WithField("entryID", entryID).Warn("Complete() called on closed queue")
 		return errors.New("queue is closed")
 	}
 	// If processing failed, we need to add the message to the failed messages set
 	if processingErr != nil {
+		r.log.WithField("entryID", entryID).Debug("Message failed, adding to failed set")
 		failedKey := fmt.Sprintf("%s:%s", redisKeyFailedMessagesPrefix, r.name)
 		// Best-effort read of current retry count; default to 0 on error/miss
 		currentRetryCount := 0
@@ -816,14 +836,26 @@ func (r *redisQueue) Complete(ctx context.Context, entryID string, body []byte, 
 		retryTimestamp := redisTime.Add(backoffDelay).UnixMicro()
 		// Create new failed member with updated retry count
 		failedMember := r.formatFailedMember(entryID, body, newRetryCount)
+
+		r.log.WithFields(logrus.Fields{
+			"entryID":            entryID,
+			"failedKey":          failedKey,
+			"retryTimestamp":     retryTimestamp,
+			"retryTimestampTime": time.UnixMicro(retryTimestamp),
+			"redisTime":          redisTime,
+			"backoffDelay":       backoffDelay,
+		}).Debug("About to ZADD to failed set")
+
 		// Add new member with retry timestamp
 		_, err = r.client.ZAdd(ctx, failedKey, redis.Z{
 			Score:  float64(retryTimestamp),
 			Member: failedMember,
 		}).Result()
 		if err != nil {
+			r.log.WithError(err).Error("ZADD to failed set FAILED")
 			return fmt.Errorf("failed to add message to failed set: %w", err)
 		}
+		r.log.Debug("ZADD to failed set SUCCEEDED")
 		r.log.WithField("entryID", entryID).
 			WithField("processID", r.processID).
 			WithField("currentRetryCount", currentRetryCount).
@@ -1104,6 +1136,7 @@ func (r *redisQueue) ProcessTimedOutMessages(ctx context.Context, timeout time.D
 // and moves them back to the stream for processing with exponential backoff
 func (r *redisQueue) RetryFailedMessages(ctx context.Context, config RetryConfig, handler func(entryID string, body []byte, retryCount int) error) (int, error) {
 	if r.closed.Load() {
+		r.log.Warn("RetryFailedMessages called on closed queue")
 		return 0, errors.New("queue is closed")
 	}
 
@@ -1117,18 +1150,39 @@ func (r *redisQueue) RetryFailedMessages(ctx context.Context, config RetryConfig
 		redisTime = time.Now()
 	}
 
+	r.log.WithFields(logrus.Fields{
+		"failedKey":          failedKey,
+		"redisTime":          redisTime,
+		"redisTimeUnixMicro": redisTime.UnixMicro(),
+	}).Debug("RetryFailedMessages starting")
+
 	// Fetch entries due for retry, including their original scores
 	failedEntries, err := r.client.ZRangeByScoreWithScores(ctx, failedKey, &redis.ZRangeBy{
 		Min: "-inf",
 		Max: strconv.FormatInt(redisTime.UnixMicro(), 10), // ready for retry
 	}).Result()
 	if err != nil {
+		r.log.WithError(err).Error("ZRangeByScoreWithScores failed")
 		return 0, fmt.Errorf("failed to get failed messages: %w", err)
 	}
 	r.log.
 		WithField("failedKey", failedKey).
 		WithField("failedMessageCount", len(failedEntries)).
+		WithField("maxScore", redisTime.UnixMicro()).
 		Debug("Found failed messages for retry")
+
+	// If no messages, also check what's actually in the set
+	if len(failedEntries) == 0 {
+		allEntries, _ := r.client.ZRangeWithScores(ctx, failedKey, 0, -1).Result()
+		r.log.WithField("totalInSet", len(allEntries)).Debug("No messages ready for retry, checking total in set")
+		if len(allEntries) > 0 {
+			r.log.WithFields(logrus.Fields{
+				"firstScore":       allEntries[0].Score,
+				"firstScoreAsTime": time.UnixMicro(int64(allEntries[0].Score)),
+				"redisTime":        redisTime,
+			}).Debug("Messages exist but not yet ready for retry")
+		}
+	}
 	for _, z := range failedEntries {
 		// Ensure the member is a string
 		failedMember, ok := z.Member.(string)
