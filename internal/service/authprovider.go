@@ -26,8 +26,7 @@ func sanitizeSchemaError(err error) string {
 	return errMsg
 }
 
-func (h *ServiceHandler) CreateAuthProvider(ctx context.Context, authProvider api.AuthProvider) (*api.AuthProvider, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
+func (h *ServiceHandler) CreateAuthProvider(ctx context.Context, orgId uuid.UUID, authProvider api.AuthProvider) (*api.AuthProvider, api.Status) {
 
 	// don't set fields that are managed by the service
 	NilOutManagedObjectMetaProperties(&authProvider.Metadata)
@@ -40,8 +39,7 @@ func (h *ServiceHandler) CreateAuthProvider(ctx context.Context, authProvider ap
 	return result, StoreErrorToApiStatus(err, true, api.AuthProviderKind, authProvider.Metadata.Name)
 }
 
-func (h *ServiceHandler) ListAuthProviders(ctx context.Context, params api.ListAuthProvidersParams) (*api.AuthProviderList, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
+func (h *ServiceHandler) ListAuthProviders(ctx context.Context, orgId uuid.UUID, params api.ListAuthProvidersParams) (*api.AuthProviderList, api.Status) {
 
 	listParams, status := prepareListParams(params.Continue, params.LabelSelector, params.FieldSelector, params.Limit)
 	if status != api.StatusOK() {
@@ -63,15 +61,13 @@ func (h *ServiceHandler) ListAuthProviders(ctx context.Context, params api.ListA
 	}
 }
 
-func (h *ServiceHandler) GetAuthProvider(ctx context.Context, name string) (*api.AuthProvider, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
+func (h *ServiceHandler) GetAuthProvider(ctx context.Context, orgId uuid.UUID, name string) (*api.AuthProvider, api.Status) {
 
 	result, err := h.store.AuthProvider().Get(ctx, orgId, name)
 	return result, StoreErrorToApiStatus(err, false, api.AuthProviderKind, &name)
 }
 
-func (h *ServiceHandler) ReplaceAuthProvider(ctx context.Context, name string, authProvider api.AuthProvider) (*api.AuthProvider, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
+func (h *ServiceHandler) ReplaceAuthProvider(ctx context.Context, orgId uuid.UUID, name string, authProvider api.AuthProvider) (*api.AuthProvider, api.Status) {
 
 	// don't overwrite fields that are managed by the service for external requests
 	if !IsInternalRequest(ctx) {
@@ -92,8 +88,7 @@ func (h *ServiceHandler) ReplaceAuthProvider(ctx context.Context, name string, a
 	return result, StoreErrorToApiStatus(err, created, api.AuthProviderKind, &name)
 }
 
-func (h *ServiceHandler) PatchAuthProvider(ctx context.Context, name string, patch api.PatchRequest) (*api.AuthProvider, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
+func (h *ServiceHandler) PatchAuthProvider(ctx context.Context, orgId uuid.UUID, name string, patch api.PatchRequest) (*api.AuthProvider, api.Status) {
 
 	currentObj, err := h.store.AuthProvider().Get(ctx, orgId, name)
 	if err != nil {
@@ -122,22 +117,19 @@ func (h *ServiceHandler) PatchAuthProvider(ctx context.Context, name string, pat
 	return result, StoreErrorToApiStatus(err, false, api.AuthProviderKind, &name)
 }
 
-func (h *ServiceHandler) DeleteAuthProvider(ctx context.Context, name string) api.Status {
-	orgId := getOrgIdFromContext(ctx)
+func (h *ServiceHandler) DeleteAuthProvider(ctx context.Context, orgId uuid.UUID, name string) api.Status {
 
 	err := h.store.AuthProvider().Delete(ctx, orgId, name, h.callbackAuthProviderDeleted)
 	return StoreErrorToApiStatus(err, false, api.AuthProviderKind, &name)
 }
 
-func (h *ServiceHandler) GetAuthProviderByIssuerAndClientId(ctx context.Context, issuer string, clientId string) (*api.AuthProvider, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
+func (h *ServiceHandler) GetAuthProviderByIssuerAndClientId(ctx context.Context, orgId uuid.UUID, issuer string, clientId string) (*api.AuthProvider, api.Status) {
 
 	result, err := h.store.AuthProvider().GetAuthProviderByIssuerAndClientId(ctx, orgId, issuer, clientId)
 	return result, StoreErrorToApiStatus(err, false, api.AuthProviderKind, &issuer)
 }
 
-func (h *ServiceHandler) GetAuthProviderByAuthorizationUrl(ctx context.Context, authorizationUrl string) (*api.AuthProvider, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
+func (h *ServiceHandler) GetAuthProviderByAuthorizationUrl(ctx context.Context, orgId uuid.UUID, authorizationUrl string) (*api.AuthProvider, api.Status) {
 
 	result, err := h.store.AuthProvider().GetAuthProviderByAuthorizationUrl(ctx, orgId, authorizationUrl)
 	return result, StoreErrorToApiStatus(err, false, api.AuthProviderKind, &authorizationUrl)

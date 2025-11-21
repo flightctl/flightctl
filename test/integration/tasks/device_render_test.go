@@ -183,7 +183,7 @@ var _ = Describe("DeviceRender", func() {
 				api.DeviceAnnotationTemplateVersion:         "1.0.0",
 				api.DeviceAnnotationRenderedTemplateVersion: "1.0.0",
 			}
-			status := serviceHandler.UpdateDeviceAnnotations(ctx, deviceName, annotations, nil)
+			status := serviceHandler.UpdateDeviceAnnotations(ctx, orgId, deviceName, annotations, nil)
 			Expect(status.Code).To(Equal(int32(200)))
 
 			// Now change the device label from "small" to "big"
@@ -313,7 +313,7 @@ var _ = Describe("DeviceRender", func() {
 				api.DeviceAnnotationTemplateVersion:         "1.0.0",
 				api.DeviceAnnotationRenderedTemplateVersion: "1.0.0",
 			}
-			status := serviceHandler.UpdateDeviceAnnotations(ctx, deviceName, annotations, nil)
+			status := serviceHandler.UpdateDeviceAnnotations(ctx, orgId, deviceName, annotations, nil)
 			Expect(status.Code).To(Equal(int32(200)))
 
 			// This test verifies the correct behavior: when template version and spec haven't changed,

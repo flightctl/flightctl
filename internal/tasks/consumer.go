@@ -14,7 +14,6 @@ import (
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/flightctl/flightctl/pkg/queues"
@@ -69,8 +68,6 @@ func dispatchTasks(serviceHandler service.Service, k8sClient k8sclient.K8SClient
 		var taskName string
 		errorMessages := []string{}
 
-		ctx = util.WithOrganizationID(ctx, eventWithOrgId.OrgId)
-
 		if shouldRolloutFleet(ctx, eventWithOrgId.Event, log) {
 			taskName = "fleetRollout"
 			err = runTaskWithMetrics(taskName, workerMetrics, func() error {
@@ -116,7 +113,7 @@ func dispatchTasks(serviceHandler service.Service, k8sClient k8sclient.K8SClient
 			// ensure emission even if processing ctx timed out
 			emitCtx, cancelEmit := context.WithTimeout(context.Background(), AckTimeout)
 			defer cancelEmit()
-			EmitInternalTaskFailedEvent(emitCtx, errorMessage, eventWithOrgId.Event, serviceHandler)
+			EmitInternalTaskFailedEvent(emitCtx, eventWithOrgId.OrgId, errorMessage, eventWithOrgId.Event, serviceHandler)
 			returnErr = errors.New(errorMessage)
 		}
 

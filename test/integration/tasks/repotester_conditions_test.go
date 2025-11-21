@@ -110,7 +110,7 @@ var _ = Describe("RepoTester", func() {
 			repo, err = stores.Repository().Get(ctx, orgId, "ok-to-ok")
 			Expect(err).ToNot(HaveOccurred())
 
-			err = repotestr.SetAccessCondition(ctx, repo, nil)
+			err = repotestr.SetAccessCondition(ctx, orgId, repo, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			_, err = createRepository(ctx, stores.Repository(), log, orgId, "ok-to-err", &map[string]string{"status": "fail"})
@@ -118,10 +118,10 @@ var _ = Describe("RepoTester", func() {
 			repo, err = stores.Repository().Get(ctx, orgId, "ok-to-err")
 			Expect(err).ToNot(HaveOccurred())
 
-			err = repotestr.SetAccessCondition(ctx, repo, nil)
+			err = repotestr.SetAccessCondition(ctx, orgId, repo, nil)
 			Expect(err).ToNot(HaveOccurred())
 
-			repotestr.TestRepositories(ctx)
+			repotestr.TestRepositories(ctx, orgId)
 
 			repo, err = stores.Repository().Get(ctx, orgId, "nil-to-ok")
 			Expect(err).ToNot(HaveOccurred())
