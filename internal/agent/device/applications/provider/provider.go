@@ -587,25 +587,6 @@ func isEqual(a, b Provider) bool {
 	return reflect.DeepEqual(a.Spec(), b.Spec())
 }
 
-func pathFromAppType(appType v1alpha1.AppType, name string, embedded bool) (string, error) {
-	var typePath string
-	switch appType {
-	case v1alpha1.AppTypeCompose:
-		if embedded {
-			typePath = lifecycle.EmbeddedComposeAppPath
-			break
-		}
-		typePath = lifecycle.ComposeAppPath
-	case v1alpha1.AppTypeQuadlet:
-		// embedded quadlets must be moved to the default quadlet path (so that contents can be mutated)
-		// discovery checks EmbeddedQuadletAppPath, but the application's actual path is the default path
-		typePath = lifecycle.QuadletAppPath
-	default:
-		return "", fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
-	}
-	return filepath.Join(typePath, name), nil
-}
-
 // AppData holds the extracted application data and cleanup function
 type AppData struct {
 	Targets   []dependency.OCIPullTarget
@@ -780,17 +761,8 @@ func writeENVFile(appPath string, writer fileio.Writer, envVars map[string]strin
 }
 
 // ensureDependenciesFromAppType ensures that the dependencies required for the given app type are available.
-func ensureDependenciesFromAppType(appType v1alpha1.AppType) error {
-	var deps []string
-	switch appType {
-	case v1alpha1.AppTypeCompose:
-		deps = []string{"docker-compose", "podman-compose"}
-	case v1alpha1.AppTypeQuadlet:
-		deps = []string{"podman"}
-	default:
-		return fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
-	}
-
+func ensureDependenciesFromAppType(handler appTypeHandler) error {
+	deps := handler.Dependencies()
 	for _, dep := range deps {
 		if client.IsCommandAvailable(dep) {
 			return nil
