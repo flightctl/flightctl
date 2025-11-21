@@ -32,6 +32,9 @@ func (h *WebsocketHandler) HandleDeviceConsole(w http.ResponseWriter, r *http.Re
 
 	h.log.Infof("websocket console connection requested for device: %s", deviceName)
 
+	// Extract organization ID from context
+	orgId := OrgIDFromContext(r.Context())
+
 	// Extract metadata
 	metadata, err := h.injectProtocolsToMetadata(r.URL.Query().Get(api.DeviceQueryConsoleSessionMetadata),
 		websocket.Subprotocols(r))
@@ -40,7 +43,7 @@ func (h *WebsocketHandler) HandleDeviceConsole(w http.ResponseWriter, r *http.Re
 		http.Error(w, "protocols injection error", http.StatusInternalServerError)
 		return
 	}
-	consoleSession, err := h.consoleSessionManager.StartSession(r.Context(), deviceName, metadata)
+	consoleSession, err := h.consoleSessionManager.StartSession(r.Context(), orgId, deviceName, metadata)
 	// check for errors
 	if err != nil {
 		switch {

@@ -11,7 +11,6 @@ import (
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/worker"
 	"github.com/flightctl/flightctl/internal/service"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
@@ -95,15 +94,12 @@ func (t *QueueMaintenanceTask) processTimedOutMessages(ctx context.Context, log 
 			// Successfully parsed the original event
 			originalEvent = eventWithOrgId.Event
 
-			// Ensure event is emitted under the correct organization
-			orgCtx := util.WithOrganizationID(ctx, eventWithOrgId.OrgId)
-
 			// Use the original event's resource information for better context
 			resourceKind := originalEvent.InvolvedObject.Kind
 			resourceName := originalEvent.InvolvedObject.Name
 
 			// Emit InternalTaskFailedEvent using the original event
-			EmitInternalTaskFailedEvent(orgCtx,
+			EmitInternalTaskFailedEvent(ctx, eventWithOrgId.OrgId,
 				fmt.Sprintf("Message processing timed out after %v", EventProcessingTimeout),
 				originalEvent,
 				t.serviceHandler)
@@ -141,14 +137,11 @@ func (t *QueueMaintenanceTask) retryFailedMessages(ctx context.Context, log logr
 			// Successfully parsed the original event
 			originalEvent = eventWithOrgId.Event
 
-			// Ensure event is emitted under the correct organization
-			orgCtx := util.WithOrganizationID(ctx, eventWithOrgId.OrgId)
-
 			resourceKind := api.ResourceKind(api.SystemKind)
 			resourceName := api.SystemComponentQueue
 			errorMessage := fmt.Sprintf("Message processing permanently failed after %d retry attempts", retryCount)
 			message := fmt.Sprintf("%s internal task failed: %s - %s.", resourceKind, originalEvent.Reason, errorMessage)
-			event := api.GetBaseEvent(orgCtx,
+			event := api.GetBaseEvent(ctx,
 				resourceKind,
 				resourceName,
 				api.EventReasonInternalTaskPermanentlyFailed,
@@ -165,7 +158,7 @@ func (t *QueueMaintenanceTask) retryFailedMessages(ctx context.Context, log logr
 			}
 
 			// Emit the event
-			t.serviceHandler.CreateEvent(orgCtx, event)
+			t.serviceHandler.CreateEvent(ctx, eventWithOrgId.OrgId, event)
 
 			log.WithField("entryID", entryID).
 				WithField("resourceKind", resourceKind).
@@ -298,8 +291,6 @@ func (t *QueueMaintenanceTask) republishEventsSince(ctx context.Context, since t
 			continue
 		}
 
-		// Create organization context
-		orgCtx := util.WithOrganizationID(ctx, orgID)
 		orgLog := log.WithField("orgId", orgID.String())
 
 		orgLog.Debug("Processing events for organization")
@@ -325,7 +316,7 @@ func (t *QueueMaintenanceTask) republishEventsSince(ctx context.Context, since t
 			}
 
 			// List events from database for this organization
-			eventList, status := t.serviceHandler.ListEvents(orgCtx, params)
+			eventList, status := t.serviceHandler.ListEvents(ctx, orgID, params)
 			if status.Code >= 400 {
 				orgLog.WithError(fmt.Errorf("status: %s", status.Message)).Warn("Failed to list events for organization, continuing with next")
 				break
@@ -340,7 +331,7 @@ func (t *QueueMaintenanceTask) republishEventsSince(ctx context.Context, since t
 			for _, event := range eventList.Items {
 				eventName := lo.FromPtrOr(event.Metadata.Name, "<unnamed>")
 				orgLog.WithField("eventName", eventName).Debug("Attempting to republish event")
-				if err := t.republishSingleEvent(orgCtx, &event, orgID, publisher, orgLog); err != nil {
+				if err := t.republishSingleEvent(ctx, &event, orgID, publisher, orgLog); err != nil {
 					orgLog.WithError(err).WithField("eventName", eventName).Error("Failed to republish event, continuing with next")
 					continue
 				}

@@ -31,12 +31,12 @@ var _ = Describe("CertificateSigningRequest Integration Tests", func() {
 			csrName := lo.FromPtr(csr.Metadata.Name)
 
 			By("creating a test CSR")
-			created, status := suite.Handler.CreateCertificateSigningRequest(suite.Ctx, csr)
+			created, status := suite.Handler.CreateCertificateSigningRequest(suite.Ctx, suite.OrgID, csr)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 			Expect(created).ToNot(BeNil())
 
 			By("applying patch operation")
-			patched, status := suite.Handler.PatchCertificateSigningRequest(suite.Ctx, csrName, patch)
+			patched, status := suite.Handler.PatchCertificateSigningRequest(suite.Ctx, suite.OrgID, csrName, patch)
 
 			Expect(status.Code).To(statusMatcher)
 			if IsStatusSuccessful(&status) {
@@ -50,7 +50,7 @@ var _ = Describe("CertificateSigningRequest Integration Tests", func() {
 			}
 
 			By("verifying persistence after read back")
-			retrieved, status := suite.Handler.GetCertificateSigningRequest(suite.Ctx, csrName)
+			retrieved, status := suite.Handler.GetCertificateSigningRequest(suite.Ctx, suite.OrgID, csrName)
 			VerifyCSRSpecImmutability(retrieved, created)
 			if patchedMatcher != nil {
 				Expect(retrieved).To(patchedMatcher, "should match expected patch result after read back")
@@ -172,17 +172,17 @@ var _ = Describe("CertificateSigningRequest Integration Tests", func() {
 				csrName := lo.FromPtr(csr.Metadata.Name)
 
 				By("creating a test CSR")
-				created, status := suite.Handler.CreateCertificateSigningRequest(suite.Ctx, csr)
+				created, status := suite.Handler.CreateCertificateSigningRequest(suite.Ctx, suite.OrgID, csr)
 				Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 
 				By("retrieving CSR for replacement")
-				retrieved, status := suite.Handler.GetCertificateSigningRequest(suite.Ctx, csrName)
+				retrieved, status := suite.Handler.GetCertificateSigningRequest(suite.Ctx, suite.OrgID, csrName)
 				Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 
 				replacement := mapCSR(*retrieved)
 
 				By("performing replacement operation")
-				replaced, status := suite.Handler.ReplaceCertificateSigningRequest(suite.Ctx, csrName, replacement)
+				replaced, status := suite.Handler.ReplaceCertificateSigningRequest(suite.Ctx, suite.OrgID, csrName, replacement)
 				Expect(status.Code).To(statusMatcher)
 
 				if IsStatusSuccessful(&status) {
@@ -198,7 +198,7 @@ var _ = Describe("CertificateSigningRequest Integration Tests", func() {
 				}
 
 				By("verifying persistence after read back")
-				final, status := suite.Handler.GetCertificateSigningRequest(suite.Ctx, csrName)
+				final, status := suite.Handler.GetCertificateSigningRequest(suite.Ctx, suite.OrgID, csrName)
 				Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 				VerifyCSRSpecImmutability(final, created)
 				if replacedMatcher != nil {
@@ -287,11 +287,11 @@ var _ = Describe("CertificateSigningRequest Integration Tests", func() {
 			csrName := modifiedName
 
 			By("creating a test CSR with enrollment signer (auto-approval) and mismatched name")
-			_, status := suite.Handler.CreateCertificateSigningRequest(suite.Ctx, csr)
+			_, status := suite.Handler.CreateCertificateSigningRequest(suite.Ctx, suite.OrgID, csr)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 
 			By("verifying it was auto-approved but signing failed (no certificate)")
-			retrieved, status := suite.Handler.GetCertificateSigningRequest(suite.Ctx, csrName)
+			retrieved, status := suite.Handler.GetCertificateSigningRequest(suite.Ctx, suite.OrgID, csrName)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 			Expect(api.IsStatusConditionTrue(retrieved.Status.Conditions, api.ConditionTypeCertificateSigningRequestApproved)).To(BeTrue())
 			// Should have Failed condition due to CN mismatch
@@ -309,7 +309,7 @@ var _ = Describe("CertificateSigningRequest Integration Tests", func() {
 			api.RemoveStatusCondition(&retrieved.Status.Conditions, api.ConditionTypeCertificateSigningRequestApproved)
 			api.RemoveStatusCondition(&retrieved.Status.Conditions, api.ConditionTypeCertificateSigningRequestFailed)
 
-			denied, status := suite.Handler.UpdateCertificateSigningRequestApproval(suite.Ctx, csrName, *retrieved)
+			denied, status := suite.Handler.UpdateCertificateSigningRequestApproval(suite.Ctx, suite.OrgID, csrName, *retrieved)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 			Expect(api.IsStatusConditionTrue(denied.Status.Conditions, api.ConditionTypeCertificateSigningRequestDenied)).To(BeTrue())
 			Expect(api.IsStatusConditionTrue(denied.Status.Conditions, api.ConditionTypeCertificateSigningRequestApproved)).To(BeFalse())
@@ -321,7 +321,7 @@ var _ = Describe("CertificateSigningRequest Integration Tests", func() {
 				"test":    "preserve-denied-status",
 			}
 
-			replaced, status := suite.Handler.ReplaceCertificateSigningRequest(suite.Ctx, csrName, replacement)
+			replaced, status := suite.Handler.ReplaceCertificateSigningRequest(suite.Ctx, suite.OrgID, csrName, replacement)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 			Expect(replaced).ToNot(BeNil())
 
@@ -336,11 +336,11 @@ var _ = Describe("CertificateSigningRequest Integration Tests", func() {
 			csrName := lo.FromPtr(csr.Metadata.Name)
 
 			By("creating and approving a test CSR")
-			_, status := suite.Handler.CreateCertificateSigningRequest(suite.Ctx, csr)
+			_, status := suite.Handler.CreateCertificateSigningRequest(suite.Ctx, suite.OrgID, csr)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 
 			// It should be auto-approved since it has enrollment signer
-			retrieved, status := suite.Handler.GetCertificateSigningRequest(suite.Ctx, csrName)
+			retrieved, status := suite.Handler.GetCertificateSigningRequest(suite.Ctx, suite.OrgID, csrName)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 			Expect(api.IsStatusConditionTrue(retrieved.Status.Conditions, api.ConditionTypeCertificateSigningRequestApproved)).To(BeTrue())
 
@@ -350,7 +350,7 @@ var _ = Describe("CertificateSigningRequest Integration Tests", func() {
 				"updated": "true",
 			}
 
-			replaced, status := suite.Handler.ReplaceCertificateSigningRequest(suite.Ctx, csrName, replacement)
+			replaced, status := suite.Handler.ReplaceCertificateSigningRequest(suite.Ctx, suite.OrgID, csrName, replacement)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 			Expect(replaced).ToNot(BeNil())
 

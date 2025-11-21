@@ -80,7 +80,7 @@ func benchmarkUpdateSummaryStatusBatch(ctx context.Context, b *testing.B, log *l
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		b.StartTimer()
-		disconnected.Poll(ctx)
+		disconnected.Poll(ctx, store.NullOrgId)
 		b.StopTimer()
 
 		err := resetDeviceStatus(ctx, db, deviceNames)
