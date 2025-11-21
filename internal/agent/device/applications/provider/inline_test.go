@@ -134,8 +134,7 @@ func TestInlineProvider(t *testing.T) {
 			require.NoError(err)
 			// verify env file
 			if tt.spec.EnvVars != nil {
-				appPath, err := pathFromAppType(inlineProvider.spec.AppType, inlineProvider.spec.Name, inlineProvider.spec.Embedded)
-				require.NoError(err)
+				appPath := inlineProvider.handler.AppPath()
 				require.True(rw.PathExists(filepath.Join(appPath, ".env")))
 				envFile, err := rw.ReadFile(filepath.Join(appPath, ".env"))
 				require.NoError(err)

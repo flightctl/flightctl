@@ -219,3 +219,16 @@ func IsQuadletFile(quadlet string) bool {
 	_, ok := Extensions[filepath.Ext(quadlet)]
 	return ok
 }
+
+// VolumeName returns the volume name to use for a quadlet volume file.
+// If volumeName is provided (non-nil), it returns the custom name.
+// Otherwise, it generates a default name in the format "systemd-<basename>"
+// where basename is the filename without its extension.
+// For example, "data.volume" becomes "systemd-data".
+func VolumeName(volumeName *string, filename string) string {
+	if volumeName != nil {
+		return *volumeName
+	}
+
+	return fmt.Sprintf("systemd-%s", strings.TrimSuffix(filepath.Base(filename), filepath.Ext(filename)))
+}
