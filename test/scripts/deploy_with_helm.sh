@@ -131,7 +131,7 @@ LOGGED_IN=false
 # attempt to login, it could take some time for API to be stable
 for i in {1..60}; do
   if [ "$AUTH" ]; then
-    TOKEN=$(kubectl -n flightctl-external create token flightctl-admin --context kind-kind 2>/dev/null || true)
+    TOKEN=$(kubectl -n flightctl-external create token flightctl-admin --duration=8h --context kind-kind 2>/dev/null || true)
     if [ -n "$TOKEN" ] && ./bin/flightctl login -k https://api.${IP}.nip.io:${API_PORT} --token "$TOKEN"; then
       LOGGED_IN=true
       break
