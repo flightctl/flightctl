@@ -229,6 +229,15 @@ func (s *PAMOIDCProvider) handleRefreshTokenGrant(ctx context.Context, req *pama
 	s.log.Debugf("handleRefreshTokenGrant: mapped groups to roles - %v", roles)
 	organizations := s.extractOrganizations(groups)
 	s.log.Debugf("handleRefreshTokenGrant: extracted organizations - %v", organizations)
+
+	// Extract scopes from the refresh token
+	scopes := ""
+	if scopesClaim, ok := identity.GetClaim("scopes"); ok {
+		if scopesStr, ok := scopesClaim.(string); ok {
+			scopes = scopesStr
+		}
+	}
+
 	tokenGenerationRequest := authn.TokenGenerationRequest{
 		Username:      identity.GetUsername(),
 		UID:           identity.GetUID(),
@@ -236,6 +245,7 @@ func (s *PAMOIDCProvider) handleRefreshTokenGrant(ctx context.Context, req *pama
 		Roles:         roles,
 		Audience:      []string{s.config.ClientID}, // Set audience to client ID
 		Issuer:        s.config.Issuer,             // Set issuer
+		Scopes:        scopes,                      // Include scopes from refresh token
 	}
 	// Generate new access token with proper expiry (1 hour)
 	accessToken, err := s.jwtGenerator.GenerateTokenWithType(tokenGenerationRequest, time.Hour, TokenTypeAccess)
@@ -252,6 +262,11 @@ func (s *PAMOIDCProvider) handleRefreshTokenGrant(ctx context.Context, req *pama
 		AccessToken: accessToken,
 		TokenType:   pamapi.Bearer,
 		ExpiresIn:   lo.ToPtr(int(time.Hour.Seconds())),
+	}
+
+	// Generate id_token if openid scope was originally requested
+	if strings.Contains(scopes, ScopeOpenID) {
+		tokenResponse.IdToken = lo.ToPtr(accessToken)
 	}
 
 	// Always issue a new refresh token when using refresh_token grant
@@ -417,6 +432,7 @@ func (s *PAMOIDCProvider) handleAuthorizationCodeGrant(ctx context.Context, req 
 		Roles:         roles,
 		Audience:      []string{codeData.ClientID}, // Set audience to client ID from authorization request
 		Issuer:        s.config.Issuer,             // Set issuer
+		Scopes:        codeData.Scope,              // Include scopes from authorization request
 	}
 	// Generate access token with proper expiry (1 hour)
 	accessToken, err := s.jwtGenerator.GenerateTokenWithType(tokenGenerationRequest, time.Hour, TokenTypeAccess)
@@ -433,6 +449,11 @@ func (s *PAMOIDCProvider) handleAuthorizationCodeGrant(ctx context.Context, req 
 		AccessToken: accessToken,
 		TokenType:   pamapi.Bearer,
 		ExpiresIn:   lo.ToPtr(int(time.Hour.Seconds())),
+	}
+
+	// Generate id_token if openid scope was requested
+	if strings.Contains(codeData.Scope, ScopeOpenID) {
+		tokenResponse.IdToken = lo.ToPtr(accessToken)
 	}
 
 	// Only generate refresh token if offline_access was requested
@@ -540,6 +561,7 @@ func (s *PAMOIDCProvider) Authorize(ctx context.Context, req *pamapi.AuthAuthori
 			Content: loginForm,
 		}, nil
 	}
+	state := lo.FromPtrOr(req.State, "")
 
 	// Check if session exists and is valid
 	sessionData, exists := s.IsUserAuthenticated(sessionID)
@@ -552,34 +574,15 @@ func (s *PAMOIDCProvider) Authorize(ctx context.Context, req *pamapi.AuthAuthori
 			Content: loginForm,
 		}, nil
 	}
+	sessionData.State = state
+	sessionData.CodeChallenge = codeChallenge
+	sessionData.CodeChallengeMethod = codeChallengeMethod
+	sessionData.ClientID = req.ClientId
+	sessionData.RedirectURI = req.RedirectUri
 
 	// User is authenticated, get username from session
 	username := sessionData.Username
 	s.log.Infof("Authorize: user authenticated via session - username=%s", username)
-
-	// SECURITY: Validate that the current request matches the session to prevent CSRF attacks
-	// The session was created when the user authenticated with specific client_id, redirect_uri, and state
-	// These must match the current authorize request to ensure this is the same OAuth flow
-	if sessionData.ClientID != req.ClientId {
-		s.log.Warnf("Authorize: client_id mismatch - session=%s, request=%s", sessionData.ClientID, req.ClientId)
-		return nil, errors.New("invalid_request")
-	}
-	if sessionData.RedirectURI != req.RedirectUri {
-		s.log.Warnf("Authorize: redirect_uri mismatch - session=%s, request=%s", sessionData.RedirectURI, req.RedirectUri)
-		return nil, errors.New("invalid_request")
-	}
-	if sessionData.State != lo.FromPtrOr(req.State, "") {
-		s.log.Warnf("Authorize: state mismatch - session=%s, request=%s", sessionData.State, lo.FromPtrOr(req.State, ""))
-		return nil, errors.New("invalid_request")
-	}
-
-	// SECURITY: Use PKCE parameters from session if available (prevents tampering)
-	// When a user returns after authentication, PKCE params should be in the session
-	if sessionData.CodeChallenge != "" {
-		codeChallenge = sessionData.CodeChallenge
-		codeChallengeMethod = sessionData.CodeChallengeMethod
-		s.log.Debugf("Authorize: using PKCE parameters from session")
-	}
 
 	// Generate OAuth2 authorization code (step 4: used to exchange for access token)
 	authCode, err := generateAuthorizationCode()
@@ -661,10 +664,17 @@ func (s *PAMOIDCProvider) Login(ctx context.Context, username, password, clientI
 	s.log.Debugf("Login: created user session for %s", username)
 
 	// Redirect back to authorization endpoint
-	// Note: PKCE parameters are stored in session, not passed in URL (more secure)
-	authURL := fmt.Sprintf("/api/v1/auth/authorize?response_type=code&client_id=%s&redirect_uri=%s", clientID, redirectURI)
+	// Include all PKCE parameters in the authorization URL
+	authURL := fmt.Sprintf("/api/v1/auth/authorize?response_type=code&client_id=%s&redirect_uri=%s",
+		url.QueryEscape(clientID), url.QueryEscape(redirectURI))
 	if state != "" {
-		authURL += fmt.Sprintf("&state=%s", state)
+		authURL += fmt.Sprintf("&state=%s", url.QueryEscape(state))
+	}
+	if codeChallenge != "" {
+		authURL += fmt.Sprintf("&code_challenge=%s", url.QueryEscape(codeChallenge))
+	}
+	if codeChallengeMethod != "" {
+		authURL += fmt.Sprintf("&code_challenge_method=%s", url.QueryEscape(codeChallengeMethod))
 	}
 
 	s.log.Debugf("Login: returning redirect for user %s", username)
