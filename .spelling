@@ -228,7 +228,7 @@ orgs
 LDAP
 SSO
 backend
- - docs/user/api-resources.md
+ - docs/user/references/api-resources.md
 approvedBy
 creationTimestamp
 deletionTimestamp
@@ -239,7 +239,7 @@ hw-generation
 hw-model
 jetson
 orin
- - docs/user/getting-started.md
+ - docs/user/installing/installing-service-on-kubernetes.md
 demouser
 v3.15
 values.yaml
@@ -250,7 +250,7 @@ ui.flightctl.MY.DOMAIN
 openShiftApiUrl
 PVs
 k8s
- - docs/user/managing-devices.md
+ - docs/user/using/managing-devices.md
 AlertRules
 base32-encoded
 ClusterRole
@@ -271,19 +271,19 @@ unpackaged
 v3.4
 WorkDir
 10s
- - docs/user/managing-fleets.md
+ - docs/user/using/managing-fleets.md
 factory-berlinsite
 factory-madridsite
 GroupBy
 MinAvailable
 MaxUnavailable
 MultipleOwners
- - docs/user/building-images.md
+ - docs/user/building/building-images.md
 usr
 iso
- - docs/user/registering-microshift-devices-acm.md
+ - docs/user/using/registering-microshift-devices-acm.md
 klusterlet
- - docs/user/field-selectors.md
+ - docs/user/using/field-selectors.md
 DoesNotExist
 DoubleEquals
 GreaterThan
@@ -293,7 +293,7 @@ LessThanOrEquals
 NotContains
 NotEquals
 NotIn
- - docs/user/kubernetes-auth.md
+ - docs/user/installing/configuring-auth/auth-kubernetes.md
 global.apiUrl
 global.auth.type
 insecureSkipTlsVerify
@@ -308,7 +308,9 @@ global.auth.k8s.externalApiToken
 global.auth.k8s.externalOpenShiftApiUrl
 caCert
 ClusterRoleBinding
- - docs/user/provisioning-devices.md
+values.yaml
+k8s
+ - docs/user/using/provisioning-devices.md
 cloud-config.yaml
 config.yaml
 datastore
@@ -316,15 +318,12 @@ disk.vmdk
 iso
 ISOs
 yaml
- - docs/user/rollout-policies.md
-rollouts
-BatchSequence
- - docs/user/alerts.md
+ - docs/user/references/alerts.md
 alertmanager
 DeviceDisconnected
 DeviceCPUCritical
 programmatically
- - docs/user/standalone-observability.md
+ - docs/user/using/standalone-observability.md
 UserInfo
 Pre-configured
 is_superuser
@@ -332,7 +331,7 @@ is_platform_auditor
 flightctl-api
 flightctl-kv
 IdPs
-- docs/user/network-requirements.md
+- docs/user/installing/preparing-installation-on-linux.md
 Air-Gapped
 Backend
 dev
@@ -347,22 +346,22 @@ Redis
 registry.redhat.io
 TCP
 UserInfo
-- docs/user/database-migration.md
+- docs/user/installing/performing-database-migration.md
 CREATEDB
 CREATEROLE
 DDL
 quadlet
 misconfigured
-- docs/user/security-guidelines.md
+- docs/user/references/security-guidelines.md
 journald
 quadlets
 Sanitization
 SNI
 VPN
-- docs/user/events.md
+- docs/user/references/events.md
 lifecycles
 Rollouts
-- docs/user/rate-limiting.md
+- docs/user/installing/configuring-rate-limiting.md
 1m
 1h
 authRequests
@@ -373,22 +372,22 @@ nginx
 rateLimit
 real_ip
 untrusted
- - docs/user/tpm-authentication.md
+ - docs/user/installing/configuring-device-attestation.md
 TN1330
 www.infineon.com
 cms
 optiga-embedded-security-solutions
-- docs/user/metrics.md
+- docs/user/references/metrics.md
 sloMax
 SLO
-- docs/user/postgresql-backup-strategy.md
+- docs/user/installing/performing-database-backup.md
 RPOs
 RPO
 Bitbucket
 GitLab
 GitHub
 Configs
-- docs/user/external-database.md
+- docs/user/installing/configuring-external-database.md
 JSONB
 pg_trgm
 gin_trgm_ops
@@ -418,10 +417,12 @@ values.yaml
 values.dev.yaml
 CN
 SAN
- - docs/user/service-observability.md
+quadlet
+DDL
+ - docs/user/installing/configuring-service-tracing.md
 https
 http
- - docs/user/pam-authentication.md
+ - docs/user/installing/configuring-auth/auth-pam.md
 clientId
 clientSecret
 redirectUris
