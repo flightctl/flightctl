@@ -315,6 +315,7 @@ func TestQuadlet_add(t *testing.T) {
 				}, nil)
 				mockRW.EXPECT().ReadFile("/test/path/app.container").Return([]byte("[Container]\nImage=nginx\n"), nil)
 				mockSystemdMgr.EXPECT().Start(gomock.Any(), "app.service").Return(fmt.Errorf("start failed"))
+				mockSystemdMgr.EXPECT().Logs(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 			},
 			wantErr: true,
 		},
