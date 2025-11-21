@@ -191,6 +191,9 @@ type TokenResponse struct {
 	// ExpiresIn Token expiration time in seconds.
 	ExpiresIn *int `json:"expires_in,omitempty"`
 
+	// IdToken OpenID Connect ID token (returned when openid scope is requested).
+	IdToken *string `json:"id_token,omitempty"`
+
 	// RefreshToken OAuth2 refresh token.
 	RefreshToken *string `json:"refresh_token,omitempty"`
 
