@@ -55,6 +55,34 @@ func (mr *MockManagerMockRecorder) Alerts() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Alerts", reflect.TypeOf((*MockManager)(nil).Alerts))
 }
 
+// BeforeUpdate mocks base method.
+func (m *MockManager) BeforeUpdate(ctx context.Context, desired *v1alpha1.DeviceSpec) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "BeforeUpdate", ctx, desired)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// BeforeUpdate indicates an expected call of BeforeUpdate.
+func (mr *MockManagerMockRecorder) BeforeUpdate(ctx, desired any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BeforeUpdate", reflect.TypeOf((*MockManager)(nil).BeforeUpdate), ctx, desired)
+}
+
+// IsCriticalAlert mocks base method.
+func (m *MockManager) IsCriticalAlert(monitorType MonitorType) bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IsCriticalAlert", monitorType)
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// IsCriticalAlert indicates an expected call of IsCriticalAlert.
+func (mr *MockManagerMockRecorder) IsCriticalAlert(monitorType any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsCriticalAlert", reflect.TypeOf((*MockManager)(nil).IsCriticalAlert), monitorType)
+}
+
 // ResetAlertDefaults mocks base method.
 func (m *MockManager) ResetAlertDefaults() error {
 	m.ctrl.T.Helper()
