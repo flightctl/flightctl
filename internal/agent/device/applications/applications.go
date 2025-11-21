@@ -100,25 +100,23 @@ type Workload struct {
 
 type application struct {
 	id        string
-	appType   v1alpha1.AppType
 	path      string
 	workloads []Workload
 	volume    provider.VolumeManager
 	status    *v1alpha1.DeviceApplicationStatus
-	embedded  bool
 }
 
 // NewApplication creates a new application from an application provider.
 func NewApplication(provider provider.Provider) *application {
 	spec := provider.Spec()
 	return &application{
-		id:       spec.ID,
-		appType:  spec.AppType,
-		path:     spec.Path,
-		embedded: spec.Embedded,
+		id:   spec.ID,
+		path: spec.Path,
 		status: &v1alpha1.DeviceApplicationStatus{
-			Name:   spec.Name,
-			Status: v1alpha1.ApplicationStatusUnknown,
+			Name:     spec.Name,
+			Status:   v1alpha1.ApplicationStatusUnknown,
+			Embedded: spec.Embedded,
+			AppType:  spec.AppType,
 		},
 		volume: spec.Volume,
 	}
@@ -133,7 +131,7 @@ func (a *application) Name() string {
 }
 
 func (a *application) AppType() v1alpha1.AppType {
-	return a.appType
+	return a.status.AppType
 }
 
 func (a *application) Workload(name string) (*Workload, bool) {
@@ -164,7 +162,7 @@ func (a *application) Path() string {
 }
 
 func (a *application) IsEmbedded() bool {
-	return a.embedded
+	return a.status.Embedded
 }
 
 func (a *application) Volume() provider.VolumeManager {
