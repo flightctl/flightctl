@@ -63,7 +63,7 @@ func NewPodmanMonitor(
 	// don't fail for this. This is being parsed purely for informational reasons in the event something fails
 	startTime, err := time.Parse(time.RFC3339, bootTime)
 	if err != nil {
-		log.Warnf("Failed to parse bootTime %q: %v", bootTime, err)
+		log.Errorf("Failed to parse bootTime %q: %v", bootTime, err)
 		startTime = time.Now()
 	}
 	return &PodmanMonitor{

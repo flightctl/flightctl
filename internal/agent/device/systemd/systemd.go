@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"reflect"
 	"regexp"
-	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
@@ -34,10 +33,8 @@ type Manager interface {
 	ResetFailed(ctx context.Context, units ...string) error
 	// ListUnitsByMatchPattern lists systemd units matching the provided patterns.
 	ListUnitsByMatchPattern(ctx context.Context, matchPatterns []string) ([]client.SystemDUnitListEntry, error)
-	// LogsByTagSince retrieves journal logs for a specific tag since a given time.
-	LogsByTagSince(ctx context.Context, tag string, since time.Time) ([]string, error)
-	// LogsByUnitSince retrieves journal logs for a specific unit since a given time.
-	LogsByUnitSince(ctx context.Context, unit string, since time.Time) ([]string, error)
+	// Logs returns the logs based on the specified options
+	Logs(ctx context.Context, options ...client.LogOptions) ([]string, error)
 	status.Exporter
 }
 
@@ -100,12 +97,8 @@ func (m *manager) ListUnitsByMatchPattern(ctx context.Context, matchPatterns []s
 	return m.client.ListUnitsByMatchPattern(ctx, matchPatterns)
 }
 
-func (m *manager) LogsByTagSince(ctx context.Context, tag string, since time.Time) ([]string, error) {
-	return m.journalctl.LogsByTagSince(ctx, tag, since)
-}
-
-func (m *manager) LogsByUnitSince(ctx context.Context, unit string, since time.Time) ([]string, error) {
-	return m.journalctl.LogsByUnitSince(ctx, unit, since)
+func (m *manager) Logs(ctx context.Context, options ...client.LogOptions) ([]string, error) {
+	return m.journalctl.Logs(ctx, options...)
 }
 
 func (m *manager) Status(ctx context.Context, device *v1alpha1.DeviceStatus, _ ...status.CollectorOpt) error {

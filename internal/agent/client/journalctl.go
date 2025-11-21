@@ -24,10 +24,37 @@ type Journalctl struct {
 	exec executer.Executer
 }
 
-func (j *Journalctl) logsSince(ctx context.Context, baseArgs []string, since time.Time) ([]string, error) {
-	formattedTime := since.Format("2006-01-02 15:04:05")
-	args := append(baseArgs, "-o", "cat", "--since", formattedTime)
-	stdout, stderr, exitCode := j.exec.ExecuteWithContext(ctx, journalctlCommand, args...)
+type logOptions struct {
+	args []string
+}
+
+type LogOptions func(*logOptions)
+
+func WithLogUnit(unit string) LogOptions {
+	return func(o *logOptions) {
+		o.args = append(o.args, "-u", unit)
+	}
+}
+
+func WithLogTag(tag string) LogOptions {
+	return func(o *logOptions) {
+		o.args = append(o.args, "-t", tag)
+	}
+}
+
+func WithLogSince(t time.Time) LogOptions {
+	return func(o *logOptions) {
+		o.args = append(o.args, "--since", t.Format("2006-01-02 15:04:05"))
+	}
+}
+
+func (j *Journalctl) Logs(ctx context.Context, options ...LogOptions) ([]string, error) {
+	opts := logOptions{args: []string{"-o", "cat"}}
+	for _, option := range options {
+		option(&opts)
+	}
+
+	stdout, stderr, exitCode := j.exec.ExecuteWithContext(ctx, journalctlCommand, opts.args...)
 	if exitCode != 0 {
 		return nil, fmt.Errorf("journalctl logs: %w", errors.FromStderr(stderr, exitCode))
 	}
@@ -41,12 +68,4 @@ func (j *Journalctl) logsSince(ctx context.Context, baseArgs []string, since tim
 	}
 
 	return result, nil
-}
-
-func (j *Journalctl) LogsByTagSince(ctx context.Context, tag string, since time.Time) ([]string, error) {
-	return j.logsSince(ctx, []string{"-t", tag}, since)
-}
-
-func (j *Journalctl) LogsByUnitSince(ctx context.Context, unit string, since time.Time) ([]string, error) {
-	return j.logsSince(ctx, []string{"-u", unit}, since)
 }

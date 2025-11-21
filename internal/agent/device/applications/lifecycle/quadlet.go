@@ -70,9 +70,9 @@ func (q *Quadlet) add(ctx context.Context, action *Action) error {
 			// check the individual service logs and the quadlet generator logs for potential issues
 			err = fmt.Errorf("starting units: %w", err)
 			for _, service := range services {
-				serviceLogs, serviceErr := q.systemdManager.LogsByUnitSince(ctx, service, startTime)
+				serviceLogs, serviceErr := q.systemdManager.Logs(ctx, client.WithLogUnit(service), client.WithLogSince(startTime))
 				if serviceErr != nil {
-					q.log.Warnf("Failed to gather service: %q logs: %v", service, serviceErr)
+					q.log.Errorf("Failed to gather service: %q logs: %v", service, serviceErr)
 					continue
 				}
 				if len(serviceLogs) > 0 {
@@ -80,12 +80,12 @@ func (q *Quadlet) add(ctx context.Context, action *Action) error {
 					err = fmt.Errorf("service: %q logs: %s: %w", service, strings.Join(serviceLogs, ","), err)
 				}
 			}
-			generatorLogs, logsErr := q.systemdManager.LogsByTagSince(ctx, "quadlet-generator", batchTime)
+			generatorLogs, logsErr := q.systemdManager.Logs(ctx, client.WithLogTag("quadlet-generator"), client.WithLogSince(batchTime))
 			if logsErr != nil {
-				q.log.Warnf("Failed to fetch quadlet-generator logs: %v", logsErr)
+				q.log.Errorf("Failed to fetch quadlet-generator logs: %v", logsErr)
 			}
 			if len(generatorLogs) > 0 {
-				q.log.Errorf("quadlet generator logs: %s", strings.Join(generatorLogs, "\n"))
+				q.log.Errorf("Failed to generate services from the defined Quadlet. Check the syntax of the Quadlet files.\n%s", strings.Join(generatorLogs, "\n"))
 				err = fmt.Errorf("quadlet generator: %s %w", strings.Join(generatorLogs, ","), err)
 			}
 			return err
