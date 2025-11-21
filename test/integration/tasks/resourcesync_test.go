@@ -106,7 +106,7 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 			Spec: spec,
 		}
 
-		_, status := serviceHandler.CreateRepository(ctx, *repo)
+		_, status := serviceHandler.CreateRepository(ctx, orgId, *repo)
 		Expect(status.Code).To(Equal(int32(201)))
 		return repo
 	}
@@ -124,7 +124,7 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 			},
 		}
 
-		_, status := serviceHandler.CreateResourceSync(ctx, *resourceSync)
+		_, status := serviceHandler.CreateResourceSync(ctx, orgId, *resourceSync)
 		Expect(status.Code).To(Equal(int32(201)))
 		return resourceSync
 	}
@@ -139,7 +139,7 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 			rs := createTestResourceSync(resourceSyncName, "test-repo", "/examples")
 
 			// Test the helper method
-			repo, err := resourceSync.GetRepositoryAndValidateAccess(ctx, rs)
+			repo, err := resourceSync.GetRepositoryAndValidateAccess(ctx, orgId, rs)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(repo).ToNot(BeNil())
 
@@ -159,7 +159,7 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 			rs := createTestResourceSync(resourceSyncName, "non-existent-repo", "/examples")
 
 			// Test the helper method
-			repo, err := resourceSync.GetRepositoryAndValidateAccess(ctx, rs)
+			repo, err := resourceSync.GetRepositoryAndValidateAccess(ctx, orgId, rs)
 			Expect(err).To(HaveOccurred())
 			Expect(repo).To(BeNil())
 
@@ -259,7 +259,7 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 			}
 
 			// Test the helper method
-			err := resourceSync.SyncFleets(ctx, log, rs, fleets, "sync-test-resourcesync")
+			err := resourceSync.SyncFleets(ctx, log, orgId, rs, fleets, "sync-test-resourcesync")
 			Expect(err).ToNot(HaveOccurred())
 
 			// Verify conditions were set
@@ -297,15 +297,15 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 			}
 
 			// Create the conflicting fleet first
-			_, status := serviceHandler.CreateFleet(ctx, *conflictingFleet)
+			_, status := serviceHandler.CreateFleet(ctx, orgId, *conflictingFleet)
 			Expect(status.Code).To(Equal(int32(201)))
 
 			// Update the fleet to set the owner
-			_, status = serviceHandler.ReplaceFleet(ctx, *conflictingFleet.Metadata.Name, *conflictingFleet)
+			_, status = serviceHandler.ReplaceFleet(ctx, orgId, *conflictingFleet.Metadata.Name, *conflictingFleet)
 			Expect(status.Code).To(Equal(int32(200)))
 
 			// Verify the fleet was created with the correct owner
-			createdFleet, status := serviceHandler.GetFleet(ctx, "conflicting-fleet", api.GetFleetParams{})
+			createdFleet, status := serviceHandler.GetFleet(ctx, orgId, "conflicting-fleet", api.GetFleetParams{})
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(createdFleet.Metadata.Owner).ToNot(BeNil())
 			Expect(*createdFleet.Metadata.Owner).To(Equal("ResourceSync/different-owner"))
@@ -332,7 +332,7 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 			}
 
 			// Test the helper method
-			err := resourceSync.SyncFleets(ctx, log, rs, fleets, "conflict-test-resourcesync")
+			err := resourceSync.SyncFleets(ctx, log, orgId, rs, fleets, "conflict-test-resourcesync")
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("fleet name(s)"))
 		})
@@ -348,11 +348,11 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 			rs := createTestResourceSync(resourceSyncName, "event-test-repo", "/examples")
 
 			// Call the helper method
-			_, err := resourceSync.GetRepositoryAndValidateAccess(ctx, rs)
+			_, err := resourceSync.GetRepositoryAndValidateAccess(ctx, orgId, rs)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Update the status to trigger event emission
-			_, status := serviceHandler.ReplaceResourceSyncStatus(ctx, *rs.Metadata.Name, *rs)
+			_, status := serviceHandler.ReplaceResourceSyncStatus(ctx, orgId, *rs.Metadata.Name, *rs)
 			Expect(status.Code).To(Equal(int32(200)))
 
 			// Verify events were emitted
@@ -371,11 +371,11 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 			rs := createTestResourceSync(resourceSyncName, "non-existent-repo", "/examples")
 
 			// Call the helper method
-			_, err := resourceSync.GetRepositoryAndValidateAccess(ctx, rs)
+			_, err := resourceSync.GetRepositoryAndValidateAccess(ctx, orgId, rs)
 			Expect(err).To(HaveOccurred())
 
 			// Update the status to trigger event emission
-			_, status := serviceHandler.ReplaceResourceSyncStatus(ctx, *rs.Metadata.Name, *rs)
+			_, status := serviceHandler.ReplaceResourceSyncStatus(ctx, orgId, *rs.Metadata.Name, *rs)
 			Expect(status.Code).To(Equal(int32(200)))
 
 			// Verify events were emitted
@@ -395,8 +395,8 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 			createTestResourceSync(resourceSyncName, "ref-test-repo", "/examples")
 
 			// Call the helper method
-			rs, _ := serviceHandler.GetResourceSync(ctx, resourceSyncName)
-			_, err := resourceSync.GetRepositoryAndValidateAccess(ctx, rs)
+			rs, _ := serviceHandler.GetResourceSync(ctx, orgId, resourceSyncName)
+			_, err := resourceSync.GetRepositoryAndValidateAccess(ctx, orgId, rs)
 			Expect(err).ToNot(HaveOccurred())
 
 			events := getEventsForResourceSync(resourceSyncName)
