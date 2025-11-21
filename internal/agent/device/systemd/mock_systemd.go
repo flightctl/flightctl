@@ -12,6 +12,7 @@ package systemd
 import (
 	context "context"
 	reflect "reflect"
+	time "time"
 
 	v1alpha1 "github.com/flightctl/flightctl/api/v1alpha1"
 	client "github.com/flightctl/flightctl/internal/agent/client"
@@ -99,6 +100,36 @@ func (m *MockManager) ListUnitsByMatchPattern(ctx context.Context, matchPatterns
 func (mr *MockManagerMockRecorder) ListUnitsByMatchPattern(ctx, matchPatterns any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListUnitsByMatchPattern", reflect.TypeOf((*MockManager)(nil).ListUnitsByMatchPattern), ctx, matchPatterns)
+}
+
+// LogsByTagSince mocks base method.
+func (m *MockManager) LogsByTagSince(ctx context.Context, tag string, since time.Time) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LogsByTagSince", ctx, tag, since)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// LogsByTagSince indicates an expected call of LogsByTagSince.
+func (mr *MockManagerMockRecorder) LogsByTagSince(ctx, tag, since any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LogsByTagSince", reflect.TypeOf((*MockManager)(nil).LogsByTagSince), ctx, tag, since)
+}
+
+// LogsByUnitSince mocks base method.
+func (m *MockManager) LogsByUnitSince(ctx context.Context, unit string, since time.Time) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LogsByUnitSince", ctx, unit, since)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// LogsByUnitSince indicates an expected call of LogsByUnitSince.
+func (mr *MockManagerMockRecorder) LogsByUnitSince(ctx, unit, since any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LogsByUnitSince", reflect.TypeOf((*MockManager)(nil).LogsByUnitSince), ctx, unit, since)
 }
 
 // RemoveExclusions mocks base method.

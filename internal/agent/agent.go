@@ -158,6 +158,9 @@ func (a *Agent) Run(ctx context.Context) error {
 	// create systemd client
 	systemdClient := client.NewSystemd(executer)
 
+	// create journalctl client
+	journalctlClient := client.NewJournalctl(executer)
+
 	// create systemInfo manager
 	systemInfoManager := systeminfo.NewManager(
 		a.log,
@@ -232,7 +235,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	hookManager := hook.NewManager(deviceReadWriter, executer, a.log)
 
 	// create systemd manager
-	systemdManager := systemd.NewManager(a.log, systemdClient)
+	systemdManager := systemd.NewManager(a.log, systemdClient, journalctlClient)
 
 	// create application manager
 	applicationsManager := applications.NewManager(
