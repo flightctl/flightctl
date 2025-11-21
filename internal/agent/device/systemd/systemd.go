@@ -33,20 +33,24 @@ type Manager interface {
 	ResetFailed(ctx context.Context, units ...string) error
 	// ListUnitsByMatchPattern lists systemd units matching the provided patterns.
 	ListUnitsByMatchPattern(ctx context.Context, matchPatterns []string) ([]client.SystemDUnitListEntry, error)
+	// Logs returns the logs based on the specified options
+	Logs(ctx context.Context, options ...client.LogOptions) ([]string, error)
 	status.Exporter
 }
 
 type manager struct {
 	patterns         []string
 	client           *client.Systemd
+	journalctl       *client.Journalctl
 	log              *log.PrefixLogger
 	excludedServices map[string]struct{}
 }
 
-func NewManager(log *log.PrefixLogger, client *client.Systemd) Manager {
+func NewManager(log *log.PrefixLogger, client *client.Systemd, journalctl *client.Journalctl) Manager {
 	return &manager{
 		log:              log,
 		client:           client,
+		journalctl:       journalctl,
 		excludedServices: make(map[string]struct{}),
 	}
 }
@@ -91,6 +95,10 @@ func (m *manager) ResetFailed(ctx context.Context, units ...string) error {
 
 func (m *manager) ListUnitsByMatchPattern(ctx context.Context, matchPatterns []string) ([]client.SystemDUnitListEntry, error) {
 	return m.client.ListUnitsByMatchPattern(ctx, matchPatterns)
+}
+
+func (m *manager) Logs(ctx context.Context, options ...client.LogOptions) ([]string, error) {
+	return m.journalctl.Logs(ctx, options...)
 }
 
 func (m *manager) Status(ctx context.Context, device *v1alpha1.DeviceStatus, _ ...status.CollectorOpt) error {

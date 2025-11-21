@@ -2,7 +2,7 @@
 
 ![Version: 0.1.0](https://img.shields.io/badge/Version-0.1.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: latest](https://img.shields.io/badge/AppVersion-latest-informational?style=flat-square)
 
-A helm chart for flightctl
+A helm chart for FlightControl
 
 **Homepage:** <https://github.com/flightctl/flightctl>
 
@@ -200,17 +200,12 @@ For more detailed configuration options, see the [Values](#values) section below
 | alertmanagerProxy.image.image | string | `"quay.io/flightctl/flightctl-alertmanager-proxy"` | Alertmanager proxy container image |
 | alertmanagerProxy.image.pullPolicy | string | `""` | Image pull policy for Alertmanager proxy container |
 | alertmanagerProxy.image.tag | string | `""` | Alertmanager proxy image tag |
-| api | object | `{"additionalPVCLabels":null,"additionalRouteLabels":null,"baseUIUrl":"","enabled":true,"image":{"image":"quay.io/flightctl/flightctl-api","pullPolicy":"","tag":""},"probes":{"enabled":true,"livenessPath":"/healthz","readinessPath":"/readyz"},"rateLimit":{"authRequests":20,"authWindow":"1h","enabled":true,"requests":300,"trustedProxies":["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16"],"window":"1m"}}` | API Server Configuration |
+| api | object | `{"additionalPVCLabels":null,"additionalRouteLabels":null,"image":{"image":"quay.io/flightctl/flightctl-api","pullPolicy":"","tag":""},"rateLimit":{"authRequests":20,"authWindow":"1h","enabled":true,"requests":300,"trustedProxies":["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16"],"window":"1m"}}` | API Server Configuration |
 | api.additionalPVCLabels | string | `nil` | Additional labels for API PVCs. |
 | api.additionalRouteLabels | string | `nil` | Additional labels for API routes. |
-| api.baseUIUrl | string | `""` | Base URL for the web UI (used for CORS and redirects) |
-| api.enabled | bool | `true` | Enable Flight Control API server deployment |
 | api.image.image | string | `"quay.io/flightctl/flightctl-api"` | API server container image |
 | api.image.pullPolicy | string | `""` | Image pull policy for API server container |
 | api.image.tag | string | `""` | API server image tag (leave empty to use chart appVersion) |
-| api.probes.enabled | bool | `true` | Enable health and readiness probes for API server |
-| api.probes.livenessPath | string | `"/healthz"` | HTTP path for liveness probe |
-| api.probes.readinessPath | string | `"/readyz"` | HTTP path for readiness probe |
 | api.rateLimit.authRequests | int | `20` | Maximum authentication requests per auth window Auth-specific rate limiting |
 | api.rateLimit.authWindow | string | `"1h"` | Time window for authentication rate limiting |
 | api.rateLimit.enabled | bool | `true` | Enable or disable rate limiting |
@@ -286,7 +281,6 @@ For more detailed configuration options, see the [Values](#values) section below
 | global.baseDomain | string | `""` | Base domain to construct the FQDN for the service endpoints. |
 | global.baseDomainTls.cert | string | `""` | Certificate for the base domain wildcard certificate, it should be valid for *.${baseDomain}. This certificate is only used for non mTLS endpoints, mTLS endpoints like agent-api, etc will use different certificates. |
 | global.baseDomainTls.key | string | `""` | Key for the base domain wildcard certificate. |
-| global.clusterLevelSecretAccess | bool | `false` | Allow flightctl-worker to access secrets at the cluster level for embedding in device configs |
 | global.enableMulticlusterExtensions | string | `"auto"` | Enable MultiCluster Engine extensions - one of 'auto', 'true', 'false'. |
 | global.enableOpenShiftExtensions | string | `"auto"` | Enable OpenShift extensions - one of 'auto', 'true', 'false'. |
 | global.exposeServicesMethod | string | `"auto"` | How the Flight Control services should be exposed. Can be either 'auto', 'route', 'gateway' (experimental) or 'none' |
@@ -296,17 +290,11 @@ For more detailed configuration options, see the [Values](#values) section below
 | global.gateway.ports.tls | int | `443` | TLS port for Gateway API configuration |
 | global.generateSecrets | bool | `true` | Generate secrets when deploying Flight Control. This should be set to false if you want to provide your own secrets or when upgrading Flight Control to avoid overriding the existing secrets |
 | global.imagePullPolicy | string | `"IfNotPresent"` | Image pull policy for all containers |
-| global.imagePullSecretName | string | `""` | Name of the image pull secret for accessing private container registries You must create this secret manually before deployment |
+| global.imagePullSecretName | string | `""` | Name of the secret that holds image pull secret for accessing private container registries |
 | global.internalNamespace | string | `""` | Namespace where internal components are deployed |
-| global.metrics.enabled | bool | `true` | Enable metrics exporting and service |
-| global.organizations.enabled | bool | `false` | Enable IDP-provided organizations support |
-| global.rbac.create | bool | `true` | Create RBAC resources (roles, bindings, service accounts) |
 | global.sshKnownHosts.data | string | `""` | SSH known hosts file content for Git repository host key verification. |
-| global.tracing.enabled | bool | `false` | Enable distributed tracing with OpenTelemetry |
-| global.tracing.endpoint | string | `"jaeger-collector.flightctl-e2e.svc.cluster.local:4318"` | OpenTelemetry collector endpoint for trace data |
-| global.tracing.insecure | bool | `true` | Use insecure connection to tracing endpoint (development only) |
-| kv | object | `{"enabled":true,"fsGroup":"","image":{"image":"quay.io/sclorg/redis-7-c9s","pullPolicy":"","tag":"20250108"},"loglevel":"warning","maxmemory":"1gb","maxmemoryPolicy":"allkeys-lru","password":""}` | Key-Value Store Configuration |
-| kv.enabled | bool | `true` | Enable Redis key-value store for caching and session storage |
+| global.storageClassName | string | `""` | Storage class name for the PVCs. Keep empty to use the default storage class. |
+| kv | object | `{"fsGroup":"","image":{"image":"quay.io/sclorg/redis-7-c9s","pullPolicy":"","tag":"20250108"},"loglevel":"warning","maxmemory":"1gb","maxmemoryPolicy":"allkeys-lru","passwordSecretName":""}` | Key-Value Store Configuration |
 | kv.fsGroup | string | `""` | File system group ID for Redis pod security context |
 | kv.image.image | string | `"quay.io/sclorg/redis-7-c9s"` | Redis container image |
 | kv.image.pullPolicy | string | `""` | Image pull policy for Redis container |
@@ -314,39 +302,29 @@ For more detailed configuration options, see the [Values](#values) section below
 | kv.loglevel | string | `"warning"` | Redis log level (debug, verbose, notice, warning) |
 | kv.maxmemory | string | `"1gb"` | Maximum memory usage for Redis |
 | kv.maxmemoryPolicy | string | `"allkeys-lru"` | Redis memory eviction policy |
-| kv.password | string | `""` | Redis password (leave empty for auto-generation) password: Leave empty to auto-generate secure password, or set to use a specific password. |
-| periodic | object | `{"consumers":5,"enabled":true,"image":{"image":"quay.io/flightctl/flightctl-periodic","pullPolicy":"","tag":""}}` | Periodic Configuration |
+| kv.passwordSecretName | string | `""` | Secret containing password for Redis password (leave empty for auto-generation) |
+| periodic | object | `{"consumers":5,"image":{"image":"quay.io/flightctl/flightctl-periodic","pullPolicy":"","tag":""}}` | Periodic Configuration |
 | periodic.consumers | int | `5` | Number of periodic consumers |
-| periodic.enabled | bool | `true` | Enable Flight Control periodic service |
 | periodic.image.image | string | `"quay.io/flightctl/flightctl-periodic"` | Periodic container image |
 | periodic.image.pullPolicy | string | `""` | Image pull policy for periodic container |
 | periodic.image.tag | string | `""` | Periodic image tag |
-| prometheus | object | `{"enabled":false}` | Prometheus Configuration |
-| prometheus.enabled | bool | `false` | Enable Prometheus deployment |
-| telemetryGateway | object | `{"additionalRouteLabels":null,"enabled":false}` | Telemetry Gateway Configuration |
-| telemetryGateway.additionalRouteLabels | string | `nil` | Additional labels for Telemetry Gateway routes. |
-| telemetryGateway.enabled | bool | `false` | Enable telemetry gateway service |
-| ui | object | `{"additionalRouteLabels":null,"api":{"insecureSkipTlsVerify":true},"auth":{"caCert":"","clientId":"flightctl","insecureSkipTlsVerify":false,"internalAuthUrl":""},"enabled":true,"image":{"image":"quay.io/flightctl/flightctl-ui","pluginImage":"quay.io/flightctl/flightctl-ocp-ui","pullPolicy":"","tag":""},"isRHEM":false}` | UI Configuration |
+| ui | object | `{"additionalRouteLabels":null,"api":{"insecureSkipTlsVerify":true},"auth":{"caCert":"","insecureSkipTlsVerify":false},"enabled":true,"image":{"image":"quay.io/flightctl/flightctl-ui","pluginImage":"quay.io/flightctl/flightctl-ocp-ui","pullPolicy":"","tag":""}}` | UI Configuration |
 | ui.additionalRouteLabels | string | `nil` | Additional labels for UI routes. |
 | ui.api.insecureSkipTlsVerify | bool | `true` | Skip TLS verification for UI API calls |
 | ui.auth.caCert | string | `""` | A custom CA cert for Auth TLS. |
-| ui.auth.clientId | string | `"flightctl"` | Id of auth Client. |
 | ui.auth.insecureSkipTlsVerify | bool | `false` | Set to true if auth TLS certificate validation should be skipped. |
-| ui.auth.internalAuthUrl | string | `""` | URL of Auth authority that is accessible by UI backend. |
 | ui.enabled | bool | `true` | Enable web UI deployment |
 | ui.image.image | string | `"quay.io/flightctl/flightctl-ui"` | UI container image |
 | ui.image.pluginImage | string | `"quay.io/flightctl/flightctl-ocp-ui"` | UI Plugin container image |
 | ui.image.pullPolicy | string | `""` | Image pull policy for UI container |
 | ui.image.tag | string | `""` | UI container image tag |
-| ui.isRHEM | bool | `false` | Set to true if RHEM branding should be used |
 | upgradeHooks | object | `{"databaseMigrationDryRun":true,"scaleDown":{"condition":"chart","deployments":["flightctl-periodic","flightctl-worker"],"timeoutSeconds":120}}` | Upgrade hooks |
 | upgradeHooks.databaseMigrationDryRun | bool | `true` | Enable pre-upgrade DB migration dry-run as a hook |
 | upgradeHooks.scaleDown.condition | string | `"chart"` | When to run pre-upgrade scale down job: "always", "never", or "chart" (default). "chart" runs only if helm.sh/chart changed. |
 | upgradeHooks.scaleDown.deployments | list | `["flightctl-periodic","flightctl-worker"]` | List of Deployments to scale down in order |
 | upgradeHooks.scaleDown.timeoutSeconds | int | `120` | Timeout in seconds to wait for rollout per Deployment |
-| worker | object | `{"enableSecretsClusterRoleBinding":true,"enabled":true,"image":{"image":"quay.io/flightctl/flightctl-worker","pullPolicy":"","tag":""}}` | Worker Configuration |
-| worker.enableSecretsClusterRoleBinding | bool | `true` | Enable secrets cluster role binding for worker |
-| worker.enabled | bool | `true` | Enable Flight Control worker deployment |
+| worker | object | `{"clusterLevelSecretAccess":false,"image":{"image":"quay.io/flightctl/flightctl-worker","pullPolicy":"","tag":""}}` | Worker Configuration |
+| worker.clusterLevelSecretAccess | bool | `false` | Allow flightctl-worker to access secrets at the cluster level for embedding in device configs |
 | worker.image.image | string | `"quay.io/flightctl/flightctl-worker"` | Worker container image |
 | worker.image.pullPolicy | string | `""` | Image pull policy for worker container |
 | worker.image.tag | string | `""` | Worker image tag |

@@ -2,7 +2,6 @@ global:
   auth:
     type: "none"
   tracing:
-    enabled: true
     endpoint: jaeger-collector.flightctl-e2e.svc.cluster.local:4318
     insecure: true
   internalNamespace: flightctl-internal
@@ -96,11 +95,9 @@ dbSetup:
     activeDeadlineSeconds: 600
 
 telemetryGateway:
-  enabled: true
   image:
     image: localhost/flightctl-telemetry-gateway
     tag: latest
   config:
     listen: { device: "0.0.0.0:4317" }
     export: { prometheus: "0.0.0.0:9464" }
-
