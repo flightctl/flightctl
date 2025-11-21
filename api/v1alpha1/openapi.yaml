@@ -5177,6 +5177,8 @@ components:
         - ready
         - restarts
         - status
+        - embedded
+        - appType
       properties:
         name:
           type: string
@@ -5189,6 +5191,11 @@ components:
           description: Number of restarts observed for the application.
         status:
           $ref: "#/components/schemas/ApplicationStatusType"
+        embedded:
+          type: boolean
+          description: Whether the application is embedded in the bootc image.
+        appType:
+          $ref: "#/components/schemas/AppType"
         volumes:
           type: array
           description: Status of volumes used by this application.
