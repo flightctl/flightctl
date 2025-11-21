@@ -7,6 +7,8 @@ global:
   enableOpenShiftExtensions: "auto"
   # -- Enable MultiCluster Engine extensions - one of 'auto', 'true', 'false'.
   enableMulticlusterExtensions: "auto"
+  # -- Namespace where internal components are deployed
+  internalNamespace: ""
   # -- Base domain to construct the FQDN for the service endpoints.
   baseDomain: ""
   baseDomainTls:
@@ -14,11 +16,12 @@ global:
     cert: ""
     # -- Key for the base domain wildcard certificate.
     key: ""
-  # -- Storage class name for the PVCs.
-  # storageClassName: standard
-  # -- Name of the image pull secret for accessing private container registries
-  # You must create this secret manually before deployment
+  # -- Storage class name for the PVCs. Keep empty to use the default storage class.
+  storageClassName: ""
+  # -- Name of the secret that holds image pull secret for accessing private container registries
   imagePullSecretName: ""
+  # -- Image pull policy for all containers
+  imagePullPolicy: IfNotPresent
   auth:
     # -- Type of authentication to use. Allowed values: 'k8s', 'oidc', 'aap', 'openshift', 'oauth2', or 'none'.
     # When left empty (default and recommended), authentication type is auto-detected: 'openshift' on OpenShift clusters, 'k8s' otherwise.
@@ -77,20 +80,6 @@ global:
       tokenUrl: ""
       # -- OAuth issuer URL (defaults to authorizationUrl if not specified)
       issuer: ""
-  metrics:
-    # -- Enable metrics exporting and service
-    enabled: true
-  tracing:
-    # -- Enable distributed tracing with OpenTelemetry
-    enabled: false
-    # -- OpenTelemetry collector endpoint for trace data
-    endpoint: jaeger-collector.flightctl-e2e.svc.cluster.local:4318
-    # -- Use insecure connection to tracing endpoint (development only)
-    insecure: true
-  # -- Namespace where internal components are deployed
-  internalNamespace: ""
-  # -- Allow flightctl-worker to access secrets at the cluster level for embedding in device configs
-  clusterLevelSecretAccess: false
   # -- How the Flight Control services should be exposed. Can be either 'auto', 'route', 'gateway' (experimental) or 'none'
   exposeServicesMethod: "auto"
   # -- Configuration for 'gateway' service exposure method
@@ -104,14 +93,6 @@ global:
       http: 80
   # -- Generate secrets when deploying Flight Control. This should be set to false if you want to provide your own secrets or when upgrading Flight Control to avoid overriding the existing secrets
   generateSecrets: true
-  # -- Image pull policy for all containers
-  imagePullPolicy: IfNotPresent
-  rbac:
-    # -- Create RBAC resources (roles, bindings, service accounts)
-    create: true
-  organizations:
-    # -- Enable IDP-provided organizations support
-    enabled: false
   sshKnownHosts:
     # -- SSH known hosts file content for Git repository host key verification.
     data: ""
@@ -184,8 +165,6 @@ db:
 
 # -- Key-Value Store Configuration
 kv:
-  # -- Enable Redis key-value store for caching and session storage
-  enabled: true
   image:
     # -- Redis container image
     image: quay.io/sclorg/redis-7-c9s
@@ -193,9 +172,8 @@ kv:
     tag: "20250108"
     # -- Image pull policy for Redis container
     pullPolicy: ""
-  # -- Redis password (leave empty for auto-generation)
-  # password: Leave empty to auto-generate secure password, or set to use a specific password.
-  password: ""
+  # -- Secret containing password for Redis password (leave empty for auto-generation)
+  passwordSecretName: ""
   # -- Redis log level (debug, verbose, notice, warning)
   loglevel: warning
   # -- File system group ID for Redis pod security context
@@ -225,8 +203,6 @@ alertmanager:
 
 # -- API Server Configuration
 api:
-  # -- Enable Flight Control API server deployment
-  enabled: true
   image:
     # -- API server container image
     image: quay.io/flightctl/flightctl-api
@@ -234,8 +210,6 @@ api:
     tag: ""
     # -- Image pull policy for API server container
     pullPolicy: ""
-  # -- Base URL for the web UI (used for CORS and redirects)
-  baseUIUrl: "" # ui.flightctl.example.com
   # Rate limiting configuration - enabled by default for production
   rateLimit:
     # -- Enable or disable rate limiting
@@ -257,14 +231,6 @@ api:
       - "10.0.0.0/8"    # Example: Internal network range
       - "172.16.0.0/12" # Example: Docker/container network range
       - "192.168.0.0/16" # Example: Private network range
-  # Health probes configuration
-  probes:
-    # -- Enable health and readiness probes for API server
-    enabled: true
-    # -- HTTP path for readiness probe
-    readinessPath: /readyz
-    # -- HTTP path for liveness probe
-    livenessPath: /healthz
   # -- Additional labels for API routes.
   additionalRouteLabels: null
   # -- Additional labels for API PVCs.
@@ -286,20 +252,18 @@ cliArtifacts:
 
 # -- Worker Configuration
 worker:
-  # -- Enable Flight Control worker deployment
-  enabled: true
   image:
     # -- Worker container image
     image: quay.io/flightctl/flightctl-worker
-    # -- Image pull policy for worker container
-    pullPolicy: ""
     # -- Worker image tag
     tag: ""
+    # -- Image pull policy for worker container
+    pullPolicy: ""
+  # -- Allow flightctl-worker to access secrets at the cluster level for embedding in device configs
+  clusterLevelSecretAccess: false
 
 # -- Periodic Configuration
 periodic:
-  # -- Enable Flight Control periodic service
-  enabled: true
   image:
     # -- Periodic container image
     image: quay.io/flightctl/flightctl-periodic
@@ -334,11 +298,6 @@ alertmanagerProxy:
     # -- Image pull policy for Alertmanager proxy container
     pullPolicy: ""
 
-# -- Prometheus Configuration
-prometheus:
-  # -- Enable Prometheus deployment
-  enabled: false
-
 # -- UI Configuration
 ui:
   # -- Enable web UI deployment
@@ -356,14 +315,10 @@ ui:
     # -- Skip TLS verification for UI API calls
     insecureSkipTlsVerify: true
   auth:
-    # -- URL of Auth authority that is accessible by UI backend.
-    internalAuthUrl: ""
     # -- Set to true if auth TLS certificate validation should be skipped.
     insecureSkipTlsVerify: false
     # -- A custom CA cert for Auth TLS.
     caCert: ""
-    # -- Id of auth Client.
-    clientId: flightctl
   # -- Additional labels for UI routes.
   additionalRouteLabels: null
 
@@ -376,6 +331,7 @@ clusterCli:
     tag: "4.20.0"
     # -- Image pull policy for cluster CLI container
     pullPolicy: ""
+
 # -- Database Setup Configuration
 dbSetup:
   image:
@@ -412,10 +368,3 @@ upgradeHooks:
     timeoutSeconds: 120
   # -- Enable pre-upgrade DB migration dry-run as a hook
   databaseMigrationDryRun: true
-
-# -- Telemetry Gateway Configuration
-telemetryGateway:
-  # -- Enable telemetry gateway service
-  enabled: false
-  # -- Additional labels for Telemetry Gateway routes.
-  additionalRouteLabels: null

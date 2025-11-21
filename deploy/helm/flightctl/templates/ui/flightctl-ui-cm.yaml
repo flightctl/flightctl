@@ -17,7 +17,7 @@ data:
   {{- end }}
   FLIGHTCTL_SERVER_INSECURE_SKIP_VERIFY: {{ .Values.ui.api.insecureSkipTlsVerify | quote }}
   IS_RHEM: {{ (eq .Chart.Name "redhat-rhem") | quote }}
-  ORGANIZATIONS_ENABLED: {{ if and (default false ((.Values.global).organizations).enabled) (eq (include "flightctl.enableMulticlusterExtensions" .) "false" ) }}"true"{{ else }}"false"{{ end }}
+  ORGANIZATIONS_ENABLED: "true"
   AUTH_INSECURE_SKIP_VERIFY: {{ default ((.Values.global).auth).insecureSkipTlsVerify .Values.ui.auth.insecureSkipTlsVerify | quote }}
   BASE_UI_URL: {{ include "flightctl.getUIUrl" . }}
 {{ end }}
