@@ -40,9 +40,9 @@ type Agent struct {
 	osManager              os.Manager
 	policyManager          policy.Manager
 	lifecycleManager       lifecycle.Manager
+	resourceManager        resource.Manager
 	applicationsController *applications.Controller
 	configController       *config.Controller
-	resourceController     *resource.Controller
 	consoleManager         *console.Manager
 	osClient               os.Client
 	podmanClient           *client.Podman
@@ -71,7 +71,7 @@ func NewAgent(
 	lifecycleManager lifecycle.Manager,
 	applicationsController *applications.Controller,
 	configController *config.Controller,
-	resourceController *resource.Controller,
+	resourceManager resource.Manager,
 	consoleManager *console.Manager,
 	osClient os.Client,
 	podmanClient *client.Podman,
@@ -94,7 +94,7 @@ func NewAgent(
 		statusUpdateInterval:   statusUpdateInterval,
 		applicationsController: applicationsController,
 		configController:       configController,
-		resourceController:     resourceController,
+		resourceManager:        resourceManager,
 		consoleManager:         consoleManager,
 		osClient:               osClient,
 		podmanClient:           podmanClient,
@@ -301,7 +301,10 @@ func (a *Agent) statusUpdate(ctx context.Context) {
 }
 
 func (a *Agent) beforeUpdate(ctx context.Context, current, desired *v1alpha1.Device) error {
-	// the policy manager currently represents the state of the desired device
+	if err := a.resourceManager.BeforeUpdate(ctx, desired.Spec); err != nil {
+		return fmt.Errorf("resources: %w", err)
+	}
+
 	if err := a.specManager.CheckPolicy(ctx, policy.Download, desired.Version()); err != nil {
 		return fmt.Errorf("download policy: %w", err)
 	}
@@ -383,10 +386,6 @@ func (a *Agent) syncDevice(ctx context.Context, current, desired *v1alpha1.Devic
 
 	if err := a.configController.Sync(ctx, current.Spec, desired.Spec); err != nil {
 		return fmt.Errorf("config: %w", err)
-	}
-
-	if err := a.resourceController.Sync(ctx, desired.Spec); err != nil {
-		return fmt.Errorf("resources: %w", err)
 	}
 
 	if err := a.systemdControllerSync(ctx, desired.Spec); err != nil {

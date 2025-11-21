@@ -253,7 +253,13 @@ func (a *Agent) Run(ctx context.Context) error {
 	osManager := os.NewManager(a.log, osClient, deviceReadWriter, podmanClient)
 
 	// create prefetch manager
-	prefetchManager := dependency.NewPrefetchManager(a.log, podmanClient, skopeoClient, deviceReadWriter, a.config.PullTimeout)
+	prefetchManager := dependency.NewPrefetchManager(
+		a.log, podmanClient,
+		skopeoClient,
+		deviceReadWriter,
+		a.config.PullTimeout,
+		resourceManager,
+	)
 
 	// create status manager
 	statusManager := status.NewManager(
@@ -339,12 +345,6 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.log.Warnf("Failed to create gRPC client: %v", err)
 	}
 
-	// create resource controller
-	resourceController := resource.NewController(
-		a.log,
-		resourceManager,
-	)
-
 	// create console manager
 	consoleManager := console.NewManager(
 		grpcClient,
@@ -377,7 +377,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		lifecycleManager,
 		applicationsController,
 		configController,
-		resourceController,
+		resourceManager,
 		consoleManager,
 		osClient,
 		podmanClient,

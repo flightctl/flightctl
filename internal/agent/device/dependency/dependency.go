@@ -14,6 +14,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/resource"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 )
@@ -108,10 +109,11 @@ type OCICollector interface {
 }
 
 type prefetchManager struct {
-	log          *log.PrefixLogger
-	podmanClient *client.Podman
-	skopeoClient *client.Skopeo
-	readWriter   fileio.ReadWriter
+	log             *log.PrefixLogger
+	podmanClient    *client.Podman
+	skopeoClient    *client.Skopeo
+	readWriter      fileio.ReadWriter
+	resourceManager resource.Manager
 	// pullTimeout is the duration that each target will wait unless it
 	// encounters an error
 	pullTimeout time.Duration
@@ -139,15 +141,17 @@ func NewPrefetchManager(
 	skopeoClient *client.Skopeo,
 	readWriter fileio.ReadWriter,
 	pullTimeout util.Duration,
+	resourceManager resource.Manager,
 ) *prefetchManager {
 	return &prefetchManager{
-		log:          log,
-		podmanClient: podmanClient,
-		skopeoClient: skopeoClient,
-		readWriter:   readWriter,
-		pullTimeout:  time.Duration(pullTimeout),
-		tasks:        make(map[string]*prefetchTask),
-		queue:        make(chan string, maxQueueSize),
+		log:             log,
+		podmanClient:    podmanClient,
+		skopeoClient:    skopeoClient,
+		readWriter:      readWriter,
+		pullTimeout:     time.Duration(pullTimeout),
+		resourceManager: resourceManager,
+		tasks:           make(map[string]*prefetchTask),
+		queue:           make(chan string, maxQueueSize),
 	}
 }
 
@@ -245,6 +249,9 @@ func (m *prefetchManager) BeforeUpdate(ctx context.Context, current, desired *v1
 	m.mu.Unlock()
 
 	if len(newTargets) > 0 {
+		if m.resourceManager.IsCriticalAlert(resource.DiskMonitorType) {
+			return fmt.Errorf("%w: insufficient disk storage space, please clear storage", errors.ErrCriticalResourceAlert)
+		}
 		m.log.Debugf("Scheduling %d new targets for prefetch", len(newTargets))
 		if err := m.Schedule(ctx, newTargets); err != nil {
 			return fmt.Errorf("scheduling prefetch targets: %w", err)
