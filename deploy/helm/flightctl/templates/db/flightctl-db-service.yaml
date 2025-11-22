@@ -1,4 +1,4 @@
-{{- if ne .Values.db.external "enabled" }}
+{{- if eq .Values.db.type "builtin" }}
 apiVersion: v1
 kind: Service
 metadata:
