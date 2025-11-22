@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"net/http"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/contextutil"
@@ -25,18 +26,39 @@ func organizationModelToAPI(org *model.Organization) api.Organization {
 	}
 }
 
-func (h *ServiceHandler) ListOrganizations(ctx context.Context) (*api.OrganizationList, api.Status) {
+func (h *ServiceHandler) ListOrganizations(ctx context.Context, params api.ListOrganizationsParams) (*api.OrganizationList, api.Status) {
 	var orgs []*model.Organization
 	var err error
-	if IsInternalRequest(ctx) {
-		orgs, err = h.listAllOrganizations(ctx)
-	} else {
-		orgs, err = h.listUserOrganizations(ctx)
+	listParams, status := prepareListParams(nil, nil, params.FieldSelector, nil)
+	if status.Code != http.StatusOK {
+		return nil, status
 	}
 
-	status := StoreErrorToApiStatus(err, false, api.OrganizationKind, nil)
+	orgs, err = h.store.Organization().List(ctx, *listParams)
 	if err != nil {
+		status := StoreErrorToApiStatus(err, false, api.OrganizationKind, nil)
 		return nil, status
+	}
+
+	if !IsInternalRequest(ctx) {
+		userOrgs, err := h.listUserOrganizations(ctx)
+		if err != nil {
+			status = StoreErrorToApiStatus(err, false, api.OrganizationKind, nil)
+			return nil, status
+		}
+
+		userOrgSet := make(map[string]struct{}, len(userOrgs))
+		for _, m := range userOrgs {
+			userOrgSet[m.ID.String()] = struct{}{}
+		}
+
+		filtered := make([]*model.Organization, 0)
+		for _, org := range orgs {
+			if _, ok := userOrgSet[org.ID.String()]; ok {
+				filtered = append(filtered, org)
+			}
+		}
+		orgs = filtered
 	}
 
 	apiOrgs := make([]api.Organization, len(orgs))
@@ -49,16 +71,7 @@ func (h *ServiceHandler) ListOrganizations(ctx context.Context) (*api.Organizati
 		ApiVersion: organizationApiVersion,
 		Kind:       api.OrganizationListKind,
 		Metadata:   api.ListMeta{},
-	}, status
-}
-
-func (h *ServiceHandler) listAllOrganizations(ctx context.Context) ([]*model.Organization, error) {
-	orgs, err := h.store.Organization().List(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	return orgs, nil
+	}, api.StatusOK()
 }
 
 func (h *ServiceHandler) listUserOrganizations(ctx context.Context) ([]*model.Organization, error) {

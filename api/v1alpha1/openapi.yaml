@@ -3713,6 +3713,12 @@ paths:
       summary: List organizations
       description: Retrieves a list of organizations.  Only returns organizations that the user has access to.
       operationId: listOrganizations
+      parameters:
+        - name: fieldSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!=' (e.g., "key1=value1,key2!=value2").
+          schema:
+            type: string
       responses:
         "200":
           description: OK

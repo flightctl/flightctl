@@ -115,7 +115,7 @@ var _ = Describe("Periodic", func() {
 		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(ctx, log)
 
 		// Grab default org id from the database
-		orgs, err := storeInst.Organization().List(ctx)
+		orgs, err := storeInst.Organization().List(ctx, store.ListParams{})
 		Expect(err).ToNot(HaveOccurred())
 		if len(orgs) > 0 {
 			orgId = orgs[0].ID

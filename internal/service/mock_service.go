@@ -918,18 +918,18 @@ func (mr *MockServiceMockRecorder) ListLabels(ctx, params any) *gomock.Call {
 }
 
 // ListOrganizations mocks base method.
-func (m *MockService) ListOrganizations(ctx context.Context) (*v1alpha1.OrganizationList, v1alpha1.Status) {
+func (m *MockService) ListOrganizations(ctx context.Context, params v1alpha1.ListOrganizationsParams) (*v1alpha1.OrganizationList, v1alpha1.Status) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListOrganizations", ctx)
+	ret := m.ctrl.Call(m, "ListOrganizations", ctx, params)
 	ret0, _ := ret[0].(*v1alpha1.OrganizationList)
 	ret1, _ := ret[1].(v1alpha1.Status)
 	return ret0, ret1
 }
 
 // ListOrganizations indicates an expected call of ListOrganizations.
-func (mr *MockServiceMockRecorder) ListOrganizations(ctx any) *gomock.Call {
+func (mr *MockServiceMockRecorder) ListOrganizations(ctx, params any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListOrganizations", reflect.TypeOf((*MockService)(nil).ListOrganizations), ctx)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListOrganizations", reflect.TypeOf((*MockService)(nil).ListOrganizations), ctx, params)
 }
 
 // ListRepositories mocks base method.
