@@ -156,6 +156,7 @@ type LoginOptions struct {
 	AuthCAFile         string
 	Username           string
 	Password           string
+	AuthProviderName   string
 	authConfig         *v1alpha1.AuthConfig
 	authProvider       login.AuthProvider
 	clientConfig       *client.Config
@@ -172,6 +173,7 @@ func DefaultLoginOptions() *LoginOptions {
 		AuthCAFile:         "",
 		Username:           "",
 		Password:           "",
+		AuthProviderName:   "",
 	}
 }
 
@@ -223,6 +225,7 @@ func (o *LoginOptions) Bind(fs *pflag.FlagSet) {
 	fs.BoolVarP(&o.InsecureSkipVerify, "insecure-skip-tls-verify", "k", o.InsecureSkipVerify, "If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure")
 	fs.StringVarP(&o.Username, "username", "u", o.Username, "Username for server")
 	fs.StringVarP(&o.Password, "password", "p", o.Password, "Password for server")
+	fs.StringVarP(&o.AuthProviderName, "auth-provider", "", o.AuthProviderName, "Name of the authentication provider to use (overrides default provider)")
 }
 
 func (o *LoginOptions) Complete(cmd *cobra.Command, args []string) error {
@@ -297,12 +300,49 @@ func (o *LoginOptions) ensureClientID() {
 	}
 }
 
-// getDefaultProvider returns the default authentication provider
+// validateAuthProvider validates that the specified auth provider exists in the auth config
+func (o *LoginOptions) validateAuthProvider() error {
+	if o.authConfig == nil || o.authConfig.Providers == nil {
+		return fmt.Errorf("no authentication providers available")
+	}
+
+	for _, p := range *o.authConfig.Providers {
+		if p.Metadata.Name != nil && *p.Metadata.Name == o.AuthProviderName {
+			return nil
+		}
+	}
+
+	availableProviders := []string{}
+	for _, p := range *o.authConfig.Providers {
+		if p.Metadata.Name != nil {
+			availableProviders = append(availableProviders, *p.Metadata.Name)
+		}
+	}
+
+	if len(availableProviders) == 0 {
+		return fmt.Errorf("authentication provider '%s' not found: no providers are available", o.AuthProviderName)
+	}
+
+	return fmt.Errorf("authentication provider '%s' not found. Available providers: %s", o.AuthProviderName, strings.Join(availableProviders, ", "))
+}
+
+// getDefaultProvider returns the authentication provider to use.
+// If AuthProviderName is specified, it uses that provider.
+// Otherwise, it uses the default provider from auth config, or the first provider if no default is set.
 func (o *LoginOptions) getDefaultProvider() *v1alpha1.AuthProvider {
 	if o.authConfig == nil || o.authConfig.Providers == nil {
 		return nil
 	}
-	// Find the default provider by name
+
+	if o.AuthProviderName != "" {
+		for _, p := range *o.authConfig.Providers {
+			if p.Metadata.Name != nil && *p.Metadata.Name == o.AuthProviderName {
+				return &p
+			}
+		}
+		return nil
+	}
+
 	if o.authConfig.DefaultProvider != nil && *o.authConfig.DefaultProvider != "" {
 		for _, p := range *o.authConfig.Providers {
 			if p.Metadata.Name != nil && *p.Metadata.Name == *o.authConfig.DefaultProvider {
@@ -311,6 +351,7 @@ func (o *LoginOptions) getDefaultProvider() *v1alpha1.AuthProvider {
 		}
 	}
 	// If no default is set, return the first provider
+
 	if len(*o.authConfig.Providers) > 0 {
 		return &(*o.authConfig.Providers)[0]
 	}
@@ -321,6 +362,9 @@ func (o *LoginOptions) getDefaultProvider() *v1alpha1.AuthProvider {
 func (o *LoginOptions) createAuthProvider() error {
 	provider := o.getDefaultProvider()
 	if provider == nil || provider.Metadata.Name == nil {
+		if o.authConfig == nil || o.authConfig.Providers == nil || len(*o.authConfig.Providers) == 0 {
+			return fmt.Errorf("no authentication providers available")
+		}
 		return fmt.Errorf("no valid authentication provider found")
 	}
 
@@ -513,6 +557,13 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 			return fmt.Errorf("persisting client config: %w", err)
 		}
 		return nil
+	}
+
+	// Validate that the specified auth provider exists
+	if o.AuthProviderName != "" {
+		if err := o.validateAuthProvider(); err != nil {
+			return err
+		}
 	}
 
 	// Set up ClientId if not provided
