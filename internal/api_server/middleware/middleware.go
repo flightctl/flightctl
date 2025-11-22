@@ -65,6 +65,18 @@ func AddEventMetadataToCtx(next http.Handler) http.Handler {
 	})
 }
 
+// UserAgentLogger logs the User-Agent header from incoming requests
+// with additional context fields such as request ID.
+func UserAgentLogger(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		userAgent := r.Header.Get("User-Agent")
+		logger := log.WithReqIDFromCtx(ctx, logrus.StandardLogger())
+		logger.Debugf("User-Agent: %s", userAgent)
+		next.ServeHTTP(w, r)
+	})
+}
+
 // OrgIDExtractor extracts an organization ID from an HTTP request.
 type OrgIDExtractor func(context.Context, *http.Request) (uuid.UUID, error)
 

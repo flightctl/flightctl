@@ -93,7 +93,7 @@ func (o *GlobalOptions) ValidateCmd(args []string) error {
 // from the global options (config file path, organization override, etc.).
 func (o *GlobalOptions) BuildClient() (*apiclient.ClientWithResponses, error) {
 	organization := o.GetEffectiveOrganization()
-	return client.NewFromConfigFile(o.ConfigFilePath, client.WithOrganization(organization))
+	return client.NewFromConfigFile(o.ConfigFilePath, client.WithOrganization(organization), client.WithUserAgentHeader("flightctl-cli"))
 }
 
 // GetEffectiveOrganization returns the organization ID to use for API requests.

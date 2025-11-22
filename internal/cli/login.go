@@ -465,7 +465,7 @@ func (o *LoginOptions) getAbsAuthCAFile() (string, error) {
 
 // validateTokenWithServer validates the token with the server, handling TLS prompts and a single retry
 func (o *LoginOptions) validateTokenWithServer(ctx context.Context, token string) (*apiClient.ClientWithResponses, error) {
-	c, err := client.NewFromConfig(o.clientConfig, o.ConfigFilePath)
+	c, err := client.NewFromConfig(o.clientConfig, o.ConfigFilePath, client.WithUserAgentHeader("flightctl-cli"))
 	if err != nil {
 		return nil, fmt.Errorf("creating client: %w", err)
 	}
@@ -478,7 +478,7 @@ func (o *LoginOptions) validateTokenWithServer(ctx context.Context, token string
 		if errorInfo.Type != TLSErrorUnknown && o.shouldOfferInsecurePrompt() && !o.InsecureSkipVerify {
 			if o.promptUseInsecure(errorInfo) {
 				o.enableInsecure()
-				c, cerr := client.NewFromConfig(o.clientConfig, o.ConfigFilePath)
+				c, cerr := client.NewFromConfig(o.clientConfig, o.ConfigFilePath, client.WithUserAgentHeader("flightctl-cli"))
 				if cerr == nil {
 					res, err = c.AuthValidateWithResponse(ctx, &v1alpha1.AuthValidateParams{Authorization: &headerVal})
 				}
