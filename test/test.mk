@@ -5,7 +5,6 @@ GO_TESTING_FLAGS= -count=1 -race $(GO_BUILD_FLAGS)
 
 GO_UNITTEST_DIRS 		= ./internal/... ./api/... ./pkg/...
 GO_INTEGRATIONTEST_DIRS ?= ./test/integration/...
-TEST_DIR ?= 
 GO_E2E_DIRS 			= ./test/e2e/...
 
 GO_UNITTEST_FLAGS 		 = $(GO_TESTING_FLAGS) $(GO_UNITTEST_DIRS)        -coverprofile=$(REPORTS)/unit-coverage.out
@@ -122,7 +121,7 @@ deploy-e2e-ocp-test-vm:
 	sudo --preserve-env=VM_DISK_SIZE_INC test/scripts/create_vm_libvirt.sh ${KUBECONFIG_PATH}
 
 deploy-quadlets-vm:
-	sudo --preserve-env=VM_DISK_SIZE_INC --preserve-env=USER --preserve-env=REDHAT_USER --preserve-env=REDHAT_PASSWORD test/scripts/deploy_quadlets_rhel.sh
+	sudo --preserve-env=VM_DISK_SIZE_INC --preserve-env=USER --preserve-env=REDHAT_USER --preserve-env=REDHAT_PASSWORD --preserve-env=GIT_VERSION --preserve-env=BREW_BUILD_URL test/scripts/deploy_quadlets_rhel.sh
 
 clean-quadlets-vm:
 	@echo "Cleaning up quadlets-vm..."
