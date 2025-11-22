@@ -66,6 +66,10 @@ func NewAapGatewayAuth(metadata api.ObjectMeta, spec api.AapProviderSpec, client
 	return &authN, nil
 }
 
+func (a AapGatewayAuth) IsEnabled() bool {
+	return a.spec.Enabled != nil && *a.spec.Enabled
+}
+
 func (a AapGatewayAuth) loadUserInfo(ctx context.Context, token string) (*AAPIdentity, error) {
 	item := a.cache.Get(token)
 	if item != nil {
