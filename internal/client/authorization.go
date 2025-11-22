@@ -20,6 +20,9 @@ const (
 	AuthRefreshTokenKey      = "refresh-token"
 	AuthAccessTokenExpiryKey = "access-token-expiry"
 	AuthClientIdKey          = "client-id"
+	AuthScopesKey            = "scopes"
+	AuthServerUrlKey         = "server-url"
+	AuthProviderNameKey      = "provider-name"
 )
 
 type accessTokenRefresher struct {
@@ -43,7 +46,10 @@ func CreateAuthProvider(authInfo AuthInfo, insecure bool) (login.AuthProvider, e
 	case string(api.Oidc):
 		return login.NewOIDCConfig(c[AuthCAFileKey], c[AuthClientIdKey], c[AuthUrlKey], authInfo.OrganizationsEnabled, insecure), nil
 	case string(api.Aap):
-		return login.NewAAPOAuth2Config(c[AuthCAFileKey], c[AuthClientIdKey], c[AuthUrlKey], insecure), nil
+		scopes := c[AuthScopesKey]
+		serverUrl := c[AuthServerUrlKey]
+		providerName := c[AuthProviderNameKey]
+		return login.NewAAPOAuth2ConfigWithTokenProxy(c[AuthCAFileKey], c[AuthClientIdKey], c[AuthUrlKey], scopes, serverUrl, providerName, insecure), nil
 	default:
 		return nil, fmt.Errorf("unsupported auth provider: %s", authInfo.AuthProvider.Type)
 	}

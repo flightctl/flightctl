@@ -35,33 +35,41 @@ func NewOIDCConfig(caFile, clientId, authUrl string, requestOrganizations bool, 
 	}
 }
 
-func (o OIDC) getOIDCClient(callback string) (*osincli.Client, error) {
+func (o OIDC) getOIDCClient(callback string) (*osincli.Client, string, error) {
 	oauthServerResponse, err := getOAuth2Config(o.ConfigUrl, o.CAFile, o.InsecureSkipVerify)
 	if err != nil {
-		return nil, err
+		return nil, "", err
+	}
+	codeVerifier, codeChallenge, err := generatePKCEVerifier()
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to generate PKCE parameters: %w", err)
 	}
 
 	config := &osincli.ClientConfig{
-		ClientId:           o.ClientId,
-		AuthorizeUrl:       oauthServerResponse.AuthEndpoint,
-		TokenUrl:           oauthServerResponse.TokenEndpoint,
-		ErrorsInStatusCode: true,
-		RedirectUrl:        callback,
-		Scope:              o.getScopes(),
+		ClientId:                 o.ClientId,
+		AuthorizeUrl:             oauthServerResponse.AuthEndpoint,
+		TokenUrl:                 oauthServerResponse.TokenEndpoint,
+		ErrorsInStatusCode:       true,
+		RedirectUrl:              callback,
+		Scope:                    o.getScopes(),
+		CodeVerifier:             codeVerifier,
+		CodeChallenge:            codeChallenge,
+		CodeChallengeMethod:      "S256",
+		SendClientSecretInParams: true,
 	}
 
 	client, err := osincli.NewClient(config)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create oidc client: %w", err)
+		return nil, "", fmt.Errorf("failed to create oidc client: %w", err)
 	}
 
 	tlsConfig, err := getAuthClientTlsConfig(o.CAFile, o.InsecureSkipVerify)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	client.Transport = &http.Transport{TLSClientConfig: tlsConfig}
 
-	return client, nil
+	return client, o.ClientId, nil
 }
 
 func (o OIDC) authHeadless(username, password string) (AuthInfo, error) {

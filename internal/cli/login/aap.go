@@ -3,6 +3,7 @@ package login
 import (
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/openshift/osincli"
 )
@@ -12,6 +13,9 @@ type AAPOAuth struct {
 	CAFile             string
 	InsecureSkipVerify bool
 	ConfigUrl          string
+	Scopes             string
+	ServerUrl          string
+	ProviderName       string
 }
 
 type AAPRoundTripper struct {
@@ -32,23 +36,44 @@ func (c *AAPRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 }
 
 func NewAAPOAuth2Config(caFile, clientId, authUrl string, insecure bool) AAPOAuth {
+	return NewAAPOAuth2ConfigWithScopes(caFile, clientId, authUrl, "", insecure)
+}
+
+func NewAAPOAuth2ConfigWithScopes(caFile, clientId, authUrl, scopes string, insecure bool) AAPOAuth {
+	return NewAAPOAuth2ConfigWithTokenProxy(caFile, clientId, authUrl, scopes, "", "", insecure)
+}
+
+func NewAAPOAuth2ConfigWithTokenProxy(caFile, clientId, authUrl, scopes, serverUrl, providerName string, insecure bool) AAPOAuth {
 	return AAPOAuth{
 		CAFile:             caFile,
 		InsecureSkipVerify: insecure,
 		ClientId:           clientId,
 		ConfigUrl:          authUrl,
+		Scopes:             scopes,
+		ServerUrl:          serverUrl,
+		ProviderName:       providerName,
 	}
 }
 
 func (o AAPOAuth) getOAuth2Config() OauthServerResponse {
+	tokenEndpoint := fmt.Sprintf("%s/o/token/", o.ConfigUrl)
+
+	if o.ServerUrl != "" && o.ProviderName != "" {
+		tokenEndpoint = fmt.Sprintf("%s/api/v1/auth/%s/token", strings.TrimSuffix(o.ServerUrl, "/"), o.ProviderName)
+	}
+
 	return OauthServerResponse{
-		TokenEndpoint: fmt.Sprintf("%s/o/token/", o.ConfigUrl),
+		TokenEndpoint: tokenEndpoint,
 		AuthEndpoint:  fmt.Sprintf("%s/o/authorize/", o.ConfigUrl),
 	}
 }
 
-func (o AAPOAuth) getOAuth2Client(callback string) (*osincli.Client, error) {
+func (o AAPOAuth) getOAuth2Client(callback string) (*osincli.Client, string, error) {
 	oauthServerResponse := o.getOAuth2Config()
+	codeVerifier, codeChallenge, err := generatePKCEVerifier()
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to generate PKCE parameters: %w", err)
+	}
 
 	config := &osincli.ClientConfig{
 		ClientId:                 o.ClientId,
@@ -57,17 +82,20 @@ func (o AAPOAuth) getOAuth2Client(callback string) (*osincli.Client, error) {
 		ErrorsInStatusCode:       true,
 		SendClientSecretInParams: true,
 		RedirectUrl:              callback,
-		Scope:                    "read",
+		Scope:                    o.getScopes(),
+		CodeVerifier:             codeVerifier,
+		CodeChallenge:            codeChallenge,
+		CodeChallengeMethod:      "S256",
 	}
 
 	client, err := osincli.NewClient(config)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create oauth2 client: %w", err)
+		return nil, "", fmt.Errorf("failed to create oauth2 client: %w", err)
 	}
 
 	tlsConfig, err := getAuthClientTlsConfig(o.CAFile, o.InsecureSkipVerify)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	client.Transport = &AAPRoundTripper{
@@ -76,7 +104,14 @@ func (o AAPOAuth) getOAuth2Client(callback string) (*osincli.Client, error) {
 		},
 	}
 
-	return client, nil
+	return client, o.ClientId, nil
+}
+
+func (o AAPOAuth) getScopes() string {
+	if o.Scopes != "" {
+		return o.Scopes
+	}
+	return "read"
 }
 
 func (o AAPOAuth) Auth(web bool, username, password string) (AuthInfo, error) {
