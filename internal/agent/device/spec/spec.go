@@ -2,7 +2,6 @@ package spec
 
 import (
 	"context"
-	"math/rand"
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
@@ -28,13 +27,14 @@ const (
 )
 
 // defaultSpecPollConfig is the default poll configuration for the spec priority queue.
-var defaultSpecPollConfig = poll.Config{
-	BaseDelay:    30 * time.Second,
-	Factor:       1.5,
-	MaxDelay:     5 * time.Minute,
-	JitterFactor: 0.1,
-	Rand:         rand.New(rand.NewSource(time.Now().UnixNano())), //nolint:gosec
-}
+var defaultSpecPollConfig = func() poll.Config {
+	return poll.Config{
+		BaseDelay:    30 * time.Second,
+		Factor:       1.5,
+		MaxDelay:     5 * time.Minute,
+		JitterFactor: 0.1,
+	}
+}()
 
 // Watcher provides a way to watch for device spec updates.
 type Watcher interface {
