@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/agent/client"
@@ -142,8 +141,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		BaseDelay:    10 * time.Second,
 		Factor:       1.5,
 		MaxSteps:     a.config.PullRetrySteps,
-		JitterFactor: 0.1,                                             // jitterFactor (10% jitter to prevent thundering herd)
-		Rand:         rand.New(rand.NewSource(time.Now().UnixNano())), //nolint:gosec
+		JitterFactor: 0.1,
 	}
 
 	// create os client
@@ -425,12 +423,11 @@ func newEnrollmentClient(cfg *agent_config.Config, log *log.PrefixLogger) (clien
 	// Create infinite retry policy for enrollment requests using same config as management client
 	// but with infinite retries (MaxSteps: 0)
 	infiniteRetryConfig := poll.Config{
-		BaseDelay:    10 * time.Second,                                // baseDelay (same as management client)
-		Factor:       1.5,                                             // factor (same as management client)
-		MaxDelay:     1 * time.Minute,                                 // maxDelay (same as management client)
-		MaxSteps:     0,                                               // maxSteps (0 means infinite retries until context timeout)
-		JitterFactor: 0.1,                                             // jitterFactor (10% jitter to prevent thundering herd)
-		Rand:         rand.New(rand.NewSource(time.Now().UnixNano())), //nolint:gosec
+		BaseDelay:    10 * time.Second,
+		Factor:       1.5,
+		MaxDelay:     1 * time.Minute,
+		MaxSteps:     0,
+		JitterFactor: 0.1,
 	}
 
 	httpClient, err := client.NewFromConfig(&cfg.EnrollmentService.Config, log, client.WithHTTPRetry(infiniteRetryConfig))

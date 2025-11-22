@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math/rand"
+	"math/rand/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -558,7 +558,7 @@ func createEvent(ctx context.Context, handler service.Service, reason api.EventR
 	ev := &api.Event{
 		Reason:         reason,
 		InvolvedObject: api.ObjectReference{Kind: kind, Name: name},
-		Metadata:       api.ObjectMeta{Name: lo.ToPtr(fmt.Sprintf("test-event-%d", rand.Int63()))}, //nolint:gosec
+		Metadata:       api.ObjectMeta{Name: lo.ToPtr(fmt.Sprintf("test-event-%d", rand.Int64()))}, //nolint:gosec
 	}
 	handler.CreateEvent(ctx, ev)
 }
