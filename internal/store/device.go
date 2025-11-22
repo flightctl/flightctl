@@ -178,10 +178,6 @@ func (s *DeviceStore) InitialMigration(ctx context.Context) error {
 		return err
 	}
 
-	if err := s.dropLastSeenColumnIfExists(db); err != nil {
-		return err
-	}
-
 	return nil
 }
 
@@ -347,13 +343,6 @@ func (s *DeviceStore) createDeviceTimestampInsertTrigger(db *gorm.DB) error {
 func (s *DeviceStore) backfillDeviceTimestamps(db *gorm.DB) error {
 	return db.Exec(`INSERT INTO device_timestamps (org_id, name) 
 		SELECT org_id, name FROM devices WHERE (org_id, name) NOT IN (SELECT org_id, name FROM device_timestamps)`).Error
-}
-
-func (s *DeviceStore) dropLastSeenColumnIfExists(db *gorm.DB) error {
-	if db.Migrator().HasColumn(&model.Device{}, "last_seen") {
-		return db.Migrator().DropColumn(&model.Device{}, "last_seen")
-	}
-	return nil
 }
 
 func (s *DeviceStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.Device, eventCallback EventCallback) (*api.Device, error) {
