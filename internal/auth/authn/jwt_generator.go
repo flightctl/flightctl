@@ -413,15 +413,16 @@ func (g *JWTGenerator) ValidateToken(tokenString string) (*JWTIdentity, error) {
 		}
 	}
 
+	// Extract roles (global roles that apply to all organizations)
+	var roleStrings []string
 	if roles, exists := parsedToken.Get("roles"); exists {
 		if rolesList, ok := roles.([]interface{}); ok {
-			roleStrings := make([]string, 0, len(rolesList))
+			roleStrings = make([]string, 0, len(rolesList))
 			for _, role := range rolesList {
 				if roleStr, ok := role.(string); ok {
 					roleStrings = append(roleStrings, roleStr)
 				}
 			}
-			identity.SetRoles(roleStrings)
 		}
 	}
 
@@ -434,6 +435,7 @@ func (g *JWTGenerator) ValidateToken(tokenString string) (*JWTIdentity, error) {
 						Name:         orgStr,
 						IsInternalID: false,
 						ID:           orgStr,
+						Roles:        roleStrings, // Attach global roles to all organizations
 					})
 				}
 			}

@@ -11,6 +11,8 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/api/common"
+	"github.com/flightctl/flightctl/internal/quadlet"
 	"github.com/flightctl/flightctl/pkg/log"
 	"sigs.k8s.io/yaml"
 )
@@ -25,6 +27,8 @@ type Volume struct {
 	// Available is true if the volume has been created
 	Available bool
 }
+
+type volumeProvider func() ([]*Volume, error)
 
 type VolumeManager interface {
 	// Get returns the Volume by name, if it exists.
@@ -41,12 +45,15 @@ type VolumeManager interface {
 	Status(status *v1alpha1.DeviceApplicationStatus)
 	// UpdateStatus processes a Podman event and updates internal volume status as needed.
 	UpdateStatus(event *client.PodmanEvent)
+	// AddVolumes adds all specified volumes to the manager. An ID will be added if one does not exist
+	AddVolumes(string, []*Volume)
 }
 
 // NewVolumeManager returns a new VolumeManager.
 func NewVolumeManager(log *log.PrefixLogger, appName string, volumes *[]v1alpha1.ApplicationVolume) (VolumeManager, error) {
 	m := &volumeManager{
 		volumes: make(map[string]*Volume),
+		log:     log,
 	}
 
 	if volumes == nil {
@@ -165,6 +172,17 @@ func (m *volumeManager) UpdateStatus(event *client.PodmanEvent) {
 	}
 }
 
+func (m *volumeManager) AddVolumes(name string, volumes []*Volume) {
+	for _, volume := range volumes {
+		vol := volume
+		if vol.ID == "" {
+			vol.ID = client.ComposeVolumeName(name, volume.Name)
+		}
+		vol.Available = true // TODO: event support is broken for volumes.  https://github.com/containers/podman/issues/26480
+		m.volumes[vol.ID] = vol
+	}
+}
+
 // ensureDependenciesFromVolumes verifies all volume types are supported
 // and checks that Podman ≥ 5.5 is used for image backed volumes.
 func ensureDependenciesFromVolumes(ctx context.Context, podman *client.Podman, volumes *[]v1alpha1.ApplicationVolume) error {
@@ -243,4 +261,37 @@ func ToLifecycleVolumes(volumes []*Volume) []lifecycle.Volume {
 		}
 	}
 	return out
+}
+
+func extractQuadletVolumes(appID string, quadlets map[string]*common.QuadletReferences) []*Volume {
+	var volumes []*Volume
+	for name, quad := range quadlets {
+		// Only track volume's with images
+		if quad.Type != common.QuadletTypeVolume || quad.Image == nil {
+			continue
+		}
+
+		volumes = append(volumes, &Volume{
+			Name:      name,
+			ID:        quadlet.VolumeName(quad.Name, namespacedQuadlet(appID, name)),
+			Reference: *quad.Image,
+		})
+	}
+	return volumes
+}
+
+func extractQuadletVolumesFromSpec(appID string, contents []v1alpha1.ApplicationContent) ([]*Volume, error) {
+	quadlets, err := client.ParseQuadletReferencesFromSpec(contents)
+	if err != nil {
+		return nil, fmt.Errorf("parsing quadlet spec: %w", err)
+	}
+	return extractQuadletVolumes(appID, quadlets), nil
+}
+
+func extractQuadletVolumesFromDir(appID string, r fileio.Reader, path string) ([]*Volume, error) {
+	quadlets, err := client.ParseQuadletReferencesFromDir(r, path)
+	if err != nil {
+		return nil, fmt.Errorf("parsing quadlet spec: %w", err)
+	}
+	return extractQuadletVolumes(appID, quadlets), nil
 }

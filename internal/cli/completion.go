@@ -174,7 +174,7 @@ func (kna KindNameAutocomplete) ValidArgsFunction(cmd *cobra.Command, args []str
 
 	if len(args) == 0 {
 		kindLike, _, _ := strings.Cut(toComplete, "/")
-		if kind, err := ResourceKindFromString(kindLike); err == nil {
+		if kind, err := ResourceKindFromString(kindLike); err == nil && kna.isKindAllowed(kind) {
 			names := kna.getAutocompleteNames(cmd, kna.Options, kind)
 			if len(names) > 0 {
 				var out []string
@@ -199,7 +199,7 @@ func (kna KindNameAutocomplete) ValidArgsFunction(cmd *cobra.Command, args []str
 	existingNames := args[1:]
 
 	kind, err := ResourceKindFromString(args[0])
-	if err != nil {
+	if err != nil || !kna.isKindAllowed(kind) {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 	names := kna.getAutocompleteNames(cmd, kna.Options, kind)
@@ -310,4 +310,8 @@ func (kna *KindNameAutocomplete) getAutocompleteNames(cmd *cobra.Command, o Clie
 
 	}
 	return names
+}
+
+func (kna *KindNameAutocomplete) isKindAllowed(kind ResourceKind) bool {
+	return slices.Contains(kna.AllowedKinds, kind)
 }

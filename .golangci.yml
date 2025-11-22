@@ -60,6 +60,7 @@ issues:
 linters:
   enable:
     - copyloopvar
+    - depguard
     - errcheck
     - gci
     - gocyclo
@@ -78,6 +79,13 @@ linters:
 linters-settings:
   enable:
     - shadow
+
+  depguard:
+    rules:
+      main:
+        deny:
+          - pkg: "^math/rand$"
+            desc: "Use math/rand/v2 instead"
 
   govet:
     settings:

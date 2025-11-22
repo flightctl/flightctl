@@ -113,13 +113,15 @@ type alertmanagerConfig struct {
 }
 
 type authConfig struct {
-	K8s                     *api.K8sProviderSpec  `json:"k8s,omitempty"`
-	OIDC                    *api.OIDCProviderSpec `json:"oidc,omitempty"`
-	AAP                     *api.AapProviderSpec  `json:"aap,omitempty"`
-	CACert                  string                `json:"caCert,omitempty"`
-	InsecureSkipTlsVerify   bool                  `json:"insecureSkipTlsVerify,omitempty"`
-	PAMOIDCIssuer           *PAMOIDCIssuer        `json:"pamOidcIssuer,omitempty"`           // this is the issuer implementation configuration
-	DynamicProviderCacheTTL util.Duration         `json:"dynamicProviderCacheTTL,omitempty"` // TTL for dynamic auth provider cache (default: 5s)
+	K8s                     *api.K8sProviderSpec       `json:"k8s,omitempty"`
+	OpenShift               *api.OpenShiftProviderSpec `json:"openshift,omitempty"`
+	OIDC                    *api.OIDCProviderSpec      `json:"oidc,omitempty"`
+	OAuth2                  *api.OAuth2ProviderSpec    `json:"oauth2,omitempty"`
+	AAP                     *api.AapProviderSpec       `json:"aap,omitempty"`
+	CACert                  string                     `json:"caCert,omitempty"`
+	InsecureSkipTlsVerify   bool                       `json:"insecureSkipTlsVerify,omitempty"`
+	PAMOIDCIssuer           *PAMOIDCIssuer             `json:"pamOidcIssuer,omitempty"`           // this is the issuer implementation configuration
+	DynamicProviderCacheTTL util.Duration              `json:"dynamicProviderCacheTTL,omitempty"` // TTL for dynamic auth provider cache (default: 5s)
 }
 
 // PAMOIDCIssuer represents an OIDC issuer that uses Linux PAM for authentication
@@ -269,6 +271,26 @@ func WithOIDCAuth(issuer, clientId string, enabled bool) ConfigOption {
 			ClientId:     clientId,
 			Enabled:      &enabled,
 			ProviderType: api.Oidc,
+		}
+	}
+}
+
+func WithOAuth2Auth(authorizationUrl, tokenUrl, userinfoUrl, issuer, clientId string, enabled bool) ConfigOption {
+
+	return func(c *Config) {
+		if c.Auth == nil {
+			c.Auth = &authConfig{
+				DynamicProviderCacheTTL: util.Duration(5 * time.Second),
+			}
+		}
+		c.Auth.OAuth2 = &api.OAuth2ProviderSpec{
+			AuthorizationUrl: authorizationUrl,
+			TokenUrl:         tokenUrl,
+			UserinfoUrl:      userinfoUrl,
+			Issuer:           &issuer,
+			ClientId:         clientId,
+			Enabled:          &enabled,
+			ProviderType:     api.Oauth2,
 		}
 	}
 }
@@ -490,6 +512,13 @@ func Load(cfgFile string) (*Config, error) {
 		return nil, fmt.Errorf("decoding config: %v", err)
 	}
 
+	applyEnvVarOverrides(c)
+	applyAuthDefaults(c)
+
+	return c, nil
+}
+
+func applyEnvVarOverrides(c *Config) {
 	if kvPass := os.Getenv("KV_PASSWORD"); kvPass != "" {
 		c.KV.Password = api.SecureString(kvPass)
 	}
@@ -505,67 +534,110 @@ func Load(cfgFile string) (*Config, error) {
 	if dbMigrationPass := os.Getenv("DB_MIGRATION_PASSWORD"); dbMigrationPass != "" {
 		c.Database.MigrationPassword = api.SecureString(dbMigrationPass)
 	}
+}
 
-	// Set up OIDC issuer and client defaults only when explicitly configured
-	if c.Auth != nil {
-		// Only apply defaults if PAM OIDC issuer block is provided
-		if c.Auth.PAMOIDCIssuer != nil {
-			if c.Auth.PAMOIDCIssuer.PAMService == "" {
-				c.Auth.PAMOIDCIssuer.PAMService = "flightctl"
-			}
-			if c.Auth.PAMOIDCIssuer.Issuer == "" {
-				c.Auth.PAMOIDCIssuer.Issuer = c.Service.BaseUrl
-			}
-			if c.Auth.PAMOIDCIssuer.ClientID == "" {
-				c.Auth.PAMOIDCIssuer.ClientID = "flightctl-client"
-			}
-			if len(c.Auth.PAMOIDCIssuer.Scopes) == 0 {
-				c.Auth.PAMOIDCIssuer.Scopes = []string{"openid", "profile", "email", "roles"}
-			}
-			if len(c.Auth.PAMOIDCIssuer.RedirectURIs) == 0 {
-				base := c.Service.BaseUIUrl
-				if base == "" {
-					base = c.Service.BaseUrl
-				}
-				if base != "" {
-					c.Auth.PAMOIDCIssuer.RedirectURIs = []string{strings.TrimSuffix(base, "/") + "/auth/callback"}
-				}
-			}
-		}
-
-		// Only apply OIDC client defaults if OIDC block is provided
-		if c.Auth.OIDC != nil {
-			if c.Auth.OIDC.ClientId == "" {
-				c.Auth.OIDC.ClientId = "flightctl-client"
-			}
-			if c.Auth.OIDC.Issuer == "" {
-				c.Auth.OIDC.Issuer = c.Service.BaseUrl
-			}
-			if c.Auth.OIDC.UsernameClaim == nil {
-				c.Auth.OIDC.UsernameClaim = &[]string{"preferred_username"}
-			}
-			// Set default role assignment if not provided
-			if _, err := c.Auth.OIDC.RoleAssignment.Discriminator(); err != nil {
-				// Create a default dynamic role assignment
-				dynamicRoleAssignment := api.AuthDynamicRoleAssignment{
-					Type:      api.AuthDynamicRoleAssignmentTypeDynamic,
-					ClaimPath: []string{"groups"},
-				}
-				_ = c.Auth.OIDC.RoleAssignment.FromAuthDynamicRoleAssignment(dynamicRoleAssignment)
-			}
-			// Set default organization assignment if not provided
-			if _, err := c.Auth.OIDC.OrganizationAssignment.Discriminator(); err != nil {
-				// Create a default static organization assignment
-				staticAssignment := api.AuthStaticOrganizationAssignment{
-					OrganizationName: org.DefaultExternalID,
-					Type:             api.AuthStaticOrganizationAssignmentTypeStatic,
-				}
-				_ = c.Auth.OIDC.OrganizationAssignment.FromAuthStaticOrganizationAssignment(staticAssignment)
-			}
-		}
+func applyAuthDefaults(c *Config) {
+	if c.Auth == nil {
+		return
 	}
 
-	return c, nil
+	applyAuthProviderEnabledDefaults(c.Auth)
+	applyPAMOIDCIssuerDefaults(c)
+	applyOIDCClientDefaults(c)
+}
+
+func applyAuthProviderEnabledDefaults(auth *authConfig) {
+	if auth.OIDC != nil && auth.OIDC.Enabled == nil {
+		enabled := true
+		auth.OIDC.Enabled = &enabled
+	}
+	if auth.OpenShift != nil && auth.OpenShift.Enabled == nil {
+		enabled := true
+		auth.OpenShift.Enabled = &enabled
+	}
+	if auth.K8s != nil && auth.K8s.Enabled == nil {
+		enabled := true
+		auth.K8s.Enabled = &enabled
+	}
+	if auth.OAuth2 != nil && auth.OAuth2.Enabled == nil {
+		enabled := true
+		auth.OAuth2.Enabled = &enabled
+	}
+	if auth.AAP != nil && auth.AAP.Enabled == nil {
+		enabled := true
+		auth.AAP.Enabled = &enabled
+	}
+}
+
+func applyPAMOIDCIssuerDefaults(c *Config) {
+	if c.Auth.PAMOIDCIssuer == nil {
+		return
+	}
+
+	if c.Auth.PAMOIDCIssuer.PAMService == "" {
+		c.Auth.PAMOIDCIssuer.PAMService = "flightctl"
+	}
+	if c.Auth.PAMOIDCIssuer.Issuer == "" {
+		c.Auth.PAMOIDCIssuer.Issuer = c.Service.BaseUrl
+	}
+	if c.Auth.PAMOIDCIssuer.ClientID == "" {
+		c.Auth.PAMOIDCIssuer.ClientID = "flightctl-client"
+	}
+	if len(c.Auth.PAMOIDCIssuer.Scopes) == 0 {
+		c.Auth.PAMOIDCIssuer.Scopes = []string{"openid", "profile", "email", "roles"}
+	}
+	if len(c.Auth.PAMOIDCIssuer.RedirectURIs) == 0 {
+		applyPAMOIDCIssuerRedirectURIDefaults(c)
+	}
+}
+
+func applyPAMOIDCIssuerRedirectURIDefaults(c *Config) {
+	base := c.Service.BaseUIUrl
+	if base == "" {
+		base = c.Service.BaseUrl
+	}
+	if base != "" {
+		c.Auth.PAMOIDCIssuer.RedirectURIs = []string{strings.TrimSuffix(base, "/") + "/callback"}
+	}
+}
+
+func applyOIDCClientDefaults(c *Config) {
+	if c.Auth.OIDC == nil {
+		return
+	}
+
+	if c.Auth.OIDC.ClientId == "" {
+		c.Auth.OIDC.ClientId = "flightctl-client"
+	}
+	if c.Auth.OIDC.Issuer == "" {
+		c.Auth.OIDC.Issuer = c.Service.BaseUrl
+	}
+	if c.Auth.OIDC.UsernameClaim == nil {
+		c.Auth.OIDC.UsernameClaim = &[]string{"preferred_username"}
+	}
+
+	applyOIDCRoleAssignmentDefaults(c.Auth.OIDC)
+	applyOIDCOrganizationAssignmentDefaults(c.Auth.OIDC)
+}
+
+func applyOIDCRoleAssignmentDefaults(oidc *api.OIDCProviderSpec) {
+	if _, err := oidc.RoleAssignment.Discriminator(); err != nil {
+		dynamicRoleAssignment := api.AuthDynamicRoleAssignment{
+			Type:      api.AuthDynamicRoleAssignmentTypeDynamic,
+			ClaimPath: []string{"groups"},
+		}
+		_ = oidc.RoleAssignment.FromAuthDynamicRoleAssignment(dynamicRoleAssignment)
+	}
+}
+
+func applyOIDCOrganizationAssignmentDefaults(oidc *api.OIDCProviderSpec) {
+	if _, err := oidc.OrganizationAssignment.Discriminator(); err != nil {
+		staticAssignment := api.AuthStaticOrganizationAssignment{
+			OrganizationName: org.DefaultExternalID,
+			Type:             api.AuthStaticOrganizationAssignmentTypeStatic,
+		}
+		_ = oidc.OrganizationAssignment.FromAuthStaticOrganizationAssignment(staticAssignment)
+	}
 }
 
 func Save(cfg *Config, cfgFile string) error {

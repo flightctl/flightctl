@@ -1,6 +1,7 @@
 package aap
 
 import (
+	"context"
 	"fmt"
 )
 
@@ -14,10 +15,10 @@ type AAPUser struct {
 type AAPUsersResponse = AAPPaginatedResponse[AAPUser]
 
 // GET /api/gateway/v1/me/
-func (a *AAPGatewayClient) GetMe(token string) (*AAPUser, error) {
+func (a *AAPGatewayClient) GetMe(ctx context.Context, token string) (*AAPUser, error) {
 	path := "/api/gateway/v1/me/"
 
-	result, err := getWithPagination[AAPUser](a, path, token)
+	result, err := getWithPagination[AAPUser](a, ctx, path, token)
 	if err != nil {
 		return nil, err
 	}

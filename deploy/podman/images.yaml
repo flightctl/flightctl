@@ -1,0 +1,36 @@
+api:
+  image: quay.io/flightctl/flightctl-api
+  tag: latest
+periodic:
+  image: quay.io/flightctl/flightctl-periodic
+  tag: latest
+worker:
+  image: quay.io/flightctl/flightctl-worker
+  tag: latest
+alert-exporter:
+  image: quay.io/flightctl/flightctl-alert-exporter
+  tag: latest
+cli-artifacts:
+  image: quay.io/flightctl/flightctl-cli-artifacts
+  tag: latest
+alertmanager-proxy:
+  image: quay.io/flightctl/flightctl-alertmanager-proxy
+  tag: latest
+pam-issuer:
+  image: quay.io/flightctl/flightctl-pam-issuer
+  tag: latest
+ui:
+  image: quay.io/flightctl/flightctl-ui
+  tag: latest
+db-setup:
+  image: quay.io/flightctl/flightctl-db-setup
+  tag: latest
+db:
+  image: quay.io/sclorg/postgresql-16-c9s
+  tag: "20250214"
+kv:
+  image: docker.io/redis
+  tag: "7.4.1"
+alertmanager:
+  image: quay.io/prometheus/alertmanager
+  tag: v0.28.1

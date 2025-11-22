@@ -166,6 +166,37 @@ func (p *AuthTokenProxy) findProviderForToken(ctx context.Context, providerName 
 			ClientId:      oauth2Spec.ClientId,
 		}, oauth2Spec.ClientId, clientSecret, api.StatusOK()
 
+	case interface {
+		GetOpenShiftSpec() api.OpenShiftProviderSpec
+	}:
+		openshiftSpec := provider.GetOpenShiftSpec()
+
+		clientSecret := ""
+		if openshiftSpec.ClientSecret != nil {
+			clientSecret = *openshiftSpec.ClientSecret
+		}
+
+		issuer := ""
+		if openshiftSpec.Issuer != nil {
+			issuer = *openshiftSpec.Issuer
+		}
+
+		tokenEndpoint := ""
+		if openshiftSpec.TokenUrl != nil {
+			tokenEndpoint = *openshiftSpec.TokenUrl
+		}
+
+		clientId := ""
+		if openshiftSpec.ClientId != nil {
+			clientId = *openshiftSpec.ClientId
+		}
+
+		return &ProviderConfig{
+			Issuer:        issuer,
+			TokenEndpoint: tokenEndpoint,
+			ClientId:      clientId,
+		}, clientId, clientSecret, api.StatusOK()
+
 	default:
 		return nil, "", "", api.StatusBadRequest("Provider type not supported")
 	}

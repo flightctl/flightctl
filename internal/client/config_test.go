@@ -126,7 +126,7 @@ func TestClientConfig(t *testing.T) {
 				ID:         orgID,
 				ExternalID: orgID.String(),
 			}
-			mappedIdentity := identity.NewMappedIdentity("test-user", "test-uid", []*orgmodel.Organization{orgEntity}, []string{}, identity.NewIssuer("test", "test-issuer"))
+			mappedIdentity := identity.NewMappedIdentity("test-user", "test-uid", []*orgmodel.Organization{orgEntity}, map[string][]string{}, false, identity.NewIssuer("test", "test-issuer"))
 			ctx := context.WithValue(context.Background(), consts.MappedIdentityCtxKey, mappedIdentity)
 			ctx = util.WithOrganizationID(ctx, orgID)
 

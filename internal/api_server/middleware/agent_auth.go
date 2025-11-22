@@ -202,13 +202,6 @@ func (a *AgentIdentity) GetOrganizations() []common.ReportedOrganization {
 	}
 }
 
-// GetRoles returns empty roles for agents
-// Agents don't have traditional RBAC roles - they are authenticated by certificate
-// and authorized by their organization membership
-func (a *AgentIdentity) GetRoles() []string {
-	return []string{}
-}
-
 // GetIssuer returns the certificate issuer
 // Agents use certificate-based authentication, not OIDC/AAP/K8s
 func (a *AgentIdentity) GetIssuer() *identity.Issuer {
@@ -237,4 +230,14 @@ func (a *AgentIdentity) IsAgent() bool {
 // GetExpirationDate returns the certificate expiration date
 func (a *AgentIdentity) GetExpirationDate() time.Time {
 	return a.expirationDate
+}
+
+// IsSuperAdmin returns false for agent identities (agents have no super admin concept)
+func (a *AgentIdentity) IsSuperAdmin() bool {
+	return false
+}
+
+// SetSuperAdmin is a no-op for agent identities (agents have no super admin concept)
+func (a *AgentIdentity) SetSuperAdmin(superAdmin bool) {
+	// No-op: agent identities don't support super admin
 }

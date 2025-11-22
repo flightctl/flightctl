@@ -25,7 +25,7 @@ var _ = Describe("Agent instrumentation", func() {
 		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
 
 		var err error
-		h, err = harness.NewTestHarnessWithOptions(ctx,
+		h, err = harness.NewTestHarness(ctx,
 			GinkgoT().TempDir(),
 			func(err error) {
 				// this inline function handles any errors that are returned from go routines

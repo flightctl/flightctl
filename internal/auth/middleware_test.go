@@ -260,7 +260,7 @@ func TestAuthN(t *testing.T) {
 
 	for _, r := range authNRequests {
 		for _, tc := range testCases {
-			authNMock := NewMockAuthNMiddleware(ctrl)
+			authNMock := common.NewMockAuthNMiddleware(ctrl)
 
 			if r.shouldSkipCheck || !tc.withToken {
 				authNMock.EXPECT().ValidateToken(gomock.Any(), gomock.Any()).Times(0)

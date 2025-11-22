@@ -234,21 +234,16 @@ func (o *OIDCAuth) parseAndCreateIdentity(ctx context.Context, token string) (*J
 		}
 	}
 
-	// Extract roles from claims map using role extractor
-	roles := o.roleExtractor.ExtractRolesFromMap(claimsMap)
-	identity.SetRoles(roles)
+	// Extract org-scoped roles using the role extractor
+	orgRoles := o.roleExtractor.ExtractOrgRolesFromMap(claimsMap)
 
 	// Use the stateless organization extractor with claims map
 	organizations := o.organizationExtractor.ExtractOrganizations(claimsMap, username)
-	reportedOrganizations := make([]common.ReportedOrganization, 0, len(organizations))
-	for _, org := range organizations {
-		reportedOrganizations = append(reportedOrganizations, common.ReportedOrganization{
-			Name:         org,
-			IsInternalID: false,
-			ID:           org,
-		})
-	}
+
+	// Build ReportedOrganization with roles embedded
+	reportedOrganizations, isSuperAdmin := common.BuildReportedOrganizations(organizations, orgRoles, false)
 	identity.SetOrganizations(reportedOrganizations)
+	identity.SetSuperAdmin(isSuperAdmin)
 
 	// Set the issuer from JWT token
 	if issuer := parsedToken.Issuer(); issuer != "" {

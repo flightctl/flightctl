@@ -2,6 +2,7 @@ package provider
 
 import (
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 )
 
@@ -100,4 +102,328 @@ func newTestImageApplicationVolumes(require *require.Assertions, names []string)
 	}
 
 	return &volumes
+}
+
+func Test_extractQuadletVolumesFromSpec(t *testing.T) {
+	require := require.New(t)
+
+	tests := []struct {
+		name            string
+		appID           string
+		contents        []v1alpha1.ApplicationContent
+		expectedVolumes []Volume
+		expectError     bool
+	}{
+		{
+			name:  "single volume with image",
+			appID: "test-app",
+			contents: []v1alpha1.ApplicationContent{
+				{
+					Path: "data.volume",
+					Content: lo.ToPtr(`[Volume]
+Image=quay.io/test/data:latest`),
+				},
+			},
+			expectedVolumes: []Volume{
+				{
+					Name:      "data.volume",
+					ID:        "systemd-test-app-data",
+					Reference: "quay.io/test/data:latest",
+				},
+			},
+			expectError: false,
+		},
+		{
+			name:  "multiple volumes with images",
+			appID: "myapp",
+			contents: []v1alpha1.ApplicationContent{
+				{
+					Path: "data.volume",
+					Content: lo.ToPtr(`[Volume]
+Image=quay.io/test/data:v1.0`),
+				},
+				{
+					Path: "cache.volume",
+					Content: lo.ToPtr(`[Volume]
+Image=quay.io/test/cache:v2.0`),
+				},
+			},
+			expectedVolumes: []Volume{
+				{
+					Name:      "data.volume",
+					ID:        "systemd-myapp-data",
+					Reference: "quay.io/test/data:v1.0",
+				},
+				{
+					Name:      "cache.volume",
+					ID:        "systemd-myapp-cache",
+					Reference: "quay.io/test/cache:v2.0",
+				},
+			},
+			expectError: false,
+		},
+		{
+			name:  "mixed quadlet types - only volumes with images extracted",
+			appID: "mixed-app",
+			contents: []v1alpha1.ApplicationContent{
+				{
+					Path: "app.container",
+					Content: lo.ToPtr(`[Container]
+Image=quay.io/test/app:latest`),
+				},
+				{
+					Path: "data.volume",
+					Content: lo.ToPtr(`[Volume]
+Image=quay.io/test/data:latest`),
+				},
+				{
+					Path: "empty.volume",
+					Content: lo.ToPtr(`[Volume]
+Device=/dev/sda1`),
+				},
+				{
+					Path: "net.network",
+					Content: lo.ToPtr(`[Network]
+`),
+				},
+			},
+			expectedVolumes: []Volume{
+				{
+					Name:      "data.volume",
+					ID:        "systemd-mixed-app-data",
+					Reference: "quay.io/test/data:latest",
+				},
+			},
+			expectError: false,
+		},
+		{
+			name:  "volume with custom name",
+			appID: "app",
+			contents: []v1alpha1.ApplicationContent{
+				{
+					Path: "storage.volume",
+					Content: lo.ToPtr(`[Volume]
+Image=quay.io/test/storage:latest
+VolumeName=custom-storage-name`),
+				},
+			},
+			expectedVolumes: []Volume{
+				{
+					Name:      "storage.volume",
+					ID:        "custom-storage-name",
+					Reference: "quay.io/test/storage:latest",
+				},
+			},
+			expectError: false,
+		},
+		{
+			name:  "no volumes - only containers",
+			appID: "app",
+			contents: []v1alpha1.ApplicationContent{
+				{
+					Path: "app.container",
+					Content: lo.ToPtr(`[Container]
+Image=quay.io/test/app:latest`),
+				},
+			},
+			expectedVolumes: []Volume{},
+			expectError:     false,
+		},
+		{
+			name:            "empty contents",
+			appID:           "app",
+			contents:        []v1alpha1.ApplicationContent{},
+			expectedVolumes: nil,
+			expectError:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			volumes, err := extractQuadletVolumesFromSpec(tt.appID, tt.contents)
+
+			if tt.expectError {
+				require.Error(err)
+				return
+			}
+
+			require.NoError(err)
+			require.Equal(len(tt.expectedVolumes), len(volumes))
+
+			sort.Slice(volumes, func(i, j int) bool {
+				return volumes[i].Name < volumes[j].Name
+			})
+
+			sort.Slice(tt.expectedVolumes, func(i, j int) bool {
+				return tt.expectedVolumes[i].Name < tt.expectedVolumes[j].Name
+			})
+
+			for i, expectedVol := range tt.expectedVolumes {
+				require.Equal(expectedVol.Name, volumes[i].Name)
+				require.Equal(expectedVol.ID, volumes[i].ID)
+				require.Equal(expectedVol.Reference, volumes[i].Reference)
+				require.Equal(expectedVol.Available, volumes[i].Available)
+			}
+		})
+	}
+}
+
+func Test_extractQuadletVolumesFromDir(t *testing.T) {
+	require := require.New(t)
+
+	tests := []struct {
+		name            string
+		appID           string
+		files           map[string][]byte
+		expectedVolumes []Volume
+		expectError     bool
+	}{
+		{
+			name:  "single volume file with image",
+			appID: "test-app",
+			files: map[string][]byte{
+				"data.volume": []byte(`[Volume]
+Image=quay.io/test/data:latest`),
+			},
+			expectedVolumes: []Volume{
+				{
+					Name:      "data.volume",
+					ID:        "systemd-test-app-data",
+					Reference: "quay.io/test/data:latest",
+				},
+			},
+			expectError: false,
+		},
+		{
+			name:  "multiple volume files with images",
+			appID: "myapp",
+			files: map[string][]byte{
+				"data.volume": []byte(`[Volume]
+Image=quay.io/test/data:v1.0`),
+				"cache.volume": []byte(`[Volume]
+Image=quay.io/test/cache:v2.0`),
+			},
+			expectedVolumes: []Volume{
+				{
+					Name:      "data.volume",
+					ID:        "systemd-myapp-data",
+					Reference: "quay.io/test/data:v1.0",
+				},
+				{
+					Name:      "cache.volume",
+					ID:        "systemd-myapp-cache",
+					Reference: "quay.io/test/cache:v2.0",
+				},
+			},
+			expectError: false,
+		},
+		{
+			name:  "mixed quadlet files - only volumes with images extracted",
+			appID: "mixed-app",
+			files: map[string][]byte{
+				"app.container": []byte(`[Container]
+Image=quay.io/test/app:latest`),
+				"data.volume": []byte(`[Volume]
+Image=quay.io/test/data:latest`),
+				"empty.volume": []byte(`[Volume]
+Device=/dev/sda1`),
+				"net.network": []byte(`[Network]
+`),
+			},
+			expectedVolumes: []Volume{
+				{
+					Name:      "data.volume",
+					ID:        "systemd-mixed-app-data",
+					Reference: "quay.io/test/data:latest",
+				},
+			},
+			expectError: false,
+		},
+		{
+			name:  "volume with custom name",
+			appID: "app",
+			files: map[string][]byte{
+				"storage.volume": []byte(`[Volume]
+Image=quay.io/test/storage:latest
+VolumeName=custom-storage-name`),
+			},
+			expectedVolumes: []Volume{
+				{
+					Name:      "storage.volume",
+					ID:        "custom-storage-name",
+					Reference: "quay.io/test/storage:latest",
+				},
+			},
+			expectError: false,
+		},
+		{
+			name:  "no volumes - only containers",
+			appID: "app",
+			files: map[string][]byte{
+				"app.container": []byte(`[Container]
+Image=quay.io/test/app:latest`),
+			},
+			expectedVolumes: []Volume{},
+			expectError:     false,
+		},
+		{
+			name:            "empty directory",
+			appID:           "app",
+			files:           map[string][]byte{},
+			expectedVolumes: nil,
+			expectError:     true,
+		},
+		{
+			name:  "invalid quadlet file causes parse error",
+			appID: "app",
+			files: map[string][]byte{
+				"invalid.volume": []byte(`[Volume]
+[Container]
+Image=test`),
+			},
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			rw := fileio.NewReadWriter()
+			rw.SetRootdir(tmpDir)
+
+			quadletDir := filepath.Join("/test", "quadlets")
+			err := rw.MkdirAll(quadletDir, fileio.DefaultDirectoryPermissions)
+			require.NoError(err)
+
+			for filename, content := range tt.files {
+				err := rw.WriteFile(filepath.Join(quadletDir, filename), content, fileio.DefaultFilePermissions)
+				require.NoError(err)
+			}
+
+			volumes, err := extractQuadletVolumesFromDir(tt.appID, rw, quadletDir)
+
+			if tt.expectError {
+				require.Error(err)
+				return
+			}
+
+			require.NoError(err)
+			require.Equal(len(tt.expectedVolumes), len(volumes))
+
+			sort.Slice(volumes, func(i, j int) bool {
+				return volumes[i].Name < volumes[j].Name
+			})
+
+			sort.Slice(tt.expectedVolumes, func(i, j int) bool {
+				return tt.expectedVolumes[i].Name < tt.expectedVolumes[j].Name
+			})
+
+			for i, expectedVol := range tt.expectedVolumes {
+				require.Equal(expectedVol.Name, volumes[i].Name)
+				require.Equal(expectedVol.ID, volumes[i].ID)
+				require.Equal(expectedVol.Reference, volumes[i].Reference)
+				require.Equal(expectedVol.Available, volumes[i].Available)
+			}
+		})
+	}
 }

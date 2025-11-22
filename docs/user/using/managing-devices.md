@@ -850,6 +850,9 @@ spec:
 [...]
 ```
 
+> [!NOTE]
+> When a critical disk alert is active, device upgrades that require downloading OCI images will automatically fail to prevent upgrade failures due to insufficient disk space. The upgrade will fail with an error message prompting you to clear storage before attempting the upgrade again.
+
 ## Accessing Devices Remotely
 
 For troubleshooting an edge device, a user with the appropriate authorization (`get` permission on the `devices/console` resource) can remotely connect to the device's console through the agent. This does not require an SSH connection and so works even if that device is on a private network (behind a NAT), has a dynamic IP address, or has its SSH service disabled.

@@ -2,13 +2,13 @@ package resource
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/samber/lo"
@@ -30,6 +30,8 @@ type Manager interface {
 	// ResetAlertDefaults clears all alerts and resets the monitors to their default state.
 	ResetAlertDefaults() error
 	Alerts() *Alerts
+	BeforeUpdate(ctx context.Context, desired *v1alpha1.DeviceSpec) error
+	IsCriticalAlert(monitorType MonitorType) bool
 	status.Exporter
 }
 
@@ -214,6 +216,63 @@ func (m *ResourceManager) Alerts() *Alerts {
 		CPUUsage:    m.cpuMonitor.Alerts(),
 		MemoryUsage: m.memoryMonitor.Alerts(),
 	}
+}
+
+// isCriticalAlert checks if there are any critical level alerts for the specified resource type.
+func (m *ResourceManager) isCriticalAlert(monitorType MonitorType) bool {
+	alerts := m.Alerts()
+
+	var alertList []v1alpha1.ResourceAlertRule
+
+	switch monitorType {
+	case DiskMonitorType:
+		alertList = alerts.DiskUsage
+	case CPUMonitorType:
+		alertList = alerts.CPUUsage
+	case MemoryMonitorType:
+		alertList = alerts.MemoryUsage
+	default:
+		m.log.Warnf("Unknown monitor type: %s", monitorType)
+		return false
+	}
+
+	for _, alert := range alertList {
+		if alert.Severity == v1alpha1.ResourceAlertSeverityTypeCritical {
+			return true
+		}
+	}
+
+	return false
+}
+
+// Sync applies resource monitor configuration from the desired spec.
+func (m *ResourceManager) sync(ctx context.Context, desired *v1alpha1.DeviceSpec) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if desired.Resources == nil {
+		m.log.Debug("Device resources are nil, resetting to defaults")
+		return m.ResetAlertDefaults()
+	}
+
+	for i := range *desired.Resources {
+		monitor := (*desired.Resources)[i]
+		if _, err := m.Update(&monitor); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// BeforeUpdate syncs resource monitors with the desired spec.
+func (m *ResourceManager) BeforeUpdate(ctx context.Context, desired *v1alpha1.DeviceSpec) error {
+	return m.sync(ctx, desired)
+}
+
+// IsCriticalAlert checks if there is a critical level alert for the specified resource type.
+func (m *ResourceManager) IsCriticalAlert(monitorType MonitorType) bool {
+	return m.isCriticalAlert(monitorType)
 }
 
 type Alerts struct {

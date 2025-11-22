@@ -1,4 +1,4 @@
-{{- if .Values.telemetryGateway.enabled }}
+{{- if .Values.telemetryGateway }}
 ---
 apiVersion: v1
 kind: Service

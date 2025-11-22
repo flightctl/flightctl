@@ -361,9 +361,6 @@ func (o *LoginOptions) extractAuthURL(provider *v1alpha1.AuthProvider) string {
 	switch providerType {
 	case string(v1alpha1.K8s):
 		if k8sSpec, err := provider.Spec.AsK8sProviderSpec(); err == nil {
-			if k8sSpec.ExternalOpenShiftApiUrl != nil {
-				return *k8sSpec.ExternalOpenShiftApiUrl
-			}
 			return k8sSpec.ApiUrl
 		}
 	case string(v1alpha1.Oidc):

@@ -255,6 +255,13 @@ func applyFromReader(ctx context.Context, client *apiclient.ClientWithResponses,
 				httpResponse = response.HTTPResponse
 				message = string(response.Body)
 			}
+		case AuthProviderKind:
+			var response *apiclient.ReplaceAuthProviderResponse
+			response, err = client.ReplaceAuthProviderWithBodyWithResponse(ctx, resourceName, "application/json", bytes.NewReader(buf))
+			if response != nil {
+				httpResponse = response.HTTPResponse
+				message = string(response.Body)
+			}
 		default:
 			err = fmt.Errorf("%s: skipping resource of unknown kind %q: %v", filename, kind, resource)
 		}

@@ -3,7 +3,7 @@ package poll
 import (
 	"context"
 	"errors"
-	"math/rand"
+	"math/rand/v2"
 	"testing"
 	"time"
 
@@ -14,7 +14,7 @@ func TestBackoffWithContext(t *testing.T) {
 	require := require.New(t)
 	opErr := errors.New("fatal op error")
 
-	r := rand.New(rand.NewSource(0)) //nolint:gosec
+	r := rand.New(rand.NewPCG(0, 0)) //nolint:gosec
 
 	tests := []struct {
 		name       string
@@ -167,7 +167,7 @@ func TestBackoffWithContext(t *testing.T) {
 func TestCalculateBackoffDelay(t *testing.T) {
 	require := require.New(t)
 
-	r := rand.New(rand.NewSource(0)) //nolint:gosec
+	r := rand.New(rand.NewPCG(0, 0)) //nolint:gosec
 
 	tests := []struct {
 		name     string
@@ -216,13 +216,24 @@ func TestCalculateBackoffDelay(t *testing.T) {
 			tries:    -1,
 			expected: 0,
 		},
+		{
+			name: "nil rand with jitter auto-initializes",
+			config: Config{
+				BaseDelay:    10 * time.Millisecond,
+				Factor:       2,
+				MaxDelay:     100 * time.Millisecond,
+				JitterFactor: 0.1,
+				Rand:         nil,
+			},
+			tries: 3,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := CalculateBackoffDelay(&tt.config, tt.tries)
 
-			if tt.name == "with jitter - should be within range" {
+			if tt.name == "with jitter - should be within range" || tt.name == "nil rand with jitter auto-initializes" {
 				// For jitter test, check that result is within expected range
 				baseDelay := 40 * time.Millisecond // 10 * 2^2
 				jitterRange := time.Duration(float64(baseDelay) * tt.config.JitterFactor)
@@ -231,6 +242,10 @@ func TestCalculateBackoffDelay(t *testing.T) {
 
 				require.GreaterOrEqual(result, minDelay, "jittered delay should be >= min")
 				require.LessOrEqual(result, maxDelay, "jittered delay should be <= max")
+
+				if tt.name == "nil rand with jitter auto-initializes" {
+					require.NotNil(tt.config.Rand, "Rand should be auto-initialized")
+				}
 			} else {
 				require.Equal(tt.expected, result)
 			}

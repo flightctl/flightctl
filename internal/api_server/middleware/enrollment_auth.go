@@ -196,12 +196,6 @@ func (e *EnrollmentIdentity) GetOrganizations() []common.ReportedOrganization {
 	}
 }
 
-// GetRoles returns empty roles for enrollment
-// Enrollment requests don't have traditional RBAC roles
-func (e *EnrollmentIdentity) GetRoles() []string {
-	return []string{}
-}
-
 // GetIssuer returns the certificate issuer
 // Enrollment uses certificate-based authentication
 func (e *EnrollmentIdentity) GetIssuer() *identity.Issuer {
@@ -230,4 +224,14 @@ func (e *EnrollmentIdentity) IsAgent() bool {
 // GetExpirationDate returns the certificate expiration date
 func (e *EnrollmentIdentity) GetExpirationDate() time.Time {
 	return e.expirationDate
+}
+
+// IsSuperAdmin returns false for enrollment identities (enrollment has no super admin concept)
+func (e *EnrollmentIdentity) IsSuperAdmin() bool {
+	return false
+}
+
+// SetSuperAdmin is a no-op for enrollment identities (enrollment has no super admin concept)
+func (e *EnrollmentIdentity) SetSuperAdmin(superAdmin bool) {
+	// No-op: enrollment identities don't support super admin
 }

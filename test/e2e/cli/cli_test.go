@@ -1,9 +1,13 @@
 package cli_test
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -976,6 +980,278 @@ var _ = Describe("cli login", func() {
 		Expect(out).To(ContainSubstring("Error: accepts between 1 and 2 arg(s), received 4"))
 	})
 
+	It("generates completion and can be sourced for each supported shell (harness.CLI only for flightctl calls)", Label("85470"), func() {
+		harness := e2e.GetWorkerHarness()
+
+		type shellCase struct {
+			name      string
+			markers   []string
+			syntaxCmd func(ctx context.Context, p string) *exec.Cmd
+			sourceCmd func(ctx context.Context, p, tempHome string) *exec.Cmd
+			tmpName   string
+		}
+
+		tmpRoot := GinkgoT().TempDir()
+		mkHome := func(tag string) (home, tmp string) {
+			home = filepath.Join(tmpRoot, "home_"+tag)
+			tmp = filepath.Join(home, "tmp")
+			Expect(os.MkdirAll(tmp, 0o755)).To(Succeed())
+			return
+		}
+		write0600 := func(dir, name, data string) string {
+			p := filepath.Join(dir, name)
+			// G306: use 0600
+			Expect(os.WriteFile(p, []byte(data), 0o600)).To(Succeed())
+			return p
+		}
+
+		shells := []shellCase{
+			{
+				name:    "bash",
+				markers: []string{"# bash completion for flightctl", "__flightctl_"},
+				tmpName: "flightctl.bash",
+				syntaxCmd: func(ctx context.Context, p string) *exec.Cmd {
+					if !util.BinaryExistsOnPath("bash") {
+						return nil
+					}
+					// No tainted args: constant argv, script path via env
+					cmd := exec.CommandContext(ctx, "bash", "-n", p)
+					return cmd
+				},
+				sourceCmd: func(ctx context.Context, p, home string) *exec.Cmd {
+					if !util.BinaryExistsOnPath("bash") {
+						return nil
+					}
+					// Use env var to pass path; constant argv avoids G204
+					cmd := exec.CommandContext(ctx, "bash", "--noprofile", "--norc", "-lc", `source "$SCRIPT"`)
+					cmd.Env = append(os.Environ(), "HOME="+home, "SCRIPT="+p)
+					return cmd
+				},
+			},
+			{
+				name:    "zsh",
+				markers: []string{"#compdef flightctl", "_flightctl"},
+				tmpName: "_flightctl",
+				syntaxCmd: func(ctx context.Context, p string) *exec.Cmd {
+					if !util.BinaryExistsOnPath("zsh") {
+						return nil
+					}
+					return exec.CommandContext(ctx, "zsh", "-n", p)
+				},
+				sourceCmd: func(ctx context.Context, p, home string) *exec.Cmd {
+					if !util.BinaryExistsOnPath("zsh") {
+						return nil
+					}
+					cmd := exec.CommandContext(ctx, "zsh", "-f", "-lc", `source "$SCRIPT"`)
+					cmd.Env = append(os.Environ(), "HOME="+home, "SCRIPT="+p)
+					return cmd
+				},
+			},
+			{
+				name:    "fish",
+				markers: []string{"complete -c flightctl"},
+				tmpName: "flightctl.fish",
+				syntaxCmd: func(ctx context.Context, p string) *exec.Cmd {
+					if !util.BinaryExistsOnPath("fish") {
+						return nil
+					}
+					return exec.CommandContext(ctx, "fish", "-n", p)
+				},
+				sourceCmd: func(ctx context.Context, p, home string) *exec.Cmd {
+					if !util.BinaryExistsOnPath("fish") {
+						return nil
+					}
+					cmd := exec.CommandContext(ctx, "fish", "--no-config", "-lc", `source "$SCRIPT"`)
+					cmd.Env = append(os.Environ(),
+						"HOME="+home,
+						"XDG_CONFIG_HOME="+filepath.Join(home, ".config"),
+						"SCRIPT="+p,
+					)
+					return cmd
+				},
+			},
+			{
+				name:    "powershell",
+				markers: []string{"Register-ArgumentCompleter", "flightctl"},
+				tmpName: "completion.ps1",
+				syntaxCmd: func(ctx context.Context, p string) *exec.Cmd {
+					if !util.BinaryExistsOnPath("pwsh") {
+						return nil
+					}
+					// Dot-source via env var
+					return exec.CommandContext(ctx, "pwsh", "-NoLogo", "-NoProfile", "-Command", `. $env:SCRIPT`)
+				},
+				sourceCmd: func(ctx context.Context, p, home string) *exec.Cmd {
+					if !util.BinaryExistsOnPath("pwsh") {
+						return nil
+					}
+					cmd := exec.CommandContext(ctx, "pwsh", "-NoLogo", "-NoProfile", "-Command", `. $env:SCRIPT`)
+					cmd.Env = append(os.Environ(), "HOME="+home, "USERPROFILE="+home, "SCRIPT="+p)
+					return cmd
+				},
+			},
+		}
+
+		for _, sc := range shells {
+			home, tmp := mkHome(sc.name)
+
+			// Check if generation is supported
+			if sc.name == "powershell" && runtime.GOOS != "windows" {
+				By("powershell completion may not be supported on non-Windows — skipping")
+				continue
+			}
+
+			By("generating " + sc.name + " completion via harness.CLI")
+			out, err := harness.CLI("completion", sc.name) // the only place we invoke flightctl
+			// Note: if your binary doesn’t support powershell on Linux, you can gate that here
+			Expect(err).NotTo(HaveOccurred(), "generation failed for %s", sc.name)
+			Expect(strings.TrimSpace(out)).NotTo(BeEmpty(), "empty completion for %s", sc.name)
+			for _, m := range sc.markers {
+				Expect(out).To(ContainSubstring(m), "missing marker %q for %s", m, sc.name)
+			}
+
+			By("saving script to a temp file with 0600 perms")
+			path := write0600(tmp, sc.tmpName, out)
+
+			By("light syntax check (if shell present): " + sc.name)
+			{
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				if cmd := sc.syntaxCmd(ctx, path); cmd != nil {
+					cmd.Env = append(os.Environ(), "SCRIPT="+path) // for pwsh syntax step
+					cmd.Stdout, cmd.Stderr = GinkgoWriter, GinkgoWriter
+					Expect(cmd.Run()).To(Succeed())
+				} else {
+					By(sc.name + " not available — skipping syntax check")
+				}
+			}
+
+			By("sourcing in a non-interactive subshell (no profiles/rc): " + sc.name)
+			{
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				if cmd := sc.sourceCmd(ctx, path, home); cmd != nil {
+					cmd.Stdout, cmd.Stderr = GinkgoWriter, GinkgoWriter
+					Expect(cmd.Run()).To(Succeed())
+				} else {
+					By(sc.name + " not available — skipping source step")
+				}
+			}
+		}
+		By("Creating resources for autocompletion validation")
+
+		// Create resources  so names exist for completion
+		var (
+			devName   string
+			fleetName string
+			repoName  string
+			erName    string
+			csrName   string
+		)
+
+		//Creating a device
+		devYAML, err := util.CreateUniqueYAMLFile("device.yaml", harness.GetTestIDFromContext())
+		Expect(err).ToNot(HaveOccurred())
+		defer util.CleanupTempYAMLFile(devYAML)
+		out, err := harness.ManageResource(applyOperation, devYAML)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(out).To(MatchRegexp(resourceCreated))
+		device := harness.GetDeviceByYaml(devYAML)
+		devName = *device.Metadata.Name
+
+		// Creating a fleet
+		fleetYAML, err := util.CreateUniqueYAMLFile("fleet.yaml", harness.GetTestIDFromContext())
+		Expect(err).ToNot(HaveOccurred())
+		defer util.CleanupTempYAMLFile(fleetYAML)
+		out, err = harness.ManageResource(applyOperation, fleetYAML)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(out).To(MatchRegexp(resourceCreated))
+		fleet := harness.GetFleetByYaml(fleetYAML)
+		fleetName = *fleet.Metadata.Name
+
+		//Creating a repo
+		repoYAML, err := util.CreateUniqueYAMLFile("repository-flightctl.yaml", harness.GetTestIDFromContext())
+		Expect(err).ToNot(HaveOccurred())
+		defer util.CleanupTempYAMLFile(repoYAML)
+		out, err = harness.ManageResource(applyOperation, repoYAML)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(out).To(MatchRegexp(resourceCreated))
+		repo := harness.GetRepositoryByYaml(repoYAML)
+		repoName = *repo.Metadata.Name
+
+		//Creating ER
+		erYAMLPath, err := CreateTestERAndWriteToTempFile()
+		Expect(err).ToNot(HaveOccurred())
+		defer os.Remove(erYAMLPath)
+		out, err = harness.ManageResource(applyOperation, erYAMLPath)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(out).To(MatchRegexp(resourceCreated))
+		er := harness.GetEnrollmentRequestByYaml(erYAMLPath)
+		erName = *er.Metadata.Name
+
+		//Creating CSR
+		csrYAML, err := util.CreateUniqueYAMLFile("csr.yaml", harness.GetTestIDFromContext())
+		Expect(err).ToNot(HaveOccurred())
+		defer util.CleanupTempYAMLFile(csrYAML)
+		Eventually(func() error {
+			_, err := harness.CLI(applyOperation, "-f", csrYAML)
+			return err
+		}).Should(BeNil(), "failed to apply CSR")
+		csr := harness.GetCertificateSigningRequestByYaml(csrYAML)
+		csrName = *csr.Metadata.Name
+		Expect(csrName).NotTo(BeEmpty())
+
+		By("Autocompletion: Scenario A (get <resource>/<prefix> AND get <resource> <prefix>)")
+		// Slash form: get resource/prefix
+		ExpectCompletion(harness, []string{"get", fmt.Sprintf("%s/%s", util.Device, devName[:1])}, devName)
+		ExpectCompletion(harness, []string{"get", fmt.Sprintf("%s/%s", util.Fleet, fleetName[:1])}, fleetName)
+		ExpectCompletion(harness, []string{"get", fmt.Sprintf("%s/%s", util.CertificateSigningRequest, csrName[:1])}, csrName)
+		ExpectCompletion(harness, []string{"get", fmt.Sprintf("%s/%s", util.Repository, repoName[:1])}, repoName)
+		ExpectCompletion(harness, []string{"get", fmt.Sprintf("%s/%s", util.EnrollmentRequest, erName[:1])}, erName)
+		// Space form: get resource prefix
+		ExpectCompletion(harness, []string{"get", util.Device, devName[:1]}, devName)
+		ExpectCompletion(harness, []string{"get", util.Fleet, fleetName[:1]}, fleetName)
+		ExpectCompletion(harness, []string{"get", util.CertificateSigningRequest, csrName[:1]}, csrName)
+		ExpectCompletion(harness, []string{"get", util.Repository, repoName[:1]}, repoName)
+		ExpectCompletion(harness, []string{"get", util.EnrollmentRequest, erName[:1]}, erName)
+
+		By("Autocompletion: Scenario B (edit <resource>/<prefix> AND edit <resource> <prefix>)")
+		// Slash
+		ExpectCompletion(harness, []string{"edit", fmt.Sprintf("%s/%s", util.Device, devName[:1])}, devName)
+		ExpectCompletion(harness, []string{"edit", fmt.Sprintf("%s/%s", util.Fleet, fleetName[:1])}, fleetName)
+		ExpectCompletion(harness, []string{"edit", fmt.Sprintf("%s/%s", util.CertificateSigningRequest, csrName[:1])}, csrName)
+		ExpectCompletion(harness, []string{"edit", fmt.Sprintf("%s/%s", util.Repository, repoName[:1])}, repoName)
+		ExpectCompletion(harness, []string{"edit", fmt.Sprintf("%s/%s", util.EnrollmentRequest, erName[:1])}, erName)
+		// Space
+		ExpectCompletion(harness, []string{"edit", util.Device, devName[:1]}, devName)
+		ExpectCompletion(harness, []string{"edit", util.Fleet, fleetName[:1]}, fleetName)
+		ExpectCompletion(harness, []string{"edit", util.CertificateSigningRequest, csrName[:1]}, csrName)
+		ExpectCompletion(harness, []string{"edit", util.Repository, repoName[:1]}, repoName)
+		ExpectCompletion(harness, []string{"edit", util.EnrollmentRequest, erName[:1]}, erName)
+
+		By("Autocompletion: Scenario C (approve csr/er <prefix> in both ways)")
+		// Slash
+		ExpectCompletion(harness, []string{"approve", fmt.Sprintf("%s/%s", util.CertificateSigningRequest, csrName[:1])}, csrName)
+		ExpectCompletion(harness, []string{"approve", fmt.Sprintf("%s/%s", util.EnrollmentRequest, erName[:1])}, erName)
+		// Space
+		ExpectCompletion(harness, []string{"approve", util.CertificateSigningRequest, csrName[:1]}, csrName)
+		ExpectCompletion(harness, []string{"approve", util.EnrollmentRequest, erName[:1]}, erName)
+
+		By("Autocompletion: Scenario D (deny csr/er <prefix> in both ways)")
+		// Slash
+		ExpectCompletion(harness, []string{"deny", fmt.Sprintf("%s/%s", util.CertificateSigningRequest, csrName[:1])}, csrName)
+		ExpectCompletion(harness, []string{"deny", fmt.Sprintf("%s/%s", util.EnrollmentRequest, erName[:1])}, erName)
+		// Space
+		ExpectCompletion(harness, []string{"deny", util.CertificateSigningRequest, csrName[:1]}, csrName)
+		ExpectCompletion(harness, []string{"deny", util.EnrollmentRequest, erName[:1]}, erName)
+
+		By("Autocompletion: Scenario E (decommission device <prefix> in both ways)")
+		// Slash
+		ExpectCompletion(harness, []string{"decommission", fmt.Sprintf("%s/%s", util.Device, devName[:1])}, devName)
+		// Space
+		ExpectCompletion(harness, []string{"decommission", util.Device, devName[:1]}, devName)
+	})
+
 })
 
 // formatResourceEvent formats the event's message and returns it as a string
@@ -1193,6 +1469,22 @@ func AssertTableValue(out, resourceName, column, expected string) {
 	}
 
 	Fail(fmt.Sprintf("expected resource %q in output but not found:\n%s", resourceName, out))
+}
+
+// CLIRunner is the minimal surface we need from the harness.
+type CLIRunner interface {
+	CLI(args ...string) (string, error)
+}
+
+// ExpectCompletion runs `flightctl __complete <args...>` and asserts that a suggestion contains `expected`.
+func ExpectCompletion(h CLIRunner, args []string, expected string) {
+	out, err := h.CLI(append([]string{"__complete"}, args...)...)
+	Expect(err).ToNot(HaveOccurred(), "completion failed for: flightctl %s", strings.Join(args, " "))
+	// Cobra prints candidates one-per-line, sometimes with "\t" description and a directive line at the end.
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	Expect(strings.Join(lines, "\n")).To(ContainSubstring(expected),
+		"expected completion %q for args: flightctl %s\nFull output:\n%s",
+		expected, strings.Join(args, " "), out)
 }
 
 // completeFleetYaml defines a YAML template for creating a Fleet resource with specified metadata and spec configuration.

@@ -236,7 +236,7 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 				var setupResult *api.EnrollmentRequest
 				if approveFirst {
 					By("approving the EnrollmentRequest first")
-					mappedIdentity := identity.NewMappedIdentity("testuser", "testuser", []*model.Organization{}, []string{}, nil)
+					mappedIdentity := identity.NewMappedIdentity("testuser", "testuser", []*model.Organization{}, map[string][]string{}, false, nil)
 					ctxApproval := context.WithValue(ctx, consts.MappedIdentityCtxKey, mappedIdentity)
 
 					approval := api.EnrollmentRequestApproval{
@@ -380,7 +380,7 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 			erName := lo.FromPtr(er.Metadata.Name)
 
 			// Set up identity context
-			mappedIdentity := identity.NewMappedIdentity("testuser", "testuser", []*model.Organization{}, []string{}, nil)
+			mappedIdentity := identity.NewMappedIdentity("testuser", "testuser", []*model.Organization{}, map[string][]string{}, false, nil)
 			ctx := context.WithValue(suite.Ctx, consts.MappedIdentityCtxKey, mappedIdentity)
 
 			By("creating initial EnrollmentRequest")

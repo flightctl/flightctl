@@ -1,0 +1,33 @@
+name: "Helm Chart Quality"
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - 'release-*'
+  pull_request:
+
+jobs:
+  lint-helm:
+    runs-on: "ubuntu-latest"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get changed files
+        id: changed-files
+        uses: tj-actions/changed-files@v46
+        with:
+          since_last_remote_commit: 'true'
+          files: |
+            deploy/helm/**
+
+      - name: Running Helm Linter
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        shell: bash
+        continue-on-error: false
+        run: |
+          set -euo pipefail
+          make lint-helm

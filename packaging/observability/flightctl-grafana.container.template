@@ -30,6 +30,7 @@ Network=flightctl
 [Service]
 Restart=on-failure
 ExecStartPre=mkdir -p /var/lib/grafana /etc/grafana /etc/grafana/provisioning /etc/grafana/provisioning/datasources /etc/grafana/certs
+ExecStartPre=/bin/sh -c 'chown -R "$(podman image inspect ${GRAFANA_IMAGE} | jq -r .[0].Config.User)" /var/lib/grafana || true'
 
 [Install]
 WantedBy=multi-user.target

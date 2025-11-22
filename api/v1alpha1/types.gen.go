@@ -339,6 +339,11 @@ const (
 	Oidc OIDCProviderSpecProviderType = "oidc"
 )
 
+// Defines values for OpenShiftProviderSpecProviderType.
+const (
+	Openshift OpenShiftProviderSpecProviderType = "openshift"
+)
+
 // Defines values for PatchRequestOp.
 const (
 	Add     PatchRequestOp = "add"
@@ -614,6 +619,9 @@ type AuthDynamicRoleAssignment struct {
 	// ClaimPath The JSON path to the role/group claim (e.g., ["groups"], ["roles"], ["realm_access", "roles"]).
 	ClaimPath []string `json:"claimPath"`
 
+	// Separator Separator for org:role format (default ':'). Roles containing the separator are split into organization-scoped roles. Roles without separator are global and apply to all organizations.
+	Separator *string `json:"separator,omitempty"`
+
 	// Type The type of role assignment.
 	Type AuthDynamicRoleAssignmentType `json:"type"`
 }
@@ -871,6 +879,12 @@ type Device struct {
 
 // DeviceApplicationStatus defines model for DeviceApplicationStatus.
 type DeviceApplicationStatus struct {
+	// AppType The type of the application.
+	AppType AppType `json:"appType"`
+
+	// Embedded Whether the application is embedded in the bootc image.
+	Embedded bool `json:"embedded"`
+
 	// Name Human readable name of the application.
 	Name string `json:"name"`
 
@@ -1895,9 +1909,6 @@ type K8sProviderSpec struct {
 	// Enabled Whether this K8s provider is enabled.
 	Enabled *bool `json:"enabled,omitempty"`
 
-	// ExternalOpenShiftApiUrl The external OpenShift API URL (for external access).
-	ExternalOpenShiftApiUrl *string `json:"externalOpenShiftApiUrl,omitempty"`
-
 	// OrganizationAssignment AuthOrganizationAssignment defines how users from this auth provider are assigned to organizations.
 	OrganizationAssignment AuthOrganizationAssignment `json:"organizationAssignment"`
 
@@ -2106,6 +2117,42 @@ type ObjectReference struct {
 	Name string `json:"name"`
 }
 
+// OpenShiftProviderSpec OpenShiftProviderSpec describes an OpenShift OAuth provider configuration.
+type OpenShiftProviderSpec struct {
+	// AuthorizationUrl The OAuth2 authorization endpoint URL.
+	AuthorizationUrl *string `json:"authorizationUrl,omitempty"`
+
+	// ClientId The OAuth2 client ID.
+	ClientId *string `json:"clientId,omitempty"`
+
+	// ClientSecret The OAuth2 client secret.
+	ClientSecret *string `json:"clientSecret,omitempty"`
+
+	// ClusterControlPlaneUrl The OpenShift cluster control plane URL.
+	ClusterControlPlaneUrl *string `json:"clusterControlPlaneUrl,omitempty"`
+
+	// DisplayName Human-readable display name for the provider.
+	DisplayName *string `json:"displayName,omitempty"`
+
+	// Enabled Whether this OpenShift provider is enabled.
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// Issuer The OAuth2 issuer identifier (used for issuer identification in tokens).
+	Issuer *string `json:"issuer,omitempty"`
+
+	// ProviderType The type of authentication provider.
+	ProviderType OpenShiftProviderSpecProviderType `json:"providerType"`
+
+	// Scopes List of OAuth2 scopes to request.
+	Scopes *[]string `json:"scopes,omitempty"`
+
+	// TokenUrl The OAuth2 token endpoint URL.
+	TokenUrl *string `json:"tokenUrl,omitempty"`
+}
+
+// OpenShiftProviderSpecProviderType The type of authentication provider.
+type OpenShiftProviderSpecProviderType string
+
 // Organization defines model for Organization.
 type Organization struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
@@ -2162,6 +2209,21 @@ type PatchRequestOp string
 
 // Percentage Percentage is the string format representing percentage string.
 type Percentage = string
+
+// Permission A permission defining allowed operations on a resource.
+type Permission struct {
+	// Operations List of allowed operations (e.g., "get", "list", "create", "update", "patch", "delete", "*" for all operations).
+	Operations []string `json:"operations"`
+
+	// Resource The resource (e.g., "devices", "fleets", "*" for all resources).
+	Resource string `json:"resource"`
+}
+
+// PermissionList List of available permissions for a user.
+type PermissionList struct {
+	// Permissions List of permissions available to the user.
+	Permissions []Permission `json:"permissions"`
+}
 
 // ReferencedRepositoryUpdatedDetails defines model for ReferencedRepositoryUpdatedDetails.
 type ReferencedRepositoryUpdatedDetails struct {
@@ -2575,6 +2637,9 @@ type TokenResponse struct {
 
 	// ExpiresIn Token expiration time in seconds.
 	ExpiresIn *int `json:"expires_in,omitempty"`
+
+	// IdToken OIDC ID token (JWT). Present when using OIDC with openid scope.
+	IdToken *string `json:"id_token,omitempty"`
 
 	// RefreshToken OAuth2 refresh token.
 	RefreshToken *string `json:"refresh_token,omitempty"`
@@ -3456,6 +3521,34 @@ func (t *AuthProviderSpec) MergeOAuth2ProviderSpec(v OAuth2ProviderSpec) error {
 	return err
 }
 
+// AsOpenShiftProviderSpec returns the union data inside the AuthProviderSpec as a OpenShiftProviderSpec
+func (t AuthProviderSpec) AsOpenShiftProviderSpec() (OpenShiftProviderSpec, error) {
+	var body OpenShiftProviderSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromOpenShiftProviderSpec overwrites any union data inside the AuthProviderSpec as the provided OpenShiftProviderSpec
+func (t *AuthProviderSpec) FromOpenShiftProviderSpec(v OpenShiftProviderSpec) error {
+	v.ProviderType = "openshift"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeOpenShiftProviderSpec performs a merge with any union data inside the AuthProviderSpec, using the provided OpenShiftProviderSpec
+func (t *AuthProviderSpec) MergeOpenShiftProviderSpec(v OpenShiftProviderSpec) error {
+	v.ProviderType = "openshift"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
 // AsAapProviderSpec returns the union data inside the AuthProviderSpec as a AapProviderSpec
 func (t AuthProviderSpec) AsAapProviderSpec() (AapProviderSpec, error) {
 	var body AapProviderSpec
@@ -3534,6 +3627,8 @@ func (t AuthProviderSpec) ValueByDiscriminator() (interface{}, error) {
 		return t.AsOAuth2ProviderSpec()
 	case "oidc":
 		return t.AsOIDCProviderSpec()
+	case "openshift":
+		return t.AsOpenShiftProviderSpec()
 	default:
 		return nil, errors.New("unknown discriminator value: " + discriminator)
 	}

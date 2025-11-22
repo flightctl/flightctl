@@ -89,23 +89,23 @@ paths:
         "302":
           description: Redirect to authorization page or back to client
         "400":
-          description: Bad request
+          description: Bad request (invalid_request, etc.)
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: '#/components/schemas/OAuth2Error'
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: '#/components/schemas/OAuth2Error'
         "500":
           description: Internal server error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: '#/components/schemas/OAuth2Error'
   /api/v1/auth/login:
     get:
       tags:
@@ -143,7 +143,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: '#/components/schemas/OAuth2Error'
     post:
       tags:
         - authentication
@@ -177,13 +177,13 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: '#/components/schemas/OAuth2Error'
         "401":
           description: Authentication failed
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Status'
+                $ref: '#/components/schemas/OAuth2Error'
   /api/v1/auth/token:
     post:
       tags:
@@ -201,17 +201,23 @@ paths:
               $ref: '#/components/schemas/TokenRequest'
       responses:
         "200":
-          description: Token response
+          description: Successful token response
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/TokenResponse'
         "400":
-          description: Bad request
+          description: Bad request (invalid_request, invalid_grant, unsupported_grant_type)
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/TokenResponse'
+                $ref: '#/components/schemas/OAuth2Error'
+        "401":
+          description: Unauthorized (invalid_client) - Client authentication failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuth2Error'
   /api/v1/auth/userinfo:
     get:
       tags:
@@ -228,11 +234,11 @@ paths:
               schema:
                 $ref: '#/components/schemas/UserInfoResponse'
         "401":
-          description: Unauthorized
+          description: Unauthorized (invalid_token)
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/UserInfoResponse'
+                $ref: '#/components/schemas/OAuth2Error'
   /api/v1/auth/jwks:
     get:
       tags:
@@ -271,36 +277,6 @@ components:
       openIdConnectUrl: /api/v1/auth/.well-known/openid-configuration
       description: OpenID Connect authentication
   schemas:
-    Status:
-      type: object
-      properties:
-        apiVersion:
-          type: string
-          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
-        kind:
-          type: string
-          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
-        code:
-          type: integer
-          format: int32
-          description: Suggested HTTP return code for this status, 0 if not set.
-        message:
-          type: string
-          description: A human-readable description of the status of this operation.
-        reason:
-          type: string
-          description: A machine-readable description of why this operation is in the "Failure" status. If this value is empty there is no information available. A Reason clarifies an HTTP status code but does not override it.
-        status:
-          type: string
-          description: 'Status of the operation. One of: "Success" or "Failure". More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#spec-and-status.'
-      description: Status is a return value for calls that don't return other objects.
-      required:
-        - apiVersion
-        - kind
-        - status
-        - code
-        - reason
-        - message
     TokenRequest:
       type: object
       required:
@@ -351,6 +327,9 @@ components:
       description: OAuth2 token request
     TokenResponse:
       type: object
+      required:
+        - access_token
+        - token_type
       properties:
         access_token:
           type: string
@@ -365,15 +344,29 @@ components:
         expires_in:
           type: integer
           description: Token expiration time in seconds.
+      description: OAuth2 successful token response
+    OAuth2Error:
+      type: object
+      required:
+        - error
+      properties:
         error:
           type: string
-          description: OAuth2 error code.
+          enum: [invalid_request, invalid_client, invalid_grant, unauthorized_client, unsupported_grant_type, invalid_scope, server_error, temporarily_unavailable]
+          description: OAuth2 error code (RFC 6749 Section 5.2).
+          x-go-name: Code
         error_description:
           type: string
-          description: OAuth2 error description.
-      description: OAuth2 token response
+          description: Human-readable ASCII text providing additional information.
+        error_uri:
+          type: string
+          format: uri
+          description: URI identifying a human-readable web page with information about the error.
+      description: OAuth2 error response (RFC 6749 Section 5.2)
     UserInfoResponse:
       type: object
+      required:
+        - sub
       properties:
         sub:
           type: string
@@ -400,9 +393,6 @@ components:
           items:
             type: string
           description: User organizations.
-        error:
-          type: string
-          description: Error code.
       description: OIDC UserInfo response
     JWKSResponse:
       type: object

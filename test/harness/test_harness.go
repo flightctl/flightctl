@@ -79,18 +79,22 @@ func WithAgentPprof() TestHarnessOption {
 	}
 }
 
+// WithAgentAudit enables the agent's audit logging when the harness starts the agent.
+// Note: Audit logging is enabled by default, so this option is primarily for test clarity.
+func WithAgentAudit() TestHarnessOption {
+	return func(h *TestHarness) {
+		if h.agentConfig != nil {
+			enabled := true
+			h.agentConfig.AuditLog.Enabled = &enabled
+		}
+	}
+}
+
 // NewTestHarness creates a new test harness and returns a new test harness
 // The test harness can be used from testing code to interact with a
 // set of agent/server/store instances.
 // It provides the necessary elements to perform tests against the agent and server.
-func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandler func(error)) (*TestHarness, error) {
-	return NewTestHarnessWithOptions(ctx, testDirPath, goRoutineErrorHandler)
-}
-
-// NewTestHarnessWithOptions creates a new test harness and applies the provided
-// TestHarnessOption functions to the constructed harness instance before the agent
-// is started.
-func NewTestHarnessWithOptions(ctx context.Context, testDirPath string, goRoutineErrorHandler func(error), opts ...TestHarnessOption) (*TestHarness, error) {
+func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandler func(error), opts ...TestHarnessOption) (*TestHarness, error) {
 	err := makeTestDirs(testDirPath, []string{"/etc/flightctl/certs", "/etc/issue.d/", "/var/lib/flightctl/", "/proc/net"})
 	if err != nil {
 		return nil, fmt.Errorf("NewTestHarness failed creating temporary directories: %w", err)
@@ -219,6 +223,7 @@ func NewTestHarnessWithOptions(ctx context.Context, testDirPath string, goRoutin
 		ctrl:                  ctrl,
 		TestDirPath:           testDirPath}
 
+	// Apply test harness options before starting the agent
 	for _, o := range opts {
 		if o != nil {
 			o(testHarness)

@@ -36,6 +36,9 @@ Flight Control automatically generates alerts for the following conditions:
   - `DeviceDiskWarning`: Disk usage exceeds warning threshold
   - `DeviceDiskNormal`: Resolves disk alerts when usage returns to normal
 
+> [!NOTE]
+> When a critical disk alert is active, device upgrades that require downloading OCI images will automatically fail with an error message prompting the user to clear storage. This prevents upgrade failures due to insufficient disk space.
+
 ### Application Alerts
 
 - **Application Status**:

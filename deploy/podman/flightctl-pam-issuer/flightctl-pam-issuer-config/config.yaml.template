@@ -1,15 +1,32 @@
 service:
-  baseUrl: https://{{BASE_DOMAIN}}:3443/
-  baseAgentEndpointUrl: https://{{BASE_DOMAIN}}:7443/
-  baseUIUrl: https://{{BASE_DOMAIN}}:443
+  baseUrl: https://{{.global.baseDomain}}:3443/
+  baseAgentEndpointUrl: https://{{.global.baseDomain}}:7443/
+  baseUIUrl: https://{{.global.baseDomain}}:443
 auth:
   pamOidcIssuer:
     address: ":8444"
-    issuer: {{PAM_OIDC_ISSUER}}
-    clientId: {{PAM_OIDC_CLIENT_ID}}
-    clientSecret: {{PAM_OIDC_CLIENT_SECRET}}
-    scopes: {{PAM_OIDC_SCOPES}}
-    redirectUris: {{PAM_OIDC_REDIRECT_URIS}}
-    pamService: {{PAM_OIDC_SERVICE}}
-
-
+    issuer: {{if .global.auth.pamOidcIssuer.issuer}}{{.global.auth.pamOidcIssuer.issuer}}{{else}}https://{{.global.baseDomain}}:8444/api/v1/auth{{end}}
+    clientId: {{if .global.auth.pamOidcIssuer.clientId}}{{.global.auth.pamOidcIssuer.clientId}}{{else}}flightctl-client{{end}}
+{{- if .global.auth.pamOidcIssuer.clientSecret}}
+    clientSecret: {{.global.auth.pamOidcIssuer.clientSecret}}
+{{- end}}
+    scopes:
+{{- if .global.auth.pamOidcIssuer.scopes}}
+{{- range .global.auth.pamOidcIssuer.scopes}}
+      - {{.}}
+{{- end}}
+{{- else}}
+      - openid
+      - profile
+      - email
+      - roles
+{{- end}}
+    redirectUris:
+{{- if .global.auth.pamOidcIssuer.redirectUris}}
+{{- range .global.auth.pamOidcIssuer.redirectUris}}
+      - {{.}}
+{{- end}}
+{{- else}}
+      - https://{{.global.baseDomain}}:443/callback
+{{- end}}
+    pamService: {{if .global.auth.pamOidcIssuer.pamService}}{{.global.auth.pamOidcIssuer.pamService}}{{else}}flightctl{{end}}

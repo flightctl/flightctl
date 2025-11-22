@@ -8,6 +8,7 @@ on:
     tags:
       - '*'
   pull_request:
+  merge_group:
 
 jobs:
   setup:
@@ -190,7 +191,7 @@ jobs:
 
   publish:
     name: Publish Binaries
-    if: ${{ github.event_name != 'pull_request' }}
+    if: ${{ github.event_name != 'pull_request' && github.event_name != 'merge_group' }}
     runs-on: ubuntu-latest
     needs: verify
     permissions:

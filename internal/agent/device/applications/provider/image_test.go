@@ -215,8 +215,7 @@ image: quay.io/flightctl-tests/alpine:v1`,
 			require.NoError(err)
 			// verify env file
 			if tt.spec.EnvVars != nil {
-				appPath, err := pathFromAppType(imageProvider.spec.AppType, imageProvider.spec.Name, imageProvider.spec.Embedded)
-				require.NoError(err)
+				appPath := imageProvider.handler.AppPath()
 				require.True(rw.PathExists(filepath.Join(appPath, ".env")))
 				envFile, err := rw.ReadFile(filepath.Join(appPath, ".env"))
 				require.NoError(err)

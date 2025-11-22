@@ -21,10 +21,34 @@ type imageProvider struct {
 	podman     *client.Podman
 	readWriter fileio.ReadWriter
 	log        *log.PrefixLogger
+	handler    appTypeHandler
 	spec       *ApplicationSpec
 
 	// AppData stores the extracted app data from OCITargets to reuse in Verify
 	AppData *AppData
+}
+
+func newImageHandler(appType v1alpha1.AppType, name string, rw fileio.ReadWriter, l *log.PrefixLogger, vm VolumeManager) (appTypeHandler, error) {
+	switch appType {
+	case v1alpha1.AppTypeQuadlet:
+		qb := &quadletHandler{
+			name: name,
+			rw:   rw,
+		}
+		qb.volumeProvider = func() ([]*Volume, error) {
+			return extractQuadletVolumesFromDir(qb.ID(), rw, qb.AppPath())
+		}
+		return qb, nil
+	case v1alpha1.AppTypeCompose:
+		return &composeHandler{
+			name: name,
+			rw:   rw,
+			log:  l,
+			vm:   vm,
+		}, nil
+	default:
+		return nil, fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
+	}
 }
 
 func newImage(log *log.PrefixLogger, podman *client.Podman, spec *v1alpha1.ApplicationProviderSpec, readWriter fileio.ReadWriter, appType v1alpha1.AppType) (*imageProvider, error) {
@@ -38,28 +62,29 @@ func newImage(log *log.PrefixLogger, podman *client.Podman, spec *v1alpha1.Appli
 	if appName == "" {
 		appName = provider.Image
 	}
-	embedded := false
-	path, err := pathFromAppType(appType, appName, embedded)
-	if err != nil {
-		return nil, fmt.Errorf("getting app path: %w", err)
-	}
 
 	volumeManager, err := NewVolumeManager(log, appName, provider.Volumes)
 	if err != nil {
 		return nil, err
 	}
 
+	handler, err := newImageHandler(appType, appName, readWriter, log, volumeManager)
+	if err != nil {
+		return nil, fmt.Errorf("constructing image handler: %w", err)
+	}
+
 	return &imageProvider{
 		log:        log,
 		podman:     podman,
 		readWriter: readWriter,
+		handler:    handler,
 		spec: &ApplicationSpec{
 			Name:          appName,
-			ID:            client.NewComposeID(appName),
+			ID:            handler.ID(),
 			AppType:       appType,
-			Path:          path,
+			Path:          handler.AppPath(),
 			EnvVars:       lo.FromPtr(spec.EnvVars),
-			Embedded:      embedded,
+			Embedded:      false,
 			ImageProvider: &provider,
 			Volume:        volumeManager,
 		},
@@ -71,11 +96,7 @@ func (p *imageProvider) Verify(ctx context.Context) error {
 		return fmt.Errorf("%w: validating env vars: %w", errors.ErrInvalidSpec, err)
 	}
 
-	if p.spec.AppType != v1alpha1.AppTypeCompose && p.spec.AppType != v1alpha1.AppTypeQuadlet {
-		return fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, p.spec.AppType)
-	}
-
-	if err := ensureDependenciesFromAppType(p.spec.AppType); err != nil {
+	if err := ensureDependenciesFromAppType(p.handler); err != nil {
 		return fmt.Errorf("%w: ensuring dependencies: %w", errors.ErrNoRetry, err)
 	}
 
@@ -116,21 +137,7 @@ func (p *imageProvider) Verify(ctx context.Context) error {
 		}
 	}()
 
-	switch p.spec.AppType {
-	case v1alpha1.AppTypeCompose:
-		// ensure the compose application content in tmp dir is valid
-		if err := ensureCompose(p.readWriter, tmpAppPath); err != nil {
-			return fmt.Errorf("ensuring compose: %w", err)
-		}
-	case v1alpha1.AppTypeQuadlet:
-		if err := ensureQuadlet(p.readWriter, tmpAppPath); err != nil {
-			return fmt.Errorf("ensuring quadlet: %w", err)
-		}
-	default:
-		return fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, p.spec.AppType)
-	}
-
-	return nil
+	return p.handler.Verify(ctx, tmpAppPath)
 }
 
 func (p *imageProvider) Install(ctx context.Context) error {
@@ -155,20 +162,15 @@ func (p *imageProvider) Install(ctx context.Context) error {
 		return fmt.Errorf("writing env file: %w", err)
 	}
 
-	switch p.spec.AppType {
-	case v1alpha1.AppTypeCompose:
-		if err := writeComposeOverride(p.log, p.spec.Path, p.spec.Volume, p.readWriter, client.ComposeOverrideFilename); err != nil {
-			return fmt.Errorf("writing override file %w", err)
-		}
-	case v1alpha1.AppTypeQuadlet:
-		if err := installQuadlet(p.readWriter, p.spec.Path, p.spec.ID); err != nil {
-			return fmt.Errorf("installing quadlet: %w", err)
-		}
-	default:
-		return fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, p.spec.AppType)
+	// image providers may have volumes that are nested within the contents of the application
+	// that can't be added until install time
+	volumes, err := p.handler.Volumes()
+	if err != nil {
+		return fmt.Errorf("getting volumes: %w", err)
 	}
+	p.spec.Volume.AddVolumes(p.spec.Name, volumes)
 
-	return nil
+	return p.handler.Install(ctx)
 }
 
 func (p *imageProvider) Remove(ctx context.Context) error {
@@ -184,7 +186,7 @@ func (p *imageProvider) Remove(ctx context.Context) error {
 	if err := p.readWriter.RemoveAll(p.spec.Path); err != nil {
 		return fmt.Errorf("removing application: %w", err)
 	}
-	return nil
+	return p.handler.Remove(ctx)
 }
 
 func (p *imageProvider) Name() string {

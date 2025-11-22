@@ -1,0 +1,66 @@
+database:
+  hostname: {{if eq .db.external "enabled"}}{{.db.hostname}}{{else}}flightctl-db{{end}}
+  type: pgsql
+  port: {{if .db.port}}{{.db.port}}{{else}}5432{{end}}
+  name: {{if .db.name}}{{.db.name}}{{else}}flightctl{{end}}
+  user: {{if .db.user}}{{.db.user}}{{else}}admin{{end}}
+{{if eq .db.external "enabled"}}
+  {{if .db.sslmode}}sslmode: {{.db.sslmode}}{{end}}
+  {{if .db.sslcert}}sslcert: {{.db.sslcert}}{{end}}
+  {{if .db.sslkey}}sslkey: {{.db.sslkey}}{{end}}
+  {{if .db.sslrootcert}}sslrootcert: {{.db.sslrootcert}}{{end}}
+{{end}}
+service:
+  rateLimit:
+    enabled: {{.service.rateLimit.enabled}}
+    requests: {{if .service.rateLimit.requests}}{{.service.rateLimit.requests}}{{else}}300{{end}}
+    window: {{if .service.rateLimit.window}}{{.service.rateLimit.window}}{{else}}1m{{end}}
+    authRequests: {{if .service.rateLimit.authRequests}}{{.service.rateLimit.authRequests}}{{else}}20{{end}}
+    authWindow: {{if .service.rateLimit.authWindow}}{{.service.rateLimit.authWindow}}{{else}}1h{{end}}
+organizations:
+  enabled: {{if .global.organizations.enabled}}{{.global.organizations.enabled}}{{else}}false{{end}}
+auth:
+  insecureSkipTlsVerify: {{.global.auth.insecureSkipTlsVerify}}
+  {{if not .global.auth.insecureSkipTlsVerify}}caCert: /root/.flightctl/certs/auth/ca.crt{{end}}
+{{- if eq .global.auth.type "aap"}}
+  aap:
+    apiUrl: {{.global.auth.aap.apiUrl}}
+    externalApiUrl: {{.global.auth.aap.externalApiUrl}}
+{{- else if eq .global.auth.type "oidc"}}
+  oidc:
+    enabled: {{if .global.auth.oidc.enabled}}{{.global.auth.oidc.enabled}}{{else}}true{{end}}
+    {{if .global.auth.pamOidcIssuer.enabled}}
+    issuer: {{if .global.auth.pamOidcIssuer.issuer}}{{.global.auth.pamOidcIssuer.issuer}}{{else}}https://{{.global.baseDomain}}:8444/api/v1/auth{{end}}
+    clientId: {{if .global.auth.pamOidcIssuer.clientId}}{{.global.auth.pamOidcIssuer.clientId}}{{else}}flightctl-client{{end}}
+    {{else}}
+    issuer: {{.global.auth.oidc.issuer}}
+    clientId: {{.global.auth.oidc.clientId}}
+    {{end}}
+    {{if .global.auth.oidc.usernameClaim}}
+    usernameClaim:
+      {{range .global.auth.oidc.usernameClaim}}- {{.}}
+      {{end}}
+    {{end}}
+    {{if .global.auth.oidc.roleAssignment}}
+    roleAssignment:
+      type: {{.global.auth.oidc.roleAssignment.type}}
+      {{with .global.auth.oidc.roleAssignment.claimPath}}
+      claimPath:
+        {{range .}}- {{.}}
+        {{end}}
+      {{end}}
+    {{end}}
+    {{if .global.auth.oidc.organizationAssignment}}
+    organizationAssignment:
+      type: {{.global.auth.oidc.organizationAssignment.type}}
+      {{with .global.auth.oidc.organizationAssignment.organizationName}}organizationName: {{.}}{{end}}
+      {{with .global.auth.oidc.organizationAssignment.claimPath}}
+      claimPath:
+        {{range .}}- {{.}}
+        {{end}}
+      {{end}}
+      {{with .global.auth.oidc.organizationAssignment.organizationNamePrefix}}organizationNamePrefix: {{.}}{{end}}
+      {{with .global.auth.oidc.organizationAssignment.organizationNameSuffix}}organizationNameSuffix: {{.}}{{end}}
+    {{end}}
+{{- end}}
+

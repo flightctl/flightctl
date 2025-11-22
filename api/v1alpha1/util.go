@@ -425,8 +425,16 @@ func (a *AuthProvider) HideSensitiveData() error {
 		if err := a.Spec.FromOAuth2ProviderSpec(oauth2Spec); err != nil {
 			return err
 		}
+	case string(Openshift):
+		openshiftSpec, err := a.Spec.AsOpenShiftProviderSpec()
+		if err != nil {
+			return err
+		}
+		hideValue(openshiftSpec.ClientSecret)
+		if err := a.Spec.FromOpenShiftProviderSpec(openshiftSpec); err != nil {
+			return err
+		}
 	}
-
 	return nil
 }
 
@@ -437,6 +445,20 @@ func (a *AuthProviderList) HideSensitiveData() error {
 	for i := range a.Items {
 		if err := a.Items[i].HideSensitiveData(); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func (a *AuthConfig) HideSensitiveData() error {
+	if a == nil {
+		return nil
+	}
+	if a.Providers != nil {
+		for i := range *a.Providers {
+			if err := (*a.Providers)[i].HideSensitiveData(); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

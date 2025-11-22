@@ -1,4 +1,3 @@
-{{- if or .Values.worker.enabled .Values.periodic.enabled }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -7,4 +6,3 @@ metadata:
 data:
   known_hosts: |-
 {{ default "" .Values.global.sshKnownHosts.data | nindent 4 }}
-{{- end }} 

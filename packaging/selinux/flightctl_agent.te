@@ -189,7 +189,7 @@ systemd_status_all_unit_files(flightctl_agent_t)
 systemd_reload_all_services(flightctl_agent_t)
 systemd_start_all_services(flightctl_agent_t)
 systemd_stop_systemd_services(flightctl_agent_t)
-allow flightctl_agent_t init_t:system status;
+allow flightctl_agent_t init_t:system { status stop start };
 
 # sshd config/service permissions
 manage_files_pattern(flightctl_agent_t, sshd_key_t, sshd_key_t)

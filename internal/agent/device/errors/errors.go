@@ -96,6 +96,9 @@ var (
 
 	// Certificate management errors
 	ErrCreateCertificateSigningRequest = errors.New("failed to create certificate signing request")
+
+	// resource monitoring
+	ErrCriticalResourceAlert = errors.New("critical resource alert")
 )
 
 // TODO: tighten up the retryable errors ideally all retryable errors should be explicitly defined

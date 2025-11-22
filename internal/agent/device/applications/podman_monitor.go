@@ -19,6 +19,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -39,7 +40,8 @@ type PodmanMonitor struct {
 	listenerCloseChan chan struct{}
 	// lastEventTime tracks the timestamp at which the podman monitor should start listening to events for
 	lastEventTime string
-
+	// lastActionsSuccessTime tracks the last timestamp at which the podman monitor successfully executed events
+	lastActionsSuccessTime time.Time
 	// apps is a map of application ID to application.
 	apps    map[string]Application
 	actions []lifecycle.Action
@@ -54,20 +56,27 @@ type PodmanMonitor struct {
 func NewPodmanMonitor(
 	log *log.PrefixLogger,
 	podman *client.Podman,
-	systemd *client.Systemd,
+	systemdManager systemd.Manager,
 	bootTime string,
 	rw fileio.ReadWriter,
 ) *PodmanMonitor {
+	// don't fail for this. This is being parsed purely for informational reasons in the event something fails
+	startTime, err := time.Parse(time.RFC3339, bootTime)
+	if err != nil {
+		log.Errorf("Failed to parse bootTime %q: %v", bootTime, err)
+		startTime = time.Now()
+	}
 	return &PodmanMonitor{
 		client: podman,
 		handlers: map[v1alpha1.AppType]lifecycle.ActionHandler{
 			v1alpha1.AppTypeCompose: lifecycle.NewCompose(log, rw, podman),
-			v1alpha1.AppTypeQuadlet: lifecycle.NewQuadlet(log, rw, systemd, podman),
+			v1alpha1.AppTypeQuadlet: lifecycle.NewQuadlet(log, rw, systemdManager, podman),
 		},
-		apps:          make(map[string]Application),
-		lastEventTime: bootTime,
-		log:           log,
-		rw:            rw,
+		apps:                   make(map[string]Application),
+		lastEventTime:          bootTime,
+		lastActionsSuccessTime: startTime,
+		log:                    log,
+		rw:                     rw,
 	}
 }
 
@@ -213,6 +222,10 @@ func (m *PodmanMonitor) Stop() error {
 
 // Drain stops and removes all applications, then stops the monitor
 func (m *PodmanMonitor) Drain(ctx context.Context) error {
+	// Drain may be called as the result of an OS upgrade. Any applications added during that spec update
+	// may have "start" actions pending. Clear out any pending actions so that they can be replaced with "stops"
+	m.drainActions()
+
 	return m.drain(ctx)
 }
 
@@ -378,7 +391,20 @@ func (m *PodmanMonitor) getByID(appID string) (Application, bool) {
 	return nil, false
 }
 
+func (m *PodmanMonitor) addBatchTimeToCtx(ctx context.Context) context.Context {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return lifecycle.ContextWithBatchStartTime(ctx, m.lastActionsSuccessTime)
+}
+
+func (m *PodmanMonitor) updateLastSuccessTime(t time.Time) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.lastActionsSuccessTime = t
+}
+
 func (m *PodmanMonitor) ExecuteActions(ctx context.Context) error {
+	ctx = m.addBatchTimeToCtx(ctx)
 	actions := m.drainActions()
 	for i := range actions {
 		action := actions[i]
@@ -393,6 +419,7 @@ func (m *PodmanMonitor) ExecuteActions(ctx context.Context) error {
 		}
 	}
 
+	m.updateLastSuccessTime(time.Now())
 	if m.hasApps() {
 		if err := m.startMonitor(ctx); err != nil {
 			return fmt.Errorf("failed to start podman monitor: %w", err)

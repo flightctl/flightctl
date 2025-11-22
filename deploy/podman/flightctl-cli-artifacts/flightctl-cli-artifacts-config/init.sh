@@ -6,24 +6,10 @@ echo "Initializing flightctl-cli-artifacts configuration"
 
 source "/utils/init_utils.sh"
 
-SERVICE_CONFIG_FILE="/service-config.yaml"
-ENV_TEMPLATE="/config-source/env.template"
-ENV_OUTPUT="/config-destination/env"
 NGINX_CONFIG_FILE="/config-source/nginx.conf"
 NGINX_CONFIG_OUTPUT="/config-destination/nginx.conf"
 CERTS_SOURCE_PATH="/certs-source"
 CERTS_DEST_PATH="/certs-destination"
-
-BASE_DOMAIN=$(extract_value "global.baseDomain" "$SERVICE_CONFIG_FILE")
-
-# Verify baseDomain was found
-if [ -z "$BASE_DOMAIN" ]; then
-  echo "Error: Could not find baseDomain in service config file"
-  exit 1
-fi
-
-# Template the environment file
-sed "s|{{BASE_DOMAIN}}|$BASE_DOMAIN|g" "$ENV_TEMPLATE" > "$ENV_OUTPUT"
 
 # Write nginx configuration files
 #

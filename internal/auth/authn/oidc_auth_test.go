@@ -241,7 +241,7 @@ func TestOIDCAuth_extractOrganizations(t *testing.T) {
 					OrganizationAssignment: &assignment,
 				}
 			}(),
-			expectedOrgs: []common.ReportedOrganization{{Name: "static-org", IsInternalID: false, ID: "static-org"}},
+			expectedOrgs: []common.ReportedOrganization{{Name: "static-org", IsInternalID: false, ID: "static-org", Roles: []string{"admin", "user"}}},
 		},
 		{
 			name: "dynamic organization assignment",
@@ -257,7 +257,7 @@ func TestOIDCAuth_extractOrganizations(t *testing.T) {
 					OrganizationAssignment: &assignment,
 				}
 			}(),
-			expectedOrgs: []common.ReportedOrganization{{Name: "test-org", IsInternalID: false, ID: "test-org"}},
+			expectedOrgs: []common.ReportedOrganization{{Name: "test-org", IsInternalID: false, ID: "test-org", Roles: []string{"admin", "user"}}},
 		},
 		{
 			name: "per-user organization assignment",
@@ -274,7 +274,7 @@ func TestOIDCAuth_extractOrganizations(t *testing.T) {
 					OrganizationAssignment: &assignment,
 				}
 			}(),
-			expectedOrgs: []common.ReportedOrganization{{Name: "user-testuser-org", IsInternalID: false, ID: "user-testuser-org"}},
+			expectedOrgs: []common.ReportedOrganization{{Name: "user-testuser-org", IsInternalID: false, ID: "user-testuser-org", Roles: []string{"admin", "user"}}},
 		},
 	}
 

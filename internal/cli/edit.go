@@ -43,8 +43,15 @@ func getValidEditResourceKinds() []ResourceKind {
 		FleetKind,
 		RepositoryKind,
 		CertificateSigningRequestKind,
-		EnrollmentRequestKind,
 	}
+}
+
+type errEditNotAllowed struct {
+	ResourceKind
+}
+
+func (e errEditNotAllowed) Error() string {
+	return "edit not permitted for " + e.ResourceKind.String()
 }
 
 func NewCmdEdit() *cobra.Command {
@@ -139,18 +146,10 @@ func (o *EditOptions) Validate(args []string) error {
 
 	// Check if resource type supports editing
 	switch kind {
-	case DeviceKind, FleetKind, RepositoryKind, CertificateSigningRequestKind, EnrollmentRequestKind:
+	case DeviceKind, FleetKind, RepositoryKind, CertificateSigningRequestKind:
 		// These are supported for editing
-	case EventKind:
-		return fmt.Errorf("you cannot edit events")
-	case OrganizationKind:
-		return fmt.Errorf("you cannot edit organizations")
-	case TemplateVersionKind:
-		return fmt.Errorf("you cannot edit templateversions")
-	case ResourceSyncKind:
-		return fmt.Errorf("you cannot edit resourcesyncs")
 	default:
-		return fmt.Errorf("unsupported resource kind for editing: %s (PATCH not supported)", kind)
+		return errEditNotAllowed{kind}
 	}
 
 	// Validate output format

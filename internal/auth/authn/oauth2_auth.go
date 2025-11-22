@@ -151,21 +151,18 @@ func (o *OAuth2Auth) GetIdentity(ctx context.Context, token string) (common.Iden
 		return nil, fmt.Errorf("failed to extract username from claim path %v", usernameClaim)
 	}
 
-	// Extract roles using the role extractor
-	roles := o.roleExtractor.ExtractRolesFromMap(userInfo)
+	// Extract org-scoped roles using the role extractor
+	orgRoles := o.roleExtractor.ExtractOrgRolesFromMap(userInfo)
 
 	// Extract organizations using stateless organization extractor with userinfo map
 	organizations := o.organizationExtractor.ExtractOrganizations(userInfo, username)
-	reportedOrganizations := make([]common.ReportedOrganization, 0, len(organizations))
-	for _, org := range organizations {
-		reportedOrganizations = append(reportedOrganizations, common.ReportedOrganization{
-			Name:         org,
-			IsInternalID: false,
-			ID:           org,
-		})
-	}
+
+	// Build ReportedOrganization with roles embedded
+	reportedOrganizations, isSuperAdmin := common.BuildReportedOrganizations(organizations, orgRoles, false)
+
 	// Create OAuth2 identity
-	oauth2Identity := common.NewBaseIdentityWithIssuer(username, username, reportedOrganizations, roles, identity.NewIssuer(identity.AuthTypeOAuth2, *o.spec.Issuer))
+	oauth2Identity := common.NewBaseIdentityWithIssuer(username, username, reportedOrganizations, identity.NewIssuer(identity.AuthTypeOAuth2, *o.spec.Issuer))
+	oauth2Identity.SetSuperAdmin(isSuperAdmin)
 
 	return oauth2Identity, nil
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"math/rand"
 	"strings"
 	"time"
 
@@ -264,7 +263,6 @@ func NewPollConfig() poll.Config {
 		Factor:       1.0,
 		MaxDelay:     1 * time.Millisecond,
 		JitterFactor: 0.1,
-		Rand:         rand.New(rand.NewSource(time.Now().UnixNano())), //nolint:gosec
 	}
 }
 

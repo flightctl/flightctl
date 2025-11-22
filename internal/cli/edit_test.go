@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"os"
@@ -23,6 +24,7 @@ func TestEditOptions_Validate(t *testing.T) {
 		fleetName     string
 		expectError   bool
 		errorContains string
+		errorIs       error
 	}{
 		{
 			name:        "valid TYPE/NAME format",
@@ -53,29 +55,29 @@ func TestEditOptions_Validate(t *testing.T) {
 			errorContains: "invalid resource kind: invalidkind",
 		},
 		{
-			name:          "invalid - cannot edit events",
-			args:          []string{"event/test-event"},
-			expectError:   true,
-			errorContains: "you cannot edit events",
+			name:        "invalid - cannot edit events",
+			args:        []string{"event/test-event"},
+			expectError: true,
+			errorIs:     errEditNotAllowed{EventKind},
 		},
 		{
-			name:          "invalid - cannot edit organizations",
-			args:          []string{"organization/test-org"},
-			expectError:   true,
-			errorContains: "you cannot edit organizations",
+			name:        "invalid - cannot edit organizations",
+			args:        []string{"organization/test-org"},
+			expectError: true,
+			errorIs:     errEditNotAllowed{OrganizationKind},
 		},
 		{
-			name:          "invalid - templateversion without fleetname",
-			args:          []string{"templateversion/test-tv"},
-			expectError:   true,
-			errorContains: "you cannot edit templateversions",
+			name:        "invalid - templateversion without fleetname",
+			args:        []string{"templateversion/test-tv"},
+			expectError: true,
+			errorIs:     errEditNotAllowed{TemplateVersionKind},
 		},
 		{
-			name:          "invalid - templateversion with fleetname",
-			args:          []string{"templateversion/test-tv"},
-			fleetName:     "test-fleet",
-			expectError:   true,
-			errorContains: "you cannot edit templateversions",
+			name:        "invalid - templateversion with fleetname",
+			args:        []string{"templateversion/test-tv"},
+			fleetName:   "test-fleet",
+			expectError: true,
+			errorIs:     errEditNotAllowed{TemplateVersionKind},
 		},
 	}
 
@@ -98,6 +100,9 @@ func TestEditOptions_Validate(t *testing.T) {
 				}
 				if tc.errorContains != "" && !strings.Contains(err.Error(), tc.errorContains) {
 					t.Errorf("expected error to contain %q, got %q", tc.errorContains, err.Error())
+				}
+				if tc.errorIs != nil && !errors.Is(err, tc.errorIs) {
+					t.Errorf("expected error to be %v, got %v", tc.errorIs, err)
 				}
 			} else {
 				if err != nil {

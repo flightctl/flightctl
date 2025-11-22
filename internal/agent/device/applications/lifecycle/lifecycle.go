@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"context"
+	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 )
@@ -46,4 +47,17 @@ type Action struct {
 type Volume struct {
 	ID        string
 	Reference string
+}
+
+type contextKey string
+
+const batchStartTimeKey contextKey = "batchStartTime"
+
+func ContextWithBatchStartTime(ctx context.Context, t time.Time) context.Context {
+	return context.WithValue(ctx, batchStartTimeKey, t)
+}
+
+func BatchStartTimeFromContext(ctx context.Context) (time.Time, bool) {
+	t, ok := ctx.Value(batchStartTimeKey).(time.Time)
+	return t, ok
 }
