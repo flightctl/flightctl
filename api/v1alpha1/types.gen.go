@@ -1804,7 +1804,7 @@ type HttpRepoSpec struct {
 
 // ImageApplicationProviderSpec defines model for ImageApplicationProviderSpec.
 type ImageApplicationProviderSpec struct {
-	// Image Reference to the container image for the application package.
+	// Image Reference to the OCI image or artifact for the application package.
 	Image string `json:"image"`
 
 	// Ports Port mappings.
