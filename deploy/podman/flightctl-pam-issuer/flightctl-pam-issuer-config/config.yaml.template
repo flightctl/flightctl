@@ -2,6 +2,10 @@ service:
   baseUrl: https://{{.global.baseDomain}}:3443/
   baseAgentEndpointUrl: https://{{.global.baseDomain}}:7443/
   baseUIUrl: https://{{.global.baseDomain}}:443
+  {{if .global.baseDomainTls.customServerCerts}}
+  srvCertificateFile: /root/.flightctl/certs/custom/server.crt
+  srvKeyFile: /root/.flightctl/certs/custom/server.key
+  {{end}}
 auth:
   pamOidcIssuer:
     address: ":8444"

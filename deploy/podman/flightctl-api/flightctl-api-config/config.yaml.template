@@ -18,13 +18,16 @@ service:
   baseUIUrl: https://{{.global.baseDomain}}:443
   altNames:
     - {{.global.baseDomain}}
-    - flightctl-api
   rateLimit:
     enabled: {{.service.rateLimit.enabled}}
     requests: {{if .service.rateLimit.requests}}{{.service.rateLimit.requests}}{{else}}300{{end}}
     window: {{if .service.rateLimit.window}}{{.service.rateLimit.window}}{{else}}1m{{end}}
     authRequests: {{if .service.rateLimit.authRequests}}{{.service.rateLimit.authRequests}}{{else}}20{{end}}
     authWindow: {{if .service.rateLimit.authWindow}}{{.service.rateLimit.authWindow}}{{else}}1h{{end}}
+  {{if .global.baseDomainTls.customServerCerts}}
+  srvCertificateFile: /root/.flightctl/certs/custom/server.crt
+  srvKeyFile: /root/.flightctl/certs/custom/server.key
+  {{end}}
 kv:
   hostname: flightctl-kv
   port: 6379
@@ -32,7 +35,7 @@ organizations:
   enabled: {{if .global.organizations.enabled}}{{.global.organizations.enabled}}{{else}}false{{end}}
 auth:
   insecureSkipTlsVerify: {{.global.auth.insecureSkipTlsVerify}}
-  {{if not .global.auth.insecureSkipTlsVerify}}caCert: /root/.flightctl/certs/auth/ca.crt{{end}}
+  {{if .global.auth.customCaCert}}caCert: /root/.flightctl/certs/custom/auth/ca.crt{{end}}
 {{- if eq .global.auth.type "aap"}}
   aap:
     apiUrl: {{.global.auth.aap.apiUrl}}

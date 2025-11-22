@@ -1,0 +1,23 @@
+[Unit]
+Description=Flight Control API Certificates Initialization
+PartOf=flightctl.target
+
+[Container]
+Image={{ .Api.Image }}:{{ .Api.Tag }}
+ContainerName=flightctl-api-certs-init
+Network=flightctl.network
+Volume=/etc/flightctl/pki:/certs:rw,z
+
+Exec=/app/flightctl-api init
+
+[Service]
+Type=oneshot
+RemainAfterExit=true
+Restart=on-failure
+RestartSec=5s
+
+ExecStartPre=/usr/bin/flightctl-standalone render template --input-file /usr/share/flightctl/flightctl-api/config.yaml.template --output-file /etc/flightctl/flightctl-api/config.yaml
+ExecStartPre=/usr/bin/flightctl-standalone render template --input-file /usr/share/flightctl/flightctl-api/env.template --output-file /etc/flightctl/flightctl-api/env
+
+[Install]
+WantedBy=flightctl.target
