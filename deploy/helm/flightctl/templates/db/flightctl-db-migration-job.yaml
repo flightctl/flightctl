@@ -1,5 +1,5 @@
 {{- $root := . -}}
-{{- $baseName := printf "flightctl-db-migration-%d" .Release.Revision -}}
+{{- $baseName := printf "flightctl-db-migration-%s-%d" (now | date "20060102-150405") .Release.Revision -}}
 
 {{- /* Defaults applied if any key along the path is missing */ -}}
 {{- $dbSetup := default (dict) .Values.dbSetup -}}
