@@ -240,37 +240,37 @@ var _ = Describe("Rollout disruption budget test", func() {
 		It("One fleet - no devices", func() {
 			initTest(nil, 0, false, false)
 			reconciler := disruption_budget.NewReconciler(serviceHandler, log)
-			reconciler.Reconcile(ctx)
+			reconciler.Reconcile(ctx, store.NullOrgId)
 		})
 		It("One fleet - one device no matching fleet", func() {
 			initTest(nil, 1, false, false)
 			reconciler := disruption_budget.NewReconciler(serviceHandler, log)
-			reconciler.Reconcile(ctx)
+			reconciler.Reconcile(ctx, store.NullOrgId)
 		})
 		It("One fleet - one device with matching fleet - non matching disruption budget", func() {
 			initTest(nil, 1, true, false)
 			captureAndVerifyEvents(1, api.EventReasonFleetRolloutDeviceSelected, api.DeviceKind)
 			reconciler := disruption_budget.NewReconciler(serviceHandler, log)
-			reconciler.Reconcile(ctx)
+			reconciler.Reconcile(ctx, store.NullOrgId)
 			verifyEventDetails(api.EventReasonFleetRolloutDeviceSelected, api.DeviceKind)
 		})
 		It("One fleet - one device no matching fleet", func() {
 			initTest(nil, 1, true, true)
 			reconciler := disruption_budget.NewReconciler(serviceHandler, log)
-			reconciler.Reconcile(ctx)
+			reconciler.Reconcile(ctx, store.NullOrgId)
 		})
 		It("One fleet - one device with matching fleet - with matching disruption budget", func() {
 			initTest(disruptionBudget(lo.ToPtr(1), lo.ToPtr(1), nil), 1, true, false)
 			reconciler := disruption_budget.NewReconciler(serviceHandler, log)
 			captureAndVerifyEvents(1, api.EventReasonFleetRolloutDeviceSelected, api.DeviceKind)
-			reconciler.Reconcile(ctx)
+			reconciler.Reconcile(ctx, store.NullOrgId)
 			verifyEventDetails(api.EventReasonFleetRolloutDeviceSelected, api.DeviceKind)
 		})
 		It("One fleet - two devices with matching fleet - with matching disruption budget", func() {
 			initTest(disruptionBudget(lo.ToPtr(1), lo.ToPtr(1), nil), 2, true, false)
 			reconciler := disruption_budget.NewReconciler(serviceHandler, log)
 			captureAndVerifyEvents(1, api.EventReasonFleetRolloutDeviceSelected, api.DeviceKind)
-			reconciler.Reconcile(ctx)
+			reconciler.Reconcile(ctx, store.NullOrgId)
 			verifyEventDetails(api.EventReasonFleetRolloutDeviceSelected, api.DeviceKind)
 		})
 		It("One fleet - 6 devices with matching fleet - with matching disruption budget - with labels", func() {
@@ -279,7 +279,7 @@ var _ = Describe("Rollout disruption budget test", func() {
 			reconciler := disruption_budget.NewReconciler(serviceHandler, log)
 
 			captureAndVerifyEvents(3, api.EventReasonFleetRolloutDeviceSelected, api.DeviceKind)
-			reconciler.Reconcile(ctx)
+			reconciler.Reconcile(ctx, store.NullOrgId)
 			verifyEventDetails(api.EventReasonFleetRolloutDeviceSelected, api.DeviceKind)
 		})
 		It("One fleet - 6 devices with matching fleet - with matching disruption budget - with labels - without unavailable", func() {
@@ -287,7 +287,7 @@ var _ = Describe("Rollout disruption budget test", func() {
 			setLabels([]map[string]string{labels1, labels2}, []int{4, 3})
 			reconciler := disruption_budget.NewReconciler(serviceHandler, log)
 			captureAndVerifyEvents(6, api.EventReasonFleetRolloutDeviceSelected, api.DeviceKind)
-			reconciler.Reconcile(ctx)
+			reconciler.Reconcile(ctx, store.NullOrgId)
 			verifyEventDetails(api.EventReasonFleetRolloutDeviceSelected, api.DeviceKind)
 		})
 	})

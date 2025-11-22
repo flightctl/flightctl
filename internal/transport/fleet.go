@@ -15,19 +15,19 @@ func (h *TransportHandler) CreateFleet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, status := h.serviceHandler.CreateFleet(r.Context(), fleet)
+	body, status := h.serviceHandler.CreateFleet(r.Context(), OrgIDFromContext(r.Context()), fleet)
 	SetResponse(w, body, status)
 }
 
 // (GET /api/v1/fleets)
 func (h *TransportHandler) ListFleets(w http.ResponseWriter, r *http.Request, params api.ListFleetsParams) {
-	body, status := h.serviceHandler.ListFleets(r.Context(), params)
+	body, status := h.serviceHandler.ListFleets(r.Context(), OrgIDFromContext(r.Context()), params)
 	SetResponse(w, body, status)
 }
 
 // (GET /api/v1/fleets/{name})
 func (h *TransportHandler) GetFleet(w http.ResponseWriter, r *http.Request, name string, params api.GetFleetParams) {
-	body, status := h.serviceHandler.GetFleet(r.Context(), name, params)
+	body, status := h.serviceHandler.GetFleet(r.Context(), OrgIDFromContext(r.Context()), name, params)
 	SetResponse(w, body, status)
 }
 
@@ -39,19 +39,19 @@ func (h *TransportHandler) ReplaceFleet(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	body, status := h.serviceHandler.ReplaceFleet(r.Context(), name, fleet)
+	body, status := h.serviceHandler.ReplaceFleet(r.Context(), OrgIDFromContext(r.Context()), name, fleet)
 	SetResponse(w, body, status)
 }
 
 // (DELETE /api/v1/fleets/{name})
 func (h *TransportHandler) DeleteFleet(w http.ResponseWriter, r *http.Request, name string) {
-	status := h.serviceHandler.DeleteFleet(r.Context(), name)
+	status := h.serviceHandler.DeleteFleet(r.Context(), OrgIDFromContext(r.Context()), name)
 	SetResponse(w, nil, status)
 }
 
 // (GET /api/v1/fleets/{name}/status)
 func (h *TransportHandler) GetFleetStatus(w http.ResponseWriter, r *http.Request, name string) {
-	body, status := h.serviceHandler.GetFleetStatus(r.Context(), name)
+	body, status := h.serviceHandler.GetFleetStatus(r.Context(), OrgIDFromContext(r.Context()), name)
 	SetResponse(w, body, status)
 }
 
@@ -63,7 +63,7 @@ func (h *TransportHandler) ReplaceFleetStatus(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	body, status := h.serviceHandler.ReplaceFleetStatus(r.Context(), name, fleet)
+	body, status := h.serviceHandler.ReplaceFleetStatus(r.Context(), OrgIDFromContext(r.Context()), name, fleet)
 	SetResponse(w, body, status)
 }
 
@@ -75,7 +75,7 @@ func (h *TransportHandler) PatchFleet(w http.ResponseWriter, r *http.Request, na
 		return
 	}
 
-	body, status := h.serviceHandler.PatchFleet(r.Context(), name, patch)
+	body, status := h.serviceHandler.PatchFleet(r.Context(), OrgIDFromContext(r.Context()), name, patch)
 	SetResponse(w, body, status)
 }
 

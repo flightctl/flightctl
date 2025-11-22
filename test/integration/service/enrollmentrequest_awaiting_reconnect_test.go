@@ -40,7 +40,7 @@ var _ = Describe("EnrollmentRequest AwaitingReconnect Integration Tests", func()
 			By("creating enrollment request with awaitingReconnect annotation")
 			// Use internal request context to preserve annotations
 			internalCtx := context.WithValue(suite.Ctx, consts.InternalRequestCtxKey, true)
-			created, status := suite.Handler.CreateEnrollmentRequest(internalCtx, er)
+			created, status := suite.Handler.CreateEnrollmentRequest(internalCtx, suite.OrgID, er)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 			Expect(created).ToNot(BeNil())
 			Expect(created.Metadata.Annotations).ToNot(BeNil())
@@ -60,11 +60,11 @@ var _ = Describe("EnrollmentRequest AwaitingReconnect Integration Tests", func()
 				Labels:   &map[string]string{"approved": "true"},
 			}
 
-			_, st := suite.Handler.ApproveEnrollmentRequest(ctxApproval, erName, approval)
+			_, st := suite.Handler.ApproveEnrollmentRequest(ctxApproval, suite.OrgID, erName, approval)
 			Expect(st.Code).To(BeEquivalentTo(http.StatusOK))
 
 			By("verifying device was created with awaitingReconnect annotation and status")
-			device, status := suite.Handler.GetDevice(suite.Ctx, erName)
+			device, status := suite.Handler.GetDevice(suite.Ctx, suite.OrgID, erName)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 			Expect(device).ToNot(BeNil())
 			Expect(device.Metadata.Annotations).ToNot(BeNil())
@@ -82,7 +82,7 @@ var _ = Describe("EnrollmentRequest AwaitingReconnect Integration Tests", func()
 			By("creating enrollment request without awaitingReconnect annotation")
 			// Use internal request context to preserve annotations
 			internalCtx := context.WithValue(suite.Ctx, consts.InternalRequestCtxKey, true)
-			created, status := suite.Handler.CreateEnrollmentRequest(internalCtx, er)
+			created, status := suite.Handler.CreateEnrollmentRequest(internalCtx, suite.OrgID, er)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 			Expect(created).ToNot(BeNil())
 
@@ -100,11 +100,11 @@ var _ = Describe("EnrollmentRequest AwaitingReconnect Integration Tests", func()
 				Labels:   &map[string]string{"approved": "true"},
 			}
 
-			_, st := suite.Handler.ApproveEnrollmentRequest(ctxApproval, erName, approval)
+			_, st := suite.Handler.ApproveEnrollmentRequest(ctxApproval, suite.OrgID, erName, approval)
 			Expect(st.Code).To(BeEquivalentTo(http.StatusOK))
 
 			By("verifying device was created without awaitingReconnect annotation and status")
-			device, status := suite.Handler.GetDevice(suite.Ctx, erName)
+			device, status := suite.Handler.GetDevice(suite.Ctx, suite.OrgID, erName)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 			Expect(device).ToNot(BeNil())
 			Expect(device.Metadata.Annotations).ToNot(BeNil())
@@ -125,7 +125,7 @@ var _ = Describe("EnrollmentRequest AwaitingReconnect Integration Tests", func()
 			By("creating enrollment request with awaitingReconnect annotation set to false")
 			// Use internal request context to preserve annotations
 			internalCtx := context.WithValue(suite.Ctx, consts.InternalRequestCtxKey, true)
-			created, status := suite.Handler.CreateEnrollmentRequest(internalCtx, er)
+			created, status := suite.Handler.CreateEnrollmentRequest(internalCtx, suite.OrgID, er)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 			Expect(created).ToNot(BeNil())
 
@@ -143,11 +143,11 @@ var _ = Describe("EnrollmentRequest AwaitingReconnect Integration Tests", func()
 				Labels:   &map[string]string{"approved": "true"},
 			}
 
-			_, st := suite.Handler.ApproveEnrollmentRequest(ctxApproval, erName, approval)
+			_, st := suite.Handler.ApproveEnrollmentRequest(ctxApproval, suite.OrgID, erName, approval)
 			Expect(st.Code).To(BeEquivalentTo(http.StatusOK))
 
 			By("verifying device was created without awaitingReconnect annotation and status")
-			device, status := suite.Handler.GetDevice(suite.Ctx, erName)
+			device, status := suite.Handler.GetDevice(suite.Ctx, suite.OrgID, erName)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 			Expect(device).ToNot(BeNil())
 			Expect(device.Metadata.Annotations).ToNot(BeNil())
@@ -170,7 +170,7 @@ var _ = Describe("EnrollmentRequest AwaitingReconnect Integration Tests", func()
 			By("creating enrollment request with awaitingReconnect and other annotations")
 			// Use internal request context to preserve annotations
 			internalCtx := context.WithValue(suite.Ctx, consts.InternalRequestCtxKey, true)
-			created, status := suite.Handler.CreateEnrollmentRequest(internalCtx, er)
+			created, status := suite.Handler.CreateEnrollmentRequest(internalCtx, suite.OrgID, er)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 			Expect(created).ToNot(BeNil())
 
@@ -188,11 +188,11 @@ var _ = Describe("EnrollmentRequest AwaitingReconnect Integration Tests", func()
 				Labels:   &map[string]string{"approved": "true"},
 			}
 
-			_, st := suite.Handler.ApproveEnrollmentRequest(ctxApproval, erName, approval)
+			_, st := suite.Handler.ApproveEnrollmentRequest(ctxApproval, suite.OrgID, erName, approval)
 			Expect(st.Code).To(BeEquivalentTo(http.StatusOK))
 
 			By("verifying device was created with awaitingReconnect annotation and status, but without other annotations")
-			device, status := suite.Handler.GetDevice(suite.Ctx, erName)
+			device, status := suite.Handler.GetDevice(suite.Ctx, suite.OrgID, erName)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 			Expect(device).ToNot(BeNil())
 			Expect(device.Metadata.Annotations).ToNot(BeNil())
@@ -220,13 +220,13 @@ var _ = Describe("EnrollmentRequest AwaitingReconnect Integration Tests", func()
 			By("creating enrollment requests")
 			// Use internal request context to preserve annotations
 			internalCtx := context.WithValue(suite.Ctx, consts.InternalRequestCtxKey, true)
-			_, status := suite.Handler.CreateEnrollmentRequest(internalCtx, er1)
+			_, status := suite.Handler.CreateEnrollmentRequest(internalCtx, suite.OrgID, er1)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 
-			_, status = suite.Handler.CreateEnrollmentRequest(internalCtx, er2)
+			_, status = suite.Handler.CreateEnrollmentRequest(internalCtx, suite.OrgID, er2)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 
-			_, status = suite.Handler.CreateEnrollmentRequest(internalCtx, er3)
+			_, status = suite.Handler.CreateEnrollmentRequest(internalCtx, suite.OrgID, er3)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 
 			By("approving one enrollment request before restore")
@@ -243,7 +243,7 @@ var _ = Describe("EnrollmentRequest AwaitingReconnect Integration Tests", func()
 				Labels:   &map[string]string{"approved": "true"},
 			}
 
-			_, st := suite.Handler.ApproveEnrollmentRequest(ctxApproval, er1Name, approval)
+			_, st := suite.Handler.ApproveEnrollmentRequest(ctxApproval, suite.OrgID, er1Name, approval)
 			Expect(st.Code).To(BeEquivalentTo(http.StatusOK))
 
 			By("simulating restore process - annotating non-approved enrollment requests")
@@ -252,38 +252,38 @@ var _ = Describe("EnrollmentRequest AwaitingReconnect Integration Tests", func()
 			Expect(enrollmentRequestsUpdated).To(Equal(int64(2)), "Should update 2 non-approved enrollment requests")
 
 			By("verifying enrollment requests were annotated")
-			er2Updated, status := suite.Handler.GetEnrollmentRequest(suite.Ctx, er2Name)
+			er2Updated, status := suite.Handler.GetEnrollmentRequest(suite.Ctx, suite.OrgID, er2Name)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 			Expect(er2Updated.Metadata.Annotations).ToNot(BeNil())
 			Expect(*er2Updated.Metadata.Annotations).To(HaveKeyWithValue(api.DeviceAnnotationAwaitingReconnect, "true"))
 
-			er3Updated, status := suite.Handler.GetEnrollmentRequest(suite.Ctx, er3Name)
+			er3Updated, status := suite.Handler.GetEnrollmentRequest(suite.Ctx, suite.OrgID, er3Name)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 			Expect(er3Updated.Metadata.Annotations).ToNot(BeNil())
 			Expect(*er3Updated.Metadata.Annotations).To(HaveKeyWithValue(api.DeviceAnnotationAwaitingReconnect, "true"))
 
 			// er1 should not have the annotation since it was already approved
-			er1Updated, status := suite.Handler.GetEnrollmentRequest(suite.Ctx, er1Name)
+			er1Updated, status := suite.Handler.GetEnrollmentRequest(suite.Ctx, suite.OrgID, er1Name)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 			Expect(er1Updated.Metadata.Annotations).ToNot(BeNil())
 			Expect(*er1Updated.Metadata.Annotations).To(BeEmpty())
 
 			By("approving the annotated enrollment requests and verifying device creation")
-			_, st = suite.Handler.ApproveEnrollmentRequest(ctxApproval, er2Name, approval)
+			_, st = suite.Handler.ApproveEnrollmentRequest(ctxApproval, suite.OrgID, er2Name, approval)
 			Expect(st.Code).To(BeEquivalentTo(http.StatusOK))
 
-			_, st = suite.Handler.ApproveEnrollmentRequest(ctxApproval, er3Name, approval)
+			_, st = suite.Handler.ApproveEnrollmentRequest(ctxApproval, suite.OrgID, er3Name, approval)
 			Expect(st.Code).To(BeEquivalentTo(http.StatusOK))
 
 			By("verifying devices were created with awaitingReconnect status")
-			device2, status := suite.Handler.GetDevice(suite.Ctx, er2Name)
+			device2, status := suite.Handler.GetDevice(suite.Ctx, suite.OrgID, er2Name)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 			Expect(device2).ToNot(BeNil())
 			Expect(device2.Metadata.Annotations).ToNot(BeNil())
 			Expect(*device2.Metadata.Annotations).To(HaveKeyWithValue(api.DeviceAnnotationAwaitingReconnect, "true"))
 			Expect(device2.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusAwaitingReconnect))
 
-			device3, status := suite.Handler.GetDevice(suite.Ctx, er3Name)
+			device3, status := suite.Handler.GetDevice(suite.Ctx, suite.OrgID, er3Name)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 			Expect(device3).ToNot(BeNil())
 			Expect(device3.Metadata.Annotations).ToNot(BeNil())

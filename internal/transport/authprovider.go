@@ -15,19 +15,19 @@ func (h *TransportHandler) CreateAuthProvider(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	body, status := h.serviceHandler.CreateAuthProvider(r.Context(), authProvider)
+	body, status := h.serviceHandler.CreateAuthProvider(r.Context(), OrgIDFromContext(r.Context()), authProvider)
 	SetResponse(w, body, status)
 }
 
 // (GET /api/v1/authproviders)
 func (h *TransportHandler) ListAuthProviders(w http.ResponseWriter, r *http.Request, params api.ListAuthProvidersParams) {
-	body, status := h.serviceHandler.ListAuthProviders(r.Context(), params)
+	body, status := h.serviceHandler.ListAuthProviders(r.Context(), OrgIDFromContext(r.Context()), params)
 	SetResponse(w, body, status)
 }
 
 // (GET /api/v1/authproviders/{name})
 func (h *TransportHandler) GetAuthProvider(w http.ResponseWriter, r *http.Request, name string) {
-	body, status := h.serviceHandler.GetAuthProvider(r.Context(), name)
+	body, status := h.serviceHandler.GetAuthProvider(r.Context(), OrgIDFromContext(r.Context()), name)
 	SetResponse(w, body, status)
 }
 
@@ -39,7 +39,7 @@ func (h *TransportHandler) ReplaceAuthProvider(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	body, status := h.serviceHandler.ReplaceAuthProvider(r.Context(), name, authProvider)
+	body, status := h.serviceHandler.ReplaceAuthProvider(r.Context(), OrgIDFromContext(r.Context()), name, authProvider)
 	SetResponse(w, body, status)
 }
 
@@ -51,12 +51,12 @@ func (h *TransportHandler) PatchAuthProvider(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	body, status := h.serviceHandler.PatchAuthProvider(r.Context(), name, patch)
+	body, status := h.serviceHandler.PatchAuthProvider(r.Context(), OrgIDFromContext(r.Context()), name, patch)
 	SetResponse(w, body, status)
 }
 
 // (DELETE /api/v1/authproviders/{name})
 func (h *TransportHandler) DeleteAuthProvider(w http.ResponseWriter, r *http.Request, name string) {
-	status := h.serviceHandler.DeleteAuthProvider(r.Context(), name)
+	status := h.serviceHandler.DeleteAuthProvider(r.Context(), OrgIDFromContext(r.Context()), name)
 	SetResponse(w, nil, status)
 }
