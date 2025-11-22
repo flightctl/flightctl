@@ -19,10 +19,10 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/agent/identity"
 	"github.com/flightctl/flightctl/internal/tpm"
+	"github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/poll"
 	"github.com/skip2/go-qrcode"
-	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/client-go/util/cert"
 )
 
 const (
@@ -52,7 +52,7 @@ type LifecycleManager struct {
 	systemdClient    *client.Systemd
 	identityProvider identity.Provider
 
-	backoff wait.Backoff
+	backoff poll.Config
 	log     *log.PrefixLogger
 }
 
@@ -70,7 +70,7 @@ func NewManager(
 	statusManager status.Manager,
 	systemdClient *client.Systemd,
 	identityProvider identity.Provider,
-	backoff wait.Backoff,
+	backoff poll.Config,
 	log *log.PrefixLogger,
 ) *LifecycleManager {
 	return &LifecycleManager{
@@ -103,7 +103,7 @@ func (m *LifecycleManager) Initialize(ctx context.Context, status *v1alpha1.Devi
 		}
 
 		m.log.Info("Waiting for enrollment to be approved")
-		err := wait.ExponentialBackoffWithContext(ctx, m.backoff, func(ctx context.Context) (bool, error) {
+		err := poll.BackoffWithContext(ctx, m.backoff, func(ctx context.Context) (bool, error) {
 			return m.verifyEnrollment(ctx)
 		})
 		if err != nil {
@@ -299,7 +299,7 @@ func (m *LifecycleManager) verifyEnrollment(ctx context.Context) (bool, error) {
 	}
 	m.log.Infof("Enrollment approved and certificate issued")
 
-	if _, err = cert.ParseCertsPEM([]byte(*enrollmentRequest.Status.Certificate)); err != nil {
+	if _, err = crypto.ParseCertsPEM([]byte(*enrollmentRequest.Status.Certificate)); err != nil {
 		return false, fmt.Errorf("parsing signed certificate: %v", err)
 	}
 
@@ -417,7 +417,7 @@ func (m *LifecycleManager) enrollmentRequest(ctx context.Context, deviceStatus *
 		},
 	}
 
-	err := wait.ExponentialBackoffWithContext(ctx, m.backoff, func(ctx context.Context) (bool, error) {
+	err := poll.BackoffWithContext(ctx, m.backoff, func(ctx context.Context) (bool, error) {
 		_, err := m.enrollmentClient.CreateEnrollmentRequest(ctx, req)
 		if err != nil {
 			m.log.Warnf("failed to create enrollment request: %v", err)

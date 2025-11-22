@@ -13,8 +13,8 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/poll"
 	"github.com/flightctl/flightctl/pkg/ring_buffer"
-	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 const longPollTimeout = 4 * time.Minute
@@ -52,14 +52,14 @@ type publisher struct {
 	interval              time.Duration
 	stopped               atomic.Bool
 	log                   *log.PrefixLogger
-	backoff               wait.Backoff
+	backoff               poll.Config
 	deviceNotFoundHandler func() error
 	mu                    sync.Mutex
 }
 
 func newPublisher(deviceName string,
 	interval time.Duration,
-	backoff wait.Backoff,
+	backoff poll.Config,
 	lastKnownVersion string,
 	deviceNotFoundHandler func() error,
 	log *log.PrefixLogger) Publisher {
@@ -135,7 +135,7 @@ func (n *publisher) pollAndPublish(ctx context.Context) {
 	startTime := time.Now()
 	ctx, cancel = context.WithTimeout(ctx, longPollTimeout)
 	defer cancel()
-	err := wait.ExponentialBackoff(n.backoff, func() (bool, error) {
+	err := poll.BackoffWithContext(ctx, n.backoff, func(ctx context.Context) (bool, error) {
 		return n.getRenderedFromManagementAPIWithRetry(ctx, n.lastKnownVersion, newDesired)
 	})
 

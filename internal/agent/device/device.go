@@ -24,8 +24,8 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/poll"
 	"github.com/samber/lo"
-	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 // Agent is responsible for managing the applications, configuration and status of the device.
@@ -51,7 +51,7 @@ type Agent struct {
 	fetchSpecInterval    util.Duration
 	statusUpdateInterval util.Duration
 
-	backoff wait.Backoff
+	backoff poll.Config
 	log     *log.PrefixLogger
 }
 
@@ -76,7 +76,7 @@ func NewAgent(
 	osClient os.Client,
 	podmanClient *client.Podman,
 	prefetchManager dependency.PrefetchManager,
-	backoff wait.Backoff,
+	backoff poll.Config,
 	log *log.PrefixLogger,
 ) *Agent {
 	return &Agent{

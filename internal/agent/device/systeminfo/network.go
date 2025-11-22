@@ -13,7 +13,6 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
-	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 const (
@@ -179,18 +178,24 @@ func getFQDN(ctx context.Context, exec executer.Executer) (string, error) {
 func waitForDefaultRoute(ctx context.Context, log *log.PrefixLogger, reader fileio.Reader, timeout, interval time.Duration) (*DefaultRoute, error) {
 	var route *DefaultRoute
 
-	err := wait.PollUntilContextTimeout(ctx, interval, timeout, true, func(ctx context.Context) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	checkRoute := func() bool {
 		r, err := getDefaultRoute(log, reader)
 		if err != nil {
 			log.Infof("Waiting for default route...")
-			return false, nil
+			return false
 		}
 
 		// check if any of the addresses are usable
 		ifaces, err := net.Interfaces()
 		if err != nil {
 			log.Warningf("Error refreshing interfaces: %v", err)
-			return false, nil
+			return false
 		}
 
 		for _, iface := range ifaces {
@@ -201,14 +206,14 @@ func waitForDefaultRoute(ctx context.Context, log *log.PrefixLogger, reader file
 			addrs, err := iface.Addrs()
 			if err != nil {
 				log.Warningf("Error reading addresses for %s: %v", r.Interface, err)
-				return false, nil
+				return false
 			}
 
 			for _, addr := range addrs {
 				parsedIP := net.ParseIP(strings.Split(addr.String(), "/")[0])
 				if parsedIP != nil && !parsedIP.IsLinkLocalUnicast() {
 					route = r
-					return true, nil
+					return true
 				}
 			}
 
@@ -216,14 +221,23 @@ func waitForDefaultRoute(ctx context.Context, log *log.PrefixLogger, reader file
 		}
 
 		log.Infof("Default route via %s found, waiting for usable IP", r.Interface)
-		return false, nil
-	})
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to detect default route with usable IP within %s: %w", timeout, err)
+		return false
 	}
 
-	return route, nil
+	if checkRoute() {
+		return route, nil
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("failed to detect default route with usable IP within %s: %w", timeout, ctx.Err())
+		case <-ticker.C:
+			if checkRoute() {
+				return route, nil
+			}
+		}
+	}
 }
 
 // getDefaultRoute attempts to determine the default gateway (IPv4 or IPv6)

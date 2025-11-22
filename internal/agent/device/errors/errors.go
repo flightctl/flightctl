@@ -10,7 +10,6 @@ import (
 	"syscall"
 
 	"github.com/flightctl/flightctl/pkg/poll"
-	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 var (
@@ -157,10 +156,6 @@ func Join(errs ...error) error {
 
 func IsTimeoutError(err error) bool {
 	if errors.Is(err, context.DeadlineExceeded) {
-		return true
-	}
-
-	if wait.Interrupted(err) {
 		return true
 	}
 
