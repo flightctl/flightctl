@@ -59,6 +59,17 @@ auth:
         {{if .global.auth.oidc.roleAssignment.claimPath}}{{range .global.auth.oidc.roleAssignment.claimPath}}- {{.}}
         {{end}}{{else}}- roles
         {{end}}
+    scopes:
+{{- if .global.auth.oidc.scopes}}
+{{- range .global.auth.oidc.scopes}}
+      - {{.}}
+{{- end}}
+{{- else}}
+      - openid
+      - profile
+      - email
+      - roles
+{{- end}}
     organizationAssignment:
       type: {{if .global.auth.oidc.organizationAssignment.type}}{{.global.auth.oidc.organizationAssignment.type}}{{else}}static{{end}}
       organizationName: {{if .global.auth.oidc.organizationAssignment.organizationName}}{{.global.auth.oidc.organizationAssignment.organizationName}}{{else}}default{{end}}
