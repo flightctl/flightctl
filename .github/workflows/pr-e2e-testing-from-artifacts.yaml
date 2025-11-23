@@ -1,0 +1,232 @@
+name: "E2E testing (From Build Artifacts)"
+
+on:
+  workflow_run:
+    workflows: ["Build Container Artifacts"]
+    types:
+      - completed
+
+permissions:
+  contents: read
+  pull-requests: read
+  actions: read
+
+env:
+  DOCKER_BUILDKIT: 1
+  BUILDKIT_PROGRESS: plain
+  QUAY_ORG: quay.io/flightctl
+  QUAY_TESTS_ORG: quay.io/flightctl-tests
+  REGISTRY: quay.io
+  REGISTRY_OWNER: flightctl
+  REGISTRY_OWNER_TESTS: flightctl-tests
+  GITHUB_ACTIONS: true
+
+jobs:
+  e2e-tests-from-artifacts:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Free Disk Space (Ubuntu)
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          large-packages: false
+
+      - name: Restore APT cache
+        id: cache-apt-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            /var/cache/apt
+            /var/lib/apt
+          key: ${{ runner.os }}-apt-e2e-${{ hashFiles('.github/actions/setup-dependencies/action.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-apt-e2e-
+
+      - name: Set permissions for APT after restore
+        run: sudo mkdir -p /var/cache/apt /var/lib/apt && sudo chown -R root:root /var/cache/apt /var/lib/apt
+
+      - name: Restore Go modules cache
+        id: cache-go-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Restore DNF cache
+        id: cache-dnf-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            /var/cache/dnf
+            /var/lib/dnf
+          key: ${{ runner.os }}-dnf-e2e
+          restore-keys: |
+            ${{ runner.os }}-dnf-
+
+      - name: Set permissions for DNF after restore
+        run: sudo mkdir -p /var/cache/dnf /var/lib/dnf && sudo chown -R root:root /var/cache/dnf /var/lib/dnf
+
+      - name: Restore bootc-image-builder cache
+        id: cache-bootc-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            bin/dnf-cache
+            bin/osbuild-cache
+          key: ${{ runner.os }}-bootc-cache-e2e-${{ hashFiles('test/scripts/agent-images/Containerfile-e2e-base.local') }}
+          restore-keys: |
+            ${{ runner.os }}-bootc-cache-e2e-
+
+      - name: Setup all dependencies
+        uses: ./.github/actions/setup-dependencies
+        with:
+          setup_kvm: yes
+
+      - name: Create kind cluster
+        run: make cluster
+
+      - name: Download container artifacts from build run
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          run_id: ${{ github.event.workflow_run.id }}
+          path: artifacts
+          if_no_artifact_found: warn
+
+      - name: Load images from artifacts into local registry
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          # Decompress in place (gunzip removes the .gz file)
+          for f in artifacts/*/*.tar.gz artifacts/*.tar.gz; do
+            echo "Loading image from $f"
+            gunzip -f "$f"
+          done
+          # Load each tar, then remove it to free space
+          for f in artifacts/*/*.tar artifacts/*.tar; do
+            echo "podman load -i $f"
+            podman load -i "$f"
+            rm -f "$f"
+          done
+          # Retag images to localhost/* so deploy scripts can kind-load them
+          for suffix in api db-setup worker periodic alert-exporter alertmanager-proxy cli-artifacts telemetry-gateway userinfo-proxy; do
+            if podman image exists "flightctl-${suffix}:latest"; then
+              podman tag "flightctl-${suffix}:latest" "localhost/flightctl-${suffix}:latest"
+            fi
+          done
+          podman images
+
+      - name: Deploy services via Helm using loaded images
+        shell: bash
+        run: |
+          set -euo pipefail
+          kubectl config set-context kind-kind
+          test/scripts/install_helm.sh
+          test/scripts/deploy_with_helm.sh --db-size e2e
+
+      - name: Check disk space after deploy
+        run: df -h
+
+      - name: Prepare the E2E test environment
+        run: make prepare-e2e-test
+
+      - name: Check disk space after prepare e2e
+        run: df -h
+
+      - name: Set permissions for APT before save
+        run: sudo mkdir -p /var/cache/apt /var/lib/apt && sudo chown -R runner:runner /var/cache/apt /var/lib/apt
+
+      - name: Save APT cache
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            /var/cache/apt
+            /var/lib/apt
+          key: ${{ steps.cache-apt-restore.outputs.cache-primary-key }}
+
+      - name: Set permissions for APT after save
+        run: sudo mkdir -p /var/cache/apt /var/lib/apt && sudo chown -R root:root /var/cache/apt /var/lib/apt
+
+      - name: Save Go modules cache
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ steps.cache-go-restore.outputs.cache-primary-key }}
+
+      - name: Set permissions for DNF before save
+        run: sudo mkdir -p /var/cache/dnf /var/lib/dnf && sudo chown -R runner:runner /var/cache/dnf /var/lib/dnf
+
+      - name: Save DNF cache
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            /var/cache/dnf
+            /var/lib/dnf
+          key: ${{ runner.os }}-dnf-e2e
+
+      - name: Set permissions for DNF after save
+        run: sudo mkdir -p /var/cache/dnf /var/lib/dnf && sudo chown -R root:root /var/cache/dnf /var/lib/dnf
+
+      - name: Save bootc-image-builder cache
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            bin/dnf-cache
+            bin/osbuild-cache
+          key: ${{ steps.cache-bootc-restore.outputs.cache-primary-key }}
+
+      - name: Make sure the images are owned by the runner user
+        run: |
+          sudo mkdir -p bin/output && sudo chown -R runner:runner bin/output
+
+      - name: Run E2E Tests
+        run: make run-e2e-test VERBOSE=true
+        env:
+          GINKGO_PROCS: '4'
+          GINKGO_OUTPUT_INTERCEPTOR_MODE: 'swap'
+          GINKGO_LABEL_FILTER: 'sanity'
+
+      - name: Check disk space at end
+        if: always()
+        run: df -h
+
+      - name: Collect and Upload Logs
+        if: always()
+        uses: ./.github/actions/collect-logs
+        with:
+          namespace-external: 'flightctl-external'
+          namespace-internal: 'flightctl-internal'
+          log-directory: 'e2e-logs'
+
+  e2e:
+    runs-on: ubuntu-latest
+    needs: e2e-tests-from-artifacts
+    if: always()
+    steps:
+      - name: Check E2E Test Results
+        run: |
+          if [[ "${{ needs.e2e-tests-from-artifacts.result }}" == "success" ]]; then
+            echo "All E2E tests passed!"
+            exit 0
+          elif [[ "${{ needs.e2e-tests-from-artifacts.result }}" == "skipped" ]]; then
+            echo "E2E tests were skipped (docs-only changes)"
+            exit 0
+          else
+            echo "E2E tests failed or were cancelled"
+            exit 1
+          fi
+
+
