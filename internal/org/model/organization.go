@@ -7,7 +7,7 @@ import (
 )
 
 type Organization struct {
-	ID uuid.UUID `gorm:"type:uuid;primary_key"`
+	ID uuid.UUID `gorm:"type:uuid;primary_key" selector:"metadata.name"`
 
 	// Display name of the organization.
 	DisplayName string `json:"display_name"`

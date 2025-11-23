@@ -524,7 +524,7 @@ func (s *DummyOrganization) Create(ctx context.Context, org *model.Organization)
 	return org, nil
 }
 
-func (s *DummyOrganization) List(ctx context.Context) ([]*model.Organization, error) {
+func (s *DummyOrganization) List(ctx context.Context, listParams store.ListParams) ([]*model.Organization, error) {
 	if s.err != nil {
 		return nil, s.err
 	}
