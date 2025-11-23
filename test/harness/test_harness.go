@@ -25,7 +25,6 @@ import (
 	"github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
-	"github.com/sirupsen/logrus"
 	"go.uber.org/mock/gomock"
 )
 
@@ -104,8 +103,7 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 	}
 
 	serverCfg := *config.NewDefault()
-	serverLog := log.InitLogs()
-	serverLog.SetLevel(logrus.DebugLevel)
+	serverLog := log.InitLogs("debug")
 	serverLog.SetOutput(os.Stdout)
 
 	// create store
