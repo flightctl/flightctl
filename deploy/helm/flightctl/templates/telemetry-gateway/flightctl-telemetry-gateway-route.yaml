@@ -1,4 +1,4 @@
-{{- if and (.Values.telemetryGateway.enabled) (eq (include "flightctl.getServiceExposeMethod" .) "route") -}}
+{{- if and .Values.telemetryGateway (eq (include "flightctl.getServiceExposeMethod" .) "route") -}}
 ---
 apiVersion: route.openshift.io/v1
 kind: Route

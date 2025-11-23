@@ -8,8 +8,8 @@ You may configure your edge devices by specifying their configurations directly 
 
 Resources in flightctl are modeled after Kubernetes resources.  Each resource has the following fields:
 
-* apiVersion: Defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value and may reject unrecognized values.  More information can be found [here](https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources).
-* kind: A string value representing the REST resource this object represents. Servers may infer this from the endpoint to which the client submits requests.  It cannot be updated. More information can be found [here](https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds).
+* apiVersion: Defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value and may reject unrecognized values.  More information can be found in the [Kubernetes API Conventions](https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources).
+* kind: A string value representing the REST resource this object represents. Servers may infer this from the endpoint to which the client submits requests.  It cannot be updated. More information can be found in the [Kubernetes API Conventions](https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds).
 * metadata:
   * name: The name of the object used as an immutable identifier.
   * labels: Map of string keys and values that can be used to organize and categorize (scope and select) objects.

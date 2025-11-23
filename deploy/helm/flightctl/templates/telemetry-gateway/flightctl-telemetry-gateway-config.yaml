@@ -1,4 +1,4 @@
-{{- if .Values.telemetryGateway.enabled }}
+{{- if .Values.telemetryGateway }}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -33,7 +33,7 @@ data:
     {{- toYaml . | nindent 8 }}
     {{- end }}
 
-    {{- if .Values.global.tracing.enabled }}
+    {{- if .Values.global.tracing }}
     tracing:
         enabled: true
         endpoint: {{ .Values.global.tracing.endpoint }}

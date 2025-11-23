@@ -90,6 +90,7 @@ func TestSync(t *testing.T) {
 				gomock.InOrder(
 					mockSpecManager.EXPECT().GetDesired(ctx).Return(desired, false, nil),
 					mockSpecManager.EXPECT().Read(spec.Current).Return(current, nil),
+					mockResourceManager.EXPECT().BeforeUpdate(ctx, desired.Spec).Return(nil),
 					mockSpecManager.EXPECT().CheckPolicy(ctx, policy.Download, desired.Version()).Return(nil),
 					mockSpecManager.EXPECT().IsUpgrading().Return(true),
 					mockManagementClient.EXPECT().UpdateDeviceStatus(ctx, deviceName, gomock.Any()).Return(nil),
@@ -104,7 +105,6 @@ func TestSync(t *testing.T) {
 					mockSpecManager.EXPECT().IsUpgrading().Return(true),
 					mockManagementClient.EXPECT().UpdateDeviceStatus(ctx, deviceName, gomock.Any()).Return(nil),
 					mockHookManager.EXPECT().Sync(current.Spec, desired.Spec).Return(nil),
-					mockResourceManager.EXPECT().ResetAlertDefaults().Return(nil),
 					mockSystemdManager.EXPECT().EnsurePatterns(gomock.Any()).Return(nil),
 					mockLifecycleManager.EXPECT().Sync(ctx, current.Spec, desired.Spec).Return(nil),
 					mockLifecycleManager.EXPECT().AfterUpdate(ctx, current.Spec, desired.Spec).Return(nil),
@@ -119,7 +119,6 @@ func TestSync(t *testing.T) {
 					mockSpecManager.EXPECT().Rollback(ctx).Return(nil),
 					mockSpecManager.EXPECT().IsUpgrading().Return(false),
 					mockHookManager.EXPECT().Sync(desired.Spec, current.Spec).Return(nil),
-					mockResourceManager.EXPECT().ResetAlertDefaults().Return(nil),
 					mockSystemdManager.EXPECT().EnsurePatterns(gomock.Any()).Return(nil),
 					mockLifecycleManager.EXPECT().Sync(ctx, desired.Spec, current.Spec).Return(nil),
 					mockLifecycleManager.EXPECT().AfterUpdate(ctx, desired.Spec, current.Spec).Return(nil),
@@ -133,6 +132,7 @@ func TestSync(t *testing.T) {
 					//
 					mockSpecManager.EXPECT().GetDesired(ctx).Return(desired, false, nil),
 					mockSpecManager.EXPECT().Read(spec.Current).Return(current, nil),
+					mockResourceManager.EXPECT().BeforeUpdate(ctx, desired.Spec).Return(nil),
 					mockSpecManager.EXPECT().CheckPolicy(ctx, policy.Download, desired.Version()).Return(nil),
 					mockSpecManager.EXPECT().IsUpgrading().Return(false),
 					mockPrefetchManager.EXPECT().RegisterOCICollector(gomock.Any()),
@@ -144,7 +144,6 @@ func TestSync(t *testing.T) {
 					mockSpecManager.EXPECT().IsUpgrading().Return(false),
 					mockSpecManager.EXPECT().IsUpgrading().Return(false),
 					mockHookManager.EXPECT().Sync(current.Spec, current.Spec).Return(nil),
-					mockResourceManager.EXPECT().ResetAlertDefaults().Return(nil),
 					mockSystemdManager.EXPECT().EnsurePatterns(gomock.Any()).Return(nil),
 					mockLifecycleManager.EXPECT().Sync(ctx, current.Spec, current.Spec).Return(nil),
 					mockLifecycleManager.EXPECT().AfterUpdate(ctx, current.Spec, current.Spec).Return(nil),
@@ -208,7 +207,6 @@ func TestSync(t *testing.T) {
 			statusManager := status.NewManager(deviceName, log)
 			statusManager.SetClient(mockManagementClient)
 			configController := config.NewController(readWriter, log)
-			resourceController := resource.NewController(log, mockResourceManager)
 
 			agent := Agent{
 				log:                    log,
@@ -221,7 +219,7 @@ func TestSync(t *testing.T) {
 				hookManager:            mockHookManager,
 				consoleManager:         consoleManager,
 				configController:       configController,
-				resourceController:     resourceController,
+				resourceManager:        mockResourceManager,
 				systemdManager:         mockSystemdManager,
 				lifecycleManager:       mockLifecycleManager,
 				prefetchManager:        mockPrefetchManager,

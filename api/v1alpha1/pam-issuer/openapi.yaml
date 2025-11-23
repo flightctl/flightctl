@@ -338,6 +338,9 @@ components:
           type: string
           enum: [Bearer]
           description: Token type.
+        id_token:
+          type: string
+          description: OpenID Connect ID token (returned when openid scope is requested).
         refresh_token:
           type: string
           description: OAuth2 refresh token.

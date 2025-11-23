@@ -88,8 +88,8 @@ data:
       {{- end }}
     {{- end }}
     organizations:
-      enabled: {{ .Values.global.organizations.enabled }}
-    {{ if .Values.global.tracing.enabled }}
+      enabled: true
+    {{ if .Values.global.tracing }}
     tracing:
         enabled: true
         endpoint: {{ .Values.global.tracing.endpoint }}

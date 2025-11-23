@@ -1,4 +1,3 @@
-{{ if .Values.periodic.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -78,4 +77,3 @@ spec:
               - key: known_hosts
                 path: known_hosts
         {{- include "flightctl.dbSslVolumes" . | nindent 8 }}
-{{ end }}

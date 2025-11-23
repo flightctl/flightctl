@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/rand"
+	"math/rand/v2"
 	"time"
 )
 
@@ -13,6 +13,12 @@ var (
 	ErrInvalidTimeout   = errors.New("timeout must be greater than 0")
 	ErrMaxSteps         = errors.New("max poll retry steps exceeded")
 )
+
+// newRand creates a new random number generator with a time-based seed.
+func newRand() *rand.Rand {
+	seed := uint64(time.Now().UnixNano())    //nolint:gosec // G115: UnixNano always positive
+	return rand.New(rand.NewPCG(seed, seed)) //nolint:gosec // G404: backoff jitter
+}
 
 // Config defines parameters for exponential backoff polling.
 type Config struct {
@@ -31,17 +37,20 @@ type Config struct {
 }
 
 // NewConfig creates a new Config with a properly seeded random number generator.
-func NewConfig(baseDelay time.Duration, factor float64) *Config {
-	return &Config{
+func NewConfig(baseDelay time.Duration, factor float64) Config {
+	return Config{
 		BaseDelay:    baseDelay,
 		Factor:       factor,
-		JitterFactor: 0.1,                                             // Default jitter factor
-		Rand:         rand.New(rand.NewSource(time.Now().UnixNano())), //nolint:gosec
+		JitterFactor: 0.1, // Default jitter factor
+		Rand:         newRand(),
 	}
 }
 
 // Validate checks if the configuration parameters are valid
 func (c *Config) Validate() error {
+	if c.Rand == nil {
+		c.Rand = newRand()
+	}
 	if c.BaseDelay <= 0 {
 		return ErrInvalidBaseDelay
 	}
@@ -123,6 +132,10 @@ func BackoffWithContext(ctx context.Context, cfg Config, opFn func(context.Conte
 func CalculateBackoffDelay(cfg *Config, tries int) time.Duration {
 	if tries <= 0 {
 		return 0
+	}
+
+	if cfg.Rand == nil {
+		cfg.Rand = newRand()
 	}
 
 	// maxDurationFloat is the largest valid time.Duration value as a float64.

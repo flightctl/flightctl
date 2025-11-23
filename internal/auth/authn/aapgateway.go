@@ -66,13 +66,17 @@ func NewAapGatewayAuth(metadata api.ObjectMeta, spec api.AapProviderSpec, client
 	return &authN, nil
 }
 
-func (a AapGatewayAuth) loadUserInfo(token string) (*AAPIdentity, error) {
+func (a AapGatewayAuth) IsEnabled() bool {
+	return a.spec.Enabled != nil && *a.spec.Enabled
+}
+
+func (a AapGatewayAuth) loadUserInfo(ctx context.Context, token string) (*AAPIdentity, error) {
 	item := a.cache.Get(token)
 	if item != nil {
 		return item.Value(), nil
 	}
 
-	aapUserInfo, err := a.aapClient.GetMe(token)
+	aapUserInfo, err := a.aapClient.GetMe(ctx, token)
 	if err != nil {
 		return nil, err
 	}
@@ -93,7 +97,7 @@ func (a AapGatewayAuth) loadUserInfo(token string) (*AAPIdentity, error) {
 }
 
 func (a AapGatewayAuth) ValidateToken(ctx context.Context, token string) error {
-	_, err := a.loadUserInfo(token)
+	_, err := a.loadUserInfo(ctx, token)
 	return err
 }
 
@@ -119,7 +123,7 @@ func (AapGatewayAuth) GetAuthToken(r *http.Request) (string, error) {
 }
 
 func (a AapGatewayAuth) GetIdentity(ctx context.Context, token string) (common.Identity, error) {
-	userInfo, err := a.loadUserInfo(token)
+	userInfo, err := a.loadUserInfo(ctx, token)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get identity: %w", err)
 	}
@@ -132,20 +136,34 @@ func (a AapGatewayAuth) GetIdentity(ctx context.Context, token string) (common.I
 		organizations = []string{}
 	}
 
-	// Map AAP permissions to roles (global roles that apply to all orgs)
-	roles := []string{}
+	// Map AAP permissions to roles
+	// Superuser and platform auditor are global roles that apply to all orgs
+	globalRoles := []string{}
 	if userInfo.IsSuperuser() {
-		roles = append(roles, api.ExternalRoleAdmin)
+		globalRoles = append(globalRoles, api.ExternalRoleAdmin)
 	}
 	if userInfo.IsPlatformAuditor() {
-		roles = append(roles, api.ExternalRoleViewer)
+		globalRoles = append(globalRoles, api.ExternalRoleViewer)
+	}
+
+	// Get user role assignments for organization-specific roles
+	orgRoles := map[string][]string{}
+	if len(globalRoles) > 0 {
+		orgRoles["*"] = globalRoles
+	}
+
+	roleAssignments, err := a.getUserRoleAssignments(ctx, token, userInfo.GetUID())
+	if err != nil {
+		return nil, fmt.Errorf("failed to get role assignments: %w", err)
+	}
+
+	// Build organization-specific role mappings
+	orgSpecificRoles := a.mapRoleAssignmentsToOrgRoles(roleAssignments)
+	for orgName, roles := range orgSpecificRoles {
+		orgRoles[orgName] = append(orgRoles[orgName], roles...)
 	}
 
 	// Build ReportedOrganization with roles embedded
-	// AAP roles are global - apply to all organizations
-	orgRoles := map[string][]string{
-		"*": roles, // All AAP roles are global
-	}
 	reportedOrganizations, isSuperAdmin := common.BuildReportedOrganizations(organizations, orgRoles, false)
 	userInfo.SetOrganizations(reportedOrganizations)
 	userInfo.SetSuperAdmin(isSuperAdmin)
@@ -174,7 +192,7 @@ func (a AapGatewayAuth) getUserOrganizations(ctx context.Context, token string, 
 
 // getAllOrganizations gets all organizations from AAP
 func (a AapGatewayAuth) getAllOrganizations(ctx context.Context, token string) ([]string, error) {
-	aapOrganizations, err := a.aapClient.ListOrganizations(token)
+	aapOrganizations, err := a.aapClient.ListOrganizations(ctx, token)
 	if err != nil {
 		return nil, err
 	}
@@ -190,13 +208,13 @@ func (a AapGatewayAuth) getAllOrganizations(ctx context.Context, token string) (
 // getUserScopedOrganizations gets organizations for a specific user
 func (a AapGatewayAuth) getUserScopedOrganizations(ctx context.Context, token string, userID string) ([]string, error) {
 	// Get user's direct organizations
-	aapOrganizations, err := a.aapClient.ListUserOrganizations(token, userID)
+	aapOrganizations, err := a.aapClient.ListUserOrganizations(ctx, token, userID)
 	if err != nil {
 		return nil, err
 	}
 
 	// Get user's teams and their organizations
-	aapTeams, err := a.aapClient.ListUserTeams(token, userID)
+	aapTeams, err := a.aapClient.ListUserTeams(ctx, token, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -221,4 +239,44 @@ func (a AapGatewayAuth) getUserScopedOrganizations(ctx context.Context, token st
 	}
 
 	return organizations, nil
+}
+
+// getUserRoleAssignments gets role assignments for a specific user from AAP
+func (a AapGatewayAuth) getUserRoleAssignments(ctx context.Context, token string, userID string) ([]*aap.AAPRoleUserAssignment, error) {
+	roleAssignments, err := a.aapClient.ListUserRoleAssignments(ctx, token, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	return roleAssignments, nil
+}
+
+// mapRoleAssignmentsToOrgRoles converts AAP role assignments to organization-specific role mappings
+func (a AapGatewayAuth) mapRoleAssignmentsToOrgRoles(roleAssignments []*aap.AAPRoleUserAssignment) map[string][]string {
+	orgRoles := make(map[string][]string)
+
+	for _, assignment := range roleAssignments {
+		// Only process organization-level role assignments
+		if assignment.ContentType != "shared.organization" {
+			continue
+		}
+
+		orgName := assignment.SummaryFields.ContentObject.Name
+		roleName := assignment.SummaryFields.RoleDefinition.Name
+
+		// Add role to organization if not already present
+		roles := orgRoles[orgName]
+		roleExists := false
+		for _, r := range roles {
+			if r == roleName {
+				roleExists = true
+				break
+			}
+		}
+		if !roleExists {
+			orgRoles[orgName] = append(roles, roleName)
+		}
+	}
+
+	return orgRoles
 }

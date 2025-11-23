@@ -879,6 +879,12 @@ type Device struct {
 
 // DeviceApplicationStatus defines model for DeviceApplicationStatus.
 type DeviceApplicationStatus struct {
+	// AppType The type of the application.
+	AppType AppType `json:"appType"`
+
+	// Embedded Whether the application is embedded in the bootc image.
+	Embedded bool `json:"embedded"`
+
 	// Name Human readable name of the application.
 	Name string `json:"name"`
 

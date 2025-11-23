@@ -1,6 +1,7 @@
 package aap
 
 import (
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
@@ -66,9 +67,9 @@ func (a *AAPGatewayClient) appendQueryParams(path string) string {
 	return path
 }
 
-func get[T any](a *AAPGatewayClient, path string, token string) (*T, error) {
+func get[T any](a *AAPGatewayClient, ctx context.Context, path string, token string) (*T, error) {
 	url := a.buildURL(path)
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -103,8 +104,8 @@ func get[T any](a *AAPGatewayClient, path string, token string) (*T, error) {
 	return &result, nil
 }
 
-func getWithPagination[T any](a *AAPGatewayClient, path string, token string) ([]*T, error) {
-	result, err := get[AAPPaginatedResponse[T]](a, path, token)
+func getWithPagination[T any](a *AAPGatewayClient, ctx context.Context, path string, token string) ([]*T, error) {
+	result, err := get[AAPPaginatedResponse[T]](a, ctx, path, token)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get with pagination: %w", err)
 	}
@@ -112,7 +113,7 @@ func getWithPagination[T any](a *AAPGatewayClient, path string, token string) ([
 	items := result.Results
 
 	if result.Next != nil {
-		nextResult, err := getWithPagination[T](a, *result.Next, token)
+		nextResult, err := getWithPagination[T](a, ctx, *result.Next, token)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get next page: %w", err)
 		}

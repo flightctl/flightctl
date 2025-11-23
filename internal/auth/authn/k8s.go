@@ -39,6 +39,10 @@ func NewK8sAuthN(metadata api.ObjectMeta, spec api.K8sProviderSpec, k8sClient k8
 	return authN, nil
 }
 
+func (o K8sAuthN) IsEnabled() bool {
+	return o.spec.Enabled != nil && *o.spec.Enabled
+}
+
 func (o K8sAuthN) loadTokenReview(ctx context.Context, token string) (*k8sAuthenticationV1.TokenReview, error) {
 	item := o.cache.Get(token)
 	if item != nil {

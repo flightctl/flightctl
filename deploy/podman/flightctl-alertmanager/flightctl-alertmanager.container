@@ -6,7 +6,7 @@ Wants=flightctl-db-wait.service
 
 [Container]
 ContainerName=flightctl-alertmanager
-Image=quay.io/prometheus/alertmanager:v0.28.1
+Image={{ .Alertmanager.Image }}:{{ .Alertmanager.Tag }}
 Network=flightctl.network
 
 # Run Alertmanager with the config file

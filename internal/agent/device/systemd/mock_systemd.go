@@ -101,6 +101,26 @@ func (mr *MockManagerMockRecorder) ListUnitsByMatchPattern(ctx, matchPatterns an
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListUnitsByMatchPattern", reflect.TypeOf((*MockManager)(nil).ListUnitsByMatchPattern), ctx, matchPatterns)
 }
 
+// Logs mocks base method.
+func (m *MockManager) Logs(ctx context.Context, options ...client.LogOptions) ([]string, error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx}
+	for _, a := range options {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "Logs", varargs...)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Logs indicates an expected call of Logs.
+func (mr *MockManagerMockRecorder) Logs(ctx any, options ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx}, options...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Logs", reflect.TypeOf((*MockManager)(nil).Logs), varargs...)
+}
+
 // RemoveExclusions mocks base method.
 func (m *MockManager) RemoveExclusions(serviceNames ...string) {
 	m.ctrl.T.Helper()

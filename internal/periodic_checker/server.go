@@ -3,7 +3,6 @@ package periodic
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"os"
 	"os/signal"
 	"sync"
@@ -129,7 +128,6 @@ func (s *Server) Run(ctx context.Context) error {
 			Factor:       3,
 			MaxDelay:     10 * time.Second,
 			JitterFactor: 0.1,
-			Rand:         rand.New(rand.NewSource(time.Now().UnixNano())), //nolint:gosec
 		},
 	}
 	periodicTaskPublisher, err := NewPeriodicTaskPublisher(publisherConfig)
