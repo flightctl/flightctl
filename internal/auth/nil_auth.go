@@ -28,6 +28,10 @@ func (NilAuth) GetUserPermissions(_ context.Context) (*api.PermissionList, error
 	}, nil
 }
 
+func (NilAuth) IsEnabled() bool {
+	return true
+}
+
 func (NilAuth) ValidateToken(_ context.Context, _ string) error {
 	return nil
 }

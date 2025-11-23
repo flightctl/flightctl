@@ -143,6 +143,15 @@ func (m *MockAuthNMiddleware) GetAuthConfig() *v1alpha1.AuthConfig {
 	return ret0
 }
 
+// IsEnabled mocks base method.
+func (m *MockAuthNMiddleware) IsEnabled() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IsEnabled")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// IsEnabled indicates an expected call of IsEnabled.
 // GetAuthConfig indicates an expected call of GetAuthConfig.
 func (mr *MockAuthNMiddlewareMockRecorder) GetAuthConfig() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
