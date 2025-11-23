@@ -2,10 +2,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
@@ -24,15 +25,41 @@ import (
 )
 
 func main() {
-	ctx := context.Background()
-
 	log := log.InitLogs()
-	log.Println("Starting worker service")
-	defer log.Println("Worker service stopped")
+
+	if err := runCmd(log); err != nil {
+		log.Fatalf("Worker service error: %v", err)
+	}
+}
+
+func runCmd(log *logrus.Logger) error {
+	log.Info("Starting worker service")
+	defer log.Info("Worker service stopped")
+
+	// Single context with signal handling - OS signal cancels context
+	ctx, cancel := signal.NotifyContext(context.Background(),
+		syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGHUP)
+
+	// Build cleanup functions incrementally as resources are created
+	var cleanupFuncs []func() error
+	defer func() {
+		// First cancel context to signal all goroutines to stop
+		log.Info("Cancelling context to stop all servers")
+		cancel()
+
+		// Then run cleanup in reverse order after goroutines have stopped
+		log.Info("Starting cleanup")
+		for i := len(cleanupFuncs) - 1; i >= 0; i-- {
+			if err := cleanupFuncs[i](); err != nil {
+				log.WithError(err).Error("Cleanup error")
+			}
+		}
+		log.Info("Cleanup completed")
+	}()
 
 	cfg, err := config.LoadOrGenerate(config.ConfigFile())
 	if err != nil {
-		log.Fatalf("reading configuration: %v", err)
+		return fmt.Errorf("reading configuration: %w", err)
 	}
 	log.Printf("Using config: %s", cfg)
 
@@ -43,22 +70,28 @@ func main() {
 	log.SetLevel(logLvl)
 
 	tracerShutdown := tracing.InitTracer(log, cfg, "flightctl-worker")
-	defer func() {
-		if err := tracerShutdown(ctx); err != nil {
-			log.Fatalf("failed to shut down tracer: %v", err)
-		}
-	}()
+	if tracerShutdown != nil {
+		cleanupFuncs = append(cleanupFuncs, func() error {
+			log.Info("Shutting down tracer")
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			return tracerShutdown(ctx)
+		})
+	}
 
-	log.Println("Initializing data store")
+	log.Info("Initializing data store")
 	db, err := store.InitDB(cfg, log)
 	if err != nil {
-		log.Fatalf("initializing data store: %v", err)
+		return fmt.Errorf("initializing data store: %w", err)
 	}
 
 	store := store.NewStore(db, log.WithField("pkg", "store"))
-	defer store.Close()
+	cleanupFuncs = append(cleanupFuncs, func() error {
+		log.Info("Closing database connections")
+		store.Close()
+		return nil
+	})
 
-	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
 	ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
 	ctx = context.WithValue(ctx, consts.EventSourceComponentCtxKey, "flightctl-worker")
 	ctx = context.WithValue(ctx, consts.EventActorCtxKey, "service:flightctl-worker")
@@ -66,8 +99,14 @@ func main() {
 	processID := fmt.Sprintf("worker-%s-%s", util.GetHostname(), uuid.New().String())
 	provider, err := queues.NewRedisProvider(ctx, log, processID, cfg.KV.Hostname, cfg.KV.Port, cfg.KV.Password, queues.DefaultRetryConfig())
 	if err != nil {
-		log.Fatalf("failed connecting to Redis queue: %v", err)
+		return fmt.Errorf("failed connecting to Redis queue: %w", err)
 	}
+	cleanupFuncs = append(cleanupFuncs, func() error {
+		log.Info("Stopping queue provider")
+		provider.Stop()
+		provider.Wait()
+		return nil
+	})
 
 	k8sClient, err := k8sclient.NewK8SClient()
 	if err != nil {
@@ -77,6 +116,9 @@ func main() {
 
 	// Initialize metrics collectors
 	var workerCollector *worker.WorkerCollector
+	var systemMetricsCollector *metrics.SystemCollector
+	errCh := make(chan error, 2)
+
 	if cfg.Metrics != nil && cfg.Metrics.Enabled {
 		var collectors []prometheus.Collector
 		if cfg.Metrics.WorkerCollector != nil && cfg.Metrics.WorkerCollector.Enabled {
@@ -85,24 +127,43 @@ func main() {
 		}
 
 		if cfg.Metrics.SystemCollector != nil && cfg.Metrics.SystemCollector.Enabled {
-			if systemMetricsCollector := metrics.NewSystemCollector(ctx, cfg); systemMetricsCollector != nil {
+			if systemMetricsCollector = metrics.NewSystemCollector(ctx, cfg); systemMetricsCollector != nil {
 				collectors = append(collectors, systemMetricsCollector)
+				cleanupFuncs = append(cleanupFuncs, func() error {
+					log.Info("Shutting down system metrics collector")
+					return systemMetricsCollector.Shutdown()
+				})
 			}
 		}
 
 		if len(collectors) > 0 {
 			go func() {
-				if err := tracing.RunMetricsServer(ctx, log, cfg.Metrics.Address, collectors...); err != nil {
-					log.Errorf("Error running metrics server: %s", err)
-				}
-				cancel()
+				log.Info("Starting metrics server")
+				errCh <- fmt.Errorf("metrics server: %w", tracing.RunMetricsServer(ctx, log, cfg.Metrics.Address, collectors...))
 			}()
 		}
 	}
 
 	server := workerserver.New(cfg, log, store, provider, k8sClient, workerCollector)
-	if err := server.Run(ctx); err != nil {
-		log.Fatalf("Error running server: %s", err)
+
+	go func() {
+		log.Info("Starting worker server")
+		errCh <- fmt.Errorf("worker server: %w", server.Run(ctx))
+	}()
+
+	// Wait for any server to complete or signal
+	log.Info("Worker service started, waiting for shutdown signal...")
+	err = <-errCh
+
+	// Handle shutdown reason
+	if errors.Is(err, context.Canceled) {
+		log.Info("Servers stopped due to shutdown signal")
+		return nil // Normal shutdown
+	} else if err != nil {
+		log.WithError(err).Error("Server stopped with error")
+		return err // Error shutdown
 	}
-	cancel()
+
+	log.Info("Servers stopped normally")
+	return nil // Normal completion
 }
