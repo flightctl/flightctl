@@ -15,27 +15,20 @@ import (
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/pam_issuer_server"
 	"github.com/flightctl/flightctl/pkg/log"
-	"github.com/sirupsen/logrus"
 )
 
 func main() {
 	ctx := context.Background()
 
-	log := log.InitLogs()
-	log.Println("Starting PAM issuer service")
-	defer log.Println("PAM issuer service stopped")
-
 	cfg, err := config.LoadOrGenerate(config.ConfigFile())
 	if err != nil {
-		log.Fatalf("reading configuration: %v", err)
+		log.InitLogs().Fatalf("reading configuration: %v", err)
 	}
-	log.Printf("Using config: %s", cfg)
 
-	logLvl, err := logrus.ParseLevel(cfg.Service.LogLevel)
-	if err != nil {
-		logLvl = logrus.InfoLevel
-	}
-	log.SetLevel(logLvl)
+	log := log.InitLogs(cfg.Service.LogLevel)
+	log.Println("Starting PAM issuer service")
+	defer log.Println("PAM issuer service stopped")
+	log.Printf("Using config: %s", cfg)
 
 	// Check if PAM OIDC issuer is configured
 	if cfg.Auth == nil || cfg.Auth.PAMOIDCIssuer == nil {

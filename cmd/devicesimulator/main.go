@@ -67,8 +67,6 @@ func printUsage() {
 }
 
 func main() {
-	log := flightlog.InitLogs()
-
 	configFile := pflag.String("config", defaultConfigFilePath(), "path of the agent configuration template")
 	dataDir := pflag.String("data-dir", defaultDataDir(), "directory for storing simulator data")
 	labels := pflag.StringArray("label", []string{}, "label applied to simulated devices, in the format key=value")
@@ -107,13 +105,12 @@ func main() {
 		}
 	}
 
-	logLvl, err := logrus.ParseLevel(*logLevel)
-	if err != nil {
+	log := flightlog.InitLogs(*logLevel)
+	if log == nil {
 		fmt.Fprintf(os.Stderr, "Invalid log level: %s\n\n", *logLevel)
 		printUsage()
 		os.Exit(1)
 	}
-	log.SetLevel(logLvl)
 
 	// Disable console banner for all simulated agents
 	if err := os.Setenv("FLIGHTCTL_DISABLE_CONSOLE_BANNER", "true"); err != nil {
@@ -138,7 +135,7 @@ func main() {
 
 	formattedLables := formatLabels(labels)
 
-	agentConfigTemplate := createAgentConfigTemplate(*dataDir, *configFile, logLvl.String())
+	agentConfigTemplate := createAgentConfigTemplate(*dataDir, *configFile, *logLevel)
 
 	log.Infoln("starting device simulator")
 	defer log.Infoln("device simulator stopped")
