@@ -17,26 +17,19 @@ import (
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
-	"github.com/sirupsen/logrus"
 )
 
 func main() {
 	ctx := context.Background()
 
-	log := log.InitLogs()
-	log.Println("Starting alert exporter")
-
 	cfg, err := config.LoadOrGenerate(config.ConfigFile())
 	if err != nil {
-		log.Fatalf("reading configuration: %v", err)
+		log.InitLogs().Fatalf("reading configuration: %v", err)
 	}
-	log.Printf("Using config: %s", cfg)
 
-	logLvl, err := logrus.ParseLevel(cfg.Service.LogLevel)
-	if err != nil {
-		logLvl = logrus.InfoLevel
-	}
-	log.SetLevel(logLvl)
+	log := log.InitLogs(cfg.Service.LogLevel)
+	log.Println("Starting alert exporter")
+	log.Printf("Using config: %s", cfg)
 
 	tracerShutdown := tracing.InitTracer(log, cfg, "flightctl-alert-exporter")
 	defer func() {

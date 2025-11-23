@@ -48,14 +48,10 @@ const (
 
 // InitLogsWithDebug creates a logger with debug level if LOG_LEVEL=debug is set
 func InitLogsWithDebug() *logrus.Logger {
-	log := flightlog.InitLogs()
-
-	// Enable debug logging if LOG_LEVEL is set to debug
-	if os.Getenv("LOG_LEVEL") == "debug" {
-		log.SetLevel(logrus.DebugLevel)
+	if logLevel := os.Getenv("LOG_LEVEL"); logLevel != "" {
+		return flightlog.InitLogs(logLevel)
 	}
-
-	return log
+	return flightlog.InitLogs()
 }
 
 type testProvider struct {
