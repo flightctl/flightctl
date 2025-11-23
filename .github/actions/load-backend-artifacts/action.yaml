@@ -1,0 +1,38 @@
+name: 'Load Backend Artifacts'
+description: 'Download and load FlightCtl backend artifacts into kind cluster'
+
+inputs:
+  git-tag:
+    description: 'Git tag to identify artifacts'
+    required: true
+  artifacts-path:
+    description: 'Path to download artifacts to'
+    required: false
+    default: 'artifacts'
+
+runs:
+  using: "composite"
+  steps:
+    - name: Download backend artifacts
+      uses: actions/download-artifact@v4
+      with:
+        pattern: "*-${{ inputs.git-tag }}"
+        path: ${{ inputs.artifacts-path }}
+        merge-multiple: true
+
+    - name: Load backend images into kind
+      shell: bash
+      run: |
+        set -euo pipefail
+        echo "Loading backend service images into kind"
+        kind load image-archive ${{ inputs.artifacts-path }}/flightctl-images-bundle.tar
+        echo "Backend images loaded successfully"
+
+    - name: Clean up backend bundle
+      shell: bash
+      run: |
+        set -euo pipefail
+        echo "Removing backend bundle (no longer needed after loading into kind)..."
+        rm -f ${{ inputs.artifacts-path }}/flightctl-images-bundle.tar
+        df -h
+

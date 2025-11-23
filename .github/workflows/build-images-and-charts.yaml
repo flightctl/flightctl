@@ -1,0 +1,204 @@
+name: "Build Images and Charts"
+
+on:
+  workflow_call:
+    inputs:
+      repository:
+        description: "Repository to checkout (default: current repo)"
+        required: false
+        type: string
+        default: ""
+      ref:
+        description: "Git ref to checkout (default: current ref)"
+        required: false
+        type: string
+        default: ""
+    outputs:
+      tag:
+        description: "Computed image tag"
+        value: ${{ jobs.build-backend-containers.outputs.tag }}
+      helm_tag:
+        description: "Computed Helm chart tag"
+        value: ${{ jobs.build-backend-containers.outputs.helm_tag }}
+      git_tag:
+        description: "Computed git tag"
+        value: ${{ jobs.build-backend-containers.outputs.git_tag }}
+
+jobs:
+  build-backend-containers:
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.compute-tag.outputs.tag }}
+      helm_tag: ${{ steps.compute-tag.outputs.helm_tag }}
+      git_tag: ${{ steps.compute-tag.outputs.git_tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Overlay PR files
+        run: |
+          set -euo pipefail
+          
+          # TODO: Remove this step once these changes are merged to main.
+          # This temporarily overlays .github actions, Makefile, and deployment scripts
+          # from the PR branch to build and test baseline against PR changes.
+          
+          echo "Fetching PR branch: ${{ github.ref }}"
+          git fetch origin ${{ github.ref }}:pr-branch
+          
+          echo "Checking out required files from PR branch..."
+          git checkout pr-branch -- .github/
+          git checkout pr-branch -- Makefile
+          
+          echo "Files successfully overlaid from PR branch"
+          git status --short
+
+      - name: Compute tag
+        id: compute-tag
+        uses: ./.github/actions/compute-tag
+
+      - name: Restore Go cache
+        id: cache-go-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Build backend containers
+        env:
+          SOURCE_GIT_TAG: ${{ steps.compute-tag.outputs.git_tag }}
+          SOURCE_GIT_TREE_STATE: ${{ steps.compute-tag.outputs.git_tree_state }}
+          SOURCE_GIT_COMMIT: ${{ steps.compute-tag.outputs.git_commit }}
+          GITHUB_ACTIONS: true
+          REGISTRY: quay.io
+          REGISTRY_OWNER: flightctl
+        run: |
+          set -euo pipefail
+          
+          echo "::group::Building backend containers"
+          make -j4 build-containers
+          echo "::endgroup::"
+
+      - name: Build CLI binary
+        run: |
+          set -euo pipefail
+          
+          echo "::group::Building CLI binary"
+          make build-cli
+          cp bin/flightctl flightctl-linux-amd64
+          echo "::endgroup::"
+
+      - name: Bundle images
+        id: bundle-images
+        env:
+          TAG: ${{ steps.compute-tag.outputs.git_tag }}
+        run: |
+          set -euo pipefail
+          
+          echo "::group::Creating images bundle"
+          echo "Getting list of loaded flightctl images with tag: $TAG"
+          mapfile -t loaded_images < <(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${TAG}")
+
+          echo "Creating bundle with ${#loaded_images[@]} images:"
+          printf '  %s\n' "${loaded_images[@]}"
+
+          BUNDLE_FILE="flightctl-images-bundle.tar"
+          podman save --format docker-archive -o "${BUNDLE_FILE}" -m "${loaded_images[@]}"
+
+          echo "Bundle created: $(ls -lh ${BUNDLE_FILE})"
+          echo "bundle_file=$BUNDLE_FILE" >> "$GITHUB_OUTPUT"
+          echo "::endgroup::"
+
+      - name: Upload images bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: flightctl-images-bundle-${{ steps.compute-tag.outputs.git_tag }}
+          path: ${{ steps.bundle-images.outputs.bundle_file }}
+          compression-level: 1
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload CLI binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: flightctl-linux-amd64-${{ steps.compute-tag.outputs.git_tag }}
+          path: flightctl-linux-amd64
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Save Go cache
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+
+  build-helm-charts:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Overlay PR files
+        run: |
+          set -euo pipefail
+          
+          # TODO: Remove this step once these changes are merged to main.
+          
+          echo "Fetching PR branch: ${{ github.ref }}"
+          git fetch origin ${{ github.ref }}:pr-branch
+          
+          echo "Checking out required files from PR branch..."
+          git checkout pr-branch -- .github/
+          
+          echo "Files successfully overlaid from PR branch"
+
+      - name: Compute tag
+        id: compute-tag
+        uses: ./.github/actions/compute-tag
+
+      - name: Build helm charts
+        id: build-charts
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.compute-tag.outputs.helm_tag }}"
+          
+          echo "::group::Building helm charts"
+          helm dependency build ./deploy/helm/flightctl
+          helm package ./deploy/helm/flightctl \
+            --version "$TAG" \
+            --app-version "$TAG"
+          
+          # Rename to consistent name for easier consumption
+          GENERATED_FILE="flightctl-${TAG}.tgz"
+          CHART_FILE="flightctl-chart.tgz"
+          mv "$GENERATED_FILE" "$CHART_FILE"
+          echo "Chart file: $CHART_FILE"
+          echo "::endgroup::"
+          
+          echo "chart_file=$CHART_FILE" >> "$GITHUB_OUTPUT"
+
+      - name: Upload helm chart artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: helm-chart-${{ steps.compute-tag.outputs.git_tag }}
+          path: ${{ steps.build-charts.outputs.chart_file }}
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
