@@ -1,4 +1,9 @@
 name: "Helm upgrade test"
+description: |
+  Tests Helm upgrade path from main branch to PR changes.
+  Builds images/charts for both main (baseline) and PR branch in parallel,
+  deploys baseline to kind cluster, runs smoke tests, then upgrades to PR version
+  and verifies resources are preserved. 
 
 on:
   workflow_dispatch:
@@ -53,14 +58,27 @@ jobs:
       repository: flightctl/flightctl
       ref: main
 
+  build-baseline-cli:
+    needs: check-changes
+    if: needs.check-changes.outputs.any_changed == 'true'
+    uses: ./.github/workflows/build-cli-and-simulator.yaml
+    with:
+      repository: flightctl/flightctl
+      ref: main
+
   build-pr-branch:
     needs: check-changes
     if: needs.check-changes.outputs.any_changed == 'true'
     uses: ./.github/workflows/build-images-and-charts.yaml
 
+  build-pr-cli:
+    needs: check-changes
+    if: needs.check-changes.outputs.any_changed == 'true'
+    uses: ./.github/workflows/build-cli-and-simulator.yaml
+
   deploy-and-upgrade:
     runs-on: ubuntu-24.04
-    needs: [check-changes, build-baseline, build-pr-branch]
+    needs: [check-changes, build-baseline, build-baseline-cli, build-pr-branch, build-pr-cli]
     if: needs.check-changes.outputs.any_changed == 'true'
     steps:
       - name: Checkout PR branch
@@ -75,11 +93,37 @@ jobs:
           echo "Started background removal of /usr/local/lib/android (PID: $!)"
           df -h
 
+      - name: Setup tools
+        run: |
+          set -euo pipefail
+          
+          echo "Installing yq..."
+          sudo wget -qO /usr/local/bin/yq \
+            https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+          echo "yq version:"
+          yq --version
+          echo ""
+          
+          echo "Helm version:"
+          helm version
+          echo ""
+          echo "Installed Helm plugins:"
+          helm plugin list || echo "No plugins installed"
+          echo ""
+          echo "Installing helm-diff plugin..."
+          helm plugin install https://github.com/databus23/helm-diff || echo "Plugin already installed"
+          echo ""
+          echo "Helm plugins after installation:"
+          helm plugin list
+
       # ========== DEPLOY BASELINE (main branch) ==========
-      - name: Deploy baseline using composite action
+      - name: "[BASELINE] Deploy"
         uses: ./.github/actions/deploy-backend-with-helm
         with:
           tag: ${{ needs.build-baseline.outputs.git_tag }}
+        env:
+          VALUES_PATH: "./deploy/helm/flightctl/values.dev.yaml"
 
       - name: Get base domain
         id: get-ip
@@ -89,25 +133,31 @@ jobs:
           echo "$BASE_DOMAIN"
           echo "base-domain=$BASE_DOMAIN" >> "$GITHUB_OUTPUT"
 
-      - name: Check baseline deployment
+      - name: "[BASELINE] Check deployment"
         run: kubectl get pods --all-namespaces
 
-      - name: Login to baseline
+      - name: "[BASELINE] Login"
         env:
           BASE_DOMAIN: ${{ steps.get-ip.outputs.base-domain }}
         run: |
-          # Login to the API (no auth by default, matching deploy_with_helm.sh)
-          for i in {1..60}; do
-            if ./bin/flightctl login -k https://api.${BASE_DOMAIN}:3443; then
-              echo "Successfully logged in to baseline"
-              ./bin/flightctl version
-              break
-            fi
-            echo "Login attempt $i failed, retrying..."
-            sleep 5
-          done
+          ./bin/flightctl login -k https://api.${BASE_DOMAIN}:3443
+          ./bin/flightctl version
 
-      - name: Apply test resources to baseline
+      - name: "[BASELINE] Validate versions"
+        env:
+          EXPECTED_CLIENT_TAG: ${{ needs.build-baseline-cli.outputs.git_tag }}
+          EXPECTED_SERVER_TAG: ${{ needs.build-baseline.outputs.git_tag }}
+        run: |
+          set -euo pipefail
+          CLIENT_VERSION=$(./bin/flightctl version | grep "Client Version:" | awk '{print $3}')
+          SERVER_VERSION=$(./bin/flightctl version | grep "Server Version:" | awk '{print $3}')
+          
+          [ "${CLIENT_VERSION}" = "${EXPECTED_CLIENT_TAG}" ] || { echo "Client version mismatch: ${CLIENT_VERSION} != ${EXPECTED_CLIENT_TAG}"; exit 1; }
+          [ "${SERVER_VERSION}" = "${EXPECTED_SERVER_TAG}" ] || { echo "Server version mismatch: ${SERVER_VERSION} != ${EXPECTED_SERVER_TAG}"; exit 1; }
+          
+          echo "✓ Versions validated: Client=${CLIENT_VERSION}, Server=${SERVER_VERSION}"
+
+      - name: "[BASELINE] Apply test resources"
         run: |
           bin/flightctl apply -f examples/device.yaml
           bin/flightctl apply -f examples/fleet.yaml
@@ -115,21 +165,29 @@ jobs:
           bin/flightctl apply -f examples/repository-flightctl.yaml
           bin/flightctl apply -f examples/resourcesync.yaml
 
-      - name: Run baseline simulator
+      - name: Prepare agent config
+        run: make prepare-agent-config
+
+      - name: "[BASELINE] Download simulator"
+        uses: actions/download-artifact@v4
+        with:
+          name: devicesimulator-${{ needs.build-baseline-cli.outputs.git_tag }}
+          path: bin-baseline-sim
+
+      - name: "[BASELINE] Run simulator"
         run: |
-          make prepare-agent-config
-          DISABLE_FIPS="true" make build-devicesimulator
-          bin/devicesimulator --config bin/agent/etc/flightctl/config.yaml --count 1 --stop-after 1m
+          chmod +x bin-baseline-sim/devicesimulator
+          bin-baseline-sim/devicesimulator --config bin/agent/etc/flightctl/config.yaml --count 10 --stop-after 1m
 
       # ========== UPGRADE TO PR BRANCH ==========
-      - name: Download PR branch artifacts
+      - name: "[HEAD] Download artifacts"
         uses: actions/download-artifact@v4
         with:
           pattern: "*-${{ needs.build-pr-branch.outputs.git_tag }}"
           path: artifacts-pr
           merge-multiple: true
 
-      - name: Load PR branch images into kind
+      - name: "[HEAD] Load images"
         run: |
           set -euo pipefail
           echo "Loading PR branch backend images into kind"
@@ -137,90 +195,121 @@ jobs:
           echo "PR images loaded successfully"
           rm -f artifacts-pr/flightctl-images-bundle.tar
 
-      - name: Setup PR branch CLI binary
+      - name: "[HEAD] Download CLI"
+        uses: actions/download-artifact@v4
+        with:
+          name: flightctl-linux-amd64-${{ needs.build-pr-cli.outputs.git_tag }}
+          path: bin-pr
+
+      - name: "[HEAD] Setup CLI"
         run: |
           set -euo pipefail
-          mkdir -p bin-pr
-          mv artifacts-pr/flightctl-linux-amd64 bin-pr/flightctl
-          chmod +x bin-pr/flightctl
-          echo "PR branch CLI version:"
+          chmod +x bin-pr/flightctl-linux-amd64
+          mv bin-pr/flightctl-linux-amd64 bin-pr/flightctl
           bin-pr/flightctl version
 
-      - name: Install helm diff plugin
-        run: |
-          helm plugin install https://github.com/databus23/helm-diff || true
-          helm plugin list
-
-      - name: Show helm diff before upgrade
+      - name: "[HEAD] Prepare helm"
         env:
           BASE_DOMAIN: ${{ steps.get-ip.outputs.base-domain }}
+          PR_TAG: ${{ needs.build-pr-branch.outputs.git_tag }}
         run: |
+          set -euo pipefail
           CHART_FILE="artifacts-pr/flightctl-chart.tgz"
+          VALUES_FILE="./deploy/helm/flightctl/values.dev.yaml"
           
+          echo "Extracting image values from chart..."
+          helm show values "${CHART_FILE}" \
+            | yq -o=props \
+            | grep -v '^#' \
+            | grep -E '\.image\.(image|tag)\s*=' \
+            | yq -p=props > image-values.yaml
+          
+          echo "Appending telemetryGateway image configuration..."
+          cat >> image-values.yaml << EOF
+          
+          telemetryGateway:
+            image:
+              image: quay.io/flightctl/flightctl-telemetry-gateway
+              tag: ""
+          EOF
+          
+          echo "Final image-values.yaml:"
+          cat image-values.yaml
+          
+          echo ""
           echo "::group::Helm diff - changes to be applied"
           helm diff upgrade flightctl "${CHART_FILE}" \
             --namespace flightctl-external \
+            --values "${VALUES_FILE}" \
+            --values image-values.yaml \
             --set global.baseDomain=${BASE_DOMAIN} \
-            --set global.internalNamespace=flightctl-internal \
-            --set global.target=standalone \
-            --set global.exposeServicesMethod=nodePort \
-            --context kind-kind || true
+            --dry-run=server \
+            --output=dyff \
+            --debug
           echo "::endgroup::"
 
-      - name: Helm upgrade to PR branch
+      - name: "[HEAD] Helm upgrade"
         env:
           BASE_DOMAIN: ${{ steps.get-ip.outputs.base-domain }}
         run: |
           ( kubectl get pods --all-namespaces -w | sed 's/^/[cluster upgrade] /' ) &
 
           CHART_FILE="artifacts-pr/flightctl-chart.tgz"
+          VALUES_FILE="./deploy/helm/flightctl/values.dev.yaml"
 
-          # Use same global params as deploy_with_helm.sh
+          # Use values files with image overrides
           helm upgrade flightctl "${CHART_FILE}" \
             --namespace flightctl-external \
+            --values "${VALUES_FILE}" \
+            --values image-values.yaml \
             --set global.baseDomain=${BASE_DOMAIN} \
-            --set global.internalNamespace=flightctl-internal \
-            --set global.target=standalone \
-            --set global.exposeServicesMethod=nodePort \
-            --context kind-kind \
             --debug --wait
 
-      - name: Check the upgraded deployment
+      - name: "[HEAD] Check deployment"
         run: |
           helm list --all-namespaces
           kubectl get pods --all-namespaces
 
-      - name: Login with PR branch CLI after upgrade
+      - name: "[HEAD] Validate versions"
         env:
-          BASE_DOMAIN: ${{ steps.get-ip.outputs.base-domain }}
+          EXPECTED_CLIENT_TAG: ${{ needs.build-pr-cli.outputs.git_tag }}
+          EXPECTED_SERVER_TAG: ${{ needs.build-pr-branch.outputs.git_tag }}
         run: |
-          # Login to the API after upgrade
-          for i in {1..60}; do
-            if ./bin-pr/flightctl login -k https://api.${BASE_DOMAIN}:3443; then
-              echo "Successfully logged in after upgrade"
-              echo "PR CLI version:"
-              ./bin-pr/flightctl version
-              echo ""
-              echo "Client config:"
-              cat ~/.config/flightctl/client.yaml || true
-              break
-            fi
-            echo "Login attempt $i failed, retrying..."
-            sleep 5
+          set -euo pipefail
+          CLIENT_VERSION=$(./bin-pr/flightctl version | grep "Client Version:" | awk '{print $3}')
+          SERVER_VERSION=$(./bin-pr/flightctl version | grep "Server Version:" | awk '{print $3}')
+          
+          [ "${CLIENT_VERSION}" = "${EXPECTED_CLIENT_TAG}" ] || { echo "Client version mismatch: ${CLIENT_VERSION} != ${EXPECTED_CLIENT_TAG}"; exit 1; }
+          [ "${SERVER_VERSION}" = "${EXPECTED_SERVER_TAG}" ] || { echo "Server version mismatch: ${SERVER_VERSION} != ${EXPECTED_SERVER_TAG}"; exit 1; }
+          
+          echo "✓ Versions validated: Client=${CLIENT_VERSION}, Server=${SERVER_VERSION}"
+
+      - name: "[HEAD] Verify resources"
+        run: |
+          set -euo pipefail
+          
+          for resource in dev fleet er repo rs; do
+            echo "Checking ${resource}..."
+            ./bin-pr/flightctl get ${resource}
+            ./bin-pr/flightctl get ${resource} -o=yaml > /dev/null
+            echo "✓ ${resource} verified"
+            echo ""
           done
 
-      - name: Verify resources after upgrade
-        run: |
-          ./bin-pr/flightctl get dev
-          ./bin-pr/flightctl get fleet
-          ./bin-pr/flightctl get er
-          ./bin-pr/flightctl get repo
-          ./bin-pr/flightctl get rs
+      - name: "[HEAD] Download simulator"
+        uses: actions/download-artifact@v4
+        with:
+          name: devicesimulator-${{ needs.build-pr-cli.outputs.git_tag }}
+          path: bin-pr-sim
 
-      - name: Run simulator with PR branch
+      - name: "[HEAD] Run simulator"
         run: |
-          DISABLE_FIPS="true" make build-devicesimulator
-          bin/devicesimulator --config bin/agent/etc/flightctl/config.yaml --count 1 --stop-after 1m
+          chmod +x bin-pr-sim/devicesimulator
+          bin-pr-sim/devicesimulator --config bin/agent/etc/flightctl/config.yaml --count 10 --stop-after 1m
+
+      - name: "[HEAD] Run baseline simulator (backward compat)"
+        run: |
+          bin-baseline-sim/devicesimulator --config bin/agent/etc/flightctl/config.yaml --count 10 --stop-after 1m
 
       - name: Collect and Upload Logs
         if: always()

@@ -1,4 +1,8 @@
 name: "Build Images and Charts"
+description: |
+  Reusable workflow that builds backend container images and Helm charts.
+  Runs two parallel jobs: building containers and building helm charts.
+  Uploads artifacts: image bundle and packaged helm chart.
 
 on:
   workflow_call:
@@ -88,15 +92,6 @@ jobs:
           make -j4 build-containers
           echo "::endgroup::"
 
-      - name: Build CLI binary
-        run: |
-          set -euo pipefail
-          
-          echo "::group::Building CLI binary"
-          make build-cli
-          cp bin/flightctl flightctl-linux-amd64
-          echo "::endgroup::"
-
       - name: Bundle images
         id: bundle-images
         env:
@@ -124,15 +119,6 @@ jobs:
           name: flightctl-images-bundle-${{ steps.compute-tag.outputs.git_tag }}
           path: ${{ steps.bundle-images.outputs.bundle_file }}
           compression-level: 1
-          if-no-files-found: error
-          retention-days: 1
-
-      - name: Upload CLI binary
-        uses: actions/upload-artifact@v4
-        with:
-          name: flightctl-linux-amd64-${{ steps.compute-tag.outputs.git_tag }}
-          path: flightctl-linux-amd64
-          compression-level: 0
           if-no-files-found: error
           retention-days: 1
 
@@ -183,7 +169,7 @@ jobs:
           helm dependency build ./deploy/helm/flightctl
           helm package ./deploy/helm/flightctl \
             --version "$TAG" \
-            --app-version "$TAG"
+            --app-version "v$TAG"
           
           # Rename to consistent name for easier consumption
           GENERATED_FILE="flightctl-${TAG}.tgz"

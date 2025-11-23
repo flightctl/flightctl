@@ -1,0 +1,148 @@
+name: "Build CLI and Simulator"
+description: |
+  Builds FlightCtl CLI binary and device simulator.
+  Produces platform-specific binaries and uploads as artifacts.
+
+on:
+  workflow_call:
+    inputs:
+      repository:
+        description: "Repository to checkout (default: current repo)"
+        required: false
+        type: string
+        default: ""
+      ref:
+        description: "Git ref to checkout (default: current ref)"
+        required: false
+        type: string
+        default: ""
+    outputs:
+      git_tag:
+        description: "Computed git tag"
+        value: ${{ jobs.build-cli.outputs.git_tag }}
+
+jobs:
+  build-cli:
+    runs-on: ubuntu-24.04
+    outputs:
+      git_tag: ${{ steps.compute-tag.outputs.git_tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Overlay PR files
+        run: |
+          set -euo pipefail
+          
+          # TODO: Remove this step once these changes are merged to main.
+          
+          echo "Fetching PR branch: ${{ github.ref }}"
+          git fetch origin ${{ github.ref }}:pr-branch
+          
+          echo "Checking out required files from PR branch..."
+          git checkout pr-branch -- .github/
+          git checkout pr-branch -- Makefile
+          
+          echo "Files successfully overlaid from PR branch"
+
+      - name: Compute tag
+        id: compute-tag
+        uses: ./.github/actions/compute-tag
+
+      - name: Restore Go cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Build CLI binary
+        run: |
+          set -euo pipefail
+          echo "::group::Building CLI binary"
+          make build-cli
+          cp bin/flightctl flightctl-linux-amd64
+          echo "::endgroup::"
+
+      - name: Upload CLI binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: flightctl-linux-amd64-${{ steps.compute-tag.outputs.git_tag }}
+          path: flightctl-linux-amd64
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Save Go cache
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+
+  build-simulator:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Overlay PR files
+        run: |
+          set -euo pipefail
+          
+          # TODO: Remove this step once these changes are merged to main.
+          
+          echo "Fetching PR branch: ${{ github.ref }}"
+          git fetch origin ${{ github.ref }}:pr-branch
+          
+          echo "Checking out required files from PR branch..."
+          git checkout pr-branch -- .github/
+          git checkout pr-branch -- Makefile
+          
+          echo "Files successfully overlaid from PR branch"
+
+      - name: Compute tag
+        id: compute-tag
+        uses: ./.github/actions/compute-tag
+
+      - name: Restore Go cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Build device simulator
+        run: |
+          set -euo pipefail
+          echo "::group::Building device simulator"
+          DISABLE_FIPS="true" make build-devicesimulator
+          echo "::endgroup::"
+
+      - name: Upload simulator binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: devicesimulator-${{ steps.compute-tag.outputs.git_tag }}
+          path: bin/devicesimulator
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+

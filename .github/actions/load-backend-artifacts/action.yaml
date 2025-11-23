@@ -1,5 +1,9 @@
 name: 'Load Backend Artifacts'
-description: 'Download and load FlightCtl backend artifacts into kind cluster'
+description: |
+  Downloads backend artifacts and loads container images into kind cluster.
+  
+  Downloads all artifacts matching the git-tag pattern (images bundle, chart, CLI),
+  loads the image bundle into kind, and cleans up the tar file to save disk space.
 
 inputs:
   git-tag:

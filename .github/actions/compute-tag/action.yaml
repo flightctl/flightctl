@@ -1,4 +1,7 @@
 name: 'Compute git tag'
+description: |
+  Computes version tags and git metadata from the repository.
+  Produces normalized tags for images and Helm charts.
 
 outputs:
   tag:

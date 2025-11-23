@@ -1,5 +1,9 @@
 name: 'Deploy Backend with Helm'
-description: 'Deploy FlightCtl backend using Helm'
+description: |
+  Complete deployment of FlightCtl backend to a kind cluster using Helm.
+  
+  Downloads artifacts (images, chart, CLI), creates kind cluster, loads images,
+  and deploys using test/scripts/deploy_with_helm.sh.
 
 inputs:
   tag:
