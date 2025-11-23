@@ -10,7 +10,7 @@ Flight Control automatically configures authentication based on your deployment 
 |------------------------|----------------------|-------------|
 | **AAP (Ansible Automation Platform)** | AAP Gateway | Integrates with AAP Gateway for authentication and authorization |
 | **OpenShift** | OpenShift OAuth | Uses OpenShift's OAuth server for authentication |
-| **Standalone (Quadlet/Podman)** | OIDC | Flight Control API server uses OIDC authentication. [PAM Issuer](pam-authentication.md) (bundled OIDC provider) is deployed by default |
+| **Standalone (Quadlet/Podman)** | OIDC | Flight Control API server uses OIDC authentication. [PAM Issuer](auth-pam.md) (bundled OIDC provider) is deployed by default |
 | **Kubernetes (non-OpenShift)** | Kubernetes RBAC | Uses Kubernetes service accounts and RBAC for authentication |
 
 ### Supported Authentication Methods
@@ -21,31 +21,31 @@ Flight Control API server supports the following authentication methods:
 
 Standard OpenID Connect protocol. Works with any OIDC-compliant provider (Azure AD, Okta, Keycloak, Google, etc.). Supports dynamic provider configuration, flexible organization and role mapping, and multiple simultaneous providers.
 
-→ [OIDC Authentication Documentation](oidc-auth.md)
+→ [OIDC Authentication Documentation](auth-oidc.md)
 
 #### 2. OAuth2
 
 Generic OAuth2 protocol for providers that don't fully support OIDC. Supports dynamic provider configuration and flexible organization and role mapping.
 
-→ [OAuth2 Authentication Documentation](oauth2-auth.md)
+→ [OAuth2 Authentication Documentation](auth-oauth2.md)
 
 #### 3. Kubernetes
 
 Validates Kubernetes service account tokens via TokenReview API. Maps to RoleBindings in the namespace where Flight Control is deployed. All users assigned to `default` organization.
 
-→ [Kubernetes Authentication Documentation](kubernetes-auth.md)
+→ [Kubernetes Authentication Documentation](auth-kubernetes.md)
 
 #### 4. OpenShift
 
 Integrates with OpenShift OAuth server. Auto-maps OpenShift projects to Flight Control organizations and uses RoleBindings from project namespaces.
 
-→ [OpenShift Authentication Documentation](openshift-auth.md)
+→ [OpenShift Authentication Documentation](auth-openshift.md)
 
 #### 5. AAP (Ansible Automation Platform)
 
 Validates tokens via AAP Gateway API. Auto-maps AAP organizations to Flight Control organizations. Restricted to AAP super admins only.
 
-→ [AAP Authentication Documentation](aap-auth.md)
+→ [AAP Authentication Documentation](auth-aap.md)
 
 ## Managing Authentication Providers
 
@@ -124,11 +124,11 @@ For detailed configuration examples, see the specific authentication method docu
 
 ## Related Documentation
 
-- [OIDC Authentication](oidc-auth.md) - OIDC provider setup and configuration
-- [OAuth2 Authentication](oauth2-auth.md) - OAuth2 provider setup
-- [Kubernetes Authentication](kubernetes-auth.md) - Kubernetes RBAC integration
-- [OpenShift Authentication](openshift-auth.md) - OpenShift OAuth integration
-- [AAP Authentication](aap-auth.md) - AAP Gateway integration
-- [PAM Issuer](pam-authentication.md) - Bundled OIDC provider for Linux Deployment
+- [OIDC Authentication](auth-oidc.md) - OIDC provider setup and configuration
+- [OAuth2 Authentication](auth-oauth2.md) - OAuth2 provider setup
+- [Kubernetes Authentication](auth-kubernetes.md) - Kubernetes RBAC integration
+- [OpenShift Authentication](auth-openshift.md) - OpenShift OAuth integration
+- [AAP Authentication](auth-aap.md) - AAP Gateway integration
+- [PAM Issuer](auth-pam.md) - Bundled OIDC provider for Linux Deployment
 - [Organizations](organizations.md) - Multi-tenancy configuration
-- [API Resources](auth-resources.md) - Authorization reference
+- [API Resources](../../references/auth-resources.md) - Authorization reference

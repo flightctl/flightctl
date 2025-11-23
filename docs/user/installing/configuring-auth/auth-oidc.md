@@ -22,7 +22,7 @@ Flight Control works with any OIDC-compliant provider, including:
 - Auth0
 - And any other OIDC-compliant provider
 
-For standalone deployments, [PAM Issuer](pam-authentication.md) is bundled as a default OIDC provider.
+For standalone deployments, [PAM Issuer](auth-pam.md) is bundled as a default OIDC provider.
 
 ## Organization and Role Mapping
 
@@ -279,8 +279,8 @@ The CLI will open a browser for authentication. Users select their OIDC provider
 
 ## Related Documentation
 
-- [Authentication Overview](authentication-overview.md) - Overview of all authentication methods
-- [OAuth2 Authentication](oauth2-auth.md) - Alternative for non-OIDC providers
-- [PAM Issuer](pam-authentication.md) - Bundled OIDC provider for Linux Deployment
+- [Authentication Overview](overview.md) - Overview of all authentication methods
+- [OAuth2 Authentication](auth-oauth2.md) - Alternative for non-OIDC providers
+- [PAM Issuer](auth-pam.md) - Bundled OIDC provider for Linux Deployment
 - [Organizations](organizations.md) - Multi-tenancy configuration
-- [API Resources](auth-resources.md) - Authorization reference
+- [API Resources](../../references/auth-resources.md) - Authorization reference

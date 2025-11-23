@@ -17,7 +17,7 @@ Use OAuth2 authentication when:
 
 - ✅ Your provider supports OAuth2 but not OIDC
 
-**Note:** If your provider supports OIDC, use [OIDC authentication](oidc-auth.md) instead as it provides better standardization.
+**Note:** If your provider supports OIDC, use [OIDC authentication](auth-oidc.md) instead as it provides better standardization.
 
 ## Organization and Role Mapping
 
@@ -275,7 +275,7 @@ The CLI will open a browser for authentication. Users select their OAuth2 provid
 
 ## Related Documentation
 
-- [Authentication Overview](authentication-overview.md) - Overview of all authentication methods
-- [OIDC Authentication](oidc-auth.md) - Preferred authentication method
+- [Authentication Overview](overview.md) - Overview of all authentication methods
+- [OIDC Authentication](auth-oidc.md) - Preferred authentication method
 - [Organizations](organizations.md) - Multi-tenancy configuration
-- [API Resources](auth-resources.md) - Authorization reference
+- [API Resources](../../references/auth-resources.md) - Authorization reference
