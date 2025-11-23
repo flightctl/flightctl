@@ -269,7 +269,7 @@ func (kna *KindNameAutocomplete) getAutocompleteNames(cmd *cobra.Command, o Clie
 				}
 			}
 		case OrganizationKind:
-			resp, err := c.ListOrganizationsWithResponse(context.Background())
+			resp, err := c.ListOrganizationsWithResponse(context.Background(), &api.ListOrganizationsParams{})
 			if err == nil && resp.JSON200 != nil {
 				for _, er := range resp.JSON200.Items {
 					if er.Metadata.Name != nil {

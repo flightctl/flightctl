@@ -283,7 +283,7 @@ func (t *QueueMaintenanceTask) republishEventsSince(ctx context.Context, since t
 	defer publisher.Close() // Ensure publisher is closed after use
 
 	// First, get all organizations
-	orgList, status := t.serviceHandler.ListOrganizations(ctx)
+	orgList, status := t.serviceHandler.ListOrganizations(ctx, api.ListOrganizationsParams{})
 	if status.Code >= 400 {
 		return fmt.Errorf("failed to list organizations: %s", status.Message)
 	}

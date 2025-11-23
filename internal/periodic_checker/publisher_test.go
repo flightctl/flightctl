@@ -82,7 +82,7 @@ type mockOrganizationService struct {
 	callCount     int
 }
 
-func (m *mockOrganizationService) ListOrganizations(ctx context.Context) (*api.OrganizationList, api.Status) {
+func (m *mockOrganizationService) ListOrganizations(ctx context.Context, _ api.ListOrganizationsParams) (*api.OrganizationList, api.Status) {
 	m.callCount++
 	return m.organizations, m.status
 }
