@@ -2,9 +2,7 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"os/signal"
 	"syscall"
 	"time"
 
@@ -20,15 +18,16 @@ import (
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
+	"github.com/flightctl/flightctl/pkg/shutdown"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 )
 
 func main() {
-	log := log.InitLogs()
+	logger := log.InitLogs()
 
-	if err := runCmd(log); err != nil {
-		log.Fatalf("Alert exporter error: %v", err)
+	if err := runCmd(logger); err != nil {
+		logger.Fatalf("Alert exporter error: %v", err)
 	}
 }
 
@@ -36,27 +35,12 @@ func runCmd(log *logrus.Logger) error {
 	log.Info("Starting alert exporter")
 	defer log.Info("Alert exporter stopped")
 
-	// Single context with signal handling - OS signal cancels context
-	ctx, cancel := signal.NotifyContext(context.Background(),
-		syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
+	// Create shutdown manager with explicit signals (no SIGHUP) and timeout for alert processing
+	shutdownMgr := shutdown.NewManager(log).
+		WithSignals(syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT).
+		WithTimeout(shutdown.DefaultShutdownTimeout)
 
-	// Build cleanup functions incrementally as resources are created
-	var cleanupFuncs []func() error
-	defer func() {
-		// First cancel context to signal all goroutines to stop
-		log.Info("Cancelling context to stop all servers")
-		cancel()
-
-		// Then run cleanup in reverse order after goroutines have stopped
-		log.Info("Starting cleanup")
-		for i := len(cleanupFuncs) - 1; i >= 0; i-- {
-			if err := cleanupFuncs[i](); err != nil {
-				log.WithError(err).Error("Cleanup error")
-			}
-		}
-		log.Info("Cleanup completed")
-	}()
-
+	// Load configuration
 	cfg, err := config.LoadOrGenerate(config.ConfigFile())
 	if err != nil {
 		return fmt.Errorf("reading configuration: %w", err)
@@ -69,9 +53,10 @@ func runCmd(log *logrus.Logger) error {
 	}
 	log.SetLevel(logLvl)
 
+	// Setup tracer with cleanup
 	tracerShutdown := tracing.InitTracer(log, cfg, "flightctl-alert-exporter")
 	if tracerShutdown != nil {
-		cleanupFuncs = append(cleanupFuncs, func() error {
+		shutdownMgr.AddCleanup("tracer", func() error {
 			log.Info("Shutting down tracer")
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
@@ -79,10 +64,13 @@ func runCmd(log *logrus.Logger) error {
 		})
 	}
 
+	// Setup context with service metadata
+	ctx := context.Background()
 	ctx = context.WithValue(ctx, consts.EventSourceComponentCtxKey, "flightctl-alert-exporter")
 	ctx = context.WithValue(ctx, consts.EventActorCtxKey, "service:flightctl-alert-exporter")
 	ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
 
+	// Initialize data store with cleanup
 	log.Info("Initializing data store")
 	db, err := store.InitDB(cfg, log)
 	if err != nil {
@@ -90,45 +78,34 @@ func runCmd(log *logrus.Logger) error {
 	}
 
 	store := store.NewStore(db, log.WithField("pkg", "store"))
-	cleanupFuncs = append(cleanupFuncs, func() error {
-		log.Info("Closing database connections")
-		return store.Close()
-	})
+	shutdownMgr.AddCleanup("database", shutdown.DatabaseCloseFunc(log, store.Close))
 
+	// Initialize queue provider with cleanup
 	processID := fmt.Sprintf("alert-exporter-%s-%s", util.GetHostname(), uuid.New().String())
 	queuesProvider, err := queues.NewRedisProvider(ctx, log, processID, cfg.KV.Hostname, cfg.KV.Port, cfg.KV.Password, queues.DefaultRetryConfig())
 	if err != nil {
 		return fmt.Errorf("initializing queue provider: %w", err)
 	}
-	cleanupFuncs = append(cleanupFuncs, func() error {
-		log.Info("Stopping queue provider")
-		queuesProvider.Stop()
-		queuesProvider.Wait()
-		return nil
-	})
+	shutdownMgr.AddCleanup("queue-provider", shutdown.StopWaitFunc("queue-provider", queuesProvider.Stop, queuesProvider.Wait))
 
+	// Initialize KV store with cleanup
 	kvStore, err := kvstore.NewKVStore(ctx, log, cfg.KV.Hostname, cfg.KV.Port, cfg.KV.Password)
 	if err != nil {
 		return fmt.Errorf("initializing kv store: %w", err)
 	}
-	cleanupFuncs = append(cleanupFuncs, func() error {
-		log.Info("Closing KV store connections")
-		kvStore.Close()
-		return nil
-	})
+	shutdownMgr.AddCleanup("kv-store", shutdown.CloseFunc(kvStore.Close))
 
+	// Initialize publisher with cleanup
 	publisher, err := worker_client.QueuePublisher(ctx, queuesProvider)
 	if err != nil {
 		return fmt.Errorf("initializing task queue publisher: %w", err)
 	}
-	cleanupFuncs = append(cleanupFuncs, func() error {
-		log.Info("Closing publisher")
-		publisher.Close()
-		return nil
-	})
+	shutdownMgr.AddCleanup("publisher", shutdown.CloseFunc(publisher.Close))
 
+	// Initialize worker client
 	workerClient := worker_client.NewWorkerClient(publisher, log)
 
+	// Initialize organization cache with cleanup
 	orgCache := cache.NewOrganizationTTL(cache.DefaultTTL)
 	go func() {
 		orgCache.Start(ctx)
@@ -136,31 +113,17 @@ func runCmd(log *logrus.Logger) error {
 			log.Warn("Organization cache stopped unexpectedly")
 		}
 	}()
-	cleanupFuncs = append(cleanupFuncs, func() error {
-		log.Info("Stopping organization cache")
-		orgCache.Stop()
-		return nil
-	})
+	shutdownMgr.AddCleanup("org-cache", shutdown.CloseFunc(orgCache.Stop))
 
+	// Setup alert exporter server
 	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(store, workerClient, kvStore, nil, log, "", "", []string{}))
 	server := alert_exporter.New(cfg, log)
 
-	// Start server and wait for completion or signal
-	log.Info("Starting alert exporter server")
-	err = server.Run(ctx, serviceHandler)
-	if err != nil {
-		err = fmt.Errorf("alert exporter server: %w", err)
-	}
+	// Add server to the shutdown manager
+	shutdownMgr.AddServer("alert-exporter", shutdown.NewServerFunc(func(ctx context.Context) error {
+		return server.Run(ctx, serviceHandler)
+	}))
 
-	// Handle shutdown reason
-	if errors.Is(err, context.Canceled) {
-		log.Info("Server stopped due to shutdown signal")
-		return nil // Normal shutdown
-	} else if err != nil {
-		log.WithError(err).Error("Server stopped with error")
-		return err // Error shutdown
-	}
-
-	log.Info("Server stopped normally")
-	return nil // Normal completion
+	// Run with coordinated shutdown - all the complex error handling is now internal
+	return shutdownMgr.Run(ctx)
 }

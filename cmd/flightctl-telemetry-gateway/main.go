@@ -2,9 +2,7 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"os/signal"
 	"syscall"
 	"time"
 
@@ -12,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	tg "github.com/flightctl/flightctl/internal/telemetry_gateway"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/shutdown"
 	"github.com/sirupsen/logrus"
 )
 
@@ -27,26 +26,10 @@ func runCmd(log *logrus.Logger) error {
 	log.Info("Starting telemetry gateway")
 	defer log.Info("Telemetry gateway stopped")
 
-	// Single context with signal handling - OS signal cancels context
-	ctx, cancel := signal.NotifyContext(context.Background(),
-		syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
-
-	// Build cleanup functions incrementally as resources are created
-	var cleanupFuncs []func() error
-	defer func() {
-		// First cancel context to signal all goroutines to stop
-		log.Info("Cancelling context to stop all servers")
-		cancel()
-
-		// Then run cleanup in reverse order after goroutines have stopped
-		log.Info("Starting cleanup")
-		for i := len(cleanupFuncs) - 1; i >= 0; i-- {
-			if err := cleanupFuncs[i](); err != nil {
-				log.WithError(err).Error("Cleanup error")
-			}
-		}
-		log.Info("Cleanup completed")
-	}()
+	// Create shutdown manager with explicit signals (no SIGHUP) and timeout for telemetry flushing
+	shutdownMgr := shutdown.NewManager(log).
+		WithSignals(syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT).
+		WithTimeout(shutdown.DefaultShutdownTimeout)
 
 	cfg, err := config.LoadOrGenerate(config.ConfigFile())
 	if err != nil {
@@ -60,9 +43,10 @@ func runCmd(log *logrus.Logger) error {
 	}
 	log.SetLevel(logLvl)
 
+	// Setup tracer with cleanup
 	tracerShutdown := tracing.InitTracer(log, cfg, "flightctl-telemetry-gateway")
 	if tracerShutdown != nil {
-		cleanupFuncs = append(cleanupFuncs, func() error {
+		shutdownMgr.AddCleanup("tracer", func() error {
 			log.Info("Shutting down tracer")
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
@@ -70,22 +54,12 @@ func runCmd(log *logrus.Logger) error {
 		})
 	}
 
-	// Start telemetry gateway and wait for completion or signal
-	log.Info("Starting telemetry gateway server")
-	err = tg.Run(ctx, cfg)
-	if err != nil {
-		err = fmt.Errorf("telemetry gateway server: %w", err)
-	}
+	// Add telemetry gateway server
+	shutdownMgr.AddServer("telemetry-gateway", shutdown.NewServerFunc(func(ctx context.Context) error {
+		log.Info("Starting telemetry gateway server")
+		return tg.Run(ctx, cfg)
+	}))
 
-	// Handle shutdown reason
-	if errors.Is(err, context.Canceled) {
-		log.Info("Server stopped due to shutdown signal")
-		return nil // Normal shutdown
-	} else if err != nil {
-		log.WithError(err).Error("Server stopped with error")
-		return err // Error shutdown
-	}
-
-	log.Info("Server stopped normally")
-	return nil // Normal completion
+	// Run with coordinated shutdown
+	return shutdownMgr.Run(context.Background())
 }
