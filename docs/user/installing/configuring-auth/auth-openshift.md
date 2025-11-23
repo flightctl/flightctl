@@ -178,7 +178,7 @@ flightctl get devices --org project-b
 
 ## Related Documentation
 
-- [Authentication Overview](authentication-overview.md) - Overview of all authentication methods
-- [API Resources](auth-resources.md) - Authorization reference and API endpoints
+- [Authentication Overview](overview.md) - Overview of all authentication methods
+- [API Resources](../../references/auth-resources.md) - Authorization reference and API endpoints
 - [Organizations](organizations.md) - Multi-tenancy configuration
-- [Kubernetes Authentication](kubernetes-auth.md) - For Kubernetes deployments
+- [Kubernetes Authentication](auth-kubernetes.md) - For Kubernetes deployments

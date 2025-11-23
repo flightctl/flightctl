@@ -45,7 +45,7 @@ If you want to use a different cluster as auth authority, the following variable
 
 ### OpenShift Clusters
 
-If your cluster is OpenShift, use [OpenShift Authentication](openshift-auth.md) instead for better integration.
+If your cluster is OpenShift, use [OpenShift Authentication](auth-openshift.md) instead for better integration.
 
 ### ACM Deployments
 
@@ -64,7 +64,7 @@ If deploying on ACM (by global.target: acm), the k8s auth values are automatical
 - ✅ Integration with Kubernetes identity
 - ✅ Familiar with Kubernetes RBAC concepts
 
-**Note:** For OpenShift deployments, use [OpenShift authentication](openshift-auth.md) instead for better integration.
+**Note:** For OpenShift deployments, use [OpenShift authentication](auth-openshift.md) instead for better integration.
 
 ## Kubernetes RBAC Authorization
 
@@ -78,7 +78,7 @@ Flight Control uses [Kubernetes RBAC authorization](https://kubernetes.io/docs/r
 
 ## API Endpoints
 
-API endpoints are documented in [Authentication resources](auth-resources.md). The resources and verbs in this document should be used for creating API objects **Role** or **ClusterRole**.
+API endpoints are documented in [Authentication resources](../../references/auth-resources.md). The resources and verbs in this document should be used for creating API objects **Role** or **ClusterRole**.
 
 ## Login
 
@@ -129,7 +129,7 @@ flightctl login https://flightctl.example.com --token=$TOKEN
 
 ## Related Documentation
 
-- [Authentication Overview](authentication-overview.md) - Overview of all authentication methods
-- [API Resources](auth-resources.md) - Authorization reference and API endpoints
+- [Authentication Overview](overview.md) - Overview of all authentication methods
+- [API Resources](../../references/auth-resources.md) - Authorization reference and API endpoints
 - [Organizations](organizations.md) - Multi-tenancy configuration
-- [OpenShift Authentication](openshift-auth.md) - For OpenShift deployments
+- [OpenShift Authentication](auth-openshift.md) - For OpenShift deployments
