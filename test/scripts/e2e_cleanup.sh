@@ -73,4 +73,49 @@ else
     echo "⚠️  [Cleanup] Failed to search for temporary directories"
 fi
 
+# Step 3b: Global cleanup of EnrollmentRequests...
+echo "🔄 [Test Execution] Step 3b: Cleaning up leftover EnrollmentRequests..."
+
+if [ -x "${FLIGHTCTL_BIN}" ]; then
+    # Returns lines like: enrollmentrequest/<name>
+    ERS="$(${FLIGHTCTL_BIN} get er -o name 2>/dev/null || true)"
+
+    if [ -n "${ERS}" ]; then
+        echo "Found EnrollmentRequests to evaluate:"
+        echo "${ERS}"
+
+        # Process each ER name one-by-one
+        echo "${ERS}" | sed 's!.*/!!' | while IFS= read -r ername; do
+            # Skip empty lines
+            [ -z "${ername}" ] && continue
+
+            # Check if a Device with the same name exists. If it does, skip ER deletion.
+            if ${FLIGHTCTL_BIN} get device "${ername}" -o name >/dev/null 2>&1; then
+                echo "Skipping deletion of EnrollmentRequest '${ername}': device exists"
+                continue
+            fi
+
+            # Attempt deletion of the ER. Treat "device exists" as non-fatal (race).
+            if output="$(${FLIGHTCTL_BIN} delete er "${ername}" 2>&1)"; then
+                echo "Deleted EnrollmentRequest '${ername}'"
+            else
+                # If a race occurred and the server reports device exists, skip; otherwise surface the error.
+                if echo "${output}" | grep -qi "device exists"; then
+                    echo "Skipping EnrollmentRequest '${ername}': server reports device exists (race)"
+                    continue
+                fi
+                echo "Error deleting EnrollmentRequest '${ername}': ${output}"
+                exit 1
+            fi
+        done
+    else
+        echo "No EnrollmentRequests found, nothing to delete."
+    fi
+else
+    echo "⚠️  flightctl binary not found at ${FLIGHTCTL_BIN}, skipping EnrollmentRequest cleanup."
+fi
+
+# Exit with the test exit code
 echo "✅ [Cleanup] Global test cleanup completed"
+exit $TEST_EXIT_CODE
+
