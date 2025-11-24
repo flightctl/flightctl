@@ -31,7 +31,7 @@ import (
 	"github.com/flightctl/flightctl/internal/org/cache"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
-	fclog "github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/sirupsen/logrus"
@@ -155,14 +155,14 @@ func main() {
 	// Load configuration
 	cfg, err := config.LoadOrGenerate(config.ConfigFile())
 	if err != nil {
-		logger := fclog.InitLogs()
-		logger.Fatalf("Failed to load configuration: %v", err)
+		log.InitLogs().WithError(err).Fatal("Failed to load configuration")
 	}
 
-	// Initialize logging with level from config
-	logger := fclog.InitLogs(cfg.Service.LogLevel)
+	// Initialize logging
+	logger := log.InitLogs(cfg.Service.LogLevel)
 	logger.Println("Starting Alertmanager Proxy service")
 	defer logger.Println("Alertmanager Proxy service stopped")
+	logger.Infof("Using config: %s", cfg)
 
 	// Initialize CA and TLS certificates (following same pattern as API server)
 	ca, _, err := crypto.EnsureCA(cfg.CA)

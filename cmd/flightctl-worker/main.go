@@ -37,9 +37,9 @@ func main() {
 func runCmd(cfg *config.Config) error {
 	logger := log.InitLogs(cfg.Service.LogLevel)
 
-	logger.Infof("Using config: %s", cfg)
 	logger.Info("Starting worker service")
 	defer logger.Info("Worker service stopped")
+	logger.Infof("Using config: %s", cfg)
 
 	// Single context with signal handling - OS signal cancels context
 	ctx, cancel := signal.NotifyContext(context.Background(),

@@ -33,7 +33,7 @@ import (
 func main() {
 	cfg, err := config.LoadOrGenerate(config.ConfigFile())
 	if err != nil {
-		log.InitLogs().WithError(err).Fatalf("reading configuration")
+		log.InitLogs().WithError(err).Fatal("reading configuration")
 	}
 
 	if err = runCmd(cfg); err != nil {
@@ -74,7 +74,6 @@ func runCmd(cfg *config.Config) error {
 		logger.Info("Cleanup completed")
 	}()
 
-	// Setup configuration
 	apiCfg, err := setupConfiguration(ctx, cfg, logger)
 	if err != nil {
 		return err

@@ -22,7 +22,7 @@ func main() {
 		log.InitLogs().WithError(err).Fatal("reading configuration")
 	}
 
-	log := log.InitLogs(cfg.Service.LogLevel)
+	logger := log.InitLogs(cfg.Service.LogLevel)
 
 	dryRun := flag.Bool("dry-run", false, "Validate migrations without committing any changes")
 	flag.Parse()
@@ -35,45 +35,45 @@ func main() {
 	if *dryRun {
 		startMsg += " in dry-run mode"
 	}
-	log.Info(startMsg)
-	defer log.Info("Flight Control database migration completed")
+	logger.Info(startMsg)
+	defer logger.Info("Flight Control database migration completed")
 
-	log.Infof("Using config: %s", cfg)
+	logger.Infof("Using config: %s", cfg)
 
-	tracerShutdown := tracing.InitTracer(log, cfg, "flightctl-db-migrate")
+	tracerShutdown := tracing.InitTracer(logger, cfg, "flightctl-db-migrate")
 	defer func() {
 		if err = tracerShutdown(ctx); err != nil {
-			log.WithError(err).Fatal("failed to shut down tracer")
+			logger.WithError(err).Fatal("failed to shut down tracer")
 		}
 	}()
 
-	log.Info("Initializing migration database connection")
-	migrationDB, err := store.InitMigrationDB(cfg, log)
+	logger.Info("Initializing migration database connection")
+	migrationDB, err := store.InitMigrationDB(cfg, logger)
 	if err != nil {
-		log.WithError(err).Fatal("initializing migration database")
+		logger.WithError(err).Fatal("initializing migration database")
 	}
-	if log.IsLevelEnabled(logrus.DebugLevel) {
+	if logger.IsLevelEnabled(logrus.DebugLevel) {
 		migrationDB = migrationDB.Debug()
 	}
 	defer func() {
 		if sqlDB, err := migrationDB.DB(); err != nil {
-			log.WithError(err).Warn("failed to get database connection for cleanup")
+			logger.WithError(err).Warn("failed to get database connection for cleanup")
 		} else {
 			if err := sqlDB.Close(); err != nil {
-				log.WithError(err).Warn("failed to close database connection")
+				logger.WithError(err).Warn("failed to close database connection")
 			}
 		}
 	}()
 
 	if *dryRun {
-		log.Info("Dry-run mode enabled: changes will be rolled back after validation")
+		logger.Info("Dry-run mode enabled: changes will be rolled back after validation")
 	} else {
-		log.Info("Running database migrations with migration user")
+		logger.Info("Running database migrations with migration user")
 	}
 	// Run all schema changes atomically so that a failure leaves the DB unchanged.
 	if err = migrationDB.Transaction(func(tx *gorm.DB) error {
 		// Create a temporary store bound to the transaction and run migrations
-		if err = store.NewStore(tx, log.WithFields(logrus.Fields{
+		if err = store.NewStore(tx, logger.WithFields(logrus.Fields{
 			"pkg":     "migration-store-tx",
 			"dry_run": *dryRun,
 		})).RunMigrations(ctx); err != nil {
@@ -85,11 +85,11 @@ func main() {
 		return nil // commit
 	}); err != nil {
 		if errors.Is(err, errDryRunComplete) {
-			log.Info("Dry-run completed successfully; no changes were committed.")
+			logger.Info("Dry-run completed successfully; no changes were committed.")
 			return
 		}
-		log.WithError(err).Fatal("running database migrations")
+		logger.WithError(err).Fatal("running database migrations")
 	}
 
-	log.Info("Database migration completed successfully")
+	logger.Info("Database migration completed successfully")
 }

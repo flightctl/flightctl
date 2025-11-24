@@ -21,7 +21,7 @@ func main() {
 		log.InitLogs().WithError(err).Fatal("reading configuration")
 	}
 
-	if err = runCmd(cfg); err != nil {
+	if err := runCmd(cfg); err != nil {
 		log.InitLogs().WithError(err).Fatal("Periodic service error")
 	}
 }

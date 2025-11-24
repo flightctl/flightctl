@@ -17,7 +17,7 @@ import (
 func main() {
 	cfg, err := config.LoadOrGenerate(config.ConfigFile())
 	if err != nil {
-		log.InitLogs().WithError(err).Fatal("reading configuration")
+		log.InitLogs().WithError(err).Fatal("error reading configuration")
 	}
 
 	if err = runCmd(cfg); err != nil {
