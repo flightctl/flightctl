@@ -13,7 +13,6 @@ Volume=/usr/share/flightctl/flightctl-cli-artifacts:/config-source:ro,z
 Volume=/etc/flightctl/flightctl-cli-artifacts:/config-destination:rw,z
 Volume=/etc/flightctl/pki:/certs-source:ro,z
 Volume=flightctl-cli-artifacts-certs:/certs-destination:rw,z
-Volume=/etc/flightctl/service-config.yaml:/config-source/service-config.yaml:ro,z
 Exec=/bin/sh /config-source/init.sh
 
 [Service]

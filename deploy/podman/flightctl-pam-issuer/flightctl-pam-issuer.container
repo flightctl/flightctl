@@ -11,7 +11,8 @@ Pull=newer
 Network=flightctl.network
 
 PublishPort=8444:8444
-Volume=/etc/flightctl/pki:/root/.flightctl/certs:ro,z
+Volume=/etc/flightctl/pam-issuer-pki:/root/.flightctl/certs:rw,z
+Volume=/etc/flightctl/pki:/root/.flightctl/server-certs:ro,z
 Volume=flightctl-pam-issuer-etc:/etc:rw
 Volume=/etc/flightctl/flightctl-pam-issuer/config.yaml:/root/.flightctl/config.yaml:ro,z
 

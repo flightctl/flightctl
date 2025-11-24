@@ -97,7 +97,10 @@ func TestServerCertificates(t *testing.T) {
 			name: "provided cert file is invalid",
 			setup: func(t *testing.T, cfg *config.Config) {
 				initTmpCerts(t, cfg.Service.CertStore, "provided")
-				os.WriteFile(filepath.Join(cfg.Service.CertStore, "invalid.crt"), []byte("invalid"), 0600)
+				err := os.WriteFile(filepath.Join(cfg.Service.CertStore, "invalid.crt"), []byte("invalid"), 0600)
+				if err != nil {
+					t.Fatalf("failed to write certificate file: %v", err)
+				}
 				cfg.Service.SrvCertFile = filepath.Join(cfg.Service.CertStore, "invalid.crt")
 			},
 			expectedErr: ErrReadingProvidedCerts,

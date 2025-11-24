@@ -35,15 +35,14 @@ openssl req -new -key "${CERT_DIR}/server.key" -out "${CERT_DIR}/server.csr" -su
 openssl x509 -req -days 365 -in "${CERT_DIR}/server.csr" -CA "${CERT_DIR}/ca.crt" -CAkey "${CERT_DIR}/ca.key" -CAcreateserial -out "${CERT_DIR}/server.crt" -extfile <(printf "subjectAltName=IP:${BASE_DOMAIN}")
 
 # Copy the server cert and key to /etc/flightctl/pki
-sudo mkdir -p /etc/flightctl/pki/custom
-sudo cp "${CERT_DIR}/server.crt" "${CERT_DIR}/server.key" /etc/flightctl/pki/custom/
+sudo mkdir -p /etc/flightctl/pki
+sudo cp "${CERT_DIR}/server.crt" "${CERT_DIR}/server.key" /etc/flightctl/pki/
 
-# Copy the ca cert to /etc/flightctl/pki/custom/auth/ca.crt
-sudo mkdir -p /etc/flightctl/pki/custom/auth
-sudo cp "${CERT_DIR}/ca.crt" /etc/flightctl/pki/custom/auth/ca.crt
+# Copy the ca cert to /etc/flightctl/pki/ca.crt
+sudo mkdir -p /etc/flightctl/pki/auth
+sudo cp "${CERT_DIR}/ca.crt" /etc/flightctl/pki/auth/ca.crt
 
-# Write service-config.yaml so custom certs are used
-sudo yq eval -i '.global.baseDomainTls.customServerCerts = true' "${CONFIG_FILE}"
-sudo yq eval -i '.global.auth.customCaCert = true' "${CONFIG_FILE}"
+# Write service-config.yaml so auth caCert is used
+sudo yq eval -i '.global.auth.caCert = true' "${CONFIG_FILE}"
 
-echo "Standalone certificates created and copied to /etc/flightctl/pki/custom"
+echo "Standalone certificates created and copied to /etc/flightctl/pki"

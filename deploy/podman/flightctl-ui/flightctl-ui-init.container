@@ -11,7 +11,6 @@ Volume=/usr/share/flightctl/init_utils.sh:/utils/init_utils.sh:ro,z
 Volume=/usr/share/flightctl/flightctl-ui/init.sh:/config-source/init.sh:ro,Z
 Volume=/etc/flightctl/pki:/certs-source:ro,z
 Volume=flightctl-ui-certs:/certs-destination:rw,z
-Volume=/etc/flightctl/service-config.yaml:/config-source/service-config.yaml:ro,z
 Exec=/bin/sh /config-source/init.sh
 
 [Service]
