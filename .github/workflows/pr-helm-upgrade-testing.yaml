@@ -204,14 +204,13 @@ jobs:
           CHART_FILE="artifacts-pr/flightctl-chart.tgz"
           VALUES_FILE="./deploy/helm/flightctl/values.dev.yaml"
           
-          echo "Extracting image values from chart..."
+          # Preserve image names and tags from the packaged chart, avoid being overriden by values.dev.yaml
+          
           helm show values "${CHART_FILE}" \
             | yq -o=props \
             | grep -v '^#' \
             | grep -E '\.image\.(image|tag)\s*=' \
             | yq -p=props > image-values.yaml
-          
-          echo "Appending telemetryGateway image configuration..."
           cat >> image-values.yaml << EOF
           
           telemetryGateway:
@@ -220,7 +219,6 @@ jobs:
               tag: ""
           EOF
           
-          echo "Final image-values.yaml:"
           cat image-values.yaml
           
           echo ""
@@ -250,7 +248,7 @@ jobs:
             --values "${VALUES_FILE}" \
             --values image-values.yaml \
             --set global.baseDomain=${BASE_DOMAIN} \
-            --debug --wait
+            --debug --wait # for deployment to be complete, including passing readiness probes
 
       - name: "[HEAD] Check deployment"
         run: |
@@ -297,6 +295,36 @@ jobs:
       - name: "[HEAD] Run baseline simulator (backward compat)"
         run: |
           bin-baseline-sim/devicesimulator --config bin/agent/etc/flightctl/config.yaml --count 10 --stop-after 1m
+
+      - name: "[HEAD] Helm upgrade - to the same version"
+        env:
+          BASE_DOMAIN: ${{ steps.get-ip.outputs.base-domain }}
+        run: |
+          CHART_FILE="artifacts-pr/flightctl-chart.tgz"
+          VALUES_FILE="./deploy/helm/flightctl/values.dev.yaml"
+
+          helm upgrade flightctl "${CHART_FILE}" \
+            --namespace flightctl-external \
+            --values "${VALUES_FILE}" \
+            --values image-values.yaml \
+            --set global.baseDomain=${BASE_DOMAIN} \
+            --debug --wait
+
+      - name: "[HEAD] Validate versions"
+        env:
+          EXPECTED_CLIENT_TAG: ${{ needs.build-pr.outputs.cli_git_tag }}
+          EXPECTED_SERVER_TAG: ${{ needs.build-pr.outputs.git_tag }}
+        run: |
+          set -euo pipefail
+          CLIENT_VERSION=$(./bin-pr/flightctl version | grep "Client Version:" | awk '{print $3}')
+          SERVER_VERSION=$(./bin-pr/flightctl version | grep "Server Version:" | awk '{print $3}')
+          
+          [ "${CLIENT_VERSION}" = "${EXPECTED_CLIENT_TAG}" ] || { echo "Client version mismatch: ${CLIENT_VERSION} != ${EXPECTED_CLIENT_TAG}"; exit 1; }
+          [ "${SERVER_VERSION}" = "${EXPECTED_SERVER_TAG}" ] || { echo "Server version mismatch: ${SERVER_VERSION} != ${EXPECTED_SERVER_TAG}"; exit 1; }
+          
+          echo "✓ Versions validated: Client=${CLIENT_VERSION}, Server=${SERVER_VERSION}"
+          
+          ./bin-pr/flightctl get dev 
 
       - name: Collect and Upload Logs
         if: always()

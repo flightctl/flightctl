@@ -144,7 +144,6 @@ VALUES_ARG=""
 if [ -z "$NO_VALUES" ]; then
   VALUES_ARG="--values ${VALUES_PATH}"
 fi
-helm dependency build ./deploy/helm/flightctl
 
 helm upgrade --install --namespace flightctl-external \
                   ${VALUES_ARG} \

@@ -47,14 +47,21 @@ jobs:
           # This temporarily overlays .github actions, Makefile, and deployment scripts
           # from the PR branch to build and test baseline against PR changes.
           
-          echo "Fetching PR branch: ${{ github.ref }}"
-          git fetch origin ${{ github.ref }}
+          # For PRs from forks, we need to add the fork as a remote
+          if [ -n "${{ github.event.pull_request.head.repo.clone_url || '' }}" ]; then
+            echo "PR from fork detected: ${{ github.event.pull_request.head.repo.full_name || 'unknown' }}"
+            git remote add pr-fork "${{ github.event.pull_request.head.repo.clone_url }}"
+            git fetch pr-fork "${{ github.event.pull_request.head.sha }}"
+          else
+            echo "Fetching PR commit: ${{ github.sha }}"
+            git fetch origin "${{ github.sha }}"
+          fi
           
-          echo "Checking out required files from PR branch..."
+          echo "Checking out required files from PR..."
           git checkout FETCH_HEAD -- .github/
           git checkout FETCH_HEAD -- Makefile
           
-          echo "Files successfully overlaid from PR branch"
+          echo "Files successfully overlaid from PR"
           git status --short
 
       - name: Compute tag
@@ -142,13 +149,20 @@ jobs:
           
           # TODO: Remove this step once these changes are merged to main.
           
-          echo "Fetching PR branch: ${{ github.ref }}"
-          git fetch origin ${{ github.ref }}
+          # For PRs from forks, we need to add the fork as a remote
+          if [ -n "${{ github.event.pull_request.head.repo.clone_url || '' }}" ]; then
+            echo "PR from fork detected: ${{ github.event.pull_request.head.repo.full_name || 'unknown' }}"
+            git remote add pr-fork "${{ github.event.pull_request.head.repo.clone_url }}"
+            git fetch pr-fork "${{ github.event.pull_request.head.sha }}"
+          else
+            echo "Fetching PR commit: ${{ github.sha }}"
+            git fetch origin "${{ github.sha }}"
+          fi
           
-          echo "Checking out required files from PR branch..."
+          echo "Checking out required files from PR..."
           git checkout FETCH_HEAD -- .github/
           
-          echo "Files successfully overlaid from PR branch"
+          echo "Files successfully overlaid from PR"
 
       - name: Compute tag
         id: compute-tag
@@ -203,14 +217,21 @@ jobs:
           
           # TODO: Remove this step once these changes are merged to main.
           
-          echo "Fetching PR branch: ${{ github.ref }}"
-          git fetch origin ${{ github.ref }}
+          # For PRs from forks, we need to add the fork as a remote
+          if [ -n "${{ github.event.pull_request.head.repo.clone_url || '' }}" ]; then
+            echo "PR from fork detected: ${{ github.event.pull_request.head.repo.full_name || 'unknown' }}"
+            git remote add pr-fork "${{ github.event.pull_request.head.repo.clone_url }}"
+            git fetch pr-fork "${{ github.event.pull_request.head.sha }}"
+          else
+            echo "Fetching PR commit: ${{ github.sha }}"
+            git fetch origin "${{ github.sha }}"
+          fi
           
-          echo "Checking out required files from PR branch..."
+          echo "Checking out required files from PR..."
           git checkout FETCH_HEAD -- .github/
           git checkout FETCH_HEAD -- Makefile
           
-          echo "Files successfully overlaid from PR branch"
+          echo "Files successfully overlaid from PR"
 
       - name: Compute tag
         id: compute-tag
@@ -269,14 +290,21 @@ jobs:
           
           # TODO: Remove this step once these changes are merged to main.
           
-          echo "Fetching PR branch: ${{ github.ref }}"
-          git fetch origin ${{ github.ref }}
+          # For PRs from forks, we need to add the fork as a remote
+          if [ -n "${{ github.event.pull_request.head.repo.clone_url || '' }}" ]; then
+            echo "PR from fork detected: ${{ github.event.pull_request.head.repo.full_name || 'unknown' }}"
+            git remote add pr-fork "${{ github.event.pull_request.head.repo.clone_url }}"
+            git fetch pr-fork "${{ github.event.pull_request.head.sha }}"
+          else
+            echo "Fetching PR commit: ${{ github.sha }}"
+            git fetch origin "${{ github.sha }}"
+          fi
           
-          echo "Checking out required files from PR branch..."
+          echo "Checking out required files from PR..."
           git checkout FETCH_HEAD -- .github/
           git checkout FETCH_HEAD -- Makefile
           
-          echo "Files successfully overlaid from PR branch"
+          echo "Files successfully overlaid from PR"
 
       - name: Compute tag
         id: compute-tag
