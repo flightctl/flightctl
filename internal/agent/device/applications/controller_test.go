@@ -47,6 +47,10 @@ func TestParseAppProviders(t *testing.T) {
 				mockExecuter *executer.MockExecuter,
 				imageConfig string,
 			) {
+				mockExecuter.EXPECT().
+					ExecuteWithContext(gomock.Any(), "podman", "image", "exists", gomock.Any()).
+					Return("", "", 0).
+					AnyTimes()
 				gomock.InOrder(
 					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(imageConfig, "", 0),
 					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "unshare", "podman", "image", "mount", gomock.Any()).Return("/mount", "", 0),
@@ -66,6 +70,10 @@ func TestParseAppProviders(t *testing.T) {
 				mockExecuter *executer.MockExecuter,
 				imageConfig string,
 			) {
+				mockExecuter.EXPECT().
+					ExecuteWithContext(gomock.Any(), "podman", "image", "exists", gomock.Any()).
+					Return("", "", 0).
+					AnyTimes()
 				gomock.InOrder(
 					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(imageConfig, "", 0),
 				)
@@ -82,6 +90,10 @@ func TestParseAppProviders(t *testing.T) {
 				mockExecuter *executer.MockExecuter,
 				imageConfig string,
 			) {
+				mockExecuter.EXPECT().
+					ExecuteWithContext(gomock.Any(), "podman", "image", "exists", gomock.Any()).
+					Return("", "", 0).
+					AnyTimes()
 				gomock.InOrder(
 					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(imageConfig, "", 0),
 				)
@@ -96,6 +108,10 @@ func TestParseAppProviders(t *testing.T) {
 				mockExecuter *executer.MockExecuter,
 				imageConfig string,
 			) {
+				mockExecuter.EXPECT().
+					ExecuteWithContext(gomock.Any(), "podman", "image", "exists", gomock.Any()).
+					Return("", "", 0).
+					AnyTimes()
 				gomock.InOrder(
 					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(imageConfig, "", 0),
 					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "unshare", "podman", "image", "mount", gomock.Any()).Return("/mount", "", 0),
@@ -124,6 +140,10 @@ func TestParseAppProviders(t *testing.T) {
 				mockExecuter *executer.MockExecuter,
 				imageConfig string,
 			) {
+				mockExecuter.EXPECT().
+					ExecuteWithContext(gomock.Any(), "podman", "image", "exists", gomock.Any()).
+					Return("", "", 0).
+					AnyTimes()
 				gomock.InOrder(
 					// inspect all apps first
 					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(imageConfig, "", 0),
@@ -306,6 +326,10 @@ func TestControllerSync(t *testing.T) {
 				mockAppManager *MockManager,
 				mockExecuter *executer.MockExecuter,
 			) {
+				mockExecuter.EXPECT().
+					ExecuteWithContext(gomock.Any(), "podman", "image", "exists", gomock.Any()).
+					Return("", "", 0).
+					AnyTimes()
 				gomock.InOrder(
 					// inspect to get app type from image labels
 					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", app1Image).Return(app1Labels, "", 0),
@@ -348,7 +372,10 @@ func TestControllerSync(t *testing.T) {
 				mockAppManager *MockManager,
 				mockExecuter *executer.MockExecuter,
 			) {
-
+				mockExecuter.EXPECT().
+					ExecuteWithContext(gomock.Any(), "podman", "image", "exists", gomock.Any()).
+					Return("", "", 0).
+					AnyTimes()
 				gomock.InOrder(
 					// rendered version 1 -> 2
 					// inspect to get app type from image labels
@@ -421,6 +448,10 @@ func TestControllerSync(t *testing.T) {
 				mockAppManager *MockManager,
 				mockExecuter *executer.MockExecuter,
 			) {
+				mockExecuter.EXPECT().
+					ExecuteWithContext(gomock.Any(), "podman", "image", "exists", gomock.Any()).
+					Return("", "", 0).
+					AnyTimes()
 				gomock.InOrder(
 					// initial deployment app1 and app2
 					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", app1Image).Return(app1Labels, "", 0), // inspect desired app1
