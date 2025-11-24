@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
@@ -39,7 +39,7 @@ type quadletHandler struct {
 	name           string
 	rw             fileio.ReadWriter
 	volumeProvider volumeProvider
-	specVolumes    []v1alpha1.ApplicationVolume
+	specVolumes    []v1beta1.ApplicationVolume
 }
 
 func (b *quadletHandler) Dependencies() []string {
@@ -86,7 +86,7 @@ type composeHandler struct {
 	rw          fileio.ReadWriter
 	log         *log.PrefixLogger
 	vm          VolumeManager
-	specVolumes []v1alpha1.ApplicationVolume
+	specVolumes []v1beta1.ApplicationVolume
 }
 
 func (b *composeHandler) Dependencies() []string {
@@ -133,7 +133,7 @@ type containerHandler struct {
 	name   string
 	rw     fileio.ReadWriter
 	podman *client.Podman
-	spec   *v1alpha1.ImageApplicationProviderSpec
+	spec   *v1beta1.ImageApplicationProviderSpec
 }
 
 func (b *containerHandler) Dependencies() []string {
@@ -149,7 +149,7 @@ func (b *containerHandler) Verify(ctx context.Context, path string) error {
 		switch volType {
 		// mount and image_mount are supported to allow creating volumes within containers. The regular image provider
 		// is not allowed as it does not specify where is should be mounted.
-		case v1alpha1.MountApplicationVolumeProviderType, v1alpha1.ImageMountApplicationVolumeProviderType:
+		case v1beta1.MountApplicationVolumeProviderType, v1beta1.ImageMountApplicationVolumeProviderType:
 			break
 		default:
 			return fmt.Errorf("%w: container %s", errors.ErrUnsupportedVolumeType, volType)
@@ -185,13 +185,13 @@ func (b *containerHandler) Volumes() ([]*Volume, error) {
 	return nil, nil
 }
 
-func ensureImageVolumes(vols []v1alpha1.ApplicationVolume) error {
+func ensureImageVolumes(vols []v1beta1.ApplicationVolume) error {
 	for _, vol := range vols {
 		volType, err := vol.Type()
 		if err != nil {
 			return fmt.Errorf("volume type: %w", err)
 		}
-		if volType != v1alpha1.ImageApplicationVolumeProviderType {
+		if volType != v1beta1.ImageApplicationVolumeProviderType {
 			return fmt.Errorf("%w: %s", errors.ErrUnsupportedVolumeType, volType)
 		}
 	}

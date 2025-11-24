@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/kvstore"
@@ -92,9 +92,9 @@ func benchmarkUpdateSummaryStatusBatch(ctx context.Context, b *testing.B, log *l
 }
 
 func resetDeviceStatus(ctx context.Context, db *gorm.DB, deviceNames []string) error {
-	status := v1alpha1.NewDeviceStatus()
+	status := v1beta1.NewDeviceStatus()
 	status.LastSeen = lo.ToPtr(time.Now().Add(-10 * time.Minute))
-	status.Summary.Status = v1alpha1.DeviceSummaryStatusOnline
+	status.Summary.Status = v1beta1.DeviceSummaryStatusOnline
 	err := db.WithContext(ctx).Transaction(func(innerTx *gorm.DB) (err error) {
 		for _, name := range deviceNames {
 			result := innerTx.Model(&model.Device{}).Where("name = ?", name).Update("status", status)
@@ -110,17 +110,17 @@ func resetDeviceStatus(ctx context.Context, db *gorm.DB, deviceNames []string) e
 	return db.WithContext(ctx).Exec("VACUUM").Error
 }
 
-func generateMockDevices(count int) []v1alpha1.Device {
-	devices := make([]v1alpha1.Device, count)
-	status := v1alpha1.NewDeviceStatus()
+func generateMockDevices(count int) []v1beta1.Device {
+	devices := make([]v1beta1.Device, count)
+	status := v1beta1.NewDeviceStatus()
 	status.LastSeen = lo.ToPtr(time.Now().Add(-10 * time.Minute))
-	status.Summary.Status = v1alpha1.DeviceSummaryStatusOnline
+	status.Summary.Status = v1beta1.DeviceSummaryStatusOnline
 	for i := 0; i < count; i++ {
-		devices[i] = v1alpha1.Device{
-			Metadata: v1alpha1.ObjectMeta{
+		devices[i] = v1beta1.Device{
+			Metadata: v1beta1.ObjectMeta{
 				Name: lo.ToPtr(fmt.Sprintf("device-%d", i)),
 			},
-			Spec: &v1alpha1.DeviceSpec{},
+			Spec: &v1beta1.DeviceSpec{},
 
 			Status: &status,
 		}
@@ -128,7 +128,7 @@ func generateMockDevices(count int) []v1alpha1.Device {
 	return devices
 }
 
-func batchCreateDevices(ctx context.Context, db *gorm.DB, devices []v1alpha1.Device, batchSize int) error {
+func batchCreateDevices(ctx context.Context, db *gorm.DB, devices []v1beta1.Device, batchSize int) error {
 	for i := 0; i < len(devices); i += batchSize {
 		end := i + batchSize
 		if end > len(devices) {
@@ -142,7 +142,7 @@ func batchCreateDevices(ctx context.Context, db *gorm.DB, devices []v1alpha1.Dev
 	return nil
 }
 
-func batchCreateDeviceTransaction(ctx context.Context, db *gorm.DB, devices []v1alpha1.Device) error {
+func batchCreateDeviceTransaction(ctx context.Context, db *gorm.DB, devices []v1beta1.Device) error {
 	return db.WithContext(ctx).Transaction(func(innerTx *gorm.DB) (err error) {
 		for _, device := range devices {
 			deviceCopy := device

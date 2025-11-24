@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -26,7 +26,7 @@ func TestImageProvider(t *testing.T) {
 	tests := []struct {
 		name          string
 		image         string
-		spec          *v1alpha1.ApplicationProviderSpec
+		spec          *v1beta1.ApplicationProviderSpec
 		composeSpec   string
 		labels        map[string]string
 		setupMocks    func(*executer.MockExecuter, string)
@@ -36,7 +36,7 @@ func TestImageProvider(t *testing.T) {
 			name:   "missing appType label",
 			image:  appImage,
 			labels: map[string]string{},
-			spec: &v1alpha1.ApplicationProviderSpec{
+			spec: &v1beta1.ApplicationProviderSpec{
 				Name: lo.ToPtr("app"),
 			},
 			composeSpec: util.NewComposeSpec(),
@@ -57,7 +57,7 @@ func TestImageProvider(t *testing.T) {
 			labels: map[string]string{
 				AppTypeLabel: "invalid",
 			},
-			spec: &v1alpha1.ApplicationProviderSpec{
+			spec: &v1beta1.ApplicationProviderSpec{
 				Name: lo.ToPtr("app"),
 			},
 			composeSpec: util.NewComposeSpec(),
@@ -76,9 +76,9 @@ func TestImageProvider(t *testing.T) {
 			name:  "appType compose with valid env",
 			image: appImage,
 			labels: map[string]string{
-				AppTypeLabel: string(v1alpha1.AppTypeCompose),
+				AppTypeLabel: string(v1beta1.AppTypeCompose),
 			},
-			spec: &v1alpha1.ApplicationProviderSpec{
+			spec: &v1beta1.ApplicationProviderSpec{
 				Name: lo.ToPtr("app"),
 				EnvVars: lo.ToPtr(map[string]string{
 					"FOO": "bar",
@@ -104,9 +104,9 @@ func TestImageProvider(t *testing.T) {
 			name:  "appType compose with invalid env",
 			image: appImage,
 			labels: map[string]string{
-				AppTypeLabel: string(v1alpha1.AppTypeCompose),
+				AppTypeLabel: string(v1beta1.AppTypeCompose),
 			},
-			spec: &v1alpha1.ApplicationProviderSpec{
+			spec: &v1beta1.ApplicationProviderSpec{
 				Name: lo.ToPtr("app"),
 				EnvVars: lo.ToPtr(map[string]string{
 					"!nvalid": "bar",
@@ -128,9 +128,9 @@ func TestImageProvider(t *testing.T) {
 			name:  "appType compose with invalid hardcoded container name",
 			image: appImage,
 			labels: map[string]string{
-				AppTypeLabel: string(v1alpha1.AppTypeCompose),
+				AppTypeLabel: string(v1beta1.AppTypeCompose),
 			},
-			spec: &v1alpha1.ApplicationProviderSpec{
+			spec: &v1beta1.ApplicationProviderSpec{
 				Name: lo.ToPtr("app"),
 			},
 			composeSpec: `version: "3.8"
@@ -155,9 +155,9 @@ services:
 			name:  "appType compose with no services",
 			image: appImage,
 			labels: map[string]string{
-				AppTypeLabel: string(v1alpha1.AppTypeCompose),
+				AppTypeLabel: string(v1beta1.AppTypeCompose),
 			},
-			spec: &v1alpha1.ApplicationProviderSpec{
+			spec: &v1beta1.ApplicationProviderSpec{
 				Name: lo.ToPtr("app"),
 			},
 			composeSpec: `version: "3.8"
@@ -195,7 +195,7 @@ image: quay.io/flightctl-tests/alpine:v1`,
 			require.NoError(err)
 			podman := client.NewPodman(log, mockExec, rw, util.NewPollConfig())
 
-			spec := v1alpha1.ImageApplicationProviderSpec{
+			spec := v1beta1.ImageApplicationProviderSpec{
 				Image: tt.image,
 			}
 			provider := tt.spec

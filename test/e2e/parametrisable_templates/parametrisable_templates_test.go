@@ -3,7 +3,7 @@ package parametrisabletemplates
 import (
 	"fmt"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
@@ -38,14 +38,14 @@ var _ = Describe("Template variables in the device configuraion", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Check that the device status is Online")
-			_, err = harness.CheckDeviceStatus(deviceId, v1alpha1.DeviceSummaryStatusOnline)
+			_, err = harness.CheckDeviceStatus(deviceId, v1beta1.DeviceSummaryStatusOnline)
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Add the fleet selector and the team label to the device")
 			nextRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())
 
-			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
 				harness.SetLabelsForDeviceMetadata(&device.Metadata, map[string]string{
 					fleetSelectorKey: fleetSelectorValue,
 					teamLabelKey:     teamLabelValue,
@@ -86,7 +86,7 @@ var _ = Describe("Template variables in the device configuraion", func() {
 				harness := e2e.GetWorkerHarness()
 
 				By("Check the device status is Online")
-				_, err := harness.CheckDeviceStatus(deviceId, v1alpha1.DeviceSummaryStatusOnline)
+				_, err := harness.CheckDeviceStatus(deviceId, v1beta1.DeviceSummaryStatusOnline)
 				Expect(err).ToNot(HaveOccurred())
 
 				By("Create a fleet with a template variable")
@@ -100,7 +100,7 @@ var _ = Describe("Template variables in the device configuraion", func() {
 				nextRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
 				Expect(err).ToNot(HaveOccurred())
 
-				err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+				err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
 
 					(*device.Metadata.Labels)[fleetSelectorKey] = fleetSelectorValue
 					GinkgoWriter.Printf("Updating %s with label %s=%s\n", deviceId,
@@ -110,18 +110,18 @@ var _ = Describe("Template variables in the device configuraion", func() {
 
 				By("Check the device will fail to reconcile")
 				harness.WaitForDeviceContents(deviceId, `The device could not be updated to the fleet`,
-					func(device *v1alpha1.Device) bool {
-						return device.Status.Updated.Status == v1alpha1.DeviceUpdatedStatusOutOfDate
+					func(device *v1beta1.Device) bool {
+						return device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusOutOfDate
 					}, testutil.TIMEOUT_5M)
 				resp, err := harness.Client.GetDeviceStatusWithResponse(harness.Context, deviceId)
 				Expect(err).ToNot(HaveOccurred())
 				device := resp.JSON200
 				Expect((*device.Metadata.Annotations)["fleet-controller/lastRolloutError"]).NotTo(BeNil())
-				Expect(device.Status.Updated.Status).To(Equal(v1alpha1.DeviceUpdatedStatusOutOfDate))
+				Expect(device.Status.Updated.Status).To(Equal(v1beta1.DeviceUpdatedStatusOutOfDate))
 				Expect((*device.Metadata.Annotations)["fleet-controller/lastRolloutError"]).To(ContainSubstring("no entry for key \"team\""))
 
 				By("Add the team label to the device")
-				err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+				err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
 
 					(*device.Metadata.Labels)[teamLabelKey] = teamLabelValue
 					GinkgoWriter.Printf("Updating %s with label %s=%s\n", deviceId,
@@ -155,7 +155,7 @@ var _ = Describe("Template variables in the device configuraion", func() {
 				harness := e2e.GetWorkerHarness()
 
 				By("Check the device status")
-				_, err := harness.CheckDeviceStatus(deviceId, v1alpha1.DeviceSummaryStatusOnline)
+				_, err := harness.CheckDeviceStatus(deviceId, v1beta1.DeviceSummaryStatusOnline)
 				Expect(err).ToNot(HaveOccurred())
 
 				By("Create a git and a http repository")
@@ -180,24 +180,24 @@ var _ = Describe("Template variables in the device configuraion", func() {
 				httpConfigWithRepo := httpConfigvalid
 				httpConfigWithRepo.HttpRef.Repository = httpRepoName
 
-				httpConfigProviderSpec := v1alpha1.ConfigProviderSpec{}
+				httpConfigProviderSpec := v1beta1.ConfigProviderSpec{}
 				err = httpConfigProviderSpec.FromHttpConfigProviderSpec(httpConfigWithRepo)
 				Expect(err).ToNot(HaveOccurred())
 
-				gitConfigProviderSpec := v1alpha1.ConfigProviderSpec{}
+				gitConfigProviderSpec := v1beta1.ConfigProviderSpec{}
 				err = gitConfigProviderSpec.FromGitConfigProviderSpec(gitConfigWithRepo)
 				Expect(err).ToNot(HaveOccurred())
 
-				inlineConfigProviderSpec := v1alpha1.ConfigProviderSpec{}
+				inlineConfigProviderSpec := v1beta1.ConfigProviderSpec{}
 				err = inlineConfigProviderSpec.FromInlineConfigProviderSpec(inlineConfigValid)
 				Expect(err).ToNot(HaveOccurred())
 
-				configProviderSpec := []v1alpha1.ConfigProviderSpec{gitConfigProviderSpec, inlineConfigProviderSpec, httpConfigProviderSpec}
+				configProviderSpec := []v1beta1.ConfigProviderSpec{gitConfigProviderSpec, inlineConfigProviderSpec, httpConfigProviderSpec}
 
 				GinkgoWriter.Printf("this is the configProviderSpec %s\n", configProviderSpec)
 				deviceImage := fmt.Sprintf("%s/flightctl-device:{{ .metadata.labels.alias }}", harness.RegistryEndpoint())
 
-				var osImageSpec = v1alpha1.DeviceOsSpec{
+				var osImageSpec = v1beta1.DeviceOsSpec{
 					Image: deviceImage,
 				}
 
@@ -213,7 +213,7 @@ var _ = Describe("Template variables in the device configuraion", func() {
 				nextRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
 				Expect(err).ToNot(HaveOccurred())
 
-				err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+				err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
 
 					harness.SetLabelsForDeviceMetadata(&device.Metadata, map[string]string{
 						fleetSelectorKey: fleetSelectorValue,
@@ -259,7 +259,7 @@ var _ = Describe("Template variables in the device configuraion", func() {
 				nextGeneration, err := harness.PrepareNextDeviceGeneration(deviceId)
 				Expect(err).ToNot(HaveOccurred())
 
-				err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+				err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
 
 					(*device.Metadata.Labels)[revisionLabelKey] = branchTargetRevision
 					GinkgoWriter.Printf("Updating the device with label %s=%s\n", revisionLabelKey, branchTargetRevision)
@@ -277,11 +277,11 @@ var _ = Describe("Template variables in the device configuraion", func() {
 				nextRenderedVersion, err = harness.PrepareNextDeviceVersion(deviceId)
 				Expect(err).ToNot(HaveOccurred())
 
-				inlineConfigProviderSpec = v1alpha1.ConfigProviderSpec{}
+				inlineConfigProviderSpec = v1beta1.ConfigProviderSpec{}
 				err = inlineConfigProviderSpec.FromInlineConfigProviderSpec(inlineConfigValid)
 				Expect(err).ToNot(HaveOccurred())
 
-				deviceSpec.Config = &[]v1alpha1.ConfigProviderSpec{inlineConfigProviderSpec}
+				deviceSpec.Config = &[]v1beta1.ConfigProviderSpec{inlineConfigProviderSpec}
 
 				err = harness.CreateOrUpdateTestFleet(fleetTestName, testFleetSelector, deviceSpec)
 				Expect(err).ToNot(HaveOccurred())
@@ -294,7 +294,7 @@ var _ = Describe("Template variables in the device configuraion", func() {
 				Expect(err).ToNot(HaveOccurred())
 
 				GinkgoWriter.Printf("Removing %s labels\n", teamLabelKey)
-				err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+				err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
 					harness.SetLabelsForDeviceMetadata(&device.Metadata, map[string]string{
 						fleetSelectorKey: fleetSelectorValue,
 						aliasKey:         deviceAlias,
@@ -359,60 +359,60 @@ var (
 var mode = 0644
 var modePointer = &mode
 
-var inlineConfigSpec = v1alpha1.FileSpec{
+var inlineConfigSpec = v1beta1.FileSpec{
 	Path:    inlinePath,
 	Mode:    modePointer,
 	Content: inlineContent,
 }
 
-var inlineConfigWithFunctionSpec = v1alpha1.FileSpec{
+var inlineConfigWithFunctionSpec = v1beta1.FileSpec{
 	Path:    pathWithFunction,
 	Mode:    modePointer,
 	Content: contentWithFunction,
 }
 
-var configProviderSpec v1alpha1.ConfigProviderSpec
+var configProviderSpec v1beta1.ConfigProviderSpec
 
-var inlineConfigValid = v1alpha1.InlineConfigProviderSpec{
-	Inline: []v1alpha1.FileSpec{inlineConfigSpec},
+var inlineConfigValid = v1beta1.InlineConfigProviderSpec{
+	Inline: []v1beta1.FileSpec{inlineConfigSpec},
 	Name:   inlineConfigName,
 }
-var inlineConfigValidWithFunction = v1alpha1.InlineConfigProviderSpec{
-	Inline: []v1alpha1.FileSpec{inlineConfigWithFunctionSpec},
+var inlineConfigValidWithFunction = v1beta1.InlineConfigProviderSpec{
+	Inline: []v1beta1.FileSpec{inlineConfigWithFunctionSpec},
 	Name:   inlineConfigName,
 }
 
-var testFleetSelector = v1alpha1.LabelSelector{
+var testFleetSelector = v1beta1.LabelSelector{
 	MatchLabels: &map[string]string{fleetSelectorKey: fleetSelectorValue},
 }
 
-var deviceSpec v1alpha1.DeviceSpec
+var deviceSpec v1beta1.DeviceSpec
 
-var gitRepositorySpec v1alpha1.RepositorySpec
-var _ = gitRepositorySpec.FromGenericRepoSpec(v1alpha1.GenericRepoSpec{
+var gitRepositorySpec v1beta1.RepositorySpec
+var _ = gitRepositorySpec.FromGenericRepoSpec(v1beta1.GenericRepoSpec{
 	Url:  repoTestUrl,
-	Type: v1alpha1.Git,
+	Type: v1beta1.Git,
 })
 
-var gitMetadata = v1alpha1.ObjectMeta{
+var gitMetadata = v1beta1.ObjectMeta{
 	Name:   nil, // Will be set dynamically in test
 	Labels: &map[string]string{},
 }
 
-var httpRepoSpec = v1alpha1.HttpRepoSpec{
-	Type: v1alpha1.Http,
+var httpRepoSpec = v1beta1.HttpRepoSpec{
+	Type: v1beta1.Http,
 	Url:  repoTestUrl,
 }
 
-var httpRepositoryspec v1alpha1.RepositorySpec
+var httpRepositoryspec v1beta1.RepositorySpec
 
 var _ = httpRepositoryspec.FromHttpRepoSpec(httpRepoSpec)
 
-var httpRepoMetadata = v1alpha1.ObjectMeta{
+var httpRepoMetadata = v1beta1.ObjectMeta{
 	Name: nil, // Will be set dynamically in test
 }
 
-var gitConfigvalid = v1alpha1.GitConfigProviderSpec{
+var gitConfigvalid = v1beta1.GitConfigProviderSpec{
 	GitRef: struct {
 		Path           string `json:"path"`
 		Repository     string `json:"repository"`
@@ -425,7 +425,7 @@ var gitConfigvalid = v1alpha1.GitConfigProviderSpec{
 	Name: gitConfigName,
 }
 
-var httpConfigvalid = v1alpha1.HttpConfigProviderSpec{
+var httpConfigvalid = v1beta1.HttpConfigProviderSpec{
 	HttpRef: struct {
 		FilePath   string  `json:"filePath"`
 		Repository string  `json:"repository"`

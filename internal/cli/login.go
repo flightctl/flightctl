@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	apiClient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/cli/login"
 	"github.com/flightctl/flightctl/internal/client"
@@ -158,7 +158,7 @@ type LoginOptions struct {
 	Username           string
 	Password           string
 	Web                bool
-	authConfig         *v1alpha1.AuthConfig
+	authConfig         *v1beta1.AuthConfig
 	authProvider       login.AuthProvider
 	clientConfig       *client.Config
 }
@@ -313,7 +313,7 @@ func (o *LoginOptions) getAuthProvider(ctx context.Context) (login.AuthProvider,
 	if o.Provider != "" {
 		providerName = o.Provider
 	}
-	var provider *v1alpha1.AuthProvider
+	var provider *v1beta1.AuthProvider
 	for _, p := range *o.authConfig.Providers {
 		if p.Metadata.Name != nil && *p.Metadata.Name == providerName {
 			provider = &p
@@ -321,7 +321,7 @@ func (o *LoginOptions) getAuthProvider(ctx context.Context) (login.AuthProvider,
 		}
 	}
 	if provider == nil {
-		availableProviders := lo.Map(*o.authConfig.Providers, func(p v1alpha1.AuthProvider, _ int) string {
+		availableProviders := lo.Map(*o.authConfig.Providers, func(p v1beta1.AuthProvider, _ int) string {
 			return *p.Metadata.Name
 		})
 		availableProvidersStr := strings.Join(availableProviders, ", ")
@@ -406,7 +406,7 @@ func (o *LoginOptions) validateTokenWithServer(ctx context.Context, token string
 	defer cancel()
 
 	headerVal := "Bearer " + token
-	res, err := c.AuthValidateWithResponse(timeoutCtx, &v1alpha1.AuthValidateParams{Authorization: &headerVal})
+	res, err := c.AuthValidateWithResponse(timeoutCtx, &v1beta1.AuthValidateParams{Authorization: &headerVal})
 	if err != nil {
 		// Translate TLS errors during token validation and offer interactive prompt
 		errorInfo := classifyTLSError(err)
@@ -415,7 +415,7 @@ func (o *LoginOptions) validateTokenWithServer(ctx context.Context, token string
 				o.enableInsecure()
 				c, cerr := client.NewFromConfig(o.clientConfig, o.ConfigFilePath, client.WithUserAgentHeader("flightctl-cli"))
 				if cerr == nil {
-					res, err = c.AuthValidateWithResponse(ctx, &v1alpha1.AuthValidateParams{Authorization: &headerVal})
+					res, err = c.AuthValidateWithResponse(ctx, &v1beta1.AuthValidateParams{Authorization: &headerVal})
 				}
 			}
 		}
@@ -494,7 +494,7 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 	}
 
 	// Auto-select organization if enabled and user has access to only one
-	if response, err := c.ListOrganizationsWithResponse(ctx, &v1alpha1.ListOrganizationsParams{}); err == nil && response.StatusCode() == http.StatusOK && response.JSON200 != nil && len(response.JSON200.Items) == 1 {
+	if response, err := c.ListOrganizationsWithResponse(ctx, &v1beta1.ListOrganizationsParams{}); err == nil && response.StatusCode() == http.StatusOK && response.JSON200 != nil && len(response.JSON200.Items) == 1 {
 		org := response.JSON200.Items[0]
 		if org.Metadata.Name != nil {
 			orgName := *org.Metadata.Name
@@ -521,7 +521,7 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 	return nil
 }
 
-func (o *LoginOptions) getAuthConfig(ctx context.Context) (*v1alpha1.AuthConfig, error) {
+func (o *LoginOptions) getAuthConfig(ctx context.Context) (*v1beta1.AuthConfig, error) {
 	httpClient, err := client.NewHTTPClientFromConfig(o.clientConfig)
 	if err != nil {
 		// Translate TLS configuration errors and optionally prompt to proceed insecurely

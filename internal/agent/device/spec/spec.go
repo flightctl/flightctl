@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
@@ -39,9 +39,9 @@ var defaultSpecPollConfig = func() poll.Config {
 // Watcher provides a way to watch for device spec updates.
 type Watcher interface {
 	// Pop blocks until a device is available or returns error if closed
-	Pop() (*v1alpha1.Device, error)
+	Pop() (*v1beta1.Device, error)
 	// TryPop attempts to get a device without blocking
-	TryPop() (*v1alpha1.Device, bool, error)
+	TryPop() (*v1beta1.Device, bool, error)
 }
 
 // Manager provides the public API for managing device specifications.
@@ -57,7 +57,7 @@ type Manager interface {
 	// OSVersion returns the OS version of the specified spec type.
 	OSVersion(specType Type) string
 	// Read returns the rendered device of the specified type from disk.
-	Read(specType Type) (*v1alpha1.Device, error)
+	Read(specType Type) (*v1beta1.Device, error)
 	// Upgrade updates the current rendered spec to the desired rendered spec
 	// and resets the rollback spec.
 	Upgrade(ctx context.Context) error
@@ -78,7 +78,7 @@ type Manager interface {
 	// Rollback reverts the device to the state of the rollback rendered spec.
 	Rollback(ctx context.Context, opts ...RollbackOption) error
 	// GetDesired returns the desired rendered device from the management API.
-	GetDesired(ctx context.Context) (*v1alpha1.Device, bool, error)
+	GetDesired(ctx context.Context) (*v1beta1.Device, bool, error)
 	// CheckPolicy validates the update policy is ready to process.
 	CheckPolicy(ctx context.Context, policyType policy.Type, version string) error
 	// SetClient sets the management client for fetching specs.
@@ -88,9 +88,9 @@ type Manager interface {
 
 type PriorityQueue interface {
 	// Add adds a new spec to the scheduler
-	Add(ctx context.Context, spec *v1alpha1.Device)
+	Add(ctx context.Context, spec *v1beta1.Device)
 	// Next returns the next spec to process
-	Next(ctx context.Context) (*v1alpha1.Device, bool)
+	Next(ctx context.Context) (*v1beta1.Device, bool)
 	// Remove removes a spec from the scheduler
 	Remove(version int64)
 	// SetFailed marks a rendered spec version as failed
@@ -126,7 +126,7 @@ func newCache(log *log.PrefixLogger) *cache {
 }
 
 // update updates the rendered version and OS version of the specified spec type.
-func (c *cache) update(specType Type, device *v1alpha1.Device) {
+func (c *cache) update(specType Type, device *v1beta1.Device) {
 	if device.Spec == nil {
 		c.log.Errorf("Failed to update cache device spec is nil")
 		return
@@ -180,14 +180,14 @@ func (c *cache) getOSVersion(specType Type) string {
 	}
 }
 
-func newVersionedDevice(version string) *v1alpha1.Device {
-	deice := &v1alpha1.Device{
-		Metadata: v1alpha1.ObjectMeta{
+func newVersionedDevice(version string) *v1beta1.Device {
+	deice := &v1beta1.Device{
+		Metadata: v1beta1.ObjectMeta{
 			Annotations: lo.ToPtr(map[string]string{
-				v1alpha1.DeviceAnnotationRenderedVersion: version,
+				v1beta1.DeviceAnnotationRenderedVersion: version,
 			}),
 		},
 	}
-	deice.Spec = &v1alpha1.DeviceSpec{}
+	deice.Spec = &v1beta1.DeviceSpec{}
 	return deice
 }

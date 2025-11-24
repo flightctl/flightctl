@@ -13,7 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
-	v1alpha1 "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -56,10 +56,10 @@ func (mr *MockAuthZMiddlewareMockRecorder) CheckPermission(ctx, resource, op any
 }
 
 // GetUserPermissions mocks base method.
-func (m *MockAuthZMiddleware) GetUserPermissions(ctx context.Context) (*v1alpha1.PermissionList, error) {
+func (m *MockAuthZMiddleware) GetUserPermissions(ctx context.Context) (*api.PermissionList, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetUserPermissions", ctx)
-	ret0, _ := ret[0].(*v1alpha1.PermissionList)
+	ret0, _ := ret[0].(*api.PermissionList)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

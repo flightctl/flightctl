@@ -13,7 +13,7 @@ import (
 	"strings"
 
 	config_latest_types "github.com/coreos/ignition/v2/config/v3_4/types"
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/pkg/ignition"
 	"github.com/go-git/go-billy/v5"
 	"github.com/go-git/go-billy/v5/memfs"

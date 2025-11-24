@@ -23,7 +23,7 @@ import (
 	"time"
 
 	"github.com/ccoveille/go-safecast"
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto/signer"
@@ -328,7 +328,7 @@ func createCsr(o *CertificateOptions, name string, organization string, priv cry
 	base64.StdEncoding.Encode(encoded, csrInner)
 
 	csrResource := &api.CertificateSigningRequest{
-		ApiVersion: "v1alpha1",
+		ApiVersion: "v1beta1",
 		Kind:       "CertificateSigningRequest",
 		Metadata: api.ObjectMeta{
 			Name: &name,

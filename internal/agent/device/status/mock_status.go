@@ -13,7 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
-	v1alpha1 "github.com/flightctl/flightctl/api/v1alpha1"
+	v1beta1 "github.com/flightctl/flightctl/api/v1beta1"
 	client "github.com/flightctl/flightctl/internal/agent/client"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -42,7 +42,7 @@ func (m *MockExporter) EXPECT() *MockExporterMockRecorder {
 }
 
 // Status mocks base method.
-func (m *MockExporter) Status(arg0 context.Context, arg1 *v1alpha1.DeviceStatus, arg2 ...CollectorOpt) error {
+func (m *MockExporter) Status(arg0 context.Context, arg1 *v1beta1.DeviceStatus, arg2 ...CollectorOpt) error {
 	m.ctrl.T.Helper()
 	varargs := []any{arg0, arg1}
 	for _, a := range arg2 {
@@ -84,10 +84,10 @@ func (m *MockGetter) EXPECT() *MockGetterMockRecorder {
 }
 
 // Get mocks base method.
-func (m *MockGetter) Get(arg0 context.Context) *v1alpha1.DeviceStatus {
+func (m *MockGetter) Get(arg0 context.Context) *v1beta1.DeviceStatus {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Get", arg0)
-	ret0, _ := ret[0].(*v1alpha1.DeviceStatus)
+	ret0, _ := ret[0].(*v1beta1.DeviceStatus)
 	return ret0
 }
 
@@ -140,10 +140,10 @@ func (mr *MockManagerMockRecorder) Collect(arg0 any, arg1 ...any) *gomock.Call {
 }
 
 // Get mocks base method.
-func (m *MockManager) Get(arg0 context.Context) *v1alpha1.DeviceStatus {
+func (m *MockManager) Get(arg0 context.Context) *v1beta1.DeviceStatus {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Get", arg0)
-	ret0, _ := ret[0].(*v1alpha1.DeviceStatus)
+	ret0, _ := ret[0].(*v1beta1.DeviceStatus)
 	return ret0
 }
 
@@ -192,14 +192,14 @@ func (mr *MockManagerMockRecorder) Sync(arg0 any) *gomock.Call {
 }
 
 // Update mocks base method.
-func (m *MockManager) Update(ctx context.Context, updateFuncs ...UpdateStatusFn) (*v1alpha1.DeviceStatus, error) {
+func (m *MockManager) Update(ctx context.Context, updateFuncs ...UpdateStatusFn) (*v1beta1.DeviceStatus, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx}
 	for _, a := range updateFuncs {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "Update", varargs...)
-	ret0, _ := ret[0].(*v1alpha1.DeviceStatus)
+	ret0, _ := ret[0].(*v1beta1.DeviceStatus)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -212,7 +212,7 @@ func (mr *MockManagerMockRecorder) Update(ctx any, updateFuncs ...any) *gomock.C
 }
 
 // UpdateCondition mocks base method.
-func (m *MockManager) UpdateCondition(arg0 context.Context, arg1 v1alpha1.Condition) error {
+func (m *MockManager) UpdateCondition(arg0 context.Context, arg1 v1beta1.Condition) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UpdateCondition", arg0, arg1)
 	ret0, _ := ret[0].(error)

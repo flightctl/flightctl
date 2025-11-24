@@ -59,7 +59,7 @@ OIDC and OAuth2 providers can be managed dynamically through the Flight Control 
 
 ```bash
 flightctl apply -f - <<EOF
-apiVersion: v1alpha1
+apiVersion: v1beta1
 kind: AuthProvider
 metadata:
   name: corporate-oidc

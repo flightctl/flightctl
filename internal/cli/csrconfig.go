@@ -88,7 +88,7 @@ func (o *CSRConfigOptions) Run(ctx context.Context, args []string) error {
 
 	encoded := base64.StdEncoding.EncodeToString(data)
 
-	output := fmt.Sprintf(`apiVersion: v1alpha1
+	output := fmt.Sprintf(`apiVersion: v1beta1
 kind: CertificateSigningRequest
 metadata:
   name: %s

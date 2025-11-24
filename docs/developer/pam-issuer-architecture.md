@@ -68,7 +68,7 @@ make build-api          # Build binary (any platform)
 make flightctl-api-container  # Build container
 ```
 
-### 3. API Package (`api/v1alpha1/pam-issuer`)
+### 3. API Package (`api/v1beta1/pam-issuer`)
 
 **Purpose**: OpenAPI spec and generated types for PAM issuer
 
@@ -79,7 +79,7 @@ make flightctl-api-container  # Build container
 
 **Generation**:
 ```bash
-cd api/v1alpha1/pam-issuer && go generate
+cd api/v1beta1/pam-issuer && go generate
 ```
 
 ### 4. Server Package (`internal/pam_issuer_server`)

@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	client "github.com/flightctl/flightctl/internal/api/client/agent"
 )
 
@@ -30,7 +30,7 @@ func (e *enrollment) SetRPCMetricsCallback(cb RPCMetricsCallback) {
 	e.rpcMetricsCallbackFunc = cb
 }
 
-func (e *enrollment) CreateEnrollmentRequest(ctx context.Context, req v1alpha1.EnrollmentRequest, cb ...client.RequestEditorFn) (*v1alpha1.EnrollmentRequest, error) {
+func (e *enrollment) CreateEnrollmentRequest(ctx context.Context, req v1beta1.EnrollmentRequest, cb ...client.RequestEditorFn) (*v1beta1.EnrollmentRequest, error) {
 	start := time.Now()
 	resp, err := e.client.CreateEnrollmentRequestWithResponse(ctx, req, cb...)
 
@@ -57,7 +57,7 @@ func (e *enrollment) CreateEnrollmentRequest(ctx context.Context, req v1alpha1.E
 	return nil, fmt.Errorf("create enrollmentrequest failed: %s", ErrEmptyResponse)
 }
 
-func (e *enrollment) GetEnrollmentRequest(ctx context.Context, id string, cb ...client.RequestEditorFn) (*v1alpha1.EnrollmentRequest, error) {
+func (e *enrollment) GetEnrollmentRequest(ctx context.Context, id string, cb ...client.RequestEditorFn) (*v1beta1.EnrollmentRequest, error) {
 	start := time.Now()
 	resp, err := e.client.GetEnrollmentRequestWithResponse(ctx, id, cb...)
 

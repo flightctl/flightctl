@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/identity"
 	"github.com/flightctl/flightctl/internal/store"
@@ -84,7 +84,7 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 			Expect(status.Code).To(Equal(int32(201)))
 			Expect(result).ToNot(BeNil())
 			Expect(*result.Metadata.Name).To(Equal("test-provider"))
-			Expect(result.ApiVersion).To(Equal("flightctl.io/v1alpha1"))
+			Expect(result.ApiVersion).To(Equal("flightctl.io/v1beta1"))
 			Expect(result.Kind).To(Equal(api.AuthProviderKind))
 		})
 

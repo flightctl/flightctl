@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/api/common"
@@ -203,7 +203,7 @@ func ParseComposeSpecFromDir(reader fileio.Reader, dir string) (*common.ComposeS
 
 // ParseComposeSpecFromSpec parses a Compose specification from a slice of inline application content,
 // as used in inline application providers.
-func ParseComposeFromSpec(contents []v1alpha1.ApplicationContent) (*common.ComposeSpec, error) {
+func ParseComposeFromSpec(contents []v1beta1.ApplicationContent) (*common.ComposeSpec, error) {
 	spec := &common.ComposeSpec{
 		Services: make(map[string]common.ComposeService),
 		Volumes:  make(map[string]common.ComposeVolume),

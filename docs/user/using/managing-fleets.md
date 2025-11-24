@@ -61,7 +61,7 @@ flightctl get devices -l type=pos-terminal -l stage=development
 If the list of returned devices is OK, you could then define a `development-pos-terminals` fleet selecting these like this:
 
 ```yaml
-apiVersion: flightctl.io/v1alpha1
+apiVersion: flightctl.io/v1beta1
 kind: Fleet
 metadata:
   name: development-pos-terminals
@@ -158,7 +158,7 @@ The following example defines a rollout policy with 5 batches (4 explicit and 1 
 5. (Implicit) Update all remaining devices in the fleet (might be none).
 
 ```yaml
-apiVersion: v1alpha1
+apiVersion: v1beta1
 kind: Fleet
 metadata:
   name: default
@@ -205,7 +205,7 @@ To define a disruption budget for the rollout, add a `rolloutPolicy` section to 
 The following example assumes a fleet of smart displays in retail stores that are labeled with the store they are located in (`store: some-store-location`). To ensure a minimum of 2 displays in each store remain available during a rollout, define a disruption budget that groups displays store (`groupBy: ["store"]`), each group having `minAvailable: 2`:
 
 ```yaml
-apiVersion: v1alpha1
+apiVersion: v1beta1
 kind: Fleet
 metadata:
   name: smart-display-fleet

@@ -3,10 +3,10 @@ package e2e
 import (
 	"fmt"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 )
 
-func (h *Harness) GetRepository(repositoryName string) (*v1alpha1.Repository, error) {
+func (h *Harness) GetRepository(repositoryName string) (*v1beta1.Repository, error) {
 	response, err := h.Client.GetRepositoryWithResponse(h.Context, repositoryName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get repository: %w", err)

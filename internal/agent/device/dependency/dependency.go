@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -72,7 +72,7 @@ type OCIPullTarget struct {
 	Type       OCIType
 	Reference  string
 	Digest     string
-	PullPolicy v1alpha1.ImagePullPolicy
+	PullPolicy v1beta1.ImagePullPolicy
 	PullSecret *client.PullSecret
 }
 
@@ -95,7 +95,7 @@ type PrefetchManager interface {
 	// RegisterOCICollector registers a function that can collect OCI targets from a device spec
 	RegisterOCICollector(collector OCICollector)
 	// BeforeUpdate collects and prefetches OCI targets from all registered collectors
-	BeforeUpdate(ctx context.Context, current, desired *v1alpha1.DeviceSpec) error
+	BeforeUpdate(ctx context.Context, current, desired *v1beta1.DeviceSpec) error
 	// StatusMessage returns a human readable prefetch progress status message
 	StatusMessage(ctx context.Context) string
 	// Cleanup fires all cleanupFn cancels active pulls and drains the queue
@@ -105,7 +105,7 @@ type PrefetchManager interface {
 // OCICollector interface for components that can collect OCI targets
 type OCICollector interface {
 	// CollectOCITargets collects OCI targets and indicates if requeue is needed
-	CollectOCITargets(ctx context.Context, current, desired *v1alpha1.DeviceSpec) (*OCICollection, error)
+	CollectOCITargets(ctx context.Context, current, desired *v1beta1.DeviceSpec) (*OCICollection, error)
 }
 
 type prefetchManager struct {
@@ -209,7 +209,7 @@ func (m *prefetchManager) isTargetsChanged(seenTargets map[string]struct{}) bool
 	return false
 }
 
-func (m *prefetchManager) BeforeUpdate(ctx context.Context, current, desired *v1alpha1.DeviceSpec) error {
+func (m *prefetchManager) BeforeUpdate(ctx context.Context, current, desired *v1beta1.DeviceSpec) error {
 	m.log.Debug("Collecting OCI targets from all dependency sources")
 
 	var allTargets []OCIPullTarget

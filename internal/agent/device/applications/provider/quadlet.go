@@ -8,7 +8,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -640,7 +640,7 @@ func createVolumeQuadlet(rw fileio.ReadWriter, dir string, volumeName string, im
 	return nil
 }
 
-func generateQuadlet(ctx context.Context, podman *client.Podman, rw fileio.ReadWriter, dir string, spec *v1alpha1.ImageApplicationProviderSpec) error {
+func generateQuadlet(ctx context.Context, podman *client.Podman, rw fileio.ReadWriter, dir string, spec *v1beta1.ImageApplicationProviderSpec) error {
 	unit := quadlet.NewEmptyUnit()
 	unit.Add(quadlet.ContainerGroup, quadlet.ImageKey, spec.Image)
 
@@ -670,13 +670,13 @@ func generateQuadlet(ctx context.Context, podman *client.Podman, rw fileio.ReadW
 		}
 
 		switch volType {
-		case v1alpha1.MountApplicationVolumeProviderType:
+		case v1beta1.MountApplicationVolumeProviderType:
 			mountSpec, err := vol.AsMountVolumeProviderSpec()
 			if err != nil {
 				return fmt.Errorf("getting mount volume spec: %w", err)
 			}
 			unit.Add(quadlet.ContainerGroup, quadlet.VolumeKey, fmt.Sprintf("%s:%s", vol.Name, mountSpec.Mount.Path))
-		case v1alpha1.ImageMountApplicationVolumeProviderType:
+		case v1beta1.ImageMountApplicationVolumeProviderType:
 			imageMountSpec, err := vol.AsImageMountVolumeProviderSpec()
 			if err != nil {
 				return fmt.Errorf("getting image mount volume spec: %w", err)
