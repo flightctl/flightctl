@@ -138,7 +138,7 @@ jobs:
     needs: build
     steps:
       - name: Load binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           name: flightctl-windows-${{ matrix.arch }}.exe
       - name: Verify
@@ -163,7 +163,7 @@ jobs:
 
     steps:
       - name: Load binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           name: flightctl-${{ matrix.os_arch }}
 
@@ -202,7 +202,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Load binary archives
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           merge-multiple: true
           path: release
