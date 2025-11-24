@@ -13,7 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
-	api "github.com/flightctl/flightctl/api/v1beta1"
+	v1beta1 "github.com/flightctl/flightctl/api/v1beta1"
 	dependency "github.com/flightctl/flightctl/internal/agent/device/dependency"
 	status "github.com/flightctl/flightctl/internal/agent/device/status"
 	gomock "go.uber.org/mock/gomock"
@@ -109,7 +109,7 @@ func (m *MockManager) EXPECT() *MockManagerMockRecorder {
 }
 
 // AfterUpdate mocks base method.
-func (m *MockManager) AfterUpdate(ctx context.Context, desired *api.DeviceSpec) error {
+func (m *MockManager) AfterUpdate(ctx context.Context, desired *v1beta1.DeviceSpec) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "AfterUpdate", ctx, desired)
 	ret0, _ := ret[0].(error)
@@ -123,7 +123,7 @@ func (mr *MockManagerMockRecorder) AfterUpdate(ctx, desired any) *gomock.Call {
 }
 
 // BeforeUpdate mocks base method.
-func (m *MockManager) BeforeUpdate(ctx context.Context, current, desired *api.DeviceSpec) error {
+func (m *MockManager) BeforeUpdate(ctx context.Context, current, desired *v1beta1.DeviceSpec) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "BeforeUpdate", ctx, current, desired)
 	ret0, _ := ret[0].(error)
@@ -137,7 +137,7 @@ func (mr *MockManagerMockRecorder) BeforeUpdate(ctx, current, desired any) *gomo
 }
 
 // CollectOCITargets mocks base method.
-func (m *MockManager) CollectOCITargets(ctx context.Context, current, desired *api.DeviceSpec) (*dependency.OCICollection, error) {
+func (m *MockManager) CollectOCITargets(ctx context.Context, current, desired *v1beta1.DeviceSpec) (*dependency.OCICollection, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CollectOCITargets", ctx, current, desired)
 	ret0, _ := ret[0].(*dependency.OCICollection)
@@ -152,7 +152,7 @@ func (mr *MockManagerMockRecorder) CollectOCITargets(ctx, current, desired any) 
 }
 
 // Reboot mocks base method.
-func (m *MockManager) Reboot(ctx context.Context, desired *api.DeviceSpec) error {
+func (m *MockManager) Reboot(ctx context.Context, desired *v1beta1.DeviceSpec) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Reboot", ctx, desired)
 	ret0, _ := ret[0].(error)
@@ -166,7 +166,7 @@ func (mr *MockManagerMockRecorder) Reboot(ctx, desired any) *gomock.Call {
 }
 
 // Status mocks base method.
-func (m *MockManager) Status(arg0 context.Context, arg1 *api.DeviceStatus, arg2 ...status.CollectorOpt) error {
+func (m *MockManager) Status(arg0 context.Context, arg1 *v1beta1.DeviceStatus, arg2 ...status.CollectorOpt) error {
 	m.ctrl.T.Helper()
 	varargs := []any{arg0, arg1}
 	for _, a := range arg2 {

@@ -13,7 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
-	api "github.com/flightctl/flightctl/api/v1beta1"
+	v1beta1 "github.com/flightctl/flightctl/api/v1beta1"
 	status "github.com/flightctl/flightctl/internal/agent/device/status"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -96,7 +96,7 @@ func (mr *MockManagerMockRecorder) RegisterCollector(ctx, name, fn any) *gomock.
 }
 
 // Status mocks base method.
-func (m *MockManager) Status(arg0 context.Context, arg1 *api.DeviceStatus, arg2 ...status.CollectorOpt) error {
+func (m *MockManager) Status(arg0 context.Context, arg1 *v1beta1.DeviceStatus, arg2 ...status.CollectorOpt) error {
 	m.ctrl.T.Helper()
 	varargs := []any{arg0, arg1}
 	for _, a := range arg2 {
