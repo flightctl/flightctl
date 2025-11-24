@@ -72,10 +72,10 @@ func TestManager(t *testing.T) {
 					// remove current app
 					mockExecPodmanNetworkList(mockExec, "app-remove"),
 					mockExecPodmanPodList(mockExec, "app-remove"),
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"stop", "--filter", "label=com.docker.compose.project=" + id}).Return("", "", 0),
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"rm", "--filter", "label=com.docker.compose.project=" + id}).Return("", "", 0),
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"pod", "rm", "pod123"}).Return("", "", 0),
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"network", "rm", "network123"}).Return("", "", 0),
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "stop", "--filter", "label=com.docker.compose.project="+id).Return("", "", 0),
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "rm", "--filter", "label=com.docker.compose.project="+id).Return("", "", 0),
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pod", "rm", "pod123").Return("", "", 0),
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "network", "rm", "network123").Return("", "", 0),
 
 					// AfterUpdate call should NOT trigger podman events since there are no applications
 					// mockExecPodmanEvents(mockExec),
@@ -100,10 +100,10 @@ func TestManager(t *testing.T) {
 					// stop and remove current app
 					mockExecPodmanNetworkList(mockExec, "app-update"),
 					mockExecPodmanPodList(mockExec, "app-update"),
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"stop", "--filter", "label=com.docker.compose.project=" + id}).Return("", "", 0),
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"rm", "--filter", "label=com.docker.compose.project=" + id}).Return("", "", 0),
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"pod", "rm", "pod123"}).Return("", "", 0),
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"network", "rm", "network123"}).Return("", "", 0),
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "stop", "--filter", "label=com.docker.compose.project="+id).Return("", "", 0),
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "rm", "--filter", "label=com.docker.compose.project="+id).Return("", "", 0),
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pod", "rm", "pod123").Return("", "", 0),
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "network", "rm", "network123").Return("", "", 0),
 
 					// start desired app
 					mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil).AnyTimes(),
@@ -292,10 +292,10 @@ func TestManagerRemoveApplication(t *testing.T) {
 		// remove current app during syncProviders
 		mockExecPodmanNetworkList(mockExec, "app-remove"),
 		mockExecPodmanPodList(mockExec, "app-remove"),
-		mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"stop", "--filter", "label=com.docker.compose.project=" + id}).Return("", "", 0),
-		mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"rm", "--filter", "label=com.docker.compose.project=" + id}).Return("", "", 0),
-		mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"pod", "rm", "pod123"}).Return("", "", 0),
-		mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"network", "rm", "network123"}).Return("", "", 0),
+		mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "stop", "--filter", "label=com.docker.compose.project="+id).Return("", "", 0),
+		mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "rm", "--filter", "label=com.docker.compose.project="+id).Return("", "", 0),
+		mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pod", "rm", "pod123").Return("", "", 0),
+		mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "network", "rm", "network123").Return("", "", 0),
 		// Monitor stops during second AfterUpdate when no apps remain (no mock needed)
 	)
 
@@ -554,8 +554,8 @@ func mockExecQuadletCleanup(mockExec *executer.MockExecuter, name string) {
 	id := client.NewComposeID(name)
 	mockExecQuadletPodmanNetworkList(mockExec, name)
 	mockExecQuadletPodmanPodList(mockExec, name)
-	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"stop", "--filter", "label=io.flightctl.quadlet.project=" + id}).Return("", "", 0)
-	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"rm", "--filter", "label=io.flightctl.quadlet.project=" + id}).Return("", "", 0)
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "stop", "--filter", "label=io.flightctl.quadlet.project="+id).Return("", "", 0)
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "rm", "--filter", "label=io.flightctl.quadlet.project="+id).Return("", "", 0)
 	mockExecPodmanVolumeList(mockExec, name)
 }
 
@@ -669,8 +669,14 @@ func TestCollectOCITargetsErrorHandling(t *testing.T) {
 				mockExec.EXPECT().ExecuteWithContext(
 					gomock.Any(),
 					"podman",
-					[]string{"image", "exists", "quay.io/test/image:v1"},
+					"image", "exists", "quay.io/test/image:v1",
 				).Return("", "", 1).AnyTimes() // exit code 1 = does not exist
+				// artifact check should also fail when base image is missing locally
+				mockExec.EXPECT().ExecuteWithContext(
+					gomock.Any(),
+					"podman",
+					"artifact", "inspect", "quay.io/test/image:v1",
+				).Return("", "", 1).AnyTimes()
 
 				mockPodmanClient := client.NewPodman(log, mockExec, mockReadWriter, testutil.NewPollConfig())
 				mockSystemdMgr := systemd.NewMockManager(ctrl)
@@ -702,14 +708,14 @@ func TestCollectOCITargetsErrorHandling(t *testing.T) {
 				mockExec.EXPECT().ExecuteWithContext(
 					gomock.Any(),
 					"podman",
-					[]string{"image", "exists", "quay.io/test/image:v1"},
+					"image", "exists", "quay.io/test/image:v1",
 				).Return("", "", 0).AnyTimes() // exit code 0 = exists
 
 				// expect ImageDigest call (which will fail in this test)
 				mockExec.EXPECT().ExecuteWithContext(
 					gomock.Any(),
 					"podman",
-					[]string{"image", "inspect", "--format", "{{.Digest}}", "quay.io/test/image:v1"},
+					"image", "inspect", "--format", "{{.Digest}}", "quay.io/test/image:v1",
 				).Return("", "fatal error: disk full", 1).AnyTimes()
 
 				mockExec.EXPECT().ExecuteWithContext(

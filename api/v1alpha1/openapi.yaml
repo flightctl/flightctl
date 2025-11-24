@@ -4572,7 +4572,7 @@ components:
           properties:
             image:
               type: string
-              description: Reference to the container image for the application package.
+              description: Reference to the OCI image or artifact for the application package.
             ports:
               type: array
               description: Port mappings.

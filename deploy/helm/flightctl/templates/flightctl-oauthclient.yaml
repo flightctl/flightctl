@@ -10,6 +10,7 @@ metadata:
 secret: {{ include "flightctl.getOpenShiftOAuthClientSecret" . | quote }}
 redirectURIs:
   - "{{ include "flightctl.getUIUrl" . }}/callback"
+  - http://localhost:8080/callback
 grantMethod: auto
 {{- end }}
 
