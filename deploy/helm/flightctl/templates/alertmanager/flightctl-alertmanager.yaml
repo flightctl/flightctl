@@ -108,15 +108,15 @@ metadata:
     {{- include "flightctl.standardLabels" . | nindent 4 }}
     flightctl.service: flightctl-alertmanager
 spec:
-  {{- if and (eq (include "flightctl.getServiceExposeMethod" .) "nodePort") .Values.global.nodePorts.alertmanager }}
+  {{- if and (eq (include "flightctl.getServiceExposeMethod" .) "nodePort") .Values.dev.nodePorts.alertmanager }}
   type: NodePort
   {{- end }}
   ports:
     - name: "9093"
       port: 9093
       targetPort: 9093
-      {{- if and (eq (include "flightctl.getServiceExposeMethod" .) "nodePort") .Values.global.nodePorts.alertmanager }}
-      nodePort: {{ .Values.global.nodePorts.alertmanager }}
+      {{- if and (eq (include "flightctl.getServiceExposeMethod" .) "nodePort") .Values.dev.nodePorts.alertmanager }}
+      nodePort: {{ .Values.dev.nodePorts.alertmanager }}
       {{- end }}
   selector:
     flightctl.service: flightctl-alertmanager

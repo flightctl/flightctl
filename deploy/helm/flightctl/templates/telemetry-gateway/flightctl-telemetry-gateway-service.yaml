@@ -1,5 +1,4 @@
-{{- if .Values.telemetryGateway }}
----
+{{- $exposeService := include "flightctl.getServiceExposeMethod" . }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -9,11 +8,7 @@ metadata:
     {{- include "flightctl.standardLabels" . | nindent 4 }}
     flightctl.service: flightctl-telemetry-gateway
 spec:
-  {{- $expose := include "flightctl.getServiceExposeMethod" . -}}
-  {{- $otlpNP := (index .Values.global.nodePorts "telemetryGatewayOtlp" | default "") -}}
-  {{- $promNP := (index .Values.global.nodePorts "telemetryGatewayProm" | default "") -}}
-  {{- $wantNodePort := and (eq $expose "nodePort") (or $otlpNP $promNP) -}}
-  {{- if $wantNodePort }}
+  {{- if eq $exposeService "nodePort" }}
   type: NodePort
   {{- else }}
   type: ClusterIP
@@ -26,15 +21,14 @@ spec:
       targetPort: otlp
       protocol: TCP
       appProtocol: grpc
-      {{- if and $wantNodePort $otlpNP }}
-      nodePort: {{ $otlpNP }}
+      {{- if and (eq $exposeService "nodePort") .Values.dev.nodePorts.telemetryGatewayOtlp }}
+      nodePort: {{ .Values.dev.nodePorts.telemetryGatewayOtlp }}
       {{- end }}
     - name: prometheus
       port: 9464
       targetPort: prometheus
       protocol: TCP
       appProtocol: http
-      {{- if and $wantNodePort $promNP }}
-      nodePort: {{ $promNP }}
+      {{- if and (eq $exposeService "nodePort") .Values.dev.nodePorts.telemetryGatewayProm }}
+      nodePort: {{ .Values.dev.nodePorts.telemetryGatewayProm }}
       {{- end }}
-{{- end }}

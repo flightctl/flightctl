@@ -156,7 +156,7 @@ Uses a cached value in .Values to ensure consistency across all template evaluat
     {{- $baseDomain := (include "flightctl.getBaseDomain" (deepCopy . | merge (dict "noNs" "true"))) }}
     {{- printf "%s://console-openshift-console.%s/edge" $scheme $baseDomain }}
   {{- else if eq (include "flightctl.getServiceExposeMethod" .) "nodePort" }}
-    {{- printf "%s://%s:%v" $scheme $baseDomain .Values.global.nodePorts.ui }}
+    {{- printf "%s://%s:%v" $scheme $baseDomain .Values.dev.nodePorts.ui }}
   {{- else if eq (include "flightctl.getServiceExposeMethod" .) "gateway" }}
     {{- if and (eq $scheme "http") (not (eq (int .Values.global.gateway.ports.http) 80))}}
       {{- printf "%s://ui.%s:%v" $scheme $baseDomain .Values.global.gateway.ports.http }}
@@ -172,14 +172,18 @@ Uses a cached value in .Values to ensure consistency across all template evaluat
 
 {{- define "flightctl.getServiceExposeMethod" }}
   {{- $exposeMethod := .Values.global.exposeServicesMethod }}
-  {{- if eq $exposeMethod "auto" }}
-    {{- $isOpenShift := (include "flightctl.enableOpenShiftExtensions" . )}}
-    {{- if eq $isOpenShift "true" }}
-      {{- $exposeMethod = "route" }}
-    {{- else if .Capabilities.APIVersions.Has "gateway.networking.k8s.io/v1" -}}
-      {{- $exposeMethod = "gateway" }}
-    {{- else }}
-      {{- fail "Could not detect OpenShift, nor Gateway resources. Please set global.exposeServicesMethod" }}
+  {{- if eq (default dict .Values.dev).exposeServicesMethod "nodePort" }}
+    {{- $exposeMethod = "nodePort" }}
+  {{- else }}
+    {{- if eq $exposeMethod "auto" }}
+      {{- $isOpenShift := (include "flightctl.enableOpenShiftExtensions" . )}}
+      {{- if eq $isOpenShift "true" }}
+        {{- $exposeMethod = "route" }}
+      {{- else if .Capabilities.APIVersions.Has "gateway.networking.k8s.io/v1" -}}
+        {{- $exposeMethod = "gateway" }}
+      {{- else }}
+        {{- fail "Could not detect OpenShift, nor Gateway resources. Please set global.exposeServicesMethod" }}
+      {{- end }}
     {{- end }}
   {{- end }}
   {{- $exposeMethod }}
@@ -188,7 +192,7 @@ Uses a cached value in .Values to ensure consistency across all template evaluat
 {{- define "flightctl.getApiUrl" }}
   {{- $baseDomain := (include "flightctl.getBaseDomain" . )}}
   {{- if eq (include "flightctl.getServiceExposeMethod" .) "nodePort" }}
-    {{- printf "https://%s:%v" $baseDomain .Values.global.nodePorts.api }}
+    {{- printf "https://%s:%v" $baseDomain .Values.dev.nodePorts.api }}
   {{- else if and (eq (include "flightctl.getServiceExposeMethod" .) "gateway") (not (eq (int .Values.global.gateway.ports.tls) 443)) }}
     {{- printf "https://api.%s:%v" $baseDomain .Values.global.gateway.ports.tls }}
   {{- else }}
@@ -235,7 +239,7 @@ Usage: {{- $authType := include "flightctl.getEffectiveAuthType" . }}
   {{- $scheme := (include "flightctl.getHttpScheme" . )}}
   {{- $exposeMethod := (include "flightctl.getServiceExposeMethod" . )}}
   {{- if eq $exposeMethod "nodePort" }}
-    {{- printf "%s://%s:%v" $scheme $baseDomain .Values.global.nodePorts.cliArtifacts }}
+    {{- printf "%s://%s:%v" $scheme $baseDomain .Values.dev.nodePorts.cliArtifacts }}
   {{- else if eq $exposeMethod "gateway" }}
     {{- if and (eq $scheme "http") (not (eq (int .Values.global.gateway.ports.http) 80))}}
       {{- printf "%s://cli-artifacts.%s:%v" $scheme $baseDomain .Values.global.gateway.ports.http }}
