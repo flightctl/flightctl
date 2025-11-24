@@ -19,16 +19,6 @@ global:
     gitserver: 3222
     registry: 5000
 
-db:
-  # hostname: <set to external DB host to override cluster default>
-  port: 5432
-  name: "flightctl"
-  type: "pgsql"
-  sslmode: ""
-  sslcert: ""
-  sslkey: ""
-  sslrootcert: ""
-
 api:
   image:
     image:  localhost/flightctl-api

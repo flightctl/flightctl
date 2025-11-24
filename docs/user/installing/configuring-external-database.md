@@ -139,23 +139,9 @@ Flight Control uses **Podman secrets exclusively** for all database passwords (b
 
 **Important**: For external databases with Podman deployment, you **must** create Podman secrets manually before installation.
 
-#### Password Management Options
+#### Password Management
 
-##### Option 1: Using values.yaml (Development)
-
-```yaml
-db:
-  external: "enabled"
-  hostname: "your-postgres-hostname.example.com"
-  port: 5432
-  name: flightctl
-  user: flightctl_app
-  migrationUser: flightctl_migrator
-  # Note: Passwords are NOT specified in YAML for security
-  # Use Podman secrets instead (see Password Management section below)
-```
-
-##### Option 2: Using Kubernetes Secrets (Production)
+##### Using Kubernetes Secrets
 
 ```bash
 # Create database secrets with proper Helm ownership metadata
@@ -190,13 +176,14 @@ Then configure without passwords in values.yaml:
 
 ```yaml
 db:
-  external: "enabled"
-  hostname: "your-postgres-hostname.example.com"
-  port: 5432
+  type: "external"
   name: flightctl
-  user: flightctl_app
-  migrationUser: flightctl_migrator
-  # No passwords here - will use existing secrets
+  masterUserSecretName: flightctl-db-admin-secret
+  applicationUserSecretName: flightctl-db-app-secret
+  migrationUserSecretName: flightctl-db-migration-secret
+  external:
+    hostname: "your-postgres-hostname.example.com"
+    port: 5432
 ```
 
 ### Kubernetes (Helm)
@@ -209,8 +196,8 @@ db:
 
 ```bash
 helm install flightctl ./deploy/helm/flightctl \
-  --set db.external=enabled \
-  --set db.hostname=your-postgres-hostname.example.com \
+  --set db.type=external \
+  --set db.external.hostname=your-postgres-hostname.example.com \
   --set db.userPassword=your_app_password \
   --set db.migrationPassword=your_migration_password
   # Add masterPassword only if you want Flight Control to create users automatically:
@@ -223,9 +210,9 @@ helm install flightctl ./deploy/helm/flightctl \
 # First create secrets (see Password Management section above)
 # Then deploy - Helm will automatically detect existing database secrets:
 helm install flightctl ./deploy/helm/flightctl \
-  --set db.external=enabled \
-  --set db.hostname=your-postgres-hostname.example.com \
-  --set db.sslrootcert="/etc/ssl/postgres/ca-cert.pem"
+  --set db.type=external \
+  --set db.external.hostname=your-postgres-hostname.example.com \
+  --set db.external.sslrootcert="/etc/ssl/postgres/ca-cert.pem"
   # Passwords will be automatically discovered from existing secrets
   # Other required secrets (KV, etc.) will be generated automatically
 ```
@@ -234,7 +221,7 @@ helm install flightctl ./deploy/helm/flightctl \
 
 #### 3. Verify Deployment
 
-The following resources will NOT be created when `db.external=enabled`:
+The following resources will NOT be created when `db.type=external`:
 
 - `flightctl-db` Deployment
 - `flightctl-db` Service (internal)
