@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -710,13 +709,25 @@ func (m *MultiAuth) getPossibleProviders(token string) ([]common.AuthNMiddleware
 	switch tokenType {
 	case TokenTypeK8s:
 		// K8s tokens: use static "k8s" key
+
+		providers := []common.AuthNMiddleware{}
 		if provider, exists := m.staticProviders["k8s"]; exists {
 			if provider.IsEnabled() {
-				return []common.AuthNMiddleware{provider}, parsedToken, nil
+				providers = append(providers, provider)
 			}
-			return []common.AuthNMiddleware{}, parsedToken, fmt.Errorf("K8s provider is disabled")
 		}
-		return []common.AuthNMiddleware{}, parsedToken, fmt.Errorf("no K8s provider found")
+		for _, provider := range m.staticProviders {
+			//check if the provider has the getOpenShiftSpec method
+			if openshiftProvider, ok := provider.(*OpenShiftAuth); ok {
+				if openshiftProvider.IsEnabled() {
+					providers = append(providers, openshiftProvider)
+				}
+			}
+		}
+		if len(providers) == 0 {
+			return []common.AuthNMiddleware{}, parsedToken, fmt.Errorf("no enabled K8s/openshift provider found")
+		}
+		return providers, parsedToken, nil
 
 	case TokenTypeOIDC:
 		// OIDC tokens: collect all enabled providers matching issuer+clientId
@@ -758,10 +769,8 @@ func (m *MultiAuth) getPossibleProviders(token string) ([]common.AuthNMiddleware
 
 // detectTokenType determines the type of JWT token based on its claims
 func detectTokenType(parsedToken jwt.Token) TokenType {
-	issuer := parsedToken.Issuer()
-
-	// Check for K8s tokens
-	if strings.Contains(issuer, "kubernetes") || strings.Contains(issuer, "k8s") {
+	// Check for K8s tokens by looking for the kubernetes.io claim
+	if _, ok := parsedToken.Get("kubernetes.io"); ok {
 		return TokenTypeK8s
 	}
 
