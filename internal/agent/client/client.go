@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	client "github.com/flightctl/flightctl/internal/api/client/agent"
 	baseclient "github.com/flightctl/flightctl/internal/client"
@@ -56,19 +56,19 @@ func NewFromConfig(config *baseclient.Config, log *log.PrefixLogger, opts ...HTT
 
 // Management is the client interface for managing devices.
 type Management interface {
-	UpdateDeviceStatus(ctx context.Context, name string, device v1alpha1.Device, rcb ...client.RequestEditorFn) error
-	GetRenderedDevice(ctx context.Context, name string, params *v1alpha1.GetRenderedDeviceParams, rcb ...client.RequestEditorFn) (*v1alpha1.Device, int, error)
-	PatchDeviceStatus(ctx context.Context, name string, patch v1alpha1.PatchRequest, rcb ...client.RequestEditorFn) error
+	UpdateDeviceStatus(ctx context.Context, name string, device v1beta1.Device, rcb ...client.RequestEditorFn) error
+	GetRenderedDevice(ctx context.Context, name string, params *v1beta1.GetRenderedDeviceParams, rcb ...client.RequestEditorFn) (*v1beta1.Device, int, error)
+	PatchDeviceStatus(ctx context.Context, name string, patch v1beta1.PatchRequest, rcb ...client.RequestEditorFn) error
 	SetRPCMetricsCallback(cb RPCMetricsCallback)
-	CreateCertificateSigningRequest(ctx context.Context, csr v1alpha1.CertificateSigningRequest, rcb ...client.RequestEditorFn) (*v1alpha1.CertificateSigningRequest, int, error)
-	GetCertificateSigningRequest(ctx context.Context, name string, rcb ...client.RequestEditorFn) (*v1alpha1.CertificateSigningRequest, int, error)
+	CreateCertificateSigningRequest(ctx context.Context, csr v1beta1.CertificateSigningRequest, rcb ...client.RequestEditorFn) (*v1beta1.CertificateSigningRequest, int, error)
+	GetCertificateSigningRequest(ctx context.Context, name string, rcb ...client.RequestEditorFn) (*v1beta1.CertificateSigningRequest, int, error)
 }
 
 // Enrollment is client the interface for managing device enrollment.
 type Enrollment interface {
 	SetRPCMetricsCallback(cb RPCMetricsCallback)
-	CreateEnrollmentRequest(ctx context.Context, req v1alpha1.EnrollmentRequest, cb ...client.RequestEditorFn) (*v1alpha1.EnrollmentRequest, error)
-	GetEnrollmentRequest(ctx context.Context, id string, cb ...client.RequestEditorFn) (*v1alpha1.EnrollmentRequest, error)
+	CreateEnrollmentRequest(ctx context.Context, req v1beta1.EnrollmentRequest, cb ...client.RequestEditorFn) (*v1beta1.EnrollmentRequest, error)
+	GetEnrollmentRequest(ctx context.Context, id string, cb ...client.RequestEditorFn) (*v1beta1.EnrollmentRequest, error)
 }
 
 type Bootc interface {
@@ -110,7 +110,7 @@ type PullSecret struct {
 func ResolvePullSecret(
 	log *log.PrefixLogger,
 	rw fileio.ReadWriter,
-	desired *v1alpha1.DeviceSpec,
+	desired *v1beta1.DeviceSpec,
 	authPath string,
 ) (*PullSecret, bool, error) {
 	specContent, found, err := authFromSpec(log, desired, authPath)
@@ -153,7 +153,7 @@ func ResolvePullSecret(
 	return nil, false, nil
 }
 
-func authFromSpec(log *log.PrefixLogger, device *v1alpha1.DeviceSpec, authPath string) ([]byte, bool, error) {
+func authFromSpec(log *log.PrefixLogger, device *v1beta1.DeviceSpec, authPath string) ([]byte, bool, error) {
 	if device.Config == nil {
 		return nil, false, nil
 	}
@@ -163,7 +163,7 @@ func authFromSpec(log *log.PrefixLogger, device *v1alpha1.DeviceSpec, authPath s
 		if err != nil {
 			return nil, false, fmt.Errorf("provider type: %v", err)
 		}
-		if pType != v1alpha1.InlineConfigProviderType {
+		if pType != v1beta1.InlineConfigProviderType {
 			// agent should only ever see inline config
 			log.Errorf("Invalid config provider type: %s", pType)
 			continue

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
@@ -36,7 +36,7 @@ func (c StatusType) String() string {
 
 type Monitor interface {
 	Run(ctx context.Context)
-	Status() []v1alpha1.DeviceApplicationStatus
+	Status() []v1beta1.DeviceApplicationStatus
 }
 
 // Manager coordinates the lifecycle of an application by interacting with its Provider
@@ -50,7 +50,7 @@ type Manager interface {
 	Update(ctx context.Context, provider provider.Provider) error
 	// BeforeUpdate is called prior to installing an application to ensure the
 	// application is valid and dependencies are met.
-	BeforeUpdate(ctx context.Context, desired *v1alpha1.DeviceSpec) error
+	BeforeUpdate(ctx context.Context, desired *v1beta1.DeviceSpec) error
 	// AfterUpdate is called after the application has been validated and is ready to be executed.
 	AfterUpdate(ctx context.Context) error
 	// Shutdown closes the manager according to the corresponding shutdown state
@@ -70,7 +70,7 @@ type Application interface {
 	// application type.
 	Name() string
 	// Type returns the application type.
-	AppType() v1alpha1.AppType
+	AppType() v1beta1.AppType
 	// Path returns the path to the application on the device.
 	Path() string
 	// Workload returns a workload by name.
@@ -86,7 +86,7 @@ type Application interface {
 	// Status reports the status of an application using the name as defined by
 	// the user. In the case there is no name provided it will be populated
 	// according to the rules of the application type.
-	Status() (*v1alpha1.DeviceApplicationStatus, v1alpha1.DeviceApplicationsSummaryStatus, error)
+	Status() (*v1beta1.DeviceApplicationStatus, v1beta1.DeviceApplicationsSummaryStatus, error)
 }
 
 // Workload represents an application workload tracked by a Monitor.
@@ -103,7 +103,7 @@ type application struct {
 	path      string
 	workloads []Workload
 	volume    provider.VolumeManager
-	status    *v1alpha1.DeviceApplicationStatus
+	status    *v1beta1.DeviceApplicationStatus
 }
 
 // NewApplication creates a new application from an application provider.
@@ -112,9 +112,9 @@ func NewApplication(provider provider.Provider) *application {
 	return &application{
 		id:   spec.ID,
 		path: spec.Path,
-		status: &v1alpha1.DeviceApplicationStatus{
+		status: &v1beta1.DeviceApplicationStatus{
 			Name:     spec.Name,
-			Status:   v1alpha1.ApplicationStatusUnknown,
+			Status:   v1beta1.ApplicationStatusUnknown,
 			Embedded: spec.Embedded,
 			AppType:  spec.AppType,
 		},
@@ -130,7 +130,7 @@ func (a *application) Name() string {
 	return a.status.Name
 }
 
-func (a *application) AppType() v1alpha1.AppType {
+func (a *application) AppType() v1beta1.AppType {
 	return a.status.AppType
 }
 
@@ -169,7 +169,7 @@ func (a *application) Volume() provider.VolumeManager {
 	return a.volume
 }
 
-func (a *application) Status() (*v1alpha1.DeviceApplicationStatus, v1alpha1.DeviceApplicationsSummaryStatus, error) {
+func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.DeviceApplicationsSummaryStatus, error) {
 	// TODO: revisit performance of this function
 	healthy := 0
 	initializing := 0
@@ -188,36 +188,36 @@ func (a *application) Status() (*v1alpha1.DeviceApplicationStatus, v1alpha1.Devi
 	}
 
 	total := len(a.workloads)
-	var summary v1alpha1.DeviceApplicationsSummaryStatus
+	var summary v1beta1.DeviceApplicationsSummaryStatus
 	readyStatus := strconv.Itoa(healthy) + "/" + strconv.Itoa(total)
 
-	var newStatus v1alpha1.ApplicationStatusType
+	var newStatus v1beta1.ApplicationStatusType
 
 	// order is important
 	switch {
 	case isUnknown(total, healthy, initializing):
-		newStatus = v1alpha1.ApplicationStatusUnknown
-		summary.Status = v1alpha1.ApplicationsSummaryStatusUnknown
+		newStatus = v1beta1.ApplicationStatusUnknown
+		summary.Status = v1beta1.ApplicationsSummaryStatusUnknown
 	case isStarting(total, healthy, initializing):
-		newStatus = v1alpha1.ApplicationStatusStarting
-		summary.Status = v1alpha1.ApplicationsSummaryStatusDegraded
+		newStatus = v1beta1.ApplicationStatusStarting
+		summary.Status = v1beta1.ApplicationsSummaryStatusDegraded
 	case isPreparing(total, healthy, initializing):
-		newStatus = v1alpha1.ApplicationStatusPreparing
-		summary.Status = v1alpha1.ApplicationsSummaryStatusUnknown
+		newStatus = v1beta1.ApplicationStatusPreparing
+		summary.Status = v1beta1.ApplicationsSummaryStatusUnknown
 	case isCompleted(total, exited):
-		newStatus = v1alpha1.ApplicationStatusCompleted
-		summary.Status = v1alpha1.ApplicationsSummaryStatusHealthy
+		newStatus = v1beta1.ApplicationStatusCompleted
+		summary.Status = v1beta1.ApplicationsSummaryStatusHealthy
 	case isRunningHealthy(total, healthy, initializing, exited):
-		newStatus = v1alpha1.ApplicationStatusRunning
-		summary.Status = v1alpha1.ApplicationsSummaryStatusHealthy
+		newStatus = v1beta1.ApplicationStatusRunning
+		summary.Status = v1beta1.ApplicationsSummaryStatusHealthy
 	case isRunningDegraded(total, healthy, initializing):
-		newStatus = v1alpha1.ApplicationStatusRunning
-		summary.Status = v1alpha1.ApplicationsSummaryStatusDegraded
+		newStatus = v1beta1.ApplicationStatusRunning
+		summary.Status = v1beta1.ApplicationsSummaryStatusDegraded
 	case isErrored(total, healthy, initializing):
-		newStatus = v1alpha1.ApplicationStatusError
-		summary.Status = v1alpha1.ApplicationsSummaryStatusError
+		newStatus = v1beta1.ApplicationStatusError
+		summary.Status = v1beta1.ApplicationsSummaryStatusError
 	default:
-		summary.Status = v1alpha1.ApplicationsSummaryStatusUnknown
+		summary.Status = v1beta1.ApplicationsSummaryStatusUnknown
 		return nil, summary, fmt.Errorf("unknown application status: %d/%d/%d", total, healthy, initializing)
 	}
 

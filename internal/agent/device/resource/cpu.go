@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
@@ -24,7 +24,7 @@ var _ Monitor[CPUUsage] = (*CPUMonitor)(nil)
 
 type CPUMonitor struct {
 	mu     sync.Mutex
-	alerts map[v1alpha1.ResourceAlertSeverityType]*Alert
+	alerts map[v1beta1.ResourceAlertSeverityType]*Alert
 
 	updateIntervalCh chan time.Duration
 	samplingInterval time.Duration
@@ -38,7 +38,7 @@ func NewCPUMonitor(
 	log *log.PrefixLogger,
 ) *CPUMonitor {
 	return &CPUMonitor{
-		alerts:           make(map[v1alpha1.ResourceAlertSeverityType]*Alert),
+		alerts:           make(map[v1beta1.ResourceAlertSeverityType]*Alert),
 		updateIntervalCh: make(chan time.Duration, 1),
 		samplingInterval: DefaultSamplingInterval,
 		collector:        newCPUCollector(DefaultProcStatPath),
@@ -66,17 +66,17 @@ func (m *CPUMonitor) Run(ctx context.Context) {
 	}
 }
 
-func (m *CPUMonitor) Update(monitor *v1alpha1.ResourceMonitor) (bool, error) {
+func (m *CPUMonitor) Update(monitor *v1beta1.ResourceMonitor) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	return updateMonitor(m.log, monitor, &m.samplingInterval, m.alerts, m.updateIntervalCh)
 }
 
-func (m *CPUMonitor) Alerts() []v1alpha1.ResourceAlertRule {
+func (m *CPUMonitor) Alerts() []v1beta1.ResourceAlertRule {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	var firing []v1alpha1.ResourceAlertRule
+	var firing []v1beta1.ResourceAlertRule
 	for _, alert := range m.alerts {
 		if alert.IsFiring() {
 			firing = append(firing, alert.ResourceAlertRule)

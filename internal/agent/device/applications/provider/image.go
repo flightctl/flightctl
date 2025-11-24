@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
@@ -31,9 +31,9 @@ type imageProvider struct {
 	AppData *AppData
 }
 
-func newImageHandler(appType v1alpha1.AppType, name string, rw fileio.ReadWriter, l *log.PrefixLogger, podman *client.Podman, vm VolumeManager, provider *v1alpha1.ImageApplicationProviderSpec) (appTypeHandler, error) {
+func newImageHandler(appType v1beta1.AppType, name string, rw fileio.ReadWriter, l *log.PrefixLogger, podman *client.Podman, vm VolumeManager, provider *v1beta1.ImageApplicationProviderSpec) (appTypeHandler, error) {
 	switch appType {
-	case v1alpha1.AppTypeQuadlet:
+	case v1beta1.AppTypeQuadlet:
 		qb := &quadletHandler{
 			name:        name,
 			rw:          rw,
@@ -43,7 +43,7 @@ func newImageHandler(appType v1alpha1.AppType, name string, rw fileio.ReadWriter
 			return extractQuadletVolumesFromDir(qb.ID(), rw, qb.AppPath())
 		}
 		return qb, nil
-	case v1alpha1.AppTypeCompose:
+	case v1beta1.AppTypeCompose:
 		return &composeHandler{
 			name:        name,
 			rw:          rw,
@@ -51,7 +51,7 @@ func newImageHandler(appType v1alpha1.AppType, name string, rw fileio.ReadWriter
 			vm:          vm,
 			specVolumes: lo.FromPtr(provider.Volumes),
 		}, nil
-	case v1alpha1.AppTypeContainer:
+	case v1beta1.AppTypeContainer:
 		return &containerHandler{
 			name:   name,
 			rw:     rw,
@@ -63,7 +63,7 @@ func newImageHandler(appType v1alpha1.AppType, name string, rw fileio.ReadWriter
 	}
 }
 
-func newImage(log *log.PrefixLogger, podman *client.Podman, spec *v1alpha1.ApplicationProviderSpec, readWriter fileio.ReadWriter, appType v1alpha1.AppType) (*imageProvider, error) {
+func newImage(log *log.PrefixLogger, podman *client.Podman, spec *v1beta1.ApplicationProviderSpec, readWriter fileio.ReadWriter, appType v1beta1.AppType) (*imageProvider, error) {
 	provider, err := spec.AsImageApplicationProviderSpec()
 	if err != nil {
 		return nil, fmt.Errorf("getting provider spec:%w", err)
@@ -234,7 +234,7 @@ func (p *imageProvider) Spec() *ApplicationSpec {
 }
 
 // typeFromImage returns the app type from the OCI reference.
-func typeFromImage(ctx context.Context, podman *client.Podman, image string) (v1alpha1.AppType, error) {
+func typeFromImage(ctx context.Context, podman *client.Podman, image string) (v1beta1.AppType, error) {
 	ociType, err := detectOCIType(ctx, podman, image)
 	if err != nil {
 		return "", err
@@ -263,7 +263,7 @@ func typeFromImage(ctx context.Context, podman *client.Podman, image string) (v1
 		return "", fmt.Errorf("%w: %s, %s", errors.ErrAppLabel, AppTypeLabel, image)
 	}
 
-	appType := v1alpha1.AppType(appTypeValue)
+	appType := v1beta1.AppType(appTypeValue)
 	if appType == "" {
 		return "", fmt.Errorf("%w: %s", errors.ErrParseAppType, appTypeValue)
 	}

@@ -13,7 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
-	v1alpha1 "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -41,7 +41,7 @@ func (m *MockManager) EXPECT() *MockManagerMockRecorder {
 }
 
 // AfterUpdate mocks base method.
-func (m *MockManager) AfterUpdate(ctx context.Context, current, desired *v1alpha1.DeviceSpec) error {
+func (m *MockManager) AfterUpdate(ctx context.Context, current, desired *api.DeviceSpec) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "AfterUpdate", ctx, current, desired)
 	ret0, _ := ret[0].(error)
@@ -55,7 +55,7 @@ func (mr *MockManagerMockRecorder) AfterUpdate(ctx, current, desired any) *gomoc
 }
 
 // Sync mocks base method.
-func (m *MockManager) Sync(ctx context.Context, current, desired *v1alpha1.DeviceSpec) error {
+func (m *MockManager) Sync(ctx context.Context, current, desired *api.DeviceSpec) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Sync", ctx, current, desired)
 	ret0, _ := ret[0].(error)
@@ -92,7 +92,7 @@ func (m *MockInitializer) EXPECT() *MockInitializerMockRecorder {
 }
 
 // Initialize mocks base method.
-func (m *MockInitializer) Initialize(ctx context.Context, status *v1alpha1.DeviceStatus) error {
+func (m *MockInitializer) Initialize(ctx context.Context, status *api.DeviceStatus) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Initialize", ctx, status)
 	ret0, _ := ret[0].(error)

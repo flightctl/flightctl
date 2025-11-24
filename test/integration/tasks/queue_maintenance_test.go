@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/tasks"
@@ -29,7 +29,7 @@ func createTestOrganizations(orgIDs []uuid.UUID) *api.OrganizationList {
 		name := orgID.String()
 		displayName := fmt.Sprintf("Test Organization %d", i+1)
 		org := api.Organization{
-			ApiVersion: "v1alpha1",
+			ApiVersion: "v1beta1",
 			Kind:       api.OrganizationKind,
 			Metadata:   api.ObjectMeta{Name: &name},
 			Spec: &api.OrganizationSpec{
@@ -416,7 +416,7 @@ var _ = Describe("Queue Maintenance Integration Tests", func() {
 		It("should handle invalid organization IDs", func() {
 			// Add organization with invalid name format
 			invalidOrg := api.Organization{
-				ApiVersion: "v1alpha1",
+				ApiVersion: "v1beta1",
 				Kind:       api.OrganizationKind,
 				Metadata:   api.ObjectMeta{Name: lo.ToPtr("invalid-uuid")},
 			}
@@ -494,7 +494,7 @@ var _ = Describe("Queue Maintenance Integration Tests", func() {
 // Helper function to create test events
 func createTestEvent(name string, timestamp time.Time) api.Event {
 	return api.Event{
-		ApiVersion: "v1alpha1",
+		ApiVersion: "v1beta1",
 		Kind:       api.EventKind,
 		Metadata: api.ObjectMeta{
 			Name:              &name,

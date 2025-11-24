@@ -15,7 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/api/client"
 	agentclient "github.com/flightctl/flightctl/internal/api/client/agent"
 	apiserver "github.com/flightctl/flightctl/internal/api_server"
@@ -370,8 +370,8 @@ func (c *TestOrgCache) Set(id uuid.UUID, org *model.Organization) {
 	c.orgs[id] = org
 }
 
-func TestEnrollmentApproval() *v1alpha1.EnrollmentRequestApproval {
-	return &v1alpha1.EnrollmentRequestApproval{
+func TestEnrollmentApproval() *v1beta1.EnrollmentRequestApproval {
+	return &v1beta1.EnrollmentRequestApproval{
 		Approved: true,
 		Labels:   &map[string]string{"label": "value"},
 	}

@@ -1,6 +1,6 @@
 package tasks
 
-import api "github.com/flightctl/flightctl/api/v1alpha1"
+import api "github.com/flightctl/flightctl/api/v1beta1"
 
 func createTestEvent(kind api.ResourceKind, reason api.EventReason, name string) api.Event {
 	return api.Event{

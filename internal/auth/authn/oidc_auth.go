@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	identitypkg "github.com/flightctl/flightctl/internal/identity"
 	"github.com/lestrrat-go/jwx/v2/jwk"

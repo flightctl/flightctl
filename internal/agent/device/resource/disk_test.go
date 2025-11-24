@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
@@ -30,25 +30,25 @@ func TestDiskMonitor(t *testing.T) {
 	require.NoError(err)
 
 	samplingInterval := 100 * time.Millisecond
-	monitorSpec := v1alpha1.DiskResourceMonitorSpec{
+	monitorSpec := v1beta1.DiskResourceMonitorSpec{
 		SamplingInterval: samplingInterval.String(),
 		MonitorType:      DiskMonitorType,
 		Path:             path,
-		AlertRules: []v1alpha1.ResourceAlertRule{
+		AlertRules: []v1beta1.ResourceAlertRule{
 			{
-				Severity:    v1alpha1.ResourceAlertSeverityTypeInfo,
+				Severity:    v1beta1.ResourceAlertSeverityTypeInfo,
 				Percentage:  0, // 0% disk usage should always fire
 				Duration:    "90ms",
 				Description: "Info: Disk usage is above 0% for 90ms",
 			},
 			{
-				Severity:    v1alpha1.ResourceAlertSeverityTypeCritical,
+				Severity:    v1beta1.ResourceAlertSeverityTypeCritical,
 				Percentage:  0, // 0% disk usage should always fire
 				Duration:    "90ms",
 				Description: "Critical: Disk usage is above 0% for 90ms",
 			},
 			{
-				Severity:    v1alpha1.ResourceAlertSeverityTypeWarning,
+				Severity:    v1beta1.ResourceAlertSeverityTypeWarning,
 				Percentage:  100,
 				Duration:    "1h",
 				Description: "Warning: Disk usage is above 100% for 1h",
@@ -56,7 +56,7 @@ func TestDiskMonitor(t *testing.T) {
 		},
 	}
 
-	rm := &v1alpha1.ResourceMonitor{}
+	rm := &v1beta1.ResourceMonitor{}
 	err = rm.FromDiskResourceMonitorSpec(monitorSpec)
 	require.NoError(err)
 
@@ -65,7 +65,7 @@ func TestDiskMonitor(t *testing.T) {
 	require.True(updated)
 
 	// ensure only 2 alerts are firing
-	var alerts []v1alpha1.ResourceAlertRule
+	var alerts []v1beta1.ResourceAlertRule
 	require.Eventually(func() bool {
 		alerts = diskMonitor.Alerts()
 		return len(alerts) == 2
@@ -74,11 +74,11 @@ func TestDiskMonitor(t *testing.T) {
 	deviceResourceStatusType, alertMsg := getHighestSeverityResourceStatusFromAlerts(DiskMonitorType, alerts)
 	require.NotEmpty(alertMsg) // ensure we have an alert message
 
-	require.Equal(v1alpha1.DeviceResourceStatusCritical, deviceResourceStatusType)
+	require.Equal(v1beta1.DeviceResourceStatusCritical, deviceResourceStatusType)
 
 	// update the monitor to remove the critical alert
 	monitorSpec.AlertRules = monitorSpec.AlertRules[1:]
-	rm = &v1alpha1.ResourceMonitor{}
+	rm = &v1beta1.ResourceMonitor{}
 	err = rm.FromDiskResourceMonitorSpec(monitorSpec)
 	require.NoError(err)
 

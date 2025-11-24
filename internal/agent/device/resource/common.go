@@ -5,15 +5,15 @@ import (
 	"reflect"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
 func updateMonitor(
 	log *log.PrefixLogger,
-	monitor *v1alpha1.ResourceMonitor,
+	monitor *v1beta1.ResourceMonitor,
 	currentSampleInterval *time.Duration,
-	alerts map[v1alpha1.ResourceAlertSeverityType]*Alert,
+	alerts map[v1beta1.ResourceAlertSeverityType]*Alert,
 	updateIntervalCh chan time.Duration,
 ) (bool, error) {
 	spec, err := getMonitorSpec(monitor)
@@ -41,7 +41,7 @@ func updateMonitor(
 	return updated, nil
 }
 
-func updateAlerts(newRules []v1alpha1.ResourceAlertRule, existingAlerts map[v1alpha1.ResourceAlertSeverityType]*Alert) (bool, error) {
+func updateAlerts(newRules []v1beta1.ResourceAlertRule, existingAlerts map[v1beta1.ResourceAlertSeverityType]*Alert) (bool, error) {
 	updated := false
 
 	// if we had alerts but the rules have been removed clear existing alerts
@@ -52,7 +52,7 @@ func updateAlerts(newRules []v1alpha1.ResourceAlertRule, existingAlerts map[v1al
 		return true, nil
 	}
 
-	seen := make(map[v1alpha1.ResourceAlertSeverityType]struct{})
+	seen := make(map[v1beta1.ResourceAlertSeverityType]struct{})
 	for _, rule := range newRules {
 		seen[rule.Severity] = struct{}{}
 	}
@@ -87,7 +87,7 @@ func updateAlerts(newRules []v1alpha1.ResourceAlertRule, existingAlerts map[v1al
 	return updated, nil
 }
 
-func getMonitorSpec(monitor *v1alpha1.ResourceMonitor) (*MonitorSpec, error) {
+func getMonitorSpec(monitor *v1beta1.ResourceMonitor) (*MonitorSpec, error) {
 	monitorType, err := monitor.Discriminator()
 	if err != nil {
 		return nil, err
@@ -100,7 +100,7 @@ func getMonitorSpec(monitor *v1alpha1.ResourceMonitor) (*MonitorSpec, error) {
 			return nil, err
 		}
 		return &MonitorSpec{
-			ResourceMonitorSpec: v1alpha1.ResourceMonitorSpec{
+			ResourceMonitorSpec: v1beta1.ResourceMonitorSpec{
 				SamplingInterval: spec.SamplingInterval,
 				AlertRules:       spec.AlertRules,
 			},
@@ -111,7 +111,7 @@ func getMonitorSpec(monitor *v1alpha1.ResourceMonitor) (*MonitorSpec, error) {
 			return nil, err
 		}
 		return &MonitorSpec{
-			ResourceMonitorSpec: v1alpha1.ResourceMonitorSpec{
+			ResourceMonitorSpec: v1beta1.ResourceMonitorSpec{
 				SamplingInterval: spec.SamplingInterval,
 				AlertRules:       spec.AlertRules,
 			},
@@ -123,7 +123,7 @@ func getMonitorSpec(monitor *v1alpha1.ResourceMonitor) (*MonitorSpec, error) {
 			return nil, err
 		}
 		return &MonitorSpec{
-			ResourceMonitorSpec: v1alpha1.ResourceMonitorSpec{
+			ResourceMonitorSpec: v1beta1.ResourceMonitorSpec{
 				SamplingInterval: spec.SamplingInterval,
 				AlertRules:       spec.AlertRules,
 			},

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	agent "github.com/flightctl/flightctl/api/v1alpha1/agent"
+	agent "github.com/flightctl/flightctl/api/v1beta1/agent"
 	server "github.com/flightctl/flightctl/internal/api/server/agent"
 	fcmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/config"

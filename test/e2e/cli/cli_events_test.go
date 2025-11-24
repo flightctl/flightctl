@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	"github.com/flightctl/flightctl/test/login"
 	"github.com/flightctl/flightctl/test/util"
@@ -37,7 +37,7 @@ var _ = Describe("cli events operation", func() {
 			harness := e2e.GetWorkerHarness()
 
 			var deviceName, fleetName, repoName string
-			var er *v1alpha1.EnrollmentRequest
+			var er *v1beta1.EnrollmentRequest
 
 			// Generate unique test ID for this test
 			testID := harness.GetTestIDFromContext()
@@ -294,7 +294,7 @@ var _ = Describe("cli events operation", func() {
 			// Create invalid device spec with non-existent repository
 			nonExistentRepo := "non-existent"
 			invalidDevice := device
-			gitConfig := v1alpha1.GitConfigProviderSpec{
+			gitConfig := v1beta1.GitConfigProviderSpec{
 				Name: "base",
 				GitRef: struct {
 					Path           string `json:"path"`
@@ -306,15 +306,15 @@ var _ = Describe("cli events operation", func() {
 					Path:           "/some/path",
 				},
 			}
-			gitItem := v1alpha1.ConfigProviderSpec{}
+			gitItem := v1beta1.ConfigProviderSpec{}
 			err = gitItem.FromGitConfigProviderSpec(gitConfig)
 			Expect(err).ToNot(HaveOccurred())
 
-			invalidDevice.Spec = &v1alpha1.DeviceSpec{
-				Os: &v1alpha1.DeviceOsSpec{
+			invalidDevice.Spec = &v1beta1.DeviceSpec{
+				Os: &v1beta1.DeviceOsSpec{
 					Image: "quay.io/redhat/rhde:9.2",
 				},
-				Config: &[]v1alpha1.ConfigProviderSpec{gitItem},
+				Config: &[]v1beta1.ConfigProviderSpec{gitItem},
 			}
 
 			// Apply the invalid configuration
@@ -342,8 +342,8 @@ var _ = Describe("cli events operation", func() {
 			By("Reverting the changes to fix the device configuration")
 			// Restore the original device configuration (remove the invalid config)
 			revertedDevice := device
-			revertedDevice.Spec = &v1alpha1.DeviceSpec{
-				Os: &v1alpha1.DeviceOsSpec{
+			revertedDevice.Spec = &v1beta1.DeviceSpec{
+				Os: &v1beta1.DeviceOsSpec{
 					Image: "quay.io/redhat/rhde:9.2",
 				},
 				// Remove the invalid config section entirely
@@ -374,25 +374,25 @@ var _ = Describe("cli events operation", func() {
 			By("Creating a device without applications")
 			deviceName := harness.StartVMAndEnroll()
 			By("Check the device status")
-			_, err := harness.CheckDeviceStatus(deviceName, v1alpha1.DeviceSummaryStatusOnline)
+			_, err := harness.CheckDeviceStatus(deviceName, v1beta1.DeviceSummaryStatusOnline)
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Updating device with non-existing app image")
 
 			// Apply the invalid application configuration
 
-			err = harness.UpdateDevice(deviceName, func(device *v1alpha1.Device) {
+			err = harness.UpdateDevice(deviceName, func(device *v1beta1.Device) {
 				imageName := "quay.io/rh_ee_camadorg/oci-app-ko:latest"
 				// Create the application spec with the invalid image
-				var applicationConfig = v1alpha1.ImageApplicationProviderSpec{
+				var applicationConfig = v1beta1.ImageApplicationProviderSpec{
 					Image: imageName,
 				}
 
-				var appSpec v1alpha1.ApplicationProviderSpec
+				var appSpec v1beta1.ApplicationProviderSpec
 				err := appSpec.FromImageApplicationProviderSpec(applicationConfig)
 				Expect(err).ToNot(HaveOccurred())
 
-				device.Spec.Applications = &[]v1alpha1.ApplicationProviderSpec{appSpec}
+				device.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{appSpec}
 				GinkgoWriter.Printf("Updating %s with application\n", deviceName)
 			})
 			Expect(err).ToNot(HaveOccurred())
@@ -408,8 +408,8 @@ var _ = Describe("cli events operation", func() {
 
 			By("Fixing the application by using valid image or removing it")
 			// Remove the application to fix the issue
-			err = harness.UpdateDevice(deviceName, func(device *v1alpha1.Device) {
-				device.Spec.Applications = &[]v1alpha1.ApplicationProviderSpec{}
+			err = harness.UpdateDevice(deviceName, func(device *v1beta1.Device) {
+				device.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{}
 				GinkgoWriter.Printf("Updating %s removing applications\n", deviceName)
 			})
 
@@ -427,22 +427,22 @@ var _ = Describe("cli events operation", func() {
 	})
 })
 
-func getEventsPage(harness *e2e.Harness, args ...string) (v1alpha1.EventList, error) {
+func getEventsPage(harness *e2e.Harness, args ...string) (v1beta1.EventList, error) {
 	out, err := harness.RunGetEvents(args...)
 	if err != nil {
-		return v1alpha1.EventList{}, err
+		return v1beta1.EventList{}, err
 	}
 
-	var page v1alpha1.EventList
+	var page v1beta1.EventList
 	err = json.Unmarshal([]byte(out), &page)
 	if err != nil {
-		return v1alpha1.EventList{}, err
+		return v1beta1.EventList{}, err
 	}
 
 	return page, nil
 }
 
-func extractTimestamps(events []v1alpha1.Event) ([]time.Time, error) {
+func extractTimestamps(events []v1beta1.Event) ([]time.Time, error) {
 	var timestamps []time.Time
 
 	for _, event := range events {
@@ -458,7 +458,7 @@ func extractTimestamps(events []v1alpha1.Event) ([]time.Time, error) {
 func verifyEventsByReason(harness *e2e.Harness, resources []struct {
 	resourceType string
 	yamlPath     string
-}, deviceName, fleetName, repoName string, er *v1alpha1.EnrollmentRequest, eventReason string) ([]string /* missingEvents */, error) {
+}, deviceName, fleetName, repoName string, er *v1beta1.EnrollmentRequest, eventReason string) ([]string /* missingEvents */, error) {
 	out, err := harness.RunGetEvents(fmt.Sprintf("--field-selector=reason=%s", eventReason))
 	if err != nil {
 		return nil, err

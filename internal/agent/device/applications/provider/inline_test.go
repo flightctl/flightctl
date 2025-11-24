@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -24,22 +24,22 @@ func TestInlineProvider(t *testing.T) {
 	tests := []struct {
 		name          string
 		image         string
-		spec          *v1alpha1.ApplicationProviderSpec
-		content       []v1alpha1.ApplicationContent
+		spec          *v1beta1.ApplicationProviderSpec
+		content       []v1beta1.ApplicationContent
 		wantVerifyErr error
 	}{
 		{
 			name:  "happy path",
 			image: appImage,
-			spec: &v1alpha1.ApplicationProviderSpec{
+			spec: &v1beta1.ApplicationProviderSpec{
 				Name:    lo.ToPtr("app"),
-				AppType: lo.ToPtr(v1alpha1.AppTypeCompose),
+				AppType: lo.ToPtr(v1beta1.AppTypeCompose),
 				EnvVars: lo.ToPtr(map[string]string{
 					"FOO": "bar",
 					"BAZ": "qux",
 				}),
 			},
-			content: []v1alpha1.ApplicationContent{
+			content: []v1beta1.ApplicationContent{
 				{
 					Content: lo.ToPtr(util.NewComposeSpec()),
 					Path:    "docker-compose.yml",
@@ -49,11 +49,11 @@ func TestInlineProvider(t *testing.T) {
 		{
 			name:  "invalid compose path",
 			image: appImage,
-			spec: &v1alpha1.ApplicationProviderSpec{
+			spec: &v1beta1.ApplicationProviderSpec{
 				Name:    lo.ToPtr("app"),
-				AppType: lo.ToPtr(v1alpha1.AppTypeCompose),
+				AppType: lo.ToPtr(v1beta1.AppTypeCompose),
 			},
-			content: []v1alpha1.ApplicationContent{
+			content: []v1beta1.ApplicationContent{
 				{
 					Content: lo.ToPtr(util.NewComposeSpec()),
 					Path:    "invalid-compose.yml",
@@ -64,14 +64,14 @@ func TestInlineProvider(t *testing.T) {
 		{
 			name:  "invalid env vars",
 			image: appImage,
-			spec: &v1alpha1.ApplicationProviderSpec{
+			spec: &v1beta1.ApplicationProviderSpec{
 				Name:    lo.ToPtr("app"),
-				AppType: lo.ToPtr(v1alpha1.AppTypeCompose),
+				AppType: lo.ToPtr(v1beta1.AppTypeCompose),
 				EnvVars: lo.ToPtr(map[string]string{
 					"1NVALID": "bar",
 				}),
 			},
-			content: []v1alpha1.ApplicationContent{
+			content: []v1beta1.ApplicationContent{
 				{
 					Content: lo.ToPtr(util.NewComposeSpec()),
 					Path:    "docker-compose.yml",
@@ -82,11 +82,11 @@ func TestInlineProvider(t *testing.T) {
 		{
 			name:  "valid overide",
 			image: appImage,
-			spec: &v1alpha1.ApplicationProviderSpec{
+			spec: &v1beta1.ApplicationProviderSpec{
 				Name:    lo.ToPtr("app"),
-				AppType: lo.ToPtr(v1alpha1.AppTypeCompose),
+				AppType: lo.ToPtr(v1beta1.AppTypeCompose),
 			},
-			content: []v1alpha1.ApplicationContent{
+			content: []v1beta1.ApplicationContent{
 				{
 					Content: lo.ToPtr(util.NewComposeSpec()),
 					Path:    "podman-compose.yml",
@@ -111,7 +111,7 @@ func TestInlineProvider(t *testing.T) {
 			rw.SetRootdir(tmpDir)
 			podman := client.NewPodman(log, mockExec, rw, util.NewPollConfig())
 
-			spec := v1alpha1.InlineApplicationProviderSpec{
+			spec := v1beta1.InlineApplicationProviderSpec{
 				Inline: tt.content,
 			}
 

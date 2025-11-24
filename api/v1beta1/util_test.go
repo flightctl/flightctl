@@ -1,4 +1,4 @@
-package v1alpha1
+package v1beta1
 
 import (
 	"testing"
@@ -330,7 +330,7 @@ func TestAuthConfigHideSensitiveData(t *testing.T) {
 	// Create AuthConfig with providers
 	providers := []AuthProvider{oidcProvider, oauth2Provider, openshiftProvider}
 	config := &AuthConfig{
-		ApiVersion: "v1alpha1",
+		ApiVersion: "v1beta1",
 		Providers:  &providers,
 	}
 

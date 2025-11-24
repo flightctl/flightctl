@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	"github.com/flightctl/flightctl/test/login"
 	"github.com/flightctl/flightctl/test/util"
@@ -33,9 +33,9 @@ var (
 type fleetTestManager struct {
 	harness          *e2e.Harness
 	testID           string
-	fleetA           v1alpha1.Fleet
-	fleetB           v1alpha1.Fleet
-	device           v1alpha1.Device
+	fleetA           v1beta1.Fleet
+	fleetB           v1beta1.Fleet
+	device           v1beta1.Device
 	uniqueFleetAYAML string
 	uniqueFleetBYAML string
 	uniqueDeviceYAML string
@@ -185,7 +185,7 @@ var _ = Describe("cli operation", func() {
 
 			devName := *device.Metadata.Name
 			Eventually(func() error {
-				err := harness.UpdateDevice(devName, func(device *v1alpha1.Device) {
+				err := harness.UpdateDevice(devName, func(device *v1beta1.Device) {
 					(*device.Metadata.Labels)[newTestKey] = newTestValue
 				})
 				return err
@@ -227,7 +227,7 @@ var _ = Describe("cli operation", func() {
 
 			By("Updating Fleet labels")
 			Eventually(func() error {
-				err := harness.UpdateFleet(fleetName, func(fleet *v1alpha1.Fleet) {
+				err := harness.UpdateFleet(fleetName, func(fleet *v1beta1.Fleet) {
 					(*fleet.Spec.Template.Metadata.Labels)[newTestKey] = newTestValue
 				})
 				return err
@@ -914,7 +914,7 @@ var _ = Describe("cli login", func() {
 
 		By("patching the device once via API to ensure it is reachable")
 		Eventually(func() error {
-			return harness.UpdateDevice(devName, func(d *v1alpha1.Device) {
+			return harness.UpdateDevice(devName, func(d *v1beta1.Device) {
 				if d.Metadata.Labels == nil {
 					d.Metadata.Labels = &map[string]string{}
 				}
@@ -1488,7 +1488,7 @@ func ExpectCompletion(h CLIRunner, args []string, expected string) {
 
 // completeFleetYaml defines a YAML template for creating a Fleet resource with specified metadata and spec configuration.
 const completeFleetYaml = `
-apiVersion: v1alpha1
+apiVersion: v1beta1
 kind: Fleet
 metadata:
     name: e2e-test-fleet
@@ -1504,7 +1504,7 @@ spec:
 
 // incompleteFleetYaml defines a YAML configuration string for a Fleet resource with minimal and incomplete fields.
 const incompleteFleetYaml = `
-apiVersion: v1alpha1
+apiVersion: v1beta1
 kind: Fleet
 metadata:
     name: e2e-test-fleet

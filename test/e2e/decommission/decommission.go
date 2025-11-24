@@ -3,7 +3,7 @@ package decommission_test
 import (
 	"fmt"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -38,8 +38,8 @@ var _ = Describe("CLI decommission test", func() {
 			GinkgoWriter.Printf("%s\n", out)
 			Expect(out).To(ContainSubstring("Device scheduled for decommissioning: 200 OK:"))
 			harness.WaitForDeviceContents(deviceId, "The device has completed decommissioning and will wipe its management certificate",
-				func(device *v1alpha1.Device) bool {
-					return e2e.ConditionExists(device, "DeviceDecommissioning", "True", string(v1alpha1.DecommissionStateComplete))
+				func(device *v1beta1.Device) bool {
+					return e2e.ConditionExists(device, "DeviceDecommissioning", "True", string(v1beta1.DecommissionStateComplete))
 				}, TIMEOUT)
 		})
 	})

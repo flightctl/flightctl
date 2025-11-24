@@ -13,7 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
-	v1alpha1 "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -55,7 +55,7 @@ func (mr *MockManagerMockRecorder) IsReady(ctx, policyType any) *gomock.Call {
 }
 
 // Sync mocks base method.
-func (m *MockManager) Sync(ctx context.Context, desired *v1alpha1.DeviceSpec) error {
+func (m *MockManager) Sync(ctx context.Context, desired *api.DeviceSpec) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Sync", ctx, desired)
 	ret0, _ := ret[0].(error)

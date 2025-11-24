@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
@@ -1378,19 +1378,19 @@ func TestHasQuadletFiles(t *testing.T) {
 	}
 }
 
-func makeMountVolume(name, path string) v1alpha1.ApplicationVolume {
-	vol := v1alpha1.ApplicationVolume{Name: name}
-	_ = vol.FromMountVolumeProviderSpec(v1alpha1.MountVolumeProviderSpec{
-		Mount: v1alpha1.VolumeMount{Path: path},
+func makeMountVolume(name, path string) v1beta1.ApplicationVolume {
+	vol := v1beta1.ApplicationVolume{Name: name}
+	_ = vol.FromMountVolumeProviderSpec(v1beta1.MountVolumeProviderSpec{
+		Mount: v1beta1.VolumeMount{Path: path},
 	})
 	return vol
 }
 
-func makeImageMountVolume(name, imageRef, path string) v1alpha1.ApplicationVolume {
-	vol := v1alpha1.ApplicationVolume{Name: name}
-	_ = vol.FromImageMountVolumeProviderSpec(v1alpha1.ImageMountVolumeProviderSpec{
-		Image: v1alpha1.ImageVolumeSource{Reference: imageRef},
-		Mount: v1alpha1.VolumeMount{Path: path},
+func makeImageMountVolume(name, imageRef, path string) v1beta1.ApplicationVolume {
+	vol := v1beta1.ApplicationVolume{Name: name}
+	_ = vol.FromImageMountVolumeProviderSpec(v1beta1.ImageMountVolumeProviderSpec{
+		Image: v1beta1.ImageVolumeSource{Reference: imageRef},
+		Mount: v1beta1.VolumeMount{Path: path},
 	})
 	return vol
 }
@@ -1404,14 +1404,14 @@ func TestGenerateQuadlet(t *testing.T) {
 
 	tests := []struct {
 		name              string
-		spec              *v1alpha1.ImageApplicationProviderSpec
+		spec              *v1beta1.ImageApplicationProviderSpec
 		setupMocks        func(*executer.MockExecuter)
 		checkFileContents func(*testing.T, []byte)
 		expectedFiles     []string
 	}{
 		{
 			name: "simple image only",
-			spec: &v1alpha1.ImageApplicationProviderSpec{
+			spec: &v1beta1.ImageApplicationProviderSpec{
 				Image: "nginx:latest",
 			},
 			checkFileContents: func(t *testing.T, content []byte) {
@@ -1424,10 +1424,10 @@ func TestGenerateQuadlet(t *testing.T) {
 		},
 		{
 			name: "with CPU limit only",
-			spec: &v1alpha1.ImageApplicationProviderSpec{
+			spec: &v1beta1.ImageApplicationProviderSpec{
 				Image: "nginx:latest",
-				Resources: &v1alpha1.ApplicationResources{
-					Limits: &v1alpha1.ApplicationResourceLimits{
+				Resources: &v1beta1.ApplicationResources{
+					Limits: &v1beta1.ApplicationResourceLimits{
 						Cpu: &cpuLimit,
 					},
 				},
@@ -1442,10 +1442,10 @@ func TestGenerateQuadlet(t *testing.T) {
 		},
 		{
 			name: "with memory limit only",
-			spec: &v1alpha1.ImageApplicationProviderSpec{
+			spec: &v1beta1.ImageApplicationProviderSpec{
 				Image: "postgres:latest",
-				Resources: &v1alpha1.ApplicationResources{
-					Limits: &v1alpha1.ApplicationResourceLimits{
+				Resources: &v1beta1.ApplicationResources{
+					Limits: &v1beta1.ApplicationResourceLimits{
 						Memory: &memoryLimit,
 					},
 				},
@@ -1460,10 +1460,10 @@ func TestGenerateQuadlet(t *testing.T) {
 		},
 		{
 			name: "with both CPU and memory limits",
-			spec: &v1alpha1.ImageApplicationProviderSpec{
+			spec: &v1beta1.ImageApplicationProviderSpec{
 				Image: "redis:latest",
-				Resources: &v1alpha1.ApplicationResources{
-					Limits: &v1alpha1.ApplicationResourceLimits{
+				Resources: &v1beta1.ApplicationResources{
+					Limits: &v1beta1.ApplicationResourceLimits{
 						Cpu:    &cpuLimit,
 						Memory: &memoryLimit,
 					},
@@ -1479,9 +1479,9 @@ func TestGenerateQuadlet(t *testing.T) {
 		},
 		{
 			name: "with single port",
-			spec: &v1alpha1.ImageApplicationProviderSpec{
+			spec: &v1beta1.ImageApplicationProviderSpec{
 				Image: "nginx:latest",
-				Ports: &[]v1alpha1.ApplicationPort{"8080:80"},
+				Ports: &[]v1beta1.ApplicationPort{"8080:80"},
 			},
 			checkFileContents: func(t *testing.T, content []byte) {
 				contentStr := string(content)
@@ -1492,9 +1492,9 @@ func TestGenerateQuadlet(t *testing.T) {
 		},
 		{
 			name: "with multiple ports",
-			spec: &v1alpha1.ImageApplicationProviderSpec{
+			spec: &v1beta1.ImageApplicationProviderSpec{
 				Image: "webapp:latest",
-				Ports: &[]v1alpha1.ApplicationPort{
+				Ports: &[]v1beta1.ApplicationPort{
 					"8080:80",
 					"8443:443",
 					"9090:9090",
@@ -1511,15 +1511,15 @@ func TestGenerateQuadlet(t *testing.T) {
 		},
 		{
 			name: "complete spec with resources and ports",
-			spec: &v1alpha1.ImageApplicationProviderSpec{
+			spec: &v1beta1.ImageApplicationProviderSpec{
 				Image: "myapp:v1.0",
-				Resources: &v1alpha1.ApplicationResources{
-					Limits: &v1alpha1.ApplicationResourceLimits{
+				Resources: &v1beta1.ApplicationResources{
+					Limits: &v1beta1.ApplicationResourceLimits{
 						Cpu:    &cpuLimit,
 						Memory: &memoryLimit,
 					},
 				},
-				Ports: &[]v1alpha1.ApplicationPort{
+				Ports: &[]v1beta1.ApplicationPort{
 					"3000:3000",
 					"3001:3001",
 				},
@@ -1536,7 +1536,7 @@ func TestGenerateQuadlet(t *testing.T) {
 		},
 		{
 			name: "nil resources",
-			spec: &v1alpha1.ImageApplicationProviderSpec{
+			spec: &v1beta1.ImageApplicationProviderSpec{
 				Image:     "alpine:latest",
 				Resources: nil,
 			},
@@ -1549,9 +1549,9 @@ func TestGenerateQuadlet(t *testing.T) {
 		},
 		{
 			name: "nil limits",
-			spec: &v1alpha1.ImageApplicationProviderSpec{
+			spec: &v1beta1.ImageApplicationProviderSpec{
 				Image: "ubuntu:latest",
-				Resources: &v1alpha1.ApplicationResources{
+				Resources: &v1beta1.ApplicationResources{
 					Limits: nil,
 				},
 			},
@@ -1564,7 +1564,7 @@ func TestGenerateQuadlet(t *testing.T) {
 		},
 		{
 			name: "nil ports",
-			spec: &v1alpha1.ImageApplicationProviderSpec{
+			spec: &v1beta1.ImageApplicationProviderSpec{
 				Image: "busybox:latest",
 				Ports: nil,
 			},
@@ -1577,9 +1577,9 @@ func TestGenerateQuadlet(t *testing.T) {
 		},
 		{
 			name: "empty ports slice",
-			spec: &v1alpha1.ImageApplicationProviderSpec{
+			spec: &v1beta1.ImageApplicationProviderSpec{
 				Image: "centos:latest",
-				Ports: &[]v1alpha1.ApplicationPort{},
+				Ports: &[]v1beta1.ApplicationPort{},
 			},
 			checkFileContents: func(t *testing.T, content []byte) {
 				contentStr := string(content)
@@ -1590,9 +1590,9 @@ func TestGenerateQuadlet(t *testing.T) {
 		},
 		{
 			name: "with mount volume",
-			spec: &v1alpha1.ImageApplicationProviderSpec{
+			spec: &v1beta1.ImageApplicationProviderSpec{
 				Image: "nginx:latest",
-				Volumes: &[]v1alpha1.ApplicationVolume{
+				Volumes: &[]v1beta1.ApplicationVolume{
 					makeMountVolume("app-data", "/var/lib/app"),
 				},
 			},
@@ -1605,9 +1605,9 @@ func TestGenerateQuadlet(t *testing.T) {
 		},
 		{
 			name: "with image mount volume - image exists",
-			spec: &v1alpha1.ImageApplicationProviderSpec{
+			spec: &v1beta1.ImageApplicationProviderSpec{
 				Image: "nginx:latest",
-				Volumes: &[]v1alpha1.ApplicationVolume{
+				Volumes: &[]v1beta1.ApplicationVolume{
 					makeImageMountVolume("app-config", "quay.io/config:v1", "/etc/app/config"),
 				},
 			},
@@ -1625,9 +1625,9 @@ func TestGenerateQuadlet(t *testing.T) {
 		},
 		{
 			name: "with image mount volume - artifact (image does not exist)",
-			spec: &v1alpha1.ImageApplicationProviderSpec{
+			spec: &v1beta1.ImageApplicationProviderSpec{
 				Image: "nginx:latest",
-				Volumes: &[]v1alpha1.ApplicationVolume{
+				Volumes: &[]v1beta1.ApplicationVolume{
 					makeImageMountVolume("app-artifact", "quay.io/artifact:v1", "/data/artifact"),
 				},
 			},
@@ -1643,9 +1643,9 @@ func TestGenerateQuadlet(t *testing.T) {
 		},
 		{
 			name: "with multiple volumes - mixed types",
-			spec: &v1alpha1.ImageApplicationProviderSpec{
+			spec: &v1beta1.ImageApplicationProviderSpec{
 				Image: "webapp:latest",
-				Volumes: &[]v1alpha1.ApplicationVolume{
+				Volumes: &[]v1beta1.ApplicationVolume{
 					makeMountVolume("data", "/var/data"),
 					makeImageMountVolume("config", "quay.io/config:latest", "/etc/config"),
 					makeImageMountVolume("cache", "quay.io/artifact:v1", "/cache"),
@@ -1673,19 +1673,19 @@ func TestGenerateQuadlet(t *testing.T) {
 		},
 		{
 			name: "with volumes and ports and resources",
-			spec: &v1alpha1.ImageApplicationProviderSpec{
+			spec: &v1beta1.ImageApplicationProviderSpec{
 				Image: "fullapp:latest",
-				Resources: &v1alpha1.ApplicationResources{
-					Limits: &v1alpha1.ApplicationResourceLimits{
+				Resources: &v1beta1.ApplicationResources{
+					Limits: &v1beta1.ApplicationResourceLimits{
 						Cpu:    &cpuLimit,
 						Memory: &memoryLimit,
 					},
 				},
-				Ports: &[]v1alpha1.ApplicationPort{
+				Ports: &[]v1beta1.ApplicationPort{
 					"8080:80",
 					"8443:443",
 				},
-				Volumes: &[]v1alpha1.ApplicationVolume{
+				Volumes: &[]v1beta1.ApplicationVolume{
 					makeMountVolume("data", "/data"),
 					makeImageMountVolume("config", "quay.io/config:v1", "/config"),
 				},

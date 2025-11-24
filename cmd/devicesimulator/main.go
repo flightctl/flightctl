@@ -17,7 +17,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent"
 	agent_config "github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
@@ -471,7 +471,7 @@ func approveAgent(ctx context.Context, log *logrus.Logger, serviceClient *apiCli
 		resp, err := serviceClient.ApproveEnrollmentRequestWithResponse(
 			ctx,
 			enrollmentId,
-			v1alpha1.EnrollmentRequestApproval{
+			v1beta1.EnrollmentRequestApproval{
 				Approved: true,
 				Labels:   labels,
 			})
@@ -612,7 +612,7 @@ func createSimulatorFleet(ctx context.Context, serviceClient *apiClient.ClientWi
 	fleetName := "simulator-disk-monitoring"
 
 	// Check if fleet already exists
-	response, err := serviceClient.GetFleetWithResponse(ctx, fleetName, &v1alpha1.GetFleetParams{})
+	response, err := serviceClient.GetFleetWithResponse(ctx, fleetName, &v1beta1.GetFleetParams{})
 	if err == nil && response.HTTPResponse != nil && response.HTTPResponse.StatusCode == 200 {
 		log.Infof("Fleet %s already exists, skipping creation", fleetName)
 		return nil
@@ -627,7 +627,7 @@ func createSimulatorFleet(ctx context.Context, serviceClient *apiClient.ClientWi
 		return fmt.Errorf("reading fleet YAML file %s: %w", fleetYAMLPath, err)
 	}
 
-	var fleet v1alpha1.Fleet
+	var fleet v1beta1.Fleet
 	if err := yaml.Unmarshal(fleetYAMLData, &fleet); err != nil {
 		return fmt.Errorf("unmarshaling fleet YAML: %w", err)
 	}

@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
@@ -58,7 +58,7 @@ func NewManager(
 func (m *manager) Ensure(ctx context.Context, provider provider.Provider) error {
 	appType := provider.Spec().AppType
 	switch appType {
-	case v1alpha1.AppTypeCompose, v1alpha1.AppTypeQuadlet, v1alpha1.AppTypeContainer:
+	case v1beta1.AppTypeCompose, v1beta1.AppTypeQuadlet, v1beta1.AppTypeContainer:
 		if m.podmanMonitor.Has(provider.Spec().ID) {
 			return nil
 		}
@@ -74,7 +74,7 @@ func (m *manager) Ensure(ctx context.Context, provider provider.Provider) error 
 func (m *manager) Remove(ctx context.Context, provider provider.Provider) error {
 	appType := provider.Spec().AppType
 	switch appType {
-	case v1alpha1.AppTypeCompose, v1alpha1.AppTypeQuadlet, v1alpha1.AppTypeContainer:
+	case v1beta1.AppTypeCompose, v1beta1.AppTypeQuadlet, v1beta1.AppTypeContainer:
 		if err := provider.Remove(ctx); err != nil {
 			return fmt.Errorf("removing application: %w", err)
 		}
@@ -87,7 +87,7 @@ func (m *manager) Remove(ctx context.Context, provider provider.Provider) error 
 func (m *manager) Update(ctx context.Context, provider provider.Provider) error {
 	appType := provider.Spec().AppType
 	switch appType {
-	case v1alpha1.AppTypeCompose, v1alpha1.AppTypeQuadlet, v1alpha1.AppTypeContainer:
+	case v1beta1.AppTypeCompose, v1beta1.AppTypeQuadlet, v1beta1.AppTypeContainer:
 		if err := provider.Remove(ctx); err != nil {
 			return fmt.Errorf("removing application: %w", err)
 		}
@@ -100,7 +100,7 @@ func (m *manager) Update(ctx context.Context, provider provider.Provider) error 
 	}
 }
 
-func (m *manager) BeforeUpdate(ctx context.Context, desired *v1alpha1.DeviceSpec) error {
+func (m *manager) BeforeUpdate(ctx context.Context, desired *v1beta1.DeviceSpec) error {
 	if desired.Applications == nil || len(*desired.Applications) == 0 {
 		m.log.Debug("No applications to pre-check")
 		return nil
@@ -126,7 +126,7 @@ func (m *manager) BeforeUpdate(ctx context.Context, desired *v1alpha1.DeviceSpec
 	return m.verifyProviders(ctx, providers)
 }
 
-func (m *manager) resolvePullSecret(desired *v1alpha1.DeviceSpec) (*client.PullSecret, error) {
+func (m *manager) resolvePullSecret(desired *v1beta1.DeviceSpec) (*client.PullSecret, error) {
 	secret, found, err := client.ResolvePullSecret(m.log, m.readWriter, desired, pullAuthPath)
 	if err != nil {
 		return nil, fmt.Errorf("resolving pull secret: %w", err)
@@ -167,7 +167,7 @@ func (m *manager) clearAppDataCache() {
 	m.appDataCache = provider.NewAppDataCache()
 }
 
-func (m *manager) Status(ctx context.Context, status *v1alpha1.DeviceStatus, opts ...status.CollectorOpt) error {
+func (m *manager) Status(ctx context.Context, status *v1beta1.DeviceStatus, opts ...status.CollectorOpt) error {
 	applicationsStatus, applicationSummary, err := m.podmanMonitor.Status()
 	if err != nil {
 		return err
@@ -196,7 +196,7 @@ func (m *manager) Shutdown(ctx context.Context, state shutdown.State) error {
 //
 // Caching: Nested targets are cached by application name. Cache entries store the parent
 // image digest (for image-based apps) or children list (for inline apps) for invalidation.
-func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1alpha1.DeviceSpec) (*dependency.OCICollection, error) {
+func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1beta1.DeviceSpec) (*dependency.OCICollection, error) {
 	if desired.Applications == nil || len(*desired.Applications) == 0 {
 		m.log.Debug("No applications to collect OCI targets from")
 		m.ociTargetCache.Clear()
@@ -234,7 +234,7 @@ func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1alp
 // collectNestedTargets collects nested OCI targets with per-application caching.
 func (m *manager) collectNestedTargets(
 	ctx context.Context,
-	desired *v1alpha1.DeviceSpec,
+	desired *v1beta1.DeviceSpec,
 	secret *client.PullSecret,
 ) ([]dependency.OCIPullTarget, bool, []string, error) {
 	var allNestedTargets []dependency.OCIPullTarget
@@ -251,7 +251,7 @@ func (m *manager) collectNestedTargets(
 		}
 
 		// only image-based apps have nested targets extracted from parent images
-		if providerType != v1alpha1.ImageApplicationProviderType {
+		if providerType != v1beta1.ImageApplicationProviderType {
 			continue
 		}
 
@@ -331,8 +331,8 @@ func (m *manager) collectNestedTargets(
 // extractNestedTargetsForImage extracts nested OCI targets from a single image-based application.
 func (m *manager) extractNestedTargetsForImage(
 	ctx context.Context,
-	appSpec v1alpha1.ApplicationProviderSpec,
-	imageSpec *v1alpha1.ImageApplicationProviderSpec,
+	appSpec v1beta1.ApplicationProviderSpec,
+	imageSpec *v1beta1.ImageApplicationProviderSpec,
 	secret *client.PullSecret,
 ) (*provider.AppData, error) {
 	return provider.ExtractNestedTargetsFromImage(

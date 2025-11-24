@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/api/common"
@@ -91,7 +91,7 @@ func mergeDropins(reader fileio.Reader, baseDir string, filename string, unit *q
 // ParseQuadletReferencesFromSpec parses Quadlet specifications from a slice of inline application content.
 // Drop-in overrides are applied to ensure that the specs
 // It returns a map where the key is the filename and the value is the parsed QuadletSpec.
-func ParseQuadletReferencesFromSpec(contents []v1alpha1.ApplicationContent) (map[string]*common.QuadletReferences, error) {
+func ParseQuadletReferencesFromSpec(contents []v1beta1.ApplicationContent) (map[string]*common.QuadletReferences, error) {
 	baseFiles := make(map[string][]byte)
 	dropinFiles := make(map[string]map[string][]byte)
 

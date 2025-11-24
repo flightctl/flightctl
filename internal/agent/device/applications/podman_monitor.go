@@ -13,7 +13,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
@@ -46,7 +46,7 @@ type PodmanMonitor struct {
 	apps    map[string]Application
 	actions []lifecycle.Action
 
-	handlers map[v1alpha1.AppType]lifecycle.ActionHandler
+	handlers map[v1beta1.AppType]lifecycle.ActionHandler
 	client   *client.Podman
 	rw       fileio.ReadWriter
 
@@ -68,10 +68,10 @@ func NewPodmanMonitor(
 	}
 	return &PodmanMonitor{
 		client: podman,
-		handlers: map[v1alpha1.AppType]lifecycle.ActionHandler{
-			v1alpha1.AppTypeCompose:   lifecycle.NewCompose(log, rw, podman),
-			v1alpha1.AppTypeQuadlet:   lifecycle.NewQuadlet(log, rw, systemdManager, podman),
-			v1alpha1.AppTypeContainer: lifecycle.NewQuadlet(log, rw, systemdManager, podman),
+		handlers: map[v1beta1.AppType]lifecycle.ActionHandler{
+			v1beta1.AppTypeCompose:   lifecycle.NewCompose(log, rw, podman),
+			v1beta1.AppTypeQuadlet:   lifecycle.NewQuadlet(log, rw, systemdManager, podman),
+			v1beta1.AppTypeContainer: lifecycle.NewQuadlet(log, rw, systemdManager, podman),
 		},
 		apps:                   make(map[string]Application),
 		lastEventTime:          bootTime,
@@ -447,13 +447,13 @@ func (m *PodmanMonitor) drainActions() []lifecycle.Action {
 	return actions
 }
 
-func (m *PodmanMonitor) Status() ([]v1alpha1.DeviceApplicationStatus, v1alpha1.DeviceApplicationsSummaryStatus, error) {
+func (m *PodmanMonitor) Status() ([]v1beta1.DeviceApplicationStatus, v1beta1.DeviceApplicationsSummaryStatus, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	var errs []error
-	var summary v1alpha1.DeviceApplicationsSummaryStatus
-	statuses := make([]v1alpha1.DeviceApplicationStatus, 0, len(m.apps))
+	var summary v1beta1.DeviceApplicationsSummaryStatus
+	statuses := make([]v1beta1.DeviceApplicationStatus, 0, len(m.apps))
 	var unstarted []string
 	for _, app := range m.apps {
 		appStatus, appSummary, err := app.Status()
@@ -465,25 +465,25 @@ func (m *PodmanMonitor) Status() ([]v1alpha1.DeviceApplicationStatus, v1alpha1.D
 
 		// phases can get worse but not better
 		switch appSummary.Status {
-		case v1alpha1.ApplicationsSummaryStatusError:
-			summary.Status = v1alpha1.ApplicationsSummaryStatusError
+		case v1beta1.ApplicationsSummaryStatusError:
+			summary.Status = v1beta1.ApplicationsSummaryStatusError
 			summary.Info = nil
-		case v1alpha1.ApplicationsSummaryStatusDegraded:
+		case v1beta1.ApplicationsSummaryStatusDegraded:
 			// ensure we don't override Error status with Degraded
-			if summary.Status != v1alpha1.ApplicationsSummaryStatusError {
-				summary.Status = v1alpha1.ApplicationsSummaryStatusDegraded
+			if summary.Status != v1beta1.ApplicationsSummaryStatusError {
+				summary.Status = v1beta1.ApplicationsSummaryStatusDegraded
 				summary.Info = nil
 			}
-		case v1alpha1.ApplicationsSummaryStatusHealthy:
+		case v1beta1.ApplicationsSummaryStatusHealthy:
 			// ensure we don't override Error or Degraded status with Healthy
-			if summary.Status != v1alpha1.ApplicationsSummaryStatusError && summary.Status != v1alpha1.ApplicationsSummaryStatusDegraded {
-				summary.Status = v1alpha1.ApplicationsSummaryStatusHealthy
+			if summary.Status != v1beta1.ApplicationsSummaryStatusError && summary.Status != v1beta1.ApplicationsSummaryStatusDegraded {
+				summary.Status = v1beta1.ApplicationsSummaryStatusHealthy
 				summary.Info = nil
 			}
-		case v1alpha1.ApplicationsSummaryStatusUnknown:
+		case v1beta1.ApplicationsSummaryStatusUnknown:
 			unstarted = append(unstarted, app.Name())
-			if summary.Status != v1alpha1.ApplicationsSummaryStatusError {
-				summary.Status = v1alpha1.ApplicationsSummaryStatusDegraded
+			if summary.Status != v1beta1.ApplicationsSummaryStatusError {
+				summary.Status = v1beta1.ApplicationsSummaryStatusDegraded
 				summary.Info = lo.ToPtr("Not started: " + strings.Join(unstarted, ", "))
 			}
 		default:
@@ -492,7 +492,7 @@ func (m *PodmanMonitor) Status() ([]v1alpha1.DeviceApplicationStatus, v1alpha1.D
 	}
 
 	if len(statuses) == 0 {
-		summary.Status = v1alpha1.ApplicationsSummaryStatusUnknown
+		summary.Status = v1beta1.ApplicationsSummaryStatusUnknown
 	}
 
 	if len(errs) > 0 {

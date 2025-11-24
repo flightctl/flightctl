@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -19,9 +19,9 @@ const (
 func WaitForApplicationRunningStatus(h *e2e.Harness, deviceId string, applicationImage string) {
 	GinkgoWriter.Printf("Waiting for the application ready status\n")
 	h.WaitForDeviceContents(deviceId, ApplicationRunningStatus,
-		func(device *v1alpha1.Device) bool {
+		func(device *v1beta1.Device) bool {
 			for _, application := range device.Status.Applications {
-				if application.Name == applicationImage && application.Status == v1alpha1.ApplicationStatusRunning {
+				if application.Name == applicationImage && application.Status == v1beta1.ApplicationStatusRunning {
 					return true
 				}
 			}
@@ -29,9 +29,9 @@ func WaitForApplicationRunningStatus(h *e2e.Harness, deviceId string, applicatio
 		}, TIMEOUT)
 }
 
-func createInlineApplicationSpec(content string, path string) v1alpha1.InlineApplicationProviderSpec {
-	return v1alpha1.InlineApplicationProviderSpec{
-		Inline: []v1alpha1.ApplicationContent{
+func createInlineApplicationSpec(content string, path string) v1beta1.InlineApplicationProviderSpec {
+	return v1beta1.InlineApplicationProviderSpec{
+		Inline: []v1beta1.ApplicationContent{
 			{
 				Content: &content,
 				Path:    path,
@@ -40,7 +40,7 @@ func createInlineApplicationSpec(content string, path string) v1alpha1.InlineApp
 	}
 }
 
-func updateDeviceApplicationFromInline(device *v1alpha1.Device, inlineAppName string, inlineApp v1alpha1.InlineApplicationProviderSpec) error {
+func updateDeviceApplicationFromInline(device *v1beta1.Device, inlineAppName string, inlineApp v1beta1.InlineApplicationProviderSpec) error {
 	for i, app := range *device.Spec.Applications {
 		if app.Name != nil && *app.Name == inlineAppName {
 			err := (*device.Spec.Applications)[i].FromInlineApplicationProviderSpec(inlineApp)
@@ -53,7 +53,7 @@ func updateDeviceApplicationFromInline(device *v1alpha1.Device, inlineAppName st
 	return fmt.Errorf("application %s not found in device spec", inlineAppName)
 }
 
-func updateDevice(harness *e2e.Harness, deviceID string, updateFunc func(device *v1alpha1.Device)) {
+func updateDevice(harness *e2e.Harness, deviceID string, updateFunc func(device *v1beta1.Device)) {
 	// Get the next expected rendered version
 	newRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceID)
 	Expect(err).ToNot(HaveOccurred())

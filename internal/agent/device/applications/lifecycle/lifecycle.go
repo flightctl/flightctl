@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 )
 
 type ActionType string
@@ -35,7 +35,7 @@ type Action struct {
 	// Type of the action
 	Type ActionType
 	// AppType of the application
-	AppType v1alpha1.AppType
+	AppType v1beta1.AppType
 	// Path to the application
 	Path string
 	// Embedded is true if the application is embedded in the device
