@@ -197,11 +197,9 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 				Info:         lo.ToPtr("TPM not present or not enabled on this device"),
 				DeviceIdentity: &api.DeviceIntegrityCheckStatus{
 					Status: api.DeviceIntegrityCheckStatusUnsupported,
-					Info:   lo.ToPtr("Device does not have TPM enabled"),
 				},
 				Tpm: &api.DeviceIntegrityCheckStatus{
 					Status: api.DeviceIntegrityCheckStatusUnsupported,
-					Info:   lo.ToPtr("TPM not present or not enabled"),
 				},
 			}
 		}
