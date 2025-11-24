@@ -13,7 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
-	api "github.com/flightctl/flightctl/api/v1beta1"
+	v1beta1 "github.com/flightctl/flightctl/api/v1beta1"
 	status "github.com/flightctl/flightctl/internal/agent/device/status"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -56,7 +56,7 @@ func (mr *MockManagerMockRecorder) Alerts() *gomock.Call {
 }
 
 // BeforeUpdate mocks base method.
-func (m *MockManager) BeforeUpdate(ctx context.Context, desired *api.DeviceSpec) error {
+func (m *MockManager) BeforeUpdate(ctx context.Context, desired *v1beta1.DeviceSpec) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "BeforeUpdate", ctx, desired)
 	ret0, _ := ret[0].(error)
@@ -110,7 +110,7 @@ func (mr *MockManagerMockRecorder) Run(ctx any) *gomock.Call {
 }
 
 // Status mocks base method.
-func (m *MockManager) Status(arg0 context.Context, arg1 *api.DeviceStatus, arg2 ...status.CollectorOpt) error {
+func (m *MockManager) Status(arg0 context.Context, arg1 *v1beta1.DeviceStatus, arg2 ...status.CollectorOpt) error {
 	m.ctrl.T.Helper()
 	varargs := []any{arg0, arg1}
 	for _, a := range arg2 {
@@ -129,7 +129,7 @@ func (mr *MockManagerMockRecorder) Status(arg0, arg1 any, arg2 ...any) *gomock.C
 }
 
 // Update mocks base method.
-func (m *MockManager) Update(monitor *api.ResourceMonitor) (bool, error) {
+func (m *MockManager) Update(monitor *v1beta1.ResourceMonitor) (bool, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Update", monitor)
 	ret0, _ := ret[0].(bool)
@@ -167,10 +167,10 @@ func (m *MockMonitor[T]) EXPECT() *MockMonitorMockRecorder[T] {
 }
 
 // Alerts mocks base method.
-func (m *MockMonitor[T]) Alerts() []api.ResourceAlertRule {
+func (m *MockMonitor[T]) Alerts() []v1beta1.ResourceAlertRule {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Alerts")
-	ret0, _ := ret[0].([]api.ResourceAlertRule)
+	ret0, _ := ret[0].([]v1beta1.ResourceAlertRule)
 	return ret0
 }
 
@@ -193,7 +193,7 @@ func (mr *MockMonitorMockRecorder[T]) Run(ctx any) *gomock.Call {
 }
 
 // Update mocks base method.
-func (m *MockMonitor[T]) Update(monitor *api.ResourceMonitor) (bool, error) {
+func (m *MockMonitor[T]) Update(monitor *v1beta1.ResourceMonitor) (bool, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Update", monitor)
 	ret0, _ := ret[0].(bool)

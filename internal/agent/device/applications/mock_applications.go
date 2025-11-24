@@ -13,7 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
-	api "github.com/flightctl/flightctl/api/v1beta1"
+	v1beta1 "github.com/flightctl/flightctl/api/v1beta1"
 	provider "github.com/flightctl/flightctl/internal/agent/device/applications/provider"
 	dependency "github.com/flightctl/flightctl/internal/agent/device/dependency"
 	status "github.com/flightctl/flightctl/internal/agent/device/status"
@@ -57,10 +57,10 @@ func (mr *MockMonitorMockRecorder) Run(ctx any) *gomock.Call {
 }
 
 // Status mocks base method.
-func (m *MockMonitor) Status() []api.DeviceApplicationStatus {
+func (m *MockMonitor) Status() []v1beta1.DeviceApplicationStatus {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Status")
-	ret0, _ := ret[0].([]api.DeviceApplicationStatus)
+	ret0, _ := ret[0].([]v1beta1.DeviceApplicationStatus)
 	return ret0
 }
 
@@ -108,7 +108,7 @@ func (mr *MockManagerMockRecorder) AfterUpdate(ctx any) *gomock.Call {
 }
 
 // BeforeUpdate mocks base method.
-func (m *MockManager) BeforeUpdate(ctx context.Context, desired *api.DeviceSpec) error {
+func (m *MockManager) BeforeUpdate(ctx context.Context, desired *v1beta1.DeviceSpec) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "BeforeUpdate", ctx, desired)
 	ret0, _ := ret[0].(error)
@@ -122,7 +122,7 @@ func (mr *MockManagerMockRecorder) BeforeUpdate(ctx, desired any) *gomock.Call {
 }
 
 // CollectOCITargets mocks base method.
-func (m *MockManager) CollectOCITargets(ctx context.Context, current, desired *api.DeviceSpec) (*dependency.OCICollection, error) {
+func (m *MockManager) CollectOCITargets(ctx context.Context, current, desired *v1beta1.DeviceSpec) (*dependency.OCICollection, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CollectOCITargets", ctx, current, desired)
 	ret0, _ := ret[0].(*dependency.OCICollection)
@@ -179,7 +179,7 @@ func (mr *MockManagerMockRecorder) Shutdown(ctx, state any) *gomock.Call {
 }
 
 // Status mocks base method.
-func (m *MockManager) Status(arg0 context.Context, arg1 *api.DeviceStatus, arg2 ...status.CollectorOpt) error {
+func (m *MockManager) Status(arg0 context.Context, arg1 *v1beta1.DeviceStatus, arg2 ...status.CollectorOpt) error {
 	m.ctrl.T.Helper()
 	varargs := []any{arg0, arg1}
 	for _, a := range arg2 {
@@ -247,10 +247,10 @@ func (mr *MockApplicationMockRecorder) AddWorkload(Workload any) *gomock.Call {
 }
 
 // AppType mocks base method.
-func (m *MockApplication) AppType() api.AppType {
+func (m *MockApplication) AppType() v1beta1.AppType {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "AppType")
-	ret0, _ := ret[0].(api.AppType)
+	ret0, _ := ret[0].(v1beta1.AppType)
 	return ret0
 }
 
@@ -331,11 +331,11 @@ func (mr *MockApplicationMockRecorder) RemoveWorkload(name any) *gomock.Call {
 }
 
 // Status mocks base method.
-func (m *MockApplication) Status() (*api.DeviceApplicationStatus, api.DeviceApplicationsSummaryStatus, error) {
+func (m *MockApplication) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.DeviceApplicationsSummaryStatus, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Status")
-	ret0, _ := ret[0].(*api.DeviceApplicationStatus)
-	ret1, _ := ret[1].(api.DeviceApplicationsSummaryStatus)
+	ret0, _ := ret[0].(*v1beta1.DeviceApplicationStatus)
+	ret1, _ := ret[1].(v1beta1.DeviceApplicationsSummaryStatus)
 	ret2, _ := ret[2].(error)
 	return ret0, ret1, ret2
 }

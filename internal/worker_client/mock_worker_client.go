@@ -13,7 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
-	api "github.com/flightctl/flightctl/api/v1beta1"
+	v1beta1 "github.com/flightctl/flightctl/api/v1beta1"
 	uuid "github.com/google/uuid"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -42,7 +42,7 @@ func (m *MockWorkerClient) EXPECT() *MockWorkerClientMockRecorder {
 }
 
 // EmitEvent mocks base method.
-func (m *MockWorkerClient) EmitEvent(ctx context.Context, orgId uuid.UUID, event *api.Event) {
+func (m *MockWorkerClient) EmitEvent(ctx context.Context, orgId uuid.UUID, event *v1beta1.Event) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "EmitEvent", ctx, orgId, event)
 }

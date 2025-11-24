@@ -13,7 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
-	api "github.com/flightctl/flightctl/api/v1beta1"
+	v1beta1 "github.com/flightctl/flightctl/api/v1beta1"
 	client "github.com/flightctl/flightctl/internal/agent/client"
 	policy "github.com/flightctl/flightctl/internal/agent/device/policy"
 	status "github.com/flightctl/flightctl/internal/agent/device/status"
@@ -44,10 +44,10 @@ func (m *MockWatcher) EXPECT() *MockWatcherMockRecorder {
 }
 
 // Pop mocks base method.
-func (m *MockWatcher) Pop() (*api.Device, error) {
+func (m *MockWatcher) Pop() (*v1beta1.Device, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Pop")
-	ret0, _ := ret[0].(*api.Device)
+	ret0, _ := ret[0].(*v1beta1.Device)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -59,10 +59,10 @@ func (mr *MockWatcherMockRecorder) Pop() *gomock.Call {
 }
 
 // TryPop mocks base method.
-func (m *MockWatcher) TryPop() (*api.Device, bool, error) {
+func (m *MockWatcher) TryPop() (*v1beta1.Device, bool, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "TryPop")
-	ret0, _ := ret[0].(*api.Device)
+	ret0, _ := ret[0].(*v1beta1.Device)
 	ret1, _ := ret[1].(bool)
 	ret2, _ := ret[2].(error)
 	return ret0, ret1, ret2
@@ -170,10 +170,10 @@ func (mr *MockManagerMockRecorder) Ensure() *gomock.Call {
 }
 
 // GetDesired mocks base method.
-func (m *MockManager) GetDesired(ctx context.Context) (*api.Device, bool, error) {
+func (m *MockManager) GetDesired(ctx context.Context) (*v1beta1.Device, bool, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetDesired", ctx)
-	ret0, _ := ret[0].(*api.Device)
+	ret0, _ := ret[0].(*v1beta1.Device)
 	ret1, _ := ret[1].(bool)
 	ret2, _ := ret[2].(error)
 	return ret0, ret1, ret2
@@ -257,10 +257,10 @@ func (mr *MockManagerMockRecorder) OSVersion(specType any) *gomock.Call {
 }
 
 // Read mocks base method.
-func (m *MockManager) Read(specType Type) (*api.Device, error) {
+func (m *MockManager) Read(specType Type) (*v1beta1.Device, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Read", specType)
-	ret0, _ := ret[0].(*api.Device)
+	ret0, _ := ret[0].(*v1beta1.Device)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -331,7 +331,7 @@ func (mr *MockManagerMockRecorder) SetUpgradeFailed(version any) *gomock.Call {
 }
 
 // Status mocks base method.
-func (m *MockManager) Status(arg0 context.Context, arg1 *api.DeviceStatus, arg2 ...status.CollectorOpt) error {
+func (m *MockManager) Status(arg0 context.Context, arg1 *v1beta1.DeviceStatus, arg2 ...status.CollectorOpt) error {
 	m.ctrl.T.Helper()
 	varargs := []any{arg0, arg1}
 	for _, a := range arg2 {
@@ -387,7 +387,7 @@ func (m *MockPriorityQueue) EXPECT() *MockPriorityQueueMockRecorder {
 }
 
 // Add mocks base method.
-func (m *MockPriorityQueue) Add(ctx context.Context, spec *api.Device) {
+func (m *MockPriorityQueue) Add(ctx context.Context, spec *v1beta1.Device) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "Add", ctx, spec)
 }
@@ -427,10 +427,10 @@ func (mr *MockPriorityQueueMockRecorder) IsFailed(version any) *gomock.Call {
 }
 
 // Next mocks base method.
-func (m *MockPriorityQueue) Next(ctx context.Context) (*api.Device, bool) {
+func (m *MockPriorityQueue) Next(ctx context.Context) (*v1beta1.Device, bool) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Next", ctx)
-	ret0, _ := ret[0].(*api.Device)
+	ret0, _ := ret[0].(*v1beta1.Device)
 	ret1, _ := ret[1].(bool)
 	return ret0, ret1
 }

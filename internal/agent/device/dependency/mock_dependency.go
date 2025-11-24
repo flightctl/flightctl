@@ -13,7 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
-	api "github.com/flightctl/flightctl/api/v1beta1"
+	v1beta1 "github.com/flightctl/flightctl/api/v1beta1"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -41,7 +41,7 @@ func (m *MockPrefetchManager) EXPECT() *MockPrefetchManagerMockRecorder {
 }
 
 // BeforeUpdate mocks base method.
-func (m *MockPrefetchManager) BeforeUpdate(ctx context.Context, current, desired *api.DeviceSpec) error {
+func (m *MockPrefetchManager) BeforeUpdate(ctx context.Context, current, desired *v1beta1.DeviceSpec) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "BeforeUpdate", ctx, current, desired)
 	ret0, _ := ret[0].(error)
@@ -116,7 +116,7 @@ func (m *MockOCICollector) EXPECT() *MockOCICollectorMockRecorder {
 }
 
 // CollectOCITargets mocks base method.
-func (m *MockOCICollector) CollectOCITargets(ctx context.Context, current, desired *api.DeviceSpec) (*OCICollection, error) {
+func (m *MockOCICollector) CollectOCITargets(ctx context.Context, current, desired *v1beta1.DeviceSpec) (*OCICollection, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CollectOCITargets", ctx, current, desired)
 	ret0, _ := ret[0].(*OCICollection)

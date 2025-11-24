@@ -14,7 +14,7 @@ import (
 	reflect "reflect"
 
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
-	api "github.com/flightctl/flightctl/api/v1beta1"
+	v1beta1 "github.com/flightctl/flightctl/api/v1beta1"
 	client "github.com/flightctl/flightctl/internal/agent/client"
 	client0 "github.com/flightctl/flightctl/internal/client"
 	gomock "go.uber.org/mock/gomock"
@@ -170,7 +170,7 @@ func (mr *MockProviderMockRecorder) Initialize(ctx any) *gomock.Call {
 }
 
 // ProveIdentity mocks base method.
-func (m *MockProvider) ProveIdentity(ctx context.Context, enrollmentRequest *api.EnrollmentRequest) error {
+func (m *MockProvider) ProveIdentity(ctx context.Context, enrollmentRequest *v1beta1.EnrollmentRequest) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ProveIdentity", ctx, enrollmentRequest)
 	ret0, _ := ret[0].(error)
