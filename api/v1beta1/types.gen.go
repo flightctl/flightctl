@@ -473,23 +473,29 @@ type AapProviderSpec struct {
 	// ApiUrl The internal AAP API URL.
 	ApiUrl string `json:"apiUrl"`
 
+	// AuthorizationUrl The OAuth2 authorization endpoint URL.
+	AuthorizationUrl string `json:"authorizationUrl"`
+
+	// ClientId The OAuth2 client ID.
+	ClientId string `json:"clientId"`
+
+	// ClientSecret The OAuth2 client secret.
+	ClientSecret *string `json:"clientSecret,omitempty"`
+
 	// DisplayName Human-readable display name for the provider.
 	DisplayName *string `json:"displayName,omitempty"`
 
 	// Enabled Whether this AAP provider is enabled.
 	Enabled *bool `json:"enabled,omitempty"`
 
-	// ExternalApiUrl The external AAP API URL (for external access).
-	ExternalApiUrl *string `json:"externalApiUrl,omitempty"`
-
-	// OrganizationAssignment AuthOrganizationAssignment defines how users from this auth provider are assigned to organizations.
-	OrganizationAssignment AuthOrganizationAssignment `json:"organizationAssignment"`
-
 	// ProviderType The type of authentication provider.
 	ProviderType AapProviderSpecProviderType `json:"providerType"`
 
-	// RoleAssignment AuthRoleAssignment defines how roles are assigned to users from this auth provider.
-	RoleAssignment AuthRoleAssignment `json:"roleAssignment"`
+	// Scopes List of OAuth2 scopes to request.
+	Scopes []string `json:"scopes"`
+
+	// TokenUrl The OAuth2 token endpoint URL.
+	TokenUrl string `json:"tokenUrl"`
 }
 
 // AapProviderSpecProviderType The type of authentication provider.

@@ -165,7 +165,7 @@ func oauth2RefreshTokenFlow(refreshToken string, getClient GetClientFunc) (AuthI
 	// the value should not matter
 	client, err := getClient("http://127.0.0.1")
 	if err != nil {
-		return ret, err
+		return ret, fmt.Errorf("failed to create OAuth2 client: %w", err)
 	}
 
 	// Create a refresh token request
@@ -174,11 +174,32 @@ func oauth2RefreshTokenFlow(refreshToken string, getClient GetClientFunc) (AuthI
 	// Exchange refresh token for a new access token
 	accessData, err := req.GetToken()
 	if err != nil {
-		return ret, fmt.Errorf("failed to refresh token: %w", err)
+		// Try to extract OAuth2 error details if available
+		if oauthErr, ok := err.(*osincli.Error); ok {
+			return ret, fmt.Errorf("OAuth2 error: %s - %s", oauthErr.Id, oauthErr.Description)
+		}
+		return ret, fmt.Errorf("failed to exchange refresh token: %w", err)
 	}
+
+	// Check for OAuth2 error in response (when server returns 200 with error fields)
+	if errorCode, ok := accessData.ResponseData["error"]; ok {
+		errorDesc := "no description"
+		if desc, ok := accessData.ResponseData["error_description"]; ok {
+			if desc != nil {
+				errorDesc = fmt.Sprintf("%v", desc)
+			}
+		}
+		return ret, fmt.Errorf("OAuth2 error: %v - %s", errorCode, errorDesc)
+	}
+
+	// Verify we have an access token
+	if accessData.AccessToken == "" {
+		return ret, fmt.Errorf("no access_token in refresh response")
+	}
+
 	expiresIn, err := getExpiresIn(accessData.ResponseData)
 	if err != nil {
-		return ret, fmt.Errorf("failed to refresh token: %w", err)
+		return ret, fmt.Errorf("failed to parse token expiration: %w", err)
 	}
 
 	ret.AccessToken = accessData.AccessToken
