@@ -3,15 +3,20 @@ package login
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 
+	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/openshift/osincli"
 )
 
 type AAPOAuth struct {
-	ClientId           string
+	Metadata           api.ObjectMeta
+	Spec               api.AapProviderSpec
 	CAFile             string
 	InsecureSkipVerify bool
-	ConfigUrl          string
+	ClientId           string
+	ApiServerURL       string
+	CallbackPort       int
 }
 
 type AAPRoundTripper struct {
@@ -31,33 +36,49 @@ func (c *AAPRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	return resp, nil
 }
 
-func NewAAPOAuth2Config(caFile, clientId, authUrl string, insecure bool) AAPOAuth {
-	return AAPOAuth{
+func NewAAPOAuth2Config(metadata api.ObjectMeta, spec api.AapProviderSpec, clientId, caFile string, insecure bool, apiServerURL string, callbackPort int) *AAPOAuth {
+	return &AAPOAuth{
+		Metadata:           metadata,
+		Spec:               spec,
+		ClientId:           clientId,
 		CAFile:             caFile,
 		InsecureSkipVerify: insecure,
-		ClientId:           clientId,
-		ConfigUrl:          authUrl,
+		ApiServerURL:       apiServerURL,
+		CallbackPort:       callbackPort,
 	}
 }
 
-func (o AAPOAuth) getOAuth2Config() OauthServerResponse {
-	return OauthServerResponse{
-		TokenEndpoint: fmt.Sprintf("%s/o/token/", o.ConfigUrl),
-		AuthEndpoint:  fmt.Sprintf("%s/o/authorize/", o.ConfigUrl),
-	}
+func (o *AAPOAuth) SetInsecureSkipVerify(insecureSkipVerify bool) {
+	o.InsecureSkipVerify = insecureSkipVerify
 }
 
-func (o AAPOAuth) getOAuth2Client(callback string) (*osincli.Client, error) {
-	oauthServerResponse := o.getOAuth2Config()
+func (o *AAPOAuth) getOAuth2Client(callback string) (*osincli.Client, error) {
+	authUrl := o.Spec.ApiUrl
+	if o.Spec.ExternalApiUrl != nil {
+		authUrl = *o.Spec.ExternalApiUrl
+	}
+
+	codeVerifier, codeChallenge, err := generatePKCEVerifier()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate PKCE parameters: %w", err)
+	}
+
+	// Use the API server's token proxy endpoint instead of the AAP provider's token endpoint
+	if o.Metadata.Name == nil {
+		return nil, fmt.Errorf("provider name is required")
+	}
 
 	config := &osincli.ClientConfig{
 		ClientId:                 o.ClientId,
-		AuthorizeUrl:             oauthServerResponse.AuthEndpoint,
-		TokenUrl:                 oauthServerResponse.TokenEndpoint,
+		AuthorizeUrl:             fmt.Sprintf("%s/o/authorize/", authUrl),
+		TokenUrl:                 fmt.Sprintf("%s/o/token/", authUrl),
 		ErrorsInStatusCode:       true,
-		SendClientSecretInParams: true,
+		SendClientSecretInParams: true, // this makes sure we send the client id , the secret is not filled
 		RedirectUrl:              callback,
 		Scope:                    "read",
+		CodeVerifier:             codeVerifier,
+		CodeChallenge:            codeChallenge,
+		CodeChallengeMethod:      "S256",
 	}
 
 	client, err := osincli.NewClient(config)
@@ -79,28 +100,42 @@ func (o AAPOAuth) getOAuth2Client(callback string) (*osincli.Client, error) {
 	return client, nil
 }
 
-func (o AAPOAuth) Auth(web bool, username, password string) (AuthInfo, error) {
-	// only web flow is supported
-	return oauth2AuthCodeFlow(o.getOAuth2Client)
+func (o *AAPOAuth) Auth() (AuthInfo, error) {
+	authInfo, err := oauth2AuthCodeFlow(o.getOAuth2Client, o.CallbackPort)
+	if err != nil {
+		return AuthInfo{}, err
+	}
+	authInfo.TokenToUse = TokenToUseAccessToken
+	return authInfo, nil
 }
 
-func (o AAPOAuth) Renew(refreshToken string) (AuthInfo, error) {
+func (o *AAPOAuth) Renew(refreshToken string) (AuthInfo, error) {
 	return oauth2RefreshTokenFlow(refreshToken, o.getOAuth2Client)
 }
 
-func (o AAPOAuth) Validate(args ValidateArgs) error {
-	if !StrIsEmpty(args.Username) || !StrIsEmpty(args.Password) {
-		return fmt.Errorf("--username and --password are not supported for AAP Oauth2")
-	}
-	if StrIsEmpty(args.AccessToken) && !args.Web {
-		fmt.Println("You must provide one of the following options to log in:")
-		fmt.Println("  --token=<token>")
-		fmt.Println("  --web (to log in via your browser)")
-		return fmt.Errorf("not enough options specified")
+func (o *AAPOAuth) Validate(args ValidateArgs) error {
+	if o.Metadata.Name == nil || *o.Metadata.Name == "" {
+		return fmt.Errorf("AAP auth: missing Metadata.Name")
 	}
 
-	if args.Web && StrIsEmpty(args.ClientId) {
-		return fmt.Errorf("--client-id must be specified for AAP Gateway auth")
+	if o.ClientId == "" {
+		return fmt.Errorf("AAP auth: missing ClientId")
+	}
+
+	if o.Spec.ApiUrl == "" {
+		return fmt.Errorf("AAP auth: missing Spec.ApiUrl")
+	}
+
+	if _, err := url.Parse(o.Spec.ApiUrl); err != nil {
+		return fmt.Errorf("AAP auth: Spec.ApiUrl is invalid: %w", err)
+	}
+
+	if o.ApiServerURL == "" {
+		return fmt.Errorf("AAP auth: missing ApiServerURL")
+	}
+
+	if _, err := url.Parse(o.ApiServerURL); err != nil {
+		return fmt.Errorf("AAP auth: ApiServerURL is invalid: %w", err)
 	}
 
 	return nil

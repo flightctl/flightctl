@@ -100,7 +100,7 @@ flightctl get devices --org org-b
 
 ## Related Documentation
 
-- [Authentication Overview](authentication-overview.md) - Overview of all authentication methods
-- [API Resources](auth-resources.md) - Authorization reference and API endpoints
+- [Authentication Overview](overview.md) - Overview of all authentication methods
+- [API Resources](../../references/auth-resources.md) - Authorization reference and API endpoints
 - [Organizations](organizations.md) - Multi-tenancy configuration
-- [OIDC Authentication](oidc-auth.md) - For OIDC deployments
+- [OIDC Authentication](auth-oidc.md) - For OIDC deployments

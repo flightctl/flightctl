@@ -17,17 +17,12 @@ import (
 var errDryRunComplete = errors.New("dry-run complete")
 
 func main() {
-	log := log.InitLogs()
-
 	cfg, err := config.LoadOrGenerate(config.ConfigFile())
 	if err != nil {
-		log.WithError(err).Fatal("reading configuration")
+		log.InitLogs().WithError(err).Fatal("reading configuration")
 	}
-	logLvl, err := logrus.ParseLevel(cfg.Service.LogLevel)
-	if err != nil {
-		logLvl = logrus.InfoLevel
-	}
-	log.SetLevel(logLvl)
+
+	log := log.InitLogs(cfg.Service.LogLevel)
 
 	dryRun := flag.Bool("dry-run", false, "Validate migrations without committing any changes")
 	flag.Parse()

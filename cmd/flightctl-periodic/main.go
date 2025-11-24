@@ -8,26 +8,19 @@ import (
 	periodic "github.com/flightctl/flightctl/internal/periodic_checker"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/pkg/log"
-	"github.com/sirupsen/logrus"
 )
 
 func main() {
 	ctx := context.Background()
 
-	log := log.InitLogs()
-	log.Println("Starting periodic")
-
 	cfg, err := config.LoadOrGenerate(config.ConfigFile())
 	if err != nil {
-		log.Fatalf("reading configuration: %v", err)
+		log.InitLogs().Fatalf("reading configuration: %v", err)
 	}
-	log.Printf("Using config: %s", cfg)
 
-	logLvl, err := logrus.ParseLevel(cfg.Service.LogLevel)
-	if err != nil {
-		logLvl = logrus.InfoLevel
-	}
-	log.SetLevel(logLvl)
+	log := log.InitLogs(cfg.Service.LogLevel)
+	log.Println("Starting periodic")
+	log.Printf("Using config: %s", cfg)
 
 	tracerShutdown := tracing.InitTracer(log, cfg, "flightctl-periodic")
 	defer func() {
