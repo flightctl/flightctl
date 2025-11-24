@@ -57,7 +57,9 @@ const (
 type ApplicationVolumeProviderType string
 
 const (
-	ImageApplicationVolumeProviderType ApplicationVolumeProviderType = "image"
+	ImageApplicationVolumeProviderType      ApplicationVolumeProviderType = "image"
+	MountApplicationVolumeProviderType      ApplicationVolumeProviderType = "mount"
+	ImageMountApplicationVolumeProviderType ApplicationVolumeProviderType = "image_mount"
 )
 
 // Type returns the type of the action.
@@ -152,8 +154,19 @@ func (c ApplicationVolume) Type() (ApplicationVolumeProviderType, error) {
 		return "", err
 	}
 
-	if _, exists := data[ImageApplicationVolumeProviderType]; exists {
+	_, image := data[ImageApplicationVolumeProviderType]
+	_, mount := data[MountApplicationVolumeProviderType]
+
+	if image && mount {
+		return ImageMountApplicationVolumeProviderType, nil
+	}
+
+	if image {
 		return ImageApplicationVolumeProviderType, nil
+	}
+
+	if mount {
+		return MountApplicationVolumeProviderType, nil
 	}
 
 	return "", fmt.Errorf("unable to determine application volume type: %+v", data)

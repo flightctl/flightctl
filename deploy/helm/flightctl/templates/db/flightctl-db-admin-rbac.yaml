@@ -41,7 +41,7 @@ metadata:
 rules:
 - apiGroups: [""]
   resources: ["secrets"]
-  resourceNames: ["flightctl-db-admin-secret"]
+  resourceNames: [{{ default "flightctl-db-admin-secret" .Values.db.builtin.masterUserSecretName }}]
   verbs: ["get"]
 
 ---
@@ -57,7 +57,7 @@ metadata:
 rules:
 - apiGroups: [""]
   resources: ["secrets"]
-  resourceNames: ["flightctl-db-migration-secret"]
+  resourceNames: [{{ include "flightctl.dbMigrationUserSecret" . }}]
   verbs: ["get"]
 
 ---
@@ -125,7 +125,7 @@ metadata:
 rules:
 - apiGroups: [""]
   resources: ["secrets"]
-  resourceNames: ["flightctl-db-app-secret"]
+  resourceNames: [{{ include "flightctl.dbAppUserSecret" . }}]
   verbs: ["get"]
 
 ---

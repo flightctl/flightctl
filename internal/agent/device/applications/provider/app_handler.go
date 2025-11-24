@@ -5,10 +5,13 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
+	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/samber/lo"
 )
 
 type appTypeHandler interface {
@@ -30,11 +33,13 @@ type appTypeHandler interface {
 
 var _ appTypeHandler = (*quadletHandler)(nil)
 var _ appTypeHandler = (*composeHandler)(nil)
+var _ appTypeHandler = (*containerHandler)(nil)
 
 type quadletHandler struct {
 	name           string
 	rw             fileio.ReadWriter
 	volumeProvider volumeProvider
+	specVolumes    []v1alpha1.ApplicationVolume
 }
 
 func (b *quadletHandler) Dependencies() []string {
@@ -42,7 +47,15 @@ func (b *quadletHandler) Dependencies() []string {
 }
 
 func (b *quadletHandler) Verify(ctx context.Context, path string) error {
-	return ensureQuadlet(b.rw, path)
+	if err := ensureQuadlet(b.rw, path); err != nil {
+		return fmt.Errorf("ensuring quadlet: %w", err)
+	}
+
+	// only support image volumes
+	if err := ensureImageVolumes(b.specVolumes); err != nil {
+		return fmt.Errorf("ensuring volumes: %w", err)
+	}
+	return nil
 }
 
 func (b *quadletHandler) Install(ctx context.Context) error {
@@ -69,10 +82,11 @@ func (b *quadletHandler) Volumes() ([]*Volume, error) {
 }
 
 type composeHandler struct {
-	name string
-	rw   fileio.ReadWriter
-	log  *log.PrefixLogger
-	vm   VolumeManager
+	name        string
+	rw          fileio.ReadWriter
+	log         *log.PrefixLogger
+	vm          VolumeManager
+	specVolumes []v1alpha1.ApplicationVolume
 }
 
 func (b *composeHandler) Dependencies() []string {
@@ -82,6 +96,11 @@ func (b *composeHandler) Dependencies() []string {
 func (b *composeHandler) Verify(ctx context.Context, path string) error {
 	if err := ensureCompose(b.rw, path); err != nil {
 		return fmt.Errorf("ensuring compose: %w", err)
+	}
+
+	// only support image volumes
+	if err := ensureImageVolumes(b.specVolumes); err != nil {
+		return fmt.Errorf("ensuring volumes: %w", err)
 	}
 	return nil
 }
@@ -107,4 +126,74 @@ func (b *composeHandler) ID() string {
 
 func (b *composeHandler) Volumes() ([]*Volume, error) {
 	return nil, nil
+}
+
+// containers reuse a lot of quadlet functionality
+type containerHandler struct {
+	name   string
+	rw     fileio.ReadWriter
+	podman *client.Podman
+	spec   *v1alpha1.ImageApplicationProviderSpec
+}
+
+func (b *containerHandler) Dependencies() []string {
+	return []string{"podman"}
+}
+
+func (b *containerHandler) Verify(ctx context.Context, path string) error {
+	for _, vol := range lo.FromPtr(b.spec.Volumes) {
+		volType, err := vol.Type()
+		if err != nil {
+			return fmt.Errorf("volume type: %w", err)
+		}
+		switch volType {
+		// mount and image_mount are supported to allow creating volumes within containers. The regular image provider
+		// is not allowed as it does not specify where is should be mounted.
+		case v1alpha1.MountApplicationVolumeProviderType, v1alpha1.ImageMountApplicationVolumeProviderType:
+			break
+		default:
+			return fmt.Errorf("%w: container %s", errors.ErrUnsupportedVolumeType, volType)
+		}
+	}
+	return nil
+}
+
+func (b *containerHandler) Install(ctx context.Context) error {
+	if err := generateQuadlet(ctx, b.podman, b.rw, b.AppPath(), b.spec); err != nil {
+		return fmt.Errorf("generating quadlet: %w", err)
+	}
+
+	if err := installQuadlet(b.rw, b.AppPath(), b.ID()); err != nil {
+		return fmt.Errorf("installing container: %w", err)
+	}
+	return nil
+}
+
+func (b *containerHandler) Remove(ctx context.Context) error {
+	return nil
+}
+
+func (b *containerHandler) AppPath() string {
+	return filepath.Join(lifecycle.QuadletAppPath, b.name)
+}
+
+func (b *containerHandler) ID() string {
+	return client.NewComposeID(b.name)
+}
+
+func (b *containerHandler) Volumes() ([]*Volume, error) {
+	return nil, nil
+}
+
+func ensureImageVolumes(vols []v1alpha1.ApplicationVolume) error {
+	for _, vol := range vols {
+		volType, err := vol.Type()
+		if err != nil {
+			return fmt.Errorf("volume type: %w", err)
+		}
+		if volType != v1alpha1.ImageApplicationVolumeProviderType {
+			return fmt.Errorf("%w: %s", errors.ErrUnsupportedVolumeType, volType)
+		}
+	}
+	return nil
 }

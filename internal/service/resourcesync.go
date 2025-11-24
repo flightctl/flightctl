@@ -10,9 +10,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func (h *ServiceHandler) CreateResourceSync(ctx context.Context, rs api.ResourceSync) (*api.ResourceSync, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) CreateResourceSync(ctx context.Context, orgId uuid.UUID, rs api.ResourceSync) (*api.ResourceSync, api.Status) {
 	// don't set fields that are managed by the service
 	rs.Status = nil
 	NilOutManagedObjectMetaProperties(&rs.Metadata)
@@ -25,9 +23,7 @@ func (h *ServiceHandler) CreateResourceSync(ctx context.Context, rs api.Resource
 	return result, StoreErrorToApiStatus(err, true, api.ResourceSyncKind, rs.Metadata.Name)
 }
 
-func (h *ServiceHandler) ListResourceSyncs(ctx context.Context, params api.ListResourceSyncsParams) (*api.ResourceSyncList, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) ListResourceSyncs(ctx context.Context, orgId uuid.UUID, params api.ListResourceSyncsParams) (*api.ResourceSyncList, api.Status) {
 	listParams, status := prepareListParams(params.Continue, params.LabelSelector, params.FieldSelector, params.Limit)
 	if status != api.StatusOK() {
 		return nil, status
@@ -48,16 +44,12 @@ func (h *ServiceHandler) ListResourceSyncs(ctx context.Context, params api.ListR
 	}
 }
 
-func (h *ServiceHandler) GetResourceSync(ctx context.Context, name string) (*api.ResourceSync, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) GetResourceSync(ctx context.Context, orgId uuid.UUID, name string) (*api.ResourceSync, api.Status) {
 	result, err := h.store.ResourceSync().Get(ctx, orgId, name)
 	return result, StoreErrorToApiStatus(err, false, api.ResourceSyncKind, &name)
 }
 
-func (h *ServiceHandler) ReplaceResourceSync(ctx context.Context, name string, rs api.ResourceSync) (*api.ResourceSync, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) ReplaceResourceSync(ctx context.Context, orgId uuid.UUID, name string, rs api.ResourceSync) (*api.ResourceSync, api.Status) {
 	// don't overwrite fields that are managed by the service
 	rs.Status = nil
 	NilOutManagedObjectMetaProperties(&rs.Metadata)
@@ -72,9 +64,7 @@ func (h *ServiceHandler) ReplaceResourceSync(ctx context.Context, name string, r
 	return result, StoreErrorToApiStatus(err, created, api.ResourceSyncKind, &name)
 }
 
-func (h *ServiceHandler) DeleteResourceSync(ctx context.Context, name string) api.Status {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) DeleteResourceSync(ctx context.Context, orgId uuid.UUID, name string) api.Status {
 	callback := func(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error {
 		return h.store.Fleet().UnsetOwner(ctx, tx, orgId, owner)
 	}
@@ -85,9 +75,7 @@ func (h *ServiceHandler) DeleteResourceSync(ctx context.Context, name string) ap
 }
 
 // Only metadata.labels and spec can be patched. If we try to patch other fields, HTTP 400 Bad Request is returned.
-func (h *ServiceHandler) PatchResourceSync(ctx context.Context, name string, patch api.PatchRequest) (*api.ResourceSync, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) PatchResourceSync(ctx context.Context, orgId uuid.UUID, name string, patch api.PatchRequest) (*api.ResourceSync, api.Status) {
 	currentObj, err := h.store.ResourceSync().Get(ctx, orgId, name)
 	if err != nil {
 		return nil, StoreErrorToApiStatus(err, false, api.ResourceSyncKind, &name)
@@ -112,9 +100,7 @@ func (h *ServiceHandler) PatchResourceSync(ctx context.Context, name string, pat
 	return result, StoreErrorToApiStatus(err, false, api.ResourceSyncKind, &name)
 }
 
-func (h *ServiceHandler) ReplaceResourceSyncStatus(ctx context.Context, name string, resourceSync api.ResourceSync) (*api.ResourceSync, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) ReplaceResourceSyncStatus(ctx context.Context, orgId uuid.UUID, name string, resourceSync api.ResourceSync) (*api.ResourceSync, api.Status) {
 	if errs := resourceSync.Validate(); len(errs) > 0 {
 		return nil, api.StatusBadRequest(errors.Join(errs...).Error())
 	}

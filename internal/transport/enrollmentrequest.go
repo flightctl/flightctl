@@ -15,19 +15,19 @@ func (h *TransportHandler) CreateEnrollmentRequest(w http.ResponseWriter, r *htt
 		return
 	}
 
-	body, status := h.serviceHandler.CreateEnrollmentRequest(r.Context(), er)
+	body, status := h.serviceHandler.CreateEnrollmentRequest(r.Context(), OrgIDFromContext(r.Context()), er)
 	SetResponse(w, body, status)
 }
 
 // (GET /api/v1/enrollmentrequests)
 func (h *TransportHandler) ListEnrollmentRequests(w http.ResponseWriter, r *http.Request, params api.ListEnrollmentRequestsParams) {
-	body, status := h.serviceHandler.ListEnrollmentRequests(r.Context(), params)
+	body, status := h.serviceHandler.ListEnrollmentRequests(r.Context(), OrgIDFromContext(r.Context()), params)
 	SetResponse(w, body, status)
 }
 
 // (GET /api/v1/enrollmentrequests/{name})
 func (h *TransportHandler) GetEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string) {
-	body, status := h.serviceHandler.GetEnrollmentRequest(r.Context(), name)
+	body, status := h.serviceHandler.GetEnrollmentRequest(r.Context(), OrgIDFromContext(r.Context()), name)
 	SetResponse(w, body, status)
 }
 
@@ -39,7 +39,7 @@ func (h *TransportHandler) ReplaceEnrollmentRequest(w http.ResponseWriter, r *ht
 		return
 	}
 
-	body, status := h.serviceHandler.ReplaceEnrollmentRequest(r.Context(), name, er)
+	body, status := h.serviceHandler.ReplaceEnrollmentRequest(r.Context(), OrgIDFromContext(r.Context()), name, er)
 	SetResponse(w, body, status)
 }
 
@@ -51,19 +51,19 @@ func (h *TransportHandler) PatchEnrollmentRequest(w http.ResponseWriter, r *http
 		return
 	}
 
-	body, status := h.serviceHandler.PatchEnrollmentRequest(r.Context(), name, patch)
+	body, status := h.serviceHandler.PatchEnrollmentRequest(r.Context(), OrgIDFromContext(r.Context()), name, patch)
 	SetResponse(w, body, status)
 }
 
 // (DELETE /api/v1/enrollmentrequests/{name})
 func (h *TransportHandler) DeleteEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string) {
-	status := h.serviceHandler.DeleteEnrollmentRequest(r.Context(), name)
+	status := h.serviceHandler.DeleteEnrollmentRequest(r.Context(), OrgIDFromContext(r.Context()), name)
 	SetResponse(w, nil, status)
 }
 
 // (GET /api/v1/enrollmentrequests/{name}/status)
 func (h *TransportHandler) GetEnrollmentRequestStatus(w http.ResponseWriter, r *http.Request, name string) {
-	body, status := h.serviceHandler.GetEnrollmentRequestStatus(r.Context(), name)
+	body, status := h.serviceHandler.GetEnrollmentRequestStatus(r.Context(), OrgIDFromContext(r.Context()), name)
 	SetResponse(w, body, status)
 }
 
@@ -75,7 +75,7 @@ func (h *TransportHandler) ApproveEnrollmentRequest(w http.ResponseWriter, r *ht
 		return
 	}
 
-	body, status := h.serviceHandler.ApproveEnrollmentRequest(r.Context(), name, approval)
+	body, status := h.serviceHandler.ApproveEnrollmentRequest(r.Context(), OrgIDFromContext(r.Context()), name, approval)
 	SetResponse(w, body, status)
 }
 
@@ -87,7 +87,7 @@ func (h *TransportHandler) ReplaceEnrollmentRequestStatus(w http.ResponseWriter,
 		return
 	}
 
-	body, status := h.serviceHandler.ReplaceEnrollmentRequestStatus(r.Context(), name, er)
+	body, status := h.serviceHandler.ReplaceEnrollmentRequestStatus(r.Context(), OrgIDFromContext(r.Context()), name, er)
 	SetResponse(w, body, status)
 }
 

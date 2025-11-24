@@ -7,13 +7,14 @@ import (
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 )
 
 func testEnrollmentRequestPatch(require *require.Assertions, patch v1alpha1.PatchRequest) (*v1alpha1.EnrollmentRequest, v1alpha1.EnrollmentRequest, v1alpha1.Status) {
-	serviceHandler, ctx, enrollmentRequest := createTestEnrollmentRequest(require, "validname", nil)
-	resp, status := serviceHandler.PatchEnrollmentRequest(ctx, "validname", patch)
+	serviceHandler, ctx, testOrgId, enrollmentRequest := createTestEnrollmentRequest(require, "validname", nil)
+	resp, status := serviceHandler.PatchEnrollmentRequest(ctx, testOrgId, "validname", patch)
 	require.NotEqual(statusFailedCode, status.Code)
 	return resp, enrollmentRequest, status
 }
@@ -30,18 +31,18 @@ func TestAlreadyApprovedEnrollmentRequestApprove(t *testing.T) {
 			Message: "Approved by "}},
 	}
 
-	serviceHandler, ctx, _ := createTestEnrollmentRequest(require, "foo", approvedStatus)
+	serviceHandler, ctx, testOrgId, _ := createTestEnrollmentRequest(require, "foo", approvedStatus)
 
 	approval := v1alpha1.EnrollmentRequestApproval{
 		Approved: true,
 		Labels:   &map[string]string{"label": "value"},
 	}
 
-	_, stat := serviceHandler.ApproveEnrollmentRequest(ctx, "foo", approval)
+	_, stat := serviceHandler.ApproveEnrollmentRequest(ctx, testOrgId, "foo", approval)
 	require.Equal(statusBadRequestCode, stat.Code)
 	require.Equal("Enrollment request is already approved", stat.Message)
 
-	event, _ := serviceHandler.store.Event().List(ctx, store.NullOrgId, store.ListParams{})
+	event, _ := serviceHandler.store.Event().List(ctx, testOrgId, store.ListParams{})
 	require.Len(event.Items, 0)
 }
 
@@ -63,7 +64,8 @@ func TestNotFoundReplaceEnrollmentRequestStatus(t *testing.T) {
 		},
 	}
 
-	_, status := serviceHandler.ReplaceEnrollmentRequestStatus(ctx, "InvalidName", invalidER)
+	testOrgId := uuid.New()
+	_, status := serviceHandler.ReplaceEnrollmentRequestStatus(ctx, testOrgId, "InvalidName", invalidER)
 
 	require.Equal(statusNotFoundCode, status.Code)
 }
@@ -113,7 +115,7 @@ func verifyERPatchFailed(require *require.Assertions, status v1alpha1.Status) {
 	require.Equal(statusBadRequestCode, status.Code)
 }
 
-func createTestEnrollmentRequest(require *require.Assertions, name string, status *v1alpha1.EnrollmentRequestStatus) (*ServiceHandler, context.Context, v1alpha1.EnrollmentRequest) {
+func createTestEnrollmentRequest(require *require.Assertions, name string, status *v1alpha1.EnrollmentRequestStatus) (*ServiceHandler, context.Context, uuid.UUID, v1alpha1.EnrollmentRequest) {
 	deviceStatus := v1alpha1.NewDeviceStatus()
 	enrollmentRequest := v1alpha1.EnrollmentRequest{
 		ApiVersion: "v1",
@@ -136,7 +138,8 @@ func createTestEnrollmentRequest(require *require.Assertions, name string, statu
 		log:          logger,
 	}
 	ctx := context.Background()
-	_, err := serviceHandler.store.EnrollmentRequest().Create(ctx, store.NullOrgId, &enrollmentRequest, nil)
+	testOrgId := uuid.New()
+	_, err := serviceHandler.store.EnrollmentRequest().Create(ctx, testOrgId, &enrollmentRequest, nil)
 	require.NoError(err)
-	return &serviceHandler, ctx, enrollmentRequest
+	return &serviceHandler, ctx, testOrgId, enrollmentRequest
 }

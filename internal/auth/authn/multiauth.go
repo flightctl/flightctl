@@ -6,12 +6,13 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/auth/common"
+	"github.com/flightctl/flightctl/internal/store"
+	"github.com/google/uuid"
 	"github.com/lestrrat-go/jwx/v2/jwt"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -38,9 +39,9 @@ const (
 
 // AuthProviderService interface for auth provider operations
 type AuthProviderService interface {
-	ListAuthProviders(ctx context.Context, params api.ListAuthProvidersParams) (*api.AuthProviderList, api.Status)
-	GetAuthProvider(ctx context.Context, name string) (*api.AuthProvider, api.Status)
-	GetAuthProviderByIssuerAndClientId(ctx context.Context, issuer string, clientId string) (*api.AuthProvider, api.Status)
+	ListAuthProviders(ctx context.Context, orgId uuid.UUID, params api.ListAuthProvidersParams) (*api.AuthProviderList, api.Status)
+	GetAuthProvider(ctx context.Context, orgId uuid.UUID, name string) (*api.AuthProvider, api.Status)
+	GetAuthProviderByIssuerAndClientId(ctx context.Context, orgId uuid.UUID, issuer string, clientId string) (*api.AuthProvider, api.Status)
 }
 
 // AuthProviderCacheKey is a composite key for caching auth providers
@@ -167,7 +168,7 @@ func (m *MultiAuth) periodicLoader(ctx context.Context) {
 func (m *MultiAuth) LoadAllAuthProviders(ctx context.Context) error {
 
 	// List all auth providers from database
-	providerList, status := m.authProviderService.ListAuthProviders(ctx, api.ListAuthProvidersParams{})
+	providerList, status := m.authProviderService.ListAuthProviders(ctx, store.NullOrgId, api.ListAuthProvidersParams{})
 	if status.Code != http.StatusOK {
 		return fmt.Errorf("failed to list auth providers: %v", status)
 	}
@@ -710,13 +711,25 @@ func (m *MultiAuth) getPossibleProviders(token string) ([]common.AuthNMiddleware
 	switch tokenType {
 	case TokenTypeK8s:
 		// K8s tokens: use static "k8s" key
+
+		providers := []common.AuthNMiddleware{}
 		if provider, exists := m.staticProviders["k8s"]; exists {
 			if provider.IsEnabled() {
-				return []common.AuthNMiddleware{provider}, parsedToken, nil
+				providers = append(providers, provider)
 			}
-			return []common.AuthNMiddleware{}, parsedToken, fmt.Errorf("K8s provider is disabled")
 		}
-		return []common.AuthNMiddleware{}, parsedToken, fmt.Errorf("no K8s provider found")
+		for _, provider := range m.staticProviders {
+			//check if the provider has the getOpenShiftSpec method
+			if openshiftProvider, ok := provider.(*OpenShiftAuth); ok {
+				if openshiftProvider.IsEnabled() {
+					providers = append(providers, openshiftProvider)
+				}
+			}
+		}
+		if len(providers) == 0 {
+			return []common.AuthNMiddleware{}, parsedToken, fmt.Errorf("no enabled K8s/openshift provider found")
+		}
+		return providers, parsedToken, nil
 
 	case TokenTypeOIDC:
 		// OIDC tokens: collect all enabled providers matching issuer+clientId
@@ -758,10 +771,8 @@ func (m *MultiAuth) getPossibleProviders(token string) ([]common.AuthNMiddleware
 
 // detectTokenType determines the type of JWT token based on its claims
 func detectTokenType(parsedToken jwt.Token) TokenType {
-	issuer := parsedToken.Issuer()
-
-	// Check for K8s tokens
-	if strings.Contains(issuer, "kubernetes") || strings.Contains(issuer, "k8s") {
+	// Check for K8s tokens by looking for the kubernetes.io claim
+	if _, ok := parsedToken.Get("kubernetes.io"); ok {
 		return TokenTypeK8s
 	}
 

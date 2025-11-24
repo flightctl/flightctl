@@ -41,17 +41,17 @@ spec:
             - name: KV_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: flightctl-kv-secret
+                  name: {{ default "flightctl-kv-secret" .Values.kv.passwordSecretName }}
                   key: password
             - name: DB_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: flightctl-db-app-secret
+                  name: {{ include "flightctl.dbAppUserSecret" . }}
                   key: userPassword
             - name: DB_USER
               valueFrom:
                 secretKeyRef:
-                  name: flightctl-db-app-secret
+                  name: {{ include "flightctl.dbAppUserSecret" . }}
                   key: user
             {{- if .Values.worker.env }}
             {{- range $key, $value := .Values.worker.env }}
