@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -23,6 +24,7 @@ import (
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/pkg/reqid"
+	"github.com/flightctl/flightctl/pkg/version"
 	"github.com/go-chi/chi/v5/middleware"
 	"golang.org/x/net/http2"
 	"google.golang.org/grpc"
@@ -288,6 +290,28 @@ func WithQueryParam(key, value string) client.ClientOption {
 // WithOrganization sets the organization ID in the request query parameters.
 func WithOrganization(orgID string) client.ClientOption {
 	return WithQueryParam("org_id", orgID)
+}
+
+// WithHeader returns a ClientOption that appends a request editor which
+// sets the given HTTP header. If value is empty, the editor is a no-op
+// so callers can pass it unconditionally.
+func WithHeader(key, value string) client.ClientOption {
+	return client.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
+		if value == "" {
+			return nil
+		}
+		req.Header.Set(key, value)
+		return nil
+	})
+}
+
+// WithUserAgentHeader returns a ClientOption that sets the User-Agent header.
+// The component parameter specifies the component name (e.g., "flightctl-cli")
+// to include in the User-Agent string.
+func WithUserAgentHeader(component string) client.ClientOption {
+	info := version.Get()
+	userAgent := fmt.Sprintf("%s/%s (%s/%s)", component, info.String(), runtime.GOOS, runtime.GOARCH)
+	return WithHeader("User-Agent", userAgent)
 }
 
 // NewFromConfig returns a new Flight Control API client from the given config.
