@@ -447,6 +447,15 @@ func (a *AuthProvider) HideSensitiveData() error {
 		if err := a.Spec.FromOpenShiftProviderSpec(openshiftSpec); err != nil {
 			return err
 		}
+	case string(Aap):
+		aapSpec, err := a.Spec.AsAapProviderSpec()
+		if err != nil {
+			return err
+		}
+		hideValue(aapSpec.ClientSecret)
+		if err := a.Spec.FromAapProviderSpec(aapSpec); err != nil {
+			return err
+		}
 	}
 	return nil
 }

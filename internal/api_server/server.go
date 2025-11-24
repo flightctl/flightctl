@@ -187,7 +187,10 @@ func (s *Server) Run(ctx context.Context) error {
 
 		// Start auth provider loader
 		go func() {
-			multiAuth.Start(ctx)
+			if err := multiAuth.Start(ctx); err != nil {
+				s.log.Errorf("Failed to start auth provider loader: %v", err)
+				return
+			}
 			s.log.Warn("Auth provider loader stopped unexpectedly")
 		}()
 	}

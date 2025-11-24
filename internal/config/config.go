@@ -321,10 +321,9 @@ func WithAAPAuth(apiUrl, externalApiUrl string) ConfigOption {
 		}
 		enabled := true
 		c.Auth.AAP = &api.AapProviderSpec{
-			ApiUrl:         apiUrl,
-			ExternalApiUrl: &externalApiUrl,
-			ProviderType:   "aap",
-			Enabled:        &enabled,
+			ApiUrl:       apiUrl,
+			ProviderType: api.Aap,
+			Enabled:      &enabled,
 		}
 	}
 }

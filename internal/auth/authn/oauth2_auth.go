@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1beta1"
@@ -30,6 +31,9 @@ type OAuth2Auth struct {
 	httpClient            *http.Client
 	identityCache         *ttlcache.Cache[string, common.Identity]
 	cancel                context.CancelFunc
+	mu                    sync.Mutex
+	started               bool
+	stopOnce              sync.Once
 }
 
 // NewOAuth2Auth creates a new OAuth2 authentication instance
@@ -110,7 +114,14 @@ func (o *OAuth2Auth) IsEnabled() bool {
 
 // Start starts the identity cache background cleanup
 // Creates a child context that can be independently canceled via Stop()
-func (o *OAuth2Auth) Start(ctx context.Context) {
+func (o *OAuth2Auth) Start(ctx context.Context) error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	if o.started {
+		return fmt.Errorf("OAuth2Auth provider already started")
+	}
+
 	// Create a child context so this provider can be stopped independently
 	providerCtx, cancel := context.WithCancel(ctx)
 	o.cancel = cancel
@@ -125,15 +136,26 @@ func (o *OAuth2Auth) Start(ctx context.Context) {
 	}()
 
 	o.log.Debugf("OAuth2Auth identity cache started")
+	o.started = true
+	return nil
 }
 
 // Stop stops the identity cache and cancels the provider's context
 func (o *OAuth2Auth) Stop() {
-	if o.cancel != nil {
-		o.log.Debugf("Stopping OAuth2Auth provider")
-		o.cancel()
-		o.cancel = nil
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	// Only stop if we were started
+	if !o.started {
+		return
 	}
+
+	o.stopOnce.Do(func() {
+		if o.cancel != nil {
+			o.log.Debugf("Stopping OAuth2Auth provider")
+			o.cancel()
+		}
+	})
 }
 
 // GetOAuth2Spec returns the internal OAuth2 spec with client secret intact (for internal use only)
