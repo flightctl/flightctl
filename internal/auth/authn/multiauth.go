@@ -11,6 +11,8 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/auth/common"
+	"github.com/flightctl/flightctl/internal/store"
+	"github.com/google/uuid"
 	"github.com/lestrrat-go/jwx/v2/jwt"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -37,9 +39,9 @@ const (
 
 // AuthProviderService interface for auth provider operations
 type AuthProviderService interface {
-	ListAuthProviders(ctx context.Context, params api.ListAuthProvidersParams) (*api.AuthProviderList, api.Status)
-	GetAuthProvider(ctx context.Context, name string) (*api.AuthProvider, api.Status)
-	GetAuthProviderByIssuerAndClientId(ctx context.Context, issuer string, clientId string) (*api.AuthProvider, api.Status)
+	ListAuthProviders(ctx context.Context, orgId uuid.UUID, params api.ListAuthProvidersParams) (*api.AuthProviderList, api.Status)
+	GetAuthProvider(ctx context.Context, orgId uuid.UUID, name string) (*api.AuthProvider, api.Status)
+	GetAuthProviderByIssuerAndClientId(ctx context.Context, orgId uuid.UUID, issuer string, clientId string) (*api.AuthProvider, api.Status)
 }
 
 // AuthProviderCacheKey is a composite key for caching auth providers
@@ -166,7 +168,7 @@ func (m *MultiAuth) periodicLoader(ctx context.Context) {
 func (m *MultiAuth) LoadAllAuthProviders(ctx context.Context) error {
 
 	// List all auth providers from database
-	providerList, status := m.authProviderService.ListAuthProviders(ctx, api.ListAuthProvidersParams{})
+	providerList, status := m.authProviderService.ListAuthProviders(ctx, store.NullOrgId, api.ListAuthProvidersParams{})
 	if status.Code != http.StatusOK {
 		return fmt.Errorf("failed to list auth providers: %v", status)
 	}

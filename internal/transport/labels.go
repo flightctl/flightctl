@@ -8,6 +8,6 @@ import (
 
 // (GET /api/v1/labels)
 func (h *TransportHandler) ListLabels(w http.ResponseWriter, r *http.Request, params api.ListLabelsParams) {
-	body, status := h.serviceHandler.ListLabels(r.Context(), params)
+	body, status := h.serviceHandler.ListLabels(r.Context(), OrgIDFromContext(r.Context()), params)
 	SetResponse(w, body, status)
 }

@@ -44,7 +44,7 @@ func testRepositoryPatch(require *require.Assertions, patch api.PatchRequest) (*
 	ctx := context.Background()
 	_, err = serviceHandler.store.Repository().Create(ctx, store.NullOrgId, &repository, nil)
 	require.NoError(err)
-	resp, status := serviceHandler.PatchRepository(ctx, "foo", patch)
+	resp, status := serviceHandler.PatchRepository(ctx, store.NullOrgId, "foo", patch)
 	require.NotEqual(statusFailedCode, status.Code)
 	return resp, repository, status
 }
@@ -180,7 +180,7 @@ func TestRepositoryNonExistingResource(t *testing.T) {
 		Metadata: api.ObjectMeta{Name: lo.ToPtr("foo")},
 	}, nil)
 	require.NoError(err)
-	_, status := serviceHandler.PatchRepository(ctx, "bar", pr)
+	_, status := serviceHandler.PatchRepository(ctx, store.NullOrgId, "bar", pr)
 	require.Equal(statusNotFoundCode, status.Code)
 	event, _ := serviceHandler.store.Event().List(context.Background(), store.NullOrgId, store.ListParams{})
 	require.Len(event.Items, 0)
@@ -207,14 +207,14 @@ func createRepository(ctx context.Context, r store.Repository, orgId uuid.UUID, 
 	return err
 }
 
-func setAccessCondition(ctx context.Context, repository *api.Repository, err error, h ServiceHandler) error {
+func setAccessCondition(ctx context.Context, orgId uuid.UUID, repository *api.Repository, err error, h ServiceHandler) error {
 	if repository.Status == nil {
 		repository.Status = &api.RepositoryStatus{Conditions: []api.Condition{}}
 	}
 	if repository.Status.Conditions == nil {
 		repository.Status.Conditions = []api.Condition{}
 	}
-	_, status := h.ReplaceRepositoryStatusByError(ctx, lo.FromPtr(repository.Metadata.Name), *repository, err)
+	_, status := h.ReplaceRepositoryStatusByError(ctx, orgId, lo.FromPtr(repository.Metadata.Name), *repository, err)
 
 	return ApiStatusToErr(status)
 }
@@ -242,6 +242,6 @@ func TestRepoTester_SetAccessCondition(t *testing.T) {
 	repo, err := r.Get(ctx, orgId, "ok-to-ok")
 	require.NoError(err)
 
-	err = setAccessCondition(ctx, repo, err, serviceHandler)
+	err = setAccessCondition(ctx, orgId, repo, err, serviceHandler)
 	require.NoError(err)
 }
