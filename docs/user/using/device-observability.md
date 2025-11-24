@@ -1,8 +1,13 @@
 # Device Observability
 
-This document describes how to enable device observability in Flight Control using the **Telemetry Gateway** and a device-side **OpenTelemetry Collector**.
+This document describes how to enable device observability in Flight Control.
+
+There are two complementary layers of device observability:
+
+1. **Device Telemetry** — **Telemetry Gateway** and a device-side **OpenTelemetry Collector**.
 Devices can collect metrics from the host operating system and workloads, enabling correlation of host- and application-level metrics.
 Communication between devices and the gateway is secured with **mutual TLS (mTLS)**, with device identity established through certificates issued by the Flight Control Certificate Authority (CA).
+2. **Agent Diagnostics** — local observability provided directly by the **Flight Control agent**. The agent exposes local diagnostics, including Prometheus `/metrics`, `pprof` profiling endpoints, and bounded `audit logs` that track device specification changes and system state transitions.
 
 Key components:
 
@@ -16,6 +21,17 @@ Key components:
 - **Device-side OpenTelemetry Collector**  
   Runs locally on the device to collect telemetry data (e.g., system metrics).  
   The collector uses the device certificate to establish a secure gRPC connection and send telemetry data to the Telemetry Gateway.
+
+- **Agent Metrics Endpoint**  
+  The Flight Control agent can expose optional Prometheus `/metrics` endpoint on a loopback-only port.
+  It provides timing histograms and counters that describe the agent’s internal operations and behaviour.
+
+- **Agent Profiling Endpoint**  
+  The Flight Control agent can expose optional Go profiling endpoints (i.e., `pprof`) on a loopback-only port.  
+  These endpoints provide CPU, heap, and goroutine profiles for debugging and performance analysis.
+
+- **Agent Audit Log**  
+  The Flight Control agent maintains a bounded, append-only audit log that records changes to the device specification and state transitions.  
 
 ## Telemetry Gateway
 
@@ -288,3 +304,100 @@ chmod 644 /etc/otelcol/certs/ca.crt
 > [!TIP]  
 > Instead of baking the OpenTelemetry Collector configuration into the image, you can also deliver it through the Fleet spec.  
 > See [Managing OS Configuration](managing-devices.md#managing-os-configuration) and [Device Templates](managing-fleets.md#defining-device-templates).
+
+## Agent Metrics Endpoint
+
+The Flight Control agent can expose internal Prometheus `/metrics` to help analyze the agent’s performance and behaviour.
+This endpoint is loopback-only and intended for local debugging and for collection through SOS reports.
+
+### Enable Metrics
+
+Metrics are disabled by default.
+To enable them, add the following setting to the agent’s configuration file at `/etc/flightctl/config.yaml`:
+
+```yaml
+metrics-enabled: true
+```
+
+### Metrics Endpoint
+
+When enabled, the agent starts a lightweight HTTP server and exposes a Prometheus-compatible metrics endpoint at: `http://127.0.0.1:15690/metrics`.
+
+### Exported Metrics
+
+The agent records a histogram for each RPC performed against the Flight Control service.
+These metrics allow evaluating performance trends and computing service-level indicators (for example, p95 RPC latency).
+Each histogram exposes:
+
+- create_enrollmentrequest_duration_seconds
+- get_enrollmentrequest_duration_seconds
+- get_rendered_device_spec_duration_seconds
+- update_device_status_duration_seconds
+- patch_device_status_duration_seconds
+- create_certificate_signing_request_duration_seconds
+- get_certificate_signing_request_duration_seconds
+
+### Considerations
+
+- Endpoint is never exposed externally; only loopback.
+- SOS report collection attempts to scrape the metrics endpoint when metrics are enabled.
+
+## Agent Profiling Endpoint
+
+The Flight Control agent can expose Go `pprof` profiling endpoints to help diagnose performance issues such as high CPU usage, memory growth, or excessive goroutine creation.
+These endpoints are loopback-only and intended for local debugging and for collection through SOS reports.
+
+### Enable Profiling
+
+Profiling is disabled by default.
+To enable it, add the following setting to the agent’s configuration file at `/etc/flightctl/config.yaml`:
+
+```yaml
+profiling-enabled: true
+```
+
+### Profiling Endpoint
+
+When enabled, the agent starts a lightweight HTTP server bound to `127.0.0.1:15689`.
+
+All standard Go pprof handlers are exposed under the `/debug/pprof/` path.
+
+Available Profiles:
+
+| Profile | Description|
+| --------- |------------|
+| `/debug/pprof/`          | Index listing all profiles |
+| `/debug/pprof/profile`   | CPU profile (?seconds=N, capped by the agent) |
+| `/debug/pprof/heap`      | Heap profile (?gc=1 optional) |
+| `/debug/pprof/goroutine` | Goroutine dump (?debug=2 for full stacks) |
+| `/debug/pprof/allocs`    | Allocation sampling |
+| `/debug/pprof/block`     | Blocking events |
+| `/debug/pprof/mutex`     | Contended mutex samples |
+| `/debug/pprof/trace`     | Execution trace (?seconds=N, capped) |
+
+> [!NOTE]
+> To prevent misuse or excessive overhead, the agent enforces CPU profile duration cap to 30 seconds, and execution trace duration cap to 5 seconds.
+
+### Example Usage
+
+```bash
+# Collect a 10-second CPU profile:
+curl http://127.0.0.1:15689/debug/pprof/profile?seconds=10 > cpu.pprof
+go tool pprof cpu.pprof
+```
+
+```bash
+#Retrieve a verbose goroutine dump:
+curl http://127.0.0.1:15689/debug/pprof/goroutine?debug=2 > goroutines.txt
+```
+
+```bash
+# Download a heap profile:
+curl http://127.0.0.1:15689/debug/pprof/heap > heap.pprof
+```
+
+### Considerations
+
+- Endpoint is never exposed externally; only loopback.
+- Profiling temporarily increases CPU usage; use short durations.
+- SOS reports automatically collect heap, goroutine, and a short CPU profile when pprof is enabled.
