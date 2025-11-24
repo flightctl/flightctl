@@ -7,10 +7,7 @@ description: |
 
 inputs:
   tag:
-    description: 'Image tag (if not provided, will be computed from git)'
-    required: false
-  helm-tag:
-    description: 'Helm chart tag (if not provided, will be computed from git)'
+    description: 'Image tag for artifacts (if not provided, will be computed from git)'
     required: false
 
 runs:
@@ -19,10 +16,10 @@ runs:
     # ========== COMPUTE TAGS IF NOT PROVIDED ==========
     - name: Compute tags from git
       id: compute-tags-git
-      if: inputs.tag == '' || inputs.helm-tag == ''
+      if: inputs.tag == ''
       uses: ./.github/actions/compute-tag
 
-    - name: Set final tags
+    - name: Set git tag
       id: compute-tags
       shell: bash
       run: |
@@ -30,18 +27,9 @@ runs:
         
         if [ -n "${{ inputs.tag }}" ]; then
           echo "Using provided tag: ${{ inputs.tag }}"
-          TAG="${{ inputs.tag }}"
-        else
-          echo "Using computed tag: ${{ steps.compute-tags-git.outputs.tag }}"
-          TAG="${{ steps.compute-tags-git.outputs.tag }}"
-        fi
-        echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-        
-        # For artifact downloads, use git_tag (which is what build-backend-and-charts uses)
-        if [ -n "${{ inputs.tag }}" ]; then
-          # When tag is provided, assume it's the same as git_tag for artifact naming
           echo "git_tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
         else
+          echo "Using computed git_tag: ${{ steps.compute-tags-git.outputs.git_tag }}"
           echo "git_tag=${{ steps.compute-tags-git.outputs.git_tag }}" >> "$GITHUB_OUTPUT"
         fi
 
@@ -92,13 +80,14 @@ runs:
       run: |
         set -euo pipefail
         CHART_FILE="artifacts/flightctl-chart.tgz"
+        TAG="${{ steps.compute-tags.outputs.git_tag }}"
 
         echo "Chart file: ${CHART_FILE}"
         echo "Image registry: quay.io/flightctl/"
-        echo "Image tag: ${{ steps.compute-tags.outputs.tag }}"
+        echo "Image tag: ${TAG}"
         
         ./test/scripts/deploy_with_helm.sh \
           --chart-path="${CHART_FILE}" \
           --image-registry="quay.io/flightctl/" \
-          --image-tag="${{ steps.compute-tags.outputs.tag }}"
+          --image-tag="${TAG}"
 

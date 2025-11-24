@@ -58,27 +58,14 @@ jobs:
       repository: flightctl/flightctl
       ref: main
 
-  build-baseline-cli:
-    needs: check-changes
-    if: needs.check-changes.outputs.any_changed == 'true'
-    uses: ./.github/workflows/build-cli-and-simulator.yaml
-    with:
-      repository: flightctl/flightctl
-      ref: main
-
-  build-pr-branch:
+  build-pr:
     needs: check-changes
     if: needs.check-changes.outputs.any_changed == 'true'
     uses: ./.github/workflows/build-images-and-charts.yaml
 
-  build-pr-cli:
-    needs: check-changes
-    if: needs.check-changes.outputs.any_changed == 'true'
-    uses: ./.github/workflows/build-cli-and-simulator.yaml
-
   deploy-and-upgrade:
     runs-on: ubuntu-24.04
-    needs: [check-changes, build-baseline, build-baseline-cli, build-pr-branch, build-pr-cli]
+    needs: [check-changes, build-baseline, build-pr]
     if: needs.check-changes.outputs.any_changed == 'true'
     steps:
       - name: Checkout PR branch
@@ -145,7 +132,7 @@ jobs:
 
       - name: "[BASELINE] Validate versions"
         env:
-          EXPECTED_CLIENT_TAG: ${{ needs.build-baseline-cli.outputs.git_tag }}
+          EXPECTED_CLIENT_TAG: ${{ needs.build-baseline.outputs.cli_git_tag }}
           EXPECTED_SERVER_TAG: ${{ needs.build-baseline.outputs.git_tag }}
         run: |
           set -euo pipefail
@@ -171,7 +158,7 @@ jobs:
       - name: "[BASELINE] Download simulator"
         uses: actions/download-artifact@v4
         with:
-          name: devicesimulator-${{ needs.build-baseline-cli.outputs.git_tag }}
+          name: devicesimulator-${{ needs.build-baseline.outputs.cli_git_tag }}
           path: bin-baseline-sim
 
       - name: "[BASELINE] Run simulator"
@@ -183,7 +170,7 @@ jobs:
       - name: "[HEAD] Download artifacts"
         uses: actions/download-artifact@v4
         with:
-          pattern: "*-${{ needs.build-pr-branch.outputs.git_tag }}"
+          pattern: "*-${{ needs.build-pr.outputs.git_tag }}"
           path: artifacts-pr
           merge-multiple: true
 
@@ -198,7 +185,7 @@ jobs:
       - name: "[HEAD] Download CLI"
         uses: actions/download-artifact@v4
         with:
-          name: flightctl-linux-amd64-${{ needs.build-pr-cli.outputs.git_tag }}
+          name: flightctl-linux-amd64-${{ needs.build-pr.outputs.cli_git_tag }}
           path: bin-pr
 
       - name: "[HEAD] Setup CLI"
@@ -211,7 +198,7 @@ jobs:
       - name: "[HEAD] Prepare helm"
         env:
           BASE_DOMAIN: ${{ steps.get-ip.outputs.base-domain }}
-          PR_TAG: ${{ needs.build-pr-branch.outputs.git_tag }}
+          PR_TAG: ${{ needs.build-pr.outputs.git_tag }}
         run: |
           set -euo pipefail
           CHART_FILE="artifacts-pr/flightctl-chart.tgz"
@@ -272,8 +259,8 @@ jobs:
 
       - name: "[HEAD] Validate versions"
         env:
-          EXPECTED_CLIENT_TAG: ${{ needs.build-pr-cli.outputs.git_tag }}
-          EXPECTED_SERVER_TAG: ${{ needs.build-pr-branch.outputs.git_tag }}
+          EXPECTED_CLIENT_TAG: ${{ needs.build-pr.outputs.cli_git_tag }}
+          EXPECTED_SERVER_TAG: ${{ needs.build-pr.outputs.git_tag }}
         run: |
           set -euo pipefail
           CLIENT_VERSION=$(./bin-pr/flightctl version | grep "Client Version:" | awk '{print $3}')
@@ -299,7 +286,7 @@ jobs:
       - name: "[HEAD] Download simulator"
         uses: actions/download-artifact@v4
         with:
-          name: devicesimulator-${{ needs.build-pr-cli.outputs.git_tag }}
+          name: devicesimulator-${{ needs.build-pr.outputs.cli_git_tag }}
           path: bin-pr-sim
 
       - name: "[HEAD] Run simulator"
