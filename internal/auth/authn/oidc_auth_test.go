@@ -13,6 +13,7 @@ import (
 	"github.com/lestrrat-go/jwx/v2/jwa"
 	"github.com/lestrrat-go/jwx/v2/jwk"
 	"github.com/lestrrat-go/jwx/v2/jwt"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -33,6 +34,9 @@ func createTestOIDCAuth(jwksUri string) *OIDCAuth {
 		UsernameClaim: &[]string{"preferred_username"},
 	}
 
+	log := logrus.New()
+	log.SetLevel(logrus.ErrorLevel)
+
 	oidcAuth := &OIDCAuth{
 		metadata:      api.ObjectMeta{},
 		spec:          oidcSpec,
@@ -42,6 +46,7 @@ func createTestOIDCAuth(jwksUri string) *OIDCAuth {
 		organizationExtractor: &OrganizationExtractor{
 			orgConfig: nil, // No org config for basic tests
 		},
+		log: log,
 	}
 
 	// Initialize JWKS cache and mark discovery as complete to bypass lazy initialization
