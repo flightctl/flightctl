@@ -3,7 +3,7 @@
 ## Building
 
 Prerequisites:
-* `git`, `make`, and `go` (>= 1.23), `openssl`, `openssl-devel`, `buildah`, `podman`, `podman-compose`, `container-selinux` (>= 2.241), `go-rpm-macros` (in case one needs to build RPM's), `python3`, and `python3-pyyaml` (or install PyYAML via pip)
+* `git`, `make`, and `go` (>= 1.23), `openssl`, `openssl-devel`, `buildah`, `pam-devel`, `podman`, `podman-compose`, `container-selinux` (>= 2.241), `go-rpm-macros` (in case one needs to build RPM's), `python3`, and `python3-pyyaml` (or install PyYAML via pip)
 
 Flightctl agent reports the status of running rootless containers. Ensure the podman socket is enabled:
 
