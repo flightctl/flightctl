@@ -139,7 +139,7 @@ Follows the same pattern as database secrets: lookup existing, fallback to value
 {{- end }}
 
 {{- define "flightctl.getHttpScheme" }}
-  {{- if or (eq (include "flightctl.getServiceExposeMethod" . ) "route") (.Values.global.baseDomainTls).cert }}
+  {{- if or (eq (include "flightctl.getServiceExposeMethod" . ) "route") .Values.global.baseDomainTlsSecretName }}
     {{- printf "https" }}
   {{- else }}
     {{- printf "http" }}
