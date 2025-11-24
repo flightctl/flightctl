@@ -23,9 +23,9 @@ data:
         {{- end }}
         {{- end }}
     service: {}
-    {{ if .Values.global.tracing }}
+    {{ if (default dict .Values.dev).tracing }}
     tracing:
         enabled: true
-        endpoint: {{ .Values.global.tracing.endpoint }}
-        insecure: {{ .Values.global.tracing.insecure }}
+        endpoint: {{ .Values.dev.tracing.endpoint }}
+        insecure: {{ .Values.dev.tracing.insecure }}
     {{ end }}
