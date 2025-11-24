@@ -142,7 +142,7 @@ Uses a cached value in .Values to ensure consistency across all template evaluat
 {{- end -}}
 
 {{- define "flightctl.getHttpScheme" }}
-  {{- if or (eq (include "flightctl.getServiceExposeMethod" . ) "route") (.Values.global.baseDomainTls).cert }}
+  {{- if or (eq (include "flightctl.getServiceExposeMethod" . ) "route") .Values.global.baseDomainTlsSecretName }}
     {{- printf "https" }}
   {{- else }}
     {{- printf "http" }}

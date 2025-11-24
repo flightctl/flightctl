@@ -99,6 +99,10 @@ spec:
               name: flightctl-api-config
               subPath: config.yaml
               readOnly: true
+            {{- if .Values.global.baseDomainTlsSecretName }}
+            - mountPath: /root/.flightctl/certs
+              name: flightctl-api-tls
+            {{- end}}
             {{- if .Values.global.auth.k8s.externalApiToken}}
             - mountPath: /var/flightctl/k8s
               name: flightctl-api-k8s-token
@@ -119,6 +123,11 @@ spec:
         - name: flightctl-api-config
           configMap:
             name: flightctl-api-config
+        {{- if .Values.global.baseDomainTlsSecretName }}
+        - name: flightctl-api-tls
+          secret:
+            secretName: {{ .Values.global.baseDomainTlsSecretName }}
+        {{- end}}
         {{- if .Values.global.auth.k8s.externalApiToken}}
         - name: flightctl-api-k8s-token
           secret:
