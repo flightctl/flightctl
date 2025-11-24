@@ -60,71 +60,32 @@ func TestLoginOptions_Validate_AuthenticationFlags(t *testing.T) {
 	tests := []struct {
 		name        string
 		accessToken string
-		username    string
-		password    string
-		web         bool
+		provider    string
+		authCAFile  string
 		wantErr     bool
 		errMsg      string
 	}{
 		{
-			name:        "token with username",
+			name:        "token with provider",
 			accessToken: "token123",
-			username:    "user",
+			provider:    "my-provider",
 			wantErr:     true,
-			errMsg:      "--token cannot be used along with --username, --password or --web",
+			errMsg:      "--token cannot be used with --provider",
 		},
 		{
-			name:        "token with password",
+			name:        "token with auth-certificate-authority",
 			accessToken: "token123",
-			password:    "pass",
+			authCAFile:  "/path/to/ca.crt",
 			wantErr:     true,
-			errMsg:      "--token cannot be used along with --username, --password or --web",
+			errMsg:      "--token cannot be used with --auth-certificate-authority",
 		},
 		{
-			name:        "token with web",
+			name:        "token with both provider and auth CA",
 			accessToken: "token123",
-			web:         true,
+			provider:    "my-provider",
+			authCAFile:  "/path/to/ca.crt",
 			wantErr:     true,
-			errMsg:      "--token cannot be used along with --username, --password or --web",
-		},
-		{
-			name:     "web with username",
-			web:      true,
-			username: "user",
-			wantErr:  true,
-			errMsg:   "--web cannot be used along with --username, --password or --token",
-		},
-		{
-			name:     "web with password",
-			web:      true,
-			password: "pass",
-			wantErr:  true,
-			errMsg:   "--web cannot be used along with --username, --password or --token",
-		},
-		{
-			name:        "web with token",
-			web:         true,
-			accessToken: "token123",
-			wantErr:     true,
-			errMsg:      "--token cannot be used along with --username, --password or --web",
-		},
-		{
-			name:     "username without password",
-			username: "user",
-			wantErr:  true,
-			errMsg:   "both --username and --password need to be provided",
-		},
-		{
-			name:     "password without username",
-			password: "pass",
-			wantErr:  true,
-			errMsg:   "both --username and --password need to be provided",
-		},
-		{
-			name:     "valid username and password",
-			username: "user",
-			password: "pass",
-			wantErr:  false,
+			errMsg:      "--token cannot be used with --provider",
 		},
 		{
 			name:        "valid token only",
@@ -132,8 +93,23 @@ func TestLoginOptions_Validate_AuthenticationFlags(t *testing.T) {
 			wantErr:     false,
 		},
 		{
-			name:    "valid web only",
-			web:     true,
+			name:     "valid provider only",
+			provider: "my-provider",
+			wantErr:  false,
+		},
+		{
+			name:       "valid auth CA only",
+			authCAFile: "/path/to/ca.crt",
+			wantErr:    false,
+		},
+		{
+			name:       "valid provider with auth CA",
+			provider:   "my-provider",
+			authCAFile: "/path/to/ca.crt",
+			wantErr:    false,
+		},
+		{
+			name:    "no auth flags",
 			wantErr: false,
 		},
 	}
@@ -142,9 +118,8 @@ func TestLoginOptions_Validate_AuthenticationFlags(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			o := DefaultLoginOptions()
 			o.AccessToken = tt.accessToken
-			o.Username = tt.username
-			o.Password = tt.password
-			o.Web = tt.web
+			o.Provider = tt.provider
+			o.AuthCAFile = tt.authCAFile
 
 			err := o.Validate([]string{"https://api.example.com"})
 
