@@ -6,6 +6,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/service"
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 )
@@ -18,7 +19,8 @@ func TestResourceSync_GetRepositoryAndValidateAccess_NilResourceSync(t *testing.
 	resourceSync := NewResourceSync(serviceHandler, log, nil)
 
 	// Test with nil ResourceSync
-	repo, err := resourceSync.GetRepositoryAndValidateAccess(context.Background(), nil)
+	testOrgId := uuid.New()
+	repo, err := resourceSync.GetRepositoryAndValidateAccess(context.Background(), testOrgId, nil)
 
 	assert.Error(t, err)
 	assert.Nil(t, repo)

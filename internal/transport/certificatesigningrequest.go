@@ -9,7 +9,7 @@ import (
 
 // (GET /api/v1/certificatesigningrequests)
 func (h *TransportHandler) ListCertificateSigningRequests(w http.ResponseWriter, r *http.Request, params api.ListCertificateSigningRequestsParams) {
-	body, status := h.serviceHandler.ListCertificateSigningRequests(r.Context(), params)
+	body, status := h.serviceHandler.ListCertificateSigningRequests(r.Context(), OrgIDFromContext(r.Context()), params)
 	SetResponse(w, body, status)
 }
 
@@ -21,19 +21,19 @@ func (h *TransportHandler) CreateCertificateSigningRequest(w http.ResponseWriter
 		return
 	}
 
-	body, status := h.serviceHandler.CreateCertificateSigningRequest(r.Context(), csr)
+	body, status := h.serviceHandler.CreateCertificateSigningRequest(r.Context(), OrgIDFromContext(r.Context()), csr)
 	SetResponse(w, body, status)
 }
 
 // (DELETE /api/v1/certificatesigningrequests/{name})
 func (h *TransportHandler) DeleteCertificateSigningRequest(w http.ResponseWriter, r *http.Request, name string) {
-	status := h.serviceHandler.DeleteCertificateSigningRequest(r.Context(), name)
+	status := h.serviceHandler.DeleteCertificateSigningRequest(r.Context(), OrgIDFromContext(r.Context()), name)
 	SetResponse(w, nil, status)
 }
 
 // (GET /api/v1/certificatesigningrequests/{name})
 func (h *TransportHandler) GetCertificateSigningRequest(w http.ResponseWriter, r *http.Request, name string) {
-	body, status := h.serviceHandler.GetCertificateSigningRequest(r.Context(), name)
+	body, status := h.serviceHandler.GetCertificateSigningRequest(r.Context(), OrgIDFromContext(r.Context()), name)
 	SetResponse(w, body, status)
 }
 
@@ -45,7 +45,7 @@ func (h *TransportHandler) PatchCertificateSigningRequest(w http.ResponseWriter,
 		return
 	}
 
-	body, status := h.serviceHandler.PatchCertificateSigningRequest(r.Context(), name, patch)
+	body, status := h.serviceHandler.PatchCertificateSigningRequest(r.Context(), OrgIDFromContext(r.Context()), name, patch)
 	SetResponse(w, body, status)
 }
 
@@ -57,7 +57,7 @@ func (h *TransportHandler) ReplaceCertificateSigningRequest(w http.ResponseWrite
 		return
 	}
 
-	body, status := h.serviceHandler.ReplaceCertificateSigningRequest(r.Context(), name, csr)
+	body, status := h.serviceHandler.ReplaceCertificateSigningRequest(r.Context(), OrgIDFromContext(r.Context()), name, csr)
 	SetResponse(w, body, status)
 }
 
@@ -69,6 +69,6 @@ func (h *TransportHandler) UpdateCertificateSigningRequestApproval(w http.Respon
 		return
 	}
 
-	body, status := h.serviceHandler.UpdateCertificateSigningRequestApproval(r.Context(), name, csr)
+	body, status := h.serviceHandler.UpdateCertificateSigningRequestApproval(r.Context(), OrgIDFromContext(r.Context()), name, csr)
 	SetResponse(w, body, status)
 }

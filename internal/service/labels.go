@@ -6,13 +6,13 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store/selector"
+	"github.com/google/uuid"
 )
 
 // (GET /api/v1/labels)
-func (h *ServiceHandler) ListLabels(ctx context.Context, params api.ListLabelsParams) (*api.LabelList, api.Status) {
+func (h *ServiceHandler) ListLabels(ctx context.Context, orgId uuid.UUID, params api.ListLabelsParams) (*api.LabelList, api.Status) {
 	var err error
 
-	orgId := getOrgIdFromContext(ctx)
 	kind := params.Kind
 
 	listParams, status := prepareListParams(nil, params.LabelSelector, params.FieldSelector, params.Limit)

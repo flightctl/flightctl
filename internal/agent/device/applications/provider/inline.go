@@ -25,8 +25,9 @@ func newInlineHandler(appType v1alpha1.AppType, name string, rw fileio.ReadWrite
 	switch appType {
 	case v1alpha1.AppTypeQuadlet:
 		qb := &quadletHandler{
-			name: name,
-			rw:   rw,
+			name:        name,
+			rw:          rw,
+			specVolumes: lo.FromPtr(spec.Volumes),
 		}
 		qb.volumeProvider = func() ([]*Volume, error) {
 			return extractQuadletVolumesFromSpec(qb.ID(), spec.Inline)
@@ -34,10 +35,11 @@ func newInlineHandler(appType v1alpha1.AppType, name string, rw fileio.ReadWrite
 		return qb, nil
 	case v1alpha1.AppTypeCompose:
 		return &composeHandler{
-			name: name,
-			rw:   rw,
-			log:  l,
-			vm:   vm,
+			name:        name,
+			rw:          rw,
+			log:         l,
+			vm:          vm,
+			specVolumes: lo.FromPtr(spec.Volumes),
 		}, nil
 	default:
 		return nil, fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)

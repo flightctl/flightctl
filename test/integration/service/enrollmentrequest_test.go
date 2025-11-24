@@ -34,12 +34,12 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 			erName := lo.FromPtr(er.Metadata.Name)
 
 			By("creating initial EnrollmentRequest")
-			created, status := suite.Handler.CreateEnrollmentRequest(suite.Ctx, er)
+			created, status := suite.Handler.CreateEnrollmentRequest(suite.Ctx, suite.OrgID, er)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 			Expect(created).ToNot(BeNil())
 
 			By("applying patch")
-			patched, status := suite.Handler.PatchEnrollmentRequest(suite.Ctx, erName, patch)
+			patched, status := suite.Handler.PatchEnrollmentRequest(suite.Ctx, suite.OrgID, erName, patch)
 			Expect(status.Code).To(statusMatcher)
 
 			if IsStatusSuccessful(&status) {
@@ -53,7 +53,7 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 			}
 
 			By("verifying persistence after read back")
-			retrieved, status := suite.Handler.GetEnrollmentRequest(suite.Ctx, erName)
+			retrieved, status := suite.Handler.GetEnrollmentRequest(suite.Ctx, suite.OrgID, erName)
 			VerifyERStatusUnchanged(retrieved, created)
 			if patchedMatcher != nil {
 				Expect(retrieved).To(patchedMatcher, "should match expected patch result after read back")
@@ -131,7 +131,7 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 			erName := lo.FromPtr(er.Metadata.Name)
 
 			By("creating initial EnrollmentRequest")
-			created, status := suite.Handler.CreateEnrollmentRequest(suite.Ctx, er)
+			created, status := suite.Handler.CreateEnrollmentRequest(suite.Ctx, suite.OrgID, er)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 			Expect(created).ToNot(BeNil())
 
@@ -139,7 +139,7 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 			replacement := replaceFunc(*created)
 
 			By("applying replacement")
-			replaced, status := suite.Handler.ReplaceEnrollmentRequest(suite.Ctx, erName, replacement)
+			replaced, status := suite.Handler.ReplaceEnrollmentRequest(suite.Ctx, suite.OrgID, erName, replacement)
 			Expect(status.Code).To(statusMatcher)
 
 			if IsStatusSuccessful(&status) {
@@ -153,7 +153,7 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 			}
 
 			By("verifying persistence after read back")
-			final, status := suite.Handler.GetEnrollmentRequest(suite.Ctx, erName)
+			final, status := suite.Handler.GetEnrollmentRequest(suite.Ctx, suite.OrgID, erName)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 			VerifyERStatusUnchanged(final, created)
 			if replacedMatcher != nil {
@@ -228,7 +228,7 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 				erName := lo.FromPtr(er.Metadata.Name)
 
 				By("creating initial EnrollmentRequest")
-				created, status := suite.Handler.CreateEnrollmentRequest(ctx, er)
+				created, status := suite.Handler.CreateEnrollmentRequest(ctx, suite.OrgID, er)
 				Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 				Expect(created).ToNot(BeNil())
 
@@ -244,12 +244,12 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 						Labels:   &map[string]string{"approved": "true"},
 					}
 
-					_, st := suite.Handler.ApproveEnrollmentRequest(ctxApproval, erName, approval)
+					_, st := suite.Handler.ApproveEnrollmentRequest(ctxApproval, suite.OrgID, erName, approval)
 					Expect(st.Code).To(BeEquivalentTo(http.StatusOK))
 				}
 
 				By("re-reading the ER to get the latest state")
-				approved, st := suite.Handler.GetEnrollmentRequest(ctx, erName)
+				approved, st := suite.Handler.GetEnrollmentRequest(ctx, suite.OrgID, erName)
 				Expect(st.Code).To(BeEquivalentTo(http.StatusOK))
 				setupResult = approved
 
@@ -261,7 +261,7 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 				}
 
 				By("performing status update")
-				updated, st := suite.Handler.ReplaceEnrollmentRequestStatus(ctx, erName, statusUpdate)
+				updated, st := suite.Handler.ReplaceEnrollmentRequestStatus(ctx, suite.OrgID, erName, statusUpdate)
 
 				Expect(st.Code).To(statusMatcher)
 				if IsStatusSuccessful(&st) {
@@ -270,7 +270,7 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 				}
 
 				By("verifying persistence by reading back")
-				final, st := suite.Handler.GetEnrollmentRequestStatus(ctx, erName)
+				final, st := suite.Handler.GetEnrollmentRequestStatus(ctx, suite.OrgID, erName)
 				Expect(st.Code).To(BeEquivalentTo(http.StatusOK))
 				Expect(final).To(expectedERStatusMatcher, "Status should match expected after read back")
 			},
@@ -329,16 +329,16 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 			erName := lo.FromPtr(er.Metadata.Name)
 
 			By("creating initial EnrollmentRequest")
-			created, status := suite.Handler.CreateEnrollmentRequest(suite.Ctx, er)
+			created, status := suite.Handler.CreateEnrollmentRequest(suite.Ctx, suite.OrgID, er)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 			Expect(created).ToNot(BeNil())
 
 			By("deleting the EnrollmentRequest when no device exists")
-			status = suite.Handler.DeleteEnrollmentRequest(suite.Ctx, erName)
+			status = suite.Handler.DeleteEnrollmentRequest(suite.Ctx, suite.OrgID, erName)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 
 			By("verifying the EnrollmentRequest is deleted")
-			_, status = suite.Handler.GetEnrollmentRequest(suite.Ctx, erName)
+			_, status = suite.Handler.GetEnrollmentRequest(suite.Ctx, suite.OrgID, erName)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusNotFound))
 		})
 
@@ -347,7 +347,7 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 			erName := lo.FromPtr(er.Metadata.Name)
 
 			By("creating initial EnrollmentRequest")
-			created, status := suite.Handler.CreateEnrollmentRequest(suite.Ctx, er)
+			created, status := suite.Handler.CreateEnrollmentRequest(suite.Ctx, suite.OrgID, er)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 			Expect(created).ToNot(BeNil())
 
@@ -357,16 +357,16 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 					Name: &erName,
 				},
 			}
-			_, deviceStatus := suite.Handler.CreateDevice(suite.Ctx, device)
+			_, deviceStatus := suite.Handler.CreateDevice(suite.Ctx, suite.OrgID, device)
 			Expect(deviceStatus.Code).To(BeEquivalentTo(http.StatusCreated))
 
 			By("attempting to delete the EnrollmentRequest")
-			status = suite.Handler.DeleteEnrollmentRequest(suite.Ctx, erName)
+			status = suite.Handler.DeleteEnrollmentRequest(suite.Ctx, suite.OrgID, erName)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusConflict))
 			Expect(status.Message).To(ContainSubstring("device exists"))
 
 			By("verifying the EnrollmentRequest still exists")
-			retrieved, status := suite.Handler.GetEnrollmentRequest(suite.Ctx, erName)
+			retrieved, status := suite.Handler.GetEnrollmentRequest(suite.Ctx, suite.OrgID, erName)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 			Expect(retrieved).ToNot(BeNil())
 		})
@@ -384,7 +384,7 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 			ctx := context.WithValue(suite.Ctx, consts.MappedIdentityCtxKey, mappedIdentity)
 
 			By("creating initial EnrollmentRequest")
-			created, status := suite.Handler.CreateEnrollmentRequest(ctx, er)
+			created, status := suite.Handler.CreateEnrollmentRequest(ctx, suite.OrgID, er)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 			Expect(created).ToNot(BeNil())
 
@@ -393,11 +393,11 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 				Approved: true,
 				Labels:   &map[string]string{"env": "integration"},
 			}
-			_, st := suite.Handler.ApproveEnrollmentRequest(ctx, erName, approval)
+			_, st := suite.Handler.ApproveEnrollmentRequest(ctx, suite.OrgID, erName, approval)
 			Expect(st.Code).To(BeEquivalentTo(http.StatusOK))
 
 			By("verifying initial approval was applied correctly")
-			approved, st := suite.Handler.GetEnrollmentRequest(ctx, erName)
+			approved, st := suite.Handler.GetEnrollmentRequest(ctx, suite.OrgID, erName)
 			Expect(st.Code).To(BeEquivalentTo(http.StatusOK))
 			Expect(approved).To(And(
 				HaveField("Status.Approval.Approved", BeTrue()),
@@ -410,11 +410,11 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 				Approved: true,
 				Labels:   &map[string]string{"second": "attempt"},
 			}
-			_, st = suite.Handler.ApproveEnrollmentRequest(ctx, erName, secondApproval)
+			_, st = suite.Handler.ApproveEnrollmentRequest(ctx, suite.OrgID, erName, secondApproval)
 			Expect(st.Code).To(BeEquivalentTo(http.StatusBadRequest), "subsequent approvals should fail")
 
 			By("verifying state is unchanged after failed second approval")
-			afterSecond, st := suite.Handler.GetEnrollmentRequest(ctx, erName)
+			afterSecond, st := suite.Handler.GetEnrollmentRequest(ctx, suite.OrgID, erName)
 			Expect(st.Code).To(BeEquivalentTo(http.StatusOK))
 			Expect(afterSecond).To(And(
 				HaveField("Status.Approval.Approved", BeTrue()),
@@ -427,11 +427,11 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 				Approved: false,
 				Labels:   &map[string]string{"denied": "later"},
 			}
-			_, st = suite.Handler.ApproveEnrollmentRequest(ctx, erName, denial)
+			_, st = suite.Handler.ApproveEnrollmentRequest(ctx, suite.OrgID, erName, denial)
 			// This should either fail or be ignored, but approval state should remain true
 
 			By("verifying denial attempt did not change approval state")
-			final, st := suite.Handler.GetEnrollmentRequest(ctx, erName)
+			final, st := suite.Handler.GetEnrollmentRequest(ctx, suite.OrgID, erName)
 			Expect(st.Code).To(BeEquivalentTo(http.StatusOK))
 			Expect(final).To(And(
 				HaveField("Status.Approval.Approved", BeTrue()), // Should remain true
@@ -452,14 +452,14 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 			er.Spec.KnownRenderedVersion = &knownRenderedVersion
 
 			By("creating enrollment request with knownRenderedVersion")
-			created, status := suite.Handler.CreateEnrollmentRequest(suite.Ctx, er)
+			created, status := suite.Handler.CreateEnrollmentRequest(suite.Ctx, suite.OrgID, er)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 			Expect(created).ToNot(BeNil())
 			Expect(created.Metadata.Annotations).ToNot(BeNil())
 			Expect(*created.Metadata.Annotations).To(HaveKeyWithValue(api.DeviceAnnotationAwaitingReconnect, "true"))
 
 			By("verifying the annotation persists after read back")
-			retrieved, status := suite.Handler.GetEnrollmentRequest(suite.Ctx, erName)
+			retrieved, status := suite.Handler.GetEnrollmentRequest(suite.Ctx, suite.OrgID, erName)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 			Expect(retrieved.Metadata.Annotations).ToNot(BeNil())
 			Expect(*retrieved.Metadata.Annotations).To(HaveKeyWithValue(api.DeviceAnnotationAwaitingReconnect, "true"))
@@ -474,7 +474,7 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 			er.Spec.KnownRenderedVersion = &knownRenderedVersion
 
 			By("creating enrollment request with knownRenderedVersion='0'")
-			created, status := suite.Handler.CreateEnrollmentRequest(suite.Ctx, er)
+			created, status := suite.Handler.CreateEnrollmentRequest(suite.Ctx, suite.OrgID, er)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 			Expect(created).ToNot(BeNil())
 
@@ -484,7 +484,7 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 			}
 
 			By("verifying no annotation after read back")
-			retrieved, status := suite.Handler.GetEnrollmentRequest(suite.Ctx, erName)
+			retrieved, status := suite.Handler.GetEnrollmentRequest(suite.Ctx, suite.OrgID, erName)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 			if retrieved.Metadata.Annotations != nil {
 				Expect(*retrieved.Metadata.Annotations).ToNot(HaveKey(api.DeviceAnnotationAwaitingReconnect))
@@ -500,7 +500,7 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 			er.Spec.KnownRenderedVersion = &knownRenderedVersion
 
 			By("creating enrollment request with empty knownRenderedVersion")
-			created, status := suite.Handler.CreateEnrollmentRequest(suite.Ctx, er)
+			created, status := suite.Handler.CreateEnrollmentRequest(suite.Ctx, suite.OrgID, er)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 			Expect(created).ToNot(BeNil())
 
@@ -510,7 +510,7 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 			}
 
 			By("verifying no annotation after read back")
-			retrieved, status := suite.Handler.GetEnrollmentRequest(suite.Ctx, erName)
+			retrieved, status := suite.Handler.GetEnrollmentRequest(suite.Ctx, suite.OrgID, erName)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 			if retrieved.Metadata.Annotations != nil {
 				Expect(*retrieved.Metadata.Annotations).ToNot(HaveKey(api.DeviceAnnotationAwaitingReconnect))
@@ -524,7 +524,7 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 			// knownRenderedVersion is nil by default
 
 			By("creating enrollment request without knownRenderedVersion")
-			created, status := suite.Handler.CreateEnrollmentRequest(suite.Ctx, er)
+			created, status := suite.Handler.CreateEnrollmentRequest(suite.Ctx, suite.OrgID, er)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 			Expect(created).ToNot(BeNil())
 
@@ -534,7 +534,7 @@ var _ = Describe("EnrollmentRequest Integration Tests", func() {
 			}
 
 			By("verifying no annotation after read back")
-			retrieved, status := suite.Handler.GetEnrollmentRequest(suite.Ctx, erName)
+			retrieved, status := suite.Handler.GetEnrollmentRequest(suite.Ctx, suite.OrgID, erName)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 			if retrieved.Metadata.Annotations != nil {
 				Expect(*retrieved.Metadata.Annotations).ToNot(HaveKey(api.DeviceAnnotationAwaitingReconnect))
