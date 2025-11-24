@@ -117,26 +117,29 @@ app.kubernetes.io/version: {{ .Chart.AppVersion }}
 {{- end }}
 
 {{/*
-Get or generate a stable OAuth client secret.
-Follows the same pattern as database secrets: lookup existing, fallback to value, or generate new.
+Get the OAuth client secret from values or lookup existing secret.
+Uses a cached value in .Values to ensure consistency across all template evaluations.
 */}}
-{{- define "flightctl.getOpenShiftOAuthClientSecret" }}
-  {{- if .Values.global.auth.openshift.clientSecret }}
-    {{- printf .Values.global.auth.openshift.clientSecret }}
-  {{- else }}
-    {{- $secretName := printf "%s-secret" (include "flightctl.getOpenShiftOAuthClientId" .) }}
-    {{- $existingSecret := (lookup "v1" "Secret" "openshift-config" $secretName) }}
-    {{- if $existingSecret }}
-      {{- if and (hasKey $existingSecret "data") (hasKey $existingSecret.data "clientSecret") }}
-        {{- index $existingSecret.data "clientSecret" | b64dec }}
-      {{- else }}
-        {{- fail (printf "Secret %s is missing data.clientSecret – delete it or add the key." $secretName) }}
-      {{- end }}
-    {{- else }}
-      {{- randAlphaNum 32 }}
-    {{- end }}
-  {{- end }}
-{{- end }}
+{{- define "flightctl.getOpenShiftOAuthClientSecret" -}}
+{{- if .Values.global.auth.openshift.clientSecret -}}
+{{- .Values.global.auth.openshift.clientSecret -}}
+{{- else -}}
+{{- $secretName := printf "%s-secret" (include "flightctl.getOpenShiftOAuthClientId" .) -}}
+{{- $existingSecret := (lookup "v1" "Secret" "openshift-config" $secretName) -}}
+{{- if $existingSecret -}}
+{{- if and (hasKey $existingSecret "data") (hasKey $existingSecret.data "clientSecret") -}}
+{{- index $existingSecret.data "clientSecret" | b64dec -}}
+{{- else -}}
+{{- fail (printf "Secret %s is missing data.clientSecret – delete it or add the key." $secretName) -}}
+{{- end -}}
+{{- else -}}
+{{- if not (hasKey .Values "__generatedOAuthSecret") -}}
+{{- $_ := set .Values "__generatedOAuthSecret" (randAlphaNum 32) -}}
+{{- end -}}
+{{- .Values.__generatedOAuthSecret -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
 
 {{- define "flightctl.getHttpScheme" }}
   {{- if or (eq (include "flightctl.getServiceExposeMethod" . ) "route") (.Values.global.baseDomainTls).cert }}
