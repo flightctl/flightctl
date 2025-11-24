@@ -2,16 +2,13 @@ package main
 
 import (
 	"context"
-	"errors"
-	"fmt"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	tg "github.com/flightctl/flightctl/internal/telemetry_gateway"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/shutdown"
 )
 
 func main() {
@@ -32,53 +29,20 @@ func runCmd(cfg *config.Config) error {
 	defer logger.Info("Telemetry gateway stopped")
 	logger.Infof("Using config: %s", cfg)
 
-	// Single context with signal handling - OS signal cancels context
-	ctx, cancel := signal.NotifyContext(context.Background(),
-		syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
-
-	// Build cleanup functions incrementally as resources are created
-	var cleanupFuncs []func() error
-	defer func() {
-		// First cancel context to signal all goroutines to stop
-		logger.Info("Cancelling context to stop all servers")
-		cancel()
-
-		// Then run cleanup in reverse order after goroutines have stopped
-		logger.Info("Starting cleanup")
-		for i := len(cleanupFuncs) - 1; i >= 0; i-- {
-			if err := cleanupFuncs[i](); err != nil {
-				logger.WithError(err).Error("Cleanup error")
-			}
-		}
-		logger.Info("Cleanup completed")
-	}()
-
 	tracerShutdown := tracing.InitTracer(logger, cfg, "flightctl-telemetry-gateway")
 	if tracerShutdown != nil {
-		cleanupFuncs = append(cleanupFuncs, func() error {
-			logger.Info("Shutting down tracer")
+		defer func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			return tracerShutdown(ctx)
-		})
+			if err := tracerShutdown(ctx); err != nil {
+				logger.WithError(err).Error("Error shutting down tracer")
+			}
+		}()
 	}
 
-	// Start telemetry gateway and wait for completion or signal
-	logger.Info("Starting telemetry gateway server")
-	err := tg.Run(ctx, cfg)
-	if err != nil {
-		err = fmt.Errorf("telemetry gateway server: %w", err)
-	}
-
-	// Handle shutdown reason
-	if errors.Is(err, context.Canceled) {
-		logger.Info("Server stopped due to shutdown signal")
-		return nil // Normal shutdown
-	} else if err != nil {
-		logger.WithError(err).Error("Server stopped with error")
-		return err // Error shutdown
-	}
-
-	logger.Info("Server stopped normally")
-	return nil // Normal completion
+	// Use single server shutdown coordination
+	singleServerConfig := shutdown.NewSingleServerConfig("telemetry gateway", logger)
+	return singleServerConfig.RunSingleServer(func(shutdownCtx context.Context) error {
+		return tg.Run(shutdownCtx, cfg)
+	})
 }

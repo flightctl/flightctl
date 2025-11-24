@@ -31,6 +31,7 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1beta1"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
@@ -524,7 +525,9 @@ func (f FleetSelectorMatchingLogic) updateDeviceOwner(ctx context.Context, devic
 
 	f.log.Infof("Updating fleet of device %s from %s to %s", *device.Metadata.Name, util.DefaultIfNil(device.Metadata.Owner, "<none>"), util.DefaultIfNil(newOwnerRef, "<none>"))
 	device.Metadata.Owner = newOwnerRef
-	_, status := f.serviceHandler.ReplaceDevice(ctx, f.orgId, *device.Metadata.Name, lo.FromPtr(device), fieldsToNil)
+	// Use internal request context to allow updating managed metadata properties like Owner
+	internalCtx := context.WithValue(ctx, consts.InternalRequestCtxKey, true)
+	_, status := f.serviceHandler.ReplaceDevice(internalCtx, f.orgId, *device.Metadata.Name, lo.FromPtr(device), fieldsToNil)
 
 	if err := service.ApiStatusToErr(status); err != nil {
 		return err

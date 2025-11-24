@@ -6,8 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"os/signal"
-	"syscall"
 	"time"
 
 	apiserver "github.com/flightctl/flightctl/internal/api_server"
@@ -25,6 +23,7 @@ import (
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
+	"github.com/flightctl/flightctl/pkg/shutdown"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
@@ -53,49 +52,166 @@ func runCmd(cfg *config.Config) error {
 	defer logger.Info("API service stopped")
 	logger.Infof("Using config: %s", cfg)
 
-	// Single context with signal handling - OS signal cancels context
-	ctx, cancel := signal.NotifyContext(context.Background(),
-		syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGHUP)
+	// Simple context for initialization phase
+	initCtx := context.Background()
 
-	// Build cleanup functions incrementally as resources are created
-	var cleanupFuncs []func() error
-	defer func() {
-		// First cancel context to signal all goroutines to stop
-		logger.Info("Cancelling context to stop all servers")
-		cancel()
+	apiCfg, err := setupConfiguration(initCtx, cfg, logger)
+	if err != nil {
+		return err
+	}
 
-		// Then run cleanup in reverse order after goroutines have stopped
-		logger.Info("Starting cleanup")
-		for i := len(cleanupFuncs) - 1; i >= 0; i-- {
-			if err := cleanupFuncs[i](); err != nil {
-				logger.WithError(err).Error("Cleanup error")
+	// Setup services with direct defer statements
+	tracerShutdown := tracing.InitTracer(logger, apiCfg.cfg, "flightctl-api")
+	if tracerShutdown != nil {
+		defer func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := tracerShutdown(ctx); err != nil {
+				logger.WithError(err).Error("Error shutting down tracer")
 			}
+		}()
+	}
+
+	logger.Info("Initializing data store")
+	db, err := store.InitDB(apiCfg.cfg, logger)
+	if err != nil {
+		return fmt.Errorf("initializing data store: %w", err)
+	}
+
+	store := store.NewStore(db, logger.WithField("pkg", "store"))
+	defer store.Close()
+
+	tlsConfig, agentTlsConfig, err := crypto.TLSConfigForServer(apiCfg.ca.GetCABundleX509(), apiCfg.serverCerts)
+	if err != nil {
+		return fmt.Errorf("failed creating TLS config: %w", err)
+	}
+
+	processID := fmt.Sprintf("api-%s-%s", util.GetHostname(), uuid.New().String())
+	provider, err := queues.NewRedisProvider(initCtx, logger, processID, apiCfg.cfg.KV.Hostname, apiCfg.cfg.KV.Port, apiCfg.cfg.KV.Password, queues.DefaultRetryConfig())
+	if err != nil {
+		return fmt.Errorf("failed connecting to Redis queue: %w", err)
+	}
+	defer provider.Wait()
+	defer provider.Stop()
+
+	kvStore, err := kvstore.NewKVStore(initCtx, logger, apiCfg.cfg.KV.Hostname, apiCfg.cfg.KV.Port, apiCfg.cfg.KV.Password)
+	if err != nil {
+		return fmt.Errorf("creating kvstore: %w", err)
+	}
+	defer kvStore.Close()
+
+	if err = rendered.Bus.Initialize(initCtx, kvStore, provider, time.Duration(apiCfg.cfg.Service.RenderedWaitTimeout), logger); err != nil {
+		return fmt.Errorf("creating rendered version manager: %w", err)
+	}
+	if err = rendered.Bus.Instance().Start(initCtx); err != nil {
+		return fmt.Errorf("starting rendered version manager: %w", err)
+	}
+
+	services := &apiServices{
+		store:          store,
+		ca:             apiCfg.ca,
+		provider:       provider,
+		kvStore:        kvStore,
+		tlsConfig:      tlsConfig,
+		agentTlsConfig: agentTlsConfig,
+	}
+
+	// Define servers to coordinate
+	var servers []shutdown.ServerSpec
+
+	// Always add API server and Agent server
+	servers = append(servers,
+		shutdown.ServerSpec{
+			Name: "API server",
+			Runner: func(shutdownCtx context.Context) error {
+				// Create cancellable context to coordinate nested servers
+				ctx, cancel := context.WithCancel(shutdownCtx)
+				defer cancel()
+
+				// Create the agent service listener as tcp (combined HTTP+gRPC)
+				agentListener, err := net.Listen("tcp", apiCfg.cfg.Service.AgentEndpointAddress)
+				if err != nil {
+					return fmt.Errorf("creating agent listener: %w", err)
+				}
+
+				agentServer, err := agentserver.New(ctx, logger, apiCfg.cfg, services.store, services.ca, agentListener, services.provider, services.agentTlsConfig)
+				if err != nil {
+					return fmt.Errorf("initializing agent server: %w", err)
+				}
+
+				listener, err := middleware.NewTLSListener(apiCfg.cfg.Service.Address, services.tlsConfig)
+				if err != nil {
+					return fmt.Errorf("creating API listener: %w", err)
+				}
+
+				// We pass the grpc server for now, to let the console sessions to establish a connection in grpc
+				server := apiserver.New(logger, apiCfg.cfg, services.store, services.ca, listener, services.provider, agentServer.GetGRPCServer())
+
+				// Start both servers concurrently
+				errCh := make(chan error, 2)
+
+				go func() {
+					if err := agentServer.Run(ctx); err != nil {
+						errCh <- fmt.Errorf("agent server: %w", err)
+					} else {
+						errCh <- nil
+					}
+				}()
+
+				go func() {
+					if err := server.Run(ctx); err != nil {
+						errCh <- fmt.Errorf("API server: %w", err)
+					} else {
+						errCh <- nil
+					}
+				}()
+
+				// Wait for first error or first server completion
+				var firstError error
+				var remainingServers = 2
+
+				for remainingServers > 0 {
+					err := <-errCh
+					remainingServers--
+
+					// Record first non-context error and cancel context to stop sibling server
+					if err != nil && !errors.Is(err, context.Canceled) && firstError == nil {
+						firstError = err
+						cancel() // Cancel context to stop the surviving server
+					}
+				}
+				return firstError
+			},
+		},
+	)
+
+	// Create context for metrics collectors that can be cancelled during shutdown
+	collectorsCtx, collectorsCancel := context.WithCancel(context.Background())
+	services.collectorsCancel = collectorsCancel
+
+	// Add metrics server if enabled
+	setupMetricsServer(collectorsCtx, apiCfg.cfg, services, logger, &servers)
+
+	// Use multi-server shutdown coordination with initCtx
+	multiServerConfig := shutdown.NewMultiServerConfig("API service", logger)
+
+	// Cancel collectors when the function exits (actual shutdown)
+	defer func() {
+		if services.collectorsCancel != nil {
+			services.collectorsCancel()
 		}
-		logger.Info("Cleanup completed")
 	}()
-
-	apiCfg, err := setupConfiguration(ctx, cfg, logger)
-	if err != nil {
-		return err
-	}
-
-	// Setup services and collect cleanup functions
-	services, err := setupServices(ctx, logger, apiCfg, &cleanupFuncs)
-	if err != nil {
-		return err
-	}
-
-	// Setup and run servers
-	return runServers(ctx, cancel, logger, apiCfg, services)
+	return multiServerConfig.RunMultiServer(initCtx, servers)
 }
 
 type apiServices struct {
-	store          store.Store
-	ca             *crypto.CAClient
-	provider       queues.Provider
-	kvStore        kvstore.KVStore
-	tlsConfig      *tls.Config
-	agentTlsConfig *tls.Config
+	store            store.Store
+	ca               *crypto.CAClient
+	provider         queues.Provider
+	kvStore          kvstore.KVStore
+	tlsConfig        *tls.Config
+	agentTlsConfig   *tls.Config
+	collectorsCancel context.CancelFunc // For cancelling metrics collectors during shutdown
 }
 
 func setupConfiguration(ctx context.Context, cfg *config.Config, log *logrus.Logger) (*apiConfig, error) {
@@ -194,168 +310,24 @@ func setupClientCertificates(ctx context.Context, cfg *config.Config, ca *crypto
 	return nil
 }
 
-func setupServices(ctx context.Context, log *logrus.Logger, apiCfg *apiConfig, cleanupFuncs *[]func() error) (*apiServices, error) {
-	tracerShutdown := tracing.InitTracer(log, apiCfg.cfg, "flightctl-api")
-	if tracerShutdown != nil {
-		*cleanupFuncs = append(*cleanupFuncs, func() error {
-			log.Info("Shutting down tracer")
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			return tracerShutdown(ctx)
-		})
-	}
-
-	log.Info("Initializing data store")
-	db, err := store.InitDB(apiCfg.cfg, log)
-	if err != nil {
-		return nil, fmt.Errorf("initializing data store: %w", err)
-	}
-
-	store := store.NewStore(db, log.WithField("pkg", "store"))
-	*cleanupFuncs = append(*cleanupFuncs, func() error {
-		log.Info("Closing database connections")
-		return store.Close()
-	})
-
-	tlsConfig, agentTlsConfig, err := crypto.TLSConfigForServer(apiCfg.ca.GetCABundleX509(), apiCfg.serverCerts)
-	if err != nil {
-		return nil, fmt.Errorf("failed creating TLS config: %w", err)
-	}
-
-	processID := fmt.Sprintf("api-%s-%s", util.GetHostname(), uuid.New().String())
-	provider, err := queues.NewRedisProvider(ctx, log, processID, apiCfg.cfg.KV.Hostname, apiCfg.cfg.KV.Port, apiCfg.cfg.KV.Password, queues.DefaultRetryConfig())
-	if err != nil {
-		return nil, fmt.Errorf("failed connecting to Redis queue: %w", err)
-	}
-	*cleanupFuncs = append(*cleanupFuncs, func() error {
-		log.Info("Stopping queue provider")
-		provider.Stop()
-		provider.Wait()
-		return nil
-	})
-
-	kvStore, err := kvstore.NewKVStore(ctx, log, apiCfg.cfg.KV.Hostname, apiCfg.cfg.KV.Port, apiCfg.cfg.KV.Password)
-	if err != nil {
-		return nil, fmt.Errorf("creating kvstore: %w", err)
-	}
-	*cleanupFuncs = append(*cleanupFuncs, func() error {
-		log.Info("Closing KV store connections")
-		kvStore.Close()
-		return nil
-	})
-
-	if err = rendered.Bus.Initialize(ctx, kvStore, provider, time.Duration(apiCfg.cfg.Service.RenderedWaitTimeout), log); err != nil {
-		return nil, fmt.Errorf("creating rendered version manager: %w", err)
-	}
-	if err = rendered.Bus.Instance().Start(ctx); err != nil {
-		return nil, fmt.Errorf("starting rendered version manager: %w", err)
-	}
-
-	return &apiServices{
-		store:          store,
-		ca:             apiCfg.ca,
-		provider:       provider,
-		kvStore:        kvStore,
-		tlsConfig:      tlsConfig,
-		agentTlsConfig: agentTlsConfig,
-	}, nil
-}
-
-func runServers(ctx context.Context, cancel context.CancelFunc, log *logrus.Logger, apiCfg *apiConfig, services *apiServices) error {
-	// create the agent service listener as tcp (combined HTTP+gRPC)
-	agentListener, err := net.Listen("tcp", apiCfg.cfg.Service.AgentEndpointAddress)
-	if err != nil {
-		return fmt.Errorf("creating listener: %w", err)
-	}
-
-	agentServer, err := agentserver.New(ctx, log, apiCfg.cfg, services.store, services.ca, agentListener, services.provider, services.agentTlsConfig)
-	if err != nil {
-		return fmt.Errorf("initializing agent server: %w", err)
-	}
-
-	listener, err := middleware.NewTLSListener(apiCfg.cfg.Service.Address, services.tlsConfig)
-	if err != nil {
-		return fmt.Errorf("creating listener: %w", err)
-	}
-
-	// we pass the grpc server for now, to let the console sessions to establish a connection in grpc
-	server := apiserver.New(log, apiCfg.cfg, services.store, services.ca, listener, services.provider, agentServer.GetGRPCServer())
-
-	// Start servers in goroutines, collect errors
-	errCh := make(chan error, 3)
-
-	go func() {
-		log.Info("Starting API server")
-		if err := server.Run(ctx); err != nil {
-			errCh <- fmt.Errorf("API server: %w", err)
-		} else {
-			errCh <- nil
-		}
-	}()
-
-	go func() {
-		log.Info("Starting agent server")
-		if err := agentServer.Run(ctx); err != nil {
-			errCh <- fmt.Errorf("agent server: %w", err)
-		} else {
-			errCh <- nil
-		}
-	}()
-
-	// Track number of servers started (always start API + agent, optionally metrics)
-	serversStarted := 2
-	if setupMetricsServer(ctx, log, apiCfg.cfg, services, errCh) {
-		serversStarted++
-	}
-
-	// Wait for all servers to complete before returning
-	log.Info("API service started, waiting for shutdown signal...")
-	var firstError error
-	for i := 0; i < serversStarted; i++ {
-		if err := <-errCh; err != nil {
-			if firstError == nil {
-				firstError = err
-				// Cancel context on first error to trigger shutdown of all other servers
-				if !errors.Is(err, context.Canceled) {
-					log.Info("Triggering shutdown of all servers due to error")
-					cancel()
-					// Force provider shutdown to unblock any servers from provider.Wait()
-					services.provider.Stop()
-				}
-			}
-			log.WithError(err).Error("Server stopped with error")
-		}
-	}
-
-	// Handle shutdown reason
-	if errors.Is(firstError, context.Canceled) {
-		log.Info("Servers stopped due to shutdown signal")
-		return nil // Normal shutdown
-	} else if firstError != nil {
-		return firstError // Error shutdown
-	}
-
-	log.Info("Servers stopped normally")
-	return nil // Normal completion
-}
-
-func setupMetricsServer(ctx context.Context, log *logrus.Logger, cfg *config.Config, services *apiServices, errCh chan error) bool {
+// setupMetricsServer adds metrics server to the server list if metrics are enabled
+func setupMetricsServer(ctx context.Context, cfg *config.Config, services *apiServices, logger *logrus.Logger, servers *[]shutdown.ServerSpec) {
 	if cfg.Metrics == nil || !cfg.Metrics.Enabled {
-		return false
+		return
 	}
 
 	var collectors []prometheus.Collector
 	if cfg.Metrics.DeviceCollector != nil && cfg.Metrics.DeviceCollector.Enabled {
-		collectors = append(collectors, domain.NewDeviceCollector(ctx, services.store, log, cfg))
+		collectors = append(collectors, domain.NewDeviceCollector(ctx, services.store, logger, cfg))
 	}
 	if cfg.Metrics.FleetCollector != nil && cfg.Metrics.FleetCollector.Enabled {
-		collectors = append(collectors, domain.NewFleetCollector(ctx, services.store, log, cfg))
+		collectors = append(collectors, domain.NewFleetCollector(ctx, services.store, logger, cfg))
 	}
 	if cfg.Metrics.RepositoryCollector != nil && cfg.Metrics.RepositoryCollector.Enabled {
-		collectors = append(collectors, domain.NewRepositoryCollector(ctx, services.store, log, cfg))
+		collectors = append(collectors, domain.NewRepositoryCollector(ctx, services.store, logger, cfg))
 	}
 	if cfg.Metrics.ResourceSyncCollector != nil && cfg.Metrics.ResourceSyncCollector.Enabled {
-		collectors = append(collectors, domain.NewResourceSyncCollector(ctx, services.store, log, cfg))
+		collectors = append(collectors, domain.NewResourceSyncCollector(ctx, services.store, logger, cfg))
 	}
 	if cfg.Metrics.SystemCollector != nil && cfg.Metrics.SystemCollector.Enabled {
 		if systemMetricsCollector := metrics.NewSystemCollector(ctx, cfg); systemMetricsCollector != nil {
@@ -363,21 +335,18 @@ func setupMetricsServer(ctx context.Context, log *logrus.Logger, cfg *config.Con
 		}
 	}
 	if cfg.Metrics.HttpCollector != nil && cfg.Metrics.HttpCollector.Enabled {
-		if httpMetricsCollector := metrics.NewHTTPMetricsCollector(ctx, cfg, "flightctl-api", log); httpMetricsCollector != nil {
+		if httpMetricsCollector := metrics.NewHTTPMetricsCollector(ctx, cfg, "flightctl-api", logger); httpMetricsCollector != nil {
 			collectors = append(collectors, httpMetricsCollector)
 		}
 	}
 
 	if len(collectors) > 0 {
-		go func() {
-			log.Info("Starting metrics server")
-			if err := tracing.RunMetricsServer(ctx, log, cfg.Metrics.Address, collectors...); err != nil {
-				errCh <- fmt.Errorf("metrics server: %w", err)
-			} else {
-				errCh <- nil
-			}
-		}()
-		return true
+		*servers = append(*servers, shutdown.ServerSpec{
+			Name:      "metrics server",
+			IsMetrics: true, // Gets 60s grace period for shutdown metrics
+			Runner: func(ctx context.Context) error {
+				return tracing.RunMetricsServer(ctx, logger, cfg.Metrics.Address, collectors...)
+			},
+		})
 	}
-	return false
 }

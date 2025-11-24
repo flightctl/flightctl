@@ -23,9 +23,9 @@ import (
 	workerserver "github.com/flightctl/flightctl/internal/worker_server"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/shutdown"
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
-	"github.com/sirupsen/logrus"
 	"go.uber.org/mock/gomock"
 )
 
@@ -104,7 +104,7 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 	}
 
 	serverCfg := *config.NewDefault()
-	serverLog := log.InitLogs(logrus.DebugLevel.String())
+	serverLog := log.InitLogs("debug")
 	serverLog.SetOutput(os.Stdout)
 
 	// create store
@@ -145,32 +145,43 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 	serverCfg.Service.Address = listener.Addr().String()
 	serverCfg.Service.AgentEndpointAddress = agentListener.Addr().String()
 
-	// start main api server
+	// start servers using multi-server coordination like production
 	go func() {
 		os.Setenv(auth.DisableAuthEnvKey, "true")
-		err := apiServer.Run(ctx)
-		if err != nil {
-			// provide a wrapper to allow require.NoError or ginkgo handling
-			goRoutineErrorHandler(fmt.Errorf("error starting main api server: %w", err))
-		}
-		cancel()
-	}()
 
-	go func() {
-		err := workerServer.Run(context.WithValue(ctx, consts.InternalRequestCtxKey, true))
-		if err != nil {
-			// provide a wrapper to allow require.NoError or ginkgo handling
-			goRoutineErrorHandler(fmt.Errorf("error starting worker server: %w", err))
-		}
-		cancel()
-	}()
+		// Define servers to coordinate
+		var servers []shutdown.ServerSpec
 
-	// start agent api server
-	go func() {
-		err := agentServer.Run(ctx)
+		servers = append(servers,
+			shutdown.ServerSpec{
+				Name: "API server",
+				Runner: func(shutdownCtx context.Context) error {
+					return apiServer.Run(shutdownCtx)
+				},
+			},
+			shutdown.ServerSpec{
+				Name: "Worker server",
+				Runner: func(shutdownCtx context.Context) error {
+					return workerServer.Run(context.WithValue(shutdownCtx, consts.InternalRequestCtxKey, true))
+				},
+			},
+			shutdown.ServerSpec{
+				Name: "Agent server",
+				Runner: func(shutdownCtx context.Context) error {
+					return agentServer.Run(shutdownCtx)
+				},
+			},
+		)
+
+		// Use multi-server shutdown coordination with reasonable timeouts for background task completion
+		gracefulTimeout := 15 * time.Second // Allow time for background tasks (fleet selector matching, device reconciliation)
+		metricsTimeout := 30 * time.Second  // Extended time for metrics export
+		config := shutdown.NewMultiServerConfig("Test harness", serverLog).SetTimeouts(&gracefulTimeout, &metricsTimeout)
+
+		err := config.RunMultiServer(ctx, servers)
 		if err != nil {
 			// provide a wrapper to allow require.NoError or ginkgo handling
-			goRoutineErrorHandler(fmt.Errorf("error starting main agent api server: %w", err))
+			goRoutineErrorHandler(fmt.Errorf("error running test servers: %w", err))
 		}
 		cancel()
 	}()

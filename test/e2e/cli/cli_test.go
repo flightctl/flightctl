@@ -632,9 +632,13 @@ var _ = Describe("cli operation", func() {
 			Expect(out).To(MatchRegexp(resourceCreated))
 
 			By("Verify the device summary matches expected count")
-			count, err := validateDevicesSummary(harness, fleetName, 0)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(count).To(Equal(0))
+			Eventually(func() int {
+				count, err := validateDevicesSummary(harness, fleetName, 0)
+				if err != nil {
+					return -1 // Return invalid count on error to trigger retry
+				}
+				return count
+			}, 30*time.Second, 1*time.Second).Should(Equal(0), "Fleet should have 0 devices initially")
 
 			By("Creating a device in the fleet")
 			uniqueDeviceYAML, err := util.CreateUniqueYAMLFile("device.yaml", testID)
@@ -649,9 +653,13 @@ var _ = Describe("cli operation", func() {
 			Expect(out).To(MatchRegexp(resourceCreated))
 
 			By("Verify the device summary matches expected count")
-			count, err = validateDevicesSummary(harness, fleetName, 1)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(count).To(Equal(1))
+			Eventually(func() int {
+				count, err := validateDevicesSummary(harness, fleetName, 1)
+				if err != nil {
+					return -1 // Return invalid count on error to trigger retry
+				}
+				return count
+			}, 30*time.Second, 1*time.Second).Should(Equal(1), "Fleet should have 1 device after device creation and fleet selector matching")
 
 			By("Deleting a device from the fleet")
 			out, err = harness.CLI("delete", util.Device, deviceName)
@@ -659,9 +667,13 @@ var _ = Describe("cli operation", func() {
 			Expect(out).To(ContainSubstring("completed"))
 
 			By("Verify the device summary matches expected count")
-			count, err = validateDevicesSummary(harness, fleetName, 0)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(count).To(Equal(0))
+			Eventually(func() int {
+				count, err := validateDevicesSummary(harness, fleetName, 0)
+				if err != nil {
+					return -1 // Return invalid count on error to trigger retry
+				}
+				return count
+			}, 30*time.Second, 1*time.Second).Should(Equal(0), "Fleet should have 0 devices after device deletion")
 
 		})
 	})

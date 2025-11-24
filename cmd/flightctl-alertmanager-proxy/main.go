@@ -13,17 +13,17 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/auth"
+	"github.com/flightctl/flightctl/internal/auth/authn"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
@@ -32,6 +32,7 @@ import (
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/shutdown"
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/sirupsen/logrus"
@@ -149,25 +150,12 @@ func createConditionalAuthMiddleware(
 	}
 }
 
-func main() {
-	ctx := context.Background()
-
-	// Load configuration
-	cfg, err := config.LoadOrGenerate(config.ConfigFile())
-	if err != nil {
-		log.InitLogs().WithError(err).Fatal("Failed to load configuration")
-	}
-
-	// Initialize logging
-	logger := log.InitLogs(cfg.Service.LogLevel)
-	logger.Println("Starting Alertmanager Proxy service")
-	defer logger.Println("Alertmanager Proxy service stopped")
-	logger.Infof("Using config: %s", cfg)
-
+// setupCertificates initializes CA and TLS certificates following same pattern as API server
+func setupCertificates(ctx context.Context, cfg *config.Config, logger logrus.FieldLogger) (*crypto.CAClient, *tls.Config, error) {
 	// Initialize CA and TLS certificates (following same pattern as API server)
 	ca, _, err := crypto.EnsureCA(cfg.CA)
 	if err != nil {
-		logger.Fatalf("ensuring CA cert: %v", err)
+		return nil, nil, fmt.Errorf("ensuring CA cert: %w", err)
 	}
 
 	var serverCerts *crypto.TLSCertificateConfig
@@ -180,7 +168,7 @@ func main() {
 	if canReadCertAndKey, _ := crypto.CanReadCertAndKey(srvCertFile, srvKeyFile); canReadCertAndKey {
 		serverCerts, err = crypto.GetTLSCertificateConfig(srvCertFile, srvKeyFile)
 		if err != nil {
-			logger.Fatalf("failed to load existing certificate: %v", err)
+			return nil, nil, fmt.Errorf("failed to load existing certificate: %w", err)
 		}
 	} else {
 		// Create new certificate with same alt names as API server
@@ -191,7 +179,7 @@ func main() {
 
 		serverCerts, err = ca.MakeAndWriteServerCertificate(ctx, srvCertFile, srvKeyFile, altNames, cfg.CA.ServerCertValidityDays)
 		if err != nil {
-			logger.Fatalf("failed to create certificate: %v", err)
+			return nil, nil, fmt.Errorf("failed to create certificate: %w", err)
 		}
 	}
 
@@ -210,72 +198,63 @@ func main() {
 	// Create TLS config
 	tlsConfig, _, err := crypto.TLSConfigForServer(ca.GetCABundleX509(), serverCerts)
 	if err != nil {
-		logger.Fatalf("failed creating TLS config: %v", err)
+		return nil, nil, fmt.Errorf("failed creating TLS config: %w", err)
 	}
 
-	tracerShutdown := tracing.InitTracer(logger, cfg, "flightctl-alertmanager-proxy")
-	defer func() {
-		if err := tracerShutdown(ctx); err != nil {
-			logger.Fatalf("Failed to shut down tracer: %v", err)
-		}
-	}()
+	return ca, tlsConfig, nil
+}
 
-	// Initialize data store
-	db, err := store.InitDB(cfg, logger)
-	if err != nil {
-		logger.Fatalf("Initializing data store: %v", err)
+// createServers sets up all server specifications for multi-server coordination
+func createServers(cfg *config.Config, logger logrus.FieldLogger, dataStore store.Store, orgCache *cache.OrganizationTTLCache, authN common.MultiAuthNMiddleware, authZ auth.AuthZMiddleware, identityMapper *service.IdentityMapper, tlsConfig *tls.Config) []shutdown.ServerSpec {
+	var servers []shutdown.ServerSpec
+
+	// Add organization cache server
+	servers = append(servers, shutdown.ServerSpec{
+		Name: "organization cache",
+		Runner: func(shutdownCtx context.Context) error {
+			orgCache.Start(shutdownCtx)
+			return nil
+		},
+	})
+
+	// Add auth provider loader if MultiAuth is configured
+	if multiAuth, ok := authN.(*authn.MultiAuth); ok {
+		servers = append(servers, shutdown.ServerSpec{
+			Name: "auth provider loader",
+			Runner: func(shutdownCtx context.Context) error {
+				return multiAuth.Start(shutdownCtx)
+			},
+		})
 	}
 
-	dataStore := store.NewStore(db, logger.WithField("pkg", "store"))
-	defer dataStore.Close()
+	// Add identity mapper server
+	servers = append(servers, shutdown.ServerSpec{
+		Name: "identity mapper",
+		Runner: func(shutdownCtx context.Context) error {
+			identityMapper.Start(shutdownCtx)
+			return nil
+		},
+	})
 
-	// Handle graceful shutdown
-	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)
-	defer cancel()
+	// Create main HTTP server
+	servers = append(servers, shutdown.ServerSpec{
+		Name: "alertmanager proxy server",
+		Runner: func(shutdownCtx context.Context) error {
+			return runAlertmanagerProxyServer(shutdownCtx, cfg, logger, dataStore, authN, authZ, identityMapper, tlsConfig)
+		},
+	})
 
-	orgCache := cache.NewOrganizationTTL(cache.DefaultTTL)
-	go func() {
-		orgCache.Start(ctx)
-		cancel() // Trigger coordinated shutdown if cache exits
-	}()
-	defer orgCache.Stop()
+	return servers
+}
 
-	// Create service handler for auth provider access
-	baseServiceHandler := service.NewServiceHandler(dataStore, nil, nil, nil, logger, "", "", nil)
-	serviceHandler := service.WrapWithTracing(baseServiceHandler)
-
-	// Initialize auth system
-	authN, err := auth.InitMultiAuth(cfg, logger, serviceHandler)
-	if err != nil {
-		logger.Fatalf("Failed to initialize auth: %v", err)
-	}
-
-	// Start auth provider loader
-	go func() {
-		if err := authN.Start(ctx); err != nil {
-			logger.Errorf("Failed to start auth provider loader: %v", err)
-		}
-		cancel() // Trigger coordinated shutdown if auth loader exits
-	}()
-
-	authZ, err := auth.InitMultiAuthZ(cfg, logger)
-	if err != nil {
-		logger.Fatalf("Failed to initialize authZ: %v", err)
-	}
-
-	// Start multiAuthZ to initialize cache lifecycle management
+// runAlertmanagerProxyServer handles the main HTTP server logic
+func runAlertmanagerProxyServer(shutdownCtx context.Context, cfg *config.Config, logger logrus.FieldLogger, dataStore store.Store, authN common.MultiAuthNMiddleware, authZ auth.AuthZMiddleware, identityMapper *service.IdentityMapper, tlsConfig *tls.Config) error {
+	// Start multiAuthZ synchronously (it's not a continuous service)
 	if multiAuthZ, ok := authZ.(*auth.MultiAuthZ); ok {
-		multiAuthZ.Start(ctx)
+		multiAuthZ.Start(shutdownCtx)
 		logger.Debug("Started MultiAuthZ with context-based cache lifecycle")
 	}
 
-	// Create identity mapper for mapping identities to database objects
-	identityMapper := service.NewIdentityMapper(dataStore, logger)
-	go func() {
-		identityMapper.Start(ctx)
-		cancel() // Trigger coordinated shutdown if identity mapper exits
-	}()
-	defer identityMapper.Stop()
 	identityMappingMiddleware := middleware.NewIdentityMappingMiddleware(identityMapper, logger)
 
 	// Create organization extraction and validation middlewares
@@ -285,7 +264,7 @@ func main() {
 	// Create proxy
 	proxy, err := NewAlertmanagerProxy(cfg, logger)
 	if err != nil {
-		logger.Fatalf("Failed to create alertmanager proxy: %v", err)
+		return fmt.Errorf("failed to create alertmanager proxy: %w", err)
 	}
 
 	// Check if auth is disabled
@@ -361,23 +340,110 @@ func main() {
 	// Create TLS listener
 	listener, err := middleware.NewTLSListener(proxyPort, tlsConfig)
 	if err != nil {
-		logger.Fatalf("creating TLS listener: %v", err)
+		return fmt.Errorf("creating TLS listener: %w", err)
 	}
 
+	logger.Printf("Alertmanager proxy listening on port %s, proxying to %s", proxyPort[1:], proxy.target.String())
+
+	// Handle graceful shutdown
+	shutdownDone := make(chan error, 1)
+	serverErr := make(chan error, 1)
 	go func() {
-		<-ctx.Done()
+		select {
+		case <-shutdownCtx.Done():
+		case <-serverErr:
+			shutdownDone <- nil // Signal completion so main path doesn't block
+			return
+		}
 		logger.Println("Shutdown signal received")
 
-		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		serverShutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer shutdownCancel()
 
-		if err := server.Shutdown(shutdownCtx); err != nil {
-			logger.Errorf("Server shutdown error: %v", err)
+		if err := server.Shutdown(serverShutdownCtx); err != nil {
+			shutdownDone <- fmt.Errorf("server shutdown error: %w", err)
+		} else {
+			shutdownDone <- nil
 		}
 	}()
 
-	logger.Printf("Alertmanager proxy listening on port %s, proxying to %s", proxyPort[1:], proxy.target.String())
+	// Start server
 	if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
-		logger.Fatalf("Server error: %v", err)
+		close(serverErr) // Signal goroutine to exit
+		return fmt.Errorf("server error: %w", err)
+	}
+
+	// Wait for graceful shutdown completion
+	return <-shutdownDone
+}
+
+func main() {
+	ctx := context.Background()
+
+	// Load configuration
+	cfg, err := config.LoadOrGenerate(config.ConfigFile())
+	if err != nil {
+		log.InitLogs().WithError(err).Fatal("Failed to load configuration")
+	}
+
+	// Initialize logging
+	logger := log.InitLogs(cfg.Service.LogLevel)
+	logger.Println("Starting Alertmanager Proxy service")
+	defer logger.Println("Alertmanager Proxy service stopped")
+	logger.Infof("Using config: %s", cfg)
+
+	// Initialize CA and TLS certificates
+	_, tlsConfig, err := setupCertificates(ctx, cfg, logger)
+	if err != nil {
+		logger.Fatalf("Setting up certificates: %v", err)
+	}
+
+	// Initialize tracer
+	tracerShutdown := tracing.InitTracer(logger, cfg, "flightctl-alertmanager-proxy")
+	if tracerShutdown != nil {
+		defer func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := tracerShutdown(ctx); err != nil {
+				logger.WithError(err).Error("Error shutting down tracer")
+			}
+		}()
+	}
+
+	// Initialize data store
+	db, err := store.InitDB(cfg, logger)
+	if err != nil {
+		logger.Fatalf("Initializing data store: %v", err)
+	}
+
+	dataStore := store.NewStore(db, logger.WithField("pkg", "store"))
+	defer dataStore.Close()
+
+	orgCache := cache.NewOrganizationTTL(cache.DefaultTTL)
+	defer orgCache.Stop()
+
+	// Create service handler for auth provider access
+	baseServiceHandler := service.NewServiceHandler(dataStore, nil, nil, nil, logger, "", "", nil)
+	serviceHandler := service.WrapWithTracing(baseServiceHandler)
+
+	// Initialize auth system
+	authN, err := auth.InitMultiAuth(cfg, logger, serviceHandler)
+	if err != nil {
+		logger.Fatalf("Failed to initialize auth: %v", err)
+	}
+
+	authZ, err := auth.InitMultiAuthZ(cfg, logger)
+	if err != nil {
+		logger.Fatalf("Failed to initialize authZ: %v", err)
+	}
+
+	identityMapper := service.NewIdentityMapper(dataStore, logger)
+	defer identityMapper.Stop()
+
+	// Create servers and run with multi-server coordination
+	servers := createServers(cfg, logger, dataStore, orgCache, authN, authZ, identityMapper, tlsConfig)
+	multiServerConfig := shutdown.NewMultiServerConfig("alertmanager proxy", logger)
+	if err := multiServerConfig.RunMultiServer(ctx, servers); err != nil {
+		logger.Fatalf("Alertmanager proxy error: %v", err)
 	}
 }

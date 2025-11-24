@@ -2,10 +2,7 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/alert_exporter"
@@ -20,6 +17,7 @@ import (
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
+	"github.com/flightctl/flightctl/pkg/shutdown"
 	"github.com/google/uuid"
 )
 
@@ -41,40 +39,22 @@ func runCmd(cfg *config.Config) error {
 	defer logger.Info("Alert exporter stopped")
 	logger.Infof("Using config: %s", cfg)
 
-	// Single context with signal handling - OS signal cancels context
-	ctx, cancel := signal.NotifyContext(context.Background(),
-		syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
-
-	// Build cleanup functions incrementally as resources are created
-	var cleanupFuncs []func() error
-	defer func() {
-		// First cancel context to signal all goroutines to stop
-		logger.Info("Cancelling context to stop all servers")
-		cancel()
-
-		// Then run cleanup in reverse order after goroutines have stopped
-		logger.Info("Starting cleanup")
-		for i := len(cleanupFuncs) - 1; i >= 0; i-- {
-			if err := cleanupFuncs[i](); err != nil {
-				logger.WithError(err).Error("Cleanup error")
-			}
-		}
-		logger.Info("Cleanup completed")
-	}()
-
 	tracerShutdown := tracing.InitTracer(logger, cfg, "flightctl-alert-exporter")
 	if tracerShutdown != nil {
-		cleanupFuncs = append(cleanupFuncs, func() error {
-			logger.Info("Shutting down tracer")
+		defer func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			return tracerShutdown(ctx)
-		})
+			if err := tracerShutdown(ctx); err != nil {
+				logger.WithError(err).Error("Error shutting down tracer")
+			}
+		}()
 	}
 
-	ctx = context.WithValue(ctx, consts.EventSourceComponentCtxKey, "flightctl-alert-exporter")
-	ctx = context.WithValue(ctx, consts.EventActorCtxKey, "service:flightctl-alert-exporter")
-	ctx = context.WithValue(ctx, consts.InternalRequestCtxKey, true)
+	// Simple context for initialization phase
+	initCtx := context.Background()
+	initCtx = context.WithValue(initCtx, consts.EventSourceComponentCtxKey, "flightctl-alert-exporter")
+	initCtx = context.WithValue(initCtx, consts.EventActorCtxKey, "service:flightctl-alert-exporter")
+	initCtx = context.WithValue(initCtx, consts.InternalRequestCtxKey, true)
 
 	logger.Info("Initializing data store")
 	db, err := store.InitDB(cfg, logger)
@@ -83,77 +63,39 @@ func runCmd(cfg *config.Config) error {
 	}
 
 	store := store.NewStore(db, logger.WithField("pkg", "store"))
-	cleanupFuncs = append(cleanupFuncs, func() error {
-		logger.Info("Closing database connections")
-		return store.Close()
-	})
+	defer store.Close()
 
 	processID := fmt.Sprintf("alert-exporter-%s-%s", util.GetHostname(), uuid.New().String())
-	queuesProvider, err := queues.NewRedisProvider(ctx, logger, processID, cfg.KV.Hostname, cfg.KV.Port, cfg.KV.Password, queues.DefaultRetryConfig())
+	queuesProvider, err := queues.NewRedisProvider(initCtx, logger, processID, cfg.KV.Hostname, cfg.KV.Port, cfg.KV.Password, queues.DefaultRetryConfig())
 	if err != nil {
 		return fmt.Errorf("initializing queue provider: %w", err)
 	}
-	cleanupFuncs = append(cleanupFuncs, func() error {
-		logger.Info("Stopping queue provider")
-		queuesProvider.Stop()
-		queuesProvider.Wait()
-		return nil
-	})
+	defer queuesProvider.Wait()
+	defer queuesProvider.Stop()
 
-	kvStore, err := kvstore.NewKVStore(ctx, logger, cfg.KV.Hostname, cfg.KV.Port, cfg.KV.Password)
+	kvStore, err := kvstore.NewKVStore(initCtx, logger, cfg.KV.Hostname, cfg.KV.Port, cfg.KV.Password)
 	if err != nil {
 		return fmt.Errorf("initializing kv store: %w", err)
 	}
-	cleanupFuncs = append(cleanupFuncs, func() error {
-		logger.Info("Closing KV store connections")
-		kvStore.Close()
-		return nil
-	})
+	defer kvStore.Close()
 
-	publisher, err := worker_client.QueuePublisher(ctx, queuesProvider)
+	publisher, err := worker_client.QueuePublisher(initCtx, queuesProvider)
 	if err != nil {
 		return fmt.Errorf("initializing task queue publisher: %w", err)
 	}
-	cleanupFuncs = append(cleanupFuncs, func() error {
-		logger.Info("Closing publisher")
-		publisher.Close()
-		return nil
-	})
+	defer publisher.Close()
 
 	workerClient := worker_client.NewWorkerClient(publisher, logger)
 
 	orgCache := cache.NewOrganizationTTL(cache.DefaultTTL)
-	go func() {
-		orgCache.Start(ctx)
-		if ctx.Err() == nil {
-			logger.Warn("Organization cache stopped unexpectedly")
-		}
-	}()
-	cleanupFuncs = append(cleanupFuncs, func() error {
-		logger.Info("Stopping organization cache")
-		orgCache.Stop()
-		return nil
-	})
+	defer orgCache.Stop()
 
 	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(store, workerClient, kvStore, nil, logger, "", "", []string{}))
 	server := alert_exporter.New(cfg, logger)
 
-	// Start server and wait for completion or signal
-	logger.Info("Starting alert exporter server")
-	err = server.Run(ctx, serviceHandler)
-	if err != nil {
-		err = fmt.Errorf("alert exporter server: %w", err)
-	}
-
-	// Handle shutdown reason
-	if errors.Is(err, context.Canceled) {
-		logger.Info("Server stopped due to shutdown signal")
-		return nil // Normal shutdown
-	} else if err != nil {
-		logger.WithError(err).Error("Server stopped with error")
-		return err // Error shutdown
-	}
-
-	logger.Info("Server stopped normally")
-	return nil // Normal completion
+	// Use single server shutdown coordination
+	singleServerConfig := shutdown.NewSingleServerConfig("alert exporter", logger)
+	return singleServerConfig.RunSingleServer(func(shutdownCtx context.Context) error {
+		return server.Run(shutdownCtx, serviceHandler)
+	})
 }
