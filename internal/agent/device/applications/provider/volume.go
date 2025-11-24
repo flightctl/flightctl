@@ -61,15 +61,34 @@ func NewVolumeManager(log *log.PrefixLogger, appName string, volumes *[]v1alpha1
 	}
 
 	for _, v := range *volumes {
-		// TODO: image provider assumed
-		provider, err := v.AsImageVolumeProviderSpec()
+		volType, err := v.Type()
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("volume type: %w", err)
+		}
+		var image *v1alpha1.ImageVolumeSource
+		switch volType {
+		case v1alpha1.ImageApplicationVolumeProviderType:
+			provider, err := v.AsImageVolumeProviderSpec()
+			if err != nil {
+				return nil, err
+			}
+			image = &provider.Image
+		case v1alpha1.ImageMountApplicationVolumeProviderType:
+			provider, err := v.AsImageMountVolumeProviderSpec()
+			if err != nil {
+				return nil, err
+			}
+			image = &provider.Image
+		case v1alpha1.MountApplicationVolumeProviderType:
+			// nothing to manage
+			continue
+		default:
+			return nil, fmt.Errorf("%w: %s", errors.ErrUnsupportedVolumeType, volType)
 		}
 		volID := client.ComposeVolumeName(appName, v.Name)
 		m.volumes[volID] = &Volume{
 			Name:      v.Name,
-			Reference: provider.Image.Reference,
+			Reference: image.Reference,
 			ID:        volID,
 			Available: true, // TODO: event support is broken for volumes.  https://github.com/containers/podman/issues/26480
 		}
@@ -197,7 +216,7 @@ func ensureDependenciesFromVolumes(ctx context.Context, podman *client.Podman, v
 		}
 
 		switch vType {
-		case v1alpha1.ImageApplicationVolumeProviderType:
+		case v1alpha1.ImageApplicationVolumeProviderType, v1alpha1.ImageMountApplicationVolumeProviderType:
 			version, err := podman.Version(ctx)
 			if err != nil {
 				return fmt.Errorf("checking podman version: %w", err)
@@ -205,6 +224,9 @@ func ensureDependenciesFromVolumes(ctx context.Context, podman *client.Podman, v
 			if !version.GreaterOrEqual(5, 5) {
 				return fmt.Errorf("image volume support requires podman >= 5.5, found %d.%d", version.Major, version.Minor)
 			}
+		case v1alpha1.MountApplicationVolumeProviderType:
+			// No dependencies for simple mounts
+			continue
 		default:
 			return fmt.Errorf("%w: %s", errors.ErrUnsupportedVolumeType, vType)
 		}

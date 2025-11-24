@@ -84,10 +84,15 @@ func CollectBaseOCITargets(
 				return nil, fmt.Errorf("getting image provider spec: %w", err)
 			}
 
-			// Add base image with PullIfNotPresent policy
+			ociType := dependency.OCITypeAuto
+			// a requirement of container types is that the image reference is a runnable image
+			if lo.FromPtr(providerSpec.AppType) == v1alpha1.AppTypeContainer {
+				ociType = dependency.OCITypeImage
+			}
+
 			policy := v1alpha1.PullIfNotPresent
 			targets = append(targets, dependency.OCIPullTarget{
-				Type:       dependency.OCITypeAuto,
+				Type:       ociType,
 				Reference:  imageSpec.Image,
 				PullPolicy: policy,
 				PullSecret: pullSecret,
@@ -330,6 +335,11 @@ func ExtractNestedTargetsFromImage(
 		}
 	}
 
+	// Nothing nested in a container type
+	if appType == v1alpha1.AppTypeContainer {
+		return &AppData{}, nil
+	}
+
 	if appType != v1alpha1.AppTypeCompose && appType != v1alpha1.AppTypeQuadlet {
 		return nil, fmt.Errorf("%w for app %s: %s", errors.ErrUnsupportedAppType, appName, appType)
 	}
@@ -390,9 +400,6 @@ func FromDeviceSpec(
 				if err != nil {
 					return nil, fmt.Errorf("getting app type for image %s: %w", imageSpec.Image, err)
 				}
-			}
-			if appType != v1alpha1.AppTypeCompose && appType != v1alpha1.AppTypeQuadlet {
-				return nil, fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
 			}
 			imgProvider, err := newImage(log, podman, &providerSpec, readWriter, appType)
 			if err != nil {
@@ -909,22 +916,33 @@ func extractVolumeTargets(vols *[]v1alpha1.ApplicationVolume, pullSecret *client
 		if err != nil {
 			return nil, fmt.Errorf("getting volume type: %w", err)
 		}
-		if vType != v1alpha1.ImageApplicationVolumeProviderType {
+		var source *v1alpha1.ImageVolumeSource
+		ociType := dependency.OCITypeArtifact
+		switch vType {
+		case v1alpha1.ImageApplicationVolumeProviderType:
+			spec, err := v.AsImageVolumeProviderSpec()
+			if err != nil {
+				return nil, fmt.Errorf("getting image volume spec: %w", err)
+			}
+			source = &spec.Image
+		case v1alpha1.ImageMountApplicationVolumeProviderType:
+			spec, err := v.AsImageMountVolumeProviderSpec()
+			if err != nil {
+				return nil, fmt.Errorf("getting image mount volume spec: %w", err)
+			}
+			source = &spec.Image
+			ociType = dependency.OCITypeAuto
+		default:
 			continue
-		}
-		spec, err := v.AsImageVolumeProviderSpec()
-		if err != nil {
-			return nil, fmt.Errorf("getting image volume spec: %w", err)
 		}
 
 		policy := v1alpha1.PullIfNotPresent
-		if spec.Image.PullPolicy != nil {
-			policy = *spec.Image.PullPolicy
+		if source.PullPolicy != nil {
+			policy = *source.PullPolicy
 		}
-
 		targets = append(targets, dependency.OCIPullTarget{
-			Type:       dependency.OCITypeArtifact,
-			Reference:  spec.Image.Reference,
+			Type:       ociType,
+			Reference:  source.Reference,
 			PullPolicy: policy,
 			PullSecret: pullSecret,
 		})

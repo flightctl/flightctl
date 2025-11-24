@@ -31,12 +31,13 @@ type imageProvider struct {
 	AppData *AppData
 }
 
-func newImageHandler(appType v1alpha1.AppType, name string, rw fileio.ReadWriter, l *log.PrefixLogger, vm VolumeManager) (appTypeHandler, error) {
+func newImageHandler(appType v1alpha1.AppType, name string, rw fileio.ReadWriter, l *log.PrefixLogger, podman *client.Podman, vm VolumeManager, provider *v1alpha1.ImageApplicationProviderSpec) (appTypeHandler, error) {
 	switch appType {
 	case v1alpha1.AppTypeQuadlet:
 		qb := &quadletHandler{
-			name: name,
-			rw:   rw,
+			name:        name,
+			rw:          rw,
+			specVolumes: lo.FromPtr(provider.Volumes),
 		}
 		qb.volumeProvider = func() ([]*Volume, error) {
 			return extractQuadletVolumesFromDir(qb.ID(), rw, qb.AppPath())
@@ -44,10 +45,18 @@ func newImageHandler(appType v1alpha1.AppType, name string, rw fileio.ReadWriter
 		return qb, nil
 	case v1alpha1.AppTypeCompose:
 		return &composeHandler{
-			name: name,
-			rw:   rw,
-			log:  l,
-			vm:   vm,
+			name:        name,
+			rw:          rw,
+			log:         l,
+			vm:          vm,
+			specVolumes: lo.FromPtr(provider.Volumes),
+		}, nil
+	case v1alpha1.AppTypeContainer:
+		return &containerHandler{
+			name:   name,
+			rw:     rw,
+			podman: podman,
+			spec:   provider,
 		}, nil
 	default:
 		return nil, fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
@@ -71,7 +80,7 @@ func newImage(log *log.PrefixLogger, podman *client.Podman, spec *v1alpha1.Appli
 		return nil, err
 	}
 
-	handler, err := newImageHandler(appType, appName, readWriter, log, volumeManager)
+	handler, err := newImageHandler(appType, appName, readWriter, log, podman, volumeManager, &provider)
 	if err != nil {
 		return nil, fmt.Errorf("constructing image handler: %w", err)
 	}

@@ -69,8 +69,9 @@ func NewPodmanMonitor(
 	return &PodmanMonitor{
 		client: podman,
 		handlers: map[v1alpha1.AppType]lifecycle.ActionHandler{
-			v1alpha1.AppTypeCompose: lifecycle.NewCompose(log, rw, podman),
-			v1alpha1.AppTypeQuadlet: lifecycle.NewQuadlet(log, rw, systemdManager, podman),
+			v1alpha1.AppTypeCompose:   lifecycle.NewCompose(log, rw, podman),
+			v1alpha1.AppTypeQuadlet:   lifecycle.NewQuadlet(log, rw, systemdManager, podman),
+			v1alpha1.AppTypeContainer: lifecycle.NewQuadlet(log, rw, systemdManager, podman),
 		},
 		apps:                   make(map[string]Application),
 		lastEventTime:          bootTime,
