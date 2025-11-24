@@ -390,6 +390,16 @@ make deploy-quadlets-vm
 USER=redhat-user REDHAT_USER=redhat-user@redhat.com REDHAT_PASSWORD='your-password' VM_DISK_SIZE_INC=50 make deploy-quadlets-vm
 ```
 
+- Build and install from a specific git tag/version (builds inside VM):
+```bash
+GIT_VERSION="v1.0.0" USER=redhat-user REDHAT_USER=redhat-user@redhat.com REDHAT_PASSWORD='your-password' make deploy-quadlets-vm
+```
+
+- Install from brew build (downloads inside VM):
+```bash
+BREW_BUILD_URL="<brew-url>?taskID=<task-id>" USER=redhat-user REDHAT_USER=redhat-user@redhat.com REDHAT_PASSWORD='your-password' make deploy-quadlets-vm
+```
+
 **Access the VM:**
 After deployment, you'll get the VM IP address. SSH into it:
 ```bash
