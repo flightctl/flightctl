@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	agent_config "github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -77,7 +77,7 @@ type Provider interface {
 	// GenerateCSR creates a certificate signing request using this identity
 	GenerateCSR(deviceName string) ([]byte, error)
 	// ProveIdentity performs idempotent, provider-specific, identity verification.
-	ProveIdentity(ctx context.Context, enrollmentRequest *v1alpha1.EnrollmentRequest) error
+	ProveIdentity(ctx context.Context, enrollmentRequest *v1beta1.EnrollmentRequest) error
 	// StoreCertificate stores/persists the certificate received from enrollment.
 	StoreCertificate(certPEM []byte) error
 	// HasCertificate returns true if the provider has a certificate available

@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"sync"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -25,11 +25,11 @@ func NewManager(
 	deviceName string,
 	log *log.PrefixLogger,
 ) *StatusManager {
-	status := v1alpha1.NewDeviceStatus()
+	status := v1beta1.NewDeviceStatus()
 	return &StatusManager{
 		deviceName: deviceName,
-		device: &v1alpha1.Device{
-			Metadata: v1alpha1.ObjectMeta{
+		device: &v1beta1.Device{
+			Metadata: v1beta1.ObjectMeta{
 				Name: &deviceName,
 			},
 			Status: &status,
@@ -44,20 +44,20 @@ type StatusManager struct {
 	deviceName       string
 	managementClient client.Management
 	exporters        []Exporter
-	device           *v1alpha1.Device
-	lastStatus       *v1alpha1.DeviceStatus
+	device           *v1beta1.Device
+	lastStatus       *v1beta1.DeviceStatus
 
 	log *log.PrefixLogger
 }
 
 type Exporter interface {
 	// Status collects status information and updates the device status.
-	Status(context.Context, *v1alpha1.DeviceStatus, ...CollectorOpt) error
+	Status(context.Context, *v1beta1.DeviceStatus, ...CollectorOpt) error
 }
 
 type Getter interface {
 	// Get returns the device status and is safe to call without a management client.
-	Get(context.Context) *v1alpha1.DeviceStatus
+	Get(context.Context) *v1beta1.DeviceStatus
 }
 
 type Manager interface {
@@ -69,9 +69,9 @@ type Manager interface {
 	// RegisterStatusExporter registers an exporter to be called when collecting status.
 	RegisterStatusExporter(Exporter)
 	// Update updates the device status with the given update functions.
-	Update(ctx context.Context, updateFuncs ...UpdateStatusFn) (*v1alpha1.DeviceStatus, error)
+	Update(ctx context.Context, updateFuncs ...UpdateStatusFn) (*v1beta1.DeviceStatus, error)
 	// UpdateCondition updates the device status with the given condition.
-	UpdateCondition(context.Context, v1alpha1.Condition) error
+	UpdateCondition(context.Context, v1beta1.Condition) error
 	// SetClient sets the management client for the status manager.
 	SetClient(client.Management)
 }
@@ -82,7 +82,7 @@ func (m *StatusManager) SetClient(managementClient client.Management) {
 	m.managementClient = managementClient
 }
 
-func (m *StatusManager) Get(ctx context.Context) *v1alpha1.DeviceStatus {
+func (m *StatusManager) Get(ctx context.Context) *v1beta1.DeviceStatus {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -149,7 +149,7 @@ func (m *StatusManager) update(ctx context.Context) {
 		if err := m.managementClient.UpdateDeviceStatus(ctx, m.deviceName, *m.device); err != nil {
 			m.log.Warnf("Failed to update device status: %v", err)
 		} else {
-			st, ok := deepcopy.Copy(m.device.Status).(*v1alpha1.DeviceStatus)
+			st, ok := deepcopy.Copy(m.device.Status).(*v1beta1.DeviceStatus)
 			if !ok {
 				m.log.Warn("Failed to deep copy device status")
 			} else {
@@ -176,7 +176,7 @@ func (m *StatusManager) Sync(ctx context.Context) error {
 	return nil
 }
 
-func (m *StatusManager) UpdateCondition(ctx context.Context, condition v1alpha1.Condition) error {
+func (m *StatusManager) UpdateCondition(ctx context.Context, condition v1beta1.Condition) error {
 	if m.managementClient == nil {
 		return fmt.Errorf("management client not set")
 	}
@@ -188,7 +188,7 @@ func (m *StatusManager) UpdateCondition(ctx context.Context, condition v1alpha1.
 		return err
 	}
 
-	changed := v1alpha1.SetStatusCondition(&m.device.Status.Conditions, condition)
+	changed := v1beta1.SetStatusCondition(&m.device.Status.Conditions, condition)
 	if !changed {
 		return nil
 	}
@@ -198,9 +198,9 @@ func (m *StatusManager) UpdateCondition(ctx context.Context, condition v1alpha1.
 	return nil
 }
 
-type UpdateStatusFn func(status *v1alpha1.DeviceStatus) error
+type UpdateStatusFn func(status *v1beta1.DeviceStatus) error
 
-func (m *StatusManager) Update(ctx context.Context, updateFuncs ...UpdateStatusFn) (*v1alpha1.DeviceStatus, error) {
+func (m *StatusManager) Update(ctx context.Context, updateFuncs ...UpdateStatusFn) (*v1beta1.DeviceStatus, error) {
 	if m.managementClient == nil {
 		return nil, fmt.Errorf("management client not set")
 	}
@@ -225,23 +225,23 @@ func (m *StatusManager) Update(ctx context.Context, updateFuncs ...UpdateStatusF
 	return m.device.Status, nil
 }
 
-func SetDeviceSummary(summaryStatus v1alpha1.DeviceSummaryStatus) UpdateStatusFn {
-	return func(status *v1alpha1.DeviceStatus) error {
+func SetDeviceSummary(summaryStatus v1beta1.DeviceSummaryStatus) UpdateStatusFn {
+	return func(status *v1beta1.DeviceStatus) error {
 		status.Summary.Status = summaryStatus.Status
 		status.Summary.Info = summaryStatus.Info
 		return nil
 	}
 }
 
-func SetConfig(configStatus v1alpha1.DeviceConfigStatus) UpdateStatusFn {
-	return func(status *v1alpha1.DeviceStatus) error {
+func SetConfig(configStatus v1beta1.DeviceConfigStatus) UpdateStatusFn {
+	return func(status *v1beta1.DeviceStatus) error {
 		status.Config.RenderedVersion = configStatus.RenderedVersion
 		return nil
 	}
 }
 
-func SetOSImage(osStatus v1alpha1.DeviceOsStatus) UpdateStatusFn {
-	return func(status *v1alpha1.DeviceStatus) error {
+func SetOSImage(osStatus v1beta1.DeviceOsStatus) UpdateStatusFn {
+	return func(status *v1beta1.DeviceStatus) error {
 		status.Os.Image = osStatus.Image
 		status.Os.ImageDigest = osStatus.ImageDigest
 		return nil

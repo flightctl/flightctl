@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
@@ -43,11 +43,11 @@ func TestSync(t *testing.T) {
 
 	testCases := []struct {
 		name       string
-		current    *v1alpha1.Device
-		desired    *v1alpha1.Device
+		current    *v1beta1.Device
+		desired    *v1beta1.Device
 		setupMocks func(
-			currentSpec *v1alpha1.Device,
-			desiredSpec *v1alpha1.Device,
+			currentSpec *v1beta1.Device,
+			desiredSpec *v1beta1.Device,
 			mockOSClient *os.MockClient,
 			mockManagementClient *client.MockManagement,
 			mockSystemInfoManager *systeminfo.MockManager,
@@ -69,8 +69,8 @@ func TestSync(t *testing.T) {
 			current: newVersionedDevice("0"),
 			desired: newVersionedDevice("1"),
 			setupMocks: func(
-				current *v1alpha1.Device,
-				desired *v1alpha1.Device,
+				current *v1beta1.Device,
+				desired *v1beta1.Device,
 				mockOSClient *os.MockClient,
 				mockManagementClient *client.MockManagement,
 				mockSystemInfoManager *systeminfo.MockManager,
@@ -243,11 +243,11 @@ func TestRollbackDevice(t *testing.T) {
 
 	testCases := []struct {
 		name       string
-		current    *v1alpha1.Device
-		desired    *v1alpha1.Device
+		current    *v1beta1.Device
+		desired    *v1beta1.Device
 		setupMocks func(
-			currentSpec *v1alpha1.Device,
-			desiredSpec *v1alpha1.Device,
+			currentSpec *v1beta1.Device,
+			desiredSpec *v1beta1.Device,
 			mockManagementClient *client.MockManagement,
 		)
 		wantSyncErr error
@@ -257,8 +257,8 @@ func TestRollbackDevice(t *testing.T) {
 			current: newVersionedDevice("0"),
 			desired: newVersionedDevice("1"),
 			setupMocks: func(
-				current *v1alpha1.Device,
-				desired *v1alpha1.Device,
+				current *v1beta1.Device,
+				desired *v1beta1.Device,
 				mockManagementClient *client.MockManagement,
 			) {
 				gomock.InOrder(
@@ -271,8 +271,8 @@ func TestRollbackDevice(t *testing.T) {
 			current: newVersionedDevice("1"),
 			desired: newVersionedDevice("5"),
 			setupMocks: func(
-				current *v1alpha1.Device,
-				desired *v1alpha1.Device,
+				current *v1beta1.Device,
+				desired *v1beta1.Device,
 				mockManagementClient *client.MockManagement,
 			) {
 				gomock.InOrder(
@@ -285,8 +285,8 @@ func TestRollbackDevice(t *testing.T) {
 			current: newVersionedDevice("1"),
 			desired: newVersionedDevice("5"),
 			setupMocks: func(
-				current *v1alpha1.Device,
-				desired *v1alpha1.Device,
+				current *v1beta1.Device,
+				desired *v1beta1.Device,
 				mockManagementClient *client.MockManagement,
 			) {
 				gomock.InOrder(
@@ -394,15 +394,15 @@ func TestRollbackDevice(t *testing.T) {
 	}
 }
 
-func newVersionedDevice(version string) *v1alpha1.Device {
-	device := &v1alpha1.Device{
-		Metadata: v1alpha1.ObjectMeta{
+func newVersionedDevice(version string) *v1beta1.Device {
+	device := &v1beta1.Device{
+		Metadata: v1beta1.ObjectMeta{
 			Annotations: lo.ToPtr(map[string]string{
-				v1alpha1.DeviceAnnotationRenderedVersion: version,
+				v1beta1.DeviceAnnotationRenderedVersion: version,
 			}),
 		},
 	}
-	device.Spec = &v1alpha1.DeviceSpec{}
+	device.Spec = &v1beta1.DeviceSpec{}
 	return device
 }
 
@@ -412,7 +412,7 @@ type mockSync struct {
 	wantErr        error
 }
 
-func (m *mockSync) sync(ctx context.Context, currentSpec *v1alpha1.Device, desiredSpec *v1alpha1.Device) error {
+func (m *mockSync) sync(ctx context.Context, currentSpec *v1beta1.Device, desiredSpec *v1beta1.Device) error {
 	if m.wantErr != nil {
 		return m.wantErr
 	}

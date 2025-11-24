@@ -9,7 +9,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/contextutil"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
@@ -143,7 +143,7 @@ func (osAuth OpenShiftAuthZ) CheckPermission(ctx context.Context, token string, 
 	return ssar.Status.Allowed, nil
 }
 
-func (osAuth OpenShiftAuthZ) GetUserPermissions(ctx context.Context, token string) (*v1alpha1.PermissionList, error) {
+func (osAuth OpenShiftAuthZ) GetUserPermissions(ctx context.Context, token string) (*v1beta1.PermissionList, error) {
 	osAuth.Log.Debug("OpenShiftAuthZ: getting user permissions")
 
 	// 1. Get mapped identity from context
@@ -156,8 +156,8 @@ func (osAuth OpenShiftAuthZ) GetUserPermissions(ctx context.Context, token strin
 	// 2. Super admins have all permissions
 	if mappedIdentity.IsSuperAdmin() {
 		osAuth.Log.Debugf("OpenShiftAuthZ: user=%s is super admin, granting all permissions", mappedIdentity.GetUsername())
-		return &v1alpha1.PermissionList{
-			Permissions: []v1alpha1.Permission{
+		return &v1beta1.PermissionList{
+			Permissions: []v1beta1.Permission{
 				{Resource: "*", Operations: []string{"*"}},
 			},
 		}, nil
@@ -176,7 +176,7 @@ func (osAuth OpenShiftAuthZ) GetUserPermissions(ctx context.Context, token strin
 	if len(roles) == 0 {
 		osAuth.Log.Debugf("OpenShiftAuthZ: user=%s has no roles in organization=%s",
 			mappedIdentity.GetUsername(), orgID)
-		return &v1alpha1.PermissionList{Permissions: []v1alpha1.Permission{}}, nil
+		return &v1beta1.PermissionList{Permissions: []v1beta1.Permission{}}, nil
 	}
 
 	// 5. Get the organization's external ID (namespace) from mapped identity
@@ -262,20 +262,20 @@ func (osAuth OpenShiftAuthZ) GetUserPermissions(ctx context.Context, token strin
 	}
 	sort.Strings(resources)
 
-	apiPermissions := make([]v1alpha1.Permission, 0, len(permissions))
+	apiPermissions := make([]v1beta1.Permission, 0, len(permissions))
 	for _, resource := range resources {
 		ops := permissions[resource]
 		// Sort operations for consistent output
 		sort.Strings(ops)
 
-		apiPermissions = append(apiPermissions, v1alpha1.Permission{
+		apiPermissions = append(apiPermissions, v1beta1.Permission{
 			Resource:   resource,
 			Operations: ops,
 		})
 	}
 
 	osAuth.Log.Debugf("OpenShiftAuthZ: returning %d permissions for user=%s, org=%s", len(apiPermissions), mappedIdentity.GetUsername(), orgID)
-	return &v1alpha1.PermissionList{
+	return &v1beta1.PermissionList{
 		Permissions: apiPermissions,
 	}, nil
 }

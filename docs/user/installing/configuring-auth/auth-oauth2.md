@@ -105,7 +105,7 @@ Or create directly:
 
 ```bash
 cat <<EOF | flightctl apply -f -
-apiVersion: v1alpha1
+apiVersion: v1beta1
 kind: AuthProvider
 metadata:
   name: my-oauth2-provider
@@ -136,7 +136,7 @@ EOF
 
 ```bash
 cat <<EOF | flightctl apply -f -
-apiVersion: v1alpha1
+apiVersion: v1beta1
 kind: AuthProvider
 metadata:
   name: oauth2-dynamic
@@ -177,7 +177,7 @@ This configuration will:
 
 ```bash
 cat <<EOF | flightctl apply -f -
-apiVersion: v1alpha1
+apiVersion: v1beta1
 kind: AuthProvider
 metadata:
   name: oauth2-simple
@@ -214,7 +214,7 @@ This configuration demonstrates:
 
 ```bash
 cat <<EOF | flightctl apply -f -
-apiVersion: v1alpha1
+apiVersion: v1beta1
 kind: AuthProvider
 metadata:
   name: oauth2-peruser

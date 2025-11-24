@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/google/uuid"
 	"github.com/samber/lo"

@@ -13,7 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
-	v1alpha1 "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -55,7 +55,7 @@ func (mr *MockManagerMockRecorder) OnAfterRebooting(ctx any) *gomock.Call {
 }
 
 // OnAfterUpdating mocks base method.
-func (m *MockManager) OnAfterUpdating(ctx context.Context, current, desired *v1alpha1.DeviceSpec, systemRebooted bool) error {
+func (m *MockManager) OnAfterUpdating(ctx context.Context, current, desired *api.DeviceSpec, systemRebooted bool) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "OnAfterUpdating", ctx, current, desired, systemRebooted)
 	ret0, _ := ret[0].(error)
@@ -83,7 +83,7 @@ func (mr *MockManagerMockRecorder) OnBeforeRebooting(ctx any) *gomock.Call {
 }
 
 // OnBeforeUpdating mocks base method.
-func (m *MockManager) OnBeforeUpdating(ctx context.Context, current, desired *v1alpha1.DeviceSpec) error {
+func (m *MockManager) OnBeforeUpdating(ctx context.Context, current, desired *api.DeviceSpec) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "OnBeforeUpdating", ctx, current, desired)
 	ret0, _ := ret[0].(error)
@@ -97,7 +97,7 @@ func (mr *MockManagerMockRecorder) OnBeforeUpdating(ctx, current, desired any) *
 }
 
 // Sync mocks base method.
-func (m *MockManager) Sync(current, desired *v1alpha1.DeviceSpec) error {
+func (m *MockManager) Sync(current, desired *api.DeviceSpec) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Sync", current, desired)
 	ret0, _ := ret[0].(error)

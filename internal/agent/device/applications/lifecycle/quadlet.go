@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
@@ -364,7 +364,7 @@ func (q *Quadlet) getFailedServices(ctx context.Context, services []string) []st
 
 	var failedServices []string
 	for _, u := range units {
-		if u.ActiveState == string(v1alpha1.SystemdActiveStateFailed) {
+		if u.ActiveState == string(v1beta1.SystemdActiveStateFailed) {
 			failedServices = append(failedServices, u.Unit)
 		}
 	}

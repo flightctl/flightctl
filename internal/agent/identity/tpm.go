@@ -12,7 +12,7 @@ import (
 	"time"
 
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	agent_config "github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -125,15 +125,15 @@ func (t *tpmProvider) GenerateCSR(deviceName string) ([]byte, error) {
 }
 
 // isTPMVerificationNeeded checks if TPM verification is necessary for the enrollment request
-func (t *tpmProvider) isTPMVerificationNeeded(enrollmentRequest *v1alpha1.EnrollmentRequest) bool {
+func (t *tpmProvider) isTPMVerificationNeeded(enrollmentRequest *v1beta1.EnrollmentRequest) bool {
 	if enrollmentRequest.Status != nil {
-		if condition := v1alpha1.FindStatusCondition(enrollmentRequest.Status.Conditions, v1alpha1.ConditionTypeEnrollmentRequestTPMVerified); condition != nil {
+		if condition := v1beta1.FindStatusCondition(enrollmentRequest.Status.Conditions, v1beta1.ConditionTypeEnrollmentRequestTPMVerified); condition != nil {
 			// if verification of the request failed, do not perform any additional verification
-			if condition.Reason == v1alpha1.TPMVerificationFailedReason {
+			if condition.Reason == v1beta1.TPMVerificationFailedReason {
 				t.log.Debug("TPM verification failed, identity proof not allowed")
 				return false
 			}
-			if condition.Status == v1alpha1.ConditionStatusTrue {
+			if condition.Status == v1beta1.ConditionStatusTrue {
 				t.log.Debug("TPM already verified, skipping identity proof")
 				return false
 			}
@@ -213,7 +213,7 @@ func (t *tpmProvider) processChallenge(ctx context.Context, stream grpc_v1.Enrol
 	}
 }
 
-func (t *tpmProvider) ProveIdentity(ctx context.Context, enrollmentRequest *v1alpha1.EnrollmentRequest) error {
+func (t *tpmProvider) ProveIdentity(ctx context.Context, enrollmentRequest *v1beta1.EnrollmentRequest) error {
 	if !t.isTPMVerificationNeeded(enrollmentRequest) {
 		return nil
 	}

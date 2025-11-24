@@ -17,7 +17,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/google/renameio"
 	"github.com/samber/lo"
 )
@@ -429,7 +429,7 @@ func (w *writer) preserveSymlinkWithinRoot(srcPath, dstPath string, opts *copyDi
 	return w.preserveSymlink(srcPath, dstPath)
 }
 
-func (w *writer) CreateManagedFile(file v1alpha1.FileSpec) (ManagedFile, error) {
+func (w *writer) CreateManagedFile(file v1beta1.FileSpec) (ManagedFile, error) {
 	return newManagedFile(file, w)
 }
 
@@ -502,7 +502,7 @@ func writeFileAtomically(fpath string, b []byte, dirMode, fileMode os.FileMode, 
 }
 
 // This is essentially ResolveNodeUidAndGid() from Ignition; XXX should dedupe
-func getFileOwnership(file v1alpha1.FileSpec) (int, int, error) {
+func getFileOwnership(file v1beta1.FileSpec) (int, int, error) {
 	uid, gid := 0, 0 // default to root
 	var err error
 	user := lo.FromPtr(file.User)
@@ -583,7 +583,7 @@ func lookupGID(group string) (int, error) {
 
 // DecodeContents decodes the content based on the encoding type and returns the
 // decoded content as a byte slice.
-func DecodeContent(content string, encoding *v1alpha1.EncodingType) ([]byte,
+func DecodeContent(content string, encoding *v1beta1.EncodingType) ([]byte,
 	error) {
 	if encoding == nil || *encoding == "plain" {
 		return []byte(content), nil

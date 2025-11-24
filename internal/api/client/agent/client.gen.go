@@ -13,8 +13,8 @@ import (
 	"net/url"
 	"strings"
 
-	. "github.com/flightctl/flightctl/api/v1alpha1"
-	externalRef0 "github.com/flightctl/flightctl/api/v1alpha1"
+	. "github.com/flightctl/flightctl/api/v1beta1"
+	externalRef0 "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/oapi-codegen/runtime"
 )
 

@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/identity"
 	"github.com/flightctl/flightctl/pkg/aap"

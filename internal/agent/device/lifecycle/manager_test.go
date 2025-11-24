@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
@@ -61,9 +61,9 @@ func TestLifecycleManager_verifyEnrollment(t *testing.T) {
 		{
 			name: "identity proof required and succeeds",
 			setupMocks: func(mockEnrollment *client.MockEnrollment, mockIdentity *identity.MockProvider, mockReadWriter *fileio.MockReadWriter) {
-				enrollmentRequest := &v1alpha1.EnrollmentRequest{
-					Status: &v1alpha1.EnrollmentRequestStatus{
-						Conditions: []v1alpha1.Condition{
+				enrollmentRequest := &v1beta1.EnrollmentRequest{
+					Status: &v1beta1.EnrollmentRequestStatus{
+						Conditions: []v1beta1.Condition{
 							// No "Approved" condition, so identity proof is required
 						},
 					},
@@ -77,9 +77,9 @@ func TestLifecycleManager_verifyEnrollment(t *testing.T) {
 		{
 			name: "identity proof fails with ErrIdentityProofFailed",
 			setupMocks: func(mockEnrollment *client.MockEnrollment, mockIdentity *identity.MockProvider, mockReadWriter *fileio.MockReadWriter) {
-				enrollmentRequest := &v1alpha1.EnrollmentRequest{
-					Status: &v1alpha1.EnrollmentRequestStatus{
-						Conditions: []v1alpha1.Condition{
+				enrollmentRequest := &v1beta1.EnrollmentRequest{
+					Status: &v1beta1.EnrollmentRequestStatus{
+						Conditions: []v1beta1.Condition{
 							// No "Approved" condition, so identity proof is required
 						},
 					},
@@ -93,9 +93,9 @@ func TestLifecycleManager_verifyEnrollment(t *testing.T) {
 		{
 			name: "identity proof fails with other error",
 			setupMocks: func(mockEnrollment *client.MockEnrollment, mockIdentity *identity.MockProvider, mockReadWriter *fileio.MockReadWriter) {
-				enrollmentRequest := &v1alpha1.EnrollmentRequest{
-					Status: &v1alpha1.EnrollmentRequestStatus{
-						Conditions: []v1alpha1.Condition{
+				enrollmentRequest := &v1beta1.EnrollmentRequest{
+					Status: &v1beta1.EnrollmentRequestStatus{
+						Conditions: []v1beta1.Condition{
 							// No "Approved" condition, so identity proof is required
 						},
 					},
@@ -109,9 +109,9 @@ func TestLifecycleManager_verifyEnrollment(t *testing.T) {
 		{
 			name: "enrollment denied",
 			setupMocks: func(mockEnrollment *client.MockEnrollment, mockIdentity *identity.MockProvider, mockReadWriter *fileio.MockReadWriter) {
-				enrollmentRequest := &v1alpha1.EnrollmentRequest{
-					Status: &v1alpha1.EnrollmentRequestStatus{
-						Conditions: []v1alpha1.Condition{
+				enrollmentRequest := &v1beta1.EnrollmentRequest{
+					Status: &v1beta1.EnrollmentRequestStatus{
+						Conditions: []v1beta1.Condition{
 							{
 								Type:    "Denied",
 								Reason:  "PolicyViolation",
@@ -128,9 +128,9 @@ func TestLifecycleManager_verifyEnrollment(t *testing.T) {
 		{
 			name: "enrollment failed",
 			setupMocks: func(mockEnrollment *client.MockEnrollment, mockIdentity *identity.MockProvider, mockReadWriter *fileio.MockReadWriter) {
-				enrollmentRequest := &v1alpha1.EnrollmentRequest{
-					Status: &v1alpha1.EnrollmentRequestStatus{
-						Conditions: []v1alpha1.Condition{
+				enrollmentRequest := &v1beta1.EnrollmentRequest{
+					Status: &v1beta1.EnrollmentRequestStatus{
+						Conditions: []v1beta1.Condition{
 							{
 								Type:    "Failed",
 								Reason:  "ProcessingError",
@@ -148,9 +148,9 @@ func TestLifecycleManager_verifyEnrollment(t *testing.T) {
 			name: "enrollment approved with certificate",
 			setupMocks: func(mockEnrollment *client.MockEnrollment, mockIdentity *identity.MockProvider, mockReadWriter *fileio.MockReadWriter) {
 				certificate := generateTestCertificate(t)
-				enrollmentRequest := &v1alpha1.EnrollmentRequest{
-					Status: &v1alpha1.EnrollmentRequestStatus{
-						Conditions: []v1alpha1.Condition{
+				enrollmentRequest := &v1beta1.EnrollmentRequest{
+					Status: &v1beta1.EnrollmentRequestStatus{
+						Conditions: []v1beta1.Condition{
 							{
 								Type: "Approved",
 							},
@@ -172,9 +172,9 @@ func TestLifecycleManager_verifyEnrollment(t *testing.T) {
 		{
 			name: "enrollment approved but no certificate yet",
 			setupMocks: func(mockEnrollment *client.MockEnrollment, mockIdentity *identity.MockProvider, mockReadWriter *fileio.MockReadWriter) {
-				enrollmentRequest := &v1alpha1.EnrollmentRequest{
-					Status: &v1alpha1.EnrollmentRequestStatus{
-						Conditions: []v1alpha1.Condition{
+				enrollmentRequest := &v1beta1.EnrollmentRequest{
+					Status: &v1beta1.EnrollmentRequestStatus{
+						Conditions: []v1beta1.Condition{
 							{
 								Type: "Approved",
 							},

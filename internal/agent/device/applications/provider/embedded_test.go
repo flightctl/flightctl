@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -162,7 +162,7 @@ Network=app-net.network
 			setupEmbeddedQuadletApp(t, rw, tt.appName, tt.files)
 
 			// Create embedded provider
-			provider, err := newEmbedded(logger, podman, rw, tt.appName, v1alpha1.AppTypeQuadlet)
+			provider, err := newEmbedded(logger, podman, rw, tt.appName, v1beta1.AppTypeQuadlet)
 			require.NoError(t, err)
 
 			// Call Install
@@ -217,7 +217,7 @@ func TestEmbeddedProvider_Remove(t *testing.T) {
 			setupRealQuadletApp(t, rw, tt.appName, tt.files)
 
 			// Create embedded provider
-			provider, err := newEmbedded(logger, podman, rw, tt.appName, v1alpha1.AppTypeQuadlet)
+			provider, err := newEmbedded(logger, podman, rw, tt.appName, v1beta1.AppTypeQuadlet)
 			require.NoError(t, err)
 
 			// Call Remove
@@ -343,7 +343,7 @@ func TestParseEmbeddedQuadlet(t *testing.T) {
 			providerNames := make(map[string]bool)
 			for _, p := range providers {
 				providerNames[p.Name()] = true
-				require.Equal(t, v1alpha1.AppTypeQuadlet, p.Spec().AppType, "expected AppTypeQuadlet")
+				require.Equal(t, v1beta1.AppTypeQuadlet, p.Spec().AppType, "expected AppTypeQuadlet")
 			}
 
 			for _, expectedName := range tt.expectedNames {
