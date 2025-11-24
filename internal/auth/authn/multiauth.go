@@ -69,6 +69,14 @@ type MultiAuth struct {
 	dynamicProvidersMu sync.RWMutex
 }
 
+// AuthProviderWithLifecycle is an optional interface that providers can implement
+// if they need lifecycle management (e.g., starting background caches)
+type AuthProviderWithLifecycle interface {
+	common.AuthNMiddleware
+	Start(ctx context.Context)
+	Stop()
+}
+
 // NewMultiAuth creates a new MultiAuth instance
 func NewMultiAuth(authProviderService AuthProviderService, tlsConfig *tls.Config, log logrus.FieldLogger) *MultiAuth {
 	m := &MultiAuth{
@@ -138,6 +146,15 @@ func (m *MultiAuth) GetLogger() logrus.FieldLogger {
 
 // Start starts the background loader goroutine and blocks until context is cancelled
 func (m *MultiAuth) Start(ctx context.Context) {
+	for _, provider := range m.staticProviders {
+		if lifecycleProvider, ok := provider.(AuthProviderWithLifecycle); ok {
+			lifecycleProvider.Start(ctx)
+		}
+	}
+
+	// Dynamic providers (loaded from DB) get their own cancellable contexts in LoadAllAuthProviders
+	// so they can be independently reloaded/removed without affecting others
+
 	m.periodicLoader(ctx)
 }
 
@@ -211,12 +228,23 @@ func (m *MultiAuth) LoadAllAuthProviders(ctx context.Context) error {
 			}
 
 			if changed {
-				// Provider changed - reconstruct middleware
-				_, authMiddleware, err := m.createAuthMiddlewareFromProvider(provider)
+				// Provider changed - stop old provider first
+				if lifecycleProvider, ok := existingMiddleware.(AuthProviderWithLifecycle); ok {
+					lifecycleProvider.Stop()
+				}
+
+				// Reconstruct middleware
+				_, authMiddleware, err := m.createAuthMiddlewareFromProvider(ctx, provider)
 				if err != nil {
 					m.log.Warnf("Failed to update auth provider %s: %v", lo.FromPtr(provider.Metadata.Name), err)
 					continue
 				}
+
+				// Start the provider if it implements lifecycle management
+				if lifecycleProvider, ok := authMiddleware.(AuthProviderWithLifecycle); ok {
+					lifecycleProvider.Start(ctx)
+				}
+
 				m.dynamicProviders[providerKey] = authMiddleware
 				m.log.Infof("Updated auth provider: %s", lo.FromPtr(provider.Metadata.Name))
 				updatedCount++
@@ -226,11 +254,17 @@ func (m *MultiAuth) LoadAllAuthProviders(ctx context.Context) error {
 			}
 		} else {
 			// New provider - create and add
-			_, authMiddleware, err := m.createAuthMiddlewareFromProvider(provider)
+			_, authMiddleware, err := m.createAuthMiddlewareFromProvider(ctx, provider)
 			if err != nil {
 				m.log.Warnf("Failed to create auth provider %s: %v", lo.FromPtr(provider.Metadata.Name), err)
 				continue
 			}
+
+			// Start the provider if it implements lifecycle management
+			if lifecycleProvider, ok := authMiddleware.(AuthProviderWithLifecycle); ok {
+				lifecycleProvider.Start(ctx)
+			}
+
 			m.dynamicProviders[providerKey] = authMiddleware
 			m.log.Infof("Added new auth provider: %s", lo.FromPtr(provider.Metadata.Name))
 			addedCount++
@@ -239,8 +273,12 @@ func (m *MultiAuth) LoadAllAuthProviders(ctx context.Context) error {
 
 	// Remove providers that are no longer in DB
 	removedCount := 0
-	for providerKey := range m.dynamicProviders {
+	for providerKey, provider := range m.dynamicProviders {
 		if !processedKeys[providerKey] {
+			// Stop the provider to clean up its resources
+			if lifecycleProvider, ok := provider.(AuthProviderWithLifecycle); ok {
+				lifecycleProvider.Stop()
+			}
 			delete(m.dynamicProviders, providerKey)
 			m.log.Infof("Removed auth provider: issuer=%s, clientId=%s", providerKey.Issuer, providerKey.ClientId)
 			removedCount++
@@ -453,7 +491,7 @@ func equalStringSlices(a *[]string, b *[]string) bool {
 }
 
 // createAuthMiddlewareFromProvider creates an auth middleware from a provider and returns the cache key
-func (m *MultiAuth) createAuthMiddlewareFromProvider(provider *api.AuthProvider) (AuthProviderCacheKey, common.AuthNMiddleware, error) {
+func (m *MultiAuth) createAuthMiddlewareFromProvider(ctx context.Context, provider *api.AuthProvider) (AuthProviderCacheKey, common.AuthNMiddleware, error) {
 	// Determine provider type
 	discriminator, err := provider.Spec.Discriminator()
 	if err != nil {
@@ -461,7 +499,7 @@ func (m *MultiAuth) createAuthMiddlewareFromProvider(provider *api.AuthProvider)
 	}
 
 	// Create the auth middleware
-	method, err := createAuthFromProvider(provider, m.tlsConfig, m.log)
+	method, err := createAuthFromProvider(ctx, provider, m.tlsConfig, m.log)
 	if err != nil {
 		return AuthProviderCacheKey{}, nil, fmt.Errorf("failed to create auth provider: %w", err)
 	}
@@ -513,16 +551,37 @@ func (m *MultiAuth) ValidateToken(ctx context.Context, token string) error {
 		return err
 	}
 
-	// Add parsed token to context if it exists
-	if parsedToken != nil {
-		ctx = context.WithValue(ctx, ParsedTokenCtxKey, parsedToken)
-	}
+	m.log.Debugf("MultiAuth: Attempting token validation with %d possible provider(s)", len(providers))
 
 	// Try each provider until one validates successfully
-	for _, provider := range providers {
-		if err := provider.ValidateToken(ctx, token); err == nil {
+	// Create a fresh context for each provider to avoid context cancellation propagation
+	for i, provider := range providers {
+		// Check if parent context is already done
+		if ctx.Err() != nil {
+			m.log.Warnf("MultiAuth: Parent context already canceled before trying provider %d: %v", i+1, ctx.Err())
+			return fmt.Errorf("parent context: %w", ctx.Err())
+		}
+
+		m.log.Debugf("MultiAuth: Trying provider %d/%d for token validation", i+1, len(providers))
+
+		// Create a fresh context with timeout for this provider attempt
+		// This prevents a failed/slow provider from affecting subsequent providers
+		// Use 10 second timeout per provider to fail fast when token format doesn't match
+		providerCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+
+		// Add parsed token to the new context if it exists
+		if parsedToken != nil {
+			providerCtx = context.WithValue(providerCtx, ParsedTokenCtxKey, parsedToken)
+		}
+
+		err := provider.ValidateToken(providerCtx, token)
+		cancel() // Always cancel to release resources
+
+		if err == nil {
+			m.log.Debugf("MultiAuth: Provider %d/%d validated token successfully", i+1, len(providers))
 			return nil
 		}
+		m.log.Debugf("MultiAuth: Provider %d/%d failed to validate token: %v", i+1, len(providers), err)
 	}
 
 	return fmt.Errorf("token validation failed against all providers")
@@ -536,16 +595,36 @@ func (m *MultiAuth) GetIdentity(ctx context.Context, token string) (common.Ident
 		return nil, err
 	}
 
-	// Add parsed token to context if it exists
-	if parsedToken != nil {
-		ctx = context.WithValue(ctx, ParsedTokenCtxKey, parsedToken)
-	}
+	m.log.Debugf("MultiAuth: Attempting to get identity with %d possible provider(s)", len(providers))
+
+	// Note: We don't check parent context cancellation here because:
+	// 1. The token was already validated successfully (this is called after ValidateToken)
+	// 2. We need to get identity even if the request took longer than expected
+	// 3. Each provider gets a fresh context with its own timeout anyway
 
 	// Try each provider until one returns identity successfully
-	for _, provider := range providers {
-		if identity, err := provider.GetIdentity(ctx, token); err == nil {
+	// Create a fresh context for each provider to avoid context cancellation propagation
+	for i, provider := range providers {
+		m.log.Debugf("MultiAuth: Trying provider %d/%d to get identity", i+1, len(providers))
+
+		// Create a fresh context with timeout for this provider attempt
+		// This prevents a failed/slow provider from affecting subsequent providers
+		// Use 10 second timeout per provider to fail fast when token format doesn't match
+		providerCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+
+		// Add parsed token to the new context if it exists
+		if parsedToken != nil {
+			providerCtx = context.WithValue(providerCtx, ParsedTokenCtxKey, parsedToken)
+		}
+
+		identity, err := provider.GetIdentity(providerCtx, token)
+		cancel() // Always cancel to release resources
+
+		if err == nil {
+			m.log.Debugf("MultiAuth: Provider %d/%d returned identity successfully", i+1, len(providers))
 			return identity, nil
 		}
+		m.log.Debugf("MultiAuth: Provider %d/%d failed to get identity: %v", i+1, len(providers), err)
 	}
 
 	return nil, fmt.Errorf("no identity found for token")
@@ -791,7 +870,7 @@ func parseToken(token string) (jwt.Token, error) {
 }
 
 // createAuthFromProvider creates an appropriate auth instance from a database provider
-func createAuthFromProvider(provider *api.AuthProvider, tlsConfig *tls.Config, log logrus.FieldLogger) (common.AuthNMiddleware, error) {
+func createAuthFromProvider(ctx context.Context, provider *api.AuthProvider, tlsConfig *tls.Config, log logrus.FieldLogger) (common.AuthNMiddleware, error) {
 	// Get the discriminator to determine the provider type
 	discriminator, err := provider.Spec.Discriminator()
 	if err != nil {
@@ -800,23 +879,23 @@ func createAuthFromProvider(provider *api.AuthProvider, tlsConfig *tls.Config, l
 
 	switch discriminator {
 	case string(api.Oidc):
-		return createOIDCAuthFromProvider(provider, tlsConfig)
+		return createOIDCAuthFromProvider(provider, tlsConfig, log)
 	case string(api.Oauth2):
-		return createOAuth2AuthFromProvider(provider, tlsConfig, log)
+		return createOAuth2AuthFromProvider(ctx, provider, tlsConfig, log)
 	default:
 		return nil, fmt.Errorf("unsupported provider type: %s", discriminator)
 	}
 }
 
 // createOIDCAuthFromProvider creates an OIDCAuth instance from an OIDC provider
-func createOIDCAuthFromProvider(provider *api.AuthProvider, tlsConfig *tls.Config) (common.AuthNMiddleware, error) {
+func createOIDCAuthFromProvider(provider *api.AuthProvider, tlsConfig *tls.Config, log logrus.FieldLogger) (common.AuthNMiddleware, error) {
 	oidcSpec, err := provider.Spec.AsOIDCProviderSpec()
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse OIDC provider spec: %w", err)
 	}
 
 	// Create OIDCAuth instance for this specific provider
-	oidcAuth, err := NewOIDCAuth(provider.Metadata, oidcSpec, tlsConfig)
+	oidcAuth, err := NewOIDCAuth(provider.Metadata, oidcSpec, tlsConfig, log)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OIDC auth for provider %s: %w",
 			lo.FromPtr(provider.Metadata.Name), err)
@@ -826,7 +905,7 @@ func createOIDCAuthFromProvider(provider *api.AuthProvider, tlsConfig *tls.Confi
 }
 
 // createOAuth2AuthFromProvider creates an OAuth2Auth instance from an OAuth2 provider
-func createOAuth2AuthFromProvider(provider *api.AuthProvider, tlsConfig *tls.Config, log logrus.FieldLogger) (common.AuthNMiddleware, error) {
+func createOAuth2AuthFromProvider(ctx context.Context, provider *api.AuthProvider, tlsConfig *tls.Config, log logrus.FieldLogger) (common.AuthNMiddleware, error) {
 	oauth2Spec, err := provider.Spec.AsOAuth2ProviderSpec()
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse OAuth2 provider spec: %w", err)
@@ -838,6 +917,9 @@ func createOAuth2AuthFromProvider(provider *api.AuthProvider, tlsConfig *tls.Con
 		return nil, fmt.Errorf("failed to create OAuth2 auth for provider %s: %w",
 			lo.FromPtr(provider.Metadata.Name), err)
 	}
+
+	// Note: Start() will be called by the caller (LoadAllAuthProviders) if the provider implements AuthProviderWithLifecycle
+	// This allows dynamic providers to have their lifecycle managed properly with cancellable contexts
 
 	return oauth2Auth, nil
 }

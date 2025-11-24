@@ -15,6 +15,7 @@ import (
 	identitypkg "github.com/flightctl/flightctl/internal/identity"
 	"github.com/lestrrat-go/jwx/v2/jwk"
 	"github.com/lestrrat-go/jwx/v2/jwt"
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -51,6 +52,7 @@ type OIDCAuth struct {
 	roleExtractor         *RoleExtractor
 	jwksCache             *jwk.Cache
 	organizationExtractor *OrganizationExtractor
+	log                   logrus.FieldLogger
 
 	// Lazy OIDC discovery initialization
 	// We need to fetch the discovery document once to get the JWKS URL,
@@ -64,7 +66,7 @@ type OIDCServerResponse struct {
 	JwksUri       string `json:"jwks_uri"`
 }
 
-func NewOIDCAuth(metadata api.ObjectMeta, spec api.OIDCProviderSpec, clientTlsConfig *tls.Config) (*OIDCAuth, error) {
+func NewOIDCAuth(metadata api.ObjectMeta, spec api.OIDCProviderSpec, clientTlsConfig *tls.Config, log logrus.FieldLogger) (*OIDCAuth, error) {
 	// Convert organization assignment to org config
 	orgConfig := convertOrganizationAssignmentToOrgConfig(spec.OrganizationAssignment)
 
@@ -83,6 +85,7 @@ func NewOIDCAuth(metadata api.ObjectMeta, spec api.OIDCProviderSpec, clientTlsCo
 		},
 		orgConfig:     orgConfig,
 		roleExtractor: roleExtractor,
+		log:           log,
 	}
 
 	// Create stateless organization extractor
@@ -154,41 +157,76 @@ func (o *OIDCAuth) ValidateToken(ctx context.Context, token string) error {
 }
 
 func (o *OIDCAuth) parseAndCreateIdentity(ctx context.Context, token string) (*JWTIdentity, error) {
-	// Ensure OIDC discovery has been performed (lazy initialization)
+	startTime := time.Now()
+	o.log.Debugf("OIDC: Starting token validation")
+
+	// Step 1: Quick parse WITHOUT signature verification to fast-fail on non-JWT tokens
+	// This avoids expensive OIDC discovery and JWKS fetching for non-JWT tokens
+	parseStart := time.Now()
+	_, err := jwt.Parse([]byte(token), jwt.WithValidate(false), jwt.WithVerify(false))
+	if err != nil {
+		o.log.Debugf("OIDC: Token is not JWT format (took %v): %v", time.Since(parseStart), err)
+		return nil, fmt.Errorf("failed to parse JWT token: %w", err)
+	}
+	o.log.Debugf("OIDC: Token structure validated (took %v)", time.Since(parseStart))
+
+	// Step 2: Ensure OIDC discovery has been performed (lazy initialization)
+	discoveryStart := time.Now()
 	if err := o.ensureDiscovery(ctx); err != nil {
+		o.log.Errorf("OIDC: Discovery failed after %v: %v", time.Since(discoveryStart), err)
 		return nil, fmt.Errorf("OIDC discovery failed: %w", err)
 	}
+	o.log.Debugf("OIDC: Discovery completed (took %v)", time.Since(discoveryStart))
 
-	var jwkSet jwk.Set
-	var err error
-
-	// Get JWK set from cache
-	jwkSet, err = o.jwksCache.Get(ctx, o.jwksUri)
+	// Step 3: Get JWK set from cache
+	jwksGetStart := time.Now()
+	jwkSet, err := o.jwksCache.Get(ctx, o.jwksUri)
 	if err != nil {
+		o.log.Errorf("OIDC: Failed to get JWKS from cache after %v: %v", time.Since(jwksGetStart), err)
 		return nil, fmt.Errorf("failed to get JWK set from cache: %w", err)
 	}
+	o.log.Debugf("OIDC: JWKS retrieved from cache (took %v)", time.Since(jwksGetStart))
 
+	// Step 4: Parse and validate token WITH signature verification using JWKS
+	// This is the second parse, but now we know it's a valid JWT structure
+	validateStart := time.Now()
 	parsedToken, err := jwt.Parse([]byte(token), jwt.WithKeySet(jwkSet), jwt.WithValidate(true))
+	validateDuration := time.Since(validateStart)
+
 	if err != nil {
+		o.log.Debugf("OIDC: JWT signature validation failed after %v: %v", validateDuration, err)
 		// If token validation fails, it might be due to key rotation
-		// Try to refresh the cache and retry once (only if cache is available)
+		// Try to refresh the cache and retry once
 		if o.jwksCache != nil {
+			refreshStart := time.Now()
 			if _, refreshErr := o.jwksCache.Refresh(ctx, o.jwksUri); refreshErr == nil {
+				o.log.Debugf("OIDC: JWKS cache refreshed (took %v)", time.Since(refreshStart))
 				// Retry with refreshed keys
 				jwkSet, retryErr := o.jwksCache.Get(ctx, o.jwksUri)
 				if retryErr == nil {
+					retryValidateStart := time.Now()
 					parsedToken, retryErr = jwt.Parse([]byte(token), jwt.WithKeySet(jwkSet), jwt.WithValidate(true))
 					if retryErr == nil {
+						o.log.Debugf("OIDC: JWT signature validation succeeded on retry (took %v)", time.Since(retryValidateStart))
 						err = nil // Clear the original error
+					} else {
+						o.log.Debugf("OIDC: JWT signature validation failed on retry after %v: %v", time.Since(retryValidateStart), retryErr)
 					}
 				}
+			} else {
+				o.log.Debugf("OIDC: JWKS cache refresh failed after %v: %v", time.Since(refreshStart), refreshErr)
 			}
 		}
 
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse JWT token: %w", err)
+			o.log.Errorf("OIDC: Token validation failed (total time: %v)", time.Since(startTime))
+			return nil, fmt.Errorf("failed to validate JWT token: %w", err)
 		}
+	} else {
+		o.log.Debugf("OIDC: JWT signature validation succeeded (took %v)", validateDuration)
 	}
+
+	o.log.Debugf("OIDC: Token fully validated (total time: %v)", time.Since(startTime))
 
 	// Validate audience claim contains expected client ID
 	if o.spec.ClientId != "" {
