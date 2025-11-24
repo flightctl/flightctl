@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os/exec"
+	"runtime"
 	"strings"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/poll"
 	"github.com/flightctl/flightctl/pkg/reqid"
+	"github.com/flightctl/flightctl/pkg/version"
 	"github.com/go-chi/chi/v5/middleware"
 )
 
@@ -42,6 +44,11 @@ func NewFromConfig(config *baseclient.Config, log *log.PrefixLogger, opts ...HTT
 
 	ref := client.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
 		req.Header.Set(middleware.RequestIDHeader, reqid.NextRequestID())
+		for key, values := range options.httpHeaders {
+			for _, value := range values {
+				req.Header.Add(key, value)
+			}
+		}
 		return nil
 	})
 	return client.NewClientWithResponses(config.Service.Server, client.WithHTTPClient(httpClient), ref)
@@ -210,11 +217,32 @@ type HTTPClientOption func(*httpClientOptions)
 
 type httpClientOptions struct {
 	retryConfig *poll.Config
+	httpHeaders http.Header
 }
 
 // WithHTTPRetry configures custom retry settings for the HTTP client
 func WithHTTPRetry(config poll.Config) HTTPClientOption {
 	return func(opts *httpClientOptions) {
 		opts.retryConfig = &config
+	}
+}
+
+// WithUserAgent returns an HTTPClientOption that sets the User-Agent header
+// for outgoing requests using the flightctl-agent version and runtime information.
+func WithUserAgent() HTTPClientOption {
+	return func(opts *httpClientOptions) {
+		info := version.Get()
+		userAgent := fmt.Sprintf("flightctl-agent/%s (%s/%s)", info.String(), runtime.GOOS, runtime.GOARCH)
+		WithHeader("User-Agent", userAgent)(opts)
+	}
+}
+
+// WithHeader returns an HTTPClientOption that sets the given HTTP header for outgoing requests.
+func WithHeader(key, value string) HTTPClientOption {
+	return func(opts *httpClientOptions) {
+		if opts.httpHeaders == nil {
+			opts.httpHeaders = http.Header{}
+		}
+		opts.httpHeaders.Add(key, value)
 	}
 }
