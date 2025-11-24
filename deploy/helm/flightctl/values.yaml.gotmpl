@@ -11,11 +11,8 @@ global:
   internalNamespace: ""
   # -- Base domain to construct the FQDN for the service endpoints.
   baseDomain: ""
-  baseDomainTls:
-    # -- Certificate for the base domain wildcard certificate, it should be valid for *.${baseDomain}. This certificate is only used for non mTLS endpoints, mTLS endpoints like agent-api, etc will use different certificates.
-    cert: ""
-    # -- Key for the base domain wildcard certificate.
-    key: ""
+  # -- Secret containing TLS ca/cert/key. It should be valid for *.${baseDomain}. This certificate is only used for non-mTLS endpoints, mTLS endpoints like agent-api, etc will use different certificates.
+  baseDomainTlsSecretName: ""
   # -- Storage class name for the PVCs. Keep empty to use the default storage class.
   storageClassName: ""
   # -- Name of the secret that holds image pull secret for accessing private container registries
