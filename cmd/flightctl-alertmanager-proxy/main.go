@@ -254,7 +254,9 @@ func main() {
 	// Start auth provider loader if MultiAuth is configured (not NilAuth)
 	if multiAuth, ok := authN.(*authn.MultiAuth); ok {
 		go func() {
-			multiAuth.Start(ctx)
+			if err := multiAuth.Start(ctx); err != nil {
+				logger.Errorf("Failed to start auth provider loader: %v", err)
+			}
 			cancel() // Trigger coordinated shutdown if auth loader exits
 		}()
 	}

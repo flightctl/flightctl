@@ -3,7 +3,7 @@ package login
 import (
 	"fmt"
 	"net/http"
-	"net/url"
+	"strings"
 
 	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/openshift/osincli"
@@ -14,9 +14,11 @@ type AAPOAuth struct {
 	Spec               api.AapProviderSpec
 	CAFile             string
 	InsecureSkipVerify bool
-	ClientId           string
 	ApiServerURL       string
 	CallbackPort       int
+	Username           string
+	Password           string
+	Web                bool
 }
 
 type AAPRoundTripper struct {
@@ -36,15 +38,17 @@ func (c *AAPRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	return resp, nil
 }
 
-func NewAAPOAuth2Config(metadata api.ObjectMeta, spec api.AapProviderSpec, clientId, caFile string, insecure bool, apiServerURL string, callbackPort int) *AAPOAuth {
+func NewAAPOAuth2Config(metadata api.ObjectMeta, spec api.AapProviderSpec, caFile string, insecure bool, apiServerURL string, callbackPort int, username, password string, web bool) *AAPOAuth {
 	return &AAPOAuth{
 		Metadata:           metadata,
 		Spec:               spec,
-		ClientId:           clientId,
 		CAFile:             caFile,
 		InsecureSkipVerify: insecure,
-		ApiServerURL:       apiServerURL,
 		CallbackPort:       callbackPort,
+		ApiServerURL:       apiServerURL,
+		Username:           username,
+		Password:           password,
+		Web:                web,
 	}
 }
 
@@ -53,11 +57,6 @@ func (o *AAPOAuth) SetInsecureSkipVerify(insecureSkipVerify bool) {
 }
 
 func (o *AAPOAuth) getOAuth2Client(callback string) (*osincli.Client, error) {
-	authUrl := o.Spec.ApiUrl
-	if o.Spec.ExternalApiUrl != nil {
-		authUrl = *o.Spec.ExternalApiUrl
-	}
-
 	codeVerifier, codeChallenge, err := generatePKCEVerifier()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate PKCE parameters: %w", err)
@@ -67,15 +66,17 @@ func (o *AAPOAuth) getOAuth2Client(callback string) (*osincli.Client, error) {
 	if o.Metadata.Name == nil {
 		return nil, fmt.Errorf("provider name is required")
 	}
+	tokenProxyURL := getTokenProxyURL(o.ApiServerURL, *o.Metadata.Name)
 
 	config := &osincli.ClientConfig{
-		ClientId:                 o.ClientId,
-		AuthorizeUrl:             fmt.Sprintf("%s/o/authorize/", authUrl),
-		TokenUrl:                 fmt.Sprintf("%s/o/token/", authUrl),
+		ClientId:                 o.Spec.ClientId,
+		ClientSecret:             "fake-secret",
+		AuthorizeUrl:             o.Spec.AuthorizationUrl,
+		TokenUrl:                 tokenProxyURL,
 		ErrorsInStatusCode:       true,
 		SendClientSecretInParams: true, // this makes sure we send the client id , the secret is not filled
 		RedirectUrl:              callback,
-		Scope:                    "read",
+		Scope:                    strings.Join(o.Spec.Scopes, " "),
 		CodeVerifier:             codeVerifier,
 		CodeChallenge:            codeChallenge,
 		CodeChallengeMethod:      "S256",
@@ -106,11 +107,25 @@ func (o *AAPOAuth) Auth() (AuthInfo, error) {
 		return AuthInfo{}, err
 	}
 	authInfo.TokenToUse = TokenToUseAccessToken
+	// AAP returns expires_in in nanoseconds, convert to seconds
+	if authInfo.ExpiresIn != nil {
+		expiresInSeconds := *authInfo.ExpiresIn / 1_000_000_000
+		authInfo.ExpiresIn = &expiresInSeconds
+	}
 	return authInfo, nil
 }
 
 func (o *AAPOAuth) Renew(refreshToken string) (AuthInfo, error) {
-	return oauth2RefreshTokenFlow(refreshToken, o.getOAuth2Client)
+	authInfo, err := oauth2RefreshTokenFlow(refreshToken, o.getOAuth2Client)
+	if err != nil {
+		return authInfo, err
+	}
+	// AAP returns expires_in in nanoseconds, convert to seconds
+	if authInfo.ExpiresIn != nil {
+		expiresInSeconds := *authInfo.ExpiresIn / 1_000_000_000
+		authInfo.ExpiresIn = &expiresInSeconds
+	}
+	return authInfo, nil
 }
 
 func (o *AAPOAuth) Validate(args ValidateArgs) error {
@@ -118,24 +133,24 @@ func (o *AAPOAuth) Validate(args ValidateArgs) error {
 		return fmt.Errorf("AAP auth: missing Metadata.Name")
 	}
 
-	if o.ClientId == "" {
-		return fmt.Errorf("AAP auth: missing ClientId")
+	if o.Spec.ClientId == "" {
+		return fmt.Errorf("AAP auth: missing Spec.ClientId")
 	}
 
-	if o.Spec.ApiUrl == "" {
-		return fmt.Errorf("AAP auth: missing Spec.ApiUrl")
+	if o.Spec.AuthorizationUrl == "" {
+		return fmt.Errorf("AAP auth: missing Spec.AuthorizationUrl")
 	}
 
-	if _, err := url.Parse(o.Spec.ApiUrl); err != nil {
-		return fmt.Errorf("AAP auth: Spec.ApiUrl is invalid: %w", err)
+	if o.Spec.TokenUrl == "" {
+		return fmt.Errorf("AAP auth: missing Spec.TokenUrl")
 	}
 
-	if o.ApiServerURL == "" {
-		return fmt.Errorf("AAP auth: missing ApiServerURL")
+	if len(o.Spec.Scopes) == 0 {
+		return fmt.Errorf("AAP auth: missing Spec.Scopes")
 	}
 
-	if _, err := url.Parse(o.ApiServerURL); err != nil {
-		return fmt.Errorf("AAP auth: ApiServerURL is invalid: %w", err)
+	if !o.Web && (o.Username == "" || o.Password == "") {
+		return fmt.Errorf("username and password are required for password flow (use --web flag for web-based authentication)")
 	}
 
 	return nil

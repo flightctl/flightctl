@@ -226,11 +226,8 @@ func ExtractAuthURL(provider *v1beta1.AuthProvider) string {
 		if oidcSpec, err := provider.Spec.AsOIDCProviderSpec(); err == nil {
 			return oidcSpec.Issuer
 		}
-	case "aap":
+	case string(v1beta1.Aap):
 		if aapSpec, err := provider.Spec.AsAapProviderSpec(); err == nil {
-			if aapSpec.ExternalApiUrl != nil {
-				return *aapSpec.ExternalApiUrl
-			}
 			return aapSpec.ApiUrl
 		}
 	case string(v1beta1.Oauth2):

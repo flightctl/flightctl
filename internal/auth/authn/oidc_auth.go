@@ -2,7 +2,9 @@ package authn
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,6 +15,7 @@ import (
 	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	identitypkg "github.com/flightctl/flightctl/internal/identity"
+	"github.com/jellydator/ttlcache/v3"
 	"github.com/lestrrat-go/jwx/v2/jwk"
 	"github.com/lestrrat-go/jwx/v2/jwt"
 	"github.com/sirupsen/logrus"
@@ -53,12 +56,19 @@ type OIDCAuth struct {
 	jwksCache             *jwk.Cache
 	organizationExtractor *OrganizationExtractor
 	log                   logrus.FieldLogger
+	identityCache         *ttlcache.Cache[string, common.Identity]
 
 	// Lazy OIDC discovery initialization
 	// We need to fetch the discovery document once to get the JWKS URL,
 	// then Register() it with the cache. After that, cache.Get() handles everything.
 	discoveryOnce sync.Once
 	discoveryErr  error
+
+	// Lifecycle management
+	cancel   context.CancelFunc
+	mu       sync.Mutex
+	started  bool
+	stopOnce sync.Once
 }
 
 type OIDCServerResponse struct {
@@ -73,6 +83,12 @@ func NewOIDCAuth(metadata api.ObjectMeta, spec api.OIDCProviderSpec, clientTlsCo
 	// Create role extractor from role assignment
 	roleExtractor := NewRoleExtractor(spec.RoleAssignment)
 
+	// Create identity cache with 10-minute TTL
+	// This caches validated identities to avoid repeated JWT validation
+	identityCache := ttlcache.New[string, common.Identity](
+		ttlcache.WithTTL[string, common.Identity](10 * time.Minute),
+	)
+
 	oidcAuth := &OIDCAuth{
 		metadata:        metadata,
 		spec:            spec,
@@ -86,6 +102,7 @@ func NewOIDCAuth(metadata api.ObjectMeta, spec api.OIDCProviderSpec, clientTlsCo
 		orgConfig:     orgConfig,
 		roleExtractor: roleExtractor,
 		log:           log,
+		identityCache: identityCache,
 	}
 
 	// Create stateless organization extractor
@@ -99,6 +116,52 @@ func NewOIDCAuth(metadata api.ObjectMeta, spec api.OIDCProviderSpec, clientTlsCo
 
 func (o *OIDCAuth) IsEnabled() bool {
 	return o.spec.Enabled != nil && *o.spec.Enabled
+}
+
+// Start starts the identity cache background cleanup
+// Creates a child context that can be independently canceled via Stop()
+func (o *OIDCAuth) Start(ctx context.Context) error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	if o.started {
+		return fmt.Errorf("OIDCAuth provider already started")
+	}
+
+	// Create a child context so this provider can be stopped independently
+	providerCtx, cancel := context.WithCancel(ctx)
+	o.cancel = cancel
+
+	// Start cache in a goroutine (cache.Start() blocks waiting for cleanup events)
+	go o.identityCache.Start()
+
+	go func() {
+		<-providerCtx.Done()
+		o.identityCache.Stop()
+		o.log.Debugf("OIDCAuth identity cache stopped")
+	}()
+
+	o.log.Debugf("OIDCAuth identity cache started")
+	o.started = true
+	return nil
+}
+
+// Stop stops the identity cache and cancels the provider's context
+func (o *OIDCAuth) Stop() {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	// Only stop if we were started
+	if !o.started {
+		return
+	}
+
+	o.stopOnce.Do(func() {
+		if o.cancel != nil {
+			o.log.Debugf("Stopping OIDCAuth provider")
+			o.cancel()
+		}
+	})
 }
 
 // ensureDiscovery performs lazy OIDC discovery on first use
@@ -297,10 +360,21 @@ func (o *OIDCAuth) parseAndCreateIdentity(ctx context.Context, token string) (*J
 }
 
 func (o *OIDCAuth) GetIdentity(ctx context.Context, token string) (common.Identity, error) {
+	// Check cache first
+	cacheKey := o.tokenCacheKey(token)
+	if item := o.identityCache.Get(cacheKey); item != nil {
+		o.log.Debugf("OIDC identity retrieved from cache")
+		return item.Value(), nil
+	}
+
 	identity, err := o.parseAndCreateIdentity(ctx, token)
 	if err != nil {
 		return nil, err
 	}
+
+	// Cache the identity
+	o.identityCache.Set(cacheKey, identity, ttlcache.DefaultTTL)
+	o.log.Debugf("OIDC identity cached for user: %s", identity.GetUsername())
 
 	return identity, nil
 }
@@ -338,6 +412,13 @@ func (o *OIDCAuth) GetAuthConfig() *api.AuthConfig {
 
 func (o *OIDCAuth) GetAuthToken(r *http.Request) (string, error) {
 	return common.ExtractBearerToken(r)
+}
+
+// tokenCacheKey creates a SHA256 hash of the token for use as a cache key
+// We hash the token to avoid storing sensitive token data in memory as cache keys
+func (o *OIDCAuth) tokenCacheKey(token string) string {
+	hash := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(hash[:])
 }
 
 // extractClaimByPath extracts a string value from claims using an array path

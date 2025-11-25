@@ -99,10 +99,10 @@ func (p *AuthTokenProxy) ProxyTokenRequest(ctx context.Context, orgId uuid.UUID,
 	}
 
 	// Proxy the request to the provider's token endpoint (client_secret will be injected if configured)
-	proxyResult, err := p.proxyTokenRequest(ctx, providerConfig.TokenEndpoint, clientId, clientSecret, tokenReq)
+	proxyResult, err := p.proxyTokenRequest(ctx, providerConfig, clientId, clientSecret, tokenReq)
 	if err != nil {
 		p.authN.GetLogger().Errorf("Failed to proxy token request: %v", err)
-		return createErrorTokenResponse("server_error", "Failed to proxy token request"), http.StatusBadRequest
+		return createErrorTokenResponse("server_error", fmt.Sprintf("Failed to proxy token request: %v", err)), http.StatusBadRequest
 	}
 
 	// OAuth2 spec: return 200 for success, 400 for all errors
@@ -196,6 +196,23 @@ func (p *AuthTokenProxy) findProviderForToken(ctx context.Context, providerName 
 			TokenEndpoint: tokenEndpoint,
 			ClientId:      clientId,
 		}, clientId, clientSecret, api.StatusOK()
+	case interface{ GetAapSpec() api.AapProviderSpec }:
+		aapSpec := provider.GetAapSpec()
+		clientSecret := ""
+		if aapSpec.ClientSecret != nil {
+			clientSecret = *aapSpec.ClientSecret
+		}
+		// Ensure token URL has trailing slash (AAP requires it)
+		tokenUrl := aapSpec.TokenUrl
+		if !strings.HasSuffix(tokenUrl, "/") {
+			tokenUrl = tokenUrl + "/"
+		}
+		return &ProviderConfig{
+			Issuer:        aapSpec.ApiUrl,
+			TokenEndpoint: tokenUrl,
+			ClientId:      aapSpec.ClientId,
+			UseBasicAuth:  true, // AAP requires Basic Auth for client credentials
+		}, aapSpec.ClientId, clientSecret, api.StatusOK()
 
 	default:
 		return nil, "", "", api.StatusBadRequest("Provider type not supported")
@@ -207,6 +224,7 @@ type ProviderConfig struct {
 	Issuer        string
 	TokenEndpoint string
 	ClientId      string
+	UseBasicAuth  bool // If true, send client_id/client_secret as Basic Auth header instead of form data
 }
 
 // ProxyResult holds the result of proxying a token request, including the upstream HTTP status
@@ -268,15 +286,18 @@ func (p *AuthTokenProxy) discoverTokenEndpoint(issuer string) (string, error) {
 }
 
 // proxyTokenRequest makes an HTTP request to the provider's token endpoint
-func (p *AuthTokenProxy) proxyTokenRequest(ctx context.Context, tokenEndpoint string, clientId string, clientSecret string, tokenReq *api.TokenRequest) (*ProxyResult, error) {
+func (p *AuthTokenProxy) proxyTokenRequest(ctx context.Context, providerConfig *ProviderConfig, clientId string, clientSecret string, tokenReq *api.TokenRequest) (*ProxyResult, error) {
 	// Prepare form data
 	formData := url.Values{}
 	formData.Set("grant_type", string(tokenReq.GrantType))
-	formData.Set("client_id", clientId)
 
-	// Inject client_secret if configured in the provider
-	if clientSecret != "" {
-		formData.Set("client_secret", clientSecret)
+	// For providers using Basic Auth (like AAP), don't include credentials in form data
+	if !providerConfig.UseBasicAuth {
+		formData.Set("client_id", clientId)
+		// Inject client_secret if configured in the provider
+		if clientSecret != "" {
+			formData.Set("client_secret", clientSecret)
+		}
 	}
 
 	if tokenReq.Code != nil {
@@ -298,14 +319,28 @@ func (p *AuthTokenProxy) proxyTokenRequest(ctx context.Context, tokenEndpoint st
 	// Encode the form data
 	encodedBody := formData.Encode()
 
+	// Log request details
+	p.authN.GetLogger().Infof("Token proxy: sending request to %s", providerConfig.TokenEndpoint)
+	p.authN.GetLogger().Infof("Token proxy: UseBasicAuth=%v, grant_type=%s", providerConfig.UseBasicAuth, tokenReq.GrantType)
+	p.authN.GetLogger().Debugf("Token proxy: form data: %s", encodedBody)
+
 	// Create HTTP request
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenEndpoint, bytes.NewBufferString(encodedBody))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, providerConfig.TokenEndpoint, bytes.NewBufferString(encodedBody))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Accept", "application/json")
+
+	// For providers using Basic Auth (like AAP), set the Authorization header
+	if providerConfig.UseBasicAuth {
+		if clientSecret == "" {
+			p.authN.GetLogger().Errorf("Token proxy: provider requires Basic Auth but client_secret is not configured")
+			return nil, fmt.Errorf("provider requires Basic Auth but client_secret is not configured")
+		}
+		req.SetBasicAuth(clientId, clientSecret)
+		p.authN.GetLogger().Debugf("Token proxy: using Basic Auth with client_id=%s", clientId)
+	}
 
 	// Make the request using the shared HTTP client
 	resp, err := p.httpClient.Do(req)
@@ -315,16 +350,23 @@ func (p *AuthTokenProxy) proxyTokenRequest(ctx context.Context, tokenEndpoint st
 	}
 	defer resp.Body.Close()
 
+	// Log response status
+	p.authN.GetLogger().Infof("Token proxy: received response status %d", resp.StatusCode)
+	p.authN.GetLogger().Debugf("Token proxy: response headers: %v", resp.Header)
+
 	// Read response body
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
+	p.authN.GetLogger().Debugf("Token proxy: response body: %s", string(bodyBytes))
+
 	// Parse response
 	var tokenResp api.TokenResponse
 	if err := json.Unmarshal(bodyBytes, &tokenResp); err != nil {
-		return nil, fmt.Errorf("failed to parse token response: %w", err)
+		p.authN.GetLogger().Errorf("Token proxy: failed to parse response (status %d): %v, body: %s", resp.StatusCode, err, string(bodyBytes))
+		return nil, fmt.Errorf("failed to parse token response (status %d): %w, body: %s", resp.StatusCode, err, string(bodyBytes))
 	}
 
 	return &ProxyResult{

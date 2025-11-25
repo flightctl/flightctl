@@ -7115,22 +7115,36 @@ components:
         apiUrl:
           type: string
           description: The internal AAP API URL.
-        externalApiUrl:
+        authorizationUrl:
           type: string
-          description: The external AAP API URL (for external access).
+          description: The OAuth2 authorization endpoint URL.
+        tokenUrl:
+          type: string
+          description: The OAuth2 token endpoint URL.
+        clientId:
+          type: string
+          description: The OAuth2 client ID.
+        clientSecret:
+          type: string
+          description: The OAuth2 client secret.
+          writeOnly: true
         enabled:
           type: boolean
           description: Whether this AAP provider is enabled.
           default: true
-        organizationAssignment:
-          $ref: '#/components/schemas/AuthOrganizationAssignment'
-        roleAssignment:
-          $ref: '#/components/schemas/AuthRoleAssignment'
+        scopes:
+          type: array
+          items:
+            type: string
+          description: List of OAuth2 scopes to request.
       required:
         - providerType
         - apiUrl
-        - organizationAssignment
-        - roleAssignment
+        - authorizationUrl
+        - tokenUrl
+        - clientId
+        - clientSecret
+        - scopes
     K8sProviderSpec:
       type: object
       description: K8sProviderSpec describes a Kubernetes/OpenShift provider configuration.

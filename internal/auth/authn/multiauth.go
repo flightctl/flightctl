@@ -67,13 +67,17 @@ type MultiAuth struct {
 	// Dynamic OIDC providers - issuer+clientId -> provider mapping
 	dynamicProviders   map[AuthProviderCacheKey]common.AuthNMiddleware
 	dynamicProvidersMu sync.RWMutex
+
+	// Start protection
+	startMu sync.Mutex
+	started bool
 }
 
 // AuthProviderWithLifecycle is an optional interface that providers can implement
 // if they need lifecycle management (e.g., starting background caches)
 type AuthProviderWithLifecycle interface {
 	common.AuthNMiddleware
-	Start(ctx context.Context)
+	Start(ctx context.Context) error
 	Stop()
 }
 
@@ -145,17 +149,29 @@ func (m *MultiAuth) GetLogger() logrus.FieldLogger {
 }
 
 // Start starts the background loader goroutine and blocks until context is cancelled
-func (m *MultiAuth) Start(ctx context.Context) {
+func (m *MultiAuth) Start(ctx context.Context) error {
+	m.startMu.Lock()
+	defer m.startMu.Unlock()
+
+	if m.started {
+		return fmt.Errorf("MultiAuth provider already started")
+	}
+
 	for _, provider := range m.staticProviders {
 		if lifecycleProvider, ok := provider.(AuthProviderWithLifecycle); ok {
-			lifecycleProvider.Start(ctx)
+			if err := lifecycleProvider.Start(ctx); err != nil {
+				return fmt.Errorf("failed to start static provider: %w", err)
+			}
 		}
 	}
+
+	m.started = true
 
 	// Dynamic providers (loaded from DB) get their own cancellable contexts in LoadAllAuthProviders
 	// so they can be independently reloaded/removed without affecting others
 
 	m.periodicLoader(ctx)
+	return nil
 }
 
 // periodicLoader runs in the background and reloads dynamic providers every 5 seconds
@@ -242,7 +258,10 @@ func (m *MultiAuth) LoadAllAuthProviders(ctx context.Context) error {
 
 				// Start the provider if it implements lifecycle management
 				if lifecycleProvider, ok := authMiddleware.(AuthProviderWithLifecycle); ok {
-					lifecycleProvider.Start(ctx)
+					if err := lifecycleProvider.Start(ctx); err != nil {
+						m.log.Warnf("Failed to start updated auth provider %s: %v", lo.FromPtr(provider.Metadata.Name), err)
+						continue
+					}
 				}
 
 				m.dynamicProviders[providerKey] = authMiddleware
@@ -262,7 +281,10 @@ func (m *MultiAuth) LoadAllAuthProviders(ctx context.Context) error {
 
 			// Start the provider if it implements lifecycle management
 			if lifecycleProvider, ok := authMiddleware.(AuthProviderWithLifecycle); ok {
-				lifecycleProvider.Start(ctx)
+				if err := lifecycleProvider.Start(ctx); err != nil {
+					m.log.Warnf("Failed to start new auth provider %s: %v", lo.FromPtr(provider.Metadata.Name), err)
+					continue
+				}
 			}
 
 			m.dynamicProviders[providerKey] = authMiddleware
