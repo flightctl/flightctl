@@ -4,6 +4,8 @@ kind: NetworkPolicy
 metadata:
   name: allow-from-flightctl
   namespace:  {{ default .Release.Namespace .Values.global.internalNamespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
 spec:
   ingress:
   - from:

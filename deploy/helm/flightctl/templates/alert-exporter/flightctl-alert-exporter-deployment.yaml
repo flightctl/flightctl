@@ -5,6 +5,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
     flightctl.service: flightctl-alert-exporter
   name: flightctl-alert-exporter
   namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}

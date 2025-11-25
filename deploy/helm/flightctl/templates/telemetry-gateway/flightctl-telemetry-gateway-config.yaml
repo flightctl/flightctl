@@ -3,6 +3,9 @@ kind: ConfigMap
 metadata:
   name: flightctl-telemetry-gateway-config
   namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-telemetry-gateway
 data:
   config.yaml: |-
     database:

@@ -6,6 +6,7 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-ui
 data:
   FLIGHTCTL_SERVER: https://flightctl-api:3443/
   FLIGHTCTL_SERVER_EXTERNAL: {{ include "flightctl.getApiUrl" . }}

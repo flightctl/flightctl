@@ -5,6 +5,7 @@ metadata:
   name: flightctl-telemetry-gateway
   namespace: {{ .Release.Namespace }}
   labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
     flightctl.service: flightctl-telemetry-gateway
 spec:
   {{- if eq $exposeService "nodePort" }}
