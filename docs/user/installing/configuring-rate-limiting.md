@@ -194,7 +194,7 @@ When a rate limit is exceeded, Flight Control returns:
 
 ```json
 {
-  "apiVersion": "v1alpha1",
+  "apiVersion": "v1beta1",
   "kind": "Status",
   "status": "Failure",
   "code": 429,

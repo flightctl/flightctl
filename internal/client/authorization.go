@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/cli/login"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
@@ -78,9 +78,7 @@ func CreateAuthProviderWithCredentials(authInfo AuthInfo, insecure bool, apiServ
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse AAP provider spec: %w", err)
 		}
-		// AAP uses a default client ID
-		clientId := "aap-gateway-client"
-		return login.NewAAPOAuth2Config(provider.Metadata, aapSpec, clientId, caFile, authInsecure, apiServerURL, callbackPort), nil
+		return login.NewAAPOAuth2Config(provider.Metadata, aapSpec, caFile, authInsecure, apiServerURL, callbackPort, username, password, web), nil
 
 	case string(api.K8s):
 		return nil, fmt.Errorf("k8s auth requires providing --token flag")

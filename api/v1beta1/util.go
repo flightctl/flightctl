@@ -1,4 +1,4 @@
-package v1alpha1
+package v1beta1
 
 import (
 	"bytes"
@@ -57,7 +57,9 @@ const (
 type ApplicationVolumeProviderType string
 
 const (
-	ImageApplicationVolumeProviderType ApplicationVolumeProviderType = "image"
+	ImageApplicationVolumeProviderType      ApplicationVolumeProviderType = "image"
+	MountApplicationVolumeProviderType      ApplicationVolumeProviderType = "mount"
+	ImageMountApplicationVolumeProviderType ApplicationVolumeProviderType = "image_mount"
 )
 
 // Type returns the type of the action.
@@ -152,8 +154,19 @@ func (c ApplicationVolume) Type() (ApplicationVolumeProviderType, error) {
 		return "", err
 	}
 
-	if _, exists := data[ImageApplicationVolumeProviderType]; exists {
+	_, image := data[ImageApplicationVolumeProviderType]
+	_, mount := data[MountApplicationVolumeProviderType]
+
+	if image && mount {
+		return ImageMountApplicationVolumeProviderType, nil
+	}
+
+	if image {
 		return ImageApplicationVolumeProviderType, nil
+	}
+
+	if mount {
+		return MountApplicationVolumeProviderType, nil
 	}
 
 	return "", fmt.Errorf("unable to determine application volume type: %+v", data)
@@ -432,6 +445,15 @@ func (a *AuthProvider) HideSensitiveData() error {
 		}
 		hideValue(openshiftSpec.ClientSecret)
 		if err := a.Spec.FromOpenShiftProviderSpec(openshiftSpec); err != nil {
+			return err
+		}
+	case string(Aap):
+		aapSpec, err := a.Spec.AsAapProviderSpec()
+		if err != nil {
+			return err
+		}
+		hideValue(aapSpec.ClientSecret)
+		if err := a.Spec.FromAapProviderSpec(aapSpec); err != nil {
 			return err
 		}
 	}

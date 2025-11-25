@@ -1,4 +1,4 @@
-package v1alpha1
+package v1beta1
 
 func NewDeviceStatus() DeviceStatus {
 	return DeviceStatus{

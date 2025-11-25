@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store/selector"
@@ -25,7 +25,7 @@ const (
 )
 
 type Reconciler interface {
-	Reconcile(ctx context.Context)
+	Reconcile(ctx context.Context, orgID uuid.UUID)
 }
 
 type reconciler struct {
@@ -84,13 +84,13 @@ func collectDeviceBudgetCounts(counts []map[string]any, groupBy []string) ([]*gr
 	return ret, nil
 }
 
-func (r *reconciler) getFleetCounts(ctx context.Context, _ uuid.UUID, fleet *api.Fleet) ([]*groupCounts, error) {
+func (r *reconciler) getFleetCounts(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet) ([]*groupCounts, error) {
 	groupBy := lo.FromPtr(fleet.Spec.RolloutPolicy.DisruptionBudget.GroupBy)
 
 	listParams := api.ListDevicesParams{
 		FieldSelector: lo.ToPtr(fmt.Sprintf("metadata.owner=%s", util.ResourceOwner(api.FleetKind, lo.FromPtr(fleet.Metadata.Name)))),
 	}
-	counts, status := r.serviceHandler.CountDevicesByLabels(ctx, listParams, nil, groupBy)
+	counts, status := r.serviceHandler.CountDevicesByLabels(ctx, orgId, listParams, nil, groupBy)
 	if status.Code != http.StatusOK {
 		return nil, service.ApiStatusToErr(status)
 	}
@@ -152,13 +152,13 @@ func (r *reconciler) reconcileSelectionDevices(ctx context.Context, orgId uuid.U
 	remaining := lo.Ternary(numToRender > 0, numToRender, math.MaxInt)
 	for {
 		listParams.Limit = lo.ToPtr(int32(math.Min(float64(remaining), float64(maxItemsToRender))))
-		devices, status := r.serviceHandler.ListDevices(ctx, listParams, annotationSelector)
+		devices, status := r.serviceHandler.ListDevices(ctx, orgId, listParams, annotationSelector)
 		if status.Code != http.StatusOK {
 			return service.ApiStatusToErr(status)
 		}
 		for _, d := range devices.Items {
 			r.log.Infof("%v/%s: sending device to rendering", orgId, lo.FromPtr(d.Metadata.Name))
-			r.serviceHandler.CreateEvent(ctx, common.GetFleetRolloutDeviceSelectedEvent(ctx, lo.FromPtr(d.Metadata.Name), lo.FromPtr(fleet.Metadata.Name), templateVersionName))
+			r.serviceHandler.CreateEvent(ctx, orgId, common.GetFleetRolloutDeviceSelectedEvent(ctx, lo.FromPtr(d.Metadata.Name), lo.FromPtr(fleet.Metadata.Name), templateVersionName))
 		}
 		remaining = remaining - len(devices.Items)
 		if devices.Metadata.Continue == nil || remaining == 0 {
@@ -207,14 +207,8 @@ func (r *reconciler) reconcileFleet(ctx context.Context, orgId uuid.UUID, fleet 
 	return nil
 }
 
-func (r *reconciler) Reconcile(ctx context.Context) {
-	orgId, ok := util.GetOrgIdFromContext(ctx)
-	if !ok {
-		r.log.Error("No organization ID found in context")
-		return
-	}
-
-	fleetList, status := r.serviceHandler.ListDisruptionBudgetFleets(ctx)
+func (r *reconciler) Reconcile(ctx context.Context, orgID uuid.UUID) {
+	fleetList, status := r.serviceHandler.ListDisruptionBudgetFleets(ctx, orgID)
 	if status.Code != http.StatusOK {
 		r.log.WithError(service.ApiStatusToErr(status)).Error("Failed to query disruption budget fleets")
 		return
@@ -229,8 +223,8 @@ func (r *reconciler) Reconcile(ctx context.Context) {
 		if !exists {
 			continue
 		}
-		if err := r.reconcileFleet(ctx, orgId, fleet); err != nil {
-			r.log.WithError(err).Errorf("reconcile fleet %v/%s", orgId, lo.FromPtr(fleet.Metadata.Name))
+		if err := r.reconcileFleet(ctx, orgID, fleet); err != nil {
+			r.log.WithError(err).Errorf("reconcile fleet %v/%s", orgID, lo.FromPtr(fleet.Metadata.Name))
 		}
 	}
 }

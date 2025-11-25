@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"regexp"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/contextutil"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"

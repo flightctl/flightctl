@@ -1,4 +1,4 @@
-package v1alpha1
+package v1beta1
 
 type DeviceCommand struct {
 	Command string   `json:"command,omitempty"`

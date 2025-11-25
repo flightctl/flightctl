@@ -14,7 +14,7 @@ import (
 	http "net/http"
 	reflect "reflect"
 
-	v1alpha1 "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	identity "github.com/flightctl/flightctl/internal/identity"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -136,10 +136,10 @@ func (m *MockAuthNMiddleware) EXPECT() *MockAuthNMiddlewareMockRecorder {
 }
 
 // GetAuthConfig mocks base method.
-func (m *MockAuthNMiddleware) GetAuthConfig() *v1alpha1.AuthConfig {
+func (m *MockAuthNMiddleware) GetAuthConfig() *api.AuthConfig {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetAuthConfig")
-	ret0, _ := ret[0].(*v1alpha1.AuthConfig)
+	ret0, _ := ret[0].(*api.AuthConfig)
 	return ret0
 }
 

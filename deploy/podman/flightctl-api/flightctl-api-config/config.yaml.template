@@ -36,7 +36,21 @@ auth:
 {{- if eq .global.auth.type "aap"}}
   aap:
     apiUrl: {{.global.auth.aap.apiUrl}}
-    externalApiUrl: {{.global.auth.aap.externalApiUrl}}
+    issuer: {{.global.auth.aap.issuer}}
+    clientId: {{.global.auth.aap.clientId}}
+    clientSecret: {{.global.auth.aap.clientSecret}}
+    authorizationUrl: {{.global.auth.aap.authorizationUrl}}
+    tokenUrl: {{.global.auth.aap.tokenUrl}}
+    enabled: {{if .global.auth.aap.enabled}}{{.global.auth.aap.enabled}}{{else}}true{{end}}
+    scopes:
+{{- if .global.auth.aap.scopes}}
+{{- range .global.auth.aap.scopes}}
+      - {{.}}
+{{- end}}
+{{- else}}
+      - read
+{{- end}} 
+
 {{- else if eq .global.auth.type "oidc"}}
   oidc:
     enabled: {{if .global.auth.oidc.enabled}}{{.global.auth.oidc.enabled}}{{else}}true{{end}}
@@ -48,6 +62,7 @@ auth:
     issuer: {{.global.auth.oidc.issuer}}
     clientId: {{.global.auth.oidc.clientId}}
     clientSecret: {{.global.auth.oidc.clientSecret}}
+    
     {{end}}
     usernameClaim:
       {{if .global.auth.oidc.usernameClaim}}{{range .global.auth.oidc.usernameClaim}}- {{.}}

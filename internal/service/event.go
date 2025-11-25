@@ -4,19 +4,18 @@ import (
 	"context"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
+	"github.com/google/uuid"
 	"github.com/samber/lo"
 )
 
-func (h *ServiceHandler) CreateEvent(ctx context.Context, event *api.Event) {
-	h.eventHandler.CreateEvent(ctx, event)
+func (h *ServiceHandler) CreateEvent(ctx context.Context, orgId uuid.UUID, event *api.Event) {
+	h.eventHandler.CreateEvent(ctx, orgId, event)
 }
 
-func (h *ServiceHandler) ListEvents(ctx context.Context, params api.ListEventsParams) (*api.EventList, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) ListEvents(ctx context.Context, orgId uuid.UUID, params api.ListEventsParams) (*api.EventList, api.Status) {
 	listParams, status := prepareListParams(params.Continue, nil, params.FieldSelector, params.Limit)
 	if status != api.StatusOK() {
 		return nil, status

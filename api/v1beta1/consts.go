@@ -1,4 +1,4 @@
-package v1alpha1
+package v1beta1
 
 import (
 	"time"
@@ -13,11 +13,11 @@ var (
 const (
 	APIGroup = "flightctl.io"
 
-	CertificateSigningRequestAPIVersion = "v1alpha1"
+	CertificateSigningRequestAPIVersion = "v1beta1"
 	CertificateSigningRequestKind       = "CertificateSigningRequest"
 	CertificateSigningRequestListKind   = "CertificateSigningRequestList"
 
-	DeviceAPIVersion = "v1alpha1"
+	DeviceAPIVersion = "v1beta1"
 	DeviceKind       = "Device"
 	DeviceListKind   = "DeviceList"
 
@@ -43,11 +43,11 @@ const (
 
 	DeviceQueryConsoleSessionMetadata = "metadata"
 
-	EnrollmentRequestAPIVersion = "v1alpha1"
+	EnrollmentRequestAPIVersion = "v1beta1"
 	EnrollmentRequestKind       = "EnrollmentRequest"
 	EnrollmentRequestListKind   = "EnrollmentRequestList"
 
-	FleetAPIVersion = "v1alpha1"
+	FleetAPIVersion = "v1beta1"
 	FleetKind       = "Fleet"
 	FleetListKind   = "FleetList"
 
@@ -68,31 +68,32 @@ const (
 	// The requestID related to an event
 	EventAnnotationRequestID = "event-controller/requestID"
 
-	RepositoryAPIVersion = "v1alpha1"
+	RepositoryAPIVersion = "v1beta1"
 	RepositoryKind       = "Repository"
 	RepositoryListKind   = "RepositoryList"
 
-	AuthProviderAPIVersion = "v1alpha1"
+	AuthProviderAPIVersion = "v1beta1"
 	AuthProviderKind       = "AuthProvider"
 	AuthProviderListKind   = "AuthProviderList"
 
-	AuthConfigAPIVersion = "v1alpha1"
+	AuthConfigAPIVersion = "v1beta1"
+	AuthConfigKind       = "AuthConfig"
 
-	ResourceSyncAPIVersion = "v1alpha1"
+	ResourceSyncAPIVersion = "v1beta1"
 	ResourceSyncKind       = "ResourceSync"
 	ResourceSyncListKind   = "ResourceSyncList"
 
-	TemplateVersionAPIVersion = "v1alpha1"
+	TemplateVersionAPIVersion = "v1beta1"
 	TemplateVersionKind       = "TemplateVersion"
 	TemplateVersionListKind   = "TemplateVersionList"
 
-	EventAPIVersion = "v1alpha1"
+	EventAPIVersion = "v1beta1"
 	EventKind       = "Event"
 	EventListKind   = "EventList"
 
 	EventAnnotationDelayDeviceRender = "fleet-controller/delayDeviceRender"
 
-	OrganizationAPIVersion = "v1alpha1"
+	OrganizationAPIVersion = "v1beta1"
 	OrganizationKind       = "Organization"
 	OrganizationListKind   = "OrganizationList"
 	OrganizationIDQueryKey = "org_id"

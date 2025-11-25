@@ -54,7 +54,7 @@ while true; do
   esac
 done
 
-SQL_ARG="--set db.image.image=${SQL_IMAGE} --set db.image.tag=${SQL_VERSION}"
+SQL_ARG="--set db.builtin.image.image=${SQL_IMAGE} --set db.builtin.image.tag=${SQL_VERSION}"
 KV_ARG="--set kv.image.image=${KV_IMAGE} --set kv.image.tag=${KV_VERSION}"
 
 # helm expects the namespaces to exist, and creating namespaces

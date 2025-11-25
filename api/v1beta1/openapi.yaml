@@ -1,7 +1,7 @@
 openapi: 3.0.1
 info:
   title: Flight Control API
-  version: v1alpha1
+  version: v1beta1
   description: |
     [Flight Control](https://flightctl.io) is a service for declarative management of fleets of edge devices and their workloads.
   contact:
@@ -4572,7 +4572,7 @@ components:
           properties:
             image:
               type: string
-              description: Reference to the container image for the application package.
+              description: Reference to the OCI image or artifact for the application package.
             ports:
               type: array
               description: Port mappings.
@@ -7115,22 +7115,36 @@ components:
         apiUrl:
           type: string
           description: The internal AAP API URL.
-        externalApiUrl:
+        authorizationUrl:
           type: string
-          description: The external AAP API URL (for external access).
+          description: The OAuth2 authorization endpoint URL.
+        tokenUrl:
+          type: string
+          description: The OAuth2 token endpoint URL.
+        clientId:
+          type: string
+          description: The OAuth2 client ID.
+        clientSecret:
+          type: string
+          description: The OAuth2 client secret.
+          writeOnly: true
         enabled:
           type: boolean
           description: Whether this AAP provider is enabled.
           default: true
-        organizationAssignment:
-          $ref: '#/components/schemas/AuthOrganizationAssignment'
-        roleAssignment:
-          $ref: '#/components/schemas/AuthRoleAssignment'
+        scopes:
+          type: array
+          items:
+            type: string
+          description: List of OAuth2 scopes to request.
       required:
         - providerType
         - apiUrl
-        - organizationAssignment
-        - roleAssignment
+        - authorizationUrl
+        - tokenUrl
+        - clientId
+        - clientSecret
+        - scopes
     K8sProviderSpec:
       type: object
       description: K8sProviderSpec describes a Kubernetes/OpenShift provider configuration.

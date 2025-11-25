@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	fcrypto "github.com/flightctl/flightctl/pkg/crypto"
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
@@ -93,7 +93,7 @@ func IsStatusSuccessful(status *api.Status) bool {
 func CreateTestCSR() api.CertificateSigningRequest {
 	name, csrData := GenerateDeviceNameAndCSR()
 	return api.CertificateSigningRequest{
-		ApiVersion: "v1alpha1",
+		ApiVersion: "v1beta1",
 		Kind:       "CertificateSigningRequest",
 		Metadata: api.ObjectMeta{
 			Name: lo.ToPtr(name),
@@ -114,7 +114,7 @@ func CreateTestCSR() api.CertificateSigningRequest {
 func CreateTestER() api.EnrollmentRequest {
 	name, csrData := GenerateDeviceNameAndCSR()
 	return api.EnrollmentRequest{
-		ApiVersion: "v1alpha1",
+		ApiVersion: "v1beta1",
 		Kind:       "EnrollmentRequest",
 		Metadata: api.ObjectMeta{
 			Name: lo.ToPtr(name),

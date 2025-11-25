@@ -2,11 +2,15 @@ package transport
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
+	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/util"
+	"github.com/google/uuid"
 )
 
 const (
@@ -58,4 +62,13 @@ func SetResponse(w http.ResponseWriter, body any, status api.Status) {
 
 func SetParseFailureResponse(w http.ResponseWriter, err error) {
 	SetResponse(w, nil, api.StatusInternalServerError(fmt.Sprintf("can't decode JSON body: %v", err)))
+}
+
+// OrgIDFromContext extracts the organization ID from the context.
+// Falls back to the default organization ID if not present.
+func OrgIDFromContext(ctx context.Context) uuid.UUID {
+	if orgID, ok := util.GetOrgIdFromContext(ctx); ok {
+		return orgID
+	}
+	return store.NullOrgId
 }

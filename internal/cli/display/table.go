@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/dustin/go-humanize"
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/util"
 )
@@ -76,6 +76,13 @@ func (f *TableFormatter) formatList(w *tabwriter.Writer, data interface{}, optio
 		return f.printEventsTable(w, data.(*apiclient.ListEventsResponse).JSON200.Items...)
 	case strings.EqualFold(options.Kind, api.AuthProviderKind):
 		return f.printAuthProvidersTable(w, data.(*apiclient.ListAuthProvidersResponse).JSON200.Items...)
+	case strings.EqualFold(options.Kind, api.AuthConfigKind):
+		// Special case for AuthConfig which contains providers
+		authConfig := data.(*api.AuthConfig)
+		if authConfig.Providers != nil && len(*authConfig.Providers) > 0 {
+			return f.printAuthConfigProvidersTable(w, authConfig)
+		}
+		return nil
 	default:
 		return fmt.Errorf("unknown resource type %s", options.Kind)
 	}
@@ -396,6 +403,102 @@ func (f *TableFormatter) printEventsTable(w *tabwriter.Writer, events ...api.Eve
 			string(e.Type),
 			e.Message,
 		)
+	}
+	return nil
+}
+
+func (f *TableFormatter) printAuthConfigProvidersTable(w *tabwriter.Writer, authConfig *api.AuthConfig) error {
+	if authConfig == nil {
+		return fmt.Errorf("auth config is nil")
+	}
+
+	f.printHeaderRowLn(w, "NAME", "TYPE", "ISSUER", "ENABLED", "DEFAULT")
+
+	defaultProvider := ""
+	if authConfig.DefaultProvider != nil {
+		defaultProvider = *authConfig.DefaultProvider
+	}
+
+	for _, ap := range *authConfig.Providers {
+		issuer := NoneString
+		enabled := NoneString
+		name := NoneString
+		isDefault := NoneString
+		if ap.Metadata.Name != nil {
+			name = *ap.Metadata.Name
+		}
+
+		if name == defaultProvider {
+			isDefault = "*"
+		}
+
+		// Extract type from the discriminator
+		providerType, err := ap.Spec.Discriminator()
+		if err != nil {
+			return fmt.Errorf("failed to get discriminator for provider %s: %w", name, err)
+		}
+
+		// Extract issuer and enabled based on type
+		switch providerType {
+		case string(api.Oidc):
+			oidcSpec, err := ap.Spec.AsOIDCProviderSpec()
+			if err != nil {
+				return fmt.Errorf("failed to parse OIDC provider spec for %s: %w", name, err)
+			}
+			issuer = oidcSpec.Issuer
+			if oidcSpec.Enabled != nil {
+				enabled = util.BoolToStr(*oidcSpec.Enabled, "true", "false")
+			}
+		case string(api.Oauth2):
+			oauth2Spec, err := ap.Spec.AsOAuth2ProviderSpec()
+			if err != nil {
+				return fmt.Errorf("failed to parse OAuth2 provider spec for %s: %w", name, err)
+			}
+			if oauth2Spec.Issuer != nil {
+				issuer = *oauth2Spec.Issuer
+			}
+			if oauth2Spec.Enabled != nil {
+				enabled = util.BoolToStr(*oauth2Spec.Enabled, "true", "false")
+			}
+		case string(api.Openshift):
+			openshiftSpec, err := ap.Spec.AsOpenShiftProviderSpec()
+			if err != nil {
+				return fmt.Errorf("failed to parse OpenShift provider spec for %s: %w", name, err)
+			}
+			if openshiftSpec.Issuer != nil {
+				issuer = *openshiftSpec.Issuer
+			}
+			if openshiftSpec.Enabled != nil {
+				enabled = util.BoolToStr(*openshiftSpec.Enabled, "true", "false")
+			}
+		case string(api.Aap):
+			aapSpec, err := ap.Spec.AsAapProviderSpec()
+			if err != nil {
+				return fmt.Errorf("failed to parse AAP provider spec for %s: %w", name, err)
+			}
+			if aapSpec.Enabled != nil {
+				enabled = util.BoolToStr(*aapSpec.Enabled, "true", "false")
+			}
+			if aapSpec.ApiUrl != "" {
+				issuer = aapSpec.ApiUrl
+			}
+		case string(api.K8s):
+			k8sSpec, err := ap.Spec.AsK8sProviderSpec()
+			if err != nil {
+				return fmt.Errorf("failed to parse K8s provider spec for %s: %w", name, err)
+			}
+			if k8sSpec.Enabled != nil {
+				enabled = util.BoolToStr(*k8sSpec.Enabled, "true", "false")
+			}
+			if k8sSpec.ApiUrl != "" {
+				issuer = k8sSpec.ApiUrl
+			}
+		default:
+			issuer = NoneString
+			enabled = NoneString
+		}
+
+		f.printTableRowLn(w, name, providerType, issuer, enabled, isDefault)
 	}
 	return nil
 }

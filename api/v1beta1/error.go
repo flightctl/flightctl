@@ -1,4 +1,4 @@
-package v1alpha1
+package v1beta1
 
 import (
 	"fmt"
@@ -7,7 +7,7 @@ import (
 
 func NewSuccessStatus(code int32, reason string, message string) Status {
 	return Status{
-		ApiVersion: "v1alpha1",
+		ApiVersion: "v1beta1",
 		Kind:       "Status",
 		Status:     "Success",
 		Code:       code,
@@ -18,7 +18,7 @@ func NewSuccessStatus(code int32, reason string, message string) Status {
 
 func NewFailureStatus(code int32, reason string, message string) Status {
 	return Status{
-		ApiVersion: "v1alpha1",
+		ApiVersion: "v1beta1",
 		Kind:       "Status",
 		Status:     "Failure",
 		Code:       code,

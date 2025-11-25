@@ -13,7 +13,7 @@ import (
 	"os"
 	"time"
 
-	pamapi "github.com/flightctl/flightctl/api/v1alpha1/pam-issuer"
+	pamapi "github.com/flightctl/flightctl/api/v1beta1/pam-issuer"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	fccrypto "github.com/flightctl/flightctl/internal/crypto"
 	pkgcrypto "github.com/flightctl/flightctl/pkg/crypto"

@@ -1,4 +1,4 @@
-apiVersion: projectcontour.io/v1alpha1
+apiVersion: projectcontour.io/v1beta1
 kind: ContourDeployment
 metadata:
   namespace: projectcontour

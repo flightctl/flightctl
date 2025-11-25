@@ -12,8 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	apiClient "github.com/flightctl/flightctl/internal/api/client"
+	"github.com/flightctl/flightctl/internal/cli/display"
 	"github.com/flightctl/flightctl/internal/cli/login"
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/samber/lo"
@@ -158,7 +159,8 @@ type LoginOptions struct {
 	Username           string
 	Password           string
 	Web                bool
-	authConfig         *v1alpha1.AuthConfig
+	ShowProviders      bool
+	authConfig         *v1beta1.AuthConfig
 	authProvider       login.AuthProvider
 	clientConfig       *client.Config
 }
@@ -175,6 +177,7 @@ func DefaultLoginOptions() *LoginOptions {
 		Username:           "",
 		Password:           "",
 		Web:                false,
+		ShowProviders:      false,
 	}
 }
 
@@ -227,6 +230,7 @@ func (o *LoginOptions) Bind(fs *pflag.FlagSet) {
 	fs.StringVarP(&o.Username, "username", "u", o.Username, "Username for password flow authentication")
 	fs.StringVarP(&o.Password, "password", "p", o.Password, "Password for password flow authentication")
 	fs.BoolVarP(&o.Web, "web", "", o.Web, "Use web-based authorization code flow (default is password flow if username/password provided)")
+	fs.BoolVarP(&o.ShowProviders, "show-providers", "", o.ShowProviders, "List available authentication providers")
 }
 
 func (o *LoginOptions) Complete(cmd *cobra.Command, args []string) error {
@@ -254,8 +258,34 @@ func (o *LoginOptions) Init(args []string) error {
 	return nil
 }
 
+// validateShowProvidersExclusion ensures --show-providers is not used with other login options
+func (o *LoginOptions) validateShowProvidersExclusion() error {
+	if !o.ShowProviders {
+		return nil
+	}
+
+	conflicts := map[bool]string{
+		!login.StrIsEmpty(o.AccessToken):                               "--token",
+		!login.StrIsEmpty(o.Provider):                                  "--provider",
+		!login.StrIsEmpty(o.AuthCAFile):                                "--auth-certificate-authority",
+		!login.StrIsEmpty(o.Username) || !login.StrIsEmpty(o.Password): "--username or --password",
+		o.Web: "--web",
+	}
+
+	for condition, flag := range conflicts {
+		if condition {
+			return fmt.Errorf("--show-providers cannot be used with %s", flag)
+		}
+	}
+	return nil
+}
+
 func (o *LoginOptions) Validate(args []string) error {
 	if err := o.GlobalOptions.ValidateCmd(args); err != nil {
+		return err
+	}
+
+	if err := o.validateShowProvidersExclusion(); err != nil {
 		return err
 	}
 
@@ -313,7 +343,7 @@ func (o *LoginOptions) getAuthProvider(ctx context.Context) (login.AuthProvider,
 	if o.Provider != "" {
 		providerName = o.Provider
 	}
-	var provider *v1alpha1.AuthProvider
+	var provider *v1beta1.AuthProvider
 	for _, p := range *o.authConfig.Providers {
 		if p.Metadata.Name != nil && *p.Metadata.Name == providerName {
 			provider = &p
@@ -321,7 +351,7 @@ func (o *LoginOptions) getAuthProvider(ctx context.Context) (login.AuthProvider,
 		}
 	}
 	if provider == nil {
-		availableProviders := lo.Map(*o.authConfig.Providers, func(p v1alpha1.AuthProvider, _ int) string {
+		availableProviders := lo.Map(*o.authConfig.Providers, func(p v1beta1.AuthProvider, _ int) string {
 			return *p.Metadata.Name
 		})
 		availableProvidersStr := strings.Join(availableProviders, ", ")
@@ -395,6 +425,7 @@ func (o *LoginOptions) validateTokenWithServer(ctx context.Context, token string
 		o.clientConfig.Service.Server,
 		apiClient.WithHTTPClient(httpClient),
 		client.WithOrganization(o.clientConfig.Organization),
+		client.WithUserAgentHeader("flightctl-cli"),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("creating client: %w", err)
@@ -405,16 +436,16 @@ func (o *LoginOptions) validateTokenWithServer(ctx context.Context, token string
 	defer cancel()
 
 	headerVal := "Bearer " + token
-	res, err := c.AuthValidateWithResponse(timeoutCtx, &v1alpha1.AuthValidateParams{Authorization: &headerVal})
+	res, err := c.AuthValidateWithResponse(timeoutCtx, &v1beta1.AuthValidateParams{Authorization: &headerVal})
 	if err != nil {
 		// Translate TLS errors during token validation and offer interactive prompt
 		errorInfo := classifyTLSError(err)
 		if errorInfo.Type != TLSErrorUnknown && o.shouldOfferInsecurePrompt() && !o.InsecureSkipVerify {
 			if o.promptUseInsecure(errorInfo) {
 				o.enableInsecure()
-				c, cerr := client.NewFromConfig(o.clientConfig, o.ConfigFilePath)
+				c, cerr := client.NewFromConfig(o.clientConfig, o.ConfigFilePath, client.WithUserAgentHeader("flightctl-cli"))
 				if cerr == nil {
-					res, err = c.AuthValidateWithResponse(ctx, &v1alpha1.AuthValidateParams{Authorization: &headerVal})
+					res, err = c.AuthValidateWithResponse(ctx, &v1beta1.AuthValidateParams{Authorization: &headerVal})
 				}
 			}
 		}
@@ -430,6 +461,11 @@ func (o *LoginOptions) validateTokenWithServer(ctx context.Context, token string
 }
 
 func (o *LoginOptions) Run(ctx context.Context, args []string) error {
+	// Handle --show-providers flag
+	if o.ShowProviders {
+		return o.showProviders(ctx)
+	}
+
 	var (
 		authCAFile string
 		err        error
@@ -493,7 +529,7 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 	}
 
 	// Auto-select organization if enabled and user has access to only one
-	if response, err := c.ListOrganizationsWithResponse(ctx, &v1alpha1.ListOrganizationsParams{}); err == nil && response.StatusCode() == http.StatusOK && response.JSON200 != nil && len(response.JSON200.Items) == 1 {
+	if response, err := c.ListOrganizationsWithResponse(ctx, &v1beta1.ListOrganizationsParams{}); err == nil && response.StatusCode() == http.StatusOK && response.JSON200 != nil && len(response.JSON200.Items) == 1 {
 		org := response.JSON200.Items[0]
 		if org.Metadata.Name != nil {
 			orgName := *org.Metadata.Name
@@ -520,7 +556,29 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 	return nil
 }
 
-func (o *LoginOptions) getAuthConfig(ctx context.Context) (*v1alpha1.AuthConfig, error) {
+// showProviders lists all available authentication providers
+func (o *LoginOptions) showProviders(ctx context.Context) error {
+	authConfig, err := o.getAuthConfig(ctx)
+	if err != nil {
+		return err
+	}
+
+	if authConfig == nil || authConfig.Providers == nil || len(*authConfig.Providers) == 0 {
+		fmt.Println("No authentication providers configured")
+		return nil
+	}
+
+	// Create formatter and display options (empty string defaults to table format)
+	formatter := display.NewFormatter("")
+	options := display.FormatOptions{
+		Kind:   v1beta1.AuthConfigKind,
+		Writer: os.Stdout,
+	}
+
+	return formatter.Format(authConfig, options)
+}
+
+func (o *LoginOptions) getAuthConfig(ctx context.Context) (*v1beta1.AuthConfig, error) {
 	httpClient, err := client.NewHTTPClientFromConfig(o.clientConfig)
 	if err != nil {
 		// Translate TLS configuration errors and optionally prompt to proceed insecurely

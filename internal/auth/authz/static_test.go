@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/identity"
 	"github.com/flightctl/flightctl/internal/store/model"
@@ -29,91 +29,91 @@ func TestStaticAuthZ_CheckPermission(t *testing.T) {
 	}{
 		{
 			name:     "admin user can do anything",
-			roles:    []string{v1alpha1.RoleAdmin},
+			roles:    []string{v1beta1.RoleAdmin},
 			resource: "devices",
 			op:       "create",
 			expected: true,
 		},
 		{
 			name:     "admin user can delete",
-			roles:    []string{v1alpha1.RoleAdmin},
+			roles:    []string{v1beta1.RoleAdmin},
 			resource: "fleets",
 			op:       "delete",
 			expected: true,
 		},
 		{
 			name:     "admin user can access all resources",
-			roles:    []string{v1alpha1.RoleAdmin},
+			roles:    []string{v1beta1.RoleAdmin},
 			resource: "organizations",
 			op:       "create",
 			expected: true,
 		},
 		{
 			name:     "admin user can access enrollmentrequests",
-			roles:    []string{v1alpha1.RoleAdmin},
+			roles:    []string{v1beta1.RoleAdmin},
 			resource: "enrollmentrequests",
 			op:       "list",
 			expected: true,
 		},
 		{
 			name:     "operator can create devices",
-			roles:    []string{v1alpha1.RoleOperator},
+			roles:    []string{v1beta1.RoleOperator},
 			resource: "devices",
 			op:       "create",
 			expected: true,
 		},
 		{
 			name:     "operator can delete fleets",
-			roles:    []string{v1alpha1.RoleOperator},
+			roles:    []string{v1beta1.RoleOperator},
 			resource: "fleets",
 			op:       "delete",
 			expected: true,
 		},
 		{
 			name:     "operator can list any resource",
-			roles:    []string{v1alpha1.RoleOperator},
+			roles:    []string{v1beta1.RoleOperator},
 			resource: "events",
 			op:       "list",
 			expected: true,
 		},
 		{
 			name:     "operator can get any resource",
-			roles:    []string{v1alpha1.RoleOperator},
+			roles:    []string{v1beta1.RoleOperator},
 			resource: "repositories",
 			op:       "get",
 			expected: true,
 		},
 		{
 			name:     "viewer can list any resource",
-			roles:    []string{v1alpha1.RoleViewer},
+			roles:    []string{v1beta1.RoleViewer},
 			resource: "devices",
 			op:       "list",
 			expected: true,
 		},
 		{
 			name:     "viewer can get any resource",
-			roles:    []string{v1alpha1.RoleViewer},
+			roles:    []string{v1beta1.RoleViewer},
 			resource: "fleets",
 			op:       "get",
 			expected: true,
 		},
 		{
 			name:     "viewer cannot create",
-			roles:    []string{v1alpha1.RoleViewer},
+			roles:    []string{v1beta1.RoleViewer},
 			resource: "devices",
 			op:       "create",
 			expected: false,
 		},
 		{
 			name:     "viewer cannot delete",
-			roles:    []string{v1alpha1.RoleViewer},
+			roles:    []string{v1beta1.RoleViewer},
 			resource: "fleets",
 			op:       "delete",
 			expected: false,
 		},
 		{
 			name:     "operator can create repositories",
-			roles:    []string{v1alpha1.RoleOperator},
+			roles:    []string{v1beta1.RoleOperator},
 			resource: "repositories",
 			op:       "create",
 			expected: true,
@@ -156,12 +156,12 @@ func TestStaticAuthZ_GetUserPermissions(t *testing.T) {
 	tests := []struct {
 		name                string
 		roles               []string
-		expectedPermissions []v1alpha1.Permission
+		expectedPermissions []v1beta1.Permission
 	}{
 		{
 			name:  "admin user has all permissions",
-			roles: []string{v1alpha1.RoleAdmin},
-			expectedPermissions: []v1alpha1.Permission{
+			roles: []string{v1beta1.RoleAdmin},
+			expectedPermissions: []v1beta1.Permission{
 				{
 					Resource:   "*",
 					Operations: []string{"*"},
@@ -170,8 +170,8 @@ func TestStaticAuthZ_GetUserPermissions(t *testing.T) {
 		},
 		{
 			name:  "operator user has specific permissions",
-			roles: []string{v1alpha1.RoleOperator},
-			expectedPermissions: []v1alpha1.Permission{
+			roles: []string{v1beta1.RoleOperator},
+			expectedPermissions: []v1beta1.Permission{
 				{
 					Resource:   "*",
 					Operations: []string{"get", "list"},
@@ -196,8 +196,8 @@ func TestStaticAuthZ_GetUserPermissions(t *testing.T) {
 		},
 		{
 			name:  "viewer user has read-only permissions",
-			roles: []string{v1alpha1.RoleViewer},
-			expectedPermissions: []v1alpha1.Permission{
+			roles: []string{v1beta1.RoleViewer},
+			expectedPermissions: []v1beta1.Permission{
 				{
 					Resource:   "*",
 					Operations: []string{"get", "list"},
@@ -206,8 +206,8 @@ func TestStaticAuthZ_GetUserPermissions(t *testing.T) {
 		},
 		{
 			name:  "installer user has limited read permissions",
-			roles: []string{v1alpha1.RoleInstaller},
-			expectedPermissions: []v1alpha1.Permission{
+			roles: []string{v1beta1.RoleInstaller},
+			expectedPermissions: []v1beta1.Permission{
 				{
 					Resource:   "devices",
 					Operations: []string{"get", "list"},
@@ -224,8 +224,8 @@ func TestStaticAuthZ_GetUserPermissions(t *testing.T) {
 		},
 		{
 			name:  "user with multiple roles has merged permissions",
-			roles: []string{v1alpha1.RoleViewer, v1alpha1.RoleInstaller},
-			expectedPermissions: []v1alpha1.Permission{
+			roles: []string{v1beta1.RoleViewer, v1beta1.RoleInstaller},
+			expectedPermissions: []v1beta1.Permission{
 				{
 					Resource:   "*",
 					Operations: []string{"get", "list"},
@@ -319,7 +319,7 @@ func TestStaticAuthZ_GetUserPermissions_NoOrgContext(t *testing.T) {
 	}
 
 	// Create mapped identity with roles
-	orgRoles := map[string][]string{orgID.String(): {v1alpha1.RoleViewer}}
+	orgRoles := map[string][]string{orgID.String(): {v1beta1.RoleViewer}}
 	mappedIdentity := identity.NewMappedIdentity("testuser", "testuser", []*model.Organization{testOrg}, orgRoles, false, nil)
 
 	// Create context with mapped identity but WITHOUT organization ID

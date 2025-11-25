@@ -1,6 +1,8 @@
 package fileio
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"os"
 	"path/filepath"
 	"testing"
@@ -462,6 +464,140 @@ func TestCopyDir(t *testing.T) {
 				require.NoError(t, err)
 				if tt.verify != nil {
 					tt.verify(t, rw, dstDir)
+				}
+			}
+		})
+	}
+}
+
+func TestUnpackTar(t *testing.T) {
+	require := require.New(t)
+
+	tests := []struct {
+		name          string
+		setupTar      func(t *testing.T, tarPath string)
+		expectError   bool
+		errorContains string
+		verify        func(t *testing.T, rw ReadWriter, destDir string)
+	}{
+		{
+			name: "tar with files and directories",
+			setupTar: func(t *testing.T, tarPath string) {
+				f, err := os.Create(tarPath)
+				require.NoError(err)
+				defer f.Close()
+
+				tw := tar.NewWriter(f)
+				defer tw.Close()
+
+				require.NoError(tw.WriteHeader(&tar.Header{
+					Name:     "testdir/",
+					Mode:     0755,
+					Typeflag: tar.TypeDir,
+				}))
+
+				content := []byte("test content")
+				require.NoError(tw.WriteHeader(&tar.Header{
+					Name:     "testdir/file.txt",
+					Mode:     0600,
+					Size:     int64(len(content)),
+					Typeflag: tar.TypeReg,
+				}))
+				_, err = tw.Write(content)
+				require.NoError(err)
+			},
+			verify: func(t *testing.T, rw ReadWriter, destDir string) {
+				content, err := rw.ReadFile(filepath.Join(destDir, "testdir", "file.txt"))
+				require.NoError(err)
+				require.Equal([]byte("test content"), content)
+
+				info, err := os.Stat(rw.PathFor(filepath.Join(destDir, "testdir", "file.txt")))
+				require.NoError(err)
+				require.Equal(os.FileMode(0600), info.Mode().Perm())
+			},
+		},
+		{
+			name: "gzipped tar",
+			setupTar: func(t *testing.T, tarPath string) {
+				f, err := os.Create(tarPath)
+				require.NoError(err)
+				defer f.Close()
+
+				gzw := gzip.NewWriter(f)
+				defer gzw.Close()
+
+				tw := tar.NewWriter(gzw)
+				defer tw.Close()
+
+				content := []byte("compressed")
+				require.NoError(tw.WriteHeader(&tar.Header{
+					Name:     "file.txt",
+					Mode:     0644,
+					Size:     int64(len(content)),
+					Typeflag: tar.TypeReg,
+				}))
+				_, err = tw.Write(content)
+				require.NoError(err)
+			},
+			verify: func(t *testing.T, rw ReadWriter, destDir string) {
+				content, err := rw.ReadFile(filepath.Join(destDir, "file.txt"))
+				require.NoError(err)
+				require.Equal([]byte("compressed"), content)
+			},
+		},
+		{
+			name: "path traversal blocked",
+			setupTar: func(t *testing.T, tarPath string) {
+				f, err := os.Create(tarPath)
+				require.NoError(err)
+				defer f.Close()
+
+				tw := tar.NewWriter(f)
+				defer tw.Close()
+
+				content := []byte("malicious")
+				require.NoError(tw.WriteHeader(&tar.Header{
+					Name:     "../../../etc/passwd",
+					Mode:     0644,
+					Size:     int64(len(content)),
+					Typeflag: tar.TypeReg,
+				}))
+				_, err = tw.Write(content)
+				require.NoError(err)
+			},
+			expectError:   true,
+			errorContains: "invalid file path in tar",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			rw := NewReadWriter()
+			rw.SetRootdir(tmpDir)
+
+			tarFileName := "test.tar"
+			if tt.name == "gzipped tar" {
+				tarFileName = "test.tar.gz"
+			}
+			tarPath := filepath.Join(tmpDir, tarFileName)
+			tt.setupTar(t, tarPath)
+
+			destDir := "extracted"
+			err := rw.MkdirAll(destDir, DefaultDirectoryPermissions)
+			require.NoError(err)
+
+			err = UnpackTar(rw, tarFileName, destDir)
+
+			if tt.expectError {
+				require.Error(err)
+				if tt.errorContains != "" {
+					require.Contains(err.Error(), tt.errorContains)
+				}
+			} else {
+				require.NoError(err)
+				if tt.verify != nil {
+					tt.verify(t, rw, destDir)
 				}
 			}
 		})

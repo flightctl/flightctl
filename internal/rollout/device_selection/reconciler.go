@@ -4,10 +4,9 @@ import (
 	"context"
 	"net/http"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/service/common"
-	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -15,7 +14,7 @@ import (
 )
 
 type Reconciler interface {
-	Reconcile(ctx context.Context)
+	Reconcile(ctx context.Context, orgID uuid.UUID)
 }
 
 const DeviceSelectionTaskName = "rollout-device-selection"
@@ -39,16 +38,20 @@ func (r *reconciler) emitFleetRolloutStartedEventDueToPolicyRemoval(ctx context.
 		templateVersionName = "unknown"
 		r.log.Warnf("%v/%s: Active rollout detected but no template version found, using 'unknown'", orgId, fleetName)
 	}
-	r.serviceHandler.CreateEvent(ctx, common.GetFleetRolloutStartedEvent(ctx, templateVersionName, fleetName, true, true))
+	r.serviceHandler.CreateEvent(ctx, orgId, common.GetFleetRolloutStartedEvent(ctx, templateVersionName, fleetName, true, true))
 }
 
-func (r *reconciler) emitFleetRolloutBatchDispatchedEvent(ctx context.Context, fleet api.Fleet, templateVersionName string) {
+func (r *reconciler) emitFleetRolloutBatchDispatchedEvent(ctx context.Context, orgId uuid.UUID, fleet api.Fleet, templateVersionName string) {
 	fleetName := lo.FromPtr(fleet.Metadata.Name)
 	batchNumberStr, exists := util.GetFromMap(lo.FromPtr(fleet.Metadata.Annotations), api.FleetAnnotationBatchNumber)
 	if exists {
-		r.serviceHandler.CreateEvent(ctx, common.GetFleetRolloutBatchDispatchedEvent(ctx, fleetName, templateVersionName, batchNumberStr))
+		if evt := common.GetFleetRolloutBatchDispatchedEvent(ctx, fleetName, templateVersionName, batchNumberStr); evt != nil {
+			r.serviceHandler.CreateEvent(ctx, orgId, evt)
+		} else {
+			r.log.Warnf("%v/%s: Failed to build FleetRolloutBatchDispatched event", orgId, fleetName)
+		}
 	} else {
-		r.log.Warnf("%v/%s: No batch number found for FleetRolloutBatchDispatched event", store.NullOrgId, fleetName)
+		r.log.Warnf("%v/%s: No batch number found for FleetRolloutBatchDispatched event", orgId, fleetName)
 	}
 }
 
@@ -60,12 +63,12 @@ func (r *reconciler) reconcileFleet(ctx context.Context, orgId uuid.UUID, fleet 
 
 	annotations := lo.FromPtr(fleet.Metadata.Annotations)
 	if annotations == nil {
-		r.log.Infof("Mo annotations for fleet %v/%s", orgId, fleetName)
+		r.log.Infof("No annotations for fleet %v/%s", orgId, fleetName)
 		return
 	}
 	if fleet.Spec.RolloutPolicy == nil || fleet.Spec.RolloutPolicy.DeviceSelection == nil {
 		r.log.Debugf("No device selection definition for fleet %v/%s", orgId, fleetName)
-		rolloutWasActive, err := cleanupRollout(ctx, &fleet, r.serviceHandler)
+		rolloutWasActive, err := cleanupRollout(ctx, orgId, &fleet, r.serviceHandler)
 		if err != nil {
 			r.log.WithError(err).Errorf("%v/%s: CleanupRollout", orgId, fleetName)
 		}
@@ -143,7 +146,7 @@ func (r *reconciler) reconcileFleet(ctx context.Context, orgId uuid.UUID, fleet 
 				r.log.WithError(err).Errorf("%v/%s: OnRollout", orgId, fleetName)
 			}
 			// Send the current batch to be rolled out.
-			r.emitFleetRolloutBatchDispatchedEvent(ctx, fleet, templateVersionName)
+			r.emitFleetRolloutBatchDispatchedEvent(ctx, orgId, fleet, templateVersionName)
 		}
 
 		// Is the current batch complete
@@ -181,18 +184,13 @@ func (r *reconciler) reconcileFleet(ctx context.Context, orgId uuid.UUID, fleet 
 	}
 }
 
-func (r *reconciler) Reconcile(ctx context.Context) {
-	orgId, ok := util.GetOrgIdFromContext(ctx)
-	if !ok {
-		r.log.Error("No organization ID found in context")
-		return
-	}
-	fleetList, status := r.serviceHandler.ListFleetRolloutDeviceSelection(ctx)
+func (r *reconciler) Reconcile(ctx context.Context, orgID uuid.UUID) {
+	fleetList, status := r.serviceHandler.ListFleetRolloutDeviceSelection(ctx, orgID)
 	if status.Code != http.StatusOK {
 		r.log.WithError(service.ApiStatusToErr(status)).Error("ListRolloutDeviceSelection")
 		return
 	}
 	for _, fleet := range fleetList.Items {
-		r.reconcileFleet(ctx, orgId, fleet)
+		r.reconcileFleet(ctx, orgID, fleet)
 	}
 }

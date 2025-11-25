@@ -110,7 +110,7 @@ Or create directly:
 
 ```bash
 cat <<EOF | flightctl apply -f -
-apiVersion: v1alpha1
+apiVersion: v1beta1
 kind: AuthProvider
 metadata:
   name: my-oidc-provider
@@ -139,7 +139,7 @@ EOF
 
 ```bash
 cat <<EOF | flightctl apply -f -
-apiVersion: v1alpha1
+apiVersion: v1beta1
 kind: AuthProvider
 metadata:
   name: corporate-oidc-dynamic
@@ -178,7 +178,7 @@ This configuration will:
 
 ```bash
 cat <<EOF | flightctl apply -f -
-apiVersion: v1alpha1
+apiVersion: v1beta1
 kind: AuthProvider
 metadata:
   name: corporate-oidc-peruser
@@ -213,7 +213,7 @@ This configuration will:
 
 ```bash
 cat <<EOF | flightctl apply -f -
-apiVersion: v1alpha1
+apiVersion: v1beta1
 kind: AuthProvider
 metadata:
   name: simple-oidc

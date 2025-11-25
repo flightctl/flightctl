@@ -68,7 +68,7 @@ import (
 	"time"
 
 	"github.com/creack/pty"
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/client"
 	service "github.com/flightctl/flightctl/internal/service/common"
@@ -212,28 +212,25 @@ func (h *Harness) ReadClientConfig(filePath string) (*client.Config, error) {
 }
 
 // ExtractAuthURL extracts the authentication URL from an AuthProvider based on its type
-func ExtractAuthURL(provider *v1alpha1.AuthProvider) string {
+func ExtractAuthURL(provider *v1beta1.AuthProvider) string {
 	if provider == nil {
 		return ""
 	}
 	providerType, _ := provider.Spec.Discriminator()
 	switch providerType {
-	case string(v1alpha1.K8s):
+	case string(v1beta1.K8s):
 		if k8sSpec, err := provider.Spec.AsK8sProviderSpec(); err == nil {
 			return k8sSpec.ApiUrl
 		}
-	case string(v1alpha1.Oidc):
+	case string(v1beta1.Oidc):
 		if oidcSpec, err := provider.Spec.AsOIDCProviderSpec(); err == nil {
 			return oidcSpec.Issuer
 		}
-	case "aap":
+	case string(v1beta1.Aap):
 		if aapSpec, err := provider.Spec.AsAapProviderSpec(); err == nil {
-			if aapSpec.ExternalApiUrl != nil {
-				return *aapSpec.ExternalApiUrl
-			}
 			return aapSpec.ApiUrl
 		}
-	case string(v1alpha1.Oauth2):
+	case string(v1beta1.Oauth2):
 		if oauth2Spec, err := provider.Spec.AsOAuth2ProviderSpec(); err == nil {
 			return oauth2Spec.AuthorizationUrl
 		}
@@ -336,9 +333,9 @@ func (h *Harness) GetEnrollmentIDFromServiceLogs(serviceName string) string {
 	return enrollmentId
 }
 
-func (h *Harness) WaitForEnrollmentRequest(id string) *v1alpha1.EnrollmentRequest {
-	var enrollmentRequest *v1alpha1.EnrollmentRequest
-	Eventually(func() *v1alpha1.EnrollmentRequest {
+func (h *Harness) WaitForEnrollmentRequest(id string) *v1beta1.EnrollmentRequest {
+	var enrollmentRequest *v1beta1.EnrollmentRequest
+	Eventually(func() *v1beta1.EnrollmentRequest {
 		resp, _ := h.Client.GetEnrollmentRequestWithResponse(h.Context, id)
 		if resp != nil && resp.JSON200 != nil {
 			enrollmentRequest = resp.JSON200
@@ -348,7 +345,7 @@ func (h *Harness) WaitForEnrollmentRequest(id string) *v1alpha1.EnrollmentReques
 	return enrollmentRequest
 }
 
-func (h *Harness) ApproveEnrollment(id string, approval *v1alpha1.EnrollmentRequestApproval) {
+func (h *Harness) ApproveEnrollment(id string, approval *v1beta1.EnrollmentRequestApproval) {
 	Expect(approval).NotTo(BeNil())
 
 	logrus.Infof("Approving device enrollment: %s", id)
@@ -573,7 +570,7 @@ func waitForResourceContents[T any](id string, description string, fetch func(st
 	}, timeout, "2s").Should(BeNil())
 }
 
-func (h *Harness) EnrollAndWaitForOnlineStatus(labels ...map[string]string) (string, *v1alpha1.Device) {
+func (h *Harness) EnrollAndWaitForOnlineStatus(labels ...map[string]string) (string, *v1beta1.Device) {
 	deviceId := h.GetEnrollmentIDFromServiceLogs("flightctl-agent")
 	logrus.Infof("Enrollment ID found in flightctl-agent service logs: %s", deviceId)
 	Expect(deviceId).NotTo(BeNil())
@@ -597,18 +594,18 @@ func (h *Harness) EnrollAndWaitForOnlineStatus(labels ...map[string]string) (str
 	response, err := h.GetDeviceWithStatusSystem(deviceId)
 	Expect(err).NotTo(HaveOccurred())
 	device := response.JSON200
-	Expect(device.Status.Summary.Status).To(Equal(v1alpha1.DeviceSummaryStatusOnline))
+	Expect(device.Status.Summary.Status).To(Equal(v1beta1.DeviceSummaryStatusOnline))
 	Expect(*device.Status.Summary.Info).To(Equal(service.DeviceStatusInfoHealthy))
 	return deviceId, device
 }
-func (h *Harness) TestEnrollmentApproval(labels ...map[string]string) *v1alpha1.EnrollmentRequestApproval {
+func (h *Harness) TestEnrollmentApproval(labels ...map[string]string) *v1beta1.EnrollmentRequestApproval {
 	mergedLabels := map[string]string{"test-id": h.GetTestIDFromContext()}
 	for _, label := range labels {
 		for k, v := range label {
 			mergedLabels[k] = v
 		}
 	}
-	return &v1alpha1.EnrollmentRequestApproval{
+	return &v1beta1.EnrollmentRequestApproval{
 		Approved: true,
 		Labels:   &mergedLabels,
 	}
@@ -788,43 +785,43 @@ func (h *Harness) GetResourcesByName(resourceType string, resourceName ...string
 }
 
 // Wrapper function for Device
-func (h *Harness) GetDeviceByYaml(deviceYaml string) v1alpha1.Device {
-	return getYamlResourceByFile[v1alpha1.Device](deviceYaml)
+func (h *Harness) GetDeviceByYaml(deviceYaml string) v1beta1.Device {
+	return getYamlResourceByFile[v1beta1.Device](deviceYaml)
 }
 
 // Wrapper function for Fleet
-func (h *Harness) GetFleetByYaml(fleetYaml string) v1alpha1.Fleet {
-	return getYamlResourceByFile[v1alpha1.Fleet](fleetYaml)
+func (h *Harness) GetFleetByYaml(fleetYaml string) v1beta1.Fleet {
+	return getYamlResourceByFile[v1beta1.Fleet](fleetYaml)
 }
 
 // Wrapper function for Repository
-func (h *Harness) GetRepositoryByYaml(repoYaml string) v1alpha1.Repository {
-	return getYamlResourceByFile[v1alpha1.Repository](repoYaml)
+func (h *Harness) GetRepositoryByYaml(repoYaml string) v1beta1.Repository {
+	return getYamlResourceByFile[v1beta1.Repository](repoYaml)
 }
 
 // Wrapper function for ResourceSync
-func (h *Harness) GetResourceSyncByYaml(rSyncYaml string) v1alpha1.ResourceSync {
-	return getYamlResourceByFile[v1alpha1.ResourceSync](rSyncYaml)
+func (h *Harness) GetResourceSyncByYaml(rSyncYaml string) v1beta1.ResourceSync {
+	return getYamlResourceByFile[v1beta1.ResourceSync](rSyncYaml)
 }
 
 // Wrapper function for EnrollmentRequest
-func (h *Harness) GetEnrollmentRequestByYaml(erYaml string) *v1alpha1.EnrollmentRequest {
-	return getYamlResourceByFile[*v1alpha1.EnrollmentRequest](erYaml)
+func (h *Harness) GetEnrollmentRequestByYaml(erYaml string) *v1beta1.EnrollmentRequest {
+	return getYamlResourceByFile[*v1beta1.EnrollmentRequest](erYaml)
 }
 
 // Wrapper function for CertificateSigningRequest
-func (h *Harness) GetCertificateSigningRequestByYaml(csrYaml string) v1alpha1.CertificateSigningRequest {
-	return getYamlResourceByFile[v1alpha1.CertificateSigningRequest](csrYaml)
+func (h *Harness) GetCertificateSigningRequestByYaml(csrYaml string) v1beta1.CertificateSigningRequest {
+	return getYamlResourceByFile[v1beta1.CertificateSigningRequest](csrYaml)
 }
 
 // Create a repository resource
-func (h *Harness) CreateRepository(repositorySpec v1alpha1.RepositorySpec, metadata v1alpha1.ObjectMeta) error {
+func (h *Harness) CreateRepository(repositorySpec v1beta1.RepositorySpec, metadata v1beta1.ObjectMeta) error {
 	// Add test label to metadata
 	h.addTestLabelToResource(&metadata)
 
-	var repository = v1alpha1.Repository{
-		ApiVersion: v1alpha1.RepositoryAPIVersion,
-		Kind:       v1alpha1.RepositoryKind,
+	var repository = v1beta1.Repository{
+		ApiVersion: v1beta1.RepositoryAPIVersion,
+		Kind:       v1beta1.RepositoryKind,
 
 		Metadata: metadata,
 		Spec:     repositorySpec,
@@ -834,10 +831,10 @@ func (h *Harness) CreateRepository(repositorySpec v1alpha1.RepositorySpec, metad
 }
 
 // ReplaceRepository ensures the specified repository exists and is updated to the appropriate values
-func (h *Harness) ReplaceRepository(repositorySpec v1alpha1.RepositorySpec, metadata v1alpha1.ObjectMeta) error {
-	var repository = v1alpha1.Repository{
-		ApiVersion: v1alpha1.RepositoryAPIVersion,
-		Kind:       v1alpha1.RepositoryKind,
+func (h *Harness) ReplaceRepository(repositorySpec v1beta1.RepositorySpec, metadata v1beta1.ObjectMeta) error {
+	var repository = v1beta1.Repository{
+		ApiVersion: v1beta1.RepositoryAPIVersion,
+		Kind:       v1beta1.RepositoryKind,
 
 		Metadata: metadata,
 		Spec:     repositorySpec,
@@ -1021,7 +1018,7 @@ func (h *Harness) CheckApplicationComposeFileExist(applicationName string, Compo
 	return err
 }
 
-func (h Harness) CheckApplicationStatus(deviceId string, applicationName string) (v1alpha1.ApplicationStatusType, error) {
+func (h Harness) CheckApplicationStatus(deviceId string, applicationName string) (v1beta1.ApplicationStatusType, error) {
 	device, err := h.GetDevice(deviceId)
 	if err != nil {
 		return "", fmt.Errorf("failed to get device %s: %w", deviceId, err)
@@ -1174,7 +1171,7 @@ func (h *Harness) addTestLabelsToYAML(yamlContent string) (string, error) {
 	return string(modifiedDoc), nil
 }
 
-func conditionExists(conditions []v1alpha1.Condition, predicate func(condition *v1alpha1.Condition) bool) bool {
+func conditionExists(conditions []v1beta1.Condition, predicate func(condition *v1beta1.Condition) bool) bool {
 	for _, condition := range conditions {
 		if predicate(&condition) {
 			return true
@@ -1184,15 +1181,15 @@ func conditionExists(conditions []v1alpha1.Condition, predicate func(condition *
 }
 
 // ConditionExists checks if a specific condition exists for the device with the given type, status, and reason.
-func ConditionExists(d *v1alpha1.Device, condType v1alpha1.ConditionType, condStatus v1alpha1.ConditionStatus, condReason string) bool {
-	return conditionExists(d.Status.Conditions, func(condition *v1alpha1.Condition) bool {
+func ConditionExists(d *v1beta1.Device, condType v1beta1.ConditionType, condStatus v1beta1.ConditionStatus, condReason string) bool {
+	return conditionExists(d.Status.Conditions, func(condition *v1beta1.Condition) bool {
 		return condition.Type == condType && condition.Status == condStatus && condition.Reason == condReason
 	})
 }
 
 // ConditionStatusExists returns true if the specified type and status exists on the condition slice
-func ConditionStatusExists(conditions []v1alpha1.Condition, condType v1alpha1.ConditionType, status v1alpha1.ConditionStatus) bool {
-	return conditionExists(conditions, func(condition *v1alpha1.Condition) bool {
+func ConditionStatusExists(conditions []v1beta1.Condition, condType v1beta1.ConditionType, status v1beta1.ConditionStatus) bool {
+	return conditionExists(conditions, func(condition *v1beta1.Condition) bool {
 		return condition.Type == condType && condition.Status == status
 	})
 }
@@ -1229,7 +1226,7 @@ func (h *Harness) WaitForClusterRegistered(deviceId string, timeout time.Duratio
 
 		device := response.JSON200
 		// Check if device metadata is valid and matches the managed cluster name
-		if (device != nil && device.Metadata != v1alpha1.ObjectMeta{} && device.Metadata.Name != nil) {
+		if (device != nil && device.Metadata != v1beta1.ObjectMeta{} && device.Metadata.Name != nil) {
 			if strings.Contains(string(out), *device.Metadata.Name) {
 				return nil // Success: managed cluster is registered
 			}
@@ -1497,16 +1494,16 @@ func (h *Harness) GetTestIDFromContext() string {
 }
 
 // StoreDeviceInTestContext stores device data in the test context for use within the same test
-func (h *Harness) StoreDeviceInTestContext(deviceId string, device *v1alpha1.Device) {
+func (h *Harness) StoreDeviceInTestContext(deviceId string, device *v1beta1.Device) {
 	ctx := context.WithValue(h.Context, util.DeviceIDKey, deviceId)
 	ctx = context.WithValue(ctx, util.DeviceKey, device)
 	h.Context = ctx
 }
 
 // GetDeviceFromTestContext retrieves device data from the test context
-func (h *Harness) GetDeviceFromTestContext() (string, *v1alpha1.Device, bool) {
+func (h *Harness) GetDeviceFromTestContext() (string, *v1beta1.Device, bool) {
 	deviceId, hasDeviceId := h.Context.Value(util.DeviceIDKey).(string)
-	device, hasDevice := h.Context.Value(util.DeviceKey).(*v1alpha1.Device)
+	device, hasDevice := h.Context.Value(util.DeviceKey).(*v1beta1.Device)
 	return deviceId, device, hasDeviceId && hasDevice
 }
 
@@ -1532,7 +1529,7 @@ func (h *Harness) GetTestDataFromContext(key string) (interface{}, bool) {
 }
 
 // addTestLabelToResource adds the test ID as a label to the resource metadata
-func (h *Harness) addTestLabelToResource(metadata *v1alpha1.ObjectMeta) {
+func (h *Harness) addTestLabelToResource(metadata *v1beta1.ObjectMeta) {
 	testID := h.GetTestIDFromContext()
 
 	if metadata.Labels == nil {
@@ -1571,7 +1568,7 @@ func (h *Harness) AddLabelsToYAML(yamlContent string, addLabels map[string]strin
 	return string(modifiedDoc), nil
 }
 
-func (h *Harness) addTestLabelToEnrollmentApprovalRequest(approval *v1alpha1.EnrollmentRequestApproval) {
+func (h *Harness) addTestLabelToEnrollmentApprovalRequest(approval *v1beta1.EnrollmentRequestApproval) {
 	testID := h.GetTestIDFromContext()
 
 	if approval.Labels == nil {
@@ -1582,7 +1579,7 @@ func (h *Harness) addTestLabelToEnrollmentApprovalRequest(approval *v1alpha1.Enr
 }
 
 // SetLabelsForResource sets labels on any resource while preserving the test-id label
-func (h *Harness) SetLabelsForResource(metadata *v1alpha1.ObjectMeta, labels map[string]string) {
+func (h *Harness) SetLabelsForResource(metadata *v1beta1.ObjectMeta, labels map[string]string) {
 	testID := h.GetTestIDFromContext()
 
 	metadata.Labels = &map[string]string{}
@@ -1598,17 +1595,17 @@ func (h *Harness) SetLabelsForResource(metadata *v1alpha1.ObjectMeta, labels map
 }
 
 // SetLabelsForDeviceMetadata sets labels on device metadata while preserving the test-id label
-func (h *Harness) SetLabelsForDeviceMetadata(metadata *v1alpha1.ObjectMeta, labels map[string]string) {
+func (h *Harness) SetLabelsForDeviceMetadata(metadata *v1beta1.ObjectMeta, labels map[string]string) {
 	h.SetLabelsForResource(metadata, labels)
 }
 
 // SetLabelsForFleetMetadata sets labels on fleet metadata while preserving the test-id label
-func (h *Harness) SetLabelsForFleetMetadata(metadata *v1alpha1.ObjectMeta, labels map[string]string) {
+func (h *Harness) SetLabelsForFleetMetadata(metadata *v1beta1.ObjectMeta, labels map[string]string) {
 	h.SetLabelsForResource(metadata, labels)
 }
 
 // SetLabelsForRepositoryMetadata sets labels on repository metadata while preserving the test-id label
-func (h *Harness) SetLabelsForRepositoryMetadata(metadata *v1alpha1.ObjectMeta, labels map[string]string) {
+func (h *Harness) SetLabelsForRepositoryMetadata(metadata *v1beta1.ObjectMeta, labels map[string]string) {
 	h.SetLabelsForResource(metadata, labels)
 }
 
@@ -1803,7 +1800,7 @@ func (h *Harness) PushContentToGitServerRepo(repoName, filePath, content, commit
 }
 
 // CreateRepository creates a Repository resource pointing to the git server repository
-func (h *Harness) CreateGitRepository(repoName string, repositorySpec v1alpha1.RepositorySpec) error {
+func (h *Harness) CreateGitRepository(repoName string, repositorySpec v1beta1.RepositorySpec) error {
 	if repoName == "" {
 		return fmt.Errorf("repository name cannot be empty")
 	}
@@ -1814,10 +1811,10 @@ func (h *Harness) CreateGitRepository(repoName string, repositorySpec v1alpha1.R
 	}
 
 	// Create the Repository resource
-	repository := v1alpha1.Repository{
-		ApiVersion: v1alpha1.RepositoryAPIVersion,
-		Kind:       v1alpha1.RepositoryKind,
-		Metadata: v1alpha1.ObjectMeta{
+	repository := v1beta1.Repository{
+		ApiVersion: v1beta1.RepositoryAPIVersion,
+		Kind:       v1beta1.RepositoryKind,
+		Metadata: v1beta1.ObjectMeta{
 			Name: &repoName,
 		},
 		Spec: repositorySpec,
@@ -1852,7 +1849,7 @@ func (h *Harness) UpdateGitServerRepository(repoName, filePath, content, commitM
 }
 
 // CreateResourceSync creates a ResourceSync resource that points to a git repository
-func (h *Harness) CreateResourceSync(name, repoName string, spec v1alpha1.ResourceSyncSpec) error {
+func (h *Harness) CreateResourceSync(name, repoName string, spec v1beta1.ResourceSyncSpec) error {
 	if name == "" {
 		return fmt.Errorf("ResourceSync name cannot be empty")
 	}
@@ -1865,10 +1862,10 @@ func (h *Harness) CreateResourceSync(name, repoName string, spec v1alpha1.Resour
 		spec.Repository = repoName
 	}
 
-	resourceSync := v1alpha1.ResourceSync{
-		ApiVersion: v1alpha1.ResourceSyncAPIVersion,
-		Kind:       v1alpha1.ResourceSyncKind,
-		Metadata: v1alpha1.ObjectMeta{
+	resourceSync := v1beta1.ResourceSync{
+		ApiVersion: v1beta1.ResourceSyncAPIVersion,
+		Kind:       v1beta1.ResourceSyncKind,
+		Metadata: v1beta1.ObjectMeta{
 			Name: &name,
 		},
 		Spec: spec,
@@ -1884,7 +1881,7 @@ func (h *Harness) CreateResourceSync(name, repoName string, spec v1alpha1.Resour
 }
 
 // ReplaceResourceSync replaces an existing ResourceSync resource
-func (h *Harness) ReplaceResourceSync(name, repoName string, spec v1alpha1.ResourceSyncSpec) error {
+func (h *Harness) ReplaceResourceSync(name, repoName string, spec v1beta1.ResourceSyncSpec) error {
 	if name == "" {
 		return fmt.Errorf("ResourceSync name cannot be empty")
 	}
@@ -1897,10 +1894,10 @@ func (h *Harness) ReplaceResourceSync(name, repoName string, spec v1alpha1.Resou
 		spec.Repository = repoName
 	}
 
-	resourceSync := v1alpha1.ResourceSync{
-		ApiVersion: v1alpha1.ResourceSyncAPIVersion,
-		Kind:       v1alpha1.ResourceSyncKind,
-		Metadata: v1alpha1.ObjectMeta{
+	resourceSync := v1beta1.ResourceSync{
+		ApiVersion: v1beta1.ResourceSyncAPIVersion,
+		Kind:       v1beta1.ResourceSyncKind,
+		Metadata: v1beta1.ObjectMeta{
 			Name: &name,
 		},
 		Spec: spec,
@@ -1931,11 +1928,11 @@ func (h *Harness) DeleteResourceSync(name string) error {
 }
 
 // CreateFleetConfigInGitRepo creates a fleet configuration and pushes it to a git repository
-func (h *Harness) CreateFleetConfigInGitRepo(repoName, fleetName string, fleetSpec v1alpha1.FleetSpec) error {
-	fleet := v1alpha1.Fleet{
-		ApiVersion: v1alpha1.FleetAPIVersion,
-		Kind:       v1alpha1.FleetKind,
-		Metadata: v1alpha1.ObjectMeta{
+func (h *Harness) CreateFleetConfigInGitRepo(repoName, fleetName string, fleetSpec v1beta1.FleetSpec) error {
+	fleet := v1beta1.Fleet{
+		ApiVersion: v1beta1.FleetAPIVersion,
+		Kind:       v1beta1.FleetKind,
+		Metadata: v1beta1.ObjectMeta{
 			Name: &fleetName,
 		},
 		Spec: fleetSpec,
@@ -1953,11 +1950,11 @@ func (h *Harness) CreateFleetConfigInGitRepo(repoName, fleetName string, fleetSp
 }
 
 // CreateDeviceConfigInGitRepo creates a device configuration and pushes it to a git repository
-func (h *Harness) CreateDeviceConfigInGitRepo(repoName, deviceName string, deviceSpec v1alpha1.DeviceSpec) error {
-	device := v1alpha1.Device{
-		ApiVersion: v1alpha1.DeviceAPIVersion,
-		Kind:       v1alpha1.DeviceKind,
-		Metadata: v1alpha1.ObjectMeta{
+func (h *Harness) CreateDeviceConfigInGitRepo(repoName, deviceName string, deviceSpec v1beta1.DeviceSpec) error {
+	device := v1beta1.Device{
+		ApiVersion: v1beta1.DeviceAPIVersion,
+		Kind:       v1beta1.DeviceKind,
+		Metadata: v1beta1.ObjectMeta{
 			Name: &deviceName,
 		},
 		Spec: &deviceSpec,
@@ -1975,7 +1972,7 @@ func (h *Harness) CreateDeviceConfigInGitRepo(repoName, deviceName string, devic
 }
 
 // WaitForResourceSyncStatus waits for a ResourceSync to reach a specific status
-func (h *Harness) WaitForResourceSyncStatus(name string, expectedStatus v1alpha1.ConditionStatus, timeout string) error {
+func (h *Harness) WaitForResourceSyncStatus(name string, expectedStatus v1beta1.ConditionStatus, timeout string) error {
 	Eventually(func() error {
 		response, err := h.Client.GetResourceSyncWithResponse(h.Context, name)
 		if err != nil {
@@ -2040,7 +2037,7 @@ func (h *Harness) CleanupGitRepositories() error {
 }
 
 // CreateGitRepositoryWithContent creates a git repository with initial content
-func (h *Harness) CreateGitRepositoryWithContent(repoName, filePath, content string, repositorySpec v1alpha1.RepositorySpec) error {
+func (h *Harness) CreateGitRepositoryWithContent(repoName, filePath, content string, repositorySpec v1beta1.RepositorySpec) error {
 	// Create the git repository and Repository resource
 	if err := h.CreateGitRepository(repoName, repositorySpec); err != nil {
 		return fmt.Errorf("failed to create git repository: %w", err)
@@ -2122,11 +2119,11 @@ func (h *Harness) CreateResource(resourceType string) (string, string, []byte, e
 
 		// Remove resourceVersion before marshaling to avoid conflicts
 		switch resource := resource.(type) {
-		case *v1alpha1.Device:
+		case *v1beta1.Device:
 			resource.Metadata.ResourceVersion = nil
-		case *v1alpha1.Fleet:
+		case *v1beta1.Fleet:
 			resource.Metadata.ResourceVersion = nil
-		case *v1alpha1.Repository:
+		case *v1beta1.Repository:
 			resource.Metadata.ResourceVersion = nil
 		}
 

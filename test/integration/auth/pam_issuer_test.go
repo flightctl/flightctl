@@ -5,7 +5,7 @@ package auth_test
 import (
 	"context"
 
-	pamapi "github.com/flightctl/flightctl/api/v1alpha1/pam-issuer"
+	pamapi "github.com/flightctl/flightctl/api/v1beta1/pam-issuer"
 	"github.com/flightctl/flightctl/internal/auth/issuer/pam"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/config/ca"

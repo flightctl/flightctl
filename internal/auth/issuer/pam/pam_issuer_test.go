@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
-	pamapi "github.com/flightctl/flightctl/api/v1alpha1/pam-issuer"
+	api "github.com/flightctl/flightctl/api/v1beta1"
+	pamapi "github.com/flightctl/flightctl/api/v1beta1/pam-issuer"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/config/ca"
 	fccrypto "github.com/flightctl/flightctl/internal/crypto"

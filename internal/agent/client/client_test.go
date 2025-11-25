@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	baseclient "github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -20,7 +20,7 @@ func TestResolvePullSecret(t *testing.T) {
 
 	tests := []struct {
 		name                 string
-		deviceSpec           *v1alpha1.DeviceSpec
+		deviceSpec           *v1beta1.DeviceSpec
 		authPath             string
 		setupOnDiskAuth      func(fileio.ReadWriter) // function to write an on-disk auth file
 		expectedFound        bool
@@ -29,8 +29,8 @@ func TestResolvePullSecret(t *testing.T) {
 	}{
 		{
 			name: "inline auth found in device spec",
-			deviceSpec: createDeviceSpecWithInlineConfig([]v1alpha1.ConfigProviderSpec{
-				createInlineConfigProvider(require, "auth-config", []v1alpha1.FileSpec{
+			deviceSpec: createDeviceSpecWithInlineConfig([]v1beta1.ConfigProviderSpec{
+				createInlineConfigProvider(require, "auth-config", []v1beta1.FileSpec{
 					{
 						Path:    "/etc/containers/auth.json",
 						Content: `{"auths":{"registry.redhat.io":{"username":"user","password":"pass"}}}`,
@@ -43,8 +43,8 @@ func TestResolvePullSecret(t *testing.T) {
 		},
 		{
 			name: "inline auth found with whitespace in path",
-			deviceSpec: createDeviceSpecWithInlineConfig([]v1alpha1.ConfigProviderSpec{
-				createInlineConfigProvider(require, "auth-config", []v1alpha1.FileSpec{
+			deviceSpec: createDeviceSpecWithInlineConfig([]v1beta1.ConfigProviderSpec{
+				createInlineConfigProvider(require, "auth-config", []v1beta1.FileSpec{
 					{
 						Path:    "  /etc/containers/auth.json  ",
 						Content: `{"auths":{"example.com":{"auth":"dXNlcjpwYXNz"}}}`,
@@ -57,14 +57,14 @@ func TestResolvePullSecret(t *testing.T) {
 		},
 		{
 			name: "multiple config providers - auth found in second provider",
-			deviceSpec: createDeviceSpecWithInlineConfig([]v1alpha1.ConfigProviderSpec{
-				createInlineConfigProvider(require, "other-config", []v1alpha1.FileSpec{
+			deviceSpec: createDeviceSpecWithInlineConfig([]v1beta1.ConfigProviderSpec{
+				createInlineConfigProvider(require, "other-config", []v1beta1.FileSpec{
 					{
 						Path:    "/etc/other/config.yaml",
 						Content: "some: config",
 					},
 				}),
-				createInlineConfigProvider(require, "auth-config", []v1alpha1.FileSpec{
+				createInlineConfigProvider(require, "auth-config", []v1beta1.FileSpec{
 					{
 						Path:    "/etc/containers/auth.json",
 						Content: `{"auths":{"quay.io":{"username":"test","password":"secret"}}}`,
@@ -77,8 +77,8 @@ func TestResolvePullSecret(t *testing.T) {
 		},
 		{
 			name: "no inline auth - on-disk file exists",
-			deviceSpec: createDeviceSpecWithInlineConfig([]v1alpha1.ConfigProviderSpec{
-				createInlineConfigProvider(require, "other-config", []v1alpha1.FileSpec{
+			deviceSpec: createDeviceSpecWithInlineConfig([]v1beta1.ConfigProviderSpec{
+				createInlineConfigProvider(require, "other-config", []v1beta1.FileSpec{
 					{
 						Path:    "/etc/other/config.json",
 						Content: `{"other": "config"}`,
@@ -97,8 +97,8 @@ func TestResolvePullSecret(t *testing.T) {
 		},
 		{
 			name: "no inline auth - on-disk file does not exist",
-			deviceSpec: createDeviceSpecWithInlineConfig([]v1alpha1.ConfigProviderSpec{
-				createInlineConfigProvider(require, "other-config", []v1alpha1.FileSpec{
+			deviceSpec: createDeviceSpecWithInlineConfig([]v1beta1.ConfigProviderSpec{
+				createInlineConfigProvider(require, "other-config", []v1beta1.FileSpec{
 					{
 						Path:    "/etc/other/file.txt",
 						Content: "content",
@@ -110,14 +110,14 @@ func TestResolvePullSecret(t *testing.T) {
 		},
 		{
 			name:          "nil device config",
-			deviceSpec:    &v1alpha1.DeviceSpec{Config: nil},
+			deviceSpec:    &v1beta1.DeviceSpec{Config: nil},
 			authPath:      "/etc/containers/auth.json",
 			expectedFound: false,
 		},
 		{
 			name: "empty config providers",
-			deviceSpec: &v1alpha1.DeviceSpec{
-				Config: &[]v1alpha1.ConfigProviderSpec{},
+			deviceSpec: &v1beta1.DeviceSpec{
+				Config: &[]v1beta1.ConfigProviderSpec{},
 			},
 			authPath: "/etc/containers/auth.json",
 			setupOnDiskAuth: func(rw fileio.ReadWriter) {
@@ -130,8 +130,8 @@ func TestResolvePullSecret(t *testing.T) {
 		},
 		{
 			name: "config provider with AsInlineConfigProviderSpec error",
-			deviceSpec: &v1alpha1.DeviceSpec{
-				Config: &[]v1alpha1.ConfigProviderSpec{
+			deviceSpec: &v1beta1.DeviceSpec{
+				Config: &[]v1beta1.ConfigProviderSpec{
 					{}, // invalid provider
 				},
 			},
@@ -141,8 +141,8 @@ func TestResolvePullSecret(t *testing.T) {
 		},
 		{
 			name: "multiple files in inline config - auth not found",
-			deviceSpec: createDeviceSpecWithInlineConfig([]v1alpha1.ConfigProviderSpec{
-				createInlineConfigProvider(require, "system-config", []v1alpha1.FileSpec{
+			deviceSpec: createDeviceSpecWithInlineConfig([]v1beta1.ConfigProviderSpec{
+				createInlineConfigProvider(require, "system-config", []v1beta1.FileSpec{
 					{
 						Path:    "/etc/systemd/system/myservice.service",
 						Content: "[Unit]\nDescription=My Service",
@@ -225,7 +225,7 @@ func TestAuthFromSpec(t *testing.T) {
 
 	tests := []struct {
 		name          string
-		deviceSpec    *v1alpha1.DeviceSpec
+		deviceSpec    *v1beta1.DeviceSpec
 		authPath      string
 		expectedAuth  string
 		expectedFound bool
@@ -233,8 +233,8 @@ func TestAuthFromSpec(t *testing.T) {
 	}{
 		{
 			name: "auth found in first provider",
-			deviceSpec: createDeviceSpecWithInlineConfig([]v1alpha1.ConfigProviderSpec{
-				createInlineConfigProvider(require, "auth-config", []v1alpha1.FileSpec{
+			deviceSpec: createDeviceSpecWithInlineConfig([]v1beta1.ConfigProviderSpec{
+				createInlineConfigProvider(require, "auth-config", []v1beta1.FileSpec{
 					{
 						Path:    "/etc/containers/auth.json",
 						Content: `{"auths":{"registry.com":{"auth":"token123"}}}`,
@@ -247,8 +247,8 @@ func TestAuthFromSpec(t *testing.T) {
 		},
 		{
 			name: "auth found with path trimming",
-			deviceSpec: createDeviceSpecWithInlineConfig([]v1alpha1.ConfigProviderSpec{
-				createInlineConfigProvider(require, "auth-config", []v1alpha1.FileSpec{
+			deviceSpec: createDeviceSpecWithInlineConfig([]v1beta1.ConfigProviderSpec{
+				createInlineConfigProvider(require, "auth-config", []v1beta1.FileSpec{
 					{
 						Path:    "  /etc/containers/auth.json  \n\t",
 						Content: `{"auths":{"example.org":{"username":"test"}}}`,
@@ -261,8 +261,8 @@ func TestAuthFromSpec(t *testing.T) {
 		},
 		{
 			name: "auth not found different path",
-			deviceSpec: createDeviceSpecWithInlineConfig([]v1alpha1.ConfigProviderSpec{
-				createInlineConfigProvider(require, "registry-config", []v1alpha1.FileSpec{
+			deviceSpec: createDeviceSpecWithInlineConfig([]v1beta1.ConfigProviderSpec{
+				createInlineConfigProvider(require, "registry-config", []v1beta1.FileSpec{
 					{
 						Path:    "/etc/containers/registries.conf",
 						Content: "unqualified-search-registries = ['docker.io']",
@@ -275,7 +275,7 @@ func TestAuthFromSpec(t *testing.T) {
 		},
 		{
 			name: "nil config",
-			deviceSpec: &v1alpha1.DeviceSpec{
+			deviceSpec: &v1beta1.DeviceSpec{
 				Config: nil,
 			},
 			authPath:      "/etc/containers/auth.json",
@@ -284,8 +284,8 @@ func TestAuthFromSpec(t *testing.T) {
 		},
 		{
 			name: "empty providers",
-			deviceSpec: &v1alpha1.DeviceSpec{
-				Config: &[]v1alpha1.ConfigProviderSpec{},
+			deviceSpec: &v1beta1.DeviceSpec{
+				Config: &[]v1beta1.ConfigProviderSpec{},
 			},
 			authPath:      "/etc/containers/auth.json",
 			expectedAuth:  "",
@@ -293,10 +293,10 @@ func TestAuthFromSpec(t *testing.T) {
 		},
 		{
 			name: "provider conversion error handled",
-			deviceSpec: &v1alpha1.DeviceSpec{
-				Config: &[]v1alpha1.ConfigProviderSpec{
+			deviceSpec: &v1beta1.DeviceSpec{
+				Config: &[]v1beta1.ConfigProviderSpec{
 					{}, // invalid provider
-					createInlineConfigProvider(require, "auth-config", []v1alpha1.FileSpec{
+					createInlineConfigProvider(require, "auth-config", []v1beta1.FileSpec{
 						{
 							Path:    "/etc/containers/auth.json",
 							Content: `{"auths":{"valid.registry":{"auth":"validtoken"}}}`,
@@ -310,14 +310,14 @@ func TestAuthFromSpec(t *testing.T) {
 		},
 		{
 			name: "multiple providers - auth found in second",
-			deviceSpec: createDeviceSpecWithInlineConfig([]v1alpha1.ConfigProviderSpec{
-				createInlineConfigProvider(require, "hostname-config", []v1alpha1.FileSpec{
+			deviceSpec: createDeviceSpecWithInlineConfig([]v1beta1.ConfigProviderSpec{
+				createInlineConfigProvider(require, "hostname-config", []v1beta1.FileSpec{
 					{
 						Path:    "/etc/hostname",
 						Content: "testhost",
 					},
 				}),
-				createInlineConfigProvider(require, "auth-config", []v1alpha1.FileSpec{
+				createInlineConfigProvider(require, "auth-config", []v1beta1.FileSpec{
 					{
 						Path:    "/etc/containers/auth.json",
 						Content: `{"auths":{"second.registry":{"password":"secret"}}}`,
@@ -330,8 +330,8 @@ func TestAuthFromSpec(t *testing.T) {
 		},
 		{
 			name: "multiple files in provider - auth found",
-			deviceSpec: createDeviceSpecWithInlineConfig([]v1alpha1.ConfigProviderSpec{
-				createInlineConfigProvider(require, "multi-config", []v1alpha1.FileSpec{
+			deviceSpec: createDeviceSpecWithInlineConfig([]v1beta1.ConfigProviderSpec{
+				createInlineConfigProvider(require, "multi-config", []v1beta1.FileSpec{
 					{
 						Path:    "/etc/systemd/system/test.service",
 						Content: "[Unit]\nDescription=Test",
@@ -367,9 +367,9 @@ func TestAuthFromSpec(t *testing.T) {
 	}
 }
 
-func createInlineConfigProvider(require *require.Assertions, name string, files []v1alpha1.FileSpec) v1alpha1.ConfigProviderSpec {
-	var provider v1alpha1.ConfigProviderSpec
-	err := provider.FromInlineConfigProviderSpec(v1alpha1.InlineConfigProviderSpec{
+func createInlineConfigProvider(require *require.Assertions, name string, files []v1beta1.FileSpec) v1beta1.ConfigProviderSpec {
+	var provider v1beta1.ConfigProviderSpec
+	err := provider.FromInlineConfigProviderSpec(v1beta1.InlineConfigProviderSpec{
 		Name:   name,
 		Inline: files,
 	})
@@ -377,8 +377,8 @@ func createInlineConfigProvider(require *require.Assertions, name string, files 
 	return provider
 }
 
-func createDeviceSpecWithInlineConfig(providers []v1alpha1.ConfigProviderSpec) *v1alpha1.DeviceSpec {
-	return &v1alpha1.DeviceSpec{
+func createDeviceSpecWithInlineConfig(providers []v1beta1.ConfigProviderSpec) *v1beta1.DeviceSpec {
+	return &v1beta1.DeviceSpec{
 		Config: &providers,
 	}
 }
@@ -395,7 +395,7 @@ func TestNewFromConfigWithRetry(t *testing.T) {
 		} else {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			_, err := w.Write([]byte(`{"apiVersion":"v1alpha1","kind":"Device","metadata":{"name":"test"}}`))
+			_, err := w.Write([]byte(`{"apiVersion":"v1beta1","kind":"Device","metadata":{"name":"test"}}`))
 			require.NoError(err)
 		}
 	}))

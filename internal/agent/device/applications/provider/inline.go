@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -21,30 +21,32 @@ type inlineProvider struct {
 	handler    appTypeHandler
 }
 
-func newInlineHandler(appType v1alpha1.AppType, name string, rw fileio.ReadWriter, spec *v1alpha1.InlineApplicationProviderSpec, l *log.PrefixLogger, vm VolumeManager) (appTypeHandler, error) {
+func newInlineHandler(appType v1beta1.AppType, name string, rw fileio.ReadWriter, spec *v1beta1.InlineApplicationProviderSpec, l *log.PrefixLogger, vm VolumeManager) (appTypeHandler, error) {
 	switch appType {
-	case v1alpha1.AppTypeQuadlet:
+	case v1beta1.AppTypeQuadlet:
 		qb := &quadletHandler{
-			name: name,
-			rw:   rw,
+			name:        name,
+			rw:          rw,
+			specVolumes: lo.FromPtr(spec.Volumes),
 		}
 		qb.volumeProvider = func() ([]*Volume, error) {
 			return extractQuadletVolumesFromSpec(qb.ID(), spec.Inline)
 		}
 		return qb, nil
-	case v1alpha1.AppTypeCompose:
+	case v1beta1.AppTypeCompose:
 		return &composeHandler{
-			name: name,
-			rw:   rw,
-			log:  l,
-			vm:   vm,
+			name:        name,
+			rw:          rw,
+			log:         l,
+			vm:          vm,
+			specVolumes: lo.FromPtr(spec.Volumes),
 		}, nil
 	default:
 		return nil, fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
 	}
 }
 
-func newInline(log *log.PrefixLogger, podman *client.Podman, spec *v1alpha1.ApplicationProviderSpec, readWriter fileio.ReadWriter) (*inlineProvider, error) {
+func newInline(log *log.PrefixLogger, podman *client.Podman, spec *v1beta1.ApplicationProviderSpec, readWriter fileio.ReadWriter) (*inlineProvider, error) {
 	provider, err := spec.AsInlineApplicationProviderSpec()
 	if err != nil {
 		return nil, fmt.Errorf("getting provider spec:%w", err)
@@ -128,7 +130,7 @@ func (p *inlineProvider) Install(ctx context.Context) error {
 	return p.handler.Install(ctx)
 }
 
-func (p *inlineProvider) writeInlineContent(appPath string, contents []v1alpha1.ApplicationContent) error {
+func (p *inlineProvider) writeInlineContent(appPath string, contents []v1beta1.ApplicationContent) error {
 	if err := p.readWriter.MkdirAll(appPath, fileio.DefaultDirectoryPermissions); err != nil {
 		return fmt.Errorf("creating directory: %w", err)
 	}

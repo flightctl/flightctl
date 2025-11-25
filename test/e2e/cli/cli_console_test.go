@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/test/e2e/resources"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	"github.com/flightctl/flightctl/test/login"
@@ -79,10 +79,10 @@ var _ = Describe("CLI - device console", func() {
 		// kick off an update
 		device, _, err := harness.WaitForBootstrapAndUpdateToVersion(deviceID, ":v4")
 		Expect(err).ToNot(HaveOccurred())
-		Eventually(resources.GetJSONByName[*v1alpha1.Device]).
+		Eventually(resources.GetJSONByName[*v1beta1.Device]).
 			WithArguments(harness, resources.Devices, deviceID).
-			Should(WithTransform((*v1alpha1.Device).IsUpdating, BeTrue()))
-		Expect(device.Status.Summary.Status).To(Equal(v1alpha1.DeviceSummaryStatusOnline))
+			Should(WithTransform((*v1beta1.Device).IsUpdating, BeTrue()))
+		Expect(device.Status.Summary.Status).To(Equal(v1beta1.DeviceSummaryStatusOnline))
 
 		sessions := make([]*e2e.ConsoleSession, 0, sessionsToOpen)
 		for i := range sessionsToOpen {
@@ -95,16 +95,16 @@ var _ = Describe("CLI - device console", func() {
 		}
 
 		By("waiting for the update to finish")
-		util.EventuallySlow(resources.GetJSONByName[*v1alpha1.Device]).
+		util.EventuallySlow(resources.GetJSONByName[*v1beta1.Device]).
 			WithArguments(harness, resources.Devices, deviceID).
-			Should(WithTransform((*v1alpha1.Device).IsUpdatedToDeviceSpec, BeTrue()))
+			Should(WithTransform((*v1beta1.Device).IsUpdatedToDeviceSpec, BeTrue()))
 
 		// ensure applications become healthy
-		Eventually(resources.GetJSONByName[*v1alpha1.Device]).
+		Eventually(resources.GetJSONByName[*v1beta1.Device]).
 			WithArguments(harness, resources.Devices, deviceID).
-			Should(WithTransform(func(d *v1alpha1.Device) v1alpha1.ApplicationsSummaryStatusType {
+			Should(WithTransform(func(d *v1beta1.Device) v1beta1.ApplicationsSummaryStatusType {
 				return d.Status.ApplicationsSummary.Status
-			}, Equal(v1alpha1.ApplicationsSummaryStatusHealthy)))
+			}, Equal(v1beta1.ApplicationsSummaryStatusHealthy)))
 
 		currentRenderedVersion, err := harness.GetCurrentDeviceRenderedVersion(deviceID)
 		Expect(err).ToNot(HaveOccurred())
@@ -186,9 +186,9 @@ var _ = Describe("CLI - device console", func() {
 		_, _, err := harness.WaitForBootstrapAndUpdateToVersion(deviceID, ":v4")
 		Expect(err).ToNot(HaveOccurred())
 
-		Eventually(resources.GetJSONByName[*v1alpha1.Device]).
+		Eventually(resources.GetJSONByName[*v1beta1.Device]).
 			WithArguments(harness, resources.Devices, deviceID).
-			Should(WithTransform((*v1alpha1.Device).IsUpdating, BeTrue()))
+			Should(WithTransform((*v1beta1.Device).IsUpdating, BeTrue()))
 
 		GinkgoWriter.Printf("Simulating network failure\n")
 		DeferCleanup(func() { _ = harness.FixNetworkFailure() })
@@ -201,19 +201,19 @@ var _ = Describe("CLI - device console", func() {
 			Should(ContainSubstring("Pulling image"))
 
 		GinkgoWriter.Printf("Simulating network disruption for %s\n", disruptionTime)
-		Consistently(resources.GetJSONByName[*v1alpha1.Device]).
+		Consistently(resources.GetJSONByName[*v1beta1.Device]).
 			WithTimeout(disruptionTime).
 			WithPolling(disruptionTime/10).
 			WithArguments(harness, resources.Devices, deviceID).
-			Should(WithTransform((*v1alpha1.Device).IsUpdating, BeTrue()))
+			Should(WithTransform((*v1beta1.Device).IsUpdating, BeTrue()))
 
 		err = harness.FixNetworkFailure()
 		Expect(err).ToNot(HaveOccurred())
 
 		GinkgoWriter.Printf("Network disruption fixed. Waiting for the device to finish updating\n")
-		util.EventuallySlow(resources.GetJSONByName[*v1alpha1.Device]).
+		util.EventuallySlow(resources.GetJSONByName[*v1beta1.Device]).
 			WithArguments(harness, resources.Devices, deviceID).
-			Should(WithTransform((*v1alpha1.Device).IsUpdatedToDeviceSpec, BeTrue()))
+			Should(WithTransform((*v1beta1.Device).IsUpdatedToDeviceSpec, BeTrue()))
 	})
 
 	It("recovers from image pull network connection error", Label("83029"), func() {
@@ -229,9 +229,9 @@ var _ = Describe("CLI - device console", func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		GinkgoWriter.Printf("Waiting for image pull activity\n")
-		Eventually(resources.GetJSONByName[*v1alpha1.Device]).
+		Eventually(resources.GetJSONByName[*v1beta1.Device]).
 			WithArguments(harness, resources.Devices, deviceID).
-			Should(WithTransform((*v1alpha1.Device).IsUpdating, BeTrue()))
+			Should(WithTransform((*v1beta1.Device).IsUpdating, BeTrue()))
 
 		util.EventuallySlow(harness.ReadPrimaryVMAgentLogs).
 			WithArguments(logLookbackDuration, util.FLIGHTCTL_AGENT_SERVICE).
@@ -254,9 +254,9 @@ var _ = Describe("CLI - device console", func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		GinkgoWriter.Printf("Waiting for the device to finish updating\n")
-		util.EventuallySlow(resources.GetJSONByName[*v1alpha1.Device]).
+		util.EventuallySlow(resources.GetJSONByName[*v1beta1.Device]).
 			WithArguments(harness, resources.Devices, deviceID).
-			Should(WithTransform((*v1alpha1.Device).IsUpdatedToDeviceSpec, BeTrue()))
+			Should(WithTransform((*v1beta1.Device).IsUpdatedToDeviceSpec, BeTrue()))
 	})
 
 	It("provides console --help and auxiliary features", Label("81866", "sanity"), func() {

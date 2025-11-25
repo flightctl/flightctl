@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -47,7 +47,7 @@ func TestEnsureScheduled(t *testing.T) {
 				{
 					Type:       OCITypeImage,
 					Reference:  "quay.io/test/existing:latest",
-					PullPolicy: v1alpha1.PullIfNotPresent,
+					PullPolicy: v1beta1.PullIfNotPresent,
 				},
 			},
 			setupMocks: func(mockExec *executer.MockExecuter, mockResourceManager *resource.MockManager) {
@@ -63,7 +63,7 @@ func TestEnsureScheduled(t *testing.T) {
 				{
 					Type:       OCITypeImage,
 					Reference:  "quay.io/test/missing:latest",
-					PullPolicy: v1alpha1.PullIfNotPresent,
+					PullPolicy: v1beta1.PullIfNotPresent,
 				},
 			},
 			setupMocks: func(mockExec *executer.MockExecuter, mockResourceManager *resource.MockManager) {
@@ -80,12 +80,12 @@ func TestEnsureScheduled(t *testing.T) {
 				{
 					Type:       OCITypeImage,
 					Reference:  "quay.io/test/ready1:latest",
-					PullPolicy: v1alpha1.PullIfNotPresent,
+					PullPolicy: v1beta1.PullIfNotPresent,
 				},
 				{
 					Type:       OCITypeImage,
 					Reference:  "quay.io/test/missing1:latest",
-					PullPolicy: v1alpha1.PullIfNotPresent,
+					PullPolicy: v1beta1.PullIfNotPresent,
 				},
 			},
 			setupMocks: func(mockExec *executer.MockExecuter, mockResourceManager *resource.MockManager) {
@@ -107,7 +107,7 @@ func TestEnsureScheduled(t *testing.T) {
 				{
 					Type:       OCITypeArtifact,
 					Reference:  "quay.io/test/artifact:latest",
-					PullPolicy: v1alpha1.PullIfNotPresent,
+					PullPolicy: v1beta1.PullIfNotPresent,
 				},
 			},
 			setupMocks: func(mockExec *executer.MockExecuter, mockResourceManager *resource.MockManager) {
@@ -124,7 +124,7 @@ func TestEnsureScheduled(t *testing.T) {
 				{
 					Type:       OCITypeArtifact,
 					Reference:  "quay.io/test/existing-artifact:latest",
-					PullPolicy: v1alpha1.PullIfNotPresent,
+					PullPolicy: v1beta1.PullIfNotPresent,
 				},
 			},
 			setupMocks: func(mockExec *executer.MockExecuter, mockResourceManager *resource.MockManager) {
@@ -140,12 +140,12 @@ func TestEnsureScheduled(t *testing.T) {
 				{
 					Type:       OCITypeImage,
 					Reference:  "quay.io/test/existing-image:latest",
-					PullPolicy: v1alpha1.PullIfNotPresent,
+					PullPolicy: v1beta1.PullIfNotPresent,
 				},
 				{
 					Type:       OCITypeArtifact,
 					Reference:  "quay.io/test/missing-artifact:latest",
-					PullPolicy: v1alpha1.PullIfNotPresent,
+					PullPolicy: v1beta1.PullIfNotPresent,
 				},
 			},
 			setupMocks: func(mockExec *executer.MockExecuter, mockResourceManager *resource.MockManager) {
@@ -167,12 +167,12 @@ func TestEnsureScheduled(t *testing.T) {
 				{
 					Type:       OCITypeImage,
 					Reference:  "quay.io/test/existing-image:latest",
-					PullPolicy: v1alpha1.PullIfNotPresent,
+					PullPolicy: v1beta1.PullIfNotPresent,
 				},
 				{
 					Type:       OCITypeArtifact,
 					Reference:  "quay.io/test/existing-artifact:latest",
-					PullPolicy: v1alpha1.PullIfNotPresent,
+					PullPolicy: v1beta1.PullIfNotPresent,
 				},
 			},
 			setupMocks: func(mockExec *executer.MockExecuter, mockResourceManager *resource.MockManager) {
@@ -193,7 +193,7 @@ func TestEnsureScheduled(t *testing.T) {
 				{
 					Type:       OCITypeArtifact,
 					Reference:  "quay.io/test/always-artifact:latest",
-					PullPolicy: v1alpha1.PullAlways,
+					PullPolicy: v1beta1.PullAlways,
 				},
 			},
 			setupMocks: func(mockExec *executer.MockExecuter, mockResourceManager *resource.MockManager) {
@@ -209,7 +209,7 @@ func TestEnsureScheduled(t *testing.T) {
 				{
 					Type:       OCITypeImage,
 					Reference:  "quay.io/test/always:latest",
-					PullPolicy: v1alpha1.PullAlways,
+					PullPolicy: v1beta1.PullAlways,
 				},
 			},
 			setupMocks: func(mockExec *executer.MockExecuter, mockResourceManager *resource.MockManager) {
@@ -242,14 +242,14 @@ func TestEnsureScheduled(t *testing.T) {
 			manager := NewPrefetchManager(log, podman, client.NewSkopeo(log, mockExec, rw), rw, timeout, mockResourceManager)
 
 			// register a collector that returns the test targets
-			manager.RegisterOCICollector(newTestOCICollector(func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) (*OCICollection, error) {
+			manager.RegisterOCICollector(newTestOCICollector(func(ctx context.Context, current, desired *v1beta1.DeviceSpec) (*OCICollection, error) {
 				return &OCICollection{Targets: tt.targets}, nil
 			}))
 
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			err := manager.BeforeUpdate(ctx, &v1alpha1.DeviceSpec{}, &v1alpha1.DeviceSpec{})
+			err := manager.BeforeUpdate(ctx, &v1beta1.DeviceSpec{}, &v1beta1.DeviceSpec{})
 			if tt.expectedError != nil {
 				require.Error(err)
 				require.ErrorIs(err, tt.expectedError)
@@ -376,23 +376,23 @@ func TestStatus(t *testing.T) {
 		{
 			Type:       OCITypeImage,
 			Reference:  "quay.io/test/existing:latest",
-			PullPolicy: v1alpha1.PullIfNotPresent,
+			PullPolicy: v1beta1.PullIfNotPresent,
 		},
 		{
 			Type:       OCITypeImage,
 			Reference:  "quay.io/test/missing:latest",
-			PullPolicy: v1alpha1.PullIfNotPresent,
+			PullPolicy: v1beta1.PullIfNotPresent,
 		},
 	}
 
-	manager.RegisterOCICollector(newTestOCICollector(func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) (*OCICollection, error) {
+	manager.RegisterOCICollector(newTestOCICollector(func(ctx context.Context, current, desired *v1beta1.DeviceSpec) (*OCICollection, error) {
 		return &OCICollection{Targets: targets}, nil
 	}))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	err := manager.BeforeUpdate(ctx, &v1alpha1.DeviceSpec{}, &v1alpha1.DeviceSpec{})
+	err := manager.BeforeUpdate(ctx, &v1beta1.DeviceSpec{}, &v1beta1.DeviceSpec{})
 	require.Error(err)
 	require.ErrorIs(err, errors.ErrPrefetchNotReady)
 
@@ -437,12 +437,12 @@ func TestBeforeUpdate(t *testing.T) {
 						{
 							Type:       OCITypeImage,
 							Reference:  testImageV1,
-							PullPolicy: v1alpha1.PullIfNotPresent,
+							PullPolicy: v1beta1.PullIfNotPresent,
 						},
 						{
 							Type:       OCITypeImage,
 							Reference:  testImageV2,
-							PullPolicy: v1alpha1.PullIfNotPresent,
+							PullPolicy: v1beta1.PullIfNotPresent,
 						},
 					}}, nil
 				},
@@ -465,12 +465,12 @@ func TestBeforeUpdate(t *testing.T) {
 						{
 							Type:       OCITypeImage,
 							Reference:  testImageV1,
-							PullPolicy: v1alpha1.PullIfNotPresent,
+							PullPolicy: v1beta1.PullIfNotPresent,
 						},
 						{
 							Type:       OCITypeImage,
 							Reference:  testImageV2,
-							PullPolicy: v1alpha1.PullIfNotPresent,
+							PullPolicy: v1beta1.PullIfNotPresent,
 						},
 					}}, nil
 				},
@@ -492,12 +492,12 @@ func TestBeforeUpdate(t *testing.T) {
 						{
 							Type:       OCITypeImage,
 							Reference:  testImageV1,
-							PullPolicy: v1alpha1.PullIfNotPresent,
+							PullPolicy: v1beta1.PullIfNotPresent,
 						},
 						{
 							Type:       OCITypeImage,
 							Reference:  testImageV2,
-							PullPolicy: v1alpha1.PullIfNotPresent,
+							PullPolicy: v1beta1.PullIfNotPresent,
 						},
 					}}, nil
 				},
@@ -521,12 +521,12 @@ func TestBeforeUpdate(t *testing.T) {
 						{
 							Type:       OCITypeImage,
 							Reference:  testImageV1,
-							PullPolicy: v1alpha1.PullIfNotPresent,
+							PullPolicy: v1beta1.PullIfNotPresent,
 						},
 						{
 							Type:       OCITypeImage,
 							Reference:  testImageV2,
-							PullPolicy: v1alpha1.PullIfNotPresent,
+							PullPolicy: v1beta1.PullIfNotPresent,
 						},
 					}}, nil
 				},
@@ -536,7 +536,7 @@ func TestBeforeUpdate(t *testing.T) {
 						{
 							Type:       OCITypeImage,
 							Reference:  testOSImage,
-							PullPolicy: v1alpha1.PullIfNotPresent,
+							PullPolicy: v1beta1.PullIfNotPresent,
 						},
 					}}, nil
 				},
@@ -573,7 +573,7 @@ func TestBeforeUpdate(t *testing.T) {
 						{
 							Type:       OCITypeArtifact,
 							Reference:  "quay.io/test/artifact:latest",
-							PullPolicy: v1alpha1.PullIfNotPresent,
+							PullPolicy: v1beta1.PullIfNotPresent,
 						},
 					}}, nil
 				},
@@ -593,7 +593,7 @@ func TestBeforeUpdate(t *testing.T) {
 						{
 							Type:       OCITypeArtifact,
 							Reference:  "quay.io/test/existing-artifact:latest",
-							PullPolicy: v1alpha1.PullIfNotPresent,
+							PullPolicy: v1beta1.PullIfNotPresent,
 						},
 					}}, nil
 				},
@@ -612,12 +612,12 @@ func TestBeforeUpdate(t *testing.T) {
 						{
 							Type:       OCITypeImage,
 							Reference:  "quay.io/test/existing-image:latest",
-							PullPolicy: v1alpha1.PullIfNotPresent,
+							PullPolicy: v1beta1.PullIfNotPresent,
 						},
 						{
 							Type:       OCITypeArtifact,
 							Reference:  "quay.io/test/missing-artifact:latest",
-							PullPolicy: v1alpha1.PullIfNotPresent,
+							PullPolicy: v1beta1.PullIfNotPresent,
 						},
 					}}, nil
 				},
@@ -640,12 +640,12 @@ func TestBeforeUpdate(t *testing.T) {
 						{
 							Type:       OCITypeImage,
 							Reference:  "quay.io/test/existing-image:latest",
-							PullPolicy: v1alpha1.PullIfNotPresent,
+							PullPolicy: v1beta1.PullIfNotPresent,
 						},
 						{
 							Type:       OCITypeArtifact,
 							Reference:  "quay.io/test/existing-artifact:latest",
-							PullPolicy: v1alpha1.PullIfNotPresent,
+							PullPolicy: v1beta1.PullIfNotPresent,
 						},
 					}}, nil
 				},
@@ -667,7 +667,7 @@ func TestBeforeUpdate(t *testing.T) {
 						{
 							Type:       OCITypeArtifact,
 							Reference:  "quay.io/test/always-artifact:latest",
-							PullPolicy: v1alpha1.PullAlways,
+							PullPolicy: v1beta1.PullAlways,
 						},
 					}}, nil
 				},
@@ -686,7 +686,7 @@ func TestBeforeUpdate(t *testing.T) {
 						{
 							Type:       OCITypeImage,
 							Reference:  testImageV1,
-							PullPolicy: v1alpha1.PullAlways,
+							PullPolicy: v1beta1.PullAlways,
 						},
 					}}, nil
 				},
@@ -723,7 +723,7 @@ func TestBeforeUpdate(t *testing.T) {
 
 			// Register collectors
 			for _, collector := range tt.collectors {
-				manager.RegisterOCICollector(newTestOCICollector(func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) (*OCICollection, error) {
+				manager.RegisterOCICollector(newTestOCICollector(func(ctx context.Context, current, desired *v1beta1.DeviceSpec) (*OCICollection, error) {
 					return collector()
 				}))
 			}
@@ -731,7 +731,7 @@ func TestBeforeUpdate(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			err := manager.BeforeUpdate(ctx, &v1alpha1.DeviceSpec{}, &v1alpha1.DeviceSpec{})
+			err := manager.BeforeUpdate(ctx, &v1beta1.DeviceSpec{}, &v1beta1.DeviceSpec{})
 			if tt.wantErr != nil {
 				require.Error(err)
 				if errors.Is(tt.wantErr, errors.ErrPrefetchNotReady) {
@@ -854,12 +854,12 @@ func TestPullSecretCleanup(t *testing.T) {
 	}
 
 	// simulate a collector that would be called by applications manager
-	appCollector := func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) (*OCICollection, error) {
+	appCollector := func(ctx context.Context, current, desired *v1beta1.DeviceSpec) (*OCICollection, error) {
 		return &OCICollection{Targets: []OCIPullTarget{
 			{
 				Type:       OCITypeImage,
 				Reference:  "registry.example.com/app:latest",
-				PullPolicy: v1alpha1.PullIfNotPresent,
+				PullPolicy: v1beta1.PullIfNotPresent,
 				PullSecret: appPullSecret,
 			},
 		}}, nil
@@ -869,9 +869,9 @@ func TestPullSecretCleanup(t *testing.T) {
 	manager.RegisterOCICollector(newTestOCICollector(appCollector))
 
 	// simulate the device update flow
-	current := &v1alpha1.DeviceSpec{}
-	desired := &v1alpha1.DeviceSpec{
-		Applications: &[]v1alpha1.ApplicationProviderSpec{
+	current := &v1beta1.DeviceSpec{}
+	desired := &v1beta1.DeviceSpec{
+		Applications: &[]v1beta1.ApplicationProviderSpec{
 			{
 				// simulated application spec
 			},
@@ -907,14 +907,14 @@ type taskState struct {
 
 // testOCICollector is a test helper that implements OCICollector interface
 type testOCICollector struct {
-	collectFn func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) (*OCICollection, error)
+	collectFn func(ctx context.Context, current, desired *v1beta1.DeviceSpec) (*OCICollection, error)
 }
 
-func (t *testOCICollector) CollectOCITargets(ctx context.Context, current, desired *v1alpha1.DeviceSpec) (*OCICollection, error) {
+func (t *testOCICollector) CollectOCITargets(ctx context.Context, current, desired *v1beta1.DeviceSpec) (*OCICollection, error) {
 	return t.collectFn(ctx, current, desired)
 }
 
-func newTestOCICollector(fn func(ctx context.Context, current, desired *v1alpha1.DeviceSpec) (*OCICollection, error)) OCICollector {
+func newTestOCICollector(fn func(ctx context.Context, current, desired *v1beta1.DeviceSpec) (*OCICollection, error)) OCICollector {
 	return &testOCICollector{collectFn: fn}
 }
 
@@ -1281,7 +1281,7 @@ func TestTargetChangeCleanup(t *testing.T) {
 				newTargets[i] = OCIPullTarget{
 					Type:       OCITypeImage,
 					Reference:  ref,
-					PullPolicy: v1alpha1.PullIfNotPresent,
+					PullPolicy: v1beta1.PullIfNotPresent,
 				}
 			}
 

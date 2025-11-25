@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"sigs.k8s.io/yaml"
 )
@@ -226,7 +226,7 @@ func TestEditOptions_applyChanges(t *testing.T) {
 			kind:         DeviceKind,
 			resourceName: "test-device",
 			yamlContent: `
-apiVersion: flightctl.io/v1alpha1
+apiVersion: flightctl.io/v1beta1
 kind: Device
 metadata:
   name: test-device
@@ -306,7 +306,7 @@ metadata:
 			kind:         DeviceKind,
 			resourceName: "test-device",
 			yamlContent: `
-apiVersion: flightctl.io/v1alpha1
+apiVersion: flightctl.io/v1beta1
 kind: Device
 metadata:
   name: test-device
@@ -330,7 +330,7 @@ spec:
 			kind:         DeviceKind,
 			resourceName: "test-device",
 			yamlContent: `
-apiVersion: flightctl.io/v1alpha1
+apiVersion: flightctl.io/v1beta1
 kind: Device
 metadata:
   name: test-device
@@ -404,7 +404,7 @@ spec:
 				// If YAML parsing fails, use defaults
 				originalResource := &apiclient.GetDeviceResponse{
 					JSON200: &api.Device{
-						ApiVersion: "flightctl.io/v1alpha1",
+						ApiVersion: "flightctl.io/v1beta1",
 						Kind:       "Device",
 						Metadata: api.ObjectMeta{
 							Name:            &resourceName,
@@ -536,7 +536,7 @@ func TestEditOptions_calculateJSONPatch(t *testing.T) {
 		{
 			name: "successful patch with resourceVersion test",
 			originalResource: map[string]interface{}{
-				"apiVersion": "flightctl.io/v1alpha1",
+				"apiVersion": "flightctl.io/v1beta1",
 				"kind":       "Device",
 				"metadata": map[string]interface{}{
 					"name":            "test-device",
@@ -547,7 +547,7 @@ func TestEditOptions_calculateJSONPatch(t *testing.T) {
 				},
 			},
 			editedResource: map[string]interface{}{
-				"apiVersion": "flightctl.io/v1alpha1",
+				"apiVersion": "flightctl.io/v1beta1",
 				"kind":       "Device",
 				"metadata": map[string]interface{}{
 					"name":            "test-device",
@@ -564,7 +564,7 @@ func TestEditOptions_calculateJSONPatch(t *testing.T) {
 		{
 			name: "no changes - should return only resourceVersion test",
 			originalResource: map[string]interface{}{
-				"apiVersion": "flightctl.io/v1alpha1",
+				"apiVersion": "flightctl.io/v1beta1",
 				"kind":       "Device",
 				"metadata": map[string]interface{}{
 					"name":            "test-device",
@@ -575,7 +575,7 @@ func TestEditOptions_calculateJSONPatch(t *testing.T) {
 				},
 			},
 			editedResource: map[string]interface{}{
-				"apiVersion": "flightctl.io/v1alpha1",
+				"apiVersion": "flightctl.io/v1beta1",
 				"kind":       "Device",
 				"metadata": map[string]interface{}{
 					"name":            "test-device",
@@ -592,7 +592,7 @@ func TestEditOptions_calculateJSONPatch(t *testing.T) {
 		{
 			name: "protected field change - should be filtered and return only resourceVersion test",
 			originalResource: map[string]interface{}{
-				"apiVersion": "flightctl.io/v1alpha1",
+				"apiVersion": "flightctl.io/v1beta1",
 				"kind":       "Device",
 				"metadata": map[string]interface{}{
 					"name":            "test-device",
@@ -600,7 +600,7 @@ func TestEditOptions_calculateJSONPatch(t *testing.T) {
 				},
 			},
 			editedResource: map[string]interface{}{
-				"apiVersion": "flightctl.io/v1alpha1",
+				"apiVersion": "flightctl.io/v1beta1",
 				"kind":       "Fleet", // This should be filtered out
 				"metadata": map[string]interface{}{
 					"name":            "test-device",
@@ -614,7 +614,7 @@ func TestEditOptions_calculateJSONPatch(t *testing.T) {
 		{
 			name: "user changed resourceVersion - should include test and fail",
 			originalResource: map[string]interface{}{
-				"apiVersion": "flightctl.io/v1alpha1",
+				"apiVersion": "flightctl.io/v1beta1",
 				"kind":       "Device",
 				"metadata": map[string]interface{}{
 					"name":            "test-device",
@@ -625,7 +625,7 @@ func TestEditOptions_calculateJSONPatch(t *testing.T) {
 				},
 			},
 			editedResource: map[string]interface{}{
-				"apiVersion": "flightctl.io/v1alpha1",
+				"apiVersion": "flightctl.io/v1beta1",
 				"kind":       "Device",
 				"metadata": map[string]interface{}{
 					"name":            "test-device",
@@ -642,7 +642,7 @@ func TestEditOptions_calculateJSONPatch(t *testing.T) {
 		{
 			name: "user removed resourceVersion - should not include test operation",
 			originalResource: map[string]interface{}{
-				"apiVersion": "flightctl.io/v1alpha1",
+				"apiVersion": "flightctl.io/v1beta1",
 				"kind":       "Device",
 				"metadata": map[string]interface{}{
 					"name":            "test-device",
@@ -653,7 +653,7 @@ func TestEditOptions_calculateJSONPatch(t *testing.T) {
 				},
 			},
 			editedResource: map[string]interface{}{
-				"apiVersion": "flightctl.io/v1alpha1",
+				"apiVersion": "flightctl.io/v1beta1",
 				"kind":       "Device",
 				"metadata": map[string]interface{}{
 					"name": "test-device",
@@ -670,7 +670,7 @@ func TestEditOptions_calculateJSONPatch(t *testing.T) {
 		{
 			name: "user removed entire metadata - should not include test operation",
 			originalResource: map[string]interface{}{
-				"apiVersion": "flightctl.io/v1alpha1",
+				"apiVersion": "flightctl.io/v1beta1",
 				"kind":       "Device",
 				"metadata": map[string]interface{}{
 					"name":            "test-device",
@@ -681,7 +681,7 @@ func TestEditOptions_calculateJSONPatch(t *testing.T) {
 				},
 			},
 			editedResource: map[string]interface{}{
-				"apiVersion": "flightctl.io/v1alpha1",
+				"apiVersion": "flightctl.io/v1beta1",
 				"kind":       "Device",
 				// metadata removed entirely by user
 				"spec": map[string]interface{}{

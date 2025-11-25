@@ -97,7 +97,7 @@ flightctl get device/54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg -o yam
 The output will look similar to this:
 
 ```yaml
-apiVersion: flightctl.io/v1alpha1
+apiVersion: flightctl.io/v1beta1
 kind: Device
 metadata:
   name: 54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg
@@ -231,7 +231,7 @@ flightctl get device/54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg -o yam
 Next, use your preferred editor to edit `my_device.yaml`, for example:
 
 ```yaml
-apiVersion: flightctl.io/v1alpha1
+apiVersion: flightctl.io/v1beta1
 kind: Device
 metadata:
   labels:
@@ -275,7 +275,7 @@ During the process, the agent sends status updates to the service. You can monit
 To update a device using the CLI, get the device's current resource manifest, edit it to specify the new OS name and version target, then apply the updated resource.
 
 ```yaml
-apiVersion: flightctl.io/v1alpha1
+apiVersion: flightctl.io/v1beta1
 kind: Device
 metadata:
   name: some_device_name
@@ -470,7 +470,7 @@ The Inline Config Provider takes a list of file specifications, whereby each fil
 To implement the example from [Getting Configuration from a Git Repository](managing-devices.md#getting-configuration-from-a-git-repository), first, create a file `site-settings-repo.yaml` that contains the following definition for a Repository resource named `site-settings`:
 
 ```yaml
-apiVersion: flightctl.io/v1alpha1
+apiVersion: flightctl.io/v1beta1
 kind: Repository
 metadata:
   name: site-settings
@@ -501,7 +501,7 @@ site-settings  git   https://github.com/flightctl/flightctl-demos  True
 To apply the configuration for `factory-a` to a device, you would update the device's specification as follows:
 
 ```yaml
-apiVersion: flightctl.io/v1alpha1
+apiVersion: flightctl.io/v1beta1
 kind: Device
 metadata:
   name: some_device_name
@@ -576,7 +576,7 @@ For each application in the "applications" section of the device's specification
 To deploy an application package from an OCI registry, specify it in the device's `spec.applications[]` as follows:
 
 ```yaml
-apiVersion: flightctl.io/v1alpha1
+apiVersion: flightctl.io/v1beta1
 kind: Device
 metadata:
   name: some_device_name
@@ -621,7 +621,7 @@ The Inline Application Provider accepts a list of application content with the f
 | ContentEncoding | How the contents are encoded. Must be either "plain" or "base64". Defaults to "plain". |
 
 ```yaml
-apiVersion: flightctl.io/v1alpha1
+apiVersion: flightctl.io/v1beta1
 kind: Device
 metadata:
   name: some_device_name
@@ -669,7 +669,7 @@ Each volume definition includes:
 #### Example Inline Application with Volume
 
 ```yaml
-apiVersion: flightctl.io/v1alpha1
+apiVersion: flightctl.io/v1beta1
 kind: Device
 metadata:
   name: some_device_name
@@ -828,7 +828,7 @@ To monitor resource utilization, add resource monitors in the `resources:` secti
 For example, to monitor disk utilization on the filesystem associated with the path /applications, which can trigger a warning alert if the average utilization exceeds 75% for more than 30 minutes and a critical alert if it exceeds 90% for over 10 minutes with a sampling interval of 5 seconds.
 
 ```yaml
-apiVersion: flightctl.io/v1alpha1
+apiVersion: flightctl.io/v1beta1
 kind: Device
 metadata:
   name: some_device_name

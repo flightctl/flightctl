@@ -117,29 +117,32 @@ app.kubernetes.io/version: {{ .Chart.AppVersion }}
 {{- end }}
 
 {{/*
-Get or generate a stable OAuth client secret.
-Follows the same pattern as database secrets: lookup existing, fallback to value, or generate new.
+Get the OAuth client secret from values or lookup existing secret.
+Uses a cached value in .Values to ensure consistency across all template evaluations.
 */}}
-{{- define "flightctl.getOpenShiftOAuthClientSecret" }}
-  {{- if .Values.global.auth.openshift.clientSecret }}
-    {{- printf .Values.global.auth.openshift.clientSecret }}
-  {{- else }}
-    {{- $secretName := printf "%s-secret" (include "flightctl.getOpenShiftOAuthClientId" .) }}
-    {{- $existingSecret := (lookup "v1" "Secret" "openshift-config" $secretName) }}
-    {{- if $existingSecret }}
-      {{- if and (hasKey $existingSecret "data") (hasKey $existingSecret.data "clientSecret") }}
-        {{- index $existingSecret.data "clientSecret" | b64dec }}
-      {{- else }}
-        {{- fail (printf "Secret %s is missing data.clientSecret – delete it or add the key." $secretName) }}
-      {{- end }}
-    {{- else }}
-      {{- randAlphaNum 32 }}
-    {{- end }}
-  {{- end }}
-{{- end }}
+{{- define "flightctl.getOpenShiftOAuthClientSecret" -}}
+{{- if .Values.global.auth.openshift.clientSecret -}}
+{{- .Values.global.auth.openshift.clientSecret -}}
+{{- else -}}
+{{- $secretName := printf "%s-secret" (include "flightctl.getOpenShiftOAuthClientId" .) -}}
+{{- $existingSecret := (lookup "v1" "Secret" "openshift-config" $secretName) -}}
+{{- if $existingSecret -}}
+{{- if and (hasKey $existingSecret "data") (hasKey $existingSecret.data "clientSecret") -}}
+{{- index $existingSecret.data "clientSecret" | b64dec -}}
+{{- else -}}
+{{- fail (printf "Secret %s is missing data.clientSecret – delete it or add the key." $secretName) -}}
+{{- end -}}
+{{- else -}}
+{{- if not (hasKey .Values "__generatedOAuthSecret") -}}
+{{- $_ := set .Values "__generatedOAuthSecret" (randAlphaNum 32) -}}
+{{- end -}}
+{{- .Values.__generatedOAuthSecret -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
 
 {{- define "flightctl.getHttpScheme" }}
-  {{- if or (eq (include "flightctl.getServiceExposeMethod" . ) "route") (.Values.global.baseDomainTls).cert }}
+  {{- if or (eq (include "flightctl.getServiceExposeMethod" . ) "route") .Values.global.baseDomainTlsSecretName }}
     {{- printf "https" }}
   {{- else }}
     {{- printf "http" }}
@@ -280,10 +283,22 @@ Database hostname helper.
 Returns the database hostname, either from values or the default cluster service name.
 */}}
 {{- define "flightctl.dbHostname" }}
-{{- if eq .Values.db.external "enabled" -}}
-{{ .Values.db.hostname }}
-{{- else -}}
-{{- default (printf "flightctl-db.%s.svc.cluster.local" (default .Release.Namespace .Values.global.internalNamespace)) .Values.db.hostname }}
+{{- if eq .Values.db.type "external" }}
+  {{- .Values.db.external.hostname }}
+{{- else }}
+  {{- printf "flightctl-db.%s.svc.cluster.local" (default .Release.Namespace .Values.global.internalNamespace) }}
+{{- end }}
+{{- end }}
+
+{{/*
+Database port helper.
+Returns the database port, either from values or the default cluster service port.
+*/}}
+{{- define "flightctl.dbPort" }}
+{{- if eq .Values.db.type "external" }}
+  {{- .Values.db.external.port }}
+{{- else }}
+  {{- 5432 }}
 {{- end }}
 {{- end }}
 
@@ -323,60 +338,60 @@ Parameters:
   - name: DB_HOST
     value: "{{ include "flightctl.dbHostname" $context }}"
   - name: DB_PORT
-    value: "{{ $context.Values.db.port }}"
+    value: "{{ include "flightctl.dbPort" $context }}"
   - name: DB_NAME
     value: "{{ $context.Values.db.name }}"
   {{- if eq $userType "app" }}
   - name: DB_USER
     valueFrom:
       secretKeyRef:
-        name: flightctl-db-app-secret
+        name: {{ include "flightctl.dbAppUserSecret" $context }}
         key: user
   - name: DB_PASSWORD
     valueFrom:
       secretKeyRef:
-        name: flightctl-db-app-secret
+        name: {{ include "flightctl.dbAppUserSecret" $context }}
         key: userPassword
   {{- else if eq $userType "migration" }}
   - name: DB_USER
     valueFrom:
       secretKeyRef:
-        name: flightctl-db-migration-secret
+        name: {{ include "flightctl.dbMigrationUserSecret" $context }}
         key: migrationUser
   - name: DB_PASSWORD
     valueFrom:
       secretKeyRef:
-        name: flightctl-db-migration-secret
+        name: {{ include "flightctl.dbMigrationUserSecret" $context }}
         key: migrationPassword
   {{- else if eq $userType "admin" }}
   - name: DB_USER
     valueFrom:
       secretKeyRef:
-        name: flightctl-db-admin-secret
+        name: {{ default "flightctl-db-admin-secret" $context.Values.db.builtin.masterUserSecretName }}
         key: masterUser
   - name: DB_PASSWORD
     valueFrom:
       secretKeyRef:
-        name: flightctl-db-admin-secret
+        name: {{ default "flightctl-db-admin-secret" $context.Values.db.builtin.masterUserSecretName }}
         key: masterPassword
   {{- else }}
   {{- fail (printf "Invalid userType '%s'. Must be one of: app, migration, admin" $userType) }}
   {{- end }}
-  {{- if $context.Values.db.sslmode }}
+  {{- if eq $context.Values.db.type "external" }}
+  {{- if $context.Values.db.external.sslmode }}
   - name: DB_SSL_MODE
-    value: "{{ $context.Values.db.sslmode }}"
+    value: "{{ $context.Values.db.external.sslmode }}"
   {{- end }}
-  {{- if $context.Values.db.sslcert }}
+  {{- if $context.Values.db.external.tlsSecretName }}
   - name: DB_SSL_CERT
-    value: "{{ $context.Values.db.sslcert }}"
-  {{- end }}
-  {{- if $context.Values.db.sslkey }}
+    value: /etc/ssl/postgres/client-cert.pem
   - name: DB_SSL_KEY
-    value: "{{ $context.Values.db.sslkey }}"
+    value: /etc/ssl/postgres/client-key.pem
   {{- end }}
-  {{- if $context.Values.db.sslrootcert }}
+  {{- if $context.Values.db.external.tlsConfigMapName }}
   - name: DB_SSL_ROOT_CERT
-    value: "{{ $context.Values.db.sslrootcert }}"
+    value: /etc/ssl/postgres/ca-cert.pem
+  {{- end }}
   {{- end }}
   volumeMounts:
   {{- include "flightctl.dbSslVolumeMounts" $context | nindent 2 }}
@@ -460,7 +475,7 @@ SSL certificate volume mounts for database connections.
 Usage: {{- include "flightctl.dbSslVolumeMounts" . | nindent X }}
 */}}
 {{- define "flightctl.dbSslVolumeMounts" -}}
-{{- if or .Values.db.sslConfigMap .Values.db.sslSecret }}
+{{- if and (eq .Values.db.type "external") (or .Values.db.external.tlsConfigMapName .Values.db.external.tlsSecretName) }}
 - name: postgres-ssl-certs
   mountPath: /etc/ssl/postgres
   readOnly: true
@@ -472,21 +487,21 @@ SSL certificate volumes for database connections.
 Usage: {{- include "flightctl.dbSslVolumes" . | nindent X }}
 */}}
 {{- define "flightctl.dbSslVolumes" -}}
-{{- if or .Values.db.sslConfigMap .Values.db.sslSecret }}
+{{- if and (eq .Values.db.type "external") (or .Values.db.external.tlsConfigMapName .Values.db.external.tlsSecretName) }}
 - name: postgres-ssl-certs
   projected:
     sources:
-    {{- if .Values.db.sslConfigMap }}
+    {{- if .Values.db.external.tlsConfigMapName }}
     - configMap:
-        name: {{ .Values.db.sslConfigMap }}
+        name: {{ .Values.db.external.tlsConfigMapName }}
         items:
         - key: ca-cert.pem
           path: ca-cert.pem
           mode: 0444
     {{- end }}
-    {{- if .Values.db.sslSecret }}
+    {{- if .Values.db.external.tlsSecretName }}
     - secret:
-        name: {{ .Values.db.sslSecret }}
+        name: {{ .Values.db.external.tlsSecretName }}
         items:
         - key: client-cert.pem
           path: client-cert.pem
@@ -495,5 +510,21 @@ Usage: {{- include "flightctl.dbSslVolumes" . | nindent X }}
           path: client-key.pem
           mode: 0400
     {{- end }}
+{{- end }}
+{{- end }}
+
+{{- define "flightctl.dbAppUserSecret" -}}
+{{- if eq .Values.db.type "external" }}
+  {{- .Values.db.external.applicationUserSecretName }}
+{{- else }}
+  {{- default "flightctl-db-app-secret" .Values.db.builtin.applicationUserSecretName }}
+{{- end }}
+{{- end }}
+
+{{- define "flightctl.dbMigrationUserSecret" -}}
+{{- if eq .Values.db.type "external" }}
+  {{- .Values.db.external.migrationUserSecretName }}
+{{- else }}
+  {{- default "flightctl-db-migration-secret" .Values.db.builtin.migrationUserSecretName }}
 {{- end }}
 {{- end }}

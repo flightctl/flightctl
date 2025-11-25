@@ -335,6 +335,10 @@ func GetOrgIdFromContext(ctx context.Context) (uuid.UUID, bool) {
 	return orgID, ok
 }
 
+func WithUserAgent(ctx context.Context, userAgent string) context.Context {
+	return context.WithValue(ctx, consts.UserAgentCtxKey, userAgent)
+}
+
 // GetHostname returns the system hostname, or "unknown" if it cannot be determined
 func GetHostname() string {
 	hostname, err := os.Hostname()

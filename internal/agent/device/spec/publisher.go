@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -21,20 +21,20 @@ const longPollTimeout = 4 * time.Minute
 
 // watcher wraps a ring buffer to implement the Watcher interface
 type watcher struct {
-	buffer *ring_buffer.RingBuffer[*v1alpha1.Device]
+	buffer *ring_buffer.RingBuffer[*v1beta1.Device]
 }
 
 func newWatcher() *watcher {
 	return &watcher{
-		buffer: ring_buffer.NewRingBuffer[*v1alpha1.Device](3),
+		buffer: ring_buffer.NewRingBuffer[*v1beta1.Device](3),
 	}
 }
 
-func (w *watcher) Pop() (*v1alpha1.Device, error) {
+func (w *watcher) Pop() (*v1beta1.Device, error) {
 	return w.buffer.Pop()
 }
 
-func (w *watcher) TryPop() (*v1alpha1.Device, bool, error) {
+func (w *watcher) TryPop() (*v1beta1.Device, bool, error) {
 	return w.buffer.TryPop()
 }
 
@@ -76,9 +76,9 @@ func newPublisher(deviceName string,
 func (n *publisher) getRenderedFromManagementAPIWithRetry(
 	ctx context.Context,
 	renderedVersion string,
-	rendered *v1alpha1.Device,
+	rendered *v1beta1.Device,
 ) (bool, error) {
-	params := &v1alpha1.GetRenderedDeviceParams{}
+	params := &v1beta1.GetRenderedDeviceParams{}
 	if renderedVersion != "" {
 		params.KnownRenderedVersion = &renderedVersion
 	}
@@ -129,7 +129,7 @@ func (n *publisher) pollAndPublish(ctx context.Context) {
 		return
 	}
 
-	newDesired := &v1alpha1.Device{}
+	newDesired := &v1beta1.Device{}
 
 	var cancel context.CancelFunc
 	startTime := time.Now()
