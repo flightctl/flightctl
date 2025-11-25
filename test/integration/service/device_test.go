@@ -66,7 +66,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			// Step 1: Create a new device (simulating enrollment)
 			app := api.ApplicationProviderSpec{
 				Name:    lo.ToPtr("test-app"),
-				AppType: lo.ToPtr(api.AppTypeCompose),
+				AppType: api.AppTypeCompose,
 			}
 
 			// Create proper ImageApplicationProviderSpec
@@ -173,7 +173,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			// Step 1: Create a new device
 			app := api.ApplicationProviderSpec{
 				Name:    lo.ToPtr("test-app"),
-				AppType: lo.ToPtr(api.AppTypeCompose),
+				AppType: api.AppTypeCompose,
 			}
 
 			// Create proper ImageApplicationProviderSpec

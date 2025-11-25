@@ -82,7 +82,7 @@ func TestParseAppProviders(t *testing.T) {
 			labels: map[string]string{
 				AppTypeLabel: "invalid",
 			},
-			wantErr: errors.ErrUnsupportedAppType,
+			wantErr: errors.ErrAppLabel,
 		},
 		{
 			name: "missing app type",
@@ -96,11 +96,12 @@ func TestParseAppProviders(t *testing.T) {
 					AnyTimes()
 				gomock.InOrder(
 					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(imageConfig, "", 0),
+					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "unshare", "podman", "image", "mount", gomock.Any()).Return("/mount", "", 0),
+					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "unmount", gomock.Any()).Return("", "", 0),
 				)
 			},
-			apps:    []testApp{{name: "app1", image: "quay.io/org/app1:latest"}},
-			labels:  map[string]string{},
-			wantErr: errors.ErrAppLabel,
+			apps:   []testApp{{name: "app1", image: "quay.io/org/app1:latest"}},
+			labels: map[string]string{},
 		},
 		{
 			name: "missing app name populated by provider image",
@@ -245,7 +246,8 @@ func newTestDeviceSpec(appSpecs []testApp) (*v1beta1.DeviceSpec, error) {
 	var applications []v1beta1.ApplicationProviderSpec
 	for _, spec := range appSpecs {
 		app := v1beta1.ApplicationProviderSpec{
-			Name: lo.ToPtr(spec.name),
+			Name:    lo.ToPtr(spec.name),
+			AppType: v1beta1.AppTypeCompose,
 		}
 		provider := v1beta1.ImageApplicationProviderSpec{
 			Image: spec.image,
