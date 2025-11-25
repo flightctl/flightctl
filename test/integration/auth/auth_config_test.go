@@ -68,9 +68,7 @@ var _ = Describe("Auth Config Integration Tests", func() {
 		authN, err := auth.InitMultiAuth(cfg, log, serviceHandler)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(authN).ToNot(BeNil(), "Expected auth instance")
-		var ok bool
-		multiAuth, ok = authN.(*authn.MultiAuth)
-		Expect(ok).To(BeTrue(), "Expected MultiAuth instance when auth is configured")
+		multiAuth = authN
 	})
 
 	AfterEach(func() {
@@ -124,8 +122,7 @@ var _ = Describe("Auth Config Integration Tests", func() {
 			authN, err := auth.InitMultiAuth(cfg, log, serviceHandler)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(authN).ToNot(BeNil())
-			multiAuthWithAll, ok := authN.(*authn.MultiAuth)
-			Expect(ok).To(BeTrue(), "Expected MultiAuth instance when auth is configured")
+			multiAuthWithAll := authN
 
 			// Get auth config via service handler
 			authConfig := multiAuthWithAll.GetAuthConfig()
