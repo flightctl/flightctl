@@ -187,7 +187,7 @@ func TestEventDeviceReplaceDeviceStatus(t *testing.T) {
 
 	expectedEvents = append(expectedEvents, []common.ResourceUpdate{
 		{Reason: api.EventReasonDeviceConnected, Details: "Device's system resources are healthy."},
-		{Reason: api.EventReasonDeviceApplicationHealthy, Details: "Device has no application workloads defined."},
+		{Reason: api.EventReasonDeviceApplicationHealthy, Details: "Device has not reported any application workloads yet."},
 	}...)
 	device, retStatus = serviceHandler.ReplaceDeviceStatus(ctx, testOrgId, *device.Metadata.Name, *device)
 	require.Equal(statusSuccessCode, retStatus.Code)
@@ -361,7 +361,7 @@ func TestEventDeviceCreatedAndIsAlive(t *testing.T) {
 	// Device I-am-alive
 	expectedEvents = append(expectedEvents, []common.ResourceUpdate{
 		{Reason: api.EventReasonDeviceConnected, Details: "Device's system resources are healthy."},
-		{Reason: api.EventReasonDeviceApplicationHealthy, Details: "Device has no application workloads defined."},
+		{Reason: api.EventReasonDeviceApplicationHealthy, Details: "Device has not reported any application workloads yet."},
 	}...)
 	device.Status.LastSeen = lo.ToPtr(time.Now())
 	device, err = serviceHandler.UpdateDevice(ctx, testOrgId, *device.Metadata.Name, *device, nil)
@@ -400,7 +400,7 @@ func TestEventDeviceUpdated(t *testing.T) {
 
 	expectedEvents = append(expectedEvents, []common.ResourceUpdate{
 		{Reason: api.EventReasonDeviceConnected, Details: "Device's system resources are healthy."},
-		{Reason: api.EventReasonDeviceApplicationHealthy, Details: "Device has no application workloads defined."},
+		{Reason: api.EventReasonDeviceApplicationHealthy, Details: "Device has not reported any application workloads yet."},
 	}...)
 	device.Status.Resources = api.DeviceResourceStatus{
 		Cpu:    api.DeviceResourceStatusHealthy,
