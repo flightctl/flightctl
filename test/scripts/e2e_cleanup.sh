@@ -27,19 +27,19 @@ echo "🔍 [Cleanup] Found ${#flightctl_vms[@]} flightctl e2e VMs: ${flightctl_v
 # Clean up each VM
 for vm_name in "${flightctl_vms[@]}"; do
     echo "🔄 [Cleanup] Cleaning up VM: $vm_name"
-    
+
     # 1. Delete pristine snapshot (ignore errors)
     echo "🔄 [Cleanup] Deleting pristine snapshot for $vm_name"
     if ! virsh snapshot-delete "$vm_name" "pristine" --metadata 2>/dev/null; then
         echo "⚠️  [Cleanup] Failed to delete pristine snapshot for $vm_name (may not exist)"
     fi
-    
+
     # 2. Destroy the VM if it's running (ignore errors)
     echo "🔄 [Cleanup] Destroying VM: $vm_name"
     if ! virsh destroy "$vm_name" 2>/dev/null; then
         echo "⚠️  [Cleanup] Failed to destroy $vm_name (may not be running)"
     fi
-    
+
     # 3. Undefine the domain (try multiple approaches)
     echo "🔄 [Cleanup] Undefining domain: $vm_name"
     if virsh undefine "$vm_name" 2>/dev/null; then
