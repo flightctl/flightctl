@@ -86,6 +86,7 @@ When a device enrolls or first starts, the agent creates three bootstrap events:
 3. **Rollback spec bootstrap** – Creates initial recovery point
 
 All bootstrap events have:
+
 - `reason`: `bootstrap`
 - `old_version`: empty string
 - `new_version`: `"0"`
@@ -121,10 +122,11 @@ sudo journalctl -u flightctl-agent | grep -i audit
 Since audit logs use JSONL format, they're easily parsed with `jq`.
 
 **Prerequisites:**
+
 - Root or sudo access to the device
 - `jq` installed (typically available by default on RHEL-based systems)
 
-**Basic Filtering**
+### Basic Filtering
 
 View all events in readable format:
 
@@ -139,6 +141,7 @@ sudo cat /var/log/flightctl/audit.log | jq 'select(.reason == "sync")'
 ```
 
 **Example output:**
+
 ```json
 {
   "ts": "2024-11-19T14:22:15Z",
@@ -159,7 +162,7 @@ Filter by spec type:
 sudo cat /var/log/flightctl/audit.log | jq 'select(.type == "current")'
 ```
 
-**Advanced Filtering**
+### Advanced Filtering
 
 Filter by multiple conditions (e.g., successful upgrades only):
 
@@ -185,7 +188,7 @@ Filter by time range (events from the last hour):
 sudo cat /var/log/flightctl/audit.log | jq --arg cutoff "$(date -u -d '1 hour ago' '+%Y-%m-%dT%H:%M:%SZ')" 'select(.ts > $cutoff)'
 ```
 
-**Aggregation and Analysis**
+### Aggregation and Analysis
 
 Count events by reason:
 
@@ -194,7 +197,8 @@ sudo cat /var/log/flightctl/audit.log | jq -r '.reason' | sort | uniq -c
 ```
 
 **Example output:**
-```
+
+```text
       3 bootstrap
      15 sync
       2 upgrade
@@ -213,7 +217,7 @@ Get latest 5 events:
 sudo tail -5 /var/log/flightctl/audit.log | jq .
 ```
 
-**Custom Output Format**
+### Custom Output Format
 
 Extract only specific fields:
 
@@ -228,10 +232,11 @@ sudo cat /var/log/flightctl/audit.log | jq -r '[.ts, .device, .reason, .type, .o
 ```
 
 **Example output:**
-```
-2024-11-19T10:00:00Z	dev-01	bootstrap	current	->0
-2024-11-19T10:15:23Z	dev-01	sync	current	0->1
-2024-11-19T11:30:45Z	dev-01	upgrade	desired	1->2
+
+```text
+2024-11-19T10:00:00Z    dev-01    bootstrap    current    ->0
+2024-11-19T10:15:23Z    dev-01    sync    current    0->1
+2024-11-19T11:30:45Z    dev-01    upgrade    desired    1->2
 ```
 
 ### Integration with Log Aggregation
@@ -337,7 +342,7 @@ These settings are hardcoded and not user-configurable:
 
 When a device experiences unexpected behavior, audit logs provide a historical record of state transitions.
 
-**Scenario: Device reverted to an older configuration**
+#### Scenario: Device reverted to an older configuration
 
 Find all rollback events and identify the version transition:
 
@@ -352,11 +357,12 @@ sudo cat /var/log/flightctl/audit.log | jq -r 'select(.reason == "rollback") | "
 ```
 
 **Example output:**
-```
+
+```text
 Rolled back from 6 to 5 at 2024-11-19T15:30:00Z
 ```
 
-**Scenario: Tracking upgrade progression**
+#### Scenario: Tracking upgrade progression
 
 Verify an upgrade completed across all spec types:
 
@@ -364,7 +370,7 @@ Verify an upgrade completed across all spec types:
 sudo cat /var/log/flightctl/audit.log | jq 'select(.reason == "upgrade") | {ts, type, old_version, new_version}'
 ```
 
-**Scenario: Device not reflecting expected configuration**
+#### Scenario: Device not reflecting expected configuration
 
 Check the last successful sync event to see when the device last applied desired state:
 
@@ -372,7 +378,7 @@ Check the last successful sync event to see when the device last applied desired
 sudo cat /var/log/flightctl/audit.log | jq 'select(.reason == "sync" and .type == "current") | {ts, old_version, new_version}' | tail -1
 ```
 
-**Scenario: Checking bootstrap history**
+#### Scenario: Checking bootstrap history
 
 Verify device enrollment or re-enrollment events:
 
@@ -383,6 +389,8 @@ sudo cat /var/log/flightctl/audit.log | jq 'select(.reason == "bootstrap") | {ts
 ## Gathering Audit Logs for Support
 
 When reporting issues to support or development teams, use one of the diagnostic tools to collect audit logs along with relevant system context. These tools automatically gather audit logs, device specifications, journal logs, and system information.
+
+### Using Diagnostic Tools
 
 #### Option 1: Using must-gather (Recommended)
 
@@ -397,6 +405,7 @@ sudo flightctl-must-gather
 ```
 
 The tool will:
+
 - Prompt for confirmation (generates large files)
 - Collect journal logs from the last 24 hours
 - Copy all FlightCtl device spec files (`/var/lib/flightctl/*.json`)
@@ -411,7 +420,8 @@ ls -lh must-gather-*.tgz
 ```
 
 **Example output:**
-```
+
+```text
 -rw-r--r--. 1 root root 2.3M Nov 19 16:45 must-gather-20241119-164512.tgz
 ```
 
@@ -432,6 +442,7 @@ ls -lh  # View collected files
 ```
 
 The archive contains:
+
 - `audit.log*` - All audit log files
 - `*.json` - Device specs and state files
 - System information and journal logs
@@ -446,6 +457,7 @@ The archive contains:
 The `sos report` tool with the FlightCtl plugin provides detailed system diagnostics, including audit logs.
 
 **Prerequisites:**
+
 - `sos` package installed (available in RHEL and Fedora repositories)
 
 **Procedure:**
@@ -463,6 +475,7 @@ sudo sos report -o flightctl -k flightctl.journal_since="2 hours ago"
 ```
 
 The FlightCtl plugin collects:
+
 - Configuration files from `/etc/flightctl` (excluding certificates)
 - Device state and specs from `/var/lib/flightctl` (excluding certificates)
 - **All audit logs** from `/var/log/flightctl` (including `audit.log*`)
@@ -473,7 +486,8 @@ The FlightCtl plugin collects:
 2. Wait for `sos report` to complete. The archive location will be displayed:
 
 **Example output:**
-```
+
+```text
 Your sos report has been generated and saved in:
   /var/tmp/sosreport-localhost-2025-11-20-bglzmdy.tar.xz
 ```
@@ -563,7 +577,8 @@ sudo ls -lh /var/log/flightctl/audit.log*
 ```
 
 **Example output:**
-```
+
+```text
 -rw-r--r--. 1 root root 512K Nov 19 15:00 /var/log/flightctl/audit.log
 -rw-r--r--. 1 root root 1.0M Nov 19 14:00 /var/log/flightctl/audit.log.1.gz
 -rw-r--r--. 1 root root 1.0M Nov 19 13:00 /var/log/flightctl/audit.log.2.gz
