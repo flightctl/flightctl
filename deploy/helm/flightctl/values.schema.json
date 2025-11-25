@@ -1,0 +1,649 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Helm Chart Values Schema",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "global": {
+      "type": "object",
+      "description": "Global parameters common to all components and subcharts",
+      "additionalProperties": false,
+      "properties": {
+        "enableOpenShiftExtensions": {
+          "type": "string",
+          "description": "Enable OpenShift extensions - one of 'auto', 'true', 'false'.",
+          "enum": ["auto", "true", "false"]
+        },
+        "enableMulticlusterExtensions": {
+          "type": "string",
+          "description": "Enable MultiCluster Engine extensions - one of 'auto', 'true', 'false'.",
+          "enum": ["auto", "true", "false"]
+        },
+        "internalNamespace": {
+          "type": "string",
+          "description": "A separate Namespace to which non-user-facing components should be deployed for increased security isolation."
+        },
+        "baseDomain": {
+          "type": "string",
+          "description": "Base domain to construct the FQDN for the service endpoints."
+        },
+        "baseDomainTlsSecretName": {
+          "type": "string",
+          "description": "Secret containing TLS ca/cert/key. It should be valid for *.${baseDomain}. This certificate is only used for non-mTLS endpoints, mTLS endpoints like agent-api, etc will use different certificates."
+        },
+        "storageClassName": {
+          "type": "string",
+          "description": "Storage class name for PVCs. Empty to use default."
+        },
+        "imagePullSecretName": {
+          "type": "string",
+          "description": "Name of the secret that holds image pull secret for private registries."
+        },
+        "imagePullPolicy": {
+          "type": "string",
+          "description": "Image pull policy for all containers.",
+          "enum": ["IfNotPresent", "Always", "Never"]
+        },
+        "auth": {
+          "type": "object",
+          "description": "Authentication configuration",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "type": "string",
+              "description": "Authentication type. Empty for auto-detect (openshift on OpenShift, k8s otherwise).",
+              "enum": ["", "k8s", "oidc", "aap", "openshift", "oauth2", "none"]
+            },
+            "caCert": {
+              "type": "string",
+              "description": "Custom CA certificate (PEM)."
+            },
+            "insecureSkipTlsVerify": {
+              "type": "boolean",
+              "description": "Skip verification of authority TLS cert."
+            },
+            "k8s": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "apiUrl": {
+                  "type": "string",
+                  "description": "API URL of k8s cluster to use as authentication authority"
+                },
+                "externalApiToken": {
+                  "type": "string",
+                  "description": "API token when flightctl is not running in-cluster"
+                },
+                "rbacNs": {
+                  "type": "string",
+                  "description": "Namespace to use for RBAC checks"
+                },
+                "createAdminUser": {
+                  "type": "boolean",
+                  "description": "Create default flightctl-admin ServiceAccount with admin access"
+                }
+              }
+            },
+            "oidc": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "clientId": { "type": "string", "description": "OIDC Client ID" },
+                "issuer": {
+                  "type": "string",
+                  "description": "OIDC provider base URL reachable by services"
+                },
+                "externalOidcAuthority": {
+                  "type": "string",
+                  "description": "OIDC provider base URL reachable by clients"
+                },
+                "organizationAssignment": {
+                  "description": "Organization assignment configuration",
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "type": { "type": "string", "enum": ["static", "dynamic"] },
+                    "organizationName": { "type": "string" }
+                  }
+                },
+                "usernameClaim": {
+                  "description": "Username claim to extract from OIDC token (default: \"preferred_username\")",
+                  "type": "array",
+                  "items": { "type": "string" }
+                },
+                "roleAssignment": {
+                  "description": "Role assignment configuration",
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "type": { "type": "string", "enum": ["dynamic", "static"] },
+                    "claimPath": {
+                      "type": "array",
+                      "items": { "type": "string" }
+                    }
+                  }
+                }
+              }
+            },
+            "aap": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "apiUrl": { "type": "string", "description": "The URL of the AAP Gateway API endpoint" },
+                "externalApiUrl": { "type": "string", "description": "The URL of the AAP Gateway API endpoint that is reachable by clients" }
+              }
+            },
+            "openshift": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "createAdminUser": { "type": "boolean", "description": "Create default flightctl-admin ServiceAccount with admin access" },
+                "clusterControlPlaneUrl": { "type": "string", "description": "OpenShift cluster control plane API URL for RBAC checks (leave empty for auto-detection)" },
+                "externalApiToken": { "type": "string", "description": "API token when flightctl is not running in-cluster" },
+                "clientId": { "type": "string", "description": "OAuth client ID (will be set to flightctl-{releaseName})" },
+                "clientSecret": { "type": "string", "description": "OAuth client secret (leave empty for auto-generation)" },
+                "authorizationUrl": { "type": "string", "description": "OAuth authorization URL (leave empty to auto-detect from OpenShift cluster)" },
+                "tokenUrl": { "type": "string", "description": "OAuth token URL (leave empty to auto-detect from OpenShift cluster)" },
+                "issuer": { "type": "string", "description": "OAuth issuer URL (defaults to authorizationUrl if not specified)" }
+              }
+            }
+          }
+        },
+        "exposeServicesMethod": {
+          "type": "string",
+          "description": "How services are exposed: 'auto', 'route', 'gateway' or 'none'.",
+          "enum": ["auto", "route", "gateway", "none"]
+        },
+        "gateway": {
+          "type": "object",
+          "description": "Gateway API exposure configuration",
+          "additionalProperties": false,
+          "properties": {
+            "gatewayClassName": { "type": "string", "description": "Gateway API class name for gateway exposure method" },
+            "ports": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "tls": { "type": "integer", "description": "TLS port for Gateway API configuration" },
+                "http": { "type": "integer", "description": "HTTP port for Gateway API configuration" }
+              }
+            }
+          }
+        },
+        "generateSecrets": {
+          "type": "boolean",
+          "description": "Generate secrets during deployment (set false to provide your own or when upgrading)."
+        },
+        "sshKnownHosts": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "data": {
+              "type": "string",
+              "description": "SSH known_hosts file content for Git host key verification."
+            }
+          }
+        },
+        "additionalRouteLabels": {
+          "type": ["object", "null"],
+          "description": "Additional labels for routes.",
+          "additionalProperties": { "type": "string" }
+        },
+        "additionalPVCLabels": {
+          "type": ["object", "null"],
+          "description": "Additional labels for PVCs.",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+    "db": {
+      "type": "object",
+      "description": "Database configuration",
+      "additionalProperties": false,
+      "properties": {
+        "type": { "type": "string", "enum": ["builtin", "external"], "description": "Type of database to use. Can be 'builtin' or 'external'. Only PostgreSQL DB is supported." },
+        "name": { "type": "string", "description": "Database name for Flight Control" },
+        "builtin": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "masterUserSecretName": { "type": "string", "description": "Database master/admin secret name containing username/password. If not provided, the secret will be generated" },
+            "applicationUserSecretName": { "type": "string", "description": "Database application user secret name containing username/password. If not provided, the secret will be generated" },
+            "migrationUserSecretName": { "type": "string", "description": "Database migration user secret name containing username/password. If not provided, the secret will be generated" },
+            "image": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "image": { "type": "string", "description": "PostgreSQL container image" },
+                "tag": { "type": "string", "description": "PostgreSQL image tag" },
+                "pullPolicy": { "type": "string", "description": "Image pull policy for database container" }
+              }
+            },
+            "maxConnections": { "type": "integer", "description": "Maximum number of database connections" },
+            "storage": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "size": { "type": "string", "description": "Persistent volume size for database storage" }
+              }
+            },
+            "resources": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "requests": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "cpu": { "type": "string", "description": "CPU resource requests for database pod" },
+                    "memory": { "type": "string", "description": "Memory resource requests for database pod" }
+                  }
+                }
+              }
+            },
+            "fsGroup": { "type": "string", "description": "File system group ID for database pod security context" },
+            "additionalPVCLabels": {
+              "type": ["object", "null"],
+              "description": "Additional labels for DB PVCs.",
+              "additionalProperties": { "type": "string" }
+            }
+          }
+        },
+        "external": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "hostname": { "type": "string", "description": "External database hostname" },
+            "port": { "type": "integer", "description": "Database port number" },
+            "masterUserSecretName": { "type": "string" },
+            "applicationUserSecretName": { "type": "string", "description": "Database application user secret name containing username/password." },
+            "migrationUserSecretName": { "type": "string", "description": "Database migration user secret name containing username/password." },
+            "sslmode": {
+              "type": "string",
+              "description": "SSL mode for database connections (disable, allow, prefer, require, verify-ca, verify-full)",
+              "enum": ["", "disable", "allow", "prefer", "require", "verify-ca", "verify-full"]
+            },
+            "tlsConfigMapName": { "type": "string", "description": "ConfigMap containing CA certificate (automatically mounted at /etc/ssl/postgres/)" },
+            "tlsSecretName": { "type": "string", "description": "Secret containing client certificates (automatically mounted at /etc/ssl/postgres/)" }
+          }
+        }
+      }
+    },
+    "kv": {
+      "type": "object",
+      "description": "Key-Value store (Redis) configuration",
+      "additionalProperties": false,
+      "properties": {
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "image": { "type": "string", "description": "Redis container image" },
+            "tag": { "type": "string", "description": "Redis image tag" },
+            "pullPolicy": { "type": "string", "description": "Image pull policy for Redis container" }
+          }
+        },
+        "passwordSecretName": { "type": "string", "description": "Secret containing password for Redis password (leave empty for auto-generation)" },
+        "loglevel": { "type": "string", "enum": ["debug", "verbose", "notice", "warning"], "description": "Redis log level (debug, verbose, notice, warning)" },
+        "fsGroup": { "type": "string", "description": "File system group ID for Redis pod security context" },
+        "maxmemory": { "type": "string", "description": "Maximum memory usage for Redis" },
+        "maxmemoryPolicy": {
+          "type": "string",
+          "description": "Redis memory eviction policy",
+          "enum": ["allkeys-lru", "volatile-lru", "allkeys-lfu", "volatile-lfu", "volatile-ttl", "noeviction"]
+        }
+      }
+    },
+    "alertmanager": {
+      "type": "object",
+      "description": "Alertmanager configuration",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "description": "Enable Alertmanager for alert handling" },
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "image": { "type": "string", "description": "Alertmanager container image" },
+            "tag": { "type": "string", "description": "Alertmanager image tag" },
+            "pullPolicy": { "type": "string", "description": "Image pull policy for Alertmanager container" }
+          }
+        },
+        "additionalRouteLabels": {
+          "type": ["object", "null"],
+          "description": "Additional labels for Alert Manager routes.",
+          "additionalProperties": { "type": "string" }
+        },
+        "additionalPVCLabels": {
+          "type": ["object", "null"],
+          "description": "Additional labels for Alert Manager PVCs.",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+    "api": {
+      "type": "object",
+      "description": "API server configuration",
+      "additionalProperties": false,
+      "properties": {
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "image": { "type": "string", "description": "API server container image" },
+            "tag": { "type": "string", "description": "API server image tag (leave empty to use chart appVersion)" },
+            "pullPolicy": { "type": "string", "description": "Image pull policy for API server container" }
+          }
+        },
+        "rateLimit": {
+          "type": ["object", "null"],
+          "description": "Rate limiting configuration - enabled by default for production",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean", "description": "Enable or disable rate limiting" },
+            "requests": { "type": "integer", "description": "Maximum requests per window for general API endpoints" },
+            "window": { "type": "string", "description": "Time window for rate limiting (e.g., \"1m\", \"1h\")" },
+            "authRequests": { "type": "integer", "description": "Maximum authentication requests per auth window" },
+            "authWindow": { "type": "string", "description": "Time window for authentication rate limiting" },
+            "trustedProxies": {
+              "type": "array",
+              "description": "List of trusted proxy IP ranges that can set X-Forwarded-For headers",
+              "items": { "type": "string" }
+            }
+          }
+        },
+        "env": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "additionalRouteLabels": {
+          "type": ["object", "null"],
+          "description": "Additional labels for API routes.",
+          "additionalProperties": { "type": "string" }
+        },
+        "additionalPVCLabels": {
+          "type": ["object", "null"],
+          "description": "Additional labels for API PVCs.",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+    "cliArtifacts": {
+      "type": "object",
+      "description": "CLI artifacts service configuration",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "description": "Enable CLI artifacts service" },
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "image": { "type": "string", "description": "CLI artifacts container image" },
+            "tag": { "type": "string", "description": "CLI artifacts image tag" },
+            "pullPolicy": { "type": "string", "description": "Image pull policy for CLI artifacts container" }
+          }
+        },
+        "additionalRouteLabels": {
+          "type": ["object", "null"],
+          "description": "Additional labels for CLI Artifacts routes.",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+    "worker": {
+      "type": "object",
+      "description": "Worker configuration",
+      "additionalProperties": false,
+      "properties": {
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "image": { "type": "string", "description": "Worker container image" },
+            "tag": { "type": "string", "description": "Worker image tag" },
+            "pullPolicy": { "type": "string", "description": "Image pull policy for worker container" }
+          }
+        },
+        "env": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "clusterLevelSecretAccess": {
+          "type": "boolean",
+          "description": "Allow worker to access cluster-level secrets for embedding in device configs"
+        }
+      }
+    },
+    "periodic": {
+      "type": "object",
+      "description": "Periodic job configuration",
+      "additionalProperties": false,
+      "properties": {
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "image": { "type": "string", "description": "Periodic container image" },
+            "tag": { "type": "string", "description": "Periodic image tag" },
+            "pullPolicy": { "type": "string", "description": "Image pull policy for periodic container" }
+          }
+        },
+        "env": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "consumers": { "type": "integer", "description": "Number of periodic consumers" }
+      }
+    },
+    "alertExporter": {
+      "type": "object",
+      "description": "Alert exporter configuration",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "description": "Enable alert exporter service" },
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "image": { "type": "string", "description": "Alert exporter container image" },
+            "tag": { "type": "string", "description": "Alert exporter image tag" },
+            "pullPolicy": { "type": "string", "description": "Image pull policy for alert exporter container" }
+          }
+        },
+        "env": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+    "alertmanagerProxy": {
+      "type": "object",
+      "description": "Alertmanager proxy configuration",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "description": "Enable Alertmanager proxy service" },
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "image": { "type": "string", "description": "Alertmanager proxy container image" },
+            "tag": { "type": "string", "description": "Alertmanager proxy image tag" },
+            "pullPolicy": { "type": "string", "description": "Image pull policy for Alertmanager proxy container" }
+          }
+        }
+      }
+    },
+    "telemetryGateway": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "image": { "type": "string", "description": "Telemetry gateway container image" },
+            "tag": { "type": "string", "description": "Telemetry gateway image tag" },
+            "pullPolicy": { "type": "string", "description": "Image pull policy for Telemetry gateway container" }
+          }
+        },
+        "additionalRouteLabels": {
+          "type": ["object", "null"],
+          "description": "Additional labels for Telemetry gateway routes.",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+    "ui": {
+      "type": "object",
+      "description": "Web UI configuration",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "description": "Enable web UI deployment" },
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "image": { "type": "string", "description": "UI container image" },
+            "pluginImage": { "type": "string", "description": "UI Plugin container image" },
+            "tag": { "type": "string", "description": "UI container image tag" },
+            "pullPolicy": { "type": "string", "description": "Image pull policy for UI container" }
+          }
+        },
+        "api": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "insecureSkipTlsVerify": { "type": "boolean", "description": "Skip TLS verification for UI API calls" }
+          }
+        },
+        "auth": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "insecureSkipTlsVerify": { "type": "boolean", "description": "Set to true if auth TLS certificate validation should be skipped." },
+            "caCert": { "type": "string", "description": "A custom CA cert for Auth TLS." }
+          }
+        },
+        "additionalRouteLabels": {
+          "type": ["object", "null"],
+          "description": "Additional labels for UI routes.",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+    "clusterCli": {
+      "type": "object",
+      "description": "Cluster CLI configuration",
+      "additionalProperties": false,
+      "properties": {
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "image": { "type": "string", "description": "Cluster CLI container image" },
+            "tag": { "type": "string", "description": "Cluster CLI image tag" },
+            "pullPolicy": { "type": "string", "description": "Image pull policy for cluster CLI container" }
+          }
+        }
+      }
+    },
+    "dbSetup": {
+      "type": "object",
+      "description": "Database setup/migration configuration",
+      "additionalProperties": false,
+      "properties": {
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "image": { "type": "string", "description": "Database setup container image" },
+            "tag": { "type": "string", "description": "Database setup image tag" },
+            "pullPolicy": { "type": "string", "description": "Image pull policy for database setup container" }
+          }
+        },
+        "wait": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "timeout": { "type": "integer", "description": "Seconds to wait for database readiness before failing" },
+            "sleep": { "type": "integer", "description": "Seconds to sleep between database connection attempts" }
+          }
+        },
+        "migration": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "backoffLimit": { "type": "integer", "description": "Number of retries for the migration Job on failure" },
+            "activeDeadlineSeconds": { "type": "integer", "description": "Maximum runtime in seconds for the migration Job (0 = no deadline)" }
+          }
+        }
+      }
+    },
+    "upgradeHooks": {
+      "type": "object",
+      "description": "Upgrade hooks configuration",
+      "additionalProperties": false,
+      "properties": {
+        "scaleDown": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "condition": {
+              "type": "string",
+              "description": "When to run pre-upgrade scale down job: \"always\", \"never\", or \"chart\" (default). \"chart\" runs only if helm.sh/chart changed.",
+              "enum": ["always", "never", "chart"]
+            },
+            "deployments": {
+              "type": "array",
+              "description": "List of Deployments to scale down in order",
+              "items": { "type": "string" }
+            },
+            "timeoutSeconds": { "type": "integer", "description": "Timeout in seconds to wait for rollout per Deployment" }
+          }
+        },
+        "databaseMigrationDryRun": {
+          "type": "boolean",
+          "description": "Enable pre-upgrade database migration dry-run hook"
+        }
+      }
+    },
+    "dev": {
+      "type": "object",
+      "description": "Development overrides",
+      "additionalProperties": true,
+      "properties": {
+        "exposeServicesMethod": {
+          "type": "string",
+          "enum": ["nodePort"]
+        },
+        "nodePorts": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "api": { "type": "integer" },
+            "agent": { "type": "integer" },
+            "ui": { "type": "integer" },
+            "cliArtifacts": { "type": "integer" },
+            "db": { "type": "integer" },
+            "kv": { "type": "integer" },
+            "alertmanager": { "type": "integer" },
+            "alertmanagerProxy": { "type": "integer" },
+            "telemetryGatewayOtlp": { "type": "integer" },
+            "telemetryGatewayProm": { "type": "integer" },
+            "gitserver": { "type": "integer" },
+            "registry": { "type": "integer" }
+          }
+        },
+        "tracing": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "endpoint": { "type": "string" },
+            "insecure": { "type": "boolean" }
+          }
+        }
+      }
+    }
+  }
+}
+

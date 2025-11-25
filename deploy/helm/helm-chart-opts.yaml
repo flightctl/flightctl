@@ -38,6 +38,8 @@ community:
       image: quay.io/flightctl/flightctl-ocp-ui
     dbSetup:
       image: quay.io/flightctl/flightctl-db-setup
+    telemetryGateway:
+      image: quay.io/flightctl/flightctl-telemetry-gateway
 redhat:
   name: redhat-rhem
   description: A helm chart for Red Hat Edge Manager
@@ -78,3 +80,5 @@ redhat:
       image: registry.redhat.io/rhem/flightctl-ocp-ui
     dbSetup:
       image: registry.redhat.io/rhem/flightctl-db-setup
+    telemetryGateway:
+      image: registry.redhat.io/rhem/flightctl-telemetry-gateway
