@@ -53,6 +53,10 @@ type AuthNMiddleware interface {
 	GetAuthConfig() *v1beta1.AuthConfig
 	IsEnabled() bool
 }
+type MultiAuthNMiddleware interface {
+	AuthNMiddleware
+	ValidateTokenAndGetProvider(ctx context.Context, token string) (AuthNMiddleware, error)
+}
 
 type BaseIdentity struct {
 	username      string

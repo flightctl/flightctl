@@ -218,6 +218,18 @@ func (o *OpenShiftAuth) GetIdentity(ctx context.Context, token string) (common.I
 		}
 	}
 
+	// Check if user is in system:cluster-admins group and grant global admin role
+	for _, group := range review.Status.User.Groups {
+		if group == "system:cluster-admins" {
+			if orgRoles["*"] == nil {
+				orgRoles["*"] = []string{}
+			}
+			orgRoles["*"] = append(orgRoles["*"], api.ExternalRoleAdmin)
+			o.log.WithField("user", username).Debug("User is in system:cluster-admins, granting global admin role")
+			break
+		}
+	}
+
 	o.log.WithFields(logrus.Fields{
 		"user":     username,
 		"orgRoles": orgRoles,
@@ -227,7 +239,7 @@ func (o *OpenShiftAuth) GetIdentity(ctx context.Context, token string) (common.I
 	reportedOrganizations, isSuperAdmin := common.BuildReportedOrganizations(projects, orgRoles, false)
 
 	// Create issuer with OpenShift cluster information
-	issuer := identity.NewIssuer(identity.AuthTypeOAuth2, *o.spec.Issuer)
+	issuer := identity.NewIssuer(identity.AuthTypeOpenShift, *o.spec.Issuer)
 
 	o.log.WithFields(logrus.Fields{
 		"user":          username,
