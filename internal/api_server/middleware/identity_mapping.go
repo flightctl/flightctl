@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/consts"
 	identitylib "github.com/flightctl/flightctl/internal/identity"
@@ -23,11 +23,11 @@ type IdentityMappingMiddleware struct {
 
 // roleNameMap maps external role names to internal role constants
 var roleNameMap = map[string]string{
-	v1alpha1.ExternalRoleAdmin:     v1alpha1.RoleAdmin,
-	v1alpha1.ExternalRoleOrgAdmin:  v1alpha1.RoleOrgAdmin,
-	v1alpha1.ExternalRoleOperator:  v1alpha1.RoleOperator,
-	v1alpha1.ExternalRoleViewer:    v1alpha1.RoleViewer,
-	v1alpha1.ExternalRoleInstaller: v1alpha1.RoleInstaller,
+	v1beta1.ExternalRoleAdmin:     v1beta1.RoleAdmin,
+	v1beta1.ExternalRoleOrgAdmin:  v1beta1.RoleOrgAdmin,
+	v1beta1.ExternalRoleOperator:  v1beta1.RoleOperator,
+	v1beta1.ExternalRoleViewer:    v1beta1.RoleViewer,
+	v1beta1.ExternalRoleInstaller: v1beta1.RoleInstaller,
 }
 
 // NewIdentityMappingMiddleware creates a new identity mapping middleware

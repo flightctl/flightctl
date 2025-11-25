@@ -4,7 +4,7 @@ import (
 	"context"
 	"net/http"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/org"
 )
@@ -26,6 +26,10 @@ func (NilAuth) GetUserPermissions(_ context.Context) (*api.PermissionList, error
 			},
 		},
 	}, nil
+}
+
+func (NilAuth) IsEnabled() bool {
+	return true
 }
 
 func (NilAuth) ValidateToken(_ context.Context, _ string) error {

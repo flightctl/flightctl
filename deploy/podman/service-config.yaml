@@ -35,7 +35,6 @@ global:
         - profile
         - email
         - roles
-      redirectUris:
       pamService: flightctl
   organizations:
     # Enable IdP-provided organizations support

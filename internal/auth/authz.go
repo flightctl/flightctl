@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	v1alpha1 "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/auth/authz"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/config"
@@ -234,7 +234,7 @@ func (m *MultiAuthZ) CheckPermission(ctx context.Context, resource string, op st
 }
 
 // GetUserPermissions gets all permissions for the user based on the identity's issuer type
-func (m *MultiAuthZ) GetUserPermissions(ctx context.Context) (*v1alpha1.PermissionList, error) {
+func (m *MultiAuthZ) GetUserPermissions(ctx context.Context) (*api.PermissionList, error) {
 	// Get identity from context
 	identityVal := ctx.Value(consts.IdentityCtxKey)
 	if identityVal == nil {

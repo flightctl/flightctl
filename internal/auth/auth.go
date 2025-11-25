@@ -9,7 +9,7 @@ import (
 	"os"
 	"strings"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/auth/authn"
 	"github.com/flightctl/flightctl/internal/auth/authz"
 	"github.com/flightctl/flightctl/internal/auth/common"
@@ -87,7 +87,7 @@ func initOIDCAuth(cfg *config.Config, log logrus.FieldLogger) (common.AuthNMiddl
 		Name: &providerName,
 	}
 
-	authNProvider, err := authn.NewOIDCAuth(metadata, *cfg.Auth.OIDC, getTlsConfig(cfg))
+	authNProvider, err := authn.NewOIDCAuth(metadata, *cfg.Auth.OIDC, getTlsConfig(cfg), log)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OIDC AuthN: %w", err)
 	}

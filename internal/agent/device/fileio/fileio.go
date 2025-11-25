@@ -4,7 +4,7 @@ import (
 	"io/fs"
 	"os"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 )
 
 const (
@@ -47,7 +47,7 @@ type Writer interface {
 	// CopyDir recursively copies a directory from src to dst, preserving file permissions.
 	CopyDir(src, dst string, opts ...CopyDirOption) error
 	// CreateManagedFile creates a managed file with the given spec.
-	CreateManagedFile(file v1alpha1.FileSpec) (ManagedFile, error)
+	CreateManagedFile(file v1beta1.FileSpec) (ManagedFile, error)
 	// OverwriteAndWipe overwrites the file at the given path with zeros and then deletes it.
 	OverwriteAndWipe(file string) error
 }

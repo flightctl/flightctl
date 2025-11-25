@@ -1,4 +1,4 @@
-{{- if ne .Values.db.external "enabled" }}
+{{- if eq .Values.db.type "builtin" }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -24,9 +24,9 @@ spec:
       imagePullSecrets:
         - name: {{ .Values.global.imagePullSecretName }}
       {{- end }}
-      {{- if .Values.db.fsGroup }}
+      {{- if .Values.db.builtin.fsGroup }}
       securityContext:
-        fsGroup: {{ .Values.db.fsGroup }}
+        fsGroup: {{ .Values.db.builtin.fsGroup }}
       {{- end }}
       containers:
         - env:
@@ -35,27 +35,27 @@ spec:
             - name: POSTGRESQL_MASTER_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: flightctl-db-admin-secret
+                  name: {{ default "flightctl-db-admin-secret" .Values.db.builtin.masterUserSecretName }}
                   key: masterPassword
             - name: POSTGRESQL_MASTER_USER
               valueFrom:
                 secretKeyRef:
-                  name: flightctl-db-admin-secret
+                  name: {{ default "flightctl-db-admin-secret" .Values.db.builtin.masterUserSecretName }}
                   key: masterUser
             - name: POSTGRESQL_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: flightctl-db-app-secret
+                  name: {{ include "flightctl.dbAppUserSecret" . }}
                   key: userPassword
             - name: POSTGRESQL_USER
               valueFrom:
                 secretKeyRef:
-                  name: flightctl-db-app-secret
+                  name: {{ include "flightctl.dbAppUserSecret" . }}
                   key: user
             - name: POSTGRESQL_MAX_CONNECTIONS
-              value: {{ .Values.db.maxConnections | quote }}
-          image: {{ .Values.db.image.image }}:{{ .Values.db.image.tag }}
-          imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.db.image.pullPolicy }}
+              value: {{ .Values.db.builtin.maxConnections | quote }}
+          image: {{ .Values.db.builtin.image.image }}:{{ .Values.db.builtin.image.tag }}
+          imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.db.builtin.image.pullPolicy }}
           name: flightctl-db
           ports:
             - containerPort: 5432
@@ -68,8 +68,8 @@ spec:
               name: init-scripts
           resources:
             requests:
-              cpu: {{ .Values.db.resources.requests.cpu}}
-              memory: {{ .Values.db.resources.requests.memory}}
+              cpu: {{ .Values.db.builtin.resources.requests.cpu}}
+              memory: {{ .Values.db.builtin.resources.requests.memory}}
       restartPolicy: Always
       volumes:
         - name: flightctl-db

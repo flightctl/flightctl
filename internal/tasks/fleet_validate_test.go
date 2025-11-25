@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"testing"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/google/uuid"
@@ -62,15 +62,15 @@ func TestFleetValidateLogic_CreateNewTemplateVersionIfFleetValid_ImmediateRollou
 			mockK8SClient := k8sclient.NewMockK8SClient(ctrl)
 
 			// Mock GetFleet to return our test fleet
-			mockService.EXPECT().GetFleet(gomock.Any(), fleetName, gomock.Any()).Return(fleet, api.Status{Code: http.StatusOK})
+			mockService.EXPECT().GetFleet(gomock.Any(), gomock.Any(), fleetName, gomock.Any()).Return(fleet, api.Status{Code: http.StatusOK})
 
 			// Mock OverwriteFleetRepositoryRefs to succeed
-			mockService.EXPECT().OverwriteFleetRepositoryRefs(gomock.Any(), fleetName, gomock.Any()).Return(api.Status{Code: http.StatusOK})
+			mockService.EXPECT().OverwriteFleetRepositoryRefs(gomock.Any(), gomock.Any(), fleetName, gomock.Any()).Return(api.Status{Code: http.StatusOK})
 
 			// Mock CreateTemplateVersion to capture the immediateRollout parameter
 			var capturedImmediateRollout bool
-			mockService.EXPECT().CreateTemplateVersion(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
-				func(ctx context.Context, tv api.TemplateVersion, immediateRollout bool) (*api.TemplateVersion, api.Status) {
+			mockService.EXPECT().CreateTemplateVersion(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+				func(ctx context.Context, orgId uuid.UUID, tv api.TemplateVersion, immediateRollout bool) (*api.TemplateVersion, api.Status) {
 					capturedImmediateRollout = immediateRollout
 					return &api.TemplateVersion{
 						Metadata: api.ObjectMeta{
@@ -80,13 +80,13 @@ func TestFleetValidateLogic_CreateNewTemplateVersionIfFleetValid_ImmediateRollou
 				})
 
 			// Mock UpdateFleetAnnotations to succeed
-			mockService.EXPECT().UpdateFleetAnnotations(gomock.Any(), fleetName, gomock.Any(), gomock.Any()).Return(api.Status{Code: http.StatusOK})
+			mockService.EXPECT().UpdateFleetAnnotations(gomock.Any(), gomock.Any(), fleetName, gomock.Any(), gomock.Any()).Return(api.Status{Code: http.StatusOK})
 
 			// Mock UpdateToOutOfDateByOwner to succeed
-			mockService.EXPECT().SetOutOfDate(gomock.Any(), gomock.Any()).Return(nil)
+			mockService.EXPECT().SetOutOfDate(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 
 			// Mock UpdateFleetConditions to succeed
-			mockService.EXPECT().UpdateFleetConditions(gomock.Any(), fleetName, gomock.Any()).Return(api.Status{Code: http.StatusOK})
+			mockService.EXPECT().UpdateFleetConditions(gomock.Any(), gomock.Any(), fleetName, gomock.Any()).Return(api.Status{Code: http.StatusOK})
 
 			// Create FleetValidateLogic instance
 			logic := NewFleetValidateLogic(log, mockService, mockK8SClient, orgId, event)

@@ -19,9 +19,9 @@ jobs:
         run: |
           # TODO: checkout previously released version after 0.10 release
           git fetch origin ${{ github.event.pull_request.base.ref }}
-          mkdir -p base-api/v1alpha1/agent
-          git show origin/${{ github.event.pull_request.base.ref }}:api/v1alpha1/openapi.yaml > base-api/v1alpha1/openapi.yaml || true
-          git show origin/${{ github.event.pull_request.base.ref }}:api/v1alpha1/agent/openapi.yaml > base-api/v1alpha1/agent/openapi.yaml || true
+          mkdir -p base-api/v1beta1/agent
+          git show origin/${{ github.event.pull_request.base.ref }}:api/v1beta1/openapi.yaml > base-api/v1beta1/openapi.yaml || true
+          git show origin/${{ github.event.pull_request.base.ref }}:api/v1beta1/agent/openapi.yaml > base-api/v1beta1/agent/openapi.yaml || true
 
       - name: Check if override label exists
         id: check_override
@@ -85,8 +85,8 @@ jobs:
         if: ${{ steps.check_override.outputs.override != 'true' }}
         uses: oasdiff/oasdiff-action/breaking@main
         with:
-          base: base-api/v1alpha1/openapi.yaml
-          revision: api/v1alpha1/openapi.yaml
+          base: base-api/v1beta1/openapi.yaml
+          revision: api/v1beta1/openapi.yaml
           fail-on: ERR
         continue-on-error: true
 
@@ -95,8 +95,8 @@ jobs:
         if: ${{ steps.check_override.outputs.override != 'true' }}
         uses: oasdiff/oasdiff-action/breaking@main
         with:
-          base: base-api/v1alpha1/agent/openapi.yaml
-          revision: api/v1alpha1/agent/openapi.yaml
+          base: base-api/v1beta1/agent/openapi.yaml
+          revision: api/v1beta1/agent/openapi.yaml
           fail-on: ERR
         continue-on-error: true
 

@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/pkg/poll"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -59,7 +59,7 @@ func NewTaskHeap() *TaskHeap {
 }
 
 type OrganizationService interface {
-	ListOrganizations(ctx context.Context) (*api.OrganizationList, api.Status)
+	ListOrganizations(ctx context.Context, params api.ListOrganizationsParams) (*api.OrganizationList, api.Status)
 }
 
 type TaskChannelManager interface {
@@ -308,7 +308,7 @@ func (p *PeriodicTaskPublisher) organizationSyncLoop(ctx context.Context) {
 func (p *PeriodicTaskPublisher) syncOrganizations(ctx context.Context) {
 	p.log.Info("Syncing organizations")
 
-	orgList, status := p.orgService.ListOrganizations(ctx)
+	orgList, status := p.orgService.ListOrganizations(ctx, api.ListOrganizationsParams{})
 	if status.Code < 200 || status.Code >= 300 {
 		p.log.Errorf("Failed to list organizations: %v", status)
 		return

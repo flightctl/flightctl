@@ -69,6 +69,10 @@ const (
 	PodmanArgsKey = "PodmanArgs"
 	// ServiceNameKey is the key name for overriding the default service name
 	ServiceNameKey = "ServiceName"
+	// PublishPortKey is the key name for exposing ports from a container
+	PublishPortKey = "PublishPort"
+	// DriverKey is the key name for specifying a Volume driver
+	DriverKey = "Driver"
 )
 
 // Sections maps quadlet section names to their corresponding file extensions.
@@ -231,4 +235,9 @@ func VolumeName(volumeName *string, filename string) string {
 	}
 
 	return fmt.Sprintf("systemd-%s", strings.TrimSuffix(filepath.Base(filename), filepath.Ext(filename)))
+}
+
+// NamespaceResource namespaces the supplied quadlet resource
+func NamespaceResource(id string, resource string) string {
+	return fmt.Sprintf("%s-%s", id, resource)
 }

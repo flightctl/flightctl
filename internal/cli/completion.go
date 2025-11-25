@@ -7,7 +7,7 @@ import (
 	"slices"
 	"strings"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/spf13/cobra"
 )
@@ -269,7 +269,7 @@ func (kna *KindNameAutocomplete) getAutocompleteNames(cmd *cobra.Command, o Clie
 				}
 			}
 		case OrganizationKind:
-			resp, err := c.ListOrganizationsWithResponse(context.Background())
+			resp, err := c.ListOrganizationsWithResponse(context.Background(), &api.ListOrganizationsParams{})
 			if err == nil && resp.JSON200 != nil {
 				for _, er := range resp.JSON200.Items {
 					if er.Metadata.Name != nil {

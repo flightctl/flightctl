@@ -16,9 +16,9 @@ type AAPUsersResponse = AAPPaginatedResponse[AAPUser]
 
 // GET /api/gateway/v1/me/
 func (a *AAPGatewayClient) GetMe(ctx context.Context, token string) (*AAPUser, error) {
-	path := "/api/gateway/v1/me/"
+	endpoint := a.buildEndpoint("/api/gateway/v1/me/", nil)
 
-	result, err := getWithPagination[AAPUser](a, ctx, path, token)
+	result, err := getWithPagination[AAPUser](a, ctx, endpoint, token)
 	if err != nil {
 		return nil, err
 	}

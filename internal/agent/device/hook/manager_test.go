@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/util"
@@ -29,8 +29,8 @@ func TestHookManager(t *testing.T) {
 	testCases := []struct {
 		name             string
 		hooks            map[string]string
-		current          *v1alpha1.DeviceSpec
-		desired          *v1alpha1.DeviceSpec
+		current          *v1beta1.DeviceSpec
+		desired          *v1beta1.DeviceSpec
 		rebooted         bool
 		expectedCommands []command
 	}{
@@ -158,10 +158,10 @@ func createTempHooksDir(t *testing.T, hooks map[string]string) fileio.ReadWriter
 	return readerWriter
 }
 
-func createDeviceSpec(require *require.Assertions, fileMap map[string]string) *v1alpha1.DeviceSpec {
-	files := []v1alpha1.FileSpec{}
+func createDeviceSpec(require *require.Assertions, fileMap map[string]string) *v1beta1.DeviceSpec {
+	files := []v1beta1.FileSpec{}
 	for path, data := range fileMap {
-		files = append(files, v1alpha1.FileSpec{
+		files = append(files, v1beta1.FileSpec{
 			Path:    path,
 			Content: data,
 		})
@@ -170,7 +170,7 @@ func createDeviceSpec(require *require.Assertions, fileMap map[string]string) *v
 	config, err := config.FilesToProviderSpec(files)
 	require.NoError(err)
 
-	return &v1alpha1.DeviceSpec{
+	return &v1beta1.DeviceSpec{
 		Config: config,
 	}
 }

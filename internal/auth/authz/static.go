@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/contextutil"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/sirupsen/logrus"
@@ -18,23 +18,23 @@ type StaticAuthZ struct {
 
 // Resource permissions based on K8s RBAC roles
 var resourcePermissions = map[string]map[string][]string{
-	v1alpha1.RoleOrgAdmin: {
+	v1beta1.RoleOrgAdmin: {
 		"*": {"*"}, // Org admin has access to all resources and all operations within their organization
 	},
-	v1alpha1.RoleAdmin: {
+	v1beta1.RoleAdmin: {
 		"*": {"*"}, // Admin has access to all resources and all operations
 	},
-	v1alpha1.RoleOperator: {
+	v1beta1.RoleOperator: {
 		"devices":       {"create", "update", "patch", "delete"},
 		"fleets":        {"create", "update", "patch", "delete"},
 		"resourcesyncs": {"create", "update", "patch", "delete"},
 		"repositories":  {"create", "update", "patch", "delete"},
 		"*":             {"get", "list"},
 	},
-	v1alpha1.RoleViewer: {
+	v1beta1.RoleViewer: {
 		"*": {"get", "list"},
 	},
-	v1alpha1.RoleInstaller: {
+	v1beta1.RoleInstaller: {
 		"devices":      {"get", "list"},
 		"fleets":       {"get", "list"},
 		"repositories": {"get", "list"},
@@ -113,7 +113,7 @@ func (s StaticAuthZ) CheckPermission(ctx context.Context, resource string, op st
 	return false, nil
 }
 
-func (s StaticAuthZ) GetUserPermissions(ctx context.Context) (*v1alpha1.PermissionList, error) {
+func (s StaticAuthZ) GetUserPermissions(ctx context.Context) (*v1beta1.PermissionList, error) {
 	// Get mapped identity from context (set by identity mapping middleware)
 	mappedIdentity, ok := contextutil.GetMappedIdentityFromContext(ctx)
 	if !ok {
@@ -127,7 +127,7 @@ func (s StaticAuthZ) GetUserPermissions(ctx context.Context) (*v1alpha1.Permissi
 	var userRoles []string
 	if mappedIdentity.IsSuperAdmin() {
 		s.log.Debugf("StaticAuthZ: user=%s is super admin, granting all permissions", mappedIdentity.GetUsername())
-		userRoles = []string{v1alpha1.RoleAdmin}
+		userRoles = []string{v1beta1.RoleAdmin}
 	} else {
 		// Get the selected organization from context
 		orgUUID, ok := util.GetOrgIdFromContext(ctx)
@@ -142,7 +142,7 @@ func (s StaticAuthZ) GetUserPermissions(ctx context.Context) (*v1alpha1.Permissi
 		if len(userRoles) == 0 {
 			s.log.Debugf("StaticAuthZ: user=%s has no roles in organization=%s",
 				mappedIdentity.GetUsername(), orgID)
-			return &v1alpha1.PermissionList{Permissions: []v1alpha1.Permission{}}, nil
+			return &v1beta1.PermissionList{Permissions: []v1beta1.Permission{}}, nil
 		}
 		s.log.Debugf("StaticAuthZ: getting permissions for user=%s, org=%s, roles=%v",
 			mappedIdentity.GetUsername(), orgID, userRoles)
@@ -184,20 +184,20 @@ func (s StaticAuthZ) GetUserPermissions(ctx context.Context) (*v1alpha1.Permissi
 	}
 	sort.Strings(resources)
 
-	apiPermissions := make([]v1alpha1.Permission, 0, len(mergedPermissions))
+	apiPermissions := make([]v1beta1.Permission, 0, len(mergedPermissions))
 	for _, resource := range resources {
 		ops := mergedPermissions[resource]
 		// Sort operations for consistent output
 		sort.Strings(ops)
 
-		apiPermissions = append(apiPermissions, v1alpha1.Permission{
+		apiPermissions = append(apiPermissions, v1beta1.Permission{
 			Resource:   resource,
 			Operations: ops,
 		})
 	}
 
 	s.log.Debugf("StaticAuthZ: returning %d permissions for user=%s", len(apiPermissions), mappedIdentity.GetUsername())
-	return &v1alpha1.PermissionList{
+	return &v1beta1.PermissionList{
 		Permissions: apiPermissions,
 	}, nil
 }

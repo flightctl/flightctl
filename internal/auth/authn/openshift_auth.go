@@ -8,9 +8,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/identity"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
@@ -29,6 +30,10 @@ type OpenShiftAuth struct {
 	cache         *ttlcache.Cache[string, *k8sAuthenticationV1.TokenReview]
 	identityCache *ttlcache.Cache[string, common.Identity]
 	log           logrus.FieldLogger
+	cancel        context.CancelFunc
+	mu            sync.Mutex
+	started       bool
+	stopOnce      sync.Once
 }
 
 // NewOpenShiftAuth creates a new OpenShift authentication instance
@@ -63,9 +68,59 @@ func NewOpenShiftAuth(metadata api.ObjectMeta, spec api.OpenShiftProviderSpec, k
 		identityCache: ttlcache.New(ttlcache.WithTTL[string, common.Identity](5 * time.Minute)),
 		log:           log,
 	}
-	go auth.cache.Start()
-	go auth.identityCache.Start()
 	return auth, nil
+}
+
+func (o *OpenShiftAuth) IsEnabled() bool {
+	return o.spec.Enabled != nil && *o.spec.Enabled
+}
+
+// Start starts the cache background cleanup
+// Creates a child context that can be independently canceled via Stop()
+func (o *OpenShiftAuth) Start(ctx context.Context) error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	if o.started {
+		return fmt.Errorf("OpenShiftAuth provider already started")
+	}
+
+	// Create a child context so this provider can be stopped independently
+	providerCtx, cancel := context.WithCancel(ctx)
+	o.cancel = cancel
+
+	// Start caches in goroutines (cache.Start() blocks waiting for cleanup events)
+	go o.cache.Start()
+	go o.identityCache.Start()
+
+	go func() {
+		<-providerCtx.Done()
+		o.cache.Stop()
+		o.identityCache.Stop()
+		o.log.Debugf("OpenShiftAuth caches stopped")
+	}()
+
+	o.log.Debugf("OpenShiftAuth caches started")
+	o.started = true
+	return nil
+}
+
+// Stop stops the caches and cancels the provider's context
+func (o *OpenShiftAuth) Stop() {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	// Only stop if we were started
+	if !o.started {
+		return
+	}
+
+	o.stopOnce.Do(func() {
+		if o.cancel != nil {
+			o.log.Debugf("Stopping OpenShiftAuth provider")
+			o.cancel()
+		}
+	})
 }
 
 // hashToken creates a SHA256 hash of the token for cache key

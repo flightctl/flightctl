@@ -1,4 +1,4 @@
-apiVersion: flightctl.io/v1alpha1
+apiVersion: flightctl.io/v1beta1
 kind: Repository
 metadata:
   name: default-{{test_id}}

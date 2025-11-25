@@ -9,20 +9,20 @@ data:
   config.yaml: |-
     database:
       hostname: {{ include "flightctl.dbHostname" . }}
-      type: {{ required "Values.db.type is required" $.Values.db.type | quote }}
-      port: {{ required "Values.db.port is required" $.Values.db.port }}
-      name: {{ required "Values.db.name is required" $.Values.db.name }}
-      {{- if .Values.db.sslmode }}
-      sslmode: {{ .Values.db.sslmode | quote }}
+      type: "pgsql"
+      port: {{ include "flightctl.dbPort" . | int }}
+      name: {{ .Values.db.name }}
+      {{- if eq .Values.db.type "external" }}
+      {{- if .Values.db.external.sslmode }}
+      sslmode: {{ .Values.db.external.sslmode | quote }}
       {{- end }}
-      {{- if .Values.db.sslcert }}
-      sslcert: {{ .Values.db.sslcert | quote }}
+      {{- if .Values.db.external.tlsConfigMapName }}
+      sslrootcert: /etc/ssl/postgres/ca-cert.pem
       {{- end }}
-      {{- if .Values.db.sslkey }}
-      sslkey: {{ .Values.db.sslkey | quote }}
+      {{- if .Values.db.external.tlsSecretName }}
+      sslkey: /etc/ssl/postgres/client-key.pem
+      sslcert: /etc/ssl/postgres/client-cert.pem
       {{- end }}
-      {{- if .Values.db.sslrootcert }}
-      sslrootcert: {{ .Values.db.sslrootcert | quote }}
       {{- end }}
     service:
       certStore: "/app/certs"
@@ -89,11 +89,11 @@ data:
     {{- end }}
     organizations:
       enabled: true
-    {{ if .Values.global.tracing }}
+    {{ if (default dict .Values.dev).tracing }}
     tracing:
         enabled: true
-        endpoint: {{ .Values.global.tracing.endpoint }}
-        insecure: {{ .Values.global.tracing.insecure }}
+        endpoint: {{ .Values.dev.tracing.endpoint }}
+        insecure: {{ .Values.dev.tracing.insecure }}
     {{ end }}
 {{- end }}
 

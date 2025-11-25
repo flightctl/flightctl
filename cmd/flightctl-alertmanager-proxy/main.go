@@ -153,23 +153,17 @@ func createConditionalAuthMiddleware(
 func main() {
 	ctx := context.Background()
 
-	// Initialize logging
-	logger := fclog.InitLogs()
-	logger.Println("Starting Alertmanager Proxy service")
-	defer logger.Println("Alertmanager Proxy service stopped")
-
 	// Load configuration
 	cfg, err := config.LoadOrGenerate(config.ConfigFile())
 	if err != nil {
+		logger := fclog.InitLogs()
 		logger.Fatalf("Failed to load configuration: %v", err)
 	}
 
-	// Set log level
-	logLvl, err := logrus.ParseLevel(cfg.Service.LogLevel)
-	if err != nil {
-		logLvl = logrus.InfoLevel
-	}
-	logger.SetLevel(logLvl)
+	// Initialize logging with level from config
+	logger := fclog.InitLogs(cfg.Service.LogLevel)
+	logger.Println("Starting Alertmanager Proxy service")
+	defer logger.Println("Alertmanager Proxy service stopped")
 
 	// Initialize CA and TLS certificates (following same pattern as API server)
 	ca, _, err := crypto.EnsureCA(cfg.CA)
@@ -260,7 +254,9 @@ func main() {
 	// Start auth provider loader if MultiAuth is configured (not NilAuth)
 	if multiAuth, ok := authN.(*authn.MultiAuth); ok {
 		go func() {
-			multiAuth.Start(ctx)
+			if err := multiAuth.Start(ctx); err != nil {
+				logger.Errorf("Failed to start auth provider loader: %v", err)
+			}
 			cancel() // Trigger coordinated shutdown if auth loader exits
 		}()
 	}

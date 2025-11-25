@@ -50,12 +50,13 @@ type AAPRoleUserAssignmentsResponse = AAPPaginatedResponse[AAPRoleUserAssignment
 
 // GET /api/controller/v2/role_user_assignments/?user__id={user_id}
 func (a *AAPGatewayClient) ListUserRoleAssignments(ctx context.Context, token string, userID string) ([]*AAPRoleUserAssignment, error) {
-	basePath := "/api/controller/v2/role_user_assignments/"
-	values := url.Values{}
-	values.Set("user__id", userID)
+	// Build query parameters using url.Values
+	query := url.Values{}
+	query.Set("user__id", userID)
 	if a.maxPageSize != nil {
-		values.Set("page_size", fmt.Sprintf("%d", *a.maxPageSize))
+		query.Set("page_size", fmt.Sprintf("%d", *a.maxPageSize))
 	}
-	path := basePath + "?" + values.Encode()
-	return getWithPagination[AAPRoleUserAssignment](a, ctx, path, token)
+
+	endpoint := a.buildEndpoint("/api/controller/v2/role_user_assignments/", query)
+	return getWithPagination[AAPRoleUserAssignment](a, ctx, endpoint, token)
 }

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -67,7 +67,7 @@ func TestWriteComposeOverride(t *testing.T) {
 			writer := fileio.NewReadWriter()
 			writer.SetRootdir(tmpDir)
 
-			volumeManager, err := NewVolumeManager(log, tt.appName, newTestImageApplicationVolumes(require, tt.volumes))
+			volumeManager, err := NewVolumeManager(log, tt.appName, v1beta1.AppTypeCompose, newTestImageApplicationVolumes(require, tt.volumes))
 			require.NoError(err)
 
 			err = writeComposeOverride(log, "/etc/compose/manifest", volumeManager, writer, client.ComposeOverrideFilename)
@@ -87,15 +87,15 @@ func TestWriteComposeOverride(t *testing.T) {
 	}
 }
 
-func newTestImageApplicationVolumes(require *require.Assertions, names []string) *[]v1alpha1.ApplicationVolume {
-	spec := v1alpha1.ImageVolumeProviderSpec{
-		Image: v1alpha1.ImageVolumeSource{
+func newTestImageApplicationVolumes(require *require.Assertions, names []string) *[]v1beta1.ApplicationVolume {
+	spec := v1beta1.ImageVolumeProviderSpec{
+		Image: v1beta1.ImageVolumeSource{
 			Reference: "quay.io/test/artifact:latest",
 		},
 	}
-	volumes := []v1alpha1.ApplicationVolume{}
+	volumes := []v1beta1.ApplicationVolume{}
 	for _, volName := range names {
-		vol := v1alpha1.ApplicationVolume{Name: volName}
+		vol := v1beta1.ApplicationVolume{Name: volName}
 		err := vol.FromImageVolumeProviderSpec(spec)
 		require.NoError(err)
 		volumes = append(volumes, vol)
@@ -110,14 +110,14 @@ func Test_extractQuadletVolumesFromSpec(t *testing.T) {
 	tests := []struct {
 		name            string
 		appID           string
-		contents        []v1alpha1.ApplicationContent
+		contents        []v1beta1.ApplicationContent
 		expectedVolumes []Volume
 		expectError     bool
 	}{
 		{
 			name:  "single volume with image",
 			appID: "test-app",
-			contents: []v1alpha1.ApplicationContent{
+			contents: []v1beta1.ApplicationContent{
 				{
 					Path: "data.volume",
 					Content: lo.ToPtr(`[Volume]
@@ -136,7 +136,7 @@ Image=quay.io/test/data:latest`),
 		{
 			name:  "multiple volumes with images",
 			appID: "myapp",
-			contents: []v1alpha1.ApplicationContent{
+			contents: []v1beta1.ApplicationContent{
 				{
 					Path: "data.volume",
 					Content: lo.ToPtr(`[Volume]
@@ -165,7 +165,7 @@ Image=quay.io/test/cache:v2.0`),
 		{
 			name:  "mixed quadlet types - only volumes with images extracted",
 			appID: "mixed-app",
-			contents: []v1alpha1.ApplicationContent{
+			contents: []v1beta1.ApplicationContent{
 				{
 					Path: "app.container",
 					Content: lo.ToPtr(`[Container]
@@ -199,7 +199,7 @@ Device=/dev/sda1`),
 		{
 			name:  "volume with custom name",
 			appID: "app",
-			contents: []v1alpha1.ApplicationContent{
+			contents: []v1beta1.ApplicationContent{
 				{
 					Path: "storage.volume",
 					Content: lo.ToPtr(`[Volume]
@@ -219,7 +219,7 @@ VolumeName=custom-storage-name`),
 		{
 			name:  "no volumes - only containers",
 			appID: "app",
-			contents: []v1alpha1.ApplicationContent{
+			contents: []v1beta1.ApplicationContent{
 				{
 					Path: "app.container",
 					Content: lo.ToPtr(`[Container]
@@ -232,7 +232,7 @@ Image=quay.io/test/app:latest`),
 		{
 			name:            "empty contents",
 			appID:           "app",
-			contents:        []v1alpha1.ApplicationContent{},
+			contents:        []v1beta1.ApplicationContent{},
 			expectedVolumes: nil,
 			expectError:     true,
 		},

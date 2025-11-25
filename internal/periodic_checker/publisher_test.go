@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/pkg/poll"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -82,7 +82,7 @@ type mockOrganizationService struct {
 	callCount     int
 }
 
-func (m *mockOrganizationService) ListOrganizations(ctx context.Context) (*api.OrganizationList, api.Status) {
+func (m *mockOrganizationService) ListOrganizations(ctx context.Context, _ api.ListOrganizationsParams) (*api.OrganizationList, api.Status) {
 	m.callCount++
 	return m.organizations, m.status
 }

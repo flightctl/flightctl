@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/service"
 	servicecommon "github.com/flightctl/flightctl/internal/service/common"
 	"github.com/google/uuid"
@@ -47,22 +47,22 @@ func NewRepositoryUpdateLogic(log logrus.FieldLogger, serviceHandler service.Ser
 }
 
 func (t *RepositoryUpdateLogic) HandleRepositoryUpdate(ctx context.Context) error {
-	fleets, status := t.serviceHandler.GetRepositoryFleetReferences(ctx, t.event.InvolvedObject.Name)
+	fleets, status := t.serviceHandler.GetRepositoryFleetReferences(ctx, t.orgId, t.event.InvolvedObject.Name)
 	if status.Code != http.StatusOK {
 		return fmt.Errorf("fetching fleets: %s", status.Message)
 	}
 
 	for _, fleet := range fleets.Items {
-		t.serviceHandler.CreateEvent(ctx, servicecommon.GetReferencedRepositoryUpdatedEvent(ctx, api.FleetKind, *fleet.Metadata.Name, t.event.InvolvedObject.Name))
+		t.serviceHandler.CreateEvent(ctx, t.orgId, servicecommon.GetReferencedRepositoryUpdatedEvent(ctx, api.FleetKind, *fleet.Metadata.Name, t.event.InvolvedObject.Name))
 	}
 
-	devices, status := t.serviceHandler.GetRepositoryDeviceReferences(ctx, t.event.InvolvedObject.Name)
+	devices, status := t.serviceHandler.GetRepositoryDeviceReferences(ctx, t.orgId, t.event.InvolvedObject.Name)
 	if status.Code != http.StatusOK {
 		return fmt.Errorf("fetching devices: %s", status.Message)
 	}
 
 	for _, device := range devices.Items {
-		t.serviceHandler.CreateEvent(ctx, servicecommon.GetReferencedRepositoryUpdatedEvent(ctx, api.DeviceKind, *device.Metadata.Name, t.event.InvolvedObject.Name))
+		t.serviceHandler.CreateEvent(ctx, t.orgId, servicecommon.GetReferencedRepositoryUpdatedEvent(ctx, api.DeviceKind, *device.Metadata.Name, t.event.InvolvedObject.Name))
 	}
 
 	return nil

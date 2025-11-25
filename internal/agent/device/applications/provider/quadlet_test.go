@@ -1,11 +1,19 @@
 package provider
 
 import (
+	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/flightctl/flightctl/api/v1beta1"
+	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/pkg/executer"
+	"github.com/flightctl/flightctl/pkg/log"
+	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 )
 
 func TestNamespacedQuadlet(t *testing.T) {
@@ -1204,6 +1212,555 @@ func TestNamespaceNetworkName(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result := namespaceNetworkName(tt.value, tt.appID)
 			require.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestEnsureQuadlet(t *testing.T) {
+	require := require.New(t)
+
+	tests := []struct {
+		name          string
+		files         map[string]string
+		expectError   bool
+		errorContains string
+	}{
+		{
+			name: "valid top-level quadlet files",
+			files: map[string]string{
+				"app.container": `[Container]
+Image=quay.io/test/image:v1
+`,
+				"db.container": `[Container]
+Image=quay.io/test/db:v1
+`,
+			},
+			expectError: false,
+		},
+		{
+			name: "quadlet files in subdirectory (invalid)",
+			files: map[string]string{
+				"app1/app.container": `[Container]
+Image=quay.io/test/image:v1
+`,
+				"app2/app.container": `[Container]
+Image=quay.io/test/image:v2
+`,
+			},
+			expectError:   true,
+			errorContains: "must reside at the top level",
+		},
+		{
+			name: "invalid no quadlet files",
+			files: map[string]string{
+				"README.md": "# My App",
+				"LICENSE":   "MIT",
+			},
+			expectError:   true,
+			errorContains: "no valid quadlet files",
+		},
+		{
+			name: "mixed top-level and subdirectory (valid)",
+			files: map[string]string{
+				"app.container": `[Container]
+Image=quay.io/test/image:v1
+`,
+				"docs/README.md": "# Documentation",
+			},
+			expectError: false,
+		},
+		{
+			name: "valid with dropin configs",
+			files: map[string]string{
+				"app.container": `[Container]
+Image=quay.io/test/image:v1
+`,
+				"app.container.d/10-override.conf": `[Container]
+Environment=FOO=bar
+`,
+			},
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			rw := fileio.NewReadWriter()
+			rw.SetRootdir(tmpDir)
+
+			// Create test files
+			for path, content := range tt.files {
+				dir := filepath.Dir(path)
+				if dir != "." {
+					err := rw.MkdirAll(dir, fileio.DefaultDirectoryPermissions)
+					require.NoError(err)
+				}
+				err := rw.WriteFile(path, []byte(content), fileio.DefaultFilePermissions)
+				require.NoError(err)
+			}
+
+			err := ensureQuadlet(rw, ".")
+
+			if tt.expectError {
+				require.Error(err)
+				if tt.errorContains != "" {
+					require.Contains(err.Error(), tt.errorContains)
+				}
+			} else {
+				require.NoError(err)
+			}
+		})
+	}
+}
+
+func TestHasQuadletFiles(t *testing.T) {
+	require := require.New(t)
+
+	tests := []struct {
+		name        string
+		files       []string
+		expectFound bool
+	}{
+		{
+			name:        "directory with container file",
+			files:       []string{"app.container"},
+			expectFound: true,
+		},
+		{
+			name:        "directory with volume file",
+			files:       []string{"data.volume"},
+			expectFound: true,
+		},
+		{
+			name:        "directory with network file",
+			files:       []string{"mynet.network"},
+			expectFound: true,
+		},
+		{
+			name:        "directory with no quadlet files",
+			files:       []string{"README.md", "LICENSE"},
+			expectFound: false,
+		},
+		{
+			name:        "empty directory",
+			files:       []string{},
+			expectFound: false,
+		},
+		{
+			name:        "mixed files",
+			files:       []string{"app.container", "README.md"},
+			expectFound: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			rw := fileio.NewReadWriter()
+			rw.SetRootdir(tmpDir)
+
+			testDir := filepath.Join(tmpDir, "test")
+			err := rw.MkdirAll(testDir, fileio.DefaultDirectoryPermissions)
+			require.NoError(err)
+
+			// Create test files
+			for _, filename := range tt.files {
+				fullPath := filepath.Join(testDir, filename)
+				err = rw.WriteFile(fullPath, []byte("test content"), fileio.DefaultFilePermissions)
+				require.NoError(err)
+			}
+
+			found, err := hasQuadletFiles(rw, testDir)
+			require.NoError(err)
+			require.Equal(tt.expectFound, found)
+		})
+	}
+}
+
+func makeMountVolume(name, path string) v1beta1.ApplicationVolume {
+	vol := v1beta1.ApplicationVolume{Name: name}
+	_ = vol.FromMountVolumeProviderSpec(v1beta1.MountVolumeProviderSpec{
+		Mount: v1beta1.VolumeMount{Path: path},
+	})
+	return vol
+}
+
+func makeImageMountVolume(name, imageRef, path string) v1beta1.ApplicationVolume {
+	vol := v1beta1.ApplicationVolume{Name: name}
+	_ = vol.FromImageMountVolumeProviderSpec(v1beta1.ImageMountVolumeProviderSpec{
+		Image: v1beta1.ImageVolumeSource{Reference: imageRef},
+		Mount: v1beta1.VolumeMount{Path: path},
+	})
+	return vol
+}
+
+func TestGenerateQuadlet(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	cpuLimit := "2"
+	memoryLimit := "512m"
+
+	tests := []struct {
+		name              string
+		spec              *v1beta1.ImageApplicationProviderSpec
+		setupMocks        func(*executer.MockExecuter)
+		checkFileContents func(*testing.T, []byte)
+		expectedFiles     []string
+	}{
+		{
+			name: "simple image only",
+			spec: &v1beta1.ImageApplicationProviderSpec{
+				Image: "nginx:latest",
+			},
+			checkFileContents: func(t *testing.T, content []byte) {
+				contentStr := string(content)
+				require.Contains(t, contentStr, "[Container]")
+				require.Contains(t, contentStr, "Image=nginx:latest")
+				require.NotContains(t, contentStr, "PodmanArgs")
+				require.NotContains(t, contentStr, "PublishPort")
+			},
+		},
+		{
+			name: "with CPU limit only",
+			spec: &v1beta1.ImageApplicationProviderSpec{
+				Image: "nginx:latest",
+				Resources: &v1beta1.ApplicationResources{
+					Limits: &v1beta1.ApplicationResourceLimits{
+						Cpu: &cpuLimit,
+					},
+				},
+			},
+			checkFileContents: func(t *testing.T, content []byte) {
+				contentStr := string(content)
+				require.Contains(t, contentStr, "[Container]")
+				require.Contains(t, contentStr, "Image=nginx:latest")
+				require.Contains(t, contentStr, "PodmanArgs=--cpus 2")
+				require.NotContains(t, contentStr, "--memory")
+			},
+		},
+		{
+			name: "with memory limit only",
+			spec: &v1beta1.ImageApplicationProviderSpec{
+				Image: "postgres:latest",
+				Resources: &v1beta1.ApplicationResources{
+					Limits: &v1beta1.ApplicationResourceLimits{
+						Memory: &memoryLimit,
+					},
+				},
+			},
+			checkFileContents: func(t *testing.T, content []byte) {
+				contentStr := string(content)
+				require.Contains(t, contentStr, "[Container]")
+				require.Contains(t, contentStr, "Image=postgres:latest")
+				require.Contains(t, contentStr, "PodmanArgs=--memory 512m")
+				require.NotContains(t, contentStr, "--cpus")
+			},
+		},
+		{
+			name: "with both CPU and memory limits",
+			spec: &v1beta1.ImageApplicationProviderSpec{
+				Image: "redis:latest",
+				Resources: &v1beta1.ApplicationResources{
+					Limits: &v1beta1.ApplicationResourceLimits{
+						Cpu:    &cpuLimit,
+						Memory: &memoryLimit,
+					},
+				},
+			},
+			checkFileContents: func(t *testing.T, content []byte) {
+				contentStr := string(content)
+				require.Contains(t, contentStr, "[Container]")
+				require.Contains(t, contentStr, "Image=redis:latest")
+				require.Contains(t, contentStr, "PodmanArgs=--cpus 2")
+				require.Contains(t, contentStr, "PodmanArgs=--memory 512m")
+			},
+		},
+		{
+			name: "with single port",
+			spec: &v1beta1.ImageApplicationProviderSpec{
+				Image: "nginx:latest",
+				Ports: &[]v1beta1.ApplicationPort{"8080:80"},
+			},
+			checkFileContents: func(t *testing.T, content []byte) {
+				contentStr := string(content)
+				require.Contains(t, contentStr, "[Container]")
+				require.Contains(t, contentStr, "Image=nginx:latest")
+				require.Contains(t, contentStr, "PublishPort=8080:80")
+			},
+		},
+		{
+			name: "with multiple ports",
+			spec: &v1beta1.ImageApplicationProviderSpec{
+				Image: "webapp:latest",
+				Ports: &[]v1beta1.ApplicationPort{
+					"8080:80",
+					"8443:443",
+					"9090:9090",
+				},
+			},
+			checkFileContents: func(t *testing.T, content []byte) {
+				contentStr := string(content)
+				require.Contains(t, contentStr, "[Container]")
+				require.Contains(t, contentStr, "Image=webapp:latest")
+				require.Contains(t, contentStr, "PublishPort=8080:80")
+				require.Contains(t, contentStr, "PublishPort=8443:443")
+				require.Contains(t, contentStr, "PublishPort=9090:9090")
+			},
+		},
+		{
+			name: "complete spec with resources and ports",
+			spec: &v1beta1.ImageApplicationProviderSpec{
+				Image: "myapp:v1.0",
+				Resources: &v1beta1.ApplicationResources{
+					Limits: &v1beta1.ApplicationResourceLimits{
+						Cpu:    &cpuLimit,
+						Memory: &memoryLimit,
+					},
+				},
+				Ports: &[]v1beta1.ApplicationPort{
+					"3000:3000",
+					"3001:3001",
+				},
+			},
+			checkFileContents: func(t *testing.T, content []byte) {
+				contentStr := string(content)
+				require.Contains(t, contentStr, "[Container]")
+				require.Contains(t, contentStr, "Image=myapp:v1.0")
+				require.Contains(t, contentStr, "PodmanArgs=--cpus 2")
+				require.Contains(t, contentStr, "PodmanArgs=--memory 512m")
+				require.Contains(t, contentStr, "PublishPort=3000:3000")
+				require.Contains(t, contentStr, "PublishPort=3001:3001")
+			},
+		},
+		{
+			name: "nil resources",
+			spec: &v1beta1.ImageApplicationProviderSpec{
+				Image:     "alpine:latest",
+				Resources: nil,
+			},
+			checkFileContents: func(t *testing.T, content []byte) {
+				contentStr := string(content)
+				require.Contains(t, contentStr, "[Container]")
+				require.Contains(t, contentStr, "Image=alpine:latest")
+				require.NotContains(t, contentStr, "PodmanArgs")
+			},
+		},
+		{
+			name: "nil limits",
+			spec: &v1beta1.ImageApplicationProviderSpec{
+				Image: "ubuntu:latest",
+				Resources: &v1beta1.ApplicationResources{
+					Limits: nil,
+				},
+			},
+			checkFileContents: func(t *testing.T, content []byte) {
+				contentStr := string(content)
+				require.Contains(t, contentStr, "[Container]")
+				require.Contains(t, contentStr, "Image=ubuntu:latest")
+				require.NotContains(t, contentStr, "PodmanArgs")
+			},
+		},
+		{
+			name: "nil ports",
+			spec: &v1beta1.ImageApplicationProviderSpec{
+				Image: "busybox:latest",
+				Ports: nil,
+			},
+			checkFileContents: func(t *testing.T, content []byte) {
+				contentStr := string(content)
+				require.Contains(t, contentStr, "[Container]")
+				require.Contains(t, contentStr, "Image=busybox:latest")
+				require.NotContains(t, contentStr, "PublishPort")
+			},
+		},
+		{
+			name: "empty ports slice",
+			spec: &v1beta1.ImageApplicationProviderSpec{
+				Image: "centos:latest",
+				Ports: &[]v1beta1.ApplicationPort{},
+			},
+			checkFileContents: func(t *testing.T, content []byte) {
+				contentStr := string(content)
+				require.Contains(t, contentStr, "[Container]")
+				require.Contains(t, contentStr, "Image=centos:latest")
+				require.NotContains(t, contentStr, "PublishPort")
+			},
+		},
+		{
+			name: "with mount volume",
+			spec: &v1beta1.ImageApplicationProviderSpec{
+				Image: "nginx:latest",
+				Volumes: &[]v1beta1.ApplicationVolume{
+					makeMountVolume("app-data", "/var/lib/app"),
+				},
+			},
+			checkFileContents: func(t *testing.T, content []byte) {
+				contentStr := string(content)
+				require.Contains(t, contentStr, "[Container]")
+				require.Contains(t, contentStr, "Image=nginx:latest")
+				require.Contains(t, contentStr, "Volume=app-data:/var/lib/app")
+			},
+		},
+		{
+			name: "with image mount volume - image exists",
+			spec: &v1beta1.ImageApplicationProviderSpec{
+				Image: "nginx:latest",
+				Volumes: &[]v1beta1.ApplicationVolume{
+					makeImageMountVolume("app-config", "quay.io/config:v1", "/etc/app/config"),
+				},
+			},
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				// Return success (0) for image exists command
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", gomock.Any()).Return("", "", 0).AnyTimes()
+			},
+			expectedFiles: []string{"app.container", "app-config.volume"},
+			checkFileContents: func(t *testing.T, content []byte) {
+				contentStr := string(content)
+				require.Contains(t, contentStr, "[Container]")
+				require.Contains(t, contentStr, "Image=nginx:latest")
+				require.Contains(t, contentStr, "Volume=app-config.volume:/etc/app/config")
+			},
+		},
+		{
+			name: "with image mount volume - artifact (image does not exist)",
+			spec: &v1beta1.ImageApplicationProviderSpec{
+				Image: "nginx:latest",
+				Volumes: &[]v1beta1.ApplicationVolume{
+					makeImageMountVolume("app-artifact", "quay.io/artifact:v1", "/data/artifact"),
+				},
+			},
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", gomock.Any()).Return("", "", 1).AnyTimes()
+			},
+			checkFileContents: func(t *testing.T, content []byte) {
+				contentStr := string(content)
+				require.Contains(t, contentStr, "[Container]")
+				require.Contains(t, contentStr, "Image=nginx:latest")
+				require.Contains(t, contentStr, "Volume=app-artifact:/data/artifact")
+			},
+		},
+		{
+			name: "with multiple volumes - mixed types",
+			spec: &v1beta1.ImageApplicationProviderSpec{
+				Image: "webapp:latest",
+				Volumes: &[]v1beta1.ApplicationVolume{
+					makeMountVolume("data", "/var/data"),
+					makeImageMountVolume("config", "quay.io/config:latest", "/etc/config"),
+					makeImageMountVolume("cache", "quay.io/artifact:v1", "/cache"),
+				},
+			},
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", gomock.Any()).DoAndReturn(
+					func(ctx context.Context, command string, args ...string) (string, string, int) {
+						if len(args) >= 3 && args[0] == "image" && args[1] == "exists" && args[2] == "quay.io/config:latest" {
+							return "", "", 0
+						}
+						return "", "", 1
+					},
+				).AnyTimes()
+			},
+			expectedFiles: []string{"app.container", "config.volume"},
+			checkFileContents: func(t *testing.T, content []byte) {
+				contentStr := string(content)
+				require.Contains(t, contentStr, "[Container]")
+				require.Contains(t, contentStr, "Image=webapp:latest")
+				require.Contains(t, contentStr, "Volume=data:/var/data")
+				require.Contains(t, contentStr, "Volume=config.volume:/etc/config")
+				require.Contains(t, contentStr, "Volume=cache:/cache")
+			},
+		},
+		{
+			name: "with volumes and ports and resources",
+			spec: &v1beta1.ImageApplicationProviderSpec{
+				Image: "fullapp:latest",
+				Resources: &v1beta1.ApplicationResources{
+					Limits: &v1beta1.ApplicationResourceLimits{
+						Cpu:    &cpuLimit,
+						Memory: &memoryLimit,
+					},
+				},
+				Ports: &[]v1beta1.ApplicationPort{
+					"8080:80",
+					"8443:443",
+				},
+				Volumes: &[]v1beta1.ApplicationVolume{
+					makeMountVolume("data", "/data"),
+					makeImageMountVolume("config", "quay.io/config:v1", "/config"),
+				},
+			},
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", gomock.Any()).DoAndReturn(
+					func(ctx context.Context, command string, args ...string) (string, string, int) {
+						if len(args) >= 3 && args[0] == "image" && args[1] == "exists" && args[2] == "quay.io/config:v1" {
+							return "", "", 0
+						}
+						return "", "", 1
+					},
+				).AnyTimes()
+			},
+			expectedFiles: []string{"app.container", "config.volume"},
+			checkFileContents: func(t *testing.T, content []byte) {
+				contentStr := string(content)
+				require.Contains(t, contentStr, "[Container]")
+				require.Contains(t, contentStr, "Image=fullapp:latest")
+				require.Contains(t, contentStr, "PodmanArgs=--cpus 2")
+				require.Contains(t, contentStr, "PodmanArgs=--memory 512m")
+				require.Contains(t, contentStr, "PublishPort=8080:80")
+				require.Contains(t, contentStr, "PublishPort=8443:443")
+				require.Contains(t, contentStr, "Volume=data:/data")
+				require.Contains(t, contentStr, "Volume=config.volume:/config")
+				require.Contains(t, contentStr, "[Service]")
+				require.Contains(t, contentStr, "Restart=on-failure")
+				require.Contains(t, contentStr, "RestartSec=60")
+				require.Contains(t, contentStr, "[Install]")
+				require.Contains(t, contentStr, "WantedBy=multi-user.target default.target")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			rw := fileio.NewReadWriter()
+			rw.SetRootdir(tmpDir)
+
+			mockExec := executer.NewMockExecuter(ctrl)
+			if tt.setupMocks != nil {
+				tt.setupMocks(mockExec)
+			}
+			podman := client.NewPodman(log.NewPrefixLogger("test"), mockExec, rw, testutil.NewPollConfig())
+
+			ctx := context.Background()
+			err := generateQuadlet(ctx, podman, rw, "/", tt.spec)
+			require.NoError(t, err)
+
+			expectedFiles := tt.expectedFiles
+			if expectedFiles == nil {
+				expectedFiles = []string{"app.container"}
+			}
+
+			for _, file := range expectedFiles {
+				content, err := rw.ReadFile(file)
+				require.NoError(t, err, "expected file %s to exist", file)
+				require.NotEmpty(t, content, "expected file %s to have content", file)
+
+				if strings.HasSuffix(file, ".volume") {
+					contentStr := string(content)
+					require.Contains(t, contentStr, "[Volume]")
+					require.Contains(t, contentStr, "Image=")
+					require.Contains(t, contentStr, "Driver=image")
+				}
+			}
+
+			content, err := rw.ReadFile("app.container")
+			require.NoError(t, err, "expected app.container file to exist")
+			require.NotEmpty(t, content, "expected app.container to have content")
+
+			if tt.checkFileContents != nil {
+				tt.checkFileContents(t, content)
+			}
 		})
 	}
 }

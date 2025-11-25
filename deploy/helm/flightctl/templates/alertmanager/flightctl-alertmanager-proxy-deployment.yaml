@@ -31,7 +31,7 @@ spec:
       {{- include "flightctl.databaseWaitInitContainer" (dict "context" . "userType" "app") | nindent 6 }}
       {{- include "flightctl.migrationWaitInitContainer" (dict "context" . "timeout" 600) | nindent 6 }}
       - name: init-certs
-        image: "registry.access.redhat.com/ubi9/ubi-minimal:latest"
+        image: "registry.access.redhat.com/ubi9/ubi-minimal:9.7"
         command:
           - /bin/sh
           - -c
@@ -63,12 +63,12 @@ spec:
             - name: DB_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: flightctl-db-app-secret
+                  name: {{ include "flightctl.dbAppUserSecret" . }}
                   key: userPassword
             - name: DB_USER
               valueFrom:
                 secretKeyRef:
-                  name: flightctl-db-app-secret
+                  name: {{ include "flightctl.dbAppUserSecret" . }}
                   key: user
           volumeMounts:
             - mountPath: /app/certs

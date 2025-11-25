@@ -5,9 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/identity"
 	"github.com/flightctl/flightctl/internal/org"
@@ -24,6 +25,10 @@ type K8sAuthN struct {
 	k8sClient     k8sclient.K8SClient
 	cache         *ttlcache.Cache[string, *k8sAuthenticationV1.TokenReview]
 	identityCache *ttlcache.Cache[string, common.Identity]
+	cancel        context.CancelFunc
+	mu            sync.Mutex
+	started       bool
+	stopOnce      sync.Once
 }
 
 func NewK8sAuthN(metadata api.ObjectMeta, spec api.K8sProviderSpec, k8sClient k8sclient.K8SClient) (*K8sAuthN, error) {
@@ -34,12 +39,62 @@ func NewK8sAuthN(metadata api.ObjectMeta, spec api.K8sProviderSpec, k8sClient k8
 		cache:         ttlcache.New(ttlcache.WithTTL[string, *k8sAuthenticationV1.TokenReview](5 * time.Second)),
 		identityCache: ttlcache.New(ttlcache.WithTTL[string, common.Identity](30 * time.Second)),
 	}
-	go authN.cache.Start()
-	go authN.identityCache.Start()
 	return authN, nil
 }
 
-func (o K8sAuthN) loadTokenReview(ctx context.Context, token string) (*k8sAuthenticationV1.TokenReview, error) {
+func (o *K8sAuthN) IsEnabled() bool {
+	return o.spec.Enabled != nil && *o.spec.Enabled
+}
+
+// Start starts the cache background cleanup
+// Creates a child context that can be independently canceled via Stop()
+func (o *K8sAuthN) Start(ctx context.Context) error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	if o.started {
+		return fmt.Errorf("K8sAuthN provider already started")
+	}
+
+	// Create a child context so this provider can be stopped independently
+	providerCtx, cancel := context.WithCancel(ctx)
+	o.cancel = cancel
+
+	// Start caches in goroutines (cache.Start() blocks waiting for cleanup events)
+	go o.cache.Start()
+	go o.identityCache.Start()
+
+	go func() {
+		<-providerCtx.Done()
+		o.cache.Stop()
+		o.identityCache.Stop()
+		logrus.Debugf("K8sAuthN caches stopped")
+	}()
+
+	logrus.Debugf("K8sAuthN caches started")
+	o.started = true
+	return nil
+}
+
+// Stop stops the caches and cancels the provider's context
+func (o *K8sAuthN) Stop() {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	// Only stop if we were started
+	if !o.started {
+		return
+	}
+
+	o.stopOnce.Do(func() {
+		if o.cancel != nil {
+			logrus.Debugf("Stopping K8sAuthN provider")
+			o.cancel()
+		}
+	})
+}
+
+func (o *K8sAuthN) loadTokenReview(ctx context.Context, token string) (*k8sAuthenticationV1.TokenReview, error) {
 	item := o.cache.Get(token)
 	if item != nil {
 		return item.Value(), nil
@@ -75,7 +130,7 @@ func (o K8sAuthN) loadTokenReview(ctx context.Context, token string) (*k8sAuthen
 	return review, nil
 }
 
-func (o K8sAuthN) ValidateToken(ctx context.Context, token string) error {
+func (o *K8sAuthN) ValidateToken(ctx context.Context, token string) error {
 	review, err := o.loadTokenReview(ctx, token)
 	if err != nil {
 		return err
@@ -86,11 +141,11 @@ func (o K8sAuthN) ValidateToken(ctx context.Context, token string) error {
 	return nil
 }
 
-func (o K8sAuthN) GetAuthToken(r *http.Request) (string, error) {
+func (o *K8sAuthN) GetAuthToken(r *http.Request) (string, error) {
 	return common.ExtractBearerToken(r)
 }
 
-func (o K8sAuthN) GetIdentity(ctx context.Context, token string) (common.Identity, error) {
+func (o *K8sAuthN) GetIdentity(ctx context.Context, token string) (common.Identity, error) {
 	review, err := o.loadTokenReview(ctx, token)
 	if err != nil {
 		return nil, err
@@ -162,7 +217,7 @@ func (o K8sAuthN) GetIdentity(ctx context.Context, token string) (common.Identit
 	return k8sIdentity, nil
 }
 
-func (o K8sAuthN) GetAuthConfig() *api.AuthConfig {
+func (o *K8sAuthN) GetAuthConfig() *api.AuthConfig {
 	provider := api.AuthProvider{
 		ApiVersion: api.AuthProviderAPIVersion,
 		Kind:       api.AuthProviderKind,

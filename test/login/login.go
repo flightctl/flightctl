@@ -111,7 +111,7 @@ func loginWithK8Token(harness *e2e.Harness) (AuthMethod, error) {
 	Expect(namespace).NotTo(BeEmpty(), "Unable to determine the namespace associated with the demo user")
 
 	// Get Kubernetes service account token
-	token, err := harness.SH("kubectl", "-n", namespace, "create", "token", "flightctl-user", "--context", "kind-kind")
+	token, err := harness.SH("kubectl", "-n", namespace, "create", "token", "flightctl-admin", "--context", "kind-kind")
 	if err != nil {
 		return AuthDisabled, fmt.Errorf("error creating service account token: %w", err)
 	}

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
@@ -43,11 +43,11 @@ func TestSync(t *testing.T) {
 
 	testCases := []struct {
 		name       string
-		current    *v1alpha1.Device
-		desired    *v1alpha1.Device
+		current    *v1beta1.Device
+		desired    *v1beta1.Device
 		setupMocks func(
-			currentSpec *v1alpha1.Device,
-			desiredSpec *v1alpha1.Device,
+			currentSpec *v1beta1.Device,
+			desiredSpec *v1beta1.Device,
 			mockOSClient *os.MockClient,
 			mockManagementClient *client.MockManagement,
 			mockSystemInfoManager *systeminfo.MockManager,
@@ -69,8 +69,8 @@ func TestSync(t *testing.T) {
 			current: newVersionedDevice("0"),
 			desired: newVersionedDevice("1"),
 			setupMocks: func(
-				current *v1alpha1.Device,
-				desired *v1alpha1.Device,
+				current *v1beta1.Device,
+				desired *v1beta1.Device,
 				mockOSClient *os.MockClient,
 				mockManagementClient *client.MockManagement,
 				mockSystemInfoManager *systeminfo.MockManager,
@@ -90,6 +90,7 @@ func TestSync(t *testing.T) {
 				gomock.InOrder(
 					mockSpecManager.EXPECT().GetDesired(ctx).Return(desired, false, nil),
 					mockSpecManager.EXPECT().Read(spec.Current).Return(current, nil),
+					mockResourceManager.EXPECT().BeforeUpdate(ctx, desired.Spec).Return(nil),
 					mockSpecManager.EXPECT().CheckPolicy(ctx, policy.Download, desired.Version()).Return(nil),
 					mockSpecManager.EXPECT().IsUpgrading().Return(true),
 					mockManagementClient.EXPECT().UpdateDeviceStatus(ctx, deviceName, gomock.Any()).Return(nil),
@@ -104,7 +105,6 @@ func TestSync(t *testing.T) {
 					mockSpecManager.EXPECT().IsUpgrading().Return(true),
 					mockManagementClient.EXPECT().UpdateDeviceStatus(ctx, deviceName, gomock.Any()).Return(nil),
 					mockHookManager.EXPECT().Sync(current.Spec, desired.Spec).Return(nil),
-					mockResourceManager.EXPECT().ResetAlertDefaults().Return(nil),
 					mockSystemdManager.EXPECT().EnsurePatterns(gomock.Any()).Return(nil),
 					mockLifecycleManager.EXPECT().Sync(ctx, current.Spec, desired.Spec).Return(nil),
 					mockLifecycleManager.EXPECT().AfterUpdate(ctx, current.Spec, desired.Spec).Return(nil),
@@ -119,7 +119,6 @@ func TestSync(t *testing.T) {
 					mockSpecManager.EXPECT().Rollback(ctx).Return(nil),
 					mockSpecManager.EXPECT().IsUpgrading().Return(false),
 					mockHookManager.EXPECT().Sync(desired.Spec, current.Spec).Return(nil),
-					mockResourceManager.EXPECT().ResetAlertDefaults().Return(nil),
 					mockSystemdManager.EXPECT().EnsurePatterns(gomock.Any()).Return(nil),
 					mockLifecycleManager.EXPECT().Sync(ctx, desired.Spec, current.Spec).Return(nil),
 					mockLifecycleManager.EXPECT().AfterUpdate(ctx, desired.Spec, current.Spec).Return(nil),
@@ -133,6 +132,7 @@ func TestSync(t *testing.T) {
 					//
 					mockSpecManager.EXPECT().GetDesired(ctx).Return(desired, false, nil),
 					mockSpecManager.EXPECT().Read(spec.Current).Return(current, nil),
+					mockResourceManager.EXPECT().BeforeUpdate(ctx, desired.Spec).Return(nil),
 					mockSpecManager.EXPECT().CheckPolicy(ctx, policy.Download, desired.Version()).Return(nil),
 					mockSpecManager.EXPECT().IsUpgrading().Return(false),
 					mockPrefetchManager.EXPECT().RegisterOCICollector(gomock.Any()),
@@ -144,7 +144,6 @@ func TestSync(t *testing.T) {
 					mockSpecManager.EXPECT().IsUpgrading().Return(false),
 					mockSpecManager.EXPECT().IsUpgrading().Return(false),
 					mockHookManager.EXPECT().Sync(current.Spec, current.Spec).Return(nil),
-					mockResourceManager.EXPECT().ResetAlertDefaults().Return(nil),
 					mockSystemdManager.EXPECT().EnsurePatterns(gomock.Any()).Return(nil),
 					mockLifecycleManager.EXPECT().Sync(ctx, current.Spec, current.Spec).Return(nil),
 					mockLifecycleManager.EXPECT().AfterUpdate(ctx, current.Spec, current.Spec).Return(nil),
@@ -208,7 +207,6 @@ func TestSync(t *testing.T) {
 			statusManager := status.NewManager(deviceName, log)
 			statusManager.SetClient(mockManagementClient)
 			configController := config.NewController(readWriter, log)
-			resourceController := resource.NewController(log, mockResourceManager)
 
 			agent := Agent{
 				log:                    log,
@@ -221,7 +219,7 @@ func TestSync(t *testing.T) {
 				hookManager:            mockHookManager,
 				consoleManager:         consoleManager,
 				configController:       configController,
-				resourceController:     resourceController,
+				resourceManager:        mockResourceManager,
 				systemdManager:         mockSystemdManager,
 				lifecycleManager:       mockLifecycleManager,
 				prefetchManager:        mockPrefetchManager,
@@ -245,11 +243,11 @@ func TestRollbackDevice(t *testing.T) {
 
 	testCases := []struct {
 		name       string
-		current    *v1alpha1.Device
-		desired    *v1alpha1.Device
+		current    *v1beta1.Device
+		desired    *v1beta1.Device
 		setupMocks func(
-			currentSpec *v1alpha1.Device,
-			desiredSpec *v1alpha1.Device,
+			currentSpec *v1beta1.Device,
+			desiredSpec *v1beta1.Device,
 			mockManagementClient *client.MockManagement,
 		)
 		wantSyncErr error
@@ -259,8 +257,8 @@ func TestRollbackDevice(t *testing.T) {
 			current: newVersionedDevice("0"),
 			desired: newVersionedDevice("1"),
 			setupMocks: func(
-				current *v1alpha1.Device,
-				desired *v1alpha1.Device,
+				current *v1beta1.Device,
+				desired *v1beta1.Device,
 				mockManagementClient *client.MockManagement,
 			) {
 				gomock.InOrder(
@@ -273,8 +271,8 @@ func TestRollbackDevice(t *testing.T) {
 			current: newVersionedDevice("1"),
 			desired: newVersionedDevice("5"),
 			setupMocks: func(
-				current *v1alpha1.Device,
-				desired *v1alpha1.Device,
+				current *v1beta1.Device,
+				desired *v1beta1.Device,
 				mockManagementClient *client.MockManagement,
 			) {
 				gomock.InOrder(
@@ -287,8 +285,8 @@ func TestRollbackDevice(t *testing.T) {
 			current: newVersionedDevice("1"),
 			desired: newVersionedDevice("5"),
 			setupMocks: func(
-				current *v1alpha1.Device,
-				desired *v1alpha1.Device,
+				current *v1beta1.Device,
+				desired *v1beta1.Device,
 				mockManagementClient *client.MockManagement,
 			) {
 				gomock.InOrder(
@@ -396,15 +394,15 @@ func TestRollbackDevice(t *testing.T) {
 	}
 }
 
-func newVersionedDevice(version string) *v1alpha1.Device {
-	device := &v1alpha1.Device{
-		Metadata: v1alpha1.ObjectMeta{
+func newVersionedDevice(version string) *v1beta1.Device {
+	device := &v1beta1.Device{
+		Metadata: v1beta1.ObjectMeta{
 			Annotations: lo.ToPtr(map[string]string{
-				v1alpha1.DeviceAnnotationRenderedVersion: version,
+				v1beta1.DeviceAnnotationRenderedVersion: version,
 			}),
 		},
 	}
-	device.Spec = &v1alpha1.DeviceSpec{}
+	device.Spec = &v1beta1.DeviceSpec{}
 	return device
 }
 
@@ -414,7 +412,7 @@ type mockSync struct {
 	wantErr        error
 }
 
-func (m *mockSync) sync(ctx context.Context, currentSpec *v1alpha1.Device, desiredSpec *v1alpha1.Device) error {
+func (m *mockSync) sync(ctx context.Context, currentSpec *v1beta1.Device, desiredSpec *v1beta1.Device) error {
 	if m.wantErr != nil {
 		return m.wantErr
 	}

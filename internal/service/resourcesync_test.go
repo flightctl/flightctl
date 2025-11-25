@@ -4,8 +4,9 @@ import (
 	"context"
 	"testing"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
@@ -37,11 +38,12 @@ func testResourceSyncPatch(require *require.Assertions, patch api.PatchRequest) 
 		store:        testStore,
 		log:          logrus.New(),
 	}
-	orig, status := serviceHandler.CreateResourceSync(ctx, resourceSync)
+	testOrgId := uuid.New()
+	orig, status := serviceHandler.CreateResourceSync(ctx, testOrgId, resourceSync)
 	require.Equal(statusCreatedCode, status.Code)
-	resp, status := serviceHandler.PatchResourceSync(ctx, "foo", patch)
+	resp, status := serviceHandler.PatchResourceSync(ctx, testOrgId, "foo", patch)
 	require.NotEqual(statusFailedCode, status.Code)
-	event, _ := serviceHandler.store.Event().List(context.Background(), store.NullOrgId, store.ListParams{})
+	event, _ := serviceHandler.store.Event().List(context.Background(), testOrgId, store.ListParams{})
 	require.NotEmpty(event.Items)
 	return resp, *orig, status
 }
@@ -70,9 +72,10 @@ func TestResourceSyncCreateWithLongNames(t *testing.T) {
 		store:        testStore,
 		log:          logrus.New(),
 	}
-	_, err := serviceHandler.store.ResourceSync().Create(ctx, store.NullOrgId, &resourceSync, serviceHandler.callbackResourceSyncUpdated)
+	testOrgId := uuid.New()
+	_, err := serviceHandler.store.ResourceSync().Create(ctx, testOrgId, &resourceSync, serviceHandler.callbackResourceSyncUpdated)
 	require.NoError(err)
-	_, status := serviceHandler.ReplaceResourceSync(ctx,
+	_, status := serviceHandler.ReplaceResourceSync(ctx, testOrgId,
 		"01234567890123456789012345678901234567890123456789012345678901234567890123456789",
 		resourceSync,
 	)
@@ -214,12 +217,13 @@ func TestResourceSyncNonExistingResource(t *testing.T) {
 		store:        testStore,
 		log:          logrus.New(),
 	}
-	_, err := serviceHandler.store.ResourceSync().Create(ctx, store.NullOrgId, &api.ResourceSync{
+	testOrgId := uuid.New()
+	_, err := serviceHandler.store.ResourceSync().Create(ctx, testOrgId, &api.ResourceSync{
 		Metadata: api.ObjectMeta{Name: lo.ToPtr("foo")},
 	}, serviceHandler.callbackResourceSyncUpdated)
 	require.NoError(err)
-	_, status := serviceHandler.PatchResourceSync(ctx, "bar", pr)
+	_, status := serviceHandler.PatchResourceSync(ctx, testOrgId, "bar", pr)
 	require.Equal(statusNotFoundCode, status.Code)
-	event, _ := serviceHandler.store.Event().List(context.Background(), store.NullOrgId, store.ListParams{})
+	event, _ := serviceHandler.store.Event().List(context.Background(), testOrgId, store.ListParams{})
 	require.NotEmpty(event.Items)
 }

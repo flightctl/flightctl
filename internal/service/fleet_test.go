@@ -4,9 +4,10 @@ import (
 	"context"
 	"testing"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 )
@@ -56,11 +57,12 @@ func testFleetPatch(require *require.Assertions, patch api.PatchRequest) (*api.F
 		workerClient: wc,
 	}
 	ctx := context.Background()
-	orig, err := serviceHandler.store.Fleet().Create(ctx, store.NullOrgId, &fleet, serviceHandler.callbackFleetUpdated)
+	testOrgId := uuid.New()
+	orig, err := serviceHandler.store.Fleet().Create(ctx, testOrgId, &fleet, serviceHandler.callbackFleetUpdated)
 	require.NoError(err)
-	resp, status := serviceHandler.PatchFleet(ctx, "foo", patch)
+	resp, status := serviceHandler.PatchFleet(ctx, testOrgId, "foo", patch)
 	require.NotEqual(statusFailedCode, status.Code)
-	_, err = serviceHandler.store.Event().List(ctx, store.NullOrgId, store.ListParams{})
+	_, err = serviceHandler.store.Event().List(ctx, testOrgId, store.ListParams{})
 	require.NoError(err)
 	return resp, *orig, status
 }
@@ -215,7 +217,8 @@ func TestFleetNonExistingResource(t *testing.T) {
 		workerClient: wc,
 	}
 	ctx := context.Background()
-	resp, status := serviceHandler.PatchFleet(ctx, "doesnotexist", pr)
+	testOrgId := uuid.New()
+	resp, status := serviceHandler.PatchFleet(ctx, testOrgId, "doesnotexist", pr)
 	require.Equal(statusNotFoundCode, status.Code)
 	require.Nil(resp)
 }

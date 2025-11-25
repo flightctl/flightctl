@@ -16,7 +16,7 @@ Each event includes the following core properties:
 
 | Property              | Description                                                                                 |
 |-----------------------|---------------------------------------------------------------------------------------------|
-| `apiVersion`          | API version (e.g., `v1alpha1`)                                                              |
+| `apiVersion`          | API version (e.g., `v1beta1`)                                                              |
 | `kind`                | Resource type (always `Event`)                                                              |
 | `metadata`            | Standard metadata (name, creation timestamp, annotations)                                   |
 | `reason`              | Short, machine-readable explanation of the event                                           |
@@ -30,7 +30,7 @@ Each event includes the following core properties:
 ### Example Event
 
 ```yaml
-apiVersion: v1alpha1
+apiVersion: v1beta1
 kind: Event
 metadata:
   name: "660e8400-e29b-41d4-a716-446655440001"

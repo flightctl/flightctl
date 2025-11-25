@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -19,14 +19,14 @@ type embeddedProvider struct {
 	handler    embeddedAppTypeHandler
 }
 
-func newEmbeddedHandler(appType v1alpha1.AppType, name string, rw fileio.ReadWriter) (embeddedAppTypeHandler, error) {
+func newEmbeddedHandler(appType v1beta1.AppType, name string, rw fileio.ReadWriter) (embeddedAppTypeHandler, error) {
 	switch appType {
-	case v1alpha1.AppTypeQuadlet:
+	case v1beta1.AppTypeQuadlet:
 		return &embeddedQuadletBehavior{
 			name: name,
 			rw:   rw,
 		}, nil
-	case v1alpha1.AppTypeCompose:
+	case v1beta1.AppTypeCompose:
 		return &embeddedComposeBehavior{
 			name: name,
 			rw:   rw,
@@ -36,13 +36,13 @@ func newEmbeddedHandler(appType v1alpha1.AppType, name string, rw fileio.ReadWri
 	}
 }
 
-func newEmbedded(log *log.PrefixLogger, podman *client.Podman, readWriter fileio.ReadWriter, name string, appType v1alpha1.AppType) (Provider, error) {
+func newEmbedded(log *log.PrefixLogger, podman *client.Podman, readWriter fileio.ReadWriter, name string, appType v1beta1.AppType) (Provider, error) {
 	handler, err := newEmbeddedHandler(appType, name, readWriter)
 	if err != nil {
 		return nil, fmt.Errorf("constructing embedded app handler: %w", err)
 	}
 
-	volumeManager, err := NewVolumeManager(log, name, nil)
+	volumeManager, err := NewVolumeManager(log, name, appType, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -51,7 +51,7 @@ func newEmbedded(log *log.PrefixLogger, podman *client.Podman, readWriter fileio
 	if err != nil {
 		return nil, fmt.Errorf("listing volumes: %w", err)
 	}
-	volumeManager.AddVolumes(name, volumes)
+	volumeManager.AddVolumes(volumes)
 
 	return &embeddedProvider{
 		log:        log,

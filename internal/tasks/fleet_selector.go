@@ -30,7 +30,7 @@ import (
 	"sync"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
@@ -87,7 +87,7 @@ func (f *FleetSelectorMatchingLogic) SetItemsPerPage(items int32) {
 func (f FleetSelectorMatchingLogic) DeviceLabelsUpdated(ctx context.Context) error {
 	f.log.Infof("Checking fleet owner due to device label update %s/%s", f.orgId, f.event.InvolvedObject.Name)
 
-	device, status := f.serviceHandler.GetDevice(ctx, f.event.InvolvedObject.Name)
+	device, status := f.serviceHandler.GetDevice(ctx, f.orgId, f.event.InvolvedObject.Name)
 	if status.Code != http.StatusOK {
 		if status.Code == http.StatusNotFound {
 			return nil
@@ -220,7 +220,7 @@ type FleetValidationResult struct {
 
 // validateAndGetFleet validates the fleet exists and returns it, or handles deletion cases
 func (f FleetSelectorMatchingLogic) validateAndGetFleet(ctx context.Context, allFleetsFetcher func() ([]api.Fleet, error), startTime time.Time) FleetValidationResult {
-	fleet, status := f.serviceHandler.GetFleet(ctx, f.event.InvolvedObject.Name, api.GetFleetParams{})
+	fleet, status := f.serviceHandler.GetFleet(ctx, f.orgId, f.event.InvolvedObject.Name, api.GetFleetParams{})
 	if status.Code != http.StatusOK {
 		if status.Code == http.StatusNotFound {
 			// Case 1: Fleet was deleted - recompute matching fleets for devices that had this fleet as owner
@@ -282,7 +282,7 @@ func (f FleetSelectorMatchingLogic) clearFleetOwnershipFromDevices(ctx context.C
 
 	errors := 0
 	for {
-		devices, status := f.serviceHandler.ListDevices(ctx, listParams, nil)
+		devices, status := f.serviceHandler.ListDevices(ctx, f.orgId, listParams, nil)
 		if status.Code != http.StatusOK {
 			return fmt.Errorf("failed to list devices owned by deleted fleet: %s", status.Message)
 		}
@@ -337,7 +337,7 @@ func (f FleetSelectorMatchingLogic) handleDevicesMatchingFleet(ctx context.Conte
 			return devicesProcessed, errors
 		}
 
-		devices, status := f.serviceHandler.ListDevices(ctx, listParams, nil)
+		devices, status := f.serviceHandler.ListDevices(ctx, f.orgId, listParams, nil)
 		if status.Code != http.StatusOK {
 			f.log.Errorf("Critical system error: failed to list devices matching fleet: %s", status.Message)
 			errors++
@@ -492,7 +492,7 @@ func (f FleetSelectorMatchingLogic) setDeviceMultipleOwnersCondition(ctx context
 			condition.Message = newConditionMessage
 		}
 
-		status := f.serviceHandler.SetDeviceServiceConditions(ctx, *device.Metadata.Name, []api.Condition{condition})
+		status := f.serviceHandler.SetDeviceServiceConditions(ctx, f.orgId, *device.Metadata.Name, []api.Condition{condition})
 		if status.Code != http.StatusOK {
 			return service.ApiStatusToErr(status)
 		}
@@ -524,19 +524,19 @@ func (f FleetSelectorMatchingLogic) updateDeviceOwner(ctx context.Context, devic
 
 	f.log.Infof("Updating fleet of device %s from %s to %s", *device.Metadata.Name, util.DefaultIfNil(device.Metadata.Owner, "<none>"), util.DefaultIfNil(newOwnerRef, "<none>"))
 	device.Metadata.Owner = newOwnerRef
-	_, status := f.serviceHandler.ReplaceDevice(ctx, *device.Metadata.Name, lo.FromPtr(device), fieldsToNil)
+	_, status := f.serviceHandler.ReplaceDevice(ctx, f.orgId, *device.Metadata.Name, lo.FromPtr(device), fieldsToNil)
 
 	if err := service.ApiStatusToErr(status); err != nil {
 		return err
 	}
-	return f.serviceHandler.UpdateServerSideDeviceStatus(ctx, *device.Metadata.Name)
+	return f.serviceHandler.UpdateServerSideDeviceStatus(ctx, f.orgId, *device.Metadata.Name)
 }
 
 func (f FleetSelectorMatchingLogic) fetchAllFleets(ctx context.Context) ([]api.Fleet, error) {
 	var fleets []api.Fleet
 	fleetListParams := api.ListFleetsParams{Limit: lo.ToPtr(f.itemsPerPage)}
 	for {
-		fleetBatch, status := f.serviceHandler.ListFleets(ctx, fleetListParams)
+		fleetBatch, status := f.serviceHandler.ListFleets(ctx, f.orgId, fleetListParams)
 		if status.Code != http.StatusOK {
 			return nil, fmt.Errorf("failed fetching fleets: %s", status.Message)
 		}
@@ -629,7 +629,7 @@ func (f FleetSelectorMatchingLogic) handleOrphanedDevices(ctx context.Context, f
 			return devicesProcessed, errors
 		}
 
-		devices, status := f.serviceHandler.ListDevices(ctx, listParams, nil)
+		devices, status := f.serviceHandler.ListDevices(ctx, f.orgId, listParams, nil)
 		if status.Code != http.StatusOK {
 			f.log.Errorf("Critical system error: failed to list orphaned devices: %s", status.Message)
 			errors++
@@ -686,7 +686,7 @@ func (f FleetSelectorMatchingLogic) handleDevicesWithMultipleOwnersCondition(ctx
 		}
 
 		// Use the specialized service method for querying by service condition
-		devices, status := f.serviceHandler.ListDevicesByServiceCondition(ctx, string(api.ConditionTypeDeviceMultipleOwners), string(api.ConditionStatusTrue), listParams)
+		devices, status := f.serviceHandler.ListDevicesByServiceCondition(ctx, f.orgId, string(api.ConditionTypeDeviceMultipleOwners), string(api.ConditionStatusTrue), listParams)
 		if status.Code != http.StatusOK {
 			f.log.Errorf("Critical system error: failed to list devices with multiple owners condition: %s", status.Message)
 			return devicesProcessed, errors + 1

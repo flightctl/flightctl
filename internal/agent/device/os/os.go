@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -27,9 +27,9 @@ type Client interface {
 }
 
 type Manager interface {
-	BeforeUpdate(ctx context.Context, current, desired *v1alpha1.DeviceSpec) error
-	AfterUpdate(ctx context.Context, desired *v1alpha1.DeviceSpec) error
-	Reboot(ctx context.Context, desired *v1alpha1.DeviceSpec) error
+	BeforeUpdate(ctx context.Context, current, desired *v1beta1.DeviceSpec) error
+	AfterUpdate(ctx context.Context, desired *v1beta1.DeviceSpec) error
+	Reboot(ctx context.Context, desired *v1beta1.DeviceSpec) error
 
 	dependency.OCICollector
 	status.Exporter
@@ -57,7 +57,7 @@ type manager struct {
 	log          *log.PrefixLogger
 }
 
-func (m *manager) Status(ctx context.Context, status *v1alpha1.DeviceStatus, _ ...status.CollectorOpt) error {
+func (m *manager) Status(ctx context.Context, status *v1beta1.DeviceStatus, _ ...status.CollectorOpt) error {
 	bootcInfo, err := m.client.Status(ctx)
 	if err != nil {
 		return err
@@ -68,7 +68,7 @@ func (m *manager) Status(ctx context.Context, status *v1alpha1.DeviceStatus, _ .
 	return nil
 }
 
-func (m *manager) BeforeUpdate(ctx context.Context, current, desired *v1alpha1.DeviceSpec) error {
+func (m *manager) BeforeUpdate(ctx context.Context, current, desired *v1beta1.DeviceSpec) error {
 	if desired.Os == nil {
 		return nil
 	}
@@ -77,7 +77,7 @@ func (m *manager) BeforeUpdate(ctx context.Context, current, desired *v1alpha1.D
 	return nil
 }
 
-func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1alpha1.DeviceSpec) (*dependency.OCICollection, error) {
+func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1beta1.DeviceSpec) (*dependency.OCICollection, error) {
 	if desired.Os == nil {
 		m.log.Debug("No OS spec to collect OCI targets from")
 		return &dependency.OCICollection{}, nil
@@ -108,7 +108,7 @@ func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1alp
 	target := dependency.OCIPullTarget{
 		Type:       dependency.OCITypeImage,
 		Reference:  osImage,
-		PullPolicy: v1alpha1.PullIfNotPresent,
+		PullPolicy: v1beta1.PullIfNotPresent,
 	}
 
 	// resolve pull secret for authentication
@@ -124,7 +124,7 @@ func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1alp
 	return &dependency.OCICollection{Targets: []dependency.OCIPullTarget{target}}, nil
 }
 
-func (m *manager) AfterUpdate(ctx context.Context, desired *v1alpha1.DeviceSpec) error {
+func (m *manager) AfterUpdate(ctx context.Context, desired *v1beta1.DeviceSpec) error {
 	if desired.Os == nil {
 		return nil
 	}
@@ -132,7 +132,7 @@ func (m *manager) AfterUpdate(ctx context.Context, desired *v1alpha1.DeviceSpec)
 	return m.client.Switch(ctx, osImage)
 }
 
-func (m *manager) Reboot(ctx context.Context, desired *v1alpha1.DeviceSpec) error {
+func (m *manager) Reboot(ctx context.Context, desired *v1beta1.DeviceSpec) error {
 	return m.client.Apply(ctx)
 }
 

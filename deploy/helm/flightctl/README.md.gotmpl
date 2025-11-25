@@ -190,11 +190,12 @@ kubectl create secret generic postgres-client-certs \
 ```yaml
 # Configure in values.yaml
 db:
-  external: "enabled"
-  hostname: "postgres.example.com"
-  sslmode: "verify-ca"
-  sslConfigMap: "postgres-ca-cert"     # ConfigMap containing CA certificate
-  sslSecret: "postgres-client-certs"   # Secret containing client certificates
+  type: "external"
+  external:
+    hostname: "postgres.example.com"
+    sslmode: "verify-ca"
+    tlsConfigMapName: "postgres-ca-cert"     # ConfigMap containing CA certificate
+    tlsSecretName: "postgres-client-certs"   # Secret containing client certificates
 ```
 
 **TLS/SSL Modes:**

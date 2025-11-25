@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -77,7 +77,7 @@ func Test_getRenderedFromManagementAPIWithRetry(t *testing.T) {
 		requestErr := errors.New("failed to make request for spec")
 		v.mockClient.EXPECT().GetRenderedDevice(v.ctx, v.deviceName, gomock.Any()).Return(nil, http.StatusInternalServerError, requestErr)
 
-		_, err := v.notifier.getRenderedFromManagementAPIWithRetry(v.ctx, "1", &v1alpha1.Device{})
+		_, err := v.notifier.getRenderedFromManagementAPIWithRetry(v.ctx, "1", &v1beta1.Device{})
 		v.assertions.ErrorIs(err, errors.ErrGettingDeviceSpec)
 	})
 
@@ -86,7 +86,7 @@ func Test_getRenderedFromManagementAPIWithRetry(t *testing.T) {
 		defer v.finish()
 		v.mockClient.EXPECT().GetRenderedDevice(v.ctx, v.deviceName, gomock.Any()).Return(nil, http.StatusNoContent, nil)
 
-		_, err := v.notifier.getRenderedFromManagementAPIWithRetry(v.ctx, "1", &v1alpha1.Device{})
+		_, err := v.notifier.getRenderedFromManagementAPIWithRetry(v.ctx, "1", &v1beta1.Device{})
 		v.assertions.ErrorIs(err, errors.ErrNoContent)
 	})
 
@@ -95,7 +95,7 @@ func Test_getRenderedFromManagementAPIWithRetry(t *testing.T) {
 		defer v.finish()
 		v.mockClient.EXPECT().GetRenderedDevice(v.ctx, v.deviceName, gomock.Any()).Return(nil, http.StatusConflict, nil)
 
-		_, err := v.notifier.getRenderedFromManagementAPIWithRetry(v.ctx, "1", &v1alpha1.Device{})
+		_, err := v.notifier.getRenderedFromManagementAPIWithRetry(v.ctx, "1", &v1beta1.Device{})
 		v.assertions.ErrorIs(err, errors.ErrNoContent)
 	})
 
@@ -104,7 +104,7 @@ func Test_getRenderedFromManagementAPIWithRetry(t *testing.T) {
 		defer v.finish()
 		v.mockClient.EXPECT().GetRenderedDevice(v.ctx, v.deviceName, gomock.Any()).Return(nil, http.StatusOK, nil)
 
-		_, err := v.notifier.getRenderedFromManagementAPIWithRetry(v.ctx, "1", &v1alpha1.Device{})
+		_, err := v.notifier.getRenderedFromManagementAPIWithRetry(v.ctx, "1", &v1beta1.Device{})
 		v.assertions.ErrorIs(err, errors.ErrNilResponse)
 	})
 
@@ -112,10 +112,10 @@ func Test_getRenderedFromManagementAPIWithRetry(t *testing.T) {
 		v := setup(tt)
 		defer v.finish()
 		device := createTestRenderedDevice("requested-image:latest")
-		params := &v1alpha1.GetRenderedDeviceParams{}
+		params := &v1beta1.GetRenderedDeviceParams{}
 		v.mockClient.EXPECT().GetRenderedDevice(v.ctx, v.deviceName, params).Return(device, http.StatusOK, nil)
 
-		rendered := &v1alpha1.Device{}
+		rendered := &v1beta1.Device{}
 		success, err := v.notifier.getRenderedFromManagementAPIWithRetry(v.ctx, "", rendered)
 		v.assertions.NoError(err)
 		v.assertions.True(success)
@@ -127,10 +127,10 @@ func Test_getRenderedFromManagementAPIWithRetry(t *testing.T) {
 		defer v.finish()
 		device := createTestRenderedDevice("requested-image:latest")
 		renderedVersion := "24"
-		params := &v1alpha1.GetRenderedDeviceParams{KnownRenderedVersion: &renderedVersion}
+		params := &v1beta1.GetRenderedDeviceParams{KnownRenderedVersion: &renderedVersion}
 		v.mockClient.EXPECT().GetRenderedDevice(v.ctx, v.deviceName, params).Return(device, http.StatusOK, nil)
 
-		rendered := &v1alpha1.Device{}
+		rendered := &v1beta1.Device{}
 		success, err := v.notifier.getRenderedFromManagementAPIWithRetry(v.ctx, "24", rendered)
 		v.assertions.NoError(err)
 		v.assertions.True(success)

@@ -6,9 +6,10 @@ import (
 	"fmt"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/google/uuid"
 )
 
 const (
@@ -39,7 +40,7 @@ func getOwnerFleet(device *api.Device) (string, bool, error) {
 	return ownerName, true, nil
 }
 
-func EmitInternalTaskFailedEvent(ctx context.Context, errorMessage string, originalEvent api.Event, serviceHandler service.Service) {
+func EmitInternalTaskFailedEvent(ctx context.Context, orgID uuid.UUID, errorMessage string, originalEvent api.Event, serviceHandler service.Service) {
 	resourceKind := api.ResourceKind(originalEvent.InvolvedObject.Kind)
 	resourceName := originalEvent.InvolvedObject.Name
 	reason := originalEvent.Reason
@@ -61,5 +62,5 @@ func EmitInternalTaskFailedEvent(ctx context.Context, errorMessage string, origi
 	}
 
 	// Emit the event
-	serviceHandler.CreateEvent(ctx, event)
+	serviceHandler.CreateEvent(ctx, orgID, event)
 }

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
@@ -68,14 +68,14 @@ var _ = Describe("Microshift cluster ACM enrollment tests", func() {
 
 				By("Create the acm-registration repository")
 				httpRepoUrl := fmt.Sprintf("https://%s", agentRegistrationHost)
-				httpRepoConfig := v1alpha1.HttpConfig{
+				httpRepoConfig := v1beta1.HttpConfig{
 					CaCrt: &caCrt,
 					Token: &token,
 				}
-				httpRepoSpec := v1alpha1.HttpRepoSpec{
+				httpRepoSpec := v1beta1.HttpRepoSpec{
 					HttpConfig: httpRepoConfig,
 
-					Type: v1alpha1.Http,
+					Type: v1beta1.Http,
 
 					Url: httpRepoUrl,
 
@@ -99,32 +99,32 @@ var _ = Describe("Microshift cluster ACM enrollment tests", func() {
 				nextRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
 				Expect(err).ToNot(HaveOccurred())
 				deviceImage := fmt.Sprintf("%s/flightctl-device:v7", harness.RegistryEndpoint())
-				var osImageSpec = v1alpha1.DeviceOsSpec{
+				var osImageSpec = v1beta1.DeviceOsSpec{
 					Image: deviceImage,
 				}
 
-				var inlineConfigSpec = v1alpha1.FileSpec{
+				var inlineConfigSpec = v1beta1.FileSpec{
 					Path:    inlinePath,
 					Content: pullSecret,
 				}
 
-				var pullSecretInlineConfig = v1alpha1.InlineConfigProviderSpec{
-					Inline: []v1alpha1.FileSpec{inlineConfigSpec},
+				var pullSecretInlineConfig = v1beta1.InlineConfigProviderSpec{
+					Inline: []v1beta1.FileSpec{inlineConfigSpec},
 					Name:   "pull-secret",
 				}
 
-				inlineConfigProviderSpec := v1alpha1.ConfigProviderSpec{}
+				inlineConfigProviderSpec := v1beta1.ConfigProviderSpec{}
 				err = inlineConfigProviderSpec.FromInlineConfigProviderSpec(pullSecretInlineConfig)
 				Expect(err).ToNot(HaveOccurred())
 
-				deviceSpecConfig := []v1alpha1.ConfigProviderSpec{inlineConfigProviderSpec}
+				deviceSpecConfig := []v1beta1.ConfigProviderSpec{inlineConfigProviderSpec}
 
-				var deviceSpec v1alpha1.DeviceSpec
+				var deviceSpec v1beta1.DeviceSpec
 
 				deviceSpec.Os = &osImageSpec
 				deviceSpec.Config = &deviceSpecConfig
 
-				err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+				err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
 					device.Spec = &deviceSpec
 					GinkgoWriter.Printf("Updating %s with a new image and pull-secret configuration\n", deviceId)
 				})
@@ -175,14 +175,14 @@ var _ = Describe("Microshift cluster ACM enrollment tests", func() {
 				GinkgoWriter.Printf("The auto-approver is enabled\n")
 
 				By("Check that the device status is Online")
-				_, err = harness.CheckDeviceStatus(deviceId, v1alpha1.DeviceSummaryStatusOnline)
+				_, err = harness.CheckDeviceStatus(deviceId, v1beta1.DeviceSummaryStatusOnline)
 				Expect(err).ToNot(HaveOccurred())
 
 				By("Add the fleet selector and the team label to the device")
 				nextRenderedVersion, err = harness.PrepareNextDeviceVersion(deviceId)
 				Expect(err).ToNot(HaveOccurred())
 
-				err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+				err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
 					harness.SetLabelsForDeviceMetadata(&device.Metadata, map[string]string{
 						fleetSelectorKey: fleetSelectorValue,
 					})
@@ -230,7 +230,7 @@ var (
 	httpConfigNameSecond   = "acm-import"
 )
 
-var httpConfigvalid = v1alpha1.HttpConfigProviderSpec{
+var httpConfigvalid = v1beta1.HttpConfigProviderSpec{
 	HttpRef: struct {
 		FilePath   string  `json:"filePath"`
 		Repository string  `json:"repository"`
@@ -242,7 +242,7 @@ var httpConfigvalid = v1alpha1.HttpConfigProviderSpec{
 	},
 	Name: httpConfigName,
 }
-var httpConfigvalidSecond = v1alpha1.HttpConfigProviderSpec{
+var httpConfigvalidSecond = v1beta1.HttpConfigProviderSpec{
 	HttpRef: struct {
 		FilePath   string  `json:"filePath"`
 		Repository string  `json:"repository"`
@@ -258,51 +258,51 @@ var httpConfigvalidSecond = v1alpha1.HttpConfigProviderSpec{
 var mode = 0644
 var modePointer = &mode
 
-var testFleetSelector = v1alpha1.LabelSelector{
+var testFleetSelector = v1beta1.LabelSelector{
 	MatchLabels: &map[string]string{fleetSelectorKey: fleetSelectorValue},
 }
 
-var httpRepositoryspec v1alpha1.RepositorySpec
+var httpRepositoryspec v1beta1.RepositorySpec
 
-var httpRepoMetadata = v1alpha1.ObjectMeta{
+var httpRepoMetadata = v1beta1.ObjectMeta{
 	Name: &httpRepoName,
 }
 
-func createAcmRegistrationFleetDeviceSpec(harness *e2e.Harness, pullSecretinlineConfigProviderSpec v1alpha1.ConfigProviderSpec) (v1alpha1.DeviceSpec, error) {
+func createAcmRegistrationFleetDeviceSpec(harness *e2e.Harness, pullSecretinlineConfigProviderSpec v1beta1.ConfigProviderSpec) (v1beta1.DeviceSpec, error) {
 	hookFile := fmt.Sprintf("%s/test/e2e/microshift_acm_enrollment/data/acm-hook.yaml", util.GetTopLevelDir())
 	inlineContentSecondByte, err := os.ReadFile(hookFile)
 	if err != nil {
-		return v1alpha1.DeviceSpec{}, fmt.Errorf("failed to read hook file: %w", err)
+		return v1beta1.DeviceSpec{}, fmt.Errorf("failed to read hook file: %w", err)
 	}
 	inlineContentSecond := string(inlineContentSecondByte)
 
-	inlineConfigSecondSpec := v1alpha1.FileSpec{
+	inlineConfigSecondSpec := v1beta1.FileSpec{
 		Path:    inlinePathSecond,
 		Mode:    modePointer,
 		Content: inlineContentSecond,
 	}
 
-	inlineConfigValidSecond := v1alpha1.InlineConfigProviderSpec{
-		Inline: []v1alpha1.FileSpec{inlineConfigSecondSpec},
+	inlineConfigValidSecond := v1beta1.InlineConfigProviderSpec{
+		Inline: []v1beta1.FileSpec{inlineConfigSecondSpec},
 		Name:   inlineConfigNameSecond,
 	}
 
-	httpConfigProviderSpec := v1alpha1.ConfigProviderSpec{}
+	httpConfigProviderSpec := v1beta1.ConfigProviderSpec{}
 	err = httpConfigProviderSpec.FromHttpConfigProviderSpec(httpConfigvalid)
 	if err != nil {
-		return v1alpha1.DeviceSpec{}, fmt.Errorf("failed to read httpConfigProviderSpec: %w", err)
+		return v1beta1.DeviceSpec{}, fmt.Errorf("failed to read httpConfigProviderSpec: %w", err)
 	}
 
-	httpConfigProviderSpecSecond := v1alpha1.ConfigProviderSpec{}
+	httpConfigProviderSpecSecond := v1beta1.ConfigProviderSpec{}
 	err = httpConfigProviderSpecSecond.FromHttpConfigProviderSpec(httpConfigvalidSecond)
 	if err != nil {
-		return v1alpha1.DeviceSpec{}, fmt.Errorf("failed to read second httpConfigProviderSpec: %w", err)
+		return v1beta1.DeviceSpec{}, fmt.Errorf("failed to read second httpConfigProviderSpec: %w", err)
 	}
 
-	inlineConfigProviderSpecSecond := v1alpha1.ConfigProviderSpec{}
+	inlineConfigProviderSpecSecond := v1beta1.ConfigProviderSpec{}
 	err = inlineConfigProviderSpecSecond.FromInlineConfigProviderSpec(inlineConfigValidSecond)
 	if err != nil {
-		return v1alpha1.DeviceSpec{}, fmt.Errorf("failed to read inlineConfigProviderSpec: %w", err)
+		return v1beta1.DeviceSpec{}, fmt.Errorf("failed to read inlineConfigProviderSpec: %w", err)
 	}
 
 	return harness.CreateFleetDeviceSpec("v7", pullSecretinlineConfigProviderSpec, inlineConfigProviderSpecSecond, httpConfigProviderSpec, httpConfigProviderSpecSecond)

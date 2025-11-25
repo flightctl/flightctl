@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"strings"
 
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/org"
 	"github.com/spf13/cobra"
@@ -169,7 +169,9 @@ func (o *ConfigOptions) getOrganizationDisplayName(ctx context.Context, organiza
 		return "", fmt.Errorf("failed to create API client: %w", err)
 	}
 
-	response, err := c.ListOrganizationsWithResponse(ctx)
+	field := fmt.Sprintf("metadata.name=%s", organizationId)
+	params := api.ListOrganizationsParams{FieldSelector: &field}
+	response, err := c.ListOrganizationsWithResponse(ctx, &params)
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch organizations: %w", err)
 	}
@@ -178,25 +180,14 @@ func (o *ConfigOptions) getOrganizationDisplayName(ctx context.Context, organiza
 		return "", fmt.Errorf("failed to fetch organizations: invalid response (status: %d)", response.StatusCode())
 	}
 
-	availableOrgs := make([]string, 0, len(response.JSON200.Items))
-	for _, item := range response.JSON200.Items {
-		if item.Metadata.Name == nil {
-			continue
-		}
-		name := *item.Metadata.Name
-		displayName := ""
-		if item.Spec != nil && item.Spec.DisplayName != nil {
-			displayName = *item.Spec.DisplayName
-		}
-		if displayName != "" {
-			availableOrgs = append(availableOrgs, fmt.Sprintf("%s (%s)", name, displayName))
-		} else {
-			availableOrgs = append(availableOrgs, name)
-		}
-		if name != organizationId {
-			continue
-		}
-		return displayName, nil
+	// Field selector by specific ID should return at most 1 organization
+	if len(response.JSON200.Items) == 0 {
+		return "", fmt.Errorf("organization %q not found", organizationId)
 	}
-	return "", fmt.Errorf("organization %q not found - available organizations: %s", organizationId, strings.Join(availableOrgs, ", "))
+
+	item := response.JSON200.Items[0]
+	if item.Spec != nil && item.Spec.DisplayName != nil {
+		return *item.Spec.DisplayName, nil
+	}
+	return "", nil
 }

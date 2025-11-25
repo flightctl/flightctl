@@ -1,16 +1,19 @@
 package provider
 
 import (
+	"context"
 	"encoding/csv"
-	"errors"
 	"fmt"
 	"path/filepath"
 	"slices"
 	"strings"
 
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/quadlet"
+	"github.com/samber/lo"
 )
 
 const (
@@ -162,7 +165,7 @@ func namespacedQuadlet(appID string, name string) string {
 	if isNamespaced(name, appID) {
 		return name
 	}
-	return fmt.Sprintf("%s-%s", appID, name)
+	return quadlet.NamespaceResource(appID, name)
 }
 
 func isNamespaced(name, appID string) bool {
@@ -616,5 +619,92 @@ func updateDropInReferences(readWriter fileio.ReadWriter, dirPath, appID string,
 		}
 	}
 
+	return nil
+}
+
+func createVolumeQuadlet(rw fileio.ReadWriter, dir string, volumeName string, imageRef string) error {
+	unit := quadlet.NewEmptyUnit()
+	unit.Add(quadlet.VolumeGroup, quadlet.ImageKey, imageRef)
+	unit.Add(quadlet.VolumeGroup, quadlet.DriverKey, "image")
+
+	contents, err := unit.Write()
+	if err != nil {
+		return fmt.Errorf("serializing volume quadlet: %w", err)
+	}
+
+	volumeFile := filepath.Join(dir, fmt.Sprintf("%s.volume", volumeName))
+	if err := rw.WriteFile(volumeFile, contents, fileio.DefaultFilePermissions); err != nil {
+		return fmt.Errorf("writing volume file: %w", err)
+	}
+
+	return nil
+}
+
+func generateQuadlet(ctx context.Context, podman *client.Podman, rw fileio.ReadWriter, dir string, spec *v1beta1.ImageApplicationProviderSpec) error {
+	unit := quadlet.NewEmptyUnit()
+	unit.Add(quadlet.ContainerGroup, quadlet.ImageKey, spec.Image)
+
+	if spec.Resources != nil && spec.Resources.Limits != nil {
+		lims := spec.Resources.Limits
+		if lims.Cpu != nil {
+			unit.Add(quadlet.ContainerGroup, quadlet.PodmanArgsKey, fmt.Sprintf("--cpus %s", *lims.Cpu))
+		}
+		if lims.Memory != nil {
+			// the memory key was made a first class citizen in 5.6
+			unit.Add(quadlet.ContainerGroup, quadlet.PodmanArgsKey, fmt.Sprintf("--memory %s", *lims.Memory))
+		}
+	}
+	for _, port := range lo.FromPtr(spec.Ports) {
+		unit.Add(quadlet.ContainerGroup, quadlet.PublishPortKey, port)
+	}
+
+	// add default values to [Service] and [Install] sections
+	unit.Add("Service", "Restart", "on-failure").
+		Add("Service", "RestartSec", "60").
+		Add("Install", "WantedBy", "multi-user.target default.target")
+
+	for _, vol := range lo.FromPtr(spec.Volumes) {
+		volType, err := vol.Type()
+		if err != nil {
+			return fmt.Errorf("getting volume type: %w", err)
+		}
+
+		switch volType {
+		case v1beta1.MountApplicationVolumeProviderType:
+			mountSpec, err := vol.AsMountVolumeProviderSpec()
+			if err != nil {
+				return fmt.Errorf("getting mount volume spec: %w", err)
+			}
+			unit.Add(quadlet.ContainerGroup, quadlet.VolumeKey, fmt.Sprintf("%s:%s", vol.Name, mountSpec.Mount.Path))
+		case v1beta1.ImageMountApplicationVolumeProviderType:
+			imageMountSpec, err := vol.AsImageMountVolumeProviderSpec()
+			if err != nil {
+				return fmt.Errorf("getting image mount volume spec: %w", err)
+			}
+
+			// if it was previously discovered as an image then we can just populate the volume with the image
+			if podman.ImageExists(ctx, imageMountSpec.Image.Reference) {
+				if err := createVolumeQuadlet(rw, dir, vol.Name, imageMountSpec.Image.Reference); err != nil {
+					return fmt.Errorf("creating volume quadlet for %s: %w", vol.Name, err)
+				}
+				unit.Add(quadlet.ContainerGroup, quadlet.VolumeKey, fmt.Sprintf("%s.volume:%s", vol.Name, imageMountSpec.Mount.Path))
+			} else {
+				// if it's an artifact we have to handle it more similarly to compose (named volume that we extract into)
+				unit.Add(quadlet.ContainerGroup, quadlet.VolumeKey, fmt.Sprintf("%s:%s", vol.Name, imageMountSpec.Mount.Path))
+			}
+		default:
+			return fmt.Errorf("%w: %s", errors.ErrUnsupportedVolumeType, volType)
+		}
+	}
+
+	contents, err := unit.Write()
+	if err != nil {
+		return fmt.Errorf("serializing quadlet: %w", err)
+	}
+
+	// namespacing should occur after the quadlet has been generated so it is fine to default to a basic container name
+	if err := rw.WriteFile(filepath.Join(dir, "app.container"), contents, fileio.DefaultFilePermissions); err != nil {
+		return fmt.Errorf("writing container quadlet: %w", err)
+	}
 	return nil
 }

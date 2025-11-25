@@ -61,7 +61,7 @@ Create a CSR YAML for flightctl:
 
 ```bash
 cat > ./certs/csr.yaml << EOF
-apiVersion: flightctl.io/v1alpha1
+apiVersion: flightctl.io/v1beta1
 kind: CertificateSigningRequest
 metadata:
   name: svc-telemetry-gateway
