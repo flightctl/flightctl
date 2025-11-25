@@ -23,6 +23,9 @@ https://example.org*
 # GitHub URLs that may require authentication
 # https://github.com/*/settings/*
 
+# Private repositories - not accessible without authentication
+https://github.com/flightctl/flightctl-build-downstream
+
 # URLs that commonly rate-limit automated checkers
 # Add specific patterns here as needed
 
