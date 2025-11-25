@@ -5,8 +5,9 @@ metadata:
   name: flightctl-admin
   namespace: {{ .Release.Namespace }}
   labels:
-    app: flightctl
+    flightctl.service: flightctl
     component: default-user
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -15,8 +16,9 @@ metadata:
   name: flightctl-admin-binding
   namespace: {{ .Release.Namespace }}
   labels:
-    app: flightctl
+    flightctl.service: flightctl
     component: default-user
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
