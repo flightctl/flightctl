@@ -19,6 +19,11 @@
           "description": "Enable MultiCluster Engine extensions - one of 'auto', 'true', 'false'.",
           "enum": ["auto", "true", "false"]
         },
+        "generateCertificates": {
+          "type": "string",
+          "description": "Certificate generation method - one of 'auto', 'builtin', 'cert-manager', 'none'.",
+          "enum": ["auto", "builtin", "cert-manager", "none"]
+        },
         "internalNamespace": {
           "type": "string",
           "description": "A separate Namespace to which non-user-facing components should be deployed for increased security isolation."

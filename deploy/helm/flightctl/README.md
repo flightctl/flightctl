@@ -288,6 +288,7 @@ For more detailed configuration options, see the [Values](#values) section below
 | global.gateway.gatewayClassName | string | `""` | Gateway API class name for gateway exposure method |
 | global.gateway.ports.http | int | `80` | HTTP port for Gateway API configuration |
 | global.gateway.ports.tls | int | `443` | TLS port for Gateway API configuration |
+| global.generateCertificates | string | `"auto"` | Certificate generation method - one of 'none', 'cert-manager', 'builtin', 'auto'. - none: Do not generate required certificates. The user must provide the Secrets containing the required certificates or the service will fail to start. - cert-manager: Request cert-manager to issue the required certificates. cert-manager must be installed on the cluster. - builtin: Generate required certificates using Helm's builtin library functions. - auto: If cert-manager is installed, use it; otherwise, fall back to builtin. |
 | global.imagePullPolicy | string | `"IfNotPresent"` | Image pull policy for all containers |
 | global.imagePullSecretName | string | `""` | Name of the secret that holds image pull secret for accessing private container registries |
 | global.internalNamespace | string | `""` | A separate Namespace to which non-user-facing components should be deployed for increased security isolation. |
