@@ -505,33 +505,11 @@ Example bootstrap sequence:
 {"ts":"2024-11-19T10:00:02Z","device":"dev-01","old_version":"","new_version":"0","result":"success","reason":"bootstrap","type":"rollback","fleet_template_version":"","agent_version":"0.1.0"}
 ```
 
-### Viewing Audit Logs
+### Viewing and Analyzing Audit Logs
 
-#### On the Device
+Audit logs use JSONL format and can be viewed directly on the device at `/var/log/flightctl/audit.log`. The `jq` tool (typically available by default on RHEL-based systems) provides powerful filtering capabilities. For more advanced queries, see the [jq manual](https://jqlang.github.io/jq/manual/).
 
-View audit logs directly on the device:
-
-```bash
-# View the audit log file
-sudo cat /var/log/flightctl/audit.log
-
-# Follow audit events in real-time
-sudo tail -f /var/log/flightctl/audit.log
-
-# View through systemd journal
-sudo journalctl -u flightctl-agent | grep -i audit
-```
-
-#### Parsing with jq
-
-Since audit logs use JSONL format, they're easily parsed with `jq`.
-
-**Prerequisites:**
-
-- Root or sudo access to the device
-- `jq` installed (typically available by default on RHEL-based systems)
-
-#### Basic Filtering
+#### jq Examples
 
 View all events in readable format:
 
@@ -561,24 +539,10 @@ sudo cat /var/log/flightctl/audit.log | jq 'select(.reason == "sync")'
 }
 ```
 
-Filter by spec type:
-
-```bash
-sudo cat /var/log/flightctl/audit.log | jq 'select(.type == "current")'
-```
-
-#### Advanced Filtering
-
 Filter by multiple conditions (e.g., successful upgrades only):
 
 ```bash
 sudo cat /var/log/flightctl/audit.log | jq 'select(.reason == "upgrade" and .result == "success")'
-```
-
-Filter by version transitions (e.g., find specific upgrade path):
-
-```bash
-sudo cat /var/log/flightctl/audit.log | jq 'select(.old_version == "5" and .new_version == "6")'
 ```
 
 Exclude bootstrap events:
@@ -597,8 +561,6 @@ sudo cat /var/log/flightctl/audit.log | jq --arg cutoff "$(date -u -d '1 hour ag
 sudo cat /var/log/flightctl/audit.log | jq --arg cutoff "$(date -u -v-1H '+%Y-%m-%dT%H:%M:%SZ')" 'select(.ts > $cutoff)'
 ```
 
-#### Aggregation and Analysis
-
 Count events by reason:
 
 ```bash
@@ -612,40 +574,6 @@ sudo cat /var/log/flightctl/audit.log | jq -r '.reason' | sort | uniq -c
      15 sync
       2 upgrade
       1 rollback
-```
-
-Count events by device and reason:
-
-```bash
-sudo cat /var/log/flightctl/audit.log | jq -r '[.device, .reason] | @tsv' | sort | uniq -c
-```
-
-Get latest 5 events:
-
-```bash
-sudo tail -5 /var/log/flightctl/audit.log | jq .
-```
-
-#### Custom Output Format
-
-Extract only specific fields:
-
-```bash
-sudo cat /var/log/flightctl/audit.log | jq '{ts, device, reason, old_version, new_version}'
-```
-
-Create a compact timeline (TSV format):
-
-```bash
-sudo cat /var/log/flightctl/audit.log | jq -r '[.ts, .device, .reason, .type, .old_version + "->" + .new_version] | @tsv'
-```
-
-**Example output:**
-
-```text
-2024-11-19T10:00:00Z    dev-01    bootstrap    current    ->0
-2024-11-19T10:15:23Z    dev-01    sync    current    0->1
-2024-11-19T11:30:45Z    dev-01    upgrade    desired    1->2
 ```
 
 ### Configuration
