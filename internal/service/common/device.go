@@ -17,7 +17,7 @@ import (
 
 const (
 	ApplicationStatusInfoHealthy      = "Device's application workloads are healthy."
-	ApplicationStatusInfoUndefined    = "Device has no application workloads defined."
+	ApplicationStatusInfoUndefined    = "Device has not reported any application workloads yet."
 	DeviceStatusInfoHealthy           = "Device's system resources are healthy."
 	DeviceStatusInfoRebooting         = "Device is rebooting."
 	DeviceStatusInfoAwaitingReconnect = "Device has not reconnected since restore to confirm its current state."
@@ -297,7 +297,7 @@ func updateServerSideApplicationStatus(device *api.Device) bool {
 
 	switch {
 	case len(device.Status.Applications) == 0:
-		device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
+		device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusNoApplications
 		device.Status.ApplicationsSummary.Info = lo.ToPtr(ApplicationStatusInfoUndefined)
 	case len(appErrors) > 0:
 		device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusError
@@ -399,7 +399,7 @@ func ComputeDeviceStatusChanges(ctx context.Context, oldDevice, newDevice *api.D
 			status = api.EventReasonDeviceApplicationError
 		case api.ApplicationsSummaryStatusDegraded:
 			status = api.EventReasonDeviceApplicationDegraded
-		case api.ApplicationsSummaryStatusHealthy:
+		case api.ApplicationsSummaryStatusHealthy, api.ApplicationsSummaryStatusNoApplications:
 			status = api.EventReasonDeviceApplicationHealthy
 		}
 		if !lo.IsEmpty(status) {

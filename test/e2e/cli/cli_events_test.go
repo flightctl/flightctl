@@ -424,7 +424,7 @@ var _ = Describe("cli events operation", func() {
 					return ""
 				}
 				return out
-			}, "60s", "2s").Should(ContainSubstring("no application workloads defined"))
+			}, "60s", "2s").Should(ContainSubstring("not reported any application workloads"))
 		})
 	})
 })
