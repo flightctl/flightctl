@@ -391,9 +391,9 @@ func (q *Quadlet) ensureArtifactVolumes(ctx context.Context, action *Action) err
 			continue
 		}
 
-		volumeName := fmt.Sprintf("%s-%s", action.ID, volume.ID)
-		q.log.Infof("Creating artifact volume %q from artifact %q", volumeName, volume.Reference)
+		q.log.Infof("Creating artifact volume %q from artifact %q", volume.ID, volume.Reference)
 
+		volumeName := volume.ID
 		volumePath, err := q.podman.CreateVolume(ctx, volumeName, labels)
 		if err != nil {
 			return cleanup(fmt.Errorf("creating volume %q: %w", volumeName, err))
