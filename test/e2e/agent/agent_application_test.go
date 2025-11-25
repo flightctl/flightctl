@@ -59,7 +59,9 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 					Image: imageName,
 				}
 
-				var appSpec v1beta1.ApplicationProviderSpec
+				appSpec := v1beta1.ApplicationProviderSpec{
+					AppType: v1beta1.AppTypeCompose,
+				}
 				err := appSpec.FromImageApplicationProviderSpec(applicationConfig)
 				Expect(err).ToNot(HaveOccurred())
 
@@ -101,7 +103,9 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 					Image: imageName,
 				}
 
-				var appSpec v1beta1.ApplicationProviderSpec
+				appSpec := v1beta1.ApplicationProviderSpec{
+					AppType: v1beta1.AppTypeCompose,
+				}
 				err := appSpec.FromImageApplicationProviderSpec(applicationConfig)
 				Expect(err).ToNot(HaveOccurred())
 
@@ -163,7 +167,9 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 					Volumes: &[]v1beta1.ApplicationVolume{volumeConfig},
 				}
 
-				var appSpec v1beta1.ApplicationProviderSpec
+				appSpec := v1beta1.ApplicationProviderSpec{
+					AppType: v1beta1.AppTypeCompose,
+				}
 				err = appSpec.FromImageApplicationProviderSpec(appConfig)
 				Expect(err).ToNot(HaveOccurred())
 
@@ -190,7 +196,9 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 					Image: imageName,
 				}
 
-				var appSpec v1beta1.ApplicationProviderSpec
+				appSpec := v1beta1.ApplicationProviderSpec{
+					AppType: v1beta1.AppTypeCompose,
+				}
 				err := appSpec.FromImageApplicationProviderSpec(appConfig)
 				Expect(err).ToNot(HaveOccurred())
 

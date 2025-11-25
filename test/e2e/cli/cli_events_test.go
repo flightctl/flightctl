@@ -388,7 +388,9 @@ var _ = Describe("cli events operation", func() {
 					Image: imageName,
 				}
 
-				var appSpec v1beta1.ApplicationProviderSpec
+				appSpec := v1beta1.ApplicationProviderSpec{
+					AppType: v1beta1.AppTypeCompose,
+				}
 				err := appSpec.FromImageApplicationProviderSpec(applicationConfig)
 				Expect(err).ToNot(HaveOccurred())
 
