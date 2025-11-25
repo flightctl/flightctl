@@ -52,10 +52,10 @@ func NewDefault(tempDir string) *Config {
 		ServerCertValidityDays:          365,
 		DeviceCommonNamePrefix:          "device:",
 		InternalConfig: &InternalCfg{
-			CertFile:         "ca.crt",
-			KeyFile:          "ca.key",
+			CertFile:         "client-signer.crt",
+			KeyFile:          "client-signer.key",
 			CertValidityDays: 3650,
-			SignerCertName:   "ca",
+			SignerCertName:   "client-signer",
 			CertStore:        tempDir,
 		},
 	}

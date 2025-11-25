@@ -35,6 +35,15 @@ func (caClient *CAClient) Config() *ca.Config {
 	return caClient.Cfg
 }
 
+func NewCAClient(cfg *ca.Config, caBackend CABackend) *CAClient {
+	ca := &CAClient{
+		caBackend: caBackend,
+		Cfg:       cfg,
+	}
+	ca.signers = signer.NewCASigners(ca)
+	return ca
+}
+
 // EnsureCA() tries to load or generate a CA and connect to it.
 // If the CA is successfully loaded or generated it returns a valid CA instance, a flag signifying
 // was it loaded or generated and a nil error.

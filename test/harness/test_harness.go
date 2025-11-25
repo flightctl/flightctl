@@ -224,7 +224,7 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 	}
 	cfg.EnrollmentService.Service = client.Service{
 		Server:               "https://" + serverCfg.Service.AgentEndpointAddress,
-		CertificateAuthority: "/etc/flightctl/certs/ca.crt",
+		CertificateAuthority: "/etc/flightctl/certs/client-signer.crt",
 	}
 	cfg.EnrollmentService.AuthInfo = client.AuthInfo{
 		ClientCertificate: "/etc/flightctl/certs/client-enrollment.crt",
