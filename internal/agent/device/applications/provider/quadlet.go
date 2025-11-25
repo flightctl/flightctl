@@ -165,7 +165,7 @@ func namespacedQuadlet(appID string, name string) string {
 	if isNamespaced(name, appID) {
 		return name
 	}
-	return fmt.Sprintf("%s-%s", appID, name)
+	return quadlet.NamespaceResource(appID, name)
 }
 
 func isNamespaced(name, appID string) bool {

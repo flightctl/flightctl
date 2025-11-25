@@ -332,8 +332,8 @@ func TestQuadlet_add(t *testing.T) {
 			setupMocks: func(mockSystemdMgr *systemd.MockManager, mockRW *fileio.MockReadWriter, mockExec *executer.MockExecuter) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("--version")).Return("podman version 5.5", "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("image", "exists", "artifact:mydata")).Return("", "", 1)
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "create", "app-with-vols-data")).Return("", "", 0)
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "inspect", "app-with-vols-data")).Return("/var/lib/containers/storage/volumes/app-with-vols-data/_data", "", 0)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "create", "data")).Return("", "", 0)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "inspect", "data")).Return("/var/lib/containers/storage/volumes/app-with-vols-data/_data", "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("artifact", "extract", "artifact:mydata")).Return("", "", 0)
 
 				mockSystemdMgr.EXPECT().DaemonReload(gomock.Any()).Return(nil)
@@ -360,8 +360,8 @@ func TestQuadlet_add(t *testing.T) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("--version")).Return("podman version 5.5", "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("image", "exists", "docker.io/nginx:latest")).Return("", "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("image", "exists", "artifact:config")).Return("", "", 1)
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "create", "app-mixed-vols-artifact-vol")).Return("", "", 0)
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "inspect", "app-mixed-vols-artifact-vol")).Return("/var/lib/containers/storage/volumes/app-mixed-vols-artifact-vol/_data", "", 0)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "create", "artifact-vol")).Return("", "", 0)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "inspect", "artifact-vol")).Return("/var/lib/containers/storage/volumes/app-mixed-vols-artifact-vol/_data", "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("artifact", "extract", "artifact:config")).Return("", "", 0)
 
 				mockSystemdMgr.EXPECT().DaemonReload(gomock.Any()).Return(nil)
@@ -381,7 +381,7 @@ func TestQuadlet_add(t *testing.T) {
 			},
 			setupMocks: func(mockSystemdMgr *systemd.MockManager, mockRW *fileio.MockReadWriter, mockExec *executer.MockExecuter) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("image", "exists", "artifact:badartifact")).Return("", "", 1)
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "create", "app-vol-fail-data")).Return("", "Error: creation failed", 1)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "create", "data")).Return("", "Error: creation failed", 1)
 			},
 			wantErr: true,
 		},
@@ -1077,11 +1077,11 @@ func TestQuadlet_ensureArtifactVolumes(t *testing.T) {
 			setupMocks: func(mockExec *executer.MockExecuter) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("--version")).Return("podman version 5.5", "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("image", "exists", "artifact:myartifact")).Return("", "", 1)
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "create", "app-123-vol1")).Return("", "", 0)
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "inspect", "app-123-vol1")).Return("/var/lib/containers/storage/volumes/app-123-vol1/_data", "", 0)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "create", "vol1")).Return("", "", 0)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "inspect", "vol1")).Return("/var/lib/containers/storage/volumes/app-123-vol1/_data", "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("artifact", "extract", "artifact:myartifact")).Return("", "", 0)
 			},
-			wantArtifactVolumes: []string{"app-123-vol1"},
+			wantArtifactVolumes: []string{"vol1"},
 			wantErr:             false,
 		},
 		{
@@ -1097,16 +1097,16 @@ func TestQuadlet_ensureArtifactVolumes(t *testing.T) {
 			setupMocks: func(mockExec *executer.MockExecuter) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("--version")).Return("podman version 5.5", "", 0).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("image", "exists", "artifact:art1")).Return("", "", 1)
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "create", "app-456-vol1")).Return("", "", 0)
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "inspect", "app-456-vol1")).Return("/var/lib/containers/storage/volumes/app-456-vol1/_data", "", 0)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "create", "vol1")).Return("", "", 0)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "inspect", "vol1")).Return("/var/lib/containers/storage/volumes/app-456-vol1/_data", "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("artifact", "extract", "artifact:art1")).Return("", "", 0)
 
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("image", "exists", "artifact:art2")).Return("", "", 1)
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "create", "app-456-vol2")).Return("", "", 0)
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "inspect", "app-456-vol2")).Return("/var/lib/containers/storage/volumes/app-456-vol2/_data", "", 0)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "create", "vol2")).Return("", "", 0)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "inspect", "vol2")).Return("/var/lib/containers/storage/volumes/app-456-vol2/_data", "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("artifact", "extract", "artifact:art2")).Return("", "", 0)
 			},
-			wantArtifactVolumes: []string{"app-456-vol1", "app-456-vol2"},
+			wantArtifactVolumes: []string{"vol1", "vol2"},
 			wantErr:             false,
 		},
 		{
@@ -1139,13 +1139,13 @@ func TestQuadlet_ensureArtifactVolumes(t *testing.T) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("image", "exists", "docker.io/nginx:latest")).Return("", "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("--version")).Return("podman version 5.5", "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("image", "exists", "artifact:mydata")).Return("", "", 1)
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "create", "app-mixed-vol2")).Return("", "", 0)
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "inspect", "app-mixed-vol2")).Return("/var/lib/containers/storage/volumes/app-mixed-vol2/_data", "", 0)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "create", "vol2")).Return("", "", 0)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "inspect", "vol2")).Return("/var/lib/containers/storage/volumes/app-mixed-vol2/_data", "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("artifact", "extract", "artifact:mydata")).Return("", "", 0)
 
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("image", "exists", "quay.io/myimage:v1")).Return("", "", 0)
 			},
-			wantArtifactVolumes: []string{"app-mixed-vol2"},
+			wantArtifactVolumes: []string{"vol2"},
 			wantErr:             false,
 		},
 		{
@@ -1159,7 +1159,7 @@ func TestQuadlet_ensureArtifactVolumes(t *testing.T) {
 			},
 			setupMocks: func(mockExec *executer.MockExecuter) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("image", "exists", "artifact:badartifact")).Return("", "", 1)
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "create", "app-fail-vol1")).Return("", "Error: volume creation failed", 1)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "create", "vol1")).Return("", "Error: volume creation failed", 1)
 			},
 			wantArtifactVolumes: nil,
 			wantErr:             true,
@@ -1176,10 +1176,10 @@ func TestQuadlet_ensureArtifactVolumes(t *testing.T) {
 			setupMocks: func(mockExec *executer.MockExecuter) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("--version")).Return("podman version 5.5", "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("image", "exists", "artifact:badextract")).Return("", "", 1)
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "create", "app-extract-fail-vol1")).Return("", "", 0)
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "inspect", "app-extract-fail-vol1")).Return("/var/lib/containers/storage/volumes/app-extract-fail-vol1/_data", "", 0)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "create", "vol1")).Return("", "", 0)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "inspect", "vol1")).Return("/var/lib/containers/storage/volumes/app-extract-fail-vol1/_data", "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("artifact", "extract", "artifact:badextract")).Return("", "Error: extraction failed", 1)
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "rm", "app-extract-fail-vol1")).Return("", "", 0)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "rm", "vol1")).Return("", "", 0)
 			},
 			wantArtifactVolumes: nil,
 			wantErr:             true,

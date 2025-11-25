@@ -42,7 +42,7 @@ func newEmbedded(log *log.PrefixLogger, podman *client.Podman, readWriter fileio
 		return nil, fmt.Errorf("constructing embedded app handler: %w", err)
 	}
 
-	volumeManager, err := NewVolumeManager(log, name, nil)
+	volumeManager, err := NewVolumeManager(log, name, appType, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -51,7 +51,7 @@ func newEmbedded(log *log.PrefixLogger, podman *client.Podman, readWriter fileio
 	if err != nil {
 		return nil, fmt.Errorf("listing volumes: %w", err)
 	}
-	volumeManager.AddVolumes(name, volumes)
+	volumeManager.AddVolumes(volumes)
 
 	return &embeddedProvider{
 		log:        log,

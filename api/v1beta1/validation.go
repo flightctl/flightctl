@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"text/template"
 	"text/template/parse"
@@ -25,8 +26,11 @@ import (
 )
 
 const (
-	maxBase64CertificateLength = 20 * 1024 * 1024
-	maxInlineLength            = 1024 * 1024
+	maxBase64CertificateLength  = 20 * 1024 * 1024
+	maxInlineLength             = 1024 * 1024
+	privilegedPortRangeStart    = 1
+	nonPrivilegedPortRangeStart = 1024
+	portRangeEnd                = 65535
 )
 
 var (
@@ -927,6 +931,19 @@ func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []
 				allErrs = append(allErrs, fmt.Errorf("image reference cannot be empty when application name is not provided"))
 			}
 			allErrs = append(allErrs, validateOciImageReference(&provider.Image, fmt.Sprintf("spec.applications[%s].image", appName), fleetTemplate)...)
+
+			appType := lo.FromPtr(app.AppType)
+			if appType != AppTypeContainer {
+				if provider.Ports != nil && len(*provider.Ports) > 0 {
+					allErrs = append(allErrs, fmt.Errorf("ports can only be defined for container applications, not %q", appType))
+				}
+				if provider.Resources != nil {
+					allErrs = append(allErrs, fmt.Errorf("resources can only be defined for container applications, not %q", appType))
+				}
+			} else {
+				allErrs = append(allErrs, ValidateContainerImageApplicationSpec(appName, &provider)...)
+			}
+
 			volumes = provider.Volumes
 
 		case InlineApplicationProviderType:
@@ -938,13 +955,11 @@ func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []
 			if app.AppType == nil {
 				allErrs = append(allErrs, fmt.Errorf("inline application type cannot be empty"))
 			}
-			allErrs = append(allErrs, provider.Validate(app.AppType, fleetTemplate)...)
-			if len(lo.FromPtr(provider.Volumes)) > 0 && lo.FromPtr(app.AppType) == AppTypeQuadlet {
-				allErrs = append(allErrs, fmt.Errorf("quadlet application volumes should be defined as quadlets"))
-			} else {
-				volumes = provider.Volumes
+			if lo.FromPtr(app.AppType) == AppTypeContainer {
+				allErrs = append(allErrs, fmt.Errorf("inline application type must not be %q", AppTypeContainer))
 			}
-
+			allErrs = append(allErrs, provider.Validate(app.AppType, fleetTemplate)...)
+			volumes = provider.Volumes
 		default:
 			allErrs = append(allErrs, fmt.Errorf("no validations implemented for application provider type: %s", providerType))
 			continue
@@ -962,7 +977,7 @@ func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []
 				seenVolumeNames[vol.Name] = struct{}{}
 
 				allErrs = append(allErrs, validation.ValidateString(&vol.Name, path+".name", 1, 253, validation.GenericNameRegexp, "")...)
-				allErrs = append(allErrs, validateVolume(vol, path, fleetTemplate)...)
+				allErrs = append(allErrs, validateVolume(vol, path, fleetTemplate, lo.FromPtr(app.AppType))...)
 			}
 		}
 	}
@@ -970,7 +985,16 @@ func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []
 	return allErrs
 }
 
-func validateVolume(vol ApplicationVolume, path string, fleetTemplate bool) []error {
+func ValidateContainerImageApplicationSpec(appName string, spec *ImageApplicationProviderSpec) []error {
+	errs := validateContainerPorts(spec.Ports, fmt.Sprintf("spec.applications[%s].ports", appName))
+	if spec.Resources != nil && spec.Resources.Limits != nil {
+		errs = append(errs, validatePodmanCPULimit(spec.Resources.Limits.Cpu, fmt.Sprintf("spec.applications[%s].resources.limits.cpu", appName))...)
+		errs = append(errs, validatePodmanMemoryLimit(spec.Resources.Limits.Memory, fmt.Sprintf("spec.applications[%s].resources.limits.memory", appName))...)
+	}
+	return errs
+}
+
+func validateVolume(vol ApplicationVolume, path string, fleetTemplate bool, appType AppType) []error {
 	var errs []error
 
 	providerType, err := vol.Type()
@@ -986,12 +1010,101 @@ func validateVolume(vol ApplicationVolume, path string, fleetTemplate bool) []er
 		} else {
 			errs = append(errs, validateOciImageReference(&imgProvider.Image.Reference, path+".image.reference", fleetTemplate)...)
 		}
+		if appType == AppTypeContainer {
+			errs = append(errs, fmt.Errorf("image application volume provider invalid for app type: %s", appType))
+		}
+	case MountApplicationVolumeProviderType:
+		mountProvider, err := vol.AsMountVolumeProviderSpec()
+		if err != nil {
+			errs = append(errs, fmt.Errorf("invalid mount application volume provider: %w", err))
+		} else {
+			pathParts := strings.Split(mountProvider.Mount.Path, ":")
+			errs = append(errs, validation.ValidateFilePath(&pathParts[0], path+".mount.path")...)
+		}
+		if appType != AppTypeContainer {
+			errs = append(errs, fmt.Errorf("mount application volume provider invalid for app type: %s", appType))
+		}
+	case ImageMountApplicationVolumeProviderType:
+		provider, err := vol.AsImageMountVolumeProviderSpec()
+		if err != nil {
+			errs = append(errs, fmt.Errorf("invalid image mount application volume provider: %w", err))
+		} else {
+			pathParts := strings.Split(provider.Mount.Path, ":")
+			errs = append(errs, validation.ValidateFilePath(&pathParts[0], path+".mount.path")...)
+			errs = append(errs, validateOciImageReference(&provider.Image.Reference, path+".image.reference", fleetTemplate)...)
+		}
+		if appType != AppTypeContainer {
+			errs = append(errs, fmt.Errorf("image mount application volume provider invalid for app type: %s", appType))
+		}
 
 	default:
 		errs = append(errs, fmt.Errorf("unknown application volume provider type: %s", providerType))
 	}
 
 	return errs
+}
+
+func validateContainerPorts(ports *[]ApplicationPort, path string) []error {
+	if ports == nil || len(*ports) == 0 {
+		return nil
+	}
+
+	var allErrs []error
+	portPattern := regexp.MustCompile(`^[0-9]+:[0-9]+$`)
+
+	for i, portString := range *ports {
+		formatErr := fmt.Errorf("%s[%d]: must be in format 'portnumber:portnumber', got %q", path, i, portString)
+		if !portPattern.MatchString(portString) {
+			allErrs = append(allErrs, formatErr)
+			continue
+		}
+		portParts := strings.Split(portString, ":")
+		if len(portParts) != 2 {
+			allErrs = append(allErrs, formatErr)
+			continue
+		}
+
+		for _, port := range portParts {
+			numberErr := fmt.Errorf("%s[%d]: must be a number in the valid port range of [1, 65535], got: %q", path, i, port)
+			portNumber, err := strconv.Atoi(port)
+			if err != nil {
+				allErrs = append(allErrs, fmt.Errorf("%w: %w", numberErr, err))
+				continue
+			}
+			if portNumber < privilegedPortRangeStart || portNumber > portRangeEnd {
+				allErrs = append(allErrs, numberErr)
+			}
+		}
+	}
+	return allErrs
+}
+
+func validatePodmanCPULimit(cpu *string, path string) []error {
+	var errs []error
+	if cpu == nil {
+		return errs
+	}
+
+	val, err := strconv.ParseFloat(*cpu, 64)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("%s: must be a valid number, got %q", path, *cpu))
+	} else if val < 0 {
+		errs = append(errs, fmt.Errorf("%s: must be positive. got %q", path, *cpu))
+	}
+	return errs
+}
+
+var podmanMemoryLimitPattern = regexp.MustCompile(`^[0-9]+[bkmg]?$`)
+
+func validatePodmanMemoryLimit(memory *string, path string) []error {
+	if memory == nil {
+		return nil
+	}
+
+	if !podmanMemoryLimitPattern.MatchString(*memory) {
+		return []error{fmt.Errorf("%s: must be in format 'number[unit]' where unit is b, k, m, or g, got %q", path, *memory)}
+	}
+	return nil
 }
 
 func validateAppProviderType(app ApplicationProviderSpec) (ApplicationProviderType, error) {
