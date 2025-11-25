@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/cli/login"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
@@ -29,37 +29,75 @@ type accessTokenRefresher struct {
 	provider       login.AuthProvider
 	log            logrus.FieldLogger
 	configFilePath string
+	callbackPort   int
 }
 
-func CreateAuthProvider(authInfo AuthInfo, insecure bool) (login.AuthProvider, error) {
+func CreateAuthProvider(authInfo AuthInfo, insecure bool, apiServerURL string, callbackPort int) (login.AuthProvider, error) {
+	return CreateAuthProviderWithCredentials(authInfo, insecure, apiServerURL, callbackPort, "", "", false)
+}
+
+func CreateAuthProviderWithCredentials(authInfo AuthInfo, insecure bool, apiServerURL string, callbackPort int, username, password string, web bool) (login.AuthProvider, error) {
 	if authInfo.AuthProvider == nil {
 		return nil, fmt.Errorf("no auth provider defined (try logging in again)")
 	}
 
-	c := authInfo.AuthProvider.Config
-	switch authInfo.AuthProvider.Type {
-	case string(api.K8s):
-		return login.NewK8sOAuth2Config(c[AuthCAFileKey], c[AuthClientIdKey], c[AuthUrlKey], insecure), nil
+	provider := &authInfo.AuthProvider.AuthProvider
+	caFile := authInfo.AuthProvider.CAFile
+
+	// Get the provider type from the spec
+	providerType, err := provider.Spec.Discriminator()
+	if err != nil {
+		return nil, fmt.Errorf("failed to determine provider type: %w", err)
+	}
+
+	authInsecure := insecure || authInfo.AuthProvider.InsecureSkipVerify
+	switch providerType {
 	case string(api.Oidc):
-		return login.NewOIDCConfig(c[AuthCAFileKey], c[AuthClientIdKey], c[AuthUrlKey], authInfo.OrganizationsEnabled, insecure), nil
+		oidcSpec, err := provider.Spec.AsOIDCProviderSpec()
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse OIDC provider spec: %w", err)
+		}
+		return login.NewOIDCConfig(provider.Metadata, oidcSpec, caFile, authInsecure, apiServerURL, callbackPort, username, password, web), nil
+
+	case string(api.Oauth2):
+		oauth2Spec, err := provider.Spec.AsOAuth2ProviderSpec()
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse OAuth2 provider spec: %w", err)
+		}
+		return login.NewOAuth2Config(provider.Metadata, oauth2Spec, caFile, authInsecure, apiServerURL, callbackPort, username, password, web), nil
+
+	case string(api.Openshift):
+		openshiftSpec, err := provider.Spec.AsOpenShiftProviderSpec()
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse OpenShift provider spec: %w", err)
+		}
+		return login.NewOpenShiftConfig(provider.Metadata, openshiftSpec, caFile, authInsecure, apiServerURL, callbackPort, username, password, web), nil
+
 	case string(api.Aap):
-		return login.NewAAPOAuth2Config(c[AuthCAFileKey], c[AuthClientIdKey], c[AuthUrlKey], insecure), nil
+		aapSpec, err := provider.Spec.AsAapProviderSpec()
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse AAP provider spec: %w", err)
+		}
+		return login.NewAAPOAuth2Config(provider.Metadata, aapSpec, caFile, authInsecure, apiServerURL, callbackPort, username, password, web), nil
+
+	case string(api.K8s):
+		return nil, fmt.Errorf("k8s auth requires providing --token flag")
 	default:
-		return nil, fmt.Errorf("unsupported auth provider: %s", authInfo.AuthProvider.Type)
+		return nil, fmt.Errorf("unsupported auth provider type: %s", providerType)
 	}
 }
 
 func (c *accessTokenRefresher) init() error {
 	var err error
-	c.provider, err = CreateAuthProvider(c.config.AuthInfo, c.config.Service.InsecureSkipVerify)
+	c.provider, err = CreateAuthProvider(c.config.AuthInfo, c.config.Service.InsecureSkipVerify, c.config.Service.Server, c.callbackPort)
 	return err
 }
 
 func (c *accessTokenRefresher) parseExpireTime() (time.Time, error) {
-	if c.config.AuthInfo.AuthProvider == nil {
-		return time.Time{}, fmt.Errorf("no auth provider config found")
+	if c.config.AuthInfo.AccessTokenExpiry == "" {
+		return time.Time{}, fmt.Errorf("no access token expiry found")
 	}
-	return time.Parse(time.RFC3339Nano, c.config.AuthInfo.AuthProvider.Config[AuthAccessTokenExpiryKey])
+	return time.Parse(time.RFC3339Nano, c.config.AuthInfo.AccessTokenExpiry)
 }
 
 func (c *accessTokenRefresher) shouldRefresh(expireTime time.Time) bool {
@@ -67,27 +105,33 @@ func (c *accessTokenRefresher) shouldRefresh(expireTime time.Time) bool {
 }
 
 func (c *accessTokenRefresher) refresh() error {
-	if c.config.AuthInfo.AuthProvider == nil {
-		return fmt.Errorf("no auth provider config found")
+	if c.config.AuthInfo.RefreshToken == "" {
+		return fmt.Errorf("no refresh token found")
 	}
-	authInfo, err := c.provider.Renew(c.config.AuthInfo.AuthProvider.Config[AuthRefreshTokenKey])
+	authInfo, err := c.provider.Renew(c.config.AuthInfo.RefreshToken)
 	if err != nil {
 		return fmt.Errorf("failed to renew token: %w", err)
 	}
-	c.config.AuthInfo.AuthProvider.Config[AuthRefreshTokenKey] = authInfo.RefreshToken
-	c.config.AuthInfo.Token = authInfo.AccessToken
+	if authInfo.RefreshToken != "" {
+		c.config.AuthInfo.RefreshToken = authInfo.RefreshToken
+	}
+	c.config.AuthInfo.AccessToken = authInfo.AccessToken
 	if authInfo.ExpiresIn != nil {
-		c.config.AuthInfo.AuthProvider.Config[AuthAccessTokenExpiryKey] = time.Now().Add(time.Duration(*authInfo.ExpiresIn) * time.Second).Format(time.RFC3339Nano)
+		expiryTime := time.Now().Add(time.Duration(*authInfo.ExpiresIn) * time.Second)
+		c.config.AuthInfo.AccessTokenExpiry = expiryTime.Format(time.RFC3339Nano)
+	}
+	if authInfo.IdToken != "" {
+		c.config.AuthInfo.IdToken = authInfo.IdToken
 	}
 	return c.config.Persist(c.configFilePath)
 }
 
 func (c *accessTokenRefresher) waitDuration() time.Duration {
 	waitDuration := time.Second
-	if c.config.AuthInfo.AuthProvider != nil && c.config.AuthInfo.AuthProvider.Config[AuthAccessTokenExpiryKey] != "" {
+	if c.config.AuthInfo.AccessTokenExpiry != "" {
 		expireTime, err := c.parseExpireTime()
 		if err != nil {
-			c.log.Errorf("failed to parse time %s: %v", c.config.AuthInfo.AuthProvider.Config[AuthAccessTokenExpiryKey], err)
+			c.log.Errorf("failed to parse time %s: %v", c.config.AuthInfo.AccessTokenExpiry, err)
 		} else {
 			waitDuration = util.Max(time.Until(expireTime)-5*time.Second, time.Second)
 		}
@@ -116,7 +160,7 @@ func (c *accessTokenRefresher) refreshLoop(ctx context.Context) {
 func (c *accessTokenRefresher) start() {
 	c.once.Do(func() {
 		c.log = flightlog.InitLogs()
-		if c.config.AuthInfo.AuthProvider == nil || c.config.AuthInfo.AuthProvider.Config[AuthRefreshTokenKey] == "" {
+		if c.config.AuthInfo.RefreshToken == "" {
 			return
 		}
 		if err := c.init(); err != nil {
@@ -137,7 +181,10 @@ func (c *accessTokenRefresher) start() {
 var authorizer util.Singleton[accessTokenRefresher]
 
 func (c *accessTokenRefresher) accessToken() string {
-	return c.config.AuthInfo.Token
+	if c.config.AuthInfo.TokenToUse == TokenToUseIdToken {
+		return c.config.AuthInfo.IdToken
+	}
+	return c.config.AuthInfo.AccessToken
 }
 
 func (c *accessTokenRefresher) rewind() {
@@ -148,8 +195,10 @@ func GetAccessToken(config *Config, configFilePath string) string {
 	auth := authorizer.GetOrInit(&accessTokenRefresher{
 		config:         config,
 		configFilePath: configFilePath,
+		callbackPort:   8080,
 	})
 	auth.start()
 	auth.rewind()
-	return auth.accessToken()
+	token := auth.accessToken()
+	return token
 }

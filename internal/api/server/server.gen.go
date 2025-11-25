@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"net/http"
 
-	. "github.com/flightctl/flightctl/api/v1alpha1"
+	. "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/go-chi/chi/v5"
 	"github.com/oapi-codegen/runtime"
 )
@@ -17,6 +17,9 @@ type ServerInterface interface {
 
 	// (GET /api/v1/auth/config)
 	AuthConfig(w http.ResponseWriter, r *http.Request)
+
+	// (GET /api/v1/auth/permissions)
+	AuthGetPermissions(w http.ResponseWriter, r *http.Request)
 
 	// (GET /api/v1/auth/userinfo)
 	AuthUserInfo(w http.ResponseWriter, r *http.Request)
@@ -181,7 +184,7 @@ type ServerInterface interface {
 	ListLabels(w http.ResponseWriter, r *http.Request, params ListLabelsParams)
 	// List organizations
 	// (GET /api/v1/organizations)
-	ListOrganizations(w http.ResponseWriter, r *http.Request)
+	ListOrganizations(w http.ResponseWriter, r *http.Request, params ListOrganizationsParams)
 
 	// (GET /api/v1/repositories)
 	ListRepositories(w http.ResponseWriter, r *http.Request, params ListRepositoriesParams)
@@ -229,6 +232,11 @@ type Unimplemented struct{}
 
 // (GET /api/v1/auth/config)
 func (_ Unimplemented) AuthConfig(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /api/v1/auth/permissions)
+func (_ Unimplemented) AuthGetPermissions(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -504,7 +512,7 @@ func (_ Unimplemented) ListLabels(w http.ResponseWriter, r *http.Request, params
 
 // List organizations
 // (GET /api/v1/organizations)
-func (_ Unimplemented) ListOrganizations(w http.ResponseWriter, r *http.Request) {
+func (_ Unimplemented) ListOrganizations(w http.ResponseWriter, r *http.Request, params ListOrganizationsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -588,6 +596,21 @@ func (siw *ServerInterfaceWrapper) AuthConfig(w http.ResponseWriter, r *http.Req
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.AuthConfig(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// AuthGetPermissions operation middleware
+func (siw *ServerInterfaceWrapper) AuthGetPermissions(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AuthGetPermissions(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2225,8 +2248,21 @@ func (siw *ServerInterfaceWrapper) ListLabels(w http.ResponseWriter, r *http.Req
 func (siw *ServerInterfaceWrapper) ListOrganizations(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
+	var err error
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListOrganizationsParams
+
+	// ------------- Optional query parameter "fieldSelector" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "fieldSelector", r.URL.Query(), &params.FieldSelector)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "fieldSelector", Err: err})
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListOrganizations(w, r)
+		siw.Handler.ListOrganizations(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2708,6 +2744,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/auth/config", wrapper.AuthConfig)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/auth/permissions", wrapper.AuthGetPermissions)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/auth/userinfo", wrapper.AuthUserInfo)

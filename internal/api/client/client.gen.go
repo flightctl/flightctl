@@ -13,7 +13,7 @@ import (
 	"net/url"
 	"strings"
 
-	. "github.com/flightctl/flightctl/api/v1alpha1"
+	. "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/oapi-codegen/runtime"
 )
 
@@ -92,6 +92,9 @@ func WithRequestEditorFn(fn RequestEditorFn) ClientOption {
 type ClientInterface interface {
 	// AuthConfig request
 	AuthConfig(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AuthGetPermissions request
+	AuthGetPermissions(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// AuthUserInfo request
 	AuthUserInfo(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -310,7 +313,7 @@ type ClientInterface interface {
 	ListLabels(ctx context.Context, params *ListLabelsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListOrganizations request
-	ListOrganizations(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+	ListOrganizations(ctx context.Context, params *ListOrganizationsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListRepositories request
 	ListRepositories(ctx context.Context, params *ListRepositoriesParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -366,6 +369,18 @@ type ClientInterface interface {
 
 func (c *Client) AuthConfig(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewAuthConfigRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) AuthGetPermissions(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAuthGetPermissionsRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -1348,8 +1363,8 @@ func (c *Client) ListLabels(ctx context.Context, params *ListLabelsParams, reqEd
 	return c.Client.Do(req)
 }
 
-func (c *Client) ListOrganizations(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewListOrganizationsRequest(c.Server)
+func (c *Client) ListOrganizations(ctx context.Context, params *ListOrganizationsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListOrganizationsRequest(c.Server, params)
 	if err != nil {
 		return nil, err
 	}
@@ -1598,6 +1613,33 @@ func NewAuthConfigRequest(server string) (*http.Request, error) {
 	}
 
 	operationPath := fmt.Sprintf("/api/v1/auth/config")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewAuthGetPermissionsRequest generates requests for AuthGetPermissions
+func NewAuthGetPermissionsRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/auth/permissions")
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -4372,7 +4414,7 @@ func NewListLabelsRequest(server string, params *ListLabelsParams) (*http.Reques
 }
 
 // NewListOrganizationsRequest generates requests for ListOrganizations
-func NewListOrganizationsRequest(server string) (*http.Request, error) {
+func NewListOrganizationsRequest(server string, params *ListOrganizationsParams) (*http.Request, error) {
 	var err error
 
 	serverURL, err := url.Parse(server)
@@ -4388,6 +4430,28 @@ func NewListOrganizationsRequest(server string) (*http.Request, error) {
 	queryURL, err := serverURL.Parse(operationPath)
 	if err != nil {
 		return nil, err
+	}
+
+	if params != nil {
+		queryValues := queryURL.Query()
+
+		if params.FieldSelector != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "fieldSelector", runtime.ParamLocationQuery, *params.FieldSelector); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		queryURL.RawQuery = queryValues.Encode()
 	}
 
 	req, err := http.NewRequest("GET", queryURL.String(), nil)
@@ -5069,6 +5133,9 @@ type ClientWithResponsesInterface interface {
 	// AuthConfigWithResponse request
 	AuthConfigWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*AuthConfigResponse, error)
 
+	// AuthGetPermissionsWithResponse request
+	AuthGetPermissionsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*AuthGetPermissionsResponse, error)
+
 	// AuthUserInfoWithResponse request
 	AuthUserInfoWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*AuthUserInfoResponse, error)
 
@@ -5286,7 +5353,7 @@ type ClientWithResponsesInterface interface {
 	ListLabelsWithResponse(ctx context.Context, params *ListLabelsParams, reqEditors ...RequestEditorFn) (*ListLabelsResponse, error)
 
 	// ListOrganizationsWithResponse request
-	ListOrganizationsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListOrganizationsResponse, error)
+	ListOrganizationsWithResponse(ctx context.Context, params *ListOrganizationsParams, reqEditors ...RequestEditorFn) (*ListOrganizationsResponse, error)
 
 	// ListRepositoriesWithResponse request
 	ListRepositoriesWithResponse(ctx context.Context, params *ListRepositoriesParams, reqEditors ...RequestEditorFn) (*ListRepositoriesResponse, error)
@@ -5358,6 +5425,32 @@ func (r AuthConfigResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r AuthConfigResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type AuthGetPermissionsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *PermissionList
+	JSON401      *Status
+	JSON418      *Status
+	JSON429      *Status
+	JSON500      *Status
+}
+
+// Status returns HTTPResponse.Status
+func (r AuthGetPermissionsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r AuthGetPermissionsResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -7257,6 +7350,15 @@ func (c *ClientWithResponses) AuthConfigWithResponse(ctx context.Context, reqEdi
 	return ParseAuthConfigResponse(rsp)
 }
 
+// AuthGetPermissionsWithResponse request returning *AuthGetPermissionsResponse
+func (c *ClientWithResponses) AuthGetPermissionsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*AuthGetPermissionsResponse, error) {
+	rsp, err := c.AuthGetPermissions(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAuthGetPermissionsResponse(rsp)
+}
+
 // AuthUserInfoWithResponse request returning *AuthUserInfoResponse
 func (c *ClientWithResponses) AuthUserInfoWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*AuthUserInfoResponse, error) {
 	rsp, err := c.AuthUserInfo(ctx, reqEditors...)
@@ -7960,8 +8062,8 @@ func (c *ClientWithResponses) ListLabelsWithResponse(ctx context.Context, params
 }
 
 // ListOrganizationsWithResponse request returning *ListOrganizationsResponse
-func (c *ClientWithResponses) ListOrganizationsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListOrganizationsResponse, error) {
-	rsp, err := c.ListOrganizations(ctx, reqEditors...)
+func (c *ClientWithResponses) ListOrganizationsWithResponse(ctx context.Context, params *ListOrganizationsParams, reqEditors ...RequestEditorFn) (*ListOrganizationsResponse, error) {
+	rsp, err := c.ListOrganizations(ctx, params, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
@@ -8167,6 +8269,60 @@ func ParseAuthConfigResponse(rsp *http.Response) (*AuthConfigResponse, error) {
 			return nil, err
 		}
 		response.JSON429 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseAuthGetPermissionsResponse parses an HTTP response from a AuthGetPermissionsWithResponse call
+func ParseAuthGetPermissionsResponse(rsp *http.Response) (*AuthGetPermissionsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &AuthGetPermissionsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest PermissionList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 418:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON418 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
 
 	}
 

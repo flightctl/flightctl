@@ -5,13 +5,12 @@ import (
 	"encoding/base64"
 	"errors"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/util/validation"
+	"github.com/google/uuid"
 )
 
-func (h *ServiceHandler) GetEnrollmentConfig(ctx context.Context, params api.GetEnrollmentConfigParams) (*api.EnrollmentConfig, api.Status) {
-	orgId := getOrgIdFromContext(ctx)
-
+func (h *ServiceHandler) GetEnrollmentConfig(ctx context.Context, orgId uuid.UUID, params api.GetEnrollmentConfigParams) (*api.EnrollmentConfig, api.Status) {
 	caCert, err := h.ca.GetCABundle()
 	if err != nil {
 		return nil, api.StatusInternalServerError("failed to get CA certificate")

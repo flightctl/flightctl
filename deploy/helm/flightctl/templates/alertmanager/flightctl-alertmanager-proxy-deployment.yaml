@@ -23,6 +23,10 @@ spec:
         {{- include "flightctl.standardLabels" . | nindent 8 }}
     spec:
       serviceAccountName: flightctl-alertmanager-proxy
+      {{- if .Values.global.imagePullSecretName }}
+      imagePullSecrets:
+        - name: {{ .Values.global.imagePullSecretName }}
+      {{- end }}
       initContainers:
       {{- include "flightctl.databaseWaitInitContainer" (dict "context" . "userType" "app") | nindent 6 }}
       {{- include "flightctl.migrationWaitInitContainer" (dict "context" . "timeout" 600) | nindent 6 }}
@@ -59,12 +63,12 @@ spec:
             - name: DB_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: flightctl-db-app-secret
+                  name: {{ include "flightctl.dbAppUserSecret" . }}
                   key: userPassword
             - name: DB_USER
               valueFrom:
                 secretKeyRef:
-                  name: flightctl-db-app-secret
+                  name: {{ include "flightctl.dbAppUserSecret" . }}
                   key: user
           volumeMounts:
             - mountPath: /app/certs
@@ -77,6 +81,16 @@ spec:
               name: flightctl-config-dir
             - mountPath: /tmp
               name: tmp-dir
+            {{- if .Values.global.auth.k8s.externalApiToken}}
+            - mountPath: /var/flightctl/k8s
+              name: flightctl-alertmanager-proxy-k8s-token
+              readOnly: true
+            {{- end}}
+            {{- if .Values.global.auth.openshift.externalApiToken}}
+            - mountPath: /var/flightctl/k8s
+              name: flightctl-alertmanager-proxy-openshift-token
+              readOnly: true
+            {{- end}}
             {{- include "flightctl.dbSslVolumeMounts" . | nindent 12 }}
           livenessProbe:
             httpGet:
@@ -123,5 +137,15 @@ spec:
           emptyDir: {}
         - name: tmp-dir
           emptyDir: {}
+        {{- if .Values.global.auth.k8s.externalApiToken}}
+        - name: flightctl-alertmanager-proxy-k8s-token
+          secret:
+            secretName: flightctl-api-k8s-token
+        {{- end}}
+        {{- if .Values.global.auth.openshift.externalApiToken}}
+        - name: flightctl-alertmanager-proxy-openshift-token
+          secret:
+            secretName: flightctl-api-openshift-token
+        {{- end}}
         {{- include "flightctl.dbSslVolumes" . | nindent 8 }}
 {{- end }}

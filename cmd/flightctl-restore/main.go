@@ -13,7 +13,6 @@ import (
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/version"
-	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
 
@@ -65,21 +64,15 @@ func runRestore(ctx context.Context) error {
 	// Bypass span check for restore operations
 	ctx = store.WithBypassSpanCheck(ctx)
 
-	log := log.InitLogs()
-	log.Println("Starting Flight Control restore preparation")
-	defer log.Println("Flight Control restore preparation completed")
-
 	cfg, err := config.LoadOrGenerate(config.ConfigFile())
 	if err != nil {
-		log.Fatalf("reading configuration: %v", err)
+		log.InitLogs().Fatalf("reading configuration: %v", err)
 	}
-	log.Printf("Using config: %s", cfg)
 
-	logLvl, err := logrus.ParseLevel(cfg.Service.LogLevel)
-	if err != nil {
-		logLvl = logrus.InfoLevel
-	}
-	log.SetLevel(logLvl)
+	log := log.InitLogs(cfg.Service.LogLevel)
+	log.Println("Starting Flight Control restore preparation")
+	defer log.Println("Flight Control restore preparation completed")
+	log.Printf("Using config: %s", cfg)
 
 	tracerShutdown := tracing.InitTracer(log, cfg, "flightctl-restore")
 	defer func() {

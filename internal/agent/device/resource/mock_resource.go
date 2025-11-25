@@ -13,7 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
-	v1alpha1 "github.com/flightctl/flightctl/api/v1alpha1"
+	v1beta1 "github.com/flightctl/flightctl/api/v1beta1"
 	status "github.com/flightctl/flightctl/internal/agent/device/status"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -55,6 +55,34 @@ func (mr *MockManagerMockRecorder) Alerts() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Alerts", reflect.TypeOf((*MockManager)(nil).Alerts))
 }
 
+// BeforeUpdate mocks base method.
+func (m *MockManager) BeforeUpdate(ctx context.Context, desired *v1beta1.DeviceSpec) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "BeforeUpdate", ctx, desired)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// BeforeUpdate indicates an expected call of BeforeUpdate.
+func (mr *MockManagerMockRecorder) BeforeUpdate(ctx, desired any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BeforeUpdate", reflect.TypeOf((*MockManager)(nil).BeforeUpdate), ctx, desired)
+}
+
+// IsCriticalAlert mocks base method.
+func (m *MockManager) IsCriticalAlert(monitorType MonitorType) bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IsCriticalAlert", monitorType)
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// IsCriticalAlert indicates an expected call of IsCriticalAlert.
+func (mr *MockManagerMockRecorder) IsCriticalAlert(monitorType any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsCriticalAlert", reflect.TypeOf((*MockManager)(nil).IsCriticalAlert), monitorType)
+}
+
 // ResetAlertDefaults mocks base method.
 func (m *MockManager) ResetAlertDefaults() error {
 	m.ctrl.T.Helper()
@@ -82,7 +110,7 @@ func (mr *MockManagerMockRecorder) Run(ctx any) *gomock.Call {
 }
 
 // Status mocks base method.
-func (m *MockManager) Status(arg0 context.Context, arg1 *v1alpha1.DeviceStatus, arg2 ...status.CollectorOpt) error {
+func (m *MockManager) Status(arg0 context.Context, arg1 *v1beta1.DeviceStatus, arg2 ...status.CollectorOpt) error {
 	m.ctrl.T.Helper()
 	varargs := []any{arg0, arg1}
 	for _, a := range arg2 {
@@ -101,7 +129,7 @@ func (mr *MockManagerMockRecorder) Status(arg0, arg1 any, arg2 ...any) *gomock.C
 }
 
 // Update mocks base method.
-func (m *MockManager) Update(monitor *v1alpha1.ResourceMonitor) (bool, error) {
+func (m *MockManager) Update(monitor *v1beta1.ResourceMonitor) (bool, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Update", monitor)
 	ret0, _ := ret[0].(bool)
@@ -139,10 +167,10 @@ func (m *MockMonitor[T]) EXPECT() *MockMonitorMockRecorder[T] {
 }
 
 // Alerts mocks base method.
-func (m *MockMonitor[T]) Alerts() []v1alpha1.ResourceAlertRule {
+func (m *MockMonitor[T]) Alerts() []v1beta1.ResourceAlertRule {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Alerts")
-	ret0, _ := ret[0].([]v1alpha1.ResourceAlertRule)
+	ret0, _ := ret[0].([]v1beta1.ResourceAlertRule)
 	return ret0
 }
 
@@ -165,7 +193,7 @@ func (mr *MockMonitorMockRecorder[T]) Run(ctx any) *gomock.Call {
 }
 
 // Update mocks base method.
-func (m *MockMonitor[T]) Update(monitor *v1alpha1.ResourceMonitor) (bool, error) {
+func (m *MockMonitor[T]) Update(monitor *v1beta1.ResourceMonitor) (bool, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Update", monitor)
 	ret0, _ := ret[0].(bool)

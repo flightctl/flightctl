@@ -153,23 +153,17 @@ func createConditionalAuthMiddleware(
 func main() {
 	ctx := context.Background()
 
-	// Initialize logging
-	logger := fclog.InitLogs()
-	logger.Println("Starting Alertmanager Proxy service")
-	defer logger.Println("Alertmanager Proxy service stopped")
-
 	// Load configuration
 	cfg, err := config.LoadOrGenerate(config.ConfigFile())
 	if err != nil {
+		logger := fclog.InitLogs()
 		logger.Fatalf("Failed to load configuration: %v", err)
 	}
 
-	// Set log level
-	logLvl, err := logrus.ParseLevel(cfg.Service.LogLevel)
-	if err != nil {
-		logLvl = logrus.InfoLevel
-	}
-	logger.SetLevel(logLvl)
+	// Initialize logging with level from config
+	logger := fclog.InitLogs(cfg.Service.LogLevel)
+	logger.Println("Starting Alertmanager Proxy service")
+	defer logger.Println("Alertmanager Proxy service stopped")
 
 	// Initialize CA and TLS certificates (following same pattern as API server)
 	ca, _, err := crypto.EnsureCA(cfg.CA)
@@ -248,7 +242,8 @@ func main() {
 	defer orgCache.Stop()
 
 	// Create service handler for auth provider access
-	serviceHandler := service.NewServiceHandler(dataStore, nil, nil, nil, logger, "", "", nil)
+	baseServiceHandler := service.NewServiceHandler(dataStore, nil, nil, nil, logger, "", "", nil)
+	serviceHandler := service.WrapWithTracing(baseServiceHandler)
 
 	// Initialize auth system
 	authN, err := auth.InitMultiAuth(cfg, logger, serviceHandler)
@@ -259,7 +254,9 @@ func main() {
 	// Start auth provider loader if MultiAuth is configured (not NilAuth)
 	if multiAuth, ok := authN.(*authn.MultiAuth); ok {
 		go func() {
-			multiAuth.Start(ctx)
+			if err := multiAuth.Start(ctx); err != nil {
+				logger.Errorf("Failed to start auth provider loader: %v", err)
+			}
 			cancel() // Trigger coordinated shutdown if auth loader exits
 		}()
 	}
@@ -267,6 +264,12 @@ func main() {
 	authZ, err := auth.InitMultiAuthZ(cfg, logger)
 	if err != nil {
 		logger.Fatalf("Failed to initialize authZ: %v", err)
+	}
+
+	// Start multiAuthZ to initialize cache lifecycle management
+	if multiAuthZ, ok := authZ.(*auth.MultiAuthZ); ok {
+		multiAuthZ.Start(ctx)
+		logger.Debug("Started MultiAuthZ with context-based cache lifecycle")
 	}
 
 	// Create identity mapper for mapping identities to database objects

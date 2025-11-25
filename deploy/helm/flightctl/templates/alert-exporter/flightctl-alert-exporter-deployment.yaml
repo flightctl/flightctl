@@ -21,6 +21,10 @@ spec:
         flightctl.service: flightctl-alert-exporter
     spec:
       serviceAccountName: flightctl-alert-exporter
+      {{- if .Values.global.imagePullSecretName }}
+      imagePullSecrets:
+        - name: {{ .Values.global.imagePullSecretName }}
+      {{- end }}
       initContainers:
       {{- include "flightctl.databaseWaitInitContainer" (dict "context" . "userType" "app") | nindent 6 }}
       {{- include "flightctl.migrationWaitInitContainer" (dict "context" . "timeout" 600) | nindent 6 }}
@@ -38,33 +42,33 @@ spec:
             - name: KV_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: flightctl-kv-secret
+                  name: {{ default "flightctl-kv-secret" .Values.kv.passwordSecretName }}
                   key: password
             - name: DB_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: flightctl-db-app-secret
+                  name: {{ include "flightctl.dbAppUserSecret" . }}
                   key: userPassword
             - name: DB_USER
               valueFrom:
                 secretKeyRef:
-                  name: flightctl-db-app-secret
+                  name: {{ include "flightctl.dbAppUserSecret" . }}
                   key: user
-            {{- if .Values.db.sslmode }}
+            {{- if eq .Values.db.type "external" }}
+            {{- if .Values.db.external.sslmode }}
             - name: DB_SSL_MODE
-              value: "{{ .Values.db.sslmode }}"
+              value: "{{ .Values.db.external.sslmode }}"
             {{- end }}
-            {{- if .Values.db.sslcert }}
+            {{- if .Values.db.external.tlsSecretName }}
             - name: DB_SSL_CERT
-              value: "{{ .Values.db.sslcert }}"
-            {{- end }}
-            {{- if .Values.db.sslkey }}
+              value: /etc/ssl/postgres/client-cert.pem
             - name: DB_SSL_KEY
-              value: "{{ .Values.db.sslkey }}"
+              value: /etc/ssl/postgres/client-key.pem
             {{- end }}
-            {{- if .Values.db.sslrootcert }}
+            {{- if .Values.db.external.tlsConfigMapName }}
             - name: DB_SSL_ROOT_CERT
-              value: "{{ .Values.db.sslrootcert }}"
+              value: /etc/ssl/postgres/ca-cert.pem
+            {{- end }}
             {{- end }}
             {{- if .Values.alertExporter.env }}
             {{- range $key, $value := .Values.alertExporter.env }}

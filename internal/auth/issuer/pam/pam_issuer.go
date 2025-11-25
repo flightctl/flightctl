@@ -16,24 +16,13 @@ import (
 	"sync"
 	"time"
 
-	pamapi "github.com/flightctl/flightctl/api/v1alpha1/pam-issuer"
+	pamapi "github.com/flightctl/flightctl/api/v1beta1/pam-issuer"
 	"github.com/flightctl/flightctl/internal/auth/authn"
 	"github.com/flightctl/flightctl/internal/config"
 	fccrypto "github.com/flightctl/flightctl/internal/crypto"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
-
-// Default group to role mapping
-var defaultGroupRoleMap = map[string]string{
-	"flightctl-admin":     "admin",
-	"flightctl-operator":  "operator",
-	"flightctl-viewer":    "viewer",
-	"flightctl-installer": "installer",
-	"wheel":               "admin",    // Traditional Unix admin group
-	"sudo":                "admin",    // Sudo users get admin access
-	"adm":                 "operator", // System administration group
-}
 
 // AuthorizationCodeData represents stored authorization code data
 type AuthorizationCodeData struct {
@@ -187,7 +176,10 @@ func (s *PAMOIDCProvider) Token(ctx context.Context, req *pamapi.TokenRequest) (
 	case pamapi.AuthorizationCode:
 		return s.handleAuthorizationCodeGrant(ctx, req)
 	default:
-		return &pamapi.TokenResponse{Error: lo.ToPtr(ErrorUnsupportedGrantType)}, nil
+		return nil, &pamapi.OAuth2Error{
+			Code:             pamapi.UnsupportedGrantType,
+			ErrorDescription: lo.ToPtr("Unsupported grant_type. Supported values: authorization_code, refresh_token"),
+		}
 	}
 }
 
@@ -196,28 +188,40 @@ func (s *PAMOIDCProvider) handleRefreshTokenGrant(ctx context.Context, req *pama
 	// Validate required fields for refresh token flow
 	if req.RefreshToken == nil || *req.RefreshToken == "" {
 		s.log.Warnf("handleRefreshTokenGrant: missing refresh token")
-		return &pamapi.TokenResponse{Error: lo.ToPtr(ErrorInvalidRequest)}, nil
+		return nil, &pamapi.OAuth2Error{
+			Code:             pamapi.InvalidRequest,
+			ErrorDescription: lo.ToPtr("Missing required parameter: refresh_token"),
+		}
 	}
 
 	// Validate the refresh token and ensure it's actually a refresh token
 	identity, err := s.jwtGenerator.ValidateTokenWithType(*req.RefreshToken, TokenTypeRefresh)
 	if err != nil {
 		s.log.Warnf("handleRefreshTokenGrant: failed to validate refresh token - %v", err)
-		return &pamapi.TokenResponse{Error: lo.ToPtr(ErrorInvalidGrant)}, nil
+		return nil, &pamapi.OAuth2Error{
+			Code:             pamapi.InvalidGrant,
+			ErrorDescription: lo.ToPtr("Invalid or expired refresh token"),
+		}
 	}
 
 	// Get current user information from NSS to ensure user still exists
 	systemUser, err := s.pamAuthenticator.LookupUser(identity.GetUsername())
 	if err != nil {
 		s.log.Errorf("handleRefreshTokenGrant: failed to lookup user - %v", err)
-		return &pamapi.TokenResponse{Error: lo.ToPtr(ErrorInvalidGrant)}, nil
+		return nil, &pamapi.OAuth2Error{
+			Code:             pamapi.InvalidGrant,
+			ErrorDescription: lo.ToPtr("User no longer exists or is disabled"),
+		}
 	}
 
 	// Get current user groups for roles
 	groups, err := s.pamAuthenticator.GetUserGroups(systemUser)
 	if err != nil {
 		s.log.Errorf("handleRefreshTokenGrant: failed to get user groups - %v", err)
-		return &pamapi.TokenResponse{Error: lo.ToPtr(ErrorServerError)}, nil
+		return nil, &pamapi.OAuth2Error{
+			Code:             pamapi.ServerError,
+			ErrorDescription: lo.ToPtr("Failed to retrieve user groups"),
+		}
 	}
 
 	// Map groups to roles and extract organizations
@@ -225,6 +229,15 @@ func (s *PAMOIDCProvider) handleRefreshTokenGrant(ctx context.Context, req *pama
 	s.log.Debugf("handleRefreshTokenGrant: mapped groups to roles - %v", roles)
 	organizations := s.extractOrganizations(groups)
 	s.log.Debugf("handleRefreshTokenGrant: extracted organizations - %v", organizations)
+
+	// Extract scopes from the refresh token
+	scopes := ""
+	if scopesClaim, ok := identity.GetClaim("scopes"); ok {
+		if scopesStr, ok := scopesClaim.(string); ok {
+			scopes = scopesStr
+		}
+	}
+
 	tokenGenerationRequest := authn.TokenGenerationRequest{
 		Username:      identity.GetUsername(),
 		UID:           identity.GetUID(),
@@ -232,19 +245,28 @@ func (s *PAMOIDCProvider) handleRefreshTokenGrant(ctx context.Context, req *pama
 		Roles:         roles,
 		Audience:      []string{s.config.ClientID}, // Set audience to client ID
 		Issuer:        s.config.Issuer,             // Set issuer
+		Scopes:        scopes,                      // Include scopes from refresh token
 	}
 	// Generate new access token with proper expiry (1 hour)
 	accessToken, err := s.jwtGenerator.GenerateTokenWithType(tokenGenerationRequest, time.Hour, TokenTypeAccess)
 	if err != nil {
 		s.log.Errorf("handleRefreshTokenGrant: server error when generating access token - %v", err)
-		return &pamapi.TokenResponse{Error: lo.ToPtr(ErrorServerError)}, nil
+		return nil, &pamapi.OAuth2Error{
+			Code:             pamapi.ServerError,
+			ErrorDescription: lo.ToPtr("Failed to generate access token"),
+		}
 	}
 
 	// Create token response
 	tokenResponse := &pamapi.TokenResponse{
-		AccessToken: lo.ToPtr(accessToken),
-		TokenType:   lo.ToPtr(pamapi.Bearer),
+		AccessToken: accessToken,
+		TokenType:   pamapi.Bearer,
 		ExpiresIn:   lo.ToPtr(int(time.Hour.Seconds())),
+	}
+
+	// Generate id_token if openid scope was originally requested
+	if strings.Contains(scopes, ScopeOpenID) {
+		tokenResponse.IdToken = lo.ToPtr(accessToken)
 	}
 
 	// Always issue a new refresh token when using refresh_token grant
@@ -252,7 +274,10 @@ func (s *PAMOIDCProvider) handleRefreshTokenGrant(ctx context.Context, req *pama
 	refreshToken, err := s.jwtGenerator.GenerateTokenWithType(tokenGenerationRequest, 7*24*time.Hour, TokenTypeRefresh)
 	if err != nil {
 		s.log.Errorf("handleRefreshTokenGrant: server error when generating refresh token - %v", err)
-		return &pamapi.TokenResponse{Error: lo.ToPtr(ErrorServerError)}, nil
+		return nil, &pamapi.OAuth2Error{
+			Code:             pamapi.ServerError,
+			ErrorDescription: lo.ToPtr("Failed to generate refresh token"),
+		}
 	}
 	tokenResponse.RefreshToken = lo.ToPtr(refreshToken)
 
@@ -264,17 +289,26 @@ func (s *PAMOIDCProvider) handleAuthorizationCodeGrant(ctx context.Context, req 
 	// Validate required fields for authorization code flow
 	if req.Code == nil || *req.Code == "" {
 		s.log.Warnf("handleAuthorizationCodeGrant: missing authorization code")
-		return &pamapi.TokenResponse{Error: lo.ToPtr(ErrorInvalidRequest)}, nil
+		return nil, &pamapi.OAuth2Error{
+			Code:             pamapi.InvalidRequest,
+			ErrorDescription: lo.ToPtr("Missing required parameter: code"),
+		}
 	}
 
 	// Validate client ID
 	if req.ClientId == nil || *req.ClientId == "" {
 		s.log.Warnf("handleAuthorizationCodeGrant: missing client ID")
-		return &pamapi.TokenResponse{Error: lo.ToPtr(ErrorInvalidClient)}, nil
+		return nil, &pamapi.OAuth2Error{
+			Code:             pamapi.InvalidClient,
+			ErrorDescription: lo.ToPtr("Missing required parameter: client_id"),
+		}
 	}
 	if s.config == nil || s.config.ClientID != *req.ClientId {
 		s.log.Warnf("handleAuthorizationCodeGrant: invalid client ID - expected=%s, got=%s", s.config.ClientID, *req.ClientId)
-		return &pamapi.TokenResponse{Error: lo.ToPtr(ErrorInvalidClient)}, nil
+		return nil, &pamapi.OAuth2Error{
+			Code:             pamapi.InvalidClient,
+			ErrorDescription: lo.ToPtr("Invalid client_id"),
+		}
 	}
 
 	// Validate client authentication based on whether a secret is configured
@@ -284,11 +318,17 @@ func (s *PAMOIDCProvider) handleAuthorizationCodeGrant(ctx context.Context, req 
 		// Confidential client - require client_secret_post authentication
 		if req.ClientSecret == nil {
 			s.log.Warnf("handleAuthorizationCodeGrant: missing client secret")
-			return &pamapi.TokenResponse{Error: lo.ToPtr(ErrorInvalidClient)}, nil
+			return nil, &pamapi.OAuth2Error{
+				Code:             pamapi.InvalidClient,
+				ErrorDescription: lo.ToPtr("Client authentication failed: missing client_secret"),
+			}
 		}
 		if *req.ClientSecret != s.config.ClientSecret {
 			s.log.Warnf("handleAuthorizationCodeGrant: invalid client secret")
-			return &pamapi.TokenResponse{Error: lo.ToPtr(ErrorInvalidClient)}, nil
+			return nil, &pamapi.OAuth2Error{
+				Code:             pamapi.InvalidClient,
+				ErrorDescription: lo.ToPtr("Client authentication failed: invalid client_secret"),
+			}
 		}
 	}
 
@@ -296,24 +336,36 @@ func (s *PAMOIDCProvider) handleAuthorizationCodeGrant(ctx context.Context, req 
 	codeData, exists := s.codeStore.GetCode(*req.Code)
 	if !exists {
 		s.log.Warnf("handleAuthorizationCodeGrant: authorization code not found")
-		return &pamapi.TokenResponse{Error: lo.ToPtr(ErrorInvalidGrant)}, nil
+		return nil, &pamapi.OAuth2Error{
+			Code:             pamapi.InvalidGrant,
+			ErrorDescription: lo.ToPtr("Authorization code is invalid, expired, or already used"),
+		}
 	}
 
 	// Validate that the client ID matches the stored code
 	if codeData.ClientID != *req.ClientId {
 		s.log.Warnf("handleAuthorizationCodeGrant: invalid client ID - expected=%s, got=%s", codeData.ClientID, *req.ClientId)
-		return &pamapi.TokenResponse{Error: lo.ToPtr(ErrorInvalidGrant)}, nil
+		return nil, &pamapi.OAuth2Error{
+			Code:             pamapi.InvalidGrant,
+			ErrorDescription: lo.ToPtr("Authorization code was not issued to this client"),
+		}
 	}
 
 	// SECURITY: Validate redirect_uri matches the one from authorization request (RFC 6749 Section 4.1.3)
 	// This prevents authorization code interception attacks
 	if req.RedirectUri == nil || *req.RedirectUri == "" {
 		s.log.Warnf("handleAuthorizationCodeGrant: missing redirect_uri")
-		return &pamapi.TokenResponse{Error: lo.ToPtr(ErrorInvalidRequest)}, nil
+		return nil, &pamapi.OAuth2Error{
+			Code:             pamapi.InvalidRequest,
+			ErrorDescription: lo.ToPtr("Missing required parameter: redirect_uri"),
+		}
 	}
 	if codeData.RedirectURI != *req.RedirectUri {
 		s.log.Warnf("handleAuthorizationCodeGrant: redirect_uri mismatch - expected=%s, got=%s", codeData.RedirectURI, *req.RedirectUri)
-		return &pamapi.TokenResponse{Error: lo.ToPtr(ErrorInvalidGrant)}, nil
+		return nil, &pamapi.OAuth2Error{
+			Code:             pamapi.InvalidGrant,
+			ErrorDescription: lo.ToPtr(fmt.Sprintf("redirect_uri '%s' does not match the one used in the authorization request", *req.RedirectUri)),
+		}
 	}
 
 	// SECURITY: Verify PKCE for public clients (required unless config allows) and confidential clients (if used)
@@ -325,30 +377,45 @@ func (s *PAMOIDCProvider) handleAuthorizationCodeGrant(ctx context.Context, req 
 	codeChallenge := codeData.CodeChallenge
 	if codeChallenge == "" && codeVerifier != "" {
 		s.log.Warnf("handleAuthorizationCodeGrant: code_challenge required when code_verifier is provided")
-		return &pamapi.TokenResponse{Error: lo.ToPtr(ErrorInvalidGrant)}, nil
+		return nil, &pamapi.OAuth2Error{
+			Code:             pamapi.InvalidGrant,
+			ErrorDescription: lo.ToPtr("code_verifier provided but no code_challenge was used in authorization request"),
+		}
 	}
 	if codeChallenge != "" && codeVerifier == "" {
 		s.log.Warnf("handleAuthorizationCodeGrant: code_verifier required when code_challenge is provided")
-		return &pamapi.TokenResponse{Error: lo.ToPtr(ErrorInvalidGrant)}, nil
+		return nil, &pamapi.OAuth2Error{
+			Code:             pamapi.InvalidGrant,
+			ErrorDescription: lo.ToPtr("Missing required parameter: code_verifier (PKCE is required)"),
+		}
 	}
 	if codeChallenge != "" {
 		if !verifyPKCEChallenge(codeVerifier, codeChallenge, codeData.CodeChallengeMethod) {
 			s.log.Warnf("handleAuthorizationCodeGrant: PKCE verification failed for public client")
-			return &pamapi.TokenResponse{Error: lo.ToPtr(ErrorInvalidGrant)}, nil
+			return nil, &pamapi.OAuth2Error{
+				Code:             pamapi.InvalidGrant,
+				ErrorDescription: lo.ToPtr("PKCE verification failed: code_verifier does not match code_challenge"),
+			}
 		}
 	}
 	// Get user information from NSS
 	systemUser, err := s.pamAuthenticator.LookupUser(codeData.Username)
 	if err != nil {
 		s.log.Errorf("handleAuthorizationCodeGrant: failed to lookup user - %v", err)
-		return &pamapi.TokenResponse{Error: lo.ToPtr(ErrorInvalidGrant)}, nil
+		return nil, &pamapi.OAuth2Error{
+			Code:             pamapi.InvalidGrant,
+			ErrorDescription: lo.ToPtr("User no longer exists or is disabled"),
+		}
 	}
 
 	// Get user groups for roles
 	groups, err := s.pamAuthenticator.GetUserGroups(systemUser)
 	if err != nil {
 		s.log.Errorf("handleAuthorizationCodeGrant: failed to get user groups - %v", err)
-		return &pamapi.TokenResponse{Error: lo.ToPtr(ErrorServerError)}, nil
+		return nil, &pamapi.OAuth2Error{
+			Code:             pamapi.ServerError,
+			ErrorDescription: lo.ToPtr("Failed to retrieve user groups"),
+		}
 	}
 
 	// Map groups to roles and extract organizations
@@ -365,19 +432,28 @@ func (s *PAMOIDCProvider) handleAuthorizationCodeGrant(ctx context.Context, req 
 		Roles:         roles,
 		Audience:      []string{codeData.ClientID}, // Set audience to client ID from authorization request
 		Issuer:        s.config.Issuer,             // Set issuer
+		Scopes:        codeData.Scope,              // Include scopes from authorization request
 	}
 	// Generate access token with proper expiry (1 hour)
 	accessToken, err := s.jwtGenerator.GenerateTokenWithType(tokenGenerationRequest, time.Hour, TokenTypeAccess)
 	if err != nil {
 		s.log.Errorf("handleAuthorizationCodeGrant: server error when generating access token - %v", err)
-		return &pamapi.TokenResponse{Error: lo.ToPtr(ErrorServerError)}, nil
+		return nil, &pamapi.OAuth2Error{
+			Code:             pamapi.ServerError,
+			ErrorDescription: lo.ToPtr("Failed to generate access token"),
+		}
 	}
 
 	// Create token response
 	tokenResponse := &pamapi.TokenResponse{
-		AccessToken: lo.ToPtr(accessToken),
-		TokenType:   lo.ToPtr(pamapi.Bearer),
+		AccessToken: accessToken,
+		TokenType:   pamapi.Bearer,
 		ExpiresIn:   lo.ToPtr(int(time.Hour.Seconds())),
+	}
+
+	// Generate id_token if openid scope was requested
+	if strings.Contains(codeData.Scope, ScopeOpenID) {
+		tokenResponse.IdToken = lo.ToPtr(accessToken)
 	}
 
 	// Only generate refresh token if offline_access was requested
@@ -385,7 +461,10 @@ func (s *PAMOIDCProvider) handleAuthorizationCodeGrant(ctx context.Context, req 
 		refreshToken, err := s.jwtGenerator.GenerateTokenWithType(tokenGenerationRequest, 7*24*time.Hour, TokenTypeRefresh)
 		if err != nil {
 			s.log.Errorf("handleAuthorizationCodeGrant: server error when generating refresh token - %v", err)
-			return &pamapi.TokenResponse{Error: lo.ToPtr(ErrorServerError)}, nil
+			return nil, &pamapi.OAuth2Error{
+				Code:             pamapi.ServerError,
+				ErrorDescription: lo.ToPtr("Failed to generate refresh token"),
+			}
 		}
 		tokenResponse.RefreshToken = lo.ToPtr(refreshToken)
 	}
@@ -401,17 +480,17 @@ func (s *PAMOIDCProvider) Authorize(ctx context.Context, req *pamapi.AuthAuthori
 	// Validate required fields
 	if req.ClientId == "" || req.RedirectUri == "" {
 		s.log.Warnf("Authorize: missing required fields - ClientId=%s, RedirectUri=%s", req.ClientId, req.RedirectUri)
-		return nil, errors.New(ErrorInvalidRequest)
+		return nil, errors.New("invalid_request")
 	}
 
 	// Validate client ID
 	if s.config == nil {
 		s.log.Errorf("Authorize: config is nil")
-		return nil, errors.New(ErrorInvalidClient)
+		return nil, errors.New("invalid_client")
 	}
 	if s.config.ClientID != req.ClientId {
 		s.log.Warnf("Authorize: invalid client ID - expected=%s, got=%s", s.config.ClientID, req.ClientId)
-		return nil, errors.New(ErrorInvalidClient)
+		return nil, errors.New("invalid_client")
 	}
 	s.log.Debugf("Authorize: client ID validation passed - %s", req.ClientId)
 
@@ -429,13 +508,13 @@ func (s *PAMOIDCProvider) Authorize(ctx context.Context, req *pamapi.AuthAuthori
 	}
 	if !validRedirect {
 		s.log.Warnf("Authorize: invalid redirect URI - %s", req.RedirectUri)
-		return nil, errors.New(ErrorInvalidRequest)
+		return nil, errors.New("invalid_request")
 	}
 
 	// Validate response type
 	if req.ResponseType != pamapi.Code {
 		s.log.Warnf("Authorize: unsupported response type - %s", req.ResponseType)
-		return nil, errors.New(ErrorUnsupportedGrantType)
+		return nil, errors.New("unsupported_grant_type")
 	}
 	s.log.Debugf("Authorize: response type validation passed - %s", req.ResponseType)
 
@@ -446,19 +525,19 @@ func (s *PAMOIDCProvider) Authorize(ctx context.Context, req *pamapi.AuthAuthori
 	codeChallengeMethod := lo.FromPtrOr(req.CodeChallengeMethod, "")
 	if codeChallenge != "" && codeChallengeMethod == "" {
 		s.log.Warnf("Authorize: code_challenge_method required when code_challenge is provided")
-		return nil, errors.New(ErrorInvalidRequest)
+		return nil, errors.New("invalid_request")
 	}
 	if codeChallengeMethod != "" && codeChallenge == "" {
 		s.log.Warnf("Authorize: code_challenge required when code_challenge_method is provided")
-		return nil, errors.New(ErrorInvalidRequest)
+		return nil, errors.New("invalid_request")
 	}
 	if codeChallengeMethod != "" && codeChallengeMethod != pamapi.AuthAuthorizeParamsCodeChallengeMethodS256 {
 		s.log.Warnf("Authorize: unsupported code_challenge_method - %s (only S256 supported)", codeChallengeMethod)
-		return nil, errors.New(ErrorInvalidRequest)
+		return nil, errors.New("invalid_request")
 	}
 	if isPublicClient && codeChallenge == "" && !s.config.AllowPublicClientWithoutPKCE {
 		s.log.Warnf("Authorize: PKCE required for public client but code_challenge not provided")
-		return nil, errors.New(ErrorInvalidRequest)
+		return nil, errors.New("invalid_request")
 	}
 
 	// Authorization flow:
@@ -482,6 +561,7 @@ func (s *PAMOIDCProvider) Authorize(ctx context.Context, req *pamapi.AuthAuthori
 			Content: loginForm,
 		}, nil
 	}
+	state := lo.FromPtrOr(req.State, "")
 
 	// Check if session exists and is valid
 	sessionData, exists := s.IsUserAuthenticated(sessionID)
@@ -494,40 +574,21 @@ func (s *PAMOIDCProvider) Authorize(ctx context.Context, req *pamapi.AuthAuthori
 			Content: loginForm,
 		}, nil
 	}
+	sessionData.State = state
+	sessionData.CodeChallenge = codeChallenge
+	sessionData.CodeChallengeMethod = codeChallengeMethod
+	sessionData.ClientID = req.ClientId
+	sessionData.RedirectURI = req.RedirectUri
 
 	// User is authenticated, get username from session
 	username := sessionData.Username
 	s.log.Infof("Authorize: user authenticated via session - username=%s", username)
 
-	// SECURITY: Validate that the current request matches the session to prevent CSRF attacks
-	// The session was created when the user authenticated with specific client_id, redirect_uri, and state
-	// These must match the current authorize request to ensure this is the same OAuth flow
-	if sessionData.ClientID != req.ClientId {
-		s.log.Warnf("Authorize: client_id mismatch - session=%s, request=%s", sessionData.ClientID, req.ClientId)
-		return nil, errors.New(ErrorInvalidRequest)
-	}
-	if sessionData.RedirectURI != req.RedirectUri {
-		s.log.Warnf("Authorize: redirect_uri mismatch - session=%s, request=%s", sessionData.RedirectURI, req.RedirectUri)
-		return nil, errors.New(ErrorInvalidRequest)
-	}
-	if sessionData.State != lo.FromPtrOr(req.State, "") {
-		s.log.Warnf("Authorize: state mismatch - session=%s, request=%s", sessionData.State, lo.FromPtrOr(req.State, ""))
-		return nil, errors.New(ErrorInvalidRequest)
-	}
-
-	// SECURITY: Use PKCE parameters from session if available (prevents tampering)
-	// When a user returns after authentication, PKCE params should be in the session
-	if sessionData.CodeChallenge != "" {
-		codeChallenge = sessionData.CodeChallenge
-		codeChallengeMethod = sessionData.CodeChallengeMethod
-		s.log.Debugf("Authorize: using PKCE parameters from session")
-	}
-
 	// Generate OAuth2 authorization code (step 4: used to exchange for access token)
 	authCode, err := generateAuthorizationCode()
 	if err != nil {
 		s.log.Errorf("Authorize: failed to generate authorization code - %v", err)
-		return nil, errors.New(ErrorServerError)
+		return nil, errors.New("server_error")
 	}
 	s.log.Debugf("Authorize: generated authorization code")
 
@@ -585,7 +646,7 @@ func (s *PAMOIDCProvider) Login(ctx context.Context, username, password, clientI
 	s.log.Debugf("Login: calling PAM authentication for user %s", username)
 	if err := s.authenticateWithPAM(username, password); err != nil {
 		s.log.Errorf("Login: PAM authentication failed for user %s - %v", username, err)
-		return nil, errors.New(ErrorInvalidGrant)
+		return nil, errors.New("invalid_grant")
 	}
 	s.log.Infof("Login: PAM authentication successful for user %s", username)
 
@@ -593,7 +654,7 @@ func (s *PAMOIDCProvider) Login(ctx context.Context, username, password, clientI
 	sessionID, err := generateSessionID()
 	if err != nil {
 		s.log.Errorf("Login: failed to generate session ID for user %s - %v", username, err)
-		return nil, errors.New(ErrorServerError)
+		return nil, errors.New("server_error")
 	}
 	s.log.Debugf("Login: generated session ID for user %s", username)
 
@@ -603,10 +664,17 @@ func (s *PAMOIDCProvider) Login(ctx context.Context, username, password, clientI
 	s.log.Debugf("Login: created user session for %s", username)
 
 	// Redirect back to authorization endpoint
-	// Note: PKCE parameters are stored in session, not passed in URL (more secure)
-	authURL := fmt.Sprintf("/api/v1/auth/authorize?response_type=code&client_id=%s&redirect_uri=%s", clientID, redirectURI)
+	// Include all PKCE parameters in the authorization URL
+	authURL := fmt.Sprintf("/api/v1/auth/authorize?response_type=code&client_id=%s&redirect_uri=%s",
+		url.QueryEscape(clientID), url.QueryEscape(redirectURI))
 	if state != "" {
-		authURL += fmt.Sprintf("&state=%s", state)
+		authURL += fmt.Sprintf("&state=%s", url.QueryEscape(state))
+	}
+	if codeChallenge != "" {
+		authURL += fmt.Sprintf("&code_challenge=%s", url.QueryEscape(codeChallenge))
+	}
+	if codeChallengeMethod != "" {
+		authURL += fmt.Sprintf("&code_challenge_method=%s", url.QueryEscape(codeChallengeMethod))
 	}
 
 	s.log.Debugf("Login: returning redirect for user %s", username)
@@ -708,19 +776,28 @@ func (s *PAMOIDCProvider) UserInfo(ctx context.Context, accessToken string) (*pa
 	// Validate the access token and ensure it's actually an access token
 	identity, err := s.jwtGenerator.ValidateTokenWithType(accessToken, TokenTypeAccess)
 	if err != nil {
-		return &pamapi.UserInfoResponse{Error: lo.ToPtr(ErrorInvalidToken)}, fmt.Errorf("invalid access token: %w", err)
+		return nil, &pamapi.OAuth2Error{
+			Code:             "invalid_token",
+			ErrorDescription: lo.ToPtr("Invalid or expired access token"),
+		}
 	}
 
 	// Get user information from NSS
 	systemUser, err := s.pamAuthenticator.LookupUser(identity.GetUsername())
 	if err != nil {
-		return &pamapi.UserInfoResponse{Error: lo.ToPtr(ErrorInvalidToken)}, fmt.Errorf("user not found: %w", err)
+		return nil, &pamapi.OAuth2Error{
+			Code:             "invalid_token",
+			ErrorDescription: lo.ToPtr("User no longer exists"),
+		}
 	}
 
 	// Get user groups for roles
 	groups, err := s.pamAuthenticator.GetUserGroups(systemUser)
 	if err != nil {
-		return &pamapi.UserInfoResponse{Error: lo.ToPtr(ErrorServerError)}, fmt.Errorf("failed to get user groups: %w", err)
+		return nil, &pamapi.OAuth2Error{
+			Code:             pamapi.ServerError,
+			ErrorDescription: lo.ToPtr("Failed to retrieve user information"),
+		}
 	}
 
 	// Map groups to roles and extract organizations
@@ -729,16 +806,16 @@ func (s *PAMOIDCProvider) UserInfo(ctx context.Context, accessToken string) (*pa
 
 	// Create user info response
 	userInfo := &pamapi.UserInfoResponse{
-		Sub:               lo.ToPtr(identity.GetUsername()),
+		Sub:               identity.GetUsername(), // Required field
 		PreferredUsername: lo.ToPtr(identity.GetUsername()),
 		Name:              lo.ToPtr(systemUser.Name),
 		Email:             lo.ToPtr(""), // Email not available from system user
 		EmailVerified:     lo.ToPtr(false),
-		Roles:             lo.ToPtr(roles),
-		Organizations:     lo.ToPtr(organizations),
+		Roles:             &roles,
+		Organizations:     &organizations,
 	}
 
-	return userInfo, nil
+	return userInfo, nil // Success - no OAuth2Error
 }
 
 // GetOpenIDConfiguration returns the OpenID Connect configuration
@@ -833,30 +910,35 @@ func (s *PAMOIDCProvider) GetJWKS() (*pamapi.JWKSResponse, error) {
 }
 
 // mapGroupsToRoles maps system groups to flightctl roles
-// Groups starting with "org:" are treated as organizations, not roles
+// Groups starting with "org-" are treated as organizations, not roles
+// Groups containing a dot (e.g., "myorg.role1") have the first dot replaced with colon (myorg:role1)
+//
+// All other groups are returned as-is and become roles
 func (s *PAMOIDCProvider) mapGroupsToRoles(groups []string) []string {
 	var roles []string
 	roleSet := make(map[string]struct{}) // Use set to avoid duplicates
 
-	// Map groups to roles
 	for _, group := range groups {
-		// Skip organization groups (they start with "org:")
+		// Skip organization groups (they start with "org-")
 		if strings.HasPrefix(group, OrgPrefix) {
 			continue
 		}
 
-		if role, exists := defaultGroupRoleMap[group]; exists {
-			// Use mapped role
+		// Check if group contains a dot (e.g., "myorg.role1")
+		// Replace first dot with colon: myorg.role1 -> myorg:role1
+		if strings.Contains(group, ".") {
+			role := strings.Replace(group, ".", ":", 1)
 			if _, exists := roleSet[role]; !exists {
 				roles = append(roles, role)
 				roleSet[role] = struct{}{}
 			}
-		} else {
-			// Keep unmapped groups as-is (they become roles)
-			if _, exists := roleSet[group]; !exists {
-				roles = append(roles, group)
-				roleSet[group] = struct{}{}
-			}
+			continue
+		}
+
+		// Keep groups as-is (they become roles)
+		if _, exists := roleSet[group]; !exists {
+			roles = append(roles, group)
+			roleSet[group] = struct{}{}
 		}
 	}
 
@@ -864,14 +946,14 @@ func (s *PAMOIDCProvider) mapGroupsToRoles(groups []string) []string {
 }
 
 // extractOrganizations extracts organization names from groups
-// Groups starting with "org:" are treated as organizations
+// Groups starting with "org-" are treated as organizations
 func (s *PAMOIDCProvider) extractOrganizations(groups []string) []string {
 	var organizations []string
 	orgSet := make(map[string]struct{}) // Use set to avoid duplicates
 
 	for _, group := range groups {
 		if strings.HasPrefix(group, OrgPrefix) {
-			// Extract organization name (remove "org:" prefix)
+			// Extract organization name (remove "org-" prefix)
 			orgName := strings.TrimPrefix(group, OrgPrefix)
 			if _, exists := orgSet[orgName]; orgName != "" && !exists {
 				organizations = append(organizations, orgName)

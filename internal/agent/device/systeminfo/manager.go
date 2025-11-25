@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -176,7 +176,7 @@ func (m *manager) BootTime() string {
 	return m.bootTime
 }
 
-func (m *manager) Status(ctx context.Context, deviceStatus *v1alpha1.DeviceStatus, opts ...status.CollectorOpt) error {
+func (m *manager) Status(ctx context.Context, deviceStatus *v1beta1.DeviceStatus, opts ...status.CollectorOpt) error {
 	collectorOpts := status.CollectorOpts{}
 	for _, opt := range opts {
 		opt(&collectorOpts)
@@ -229,8 +229,8 @@ func (m *manager) Status(ctx context.Context, deviceStatus *v1alpha1.DeviceStatu
 }
 
 // defaultSystemInfo returns the default system info.
-func (m *manager) defaultSystemInfo() v1alpha1.DeviceSystemInfo {
-	return v1alpha1.DeviceSystemInfo{
+func (m *manager) defaultSystemInfo() v1beta1.DeviceSystemInfo {
+	return v1beta1.DeviceSystemInfo{
 		BootID:               m.bootID,
 		AgentVersion:         version.Get().String(),
 		OperatingSystem:      runtime.GOOS,
@@ -260,7 +260,7 @@ func collectDeviceSystemInfo(
 	bootID string,
 	collectors map[string]CollectorFn,
 	hardwareMapPath string,
-) (v1alpha1.DeviceSystemInfo, error) {
+) (v1beta1.DeviceSystemInfo, error) {
 	agentVersion := version.Get()
 
 	collectionOpts, err := collectionOptsFromInfoKeys(infoKeys)
@@ -272,12 +272,12 @@ func collectDeviceSystemInfo(
 	info, err := Collect(ctx, log, exec, reader, customKeys, hardwareMapPath, collectionOpts...)
 	if err != nil {
 		log.Errorf("Failed to collect system info: %v", err)
-		return v1alpha1.DeviceSystemInfo{}, err
+		return v1beta1.DeviceSystemInfo{}, err
 	}
 
 	systemInfoMap := getSystemInfoMap(ctx, log, info, infoKeys, collectors)
 	log.Tracef("system info map: %v", systemInfoMap)
-	s := v1alpha1.DeviceSystemInfo{
+	s := v1beta1.DeviceSystemInfo{
 		Architecture:         info.Architecture,
 		OperatingSystem:      info.OperatingSystem,
 		BootID:               bootID,
@@ -285,7 +285,7 @@ func collectDeviceSystemInfo(
 		AdditionalProperties: systemInfoMap,
 	}
 	if len(info.Custom) > 0 {
-		s.CustomInfo = lo.ToPtr(v1alpha1.CustomDeviceInfo(info.Custom))
+		s.CustomInfo = lo.ToPtr(v1beta1.CustomDeviceInfo(info.Custom))
 	}
 	return s, nil
 }

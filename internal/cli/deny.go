@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"reflect"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"

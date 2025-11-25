@@ -89,6 +89,7 @@ help:
 	@echo "    lint-openapi:    run spectral to lint and rulecheck the OpenAPI spec"
 	@echo "    lint-docs:       run markdownlint on documentation"
 	@echo "    lint-diagrams:   verify that diagrams from Excalidraw have the source code embedded"
+	@echo "    lint-helm:       run helm lint"
 	@echo "    spellcheck-docs: run markdown-spellcheck on documentation"
 	@echo "    fix-spelling:    run markdown-spellcheck interactively to fix spelling issues"
 	@echo "    build:           run all builds"
@@ -151,7 +152,8 @@ build: bin build-cli build-pam-issuer
 		./cmd/flightctl-userinfo-proxy \
 		./cmd/flightctl-db-migrate \
 		./cmd/flightctl-restore \
-		./cmd/flightctl-telemetry-gateway 
+		./cmd/flightctl-telemetry-gateway \
+		./cmd/flightctl-standalone
 
 bin/flightctl-agent: bin $(GO_FILES)
 	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-agent
@@ -197,6 +199,9 @@ build-telemetry-gateway: bin
 
 build-devicesimulator: bin
 	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/devicesimulator
+
+build-standalone: bin
+	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-standalone
 
 # Container builds - Environment-aware caching
 flightctl-api-container: Containerfile.api go.mod go.sum $(GO_FILES)
@@ -334,7 +339,7 @@ bin/.rpm: bin $(shell find $(ROOT_DIR)/ -name "*.go" -not -path "$(ROOT_DIR)/pac
 
 rpm: bin/.rpm
 
-.PHONY: rpm build build-api build-pam-issuer build-periodic build-worker build-alert-exporter build-alertmanager-proxy build-userinfo-proxy
+.PHONY: rpm build build-api build-pam-issuer build-periodic build-worker build-alert-exporter build-alertmanager-proxy build-userinfo-proxy build-standalone
 
 # cross-building for deb pkg
 bin/amd64:
@@ -416,19 +421,23 @@ rpmlint-ci:
 check-rpmlint:
 	@command -v rpmlint > /dev/null || (echo "rpmlint not found. Install with: sudo apt-get install rpmlint (Ubuntu/Debian) or sudo dnf install rpmlint (Fedora/RHEL)" && exit 1)
 
-.output/stamps/lint-openapi: api/v1alpha1/openapi.yaml .spectral.yaml
+.output/stamps/lint-openapi: api/v1beta1/openapi.yaml .spectral.yaml
 	@mkdir -p .output/stamps
 	@echo "Linting OpenAPI spec"
-	podman run --rm -it -v $(shell pwd):/workdir:Z docker.io/stoplight/spectral:6.14.2 lint --ruleset=/workdir/.spectral.yaml --fail-severity=warn /workdir/api/v1alpha1/openapi.yaml
+	podman run --rm -it -v $(shell pwd):/workdir:Z docker.io/stoplight/spectral:6.14.2 lint --ruleset=/workdir/.spectral.yaml --fail-severity=warn /workdir/api/v1beta1/openapi.yaml
 	@touch .output/stamps/lint-openapi
 
 .PHONY: lint-openapi
 lint-openapi: .output/stamps/lint-openapi
 
+.PHONY: lint-helm
+lint-helm:
+	helm lint deploy/helm/flightctl --values deploy/helm/flightctl/lint-values.yaml
+
 .output/stamps/lint-docs: $(wildcard docs/user/*.md)
 	@mkdir -p .output/stamps
 	@echo "Linting user documentation markdown files"
-	podman run --rm -v $(shell pwd):/workdir:Z docker.io/davidanson/markdownlint-cli2:v0.16.0 "docs/user/**/*.md"
+	podman run --rm -v $(shell pwd):/workdir:Z docker.io/davidanson/markdownlint-cli2:v0.19.0 "docs/user/**/*.md"
 	@touch .output/stamps/lint-docs
 
 .PHONY: lint-docs

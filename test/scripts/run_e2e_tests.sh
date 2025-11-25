@@ -148,5 +148,13 @@ if ! test/scripts/e2e_cleanup.sh; then
 fi
 echo "✅ [Test Execution] Cleanup completed"
 
+# Step 3b: Re-run the same cluster resource cleanup as startup
+echo "🔄 [Test Execution] Step 3b: Running post-test resource cleanup (same logic as e2e_startup.sh)..."
+if ! test/scripts/e2e_startup.sh; then
+    echo "⚠️  [Test Execution] Post-test resource cleanup failed, but continuing to report test result..."
+else
+    echo "✅ [Test Execution] Post-test resource cleanup completed successfully"
+fi
+
 # Exit with the test exit code
 exit $TEST_EXIT_CODE

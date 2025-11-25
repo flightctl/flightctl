@@ -9,7 +9,7 @@ import (
 	"slices"
 	"strings"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/cli/display"
 	"github.com/flightctl/flightctl/internal/util"
@@ -542,7 +542,10 @@ func (o *GetOptions) getResourceList(ctx context.Context, c *apiclient.ClientWit
 		}
 		return c.ListFleetsWithResponse(ctx, &params)
 	case OrganizationKind:
-		return c.ListOrganizationsWithResponse(ctx)
+		params := api.ListOrganizationsParams{
+			FieldSelector: util.ToPtrWithNilDefault(o.FieldSelector),
+		}
+		return c.ListOrganizationsWithResponse(ctx, &params)
 	case TemplateVersionKind:
 		params := api.ListTemplateVersionsParams{
 			LabelSelector: util.ToPtrWithNilDefault(o.LabelSelector),
@@ -582,6 +585,14 @@ func (o *GetOptions) getResourceList(ctx context.Context, c *apiclient.ClientWit
 			Continue:      util.ToPtrWithNilDefault(o.Continue),
 		}
 		return c.ListEventsWithResponse(ctx, &params)
+	case AuthProviderKind:
+		params := api.ListAuthProvidersParams{
+			LabelSelector: util.ToPtrWithNilDefault(o.LabelSelector),
+			FieldSelector: util.ToPtrWithNilDefault(o.FieldSelector),
+			Limit:         util.ToPtrWithNilDefault(o.Limit),
+			Continue:      util.ToPtrWithNilDefault(o.Continue),
+		}
+		return c.ListAuthProvidersWithResponse(ctx, &params)
 	default:
 		return nil, fmt.Errorf("unsupported resource kind: %s", kind)
 	}

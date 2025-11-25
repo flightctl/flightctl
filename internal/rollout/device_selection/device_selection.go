@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -70,7 +70,7 @@ func NewRolloutDeviceSelector(deviceSelection *api.RolloutDeviceSelection, defau
 	}
 }
 
-func cleanupRollout(ctx context.Context, fleet *api.Fleet, serviceHandler service.Service) (bool, error) {
+func cleanupRollout(ctx context.Context, orgId uuid.UUID, fleet *api.Fleet, serviceHandler service.Service) (bool, error) {
 	fleetName := lo.FromPtr(fleet.Metadata.Name)
 	annotationsToDelete := []string{
 		api.FleetAnnotationBatchNumber,
@@ -86,10 +86,10 @@ func cleanupRollout(ctx context.Context, fleet *api.Fleet, serviceHandler servic
 		return false, nil
 	}
 
-	if status := serviceHandler.UnmarkDevicesRolloutSelection(ctx, fleetName); status.Code != http.StatusOK {
+	if status := serviceHandler.UnmarkDevicesRolloutSelection(ctx, orgId, fleetName); status.Code != http.StatusOK {
 		return false, service.ApiStatusToErr(status)
 	}
-	if status := serviceHandler.UpdateFleetAnnotations(ctx, fleetName, nil, annotationsToDelete); status.Code != http.StatusOK {
+	if status := serviceHandler.UpdateFleetAnnotations(ctx, orgId, fleetName, nil, annotationsToDelete); status.Code != http.StatusOK {
 		return false, service.ApiStatusToErr(status)
 	}
 	return true, nil

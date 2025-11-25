@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/agent/client"
@@ -142,8 +141,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		BaseDelay:    10 * time.Second,
 		Factor:       1.5,
 		MaxSteps:     a.config.PullRetrySteps,
-		JitterFactor: 0.1,                                             // jitterFactor (10% jitter to prevent thundering herd)
-		Rand:         rand.New(rand.NewSource(time.Now().UnixNano())), //nolint:gosec
+		JitterFactor: 0.1,
 	}
 
 	// create os client
@@ -152,8 +150,14 @@ func (a *Agent) Run(ctx context.Context) error {
 	// create podman client
 	podmanClient := client.NewPodman(a.log, executer, deviceReadWriter, pollBackoff)
 
+	// create skopeo client
+	skopeoClient := client.NewSkopeo(a.log, executer, deviceReadWriter)
+
 	// create systemd client
 	systemdClient := client.NewSystemd(executer)
+
+	// create journalctl client
+	journalctlClient := client.NewJournalctl(executer)
 
 	// create systemInfo manager
 	systemInfoManager := systeminfo.NewManager(
@@ -228,26 +232,32 @@ func (a *Agent) Run(ctx context.Context) error {
 	// create hook manager
 	hookManager := hook.NewManager(deviceReadWriter, executer, a.log)
 
+	// create systemd manager
+	systemdManager := systemd.NewManager(a.log, systemdClient, journalctlClient)
+
 	// create application manager
 	applicationsManager := applications.NewManager(
 		a.log,
 		deviceReadWriter,
 		podmanClient,
 		systemInfoManager,
-		systemdClient,
+		systemdManager,
 	)
 
 	// register the application manager with the shutdown manager
 	shutdownManager.Register("applications", applicationsManager.Shutdown)
 
-	// create systemd manager
-	systemdManager := systemd.NewManager(a.log, systemdClient)
-
 	// create os manager
 	osManager := os.NewManager(a.log, osClient, deviceReadWriter, podmanClient)
 
 	// create prefetch manager
-	prefetchManager := dependency.NewPrefetchManager(a.log, podmanClient, deviceReadWriter, a.config.PullTimeout)
+	prefetchManager := dependency.NewPrefetchManager(
+		a.log, podmanClient,
+		skopeoClient,
+		deviceReadWriter,
+		a.config.PullTimeout,
+		resourceManager,
+	)
 
 	// create status manager
 	statusManager := status.NewManager(
@@ -333,12 +343,6 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.log.Warnf("Failed to create gRPC client: %v", err)
 	}
 
-	// create resource controller
-	resourceController := resource.NewController(
-		a.log,
-		resourceManager,
-	)
-
 	// create console manager
 	consoleManager := console.NewManager(
 		grpcClient,
@@ -371,7 +375,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		lifecycleManager,
 		applicationsController,
 		configController,
-		resourceController,
+		resourceManager,
 		consoleManager,
 		osClient,
 		podmanClient,
@@ -419,12 +423,11 @@ func newEnrollmentClient(cfg *agent_config.Config, log *log.PrefixLogger) (clien
 	// Create infinite retry policy for enrollment requests using same config as management client
 	// but with infinite retries (MaxSteps: 0)
 	infiniteRetryConfig := poll.Config{
-		BaseDelay:    10 * time.Second,                                // baseDelay (same as management client)
-		Factor:       1.5,                                             // factor (same as management client)
-		MaxDelay:     1 * time.Minute,                                 // maxDelay (same as management client)
-		MaxSteps:     0,                                               // maxSteps (0 means infinite retries until context timeout)
-		JitterFactor: 0.1,                                             // jitterFactor (10% jitter to prevent thundering herd)
-		Rand:         rand.New(rand.NewSource(time.Now().UnixNano())), //nolint:gosec
+		BaseDelay:    10 * time.Second,
+		Factor:       1.5,
+		MaxDelay:     1 * time.Minute,
+		MaxSteps:     0,
+		JitterFactor: 0.1,
 	}
 
 	httpClient, err := client.NewFromConfig(&cfg.EnrollmentService.Config, log, client.WithHTTPRetry(infiniteRetryConfig))

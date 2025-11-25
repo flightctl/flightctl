@@ -25,7 +25,6 @@ import (
 	"github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
-	"github.com/sirupsen/logrus"
 	"go.uber.org/mock/gomock"
 )
 
@@ -57,12 +56,44 @@ type TestHarness struct {
 	TestDirPath string
 }
 
+type TestHarnessOption func(h *TestHarness)
+
+// WithAgentMetrics enables the agent's Prometheus metrics endpoint when the
+// harness starts the agent.
+func WithAgentMetrics() TestHarnessOption {
+	return func(h *TestHarness) {
+		if h.agentConfig != nil {
+			h.agentConfig.MetricsEnabled = true
+		}
+	}
+}
+
+// WithAgentPprof enables the agent's pprof HTTP server when the harness starts
+// the agent.
+func WithAgentPprof() TestHarnessOption {
+	return func(h *TestHarness) {
+		if h.agentConfig != nil {
+			h.agentConfig.ProfilingEnabled = true
+		}
+	}
+}
+
+// WithAgentAudit enables the agent's audit logging when the harness starts the agent.
+// Note: Audit logging is enabled by default, so this option is primarily for test clarity.
+func WithAgentAudit() TestHarnessOption {
+	return func(h *TestHarness) {
+		if h.agentConfig != nil {
+			enabled := true
+			h.agentConfig.AuditLog.Enabled = &enabled
+		}
+	}
+}
+
 // NewTestHarness creates a new test harness and returns a new test harness
 // The test harness can be used from testing code to interact with a
 // set of agent/server/store instances.
 // It provides the necessary elements to perform tests against the agent and server.
-func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandler func(error)) (*TestHarness, error) {
-
+func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandler func(error), opts ...TestHarnessOption) (*TestHarness, error) {
 	err := makeTestDirs(testDirPath, []string{"/etc/flightctl/certs", "/etc/issue.d/", "/var/lib/flightctl/", "/proc/net"})
 	if err != nil {
 		return nil, fmt.Errorf("NewTestHarness failed creating temporary directories: %w", err)
@@ -72,8 +103,7 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 	}
 
 	serverCfg := *config.NewDefault()
-	serverLog := log.InitLogs()
-	serverLog.SetLevel(logrus.DebugLevel)
+	serverLog := log.InitLogs("debug")
 	serverLog.SetOutput(os.Stdout)
 
 	// create store
@@ -190,6 +220,13 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 		mockK8sClient:         mockK8sClient,
 		ctrl:                  ctrl,
 		TestDirPath:           testDirPath}
+
+	// Apply test harness options before starting the agent
+	for _, o := range opts {
+		if o != nil {
+			o(testHarness)
+		}
+	}
 
 	testHarness.StartAgent()
 

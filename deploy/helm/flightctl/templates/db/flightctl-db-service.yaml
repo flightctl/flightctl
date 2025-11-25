@@ -1,4 +1,4 @@
-{{- if ne .Values.db.external "enabled" }}
+{{- if eq .Values.db.type "builtin" }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -8,14 +8,14 @@ metadata:
   name: flightctl-db
   namespace:  {{ default .Release.Namespace .Values.global.internalNamespace }}
 spec:
-  {{- if and .Values.global.nodePorts.db (eq (include "flightctl.getServiceExposeMethod" .) "nodePort") }}
+  {{- if and (eq (include "flightctl.getServiceExposeMethod" .) "nodePort") .Values.global.nodePorts.db }}
   type: NodePort
   {{- end }}
   ports:
     - name: "5432"
       port: 5432
       targetPort: 5432
-      {{- if and .Values.global.nodePorts.db (eq (include "flightctl.getServiceExposeMethod" .) "nodePort") }}
+      {{- if and (eq (include "flightctl.getServiceExposeMethod" .) "nodePort") .Values.global.nodePorts.db }}
       nodePort: {{ .Values.global.nodePorts.db }}
       {{- end }}
   selector:

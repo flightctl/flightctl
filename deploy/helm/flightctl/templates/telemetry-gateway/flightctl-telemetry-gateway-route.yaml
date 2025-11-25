@@ -1,14 +1,15 @@
-{{- if and (.Values.telemetryGateway.enabled) (eq (include "flightctl.getServiceExposeMethod" .) "route") -}}
+{{- if and .Values.telemetryGateway (eq (include "flightctl.getServiceExposeMethod" .) "route") -}}
 ---
 apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
-  {{- if .Values.global.appCode }}
   labels:
-    external-exposed: "true"
-    paas.redhat.com/appcode: {{ .Values.global.appCode }}
-    shard: internal
-  {{- end }}
+    {{- with .Values.global.additionalRouteLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    {{- with .Values.telemetryGateway.additionalRouteLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
   name: flightctl-telemetry-gateway-route
   namespace: {{ .Release.Namespace }}
 spec:

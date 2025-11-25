@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/api/server"
 	fcmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/auth"
@@ -187,7 +187,10 @@ func (s *Server) Run(ctx context.Context) error {
 
 		// Start auth provider loader
 		go func() {
-			multiAuth.Start(ctx)
+			if err := multiAuth.Start(ctx); err != nil {
+				s.log.Errorf("Failed to start auth provider loader: %v", err)
+				return
+			}
 			s.log.Warn("Auth provider loader stopped unexpectedly")
 		}()
 	}
@@ -196,6 +199,12 @@ func (s *Server) Run(ctx context.Context) error {
 	s.authZ, err = auth.InitMultiAuthZ(s.cfg, s.log)
 	if err != nil {
 		return fmt.Errorf("failed initializing authZ: %w", err)
+	}
+
+	// Start multiAuthZ to initialize cache lifecycle management
+	if multiAuthZ, ok := s.authZ.(*auth.MultiAuthZ); ok {
+		multiAuthZ.Start(ctx)
+		s.log.Debug("Started MultiAuthZ with context-based cache lifecycle")
 	}
 
 	router := chi.NewRouter()
@@ -211,6 +220,7 @@ func (s *Server) Run(ctx context.Context) error {
 	// Create organization extraction and validation middlewares once
 	extractOrgMiddleware := fcmiddleware.ExtractOrgIDToCtx(fcmiddleware.QueryOrgIDExtractor, s.log)
 	validateOrgMiddleware := fcmiddleware.ValidateOrgMembership(s.log)
+	userAgentMiddleware := fcmiddleware.UserAgentLogger(s.log)
 
 	authMiddewares := []func(http.Handler) http.Handler{
 		auth.CreateAuthNMiddleware(s.authN, s.log),
@@ -230,6 +240,7 @@ func (s *Server) Run(ctx context.Context) error {
 		fcmiddleware.AddEventMetadataToCtx,
 		middleware.Logger,
 		middleware.Recoverer,
+		userAgentMiddleware,
 	)
 
 	// a group is a new mux copy, with its own copy of the middleware stack
@@ -258,7 +269,7 @@ func (s *Server) Run(ctx context.Context) error {
 			})
 		}
 
-		h := transport.NewTransportHandler(serviceHandler, s.authN, authTokenProxy, authUserInfoProxy)
+		h := transport.NewTransportHandler(serviceHandler, s.authN, authTokenProxy, authUserInfoProxy, s.authZ)
 
 		// Register all other endpoints with general rate limiting (already applied at router level)
 		// Create a custom handler that excludes the auth validate endpoint
@@ -303,7 +314,7 @@ func (s *Server) Run(ctx context.Context) error {
 			})
 		}
 
-		h := transport.NewTransportHandler(serviceHandler, s.authN, authTokenProxy, authUserInfoProxy)
+		h := transport.NewTransportHandler(serviceHandler, s.authN, authTokenProxy, authUserInfoProxy, s.authZ)
 		// Use the wrapper to handle the AuthValidate method signature
 		wrapper := &server.ServerInterfaceWrapper{
 			Handler:            h,

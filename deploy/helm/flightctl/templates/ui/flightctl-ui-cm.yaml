@@ -1,0 +1,23 @@
+{{ if .Values.ui.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flightctl-ui
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+data:
+  FLIGHTCTL_SERVER: https://flightctl-api:3443/
+  FLIGHTCTL_SERVER_EXTERNAL: {{ include "flightctl.getApiUrl" . }}
+  {{- if .Values.cliArtifacts.enabled }}
+  FLIGHTCTL_CLI_ARTIFACTS_SERVER: {{ include "flightctl.getInternalCliArtifactsUrl" . }}
+  {{- end }}
+  {{- if .Values.alertmanagerProxy.enabled }}
+  FLIGHTCTL_ALERTMANAGER_PROXY: {{ include "flightctl.getAlertManagerProxyUrl" . }}
+  {{- end }}
+  FLIGHTCTL_SERVER_INSECURE_SKIP_VERIFY: {{ .Values.ui.api.insecureSkipTlsVerify | quote }}
+  IS_RHEM: {{ (eq .Chart.Name "redhat-rhem") | quote }}
+  ORGANIZATIONS_ENABLED: "true"
+  AUTH_INSECURE_SKIP_VERIFY: {{ default ((.Values.global).auth).insecureSkipTlsVerify .Values.ui.auth.insecureSkipTlsVerify | quote }}
+  BASE_UI_URL: {{ include "flightctl.getUIUrl" . }}
+{{ end }}

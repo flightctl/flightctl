@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -32,7 +32,7 @@ func NewController(
 	}
 }
 
-func (c *Controller) Sync(ctx context.Context, current, desired *v1alpha1.DeviceSpec) error {
+func (c *Controller) Sync(ctx context.Context, current, desired *v1beta1.DeviceSpec) error {
 	c.log.Debug("Syncing device applications")
 	defer c.log.Debug("Finished syncing device applications")
 

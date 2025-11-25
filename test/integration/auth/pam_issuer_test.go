@@ -5,7 +5,7 @@ package auth_test
 import (
 	"context"
 
-	pamapi "github.com/flightctl/flightctl/api/v1alpha1/pam-issuer"
+	pamapi "github.com/flightctl/flightctl/api/v1beta1/pam-issuer"
 	"github.com/flightctl/flightctl/internal/auth/issuer/pam"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/config/ca"
@@ -104,10 +104,11 @@ var _ = Describe("PAM Issuer Integration Tests", func() {
 
 		It("should handle token validation", func() {
 			// Test with invalid token
-			userInfo, err := provider.UserInfo(ctx, "invalid-token")
+			_, err := provider.UserInfo(ctx, "invalid-token")
 			Expect(err).To(HaveOccurred())
-			Expect(userInfo.Error).ToNot(BeNil())
-			Expect(*userInfo.Error).To(Equal("invalid_token"))
+			oauth2Err, ok := pamapi.IsOAuth2Error(err)
+			Expect(ok).To(BeTrue())
+			Expect(oauth2Err.Code).To(Equal(pamapi.OAuth2ErrorError("invalid_token")))
 		})
 
 		It("should handle unsupported grant types", func() {
@@ -115,10 +116,11 @@ var _ = Describe("PAM Issuer Integration Tests", func() {
 				GrantType: "unsupported_grant_type",
 			}
 
-			response, err := provider.Token(ctx, tokenReq)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(response.Error).ToNot(BeNil())
-			Expect(*response.Error).To(Equal("unsupported_grant_type"))
+			_, err := provider.Token(ctx, tokenReq)
+			Expect(err).To(HaveOccurred())
+			oauth2Err, ok := pamapi.IsOAuth2Error(err)
+			Expect(ok).To(BeTrue())
+			Expect(oauth2Err.Code).To(Equal(pamapi.UnsupportedGrantType))
 		})
 
 		It("should handle missing required fields in token request", func() {
@@ -128,10 +130,11 @@ var _ = Describe("PAM Issuer Integration Tests", func() {
 				ClientId:  lo.ToPtr("test-client"),
 			}
 
-			response, err := provider.Token(ctx, tokenReq)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(response.Error).ToNot(BeNil())
-			Expect(*response.Error).To(Equal("invalid_request"))
+			_, err := provider.Token(ctx, tokenReq)
+			Expect(err).To(HaveOccurred())
+			oauth2Err, ok := pamapi.IsOAuth2Error(err)
+			Expect(ok).To(BeTrue())
+			Expect(oauth2Err.Code).To(Equal(pamapi.InvalidRequest))
 		})
 
 		It("should handle invalid client credentials", func() {
@@ -141,10 +144,11 @@ var _ = Describe("PAM Issuer Integration Tests", func() {
 				ClientId:  lo.ToPtr("wrong-client"),
 			}
 
-			response, err := provider.Token(ctx, tokenReq)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(response.Error).ToNot(BeNil())
-			Expect(*response.Error).To(Equal("invalid_client"))
+			_, err := provider.Token(ctx, tokenReq)
+			Expect(err).To(HaveOccurred())
+			oauth2Err, ok := pamapi.IsOAuth2Error(err)
+			Expect(ok).To(BeTrue())
+			Expect(oauth2Err.Code).To(Equal(pamapi.InvalidClient))
 		})
 
 		It("should implement OIDCIssuer interface", func() {
@@ -153,15 +157,18 @@ var _ = Describe("PAM Issuer Integration Tests", func() {
 			tokenReq := &pamapi.TokenRequest{
 				GrantType: "unsupported",
 			}
-			tokenResp, err := provider.Token(ctx, tokenReq)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(tokenResp).ToNot(BeNil())
-			Expect(tokenResp.Error).ToNot(BeNil())
+			_, err := provider.Token(ctx, tokenReq)
+			Expect(err).To(HaveOccurred())
+			oauth2Err, ok := pamapi.IsOAuth2Error(err)
+			Expect(ok).To(BeTrue())
+			Expect(oauth2Err).ToNot(BeNil())
 
 			// UserInfo method
-			userInfoResp, err := provider.UserInfo(ctx, "invalid-token")
+			_, err = provider.UserInfo(ctx, "invalid-token")
 			Expect(err).To(HaveOccurred())
-			Expect(userInfoResp.Error).ToNot(BeNil())
+			oauth2Err, ok = pamapi.IsOAuth2Error(err)
+			Expect(ok).To(BeTrue())
+			Expect(oauth2Err).ToNot(BeNil())
 
 			// GetOpenIDConfiguration method
 			oidcConfig, err := provider.GetOpenIDConfiguration()

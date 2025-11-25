@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
@@ -42,23 +42,23 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			GinkgoWriter.Printf("New image is: %s\n", newImageReference)
 
 			harness.WaitForDeviceContents(deviceId, "The device is preparing an update to renderedVersion: 2",
-				func(device *v1alpha1.Device) bool {
-					return e2e.ConditionExists(device, v1alpha1.ConditionTypeDeviceUpdating, v1alpha1.ConditionStatusTrue, string(v1alpha1.UpdateStateApplyingUpdate))
+				func(device *v1beta1.Device) bool {
+					return e2e.ConditionExists(device, v1beta1.ConditionTypeDeviceUpdating, v1beta1.ConditionStatusTrue, string(v1beta1.UpdateStateApplyingUpdate))
 				}, LONGTIMEOUT)
 
 			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
-				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusOnline))
+				deviceId).Should(Equal(v1beta1.DeviceSummaryStatusOnline))
 
 			harness.WaitForDeviceContents(deviceId, "the device is rebooting",
-				func(device *v1alpha1.Device) bool {
-					return e2e.ConditionExists(device, v1alpha1.ConditionTypeDeviceUpdating, v1alpha1.ConditionStatusTrue, string(v1alpha1.UpdateStateRebooting))
+				func(device *v1beta1.Device) bool {
+					return e2e.ConditionExists(device, v1beta1.ConditionTypeDeviceUpdating, v1beta1.ConditionStatusTrue, string(v1beta1.UpdateStateRebooting))
 				}, LONGTIMEOUT)
 
 			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
-				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusRebooting))
+				deviceId).Should(Equal(v1beta1.DeviceSummaryStatusRebooting))
 
 			harness.WaitForDeviceContents(deviceId, "Updated to desired renderedVersion: 2",
-				func(device *v1alpha1.Device) bool {
+				func(device *v1beta1.Device) bool {
 					for _, condition := range device.Status.Conditions {
 						if condition.Type == "Updating" && condition.Reason == "Updated" && condition.Status == "False" &&
 							condition.Message == UpdateRenderedVersionSuccess.String() {
@@ -84,22 +84,22 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			GinkgoWriter.Printf("New image is: %s\n", newImageReference)
 
 			harness.WaitForDeviceContents(deviceId, "The device is preparing an update to renderedVersion: 2",
-				func(device *v1alpha1.Device) bool {
-					return e2e.ConditionExists(device, v1alpha1.ConditionTypeDeviceUpdating, v1alpha1.ConditionStatusTrue, string(v1alpha1.UpdateStateApplyingUpdate))
+				func(device *v1beta1.Device) bool {
+					return e2e.ConditionExists(device, v1beta1.ConditionTypeDeviceUpdating, v1beta1.ConditionStatusTrue, string(v1beta1.UpdateStateApplyingUpdate))
 				}, LONGTIMEOUT)
 
-			Expect(device.Status.Summary.Status).To(Equal(v1alpha1.DeviceSummaryStatusOnline))
+			Expect(device.Status.Summary.Status).To(Equal(v1beta1.DeviceSummaryStatusOnline))
 
 			harness.WaitForDeviceContents(deviceId, "the device is rebooting",
-				func(device *v1alpha1.Device) bool {
-					return e2e.ConditionExists(device, v1alpha1.ConditionTypeDeviceUpdating, v1alpha1.ConditionStatusTrue, string(v1alpha1.UpdateStateRebooting))
+				func(device *v1beta1.Device) bool {
+					return e2e.ConditionExists(device, v1beta1.ConditionTypeDeviceUpdating, v1beta1.ConditionStatusTrue, string(v1beta1.UpdateStateRebooting))
 				}, LONGTIMEOUT)
 
 			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
-				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusType("Rebooting")))
+				deviceId).Should(Equal(v1beta1.DeviceSummaryStatusType("Rebooting")))
 
 			harness.WaitForDeviceContents(deviceId, "Updated to desired renderedVersion: 2",
-				func(device *v1alpha1.Device) bool {
+				func(device *v1beta1.Device) bool {
 					for _, condition := range device.Status.Conditions {
 						if condition.Type == "Updating" && condition.Reason == "Updated" && condition.Status == "False" &&
 							condition.Message == UpdateRenderedVersionSuccess.String() {
@@ -110,7 +110,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 				}, TIMEOUT)
 
 			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
-				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusType("Online")))
+				deviceId).Should(Equal(v1beta1.DeviceSummaryStatusType("Online")))
 
 			GinkgoWriter.Printf("Device updated to new image %s 🎉\n", "flightctl/flightctl-device:v4")
 			GinkgoWriter.Printf("We expect containers with sleep infinity process to be present but not running\n")
@@ -128,22 +128,22 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			GinkgoWriter.Printf("New image is: %s\n", newImageReference)
 
 			harness.WaitForDeviceContents(deviceId, "The device is preparing an update to renderedVersion: 3",
-				func(device *v1alpha1.Device) bool {
-					return e2e.ConditionExists(device, v1alpha1.ConditionTypeDeviceUpdating, v1alpha1.ConditionStatusTrue, string(v1alpha1.UpdateStateApplyingUpdate))
+				func(device *v1beta1.Device) bool {
+					return e2e.ConditionExists(device, v1beta1.ConditionTypeDeviceUpdating, v1beta1.ConditionStatusTrue, string(v1beta1.UpdateStateApplyingUpdate))
 				}, TIMEOUT)
 
-			Expect(device.Status.Summary.Status).To(Equal(v1alpha1.DeviceSummaryStatusType("Online")))
+			Expect(device.Status.Summary.Status).To(Equal(v1beta1.DeviceSummaryStatusType("Online")))
 
 			harness.WaitForDeviceContents(deviceId, "the device is rebooting",
-				func(device *v1alpha1.Device) bool {
-					return e2e.ConditionExists(device, v1alpha1.ConditionTypeDeviceUpdating, v1alpha1.ConditionStatusTrue, string(v1alpha1.UpdateStateRebooting))
+				func(device *v1beta1.Device) bool {
+					return e2e.ConditionExists(device, v1beta1.ConditionTypeDeviceUpdating, v1beta1.ConditionStatusTrue, string(v1beta1.UpdateStateRebooting))
 				}, TIMEOUT)
 
 			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
-				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusType("Rebooting")))
+				deviceId).Should(Equal(v1beta1.DeviceSummaryStatusType("Rebooting")))
 
 			harness.WaitForDeviceContents(deviceId, "Updated to desired renderedVersion: 3",
-				func(device *v1alpha1.Device) bool {
+				func(device *v1beta1.Device) bool {
 					for _, condition := range device.Status.Conditions {
 						if condition.Type == "Updating" && condition.Reason == "Updated" && condition.Status == "False" &&
 							condition.Message == "Updated to desired renderedVersion: 3" {
@@ -154,7 +154,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 				}, TIMEOUT)
 
 			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).WithArguments(
-				deviceId).Should(Equal(v1alpha1.DeviceSummaryStatusType("Online")))
+				deviceId).Should(Equal(v1beta1.DeviceSummaryStatusType("Online")))
 
 			GinkgoWriter.Printf("Device updated to new image %s 🎉\n", "flightctl/flightctl-device:base")
 			Expect(device.Spec.Applications).To(BeNil())
@@ -192,12 +192,12 @@ var _ = Describe("VM Agent behavior during updates", func() {
 
 			// Add more factories here if desired. The first spec applied will add a repo spec
 			// and the second a simple inline spec.
-			type providerFactory = func(providerSpec *v1alpha1.ConfigProviderSpec) error
+			type providerFactory = func(providerSpec *v1beta1.ConfigProviderSpec) error
 			configFactories := []providerFactory{
-				func(providerSpec *v1alpha1.ConfigProviderSpec) error {
+				func(providerSpec *v1beta1.ConfigProviderSpec) error {
 					return providerSpec.FromHttpConfigProviderSpec(flightDemosHttpRepoConfig)
 				},
-				func(providerSpec *v1alpha1.ConfigProviderSpec) error {
+				func(providerSpec *v1beta1.ConfigProviderSpec) error {
 					return providerSpec.FromInlineConfigProviderSpec(validInlineConfig)
 				},
 			}
@@ -208,7 +208,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			for i, factory := range configFactories {
 				specVersion := i + 1
 				By(fmt.Sprintf("Applying spec: %d", specVersion))
-				var configProviderSpec v1alpha1.ConfigProviderSpec
+				var configProviderSpec v1beta1.ConfigProviderSpec
 				err := factory(&configProviderSpec)
 				Expect(err).ToNot(HaveOccurred())
 				err = harness.AddConfigToDeviceWithRetries(deviceId, configProviderSpec)
@@ -216,7 +216,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 				expectedVersion := currentVersion + 1
 				desc := fmt.Sprintf("Updating to desired renderedVersion: %d", expectedVersion)
 				By(fmt.Sprintf("Waiting for update %d to be picked up", specVersion))
-				harness.WaitForDeviceContents(deviceId, desc, func(device *v1alpha1.Device) bool {
+				harness.WaitForDeviceContents(deviceId, desc, func(device *v1beta1.Device) bool {
 					return isDeviceUpdateObserved(device, expectedVersion)
 				}, TIMEOUT)
 				currentVersion = expectedVersion
@@ -240,7 +240,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			_, _, err = harness.WaitForBootstrapAndUpdateToVersion(deviceId, ":v8")
 			Expect(err).ToNot(HaveOccurred())
 
-			harness.WaitForDeviceContents(deviceId, "device image should be updated to the new image", func(device *v1alpha1.Device) bool {
+			harness.WaitForDeviceContents(deviceId, "device image should be updated to the new image", func(device *v1beta1.Device) bool {
 				return device.Spec.Os.Image != initialImage
 			}, TIMEOUT)
 
@@ -248,8 +248,8 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			// that prevents the device from rolling back to the initial image
 			// When that bug is fixed, the following assertions will need to change.
 
-			harness.WaitForDeviceContents(deviceId, "device status should indicate updating failure", func(device *v1alpha1.Device) bool {
-				return e2e.ConditionExists(device, v1alpha1.ConditionTypeDeviceUpdating, v1alpha1.ConditionStatusFalse, string(v1alpha1.UpdateStateError))
+			harness.WaitForDeviceContents(deviceId, "device status should indicate updating failure", func(device *v1beta1.Device) bool {
+				return e2e.ConditionExists(device, v1beta1.ConditionTypeDeviceUpdating, v1beta1.ConditionStatusFalse, string(v1beta1.UpdateStateError))
 			}, LONGTIMEOUT)
 
 			// Verify that the flightctl-agent logs indicate that a rollback was attempted
@@ -266,21 +266,21 @@ var _ = Describe("VM Agent behavior during updates", func() {
 				WithPolling(time.Second * 10).
 				Should(ContainSubstring(fmt.Sprintf("Attempting to rollback to previous renderedVersion: %d", expectedVersion)))
 
-			harness.WaitForDeviceContents(deviceId, "device should become out of date but be online", func(device *v1alpha1.Device) bool {
-				return device.Status.Updated.Status == v1alpha1.DeviceUpdatedStatusOutOfDate &&
-					device.Status.Summary.Status == v1alpha1.DeviceSummaryStatusOnline
+			harness.WaitForDeviceContents(deviceId, "device should become out of date but be online", func(device *v1beta1.Device) bool {
+				return device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusOutOfDate &&
+					device.Status.Summary.Status == v1beta1.DeviceSummaryStatusOnline
 			}, TIMEOUT)
 
 			// validate that the error message contains an indication of why the update failed
 			dev, err = harness.GetDevice(deviceId)
 			Expect(err).NotTo(HaveOccurred())
-			cond := v1alpha1.FindStatusCondition(dev.Status.Conditions, v1alpha1.ConditionTypeDeviceUpdating)
+			cond := v1beta1.FindStatusCondition(dev.Status.Conditions, v1beta1.ConditionTypeDeviceUpdating)
 			Expect(cond).ToNot(BeNil())
 			Expect(cond.Message).To(And(ContainSubstring("Failed to update to renderedVersion"), ContainSubstring("validating compose spec")))
 
 			/*
 				** Add this assertion back when the bug referenced above is fixed **
-				harness.WaitForDeviceContents(deviceId, "device image should be reverted to the old image", func(device *v1alpha1.Device) bool {
+				harness.WaitForDeviceContents(deviceId, "device image should be reverted to the old image", func(device *v1beta1.Device) bool {
 					return device.Spec.Os.Image == initialImage
 				}, TIMEOUT)
 			*/
@@ -319,33 +319,33 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Updating the device with a policy that won't trigger should prevent an update from occurring")
-			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
-				device.Spec.Config = &[]v1alpha1.ConfigProviderSpec{newInlineConfigVersion(expectedVersion)}
-				device.Spec.UpdatePolicy = &v1alpha1.DeviceUpdatePolicySpec{
-					UpdateSchedule: &v1alpha1.UpdateSchedule{
+			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
+				device.Spec.Config = &[]v1beta1.ConfigProviderSpec{newInlineConfigVersion(expectedVersion)}
+				device.Spec.UpdatePolicy = &v1beta1.DeviceUpdatePolicySpec{
+					UpdateSchedule: &v1beta1.UpdateSchedule{
 						At:                 wontUpdatePolicy,
 						StartGraceDuration: &startGracePeriod,
 					},
-					DownloadSchedule: &v1alpha1.UpdateSchedule{
+					DownloadSchedule: &v1beta1.UpdateSchedule{
 						At:                 wontUpdatePolicy,
 						StartGraceDuration: &startGracePeriod,
 					},
 				}
 			})
 			Expect(err).ToNot(HaveOccurred())
-			harness.WaitForDeviceContents(deviceId, "the update should be registered but not applied", func(device *v1alpha1.Device) bool {
-				return device.Status.Updated.Status == v1alpha1.DeviceUpdatedStatusOutOfDate
+			harness.WaitForDeviceContents(deviceId, "the update should be registered but not applied", func(device *v1beta1.Device) bool {
+				return device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusOutOfDate
 			}, TIMEOUT)
 
 			// A reasonable amount of time spent polling to ensure the spec doesn't change
-			harness.EnsureDeviceContents(deviceId, "the spec contents should not apply", func(device *v1alpha1.Device) bool {
+			harness.EnsureDeviceContents(deviceId, "the spec contents should not apply", func(device *v1beta1.Device) bool {
 				return device.Status.Config.RenderedVersion == strconv.Itoa(currentVersion)
 			}, "1m30s")
 
 			By("Reducing the policies, the spec should be applied")
 			// pick a time two minutes in the future so that we can confirm that we wait at least some time before applying the update
 			inTwoMinutes := inNMinutes(2)
-			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
 				device.Spec.UpdatePolicy.UpdateSchedule.At = inTwoMinutes
 				device.Spec.UpdatePolicy.DownloadSchedule.At = inTwoMinutes
 			})
@@ -361,11 +361,11 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			By("applying another spec, the update should be applied quickly")
-			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
 				// change the spec to update every minute so that we don't have to wait as long
 				device.Spec.UpdatePolicy.UpdateSchedule.At = everyMinuteExpression
 				device.Spec.UpdatePolicy.DownloadSchedule.At = everyMinuteExpression
-				device.Spec.Config = &[]v1alpha1.ConfigProviderSpec{newInlineConfigVersion(expectedVersion)}
+				device.Spec.Config = &[]v1beta1.ConfigProviderSpec{newInlineConfigVersion(expectedVersion)}
 			})
 			Expect(err).ToNot(HaveOccurred())
 			// eventually the next update should be applied
@@ -375,18 +375,18 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			expectedVersion++
 			inTwoMinutes = inNMinutes(2)
 			By("applying an immediate download policy and an eventual update policy, the process should stall at updating")
-			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
 				device.Spec.UpdatePolicy.UpdateSchedule.At = inTwoMinutes
 				device.Spec.UpdatePolicy.DownloadSchedule.At = everyMinuteExpression
-				device.Spec.Config = &[]v1alpha1.ConfigProviderSpec{newInlineConfigVersion(expectedVersion)}
+				device.Spec.Config = &[]v1beta1.ConfigProviderSpec{newInlineConfigVersion(expectedVersion)}
 			})
 			Expect(err).ToNot(HaveOccurred())
-			harness.WaitForDeviceContents(deviceId, "status should indicate that we are blocked by updating", func(device *v1alpha1.Device) bool {
-				cond := v1alpha1.FindStatusCondition(device.Status.Conditions, v1alpha1.ConditionTypeDeviceUpdating)
+			harness.WaitForDeviceContents(deviceId, "status should indicate that we are blocked by updating", func(device *v1beta1.Device) bool {
+				cond := v1beta1.FindStatusCondition(device.Status.Conditions, v1beta1.ConditionTypeDeviceUpdating)
 				if cond == nil {
 					return false
 				}
-				return cond.Reason == string(v1alpha1.UpdateStateApplyingUpdate) &&
+				return cond.Reason == string(v1beta1.UpdateStateApplyingUpdate) &&
 					strings.Contains(cond.Message, "update policy not ready")
 			}, TIMEOUT)
 		})
@@ -413,8 +413,8 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			// Malformed XML — should cause firewall reload hook to fail
 			// ------------------------------------------------------------------
 			By(fmt.Sprintf("Applying malformed XML to %s", badZoneFile))
-			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
-				device.Spec.Config = &[]v1alpha1.ConfigProviderSpec{newInlineConfigForPath("bad-zone", badZoneFile, "<invalid")}
+			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
+				device.Spec.Config = &[]v1beta1.ConfigProviderSpec{newInlineConfigForPath("bad-zone", badZoneFile, "<invalid")}
 			})
 			Expect(err).NotTo(HaveOccurred())
 			stdout, err = harness.VM.RunSSH([]string{"sudo", "cat", "/var/lib/flightctl/current.json"}, nil)
@@ -425,8 +425,8 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			Expect(err).NotTo(HaveOccurred())
 			GinkgoWriter.Printf("after update desired.json: %s\n", stdout.String())
 
-			harness.WaitForDeviceContents(deviceId, "device status should indicate updating failure", func(device *v1alpha1.Device) bool {
-				return e2e.ConditionExists(device, v1alpha1.ConditionTypeDeviceUpdating, v1alpha1.ConditionStatusFalse, string(v1alpha1.UpdateStateError))
+			harness.WaitForDeviceContents(deviceId, "device status should indicate updating failure", func(device *v1beta1.Device) bool {
+				return e2e.ConditionExists(device, v1beta1.ConditionTypeDeviceUpdating, v1beta1.ConditionStatusFalse, string(v1beta1.UpdateStateError))
 			}, "10m")
 
 			// ------------------------------------------------------------------
@@ -437,8 +437,8 @@ var _ = Describe("VM Agent behavior during updates", func() {
 				GinkgoWriter.Printf("Applying update %d\n", i)
 				path := fmt.Sprintf("%s/rapid-%d.json", firewallZonesDir, i)
 				name := fmt.Sprintf("rapid-%d", i)
-				err := harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
-					device.Spec.Config = &[]v1alpha1.ConfigProviderSpec{newInlineConfigForPath(name, path, name)}
+				err := harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
+					device.Spec.Config = &[]v1beta1.ConfigProviderSpec{newInlineConfigForPath(name, path, name)}
 				})
 				Expect(err).NotTo(HaveOccurred())
 			}
@@ -462,15 +462,15 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			cfg1 := newInlineConfigForPath("c1", conflictFile, "cfg1")
 			cfg2 := newInlineConfigForPath("c2", conflictFile, "cfg2")
 
-			Expect(harness.UpdateDevice(deviceId, func(device *v1alpha1.Device) {
-				device.Spec.Config = &[]v1alpha1.ConfigProviderSpec{cfg1, cfg2}
+			Expect(harness.UpdateDevice(deviceId, func(device *v1beta1.Device) {
+				device.Spec.Config = &[]v1beta1.ConfigProviderSpec{cfg1, cfg2}
 			})).To(MatchError(ContainSubstring("must be unique")))
 
 		})
 	})
 })
 
-var flightDemosHttpRepoConfig = v1alpha1.HttpConfigProviderSpec{
+var flightDemosHttpRepoConfig = v1beta1.HttpConfigProviderSpec{
 	HttpRef: struct {
 		FilePath   string  `json:"filePath"`
 		Repository string  `json:"repository"`
@@ -484,7 +484,7 @@ var flightDemosHttpRepoConfig = v1alpha1.HttpConfigProviderSpec{
 }
 
 // returns true if the device is updating or has already updated to the expected version
-func isDeviceUpdateObserved(device *v1alpha1.Device, expectedVersion int) bool {
+func isDeviceUpdateObserved(device *v1beta1.Device, expectedVersion int) bool {
 	version, err := e2e.GetRenderedVersion(device)
 	if err != nil {
 		GinkgoWriter.Printf("Failed to parse rendered version '%s': %v\n", device.Status.Config.RenderedVersion, err)
@@ -494,44 +494,44 @@ func isDeviceUpdateObserved(device *v1alpha1.Device, expectedVersion int) bool {
 	if version == expectedVersion {
 		return true
 	}
-	cond := v1alpha1.FindStatusCondition(device.Status.Conditions, v1alpha1.ConditionTypeDeviceUpdating)
+	cond := v1beta1.FindStatusCondition(device.Status.Conditions, v1beta1.ConditionTypeDeviceUpdating)
 	if cond == nil {
 		return false
 	}
 	// send another update if we're in this state
-	validReasons := []v1alpha1.UpdateState{
-		v1alpha1.UpdateStatePreparing,
-		v1alpha1.UpdateStateReadyToUpdate,
-		v1alpha1.UpdateStateApplyingUpdate,
+	validReasons := []v1beta1.UpdateState{
+		v1beta1.UpdateStatePreparing,
+		v1beta1.UpdateStateReadyToUpdate,
+		v1beta1.UpdateStateApplyingUpdate,
 	}
-	return slices.Contains(validReasons, v1alpha1.UpdateState(cond.Reason))
+	return slices.Contains(validReasons, v1beta1.UpdateState(cond.Reason))
 }
 
-func newInlineConfigVersion(version int) v1alpha1.ConfigProviderSpec {
+func newInlineConfigVersion(version int) v1beta1.ConfigProviderSpec {
 	configCopy := inlineConfig
 	configCopy.Content = fmt.Sprintf("%s %d", configCopy.Content, version)
-	cfg := v1alpha1.InlineConfigProviderSpec{
-		Inline: []v1alpha1.FileSpec{configCopy},
+	cfg := v1beta1.InlineConfigProviderSpec{
+		Inline: []v1beta1.FileSpec{configCopy},
 		Name:   validInlineConfig.Name,
 	}
-	var provider v1alpha1.ConfigProviderSpec
+	var provider v1beta1.ConfigProviderSpec
 	err := provider.FromInlineConfigProviderSpec(cfg)
 	Expect(err).NotTo(HaveOccurred())
 	return provider
 }
 
 // newInlineConfigForPath creates a ConfigProviderSpec with inline configuration for the specified path
-func newInlineConfigForPath(name string, path string, content string) v1alpha1.ConfigProviderSpec {
-	var inlineConfig = v1alpha1.FileSpec{
+func newInlineConfigForPath(name string, path string, content string) v1beta1.ConfigProviderSpec {
+	var inlineConfig = v1beta1.FileSpec{
 		Content: content,
 		Mode:    modePointer,
 		Path:    path,
 	}
-	cfg := v1alpha1.InlineConfigProviderSpec{
-		Inline: []v1alpha1.FileSpec{inlineConfig},
+	cfg := v1beta1.InlineConfigProviderSpec{
+		Inline: []v1beta1.FileSpec{inlineConfig},
 		Name:   name,
 	}
-	var provider v1alpha1.ConfigProviderSpec
+	var provider v1beta1.ConfigProviderSpec
 	err := provider.FromInlineConfigProviderSpec(cfg)
 	Expect(err).NotTo(HaveOccurred())
 	return provider

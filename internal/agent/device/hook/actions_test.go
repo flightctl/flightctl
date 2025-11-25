@@ -5,7 +5,7 @@ import (
 	"os/exec"
 	"testing"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/stretchr/testify/require"
@@ -148,26 +148,26 @@ func TestCheckRunActionDependency(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		action  v1alpha1.HookActionRun
+		action  v1beta1.HookActionRun
 		wantErr error
 	}{
 		{
 			name:   "valid executable",
-			action: v1alpha1.HookActionRun{Run: "executable.sh"},
+			action: v1beta1.HookActionRun{Run: "executable.sh"},
 		},
 		{
 			name:    "non-executable file",
-			action:  v1alpha1.HookActionRun{Run: "non-executable.txt"},
+			action:  v1beta1.HookActionRun{Run: "non-executable.txt"},
 			wantErr: exec.ErrNotFound,
 		},
 		{
 			name:    "directory instead of file",
-			action:  v1alpha1.HookActionRun{Run: "subdir"},
+			action:  v1beta1.HookActionRun{Run: "subdir"},
 			wantErr: exec.ErrNotFound,
 		},
 		{
 			name:    "invalid path",
-			action:  v1alpha1.HookActionRun{Run: "/invalid/path/to/executable"},
+			action:  v1beta1.HookActionRun{Run: "/invalid/path/to/executable"},
 			wantErr: errors.ErrNotExist,
 		},
 	}

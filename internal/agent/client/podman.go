@@ -51,6 +51,19 @@ type PodmanContainerConfig struct {
 	Labels map[string]string `json:"Labels"`
 }
 
+// ArtifactInspect represents the structure of artifact inspect output
+type ArtifactInspect struct {
+	Manifest ArtifactManifest `json:"Manifest"`
+}
+
+type ArtifactManifest struct {
+	Layers []ArtifactLayer `json:"layers"`
+}
+
+type ArtifactLayer struct {
+	Annotations map[string]string `json:"annotations,omitempty"`
+}
+
 // PodmanEvent represents the structure of a podman event as produced via a CLI events command.
 // It should be noted that the CLI represents events differently from libpod. (notably the time properties)
 // https://github.com/containers/podman/blob/main/cmd/podman/system/events.go#L81-L96
@@ -153,6 +166,10 @@ func (p *Podman) pullArtifact(ctx context.Context, artifact string, options *cli
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
+	if err := p.EnsureArtifactSupport(ctx); err != nil {
+		return "", err
+	}
+
 	pullSecretPath := options.pullSecretPath
 	args := []string{"artifact", "pull", artifact}
 	if pullSecretPath != "" {
@@ -184,7 +201,10 @@ func (p *Podman) ExtractArtifact(ctx context.Context, artifact, destination stri
 	ctx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()
 
-	// TODO: only available in podman >= 4.5.0
+	if err := p.EnsureArtifactSupport(ctx); err != nil {
+		return "", err
+	}
+
 	args := []string{"artifact", "extract", artifact, destination}
 	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	if exitCode != 0 {
@@ -241,6 +261,64 @@ func (p *Podman) ArtifactExists(ctx context.Context, artifact string) bool {
 	args := []string{"artifact", "inspect", artifact}
 	_, _, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	return exitCode == 0
+}
+
+// ArtifactDigest returns the digest of the specified artifact.
+func (p *Podman) ArtifactDigest(ctx context.Context, reference string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, p.timeout)
+	defer cancel()
+
+	if err := p.EnsureArtifactSupport(ctx); err != nil {
+		return "", err
+	}
+
+	args := []string{"artifact", "inspect", "--format", "{{.Digest}}", reference}
+	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
+	if exitCode != 0 {
+		return "", fmt.Errorf("get artifact digest: %s: %w", reference, errors.FromStderr(stderr, exitCode))
+	}
+	digest := strings.TrimSpace(stdout)
+	if digest == "" {
+		return "", fmt.Errorf("artifact digest empty for %s", reference)
+	}
+	return digest, nil
+}
+
+// InspectArtifactAnnotations inspects an OCI artifact and returns its annotations map.
+func (p *Podman) InspectArtifactAnnotations(ctx context.Context, reference string) (map[string]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, p.timeout)
+	defer cancel()
+
+	args := []string{"artifact", "inspect", reference}
+	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
+	if exitCode != 0 {
+		return nil, fmt.Errorf("artifact inspect: %w", errors.FromStderr(stderr, exitCode))
+	}
+
+	annotations, err := extractArtifactAnnotations(stdout)
+	if err != nil {
+		return nil, err
+	}
+
+	return annotations, nil
+}
+
+// extractArtifactAnnotations parses the podman artifact inspect JSON output and extracts annotations
+func extractArtifactAnnotations(stdout string) (map[string]string, error) {
+	var inspectResult ArtifactInspect
+	if err := json.Unmarshal([]byte(stdout), &inspectResult); err != nil {
+		return nil, fmt.Errorf("unmarshal artifact inspect output: %w", err)
+	}
+
+	// Merge annotations from all layers in the manifest
+	annotations := make(map[string]string)
+	for _, layer := range inspectResult.Manifest.Layers {
+		for key, value := range layer.Annotations {
+			annotations[key] = value
+		}
+	}
+
+	return annotations, nil
 }
 
 // EventsSinceCmd returns a command to get podman events since the given time. After creating the command, it should be started with exec.Start().
@@ -376,6 +454,41 @@ func (p *Podman) CreateVolume(ctx context.Context, name string, labels []string)
 	return mountpoint, nil
 }
 
+type podmanVolume struct {
+	Name string `json:"Name"`
+}
+
+func (p *Podman) ListVolumes(ctx context.Context, labels []string, filters []string) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, p.timeout)
+	defer cancel()
+
+	args := []string{
+		"volume",
+		"ls",
+		"--format",
+		"json",
+	}
+	args = applyFilters(args, labels, filters)
+	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
+	if exitCode != 0 {
+		return nil, fmt.Errorf("list volumes: %w", errors.FromStderr(stderr, exitCode))
+	}
+	var podVols []podmanVolume
+	err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &podVols)
+	if err != nil {
+		return nil, fmt.Errorf("unmarshal volumes: %w", err)
+	}
+	volumesSeen := make(map[string]struct{})
+	volumes := make([]string, 0, len(podVols))
+	for _, volume := range podVols {
+		if _, ok := volumesSeen[volume.Name]; !ok {
+			volumesSeen[volume.Name] = struct{}{}
+			volumes = append(volumes, volume.Name)
+		}
+	}
+	return volumes, nil
+}
+
 func (p *Podman) VolumeExists(ctx context.Context, name string) bool {
 	ctx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()
@@ -385,17 +498,25 @@ func (p *Podman) VolumeExists(ctx context.Context, name string) bool {
 	return exitCode == 0
 }
 
-func (p *Podman) InspectVolumeMount(ctx context.Context, name string) (string, error) {
+func (p *Podman) inspectVolumeProperty(ctx context.Context, name string, property string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()
 
-	args := []string{"volume", "inspect", name, "--format", "{{.Mountpoint}}"}
+	args := []string{"volume", "inspect", name, "--format", property}
 	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	if exitCode != 0 {
-		return "", fmt.Errorf("inspect volume mountpoint: %w", errors.FromStderr(stderr, exitCode))
+		return "", fmt.Errorf("inspect volume property %s: %w", property, errors.FromStderr(stderr, exitCode))
 	}
 
 	return strings.TrimSpace(stdout), nil
+}
+
+func (p *Podman) InspectVolumeDriver(ctx context.Context, name string) (string, error) {
+	return p.inspectVolumeProperty(ctx, name, "{{.Driver}}")
+}
+
+func (p *Podman) InspectVolumeMount(ctx context.Context, name string) (string, error) {
+	return p.inspectVolumeProperty(ctx, name, "{{.Mountpoint}}")
 }
 
 func (p *Podman) RemoveVolumes(ctx context.Context, volumes ...string) error {
@@ -412,7 +533,18 @@ func (p *Podman) RemoveVolumes(ctx context.Context, volumes ...string) error {
 	return nil
 }
 
-func (p *Podman) ListNetworks(ctx context.Context, labels []string) ([]string, error) {
+func applyFilters(args, labels, filters []string) []string {
+	for _, label := range labels {
+		args = append(args, "--filter", fmt.Sprintf("label=%s", label))
+	}
+
+	for _, filter := range filters {
+		args = append(args, "--filter", filter)
+	}
+	return args
+}
+
+func (p *Podman) ListNetworks(ctx context.Context, labels []string, filters []string) ([]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()
 
@@ -422,13 +554,11 @@ func (p *Podman) ListNetworks(ctx context.Context, labels []string) ([]string, e
 		"--format",
 		"{{.Network.ID}}",
 	}
-	for _, label := range labels {
-		args = append(args, "--filter", fmt.Sprintf("label=%s", label))
-	}
+	args = applyFilters(args, labels, filters)
 
 	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	if exitCode != 0 {
-		return nil, fmt.Errorf("list containers: %w", errors.FromStderr(stderr, exitCode))
+		return nil, fmt.Errorf("list networks: %w", errors.FromStderr(stderr, exitCode))
 	}
 
 	lines := strings.Split(strings.TrimSpace(stdout), "\n")
@@ -477,9 +607,7 @@ func (p *Podman) ListPods(ctx context.Context, labels []string) ([]string, error
 		"--format",
 		"{{.Pod}}",
 	}
-	for _, label := range labels {
-		args = append(args, "--filter", fmt.Sprintf("label=%s", label))
-	}
+	args = applyFilters(args, labels, []string{})
 
 	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	if exitCode != 0 {
@@ -544,6 +672,18 @@ func (p *Podman) Compose() *Compose {
 type PodmanVersion struct {
 	Major int
 	Minor int
+}
+
+// EnsureArtifactSupport verifies the local podman version can execute artifact commands.
+func (p *Podman) EnsureArtifactSupport(ctx context.Context) error {
+	version, err := p.Version(ctx)
+	if err != nil {
+		return fmt.Errorf("%w: checking podman version: %w", errors.ErrNoRetry, err)
+	}
+	if !version.GreaterOrEqual(5, 5) {
+		return fmt.Errorf("%w: OCI artifact operations require podman >= 5.5, found %d.%d", errors.ErrNoRetry, version.Major, version.Minor)
+	}
+	return nil
 }
 
 func (v PodmanVersion) GreaterOrEqual(major, minor int) bool {

@@ -9,20 +9,20 @@ data:
   config.yaml: |-
     database:
       hostname: {{ include "flightctl.dbHostname" . }}
-      type: {{ required "Values.db.type is required" $.Values.db.type | quote }}
-      port: {{ required "Values.db.port is required" $.Values.db.port }}
-      name: {{ required "Values.db.name is required" $.Values.db.name }}
-      {{- if .Values.db.sslmode }}
-      sslmode: {{ .Values.db.sslmode | quote }}
+      type: "pgsql"
+      port: {{ include "flightctl.dbPort" . | int }}
+      name: {{ .Values.db.name }}
+      {{- if eq .Values.db.type "external" }}
+      {{- if .Values.db.external.sslmode }}
+      sslmode: {{ .Values.db.external.sslmode | quote }}
       {{- end }}
-      {{- if .Values.db.sslcert }}
-      sslcert: {{ .Values.db.sslcert | quote }}
+      {{- if .Values.db.external.tlsConfigMapName }}
+      sslrootcert: /etc/ssl/postgres/ca-cert.pem
       {{- end }}
-      {{- if .Values.db.sslkey }}
-      sslkey: {{ .Values.db.sslkey | quote }}
+      {{- if .Values.db.external.tlsSecretName }}
+      sslkey: /etc/ssl/postgres/client-key.pem
+      sslcert: /etc/ssl/postgres/client-cert.pem
       {{- end }}
-      {{- if .Values.db.sslrootcert }}
-      sslrootcert: {{ .Values.db.sslrootcert | quote }}
       {{- end }}
     service:
       certStore: "/app/certs"
@@ -50,11 +50,19 @@ data:
       {{- if and .Values.global.auth .Values.global.auth.caCert }}
       caCert: {{ .Values.global.auth.caCert }}
       {{- end }}
-      {{- if or (eq .Values.global.target "acm") (eq $effectiveAuthType "k8s") }}
+      {{- if eq $effectiveAuthType "k8s" }}
       k8s:
         apiUrl: {{ .Values.global.auth.k8s.apiUrl }}
-        externalOpenShiftApiUrl: {{ include "flightctl.getOpenShiftAPIUrl" . }}
         rbacNs: {{ default .Release.Namespace .Values.global.auth.k8s.rbacNs }}
+      {{- else if eq .Values.global.auth.type "openshift"}}
+      openshift:
+        clusterControlPlaneUrl: {{ .Values.global.auth.openshift.clusterControlPlaneUrl }}
+        authorizationUrl: {{ include "flightctl.getOpenShiftOAuthAuthorizationUrl" . }}
+        tokenUrl: {{ include "flightctl.getOpenShiftOAuthTokenUrl" . }}
+        issuer: {{ include "flightctl.getOpenShiftOAuthIssuer" . }}
+        clientId: {{ include "flightctl.getOpenShiftOAuthClientId" . }}
+        clientSecret: {{ include "flightctl.getOpenShiftOAuthClientSecret" . }}
+        rbacNs: {{ default .Release.Namespace .Values.global.auth.openshift.rbacNs }}
       {{- else if eq $effectiveAuthType "aap" }}
       aap:
         apiUrl: {{ .Values.global.auth.aap.apiUrl }}
@@ -80,8 +88,8 @@ data:
       {{- end }}
     {{- end }}
     organizations:
-      enabled: {{ .Values.global.organizations.enabled }}
-    {{ if .Values.global.tracing.enabled }}
+      enabled: true
+    {{ if .Values.global.tracing }}
     tracing:
         enabled: true
         endpoint: {{ .Values.global.tracing.endpoint }}

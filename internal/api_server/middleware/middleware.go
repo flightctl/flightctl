@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/auth"
 	authcommon "github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/consts"
@@ -63,6 +63,20 @@ func AddEventMetadataToCtx(next http.Handler) http.Handler {
 		ctx = context.WithValue(ctx, consts.EventActorCtxKey, fmt.Sprintf("user:%s", userName))
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+// UserAgentLogger logs the User-Agent header from incoming requests
+// and sets it in the request context.
+func UserAgentLogger(logger logrus.FieldLogger) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ctx := r.Context()
+			userAgent := r.Header.Get("User-Agent")
+			logger.Debugf("UserAgentLogger: User-Agent from request=%q", userAgent)
+			ctx = util.WithUserAgent(ctx, userAgent)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
 }
 
 // OrgIDExtractor extracts an organization ID from an HTTP request.

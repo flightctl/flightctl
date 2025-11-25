@@ -10,7 +10,8 @@ import (
 	"testing"
 	"time"
 
-	pamapi "github.com/flightctl/flightctl/api/v1alpha1/pam-issuer"
+	api "github.com/flightctl/flightctl/api/v1beta1"
+	pamapi "github.com/flightctl/flightctl/api/v1beta1/pam-issuer"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/config/ca"
 	fccrypto "github.com/flightctl/flightctl/internal/crypto"
@@ -50,7 +51,7 @@ func (m *MockAuthenticator) GetUserGroups(systemUser *user.User) ([]string, erro
 	if m.getUserGroupsFunc != nil {
 		return m.getUserGroupsFunc(systemUser)
 	}
-	return []string{"flightctl-admin"}, nil
+	return []string{api.ExternalRoleAdmin}, nil
 }
 
 func (m *MockAuthenticator) Close() error {
@@ -188,7 +189,7 @@ var _ = Describe("PAM Issuer Unit Tests", func() {
 
 				response, err := testProvider.Token(ctx, tokenReq)
 				Expect(err).ToNot(HaveOccurred())
-				Expect(response.Error).To(BeNil())
+				Expect(response).ToNot(BeNil())
 				Expect(response.AccessToken).ToNot(BeNil())
 			})
 
@@ -219,10 +220,11 @@ var _ = Describe("PAM Issuer Unit Tests", func() {
 					CodeVerifier: lo.ToPtr("wrong-verifier"),
 				}
 
-				response, err := testProvider.Token(ctx, tokenReq)
-				Expect(err).ToNot(HaveOccurred())
-				Expect(response.Error).ToNot(BeNil())
-				Expect(*response.Error).To(Equal("invalid_grant"))
+				_, err := testProvider.Token(ctx, tokenReq)
+				Expect(err).To(HaveOccurred())
+				oauth2Err, ok := pamapi.IsOAuth2Error(err)
+				Expect(ok).To(BeTrue())
+				Expect(oauth2Err.Code).To(Equal(pamapi.InvalidGrant))
 			})
 
 			It("should reject token request with missing PKCE verifier", func() {
@@ -252,10 +254,11 @@ var _ = Describe("PAM Issuer Unit Tests", func() {
 					// No CodeVerifier provided
 				}
 
-				response, err := testProvider.Token(ctx, tokenReq)
-				Expect(err).ToNot(HaveOccurred())
-				Expect(response.Error).ToNot(BeNil())
-				Expect(*response.Error).To(Equal("invalid_grant"))
+				_, err := testProvider.Token(ctx, tokenReq)
+				Expect(err).To(HaveOccurred())
+				oauth2Err, ok := pamapi.IsOAuth2Error(err)
+				Expect(ok).To(BeTrue())
+				Expect(oauth2Err.Code).To(Equal(pamapi.InvalidGrant))
 			})
 		})
 
@@ -364,7 +367,7 @@ var _ = Describe("PAM Issuer Unit Tests", func() {
 
 				response, err := testProvider.Token(ctx, tokenReq)
 				Expect(err).ToNot(HaveOccurred())
-				Expect(response.Error).To(BeNil())
+				Expect(response).ToNot(BeNil())
 				Expect(response.AccessToken).ToNot(BeNil())
 			})
 
@@ -390,10 +393,11 @@ var _ = Describe("PAM Issuer Unit Tests", func() {
 					ClientSecret: lo.ToPtr("wrong-secret"),
 				}
 
-				response, err := testProvider.Token(ctx, tokenReq)
-				Expect(err).ToNot(HaveOccurred())
-				Expect(response.Error).ToNot(BeNil())
-				Expect(*response.Error).To(Equal("invalid_client"))
+				_, err := testProvider.Token(ctx, tokenReq)
+				Expect(err).To(HaveOccurred())
+				oauth2Err, ok := pamapi.IsOAuth2Error(err)
+				Expect(ok).To(BeTrue())
+				Expect(oauth2Err.Code).To(Equal(pamapi.InvalidClient))
 			})
 
 			It("should reject token request without client secret", func() {
@@ -417,10 +421,11 @@ var _ = Describe("PAM Issuer Unit Tests", func() {
 					RedirectUri: lo.ToPtr("https://example.com/callback"),
 				}
 
-				response, err := testProvider.Token(ctx, tokenReq)
-				Expect(err).ToNot(HaveOccurred())
-				Expect(response.Error).ToNot(BeNil())
-				Expect(*response.Error).To(Equal("invalid_client"))
+				_, err := testProvider.Token(ctx, tokenReq)
+				Expect(err).To(HaveOccurred())
+				oauth2Err, ok := pamapi.IsOAuth2Error(err)
+				Expect(ok).To(BeTrue())
+				Expect(oauth2Err.Code).To(Equal(pamapi.InvalidClient))
 			})
 		})
 
@@ -489,7 +494,7 @@ var _ = Describe("PAM Issuer Unit Tests", func() {
 
 				response, err := testProvider.Token(ctx, tokenReq)
 				Expect(err).ToNot(HaveOccurred())
-				Expect(response.Error).To(BeNil())
+				Expect(response).ToNot(BeNil())
 				Expect(response.AccessToken).ToNot(BeNil())
 			})
 
@@ -521,10 +526,11 @@ var _ = Describe("PAM Issuer Unit Tests", func() {
 					CodeVerifier: lo.ToPtr("wrong-verifier"),
 				}
 
-				response, err := testProvider.Token(ctx, tokenReq)
-				Expect(err).ToNot(HaveOccurred())
-				Expect(response.Error).ToNot(BeNil())
-				Expect(*response.Error).To(Equal("invalid_grant"))
+				_, err := testProvider.Token(ctx, tokenReq)
+				Expect(err).To(HaveOccurred())
+				oauth2Err, ok := pamapi.IsOAuth2Error(err)
+				Expect(ok).To(BeTrue())
+				Expect(oauth2Err.Code).To(Equal(pamapi.InvalidGrant))
 			})
 
 			It("should reject token request with correct PKCE but wrong secret", func() {
@@ -555,10 +561,11 @@ var _ = Describe("PAM Issuer Unit Tests", func() {
 					CodeVerifier: lo.ToPtr(codeVerifier),
 				}
 
-				response, err := testProvider.Token(ctx, tokenReq)
-				Expect(err).ToNot(HaveOccurred())
-				Expect(response.Error).ToNot(BeNil())
-				Expect(*response.Error).To(Equal("invalid_client"))
+				_, err := testProvider.Token(ctx, tokenReq)
+				Expect(err).To(HaveOccurred())
+				oauth2Err, ok := pamapi.IsOAuth2Error(err)
+				Expect(ok).To(BeTrue())
+				Expect(oauth2Err.Code).To(Equal(pamapi.InvalidClient))
 			})
 
 			It("should reject token request with missing PKCE verifier when challenge was provided", func() {
@@ -589,10 +596,11 @@ var _ = Describe("PAM Issuer Unit Tests", func() {
 					// Missing CodeVerifier
 				}
 
-				response, err := testProvider.Token(ctx, tokenReq)
-				Expect(err).ToNot(HaveOccurred())
-				Expect(response.Error).ToNot(BeNil())
-				Expect(*response.Error).To(Equal("invalid_grant"))
+				_, err := testProvider.Token(ctx, tokenReq)
+				Expect(err).To(HaveOccurred())
+				oauth2Err, ok := pamapi.IsOAuth2Error(err)
+				Expect(ok).To(BeTrue())
+				Expect(oauth2Err.Code).To(Equal(pamapi.InvalidGrant))
 			})
 		})
 	})

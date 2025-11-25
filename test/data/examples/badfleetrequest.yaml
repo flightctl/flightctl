@@ -1,5 +1,5 @@
 # This file is an example for a bad yaml that will fail due to use of decimals in percentages
-apiVersion: v1alpha1
+apiVersion: v1beta1
 kind: Fleet
 metadata:
   name: default

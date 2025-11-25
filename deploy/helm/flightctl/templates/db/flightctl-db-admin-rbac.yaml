@@ -1,4 +1,3 @@
-{{- if .Values.global.rbac.create }}
 ---
 # ServiceAccount for database migration jobs (needs admin access)
 apiVersion: v1
@@ -42,7 +41,7 @@ metadata:
 rules:
 - apiGroups: [""]
   resources: ["secrets"]
-  resourceNames: ["flightctl-db-admin-secret"]
+  resourceNames: [{{ default "flightctl-db-admin-secret" .Values.db.builtin.masterUserSecretName }}]
   verbs: ["get"]
 
 ---
@@ -58,7 +57,7 @@ metadata:
 rules:
 - apiGroups: [""]
   resources: ["secrets"]
-  resourceNames: ["flightctl-db-migration-secret"]
+  resourceNames: [{{ include "flightctl.dbMigrationUserSecret" . }}]
   verbs: ["get"]
 
 ---
@@ -126,7 +125,7 @@ metadata:
 rules:
 - apiGroups: [""]
   resources: ["secrets"]
-  resourceNames: ["flightctl-db-app-secret"]
+  resourceNames: [{{ include "flightctl.dbAppUserSecret" . }}]
   verbs: ["get"]
 
 ---
@@ -189,5 +188,3 @@ roleRef:
   kind: Role
   name: flightctl-db-app-access
   apiGroup: rbac.authorization.k8s.io
-
-{{- end }}

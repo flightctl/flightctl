@@ -8,7 +8,7 @@ import (
 	"time"
 
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/pkg/executer"
@@ -94,8 +94,8 @@ func (c *Manager) close(s *session) {
 	c.inactivate(s)
 }
 
-func (c *Manager) parseMetadata(metadata string) (*v1alpha1.DeviceConsoleSessionMetadata, error) {
-	var ret v1alpha1.DeviceConsoleSessionMetadata
+func (c *Manager) parseMetadata(metadata string) (*v1beta1.DeviceConsoleSessionMetadata, error) {
+	var ret v1beta1.DeviceConsoleSessionMetadata
 	err := json.Unmarshal([]byte(metadata), &ret)
 	if err != nil {
 		return nil, err
@@ -115,7 +115,7 @@ func (c *Manager) selectProtocol(requestedProtocols []string) (string, error) {
 	return "", fmt.Errorf("none of the protocols %v are supported", requestedProtocols)
 }
 
-func (c *Manager) start(ctx context.Context, dc v1alpha1.DeviceConsole) {
+func (c *Manager) start(ctx context.Context, dc v1beta1.DeviceConsole) {
 	s := &session{
 		id:       dc.SessionID,
 		executor: c.executor,
@@ -153,7 +153,7 @@ func (c *Manager) start(ctx context.Context, dc v1alpha1.DeviceConsole) {
 	s.run(ctx, sessionMetadata)
 }
 
-func (c *Manager) sync(ctx context.Context, desired *v1alpha1.DeviceSpec) {
+func (c *Manager) sync(ctx context.Context, desired *v1beta1.DeviceSpec) {
 	c.log.Debug("Syncing console status")
 	defer c.log.Debug("Finished syncing console status")
 
@@ -183,7 +183,7 @@ func (c *Manager) Run(ctx context.Context) {
 	}
 }
 
-func setSize(fd uintptr, size v1alpha1.TerminalSize) error {
+func setSize(fd uintptr, size v1beta1.TerminalSize) error {
 	winsize := &unix.Winsize{Row: size.Height, Col: size.Width}
 	return unix.IoctlSetWinsize(int(fd), unix.TIOCSWINSZ, winsize)
 }

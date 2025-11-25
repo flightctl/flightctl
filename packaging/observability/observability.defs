@@ -1,5 +1,5 @@
 # Format:
-# ENV_VAR                       | CONFIG_PATH                                 | DEFAULT                                      | TEMPLATE_FILE                                | OUTPUT_PATH
+# ENV_VAR                       | CONFIG_PATH                                 | DEFAULT                                      | TEMPLATE_FILE                                | OUTPUT_PATH                                 | FORMAT
 
 GRAFANA_OAUTH_ENABLED          | .observability.grafana.oauth.enabled                       | false                                        | grafana.ini.template                          | /etc/grafana/grafana.ini
 GRAFANA_OAUTH_CLIENT_ID        | .observability.grafana.oauth.client_id                     |                                              | grafana.ini.template                          | /etc/grafana/grafana.ini

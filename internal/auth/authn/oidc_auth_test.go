@@ -8,11 +8,12 @@ import (
 	"testing"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/lestrrat-go/jwx/v2/jwa"
 	"github.com/lestrrat-go/jwx/v2/jwk"
 	"github.com/lestrrat-go/jwx/v2/jwt"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -33,6 +34,9 @@ func createTestOIDCAuth(jwksUri string) *OIDCAuth {
 		UsernameClaim: &[]string{"preferred_username"},
 	}
 
+	log := logrus.New()
+	log.SetLevel(logrus.ErrorLevel)
+
 	oidcAuth := &OIDCAuth{
 		metadata:      api.ObjectMeta{},
 		spec:          oidcSpec,
@@ -42,6 +46,7 @@ func createTestOIDCAuth(jwksUri string) *OIDCAuth {
 		organizationExtractor: &OrganizationExtractor{
 			orgConfig: nil, // No org config for basic tests
 		},
+		log: log,
 	}
 
 	// Initialize JWKS cache and mark discovery as complete to bypass lazy initialization
@@ -241,7 +246,7 @@ func TestOIDCAuth_extractOrganizations(t *testing.T) {
 					OrganizationAssignment: &assignment,
 				}
 			}(),
-			expectedOrgs: []common.ReportedOrganization{{Name: "static-org", IsInternalID: false, ID: "static-org"}},
+			expectedOrgs: []common.ReportedOrganization{{Name: "static-org", IsInternalID: false, ID: "static-org", Roles: []string{"admin", "user"}}},
 		},
 		{
 			name: "dynamic organization assignment",
@@ -257,7 +262,7 @@ func TestOIDCAuth_extractOrganizations(t *testing.T) {
 					OrganizationAssignment: &assignment,
 				}
 			}(),
-			expectedOrgs: []common.ReportedOrganization{{Name: "test-org", IsInternalID: false, ID: "test-org"}},
+			expectedOrgs: []common.ReportedOrganization{{Name: "test-org", IsInternalID: false, ID: "test-org", Roles: []string{"admin", "user"}}},
 		},
 		{
 			name: "per-user organization assignment",
@@ -274,7 +279,7 @@ func TestOIDCAuth_extractOrganizations(t *testing.T) {
 					OrganizationAssignment: &assignment,
 				}
 			}(),
-			expectedOrgs: []common.ReportedOrganization{{Name: "user-testuser-org", IsInternalID: false, ID: "user-testuser-org"}},
+			expectedOrgs: []common.ReportedOrganization{{Name: "user-testuser-org", IsInternalID: false, ID: "user-testuser-org", Roles: []string{"admin", "user"}}},
 		},
 	}
 

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/config/ca"
 	"github.com/flightctl/flightctl/internal/consts"
@@ -46,6 +46,7 @@ type ServiceTestSuite struct {
 	Ctx     context.Context
 	Store   store.Store
 	Handler service.Service
+	OrgID   uuid.UUID
 
 	// Private implementation details – not needed by tests
 	cfg               *config.Config
@@ -75,7 +76,8 @@ func (s *ServiceTestSuite) Setup() {
 		Username:      "test-admin",
 		UID:           uuid.New().String(),
 		Organizations: []*model.Organization{testOrg},
-		Roles:         []string{string(api.RoleAdmin)},
+		OrgRoles:      map[string][]string{"*": {string(api.RoleAdmin)}},
+		SuperAdmin:    true, // Super admin required for service tests
 	}
 	s.Ctx = context.WithValue(s.Ctx, consts.MappedIdentityCtxKey, adminIdentity)
 
@@ -94,6 +96,8 @@ func (s *ServiceTestSuite) Setup() {
 	Expect(err).ToNot(HaveOccurred())
 
 	s.Handler = service.NewServiceHandler(s.Store, s.workerClient, kvStore, s.caClient, s.Log, "", "", []string{})
+	// Default org for integration tests
+	s.OrgID = store.NullOrgId
 }
 
 // Teardown performs common cleanup for service tests

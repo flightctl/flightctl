@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -27,7 +27,7 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 			harness := e2e.GetWorkerHarness()
 
 			By("Update the device image to one containing an embedded hook")
-			_, err := harness.CheckDeviceStatus(deviceId, v1alpha1.DeviceSummaryStatusOnline)
+			_, err := harness.CheckDeviceStatus(deviceId, v1beta1.DeviceSummaryStatusOnline)
 			Expect(err).ToNot(HaveOccurred())
 
 			nextRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
@@ -35,11 +35,11 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 
 			deviceImage := harness.FullImageRef(fmt.Sprintf("%s/flightctl-device", harness.RegistryEndpoint()), "v6")
 
-			var osImageSpec = v1alpha1.DeviceOsSpec{
+			var osImageSpec = v1beta1.DeviceOsSpec{
 				Image: deviceImage,
 			}
 
-			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
 				device.Spec.Os = &osImageSpec
 
 				GinkgoWriter.Printf("Updating %s with Os image\n", osImageSpec)
@@ -53,11 +53,11 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 			nextRenderedVersion, err = harness.PrepareNextDeviceVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())
 
-			inlineConfigProviderSpec := v1alpha1.ConfigProviderSpec{}
+			inlineConfigProviderSpec := v1beta1.ConfigProviderSpec{}
 			err = inlineConfigProviderSpec.FromInlineConfigProviderSpec(inlineConfigValid)
 			Expect(err).ToNot(HaveOccurred())
 
-			deviceSpecConfig := []v1alpha1.ConfigProviderSpec{inlineConfigProviderSpec}
+			deviceSpecConfig := []v1beta1.ConfigProviderSpec{inlineConfigProviderSpec}
 
 			err = harness.UpdateDeviceConfigWithRetries(deviceId, deviceSpecConfig, nextRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
@@ -79,7 +79,7 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 			err = inlineConfigProviderSpec.FromInlineConfigProviderSpec(inlineConfigValid2)
 			Expect(err).ToNot(HaveOccurred())
 
-			deviceSpecConfig = []v1alpha1.ConfigProviderSpec{inlineConfigProviderSpec}
+			deviceSpecConfig = []v1beta1.ConfigProviderSpec{inlineConfigProviderSpec}
 
 			err = harness.UpdateDeviceConfigWithRetries(deviceId, deviceSpecConfig, nextRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
@@ -97,7 +97,7 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 			err = inlineConfigProviderSpec.FromInlineConfigProviderSpec(inlineConfigValid3)
 			Expect(err).ToNot(HaveOccurred())
 
-			deviceSpecConfig = []v1alpha1.ConfigProviderSpec{inlineConfigProviderSpec}
+			deviceSpecConfig = []v1beta1.ConfigProviderSpec{inlineConfigProviderSpec}
 
 			err = harness.UpdateDeviceConfigWithRetries(deviceId, deviceSpecConfig, nextRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
@@ -106,12 +106,12 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 			nextRenderedVersion, err = harness.PrepareNextDeviceVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())
 
-			inlineConfigProviderSpec1 := v1alpha1.ConfigProviderSpec{}
+			inlineConfigProviderSpec1 := v1beta1.ConfigProviderSpec{}
 
 			err = inlineConfigProviderSpec1.FromInlineConfigProviderSpec(inlineConfigValid)
 			Expect(err).ToNot(HaveOccurred())
 
-			configProviderSpec := []v1alpha1.ConfigProviderSpec{inlineConfigProviderSpec, inlineConfigProviderSpec1}
+			configProviderSpec := []v1beta1.ConfigProviderSpec{inlineConfigProviderSpec, inlineConfigProviderSpec1}
 
 			err = harness.UpdateDeviceConfigWithRetries(deviceId, configProviderSpec, nextRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
@@ -127,7 +127,7 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 			nextRenderedVersion, err = harness.PrepareNextDeviceVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())
 
-			deviceSpecConfig = []v1alpha1.ConfigProviderSpec{}
+			deviceSpecConfig = []v1beta1.ConfigProviderSpec{}
 
 			err = harness.UpdateDeviceConfigWithRetries(deviceId, deviceSpecConfig, nextRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
@@ -144,12 +144,12 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 			err = inlineConfigProviderSpec.FromInlineConfigProviderSpec(inlineConfigValidLifecycle)
 			Expect(err).ToNot(HaveOccurred())
 
-			deviceSpecConfig = []v1alpha1.ConfigProviderSpec{inlineConfigProviderSpec}
+			deviceSpecConfig = []v1beta1.ConfigProviderSpec{inlineConfigProviderSpec}
 
 			deviceSpec.Os = &osImageSpec
 			deviceSpec.Config = &deviceSpecConfig
 
-			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
 				device.Spec = &deviceSpec
 				GinkgoWriter.Printf("Updating %s with a new image and configuration %s\n", deviceId, inlineConfigLifecycleName)
 			})
@@ -190,7 +190,7 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 
 			configSpec, err := newHookSpec()
 			Expect(err).ToNot(HaveOccurred())
-			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
 				device.Spec.Config = &configSpec
 			})
 			Expect(err).ToNot(HaveOccurred())
@@ -206,7 +206,7 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 				content: firstFileContents,
 			})
 			Expect(err).ToNot(HaveOccurred())
-			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
 				device.Spec.Config = &configSpec
 			})
 			Expect(err).ToNot(HaveOccurred())
@@ -271,7 +271,7 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 				content: secondFileContents,
 			})
 			Expect(err).ToNot(HaveOccurred())
-			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
+			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
 				device.Spec.Config = &configSpec
 			})
 			Expect(err).ToNot(HaveOccurred())
@@ -346,7 +346,7 @@ var (
 	inlineConfigLifecycleName = "lifecycle-hook-inline-config"
 	rootUser                  = "root"
 	hookPath                  = "/etc/flightctl/hooks.d/afterupdating/custom-hook.yaml"
-	deviceSpec                v1alpha1.DeviceSpec
+	deviceSpec                v1beta1.DeviceSpec
 	noPasswordLoginError      = "user@localhost: Permission denied"
 	tooManyAuthFailuresError  = "Too many authentication failures"
 )
@@ -387,37 +387,37 @@ var templateHook = `
 
 var mode = 0644
 var modePointer = &mode
-var inlineConfigSpec = v1alpha1.FileSpec{
+var inlineConfigSpec = v1beta1.FileSpec{
 	Path:    inlinePath,
 	Mode:    modePointer,
 	Content: sshdConfigurationContent,
 }
 
 // inlineConfigValid is an instance of InlineConfigProviderSpec configured with inline file specifications and a provider name.
-var inlineConfigValid = v1alpha1.InlineConfigProviderSpec{
-	Inline: []v1alpha1.FileSpec{inlineConfigSpec},
+var inlineConfigValid = v1beta1.InlineConfigProviderSpec{
+	Inline: []v1beta1.FileSpec{inlineConfigSpec},
 	Name:   inlineConfigName,
 }
 
 // inlineConfigSpec2 defines a file specification for creating a custom SSH server configuration file at a specified path.
-var inlineConfigSpec2 = v1alpha1.FileSpec{
+var inlineConfigSpec2 = v1beta1.FileSpec{
 	Path:    inlinePath,
 	Mode:    modePointer,
 	Content: sshdConfigurationContent2,
 }
-var inlineConfigValid2 = v1alpha1.InlineConfigProviderSpec{
-	Inline: []v1alpha1.FileSpec{inlineConfigSpec2},
+var inlineConfigValid2 = v1beta1.InlineConfigProviderSpec{
+	Inline: []v1beta1.FileSpec{inlineConfigSpec2},
 	Name:   inlineConfigName,
 }
 
-var inlineConfigSpec3 = v1alpha1.FileSpec{
+var inlineConfigSpec3 = v1beta1.FileSpec{
 	Path:    hookPath,
 	Mode:    modePointer,
 	Content: sshdHook,
 }
 
-var inlineConfigValid3 = v1alpha1.InlineConfigProviderSpec{
-	Inline: []v1alpha1.FileSpec{inlineConfigSpec3},
+var inlineConfigValid3 = v1beta1.InlineConfigProviderSpec{
+	Inline: []v1beta1.FileSpec{inlineConfigSpec3},
 	Name:   inlineConfigName3,
 }
 
@@ -441,40 +441,40 @@ var (
 )
 
 // inlineConfigSpec4 defines a file specification with path, mode, and content for the after-updating lifecycle hook.
-var inlineConfigSpec4 = v1alpha1.FileSpec{
+var inlineConfigSpec4 = v1beta1.FileSpec{
 	Path:    afterUpdatingPath,
 	Mode:    modePointer,
 	Content: afterUpdatingContent,
 }
-var inlineConfigSpec5 = v1alpha1.FileSpec{
+var inlineConfigSpec5 = v1beta1.FileSpec{
 	Path:    afterRebootingPath,
 	Mode:    modePointer,
 	Content: afterRebootingContent,
 }
-var inlineConfigSpec6 = v1alpha1.FileSpec{
+var inlineConfigSpec6 = v1beta1.FileSpec{
 	Path:    beforeRebootingPath,
 	Mode:    modePointer,
 	Content: beforeRebootingContent,
 }
-var inlineConfigSpec7 = v1alpha1.FileSpec{
+var inlineConfigSpec7 = v1beta1.FileSpec{
 	Path:    beforeUpdatingPath,
 	Mode:    modePointer,
 	Content: beforeUpdatingContent,
 }
 
-var inlineTemplateHookConfigSpec = v1alpha1.FileSpec{
+var inlineTemplateHookConfigSpec = v1beta1.FileSpec{
 	Path:    hookPath,
 	Mode:    modePointer,
 	Content: templateHook,
 }
 
-var inlineConfigValidLifecycle = v1alpha1.InlineConfigProviderSpec{
-	Inline: []v1alpha1.FileSpec{inlineConfigSpec4, inlineConfigSpec5, inlineConfigSpec6, inlineConfigSpec7},
+var inlineConfigValidLifecycle = v1beta1.InlineConfigProviderSpec{
+	Inline: []v1beta1.FileSpec{inlineConfigSpec4, inlineConfigSpec5, inlineConfigSpec6, inlineConfigSpec7},
 	Name:   inlineConfigLifecycleName,
 }
 
-var inlineConfigValidTemplateLifeCycle = v1alpha1.InlineConfigProviderSpec{
-	Inline: []v1alpha1.FileSpec{inlineTemplateHookConfigSpec},
+var inlineConfigValidTemplateLifeCycle = v1beta1.InlineConfigProviderSpec{
+	Inline: []v1beta1.FileSpec{inlineTemplateHookConfigSpec},
 	Name:   inlineConfigLifecycleName,
 }
 
@@ -488,14 +488,14 @@ type templateSpecProviderArgs struct {
 	content string
 }
 
-func newHookSpec(args ...templateSpecProviderArgs) ([]v1alpha1.ConfigProviderSpec, error) {
-	var hookInlineSpec v1alpha1.ConfigProviderSpec
+func newHookSpec(args ...templateSpecProviderArgs) ([]v1beta1.ConfigProviderSpec, error) {
+	var hookInlineSpec v1beta1.ConfigProviderSpec
 	err := hookInlineSpec.FromInlineConfigProviderSpec(inlineConfigValidTemplateLifeCycle)
 	if err != nil {
 		return nil, err
 	}
 
-	spec := []v1alpha1.ConfigProviderSpec{
+	spec := []v1beta1.ConfigProviderSpec{
 		hookInlineSpec,
 	}
 
@@ -510,17 +510,17 @@ func newHookSpec(args ...templateSpecProviderArgs) ([]v1alpha1.ConfigProviderSpe
 	return spec, nil
 }
 
-func newTemplateSpecProvider(name string, path string, contents string) (v1alpha1.ConfigProviderSpec, error) {
-	var inlineResourceFileSpec = v1alpha1.FileSpec{
+func newTemplateSpecProvider(name string, path string, contents string) (v1beta1.ConfigProviderSpec, error) {
+	var inlineResourceFileSpec = v1beta1.FileSpec{
 		Path:    fmt.Sprintf("%s/%s", templateHookDirectory, path),
 		Mode:    modePointer,
 		Content: contents,
 	}
-	inlineSpec := v1alpha1.InlineConfigProviderSpec{
-		Inline: []v1alpha1.FileSpec{inlineResourceFileSpec},
+	inlineSpec := v1beta1.InlineConfigProviderSpec{
+		Inline: []v1beta1.FileSpec{inlineResourceFileSpec},
 		Name:   name,
 	}
-	var provider v1alpha1.ConfigProviderSpec
+	var provider v1beta1.ConfigProviderSpec
 	err := provider.FromInlineConfigProviderSpec(inlineSpec)
 	if err != nil {
 		return provider, err

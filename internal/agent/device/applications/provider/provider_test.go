@@ -3,7 +3,7 @@ package provider
 import (
 	"testing"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/api/common"
@@ -24,7 +24,7 @@ func TestExtractQuadletTargets(t *testing.T) {
 		expectedCount  int
 		expectedRefs   []string
 		expectedType   dependency.OCIType
-		expectedPolicy v1alpha1.ImagePullPolicy
+		expectedPolicy v1beta1.ImagePullPolicy
 	}{
 		{
 			name: "container with single OCI image",
@@ -36,7 +36,7 @@ func TestExtractQuadletTargets(t *testing.T) {
 			expectedCount:  1,
 			expectedRefs:   []string{"nginx:latest"},
 			expectedType:   dependency.OCITypeImage,
-			expectedPolicy: v1alpha1.PullIfNotPresent,
+			expectedPolicy: v1beta1.PullIfNotPresent,
 		},
 		{
 			name: "container with multiple mount images",
@@ -48,7 +48,7 @@ func TestExtractQuadletTargets(t *testing.T) {
 			expectedCount:  2,
 			expectedRefs:   []string{"alpine:3.18", "busybox:latest"},
 			expectedType:   dependency.OCITypeImage,
-			expectedPolicy: v1alpha1.PullIfNotPresent,
+			expectedPolicy: v1beta1.PullIfNotPresent,
 		},
 		{
 			name: "container with both main image and mount images",
@@ -61,7 +61,7 @@ func TestExtractQuadletTargets(t *testing.T) {
 			expectedCount:  3,
 			expectedRefs:   []string{"quay.io/myapp:v1.0", "redis:7", "postgres:15"},
 			expectedType:   dependency.OCITypeImage,
-			expectedPolicy: v1alpha1.PullIfNotPresent,
+			expectedPolicy: v1beta1.PullIfNotPresent,
 		},
 		{
 			name: "container with pull secret",
@@ -73,7 +73,7 @@ func TestExtractQuadletTargets(t *testing.T) {
 			expectedCount:  1,
 			expectedRefs:   []string{"private-registry.io/secure-app:latest"},
 			expectedType:   dependency.OCITypeImage,
-			expectedPolicy: v1alpha1.PullIfNotPresent,
+			expectedPolicy: v1beta1.PullIfNotPresent,
 		},
 		{
 			name: "empty quadlet with no images",
@@ -84,7 +84,7 @@ func TestExtractQuadletTargets(t *testing.T) {
 			expectedCount:  0,
 			expectedRefs:   []string{},
 			expectedType:   dependency.OCITypeImage,
-			expectedPolicy: v1alpha1.PullIfNotPresent,
+			expectedPolicy: v1beta1.PullIfNotPresent,
 		},
 		{
 			name: "image reference to quadlet file should be filtered",
@@ -96,7 +96,7 @@ func TestExtractQuadletTargets(t *testing.T) {
 			expectedCount:  0,
 			expectedRefs:   []string{},
 			expectedType:   dependency.OCITypeImage,
-			expectedPolicy: v1alpha1.PullIfNotPresent,
+			expectedPolicy: v1beta1.PullIfNotPresent,
 		},
 		{
 			name: "mount images ending with .image should be filtered",
@@ -108,7 +108,7 @@ func TestExtractQuadletTargets(t *testing.T) {
 			expectedCount:  0,
 			expectedRefs:   []string{},
 			expectedType:   dependency.OCITypeImage,
-			expectedPolicy: v1alpha1.PullIfNotPresent,
+			expectedPolicy: v1beta1.PullIfNotPresent,
 		},
 		{
 			name: "mix of OCI images and .image references",
@@ -121,7 +121,7 @@ func TestExtractQuadletTargets(t *testing.T) {
 			expectedCount:  3,
 			expectedRefs:   []string{"nginx:alpine", "redis:7", "postgres:15"},
 			expectedType:   dependency.OCITypeImage,
-			expectedPolicy: v1alpha1.PullIfNotPresent,
+			expectedPolicy: v1beta1.PullIfNotPresent,
 		},
 		{
 			name: "nil quad.Image with valid mount images",
@@ -134,7 +134,7 @@ func TestExtractQuadletTargets(t *testing.T) {
 			expectedCount:  2,
 			expectedRefs:   []string{"alpine:latest", "busybox:latest"},
 			expectedType:   dependency.OCITypeImage,
-			expectedPolicy: v1alpha1.PullIfNotPresent,
+			expectedPolicy: v1beta1.PullIfNotPresent,
 		},
 		{
 			name: "valid quad.Image with empty MountImages slice",
@@ -147,7 +147,7 @@ func TestExtractQuadletTargets(t *testing.T) {
 			expectedCount:  1,
 			expectedRefs:   []string{"ubuntu:22.04"},
 			expectedType:   dependency.OCITypeImage,
-			expectedPolicy: v1alpha1.PullIfNotPresent,
+			expectedPolicy: v1beta1.PullIfNotPresent,
 		},
 		{
 			name: "nil pullSecret should work fine",
@@ -160,7 +160,7 @@ func TestExtractQuadletTargets(t *testing.T) {
 			expectedCount:  2,
 			expectedRefs:   []string{"fedora:39", "alpine:3.18"},
 			expectedType:   dependency.OCITypeImage,
-			expectedPolicy: v1alpha1.PullIfNotPresent,
+			expectedPolicy: v1beta1.PullIfNotPresent,
 		},
 	}
 

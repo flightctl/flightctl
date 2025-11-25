@@ -9,10 +9,22 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func InitLogs() *logrus.Logger {
+// InitLogs creates and configures a logger with the specified level.
+// If no level is provided, defaults to "info".
+func InitLogs(level ...string) *logrus.Logger {
 	log := logrus.New()
-
 	log.SetReportCaller(true)
+
+	logLevel := "info"
+	if len(level) > 0 && level[0] != "" {
+		logLevel = level[0]
+	}
+
+	parsedLevel, err := logrus.ParseLevel(logLevel)
+	if err != nil {
+		parsedLevel = logrus.InfoLevel
+	}
+	log.SetLevel(parsedLevel)
 
 	return log
 }
@@ -20,10 +32,6 @@ func InitLogs() *logrus.Logger {
 // WithReqIDFromCtx create logger with request id from the context, request id is set by middleware.RequestID
 func WithReqIDFromCtx(ctx context.Context, inner logrus.FieldLogger) logrus.FieldLogger {
 	return inner.WithField("request_id", middleware.GetReqID(ctx))
-}
-
-func WithReqID(reqID string, inner logrus.FieldLogger) logrus.FieldLogger {
-	return inner.WithField("request_id", reqID)
 }
 
 // PrefixLogger is wrapper around a logrus with an optional prefix

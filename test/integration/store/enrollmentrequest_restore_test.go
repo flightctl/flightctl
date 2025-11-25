@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/config/ca"
 	"github.com/flightctl/flightctl/internal/consts"
@@ -142,16 +142,16 @@ var _ = Describe("EnrollmentRequest store restore operations", func() {
 			}
 
 			// Create the enrollment requests using the service layer
-			_, st := serviceHandler.CreateEnrollmentRequest(ctx, nonApprovedER)
+			_, st := serviceHandler.CreateEnrollmentRequest(ctx, orgId, nonApprovedER)
 			Expect(st.Code).To(BeEquivalentTo(201))
 
-			_, st = serviceHandler.CreateEnrollmentRequest(ctx, toApproveER)
+			_, st = serviceHandler.CreateEnrollmentRequest(ctx, orgId, toApproveER)
 			Expect(st.Code).To(BeEquivalentTo(201))
 
 			// Create the enrollment request using the service layer with internal request context
 			// This will preserve annotations since fromAPI=false for internal requests
 			internalCtx := context.WithValue(ctx, consts.InternalRequestCtxKey, true)
-			_, st = serviceHandler.CreateEnrollmentRequest(internalCtx, alreadyAnnotatedER)
+			_, st = serviceHandler.CreateEnrollmentRequest(internalCtx, orgId, alreadyAnnotatedER)
 			Expect(st.Code).To(BeEquivalentTo(201))
 
 			// Verify the annotation was preserved
@@ -161,7 +161,7 @@ var _ = Describe("EnrollmentRequest store restore operations", func() {
 			By(fmt.Sprintf("Debug: Created ER annotations: %+v", createdER.Metadata.Annotations))
 
 			// Approve one enrollment request using the service layer
-			mappedIdentity := identity.NewMappedIdentity("testuser", "testuser", []*model.Organization{}, []string{}, nil)
+			mappedIdentity := identity.NewMappedIdentity("testuser", "testuser", []*model.Organization{}, map[string][]string{}, false, nil)
 			ctxApproval := context.WithValue(ctx, consts.MappedIdentityCtxKey, mappedIdentity)
 
 			approval := api.EnrollmentRequestApproval{
@@ -169,7 +169,7 @@ var _ = Describe("EnrollmentRequest store restore operations", func() {
 				Labels:   &map[string]string{"approved": "true"},
 			}
 
-			_, st = serviceHandler.ApproveEnrollmentRequest(ctxApproval, toApproveName, approval)
+			_, st = serviceHandler.ApproveEnrollmentRequest(ctxApproval, orgId, toApproveName, approval)
 			Expect(st.Code).To(BeEquivalentTo(200))
 
 			// Debug: Print all enrollment requests and their status
@@ -235,7 +235,7 @@ var _ = Describe("EnrollmentRequest store restore operations", func() {
 				},
 			}
 
-			_, st := serviceHandler.CreateEnrollmentRequest(ctx, nilStatusER)
+			_, st := serviceHandler.CreateEnrollmentRequest(ctx, orgId, nilStatusER)
 			Expect(st.Code).To(BeEquivalentTo(201))
 
 			// Call PrepareEnrollmentRequestsAfterRestore
@@ -268,7 +268,7 @@ var _ = Describe("EnrollmentRequest store restore operations", func() {
 				},
 			}
 
-			_, st := serviceHandler.CreateEnrollmentRequest(ctx, nilApprovalER)
+			_, st := serviceHandler.CreateEnrollmentRequest(ctx, orgId, nilApprovalER)
 			Expect(st.Code).To(BeEquivalentTo(201))
 
 			// Call PrepareEnrollmentRequestsAfterRestore
@@ -301,11 +301,11 @@ var _ = Describe("EnrollmentRequest store restore operations", func() {
 				},
 			}
 
-			_, st := serviceHandler.CreateEnrollmentRequest(ctx, toApproveER)
+			_, st := serviceHandler.CreateEnrollmentRequest(ctx, orgId, toApproveER)
 			Expect(st.Code).To(BeEquivalentTo(201))
 
 			// Approve the enrollment request using the service layer
-			mappedIdentity := identity.NewMappedIdentity("testuser", "testuser", []*model.Organization{}, []string{}, nil)
+			mappedIdentity := identity.NewMappedIdentity("testuser", "testuser", []*model.Organization{}, map[string][]string{}, false, nil)
 			ctxApproval := context.WithValue(ctx, consts.MappedIdentityCtxKey, mappedIdentity)
 
 			approval := api.EnrollmentRequestApproval{
@@ -313,7 +313,7 @@ var _ = Describe("EnrollmentRequest store restore operations", func() {
 				Labels:   &map[string]string{"approved": "true"},
 			}
 
-			_, st = serviceHandler.ApproveEnrollmentRequest(ctxApproval, toApproveName, approval)
+			_, st = serviceHandler.ApproveEnrollmentRequest(ctxApproval, orgId, toApproveName, approval)
 			Expect(st.Code).To(BeEquivalentTo(200))
 
 			// Call PrepareEnrollmentRequestsAfterRestore

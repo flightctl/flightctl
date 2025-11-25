@@ -4,7 +4,7 @@ import (
 	"context"
 	"net/http"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/org"
 )
@@ -14,6 +14,22 @@ type NilAuth struct{}
 
 func (NilAuth) CheckPermission(_ context.Context, _ string, _ string) (bool, error) {
 	return true, nil
+}
+
+func (NilAuth) GetUserPermissions(_ context.Context) (*api.PermissionList, error) {
+	// When auth is disabled, return all permissions
+	return &api.PermissionList{
+		Permissions: []api.Permission{
+			{
+				Resource:   "*",
+				Operations: []string{"*"},
+			},
+		},
+	}, nil
+}
+
+func (NilAuth) IsEnabled() bool {
+	return true
 }
 
 func (NilAuth) ValidateToken(_ context.Context, _ string) error {
@@ -27,10 +43,12 @@ func (NilAuth) GetIdentity(_ context.Context, _ string) (Identity, error) {
 			Name:         org.DefaultExternalID,
 			IsInternalID: true,
 			ID:           org.DefaultID.String(),
+			Roles:        []string{api.ExternalRoleAdmin}, // Admin role for nil auth
 		},
 	}
 
-	identity := common.NewBaseIdentity("nil-auth-user", "nil-auth-uid", organizations, []string{api.RoleAdmin})
+	identity := common.NewBaseIdentity("nil-auth-user", "nil-auth-uid", organizations)
+	identity.SetSuperAdmin(true) // Nil auth users are super admins
 	return identity, nil
 }
 

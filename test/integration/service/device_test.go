@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
@@ -19,13 +19,11 @@ import (
 var _ = Describe("Device Application Status Events Integration Tests", func() {
 	var (
 		suite *ServiceTestSuite
-		orgId uuid.UUID
 	)
 
 	BeforeEach(func() {
 		suite = NewServiceTestSuite()
 		suite.Setup()
-		orgId = store.NullOrgId // Use the same orgId as the service
 	})
 
 	AfterEach(func() {
@@ -39,7 +37,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			SortColumns: []store.SortColumn{store.SortByCreatedAt, store.SortByName},
 			SortOrder:   lo.ToPtr(store.SortDesc),
 		}
-		eventList, err := suite.Store.Event().List(suite.Ctx, orgId, listParams)
+		eventList, err := suite.Store.Event().List(suite.Ctx, suite.OrgID, listParams)
 		Expect(err).ToNot(HaveOccurred())
 
 		var matchingEvents []api.Event
@@ -88,7 +86,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 
 			// Create the device through the service (this simulates device enrollment)
-			_, status := suite.Handler.CreateDevice(suite.Ctx, device)
+			_, status := suite.Handler.CreateDevice(suite.Ctx, suite.OrgID, device)
 			if status.Code != 201 {
 				GinkgoWriter.Printf("CreateDevice failed with status: %+v\n", status)
 			}
@@ -151,10 +149,9 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 				},
 			}
 
-			// Update device status through the service (this simulates agent reporting back)
-			resultDevice, status := suite.Handler.ReplaceDeviceStatus(suite.Ctx, deviceName, updatedDevice)
+			// Update device status to reflect the error state
+			resultDevice, status := suite.Handler.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, deviceName, updatedDevice)
 			Expect(status.Code).To(Equal(int32(200)))
-			Expect(resultDevice).ToNot(BeNil())
 			Expect(resultDevice.Status.ApplicationsSummary.Status).To(Equal(api.ApplicationsSummaryStatusError))
 
 			// Step 3: Verify that DeviceApplicationError event was generated
@@ -196,7 +193,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 
 			// Create the device through the service
-			_, status := suite.Handler.CreateDevice(suite.Ctx, device)
+			_, status := suite.Handler.CreateDevice(suite.Ctx, suite.OrgID, device)
 			Expect(status.Code).To(Equal(int32(201)))
 
 			// Step 2: Agent reports back with applications in Healthy state
@@ -252,7 +249,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 
 			// Update device status through the service
-			resultDevice, status := suite.Handler.ReplaceDeviceStatus(suite.Ctx, deviceName, updatedDevice)
+			resultDevice, status := suite.Handler.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, deviceName, updatedDevice)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(resultDevice).ToNot(BeNil())
 			Expect(resultDevice.Status.ApplicationsSummary.Status).To(Equal(api.ApplicationsSummaryStatusHealthy))
@@ -279,7 +276,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 
 			// Create the device
-			_, status := suite.Handler.CreateDevice(suite.Ctx, device)
+			_, status := suite.Handler.CreateDevice(suite.Ctx, suite.OrgID, device)
 			Expect(status.Code).To(Equal(int32(201)))
 
 			// Step 2: Set the device status with critical resource status
@@ -302,7 +299,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 
 			// Update the device status
-			_, status = suite.Handler.ReplaceDeviceStatus(suite.Ctx, deviceName, deviceWithCriticalResources)
+			_, status = suite.Handler.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, deviceName, deviceWithCriticalResources)
 			Expect(status.Code).To(Equal(int32(200)))
 
 			// Verify events were generated for CPU and Memory issues but NOT for Disk
@@ -344,7 +341,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 
 			// Update the device
-			_, status = suite.Handler.ReplaceDeviceStatus(suite.Ctx, deviceName, deviceWithHealthyResources)
+			_, status = suite.Handler.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, deviceName, deviceWithHealthyResources)
 			Expect(status.Code).To(Equal(int32(200)))
 
 			// Verify events were generated for CPU and Memory recovery
@@ -382,7 +379,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 
 			// Create the device through the service
-			_, status := suite.Handler.CreateDevice(suite.Ctx, device)
+			_, status := suite.Handler.CreateDevice(suite.Ctx, suite.OrgID, device)
 			Expect(status.Code).To(Equal(int32(201)))
 
 			// Step 2: Agent reports back with warning resource status
@@ -431,7 +428,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 
 			// Update device status through the service
-			resultDevice, status := suite.Handler.ReplaceDeviceStatus(suite.Ctx, deviceName, updatedDevice)
+			resultDevice, status := suite.Handler.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, deviceName, updatedDevice)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(resultDevice).ToNot(BeNil())
 
@@ -458,7 +455,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 
 			// Create the device
-			_, status := suite.Handler.CreateDevice(suite.Ctx, device)
+			_, status := suite.Handler.CreateDevice(suite.Ctx, suite.OrgID, device)
 			Expect(status.Code).To(Equal(int32(201)))
 
 			// Step 2: First set device status to unknown explicitly
@@ -508,7 +505,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 
 			// Set the device status to unknown
-			resultDevice, err := suite.Handler.UpdateDevice(suite.Ctx, deviceName, deviceWithUnknownStatus, nil)
+			resultDevice, err := suite.Handler.UpdateDevice(suite.Ctx, suite.OrgID, deviceName, deviceWithUnknownStatus, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(resultDevice).ToNot(BeNil())
 			Expect(resultDevice.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusUnknown))
@@ -564,7 +561,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 
 			// Update the device status to online
-			resultDevice, status = suite.Handler.ReplaceDeviceStatus(suite.Ctx, deviceName, deviceWithOnlineStatus)
+			resultDevice, status = suite.Handler.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, deviceName, deviceWithOnlineStatus)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(resultDevice).ToNot(BeNil())
 			Expect(resultDevice.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusOnline))
@@ -594,7 +591,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 
 			// Create the device
-			_, status := suite.Handler.CreateDevice(suite.Ctx, device)
+			_, status := suite.Handler.CreateDevice(suite.Ctx, suite.OrgID, device)
 			Expect(status.Code).To(Equal(int32(201)))
 
 			// Step 2: First set device status to online
@@ -643,14 +640,14 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 
 			// Update the device status to online first
-			_, status = suite.Handler.ReplaceDeviceStatus(suite.Ctx, deviceName, deviceWithOnlineStatus)
+			_, status = suite.Handler.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, deviceName, deviceWithOnlineStatus)
 			Expect(status.Code).To(Equal(int32(200)))
 
 			// Step 3: Set the paused annotation first
 			pausedAnnotations := map[string]string{
 				api.DeviceAnnotationConflictPaused: "true",
 			}
-			err := suite.Store.Device().UpdateAnnotations(suite.Ctx, orgId, deviceName, pausedAnnotations, nil)
+			err := suite.Store.Device().UpdateAnnotations(suite.Ctx, suite.OrgID, deviceName, pausedAnnotations, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Step 4: Update device status (the service should automatically set it to paused due to the annotation)
@@ -699,7 +696,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 
 			// Update the device status - service should automatically set it to paused
-			resultDevice, status := suite.Handler.ReplaceDeviceStatus(suite.Ctx, deviceName, deviceWithUpdatedStatus)
+			resultDevice, status := suite.Handler.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, deviceName, deviceWithUpdatedStatus)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(resultDevice).ToNot(BeNil())
 			Expect(resultDevice.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusConflictPaused))
@@ -732,12 +729,12 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 
 			// Create the device through the service
-			createdDevice, status := suite.Handler.CreateDevice(suite.Ctx, *device)
+			createdDevice, status := suite.Handler.CreateDevice(suite.Ctx, suite.OrgID, *device)
 			Expect(status.Code).To(Equal(int32(201)))
 			Expect(createdDevice).ToNot(BeNil())
 
 			// Get initial event count
-			initialEvents, err := suite.Store.Event().List(suite.Ctx, orgId, store.ListParams{Limit: 1000})
+			initialEvents, err := suite.Store.Event().List(suite.Ctx, suite.OrgID, store.ListParams{Limit: 1000})
 			Expect(err).ToNot(HaveOccurred())
 			initialEventCount := len(initialEvents.Items)
 
@@ -749,7 +746,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Check that SystemRestored event was created
-			finalEvents, err := suite.Store.Event().List(suite.Ctx, orgId, store.ListParams{Limit: 1000})
+			finalEvents, err := suite.Store.Event().List(suite.Ctx, suite.OrgID, store.ListParams{Limit: 1000})
 			Expect(err).ToNot(HaveOccurred())
 
 			// Should have at least one more event than before
@@ -786,7 +783,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 
 			// Create the device through the service (this will create Device events)
-			createdDevice, status := suite.Handler.CreateDevice(suite.Ctx, *device)
+			createdDevice, status := suite.Handler.CreateDevice(suite.Ctx, suite.OrgID, *device)
 			Expect(status.Code).To(Equal(int32(201)))
 			Expect(createdDevice).ToNot(BeNil())
 
@@ -803,7 +800,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 				Limit:         lo.ToPtr(int32(100)),
 			}
 
-			eventList, status := suite.Handler.ListEvents(suite.Ctx, params)
+			eventList, status := suite.Handler.ListEvents(suite.Ctx, suite.OrgID, params)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(eventList).ToNot(BeNil())
 
@@ -831,7 +828,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 				Limit:         lo.ToPtr(int32(100)),
 			}
 
-			deviceEventList, status := suite.Handler.ListEvents(suite.Ctx, deviceParams)
+			deviceEventList, status := suite.Handler.ListEvents(suite.Ctx, suite.OrgID, deviceParams)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(deviceEventList).ToNot(BeNil())
 
@@ -866,11 +863,11 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 				}
 
 				// Create the device
-				_, status := suite.Handler.CreateDevice(suite.Ctx, device)
+				_, status := suite.Handler.CreateDevice(suite.Ctx, suite.OrgID, device)
 				Expect(status.Code).To(Equal(int32(201)))
 
 				// Add conflictPaused annotation directly via store (simulating conflict detection)
-				err := suite.Store.Device().UpdateAnnotations(suite.Ctx, orgId, deviceName,
+				err := suite.Store.Device().UpdateAnnotations(suite.Ctx, suite.OrgID, deviceName,
 					map[string]string{api.DeviceAnnotationConflictPaused: "true"}, nil)
 				Expect(err).ToNot(HaveOccurred())
 
@@ -879,12 +876,12 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 				request := api.DeviceResumeRequest{
 					FieldSelector: &fieldSelector,
 				}
-				response, status := suite.Handler.ResumeDevices(suite.Ctx, request)
+				response, status := suite.Handler.ResumeDevices(suite.Ctx, suite.OrgID, request)
 				Expect(status.Code).To(Equal(int32(200)))
 				Expect(response.ResumedDevices).To(Equal(1))
 
 				// Verify the annotation was removed
-				resumedDevice, err := suite.Store.Device().Get(suite.Ctx, orgId, deviceName)
+				resumedDevice, err := suite.Store.Device().Get(suite.Ctx, suite.OrgID, deviceName)
 				Expect(err).ToNot(HaveOccurred())
 				if resumedDevice.Metadata.Annotations != nil {
 					_, hasAnnotation := (*resumedDevice.Metadata.Annotations)[api.DeviceAnnotationConflictPaused]
@@ -897,7 +894,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 				request := api.DeviceResumeRequest{
 					FieldSelector: &fieldSelector,
 				}
-				response, status := suite.Handler.ResumeDevices(suite.Ctx, request)
+				response, status := suite.Handler.ResumeDevices(suite.Ctx, suite.OrgID, request)
 				Expect(status.Code).To(Equal(int32(200)))
 				Expect(response.ResumedDevices).To(Equal(0))
 			})
@@ -917,7 +914,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 				}
 
 				// Create the device
-				_, status := suite.Handler.CreateDevice(suite.Ctx, device)
+				_, status := suite.Handler.CreateDevice(suite.Ctx, suite.OrgID, device)
 				Expect(status.Code).To(Equal(int32(201)))
 
 				// Resume the device (should be idempotent)
@@ -925,7 +922,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 				request := api.DeviceResumeRequest{
 					FieldSelector: &fieldSelector,
 				}
-				response, status := suite.Handler.ResumeDevices(suite.Ctx, request)
+				response, status := suite.Handler.ResumeDevices(suite.Ctx, suite.OrgID, request)
 				Expect(status.Code).To(Equal(int32(200)))
 				Expect(response.ResumedDevices).To(Equal(0)) // No devices were actually resumed since none had the annotation
 			})
@@ -959,11 +956,11 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 					}
 
 					// Create the device
-					_, status := suite.Handler.CreateDevice(suite.Ctx, device)
+					_, status := suite.Handler.CreateDevice(suite.Ctx, suite.OrgID, device)
 					Expect(status.Code).To(Equal(int32(201)))
 
 					// Add conflictPaused annotation
-					err := suite.Store.Device().UpdateAnnotations(suite.Ctx, orgId, deviceName,
+					err := suite.Store.Device().UpdateAnnotations(suite.Ctx, suite.OrgID, deviceName,
 						map[string]string{api.DeviceAnnotationConflictPaused: "true"}, nil)
 					Expect(err).ToNot(HaveOccurred())
 				}
@@ -974,13 +971,13 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 					LabelSelector: &labelSelector,
 				}
 
-				response, status := suite.Handler.ResumeDevices(suite.Ctx, request)
+				response, status := suite.Handler.ResumeDevices(suite.Ctx, suite.OrgID, request)
 				Expect(status.Code).To(Equal(int32(200)))
 				Expect(response.ResumedDevices).To(Equal(3))
 
 				// Verify all devices had annotations removed
 				for _, deviceName := range deviceNames {
-					device, err := suite.Store.Device().Get(suite.Ctx, orgId, deviceName)
+					device, err := suite.Store.Device().Get(suite.Ctx, suite.OrgID, deviceName)
 					Expect(err).ToNot(HaveOccurred())
 					if device.Metadata.Annotations != nil {
 						_, hasAnnotation := (*device.Metadata.Annotations)[api.DeviceAnnotationConflictPaused]
@@ -995,7 +992,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 					LabelSelector: &labelSelector,
 				}
 
-				response, status := suite.Handler.ResumeDevices(suite.Ctx, request)
+				response, status := suite.Handler.ResumeDevices(suite.Ctx, suite.OrgID, request)
 				Expect(status.Code).To(Equal(int32(200)))
 				Expect(response.ResumedDevices).To(Equal(0))
 			})
@@ -1006,7 +1003,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 					LabelSelector: &labelSelector,
 				}
 
-				_, status := suite.Handler.ResumeDevices(suite.Ctx, request)
+				_, status := suite.Handler.ResumeDevices(suite.Ctx, suite.OrgID, request)
 				Expect(status.Code).To(Equal(int32(400))) // Bad Request
 			})
 		})
@@ -1056,7 +1053,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 				}
 
 				// Create the device
-				_, status := suite.Handler.CreateDevice(suite.Ctx, device)
+				_, status := suite.Handler.CreateDevice(suite.Ctx, suite.OrgID, device)
 				Expect(status.Code).To(Equal(int32(201)))
 
 				// Update the device status after creation since CreateDevice might override it
@@ -1079,18 +1076,18 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 				}
 
 				// Save the updated device using ReplaceDeviceStatus for status updates
-				resultDevice, updateStatus := suite.Handler.ReplaceDeviceStatus(suite.Ctx, d.name, updatedDevice)
+				resultDevice, updateStatus := suite.Handler.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, d.name, updatedDevice)
 				Expect(updateStatus.Code).To(Equal(int32(200)))
 				Expect(resultDevice).ToNot(BeNil())
 
 				// Add renderedVersion annotation if specified (including empty string)
 				if d.renderedVersion != "" {
-					err := suite.Store.Device().UpdateAnnotations(suite.Ctx, orgId, d.name,
+					err := suite.Store.Device().UpdateAnnotations(suite.Ctx, suite.OrgID, d.name,
 						map[string]string{api.DeviceAnnotationRenderedVersion: d.renderedVersion}, nil)
 					Expect(err).ToNot(HaveOccurred())
 				} else if d.renderedVersion == "" && !strings.HasPrefix(d.name, "missing-annotation-device") {
 					// For empty string, we need to explicitly set it to distinguish from missing annotation
-					err := suite.Store.Device().UpdateAnnotations(suite.Ctx, orgId, d.name,
+					err := suite.Store.Device().UpdateAnnotations(suite.Ctx, suite.OrgID, d.name,
 						map[string]string{api.DeviceAnnotationRenderedVersion: ""}, nil)
 					Expect(err).ToNot(HaveOccurred())
 				}
@@ -1138,7 +1135,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 
 				// Test counting by the specified groups
 				params := api.ListDevicesParams{}
-				result, status := suite.Handler.CountDevicesByLabels(suite.Ctx, params, nil, testCase.groupBy)
+				result, status := suite.Handler.CountDevicesByLabels(suite.Ctx, suite.OrgID, params, nil, testCase.groupBy)
 
 				Expect(status.Code).To(Equal(int32(200)))
 
@@ -1428,11 +1425,11 @@ var _ = Describe("Device LastSeen Integration Tests", func() {
 			}
 
 			// Create the device
-			_, status := suite.Handler.CreateDevice(suite.Ctx, device)
+			_, status := suite.Handler.CreateDevice(suite.Ctx, suite.OrgID, device)
 			Expect(status.Code).To(Equal(int32(201)))
 
 			// Get the last seen timestamp
-			lastSeen, status := suite.Handler.GetDeviceLastSeen(suite.Ctx, deviceName)
+			lastSeen, status := suite.Handler.GetDeviceLastSeen(suite.Ctx, suite.OrgID, deviceName)
 			Expect(status.Code).To(Equal(int32(204)))
 			Expect(lastSeen).To(BeNil())
 		})
@@ -1454,7 +1451,7 @@ var _ = Describe("Device LastSeen Integration Tests", func() {
 			}
 
 			// Create the device
-			_, status := suite.Handler.CreateDevice(suite.Ctx, device)
+			_, status := suite.Handler.CreateDevice(suite.Ctx, suite.OrgID, device)
 			Expect(status.Code).To(Equal(int32(201)))
 
 			// Set the last seen timestamp directly in the database
@@ -1463,7 +1460,7 @@ var _ = Describe("Device LastSeen Integration Tests", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Get the last seen timestamp
-			lastSeen, status := suite.Handler.GetDeviceLastSeen(suite.Ctx, deviceName)
+			lastSeen, status := suite.Handler.GetDeviceLastSeen(suite.Ctx, suite.OrgID, deviceName)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(lastSeen).ToNot(BeNil())
 			Expect(lastSeen.LastSeen).ToNot(BeZero())
@@ -1474,7 +1471,7 @@ var _ = Describe("Device LastSeen Integration Tests", func() {
 			nonExistentDevice := "non-existent-device-" + uuid.New().String()
 
 			// Try to get last seen for non-existent device
-			lastSeen, status := suite.Handler.GetDeviceLastSeen(suite.Ctx, nonExistentDevice)
+			lastSeen, status := suite.Handler.GetDeviceLastSeen(suite.Ctx, suite.OrgID, nonExistentDevice)
 			Expect(status.Code).To(Equal(int32(404)))
 			Expect(lastSeen).To(BeNil())
 		})
@@ -1499,11 +1496,11 @@ var _ = Describe("Device LastSeen Integration Tests", func() {
 			}
 
 			// Create the device
-			_, status := suite.Handler.CreateDevice(suite.Ctx, device)
+			_, status := suite.Handler.CreateDevice(suite.Ctx, suite.OrgID, device)
 			Expect(status.Code).To(Equal(int32(201)))
 
 			// Get the last seen timestamp
-			lastSeen, status := suite.Handler.GetDeviceLastSeen(suite.Ctx, deviceName)
+			lastSeen, status := suite.Handler.GetDeviceLastSeen(suite.Ctx, suite.OrgID, deviceName)
 			Expect(status.Code).To(Equal(int32(204)))
 			Expect(lastSeen).To(BeNil())
 		})
@@ -1527,7 +1524,7 @@ var _ = Describe("Device LastSeen Integration Tests", func() {
 					},
 				},
 			}
-			_, status := suite.Handler.CreateDevice(ctx, device1)
+			_, status := suite.Handler.CreateDevice(ctx, suite.OrgID, device1)
 			Expect(status.Code).To(Equal(int32(201)))
 
 			// Set up times first to avoid timing issues
@@ -1550,7 +1547,7 @@ var _ = Describe("Device LastSeen Integration Tests", func() {
 					},
 				},
 			}
-			_, status = suite.Handler.CreateDevice(ctx, device2)
+			_, status = suite.Handler.CreateDevice(ctx, suite.OrgID, device2)
 			Expect(status.Code).To(Equal(int32(201)))
 
 			// Set device2 with old lastSeen directly in the database
@@ -1558,9 +1555,9 @@ var _ = Describe("Device LastSeen Integration Tests", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Debug: Verify the devices were actually created with the correct lastSeen values
-			device1LastSeen, status1 := suite.Handler.GetDeviceLastSeen(ctx, device1Name)
+			device1LastSeen, status1 := suite.Handler.GetDeviceLastSeen(ctx, suite.OrgID, device1Name)
 			Expect(status1.Code).To(Equal(int32(200)))
-			device2LastSeen, status2 := suite.Handler.GetDeviceLastSeen(ctx, device2Name)
+			device2LastSeen, status2 := suite.Handler.GetDeviceLastSeen(ctx, suite.OrgID, device2Name)
 			Expect(status2.Code).To(Equal(int32(200)))
 
 			fmt.Printf("DEBUG: Device1 actual lastSeen: %v\n", device1LastSeen)
@@ -1578,7 +1575,7 @@ var _ = Describe("Device LastSeen Integration Tests", func() {
 				Limit: lo.ToPtr(int32(100)),
 			}
 
-			deviceList, status := suite.Handler.ListDisconnectedDevices(ctx, params, cutoffTime)
+			deviceList, status := suite.Handler.ListDisconnectedDevices(ctx, suite.OrgID, params, cutoffTime)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(deviceList).ToNot(BeNil())
 
@@ -1626,7 +1623,7 @@ var _ = Describe("Device LastSeen Integration Tests", func() {
 					},
 				},
 			}
-			_, status := suite.Handler.CreateDevice(suite.Ctx, device)
+			_, status := suite.Handler.CreateDevice(suite.Ctx, suite.OrgID, device)
 			Expect(status.Code).To(Equal(int32(201)))
 
 			// Test field selector: get devices with lastSeen after a specific time
@@ -1636,7 +1633,7 @@ var _ = Describe("Device LastSeen Integration Tests", func() {
 				Limit: lo.ToPtr(int32(100)),
 			}
 
-			deviceList, status := suite.Handler.ListDisconnectedDevices(suite.Ctx, params, cutoffTime)
+			deviceList, status := suite.Handler.ListDisconnectedDevices(suite.Ctx, suite.OrgID, params, cutoffTime)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(deviceList).ToNot(BeNil())
 

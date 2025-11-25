@@ -4,7 +4,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
@@ -14,27 +14,27 @@ func TestExists(t *testing.T) {
 	require := require.New(t)
 	tests := []struct {
 		name          string
-		f             v1alpha1.FileSpec
+		f             v1beta1.FileSpec
 		pathExists    bool
 		expectedError error
 	}{
 		{
 			name: "file exists",
-			f: v1alpha1.FileSpec{
+			f: v1beta1.FileSpec{
 				Path: "exists",
 			},
 			pathExists: true,
 		},
 		{
 			name: "file doesn't exist",
-			f: v1alpha1.FileSpec{
+			f: v1beta1.FileSpec{
 				Path: "doesn't_exists",
 			},
 			pathExists: false,
 		},
 		{
 			name: "path is dir",
-			f: v1alpha1.FileSpec{
+			f: v1beta1.FileSpec{
 				Path: "/",
 			},
 			pathExists:    false,
@@ -74,9 +74,9 @@ func TestIsUpToDate(t *testing.T) {
 	tests := []struct {
 		name string
 		// current is the current managed file instance
-		current *v1alpha1.FileSpec
+		current *v1beta1.FileSpec
 		// desired is the desired managed file
-		desired      *v1alpha1.FileSpec
+		desired      *v1beta1.FileSpec
 		wantUpToDate bool
 	}{
 		{
@@ -136,8 +136,8 @@ func TestIsUpToDate(t *testing.T) {
 	}
 }
 
-func createTestFile(path, data string, mode, user, group int) *v1alpha1.FileSpec {
-	return &v1alpha1.FileSpec{
+func createTestFile(path, data string, mode, user, group int) *v1beta1.FileSpec {
+	return &v1beta1.FileSpec{
 		Path:    path,
 		User:    lo.ToPtr(strconv.Itoa(user)),
 		Group:   lo.ToPtr(strconv.Itoa(group)),

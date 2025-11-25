@@ -171,36 +171,6 @@ After installation, {{ .Name }} will be available in your cluster.
 2. **UI Access**: If enabled, the web UI will be accessible through the configured route/ingress
 3. **Agent Connection**: Devices can connect using the agent endpoint
 
-### Configuration Examples
-
-```yaml
-# Example: ACM integration
-global:
-  target: "acm"
-  auth:
-    type: "k8s"
-    k8s:
-      externalOpenShiftApiUrl: "https://api.cluster.example.com:6443"
-
-# Example: OpenShift standalone deployment
-global:
-  target: "standalone"
-  baseDomain: "apps.cluster.example.com"
-  auth:
-    type: "k8s"
-    k8s:
-      externalOpenShiftApiUrl: "https://api.cluster.example.com:6443"
-
-# Example: Kubernetes standalone deployment
-global:
-  target: "standalone"
-  baseDomain: "flightctl.example.com"
-  auth:
-    type: "k8s"
-    k8s:
-      apiUrl: "https://kubernetes.default.svc"
-```
-
 ### TLS/SSL Certificate Configuration
 
 When using external PostgreSQL databases with TLS/SSL, Flight Control supports multiple certificate management options:
@@ -220,11 +190,12 @@ kubectl create secret generic postgres-client-certs \
 ```yaml
 # Configure in values.yaml
 db:
-  external: "enabled"
-  hostname: "postgres.example.com"
-  sslmode: "verify-ca"
-  sslConfigMap: "postgres-ca-cert"     # ConfigMap containing CA certificate
-  sslSecret: "postgres-client-certs"   # Secret containing client certificates
+  type: "external"
+  external:
+    hostname: "postgres.example.com"
+    sslmode: "verify-ca"
+    tlsConfigMapName: "postgres-ca-cert"     # ConfigMap containing CA certificate
+    tlsSecretName: "postgres-client-certs"   # Secret containing client certificates
 ```
 
 **TLS/SSL Modes:**

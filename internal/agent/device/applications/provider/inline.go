@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -18,51 +18,80 @@ type inlineProvider struct {
 	readWriter fileio.ReadWriter
 	log        *log.PrefixLogger
 	spec       *ApplicationSpec
+	handler    appTypeHandler
 }
 
-func newInline(log *log.PrefixLogger, podman *client.Podman, spec *v1alpha1.ApplicationProviderSpec, readWriter fileio.ReadWriter) (*inlineProvider, error) {
+func newInlineHandler(appType v1beta1.AppType, name string, rw fileio.ReadWriter, spec *v1beta1.InlineApplicationProviderSpec, l *log.PrefixLogger, vm VolumeManager) (appTypeHandler, error) {
+	switch appType {
+	case v1beta1.AppTypeQuadlet:
+		qb := &quadletHandler{
+			name:        name,
+			rw:          rw,
+			specVolumes: lo.FromPtr(spec.Volumes),
+		}
+		qb.volumeProvider = func() ([]*Volume, error) {
+			return extractQuadletVolumesFromSpec(qb.ID(), spec.Inline)
+		}
+		return qb, nil
+	case v1beta1.AppTypeCompose:
+		return &composeHandler{
+			name:        name,
+			rw:          rw,
+			log:         l,
+			vm:          vm,
+			specVolumes: lo.FromPtr(spec.Volumes),
+		}, nil
+	default:
+		return nil, fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
+	}
+}
+
+func newInline(log *log.PrefixLogger, podman *client.Podman, spec *v1beta1.ApplicationProviderSpec, readWriter fileio.ReadWriter) (*inlineProvider, error) {
 	provider, err := spec.AsInlineApplicationProviderSpec()
 	if err != nil {
 		return nil, fmt.Errorf("getting provider spec:%w", err)
 	}
-
 	appName := lo.FromPtr(spec.Name)
+	appType := lo.FromPtr(spec.AppType)
 	volumeManager, err := NewVolumeManager(log, appName, provider.Volumes)
 	if err != nil {
 		return nil, err
 	}
 
-	p := &inlineProvider{
+	handler, err := newInlineHandler(appType, appName, readWriter, &provider, log, volumeManager)
+	if err != nil {
+		return nil, fmt.Errorf("constructing inline app handler: %w", err)
+	}
+	volumes, err := handler.Volumes()
+	if err != nil {
+		return nil, fmt.Errorf("getting volumes: %w", err)
+	}
+
+	volumeManager.AddVolumes(appName, volumes)
+
+	return &inlineProvider{
 		log:        log,
 		podman:     podman,
 		readWriter: readWriter,
+		handler:    handler,
 		spec: &ApplicationSpec{
 			Name:           appName,
-			AppType:        lo.FromPtr(spec.AppType),
+			AppType:        appType,
 			EnvVars:        lo.FromPtr(spec.EnvVars),
 			Embedded:       false,
 			InlineProvider: &provider,
 			Volume:         volumeManager,
+			Path:           handler.AppPath(),
+			ID:             handler.ID(),
 		},
-	}
-
-	path, err := pathFromAppType(p.spec.AppType, p.spec.Name, p.spec.Embedded)
-	if err != nil {
-		return nil, fmt.Errorf("getting app path: %w", err)
-	}
-
-	p.spec.Path = path
-	p.spec.ID = client.NewComposeID(p.spec.Name)
-
-	return p, nil
-
+	}, nil
 }
 
 func (p *inlineProvider) Verify(ctx context.Context) error {
 	if err := validateEnvVars(p.spec.EnvVars); err != nil {
 		return fmt.Errorf("%w: validating env vars: %w", errors.ErrInvalidSpec, err)
 	}
-	if err := ensureDependenciesFromAppType(p.spec.AppType); err != nil {
+	if err := ensureDependenciesFromAppType(p.handler); err != nil {
 		return fmt.Errorf("%w: ensuring app dependencies: %w", errors.ErrNoRetry, err)
 	}
 
@@ -86,19 +115,7 @@ func (p *inlineProvider) Verify(ctx context.Context) error {
 		return err
 	}
 
-	switch p.spec.AppType {
-	case v1alpha1.AppTypeCompose:
-		if err := ensureCompose(p.readWriter, tmpAppPath); err != nil {
-			return fmt.Errorf("ensuring compose: %w", err)
-		}
-	case v1alpha1.AppTypeQuadlet:
-		if err := ensureQuadlet(p.readWriter, tmpAppPath); err != nil {
-			return fmt.Errorf("ensuring quadlet: %w", err)
-		}
-	default:
-		return fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, p.spec.AppType)
-	}
-	return nil
+	return p.handler.Verify(ctx, tmpAppPath)
 }
 
 func (p *inlineProvider) Install(ctx context.Context) error {
@@ -110,23 +127,10 @@ func (p *inlineProvider) Install(ctx context.Context) error {
 		return fmt.Errorf("writing env file: %w", err)
 	}
 
-	switch p.spec.AppType {
-	case v1alpha1.AppTypeCompose:
-		if err := writeComposeOverride(p.log, p.spec.Path, p.spec.Volume, p.readWriter, client.ComposeOverrideFilename); err != nil {
-			return fmt.Errorf("writing override file %w", err)
-		}
-	case v1alpha1.AppTypeQuadlet:
-		if err := installQuadlet(p.readWriter, p.spec.Path, p.spec.ID); err != nil {
-			return fmt.Errorf("installing quadlet: %w", err)
-		}
-	default:
-		return fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, p.spec.AppType)
-	}
-
-	return nil
+	return p.handler.Install(ctx)
 }
 
-func (p *inlineProvider) writeInlineContent(appPath string, contents []v1alpha1.ApplicationContent) error {
+func (p *inlineProvider) writeInlineContent(appPath string, contents []v1beta1.ApplicationContent) error {
 	if err := p.readWriter.MkdirAll(appPath, fileio.DefaultDirectoryPermissions); err != nil {
 		return fmt.Errorf("creating directory: %w", err)
 	}
@@ -147,10 +151,10 @@ func (p *inlineProvider) writeInlineContent(appPath string, contents []v1alpha1.
 }
 
 func (p *inlineProvider) Remove(ctx context.Context) error {
-	if err := p.readWriter.RemoveAll(p.spec.Path); err != nil {
+	if err := p.readWriter.RemoveAll(p.handler.AppPath()); err != nil {
 		return fmt.Errorf("removing application: %w", err)
 	}
-	return nil
+	return p.handler.Remove(ctx)
 }
 
 func (p *inlineProvider) Name() string {

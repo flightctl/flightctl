@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/auth/authn"
 	"github.com/flightctl/flightctl/internal/config"
@@ -49,7 +49,8 @@ var _ = Describe("Auth Config Integration Tests", func() {
 			Username:      "test-admin",
 			UID:           uuid.New().String(),
 			Organizations: []*model.Organization{testOrg},
-			Roles:         []string{string(api.RoleAdmin)},
+			OrgRoles:      map[string][]string{"*": {string(api.RoleAdmin)}},
+			SuperAdmin:    true, // Super admin required for creating auth providers with dynamic org assignment
 		}
 		ctx = context.WithValue(ctx, consts.MappedIdentityCtxKey, adminIdentity)
 
@@ -153,7 +154,7 @@ var _ = Describe("Auth Config Integration Tests", func() {
 			// Create an AuthProvider resource via service
 			provider := util.ReturnTestAuthProvider(store.NullOrgId, "test-dynamic-provider", "https://accounts.google.com", nil)
 
-			_, createStatus := serviceHandler.CreateAuthProvider(ctx, provider)
+			_, createStatus := serviceHandler.CreateAuthProvider(ctx, store.NullOrgId, provider)
 			Expect(createStatus.Code).To(Equal(int32(201)))
 
 			// Trigger sync to load dynamic providers
@@ -202,15 +203,15 @@ var _ = Describe("Auth Config Integration Tests", func() {
 		It("should return multiple AuthProviders after creation via service handler", func() {
 			// Create multiple AuthProvider resources via service
 			provider1 := util.ReturnTestAuthProvider(store.NullOrgId, "provider-1", "https://accounts.google.com", nil)
-			_, createStatus := serviceHandler.CreateAuthProvider(ctx, provider1)
+			_, createStatus := serviceHandler.CreateAuthProvider(ctx, store.NullOrgId, provider1)
 			Expect(createStatus.Code).To(Equal(int32(201)))
 
 			provider2 := util.ReturnTestAuthProvider(store.NullOrgId, "provider-2", "https://login.microsoftonline.com", nil)
-			_, createStatus = serviceHandler.CreateAuthProvider(ctx, provider2)
+			_, createStatus = serviceHandler.CreateAuthProvider(ctx, store.NullOrgId, provider2)
 			Expect(createStatus.Code).To(Equal(int32(201)))
 
 			provider3 := util.ReturnTestAuthProvider(store.NullOrgId, "provider-3", "https://auth.example.com", nil)
-			_, createStatus = serviceHandler.CreateAuthProvider(ctx, provider3)
+			_, createStatus = serviceHandler.CreateAuthProvider(ctx, store.NullOrgId, provider3)
 			Expect(createStatus.Code).To(Equal(int32(201)))
 
 			// Trigger sync
@@ -242,7 +243,7 @@ var _ = Describe("Auth Config Integration Tests", func() {
 		It("should support both OIDC and OAuth2 dynamic providers via service handler", func() {
 			// Create an OIDC provider
 			oidcProvider := util.ReturnTestAuthProvider(store.NullOrgId, "oidc-provider", "https://oidc.example.com", nil)
-			_, createStatus := serviceHandler.CreateAuthProvider(ctx, oidcProvider)
+			_, createStatus := serviceHandler.CreateAuthProvider(ctx, store.NullOrgId, oidcProvider)
 			Expect(createStatus.Code).To(Equal(int32(201)))
 
 			// Create an OAuth2 provider
@@ -283,7 +284,7 @@ var _ = Describe("Auth Config Integration Tests", func() {
 			err = oauth2Provider.Spec.FromOAuth2ProviderSpec(oauth2Spec)
 			Expect(err).ToNot(HaveOccurred())
 
-			_, createStatus = serviceHandler.CreateAuthProvider(ctx, oauth2Provider)
+			_, createStatus = serviceHandler.CreateAuthProvider(ctx, store.NullOrgId, oauth2Provider)
 			Expect(createStatus.Code).To(Equal(int32(201)))
 
 			// Trigger sync
@@ -340,7 +341,7 @@ var _ = Describe("Auth Config Integration Tests", func() {
 		It("should update config when AuthProvider is modified via service handler", func() {
 			// Create initial provider
 			provider := util.ReturnTestAuthProvider(store.NullOrgId, "update-test-provider", "https://initial.example.com", nil)
-			_, createStatus := serviceHandler.CreateAuthProvider(ctx, provider)
+			_, createStatus := serviceHandler.CreateAuthProvider(ctx, store.NullOrgId, provider)
 			Expect(createStatus.Code).To(Equal(int32(201)))
 
 			// Sync and verify initial state
@@ -368,7 +369,7 @@ var _ = Describe("Auth Config Integration Tests", func() {
 			Expect(dynamicSpec.Issuer).To(Equal("https://initial.example.com"))
 
 			// Update the provider with new issuer
-			updatedProvider, getStatus := serviceHandler.GetAuthProvider(ctx, "update-test-provider")
+			updatedProvider, getStatus := serviceHandler.GetAuthProvider(ctx, store.NullOrgId, "update-test-provider")
 			Expect(getStatus.Code).To(Equal(int32(200)))
 
 			oidcSpec, err := updatedProvider.Spec.AsOIDCProviderSpec()
@@ -377,7 +378,7 @@ var _ = Describe("Auth Config Integration Tests", func() {
 			err = updatedProvider.Spec.FromOIDCProviderSpec(oidcSpec)
 			Expect(err).ToNot(HaveOccurred())
 
-			_, replaceStatus := serviceHandler.ReplaceAuthProvider(ctx, "update-test-provider", *updatedProvider)
+			_, replaceStatus := serviceHandler.ReplaceAuthProvider(ctx, store.NullOrgId, "update-test-provider", *updatedProvider)
 			Expect(replaceStatus.Code).To(Equal(int32(200)))
 
 			// Sync again and verify updated state
@@ -408,11 +409,11 @@ var _ = Describe("Auth Config Integration Tests", func() {
 		It("should remove provider from config when AuthProvider is deleted via service handler", func() {
 			// Create two providers
 			provider1 := util.ReturnTestAuthProvider(store.NullOrgId, "delete-test-1", "https://provider1.example.com", nil)
-			_, createStatus := serviceHandler.CreateAuthProvider(ctx, provider1)
+			_, createStatus := serviceHandler.CreateAuthProvider(ctx, store.NullOrgId, provider1)
 			Expect(createStatus.Code).To(Equal(int32(201)))
 
 			provider2 := util.ReturnTestAuthProvider(store.NullOrgId, "delete-test-2", "https://provider2.example.com", nil)
-			_, createStatus = serviceHandler.CreateAuthProvider(ctx, provider2)
+			_, createStatus = serviceHandler.CreateAuthProvider(ctx, store.NullOrgId, provider2)
 			Expect(createStatus.Code).To(Equal(int32(201)))
 
 			// Sync and verify both present
@@ -425,7 +426,7 @@ var _ = Describe("Auth Config Integration Tests", func() {
 			Expect(len(*config.Providers)).To(Equal(3), "Should have 1 static + 2 dynamic")
 
 			// Delete one provider
-			deleteStatus := serviceHandler.DeleteAuthProvider(ctx, "delete-test-1")
+			deleteStatus := serviceHandler.DeleteAuthProvider(ctx, store.NullOrgId, "delete-test-1")
 			Expect(deleteStatus.Code).To(Equal(int32(200)))
 
 			// Sync and verify only one dynamic remains
@@ -452,7 +453,7 @@ var _ = Describe("Auth Config Integration Tests", func() {
 			// Create provider with all fields
 			provider := util.ReturnTestAuthProvider(store.NullOrgId, "full-provider", "https://full.example.com", nil)
 
-			_, createStatus := serviceHandler.CreateAuthProvider(ctx, provider)
+			_, createStatus := serviceHandler.CreateAuthProvider(ctx, store.NullOrgId, provider)
 			Expect(createStatus.Code).To(Equal(int32(201)))
 
 			err := multiAuth.LoadAllAuthProviders(ctx)
@@ -485,7 +486,7 @@ var _ = Describe("Auth Config Integration Tests", func() {
 		It("should handle disabled AuthProviders via service handler", func() {
 			// Create enabled provider
 			enabledProvider := util.ReturnTestAuthProvider(store.NullOrgId, "enabled-provider", "https://enabled.example.com", nil)
-			_, createStatus := serviceHandler.CreateAuthProvider(ctx, enabledProvider)
+			_, createStatus := serviceHandler.CreateAuthProvider(ctx, store.NullOrgId, enabledProvider)
 			Expect(createStatus.Code).To(Equal(int32(201)))
 
 			// Create disabled provider
@@ -496,25 +497,40 @@ var _ = Describe("Auth Config Integration Tests", func() {
 			err = disabledProvider.Spec.FromOIDCProviderSpec(oidcSpec)
 			Expect(err).ToNot(HaveOccurred())
 
-			_, createStatus = serviceHandler.CreateAuthProvider(ctx, disabledProvider)
+			_, createStatus = serviceHandler.CreateAuthProvider(ctx, store.NullOrgId, disabledProvider)
 			Expect(createStatus.Code).To(Equal(int32(201)))
 
-			// Sync - disabled providers should be filtered out during creation
+			// Sync - disabled providers should be filtered out from auth config
 			err = multiAuth.LoadAllAuthProviders(ctx)
 			Expect(err).ToNot(HaveOccurred())
 
+			// Get auth config - should only contain enabled providers
 			authConfig := multiAuth.GetAuthConfig()
 			config, status := serviceHandler.GetAuthConfig(ctx, authConfig)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(config.Providers).ToNot(BeNil())
 
-			// Only enabled provider should be in the config
-			// (Note: implementation may include disabled providers, adjust test as needed)
+			// Verify that enabled provider is present and disabled provider is NOT present
+			var foundEnabled, foundDisabled bool
 			for _, p := range *config.Providers {
-				if p.Metadata.Name != nil && *p.Metadata.Name == "disabled-provider" {
-					Skip("Test needs adjustment based on whether disabled providers are included")
+				if p.Metadata.Name != nil {
+					if *p.Metadata.Name == "enabled-provider" {
+						foundEnabled = true
+					}
+					if *p.Metadata.Name == "disabled-provider" {
+						foundDisabled = true
+					}
 				}
 			}
+
+			Expect(foundEnabled).To(BeTrue(), "Enabled provider should be in auth config")
+			Expect(foundDisabled).To(BeFalse(), "Disabled provider should NOT be in auth config")
+
+			// For authproviders list API, both should be present
+			providerList, listStatus := serviceHandler.ListAuthProviders(ctx, store.NullOrgId, api.ListAuthProvidersParams{})
+			Expect(listStatus.Code).To(Equal(int32(200)))
+			Expect(providerList).ToNot(BeNil())
+			Expect(len(providerList.Items)).To(Equal(2), "Both enabled and disabled providers should be in list API")
 		})
 	})
 
@@ -522,7 +538,7 @@ var _ = Describe("Auth Config Integration Tests", func() {
 		It("should correctly return static and dynamic providers with default provider set via service handler", func() {
 			// Add a dynamic provider
 			provider := util.ReturnTestAuthProvider(store.NullOrgId, "dynamic-test", "https://dynamic.example.com", nil)
-			_, createStatus := serviceHandler.CreateAuthProvider(ctx, provider)
+			_, createStatus := serviceHandler.CreateAuthProvider(ctx, store.NullOrgId, provider)
 			Expect(createStatus.Code).To(Equal(int32(201)))
 
 			err := multiAuth.LoadAllAuthProviders(ctx)
@@ -553,9 +569,9 @@ var _ = Describe("Auth Config Integration Tests", func() {
 			// Verify dynamic provider exists
 			Expect(dynamicProvider).ToNot(BeNil(), "Dynamic provider should be in config")
 
-			// Default provider should be set to the first provider alphabetically
+			// Default provider should be set to the first static provider
 			Expect(config.DefaultProvider).ToNot(BeNil())
-			Expect(*config.DefaultProvider).To(Equal("dynamic-test"), "Default provider should be dynamic-test (alphabetically first)")
+			Expect(*config.DefaultProvider).To(Equal("oidc"), "Default provider should be oidc (first static provider)")
 		})
 	})
 })

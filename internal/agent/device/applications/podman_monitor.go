@@ -13,12 +13,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -39,12 +40,13 @@ type PodmanMonitor struct {
 	listenerCloseChan chan struct{}
 	// lastEventTime tracks the timestamp at which the podman monitor should start listening to events for
 	lastEventTime string
-
+	// lastActionsSuccessTime tracks the last timestamp at which the podman monitor successfully executed events
+	lastActionsSuccessTime time.Time
 	// apps is a map of application ID to application.
 	apps    map[string]Application
 	actions []lifecycle.Action
 
-	handlers map[v1alpha1.AppType]lifecycle.ActionHandler
+	handlers map[v1beta1.AppType]lifecycle.ActionHandler
 	client   *client.Podman
 	rw       fileio.ReadWriter
 
@@ -54,20 +56,28 @@ type PodmanMonitor struct {
 func NewPodmanMonitor(
 	log *log.PrefixLogger,
 	podman *client.Podman,
-	systemd *client.Systemd,
+	systemdManager systemd.Manager,
 	bootTime string,
 	rw fileio.ReadWriter,
 ) *PodmanMonitor {
+	// don't fail for this. This is being parsed purely for informational reasons in the event something fails
+	startTime, err := time.Parse(time.RFC3339, bootTime)
+	if err != nil {
+		log.Errorf("Failed to parse bootTime %q: %v", bootTime, err)
+		startTime = time.Now()
+	}
 	return &PodmanMonitor{
 		client: podman,
-		handlers: map[v1alpha1.AppType]lifecycle.ActionHandler{
-			v1alpha1.AppTypeCompose: lifecycle.NewCompose(log, rw, podman),
-			v1alpha1.AppTypeQuadlet: lifecycle.NewQuadlet(log, rw, systemd),
+		handlers: map[v1beta1.AppType]lifecycle.ActionHandler{
+			v1beta1.AppTypeCompose:   lifecycle.NewCompose(log, rw, podman),
+			v1beta1.AppTypeQuadlet:   lifecycle.NewQuadlet(log, rw, systemdManager, podman),
+			v1beta1.AppTypeContainer: lifecycle.NewQuadlet(log, rw, systemdManager, podman),
 		},
-		apps:          make(map[string]Application),
-		lastEventTime: bootTime,
-		log:           log,
-		rw:            rw,
+		apps:                   make(map[string]Application),
+		lastEventTime:          bootTime,
+		lastActionsSuccessTime: startTime,
+		log:                    log,
+		rw:                     rw,
 	}
 }
 
@@ -213,6 +223,10 @@ func (m *PodmanMonitor) Stop() error {
 
 // Drain stops and removes all applications, then stops the monitor
 func (m *PodmanMonitor) Drain(ctx context.Context) error {
+	// Drain may be called as the result of an OS upgrade. Any applications added during that spec update
+	// may have "start" actions pending. Clear out any pending actions so that they can be replaced with "stops"
+	m.drainActions()
+
 	return m.drain(ctx)
 }
 
@@ -378,7 +392,20 @@ func (m *PodmanMonitor) getByID(appID string) (Application, bool) {
 	return nil, false
 }
 
+func (m *PodmanMonitor) addBatchTimeToCtx(ctx context.Context) context.Context {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return lifecycle.ContextWithBatchStartTime(ctx, m.lastActionsSuccessTime)
+}
+
+func (m *PodmanMonitor) updateLastSuccessTime(t time.Time) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.lastActionsSuccessTime = t
+}
+
 func (m *PodmanMonitor) ExecuteActions(ctx context.Context) error {
+	ctx = m.addBatchTimeToCtx(ctx)
 	actions := m.drainActions()
 	for i := range actions {
 		action := actions[i]
@@ -393,6 +420,7 @@ func (m *PodmanMonitor) ExecuteActions(ctx context.Context) error {
 		}
 	}
 
+	m.updateLastSuccessTime(time.Now())
 	if m.hasApps() {
 		if err := m.startMonitor(ctx); err != nil {
 			return fmt.Errorf("failed to start podman monitor: %w", err)
@@ -419,13 +447,13 @@ func (m *PodmanMonitor) drainActions() []lifecycle.Action {
 	return actions
 }
 
-func (m *PodmanMonitor) Status() ([]v1alpha1.DeviceApplicationStatus, v1alpha1.DeviceApplicationsSummaryStatus, error) {
+func (m *PodmanMonitor) Status() ([]v1beta1.DeviceApplicationStatus, v1beta1.DeviceApplicationsSummaryStatus, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	var errs []error
-	var summary v1alpha1.DeviceApplicationsSummaryStatus
-	statuses := make([]v1alpha1.DeviceApplicationStatus, 0, len(m.apps))
+	var summary v1beta1.DeviceApplicationsSummaryStatus
+	statuses := make([]v1beta1.DeviceApplicationStatus, 0, len(m.apps))
 	var unstarted []string
 	for _, app := range m.apps {
 		appStatus, appSummary, err := app.Status()
@@ -437,25 +465,25 @@ func (m *PodmanMonitor) Status() ([]v1alpha1.DeviceApplicationStatus, v1alpha1.D
 
 		// phases can get worse but not better
 		switch appSummary.Status {
-		case v1alpha1.ApplicationsSummaryStatusError:
-			summary.Status = v1alpha1.ApplicationsSummaryStatusError
+		case v1beta1.ApplicationsSummaryStatusError:
+			summary.Status = v1beta1.ApplicationsSummaryStatusError
 			summary.Info = nil
-		case v1alpha1.ApplicationsSummaryStatusDegraded:
+		case v1beta1.ApplicationsSummaryStatusDegraded:
 			// ensure we don't override Error status with Degraded
-			if summary.Status != v1alpha1.ApplicationsSummaryStatusError {
-				summary.Status = v1alpha1.ApplicationsSummaryStatusDegraded
+			if summary.Status != v1beta1.ApplicationsSummaryStatusError {
+				summary.Status = v1beta1.ApplicationsSummaryStatusDegraded
 				summary.Info = nil
 			}
-		case v1alpha1.ApplicationsSummaryStatusHealthy:
+		case v1beta1.ApplicationsSummaryStatusHealthy:
 			// ensure we don't override Error or Degraded status with Healthy
-			if summary.Status != v1alpha1.ApplicationsSummaryStatusError && summary.Status != v1alpha1.ApplicationsSummaryStatusDegraded {
-				summary.Status = v1alpha1.ApplicationsSummaryStatusHealthy
+			if summary.Status != v1beta1.ApplicationsSummaryStatusError && summary.Status != v1beta1.ApplicationsSummaryStatusDegraded {
+				summary.Status = v1beta1.ApplicationsSummaryStatusHealthy
 				summary.Info = nil
 			}
-		case v1alpha1.ApplicationsSummaryStatusUnknown:
+		case v1beta1.ApplicationsSummaryStatusUnknown:
 			unstarted = append(unstarted, app.Name())
-			if summary.Status != v1alpha1.ApplicationsSummaryStatusError {
-				summary.Status = v1alpha1.ApplicationsSummaryStatusDegraded
+			if summary.Status != v1beta1.ApplicationsSummaryStatusError {
+				summary.Status = v1beta1.ApplicationsSummaryStatusDegraded
 				summary.Info = lo.ToPtr("Not started: " + strings.Join(unstarted, ", "))
 			}
 		default:
@@ -464,7 +492,7 @@ func (m *PodmanMonitor) Status() ([]v1alpha1.DeviceApplicationStatus, v1alpha1.D
 	}
 
 	if len(statuses) == 0 {
-		summary.Status = v1alpha1.ApplicationsSummaryStatusUnknown
+		summary.Status = v1beta1.ApplicationsSummaryStatusUnknown
 	}
 
 	if len(errs) > 0 {

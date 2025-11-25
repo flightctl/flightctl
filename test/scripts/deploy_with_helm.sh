@@ -56,7 +56,7 @@ while true; do
   esac
 done
 
-SQL_ARG="--set db.image.image=${SQL_IMAGE} --set db.image.tag=${SQL_VERSION}"
+SQL_ARG="--set db.builtin.image.image=${SQL_IMAGE} --set db.builtin.image.tag=${SQL_VERSION}"
 KV_ARG="--set kv.image.image=${KV_IMAGE} --set kv.image.tag=${KV_VERSION}"
 
 # helm expects the namespaces to exist, and creating namespaces
@@ -181,20 +181,7 @@ LOGGED_IN=false
 # attempt to login, it could take some time for API to be stable
 for i in {1..60}; do
   if [ "$AUTH" ]; then
-    # K8s (and OpenShift) login: ServiceAccount token
-    kubectl -n flightctl-external get sa flightctl-user --context kind-kind >/dev/null 2>&1 || \
-      kubectl -n flightctl-external create sa flightctl-user --context kind-kind >/dev/null 2>&1 || true
-    # Bind to namespace-scoped Role 'flightctl-admin'
-    kubectl -n flightctl-external get rolebinding flightctl-user-binding --context kind-kind >/dev/null 2>&1 || \
-      kubectl -n flightctl-external create rolebinding flightctl-user-binding \
-        --role=flightctl-admin \
-        --serviceaccount=flightctl-external:flightctl-user --context kind-kind >/dev/null 2>&1 || true
-    # Bind to namespace-scoped Role 'org-default'
-    kubectl -n flightctl-external get rolebinding flightctl-user-org-binding --context kind-kind >/dev/null 2>&1 || \
-      kubectl -n flightctl-external create rolebinding flightctl-user-org-binding \
-        --role=org-default \
-        --serviceaccount=flightctl-external:flightctl-user --context kind-kind >/dev/null 2>&1 || true
-    TOKEN=$(kubectl -n flightctl-external create token flightctl-user --context kind-kind 2>/dev/null || true)
+    TOKEN=$(kubectl -n flightctl-external create token flightctl-admin --duration=8h --context kind-kind 2>/dev/null || true)
     if [ -n "$TOKEN" ] && ./bin/flightctl login -k https://api.${IP}.nip.io:${API_PORT} --token "$TOKEN"; then
       LOGGED_IN=true
       break

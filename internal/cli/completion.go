@@ -7,7 +7,7 @@ import (
 	"slices"
 	"strings"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/spf13/cobra"
 )
@@ -174,7 +174,7 @@ func (kna KindNameAutocomplete) ValidArgsFunction(cmd *cobra.Command, args []str
 
 	if len(args) == 0 {
 		kindLike, _, _ := strings.Cut(toComplete, "/")
-		if kind, err := ResourceKindFromString(kindLike); err == nil {
+		if kind, err := ResourceKindFromString(kindLike); err == nil && kna.isKindAllowed(kind) {
 			names := kna.getAutocompleteNames(cmd, kna.Options, kind)
 			if len(names) > 0 {
 				var out []string
@@ -199,7 +199,7 @@ func (kna KindNameAutocomplete) ValidArgsFunction(cmd *cobra.Command, args []str
 	existingNames := args[1:]
 
 	kind, err := ResourceKindFromString(args[0])
-	if err != nil {
+	if err != nil || !kna.isKindAllowed(kind) {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 	names := kna.getAutocompleteNames(cmd, kna.Options, kind)
@@ -269,7 +269,7 @@ func (kna *KindNameAutocomplete) getAutocompleteNames(cmd *cobra.Command, o Clie
 				}
 			}
 		case OrganizationKind:
-			resp, err := c.ListOrganizationsWithResponse(context.Background())
+			resp, err := c.ListOrganizationsWithResponse(context.Background(), &api.ListOrganizationsParams{})
 			if err == nil && resp.JSON200 != nil {
 				for _, er := range resp.JSON200.Items {
 					if er.Metadata.Name != nil {
@@ -310,4 +310,8 @@ func (kna *KindNameAutocomplete) getAutocompleteNames(cmd *cobra.Command, o Clie
 
 	}
 	return names
+}
+
+func (kna *KindNameAutocomplete) isKindAllowed(kind ResourceKind) bool {
+	return slices.Contains(kna.AllowedKinds, kind)
 }

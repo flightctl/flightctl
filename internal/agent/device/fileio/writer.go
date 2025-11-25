@@ -1,7 +1,9 @@
 package fileio
 
 import (
+	"archive/tar"
 	"bufio"
+	"compress/gzip"
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
@@ -15,7 +17,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/google/renameio"
 	"github.com/samber/lo"
 )
@@ -427,7 +429,7 @@ func (w *writer) preserveSymlinkWithinRoot(srcPath, dstPath string, opts *copyDi
 	return w.preserveSymlink(srcPath, dstPath)
 }
 
-func (w *writer) CreateManagedFile(file v1alpha1.FileSpec) (ManagedFile, error) {
+func (w *writer) CreateManagedFile(file v1beta1.FileSpec) (ManagedFile, error) {
 	return newManagedFile(file, w)
 }
 
@@ -500,7 +502,7 @@ func writeFileAtomically(fpath string, b []byte, dirMode, fileMode os.FileMode, 
 }
 
 // This is essentially ResolveNodeUidAndGid() from Ignition; XXX should dedupe
-func getFileOwnership(file v1alpha1.FileSpec) (int, int, error) {
+func getFileOwnership(file v1beta1.FileSpec) (int, int, error) {
 	uid, gid := 0, 0 // default to root
 	var err error
 	user := lo.FromPtr(file.User)
@@ -581,7 +583,7 @@ func lookupGID(group string) (int, error) {
 
 // DecodeContents decodes the content based on the encoding type and returns the
 // decoded content as a byte slice.
-func DecodeContent(content string, encoding *v1alpha1.EncodingType) ([]byte,
+func DecodeContent(content string, encoding *v1beta1.EncodingType) ([]byte,
 	error) {
 	if encoding == nil || *encoding == "plain" {
 		return []byte(content), nil
@@ -667,4 +669,75 @@ func AppendFile(w Writer, name string, data []byte, perm fs.FileMode, opts ...Fi
 	// Append data
 	_, err = file.Write(data)
 	return err
+}
+
+// UnpackTar unpacks a tar or tar.gz file to the destination directory.
+func UnpackTar(writer Writer, tarPath, destDir string) error {
+	// Open the tar file for streaming
+	file, err := os.Open(writer.PathFor(tarPath))
+	if err != nil {
+		return fmt.Errorf("opening tar file: %w", err)
+	}
+	defer file.Close()
+
+	var tarReader *tar.Reader
+	if strings.HasSuffix(tarPath, ".gz") || strings.HasSuffix(tarPath, ".tgz") {
+		gzr, err := gzip.NewReader(file)
+		if err != nil {
+			return fmt.Errorf("creating gzip reader: %w", err)
+		}
+		defer gzr.Close()
+		tarReader = tar.NewReader(gzr)
+	} else {
+		tarReader = tar.NewReader(file)
+	}
+
+	// Extract tar contents
+	for {
+		header, err := tarReader.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("reading tar header: %w", err)
+		}
+
+		cleanName := filepath.Clean(header.Name)
+		if strings.HasPrefix(cleanName, "..") || filepath.IsAbs(cleanName) {
+			return fmt.Errorf("invalid file path in tar: %s", header.Name)
+		}
+		destPath := filepath.Join(destDir, cleanName)
+
+		perm := header.FileInfo().Mode().Perm()
+
+		switch header.Typeflag {
+		case tar.TypeDir:
+			if perm == 0 {
+				perm = DefaultDirectoryPermissions
+			}
+			if err := writer.MkdirAll(destPath, perm); err != nil {
+				return fmt.Errorf("creating directory %s: %w", destPath, err)
+			}
+		case tar.TypeReg:
+			if perm == 0 {
+				perm = DefaultFilePermissions
+			}
+			if err := os.MkdirAll(filepath.Dir(writer.PathFor(destPath)), DefaultDirectoryPermissions); err != nil {
+				return fmt.Errorf("creating parent directory: %w", err)
+			}
+			destFile, err := os.OpenFile(writer.PathFor(destPath), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, perm)
+			if err != nil {
+				return fmt.Errorf("creating file %s: %w", destPath, err)
+			}
+			// Use LimitReader to prevent decompression bombs
+			limitedReader := io.LimitReader(tarReader, header.Size)
+			if _, err := io.Copy(destFile, limitedReader); err != nil { // #nosec G110
+				destFile.Close()
+				return fmt.Errorf("writing file %s: %w", destPath, err)
+			}
+			destFile.Close()
+		}
+	}
+
+	return nil
 }
