@@ -48,9 +48,9 @@ Flight Control automatically gathers system information from each device to help
 
 Here are key considerations when using this feature:
 
-* **What’s Collected**: By default, the agent collects basic system information such as hostname, kernel version, OS distribution, product identifiers, and default network interface details. Additional fields such as BIOS data, GPU info, memory, and CPU details can be enabled through configuration. See [configuring agent](configuring-agent.md) for a full list of supported fields and how to customize collection.
+* **What's Collected**: By default, the agent collects basic system information such as hostname, kernel version, OS distribution, product identifiers, and default network interface details. Additional fields such as BIOS data, GPU info, memory, and CPU details can be enabled through configuration. See [Installing the Agent](../installing/installing-agent.md) for a full list of supported fields and how to customize collection.
 
-* **Custom Fields**: You can configure the agent to collect additional custom attributes specific to your environment. These are displayed under `systemInfo.customInfo` and can be used for labeling or grouping devices. See [configuring agent](configuring-agent.md) for example usage.
+* **Custom Fields**: You can configure the agent to collect additional custom attributes specific to your environment. These are displayed under `systemInfo.customInfo` and can be used for labeling or grouping devices. See [Installing the Agent](../installing/installing-agent.md) for example usage.
 
 * **Collection Timing**: System info is collected during process bootstrap and then cached. It refreshes only if the agent restarts or receives a reload signal (SIGHUP). This avoids unnecessary overhead during regular status updates.
 
@@ -264,7 +264,7 @@ Flight Control currently supports the following image types and image references
 
 | Image Type | Image Reference |
 | ---------- | --------------- |
-| [bootc](https://github.com/containers/bootc) | An OCI image reference to a container registry. Example: `quay.io/flightctl-demos/rhel:9.5` |
+| [bootc](https://github.com/bootc-dev/bootc) | An OCI image reference to a container registry. Example: `quay.io/flightctl-demos/rhel:9.5` |
 
 During the process, the agent sends status updates to the service. You can monitor the update progress by viewing the device status.
 
@@ -544,7 +544,7 @@ The following table shows the application runtimes and formats supported by Flig
 > Requires `podman-compose` to be installed on the device.
 
 > [!NOTE]
-> Image downloads adhere to the `pull-timeout` [configuration](configuring-agent.md#agent-configyaml-configuration-file).
+> Image downloads adhere to the `pull-timeout` [configuration](../installing/installing-agent.md#agent-configuration).
 
 > [!TIP]
 > Short image names (e.g., `nginx`) are not supported. Use fully qualified references like `docker.io/nginx` to avoid ambiguity.
@@ -714,7 +714,7 @@ Volume images must follow the OCI artifact specification:
 > it will be placed into the existing directory using the file name in the name field for the layer.
 
 > [!NOTE]
-> Artifact downloads adhere to the `pull-timeout` [configuration](configuring-agent.md#agent-configyaml-configuration-file).
+> Artifact downloads adhere to the `pull-timeout` [configuration](../installing/installing-agent.md#agent-configuration).
 
 #### Device Requirements
 
@@ -737,11 +737,11 @@ The following device lifecycle hooks are supported:
 | `beforeRebooting` | This hook is called before the agent reboots the device. The agent will block the reboot until running the action has completed or timed out. If any action in this hook returns with failure, the agent will abort and roll back the update. |
 | `afterRebooting` | This hook is called when the agent first starts after a reboot. If any action in this hook returns with failure, the agent will report this but continue starting up. |
 
-Refer to the [Device API status reference](device-api-statuses.md) a state diagram defining when each device lifecycle hook is called by the agent.
+Refer to the [Device API status reference](../references/device-api-statuses.md) a state diagram defining when each device lifecycle hook is called by the agent.
 
 Device lifecycle hooks can be defined by adding rule files to one of two locations in the device's filesystem, whereby `${lifecyclehook}` is the all-lower-case name of the hook to be defined:
 
-* Rules in the `/usr/lib/flightctl/hooks.d/${lifecyclehook}/` drop-in directory are read-only and thus have to be added to the OS image during [image building](building-images.md).
+* Rules in the `/usr/lib/flightctl/hooks.d/${lifecyclehook}/` drop-in directory are read-only and thus have to be added to the OS image during [image building](../building/building-images.md).
 * Rules in the `/etc/flightctl/hooks.d/${lifecyclehook}/` drop-in directory are read-writable and can thus be updated at runtime using the methods described in [Managing OS Configuration](#managing-os-configuration).
 
 If rules are defined in both locations they will be merged, whereby files under `/etc` take precedence over files of the same name under `/usr`. If multiple rule files are added to a hook's directory, they are processed in lexical order of their file names.
@@ -950,7 +950,7 @@ Each schedule supports:
 | `timeZone`             | (Optional) The time zone used to evaluate the schedule. Defaults to the device’s local system time zone. Must be a valid [IANA time zone](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones). |
 | `startGraceDuration`   | (Optional) A duration string that extends the allowed start time window after a schedule trigger. Follows the [Go duration format](https://pkg.go.dev/time#ParseDuration), such as `"1h"` or `"45m"`. |
 
-The Flight Control agent evaluates these schedules during its control loop to determine whether each policy is currently allowed to proceed. While the device waits for the update window the device status will read `OutOfDate`. For more details please see [Device API Statuses](device-api-statuses.md).
+The Flight Control agent evaluates these schedules during its control loop to determine whether each policy is currently allowed to proceed. While the device waits for the update window the device status will read `OutOfDate`. For more details please see [Device API Statuses](../references/device-api-statuses.md).
 
 >[!TIP]
 > Use [crontab guru](https://crontab.guru/) to create and test cron expressions interactively.
