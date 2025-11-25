@@ -81,7 +81,7 @@ func NewOIDCAuth(metadata api.ObjectMeta, spec api.OIDCProviderSpec, clientTlsCo
 	orgConfig := convertOrganizationAssignmentToOrgConfig(spec.OrganizationAssignment)
 
 	// Create role extractor from role assignment
-	roleExtractor := NewRoleExtractor(spec.RoleAssignment)
+	roleExtractor := NewRoleExtractor(spec.RoleAssignment, log)
 
 	// Create identity cache with 10-minute TTL
 	// This caches validated identities to avoid repeated JWT validation

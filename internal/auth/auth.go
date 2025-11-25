@@ -176,13 +176,15 @@ func initOpenShiftAuth(cfg *config.Config, log logrus.FieldLogger) (common.AuthN
 
 // InitMultiAuth initializes authentication with support for multiple methods
 func InitMultiAuth(cfg *config.Config, log logrus.FieldLogger,
-	authProviderService authn.AuthProviderService) (common.AuthNMiddleware, error) {
+	authProviderService authn.AuthProviderService) (*authn.MultiAuth, error) {
+	// Check if auth is disabled
 	value, exists := os.LookupEnv(DisableAuthEnvKey)
 	if exists && value != "" {
-		log.Warnln("Auth disabled")
+		log.Warnln("Auth disabled - adding NilAuth provider")
 		configuredAuthType = AuthTypeNil
-		// When auth is disabled, return NilAuth instance
-		return NilAuth{}, nil
+		multiAuth := authn.NewMultiAuth(authProviderService, nil, log)
+		multiAuth.AddStaticProvider("nil", NilAuth{})
+		return multiAuth, nil
 	}
 
 	if cfg.Auth == nil {
