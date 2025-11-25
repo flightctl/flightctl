@@ -283,7 +283,7 @@ chmod 644 /etc/otelcol/certs/ca.crt
 ### Considerations
 
 - At the moment, certificates issued by the agent do not support changing the file owner - make sure the OpenTelemetry Collector can read them.
-- Please refer to [Building Images](building-images.md) for more details on building your own OS images.
+- Please refer to [Building Images](../building/building-images.md) for more details on building your own OS images.
 
 > [!TIP]  
 > Instead of baking the OpenTelemetry Collector configuration into the image, you can also deliver it through the Fleet spec.  

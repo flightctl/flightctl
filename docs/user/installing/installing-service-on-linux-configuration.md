@@ -47,7 +47,7 @@ The `organizations` section enables multi-organization support when used with co
 | --------- | ---- | :------: | ----------- |
 | `enabled` | `boolean` | Y | Enable IdP-provided organization support. When `true`, the service expects organization information from the identity provider. Default: `false` |
 
-For more information on configuring organizations, see [Organizations](organizations.md)
+For more information on configuring organizations, see [Organizations](configuring-auth/organizations.md)
 
 > [!NOTE]
 > Organization support is currently only available with OIDC authentication providers. Kubernetes and AAP Gateway authentication do not support multi-organization deployments.

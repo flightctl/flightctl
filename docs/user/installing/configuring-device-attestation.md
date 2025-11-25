@@ -221,13 +221,13 @@ service:
 > [!NOTE]
 > Different TPM manufacturers provide their CA certificates in various locations:
 >
-> - **Infineon**: [https://www.infineon.com/cms/en/product/security-smart-card-solutions/optiga-embedded-security-solutions/](https://www.infineon.com/cms/en/product/security-smart-card-solutions/optiga-embedded-security-solutions/)
+> - **Infineon**: [https://www.infineon.com/products/security-smart-card-solutions/optiga-embedded-security-solutions](https://www.infineon.com/products/security-smart-card-solutions/optiga-embedded-security-solutions)
 > - **STMicroelectronics**: See [Technical Note TN1330](https://www.st.com/resource/en/technical_note/tn1330-st-trusted-platform-module-tpm-endorsement-key-ek-certificates-stmicroelectronics.pdf) for certificates
 > - **Nuvoton**: Available through Nuvoton support portal
 
 ## Enabling TPM in Agent Configuration
 
-To enable TPM authentication, configure the `tpm` section in the agent's `/etc/flightctl/config.yaml` file. See [Configuring the Flight Control Agent - TPM Configuration](configuring-agent.md#tpm-configuration) for detailed configuration parameters and examples.
+To enable TPM authentication, configure the `tpm` section in the agent's `/etc/flightctl/config.yaml` file. See [Installing the Flight Control Agent - TPM Configuration](installing-agent.md#tpm-configuration) for detailed configuration parameters and examples.
 
 ## Enrollment Process
 
@@ -294,7 +294,7 @@ Upon successful validation and approval:
 
 ## Troubleshooting
 
-For agent-specific TPM troubleshooting and debugging, see [Configuring the Flight Control Agent - TPM Troubleshooting](configuring-agent.md#tpm-troubleshooting).
+For agent-specific TPM troubleshooting and debugging, see [Installing the Flight Control Agent - TPM Troubleshooting](installing-agent.md#tpm-troubleshooting).
 
 ## Security Considerations
 
