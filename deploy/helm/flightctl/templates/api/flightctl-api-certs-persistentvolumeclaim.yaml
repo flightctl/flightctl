@@ -10,6 +10,8 @@ metadata:
     {{- with .Values.api.additionalPVCLabels }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-api
   name: flightctl-api-certs
   namespace: {{ .Release.Namespace }}
 spec:

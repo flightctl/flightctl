@@ -7,6 +7,9 @@ kind: ConfigMap
 metadata:
   name: flightctl-alertmanager-config
   namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-alertmanager
 data:
   alertmanager.yml: |-
     global:
@@ -27,6 +30,7 @@ metadata:
   name: flightctl-alertmanager
   namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
   labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
     flightctl.service: flightctl-alertmanager
 spec:
   serviceName: flightctl-alertmanager
@@ -101,6 +105,7 @@ metadata:
   name: flightctl-alertmanager
   namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
   labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
     flightctl.service: flightctl-alertmanager
 spec:
   {{- if and (eq (include "flightctl.getServiceExposeMethod" .) "nodePort") .Values.dev.nodePorts.alertmanager }}

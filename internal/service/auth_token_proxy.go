@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -331,6 +332,7 @@ func (p *AuthTokenProxy) proxyTokenRequest(ctx context.Context, providerConfig *
 	}
 
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json, application/x-www-form-urlencoded")
 
 	// For providers using Basic Auth (like AAP), set the Authorization header
 	if providerConfig.UseBasicAuth {
@@ -360,13 +362,54 @@ func (p *AuthTokenProxy) proxyTokenRequest(ctx context.Context, providerConfig *
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	p.authN.GetLogger().Debugf("Token proxy: response body: %s", string(bodyBytes))
+	p.authN.GetLogger().Debugf("Token proxy: response body: [REDACTED] (length: %d bytes)", len(bodyBytes))
 
-	// Parse response
+	// Parse response based on Content-Type
 	var tokenResp api.TokenResponse
-	if err := json.Unmarshal(bodyBytes, &tokenResp); err != nil {
-		p.authN.GetLogger().Errorf("Token proxy: failed to parse response (status %d): %v, body: %s", resp.StatusCode, err, string(bodyBytes))
-		return nil, fmt.Errorf("failed to parse token response (status %d): %w, body: %s", resp.StatusCode, err, string(bodyBytes))
+	contentType := resp.Header.Get("Content-Type")
+
+	if strings.Contains(contentType, "application/x-www-form-urlencoded") {
+		// Parse URL-encoded response (e.g., GitHub OAuth2)
+		values, err := url.ParseQuery(string(bodyBytes))
+		if err != nil {
+			p.authN.GetLogger().Errorf("Token proxy: failed to parse URL-encoded response (status %d): %v", resp.StatusCode, err)
+			return nil, fmt.Errorf("failed to parse URL-encoded token response (status %d): %w, body: <omitted>", resp.StatusCode, err)
+		}
+
+		// Map form fields to TokenResponse
+		if accessToken := values.Get("access_token"); accessToken != "" {
+			tokenResp.AccessToken = &accessToken
+		}
+		if tokenType := values.Get("token_type"); tokenType != "" {
+			tt := api.TokenResponseTokenType(tokenType)
+			tokenResp.TokenType = &tt
+		}
+		if refreshToken := values.Get("refresh_token"); refreshToken != "" {
+			tokenResp.RefreshToken = &refreshToken
+		}
+		if idToken := values.Get("id_token"); idToken != "" {
+			tokenResp.IdToken = &idToken
+		}
+		if expiresInStr := values.Get("expires_in"); expiresInStr != "" {
+			expiresIn, err := strconv.Atoi(expiresInStr)
+			if err != nil {
+				p.authN.GetLogger().Warnf("Token proxy: failed to parse expires_in value '%s': %v", expiresInStr, err)
+			} else {
+				tokenResp.ExpiresIn = &expiresIn
+			}
+		}
+		if errorCode := values.Get("error"); errorCode != "" {
+			tokenResp.Error = &errorCode
+		}
+		if errorDesc := values.Get("error_description"); errorDesc != "" {
+			tokenResp.ErrorDescription = &errorDesc
+		}
+	} else {
+		// Parse JSON response (default for most OIDC providers)
+		if err := json.Unmarshal(bodyBytes, &tokenResp); err != nil {
+			p.authN.GetLogger().Errorf("Token proxy: failed to parse JSON response (status %d): %v", resp.StatusCode, err)
+			return nil, fmt.Errorf("failed to parse JSON token response (status %d): %w, body: <omitted>", resp.StatusCode, err)
+		}
 	}
 
 	return &ProxyResult{

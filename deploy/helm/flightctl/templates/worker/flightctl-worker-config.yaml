@@ -3,6 +3,9 @@ kind: ConfigMap
 metadata:
   name: flightctl-worker-config
   namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-worker
 data:
   config.yaml: |-
     database:

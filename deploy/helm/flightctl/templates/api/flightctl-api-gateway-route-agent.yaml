@@ -4,6 +4,9 @@ kind: TLSRoute
 metadata:
   name: flightctl-api-route-agent
   namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-api
 spec:
   parentRefs:
     - name: flightctl-gateway

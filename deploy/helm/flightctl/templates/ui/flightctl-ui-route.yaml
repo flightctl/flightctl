@@ -13,6 +13,7 @@ metadata:
     {{- with .Values.ui.additionalRouteLabels }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
+    flightctl.service: flightctl-ui
 spec:
   host:  ui.{{ include "flightctl.getBaseDomain" . }}
   to:

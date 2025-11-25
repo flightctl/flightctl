@@ -4,6 +4,9 @@ kind: HTTPRoute
 metadata:
   name: flightctl-cli-artifacts-route
   namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-cli-artifacts
 spec:
   parentRefs:
     - name: flightctl-gateway
