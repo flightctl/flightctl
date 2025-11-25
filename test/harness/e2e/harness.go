@@ -1519,13 +1519,19 @@ func (h *Harness) SetupVMFromPoolAndStartAgent(workerID int) error {
 		return fmt.Errorf("failed to wait for SSH: %w", err)
 	}
 
-	// Ensure SELinux contexts are correct for injected files (config/certs)
+	// Ensure SELinux contexts are correct for injected files (config/certs/registries/certs.d)
 	// Offline qcow edits can leave files as unlabeled_t; restore contexts before starting agent.
 	if _, err := testVM.RunSSH([]string{"sudo", "restorecon", "-Rv", "/etc/flightctl"}, nil); err != nil {
 		logrus.Warnf("Failed to restore SELinux context for /etc/flightctl: %v", err)
 	}
 	if _, err := testVM.RunSSH([]string{"sudo", "restorecon", "-Rv", "/var/lib/flightctl"}, nil); err != nil {
 		logrus.Debugf("restorecon for /var/lib/flightctl (optional) failed: %v", err)
+	}
+	if _, err := testVM.RunSSH([]string{"sudo", "restorecon", "-Rv", "/etc/containers/registries.conf.d"}, nil); err != nil {
+		logrus.Debugf("restorecon for /etc/containers/registries.conf.d (optional) failed: %v", err)
+	}
+	if _, err := testVM.RunSSH([]string{"sudo", "restorecon", "-Rv", "/etc/containers/certs.d"}, nil); err != nil {
+		logrus.Debugf("restorecon for /etc/containers/certs.d (optional) failed: %v", err)
 	}
 
 	// Clean any stale CSR from previous tests
@@ -1540,7 +1546,7 @@ func (h *Harness) SetupVMFromPoolAndStartAgent(workerID int) error {
 	GinkgoWriter.Printf("🔄 Starting flightctl-agent after snapshot revert\n")
 	if _, err := testVM.RunSSH([]string{"sudo", "systemctl", "start", "flightctl-agent"}, nil); err != nil {
 		logs, logsErr := h.VM.JournalLogs(vm.JournalOpts{
-			Unit:  "flightctl-agent",
+			Unit: "flightctl-agent",
 		})
 		if logsErr != nil {
 			logs = "Failed to get journal logs"
