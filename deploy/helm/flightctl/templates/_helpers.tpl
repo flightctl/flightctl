@@ -120,26 +120,25 @@ app.kubernetes.io/version: {{ .Chart.AppVersion }}
 Get the OAuth client secret from values or lookup existing secret.
 Uses a cached value in .Values to ensure consistency across all template evaluations.
 */}}
-{{- define "flightctl.getOpenShiftOAuthClientSecret" -}}
-{{- if .Values.global.auth.openshift.clientSecret -}}
-{{- .Values.global.auth.openshift.clientSecret -}}
-{{- else -}}
-{{- $secretName := printf "%s-secret" (include "flightctl.getOpenShiftOAuthClientId" .) -}}
-{{- $existingSecret := (lookup "v1" "Secret" "openshift-config" $secretName) -}}
-{{- if $existingSecret -}}
-{{- if and (hasKey $existingSecret "data") (hasKey $existingSecret.data "clientSecret") -}}
-{{- index $existingSecret.data "clientSecret" | b64dec -}}
-{{- else -}}
-{{- fail (printf "Secret %s is missing data.clientSecret – delete it or add the key." $secretName) -}}
-{{- end -}}
-{{- else -}}
-{{- if not (hasKey .Values "__generatedOAuthSecret") -}}
-{{- $_ := set .Values "__generatedOAuthSecret" (randAlphaNum 32) -}}
-{{- end -}}
-{{- .Values.__generatedOAuthSecret -}}
-{{- end -}}
-{{- end -}}
-{{- end -}}
+{{- define "flightctl.getOpenShiftOAuthClientSecret" }}
+  {{- if .Values.global.auth.openshift.clientSecret }}
+    {{- .Values.global.auth.openshift.clientSecret }}
+  {{- else }}
+    {{- $existingOAuthClient := (lookup "oauth.openshift.io/v1" "OAuthClient" "" (include "flightctl.getOpenShiftOAuthClientId" .)) }}
+    {{- if $existingOAuthClient }}
+      {{- if $existingOAuthClient.secret }}
+        {{- $existingOAuthClient.secret }}
+      {{- else }}
+        {{- fail (printf "OAuthClient %s is missing secret – delete it or add the key." (include "flightctl.getOpenShiftOAuthClientId" .)) }}
+      {{- end }}
+    {{- else }}
+      {{- if not (hasKey .Values "__generatedOAuthSecret") }}
+        {{- $_ := set .Values "__generatedOAuthSecret" (randAlphaNum 32) }}
+      {{- end }}
+      {{- .Values.__generatedOAuthSecret -}}
+    {{- end }}
+  {{- end }}
+{{- end }}
 
 {{- define "flightctl.getHttpScheme" }}
   {{- if or (eq (include "flightctl.getServiceExposeMethod" . ) "route") .Values.global.baseDomainTlsSecretName }}
