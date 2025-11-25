@@ -75,7 +75,7 @@ func newImage(log *log.PrefixLogger, podman *client.Podman, spec *v1beta1.Applic
 		appName = provider.Image
 	}
 
-	volumeManager, err := NewVolumeManager(log, appName, provider.Volumes)
+	volumeManager, err := NewVolumeManager(log, appName, appType, provider.Volumes)
 	if err != nil {
 		return nil, err
 	}
@@ -103,13 +103,33 @@ func newImage(log *log.PrefixLogger, podman *client.Podman, spec *v1beta1.Applic
 	}, nil
 }
 
+func (p *imageProvider) extractOCIContents(ctx context.Context, ociType dependency.OCIType, path string) error {
+	// don't extract the contents of a runnable image
+	if p.spec.AppType == v1beta1.AppTypeContainer {
+		return nil
+	}
+	clean := func() {
+		if err := p.readWriter.RemoveAll(path); err != nil {
+			p.log.Warnf("Failed to cleanup directory %q: %v", path, err)
+		}
+	}
+	if ociType == dependency.OCITypeArtifact {
+		if err := extractAndProcessArtifact(ctx, p.podman, p.log, p.spec.ImageProvider.Image, path, p.readWriter); err != nil {
+			clean()
+			return fmt.Errorf("extract artifact contents: %w", err)
+		}
+	} else {
+		if err := p.podman.CopyContainerData(ctx, p.spec.ImageProvider.Image, path); err != nil {
+			clean()
+			return fmt.Errorf("copy image contents: %w", err)
+		}
+	}
+	return nil
+}
+
 func (p *imageProvider) Verify(ctx context.Context) error {
 	if err := validateEnvVars(p.spec.EnvVars); err != nil {
 		return fmt.Errorf("%w: validating env vars: %w", errors.ErrInvalidSpec, err)
-	}
-
-	if err := ensureDependenciesFromAppType(p.handler); err != nil {
-		return fmt.Errorf("%w: ensuring dependencies: %w", errors.ErrNoRetry, err)
 	}
 
 	if err := ensureDependenciesFromVolumes(ctx, p.podman, p.spec.ImageProvider.Volumes); err != nil {
@@ -123,7 +143,6 @@ func (p *imageProvider) Verify(ctx context.Context) error {
 
 	var tmpAppPath string
 	var shouldCleanup bool
-
 	if p.AppData != nil {
 		tmpAppPath = p.AppData.TmpPath
 		shouldCleanup = false
@@ -136,20 +155,8 @@ func (p *imageProvider) Verify(ctx context.Context) error {
 		}
 		shouldCleanup = true
 
-		if ociType == dependency.OCITypeArtifact {
-			if err := extractAndProcessArtifact(ctx, p.podman, p.log, p.spec.ImageProvider.Image, tmpAppPath, p.readWriter); err != nil {
-				if rmErr := p.readWriter.RemoveAll(tmpAppPath); rmErr != nil {
-					p.log.Warnf("Failed to cleanup temporary directory %q: %v", tmpAppPath, rmErr)
-				}
-				return fmt.Errorf("extract artifact contents: %w", err)
-			}
-		} else {
-			if err := p.podman.CopyContainerData(ctx, p.spec.ImageProvider.Image, tmpAppPath); err != nil {
-				if rmErr := p.readWriter.RemoveAll(tmpAppPath); rmErr != nil {
-					p.log.Warnf("Failed to cleanup temporary directory %q: %v", tmpAppPath, rmErr)
-				}
-				return fmt.Errorf("copy image contents: %w", err)
-			}
+		if err := p.extractOCIContents(ctx, ociType, tmpAppPath); err != nil {
+			return fmt.Errorf("extracting OCI: %s contents: %w", ociType, err)
 		}
 	}
 
@@ -162,7 +169,10 @@ func (p *imageProvider) Verify(ctx context.Context) error {
 		}
 	}()
 
-	return p.handler.Verify(ctx, tmpAppPath)
+	if err := p.handler.Verify(ctx, tmpAppPath); err != nil {
+		return fmt.Errorf("%w: verifying image: %w", errors.ErrNoRetry, err)
+	}
+	return nil
 }
 
 func (p *imageProvider) Install(ctx context.Context) error {
@@ -184,14 +194,8 @@ func (p *imageProvider) Install(ctx context.Context) error {
 		return fmt.Errorf("detecting OCI type: %w", err)
 	}
 
-	if ociType == dependency.OCITypeArtifact {
-		if err := extractAndProcessArtifact(ctx, p.podman, p.log, p.spec.ImageProvider.Image, p.spec.Path, p.readWriter); err != nil {
-			return fmt.Errorf("extract artifact contents: %w", err)
-		}
-	} else {
-		if err := p.podman.CopyContainerData(ctx, p.spec.ImageProvider.Image, p.spec.Path); err != nil {
-			return fmt.Errorf("copy image contents: %w", err)
-		}
+	if err := p.extractOCIContents(ctx, ociType, p.spec.Path); err != nil {
+		return fmt.Errorf("extracting OCI: %s contents: %w", ociType, err)
 	}
 
 	if err := writeENVFile(p.spec.Path, p.readWriter, p.spec.EnvVars); err != nil {
@@ -204,7 +208,7 @@ func (p *imageProvider) Install(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("getting volumes: %w", err)
 	}
-	p.spec.Volume.AddVolumes(p.spec.Name, volumes)
+	p.spec.Volume.AddVolumes(volumes)
 
 	return p.handler.Install(ctx)
 }

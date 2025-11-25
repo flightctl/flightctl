@@ -8,15 +8,15 @@ metadata:
   name: flightctl-cli-artifacts
   namespace: {{ .Release.Namespace }}
 spec:
-  {{- if and (eq (include "flightctl.getServiceExposeMethod" .) "nodePort") .Values.global.nodePorts.cliArtifacts }}
+  {{- if and (eq (include "flightctl.getServiceExposeMethod" .) "nodePort") .Values.dev.nodePorts.cliArtifacts }}
   type: NodePort
   {{- end }}
   ports:
     - name: "flightctl-cli-artifacts"
       port: 8090
       targetPort: 8090
-      {{- if and (eq (include "flightctl.getServiceExposeMethod" .) "nodePort") .Values.global.nodePorts.cliArtifacts }}
-      nodePort: {{ .Values.global.nodePorts.cliArtifacts }}
+      {{- if and (eq (include "flightctl.getServiceExposeMethod" .) "nodePort") .Values.dev.nodePorts.cliArtifacts }}
+      nodePort: {{ .Values.dev.nodePorts.cliArtifacts }}
       {{- end }}
   selector:
     flightctl.service: flightctl-cli-artifacts

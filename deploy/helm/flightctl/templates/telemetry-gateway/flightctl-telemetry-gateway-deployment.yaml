@@ -1,5 +1,3 @@
-{{- if .Values.telemetryGateway }}
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -87,4 +85,3 @@ spec:
       - name: telemetry-gateway-tls
         secret:
           secretName: telemetry-gateway-tls
-{{- end }}

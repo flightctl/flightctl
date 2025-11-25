@@ -21,7 +21,7 @@ spec:
       port: 8080
       targetPort: 8080
       {{- if eq (include "flightctl.getServiceExposeMethod" .) "nodePort"}}
-      nodePort: {{ .Values.global.nodePorts.ui }}
+      nodePort: {{ .Values.dev.nodePorts.ui }}
       {{- end }}
   selector:
     flightctl.service: flightctl-ui
