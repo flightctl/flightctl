@@ -5,6 +5,9 @@ kind: ConfigMap
 metadata:
   name: flightctl-alertmanager-proxy-config
   namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-alertmanager-proxy
 data:
   config.yaml: |-
     database:

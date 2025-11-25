@@ -416,7 +416,7 @@ Parameters:
   - |
     set -euo pipefail
 
-    LABEL_SELECTOR="app=flightctl-db-migration,flightctl.io/migration-revision={{ $ctx.Release.Revision }}"
+    LABEL_SELECTOR="flightctl.service=flightctl-db-migration,flightctl.io/migration-revision={{ $ctx.Release.Revision }}"
     TIMEOUT={{ $timeout }}
     NS="{{ default $ctx.Release.Namespace $ctx.Values.global.internalNamespace }}"
 
