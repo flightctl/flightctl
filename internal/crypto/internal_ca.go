@@ -41,6 +41,16 @@ func ensureInternalCA(cfg *ca.Config) (CABackend, bool, error) {
 	return ca, true, err
 }
 
+func LoadInternalCA(cfg *ca.Config) (CABackend, error) {
+	caCertFile := CertStorePath(cfg.InternalConfig.CertFile, cfg.InternalConfig.CertStore)
+	caKeyFile := CertStorePath(cfg.InternalConfig.KeyFile, cfg.InternalConfig.CertStore)
+	caSerialFile := cfg.InternalConfig.SerialFile
+	if len(cfg.InternalConfig.SerialFile) > 0 {
+		caSerialFile = CertStorePath(cfg.InternalConfig.SerialFile, cfg.InternalConfig.CertStore)
+	}
+	return GetCA(caCertFile, caKeyFile, caSerialFile)
+}
+
 func GetCA(certFile, keyFile, serialFile string) (*internalCA, error) {
 	ca, err := oscrypto.GetCA(certFile, keyFile, serialFile)
 	if err != nil {
