@@ -6,6 +6,7 @@
 AAP
 ACM
 Alertmanager
+Application
 amd64
 API
 APIs
@@ -126,6 +127,7 @@ toolchains
 TPM
 transactionally
 UI
+URL
 unenroll
 UTF-8
 versioned
@@ -417,6 +419,7 @@ optiga-embedded-security-solutions
 - docs/user/references/metrics.md
 sloMax
 SLO
+matched
 - docs/user/installing/performing-database-backup.md
 RPOs
 RPO

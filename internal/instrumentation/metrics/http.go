@@ -10,7 +10,7 @@ import (
 	otelprometheus "go.opentelemetry.io/otel/exporters/prometheus"
 	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
-	semconv "go.opentelemetry.io/otel/semconv/v1.10.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.28.0"
 )
 
 // HTTPMetricsCollector implements NamedCollector and integrates OpenTelemetry HTTP metrics
@@ -37,6 +37,7 @@ func NewHTTPMetricsCollector(ctx context.Context, _ *config.Config, serviceName 
 	// Create Prometheus exporter
 	exporter, err := otelprometheus.New(
 		otelprometheus.WithRegisterer(registry),
+		otelprometheus.WithoutScopeInfo(),
 	)
 	if err != nil {
 		log.WithError(err).Error("Failed to create Prometheus exporter for OpenTelemetry HTTP metrics")
