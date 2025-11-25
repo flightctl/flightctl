@@ -89,7 +89,6 @@ func (r *ResourceSync) run(ctx context.Context, log logrus.FieldLogger, orgId uu
 	resources, err := r.parseAndValidateResources(rs, repo, CloneGitRepo)
 	if err != nil {
 		log.Errorf("resourcesync/%s: parsing failed. error: %s", *rs.Metadata.Name, err.Error())
-		log.Errorf("resource %s: parsing failed. error: %s", resourceName, err.Error())
 		return err
 	}
 	if resources == nil {
@@ -99,13 +98,14 @@ func (r *ResourceSync) run(ctx context.Context, log logrus.FieldLogger, orgId uu
 
 	// Parse fleets from resources
 	fleets, err := r.ParseFleetsFromResources(resources, resourceName)
+
+	// Set the ResourceParsed condition based on the result
+	api.SetStatusConditionByError(&rs.Status.Conditions, api.ConditionTypeResourceSyncResourceParsed, "success", "fail", err)
+
 	if err != nil {
 		log.Errorf("%v", err)
 		return err
 	}
-
-	// Set the ResourceParsed condition based on the result
-	api.SetStatusConditionByError(&rs.Status.Conditions, api.ConditionTypeResourceSyncResourceParsed, "success", "fail", err)
 
 	// Sync fleets
 	return r.SyncFleets(ctx, log, orgId, rs, fleets, resourceName)
@@ -170,6 +170,7 @@ func (r *ResourceSync) SyncFleets(ctx context.Context, log logrus.FieldLogger, o
 	if err != nil {
 		err = fmt.Errorf("resource %s: error: %w", resourceName, err)
 		log.Errorf("%v", err)
+		api.SetStatusConditionByError(&rs.Status.Conditions, api.ConditionTypeResourceSyncSynced, "success", "fail", err)
 		return err
 	}
 
@@ -186,6 +187,7 @@ func (r *ResourceSync) SyncFleets(ctx context.Context, log logrus.FieldLogger, o
 		if status.Code != http.StatusOK {
 			err = fmt.Errorf("resource %s: failed to list owned fleets. error: %s", resourceName, status.Message)
 			log.Errorf("%v", err)
+			api.SetStatusConditionByError(&rs.Status.Conditions, api.ConditionTypeResourceSyncSynced, "success", "fail", err)
 			return err
 		}
 		fleetsPreOwned = append(fleetsPreOwned, listRes.Items...)
@@ -207,7 +209,9 @@ func (r *ResourceSync) SyncFleets(ctx context.Context, log logrus.FieldLogger, o
 		for _, fleetToRemove := range fleetsToRemove {
 			status := r.serviceHandler.DeleteFleet(ctx, orgId, fleetToRemove)
 			if status.Code != http.StatusOK {
-				log.Errorf("Resource %s: failed to remove old fleet %s. error: %s", resourceName, fleetToRemove, status.Message)
+				err := fmt.Errorf("resource %s: failed to remove old fleet %s. error: %s", resourceName, fleetToRemove, status.Message)
+				log.Errorf("%v", err)
+				api.SetStatusConditionByError(&rs.Status.Conditions, api.ConditionTypeResourceSyncSynced, "success", "fail", err)
 				return service.ApiStatusToErr(status)
 			}
 		}
@@ -289,7 +293,10 @@ func (r *ResourceSync) parseAndValidateResources(rs *api.ResourceSync, repo *api
 		r.log.Infof("resourcesync/%s: No new commits or path. skipping", *rs.Metadata.Name)
 		return nil, nil
 	}
-	api.SetStatusConditionByError(&rs.Status.Conditions, api.ConditionTypeResourceSyncSynced, "success", "fail", fmt.Errorf("out of sync"))
+
+	// Set Synced condition to False with reason indicating new hash detected
+	// This is not a failure, just indicates we're out of sync and need to sync
+	api.SetStatusConditionByError(&rs.Status.Conditions, api.ConditionTypeResourceSyncSynced, "success", api.ResourceSyncNewHashDetectedReason, fmt.Errorf("detected new hash %s", hash))
 
 	rs.Status.ObservedCommit = lo.ToPtr(hash)
 
@@ -431,7 +438,7 @@ func (r ResourceSync) parseFleets(resources []GenericResourceMap, owner *string)
 				return nil, fmt.Errorf("decoding Fleet resource: missing field .metadata.name: %w", err)
 			}
 			if errs := fleet.Validate(); len(errs) > 0 {
-				return nil, fmt.Errorf("failed validating fleet: %w", errors.Join(errs...))
+				return nil, fmt.Errorf("failed validating fleet %s: %w", *fleet.Metadata.Name, errors.Join(errs...))
 			}
 			name, nameExists := names[*fleet.Metadata.Name]
 			if nameExists {
