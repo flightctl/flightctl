@@ -30,8 +30,8 @@ global:
     k8s:
       # -- API URL of k8s cluster that will be used as authentication authority
       apiUrl: https://kubernetes.default.svc
-      # -- In case flightctl is not running within a cluster, you can provide api token
-      externalApiToken: ""
+      # -- In case flightctl is not running within a cluster, you can provide a name of a secret that holds the API token
+      externalApiTokenSecretName: ""
       # -- Namespace that should be used for the RBAC checks
       rbacNs: ""
       # -- Create default flightctl-admin ServiceAccount with admin access
@@ -65,8 +65,8 @@ global:
       createAdminUser: true
       # -- OpenShift cluster control plane API URL for RBAC checks (leave empty for auto-detection)
       clusterControlPlaneUrl: "https://kubernetes.default.svc"
-      # -- In case flightctl is not running within a cluster, you can provide api token
-      externalApiToken: ""
+      # -- In case flightctl is not running within a cluster, you can provide a name of a secret that holds the API token
+      externalApiTokenSecretName: ""
       # -- OAuth client ID (will be set to flightctl-{releaseName})
       clientId: ""
       # -- OAuth client secret (leave empty for auto-generation)
