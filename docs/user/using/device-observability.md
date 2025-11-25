@@ -387,7 +387,7 @@ go tool pprof cpu.pprof
 ```
 
 ```bash
-#Retrieve a verbose goroutine dump:
+# Retrieve a verbose goroutine dump:
 curl http://127.0.0.1:15689/debug/pprof/goroutine?debug=2 > goroutines.txt
 ```
 
@@ -590,7 +590,11 @@ sudo cat /var/log/flightctl/audit.log | jq 'select(.reason != "bootstrap")'
 Filter by time range (events from the last hour):
 
 ```bash
+# GNU/Linux (RHEL, Fedora, Ubuntu)
 sudo cat /var/log/flightctl/audit.log | jq --arg cutoff "$(date -u -d '1 hour ago' '+%Y-%m-%dT%H:%M:%SZ')" 'select(.ts > $cutoff)'
+
+# macOS/BSD
+sudo cat /var/log/flightctl/audit.log | jq --arg cutoff "$(date -u -v-1H '+%Y-%m-%dT%H:%M:%SZ')" 'select(.ts > $cutoff)'
 ```
 
 #### Aggregation and Analysis
