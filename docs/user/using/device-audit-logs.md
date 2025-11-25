@@ -398,56 +398,54 @@ The `flightctl-must-gather` tool collects comprehensive diagnostic data includin
 
 **Procedure:**
 
-1. Run the `flightctl-must-gather` command:
+- **Run the `flightctl-must-gather` command:**
 
-```bash
-sudo flightctl-must-gather
-```
+  ```bash
+  sudo flightctl-must-gather
+  ```
 
-The tool will:
+  The tool will:
 
-- Prompt for confirmation (generates large files)
-- Collect journal logs from the last 24 hours
-- Copy all FlightCtl device spec files (`/var/lib/flightctl/*.json`)
-- Copy all audit logs (`/var/log/flightctl/audit.log*`, including rotated backups)
-- Gather system information (uname, disk usage, agent version, bootc status)
-- Create a compressed archive: `must-gather-YYYYMMDD-HHMMSS.tgz`
+  - Prompt for confirmation (generates large files)
+  - Collect journal logs from the last 24 hours
+  - Copy all FlightCtl device spec files (`/var/lib/flightctl/*.json`)
+  - Copy all audit logs (`/var/log/flightctl/audit.log*`, including rotated backups)
+  - Gather system information (uname, disk usage, agent version, bootc status)
+  - Create a compressed archive: `must-gather-YYYYMMDD-HHMMSS.tgz`
 
-2. Locate the generated archive in the current working directory:
+**Next steps:**
 
-```bash
-ls -lh must-gather-*.tgz
-```
+- **Locate the generated archive** in the current working directory:
 
-**Example output:**
+  ```bash
+  ls -lh must-gather-*.tgz
+  ```
 
-```text
--rw-r--r--. 1 root root 2.3M Nov 19 16:45 must-gather-20241119-164512.tgz
-```
+  Example output:
 
-3. **Copy the archive to your local machine** for analysis or submission:
+  ```text
+  -rw-r--r--. 1 root root 2.3M Nov 19 16:45 must-gather-20241119-164512.tgz
+  ```
 
-```bash
-scp user@<device-hostname>:/path/to/must-gather-*.tgz .
-```
+- **Copy the archive to your local machine** for analysis or submission:
 
-Replace `<device-hostname>` with the actual device hostname or IP address.
+  ```bash
+  scp user@<device-hostname>:/path/to/must-gather-*.tgz .
+  ```
 
-4. **Extract and inspect the archive** on your local machine:
+  Replace `<device-hostname>` with the actual device hostname or IP address.
 
-```bash
-tar -xzf must-gather-20241119-164512.tgz
-cd must-gather-*
-ls -lh  # View collected files
-```
+- **Extract and inspect the archive** on your local machine:
 
-The archive contains:
+  ```bash
+  tar -xzf must-gather-20241119-164512.tgz
+  cd must-gather-*
+  ls -lh  # View collected files
+  ```
 
-- `audit.log*` - All audit log files
-- `*.json` - Device specs and state files
-- System information and journal logs
+  The archive contains audit logs (`audit.log*`), device specs (`*.json`), system information, and journal logs.
 
-5. Share the compressed file with your support team or attach it to your support case.
+- **Share the compressed file** with your support team or attach it to your support case.
 
 > [!NOTE]
 > The must-gather tool requires root privileges and collects data from the last 24 hours by default.
@@ -462,59 +460,61 @@ The `sos report` tool with the FlightCtl plugin provides detailed system diagnos
 
 **Procedure:**
 
-1. Run `sos report` with the FlightCtl plugin enabled:
+- **Run `sos report` with the FlightCtl plugin enabled:**
 
-```bash
-sudo sos report -o flightctl
-```
+  ```bash
+  sudo sos report -o flightctl
+  ```
 
-For a specific time range (e.g., last 2 hours):
+  For a specific time range (e.g., last 2 hours):
 
-```bash
-sudo sos report -o flightctl -k flightctl.journal_since="2 hours ago"
-```
+  ```bash
+  sudo sos report -o flightctl -k flightctl.journal_since="2 hours ago"
+  ```
 
-The FlightCtl plugin collects:
+  The FlightCtl plugin collects:
 
-- Configuration files from `/etc/flightctl` (excluding certificates)
-- Device state and specs from `/var/lib/flightctl` (excluding certificates)
-- **All audit logs** from `/var/log/flightctl` (including `audit.log*`)
-- Goroutine dumps for debugging
-- Performance profiles (heap, CPU)
-- Journal logs for `flightctl-agent.service`
+  - Configuration files from `/etc/flightctl` (excluding certificates)
+  - Device state and specs from `/var/lib/flightctl` (excluding certificates)
+  - **All audit logs** from `/var/log/flightctl` (including `audit.log*`)
+  - Goroutine dumps for debugging
+  - Performance profiles (heap, CPU)
+  - Journal logs for `flightctl-agent.service`
 
-2. Wait for `sos report` to complete. The archive location will be displayed:
+**Next steps:**
 
-**Example output:**
+- **Wait for completion.** The archive location will be displayed:
 
-```text
-Your sos report has been generated and saved in:
-  /var/tmp/sosreport-localhost-2025-11-20-bglzmdy.tar.xz
-```
+  Example output:
 
-3. **Copy the archive to your local machine** for analysis or submission:
+  ```text
+  Your sos report has been generated and saved in:
+    /var/tmp/sosreport-localhost-2025-11-20-bglzmdy.tar.xz
+  ```
 
-```bash
-# First, make the file readable (it's owned by root)
-sudo chmod 644 /var/tmp/sosreport-*.tar.xz
+- **Copy the archive to your local machine** for analysis or submission:
 
-# Copy to your local machine
-scp user@<device-hostname>:/var/tmp/sosreport-*.tar.xz .
-```
+  ```bash
+  # First, make the file readable (it's owned by root)
+  sudo chmod 644 /var/tmp/sosreport-*.tar.xz
 
-Replace `<device-hostname>` with the actual device hostname or IP address.
+  # Copy to your local machine
+  scp user@<device-hostname>:/var/tmp/sosreport-*.tar.xz .
+  ```
 
-4. **Extract and inspect the archive** on your local machine:
+  Replace `<device-hostname>` with the actual device hostname or IP address.
 
-```bash
-tar -xJf sosreport-localhost-2025-11-20-bglzmdy.tar.xz
-cd sosreport-*/
-ls -lh var/log/flightctl/  # View audit logs
-```
+- **Extract and inspect the archive** on your local machine:
 
-The archive contains comprehensive system diagnostics including FlightCtl audit logs, configuration, and system state.
+  ```bash
+  tar -xJf sosreport-localhost-2025-11-20-bglzmdy.tar.xz
+  cd sosreport-*/
+  ls -lh var/log/flightctl/  # View audit logs
+  ```
 
-5. Share the compressed file with your support team or attach it to the [Red Hat Customer Support](https://access.redhat.com/support/) portal.
+  The archive contains comprehensive system diagnostics including FlightCtl audit logs, configuration, and system state.
+
+- **Share the compressed file** with your support team or attach it to the [Red Hat Customer Support](https://access.redhat.com/support/) portal.
 
 > [!TIP]
 > Use `sos report` when you need comprehensive system diagnostics beyond just FlightCtl. Use `must-gather` for a lighter-weight, FlightCtl-focused collection.
