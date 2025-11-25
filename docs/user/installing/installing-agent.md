@@ -22,6 +22,7 @@ The agent's configuration file `/etc/flightctl/config.yaml` takes the following 
 | `system-info-timeout`    | `Duration` | | The timeout for collecting system info. Default: `2m`. Maximum: `2m` |
 | `pull-timeout`           | `Duration` | | The timeout for pulling a single OCI target. Default: `10m` |
 | `log-level`              | `string` | | The level of logging: "panic", "fatal", "error", "warn"/"warning", "info", "debug", or "trace". Default: `info` |
+| `audit`                  | `Audit` | | Audit logging configuration. See [Audit Configuration](#audit-configuration). Default: enabled |
 | `tpm`                    | `TPM` | | TPM configuration for hardware-based device identity. See [TPM Configuration](#tpm-configuration). Default: TPM disabled |
 
 `Duration` values are strings of an integer value with appended unit of time ('s' for seconds, 'm' for minutes, or 'h' for hours). Examples: `30s`, `10m`, `24h`
@@ -136,6 +137,37 @@ status:
     customInfo:
       fips: disabled
 ```
+
+## Audit Configuration
+
+The audit configuration controls whether the agent generates audit logs that track device specification changes and system state transitions. Audit logs are written to `/var/log/flightctl/audit.log` in JSONL format and are automatically rotated.
+
+### Audit Configuration Parameters
+
+The `audit` configuration object accepts the following parameter:
+
+| Parameter | Type | Required | Description |
+| --------- | ---- | :------: | ----------- |
+| `enabled` | `boolean` | | Enable audit logging. When true, the agent records specification transitions to the audit log. Default: `true` |
+
+### Example Audit Configuration
+
+Audit logging is enabled by default. To explicitly disable it:
+
+```yaml
+# /etc/flightctl/config.yaml
+[...]
+audit:
+  enabled: false
+
+spec-fetch-interval: 60s
+status-update-interval: 60s
+```
+
+> [!WARNING]
+> Disabling audit logs removes visibility into device state changes.
+
+For detailed information about audit logs, see [Device Observability](../using/device-observability.md).
 
 ## TPM Configuration
 
