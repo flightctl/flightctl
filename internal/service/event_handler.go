@@ -578,11 +578,16 @@ func (h *EventHandler) emitResourceSyncConditionEvents(ctx context.Context, orgI
 		if api.IsStatusConditionTrue(newConditions, api.ConditionTypeResourceSyncSynced) {
 			h.CreateEvent(ctx, orgId, common.GetResourceSyncSyncedEvent(ctx, name))
 		} else {
-			message := "Resource sync failed"
-			if newSynced != nil && newSynced.Message != "" {
-				message = newSynced.Message
+			// Only emit failure event if it's an actual failure, not just "NewHashDetected"
+			// "NewHashDetected" is a normal state change, not a failure
+			// The commit detected event is already emitted when the hash changes
+			if newSynced != nil && newSynced.Reason != api.ResourceSyncNewHashDetectedReason {
+				message := "Resource sync failed"
+				if newSynced.Message != "" {
+					message = newSynced.Message
+				}
+				h.CreateEvent(ctx, orgId, common.GetResourceSyncSyncFailedEvent(ctx, name, message))
 			}
-			h.CreateEvent(ctx, orgId, common.GetResourceSyncSyncFailedEvent(ctx, name, message))
 		}
 	}
 }
