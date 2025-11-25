@@ -39,3 +39,14 @@ system-info-custom:
   - siteName
   - emptyValue
 EOF
+
+# Add TPM configuration if enabled via environment variable
+if [ "${TPM:-disabled}" = "enabled" ]; then
+cat <<EOF | tee -a bin/agent/etc/flightctl/config.yaml
+tpm:
+  enabled: true
+  device-path: /dev/tpm0
+  auth-enabled: false
+  storage-file-path: /var/lib/flightctl/tpm-blob.yaml
+EOF
+fi
