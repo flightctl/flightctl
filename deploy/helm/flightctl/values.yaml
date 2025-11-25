@@ -88,8 +88,6 @@ global:
       tls: 443
       # -- HTTP port for Gateway API configuration
       http: 80
-  # -- Generate secrets when deploying Flight Control. This should be set to false if you want to provide your own secrets or when upgrading Flight Control to avoid overriding the existing secrets
-  generateSecrets: true
   sshKnownHosts:
     # -- SSH known hosts file content for Git repository host key verification.
     data: ""

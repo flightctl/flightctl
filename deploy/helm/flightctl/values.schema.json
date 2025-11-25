@@ -170,10 +170,6 @@
             }
           }
         },
-        "generateSecrets": {
-          "type": "boolean",
-          "description": "Generate secrets during deployment (set false to provide your own or when upgrading)."
-        },
         "sshKnownHosts": {
           "type": "object",
           "additionalProperties": false,
