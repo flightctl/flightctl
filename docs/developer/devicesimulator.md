@@ -20,7 +20,7 @@ Some key options available for tuning:
 - `spec-fetch-interval` - How often the agent fetches desired state from the API. Higher intervals reduce server load.
 - `status-update-interval` - How often the agent reports its status to the API. Higher intervals reduce server load.
 
-See [Configuring Agent](../user/configuring-agent.md) for all available options.
+See [Installing the Agent](../user/installing/installing-agent.md) for all available options.
 
 ## CLI Reference
 

@@ -1,0 +1,36 @@
+# Lychee Link Checker Ignore File
+#
+# This file contains patterns for URLs that should be excluded from link checking.
+# Use this to ignore:
+# - URLs that require authentication
+# - Rate-limited APIs
+# - Local development URLs
+# - Known false positives
+
+# Local/placeholder URLs
+http://localhost*
+http://127.0.0.1*
+https://localhost*
+https://127.0.0.1*
+
+# Example/placeholder domains
+http://example.com*
+https://example.com*
+http://example.org*
+https://example.org*
+
+# Common false positives (add as needed)
+# GitHub URLs that may require authentication
+# https://github.com/*/settings/*
+
+# URLs that commonly rate-limit automated checkers
+# Add specific patterns here as needed
+
+# Red Hat developer articles - returns 403 for automated checkers but works in browsers
+https://developers.redhat.com/articles/2024/07/15/integrating-vmdk-produced-image-mode-rhel-vsphere
+
+# This file is there, not sure why Lychee is having trouble with it.
+https://www.st.com/resource/en/technical_note/tn1330-st-trusted-platform-module-tpm-endorsement-key-ek-certificates-stmicroelectronics.pdf
+
+# Internal documentation links (if any are problematic)
+# file:///*

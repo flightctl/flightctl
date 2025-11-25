@@ -1,6 +1,6 @@
 # Getting Started
 
-The following are the recommended ways of getting started with Flight Control. Choose the method that best matches your environment and additional requirements. Please refer to [Installing the Flight Control CLI](install-cli.md) for other installation options.
+The following are the recommended ways of getting started with Flight Control. Choose the method that best matches your environment and additional requirements. Please refer to [Installing the Flight Control CLI](installing-cli.md) for other installation options.
 
 ## Deploying a Local Kind Cluster
 
@@ -385,7 +385,7 @@ mkdir -p output && \
 
 Once `bootc-image-builder` completes, you'll find the raw disk image under `output/image/disk.raw`. Now you can flash this image to a device using standard tools like [arm-image-installer](https://docs.fedoraproject.org/en-US/iot/physical-device-setup/#_scripted_image_transfer_with_arm_image_installer), [Etcher](https://etcher.balena.io/), or [`dd`](https://docs.fedoraproject.org/en-US/iot/physical-device-setup/#_manual_image_transfer_with_dd).
 
-For other image types like QCoW2 or VMDK or ways to install via USB stick or network, see [Building Images](building-images.md).
+For other image types like QCoW2 or VMDK or ways to install via USB stick or network, see [Building Images](../building/building-images.md).
 
 ## Enrolling a Device
 
@@ -422,4 +422,4 @@ NAME                                                  OWNER   SYSTEM  UPDATED   
 
 ## Where to go from here
 
-Now that you have a Flight Control-managed device, refer to [Managing Devices](managing-devices.md) and [Managing Fleets](managing-fleets.md) for how to configure and update individual or fleets of devices.
+Now that you have a Flight Control-managed device, refer to [Managing Devices](../using/managing-devices.md) and [Managing Fleets](../using/managing-fleets.md) for how to configure and update individual or fleets of devices.

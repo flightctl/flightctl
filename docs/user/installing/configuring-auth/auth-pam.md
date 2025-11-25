@@ -396,5 +396,5 @@ By default, the PAM issuer maintains its own user database within the container.
 
 For technical details about the PAM issuer architecture and deployment configurations, see the developer documentation:
 
-- [PAM Issuer Architecture](../developer/pam-issuer-architecture.md)
-- [PAM Issuer Deployment Guide](../developer/pam-issuer-deployment.md)
+- [PAM Issuer Architecture](../../../developer/pam-issuer-architecture.md)
+- [PAM Issuer Deployment Guide](../../../developer/pam-issuer-deployment.md)
