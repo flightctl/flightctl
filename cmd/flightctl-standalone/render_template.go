@@ -1,8 +1,15 @@
 package main
 
 import (
+	"fmt"
+	"os"
+	"strings"
+
+	"github.com/flightctl/flightctl/internal/config/standalone"
+	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/flightctl/flightctl/pkg/template"
 	"github.com/spf13/cobra"
+	"sigs.k8s.io/yaml"
 )
 
 type RenderTemplateOptions struct {
@@ -34,5 +41,31 @@ func NewRenderTemplateCommand() *cobra.Command {
 }
 
 func (o *RenderTemplateOptions) Run() error {
+	if err := o.validateConfig(); err != nil {
+		return err
+	}
+
 	return template.Render(o.Config, o.InputFile, o.OutputFile)
+}
+
+func (o *RenderTemplateOptions) validateConfig() error {
+	configData, err := os.ReadFile(o.Config)
+	if err != nil {
+		return fmt.Errorf("failed to read config file %s: %w", o.Config, err)
+	}
+
+	var config standalone.Config
+	if err := yaml.Unmarshal(configData, &config); err != nil {
+		return fmt.Errorf("failed to parse config YAML from %s: %w", o.Config, err)
+	}
+
+	if errs := validation.ValidateStandaloneConfig(&config); len(errs) > 0 {
+		errMsgs := make([]string, len(errs))
+		for i, err := range errs {
+			errMsgs[i] = err.Error()
+		}
+		return fmt.Errorf("configuration validation failed:\n  - %s", strings.Join(errMsgs, "\n  - "))
+	}
+
+	return nil
 }

@@ -9,23 +9,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const inputYAML = `name: TestApp
-version: 1.0.0
-config:
-  port: 8080
-  url: https://example.com
+const inputYAML = `global:
+  baseDomain: example.com
+  auth:
+    type: none
+db:
+  external: disabled
+service:
+  rateLimit:
+    enabled: false
+observability: {}
 `
 
-const yamlTemplate = `app_name: {{.name}}
-app_version: {{.version}}
-app_port: {{.config.port}}
-app_url: {{.config.url}}
+const yamlTemplate = `baseDomain: {{.global.baseDomain}}
+authType: {{.global.auth.type}}
 `
 
-const yamlOutput = `app_name: TestApp
-app_version: 1.0.0
-app_port: 8080
-app_url: https://example.com
+const yamlOutput = `baseDomain: example.com
+authType: none
 `
 
 func TestRenderTemplate(t *testing.T) {
@@ -45,11 +46,11 @@ func TestRenderTemplate(t *testing.T) {
 			expectError:     false,
 		},
 		{
-			name:            "template execution error",
-			inputContent:    "1234", // Invalid YAML that will parse but fail template execution
-			templateContent: yamlTemplate,
+			name:            "invalid YAML",
+			inputContent:    `this is not valid yaml: [[[`,
+			templateContent: `{{.global.baseDomain}}`,
 			expectError:     true,
-			errorMsg:        "failed to execute template",
+			errorMsg:        "failed to parse",
 		},
 	}
 
@@ -88,7 +89,7 @@ func TestRenderTemplate_InvalidTemplateFile(t *testing.T) {
 	tempDir := t.TempDir()
 
 	inputFile := filepath.Join(tempDir, "input.yaml")
-	err := os.WriteFile(inputFile, []byte("name: Test"), 0600)
+	err := os.WriteFile(inputFile, []byte(inputYAML), 0600)
 	require.NoError(t, err)
 
 	templateFile := filepath.Join(tempDir, "nonexistent.template")
@@ -103,11 +104,11 @@ func TestRenderTemplate_CreatesParentDirectories(t *testing.T) {
 	tempDir := t.TempDir()
 
 	inputFile := filepath.Join(tempDir, "input.yaml")
-	err := os.WriteFile(inputFile, []byte("name: Test"), 0600)
+	err := os.WriteFile(inputFile, []byte(inputYAML), 0600)
 	require.NoError(t, err)
 
 	templateFile := filepath.Join(tempDir, "template.txt")
-	templateContent := `{{.name}}`
+	templateContent := `{{.global.baseDomain}}`
 	err = os.WriteFile(templateFile, []byte(templateContent), 0600)
 	require.NoError(t, err)
 
@@ -121,18 +122,18 @@ func TestRenderTemplate_CreatesParentDirectories(t *testing.T) {
 	assert.FileExists(t, outputFile)
 	actualContent, err := os.ReadFile(outputFile)
 	require.NoError(t, err)
-	assert.Equal(t, "Test", string(actualContent))
+	assert.Equal(t, "example.com", string(actualContent))
 }
 
 func TestRenderTemplate_InvalidOutputPath(t *testing.T) {
 	tempDir := t.TempDir()
 
 	inputFile := filepath.Join(tempDir, "input.yaml")
-	err := os.WriteFile(inputFile, []byte("name: Test"), 0600)
+	err := os.WriteFile(inputFile, []byte(inputYAML), 0600)
 	require.NoError(t, err)
 
 	templateFile := filepath.Join(tempDir, "template.txt")
-	templateContent := `{{.name}}`
+	templateContent := `{{.global.baseDomain}}`
 	err = os.WriteFile(templateFile, []byte(templateContent), 0600)
 	require.NoError(t, err)
 
