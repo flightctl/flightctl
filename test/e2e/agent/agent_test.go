@@ -231,7 +231,7 @@ var _ = Describe("VM Agent behavior", func() {
 				currentImage := device.Status.Os.Image
 				GinkgoWriter.Printf("Current image for %s is %s\n", deviceId, currentImage)
 				newImageReference = harness.FullImageRef(currentImage, "not-existing")
-				device.Spec.Os = &v1alpha1.DeviceOsSpec{Image: newImageReference}
+				device.Spec.Os = &v1beta1.DeviceOsSpec{Image: newImageReference}
 				GinkgoWriter.Printf("Updating %s to image %s\n", deviceId, device.Spec.Os.Image)
 			})
 			Expect(err).ToNot(HaveOccurred())

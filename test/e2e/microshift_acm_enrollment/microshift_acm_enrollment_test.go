@@ -95,13 +95,13 @@ var _ = Describe("Microshift cluster ACM enrollment tests", func() {
 				pullSecret := string(out)
 				GinkgoWriter.Printf("This is the pull-secret %s\n", pullSecret)
 
-				By("Upgrade to the microshift image, and add the pull-secret to the device")
-				nextRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
-				Expect(err).ToNot(HaveOccurred())
-				deviceImage := harness.FullImageRef(fmt.Sprintf("%s/flightctl-device", harness.RegistryEndpoint()), "v7")
-				var osImageSpec = v1alpha1.DeviceOsSpec{
-					Image: deviceImage,
-				}
+			By("Upgrade to the microshift image, and add the pull-secret to the device")
+			nextRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
+			Expect(err).ToNot(HaveOccurred())
+			deviceImage := harness.FullImageRef(fmt.Sprintf("%s/flightctl-device", harness.RegistryEndpoint()), "v7")
+			var osImageSpec = v1beta1.DeviceOsSpec{
+				Image: deviceImage,
+			}
 
 				var inlineConfigSpec = v1beta1.FileSpec{
 					Path:    inlinePath,

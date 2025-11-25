@@ -210,7 +210,7 @@ func (h *Harness) WaitForBootstrapAndUpdateToVersion(deviceId string, version st
 		currentImage := device.Status.Os.Image
 		logrus.Infof("current image for %s is %s", deviceId, currentImage)
 		newImageReference = h.FullImageRef(currentImage, version)
-		device.Spec.Os = &v1alpha1.DeviceOsSpec{Image: newImageReference}
+		device.Spec.Os = &v1beta1.DeviceOsSpec{Image: newImageReference}
 		logrus.Infof("updating %s to image %s", deviceId, device.Spec.Os.Image)
 	})
 	if err != nil {
