@@ -22,7 +22,7 @@ type Volume struct {
 	Name string
 	// ID is a unique internal idenfier used to create the actual volume
 	ID string
-	// Reference is a the reference used to populate the volume
+	// Reference is the reference used to populate the volume
 	Reference string
 	// Available is true if the volume has been created
 	Available bool
@@ -46,14 +46,16 @@ type VolumeManager interface {
 	// UpdateStatus processes a Podman event and updates internal volume status as needed.
 	UpdateStatus(event *client.PodmanEvent)
 	// AddVolumes adds all specified volumes to the manager. An ID will be added if one does not exist
-	AddVolumes(string, []*Volume)
+	AddVolumes([]*Volume)
 }
 
 // NewVolumeManager returns a new VolumeManager.
-func NewVolumeManager(log *log.PrefixLogger, appName string, volumes *[]v1beta1.ApplicationVolume) (VolumeManager, error) {
+func NewVolumeManager(log *log.PrefixLogger, appName string, appType v1beta1.AppType, volumes *[]v1beta1.ApplicationVolume) (VolumeManager, error) {
 	m := &volumeManager{
 		volumes: make(map[string]*Volume),
 		log:     log,
+		appName: appName,
+		appType: appType,
 	}
 
 	if volumes == nil {
@@ -85,7 +87,7 @@ func NewVolumeManager(log *log.PrefixLogger, appName string, volumes *[]v1beta1.
 		default:
 			return nil, fmt.Errorf("%w: %s", errors.ErrUnsupportedVolumeType, volType)
 		}
-		volID := client.ComposeVolumeName(appName, v.Name)
+		volID := m.volumeID(v.Name)
 		m.volumes[volID] = &Volume{
 			Name:      v.Name,
 			Reference: image.Reference,
@@ -100,6 +102,17 @@ type volumeManager struct {
 	// volumes map is keyed from volume ID
 	volumes map[string]*Volume
 	log     *log.PrefixLogger
+	appName string
+	appType v1beta1.AppType
+}
+
+func (m *volumeManager) volumeID(volName string) string {
+	switch m.appType {
+	case v1beta1.AppTypeQuadlet, v1beta1.AppTypeContainer:
+		return quadlet.NamespaceResource(client.NewComposeID(m.appName), volName)
+	default:
+		return client.ComposeVolumeName(m.appName, volName)
+	}
 }
 
 func (m *volumeManager) Get(id string) (*Volume, bool) {
@@ -191,11 +204,11 @@ func (m *volumeManager) UpdateStatus(event *client.PodmanEvent) {
 	}
 }
 
-func (m *volumeManager) AddVolumes(name string, volumes []*Volume) {
+func (m *volumeManager) AddVolumes(volumes []*Volume) {
 	for _, volume := range volumes {
 		vol := volume
 		if vol.ID == "" {
-			vol.ID = client.ComposeVolumeName(name, volume.Name)
+			vol.ID = m.volumeID(volume.Name)
 		}
 		vol.Available = true // TODO: event support is broken for volumes.  https://github.com/containers/podman/issues/26480
 		m.volumes[vol.ID] = vol
@@ -295,7 +308,7 @@ func extractQuadletVolumes(appID string, quadlets map[string]*common.QuadletRefe
 
 		volumes = append(volumes, &Volume{
 			Name:      name,
-			ID:        quadlet.VolumeName(quad.Name, namespacedQuadlet(appID, name)),
+			ID:        quadlet.VolumeName(quad.Name, quadlet.NamespaceResource(appID, name)),
 			Reference: *quad.Image,
 		})
 	}
