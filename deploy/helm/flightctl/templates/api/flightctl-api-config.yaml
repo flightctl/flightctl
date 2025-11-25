@@ -3,6 +3,9 @@ kind: ConfigMap
 metadata:
   name: flightctl-api-config
   namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-api
 data:
   config.yaml: |-
     database:

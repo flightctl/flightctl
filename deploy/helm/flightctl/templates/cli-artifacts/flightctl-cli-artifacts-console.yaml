@@ -4,6 +4,9 @@ apiVersion: console.openshift.io/v1
 kind: ConsoleCLIDownload
 metadata:
   name: flightctl-cli-downloads
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-cli-artifacts
 spec:
   description: Flight Control is a service for declarative management of fleets of edge devices and their workloads.
   displayName: flightctl - Flight Control Command Line Interface (CLI)
