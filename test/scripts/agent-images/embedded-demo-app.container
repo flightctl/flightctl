@@ -1,0 +1,6 @@
+[Container]
+Image=quay.io/flightctl-tests/alpine:v1
+Exec=sleep infinity
+
+[Install]
+WantedBy=default.target
