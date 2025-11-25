@@ -77,6 +77,7 @@ const (
 	AuthProviderListKind   = "AuthProviderList"
 
 	AuthConfigAPIVersion = "v1beta1"
+	AuthConfigKind       = "AuthConfig"
 
 	ResourceSyncAPIVersion = "v1beta1"
 	ResourceSyncKind       = "ResourceSync"

@@ -14,6 +14,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1beta1"
 	apiClient "github.com/flightctl/flightctl/internal/api/client"
+	"github.com/flightctl/flightctl/internal/cli/display"
 	"github.com/flightctl/flightctl/internal/cli/login"
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/samber/lo"
@@ -158,6 +159,7 @@ type LoginOptions struct {
 	Username           string
 	Password           string
 	Web                bool
+	ShowProviders      bool
 	authConfig         *v1beta1.AuthConfig
 	authProvider       login.AuthProvider
 	clientConfig       *client.Config
@@ -175,6 +177,7 @@ func DefaultLoginOptions() *LoginOptions {
 		Username:           "",
 		Password:           "",
 		Web:                false,
+		ShowProviders:      false,
 	}
 }
 
@@ -227,6 +230,7 @@ func (o *LoginOptions) Bind(fs *pflag.FlagSet) {
 	fs.StringVarP(&o.Username, "username", "u", o.Username, "Username for password flow authentication")
 	fs.StringVarP(&o.Password, "password", "p", o.Password, "Password for password flow authentication")
 	fs.BoolVarP(&o.Web, "web", "", o.Web, "Use web-based authorization code flow (default is password flow if username/password provided)")
+	fs.BoolVarP(&o.ShowProviders, "show-providers", "", o.ShowProviders, "List available authentication providers")
 }
 
 func (o *LoginOptions) Complete(cmd *cobra.Command, args []string) error {
@@ -254,8 +258,34 @@ func (o *LoginOptions) Init(args []string) error {
 	return nil
 }
 
+// validateShowProvidersExclusion ensures --show-providers is not used with other login options
+func (o *LoginOptions) validateShowProvidersExclusion() error {
+	if !o.ShowProviders {
+		return nil
+	}
+
+	conflicts := map[bool]string{
+		!login.StrIsEmpty(o.AccessToken):                               "--token",
+		!login.StrIsEmpty(o.Provider):                                  "--provider",
+		!login.StrIsEmpty(o.AuthCAFile):                                "--auth-certificate-authority",
+		!login.StrIsEmpty(o.Username) || !login.StrIsEmpty(o.Password): "--username or --password",
+		o.Web: "--web",
+	}
+
+	for condition, flag := range conflicts {
+		if condition {
+			return fmt.Errorf("--show-providers cannot be used with %s", flag)
+		}
+	}
+	return nil
+}
+
 func (o *LoginOptions) Validate(args []string) error {
 	if err := o.GlobalOptions.ValidateCmd(args); err != nil {
+		return err
+	}
+
+	if err := o.validateShowProvidersExclusion(); err != nil {
 		return err
 	}
 
@@ -431,6 +461,11 @@ func (o *LoginOptions) validateTokenWithServer(ctx context.Context, token string
 }
 
 func (o *LoginOptions) Run(ctx context.Context, args []string) error {
+	// Handle --show-providers flag
+	if o.ShowProviders {
+		return o.showProviders(ctx)
+	}
+
 	var (
 		authCAFile string
 		err        error
@@ -519,6 +554,28 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 
 	fmt.Println("Login successful.")
 	return nil
+}
+
+// showProviders lists all available authentication providers
+func (o *LoginOptions) showProviders(ctx context.Context) error {
+	authConfig, err := o.getAuthConfig(ctx)
+	if err != nil {
+		return err
+	}
+
+	if authConfig == nil || authConfig.Providers == nil || len(*authConfig.Providers) == 0 {
+		fmt.Println("No authentication providers configured")
+		return nil
+	}
+
+	// Create formatter and display options (empty string defaults to table format)
+	formatter := display.NewFormatter("")
+	options := display.FormatOptions{
+		Kind:   v1beta1.AuthConfigKind,
+		Writer: os.Stdout,
+	}
+
+	return formatter.Format(authConfig, options)
 }
 
 func (o *LoginOptions) getAuthConfig(ctx context.Context) (*v1beta1.AuthConfig, error) {
