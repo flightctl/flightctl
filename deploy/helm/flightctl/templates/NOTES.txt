@@ -24,4 +24,4 @@ You can access the Flight Control API at {{ include "flightctl.getApiUrl" . }}
 
 You can login using the following CLI command:
    
-    flightctl login {{ include "flightctl.getApiUrl" . }} --insecure-skip-tls-verify --web
+    flightctl login {{ include "flightctl.getApiUrl" . }} --web

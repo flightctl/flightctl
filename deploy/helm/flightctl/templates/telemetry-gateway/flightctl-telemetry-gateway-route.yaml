@@ -1,5 +1,4 @@
-{{- if and .Values.telemetryGateway (eq (include "flightctl.getServiceExposeMethod" .) "route") -}}
----
+{{ if eq (include "flightctl.getServiceExposeMethod" .) "route" }}
 apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
@@ -10,6 +9,8 @@ metadata:
     {{- with .Values.telemetryGateway.additionalRouteLabels }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-telemetry-gateway
   name: flightctl-telemetry-gateway-route
   namespace: {{ .Release.Namespace }}
 spec:

@@ -3,6 +3,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
     flightctl.service: flightctl-worker
   name: flightctl-worker
 rules:
