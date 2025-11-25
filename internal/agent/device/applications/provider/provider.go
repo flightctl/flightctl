@@ -861,8 +861,7 @@ func writeENVFile(appPath string, writer fileio.Writer, envVars map[string]strin
 }
 
 // ensureDependenciesFromAppType ensures that the dependencies required for the given app type are available.
-func ensureDependenciesFromAppType(handler appTypeHandler) error {
-	deps := handler.Dependencies()
+func ensureDependenciesFromAppType(deps []string) error {
 	for _, dep := range deps {
 		if client.IsCommandAvailable(dep) {
 			return nil
