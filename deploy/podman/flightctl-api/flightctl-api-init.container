@@ -3,7 +3,7 @@ Description=Flight Control API Initialization
 PartOf=flightctl.target
 
 [Container]
-Image=registry.access.redhat.com/ubi9/ubi-minimal:9.6
+Image=registry.access.redhat.com/ubi9/ubi-minimal:9.7-1763362218
 ContainerName=flightctl-api-init
 Network=flightctl.network
 Volume=/usr/share/flightctl/flightctl-api:/config-source:ro,z
