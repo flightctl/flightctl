@@ -36,6 +36,10 @@
           "type": "string",
           "description": "Secret containing TLS ca/cert/key. It should be valid for *.${baseDomain}. This certificate is only used for non-mTLS endpoints, mTLS endpoints like agent-api, etc will use different certificates."
         },
+        "clientSignerSecretName": {
+          "type": "string",
+          "description": "Secret containing TLS client signer certificate and key."
+        },
         "storageClassName": {
           "type": "string",
           "description": "Storage class name for PVCs. Empty to use default."
@@ -481,6 +485,10 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "tlsSecretName": {
+          "type": "string",
+          "description": "Secret containing TLS cert/key for telemetry gateway server"
+        },
         "image": {
           "type": "object",
           "additionalProperties": false,
