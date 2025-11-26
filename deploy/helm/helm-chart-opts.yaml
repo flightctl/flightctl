@@ -63,22 +63,22 @@ redhat:
       image: registry.redhat.io/openshift4/ose-cli-rhel9
       tag: v4.20.0
     api:
-      image: registry.redhat.io/rhem/flightctl-api
+      image: registry.redhat.io/rhem/flightctl-api-rhel9
     cliArtifacts:
-      image: registry.redhat.io/rhem/flightctl-cli-artifacts
+      image: registry.redhat.io/rhem/flightctl-cli-artifacts-rhel9
     worker:
-      image: registry.redhat.io/rhem/flightctl-worker
+      image: registry.redhat.io/rhem/flightctl-worker-rhel9
     periodic:
-      image: registry.redhat.io/rhem/flightctl-periodic
+      image: registry.redhat.io/rhem/flightctl-periodic-rhel9
     alertExporter:
-      image: registry.redhat.io/rhem/flightctl-alert-exporter
+      image: registry.redhat.io/rhem/flightctl-alert-exporter-rhel9
     alertmanagerProxy:
-      image: registry.redhat.io/rhem/flightctl-alertmanager-proxy
+      image: registry.redhat.io/rhem/flightctl-alertmanager-proxy-rhel9
     ui:
-      image: registry.redhat.io/rhem/flightctl-ui
+      image: registry.redhat.io/rhem/flightctl-ui-rhel9
     uiPlugin:
-      image: registry.redhat.io/rhem/flightctl-ocp-ui
+      image: registry.redhat.io/rhem/flightctl-ui-ocp-rhel9
     dbSetup:
-      image: registry.redhat.io/rhem/flightctl-db-setup
+      image: registry.redhat.io/rhem/flightctl-db-setup-rhel9
     telemetryGateway:
-      image: registry.redhat.io/rhem/flightctl-telemetry-gateway
+      image: registry.redhat.io/rhem/flightctl-telemetry-gateway-rhel9
