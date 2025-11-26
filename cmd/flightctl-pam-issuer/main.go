@@ -4,9 +4,7 @@ package main
 
 import (
 	"context"
-	"os"
-	"os/signal"
-	"syscall"
+	"fmt"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/api_server/middleware"
@@ -15,29 +13,37 @@ import (
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/pam_issuer_server"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/shutdown"
+	"github.com/sirupsen/logrus"
 )
 
 func main() {
-	ctx := context.Background()
-
 	cfg, err := config.LoadOrGenerate(config.ConfigFile())
 	if err != nil {
-		log.InitLogs().Fatalf("reading configuration: %v", err)
+		log.InitLogs().WithError(err).Fatal("Failed to load configuration")
 	}
 
-	log := log.InitLogs(cfg.Service.LogLevel)
-	log.Println("Starting PAM issuer service")
-	defer log.Println("PAM issuer service stopped")
-	log.Printf("Using config: %s", cfg)
+	logger := log.InitLogs(cfg.Service.LogLevel)
+	logger.Info("Starting PAM issuer service")
+	defer logger.Info("PAM issuer service stopped")
+	logger.Infof("Using config: %s", cfg)
+
+	if err := runPAMIssuerService(cfg, logger); err != nil {
+		logger.WithError(err).Fatal("PAM issuer service error")
+	}
+}
+
+func runPAMIssuerService(cfg *config.Config, logger *logrus.Logger) error {
+	ctx := context.Background()
 
 	// Check if PAM OIDC issuer is configured
 	if cfg.Auth == nil || cfg.Auth.PAMOIDCIssuer == nil {
-		log.Fatalf("PAM OIDC issuer not configured")
+		return fmt.Errorf("PAM OIDC issuer not configured")
 	}
 
 	ca, _, err := crypto.EnsureCA(cfg.CA)
 	if err != nil {
-		log.Fatalf("ensuring CA cert: %v", err)
+		return fmt.Errorf("ensuring CA cert: %w", err)
 	}
 
 	var serverCerts *crypto.TLSCertificateConfig
@@ -51,12 +57,12 @@ func main() {
 	// check for user-provided certificate files
 	if cfg.Service.SrvCertFile != "" || cfg.Service.SrvKeyFile != "" {
 		if canReadCertAndKey, err := crypto.CanReadCertAndKey(cfg.Service.SrvCertFile, cfg.Service.SrvKeyFile); !canReadCertAndKey {
-			log.Fatalf("cannot read provided server certificate or key: %v", err)
+			return fmt.Errorf("cannot read provided server certificate or key: %w", err)
 		}
 
 		serverCerts, err = crypto.GetTLSCertificateConfig(cfg.Service.SrvCertFile, cfg.Service.SrvKeyFile)
 		if err != nil {
-			log.Fatalf("failed to load provided certificate: %v", err)
+			return fmt.Errorf("failed to load provided certificate: %w", err)
 		}
 	} else {
 		srvCertFile := crypto.CertStorePath("pam-issuer.crt", cfg.Service.CertStore)
@@ -66,7 +72,7 @@ func main() {
 		if canReadCertAndKey, _ := crypto.CanReadCertAndKey(srvCertFile, srvKeyFile); canReadCertAndKey {
 			serverCerts, err = crypto.GetTLSCertificateConfig(srvCertFile, srvKeyFile)
 			if err != nil {
-				log.Fatalf("failed to load existing self-signed certificate: %v", err)
+				return fmt.Errorf("failed to load existing self-signed certificate: %w", err)
 			}
 		} else {
 			// default to localhost if no alternative names are set
@@ -77,7 +83,7 @@ func main() {
 
 			serverCerts, err = ca.MakeAndWriteServerCertificate(ctx, srvCertFile, srvKeyFile, altNames, cfg.CA.ServerCertValidityDays)
 			if err != nil {
-				log.Fatalf("failed to create self-signed certificate: %v", err)
+				return fmt.Errorf("failed to create self-signed certificate: %w", err)
 			}
 		}
 	}
@@ -85,41 +91,41 @@ func main() {
 	// check for expired certificate
 	for _, x509Cert := range serverCerts.Certs {
 		expired := time.Now().After(x509Cert.NotAfter)
-		log.Printf("checking certificate: subject='%s', issuer='%s', expiry='%v'",
+		logger.Printf("checking certificate: subject='%s', issuer='%s', expiry='%v'",
 			x509Cert.Subject.CommonName, x509Cert.Issuer.CommonName, x509Cert.NotAfter)
 
 		if expired {
-			log.Warnf("server certificate for '%s' issued by '%s' has expired on: %v",
+			logger.Warnf("server certificate for '%s' issued by '%s' has expired on: %v",
 				x509Cert.Subject.CommonName, x509Cert.Issuer.CommonName, x509Cert.NotAfter)
 		}
 	}
 
 	tlsConfig, _, err := crypto.TLSConfigForServer(ca.GetCABundleX509(), serverCerts)
 	if err != nil {
-		log.Fatalf("failed creating TLS config: %v", err)
+		return fmt.Errorf("failed creating TLS config: %w", err)
 	}
 
-	tracerShutdown := tracing.InitTracer(log, cfg, "flightctl-pam-issuer")
+	tracerShutdown := tracing.InitTracer(logger, cfg, "flightctl-pam-issuer")
 	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
 		if err := tracerShutdown(ctx); err != nil {
-			log.Fatalf("failed to shut down tracer: %v", err)
+			logger.WithError(err).Error("Error shutting down tracer")
 		}
 	}()
 
-	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
-	defer cancel()
-
-	go func() {
+	// Use single-server shutdown pattern
+	config := shutdown.NewSingleServerConfig("PAM issuer", logger)
+	return config.RunSingleServer(func(shutdownCtx context.Context) error {
 		listener, err := middleware.NewTLSListener(pamIssuerAddress, tlsConfig)
 		if err != nil {
-			log.Fatalf("creating listener: %s", err)
+			return fmt.Errorf("creating listener: %w", err)
 		}
-		server := pam_issuer_server.New(log, cfg, ca, listener)
-		if err := server.Run(ctx); err != nil {
-			log.Fatalf("Error running server: %s", err)
-		}
-		cancel()
-	}()
 
-	<-ctx.Done()
+		server := pam_issuer_server.New(logger, cfg, ca, listener)
+		if err := server.Run(shutdownCtx); err != nil {
+			return fmt.Errorf("running PAM issuer server: %w", err)
+		}
+		return nil
+	})
 }

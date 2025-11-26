@@ -6,9 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
@@ -35,44 +32,37 @@ func New(
 	}
 }
 
-func (s *Server) Run(ctx context.Context, serviceHandler service.Service) error {
+func (s *Server) Run(shutdownCtx context.Context, serviceHandler service.Service) error {
 	logger := s.log.WithFields(logrus.Fields{
 		"component": "alert_exporter_server",
 	})
 
 	logger.Info("Starting alert exporter server")
 
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	// Start metrics server
-	s.startMetricsServer(ctx)
+	// Start metrics server with longer grace period
+	s.startMetricsServer(shutdownCtx)
 
 	// Start uptime tracking
-	go s.updateUptimeMetric(ctx)
+	go s.updateUptimeMetric(shutdownCtx)
 
 	alertExporter := NewAlertExporter(s.log, serviceHandler, s.cfg)
-
-	// Handle shutdown gracefully
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	defer signal.Stop(sigCh)
-	go func() {
-		sig := <-sigCh
-		logger.WithFields(logrus.Fields{
-			"signal": sig.String(),
-		}).Info("Received shutdown signal, initiating graceful shutdown")
-		cancel()
-	}()
 
 	backoff := time.Second
 	maxBackoff := time.Minute
 	retryCount := 0
 
 	for {
-		if ctx.Err() != nil {
+		select {
+		case <-shutdownCtx.Done():
+			logger.Info("Shutdown signal received, stopping alert exporter")
+			return nil
+		default:
+		}
+
+		// Check if shutdown cancellation happened
+		if shutdownCtx.Err() != nil {
 			logger.WithFields(logrus.Fields{
-				"context_error": ctx.Err(),
+				"context_error": shutdownCtx.Err(),
 				"retry_count":   retryCount,
 			}).Info("Context canceled, exiting alert exporter")
 			return nil
@@ -85,7 +75,7 @@ func (s *Server) Run(ctx context.Context, serviceHandler service.Service) error 
 
 		cycleLogger.Debug("Starting polling cycle")
 
-		err := alertExporter.Poll(ctx) // This runs its own ticker with s.interval
+		err := alertExporter.Poll(shutdownCtx) // This runs its own ticker with s.interval
 		if errors.Is(err, context.Canceled) {
 			logger.Info("Alert exporter received context cancellation")
 			return nil
@@ -107,9 +97,8 @@ func (s *Server) Run(ctx context.Context, serviceHandler service.Service) error 
 				if backoff > maxBackoff {
 					backoff = maxBackoff
 				}
-			case <-ctx.Done():
-				logger.WithField("context_error", ctx.Err()).
-					Info("Context cancelled during backoff, exiting")
+			case <-shutdownCtx.Done():
+				logger.Info("Shutdown signal received during backoff, exiting")
 				return nil
 			}
 		} else {
@@ -124,7 +113,7 @@ func (s *Server) Run(ctx context.Context, serviceHandler service.Service) error 
 	}
 }
 
-func (s *Server) startMetricsServer(ctx context.Context) {
+func (s *Server) startMetricsServer(shutdownCtx context.Context) {
 	// Default metrics port for alert exporter
 	metricsPort := 8081
 
@@ -151,12 +140,24 @@ func (s *Server) startMetricsServer(ctx context.Context) {
 	}()
 
 	go func() {
-		<-ctx.Done()
-		logger.Info("Shutting down metrics server")
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		<-shutdownCtx.Done()
+		logger.Info("Shutting down metrics server (graceful)")
+
+		// Give metrics server longer grace period (60s to export shutdown metrics)
+		shutdownTimeout, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
-		if err := server.Shutdown(shutdownCtx); err != nil {
-			logger.WithField("error", err).Error("Error shutting down metrics server")
+
+		// Start graceful shutdown
+		shutdownDone := make(chan error, 1)
+		go func() {
+			shutdownDone <- server.Shutdown(shutdownTimeout)
+		}()
+
+		err := <-shutdownDone
+		if err != nil {
+			logger.WithField("error", err).Error("Error during graceful metrics server shutdown")
+		} else {
+			logger.Info("Metrics server shut down gracefully")
 		}
 	}()
 }

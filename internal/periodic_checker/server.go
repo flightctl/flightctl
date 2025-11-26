@@ -3,10 +3,7 @@ package periodic
 import (
 	"context"
 	"fmt"
-	"os"
-	"os/signal"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
@@ -147,10 +144,9 @@ func (s *Server) Run(ctx context.Context) error {
 		periodicTaskPublisher.Run(ctx)
 	}()
 
-	sigShutdown := make(chan os.Signal, 1)
-	signal.Notify(sigShutdown, os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
-	<-sigShutdown
-	s.log.Println("Shutdown signal received")
+	// Wait for context cancellation (shutdown signal from main process)
+	<-ctx.Done()
+	s.log.Println("Shutdown signal received from context")
 	cancel()
 
 	// Wait for consumer and publisher to finish

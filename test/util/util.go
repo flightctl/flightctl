@@ -27,7 +27,7 @@ import (
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
-	flightlog "github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
@@ -48,10 +48,12 @@ const (
 
 // InitLogsWithDebug creates a logger with debug level if LOG_LEVEL=debug is set
 func InitLogsWithDebug() *logrus.Logger {
-	if logLevel := os.Getenv("LOG_LEVEL"); logLevel != "" {
-		return flightlog.InitLogs(logLevel)
+	// Enable debug logging if LOG_LEVEL is set to debug
+	if os.Getenv("LOG_LEVEL") == "debug" {
+		return log.InitLogs("debug")
 	}
-	return flightlog.InitLogs()
+
+	return log.InitLogs()
 }
 
 type testProvider struct {

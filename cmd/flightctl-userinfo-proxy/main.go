@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/shutdown"
 	"github.com/sirupsen/logrus"
 )
 
@@ -41,11 +43,21 @@ func main() {
 
 	config := loadConfig(logger)
 
-	http.HandleFunc("/userinfo", makeUserInfoHandler(config, logger))
-
 	logger.Infof("Starting UserInfo proxy server on port %s", config.ListenPort)
 	logger.Infof("Proxying to upstream: %s", config.UpstreamURL)
 	logger.Infof("TLS verification: %s", map[bool]string{true: "enabled", false: "disabled"}[!config.SkipTLSVerification])
+
+	// Use single-server shutdown pattern
+	shutdownConfig := shutdown.NewSingleServerConfig("userinfo proxy", logger)
+	if err := shutdownConfig.RunSingleServer(func(shutdownCtx context.Context) error {
+		return runUserInfoProxyServer(shutdownCtx, config, logger)
+	}); err != nil {
+		logger.WithError(err).Fatal("UserInfo proxy service error")
+	}
+}
+
+func runUserInfoProxyServer(shutdownCtx context.Context, config *Config, logger *logrus.Logger) error {
+	http.HandleFunc("/userinfo", makeUserInfoHandler(config, logger))
 
 	// Create server with proper timeouts to prevent DoS attacks
 	server := &http.Server{
@@ -56,9 +68,36 @@ func main() {
 		IdleTimeout:       60 * time.Second, // Time to keep idle connections open
 	}
 
-	if err := server.ListenAndServe(); err != nil {
-		logger.Fatal("Server failed to start:", err)
+	// Handle graceful shutdown
+	shutdownDone := make(chan error, 1)
+	serverErr := make(chan error, 1)
+	go func() {
+		select {
+		case <-shutdownCtx.Done():
+		case <-serverErr:
+			shutdownDone <- nil // Signal completion so main path doesn't block
+			return
+		}
+		logger.Println("Shutdown signal received")
+
+		shutdownContext, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer shutdownCancel()
+
+		if err := server.Shutdown(shutdownContext); err != nil {
+			shutdownDone <- fmt.Errorf("server shutdown error: %w", err)
+		} else {
+			shutdownDone <- nil
+		}
+	}()
+
+	// Start server
+	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		close(serverErr) // Signal goroutine to exit
+		return fmt.Errorf("server error: %w", err)
 	}
+
+	// Wait for graceful shutdown completion
+	return <-shutdownDone
 }
 
 func loadConfig(log *logrus.Logger) *Config {

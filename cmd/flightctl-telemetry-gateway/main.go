@@ -2,48 +2,47 @@ package main
 
 import (
 	"context"
-	"os"
-	"os/signal"
-	"syscall"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	tg "github.com/flightctl/flightctl/internal/telemetry_gateway"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/shutdown"
 )
 
 func main() {
-	ctx := context.Background()
-
 	cfg, err := config.LoadOrGenerate(config.ConfigFile())
 	if err != nil {
-		log.InitLogs().Fatalf("reading configuration: %v", err)
+		log.InitLogs().WithError(err).Fatal("error reading configuration")
 	}
 
-	log := log.InitLogs(cfg.Service.LogLevel)
-	log.Info("Starting telemetry gateway")
-	log.Printf("Using config: %s", cfg)
-
-	tracerShutdown := tracing.InitTracer(log, cfg, "flightctl-telemetry-gateway")
-	defer func() {
-		if err := tracerShutdown(ctx); err != nil {
-			log.Fatalf("failed to shut down tracer: %v", err)
-		}
-	}()
-
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	// Handle graceful shutdown
-	sigShutdown := make(chan os.Signal, 1)
-	signal.Notify(sigShutdown, os.Interrupt, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGQUIT)
-	go func() {
-		<-sigShutdown
-		log.Info("Shutdown signal received")
-		cancel()
-	}()
-
-	if err := tg.Run(ctx, cfg); err != nil {
-		log.Fatalf("failed to create telemetry gateway: %v", err)
+	if err = runCmd(cfg); err != nil {
+		log.InitLogs().WithError(err).Fatal("Telemetry gateway error")
 	}
+}
+
+func runCmd(cfg *config.Config) error {
+	logger := log.InitLogs(cfg.Service.LogLevel)
+
+	logger.Info("Starting telemetry gateway")
+	defer logger.Info("Telemetry gateway stopped")
+	logger.Infof("Using config: %s", cfg)
+
+	tracerShutdown := tracing.InitTracer(logger, cfg, "flightctl-telemetry-gateway")
+	if tracerShutdown != nil {
+		defer func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := tracerShutdown(ctx); err != nil {
+				logger.WithError(err).Error("Error shutting down tracer")
+			}
+		}()
+	}
+
+	// Use single server shutdown coordination
+	singleServerConfig := shutdown.NewSingleServerConfig("telemetry gateway", logger)
+	return singleServerConfig.RunSingleServer(func(shutdownCtx context.Context) error {
+		return tg.Run(shutdownCtx, cfg)
+	})
 }

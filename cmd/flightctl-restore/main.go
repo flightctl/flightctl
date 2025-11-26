@@ -107,7 +107,9 @@ func runRestore(ctx context.Context) error {
 	orgCache := cache.NewOrganizationTTL(cache.DefaultTTL)
 	go func() {
 		orgCache.Start(ctx)
-		log.Warn("Organization cache stopped unexpectedly")
+		if ctx.Err() == nil {
+			log.Warn("Organization cache stopped unexpectedly")
+		}
 	}()
 	defer orgCache.Stop()
 
