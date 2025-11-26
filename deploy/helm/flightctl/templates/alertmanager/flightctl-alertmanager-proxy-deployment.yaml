@@ -56,10 +56,6 @@ spec:
               value: "/root"
             - name: ALERTMANAGER_URL
               value: "http://flightctl-alertmanager.{{ default .Release.Namespace .Values.global.internalNamespace }}.svc.cluster.local:9093"
-            {{- if eq .Values.global.auth.type "none" }}
-            - name: FLIGHTCTL_DISABLE_AUTH
-              value: "true"
-            {{- end }}
             - name: DB_PASSWORD
               valueFrom:
                 secretKeyRef:

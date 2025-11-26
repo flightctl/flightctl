@@ -25,7 +25,8 @@ const (
 )
 
 const (
-	ociImageConfigMediaType = "application/vnd.oci.image.config.v1+json"
+	ociImageConfigMediaType    = "application/vnd.oci.image.config.v1+json"
+	dockerImageConfigMediaType = "application/vnd.docker.container.image.v1+json"
 )
 
 // OCIType represents the type of OCI target for prefetching
@@ -53,7 +54,7 @@ func detectOCIType(manifest *client.OCIManifest) (OCIType, error) {
 
 	if manifest.Config != nil {
 		switch manifest.Config.MediaType {
-		case ociImageConfigMediaType:
+		case ociImageConfigMediaType, dockerImageConfigMediaType:
 			return OCITypeImage, nil
 		case "":
 			return "", fmt.Errorf("media type not set")

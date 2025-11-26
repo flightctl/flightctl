@@ -20,7 +20,6 @@ const (
 )
 
 type AuthOrganizationsConfig struct {
-	Enabled bool
 	// OrganizationAssignment defines how users are assigned to organizations
 	OrganizationAssignment *v1beta1.AuthOrganizationAssignment
 }

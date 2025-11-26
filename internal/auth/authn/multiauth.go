@@ -661,25 +661,13 @@ func (m *MultiAuth) GetIdentity(ctx context.Context, token string) (common.Ident
 
 // GetAuthToken extracts the auth token from the request
 func (m *MultiAuth) GetAuthToken(r *http.Request) (string, error) {
-	// Special case: if only NilAuth is configured (auth disabled), return a dummy token
-	// without requiring an Authorization header
-	m.dynamicProvidersMu.RLock()
-	hasDynamicProviders := len(m.dynamicProviders) > 0
-	m.dynamicProvidersMu.RUnlock()
-
-	if len(m.staticProviders) == 1 && !hasDynamicProviders {
-		if nilProvider, ok := m.staticProviders["nil"]; ok {
-			return nilProvider.GetAuthToken(r)
-		}
-	}
-
 	return common.ExtractBearerToken(r)
 }
 
 // GetAuthConfig returns the auth configuration with all available providers
 func (m *MultiAuth) GetAuthConfig() *api.AuthConfig {
 	allProviders := []api.AuthProvider{}
-	var orgEnabled bool
+	orgEnabled := true // Organizations are always enabled
 	var firstStaticProviderName string
 
 	// Collect static provider names and sort them for consistent ordering
@@ -693,11 +681,6 @@ func (m *MultiAuth) GetAuthConfig() *api.AuthConfig {
 	for _, name := range staticProviderNames {
 		provider := m.staticProviders[name]
 		config := provider.GetAuthConfig()
-
-		// Get org config from first provider config
-		if config.OrganizationsEnabled != nil {
-			orgEnabled = *config.OrganizationsEnabled
-		}
 
 		// Add all providers from this config (filter by enabled=true)
 		if config.Providers != nil {
@@ -968,7 +951,6 @@ func createOAuth2AuthFromProvider(ctx context.Context, provider *api.AuthProvide
 // convertOrganizationAssignmentToOrgConfig converts auth organization assignment to org config
 func convertOrganizationAssignmentToOrgConfig(assignment api.AuthOrganizationAssignment) *common.AuthOrganizationsConfig {
 	return &common.AuthOrganizationsConfig{
-		Enabled:                true,
 		OrganizationAssignment: &assignment,
 	}
 }

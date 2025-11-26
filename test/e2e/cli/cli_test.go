@@ -712,17 +712,6 @@ var _ = Describe("cli login", func() {
 					ContainSubstring("the token provided is invalid or expired"),
 					ContainSubstring("failed to validate token"),
 					ContainSubstring("invalid JWT")))
-
-				By("Retry login with the invalid password")
-				invalidPassword := "passW0RD"
-				loginArgsPassword := append(loginArgs, "-k", "-u", "demouser", "-p", invalidPassword)
-
-				GinkgoWriter.Printf("Executing CLI with args: %v\n", loginArgsPassword)
-				out, _ = harness.CLI(loginArgsPassword...)
-				// We don't check for error here as we're only interested in the output message
-				Expect(out).To(Or(
-					ContainSubstring("Invalid user credentials"),
-					ContainSubstring("unexpected http code: 401")))
 			}
 		})
 
@@ -800,6 +789,7 @@ var _ = Describe("cli login", func() {
 			func() {
 
 				harness := e2e.GetWorkerHarness()
+				login.LoginToAPIWithToken(harness)
 
 				By("CertificateSigningRequest: Resources lifecycle")
 				// Prepare a unique CSR YAML and ensure cleanup
@@ -891,6 +881,7 @@ var _ = Describe("cli login", func() {
 
 	It("Creates a device, edits via headless editor (yaml & json), and validates negatives", Label("83301"), func() {
 		harness := e2e.GetWorkerHarness()
+		login.LoginToAPIWithToken(harness)
 
 		By("creating a unique Device from template")
 		uniqueDeviceYAML, err := util.CreateUniqueYAMLFile("device.yaml", harness.GetTestIDFromContext())
@@ -981,6 +972,7 @@ var _ = Describe("cli login", func() {
 
 	It("generates completion and can be sourced for each supported shell (harness.CLI only for flightctl calls)", Label("85470"), func() {
 		harness := e2e.GetWorkerHarness()
+		login.LoginToAPIWithToken(harness)
 
 		type shellCase struct {
 			name      string

@@ -14,7 +14,7 @@ metadata:
   name: flightctl-telemetry-gateway-route
   namespace: {{ .Release.Namespace }}
 spec:
-  host: telemetry-gateway.{{ include "flightctl.getBaseDomain" . }}
+  host: telemetry.{{ include "flightctl.getBaseDomain" . }}
   port:
     targetPort: 4317
   tls:

@@ -1665,3 +1665,62 @@ func (a AuthDynamicRoleAssignment) Validate(ctx context.Context) []error {
 
 	return allErrs
 }
+
+func (s SystemdActiveStateType) Validate() error {
+	validStates := []SystemdActiveStateType{
+		SystemdActiveStateActivating,
+		SystemdActiveStateActive,
+		SystemdActiveStateDeactivating,
+		SystemdActiveStateFailed,
+		SystemdActiveStateInactive,
+		SystemdActiveStateMaintenance,
+		SystemdActiveStateRefreshing,
+		SystemdActiveStateReloading,
+		SystemdActiveStateUnknown,
+	}
+	if !slices.Contains(validStates, s) {
+		return fmt.Errorf("invalid systemd active state: %s", s)
+	}
+	return nil
+}
+
+func (s SystemdEnableStateType) Validate() error {
+	validStates := []SystemdEnableStateType{
+		SystemdEnableStateAlias,
+		SystemdEnableStateBad,
+		SystemdEnableStateDisabled,
+		SystemdEnableStateEmpty,
+		SystemdEnableStateEnabled,
+		SystemdEnableStateEnabledRuntime,
+		SystemdEnableStateGenerated,
+		SystemdEnableStateIndirect,
+		SystemdEnableStateLinked,
+		SystemdEnableStateLinkedRuntime,
+		SystemdEnableStateMasked,
+		SystemdEnableStateMaskedRuntime,
+		SystemdEnableStateStatic,
+		SystemdEnableStateTransient,
+		SystemdEnableStateUnknown,
+	}
+	if !slices.Contains(validStates, s) {
+		return fmt.Errorf("invalid systemd enable state: %s", s)
+	}
+	return nil
+}
+
+func (s SystemdLoadStateType) Validate() error {
+	validStates := []SystemdLoadStateType{
+		SystemdLoadStateBadSetting,
+		SystemdLoadStateError,
+		SystemdLoadStateLoaded,
+		SystemdLoadStateMasked,
+		SystemdLoadStateMerged,
+		SystemdLoadStateNotFound,
+		SystemdLoadStateStub,
+		SystemdLoadStateUnknown,
+	}
+	if !slices.Contains(validStates, s) {
+		return fmt.Errorf("invalid systemd load state: %s", s)
+	}
+	return nil
+}

@@ -83,10 +83,10 @@ spec:
         name: flightctl-alertmanager-data
         labels:
           {{- with .Values.global.additionalPVCLabels }}
-          {{- toYaml . | nindent 4 }}
+          {{- toYaml . | nindent 10 }}
           {{- end }}
           {{- with .Values.alertmanager.additionalPVCLabels }}
-          {{- toYaml . | nindent 4 }}
+          {{- toYaml . | nindent 10 }}
           {{- end }}
       spec:
         {{- with .Values.global.storageClassName }}

@@ -102,7 +102,6 @@ help:
 	@echo "    deploy-kv:       deploy only the key-value store as a container, for testing"
 	@echo "    deploy-quadlets: deploy the complete Flight Control service using Quadlets"
 	@echo "                     (includes proper startup ordering: DB -> KV -> other services)"
-	@echo "                     Supports AUTH=true and ORGS=true environment variables"
 	@echo "    clean:           clean up all containers and volumes"
 	@echo "    clean-all:       full cleanup including containers and bin directory"
 	@echo "    rebuild-containers: force rebuild all containers"

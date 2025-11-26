@@ -49,10 +49,6 @@ spec:
                 secretKeyRef:
                   name: {{ include "flightctl.dbAppUserSecret" . }}
                   key: user
-            {{- if eq .Values.global.auth.type "none" }}
-            - name: FLIGHTCTL_DISABLE_AUTH
-              value: "true"
-            {{- end }}
             {{- if .Values.api.env }}
             {{- range $key, $value := .Values.api.env }}
             - name: {{ $key }}

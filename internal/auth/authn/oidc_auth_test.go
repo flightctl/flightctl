@@ -226,10 +226,8 @@ func TestOIDCAuth_extractOrganizations(t *testing.T) {
 			expectedOrgs: []common.ReportedOrganization{},
 		},
 		{
-			name: "organizations disabled",
-			orgConfig: &common.AuthOrganizationsConfig{
-				Enabled: false,
-			},
+			name:         "organizations disabled",
+			orgConfig:    nil,
 			expectedOrgs: []common.ReportedOrganization{},
 		},
 		{
@@ -242,7 +240,6 @@ func TestOIDCAuth_extractOrganizations(t *testing.T) {
 				}
 				_ = assignment.FromAuthStaticOrganizationAssignment(staticAssignment)
 				return &common.AuthOrganizationsConfig{
-					Enabled:                true,
 					OrganizationAssignment: &assignment,
 				}
 			}(),
@@ -258,7 +255,6 @@ func TestOIDCAuth_extractOrganizations(t *testing.T) {
 				}
 				_ = assignment.FromAuthDynamicOrganizationAssignment(dynamicAssignment)
 				return &common.AuthOrganizationsConfig{
-					Enabled:                true,
 					OrganizationAssignment: &assignment,
 				}
 			}(),
@@ -275,7 +271,6 @@ func TestOIDCAuth_extractOrganizations(t *testing.T) {
 				}
 				_ = assignment.FromAuthPerUserOrganizationAssignment(perUserAssignment)
 				return &common.AuthOrganizationsConfig{
-					Enabled:                true,
 					OrganizationAssignment: &assignment,
 				}
 			}(),

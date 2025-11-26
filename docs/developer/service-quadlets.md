@@ -181,51 +181,9 @@ This unified approach provides:
 - **Reduced complexity** by eliminating duplicate container variants
 - **Proven security model** following the same pattern used by internal database mode
 
-### Deployment-time Configuration
+### Deployment Configuration
 
-The `deploy-quadlets` target supports environment variables to configure authentication and organization features during deployment:
-
-#### AUTH Environment Variable
-
-Setting `AUTH=true` enables authentication by modifying the `service-config.yaml` during deployment:
-
-```bash
-AUTH=true make deploy-quadlets
-```
-
-This changes:
-```yaml
-global:
-  auth:
-    type: none    # Changes to: type: oidc
-```
-
-This enables OIDC authentication with the PAM issuer service (which is enabled by default in the service-config.yaml), which:
-- Deploys the `flightctl-pam-issuer` service on port 8444
-- Configures the API to use OIDC authentication with the PAM issuer as the identity provider
-- Enables PAM-based user authentication (validates against system users)
-
-#### ORGS Environment Variable
-
-Setting `ORGS=true` enables organization support by modifying the `service-config.yaml` during deployment:
-
-```bash
-AUTH=true ORGS=true make deploy-quadlets
-```
-
-This changes:
-```yaml
-global:
-  organizations:
-    enabled: false    # Changes to: enabled: true
-```
-
-When organizations are enabled, the system:
-- Allows IdP-provided organization assignments via OIDC claims
-- Supports multi-tenant deployments with organization-based resource isolation
-- Requires AUTH to be enabled (organizations work in conjunction with authentication)
-
-These environment variables modify `/etc/flightctl/service-config.yaml` after installation, before the init containers process the configuration templates.
+The `deploy-quadlets` target deploys FlightControl services with authentication and organizations enabled by default.
 
 ## Local Deployment
 
@@ -233,18 +191,6 @@ Deploy all services:
 
 ```bash
 make deploy-quadlets
-```
-
-Deploy with authentication enabled (uses OIDC with PAM issuer):
-
-```bash
-AUTH=true make deploy-quadlets
-```
-
-Deploy with organizations support enabled:
-
-```bash
-AUTH=true ORGS=true make deploy-quadlets
 ```
 
 Deploy individual services:

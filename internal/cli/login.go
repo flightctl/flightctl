@@ -325,7 +325,7 @@ func (o *LoginOptions) getAuthProvider(ctx context.Context) (login.AuthProvider,
 		return nil, client.AuthInfo{}, fmt.Errorf("failed to get auth info: %w", err)
 	}
 	if o.authConfig == nil || o.authConfig.Providers == nil || len(*o.authConfig.Providers) == 0 {
-		return login.NewNilAuth(), client.AuthInfo{}, nil
+		return nil, client.AuthInfo{}, fmt.Errorf("no authentication providers configured on the server")
 	}
 	// If token is provided, create token provider
 	if o.AccessToken != "" {
@@ -516,11 +516,6 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 	err = o.clientConfig.Persist(o.ConfigFilePath)
 	if err != nil {
 		return fmt.Errorf("persisting client config to %s: %w", o.ConfigFilePath, err)
-	}
-	//is o.authProvider a nil auth?
-	if _, ok := o.authProvider.(*login.NilAuth); ok {
-		fmt.Println("Auth is disabled")
-		return nil
 	}
 	// Validate token with API server (handles TLS prompt/retry)
 	c, err := o.validateTokenWithServer(ctx, token)
