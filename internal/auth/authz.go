@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"sync"
 	"time"
 
@@ -400,13 +399,6 @@ func (m *MultiAuthZ) getUserPermissionsK8s(ctx context.Context, ident common.Ide
 
 // InitMultiAuthZ initializes authorization with support for multiple methods
 func InitMultiAuthZ(cfg *config.Config, log logrus.FieldLogger) (AuthZMiddleware, error) {
-	value, exists := os.LookupEnv(DisableAuthEnvKey)
-	if exists && value != "" {
-		log.Warnln("AuthZ disabled")
-		authZProvider := NilAuth{}
-		return authZProvider, nil
-	}
-
 	if cfg.Auth == nil {
 		return nil, errors.New("no auth configuration provided")
 	}
