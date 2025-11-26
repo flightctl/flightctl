@@ -575,7 +575,7 @@ ContextDir=/tmp/build`
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			errs := tt.spec.Validate(lo.ToPtr(tt.appType), tt.fleetTemplate)
+			errs := tt.spec.Validate(tt.appType, tt.fleetTemplate)
 			if tt.expectErr {
 				require.NotEmpty(t, errs, "expected errors but got none")
 			} else {
@@ -1071,7 +1071,7 @@ func TestValidateApplications(t *testing.T) {
 func newTestApplication(require *require.Assertions, name string, appImage, volImage string, volumeNames ...string) ApplicationProviderSpec {
 	app := ApplicationProviderSpec{
 		Name:    lo.ToPtr(name),
-		AppType: lo.ToPtr(AppTypeCompose),
+		AppType: AppTypeCompose,
 	}
 
 	var volumes []ApplicationVolume
@@ -1100,7 +1100,7 @@ func newTestApplication(require *require.Assertions, name string, appImage, volI
 func newTestApplicationWithVolume(require *require.Assertions, name string, appType AppType, appImage string, volume ApplicationVolume) ApplicationProviderSpec {
 	app := ApplicationProviderSpec{
 		Name:    lo.ToPtr(name),
-		AppType: lo.ToPtr(appType),
+		AppType: appType,
 	}
 
 	volumes := []ApplicationVolume{volume}
@@ -1117,7 +1117,7 @@ func newTestApplicationWithVolume(require *require.Assertions, name string, appT
 func newTestApplicationWithPortsAndResources(require *require.Assertions, name string, appType AppType, appImage string, ports []string, resources *ApplicationResources) ApplicationProviderSpec {
 	app := ApplicationProviderSpec{
 		Name:    lo.ToPtr(name),
-		AppType: lo.ToPtr(appType),
+		AppType: appType,
 	}
 
 	var appPorts *[]ApplicationPort

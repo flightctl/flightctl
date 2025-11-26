@@ -103,12 +103,12 @@ spec:
             - mountPath: /root/.flightctl/certs
               name: flightctl-api-tls
             {{- end}}
-            {{- if .Values.global.auth.k8s.externalApiToken}}
+            {{- if .Values.global.auth.k8s.externalApiTokenSecretName }}
             - mountPath: /var/flightctl/k8s
               name: flightctl-api-k8s-token
               readOnly: true
             {{- end}}
-            {{- if .Values.global.auth.openshift.externalApiToken}}
+            {{- if .Values.global.auth.openshift.externalApiTokenSecretName }}
             - mountPath: /var/flightctl/k8s
               name: flightctl-api-openshift-token
               readOnly: true
@@ -128,14 +128,14 @@ spec:
           secret:
             secretName: {{ .Values.global.baseDomainTlsSecretName }}
         {{- end}}
-        {{- if .Values.global.auth.k8s.externalApiToken}}
+        {{- if .Values.global.auth.k8s.externalApiTokenSecretName }}
         - name: flightctl-api-k8s-token
           secret:
-            secretName: flightctl-api-k8s-token
+            secretName: {{ .Values.global.auth.k8s.externalApiTokenSecretName }}
         {{- end}}
-        {{- if .Values.global.auth.openshift.externalApiToken}}
+        {{- if .Values.global.auth.openshift.externalApiTokenSecretName }}
         - name: flightctl-api-openshift-token
           secret:
-            secretName: flightctl-api-openshift-token
+            secretName: {{ .Values.global.auth.openshift.externalApiTokenSecretName }}
         {{- end}}
         {{- include "flightctl.dbSslVolumes" . | nindent 8 }}

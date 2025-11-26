@@ -424,7 +424,7 @@ func newTestDeviceWithApplicationType(t *testing.T, name string, details []testI
 	}
 
 	providerSpec := v1beta1.ApplicationProviderSpec{
-		AppType: lo.ToPtr(appType),
+		AppType: appType,
 		Name:    lo.ToPtr(name),
 	}
 	err := providerSpec.FromInlineApplicationProviderSpec(inline)
@@ -753,7 +753,7 @@ func TestCollectOCITargetsErrorHandling(t *testing.T) {
 
 			providerSpec := v1beta1.ApplicationProviderSpec{
 				Name:    lo.ToPtr("test-app"),
-				AppType: lo.ToPtr(v1beta1.AppTypeCompose),
+				AppType: v1beta1.AppTypeCompose,
 			}
 			_ = providerSpec.FromImageApplicationProviderSpec(v1beta1.ImageApplicationProviderSpec{
 				Image: "quay.io/test/image:v1",
