@@ -132,9 +132,15 @@ func NewRedisProvider(ctx context.Context, log logrus.FieldLogger, processID str
 	var wg sync.WaitGroup
 	wg.Add(1)
 	client := redis.NewClient(&redis.Options{
-		Addr:     fmt.Sprintf("%s:%d", hostname, port),
-		Password: password.Value(),
-		DB:       0,
+		Addr:            fmt.Sprintf("%s:%d", hostname, port),
+		Password:        password.Value(),
+		DB:              0,
+		MaxRetries:      retryConfig.MaxRetries,
+		MinRetryBackoff: retryConfig.BaseDelay,
+		MaxRetryBackoff: retryConfig.MaxDelay,
+		ReadTimeout:     10 * time.Second,
+		WriteTimeout:    10 * time.Second,
+		DialTimeout:     5 * time.Second,
 	})
 
 	// Enable tracing instrumentation.
@@ -178,12 +184,15 @@ func (r *redisProvider) newQueue(ctx context.Context, queueName string) (*redisQ
 		return nil, errors.New("provider is stopped")
 	}
 
-	// Deduplicate: return existing active queue if present.
+	// Check for existing active queue (deduplication)
 	for _, q := range r.queues {
 		if q.name == queueName && !q.closed.Load() {
+			r.log.WithField("queueName", queueName).Debug("reusing existing queue instance")
 			return q, nil
 		}
 	}
+
+	r.log.WithField("queueName", queueName).Debug("creating new queue instance")
 
 	// Create consumer group name and consumer name
 	groupName := fmt.Sprintf("%s-group", queueName)
@@ -248,12 +257,14 @@ func (r *redisProvider) Stop() {
 	}
 	// Signal all queue goroutines to exit.
 	for _, q := range r.queues {
+		r.log.WithField("queueName", q.name).Debug("closing queue instance")
 		q.Close()
 	}
 	defer r.wg.Done()
 
 	// Close all channels
 	for _, channel := range r.channels {
+		r.log.WithField("channelName", channel.name).Debug("closing channel instance")
 		channel.Close()
 	}
 

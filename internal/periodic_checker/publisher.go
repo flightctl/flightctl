@@ -8,6 +8,7 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1beta1"
+	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/poll"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -94,6 +95,7 @@ type PeriodicTaskPublisherConfig struct {
 	OrgService      OrganizationService
 	TasksMetadata   map[PeriodicTaskType]PeriodicTaskMetadata
 	ChannelManager  TaskChannelManager
+	WorkerClient    worker_client.WorkerClient
 	OrgSyncInterval time.Duration
 	TaskBackoff     *poll.Config
 }

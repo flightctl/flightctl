@@ -12,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/flightctl/flightctl/pkg/reqid"
 	"github.com/go-chi/chi/v5/middleware"
@@ -142,6 +143,7 @@ type QueueMaintenanceExecutor struct {
 	log            logrus.FieldLogger
 	serviceHandler service.Service
 	queuesProvider queues.Provider
+	workerClient   worker_client.WorkerClient
 	workerMetrics  *worker.WorkerCollector
 }
 
@@ -150,14 +152,14 @@ func (e *QueueMaintenanceExecutor) Execute(ctx context.Context, log logrus.Field
 
 	// Create and execute the queue maintenance task
 	// Note: Queue maintenance is system-wide, orgId is not used
-	task := tasks.NewQueueMaintenanceTask(e.log, e.serviceHandler, e.queuesProvider, e.workerMetrics)
+	task := tasks.NewQueueMaintenanceTask(e.log, e.serviceHandler, e.queuesProvider, e.workerClient, e.workerMetrics)
 
 	if err := task.Execute(taskCtx); err != nil {
 		e.log.WithError(err).Error("Queue maintenance task failed")
 	}
 }
 
-func InitializeTaskExecutors(log logrus.FieldLogger, serviceHandler service.Service, cfg *config.Config, queuesProvider queues.Provider, workerMetrics *worker.WorkerCollector) map[PeriodicTaskType]PeriodicTaskExecutor {
+func InitializeTaskExecutors(log logrus.FieldLogger, serviceHandler service.Service, cfg *config.Config, queuesProvider queues.Provider, workerClient worker_client.WorkerClient, workerMetrics *worker.WorkerCollector) map[PeriodicTaskType]PeriodicTaskExecutor {
 	return map[PeriodicTaskType]PeriodicTaskExecutor{
 		PeriodicTaskTypeRepositoryTester: &RepositoryTesterExecutor{
 			log:            log.WithField("pkg", "repository-tester"),
@@ -189,6 +191,7 @@ func InitializeTaskExecutors(log logrus.FieldLogger, serviceHandler service.Serv
 			log:            log.WithField("pkg", "queue-maintenance"),
 			serviceHandler: serviceHandler,
 			queuesProvider: queuesProvider,
+			workerClient:   workerClient,
 			workerMetrics:  workerMetrics,
 		},
 	}

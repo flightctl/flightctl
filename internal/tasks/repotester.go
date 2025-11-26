@@ -3,6 +3,7 @@ package tasks
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/service"
@@ -126,7 +127,19 @@ func (r *GitRepoTester) TestAccess(repository *api.Repository) error {
 
 	listOps.Auth = auth
 	_, err = remote.List(listOps)
-	return err
+	if err != nil {
+		// Extract the root cause from go-git wrapped errors
+		// Format is often "authentication required: <actual error>"
+		errMsg := err.Error()
+		if idx := strings.LastIndex(errMsg, ": "); idx != -1 && idx+2 < len(errMsg) {
+			// Extract the part after the colon (the actual error)
+			errMsg = strings.TrimSpace(errMsg[idx+2:])
+		}
+		// Remove trailing period if present
+		errMsg = strings.TrimSuffix(errMsg, ".")
+		return fmt.Errorf("%s", errMsg)
+	}
+	return nil
 }
 
 func (r *HttpRepoTester) TestAccess(repository *api.Repository) error {

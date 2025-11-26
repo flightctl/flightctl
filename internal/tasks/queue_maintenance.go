@@ -26,15 +26,17 @@ type QueueMaintenanceTask struct {
 	log            logrus.FieldLogger
 	serviceHandler service.Service
 	queuesProvider queues.Provider
+	workerClient   worker_client.WorkerClient
 	workerMetrics  *worker.WorkerCollector
 }
 
 // NewQueueMaintenanceTask creates a new queue maintenance task
-func NewQueueMaintenanceTask(log logrus.FieldLogger, serviceHandler service.Service, queuesProvider queues.Provider, workerMetrics *worker.WorkerCollector) *QueueMaintenanceTask {
+func NewQueueMaintenanceTask(log logrus.FieldLogger, serviceHandler service.Service, queuesProvider queues.Provider, workerClient worker_client.WorkerClient, workerMetrics *worker.WorkerCollector) *QueueMaintenanceTask {
 	return &QueueMaintenanceTask{
 		log:            log,
 		serviceHandler: serviceHandler,
 		queuesProvider: queuesProvider,
+		workerClient:   workerClient,
 		workerMetrics:  workerMetrics,
 	}
 }
@@ -268,13 +270,6 @@ func (t *QueueMaintenanceTask) recoverFromMissingCheckpoint(ctx context.Context,
 func (t *QueueMaintenanceTask) republishEventsSince(ctx context.Context, since time.Time, log logrus.FieldLogger) error {
 	log.WithField("since", since.Format(time.RFC3339Nano)).Info("Starting event republishing")
 
-	// Create publisher on-demand for recovery operations
-	publisher, err := t.queuesProvider.NewQueueProducer(ctx, consts.TaskQueue)
-	if err != nil {
-		return fmt.Errorf("failed to create publisher for event republishing: %w", err)
-	}
-	defer publisher.Close() // Ensure publisher is closed after use
-
 	// First, get all organizations
 	orgList, status := t.serviceHandler.ListOrganizations(ctx, api.ListOrganizationsParams{})
 	if status.Code >= 400 {
@@ -331,7 +326,7 @@ func (t *QueueMaintenanceTask) republishEventsSince(ctx context.Context, since t
 			for _, event := range eventList.Items {
 				eventName := lo.FromPtrOr(event.Metadata.Name, "<unnamed>")
 				orgLog.WithField("eventName", eventName).Debug("Attempting to republish event")
-				if err := t.republishSingleEvent(ctx, &event, orgID, publisher, orgLog); err != nil {
+				if err := t.republishSingleEvent(ctx, &event, orgID, orgLog); err != nil {
 					orgLog.WithError(err).WithField("eventName", eventName).Error("Failed to republish event, continuing with next")
 					continue
 				}
@@ -358,38 +353,14 @@ func (t *QueueMaintenanceTask) republishEventsSince(ctx context.Context, since t
 	return nil
 }
 
-// republishSingleEvent republishes a single event to the queue using the provided publisher
-func (t *QueueMaintenanceTask) republishSingleEvent(ctx context.Context, event *api.Event, orgID uuid.UUID, publisher queues.QueueProducer, log logrus.FieldLogger) error {
-	// Create the event wrapper with the correct orgId
-	eventWithOrgId := worker_client.EventWithOrgId{
-		OrgId: orgID,
-		Event: *event,
-	}
-
-	// Marshal the event
-	eventBytes, err := json.Marshal(eventWithOrgId)
-	if err != nil {
-		return fmt.Errorf("failed to marshal event: %w", err)
-	}
-
-	// Use the event's creation timestamp
-	var timestamp int64
-	if event.Metadata.CreationTimestamp != nil {
-		timestamp = event.Metadata.CreationTimestamp.UnixMicro()
-	} else {
-		timestamp = time.Now().UnixMicro()
-	}
-
-	// Publish to the queue using the provided publisher
-	if err := publisher.Enqueue(ctx, eventBytes, timestamp); err != nil {
-		log.WithError(err).WithField("eventName", lo.FromPtrOr(event.Metadata.Name, "<unnamed>")).Error("Failed to publish event to queue")
-		return fmt.Errorf("failed to publish event to queue: %w", err)
+// republishSingleEvent republishes a single event using the worker client
+func (t *QueueMaintenanceTask) republishSingleEvent(ctx context.Context, event *api.Event, orgID uuid.UUID, log logrus.FieldLogger) error {
+	// Use the worker client to emit the event (will filter by reason)
+	if t.workerClient != nil {
+		t.workerClient.EmitEvent(ctx, orgID, event)
 	}
 
 	eventName := lo.FromPtrOr(event.Metadata.Name, "<unnamed>")
-	log.WithField("eventName", eventName).
-		WithField("timestamp", timestamp).
-		Debug("Successfully republished event")
-
+	log.WithField("eventName", eventName).WithField("orgId", orgID).Debug("Republished event via worker client")
 	return nil
 }
