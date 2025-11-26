@@ -5,7 +5,7 @@ metadata:
   labels:
     {{- include "flightctl.standardLabels" . | nindent 4 }}
     flightctl.service: flightctl-worker
-  name: flightctl-worker
+  name: flightctl-worker-{{ .Release.Namespace }}
 rules:
   - apiGroups: [""]
     resources: ["secrets"]
