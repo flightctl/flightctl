@@ -143,7 +143,7 @@ spec:
         {{- end}}
         - name: flightctl-client-signer
           secret:
-            secretName: {{ default "flightctl-client-signer-ca" .Values.global.clientSignerSecretName }}
+            secretName: flightctl-client-signer-ca
         - name: flightctl-api-server-tls
           secret:
             secretName: {{ default "flightctl-api-server-tls" .Values.global.baseDomainTlsSecretName }}
