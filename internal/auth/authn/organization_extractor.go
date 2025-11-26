@@ -21,8 +21,8 @@ func NewOrganizationExtractor(orgConfig *common.AuthOrganizationsConfig) *Organi
 func (e *OrganizationExtractor) ExtractOrganizations(claims map[string]interface{}, username string) []string {
 	var organizations []string
 
-	// If no org config or organizations are disabled, return empty
-	if e.orgConfig == nil || !e.orgConfig.Enabled || e.orgConfig.OrganizationAssignment == nil {
+	// If no org config, return empty
+	if e.orgConfig == nil || e.orgConfig.OrganizationAssignment == nil {
 		return organizations
 	}
 

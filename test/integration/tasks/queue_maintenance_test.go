@@ -170,10 +170,15 @@ var _ = Describe("Queue Maintenance Integration Tests", func() {
 		// Also ensure we destroy any existing consumer groups for the task queue
 		redisClient.XGroupDestroy(ctx, "task-queue", "task-queue-group")
 
-		// Note: queue maintenance task creates its own publisher as needed
+		// Create worker client for the test
+		queuePublisher, err := worker_client.QueuePublisher(ctx, provider)
+		if err != nil {
+			Skip(fmt.Sprintf("Failed to create queue publisher: %v", err))
+		}
+		workerClient := worker_client.NewWorkerClient(queuePublisher, log)
 
 		// Create queue maintenance task
-		queueMaintenanceTask = tasks.NewQueueMaintenanceTask(log, mockService, provider, nil)
+		queueMaintenanceTask = tasks.NewQueueMaintenanceTask(log, mockService, provider, workerClient, nil)
 	})
 
 	AfterEach(func() {
@@ -504,7 +509,7 @@ func createTestEvent(name string, timestamp time.Time) api.Event {
 			Kind: api.DeviceKind,
 			Name: "test-device",
 		},
-		Reason:  "TestEvent",
+		Reason:  api.EventReasonResourceUpdated,
 		Message: "This is a test event",
 		Type:    api.Normal,
 	}
