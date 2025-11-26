@@ -385,10 +385,7 @@ func (o *OIDCAuth) GetOIDCSpec() api.OIDCProviderSpec {
 }
 
 func (o *OIDCAuth) GetAuthConfig() *api.AuthConfig {
-	orgEnabled := false
-	if o.orgConfig != nil {
-		orgEnabled = o.orgConfig.Enabled
-	}
+	orgEnabled := true // Organizations are always enabled
 
 	provider := api.AuthProvider{
 		ApiVersion: api.AuthProviderAPIVersion,
