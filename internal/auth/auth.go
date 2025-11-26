@@ -6,7 +6,6 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 
 	api "github.com/flightctl/flightctl/api/v1beta1"
@@ -19,13 +18,10 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-const DisableAuthEnvKey = "FLIGHTCTL_DISABLE_AUTH"
-
 const k8sApiService = "https://kubernetes.default.svc"
 
 // Supported auth types
 const (
-	AuthTypeNil       = "nil"
 	AuthTypeK8s       = "k8s"
 	AuthTypeOIDC      = "oidc"
 	AuthTypeAAP       = "aap"
@@ -35,7 +31,7 @@ const (
 
 // configuredAuthType stores which auth type is configured
 // This is set during InitAuth() and can be used by handlers
-var configuredAuthType = "nil"
+var configuredAuthType = ""
 
 // GetConfiguredAuthType returns the configured auth type
 func GetConfiguredAuthType() string {
@@ -177,108 +173,98 @@ func initOpenShiftAuth(cfg *config.Config, log logrus.FieldLogger) (common.AuthN
 // InitMultiAuth initializes authentication with support for multiple methods
 func InitMultiAuth(cfg *config.Config, log logrus.FieldLogger,
 	authProviderService authn.AuthProviderService) (*authn.MultiAuth, error) {
-	// Check if auth is disabled
-	value, exists := os.LookupEnv(DisableAuthEnvKey)
-	if exists && value != "" {
-		log.Warnln("Auth disabled - adding NilAuth provider")
-		configuredAuthType = AuthTypeNil
-		multiAuth := authn.NewMultiAuth(authProviderService, nil, log)
-		multiAuth.AddStaticProvider("nil", NilAuth{})
-		return multiAuth, nil
+
+	// Create TLS config for OIDC provider connections (nil if no config)
+	var tlsConfig *tls.Config
+	if cfg != nil {
+		tlsConfig = getTlsConfig(cfg)
 	}
 
-	if cfg.Auth == nil {
-		return nil, errors.New("no auth configuration provided")
-	}
-
-	// Create TLS config for OIDC provider connections
-	tlsConfig := getTlsConfig(cfg)
-
-	// Create MultiAuth instance
+	// Always create MultiAuth instance - dynamic providers can come from DB
 	multiAuth := authn.NewMultiAuth(authProviderService, tlsConfig, log)
 
-	// Initialize static authentication methods
-	if cfg.Auth.K8s != nil {
-		log.Infof("K8s auth enabled: %s", cfg.Auth.K8s.ApiUrl)
-		k8sAuthN, err := initK8sAuth(cfg, log)
-		if err != nil {
-			return nil, fmt.Errorf("failed to initialize K8s auth: %w", err)
+	// Initialize static authentication methods if configuration is provided
+	if cfg != nil && cfg.Auth != nil {
+		if cfg.Auth.K8s != nil {
+			log.Infof("K8s auth enabled: %s", cfg.Auth.K8s.ApiUrl)
+			k8sAuthN, err := initK8sAuth(cfg, log)
+			if err != nil {
+				return nil, fmt.Errorf("failed to initialize K8s auth: %w", err)
+			}
+
+			// Add K8s auth with static "k8s" key
+			multiAuth.AddStaticProvider("k8s", k8sAuthN)
+			configuredAuthType = AuthTypeK8s
 		}
 
-		// Add K8s auth with static "k8s" key
-		multiAuth.AddStaticProvider("k8s", k8sAuthN)
-		configuredAuthType = AuthTypeK8s
+		if cfg.Auth.OpenShift != nil {
+			if cfg.Auth.OpenShift.ClusterControlPlaneUrl == nil || *cfg.Auth.OpenShift.ClusterControlPlaneUrl == "" {
+				return nil, errors.New("OpenShift ClusterControlPlaneUrl is required but not configured")
+			}
+			if cfg.Auth.OpenShift.AuthorizationUrl == nil || *cfg.Auth.OpenShift.AuthorizationUrl == "" {
+				return nil, errors.New("OpenShift AuthorizationUrl is required but not configured")
+			}
+			if cfg.Auth.OpenShift.ClientId == nil || *cfg.Auth.OpenShift.ClientId == "" {
+				return nil, errors.New("OpenShift ClientId is required but not configured")
+			}
+
+			apiUrl := *cfg.Auth.OpenShift.ClusterControlPlaneUrl
+			log.Infof("OpenShift auth enabled: %s", apiUrl)
+
+			openshiftAuthN, err := initOpenShiftAuth(cfg, log)
+			if err != nil {
+				return nil, fmt.Errorf("failed to initialize OpenShift auth: %w", err)
+			}
+
+			// Add OpenShift auth with issuer:clientId key
+			openshiftIssuer := strings.TrimSuffix(*cfg.Auth.OpenShift.AuthorizationUrl, "/")
+			openshiftKey := fmt.Sprintf("%s:%s", openshiftIssuer, *cfg.Auth.OpenShift.ClientId)
+			multiAuth.AddStaticProvider(openshiftKey, openshiftAuthN)
+			configuredAuthType = AuthTypeOpenShift
+		}
+
+		if cfg.Auth.OIDC != nil {
+			log.Infof("OIDC auth enabled: %s", cfg.Auth.OIDC.Issuer)
+			oidcAuthN, err := initOIDCAuth(cfg, log)
+			if err != nil {
+				return nil, fmt.Errorf("failed to initialize OIDC auth: %w", err)
+			}
+
+			// Add OIDC auth with issuer:clientId key (required for OIDC token validation)
+			oidcIssuer := strings.TrimSuffix(cfg.Auth.OIDC.Issuer, "/")
+			oidcKey := fmt.Sprintf("%s:%s", oidcIssuer, cfg.Auth.OIDC.ClientId)
+			multiAuth.AddStaticProvider(oidcKey, oidcAuthN)
+			configuredAuthType = AuthTypeOIDC
+		}
+
+		if cfg.Auth.OAuth2 != nil {
+			log.Infof("OAuth2 auth enabled: %s", cfg.Auth.OAuth2.AuthorizationUrl)
+			oauth2AuthN, err := initOAuth2Auth(cfg, log)
+			if err != nil {
+				return nil, fmt.Errorf("failed to initialize OAuth2 auth: %w", err)
+			}
+			oauth2Issuer := strings.TrimSuffix(cfg.Auth.OAuth2.AuthorizationUrl, "/")
+			oauth2Key := fmt.Sprintf("%s:%s", oauth2Issuer, cfg.Auth.OAuth2.ClientId)
+			multiAuth.AddStaticProvider(oauth2Key, oauth2AuthN)
+			configuredAuthType = AuthTypeOauth2
+		}
+
+		if cfg.Auth.AAP != nil {
+			log.Infof("AAP Gateway auth enabled: %s", cfg.Auth.AAP.ApiUrl)
+			aapAuthN, err := initAAPAuth(cfg, log)
+			if err != nil {
+				return nil, fmt.Errorf("failed to initialize AAP auth: %w", err)
+			}
+
+			// Add AAP auth (for opaque tokens)
+			multiAuth.AddStaticProvider("aap", aapAuthN)
+			configuredAuthType = AuthTypeAAP
+		}
 	}
 
-	if cfg.Auth.OpenShift != nil {
-		if cfg.Auth.OpenShift.ClusterControlPlaneUrl == nil || *cfg.Auth.OpenShift.ClusterControlPlaneUrl == "" {
-			return nil, errors.New("OpenShift ClusterControlPlaneUrl is required but not configured")
-		}
-		if cfg.Auth.OpenShift.AuthorizationUrl == nil || *cfg.Auth.OpenShift.AuthorizationUrl == "" {
-			return nil, errors.New("OpenShift AuthorizationUrl is required but not configured")
-		}
-		if cfg.Auth.OpenShift.ClientId == nil || *cfg.Auth.OpenShift.ClientId == "" {
-			return nil, errors.New("OpenShift ClientId is required but not configured")
-		}
-
-		apiUrl := *cfg.Auth.OpenShift.ClusterControlPlaneUrl
-		log.Infof("OpenShift auth enabled: %s", apiUrl)
-
-		openshiftAuthN, err := initOpenShiftAuth(cfg, log)
-		if err != nil {
-			return nil, fmt.Errorf("failed to initialize OpenShift auth: %w", err)
-		}
-
-		// Add OpenShift auth with issuer:clientId key
-		openshiftIssuer := strings.TrimSuffix(*cfg.Auth.OpenShift.AuthorizationUrl, "/")
-		openshiftKey := fmt.Sprintf("%s:%s", openshiftIssuer, *cfg.Auth.OpenShift.ClientId)
-		multiAuth.AddStaticProvider(openshiftKey, openshiftAuthN)
-		configuredAuthType = AuthTypeOpenShift
-	}
-
-	if cfg.Auth.OIDC != nil {
-		log.Infof("OIDC auth enabled: %s", cfg.Auth.OIDC.Issuer)
-		oidcAuthN, err := initOIDCAuth(cfg, log)
-		if err != nil {
-			return nil, fmt.Errorf("failed to initialize OIDC auth: %w", err)
-		}
-
-		// Add OIDC auth with issuer:clientId key (required for OIDC token validation)
-		oidcIssuer := strings.TrimSuffix(cfg.Auth.OIDC.Issuer, "/")
-		oidcKey := fmt.Sprintf("%s:%s", oidcIssuer, cfg.Auth.OIDC.ClientId)
-		multiAuth.AddStaticProvider(oidcKey, oidcAuthN)
-		configuredAuthType = AuthTypeOIDC
-	}
-
-	if cfg.Auth.OAuth2 != nil {
-		log.Infof("OAuth2 auth enabled: %s", cfg.Auth.OAuth2.AuthorizationUrl)
-		oauth2AuthN, err := initOAuth2Auth(cfg, log)
-		if err != nil {
-			return nil, fmt.Errorf("failed to initialize OAuth2 auth: %w", err)
-		}
-		oauth2Issuer := strings.TrimSuffix(cfg.Auth.OAuth2.AuthorizationUrl, "/")
-		oauth2Key := fmt.Sprintf("%s:%s", oauth2Issuer, cfg.Auth.OAuth2.ClientId)
-		multiAuth.AddStaticProvider(oauth2Key, oauth2AuthN)
-		configuredAuthType = AuthTypeOauth2
-	}
-
-	if cfg.Auth.AAP != nil {
-		log.Infof("AAP Gateway auth enabled: %s", cfg.Auth.AAP.ApiUrl)
-		aapAuthN, err := initAAPAuth(cfg, log)
-		if err != nil {
-			return nil, fmt.Errorf("failed to initialize AAP auth: %w", err)
-		}
-
-		// Add AAP auth (for opaque tokens)
-		multiAuth.AddStaticProvider("aap", aapAuthN)
-		configuredAuthType = AuthTypeAAP
-	}
-
-	if !multiAuth.HasProviders() {
-		return nil, errors.New("no authentication providers configured")
-	}
-
-	// Note: caller is responsible for starting the background loader with context
+	// Note: MultiAuth supports both static and dynamic providers.
+	// Dynamic providers are loaded from the database by the background loader.
+	// Caller is responsible for starting the background loader with context
 	// by calling multiAuth.Start(ctx) in a goroutine
 
 	return multiAuth, nil
