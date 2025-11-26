@@ -17,8 +17,6 @@ service:
     window: {{if .service.rateLimit.window}}{{.service.rateLimit.window}}{{else}}1m{{end}}
     authRequests: {{if .service.rateLimit.authRequests}}{{.service.rateLimit.authRequests}}{{else}}20{{end}}
     authWindow: {{if .service.rateLimit.authWindow}}{{.service.rateLimit.authWindow}}{{else}}1h{{end}}
-organizations:
-  enabled: {{if .global.organizations.enabled}}{{.global.organizations.enabled}}{{else}}false{{end}}
 auth:
   insecureSkipTlsVerify: {{.global.auth.insecureSkipTlsVerify}}
   {{if not .global.auth.insecureSkipTlsVerify}}caCert: /root/.flightctl/certs/auth/ca.crt{{end}}

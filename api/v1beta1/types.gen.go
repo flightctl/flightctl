@@ -416,6 +416,7 @@ const (
 	SystemdActiveStateMaintenance  SystemdActiveStateType = "maintenance"
 	SystemdActiveStateRefreshing   SystemdActiveStateType = "refreshing"
 	SystemdActiveStateReloading    SystemdActiveStateType = "reloading"
+	SystemdActiveStateUnknown      SystemdActiveStateType = "unknown"
 )
 
 // Defines values for SystemdEnableStateType.
@@ -423,6 +424,7 @@ const (
 	SystemdEnableStateAlias          SystemdEnableStateType = "alias"
 	SystemdEnableStateBad            SystemdEnableStateType = "bad"
 	SystemdEnableStateDisabled       SystemdEnableStateType = "disabled"
+	SystemdEnableStateEmpty          SystemdEnableStateType = ""
 	SystemdEnableStateEnabled        SystemdEnableStateType = "enabled"
 	SystemdEnableStateEnabledRuntime SystemdEnableStateType = "enabled-runtime"
 	SystemdEnableStateGenerated      SystemdEnableStateType = "generated"
@@ -433,6 +435,7 @@ const (
 	SystemdEnableStateMaskedRuntime  SystemdEnableStateType = "masked-runtime"
 	SystemdEnableStateStatic         SystemdEnableStateType = "static"
 	SystemdEnableStateTransient      SystemdEnableStateType = "transient"
+	SystemdEnableStateUnknown        SystemdEnableStateType = "unknown"
 )
 
 // Defines values for SystemdLoadStateType.
@@ -444,6 +447,7 @@ const (
 	SystemdLoadStateMerged     SystemdLoadStateType = "merged"
 	SystemdLoadStateNotFound   SystemdLoadStateType = "not-found"
 	SystemdLoadStateStub       SystemdLoadStateType = "stub"
+	SystemdLoadStateUnknown    SystemdLoadStateType = "unknown"
 )
 
 // Defines values for TokenRequestGrantType.
@@ -534,7 +538,7 @@ type ApplicationPort = string
 // ApplicationProviderSpec defines model for ApplicationProviderSpec.
 type ApplicationProviderSpec struct {
 	// AppType The type of the application.
-	AppType *AppType `json:"appType,omitempty"`
+	AppType AppType `json:"appType"`
 
 	// EnvVars Environment variable key-value pairs, injected during runtime. The key and value each must be between 1 and 253 characters.
 	EnvVars *map[string]string `json:"envVars,omitempty"`
@@ -3178,11 +3182,9 @@ func (t ApplicationProviderSpec) MarshalJSON() ([]byte, error) {
 		}
 	}
 
-	if t.AppType != nil {
-		object["appType"], err = json.Marshal(t.AppType)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'appType': %w", err)
-		}
+	object["appType"], err = json.Marshal(t.AppType)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'appType': %w", err)
 	}
 
 	if t.EnvVars != nil {

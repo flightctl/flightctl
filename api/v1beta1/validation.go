@@ -783,9 +783,8 @@ func (a ApplicationProviderSpec) Validate() []error {
 	return allErrs
 }
 
-func (a InlineApplicationProviderSpec) Validate(appTypeRef *AppType, fleetTemplate bool) []error {
+func (a InlineApplicationProviderSpec) Validate(appType AppType, fleetTemplate bool) []error {
 	allErrs := []error{}
-	appType := lo.FromPtr(appTypeRef)
 
 	seenPath := make(map[string]struct{}, len(a.Inline))
 	for i := range a.Inline {
@@ -919,6 +918,11 @@ func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []
 		}
 		seenAppNames[appName] = struct{}{}
 
+		if app.AppType == "" {
+			allErrs = append(allErrs, fmt.Errorf("app type must be defined for application: %s", appName))
+			continue
+		}
+
 		var volumes *[]ApplicationVolume
 		switch providerType {
 		case ImageApplicationProviderType:
@@ -931,14 +935,12 @@ func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []
 				allErrs = append(allErrs, fmt.Errorf("image reference cannot be empty when application name is not provided"))
 			}
 			allErrs = append(allErrs, validateOciImageReference(&provider.Image, fmt.Sprintf("spec.applications[%s].image", appName), fleetTemplate)...)
-
-			appType := lo.FromPtr(app.AppType)
-			if appType != AppTypeContainer {
+			if app.AppType != AppTypeContainer {
 				if provider.Ports != nil && len(*provider.Ports) > 0 {
-					allErrs = append(allErrs, fmt.Errorf("ports can only be defined for container applications, not %q", appType))
+					allErrs = append(allErrs, fmt.Errorf("ports can only be defined for container applications, not %q", app.AppType))
 				}
 				if provider.Resources != nil {
-					allErrs = append(allErrs, fmt.Errorf("resources can only be defined for container applications, not %q", appType))
+					allErrs = append(allErrs, fmt.Errorf("resources can only be defined for container applications, not %q", app.AppType))
 				}
 			} else {
 				allErrs = append(allErrs, ValidateContainerImageApplicationSpec(appName, &provider)...)
@@ -952,10 +954,7 @@ func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []
 				allErrs = append(allErrs, fmt.Errorf("invalid inline application provider: %w", err))
 				continue
 			}
-			if app.AppType == nil {
-				allErrs = append(allErrs, fmt.Errorf("inline application type cannot be empty"))
-			}
-			if lo.FromPtr(app.AppType) == AppTypeContainer {
+			if app.AppType == AppTypeContainer {
 				allErrs = append(allErrs, fmt.Errorf("inline application type must not be %q", AppTypeContainer))
 			}
 			allErrs = append(allErrs, provider.Validate(app.AppType, fleetTemplate)...)
@@ -977,7 +976,7 @@ func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []
 				seenVolumeNames[vol.Name] = struct{}{}
 
 				allErrs = append(allErrs, validation.ValidateString(&vol.Name, path+".name", 1, 253, validation.GenericNameRegexp, "")...)
-				allErrs = append(allErrs, validateVolume(vol, path, fleetTemplate, lo.FromPtr(app.AppType))...)
+				allErrs = append(allErrs, validateVolume(vol, path, fleetTemplate, app.AppType)...)
 			}
 		}
 	}
@@ -1665,4 +1664,63 @@ func (a AuthDynamicRoleAssignment) Validate(ctx context.Context) []error {
 	}
 
 	return allErrs
+}
+
+func (s SystemdActiveStateType) Validate() error {
+	validStates := []SystemdActiveStateType{
+		SystemdActiveStateActivating,
+		SystemdActiveStateActive,
+		SystemdActiveStateDeactivating,
+		SystemdActiveStateFailed,
+		SystemdActiveStateInactive,
+		SystemdActiveStateMaintenance,
+		SystemdActiveStateRefreshing,
+		SystemdActiveStateReloading,
+		SystemdActiveStateUnknown,
+	}
+	if !slices.Contains(validStates, s) {
+		return fmt.Errorf("invalid systemd active state: %s", s)
+	}
+	return nil
+}
+
+func (s SystemdEnableStateType) Validate() error {
+	validStates := []SystemdEnableStateType{
+		SystemdEnableStateAlias,
+		SystemdEnableStateBad,
+		SystemdEnableStateDisabled,
+		SystemdEnableStateEmpty,
+		SystemdEnableStateEnabled,
+		SystemdEnableStateEnabledRuntime,
+		SystemdEnableStateGenerated,
+		SystemdEnableStateIndirect,
+		SystemdEnableStateLinked,
+		SystemdEnableStateLinkedRuntime,
+		SystemdEnableStateMasked,
+		SystemdEnableStateMaskedRuntime,
+		SystemdEnableStateStatic,
+		SystemdEnableStateTransient,
+		SystemdEnableStateUnknown,
+	}
+	if !slices.Contains(validStates, s) {
+		return fmt.Errorf("invalid systemd enable state: %s", s)
+	}
+	return nil
+}
+
+func (s SystemdLoadStateType) Validate() error {
+	validStates := []SystemdLoadStateType{
+		SystemdLoadStateBadSetting,
+		SystemdLoadStateError,
+		SystemdLoadStateLoaded,
+		SystemdLoadStateMasked,
+		SystemdLoadStateMerged,
+		SystemdLoadStateNotFound,
+		SystemdLoadStateStub,
+		SystemdLoadStateUnknown,
+	}
+	if !slices.Contains(validStates, s) {
+		return fmt.Errorf("invalid systemd load state: %s", s)
+	}
+	return nil
 }

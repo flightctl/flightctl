@@ -19,6 +19,11 @@
           "description": "Enable MultiCluster Engine extensions - one of 'auto', 'true', 'false'.",
           "enum": ["auto", "true", "false"]
         },
+        "generateCertificates": {
+          "type": "string",
+          "description": "Certificate generation method - one of 'auto', 'builtin', 'cert-manager', 'none'.",
+          "enum": ["auto", "builtin", "cert-manager", "none"]
+        },
         "internalNamespace": {
           "type": "string",
           "description": "A separate Namespace to which non-user-facing components should be deployed for increased security isolation."
@@ -70,9 +75,9 @@
                   "type": "string",
                   "description": "API URL of k8s cluster to use as authentication authority"
                 },
-                "externalApiToken": {
+                "externalApiTokenSecretName": {
                   "type": "string",
-                  "description": "API token when flightctl is not running in-cluster"
+                  "description": "Name of a secret that holds the API token when flightctl is not running in-cluster"
                 },
                 "rbacNs": {
                   "type": "string",
@@ -139,7 +144,10 @@
               "properties": {
                 "createAdminUser": { "type": "boolean", "description": "Create default flightctl-admin ServiceAccount with admin access" },
                 "clusterControlPlaneUrl": { "type": "string", "description": "OpenShift cluster control plane API URL for RBAC checks (leave empty for auto-detection)" },
-                "externalApiToken": { "type": "string", "description": "API token when flightctl is not running in-cluster" },
+                "externalApiTokenSecretName": {
+                  "type": "string",
+                  "description": "Name of a secret that holds the API token when flightctl is not running in-cluster"
+                },
                 "clientId": { "type": "string", "description": "OAuth client ID (will be set to flightctl-{releaseName})" },
                 "clientSecret": { "type": "string", "description": "OAuth client secret (leave empty for auto-generation)" },
                 "authorizationUrl": { "type": "string", "description": "OAuth authorization URL (leave empty to auto-detect from OpenShift cluster)" },
@@ -169,10 +177,6 @@
               }
             }
           }
-        },
-        "generateSecrets": {
-          "type": "boolean",
-          "description": "Generate secrets during deployment (set false to provide your own or when upgrading)."
         },
         "sshKnownHosts": {
           "type": "object",

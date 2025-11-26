@@ -52,7 +52,7 @@ func newInline(log *log.PrefixLogger, podman *client.Podman, spec *v1beta1.Appli
 		return nil, fmt.Errorf("getting provider spec:%w", err)
 	}
 	appName := lo.FromPtr(spec.Name)
-	appType := lo.FromPtr(spec.AppType)
+	appType := spec.AppType
 	volumeManager, err := NewVolumeManager(log, appName, appType, provider.Volumes)
 	if err != nil {
 		return nil, err

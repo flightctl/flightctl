@@ -3,6 +3,8 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: flightctl-device-registration
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
 rules:
   - verbs:
       - get
@@ -23,6 +25,8 @@ kind: RoleBinding
 metadata:
   name: managedcluster-import-controller-flightctl
   namespace: multicluster-engine
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole

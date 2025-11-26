@@ -6,7 +6,6 @@ import (
 	"net/http"
 
 	api "github.com/flightctl/flightctl/api/v1beta1"
-	"github.com/flightctl/flightctl/internal/auth"
 	authcommon "github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/contextutil"
@@ -54,11 +53,9 @@ func AddEventMetadataToCtx(next http.Handler) http.Handler {
 		ctx := r.Context()
 		ctx = context.WithValue(ctx, consts.EventSourceComponentCtxKey, "flightctl-api")
 		userName := "none"
-		if auth.GetConfiguredAuthType() != auth.AuthTypeNil {
-			identity, ok := contextutil.GetMappedIdentityFromContext(ctx)
-			if ok && identity != nil {
-				userName = identity.GetUsername()
-			}
+		identity, ok := contextutil.GetMappedIdentityFromContext(ctx)
+		if ok && identity != nil {
+			userName = identity.GetUsername()
 		}
 		ctx = context.WithValue(ctx, consts.EventActorCtxKey, fmt.Sprintf("user:%s", userName))
 		next.ServeHTTP(w, r.WithContext(ctx))

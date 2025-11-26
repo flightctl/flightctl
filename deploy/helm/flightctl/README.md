@@ -262,7 +262,7 @@ For more detailed configuration options, see the [Values](#values) section below
 | global.auth.insecureSkipTlsVerify | bool | `false` | True if verification of authority TLS cert should be skipped. |
 | global.auth.k8s.apiUrl | string | `"https://kubernetes.default.svc"` | API URL of k8s cluster that will be used as authentication authority |
 | global.auth.k8s.createAdminUser | bool | `true` | Create default flightctl-admin ServiceAccount with admin access |
-| global.auth.k8s.externalApiToken | string | `""` | In case flightctl is not running within a cluster, you can provide api token |
+| global.auth.k8s.externalApiTokenSecretName | string | `""` | In case flightctl is not running within a cluster, you can provide a name of a secret that holds the API token |
 | global.auth.k8s.rbacNs | string | `""` | Namespace that should be used for the RBAC checks |
 | global.auth.oidc.clientId | string | `"flightctl-client"` | OIDC Client ID |
 | global.auth.oidc.externalOidcAuthority | string | `""` | The base URL for the OIDC provider that is reachable by clients. Example: https://auth.foo.net/realms/flightctl |
@@ -275,7 +275,7 @@ For more detailed configuration options, see the [Values](#values) section below
 | global.auth.openshift.clientSecret | string | `""` | OAuth client secret (leave empty for auto-generation) |
 | global.auth.openshift.clusterControlPlaneUrl | string | `"https://kubernetes.default.svc"` | OpenShift cluster control plane API URL for RBAC checks (leave empty for auto-detection) |
 | global.auth.openshift.createAdminUser | bool | `true` | Create default flightctl-admin ServiceAccount with admin access |
-| global.auth.openshift.externalApiToken | string | `""` | In case flightctl is not running within a cluster, you can provide api token |
+| global.auth.openshift.externalApiTokenSecretName | string | `""` | In case flightctl is not running within a cluster, you can provide a name of a secret that holds the API token |
 | global.auth.openshift.issuer | string | `""` | OAuth issuer URL (defaults to authorizationUrl if not specified) |
 | global.auth.openshift.tokenUrl | string | `""` | OAuth token URL (leave empty to auto-detect from OpenShift cluster) |
 | global.auth.type | string | `""` | Type of authentication to use. Allowed values: 'k8s', 'oidc', 'aap', 'openshift', 'oauth2', or 'none'. When left empty (default and recommended), authentication type is auto-detected: 'openshift' on OpenShift clusters, 'k8s' otherwise. |
@@ -288,7 +288,7 @@ For more detailed configuration options, see the [Values](#values) section below
 | global.gateway.gatewayClassName | string | `""` | Gateway API class name for gateway exposure method |
 | global.gateway.ports.http | int | `80` | HTTP port for Gateway API configuration |
 | global.gateway.ports.tls | int | `443` | TLS port for Gateway API configuration |
-| global.generateSecrets | bool | `true` | Generate secrets when deploying Flight Control. This should be set to false if you want to provide your own secrets or when upgrading Flight Control to avoid overriding the existing secrets |
+| global.generateCertificates | string | `"auto"` | Certificate generation method - one of 'none', 'cert-manager', 'builtin', 'auto'. - none: Do not generate required certificates. The user must provide the Secrets containing the required certificates or the service will fail to start. - cert-manager: Request cert-manager to issue the required certificates. cert-manager must be installed on the cluster. - builtin: Generate required certificates using Helm's builtin library functions. - auto: If cert-manager is installed, use it; otherwise, fall back to builtin. |
 | global.imagePullPolicy | string | `"IfNotPresent"` | Image pull policy for all containers |
 | global.imagePullSecretName | string | `""` | Name of the secret that holds image pull secret for accessing private container registries |
 | global.internalNamespace | string | `""` | A separate Namespace to which non-user-facing components should be deployed for increased security isolation. |
