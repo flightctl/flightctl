@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -eo pipefail
+
+# delete a git repo in /home/user/repos/$1.git
+# $1 is the name of the repo
+
+if [ -z "$1" ]; then
+    echo "Usage: $0 <repo_name>"
+    exit 1
+fi
+
+rm -rf "/home/user/repos/${1}.git"

@@ -1,0 +1,15 @@
+[Unit]
+Description=Test E2E Crash Dummy
+
+[Service]
+Type=simple
+WorkingDirectory=/tmp
+ExecStart=/usr/bin/false
+KillMode=process
+Restart=alwas
+RestartSec=30
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target

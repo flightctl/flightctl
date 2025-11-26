@@ -48,3 +48,7 @@ if [ ! -f bin/.ssh/id_rsa ]; then
   echo "bin/.ssh/id_rsa does not exist, creating ssh-keygen"
   ssh-keygen -t rsa -b 4096 -f bin/.ssh/id_rsa -N "" -C "e2e test key"
 fi
+
+# Copy SSH public key to helm secrets directory for git-server
+mkdir -p deploy/helm/e2e-extras/secrets
+cp bin/.ssh/id_rsa.pub deploy/helm/e2e-extras/secrets/id_rsa.pub

@@ -1,0 +1,8 @@
+services:
+  service1:
+    image: quay.io/flightctl-tests/alpine:v1
+    environment:
+      - FFO=$FFO
+      - SIMPLE=$SIMPLE
+      - SOME_KEY=$SOME_KEY
+    command: ["sleep", "infinity"]

@@ -1,0 +1,105 @@
+name: "Build RPMs"
+
+on:
+  workflow_call:
+    inputs:
+      root:
+        description: "Mock root configuration"
+        required: true
+        type: string
+      suffix:
+        description: "Artifact suffix"
+        required: true
+        type: string
+
+jobs:
+  build-rpms:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Restore Go modules cache
+        id: cache-go-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Build RPMs
+        run: |
+          set -euo pipefail
+          mkdir -p rpms
+          echo "::group::Building RPMs for root=${{ inputs.root }}"
+          sudo -E ./hack/build_rpms.sh --root "${{ inputs.root }}"
+          cp -f bin/rpm/*.rpm rpms/ || true
+          echo "::endgroup::"
+
+      - name: Upload RPM artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpms-${{ inputs.suffix }}
+          path: rpms/*.rpm
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Produce rpms manifest
+        run: |
+          set -euo pipefail
+          out='{"rpms":{"packages":['
+          first=1
+          for f in rpms/*.rpm; do
+            [ -e "$f" ] || continue
+            bn=$(basename "$f")
+            echo "::group::Processing $bn"
+            if [[ "$bn" =~ ^(.+)-([0-9][^-]*)-([^.]*)\.([^.]+)\.rpm$ ]]; then
+              name="${BASH_REMATCH[1]}"
+              version="${BASH_REMATCH[2]}"
+              release="${BASH_REMATCH[3]}"
+              arch="${BASH_REMATCH[4]}"
+            else
+              # Fallback: best-effort parse
+              name="${bn%%-*}"
+              rest="${bn#*-}"
+              version="${rest%%-*}"
+              rest2="${rest#*-}"
+              release="${rest2%%.*}"
+              arch="${bn##*.}"
+              arch="${arch%.rpm}"
+            fi
+            echo "Name: $name, Version: $version, Release: $release, Arch: $arch"
+            url="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}#artifacts"
+            pkg=$(jq -cn --arg n "$name" --arg v "$version" --arg r "$release" --arg a "$arch" --arg u "$url" '{name:$n,version:$v,release:$r,architecture:$a,url:$u}')
+            if [ $first -eq 0 ]; then out+="","$pkg"; else out+="$pkg"; fi
+            first=0
+            echo "::endgroup::"
+          done
+          out+=']} }'
+          printf '%s' "$out" > rpms.json
+          cat rpms.json
+
+      - name: Upload rpms manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpms-manifest-${{ inputs.suffix }}
+          path: rpms.json
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Save Go modules cache
+        if: ${{ always() }}
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+
