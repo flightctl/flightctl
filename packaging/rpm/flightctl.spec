@@ -619,7 +619,6 @@ rm -rf /usr/share/sosreport
     # Files mounted to system config
     %dir %{_sysconfdir}/flightctl
     %dir %{_sysconfdir}/flightctl/pki
-    %dir %{_sysconfdir}/flightctl/pam-issuer-pki
     %dir %{_sysconfdir}/flightctl/flightctl-api
     %dir %{_sysconfdir}/flightctl/flightctl-ui
     %dir %{_sysconfdir}/flightctl/flightctl-cli-artifacts
@@ -670,6 +669,7 @@ rm -rf /usr/share/sosreport
     %attr(0755,root,root) %{_datadir}/flightctl/init_host.sh
     %attr(0755,root,root) %{_datadir}/flightctl/secrets.sh
     %attr(0755,root,root) %{_datadir}/flightctl/yaml_helpers.py
+    %attr(0755,root,root) %{_datadir}/flightctl/generate-certificates.sh
 
     # flightctl-services pre upgrade checks
     %dir %{_libexecdir}/flightctl
@@ -677,6 +677,7 @@ rm -rf /usr/share/sosreport
 
     # Files mounted to lib dir
     /usr/lib/systemd/system/flightctl.target
+    /usr/lib/systemd/system/flightctl-certs-init.service
 
     # Files mounted to bin dir
     %attr(0755,root,root) %{_bindir}/flightctl-services-must-gather
@@ -756,6 +757,8 @@ fi
 # If contexts were managed via policy, no cleanup is needed here.
 
 %changelog
+* Wed Nov 26 2025 Dakota Crowder <dcrowder@redhat.com> - 1.0-1
+- Adding certificate generation service
 * Mon Nov 17 2025 Dakota Crowder <dcrowder@redhat.com> - 1.0-1
 - Refactoring quadlet install, add standalone utils
 * Wed Nov 12 2025 Ben Keith <bkeith@redhat.com> - 1.0-1

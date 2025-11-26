@@ -1,8 +1,8 @@
 [Unit]
 Description=Flight Control Alertmanager Proxy service
 PartOf=flightctl.target
-After=flightctl-alertmanager.service flightctl-db-wait.service flightctl-db-migrate.service 
-Wants=flightctl-alertmanager.service flightctl-db-wait.service flightctl-db-migrate.service 
+After=flightctl-alertmanager.service flightctl-db-wait.service flightctl-db-migrate.service flightctl-certs-init.service
+Wants=flightctl-alertmanager.service flightctl-db-wait.service flightctl-db-migrate.service flightctl-certs-init.service
 
 [Container]
 ContainerName=flightctl-alertmanager-proxy
@@ -12,6 +12,8 @@ Network=flightctl.network
 PublishPort=8443:8443
 EnvironmentFile=/etc/flightctl/flightctl-alertmanager-proxy/env
 Volume=/etc/flightctl/flightctl-alertmanager-proxy/config.yaml:/root/.flightctl/config.yaml:ro,z
+Volume=/etc/flightctl/pki/flightctl-api/server.crt:/root/.flightctl/certs/server.crt:ro,z
+Volume=/etc/flightctl/pki/flightctl-api/server.key:/root/.flightctl/certs/server.key:ro,z
 Secret=flightctl-postgresql-user-password,type=env,target=DB_PASSWORD
 Environment=DB_USER=flightctl_app
 

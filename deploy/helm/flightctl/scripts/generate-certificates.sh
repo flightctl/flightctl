@@ -76,7 +76,7 @@ if [[ "$CREATE_K8S_SECRETS" == "true" ]] && [[ -z "$NAMESPACE" ]]; then
 fi
 
 # Create certificate directory if it doesn't exist
-mkdir -p "$CERT_DIR" "$CERT_DIR/flightctl-api" "$CERT_DIR/flightctl-telemetry-gateway" "$CERT_DIR/flightctl-alertmanager-proxy"
+mkdir -p "$CERT_DIR" "$CERT_DIR/flightctl-api"
 
 # Helper function to generate SAN extension
 generate_san_config() {
@@ -84,9 +84,19 @@ generate_san_config() {
     local san_config=""
 
     if [[ ${#sans[@]} -gt 0 ]]; then
-        san_config="subjectAltName = DNS:${sans[0]}"
+        # Determine if first SAN is IP or DNS
+        if [[ ${sans[0]} =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            san_config="subjectAltName = IP:${sans[0]}"
+        else
+            san_config="subjectAltName = DNS:${sans[0]}"
+        fi
+        
         for ((i=1; i<${#sans[@]}; i++)); do
-            san_config="${san_config}, DNS:${sans[i]}"
+            if [[ ${sans[i]} =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                san_config="${san_config}, IP:${sans[i]}"
+            else
+                san_config="${san_config}, DNS:${sans[i]}"
+            fi
         done
     fi
 
@@ -182,86 +192,82 @@ rm -f "$API_SERVER_CSR"
 echo "  ✓ API Server TLS certificate generated: $API_SERVER_CERT"
 
 # Step 4: Generate Telemetry Gateway TLS certificate
-echo "[4/5] Generating Telemetry Gateway TLS certificate - 2 years, ECDSA P-256"
-
-TELEMETRY_KEY="$CERT_DIR/flightctl-telemetry-gateway/server.key"
-TELEMETRY_CERT="$CERT_DIR/flightctl-telemetry-gateway/server.crt"
-TELEMETRY_CSR="$CERT_DIR/flightctl-telemetry-gateway/server.csr"
-
-# Generate telemetry gateway private key (ECDSA P-256)
-openssl ecparam -name prime256v1 -genkey -noout -out "$TELEMETRY_KEY"
-
-# Generate CSR for telemetry gateway
-openssl req -new -sha256 -key "$TELEMETRY_KEY" -out "$TELEMETRY_CSR" \
-    -subj "/CN=flightctl-telemetry-gateway"
-
-# Build SAN configuration
 if [[ ${#TELEMETRY_SANS[@]} -gt 0 ]]; then
+    echo "[4/5] Generating Telemetry Gateway TLS certificate - 2 years, ECDSA P-256"
+    
+    # Create telemetry gateway directory
+    mkdir -p "$CERT_DIR/flightctl-telemetry-gateway"
+
+    TELEMETRY_KEY="$CERT_DIR/flightctl-telemetry-gateway/server.key"
+    TELEMETRY_CERT="$CERT_DIR/flightctl-telemetry-gateway/server.crt"
+    TELEMETRY_CSR="$CERT_DIR/flightctl-telemetry-gateway/server.csr"
+
+    # Generate telemetry gateway private key (ECDSA P-256)
+    openssl ecparam -name prime256v1 -genkey -noout -out "$TELEMETRY_KEY"
+
+    # Generate CSR for telemetry gateway
+    openssl req -new -sha256 -key "$TELEMETRY_KEY" -out "$TELEMETRY_CSR" \
+        -subj "/CN=flightctl-telemetry-gateway"
+
+    # Build SAN configuration
     TELEMETRY_SAN_CONFIG=$(generate_san_config "${TELEMETRY_SANS[@]}")
     echo "  Telemetry Gateway SANs: ${TELEMETRY_SANS[*]}"
-else
-    TELEMETRY_SAN_CONFIG=""
-    echo "  Warning: No SANs specified for telemetry gateway certificate"
-fi
 
-# Sign telemetry gateway certificate with flightctl-ca (2 years = 730 days)
-EXT_CONFIG="basicConstraints = CA:FALSE
+    # Sign telemetry gateway certificate with flightctl-ca (2 years = 730 days)
+    EXT_CONFIG="basicConstraints = CA:FALSE
 keyUsage = critical, digitalSignature, keyEncipherment
-extendedKeyUsage = serverAuth"
-
-if [[ -n "$TELEMETRY_SAN_CONFIG" ]]; then
-    EXT_CONFIG="${EXT_CONFIG}
+extendedKeyUsage = serverAuth
 ${TELEMETRY_SAN_CONFIG}"
+
+    openssl x509 -req -sha256 -in "$TELEMETRY_CSR" \
+        -CA "$FLIGHTCTL_CA_CERT" -CAkey "$FLIGHTCTL_CA_KEY" -CAcreateserial \
+        -out "$TELEMETRY_CERT" -days 730 \
+        -extfile <(printf "%s" "$EXT_CONFIG")
+
+    rm -f "$TELEMETRY_CSR"
+    echo "  ✓ Telemetry Gateway TLS certificate generated: $TELEMETRY_CERT"
+else
+    echo "[4/5] Skipping Telemetry Gateway TLS certificate (no SANs specified)"
 fi
-
-openssl x509 -req -sha256 -in "$TELEMETRY_CSR" \
-    -CA "$FLIGHTCTL_CA_CERT" -CAkey "$FLIGHTCTL_CA_KEY" -CAcreateserial \
-    -out "$TELEMETRY_CERT" -days 730 \
-    -extfile <(printf "%s" "$EXT_CONFIG")
-
-rm -f "$TELEMETRY_CSR"
-echo "  ✓ Telemetry Gateway TLS certificate generated: $TELEMETRY_CERT"
 
 # Step 5: Generate Alertmanager Proxy TLS certificate
-echo "[5/6] Generating Alertmanager Proxy TLS certificate - 2 years, ECDSA P-256"
-
-ALERTMANAGER_PROXY_KEY="$CERT_DIR/flightctl-alertmanager-proxy/server.key"
-ALERTMANAGER_PROXY_CERT="$CERT_DIR/flightctl-alertmanager-proxy/server.crt"
-ALERTMANAGER_PROXY_CSR="$CERT_DIR/flightctl-alertmanager-proxy/server.csr"
-
-# Generate alertmanager proxy private key (ECDSA P-256)
-openssl ecparam -name prime256v1 -genkey -noout -out "$ALERTMANAGER_PROXY_KEY"
-
-# Generate CSR for alertmanager proxy
-openssl req -new -sha256 -key "$ALERTMANAGER_PROXY_KEY" -out "$ALERTMANAGER_PROXY_CSR" \
-    -subj "/CN=flightctl-alertmanager-proxy"
-
-# Build SAN configuration
 if [[ ${#ALERTMANAGER_PROXY_SANS[@]} -gt 0 ]]; then
+    echo "[5/6] Generating Alertmanager Proxy TLS certificate - 2 years, ECDSA P-256"
+    
+    # Create alertmanager proxy directory
+    mkdir -p "$CERT_DIR/flightctl-alertmanager-proxy"
+
+    ALERTMANAGER_PROXY_KEY="$CERT_DIR/flightctl-alertmanager-proxy/server.key"
+    ALERTMANAGER_PROXY_CERT="$CERT_DIR/flightctl-alertmanager-proxy/server.crt"
+    ALERTMANAGER_PROXY_CSR="$CERT_DIR/flightctl-alertmanager-proxy/server.csr"
+
+    # Generate alertmanager proxy private key (ECDSA P-256)
+    openssl ecparam -name prime256v1 -genkey -noout -out "$ALERTMANAGER_PROXY_KEY"
+
+    # Generate CSR for alertmanager proxy
+    openssl req -new -sha256 -key "$ALERTMANAGER_PROXY_KEY" -out "$ALERTMANAGER_PROXY_CSR" \
+        -subj "/CN=flightctl-alertmanager-proxy"
+
+    # Build SAN configuration
     ALERTMANAGER_PROXY_SAN_CONFIG=$(generate_san_config "${ALERTMANAGER_PROXY_SANS[@]}")
     echo "  Alertmanager Proxy SANs: ${ALERTMANAGER_PROXY_SANS[*]}"
-else
-    ALERTMANAGER_PROXY_SAN_CONFIG=""
-    echo "  Warning: No SANs specified for alertmanager proxy certificate"
-fi
 
-# Sign alertmanager proxy certificate with flightctl-ca (2 years = 730 days)
-EXT_CONFIG="basicConstraints = CA:FALSE
+    # Sign alertmanager proxy certificate with flightctl-ca (2 years = 730 days)
+    EXT_CONFIG="basicConstraints = CA:FALSE
 keyUsage = critical, digitalSignature, keyEncipherment
-extendedKeyUsage = serverAuth"
-
-if [[ -n "$ALERTMANAGER_PROXY_SAN_CONFIG" ]]; then
-    EXT_CONFIG="${EXT_CONFIG}
+extendedKeyUsage = serverAuth
 ${ALERTMANAGER_PROXY_SAN_CONFIG}"
+
+    openssl x509 -req -sha256 -in "$ALERTMANAGER_PROXY_CSR" \
+        -CA "$FLIGHTCTL_CA_CERT" -CAkey "$FLIGHTCTL_CA_KEY" -CAcreateserial \
+        -out "$ALERTMANAGER_PROXY_CERT" -days 730 \
+        -extfile <(printf "%s" "$EXT_CONFIG")
+
+    rm -f "$ALERTMANAGER_PROXY_CSR"
+    echo "  ✓ Alertmanager Proxy TLS certificate generated: $ALERTMANAGER_PROXY_CERT"
+else
+    echo "[5/6] Skipping Alertmanager Proxy TLS certificate (no SANs specified)"
 fi
-
-openssl x509 -req -sha256 -in "$ALERTMANAGER_PROXY_CSR" \
-    -CA "$FLIGHTCTL_CA_CERT" -CAkey "$FLIGHTCTL_CA_KEY" -CAcreateserial \
-    -out "$ALERTMANAGER_PROXY_CERT" -days 730 \
-    -extfile <(printf "%s" "$EXT_CONFIG")
-
-rm -f "$ALERTMANAGER_PROXY_CSR"
-echo "  ✓ Alertmanager Proxy TLS certificate generated: $ALERTMANAGER_PROXY_CERT"
 
 # Step 5: Generate CA Bundle (contains both flightctl-ca and client-signer-ca)
 echo "[6/6] Generating CA Bundle (contains both flightctl-ca and client-signer-ca)"
@@ -318,21 +324,25 @@ if [[ "$CREATE_K8S_SECRETS" == "true" ]]; then
         --key="$API_SERVER_KEY" \
         --dry-run=client -o yaml | $K8S_CLI apply -f -
 
-    # Create flightctl-telemetry-gateway-server-tls secret
-    echo "Creating secret: flightctl-telemetry-gateway-server-tls"
-    $K8S_CLI create secret tls flightctl-telemetry-gateway-server-tls \
-        --namespace="$NAMESPACE" \
-        --cert="$TELEMETRY_CERT" \
-        --key="$TELEMETRY_KEY" \
-        --dry-run=client -o yaml | $K8S_CLI apply -f -
+    # Create flightctl-telemetry-gateway-server-tls secret (only if certificate was generated)
+    if [[ ${#TELEMETRY_SANS[@]} -gt 0 ]]; then
+        echo "Creating secret: flightctl-telemetry-gateway-server-tls"
+        $K8S_CLI create secret tls flightctl-telemetry-gateway-server-tls \
+            --namespace="$NAMESPACE" \
+            --cert="$TELEMETRY_CERT" \
+            --key="$TELEMETRY_KEY" \
+            --dry-run=client -o yaml | $K8S_CLI apply -f -
+    fi
 
-    # Create flightctl-alertmanager-proxy-server-tls secret
-    echo "Creating secret: flightctl-alertmanager-proxy-server-tls"
-    $K8S_CLI create secret tls flightctl-alertmanager-proxy-server-tls \
-        --namespace="$NAMESPACE" \
-        --cert="$ALERTMANAGER_PROXY_CERT" \
-        --key="$ALERTMANAGER_PROXY_KEY" \
-        --dry-run=client -o yaml | $K8S_CLI apply -f -
+    # Create flightctl-alertmanager-proxy-server-tls secret (only if certificate was generated)
+    if [[ ${#ALERTMANAGER_PROXY_SANS[@]} -gt 0 ]]; then
+        echo "Creating secret: flightctl-alertmanager-proxy-server-tls"
+        $K8S_CLI create secret tls flightctl-alertmanager-proxy-server-tls \
+            --namespace="$NAMESPACE" \
+            --cert="$ALERTMANAGER_PROXY_CERT" \
+            --key="$ALERTMANAGER_PROXY_KEY" \
+            --dry-run=client -o yaml | $K8S_CLI apply -f -
+    fi
 
     # Create CA bundle ConfigMap
     echo "Creating ConfigMap: flightctl-ca-bundle"
