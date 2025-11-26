@@ -5,6 +5,10 @@ APP_BUNDLE := $(ROOT_DIR)/bin/app-images-bundle.tar
 AGENT_BUNDLE_DIR := $(ROOT_DIR)/bin/agent-artifacts
 AGENT_BUNDLE := $(AGENT_BUNDLE_DIR)/agent-images-bundle-$(AGENT_OS_ID).tar
 
+ifeq ($(TPM),)
+	TPM := disabled
+endif
+
 bin/output/qcow2/disk.qcow2: $(E2E_AGENT_IMAGES_SENTINEL)
 
 # Build + bundle artifacts (no push)
@@ -38,7 +42,7 @@ push-e2e-agent-images: e2e-agent-images
 	$(ROOT_DIR)/test/scripts/agent-images/scripts/upload-images.sh "$(APP_BUNDLE)"
 
 bin/.e2e-agent-certs:
-	./test/scripts/agent-images/prepare_agent_config.sh
+	TPM=$(TPM) ./test/scripts/agent-images/prepare_agent_config.sh
 	touch bin/.e2e-agent-certs
 
 .PHONY: e2e-agent-images
