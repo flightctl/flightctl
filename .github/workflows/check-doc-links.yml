@@ -40,6 +40,8 @@ jobs:
           fail: ${{ github.event_name == 'pull_request' }}
           # Output format
           format: markdown
+          # Output path
+          output: ./lychee/out.md
           # Use GitHub token for API calls (avoids rate limiting)
           token: ${{ secrets.GITHUB_TOKEN }}
 
