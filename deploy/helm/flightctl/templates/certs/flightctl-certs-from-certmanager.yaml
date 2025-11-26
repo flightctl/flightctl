@@ -124,7 +124,7 @@ spec:
     size: 256
     rotationPolicy: Always
   usages:
-    - digital signatures
+    - digital signature
     - key encipherment
     - server auth
   dnsNames:
