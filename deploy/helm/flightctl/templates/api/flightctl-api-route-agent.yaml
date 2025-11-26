@@ -10,7 +10,7 @@ metadata:
     {{- toYaml . | nindent 4 }}
     {{- end }}
     {{- include "flightctl.standardLabels" . | nindent 4 }}
-  flightctl.service: flightctl-api
+    flightctl.service: flightctl-api
   name: flightctl-api-route-agent
   namespace: {{ .Release.Namespace }}
 spec:
