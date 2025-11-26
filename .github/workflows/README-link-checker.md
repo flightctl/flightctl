@@ -7,22 +7,26 @@ The `check-doc-links.yml` workflow automatically validates all links in the docu
 ## Features
 
 ### Automated Link Checking
+
 - **PR Validation**: Runs automatically on pull requests that modify documentation files
 - **Scheduled Checks**: Runs weekly (Mondays at 9 AM UTC) to catch external links that break over time
 - **Manual Trigger**: Can be run manually via GitHub Actions UI using `workflow_dispatch`
 
 ### Intelligent Reporting
+
 - **PR Comments**: Posts broken link reports directly on pull requests
 - **Issue Creation**: Automatically creates GitHub issues for broken links found during scheduled runs
 - **Job Summaries**: Provides detailed reports in the GitHub Actions job summary
 
 ### Performance Optimizations
+
 - **Caching**: Caches link check results for 1 day to reduce load on external sites
 - **Ignore Patterns**: Uses `.lycheeignore` to skip known false positives
 
 ## How It Works
 
 ### On Pull Requests
+
 1. Workflow triggers when docs are modified
 2. Checks all markdown files in `docs/` directory
 3. **Fails the workflow** if broken links are found
@@ -30,6 +34,7 @@ The `check-doc-links.yml` workflow automatically validates all links in the docu
 5. Developer fixes links before merging
 
 ### On Schedule (Weekly)
+
 1. Workflow runs every Monday at 9 AM UTC
 2. Checks all markdown files in `docs/` directory
 3. **Does not fail** - continues even with broken links
@@ -55,7 +60,7 @@ schedule:
 
 Add patterns to `.lycheeignore` in the repository root:
 
-```
+```text
 # Ignore specific URL
 https://example.com/requires-auth
 
