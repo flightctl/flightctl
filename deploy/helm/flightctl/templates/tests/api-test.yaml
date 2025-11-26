@@ -13,7 +13,7 @@ spec:
   {{- end }}
   containers:
     - name: "{{ .Release.Name }}-connection-test"
-      image: "registry.access.redhat.com/ubi9/ubi-minimal:9.7"
+      image: "registry.access.redhat.com/ubi9/ubi-minimal:9.7-1763362218"
       imagePullPolicy: IfNotPresent
       command:
         - '/bin/bash'
