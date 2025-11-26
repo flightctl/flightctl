@@ -288,14 +288,6 @@ func main() {
 		logger.Fatalf("Failed to create alertmanager proxy: %v", err)
 	}
 
-	// Check if auth is disabled
-	authDisabled := false
-	value, exists := os.LookupEnv(auth.DisableAuthEnvKey)
-	if exists && value != "" {
-		authDisabled = true
-		logger.Warn("Auth is disabled")
-	}
-
 	// Create conditional auth middleware
 	conditionalAuthMiddleware := createConditionalAuthMiddleware(
 		authN,
@@ -326,10 +318,8 @@ func main() {
 		})
 	})
 
-	// Apply conditional auth middleware (unless auth is disabled)
-	if !authDisabled {
-		router.Use(conditionalAuthMiddleware)
-	}
+	// Apply auth middleware
+	router.Use(conditionalAuthMiddleware)
 
 	// Add rate limiting (only if configured)
 	// Alertmanager doesn't have built-in rate limiting, so we add it here to prevent abuse

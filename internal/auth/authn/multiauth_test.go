@@ -121,7 +121,7 @@ func (m *MockAuthNMiddleware) GetAuthConfig() *api.AuthConfig {
 	return &api.AuthConfig{
 		ApiVersion:           api.AuthConfigAPIVersion,
 		DefaultProvider:      &providerName,
-		OrganizationsEnabled: lo.ToPtr(false),
+		OrganizationsEnabled: lo.ToPtr(true),
 		Providers:            &[]api.AuthProvider{provider},
 	}
 }
