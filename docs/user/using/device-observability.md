@@ -479,9 +479,6 @@ Each audit event is a JSON object with the following fields:
 | `success` | Operation completed successfully    |
 | `failure` | Operation failed                               |
 
-> [!NOTE]
-> Failure auditing is planned for future releases. Current implementation logs only successful state transitions.
-
 ### Bootstrap Events
 
 When a device enrolls or first starts, the agent creates three bootstrap events:

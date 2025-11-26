@@ -22,8 +22,8 @@ The agent's configuration file `/etc/flightctl/config.yaml` takes the following 
 | `system-info-timeout`    | `Duration` | | The timeout for collecting system info. Default: `2m`. Maximum: `2m` |
 | `pull-timeout`           | `Duration` | | The timeout for pulling a single OCI target. Default: `10m` |
 | `log-level`              | `string` | | The level of logging: "panic", "fatal", "error", "warn"/"warning", "info", "debug", or "trace". Default: `info` |
-| `metrics`                | `Metrics` | | Metrics endpoint configuration. See [Metrics Configuration](#metrics-configuration). Default: enabled on `127.0.0.1:8080` |
-| `profiling`              | `Profiling` | | Profiling endpoint configuration. See [Profiling Configuration](#profiling-configuration). Default: enabled on `127.0.0.1:6060` |
+| `metrics-enabled`        | `boolean` | | Enable Prometheus metrics endpoint. See [Metrics Configuration](#metrics-configuration). Default: `false` |
+| `profiling-enabled`      | `boolean` | | Enable pprof profiling endpoint. See [Profiling Configuration](#profiling-configuration). Default: `false` |
 | `audit`                  | `Audit` | | Audit logging configuration. See [Audit Configuration](#audit-configuration). Default: enabled |
 | `tpm`                    | `TPM` | | TPM configuration for hardware-based device identity. See [TPM Configuration](#tpm-configuration). Default: TPM disabled |
 
@@ -170,26 +170,12 @@ For detailed information about audit logs, see [Device Observability](../using/d
 
 ## Metrics Configuration
 
-The metrics configuration controls the Prometheus metrics endpoint exposed by the agent. Metrics are exposed on a loopback-only address by default for security.
-
-### Metrics Configuration Parameters
-
-The `metrics` configuration object accepts the following parameters:
-
-| Parameter | Type | Required | Description |
-| --------- | ---- | :------: | ----------- |
-| `enabled` | `boolean` | | Enable Prometheus metrics endpoint. Default: `true` |
-| `address` | `string` | | Bind address for metrics endpoint. Default: `127.0.0.1:8080` |
-
-### Example Metrics Configuration
-
-Metrics are enabled by default. To explicitly disable them:
+Metrics are **disabled by default**. To enable the Prometheus metrics endpoint (exposed on `127.0.0.1:15690`):
 
 ```yaml
 # /etc/flightctl/config.yaml
 [...]
-metrics:
-  enabled: false
+metrics-enabled: true
 
 spec-fetch-interval: 60s
 status-update-interval: 60s
@@ -199,26 +185,12 @@ For detailed information about agent metrics, see [Device Observability](../usin
 
 ## Profiling Configuration
 
-The profiling configuration controls the pprof profiling endpoint exposed by the agent. Profiling endpoints are exposed on a loopback-only address by default for security.
-
-### Profiling Configuration Parameters
-
-The `profiling` configuration object accepts the following parameters:
-
-| Parameter | Type | Required | Description |
-| --------- | ---- | :------: | ----------- |
-| `enabled` | `boolean` | | Enable pprof profiling endpoint. Default: `true` |
-| `address` | `string` | | Bind address for profiling endpoint. Default: `127.0.0.1:6060` |
-
-### Example Profiling Configuration
-
-Profiling is enabled by default. To explicitly disable it:
+Profiling is **disabled by default**. To enable the pprof profiling endpoint (exposed on `127.0.0.1:15689`):
 
 ```yaml
 # /etc/flightctl/config.yaml
 [...]
-profiling:
-  enabled: false
+profiling-enabled: true
 
 spec-fetch-interval: 60s
 status-update-interval: 60s
