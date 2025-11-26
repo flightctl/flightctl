@@ -227,6 +227,7 @@ jobs:
             --namespace flightctl-external \
             --reuse-values \
             --values image-values.yaml \
+            --set telemetryGateway.replicas=0 \
             --dry-run=server \
             --output=dyff \
             --debug
@@ -245,7 +246,6 @@ jobs:
             --reuse-values \
             --values image-values.yaml \
             --set telemetryGateway.replicas=0 \
-            --namespace flightctl-external \
             --debug --wait # for the deployment complete (including readiness probes passing)
 
       - name: "[HEAD] Check deployment"
