@@ -88,11 +88,11 @@ spec:
               readOnly: true
             {{- end}}
             - mountPath: /root/.flightctl/certs/server.crt
-              name: flightctl-api-server-tls
+              name: flightctl-alertmanager-proxy-server-tls
               subPath: tls.crt
               readOnly: true
             - mountPath: /root/.flightctl/certs/server.key
-              name: flightctl-api-server-tls
+              name: flightctl-alertmanager-proxy-server-tls
               subPath: tls.key
               readOnly: true
             {{- include "flightctl.dbSslVolumeMounts" . | nindent 12 }}
@@ -151,8 +151,8 @@ spec:
           secret:
             secretName: {{ .Values.global.auth.openshift.externalApiTokenSecretName }}
         {{- end}}
-        - name: flightctl-api-server-tls
+        - name: flightctl-alertmanager-proxy-server-tls
           secret:
-            secretName: {{ default "flightctl-api-server-tls" .Values.global.baseDomainTlsSecretName }}
+            secretName: {{ default "flightctl-alertmanager-proxy-server-tls" .Values.alertmanagerProxy.baseDomainTlsSecretName }}
         {{- include "flightctl.dbSslVolumes" . | nindent 8 }}
 {{- end }}
