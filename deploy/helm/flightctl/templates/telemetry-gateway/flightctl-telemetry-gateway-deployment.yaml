@@ -1,9 +1,8 @@
-{{- if .Values.telemetryGateway }}
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
     flightctl.service: flightctl-telemetry-gateway
   name: flightctl-telemetry-gateway
   namespace: {{ .Release.Namespace }}
@@ -86,4 +85,3 @@ spec:
       - name: telemetry-gateway-tls
         secret:
           secretName: telemetry-gateway-tls
-{{- end }}

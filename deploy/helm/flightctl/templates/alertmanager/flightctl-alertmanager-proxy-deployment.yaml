@@ -31,7 +31,7 @@ spec:
       {{- include "flightctl.databaseWaitInitContainer" (dict "context" . "userType" "app") | nindent 6 }}
       {{- include "flightctl.migrationWaitInitContainer" (dict "context" . "timeout" 600) | nindent 6 }}
       - name: init-certs
-        image: "registry.access.redhat.com/ubi9/ubi-minimal:latest"
+        image: "registry.access.redhat.com/ubi9/ubi-minimal:9.7"
         command:
           - /bin/sh
           - -c
@@ -81,12 +81,12 @@ spec:
               name: flightctl-config-dir
             - mountPath: /tmp
               name: tmp-dir
-            {{- if .Values.global.auth.k8s.externalApiToken}}
+            {{- if .Values.global.auth.k8s.externalApiTokenSecretName }}
             - mountPath: /var/flightctl/k8s
               name: flightctl-alertmanager-proxy-k8s-token
               readOnly: true
             {{- end}}
-            {{- if .Values.global.auth.openshift.externalApiToken}}
+            {{- if .Values.global.auth.openshift.externalApiTokenSecretName }}
             - mountPath: /var/flightctl/k8s
               name: flightctl-alertmanager-proxy-openshift-token
               readOnly: true
@@ -137,15 +137,15 @@ spec:
           emptyDir: {}
         - name: tmp-dir
           emptyDir: {}
-        {{- if .Values.global.auth.k8s.externalApiToken}}
+        {{- if .Values.global.auth.k8s.externalApiTokenSecretName }}
         - name: flightctl-alertmanager-proxy-k8s-token
           secret:
-            secretName: flightctl-api-k8s-token
+            secretName: {{ .Values.global.auth.k8s.externalApiTokenSecretName }}
         {{- end}}
-        {{- if .Values.global.auth.openshift.externalApiToken}}
+        {{- if .Values.global.auth.openshift.externalApiTokenSecretName }}
         - name: flightctl-alertmanager-proxy-openshift-token
           secret:
-            secretName: flightctl-api-openshift-token
+            secretName: {{ .Values.global.auth.openshift.externalApiTokenSecretName }}
         {{- end}}
         {{- include "flightctl.dbSslVolumes" . | nindent 8 }}
 {{- end }}

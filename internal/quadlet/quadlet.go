@@ -236,3 +236,8 @@ func VolumeName(volumeName *string, filename string) string {
 
 	return fmt.Sprintf("systemd-%s", strings.TrimSuffix(filepath.Base(filename), filepath.Ext(filename)))
 }
+
+// NamespaceResource namespaces the supplied quadlet resource
+func NamespaceResource(id string, resource string) string {
+	return fmt.Sprintf("%s-%s", id, resource)
+}

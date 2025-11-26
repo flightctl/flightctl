@@ -534,7 +534,7 @@ type ApplicationPort = string
 // ApplicationProviderSpec defines model for ApplicationProviderSpec.
 type ApplicationProviderSpec struct {
 	// AppType The type of the application.
-	AppType *AppType `json:"appType,omitempty"`
+	AppType AppType `json:"appType"`
 
 	// EnvVars Environment variable key-value pairs, injected during runtime. The key and value each must be between 1 and 253 characters.
 	EnvVars *map[string]string `json:"envVars,omitempty"`
@@ -546,10 +546,10 @@ type ApplicationProviderSpec struct {
 
 // ApplicationResourceLimits Resource limits for the application.
 type ApplicationResourceLimits struct {
-	// Cpu CPU limit in cores (e.g., "1", "0.75").
+	// Cpu CPU limit in cores. Format restricted based on application type.
 	Cpu *string `json:"cpu,omitempty"`
 
-	// Memory Memory limit with unit (e.g., "256m", "2g") using Podman format (b=bytes, k=kibibytes, m=mebibytes, g=gibibytes).
+	// Memory Memory limit with optional unit. Format restricted based on application type.
 	Memory *string `json:"memory,omitempty"`
 }
 
@@ -3178,11 +3178,9 @@ func (t ApplicationProviderSpec) MarshalJSON() ([]byte, error) {
 		}
 	}
 
-	if t.AppType != nil {
-		object["appType"], err = json.Marshal(t.AppType)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'appType': %w", err)
-		}
+	object["appType"], err = json.Marshal(t.AppType)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'appType': %w", err)
 	}
 
 	if t.EnvVars != nil {

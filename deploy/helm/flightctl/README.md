@@ -262,7 +262,7 @@ For more detailed configuration options, see the [Values](#values) section below
 | global.auth.insecureSkipTlsVerify | bool | `false` | True if verification of authority TLS cert should be skipped. |
 | global.auth.k8s.apiUrl | string | `"https://kubernetes.default.svc"` | API URL of k8s cluster that will be used as authentication authority |
 | global.auth.k8s.createAdminUser | bool | `true` | Create default flightctl-admin ServiceAccount with admin access |
-| global.auth.k8s.externalApiToken | string | `""` | In case flightctl is not running within a cluster, you can provide api token |
+| global.auth.k8s.externalApiTokenSecretName | string | `""` | In case flightctl is not running within a cluster, you can provide a name of a secret that holds the API token |
 | global.auth.k8s.rbacNs | string | `""` | Namespace that should be used for the RBAC checks |
 | global.auth.oidc.clientId | string | `"flightctl-client"` | OIDC Client ID |
 | global.auth.oidc.externalOidcAuthority | string | `""` | The base URL for the OIDC provider that is reachable by clients. Example: https://auth.foo.net/realms/flightctl |
@@ -275,7 +275,7 @@ For more detailed configuration options, see the [Values](#values) section below
 | global.auth.openshift.clientSecret | string | `""` | OAuth client secret (leave empty for auto-generation) |
 | global.auth.openshift.clusterControlPlaneUrl | string | `"https://kubernetes.default.svc"` | OpenShift cluster control plane API URL for RBAC checks (leave empty for auto-detection) |
 | global.auth.openshift.createAdminUser | bool | `true` | Create default flightctl-admin ServiceAccount with admin access |
-| global.auth.openshift.externalApiToken | string | `""` | In case flightctl is not running within a cluster, you can provide api token |
+| global.auth.openshift.externalApiTokenSecretName | string | `""` | In case flightctl is not running within a cluster, you can provide a name of a secret that holds the API token |
 | global.auth.openshift.issuer | string | `""` | OAuth issuer URL (defaults to authorizationUrl if not specified) |
 | global.auth.openshift.tokenUrl | string | `""` | OAuth token URL (leave empty to auto-detect from OpenShift cluster) |
 | global.auth.type | string | `""` | Type of authentication to use. Allowed values: 'k8s', 'oidc', 'aap', 'openshift', 'oauth2', or 'none'. When left empty (default and recommended), authentication type is auto-detected: 'openshift' on OpenShift clusters, 'k8s' otherwise. |
@@ -288,10 +288,9 @@ For more detailed configuration options, see the [Values](#values) section below
 | global.gateway.gatewayClassName | string | `""` | Gateway API class name for gateway exposure method |
 | global.gateway.ports.http | int | `80` | HTTP port for Gateway API configuration |
 | global.gateway.ports.tls | int | `443` | TLS port for Gateway API configuration |
-| global.generateSecrets | bool | `true` | Generate secrets when deploying Flight Control. This should be set to false if you want to provide your own secrets or when upgrading Flight Control to avoid overriding the existing secrets |
 | global.imagePullPolicy | string | `"IfNotPresent"` | Image pull policy for all containers |
 | global.imagePullSecretName | string | `""` | Name of the secret that holds image pull secret for accessing private container registries |
-| global.internalNamespace | string | `""` | Namespace where internal components are deployed |
+| global.internalNamespace | string | `""` | A separate Namespace to which non-user-facing components should be deployed for increased security isolation. |
 | global.sshKnownHosts.data | string | `""` | SSH known hosts file content for Git repository host key verification. |
 | global.storageClassName | string | `""` | Storage class name for the PVCs. Keep empty to use the default storage class. |
 | kv | object | `{"fsGroup":"","image":{"image":"quay.io/sclorg/redis-7-c9s","pullPolicy":"","tag":"20250108"},"loglevel":"warning","maxmemory":"1gb","maxmemoryPolicy":"allkeys-lru","passwordSecretName":""}` | Key-Value Store Configuration |
@@ -308,6 +307,10 @@ For more detailed configuration options, see the [Values](#values) section below
 | periodic.image.image | string | `"quay.io/flightctl/flightctl-periodic"` | Periodic container image |
 | periodic.image.pullPolicy | string | `""` | Image pull policy for periodic container |
 | periodic.image.tag | string | `""` | Periodic image tag |
+| telemetryGateway.additionalRouteLabels | string | `nil` |  |
+| telemetryGateway.image.image | string | `"quay.io/flightctl/flightctl-telemetry-gateway"` | Telemetry gateway container image |
+| telemetryGateway.image.pullPolicy | string | `""` | Image pull policy for Telemetry gateway container |
+| telemetryGateway.image.tag | string | `""` | Telemetry gateway image tag |
 | ui | object | `{"additionalRouteLabels":null,"api":{"insecureSkipTlsVerify":true},"auth":{"caCert":"","insecureSkipTlsVerify":false},"enabled":true,"image":{"image":"quay.io/flightctl/flightctl-ui","pluginImage":"quay.io/flightctl/flightctl-ocp-ui","pullPolicy":"","tag":""}}` | UI Configuration |
 | ui.additionalRouteLabels | string | `nil` | Additional labels for UI routes. |
 | ui.api.insecureSkipTlsVerify | bool | `true` | Skip TLS verification for UI API calls |

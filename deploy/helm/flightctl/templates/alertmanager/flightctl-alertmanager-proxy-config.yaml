@@ -5,6 +5,9 @@ kind: ConfigMap
 metadata:
   name: flightctl-alertmanager-proxy-config
   namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-alertmanager-proxy
 data:
   config.yaml: |-
     database:
@@ -89,11 +92,11 @@ data:
     {{- end }}
     organizations:
       enabled: true
-    {{ if .Values.global.tracing }}
+    {{ if (default dict .Values.dev).tracing }}
     tracing:
         enabled: true
-        endpoint: {{ .Values.global.tracing.endpoint }}
-        insecure: {{ .Values.global.tracing.insecure }}
+        endpoint: {{ .Values.dev.tracing.endpoint }}
+        insecure: {{ .Values.dev.tracing.insecure }}
     {{ end }}
 {{- end }}
 

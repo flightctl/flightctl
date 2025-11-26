@@ -11,6 +11,8 @@ metadata:
     {{- with .Values.db.builtin.additionalPVCLabels }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-db
   name: flightctl-db
   namespace:  {{ default .Release.Namespace .Values.global.internalNamespace }}
 spec:

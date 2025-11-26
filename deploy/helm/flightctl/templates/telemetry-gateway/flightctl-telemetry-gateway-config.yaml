@@ -1,10 +1,11 @@
-{{- if .Values.telemetryGateway }}
----
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: flightctl-telemetry-gateway-config
   namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-telemetry-gateway
 data:
   config.yaml: |-
     database:
@@ -28,16 +29,13 @@ data:
     kv:
         hostname: flightctl-kv.{{ default .Release.Namespace .Values.global.internalNamespace }}.svc.cluster.local
         port: 6379
-    {{- with .Values.telemetryGateway.config }}
     telemetryGateway:
-    {{- toYaml . | nindent 8 }}
-    {{- end }}
-
-    {{- if .Values.global.tracing }}
+      config:
+        listen: { device: "0.0.0.0:4317" }
+        export: { prometheus: "0.0.0.0:9464" }
+    {{- if (default dict .Values.dev).tracing }}
     tracing:
         enabled: true
-        endpoint: {{ .Values.global.tracing.endpoint }}
-        insecure: {{ .Values.global.tracing.insecure }}
+        endpoint: {{ .Values.dev.tracing.endpoint }}
+        insecure: {{ .Values.dev.tracing.insecure }}
     {{ end }}
-{{- end }}
-

@@ -5,6 +5,9 @@ kind: ConfigMap
 metadata:
   name: flightctl-kv-config
   namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-kv
 data:
   redis.conf: |-
     bind 0.0.0.0 ::

@@ -4561,6 +4561,8 @@ components:
               description: The application name must be 1–253 characters long, start with a letter or number, and contain no whitespace.
             appType:
               $ref: '#/components/schemas/AppType'
+          required: 
+            - appType
         - oneOf:
             - $ref: '#/components/schemas/ImageApplicationProviderSpec'
             - $ref: '#/components/schemas/InlineApplicationProviderSpec'
@@ -4634,6 +4636,8 @@ components:
           $ref: '#/components/schemas/ImageVolumeSource'
       required:
         - image
+      not:
+        required: [mount]
     ImageVolumeSource:
       type: object
       description: Describes the source of an OCI-compliant image or artifact.
@@ -4653,6 +4657,8 @@ components:
           $ref: '#/components/schemas/VolumeMount'
       required:
         - mount
+      not:
+        required: [image]
     ImageMountVolumeProviderSpec:
       type: object
       description: Volume from OCI image mounted at specified path.
@@ -4690,13 +4696,11 @@ components:
       properties:
         cpu:
           type: string
-          description: CPU limit in cores (e.g., "1", "0.75").
-          pattern: '^\d+(\.\d+)?$'
+          description: CPU limit in cores. Format restricted based on application type.
           example: "0.75"
         memory:
           type: string
-          description: Memory limit with unit (e.g., "256m", "2g") using Podman format (b=bytes, k=kibibytes, m=mebibytes, g=gibibytes).
-          pattern: '^\d+[bkmg]$'
+          description: Memory limit with optional unit. Format restricted based on application type.
           example: "256m"
     ApplicationResources:
       type: object

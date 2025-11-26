@@ -5,7 +5,7 @@ metadata:
   name: flightctl-ui
   namespace: {{ .Release.Namespace }}
   labels:
-    app: flightctl-ui
+    flightctl.service: flightctl-ui
     {{- include "flightctl.standardLabels" . | nindent 4 }}
   {{- if eq (include "flightctl.enableMulticlusterExtensions" .) "true" }}
   annotations:
@@ -21,8 +21,8 @@ spec:
       port: 8080
       targetPort: 8080
       {{- if eq (include "flightctl.getServiceExposeMethod" .) "nodePort"}}
-      nodePort: {{ .Values.global.nodePorts.ui }}
+      nodePort: {{ .Values.dev.nodePorts.ui }}
       {{- end }}
   selector:
-    app: flightctl-ui
+    flightctl.service: flightctl-ui
 {{ end }}

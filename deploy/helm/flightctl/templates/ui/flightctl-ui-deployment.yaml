@@ -6,19 +6,19 @@ metadata:
   name: flightctl-ui
   namespace: {{ .Release.Namespace }}
   labels:
-    app: flightctl-ui
     role: frontend
     {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-ui
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: flightctl-ui
+      flightctl.service: flightctl-ui
   template:
     metadata:
       creationTimestamp: null
       labels:
-        app: flightctl-ui
+        flightctl.service: flightctl-ui
         role: frontend
         {{- include "flightctl.standardLabels" . | nindent 8 }}
     spec:

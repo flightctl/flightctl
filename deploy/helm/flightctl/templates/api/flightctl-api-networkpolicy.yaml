@@ -4,6 +4,9 @@ kind: NetworkPolicy
 metadata:
   name: flightctl-api-from-ingress
   namespace:  {{ .Release.Namespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-api
 spec:
   ingress:
   - from:
