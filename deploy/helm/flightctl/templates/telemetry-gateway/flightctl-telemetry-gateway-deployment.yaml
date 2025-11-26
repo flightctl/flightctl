@@ -84,4 +84,4 @@ spec:
           name: flightctl-ca-bundle
       - name: telemetry-gateway-tls
         secret:
-          secretName: flightctl-telemetry-gateway-server-tls
+          secretName: {{ default "flightctl-telemetry-gateway-server-tls" .Values.telemetryGateway.tlsSecretName }}

@@ -21,7 +21,7 @@ var _ = Describe("multiorg operation", Ordered, func() {
 		harness := e2e.GetWorkerHarness()
 
 		By("Verifying authorization is enabled")
-		authMethod := login.WithPassword(harness)
+		authMethod := login.WithK8Token(harness)
 		if authMethod == login.AuthDisabled {
 			Skip("Authorization is disabled; skipping multiorg tests")
 		}
@@ -29,7 +29,7 @@ var _ = Describe("multiorg operation", Ordered, func() {
 		By("Verifying organizations support is enabled")
 		resp, err := harness.Client.AuthConfigWithResponse(harness.Context)
 		Expect(err).ToNot(HaveOccurred(), "failed to query auth config")
-		if resp.JSON200 == nil || !resp.JSON200.AuthOrganizationsConfig.Enabled {
+		if resp.JSON200 == nil || resp.JSON200.OrganizationsEnabled == nil || !*resp.JSON200.OrganizationsEnabled {
 			Skip("Organizations are not enabled on this deployment; skipping multiorg tests")
 		}
 	})
@@ -37,7 +37,7 @@ var _ = Describe("multiorg operation", Ordered, func() {
 	BeforeEach(func() {
 		// Get harness directly - no shared package-level variable
 		harness := e2e.GetWorkerHarness()
-		authMethod := login.WithPassword(harness)
+		authMethod := login.WithK8Token(harness)
 		Expect(authMethod).To(Equal(login.AuthUsernamePassword))
 	})
 
@@ -108,15 +108,7 @@ var _ = Describe("multiorg operation", Ordered, func() {
 			logrus.Info("device: ", out4)
 		})
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-		It("Should create 2 devices in the current organization", Label("85913", "integration"), func() {
-=======
 		It("Should create 2 devices in the current organization", Label("85913", "sanity"), func() {
->>>>>>> 80c428bc (EDM-1931: Multiorg E2E test suite)
-=======
-		It("Should create 2 devices in the current organization", Label("85913", "sanity"), func() {
->>>>>>> eb936b78 (EDM-1931: Multiorg E2E test suite)
 			harness := e2e.GetWorkerHarness()
 			orgNames := GetOrgDisplayNames()
 			orgName := orgNames[0]
