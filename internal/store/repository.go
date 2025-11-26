@@ -150,8 +150,22 @@ func (s *RepositoryStore) GetInternal(ctx context.Context, orgId uuid.UUID, name
 }
 
 func (s *RepositoryStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *api.Repository, eventCallback EventCallback) (*api.Repository, error) {
+	// Get the old resource to compare conditions
+	var oldRepository *api.Repository
+	existingResource, err := s.Get(ctx, orgId, lo.FromPtr(resource.Metadata.Name))
+	if err == nil && existingResource != nil {
+		oldRepository = existingResource
+	}
+
+	// Update the status
 	newRepo, err := s.genericStore.UpdateStatus(ctx, orgId, resource)
-	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), resource, newRepo, false, err)
+	if err != nil {
+		return newRepo, err
+	}
+
+	// Call the event callback to emit condition-specific events
+	s.eventCallbackCaller(ctx, eventCallback, orgId, lo.FromPtr(resource.Metadata.Name), oldRepository, newRepo, false, err)
+
 	return newRepo, err
 }
 
