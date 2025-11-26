@@ -1,8 +1,8 @@
 [Unit]
 Description=Flight Control UI Initialization
 PartOf=flightctl.target
-After=flightctl-api.service
-Wants=flightctl-api.service
+After=flightctl-api.service flightctl-certs-init.service
+Wants=flightctl-api.service flightctl-certs-init.service
 
 [Container]
 Image=registry.access.redhat.com/ubi9/ubi-minimal:9.6
