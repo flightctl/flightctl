@@ -225,9 +225,8 @@ jobs:
           echo "::group::Helm diff - changes to be applied"
           helm diff upgrade flightctl "${CHART_FILE}" \
             --namespace flightctl-external \
-            --values "${VALUES_FILE}" \
+            --reuse-values \
             --values image-values.yaml \
-            --set global.baseDomain=${BASE_DOMAIN} \
             --dry-run=server \
             --output=dyff \
             --debug
@@ -240,15 +239,14 @@ jobs:
           ( kubectl get pods --all-namespaces -w | sed 's/^/[cluster upgrade] /' ) &
 
           CHART_FILE="artifacts-pr/flightctl-chart.tgz"
-          VALUES_FILE="./deploy/helm/flightctl/values.dev.yaml"
-
           # Use values files with image overrides
           helm upgrade flightctl "${CHART_FILE}" \
             --namespace flightctl-external \
-            --values "${VALUES_FILE}" \
+            --reuse-values \
             --values image-values.yaml \
-            --set global.baseDomain=${BASE_DOMAIN} \
-            --debug --wait # for deployment to be complete, including passing readiness probes
+            --set telemetryGateway.replicas=0 \
+            --namespace flightctl-external \
+            --debug --wait # for the deployment complete (including readiness probes passing)
 
       - name: "[HEAD] Check deployment"
         run: |
@@ -305,9 +303,8 @@ jobs:
 
           helm upgrade flightctl "${CHART_FILE}" \
             --namespace flightctl-external \
-            --values "${VALUES_FILE}" \
-            --values image-values.yaml \
-            --set global.baseDomain=${BASE_DOMAIN} \
+            --reuse-values \
+            --set telemetryGateway.replicas=0 \
             --debug --wait
 
       - name: "[HEAD] Validate versions"
