@@ -30,9 +30,8 @@ data:
         hostname: flightctl-kv.{{ default .Release.Namespace .Values.global.internalNamespace }}.svc.cluster.local
         port: 6379
     telemetryGateway:
-      config:
-        listen: { device: "0.0.0.0:4317" }
-        export: { prometheus: "0.0.0.0:9464" }
+      listen: { device: "0.0.0.0:4317" }
+      export: { prometheus: "0.0.0.0:9464" }
     {{- if (default dict .Values.dev).tracing }}
     tracing:
         enabled: true
