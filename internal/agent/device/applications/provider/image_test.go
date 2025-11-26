@@ -211,7 +211,7 @@ image: quay.io/flightctl-tests/alpine:v1`,
 
 			tt.setupMocks(mockExec, string(inspectBytes))
 
-			appType := lo.FromPtr(tt.spec.AppType)
+			appType := tt.spec.AppType
 			if appType == "" {
 				appType, err = typeFromImage(ctx, podman, spec.Image)
 				if err != nil && tt.wantVerifyErr != nil {

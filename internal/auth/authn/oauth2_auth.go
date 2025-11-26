@@ -69,7 +69,7 @@ func NewOAuth2Auth(metadata api.ObjectMeta, spec api.OAuth2ProviderSpec, tlsConf
 	orgConfig := convertOrganizationAssignmentToOrgConfig(spec.OrganizationAssignment)
 
 	// Create role extractor from role assignment
-	roleExtractor := NewRoleExtractor(spec.RoleAssignment)
+	roleExtractor := NewRoleExtractor(spec.RoleAssignment, log)
 
 	// Create stateless organization extractor
 	organizationExtractor := NewOrganizationExtractor(orgConfig)
