@@ -13,6 +13,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net/http"
 	"net/http/httputil"
@@ -26,7 +27,6 @@ import (
 	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/config"
-	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/org/cache"
 	"github.com/flightctl/flightctl/internal/service"
@@ -164,20 +164,24 @@ func main() {
 	logger.Println("Starting Alertmanager Proxy service")
 	defer logger.Println("Alertmanager Proxy service stopped")
 
-	ca, err := crypto.LoadInternalCA(cfg.CA)
-	if err != nil {
-		logger.Fatalf("loading client-signer certificates: %v", err)
-	}
-
 	serverCerts, err := config.LoadServerCertificates(cfg, logger)
 	if err != nil {
 		logger.Fatalf("loading server certificates: %v", err)
 	}
 
-	// Create TLS config
-	tlsConfig, _, err := crypto.TLSConfigForServer(ca.GetCABundleX509(), serverCerts)
+	certBytes, keyBytes, err := serverCerts.GetPEMBytes()
 	if err != nil {
-		logger.Fatalf("failed creating TLS config: %v", err)
+		logger.Fatalf("failed getting certificate bytes: %v", err)
+	}
+
+	cert, err := tls.X509KeyPair(certBytes, keyBytes)
+	if err != nil {
+		logger.Fatalf("failed creating certificate pair: %v", err)
+	}
+
+	tlsConfig := &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		MinVersion:   tls.VersionTLS13,
 	}
 
 	tracerShutdown := tracing.InitTracer(logger, cfg, "flightctl-alertmanager-proxy")

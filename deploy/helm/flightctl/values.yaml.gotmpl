@@ -19,6 +19,8 @@ global:
   baseDomain: ""
   # -- Secret containing TLS ca/cert/key. It should be valid for *.${baseDomain}. This certificate is only used for non-mTLS endpoints, mTLS endpoints like agent-api, etc will use different certificates.
   baseDomainTlsSecretName: ""
+  # -- Secret containing TLS client signer certificate and key.
+  clientSignerSecretName: ""
   # -- Storage class name for the PVCs. Keep empty to use the default storage class.
   storageClassName: ""
   # -- Name of the secret that holds image pull secret for accessing private container registries
@@ -293,6 +295,8 @@ alertmanagerProxy:
     pullPolicy: ""
   
 telemetryGateway:
+  # -- Secret containing TLS cert/key for telemetry gateway server
+  tlsSecretName: "flightctl-telemetry-gateway-server-tls"
   image:
     # -- Telemetry gateway container image
     image: {{ .Images.telemetryGateway.Image }}
