@@ -41,7 +41,6 @@ filesystem
 FIPS
 firewalld
 fleetless
-Fluentd
 flightctl
 frontend
 GitLab
@@ -65,8 +64,6 @@ KVM
 lifecycle
 lifecycle-bound
 linux
-Loki
-logrotate
 macOS
 must-gather
 sosreport
@@ -91,7 +88,6 @@ Podman
 PostgreSQL
 pre-update
 pre-upgrade
-Promtail
 qcow2
 QEMU
 Quadlet
@@ -241,6 +237,7 @@ behaviour
 create_enrollmentrequest_duration_seconds
 create_certificate_signing_request_duration_seconds
 fleet_template_version
+gc
 get_enrollmentrequest_duration_seconds
 get_certificate_signing_request_duration_seconds
 get_rendered_device_spec_duration_seconds

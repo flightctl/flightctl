@@ -404,11 +404,11 @@ curl http://127.0.0.1:15689/debug/pprof/heap > heap.pprof
 
 ## Agent Audit Logs
 
-Flight Control agents automatically generate audit logs to track device specification changes and system state transitions. These logs provide a tamper-evident record of what changes occurred, when, and why.
+The Flight Control agent automatically generates audit logs to track device specification changes and system state transitions. These logs provide a structured record of what changes occurred, when, and why.
 
 ### Overview
 
-Audit logs capture all specification transitions on edge devices, including:
+Audit logs capture all specification transitions, including:
 
 - **Bootstrap events** – Initial spec creation during device enrollment
 - **Sync events** – Successful application of desired spec to current state
@@ -417,7 +417,7 @@ Audit logs capture all specification transitions on edge devices, including:
 - **Recovery events** – Automated recovery from failed states
 
 > [!NOTE]
-> Each audit event is written as a single JSON line (JSONL format) to `/var/log/flightctl/audit.log` on the device. This format enables efficient parsing and streaming. Logs are automatically rotated when reaching 1 MB (keeping 3 compressed backups, ~4 MB total).
+> Each audit event is written as a single JSON line (JSONL format) to `/var/log/flightctl/audit.log`. This format enables efficient parsing and streaming. Logs are automatically rotated when reaching 1 MB (keeping 3 compressed backups, ~4 MB total).
 
 ### Audit Event Structure
 
@@ -476,8 +476,8 @@ Each audit event is a JSON object with the following fields:
 
 | Result    | Description                                                                     |
 |-----------|---------------------------------------------------------------------------------|
-| `success` | Operation completed successfully (only value in current MVP implementation)     |
-| `failure` | Operation failed (planned for future releases)                                  |
+| `success` | Operation completed successfully    |
+| `failure` | Operation failed                               |
 
 > [!NOTE]
 > Failure auditing is planned for future releases. Current implementation logs only successful state transitions.
@@ -505,11 +505,24 @@ Example bootstrap sequence:
 {"ts":"2024-11-19T10:00:02Z","device":"dev-01","old_version":"","new_version":"0","result":"success","reason":"bootstrap","type":"rollback","fleet_template_version":"","agent_version":"0.1.0"}
 ```
 
+### Configuration
+
+Audit logging is **enabled by default** and requires no configuration. To disable it, modify the agent configuration:
+
+#### Disabling Audit Logging
+
+In `/etc/flightctl/config.yaml`:
+
+```yaml
+audit:
+  enabled: false
+```
+
 ### Viewing and Analyzing Audit Logs
 
-Audit logs use JSONL format and can be viewed directly on the device at `/var/log/flightctl/audit.log`. The `jq` tool (typically available by default on RHEL-based systems) provides powerful filtering capabilities. For more advanced queries, see the [jq manual](https://jqlang.github.io/jq/manual/).
+Audit logs use JSONL format and can be viewed directly at `/var/log/flightctl/audit.log`. For more advanced queries, see the [jq manual](https://jqlang.github.io/jq/manual/).
 
-#### jq Examples
+#### Examples
 
 View all events in readable format:
 
@@ -554,11 +567,7 @@ sudo cat /var/log/flightctl/audit.log | jq 'select(.reason != "bootstrap")'
 Filter by time range (events from the last hour):
 
 ```bash
-# GNU/Linux (RHEL, Fedora, Ubuntu)
 sudo cat /var/log/flightctl/audit.log | jq --arg cutoff "$(date -u -d '1 hour ago' '+%Y-%m-%dT%H:%M:%SZ')" 'select(.ts > $cutoff)'
-
-# macOS/BSD
-sudo cat /var/log/flightctl/audit.log | jq --arg cutoff "$(date -u -v-1H '+%Y-%m-%dT%H:%M:%SZ')" 'select(.ts > $cutoff)'
 ```
 
 Count events by reason:
@@ -576,27 +585,7 @@ sudo cat /var/log/flightctl/audit.log | jq -r '.reason' | sort | uniq -c
       1 rollback
 ```
 
-### Configuration
-
-Audit logging is **enabled by default** and requires no configuration. To disable it, modify the agent configuration:
-
-#### Disabling Audit Logging
-
-In `/etc/flightctl/config.yaml`:
-
-```yaml
-audit:
-  enabled: false
-```
-
-> [!WARNING]
-> Disabling audit logs removes visibility into device state changes.
-
-### Debugging and Troubleshooting
-
-#### Investigating Device State Changes
-
-When a device experiences unexpected behavior, audit logs provide a historical record of state transitions.
+#### Debugging Scenarios
 
 ##### Scenario: Device reverted to an older configuration
 
@@ -645,4 +634,4 @@ sudo cat /var/log/flightctl/audit.log | jq 'select(.reason == "bootstrap") | {ts
 ### Considerations
 
 - Audit logs are enabled by default with no additional configuration required.
-- Both `flightctl-must-gather` and `sos report` (with the `-o flightctl` plugin) automatically collect audit logs and rotated backups for diagnostic purposes.
+- Both [`flightctl-must-gather`](../installing/installing-service-on-linux.md#must-gather-script) and [`sos report`](troubleshooting.md#generating-and-downloading-an-sos-report) automatically collect audit logs and rotated backups for diagnostic purposes.
