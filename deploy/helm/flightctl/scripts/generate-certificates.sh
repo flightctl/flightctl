@@ -5,6 +5,7 @@ set -euo pipefail
 CERT_DIR=""
 API_SANS=()
 TELEMETRY_SANS=()
+ALERTMANAGER_PROXY_SANS=()
 NAMESPACE=""
 CREATE_K8S_SECRETS="false"
 
@@ -19,6 +20,7 @@ Required:
 Optional:
   --api-san <dns>               DNS SAN for flightctl-api (can be specified multiple times)
   --telemetry-san <dns>         DNS SAN for telemetry-gateway (can be specified multiple times)
+  --alertmanager-proxy-san <dns> DNS SAN for alertmanager-proxy (can be specified multiple times)
   --create-k8s-secrets          Create Kubernetes secrets using oc/kubectl
   --namespace <ns>              Kubernetes namespace (required if --create-k8s-secrets is set)
 EOF
@@ -38,6 +40,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --telemetry-san)
             TELEMETRY_SANS+=("$2")
+            shift 2
+            ;;
+        --alertmanager-proxy-san)
+            ALERTMANAGER_PROXY_SANS+=("$2")
             shift 2
             ;;
         --create-k8s-secrets)
@@ -70,7 +76,7 @@ if [[ "$CREATE_K8S_SECRETS" == "true" ]] && [[ -z "$NAMESPACE" ]]; then
 fi
 
 # Create certificate directory if it doesn't exist
-mkdir -p "$CERT_DIR" "$CERT_DIR/flightctl-api" "$CERT_DIR/flightctl-telemetry-gateway"
+mkdir -p "$CERT_DIR" "$CERT_DIR/flightctl-api" "$CERT_DIR/flightctl-telemetry-gateway" "$CERT_DIR/flightctl-alertmanager-proxy"
 
 # Helper function to generate SAN extension
 generate_san_config() {
@@ -216,8 +222,49 @@ openssl x509 -req -sha256 -in "$TELEMETRY_CSR" \
 rm -f "$TELEMETRY_CSR"
 echo "  ✓ Telemetry Gateway TLS certificate generated: $TELEMETRY_CERT"
 
+# Step 5: Generate Alertmanager Proxy TLS certificate
+echo "[5/6] Generating Alertmanager Proxy TLS certificate - 2 years, ECDSA P-256"
+
+ALERTMANAGER_PROXY_KEY="$CERT_DIR/flightctl-alertmanager-proxy/server.key"
+ALERTMANAGER_PROXY_CERT="$CERT_DIR/flightctl-alertmanager-proxy/server.crt"
+ALERTMANAGER_PROXY_CSR="$CERT_DIR/flightctl-alertmanager-proxy/server.csr"
+
+# Generate alertmanager proxy private key (ECDSA P-256)
+openssl ecparam -name prime256v1 -genkey -noout -out "$ALERTMANAGER_PROXY_KEY"
+
+# Generate CSR for alertmanager proxy
+openssl req -new -sha256 -key "$ALERTMANAGER_PROXY_KEY" -out "$ALERTMANAGER_PROXY_CSR" \
+    -subj "/CN=flightctl-alertmanager-proxy"
+
+# Build SAN configuration
+if [[ ${#ALERTMANAGER_PROXY_SANS[@]} -gt 0 ]]; then
+    ALERTMANAGER_PROXY_SAN_CONFIG=$(generate_san_config "${ALERTMANAGER_PROXY_SANS[@]}")
+    echo "  Alertmanager Proxy SANs: ${ALERTMANAGER_PROXY_SANS[*]}"
+else
+    ALERTMANAGER_PROXY_SAN_CONFIG=""
+    echo "  Warning: No SANs specified for alertmanager proxy certificate"
+fi
+
+# Sign alertmanager proxy certificate with flightctl-ca (2 years = 730 days)
+EXT_CONFIG="basicConstraints = CA:FALSE
+keyUsage = critical, digitalSignature, keyEncipherment
+extendedKeyUsage = serverAuth"
+
+if [[ -n "$ALERTMANAGER_PROXY_SAN_CONFIG" ]]; then
+    EXT_CONFIG="${EXT_CONFIG}
+${ALERTMANAGER_PROXY_SAN_CONFIG}"
+fi
+
+openssl x509 -req -sha256 -in "$ALERTMANAGER_PROXY_CSR" \
+    -CA "$FLIGHTCTL_CA_CERT" -CAkey "$FLIGHTCTL_CA_KEY" -CAcreateserial \
+    -out "$ALERTMANAGER_PROXY_CERT" -days 730 \
+    -extfile <(printf "%s" "$EXT_CONFIG")
+
+rm -f "$ALERTMANAGER_PROXY_CSR"
+echo "  ✓ Alertmanager Proxy TLS certificate generated: $ALERTMANAGER_PROXY_CERT"
+
 # Step 5: Generate CA Bundle (contains both flightctl-ca and client-signer-ca)
-echo "[5/5] Generating CA Bundle (contains both flightctl-ca and client-signer-ca)"
+echo "[6/6] Generating CA Bundle (contains both flightctl-ca and client-signer-ca)"
 CA_BUNDLE="$CERT_DIR/ca-bundle.crt"
 cat "$FLIGHTCTL_CA_CERT" "$CLIENT_SIGNER_CA_CERT" > "$CA_BUNDLE"
 echo "  ✓ CA Bundle created: $CA_BUNDLE"
@@ -277,6 +324,14 @@ if [[ "$CREATE_K8S_SECRETS" == "true" ]]; then
         --namespace="$NAMESPACE" \
         --cert="$TELEMETRY_CERT" \
         --key="$TELEMETRY_KEY" \
+        --dry-run=client -o yaml | $K8S_CLI apply -f -
+
+    # Create flightctl-alertmanager-proxy-server-tls secret
+    echo "Creating secret: flightctl-alertmanager-proxy-server-tls"
+    $K8S_CLI create secret tls flightctl-alertmanager-proxy-server-tls \
+        --namespace="$NAMESPACE" \
+        --cert="$ALERTMANAGER_PROXY_CERT" \
+        --key="$ALERTMANAGER_PROXY_KEY" \
         --dry-run=client -o yaml | $K8S_CLI apply -f -
 
     # Create CA bundle ConfigMap

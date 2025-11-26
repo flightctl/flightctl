@@ -578,3 +578,17 @@ Usage: {{- $result := include "flightctl.getTelemetryGatewayDNSSans" . | fromJso
   {{- $sans = append $sans (printf "flightctl-telemetry-gateway.%s.svc.cluster.local" .Release.Namespace) }}
   {{- dict "sans" $sans | toJson -}}
 {{- end }}
+
+{{- /*
+Get DNS SANs for alertmanager-proxy server certificate
+Usage: {{- $result := include "flightctl.getAlertmanagerProxyDNSSans" . | fromJson }}{{ $alertmanagerProxyDNSSans := $result.sans }}
+*/}}
+{{- define "flightctl.getAlertmanagerProxyDNSSans" }}
+  {{- $sans := list }}
+  {{- $baseDomain := include "flightctl.getBaseDomain" . }}
+  {{- $sans = append $sans (printf "alertmanager-proxy.%s" $baseDomain) }}
+  {{- $sans = append $sans "flightctl-alertmanager-proxy" }}
+  {{- $sans = append $sans (printf "flightctl-alertmanager-proxy.%s" .Release.Namespace) }}
+  {{- $sans = append $sans (printf "flightctl-alertmanager-proxy.%s.svc.cluster.local" .Release.Namespace) }}
+  {{- dict "sans" $sans | toJson -}}
+{{- end }}
