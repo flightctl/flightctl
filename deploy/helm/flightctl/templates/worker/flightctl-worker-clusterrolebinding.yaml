@@ -3,14 +3,15 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
   labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
     flightctl.service: flightctl-worker
-  name: flightctl-worker
+  name: flightctl-worker-{{ .Release.Namespace }}
 subjects:
   - kind: ServiceAccount
     name: flightctl-worker
     namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
 roleRef:
   kind: ClusterRole
-  name: flightctl-worker
+  name: flightctl-worker-{{ .Release.Namespace }}
   apiGroup: rbac.authorization.k8s.io
 {{ end }}

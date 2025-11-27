@@ -193,6 +193,9 @@ const (
 	TPMChallengeFailedReason = "TPMChallengeFailed"
 	// TPMChallengeSucceededReason indicates that a TPM Challenge attempt succeed
 	TPMChallengeSucceededReason = "TPMChallengeSucceeded"
+
+	// ResourceSync New Hash Detected Reason
+	ResourceSyncNewHashDetectedReason = "NewHashDetected"
 )
 
 const (

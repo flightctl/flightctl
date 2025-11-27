@@ -195,6 +195,20 @@ graph TB
 - **Metrics**: Services expose Prometheus metrics on various ports
 - **Alerting**: Alert exporter connects to Alertmanager (port 9093)
 
+## Protocol Requirements
+
+Flight Control uses both HTTPS and gRPC for agent to service communication. While standard device management operations work over HTTPS/1.1, certain features require gRPC which depends on HTTP/2:
+
+| Feature | Protocol | Workaround if HTTP/2 Unavailable |
+|---------|----------|----------------------------------|
+| Remote console access | gRPC | Use SSH to access the device directly |
+| TPM enrollment credential challenge | gRPC | Use certificate based enrollment |
+
+Some network environments (certain proxies, load balancers, or firewalls) may downgrade HTTP/2 to HTTP/1.1 or block HTTP/2 entirely. In these environments, gRPC-dependent features may not function.
+
+> [!NOTE]
+> Load balancers for agent communication (port 7443) must use TLS passthrough mode. This preserves both the mTLS client certificate and HTTP/2 required for console access and TPM-based device attestation.
+
 ## Firewall Configuration
 
 ### Inbound Rules (Service Host)

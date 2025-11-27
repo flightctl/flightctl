@@ -3,6 +3,9 @@ kind: ConfigMap
 metadata:
   name: flightctl-api-config
   namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-api
 data:
   config.yaml: |-
     database:
@@ -33,8 +36,8 @@ data:
         httpMaxUrlLength: {{ default 2000 .Values.api.httpMaxUrlLength }}
         httpMaxRequestSize: {{ default 53137200 .Values.api.httpMaxRequestSize }}
         {{- if eq (include "flightctl.getServiceExposeMethod" .) "nodePort" }}
-        baseUrl: https://api.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.nodePorts.api }}/
-        baseAgentEndpointUrl: https://agent-api.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.nodePorts.agent }}/
+        baseUrl: https://api.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.dev.nodePorts.api }}/
+        baseAgentEndpointUrl: https://agent-api.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.dev.nodePorts.agent }}/
         {{- else if and (eq (include "flightctl.getServiceExposeMethod" .) "gateway") (not (eq (int .Values.global.gateway.ports.tls) 443)) }}
         baseUrl: https://api.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.gateway.ports.tls }}/
         baseAgentEndpointUrl: https://agent-api.{{ include "flightctl.getBaseDomain" . }}:{{ .Values.global.gateway.ports.tls }}/
@@ -130,9 +133,9 @@ data:
         resourceSyncCollector:
             enabled: true
             tickerInterval: 30s
-    {{ if .Values.global.tracing }}
+    {{ if (default dict .Values.dev).tracing }}
     tracing:
         enabled: true
-        endpoint: {{ .Values.global.tracing.endpoint }}
-        insecure: {{ .Values.global.tracing.insecure }}
+        endpoint: {{ .Values.dev.tracing.endpoint }}
+        insecure: {{ .Values.dev.tracing.insecure }}
     {{ end }}

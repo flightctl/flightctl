@@ -69,7 +69,7 @@ func NewOAuth2Auth(metadata api.ObjectMeta, spec api.OAuth2ProviderSpec, tlsConf
 	orgConfig := convertOrganizationAssignmentToOrgConfig(spec.OrganizationAssignment)
 
 	// Create role extractor from role assignment
-	roleExtractor := NewRoleExtractor(spec.RoleAssignment)
+	roleExtractor := NewRoleExtractor(spec.RoleAssignment, log)
 
 	// Create stateless organization extractor
 	organizationExtractor := NewOrganizationExtractor(orgConfig)
@@ -186,10 +186,7 @@ func (o *OAuth2Auth) GetAuthToken(r *http.Request) (string, error) {
 
 // GetAuthConfig returns the OAuth2 authentication configuration
 func (o *OAuth2Auth) GetAuthConfig() *api.AuthConfig {
-	orgEnabled := false
-	if o.orgConfig != nil {
-		orgEnabled = o.orgConfig.Enabled
-	}
+	orgEnabled := true // Organizations are always enabled
 
 	provider := api.AuthProvider{
 		ApiVersion: api.AuthProviderAPIVersion,

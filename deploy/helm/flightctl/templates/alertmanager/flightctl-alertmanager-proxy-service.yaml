@@ -10,7 +10,7 @@ metadata:
   name: flightctl-alertmanager-proxy
   namespace: {{ .Release.Namespace }}
 spec:
-  {{- if and (eq (include "flightctl.getServiceExposeMethod" .) "nodePort") .Values.global.nodePorts.alertmanagerProxy }}
+  {{- if and (eq (include "flightctl.getServiceExposeMethod" .) "nodePort") .Values.dev.nodePorts.alertmanagerProxy }}
   type: NodePort
   {{- else }}
   type: ClusterIP
@@ -20,8 +20,8 @@ spec:
       port: 8443
       protocol: TCP
       targetPort: 8443
-      {{- if and (eq (include "flightctl.getServiceExposeMethod" .) "nodePort") .Values.global.nodePorts.alertmanagerProxy }}
-      nodePort: {{ .Values.global.nodePorts.alertmanagerProxy }}
+      {{- if and (eq (include "flightctl.getServiceExposeMethod" .) "nodePort") .Values.dev.nodePorts.alertmanagerProxy }}
+      nodePort: {{ .Values.dev.nodePorts.alertmanagerProxy }}
       {{- end }}
   selector:
     flightctl.service: flightctl-alertmanager-proxy

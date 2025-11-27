@@ -252,7 +252,7 @@ func TestApplicationStatus(t *testing.T) {
 
 			providerSpec := v1beta1.ApplicationProviderSpec{
 				Name:    lo.ToPtr("app"),
-				AppType: lo.ToPtr(v1beta1.AppTypeCompose),
+				AppType: v1beta1.AppTypeCompose,
 			}
 			err := providerSpec.FromInlineApplicationProviderSpec(spec)
 			require.NoError(err)

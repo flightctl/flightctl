@@ -52,8 +52,8 @@ func newInline(log *log.PrefixLogger, podman *client.Podman, spec *v1beta1.Appli
 		return nil, fmt.Errorf("getting provider spec:%w", err)
 	}
 	appName := lo.FromPtr(spec.Name)
-	appType := lo.FromPtr(spec.AppType)
-	volumeManager, err := NewVolumeManager(log, appName, provider.Volumes)
+	appType := spec.AppType
+	volumeManager, err := NewVolumeManager(log, appName, appType, provider.Volumes)
 	if err != nil {
 		return nil, err
 	}
@@ -67,7 +67,7 @@ func newInline(log *log.PrefixLogger, podman *client.Podman, spec *v1beta1.Appli
 		return nil, fmt.Errorf("getting volumes: %w", err)
 	}
 
-	volumeManager.AddVolumes(appName, volumes)
+	volumeManager.AddVolumes(volumes)
 
 	return &inlineProvider{
 		log:        log,
@@ -91,10 +91,6 @@ func (p *inlineProvider) Verify(ctx context.Context) error {
 	if err := validateEnvVars(p.spec.EnvVars); err != nil {
 		return fmt.Errorf("%w: validating env vars: %w", errors.ErrInvalidSpec, err)
 	}
-	if err := ensureDependenciesFromAppType(p.handler); err != nil {
-		return fmt.Errorf("%w: ensuring app dependencies: %w", errors.ErrNoRetry, err)
-	}
-
 	if err := ensureDependenciesFromVolumes(ctx, p.podman, p.spec.InlineProvider.Volumes); err != nil {
 		return fmt.Errorf("%w: ensuring volume dependencies: %w", errors.ErrNoRetry, err)
 	}
@@ -115,7 +111,10 @@ func (p *inlineProvider) Verify(ctx context.Context) error {
 		return err
 	}
 
-	return p.handler.Verify(ctx, tmpAppPath)
+	if err := p.handler.Verify(ctx, tmpAppPath); err != nil {
+		return fmt.Errorf("%w: verifying inline: %w", errors.ErrNoRetry, err)
+	}
+	return nil
 }
 
 func (p *inlineProvider) Install(ctx context.Context) error {

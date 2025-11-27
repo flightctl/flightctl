@@ -24,7 +24,6 @@ import (
 
 	"github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/auth"
-	"github.com/flightctl/flightctl/internal/auth/authn"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
@@ -102,7 +101,7 @@ func (p *AlertmanagerProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // - /health and /api/v2/status: skip auth (just continue)
 // - all other endpoints: full auth chain (auth -> identity mapping -> org extract -> org validate -> authZ)
 func createConditionalAuthMiddleware(
-	authN common.AuthNMiddleware,
+	authN common.MultiAuthNMiddleware,
 	authZ auth.AuthZMiddleware,
 	identityMappingMiddleware *middleware.IdentityMappingMiddleware,
 	extractOrgMiddleware func(http.Handler) http.Handler,
@@ -251,15 +250,13 @@ func main() {
 		logger.Fatalf("Failed to initialize auth: %v", err)
 	}
 
-	// Start auth provider loader if MultiAuth is configured (not NilAuth)
-	if multiAuth, ok := authN.(*authn.MultiAuth); ok {
-		go func() {
-			if err := multiAuth.Start(ctx); err != nil {
-				logger.Errorf("Failed to start auth provider loader: %v", err)
-			}
-			cancel() // Trigger coordinated shutdown if auth loader exits
-		}()
-	}
+	// Start auth provider loader
+	go func() {
+		if err := authN.Start(ctx); err != nil {
+			logger.Errorf("Failed to start auth provider loader: %v", err)
+		}
+		cancel() // Trigger coordinated shutdown if auth loader exits
+	}()
 
 	authZ, err := auth.InitMultiAuthZ(cfg, logger)
 	if err != nil {
@@ -289,14 +286,6 @@ func main() {
 	proxy, err := NewAlertmanagerProxy(cfg, logger)
 	if err != nil {
 		logger.Fatalf("Failed to create alertmanager proxy: %v", err)
-	}
-
-	// Check if auth is disabled
-	authDisabled := false
-	value, exists := os.LookupEnv(auth.DisableAuthEnvKey)
-	if exists && value != "" {
-		authDisabled = true
-		logger.Warn("Auth is disabled")
 	}
 
 	// Create conditional auth middleware
@@ -329,10 +318,8 @@ func main() {
 		})
 	})
 
-	// Apply conditional auth middleware (unless auth is disabled)
-	if !authDisabled {
-		router.Use(conditionalAuthMiddleware)
-	}
+	// Apply auth middleware
+	router.Use(conditionalAuthMiddleware)
 
 	// Add rate limiting (only if configured)
 	// Alertmanager doesn't have built-in rate limiting, so we add it here to prevent abuse

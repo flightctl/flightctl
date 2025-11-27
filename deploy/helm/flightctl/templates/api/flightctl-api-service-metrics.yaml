@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    flightctl.service: flightctl-api
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+  name: flightctl-api-metrics
+  namespace: {{ .Release.Namespace }}
+spec:
+  ports:
+    - name: metrics
+      protocol: TCP
+      port: 15690
+      targetPort: metrics
+    - name: db-metrics
+      protocol: TCP
+      port: 15691
+      targetPort: db-metrics
+  selector:
+    flightctl.service: flightctl-api
