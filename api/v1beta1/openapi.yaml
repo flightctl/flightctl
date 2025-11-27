@@ -5251,11 +5251,13 @@ components:
         - "Degraded"
         - "Error"
         - "Unknown"
+        - "NoApplications"
       x-enum-varnames:
         - "ApplicationsSummaryStatusHealthy"
         - "ApplicationsSummaryStatusDegraded"
         - "ApplicationsSummaryStatusError"
         - "ApplicationsSummaryStatusUnknown"
+        - "ApplicationsSummaryStatusNoApplications"
     ApplicationStatusType:
       type: string
       description: Status of a single application on the device.

@@ -36,10 +36,11 @@ const (
 
 // Defines values for ApplicationsSummaryStatusType.
 const (
-	ApplicationsSummaryStatusDegraded ApplicationsSummaryStatusType = "Degraded"
-	ApplicationsSummaryStatusError    ApplicationsSummaryStatusType = "Error"
-	ApplicationsSummaryStatusHealthy  ApplicationsSummaryStatusType = "Healthy"
-	ApplicationsSummaryStatusUnknown  ApplicationsSummaryStatusType = "Unknown"
+	ApplicationsSummaryStatusDegraded       ApplicationsSummaryStatusType = "Degraded"
+	ApplicationsSummaryStatusError          ApplicationsSummaryStatusType = "Error"
+	ApplicationsSummaryStatusHealthy        ApplicationsSummaryStatusType = "Healthy"
+	ApplicationsSummaryStatusNoApplications ApplicationsSummaryStatusType = "NoApplications"
+	ApplicationsSummaryStatusUnknown        ApplicationsSummaryStatusType = "Unknown"
 )
 
 // Defines values for AuthDynamicOrganizationAssignmentType.
