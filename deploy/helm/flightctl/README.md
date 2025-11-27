@@ -312,9 +312,8 @@ For more detailed configuration options, see the [Values](#values) section below
 | telemetryGateway.image.image | string | `"quay.io/flightctl/flightctl-telemetry-gateway"` | Telemetry gateway container image |
 | telemetryGateway.image.pullPolicy | string | `""` | Image pull policy for Telemetry gateway container |
 | telemetryGateway.image.tag | string | `""` | Telemetry gateway image tag |
-| ui | object | `{"additionalRouteLabels":null,"api":{"insecureSkipTlsVerify":true},"auth":{"caCert":"","insecureSkipTlsVerify":false},"enabled":true,"image":{"image":"quay.io/flightctl/flightctl-ui","pluginImage":"quay.io/flightctl/flightctl-ocp-ui","pullPolicy":"","tag":""}}` | UI Configuration |
+| ui | object | `{"additionalRouteLabels":null,"auth":{"caCert":"","insecureSkipTlsVerify":false},"enabled":true,"image":{"image":"quay.io/flightctl/flightctl-ui","pluginImage":"quay.io/flightctl/flightctl-ocp-ui","pullPolicy":"","tag":""}}` | UI Configuration |
 | ui.additionalRouteLabels | string | `nil` | Additional labels for UI routes. |
-| ui.api.insecureSkipTlsVerify | bool | `true` | Skip TLS verification for UI API calls |
 | ui.auth.caCert | string | `""` | A custom CA cert for Auth TLS. |
 | ui.auth.insecureSkipTlsVerify | bool | `false` | Set to true if auth TLS certificate validation should be skipped. |
 | ui.enabled | bool | `true` | Enable web UI deployment |

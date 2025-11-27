@@ -513,13 +513,6 @@
             "pullPolicy": { "type": "string", "description": "Image pull policy for UI container" }
           }
         },
-        "api": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "insecureSkipTlsVerify": { "type": "boolean", "description": "Skip TLS verification for UI API calls" }
-          }
-        },
         "auth": {
           "type": "object",
           "additionalProperties": false,
