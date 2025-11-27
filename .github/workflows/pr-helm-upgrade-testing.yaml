@@ -127,7 +127,8 @@ jobs:
         env:
           BASE_DOMAIN: ${{ steps.get-ip.outputs.base-domain }}
         run: |
-          ./bin/flightctl login -k https://api.${BASE_DOMAIN}:3443
+          TOKEN=$(kubectl -n flightctl-external create token flightctl-admin --duration=8h --context kind-kind)
+          ./bin/flightctl login -k https://api.${BASE_DOMAIN}:3443 --token "$TOKEN"
           ./bin/flightctl version
 
       - name: "[BASELINE] Validate versions"
@@ -196,14 +197,10 @@ jobs:
           bin-pr/flightctl version
 
       - name: "[HEAD] Prepare helm"
-        env:
-          BASE_DOMAIN: ${{ steps.get-ip.outputs.base-domain }}
-          PR_TAG: ${{ needs.build-pr.outputs.git_tag }}
         run: |
           set -euo pipefail
           CHART_FILE="artifacts-pr/flightctl-chart.tgz"
-          VALUES_FILE="./deploy/helm/flightctl/values.dev.yaml"
-          
+
           # Preserve image names and tags from the packaged chart, avoid being overriden by values.dev.yaml
           
           helm show values "${CHART_FILE}" \
@@ -233,8 +230,6 @@ jobs:
           echo "::endgroup::"
 
       - name: "[HEAD] Helm upgrade"
-        env:
-          BASE_DOMAIN: ${{ steps.get-ip.outputs.base-domain }}
         run: |
           ( kubectl get pods --all-namespaces -w | sed 's/^/[cluster upgrade] /' ) &
 
@@ -293,11 +288,8 @@ jobs:
           bin-baseline-sim/devicesimulator --config bin/agent/etc/flightctl/config.yaml --count 10 --stop-after 1m
 
       - name: "[HEAD] Helm upgrade - to the same version"
-        env:
-          BASE_DOMAIN: ${{ steps.get-ip.outputs.base-domain }}
         run: |
           CHART_FILE="artifacts-pr/flightctl-chart.tgz"
-          VALUES_FILE="./deploy/helm/flightctl/values.dev.yaml"
 
           helm upgrade flightctl "${CHART_FILE}" \
             --namespace flightctl-external \
