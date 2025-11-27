@@ -59,7 +59,7 @@ func (r *PamAuthenticator) Authenticate(username, password string) error {
 		fmt.Printf("PAM Authenticate: failed to start PAM transaction - %v\n", err)
 		return fmt.Errorf("failed to start PAM transaction: %w", err)
 	}
-	defer t.End()
+	defer func() { _ = t.End() }()
 
 	fmt.Printf("PAM Authenticate: PAM transaction started, calling Authenticate()\n")
 	// Authenticate the user

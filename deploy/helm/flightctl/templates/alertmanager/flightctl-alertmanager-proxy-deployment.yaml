@@ -31,7 +31,7 @@ spec:
       {{- include "flightctl.databaseWaitInitContainer" (dict "context" . "userType" "app") | nindent 6 }}
       {{- include "flightctl.migrationWaitInitContainer" (dict "context" . "timeout" 600) | nindent 6 }}
       - name: init-certs
-        image: "registry.access.redhat.com/ubi9/ubi-minimal:9.7"
+        image: "registry.access.redhat.com/ubi9/ubi-minimal:9.7-1763362218"
         command:
           - /bin/sh
           - -c
