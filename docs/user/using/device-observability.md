@@ -232,7 +232,7 @@ receivers:
     scrapers: { cpu: {}, memory: {} }
 exporters:
   otlp:
-    endpoint: telemetry-gateway.192.168.1.150.nip.io:4317
+    endpoint: telemetry.192.168.1.150.nip.io:4317
     tls:
       ca_file:   /etc/otelcol/certs/ca.crt
       cert_file: /etc/otelcol/certs/otel.crt
@@ -265,7 +265,7 @@ UNIT
 RUN systemctl enable otelcol.service
 ```
 
-- Replace `telemetry-gateway.192.168.1.150.nip.io:4317` with your actual gateway endpoint.
+- Replace `telemetry.192.168.1.150.nip.io:4317` with your actual gateway endpoint.
 - The `flightctl.io/device-svc-client` signer requires the Common Name to include the device ID; keep common-name: `otel-{{.DEVICE_ID}}`.
 - Directory `/etc/otelcol/certs` must exist and be readable by the OpenTelemetry Collector; the agent creates the cert/key with secure permissions.
 - Startup ordering is handled by the unit (`After=flightctl-agent.service` + `ExecStartPre` wait loop) to avoid `file not found` on first boot.

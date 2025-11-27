@@ -63,10 +63,10 @@ spec:
               name: agent-api
               protocol: TCP
             - containerPort: 15690
-              name: api-prom-target
+              name: metrics
               protocol: TCP
             - containerPort: 15691
-              name: db-prom-target
+              name: db-metrics
               protocol: TCP
           readinessProbe:
             httpGet:
