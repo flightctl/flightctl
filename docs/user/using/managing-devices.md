@@ -378,11 +378,17 @@ You can now reference this Repository when you configure devices. For example, t
 | TargetRevision | production |
 | Path | /factory-a |
 
-#### Configuring SSH Access for Private Repositories  
-  
-If your Git repository requires SSH authentication, you need to configure SSH known hosts to ensure secure connections.
+#### Authenticating to Private Repositories
 
-First, create a `known_hosts` file containing the SSH host keys for your Git server. You can obtain these keys by running:
+Flight Control supports authentication for private Git repositories and HTTP endpoints using SSH keys, HTTPS credentials, or client certificates.
+
+##### SSH Authentication
+
+For SSH-based Git repositories, configure SSH known hosts and provide your private key (base64-encoded).
+
+###### Step 1: Configure SSH Known Hosts
+
+Create a `known_hosts` file containing the SSH host keys for your Git server:
 
 ```console
 ssh-keyscan github.com >> known_hosts
@@ -419,6 +425,89 @@ sudo install -m 0644 known_hosts /etc/flightctl/ssh/known_hosts
 > ```console
 > sudo systemctl restart flightctl-worker.service flightctl-periodic.service
 > ```
+
+###### Step 2: Configure Repository with SSH Private Key
+
+Base64 encode your private key: `cat ~/.ssh/id_rsa | base64 -w 0`
+
+Create a Repository resource with SSH authentication:
+
+```yaml
+apiVersion: flightctl.io/v1beta1
+kind: Repository
+metadata:
+  name: private-ssh-repo
+spec:
+  type: git
+  url: git@github.com:myorg/private-repo.git
+  sshConfig:
+    sshPrivateKey: <base64-encoded-private-key>
+    # Optional: privateKeyPassphrase: your-passphrase
+    # Optional: skipServerVerification: true
+```
+
+##### HTTPS Authentication
+
+For HTTPS repositories, use basic authentication, bearer tokens, or client certificates:
+
+**Basic authentication (username/password):**
+
+```yaml
+spec:
+  type: git
+  url: https://github.com/myorg/private-repo.git
+  httpConfig:
+    username: myusername
+    password: ghp_xxxxxxxxxxxxxxxxxxxx  # Use Personal Access Token
+```
+
+**Bearer token authentication:**
+
+```yaml
+spec:
+  type: git
+  url: https://git-server.example.com/myorg/private-repo.git
+  httpConfig:
+    token: your-bearer-token
+```
+
+**Mutual TLS (client certificates):**
+
+```yaml
+spec:
+  type: git
+  url: https://secure-git.example.com/myorg/private-repo.git
+  httpConfig:
+    tls.crt: <base64-encoded-certificate>
+    tls.key: <base64-encoded-key>
+    # Optional: ca.crt: <base64-encoded-ca-cert>
+    # Optional: skipServerVerification: true
+```
+
+Base64 encode certificates: `cat client.crt | base64 -w 0`
+
+##### HTTP Endpoints
+
+For HTTP-based configuration repositories (non-Git):
+
+```yaml
+spec:
+  type: http
+  url: https://config-server.example.com
+  httpConfig:
+    username: myusername
+    password: mypassword
+    # Or use: token: your-api-token
+```
+
+##### Verifying Access
+
+Check repository accessibility after creation:
+
+```console
+flightctl get repository/private-ssh-repo
+# Output shows ACCESSIBLE: True/False
+```
 
 ### Getting Secrets from a Kubernetes Cluster
 
