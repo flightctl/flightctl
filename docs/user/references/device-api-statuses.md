@@ -170,7 +170,8 @@ The `device.status.applicationSummary` field can have the following values:
 
 | Status | Description | Formal Definition<sup>1</sup> |
 | ------ | ----------- | ----------------------------- |
-| `Healthy` | All applications are reported to be in service or have successfully completed. | `!deviceIsDisconnected && ∀ a∈status.applications, status.applications[a]∈{Running, Completed}` |
+| `NoApplications` | No applications are defined for the device. | `!deviceIsDisconnected && len(status.applications) == 0` |
+| `Healthy` | All applications are reported to be in service or have successfully completed. | `!deviceIsDisconnected && len(status.applications) > 0 && ∀ a∈status.applications, status.applications[a]∈{Running, Completed}` |
 | `Degraded` | One or more applications are reported to not be in service but still in a starting or recovering state. | `!deviceIsDisconnected && ∀ a∈status.applications, status.applications[a]∉{Error} && ∃ a∈status.applications, status.applications[a]∈{Preparing, Starting}` |
 | `Error` | One or more applications are reported to be in error state. | `!deviceIsDisconnected && ∃ a∈status.applications, status.applications[a]∈{Error}` |
 | `Unknown` | The device's agent either never reported status or the device is currently disconnected. | `deviceIsDisconnected` |
@@ -195,13 +196,20 @@ stateDiagram
     state Known {
         direction LR
 
-        [*] --> Healthy
+        [*] --> NoApplications
+        NoApplications --> Healthy
+        NoApplications --> Degraded
+        NoApplications --> Error
+
+        Healthy --> NoApplications
         Healthy --> Degraded
         Healthy --> Error
 
+        Degraded --> NoApplications
         Degraded --> Healthy
         Degraded --> Error
 
+        Error --> NoApplications
         Error --> Healthy
         Error --> Degraded
     }

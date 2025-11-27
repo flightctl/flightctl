@@ -81,6 +81,10 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			WaitForApplicationRunningStatus(harness, deviceId, imageName)
 
 			By("Check the general device application status")
+			// Re-fetch the device to get the current status after the application is running
+			response, err = harness.GetDeviceWithStatusSystem(deviceId)
+			Expect(err).ToNot(HaveOccurred())
+			device = response.JSON200
 			Expect(device.Status.ApplicationsSummary.Status).To(Equal(v1beta1.ApplicationsSummaryStatusHealthy))
 
 			By("Check the containers are running in the device")

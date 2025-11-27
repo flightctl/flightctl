@@ -3,12 +3,10 @@ package service
 import (
 	"context"
 	"net/http"
-	"os"
 	"testing"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1beta1"
-	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -29,10 +27,6 @@ func verifyDevicePatchFailed(require *require.Assertions, status api.Status) {
 }
 
 func testDevicePatch(require *require.Assertions, patch api.PatchRequest) (*api.Device, api.Device, api.Status) {
-	_ = os.Setenv(auth.DisableAuthEnvKey, "true")
-	_, err := auth.InitMultiAuth(nil, log.InitLogs(), nil)
-	require.NoError(err)
-
 	status := api.NewDeviceStatus()
 	device := api.Device{
 		ApiVersion: "v1",
@@ -55,7 +49,7 @@ func testDevicePatch(require *require.Assertions, patch api.PatchRequest) (*api.
 	}
 	ctx := context.Background()
 	testOrgId := uuid.New()
-	_, err = serviceHandler.store.Device().Create(ctx, testOrgId, &device, nil)
+	_, err := serviceHandler.store.Device().Create(ctx, testOrgId, &device, nil)
 	require.NoError(err)
 	resp, retStatus := serviceHandler.PatchDevice(ctx, testOrgId, "foo", patch)
 	require.NotEqual(statusFailedCode, retStatus.Code)
@@ -63,10 +57,6 @@ func testDevicePatch(require *require.Assertions, patch api.PatchRequest) (*api.
 }
 
 func testDeviceStatusPatch(require *require.Assertions, orig api.Device, patch api.PatchRequest) (*api.Device, api.Status) {
-	_ = os.Setenv(auth.DisableAuthEnvKey, "true")
-	_, err := auth.InitMultiAuth(nil, log.InitLogs(), nil)
-	require.NoError(err)
-
 	ts := &TestStore{}
 	wc := &DummyWorkerClient{}
 	serviceHandler := &ServiceHandler{
@@ -76,7 +66,7 @@ func testDeviceStatusPatch(require *require.Assertions, orig api.Device, patch a
 	}
 	ctx := context.Background()
 	testOrgId := uuid.New()
-	_, err = serviceHandler.store.Device().Create(ctx, testOrgId, &orig, nil)
+	_, err := serviceHandler.store.Device().Create(ctx, testOrgId, &orig, nil)
 	require.NoError(err)
 	resp, retStatus := serviceHandler.PatchDeviceStatus(ctx, testOrgId, "foo", patch)
 	require.NotEqual(statusFailedCode, retStatus.Code)

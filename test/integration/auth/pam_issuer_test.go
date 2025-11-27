@@ -6,7 +6,7 @@ import (
 	"context"
 
 	pamapi "github.com/flightctl/flightctl/api/v1beta1/pam-issuer"
-	"github.com/flightctl/flightctl/internal/auth/issuer/pam"
+	"github.com/flightctl/flightctl/internal/auth/oidc/pam"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/config/ca"
 	fccrypto "github.com/flightctl/flightctl/internal/crypto"

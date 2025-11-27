@@ -292,7 +292,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 						Disk:   api.DeviceResourceStatusHealthy, // This should NOT generate an event (Unknown -> Healthy)
 					},
 					ApplicationsSummary: api.DeviceApplicationsSummaryStatus{
-						Status: api.ApplicationsSummaryStatusHealthy,
+						Status: api.ApplicationsSummaryStatusNoApplications,
 					},
 					Conditions: []api.Condition{},
 				},
@@ -334,7 +334,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 						Disk:   api.DeviceResourceStatusHealthy,
 					},
 					ApplicationsSummary: api.DeviceApplicationsSummaryStatus{
-						Status: api.ApplicationsSummaryStatusHealthy,
+						Status: api.ApplicationsSummaryStatusNoApplications,
 					},
 					Conditions: []api.Condition{},
 				},
@@ -391,8 +391,8 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 					LastSeen:     lo.ToPtr(time.Now()),
 					Applications: []api.DeviceApplicationStatus{},
 					ApplicationsSummary: api.DeviceApplicationsSummaryStatus{
-						Status: api.ApplicationsSummaryStatusHealthy,
-						Info:   lo.ToPtr("Device has no application workloads defined."),
+						Status: api.ApplicationsSummaryStatusNoApplications,
+						Info:   lo.ToPtr("Device has not reported any application workloads yet."),
 					},
 					Summary: api.DeviceSummaryStatus{
 						Status: api.DeviceSummaryStatusDegraded, // This should be set by the service for warnings
@@ -527,8 +527,8 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 						Info:   lo.ToPtr("Device's application workloads are healthy."),
 					},
 					ApplicationsSummary: api.DeviceApplicationsSummaryStatus{
-						Status: api.ApplicationsSummaryStatusHealthy,
-						Info:   lo.ToPtr("Device has no application workloads defined."),
+						Status: api.ApplicationsSummaryStatusNoApplications,
+						Info:   lo.ToPtr("Device has not reported any application workloads yet."),
 					},
 					Updated: api.DeviceUpdatedStatus{
 						Status: api.DeviceUpdatedStatusUpToDate,
@@ -606,8 +606,8 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 						Info:   lo.ToPtr("Device's system resources are healthy."),
 					},
 					ApplicationsSummary: api.DeviceApplicationsSummaryStatus{
-						Status: api.ApplicationsSummaryStatusHealthy,
-						Info:   lo.ToPtr("Device has no application workloads defined."),
+						Status: api.ApplicationsSummaryStatusNoApplications,
+						Info:   lo.ToPtr("Device has not reported any application workloads yet."),
 					},
 					Updated: api.DeviceUpdatedStatus{
 						Status: api.DeviceUpdatedStatusUpToDate,
@@ -662,8 +662,8 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 						Info:   lo.ToPtr("Device's system resources are healthy."),
 					},
 					ApplicationsSummary: api.DeviceApplicationsSummaryStatus{
-						Status: api.ApplicationsSummaryStatusHealthy,
-						Info:   lo.ToPtr("Device has no application workloads defined."),
+						Status: api.ApplicationsSummaryStatusNoApplications,
+						Info:   lo.ToPtr("Device has not reported any application workloads yet."),
 					},
 					Updated: api.DeviceUpdatedStatus{
 						Status: api.DeviceUpdatedStatusUpToDate,
