@@ -121,6 +121,10 @@ spec:
               name: flightctl-api-server-tls
               subPath: tls.key
               readOnly: true
+            - mountPath: /root/.flightctl/certs/ca-bundle.crt
+              name: flightctl-ca-bundle
+              subPath: ca-bundle.crt
+              readOnly: true
             {{- include "flightctl.dbSslVolumeMounts" . | nindent 12 }}
 
       restartPolicy: Always
@@ -147,4 +151,7 @@ spec:
         - name: flightctl-api-server-tls
           secret:
             secretName: {{ default "flightctl-api-server-tls" .Values.global.baseDomainTlsSecretName }}
+        - name: flightctl-ca-bundle
+          configMap:
+            name: flightctl-ca-bundle
         {{- include "flightctl.dbSslVolumes" . | nindent 8 }}
