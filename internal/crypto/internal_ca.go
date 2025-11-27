@@ -38,6 +38,19 @@ func ensureInternalCA(cfg *ca.Config) (CABackend, bool, error) {
 	if err != nil {
 		return nil, false, err
 	}
+
+	// If CABundleFile is configured, create it (for tests, it's just a copy of the cert)
+	if cfg.InternalConfig.CABundleFile != "" {
+		caBundleFile := CertStorePath(cfg.InternalConfig.CABundleFile, cfg.InternalConfig.CertStore)
+		certBytes, err := oscrypto.EncodeCertificates(ca.GetCABundleX509()...)
+		if err != nil {
+			return nil, false, fmt.Errorf("encoding CA bundle: %w", err)
+		}
+		if err := os.WriteFile(caBundleFile, certBytes, 0600); err != nil {
+			return nil, false, fmt.Errorf("writing CA bundle to %s: %w", caBundleFile, err)
+		}
+	}
+
 	return ca, true, err
 }
 
