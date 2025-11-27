@@ -14,6 +14,7 @@ const (
 type InternalCfg struct {
 	CertFile         string `json:"certFile,omitempty"`
 	KeyFile          string `json:"keyFile,omitempty"`
+	CABundleFile     string `json:"caBundleFile,omitempty"`
 	SignerCertName   string `json:"signerCertName,omitempty"`
 	SerialFile       string `json:"serialFile,omitempty"`
 	CertValidityDays int    `json:"certValidityDays,omitempty"`
@@ -54,6 +55,7 @@ func NewDefault(tempDir string) *Config {
 		InternalConfig: &InternalCfg{
 			CertFile:         "client-signer.crt",
 			KeyFile:          "client-signer.key",
+			CABundleFile:     "ca-bundle.crt",
 			CertValidityDays: 3650,
 			SignerCertName:   "client-signer",
 			CertStore:        tempDir,

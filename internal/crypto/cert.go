@@ -265,6 +265,16 @@ func (caClient *CAClient) GetCABundleX509() []*x509.Certificate {
 }
 
 func (caClient *CAClient) GetCABundle() ([]byte, error) {
+	// If CABundleFile is configured, read it directly
+	if caClient.Cfg.InternalConfig.CABundleFile != "" {
+		caBundlePath := CertStorePath(caClient.Cfg.InternalConfig.CABundleFile, caClient.Cfg.InternalConfig.CertStore)
+		caBundleBytes, err := os.ReadFile(caBundlePath)
+		if err != nil {
+			return nil, fmt.Errorf("reading ca-bundle from %s: %w", caBundlePath, err)
+		}
+		return caBundleBytes, nil
+	}
+	// Fallback to using loaded certificates
 	certs := caClient.GetCABundleX509()
 	return oscrypto.EncodeCertificates(certs...)
 }
