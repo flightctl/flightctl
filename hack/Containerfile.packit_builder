@@ -1,0 +1,31 @@
+FROM quay.io/packit/packit:latest
+
+USER 0
+
+RUN mkdir -p /root/.config
+
+RUN dnf install -y \
+      golang \
+      openssl-devel \
+      go-rpm-macros \
+      selinux-policy \
+      pam-devel \
+      selinux-policy-devel 
+
+RUN dnf clean all
+
+RUN install -d -m 0777 /root/go/pkg/mod && \
+    install -d -m 0777 /root/.cache/go-build && \
+    chmod -R 0777 /root/go /root/.cache/go-build && \
+    rm -rf /var/cache/dnf && mkdir /work
+
+COPY mock-site-defaults.cfg /etc/mock/site-defaults.cfg
+
+COPY mock_prewarm_caches.sh /usr/bin/mock_prewarm_caches.sh
+
+RUN git config --global --add safe.directory /work
+
+# Store build timestamp for age checking
+RUN echo "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > /etc/rpm-builder-image-timestamp-base
+
+WORKDIR /work
