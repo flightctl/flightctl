@@ -1,8 +1,8 @@
 [Unit]
 Description=Flight Control API server
 PartOf=flightctl.target
-After=flightctl-db-wait.service flightctl-db-migrate.service flightctl-kv.service flightctl-api-init.service
-Wants=flightctl-db-wait.service flightctl-db-migrate.service flightctl-kv.service flightctl-api-init.service
+After=flightctl-db-wait.service flightctl-db-migrate.service flightctl-kv.service flightctl-api-init.service flightctl-certs-init.service
+Wants=flightctl-db-wait.service flightctl-db-migrate.service flightctl-kv.service flightctl-api-init.service flightctl-certs-init.service
 
 [Container]
 ContainerName=flightctl-api
@@ -16,7 +16,10 @@ Environment=DB_USER=flightctl_app
 
 PublishPort=3443:3443
 PublishPort=7443:7443
-Volume=/etc/flightctl/pki:/root/.flightctl/certs:rw,z
+Volume=/etc/flightctl/pki/flightctl-api/server.crt:/root/.flightctl/certs/server.crt:ro,z
+Volume=/etc/flightctl/pki/flightctl-api/server.key:/root/.flightctl/certs/server.key:ro,z
+Volume=/etc/flightctl/pki/flightctl-api/client-signer.crt:/root/.flightctl/certs/client-signer.crt:ro,z
+Volume=/etc/flightctl/pki/flightctl-api/client-signer.key:/root/.flightctl/certs/client-signer.key:ro,z
 Volume=/etc/flightctl/flightctl-api/config.yaml:/root/.flightctl/config.yaml:ro,z
 
 Ulimit=nofile=300000:300000

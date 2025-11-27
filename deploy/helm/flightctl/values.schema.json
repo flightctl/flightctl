@@ -34,7 +34,8 @@
         },
         "baseDomainTlsSecretName": {
           "type": "string",
-          "description": "Secret containing TLS ca/cert/key. It should be valid for *.${baseDomain}. This certificate is only used for non-mTLS endpoints, mTLS endpoints like agent-api, etc will use different certificates."
+          "description": "Secret containing TLS ca/cert/key. It should be valid for *.${baseDomain}. This certificate is only used for non-mTLS endpoints, mTLS endpoints like agent-api, etc will use different certificates.",
+          "default": "flightctl-api-server-tls"
         },
         "storageClassName": {
           "type": "string",
