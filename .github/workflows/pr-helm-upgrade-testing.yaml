@@ -227,7 +227,6 @@ jobs:
             --namespace flightctl-external \
             --reuse-values \
             --values image-values.yaml \
-            --set telemetryGateway.replicas=0 \
             --dry-run=server \
             --output=dyff \
             --debug
@@ -245,7 +244,6 @@ jobs:
             --namespace flightctl-external \
             --reuse-values \
             --values image-values.yaml \
-            --set telemetryGateway.replicas=0 \
             --debug --wait # for the deployment complete (including readiness probes passing)
 
       - name: "[HEAD] Check deployment"
@@ -304,7 +302,6 @@ jobs:
           helm upgrade flightctl "${CHART_FILE}" \
             --namespace flightctl-external \
             --reuse-values \
-            --set telemetryGateway.replicas=0 \
             --debug --wait
 
       - name: "[HEAD] Validate versions"
