@@ -59,11 +59,6 @@ spec:
               configMapKeyRef:
                 name: flightctl-ui
                 key: FLIGHTCTL_SERVER_INSECURE_SKIP_VERIFY
-          - name: ORGANIZATIONS_ENABLED
-            valueFrom:
-              configMapKeyRef:
-                name: flightctl-ui
-                key: ORGANIZATIONS_ENABLED
           {{- if eq $enableMulticlusterExtensions "true" }}
           - name: TLS_KEY
             value: /app/serving-cert/tls.key
