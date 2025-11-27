@@ -16,7 +16,6 @@ Flight Control API server integrates with AAP Gateway by:
 Flight Control uses the following standard roles for authorization:
 
 - **Super Admin** - Unrestricted access to all resources and operations across all organizations
-- **`flightctl-admin`** - Full access to all resources within an organization
 - **`flightctl-org-admin`** - Full access to all resources within a specific organization
 - **`flightctl-operator`** - CRUD operations on devices, fleets, resourcesyncs, repositories
 - **`flightctl-viewer`** - Read-only access to all resources
