@@ -123,6 +123,8 @@ var badRequestErrors = map[error]bool{
 var conflictErrors = map[error]bool{
 	flterrors.ErrUpdatingResourceWithOwnerNotAllowed: true,
 	flterrors.ErrDuplicateName:                       true,
+	flterrors.ErrDuplicateOIDCProvider:               true,
+	flterrors.ErrDuplicateOAuth2Provider:             true,
 	flterrors.ErrNoRowsUpdated:                       true,
 	flterrors.ErrResourceVersionConflict:             true,
 	flterrors.ErrResourceOwnerIsNil:                  true,
