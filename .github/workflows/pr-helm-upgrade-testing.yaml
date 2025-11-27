@@ -167,8 +167,6 @@ jobs:
           bin/flightctl apply -f examples/repository-flightctl.yaml
           bin/flightctl apply -f examples/resourcesync.yaml
 
-      - name: Prepare agent config
-        run: make prepare-agent-config
 
       - name: "[BASELINE] Download simulator"
         uses: actions/download-artifact@v4
@@ -178,6 +176,7 @@ jobs:
 
       - name: "[BASELINE] Run simulator"
         run: |
+          make prepare-agent-config
           chmod +x bin-baseline-sim/devicesimulator
           bin-baseline-sim/devicesimulator --config bin/agent/etc/flightctl/config.yaml --count 10 --stop-after 1m
 
@@ -210,38 +209,16 @@ jobs:
           mv bin-pr/flightctl-linux-amd64 bin-pr/flightctl
           bin-pr/flightctl version
 
-      - name: "[HEAD] Prepare helm"
+      - name: "[HEAD] Helm diff"
         run: |
           set -euo pipefail
           CHART_FILE="artifacts-pr/flightctl-chart.tgz"
-
-          # Preserve image names and tags from the packaged chart, avoid being overriden by values.dev.yaml
-          
-          helm show values "${CHART_FILE}" \
-            | yq -o=props \
-            | grep -v '^#' \
-            | grep -E '\.image\.(image|tag)\s*=' \
-            | yq -p=props > image-values.yaml
-          cat >> image-values.yaml << EOF
-          
-          telemetryGateway:
-            image:
-              image: quay.io/flightctl/flightctl-telemetry-gateway
-              tag: ""
-          EOF
-          
-          cat image-values.yaml
-          
-          echo ""
-          echo "::group::Helm diff - changes to be applied"
           helm diff upgrade flightctl "${CHART_FILE}" \
             --namespace flightctl-external \
             --reuse-values \
-            --values image-values.yaml \
             --dry-run=server \
             --output=dyff \
             --debug
-          echo "::endgroup::"
 
       - name: "[HEAD] Helm upgrade"
         run: |
@@ -250,7 +227,6 @@ jobs:
           helm upgrade flightctl "${CHART_FILE}" \
             --namespace flightctl-external \
             --reuse-values \
-            --values image-values.yaml \
             --debug --wait # for the deployment complete (including readiness probes passing)
 
       - name: "[HEAD] Check deployment"
@@ -292,6 +268,7 @@ jobs:
 
       - name: "[HEAD] Run simulator"
         run: |
+          make prepare-agent-config
           chmod +x bin-pr-sim/devicesimulator
           bin-pr-sim/devicesimulator --config bin/agent/etc/flightctl/config.yaml --count 10 --stop-after 1m
 

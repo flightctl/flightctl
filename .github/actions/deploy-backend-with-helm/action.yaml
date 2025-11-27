@@ -12,6 +12,14 @@ inputs:
   base-domain:
     description: 'Base domain for the deployment'
     required: true
+  namespace-external:
+    description: 'External namespace for FlightCtl API components'
+    required: false
+    default: 'flightctl-external'
+  namespace-internal:
+    description: 'Internal namespace for FlightCtl backend components'
+    required: false
+    default: 'flightctl-internal'
 
 runs:
   using: "composite"
@@ -77,12 +85,6 @@ runs:
         df -h
         echo "::endgroup::"
 
-    # ========== START CLUSTER MONITORING ==========
-    - name: Start cluster monitoring
-      shell: bash
-      run: |
-        ( kubectl get pods --all-namespaces -w | sed 's/^/[baseline deploy] /' ) &
-
     # ========== DEPLOY BACKEND ==========
     - name: Deploy FlightCtl backend with Helm
       shell: bash
@@ -90,18 +92,23 @@ runs:
         BASE_DOMAIN: ${{ inputs.base-domain }}
       run: |
         set -euo pipefail
-        CHART_FILE="artifacts/flightctl-chart.tgz"
-        TAG="${{ steps.compute-tags.outputs.git_tag }}"
 
-        echo "Chart file: ${CHART_FILE}"
-        echo "Image tag: ${TAG}"
+        echo "Image tag: ${{ steps.compute-tags.outputs.git_tag }}"
         echo "Base domain: ${BASE_DOMAIN}"
+        echo "External namespace: ${{ inputs.namespace-external }}"
+        echo "Internal namespace: ${{ inputs.namespace-internal }}"
 
-        helm install flightctl "${CHART_FILE}" \
-          --namespace flightctl-external \
+        kubectl create namespace ${{ inputs.namespace-internal }}
+
+        ( kubectl get pods --all-namespaces -w | sed 's/^/[cluster] /' ) &
+
+        helm install flightctl "artifacts/flightctl-chart.tgz" \
+          --namespace ${{ inputs.namespace-external }} \
           --create-namespace \
           --values deploy/helm/flightctl/values.nodeport.yaml \
           --set global.baseDomain="${BASE_DOMAIN}" \
+          --set global.internalNamespace="${{ inputs.namespace-internal }}" \
+          --set ui.enabled=false \
           --debug \
           --wait
 
