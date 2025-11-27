@@ -119,13 +119,6 @@ jobs:
           helm plugin list
 
       # ========== DEPLOY BASELINE (main branch) ==========
-      - name: "[BASELINE] Deploy"
-        uses: ./.github/actions/deploy-backend-with-helm
-        with:
-          tag: ${{ needs.build-baseline.outputs.git_tag }}
-        env:
-          VALUES_PATH: "./deploy/helm/flightctl/values.dev.yaml"
-
       - name: Get base domain
         id: get-ip
         run: |
@@ -133,6 +126,13 @@ jobs:
           BASE_DOMAIN=$(get_ext_ip).nip.io
           echo "$BASE_DOMAIN"
           echo "base-domain=$BASE_DOMAIN" >> "$GITHUB_OUTPUT"
+
+      - name: "[BASELINE] Deploy"
+        id: deploy-baseline
+        uses: ./.github/actions/deploy-backend-with-helm
+        with:
+          tag: ${{ needs.build-baseline.outputs.git_tag }}
+          base-domain: ${{ steps.get-ip.outputs.base-domain }}
 
       - name: "[BASELINE] Check deployment"
         run: kubectl get pods --all-namespaces
@@ -245,8 +245,6 @@ jobs:
 
       - name: "[HEAD] Helm upgrade"
         run: |
-          ( kubectl get pods --all-namespaces -w | sed 's/^/[cluster upgrade] /' ) &
-
           CHART_FILE="artifacts-pr/flightctl-chart.tgz"
           # Use values files with image overrides
           helm upgrade flightctl "${CHART_FILE}" \
