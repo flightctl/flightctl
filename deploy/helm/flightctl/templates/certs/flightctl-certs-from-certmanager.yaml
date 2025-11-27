@@ -138,6 +138,36 @@ spec:
     group: cert-manager.io
 
 ---
+# Alertmanager Proxy Server TLS Certificate
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: flightctl-alertmanager-proxy-server-tls
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+spec:
+  secretName: flightctl-alertmanager-proxy-server-tls
+  duration: 17520h  # 2 years
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  usages:
+    - digital signature
+    - key encipherment
+    - server auth
+  dnsNames:
+    {{- $alertmanagerProxyDNSSansResult := include "flightctl.getAlertmanagerProxyDNSSans" . | fromJson }}
+    {{- range $alertmanagerProxyDNSSansResult.sans }}
+    - {{ . }}
+    {{- end }}
+  issuerRef:
+    name: flightctl-ca-issuer
+    kind: Issuer
+    group: cert-manager.io
+
+---
 # Job to create CA Bundle ConfigMap after cert-manager issues certificates
 apiVersion: batch/v1
 kind: Job
