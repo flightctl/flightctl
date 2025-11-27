@@ -12,6 +12,7 @@ on:
       - main
       - 'release-*'
   pull_request:
+  merge_group:
 
 permissions:
   contents: read
@@ -27,6 +28,19 @@ env:
   GITHUB_ACTIONS: true
 
 jobs:
+  check-override:
+    runs-on: ubuntu-24.04
+    outputs:
+      override: ${{ steps.check_override.outputs.override }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Check if override label exists
+        id: check_override
+        uses: ./.github/actions/check-admin-override
+        with:
+          label-name: 'breaking-helm-change-approved'
+
   check-changes:
     runs-on: ubuntu-24.04
     outputs:
@@ -51,22 +65,22 @@ jobs:
             packaging/rpm/**
 
   build-baseline:
-    needs: check-changes
-    if: needs.check-changes.outputs.any_changed == 'true'
+    needs: [check-override, check-changes]
+    if: needs.check-override.outputs.override != 'true' && needs.check-changes.outputs.any_changed == 'true'
     uses: ./.github/workflows/build-images-and-charts.yaml
     with:
       repository: flightctl/flightctl
       ref: main
 
   build-pr:
-    needs: check-changes
-    if: needs.check-changes.outputs.any_changed == 'true'
+    needs: [check-override, check-changes]
+    if: needs.check-override.outputs.override != 'true' && needs.check-changes.outputs.any_changed == 'true'
     uses: ./.github/workflows/build-images-and-charts.yaml
 
   deploy-and-upgrade:
     runs-on: ubuntu-24.04
-    needs: [check-changes, build-baseline, build-pr]
-    if: needs.check-changes.outputs.any_changed == 'true'
+    needs: [check-override, check-changes, build-baseline, build-pr]
+    if: needs.check-override.outputs.override != 'true' && needs.check-changes.outputs.any_changed == 'true'
     steps:
       - name: Checkout PR branch
         uses: actions/checkout@v5
@@ -319,3 +333,17 @@ jobs:
           namespace-external: 'flightctl-external'
           namespace-internal: 'flightctl-internal'
           log-directory: 'upgrade-logs'
+
+  log-skip-message:
+    runs-on: ubuntu-24.04
+    needs: check-override
+    if: needs.check-override.outputs.override == 'true'
+    steps:
+      - name: Log helm upgrade test bypass
+        run: |
+          echo "================================================"
+          echo "HELM UPGRADE TEST BYPASSED"
+          echo "================================================"
+          echo "The breaking-helm-change-approved label has been applied by an admin."
+          echo "Skipping Helm upgrade testing."
+          echo ""
