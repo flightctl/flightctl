@@ -7,7 +7,7 @@ Image-based OSes allow the whole OS (and optionally also OS configuration and ap
 * It minimizes potential drift between what has been thoroughly tested and what is deployed to a large number of devices.
 * It minimizes the risk of failed updates that require expensive maintenance or replacement through transactional updates and rollbacks.
 
-Flight Control initially focuses on image-based Linux OSes running [bootable container images (bootc)](https://containers.github.io/bootc/), with support for [ostree](https://ostreedev.github.io/ostree/) and [rpm-ostree](https://coreos.github.io/rpm-ostree/) images planned for later. It does not update package-based OSes.
+Flight Control initially focuses on image-based Linux OSes running [bootable container images (bootc)](https://bootc-dev.github.io/bootc/), with support for [ostree](https://ostreedev.github.io/ostree/) and [rpm-ostree](https://coreos.github.io/rpm-ostree/) images planned for later. It does not update package-based OSes.
 
 At a high level, the image building process for bootc works as follows:
 
@@ -33,7 +33,7 @@ This section describes the generic process for building an OS image (bootc) that
 
 Before you start, ensure you have installed the following prerequisites:
 
-* `flightctl` CLI latest version ([installation guide](getting-started.md#installing-the-flight-control-cli))
+* `flightctl` CLI latest version ([installation guide](../installing/installing-cli.md))
 * `podman` version 5.0 or higher ([installation guide](https://podman.io/docs/installation))
 * `skopeo` version 1.14 or higher ([installation guide](https://github.com/containers/skopeo/blob/main/install.md))
 * `container-selinux` version 2.241 or higher (required by `bootc-image-builder`)
@@ -44,7 +44,7 @@ When the Flight Control agent starts, it expects to find its configuration in `/
 
 * the Flight Control enrollment service to connect to (enrollment endpoint),
 * the X.509 client certificate and key to connect with (enrollment certificate),
-* optionally, any further agent configuration (see [Configuring the Flight Control Agent](configuring-agent.md)).
+* optionally, any further agent configuration (see [Installing the Flight Control Agent](../installing/installing-agent.md)).
 
 You can provision the enrollment endpoint and certificate to the device in the following ways:
 
@@ -232,7 +232,7 @@ sudo podman manifest push --all \
 For further information and practical examples, refer to:
 
 * Example images in the [Flight Control demos repository](https://github.com/flightctl/flightctl-demos).
-* Flight Control demos repository's [automated build pipeline](https://github.com/flightctl/flightctl-demos/blob/main/.github/workflows/build-bootc.yaml).
+* Flight Control demos repository's [automated build pipeline](https://github.com/flightctl/flightctl-demos/blob/main/.github/workflows/build-bootc-image.yaml).
 * The Fedora/CentOS bootc project's [community-provided examples](https://gitlab.com/fedora/bootc/examples).
 
 ## Considerations for Specific Target Platforms
@@ -387,4 +387,4 @@ Avoid executing scripts or commands that change the file system as a side-effect
 
 ### Further References
 
-See also the guidance in the [bootc documentation](https://containers.github.io/bootc/building/guidance.html).
+See also the guidance in the [bootc documentation](https://bootc-dev.github.io/bootc/building/guidance.html).

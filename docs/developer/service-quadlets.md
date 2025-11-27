@@ -343,8 +343,8 @@ The RPM upgrade process includes:
 > [!NOTE]
 > Database migration dry-run can be enabled/disabled by editing `/etc/flightctl/flightctl-services-install.conf` and setting `FLIGHTCTL_MIGRATION_DRY_RUN=1`. This is recommended to catch potential migration issues before they affect production.
 
-> [!NOTE] 
-> Downgrades are not supported. Be sure to back up your system before upgrading. If an upgrade fails, follow the [Flight Control Restore Operations](../user/restore.md).
+> [!NOTE]
+> Downgrades are not supported. Be sure to back up your system before upgrading. If an upgrade fails, follow the [Flight Control Restore Operations](../user/installing/performing-database-restore.md).
 
 ### Running the Services Container
 
