@@ -88,6 +88,7 @@ metadata:
     {{- include "flightctl.standardLabels" . | nindent 4 }}
 spec:
   secretName: flightctl-api-server-tls
+  commonName: flightctl-api
   duration: 17520h  # 2 years
   privateKey:
     algorithm: ECDSA
@@ -118,6 +119,7 @@ metadata:
     {{- include "flightctl.standardLabels" . | nindent 4 }}
 spec:
   secretName: flightctl-telemetry-gateway-server-tls
+  commonName: flightctl-telemetry-gateway
   duration: 17520h  # 2 years
   privateKey:
     algorithm: ECDSA
@@ -148,6 +150,7 @@ metadata:
     {{- include "flightctl.standardLabels" . | nindent 4 }}
 spec:
   secretName: flightctl-alertmanager-proxy-server-tls
+  commonName: flightctl-alertmanager-proxy
   duration: 17520h  # 2 years
   privateKey:
     algorithm: ECDSA
