@@ -259,7 +259,7 @@ spec:
           CLIENT_SIGNER_CA=$($K8S_CLI get secret -n "$NAMESPACE" flightctl-client-signer-ca -o jsonpath='{.data.tls\.crt}' | base64 -d)
 
           # Create Secret (base64 encode the bundle data)
-          CA_BUNDLE_DATA=$(echo -n "${FLIGHTCTL_CA}${CLIENT_SIGNER_CA}" | base64 -w 0)
+          CA_BUNDLE_DATA=$(printf "%s\n%s" "${FLIGHTCTL_CA}" "${CLIENT_SIGNER_CA}" | base64 -w 0)
 
           cat <<EOF | $K8S_CLI apply -f -
           apiVersion: v1
