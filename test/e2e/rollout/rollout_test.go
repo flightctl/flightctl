@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -84,7 +84,7 @@ var _ = Describe("Rollout Policies", func() {
 			Expect(err).ToNot(HaveOccurred())
 			time.Sleep(30 * time.Second)
 
-			//Update fleet with template
+			// Update fleet with template
 			err = tc.harness.CreateOrUpdateTestFleet(fleetName, createFleetSpec(bsq1, lo.ToPtr(api.Percentage("50%")), deviceSpec))
 			Expect(err).ToNot(HaveOccurred())
 
@@ -543,11 +543,9 @@ func setupTestContext(ctx context.Context) *TestContext {
 		Image: sleepAppImage,
 	}
 
-	appType := api.AppType("compose")
-
 	applicationSpec := api.ApplicationProviderSpec{
 		Name:    lo.ToPtr("sleepapp"),
-		AppType: &appType,
+		AppType: api.AppTypeCompose,
 	}
 
 	return &TestContext{

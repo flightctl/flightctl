@@ -1,17 +1,20 @@
 [Unit]
 Description=Flight Control PAM OIDC Issuer server
 PartOf=flightctl.target
-After=flightctl-pam-issuer-init.service
-Wants=flightctl-pam-issuer-init.service
+After=flightctl-certs-init.service
+Wants=flightctl-certs-init.service
 
 [Container]
 ContainerName=flightctl-pam-issuer
-Image=quay.io/flightctl/flightctl-pam-issuer:latest
+Image={{ .PamIssuer.Image }}:{{ .PamIssuer.Tag }}
 Pull=newer
 Network=flightctl.network
 
 PublishPort=8444:8444
-Volume=/etc/flightctl/pam-issuer-pki:/root/.flightctl/certs:rw,z
+Volume=/etc/flightctl/pki/flightctl-api/server.crt:/root/.flightctl/certs/server.crt:ro,z
+Volume=/etc/flightctl/pki/flightctl-api/server.key:/root/.flightctl/certs/server.key:ro,z
+Volume=/etc/flightctl/pki/flightctl-api/client-signer.crt:/root/.flightctl/certs/client-signer.crt:ro,z
+Volume=/etc/flightctl/pki/flightctl-api/client-signer.key:/root/.flightctl/certs/client-signer.key:ro,z
 Volume=flightctl-pam-issuer-etc:/etc:rw
 Volume=/etc/flightctl/flightctl-pam-issuer/config.yaml:/root/.flightctl/config.yaml:ro,z
 
@@ -19,8 +22,7 @@ Volume=/etc/flightctl/flightctl-pam-issuer/config.yaml:/root/.flightctl/config.y
 Restart=always
 RestartSec=30
 
+ExecStartPre=/usr/bin/flightctl-standalone render template --input-file /usr/share/flightctl/flightctl-pam-issuer/config.yaml.template --output-file /etc/flightctl/flightctl-pam-issuer/config.yaml
+
 [Install]
 WantedBy=flightctl.target
-
-
-

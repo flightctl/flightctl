@@ -206,7 +206,7 @@ CSR_B64="$(base64 -w 0 < "${CSR_FILE}")"
 CSR_YAML="${CERTS_DIR}/csr.yaml"
 
 cat > "${CSR_YAML}" <<EOF
-apiVersion: flightctl.io/v1alpha1
+apiVersion: flightctl.io/v1beta1
 kind: CertificateSigningRequest
 metadata:
   name: ${CSR_NAME}

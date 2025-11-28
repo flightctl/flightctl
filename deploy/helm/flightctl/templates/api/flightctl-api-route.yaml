@@ -1,4 +1,4 @@
-{{ if and (.Values.api.enabled) (eq (include "flightctl.getServiceExposeMethod" .) "route") }}
+{{ if eq (include "flightctl.getServiceExposeMethod" .) "route" }}
 apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
@@ -9,6 +9,8 @@ metadata:
     {{- with .Values.api.additionalRouteLabels }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-api
   name: flightctl-api-route
   namespace: {{ .Release.Namespace }}
 spec:

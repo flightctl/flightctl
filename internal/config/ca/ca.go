@@ -1,7 +1,7 @@
 package ca
 
 import (
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 )
 
 type CAIdType int
@@ -14,6 +14,7 @@ const (
 type InternalCfg struct {
 	CertFile         string `json:"certFile,omitempty"`
 	KeyFile          string `json:"keyFile,omitempty"`
+	CABundleFile     string `json:"caBundleFile,omitempty"`
 	SignerCertName   string `json:"signerCertName,omitempty"`
 	SerialFile       string `json:"serialFile,omitempty"`
 	CertValidityDays int    `json:"certValidityDays,omitempty"`
@@ -52,10 +53,11 @@ func NewDefault(tempDir string) *Config {
 		ServerCertValidityDays:          365,
 		DeviceCommonNamePrefix:          "device:",
 		InternalConfig: &InternalCfg{
-			CertFile:         "ca.crt",
-			KeyFile:          "ca.key",
+			CertFile:         "client-signer.crt",
+			KeyFile:          "client-signer.key",
+			CABundleFile:     "ca-bundle.crt",
 			CertValidityDays: 3650,
-			SignerCertName:   "ca",
+			SignerCertName:   "client-signer",
 			CertStore:        tempDir,
 		},
 	}

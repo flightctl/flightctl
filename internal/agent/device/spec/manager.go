@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -38,7 +38,7 @@ type manager struct {
 	policyManager    policy.Manager
 	auditLogger      audit.Logger
 
-	lastConsumedDevice *v1alpha1.Device
+	lastConsumedDevice *v1beta1.Device
 	log                *log.PrefixLogger
 }
 
@@ -292,8 +292,8 @@ func (s *manager) CreateRollback(ctx context.Context) error {
 	// rollback is a basic copy of the current rendered spec
 	// which contains the rendered version and the OS image.
 	rollback := newVersionedDevice(current.Version())
-	rollback.Spec = &v1alpha1.DeviceSpec{
-		Os: &v1alpha1.DeviceOsSpec{Image: currentOSImage},
+	rollback.Spec = &v1beta1.DeviceSpec{
+		Os: &v1beta1.DeviceOsSpec{Image: currentOSImage},
 	}
 
 	if err := s.write(ctx, Rollback, rollback, audit.ReasonInitialization); err != nil {
@@ -346,7 +346,7 @@ func (s *manager) Rollback(ctx context.Context, opts ...RollbackOption) error {
 	return nil
 }
 
-func (s *manager) Read(specType Type) (*v1alpha1.Device, error) {
+func (s *manager) Read(specType Type) (*v1beta1.Device, error) {
 	filePath, err := s.pathFromType(specType)
 	if err != nil {
 		return nil, err
@@ -410,7 +410,7 @@ func (s *manager) consumeLatest(ctx context.Context) (bool, error) {
 	return consumed, nil
 }
 
-func (s *manager) GetDesired(ctx context.Context) (*v1alpha1.Device, bool, error) {
+func (s *manager) GetDesired(ctx context.Context) (*v1beta1.Device, bool, error) {
 	consumed, err := s.consumeLatest(ctx)
 	if err != nil {
 		return nil, false, err
@@ -432,7 +432,7 @@ func (s *manager) GetDesired(ctx context.Context) (*v1alpha1.Device, bool, error
 // getDeviceFromQueue retrieves the next desired device to reconcile.  Returns true
 // to signal requeue if no spec is available. If the spec is newer than the
 // current desired version it will be written to disk.
-func (s *manager) getDeviceFromQueue(ctx context.Context) (*v1alpha1.Device, bool,
+func (s *manager) getDeviceFromQueue(ctx context.Context) (*v1beta1.Device, bool,
 	error) {
 	desired, exists := s.queue.Next(ctx)
 	if !exists {
@@ -469,7 +469,7 @@ func (s *manager) getDeviceFromQueue(ctx context.Context) (*v1alpha1.Device, boo
 }
 
 // isNewDesiredVersion returns true if this is the first time observing this desired version.
-func (s *manager) isNewDesiredVersion(desired *v1alpha1.Device) bool {
+func (s *manager) isNewDesiredVersion(desired *v1beta1.Device) bool {
 	return s.lastConsumedDevice == nil || s.lastConsumedDevice.Version() != desired.Version()
 }
 
@@ -496,7 +496,7 @@ func (s *manager) CheckOsReconciliation(ctx context.Context) (string, bool, erro
 	return bootedOSImage, desired.Spec.Os.Image == osStatus.GetBootedImage(), nil
 }
 
-func (s *manager) Status(ctx context.Context, status *v1alpha1.DeviceStatus, _ ...status.CollectorOpt) error {
+func (s *manager) Status(ctx context.Context, status *v1beta1.DeviceStatus, _ ...status.CollectorOpt) error {
 	status.Config.RenderedVersion = s.cache.getRenderedVersion(Current)
 	return nil
 }
@@ -521,7 +521,7 @@ func (s *manager) Publisher() Publisher {
 	return s.publisher
 }
 
-func (s *manager) write(ctx context.Context, specType Type, device *v1alpha1.Device, reason audit.Reason) error {
+func (s *manager) write(ctx context.Context, specType Type, device *v1beta1.Device, reason audit.Reason) error {
 	filePath, err := s.pathFromType(specType)
 	if err != nil {
 		return err
@@ -601,8 +601,8 @@ func (s *manager) pathFromType(specType Type) (string, error) {
 func readDeviceFromFile(
 	reader fileio.Reader,
 	filePath string,
-) (*v1alpha1.Device, error) {
-	var current v1alpha1.Device
+) (*v1beta1.Device, error) {
+	var current v1beta1.Device
 	renderedBytes, err := reader.ReadFile(filePath)
 	if err != nil {
 		if fileio.IsNotExist(err) {
@@ -620,7 +620,7 @@ func readDeviceFromFile(
 	return &current, nil
 }
 
-func writeDeviceToFile(writer fileio.Writer, device *v1alpha1.Device, filePath string) error {
+func writeDeviceToFile(writer fileio.Writer, device *v1beta1.Device, filePath string) error {
 	deviceBytes, err := json.Marshal(device)
 	if err != nil {
 		return err
@@ -631,12 +631,12 @@ func writeDeviceToFile(writer fileio.Writer, device *v1alpha1.Device, filePath s
 	return nil
 }
 
-func IsUpgrading(current *v1alpha1.Device, desired *v1alpha1.Device) bool {
+func IsUpgrading(current *v1beta1.Device, desired *v1beta1.Device) bool {
 	return current.Version() != desired.Version()
 }
 
 // IsRollback returns true if the version of the current spec is greater than the desired.
-func IsRollback(current *v1alpha1.Device, desired *v1alpha1.Device) bool {
+func IsRollback(current *v1beta1.Device, desired *v1beta1.Device) bool {
 	currentVersion, err := stringToInt64(current.Version())
 	if err != nil {
 		return false
@@ -650,7 +650,7 @@ func IsRollback(current *v1alpha1.Device, desired *v1alpha1.Device) bool {
 
 // logAudit logs an audit event for spec transitions. It extracts the fleet template
 // version from device annotations and handles nil device for bootstrap events.
-func (s *manager) logAudit(ctx context.Context, device *v1alpha1.Device, oldVersion, newVersion string, result audit.Result, reason audit.Reason, auditType audit.Type) {
+func (s *manager) logAudit(ctx context.Context, device *v1beta1.Device, oldVersion, newVersion string, result audit.Result, reason audit.Reason, auditType audit.Type) {
 	if s.auditLogger == nil {
 		return
 	}
@@ -658,7 +658,7 @@ func (s *manager) logAudit(ctx context.Context, device *v1alpha1.Device, oldVers
 	// Extract fleet template version from device annotations
 	fleetTemplateVersion := ""
 	if device != nil && device.Metadata.Annotations != nil {
-		if version, exists := (*device.Metadata.Annotations)[v1alpha1.DeviceAnnotationRenderedTemplateVersion]; exists {
+		if version, exists := (*device.Metadata.Annotations)[v1beta1.DeviceAnnotationRenderedTemplateVersion]; exists {
 			fleetTemplateVersion = version
 		}
 	}

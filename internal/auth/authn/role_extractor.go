@@ -4,18 +4,21 @@ import (
 	"fmt"
 	"strings"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
+	"github.com/sirupsen/logrus"
 )
 
 // RoleExtractor handles role extraction from claims based on role assignment configuration
 type RoleExtractor struct {
 	roleAssignment api.AuthRoleAssignment
+	log            logrus.FieldLogger
 }
 
 // NewRoleExtractor creates a new role extractor with the given role assignment
-func NewRoleExtractor(roleAssignment api.AuthRoleAssignment) *RoleExtractor {
+func NewRoleExtractor(roleAssignment api.AuthRoleAssignment, log logrus.FieldLogger) *RoleExtractor {
 	return &RoleExtractor{
 		roleAssignment: roleAssignment,
+		log:            log,
 	}
 }
 
@@ -44,6 +47,7 @@ func (r *RoleExtractor) ExtractRolesFromMap(claims map[string]interface{}) []str
 func (r *RoleExtractor) ExtractOrgRolesFromMap(claims map[string]interface{}) map[string][]string {
 	discriminator, err := r.roleAssignment.Discriminator()
 	if err != nil {
+		r.log.Errorf("RoleExtractor: failed to get discriminator: %v", err)
 		return nil
 	}
 
@@ -53,6 +57,7 @@ func (r *RoleExtractor) ExtractOrgRolesFromMap(claims map[string]interface{}) ma
 	case string(api.AuthDynamicRoleAssignmentTypeDynamic):
 		return r.extractDynamicOrgRolesFromMap(claims)
 	default:
+		r.log.Warnf("RoleExtractor: unknown discriminator: %s", discriminator)
 		return nil
 	}
 }
@@ -73,11 +78,13 @@ func (r *RoleExtractor) extractStaticOrgRoles() map[string][]string {
 func (r *RoleExtractor) extractDynamicOrgRolesFromMap(claims map[string]interface{}) map[string][]string {
 	dynamicRoleAssignment, err := r.roleAssignment.AsAuthDynamicRoleAssignment()
 	if err != nil {
+		r.log.Errorf("RoleExtractor: failed to get dynamic role assignment: %v", err)
 		return nil
 	}
 
 	claimPath := dynamicRoleAssignment.ClaimPath
 	if len(claimPath) == 0 {
+		r.log.Warnf("RoleExtractor: claimPath is empty")
 		return nil
 	}
 
@@ -90,12 +97,16 @@ func (r *RoleExtractor) extractDynamicOrgRolesFromMap(claims map[string]interfac
 	// Navigate to the claim value
 	current := claims
 	for i, part := range claimPath {
+		r.log.Debugf("RoleExtractor: navigating claimPath[%d]=%s, current keys: %v", i, part, getMapKeys(current))
 		if i == len(claimPath)-1 {
 			// Last part - extract the roles array
 			if value, exists := current[part]; exists {
 				if roles, ok := value.([]interface{}); ok {
 					return r.parseRolesWithSeparator(roles, separator)
 				}
+				r.log.Warnf("RoleExtractor: claim value is not an array: %T", value)
+			} else {
+				r.log.Warnf("RoleExtractor: claim path[%d]=%s does not exist in current map", i, part)
 			}
 			return nil
 		}
@@ -104,15 +115,27 @@ func (r *RoleExtractor) extractDynamicOrgRolesFromMap(claims map[string]interfac
 		if next, exists := current[part]; exists {
 			if nextMap, ok := next.(map[string]interface{}); ok {
 				current = nextMap
+				r.log.Debugf("RoleExtractor: navigated to nested map at path[%d]=%s", i, part)
 			} else {
+				r.log.Warnf("RoleExtractor: path[%d]=%s exists but is not a map: %T", i, part, next)
 				return nil
 			}
 		} else {
+			r.log.Warnf("RoleExtractor: path[%d]=%s does not exist", i, part)
 			return nil
 		}
 	}
 
 	return nil
+}
+
+// getMapKeys is a helper to get keys from a map for logging
+func getMapKeys(m map[string]interface{}) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
 }
 
 // parseRolesWithSeparator parses role strings and separates org-scoped from global roles

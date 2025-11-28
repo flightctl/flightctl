@@ -1,4 +1,4 @@
-apiVersion: api.flightctl.io/v1alpha1
+apiVersion: api.flightctl.io/v1beta1
 kind: CertificateSigningRequest
 metadata:
   name: mycsr-waiting

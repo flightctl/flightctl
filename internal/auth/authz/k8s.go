@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/contextutil"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/sirupsen/logrus"
 	k8sAuthorizationV1 "k8s.io/api/authorization/v1"
@@ -52,11 +52,12 @@ func (k8sAuth K8sAuthZ) CheckPermission(ctx context.Context, k8sToken string, re
 	}
 
 	// 3. Verify user has access to the selected organization
-	orgID, ok := ctx.Value(consts.OrganizationIDCtxKey).(string)
-	if !ok || orgID == "" {
+	orgUUID, ok := util.GetOrgIdFromContext(ctx)
+	if !ok {
 		k8sAuth.Log.Debug("K8sAuthZ: no organization ID found in context")
 		return false, fmt.Errorf("no organization ID found in context")
 	}
+	orgID := orgUUID.String()
 
 	roles := mappedIdentity.GetRolesForOrg(orgID)
 	if len(roles) == 0 {
@@ -89,7 +90,7 @@ func (k8sAuth K8sAuthZ) CheckPermission(ctx context.Context, k8sToken string, re
 	return ssar.Status.Allowed, nil
 }
 
-func (k8sAuth K8sAuthZ) GetUserPermissions(ctx context.Context, k8sToken string) (*v1alpha1.PermissionList, error) {
+func (k8sAuth K8sAuthZ) GetUserPermissions(ctx context.Context, k8sToken string) (*v1beta1.PermissionList, error) {
 	k8sAuth.Log.Debugf("K8sAuthZ: getting user permissions for namespace=%s", k8sAuth.Namespace)
 
 	// Create SelfSubjectRulesReview to get all rules for the user
@@ -158,20 +159,20 @@ func (k8sAuth K8sAuthZ) GetUserPermissions(ctx context.Context, k8sToken string)
 	}
 	sort.Strings(resources)
 
-	apiPermissions := make([]v1alpha1.Permission, 0, len(permissions))
+	apiPermissions := make([]v1beta1.Permission, 0, len(permissions))
 	for _, resource := range resources {
 		ops := permissions[resource]
 		// Sort operations for consistent output
 		sort.Strings(ops)
 
-		apiPermissions = append(apiPermissions, v1alpha1.Permission{
+		apiPermissions = append(apiPermissions, v1beta1.Permission{
 			Resource:   resource,
 			Operations: ops,
 		})
 	}
 
 	k8sAuth.Log.Debugf("K8sAuthZ: returning %d permissions", len(apiPermissions))
-	return &v1alpha1.PermissionList{
+	return &v1beta1.PermissionList{
 		Permissions: apiPermissions,
 	}, nil
 }

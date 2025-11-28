@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
@@ -70,8 +70,8 @@ var _ = Describe("AuthProviderStore", func() {
 
 		oidcSpec := api.OIDCProviderSpec{
 			ProviderType:           api.Oidc,
-			Issuer:                 "https://accounts.google.com",
-			ClientId:               "test-client-id",
+			Issuer:                 fmt.Sprintf("https://issuer.example.com/%s", name), // Make issuer unique per provider
+			ClientId:               fmt.Sprintf("client-id-%s", name),                  // Make clientId unique per provider
 			ClientSecret:           lo.ToPtr("test-client-secret"),
 			Scopes:                 lo.ToPtr([]string{"openid", "profile", "email"}),
 			Enabled:                lo.ToPtr(true),
@@ -98,7 +98,7 @@ var _ = Describe("AuthProviderStore", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(result).ToNot(BeNil())
 			Expect(*result.Metadata.Name).To(Equal("test-provider"))
-			Expect(result.ApiVersion).To(Equal("flightctl.io/v1alpha1"))
+			Expect(result.ApiVersion).To(Equal("flightctl.io/v1beta1"))
 			Expect(result.Kind).To(Equal(api.AuthProviderKind))
 			Expect(called).To(BeTrue())
 		})
@@ -362,8 +362,8 @@ var _ = Describe("AuthProviderStore", func() {
 
 			oidcSpec := api.OIDCProviderSpec{
 				ProviderType:           api.Oidc,
-				Issuer:                 "https://accounts.google.com",
-				ClientId:               "test-client-id",
+				Issuer:                 "https://issuer.example.com/static-org-provider",
+				ClientId:               "client-id-static-org-provider",
 				ClientSecret:           lo.ToPtr("test-client-secret"),
 				Scopes:                 lo.ToPtr([]string{"openid", "profile", "email"}),
 				Enabled:                lo.ToPtr(true),
@@ -404,8 +404,8 @@ var _ = Describe("AuthProviderStore", func() {
 
 			oidcSpec := api.OIDCProviderSpec{
 				ProviderType:           api.Oidc,
-				Issuer:                 "https://accounts.google.com",
-				ClientId:               "test-client-id",
+				Issuer:                 "https://issuer.example.com/dynamic-org-provider",
+				ClientId:               "client-id-dynamic-org-provider",
 				ClientSecret:           lo.ToPtr("test-client-secret"),
 				Scopes:                 lo.ToPtr([]string{"openid", "profile", "email"}),
 				Enabled:                lo.ToPtr(true),
@@ -447,8 +447,8 @@ var _ = Describe("AuthProviderStore", func() {
 
 			oidcSpec := api.OIDCProviderSpec{
 				ProviderType:           api.Oidc,
-				Issuer:                 "https://accounts.google.com",
-				ClientId:               "test-client-id",
+				Issuer:                 "https://issuer.example.com/per-user-org-provider",
+				ClientId:               "client-id-per-user-org-provider",
 				ClientSecret:           lo.ToPtr("test-client-secret"),
 				Scopes:                 lo.ToPtr([]string{"openid", "profile", "email"}),
 				Enabled:                lo.ToPtr(true),

@@ -31,7 +31,7 @@ spec:
       {{- include "flightctl.databaseWaitInitContainer" (dict "context" . "userType" "app") | nindent 6 }}
       {{- include "flightctl.migrationWaitInitContainer" (dict "context" . "timeout" 600) | nindent 6 }}
       - name: init-certs
-        image: "registry.access.redhat.com/ubi9/ubi-minimal:latest"
+        image: "registry.access.redhat.com/ubi9/ubi-minimal:9.7-1763362218"
         command:
           - /bin/sh
           - -c
@@ -56,19 +56,15 @@ spec:
               value: "/root"
             - name: ALERTMANAGER_URL
               value: "http://flightctl-alertmanager.{{ default .Release.Namespace .Values.global.internalNamespace }}.svc.cluster.local:9093"
-            {{- if eq .Values.global.auth.type "none" }}
-            - name: FLIGHTCTL_DISABLE_AUTH
-              value: "true"
-            {{- end }}
             - name: DB_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: flightctl-db-app-secret
+                  name: {{ include "flightctl.dbAppUserSecret" . }}
                   key: userPassword
             - name: DB_USER
               valueFrom:
                 secretKeyRef:
-                  name: flightctl-db-app-secret
+                  name: {{ include "flightctl.dbAppUserSecret" . }}
                   key: user
           volumeMounts:
             - mountPath: /app/certs
@@ -81,16 +77,24 @@ spec:
               name: flightctl-config-dir
             - mountPath: /tmp
               name: tmp-dir
-            {{- if .Values.global.auth.k8s.externalApiToken}}
+            {{- if .Values.global.auth.k8s.externalApiTokenSecretName }}
             - mountPath: /var/flightctl/k8s
               name: flightctl-alertmanager-proxy-k8s-token
               readOnly: true
             {{- end}}
-            {{- if .Values.global.auth.openshift.externalApiToken}}
+            {{- if .Values.global.auth.openshift.externalApiTokenSecretName }}
             - mountPath: /var/flightctl/k8s
               name: flightctl-alertmanager-proxy-openshift-token
               readOnly: true
             {{- end}}
+            - mountPath: /root/.flightctl/certs/server.crt
+              name: flightctl-alertmanager-proxy-server-tls
+              subPath: tls.crt
+              readOnly: true
+            - mountPath: /root/.flightctl/certs/server.key
+              name: flightctl-alertmanager-proxy-server-tls
+              subPath: tls.key
+              readOnly: true
             {{- include "flightctl.dbSslVolumeMounts" . | nindent 12 }}
           livenessProbe:
             httpGet:
@@ -137,15 +141,18 @@ spec:
           emptyDir: {}
         - name: tmp-dir
           emptyDir: {}
-        {{- if .Values.global.auth.k8s.externalApiToken}}
+        {{- if .Values.global.auth.k8s.externalApiTokenSecretName }}
         - name: flightctl-alertmanager-proxy-k8s-token
           secret:
-            secretName: flightctl-api-k8s-token
+            secretName: {{ .Values.global.auth.k8s.externalApiTokenSecretName }}
         {{- end}}
-        {{- if .Values.global.auth.openshift.externalApiToken}}
+        {{- if .Values.global.auth.openshift.externalApiTokenSecretName }}
         - name: flightctl-alertmanager-proxy-openshift-token
           secret:
-            secretName: flightctl-api-openshift-token
+            secretName: {{ .Values.global.auth.openshift.externalApiTokenSecretName }}
         {{- end}}
+        - name: flightctl-alertmanager-proxy-server-tls
+          secret:
+            secretName: {{ default "flightctl-alertmanager-proxy-server-tls" .Values.alertmanagerProxy.baseDomainTlsSecretName }}
         {{- include "flightctl.dbSslVolumes" . | nindent 8 }}
 {{- end }}

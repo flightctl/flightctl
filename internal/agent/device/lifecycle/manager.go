@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -92,7 +92,7 @@ func NewManager(
 }
 
 // Initialize ensures the device is enrolled to the management service.
-func (m *LifecycleManager) Initialize(ctx context.Context, status *v1alpha1.DeviceStatus) error {
+func (m *LifecycleManager) Initialize(ctx context.Context, status *v1beta1.DeviceStatus) error {
 	if !m.IsInitialized() {
 		if err := m.writeEnrollmentBanner(); err != nil {
 			return err
@@ -115,12 +115,12 @@ func (m *LifecycleManager) Initialize(ctx context.Context, status *v1alpha1.Devi
 	return m.writeManagementBanner()
 }
 
-func (m *LifecycleManager) Sync(ctx context.Context, current, desired *v1alpha1.DeviceSpec) error {
+func (m *LifecycleManager) Sync(ctx context.Context, current, desired *v1beta1.DeviceSpec) error {
 	// this controller currently does not implement a sync operation
 	return nil
 }
 
-func (m *LifecycleManager) AfterUpdate(ctx context.Context, current, desired *v1alpha1.DeviceSpec) error {
+func (m *LifecycleManager) AfterUpdate(ctx context.Context, current, desired *v1beta1.DeviceSpec) error {
 	var errs []error
 	if current.Decommissioning == nil && desired.Decommissioning != nil {
 		m.log.Warn("Detected decommissioning request from flightctl service")
@@ -160,10 +160,10 @@ func (m *LifecycleManager) AfterUpdate(ctx context.Context, current, desired *v1
 }
 
 func (m *LifecycleManager) updateWithStartedCondition(ctx context.Context) error {
-	updateErr := m.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
-		Type:    v1alpha1.ConditionTypeDeviceDecommissioning,
-		Status:  v1alpha1.ConditionStatusTrue,
-		Reason:  string(v1alpha1.DecommissionStateStarted),
+	updateErr := m.statusManager.UpdateCondition(ctx, v1beta1.Condition{
+		Type:    v1beta1.ConditionTypeDeviceDecommissioning,
+		Status:  v1beta1.ConditionStatusTrue,
+		Reason:  string(v1beta1.DecommissionStateStarted),
 		Message: "Device started decommissioning",
 	})
 	if updateErr != nil {
@@ -174,10 +174,10 @@ func (m *LifecycleManager) updateWithStartedCondition(ctx context.Context) error
 }
 
 func (m *LifecycleManager) updateWithCompletedCondition(ctx context.Context) error {
-	updateErr := m.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
-		Type:    v1alpha1.ConditionTypeDeviceDecommissioning,
-		Status:  v1alpha1.ConditionStatusTrue,
-		Reason:  string(v1alpha1.DecommissionStateComplete),
+	updateErr := m.statusManager.UpdateCondition(ctx, v1beta1.Condition{
+		Type:    v1beta1.ConditionTypeDeviceDecommissioning,
+		Status:  v1beta1.ConditionStatusTrue,
+		Reason:  string(v1beta1.DecommissionStateComplete),
 		Message: "Device completed decommissioning and will wipe its management certificate",
 	})
 	if updateErr != nil {
@@ -188,10 +188,10 @@ func (m *LifecycleManager) updateWithCompletedCondition(ctx context.Context) err
 }
 
 func (m *LifecycleManager) updateWithErrorCondition(ctx context.Context, errs []error) error {
-	updateErr := m.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
-		Type:    v1alpha1.ConditionTypeDeviceDecommissioning,
-		Status:  v1alpha1.ConditionStatusTrue,
-		Reason:  string(v1alpha1.DecommissionStateError),
+	updateErr := m.statusManager.UpdateCondition(ctx, v1beta1.Condition{
+		Type:    v1beta1.ConditionTypeDeviceDecommissioning,
+		Status:  v1beta1.ConditionStatusTrue,
+		Reason:  string(v1beta1.DecommissionStateError),
 		Message: fmt.Sprintf("Device encountered one or more errors during decommissioning: %v", errors.Join(errs...)),
 	})
 	if updateErr != nil {
@@ -376,7 +376,7 @@ func (m *LifecycleManager) writeQRBanner(message, url string) error {
 	return nil
 }
 
-func (m *LifecycleManager) enrollmentRequest(ctx context.Context, deviceStatus *v1alpha1.DeviceStatus) error {
+func (m *LifecycleManager) enrollmentRequest(ctx context.Context, deviceStatus *v1beta1.DeviceStatus) error {
 	var csrString string
 	if tpm.IsTCGCSRFormat(m.enrollmentCSR) {
 		// TCG CSR is binary data, must be base64 encoded
@@ -390,7 +390,7 @@ func (m *LifecycleManager) enrollmentRequest(ctx context.Context, deviceStatus *
 	var knownRenderedVersion *string
 	desiredPath := filepath.Join(m.dataDir, "desired.json")
 	if desiredBytes, err := m.deviceReadWriter.ReadFile(desiredPath); err == nil {
-		var desired v1alpha1.Device
+		var desired v1beta1.Device
 		if err := json.Unmarshal(desiredBytes, &desired); err == nil {
 			if version := desired.Version(); version != "" {
 				knownRenderedVersion = &version
@@ -403,13 +403,13 @@ func (m *LifecycleManager) enrollmentRequest(ctx context.Context, deviceStatus *
 		m.log.Debugf("Failed to read desired.json: %v", err)
 	}
 
-	req := v1alpha1.EnrollmentRequest{
-		ApiVersion: "v1alpha1",
+	req := v1beta1.EnrollmentRequest{
+		ApiVersion: "v1beta1",
 		Kind:       "EnrollmentRequest",
-		Metadata: v1alpha1.ObjectMeta{
+		Metadata: v1beta1.ObjectMeta{
 			Name: &m.deviceName,
 		},
-		Spec: v1alpha1.EnrollmentRequestSpec{
+		Spec: v1beta1.EnrollmentRequestSpec{
 			Csr:                  csrString,
 			DeviceStatus:         deviceStatus,
 			Labels:               &m.defaultLabels,

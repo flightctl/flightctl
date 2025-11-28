@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/redis/go-redis/extra/redisotel/v9"
 	"github.com/redis/go-redis/v9"
@@ -51,7 +51,7 @@ func NewKVStore(ctx context.Context, log logrus.FieldLogger, hostname string, po
 	if err := client.Ping(timeoutCtx).Err(); err != nil {
 		return nil, fmt.Errorf("failed to connect to KV store: %w", err)
 	}
-	log.Info("successfully connected to the KV store")
+	log.Debug("successfully connected to the KV store")
 
 	// Lua script to get the value if it exists, otherwise set and return it
 	luaScript := redis.NewScript(`

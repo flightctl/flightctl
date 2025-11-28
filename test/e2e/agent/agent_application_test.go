@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -25,7 +25,7 @@ func sleepAppImageName(harness *e2e.Harness, tag string) string {
 var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 	var (
 		deviceId string
-		device   *v1alpha1.Device
+		device   *v1beta1.Device
 	)
 
 	BeforeEach(func() {
@@ -50,20 +50,22 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(response).ToNot(BeNil())
 			device = response.JSON200
-			Expect(device.Status.Summary.Status).To(Equal(v1alpha1.DeviceSummaryStatusOnline))
+			Expect(device.Status.Summary.Status).To(Equal(v1beta1.DeviceSummaryStatusOnline))
 
 			imageName := sleepAppImageName(harness, "v1")
 
-			updateDevice(harness, deviceId, func(device *v1alpha1.Device) {
-				var applicationConfig = v1alpha1.ImageApplicationProviderSpec{
+			updateDevice(harness, deviceId, func(device *v1beta1.Device) {
+				var applicationConfig = v1beta1.ImageApplicationProviderSpec{
 					Image: imageName,
 				}
 
-				var appSpec v1alpha1.ApplicationProviderSpec
+				appSpec := v1beta1.ApplicationProviderSpec{
+					AppType: v1beta1.AppTypeCompose,
+				}
 				err := appSpec.FromImageApplicationProviderSpec(applicationConfig)
 				Expect(err).ToNot(HaveOccurred())
 
-				device.Spec.Applications = &[]v1alpha1.ApplicationProviderSpec{appSpec}
+				device.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{appSpec}
 				GinkgoWriter.Printf("Updating %s with application %s\n", deviceId, imageName)
 			})
 			Expect(err).ToNot(HaveOccurred())
@@ -79,7 +81,11 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			WaitForApplicationRunningStatus(harness, deviceId, imageName)
 
 			By("Check the general device application status")
-			Expect(device.Status.ApplicationsSummary.Status).To(Equal(v1alpha1.ApplicationsSummaryStatusHealthy))
+			// Re-fetch the device to get the current status after the application is running
+			response, err = harness.GetDeviceWithStatusSystem(deviceId)
+			Expect(err).ToNot(HaveOccurred())
+			device = response.JSON200
+			Expect(device.Status.ApplicationsSummary.Status).To(Equal(v1beta1.ApplicationsSummaryStatusHealthy))
 
 			By("Check the containers are running in the device")
 			output, err := harness.CheckRunningContainers()
@@ -90,24 +96,26 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 
 			imageName = sleepAppImageName(harness, "v2")
 
-			updateDevice(harness, deviceId, func(device *v1alpha1.Device) {
+			updateDevice(harness, deviceId, func(device *v1beta1.Device) {
 				applicationVars := map[string]string{
 					"FFO":      "FFO",
 					"SIMPLE":   "SIMPLE",
 					"SOME_KEY": "SOME_KEY",
 				}
 
-				applicationConfig := v1alpha1.ImageApplicationProviderSpec{
+				applicationConfig := v1beta1.ImageApplicationProviderSpec{
 					Image: imageName,
 				}
 
-				var appSpec v1alpha1.ApplicationProviderSpec
+				appSpec := v1beta1.ApplicationProviderSpec{
+					AppType: v1beta1.AppTypeCompose,
+				}
 				err := appSpec.FromImageApplicationProviderSpec(applicationConfig)
 				Expect(err).ToNot(HaveOccurred())
 
 				appSpec.EnvVars = &applicationVars
 
-				device.Spec.Applications = &[]v1alpha1.ApplicationProviderSpec{appSpec}
+				device.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{appSpec}
 				GinkgoWriter.Printf("Updating %s with application %s\n", deviceId, imageName)
 			})
 			Expect(err).ToNot(HaveOccurred())
@@ -126,8 +134,8 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			By("Delete the application from the fleet configuration")
 			GinkgoWriter.Printf("Removing all the applications from %s\n", deviceId)
 
-			updateDevice(harness, deviceId, func(device *v1alpha1.Device) {
-				device.Spec.Applications = &[]v1alpha1.ApplicationProviderSpec{}
+			updateDevice(harness, deviceId, func(device *v1beta1.Device) {
+				device.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{}
 				GinkgoWriter.Printf("Updating %s removing application %s\n", deviceId, imageName)
 			})
 			Expect(err).ToNot(HaveOccurred())
@@ -144,30 +152,32 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 
 			imageName := sleepAppImageName(harness, "v3")
 
-			updateDevice(harness, deviceId, func(device *v1alpha1.Device) {
-				volumeConfig := v1alpha1.ApplicationVolume{
+			updateDevice(harness, deviceId, func(device *v1beta1.Device) {
+				volumeConfig := v1beta1.ApplicationVolume{
 					Name: "testvol",
 				}
 				err := volumeConfig.FromImageVolumeProviderSpec(
-					v1alpha1.ImageVolumeProviderSpec{
-						Image: v1alpha1.ImageVolumeSource{
+					v1beta1.ImageVolumeProviderSpec{
+						Image: v1beta1.ImageVolumeSource{
 							// This contains a single tar.gz file layer called sqlite--3.50.2.x86_64_linux.bottle.tar.gz
 							Reference:  "ghcr.io/homebrew/core/sqlite:3.50.2",
-							PullPolicy: lo.ToPtr(v1alpha1.PullIfNotPresent),
+							PullPolicy: lo.ToPtr(v1beta1.PullIfNotPresent),
 						},
 					})
 				Expect(err).ToNot(HaveOccurred())
 
-				appConfig := v1alpha1.ImageApplicationProviderSpec{
+				appConfig := v1beta1.ImageApplicationProviderSpec{
 					Image:   imageName,
-					Volumes: &[]v1alpha1.ApplicationVolume{volumeConfig},
+					Volumes: &[]v1beta1.ApplicationVolume{volumeConfig},
 				}
 
-				var appSpec v1alpha1.ApplicationProviderSpec
+				appSpec := v1beta1.ApplicationProviderSpec{
+					AppType: v1beta1.AppTypeCompose,
+				}
 				err = appSpec.FromImageApplicationProviderSpec(appConfig)
 				Expect(err).ToNot(HaveOccurred())
 
-				device.Spec.Applications = &[]v1alpha1.ApplicationProviderSpec{appSpec}
+				device.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{appSpec}
 			})
 
 			By("Wait for the application running status")
@@ -185,16 +195,18 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			By("downgrading to v2 we should not have the mount anymore")
 			imageName = sleepAppImageName(harness, "v2")
 
-			updateDevice(harness, deviceId, func(device *v1alpha1.Device) {
-				appConfig := v1alpha1.ImageApplicationProviderSpec{
+			updateDevice(harness, deviceId, func(device *v1beta1.Device) {
+				appConfig := v1beta1.ImageApplicationProviderSpec{
 					Image: imageName,
 				}
 
-				var appSpec v1alpha1.ApplicationProviderSpec
+				appSpec := v1beta1.ApplicationProviderSpec{
+					AppType: v1beta1.AppTypeCompose,
+				}
 				err := appSpec.FromImageApplicationProviderSpec(appConfig)
 				Expect(err).ToNot(HaveOccurred())
 
-				device.Spec.Applications = &[]v1alpha1.ApplicationProviderSpec{appSpec}
+				device.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{appSpec}
 			})
 			WaitForApplicationRunningStatus(harness, deviceId, imageName)
 
@@ -252,18 +264,18 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			Expect(strings.Count(stdout.String(), AlpineImage)).To(Equal(containerAmount))
 
 			By("Check the application status in the device spec")
-			Eventually(func() v1alpha1.ApplicationStatusType {
+			Eventually(func() v1beta1.ApplicationStatusType {
 				status, err := harness.CheckApplicationStatus(deviceId, inlineAppName)
 				Expect(err).ToNot(HaveOccurred())
 				return status
-			}, TIMEOUT).Should(Equal(v1alpha1.ApplicationStatusRunning))
+			}, TIMEOUT).Should(Equal(v1beta1.ApplicationStatusRunning))
 			newRenderedVersion, err = harness.PrepareNextDeviceVersion(deviceId)
 			Expect(err).ToNot(HaveOccurred())
 			inlineAppComposeYaml = fmt.Sprintf(inlineAppComposeYamlUpdated, NginxImage)
 			inlineApp = createInlineApplicationSpec(inlineAppComposeYaml, fileName)
 
 			By("Update the application with the new compose file")
-			err = harness.UpdateDevice(deviceId, func(d *v1alpha1.Device) {
+			err = harness.UpdateDevice(deviceId, func(d *v1beta1.Device) {
 				err := updateDeviceApplicationFromInline(d, inlineAppName, inlineApp)
 				if err != nil {
 					GinkgoWriter.Printf("Failed to update application %s on device %s: %v\n", inlineAppName, deviceId, err)
@@ -287,8 +299,8 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Remove the application from the spec")
-			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1alpha1.Device) {
-				device.Spec.Applications = &[]v1alpha1.ApplicationProviderSpec{}
+			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
+				device.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{}
 			})
 			Expect(err).ToNot(HaveOccurred())
 
@@ -371,12 +383,12 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 
 			By("Attempt to create an application with non-base64 content and contentEncoding: base64")
 			invalidContent := "Not encoded string"
-			inlineApp = v1alpha1.InlineApplicationProviderSpec{
-				Inline: []v1alpha1.ApplicationContent{
+			inlineApp = v1beta1.InlineApplicationProviderSpec{
+				Inline: []v1beta1.ApplicationContent{
 					{
 						Content:         &invalidContent,
 						Path:            "Chart.yaml",
-						ContentEncoding: lo.ToPtr(v1alpha1.EncodingType("base64")),
+						ContentEncoding: lo.ToPtr(v1beta1.EncodingType("base64")),
 					},
 				},
 			}

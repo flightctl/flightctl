@@ -4,7 +4,7 @@ import (
 	"context"
 	"net/http"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/consts"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -34,12 +34,12 @@ var _ = Describe("Fleet create", func() {
 				},
 				Spec: api.FleetSpec{},
 			}
-			createdFleet, status := suite.Handler.ReplaceFleet(ctx, "test-fleet", *fleet)
+			createdFleet, status := suite.Handler.ReplaceFleet(ctx, suite.OrgID, "test-fleet", *fleet)
 			Expect(status.Code).To(Equal(int32(http.StatusCreated)))
 			Expect(lo.FromPtr(createdFleet.Metadata.Name)).To(Equal("test-fleet"))
 			Expect(lo.FromPtr(createdFleet.Metadata.Owner)).To(Equal(expectedOwner))
 
-			retrievedFleet, status := suite.Handler.GetFleet(ctx, "test-fleet", api.GetFleetParams{})
+			retrievedFleet, status := suite.Handler.GetFleet(ctx, suite.OrgID, "test-fleet", api.GetFleetParams{})
 			Expect(status.Code).To(Equal(int32(http.StatusOK)))
 			Expect(lo.FromPtr(retrievedFleet.Metadata.Name)).To(Equal("test-fleet"))
 			Expect(lo.FromPtr(retrievedFleet.Metadata.Owner)).To(Equal(expectedOwner))

@@ -6,8 +6,9 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
@@ -27,7 +28,65 @@ type Quadlet struct {
 	podman         *client.Podman
 	rw             fileio.ReadWriter
 	log            *log.PrefixLogger
-	actionServices map[string][]string
+	actionCache    *actionCache
+}
+
+type actionCacheEntry struct {
+	services        []string
+	artifactVolumes []string
+}
+
+type actionCache struct {
+	cache map[string]*actionCacheEntry
+}
+
+func newActionCache() *actionCache {
+	return &actionCache{
+		cache: make(map[string]*actionCacheEntry),
+	}
+}
+
+func (a *actionCache) hasAction(actionID string) bool {
+	_, ok := a.cache[actionID]
+	return ok
+}
+
+func (a *actionCache) addServices(actionID string, services []string) {
+	entry, ok := a.cache[actionID]
+	if !ok {
+		entry = &actionCacheEntry{}
+		a.cache[actionID] = entry
+	}
+	entry.services = append(entry.services, services...)
+}
+
+func (a *actionCache) services(actionID string) []string {
+	entry, ok := a.cache[actionID]
+	if !ok {
+		return nil
+	}
+	return entry.services
+}
+
+func (a *actionCache) clearAction(actionID string) {
+	delete(a.cache, actionID)
+}
+
+func (a *actionCache) addVolumes(actionID string, volumes []string) {
+	entry, ok := a.cache[actionID]
+	if !ok {
+		entry = &actionCacheEntry{}
+		a.cache[actionID] = entry
+	}
+	entry.artifactVolumes = append(entry.artifactVolumes, volumes...)
+}
+
+func (a *actionCache) volumes(actionID string) []string {
+	entry, ok := a.cache[actionID]
+	if !ok {
+		return nil
+	}
+	return entry.artifactVolumes
 }
 
 func NewQuadlet(log *log.PrefixLogger, rw fileio.ReadWriter, systemdManager systemd.Manager, podman *client.Podman) *Quadlet {
@@ -36,13 +95,38 @@ func NewQuadlet(log *log.PrefixLogger, rw fileio.ReadWriter, systemdManager syst
 		podman:         podman,
 		rw:             rw,
 		log:            log,
-		actionServices: make(map[string][]string),
+		actionCache:    newActionCache(),
 	}
 }
 
 func (q *Quadlet) add(ctx context.Context, action *Action) error {
 	appName := action.Name
 	q.log.Debugf("Starting quadlet application: %s path: %s", appName, action.Path)
+
+	// systemd daemon-reload can trigger the reload of all quadlet applications within a spec.
+	// use the batch time to gather logs for the systemd generator call
+	batchTime, ok := BatchStartTimeFromContext(ctx)
+	if !ok {
+		batchTime = time.Now()
+	}
+	// use the start time to gather logs for failed services
+	startTime := time.Now()
+
+	if err := q.ensureArtifactVolumes(ctx, action); err != nil {
+		return fmt.Errorf("ensuring artifact volumes: %w", err)
+	}
+	requiresActionCleanup := true
+	defer func() {
+		if requiresActionCleanup {
+			vols := q.actionCache.volumes(action.ID)
+			if len(vols) > 0 {
+				if err := q.podman.RemoveVolumes(ctx, vols...); err != nil {
+					q.log.Errorf("Tearing down volumes failed after failed add action: %v", err)
+				}
+			}
+			q.actionCache.clearAction(action.ID)
+		}
+	}()
 
 	if err := q.systemdManager.DaemonReload(ctx); err != nil {
 		return fmt.Errorf("daemon reload: %w", err)
@@ -56,12 +140,35 @@ func (q *Quadlet) add(ctx context.Context, action *Action) error {
 	if len(services) > 0 {
 		q.log.Debugf("Starting quadlet: %s services: %q", appName, strings.Join(services, ","))
 		if err := q.systemdManager.Start(ctx, services...); err != nil {
-			return fmt.Errorf("starting units: %w", err)
+			// if starting fails, attempt to gather as many logs as possible
+			// check the individual service logs and the quadlet generator logs for potential issues
+			err = fmt.Errorf("starting units: %w", err)
+			for _, service := range services {
+				serviceLogs, serviceErr := q.systemdManager.Logs(ctx, client.WithLogUnit(service), client.WithLogSince(startTime))
+				if serviceErr != nil {
+					q.log.Errorf("Failed to gather service: %q logs: %v", service, serviceErr)
+					continue
+				}
+				if len(serviceLogs) > 0 {
+					q.log.Infof("Service: %q logs: %s", service, strings.Join(serviceLogs, "\n"))
+					err = fmt.Errorf("service: %q logs: %s: %w", service, strings.Join(serviceLogs, ","), err)
+				}
+			}
+			generatorLogs, logsErr := q.systemdManager.Logs(ctx, client.WithLogTag("quadlet-generator"), client.WithLogSince(batchTime))
+			if logsErr != nil {
+				q.log.Errorf("Failed to fetch quadlet-generator logs: %v", logsErr)
+			}
+			if len(generatorLogs) > 0 {
+				q.log.Errorf("Failed to generate services from the defined Quadlet. Check the syntax of the Quadlet files.\n%s", strings.Join(generatorLogs, "\n"))
+				err = fmt.Errorf("quadlet generator: %s %w", strings.Join(generatorLogs, ","), err)
+			}
+			return err
 		}
 		q.systemdManager.AddExclusions(services...)
 	}
-	q.actionServices[action.ID] = services
+	q.actionCache.addServices(action.ID, services)
 
+	requiresActionCleanup = false
 	q.log.Infof("Started quadlet application: %s", appName)
 	return nil
 }
@@ -70,12 +177,10 @@ func (q *Quadlet) add(ctx context.Context, action *Action) error {
 // note, the current state of the application directory can't be used as it has likely been modified already.
 func (q *Quadlet) remove(ctx context.Context, action *Action) error {
 	appName := action.Name
-	services, ok := q.actionServices[action.ID]
-	if !ok {
-		q.log.Debugf("Quadlet application not found: %s for stopping services", appName)
+	if !q.actionCache.hasAction(action.ID) {
 		return nil
 	}
-
+	services := q.actionCache.services(action.ID)
 	if len(services) > 0 {
 		q.log.Debugf("Stopping quadlet: %s services: %q", appName, strings.Join(services, ","))
 		err := q.systemdManager.Stop(ctx, services...)
@@ -99,7 +204,8 @@ func (q *Quadlet) remove(ctx context.Context, action *Action) error {
 		return fmt.Errorf("daemon reload: %w", err)
 	}
 
-	delete(q.actionServices, action.ID)
+	defer q.actionCache.clearAction(action.ID)
+
 	q.log.Infof("Removed quadlet application: %s", appName)
 
 	// the labels applied to quadlets are only directly applied to that quadlet. They do not apply to
@@ -121,12 +227,14 @@ func (q *Quadlet) remove(ctx context.Context, action *Action) error {
 	// The agent currently doesn't distinguish between "stop for a graceful shutdown", and "remove application". Both elicit
 	// a "remove" operation. Most resources are fine to remove and recreate on startup, as they should be application specific,
 	// but volumes MUST survive restarts. Image backed volumes are removed to allow for updating to newer images if updated,
-	// and on restart, repopulating the volume from the already downloaded image is non-destructive
+	// and on restart, repopulating the volume from the already downloaded image is non-destructive. Artifact backed volumes
+	// follow the same pattern, they can be recreated from their source artifacts.
 	volumes, err := q.podman.ListVolumes(ctx, labels, filters)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("listing volumes: %w", err))
 	}
-	var volsToRemove []string
+
+	volsToRemove := q.actionCache.volumes(action.ID)
 	for _, volume := range volumes {
 		driver, err := q.podman.InspectVolumeDriver(ctx, volume)
 		if err != nil {
@@ -181,6 +289,7 @@ func (q *Quadlet) serviceName(file string, quadletSection string, defaultName st
 	if err != nil {
 		return "", fmt.Errorf("parsing quadlet %q: %w", file, err)
 	}
+
 	name, err := unit.Lookup(quadletSection, quadlet.ServiceNameKey)
 	if err != nil {
 		if errors.Is(err, quadlet.ErrKeyNotFound) {
@@ -255,9 +364,51 @@ func (q *Quadlet) getFailedServices(ctx context.Context, services []string) []st
 
 	var failedServices []string
 	for _, u := range units {
-		if u.ActiveState == string(v1alpha1.SystemdActiveStateFailed) {
+		if u.ActiveState == string(v1beta1.SystemdActiveStateFailed) {
 			failedServices = append(failedServices, u.Unit)
 		}
 	}
 	return failedServices
+}
+
+func (q *Quadlet) ensureArtifactVolumes(ctx context.Context, action *Action) error {
+	if len(action.Volumes) == 0 {
+		return nil
+	}
+	labels := []string{fmt.Sprintf("%s=%s", client.QuadletProjectLabelKey, action.ID)}
+	var artifactVolumes []string
+	cleanup := func(err error) error {
+		if len(artifactVolumes) > 0 {
+			if removeErr := q.podman.RemoveVolumes(ctx, artifactVolumes...); removeErr != nil {
+				err = fmt.Errorf("removing artifacts: %w: %w", removeErr, err)
+			}
+		}
+		return err
+	}
+	for _, volume := range action.Volumes {
+		if q.podman.ImageExists(ctx, volume.Reference) {
+			q.log.Debugf("Skipping image-backed volume with reference %s", volume.Reference)
+			continue
+		}
+
+		q.log.Infof("Creating artifact volume %q from artifact %q", volume.ID, volume.Reference)
+
+		volumeName := volume.ID
+		volumePath, err := q.podman.CreateVolume(ctx, volumeName, labels)
+		if err != nil {
+			return cleanup(fmt.Errorf("creating volume %q: %w", volumeName, err))
+		}
+
+		artifactVolumes = append(artifactVolumes, volumeName)
+
+		if _, err := q.podman.ExtractArtifact(ctx, volume.Reference, volumePath); err != nil {
+			return cleanup(fmt.Errorf("extracting artifact to volume %q: %w", volumeName, err))
+		}
+	}
+
+	if len(artifactVolumes) > 0 {
+		q.actionCache.addVolumes(action.ID, artifactVolumes)
+	}
+
+	return nil
 }

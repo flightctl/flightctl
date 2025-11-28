@@ -1,4 +1,4 @@
-{{- if ne .Values.db.external "enabled" }}
+{{- if eq .Values.db.type "builtin" }}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -8,9 +8,11 @@ metadata:
     {{- with .Values.global.additionalPVCLabels }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
-    {{- with .Values.db.additionalPVCLabels }}
+    {{- with .Values.db.builtin.additionalPVCLabels }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-db
   name: flightctl-db
   namespace:  {{ default .Release.Namespace .Values.global.internalNamespace }}
 spec:
@@ -21,6 +23,6 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: {{ .Values.db.storage.size }}
+      storage: {{ .Values.db.builtin.storage.size }}
 {{- end }}
 

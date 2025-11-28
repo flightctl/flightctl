@@ -7,11 +7,10 @@ import (
 	"fmt"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/worker"
 	"github.com/flightctl/flightctl/internal/service"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
@@ -27,15 +26,17 @@ type QueueMaintenanceTask struct {
 	log            logrus.FieldLogger
 	serviceHandler service.Service
 	queuesProvider queues.Provider
+	workerClient   worker_client.WorkerClient
 	workerMetrics  *worker.WorkerCollector
 }
 
 // NewQueueMaintenanceTask creates a new queue maintenance task
-func NewQueueMaintenanceTask(log logrus.FieldLogger, serviceHandler service.Service, queuesProvider queues.Provider, workerMetrics *worker.WorkerCollector) *QueueMaintenanceTask {
+func NewQueueMaintenanceTask(log logrus.FieldLogger, serviceHandler service.Service, queuesProvider queues.Provider, workerClient worker_client.WorkerClient, workerMetrics *worker.WorkerCollector) *QueueMaintenanceTask {
 	return &QueueMaintenanceTask{
 		log:            log,
 		serviceHandler: serviceHandler,
 		queuesProvider: queuesProvider,
+		workerClient:   workerClient,
 		workerMetrics:  workerMetrics,
 	}
 }
@@ -95,15 +96,12 @@ func (t *QueueMaintenanceTask) processTimedOutMessages(ctx context.Context, log 
 			// Successfully parsed the original event
 			originalEvent = eventWithOrgId.Event
 
-			// Ensure event is emitted under the correct organization
-			orgCtx := util.WithOrganizationID(ctx, eventWithOrgId.OrgId)
-
 			// Use the original event's resource information for better context
 			resourceKind := originalEvent.InvolvedObject.Kind
 			resourceName := originalEvent.InvolvedObject.Name
 
 			// Emit InternalTaskFailedEvent using the original event
-			EmitInternalTaskFailedEvent(orgCtx,
+			EmitInternalTaskFailedEvent(ctx, eventWithOrgId.OrgId,
 				fmt.Sprintf("Message processing timed out after %v", EventProcessingTimeout),
 				originalEvent,
 				t.serviceHandler)
@@ -141,14 +139,11 @@ func (t *QueueMaintenanceTask) retryFailedMessages(ctx context.Context, log logr
 			// Successfully parsed the original event
 			originalEvent = eventWithOrgId.Event
 
-			// Ensure event is emitted under the correct organization
-			orgCtx := util.WithOrganizationID(ctx, eventWithOrgId.OrgId)
-
 			resourceKind := api.ResourceKind(api.SystemKind)
 			resourceName := api.SystemComponentQueue
 			errorMessage := fmt.Sprintf("Message processing permanently failed after %d retry attempts", retryCount)
 			message := fmt.Sprintf("%s internal task failed: %s - %s.", resourceKind, originalEvent.Reason, errorMessage)
-			event := api.GetBaseEvent(orgCtx,
+			event := api.GetBaseEvent(ctx,
 				resourceKind,
 				resourceName,
 				api.EventReasonInternalTaskPermanentlyFailed,
@@ -165,7 +160,7 @@ func (t *QueueMaintenanceTask) retryFailedMessages(ctx context.Context, log logr
 			}
 
 			// Emit the event
-			t.serviceHandler.CreateEvent(orgCtx, event)
+			t.serviceHandler.CreateEvent(ctx, eventWithOrgId.OrgId, event)
 
 			log.WithField("entryID", entryID).
 				WithField("resourceKind", resourceKind).
@@ -275,15 +270,8 @@ func (t *QueueMaintenanceTask) recoverFromMissingCheckpoint(ctx context.Context,
 func (t *QueueMaintenanceTask) republishEventsSince(ctx context.Context, since time.Time, log logrus.FieldLogger) error {
 	log.WithField("since", since.Format(time.RFC3339Nano)).Info("Starting event republishing")
 
-	// Create publisher on-demand for recovery operations
-	publisher, err := t.queuesProvider.NewQueueProducer(ctx, consts.TaskQueue)
-	if err != nil {
-		return fmt.Errorf("failed to create publisher for event republishing: %w", err)
-	}
-	defer publisher.Close() // Ensure publisher is closed after use
-
 	// First, get all organizations
-	orgList, status := t.serviceHandler.ListOrganizations(ctx)
+	orgList, status := t.serviceHandler.ListOrganizations(ctx, api.ListOrganizationsParams{})
 	if status.Code >= 400 {
 		return fmt.Errorf("failed to list organizations: %s", status.Message)
 	}
@@ -298,8 +286,6 @@ func (t *QueueMaintenanceTask) republishEventsSince(ctx context.Context, since t
 			continue
 		}
 
-		// Create organization context
-		orgCtx := util.WithOrganizationID(ctx, orgID)
 		orgLog := log.WithField("orgId", orgID.String())
 
 		orgLog.Debug("Processing events for organization")
@@ -325,7 +311,7 @@ func (t *QueueMaintenanceTask) republishEventsSince(ctx context.Context, since t
 			}
 
 			// List events from database for this organization
-			eventList, status := t.serviceHandler.ListEvents(orgCtx, params)
+			eventList, status := t.serviceHandler.ListEvents(ctx, orgID, params)
 			if status.Code >= 400 {
 				orgLog.WithError(fmt.Errorf("status: %s", status.Message)).Warn("Failed to list events for organization, continuing with next")
 				break
@@ -340,7 +326,7 @@ func (t *QueueMaintenanceTask) republishEventsSince(ctx context.Context, since t
 			for _, event := range eventList.Items {
 				eventName := lo.FromPtrOr(event.Metadata.Name, "<unnamed>")
 				orgLog.WithField("eventName", eventName).Debug("Attempting to republish event")
-				if err := t.republishSingleEvent(orgCtx, &event, orgID, publisher, orgLog); err != nil {
+				if err := t.republishSingleEvent(ctx, &event, orgID, orgLog); err != nil {
 					orgLog.WithError(err).WithField("eventName", eventName).Error("Failed to republish event, continuing with next")
 					continue
 				}
@@ -367,38 +353,14 @@ func (t *QueueMaintenanceTask) republishEventsSince(ctx context.Context, since t
 	return nil
 }
 
-// republishSingleEvent republishes a single event to the queue using the provided publisher
-func (t *QueueMaintenanceTask) republishSingleEvent(ctx context.Context, event *api.Event, orgID uuid.UUID, publisher queues.QueueProducer, log logrus.FieldLogger) error {
-	// Create the event wrapper with the correct orgId
-	eventWithOrgId := worker_client.EventWithOrgId{
-		OrgId: orgID,
-		Event: *event,
-	}
-
-	// Marshal the event
-	eventBytes, err := json.Marshal(eventWithOrgId)
-	if err != nil {
-		return fmt.Errorf("failed to marshal event: %w", err)
-	}
-
-	// Use the event's creation timestamp
-	var timestamp int64
-	if event.Metadata.CreationTimestamp != nil {
-		timestamp = event.Metadata.CreationTimestamp.UnixMicro()
-	} else {
-		timestamp = time.Now().UnixMicro()
-	}
-
-	// Publish to the queue using the provided publisher
-	if err := publisher.Enqueue(ctx, eventBytes, timestamp); err != nil {
-		log.WithError(err).WithField("eventName", lo.FromPtrOr(event.Metadata.Name, "<unnamed>")).Error("Failed to publish event to queue")
-		return fmt.Errorf("failed to publish event to queue: %w", err)
+// republishSingleEvent republishes a single event using the worker client
+func (t *QueueMaintenanceTask) republishSingleEvent(ctx context.Context, event *api.Event, orgID uuid.UUID, log logrus.FieldLogger) error {
+	// Use the worker client to emit the event (will filter by reason)
+	if t.workerClient != nil {
+		t.workerClient.EmitEvent(ctx, orgID, event)
 	}
 
 	eventName := lo.FromPtrOr(event.Metadata.Name, "<unnamed>")
-	log.WithField("eventName", eventName).
-		WithField("timestamp", timestamp).
-		Debug("Successfully republished event")
-
+	log.WithField("eventName", eventName).WithField("orgId", orgID).Debug("Republished event via worker client")
 	return nil
 }

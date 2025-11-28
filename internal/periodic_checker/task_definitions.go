@@ -12,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/flightctl/flightctl/pkg/reqid"
 	"github.com/go-chi/chi/v5/middleware"
@@ -46,7 +47,7 @@ var periodicTasks = map[PeriodicTaskType]PeriodicTaskMetadata{
 	PeriodicTaskTypeDeviceDisconnected:     {Interval: tasks.DeviceDisconnectedPollingInterval, SystemWide: false},
 	PeriodicTaskTypeRolloutDeviceSelection: {Interval: device_selection.RolloutDeviceSelectionInterval, SystemWide: false},
 	PeriodicTaskTypeDisruptionBudget:       {Interval: disruption_budget.DisruptionBudgetReconcilationInterval, SystemWide: false},
-	PeriodicTaskTypeEventCleanup:           {Interval: tasks.EventCleanupPollingInterval, SystemWide: false},
+	PeriodicTaskTypeEventCleanup:           {Interval: tasks.EventCleanupPollingInterval, SystemWide: true},
 	PeriodicTaskTypeQueueMaintenance:       {Interval: QueueMaintenanceInterval, SystemWide: true},
 }
 
@@ -56,7 +57,7 @@ type PeriodicTaskReference struct {
 }
 
 type PeriodicTaskExecutor interface {
-	Execute(ctx context.Context, log logrus.FieldLogger, orgID uuid.UUID)
+	Execute(ctx context.Context, log logrus.FieldLogger, orgId uuid.UUID)
 }
 
 type RepositoryTesterExecutor struct {
@@ -64,22 +65,20 @@ type RepositoryTesterExecutor struct {
 	serviceHandler service.Service
 }
 
-// createTaskContext creates a task context with request ID, orgID, and event actor
-func createTaskContext(ctx context.Context, taskType PeriodicTaskType, orgID uuid.UUID) context.Context {
+// createTaskContext creates a task context with request ID and event actor
+func createTaskContext(ctx context.Context, taskType PeriodicTaskType) context.Context {
 	taskName := string(taskType)
 	reqid.OverridePrefix(taskName)
 	requestID := reqid.NextRequestID()
 	ctx = context.WithValue(ctx, middleware.RequestIDKey, requestID)
 
-	ctx = util.WithOrganizationID(ctx, orgID)
-
 	return context.WithValue(ctx, consts.EventActorCtxKey, taskName)
 }
 
-func (e *RepositoryTesterExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgID uuid.UUID) {
-	taskCtx := createTaskContext(ctx, PeriodicTaskTypeRepositoryTester, orgID)
+func (e *RepositoryTesterExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgId uuid.UUID) {
+	taskCtx := createTaskContext(ctx, PeriodicTaskTypeRepositoryTester)
 	repoTester := tasks.NewRepoTester(e.log, e.serviceHandler)
-	repoTester.TestRepositories(taskCtx)
+	repoTester.TestRepositories(taskCtx, orgId)
 }
 
 type ResourceSyncExecutor struct {
@@ -88,10 +87,10 @@ type ResourceSyncExecutor struct {
 	ignoreResourceUpdates []string
 }
 
-func (e *ResourceSyncExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgID uuid.UUID) {
-	taskCtx := createTaskContext(ctx, PeriodicTaskTypeResourceSync, orgID)
+func (e *ResourceSyncExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgId uuid.UUID) {
+	taskCtx := createTaskContext(ctx, PeriodicTaskTypeResourceSync)
 	resourceSync := tasks.NewResourceSync(e.serviceHandler, e.log, e.ignoreResourceUpdates)
-	resourceSync.Poll(taskCtx)
+	resourceSync.Poll(taskCtx, orgId)
 }
 
 type DeviceDisconnectedExecutor struct {
@@ -99,10 +98,10 @@ type DeviceDisconnectedExecutor struct {
 	serviceHandler service.Service
 }
 
-func (e *DeviceDisconnectedExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgID uuid.UUID) {
-	taskCtx := createTaskContext(ctx, PeriodicTaskTypeDeviceDisconnected, orgID)
+func (e *DeviceDisconnectedExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgId uuid.UUID) {
+	taskCtx := createTaskContext(ctx, PeriodicTaskTypeDeviceDisconnected)
 	deviceDisconnected := tasks.NewDeviceDisconnected(e.log, e.serviceHandler)
-	deviceDisconnected.Poll(taskCtx)
+	deviceDisconnected.Poll(taskCtx, orgId)
 }
 
 type RolloutDeviceSelectionExecutor struct {
@@ -110,10 +109,10 @@ type RolloutDeviceSelectionExecutor struct {
 	log            logrus.FieldLogger
 }
 
-func (e *RolloutDeviceSelectionExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgID uuid.UUID) {
-	taskCtx := createTaskContext(ctx, PeriodicTaskTypeRolloutDeviceSelection, orgID)
+func (e *RolloutDeviceSelectionExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgId uuid.UUID) {
+	taskCtx := createTaskContext(ctx, PeriodicTaskTypeRolloutDeviceSelection)
 	rolloutDeviceSelection := device_selection.NewReconciler(e.serviceHandler, e.log)
-	rolloutDeviceSelection.Reconcile(taskCtx)
+	rolloutDeviceSelection.Reconcile(taskCtx, orgId)
 }
 
 type DisruptionBudgetExecutor struct {
@@ -121,10 +120,10 @@ type DisruptionBudgetExecutor struct {
 	log            logrus.FieldLogger
 }
 
-func (e *DisruptionBudgetExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgID uuid.UUID) {
-	taskCtx := createTaskContext(ctx, PeriodicTaskTypeDisruptionBudget, orgID)
+func (e *DisruptionBudgetExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgId uuid.UUID) {
+	taskCtx := createTaskContext(ctx, PeriodicTaskTypeDisruptionBudget)
 	disruptionBudget := disruption_budget.NewReconciler(e.serviceHandler, e.log)
-	disruptionBudget.Reconcile(taskCtx)
+	disruptionBudget.Reconcile(taskCtx, orgId)
 }
 
 type EventCleanupExecutor struct {
@@ -133,8 +132,9 @@ type EventCleanupExecutor struct {
 	eventRetentionPeriod util.Duration
 }
 
-func (e *EventCleanupExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgID uuid.UUID) {
-	taskCtx := createTaskContext(ctx, PeriodicTaskTypeEventCleanup, orgID)
+func (e *EventCleanupExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgId uuid.UUID) {
+	taskCtx := createTaskContext(ctx, PeriodicTaskTypeEventCleanup)
+	// Note: Event cleanup is system-wide, orgId is not used
 	eventCleanup := tasks.NewEventCleanup(e.log, e.serviceHandler, e.eventRetentionPeriod)
 	eventCleanup.Poll(taskCtx)
 }
@@ -143,23 +143,23 @@ type QueueMaintenanceExecutor struct {
 	log            logrus.FieldLogger
 	serviceHandler service.Service
 	queuesProvider queues.Provider
+	workerClient   worker_client.WorkerClient
 	workerMetrics  *worker.WorkerCollector
 }
 
-func (e *QueueMaintenanceExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgID uuid.UUID) {
-	taskCtx := createTaskContext(ctx, PeriodicTaskTypeQueueMaintenance, orgID)
+func (e *QueueMaintenanceExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgId uuid.UUID) {
+	taskCtx := createTaskContext(ctx, PeriodicTaskTypeQueueMaintenance)
 
 	// Create and execute the queue maintenance task
-	// Note: Queue maintenance is system-wide, orgID is only used for context/tracing
-	task := tasks.NewQueueMaintenanceTask(e.log, e.serviceHandler, e.queuesProvider, e.workerMetrics)
+	// Note: Queue maintenance is system-wide, orgId is not used
+	task := tasks.NewQueueMaintenanceTask(e.log, e.serviceHandler, e.queuesProvider, e.workerClient, e.workerMetrics)
 
-	// For system-wide tasks, we don't need to pass orgID to the task itself
 	if err := task.Execute(taskCtx); err != nil {
 		e.log.WithError(err).Error("Queue maintenance task failed")
 	}
 }
 
-func InitializeTaskExecutors(log logrus.FieldLogger, serviceHandler service.Service, cfg *config.Config, queuesProvider queues.Provider, workerMetrics *worker.WorkerCollector) map[PeriodicTaskType]PeriodicTaskExecutor {
+func InitializeTaskExecutors(log logrus.FieldLogger, serviceHandler service.Service, cfg *config.Config, queuesProvider queues.Provider, workerClient worker_client.WorkerClient, workerMetrics *worker.WorkerCollector) map[PeriodicTaskType]PeriodicTaskExecutor {
 	return map[PeriodicTaskType]PeriodicTaskExecutor{
 		PeriodicTaskTypeRepositoryTester: &RepositoryTesterExecutor{
 			log:            log.WithField("pkg", "repository-tester"),
@@ -191,6 +191,7 @@ func InitializeTaskExecutors(log logrus.FieldLogger, serviceHandler service.Serv
 			log:            log.WithField("pkg", "queue-maintenance"),
 			serviceHandler: serviceHandler,
 			queuesProvider: queuesProvider,
+			workerClient:   workerClient,
 			workerMetrics:  workerMetrics,
 		},
 	}

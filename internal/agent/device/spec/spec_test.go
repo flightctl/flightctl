@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -951,7 +951,7 @@ func TestGetDesired(t *testing.T) {
 	testCases := []struct {
 		name           string
 		setupMocks     func(mpq *MockPriorityQueue, mrw *fileio.MockReadWriter, mc *client.MockManagement, mpm *policy.MockManager)
-		expectedDevice *v1alpha1.Device
+		expectedDevice *v1beta1.Device
 		expectedError  error
 	}{
 		{
@@ -981,8 +981,8 @@ func TestGetDesired(t *testing.T) {
 			name: "spec from the api response has the same Version as desired",
 			setupMocks: func(mpq *MockPriorityQueue, mrw *fileio.MockReadWriter, mc *client.MockManagement, mpm *policy.MockManager) {
 				renderedDesiredSpec := newVersionedDevice("2") // same as cache desired version "2"
-				renderedDesiredSpec.Spec = &v1alpha1.DeviceSpec{
-					Os: &v1alpha1.DeviceOsSpec{
+				renderedDesiredSpec.Spec = &v1beta1.DeviceSpec{
+					Os: &v1beta1.DeviceOsSpec{
 						Image: image,
 					},
 				}
@@ -995,10 +995,10 @@ func TestGetDesired(t *testing.T) {
 				// No WriteFile expectation since version is the same, so no write should occur
 				// No Sync call since we're not consuming from subscription
 			},
-			expectedDevice: func() *v1alpha1.Device {
+			expectedDevice: func() *v1beta1.Device {
 				device := newVersionedDevice("2")
-				device.Spec = &v1alpha1.DeviceSpec{
-					Os: &v1alpha1.DeviceOsSpec{
+				device.Spec = &v1beta1.DeviceSpec{
+					Os: &v1beta1.DeviceOsSpec{
 						Image: image,
 					},
 				}
@@ -1011,8 +1011,8 @@ func TestGetDesired(t *testing.T) {
 			setupMocks: func(mpq *MockPriorityQueue, mrw *fileio.MockReadWriter, mc *client.MockManagement, mpm *policy.MockManager) {
 				// Create a device with version "3" (newer than cache desired version "2")
 				device := newVersionedDevice("3")
-				device.Spec = &v1alpha1.DeviceSpec{
-					Os: &v1alpha1.DeviceOsSpec{
+				device.Spec = &v1beta1.DeviceSpec{
+					Os: &v1beta1.DeviceOsSpec{
 						Image: image,
 					},
 				}
@@ -1046,8 +1046,8 @@ func TestGetDesired(t *testing.T) {
 
 				// Create a device with version "1" (older than cache desired version "2")
 				olderDevice := newVersionedDevice("1")
-				olderDevice.Spec = &v1alpha1.DeviceSpec{
-					Os: &v1alpha1.DeviceOsSpec{
+				olderDevice.Spec = &v1beta1.DeviceSpec{
+					Os: &v1beta1.DeviceOsSpec{
 						Image: image,
 					},
 				}
@@ -1228,10 +1228,10 @@ func createTestDeviceBytes(image string) ([]byte, error) {
 	return json.Marshal(spec)
 }
 
-func createTestRenderedDevice(image string) *v1alpha1.Device {
+func createTestRenderedDevice(image string) *v1beta1.Device {
 	device := newVersionedDevice("1")
-	spec := v1alpha1.DeviceSpec{
-		Os: &v1alpha1.DeviceOsSpec{
+	spec := v1beta1.DeviceSpec{
+		Os: &v1beta1.DeviceOsSpec{
 			Image: image,
 		},
 	}

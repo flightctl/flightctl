@@ -3,13 +3,15 @@ package tasks
 import (
 	"context"
 	"fmt"
+	"strings"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/storage/memory"
+	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
@@ -33,7 +35,7 @@ func NewRepoTester(log logrus.FieldLogger, serviceHandler service.Service) *Repo
 	}
 }
 
-func (r *RepoTester) TestRepositories(ctx context.Context) {
+func (r *RepoTester) TestRepositories(ctx context.Context, orgId uuid.UUID) {
 	log := log.WithReqIDFromCtx(ctx, r.log)
 
 	log.Info("Running RepoTester")
@@ -42,7 +44,7 @@ func (r *RepoTester) TestRepositories(ctx context.Context) {
 	continueToken := (*string)(nil)
 
 	for {
-		repositories, status := r.serviceHandler.ListRepositories(ctx, api.ListRepositoriesParams{
+		repositories, status := r.serviceHandler.ListRepositories(ctx, orgId, api.ListRepositoriesParams{
 			Limit:    &limit,
 			Continue: continueToken,
 		})
@@ -66,7 +68,7 @@ func (r *RepoTester) TestRepositories(ctx context.Context) {
 				log.Errorf("unsupported repository type: %s", repoSpec.Type)
 			}
 
-			r.testRepository(ctx, repository)
+			r.testRepository(ctx, orgId, repository)
 		}
 
 		continueToken = repositories.Metadata.Continue
@@ -76,22 +78,22 @@ func (r *RepoTester) TestRepositories(ctx context.Context) {
 	}
 }
 
-func (r *RepoTester) SetAccessCondition(ctx context.Context, repository *api.Repository, err error) error {
+func (r *RepoTester) SetAccessCondition(ctx context.Context, orgId uuid.UUID, repository *api.Repository, err error) error {
 	if repository.Status == nil {
 		repository.Status = &api.RepositoryStatus{Conditions: []api.Condition{}}
 	}
 	if repository.Status.Conditions == nil {
 		repository.Status.Conditions = []api.Condition{}
 	}
-	_, status := r.serviceHandler.ReplaceRepositoryStatusByError(ctx, lo.FromPtr(repository.Metadata.Name), *repository, err)
+	_, status := r.serviceHandler.ReplaceRepositoryStatusByError(ctx, orgId, lo.FromPtr(repository.Metadata.Name), *repository, err)
 
 	return service.ApiStatusToErr(status)
 }
 
-func (r *RepoTester) testRepository(ctx context.Context, repository api.Repository) {
+func (r *RepoTester) testRepository(ctx context.Context, orgId uuid.UUID, repository api.Repository) {
 	repoName := *repository.Metadata.Name
 	accessErr := r.TypeSpecificRepoTester.TestAccess(&repository)
-	if err := r.SetAccessCondition(ctx, &repository, accessErr); err != nil {
+	if err := r.SetAccessCondition(ctx, orgId, &repository, accessErr); err != nil {
 		r.log.Errorf("Failed to update repository status for %s: %v", repoName, err)
 	}
 }
@@ -125,7 +127,19 @@ func (r *GitRepoTester) TestAccess(repository *api.Repository) error {
 
 	listOps.Auth = auth
 	_, err = remote.List(listOps)
-	return err
+	if err != nil {
+		// Extract the root cause from go-git wrapped errors
+		// Format is often "authentication required: <actual error>"
+		errMsg := err.Error()
+		if idx := strings.LastIndex(errMsg, ": "); idx != -1 && idx+2 < len(errMsg) {
+			// Extract the part after the colon (the actual error)
+			errMsg = strings.TrimSpace(errMsg[idx+2:])
+		}
+		// Remove trailing period if present
+		errMsg = strings.TrimSuffix(errMsg, ".")
+		return fmt.Errorf("%s", errMsg)
+	}
+	return nil
 }
 
 func (r *HttpRepoTester) TestAccess(repository *api.Repository) error {

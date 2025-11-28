@@ -7,9 +7,10 @@ import (
 	"testing"
 
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/tpm"
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -152,7 +153,7 @@ func TestValidateEnrollmentRequest(t *testing.T) {
 			name:           "Enrollment request not found",
 			enrollmentName: "non-existent-request",
 			setupMocks: func(mockService *service.MockService, mockStream *grpc_v1.MockEnrollment_TPMChallengeServer) {
-				mockService.EXPECT().GetEnrollmentRequest(gomock.Any(), "non-existent-request").Return(
+				mockService.EXPECT().GetEnrollmentRequest(gomock.Any(), gomock.Any(), "non-existent-request").Return(
 					nil, api.Status{Code: http.StatusNotFound, Message: "not found"},
 				)
 				mockStream.EXPECT().Send(gomock.Any()).Return(nil)
@@ -163,7 +164,7 @@ func TestValidateEnrollmentRequest(t *testing.T) {
 			name:           "Send error response fails",
 			enrollmentName: "test-request",
 			setupMocks: func(mockService *service.MockService, mockStream *grpc_v1.MockEnrollment_TPMChallengeServer) {
-				mockService.EXPECT().GetEnrollmentRequest(gomock.Any(), "test-request").Return(
+				mockService.EXPECT().GetEnrollmentRequest(gomock.Any(), gomock.Any(), "test-request").Return(
 					nil, api.Status{Code: http.StatusInternalServerError, Message: "server error"},
 				)
 				mockStream.EXPECT().Send(gomock.Any()).Return(status.Error(codes.Internal, "stream failed"))
@@ -299,7 +300,7 @@ func TestPerformTPMChallenge(t *testing.T) {
 						},
 					},
 				}, nil)
-				mockService.EXPECT().GetEnrollmentRequest(gomock.Any(), "").Return(
+				mockService.EXPECT().GetEnrollmentRequest(gomock.Any(), gomock.Any(), "").Return(
 					nil, api.Status{Code: http.StatusNotFound, Message: "not found"},
 				)
 				mockStream.EXPECT().Send(gomock.Any()).Return(nil).AnyTimes()
@@ -344,7 +345,7 @@ func TestPerformTPMChallenge(t *testing.T) {
 				}, nil)
 
 				// 2. Service validates enrollment request
-				mockService.EXPECT().GetEnrollmentRequest(ctx, enrollmentRequestName).Return(
+				mockService.EXPECT().GetEnrollmentRequest(ctx, gomock.Any(), enrollmentRequestName).Return(
 					enrollmentRequest, api.Status{Code: http.StatusOK},
 				)
 
@@ -370,8 +371,8 @@ func TestPerformTPMChallenge(t *testing.T) {
 				}, nil)
 
 				// 5. Server updates enrollment status to failed (due to challenge verification failure)
-				mockService.EXPECT().ReplaceEnrollmentRequestStatus(ctx, enrollmentRequestName, gomock.Any()).DoAndReturn(
-					func(ctx context.Context, name string, req api.EnrollmentRequest) (*api.EnrollmentRequest, api.Status) {
+				mockService.EXPECT().ReplaceEnrollmentRequestStatus(ctx, gomock.Any(), enrollmentRequestName, gomock.Any()).DoAndReturn(
+					func(ctx context.Context, orgId uuid.UUID, name string, req api.EnrollmentRequest) (*api.EnrollmentRequest, api.Status) {
 						// Verify the status was updated to failed
 						require.Len(t, req.Status.Conditions, 1)
 						condition := req.Status.Conditions[0]

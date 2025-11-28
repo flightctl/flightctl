@@ -21,7 +21,7 @@ metadata:
   name: {{ $name }}
   namespace: {{ default $ctx.Release.Namespace $ctx.Values.global.internalNamespace }}
   labels:
-    app: flightctl-db-migration
+    flightctl.service: flightctl-db-migration
     release: {{ $ctx.Release.Name }}
     flightctl.io/migration-revision: "{{ $ctx.Release.Revision }}"
     {{- include "flightctl.standardLabels" $ctx | nindent 4 }}
@@ -41,7 +41,7 @@ spec:
   template:
     metadata:
       labels:
-        app: flightctl-db-migration
+        flightctl.service: flightctl-db-migration
         release: {{ $ctx.Release.Name }}
         flightctl.io/migration-revision: "{{ $ctx.Release.Revision }}"
         {{- include "flightctl.standardLabels" $ctx | nindent 8 }}
@@ -49,9 +49,9 @@ spec:
       restartPolicy: OnFailure
       serviceAccountName: flightctl-db-migration
       initContainers:
-      {{- $userType := ternary "admin" "migration" (ne $ctx.Values.db.external "enabled") }}
+      {{- $userType := ternary "admin" "migration" (eq $ctx.Values.db.type "builtin") }}
       {{- include "flightctl.databaseWaitInitContainer" (dict "context" $ctx "userType" $userType "timeout" 120 "sleep" 2) | nindent 6 }}
-      {{- if ne $ctx.Values.db.external "enabled" }}
+      {{- if eq $ctx.Values.db.type "builtin" }}
       {{- if not $isDryRun }}
       - name: setup-database-users
         image: "{{ $ctx.Values.dbSetup.image.image }}:{{ default $ctx.Chart.AppVersion $ctx.Values.dbSetup.image.tag }}"
@@ -60,38 +60,40 @@ spec:
         - name: DB_HOST
           value: "{{ include "flightctl.dbHostname" $ctx }}"
         - name: DB_PORT
-          value: "{{ $ctx.Values.db.port }}"
+          value: "{{ include "flightctl.dbPort" $ctx }}"
         - name: DB_NAME
           value: "{{ $ctx.Values.db.name }}"
+        {{- if eq $ctx.Values.db.type "builtin" }}
         - name: DB_ADMIN_USER
           valueFrom:
             secretKeyRef:
-              name: flightctl-db-admin-secret
+              name: {{ default "flightctl-db-admin-secret" $ctx.Values.db.builtin.masterUserSecretName }}
               key: masterUser
         - name: DB_ADMIN_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: flightctl-db-admin-secret
+              name: {{ default "flightctl-db-admin-secret" $ctx.Values.db.builtin.masterUserSecretName }}
               key: masterPassword
+        {{- end }}
         - name: DB_MIGRATION_USER
           valueFrom:
             secretKeyRef:
-              name: flightctl-db-migration-secret
+              name: {{ include "flightctl.dbMigrationUserSecret" $ctx }}
               key: migrationUser
         - name: DB_MIGRATION_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: flightctl-db-migration-secret
+              name: {{ include "flightctl.dbMigrationUserSecret" $ctx }}
               key: migrationPassword
         - name: DB_APP_USER
           valueFrom:
             secretKeyRef:
-              name: flightctl-db-app-secret
+              name: {{ include "flightctl.dbAppUserSecret" $ctx }}
               key: user
         - name: DB_APP_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: flightctl-db-app-secret
+              name: {{ include "flightctl.dbAppUserSecret" $ctx }}
               key: userPassword
         command:
         - /bin/bash
@@ -128,58 +130,60 @@ spec:
         - name: DB_USER
           valueFrom:
             secretKeyRef:
-              name: flightctl-db-migration-secret
+              name: {{ include "flightctl.dbMigrationUserSecret" $ctx }}
               key: migrationUser
         - name: DB_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: flightctl-db-migration-secret
+              name: {{ include "flightctl.dbMigrationUserSecret" $ctx }}
               key: migrationPassword
         - name: DB_MIGRATION_USER
           valueFrom:
             secretKeyRef:
-              name: flightctl-db-migration-secret
+              name: {{ include "flightctl.dbMigrationUserSecret" $ctx }}
               key: migrationUser
         - name: DB_MIGRATION_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: flightctl-db-migration-secret
+              name: {{ include "flightctl.dbMigrationUserSecret" $ctx }}
               key: migrationPassword
         - name: DB_APP_USER
           valueFrom:
             secretKeyRef:
-              name: flightctl-db-app-secret
+              name: {{ include "flightctl.dbAppUserSecret" $ctx }}
               key: user
         - name: DB_APP_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: flightctl-db-app-secret
+              name: {{ include "flightctl.dbAppUserSecret" $ctx }}
               key: userPassword
+        {{- if eq $ctx.Values.db.type "builtin" }}
         - name: DB_ADMIN_USER
           valueFrom:
             secretKeyRef:
-              name: flightctl-db-admin-secret
+              name: {{ default "flightctl-db-admin-secret" $ctx.Values.db.builtin.masterUserSecretName }}
               key: masterUser
         - name: DB_ADMIN_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: flightctl-db-admin-secret
+              name: {{ default "flightctl-db-admin-secret" $ctx.Values.db.builtin.masterUserSecretName }}
               key: masterPassword
-        {{- if $ctx.Values.db.sslmode }}
+        {{- end }}
+        {{- if eq $ctx.Values.db.type "external" }}
+        {{- if $ctx.Values.db.external.sslmode }}
         - name: PGSSLMODE
-          value: "{{ $ctx.Values.db.sslmode }}"
+          value: "{{ $ctx.Values.db.external.sslmode }}"
         {{- end }}
-        {{- if $ctx.Values.db.sslcert }}
+        {{- if $ctx.Values.db.external.tlsSecretName }}
         - name: PGSSLCERT
-          value: "{{ $ctx.Values.db.sslcert }}"
-        {{- end }}
-        {{- if $ctx.Values.db.sslkey }}
+          value: /etc/ssl/postgres/client-cert.pem
         - name: PGSSLKEY
-          value: "{{ $ctx.Values.db.sslkey }}"
+          value: /etc/ssl/postgres/client-key.pem
         {{- end }}
-        {{- if $ctx.Values.db.sslrootcert }}
+        {{- if $ctx.Values.db.external.tlsConfigMapName }}
         - name: PGSSLROOTCERT
-          value: "{{ $ctx.Values.db.sslrootcert }}"
+          value: /etc/ssl/postgres/ca-cert.pem
+        {{- end }}
         {{- end }}
         command:
         - /bin/bash
@@ -199,20 +203,20 @@ spec:
           {{- if not $isDryRun }}
           # Grant permissions on all existing tables to the application user
           echo "Granting permissions on existing tables to application user..."
-          {{- if eq $ctx.Values.db.external "enabled" }}
+          {{- if eq $ctx.Values.db.type "external" }}
             export PGPASSWORD="$DB_MIGRATION_PASSWORD"
-            psql -v ON_ERROR_STOP=1 -h {{ $ctx.Values.db.hostname }} -p {{ (default 5432 $ctx.Values.db.port) }} -U "$DB_MIGRATION_USER" -d "{{ (default "flightctl" $ctx.Values.db.name) }}" -c "GRANT USAGE ON SCHEMA public TO \"${DB_APP_USER}\";"
-            psql -v ON_ERROR_STOP=1 -h {{ $ctx.Values.db.hostname }} -p {{ (default 5432 $ctx.Values.db.port) }} -U "$DB_MIGRATION_USER" -d "{{ (default "flightctl" $ctx.Values.db.name) }}" -c "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO \"${DB_APP_USER}\";"
-            psql -v ON_ERROR_STOP=1 -h {{ $ctx.Values.db.hostname }} -p {{ (default 5432 $ctx.Values.db.port) }} -U "$DB_MIGRATION_USER" -d "{{ (default "flightctl" $ctx.Values.db.name) }}" -c "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO \"${DB_APP_USER}\";"
+            psql -v ON_ERROR_STOP=1 -h {{ $ctx.Values.db.external.hostname }} -p {{ include "flightctl.dbPort" $ctx | int }} -U "$DB_MIGRATION_USER" -d "{{ (default "flightctl" $ctx.Values.db.name) }}" -c "GRANT USAGE ON SCHEMA public TO \"${DB_APP_USER}\";"
+            psql -v ON_ERROR_STOP=1 -h {{ $ctx.Values.db.external.hostname }} -p {{ include "flightctl.dbPort" $ctx | int }} -U "$DB_MIGRATION_USER" -d "{{ (default "flightctl" $ctx.Values.db.name) }}" -c "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO \"${DB_APP_USER}\";"
+            psql -v ON_ERROR_STOP=1 -h {{ $ctx.Values.db.external.hostname }} -p {{ include "flightctl.dbPort" $ctx | int }} -U "$DB_MIGRATION_USER" -d "{{ (default "flightctl" $ctx.Values.db.name) }}" -c "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO \"${DB_APP_USER}\";"
             # Optional but recommended: ensure future objects carry privileges
-            psql -v ON_ERROR_STOP=1 -h {{ $ctx.Values.db.hostname }} -p {{ (default 5432 $ctx.Values.db.port) }} -U "$DB_MIGRATION_USER" -d "{{ (default "flightctl" $ctx.Values.db.name) }}" -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO \"${DB_APP_USER}\";"
-            psql -v ON_ERROR_STOP=1 -h {{ $ctx.Values.db.hostname }} -p {{ (default 5432 $ctx.Values.db.port) }} -U "$DB_MIGRATION_USER" -d "{{ (default "flightctl" $ctx.Values.db.name) }}" -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO \"${DB_APP_USER}\";"
+            psql -v ON_ERROR_STOP=1 -h {{ $ctx.Values.db.external.hostname }} -p {{ include "flightctl.dbPort" $ctx | int }} -U "$DB_MIGRATION_USER" -d "{{ (default "flightctl" $ctx.Values.db.name) }}" -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO \"${DB_APP_USER}\";"
+            psql -v ON_ERROR_STOP=1 -h {{ $ctx.Values.db.external.hostname }} -p {{ include "flightctl.dbPort" $ctx | int }} -U "$DB_MIGRATION_USER" -d "{{ (default "flightctl" $ctx.Values.db.name) }}" -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO \"${DB_APP_USER}\";"
           {{- else -}}
             # Need to get admin credentials from init container environment
             DB_HOST="{{ include "flightctl.dbHostname" $ctx }}"
             # Get admin credentials from the same secrets used by init container
             export PGPASSWORD="$DB_ADMIN_PASSWORD"
-            psql -h "$DB_HOST" -p {{ $ctx.Values.db.port }} -U "$DB_ADMIN_USER" -d "{{ $ctx.Values.db.name }}" -c "SELECT grant_app_permissions_on_existing_tables();"
+            psql -h "$DB_HOST" -p {{ include "flightctl.dbPort" $ctx | int }} -U "$DB_ADMIN_USER" -d "{{ $ctx.Values.db.name }}" -c "SELECT grant_app_permissions_on_existing_tables();"
           {{- end }}
           echo "Permission granting completed successfully!"
           {{- end }}

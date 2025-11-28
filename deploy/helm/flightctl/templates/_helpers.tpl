@@ -117,29 +117,31 @@ app.kubernetes.io/version: {{ .Chart.AppVersion }}
 {{- end }}
 
 {{/*
-Get or generate a stable OAuth client secret.
-Follows the same pattern as database secrets: lookup existing, fallback to value, or generate new.
+Get the OAuth client secret from values or lookup existing secret.
+Uses a cached value in .Values to ensure consistency across all template evaluations.
 */}}
 {{- define "flightctl.getOpenShiftOAuthClientSecret" }}
   {{- if .Values.global.auth.openshift.clientSecret }}
-    {{- printf .Values.global.auth.openshift.clientSecret }}
+    {{- .Values.global.auth.openshift.clientSecret }}
   {{- else }}
-    {{- $secretName := printf "%s-secret" (include "flightctl.getOpenShiftOAuthClientId" .) }}
-    {{- $existingSecret := (lookup "v1" "Secret" "openshift-config" $secretName) }}
-    {{- if $existingSecret }}
-      {{- if and (hasKey $existingSecret "data") (hasKey $existingSecret.data "clientSecret") }}
-        {{- index $existingSecret.data "clientSecret" | b64dec }}
+    {{- $existingOAuthClient := (lookup "oauth.openshift.io/v1" "OAuthClient" "" (include "flightctl.getOpenShiftOAuthClientId" .)) }}
+    {{- if $existingOAuthClient }}
+      {{- if $existingOAuthClient.secret }}
+        {{- $existingOAuthClient.secret }}
       {{- else }}
-        {{- fail (printf "Secret %s is missing data.clientSecret – delete it or add the key." $secretName) }}
+        {{- fail (printf "OAuthClient %s is missing secret – delete it or add the key." (include "flightctl.getOpenShiftOAuthClientId" .)) }}
       {{- end }}
     {{- else }}
-      {{- randAlphaNum 32 }}
+      {{- if not (hasKey .Values "__generatedOAuthSecret") }}
+        {{- $_ := set .Values "__generatedOAuthSecret" (randAlphaNum 32) }}
+      {{- end }}
+      {{- .Values.__generatedOAuthSecret -}}
     {{- end }}
   {{- end }}
 {{- end }}
 
 {{- define "flightctl.getHttpScheme" }}
-  {{- if or (eq (include "flightctl.getServiceExposeMethod" . ) "route") (.Values.global.baseDomainTls).cert }}
+  {{- if or (eq (include "flightctl.getServiceExposeMethod" . ) "route") .Values.global.baseDomainTlsSecretName }}
     {{- printf "https" }}
   {{- else }}
     {{- printf "http" }}
@@ -154,7 +156,7 @@ Follows the same pattern as database secrets: lookup existing, fallback to value
     {{- $baseDomain := (include "flightctl.getBaseDomain" (deepCopy . | merge (dict "noNs" "true"))) }}
     {{- printf "%s://console-openshift-console.%s/edge" $scheme $baseDomain }}
   {{- else if eq (include "flightctl.getServiceExposeMethod" .) "nodePort" }}
-    {{- printf "%s://%s:%v" $scheme $baseDomain .Values.global.nodePorts.ui }}
+    {{- printf "%s://%s:%v" $scheme $baseDomain .Values.dev.nodePorts.ui }}
   {{- else if eq (include "flightctl.getServiceExposeMethod" .) "gateway" }}
     {{- if and (eq $scheme "http") (not (eq (int .Values.global.gateway.ports.http) 80))}}
       {{- printf "%s://ui.%s:%v" $scheme $baseDomain .Values.global.gateway.ports.http }}
@@ -170,14 +172,18 @@ Follows the same pattern as database secrets: lookup existing, fallback to value
 
 {{- define "flightctl.getServiceExposeMethod" }}
   {{- $exposeMethod := .Values.global.exposeServicesMethod }}
-  {{- if eq $exposeMethod "auto" }}
-    {{- $isOpenShift := (include "flightctl.enableOpenShiftExtensions" . )}}
-    {{- if eq $isOpenShift "true" }}
-      {{- $exposeMethod = "route" }}
-    {{- else if .Capabilities.APIVersions.Has "gateway.networking.k8s.io/v1" -}}
-      {{- $exposeMethod = "gateway" }}
-    {{- else }}
-      {{- fail "Could not detect OpenShift, nor Gateway resources. Please set global.exposeServicesMethod" }}
+  {{- if eq (default dict .Values.dev).exposeServicesMethod "nodePort" }}
+    {{- $exposeMethod = "nodePort" }}
+  {{- else }}
+    {{- if eq $exposeMethod "auto" }}
+      {{- $isOpenShift := (include "flightctl.enableOpenShiftExtensions" . )}}
+      {{- if eq $isOpenShift "true" }}
+        {{- $exposeMethod = "route" }}
+      {{- else if .Capabilities.APIVersions.Has "gateway.networking.k8s.io/v1" -}}
+        {{- $exposeMethod = "gateway" }}
+      {{- else }}
+        {{- fail "Could not detect OpenShift, nor Gateway resources. Please set global.exposeServicesMethod" }}
+      {{- end }}
     {{- end }}
   {{- end }}
   {{- $exposeMethod }}
@@ -186,7 +192,7 @@ Follows the same pattern as database secrets: lookup existing, fallback to value
 {{- define "flightctl.getApiUrl" }}
   {{- $baseDomain := (include "flightctl.getBaseDomain" . )}}
   {{- if eq (include "flightctl.getServiceExposeMethod" .) "nodePort" }}
-    {{- printf "https://%s:%v" $baseDomain .Values.global.nodePorts.api }}
+    {{- printf "https://%s:%v" $baseDomain .Values.dev.nodePorts.api }}
   {{- else if and (eq (include "flightctl.getServiceExposeMethod" .) "gateway") (not (eq (int .Values.global.gateway.ports.tls) 443)) }}
     {{- printf "https://api.%s:%v" $baseDomain .Values.global.gateway.ports.tls }}
   {{- else }}
@@ -233,7 +239,7 @@ Usage: {{- $authType := include "flightctl.getEffectiveAuthType" . }}
   {{- $scheme := (include "flightctl.getHttpScheme" . )}}
   {{- $exposeMethod := (include "flightctl.getServiceExposeMethod" . )}}
   {{- if eq $exposeMethod "nodePort" }}
-    {{- printf "%s://%s:%v" $scheme $baseDomain .Values.global.nodePorts.cliArtifacts }}
+    {{- printf "%s://%s:%v" $scheme $baseDomain .Values.dev.nodePorts.cliArtifacts }}
   {{- else if eq $exposeMethod "gateway" }}
     {{- if and (eq $scheme "http") (not (eq (int .Values.global.gateway.ports.http) 80))}}
       {{- printf "%s://cli-artifacts.%s:%v" $scheme $baseDomain .Values.global.gateway.ports.http }}
@@ -280,10 +286,22 @@ Database hostname helper.
 Returns the database hostname, either from values or the default cluster service name.
 */}}
 {{- define "flightctl.dbHostname" }}
-{{- if eq .Values.db.external "enabled" -}}
-{{ .Values.db.hostname }}
-{{- else -}}
-{{- default (printf "flightctl-db.%s.svc.cluster.local" (default .Release.Namespace .Values.global.internalNamespace)) .Values.db.hostname }}
+{{- if eq .Values.db.type "external" }}
+  {{- .Values.db.external.hostname }}
+{{- else }}
+  {{- printf "flightctl-db.%s.svc.cluster.local" (default .Release.Namespace .Values.global.internalNamespace) }}
+{{- end }}
+{{- end }}
+
+{{/*
+Database port helper.
+Returns the database port, either from values or the default cluster service port.
+*/}}
+{{- define "flightctl.dbPort" }}
+{{- if eq .Values.db.type "external" }}
+  {{- .Values.db.external.port }}
+{{- else }}
+  {{- 5432 }}
 {{- end }}
 {{- end }}
 
@@ -323,60 +341,60 @@ Parameters:
   - name: DB_HOST
     value: "{{ include "flightctl.dbHostname" $context }}"
   - name: DB_PORT
-    value: "{{ $context.Values.db.port }}"
+    value: "{{ include "flightctl.dbPort" $context }}"
   - name: DB_NAME
     value: "{{ $context.Values.db.name }}"
   {{- if eq $userType "app" }}
   - name: DB_USER
     valueFrom:
       secretKeyRef:
-        name: flightctl-db-app-secret
+        name: {{ include "flightctl.dbAppUserSecret" $context }}
         key: user
   - name: DB_PASSWORD
     valueFrom:
       secretKeyRef:
-        name: flightctl-db-app-secret
+        name: {{ include "flightctl.dbAppUserSecret" $context }}
         key: userPassword
   {{- else if eq $userType "migration" }}
   - name: DB_USER
     valueFrom:
       secretKeyRef:
-        name: flightctl-db-migration-secret
+        name: {{ include "flightctl.dbMigrationUserSecret" $context }}
         key: migrationUser
   - name: DB_PASSWORD
     valueFrom:
       secretKeyRef:
-        name: flightctl-db-migration-secret
+        name: {{ include "flightctl.dbMigrationUserSecret" $context }}
         key: migrationPassword
   {{- else if eq $userType "admin" }}
   - name: DB_USER
     valueFrom:
       secretKeyRef:
-        name: flightctl-db-admin-secret
+        name: {{ default "flightctl-db-admin-secret" $context.Values.db.builtin.masterUserSecretName }}
         key: masterUser
   - name: DB_PASSWORD
     valueFrom:
       secretKeyRef:
-        name: flightctl-db-admin-secret
+        name: {{ default "flightctl-db-admin-secret" $context.Values.db.builtin.masterUserSecretName }}
         key: masterPassword
   {{- else }}
   {{- fail (printf "Invalid userType '%s'. Must be one of: app, migration, admin" $userType) }}
   {{- end }}
-  {{- if $context.Values.db.sslmode }}
+  {{- if eq $context.Values.db.type "external" }}
+  {{- if $context.Values.db.external.sslmode }}
   - name: DB_SSL_MODE
-    value: "{{ $context.Values.db.sslmode }}"
+    value: "{{ $context.Values.db.external.sslmode }}"
   {{- end }}
-  {{- if $context.Values.db.sslcert }}
+  {{- if $context.Values.db.external.tlsSecretName }}
   - name: DB_SSL_CERT
-    value: "{{ $context.Values.db.sslcert }}"
-  {{- end }}
-  {{- if $context.Values.db.sslkey }}
+    value: /etc/ssl/postgres/client-cert.pem
   - name: DB_SSL_KEY
-    value: "{{ $context.Values.db.sslkey }}"
+    value: /etc/ssl/postgres/client-key.pem
   {{- end }}
-  {{- if $context.Values.db.sslrootcert }}
+  {{- if $context.Values.db.external.tlsConfigMapName }}
   - name: DB_SSL_ROOT_CERT
-    value: "{{ $context.Values.db.sslrootcert }}"
+    value: /etc/ssl/postgres/ca-cert.pem
+  {{- end }}
   {{- end }}
   volumeMounts:
   {{- include "flightctl.dbSslVolumeMounts" $context | nindent 2 }}
@@ -402,7 +420,7 @@ Parameters:
   - |
     set -euo pipefail
 
-    LABEL_SELECTOR="app=flightctl-db-migration,flightctl.io/migration-revision={{ $ctx.Release.Revision }}"
+    LABEL_SELECTOR="flightctl.service=flightctl-db-migration,flightctl.io/migration-revision={{ $ctx.Release.Revision }}"
     TIMEOUT={{ $timeout }}
     NS="{{ default $ctx.Release.Namespace $ctx.Values.global.internalNamespace }}"
 
@@ -460,7 +478,7 @@ SSL certificate volume mounts for database connections.
 Usage: {{- include "flightctl.dbSslVolumeMounts" . | nindent X }}
 */}}
 {{- define "flightctl.dbSslVolumeMounts" -}}
-{{- if or .Values.db.sslConfigMap .Values.db.sslSecret }}
+{{- if and (eq .Values.db.type "external") (or .Values.db.external.tlsConfigMapName .Values.db.external.tlsSecretName) }}
 - name: postgres-ssl-certs
   mountPath: /etc/ssl/postgres
   readOnly: true
@@ -472,21 +490,21 @@ SSL certificate volumes for database connections.
 Usage: {{- include "flightctl.dbSslVolumes" . | nindent X }}
 */}}
 {{- define "flightctl.dbSslVolumes" -}}
-{{- if or .Values.db.sslConfigMap .Values.db.sslSecret }}
+{{- if and (eq .Values.db.type "external") (or .Values.db.external.tlsConfigMapName .Values.db.external.tlsSecretName) }}
 - name: postgres-ssl-certs
   projected:
     sources:
-    {{- if .Values.db.sslConfigMap }}
+    {{- if .Values.db.external.tlsConfigMapName }}
     - configMap:
-        name: {{ .Values.db.sslConfigMap }}
+        name: {{ .Values.db.external.tlsConfigMapName }}
         items:
         - key: ca-cert.pem
           path: ca-cert.pem
           mode: 0444
     {{- end }}
-    {{- if .Values.db.sslSecret }}
+    {{- if .Values.db.external.tlsSecretName }}
     - secret:
-        name: {{ .Values.db.sslSecret }}
+        name: {{ .Values.db.external.tlsSecretName }}
         items:
         - key: client-cert.pem
           path: client-cert.pem
@@ -496,4 +514,81 @@ Usage: {{- include "flightctl.dbSslVolumes" . | nindent X }}
           mode: 0400
     {{- end }}
 {{- end }}
+{{- end }}
+
+{{- define "flightctl.dbAppUserSecret" -}}
+{{- if eq .Values.db.type "external" }}
+  {{- .Values.db.external.applicationUserSecretName }}
+{{- else }}
+  {{- default "flightctl-db-app-secret" .Values.db.builtin.applicationUserSecretName }}
+{{- end }}
+{{- end }}
+
+{{- define "flightctl.dbMigrationUserSecret" -}}
+{{- if eq .Values.db.type "external" }}
+  {{- .Values.db.external.migrationUserSecretName }}
+{{- else }}
+  {{- default "flightctl-db-migration-secret" .Values.db.builtin.migrationUserSecretName }}
+{{- end }}
+{{- end }}
+
+{{- /*
+Determine the effective certificate generation method.
+Returns: "false", "cert-manager", or "builtin"
+Usage: {{- $certMethod := include "flightctl.getCertificateGenerationMethod" . }}
+*/}}
+{{- define "flightctl.getCertificateGenerationMethod" }}
+  {{- $method := .Values.global.generateCertificates | toString }}
+  {{- if eq $method "auto" }}
+    {{- if .Capabilities.APIVersions.Has "cert-manager.io/v1/Certificate" }}
+      {{- print "cert-manager" }}
+    {{- else }}
+      {{- print "builtin" }}
+    {{- end }}
+  {{- else }}
+    {{- print $method }}
+  {{- end }}
+{{- end }}
+
+{{- /*
+Get DNS SANs for flightctl-api server certificate
+Usage: {{- $result := include "flightctl.getApiServerDNSSans" . | fromJson }}{{ $apiServerDNSSans := $result.sans }}
+*/}}
+{{- define "flightctl.getApiServerDNSSans" }}
+  {{- $baseDomain := include "flightctl.getBaseDomain" . }}
+  {{- $sans := list }}
+  {{- $sans = append $sans (printf "api.%s" $baseDomain) }}
+  {{- $sans = append $sans (printf "agent-api.%s" $baseDomain) }}
+  {{- $sans = append $sans "flightctl-api" }}
+  {{- $sans = append $sans (printf "flightctl-api.%s" .Release.Namespace) }}
+  {{- $sans = append $sans (printf "flightctl-api.%s.svc.cluster.local" .Release.Namespace) }}
+  {{- dict "sans" $sans | toJson -}}
+{{- end }}
+
+{{- /*
+Get DNS SANs for telemetry-gateway server certificate
+Usage: {{- $result := include "flightctl.getTelemetryGatewayDNSSans" . | fromJson }}{{ $telemetryGatewayDNSSans := $result.sans }}
+*/}}
+{{- define "flightctl.getTelemetryGatewayDNSSans" }}
+  {{- $sans := list }}
+  {{- $baseDomain := include "flightctl.getBaseDomain" . }}
+  {{- $sans = append $sans (printf "telemetry.%s" $baseDomain) }}
+  {{- $sans = append $sans "flightctl-telemetry-gateway" }}
+  {{- $sans = append $sans (printf "flightctl-telemetry-gateway.%s" .Release.Namespace) }}
+  {{- $sans = append $sans (printf "flightctl-telemetry-gateway.%s.svc.cluster.local" .Release.Namespace) }}
+  {{- dict "sans" $sans | toJson -}}
+{{- end }}
+
+{{- /*
+Get DNS SANs for alertmanager-proxy server certificate
+Usage: {{- $result := include "flightctl.getAlertmanagerProxyDNSSans" . | fromJson }}{{ $alertmanagerProxyDNSSans := $result.sans }}
+*/}}
+{{- define "flightctl.getAlertmanagerProxyDNSSans" }}
+  {{- $sans := list }}
+  {{- $baseDomain := include "flightctl.getBaseDomain" . }}
+  {{- $sans = append $sans (printf "alertmanager-proxy.%s" $baseDomain) }}
+  {{- $sans = append $sans "flightctl-alertmanager-proxy" }}
+  {{- $sans = append $sans (printf "flightctl-alertmanager-proxy.%s" .Release.Namespace) }}
+  {{- $sans = append $sans (printf "flightctl-alertmanager-proxy.%s.svc.cluster.local" .Release.Namespace) }}
+  {{- dict "sans" $sans | toJson -}}
 {{- end }}

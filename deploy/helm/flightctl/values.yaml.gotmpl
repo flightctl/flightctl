@@ -1,0 +1,371 @@
+
+# -- Global parameters
+# This section contains parameters common to all the components in the deployment, including sub-charts, ui charts, etc.
+
+global:
+  # -- Enable OpenShift extensions - one of 'auto', 'true', 'false'.
+  enableOpenShiftExtensions: "auto"
+  # -- Enable MultiCluster Engine extensions - one of 'auto', 'true', 'false'.
+  enableMulticlusterExtensions: "auto"
+  # -- Certificate generation method - one of 'none', 'cert-manager', 'builtin', 'auto'.
+  # - none: Do not generate required certificates. The user must provide the Secrets containing the required certificates or the service will fail to start.
+  # - cert-manager: Request cert-manager to issue the required certificates. cert-manager must be installed on the cluster.
+  # - builtin: Generate required certificates using Helm's builtin library functions.
+  # - auto: If cert-manager is installed, use it; otherwise, fall back to builtin.
+  generateCertificates: "auto"
+  # -- A separate Namespace to which non-user-facing components should be deployed for increased security isolation.
+  internalNamespace: ""
+  # -- Base domain to construct the FQDN for the service endpoints.
+  baseDomain: ""
+  # -- Secret containing TLS ca/cert/key. It should be valid for *.${baseDomain}. This certificate is only used for non-mTLS endpoints, mTLS endpoints like agent-api, etc will use different certificates.
+  baseDomainTlsSecretName: ""
+  # -- Storage class name for the PVCs. Keep empty to use the default storage class.
+  storageClassName: ""
+  # -- Name of the secret that holds image pull secret for accessing private container registries
+  imagePullSecretName: ""
+  # -- Image pull policy for all containers
+  imagePullPolicy: IfNotPresent
+  auth:
+    # -- Type of authentication to use. Allowed values: 'k8s', 'oidc', 'aap', 'openshift', 'oauth2', or 'none'.
+    # When left empty (default and recommended), authentication type is auto-detected: 'openshift' on OpenShift clusters, 'k8s' otherwise.
+    type: "" # Auto-detect (openshift on OpenShift, k8s otherwise), or explicitly set: k8s, oidc, aap, openshift, oauth2, none
+    # -- The custom CA cert.
+    caCert: ""
+    # -- True if verification of authority TLS cert should be skipped.
+    insecureSkipTlsVerify: false
+    k8s:
+      # -- API URL of k8s cluster that will be used as authentication authority
+      apiUrl: https://kubernetes.default.svc
+      # -- In case flightctl is not running within a cluster, you can provide a name of a secret that holds the API token
+      externalApiTokenSecretName: ""
+      # -- Namespace that should be used for the RBAC checks
+      rbacNs: ""
+      # -- Create default flightctl-admin ServiceAccount with admin access
+      createAdminUser: true
+    oidc:
+      # -- OIDC Client ID
+      clientId: "flightctl-client"
+      # -- The base URL for the OIDC provider that is reachable by flightctl services. Example: https://auth.foo.internal/realms/flightctl
+      issuer: ""
+      # -- The base URL for the OIDC provider that is reachable by clients. Example: https://auth.foo.net/realms/flightctl
+      externalOidcAuthority: ""
+      # -- Organization assignment configuration
+      organizationAssignment:
+        type: "static"
+        organizationName: "default"
+      # -- Username claim to extract from OIDC token (default: "preferred_username")
+      usernameClaim:
+        - "preferred_username"
+      # -- Role assignment configuration
+      roleAssignment:
+        type: "dynamic"
+        claimPath:
+          - "groups"
+    aap:
+      # -- The URL of the AAP Gateway API endpoint
+      apiUrl: ""
+      # -- The URL of the AAP Gateway API endpoint that is reachable by clients
+      externalApiUrl: ""
+    openshift:
+      # -- Create default flightctl-admin ServiceAccount with admin access
+      createAdminUser: true
+      # -- OpenShift cluster control plane API URL for RBAC checks (leave empty for auto-detection)
+      clusterControlPlaneUrl: "https://kubernetes.default.svc"
+      # -- In case flightctl is not running within a cluster, you can provide a name of a secret that holds the API token
+      externalApiTokenSecretName: ""
+      # -- OAuth client ID (will be set to flightctl-{releaseName})
+      clientId: ""
+      # -- OAuth client secret (leave empty for auto-generation)
+      clientSecret: ""
+      # -- OAuth authorization URL (leave empty to auto-detect from OpenShift cluster)
+      authorizationUrl: ""
+      # -- OAuth token URL (leave empty to auto-detect from OpenShift cluster)
+      tokenUrl: ""
+      # -- OAuth issuer URL (defaults to authorizationUrl if not specified)
+      issuer: ""
+  # -- How the Flight Control services should be exposed. Can be either 'auto', 'route', 'gateway' (experimental) or 'none'
+  exposeServicesMethod: "auto"
+  # -- Configuration for 'gateway' service exposure method
+  gateway:
+    # -- Gateway API class name for gateway exposure method
+    gatewayClassName: ""
+    ports:
+      # -- TLS port for Gateway API configuration
+      tls: 443
+      # -- HTTP port for Gateway API configuration
+      http: 80
+  sshKnownHosts:
+    # -- SSH known hosts file content for Git repository host key verification.
+    data: ""
+  # -- Additional labels for routes.
+  additionalRouteLabels: null
+  # -- Additional labels for PVCs.
+  additionalPVCLabels: null
+
+# -- Component specific parameters
+# This section provides individual parameters for each component
+
+# -- Database Configuration
+db:
+  # -- Type of database to use. Can be 'builtin' or 'external'. Only PostgreSQL DB is supported.
+  type: "builtin"
+  # -- Database name for Flight Control
+  name: "flightctl"
+  # -- Settings for builtin DB
+  builtin:
+    # -- Database application user secret name containing username/password. If not provided, the secret will be generated
+    applicationUserSecretName: ""
+    # -- Database migration user secret name containing username/password. If not provided, the secret will be generated
+    migrationUserSecretName: ""
+    # -- Database master/admin secret name containing username/password. If not provided, the secret will be generated
+    masterUserSecretName: ""
+    image:
+      # -- PostgreSQL container image
+      image: {{ .Images.db.Image }}
+      # -- PostgreSQL image tag
+      tag: "{{ .Images.db.Tag }}"
+      # -- Image pull policy for database container
+      pullPolicy: ""
+    # -- Maximum number of database connections
+    maxConnections: 200
+    storage:
+      # -- Persistent volume size for database storage
+      size: "60Gi"
+    resources:
+      requests:
+        # -- CPU resource requests for database pod
+        cpu: "512m"
+        # -- Memory resource requests for database pod
+        memory: "512Mi" 
+    # -- File system group ID for database pod security context
+    fsGroup: ""
+    # -- Additional labels for DB PVCs.
+    additionalPVCLabels: null
+  external:
+    # -- External database hostname
+    hostname: ""
+    # -- Database port number
+    port: 5432
+    # -- Database application user secret name containing username/password.
+    applicationUserSecretName: ""
+    # -- Database migration user secret name containing username/password.
+    migrationUserSecretName: ""
+    # -- SSL mode for database connections (disable, allow, prefer, require, verify-ca, verify-full)
+    sslmode: ""
+    # -- ConfigMap containing CA certificate (automatically mounted at /etc/ssl/postgres/)
+    tlsConfigMapName: ""
+    # -- Secret containing client certificates (automatically mounted at /etc/ssl/postgres/)
+    tlsSecretName: ""
+
+# -- Key-Value Store Configuration
+kv:
+  image:
+    # -- Redis container image
+    image: {{ .Images.kv.Image }}
+    # -- Redis image tag
+    tag: "{{ .Images.kv.Tag}}"
+    # -- Image pull policy for Redis container
+    pullPolicy: ""
+  # -- Secret containing password for Redis password (leave empty for auto-generation)
+  passwordSecretName: ""
+  # -- Redis log level (debug, verbose, notice, warning)
+  loglevel: warning
+  # -- File system group ID for Redis pod security context
+  fsGroup: ""
+  # Memory management for in-memory Redis
+  # -- Maximum memory usage for Redis
+  maxmemory: "1gb"
+  # -- Redis memory eviction policy
+  maxmemoryPolicy: "allkeys-lru"
+
+# -- Alertmanager Configuration
+alertmanager:
+  # -- Enable Alertmanager for alert handling
+  enabled: true
+  image:
+    # -- Alertmanager container image
+    image: {{ .Images.alertmanager.Image }}
+    # -- Alertmanager image tag
+    tag: "{{ .Images.alertmanager.Tag }}"
+    # -- Image pull policy for Alertmanager container
+    pullPolicy: ""
+  # -- Additional labels for Alert Manager routes.
+  additionalRouteLabels: null
+  # -- Additional labels for Alert Manager PVCs.
+  additionalPVCLabels: null
+
+
+# -- API Server Configuration
+api:
+  image:
+    # -- API server container image
+    image: {{ .Images.api.Image }}
+    # -- API server image tag (leave empty to use chart appVersion)
+    tag: ""
+    # -- Image pull policy for API server container
+    pullPolicy: ""
+  # Rate limiting configuration - enabled by default for production
+  rateLimit:
+    # -- Enable or disable rate limiting
+    enabled: true
+    # -- Maximum requests per window for general API endpoints
+    # General API rate limiting
+    requests: 300
+    # -- Time window for rate limiting (e.g., "1m", "1h")
+    window: "1m"
+    # -- Maximum authentication requests per auth window
+    # Auth-specific rate limiting
+    authRequests: 20
+    # -- Time window for authentication rate limiting
+    authWindow: "1h"
+    # -- List of trusted proxy IP ranges that can set X-Forwarded-For headers
+    # Trusted proxies that can set X-Forwarded-For/X-Real-IP headers
+    # This should include your load balancer and UI proxy IPs
+    trustedProxies:
+      - "10.0.0.0/8"    # Example: Internal network range
+      - "172.16.0.0/12" # Example: Docker/container network range
+      - "192.168.0.0/16" # Example: Private network range
+  # -- Additional labels for API routes.
+  additionalRouteLabels: null
+  # -- Additional labels for API PVCs.
+  additionalPVCLabels: null
+
+# -- CLI Artifacts Configuration
+cliArtifacts:
+  # -- Enable CLI artifacts service
+  enabled: true
+  image:
+    # -- CLI artifacts container image
+    image: {{ .Images.cliArtifacts.Image }}
+    # -- CLI artifacts image tag
+    tag: ""
+    # -- Image pull policy for CLI artifacts container
+    pullPolicy: ""
+  # -- Additional labels for CLI Artifacts routes.
+  additionalRouteLabels: null
+
+# -- Worker Configuration
+worker:
+  image:
+    # -- Worker container image
+    image: {{ .Images.worker.Image }}
+    # -- Worker image tag
+    tag: ""
+    # -- Image pull policy for worker container
+    pullPolicy: ""
+  # -- Allow flightctl-worker to access secrets at the cluster level for embedding in device configs
+  clusterLevelSecretAccess: false
+
+# -- Periodic Configuration
+periodic:
+  image:
+    # -- Periodic container image
+    image: {{ .Images.periodic.Image }}
+    # -- Periodic image tag
+    tag: ""
+    # -- Image pull policy for periodic container
+    pullPolicy: ""
+  # -- Number of periodic consumers
+  consumers: 5
+
+# -- Alert Exporter Configuration
+alertExporter:
+  # -- Enable alert exporter service
+  enabled: true
+  image:
+    # -- Alert exporter container image
+    image: {{ .Images.alertExporter.Image }}
+    # -- Alert exporter image tag
+    tag: ""
+    # -- Image pull policy for alert exporter container
+    pullPolicy: ""
+
+# -- Alertmanager Proxy Configuration
+alertmanagerProxy:
+  # -- Enable Alertmanager proxy service
+  enabled: true
+  image:
+    # -- Alertmanager proxy container image
+    image: {{ .Images.alertmanagerProxy.Image }}
+    # -- Alertmanager proxy image tag
+    tag: ""
+    # -- Image pull policy for Alertmanager proxy container
+    pullPolicy: ""
+  
+telemetryGateway:
+  image:
+    # -- Telemetry gateway container image
+    image: {{ .Images.telemetryGateway.Image }}
+    # -- Telemetry gateway image tag
+    tag: ""
+    # -- Image pull policy for Telemetry gateway container
+    pullPolicy: ""
+  additionalRouteLabels: null
+
+# -- UI Configuration
+ui:
+  # -- Enable web UI deployment
+  enabled: true
+  image:
+    # -- UI container image
+    image: {{ .Images.ui.Image }}
+    # -- UI Plugin container image
+    pluginImage: {{ .Images.uiPlugin.Image }}
+    # -- UI container image tag
+    tag: ""
+    # -- Image pull policy for UI container
+    pullPolicy: ""
+  auth:
+    # -- Set to true if auth TLS certificate validation should be skipped.
+    insecureSkipTlsVerify: false
+    # -- A custom CA cert for Auth TLS.
+    caCert: ""
+  # -- Additional labels for UI routes.
+  additionalRouteLabels: null
+
+# -- Cluster CLI Configuration
+clusterCli:
+  image:
+    # -- Cluster CLI container image
+    image: {{ .Images.clusterCli.Image }}
+    # -- Cluster CLI image tag
+    tag: "{{ .Images.clusterCli.Tag }}"
+    # -- Image pull policy for cluster CLI container
+    pullPolicy: ""
+
+# -- Database Setup Configuration
+dbSetup:
+  image:
+    # -- Database setup container image
+    image: {{ .Images.dbSetup.Image }}
+    # -- Database setup image tag
+    tag: ""
+    # -- Image pull policy for database setup container
+    pullPolicy: ""
+  # Database wait configuration (optional)
+  wait:
+    # -- Seconds to wait for database readiness before failing
+    # Default timeout for database wait (can be overridden per deployment)
+    timeout: 60
+    # -- Seconds to sleep between database connection attempts
+    # Default sleep interval between connection attempts
+    sleep: 2
+  migration:
+    # -- Number of retries for the migration Job on failure 
+    backoffLimit: 2147483647
+    # -- Maximum runtime in seconds for the migration Job (0 = no deadline)
+    activeDeadlineSeconds: 0
+
+# -- Upgrade hooks
+upgradeHooks:
+  scaleDown:
+    # -- When to run pre-upgrade scale down job: "always", "never", or "chart" (default). "chart" runs only if helm.sh/chart changed.
+    condition: chart
+    # -- List of Deployments to scale down in order
+    deployments:
+      - flightctl-periodic
+      - flightctl-worker
+    # -- Timeout in seconds to wait for rollout per Deployment
+    timeoutSeconds: 120
+  # -- Enable pre-upgrade DB migration dry-run as a hook
+  databaseMigrationDryRun: true

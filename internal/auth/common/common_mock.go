@@ -14,7 +14,7 @@ import (
 	http "net/http"
 	reflect "reflect"
 
-	v1alpha1 "github.com/flightctl/flightctl/api/v1alpha1"
+	v1beta1 "github.com/flightctl/flightctl/api/v1beta1"
 	identity "github.com/flightctl/flightctl/internal/identity"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -70,20 +70,6 @@ func (mr *MockIdentityMockRecorder) GetOrganizations() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOrganizations", reflect.TypeOf((*MockIdentity)(nil).GetOrganizations))
 }
 
-// GetRoles mocks base method.
-func (m *MockIdentity) GetRoles() []string {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetRoles")
-	ret0, _ := ret[0].([]string)
-	return ret0
-}
-
-// GetRoles indicates an expected call of GetRoles.
-func (mr *MockIdentityMockRecorder) GetRoles() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRoles", reflect.TypeOf((*MockIdentity)(nil).GetRoles))
-}
-
 // GetUID mocks base method.
 func (m *MockIdentity) GetUID() string {
 	m.ctrl.T.Helper()
@@ -112,6 +98,151 @@ func (mr *MockIdentityMockRecorder) GetUsername() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUsername", reflect.TypeOf((*MockIdentity)(nil).GetUsername))
 }
 
+// IsSuperAdmin mocks base method.
+func (m *MockIdentity) IsSuperAdmin() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IsSuperAdmin")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// IsSuperAdmin indicates an expected call of IsSuperAdmin.
+func (mr *MockIdentityMockRecorder) IsSuperAdmin() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsSuperAdmin", reflect.TypeOf((*MockIdentity)(nil).IsSuperAdmin))
+}
+
+// SetSuperAdmin mocks base method.
+func (m *MockIdentity) SetSuperAdmin(arg0 bool) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetSuperAdmin", arg0)
+}
+
+// SetSuperAdmin indicates an expected call of SetSuperAdmin.
+func (mr *MockIdentityMockRecorder) SetSuperAdmin(arg0 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSuperAdmin", reflect.TypeOf((*MockIdentity)(nil).SetSuperAdmin), arg0)
+}
+
+// MockK8sIdentityProvider is a mock of K8sIdentityProvider interface.
+type MockK8sIdentityProvider struct {
+	ctrl     *gomock.Controller
+	recorder *MockK8sIdentityProviderMockRecorder
+}
+
+// MockK8sIdentityProviderMockRecorder is the mock recorder for MockK8sIdentityProvider.
+type MockK8sIdentityProviderMockRecorder struct {
+	mock *MockK8sIdentityProvider
+}
+
+// NewMockK8sIdentityProvider creates a new mock instance.
+func NewMockK8sIdentityProvider(ctrl *gomock.Controller) *MockK8sIdentityProvider {
+	mock := &MockK8sIdentityProvider{ctrl: ctrl}
+	mock.recorder = &MockK8sIdentityProviderMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockK8sIdentityProvider) EXPECT() *MockK8sIdentityProviderMockRecorder {
+	return m.recorder
+}
+
+// GetControlPlaneUrl mocks base method.
+func (m *MockK8sIdentityProvider) GetControlPlaneUrl() string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetControlPlaneUrl")
+	ret0, _ := ret[0].(string)
+	return ret0
+}
+
+// GetControlPlaneUrl indicates an expected call of GetControlPlaneUrl.
+func (mr *MockK8sIdentityProviderMockRecorder) GetControlPlaneUrl() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetControlPlaneUrl", reflect.TypeOf((*MockK8sIdentityProvider)(nil).GetControlPlaneUrl))
+}
+
+// GetIssuer mocks base method.
+func (m *MockK8sIdentityProvider) GetIssuer() *identity.Issuer {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetIssuer")
+	ret0, _ := ret[0].(*identity.Issuer)
+	return ret0
+}
+
+// GetIssuer indicates an expected call of GetIssuer.
+func (mr *MockK8sIdentityProviderMockRecorder) GetIssuer() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetIssuer", reflect.TypeOf((*MockK8sIdentityProvider)(nil).GetIssuer))
+}
+
+// GetOrganizations mocks base method.
+func (m *MockK8sIdentityProvider) GetOrganizations() []ReportedOrganization {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetOrganizations")
+	ret0, _ := ret[0].([]ReportedOrganization)
+	return ret0
+}
+
+// GetOrganizations indicates an expected call of GetOrganizations.
+func (mr *MockK8sIdentityProviderMockRecorder) GetOrganizations() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOrganizations", reflect.TypeOf((*MockK8sIdentityProvider)(nil).GetOrganizations))
+}
+
+// GetUID mocks base method.
+func (m *MockK8sIdentityProvider) GetUID() string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetUID")
+	ret0, _ := ret[0].(string)
+	return ret0
+}
+
+// GetUID indicates an expected call of GetUID.
+func (mr *MockK8sIdentityProviderMockRecorder) GetUID() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUID", reflect.TypeOf((*MockK8sIdentityProvider)(nil).GetUID))
+}
+
+// GetUsername mocks base method.
+func (m *MockK8sIdentityProvider) GetUsername() string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetUsername")
+	ret0, _ := ret[0].(string)
+	return ret0
+}
+
+// GetUsername indicates an expected call of GetUsername.
+func (mr *MockK8sIdentityProviderMockRecorder) GetUsername() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUsername", reflect.TypeOf((*MockK8sIdentityProvider)(nil).GetUsername))
+}
+
+// IsSuperAdmin mocks base method.
+func (m *MockK8sIdentityProvider) IsSuperAdmin() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IsSuperAdmin")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// IsSuperAdmin indicates an expected call of IsSuperAdmin.
+func (mr *MockK8sIdentityProviderMockRecorder) IsSuperAdmin() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsSuperAdmin", reflect.TypeOf((*MockK8sIdentityProvider)(nil).IsSuperAdmin))
+}
+
+// SetSuperAdmin mocks base method.
+func (m *MockK8sIdentityProvider) SetSuperAdmin(arg0 bool) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetSuperAdmin", arg0)
+}
+
+// SetSuperAdmin indicates an expected call of SetSuperAdmin.
+func (mr *MockK8sIdentityProviderMockRecorder) SetSuperAdmin(arg0 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSuperAdmin", reflect.TypeOf((*MockK8sIdentityProvider)(nil).SetSuperAdmin), arg0)
+}
+
 // MockAuthNMiddleware is a mock of AuthNMiddleware interface.
 type MockAuthNMiddleware struct {
 	ctrl     *gomock.Controller
@@ -136,10 +267,10 @@ func (m *MockAuthNMiddleware) EXPECT() *MockAuthNMiddlewareMockRecorder {
 }
 
 // GetAuthConfig mocks base method.
-func (m *MockAuthNMiddleware) GetAuthConfig() *v1alpha1.AuthConfig {
+func (m *MockAuthNMiddleware) GetAuthConfig() *v1beta1.AuthConfig {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetAuthConfig")
-	ret0, _ := ret[0].(*v1alpha1.AuthConfig)
+	ret0, _ := ret[0].(*v1beta1.AuthConfig)
 	return ret0
 }
 
@@ -179,6 +310,20 @@ func (mr *MockAuthNMiddlewareMockRecorder) GetIdentity(ctx, token any) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetIdentity", reflect.TypeOf((*MockAuthNMiddleware)(nil).GetIdentity), ctx, token)
 }
 
+// IsEnabled mocks base method.
+func (m *MockAuthNMiddleware) IsEnabled() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IsEnabled")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// IsEnabled indicates an expected call of IsEnabled.
+func (mr *MockAuthNMiddlewareMockRecorder) IsEnabled() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsEnabled", reflect.TypeOf((*MockAuthNMiddleware)(nil).IsEnabled))
+}
+
 // ValidateToken mocks base method.
 func (m *MockAuthNMiddleware) ValidateToken(ctx context.Context, token string) error {
 	m.ctrl.T.Helper()
@@ -191,4 +336,114 @@ func (m *MockAuthNMiddleware) ValidateToken(ctx context.Context, token string) e
 func (mr *MockAuthNMiddlewareMockRecorder) ValidateToken(ctx, token any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ValidateToken", reflect.TypeOf((*MockAuthNMiddleware)(nil).ValidateToken), ctx, token)
+}
+
+// MockMultiAuthNMiddleware is a mock of MultiAuthNMiddleware interface.
+type MockMultiAuthNMiddleware struct {
+	ctrl     *gomock.Controller
+	recorder *MockMultiAuthNMiddlewareMockRecorder
+}
+
+// MockMultiAuthNMiddlewareMockRecorder is the mock recorder for MockMultiAuthNMiddleware.
+type MockMultiAuthNMiddlewareMockRecorder struct {
+	mock *MockMultiAuthNMiddleware
+}
+
+// NewMockMultiAuthNMiddleware creates a new mock instance.
+func NewMockMultiAuthNMiddleware(ctrl *gomock.Controller) *MockMultiAuthNMiddleware {
+	mock := &MockMultiAuthNMiddleware{ctrl: ctrl}
+	mock.recorder = &MockMultiAuthNMiddlewareMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockMultiAuthNMiddleware) EXPECT() *MockMultiAuthNMiddlewareMockRecorder {
+	return m.recorder
+}
+
+// GetAuthConfig mocks base method.
+func (m *MockMultiAuthNMiddleware) GetAuthConfig() *v1beta1.AuthConfig {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAuthConfig")
+	ret0, _ := ret[0].(*v1beta1.AuthConfig)
+	return ret0
+}
+
+// GetAuthConfig indicates an expected call of GetAuthConfig.
+func (mr *MockMultiAuthNMiddlewareMockRecorder) GetAuthConfig() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAuthConfig", reflect.TypeOf((*MockMultiAuthNMiddleware)(nil).GetAuthConfig))
+}
+
+// GetAuthToken mocks base method.
+func (m *MockMultiAuthNMiddleware) GetAuthToken(r *http.Request) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAuthToken", r)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAuthToken indicates an expected call of GetAuthToken.
+func (mr *MockMultiAuthNMiddlewareMockRecorder) GetAuthToken(r any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAuthToken", reflect.TypeOf((*MockMultiAuthNMiddleware)(nil).GetAuthToken), r)
+}
+
+// GetIdentity mocks base method.
+func (m *MockMultiAuthNMiddleware) GetIdentity(ctx context.Context, token string) (Identity, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetIdentity", ctx, token)
+	ret0, _ := ret[0].(Identity)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetIdentity indicates an expected call of GetIdentity.
+func (mr *MockMultiAuthNMiddlewareMockRecorder) GetIdentity(ctx, token any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetIdentity", reflect.TypeOf((*MockMultiAuthNMiddleware)(nil).GetIdentity), ctx, token)
+}
+
+// IsEnabled mocks base method.
+func (m *MockMultiAuthNMiddleware) IsEnabled() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IsEnabled")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// IsEnabled indicates an expected call of IsEnabled.
+func (mr *MockMultiAuthNMiddlewareMockRecorder) IsEnabled() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsEnabled", reflect.TypeOf((*MockMultiAuthNMiddleware)(nil).IsEnabled))
+}
+
+// ValidateToken mocks base method.
+func (m *MockMultiAuthNMiddleware) ValidateToken(ctx context.Context, token string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ValidateToken", ctx, token)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ValidateToken indicates an expected call of ValidateToken.
+func (mr *MockMultiAuthNMiddlewareMockRecorder) ValidateToken(ctx, token any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ValidateToken", reflect.TypeOf((*MockMultiAuthNMiddleware)(nil).ValidateToken), ctx, token)
+}
+
+// ValidateTokenAndGetProvider mocks base method.
+func (m *MockMultiAuthNMiddleware) ValidateTokenAndGetProvider(ctx context.Context, token string) (AuthNMiddleware, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ValidateTokenAndGetProvider", ctx, token)
+	ret0, _ := ret[0].(AuthNMiddleware)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ValidateTokenAndGetProvider indicates an expected call of ValidateTokenAndGetProvider.
+func (mr *MockMultiAuthNMiddlewareMockRecorder) ValidateTokenAndGetProvider(ctx, token any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ValidateTokenAndGetProvider", reflect.TypeOf((*MockMultiAuthNMiddleware)(nil).ValidateTokenAndGetProvider), ctx, token)
 }

@@ -8,11 +8,12 @@ import (
 	"testing"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/lestrrat-go/jwx/v2/jwa"
 	"github.com/lestrrat-go/jwx/v2/jwk"
 	"github.com/lestrrat-go/jwx/v2/jwt"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -33,15 +34,19 @@ func createTestOIDCAuth(jwksUri string) *OIDCAuth {
 		UsernameClaim: &[]string{"preferred_username"},
 	}
 
+	log := logrus.New()
+	log.SetLevel(logrus.ErrorLevel)
+
 	oidcAuth := &OIDCAuth{
 		metadata:      api.ObjectMeta{},
 		spec:          oidcSpec,
 		jwksUri:       jwksUri,
 		client:        &http.Client{Timeout: 5 * time.Second},
-		roleExtractor: NewRoleExtractor(roleAssignment),
+		roleExtractor: NewRoleExtractor(roleAssignment, log),
 		organizationExtractor: &OrganizationExtractor{
 			orgConfig: nil, // No org config for basic tests
 		},
+		log: log,
 	}
 
 	// Initialize JWKS cache and mark discovery as complete to bypass lazy initialization
@@ -221,10 +226,8 @@ func TestOIDCAuth_extractOrganizations(t *testing.T) {
 			expectedOrgs: []common.ReportedOrganization{},
 		},
 		{
-			name: "organizations disabled",
-			orgConfig: &common.AuthOrganizationsConfig{
-				Enabled: false,
-			},
+			name:         "organizations disabled",
+			orgConfig:    nil,
 			expectedOrgs: []common.ReportedOrganization{},
 		},
 		{
@@ -237,7 +240,6 @@ func TestOIDCAuth_extractOrganizations(t *testing.T) {
 				}
 				_ = assignment.FromAuthStaticOrganizationAssignment(staticAssignment)
 				return &common.AuthOrganizationsConfig{
-					Enabled:                true,
 					OrganizationAssignment: &assignment,
 				}
 			}(),
@@ -253,7 +255,6 @@ func TestOIDCAuth_extractOrganizations(t *testing.T) {
 				}
 				_ = assignment.FromAuthDynamicOrganizationAssignment(dynamicAssignment)
 				return &common.AuthOrganizationsConfig{
-					Enabled:                true,
 					OrganizationAssignment: &assignment,
 				}
 			}(),
@@ -270,7 +271,6 @@ func TestOIDCAuth_extractOrganizations(t *testing.T) {
 				}
 				_ = assignment.FromAuthPerUserOrganizationAssignment(perUserAssignment)
 				return &common.AuthOrganizationsConfig{
-					Enabled:                true,
 					OrganizationAssignment: &assignment,
 				}
 			}(),

@@ -3,7 +3,7 @@ package client
 import (
 	"testing"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/api/common"
 	"github.com/samber/lo"
@@ -296,14 +296,14 @@ func TestParseQuadletReferencesFromSpec(t *testing.T) {
 	require := require.New(t)
 	tests := []struct {
 		name              string
-		contents          []v1alpha1.ApplicationContent
+		contents          []v1beta1.ApplicationContent
 		expectedImage     *string
 		expectedAuxImages []string
 		expectError       bool
 	}{
 		{
 			name: "basic container without dropins",
-			contents: []v1alpha1.ApplicationContent{
+			contents: []v1beta1.ApplicationContent{
 				{
 					Path: "app.container",
 					Content: lo.ToPtr(`[Container]
@@ -316,7 +316,7 @@ Image=quay.io/app/myapp:v1.0
 		},
 		{
 			name: "container with dropin overriding image",
-			contents: []v1alpha1.ApplicationContent{
+			contents: []v1beta1.ApplicationContent{
 				{
 					Path: "app.container",
 					Content: lo.ToPtr(`[Container]
@@ -335,7 +335,7 @@ Image=quay.io/app/myapp:v2.0
 		},
 		{
 			name: "container with multiple dropins - last one wins",
-			contents: []v1alpha1.ApplicationContent{
+			contents: []v1beta1.ApplicationContent{
 				{
 					Path: "app.container",
 					Content: lo.ToPtr(`[Container]
@@ -360,7 +360,7 @@ Image=quay.io/app/myapp:v3.0
 		},
 		{
 			name: "container with dropin adding mount",
-			contents: []v1alpha1.ApplicationContent{
+			contents: []v1beta1.ApplicationContent{
 				{
 					Path: "app.container",
 					Content: lo.ToPtr(`[Container]
@@ -379,7 +379,7 @@ Mount=type=image,source=quay.io/data/dataset:latest,destination=/data
 		},
 		{
 			name: "container with dropin adding multiple mounts",
-			contents: []v1alpha1.ApplicationContent{
+			contents: []v1beta1.ApplicationContent{
 				{
 					Path: "app.container",
 					Content: lo.ToPtr(`[Container]
@@ -399,7 +399,7 @@ Mount=type=image,source=quay.io/data/dataset2:latest,destination=/data2
 		},
 		{
 			name: "container with base mount and dropin adding more mounts",
-			contents: []v1alpha1.ApplicationContent{
+			contents: []v1beta1.ApplicationContent{
 				{
 					Path: "app.container",
 					Content: lo.ToPtr(`[Container]
@@ -420,7 +420,7 @@ Mount=type=image,source=quay.io/data/extra2:latest,destination=/extra2
 		},
 		{
 			name: "container hierarchy",
-			contents: []v1alpha1.ApplicationContent{
+			contents: []v1beta1.ApplicationContent{
 				{
 					Path: "app-one.container",
 					Content: lo.ToPtr(`[Container]
@@ -450,7 +450,7 @@ Image=quay.io/app/myapp:v3.0
 		},
 		{
 			name: "container with dropin overriding image and adding mounts",
-			contents: []v1alpha1.ApplicationContent{
+			contents: []v1beta1.ApplicationContent{
 				{
 					Path: "app.container",
 					Content: lo.ToPtr(`[Container]
@@ -470,7 +470,7 @@ Mount=type=image,source=quay.io/data/dataset:latest,destination=/data
 		},
 		{
 			name: "container with multiple dropins in alphabetical order",
-			contents: []v1alpha1.ApplicationContent{
+			contents: []v1beta1.ApplicationContent{
 				{
 					Path: "app.container",
 					Content: lo.ToPtr(`[Container]
@@ -501,7 +501,7 @@ Image=quay.io/app/myapp:v3.0
 		},
 		{
 			name: "pod with dropin",
-			contents: []v1alpha1.ApplicationContent{
+			contents: []v1beta1.ApplicationContent{
 				{
 					Path: "mypod.pod",
 					Content: lo.ToPtr(`[Pod]
@@ -519,7 +519,7 @@ Network=host
 		},
 		{
 			name: "volume with dropin",
-			contents: []v1alpha1.ApplicationContent{
+			contents: []v1beta1.ApplicationContent{
 				{
 					Path: "myvolume.volume",
 					Content: lo.ToPtr(`[Volume]
@@ -537,7 +537,7 @@ Label=app=test
 		},
 		{
 			name: "non-quadlet files ignored",
-			contents: []v1alpha1.ApplicationContent{
+			contents: []v1beta1.ApplicationContent{
 				{
 					Path: "app.container",
 					Content: lo.ToPtr(`[Container]

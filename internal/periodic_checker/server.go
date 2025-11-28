@@ -3,7 +3,6 @@ package periodic
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"os"
 	"os/signal"
 	"sync"
@@ -72,7 +71,7 @@ func (s *Server) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer queuePublisher.Close()
+	defer queuePublisher.Close() // Close publisher on server shutdown
 
 	workerClient := worker_client.NewWorkerClient(queuePublisher, s.log)
 	if err = rendered.Bus.Initialize(ctx, kvStore, queuesProvider, time.Duration(s.cfg.Service.RenderedWaitTimeout), s.log); err != nil {
@@ -89,7 +88,7 @@ func (s *Server) Run(ctx context.Context) error {
 	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(s.store, workerClient, kvStore, nil, s.log, "", "", []string{}))
 
 	// Initialize the task executors
-	periodicTaskExecutors := InitializeTaskExecutors(s.log, serviceHandler, s.cfg, queuesProvider, nil)
+	periodicTaskExecutors := InitializeTaskExecutors(s.log, serviceHandler, s.cfg, queuesProvider, workerClient, nil)
 
 	// Create channel manager for task distribution
 	channelManagerConfig := ChannelManagerConfig{
@@ -124,12 +123,12 @@ func (s *Server) Run(ctx context.Context) error {
 		OrgService:     serviceHandler,
 		TasksMetadata:  periodicTasks,
 		ChannelManager: channelManager,
+		WorkerClient:   workerClient,
 		TaskBackoff: &poll.Config{
 			BaseDelay:    100 * time.Millisecond,
 			Factor:       3,
 			MaxDelay:     10 * time.Second,
 			JitterFactor: 0.1,
-			Rand:         rand.New(rand.NewSource(time.Now().UnixNano())), //nolint:gosec
 		},
 	}
 	periodicTaskPublisher, err := NewPeriodicTaskPublisher(publisherConfig)

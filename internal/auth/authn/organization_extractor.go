@@ -1,7 +1,7 @@
 package authn
 
 import (
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/auth/common"
 )
 
@@ -21,8 +21,8 @@ func NewOrganizationExtractor(orgConfig *common.AuthOrganizationsConfig) *Organi
 func (e *OrganizationExtractor) ExtractOrganizations(claims map[string]interface{}, username string) []string {
 	var organizations []string
 
-	// If no org config or organizations are disabled, return empty
-	if e.orgConfig == nil || !e.orgConfig.Enabled || e.orgConfig.OrganizationAssignment == nil {
+	// If no org config, return empty
+	if e.orgConfig == nil || e.orgConfig.OrganizationAssignment == nil {
 		return organizations
 	}
 

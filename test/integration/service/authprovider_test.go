@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/identity"
 	"github.com/flightctl/flightctl/internal/store"
@@ -35,7 +35,7 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 	})
 
 	// Helper function to get events for a specific Auth provider
-	getEventsForAuthProvider := func(providerName string) []api.Event {
+	getEventsForAuthProvider := func(orgId uuid.UUID, providerName string) []api.Event {
 		// Use field selector to filter events by involved object name and kind
 		fieldSelector, err := selector.NewFieldSelectorFromMap(map[string]string{
 			"involvedObject.name": providerName,
@@ -80,11 +80,11 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 	Context("AuthProvider CRUD operations", func() {
 		It("should create Auth provider successfully", func() {
 			provider := util.ReturnTestAuthProvider(store.NullOrgId, "test-provider", "", nil)
-			result, status := suite.Handler.CreateAuthProvider(suite.Ctx, provider)
+			result, status := suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider)
 			Expect(status.Code).To(Equal(int32(201)))
 			Expect(result).ToNot(BeNil())
 			Expect(*result.Metadata.Name).To(Equal("test-provider"))
-			Expect(result.ApiVersion).To(Equal("flightctl.io/v1alpha1"))
+			Expect(result.ApiVersion).To(Equal("flightctl.io/v1beta1"))
 			Expect(result.Kind).To(Equal(api.AuthProviderKind))
 		})
 
@@ -103,23 +103,23 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 			err := provider.Spec.FromOIDCProviderSpec(oidcSpec)
 			Expect(err).ToNot(HaveOccurred())
 
-			_, status := suite.Handler.CreateAuthProvider(suite.Ctx, provider)
+			_, status := suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider)
 			Expect(status.Code).To(Equal(int32(400)))
 		})
 
 		It("should get Auth provider successfully", func() {
 			provider := util.ReturnTestAuthProvider(store.NullOrgId, "get-test-provider", "", nil)
-			_, status := suite.Handler.CreateAuthProvider(suite.Ctx, provider)
+			_, status := suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider)
 			Expect(status.Code).To(Equal(int32(201)))
 
-			result, status := suite.Handler.GetAuthProvider(suite.Ctx, "get-test-provider")
+			result, status := suite.Handler.GetAuthProvider(suite.Ctx, orgId, "get-test-provider")
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(result).ToNot(BeNil())
 			Expect(*result.Metadata.Name).To(Equal("get-test-provider"))
 		})
 
 		It("should return 404 for non-existent Auth provider", func() {
-			_, status := suite.Handler.GetAuthProvider(suite.Ctx, "non-existent")
+			_, status := suite.Handler.GetAuthProvider(suite.Ctx, orgId, "non-existent")
 			Expect(status.Code).To(Equal(int32(404)))
 		})
 
@@ -127,12 +127,12 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 			// Create multiple providers
 			for i := 0; i < 3; i++ {
 				provider := util.ReturnTestAuthProvider(store.NullOrgId, fmt.Sprintf("list-provider-%d", i), "", nil)
-				_, status := suite.Handler.CreateAuthProvider(suite.Ctx, provider)
+				_, status := suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider)
 				Expect(status.Code).To(Equal(int32(201)))
 			}
 
 			params := api.ListAuthProvidersParams{}
-			result, status := suite.Handler.ListAuthProviders(suite.Ctx, params)
+			result, status := suite.Handler.ListAuthProviders(suite.Ctx, orgId, params)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(result).ToNot(BeNil())
 			Expect(len(result.Items)).To(Equal(3))
@@ -142,19 +142,19 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 			// Create providers with different labels
 			provider1 := util.ReturnTestAuthProvider(store.NullOrgId, "labeled-provider-1", "", nil)
 			provider1.Metadata.Labels = &map[string]string{"env": "test", "type": "oidc"}
-			_, status := suite.Handler.CreateAuthProvider(suite.Ctx, provider1)
+			_, status := suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider1)
 			Expect(status.Code).To(Equal(int32(201)))
 
 			provider2 := util.ReturnTestAuthProvider(store.NullOrgId, "labeled-provider-2", "", nil)
 			provider2.Metadata.Labels = &map[string]string{"env": "prod", "type": "oidc"}
-			_, status = suite.Handler.CreateAuthProvider(suite.Ctx, provider2)
+			_, status = suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider2)
 			Expect(status.Code).To(Equal(int32(201)))
 
 			// Test label selector
 			params := api.ListAuthProvidersParams{
 				LabelSelector: lo.ToPtr("env=test"),
 			}
-			result, status := suite.Handler.ListAuthProviders(suite.Ctx, params)
+			result, status := suite.Handler.ListAuthProviders(suite.Ctx, orgId, params)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(len(result.Items)).To(Equal(1))
 			Expect(*result.Items[0].Metadata.Name).To(Equal("labeled-provider-1"))
@@ -163,18 +163,18 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 		It("should list Auth providers with field selector", func() {
 			// Create providers with different issuers
 			provider1 := util.ReturnTestAuthProvider(store.NullOrgId, "issuer-provider-1", "https://accounts.google.com", nil)
-			_, status := suite.Handler.CreateAuthProvider(suite.Ctx, provider1)
+			_, status := suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider1)
 			Expect(status.Code).To(Equal(int32(201)))
 
 			provider2 := util.ReturnTestAuthProvider(store.NullOrgId, "issuer-provider-2", "https://login.microsoftonline.com", nil)
-			_, status = suite.Handler.CreateAuthProvider(suite.Ctx, provider2)
+			_, status = suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider2)
 			Expect(status.Code).To(Equal(int32(201)))
 
 			// Test field selector
 			params := api.ListAuthProvidersParams{
 				FieldSelector: lo.ToPtr("metadata.name=issuer-provider-1"),
 			}
-			result, status := suite.Handler.ListAuthProviders(suite.Ctx, params)
+			result, status := suite.Handler.ListAuthProviders(suite.Ctx, orgId, params)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(len(result.Items)).To(Equal(1))
 			Expect(*result.Items[0].Metadata.Name).To(Equal("issuer-provider-1"))
@@ -182,7 +182,7 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 
 		It("should replace Auth provider successfully", func() {
 			provider := util.ReturnTestAuthProvider(store.NullOrgId, "replace-test-provider", "", nil)
-			_, status := suite.Handler.CreateAuthProvider(suite.Ctx, provider)
+			_, status := suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider)
 			Expect(status.Code).To(Equal(int32(201)))
 
 			// Update the provider - need to extract and modify the OIDC spec
@@ -192,7 +192,7 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 			err = provider.Spec.FromOIDCProviderSpec(oidcSpec)
 			Expect(err).ToNot(HaveOccurred())
 
-			result, status := suite.Handler.ReplaceAuthProvider(suite.Ctx, "replace-test-provider", provider)
+			result, status := suite.Handler.ReplaceAuthProvider(suite.Ctx, orgId, "replace-test-provider", provider)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(result).ToNot(BeNil())
 			updatedSpec, err := result.Spec.AsOIDCProviderSpec()
@@ -202,30 +202,30 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 
 		It("should reject replace with mismatched name", func() {
 			provider := util.ReturnTestAuthProvider(store.NullOrgId, "replace-test-provider", "", nil)
-			_, status := suite.Handler.CreateAuthProvider(suite.Ctx, provider)
+			_, status := suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider)
 			Expect(status.Code).To(Equal(int32(201)))
 
 			// Try to replace with different name
 			provider.Metadata.Name = lo.ToPtr("different-name")
-			_, status = suite.Handler.ReplaceAuthProvider(suite.Ctx, "replace-test-provider", provider)
+			_, status = suite.Handler.ReplaceAuthProvider(suite.Ctx, orgId, "replace-test-provider", provider)
 			Expect(status.Code).To(Equal(int32(400)))
 		})
 
 		It("should delete Auth provider successfully", func() {
 			provider := util.ReturnTestAuthProvider(store.NullOrgId, "delete-test-provider", "", nil)
-			_, status := suite.Handler.CreateAuthProvider(suite.Ctx, provider)
+			_, status := suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider)
 			Expect(status.Code).To(Equal(int32(201)))
 
-			status = suite.Handler.DeleteAuthProvider(suite.Ctx, "delete-test-provider")
+			status = suite.Handler.DeleteAuthProvider(suite.Ctx, orgId, "delete-test-provider")
 			Expect(status.Code).To(Equal(int32(200)))
 
 			// Verify it's deleted
-			_, status = suite.Handler.GetAuthProvider(suite.Ctx, "delete-test-provider")
+			_, status = suite.Handler.GetAuthProvider(suite.Ctx, orgId, "delete-test-provider")
 			Expect(status.Code).To(Equal(int32(404)))
 		})
 
 		It("should return 200 when deleting non-existent Auth provider", func() {
-			status := suite.Handler.DeleteAuthProvider(suite.Ctx, "non-existent")
+			status := suite.Handler.DeleteAuthProvider(suite.Ctx, orgId, "non-existent")
 			Expect(status.Code).To(Equal(int32(200)))
 		})
 	})
@@ -233,10 +233,10 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 	Context("AuthProvider by issuer operations", func() {
 		It("should get Auth provider by issuer successfully", func() {
 			provider := util.ReturnTestAuthProvider(store.NullOrgId, "issuer-test-provider", "https://accounts.google.com", nil)
-			_, status := suite.Handler.CreateAuthProvider(suite.Ctx, provider)
+			_, status := suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider)
 			Expect(status.Code).To(Equal(int32(201)))
 
-			result, status := suite.Handler.GetAuthProviderByIssuerAndClientId(suite.Ctx, "https://accounts.google.com", "test-client-id-issuer-test-provider")
+			result, status := suite.Handler.GetAuthProviderByIssuerAndClientId(suite.Ctx, orgId, "https://accounts.google.com", "test-client-id-issuer-test-provider")
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(result).ToNot(BeNil())
 			Expect(*result.Metadata.Name).To(Equal("issuer-test-provider"))
@@ -246,22 +246,22 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 		})
 
 		It("should return 404 for non-existent issuer", func() {
-			_, status := suite.Handler.GetAuthProviderByIssuerAndClientId(suite.Ctx, "https://nonexistent.com", "test-client-id")
+			_, status := suite.Handler.GetAuthProviderByIssuerAndClientId(suite.Ctx, orgId, "https://nonexistent.com", "test-client-id")
 			Expect(status.Code).To(Equal(int32(404)))
 		})
 
 		It("should handle multiple providers with same issuer", func() {
 			// Create multiple providers with same issuer
 			provider1 := util.ReturnTestAuthProvider(store.NullOrgId, "issuer-provider-1", "https://accounts.google.com", nil)
-			_, status := suite.Handler.CreateAuthProvider(suite.Ctx, provider1)
+			_, status := suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider1)
 			Expect(status.Code).To(Equal(int32(201)))
 
 			provider2 := util.ReturnTestAuthProvider(store.NullOrgId, "issuer-provider-2", "https://accounts.google.com", nil)
-			_, status = suite.Handler.CreateAuthProvider(suite.Ctx, provider2)
+			_, status = suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider2)
 			Expect(status.Code).To(Equal(int32(201)))
 
 			// Should return the first matching provider
-			result, status := suite.Handler.GetAuthProviderByIssuerAndClientId(suite.Ctx, "https://accounts.google.com", "test-client-id-issuer-provider-1")
+			result, status := suite.Handler.GetAuthProviderByIssuerAndClientId(suite.Ctx, orgId, "https://accounts.google.com", "test-client-id-issuer-provider-1")
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(result).ToNot(BeNil())
 			oidcSpec, err := result.Spec.AsOIDCProviderSpec()
@@ -273,7 +273,7 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 	Context("AuthProvider with different organization assignments", func() {
 		It("should handle static organization assignment", func() {
 			provider := util.ReturnTestAuthProvider(store.NullOrgId, "static-org-provider", "", nil)
-			result, status := suite.Handler.CreateAuthProvider(suite.Ctx, provider)
+			result, status := suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider)
 			Expect(status.Code).To(Equal(int32(201)))
 			Expect(result).ToNot(BeNil())
 		})
@@ -315,7 +315,7 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 			err = provider.Spec.FromOIDCProviderSpec(oidcSpec)
 			Expect(err).ToNot(HaveOccurred())
 
-			result, status := suite.Handler.CreateAuthProvider(suite.Ctx, provider)
+			result, status := suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider)
 			Expect(status.Code).To(Equal(int32(201)), fmt.Sprintf("status: %v result: %v", status, result))
 			Expect(result).ToNot(BeNil(), fmt.Sprintf("result: %v", result))
 		})
@@ -358,7 +358,7 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 			err = provider.Spec.FromOIDCProviderSpec(oidcSpec)
 			Expect(err).ToNot(HaveOccurred())
 
-			result, status := suite.Handler.CreateAuthProvider(suite.Ctx, provider)
+			result, status := suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider)
 			Expect(status.Code).To(Equal(int32(201)))
 			Expect(result).ToNot(BeNil())
 		})
@@ -367,12 +367,12 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 	Context("AuthProvider events", func() {
 		It("should generate events when creating Auth provider", func() {
 			provider := util.ReturnTestAuthProvider(store.NullOrgId, "event-test-provider", "", nil)
-			result, status := suite.Handler.CreateAuthProvider(suite.Ctx, provider)
+			result, status := suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider)
 			Expect(status.Code).To(Equal(int32(201)))
 			Expect(result).ToNot(BeNil())
 
 			// Check for events
-			events := getEventsForAuthProvider("event-test-provider")
+			events := getEventsForAuthProvider(orgId, "event-test-provider")
 			Expect(len(events)).To(BeNumerically(">=", 1))
 
 			// Look for creation event
@@ -384,11 +384,11 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 
 		It("should generate events when updating Auth provider", func() {
 			provider := util.ReturnTestAuthProvider(store.NullOrgId, "update-event-test-provider", "", nil)
-			_, status := suite.Handler.CreateAuthProvider(suite.Ctx, provider)
+			_, status := suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider)
 			Expect(status.Code).To(Equal(int32(201)))
 
 			// Fetch the provider to get the latest metadata
-			fetchedProvider, status := suite.Handler.GetAuthProvider(suite.Ctx, "update-event-test-provider")
+			fetchedProvider, status := suite.Handler.GetAuthProvider(suite.Ctx, orgId, "update-event-test-provider")
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(fetchedProvider).ToNot(BeNil())
 
@@ -399,13 +399,13 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 			err = fetchedProvider.Spec.FromOIDCProviderSpec(oidcSpec)
 			Expect(err).ToNot(HaveOccurred())
 
-			result, status := suite.Handler.ReplaceAuthProvider(suite.Ctx, "update-event-test-provider", *fetchedProvider)
+			result, status := suite.Handler.ReplaceAuthProvider(suite.Ctx, orgId, "update-event-test-provider", *fetchedProvider)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(result).ToNot(BeNil())
 
 			// Check for events with a small delay to ensure events are persisted
 			time.Sleep(100 * time.Millisecond)
-			events := getEventsForAuthProvider("update-event-test-provider")
+			events := getEventsForAuthProvider(orgId, "update-event-test-provider")
 			Expect(len(events)).To(BeNumerically(">=", 2), fmt.Sprintf("events: %v", events)) // Creation + update
 
 			// Look for update event
@@ -415,14 +415,14 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 
 		It("should generate events when deleting Auth provider", func() {
 			provider := util.ReturnTestAuthProvider(store.NullOrgId, "delete-event-test-provider", "", nil)
-			_, status := suite.Handler.CreateAuthProvider(suite.Ctx, provider)
+			_, status := suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider)
 			Expect(status.Code).To(Equal(int32(201)))
 
-			status = suite.Handler.DeleteAuthProvider(suite.Ctx, "delete-event-test-provider")
+			status = suite.Handler.DeleteAuthProvider(suite.Ctx, orgId, "delete-event-test-provider")
 			Expect(status.Code).To(Equal(int32(200)))
 
 			// Check for events
-			events := getEventsForAuthProvider("delete-event-test-provider")
+			events := getEventsForAuthProvider(orgId, "delete-event-test-provider")
 			Expect(len(events)).To(BeNumerically(">=", 2)) // Creation + deletion
 
 			// Look for deletion event
@@ -445,7 +445,7 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 			}
 			_ = provider.Spec.FromOIDCProviderSpec(oidcSpec)
 
-			_, status := suite.Handler.CreateAuthProvider(suite.Ctx, provider)
+			_, status := suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider)
 			Expect(status.Code).To(Equal(int32(400)))
 		})
 
@@ -467,13 +467,13 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 			err := provider.Spec.FromOIDCProviderSpec(oidcSpec)
 			Expect(err).ToNot(HaveOccurred())
 
-			_, status := suite.Handler.CreateAuthProvider(suite.Ctx, provider)
+			_, status := suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider)
 			Expect(status.Code).To(Equal(int32(400)))
 		})
 
 		It("should accept valid Auth provider", func() {
 			provider := util.ReturnTestAuthProvider(store.NullOrgId, "valid-test-provider", "", nil)
-			result, status := suite.Handler.CreateAuthProvider(suite.Ctx, provider)
+			result, status := suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider)
 			Expect(status.Code).To(Equal(int32(201)))
 			Expect(result).ToNot(BeNil())
 		})
@@ -555,7 +555,7 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 
 			// Create context with non-admin user
 			nonAdminCtx := createNonAdminContext()
-			_, status := suite.Handler.CreateAuthProvider(nonAdminCtx, provider)
+			_, status := suite.Handler.CreateAuthProvider(nonAdminCtx, orgId, provider)
 			Expect(status.Code).To(Equal(int32(400)))
 			Expect(status.Message).To(ContainSubstring("only flightctl-admin users are allowed to create auth providers with dynamic organization mapping"))
 		})
@@ -600,7 +600,7 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 
 			// Create context with non-admin user
 			nonAdminCtx := createNonAdminContext()
-			_, status := suite.Handler.CreateAuthProvider(nonAdminCtx, provider)
+			_, status := suite.Handler.CreateAuthProvider(nonAdminCtx, orgId, provider)
 			Expect(status.Code).To(Equal(int32(400)))
 			Expect(status.Message).To(ContainSubstring("only flightctl-admin users are allowed to create auth providers with per-user organization mapping"))
 		})
@@ -644,7 +644,7 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 
 			// Create context with admin user
 			adminCtx := createAdminContext()
-			result, status := suite.Handler.CreateAuthProvider(adminCtx, provider)
+			result, status := suite.Handler.CreateAuthProvider(adminCtx, orgId, provider)
 			Expect(status.Code).To(Equal(int32(201)))
 			Expect(result).ToNot(BeNil())
 		})
@@ -689,7 +689,7 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 
 			// Create context with admin user
 			adminCtx := createAdminContext()
-			result, status := suite.Handler.CreateAuthProvider(adminCtx, provider)
+			result, status := suite.Handler.CreateAuthProvider(adminCtx, orgId, provider)
 			Expect(status.Code).To(Equal(int32(201)))
 			Expect(result).ToNot(BeNil())
 		})
@@ -700,7 +700,7 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 			// Create multiple providers
 			for i := 0; i < 5; i++ {
 				provider := util.ReturnTestAuthProvider(store.NullOrgId, fmt.Sprintf("pagination-provider-%d", i), "", nil)
-				_, status := suite.Handler.CreateAuthProvider(suite.Ctx, provider)
+				_, status := suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider)
 				Expect(status.Code).To(Equal(int32(201)))
 			}
 
@@ -708,16 +708,248 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 			params := api.ListAuthProvidersParams{
 				Limit: lo.ToPtr(int32(2)),
 			}
-			result, status := suite.Handler.ListAuthProviders(suite.Ctx, params)
+			result, status := suite.Handler.ListAuthProviders(suite.Ctx, orgId, params)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(len(result.Items)).To(Equal(2))
 			Expect(result.Metadata.Continue).ToNot(BeNil())
 
 			// Test pagination
 			params.Continue = result.Metadata.Continue
-			result, status = suite.Handler.ListAuthProviders(suite.Ctx, params)
+			result, status = suite.Handler.ListAuthProviders(suite.Ctx, orgId, params)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(len(result.Items)).To(Equal(2))
+		})
+	})
+
+	Context("AuthProvider duplicate validation", func() {
+		It("should reject duplicate OIDC provider with same issuer and clientId", func() {
+			// Create first OIDC provider
+			provider1 := util.ReturnTestAuthProvider(store.NullOrgId, "oidc-provider-1", "https://accounts.google.com", nil)
+			result1, status := suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider1)
+			Expect(status.Code).To(Equal(int32(201)))
+			Expect(result1).ToNot(BeNil())
+
+			// Try to create second OIDC provider with same issuer and clientId but different name
+			provider2 := util.ReturnTestAuthProvider(store.NullOrgId, "oidc-provider-2", "https://accounts.google.com", nil)
+			// Ensure same clientId by using the same spec
+			oidcSpec1, err := provider1.Spec.AsOIDCProviderSpec()
+			Expect(err).ToNot(HaveOccurred())
+			err = provider2.Spec.FromOIDCProviderSpec(oidcSpec1)
+			Expect(err).ToNot(HaveOccurred())
+
+			result2, status := suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider2)
+			Expect(status.Code).To(Equal(int32(409)))
+			Expect(status.Message).To(ContainSubstring("OIDC auth provider with the same issuer and clientId already exists"))
+			Expect(result2).To(BeNil())
+		})
+
+		It("should reject duplicate OIDC provider across different organizations", func() {
+			// Create a second organization
+			org2Id := uuid.New()
+			err := util.CreateTestOrganization(suite.Ctx, suite.Store, org2Id)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Create OIDC provider in first org
+			provider1 := util.ReturnTestAuthProvider(orgId, "oidc-provider-org1", "https://login.microsoftonline.com", nil)
+			result1, status := suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider1)
+			Expect(status.Code).To(Equal(int32(201)))
+			Expect(result1).ToNot(BeNil())
+
+			// Try to create OIDC provider with same issuer and clientId in second org
+			provider2 := util.ReturnTestAuthProvider(org2Id, "oidc-provider-org2", "https://login.microsoftonline.com", nil)
+			oidcSpec1, err := provider1.Spec.AsOIDCProviderSpec()
+			Expect(err).ToNot(HaveOccurred())
+			err = provider2.Spec.FromOIDCProviderSpec(oidcSpec1)
+			Expect(err).ToNot(HaveOccurred())
+
+			result2, status := suite.Handler.CreateAuthProvider(suite.Ctx, org2Id, provider2)
+			Expect(status.Code).To(Equal(int32(409)))
+			Expect(status.Message).To(ContainSubstring("OIDC auth provider with the same issuer and clientId already exists"))
+			Expect(result2).To(BeNil())
+		})
+
+		It("should reject duplicate OAuth2 provider with same userinfoUrl and clientId", func() {
+			// Create first OAuth2 provider
+			assignment := createTestOrganizationAssignment()
+			roleAssignment := api.AuthRoleAssignment{}
+			staticRoleAssignment := api.AuthStaticRoleAssignment{
+				Type:  api.AuthStaticRoleAssignmentTypeStatic,
+				Roles: []string{"viewer"},
+			}
+			err := roleAssignment.FromAuthStaticRoleAssignment(staticRoleAssignment)
+			Expect(err).ToNot(HaveOccurred())
+
+			oauth2Spec1 := api.OAuth2ProviderSpec{
+				ProviderType:           api.Oauth2,
+				AuthorizationUrl:       "https://oauth2.example.com/authorize",
+				TokenUrl:               "https://oauth2.example.com/token",
+				UserinfoUrl:            "https://oauth2.example.com/userinfo",
+				ClientId:               "oauth2-client-id-1",
+				ClientSecret:           lo.ToPtr("oauth2-client-secret"),
+				Enabled:                lo.ToPtr(true),
+				OrganizationAssignment: assignment,
+				RoleAssignment:         roleAssignment,
+			}
+
+			provider1 := api.AuthProvider{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr("oauth2-provider-1"),
+				},
+			}
+			err = provider1.Spec.FromOAuth2ProviderSpec(oauth2Spec1)
+			Expect(err).ToNot(HaveOccurred())
+
+			result1, status := suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider1)
+			Expect(status.Code).To(Equal(int32(201)))
+			Expect(result1).ToNot(BeNil())
+
+			// Try to create second OAuth2 provider with same userinfoUrl and clientId
+			provider2 := api.AuthProvider{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr("oauth2-provider-2"),
+				},
+			}
+			err = provider2.Spec.FromOAuth2ProviderSpec(oauth2Spec1)
+			Expect(err).ToNot(HaveOccurred())
+
+			result2, status := suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider2)
+			Expect(status.Code).To(Equal(int32(409)))
+			Expect(status.Message).To(ContainSubstring("OAuth2 auth provider with the same userinfoUrl and clientId already exists"))
+			Expect(result2).To(BeNil())
+		})
+
+		It("should allow duplicate OIDC provider with same issuer but different clientId", func() {
+			// Create first OIDC provider
+			provider1 := util.ReturnTestAuthProvider(store.NullOrgId, "oidc-provider-diff-1", "https://accounts.google.com", nil)
+			result1, status := suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider1)
+			Expect(status.Code).To(Equal(int32(201)))
+			Expect(result1).ToNot(BeNil())
+
+			// Create second OIDC provider with same issuer but different clientId
+			provider2 := util.ReturnTestAuthProvider(store.NullOrgId, "oidc-provider-diff-2", "https://accounts.google.com", nil)
+			oidcSpec2, err := provider2.Spec.AsOIDCProviderSpec()
+			Expect(err).ToNot(HaveOccurred())
+			oidcSpec2.ClientId = "different-client-id"
+			err = provider2.Spec.FromOIDCProviderSpec(oidcSpec2)
+			Expect(err).ToNot(HaveOccurred())
+
+			result2, status := suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider2)
+			Expect(status.Code).To(Equal(int32(201)))
+			Expect(result2).ToNot(BeNil())
+		})
+
+		It("should reject update that creates duplicate OIDC provider", func() {
+			// Create two OIDC providers with different issuer/clientId combinations
+			provider1 := util.ReturnTestAuthProvider(store.NullOrgId, "oidc-update-1", "https://issuer1.com", nil)
+			oidcSpec1, err := provider1.Spec.AsOIDCProviderSpec()
+			Expect(err).ToNot(HaveOccurred())
+			oidcSpec1.ClientId = "client-id-1"
+			err = provider1.Spec.FromOIDCProviderSpec(oidcSpec1)
+			Expect(err).ToNot(HaveOccurred())
+			result1, status := suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider1)
+			Expect(status.Code).To(Equal(int32(201)))
+			Expect(result1).ToNot(BeNil())
+
+			provider2 := util.ReturnTestAuthProvider(store.NullOrgId, "oidc-update-2", "https://issuer2.com", nil)
+			oidcSpec2, err := provider2.Spec.AsOIDCProviderSpec()
+			Expect(err).ToNot(HaveOccurred())
+			oidcSpec2.ClientId = "client-id-2"
+			err = provider2.Spec.FromOIDCProviderSpec(oidcSpec2)
+			Expect(err).ToNot(HaveOccurred())
+			result2, status := suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider2)
+			Expect(status.Code).To(Equal(int32(201)))
+			Expect(result2).ToNot(BeNil())
+
+			// Fetch provider2 and try to update it to have same issuer/clientId as provider1
+			fetchedProvider2, status := suite.Handler.GetAuthProvider(suite.Ctx, orgId, "oidc-update-2")
+			Expect(status.Code).To(Equal(int32(200)))
+
+			updatedSpec, err := fetchedProvider2.Spec.AsOIDCProviderSpec()
+			Expect(err).ToNot(HaveOccurred())
+			updatedSpec.Issuer = "https://issuer1.com"
+			updatedSpec.ClientId = "client-id-1"
+			err = fetchedProvider2.Spec.FromOIDCProviderSpec(updatedSpec)
+			Expect(err).ToNot(HaveOccurred())
+
+			result, status := suite.Handler.ReplaceAuthProvider(suite.Ctx, orgId, "oidc-update-2", *fetchedProvider2)
+			Expect(status.Code).To(Equal(int32(409)))
+			Expect(status.Message).To(ContainSubstring("OIDC auth provider with the same issuer and clientId already exists"))
+			Expect(result).To(BeNil())
+		})
+
+		It("should reject patch that creates duplicate OAuth2 provider", func() {
+			// Create two OAuth2 providers
+			assignment := createTestOrganizationAssignment()
+			roleAssignment := api.AuthRoleAssignment{}
+			staticRoleAssignment := api.AuthStaticRoleAssignment{
+				Type:  api.AuthStaticRoleAssignmentTypeStatic,
+				Roles: []string{"viewer"},
+			}
+			err := roleAssignment.FromAuthStaticRoleAssignment(staticRoleAssignment)
+			Expect(err).ToNot(HaveOccurred())
+
+			oauth2Spec1 := api.OAuth2ProviderSpec{
+				ProviderType:           api.Oauth2,
+				AuthorizationUrl:       "https://oauth2-1.example.com/authorize",
+				TokenUrl:               "https://oauth2-1.example.com/token",
+				UserinfoUrl:            "https://oauth2-1.example.com/userinfo",
+				ClientId:               "oauth2-patch-client-1",
+				ClientSecret:           lo.ToPtr("oauth2-client-secret"),
+				Enabled:                lo.ToPtr(true),
+				OrganizationAssignment: assignment,
+				RoleAssignment:         roleAssignment,
+			}
+
+			provider1 := api.AuthProvider{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr("oauth2-patch-1"),
+				},
+			}
+			err = provider1.Spec.FromOAuth2ProviderSpec(oauth2Spec1)
+			Expect(err).ToNot(HaveOccurred())
+			_, status := suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider1)
+			Expect(status.Code).To(Equal(int32(201)))
+
+			oauth2Spec2 := api.OAuth2ProviderSpec{
+				ProviderType:           api.Oauth2,
+				AuthorizationUrl:       "https://oauth2-2.example.com/authorize",
+				TokenUrl:               "https://oauth2-2.example.com/token",
+				UserinfoUrl:            "https://oauth2-2.example.com/userinfo",
+				ClientId:               "oauth2-patch-client-2",
+				ClientSecret:           lo.ToPtr("oauth2-client-secret"),
+				Enabled:                lo.ToPtr(true),
+				OrganizationAssignment: assignment,
+				RoleAssignment:         roleAssignment,
+			}
+
+			provider2 := api.AuthProvider{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr("oauth2-patch-2"),
+				},
+			}
+			err = provider2.Spec.FromOAuth2ProviderSpec(oauth2Spec2)
+			Expect(err).ToNot(HaveOccurred())
+			_, status = suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider2)
+			Expect(status.Code).To(Equal(int32(201)))
+
+			// Try to patch provider2 to have same userinfoUrl and clientId as provider1
+			patchRequest := api.PatchRequest{
+				{
+					Op:    "replace",
+					Path:  "/spec/userinfoUrl",
+					Value: AnyPtr("https://oauth2-1.example.com/userinfo"),
+				},
+				{
+					Op:    "replace",
+					Path:  "/spec/clientId",
+					Value: AnyPtr("oauth2-patch-client-1"),
+				},
+			}
+
+			result, status := suite.Handler.PatchAuthProvider(suite.Ctx, orgId, "oauth2-patch-2", patchRequest)
+			Expect(status.Code).To(Equal(int32(409)))
+			Expect(status.Message).To(ContainSubstring("OAuth2 auth provider with the same userinfoUrl and clientId already exists"))
+			Expect(result).To(BeNil())
 		})
 	})
 
@@ -736,12 +968,12 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 			It("should emit ResourceCreated event when creating Auth provider", func() {
 				// Create Auth provider
 				provider := util.ReturnTestAuthProvider(orgId, "test-provider", "", nil)
-				createdProvider, status := suite.Handler.CreateAuthProvider(suite.Ctx, provider)
+				createdProvider, status := suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider)
 				Expect(status.Code).To(Equal(int32(201)))
 				Expect(createdProvider).ToNot(BeNil())
 
 				// Verify event was emitted
-				events := getEventsForAuthProvider("test-provider")
+				events := getEventsForAuthProvider(orgId, "test-provider")
 				Expect(len(events)).To(BeNumerically(">=", 1))
 
 				creationEvent := findEventByReason(events, api.EventReasonResourceCreated)
@@ -755,13 +987,13 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 			BeforeEach(func() {
 				// Create initial Auth provider
 				testProvider := util.ReturnTestAuthProvider(orgId, "test-provider", "", nil)
-				_, status := suite.Handler.CreateAuthProvider(suite.Ctx, testProvider)
+				_, status := suite.Handler.CreateAuthProvider(suite.Ctx, orgId, testProvider)
 				Expect(status.Code).To(Equal(int32(201)))
 			})
 
 			It("should emit ResourceUpdated event when updating Auth provider", func() {
 				// Fetch the provider to get the latest metadata
-				fetchedProvider, status := suite.Handler.GetAuthProvider(suite.Ctx, "test-provider")
+				fetchedProvider, status := suite.Handler.GetAuthProvider(suite.Ctx, orgId, "test-provider")
 				Expect(status.Code).To(Equal(int32(200)))
 				Expect(fetchedProvider).ToNot(BeNil())
 
@@ -772,13 +1004,13 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 				err = fetchedProvider.Spec.FromOIDCProviderSpec(oidcSpec)
 				Expect(err).ToNot(HaveOccurred())
 
-				updatedProvider, status := suite.Handler.ReplaceAuthProvider(suite.Ctx, "test-provider", *fetchedProvider)
+				updatedProvider, status := suite.Handler.ReplaceAuthProvider(suite.Ctx, orgId, "test-provider", *fetchedProvider)
 				Expect(status.Code).To(Equal(int32(200)))
 				Expect(updatedProvider).ToNot(BeNil())
 
 				// Verify event was emitted with a small delay to ensure events are persisted
 				time.Sleep(100 * time.Millisecond)
-				events := getEventsForAuthProvider("test-provider")
+				events := getEventsForAuthProvider(orgId, "test-provider")
 				Expect(len(events)).To(BeNumerically(">=", 2)) // Creation + update
 
 				updateEvent := findEventByReason(events, api.EventReasonResourceUpdated)
@@ -792,17 +1024,17 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 			BeforeEach(func() {
 				// Create Auth provider
 				provider := util.ReturnTestAuthProvider(orgId, "test-provider", "", nil)
-				_, status := suite.Handler.CreateAuthProvider(suite.Ctx, provider)
+				_, status := suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider)
 				Expect(status.Code).To(Equal(int32(201)))
 			})
 
 			It("should emit ResourceDeleted event when deleting Auth provider", func() {
 				// Delete Auth provider
-				status := suite.Handler.DeleteAuthProvider(suite.Ctx, "test-provider")
+				status := suite.Handler.DeleteAuthProvider(suite.Ctx, orgId, "test-provider")
 				Expect(status.Code).To(Equal(int32(200)))
 
 				// Verify event was emitted
-				events := getEventsForAuthProvider("test-provider")
+				events := getEventsForAuthProvider(orgId, "test-provider")
 				Expect(len(events)).To(BeNumerically(">=", 2)) // Creation + deletion
 
 				deletionEvent := findEventByReason(events, api.EventReasonResourceDeleted)
@@ -813,11 +1045,11 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 
 			It("should return 200 when deleting non-existent Auth provider (idempotent)", func() {
 				// Try to delete non-existent Auth provider
-				status := suite.Handler.DeleteAuthProvider(suite.Ctx, "non-existent-provider")
+				status := suite.Handler.DeleteAuthProvider(suite.Ctx, orgId, "non-existent-provider")
 				Expect(status.Code).To(Equal(int32(200))) // Success (idempotent)
 
 				// No events should be emitted for non-existent resources
-				events := getEventsForAuthProvider("non-existent-provider")
+				events := getEventsForAuthProvider(orgId, "non-existent-provider")
 				Expect(len(events)).To(Equal(0))
 			})
 		})

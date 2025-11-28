@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/util/validation"
 )
 
@@ -58,7 +58,7 @@ type BootcClient interface {
 }
 
 // IsOsImageReconciled returns true if the booted image equals the target for the spec image.
-func IsOsImageReconciled(host *BootcHost, desiredSpec *v1alpha1.DeviceSpec) (bool, error) {
+func IsOsImageReconciled(host *BootcHost, desiredSpec *v1beta1.DeviceSpec) (bool, error) {
 	if desiredSpec.Os == nil {
 		return false, nil
 	}

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
@@ -442,7 +442,7 @@ var _ = Describe("DeviceStore create", func() {
 					Volumes: &[]api.ApplicationVolume{imageVolume},
 				}
 				imageAppItem := api.ApplicationProviderSpec{
-					AppType: lo.ToPtr(api.AppTypeCompose),
+					AppType: api.AppTypeCompose,
 					Name:    lo.ToPtr("test-image-app"),
 				}
 				_ = imageAppItem.FromImageApplicationProviderSpec(*imageApp)
@@ -457,7 +457,7 @@ var _ = Describe("DeviceStore create", func() {
 					Volumes: &[]api.ApplicationVolume{imageVolume}, // Reuse the same volume
 				}
 				inlineAppItem := api.ApplicationProviderSpec{
-					AppType: lo.ToPtr(api.AppTypeCompose),
+					AppType: api.AppTypeCompose,
 					Name:    lo.ToPtr("test-inline-app"),
 				}
 				_ = inlineAppItem.FromInlineApplicationProviderSpec(*inlineApp)
@@ -1017,7 +1017,7 @@ var _ = Describe("DeviceStore create", func() {
 				Applications: &[]api.ApplicationProviderSpec{
 					{
 						Name:    lo.ToPtr("test-app"),
-						AppType: lo.ToPtr(api.AppTypeCompose),
+						AppType: api.AppTypeCompose,
 						EnvVars: &map[string]string{
 							"ENV1": "value1",
 							"ENV2": "value2",
@@ -1067,7 +1067,7 @@ var _ = Describe("DeviceStore create", func() {
 				Applications: &[]api.ApplicationProviderSpec{
 					{
 						Name:    lo.ToPtr("test-app"),
-						AppType: lo.ToPtr(api.AppTypeCompose),
+						AppType: api.AppTypeCompose,
 						EnvVars: &map[string]string{
 							"ENV3": "value3", // Different key order
 							"ENV1": "value1",

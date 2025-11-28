@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -25,16 +25,16 @@ func TestApplicationStatus(t *testing.T) {
 		workloads             []Workload
 		expectedReady         string
 		expectedRestarts      int
-		expectedStatus        v1alpha1.ApplicationStatusType
-		expectedSummaryStatus v1alpha1.ApplicationsSummaryStatusType
-		expected              v1alpha1.AppType
+		expectedStatus        v1beta1.ApplicationStatusType
+		expectedSummaryStatus v1beta1.ApplicationsSummaryStatusType
+		expected              v1beta1.AppType
 	}{
 		{
 			name:                  "app created no workloads",
 			expectedReady:         "0/0",
-			expectedStatus:        v1alpha1.ApplicationStatusUnknown,
-			expectedSummaryStatus: v1alpha1.ApplicationsSummaryStatusUnknown,
-			expected:              v1alpha1.AppTypeCompose,
+			expectedStatus:        v1beta1.ApplicationStatusUnknown,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusUnknown,
+			expected:              v1beta1.AppTypeCompose,
 		},
 		{
 			name: "app single container preparing to start init",
@@ -44,9 +44,9 @@ func TestApplicationStatus(t *testing.T) {
 				},
 			},
 			expectedReady:         "0/1",
-			expectedStatus:        v1alpha1.ApplicationStatusPreparing,
-			expectedSummaryStatus: v1alpha1.ApplicationsSummaryStatusUnknown,
-			expected:              v1alpha1.AppTypeCompose,
+			expectedStatus:        v1beta1.ApplicationStatusPreparing,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusUnknown,
+			expected:              v1beta1.AppTypeCompose,
 		},
 		{
 			name: "app single container preparing to start created",
@@ -56,9 +56,9 @@ func TestApplicationStatus(t *testing.T) {
 				},
 			},
 			expectedReady:         "0/1",
-			expectedStatus:        v1alpha1.ApplicationStatusPreparing,
-			expectedSummaryStatus: v1alpha1.ApplicationsSummaryStatusUnknown,
-			expected:              v1alpha1.AppTypeCompose,
+			expectedStatus:        v1beta1.ApplicationStatusPreparing,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusUnknown,
+			expected:              v1beta1.AppTypeCompose,
 		},
 		{
 			name: "app multiple workloads starting init",
@@ -73,9 +73,9 @@ func TestApplicationStatus(t *testing.T) {
 				},
 			},
 			expectedReady:         "1/2",
-			expectedStatus:        v1alpha1.ApplicationStatusStarting,
-			expectedSummaryStatus: v1alpha1.ApplicationsSummaryStatusDegraded,
-			expected:              v1alpha1.AppTypeCompose,
+			expectedStatus:        v1beta1.ApplicationStatusStarting,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusDegraded,
+			expected:              v1beta1.AppTypeCompose,
 		},
 		{
 			name: "app multiple workloads starting created",
@@ -90,9 +90,9 @@ func TestApplicationStatus(t *testing.T) {
 				},
 			},
 			expectedReady:         "1/2",
-			expectedStatus:        v1alpha1.ApplicationStatusStarting,
-			expectedSummaryStatus: v1alpha1.ApplicationsSummaryStatusDegraded,
-			expected:              v1alpha1.AppTypeCompose,
+			expectedStatus:        v1beta1.ApplicationStatusStarting,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusDegraded,
+			expected:              v1beta1.AppTypeCompose,
 		},
 		{
 			name: "app errored",
@@ -107,9 +107,9 @@ func TestApplicationStatus(t *testing.T) {
 				},
 			},
 			expectedReady:         "0/2",
-			expectedStatus:        v1alpha1.ApplicationStatusError,
-			expectedSummaryStatus: v1alpha1.ApplicationsSummaryStatusError,
-			expected:              v1alpha1.AppTypeCompose,
+			expectedStatus:        v1beta1.ApplicationStatusError,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusError,
+			expected:              v1beta1.AppTypeCompose,
 		},
 		{
 			name: "app running degraded",
@@ -124,9 +124,9 @@ func TestApplicationStatus(t *testing.T) {
 				},
 			},
 			expectedReady:         "1/2",
-			expectedStatus:        v1alpha1.ApplicationStatusRunning,
-			expectedSummaryStatus: v1alpha1.ApplicationsSummaryStatusDegraded,
-			expected:              v1alpha1.AppTypeCompose,
+			expectedStatus:        v1beta1.ApplicationStatusRunning,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusDegraded,
+			expected:              v1beta1.AppTypeCompose,
 		},
 		{
 			name: "app running degraded",
@@ -141,9 +141,9 @@ func TestApplicationStatus(t *testing.T) {
 				},
 			},
 			expectedReady:         "1/2",
-			expectedStatus:        v1alpha1.ApplicationStatusRunning,
-			expectedSummaryStatus: v1alpha1.ApplicationsSummaryStatusDegraded,
-			expected:              v1alpha1.AppTypeCompose,
+			expectedStatus:        v1beta1.ApplicationStatusRunning,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusDegraded,
+			expected:              v1beta1.AppTypeCompose,
 		},
 		{
 			name: "app running healthy",
@@ -158,8 +158,8 @@ func TestApplicationStatus(t *testing.T) {
 				},
 			},
 			expectedReady:         "2/2",
-			expectedStatus:        v1alpha1.ApplicationStatusRunning,
-			expectedSummaryStatus: v1alpha1.ApplicationsSummaryStatusHealthy,
+			expectedStatus:        v1beta1.ApplicationStatusRunning,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusHealthy,
 		},
 		{
 			name: "app running healthy with restarts",
@@ -176,8 +176,8 @@ func TestApplicationStatus(t *testing.T) {
 				},
 			},
 			expectedReady:         "2/2",
-			expectedStatus:        v1alpha1.ApplicationStatusRunning,
-			expectedSummaryStatus: v1alpha1.ApplicationsSummaryStatusHealthy,
+			expectedStatus:        v1beta1.ApplicationStatusRunning,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusHealthy,
 			expectedRestarts:      3,
 		},
 		{
@@ -193,8 +193,8 @@ func TestApplicationStatus(t *testing.T) {
 				},
 			},
 			expectedReady:         "0/2",
-			expectedStatus:        v1alpha1.ApplicationStatusCompleted,
-			expectedSummaryStatus: v1alpha1.ApplicationsSummaryStatusHealthy,
+			expectedStatus:        v1beta1.ApplicationStatusCompleted,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusHealthy,
 		},
 		{
 			name: "app has one workloads exited",
@@ -209,8 +209,8 @@ func TestApplicationStatus(t *testing.T) {
 				},
 			},
 			expectedReady:         "1/2",
-			expectedStatus:        v1alpha1.ApplicationStatusRunning,
-			expectedSummaryStatus: v1alpha1.ApplicationsSummaryStatusHealthy,
+			expectedStatus:        v1beta1.ApplicationStatusRunning,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusHealthy,
 		},
 		{
 			name: "app with single container has exited",
@@ -221,8 +221,8 @@ func TestApplicationStatus(t *testing.T) {
 				},
 			},
 			expectedReady:         "0/1",
-			expectedStatus:        v1alpha1.ApplicationStatusCompleted,
-			expectedSummaryStatus: v1alpha1.ApplicationsSummaryStatusHealthy,
+			expectedStatus:        v1beta1.ApplicationStatusCompleted,
+			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusHealthy,
 		},
 	}
 
@@ -241,8 +241,8 @@ func TestApplicationStatus(t *testing.T) {
 			mockExec := executer.NewMockExecuter(ctrl)
 			podman := client.NewPodman(log, mockExec, readWriter, util.NewPollConfig())
 
-			spec := v1alpha1.InlineApplicationProviderSpec{
-				Inline: []v1alpha1.ApplicationContent{
+			spec := v1beta1.InlineApplicationProviderSpec{
+				Inline: []v1beta1.ApplicationContent{
 					{
 						Content: lo.ToPtr(util.NewComposeSpec()),
 						Path:    "docker-compose.yml",
@@ -250,14 +250,14 @@ func TestApplicationStatus(t *testing.T) {
 				},
 			}
 
-			providerSpec := v1alpha1.ApplicationProviderSpec{
+			providerSpec := v1beta1.ApplicationProviderSpec{
 				Name:    lo.ToPtr("app"),
-				AppType: lo.ToPtr(v1alpha1.AppTypeCompose),
+				AppType: v1beta1.AppTypeCompose,
 			}
 			err := providerSpec.FromInlineApplicationProviderSpec(spec)
 			require.NoError(err)
-			desired := v1alpha1.DeviceSpec{
-				Applications: &[]v1alpha1.ApplicationProviderSpec{
+			desired := v1beta1.DeviceSpec{
+				Applications: &[]v1beta1.ApplicationProviderSpec{
 					providerSpec,
 				},
 			}

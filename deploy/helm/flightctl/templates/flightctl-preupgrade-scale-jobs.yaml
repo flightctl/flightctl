@@ -92,7 +92,7 @@ spec:
   template:
     metadata:
       labels:
-        app: flightctl-preupgrade
+        flightctl.service: flightctl-preupgrade
         {{- include "flightctl.standardLabels" . | nindent 8 }}
     spec:
       restartPolicy: Never

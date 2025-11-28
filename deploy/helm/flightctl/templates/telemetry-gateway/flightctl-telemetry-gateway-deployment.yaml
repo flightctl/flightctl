@@ -1,9 +1,8 @@
-{{- if .Values.telemetryGateway.enabled }}
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
     flightctl.service: flightctl-telemetry-gateway
   name: flightctl-telemetry-gateway
   namespace: {{ .Release.Namespace }}
@@ -28,17 +27,17 @@ spec:
         - name: KV_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: flightctl-kv-secret
+              name: {{ default "flightctl-kv-secret" .Values.kv.passwordSecretName }}
               key: password
         - name: DB_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: flightctl-db-app-secret
+              name: {{ include "flightctl.dbAppUserSecret" . }}
               key: userPassword
         - name: DB_USER
           valueFrom:
             secretKeyRef:
-              name: flightctl-db-app-secret
+              name: {{ include "flightctl.dbAppUserSecret" . }}
               key: user
         image: "{{ .Values.telemetryGateway.image.image }}:{{ default .Chart.AppVersion .Values.telemetryGateway.image.tag }}"
         imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.telemetryGateway.image.pullPolicy }}
@@ -63,9 +62,9 @@ spec:
           readOnly: true
           subPath: config.yaml
         - mountPath: /etc/telemetry-gateway/certs/ca.crt
-          name: ca-secret
+          name: flightctl-ca-bundle
           readOnly: true
-          subPath: ca.crt
+          subPath: ca-bundle.crt
         - mountPath: /etc/telemetry-gateway/certs/server.crt
           name: telemetry-gateway-tls
           readOnly: true
@@ -80,10 +79,9 @@ spec:
       - configMap:
           name: flightctl-telemetry-gateway-config
         name: flightctl-telemetry-gateway-config
-      - name: ca-secret
-        secret:
-          secretName: flightctl-ca-secret
       - name: telemetry-gateway-tls
         secret:
-          secretName: telemetry-gateway-tls
-{{- end }}
+          secretName: flightctl-telemetry-gateway-server-tls
+      - name: flightctl-ca-bundle
+        configMap:
+          name: flightctl-ca-bundle

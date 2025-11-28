@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"strings"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/api/server"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/consts"
@@ -51,7 +51,7 @@ func stringToAction(s string) action {
 	return action(s)
 }
 
-func CreateAuthNMiddleware(authN common.AuthNMiddleware, log logrus.FieldLogger) func(http.Handler) http.Handler {
+func CreateAuthNMiddleware(multiAuth common.MultiAuthNMiddleware, log logrus.FieldLogger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		fn := func(w http.ResponseWriter, r *http.Request) {
 			// Skip authentication for public auth endpoints
@@ -59,22 +59,25 @@ func CreateAuthNMiddleware(authN common.AuthNMiddleware, log logrus.FieldLogger)
 				next.ServeHTTP(w, r)
 				return
 			}
-			authToken, err := authN.GetAuthToken(r)
+			authToken, err := multiAuth.GetAuthToken(r)
 			if err != nil {
 				log.WithError(err).Error("failed to get auth token")
 				writeResponse(w, api.StatusBadRequest("failed to get auth token"), log)
 				return
 			}
 			log.Debugf("Auth middleware: got auth token (length: %d)", len(authToken))
-			err = authN.ValidateToken(r.Context(), authToken)
+
+			// Use ValidateTokenAndGetProvider to ensure the same provider validates and creates identity
+			provider, err := multiAuth.ValidateTokenAndGetProvider(r.Context(), authToken)
 			if err != nil {
 				log.WithError(err).Error("failed to validate token")
 				writeResponse(w, api.StatusUnauthorized("failed to validate token"), log)
 				return
 			}
-			log.Debugf("Auth middleware: token validated successfully")
+			log.Debugf("Auth middleware: token validated successfully by provider")
+
 			ctx := context.WithValue(r.Context(), consts.TokenCtxKey, authToken)
-			identity, err := authN.GetIdentity(ctx, authToken)
+			identity, err := provider.GetIdentity(ctx, authToken)
 			if err != nil {
 				log.WithError(err).Error("failed to get identity")
 			} else {

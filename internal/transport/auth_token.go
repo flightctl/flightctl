@@ -6,8 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
-	"github.com/flightctl/flightctl/internal/auth"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 )
@@ -16,13 +15,6 @@ import (
 // (POST /api/v1/auth/{providername}/token)
 func (h *TransportHandler) AuthToken(w http.ResponseWriter, r *http.Request, providername string) {
 	w.Header().Set("Content-Type", "application/json")
-
-	// Check if auth is configured
-	if _, ok := h.authN.(auth.NilAuth); ok {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(createTokenErrorResponse("server_error", "Auth not configured"))
-		return
-	}
 
 	// Check if token proxy is configured
 	if h.authTokenProxy == nil {

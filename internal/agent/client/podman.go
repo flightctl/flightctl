@@ -51,6 +51,21 @@ type PodmanContainerConfig struct {
 	Labels map[string]string `json:"Labels"`
 }
 
+// ArtifactInspect represents the structure of artifact inspect output
+type ArtifactInspect struct {
+	Manifest ArtifactManifest `json:"Manifest"`
+	Name     string           `json:"Name"`
+	Digest   string           `json:"Digest"`
+}
+
+type ArtifactManifest struct {
+	Layers []ArtifactLayer `json:"layers"`
+}
+
+type ArtifactLayer struct {
+	Annotations map[string]string `json:"annotations,omitempty"`
+}
+
 // PodmanEvent represents the structure of a podman event as produced via a CLI events command.
 // It should be noted that the CLI represents events differently from libpod. (notably the time properties)
 // https://github.com/containers/podman/blob/main/cmd/podman/system/events.go#L81-L96
@@ -153,6 +168,10 @@ func (p *Podman) pullArtifact(ctx context.Context, artifact string, options *cli
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
+	if err := p.EnsureArtifactSupport(ctx); err != nil {
+		return "", err
+	}
+
 	pullSecretPath := options.pullSecretPath
 	args := []string{"artifact", "pull", artifact}
 	if pullSecretPath != "" {
@@ -184,7 +203,10 @@ func (p *Podman) ExtractArtifact(ctx context.Context, artifact, destination stri
 	ctx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()
 
-	// TODO: only available in podman >= 4.5.0
+	if err := p.EnsureArtifactSupport(ctx); err != nil {
+		return "", err
+	}
+
 	args := []string{"artifact", "extract", artifact, destination}
 	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	if exitCode != 0 {
@@ -241,6 +263,68 @@ func (p *Podman) ArtifactExists(ctx context.Context, artifact string) bool {
 	args := []string{"artifact", "inspect", artifact}
 	_, _, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	return exitCode == 0
+}
+
+func (p *Podman) artifactInspect(ctx context.Context, reference string) (*ArtifactInspect, error) {
+	ctx, cancel := context.WithTimeout(ctx, p.timeout)
+	defer cancel()
+	args := []string{"artifact", "inspect", reference}
+	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
+	if exitCode != 0 {
+		return nil, fmt.Errorf("artifact inspect: %w", errors.FromStderr(stderr, exitCode))
+	}
+
+	var inspectResult ArtifactInspect
+	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &inspectResult); err != nil {
+		return nil, fmt.Errorf("unmarshal artifact inspect output: %w", err)
+	}
+
+	return &inspectResult, nil
+}
+
+// ArtifactDigest returns the digest of the specified artifact.
+func (p *Podman) ArtifactDigest(ctx context.Context, reference string) (string, error) {
+	if err := p.EnsureArtifactSupport(ctx); err != nil {
+		return "", err
+	}
+
+	inspect, err := p.artifactInspect(ctx, reference)
+	if err != nil {
+		return "", err
+	}
+
+	if inspect.Digest == "" {
+		return "", fmt.Errorf("artifact digest empty for %s", reference)
+	}
+
+	return inspect.Digest, nil
+}
+
+// InspectArtifactAnnotations inspects an OCI artifact and returns its annotations map.
+func (p *Podman) InspectArtifactAnnotations(ctx context.Context, reference string) (map[string]string, error) {
+	if err := p.EnsureArtifactSupport(ctx); err != nil {
+		return nil, err
+	}
+
+	inspect, err := p.artifactInspect(ctx, reference)
+	if err != nil {
+		return nil, err
+	}
+
+	return extractArtifactAnnotations(inspect), nil
+}
+
+// extractArtifactAnnotations parses the podman artifact inspect JSON output and extracts annotations
+func extractArtifactAnnotations(inspect *ArtifactInspect) map[string]string {
+	// Merge annotations from all layers in the manifest
+	annotations := make(map[string]string)
+	for _, layer := range inspect.Manifest.Layers {
+		for key, value := range layer.Annotations {
+			annotations[key] = value
+		}
+	}
+
+	return annotations
 }
 
 // EventsSinceCmd returns a command to get podman events since the given time. After creating the command, it should be started with exec.Start().
@@ -594,6 +678,18 @@ func (p *Podman) Compose() *Compose {
 type PodmanVersion struct {
 	Major int
 	Minor int
+}
+
+// EnsureArtifactSupport verifies the local podman version can execute artifact commands.
+func (p *Podman) EnsureArtifactSupport(ctx context.Context) error {
+	version, err := p.Version(ctx)
+	if err != nil {
+		return fmt.Errorf("%w: checking podman version: %w", errors.ErrNoRetry, err)
+	}
+	if !version.GreaterOrEqual(5, 5) {
+		return fmt.Errorf("%w: OCI artifact operations require podman >= 5.5, found %d.%d", errors.ErrNoRetry, version.Major, version.Minor)
+	}
+	return nil
 }
 
 func (v PodmanVersion) GreaterOrEqual(major, minor int) bool {

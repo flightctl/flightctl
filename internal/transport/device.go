@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 )
 
 // (POST /api/v1/devices)
@@ -15,19 +15,19 @@ func (h *TransportHandler) CreateDevice(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	body, status := h.serviceHandler.CreateDevice(r.Context(), device)
+	body, status := h.serviceHandler.CreateDevice(r.Context(), OrgIDFromContext(r.Context()), device)
 	SetResponse(w, body, status)
 }
 
 // (GET /api/v1/devices)
 func (h *TransportHandler) ListDevices(w http.ResponseWriter, r *http.Request, params api.ListDevicesParams) {
-	body, status := h.serviceHandler.ListDevices(r.Context(), params, nil)
+	body, status := h.serviceHandler.ListDevices(r.Context(), OrgIDFromContext(r.Context()), params, nil)
 	SetResponse(w, body, status)
 }
 
 // (GET /api/v1/devices/{name})
 func (h *TransportHandler) GetDevice(w http.ResponseWriter, r *http.Request, name string) {
-	body, status := h.serviceHandler.GetDevice(r.Context(), name)
+	body, status := h.serviceHandler.GetDevice(r.Context(), OrgIDFromContext(r.Context()), name)
 	SetResponse(w, body, status)
 }
 
@@ -39,25 +39,25 @@ func (h *TransportHandler) ReplaceDevice(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	body, status := h.serviceHandler.ReplaceDevice(r.Context(), name, device, nil)
+	body, status := h.serviceHandler.ReplaceDevice(r.Context(), OrgIDFromContext(r.Context()), name, device, nil)
 	SetResponse(w, body, status)
 }
 
 // (DELETE /api/v1/devices/{name})
 func (h *TransportHandler) DeleteDevice(w http.ResponseWriter, r *http.Request, name string) {
-	status := h.serviceHandler.DeleteDevice(r.Context(), name)
+	status := h.serviceHandler.DeleteDevice(r.Context(), OrgIDFromContext(r.Context()), name)
 	SetResponse(w, nil, status)
 }
 
 // (GET /api/v1/devices/{name}/status)
 func (h *TransportHandler) GetDeviceStatus(w http.ResponseWriter, r *http.Request, name string) {
-	body, status := h.serviceHandler.GetDeviceStatus(r.Context(), name)
+	body, status := h.serviceHandler.GetDeviceStatus(r.Context(), OrgIDFromContext(r.Context()), name)
 	SetResponse(w, body, status)
 }
 
 // (GET /api/v1/devices/{name}/lastseen)
 func (h *TransportHandler) GetDeviceLastSeen(w http.ResponseWriter, r *http.Request, name string) {
-	body, status := h.serviceHandler.GetDeviceLastSeen(r.Context(), name)
+	body, status := h.serviceHandler.GetDeviceLastSeen(r.Context(), OrgIDFromContext(r.Context()), name)
 	SetResponse(w, body, status)
 }
 
@@ -69,13 +69,13 @@ func (h *TransportHandler) ReplaceDeviceStatus(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	body, status := h.serviceHandler.ReplaceDeviceStatus(r.Context(), name, device)
+	body, status := h.serviceHandler.ReplaceDeviceStatus(r.Context(), OrgIDFromContext(r.Context()), name, device)
 	SetResponse(w, body, status)
 }
 
 // (GET /api/v1/devices/{name}/rendered)
 func (h *TransportHandler) GetRenderedDevice(w http.ResponseWriter, r *http.Request, name string, params api.GetRenderedDeviceParams) {
-	body, status := h.serviceHandler.GetRenderedDevice(r.Context(), name, params)
+	body, status := h.serviceHandler.GetRenderedDevice(r.Context(), OrgIDFromContext(r.Context()), name, params)
 	SetResponse(w, body, status)
 }
 
@@ -87,7 +87,7 @@ func (h *TransportHandler) PatchDevice(w http.ResponseWriter, r *http.Request, n
 		return
 	}
 
-	body, status := h.serviceHandler.PatchDevice(r.Context(), name, patch)
+	body, status := h.serviceHandler.PatchDevice(r.Context(), OrgIDFromContext(r.Context()), name, patch)
 	SetResponse(w, body, status)
 }
 
@@ -99,7 +99,7 @@ func (h *TransportHandler) PatchDeviceStatus(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	body, status := h.serviceHandler.PatchDeviceStatus(r.Context(), name, patch)
+	body, status := h.serviceHandler.PatchDeviceStatus(r.Context(), OrgIDFromContext(r.Context()), name, patch)
 	SetResponse(w, body, status)
 }
 
@@ -111,7 +111,7 @@ func (h *TransportHandler) DecommissionDevice(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	body, status := h.serviceHandler.DecommissionDevice(r.Context(), name, decom)
+	body, status := h.serviceHandler.DecommissionDevice(r.Context(), OrgIDFromContext(r.Context()), name, decom)
 	SetResponse(w, body, status)
 }
 
@@ -123,6 +123,6 @@ func (h *TransportHandler) ResumeDevices(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	response, status := h.serviceHandler.ResumeDevices(r.Context(), request)
+	response, status := h.serviceHandler.ResumeDevices(r.Context(), OrgIDFromContext(r.Context()), request)
 	SetResponse(w, response, status)
 }

@@ -1,4 +1,3 @@
-{{ if .Values.api.enabled }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -8,16 +7,15 @@ metadata:
   name: flightctl-api
   namespace: {{ .Release.Namespace }}
 spec:
-  {{- if and (eq (include "flightctl.getServiceExposeMethod" .) "nodePort") .Values.global.nodePorts.api }}
+  {{- if and (eq (include "flightctl.getServiceExposeMethod" .) "nodePort") .Values.dev.nodePorts.api }}
   type: NodePort
   {{- end }}
   ports:
     - name: "flightctl-api"
       port: 3443
       targetPort: 3443
-      {{- if and (eq (include "flightctl.getServiceExposeMethod" .) "nodePort") .Values.global.nodePorts.api }}
-      nodePort: {{ .Values.global.nodePorts.api }}
+      {{- if and (eq (include "flightctl.getServiceExposeMethod" .) "nodePort") .Values.dev.nodePorts.api }}
+      nodePort: {{ .Values.dev.nodePorts.api }}
       {{- end }}
   selector:
     flightctl.service: flightctl-api
-{{ end }}

@@ -7,7 +7,7 @@ import (
 	"os/exec"
 	"testing"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
@@ -28,21 +28,21 @@ func TestManager(t *testing.T) {
 	testCases := []struct {
 		name         string
 		setupMocks   func(*executer.MockExecuter, *fileio.MockReadWriter, *systemd.MockManager)
-		current      *v1alpha1.DeviceSpec
-		desired      *v1alpha1.DeviceSpec
+		current      *v1beta1.DeviceSpec
+		desired      *v1beta1.DeviceSpec
 		wantAppNames []string
 	}{
 		{
 			name:    "no applications",
-			current: &v1alpha1.DeviceSpec{},
-			desired: &v1alpha1.DeviceSpec{},
+			current: &v1beta1.DeviceSpec{},
+			desired: &v1beta1.DeviceSpec{},
 			setupMocks: func(mockExec *executer.MockExecuter, mockReadWriter *fileio.MockReadWriter, mockSystemdMgr *systemd.MockManager) {
 				// No mock expectations - monitor should not start with no applications
 			},
 		},
 		{
 			name:    "add new application",
-			current: &v1alpha1.DeviceSpec{},
+			current: &v1beta1.DeviceSpec{},
 			desired: newTestDeviceWithApplications(t, "app-new", []testInlineDetails{
 				{Content: compose1, Path: "podman-compose.yaml"},
 			}),
@@ -61,7 +61,7 @@ func TestManager(t *testing.T) {
 			current: newTestDeviceWithApplications(t, "app-remove", []testInlineDetails{
 				{Content: compose1, Path: "podman-compose.yaml"},
 			}),
-			desired: &v1alpha1.DeviceSpec{},
+			desired: &v1beta1.DeviceSpec{},
 			setupMocks: func(mockExec *executer.MockExecuter, mockReadWriter *fileio.MockReadWriter, mockSystemdMgr *systemd.MockManager) {
 				id := client.NewComposeID("app-remove")
 				gomock.InOrder(
@@ -72,10 +72,10 @@ func TestManager(t *testing.T) {
 					// remove current app
 					mockExecPodmanNetworkList(mockExec, "app-remove"),
 					mockExecPodmanPodList(mockExec, "app-remove"),
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"stop", "--filter", "label=com.docker.compose.project=" + id}).Return("", "", 0),
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"rm", "--filter", "label=com.docker.compose.project=" + id}).Return("", "", 0),
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"pod", "rm", "pod123"}).Return("", "", 0),
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"network", "rm", "network123"}).Return("", "", 0),
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "stop", "--filter", "label=com.docker.compose.project="+id).Return("", "", 0),
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "rm", "--filter", "label=com.docker.compose.project="+id).Return("", "", 0),
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pod", "rm", "pod123").Return("", "", 0),
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "network", "rm", "network123").Return("", "", 0),
 
 					// AfterUpdate call should NOT trigger podman events since there are no applications
 					// mockExecPodmanEvents(mockExec),
@@ -100,10 +100,10 @@ func TestManager(t *testing.T) {
 					// stop and remove current app
 					mockExecPodmanNetworkList(mockExec, "app-update"),
 					mockExecPodmanPodList(mockExec, "app-update"),
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"stop", "--filter", "label=com.docker.compose.project=" + id}).Return("", "", 0),
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"rm", "--filter", "label=com.docker.compose.project=" + id}).Return("", "", 0),
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"pod", "rm", "pod123"}).Return("", "", 0),
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"network", "rm", "network123"}).Return("", "", 0),
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "stop", "--filter", "label=com.docker.compose.project="+id).Return("", "", 0),
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "rm", "--filter", "label=com.docker.compose.project="+id).Return("", "", 0),
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pod", "rm", "pod123").Return("", "", 0),
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "network", "rm", "network123").Return("", "", 0),
 
 					// start desired app
 					mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil).AnyTimes(),
@@ -115,10 +115,10 @@ func TestManager(t *testing.T) {
 		},
 		{
 			name:    "add new quadlet application",
-			current: &v1alpha1.DeviceSpec{},
+			current: &v1beta1.DeviceSpec{},
 			desired: newTestDeviceWithApplicationType(t, "quadlet-new", []testInlineDetails{
 				{Content: quadlet1, Path: "test-app.container"},
-			}, v1alpha1.AppTypeQuadlet),
+			}, v1beta1.AppTypeQuadlet),
 			setupMocks: func(mockExec *executer.MockExecuter, mockReadWriter *fileio.MockReadWriter, mockSystemdMgr *systemd.MockManager) {
 				// Set up quadlet file mocks
 				mockReadQuadletFiles(mockReadWriter, quadlet1)
@@ -136,8 +136,8 @@ func TestManager(t *testing.T) {
 			name: "remove existing quadlet application",
 			current: newTestDeviceWithApplicationType(t, "quadlet-remove", []testInlineDetails{
 				{Content: quadlet1, Path: "test-app.container"},
-			}, v1alpha1.AppTypeQuadlet),
-			desired: &v1alpha1.DeviceSpec{},
+			}, v1beta1.AppTypeQuadlet),
+			desired: &v1beta1.DeviceSpec{},
 			setupMocks: func(mockExec *executer.MockExecuter, mockReadWriter *fileio.MockReadWriter, mockSystemdMgr *systemd.MockManager) {
 				// Set up quadlet file mocks
 				mockReadQuadletFiles(mockReadWriter, quadlet1)
@@ -162,10 +162,10 @@ func TestManager(t *testing.T) {
 			name: "update existing quadlet application",
 			current: newTestDeviceWithApplicationType(t, "quadlet-update", []testInlineDetails{
 				{Content: quadlet1, Path: "test-app.container"},
-			}, v1alpha1.AppTypeQuadlet),
+			}, v1beta1.AppTypeQuadlet),
 			desired: newTestDeviceWithApplicationType(t, "quadlet-update", []testInlineDetails{
 				{Content: quadlet2, Path: "test-app.container"},
-			}, v1alpha1.AppTypeQuadlet),
+			}, v1beta1.AppTypeQuadlet),
 			setupMocks: func(mockExec *executer.MockExecuter, mockReadWriter *fileio.MockReadWriter, mockSystemdMgr *systemd.MockManager) {
 				// Set up quadlet file mocks - will return different content as needed
 				mockReadQuadletFiles(mockReadWriter, quadlet1)
@@ -278,7 +278,7 @@ func TestManagerRemoveApplication(t *testing.T) {
 	current := newTestDeviceWithApplications(t, "app-remove", []testInlineDetails{
 		{Content: compose1, Path: "podman-compose.yaml"},
 	})
-	desired := &v1alpha1.DeviceSpec{}
+	desired := &v1beta1.DeviceSpec{}
 
 	id := client.NewComposeID("app-remove")
 	gomock.InOrder(
@@ -292,10 +292,10 @@ func TestManagerRemoveApplication(t *testing.T) {
 		// remove current app during syncProviders
 		mockExecPodmanNetworkList(mockExec, "app-remove"),
 		mockExecPodmanPodList(mockExec, "app-remove"),
-		mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"stop", "--filter", "label=com.docker.compose.project=" + id}).Return("", "", 0),
-		mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"rm", "--filter", "label=com.docker.compose.project=" + id}).Return("", "", 0),
-		mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"pod", "rm", "pod123"}).Return("", "", 0),
-		mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"network", "rm", "network123"}).Return("", "", 0),
+		mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "stop", "--filter", "label=com.docker.compose.project="+id).Return("", "", 0),
+		mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "rm", "--filter", "label=com.docker.compose.project="+id).Return("", "", 0),
+		mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pod", "rm", "pod123").Return("", "", 0),
+		mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "network", "rm", "network123").Return("", "", 0),
 		// Monitor stops during second AfterUpdate when no apps remain (no mock needed)
 	)
 
@@ -405,34 +405,34 @@ type testInlineDetails struct {
 	Path    string
 }
 
-func newTestDeviceWithApplications(t *testing.T, name string, details []testInlineDetails) *v1alpha1.DeviceSpec {
-	return newTestDeviceWithApplicationType(t, name, details, v1alpha1.AppTypeCompose)
+func newTestDeviceWithApplications(t *testing.T, name string, details []testInlineDetails) *v1beta1.DeviceSpec {
+	return newTestDeviceWithApplicationType(t, name, details, v1beta1.AppTypeCompose)
 }
 
-func newTestDeviceWithApplicationType(t *testing.T, name string, details []testInlineDetails, appType v1alpha1.AppType) *v1alpha1.DeviceSpec {
+func newTestDeviceWithApplicationType(t *testing.T, name string, details []testInlineDetails, appType v1beta1.AppType) *v1beta1.DeviceSpec {
 	t.Helper()
 
-	inline := v1alpha1.InlineApplicationProviderSpec{
-		Inline: make([]v1alpha1.ApplicationContent, len(details)),
+	inline := v1beta1.InlineApplicationProviderSpec{
+		Inline: make([]v1beta1.ApplicationContent, len(details)),
 	}
 
 	for i, d := range details {
-		inline.Inline[i] = v1alpha1.ApplicationContent{
+		inline.Inline[i] = v1beta1.ApplicationContent{
 			Content: lo.ToPtr(d.Content),
 			Path:    d.Path,
 		}
 	}
 
-	providerSpec := v1alpha1.ApplicationProviderSpec{
-		AppType: lo.ToPtr(appType),
+	providerSpec := v1beta1.ApplicationProviderSpec{
+		AppType: appType,
 		Name:    lo.ToPtr(name),
 	}
 	err := providerSpec.FromInlineApplicationProviderSpec(inline)
 	require.NoError(t, err)
 
-	applications := []v1alpha1.ApplicationProviderSpec{providerSpec}
+	applications := []v1beta1.ApplicationProviderSpec{providerSpec}
 
-	return &v1alpha1.DeviceSpec{
+	return &v1beta1.DeviceSpec{
 		Applications: &applications,
 	}
 }
@@ -554,8 +554,8 @@ func mockExecQuadletCleanup(mockExec *executer.MockExecuter, name string) {
 	id := client.NewComposeID(name)
 	mockExecQuadletPodmanNetworkList(mockExec, name)
 	mockExecQuadletPodmanPodList(mockExec, name)
-	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"stop", "--filter", "label=io.flightctl.quadlet.project=" + id}).Return("", "", 0)
-	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"rm", "--filter", "label=io.flightctl.quadlet.project=" + id}).Return("", "", 0)
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "stop", "--filter", "label=io.flightctl.quadlet.project="+id).Return("", "", 0)
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "rm", "--filter", "label=io.flightctl.quadlet.project="+id).Return("", "", 0)
 	mockExecPodmanVolumeList(mockExec, name)
 }
 
@@ -669,8 +669,14 @@ func TestCollectOCITargetsErrorHandling(t *testing.T) {
 				mockExec.EXPECT().ExecuteWithContext(
 					gomock.Any(),
 					"podman",
-					[]string{"image", "exists", "quay.io/test/image:v1"},
+					"image", "exists", "quay.io/test/image:v1",
 				).Return("", "", 1).AnyTimes() // exit code 1 = does not exist
+				// artifact check should also fail when base image is missing locally
+				mockExec.EXPECT().ExecuteWithContext(
+					gomock.Any(),
+					"podman",
+					"artifact", "inspect", "quay.io/test/image:v1",
+				).Return("", "", 1).AnyTimes()
 
 				mockPodmanClient := client.NewPodman(log, mockExec, mockReadWriter, testutil.NewPollConfig())
 				mockSystemdMgr := systemd.NewMockManager(ctrl)
@@ -702,14 +708,14 @@ func TestCollectOCITargetsErrorHandling(t *testing.T) {
 				mockExec.EXPECT().ExecuteWithContext(
 					gomock.Any(),
 					"podman",
-					[]string{"image", "exists", "quay.io/test/image:v1"},
+					"image", "exists", "quay.io/test/image:v1",
 				).Return("", "", 0).AnyTimes() // exit code 0 = exists
 
 				// expect ImageDigest call (which will fail in this test)
 				mockExec.EXPECT().ExecuteWithContext(
 					gomock.Any(),
 					"podman",
-					[]string{"image", "inspect", "--format", "{{.Digest}}", "quay.io/test/image:v1"},
+					"image", "inspect", "--format", "{{.Digest}}", "quay.io/test/image:v1",
 				).Return("", "fatal error: disk full", 1).AnyTimes()
 
 				mockExec.EXPECT().ExecuteWithContext(
@@ -745,18 +751,18 @@ func TestCollectOCITargetsErrorHandling(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			manager := tc.setupManager(t)
 
-			providerSpec := v1alpha1.ApplicationProviderSpec{
+			providerSpec := v1beta1.ApplicationProviderSpec{
 				Name:    lo.ToPtr("test-app"),
-				AppType: lo.ToPtr(v1alpha1.AppTypeCompose),
+				AppType: v1beta1.AppTypeCompose,
 			}
-			_ = providerSpec.FromImageApplicationProviderSpec(v1alpha1.ImageApplicationProviderSpec{
+			_ = providerSpec.FromImageApplicationProviderSpec(v1beta1.ImageApplicationProviderSpec{
 				Image: "quay.io/test/image:v1",
 			})
-			spec := &v1alpha1.DeviceSpec{
-				Applications: &[]v1alpha1.ApplicationProviderSpec{providerSpec},
+			spec := &v1beta1.DeviceSpec{
+				Applications: &[]v1beta1.ApplicationProviderSpec{providerSpec},
 			}
 
-			result, err := manager.CollectOCITargets(ctx, &v1alpha1.DeviceSpec{}, spec)
+			result, err := manager.CollectOCITargets(ctx, &v1beta1.DeviceSpec{}, spec)
 
 			if tc.expectError {
 				require.Error(err)

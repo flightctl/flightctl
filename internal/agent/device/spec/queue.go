@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -66,7 +66,7 @@ func newQueueManager(
 	}
 }
 
-func (m *queueManager) Add(ctx context.Context, device *v1alpha1.Device) {
+func (m *queueManager) Add(ctx context.Context, device *v1beta1.Device) {
 	if ctx.Err() != nil {
 		return
 	}
@@ -115,7 +115,7 @@ func (m *queueManager) Remove(version int64) {
 	m.queue.Remove(version)
 }
 
-func (m *queueManager) Next(ctx context.Context) (*v1alpha1.Device, bool) {
+func (m *queueManager) Next(ctx context.Context) (*v1beta1.Device, bool) {
 	if ctx.Err() != nil {
 		return nil, false
 	}
@@ -362,11 +362,11 @@ func (q *queue) Remove(version int64) {
 
 type Item struct {
 	Version int64
-	Spec    *v1alpha1.Device
+	Spec    *v1beta1.Device
 }
 
 // newItem creates a new queue item.
-func newItem(data *v1alpha1.Device) (*Item, error) {
+func newItem(data *v1beta1.Device) (*Item, error) {
 	version, err := stringToInt64(data.Version())
 	if err != nil {
 		return nil, err

@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -20,7 +20,7 @@ func TestStatus(t *testing.T) {
 		mockStdout    string
 		mockStderr    string
 		mockExitCode  int
-		expected      *[]v1alpha1.SystemdUnitStatus
+		expected      *[]v1beta1.SystemdUnitStatus
 		expectError   bool
 		exclusions    []string
 	}{
@@ -48,7 +48,7 @@ ActiveState=active
 SubState=running
 UnitFileState=enabled
 `,
-			expected: &[]v1alpha1.SystemdUnitStatus{
+			expected: &[]v1beta1.SystemdUnitStatus{
 				{Unit: "sshd.service", LoadState: "loaded", ActiveState: "active", SubState: "running", Description: "OpenSSH server daemon", EnableState: "enabled"},
 				{Unit: "nginx.service", LoadState: "loaded", ActiveState: "failed", SubState: "failed", Description: "The nginx HTTP server", EnableState: "enabled"},
 				{Unit: "systemd-resolved.service", LoadState: "loaded", ActiveState: "active", SubState: "running", Description: "Network Name Resolution", EnableState: "enabled"},
@@ -78,7 +78,7 @@ ActiveState=active
 SubState=running
 UnitFileState=enabled
 `,
-			expected: &[]v1alpha1.SystemdUnitStatus{
+			expected: &[]v1beta1.SystemdUnitStatus{
 				{Unit: "sshd.service", LoadState: "loaded", ActiveState: "active", SubState: "running", Description: "OpenSSH server daemon", EnableState: "enabled"},
 				{Unit: "systemd-resolved.service", LoadState: "loaded", ActiveState: "active", SubState: "running", Description: "Network Name Resolution", EnableState: "enabled"},
 			},
@@ -99,7 +99,7 @@ UnitFileState=enabled
 Id=test.socket
 Description=Test socket
 LoadState=loaded
-ActiveState=listening
+ActiveState=active
 SubState=listening
 UnitFileState=static
 
@@ -110,9 +110,9 @@ ActiveState=active
 SubState=waiting
 UnitFileState=enabled
 `,
-			expected: &[]v1alpha1.SystemdUnitStatus{
+			expected: &[]v1beta1.SystemdUnitStatus{
 				{Unit: "test.service", LoadState: "loaded", ActiveState: "active", SubState: "running", Description: "Test service", EnableState: "enabled"},
-				{Unit: "test.socket", LoadState: "loaded", ActiveState: "listening", SubState: "listening", Description: "Test socket", EnableState: "static"},
+				{Unit: "test.socket", LoadState: "loaded", ActiveState: "active", SubState: "listening", Description: "Test socket", EnableState: "static"},
 				{Unit: "test.timer", LoadState: "loaded", ActiveState: "active", SubState: "waiting", Description: "Test timer", EnableState: "enabled"},
 			},
 		},
@@ -129,7 +129,7 @@ UnitFileState=enabled
 Id=test.socket
 Description=Test socket
 LoadState=loaded
-ActiveState=listening
+ActiveState=active
 SubState=listening
 UnitFileState=static
 
@@ -143,9 +143,9 @@ UnitFileState=enabled
 			exclusions: []string{
 				"nginx.service",
 			},
-			expected: &[]v1alpha1.SystemdUnitStatus{
+			expected: &[]v1beta1.SystemdUnitStatus{
 				{Unit: "test.service", LoadState: "loaded", ActiveState: "active", SubState: "running", Description: "Test service", EnableState: "enabled"},
-				{Unit: "test.socket", LoadState: "loaded", ActiveState: "listening", SubState: "listening", Description: "Test socket", EnableState: "static"},
+				{Unit: "test.socket", LoadState: "loaded", ActiveState: "active", SubState: "listening", Description: "Test socket", EnableState: "static"},
 				{Unit: "test.timer", LoadState: "loaded", ActiveState: "active", SubState: "waiting", Description: "Test timer", EnableState: "enabled"},
 			},
 		},
@@ -173,24 +173,24 @@ ActiveState=inactive
 SubState=dead
 UnitFileState=masked
 `,
-			expected: &[]v1alpha1.SystemdUnitStatus{
+			expected: &[]v1beta1.SystemdUnitStatus{
 				{Unit: "test1.service", LoadState: "loaded", ActiveState: "active", SubState: "exited", Description: "One-shot service", EnableState: "enabled"},
 				{Unit: "test2.service", LoadState: "loaded", ActiveState: "activating", SubState: "start-pre", Description: "Starting service", EnableState: "disabled"},
 				{Unit: "test3.service", LoadState: "loaded", ActiveState: "inactive", SubState: "dead", Description: "Stopped service", EnableState: "masked"},
 			},
 		},
 		{
-			name:          "unknown/future enum values",
+			name:          "invalid enum values normalized to unknown",
 			matchPatterns: []string{"test.service"},
 			mockStdout: `Id=test.service
 Description=Future systemd version
-LoadState=future-load-state
-ActiveState=future-active-state
+LoadState=invalid-load-state
+ActiveState=invalid-active-state
 SubState=future-sub-state
-UnitFileState=future-enable-state
+UnitFileState=invalid-enable-state
 `,
-			expected: &[]v1alpha1.SystemdUnitStatus{
-				{Unit: "test.service", LoadState: "future-load-state", ActiveState: "future-active-state", SubState: "future-sub-state", Description: "Future systemd version", EnableState: "future-enable-state"},
+			expected: &[]v1beta1.SystemdUnitStatus{
+				{Unit: "test.service", LoadState: "unknown", ActiveState: "unknown", SubState: "future-sub-state", Description: "Future systemd version", EnableState: "unknown"},
 			},
 		},
 		{
@@ -203,8 +203,8 @@ ActiveState=
 SubState=
 UnitFileState=
 `,
-			expected: &[]v1alpha1.SystemdUnitStatus{
-				{Unit: "nonexistent.service", LoadState: "", ActiveState: "", SubState: "", Description: "", EnableState: ""},
+			expected: &[]v1beta1.SystemdUnitStatus{
+				{Unit: "nonexistent.service", LoadState: "unknown", ActiveState: "unknown", SubState: "", Description: "", EnableState: ""},
 			},
 		},
 		{
@@ -217,7 +217,7 @@ ActiveState=active
 SubState=running
 UnitFileState=enabled
 `,
-			expected: &[]v1alpha1.SystemdUnitStatus{
+			expected: &[]v1beta1.SystemdUnitStatus{
 				{Unit: "test.service", LoadState: "loaded", ActiveState: "active", SubState: "running", Description: "Service with \"quotes\" and unicode: 日本語", EnableState: "enabled"},
 			},
 		},
@@ -225,7 +225,7 @@ UnitFileState=enabled
 			name:          "empty output - no matching units",
 			matchPatterns: []string{"nonexistent*.service"},
 			mockStdout:    ``,
-			expected:      &[]v1alpha1.SystemdUnitStatus{},
+			expected:      &[]v1beta1.SystemdUnitStatus{},
 		},
 		{
 			name:          "no match patterns",
@@ -249,7 +249,7 @@ ActiveState=active
 SubState=running
 UnitFileState=enabled
 `,
-			expected: &[]v1alpha1.SystemdUnitStatus{
+			expected: &[]v1beta1.SystemdUnitStatus{
 				{Unit: "test.service", LoadState: "loaded", ActiveState: "active", SubState: "running", Description: "Test service with = sign and key=value pairs", EnableState: "enabled"},
 			},
 		},
@@ -262,7 +262,7 @@ LoadState=loaded
 ActiveState=active
 SubState=running
 UnitFileState=enabled`,
-			expected: &[]v1alpha1.SystemdUnitStatus{
+			expected: &[]v1beta1.SystemdUnitStatus{
 				{Unit: "test.service", LoadState: "loaded", ActiveState: "active", SubState: "running", Description: "Test", EnableState: "enabled"},
 			},
 		},
@@ -280,7 +280,7 @@ UnitFileState=enabled
 
 
 `,
-			expected: &[]v1alpha1.SystemdUnitStatus{
+			expected: &[]v1beta1.SystemdUnitStatus{
 				{Unit: "test.service", LoadState: "loaded", ActiveState: "active", SubState: "running", Description: "Test", EnableState: "enabled"},
 			},
 		},
@@ -312,7 +312,7 @@ UnitFileState=enabled
 				m.AddExclusions(tt.exclusions...)
 			}
 
-			status := v1alpha1.NewDeviceStatus()
+			status := v1beta1.NewDeviceStatus()
 			err := m.Status(context.Background(), &status)
 
 			if tt.expectError {
@@ -321,6 +321,241 @@ UnitFileState=enabled
 				require.NoError(err)
 				require.Equal(tt.expected, status.Systemd)
 			}
+		})
+	}
+}
+
+func TestNormalizeEnabledStateValue(t *testing.T) {
+	require := require.New(t)
+	log := log.NewPrefixLogger("test")
+	m := &manager{log: log}
+
+	tests := []struct {
+		name     string
+		input    v1beta1.SystemdEnableStateType
+		expected v1beta1.SystemdEnableStateType
+	}{
+		{
+			name:     "valid enabled state",
+			input:    v1beta1.SystemdEnableStateEnabled,
+			expected: v1beta1.SystemdEnableStateEnabled,
+		},
+		{
+			name:     "valid disabled state",
+			input:    v1beta1.SystemdEnableStateDisabled,
+			expected: v1beta1.SystemdEnableStateDisabled,
+		},
+		{
+			name:     "valid static state",
+			input:    v1beta1.SystemdEnableStateStatic,
+			expected: v1beta1.SystemdEnableStateStatic,
+		},
+		{
+			name:     "valid indirect state",
+			input:    v1beta1.SystemdEnableStateIndirect,
+			expected: v1beta1.SystemdEnableStateIndirect,
+		},
+		{
+			name:     "valid masked state",
+			input:    v1beta1.SystemdEnableStateMasked,
+			expected: v1beta1.SystemdEnableStateMasked,
+		},
+		{
+			name:     "valid unknown state",
+			input:    v1beta1.SystemdEnableStateUnknown,
+			expected: v1beta1.SystemdEnableStateUnknown,
+		},
+		{
+			name:     "valid empty state",
+			input:    v1beta1.SystemdEnableStateEmpty,
+			expected: v1beta1.SystemdEnableStateEmpty,
+		},
+		{
+			name:     "valid alias state",
+			input:    v1beta1.SystemdEnableStateAlias,
+			expected: v1beta1.SystemdEnableStateAlias,
+		},
+		{
+			name:     "valid bad state",
+			input:    v1beta1.SystemdEnableStateBad,
+			expected: v1beta1.SystemdEnableStateBad,
+		},
+		{
+			name:     "valid enabled-runtime state",
+			input:    v1beta1.SystemdEnableStateEnabledRuntime,
+			expected: v1beta1.SystemdEnableStateEnabledRuntime,
+		},
+		{
+			name:     "valid linked state",
+			input:    v1beta1.SystemdEnableStateLinked,
+			expected: v1beta1.SystemdEnableStateLinked,
+		},
+		{
+			name:     "valid linked-runtime state",
+			input:    v1beta1.SystemdEnableStateLinkedRuntime,
+			expected: v1beta1.SystemdEnableStateLinkedRuntime,
+		},
+		{
+			name:     "valid masked-runtime state",
+			input:    v1beta1.SystemdEnableStateMaskedRuntime,
+			expected: v1beta1.SystemdEnableStateMaskedRuntime,
+		},
+		{
+			name:     "valid generated state",
+			input:    v1beta1.SystemdEnableStateGenerated,
+			expected: v1beta1.SystemdEnableStateGenerated,
+		},
+		{
+			name:     "valid transient state",
+			input:    v1beta1.SystemdEnableStateTransient,
+			expected: v1beta1.SystemdEnableStateTransient,
+		},
+		{
+			name:     "completely invalid value normalized to unknown",
+			input:    v1beta1.SystemdEnableStateType("invalid-value"),
+			expected: v1beta1.SystemdEnableStateUnknown,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := m.normalizeEnabledStateValue(tt.input)
+			require.Equal(tt.expected, result)
+		})
+	}
+}
+
+func TestNormalizeLoadStateValue(t *testing.T) {
+	require := require.New(t)
+	log := log.NewPrefixLogger("test")
+	m := &manager{log: log}
+
+	tests := []struct {
+		name     string
+		input    v1beta1.SystemdLoadStateType
+		expected v1beta1.SystemdLoadStateType
+	}{
+		{
+			name:     "valid loaded state",
+			input:    v1beta1.SystemdLoadStateLoaded,
+			expected: v1beta1.SystemdLoadStateLoaded,
+		},
+		{
+			name:     "valid not-found state",
+			input:    v1beta1.SystemdLoadStateNotFound,
+			expected: v1beta1.SystemdLoadStateNotFound,
+		},
+		{
+			name:     "valid error state",
+			input:    v1beta1.SystemdLoadStateError,
+			expected: v1beta1.SystemdLoadStateError,
+		},
+		{
+			name:     "valid masked state",
+			input:    v1beta1.SystemdLoadStateMasked,
+			expected: v1beta1.SystemdLoadStateMasked,
+		},
+		{
+			name:     "valid unknown state",
+			input:    v1beta1.SystemdLoadStateUnknown,
+			expected: v1beta1.SystemdLoadStateUnknown,
+		},
+		{
+			name:     "valid stub state",
+			input:    v1beta1.SystemdLoadStateStub,
+			expected: v1beta1.SystemdLoadStateStub,
+		},
+		{
+			name:     "valid bad-setting state",
+			input:    v1beta1.SystemdLoadStateBadSetting,
+			expected: v1beta1.SystemdLoadStateBadSetting,
+		},
+		{
+			name:     "valid merged state",
+			input:    v1beta1.SystemdLoadStateMerged,
+			expected: v1beta1.SystemdLoadStateMerged,
+		},
+		{
+			name:     "completely invalid value normalized to unknown",
+			input:    v1beta1.SystemdLoadStateType("invalid-value"),
+			expected: v1beta1.SystemdLoadStateUnknown,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := m.normalizeLoadStateValue(tt.input)
+			require.Equal(tt.expected, result)
+		})
+	}
+}
+
+func TestNormalizeActiveStateValue(t *testing.T) {
+	require := require.New(t)
+	log := log.NewPrefixLogger("test")
+	m := &manager{log: log}
+
+	tests := []struct {
+		name     string
+		input    v1beta1.SystemdActiveStateType
+		expected v1beta1.SystemdActiveStateType
+	}{
+		{
+			name:     "valid active state",
+			input:    v1beta1.SystemdActiveStateActive,
+			expected: v1beta1.SystemdActiveStateActive,
+		},
+		{
+			name:     "valid inactive state",
+			input:    v1beta1.SystemdActiveStateInactive,
+			expected: v1beta1.SystemdActiveStateInactive,
+		},
+		{
+			name:     "valid activating state",
+			input:    v1beta1.SystemdActiveStateActivating,
+			expected: v1beta1.SystemdActiveStateActivating,
+		},
+		{
+			name:     "valid deactivating state",
+			input:    v1beta1.SystemdActiveStateDeactivating,
+			expected: v1beta1.SystemdActiveStateDeactivating,
+		},
+		{
+			name:     "valid failed state",
+			input:    v1beta1.SystemdActiveStateFailed,
+			expected: v1beta1.SystemdActiveStateFailed,
+		},
+		{
+			name:     "valid unknown state",
+			input:    v1beta1.SystemdActiveStateUnknown,
+			expected: v1beta1.SystemdActiveStateUnknown,
+		},
+		{
+			name:     "valid reloading state",
+			input:    v1beta1.SystemdActiveStateReloading,
+			expected: v1beta1.SystemdActiveStateReloading,
+		},
+		{
+			name:     "valid maintenance state",
+			input:    v1beta1.SystemdActiveStateMaintenance,
+			expected: v1beta1.SystemdActiveStateMaintenance,
+		},
+		{
+			name:     "valid refreshing state",
+			input:    v1beta1.SystemdActiveStateRefreshing,
+			expected: v1beta1.SystemdActiveStateRefreshing,
+		},
+		{
+			name:     "completely invalid value normalized to unknown",
+			input:    v1beta1.SystemdActiveStateType("invalid-value"),
+			expected: v1beta1.SystemdActiveStateUnknown,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := m.normalizeActiveStateValue(tt.input)
+			require.Equal(tt.expected, result)
 		})
 	}
 }

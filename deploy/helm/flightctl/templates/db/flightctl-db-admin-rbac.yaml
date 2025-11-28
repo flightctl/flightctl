@@ -1,4 +1,3 @@
-{{- if .Values.global.rbac.create }}
 ---
 # ServiceAccount for database migration jobs (needs admin access)
 apiVersion: v1
@@ -7,7 +6,8 @@ metadata:
   name: flightctl-db-migration
   namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
   labels:
-    app: flightctl-db-migration
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-db-migration
     security.level: high-privilege
 
 ---
@@ -18,6 +18,7 @@ metadata:
   name: flightctl-periodic
   namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
   labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
     flightctl.service: flightctl-periodic
 
 ---
@@ -27,6 +28,7 @@ metadata:
   name: flightctl-alert-exporter
   namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
   labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
     flightctl.service: flightctl-alert-exporter
 
 ---
@@ -37,12 +39,13 @@ metadata:
   name: flightctl-db-admin-access
   namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
   labels:
-    app: flightctl-db-admin
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-db-admin
     security.level: superuser-privilege
 rules:
 - apiGroups: [""]
   resources: ["secrets"]
-  resourceNames: ["flightctl-db-admin-secret"]
+  resourceNames: [{{ default "flightctl-db-admin-secret" .Values.db.builtin.masterUserSecretName }}]
   verbs: ["get"]
 
 ---
@@ -53,12 +56,13 @@ metadata:
   name: flightctl-db-migration-access
   namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
   labels:
-    app: flightctl-db-migration
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-db-migration
     security.level: schema-privilege
 rules:
 - apiGroups: [""]
   resources: ["secrets"]
-  resourceNames: ["flightctl-db-migration-secret"]
+  resourceNames: [{{ include "flightctl.dbMigrationUserSecret" . }}]
   verbs: ["get"]
 
 ---
@@ -69,7 +73,8 @@ metadata:
   name: flightctl-db-migration-admin-access
   namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
   labels:
-    app: flightctl-db-migration
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-db-migration
     security.level: superuser-privilege
 subjects:
 - kind: ServiceAccount
@@ -88,7 +93,8 @@ metadata:
   name: flightctl-db-migration-schema-access
   namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
   labels:
-    app: flightctl-db-migration
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-db-migration
     security.level: schema-privilege
 subjects:
 - kind: ServiceAccount
@@ -107,7 +113,8 @@ metadata:
   name: flightctl-job-status-reader
   namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
   labels:
-    app: flightctl-job-status
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-job-status
 rules:
 - apiGroups: ["batch"]
   resources: ["jobs"]
@@ -121,12 +128,13 @@ metadata:
   name: flightctl-db-app-access
   namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
   labels:
-    app: flightctl-db-app
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-db-app
     security.level: application
 rules:
 - apiGroups: [""]
   resources: ["secrets"]
-  resourceNames: ["flightctl-db-app-secret"]
+  resourceNames: [{{ include "flightctl.dbAppUserSecret" . }}]
   verbs: ["get"]
 
 ---
@@ -137,7 +145,8 @@ metadata:
   name: flightctl-job-status-reader
   namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
   labels:
-    app: flightctl-job-status
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-job-status
 subjects:
 - kind: ServiceAccount
   name: flightctl-worker
@@ -167,7 +176,8 @@ metadata:
   name: flightctl-db-app-access
   namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
   labels:
-    app: flightctl-db-app
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-db-app
     security.level: application
 subjects:
 - kind: ServiceAccount
@@ -189,5 +199,3 @@ roleRef:
   kind: Role
   name: flightctl-db-app-access
   apiGroup: rbac.authorization.k8s.io
-
-{{- end }}

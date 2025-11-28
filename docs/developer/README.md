@@ -3,7 +3,7 @@
 ## Building
 
 Prerequisites:
-* `git`, `make`, and `go` (>= 1.23), `openssl`, `openssl-devel`, `buildah`, `podman`, `podman-compose`, `container-selinux` (>= 2.241), `go-rpm-macros` (in case one needs to build RPM's), `python3`, and `python3-pyyaml` (or install PyYAML via pip)
+* `git`, `make`, and `go` (>= 1.23), `openssl`, `openssl-devel`, `buildah`, `pam-devel`, `podman`, `podman-compose`, `container-selinux` (>= 2.241), `go-rpm-macros` (in case one needs to build RPM's), `python3`, and `python3-pyyaml` (or install PyYAML via pip)
 
 Flightctl agent reports the status of running rootless containers. Ensure the podman socket is enabled:
 
@@ -37,31 +37,11 @@ The service can be deployed locally in kind with the following command:
 make deploy
 ```
 
-To deploy with auth enabled:
-```
-AUTH=true make deploy
-```
-
-To deploy with IdP provided organizations configured:
-```
-AUTH=true ORGS=true make deploy
-```
-
 ### Deployment using Quadlets
 
 The service can also be deployed using systemd Quadlets (Podman containers managed by systemd):
 ```
 make deploy-quadlets
-```
-
-To deploy with auth enabled (uses OIDC with PAM issuer):
-```
-AUTH=true make deploy-quadlets
-```
-
-To deploy with organizations support enabled:
-```
-AUTH=true ORGS=true make deploy-quadlets
 ```
 
 Note it stores its generated CA cert, server cert, and client-bootstrap cert in `$HOME/.flightctl/certs`
@@ -75,8 +55,6 @@ bin/flightctl apply -f examples/fleet.yaml
 bin/flightctl get fleets
 bin/flightctl get fleet fleet1 fleet2  # Get multiple specific resources
 ```
-
-Note: If deployed without auth enabled, then there is no need to login.
 
 Use an agent VM to test a device interaction, an image is automatically created from
 hack/Containerfile.local and a qcow2 image is derived in output/qcow2/disk.qcow2, currently

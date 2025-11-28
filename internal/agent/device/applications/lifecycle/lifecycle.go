@@ -2,8 +2,9 @@ package lifecycle
 
 import (
 	"context"
+	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 )
 
 type ActionType string
@@ -34,7 +35,7 @@ type Action struct {
 	// Type of the action
 	Type ActionType
 	// AppType of the application
-	AppType v1alpha1.AppType
+	AppType v1beta1.AppType
 	// Path to the application
 	Path string
 	// Embedded is true if the application is embedded in the device
@@ -46,4 +47,17 @@ type Action struct {
 type Volume struct {
 	ID        string
 	Reference string
+}
+
+type contextKey string
+
+const batchStartTimeKey contextKey = "batchStartTime"
+
+func ContextWithBatchStartTime(ctx context.Context, t time.Time) context.Context {
+	return context.WithValue(ctx, batchStartTimeKey, t)
+}
+
+func BatchStartTimeFromContext(ctx context.Context) (time.Time, bool) {
+	t, ok := ctx.Value(batchStartTimeKey).(time.Time)
+	return t, ok
 }

@@ -10,12 +10,11 @@ import (
 	"strings"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/api/server"
 	fcmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/auth/authn"
-	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/console"
 	"github.com/flightctl/flightctl/internal/crypto"
@@ -57,7 +56,7 @@ type Server struct {
 	listener           net.Listener
 	queuesProvider     queues.Provider
 	consoleEndpointReg console.InternalSessionRegistration
-	authN              common.AuthNMiddleware
+	authN              *authn.MultiAuth
 	authZ              auth.AuthZMiddleware
 }
 
@@ -178,20 +177,17 @@ func (s *Server) Run(ctx context.Context) error {
 	s.authN = authN
 
 	// Create auth proxies (token and userinfo)
-	var authTokenProxy *service.AuthTokenProxy
-	var authUserInfoProxy *service.AuthUserInfoProxy
+	authTokenProxy := service.NewAuthTokenProxy(authN)
+	authUserInfoProxy := service.NewAuthUserInfoProxy(authN)
 
-	if multiAuth, ok := authN.(*authn.MultiAuth); ok {
-		// Create auth token proxy with MultiAuth
-		authTokenProxy = service.NewAuthTokenProxy(multiAuth)
-
-		// Start auth provider loader
-		go func() {
-			multiAuth.Start(ctx)
-			s.log.Warn("Auth provider loader stopped unexpectedly")
-		}()
-	}
-	authUserInfoProxy = service.NewAuthUserInfoProxy(s.authN)
+	// Start auth provider loader
+	go func() {
+		if err := authN.Start(ctx); err != nil {
+			s.log.Errorf("Failed to start auth provider loader: %v", err)
+			return
+		}
+		s.log.Warn("Auth provider loader stopped unexpectedly")
+	}()
 
 	s.authZ, err = auth.InitMultiAuthZ(s.cfg, s.log)
 	if err != nil {
@@ -217,6 +213,7 @@ func (s *Server) Run(ctx context.Context) error {
 	// Create organization extraction and validation middlewares once
 	extractOrgMiddleware := fcmiddleware.ExtractOrgIDToCtx(fcmiddleware.QueryOrgIDExtractor, s.log)
 	validateOrgMiddleware := fcmiddleware.ValidateOrgMembership(s.log)
+	userAgentMiddleware := fcmiddleware.UserAgentLogger(s.log)
 
 	authMiddewares := []func(http.Handler) http.Handler{
 		auth.CreateAuthNMiddleware(s.authN, s.log),
@@ -236,6 +233,7 @@ func (s *Server) Run(ctx context.Context) error {
 		fcmiddleware.AddEventMetadataToCtx,
 		middleware.Logger,
 		middleware.Recoverer,
+		userAgentMiddleware,
 	)
 
 	// a group is a new mux copy, with its own copy of the middleware stack

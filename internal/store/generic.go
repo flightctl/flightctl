@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
@@ -172,7 +172,7 @@ func (s *GenericStore[P, M, A, AL]) createResource(ctx context.Context, resource
 	result := s.getDB(ctx).Create(resource)
 	if result.Error != nil {
 		err := ErrorFromGormError(result.Error)
-		return err == flterrors.ErrDuplicateName, err
+		return err == flterrors.ErrDuplicateName || err == flterrors.ErrDuplicateOIDCProvider || err == flterrors.ErrDuplicateOAuth2Provider, err
 	}
 	return false, nil
 }

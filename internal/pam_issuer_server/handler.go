@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	pamapi "github.com/flightctl/flightctl/api/v1alpha1/pam-issuer"
-	"github.com/flightctl/flightctl/internal/auth/issuer/pam"
+	pamapi "github.com/flightctl/flightctl/api/v1beta1/pam-issuer"
+	"github.com/flightctl/flightctl/internal/auth/oidc/pam"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/samber/lo"
@@ -175,7 +175,7 @@ func (h *Handler) AuthOpenIDConfiguration(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Convert v1alpha1 OpenIDConfiguration to pamapi OpenIDConfiguration
+	// Convert v1beta1 OpenIDConfiguration to pamapi OpenIDConfiguration
 	config := pamapi.OpenIDConfiguration{
 		Issuer:                            v1Config.Issuer,
 		AuthorizationEndpoint:             v1Config.AuthorizationEndpoint,
@@ -432,7 +432,7 @@ func (h *Handler) AuthJWKS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Convert v1alpha1 JWKSResponse to pamapi JWKSResponse
+	// Convert v1beta1 JWKSResponse to pamapi JWKSResponse
 	jwks := pamapi.JWKSResponse{
 		Keys: v1Jwks.Keys,
 	}

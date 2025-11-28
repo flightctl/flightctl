@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/identity"
 )
@@ -20,9 +20,8 @@ const (
 )
 
 type AuthOrganizationsConfig struct {
-	Enabled bool
 	// OrganizationAssignment defines how users are assigned to organizations
-	OrganizationAssignment *v1alpha1.AuthOrganizationAssignment
+	OrganizationAssignment *v1beta1.AuthOrganizationAssignment
 }
 
 type Identity interface {
@@ -50,7 +49,12 @@ type AuthNMiddleware interface {
 	GetAuthToken(r *http.Request) (string, error)
 	ValidateToken(ctx context.Context, token string) error
 	GetIdentity(ctx context.Context, token string) (Identity, error)
-	GetAuthConfig() *v1alpha1.AuthConfig
+	GetAuthConfig() *v1beta1.AuthConfig
+	IsEnabled() bool
+}
+type MultiAuthNMiddleware interface {
+	AuthNMiddleware
+	ValidateTokenAndGetProvider(ctx context.Context, token string) (AuthNMiddleware, error)
 }
 
 type BaseIdentity struct {
@@ -225,9 +229,9 @@ func BuildReportedOrganizations(organizations []string, orgRoles map[string][]st
 	isSuperAdmin := false
 	filteredGlobalRolesMap := make(map[string]struct{}, len(globalRoles))
 	for _, role := range globalRoles {
-		if role == v1alpha1.ExternalRoleAdmin {
+		if role == v1beta1.ExternalRoleAdmin {
 			isSuperAdmin = true
-			filteredGlobalRolesMap[v1alpha1.ExternalRoleOrgAdmin] = struct{}{}
+			filteredGlobalRolesMap[v1beta1.ExternalRoleOrgAdmin] = struct{}{}
 		} else {
 			filteredGlobalRolesMap[role] = struct{}{}
 		}
@@ -240,7 +244,7 @@ func BuildReportedOrganizations(organizations []string, orgRoles map[string][]st
 
 		// Add org-specific roles (filter out flightctl-admin)
 		for _, role := range orgRoles[org] {
-			if role != v1alpha1.ExternalRoleAdmin {
+			if role != v1beta1.ExternalRoleAdmin {
 				roleSet[role] = struct{}{}
 			}
 		}

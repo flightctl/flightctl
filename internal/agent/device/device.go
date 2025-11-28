@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	agent_config "github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/internal/agent/device/applications"
@@ -40,9 +40,9 @@ type Agent struct {
 	osManager              os.Manager
 	policyManager          policy.Manager
 	lifecycleManager       lifecycle.Manager
+	resourceManager        resource.Manager
 	applicationsController *applications.Controller
 	configController       *config.Controller
-	resourceController     *resource.Controller
 	consoleManager         *console.Manager
 	osClient               os.Client
 	podmanClient           *client.Podman
@@ -71,7 +71,7 @@ func NewAgent(
 	lifecycleManager lifecycle.Manager,
 	applicationsController *applications.Controller,
 	configController *config.Controller,
-	resourceController *resource.Controller,
+	resourceManager resource.Manager,
 	consoleManager *console.Manager,
 	osClient os.Client,
 	podmanClient *client.Podman,
@@ -94,7 +94,7 @@ func NewAgent(
 		statusUpdateInterval:   statusUpdateInterval,
 		applicationsController: applicationsController,
 		configController:       configController,
-		resourceController:     resourceController,
+		resourceManager:        resourceManager,
 		consoleManager:         consoleManager,
 		osClient:               osClient,
 		podmanClient:           podmanClient,
@@ -117,7 +117,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	return engine.Run(ctx)
 }
 
-func (a *Agent) sync(ctx context.Context, current, desired *v1alpha1.Device) error {
+func (a *Agent) sync(ctx context.Context, current, desired *v1beta1.Device) error {
 	if !spec.IsRollback(current, desired) {
 		if err := a.beforeUpdate(ctx, current, desired); err != nil {
 			return fmt.Errorf("before update: %w", err)
@@ -230,11 +230,11 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 	}
 }
 
-func (a *Agent) rollbackDevice(ctx context.Context, current, desired *v1alpha1.Device, syncFn func(context.Context, *v1alpha1.Device, *v1alpha1.Device) error) error {
-	updateErr := a.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
-		Type:    v1alpha1.ConditionTypeDeviceUpdating,
-		Status:  v1alpha1.ConditionStatusTrue,
-		Reason:  string(v1alpha1.UpdateStateRollingBack),
+func (a *Agent) rollbackDevice(ctx context.Context, current, desired *v1beta1.Device, syncFn func(context.Context, *v1beta1.Device, *v1beta1.Device) error) error {
+	updateErr := a.statusManager.UpdateCondition(ctx, v1beta1.Condition{
+		Type:    v1beta1.ConditionTypeDeviceUpdating,
+		Status:  v1beta1.ConditionStatusTrue,
+		Reason:  string(v1beta1.UpdateStateRollingBack),
 		Message: "Device is rolling back to the previous renderedVersion: " + current.Version(),
 	})
 	if updateErr != nil {
@@ -250,11 +250,11 @@ func (a *Agent) rollbackDevice(ctx context.Context, current, desired *v1alpha1.D
 	return syncFn(ctx, desired, current)
 }
 
-func (a *Agent) updatedStatus(ctx context.Context, desired *v1alpha1.Device) error {
-	updateErr := a.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
-		Type:    v1alpha1.ConditionTypeDeviceUpdating,
-		Status:  v1alpha1.ConditionStatusFalse,
-		Reason:  string(v1alpha1.UpdateStateUpdated),
+func (a *Agent) updatedStatus(ctx context.Context, desired *v1beta1.Device) error {
+	updateErr := a.statusManager.UpdateCondition(ctx, v1beta1.Condition{
+		Type:    v1beta1.ConditionTypeDeviceUpdating,
+		Status:  v1beta1.ConditionStatusFalse,
+		Reason:  string(v1beta1.UpdateStateUpdated),
 		Message: fmt.Sprintf("Updated to desired renderedVersion: %s", desired.Version()),
 	})
 	if updateErr != nil {
@@ -262,7 +262,7 @@ func (a *Agent) updatedStatus(ctx context.Context, desired *v1alpha1.Device) err
 	}
 
 	updateFns := []status.UpdateStatusFn{
-		status.SetConfig(v1alpha1.DeviceConfigStatus{
+		status.SetConfig(v1beta1.DeviceConfigStatus{
 			RenderedVersion: desired.Version(),
 		}),
 	}
@@ -273,7 +273,7 @@ func (a *Agent) updatedStatus(ctx context.Context, desired *v1alpha1.Device) err
 			return err
 		}
 
-		updateFns = append(updateFns, status.SetOSImage(v1alpha1.DeviceOsStatus{
+		updateFns = append(updateFns, status.SetOSImage(v1beta1.DeviceOsStatus{
 			Image:       desired.Spec.Os.Image,
 			ImageDigest: osStatus.GetBootedImageDigest(),
 		}))
@@ -300,8 +300,11 @@ func (a *Agent) statusUpdate(ctx context.Context) {
 	}
 }
 
-func (a *Agent) beforeUpdate(ctx context.Context, current, desired *v1alpha1.Device) error {
-	// the policy manager currently represents the state of the desired device
+func (a *Agent) beforeUpdate(ctx context.Context, current, desired *v1beta1.Device) error {
+	if err := a.resourceManager.BeforeUpdate(ctx, desired.Spec); err != nil {
+		return fmt.Errorf("resources: %w", err)
+	}
+
 	if err := a.specManager.CheckPolicy(ctx, policy.Download, desired.Version()); err != nil {
 		return fmt.Errorf("download policy: %w", err)
 	}
@@ -310,10 +313,10 @@ func (a *Agent) beforeUpdate(ctx context.Context, current, desired *v1alpha1.Dev
 	// dependencies. no changes have been made to the device's configuration
 	// yet.
 	if a.specManager.IsUpgrading() {
-		updateErr := a.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
-			Type:    v1alpha1.ConditionTypeDeviceUpdating,
-			Status:  v1alpha1.ConditionStatusTrue,
-			Reason:  string(v1alpha1.UpdateStatePreparing),
+		updateErr := a.statusManager.UpdateCondition(ctx, v1beta1.Condition{
+			Type:    v1beta1.ConditionTypeDeviceUpdating,
+			Status:  v1beta1.ConditionStatusTrue,
+			Reason:  string(v1beta1.UpdateStatePreparing),
 			Message: fmt.Sprintf("Device is preparing an update to renderedVersion: %s", desired.Version()),
 		})
 		if updateErr != nil {
@@ -346,10 +349,10 @@ func (a *Agent) beforeUpdate(ctx context.Context, current, desired *v1alpha1.Dev
 	// and is ready to update. no changes have been made to the device's
 	// configuration yet.
 	if a.specManager.IsUpgrading() {
-		updateErr := a.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
-			Type:    v1alpha1.ConditionTypeDeviceUpdating,
-			Status:  v1alpha1.ConditionStatusTrue,
-			Reason:  string(v1alpha1.UpdateStateReadyToUpdate),
+		updateErr := a.statusManager.UpdateCondition(ctx, v1beta1.Condition{
+			Type:    v1beta1.ConditionTypeDeviceUpdating,
+			Status:  v1beta1.ConditionStatusTrue,
+			Reason:  string(v1beta1.UpdateStateReadyToUpdate),
 			Message: fmt.Sprintf("Device is ready to apply update to renderedVersion: %s", desired.Version()),
 		})
 		if updateErr != nil {
@@ -360,12 +363,12 @@ func (a *Agent) beforeUpdate(ctx context.Context, current, desired *v1alpha1.Dev
 	return nil
 }
 
-func (a *Agent) syncDevice(ctx context.Context, current, desired *v1alpha1.Device) error {
+func (a *Agent) syncDevice(ctx context.Context, current, desired *v1beta1.Device) error {
 	if a.specManager.IsUpgrading() {
-		updateErr := a.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
-			Type:    v1alpha1.ConditionTypeDeviceUpdating,
-			Status:  v1alpha1.ConditionStatusTrue,
-			Reason:  string(v1alpha1.UpdateStateApplyingUpdate),
+		updateErr := a.statusManager.UpdateCondition(ctx, v1beta1.Condition{
+			Type:    v1beta1.ConditionTypeDeviceUpdating,
+			Status:  v1beta1.ConditionStatusTrue,
+			Reason:  string(v1beta1.UpdateStateApplyingUpdate),
 			Message: fmt.Sprintf("Device is applying renderedVersion: %s", desired.Version()),
 		})
 		if updateErr != nil {
@@ -385,10 +388,6 @@ func (a *Agent) syncDevice(ctx context.Context, current, desired *v1alpha1.Devic
 		return fmt.Errorf("config: %w", err)
 	}
 
-	if err := a.resourceController.Sync(ctx, desired.Spec); err != nil {
-		return fmt.Errorf("resources: %w", err)
-	}
-
 	if err := a.systemdControllerSync(ctx, desired.Spec); err != nil {
 		return fmt.Errorf("systemd: %w", err)
 	}
@@ -403,7 +402,7 @@ func (a *Agent) syncDevice(ctx context.Context, current, desired *v1alpha1.Devic
 	return nil
 }
 
-func (a *Agent) systemdControllerSync(_ context.Context, desired *v1alpha1.DeviceSpec) error {
+func (a *Agent) systemdControllerSync(_ context.Context, desired *v1beta1.DeviceSpec) error {
 	var matchPatterns []string
 	if desired.Systemd != nil {
 		matchPatterns = lo.FromPtr(desired.Systemd.MatchPatterns)
@@ -416,7 +415,7 @@ func (a *Agent) systemdControllerSync(_ context.Context, desired *v1alpha1.Devic
 	return nil
 }
 
-func (a *Agent) afterUpdate(ctx context.Context, current, desired *v1alpha1.DeviceSpec) error {
+func (a *Agent) afterUpdate(ctx context.Context, current, desired *v1beta1.DeviceSpec) error {
 	a.log.Debug("Executing after update actions")
 	defer a.log.Debug("Finished executing after update actions")
 
@@ -460,7 +459,7 @@ func (a *Agent) afterUpdate(ctx context.Context, current, desired *v1alpha1.Devi
 	return nil
 }
 
-func (a *Agent) afterUpdateOS(ctx context.Context, desired *v1alpha1.DeviceSpec) error {
+func (a *Agent) afterUpdateOS(ctx context.Context, desired *v1beta1.DeviceSpec) error {
 	if desired.Os == nil {
 		a.log.Debug("No OS image to update")
 		return nil
@@ -485,18 +484,18 @@ func (a *Agent) afterUpdateOS(ctx context.Context, desired *v1alpha1.DeviceSpec)
 
 	image := desired.Os.Image
 	infoMsg := fmt.Sprintf("Device is rebooting into os image: %s", image)
-	_, updateErr := a.statusManager.Update(ctx, status.SetDeviceSummary(v1alpha1.DeviceSummaryStatus{
-		Status: v1alpha1.DeviceSummaryStatusRebooting,
+	_, updateErr := a.statusManager.Update(ctx, status.SetDeviceSummary(v1beta1.DeviceSummaryStatus{
+		Status: v1beta1.DeviceSummaryStatusRebooting,
 		Info:   lo.ToPtr(infoMsg),
 	}))
 	if updateErr != nil {
 		a.log.Warnf("Failed setting status: %v", updateErr)
 	}
 
-	updateErr = a.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
-		Type:    v1alpha1.ConditionTypeDeviceUpdating,
-		Status:  v1alpha1.ConditionStatusTrue,
-		Reason:  string(v1alpha1.UpdateStateRebooting),
+	updateErr = a.statusManager.UpdateCondition(ctx, v1beta1.Condition{
+		Type:    v1beta1.ConditionTypeDeviceUpdating,
+		Status:  v1beta1.ConditionStatusTrue,
+		Reason:  string(v1beta1.UpdateStateRebooting),
 		Message: infoMsg,
 	})
 	if updateErr != nil {
@@ -506,28 +505,28 @@ func (a *Agent) afterUpdateOS(ctx context.Context, desired *v1alpha1.DeviceSpec)
 	return a.osManager.Reboot(ctx, desired)
 }
 
-func (a *Agent) handleSyncError(ctx context.Context, desired *v1alpha1.Device, syncErr error) {
+func (a *Agent) handleSyncError(ctx context.Context, desired *v1beta1.Device, syncErr error) {
 	if syncErr == nil {
 		return
 	}
 
 	version := desired.Version()
-	conditionUpdate := v1alpha1.Condition{
-		Type: v1alpha1.ConditionTypeDeviceUpdating,
+	conditionUpdate := v1beta1.Condition{
+		Type: v1beta1.ConditionTypeDeviceUpdating,
 	}
 
 	if !errors.IsRetryable(syncErr) {
 		msg := fmt.Sprintf("Failed to update to renderedVersion: %s: %v", version, syncErr.Error())
-		conditionUpdate.Reason = string(v1alpha1.UpdateStateError)
+		conditionUpdate.Reason = string(v1beta1.UpdateStateError)
 		conditionUpdate.Message = log.Truncate(msg, status.MaxMessageLength)
-		conditionUpdate.Status = v1alpha1.ConditionStatusFalse
+		conditionUpdate.Status = v1beta1.ConditionStatusFalse
 		a.prefetchManager.Cleanup()
 		a.log.Error(msg)
 	} else {
 		msg := fmt.Sprintf("Failed to update to renderedVersion: %s: retrying: %v", version, syncErr.Error())
-		conditionUpdate.Reason = string(v1alpha1.UpdateStateApplyingUpdate)
+		conditionUpdate.Reason = string(v1beta1.UpdateStateApplyingUpdate)
 		conditionUpdate.Message = log.Truncate(msg, status.MaxMessageLength)
-		conditionUpdate.Status = v1alpha1.ConditionStatusTrue
+		conditionUpdate.Status = v1beta1.ConditionStatusTrue
 		a.log.Warn(msg)
 	}
 
@@ -545,10 +544,10 @@ func (a *Agent) handlePrefetchNotReady(ctx context.Context, syncErr error) {
 		a.log.Errorf("Failed to rollback spec: %v", err)
 	}
 
-	updateStatusErr := a.statusManager.UpdateCondition(ctx, v1alpha1.Condition{
-		Type:    v1alpha1.ConditionTypeDeviceUpdating,
-		Status:  v1alpha1.ConditionStatusTrue,
-		Reason:  string(v1alpha1.UpdateStatePreparing),
+	updateStatusErr := a.statusManager.UpdateCondition(ctx, v1beta1.Condition{
+		Type:    v1beta1.ConditionTypeDeviceUpdating,
+		Status:  v1beta1.ConditionStatusTrue,
+		Reason:  string(v1beta1.UpdateStatePreparing),
 		Message: statusMsg,
 	})
 	if updateStatusErr != nil {

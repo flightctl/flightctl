@@ -10,22 +10,29 @@ import (
 	"path/filepath"
 	"time"
 
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent"
 	agent_config "github.com/flightctl/flightctl/internal/agent/config"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	apiserver "github.com/flightctl/flightctl/internal/api_server"
-	"github.com/flightctl/flightctl/internal/auth"
+	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/identity"
+	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/org"
+	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/flightctl/flightctl/internal/worker_client"
 	workerserver "github.com/flightctl/flightctl/internal/worker_server"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
+	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
-	"github.com/sirupsen/logrus"
 	"go.uber.org/mock/gomock"
 )
 
@@ -49,15 +56,42 @@ type TestHarness struct {
 	ctrl          *gomock.Controller
 
 	// attributes for the test harness
-	Context     context.Context
-	Server      *apiserver.Server
-	Agent       *agent.Agent
-	Client      *apiclient.ClientWithResponses
-	Store       *store.Store
-	TestDirPath string
+	Context        context.Context
+	Server         *apiserver.Server
+	Agent          *agent.Agent
+	Client         *apiclient.ClientWithResponses
+	Store          *store.Store
+	ServiceHandler service.Service // Service handler for direct service calls (bypasses HTTP/auth)
+	TestDirPath    string
 }
 
 type TestHarnessOption func(h *TestHarness)
+
+// createAdminIdentity creates a test admin identity with full permissions
+func createAdminIdentity() *identity.MappedIdentity {
+	testOrg := &model.Organization{
+		ID:          org.DefaultID,
+		ExternalID:  "default",
+		DisplayName: "Default Organization",
+	}
+	return &identity.MappedIdentity{
+		Username:      "test-admin",
+		UID:           uuid.New().String(),
+		Organizations: []*model.Organization{testOrg},
+		OrgRoles:      map[string][]string{"*": {string(api.RoleAdmin)}},
+		SuperAdmin:    true,
+	}
+}
+
+func createAdminBaseIdentity() *common.BaseIdentity {
+	testOrg := common.ReportedOrganization{
+		Name:         "default",
+		IsInternalID: true,
+		ID:           org.DefaultID.String(),
+		Roles:        []string{string(api.RoleAdmin)},
+	}
+	return common.NewBaseIdentity("test-admin", uuid.New().String(), []common.ReportedOrganization{testOrg})
+}
 
 // WithAgentMetrics enables the agent's Prometheus metrics endpoint when the
 // harness starts the agent.
@@ -104,8 +138,7 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 	}
 
 	serverCfg := *config.NewDefault()
-	serverLog := log.InitLogs()
-	serverLog.SetLevel(logrus.DebugLevel)
+	serverLog := log.InitLogs("debug")
 	serverLog.SetOutput(os.Stdout)
 
 	// create store
@@ -124,6 +157,9 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
+
+	// Add admin identity to context for service calls
+	ctx = context.WithValue(ctx, consts.MappedIdentityCtxKey, createAdminIdentity())
 
 	provider := testutil.NewTestProvider(serverLog)
 	// create server
@@ -148,7 +184,6 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 
 	// start main api server
 	go func() {
-		os.Setenv(auth.DisableAuthEnvKey, "true")
 		err := apiServer.Run(ctx)
 		if err != nil {
 			// provide a wrapper to allow require.NoError or ginkgo handling
@@ -181,15 +216,13 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 
 	os.Setenv(agent_config.TestRootDirEnvKey, testDirPath)
 	cfg := agent_config.NewDefault()
-	// TODO: remove the cert/key modifications from default, and start storing
-	// the test harness files for those in the testDir/etc/flightctl/certs path
 	cfg.EnrollmentService = config.EnrollmentService{
 		Config:               *client.NewDefault(),
 		EnrollmentUIEndpoint: "https://flightctl.ui/",
 	}
 	cfg.EnrollmentService.Service = client.Service{
 		Server:               "https://" + serverCfg.Service.AgentEndpointAddress,
-		CertificateAuthority: "/etc/flightctl/certs/ca.crt",
+		CertificateAuthority: "/etc/flightctl/certs/client-signer.crt",
 	}
 	cfg.EnrollmentService.AuthInfo = client.AuthInfo{
 		ClientCertificate: "/etc/flightctl/certs/client-enrollment.crt",
@@ -210,6 +243,18 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 		return nil, fmt.Errorf("NewTestHarness: %w", err)
 	}
 
+	// Create service handler for direct service calls (bypassing HTTP/auth middleware)
+	kvStore, err := kvstore.NewKVStore(ctx, serverLog, serverCfg.KV.Hostname, serverCfg.KV.Port, serverCfg.KV.Password)
+	if err != nil {
+		return nil, fmt.Errorf("NewTestHarness: failed to create KV store: %w", err)
+	}
+	publisher, err := worker_client.QueuePublisher(ctx, provider)
+	if err != nil {
+		return nil, fmt.Errorf("NewTestHarness: failed to create queue publisher: %w", err)
+	}
+	workerClient := worker_client.NewWorkerClient(publisher, serverLog)
+	serviceHandler := service.NewServiceHandler(store, workerClient, kvStore, ca, serverLog, "", "", []string{})
+
 	testHarness := &TestHarness{
 		agentConfig:           cfg,
 		serverListener:        listener,
@@ -219,6 +264,7 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 		Server:                apiServer,
 		Client:                client,
 		Store:                 &store,
+		ServiceHandler:        serviceHandler,
 		mockK8sClient:         mockK8sClient,
 		ctrl:                  ctrl,
 		TestDirPath:           testDirPath}
@@ -282,6 +328,17 @@ func (h *TestHarness) GetMockK8sClient() *k8sclient.MockK8SClient {
 func (h *TestHarness) RestartAgent() {
 	h.StopAgent()
 	h.StartAgent()
+}
+
+// AuthenticatedContext adds admin identities and org ID to the provided context for direct service calls
+// Use this when calling ServiceHandler methods to bypass HTTP/auth middleware
+func (h *TestHarness) AuthenticatedContext(ctx context.Context) context.Context {
+	// Add both Identity and MappedIdentity to context for completeness
+	ctx = context.WithValue(ctx, consts.IdentityCtxKey, createAdminBaseIdentity())
+	ctx = context.WithValue(ctx, consts.MappedIdentityCtxKey, createAdminIdentity())
+	// Also add org ID to context so it's available for signing certificates
+	ctx = util.WithOrganizationID(ctx, org.DefaultID)
+	return ctx
 }
 
 func makeTestDirs(tmpDirPath string, paths []string) error {

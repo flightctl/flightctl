@@ -6,9 +6,10 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1alpha1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/identity"
 	"github.com/flightctl/flightctl/pkg/aap"
@@ -44,7 +45,11 @@ type AapGatewayAuth struct {
 	metadata  api.ObjectMeta
 	spec      api.AapProviderSpec
 	aapClient *aap.AAPGatewayClient
-	cache     *ttlcache.Cache[string, *AAPIdentity]
+	cache     *ttlcache.Cache[string, common.Identity]
+	cancel    context.CancelFunc
+	mu        sync.Mutex
+	started   bool
+	stopOnce  sync.Once
 }
 
 func NewAapGatewayAuth(metadata api.ObjectMeta, spec api.AapProviderSpec, clientTlsConfig *tls.Config) (*AapGatewayAuth, error) {
@@ -60,44 +65,89 @@ func NewAapGatewayAuth(metadata api.ObjectMeta, spec api.AapProviderSpec, client
 		metadata:  metadata,
 		spec:      spec,
 		aapClient: aapClient,
-		cache:     ttlcache.New[string, *AAPIdentity](ttlcache.WithTTL[string, *AAPIdentity](5 * time.Second)),
+		cache:     ttlcache.New[string, common.Identity](ttlcache.WithTTL[string, common.Identity](10 * time.Minute)),
 	}
-	go authN.cache.Start()
 	return &authN, nil
 }
 
-func (a AapGatewayAuth) loadUserInfo(token string) (*AAPIdentity, error) {
-	item := a.cache.Get(token)
-	if item != nil {
-		return item.Value(), nil
+func (a *AapGatewayAuth) GetAapSpec() api.AapProviderSpec {
+	return a.spec
+}
+
+func (a *AapGatewayAuth) IsEnabled() bool {
+	return a.spec.Enabled != nil && *a.spec.Enabled
+}
+
+// Start starts the identity cache background cleanup
+// Creates a child context that can be independently canceled via Stop()
+func (a *AapGatewayAuth) Start(ctx context.Context) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if a.started {
+		return fmt.Errorf("AapGatewayAuth provider already started")
 	}
 
-	aapUserInfo, err := a.aapClient.GetMe(token)
+	// Create a child context so this provider can be stopped independently
+	providerCtx, cancel := context.WithCancel(ctx)
+	a.cancel = cancel
+
+	// Start cache in a goroutine (cache.Start() blocks waiting for cleanup events)
+	go a.cache.Start()
+
+	go func() {
+		<-providerCtx.Done()
+		a.cache.Stop()
+	}()
+
+	a.started = true
+	return nil
+}
+
+// Stop stops the identity cache and cancels the provider's context
+func (a *AapGatewayAuth) Stop() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	// Only stop if we were started
+	if !a.started {
+		return
+	}
+
+	a.stopOnce.Do(func() {
+		if a.cancel != nil {
+			a.cancel()
+		}
+	})
+}
+
+func (a *AapGatewayAuth) loadUserInfo(ctx context.Context, token string) (*AAPIdentity, error) {
+	aapUserInfo, err := a.aapClient.GetMe(ctx, token)
 	if err != nil {
 		return nil, err
 	}
 
-	externalApiUrl := a.spec.ApiUrl
-	if a.spec.ExternalApiUrl != nil && *a.spec.ExternalApiUrl != "" {
-		externalApiUrl = *a.spec.ExternalApiUrl
-	}
-
 	userInfo := &AAPIdentity{
-		BaseIdentity:    *common.NewBaseIdentityWithIssuer(aapUserInfo.Username, strconv.Itoa(aapUserInfo.ID), []common.ReportedOrganization{}, identity.NewIssuer(identity.AuthTypeAAP, externalApiUrl)),
+		BaseIdentity:    *common.NewBaseIdentityWithIssuer(aapUserInfo.Username, strconv.Itoa(aapUserInfo.ID), []common.ReportedOrganization{}, identity.NewIssuer(identity.AuthTypeAAP, a.spec.ApiUrl)),
 		superUser:       aapUserInfo.IsSuperuser,
 		platformAuditor: aapUserInfo.IsPlatformAuditor,
 	}
 
-	a.cache.Set(token, userInfo, ttlcache.DefaultTTL)
 	return userInfo, nil
 }
 
-func (a AapGatewayAuth) ValidateToken(ctx context.Context, token string) error {
-	_, err := a.loadUserInfo(token)
+func (a *AapGatewayAuth) ValidateToken(ctx context.Context, token string) error {
+	// Check cache first
+	if item := a.cache.Get(token); item != nil {
+		return nil
+	}
+
+	// Validate by loading user info
+	_, err := a.loadUserInfo(ctx, token)
 	return err
 }
 
-func (a AapGatewayAuth) GetAuthConfig() *api.AuthConfig {
+func (a *AapGatewayAuth) GetAuthConfig() *api.AuthConfig {
 	provider := api.AuthProvider{
 		ApiVersion: api.AuthProviderAPIVersion,
 		Kind:       api.AuthProviderKind,
@@ -114,12 +164,18 @@ func (a AapGatewayAuth) GetAuthConfig() *api.AuthConfig {
 	}
 }
 
-func (AapGatewayAuth) GetAuthToken(r *http.Request) (string, error) {
+func (*AapGatewayAuth) GetAuthToken(r *http.Request) (string, error) {
 	return common.ExtractBearerToken(r)
 }
 
-func (a AapGatewayAuth) GetIdentity(ctx context.Context, token string) (common.Identity, error) {
-	userInfo, err := a.loadUserInfo(token)
+func (a *AapGatewayAuth) GetIdentity(ctx context.Context, token string) (common.Identity, error) {
+	// Check cache first - this avoids expensive API calls
+	if item := a.cache.Get(token); item != nil {
+		return item.Value(), nil
+	}
+
+	// Load basic user info
+	userInfo, err := a.loadUserInfo(ctx, token)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get identity: %w", err)
 	}
@@ -127,34 +183,49 @@ func (a AapGatewayAuth) GetIdentity(ctx context.Context, token string) (common.I
 	// Get user organizations from AAP
 	organizations, err := a.getUserOrganizations(ctx, token, userInfo)
 	if err != nil {
-		// Log error but don't fail authentication - organizations are optional
-		// TODO: Add proper logging here
-		organizations = []string{}
+		return nil, fmt.Errorf("failed to get user organizations: %w", err)
 	}
 
-	// Map AAP permissions to roles (global roles that apply to all orgs)
-	roles := []string{}
+	// Map AAP permissions to roles
+	// Superuser and platform auditor are global roles that apply to all orgs
+	globalRoles := []string{}
 	if userInfo.IsSuperuser() {
-		roles = append(roles, api.ExternalRoleAdmin)
+		globalRoles = append(globalRoles, api.ExternalRoleAdmin)
 	}
 	if userInfo.IsPlatformAuditor() {
-		roles = append(roles, api.ExternalRoleViewer)
+		globalRoles = append(globalRoles, api.ExternalRoleViewer)
+	}
+
+	// Get user role assignments for organization-specific roles
+	orgRoles := map[string][]string{}
+	if len(globalRoles) > 0 {
+		orgRoles["*"] = globalRoles
+	}
+
+	roleAssignments, err := a.getUserRoleAssignments(ctx, token, userInfo.GetUID())
+	if err != nil {
+		return nil, fmt.Errorf("failed to get role assignments: %w", err)
+	}
+
+	// Build organization-specific role mappings
+	orgSpecificRoles := a.mapRoleAssignmentsToOrgRoles(roleAssignments)
+	for orgName, roles := range orgSpecificRoles {
+		orgRoles[orgName] = append(orgRoles[orgName], roles...)
 	}
 
 	// Build ReportedOrganization with roles embedded
-	// AAP roles are global - apply to all organizations
-	orgRoles := map[string][]string{
-		"*": roles, // All AAP roles are global
-	}
 	reportedOrganizations, isSuperAdmin := common.BuildReportedOrganizations(organizations, orgRoles, false)
 	userInfo.SetOrganizations(reportedOrganizations)
 	userInfo.SetSuperAdmin(isSuperAdmin)
+
+	// Cache the complete identity to avoid expensive API calls on future requests
+	a.cache.Set(token, userInfo, ttlcache.DefaultTTL)
 
 	return userInfo, nil
 }
 
 // getUserOrganizations retrieves organizations for the user from AAP
-func (a AapGatewayAuth) getUserOrganizations(ctx context.Context, token string, userInfo *AAPIdentity) ([]string, error) {
+func (a *AapGatewayAuth) getUserOrganizations(ctx context.Context, token string, userInfo *AAPIdentity) ([]string, error) {
 	var organizations []string
 	var err error
 
@@ -173,8 +244,8 @@ func (a AapGatewayAuth) getUserOrganizations(ctx context.Context, token string, 
 }
 
 // getAllOrganizations gets all organizations from AAP
-func (a AapGatewayAuth) getAllOrganizations(ctx context.Context, token string) ([]string, error) {
-	aapOrganizations, err := a.aapClient.ListOrganizations(token)
+func (a *AapGatewayAuth) getAllOrganizations(ctx context.Context, token string) ([]string, error) {
+	aapOrganizations, err := a.aapClient.ListOrganizations(ctx, token)
 	if err != nil {
 		return nil, err
 	}
@@ -188,15 +259,15 @@ func (a AapGatewayAuth) getAllOrganizations(ctx context.Context, token string) (
 }
 
 // getUserScopedOrganizations gets organizations for a specific user
-func (a AapGatewayAuth) getUserScopedOrganizations(ctx context.Context, token string, userID string) ([]string, error) {
+func (a *AapGatewayAuth) getUserScopedOrganizations(ctx context.Context, token string, userID string) ([]string, error) {
 	// Get user's direct organizations
-	aapOrganizations, err := a.aapClient.ListUserOrganizations(token, userID)
+	aapOrganizations, err := a.aapClient.ListUserOrganizations(ctx, token, userID)
 	if err != nil {
 		return nil, err
 	}
 
 	// Get user's teams and their organizations
-	aapTeams, err := a.aapClient.ListUserTeams(token, userID)
+	aapTeams, err := a.aapClient.ListUserTeams(ctx, token, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -221,4 +292,44 @@ func (a AapGatewayAuth) getUserScopedOrganizations(ctx context.Context, token st
 	}
 
 	return organizations, nil
+}
+
+// getUserRoleAssignments gets role assignments for a specific user from AAP
+func (a *AapGatewayAuth) getUserRoleAssignments(ctx context.Context, token string, userID string) ([]*aap.AAPRoleUserAssignment, error) {
+	roleAssignments, err := a.aapClient.ListUserRoleAssignments(ctx, token, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	return roleAssignments, nil
+}
+
+// mapRoleAssignmentsToOrgRoles converts AAP role assignments to organization-specific role mappings
+func (a *AapGatewayAuth) mapRoleAssignmentsToOrgRoles(roleAssignments []*aap.AAPRoleUserAssignment) map[string][]string {
+	orgRoles := make(map[string][]string)
+
+	for _, assignment := range roleAssignments {
+		// Only process organization-level role assignments
+		if assignment.ContentType != "shared.organization" {
+			continue
+		}
+
+		orgName := assignment.SummaryFields.ContentObject.Name
+		roleName := assignment.SummaryFields.RoleDefinition.Name
+
+		// Add role to organization if not already present
+		roles := orgRoles[orgName]
+		roleExists := false
+		for _, r := range roles {
+			if r == roleName {
+				roleExists = true
+				break
+			}
+		}
+		if !roleExists {
+			orgRoles[orgName] = append(roles, roleName)
+		}
+	}
+
+	return orgRoles
 }

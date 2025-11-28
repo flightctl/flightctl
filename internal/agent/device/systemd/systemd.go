@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"regexp"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -33,20 +33,24 @@ type Manager interface {
 	ResetFailed(ctx context.Context, units ...string) error
 	// ListUnitsByMatchPattern lists systemd units matching the provided patterns.
 	ListUnitsByMatchPattern(ctx context.Context, matchPatterns []string) ([]client.SystemDUnitListEntry, error)
+	// Logs returns the logs based on the specified options
+	Logs(ctx context.Context, options ...client.LogOptions) ([]string, error)
 	status.Exporter
 }
 
 type manager struct {
 	patterns         []string
 	client           *client.Systemd
+	journalctl       *client.Journalctl
 	log              *log.PrefixLogger
 	excludedServices map[string]struct{}
 }
 
-func NewManager(log *log.PrefixLogger, client *client.Systemd) Manager {
+func NewManager(log *log.PrefixLogger, client *client.Systemd, journalctl *client.Journalctl) Manager {
 	return &manager{
 		log:              log,
 		client:           client,
+		journalctl:       journalctl,
 		excludedServices: make(map[string]struct{}),
 	}
 }
@@ -93,7 +97,35 @@ func (m *manager) ListUnitsByMatchPattern(ctx context.Context, matchPatterns []s
 	return m.client.ListUnitsByMatchPattern(ctx, matchPatterns)
 }
 
-func (m *manager) Status(ctx context.Context, device *v1alpha1.DeviceStatus, _ ...status.CollectorOpt) error {
+func (m *manager) Logs(ctx context.Context, options ...client.LogOptions) ([]string, error) {
+	return m.journalctl.Logs(ctx, options...)
+}
+
+func (m *manager) normalizeEnabledStateValue(val v1beta1.SystemdEnableStateType) v1beta1.SystemdEnableStateType {
+	if err := val.Validate(); err != nil {
+		m.log.Warnf("invalid systemd enable state %s, replacing with %s : %v", val, v1beta1.SystemdEnableStateUnknown, err)
+		return v1beta1.SystemdEnableStateUnknown
+	}
+	return val
+}
+
+func (m *manager) normalizeLoadStateValue(val v1beta1.SystemdLoadStateType) v1beta1.SystemdLoadStateType {
+	if err := val.Validate(); err != nil {
+		m.log.Warnf("invalid systemd load state %s, replacing with %s : %v", val, v1beta1.SystemdLoadStateUnknown, err)
+		return v1beta1.SystemdLoadStateUnknown
+	}
+	return val
+}
+
+func (m *manager) normalizeActiveStateValue(val v1beta1.SystemdActiveStateType) v1beta1.SystemdActiveStateType {
+	if err := val.Validate(); err != nil {
+		m.log.Warnf("invalid systemd active state %s, replacing with %s : %v", val, v1beta1.SystemdActiveStateUnknown, err)
+		return v1beta1.SystemdActiveStateUnknown
+	}
+	return val
+}
+
+func (m *manager) Status(ctx context.Context, device *v1beta1.DeviceStatus, _ ...status.CollectorOpt) error {
 	if len(m.patterns) == 0 {
 		return nil
 	}
@@ -103,19 +135,19 @@ func (m *manager) Status(ctx context.Context, device *v1alpha1.DeviceStatus, _ .
 		return err
 	}
 
-	systemdUnits := make([]v1alpha1.SystemdUnitStatus, 0, len(units))
+	systemdUnits := make([]v1beta1.SystemdUnitStatus, 0, len(units))
 	for _, unit := range units {
 		unitName := unit["Id"]
 		if _, excluded := m.excludedServices[unitName]; excluded {
 			m.log.Debugf("Excluding systemd unit from status report: %s", unitName)
 			continue
 		}
-		systemdUnits = append(systemdUnits, v1alpha1.SystemdUnitStatus{
+		systemdUnits = append(systemdUnits, v1beta1.SystemdUnitStatus{
 			Unit:        unitName,
 			Description: unit["Description"],
-			EnableState: v1alpha1.SystemdEnableStateType(unit["UnitFileState"]),
-			LoadState:   v1alpha1.SystemdLoadStateType(unit["LoadState"]),
-			ActiveState: v1alpha1.SystemdActiveStateType(unit["ActiveState"]),
+			EnableState: m.normalizeEnabledStateValue(v1beta1.SystemdEnableStateType(unit["UnitFileState"])),
+			LoadState:   m.normalizeLoadStateValue(v1beta1.SystemdLoadStateType(unit["LoadState"])),
+			ActiveState: m.normalizeActiveStateValue(v1beta1.SystemdActiveStateType(unit["ActiveState"])),
 			SubState:    unit["SubState"],
 		})
 	}

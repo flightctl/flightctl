@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/samber/lo"
@@ -17,8 +17,8 @@ func TestSync(t *testing.T) {
 	require := require.New(t)
 	tests := []struct {
 		name       string
-		current    *v1alpha1.DeviceSpec
-		desired    *v1alpha1.DeviceSpec
+		current    *v1beta1.DeviceSpec
+		desired    *v1beta1.DeviceSpec
 		setupMocks func(mockWriter *fileio.MockWriter, mockManagedFile *fileio.MockManagedFile, f string)
 		wantErr    error
 		// files which are created via the sync operation
@@ -28,15 +28,15 @@ func TestSync(t *testing.T) {
 	}{
 		{
 			name:    "no desired config",
-			current: &v1alpha1.DeviceSpec{},
-			desired: &v1alpha1.DeviceSpec{},
+			current: &v1beta1.DeviceSpec{},
+			desired: &v1beta1.DeviceSpec{},
 		},
 		{
 			name: "desired config is valid current is nil",
-			current: &v1alpha1.DeviceSpec{
+			current: &v1beta1.DeviceSpec{
 				Config: nil,
 			},
-			desired: &v1alpha1.DeviceSpec{
+			desired: &v1beta1.DeviceSpec{
 				Config: testConfigProvider(require, 2),
 			},
 			createdFiles: []string{
@@ -46,10 +46,10 @@ func TestSync(t *testing.T) {
 		},
 		{
 			name: "current config is valid desired is nil",
-			current: &v1alpha1.DeviceSpec{
+			current: &v1beta1.DeviceSpec{
 				Config: testConfigProvider(require, 3),
 			},
-			desired: &v1alpha1.DeviceSpec{},
+			desired: &v1beta1.DeviceSpec{},
 			removedFiles: []string{
 				"/etc/example/file1.txt",
 				"/etc/example/file2.txt",
@@ -58,10 +58,10 @@ func TestSync(t *testing.T) {
 		},
 		{
 			name: "validate removal of files",
-			current: &v1alpha1.DeviceSpec{
+			current: &v1beta1.DeviceSpec{
 				Config: testConfigProvider(require, 3),
 			},
-			desired: &v1alpha1.DeviceSpec{
+			desired: &v1beta1.DeviceSpec{
 				Config: testConfigProvider(require, 2),
 			},
 			createdFiles: []string{
@@ -108,17 +108,17 @@ func TestComputeRemoval(t *testing.T) {
 	require := require.New(t)
 	tests := []struct {
 		name     string
-		current  []v1alpha1.FileSpec
-		desired  []v1alpha1.FileSpec
+		current  []v1beta1.FileSpec
+		desired  []v1beta1.FileSpec
 		expected []string
 	}{
 		{
 			name: "no desired files",
-			current: []v1alpha1.FileSpec{
+			current: []v1beta1.FileSpec{
 				{Path: "/etc/example/file1.txt"},
 				{Path: "/etc/example/file2.txt"},
 			},
-			desired: []v1alpha1.FileSpec{},
+			desired: []v1beta1.FileSpec{},
 			expected: []string{
 				"/etc/example/file1.txt",
 				"/etc/example/file2.txt",
@@ -126,8 +126,8 @@ func TestComputeRemoval(t *testing.T) {
 		},
 		{
 			name:    "no current files",
-			current: []v1alpha1.FileSpec{},
-			desired: []v1alpha1.FileSpec{
+			current: []v1beta1.FileSpec{},
+			desired: []v1beta1.FileSpec{
 				{Path: "/etc/example/file1.txt"},
 				{Path: "/etc/example/file2.txt"},
 			},
@@ -135,12 +135,12 @@ func TestComputeRemoval(t *testing.T) {
 		},
 		{
 			name: "remove diff",
-			current: []v1alpha1.FileSpec{
+			current: []v1beta1.FileSpec{
 				{Path: "/etc/example/file1.txt"},
 				{Path: "/etc/example/file2.txt"},
 				{Path: "/etc/example/file3.txt"},
 			},
-			desired: []v1alpha1.FileSpec{
+			desired: []v1beta1.FileSpec{
 				{Path: "/etc/example/file1.txt"},
 				{Path: "/etc/example/file3.txt"},
 			},
@@ -150,8 +150,8 @@ func TestComputeRemoval(t *testing.T) {
 		},
 		{
 			name:     "no files",
-			current:  []v1alpha1.FileSpec{},
-			desired:  []v1alpha1.FileSpec{},
+			current:  []v1beta1.FileSpec{},
+			desired:  []v1beta1.FileSpec{},
 			expected: []string{},
 		},
 	}
@@ -174,20 +174,20 @@ func expectRemoveFile(mockWriter *fileio.MockWriter, f string) {
 	mockWriter.EXPECT().RemoveFile(f).Return(nil)
 }
 
-func testConfigProvider(require *require.Assertions, fileCount int) *[]v1alpha1.ConfigProviderSpec {
-	var provider v1alpha1.ConfigProviderSpec
-	files := make([]v1alpha1.FileSpec, 0, fileCount)
+func testConfigProvider(require *require.Assertions, fileCount int) *[]v1beta1.ConfigProviderSpec {
+	var provider v1beta1.ConfigProviderSpec
+	files := make([]v1beta1.FileSpec, 0, fileCount)
 
 	for i := 0; i < fileCount; i++ {
-		files = append(files, v1alpha1.FileSpec{ // Appending new elements
+		files = append(files, v1beta1.FileSpec{ // Appending new elements
 			Path:    fmt.Sprintf("/etc/example/file%d.txt", i+1),
 			Content: fmt.Sprintf("File %d contents", i+1),
 			Mode:    lo.ToPtr(0o420),
 		})
 	}
 
-	err := provider.FromInlineConfigProviderSpec(v1alpha1.InlineConfigProviderSpec{Inline: files})
+	err := provider.FromInlineConfigProviderSpec(v1beta1.InlineConfigProviderSpec{Inline: files})
 	require.NoError(err)
 
-	return &[]v1alpha1.ConfigProviderSpec{provider}
+	return &[]v1beta1.ConfigProviderSpec{provider}
 }

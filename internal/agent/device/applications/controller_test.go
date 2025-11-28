@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
@@ -47,6 +47,10 @@ func TestParseAppProviders(t *testing.T) {
 				mockExecuter *executer.MockExecuter,
 				imageConfig string,
 			) {
+				mockExecuter.EXPECT().
+					ExecuteWithContext(gomock.Any(), "podman", "image", "exists", gomock.Any()).
+					Return("", "", 0).
+					AnyTimes()
 				gomock.InOrder(
 					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(imageConfig, "", 0),
 					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "unshare", "podman", "image", "mount", gomock.Any()).Return("/mount", "", 0),
@@ -55,7 +59,7 @@ func TestParseAppProviders(t *testing.T) {
 			},
 			apps: []testApp{{name: "app1", image: "quay.io/org/app1:latest"}},
 			labels: map[string]string{
-				AppTypeLabel: string(v1alpha1.AppTypeCompose),
+				AppTypeLabel: string(v1beta1.AppTypeCompose),
 			},
 			wantNames:    []string{"app1"},
 			wantIDPrefix: []string{"app1-"},
@@ -66,6 +70,10 @@ func TestParseAppProviders(t *testing.T) {
 				mockExecuter *executer.MockExecuter,
 				imageConfig string,
 			) {
+				mockExecuter.EXPECT().
+					ExecuteWithContext(gomock.Any(), "podman", "image", "exists", gomock.Any()).
+					Return("", "", 0).
+					AnyTimes()
 				gomock.InOrder(
 					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(imageConfig, "", 0),
 				)
@@ -74,7 +82,7 @@ func TestParseAppProviders(t *testing.T) {
 			labels: map[string]string{
 				AppTypeLabel: "invalid",
 			},
-			wantErr: errors.ErrUnsupportedAppType,
+			wantErr: errors.ErrAppLabel,
 		},
 		{
 			name: "missing app type",
@@ -82,13 +90,18 @@ func TestParseAppProviders(t *testing.T) {
 				mockExecuter *executer.MockExecuter,
 				imageConfig string,
 			) {
+				mockExecuter.EXPECT().
+					ExecuteWithContext(gomock.Any(), "podman", "image", "exists", gomock.Any()).
+					Return("", "", 0).
+					AnyTimes()
 				gomock.InOrder(
 					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(imageConfig, "", 0),
+					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "unshare", "podman", "image", "mount", gomock.Any()).Return("/mount", "", 0),
+					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "unmount", gomock.Any()).Return("", "", 0),
 				)
 			},
-			apps:    []testApp{{name: "app1", image: "quay.io/org/app1:latest"}},
-			labels:  map[string]string{},
-			wantErr: errors.ErrAppLabel,
+			apps:   []testApp{{name: "app1", image: "quay.io/org/app1:latest"}},
+			labels: map[string]string{},
 		},
 		{
 			name: "missing app name populated by provider image",
@@ -96,6 +109,10 @@ func TestParseAppProviders(t *testing.T) {
 				mockExecuter *executer.MockExecuter,
 				imageConfig string,
 			) {
+				mockExecuter.EXPECT().
+					ExecuteWithContext(gomock.Any(), "podman", "image", "exists", gomock.Any()).
+					Return("", "", 0).
+					AnyTimes()
 				gomock.InOrder(
 					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(imageConfig, "", 0),
 					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "unshare", "podman", "image", "mount", gomock.Any()).Return("/mount", "", 0),
@@ -104,7 +121,7 @@ func TestParseAppProviders(t *testing.T) {
 			},
 			apps: []testApp{{name: "", image: "quay.io/org/app1:latest"}},
 			labels: map[string]string{
-				AppTypeLabel: string(v1alpha1.AppTypeCompose),
+				AppTypeLabel: string(v1beta1.AppTypeCompose),
 			},
 			wantNames:    []string{"quay.io/org/app1:latest"},
 			wantIDPrefix: []string{"quay_io_org_app1_latest-"},
@@ -124,6 +141,10 @@ func TestParseAppProviders(t *testing.T) {
 				mockExecuter *executer.MockExecuter,
 				imageConfig string,
 			) {
+				mockExecuter.EXPECT().
+					ExecuteWithContext(gomock.Any(), "podman", "image", "exists", gomock.Any()).
+					Return("", "", 0).
+					AnyTimes()
 				gomock.InOrder(
 					// inspect all apps first
 					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(imageConfig, "", 0),
@@ -145,7 +166,7 @@ func TestParseAppProviders(t *testing.T) {
 				{name: "app2", image: "quay.io/org/app2:latest"},
 			},
 			labels: map[string]string{
-				AppTypeLabel: string(v1alpha1.AppTypeCompose),
+				AppTypeLabel: string(v1beta1.AppTypeCompose),
 			},
 			wantNames:    []string{"app1", "quay.io/org/app2:latest", "app2"},
 			wantIDPrefix: []string{"app1-", "quay_io_org_app2_latest", "app2"},
@@ -181,7 +202,7 @@ func TestParseAppProviders(t *testing.T) {
 
 			tc.setupMocks(execMock, imageConfig)
 
-			providers, err := provider.FromDeviceSpec(ctx, log, mockPodman, readWriter, spec, provider.WithProviderTypes(v1alpha1.ImageApplicationProviderType))
+			providers, err := provider.FromDeviceSpec(ctx, log, mockPodman, readWriter, spec, provider.WithProviderTypes(v1beta1.ImageApplicationProviderType))
 			if tc.wantErr != nil {
 				require.ErrorIs(err, tc.wantErr)
 				return
@@ -221,13 +242,14 @@ func newImageConfig(labels map[string]string) (string, error) {
 	return string(imageConfigBytes), nil
 }
 
-func newTestDeviceSpec(appSpecs []testApp) (*v1alpha1.DeviceSpec, error) {
-	var applications []v1alpha1.ApplicationProviderSpec
+func newTestDeviceSpec(appSpecs []testApp) (*v1beta1.DeviceSpec, error) {
+	var applications []v1beta1.ApplicationProviderSpec
 	for _, spec := range appSpecs {
-		app := v1alpha1.ApplicationProviderSpec{
-			Name: lo.ToPtr(spec.name),
+		app := v1beta1.ApplicationProviderSpec{
+			Name:    lo.ToPtr(spec.name),
+			AppType: v1beta1.AppTypeCompose,
 		}
-		provider := v1alpha1.ImageApplicationProviderSpec{
+		provider := v1beta1.ImageApplicationProviderSpec{
 			Image: spec.image,
 		}
 		if err := app.FromImageApplicationProviderSpec(provider); err != nil {
@@ -235,7 +257,7 @@ func newTestDeviceSpec(appSpecs []testApp) (*v1alpha1.DeviceSpec, error) {
 		}
 		applications = append(applications, app)
 	}
-	return &v1alpha1.DeviceSpec{
+	return &v1beta1.DeviceSpec{
 		Applications: &applications,
 	}, nil
 }
@@ -306,6 +328,10 @@ func TestControllerSync(t *testing.T) {
 				mockAppManager *MockManager,
 				mockExecuter *executer.MockExecuter,
 			) {
+				mockExecuter.EXPECT().
+					ExecuteWithContext(gomock.Any(), "podman", "image", "exists", gomock.Any()).
+					Return("", "", 0).
+					AnyTimes()
 				gomock.InOrder(
 					// inspect to get app type from image labels
 					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", app1Image).Return(app1Labels, "", 0),
@@ -348,7 +374,10 @@ func TestControllerSync(t *testing.T) {
 				mockAppManager *MockManager,
 				mockExecuter *executer.MockExecuter,
 			) {
-
+				mockExecuter.EXPECT().
+					ExecuteWithContext(gomock.Any(), "podman", "image", "exists", gomock.Any()).
+					Return("", "", 0).
+					AnyTimes()
 				gomock.InOrder(
 					// rendered version 1 -> 2
 					// inspect to get app type from image labels
@@ -421,6 +450,10 @@ func TestControllerSync(t *testing.T) {
 				mockAppManager *MockManager,
 				mockExecuter *executer.MockExecuter,
 			) {
+				mockExecuter.EXPECT().
+					ExecuteWithContext(gomock.Any(), "podman", "image", "exists", gomock.Any()).
+					Return("", "", 0).
+					AnyTimes()
 				gomock.InOrder(
 					// initial deployment app1 and app2
 					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", app1Image).Return(app1Labels, "", 0), // inspect desired app1

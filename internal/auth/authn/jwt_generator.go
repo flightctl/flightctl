@@ -13,7 +13,7 @@ import (
 	"os"
 	"time"
 
-	pamapi "github.com/flightctl/flightctl/api/v1alpha1/pam-issuer"
+	pamapi "github.com/flightctl/flightctl/api/v1beta1/pam-issuer"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	fccrypto "github.com/flightctl/flightctl/internal/crypto"
 	pkgcrypto "github.com/flightctl/flightctl/pkg/crypto"
@@ -97,6 +97,7 @@ type TokenGenerationRequest struct {
 	Roles         []string
 	Audience      []string // JWT audience claim (aud)
 	Issuer        string   // JWT issuer claim (iss)
+	Scopes        string   // OAuth2 scopes (space-separated)
 }
 
 // GenerateTokenWithType creates a JWT token for the given identity with a specific token type
@@ -142,6 +143,13 @@ func (g *JWTGenerator) GenerateTokenWithType(request TokenGenerationRequest, exp
 
 	if err := token.Set("organizations", request.Organizations); err != nil {
 		return "", fmt.Errorf("failed to set organizations: %w", err)
+	}
+
+	// Set scopes claim if provided
+	if request.Scopes != "" {
+		if err := token.Set("scopes", request.Scopes); err != nil {
+			return "", fmt.Errorf("failed to set scopes: %w", err)
+		}
 	}
 
 	// Set token type claim

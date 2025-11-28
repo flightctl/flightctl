@@ -12,9 +12,10 @@ import (
 	"testing"
 
 	"github.com/ccoveille/go-safecast"
-	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/device/certmanager/provider"
 	"github.com/flightctl/flightctl/internal/crypto/signer"
+	"github.com/flightctl/flightctl/internal/org"
 	fccrypto "github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/flightctl/flightctl/test/harness"
@@ -83,11 +84,11 @@ var _ = Describe("Device Agent behavior", func() {
 				approveEnrollment(h, deviceName, testutil.TestEnrollmentApproval())
 
 				// verify that the enrollment request is marked as approved
-				er, err := h.Client.GetEnrollmentRequestWithResponse(h.Context, deviceName)
-				Expect(err).ToNot(HaveOccurred())
-				Expect(er.JSON200.Status.Conditions).ToNot(BeEmpty())
+				er, status := h.ServiceHandler.GetEnrollmentRequest(h.AuthenticatedContext(h.Context), org.DefaultID, deviceName)
+				Expect(status.Code).To(BeEquivalentTo(200))
+				Expect(er.Status.Conditions).ToNot(BeEmpty())
 
-				Expect(v1alpha1.IsStatusConditionTrue(er.JSON200.Status.Conditions, "Approved")).To(BeTrue())
+				Expect(v1beta1.IsStatusConditionTrue(er.Status.Conditions, "Approved")).To(BeTrue())
 
 			})
 
@@ -148,9 +149,9 @@ var _ = Describe("Device Agent behavior", func() {
 					secondSecretKey: secondSecretValue,
 				}
 				mockSecret(h.GetMockK8sClient(), secrets)
-				resp, err := h.Client.CreateFleetWithResponse(h.Context, getTestFleet("fleet.yaml"))
-				Expect(err).ToNot(HaveOccurred())
-				Expect(resp.HTTPResponse.StatusCode).To(Equal(http.StatusCreated))
+				fleet := getTestFleet("fleet.yaml")
+				_, status := h.ServiceHandler.CreateFleet(h.AuthenticatedContext(h.Context), org.DefaultID, fleet)
+				Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 				approval := testutil.TestEnrollmentApproval()
 				approval.Labels = &map[string]string{"fleet": "default"}
 
@@ -232,13 +233,13 @@ var _ = Describe("Device Agent behavior", func() {
 				deviceName := lo.FromPtr(dev.Metadata.Name)
 
 				// wait for CSR to be created by agent
-				var csr v1alpha1.CertificateSigningRequest
+				var csr v1beta1.CertificateSigningRequest
 				Eventually(func() bool {
-					resp, err := h.Client.ListCertificateSigningRequestsWithResponse(h.Context, &v1alpha1.ListCertificateSigningRequestsParams{})
-					if err != nil || resp.JSON200 == nil {
+					list, status := h.ServiceHandler.ListCertificateSigningRequests(h.AuthenticatedContext(h.Context), org.DefaultID, v1beta1.ListCertificateSigningRequestsParams{})
+					if status.Code != int32(200) || list == nil {
 						return false
 					}
-					for _, item := range resp.JSON200.Items {
+					for _, item := range list.Items {
 						if item.Spec.SignerName == certSignerName && item.Metadata.Name != nil {
 							name := lo.FromPtr(item.Metadata.Name)
 							if strings.HasPrefix(name, certCNPrefix+"-") && item.Status != nil && item.Status.Certificate != nil {
@@ -280,52 +281,45 @@ var _ = Describe("Device Agent behavior", func() {
 	})
 })
 
-func assertRestResponse(expectedCode int, resp *http.Response, body []byte) {
-	if resp.StatusCode != expectedCode {
-		fmt.Printf("REST call returned %d: %s\n", resp.StatusCode, body)
-	}
-	Expect(resp.StatusCode).To(Equal(expectedCode))
-}
-
-func enrollAndWaitForDevice(h *harness.TestHarness, approval *v1alpha1.EnrollmentRequestApproval) *v1alpha1.Device {
+func enrollAndWaitForDevice(h *harness.TestHarness, approval *v1beta1.EnrollmentRequestApproval) *v1beta1.Device {
 	deviceName := ""
 	Eventually(getEnrollmentDeviceName, TIMEOUT, POLLING).WithArguments(h, &deviceName).Should(BeTrue())
 	approveEnrollment(h, deviceName, approval)
 
 	// verify that the device is created
-	dev, err := h.Client.GetDeviceWithResponse(h.Context, deviceName)
-	Expect(err).ToNot(HaveOccurred())
-	assertRestResponse(200, dev.HTTPResponse, dev.Body)
-	return dev.JSON200
+	dev, status := h.ServiceHandler.GetDevice(h.AuthenticatedContext(h.Context), org.DefaultID, deviceName)
+	Expect(status.Code).To(BeEquivalentTo(200))
+	return dev
 }
 
-func approveEnrollment(h *harness.TestHarness, deviceName string, approval *v1alpha1.EnrollmentRequestApproval) {
+func approveEnrollment(h *harness.TestHarness, deviceName string, approval *v1beta1.EnrollmentRequestApproval) {
 	Expect(approval).NotTo(BeNil())
 	GinkgoWriter.Printf("Approving device enrollment: %s\n", deviceName)
-	resp, err := h.Client.ApproveEnrollmentRequestWithResponse(h.Context, deviceName, *approval)
-	Expect(err).ToNot(HaveOccurred())
-	assertRestResponse(200, resp.HTTPResponse, resp.Body)
+
+	// Approve
+	_, status := h.ServiceHandler.ApproveEnrollmentRequest(h.AuthenticatedContext(h.Context), org.DefaultID, deviceName, *approval)
+	Expect(status.Code).To(BeEquivalentTo(200))
 }
 
 func getEnrollmentDeviceName(h *harness.TestHarness, deviceName *string) bool {
-	listResp, err := h.Client.ListEnrollmentRequestsWithResponse(h.Context, &v1alpha1.ListEnrollmentRequestsParams{})
-	Expect(err).ToNot(HaveOccurred())
-	assertRestResponse(200, listResp.HTTPResponse, listResp.Body)
+	list, status := h.ServiceHandler.ListEnrollmentRequests(h.AuthenticatedContext(h.Context), org.DefaultID, v1beta1.ListEnrollmentRequestsParams{})
+	Expect(status.Code).To(BeEquivalentTo(200))
 
-	if len(listResp.JSON200.Items) == 0 {
+	if list == nil || len(list.Items) == 0 {
 		return false
 	}
 
-	Expect(*listResp.JSON200.Items[0].Metadata.Name).ToNot(BeEmpty())
-	*deviceName = *listResp.JSON200.Items[0].Metadata.Name
+	Expect(*list.Items[0].Metadata.Name).ToNot(BeEmpty())
+	*deviceName = *list.Items[0].Metadata.Name
+
 	return true
 }
 
-func getTestFleet(fleetYaml string) v1alpha1.Fleet {
+func getTestFleet(fleetYaml string) v1beta1.Fleet {
 	fleetBytes, err := os.ReadFile(filepath.Join("testdata", fleetYaml))
 	Expect(err).ToNot(HaveOccurred())
 
-	var fleet v1alpha1.Fleet
+	var fleet v1beta1.Fleet
 	err = yaml.Unmarshal(fleetBytes, &fleet)
 	Expect(err).ToNot(HaveOccurred())
 
