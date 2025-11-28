@@ -152,6 +152,6 @@ spec:
           secret:
             secretName: {{ default "flightctl-api-server-tls" .Values.global.baseDomainTlsSecretName }}
         - name: flightctl-ca-bundle
-          configMap:
-            name: flightctl-ca-bundle
+          secret:
+            secretName: flightctl-ca-bundle
         {{- include "flightctl.dbSslVolumes" . | nindent 8 }}
