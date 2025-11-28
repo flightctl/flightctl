@@ -1480,6 +1480,20 @@ func (h *Harness) GetTestContext() context.Context {
 	return h.Context
 }
 
+// GetContext returns the Kubernetes context (KIND, OCP) or "podman" if not in Kubernetes
+func (h *Harness) GetContext() string {
+	ctx, err := getContext()
+	if err != nil {
+		// If we can't get kubectl context, assume podman
+		return "podman"
+	}
+	// If context is KIND or OCP, it's kubernetes; otherwise podman
+	if ctx == util.KIND || ctx == util.OCP {
+		return ctx
+	}
+	return "podman"
+}
+
 // GetTestIDFromContext retrieves the test ID from the context
 // If no test ID is found, it indicates a programming error and will cause the test to fail
 func (h *Harness) GetTestIDFromContext() string {
