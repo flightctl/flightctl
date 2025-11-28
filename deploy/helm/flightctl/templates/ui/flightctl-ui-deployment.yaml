@@ -103,8 +103,8 @@ spec:
       restartPolicy: Always
       volumes:
         - name: ca-bundle
-          configMap:
-            name: flightctl-ca-bundle
+          secret:
+            secretName: flightctl-ca-bundle
         {{- if or ((.Values.global).auth).caCert .Values.ui.auth.caCert }}
         - name: flightctl-ui-certs
           secret:

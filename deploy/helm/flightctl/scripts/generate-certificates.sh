@@ -344,9 +344,9 @@ if [[ "$CREATE_K8S_SECRETS" == "true" ]]; then
             --dry-run=client -o yaml | $K8S_CLI apply -f -
     fi
 
-    # Create CA bundle ConfigMap
-    echo "Creating ConfigMap: flightctl-ca-bundle"
-    $K8S_CLI create configmap flightctl-ca-bundle \
+    # Create CA bundle Secret (compatible with trust-manager format)
+    echo "Creating Secret: flightctl-ca-bundle"
+    $K8S_CLI create secret generic flightctl-ca-bundle \
         --namespace="$NAMESPACE" \
         --from-file=ca-bundle.crt="$CA_BUNDLE" \
         --dry-run=client -o yaml | $K8S_CLI apply -f -
