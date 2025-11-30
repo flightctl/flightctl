@@ -114,6 +114,10 @@ If the `pamOidcIssuer` section is present in the configuration file, the followi
 
 The `allowPublicClientWithoutPKCE` parameter should remain `false` (default) in production environments. PKCE (Proof Key for Code Exchange) is required for public clients per OAuth 2.0 Security Best Current Practice. Only enable this setting for testing or backward compatibility with legacy clients.
 
+### Token Expiration
+
+JWT tokens issued by the PAM issuer have a fixed expiration time of **1 hour**. This expiration time is currently not configurable.
+
 ## User Management
 
 ### Adding Users to PAM Issuer
