@@ -490,6 +490,10 @@ func (s *DummyEnrollmentRequest) Create(ctx context.Context, orgId uuid.UUID, er
 	return er, nil
 }
 
+func (s *DummyEnrollmentRequest) CreateWithFromAPI(ctx context.Context, orgId uuid.UUID, er *api.EnrollmentRequest, fromAPI bool, callbackEvent store.EventCallback) (*api.EnrollmentRequest, error) {
+	return s.Create(ctx, orgId, er, callbackEvent)
+}
+
 func (s *DummyEnrollmentRequest) UpdateStatus(ctx context.Context, orgId uuid.UUID, er *api.EnrollmentRequest, callbackEvent store.EventCallback) (*api.EnrollmentRequest, error) {
 	for i, e := range *s.enrollmentRequests {
 		if *er.Metadata.Name == *e.Metadata.Name {
