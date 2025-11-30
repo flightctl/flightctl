@@ -73,7 +73,7 @@ fi
 # Go build cache
 build_cache="${GOCACHE:-/root/.cache/go-build}"
 if [[ ! -d "${build_cache}" ]] || [[ -z "$(ls -A "${build_cache}" 2>/dev/null)" ]]; then
-  print_warning "Go build cache (${build_cache}) is empty - build will be slower. Ensure proper mounting of the host's Go module cache directory."
+  print_warning "Go build cache (${build_cache}) is empty - build will be slower. Ensure proper mounting of the host's Go build cache directory."
 else
   print_ok "Go build cache (${build_cache}) has content"
 fi

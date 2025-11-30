@@ -56,7 +56,7 @@ jobs:
             [[ -z "$root_name" ]] && continue
             tags="$tags $tag_name"
           done < hack/mock-roots.conf
-          echo "tags=$tags" >> $GITHUB_OUTPUT
+          echo "tags=$tags" >> "$GITHUB_OUTPUT"
 
       - name: Push all RPM builder images to Quay.io
         uses: redhat-actions/push-to-registry@v2.7

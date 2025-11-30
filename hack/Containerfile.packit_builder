@@ -14,9 +14,8 @@ RUN dnf install -y \
 
 RUN dnf clean all
 
-RUN install -d -m 0777 /root/go/pkg/mod && \
-    install -d -m 0777 /root/.cache/go-build && \
-    chmod -R 0777 /root/go /root/.cache/go-build && \
+RUN install -d -m 0755 /root/go/pkg/mod && \
+    install -d -m 0755 /root/.cache/go-build && \
     rm -rf /var/cache/dnf && mkdir /work
 
 COPY mock-site-defaults.cfg /etc/mock/site-defaults.cfg

@@ -41,8 +41,8 @@ ROOT_OPTS=()
 # Array to track built images for summary
 BUILT_IMAGES=()
 
-# Base builder image name (with tag). You can override it from the environment.
-# Example: PACKIT_BUILDER_IMAGE=quay.io/flightctl-tests/packit-builder:dev
+# Base builder image name. You can override it from the environment.
+# Example: PACKIT_BUILDER_IMAGE=quay.io/flightctl-tests/packit-builder
 PACKIT_BUILDER_IMAGE="${PACKIT_BUILDER_IMAGE:-quay.io/flightctl-tests/packit-builder}"
 
 ##############################################################################
@@ -144,6 +144,20 @@ get_tag_for_root() {
   done < "$MOCK_ROOTS_CONFIG"
 }
 
+# Check if a root is present in mock-roots.conf
+is_known_root() {
+  local root="$1"
+  while IFS='=' read -r root_name tag_name || [[ -n "$root_name" ]]; do
+    [[ "$root_name" =~ ^[[:space:]]*# ]] && continue
+    [[ -z "$root_name" ]] && continue
+
+    if [[ "$root_name" == "$root" ]]; then
+      return 0
+    fi
+  done < "$MOCK_ROOTS_CONFIG"
+  return 1
+}
+
 root_image_for() {
   local root="$1"
   local tag
@@ -204,7 +218,12 @@ rebuild_images() {
   local roots_to_build=()
 
   if [[ -n "$ROOT" ]]; then
-    roots_to_build=("$ROOT")
+    if is_known_root "$ROOT"; then
+      roots_to_build=("$ROOT")
+    else
+      echo "WARNING: Mock root '${ROOT}' is not present in mock-roots.conf" >&2
+      echo "WARNING: Skipping cache image rebuild for unknown root" >&2
+    fi
   else
     # Read roots from config file
     mapfile -t roots_to_build < <(read_mock_roots)
@@ -300,14 +319,24 @@ run_build_in_container() {
   local run_image
 
   if [[ -n "$ROOT" ]]; then
-    run_image="$(root_image_for "$ROOT")"
+    if is_known_root "$ROOT"; then
+      run_image="$(root_image_for "$ROOT")"
+    else
+      echo "WARNING: Mock root '${ROOT}' is not present in mock-roots.conf" >&2
+      echo "WARNING: Falling back to base image (no pre-warmed cache)" >&2
+      run_image="${BASE_IMAGE}"
+    fi
   else
     run_image="${BASE_IMAGE}"
   fi
 
   echo "Using builder image: ${run_image}"
   if [[ -n "$ROOT" ]]; then
-    echo "Mock root: ${ROOT}"
+    if is_known_root "$ROOT"; then
+      echo "Mock root: ${ROOT}"
+    else
+      echo "Mock root: ${ROOT} (unknown, using base image)"
+    fi
   else
     echo "Local packit build (no mock root)"
   fi
