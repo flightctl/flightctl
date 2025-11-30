@@ -29,12 +29,9 @@ metadata:
     {{- include "flightctl.standardLabels" . | nindent 4 }}
 rules:
   # Permissions to read certificate secrets created by cert-manager
+  # and to create and update CA bundle Secret
   - apiGroups: [""]
     resources: ["secrets"]
-    verbs: ["get"]
-  # Permissions to create and update CA bundle ConfigMap
-  - apiGroups: [""]
-    resources: ["configmaps"]
     verbs: ["create", "get", "patch", "update"]
 
 ---

@@ -83,5 +83,5 @@ spec:
         secret:
           secretName: flightctl-telemetry-gateway-server-tls
       - name: flightctl-ca-bundle
-        configMap:
-          name: flightctl-ca-bundle
+        secret:
+          secretName: flightctl-ca-bundle

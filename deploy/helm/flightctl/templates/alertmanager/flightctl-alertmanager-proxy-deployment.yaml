@@ -130,7 +130,7 @@ spec:
             items:
               - key: ca.crt
                 path: ca.crt
-              {{- if or (and .Values.global.auth .Values.global.auth.caCert) (and .Values.auth .Values.auth.caCert) }}
+              {{- if ((.Values.global).auth).caCert }}
               - key: ca_oidc.crt
                 path: ca_oidc.crt
               {{- end }}
