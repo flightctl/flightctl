@@ -14,6 +14,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1beta1"
 	apiClient "github.com/flightctl/flightctl/internal/api/client"
+	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/cli/display"
 	"github.com/flightctl/flightctl/internal/cli/login"
 	"github.com/flightctl/flightctl/internal/client"
@@ -413,6 +414,7 @@ func (o *LoginOptions) getAbsAuthCAFile() (string, error) {
 }
 
 // validateTokenWithServer validates the token with the server, handling TLS prompts and a single retry
+// Returns an authenticated client that can be used for subsequent API calls
 func (o *LoginOptions) validateTokenWithServer(ctx context.Context, token string) (*apiClient.ClientWithResponses, error) {
 	// Create HTTP client without the GetAccessToken request editor to avoid potential deadlock
 	httpClient, err := client.NewHTTPClientFromConfig(o.clientConfig)
@@ -420,10 +422,17 @@ func (o *LoginOptions) validateTokenWithServer(ctx context.Context, token string
 		return nil, fmt.Errorf("creating HTTP client: %w", err)
 	}
 
-	// Create API client with just the HTTP client and organization, no auto-token injection
+	// Add request editor to inject the token into all requests
+	tokenEditor := apiClient.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
+		req.Header.Set(common.AuthHeader, fmt.Sprintf("Bearer %s", token))
+		return nil
+	})
+
+	// Create API client with token injection, HTTP client, organization, and user agent
 	c, err := apiClient.NewClientWithResponses(
 		o.clientConfig.Service.Server,
 		apiClient.WithHTTPClient(httpClient),
+		tokenEditor,
 		client.WithOrganization(o.clientConfig.Organization),
 		client.WithUserAgentHeader("flightctl-cli"),
 	)
