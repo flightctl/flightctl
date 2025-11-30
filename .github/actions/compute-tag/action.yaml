@@ -28,7 +28,7 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        TAG=$(./hack/current-version)
+        TAG=$(git describe --tags --exclude latest 2>/dev/null || echo "v0.0.0-unknown")
         echo "tag=$TAG" >> "$GITHUB_OUTPUT"
         echo "Computed tag: $TAG"
         
