@@ -5126,6 +5126,8 @@ components:
         - "generated"
         - "transient"
         - "bad"
+        - "unknown"
+        - ""
       x-enum-varnames:
         - "SystemdEnableStateEnabled"
         - "SystemdEnableStateEnabledRuntime"
@@ -5140,6 +5142,8 @@ components:
         - "SystemdEnableStateGenerated"
         - "SystemdEnableStateTransient"
         - "SystemdEnableStateBad"
+        - "SystemdEnableStateUnknown"
+        - "SystemdEnableStateEmpty"
     SystemdLoadStateType:
       type: string
       description: The load state of the unit file.
@@ -5151,6 +5155,7 @@ components:
         - "error"
         - "merged"
         - "masked"
+        - "unknown"
       x-enum-varnames:
         - "SystemdLoadStateStub"
         - "SystemdLoadStateLoaded"
@@ -5159,6 +5164,7 @@ components:
         - "SystemdLoadStateError"
         - "SystemdLoadStateMerged"
         - "SystemdLoadStateMasked"
+        - "SystemdLoadStateUnknown"
     SystemdActiveStateType:
       type: string
       description: The high-level unit activation state.
@@ -5171,6 +5177,7 @@ components:
         - "deactivating"
         - "maintenance"
         - "refreshing"
+        - "unknown"
       x-enum-varnames:
         - "SystemdActiveStateActive"
         - "SystemdActiveStateReloading"
@@ -5180,6 +5187,7 @@ components:
         - "SystemdActiveStateDeactivating"
         - "SystemdActiveStateMaintenance"
         - "SystemdActiveStateRefreshing"
+        - "SystemdActiveStateUnknown"
     DeviceApplicationStatus:
       type: object
       required:
@@ -5243,11 +5251,13 @@ components:
         - "Degraded"
         - "Error"
         - "Unknown"
+        - "NoApplications"
       x-enum-varnames:
         - "ApplicationsSummaryStatusHealthy"
         - "ApplicationsSummaryStatusDegraded"
         - "ApplicationsSummaryStatusError"
         - "ApplicationsSummaryStatusUnknown"
+        - "ApplicationsSummaryStatusNoApplications"
     ApplicationStatusType:
       type: string
       description: Status of a single application on the device.

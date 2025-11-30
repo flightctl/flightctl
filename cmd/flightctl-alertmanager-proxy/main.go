@@ -13,6 +13,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net/http"
 	"net/http/httputil"
@@ -26,7 +27,6 @@ import (
 	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/config"
-	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/org/cache"
 	"github.com/flightctl/flightctl/internal/service"
@@ -164,53 +164,24 @@ func main() {
 	logger.Println("Starting Alertmanager Proxy service")
 	defer logger.Println("Alertmanager Proxy service stopped")
 
-	// Initialize CA and TLS certificates (following same pattern as API server)
-	ca, _, err := crypto.EnsureCA(cfg.CA)
+	serverCerts, err := config.LoadServerCertificates(cfg, logger)
 	if err != nil {
-		logger.Fatalf("ensuring CA cert: %v", err)
+		logger.Fatalf("loading server certificates: %v", err)
 	}
 
-	var serverCerts *crypto.TLSCertificateConfig
-
-	// Reuse the same server certificate as the API server
-	srvCertFile := crypto.CertStorePath(cfg.Service.ServerCertName+".crt", cfg.Service.CertStore)
-	srvKeyFile := crypto.CertStorePath(cfg.Service.ServerCertName+".key", cfg.Service.CertStore)
-
-	// Check if existing certificate is available
-	if canReadCertAndKey, _ := crypto.CanReadCertAndKey(srvCertFile, srvKeyFile); canReadCertAndKey {
-		serverCerts, err = crypto.GetTLSCertificateConfig(srvCertFile, srvKeyFile)
-		if err != nil {
-			logger.Fatalf("failed to load existing certificate: %v", err)
-		}
-	} else {
-		// Create new certificate with same alt names as API server
-		altNames := cfg.Service.AltNames
-		if len(altNames) == 0 {
-			altNames = []string{"localhost"}
-		}
-
-		serverCerts, err = ca.MakeAndWriteServerCertificate(ctx, srvCertFile, srvKeyFile, altNames, cfg.CA.ServerCertValidityDays)
-		if err != nil {
-			logger.Fatalf("failed to create certificate: %v", err)
-		}
-	}
-
-	// Check for expired certificate
-	for _, x509Cert := range serverCerts.Certs {
-		expired := time.Now().After(x509Cert.NotAfter)
-		logger.Printf("checking certificate: subject='%s', issuer='%s', expiry='%v'",
-			x509Cert.Subject.CommonName, x509Cert.Issuer.CommonName, x509Cert.NotAfter)
-
-		if expired {
-			logger.Warnf("server certificate for '%s' issued by '%s' has expired on: %v",
-				x509Cert.Subject.CommonName, x509Cert.Issuer.CommonName, x509Cert.NotAfter)
-		}
-	}
-
-	// Create TLS config
-	tlsConfig, _, err := crypto.TLSConfigForServer(ca.GetCABundleX509(), serverCerts)
+	certBytes, keyBytes, err := serverCerts.GetPEMBytes()
 	if err != nil {
-		logger.Fatalf("failed creating TLS config: %v", err)
+		logger.Fatalf("failed getting certificate bytes: %v", err)
+	}
+
+	cert, err := tls.X509KeyPair(certBytes, keyBytes)
+	if err != nil {
+		logger.Fatalf("failed creating certificate pair: %v", err)
+	}
+
+	tlsConfig := &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		MinVersion:   tls.VersionTLS13,
 	}
 
 	tracerShutdown := tracing.InitTracer(logger, cfg, "flightctl-alertmanager-proxy")
@@ -288,14 +259,6 @@ func main() {
 		logger.Fatalf("Failed to create alertmanager proxy: %v", err)
 	}
 
-	// Check if auth is disabled
-	authDisabled := false
-	value, exists := os.LookupEnv(auth.DisableAuthEnvKey)
-	if exists && value != "" {
-		authDisabled = true
-		logger.Warn("Auth is disabled")
-	}
-
 	// Create conditional auth middleware
 	conditionalAuthMiddleware := createConditionalAuthMiddleware(
 		authN,
@@ -326,10 +289,8 @@ func main() {
 		})
 	})
 
-	// Apply conditional auth middleware (unless auth is disabled)
-	if !authDisabled {
-		router.Use(conditionalAuthMiddleware)
-	}
+	// Apply auth middleware
+	router.Use(conditionalAuthMiddleware)
 
 	// Add rate limiting (only if configured)
 	// Alertmanager doesn't have built-in rate limiting, so we add it here to prevent abuse

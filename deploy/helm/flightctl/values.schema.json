@@ -19,6 +19,11 @@
           "description": "Enable MultiCluster Engine extensions - one of 'auto', 'true', 'false'.",
           "enum": ["auto", "true", "false"]
         },
+        "generateCertificates": {
+          "type": "string",
+          "description": "Certificate generation method - one of 'auto', 'builtin', 'cert-manager', 'none'.",
+          "enum": ["auto", "builtin", "cert-manager", "none"]
+        },
         "internalNamespace": {
           "type": "string",
           "description": "A separate Namespace to which non-user-facing components should be deployed for increased security isolation."
@@ -29,7 +34,8 @@
         },
         "baseDomainTlsSecretName": {
           "type": "string",
-          "description": "Secret containing TLS ca/cert/key. It should be valid for *.${baseDomain}. This certificate is only used for non-mTLS endpoints, mTLS endpoints like agent-api, etc will use different certificates."
+          "description": "Secret containing TLS ca/cert/key. It should be valid for *.${baseDomain}. This certificate is only used for non-mTLS endpoints, mTLS endpoints like agent-api, etc will use different certificates.",
+          "default": "flightctl-api-server-tls"
         },
         "storageClassName": {
           "type": "string",
@@ -506,13 +512,6 @@
             "pluginImage": { "type": "string", "description": "UI Plugin container image" },
             "tag": { "type": "string", "description": "UI container image tag" },
             "pullPolicy": { "type": "string", "description": "Image pull policy for UI container" }
-          }
-        },
-        "api": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "insecureSkipTlsVerify": { "type": "boolean", "description": "Skip TLS verification for UI API calls" }
           }
         },
         "auth": {

@@ -531,3 +531,64 @@ Usage: {{- include "flightctl.dbSslVolumes" . | nindent X }}
   {{- default "flightctl-db-migration-secret" .Values.db.builtin.migrationUserSecretName }}
 {{- end }}
 {{- end }}
+
+{{- /*
+Determine the effective certificate generation method.
+Returns: "false", "cert-manager", or "builtin"
+Usage: {{- $certMethod := include "flightctl.getCertificateGenerationMethod" . }}
+*/}}
+{{- define "flightctl.getCertificateGenerationMethod" }}
+  {{- $method := .Values.global.generateCertificates | toString }}
+  {{- if eq $method "auto" }}
+    {{- if .Capabilities.APIVersions.Has "cert-manager.io/v1/Certificate" }}
+      {{- print "cert-manager" }}
+    {{- else }}
+      {{- print "builtin" }}
+    {{- end }}
+  {{- else }}
+    {{- print $method }}
+  {{- end }}
+{{- end }}
+
+{{- /*
+Get DNS SANs for flightctl-api server certificate
+Usage: {{- $result := include "flightctl.getApiServerDNSSans" . | fromJson }}{{ $apiServerDNSSans := $result.sans }}
+*/}}
+{{- define "flightctl.getApiServerDNSSans" }}
+  {{- $baseDomain := include "flightctl.getBaseDomain" . }}
+  {{- $sans := list }}
+  {{- $sans = append $sans (printf "api.%s" $baseDomain) }}
+  {{- $sans = append $sans (printf "agent-api.%s" $baseDomain) }}
+  {{- $sans = append $sans "flightctl-api" }}
+  {{- $sans = append $sans (printf "flightctl-api.%s" .Release.Namespace) }}
+  {{- $sans = append $sans (printf "flightctl-api.%s.svc.cluster.local" .Release.Namespace) }}
+  {{- dict "sans" $sans | toJson -}}
+{{- end }}
+
+{{- /*
+Get DNS SANs for telemetry-gateway server certificate
+Usage: {{- $result := include "flightctl.getTelemetryGatewayDNSSans" . | fromJson }}{{ $telemetryGatewayDNSSans := $result.sans }}
+*/}}
+{{- define "flightctl.getTelemetryGatewayDNSSans" }}
+  {{- $sans := list }}
+  {{- $baseDomain := include "flightctl.getBaseDomain" . }}
+  {{- $sans = append $sans (printf "telemetry.%s" $baseDomain) }}
+  {{- $sans = append $sans "flightctl-telemetry-gateway" }}
+  {{- $sans = append $sans (printf "flightctl-telemetry-gateway.%s" .Release.Namespace) }}
+  {{- $sans = append $sans (printf "flightctl-telemetry-gateway.%s.svc.cluster.local" .Release.Namespace) }}
+  {{- dict "sans" $sans | toJson -}}
+{{- end }}
+
+{{- /*
+Get DNS SANs for alertmanager-proxy server certificate
+Usage: {{- $result := include "flightctl.getAlertmanagerProxyDNSSans" . | fromJson }}{{ $alertmanagerProxyDNSSans := $result.sans }}
+*/}}
+{{- define "flightctl.getAlertmanagerProxyDNSSans" }}
+  {{- $sans := list }}
+  {{- $baseDomain := include "flightctl.getBaseDomain" . }}
+  {{- $sans = append $sans (printf "alertmanager-proxy.%s" $baseDomain) }}
+  {{- $sans = append $sans "flightctl-alertmanager-proxy" }}
+  {{- $sans = append $sans (printf "flightctl-alertmanager-proxy.%s" .Release.Namespace) }}
+  {{- $sans = append $sans (printf "flightctl-alertmanager-proxy.%s.svc.cluster.local" .Release.Namespace) }}
+  {{- dict "sans" $sans | toJson -}}
+{{- end }}

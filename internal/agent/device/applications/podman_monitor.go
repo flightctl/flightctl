@@ -492,7 +492,7 @@ func (m *PodmanMonitor) Status() ([]v1beta1.DeviceApplicationStatus, v1beta1.Dev
 	}
 
 	if len(statuses) == 0 {
-		summary.Status = v1beta1.ApplicationsSummaryStatusUnknown
+		summary.Status = v1beta1.ApplicationsSummaryStatusNoApplications
 	}
 
 	if len(errs) > 0 {

@@ -7,6 +7,12 @@ global:
   enableOpenShiftExtensions: "auto"
   # -- Enable MultiCluster Engine extensions - one of 'auto', 'true', 'false'.
   enableMulticlusterExtensions: "auto"
+  # -- Certificate generation method - one of 'none', 'cert-manager', 'builtin', 'auto'.
+  # - none: Do not generate required certificates. The user must provide the Secrets containing the required certificates or the service will fail to start.
+  # - cert-manager: Request cert-manager to issue the required certificates. cert-manager must be installed on the cluster.
+  # - builtin: Generate required certificates using Helm's builtin library functions.
+  # - auto: If cert-manager is installed, use it; otherwise, fall back to builtin.
+  generateCertificates: "auto"
   # -- A separate Namespace to which non-user-facing components should be deployed for increased security isolation.
   internalNamespace: ""
   # -- Base domain to construct the FQDN for the service endpoints.
@@ -309,9 +315,6 @@ ui:
     tag: ""
     # -- Image pull policy for UI container
     pullPolicy: ""
-  api:
-    # -- Skip TLS verification for UI API calls
-    insecureSkipTlsVerify: true
   auth:
     # -- Set to true if auth TLS certificate validation should be skipped.
     insecureSkipTlsVerify: false
