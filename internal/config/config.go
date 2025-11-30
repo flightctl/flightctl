@@ -516,7 +516,9 @@ func Load(cfgFile string) (*Config, error) {
 	}
 
 	applyEnvVarOverrides(c)
-	applyAuthDefaults(c)
+	if err := applyAuthDefaults(c); err != nil {
+		return nil, fmt.Errorf("applying auth defaults: %w", err)
+	}
 
 	return c, nil
 }
@@ -539,14 +541,18 @@ func applyEnvVarOverrides(c *Config) {
 	}
 }
 
-func applyAuthDefaults(c *Config) {
+func applyAuthDefaults(c *Config) error {
 	if c.Auth == nil {
-		return
+		return nil
 	}
 
 	applyAuthProviderEnabledDefaults(c.Auth)
 	applyPAMOIDCIssuerDefaults(c)
 	applyOIDCClientDefaults(c)
+	if err := applyOAuth2Defaults(c); err != nil {
+		return err
+	}
+	return nil
 }
 
 func applyAuthProviderEnabledDefaults(auth *authConfig) {
@@ -641,6 +647,22 @@ func applyOIDCOrganizationAssignmentDefaults(oidc *api.OIDCProviderSpec) {
 		}
 		_ = oidc.OrganizationAssignment.FromAuthStaticOrganizationAssignment(staticAssignment)
 	}
+}
+
+func applyOAuth2Defaults(c *Config) error {
+	if c.Auth.OAuth2 == nil {
+		return nil
+	}
+
+	// Infer introspection configuration if not provided
+	if c.Auth.OAuth2.Introspection == nil {
+		introspection, err := api.InferOAuth2IntrospectionConfig(*c.Auth.OAuth2)
+		if err != nil {
+			return fmt.Errorf("failed to infer OAuth2 introspection configuration: %w", err)
+		}
+		c.Auth.OAuth2.Introspection = introspection
+	}
+	return nil
 }
 
 func Save(cfg *Config, cfgFile string) error {

@@ -1054,4 +1054,317 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 			})
 		})
 	})
+
+	Context("OAuth2 Introspection Configuration", func() {
+		It("should create OAuth2 provider with RFC 7662 introspection", func() {
+			assignment := createTestOrganizationAssignment()
+			roleAssignment := api.AuthRoleAssignment{}
+			staticRoleAssignment := api.AuthStaticRoleAssignment{
+				Type:  api.AuthStaticRoleAssignmentTypeStatic,
+				Roles: []string{"viewer"},
+			}
+			err := roleAssignment.FromAuthStaticRoleAssignment(staticRoleAssignment)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Create introspection spec
+			introspection := &api.OAuth2Introspection{}
+			rfc7662Spec := api.Rfc7662IntrospectionSpec{
+				Type: api.Rfc7662,
+				Url:  "https://oauth2.example.com/introspect",
+			}
+			err = introspection.FromRfc7662IntrospectionSpec(rfc7662Spec)
+			Expect(err).ToNot(HaveOccurred())
+
+			oauth2Spec := api.OAuth2ProviderSpec{
+				ProviderType:           api.Oauth2,
+				AuthorizationUrl:       "https://oauth2.example.com/authorize",
+				TokenUrl:               "https://oauth2.example.com/token",
+				UserinfoUrl:            "https://oauth2.example.com/userinfo",
+				ClientId:               "rfc7662-test-client-id",
+				ClientSecret:           lo.ToPtr("rfc7662-test-client-secret"),
+				Enabled:                lo.ToPtr(true),
+				Introspection:          introspection,
+				OrganizationAssignment: assignment,
+				RoleAssignment:         roleAssignment,
+			}
+
+			provider := api.AuthProvider{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr("oauth2-rfc7662-provider"),
+				},
+			}
+			err = provider.Spec.FromOAuth2ProviderSpec(oauth2Spec)
+			Expect(err).ToNot(HaveOccurred())
+
+			result, status := suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider)
+			Expect(status.Code).To(Equal(int32(201)))
+			Expect(result).ToNot(BeNil())
+
+			// Verify the introspection is stored correctly
+			retrievedProvider, status := suite.Handler.GetAuthProvider(suite.Ctx, orgId, "oauth2-rfc7662-provider")
+			Expect(status.Code).To(Equal(int32(200)))
+			Expect(retrievedProvider).ToNot(BeNil())
+
+			retrievedSpec, err := retrievedProvider.Spec.AsOAuth2ProviderSpec()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(retrievedSpec.Introspection).ToNot(BeNil())
+
+			retrievedIntrospection, err := retrievedSpec.Introspection.AsRfc7662IntrospectionSpec()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(retrievedIntrospection.Type).To(Equal(api.Rfc7662))
+			Expect(retrievedIntrospection.Url).To(Equal("https://oauth2.example.com/introspect"))
+		})
+
+		It("should create OAuth2 provider with GitHub introspection", func() {
+			assignment := createTestOrganizationAssignment()
+			roleAssignment := api.AuthRoleAssignment{}
+			staticRoleAssignment := api.AuthStaticRoleAssignment{
+				Type:  api.AuthStaticRoleAssignmentTypeStatic,
+				Roles: []string{"viewer"},
+			}
+			err := roleAssignment.FromAuthStaticRoleAssignment(staticRoleAssignment)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Create introspection spec
+			introspection := &api.OAuth2Introspection{}
+			githubSpec := api.GitHubIntrospectionSpec{
+				Type: api.Github,
+				Url:  lo.ToPtr("https://github.enterprise.com/api/v3"),
+			}
+			err = introspection.FromGitHubIntrospectionSpec(githubSpec)
+			Expect(err).ToNot(HaveOccurred())
+
+			oauth2Spec := api.OAuth2ProviderSpec{
+				ProviderType:           api.Oauth2,
+				AuthorizationUrl:       "https://github.com/login/oauth/authorize",
+				TokenUrl:               "https://github.com/login/oauth/access_token",
+				UserinfoUrl:            "https://api.github.com/user",
+				ClientId:               "github-test-client-id",
+				ClientSecret:           lo.ToPtr("github-test-client-secret"),
+				Enabled:                lo.ToPtr(true),
+				Introspection:          introspection,
+				OrganizationAssignment: assignment,
+				RoleAssignment:         roleAssignment,
+			}
+
+			provider := api.AuthProvider{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr("oauth2-github-provider"),
+				},
+			}
+			err = provider.Spec.FromOAuth2ProviderSpec(oauth2Spec)
+			Expect(err).ToNot(HaveOccurred())
+
+			result, status := suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider)
+			Expect(status.Code).To(Equal(int32(201)))
+			Expect(result).ToNot(BeNil())
+
+			// Verify the introspection is stored correctly
+			retrievedProvider, status := suite.Handler.GetAuthProvider(suite.Ctx, orgId, "oauth2-github-provider")
+			Expect(status.Code).To(Equal(int32(200)))
+			Expect(retrievedProvider).ToNot(BeNil())
+
+			retrievedSpec, err := retrievedProvider.Spec.AsOAuth2ProviderSpec()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(retrievedSpec.Introspection).ToNot(BeNil())
+
+			retrievedIntrospection, err := retrievedSpec.Introspection.AsGitHubIntrospectionSpec()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(retrievedIntrospection.Type).To(Equal(api.Github))
+			Expect(retrievedIntrospection.Url).ToNot(BeNil())
+			Expect(*retrievedIntrospection.Url).To(Equal("https://github.enterprise.com/api/v3"))
+		})
+
+		It("should create OAuth2 provider with JWT introspection", func() {
+			assignment := createTestOrganizationAssignment()
+			roleAssignment := api.AuthRoleAssignment{}
+			staticRoleAssignment := api.AuthStaticRoleAssignment{
+				Type:  api.AuthStaticRoleAssignmentTypeStatic,
+				Roles: []string{"viewer"},
+			}
+			err := roleAssignment.FromAuthStaticRoleAssignment(staticRoleAssignment)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Create introspection spec
+			introspection := &api.OAuth2Introspection{}
+			jwtSpec := api.JwtIntrospectionSpec{
+				Type:     api.Jwt,
+				JwksUrl:  "https://oauth2.example.com/.well-known/jwks.json",
+				Issuer:   lo.ToPtr("https://oauth2.example.com"),
+				Audience: lo.ToPtr([]string{"jwt-test-client-id", "another-audience"}),
+			}
+			err = introspection.FromJwtIntrospectionSpec(jwtSpec)
+			Expect(err).ToNot(HaveOccurred())
+
+			oauth2Spec := api.OAuth2ProviderSpec{
+				ProviderType:           api.Oauth2,
+				AuthorizationUrl:       "https://oauth2.example.com/authorize",
+				TokenUrl:               "https://oauth2.example.com/token",
+				UserinfoUrl:            "https://oauth2.example.com/userinfo",
+				ClientId:               "jwt-test-client-id",
+				ClientSecret:           lo.ToPtr("jwt-test-client-secret"),
+				Enabled:                lo.ToPtr(true),
+				Introspection:          introspection,
+				OrganizationAssignment: assignment,
+				RoleAssignment:         roleAssignment,
+			}
+
+			provider := api.AuthProvider{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr("oauth2-jwt-provider"),
+				},
+			}
+			err = provider.Spec.FromOAuth2ProviderSpec(oauth2Spec)
+			Expect(err).ToNot(HaveOccurred())
+
+			result, status := suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider)
+			Expect(status.Code).To(Equal(int32(201)))
+			Expect(result).ToNot(BeNil())
+
+			// Verify the introspection is stored correctly
+			retrievedProvider, status := suite.Handler.GetAuthProvider(suite.Ctx, orgId, "oauth2-jwt-provider")
+			Expect(status.Code).To(Equal(int32(200)))
+			Expect(retrievedProvider).ToNot(BeNil())
+
+			retrievedSpec, err := retrievedProvider.Spec.AsOAuth2ProviderSpec()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(retrievedSpec.Introspection).ToNot(BeNil())
+
+			retrievedIntrospection, err := retrievedSpec.Introspection.AsJwtIntrospectionSpec()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(retrievedIntrospection.Type).To(Equal(api.Jwt))
+			Expect(retrievedIntrospection.JwksUrl).To(Equal("https://oauth2.example.com/.well-known/jwks.json"))
+			Expect(retrievedIntrospection.Issuer).ToNot(BeNil())
+			Expect(*retrievedIntrospection.Issuer).To(Equal("https://oauth2.example.com"))
+			Expect(retrievedIntrospection.Audience).ToNot(BeNil())
+			Expect(*retrievedIntrospection.Audience).To(Equal([]string{"jwt-test-client-id", "another-audience"}))
+		})
+
+		It("should update OAuth2 provider introspection configuration", func() {
+			// Create provider with RFC 7662 introspection
+			assignment := createTestOrganizationAssignment()
+			roleAssignment := api.AuthRoleAssignment{}
+			staticRoleAssignment := api.AuthStaticRoleAssignment{
+				Type:  api.AuthStaticRoleAssignmentTypeStatic,
+				Roles: []string{"viewer"},
+			}
+			err := roleAssignment.FromAuthStaticRoleAssignment(staticRoleAssignment)
+			Expect(err).ToNot(HaveOccurred())
+
+			introspection := &api.OAuth2Introspection{}
+			rfc7662Spec := api.Rfc7662IntrospectionSpec{
+				Type: api.Rfc7662,
+				Url:  "https://oauth2.example.com/introspect",
+			}
+			err = introspection.FromRfc7662IntrospectionSpec(rfc7662Spec)
+			Expect(err).ToNot(HaveOccurred())
+
+			oauth2Spec := api.OAuth2ProviderSpec{
+				ProviderType:           api.Oauth2,
+				AuthorizationUrl:       "https://oauth2.example.com/authorize",
+				TokenUrl:               "https://oauth2.example.com/token",
+				UserinfoUrl:            "https://oauth2.example.com/userinfo",
+				ClientId:               "update-test-client-id",
+				ClientSecret:           lo.ToPtr("update-test-client-secret"),
+				Enabled:                lo.ToPtr(true),
+				Introspection:          introspection,
+				OrganizationAssignment: assignment,
+				RoleAssignment:         roleAssignment,
+			}
+
+			provider := api.AuthProvider{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr("oauth2-update-introspection-provider"),
+				},
+			}
+			err = provider.Spec.FromOAuth2ProviderSpec(oauth2Spec)
+			Expect(err).ToNot(HaveOccurred())
+
+			_, status := suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider)
+			Expect(status.Code).To(Equal(int32(201)))
+
+			// Fetch the provider
+			fetchedProvider, status := suite.Handler.GetAuthProvider(suite.Ctx, orgId, "oauth2-update-introspection-provider")
+			Expect(status.Code).To(Equal(int32(200)))
+
+			// Update to use JWT introspection instead
+			fetchedSpec, err := fetchedProvider.Spec.AsOAuth2ProviderSpec()
+			Expect(err).ToNot(HaveOccurred())
+
+			newIntrospection := &api.OAuth2Introspection{}
+			jwtSpec := api.JwtIntrospectionSpec{
+				Type:    api.Jwt,
+				JwksUrl: "https://oauth2.example.com/.well-known/jwks.json",
+			}
+			err = newIntrospection.FromJwtIntrospectionSpec(jwtSpec)
+			Expect(err).ToNot(HaveOccurred())
+			fetchedSpec.Introspection = newIntrospection
+
+			err = fetchedProvider.Spec.FromOAuth2ProviderSpec(fetchedSpec)
+			Expect(err).ToNot(HaveOccurred())
+
+			updatedProvider, status := suite.Handler.ReplaceAuthProvider(suite.Ctx, orgId, "oauth2-update-introspection-provider", *fetchedProvider)
+			Expect(status.Code).To(Equal(int32(200)))
+			Expect(updatedProvider).ToNot(BeNil())
+
+			// Verify the introspection was updated
+			updatedSpec, err := updatedProvider.Spec.AsOAuth2ProviderSpec()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(updatedSpec.Introspection).ToNot(BeNil())
+
+			updatedIntrospection, err := updatedSpec.Introspection.AsJwtIntrospectionSpec()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(updatedIntrospection.Type).To(Equal(api.Jwt))
+			Expect(updatedIntrospection.JwksUrl).To(Equal("https://oauth2.example.com/.well-known/jwks.json"))
+		})
+
+		It("should infer GitHub introspection from GitHub URLs", func() {
+			assignment := createTestOrganizationAssignment()
+			roleAssignment := api.AuthRoleAssignment{}
+			staticRoleAssignment := api.AuthStaticRoleAssignment{
+				Type:  api.AuthStaticRoleAssignmentTypeStatic,
+				Roles: []string{"viewer"},
+			}
+			err := roleAssignment.FromAuthStaticRoleAssignment(staticRoleAssignment)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Create OAuth2 spec with GitHub URLs but no introspection
+			oauth2Spec := api.OAuth2ProviderSpec{
+				ProviderType:           api.Oauth2,
+				AuthorizationUrl:       "https://github.com/login/oauth/authorize",
+				TokenUrl:               "https://github.com/login/oauth/access_token",
+				UserinfoUrl:            "https://api.github.com/user",
+				ClientId:               "infer-github-client-id",
+				ClientSecret:           lo.ToPtr("infer-github-client-secret"),
+				Enabled:                lo.ToPtr(true),
+				OrganizationAssignment: assignment,
+				RoleAssignment:         roleAssignment,
+				// Introspection is nil - should be inferred
+			}
+
+			provider := api.AuthProvider{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr("oauth2-infer-github-provider"),
+				},
+			}
+			err = provider.Spec.FromOAuth2ProviderSpec(oauth2Spec)
+			Expect(err).ToNot(HaveOccurred())
+
+			result, status := suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider)
+			Expect(status.Code).To(Equal(int32(201)))
+			Expect(result).ToNot(BeNil())
+
+			// Verify GitHub introspection was inferred
+			retrievedProvider, status := suite.Handler.GetAuthProvider(suite.Ctx, orgId, "oauth2-infer-github-provider")
+			Expect(status.Code).To(Equal(int32(200)))
+
+			retrievedSpec, err := retrievedProvider.Spec.AsOAuth2ProviderSpec()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(retrievedSpec.Introspection).ToNot(BeNil())
+
+			inferredIntrospection, err := retrievedSpec.Introspection.AsGitHubIntrospectionSpec()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(inferredIntrospection.Type).To(Equal(api.Github))
+		})
+	})
 })
