@@ -131,8 +131,11 @@ clean-quadlets-vm:
 	@sudo rm -f /var/lib/libvirt/images/quadlets-vm_src.qcow2 2>/dev/null || true
 	@echo "quadlets-vm cleanup completed"
 
+prepare-e2e-qcow-config: bin/output/qcow2/disk.qcow2
+	QCOW=bin/output/qcow2/disk.qcow2 AGENT_DIR=bin/agent/etc/flightctl test/scripts/inject_agent_files_into_qcow.sh
+
 prepare-e2e-test: RPM_MOCK_ROOT=centos-stream+epel-next-9-x86_64
-prepare-e2e-test: deploy-e2e-extras bin/output/qcow2/disk.qcow2 build-e2e-containers
+prepare-e2e-test: deploy-e2e-extras build-e2e-containers prepare-e2e-qcow-config
 	./test/scripts/prepare_cli.sh
 
 # Build E2E containers with Docker caching
@@ -156,7 +159,7 @@ in-cluster-e2e-test: prepare-e2e-test
 	$(MAKE) _e2e_test
 
 e2e-test: RPM_MOCK_ROOT=centos-stream+epel-next-9-x86_64
-e2e-test: deploy bin/output/qcow2/disk.qcow2
+e2e-test: deploy prepare-e2e-qcow-config
 	$(MAKE) _e2e_test
 
 # Run e2e tests with optional parallel execution
