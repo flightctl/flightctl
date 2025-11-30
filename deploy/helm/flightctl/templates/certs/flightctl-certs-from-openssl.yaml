@@ -6,6 +6,8 @@
 {{- $apiServerDNSSans := $apiServerDNSSansResult.sans -}}
 {{- $telemetryGatewayDNSSansResult := include "flightctl.getTelemetryGatewayDNSSans" . | fromJson -}}
 {{- $telemetryGatewayDNSSans := $telemetryGatewayDNSSansResult.sans -}}
+{{- $alertmanagerProxyDNSSansResult := include "flightctl.getAlertmanagerProxyDNSSans" . | fromJson -}}
+{{- $alertmanagerProxyDNSSans := $alertmanagerProxyDNSSansResult.sans -}}
 
 ---
 # ConfigMap containing the certificate generation script
@@ -63,6 +65,10 @@ spec:
         {{- end }}
         {{- range $telemetryGatewayDNSSans }}
         - --telemetry-san
+        - {{ . }}
+        {{- end }}
+        {{- range $alertmanagerProxyDNSSans }}
+        - --alertmanager-proxy-san
         - {{ . }}
         {{- end }}
         - --namespace

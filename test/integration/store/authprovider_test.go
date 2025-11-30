@@ -70,8 +70,8 @@ var _ = Describe("AuthProviderStore", func() {
 
 		oidcSpec := api.OIDCProviderSpec{
 			ProviderType:           api.Oidc,
-			Issuer:                 "https://accounts.google.com",
-			ClientId:               "test-client-id",
+			Issuer:                 fmt.Sprintf("https://issuer.example.com/%s", name), // Make issuer unique per provider
+			ClientId:               fmt.Sprintf("client-id-%s", name),                  // Make clientId unique per provider
 			ClientSecret:           lo.ToPtr("test-client-secret"),
 			Scopes:                 lo.ToPtr([]string{"openid", "profile", "email"}),
 			Enabled:                lo.ToPtr(true),
@@ -362,8 +362,8 @@ var _ = Describe("AuthProviderStore", func() {
 
 			oidcSpec := api.OIDCProviderSpec{
 				ProviderType:           api.Oidc,
-				Issuer:                 "https://accounts.google.com",
-				ClientId:               "test-client-id",
+				Issuer:                 "https://issuer.example.com/static-org-provider",
+				ClientId:               "client-id-static-org-provider",
 				ClientSecret:           lo.ToPtr("test-client-secret"),
 				Scopes:                 lo.ToPtr([]string{"openid", "profile", "email"}),
 				Enabled:                lo.ToPtr(true),
@@ -404,8 +404,8 @@ var _ = Describe("AuthProviderStore", func() {
 
 			oidcSpec := api.OIDCProviderSpec{
 				ProviderType:           api.Oidc,
-				Issuer:                 "https://accounts.google.com",
-				ClientId:               "test-client-id",
+				Issuer:                 "https://issuer.example.com/dynamic-org-provider",
+				ClientId:               "client-id-dynamic-org-provider",
 				ClientSecret:           lo.ToPtr("test-client-secret"),
 				Scopes:                 lo.ToPtr([]string{"openid", "profile", "email"}),
 				Enabled:                lo.ToPtr(true),
@@ -447,8 +447,8 @@ var _ = Describe("AuthProviderStore", func() {
 
 			oidcSpec := api.OIDCProviderSpec{
 				ProviderType:           api.Oidc,
-				Issuer:                 "https://accounts.google.com",
-				ClientId:               "test-client-id",
+				Issuer:                 "https://issuer.example.com/per-user-org-provider",
+				ClientId:               "client-id-per-user-org-provider",
 				ClientSecret:           lo.ToPtr("test-client-secret"),
 				Scopes:                 lo.ToPtr([]string{"openid", "profile", "email"}),
 				Enabled:                lo.ToPtr(true),

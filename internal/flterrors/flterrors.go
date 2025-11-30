@@ -45,6 +45,10 @@ var (
 	// authentication/authorization
 	ErrInvalidTokenClaims = errors.New("invalid token claims")
 	ErrMissingTokenClaims = errors.New("missing required token claims")
+
+	// authprovider
+	ErrDuplicateOIDCProvider   = errors.New("an OIDC auth provider with the same issuer and clientId already exists")
+	ErrDuplicateOAuth2Provider = errors.New("an OAuth2 auth provider with the same userinfoUrl and clientId already exists")
 )
 
 func IsClientAuthError(err error) bool {

@@ -57,7 +57,55 @@ func NewAuthProvider(db *gorm.DB, log logrus.FieldLogger) AuthProvider {
 }
 
 func (s *AuthProviderStore) InitialMigration(ctx context.Context) error {
-	return s.dbHandler.WithContext(ctx).AutoMigrate(&model.AuthProvider{})
+	db := s.getDB(ctx)
+
+	if err := db.AutoMigrate(&model.AuthProvider{}); err != nil {
+		return err
+	}
+
+	// Create unique partial index for OIDC providers (issuer + clientId)
+	// This ensures no duplicate OIDC providers across all organizations
+	if err := s.createOIDCUniqueIndex(db); err != nil {
+		return err
+	}
+
+	// Create unique partial index for OAuth2 providers (userinfoUrl + clientId)
+	// This ensures no duplicate OAuth2 providers across all organizations
+	if err := s.createOAuth2UniqueIndex(db); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *AuthProviderStore) createOIDCUniqueIndex(db *gorm.DB) error {
+	if !db.Migrator().HasIndex(&model.AuthProvider{}, ConstraintAuthProviderOIDCUnique) {
+		if db.Dialector.Name() == "postgres" {
+			// Create unique partial index on (spec->>'issuer', spec->>'clientId')
+			// Only for OIDC providers (where providerType = 'oidc')
+			return db.Exec(`
+				CREATE UNIQUE INDEX ` + ConstraintAuthProviderOIDCUnique + ` 
+				ON auth_providers ((spec->>'issuer'), (spec->>'clientId'))
+				WHERE spec->>'providerType' = 'oidc'
+			`).Error
+		}
+	}
+	return nil
+}
+
+func (s *AuthProviderStore) createOAuth2UniqueIndex(db *gorm.DB) error {
+	if !db.Migrator().HasIndex(&model.AuthProvider{}, ConstraintAuthProviderOAuth2Unique) {
+		if db.Dialector.Name() == "postgres" {
+			// Create unique partial index on (spec->>'userinfoUrl', spec->>'clientId')
+			// Only for OAuth2 providers (where providerType = 'oauth2')
+			return db.Exec(`
+				CREATE UNIQUE INDEX ` + ConstraintAuthProviderOAuth2Unique + ` 
+				ON auth_providers ((spec->>'userinfoUrl'), (spec->>'clientId'))
+				WHERE spec->>'providerType' = 'oauth2'
+			`).Error
+		}
+	}
+	return nil
 }
 
 func (s *AuthProviderStore) Create(ctx context.Context, orgId uuid.UUID, resource *api.AuthProvider, eventCallback EventCallback) (*api.AuthProvider, error) {

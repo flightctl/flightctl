@@ -721,6 +721,238 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 		})
 	})
 
+	Context("AuthProvider duplicate validation", func() {
+		It("should reject duplicate OIDC provider with same issuer and clientId", func() {
+			// Create first OIDC provider
+			provider1 := util.ReturnTestAuthProvider(store.NullOrgId, "oidc-provider-1", "https://accounts.google.com", nil)
+			result1, status := suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider1)
+			Expect(status.Code).To(Equal(int32(201)))
+			Expect(result1).ToNot(BeNil())
+
+			// Try to create second OIDC provider with same issuer and clientId but different name
+			provider2 := util.ReturnTestAuthProvider(store.NullOrgId, "oidc-provider-2", "https://accounts.google.com", nil)
+			// Ensure same clientId by using the same spec
+			oidcSpec1, err := provider1.Spec.AsOIDCProviderSpec()
+			Expect(err).ToNot(HaveOccurred())
+			err = provider2.Spec.FromOIDCProviderSpec(oidcSpec1)
+			Expect(err).ToNot(HaveOccurred())
+
+			result2, status := suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider2)
+			Expect(status.Code).To(Equal(int32(409)))
+			Expect(status.Message).To(ContainSubstring("OIDC auth provider with the same issuer and clientId already exists"))
+			Expect(result2).To(BeNil())
+		})
+
+		It("should reject duplicate OIDC provider across different organizations", func() {
+			// Create a second organization
+			org2Id := uuid.New()
+			err := util.CreateTestOrganization(suite.Ctx, suite.Store, org2Id)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Create OIDC provider in first org
+			provider1 := util.ReturnTestAuthProvider(orgId, "oidc-provider-org1", "https://login.microsoftonline.com", nil)
+			result1, status := suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider1)
+			Expect(status.Code).To(Equal(int32(201)))
+			Expect(result1).ToNot(BeNil())
+
+			// Try to create OIDC provider with same issuer and clientId in second org
+			provider2 := util.ReturnTestAuthProvider(org2Id, "oidc-provider-org2", "https://login.microsoftonline.com", nil)
+			oidcSpec1, err := provider1.Spec.AsOIDCProviderSpec()
+			Expect(err).ToNot(HaveOccurred())
+			err = provider2.Spec.FromOIDCProviderSpec(oidcSpec1)
+			Expect(err).ToNot(HaveOccurred())
+
+			result2, status := suite.Handler.CreateAuthProvider(suite.Ctx, org2Id, provider2)
+			Expect(status.Code).To(Equal(int32(409)))
+			Expect(status.Message).To(ContainSubstring("OIDC auth provider with the same issuer and clientId already exists"))
+			Expect(result2).To(BeNil())
+		})
+
+		It("should reject duplicate OAuth2 provider with same userinfoUrl and clientId", func() {
+			// Create first OAuth2 provider
+			assignment := createTestOrganizationAssignment()
+			roleAssignment := api.AuthRoleAssignment{}
+			staticRoleAssignment := api.AuthStaticRoleAssignment{
+				Type:  api.AuthStaticRoleAssignmentTypeStatic,
+				Roles: []string{"viewer"},
+			}
+			err := roleAssignment.FromAuthStaticRoleAssignment(staticRoleAssignment)
+			Expect(err).ToNot(HaveOccurred())
+
+			oauth2Spec1 := api.OAuth2ProviderSpec{
+				ProviderType:           api.Oauth2,
+				AuthorizationUrl:       "https://oauth2.example.com/authorize",
+				TokenUrl:               "https://oauth2.example.com/token",
+				UserinfoUrl:            "https://oauth2.example.com/userinfo",
+				ClientId:               "oauth2-client-id-1",
+				ClientSecret:           lo.ToPtr("oauth2-client-secret"),
+				Enabled:                lo.ToPtr(true),
+				OrganizationAssignment: assignment,
+				RoleAssignment:         roleAssignment,
+			}
+
+			provider1 := api.AuthProvider{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr("oauth2-provider-1"),
+				},
+			}
+			err = provider1.Spec.FromOAuth2ProviderSpec(oauth2Spec1)
+			Expect(err).ToNot(HaveOccurred())
+
+			result1, status := suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider1)
+			Expect(status.Code).To(Equal(int32(201)))
+			Expect(result1).ToNot(BeNil())
+
+			// Try to create second OAuth2 provider with same userinfoUrl and clientId
+			provider2 := api.AuthProvider{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr("oauth2-provider-2"),
+				},
+			}
+			err = provider2.Spec.FromOAuth2ProviderSpec(oauth2Spec1)
+			Expect(err).ToNot(HaveOccurred())
+
+			result2, status := suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider2)
+			Expect(status.Code).To(Equal(int32(409)))
+			Expect(status.Message).To(ContainSubstring("OAuth2 auth provider with the same userinfoUrl and clientId already exists"))
+			Expect(result2).To(BeNil())
+		})
+
+		It("should allow duplicate OIDC provider with same issuer but different clientId", func() {
+			// Create first OIDC provider
+			provider1 := util.ReturnTestAuthProvider(store.NullOrgId, "oidc-provider-diff-1", "https://accounts.google.com", nil)
+			result1, status := suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider1)
+			Expect(status.Code).To(Equal(int32(201)))
+			Expect(result1).ToNot(BeNil())
+
+			// Create second OIDC provider with same issuer but different clientId
+			provider2 := util.ReturnTestAuthProvider(store.NullOrgId, "oidc-provider-diff-2", "https://accounts.google.com", nil)
+			oidcSpec2, err := provider2.Spec.AsOIDCProviderSpec()
+			Expect(err).ToNot(HaveOccurred())
+			oidcSpec2.ClientId = "different-client-id"
+			err = provider2.Spec.FromOIDCProviderSpec(oidcSpec2)
+			Expect(err).ToNot(HaveOccurred())
+
+			result2, status := suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider2)
+			Expect(status.Code).To(Equal(int32(201)))
+			Expect(result2).ToNot(BeNil())
+		})
+
+		It("should reject update that creates duplicate OIDC provider", func() {
+			// Create two OIDC providers with different issuer/clientId combinations
+			provider1 := util.ReturnTestAuthProvider(store.NullOrgId, "oidc-update-1", "https://issuer1.com", nil)
+			oidcSpec1, err := provider1.Spec.AsOIDCProviderSpec()
+			Expect(err).ToNot(HaveOccurred())
+			oidcSpec1.ClientId = "client-id-1"
+			err = provider1.Spec.FromOIDCProviderSpec(oidcSpec1)
+			Expect(err).ToNot(HaveOccurred())
+			result1, status := suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider1)
+			Expect(status.Code).To(Equal(int32(201)))
+			Expect(result1).ToNot(BeNil())
+
+			provider2 := util.ReturnTestAuthProvider(store.NullOrgId, "oidc-update-2", "https://issuer2.com", nil)
+			oidcSpec2, err := provider2.Spec.AsOIDCProviderSpec()
+			Expect(err).ToNot(HaveOccurred())
+			oidcSpec2.ClientId = "client-id-2"
+			err = provider2.Spec.FromOIDCProviderSpec(oidcSpec2)
+			Expect(err).ToNot(HaveOccurred())
+			result2, status := suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider2)
+			Expect(status.Code).To(Equal(int32(201)))
+			Expect(result2).ToNot(BeNil())
+
+			// Fetch provider2 and try to update it to have same issuer/clientId as provider1
+			fetchedProvider2, status := suite.Handler.GetAuthProvider(suite.Ctx, orgId, "oidc-update-2")
+			Expect(status.Code).To(Equal(int32(200)))
+
+			updatedSpec, err := fetchedProvider2.Spec.AsOIDCProviderSpec()
+			Expect(err).ToNot(HaveOccurred())
+			updatedSpec.Issuer = "https://issuer1.com"
+			updatedSpec.ClientId = "client-id-1"
+			err = fetchedProvider2.Spec.FromOIDCProviderSpec(updatedSpec)
+			Expect(err).ToNot(HaveOccurred())
+
+			result, status := suite.Handler.ReplaceAuthProvider(suite.Ctx, orgId, "oidc-update-2", *fetchedProvider2)
+			Expect(status.Code).To(Equal(int32(409)))
+			Expect(status.Message).To(ContainSubstring("OIDC auth provider with the same issuer and clientId already exists"))
+			Expect(result).To(BeNil())
+		})
+
+		It("should reject patch that creates duplicate OAuth2 provider", func() {
+			// Create two OAuth2 providers
+			assignment := createTestOrganizationAssignment()
+			roleAssignment := api.AuthRoleAssignment{}
+			staticRoleAssignment := api.AuthStaticRoleAssignment{
+				Type:  api.AuthStaticRoleAssignmentTypeStatic,
+				Roles: []string{"viewer"},
+			}
+			err := roleAssignment.FromAuthStaticRoleAssignment(staticRoleAssignment)
+			Expect(err).ToNot(HaveOccurred())
+
+			oauth2Spec1 := api.OAuth2ProviderSpec{
+				ProviderType:           api.Oauth2,
+				AuthorizationUrl:       "https://oauth2-1.example.com/authorize",
+				TokenUrl:               "https://oauth2-1.example.com/token",
+				UserinfoUrl:            "https://oauth2-1.example.com/userinfo",
+				ClientId:               "oauth2-patch-client-1",
+				ClientSecret:           lo.ToPtr("oauth2-client-secret"),
+				Enabled:                lo.ToPtr(true),
+				OrganizationAssignment: assignment,
+				RoleAssignment:         roleAssignment,
+			}
+
+			provider1 := api.AuthProvider{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr("oauth2-patch-1"),
+				},
+			}
+			err = provider1.Spec.FromOAuth2ProviderSpec(oauth2Spec1)
+			Expect(err).ToNot(HaveOccurred())
+			_, status := suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider1)
+			Expect(status.Code).To(Equal(int32(201)))
+
+			oauth2Spec2 := api.OAuth2ProviderSpec{
+				ProviderType:           api.Oauth2,
+				AuthorizationUrl:       "https://oauth2-2.example.com/authorize",
+				TokenUrl:               "https://oauth2-2.example.com/token",
+				UserinfoUrl:            "https://oauth2-2.example.com/userinfo",
+				ClientId:               "oauth2-patch-client-2",
+				ClientSecret:           lo.ToPtr("oauth2-client-secret"),
+				Enabled:                lo.ToPtr(true),
+				OrganizationAssignment: assignment,
+				RoleAssignment:         roleAssignment,
+			}
+
+			provider2 := api.AuthProvider{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr("oauth2-patch-2"),
+				},
+			}
+			err = provider2.Spec.FromOAuth2ProviderSpec(oauth2Spec2)
+			Expect(err).ToNot(HaveOccurred())
+			_, status = suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider2)
+			Expect(status.Code).To(Equal(int32(201)))
+
+			// Try to patch provider2 to have same userinfoUrl and clientId as provider1
+			patchRequest := api.PatchRequest{
+				{
+					Op:    "replace",
+					Path:  "/spec/userinfoUrl",
+					Value: AnyPtr("https://oauth2-1.example.com/userinfo"),
+				},
+				{
+					Op:    "replace",
+					Path:  "/spec/clientId",
+					Value: AnyPtr("oauth2-patch-client-1"),
+				},
+			}
+
+			result, status := suite.Handler.PatchAuthProvider(suite.Ctx, orgId, "oauth2-patch-2", patchRequest)
+			Expect(status.Code).To(Equal(int32(409)))
+			Expect(status.Message).To(ContainSubstring("OAuth2 auth provider with the same userinfoUrl and clientId already exists"))
+			Expect(result).To(BeNil())
+		})
+	})
+
 	Context("Auth Provider Events", func() {
 		var (
 			orgId uuid.UUID
