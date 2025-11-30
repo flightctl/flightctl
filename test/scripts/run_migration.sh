@@ -8,6 +8,7 @@ set -euo pipefail
 
 # Configuration variables with defaults
 MIGRATION_IMAGE=${MIGRATION_IMAGE:-localhost/flightctl-db-setup:latest}
+MIGRATION_PHASE=${MIGRATION_PHASE:-single}
 CREATE_TEMPLATE=${CREATE_TEMPLATE:-false}
 TEMPLATE_DB_NAME=${TEMPLATE_DB_NAME:-flightctl_tmpl}
 
@@ -23,7 +24,7 @@ DB_ADMIN_PASSWORD=${FLIGHTCTL_POSTGRESQL_MASTER_PASSWORD:-adminpass}
 DB_MIGRATION_USER=${DB_MIGRATION_USER:-flightctl_migrator}
 DB_MIGRATION_PASSWORD=${FLIGHTCTL_POSTGRESQL_MIGRATOR_PASSWORD:-adminpass}
 
-echo "Running database migration with image: $MIGRATION_IMAGE"
+echo "Running database migration (phase: $MIGRATION_PHASE) with image: $MIGRATION_IMAGE"
 echo "Target database: $DB_NAME"
 
 podman run --rm --network host \
@@ -40,7 +41,7 @@ podman run --rm --network host \
 
 # Create template database if requested
 if [[ "$CREATE_TEMPLATE" == "true" ]]; then
-    echo "Creating template database for tests..."
+    echo "Creating template database for tests (phase: $MIGRATION_PHASE)..."
     echo "Template: $TEMPLATE_DB_NAME (from $DB_NAME)"
     
     # Function to execute SQL command via container
