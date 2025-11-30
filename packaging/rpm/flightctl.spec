@@ -426,7 +426,6 @@ echo "Flightctl Observability Stack uninstalled."
     SOURCE_GIT_TAG="%{?SOURCE_GIT_TAG:%{SOURCE_GIT_TAG}}%{!?SOURCE_GIT_TAG:%(echo "v%{version}" | tr '~' '-')}" \
     SOURCE_GIT_TREE_STATE="%{?SOURCE_GIT_TREE_STATE:%{SOURCE_GIT_TREE_STATE}}%{!?SOURCE_GIT_TREE_STATE:clean}" \
     SOURCE_GIT_COMMIT="%{?SOURCE_GIT_COMMIT:%{SOURCE_GIT_COMMIT}}%{!?SOURCE_GIT_COMMIT:%(echo %{version} | grep -o '[-~]g[0-9a-f]*' | sed 's/[-~]g//' || echo unknown)}" \
-    SOURCE_GIT_TAG_NO_V="%{?SOURCE_GIT_TAG_NO_V:%{SOURCE_GIT_TAG_NO_V}}%{!?SOURCE_GIT_TAG_NO_V:%{version}}" \
     %if 0%{?rhel} == 9
         %make_build build-cli build-agent build-restore build-standalone
     %else
@@ -549,7 +548,24 @@ echo "Flightctl Observability Stack uninstalled."
 
 %check
     %{buildroot}%{_bindir}/flightctl-agent version
+    # Run the installed binary from the buildroot and capture its output
+    out="$("%{buildroot}%{_bindir}/flightctl-agent" version)"
+    echo "$out"
 
+    # Extract the parts after the colons
+    version=$(printf '%s\n' "$out" | sed -n 's/^Flightctl Agent Version:[[:space:]]*//p')
+    commit=$(printf '%s\n' "$out" | sed -n 's/^Git Commit:[[:space:]]*//p')
+
+    # Fail if either is empty
+    if [ -z "$version" ]; then
+        echo "ERROR: Flightctl Agent Version is empty"
+        exit 1
+    fi
+
+    if [ -z "$commit" ]; then
+        echo "ERROR: Git Commit is empty"
+        exit 1
+    fi
 
 %pre selinux
 %selinux_relabel_pre -s %{selinuxtype}

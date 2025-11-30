@@ -1,7 +1,7 @@
 TARGET ?= flightctl_agent
 MODULES ?= ${TARGET:=.pp.bz2}
 SHAREDIR ?= /usr/share
-CI_RPM_IMAGE ?= quay.io/flightctl/ci-rpm-builder:latest
+CI_RPM_IMAGE ?= quay.io/flightctl-tests/packit-builder:base
 
 .PHONY: all clean man install-policy install
 
