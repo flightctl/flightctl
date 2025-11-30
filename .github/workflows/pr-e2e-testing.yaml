@@ -54,6 +54,16 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Debug git context
+        run: |
+          echo "=== Git Debug Info ==="
+          echo "Current branch: $(git branch --show-current)"
+          echo "Git describe: $(git describe --tags --exclude latest 2>/dev/null || echo 'no-tags')"
+          echo "SOURCE_GIT_TAG: ${SOURCE_GIT_TAG:-not_set}"
+          echo "GitHub ref: ${{ github.ref }}"
+          echo "GitHub ref_name: ${{ github.ref_name }}"
+          echo "===================="
+
       - name: Get changed files
         id: changed-files
         uses: tj-actions/changed-files@v46
@@ -155,6 +165,16 @@ jobs:
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         run: make cluster
 
+      - name: Debug git context
+        run: |
+          echo "=== Git Debug Info ==="
+          echo "Current branch: $(git branch --show-current)"
+          echo "Git describe: $(git describe --tags --exclude latest 2>/dev/null || echo 'no-tags')"
+          echo "SOURCE_GIT_TAG: ${SOURCE_GIT_TAG:-not_set}"
+          echo "GitHub ref: ${{ github.ref }}"
+          echo "GitHub ref_name: ${{ github.ref_name }}"
+          echo "===================="
+
       - name: Deploy the flightctl server
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         run: DISABLE_FIPS="true" make deploy
@@ -162,6 +182,13 @@ jobs:
       - name: Check disk space after deploy
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         run: df -h
+
+      - name: Debug agent images before e2e
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        run: |
+          echo "=== Agent Images Debug ==="
+          podman images | grep flightctl || echo "No flightctl images found"
+          echo "========================="
 
       - name: Prepare the E2E test environment
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
