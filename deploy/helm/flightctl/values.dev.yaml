@@ -45,20 +45,10 @@ alertmanagerProxy:
 ui:
   enabled: false
 
-## @param dbSetup.wait.timeout Seconds to wait for database readiness before failing
-## @param dbSetup.wait.sleep Seconds to sleep between database connection attempts
-## @param dbSetup.migration.backoffLimit Number of retries for the migration Job on failure
-## @param dbSetup.migration.activeDeadlineSeconds Maximum runtime in seconds for the migration Job
 dbSetup:
   image:
     image: localhost/flightctl-db-setup
     tag: latest
-  wait:
-    timeout: 60
-    sleep: 2
-  migration:
-    backoffLimit: 3
-    activeDeadlineSeconds: 600
 
 telemetryGateway:
   image:
