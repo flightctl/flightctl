@@ -187,7 +187,6 @@ func TestQuadlet_add(t *testing.T) {
 				Path: "/test/path",
 			},
 			setupMocks: func(mockSystemdMgr *systemd.MockManager, mockRW *fileio.MockReadWriter, mockExec *executer.MockExecuter) {
-				mockSystemdMgr.EXPECT().DaemonReload(gomock.Any()).Return(nil)
 				mockRW.EXPECT().ReadDir("/test/path").Return([]fs.DirEntry{
 					&mockDirEntry{name: "app.container", isDir: false},
 				}, nil)
@@ -205,7 +204,6 @@ func TestQuadlet_add(t *testing.T) {
 				Path: "/test/path",
 			},
 			setupMocks: func(mockSystemdMgr *systemd.MockManager, mockRW *fileio.MockReadWriter, mockExec *executer.MockExecuter) {
-				mockSystemdMgr.EXPECT().DaemonReload(gomock.Any()).Return(nil)
 				mockRW.EXPECT().ReadDir("/test/path").Return([]fs.DirEntry{
 					&mockDirEntry{name: "app.pod", isDir: false},
 				}, nil)
@@ -223,7 +221,6 @@ func TestQuadlet_add(t *testing.T) {
 				Path: "/test/path",
 			},
 			setupMocks: func(mockSystemdMgr *systemd.MockManager, mockRW *fileio.MockReadWriter, mockExec *executer.MockExecuter) {
-				mockSystemdMgr.EXPECT().DaemonReload(gomock.Any()).Return(nil)
 				mockRW.EXPECT().ReadDir("/test/path").Return([]fs.DirEntry{
 					&mockDirEntry{name: "mypod.pod", isDir: false},
 				}, nil)
@@ -241,7 +238,6 @@ func TestQuadlet_add(t *testing.T) {
 				Path: "/test/path",
 			},
 			setupMocks: func(mockSystemdMgr *systemd.MockManager, mockRW *fileio.MockReadWriter, mockExec *executer.MockExecuter) {
-				mockSystemdMgr.EXPECT().DaemonReload(gomock.Any()).Return(nil)
 				mockRW.EXPECT().ReadDir("/test/path").Return([]fs.DirEntry{
 					&mockDirEntry{name: "app.target", isDir: false},
 				}, nil)
@@ -258,7 +254,6 @@ func TestQuadlet_add(t *testing.T) {
 				Path: "/test/path",
 			},
 			setupMocks: func(mockSystemdMgr *systemd.MockManager, mockRW *fileio.MockReadWriter, mockExec *executer.MockExecuter) {
-				mockSystemdMgr.EXPECT().DaemonReload(gomock.Any()).Return(nil)
 				mockRW.EXPECT().ReadDir("/test/path").Return([]fs.DirEntry{
 					&mockDirEntry{name: "app1.container", isDir: false},
 					&mockDirEntry{name: "app.target", isDir: false},
@@ -279,7 +274,6 @@ func TestQuadlet_add(t *testing.T) {
 				Path: "/test/path",
 			},
 			setupMocks: func(mockSystemdMgr *systemd.MockManager, mockRW *fileio.MockReadWriter, mockExec *executer.MockExecuter) {
-				mockSystemdMgr.EXPECT().DaemonReload(gomock.Any()).Return(nil)
 				mockRW.EXPECT().ReadDir("/test/path").Return([]fs.DirEntry{
 					&mockDirEntry{name: "subdir", isDir: true},
 					&mockDirEntry{name: "readme.txt", isDir: false},
@@ -293,24 +287,12 @@ func TestQuadlet_add(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "daemon reload fails",
-			action: &Action{
-				Name: "test-app",
-				Path: "/test/path",
-			},
-			setupMocks: func(mockSystemdMgr *systemd.MockManager, mockRW *fileio.MockReadWriter, mockExec *executer.MockExecuter) {
-				mockSystemdMgr.EXPECT().DaemonReload(gomock.Any()).Return(fmt.Errorf("reload failed"))
-			},
-			wantErr: true,
-		},
-		{
 			name: "ReadDir fails",
 			action: &Action{
 				Name: "test-app",
 				Path: "/test/path",
 			},
 			setupMocks: func(mockSystemdMgr *systemd.MockManager, mockRW *fileio.MockReadWriter, mockExec *executer.MockExecuter) {
-				mockSystemdMgr.EXPECT().DaemonReload(gomock.Any()).Return(nil)
 				mockRW.EXPECT().ReadDir("/test/path").Return(nil, fmt.Errorf("directory not found"))
 			},
 			wantErr: true,
@@ -322,7 +304,6 @@ func TestQuadlet_add(t *testing.T) {
 				Path: "/test/path",
 			},
 			setupMocks: func(mockSystemdMgr *systemd.MockManager, mockRW *fileio.MockReadWriter, mockExec *executer.MockExecuter) {
-				mockSystemdMgr.EXPECT().DaemonReload(gomock.Any()).Return(nil).AnyTimes()
 				mockRW.EXPECT().ReadDir("/test/path").Return([]fs.DirEntry{
 					&mockDirEntry{name: "app.container", isDir: false},
 				}, nil)
@@ -355,7 +336,6 @@ func TestQuadlet_add(t *testing.T) {
 				},
 			},
 			setupMocks: func(mockSystemdMgr *systemd.MockManager, mockRW *fileio.MockReadWriter, mockExec *executer.MockExecuter) {
-				mockSystemdMgr.EXPECT().DaemonReload(gomock.Any()).Return(nil)
 				mockRW.EXPECT().ReadDir("/test/path").Return([]fs.DirEntry{
 					&mockDirEntry{name: "app.container", isDir: false},
 				}, nil)
@@ -386,7 +366,6 @@ func TestQuadlet_add(t *testing.T) {
 				},
 			},
 			setupMocks: func(mockSystemdMgr *systemd.MockManager, mockRW *fileio.MockReadWriter, mockExec *executer.MockExecuter) {
-				mockSystemdMgr.EXPECT().DaemonReload(gomock.Any()).Return(nil)
 				mockRW.EXPECT().ReadDir("/test/path").Return([]fs.DirEntry{}, nil)
 				mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), gomock.Any()).Return(nil, nil)
 
@@ -411,13 +390,19 @@ func TestQuadlet_add(t *testing.T) {
 				},
 			},
 			setupMocks: func(mockSystemdMgr *systemd.MockManager, mockRW *fileio.MockReadWriter, mockExec *executer.MockExecuter) {
-				mockSystemdMgr.EXPECT().DaemonReload(gomock.Any()).Return(nil)
 				mockRW.EXPECT().ReadDir("/test/path").Return([]fs.DirEntry{}, nil)
 				mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), gomock.Any()).Return(nil, nil)
 
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("image", "exists", "artifact:badartifact")).Return("", "", 1)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "exists", "data")).Return("", "", 1)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "create", "data")).Return("", "Error: creation failed", 1)
+
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume")).Return("[]", "", 0).AnyTimes()
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("stop")).Return("", "", 0).AnyTimes()
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("rm")).Return("", "", 0).AnyTimes()
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("ps")).Return("", "", 0).AnyTimes()
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("network")).Return("", "", 0).AnyTimes()
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("pod")).Return("", "", 0).AnyTimes()
 			},
 			wantErr: true,
 		},
@@ -466,7 +451,6 @@ func TestQuadlet_remove(t *testing.T) {
 					{Unit: "app-123-web.service", LoadState: "loaded", ActiveState: string(api.SystemdActiveStateInactive), SubState: "dead", Description: "Test service"},
 				}
 				mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), []string{"app-123-web.service"}).Return(units, nil)
-				mockSystemdMgr.EXPECT().DaemonReload(gomock.Any()).Return(nil)
 
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume")).Return("[]", "", 0).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("stop")).Return("", "", 0).AnyTimes()
@@ -517,7 +501,6 @@ func TestQuadlet_remove(t *testing.T) {
 				}
 				mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), []string{"app-failed-1-web.service"}).Return(units, nil)
 				mockSystemdMgr.EXPECT().ResetFailed(gomock.Any(), "app-failed-1-web.service").Return(nil)
-				mockSystemdMgr.EXPECT().DaemonReload(gomock.Any()).Return(nil)
 
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume")).Return("[]", "", 0).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("stop")).Return("", "", 0).AnyTimes()
@@ -545,7 +528,6 @@ func TestQuadlet_remove(t *testing.T) {
 				}
 				mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), []string{"app-multi-web.service", "app-multi-db.service"}).Return(units, nil)
 				mockSystemdMgr.EXPECT().ResetFailed(gomock.Any(), "app-multi-web.service").Return(nil)
-				mockSystemdMgr.EXPECT().DaemonReload(gomock.Any()).Return(nil)
 
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume")).Return("[]", "", 0).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("stop")).Return("", "", 0).AnyTimes()
@@ -572,7 +554,6 @@ func TestQuadlet_remove(t *testing.T) {
 				}
 				mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), []string{"app-reset-fail-web.service"}).Return(units, nil)
 				mockSystemdMgr.EXPECT().ResetFailed(gomock.Any(), "app-reset-fail-web.service").Return(fmt.Errorf("reset failed"))
-				mockSystemdMgr.EXPECT().DaemonReload(gomock.Any()).Return(nil)
 
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume")).Return("[]", "", 0).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("stop")).Return("", "", 0).AnyTimes()
@@ -595,7 +576,6 @@ func TestQuadlet_remove(t *testing.T) {
 			setupMocks: func(mockSystemdMgr *systemd.MockManager, mockRW *fileio.MockReadWriter, mockExec *executer.MockExecuter) {
 				mockSystemdMgr.EXPECT().Stop(gomock.Any(), "app-list-fail-web.service").Return(nil)
 				mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), []string{"app-list-fail-web.service"}).Return(nil, fmt.Errorf("list failed"))
-				mockSystemdMgr.EXPECT().DaemonReload(gomock.Any()).Return(nil)
 
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume")).Return("[]", "", 0).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("stop")).Return("", "", 0).AnyTimes()
@@ -610,25 +590,6 @@ func TestQuadlet_remove(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "daemon reload fails after stop",
-			action: &Action{
-				Name: "test-app",
-				ID:   "app-000",
-			},
-			setupMocks: func(mockSystemdMgr *systemd.MockManager, mockRW *fileio.MockReadWriter, mockExec *executer.MockExecuter) {
-				mockSystemdMgr.EXPECT().Stop(gomock.Any(), "app-000-db.service").Return(nil)
-				units := []client.SystemDUnitListEntry{
-					{Unit: "app-000-db.service", LoadState: "loaded", ActiveState: string(api.SystemdActiveStateInactive), SubState: "dead", Description: "Test service"},
-				}
-				mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), []string{"app-000-db.service"}).Return(units, nil)
-				mockSystemdMgr.EXPECT().DaemonReload(gomock.Any()).Return(fmt.Errorf("reload failed"))
-			},
-			setupServices: func(q *Quadlet) {
-				q.actionCache.cache["app-000"] = &actionCacheEntry{services: []string{"app-000-db.service"}}
-			},
-			wantErr: true,
-		},
-		{
 			name: "remove with artifact volumes",
 			action: &Action{
 				Name: "test-app",
@@ -640,7 +601,6 @@ func TestQuadlet_remove(t *testing.T) {
 					{Unit: "app-with-artifact-vols.service", LoadState: "loaded", ActiveState: string(api.SystemdActiveStateInactive), SubState: "dead", Description: "Test service"},
 				}
 				mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), []string{"app-with-artifact-vols.service"}).Return(units, nil)
-				mockSystemdMgr.EXPECT().DaemonReload(gomock.Any()).Return(nil)
 
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("stop")).Return("", "", 0).Times(1)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("rm")).Return("", "", 0).Times(1)
@@ -669,7 +629,6 @@ func TestQuadlet_remove(t *testing.T) {
 					{Unit: "app-mixed-vol-types.service", LoadState: "loaded", ActiveState: string(api.SystemdActiveStateInactive), SubState: "dead", Description: "Test service"},
 				}
 				mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), []string{"app-mixed-vol-types.service"}).Return(units, nil)
-				mockSystemdMgr.EXPECT().DaemonReload(gomock.Any()).Return(nil)
 
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("stop")).Return("", "", 0).Times(1)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("rm")).Return("", "", 0).Times(1)
@@ -694,10 +653,6 @@ func TestQuadlet_remove(t *testing.T) {
 				ID:   "app-cleanup-test",
 			},
 			setupMocks: func(mockSystemdMgr *systemd.MockManager, mockRW *fileio.MockReadWriter, mockExec *executer.MockExecuter) {
-				mockSystemdMgr.EXPECT().Stop(gomock.Any()).Return(nil).AnyTimes()
-				mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), gomock.Any()).Return([]client.SystemDUnitListEntry{}, nil).AnyTimes()
-				mockSystemdMgr.EXPECT().DaemonReload(gomock.Any()).Return(nil)
-
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", gomock.Any()).Return("[]", "", 0).AnyTimes()
 			},
 			setupServices: func(q *Quadlet) {
@@ -741,8 +696,6 @@ func TestQuadlet_remove(t *testing.T) {
 
 func TestQuadlet_update(t *testing.T) {
 	require := require.New(t)
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
 
 	testCases := []struct {
 		name          string
@@ -754,13 +707,12 @@ func TestQuadlet_update(t *testing.T) {
 		{
 			name: "update success",
 			action: &Action{
+				Type: ActionUpdate,
 				Name: "test-app",
 				Path: "/test/path",
 				ID:   "app-123",
 			},
 			setupMocks: func(mockSystemdMgr *systemd.MockManager, mockRW *fileio.MockReadWriter, mockExec *executer.MockExecuter) {
-				// remove flow - DaemonReload called during remove
-				mockSystemdMgr.EXPECT().DaemonReload(gomock.Any()).Return(nil)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume")).Return("[]", "", 0).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("stop")).Return("", "", 0).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("rm")).Return("", "", 0).AnyTimes()
@@ -768,7 +720,6 @@ func TestQuadlet_update(t *testing.T) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("network")).Return("", "", 0).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("pod")).Return("", "", 0).AnyTimes()
 
-				// add flow - DaemonReload, then verify units, then start
 				mockSystemdMgr.EXPECT().DaemonReload(gomock.Any()).Return(nil)
 				mockRW.EXPECT().ReadDir("/test/path").Return([]fs.DirEntry{
 					&mockDirEntry{name: "app.container", isDir: false},
@@ -786,6 +737,7 @@ func TestQuadlet_update(t *testing.T) {
 		{
 			name: "update fails on remove",
 			action: &Action{
+				Type: ActionUpdate,
 				Name: "test-app",
 				Path: "/test/path",
 				ID:   "app-456",
@@ -801,21 +753,22 @@ func TestQuadlet_update(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "update fails on add",
+			name: "update fails on daemon reload",
 			action: &Action{
+				Type: ActionUpdate,
 				Name: "test-app",
 				Path: "/test/path",
 				ID:   "app-789",
 			},
 			setupMocks: func(mockSystemdMgr *systemd.MockManager, mockRW *fileio.MockReadWriter, mockExec *executer.MockExecuter) {
-				mockSystemdMgr.EXPECT().DaemonReload(gomock.Any()).Return(fmt.Errorf("reload failed"))
-
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume")).Return("[]", "", 0).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("stop")).Return("", "", 0).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("rm")).Return("", "", 0).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("ps")).Return("", "", 0).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("network")).Return("", "", 0).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("pod")).Return("", "", 0).AnyTimes()
+
+				mockSystemdMgr.EXPECT().DaemonReload(gomock.Any()).Return(fmt.Errorf("reload failed"))
 			},
 			setupServices: func(q *Quadlet) {
 				q.actionCache.cache["app-789"] = &actionCacheEntry{
@@ -828,6 +781,9 @@ func TestQuadlet_update(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
 			mockRW := fileio.NewMockReadWriter(ctrl)
 			mockSystemdMgr := systemd.NewMockManager(ctrl)
 			mockExec := executer.NewMockExecuter(ctrl)
@@ -843,7 +799,166 @@ func TestQuadlet_update(t *testing.T) {
 				tc.setupServices(q)
 			}
 
-			err := q.update(context.Background(), tc.action)
+			err := q.Execute(context.Background(), tc.action)
+			if tc.wantErr {
+				require.Error(err)
+			} else {
+				require.NoError(err)
+			}
+		})
+	}
+}
+
+func TestQuadlet_ExecuteMultipleActions(t *testing.T) {
+	require := require.New(t)
+
+	testCases := []struct {
+		name          string
+		actions       []*Action
+		setupMocks    func(*systemd.MockManager, *fileio.MockReadWriter, *executer.MockExecuter)
+		setupServices func(*Quadlet)
+		wantErr       bool
+	}{
+		{
+			name: "mixed add, remove, update - correct ordering",
+			actions: []*Action{
+				{Type: ActionAdd, Name: "app1", ID: "app1-id", Path: "/path/app1"},
+				{Type: ActionRemove, Name: "app2", ID: "app2-id"},
+				{Type: ActionUpdate, Name: "app3", ID: "app3-id", Path: "/path/app3"},
+			},
+			setupMocks: func(mockSystemdMgr *systemd.MockManager, mockRW *fileio.MockReadWriter, mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", gomock.Any()).Return("[]", "", 0).AnyTimes()
+
+				gomock.InOrder(
+					mockSystemdMgr.EXPECT().Stop(gomock.Any(), "app2.service").Return(nil),
+					mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), []string{"app2.service"}).Return([]client.SystemDUnitListEntry{}, nil),
+					mockSystemdMgr.EXPECT().Stop(gomock.Any(), "app3.service").Return(nil),
+					mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), []string{"app3.service"}).Return([]client.SystemDUnitListEntry{}, nil),
+
+					mockSystemdMgr.EXPECT().DaemonReload(gomock.Any()).Return(nil),
+
+					mockRW.EXPECT().ReadDir("/path/app1").Return([]fs.DirEntry{
+						&mockDirEntry{name: "app1.container", isDir: false},
+					}, nil),
+					mockRW.EXPECT().ReadFile("/path/app1/app1.container").Return([]byte("[Container]\nImage=nginx\n"), nil),
+					mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), []string{"app1.service"}).
+						Return([]client.SystemDUnitListEntry{{Unit: "app1.service"}}, nil),
+					mockSystemdMgr.EXPECT().Start(gomock.Any(), "app1.service").Return(nil),
+
+					mockRW.EXPECT().ReadDir("/path/app3").Return([]fs.DirEntry{
+						&mockDirEntry{name: "app3.container", isDir: false},
+					}, nil),
+					mockRW.EXPECT().ReadFile("/path/app3/app3.container").Return([]byte("[Container]\nImage=redis\n"), nil),
+					mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), []string{"app3.service"}).
+						Return([]client.SystemDUnitListEntry{{Unit: "app3.service"}}, nil),
+					mockSystemdMgr.EXPECT().Start(gomock.Any(), "app3.service").Return(nil),
+				)
+			},
+			setupServices: func(q *Quadlet) {
+				q.actionCache.cache["app2-id"] = &actionCacheEntry{services: []string{"app2.service"}}
+				q.actionCache.cache["app3-id"] = &actionCacheEntry{services: []string{"app3.service"}}
+			},
+			wantErr: false,
+		},
+		{
+			name: "multiple removes then multiple adds",
+			actions: []*Action{
+				{Type: ActionAdd, Name: "new-app1", ID: "new1-id", Path: "/path/new1"},
+				{Type: ActionAdd, Name: "new-app2", ID: "new2-id", Path: "/path/new2"},
+				{Type: ActionRemove, Name: "old-app1", ID: "old1-id"},
+				{Type: ActionRemove, Name: "old-app2", ID: "old2-id"},
+			},
+			setupMocks: func(mockSystemdMgr *systemd.MockManager, mockRW *fileio.MockReadWriter, mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", gomock.Any()).Return("[]", "", 0).AnyTimes()
+
+				gomock.InOrder(
+					mockSystemdMgr.EXPECT().Stop(gomock.Any(), "old1.service").Return(nil),
+					mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), []string{"old1.service"}).Return([]client.SystemDUnitListEntry{}, nil),
+					mockSystemdMgr.EXPECT().Stop(gomock.Any(), "old2.service").Return(nil),
+					mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), []string{"old2.service"}).Return([]client.SystemDUnitListEntry{}, nil),
+
+					mockSystemdMgr.EXPECT().DaemonReload(gomock.Any()).Return(nil),
+
+					mockRW.EXPECT().ReadDir("/path/new1").Return([]fs.DirEntry{
+						&mockDirEntry{name: "new1.container", isDir: false},
+					}, nil),
+					mockRW.EXPECT().ReadFile("/path/new1/new1.container").Return([]byte("[Container]\nImage=nginx\n"), nil),
+					mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), []string{"new1.service"}).
+						Return([]client.SystemDUnitListEntry{{Unit: "new1.service"}}, nil),
+					mockSystemdMgr.EXPECT().Start(gomock.Any(), "new1.service").Return(nil),
+
+					mockRW.EXPECT().ReadDir("/path/new2").Return([]fs.DirEntry{
+						&mockDirEntry{name: "new2.container", isDir: false},
+					}, nil),
+					mockRW.EXPECT().ReadFile("/path/new2/new2.container").Return([]byte("[Container]\nImage=redis\n"), nil),
+					mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), []string{"new2.service"}).
+						Return([]client.SystemDUnitListEntry{{Unit: "new2.service"}}, nil),
+					mockSystemdMgr.EXPECT().Start(gomock.Any(), "new2.service").Return(nil),
+				)
+			},
+			setupServices: func(q *Quadlet) {
+				q.actionCache.cache["old1-id"] = &actionCacheEntry{services: []string{"old1.service"}}
+				q.actionCache.cache["old2-id"] = &actionCacheEntry{services: []string{"old2.service"}}
+			},
+			wantErr: false,
+		},
+		{
+			name: "remove fails stops execution",
+			actions: []*Action{
+				{Type: ActionRemove, Name: "app1", ID: "app1-id"},
+				{Type: ActionAdd, Name: "app2", ID: "app2-id", Path: "/path/app2"},
+			},
+			setupMocks: func(mockSystemdMgr *systemd.MockManager, mockRW *fileio.MockReadWriter, mockExec *executer.MockExecuter) {
+				mockSystemdMgr.EXPECT().Stop(gomock.Any(), "app1.service").Return(fmt.Errorf("stop failed"))
+			},
+			setupServices: func(q *Quadlet) {
+				q.actionCache.cache["app1-id"] = &actionCacheEntry{services: []string{"app1.service"}}
+			},
+			wantErr: true,
+		},
+		{
+			name: "daemon reload failure stops add phase",
+			actions: []*Action{
+				{Type: ActionRemove, Name: "app1", ID: "app1-id"},
+				{Type: ActionAdd, Name: "app2", ID: "app2-id", Path: "/path/app2"},
+			},
+			setupMocks: func(mockSystemdMgr *systemd.MockManager, mockRW *fileio.MockReadWriter, mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", gomock.Any()).Return("[]", "", 0).AnyTimes()
+
+				gomock.InOrder(
+					mockSystemdMgr.EXPECT().Stop(gomock.Any(), "app1.service").Return(nil),
+					mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), []string{"app1.service"}).Return([]client.SystemDUnitListEntry{}, nil),
+					mockSystemdMgr.EXPECT().DaemonReload(gomock.Any()).Return(fmt.Errorf("reload failed")),
+				)
+			},
+			setupServices: func(q *Quadlet) {
+				q.actionCache.cache["app1-id"] = &actionCacheEntry{services: []string{"app1.service"}}
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			mockRW := fileio.NewMockReadWriter(ctrl)
+			mockSystemdMgr := systemd.NewMockManager(ctrl)
+			mockExec := executer.NewMockExecuter(ctrl)
+			tc.setupMocks(mockSystemdMgr, mockRW, mockExec)
+
+			podman := client.NewPodman(log.NewPrefixLogger("test"), mockExec, mockRW, testutil.NewPollConfig())
+			logger := log.NewPrefixLogger("test")
+			mockSystemdMgr.EXPECT().AddExclusions(gomock.Any()).AnyTimes()
+			mockSystemdMgr.EXPECT().RemoveExclusions(gomock.Any()).AnyTimes()
+			q := NewQuadlet(logger, mockRW, mockSystemdMgr, podman)
+
+			if tc.setupServices != nil {
+				tc.setupServices(q)
+			}
+
+			err := q.Execute(context.Background(), tc.actions...)
 			if tc.wantErr {
 				require.Error(err)
 			} else {

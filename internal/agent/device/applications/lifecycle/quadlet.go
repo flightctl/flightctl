@@ -99,32 +99,33 @@ func NewQuadlet(log *log.PrefixLogger, rw fileio.ReadWriter, systemdManager syst
 	}
 }
 
+func isServiceLoaded(unitSet map[string]struct{}, service string) bool {
+	// report targets as loaded
+	if filepath.Ext(service) == ".target" {
+		return true
+	}
+	_, exists := unitSet[service]
+	return exists
+}
+
 func (q *Quadlet) add(ctx context.Context, action *Action) error {
 	appName := action.Name
 	q.log.Debugf("Starting quadlet application: %s path: %s", appName, action.Path)
 
-	// systemd daemon-reload can trigger the reload of all quadlet applications within a spec.
-	// use the batch time to gather logs for the systemd generator call
 	batchTime, ok := BatchStartTimeFromContext(ctx)
 	if !ok {
 		batchTime = time.Now()
 	}
-	// use the start time to gather logs for failed services
 	startTime := time.Now()
 
-	// if startup fails for any reason, ensure that the application is cleaned up.
 	requiresActionCleanup := true
 	defer func() {
 		if requiresActionCleanup {
-			if err := q.remove(ctx, action); err != nil {
+			if err := q.cleanResources(ctx, action); err != nil {
 				q.log.Errorf("Failed to remove quadlet application %s after failing to add it: %v", appName, err)
 			}
 		}
 	}()
-
-	if err := q.systemdManager.DaemonReload(ctx); err != nil {
-		return fmt.Errorf("daemon reload: %w", err)
-	}
 
 	services, err := q.collectTargets(action.Path)
 	if err != nil {
@@ -141,10 +142,8 @@ func (q *Quadlet) add(ctx context.Context, action *Action) error {
 		unitSet[u.Unit] = struct{}{}
 	}
 
-	// verify that all expected services were actually generated before attempting to start any of them.
-	// if some are missing check the quadlet generator as there is likely a syntax issue
 	for _, service := range services {
-		if _, ok := unitSet[service]; !ok && filepath.Ext(service) != ".target" {
+		if !isServiceLoaded(unitSet, service) {
 			err := fmt.Errorf("%s not loaded as a target", service)
 			generatorLogs, logsErr := q.systemdManager.Logs(ctx, client.WithLogTag("quadlet-generator"), client.WithLogSince(batchTime))
 			if logsErr != nil {
@@ -166,7 +165,6 @@ func (q *Quadlet) add(ctx context.Context, action *Action) error {
 	if len(services) > 0 {
 		q.log.Debugf("Starting quadlet: %s services: %q", appName, strings.Join(services, ","))
 		if err := q.systemdManager.Start(ctx, services...); err != nil {
-			// if starting fails, attempt to gather as many logs as possible
 			err = fmt.Errorf("starting units: %w", err)
 			for _, service := range services {
 				serviceLogs, serviceErr := q.systemdManager.Logs(ctx, client.WithLogUnit(service), client.WithLogSince(startTime))
@@ -189,23 +187,18 @@ func (q *Quadlet) add(ctx context.Context, action *Action) error {
 	return nil
 }
 
-// remove disables and reloads the systemd services associated with the specified application
-// note, the current state of the application directory can't be used as it has likely been modified already.
 func (q *Quadlet) remove(ctx context.Context, action *Action) error {
 	appName := action.Name
 	if !q.actionCache.hasAction(action.ID) {
 		return nil
 	}
+
 	services := q.actionCache.services(action.ID)
 	if len(services) > 0 {
 		q.log.Debugf("Stopping quadlet: %s services: %q", appName, strings.Join(services, ","))
-		err := q.systemdManager.Stop(ctx, services...)
-		if err != nil {
+		if err := q.systemdManager.Stop(ctx, services...); err != nil {
 			return fmt.Errorf("stopping units: %w", err)
 		}
-		// a service that is ultimately stopped via sigkill may result in a failed service
-		// if it's not reset, systemd may keep the unit around even though it no longer exists
-		// clearing this flag will result in the unit being removed
 		failedServices := q.getFailedServices(ctx, services)
 		if len(failedServices) > 0 {
 			q.log.Debugf("Resetting failed state for services: %q", strings.Join(failedServices, ","))
@@ -216,14 +209,16 @@ func (q *Quadlet) remove(ctx context.Context, action *Action) error {
 		q.systemdManager.RemoveExclusions(services...)
 	}
 
-	if err := q.systemdManager.DaemonReload(ctx); err != nil {
-		return fmt.Errorf("daemon reload: %w", err)
-	}
+	return q.cleanResources(ctx, action)
+}
 
+func (q *Quadlet) cleanResources(ctx context.Context, action *Action) error {
+	if !q.actionCache.hasAction(action.ID) {
+		return nil
+	}
 	defer q.actionCache.clearAction(action.ID)
 
-	q.log.Infof("Removed quadlet application: %s", appName)
-
+	q.log.Infof("Removed quadlet application: %s", action.Name)
 	// the labels applied to quadlets are only directly applied to that quadlet. They do not apply to
 	// any resources created indirectly. As an example, a container quadlet can create multiple volumes without referencing
 	// a volume quadlet. The label applied to the container will not be applied to the volumes, but since we are
@@ -232,7 +227,6 @@ func (q *Quadlet) remove(ctx context.Context, action *Action) error {
 		fmt.Sprintf("%s=%s", client.QuadletProjectLabelKey, action.ID),
 	}
 	filters := []string{
-		// any resource that has a name that is prefixed with the quadlet's ID
 		fmt.Sprintf("name=%s-*", action.ID),
 	}
 	var errs []error
@@ -272,28 +266,48 @@ func (q *Quadlet) remove(ctx context.Context, action *Action) error {
 	return nil
 }
 
-// update is just a combination of stopping the existing units and then starting the new ones based on the current state
-func (q *Quadlet) update(ctx context.Context, action *Action) error {
-	if err := q.remove(ctx, action); err != nil {
-		return fmt.Errorf("removing app: %q: %w", action.Name, err)
+type quadletAfterReloadFn func(context.Context) error
+
+func (q *Quadlet) Execute(ctx context.Context, actions ...*Action) error {
+	if len(actions) == 0 {
+		return nil
 	}
-	if err := q.add(ctx, action); err != nil {
-		return fmt.Errorf("adding app: %q: %w", action.Name, err)
+	afterReloadFns := make([]quadletAfterReloadFn, 0, len(actions))
+	for _, action := range actions {
+		switch action.Type {
+		// Add requires daemon reload to be called prior to performing any service starting
+		case ActionAdd:
+			afterReloadFns = append(afterReloadFns, func(ctx context.Context) error {
+				return q.add(ctx, action)
+			})
+		// Remove requires that stops are executed prior to calling daemon-reload
+		// but the entirety of its actions can happen prior to reload
+		case ActionRemove:
+			if err := q.remove(ctx, action); err != nil {
+				return fmt.Errorf("removing: %w", err)
+			}
+		// Update behaves as the combination of Remove + Update
+		case ActionUpdate:
+			if err := q.remove(ctx, action); err != nil {
+				return fmt.Errorf("removing for update: %w", err)
+			}
+			afterReloadFns = append(afterReloadFns, func(ctx context.Context) error {
+				return q.add(ctx, action)
+			})
+		default:
+			return fmt.Errorf("unsupported action type: %s", action.Type)
+		}
+	}
+	if err := q.systemdManager.DaemonReload(ctx); err != nil {
+		return fmt.Errorf("daemon reload: %w", err)
+	}
+
+	for _, afterReload := range afterReloadFns {
+		if err := afterReload(ctx); err != nil {
+			return err
+		}
 	}
 	return nil
-}
-
-func (q *Quadlet) Execute(ctx context.Context, action *Action) error {
-	switch action.Type {
-	case ActionAdd:
-		return q.add(ctx, action)
-	case ActionRemove:
-		return q.remove(ctx, action)
-	case ActionUpdate:
-		return q.update(ctx, action)
-	default:
-		return fmt.Errorf("unsupported action type: %s", action.Type)
-	}
 }
 
 func (q *Quadlet) serviceName(file string, quadletSection string, defaultName string) (string, error) {

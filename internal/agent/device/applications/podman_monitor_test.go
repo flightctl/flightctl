@@ -639,7 +639,6 @@ func TestPodmanMonitorHandlerSelection(t *testing.T) {
 			composeActions = append(composeActions, action)
 			return nil
 		}).AnyTimes()
-
 	mockQuadletHandler.EXPECT().Execute(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(ctx context.Context, action *lifecycle.Action) error {
 			quadletActions = append(quadletActions, action)
