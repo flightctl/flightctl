@@ -74,9 +74,20 @@ func (h *ServiceHandler) ReplaceAuthProvider(ctx context.Context, orgId uuid.UUI
 		NilOutManagedObjectMetaProperties(&authProvider.Metadata)
 	}
 
-	if errs := authProvider.Validate(ctx); len(errs) > 0 {
-		return nil, api.StatusBadRequest(sanitizeSchemaError(errors.Join(errs...)))
+	// Get the existing resource to perform update validation
+	currentObj, err := h.store.AuthProvider().Get(ctx, orgId, name)
+	if err == nil {
+		// Resource exists, validate update
+		if errs := authProvider.ValidateUpdate(ctx, currentObj); len(errs) > 0 {
+			return nil, api.StatusBadRequest(sanitizeSchemaError(errors.Join(errs...)))
+		}
+	} else {
+		// Resource doesn't exist, validate creation
+		if errs := authProvider.Validate(ctx); len(errs) > 0 {
+			return nil, api.StatusBadRequest(sanitizeSchemaError(errors.Join(errs...)))
+		}
 	}
+
 	if authProvider.Metadata.Name == nil {
 		return nil, api.StatusBadRequest("metadata.name is required")
 	}
@@ -106,7 +117,8 @@ func (h *ServiceHandler) PatchAuthProvider(ctx context.Context, orgId uuid.UUID,
 		return nil, api.StatusBadRequest("metadata.name cannot be changed")
 	}
 
-	if errs := newObj.Validate(ctx); len(errs) > 0 {
+	// Use ValidateUpdate to prevent deletion of required fields
+	if errs := newObj.ValidateUpdate(ctx, currentObj); len(errs) > 0 {
 		return nil, api.StatusBadRequest(sanitizeSchemaError(errors.Join(errs...)))
 	}
 
