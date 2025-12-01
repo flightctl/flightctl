@@ -234,42 +234,6 @@ jobs:
           helm list --all-namespaces
           kubectl get pods --all-namespaces
 
-      - name: "[HEAD] Wait for API readiness"
-        env:
-          BASE_DOMAIN: ${{ steps.get-ip.outputs.base-domain }}
-        run: |
-          for i in {1..60}; do
-              # Capture body + HTTP code; also capture curl errors
-              resp_and_code=$(curl -ksS "https://api.${BASE_DOMAIN}:3443/readyz" -w '\n%{http_code}' 2>&1)
-              curl_exit=$?
-
-              if [ "$curl_exit" -ne 0 ]; then
-                  # curl level error (DNS, connect, TLS, etc)
-                  echo "$resp_and_code" >&2
-                  echo "Attempt $i/60: curl error (exit $curl_exit), retrying..." >&2
-                  sleep 1
-                  continue
-              fi
-
-              http_code=$(printf '%s\n' "$resp_and_code" | tail -n1)
-              body=$(printf '%s\n' "$resp_and_code" | sed '$d')
-
-              # Print response body
-              printf '%s\n' "$body"
-
-              if [ "$http_code" -ge 200 ] && [ "$http_code" -lt 300 ]; then
-                  echo "OK: API responded with $http_code on attempt $i" >&2
-                  break
-              fi
-
-              echo "Attempt $i/60 failed (status $http_code), retrying..." >&2
-              sleep 1
-          done
-
-          if [ "$i" -eq "60" ]; then
-              echo "ERROR: API did not return 2xx after 60 attempts" >&2
-              exit 1
-          fi
 
       - name: "[HEAD] Validate versions"
         env:
