@@ -73,3 +73,11 @@ flightctl version
 ```
 
 > Note: If you get a "command not found" error, ensure the binary is in your `PATH`.
+
+## Next Steps
+
+After installing the CLI, you'll need to authenticate to the Flight Control service:
+
+* [Using the CLI](../using/cli/overview.md) - CLI usage guide
+* [Logging in to the Service](../using/cli/logging-in.md) - How to authenticate to Flight Control
+* [Configuring Authentication](configuring-auth/overview.md) - Learn about authentication methods

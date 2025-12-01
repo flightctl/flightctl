@@ -172,7 +172,7 @@ func (s *GenericStore[P, M, A, AL]) createResource(ctx context.Context, resource
 	result := s.getDB(ctx).Create(resource)
 	if result.Error != nil {
 		err := ErrorFromGormError(result.Error)
-		return err == flterrors.ErrDuplicateName, err
+		return err == flterrors.ErrDuplicateName || err == flterrors.ErrDuplicateOIDCProvider || err == flterrors.ErrDuplicateOAuth2Provider, err
 	}
 	return false, nil
 }

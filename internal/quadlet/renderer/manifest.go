@@ -62,6 +62,10 @@ func servicesManifest(config *RendererConfig) []InstallAction {
 		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-cli-artifacts/flightctl-cli-artifacts-certs.volume", Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl-cli-artifacts-certs.volume"), Template: false, Mode: RegularFileMode},
 		{Action: ActionCopyDir, Source: "deploy/podman/flightctl-cli-artifacts/flightctl-cli-artifacts-config/", Destination: filepath.Join(config.ReadOnlyConfigOutputDir, "flightctl-cli-artifacts/"), Template: false, Mode: RegularFileMode},
 
+		// Certs init service
+		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-certs-init.service", Destination: filepath.Join(config.SystemdUnitOutputDir, "flightctl-certs-init.service"), Template: false, Mode: RegularFileMode},
+		{Action: ActionCopyFile, Source: "deploy/helm/flightctl/scripts/generate-certificates.sh", Destination: filepath.Join(config.ReadOnlyConfigOutputDir, "generate-certificates.sh"), Template: false, Mode: ExecutableFileMode},
+
 		// Shared files
 		{Action: ActionCopyFile, Source: "deploy/podman/flightctl.network", Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl.network"), Template: false, Mode: RegularFileMode},
 		{Action: ActionCopyFile, Source: "deploy/podman/flightctl.target", Destination: filepath.Join(config.SystemdUnitOutputDir, "flightctl.target"), Template: false, Mode: RegularFileMode},
@@ -81,7 +85,6 @@ func servicesManifest(config *RendererConfig) []InstallAction {
 
 		// Empty directories
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "pki"), Mode: ExecutableFileMode},
-		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "pam-issuer-pki"), Mode: ExecutableFileMode},
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-api"), Mode: ExecutableFileMode},
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-worker"), Mode: ExecutableFileMode},
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-periodic"), Mode: ExecutableFileMode},

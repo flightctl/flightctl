@@ -31,7 +31,7 @@ spec:
       {{- include "flightctl.databaseWaitInitContainer" (dict "context" . "userType" "app") | nindent 6 }}
       {{- include "flightctl.migrationWaitInitContainer" (dict "context" . "timeout" 600) | nindent 6 }}
       - name: init-certs
-        image: "registry.access.redhat.com/ubi9/ubi-minimal:9.7"
+        image: "registry.access.redhat.com/ubi9/ubi-minimal:9.7-1763362218"
         command:
           - /bin/sh
           - -c
@@ -87,6 +87,14 @@ spec:
               name: flightctl-alertmanager-proxy-openshift-token
               readOnly: true
             {{- end}}
+            - mountPath: /root/.flightctl/certs/server.crt
+              name: flightctl-alertmanager-proxy-server-tls
+              subPath: tls.crt
+              readOnly: true
+            - mountPath: /root/.flightctl/certs/server.key
+              name: flightctl-alertmanager-proxy-server-tls
+              subPath: tls.key
+              readOnly: true
             {{- include "flightctl.dbSslVolumeMounts" . | nindent 12 }}
           livenessProbe:
             httpGet:
@@ -122,7 +130,7 @@ spec:
             items:
               - key: ca.crt
                 path: ca.crt
-              {{- if or (and .Values.global.auth .Values.global.auth.caCert) (and .Values.auth .Values.auth.caCert) }}
+              {{- if ((.Values.global).auth).caCert }}
               - key: ca_oidc.crt
                 path: ca_oidc.crt
               {{- end }}
@@ -143,5 +151,8 @@ spec:
           secret:
             secretName: {{ .Values.global.auth.openshift.externalApiTokenSecretName }}
         {{- end}}
+        - name: flightctl-alertmanager-proxy-server-tls
+          secret:
+            secretName: {{ default "flightctl-alertmanager-proxy-server-tls" .Values.alertmanagerProxy.baseDomainTlsSecretName }}
         {{- include "flightctl.dbSslVolumes" . | nindent 8 }}
 {{- end }}

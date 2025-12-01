@@ -24,7 +24,7 @@ spec:
       {{- if and (eq $exposeService "nodePort") .Values.dev.nodePorts.telemetryGatewayOtlp }}
       nodePort: {{ .Values.dev.nodePorts.telemetryGatewayOtlp }}
       {{- end }}
-    - name: prometheus
+    - name: metrics
       port: 9464
       targetPort: prometheus
       protocol: TCP

@@ -183,7 +183,7 @@ When `device-path` is not specified or is empty, the agent automatically discove
 * **Permissions**: Agent must have read/write access to TPM device
 * **CA Certificates**: TPM manufacturer CA certificates must be installed on the Flight Control service
 
-For detailed information about TPM authentication architecture and certificate requirements, see [TPM Device Authentication](tpm-authentication.md).
+For detailed information about TPM authentication architecture and certificate requirements, see [TPM Device Authentication](configuring-device-attestation.md).
 
 ### TPM Troubleshooting
 
@@ -239,7 +239,7 @@ tpm:
 
 If enrollment fails with TPM-related errors:
 
-1. Check that TPM CA certificates are installed on the server (see [TPM Device Authentication](tpm-authentication.md#configuring-tpm-ca-certificates-in-flight-control-service))
+1. Check that TPM CA certificates are installed on the server (see [TPM Device Authentication](configuring-device-attestation.md#configuring-tpm-ca-certificates-in-flight-control-service))
 
 2. Verify the agent can generate CSR:
 

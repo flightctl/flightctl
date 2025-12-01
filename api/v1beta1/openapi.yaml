@@ -5251,11 +5251,13 @@ components:
         - "Degraded"
         - "Error"
         - "Unknown"
+        - "NoApplications"
       x-enum-varnames:
         - "ApplicationsSummaryStatusHealthy"
         - "ApplicationsSummaryStatusDegraded"
         - "ApplicationsSummaryStatusError"
         - "ApplicationsSummaryStatusUnknown"
+        - "ApplicationsSummaryStatusNoApplications"
     ApplicationStatusType:
       type: string
       description: Status of a single application on the device.
@@ -7063,6 +7065,8 @@ components:
           default: ["preferred_username"]
         roleAssignment:
           $ref: '#/components/schemas/AuthRoleAssignment'
+        introspection:
+          $ref: '#/components/schemas/OAuth2Introspection'
       required:
         - providerType
         - authorizationUrl
@@ -7072,6 +7076,69 @@ components:
         - clientSecret
         - organizationAssignment
         - roleAssignment
+    OAuth2Introspection:
+      type: object
+      description: OAuth2Introspection defines the token introspection configuration.
+      oneOf:
+        - $ref: '#/components/schemas/Rfc7662IntrospectionSpec'
+        - $ref: '#/components/schemas/GitHubIntrospectionSpec'
+        - $ref: '#/components/schemas/JwtIntrospectionSpec'
+      discriminator:
+        propertyName: type
+        mapping:
+          rfc7662: '#/components/schemas/Rfc7662IntrospectionSpec'
+          github: '#/components/schemas/GitHubIntrospectionSpec'
+          jwt: '#/components/schemas/JwtIntrospectionSpec'
+    Rfc7662IntrospectionSpec:
+      type: object
+      description: Rfc7662IntrospectionSpec defines token introspection using RFC 7662 standard. Uses the OAuth2ProviderSpec clientId and clientSecret for authentication.
+      properties:
+        type:
+          type: string
+          enum: [rfc7662]
+          description: The introspection type.
+        url:
+          type: string
+          description: The RFC 7662 token introspection endpoint URL.
+      required:
+        - type
+        - url
+    GitHubIntrospectionSpec:
+      type: object
+      description: GitHubIntrospectionSpec defines token introspection using GitHub API (POST /applications/{client_id}/token). Uses the OAuth2ProviderSpec clientId and clientSecret for Basic Auth and URL path.
+      properties:
+        type:
+          type: string
+          enum: [github]
+          description: The introspection type.
+        url:
+          type: string
+          description: The GitHub API base URL. Defaults to https://api.github.com for GitHub.com, but can be customized for GitHub Enterprise Server.
+          default: https://api.github.com
+      required:
+        - type
+    JwtIntrospectionSpec:
+      type: object
+      description: JwtIntrospectionSpec defines token introspection using JWT validation with JWKS.
+      properties:
+        type:
+          type: string
+          enum: [jwt]
+          description: The introspection type.
+        jwksUrl:
+          type: string
+          description: The JWKS (JSON Web Key Set) endpoint URL for fetching public keys to validate JWT signatures.
+        issuer:
+          type: string
+          description: Expected issuer claim value in the JWT. If not specified, uses the OAuth2ProviderSpec issuer.
+        audience:
+          type: array
+          items:
+            type: string
+          description: Expected audience claim values in the JWT. If not specified, uses the OAuth2ProviderSpec clientId.
+      required:
+        - type
+        - jwksUrl
     OpenShiftProviderSpec:
       type: object
       description: OpenShiftProviderSpec describes an OpenShift OAuth provider configuration.

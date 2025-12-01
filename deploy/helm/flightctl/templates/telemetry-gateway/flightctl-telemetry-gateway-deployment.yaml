@@ -62,9 +62,9 @@ spec:
           readOnly: true
           subPath: config.yaml
         - mountPath: /etc/telemetry-gateway/certs/ca.crt
-          name: ca-secret
+          name: flightctl-ca-bundle
           readOnly: true
-          subPath: ca.crt
+          subPath: ca-bundle.crt
         - mountPath: /etc/telemetry-gateway/certs/server.crt
           name: telemetry-gateway-tls
           readOnly: true
@@ -79,9 +79,9 @@ spec:
       - configMap:
           name: flightctl-telemetry-gateway-config
         name: flightctl-telemetry-gateway-config
-      - name: ca-secret
-        secret:
-          secretName: flightctl-ca-secret
       - name: telemetry-gateway-tls
         secret:
-          secretName: telemetry-gateway-tls
+          secretName: flightctl-telemetry-gateway-server-tls
+      - name: flightctl-ca-bundle
+        secret:
+          secretName: flightctl-ca-bundle

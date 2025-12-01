@@ -88,6 +88,7 @@ metadata:
     {{- include "flightctl.standardLabels" . | nindent 4 }}
 spec:
   secretName: flightctl-api-server-tls
+  commonName: flightctl-api
   duration: 17520h  # 2 years
   privateKey:
     algorithm: ECDSA
@@ -118,6 +119,7 @@ metadata:
     {{- include "flightctl.standardLabels" . | nindent 4 }}
 spec:
   secretName: flightctl-telemetry-gateway-server-tls
+  commonName: flightctl-telemetry-gateway
   duration: 17520h  # 2 years
   privateKey:
     algorithm: ECDSA
@@ -130,6 +132,37 @@ spec:
   dnsNames:
     {{- $telemetryGatewayDNSSansResult := include "flightctl.getTelemetryGatewayDNSSans" . | fromJson }}
     {{- range $telemetryGatewayDNSSansResult.sans }}
+    - {{ . }}
+    {{- end }}
+  issuerRef:
+    name: flightctl-ca-issuer
+    kind: Issuer
+    group: cert-manager.io
+
+---
+# Alertmanager Proxy Server TLS Certificate
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: flightctl-alertmanager-proxy-server-tls
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+spec:
+  secretName: flightctl-alertmanager-proxy-server-tls
+  commonName: flightctl-alertmanager-proxy
+  duration: 17520h  # 2 years
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  usages:
+    - digital signature
+    - key encipherment
+    - server auth
+  dnsNames:
+    {{- $alertmanagerProxyDNSSansResult := include "flightctl.getAlertmanagerProxyDNSSans" . | fromJson }}
+    {{- range $alertmanagerProxyDNSSansResult.sans }}
     - {{ . }}
     {{- end }}
   issuerRef:
@@ -221,26 +254,26 @@ spec:
           done
 
           # Extract certificates
-          echo "Creating CA bundle ConfigMap..."
+          echo "Creating CA bundle Secret..."
           FLIGHTCTL_CA=$($K8S_CLI get secret -n "$NAMESPACE" flightctl-ca -o jsonpath='{.data.tls\.crt}' | base64 -d)
           CLIENT_SIGNER_CA=$($K8S_CLI get secret -n "$NAMESPACE" flightctl-client-signer-ca -o jsonpath='{.data.tls\.crt}' | base64 -d)
 
-          # Create ConfigMap
+          # Create Secret (base64 encode the bundle data)
+          CA_BUNDLE_DATA=$(printf "%s\n%s" "${FLIGHTCTL_CA}" "${CLIENT_SIGNER_CA}" | base64 -w 0)
+
           cat <<EOF | $K8S_CLI apply -f -
           apiVersion: v1
-          kind: ConfigMap
+          kind: Secret
           metadata:
             name: flightctl-ca-bundle
             namespace: $NAMESPACE
             labels:
               {{- include "flightctl.standardLabels" . | nindent 14 }}
           data:
-            ca-bundle.crt: |
-          $(echo "$FLIGHTCTL_CA" | sed 's/^/      /')
-          $(echo "$CLIENT_SIGNER_CA" | sed 's/^/      /')
+            ca-bundle.crt: $CA_BUNDLE_DATA
           EOF
 
-          echo "CA bundle ConfigMap created successfully"
+          echo "CA bundle Secret created successfully"
       {{- if .Values.global.imagePullSecretName }}
       imagePullSecrets:
       - name: {{ .Values.global.imagePullSecretName }}
