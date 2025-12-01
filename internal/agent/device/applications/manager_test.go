@@ -126,6 +126,7 @@ func TestManager(t *testing.T) {
 				gomock.InOrder(
 					// start new quadlet app
 					mockExecSystemdDaemonReload(mockSystemdMgr),
+					mockExecSystemdListUnitsWithResults(mockSystemdMgr, "test-app.service"),
 					mockExecSystemdStart(mockSystemdMgr, "test-app.service"),
 					mockExecPodmanEvents(mockExec),
 				)
@@ -145,6 +146,7 @@ func TestManager(t *testing.T) {
 				gomock.InOrder(
 					// start current quadlet app (Ensure call)
 					mockExecSystemdDaemonReload(mockSystemdMgr),
+					mockExecSystemdListUnitsWithResults(mockSystemdMgr, "test-app.service"),
 					mockExecSystemdStart(mockSystemdMgr, "test-app.service"),
 
 					// remove quadlet app (syncProviders call)
@@ -174,6 +176,7 @@ func TestManager(t *testing.T) {
 				gomock.InOrder(
 					// start current quadlet app
 					mockExecSystemdDaemonReload(mockSystemdMgr),
+					mockExecSystemdListUnitsWithResults(mockSystemdMgr, "test-app.service"),
 					mockExecSystemdStart(mockSystemdMgr, "test-app.service"),
 
 					// stop current quadlet app
@@ -183,6 +186,7 @@ func TestManager(t *testing.T) {
 
 					// start updated quadlet app
 					mockExecSystemdDaemonReload(mockSystemdMgr),
+					mockExecSystemdListUnitsWithResults(mockSystemdMgr, "test-app.service"),
 					mockExecSystemdStart(mockSystemdMgr, "test-app.service"),
 					mockExecPodmanEvents(mockExec),
 				)
@@ -497,6 +501,14 @@ func mockExecSystemdStop(mockSystemdMgr *systemd.MockManager, services ...string
 
 func mockExecSystemdListUnits(mockSystemdMgr *systemd.MockManager, services ...string) *gomock.Call {
 	units := []client.SystemDUnitListEntry{}
+	return mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), services).Return(units, nil)
+}
+
+func mockExecSystemdListUnitsWithResults(mockSystemdMgr *systemd.MockManager, services ...string) *gomock.Call {
+	units := make([]client.SystemDUnitListEntry, len(services))
+	for i, svc := range services {
+		units[i] = client.SystemDUnitListEntry{Unit: svc}
+	}
 	return mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), services).Return(units, nil)
 }
 

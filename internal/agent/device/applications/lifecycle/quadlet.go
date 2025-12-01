@@ -112,19 +112,13 @@ func (q *Quadlet) add(ctx context.Context, action *Action) error {
 	// use the start time to gather logs for failed services
 	startTime := time.Now()
 
-	if err := q.ensureArtifactVolumes(ctx, action); err != nil {
-		return fmt.Errorf("ensuring artifact volumes: %w", err)
-	}
+	// if startup fails for any reason, ensure that the application is cleaned up.
 	requiresActionCleanup := true
 	defer func() {
 		if requiresActionCleanup {
-			vols := q.actionCache.volumes(action.ID)
-			if len(vols) > 0 {
-				if err := q.podman.RemoveVolumes(ctx, vols...); err != nil {
-					q.log.Errorf("Tearing down volumes failed after failed add action: %v", err)
-				}
+			if err := q.remove(ctx, action); err != nil {
+				q.log.Errorf("Failed to remove quadlet application %s after failing to add it: %v", appName, err)
 			}
-			q.actionCache.clearAction(action.ID)
 		}
 	}()
 
@@ -137,11 +131,42 @@ func (q *Quadlet) add(ctx context.Context, action *Action) error {
 		return fmt.Errorf("collecting targets: %w", err)
 	}
 
+	units, err := q.systemdManager.ListUnitsByMatchPattern(ctx, services)
+	if err != nil {
+		return fmt.Errorf("listing loaded units: %w", err)
+	}
+
+	unitSet := make(map[string]struct{})
+	for _, u := range units {
+		unitSet[u.Unit] = struct{}{}
+	}
+
+	// verify that all expected services were actually generated before attempting to start any of them.
+	// if some are missing check the quadlet generator as there is likely a syntax issue
+	for _, service := range services {
+		if _, ok := unitSet[service]; !ok && filepath.Ext(service) != ".target" {
+			err := fmt.Errorf("%s not loaded as a target", service)
+			generatorLogs, logsErr := q.systemdManager.Logs(ctx, client.WithLogTag("quadlet-generator"), client.WithLogSince(batchTime))
+			if logsErr != nil {
+				q.log.Errorf("Failed to fetch quadlet-generator logs: %v", logsErr)
+			}
+			if len(generatorLogs) > 0 {
+				q.log.Errorf("Failed to generate services from the defined Quadlet. Check the syntax of the Quadlet files.\n%s", strings.Join(generatorLogs, "\n"))
+				err = fmt.Errorf("quadlet generator: %s %w", strings.Join(generatorLogs, ","), err)
+			}
+			return err
+		}
+	}
+
+	if err := q.ensureArtifactVolumes(ctx, action); err != nil {
+		return fmt.Errorf("ensuring artifact volumes: %w", err)
+	}
+
+	q.actionCache.addServices(action.ID, services)
 	if len(services) > 0 {
 		q.log.Debugf("Starting quadlet: %s services: %q", appName, strings.Join(services, ","))
 		if err := q.systemdManager.Start(ctx, services...); err != nil {
 			// if starting fails, attempt to gather as many logs as possible
-			// check the individual service logs and the quadlet generator logs for potential issues
 			err = fmt.Errorf("starting units: %w", err)
 			for _, service := range services {
 				serviceLogs, serviceErr := q.systemdManager.Logs(ctx, client.WithLogUnit(service), client.WithLogSince(startTime))
@@ -154,19 +179,10 @@ func (q *Quadlet) add(ctx context.Context, action *Action) error {
 					err = fmt.Errorf("service: %q logs: %s: %w", service, strings.Join(serviceLogs, ","), err)
 				}
 			}
-			generatorLogs, logsErr := q.systemdManager.Logs(ctx, client.WithLogTag("quadlet-generator"), client.WithLogSince(batchTime))
-			if logsErr != nil {
-				q.log.Errorf("Failed to fetch quadlet-generator logs: %v", logsErr)
-			}
-			if len(generatorLogs) > 0 {
-				q.log.Errorf("Failed to generate services from the defined Quadlet. Check the syntax of the Quadlet files.\n%s", strings.Join(generatorLogs, "\n"))
-				err = fmt.Errorf("quadlet generator: %s %w", strings.Join(generatorLogs, ","), err)
-			}
 			return err
 		}
 		q.systemdManager.AddExclusions(services...)
 	}
-	q.actionCache.addServices(action.ID, services)
 
 	requiresActionCleanup = false
 	q.log.Infof("Started quadlet application: %s", appName)
@@ -391,12 +407,24 @@ func (q *Quadlet) ensureArtifactVolumes(ctx context.Context, action *Action) err
 			continue
 		}
 
-		q.log.Infof("Creating artifact volume %q from artifact %q", volume.ID, volume.Reference)
-
 		volumeName := volume.ID
-		volumePath, err := q.podman.CreateVolume(ctx, volumeName, labels)
-		if err != nil {
-			return cleanup(fmt.Errorf("creating volume %q: %w", volumeName, err))
+		volumePath := ""
+		var err error
+		if q.podman.VolumeExists(ctx, volumeName) {
+			q.log.Tracef("Volume %q already exists, updating contents", volumeName)
+			volumePath, err = q.podman.InspectVolumeMount(ctx, volumeName)
+			if err != nil {
+				return fmt.Errorf("inspect volume %q: %w", volumeName, err)
+			}
+			if err := q.rw.RemoveContents(volumePath); err != nil {
+				return fmt.Errorf("removing volume content %q: %w", volumePath, err)
+			}
+		} else {
+			q.log.Tracef("Creating volume %q", volumeName)
+			volumePath, err = q.podman.CreateVolume(ctx, volumeName, labels)
+			if err != nil {
+				return cleanup(fmt.Errorf("creating volume %q: %w", volumeName, err))
+			}
 		}
 
 		artifactVolumes = append(artifactVolumes, volumeName)
@@ -404,6 +432,8 @@ func (q *Quadlet) ensureArtifactVolumes(ctx context.Context, action *Action) err
 		if _, err := q.podman.ExtractArtifact(ctx, volume.Reference, volumePath); err != nil {
 			return cleanup(fmt.Errorf("extracting artifact to volume %q: %w", volumeName, err))
 		}
+
+		q.log.Infof("Creating artifact volume %q from artifact %q", volume.ID, volume.Reference)
 	}
 
 	if len(artifactVolumes) > 0 {

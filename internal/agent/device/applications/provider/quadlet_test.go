@@ -631,7 +631,6 @@ Image=vol-base.image
 				"myapp-.container.d/99-flightctl.conf",
 				"myapp-.pod.d/99-flightctl.conf",
 				"myapp-.volume.d/99-flightctl.conf",
-				"myapp-.image.d/99-flightctl.conf",
 				"myapp-.network.d/99-flightctl.conf",
 			},
 			checkFileContents: map[string]func(*testing.T, []byte){

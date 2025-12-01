@@ -77,6 +77,7 @@ func TestQuadlet_Execute(t *testing.T) {
 			setupMocks: func(mockSystemdMgr *systemd.MockManager, mockRW *fileio.MockReadWriter, mockExec *executer.MockExecuter) {
 				mockSystemdMgr.EXPECT().DaemonReload(gomock.Any()).Return(nil)
 				mockRW.EXPECT().ReadDir("/test/path").Return([]fs.DirEntry{}, nil)
+				mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), gomock.Any()).Return(nil, nil)
 			},
 			wantErr: false,
 		},
@@ -110,9 +111,9 @@ func TestQuadlet_Execute(t *testing.T) {
 				ID:   "test-id",
 			},
 			setupMocks: func(mockSystemdMgr *systemd.MockManager, mockRW *fileio.MockReadWriter, mockExec *executer.MockExecuter) {
-				mockSystemdMgr.EXPECT().DaemonReload(gomock.Any()).Return(nil)
-				mockSystemdMgr.EXPECT().DaemonReload(gomock.Any()).Return(nil)
+				mockSystemdMgr.EXPECT().DaemonReload(gomock.Any()).Return(nil).AnyTimes()
 				mockRW.EXPECT().ReadDir("/test/path").Return([]fs.DirEntry{}, nil)
+				mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), gomock.Any()).Return(nil, nil)
 
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume")).Return("[]", "", 0).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("stop")).Return("", "", 0).AnyTimes()
@@ -191,6 +192,8 @@ func TestQuadlet_add(t *testing.T) {
 					&mockDirEntry{name: "app.container", isDir: false},
 				}, nil)
 				mockRW.EXPECT().ReadFile("/test/path/app.container").Return([]byte("[Container]\nImage=nginx\n"), nil)
+				mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), []string{"app.service"}).
+					Return([]client.SystemDUnitListEntry{{Unit: "app.service"}}, nil)
 				mockSystemdMgr.EXPECT().Start(gomock.Any(), "app.service").Return(nil)
 			},
 			wantErr: false,
@@ -206,6 +209,8 @@ func TestQuadlet_add(t *testing.T) {
 				mockRW.EXPECT().ReadDir("/test/path").Return([]fs.DirEntry{
 					&mockDirEntry{name: "app.pod", isDir: false},
 				}, nil)
+				mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), []string{"custom.service"}).
+					Return([]client.SystemDUnitListEntry{{Unit: "custom.service"}}, nil)
 				mockRW.EXPECT().ReadFile("/test/path/app.pod").Return([]byte("[Pod]\nServiceName=custom.service\n"), nil)
 				mockSystemdMgr.EXPECT().Start(gomock.Any(), "custom.service").Return(nil)
 			},
@@ -223,6 +228,8 @@ func TestQuadlet_add(t *testing.T) {
 					&mockDirEntry{name: "mypod.pod", isDir: false},
 				}, nil)
 				mockRW.EXPECT().ReadFile("/test/path/mypod.pod").Return([]byte("[Pod]\nName=mypod\n"), nil)
+				mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), []string{"mypod-pod.service"}).
+					Return([]client.SystemDUnitListEntry{{Unit: "mypod-pod.service"}}, nil)
 				mockSystemdMgr.EXPECT().Start(gomock.Any(), "mypod-pod.service").Return(nil)
 			},
 			wantErr: false,
@@ -238,6 +245,8 @@ func TestQuadlet_add(t *testing.T) {
 				mockRW.EXPECT().ReadDir("/test/path").Return([]fs.DirEntry{
 					&mockDirEntry{name: "app.target", isDir: false},
 				}, nil)
+				mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), []string{"app.target"}).
+					Return(nil, nil)
 				mockSystemdMgr.EXPECT().Start(gomock.Any(), "app.target").Return(nil)
 			},
 			wantErr: false,
@@ -257,6 +266,8 @@ func TestQuadlet_add(t *testing.T) {
 				}, nil)
 				mockRW.EXPECT().ReadFile("/test/path/app1.container").Return([]byte("[Container]\nImage=nginx\n"), nil)
 				mockRW.EXPECT().ReadFile("/test/path/app2.container").Return([]byte("[Container]\nImage=redis\n"), nil)
+				mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), []string{"app.target", "app1.service", "app2.service"}).
+					Return([]client.SystemDUnitListEntry{{Unit: "app1.service"}, {Unit: "app2.service"}}, nil)
 				mockSystemdMgr.EXPECT().Start(gomock.Any(), "app.target", "app1.service", "app2.service").Return(nil)
 			},
 			wantErr: false,
@@ -275,6 +286,8 @@ func TestQuadlet_add(t *testing.T) {
 					&mockDirEntry{name: "app.container", isDir: false},
 				}, nil)
 				mockRW.EXPECT().ReadFile("/test/path/app.container").Return([]byte("[Container]\nImage=nginx\n"), nil)
+				mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), []string{"app.service"}).
+					Return([]client.SystemDUnitListEntry{{Unit: "app.service"}}, nil)
 				mockSystemdMgr.EXPECT().Start(gomock.Any(), "app.service").Return(nil)
 			},
 			wantErr: false,
@@ -309,13 +322,25 @@ func TestQuadlet_add(t *testing.T) {
 				Path: "/test/path",
 			},
 			setupMocks: func(mockSystemdMgr *systemd.MockManager, mockRW *fileio.MockReadWriter, mockExec *executer.MockExecuter) {
-				mockSystemdMgr.EXPECT().DaemonReload(gomock.Any()).Return(nil)
+				mockSystemdMgr.EXPECT().DaemonReload(gomock.Any()).Return(nil).AnyTimes()
 				mockRW.EXPECT().ReadDir("/test/path").Return([]fs.DirEntry{
 					&mockDirEntry{name: "app.container", isDir: false},
 				}, nil)
 				mockRW.EXPECT().ReadFile("/test/path/app.container").Return([]byte("[Container]\nImage=nginx\n"), nil)
+				mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), []string{"app.service"}).
+					Return([]client.SystemDUnitListEntry{{Unit: "app.service"}}, nil).AnyTimes()
 				mockSystemdMgr.EXPECT().Start(gomock.Any(), "app.service").Return(fmt.Errorf("start failed"))
 				mockSystemdMgr.EXPECT().Logs(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+
+				// all of the expected calls for removing
+				mockSystemdMgr.EXPECT().Stop(gomock.Any(), "app.service").Return(nil).AnyTimes()
+				mockSystemdMgr.EXPECT().RemoveExclusions([]string{"app.service"}).AnyTimes()
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume")).Return("[]", "", 0).AnyTimes()
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("stop")).Return("", "", 0).AnyTimes()
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("rm")).Return("", "", 0).AnyTimes()
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("ps")).Return("", "", 0).AnyTimes()
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("network")).Return("", "", 0).AnyTimes()
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("pod")).Return("", "", 0).AnyTimes()
 			},
 			wantErr: true,
 		},
@@ -330,17 +355,21 @@ func TestQuadlet_add(t *testing.T) {
 				},
 			},
 			setupMocks: func(mockSystemdMgr *systemd.MockManager, mockRW *fileio.MockReadWriter, mockExec *executer.MockExecuter) {
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("--version")).Return("podman version 5.5", "", 0)
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("image", "exists", "artifact:mydata")).Return("", "", 1)
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "create", "data")).Return("", "", 0)
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "inspect", "data")).Return("/var/lib/containers/storage/volumes/app-with-vols-data/_data", "", 0)
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("artifact", "extract", "artifact:mydata")).Return("", "", 0)
-
 				mockSystemdMgr.EXPECT().DaemonReload(gomock.Any()).Return(nil)
 				mockRW.EXPECT().ReadDir("/test/path").Return([]fs.DirEntry{
 					&mockDirEntry{name: "app.container", isDir: false},
 				}, nil)
 				mockRW.EXPECT().ReadFile("/test/path/app.container").Return([]byte("[Container]\nImage=nginx\n"), nil)
+				mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), []string{"app.service"}).
+					Return([]client.SystemDUnitListEntry{{Unit: "app.service"}}, nil)
+
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("image", "exists", "artifact:mydata")).Return("", "", 1)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "exists", "data")).Return("", "", 1)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("--version")).Return("podman version 5.5", "", 0)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "create", "data")).Return("", "", 0)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "inspect", "data")).Return("/var/lib/containers/storage/volumes/app-with-vols-data/_data", "", 0)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("artifact", "extract", "artifact:mydata")).Return("", "", 0)
+
 				mockSystemdMgr.EXPECT().Start(gomock.Any(), "app.service").Return(nil)
 			},
 			wantErr: false,
@@ -357,15 +386,17 @@ func TestQuadlet_add(t *testing.T) {
 				},
 			},
 			setupMocks: func(mockSystemdMgr *systemd.MockManager, mockRW *fileio.MockReadWriter, mockExec *executer.MockExecuter) {
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("--version")).Return("podman version 5.5", "", 0)
+				mockSystemdMgr.EXPECT().DaemonReload(gomock.Any()).Return(nil)
+				mockRW.EXPECT().ReadDir("/test/path").Return([]fs.DirEntry{}, nil)
+				mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), gomock.Any()).Return(nil, nil)
+
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("image", "exists", "docker.io/nginx:latest")).Return("", "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("image", "exists", "artifact:config")).Return("", "", 1)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "exists", "artifact-vol")).Return("", "", 1)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("--version")).Return("podman version 5.5", "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "create", "artifact-vol")).Return("", "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "inspect", "artifact-vol")).Return("/var/lib/containers/storage/volumes/app-mixed-vols-artifact-vol/_data", "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("artifact", "extract", "artifact:config")).Return("", "", 0)
-
-				mockSystemdMgr.EXPECT().DaemonReload(gomock.Any()).Return(nil)
-				mockRW.EXPECT().ReadDir("/test/path").Return([]fs.DirEntry{}, nil)
 			},
 			wantErr: false,
 		},
@@ -380,7 +411,12 @@ func TestQuadlet_add(t *testing.T) {
 				},
 			},
 			setupMocks: func(mockSystemdMgr *systemd.MockManager, mockRW *fileio.MockReadWriter, mockExec *executer.MockExecuter) {
+				mockSystemdMgr.EXPECT().DaemonReload(gomock.Any()).Return(nil)
+				mockRW.EXPECT().ReadDir("/test/path").Return([]fs.DirEntry{}, nil)
+				mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), gomock.Any()).Return(nil, nil)
+
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("image", "exists", "artifact:badartifact")).Return("", "", 1)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "exists", "data")).Return("", "", 1)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "create", "data")).Return("", "Error: creation failed", 1)
 			},
 			wantErr: true,
@@ -723,20 +759,24 @@ func TestQuadlet_update(t *testing.T) {
 				ID:   "app-123",
 			},
 			setupMocks: func(mockSystemdMgr *systemd.MockManager, mockRW *fileio.MockReadWriter, mockExec *executer.MockExecuter) {
+				// remove flow - DaemonReload called during remove
 				mockSystemdMgr.EXPECT().DaemonReload(gomock.Any()).Return(nil)
-				mockSystemdMgr.EXPECT().DaemonReload(gomock.Any()).Return(nil)
-				mockRW.EXPECT().ReadDir("/test/path").Return([]fs.DirEntry{
-					&mockDirEntry{name: "app.container", isDir: false},
-				}, nil)
-				mockRW.EXPECT().ReadFile("/test/path/app.container").Return([]byte("[Container]\nImage=nginx\n"), nil)
-				mockSystemdMgr.EXPECT().Start(gomock.Any(), "app.service").Return(nil)
-
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume")).Return("[]", "", 0).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("stop")).Return("", "", 0).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("rm")).Return("", "", 0).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("ps")).Return("", "", 0).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("network")).Return("", "", 0).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("pod")).Return("", "", 0).AnyTimes()
+
+				// add flow - DaemonReload, then verify units, then start
+				mockSystemdMgr.EXPECT().DaemonReload(gomock.Any()).Return(nil)
+				mockRW.EXPECT().ReadDir("/test/path").Return([]fs.DirEntry{
+					&mockDirEntry{name: "app.container", isDir: false},
+				}, nil)
+				mockRW.EXPECT().ReadFile("/test/path/app.container").Return([]byte("[Container]\nImage=nginx\n"), nil)
+				mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), []string{"app.service"}).
+					Return([]client.SystemDUnitListEntry{{Unit: "app.service"}}, nil)
+				mockSystemdMgr.EXPECT().Start(gomock.Any(), "app.service").Return(nil)
 			},
 			setupServices: func(q *Quadlet) {
 				q.actionCache.cache["app-123"] = &actionCacheEntry{}
@@ -1075,8 +1115,9 @@ func TestQuadlet_ensureArtifactVolumes(t *testing.T) {
 				},
 			},
 			setupMocks: func(mockExec *executer.MockExecuter) {
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("--version")).Return("podman version 5.5", "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("image", "exists", "artifact:myartifact")).Return("", "", 1)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "exists", "vol1")).Return("", "", 1)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("--version")).Return("podman version 5.5", "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "create", "vol1")).Return("", "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "inspect", "vol1")).Return("/var/lib/containers/storage/volumes/app-123-vol1/_data", "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("artifact", "extract", "artifact:myartifact")).Return("", "", 0)
@@ -1097,11 +1138,13 @@ func TestQuadlet_ensureArtifactVolumes(t *testing.T) {
 			setupMocks: func(mockExec *executer.MockExecuter) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("--version")).Return("podman version 5.5", "", 0).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("image", "exists", "artifact:art1")).Return("", "", 1)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "exists", "vol1")).Return("", "", 1)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "create", "vol1")).Return("", "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "inspect", "vol1")).Return("/var/lib/containers/storage/volumes/app-456-vol1/_data", "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("artifact", "extract", "artifact:art1")).Return("", "", 0)
 
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("image", "exists", "artifact:art2")).Return("", "", 1)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "exists", "vol2")).Return("", "", 1)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "create", "vol2")).Return("", "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "inspect", "vol2")).Return("/var/lib/containers/storage/volumes/app-456-vol2/_data", "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("artifact", "extract", "artifact:art2")).Return("", "", 0)
@@ -1137,8 +1180,9 @@ func TestQuadlet_ensureArtifactVolumes(t *testing.T) {
 			},
 			setupMocks: func(mockExec *executer.MockExecuter) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("image", "exists", "docker.io/nginx:latest")).Return("", "", 0)
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("--version")).Return("podman version 5.5", "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("image", "exists", "artifact:mydata")).Return("", "", 1)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "exists", "vol2")).Return("", "", 1)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("--version")).Return("podman version 5.5", "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "create", "vol2")).Return("", "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "inspect", "vol2")).Return("/var/lib/containers/storage/volumes/app-mixed-vol2/_data", "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("artifact", "extract", "artifact:mydata")).Return("", "", 0)
@@ -1159,6 +1203,7 @@ func TestQuadlet_ensureArtifactVolumes(t *testing.T) {
 			},
 			setupMocks: func(mockExec *executer.MockExecuter) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("image", "exists", "artifact:badartifact")).Return("", "", 1)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "exists", "vol1")).Return("", "", 1)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "create", "vol1")).Return("", "Error: volume creation failed", 1)
 			},
 			wantArtifactVolumes: nil,
@@ -1174,8 +1219,9 @@ func TestQuadlet_ensureArtifactVolumes(t *testing.T) {
 				},
 			},
 			setupMocks: func(mockExec *executer.MockExecuter) {
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("--version")).Return("podman version 5.5", "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("image", "exists", "artifact:badextract")).Return("", "", 1)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "exists", "vol1")).Return("", "", 1)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("--version")).Return("podman version 5.5", "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "create", "vol1")).Return("", "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "inspect", "vol1")).Return("/var/lib/containers/storage/volumes/app-extract-fail-vol1/_data", "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("artifact", "extract", "artifact:badextract")).Return("", "Error: extraction failed", 1)

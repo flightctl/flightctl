@@ -40,10 +40,6 @@ type quadletHandler struct {
 	specVolumes    []v1beta1.ApplicationVolume
 }
 
-func (b *quadletHandler) Dependencies() []string {
-	return []string{"podman"}
-}
-
 func (b *quadletHandler) Verify(ctx context.Context, path string) error {
 	if err := ensureDependenciesFromAppType([]string{"podman"}); err != nil {
 		return fmt.Errorf("ensuring dependencies: %w", err)
@@ -134,10 +130,6 @@ type containerHandler struct {
 	rw     fileio.ReadWriter
 	podman *client.Podman
 	spec   *v1beta1.ImageApplicationProviderSpec
-}
-
-func (b *containerHandler) Dependencies() []string {
-	return []string{"podman"}
 }
 
 func (b *containerHandler) Verify(ctx context.Context, path string) error {
