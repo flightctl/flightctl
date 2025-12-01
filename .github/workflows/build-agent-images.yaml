@@ -1,0 +1,104 @@
+name: "Build Agent Images"
+
+on:
+  workflow_call:
+    inputs:
+      rpm_suffix:
+        description: "RPM artifact suffix (root, e.g., centos-stream+epel-next-9-x86_64, epel-10-x86_64)"
+        required: true
+        type: string
+      os_id:
+        description: "Agent Image OS ID (cs9-bootc / cs10-bootc)"
+        required: true
+        type: string
+      tag:
+        description: "Image tag"
+        required: true
+        type: string
+jobs:
+  build-agent-images:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Restore bootc-image-builder cache
+        id: cache-bootc-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            bin/dnf-cache
+            bin/osbuild-cache
+            dnf-cache
+            osbuild-cache
+          key: ${{ runner.os }}-bootc-cache-e2e-unified-${{ hashFiles('test/scripts/agent-images/base/Containerfile') }}
+          restore-keys: |
+            ${{ runner.os }}-bootc-cache-e2e-
+            
+      - name: Download RPM artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: rpms-${{ inputs.rpm_suffix }}
+          path: bin/rpm
+
+      - name: Build agent images for flavor
+        env:
+          TAG: ${{ inputs.tag }}
+          AGENT_IMAGE_OUTPUT: push
+          AGENT_OS_ID: ${{ inputs.os_id }}
+        run: |
+          mkdir -p bin/rpm
+          touch bin/rpm/.rpm
+          ls -la bin/rpm
+          make -j4 e2e-agent-images
+
+      - name: Print parallel build logs (per flavor)
+        if: always()
+        env:
+          OS_ID: ${{ inputs.os_id }}
+        run: |
+          set -euo pipefail
+          LOG_DIR="artifacts/logs-${OS_ID}"
+          echo "::group::Variants+bundle output"
+          if [ -f "${LOG_DIR}/variants.log" ]; then
+            cat "${LOG_DIR}/variants.log"
+          else
+            echo "No variants.log found at ${LOG_DIR}/variants.log"
+          fi
+          echo "::endgroup::"
+          echo "::group::QCOW2 output"
+          if [ -f "${LOG_DIR}/qcow2.log" ]; then
+            cat "${LOG_DIR}/qcow2.log"
+          else
+            echo "No qcow2.log found at ${LOG_DIR}/qcow2.log"
+          fi
+          echo "::endgroup::"
+
+      - name: Upload agent images bundle (per flavor)
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-images-bundle-${{ inputs.os_id }}
+          path: bin/agent-artifacts/agent-images-bundle-${{ inputs.os_id }}.tar
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload qcow2 image (per flavor)
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-qcow2-image-${{ inputs.os_id }}
+          path: bin/output/agent-qcow2-${{ inputs.os_id }}/qcow2/disk.qcow2
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Save caches
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            bin/dnf-cache
+            bin/osbuild-cache
+          key: ${{ runner.os }}-bootc-cache-e2e-unified-${{ hashFiles('test/scripts/agent-images/base/Containerfile') }}

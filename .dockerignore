@@ -4,6 +4,8 @@ obj/
 *.dll
 *.so
 *.dylib
+*.qcow2
+*.tar
 
 # Test files
 *.test
@@ -22,6 +24,7 @@ coverage.txt
 Thumbs.db
 
 # Git
+.git/
 .gitignore
 
 # Documentation

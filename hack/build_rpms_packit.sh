@@ -88,14 +88,20 @@ cleanup_packaging_artifacts() {
 }
 
 ./hack/preflight_checks.sh "${ROOT}"
+
+echo "::group::Preparing RPM build environment"
 install_packit
 prepare_workspace
+echo "::endgroup::"
 
 if [[ -n "$ROOT" ]]; then
+  echo "::group::Building RPM in $ROOT"
   run_mock_build
 else
+  echo "::group::Building RPM locally"
   run_local_build
 fi
+echo "::endgroup::"
 
 move_artifacts
 cleanup_packaging_artifacts

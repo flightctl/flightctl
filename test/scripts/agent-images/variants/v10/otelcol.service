@@ -24,3 +24,7 @@ Group=otelcol
 
 [Install]
 WantedBy=multi-user.target
+
+
+
+

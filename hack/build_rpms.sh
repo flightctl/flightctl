@@ -362,6 +362,7 @@ run_build_in_container() {
   podman run --rm \
     --privileged \
     --network=host \
+    --pull=newer \
     -v "${repo_root}:/work:z" \
     -v "${host_gomodcache}:${container_gomodcache}" \
     -v "${host_gocache}:${container_gocache}" \

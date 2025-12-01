@@ -10,21 +10,88 @@ And can be triggered from the top-level makefile with: `make e2e-agent-images`
 
 ## Build Process
 
-The script builds images in two phases:
-1. **Base image**: Built first since other images depend on it
-2. **Remaining images**: Built in parallel to speed up the process
+The script is a wrapper that delegates to the modular build system:
+1. **Base image**: Built using `scripts/build.sh --base`
+2. **Variants and qcow2**: Built using `scripts/build_and_qcow2.sh`
 
-The number of parallel build jobs can be controlled with the `PARALLEL_JOBS`
-environment variable (default: 4).
+The build process automatically handles different OS flavors (cs9-bootc, cs10-bootc)
+and RPM source detection (local, COPR, or Brew registry).
 
-Example:
+## OS Flavors and Tagging
+
+The build system supports multiple OS flavors defined in `flavors/` directory:
+
+- **cs9-bootc** - Based on CentOS Stream 9 bootc (default)
+- **cs10-bootc** - Based on CentOS Stream 10 bootc
+
+### Building Different Flavors
+
 ```bash
-PARALLEL_JOBS=8 make e2e-agent-images
+# Build cs9-bootc images (default)
+./scripts/build.sh --base
+
+# Build cs10-bootc images
+FLAVORS=cs10-bootc ./scripts/build.sh --base
+
+# Build both flavors
+FLAVORS="cs9-bootc cs10-bootc" ./scripts/build.sh --base --variants
 ```
 
-The images are built using the `Containerfile-*` files in this directory, functionality
-or service deployment changes should be implemented on those container files, or if
-additional transition images are required we should create and document new Containerfiles.
+### Image Tagging
+
+Images are tagged with OS flavor identifiers for easy selection:
+
+**Base Images:**
+- `quay.io/flightctl/flightctl-device:base-cs9-bootc-${TAG}` (canonical)
+- `quay.io/flightctl/flightctl-device:base-cs10-bootc-${TAG}` (canonical)
+- `quay.io/flightctl/flightctl-device:base` (latest flavor)
+- `quay.io/flightctl/flightctl-device:base-cs9-bootc`
+- `quay.io/flightctl/flightctl-device:base-${TAG}`
+
+**Variant Images:**
+- `quay.io/flightctl/flightctl-device:v2-cs9-bootc-${TAG}`
+- `quay.io/flightctl/flightctl-device:v2-cs10-bootc-${TAG}`
+- `quay.io/flightctl/flightctl-device:v2` (latest flavor)
+- `quay.io/flightctl/flightctl-device:v2-cs9-bootc`
+
+This allows selecting specific OS versions in deployment configurations.
+
+## Directory Structure
+
+The build system now uses a modular structure:
+
+```
+agent-images/
+├── base/                  # Base image Containerfile
+├── variants/              # Variant-specific files
+│   ├── v2/, v3/, ..., v10/   # Each contains Containerfile and variant-specific files
+├── apps/                  # Application images (Containerfile.<app-name>.<version>)
+├── common/                # Shared files used by variants/apps
+├── flavors/               # OS flavor configurations (.conf files)
+│   ├── cs9-bootc.conf
+│   └── cs10-bootc.conf
+├── scripts/               # Build automation scripts
+│   ├── build.sh           # Main build script (base, variants, apps)
+│   ├── build_and_qcow2.sh # Orchestrates parallel builds
+│   ├── bundle.sh          # Create image bundles
+│   ├── qcow2.sh           # Generate QCOW2 disk images
+│   └── upload-images.sh   # Upload images to registry
+└── create_agent_images.sh # Main wrapper script
+```
+
+The images are built using the `Containerfile` files in the respective directories. For functionality or service deployment changes, update the appropriate `base/Containerfile`, `variants/vX/Containerfile`, or create new variants as needed.
+
+## Build Scripts
+
+The `scripts/` directory contains modular build automation:
+
+- **`build.sh`** - Main build script with options: `--base`, `--variants`, `--apps`
+- **`build_and_qcow2.sh`** - Orchestrates variants and QCOW2 builds in parallel
+- **`bundle.sh`** - Creates tar bundles of built images for distribution
+- **`qcow2.sh`** - Generates bootable QCOW2 disk images using bootc-image-builder
+- **`upload-images.sh`** - Uploads image bundles to container registries
+
+Use `./scripts/build.sh --help` for detailed usage and options.
 
 | Name   | Image                         | Bootc Containers                 |
 |------  |-------------------------------|----------------------------------|

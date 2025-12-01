@@ -1,9 +1,0 @@
-# localhost:5000/flightctl-device:v6
-#     $(IP):5000/flightctl-device:v6
-#
-# Image built on top of our E2E base image which also includes an embedded
-# hook that will trigger sshd reload after each configuration update
-
-FROM localhost:5000/flightctl-device:base
-
-COPY ./test/e2e/hooks/sshd-hook.yaml /usr/lib/flightctl/hooks.d/afterupdating/sshd-hook.yaml
