@@ -51,7 +51,7 @@ data:
     auth:
       insecureSkipTlsVerify: {{ default false .Values.global.auth.insecureSkipTlsVerify }}
       {{- if and .Values.global.auth .Values.global.auth.caCert }}
-      caCert: {{ .Values.global.auth.caCert }}
+      caCert: {{ ((.Values.global).auth).caCert | quote }}
       {{- end }}
       {{- if eq $effectiveAuthType "k8s" }}
       k8s:
