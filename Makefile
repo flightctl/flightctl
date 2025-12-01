@@ -1,4 +1,4 @@
-# Enable BuildKit for all container builds
+# Enable BuildKit for all container buildsmakefi
 export DOCKER_BUILDKIT=1
 export BUILDKIT_PROGRESS=plain
 
@@ -332,7 +332,8 @@ bin:
 
 # only trigger the rpm build when not built before or changes happened to the codebase
 bin/.rpm: bin $(shell find $(ROOT_DIR)/ -name "*.go" -not -path "$(ROOT_DIR)/packaging/*") packaging/rpm/flightctl.spec packaging/systemd/flightctl-agent.service hack/build_rpms.sh $(shell find $(ROOT_DIR)/packaging/selinux -type f)
-	$(ROOT_DIR)/hack/build_rpms.sh
+	@sudo GOMODCACHE="$(shell go env GOMODCACHE)" GOCACHE="$(shell go env GOCACHE)" $(ROOT_DIR)/hack/build_rpms.sh $(if $(RPM_MOCK_ROOT),--root $(RPM_MOCK_ROOT),)
+	@sudo chown -R $(shell id -u):$(shell id -g) bin/rpm/
 	touch bin/.rpm
 
 rpm: bin/.rpm
