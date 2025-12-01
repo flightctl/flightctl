@@ -7,6 +7,7 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-ui
 spec:
   ingress:
   - from:

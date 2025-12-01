@@ -84,7 +84,7 @@ var _ = Describe("Rollout Policies", func() {
 			Expect(err).ToNot(HaveOccurred())
 			time.Sleep(30 * time.Second)
 
-			//Update fleet with template
+			// Update fleet with template
 			err = tc.harness.CreateOrUpdateTestFleet(fleetName, createFleetSpec(bsq1, lo.ToPtr(api.Percentage("50%")), deviceSpec))
 			Expect(err).ToNot(HaveOccurred())
 
@@ -543,11 +543,9 @@ func setupTestContext(ctx context.Context) *TestContext {
 		Image: sleepAppImage,
 	}
 
-	appType := api.AppType("compose")
-
 	applicationSpec := api.ApplicationProviderSpec{
 		Name:    lo.ToPtr("sleepapp"),
-		AppType: &appType,
+		AppType: api.AppTypeCompose,
 	}
 
 	return &TestContext{

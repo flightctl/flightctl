@@ -22,7 +22,7 @@ source "${SCRIPT_DIR}"/functions
 IP=$(get_ext_ip)
 
 # Use external getopt for long options
-options=$(getopt -o adh --long only-db,db-size:,auth,help,chart-path:,values-path:,no-values,image-registry:,image-tag: -n "$0" -- "$@")
+options=$(getopt -o adh --long only-db,db-size:,help,chart-path:,values-path:,no-values,image-registry:,image-tag: -n "$0" -- "$@")
 eval set -- "$options"
 
 usage="[--only-db] [--db-size=e2e|small-1k|medium-10k] [--chart-path=PATH] [--values-path=PATH] [--no-values] [--image-registry=REGISTRY] [--image-tag=TAG]"
@@ -106,21 +106,12 @@ if [ "$GATEWAY" ]; then
   GATEWAY_ARGS="--set global.exposeServicesMethod=gateway --set global.gatewayClass=contour-gateway --set global.gatewayPorts.tls=4443 --set global.gatewayPorts.http=4480"
 fi
 
-AUTH_ARGS=""
-if [ "$AUTH" ]; then
-  # Always deploy with Kubernetes auth in this script
-  AUTH_TYPE=k8s
-  AUTH_ARGS="--set global.auth.type=k8s"
-fi
+# Always deploy with Kubernetes auth
+AUTH_ARGS="--set global.auth.type=k8s"
 
 # Ensure IMAGE_REGISTRY ends with /
 if [[ ! "$IMAGE_REGISTRY" == */ ]]; then
   IMAGE_REGISTRY="${IMAGE_REGISTRY}/"
-fi
-
-ORGS_ARGS=""
-if [ "$ORGS" ]; then
-  ORGS_ARGS="--set global.organizations.enabled=true"
 fi
 
 # Build image override arguments using a loop
@@ -149,7 +140,7 @@ fi
 helm upgrade --install --namespace flightctl-external \
                   ${VALUES_ARG} \
                   --set global.baseDomain=${IP}.nip.io \
-                  ${ONLY_DB} ${DB_SIZE_PARAMS} ${AUTH_ARGS} ${SQL_ARG} ${GATEWAY_ARGS} ${KV_ARG} ${ORGS_ARGS} ${IMAGE_ARGS} flightctl \
+                  ${ONLY_DB} ${DB_SIZE_PARAMS} ${AUTH_ARGS} ${SQL_ARG} ${GATEWAY_ARGS} ${KV_ARG} ${IMAGE_ARGS} flightctl \
               "${CHART_PATH}" --kube-context kind-kind
 
 "${SCRIPT_DIR}"/wait_for_postgres.sh
@@ -170,9 +161,6 @@ if [ "$ONLY_DB" ]; then
   exit 0
 fi
 
-if [ "$AUTH" ]; then
-  echo "Waiting for authentication services to be ready..."
-fi
 
 kubectl rollout status deployment flightctl-api -n flightctl-external -w --timeout=300s
 
@@ -180,17 +168,10 @@ LOGGED_IN=false
 
 # attempt to login, it could take some time for API to be stable
 for i in {1..60}; do
-  if [ "$AUTH" ]; then
-    TOKEN=$(kubectl -n flightctl-external create token flightctl-admin --duration=8h --context kind-kind 2>/dev/null || true)
-    if [ -n "$TOKEN" ] && ./bin/flightctl login -k https://api.${IP}.nip.io:${API_PORT} --token "$TOKEN"; then
-      LOGGED_IN=true
-      break
-    fi
-  else
-    if ./bin/flightctl login -k https://api.${IP}.nip.io:${API_PORT}; then
-      LOGGED_IN=true
-      break
-    fi
+  TOKEN=$(kubectl -n flightctl-external create token flightctl-admin --duration=8h --context kind-kind 2>/dev/null || true)
+  if [ -n "$TOKEN" ] && ./bin/flightctl login -k https://api.${IP}.nip.io:${API_PORT} --token "$TOKEN"; then
+    LOGGED_IN=true
+    break
   fi
   sleep 5
 done
@@ -201,13 +182,3 @@ if [[ "${LOGGED_IN}" == "false" ]]; then
 fi
 
 ensure_organization_set
-
-# Setup telemetry gateway certificates (non-blocking)
-if ! "${SCRIPT_DIR}"/setup_telemetry_gateway_certs.sh \
-  --sans "DNS:localhost,DNS:flightctl-telemetry-gateway.flightctl-external.svc,DNS:flightctl-telemetry-gateway.flightctl-external.svc.cluster.local,DNS:telemetry-gateway.${IP}.nip.io,IP:127.0.0.1" \
-  --yaml-helpers-path "./deploy/scripts/yaml_helpers.py" \
-  --force-rotate; then
-  echo "WARNING: Failed to setup telemetry gateway certificates. Deployment will continue without them."
-  echo "You can manually run the certificate setup later if needed."
-fi
-echo "::endgroup::"

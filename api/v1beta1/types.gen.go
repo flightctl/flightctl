@@ -36,10 +36,11 @@ const (
 
 // Defines values for ApplicationsSummaryStatusType.
 const (
-	ApplicationsSummaryStatusDegraded ApplicationsSummaryStatusType = "Degraded"
-	ApplicationsSummaryStatusError    ApplicationsSummaryStatusType = "Error"
-	ApplicationsSummaryStatusHealthy  ApplicationsSummaryStatusType = "Healthy"
-	ApplicationsSummaryStatusUnknown  ApplicationsSummaryStatusType = "Unknown"
+	ApplicationsSummaryStatusDegraded       ApplicationsSummaryStatusType = "Degraded"
+	ApplicationsSummaryStatusError          ApplicationsSummaryStatusType = "Error"
+	ApplicationsSummaryStatusHealthy        ApplicationsSummaryStatusType = "Healthy"
+	ApplicationsSummaryStatusNoApplications ApplicationsSummaryStatusType = "NoApplications"
+	ApplicationsSummaryStatusUnknown        ApplicationsSummaryStatusType = "Unknown"
 )
 
 // Defines values for AuthDynamicOrganizationAssignmentType.
@@ -299,6 +300,11 @@ const (
 	None    FleetRolloutStartedDetailsRolloutStrategy = "None"
 )
 
+// Defines values for GitHubIntrospectionSpecType.
+const (
+	Github GitHubIntrospectionSpecType = "github"
+)
+
 // Defines values for ImagePullPolicy.
 const (
 	PullAlways       ImagePullPolicy = "Always"
@@ -314,6 +320,11 @@ const (
 // Defines values for InternalTaskPermanentlyFailedDetailsDetailType.
 const (
 	InternalTaskPermanentlyFailed InternalTaskPermanentlyFailedDetailsDetailType = "InternalTaskPermanentlyFailed"
+)
+
+// Defines values for JwtIntrospectionSpecType.
+const (
+	Jwt JwtIntrospectionSpecType = "jwt"
 )
 
 // Defines values for K8sProviderSpecProviderType.
@@ -401,6 +412,11 @@ const (
 	SpecTemplate ResourceUpdatedDetailsUpdatedFields = "spec.template"
 )
 
+// Defines values for Rfc7662IntrospectionSpecType.
+const (
+	Rfc7662 Rfc7662IntrospectionSpecType = "rfc7662"
+)
+
 // Defines values for RolloutStrategy.
 const (
 	RolloutStrategyBatchSequence RolloutStrategy = "BatchSequence"
@@ -416,6 +432,7 @@ const (
 	SystemdActiveStateMaintenance  SystemdActiveStateType = "maintenance"
 	SystemdActiveStateRefreshing   SystemdActiveStateType = "refreshing"
 	SystemdActiveStateReloading    SystemdActiveStateType = "reloading"
+	SystemdActiveStateUnknown      SystemdActiveStateType = "unknown"
 )
 
 // Defines values for SystemdEnableStateType.
@@ -423,6 +440,7 @@ const (
 	SystemdEnableStateAlias          SystemdEnableStateType = "alias"
 	SystemdEnableStateBad            SystemdEnableStateType = "bad"
 	SystemdEnableStateDisabled       SystemdEnableStateType = "disabled"
+	SystemdEnableStateEmpty          SystemdEnableStateType = ""
 	SystemdEnableStateEnabled        SystemdEnableStateType = "enabled"
 	SystemdEnableStateEnabledRuntime SystemdEnableStateType = "enabled-runtime"
 	SystemdEnableStateGenerated      SystemdEnableStateType = "generated"
@@ -433,6 +451,7 @@ const (
 	SystemdEnableStateMaskedRuntime  SystemdEnableStateType = "masked-runtime"
 	SystemdEnableStateStatic         SystemdEnableStateType = "static"
 	SystemdEnableStateTransient      SystemdEnableStateType = "transient"
+	SystemdEnableStateUnknown        SystemdEnableStateType = "unknown"
 )
 
 // Defines values for SystemdLoadStateType.
@@ -444,6 +463,7 @@ const (
 	SystemdLoadStateMerged     SystemdLoadStateType = "merged"
 	SystemdLoadStateNotFound   SystemdLoadStateType = "not-found"
 	SystemdLoadStateStub       SystemdLoadStateType = "stub"
+	SystemdLoadStateUnknown    SystemdLoadStateType = "unknown"
 )
 
 // Defines values for TokenRequestGrantType.
@@ -534,7 +554,7 @@ type ApplicationPort = string
 // ApplicationProviderSpec defines model for ApplicationProviderSpec.
 type ApplicationProviderSpec struct {
 	// AppType The type of the application.
-	AppType *AppType `json:"appType,omitempty"`
+	AppType AppType `json:"appType"`
 
 	// EnvVars Environment variable key-value pairs, injected during runtime. The key and value each must be between 1 and 253 characters.
 	EnvVars *map[string]string `json:"envVars,omitempty"`
@@ -546,10 +566,10 @@ type ApplicationProviderSpec struct {
 
 // ApplicationResourceLimits Resource limits for the application.
 type ApplicationResourceLimits struct {
-	// Cpu CPU limit in cores (e.g., "1", "0.75").
+	// Cpu CPU limit in cores. Format restricted based on application type.
 	Cpu *string `json:"cpu,omitempty"`
 
-	// Memory Memory limit with unit (e.g., "256m", "2g") using Podman format (b=bytes, k=kibibytes, m=mebibytes, g=gibibytes).
+	// Memory Memory limit with optional unit. Format restricted based on application type.
 	Memory *string `json:"memory,omitempty"`
 }
 
@@ -1712,6 +1732,18 @@ type GitConfigProviderSpec struct {
 	Name string `json:"name"`
 }
 
+// GitHubIntrospectionSpec GitHubIntrospectionSpec defines token introspection using GitHub API (POST /applications/{client_id}/token). Uses the OAuth2ProviderSpec clientId and clientSecret for Basic Auth and URL path.
+type GitHubIntrospectionSpec struct {
+	// Type The introspection type.
+	Type GitHubIntrospectionSpecType `json:"type"`
+
+	// Url The GitHub API base URL. Defaults to https://api.github.com for GitHub.com, but can be customized for GitHub Enterprise Server.
+	Url *string `json:"url,omitempty"`
+}
+
+// GitHubIntrospectionSpecType The introspection type.
+type GitHubIntrospectionSpecType string
+
 // HookAction defines model for HookAction.
 type HookAction struct {
 	// If Conditions that must be met for the action to be executed.
@@ -1904,6 +1936,24 @@ type InternalTaskPermanentlyFailedDetails struct {
 // InternalTaskPermanentlyFailedDetailsDetailType The type of detail for discriminator purposes.
 type InternalTaskPermanentlyFailedDetailsDetailType string
 
+// JwtIntrospectionSpec JwtIntrospectionSpec defines token introspection using JWT validation with JWKS.
+type JwtIntrospectionSpec struct {
+	// Audience Expected audience claim values in the JWT. If not specified, uses the OAuth2ProviderSpec clientId.
+	Audience *[]string `json:"audience,omitempty"`
+
+	// Issuer Expected issuer claim value in the JWT. If not specified, uses the OAuth2ProviderSpec issuer.
+	Issuer *string `json:"issuer,omitempty"`
+
+	// JwksUrl The JWKS (JSON Web Key Set) endpoint URL for fetching public keys to validate JWT signatures.
+	JwksUrl string `json:"jwksUrl"`
+
+	// Type The introspection type.
+	Type JwtIntrospectionSpecType `json:"type"`
+}
+
+// JwtIntrospectionSpecType The introspection type.
+type JwtIntrospectionSpecType string
+
 // K8sProviderSpec K8sProviderSpec describes a Kubernetes/OpenShift provider configuration.
 type K8sProviderSpec struct {
 	// ApiUrl The internal Kubernetes API URL.
@@ -2006,6 +2056,11 @@ type MountVolumeProviderSpec struct {
 	Mount VolumeMount `json:"mount"`
 }
 
+// OAuth2Introspection OAuth2Introspection defines the token introspection configuration.
+type OAuth2Introspection struct {
+	union json.RawMessage
+}
+
 // OAuth2ProviderSpec OAuth2ProviderSpec describes an OAuth2 provider configuration.
 type OAuth2ProviderSpec struct {
 	// AuthorizationUrl The OAuth2 authorization endpoint URL.
@@ -2022,6 +2077,9 @@ type OAuth2ProviderSpec struct {
 
 	// Enabled Whether this OAuth2 provider is enabled.
 	Enabled *bool `json:"enabled,omitempty"`
+
+	// Introspection OAuth2Introspection defines the token introspection configuration.
+	Introspection *OAuth2Introspection `json:"introspection,omitempty"`
 
 	// Issuer The OAuth2 issuer identifier (used for issuer identification in tokens).
 	Issuer *string `json:"issuer,omitempty"`
@@ -2426,6 +2484,18 @@ type ResourceUpdatedDetailsDetailType string
 
 // ResourceUpdatedDetailsUpdatedFields defines model for ResourceUpdatedDetails.UpdatedFields.
 type ResourceUpdatedDetailsUpdatedFields string
+
+// Rfc7662IntrospectionSpec Rfc7662IntrospectionSpec defines token introspection using RFC 7662 standard. Uses the OAuth2ProviderSpec clientId and clientSecret for authentication.
+type Rfc7662IntrospectionSpec struct {
+	// Type The introspection type.
+	Type Rfc7662IntrospectionSpecType `json:"type"`
+
+	// Url The RFC 7662 token introspection endpoint URL.
+	Url string `json:"url"`
+}
+
+// Rfc7662IntrospectionSpecType The introspection type.
+type Rfc7662IntrospectionSpecType string
 
 // RolloutDeviceSelection Describes how to select devices for rollout.
 type RolloutDeviceSelection struct {
@@ -3178,11 +3248,9 @@ func (t ApplicationProviderSpec) MarshalJSON() ([]byte, error) {
 		}
 	}
 
-	if t.AppType != nil {
-		object["appType"], err = json.Marshal(t.AppType)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'appType': %w", err)
-		}
+	object["appType"], err = json.Marshal(t.AppType)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'appType': %w", err)
 	}
 
 	if t.EnvVars != nil {
@@ -4622,6 +4690,125 @@ func (t HookCondition) MarshalJSON() ([]byte, error) {
 }
 
 func (t *HookCondition) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsRfc7662IntrospectionSpec returns the union data inside the OAuth2Introspection as a Rfc7662IntrospectionSpec
+func (t OAuth2Introspection) AsRfc7662IntrospectionSpec() (Rfc7662IntrospectionSpec, error) {
+	var body Rfc7662IntrospectionSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromRfc7662IntrospectionSpec overwrites any union data inside the OAuth2Introspection as the provided Rfc7662IntrospectionSpec
+func (t *OAuth2Introspection) FromRfc7662IntrospectionSpec(v Rfc7662IntrospectionSpec) error {
+	v.Type = "rfc7662"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeRfc7662IntrospectionSpec performs a merge with any union data inside the OAuth2Introspection, using the provided Rfc7662IntrospectionSpec
+func (t *OAuth2Introspection) MergeRfc7662IntrospectionSpec(v Rfc7662IntrospectionSpec) error {
+	v.Type = "rfc7662"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsGitHubIntrospectionSpec returns the union data inside the OAuth2Introspection as a GitHubIntrospectionSpec
+func (t OAuth2Introspection) AsGitHubIntrospectionSpec() (GitHubIntrospectionSpec, error) {
+	var body GitHubIntrospectionSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromGitHubIntrospectionSpec overwrites any union data inside the OAuth2Introspection as the provided GitHubIntrospectionSpec
+func (t *OAuth2Introspection) FromGitHubIntrospectionSpec(v GitHubIntrospectionSpec) error {
+	v.Type = "github"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeGitHubIntrospectionSpec performs a merge with any union data inside the OAuth2Introspection, using the provided GitHubIntrospectionSpec
+func (t *OAuth2Introspection) MergeGitHubIntrospectionSpec(v GitHubIntrospectionSpec) error {
+	v.Type = "github"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsJwtIntrospectionSpec returns the union data inside the OAuth2Introspection as a JwtIntrospectionSpec
+func (t OAuth2Introspection) AsJwtIntrospectionSpec() (JwtIntrospectionSpec, error) {
+	var body JwtIntrospectionSpec
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromJwtIntrospectionSpec overwrites any union data inside the OAuth2Introspection as the provided JwtIntrospectionSpec
+func (t *OAuth2Introspection) FromJwtIntrospectionSpec(v JwtIntrospectionSpec) error {
+	v.Type = "jwt"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeJwtIntrospectionSpec performs a merge with any union data inside the OAuth2Introspection, using the provided JwtIntrospectionSpec
+func (t *OAuth2Introspection) MergeJwtIntrospectionSpec(v JwtIntrospectionSpec) error {
+	v.Type = "jwt"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t OAuth2Introspection) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"type"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t OAuth2Introspection) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "github":
+		return t.AsGitHubIntrospectionSpec()
+	case "jwt":
+		return t.AsJwtIntrospectionSpec()
+	case "rfc7662":
+		return t.AsRfc7662IntrospectionSpec()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t OAuth2Introspection) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *OAuth2Introspection) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	return err
 }

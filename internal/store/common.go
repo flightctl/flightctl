@@ -19,6 +19,12 @@ import (
 
 const retryIterations = 10
 
+// AuthProvider database constraint names
+const (
+	ConstraintAuthProviderOIDCUnique   = "idx_authproviders_oidc_unique"
+	ConstraintAuthProviderOAuth2Unique = "idx_authproviders_oauth2_unique"
+)
+
 type CreateOrUpdateMode string
 
 type EventCallbackCaller func(ctx context.Context, callbackEvent EventCallback, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error)
@@ -29,6 +35,9 @@ func ErrorFromGormError(err error) error {
 	switch {
 	case err == nil:
 		return nil
+	case errors.Is(err, flterrors.ErrDuplicateOIDCProvider), errors.Is(err, flterrors.ErrDuplicateOAuth2Provider):
+		// Our custom dialector has already detected specific authprovider constraint violations
+		return err
 	case errors.Is(err, gorm.ErrRecordNotFound), errors.Is(err, gorm.ErrForeignKeyViolated):
 		return flterrors.ErrResourceNotFound
 	case errors.Is(err, gorm.ErrDuplicatedKey):

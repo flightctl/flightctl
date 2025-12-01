@@ -6,19 +6,19 @@ metadata:
   name: flightctl-ui
   namespace: {{ .Release.Namespace }}
   labels:
-    app: flightctl-ui
     role: frontend
     {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-ui
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: flightctl-ui
+      flightctl.service: flightctl-ui
   template:
     metadata:
       creationTimestamp: null
       labels:
-        app: flightctl-ui
+        flightctl.service: flightctl-ui
         role: frontend
         {{- include "flightctl.standardLabels" . | nindent 8 }}
     spec:
@@ -54,16 +54,6 @@ spec:
                 name: flightctl-ui
                 key: FLIGHTCTL_ALERTMANAGER_PROXY
           {{- end }}
-          - name: FLIGHTCTL_SERVER_INSECURE_SKIP_VERIFY
-            valueFrom:
-              configMapKeyRef:
-                name: flightctl-ui
-                key: FLIGHTCTL_SERVER_INSECURE_SKIP_VERIFY
-          - name: ORGANIZATIONS_ENABLED
-            valueFrom:
-              configMapKeyRef:
-                name: flightctl-ui
-                key: ORGANIZATIONS_ENABLED
           {{- if eq $enableMulticlusterExtensions "true" }}
           - name: TLS_KEY
             value: /app/serving-cert/tls.key
@@ -98,24 +88,28 @@ spec:
             - containerPort: 8080
               protocol: TCP
           volumeMounts:
-            - mountPath: /app/certs
+            - mountPath: /app/certs/ca.crt
+              name: ca-bundle
+              subPath: ca-bundle.crt
+            {{- if or ((.Values.global).auth).caCert .Values.ui.auth.caCert }}
+            - mountPath: /app/certs/ca_auth.crt
               name: flightctl-ui-certs
+              subPath: ca_auth.crt
+            {{- end }}
             {{- if eq $enableMulticlusterExtensions "true" }}
             - mountPath: /app/serving-cert
               name: flightctl-ui-serving-cert
             {{- end }}
       restartPolicy: Always
       volumes:
+        - name: ca-bundle
+          secret:
+            secretName: flightctl-ca-bundle
+        {{- if or ((.Values.global).auth).caCert .Values.ui.auth.caCert }}
         - name: flightctl-ui-certs
           secret:
             secretName: flightctl-ui-certs
-            items:
-              - key: ca.crt
-                path: ca.crt
-              {{- if or ((.Values.global).auth).caCert .Values.ui.auth.caCert }}
-              - key: ca_auth.crt
-                path: ca_auth.crt
-              {{ end }}
+        {{- end }}
         {{- if eq $enableMulticlusterExtensions "true" }}
         - name: flightctl-ui-serving-cert
           secret:

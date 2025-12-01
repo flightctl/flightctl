@@ -49,6 +49,8 @@ Validates tokens via AAP Gateway API. Auto-maps AAP organizations to Flight Cont
 
 ## Managing Authentication Providers
 
+> **Note:** The examples below use the Flight Control CLI. See [Using the CLI](../../using/cli/overview.md) and [Logging in to the Service](../../using/cli/logging-in.md) for more information.
+
 Flight Control supports two types of authentication provider configuration:
 
 ### Dynamic Configuration (OIDC/OAuth2)

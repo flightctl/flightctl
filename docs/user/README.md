@@ -36,6 +36,7 @@ Welcome to the Flight Control user documentation.
 
 **Using Flight Control** - How to manage individual and fleets of devices with Flight Control.
 
+* **[Using the CLI](using/cli/overview.md)** - How to use the Flight Control CLI
 * **[Provisioning Devices](using/provisioning-devices.md)** - How to provision a device with an OS image.
   * [Provisioning Physical Devices](using/provisioning-devices.md#provisioning-physical-devices)
   * [Provisioning on Red Hat OpenShift Virtualization](using/provisioning-devices.md#provisioning-on-red-hat-openshift-virtualization)
@@ -75,8 +76,10 @@ Welcome to the Flight Control user documentation.
 
 **References** - Useful references.
 
+* [CLI Commands](references/cli-commands.md)
 * [API Resources](references/api-resources.md)
 * [Authentication Resources](references/auth-resources.md)
 * [Device Status Definitions](references/device-api-statuses.md)
+* [Upgrade Compatibility Matrix](references/upgrade-compatibility.md)
 * [Alerts and Monitoring](references/alerts.md)
 * [Metrics Configuration](references/metrics.md)

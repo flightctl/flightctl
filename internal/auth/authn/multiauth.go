@@ -564,13 +564,20 @@ func (m *MultiAuth) getDynamicAuthProvider(issuer string, clientId string) (comm
 	provider, exists := m.dynamicProviders[providerKey]
 	return provider, exists
 }
-
-// ValidateToken validates a token using issuer-based routing
 func (m *MultiAuth) ValidateToken(ctx context.Context, token string) error {
+	_, err := m.ValidateTokenAndGetProvider(ctx, token)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// ValidateTokenAndGetProvider validates a token using issuer-based routing and returns the provider that validated the token
+func (m *MultiAuth) ValidateTokenAndGetProvider(ctx context.Context, token string) (common.AuthNMiddleware, error) {
 	// Get possible providers for this token
 	providers, parsedToken, err := m.getPossibleProviders(token)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	m.log.Debugf("MultiAuth: Attempting token validation with %d possible provider(s)", len(providers))
@@ -581,7 +588,7 @@ func (m *MultiAuth) ValidateToken(ctx context.Context, token string) error {
 		// Check if parent context is already done
 		if ctx.Err() != nil {
 			m.log.Warnf("MultiAuth: Parent context already canceled before trying provider %d: %v", i+1, ctx.Err())
-			return fmt.Errorf("parent context: %w", ctx.Err())
+			return nil, fmt.Errorf("parent context: %w", ctx.Err())
 		}
 
 		m.log.Debugf("MultiAuth: Trying provider %d/%d for token validation", i+1, len(providers))
@@ -601,12 +608,12 @@ func (m *MultiAuth) ValidateToken(ctx context.Context, token string) error {
 
 		if err == nil {
 			m.log.Debugf("MultiAuth: Provider %d/%d validated token successfully", i+1, len(providers))
-			return nil
+			return provider, nil
 		}
 		m.log.Debugf("MultiAuth: Provider %d/%d failed to validate token: %v", i+1, len(providers), err)
 	}
 
-	return fmt.Errorf("token validation failed against all providers")
+	return nil, fmt.Errorf("token validation failed against all providers")
 }
 
 // GetIdentity extracts identity from a token using issuer-based routing
@@ -660,7 +667,7 @@ func (m *MultiAuth) GetAuthToken(r *http.Request) (string, error) {
 // GetAuthConfig returns the auth configuration with all available providers
 func (m *MultiAuth) GetAuthConfig() *api.AuthConfig {
 	allProviders := []api.AuthProvider{}
-	var orgEnabled bool
+	orgEnabled := true // Organizations are always enabled
 	var firstStaticProviderName string
 
 	// Collect static provider names and sort them for consistent ordering
@@ -674,11 +681,6 @@ func (m *MultiAuth) GetAuthConfig() *api.AuthConfig {
 	for _, name := range staticProviderNames {
 		provider := m.staticProviders[name]
 		config := provider.GetAuthConfig()
-
-		// Get org config from first provider config
-		if config.OrganizationsEnabled != nil {
-			orgEnabled = *config.OrganizationsEnabled
-		}
 
 		// Add all providers from this config (filter by enabled=true)
 		if config.Providers != nil {
@@ -949,7 +951,6 @@ func createOAuth2AuthFromProvider(ctx context.Context, provider *api.AuthProvide
 // convertOrganizationAssignmentToOrgConfig converts auth organization assignment to org config
 func convertOrganizationAssignmentToOrgConfig(assignment api.AuthOrganizationAssignment) *common.AuthOrganizationsConfig {
 	return &common.AuthOrganizationsConfig{
-		Enabled:                true,
 		OrganizationAssignment: &assignment,
 	}
 }

@@ -394,7 +394,7 @@ trustedProxies:
 
 **Security Warning**: If `trustedProxies` is not configured or is empty, proxy headers will be ignored for security reasons. This means all requests will be rate-limited based on the direct connection IP, which may not be the real client IP when using reverse proxies.
 
-For more security guidance, see [Security Guidelines](security-guidelines.md).
+For more security guidance, see [Security Guidelines](../references/security-guidelines.md).
 
 ## Best Practices
 

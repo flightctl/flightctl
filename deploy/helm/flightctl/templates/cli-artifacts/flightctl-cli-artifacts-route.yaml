@@ -9,6 +9,8 @@ metadata:
     {{- with .Values.cliArtifacts.additionalRouteLabels }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-cli-artifacts
   name: flightctl-cli-artifacts-route
   namespace: {{ .Release.Namespace }}
 spec:

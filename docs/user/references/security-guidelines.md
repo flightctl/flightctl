@@ -175,7 +175,7 @@ Flight Control collects the following data:
 
 ## Network Security
 
-Flight Control requires specific network ports and firewall configuration. For detailed network requirements, see [Network Requirements](network-requirements.md).
+Flight Control requires specific network ports and firewall configuration. For detailed network requirements, see [Preparing Installation on Linux](../installing/preparing-installation-on-linux.md).
 
 ### Rate Limiting
 
@@ -195,7 +195,7 @@ Flight Control implements IP-based rate limiting to protect against abuse and en
 3. **Network Isolation**: Restrict direct access to the Flight Control API
 4. **Monitor Abuse**: Watch for unusual rate limiting patterns
 
-For detailed rate limiting configuration and reverse proxy setup, see [Rate Limiting](rate-limiting.md).
+For detailed rate limiting configuration and reverse proxy setup, see [Rate Limiting](../installing/configuring-rate-limiting.md).
 
 ### Service Endpoints
 
@@ -271,7 +271,7 @@ Flight Control implements role-based access control:
 
 ### Database Access Control
 
-Flight Control implements a three-user database model for security. For detailed database configuration and migration information, see [Database Migration](database-migration.md).
+Flight Control implements a three-user database model for security. For detailed database configuration and migration information, see [Database Migration](../installing/performing-database-migration.md).
 
 #### User Roles
 

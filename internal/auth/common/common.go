@@ -20,7 +20,6 @@ const (
 )
 
 type AuthOrganizationsConfig struct {
-	Enabled bool
 	// OrganizationAssignment defines how users are assigned to organizations
 	OrganizationAssignment *v1beta1.AuthOrganizationAssignment
 }
@@ -52,6 +51,10 @@ type AuthNMiddleware interface {
 	GetIdentity(ctx context.Context, token string) (Identity, error)
 	GetAuthConfig() *v1beta1.AuthConfig
 	IsEnabled() bool
+}
+type MultiAuthNMiddleware interface {
+	AuthNMiddleware
+	ValidateTokenAndGetProvider(ctx context.Context, token string) (AuthNMiddleware, error)
 }
 
 type BaseIdentity struct {

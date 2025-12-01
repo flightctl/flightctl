@@ -120,26 +120,25 @@ app.kubernetes.io/version: {{ .Chart.AppVersion }}
 Get the OAuth client secret from values or lookup existing secret.
 Uses a cached value in .Values to ensure consistency across all template evaluations.
 */}}
-{{- define "flightctl.getOpenShiftOAuthClientSecret" -}}
-{{- if .Values.global.auth.openshift.clientSecret -}}
-{{- .Values.global.auth.openshift.clientSecret -}}
-{{- else -}}
-{{- $secretName := printf "%s-secret" (include "flightctl.getOpenShiftOAuthClientId" .) -}}
-{{- $existingSecret := (lookup "v1" "Secret" "openshift-config" $secretName) -}}
-{{- if $existingSecret -}}
-{{- if and (hasKey $existingSecret "data") (hasKey $existingSecret.data "clientSecret") -}}
-{{- index $existingSecret.data "clientSecret" | b64dec -}}
-{{- else -}}
-{{- fail (printf "Secret %s is missing data.clientSecret – delete it or add the key." $secretName) -}}
-{{- end -}}
-{{- else -}}
-{{- if not (hasKey .Values "__generatedOAuthSecret") -}}
-{{- $_ := set .Values "__generatedOAuthSecret" (randAlphaNum 32) -}}
-{{- end -}}
-{{- .Values.__generatedOAuthSecret -}}
-{{- end -}}
-{{- end -}}
-{{- end -}}
+{{- define "flightctl.getOpenShiftOAuthClientSecret" }}
+  {{- if .Values.global.auth.openshift.clientSecret }}
+    {{- .Values.global.auth.openshift.clientSecret }}
+  {{- else }}
+    {{- $existingOAuthClient := (lookup "oauth.openshift.io/v1" "OAuthClient" "" (include "flightctl.getOpenShiftOAuthClientId" .)) }}
+    {{- if $existingOAuthClient }}
+      {{- if $existingOAuthClient.secret }}
+        {{- $existingOAuthClient.secret }}
+      {{- else }}
+        {{- fail (printf "OAuthClient %s is missing secret – delete it or add the key." (include "flightctl.getOpenShiftOAuthClientId" .)) }}
+      {{- end }}
+    {{- else }}
+      {{- if not (hasKey .Values "__generatedOAuthSecret") }}
+        {{- $_ := set .Values "__generatedOAuthSecret" (randAlphaNum 32) }}
+      {{- end }}
+      {{- .Values.__generatedOAuthSecret -}}
+    {{- end }}
+  {{- end }}
+{{- end }}
 
 {{- define "flightctl.getHttpScheme" }}
   {{- if or (eq (include "flightctl.getServiceExposeMethod" . ) "route") .Values.global.baseDomainTlsSecretName }}
@@ -157,7 +156,7 @@ Uses a cached value in .Values to ensure consistency across all template evaluat
     {{- $baseDomain := (include "flightctl.getBaseDomain" (deepCopy . | merge (dict "noNs" "true"))) }}
     {{- printf "%s://console-openshift-console.%s/edge" $scheme $baseDomain }}
   {{- else if eq (include "flightctl.getServiceExposeMethod" .) "nodePort" }}
-    {{- printf "%s://%s:%v" $scheme $baseDomain .Values.global.nodePorts.ui }}
+    {{- printf "%s://%s:%v" $scheme $baseDomain .Values.dev.nodePorts.ui }}
   {{- else if eq (include "flightctl.getServiceExposeMethod" .) "gateway" }}
     {{- if and (eq $scheme "http") (not (eq (int .Values.global.gateway.ports.http) 80))}}
       {{- printf "%s://ui.%s:%v" $scheme $baseDomain .Values.global.gateway.ports.http }}
@@ -173,14 +172,18 @@ Uses a cached value in .Values to ensure consistency across all template evaluat
 
 {{- define "flightctl.getServiceExposeMethod" }}
   {{- $exposeMethod := .Values.global.exposeServicesMethod }}
-  {{- if eq $exposeMethod "auto" }}
-    {{- $isOpenShift := (include "flightctl.enableOpenShiftExtensions" . )}}
-    {{- if eq $isOpenShift "true" }}
-      {{- $exposeMethod = "route" }}
-    {{- else if .Capabilities.APIVersions.Has "gateway.networking.k8s.io/v1" -}}
-      {{- $exposeMethod = "gateway" }}
-    {{- else }}
-      {{- fail "Could not detect OpenShift, nor Gateway resources. Please set global.exposeServicesMethod" }}
+  {{- if eq (default dict .Values.dev).exposeServicesMethod "nodePort" }}
+    {{- $exposeMethod = "nodePort" }}
+  {{- else }}
+    {{- if eq $exposeMethod "auto" }}
+      {{- $isOpenShift := (include "flightctl.enableOpenShiftExtensions" . )}}
+      {{- if eq $isOpenShift "true" }}
+        {{- $exposeMethod = "route" }}
+      {{- else if .Capabilities.APIVersions.Has "gateway.networking.k8s.io/v1" -}}
+        {{- $exposeMethod = "gateway" }}
+      {{- else }}
+        {{- fail "Could not detect OpenShift, nor Gateway resources. Please set global.exposeServicesMethod" }}
+      {{- end }}
     {{- end }}
   {{- end }}
   {{- $exposeMethod }}
@@ -189,7 +192,7 @@ Uses a cached value in .Values to ensure consistency across all template evaluat
 {{- define "flightctl.getApiUrl" }}
   {{- $baseDomain := (include "flightctl.getBaseDomain" . )}}
   {{- if eq (include "flightctl.getServiceExposeMethod" .) "nodePort" }}
-    {{- printf "https://%s:%v" $baseDomain .Values.global.nodePorts.api }}
+    {{- printf "https://%s:%v" $baseDomain .Values.dev.nodePorts.api }}
   {{- else if and (eq (include "flightctl.getServiceExposeMethod" .) "gateway") (not (eq (int .Values.global.gateway.ports.tls) 443)) }}
     {{- printf "https://api.%s:%v" $baseDomain .Values.global.gateway.ports.tls }}
   {{- else }}
@@ -236,7 +239,7 @@ Usage: {{- $authType := include "flightctl.getEffectiveAuthType" . }}
   {{- $scheme := (include "flightctl.getHttpScheme" . )}}
   {{- $exposeMethod := (include "flightctl.getServiceExposeMethod" . )}}
   {{- if eq $exposeMethod "nodePort" }}
-    {{- printf "%s://%s:%v" $scheme $baseDomain .Values.global.nodePorts.cliArtifacts }}
+    {{- printf "%s://%s:%v" $scheme $baseDomain .Values.dev.nodePorts.cliArtifacts }}
   {{- else if eq $exposeMethod "gateway" }}
     {{- if and (eq $scheme "http") (not (eq (int .Values.global.gateway.ports.http) 80))}}
       {{- printf "%s://cli-artifacts.%s:%v" $scheme $baseDomain .Values.global.gateway.ports.http }}
@@ -417,7 +420,7 @@ Parameters:
   - |
     set -euo pipefail
 
-    LABEL_SELECTOR="app=flightctl-db-migration,flightctl.io/migration-revision={{ $ctx.Release.Revision }}"
+    LABEL_SELECTOR="flightctl.service=flightctl-db-migration,flightctl.io/migration-revision={{ $ctx.Release.Revision }}"
     TIMEOUT={{ $timeout }}
     NS="{{ default $ctx.Release.Namespace $ctx.Values.global.internalNamespace }}"
 
@@ -527,4 +530,65 @@ Usage: {{- include "flightctl.dbSslVolumes" . | nindent X }}
 {{- else }}
   {{- default "flightctl-db-migration-secret" .Values.db.builtin.migrationUserSecretName }}
 {{- end }}
+{{- end }}
+
+{{- /*
+Determine the effective certificate generation method.
+Returns: "false", "cert-manager", or "builtin"
+Usage: {{- $certMethod := include "flightctl.getCertificateGenerationMethod" . }}
+*/}}
+{{- define "flightctl.getCertificateGenerationMethod" }}
+  {{- $method := .Values.global.generateCertificates | toString }}
+  {{- if eq $method "auto" }}
+    {{- if .Capabilities.APIVersions.Has "cert-manager.io/v1/Certificate" }}
+      {{- print "cert-manager" }}
+    {{- else }}
+      {{- print "builtin" }}
+    {{- end }}
+  {{- else }}
+    {{- print $method }}
+  {{- end }}
+{{- end }}
+
+{{- /*
+Get DNS SANs for flightctl-api server certificate
+Usage: {{- $result := include "flightctl.getApiServerDNSSans" . | fromJson }}{{ $apiServerDNSSans := $result.sans }}
+*/}}
+{{- define "flightctl.getApiServerDNSSans" }}
+  {{- $baseDomain := include "flightctl.getBaseDomain" . }}
+  {{- $sans := list }}
+  {{- $sans = append $sans (printf "api.%s" $baseDomain) }}
+  {{- $sans = append $sans (printf "agent-api.%s" $baseDomain) }}
+  {{- $sans = append $sans "flightctl-api" }}
+  {{- $sans = append $sans (printf "flightctl-api.%s" .Release.Namespace) }}
+  {{- $sans = append $sans (printf "flightctl-api.%s.svc.cluster.local" .Release.Namespace) }}
+  {{- dict "sans" $sans | toJson -}}
+{{- end }}
+
+{{- /*
+Get DNS SANs for telemetry-gateway server certificate
+Usage: {{- $result := include "flightctl.getTelemetryGatewayDNSSans" . | fromJson }}{{ $telemetryGatewayDNSSans := $result.sans }}
+*/}}
+{{- define "flightctl.getTelemetryGatewayDNSSans" }}
+  {{- $sans := list }}
+  {{- $baseDomain := include "flightctl.getBaseDomain" . }}
+  {{- $sans = append $sans (printf "telemetry.%s" $baseDomain) }}
+  {{- $sans = append $sans "flightctl-telemetry-gateway" }}
+  {{- $sans = append $sans (printf "flightctl-telemetry-gateway.%s" .Release.Namespace) }}
+  {{- $sans = append $sans (printf "flightctl-telemetry-gateway.%s.svc.cluster.local" .Release.Namespace) }}
+  {{- dict "sans" $sans | toJson -}}
+{{- end }}
+
+{{- /*
+Get DNS SANs for alertmanager-proxy server certificate
+Usage: {{- $result := include "flightctl.getAlertmanagerProxyDNSSans" . | fromJson }}{{ $alertmanagerProxyDNSSans := $result.sans }}
+*/}}
+{{- define "flightctl.getAlertmanagerProxyDNSSans" }}
+  {{- $sans := list }}
+  {{- $baseDomain := include "flightctl.getBaseDomain" . }}
+  {{- $sans = append $sans (printf "alertmanager-proxy.%s" $baseDomain) }}
+  {{- $sans = append $sans "flightctl-alertmanager-proxy" }}
+  {{- $sans = append $sans (printf "flightctl-alertmanager-proxy.%s" .Release.Namespace) }}
+  {{- $sans = append $sans (printf "flightctl-alertmanager-proxy.%s.svc.cluster.local" .Release.Namespace) }}
+  {{- dict "sans" $sans | toJson -}}
 {{- end }}

@@ -3,31 +3,24 @@ set -euo pipefail
 
 # Inject agent files into a qcow2 image using qemu-nbd.
 # It resolves the active OSTree deployment etc so files appear at guest /etc.
-# Also writes a registries.conf.d drop-in to mirror pulls.
+# Optionally installs a registry CA for podman/skopeo.
 #
 # Env or flags:
-#   QCOW               - path to qcow2 (default: bin/output/qcow2/disk.qcow2)
-#   AGENT_DIR          - local dir with config.yaml and certs/ (default: bin/agent/etc/flightctl)
-#   MOUNT_DIR          - temporary mount point (default: /mnt/qcow)
-#   REGISTRY_ADDR      - host:port of your registry, used for CA install and as default mirror host (default: <host LAN IP>:5000)
-#   E2E_CA             - path to CA certificate for your registry (default: bin/e2e-certs/pki/CA/ca.crt)
-#   REGISTRY_PREFIX    - registries.conf prefix to match (default: quay.io/flightctl)
-#   REGISTRY_LOCATION  - registries.conf location to pull from (default: ${REGISTRY_ADDR}/flightctl)
-#   REGISTRY_INSECURE  - if set to "1" or "true", add insecure = true to the drop-in
+#   QCOW          - path to qcow2 (default: bin/output/qcow2/disk.qcow2)
+#   AGENT_DIR     - local dir with config.yaml and certs/ (default: bin/agent/etc/flightctl)
+#   MOUNT_DIR     - temporary mount point (default: /mnt/qcow)
+#   REGISTRY_ADDR - host:port of your registry for CA install (default: <host LAN IP>:5000)
+#   E2E_CA        - path to CA certificate for your registry (default: bin/e2e-certs/pki/CA/ca.crt)
 #
 # Usage:
-#   ./inject.sh [--qcow PATH] [--agent-dir PATH] [--mount-dir PATH] \
-#               [--registry-addr HOST:PORT] [--e2e-ca PATH] \
-#               [--registry-prefix PREFIX] [--registry-location LOCATION] [--registry-insecure]
+#   ./inject_agent_files_into_qcow.sh [--qcow PATH] [--agent-dir PATH] [--mount-dir PATH] \
+#                                     [--registry-addr HOST:PORT] [--e2e-ca PATH]
 
 QCOW="${QCOW:-bin/output/qcow2/disk.qcow2}"
 AGENT_DIR="${AGENT_DIR:-bin/agent/etc/flightctl}"
 MOUNT_DIR="${MOUNT_DIR:-/mnt/qcow}"
 REGISTRY_ADDR="${REGISTRY_ADDR:-}"
 E2E_CA="${E2E_CA:-bin/e2e-certs/pki/CA/ca.crt}"
-REGISTRY_PREFIX="${REGISTRY_PREFIX:-quay.io/flightctl}"
-REGISTRY_LOCATION="${REGISTRY_LOCATION:-}"
-REGISTRY_INSECURE="${REGISTRY_INSECURE:-}"
 
 log()   { echo "[info] $*"; }
 dbg()   { echo "[debug] $*"; }
@@ -40,9 +33,6 @@ while [[ $# -gt 0 ]]; do
     --mount-dir) MOUNT_DIR="$2"; shift 2 ;;
     --registry-addr) REGISTRY_ADDR="$2"; shift 2 ;;
     --e2e-ca) E2E_CA="$2"; shift 2 ;;
-    --registry-prefix) REGISTRY_PREFIX="$2"; shift 2 ;;
-    --registry-location) REGISTRY_LOCATION="$2"; shift 2 ;;
-    --registry-insecure) REGISTRY_INSECURE="0"; shift 1 ;;
     -h|--help) sed -n '1,100p' "$0"; exit 0 ;;
     *) fail "Unknown argument: $1" ;;
   esac
@@ -63,23 +53,15 @@ if [[ -z "$REGISTRY_ADDR" ]]; then
   REGISTRY_ADDR="${HOST_IP}:5000"
 fi
 
-# Default mirror target derived from env registry
-if [[ -z "$REGISTRY_LOCATION" ]]; then
-  REGISTRY_LOCATION="${REGISTRY_ADDR}/flightctl"
-fi
-
-# CA install directory must match the host:port of what we actually connect to
-REG_TLS_HOSTPORT="${REGISTRY_LOCATION%%/*}"
+# CA install directory must match the host:port of the registry
+REG_TLS_HOSTPORT="$REGISTRY_ADDR"
 
 log "QCOW=$QCOW"
 log "AGENT_DIR=$AGENT_DIR"
 log "MOUNT_DIR=$MOUNT_DIR"
 log "REGISTRY_ADDR=$REGISTRY_ADDR"
 log "E2E_CA=$E2E_CA"
-log "REGISTRY_PREFIX=$REGISTRY_PREFIX"
-log "REGISTRY_LOCATION=$REGISTRY_LOCATION"
 log "REG_TLS_HOSTPORT=$REG_TLS_HOSTPORT"
-[[ -n "$REGISTRY_INSECURE" ]] && log "REGISTRY_INSECURE=true"
 
 sudo modprobe nbd max_part=16 || true
 
@@ -169,34 +151,6 @@ copy_into() {
   sudo ls -l "$base/flightctl/certs" || true
 }
 
-# Write registries.conf drop-in: prefix -> location
-write_registries_dropin() {
-  local base="$1"
-  local d="$base/containers/registries.conf.d"
-  local f="$d/flightctl-remap.conf"
-  log "Creating registries drop-in at $f"
-  sudo install -d "$d"
-  if [[ -n "$REGISTRY_INSECURE" ]]; then
-    sudo tee "$f" >/dev/null <<EOF
-# generated $(date -u +%FT%TZ)
-[[registry]]
-prefix = "${REGISTRY_PREFIX}"
-location = "${REGISTRY_LOCATION}"
-insecure = true
-EOF
-  else
-    sudo tee "$f" >/dev/null <<EOF
-# generated $(date -u +%FT%TZ)
-[[registry]]
-prefix = "${REGISTRY_PREFIX}"
-location = "${REGISTRY_LOCATION}"
-EOF
-  fi
-  cat "$f"
-  sudo chmod 0644 "$f"
-  sudo chown root:root "$f"
-}
-
 # Inject registry CA into containers trust for podman and skopeo
 inject_registry_ca() {
   local base="$1"
@@ -213,13 +167,11 @@ inject_registry_ca() {
 
 # Write to deployment etc so it appears at guest /etc
 copy_into "$DEPLOY_ETC"
-write_registries_dropin "$DEPLOY_ETC"
 inject_registry_ca "$DEPLOY_ETC"
 
 # Also mirror to on-disk etc so it shows under guest /sysroot/etc
 if [[ "$SYSROOT_ETC" != "$DEPLOY_ETC" ]]; then
   copy_into "$SYSROOT_ETC"
-  write_registries_dropin "$SYSROOT_ETC"
   inject_registry_ca "$SYSROOT_ETC"
 fi
 

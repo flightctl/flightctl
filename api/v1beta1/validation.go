@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"reflect"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"text/template"
 	"text/template/parse"
@@ -25,8 +27,11 @@ import (
 )
 
 const (
-	maxBase64CertificateLength = 20 * 1024 * 1024
-	maxInlineLength            = 1024 * 1024
+	maxBase64CertificateLength  = 20 * 1024 * 1024
+	maxInlineLength             = 1024 * 1024
+	privilegedPortRangeStart    = 1
+	nonPrivilegedPortRangeStart = 1024
+	portRangeEnd                = 65535
 )
 
 var (
@@ -779,9 +784,8 @@ func (a ApplicationProviderSpec) Validate() []error {
 	return allErrs
 }
 
-func (a InlineApplicationProviderSpec) Validate(appTypeRef *AppType, fleetTemplate bool) []error {
+func (a InlineApplicationProviderSpec) Validate(appType AppType, fleetTemplate bool) []error {
 	allErrs := []error{}
-	appType := lo.FromPtr(appTypeRef)
 
 	seenPath := make(map[string]struct{}, len(a.Inline))
 	for i := range a.Inline {
@@ -915,6 +919,11 @@ func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []
 		}
 		seenAppNames[appName] = struct{}{}
 
+		if app.AppType == "" {
+			allErrs = append(allErrs, fmt.Errorf("app type must be defined for application: %s", appName))
+			continue
+		}
+
 		var volumes *[]ApplicationVolume
 		switch providerType {
 		case ImageApplicationProviderType:
@@ -927,6 +936,17 @@ func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []
 				allErrs = append(allErrs, fmt.Errorf("image reference cannot be empty when application name is not provided"))
 			}
 			allErrs = append(allErrs, validateOciImageReference(&provider.Image, fmt.Sprintf("spec.applications[%s].image", appName), fleetTemplate)...)
+			if app.AppType != AppTypeContainer {
+				if provider.Ports != nil && len(*provider.Ports) > 0 {
+					allErrs = append(allErrs, fmt.Errorf("ports can only be defined for container applications, not %q", app.AppType))
+				}
+				if provider.Resources != nil {
+					allErrs = append(allErrs, fmt.Errorf("resources can only be defined for container applications, not %q", app.AppType))
+				}
+			} else {
+				allErrs = append(allErrs, ValidateContainerImageApplicationSpec(appName, &provider)...)
+			}
+
 			volumes = provider.Volumes
 
 		case InlineApplicationProviderType:
@@ -935,16 +955,11 @@ func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []
 				allErrs = append(allErrs, fmt.Errorf("invalid inline application provider: %w", err))
 				continue
 			}
-			if app.AppType == nil {
-				allErrs = append(allErrs, fmt.Errorf("inline application type cannot be empty"))
+			if app.AppType == AppTypeContainer {
+				allErrs = append(allErrs, fmt.Errorf("inline application type must not be %q", AppTypeContainer))
 			}
 			allErrs = append(allErrs, provider.Validate(app.AppType, fleetTemplate)...)
-			if len(lo.FromPtr(provider.Volumes)) > 0 && lo.FromPtr(app.AppType) == AppTypeQuadlet {
-				allErrs = append(allErrs, fmt.Errorf("quadlet application volumes should be defined as quadlets"))
-			} else {
-				volumes = provider.Volumes
-			}
-
+			volumes = provider.Volumes
 		default:
 			allErrs = append(allErrs, fmt.Errorf("no validations implemented for application provider type: %s", providerType))
 			continue
@@ -962,7 +977,7 @@ func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []
 				seenVolumeNames[vol.Name] = struct{}{}
 
 				allErrs = append(allErrs, validation.ValidateString(&vol.Name, path+".name", 1, 253, validation.GenericNameRegexp, "")...)
-				allErrs = append(allErrs, validateVolume(vol, path, fleetTemplate)...)
+				allErrs = append(allErrs, validateVolume(vol, path, fleetTemplate, app.AppType)...)
 			}
 		}
 	}
@@ -970,7 +985,16 @@ func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []
 	return allErrs
 }
 
-func validateVolume(vol ApplicationVolume, path string, fleetTemplate bool) []error {
+func ValidateContainerImageApplicationSpec(appName string, spec *ImageApplicationProviderSpec) []error {
+	errs := validateContainerPorts(spec.Ports, fmt.Sprintf("spec.applications[%s].ports", appName))
+	if spec.Resources != nil && spec.Resources.Limits != nil {
+		errs = append(errs, validatePodmanCPULimit(spec.Resources.Limits.Cpu, fmt.Sprintf("spec.applications[%s].resources.limits.cpu", appName))...)
+		errs = append(errs, validatePodmanMemoryLimit(spec.Resources.Limits.Memory, fmt.Sprintf("spec.applications[%s].resources.limits.memory", appName))...)
+	}
+	return errs
+}
+
+func validateVolume(vol ApplicationVolume, path string, fleetTemplate bool, appType AppType) []error {
 	var errs []error
 
 	providerType, err := vol.Type()
@@ -986,12 +1010,101 @@ func validateVolume(vol ApplicationVolume, path string, fleetTemplate bool) []er
 		} else {
 			errs = append(errs, validateOciImageReference(&imgProvider.Image.Reference, path+".image.reference", fleetTemplate)...)
 		}
+		if appType == AppTypeContainer {
+			errs = append(errs, fmt.Errorf("image application volume provider invalid for app type: %s", appType))
+		}
+	case MountApplicationVolumeProviderType:
+		mountProvider, err := vol.AsMountVolumeProviderSpec()
+		if err != nil {
+			errs = append(errs, fmt.Errorf("invalid mount application volume provider: %w", err))
+		} else {
+			pathParts := strings.Split(mountProvider.Mount.Path, ":")
+			errs = append(errs, validation.ValidateFilePath(&pathParts[0], path+".mount.path")...)
+		}
+		if appType != AppTypeContainer {
+			errs = append(errs, fmt.Errorf("mount application volume provider invalid for app type: %s", appType))
+		}
+	case ImageMountApplicationVolumeProviderType:
+		provider, err := vol.AsImageMountVolumeProviderSpec()
+		if err != nil {
+			errs = append(errs, fmt.Errorf("invalid image mount application volume provider: %w", err))
+		} else {
+			pathParts := strings.Split(provider.Mount.Path, ":")
+			errs = append(errs, validation.ValidateFilePath(&pathParts[0], path+".mount.path")...)
+			errs = append(errs, validateOciImageReference(&provider.Image.Reference, path+".image.reference", fleetTemplate)...)
+		}
+		if appType != AppTypeContainer {
+			errs = append(errs, fmt.Errorf("image mount application volume provider invalid for app type: %s", appType))
+		}
 
 	default:
 		errs = append(errs, fmt.Errorf("unknown application volume provider type: %s", providerType))
 	}
 
 	return errs
+}
+
+func validateContainerPorts(ports *[]ApplicationPort, path string) []error {
+	if ports == nil || len(*ports) == 0 {
+		return nil
+	}
+
+	var allErrs []error
+	portPattern := regexp.MustCompile(`^[0-9]+:[0-9]+$`)
+
+	for i, portString := range *ports {
+		formatErr := fmt.Errorf("%s[%d]: must be in format 'portnumber:portnumber', got %q", path, i, portString)
+		if !portPattern.MatchString(portString) {
+			allErrs = append(allErrs, formatErr)
+			continue
+		}
+		portParts := strings.Split(portString, ":")
+		if len(portParts) != 2 {
+			allErrs = append(allErrs, formatErr)
+			continue
+		}
+
+		for _, port := range portParts {
+			numberErr := fmt.Errorf("%s[%d]: must be a number in the valid port range of [1, 65535], got: %q", path, i, port)
+			portNumber, err := strconv.Atoi(port)
+			if err != nil {
+				allErrs = append(allErrs, fmt.Errorf("%w: %w", numberErr, err))
+				continue
+			}
+			if portNumber < privilegedPortRangeStart || portNumber > portRangeEnd {
+				allErrs = append(allErrs, numberErr)
+			}
+		}
+	}
+	return allErrs
+}
+
+func validatePodmanCPULimit(cpu *string, path string) []error {
+	var errs []error
+	if cpu == nil {
+		return errs
+	}
+
+	val, err := strconv.ParseFloat(*cpu, 64)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("%s: must be a valid number, got %q", path, *cpu))
+	} else if val < 0 {
+		errs = append(errs, fmt.Errorf("%s: must be positive. got %q", path, *cpu))
+	}
+	return errs
+}
+
+var podmanMemoryLimitPattern = regexp.MustCompile(`^[0-9]+[bkmg]?$`)
+
+func validatePodmanMemoryLimit(memory *string, path string) []error {
+	if memory == nil {
+		return nil
+	}
+
+	if !podmanMemoryLimitPattern.MatchString(*memory) {
+		return []error{fmt.Errorf("%s: must be in format 'number[unit]' where unit is b, k, m, or g, got %q", path, *memory)}
+	}
+	return nil
 }
 
 func validateAppProviderType(app ApplicationProviderSpec) (ApplicationProviderType, error) {
@@ -1262,7 +1375,7 @@ func hasPathField(rawJSON []byte) bool {
 	return exists
 }
 
-func (a AuthProvider) Validate(ctx context.Context) []error {
+func (a *AuthProvider) Validate(ctx context.Context) []error {
 	allErrs := []error{}
 	allErrs = append(allErrs, validation.ValidateResourceName(a.Metadata.Name)...)
 	allErrs = append(allErrs, validation.ValidateLabels(a.Metadata.Labels)...)
@@ -1272,7 +1385,7 @@ func (a AuthProvider) Validate(ctx context.Context) []error {
 	return allErrs
 }
 
-func (o OIDCProviderSpec) Validate(ctx context.Context) []error {
+func (o *OIDCProviderSpec) Validate(ctx context.Context) []error {
 	allErrs := []error{}
 
 	if o.Issuer == "" {
@@ -1291,7 +1404,7 @@ func (o OIDCProviderSpec) Validate(ctx context.Context) []error {
 	return allErrs
 }
 
-func (o OAuth2ProviderSpec) Validate(ctx context.Context) []error {
+func (o *OAuth2ProviderSpec) Validate(ctx context.Context) []error {
 	allErrs := []error{}
 
 	if o.AuthorizationUrl == "" {
@@ -1306,6 +1419,17 @@ func (o OAuth2ProviderSpec) Validate(ctx context.Context) []error {
 	if o.ClientId == "" {
 		allErrs = append(allErrs, ErrClientIdRequired)
 	}
+
+	// Infer introspection configuration if not provided
+	if o.Introspection == nil {
+		introspection, err := InferOAuth2IntrospectionConfig(*o)
+		if err != nil {
+			allErrs = append(allErrs, fmt.Errorf("introspection field is required and could not be inferred: %w", err))
+		} else {
+			o.Introspection = introspection
+		}
+	}
+
 	// Validate organization assignment
 	allErrs = append(allErrs, o.OrganizationAssignment.Validate(ctx)...)
 
@@ -1315,7 +1439,7 @@ func (o OAuth2ProviderSpec) Validate(ctx context.Context) []error {
 	return allErrs
 }
 
-func (a AuthProviderSpec) Validate(ctx context.Context) []error {
+func (a *AuthProviderSpec) Validate(ctx context.Context) []error {
 	allErrs := []error{}
 
 	// Get the discriminator to determine which type of provider this is
@@ -1331,14 +1455,18 @@ func (a AuthProviderSpec) Validate(ctx context.Context) []error {
 		if err != nil {
 			allErrs = append(allErrs, fmt.Errorf("invalid OIDC provider spec: %w", err))
 		} else {
-			allErrs = append(allErrs, oidcSpec.Validate(ctx)...)
+			allErrs = append(allErrs, (&oidcSpec).Validate(ctx)...)
 		}
 	case string(Oauth2):
 		oauth2Spec, err := a.AsOAuth2ProviderSpec()
 		if err != nil {
 			allErrs = append(allErrs, fmt.Errorf("invalid OAuth2 provider spec: %w", err))
 		} else {
-			allErrs = append(allErrs, oauth2Spec.Validate(ctx)...)
+			allErrs = append(allErrs, (&oauth2Spec).Validate(ctx)...)
+			// Write back the mutated spec (with inferred introspection) to the union
+			if mergeErr := a.MergeOAuth2ProviderSpec(oauth2Spec); mergeErr != nil {
+				allErrs = append(allErrs, fmt.Errorf("failed to update OAuth2 provider spec: %w", mergeErr))
+			}
 		}
 	case string(K8s):
 		allErrs = append(allErrs, ErrK8sProviderConfigOnly)
@@ -1552,4 +1680,165 @@ func (a AuthDynamicRoleAssignment) Validate(ctx context.Context) []error {
 	}
 
 	return allErrs
+}
+
+func (s SystemdActiveStateType) Validate() error {
+	validStates := []SystemdActiveStateType{
+		SystemdActiveStateActivating,
+		SystemdActiveStateActive,
+		SystemdActiveStateDeactivating,
+		SystemdActiveStateFailed,
+		SystemdActiveStateInactive,
+		SystemdActiveStateMaintenance,
+		SystemdActiveStateRefreshing,
+		SystemdActiveStateReloading,
+		SystemdActiveStateUnknown,
+	}
+	if !slices.Contains(validStates, s) {
+		return fmt.Errorf("invalid systemd active state: %s", s)
+	}
+	return nil
+}
+
+func (s SystemdEnableStateType) Validate() error {
+	validStates := []SystemdEnableStateType{
+		SystemdEnableStateAlias,
+		SystemdEnableStateBad,
+		SystemdEnableStateDisabled,
+		SystemdEnableStateEmpty,
+		SystemdEnableStateEnabled,
+		SystemdEnableStateEnabledRuntime,
+		SystemdEnableStateGenerated,
+		SystemdEnableStateIndirect,
+		SystemdEnableStateLinked,
+		SystemdEnableStateLinkedRuntime,
+		SystemdEnableStateMasked,
+		SystemdEnableStateMaskedRuntime,
+		SystemdEnableStateStatic,
+		SystemdEnableStateTransient,
+		SystemdEnableStateUnknown,
+	}
+	if !slices.Contains(validStates, s) {
+		return fmt.Errorf("invalid systemd enable state: %s", s)
+	}
+	return nil
+}
+
+func (s SystemdLoadStateType) Validate() error {
+	validStates := []SystemdLoadStateType{
+		SystemdLoadStateBadSetting,
+		SystemdLoadStateError,
+		SystemdLoadStateLoaded,
+		SystemdLoadStateMasked,
+		SystemdLoadStateMerged,
+		SystemdLoadStateNotFound,
+		SystemdLoadStateStub,
+		SystemdLoadStateUnknown,
+	}
+	if !slices.Contains(validStates, s) {
+		return fmt.Errorf("invalid systemd load state: %s", s)
+	}
+	return nil
+}
+
+// InferOAuth2IntrospectionConfig attempts to infer a sensible introspection configuration
+// based on the OAuth2 provider URLs. Returns an error if no introspection can be inferred.
+func InferOAuth2IntrospectionConfig(spec OAuth2ProviderSpec) (*OAuth2Introspection, error) {
+	// Check if this is a GitHub OAuth2 provider
+	if strings.Contains(strings.ToLower(spec.AuthorizationUrl), "github") ||
+		strings.Contains(strings.ToLower(spec.TokenUrl), "github") {
+		introspection := &OAuth2Introspection{}
+		githubSpec := GitHubIntrospectionSpec{
+			Type: Github,
+		}
+		// Set URL if it's GitHub Enterprise (not github.com)
+		if !strings.Contains(strings.ToLower(spec.AuthorizationUrl), "github.com") {
+			// Extract base URL from authorization URL for GitHub Enterprise
+			// e.g., https://github.enterprise.com/login/oauth/authorize -> https://api.github.enterprise.com
+			baseURL := extractGitHubEnterpriseBaseURL(spec.AuthorizationUrl)
+			if baseURL != "" {
+				githubSpec.Url = &baseURL
+			}
+		}
+		_ = introspection.FromGitHubIntrospectionSpec(githubSpec)
+		return introspection, nil
+	}
+
+	// Try to infer RFC 7662 introspection endpoint
+	// Common patterns: {tokenUrl}/introspect, {issuer}/introspect
+	introspectionURL := inferRFC7662IntrospectionURL(spec)
+	if introspectionURL != "" {
+		introspection := &OAuth2Introspection{}
+		rfc7662Spec := Rfc7662IntrospectionSpec{
+			Type: Rfc7662,
+			Url:  introspectionURL,
+		}
+		_ = introspection.FromRfc7662IntrospectionSpec(rfc7662Spec)
+		return introspection, nil
+	}
+
+	// No introspection could be inferred - reject
+	return nil, fmt.Errorf("could not infer introspection configuration from provided URLs (authorizationUrl: %s, tokenUrl: %s); please specify introspection field explicitly", spec.AuthorizationUrl, spec.TokenUrl)
+}
+
+// extractGitHubEnterpriseBaseURL extracts the API base URL for GitHub Enterprise
+// from an authorization URL like https://github.enterprise.com/login/oauth/authorize
+func extractGitHubEnterpriseBaseURL(authURL string) string {
+	// Try to parse the URL to extract the host
+	if idx := strings.Index(authURL, "://"); idx != -1 {
+		rest := authURL[idx+3:]
+		if endIdx := strings.Index(rest, "/"); endIdx != -1 {
+			host := rest[:endIdx]
+			// For GitHub Enterprise, the API is typically at {host}/api/v3
+			scheme := authURL[:idx]
+			return scheme + "://" + host + "/api/v3"
+		}
+	}
+	return ""
+}
+
+// inferRFC7662IntrospectionURL attempts to infer the RFC 7662 introspection endpoint URL
+// based on common OAuth2 provider patterns
+func inferRFC7662IntrospectionURL(spec OAuth2ProviderSpec) string {
+	// Pattern 1: {tokenUrl}/introspect (most common)
+	if spec.TokenUrl != "" {
+		if introspectURL := buildIntrospectionURL(spec.TokenUrl); introspectURL != "" {
+			return introspectURL
+		}
+	}
+
+	// Pattern 2: {issuer}/introspect
+	if spec.Issuer != nil && *spec.Issuer != "" {
+		if introspectURL := buildIntrospectionURL(*spec.Issuer); introspectURL != "" {
+			return introspectURL
+		}
+	}
+
+	return ""
+}
+
+// buildIntrospectionURL constructs an introspection URL from a base URL,
+// properly handling query parameters and URL components
+func buildIntrospectionURL(baseURL string) string {
+	parsedURL, err := url.Parse(baseURL)
+	if err != nil || parsedURL.Scheme == "" || parsedURL.Host == "" {
+		return ""
+	}
+
+	// Remove trailing slash from path
+	path := strings.TrimSuffix(parsedURL.Path, "/")
+
+	// Check if path ends with /token and replace with /introspect
+	if strings.HasSuffix(path, "/token") {
+		path = strings.TrimSuffix(path, "/token") + "/introspect"
+	} else {
+		// Otherwise append /introspect
+		path = path + "/introspect"
+	}
+
+	// Update the path in the parsed URL
+	parsedURL.Path = path
+
+	// Return the reassembled URL with all components preserved
+	return parsedURL.String()
 }

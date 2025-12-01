@@ -34,7 +34,7 @@ Regular testing of backup and restore procedures is critical to ensure data reco
 
 ### GitOps and Deployment Configuration
 
-1. **Use GitOps with Repository Resources**: Store all Flight Control configurations in a Git repository and use the `Repository` resource to reference Git configurations via `gitRef` in device and fleet specifications (see [API Resources](api-resources.md#repositories) and [Managing Devices](managing-devices.md#getting-configuration-from-a-git-repository))
+1. **Use GitOps with Repository Resources**: Store all Flight Control configurations in a Git repository and use the `Repository` resource to reference Git configurations via `gitRef` in device and fleet specifications (see [API Resources](../references/api-resources.md#repositories) and [Managing Devices](../using/managing-devices.md#getting-configuration-from-a-git-repository))
 2. **Separate Git Server**: Use external Git hosting services (GitHub, GitLab, Bitbucket) in a different failure domain than the main Flight Control infrastructure
 3. **Backup Deployment Configs**: Regularly backup Helm values files and configuration files
 4. **Version Control**: Tag and version all configuration changes for easy rollback

@@ -423,7 +423,7 @@ echo "Flightctl Observability Stack uninstalled."
     fi
 
     # Prefer values injected by Makefile/CI; fall back to RPM macros when unset
-    SOURCE_GIT_TAG="%{?SOURCE_GIT_TAG:%{SOURCE_GIT_TAG}}%{!?SOURCE_GIT_TAG:%(echo v%{version} | tr '~' '-')}" \
+    SOURCE_GIT_TAG="%{?SOURCE_GIT_TAG:%{SOURCE_GIT_TAG}}%{!?SOURCE_GIT_TAG:%(echo "v%{version}" | tr '~' '-')}" \
     SOURCE_GIT_TAG_NO_V="%{?SOURCE_GIT_TAG_NO_V:%{SOURCE_GIT_TAG_NO_V}}%{!?SOURCE_GIT_TAG_NO_V:%(echo %{version} | tr '~' '-')}" \
     SOURCE_GIT_TREE_STATE="%{?SOURCE_GIT_TREE_STATE:%{SOURCE_GIT_TREE_STATE}}%{!?SOURCE_GIT_TREE_STATE:clean}" \
     SOURCE_GIT_COMMIT="%{?SOURCE_GIT_COMMIT:%{SOURCE_GIT_COMMIT}}%{!?SOURCE_GIT_COMMIT:%(echo %{version} | grep -o '[-~]g[0-9a-f]*' | sed 's/[-~]g//' || echo unknown)}" \
@@ -487,6 +487,10 @@ echo "Flightctl Observability Stack uninstalled."
     # Copy services must gather script
     cp packaging/must-gather/flightctl-services-must-gather %{buildroot}%{_bindir}
 
+    # Copy generate-certificates.sh script
+    mkdir -p %{buildroot}%{_datadir}/flightctl
+    install -m 0755 deploy/helm/flightctl/scripts/generate-certificates.sh %{buildroot}%{_datadir}/flightctl/generate-certificates.sh
+
     # Copy sos report flightctl plugin
     mkdir -p %{buildroot}/usr/share/sosreport
     cp packaging/sosreport/sos/report/plugins/flightctl.py %{buildroot}/usr/share/sosreport
@@ -545,26 +549,24 @@ echo "Flightctl Observability Stack uninstalled."
 
 %check
     %{buildroot}%{_bindir}/flightctl-agent version
-
     # Run the installed binary from the buildroot and capture its output
     out="$("%{buildroot}%{_bindir}/flightctl-agent" version)"
     echo "$out"
-    
+
     # Extract the parts after the colons
     version=$(printf '%s\n' "$out" | sed -n 's/^Flightctl Agent Version:[[:space:]]*//p')
     commit=$(printf '%s\n' "$out" | sed -n 's/^Git Commit:[[:space:]]*//p')
-    
+
     # Fail if either is empty
     if [ -z "$version" ]; then
         echo "ERROR: Flightctl Agent Version is empty"
         exit 1
     fi
-    
+
     if [ -z "$commit" ]; then
         echo "ERROR: Git Commit is empty"
         exit 1
     fi
-
 
 %pre selinux
 %selinux_relabel_pre -s %{selinuxtype}
@@ -638,7 +640,6 @@ rm -rf /usr/share/sosreport
     # Files mounted to system config
     %dir %{_sysconfdir}/flightctl
     %dir %{_sysconfdir}/flightctl/pki
-    %dir %{_sysconfdir}/flightctl/pam-issuer-pki
     %dir %{_sysconfdir}/flightctl/flightctl-api
     %dir %{_sysconfdir}/flightctl/flightctl-ui
     %dir %{_sysconfdir}/flightctl/flightctl-cli-artifacts
@@ -689,6 +690,7 @@ rm -rf /usr/share/sosreport
     %attr(0755,root,root) %{_datadir}/flightctl/init_host.sh
     %attr(0755,root,root) %{_datadir}/flightctl/secrets.sh
     %attr(0755,root,root) %{_datadir}/flightctl/yaml_helpers.py
+    %attr(0755,root,root) %{_datadir}/flightctl/generate-certificates.sh
 
     # flightctl-services pre upgrade checks
     %dir %{_libexecdir}/flightctl
@@ -696,6 +698,7 @@ rm -rf /usr/share/sosreport
 
     # Files mounted to lib dir
     /usr/lib/systemd/system/flightctl.target
+    /usr/lib/systemd/system/flightctl-certs-init.service
 
     # Files mounted to bin dir
     %attr(0755,root,root) %{_bindir}/flightctl-services-must-gather
@@ -775,6 +778,8 @@ fi
 # If contexts were managed via policy, no cleanup is needed here.
 
 %changelog
+* Wed Nov 26 2025 Dakota Crowder <dcrowder@redhat.com> - 1.0-1
+- Adding certificate generation service
 * Mon Nov 17 2025 Dakota Crowder <dcrowder@redhat.com> - 1.0-1
 - Refactoring quadlet install, add standalone utils
 * Wed Nov 12 2025 Ben Keith <bkeith@redhat.com> - 1.0-1

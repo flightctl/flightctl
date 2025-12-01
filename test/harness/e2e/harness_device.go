@@ -133,8 +133,7 @@ func (h *Harness) UpdateApplication(withRetries bool, deviceId string, appName s
 		}
 
 		appSpec.Name = &appName
-		appType := v1beta1.AppTypeCompose
-		appSpec.AppType = &appType
+		appSpec.AppType = v1beta1.AppTypeCompose
 
 		if envVars != nil {
 			logrus.Infof("Setting environment variables for app %s: %v", appName, envVars)

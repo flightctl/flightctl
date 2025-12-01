@@ -1,6 +1,7 @@
 package authn
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/tls"
@@ -8,6 +9,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -16,6 +19,8 @@ import (
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/identity"
 	"github.com/jellydator/ttlcache/v3"
+	"github.com/lestrrat-go/jwx/v2/jwk"
+	"github.com/lestrrat-go/jwx/v2/jwt"
 	"github.com/sirupsen/logrus"
 )
 
@@ -30,6 +35,7 @@ type OAuth2Auth struct {
 	organizationExtractor *OrganizationExtractor
 	httpClient            *http.Client
 	identityCache         *ttlcache.Cache[string, common.Identity]
+	jwksCache             *jwk.Cache
 	cancel                context.CancelFunc
 	mu                    sync.Mutex
 	started               bool
@@ -69,7 +75,7 @@ func NewOAuth2Auth(metadata api.ObjectMeta, spec api.OAuth2ProviderSpec, tlsConf
 	orgConfig := convertOrganizationAssignmentToOrgConfig(spec.OrganizationAssignment)
 
 	// Create role extractor from role assignment
-	roleExtractor := NewRoleExtractor(spec.RoleAssignment)
+	roleExtractor := NewRoleExtractor(spec.RoleAssignment, log)
 
 	// Create stateless organization extractor
 	organizationExtractor := NewOrganizationExtractor(orgConfig)
@@ -95,7 +101,7 @@ func NewOAuth2Auth(metadata api.ObjectMeta, spec api.OAuth2ProviderSpec, tlsConf
 		ttlcache.WithTTL[string, common.Identity](10 * time.Minute),
 	)
 
-	return &OAuth2Auth{
+	oauth2Auth := &OAuth2Auth{
 		metadata:              metadata,
 		spec:                  spec,
 		tlsConfig:             tlsConfig,
@@ -105,7 +111,26 @@ func NewOAuth2Auth(metadata api.ObjectMeta, spec api.OAuth2ProviderSpec, tlsConf
 		organizationExtractor: organizationExtractor,
 		httpClient:            httpClient,
 		identityCache:         identityCache,
-	}, nil
+	}
+
+	// Initialize JWKS cache if using JWT introspection
+	if spec.Introspection != nil {
+		discriminator, err := spec.Introspection.Discriminator()
+		if err == nil && discriminator == string(api.Jwt) {
+			jwtSpec, err := spec.Introspection.AsJwtIntrospectionSpec()
+			if err == nil {
+				// Create JWKS cache - it will fetch on first Get() call
+				jwksCache := jwk.NewCache(context.Background())
+				if err := jwksCache.Register(jwtSpec.JwksUrl, jwk.WithMinRefreshInterval(15*time.Minute), jwk.WithHTTPClient(httpClient)); err != nil {
+					return nil, fmt.Errorf("failed to register JWKS cache: %w", err)
+				}
+				oauth2Auth.jwksCache = jwksCache
+				log.Debugf("OAuth2Auth JWKS cache registered for %s", jwtSpec.JwksUrl)
+			}
+		}
+	}
+
+	return oauth2Auth, nil
 }
 
 func (o *OAuth2Auth) IsEnabled() bool {
@@ -126,7 +151,7 @@ func (o *OAuth2Auth) Start(ctx context.Context) error {
 	providerCtx, cancel := context.WithCancel(ctx)
 	o.cancel = cancel
 
-	// Start cache in a goroutine (cache.Start() blocks waiting for cleanup events)
+	// Start identity cache in a goroutine (cache.Start() blocks waiting for cleanup events)
 	go o.identityCache.Start()
 
 	go func() {
@@ -135,7 +160,25 @@ func (o *OAuth2Auth) Start(ctx context.Context) error {
 		o.log.Debugf("OAuth2Auth identity cache stopped")
 	}()
 
-	o.log.Debugf("OAuth2Auth identity cache started")
+	// Warm up JWKS cache if using JWT introspection
+	if o.jwksCache != nil {
+		if o.spec.Introspection != nil {
+			jwtSpec, err := o.spec.Introspection.AsJwtIntrospectionSpec()
+			if err == nil {
+				// Fetch JWKS in background to warm up cache
+				go func() {
+					_, err := o.jwksCache.Get(providerCtx, jwtSpec.JwksUrl)
+					if err != nil {
+						o.log.Warnf("Failed to warm up JWKS cache: %v", err)
+					} else {
+						o.log.Debugf("JWKS cache warmed up for %s", jwtSpec.JwksUrl)
+					}
+				}()
+			}
+		}
+	}
+
+	o.log.Debugf("OAuth2Auth started")
 	o.started = true
 	return nil
 }
@@ -186,10 +229,7 @@ func (o *OAuth2Auth) GetAuthToken(r *http.Request) (string, error) {
 
 // GetAuthConfig returns the OAuth2 authentication configuration
 func (o *OAuth2Auth) GetAuthConfig() *api.AuthConfig {
-	orgEnabled := false
-	if o.orgConfig != nil {
-		orgEnabled = o.orgConfig.Enabled
-	}
+	orgEnabled := true // Organizations are always enabled
 
 	provider := api.AuthProvider{
 		ApiVersion: api.AuthProviderAPIVersion,
@@ -208,7 +248,7 @@ func (o *OAuth2Auth) GetAuthConfig() *api.AuthConfig {
 	}
 }
 
-// ValidateToken validates an OAuth2 access token by calling the userinfo endpoint
+// ValidateToken validates an OAuth2 access token using the configured introspection method
 func (o *OAuth2Auth) ValidateToken(ctx context.Context, token string) error {
 	// Check cache first
 	cacheKey := o.tokenCacheKey(token)
@@ -217,7 +257,17 @@ func (o *OAuth2Auth) ValidateToken(ctx context.Context, token string) error {
 		return nil
 	}
 
-	// Call userinfo endpoint to validate token
+	// Use introspection if configured, otherwise fall back to userinfo endpoint
+	if o.spec.Introspection != nil {
+		err := o.introspectToken(ctx, token)
+		if err != nil {
+			o.log.Debugf("OAuth2 token introspection failed: %v", err)
+			return fmt.Errorf("invalid token: %w", err)
+		}
+		return nil
+	}
+
+	// Fall back to userinfo endpoint for validation
 	_, err := o.callUserinfoEndpoint(ctx, token)
 	if err != nil {
 		o.log.Debugf("OAuth2 token validation failed: %v", err)
@@ -319,6 +369,193 @@ func (o *OAuth2Auth) callUserinfoEndpoint(ctx context.Context, token string) (ma
 
 	o.log.Debugf("Successfully retrieved userinfo for token (total time: %v)", time.Since(startTime))
 	return userInfo, nil
+}
+
+// introspectToken validates a token using the configured introspection method
+func (o *OAuth2Auth) introspectToken(ctx context.Context, token string) error {
+	discriminator, err := o.spec.Introspection.Discriminator()
+	if err != nil {
+		return fmt.Errorf("failed to determine introspection type: %w", err)
+	}
+
+	switch discriminator {
+	case string(api.Rfc7662):
+		spec, err := o.spec.Introspection.AsRfc7662IntrospectionSpec()
+		if err != nil {
+			return fmt.Errorf("failed to parse RFC7662 introspection spec: %w", err)
+		}
+		return o.introspectRFC7662(ctx, token, spec)
+	case string(api.Github):
+		spec, err := o.spec.Introspection.AsGitHubIntrospectionSpec()
+		if err != nil {
+			return fmt.Errorf("failed to parse GitHub introspection spec: %w", err)
+		}
+		return o.introspectGitHub(ctx, token, spec)
+	case string(api.Jwt):
+		spec, err := o.spec.Introspection.AsJwtIntrospectionSpec()
+		if err != nil {
+			return fmt.Errorf("failed to parse JWT introspection spec: %w", err)
+		}
+		return o.introspectJWT(ctx, token, spec)
+	default:
+		return fmt.Errorf("unsupported introspection type: %s", discriminator)
+	}
+}
+
+// introspectRFC7662 validates a token using RFC 7662 token introspection
+func (o *OAuth2Auth) introspectRFC7662(ctx context.Context, token string, spec api.Rfc7662IntrospectionSpec) error {
+	o.log.Debugf("Starting RFC 7662 introspection to %s", spec.Url)
+
+	// Create form data for introspection request with proper URL encoding
+	formData := url.Values{}
+	formData.Set("token", token)
+
+	req, err := http.NewRequestWithContext(ctx, "POST", spec.Url, strings.NewReader(formData.Encode()))
+	if err != nil {
+		return fmt.Errorf("failed to create introspection request: %w", err)
+	}
+
+	// RFC 7662 requires client authentication via Basic Auth
+	req.SetBasicAuth(o.spec.ClientId, *o.spec.ClientSecret)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := o.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to call introspection endpoint: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("introspection endpoint returned status %d", resp.StatusCode)
+	}
+
+	// Parse introspection response
+	var introspectionResponse struct {
+		Active bool `json:"active"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&introspectionResponse); err != nil {
+		return fmt.Errorf("failed to parse introspection response: %w", err)
+	}
+
+	if !introspectionResponse.Active {
+		return fmt.Errorf("token is not active")
+	}
+
+	o.log.Debugf("RFC 7662 introspection succeeded")
+	return nil
+}
+
+// introspectGitHub validates a token using GitHub's application token API
+func (o *OAuth2Auth) introspectGitHub(ctx context.Context, token string, spec api.GitHubIntrospectionSpec) error {
+	// GitHub uses: POST /applications/{client_id}/token
+	// Default to https://api.github.com if no URL specified
+	baseURL := "https://api.github.com"
+	if spec.Url != nil && *spec.Url != "" {
+		baseURL = *spec.Url
+	}
+
+	url := fmt.Sprintf("%s/applications/%s/token", baseURL, o.spec.ClientId)
+	o.log.Debugf("Starting GitHub introspection to %s", url)
+
+	requestBody := map[string]string{"access_token": token}
+	bodyBytes, err := json.Marshal(requestBody)
+	if err != nil {
+		return fmt.Errorf("failed to marshal GitHub introspection request body: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return fmt.Errorf("failed to create GitHub introspection request: %w", err)
+	}
+
+	// GitHub requires Basic Auth with client ID and secret
+	req.SetBasicAuth(o.spec.ClientId, *o.spec.ClientSecret)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/vnd.github+json")
+
+	resp, err := o.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to call GitHub introspection endpoint: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// GitHub returns 200 for valid tokens, 404 for invalid ones
+	if resp.StatusCode == http.StatusNotFound {
+		return fmt.Errorf("token is invalid or not owned by this application")
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("GitHub introspection endpoint returned status %d", resp.StatusCode)
+	}
+
+	o.log.Debugf("GitHub introspection succeeded")
+	return nil
+}
+
+// introspectJWT validates a token as a JWT using JWKS
+func (o *OAuth2Auth) introspectJWT(ctx context.Context, token string, spec api.JwtIntrospectionSpec) error {
+	o.log.Debugf("Starting JWT introspection with JWKS URL: %s", spec.JwksUrl)
+
+	// Parse JWT without validation first to fast-fail on non-JWT tokens
+	_, err := jwt.Parse([]byte(token), jwt.WithValidate(false), jwt.WithVerify(false))
+	if err != nil {
+		o.log.Debugf("Token is not JWT format: %v", err)
+		return fmt.Errorf("failed to parse JWT token: %w", err)
+	}
+
+	// Get JWKS from cache (will fetch if not cached)
+	jwkSet, err := o.jwksCache.Get(ctx, spec.JwksUrl)
+	if err != nil {
+		o.log.Errorf("Failed to get JWKS from cache: %v", err)
+		return fmt.Errorf("failed to get JWK set from cache: %w", err)
+	}
+
+	// Parse and validate token with signature verification
+	// The jwksCache automatically refreshes based on WithMinRefreshInterval (15 minutes)
+	parsedToken, err := jwt.Parse([]byte(token), jwt.WithKeySet(jwkSet), jwt.WithValidate(true))
+	if err != nil {
+		o.log.Debugf("JWT validation failed: %v", err)
+		return fmt.Errorf("failed to validate JWT token: %w", err)
+	}
+
+	// Validate issuer if specified, otherwise use OAuth2ProviderSpec issuer
+	expectedIssuer := ""
+	if spec.Issuer != nil && *spec.Issuer != "" {
+		expectedIssuer = *spec.Issuer
+	} else if o.spec.Issuer != nil && *o.spec.Issuer != "" {
+		expectedIssuer = *o.spec.Issuer
+	}
+
+	if expectedIssuer != "" && parsedToken.Issuer() != expectedIssuer {
+		return fmt.Errorf("token issuer '%s' does not match expected issuer '%s'", parsedToken.Issuer(), expectedIssuer)
+	}
+
+	// Validate audience if specified, otherwise use OAuth2ProviderSpec clientId
+	var expectedAudiences []string
+	if spec.Audience != nil && len(*spec.Audience) > 0 {
+		expectedAudiences = *spec.Audience
+	} else if o.spec.ClientId != "" {
+		expectedAudiences = []string{o.spec.ClientId}
+	}
+
+	if len(expectedAudiences) > 0 {
+		audienceValid := false
+		tokenAudiences := parsedToken.Audience()
+		for _, expectedAud := range expectedAudiences {
+			if slices.Contains(tokenAudiences, expectedAud) {
+				audienceValid = true
+				break
+			}
+		}
+
+		if !audienceValid {
+			return fmt.Errorf("token audience %v does not contain any of the expected audiences %v", tokenAudiences, expectedAudiences)
+		}
+	}
+
+	o.log.Debugf("JWT introspection succeeded")
+	return nil
 }
 
 // extractClaimByPath extracts a string value from claims using an array path

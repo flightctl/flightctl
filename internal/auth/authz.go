@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"sync"
 	"time"
 
@@ -13,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/identity"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/jellydator/ttlcache/v3"
 	"github.com/sirupsen/logrus"
@@ -142,95 +142,129 @@ func (m *MultiAuthZ) CheckPermission(ctx context.Context, resource string, op st
 	// Get identity from context
 	identityVal := ctx.Value(consts.IdentityCtxKey)
 	if identityVal == nil {
-		m.log.Debug("No identity in context, using static authZ")
-		return m.getStaticAuthZ().CheckPermission(ctx, resource, op)
+		m.log.Warn("No identity in context, returning 403")
+		return false, nil
 	}
 
 	ident, ok := identityVal.(common.Identity)
 	if !ok {
-		m.log.Warnf("Identity in context has incorrect type: %T", identityVal)
-		return m.getStaticAuthZ().CheckPermission(ctx, resource, op)
+		m.log.Warnf("Identity in context has incorrect type: %T, returning 403", identityVal)
+		return false, nil
 	}
 
 	// Check issuer type
 	issuer := ident.GetIssuer()
 	if issuer == nil {
-		m.log.Debug("Identity has no issuer, using static authZ")
+		m.log.Warn("Identity has no issuer, returning 403")
+		return false, nil
+	}
+
+	m.log.Debugf("CheckPermission: identity type=%T, issuer type=%s, issuer=%s", ident, issuer.Type, issuer.String())
+
+	// Route based on issuer type to avoid type collision
+	switch issuer.Type {
+	case identity.AuthTypeOpenShift:
+		return m.checkPermissionOpenShift(ctx, ident, resource, op)
+	case identity.AuthTypeK8s:
+		return m.checkPermissionK8s(ctx, ident, resource, op)
+	default:
+		// For OIDC, OAuth2, AAP and all other issuer types, use static authZ
+		m.log.Debugf("Using static authZ for issuer type=%s (%s)", issuer.Type, issuer.String())
 		return m.getStaticAuthZ().CheckPermission(ctx, resource, op)
 	}
+}
 
-	// Check if this is an OpenShift identity
-	if openshiftIdent, ok := ident.(*common.OpenShiftIdentity); ok && m.openshiftAuthZCache != nil {
-		m.log.Debugf("Using OpenShift authZ for identity from issuer: %s", issuer.String())
+// checkPermissionOpenShift handles permission checks for OpenShift identities
+func (m *MultiAuthZ) checkPermissionOpenShift(ctx context.Context, ident common.Identity, resource string, op string) (bool, error) {
+	issuer := ident.GetIssuer()
+	m.log.Infof("Using OpenShift authZ for issuer: %s", issuer.String())
 
-		// Get token from context
-		tokenVal := ctx.Value(consts.TokenCtxKey)
-		if tokenVal == nil {
-			m.log.Warn("OpenShift identity but no token in context")
-			return false, nil
-		}
-		token, ok := tokenVal.(string)
-		if !ok {
-			m.log.Warnf("OpenShift token in context has incorrect type: %T", tokenVal)
-			return false, nil
-		}
-
-		// Get control plane URL from identity
-		controlPlaneUrl := openshiftIdent.GetControlPlaneUrl()
-		if controlPlaneUrl == "" {
-			m.log.Warn("OpenShift identity has no control plane URL")
-			return false, nil
-		}
-
-		// Get or create openshiftAuthZ for this control plane
-		openshiftAuthZ, err := m.getOpenShiftAuthZ(controlPlaneUrl)
-		if err != nil {
-			m.log.WithError(err).Errorf("Failed to initialize OpenShift authZ for %s", controlPlaneUrl)
-			return false, err
-		}
-
-		return openshiftAuthZ.CheckPermission(ctx, token, resource, op)
+	if m.openshiftAuthZCache == nil {
+		m.log.Warn("OpenShift issuer but OpenShift authZ not configured, returning 403")
+		return false, nil
 	}
 
-	// Check if this is a K8s identity
-	if k8sIdent, ok := ident.(*common.K8sIdentity); ok && m.k8sAuthZCache != nil {
-		m.log.Debugf("Using K8s authZ for identity from issuer: %s", issuer.String())
-
-		// Get token from context
-		tokenVal := ctx.Value(consts.TokenCtxKey)
-		if tokenVal == nil {
-			m.log.Warn("K8s identity but no token in context")
-			return false, nil
-		}
-		token, ok := tokenVal.(string)
-		if !ok {
-			m.log.Warnf("K8s token in context has incorrect type: %T", tokenVal)
-			return false, nil
-		}
-
-		// Get control plane URL from identity
-		controlPlaneUrl := k8sIdent.GetControlPlaneUrl()
-		if controlPlaneUrl == "" {
-			m.log.Warn("K8s identity has no control plane URL")
-			return false, nil
-		}
-
-		// Get rbac namespace from identity
-		rbacNs := k8sIdent.GetRbacNs()
-
-		// Get or create k8sAuthZ for this control plane
-		k8sAuthZ, err := m.getK8sAuthZ(controlPlaneUrl, rbacNs)
-		if err != nil {
-			m.log.WithError(err).Errorf("Failed to initialize k8s authZ for %s", controlPlaneUrl)
-			return false, err
-		}
-
-		return k8sAuthZ.CheckPermission(ctx, token, resource, op)
+	openshiftIdent, ok := ident.(*common.OpenShiftIdentity)
+	if !ok {
+		m.log.Errorf("Issuer type is OpenShift but identity type is %T, returning 403", ident)
+		return false, nil
 	}
 
-	// For all other issuer types, use static authZ
-	m.log.Debugf("Using static authZ for identity from issuer: %s", issuer.String())
-	return m.getStaticAuthZ().CheckPermission(ctx, resource, op)
+	// Get token from context
+	tokenVal := ctx.Value(consts.TokenCtxKey)
+	if tokenVal == nil {
+		m.log.Warn("OpenShift identity but no token in context, returning 403")
+		return false, nil
+	}
+	token, ok := tokenVal.(string)
+	if !ok {
+		m.log.Warnf("OpenShift token in context has incorrect type: %T, returning 403", tokenVal)
+		return false, nil
+	}
+
+	// Get control plane URL from identity
+	controlPlaneUrl := openshiftIdent.GetControlPlaneUrl()
+	if controlPlaneUrl == "" {
+		m.log.Warn("OpenShift identity has no control plane URL, returning 403")
+		return false, nil
+	}
+
+	// Get or create openshiftAuthZ for this control plane
+	openshiftAuthZ, err := m.getOpenShiftAuthZ(controlPlaneUrl)
+	if err != nil {
+		m.log.WithError(err).Errorf("Failed to initialize OpenShift authZ for %s", controlPlaneUrl)
+		return false, err
+	}
+
+	return openshiftAuthZ.CheckPermission(ctx, token, resource, op)
+}
+
+// checkPermissionK8s handles permission checks for K8s identities
+func (m *MultiAuthZ) checkPermissionK8s(ctx context.Context, ident common.Identity, resource string, op string) (bool, error) {
+	issuer := ident.GetIssuer()
+	m.log.Infof("Using K8s authZ for issuer: %s", issuer.String())
+
+	if m.k8sAuthZCache == nil {
+		m.log.Warn("K8s issuer but K8s authZ not configured, returning 403")
+		return false, nil
+	}
+
+	k8sIdent, ok := ident.(*common.K8sIdentity)
+	if !ok {
+		m.log.Errorf("Issuer type is K8s but identity type is %T, returning 403", ident)
+		return false, nil
+	}
+
+	// Get token from context
+	tokenVal := ctx.Value(consts.TokenCtxKey)
+	if tokenVal == nil {
+		m.log.Warn("K8s identity but no token in context, returning 403")
+		return false, nil
+	}
+	token, ok := tokenVal.(string)
+	if !ok {
+		m.log.Warnf("K8s token in context has incorrect type: %T, returning 403", tokenVal)
+		return false, nil
+	}
+
+	// Get control plane URL from identity
+	controlPlaneUrl := k8sIdent.GetControlPlaneUrl()
+	if controlPlaneUrl == "" {
+		m.log.Warn("K8s identity has no control plane URL, returning 403")
+		return false, nil
+	}
+
+	// Get rbac namespace from identity
+	rbacNs := k8sIdent.GetRbacNs()
+
+	// Get or create k8sAuthZ for this control plane
+	k8sAuthZ, err := m.getK8sAuthZ(controlPlaneUrl, rbacNs)
+	if err != nil {
+		m.log.WithError(err).Errorf("Failed to initialize k8s authZ for %s", controlPlaneUrl)
+		return false, err
+	}
+
+	return k8sAuthZ.CheckPermission(ctx, token, resource, op)
 }
 
 // GetUserPermissions gets all permissions for the user based on the identity's issuer type
@@ -238,106 +272,133 @@ func (m *MultiAuthZ) GetUserPermissions(ctx context.Context) (*api.PermissionLis
 	// Get identity from context
 	identityVal := ctx.Value(consts.IdentityCtxKey)
 	if identityVal == nil {
-		m.log.Debug("No identity in context, using static authZ")
-		return m.getStaticAuthZ().GetUserPermissions(ctx)
+		m.log.Warn("No identity in context, returning forbidden")
+		return nil, fmt.Errorf("no identity in context")
 	}
 
 	ident, ok := identityVal.(common.Identity)
 	if !ok {
-		m.log.Warnf("Identity in context has incorrect type: %T", identityVal)
-		return m.getStaticAuthZ().GetUserPermissions(ctx)
+		m.log.Warnf("Identity in context has incorrect type: %T, returning forbidden", identityVal)
+		return nil, fmt.Errorf("identity has incorrect type")
 	}
 
 	// Check issuer type
 	issuer := ident.GetIssuer()
 	if issuer == nil {
-		m.log.Debug("Identity has no issuer, using static authZ")
+		m.log.Warn("Identity has no issuer, returning forbidden")
+		return nil, fmt.Errorf("identity has no issuer")
+	}
+
+	m.log.Debugf("GetUserPermissions: identity type=%T, issuer type=%s, issuer=%s", ident, issuer.Type, issuer.String())
+
+	// Route based on issuer type to avoid type collision
+	switch issuer.Type {
+	case identity.AuthTypeOpenShift:
+		return m.getUserPermissionsOpenShift(ctx, ident)
+	case identity.AuthTypeK8s:
+		return m.getUserPermissionsK8s(ctx, ident)
+	default:
+		// For OIDC, OAuth2, AAP and all other issuer types, use static authZ
+		m.log.Infof("Using static authZ for issuer type=%s (%s)", issuer.Type, issuer.String())
 		return m.getStaticAuthZ().GetUserPermissions(ctx)
 	}
+}
 
-	// Check if this is an OpenShift identity
-	if openshiftIdent, ok := ident.(*common.OpenShiftIdentity); ok && m.openshiftAuthZCache != nil {
-		m.log.Debugf("Using OpenShift authZ for identity from issuer: %s", issuer.String())
+// getUserPermissionsOpenShift handles getting user permissions for OpenShift identities
+func (m *MultiAuthZ) getUserPermissionsOpenShift(ctx context.Context, ident common.Identity) (*api.PermissionList, error) {
+	issuer := ident.GetIssuer()
+	m.log.Infof("Using OpenShift authZ for issuer: %s", issuer.String())
 
-		// Get token from context
-		tokenVal := ctx.Value(consts.TokenCtxKey)
-		if tokenVal == nil {
-			m.log.Warn("OpenShift identity but no token in context")
-			return nil, fmt.Errorf("no OpenShift token in context")
-		}
-		token, ok := tokenVal.(string)
-		if !ok {
-			m.log.Warnf("OpenShift token in context has incorrect type: %T", tokenVal)
-			return nil, fmt.Errorf("OpenShift token has incorrect type")
-		}
-
-		// Get control plane URL from identity
-		controlPlaneUrl := openshiftIdent.GetControlPlaneUrl()
-		if controlPlaneUrl == "" {
-			m.log.Warn("OpenShift identity has no control plane URL")
-			return nil, fmt.Errorf("OpenShift identity has no control plane URL")
-		}
-
-		// Get or create openshiftAuthZ for this control plane
-		openshiftAuthZ, err := m.getOpenShiftAuthZ(controlPlaneUrl)
-		if err != nil {
-			m.log.WithError(err).Errorf("Failed to initialize OpenShift authZ for %s", controlPlaneUrl)
-			return nil, err
-		}
-
-		return openshiftAuthZ.GetUserPermissions(ctx, token)
+	if m.openshiftAuthZCache == nil {
+		m.log.Warn("OpenShift issuer but OpenShift authZ not configured")
+		return nil, fmt.Errorf("OpenShift authZ not configured")
 	}
 
-	// Check if this is a K8s identity
-	if k8sIdent, ok := ident.(*common.K8sIdentity); ok && m.k8sAuthZCache != nil {
-		m.log.Debugf("Using K8s authZ for identity from issuer: %s", issuer.String())
-
-		// Get token from context
-		tokenVal := ctx.Value(consts.TokenCtxKey)
-		if tokenVal == nil {
-			m.log.Warn("K8s identity but no token in context")
-			return nil, fmt.Errorf("no k8s token in context")
-		}
-		token, ok := tokenVal.(string)
-		if !ok {
-			m.log.Warnf("K8s token in context has incorrect type: %T", tokenVal)
-			return nil, fmt.Errorf("k8s token has incorrect type")
-		}
-
-		// Get control plane URL from identity
-		controlPlaneUrl := k8sIdent.GetControlPlaneUrl()
-		if controlPlaneUrl == "" {
-			m.log.Warn("K8s identity has no control plane URL")
-			return nil, fmt.Errorf("K8s identity has no control plane URL")
-		}
-
-		// Get rbac namespace from identity
-		rbacNs := k8sIdent.GetRbacNs()
-
-		// Get or create k8sAuthZ for this control plane
-		k8sAuthZ, err := m.getK8sAuthZ(controlPlaneUrl, rbacNs)
-		if err != nil {
-			m.log.WithError(err).Errorf("Failed to initialize k8s authZ for %s", controlPlaneUrl)
-			return nil, err
-		}
-
-		return k8sAuthZ.GetUserPermissions(ctx, token)
+	openshiftIdent, ok := ident.(*common.OpenShiftIdentity)
+	if !ok {
+		m.log.Errorf("Issuer type is OpenShift but identity type is %T", ident)
+		return nil, fmt.Errorf("identity type mismatch")
 	}
 
-	// For all other issuer types, use static authZ
-	m.log.Debugf("Using static authZ for identity from issuer: %s", issuer.String())
-	return m.getStaticAuthZ().GetUserPermissions(ctx)
+	// Get token from context
+	tokenVal := ctx.Value(consts.TokenCtxKey)
+	if tokenVal == nil {
+		m.log.Warn("OpenShift identity but no token in context")
+		return nil, fmt.Errorf("no OpenShift token in context")
+	}
+	token, ok := tokenVal.(string)
+	if !ok {
+		m.log.Warnf("OpenShift token in context has incorrect type: %T", tokenVal)
+		return nil, fmt.Errorf("OpenShift token has incorrect type")
+	}
+
+	// Get control plane URL from identity
+	controlPlaneUrl := openshiftIdent.GetControlPlaneUrl()
+	if controlPlaneUrl == "" {
+		m.log.Warn("OpenShift identity has no control plane URL")
+		return nil, fmt.Errorf("OpenShift identity has no control plane URL")
+	}
+
+	// Get or create openshiftAuthZ for this control plane
+	openshiftAuthZ, err := m.getOpenShiftAuthZ(controlPlaneUrl)
+	if err != nil {
+		m.log.WithError(err).Errorf("Failed to initialize OpenShift authZ for %s", controlPlaneUrl)
+		return nil, err
+	}
+
+	return openshiftAuthZ.GetUserPermissions(ctx, token)
+}
+
+// getUserPermissionsK8s handles getting user permissions for K8s identities
+func (m *MultiAuthZ) getUserPermissionsK8s(ctx context.Context, ident common.Identity) (*api.PermissionList, error) {
+	issuer := ident.GetIssuer()
+	m.log.Infof("Using K8s authZ for issuer: %s", issuer.String())
+
+	if m.k8sAuthZCache == nil {
+		m.log.Warn("K8s issuer but K8s authZ not configured")
+		return nil, fmt.Errorf("K8s authZ not configured")
+	}
+
+	k8sIdent, ok := ident.(*common.K8sIdentity)
+	if !ok {
+		m.log.Errorf("Issuer type is K8s but identity type is %T", ident)
+		return nil, fmt.Errorf("identity type mismatch")
+	}
+
+	// Get token from context
+	tokenVal := ctx.Value(consts.TokenCtxKey)
+	if tokenVal == nil {
+		m.log.Warn("K8s identity but no token in context")
+		return nil, fmt.Errorf("no k8s token in context")
+	}
+	token, ok := tokenVal.(string)
+	if !ok {
+		m.log.Warnf("K8s token in context has incorrect type: %T", tokenVal)
+		return nil, fmt.Errorf("k8s token has incorrect type")
+	}
+
+	// Get control plane URL from identity
+	controlPlaneUrl := k8sIdent.GetControlPlaneUrl()
+	if controlPlaneUrl == "" {
+		m.log.Warn("K8s identity has no control plane URL")
+		return nil, fmt.Errorf("K8s identity has no control plane URL")
+	}
+
+	// Get rbac namespace from identity
+	rbacNs := k8sIdent.GetRbacNs()
+
+	// Get or create k8sAuthZ for this control plane
+	k8sAuthZ, err := m.getK8sAuthZ(controlPlaneUrl, rbacNs)
+	if err != nil {
+		m.log.WithError(err).Errorf("Failed to initialize k8s authZ for %s", controlPlaneUrl)
+		return nil, err
+	}
+
+	return k8sAuthZ.GetUserPermissions(ctx, token)
 }
 
 // InitMultiAuthZ initializes authorization with support for multiple methods
 func InitMultiAuthZ(cfg *config.Config, log logrus.FieldLogger) (AuthZMiddleware, error) {
-	value, exists := os.LookupEnv(DisableAuthEnvKey)
-	if exists && value != "" {
-		log.Warnln("AuthZ disabled")
-		authZProvider := NilAuth{}
-		return authZProvider, nil
-	}
-
 	if cfg.Auth == nil {
 		return nil, errors.New("no auth configuration provided")
 	}

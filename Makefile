@@ -1,4 +1,4 @@
-# Enable BuildKit for all container builds
+# Enable BuildKit for all container buildsmakefi
 export DOCKER_BUILDKIT=1
 export BUILDKIT_PROGRESS=plain
 
@@ -40,7 +40,7 @@ GOARCH = $(shell go env GOARCH)
 
 VERBOSE ?= false
 
-SOURCE_GIT_TAG ?=$(shell $(ROOT_DIR)/hack/current-version)
+SOURCE_GIT_TAG ?=$(shell git -C $(ROOT_DIR) describe --tags --exclude latest 2>/dev/null || echo "v0.0.0-unknown")
 SOURCE_GIT_TREE_STATE ?=$(shell ( ( [ ! -d "$(ROOT_DIR)/.git/" ] || git -C $(ROOT_DIR) diff --quiet ) && echo 'clean' ) || echo 'dirty')
 SOURCE_GIT_COMMIT ?=$(shell git -C $(ROOT_DIR) rev-parse --short "HEAD^{commit}" 2>/dev/null || echo "unknown")
 BIN_TIMESTAMP ?=$(shell date +'%Y%m%d')
@@ -102,7 +102,6 @@ help:
 	@echo "    deploy-kv:       deploy only the key-value store as a container, for testing"
 	@echo "    deploy-quadlets: deploy the complete Flight Control service using Quadlets"
 	@echo "                     (includes proper startup ordering: DB -> KV -> other services)"
-	@echo "                     Supports AUTH=true and ORGS=true environment variables"
 	@echo "    clean:           clean up all containers and volumes"
 	@echo "    clean-all:       full cleanup including containers and bin directory"
 	@echo "    rebuild-containers: force rebuild all containers"
@@ -333,8 +332,8 @@ bin:
 
 # only trigger the rpm build when not built before or changes happened to the codebase
 bin/.rpm: bin $(shell find $(ROOT_DIR)/ -name "*.go" -not -path "$(ROOT_DIR)/packaging/*") packaging/rpm/flightctl.spec packaging/systemd/flightctl-agent.service hack/build_rpms.sh $(shell find $(ROOT_DIR)/packaging/selinux -type f)
-	@sudo $(ROOT_DIR)/hack/build_rpms.sh
-	@sudo chown -R $(shell id -u):$(shell id -g) %{SCRIPT_DIR}/bin/rpm/
+	@sudo GOMODCACHE="$(shell go env GOMODCACHE)" GOCACHE="$(shell go env GOCACHE)" $(ROOT_DIR)/hack/build_rpms.sh $(if $(RPM_MOCK_ROOT),--root $(RPM_MOCK_ROOT),)
+	@sudo chown -R $(shell id -u):$(shell id -g) bin/rpm/
 	touch bin/.rpm
 
 rpm: bin/.rpm

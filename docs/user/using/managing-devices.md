@@ -48,9 +48,9 @@ Flight Control automatically gathers system information from each device to help
 
 Here are key considerations when using this feature:
 
-* **What’s Collected**: By default, the agent collects basic system information such as hostname, kernel version, OS distribution, product identifiers, and default network interface details. Additional fields such as BIOS data, GPU info, memory, and CPU details can be enabled through configuration. See [configuring agent](configuring-agent.md) for a full list of supported fields and how to customize collection.
+* **What's Collected**: By default, the agent collects basic system information such as hostname, kernel version, OS distribution, product identifiers, and default network interface details. Additional fields such as BIOS data, GPU info, memory, and CPU details can be enabled through configuration. See [Installing the Agent](../installing/installing-agent.md) for a full list of supported fields and how to customize collection.
 
-* **Custom Fields**: You can configure the agent to collect additional custom attributes specific to your environment. These are displayed under `systemInfo.customInfo` and can be used for labeling or grouping devices. See [configuring agent](configuring-agent.md) for example usage.
+* **Custom Fields**: You can configure the agent to collect additional custom attributes specific to your environment. These are displayed under `systemInfo.customInfo` and can be used for labeling or grouping devices. See [Installing the Agent](../installing/installing-agent.md) for example usage.
 
 * **Collection Timing**: System info is collected during process bootstrap and then cached. It refreshes only if the agent restarts or receives a reload signal (SIGHUP). This avoids unnecessary overhead during regular status updates.
 
@@ -264,7 +264,7 @@ Flight Control currently supports the following image types and image references
 
 | Image Type | Image Reference |
 | ---------- | --------------- |
-| [bootc](https://github.com/containers/bootc) | An OCI image reference to a container registry. Example: `quay.io/flightctl-demos/rhel:9.5` |
+| [bootc](https://github.com/bootc-dev/bootc) | An OCI image reference to a container registry. Example: `quay.io/flightctl-demos/rhel:9.5` |
 
 During the process, the agent sends status updates to the service. You can monitor the update progress by viewing the device status.
 
@@ -378,11 +378,17 @@ You can now reference this Repository when you configure devices. For example, t
 | TargetRevision | production |
 | Path | /factory-a |
 
-#### Configuring SSH Access for Private Repositories  
-  
-If your Git repository requires SSH authentication, you need to configure SSH known hosts to ensure secure connections.
+#### Authenticating to Private Repositories
 
-First, create a `known_hosts` file containing the SSH host keys for your Git server. You can obtain these keys by running:
+Flight Control supports authentication for private Git repositories and HTTP endpoints using SSH keys, HTTPS credentials, or client certificates.
+
+##### SSH Authentication
+
+For SSH-based Git repositories, configure SSH known hosts and provide your private key (base64-encoded).
+
+###### Step 1: Configure SSH Known Hosts
+
+Create a `known_hosts` file containing the SSH host keys for your Git server:
 
 ```console
 ssh-keyscan github.com >> known_hosts
@@ -419,6 +425,89 @@ sudo install -m 0644 known_hosts /etc/flightctl/ssh/known_hosts
 > ```console
 > sudo systemctl restart flightctl-worker.service flightctl-periodic.service
 > ```
+
+###### Step 2: Configure Repository with SSH Private Key
+
+Base64 encode your private key: `cat ~/.ssh/id_rsa | base64 -w 0`
+
+Create a Repository resource with SSH authentication:
+
+```yaml
+apiVersion: flightctl.io/v1beta1
+kind: Repository
+metadata:
+  name: private-ssh-repo
+spec:
+  type: git
+  url: git@github.com:myorg/private-repo.git
+  sshConfig:
+    sshPrivateKey: <base64-encoded-private-key>
+    # Optional: privateKeyPassphrase: your-passphrase
+    # Optional: skipServerVerification: true
+```
+
+##### HTTPS Authentication
+
+For HTTPS repositories, use basic authentication, bearer tokens, or client certificates:
+
+**Basic authentication (username/password):**
+
+```yaml
+spec:
+  type: git
+  url: https://github.com/myorg/private-repo.git
+  httpConfig:
+    username: myusername
+    password: ghp_xxxxxxxxxxxxxxxxxxxx  # Use Personal Access Token
+```
+
+**Bearer token authentication:**
+
+```yaml
+spec:
+  type: git
+  url: https://git-server.example.com/myorg/private-repo.git
+  httpConfig:
+    token: your-bearer-token
+```
+
+**Mutual TLS (client certificates):**
+
+```yaml
+spec:
+  type: git
+  url: https://secure-git.example.com/myorg/private-repo.git
+  httpConfig:
+    tls.crt: <base64-encoded-certificate>
+    tls.key: <base64-encoded-key>
+    # Optional: ca.crt: <base64-encoded-ca-cert>
+    # Optional: skipServerVerification: true
+```
+
+Base64 encode certificates: `cat client.crt | base64 -w 0`
+
+##### HTTP Endpoints
+
+For HTTP-based configuration repositories (non-Git):
+
+```yaml
+spec:
+  type: http
+  url: https://config-server.example.com
+  httpConfig:
+    username: myusername
+    password: mypassword
+    # Or use: token: your-api-token
+```
+
+##### Verifying Access
+
+Check repository accessibility after creation:
+
+```console
+flightctl get repository/private-ssh-repo
+# Output shows ACCESSIBLE: True/False
+```
 
 ### Getting Secrets from a Kubernetes Cluster
 
@@ -535,28 +624,33 @@ The following table shows the application runtimes and formats supported by Flig
 
 ### Runtime: **Podman**
 
-| Specification      | Format                        | Source / Delivery                  |
-| ------------------ | ----------------------------- | ---------------------------------- |
-| Compose specification (via [`podman-compose`](https://github.com/containers/podman-compose)) | OCI image         | OCI registry                       |
-| Compose specification (via [`podman-compose`](https://github.com/containers/podman-compose)) | Unpackaged inline | Inline in device specification     |
+| Specification                                                                                                      | Format            | Source / Delivery              |
+|--------------------------------------------------------------------------------------------------------------------|-------------------|--------------------------------|
+| Compose specification (via [`podman-compose`](https://github.com/containers/podman-compose))                       | OCI Image         | OCI registry                   |
+| Compose specification (via [`podman-compose`](https://github.com/containers/podman-compose))                       | Unpackaged Inline | Inline in device specification |
+| Compose specification (via [`podman-compose`](https://github.com/containers/podman-compose))                       | Unpackaged        | Embedded in OS image           |
+| Quadlet specification (via [Podman Quadlet](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html)) | OCI Image         | OCI registry                   |
+| Quadlet specification (via [Podman Quadlet](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html)) | Unpackaged Inline | Inline in device specification |
+| Quadlet specification (via [Podman Quadlet](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html)) | Unpackaged        | Embedded in OS image           |
+| Simplified container specification                                                                                 | OCI Image         | OCI registry                   |
 
 > [!NOTE]
-> Requires `podman-compose` to be installed on the device.
+> Compose applications require `podman-compose` to be installed on the device.
 
 > [!NOTE]
-> Image downloads adhere to the `pull-timeout` [configuration](configuring-agent.md#agent-configyaml-configuration-file).
+> Image downloads adhere to the `pull-timeout` [configuration](../installing/installing-agent.md#agent-configuration).
 
 > [!TIP]
 > Short image names (e.g., `nginx`) are not supported. Use fully qualified references like `docker.io/nginx` to avoid ambiguity.
 
 To deploy an application to a device, create a new entry in the "applications" section of the device's specification, specifying the following parameters:
 
-| Parameter | Description |
-| --------- | ----------- |
-| Name    | A user-defined name for the application. This will be used when the web UI and CLI list applications. |
-| Image   | A reference to an application package in an OCI registry. |
-| AppType | The application format type. Currently supported type: `compose`. |
-| EnvVars | (Optional) A list of key/value-pairs that will be passed to the deployment tool as environment variables or command line flags. |
+| Parameter | Description                                                                                                                     |
+|-----------|---------------------------------------------------------------------------------------------------------------------------------|
+| Name      | A user-defined name for the application. This will be used when the web UI and CLI list applications.                           |
+| Image     | A reference to an application package in an OCI registry.                                                                       |
+| AppType   | The application format type. Currently supported types: `compose`, `quadlet`, `container`.                                      |
+| EnvVars   | (Optional) A list of key/value-pairs that will be passed to the deployment tool as environment variables or command line flags. |
 
 For each application in the "applications" section of the device's specification, there exist a corresponding device status information that contains the following information:
 
@@ -596,21 +690,80 @@ spec:
 
 ### Creating OCI Registry Application Package
 
-Define the application's functionality with the [Compose specification](https://github.com/compose-spec/compose-spec/blob/main/spec.md) and embed the compose file in a scratch container. Add the `appType=compose` label, then build and push the container to your OCI registry. Finally, reference the image in `spec.applications[]`.
+You can package both Compose and Quadlet applications as OCI images for distribution via container registries.
+
+#### Compose OCI Image Package
+
+Define the application's functionality with the [Compose specification](https://github.com/compose-spec/compose-spec/blob/main/spec.md) and embed the compose file in a scratch container. Then build and push the container to your OCI registry.
 
 ```yaml
 FROM scratch
 
 COPY podman-compose.yaml /podman-compose.yaml
+```
 
-# required
-LABEL appType="compose"
+#### Quadlet OCI Image Package
 
+For Quadlet applications, package your quadlet unit files (.container, .volume, .network, etc.) in a scratch container:
+
+```yaml
+FROM scratch
+
+COPY web.container /web.container
+COPY app-net.network /app-net.network
+```
+
+#### OCI Artifact Packages
+
+OCI artifacts provide a simpler alternative to OCI images for packaging Compose and Quadlet applications.
+
+**Creating OCI Artifacts:**
+OCI artifacts can be created using tools like [ORAS](https://oras.land/) or Podman.
+
+**Using Podman:**
+
+```console
+# Create a Compose artifact
+podman artifact add quay.io/my-org/my-compose-app:v1.0 podman-compose.yaml
+
+# Create a Quadlet artifact with multiple files
+podman artifact add quay.io/my-org/my-quadlet-app:v1.0 app.container app.volume
+
+# Create a Quadlet artifact with a single tar.gz bundle
+tar czf app-files.tar.gz web.container app-net.network config/
+podman artifact add quay.io/my-org/my-quadlet-app:v1.0 app-files.tar.gz
+```
+
+**File Format Support:**
+
+The Flight Control agent automatically processes artifact contents:
+
+* **Raw files**: Copied directly to the application directory
+* **Tar archives**: Files with `.tar`, `.tar.gz`, or `.tgz` extensions are automatically unpacked
+* **Directories**: Recursively copied to the application directory
+
+The agent will automatically extract `app-files.tar.gz` when deploying the application.
+
+> [!NOTE]
+> Podman version 5.5 or above is required for artifact use.
+
+After building and pushing either package type, reference the image in `spec.applications[]`:
+
+```yaml
+apiVersion: flightctl.io/v1alpha1
+kind: Device
+metadata:
+  name: some_device_name
+spec:
+  applications:
+  - name: my-app
+    image: quay.io/my-org/my-app:v1.2.3
+    appType: compose  # or quadlet
 ```
 
 ### Specifying Applications Inline in the Device Spec
 
-Application manifests are specified inline in a device's specification, so building an OCI Registry Application Package is not required.
+Both Compose and Quadlet application manifests can be specified inline in a device's specification, so building an OCI Registry Application Package is not required.
 
 The Inline Application Provider accepts a list of application content with the following parameters:
 
@@ -619,6 +772,8 @@ The Inline Application Provider accepts a list of application content with the f
 | Path | The relative path to the file on the device. Note that any existing file will be overwritten. |
 | Content (Optional) | The plain text (UTF-8) or base64-encoded content of the file. |
 | ContentEncoding | How the contents are encoded. Must be either "plain" or "base64". Defaults to "plain". |
+
+**Compose Inline Example:**
 
 ```yaml
 apiVersion: flightctl.io/v1beta1
@@ -644,14 +799,315 @@ spec:
 > [!NOTE]
 > Inline compose applications can have at most two paths. The first should be named `podman-compose.yaml`, and the second (override) must be named `podman-compose.override.yaml`.
 
+### Embedding Applications in OS Images
+
+Applications can be embedded directly into OS images during image building. Embedded applications are automatically discovered by the Flight Control Agent at startup without requiring any device specification. This approach is ideal for applications that should be present on all devices using a particular OS image.
+
+#### Adding Embedded Applications During Image Building
+
+**Compose Applications:**
+
+To embed a Compose application, add the application files to `/usr/local/etc/compose/manifests/` during the image build process. Each application should be in its own subdirectory.
+
+```text
+/usr/local/etc/compose/manifests/
+├── app1/
+│   └── podman-compose.yaml
+├── app2/
+│   ├── podman-compose.yaml
+│   └── podman-compose.override.yaml
+└── app3/
+    └── podman-compose.yml
+```
+
+**Quadlet Applications:**
+
+To embed a Quadlet application, add the quadlet files to `/usr/local/etc/containers/systemd/` during the image build process. Each application should be in its own subdirectory.
+
+```text
+/usr/local/etc/containers/systemd/
+├── web-server/
+│   ├── nginx.container
+│   └── app-net.network
+└── database/
+    ├── postgres.container
+    └── db-data.volume
+```
+
+#### Discovery and Management
+
+The Flight Control Agent automatically discovers embedded applications at startup:
+
+* **Compose**: Scans `/usr/local/etc/compose/manifests/` for subdirectories containing compose files (`*.yaml` or `*.yml`)
+* **Quadlet**: Scans `/usr/local/etc/containers/systemd/` for subdirectories containing valid quadlet files. The agent automatically namespaces quadlet files to prevent conflicts between applications.
+
+The subdirectory name becomes the application name. Embedded applications appear in device status but do not require entries in the device specification. The agent manages their lifecycle (starting, monitoring) but cannot remove them as they are part of the OS image.
+
+### Creating Quadlet Applications
+
+Quadlet applications use [Podman Quadlet](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html) to manage containers as native systemd services. This allows full integration with systemd's dependency management, restart policies, resource limits, and logging.
+
+#### Supported Quadlet File Types
+
+Flight Control supports the following Quadlet file types:
+
+| File Extension | Description                                                            |
+|----------------|------------------------------------------------------------------------|
+| `.container`   | Defines a single Podman container                                      |
+| `.volume`      | Defines and manages a Podman volume (can be populated from OCI images) |
+| `.network`     | Defines a Podman network                                               |
+| `.image`       | Manages a container image (ensures it's pulled and available)          |
+| `.pod`         | Defines a group of containers sharing resources                        |
+
+**Note**: The following Quadlet types are **not supported**:
+
+* `.build` - Building images from Containerfile (use prebuilt images instead)
+* `.artifact` - Experimental OCI artifact support
+* `.kube` - Kubernetes YAML support
+
+#### File Naming Requirements
+
+All Quadlet file names must be unique across all systemd service files on a Device. The Flight Control agent automatically namespaces quadlet files to prevent service name collisions between applications.
+
+> [!IMPORTANT]
+> Quadlet files can reference other quadlet files by name (e.g., `Volume=my-data.volume`). However, only quadlet files defined within the same application are guaranteed to preserve their references. Cross-application references are not supported due to namespacing.
+>
+> **Example - Valid references (same application):**
+>
+> ```yaml
+> applications:
+>   - name: web-app
+>     appType: quadlet
+>     inline:
+>       - path: app-net.network
+>         content: |
+>           [Network]
+>           NetworkName=app-network
+>       - path: backend.container
+>         content: |
+>           [Container]
+>           Image=quay.io/myorg/backend:v1
+>           Network=app-net.network  # ✓ Valid - same application
+> ```
+>
+> **Example - Invalid references (cross-application):**
+>
+> ```yaml
+> applications:
+>   - name: network-config
+>     appType: quadlet
+>     inline:
+>       - path: shared-net.network
+>         content: |
+>           [Network]
+>           NetworkName=shared-network
+>   - name: web-service
+>     appType: quadlet
+>     inline:
+>       - path: web.container
+>         content: |
+>           [Container]
+>           Image=quay.io/myorg/web:v1
+>           Network=shared-net.network  # ✗ Invalid - different application
+> ```
+
+#### Inline Quadlet Examples
+
+**Simple Container Example:**
+
+```yaml
+apiVersion: flightctl.io/v1alpha1
+kind: Device
+metadata:
+  name: some_device_name
+spec:
+  applications:
+    - name: nginx-server
+      appType: quadlet
+      inline:
+        - path: nginx.container
+          content: |
+            [Unit]
+            Description=Nginx web server
+
+            [Container]
+            Image=quay.io/library/nginx:latest
+            PublishPort=8080:80
+
+            [Service]
+            Restart=always
+
+            [Install]
+            WantedBy=default.target
+```
+
+**Container with Volume:**
+
+```yaml
+spec:
+  applications:
+    - name: postgres-db
+      appType: quadlet
+      inline:
+        - path: db.volume
+          content: |
+            [Volume]
+            VolumeName=postgres-data
+
+        - path: postgres.container
+          content: |
+            [Container]
+            Image=quay.io/library/postgres:16
+            Volume=db.volume:/var/lib/postgresql/data:Z
+            Environment=POSTGRES_PASSWORD=secret
+
+            [Service]
+            Restart=always
+
+            [Install]
+            WantedBy=default.target
+```
+
+**Multi-Container with Network:**
+
+```yaml
+spec:
+  applications:
+    - name: web-app
+      appType: quadlet
+      inline:
+        - path: app-net.network
+          content: |
+            [Network]
+            NetworkName=app-network
+
+        - path: backend.container
+          content: |
+            [Container]
+            Image=quay.io/myorg/backend:v1
+            Network=app-net.network
+
+        - path: frontend.container
+          content: |
+            [Container]
+            Image=quay.io/myorg/frontend:v1
+            Network=app-net.network
+            PublishPort=8080:80
+```
+
+**Environment Variables:**
+
+Environment variables are injected using the `envVars` field. The agent generates a `.env` file and systemd drop-in configuration to apply them:
+
+```yaml
+spec:
+  applications:
+    - name: api-server
+      appType: quadlet
+      envVars:
+        DATABASE_HOST: "db.internal"
+        API_PORT: "8080"
+        LOG_LEVEL: "info"
+      inline:
+        - path: api-server.container
+          content: |
+            [Container]
+            Image=quay.io/myorg/api-server:v2.1
+            PublishPort=8080:8080
+```
+
+**Volume from OCI Image:**
+
+Volumes can be populated from OCI images, useful for delivering configuration files or data:
+
+```yaml
+spec:
+  applications:
+    - name: config-app
+      appType: quadlet
+      inline:
+        - path: config.volume
+          content: |
+            [Volume]
+            Driver=image
+            Image=quay.io/myorg/app-config:v1
+
+        - path: app.container
+          content: |
+            [Container]
+            Image=quay.io/myorg/myapp:v1
+            Volume=config.volume:/config:ro
+```
+
+### Runnable Container Applications
+
+To reduce the friction in running simple applications, the `container` application type is provided. For more complicated
+applications, quadlet definitions are the recommended approach.
+
+**Supported Properties:**
+
+* **Image** - Required - Reference to OCI runnable image
+* **Environment Variables** - Optional - Variables to be injected into the running container
+* **Port Mappings** - Optional - Must be in the format `hostPort:containerPort`, with each port limited in the range of `1-65535`
+* **CPU Limits** - Optional - Positive decimal number (e.g., `"1.5"`, `"2"`, `"0.5"`)
+* **Memory Limits** - Optional - Number followed by optional unit - `b` (bytes), `k` (kibibytes), `m` (mebibytes), or `g` (gibibytes). Examples: `"512m"`, `"2g"`, `"1024k"`
+* **Named Volume Mounts** - Optional - Persistent volumes mounted within the container
+* **Artifact Backed Mounts** - Optional - Volumes mounted within the container that are populated via OCI artifacts
+
+> [!NOTE]
+> The volume mount path format supports standard Podman mount syntax: `destination[:options]`
+
+> [!NOTE]
+> Artifact backed mounts must adhere to the requirements defined in [OCI artifact requirements](#oci-artifact-requirements).
+
+#### Runnable Container Example
+
+```yaml
+spec:
+  applications:
+    - name: production-api
+      appType: container
+      image: quay.io/myorg/production-api:v2.3.1 # the runnable image
+      envVars:
+        DATABASE_URL: "postgresql://db:5432/app"
+        LOG_LEVEL: "info"
+        CACHE_SIZE: "1000"
+      ports:
+        - "8080:80"
+        - "9090:9090"  
+      resources:
+        limits:
+          cpu: "4.0"
+          memory: "2g"
+      volumes:
+        - name: config # named volume mounted as readonly
+          mount:
+            path: "/app/config:ro"
+        - name: logs # named volume mounted with no configuration
+          mount:
+            path: "/app/logs"
+        - name: ml-models # OCI artifact backed volume
+          mount:
+            path: "/mnt/models"
+          image:
+            reference: quay.io/myorg/models:latest
+            pullPolicy: Always
+```
+
 ### Adding Application Volumes
 
 > [!NOTE]
 > This feature requires the Flight Control Agent to run with **Podman version 5.5 or higher**.
 
-Applications can declare persistent data volumes that are populated from OCI artifacts. This allows delivering large datasets (such as ML models or static assets) as part of the application deployment.
+Compose and Quadlet applications can declare persistent data volumes that are populated from OCI artifacts. This allows delivering large datasets (such as ML models or static assets) as part of the application deployment.
 
 Volumes are declared under each application in the `volumes` field. These volumes are mounted into the application containers via the Compose `volumes` section.
+
+> [!NOTE]
+> Quadlet applications support native volume definitions (`.volume` files) for image based volumes.
+
+> [!NOTE]
+> Container applications support volume definitions, [but require a mount location](#runnable-container-applications).
 
 #### Specifying Volumes
 
@@ -698,6 +1154,38 @@ spec:
             pullPolicy: IfNotPresent
 ```
 
+#### Example Quadlet Inline Application with Volume
+
+```yaml
+apiVersion: flightctl.io/v1beta1
+kind: Device
+metadata:
+  name: some_device_name
+[...]
+spec:
+  applications:
+    - name: config-app
+      appType: quadlet
+      inline:
+        - path: config.volume
+          content: |
+            [Volume]
+            Driver=image
+            Image=quay.io/myorg/app-config:v1
+
+        - path: app.container
+          content: |
+            [Container]
+            Image=quay.io/myorg/myapp:v1
+            Volume=config.volume:/config:ro # reference to image backed volume
+            Volume=my-data:/mnt/models/gpt2 # reference to artifact backed volume
+      volumes:
+        - name: my-data
+          image:
+            reference: quay.io/flightctl-tests/models/gpt2
+            pullPolicy: IfNotPresent
+```
+
 #### OCI Artifact Requirements
 
 Volume images must follow the OCI artifact specification:
@@ -714,15 +1202,18 @@ Volume images must follow the OCI artifact specification:
 > it will be placed into the existing directory using the file name in the name field for the layer.
 
 > [!NOTE]
-> Artifact downloads adhere to the `pull-timeout` [configuration](configuring-agent.md#agent-configyaml-configuration-file).
+> Artifact downloads adhere to the `pull-timeout` [configuration](../installing/installing-agent.md#agent-configuration).
 
 #### Device Requirements
 
 The following are required on the device to support application volumes:
 
 * Podman **5.5 or newer** installed.
-* `podman-compose` installed.
 * OCI registry authentication (if needed) must be configured prior to deployment.
+
+**Compose Applications:**
+
+* `podman-compose` installed.
 
 ## Using Device Lifecycle Hooks
 
@@ -737,11 +1228,11 @@ The following device lifecycle hooks are supported:
 | `beforeRebooting` | This hook is called before the agent reboots the device. The agent will block the reboot until running the action has completed or timed out. If any action in this hook returns with failure, the agent will abort and roll back the update. |
 | `afterRebooting` | This hook is called when the agent first starts after a reboot. If any action in this hook returns with failure, the agent will report this but continue starting up. |
 
-Refer to the [Device API status reference](device-api-statuses.md) a state diagram defining when each device lifecycle hook is called by the agent.
+Refer to the [Device API status reference](../references/device-api-statuses.md) a state diagram defining when each device lifecycle hook is called by the agent.
 
 Device lifecycle hooks can be defined by adding rule files to one of two locations in the device's filesystem, whereby `${lifecyclehook}` is the all-lower-case name of the hook to be defined:
 
-* Rules in the `/usr/lib/flightctl/hooks.d/${lifecyclehook}/` drop-in directory are read-only and thus have to be added to the OS image during [image building](building-images.md).
+* Rules in the `/usr/lib/flightctl/hooks.d/${lifecyclehook}/` drop-in directory are read-only and thus have to be added to the OS image during [image building](../building/building-images.md).
 * Rules in the `/etc/flightctl/hooks.d/${lifecyclehook}/` drop-in directory are read-writable and can thus be updated at runtime using the methods described in [Managing OS Configuration](#managing-os-configuration).
 
 If rules are defined in both locations they will be merged, whereby files under `/etc` take precedence over files of the same name under `/usr`. If multiple rule files are added to a hook's directory, they are processed in lexical order of their file names.
@@ -950,7 +1441,7 @@ Each schedule supports:
 | `timeZone`             | (Optional) The time zone used to evaluate the schedule. Defaults to the device’s local system time zone. Must be a valid [IANA time zone](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones). |
 | `startGraceDuration`   | (Optional) A duration string that extends the allowed start time window after a schedule trigger. Follows the [Go duration format](https://pkg.go.dev/time#ParseDuration), such as `"1h"` or `"45m"`. |
 
-The Flight Control agent evaluates these schedules during its control loop to determine whether each policy is currently allowed to proceed. While the device waits for the update window the device status will read `OutOfDate`. For more details please see [Device API Statuses](device-api-statuses.md).
+The Flight Control agent evaluates these schedules during its control loop to determine whether each policy is currently allowed to proceed. While the device waits for the update window the device status will read `OutOfDate`. For more details please see [Device API Statuses](../references/device-api-statuses.md).
 
 >[!TIP]
 > Use [crontab guru](https://crontab.guru/) to create and test cron expressions interactively.

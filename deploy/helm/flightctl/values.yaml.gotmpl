@@ -7,7 +7,13 @@ global:
   enableOpenShiftExtensions: "auto"
   # -- Enable MultiCluster Engine extensions - one of 'auto', 'true', 'false'.
   enableMulticlusterExtensions: "auto"
-  # -- Namespace where internal components are deployed
+  # -- Certificate generation method - one of 'none', 'cert-manager', 'builtin', 'auto'.
+  # - none: Do not generate required certificates. The user must provide the Secrets containing the required certificates or the service will fail to start.
+  # - cert-manager: Request cert-manager to issue the required certificates. cert-manager must be installed on the cluster.
+  # - builtin: Generate required certificates using Helm's builtin library functions.
+  # - auto: If cert-manager is installed, use it; otherwise, fall back to builtin.
+  generateCertificates: "auto"
+  # -- A separate Namespace to which non-user-facing components should be deployed for increased security isolation.
   internalNamespace: ""
   # -- Base domain to construct the FQDN for the service endpoints.
   baseDomain: ""
@@ -30,8 +36,8 @@ global:
     k8s:
       # -- API URL of k8s cluster that will be used as authentication authority
       apiUrl: https://kubernetes.default.svc
-      # -- In case flightctl is not running within a cluster, you can provide api token
-      externalApiToken: ""
+      # -- In case flightctl is not running within a cluster, you can provide a name of a secret that holds the API token
+      externalApiTokenSecretName: ""
       # -- Namespace that should be used for the RBAC checks
       rbacNs: ""
       # -- Create default flightctl-admin ServiceAccount with admin access
@@ -65,8 +71,8 @@ global:
       createAdminUser: true
       # -- OpenShift cluster control plane API URL for RBAC checks (leave empty for auto-detection)
       clusterControlPlaneUrl: "https://kubernetes.default.svc"
-      # -- In case flightctl is not running within a cluster, you can provide api token
-      externalApiToken: ""
+      # -- In case flightctl is not running within a cluster, you can provide a name of a secret that holds the API token
+      externalApiTokenSecretName: ""
       # -- OAuth client ID (will be set to flightctl-{releaseName})
       clientId: ""
       # -- OAuth client secret (leave empty for auto-generation)
@@ -88,8 +94,6 @@ global:
       tls: 443
       # -- HTTP port for Gateway API configuration
       http: 80
-  # -- Generate secrets when deploying Flight Control. This should be set to false if you want to provide your own secrets or when upgrading Flight Control to avoid overriding the existing secrets
-  generateSecrets: true
   sshKnownHosts:
     # -- SSH known hosts file content for Git repository host key verification.
     data: ""
@@ -287,6 +291,16 @@ alertmanagerProxy:
     tag: ""
     # -- Image pull policy for Alertmanager proxy container
     pullPolicy: ""
+  
+telemetryGateway:
+  image:
+    # -- Telemetry gateway container image
+    image: {{ .Images.telemetryGateway.Image }}
+    # -- Telemetry gateway image tag
+    tag: ""
+    # -- Image pull policy for Telemetry gateway container
+    pullPolicy: ""
+  additionalRouteLabels: null
 
 # -- UI Configuration
 ui:
@@ -301,9 +315,6 @@ ui:
     tag: ""
     # -- Image pull policy for UI container
     pullPolicy: ""
-  api:
-    # -- Skip TLS verification for UI API calls
-    insecureSkipTlsVerify: true
   auth:
     # -- Set to true if auth TLS certificate validation should be skipped.
     insecureSkipTlsVerify: false

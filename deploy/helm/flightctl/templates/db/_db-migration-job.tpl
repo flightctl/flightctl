@@ -21,7 +21,7 @@ metadata:
   name: {{ $name }}
   namespace: {{ default $ctx.Release.Namespace $ctx.Values.global.internalNamespace }}
   labels:
-    app: flightctl-db-migration
+    flightctl.service: flightctl-db-migration
     release: {{ $ctx.Release.Name }}
     flightctl.io/migration-revision: "{{ $ctx.Release.Revision }}"
     {{- include "flightctl.standardLabels" $ctx | nindent 4 }}
@@ -41,7 +41,7 @@ spec:
   template:
     metadata:
       labels:
-        app: flightctl-db-migration
+        flightctl.service: flightctl-db-migration
         release: {{ $ctx.Release.Name }}
         flightctl.io/migration-revision: "{{ $ctx.Release.Revision }}"
         {{- include "flightctl.standardLabels" $ctx | nindent 8 }}

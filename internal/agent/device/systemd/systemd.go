@@ -101,6 +101,30 @@ func (m *manager) Logs(ctx context.Context, options ...client.LogOptions) ([]str
 	return m.journalctl.Logs(ctx, options...)
 }
 
+func (m *manager) normalizeEnabledStateValue(val v1beta1.SystemdEnableStateType) v1beta1.SystemdEnableStateType {
+	if err := val.Validate(); err != nil {
+		m.log.Warnf("invalid systemd enable state %s, replacing with %s : %v", val, v1beta1.SystemdEnableStateUnknown, err)
+		return v1beta1.SystemdEnableStateUnknown
+	}
+	return val
+}
+
+func (m *manager) normalizeLoadStateValue(val v1beta1.SystemdLoadStateType) v1beta1.SystemdLoadStateType {
+	if err := val.Validate(); err != nil {
+		m.log.Warnf("invalid systemd load state %s, replacing with %s : %v", val, v1beta1.SystemdLoadStateUnknown, err)
+		return v1beta1.SystemdLoadStateUnknown
+	}
+	return val
+}
+
+func (m *manager) normalizeActiveStateValue(val v1beta1.SystemdActiveStateType) v1beta1.SystemdActiveStateType {
+	if err := val.Validate(); err != nil {
+		m.log.Warnf("invalid systemd active state %s, replacing with %s : %v", val, v1beta1.SystemdActiveStateUnknown, err)
+		return v1beta1.SystemdActiveStateUnknown
+	}
+	return val
+}
+
 func (m *manager) Status(ctx context.Context, device *v1beta1.DeviceStatus, _ ...status.CollectorOpt) error {
 	if len(m.patterns) == 0 {
 		return nil
@@ -121,9 +145,9 @@ func (m *manager) Status(ctx context.Context, device *v1beta1.DeviceStatus, _ ..
 		systemdUnits = append(systemdUnits, v1beta1.SystemdUnitStatus{
 			Unit:        unitName,
 			Description: unit["Description"],
-			EnableState: v1beta1.SystemdEnableStateType(unit["UnitFileState"]),
-			LoadState:   v1beta1.SystemdLoadStateType(unit["LoadState"]),
-			ActiveState: v1beta1.SystemdActiveStateType(unit["ActiveState"]),
+			EnableState: m.normalizeEnabledStateValue(v1beta1.SystemdEnableStateType(unit["UnitFileState"])),
+			LoadState:   m.normalizeLoadStateValue(v1beta1.SystemdLoadStateType(unit["LoadState"])),
+			ActiveState: m.normalizeActiveStateValue(v1beta1.SystemdActiveStateType(unit["ActiveState"])),
 			SubState:    unit["SubState"],
 		})
 	}

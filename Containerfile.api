@@ -38,7 +38,7 @@ RUN --mount=type=cache,target=/opt/app-root/src/.cache/go-build \
     --mount=type=cache,target=/opt/app-root/src/go/pkg/mod \
     make build-api
 
-FROM quay.io/flightctl/flightctl-base:9.6-1762316544
+FROM quay.io/flightctl/flightctl-base:9.7-1762965531
 WORKDIR /app
 LABEL \
   com.redhat.component="flightctl-api-container" \
