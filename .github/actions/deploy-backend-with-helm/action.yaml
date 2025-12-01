@@ -1,0 +1,73 @@
+name: 'Deploy Backend with Helm'
+description: 'Deploy FlightCtl backend using Helm'
+
+inputs:
+  tag:
+    description: 'Image tag'
+    required: true
+  helm-tag:
+    description: 'Helm chart tag'
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    # ========== DOWNLOAD ARTIFACTS ==========
+    - name: Download backend artifacts
+      uses: actions/download-artifact@v4
+      with:
+        pattern: "{flightctl-images-bundle,helm-chart,flightctl-linux-amd64}"
+        path: artifacts
+        merge-multiple: true
+
+    - name: Setup CLI binary
+      shell: bash
+      run: |
+        set -euo pipefail
+        mkdir -p bin
+        mv artifacts/flightctl-linux-amd64 bin/flightctl
+        chmod +x bin/flightctl
+        echo "CLI binary ready at bin/flightctl"
+
+    # ========== INITIALIZE KIND CLUSTER ==========
+    - name: Create kind cluster
+      shell: bash
+      run: make cluster
+
+    # ========== LOAD IMAGES INTO KIND ==========
+    - name: Load backend images into kind
+      shell: bash
+      run: |
+        set -euo pipefail
+        echo "Loading backend service images into kind"
+        kind load image-archive artifacts/flightctl-images-bundle.tar
+        echo "Backend images loaded successfully"
+
+    - name: Clean up backend bundle files
+      shell: bash
+      run: |
+        set -euo pipefail
+        echo "::group::Cleaning up backend bundle files"
+        echo "Removing backend bundle (no longer needed after loading into kind)..."
+        rm -f artifacts/flightctl-images-bundle.tar
+        df -h
+        echo "::endgroup::"
+
+    # ========== DEPLOY BACKEND ==========
+    - name: Deploy FlightCtl backend with Helm
+      shell: bash
+      run: |
+        set -euo pipefail
+        CHART_FILE="artifacts/flightctl-${{ inputs.helm-tag }}.tgz"
+
+        echo "::group::Deploying FlightCtl backend services"
+        echo "Chart file: ${CHART_FILE}"
+        echo "Image registry: quay.io/flightctl/"
+        echo "Image tag: ${{ inputs.tag }}"
+        
+        ./test/scripts/deploy_with_helm.sh \
+          --chart-path="${CHART_FILE}" \
+          --image-registry="quay.io/flightctl/" \
+          --image-tag="${{ inputs.tag }}"
+        echo "::endgroup::"
+

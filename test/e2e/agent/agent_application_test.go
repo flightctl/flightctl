@@ -19,7 +19,7 @@ const (
 
 func sleepAppImageName(harness *e2e.Harness, tag string) string {
 	extIP := harness.RegistryEndpoint()
-	return fmt.Sprintf("%s/sleep-app:%s", extIP, tag)
+	return harness.FullImageRef(fmt.Sprintf("%s/sleep-app", extIP), tag)
 }
 
 var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
