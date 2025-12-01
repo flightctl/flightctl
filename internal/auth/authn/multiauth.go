@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net/http"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -410,6 +411,14 @@ func (m *MultiAuth) hasProviderChanged(existingMiddleware common.AuthNMiddleware
 		if !equalScopes(existingOidcSpec.Scopes, newOidcSpec.Scopes) {
 			return true, nil
 		}
+		// Compare organization assignment
+		if !equalOrganizationAssignments(existingOidcSpec.OrganizationAssignment, newOidcSpec.OrganizationAssignment) {
+			return true, nil
+		}
+		// Compare role assignment
+		if !equalRoleAssignments(existingOidcSpec.RoleAssignment, newOidcSpec.RoleAssignment) {
+			return true, nil
+		}
 
 	case string(api.Oauth2):
 		existingOauth2Spec, err := existingProvider.Spec.AsOAuth2ProviderSpec()
@@ -457,6 +466,14 @@ func (m *MultiAuth) hasProviderChanged(existingMiddleware common.AuthNMiddleware
 		}
 		// Compare scopes
 		if !equalScopes(existingOauth2Spec.Scopes, newOauth2Spec.Scopes) {
+			return true, nil
+		}
+		// Compare organization assignment
+		if !equalOrganizationAssignments(existingOauth2Spec.OrganizationAssignment, newOauth2Spec.OrganizationAssignment) {
+			return true, nil
+		}
+		// Compare role assignment
+		if !equalRoleAssignments(existingOauth2Spec.RoleAssignment, newOauth2Spec.RoleAssignment) {
 			return true, nil
 		}
 
@@ -510,6 +527,139 @@ func equalStringSlices(a *[]string, b *[]string) bool {
 		}
 	}
 	return true
+}
+
+// equalOrganizationAssignments compares two AuthOrganizationAssignment configurations
+func equalOrganizationAssignments(a, b api.AuthOrganizationAssignment) bool {
+	aDiscriminator, err := a.Discriminator()
+	if err != nil {
+		return false
+	}
+	bDiscriminator, err := b.Discriminator()
+	if err != nil {
+		return false
+	}
+
+	if aDiscriminator != bDiscriminator {
+		return false
+	}
+
+	switch aDiscriminator {
+	case string(api.AuthStaticOrganizationAssignmentTypeStatic):
+		aSpec, err := a.AsAuthStaticOrganizationAssignment()
+		if err != nil {
+			return false
+		}
+		bSpec, err := b.AsAuthStaticOrganizationAssignment()
+		if err != nil {
+			return false
+		}
+		return aSpec.OrganizationName == bSpec.OrganizationName
+
+	case string(api.AuthDynamicOrganizationAssignmentTypeDynamic):
+		aSpec, err := a.AsAuthDynamicOrganizationAssignment()
+		if err != nil {
+			return false
+		}
+		bSpec, err := b.AsAuthDynamicOrganizationAssignment()
+		if err != nil {
+			return false
+		}
+		if !slices.Equal(aSpec.ClaimPath, bSpec.ClaimPath) {
+			return false
+		}
+		if (aSpec.OrganizationNamePrefix == nil) != (bSpec.OrganizationNamePrefix == nil) {
+			return false
+		}
+		if aSpec.OrganizationNamePrefix != nil && bSpec.OrganizationNamePrefix != nil && *aSpec.OrganizationNamePrefix != *bSpec.OrganizationNamePrefix {
+			return false
+		}
+		if (aSpec.OrganizationNameSuffix == nil) != (bSpec.OrganizationNameSuffix == nil) {
+			return false
+		}
+		if aSpec.OrganizationNameSuffix != nil && bSpec.OrganizationNameSuffix != nil && *aSpec.OrganizationNameSuffix != *bSpec.OrganizationNameSuffix {
+			return false
+		}
+		return true
+
+	case string(api.PerUser):
+		aSpec, err := a.AsAuthPerUserOrganizationAssignment()
+		if err != nil {
+			return false
+		}
+		bSpec, err := b.AsAuthPerUserOrganizationAssignment()
+		if err != nil {
+			return false
+		}
+		if (aSpec.OrganizationNamePrefix == nil) != (bSpec.OrganizationNamePrefix == nil) {
+			return false
+		}
+		if aSpec.OrganizationNamePrefix != nil && bSpec.OrganizationNamePrefix != nil && *aSpec.OrganizationNamePrefix != *bSpec.OrganizationNamePrefix {
+			return false
+		}
+		if (aSpec.OrganizationNameSuffix == nil) != (bSpec.OrganizationNameSuffix == nil) {
+			return false
+		}
+		if aSpec.OrganizationNameSuffix != nil && bSpec.OrganizationNameSuffix != nil && *aSpec.OrganizationNameSuffix != *bSpec.OrganizationNameSuffix {
+			return false
+		}
+		return true
+
+	default:
+		return false
+	}
+}
+
+// equalRoleAssignments compares two AuthRoleAssignment configurations
+func equalRoleAssignments(a, b api.AuthRoleAssignment) bool {
+	aDiscriminator, err := a.Discriminator()
+	if err != nil {
+		return false
+	}
+	bDiscriminator, err := b.Discriminator()
+	if err != nil {
+		return false
+	}
+
+	if aDiscriminator != bDiscriminator {
+		return false
+	}
+
+	switch aDiscriminator {
+	case string(api.AuthStaticRoleAssignmentTypeStatic):
+		aSpec, err := a.AsAuthStaticRoleAssignment()
+		if err != nil {
+			return false
+		}
+		bSpec, err := b.AsAuthStaticRoleAssignment()
+		if err != nil {
+			return false
+		}
+		return slices.Equal(aSpec.Roles, bSpec.Roles)
+
+	case string(api.AuthDynamicRoleAssignmentTypeDynamic):
+		aSpec, err := a.AsAuthDynamicRoleAssignment()
+		if err != nil {
+			return false
+		}
+		bSpec, err := b.AsAuthDynamicRoleAssignment()
+		if err != nil {
+			return false
+		}
+		if !slices.Equal(aSpec.ClaimPath, bSpec.ClaimPath) {
+			return false
+		}
+		if (aSpec.Separator == nil) != (bSpec.Separator == nil) {
+			return false
+		}
+		if aSpec.Separator != nil && bSpec.Separator != nil && *aSpec.Separator != *bSpec.Separator {
+			return false
+		}
+		return true
+
+	default:
+		return false
+	}
 }
 
 // createAuthMiddlewareFromProvider creates an auth middleware from a provider and returns the cache key
