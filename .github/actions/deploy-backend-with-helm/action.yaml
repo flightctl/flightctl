@@ -112,3 +112,8 @@ runs:
           --debug \
           --wait
 
+    - name: "Wait for API readiness"
+      uses: ./.github/actions/wait-for-api-readiness
+      with:
+        base-domain: ${{ inputs.base-domain }}
+
