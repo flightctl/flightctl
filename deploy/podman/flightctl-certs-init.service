@@ -1,6 +1,8 @@
 [Unit]
 Description=Flight Control Certificates Initialization
 PartOf=flightctl.target
+# The db service initializes configuration (.global.baseDomain) this service relies on
+After=flightctl-db.service
 
 [Service]
 Type=oneshot

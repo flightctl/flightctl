@@ -185,14 +185,18 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 			_, status := suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider)
 			Expect(status.Code).To(Equal(int32(201)))
 
-			// Update the provider - need to extract and modify the OIDC spec
-			oidcSpec, err := provider.Spec.AsOIDCProviderSpec()
-			Expect(err).ToNot(HaveOccurred())
-			oidcSpec.ClientId = "updated-client-id"
-			err = provider.Spec.FromOIDCProviderSpec(oidcSpec)
+			// Fetch the created provider to get the full object with ApiVersion/Kind
+			fetched, err := suite.Store.AuthProvider().Get(suite.Ctx, orgId, "replace-test-provider")
 			Expect(err).ToNot(HaveOccurred())
 
-			result, status := suite.Handler.ReplaceAuthProvider(suite.Ctx, orgId, "replace-test-provider", provider)
+			// Update the provider - need to extract and modify the OIDC spec
+			oidcSpec, err := fetched.Spec.AsOIDCProviderSpec()
+			Expect(err).ToNot(HaveOccurred())
+			oidcSpec.ClientId = "updated-client-id"
+			err = fetched.Spec.FromOIDCProviderSpec(oidcSpec)
+			Expect(err).ToNot(HaveOccurred())
+
+			result, status := suite.Handler.ReplaceAuthProvider(suite.Ctx, orgId, "replace-test-provider", *fetched)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(result).ToNot(BeNil())
 			updatedSpec, err := result.Spec.AsOIDCProviderSpec()
@@ -1365,6 +1369,131 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 			inferredIntrospection, err := retrievedSpec.Introspection.AsGitHubIntrospectionSpec()
 			Expect(err).ToNot(HaveOccurred())
 			Expect(inferredIntrospection.Type).To(Equal(api.Github))
+		})
+
+		It("should prevent deletion of introspection field via PATCH", func() {
+			// Create OAuth2 provider with explicit introspection
+			assignment := createTestOrganizationAssignment()
+			roleAssignment := api.AuthRoleAssignment{}
+			staticRoleAssignment := api.AuthStaticRoleAssignment{
+				Type:  api.AuthStaticRoleAssignmentTypeStatic,
+				Roles: []string{"viewer"},
+			}
+			err := roleAssignment.FromAuthStaticRoleAssignment(staticRoleAssignment)
+			Expect(err).ToNot(HaveOccurred())
+
+			introspection := &api.OAuth2Introspection{}
+			rfc7662Spec := api.Rfc7662IntrospectionSpec{
+				Type: api.Rfc7662,
+				Url:  "https://oauth2.example.com/introspect",
+			}
+			err = introspection.FromRfc7662IntrospectionSpec(rfc7662Spec)
+			Expect(err).ToNot(HaveOccurred())
+
+			oauth2Spec := api.OAuth2ProviderSpec{
+				ProviderType:           api.Oauth2,
+				AuthorizationUrl:       "https://oauth2.example.com/authorize",
+				TokenUrl:               "https://oauth2.example.com/token",
+				UserinfoUrl:            "https://oauth2.example.com/userinfo",
+				ClientId:               "patch-delete-test-client-id",
+				ClientSecret:           lo.ToPtr("patch-delete-test-client-secret"),
+				Enabled:                lo.ToPtr(true),
+				Introspection:          introspection,
+				OrganizationAssignment: assignment,
+				RoleAssignment:         roleAssignment,
+			}
+
+			provider := api.AuthProvider{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr("oauth2-patch-delete-provider"),
+				},
+			}
+			err = provider.Spec.FromOAuth2ProviderSpec(oauth2Spec)
+			Expect(err).ToNot(HaveOccurred())
+
+			_, status := suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider)
+			Expect(status.Code).To(Equal(int32(201)))
+
+			// Try to remove introspection field via PATCH
+			patchRequest := api.PatchRequest{
+				{
+					Op:   "remove",
+					Path: "/spec/introspection",
+				},
+			}
+
+			result, status := suite.Handler.PatchAuthProvider(suite.Ctx, orgId, "oauth2-patch-delete-provider", patchRequest)
+			Expect(status.Code).To(Equal(int32(400)))
+			Expect(status.Message).To(ContainSubstring("introspection field cannot be removed once set"))
+			Expect(result).To(BeNil())
+		})
+
+		It("should preserve user-provided introspection during replace", func() {
+			// Create OAuth2 provider with explicit introspection
+			assignment := createTestOrganizationAssignment()
+			roleAssignment := api.AuthRoleAssignment{}
+			staticRoleAssignment := api.AuthStaticRoleAssignment{
+				Type:  api.AuthStaticRoleAssignmentTypeStatic,
+				Roles: []string{"viewer"},
+			}
+			err := roleAssignment.FromAuthStaticRoleAssignment(staticRoleAssignment)
+			Expect(err).ToNot(HaveOccurred())
+
+			introspection := &api.OAuth2Introspection{}
+			rfc7662Spec := api.Rfc7662IntrospectionSpec{
+				Type: api.Rfc7662,
+				Url:  "https://oauth2.example.com/introspect",
+			}
+			err = introspection.FromRfc7662IntrospectionSpec(rfc7662Spec)
+			Expect(err).ToNot(HaveOccurred())
+
+			oauth2Spec := api.OAuth2ProviderSpec{
+				ProviderType:           api.Oauth2,
+				AuthorizationUrl:       "https://oauth2.example.com/authorize",
+				TokenUrl:               "https://oauth2.example.com/token",
+				UserinfoUrl:            "https://oauth2.example.com/userinfo",
+				ClientId:               "replace-preserve-test-client-id",
+				ClientSecret:           lo.ToPtr("replace-preserve-test-client-secret"),
+				Enabled:                lo.ToPtr(true),
+				Introspection:          introspection,
+				OrganizationAssignment: assignment,
+				RoleAssignment:         roleAssignment,
+			}
+
+			provider := api.AuthProvider{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr("oauth2-replace-preserve-provider"),
+				},
+			}
+			err = provider.Spec.FromOAuth2ProviderSpec(oauth2Spec)
+			Expect(err).ToNot(HaveOccurred())
+
+			_, status := suite.Handler.CreateAuthProvider(suite.Ctx, orgId, provider)
+			Expect(status.Code).To(Equal(int32(201)))
+
+			// Fetch and update the provider
+			fetchedProvider, status := suite.Handler.GetAuthProvider(suite.Ctx, orgId, "oauth2-replace-preserve-provider")
+			Expect(status.Code).To(Equal(int32(200)))
+
+			// Update a different field (e.g., clientId)
+			fetchedSpec, err := fetchedProvider.Spec.AsOAuth2ProviderSpec()
+			Expect(err).ToNot(HaveOccurred())
+			fetchedSpec.ClientId = "updated-client-id"
+			err = fetchedProvider.Spec.FromOAuth2ProviderSpec(fetchedSpec)
+			Expect(err).ToNot(HaveOccurred())
+
+			updatedProvider, status := suite.Handler.ReplaceAuthProvider(suite.Ctx, orgId, "oauth2-replace-preserve-provider", *fetchedProvider)
+			Expect(status.Code).To(Equal(int32(200)))
+			Expect(updatedProvider).ToNot(BeNil())
+
+			// Verify introspection was preserved
+			updatedSpec, err := updatedProvider.Spec.AsOAuth2ProviderSpec()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(updatedSpec.Introspection).ToNot(BeNil())
+
+			updatedIntrospection, err := updatedSpec.Introspection.AsRfc7662IntrospectionSpec()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(updatedIntrospection.Url).To(Equal("https://oauth2.example.com/introspect"))
 		})
 	})
 })
