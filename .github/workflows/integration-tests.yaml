@@ -18,7 +18,7 @@ jobs:
     runs-on: "ubuntu-24.04"
     steps:
       - name: Checkout current commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -100,7 +100,7 @@ jobs:
 
       - name: Checkout baseline branch
         if: ${{ steps.changed-files.outputs.any_changed == 'true' && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: flightctl/flightctl
           ref: ${{ steps.detect_baseline.outputs.baseline_ref }}

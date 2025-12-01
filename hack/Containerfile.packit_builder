@@ -18,6 +18,9 @@ RUN install -d -m 0755 /root/go/pkg/mod && \
     install -d -m 0755 /root/.cache/go-build && \
     rm -rf /var/cache/dnf && mkdir /work
 
+# Set GOTOOLCHAIN to allow automatic download of required Go version
+ENV GOTOOLCHAIN=auto
+
 COPY mock-site-defaults.cfg /etc/mock/site-defaults.cfg
 
 COPY mock_prewarm_caches.sh /usr/bin/mock_prewarm_caches.sh
