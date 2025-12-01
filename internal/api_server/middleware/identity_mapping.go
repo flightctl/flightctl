@@ -30,6 +30,15 @@ var roleNameMap = map[string]string{
 	v1beta1.ExternalRoleInstaller: v1beta1.RoleInstaller,
 }
 
+// internalRoles is a set of all internal role names for quick lookup
+var internalRoles = map[string]bool{
+	v1beta1.RoleAdmin:     true,
+	v1beta1.RoleOrgAdmin:  true,
+	v1beta1.RoleOperator:  true,
+	v1beta1.RoleViewer:    true,
+	v1beta1.RoleInstaller: true,
+}
+
 // NewIdentityMappingMiddleware creates a new identity mapping middleware
 func NewIdentityMappingMiddleware(identityMapper *service.IdentityMapper, log logrus.FieldLogger) *IdentityMappingMiddleware {
 	return &IdentityMappingMiddleware{
@@ -138,19 +147,23 @@ func getOrganizationNames(organizations []*model.Organization) []string {
 }
 
 // transformRoleNames transforms external role names to internal role constants
-// Maps flightctl-* prefixed roles to their internal names, keeps unknown roles as-is
+// Maps flightctl-* prefixed roles to their internal names, skips internal role names, keeps unknown roles as-is
 func transformRoleNames(roles []string) []string {
 	if len(roles) == 0 {
 		return roles
 	}
 
-	transformed := make([]string, len(roles))
-	for i, role := range roles {
+	transformed := make([]string, 0, len(roles))
+	for _, role := range roles {
 		if mappedRole, exists := roleNameMap[role]; exists {
-			transformed[i] = mappedRole
+			// Transform external role to internal role
+			transformed = append(transformed, mappedRole)
+		} else if internalRoles[role] {
+			// Skip roles that are already internal role names
+			continue
 		} else {
 			// Keep unmapped roles as-is
-			transformed[i] = role
+			transformed = append(transformed, role)
 		}
 	}
 	return transformed
