@@ -13,7 +13,9 @@ rules:
     resources:
       - devices
   - verbs:
+      - get
       - create
+      - update
     apiGroups:
       - flightctl.io
     resources:
@@ -21,10 +23,9 @@ rules:
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
+kind: ClusterRoleBinding
 metadata:
   name: managedcluster-import-controller-flightctl
-  namespace: multicluster-engine
   labels:
     {{- include "flightctl.standardLabels" . | nindent 4 }}
 roleRef:
