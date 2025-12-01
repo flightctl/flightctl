@@ -89,8 +89,6 @@ spec:
             failureThreshold: 10
             successThreshold: 1
           volumeMounts:
-            - mountPath: /root/.flightctl/
-              name: flightctl-api-certs
             - mountPath: /root/.flightctl/config.yaml
               name: flightctl-api-config
               subPath: config.yaml
@@ -129,9 +127,6 @@ spec:
 
       restartPolicy: Always
       volumes:
-        - name: flightctl-api-certs
-          persistentVolumeClaim:
-            claimName: flightctl-api-certs
         - name: flightctl-api-config
           configMap:
             name: flightctl-api-config
@@ -152,6 +147,6 @@ spec:
           secret:
             secretName: {{ default "flightctl-api-server-tls" .Values.global.baseDomainTlsSecretName }}
         - name: flightctl-ca-bundle
-          configMap:
-            name: flightctl-ca-bundle
+          secret:
+            secretName: flightctl-ca-bundle
         {{- include "flightctl.dbSslVolumes" . | nindent 8 }}
