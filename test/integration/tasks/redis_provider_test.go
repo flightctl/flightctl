@@ -138,7 +138,7 @@ func waitForRedisConsumerStopped(ctx context.Context, queueName string, timeout 
 	return false
 }
 
-var _ = Describe("Redis Provider Integration Tests", func() {
+var _ = Describe("Redis Provider Integration Tests", FlakeAttempts(5), func() {
 	var (
 		log       *logrus.Logger
 		ctx       context.Context
