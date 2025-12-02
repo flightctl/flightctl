@@ -209,15 +209,19 @@ func TestStaticAuthZ_GetUserPermissions(t *testing.T) {
 			roles: []string{v1beta1.RoleInstaller},
 			expectedPermissions: []v1beta1.Permission{
 				{
-					Resource:   "devices",
+					Resource:   "certificatesigningrequests",
+					Operations: []string{"create", "get", "list"},
+				},
+				{
+					Resource:   "enrollmentrequests",
 					Operations: []string{"get", "list"},
 				},
 				{
-					Resource:   "fleets",
-					Operations: []string{"get", "list"},
+					Resource:   "enrollmentrequests/approval",
+					Operations: []string{"update"},
 				},
 				{
-					Resource:   "repositories",
+					Resource:   "organizations",
 					Operations: []string{"get", "list"},
 				},
 			},
@@ -231,15 +235,19 @@ func TestStaticAuthZ_GetUserPermissions(t *testing.T) {
 					Operations: []string{"get", "list"},
 				},
 				{
-					Resource:   "devices",
+					Resource:   "certificatesigningrequests",
+					Operations: []string{"create", "get", "list"},
+				},
+				{
+					Resource:   "enrollmentrequests",
 					Operations: []string{"get", "list"},
 				},
 				{
-					Resource:   "fleets",
-					Operations: []string{"get", "list"},
+					Resource:   "enrollmentrequests/approval",
+					Operations: []string{"update"},
 				},
 				{
-					Resource:   "repositories",
+					Resource:   "organizations",
 					Operations: []string{"get", "list"},
 				},
 			},
