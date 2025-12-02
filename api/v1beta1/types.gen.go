@@ -477,6 +477,12 @@ const (
 	Bearer TokenResponseTokenType = "Bearer"
 )
 
+// Defines values for VolumeReclaimPolicy.
+const (
+	VolumeReclaimPolicyDelete VolumeReclaimPolicy = "Delete"
+	VolumeReclaimPolicyRetain VolumeReclaimPolicy = "Retain"
+)
+
 // Defines values for ListEventsParamsOrder.
 const (
 	Asc  ListEventsParamsOrder = "asc"
@@ -585,8 +591,11 @@ type ApplicationStatusType string
 // ApplicationVolume defines model for ApplicationVolume.
 type ApplicationVolume struct {
 	// Name Unique name of the volume used within the application.
-	Name  string `json:"name"`
-	union json.RawMessage
+	Name string `json:"name"`
+
+	// ReclaimPolicy Specifies what happens to the volume when the application is removed. Retain (default) keeps the volume data, Delete removes it.
+	ReclaimPolicy *VolumeReclaimPolicy `json:"reclaimPolicy,omitempty"`
+	union         json.RawMessage
 }
 
 // ApplicationVolumeProviderSpec defines model for ApplicationVolumeProviderSpec.
@@ -2772,6 +2781,9 @@ type VolumeMount struct {
 	Path string `json:"path"`
 }
 
+// VolumeReclaimPolicy Specifies what happens to the volume when the application is removed. Retain (default) keeps the volume data, Delete removes it.
+type VolumeReclaimPolicy string
+
 // AuthValidateParams defines parameters for AuthValidate.
 type AuthValidateParams struct {
 	// Authorization The authentication token to validate.
@@ -3401,6 +3413,12 @@ func (t ApplicationVolume) MarshalJSON() ([]byte, error) {
 		return nil, fmt.Errorf("error marshaling 'name': %w", err)
 	}
 
+	if t.ReclaimPolicy != nil {
+		object["reclaimPolicy"], err = json.Marshal(t.ReclaimPolicy)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'reclaimPolicy': %w", err)
+		}
+	}
 	b, err = json.Marshal(object)
 	return b, err
 }
@@ -3420,6 +3438,13 @@ func (t *ApplicationVolume) UnmarshalJSON(b []byte) error {
 		err = json.Unmarshal(raw, &t.Name)
 		if err != nil {
 			return fmt.Errorf("error reading 'name': %w", err)
+		}
+	}
+
+	if raw, found := object["reclaimPolicy"]; found {
+		err = json.Unmarshal(raw, &t.ReclaimPolicy)
+		if err != nil {
+			return fmt.Errorf("error reading 'reclaimPolicy': %w", err)
 		}
 	}
 
