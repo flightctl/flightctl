@@ -67,7 +67,7 @@ func (h *TransportHandler) GetEnrollmentRequestStatus(w http.ResponseWriter, r *
 	SetResponse(w, body, status)
 }
 
-// (POST /api/v1/enrollmentrequests/{name}/approval)
+// (PUT /api/v1/enrollmentrequests/{name}/approval)
 func (h *TransportHandler) ApproveEnrollmentRequest(w http.ResponseWriter, r *http.Request, name string) {
 	var approval api.EnrollmentRequestApproval
 	if err := json.NewDecoder(r.Body).Decode(&approval); err != nil {
