@@ -49,6 +49,9 @@ func (m *IdentityMapper) Stop() {
 // It ensures that organizations exist in the database and returns the mapped entities
 // Note: Users are not stored in the database - only organizations are persisted
 func (m *IdentityMapper) MapIdentityToDB(ctx context.Context, identity common.Identity) ([]*model.Organization, error) {
+	if identity.IsSuperAdmin() {
+		return m.ensureOrganizationsForSuperAdmin(ctx, identity.GetOrganizations())
+	}
 
 	organizations, err := m.ensureOrganizationsExist(ctx, identity)
 	if err != nil {
@@ -169,6 +172,51 @@ func (m *IdentityMapper) ensureOrganizationsExist(ctx context.Context, identity 
 	}
 
 	return organizations, nil
+}
+
+// ensureOrganizationsForSuperAdmin handles organization access for super admin users
+// Super admins get access to all organizations, bypassing cache
+func (m *IdentityMapper) ensureOrganizationsForSuperAdmin(ctx context.Context, reportedOrgs []common.ReportedOrganization) ([]*model.Organization, error) {
+	// Fetch all organizations from the database
+	allOrgs, err := m.store.Organization().List(ctx, store.ListParams{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list all organizations for super admin: %w", err)
+	}
+
+	// Still create new organizations from reported orgs if they don't exist
+	if len(reportedOrgs) == 0 {
+		return allOrgs, nil
+	}
+
+	var newOrgs []*model.Organization
+	existingOrgByExternalID := make(map[string]*model.Organization)
+	for _, org := range allOrgs {
+		if org.ExternalID != "" {
+			existingOrgByExternalID[org.ExternalID] = org
+		}
+	}
+
+	for _, reportedOrg := range reportedOrgs {
+		if !reportedOrg.IsInternalID && existingOrgByExternalID[reportedOrg.ID] == nil {
+			newOrg := &model.Organization{
+				ID:          uuid.New(),
+				ExternalID:  reportedOrg.ID,
+				DisplayName: reportedOrg.Name,
+			}
+			newOrgs = append(newOrgs, newOrg)
+		}
+	}
+
+	if len(newOrgs) > 0 {
+		createdOrgs, err := m.store.Organization().UpsertMany(ctx, newOrgs)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create organizations for super admin: %w", err)
+		}
+		allOrgs = append(allOrgs, createdOrgs...)
+		m.log.Infof("Super admin: created %d new organizations", len(createdOrgs))
+	}
+
+	return allOrgs, nil
 }
 
 // GetUserOrganizations returns the organizations for a user based on their identity

@@ -22,6 +22,7 @@ jobs:
     outputs:
       image_tags: ${{ steps.get-tags.outputs.image_tags }}
       helm_tag: ${{ steps.get-tags.outputs.helm_tag }}
+      helm_ui_image_tag: ${{ steps.get-tags.outputs.helm_ui_image_tag }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -30,7 +31,10 @@ jobs:
 
       - name: Generate version tag
         id: get-tags
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -euo pipefail
           if ${{ github.ref_type == 'tag' }}; then
             # The images tags will match the Release tag
             image_tags=( ${{ github.ref_name }} )
@@ -42,7 +46,7 @@ jobs:
             echo "image_tags,helm_tag=${image_tags[@]}"
 
           else
-            version=$(./hack/current-version)
+            version=$(git describe --long --tags --exclude latest 2>/dev/null || echo "v0.0.0-unknown")
             # image tags should not have the leading v, and we tag rcs with ~rc1..rcX for rpm version ordering
             version=$(echo "${version#v}" | sed 's/~/-/g')
 
@@ -61,6 +65,15 @@ jobs:
             helm_tag=${version} # remove the leading v prefix for version
             echo "helm_tag=${helm_tag}" >> $GITHUB_OUTPUT
             echo "helm_tag=${helm_tag}"
+
+            UI_SHA=$(gh api repos/flightctl/flightctl-ui/commits/main --jq .sha)
+            if [ -z "$UI_SHA" ]; then
+              echo "Error: Failed to fetch UI commit SHA from flightctl-ui repository"
+              exit 1
+            fi
+            helm_ui_image_tag="latest-$UI_SHA"
+            echo "helm_ui_image_tag=${helm_ui_image_tag}" >> $GITHUB_OUTPUT
+            echo "helm_ui_image_tag=${helm_ui_image_tag}"
           fi
 
   publish-helm-charts-containers:
@@ -75,6 +88,12 @@ jobs:
       - name: Build helm charts
         run: |
           echo packaging "${{ needs.generate-tags.outputs.helm_tag }}"
+
+          if [ -n "${{ needs.generate-tags.outputs.helm_ui_image_tag }}" ]; then
+            echo "Updating ui.image.tag to ${{ needs.generate-tags.outputs.helm_ui_image_tag }}"
+            yq -i '.ui.image.tag = "${{ needs.generate-tags.outputs.helm_ui_image_tag }}"' deploy/helm/flightctl/values.yaml
+          fi
+
           helm package ./deploy/helm/flightctl \
               --version "${{ needs.generate-tags.outputs.helm_tag }}" \
               --app-version "${{ needs.generate-tags.outputs.helm_tag }}"
@@ -106,7 +125,7 @@ jobs:
         id: version-vars
         run: |
           set -euo pipefail
-          SOURCE_GIT_TAG=$(./hack/current-version)
+          SOURCE_GIT_TAG=$(git describe --tags --exclude latest 2>/dev/null || echo "v0.0.0-unknown")
           if [ ! -d ".git" ]; then
             SOURCE_GIT_TREE_STATE=clean
           elif git diff --quiet; then

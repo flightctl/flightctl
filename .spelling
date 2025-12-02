@@ -469,3 +469,8 @@ PAM
 alice
 bob
 charlie
+ - docs/user/installing/configuring-auth/auth-oauth2.md
+GitHub
+github.com
+clientId
+JWKS

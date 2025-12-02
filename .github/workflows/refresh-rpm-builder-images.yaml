@@ -1,0 +1,68 @@
+name: Refresh RPM Builder Images
+
+on:
+  schedule:
+    # Run daily at 02:00 UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    # Allow manual trigger for testing
+
+env:
+  QUAY_TESTS_ORG: quay.io/flightctl-tests
+  QUAY: quay.io
+  REGISTRY: quay.io
+  REGISTRY_OWNER_TESTS: flightctl-tests
+  GITHUB_ACTIONS: true
+
+jobs:
+  refresh-images:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up dependencies
+        uses: ./.github/actions/setup-dependencies
+
+      - name: Build all RPM builder images
+        run: |
+          sudo ./hack/build_rpms.sh --rebuild-image
+
+      - name: Transfer images from root to user context
+        run: |
+          transfer_image() {
+            sudo podman save "quay.io/flightctl-tests/packit-builder:$1" | podman load
+            sudo podman rmi "quay.io/flightctl-tests/packit-builder:$1"
+          }
+
+          # Transfer base image
+          transfer_image "base"
+
+          # Transfer mock images from config file
+          while IFS='=' read -r root_name tag_name || [[ -n "$root_name" ]]; do
+            [[ "$root_name" =~ ^[[:space:]]*# ]] && continue
+            [[ -z "$root_name" ]] && continue
+            transfer_image "$tag_name"
+          done < hack/mock-roots.conf
+
+      - name: Prepare tags for push
+        id: tags
+        run: |
+          tags="base"
+          while IFS='=' read -r root_name tag_name || [[ -n "$root_name" ]]; do
+            [[ "$root_name" =~ ^[[:space:]]*# ]] && continue
+            [[ -z "$root_name" ]] && continue
+            tags="$tags $tag_name"
+          done < hack/mock-roots.conf
+          echo "tags=$tags" >> "$GITHUB_OUTPUT"
+
+      - name: Push all RPM builder images to Quay.io
+        uses: redhat-actions/push-to-registry@v2.7
+        with:
+          image: packit-builder
+          tags: ${{ steps.tags.outputs.tags }}
+          registry: ${{ env.QUAY_TESTS_ORG }}
+          username: ${{ secrets.QUAY_FLIGHTCTL_TESTS_INFRA_ROBOT_USERNAME }}
+          password: ${{ secrets.QUAY_FLIGHTCTL_TESTS_INFRA_ROBOT_PASSWORD }}
