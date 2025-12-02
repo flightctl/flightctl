@@ -33,6 +33,20 @@ The agent's configuration file `/etc/flightctl/config.yaml` takes the following 
 > The `/etc/flightctl/conf.d/` drop-in directory supports only a subset of the agent configuration. Currently supported keys include:
 > `log-level`, `system-info`, `system-info-custom`, and `system-info-timeout`.
 
+## Communication Timeouts
+
+The agent uses the following internal timeouts when communicating with the Flight Control service:
+
+| Operation | Timeout | Description |
+| --------- | ------- | ----------- |
+| Spec fetch (long-poll) | 4 minutes | The agent uses long-polling to fetch device specification updates. The server holds the connection open until a new specification is available or the timeout expires. |
+| Status update | 60 seconds | Timeout for pushing device status updates to the service. If the update times out, the agent retries on the next status sync interval. |
+
+These timeouts are not configurable. The spec fetch timeout is intentionally long to support efficient long-polling, while the status update timeout is shorter to ensure timely retries within the configured `status-update-interval`.
+
+> [!NOTE]
+> If a status update fails (including timeout), the agent preserves the pending status and automatically retries on the next sync cycle. This ensures status updates are eventually delivered even during transient network issues.
+
 ## Built-in system info collectors
 
 The agent has a set of built-in collectors for system information. You can see the information collected by these collectors using the following command:
