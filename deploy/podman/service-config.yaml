@@ -15,8 +15,9 @@ global:
       issuer:
       externalOidcAuthority:
       organizationAssignment:
-        type: static
-        organizationName: default
+        type: dynamic
+        claimPath:
+          - organizations
       usernameClaim:
         - preferred_username
       roleAssignment:
