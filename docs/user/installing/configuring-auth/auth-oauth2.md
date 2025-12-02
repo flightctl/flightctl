@@ -86,6 +86,65 @@ Flight Control currently recognizes the following roles with defined permissions
 
 ## Configuration
 
+### Token Introspection
+
+OAuth2 providers require token introspection to validate access tokens. Flight Control supports three introspection methods:
+
+#### 1. RFC 7662 Introspection
+
+Standard OAuth2 token introspection endpoint:
+
+```yaml
+introspection:
+  type: rfc7662
+  url: "https://oauth.example.com/introspect"
+```
+
+#### 2. GitHub Introspection
+
+For GitHub or GitHub Enterprise OAuth2 apps:
+
+```yaml
+introspection:
+  type: github
+  url: "https://api.github.enterprise.com/v3"  # Optional, only for GitHub Enterprise
+```
+
+**Note:** For public GitHub (github.com), the `url` field can be omitted and will default to the public GitHub API.
+
+#### 3. JWT Introspection
+
+For providers that issue JWT access tokens:
+
+```yaml
+introspection:
+  type: jwt
+  jwksUrl: "https://oauth.example.com/.well-known/jwks.json"
+  issuer: "https://oauth.example.com"  # Optional
+  audience:  # Optional
+    - "flightctl-client"
+    - "another-audience"
+```
+
+**Optional Fields Behavior:**
+
+- **`issuer`**: When not provided, falls back to the OAuth2 provider's `issuer` field. If both are omitted, issuer validation is skipped (not recommended for production).
+  
+- **`audience`**: When not provided, defaults to the OAuth2 provider's `clientId`. If you specify multiple audiences, the JWT must contain at least one of them. If omitted entirely and no clientId is set, audience validation is skipped (not recommended for production).
+
+**Security Note:** While `issuer` and `audience` are optional, it's strongly recommended to provide them for production environments to ensure proper token validation. Omitting these fields reduces security as token claims won't be validated against expected values.
+
+#### Automatic Inference
+
+Flight Control automatically infers introspection configuration for known providers:
+
+- **GitHub URLs** (e.g., `github.com/login/oauth/authorize`) → GitHub introspection
+- **Standard OAuth2 URLs** → Attempts to infer RFC 7662 endpoint from `tokenUrl` or `issuer`
+
+If inference fails or you need a specific configuration, you must provide the `introspection` field explicitly.
+
+**Important:** Once the `introspection` field is set, it cannot be removed. You can update it to a different introspection method, but the field itself is required for all OAuth2 providers.
+
 ### Dynamic Provider Management
 
 OAuth2 providers are configured dynamically via AuthProvider resources:
@@ -122,6 +181,9 @@ spec:
   scopes:
     - profile
     - email
+  introspection:
+    type: rfc7662
+    url: "https://oauth.example.com/introspect"
   organizationAssignment:
     type: static
     organizationName: default
@@ -131,6 +193,8 @@ spec:
       - flightctl-operator
 EOF
 ```
+
+**Note:** The `introspection` field may be automatically inferred based on the provider URLs. If automatic inference works for your provider, you can omit the `introspection` field during creation, but it cannot be removed once set.
 
 **Example with dynamic organization and role assignment:**
 
@@ -246,6 +310,91 @@ This configuration will:
 
 - Create a separate organization for each user (e.g., `user-org-alice`, `user-org-bob`)
 - Assign all users the `flightctl-operator` role in their personal organization
+
+**Example with GitHub OAuth2:**
+
+```bash
+cat <<EOF | flightctl apply -f -
+apiVersion: v1beta1
+kind: AuthProvider
+metadata:
+  name: github-oauth2
+spec:
+  providerType: oauth2
+  displayName: "GitHub OAuth2"
+  authorizationUrl: "https://github.com/login/oauth/authorize"
+  tokenUrl: "https://github.com/login/oauth/access_token"
+  userinfoUrl: "https://api.github.com/user"
+  clientId: "your-github-client-id"
+  clientSecret: "your-github-client-secret"
+  enabled: true
+  scopes:
+    - read:user
+    - read:org
+  introspection:
+    type: github
+    # url field is optional for public GitHub, required for GitHub Enterprise
+  organizationAssignment:
+    type: static
+    organizationName: default
+  roleAssignment:
+    type: static
+    roles:
+      - flightctl-operator
+EOF
+```
+
+**Note:** For GitHub, the `introspection` configuration is automatically inferred from the GitHub URLs, so you can omit it during creation.
+
+**Example with JWT-based OAuth2:**
+
+```bash
+cat <<EOF | flightctl apply -f -
+apiVersion: v1beta1
+kind: AuthProvider
+metadata:
+  name: jwt-oauth2
+spec:
+  providerType: oauth2
+  displayName: "JWT OAuth2 Provider"
+  issuer: "https://oauth.example.com"
+  authorizationUrl: "https://oauth.example.com/authorize"
+  tokenUrl: "https://oauth.example.com/token"
+  userinfoUrl: "https://oauth.example.com/userinfo"
+  clientId: "flightctl-client"
+  clientSecret: "your-client-secret"
+  enabled: true
+  scopes:
+    - profile
+    - email
+  introspection:
+    type: jwt
+    jwksUrl: "https://oauth.example.com/.well-known/jwks.json"
+    issuer: "https://oauth.example.com"  # Falls back to spec.issuer if omitted
+    audience:  # Falls back to spec.clientId if omitted
+      - "flightctl-client"
+  organizationAssignment:
+    type: static
+    organizationName: default
+  roleAssignment:
+    type: static
+    roles:
+      - flightctl-operator
+EOF
+```
+
+This configuration is useful when your OAuth2 provider issues JWT access tokens that can be validated locally using a JWKS endpoint, avoiding the need for remote introspection calls.
+
+**Simplified JWT Configuration:**
+
+If your JWT issuer matches the OAuth2 provider's issuer and your audience is the clientId, you can simplify:
+
+```yaml
+introspection:
+  type: jwt
+  jwksUrl: "https://oauth.example.com/.well-known/jwks.json"
+  # issuer and audience will default to spec.issuer and spec.clientId
+```
 
 ### Managing OAuth2 Providers
 
