@@ -7,10 +7,6 @@ description: |
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-      - 'release-*'
   pull_request:
   merge_group:
 
