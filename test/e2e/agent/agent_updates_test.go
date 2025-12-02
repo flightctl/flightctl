@@ -467,6 +467,224 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			})).To(MatchError(ContainSubstring("must be unique")))
 
 		})
+		It("reports systemd services and applications based on device spec", Label("sanity", "86238"), func() {
+			harness := e2e.GetWorkerHarness()
+
+			By("enrolling a fresh device")
+			deviceId, _ := harness.EnrollAndWaitForOnlineStatus()
+			GinkgoWriter.Printf("Enrolled device %s\n", deviceId)
+
+			By("configuring device.spec.systemd.matchPatterns to track chronyd.service")
+			patchDeviceJSON(harness, deviceId, `[{
+			"op":"add",
+			"path":"/spec/systemd",
+			"value":{"matchPatterns":["chronyd.service"]}
+		}]`)
+
+			By("configuring device.spec.applications with a simple compose application")
+			patchDeviceJSON(harness, deviceId, `[{
+			"op":"add",
+			"path":"/spec/applications",
+			"value":[
+				{
+					"image":"quay.io/rh_ee_camadorg/oci-app",
+					"appType":"compose",
+					"envVars":{},
+					"volumes":[],
+					"name":"my-compose-app"
+				}
+			]
+		}]`)
+
+			By("waiting for device status to report applications and systemd sections")
+			var dev *v1beta1.Device
+			Eventually(func() *v1beta1.Device {
+				resp, err := harness.GetDeviceWithStatusSystem(deviceId)
+				if err != nil || resp == nil || resp.JSON200 == nil {
+					return nil
+				}
+				return resp.JSON200
+			}, 10*time.Minute, 10*time.Second).ShouldNot(BeNil())
+
+			resp, err := harness.GetDeviceWithStatusSystem(deviceId)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(resp).ToNot(BeNil())
+			Expect(resp.JSON200).ToNot(BeNil())
+			dev = resp.JSON200
+
+			Expect(dev.Status).ToNot(BeNil())
+			Expect(dev.Status.Applications).ToNot(BeNil())
+			Expect(len(dev.Status.Applications)).To(BeNumerically(">=", 1))
+			Expect(dev.Status.Systemd).ToNot(BeNil())
+			Expect(len(*dev.Status.Systemd)).To(BeNumerically(">=", 1))
+
+			var chronydSeen bool
+			for _, unit := range *dev.Status.Systemd {
+				if unit.Unit == "chronyd.service" {
+					chronydSeen = true
+					By("verifying chronyd.service is reported as active/loaded")
+					Expect(string(unit.ActiveState)).To(Equal("active"))
+					Expect(string(unit.LoadState)).To(Equal("loaded"))
+				}
+			}
+			Expect(chronydSeen).To(BeTrue(), "chronyd.service should be reported in status.systemd")
+
+			By("Scenario 2: failing tracked service degrades summary and exposes failed systemd unit")
+
+			// 1. Make sure we start from Online summary
+			Eventually(harness.GetDeviceWithStatusSummary, TIMEOUT, POLLING).
+				WithArguments(deviceId).
+				Should(Equal(v1beta1.DeviceSummaryStatusOnline))
+
+			// 2. Stop the tracked service on the worker VM
+			_, err = harness.VM.RunSSH("sudo systemctl stop chronyd.service")
+			Expect(err).NotTo(HaveOccurred(), "failed to stop chronyd.service on device VM")
+
+			// 3. Wait until device summary becomes Degraded
+			Eventually(harness.GetDeviceWithStatusSummary, LONGTIMEOUT, POLLING).
+				WithArguments(deviceId).
+				Should(Equal(v1beta1.DeviceSummaryStatusDegraded),
+					"summary.status should be Degraded when tracked systemd service fails")
+
+			// 4. Verify systemd status entry for chronyd shows failure
+			Eventually(func() (v1beta1.SystemdUnitStatus, error) {
+				resp, err := harness.GetDeviceWithStatusSystem(deviceId)
+				if err != nil {
+					return v1beta1.SystemdUnitStatus{}, err
+				}
+				if resp == nil || resp.JSON200 == nil || resp.JSON200.Status == nil || resp.JSON200.Status.Systemd == nil {
+					return v1beta1.SystemdUnitStatus{}, fmt.Errorf("systemd status not populated yet")
+				}
+
+				for _, u := range *resp.JSON200.Status.Systemd {
+					if u.Unit == "chronyd.service" {
+						// Found the unit we care about
+						return u, nil
+					}
+				}
+				return v1beta1.SystemdUnitStatus{}, fmt.Errorf("chronyd.service not found in status.systemd")
+			}, LONGTIMEOUT, POLLING).Should(
+				SatisfyAll(
+					// Unit name is correct
+					WithTransform(func(u v1beta1.SystemdUnitStatus) string {
+						return u.Unit
+					}, Equal("chronyd.service")),
+
+					// Active state is Failed
+					WithTransform(func(u v1beta1.SystemdUnitStatus) v1beta1.SystemdActiveStateType {
+						return u.ActiveState
+					}, Equal(v1beta1.SystemdActiveStateFailed)),
+				),
+				"chronyd.service should appear in status.systemd as failed when the service is stopped",
+			)
+
+			// 5. Cleanup: restore chronyd so later scenarios start from healthy state
+			_, err = harness.VM.RunSSH("sudo systemctl start chronyd.service")
+			Expect(err).NotTo(HaveOccurred(), "failed to restart chronyd.service on device VM")
+
+			// Scenario 3: track a deliberately failing systemd service
+			const failingServiceName = "edge-test-fail.service"
+
+			By("creating a dummy failing systemd unit on the device")
+			createFailingServiceOnDevice(harness, failingServiceName)
+
+			By("updating matchPatterns to include chronyd.service and the failing service")
+			patchDeviceJSON(harness, deviceId, fmt.Sprintf(`[
+			{
+				"op":"add",
+				"path":"/spec/systemd",
+				"value":{"matchPatterns":["chronyd.service","%s"]}
+			}
+		]`, failingServiceName))
+
+			By("waiting for device status.systemd to include the failing unit (with loaded or not-found state)")
+			Eventually(func() bool {
+				resp, err := harness.GetDeviceWithStatusSystem(deviceId)
+				if err != nil || resp == nil || resp.JSON200 == nil || resp.JSON200.Status == nil || resp.JSON200.Status.Systemd == nil {
+					return false
+				}
+				for _, unit := range *resp.JSON200.Status.Systemd {
+					if unit.Unit == failingServiceName {
+						loadState := string(unit.LoadState)
+						return loadState == "loaded" || loadState == "not-found"
+					}
+				}
+				return false
+			}, 10*time.Minute, 10*time.Second).Should(BeTrue())
+
+			By("ensuring the failing service is present in status.systemd")
+			resp, err = harness.GetDeviceWithStatusSystem(deviceId)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(resp).ToNot(BeNil())
+			Expect(resp.JSON200).ToNot(BeNil())
+			dev = resp.JSON200
+			Expect(dev.Status.Systemd).ToNot(BeNil())
+
+			var failUnitFound bool
+			for _, unit := range *dev.Status.Systemd {
+				if unit.Unit == failingServiceName {
+					failUnitFound = true
+					GinkgoWriter.Printf("Failing unit status: active=%s, sub=%s, load=%s\n",
+						string(unit.ActiveState), unit.SubState, string(unit.LoadState))
+				}
+			}
+			Expect(failUnitFound).To(BeTrue(), "failing service should be tracked in status.systemd")
+
+			// Scenario 4: unmonitored failing service does not appear in systemd list
+			const untrackedService = "rsyslog.service"
+
+			By("stopping an untracked service on the device (rsyslog.service)")
+			stopServiceOnDevice(harness, untrackedService)
+
+			By("verifying rsyslog.service does not appear in status.systemd when it is not in matchPatterns")
+			resp, err = harness.GetDeviceWithStatusSystem(deviceId)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(resp).ToNot(BeNil())
+			Expect(resp.JSON200).ToNot(BeNil())
+			dev = resp.JSON200
+
+			if dev.Status.Systemd != nil {
+				for _, unit := range *dev.Status.Systemd {
+					if unit.Unit == untrackedService {
+						Fail("untracked rsyslog.service should not appear in status.systemd")
+					}
+				}
+			}
+
+			//
+			// Scenario 6: clearing matchPatterns removes systemd tracking
+			//
+
+			By("clearing device.spec.systemd.matchPatterns")
+			patchDeviceJSON(harness, deviceId, `[{
+			"op":"add",
+			"path":"/spec/systemd",
+			"value":{"matchPatterns":[]}
+		}]`)
+
+			By("waiting for status.systemd to be empty after clearing matchPatterns (expected behavior)")
+			Eventually(func() int {
+				resp, err := harness.GetDeviceWithStatusSystem(deviceId)
+				if err != nil || resp == nil || resp.JSON200 == nil || resp.JSON200.Status == nil || resp.JSON200.Status.Systemd == nil {
+					return 0
+				}
+				return len(*resp.JSON200.Status.Systemd)
+			}, 10*time.Minute, 10*time.Second).Should(Equal(0))
+
+			//
+			// Cleanup: restore services and clear test configuration
+			//
+
+			By("cleaning up: removing applications and systemd from spec and restoring services")
+			// Remove apps and systemd spec (ignore errors if paths don't exist)
+			patchDeviceJSON(harness, deviceId, `[{"op":"remove","path":"/spec/applications"}]`)
+			patchDeviceJSON(harness, deviceId, `[{"op":"remove","path":"/spec/systemd"}]`)
+
+			restoreServiceOnDevice(harness, "chronyd.service")
+			restoreServiceOnDevice(harness, failingServiceName)
+			restoreServiceOnDevice(harness, untrackedService)
+		})
+
 	})
 })
 
@@ -481,6 +699,61 @@ var flightDemosHttpRepoConfig = v1beta1.HttpConfigProviderSpec{
 		Suffix:     nil,
 	},
 	Name: "flightctl-demos-cfg",
+}
+
+func patchDeviceJSON(h *e2e.Harness, deviceId string, jsonPatch string) {
+	GinkgoWriter.Printf("patching device %s with: %s\n", deviceId, jsonPatch)
+	stdout, err := h.CLI("patch", "device/"+deviceId, "--type=json", "-p", jsonPatch)
+	if err != nil {
+		GinkgoWriter.Printf("flightctl patch stdout: %s\n", stdout)
+	}
+	Expect(err).ToNot(HaveOccurred())
+}
+
+func createFailingServiceOnDevice(h *e2e.Harness, serviceName string) {
+	GinkgoWriter.Printf("creating failing systemd service %s on device VM\n", serviceName)
+
+	unitPath := fmt.Sprintf("/etc/systemd/system/%s", serviceName)
+	commands := []string{
+		fmt.Sprintf(`sudo sh -c 'echo "[Unit]" > %s'`, unitPath),
+		fmt.Sprintf(`sudo sh -c 'echo "Description=Edge test failing service" >> %s'`, unitPath),
+		fmt.Sprintf(`sudo sh -c 'echo "" >> %s'`, unitPath),
+		fmt.Sprintf(`sudo sh -c 'echo "[Service]" >> %s'`, unitPath),
+		fmt.Sprintf(`sudo sh -c 'echo "Type=simple" >> %s'`, unitPath),
+		fmt.Sprintf(`sudo sh -c 'echo "ExecStart=/bin/false" >> %s'`, unitPath),
+		fmt.Sprintf(`sudo sh -c 'echo "Restart=no" >> %s'`, unitPath),
+		fmt.Sprintf(`sudo sh -c 'echo "" >> %s'`, unitPath),
+		fmt.Sprintf(`sudo sh -c 'echo "[Install]" >> %s'`, unitPath),
+		fmt.Sprintf(`sudo sh -c 'echo "WantedBy=multi-user.target" >> %s'`, unitPath),
+		"sudo systemctl daemon-reload",
+		fmt.Sprintf("sudo systemctl enable %s", serviceName),
+		fmt.Sprintf("sudo systemctl start %s || true", serviceName),
+	}
+
+	for _, cmd := range commands {
+		stdout, err := h.VM.RunSSH([]string{"bash", "-lc", cmd}, nil)
+		if err != nil {
+			GinkgoWriter.Printf("command %q failed, stdout: %s\n", cmd, stdout)
+		}
+		Expect(err).ToNot(HaveOccurred())
+	}
+}
+
+func stopServiceOnDevice(h *e2e.Harness, serviceName string) {
+	GinkgoWriter.Printf("stopping service %s on device VM\n", serviceName)
+	stdout, err := h.VM.RunSSH([]string{"sudo", "systemctl", "stop", serviceName}, nil)
+	if err != nil {
+		GinkgoWriter.Printf("systemctl stop stdout: %s\n", stdout)
+	}
+	Expect(err).ToNot(HaveOccurred())
+}
+
+func restoreServiceOnDevice(h *e2e.Harness, serviceName string) {
+	GinkgoWriter.Printf("restoring service %s on device VM\n", serviceName)
+	stdout, err := h.VM.RunSSH([]string{"sudo", "systemctl", "restart", serviceName}, nil)
+	if err != nil {
+		GinkgoWriter.Printf("systemctl restart %s failed: %v, stdout: %s\n", serviceName, err, stdout)
+	}
 }
 
 // returns true if the device is updating or has already updated to the expected version
