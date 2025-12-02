@@ -93,7 +93,7 @@ func TestSync(t *testing.T) {
 					mockResourceManager.EXPECT().BeforeUpdate(ctx, desired.Spec).Return(nil),
 					mockSpecManager.EXPECT().CheckPolicy(ctx, policy.Download, desired.Version()).Return(nil),
 					mockSpecManager.EXPECT().IsUpgrading().Return(true),
-					mockManagementClient.EXPECT().UpdateDeviceStatus(ctx, deviceName, gomock.Any()).Return(nil),
+					mockManagementClient.EXPECT().UpdateDeviceStatus(gomock.Any(), deviceName, gomock.Any()).Return(nil),
 					mockPrefetchManager.EXPECT().RegisterOCICollector(gomock.Any()),
 					mockSpecManager.EXPECT().IsOSUpdate().Return(false),
 					mockPrefetchManager.EXPECT().BeforeUpdate(ctx, current.Spec, desired.Spec).Return(nil),
@@ -101,9 +101,9 @@ func TestSync(t *testing.T) {
 					mockHookManager.EXPECT().OnBeforeUpdating(ctx, current.Spec, desired.Spec).Return(nil),
 					mockSpecManager.EXPECT().CheckPolicy(ctx, policy.Update, desired.Version()).Return(nil),
 					mockSpecManager.EXPECT().IsUpgrading().Return(true),
-					mockManagementClient.EXPECT().UpdateDeviceStatus(ctx, deviceName, gomock.Any()).Return(nil),
+					mockManagementClient.EXPECT().UpdateDeviceStatus(gomock.Any(), deviceName, gomock.Any()).Return(nil),
 					mockSpecManager.EXPECT().IsUpgrading().Return(true),
-					mockManagementClient.EXPECT().UpdateDeviceStatus(ctx, deviceName, gomock.Any()).Return(nil),
+					mockManagementClient.EXPECT().UpdateDeviceStatus(gomock.Any(), deviceName, gomock.Any()).Return(nil),
 					mockHookManager.EXPECT().Sync(current.Spec, desired.Spec).Return(nil),
 					mockSystemdManager.EXPECT().EnsurePatterns(gomock.Any()).Return(nil),
 					mockLifecycleManager.EXPECT().Sync(ctx, current.Spec, desired.Spec).Return(nil),
@@ -115,7 +115,7 @@ func TestSync(t *testing.T) {
 					//
 					mockSpecManager.EXPECT().IsUpgrading().Return(true),
 					mockSpecManager.EXPECT().SetUpgradeFailed(desired.Version()).Return(nil),
-					mockManagementClient.EXPECT().UpdateDeviceStatus(ctx, deviceName, gomock.Any()).Return(nil),
+					mockManagementClient.EXPECT().UpdateDeviceStatus(gomock.Any(), deviceName, gomock.Any()).Return(nil),
 					mockSpecManager.EXPECT().Rollback(ctx).Return(nil),
 					mockSpecManager.EXPECT().IsUpgrading().Return(false),
 					mockHookManager.EXPECT().Sync(desired.Spec, current.Spec).Return(nil),
@@ -126,7 +126,7 @@ func TestSync(t *testing.T) {
 					mockHookManager.EXPECT().OnAfterUpdating(ctx, desired.Spec, current.Spec, false).Return(nil),
 					mockAppManager.EXPECT().AfterUpdate(ctx).Return(nil),
 					mockPrefetchManager.EXPECT().Cleanup(),
-					mockManagementClient.EXPECT().UpdateDeviceStatus(ctx, deviceName, gomock.Any()).Return(nil),
+					mockManagementClient.EXPECT().UpdateDeviceStatus(gomock.Any(), deviceName, gomock.Any()).Return(nil),
 					//
 					// resync steady state current 0 desired 0
 					//
@@ -262,7 +262,7 @@ func TestRollbackDevice(t *testing.T) {
 				mockManagementClient *client.MockManagement,
 			) {
 				gomock.InOrder(
-					mockManagementClient.EXPECT().UpdateDeviceStatus(ctx, deviceName, gomock.Any()).Return(nil),
+					mockManagementClient.EXPECT().UpdateDeviceStatus(gomock.Any(), deviceName, gomock.Any()).Return(nil),
 				)
 			},
 		},
@@ -276,7 +276,7 @@ func TestRollbackDevice(t *testing.T) {
 				mockManagementClient *client.MockManagement,
 			) {
 				gomock.InOrder(
-					mockManagementClient.EXPECT().UpdateDeviceStatus(ctx, deviceName, gomock.Any()).Return(nil),
+					mockManagementClient.EXPECT().UpdateDeviceStatus(gomock.Any(), deviceName, gomock.Any()).Return(nil),
 				)
 			},
 		},
@@ -291,7 +291,7 @@ func TestRollbackDevice(t *testing.T) {
 			) {
 				gomock.InOrder(
 					// mockSystemInfoManager.EXPECT().BootID().Return("boot-id"),
-					mockManagementClient.EXPECT().UpdateDeviceStatus(ctx, deviceName, gomock.Any()).Return(nil),
+					mockManagementClient.EXPECT().UpdateDeviceStatus(gomock.Any(), deviceName, gomock.Any()).Return(nil),
 				)
 			},
 			wantSyncErr: errors.New("sync error"),
