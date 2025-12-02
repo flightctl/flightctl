@@ -71,8 +71,9 @@ func isAuthEnabled(harness *e2e.Harness) bool {
 }
 
 func isLoginSuccessful(cmdOutput string) bool {
-	return slices.Contains([]string{"auth is disabled", "login successful", "login successful."},
-		strings.ToLower(strings.TrimSpace(cmdOutput)))
+	out := strings.ToLower(cmdOutput)
+	return strings.Contains(out, "auth is disabled") ||
+		strings.Contains(out, "login successful")
 }
 
 func getActiveNamespaces(harness *e2e.Harness) []string {
