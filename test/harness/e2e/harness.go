@@ -875,7 +875,7 @@ func buildIPTablesCmd(ip, port string, remove bool) []string {
 }
 
 func (h *Harness) SimulateNetworkFailure() error {
-	context, err := getContext()
+	context, err := GetContext()
 	if err != nil {
 		return fmt.Errorf("failed to get the context: %w", err)
 	}
@@ -940,7 +940,7 @@ func (h *Harness) SimulateNetworkFailureForCLI(ip, port string) (func() error, e
 }
 
 func (h *Harness) FixNetworkFailure() error {
-	context, err := getContext()
+	context, err := GetContext()
 	if err != nil {
 		return fmt.Errorf("failed to get the context: %w", err)
 	}
@@ -1259,7 +1259,8 @@ func (h *Harness) WaitForFileInDevice(filePath string, timeout string, polling s
 	return h.VM.RunSSH([]string{"sudo", "bash", "-c", script}, nil)
 }
 
-func getContext() (string, error) {
+// GetContext returns the Kubernetes context (KIND or OCP) or an error
+func GetContext() (string, error) {
 	kubeContext, err := exec.Command("kubectl", "config", "current-context").Output()
 	if err != nil {
 		return "", fmt.Errorf("failed to get current kube context: %w", err)
@@ -1275,7 +1276,7 @@ func getContext() (string, error) {
 }
 
 func (h Harness) getRegistryEndpointInfo() (ip string, port string, err error) {
-	context, err := getContext()
+	context, err := GetContext()
 	if err != nil {
 		return "", "", fmt.Errorf("failed to get context: %w", err)
 	}

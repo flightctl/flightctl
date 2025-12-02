@@ -264,6 +264,12 @@ func namespaceDropInDirectory(readWriter fileio.ReadWriter, dirPath, appID strin
 // createQuadletDropIn creates a drop-in override directory and configuration file
 // for a specific quadlet type. It adds the project label and optionally the EnvironmentFile parameter.
 func createQuadletDropIn(readWriter fileio.ReadWriter, dirPath, appID, extension string, hasEnvFile bool) error {
+	// .image quadlets primarily allow for customization of pulling images. No drop-ins are required
+	// for them
+	if extension == quadlet.ImageExtension {
+		return nil
+	}
+
 	dropInDir := filepath.Join(dirPath, fmt.Sprintf("%s-%s.d", appID, extension))
 	if err := readWriter.MkdirAll(dropInDir, fileio.DefaultDirectoryPermissions); err != nil {
 		return fmt.Errorf("creating drop-in directory: %w", err)

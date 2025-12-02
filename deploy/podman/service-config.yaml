@@ -15,8 +15,9 @@ global:
       issuer:
       externalOidcAuthority:
       organizationAssignment:
-        type: static
-        organizationName: default
+        type: dynamic
+        claimPath:
+          - organizations
       usernameClaim:
         - preferred_username
       roleAssignment:
@@ -36,9 +37,6 @@ global:
         - email
         - roles
       pamService: flightctl
-  organizations:
-    # Enable IdP-provided organizations support
-    enabled: false
 
 db:
   # external: Set to "enabled" to use external PostgreSQL database

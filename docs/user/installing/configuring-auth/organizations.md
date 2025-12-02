@@ -31,14 +31,6 @@ Multi-organization support requires a compatible identity provider. When enabled
 - Resources (devices, fleets, etc.) are scoped to specific organizations
 - Users can only access resources owned by their assigned organizations
 
-Organization support is enabled by setting a Helm configuration value (service-config value if using quadlets):
-
-```yaml
-global:
-  organizations:
-    enabled: true
-```
-
 > [!NOTE] Multi-organization deployments require a supported authentication provider (OIDC or AAP).
 
 ### Requirements for OIDC Organizations Integration
