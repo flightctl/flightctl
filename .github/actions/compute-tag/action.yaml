@@ -1,0 +1,53 @@
+name: 'Compute git tag'
+description: |
+  Computes version tags and git metadata from the repository.
+  Produces normalized tags for images and Helm charts.
+
+outputs:
+  tag:
+    description: 'Computed tag'
+    value: ${{ steps.compute-tag.outputs.tag }}
+  helm_tag:
+    description: 'Helm chart tag (normalized)'
+    value: ${{ steps.compute-tag.outputs.helm_tag }}
+  git_tag:
+    description: 'Git tag from describe'
+    value: ${{ steps.compute-tag.outputs.git_tag }}
+  git_tree_state:
+    description: 'Git tree state (clean/dirty)'
+    value: ${{ steps.compute-tag.outputs.git_tree_state }}
+  git_commit:
+    description: 'Git commit SHA'
+    value: ${{ steps.compute-tag.outputs.git_commit }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Compute tag
+      id: compute-tag
+      shell: bash
+      run: |
+        set -euo pipefail
+        TAG=$(./hack/current-version)
+        echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+        echo "Computed tag: $TAG"
+        
+        # Normalize for helm (drop leading v, replace ~ with -)
+        HELM_TAG=$(echo "${TAG#v}" | sed 's/~/-/g')
+        echo "helm_tag=${HELM_TAG}" >> "$GITHUB_OUTPUT"
+        
+        SOURCE_GIT_TAG=$(./hack/current-version)
+        if [ ! -d ".git" ]; then
+          SOURCE_GIT_TREE_STATE=clean
+        elif git diff --quiet; then
+          SOURCE_GIT_TREE_STATE=clean
+        else
+          SOURCE_GIT_TREE_STATE=dirty
+        fi
+        SOURCE_GIT_COMMIT=$(git rev-parse --short "HEAD^{commit}" 2>/dev/null || echo "unknown")
+        
+        {
+          echo "git_tag=${SOURCE_GIT_TAG}"
+          echo "git_tree_state=${SOURCE_GIT_TREE_STATE}"
+          echo "git_commit=${SOURCE_GIT_COMMIT}"
+        } >> "$GITHUB_OUTPUT"

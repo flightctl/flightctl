@@ -6,10 +6,15 @@ VMDISKSIZE_DEFAULT := 10G
 VMDISKSIZE ?= $(VMDISKSIZE_DEFAULT)
 VMWAIT ?= 0
 CONTAINER_NAME ?= flightctl-device-no-bootc:base
+INJECT_CONFIG ?= true
 
 BUILD_TYPE := bootc
 
+ifeq ($(INJECT_CONFIG),true)
+agent-vm: bin/output/qcow2/disk.qcow2 prepare-e2e-qcow-config
+else
 agent-vm: bin/output/qcow2/disk.qcow2
+endif
 	@echo "Booting Agent VM from $(VMDISK) with disk size $(VMDISKSIZE)"
 	sudo cp bin/output/qcow2/disk.qcow2 $(VMDISK)
 	@if [ "$(VMDISKSIZE)" != "$(VMDISKSIZE_DEFAULT)" ]; then \
