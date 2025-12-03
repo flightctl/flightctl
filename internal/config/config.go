@@ -145,6 +145,12 @@ type PAMOIDCIssuer struct {
 	// SECURITY WARNING: This should only be enabled for testing or backward compatibility
 	// Default: false (PKCE required for public clients per OAuth 2.0 Security BCP)
 	AllowPublicClientWithoutPKCE bool `json:"allowPublicClientWithoutPKCE,omitempty"`
+	// AccessTokenExpiration is the expiration duration for access tokens and ID tokens
+	// Default: 1 hour
+	AccessTokenExpiration util.Duration `json:"accessTokenExpiration,omitempty"`
+	// RefreshTokenExpiration is the expiration duration for refresh tokens
+	// Default: 7 days
+	RefreshTokenExpiration util.Duration `json:"refreshTokenExpiration,omitempty"`
 }
 
 type metricsConfig struct {
@@ -598,6 +604,12 @@ func applyPAMOIDCIssuerDefaults(c *Config) {
 	}
 	if len(c.Auth.PAMOIDCIssuer.RedirectURIs) == 0 {
 		applyPAMOIDCIssuerRedirectURIDefaults(c)
+	}
+	if c.Auth.PAMOIDCIssuer.AccessTokenExpiration == 0 {
+		c.Auth.PAMOIDCIssuer.AccessTokenExpiration = util.Duration(1 * time.Hour)
+	}
+	if c.Auth.PAMOIDCIssuer.RefreshTokenExpiration == 0 {
+		c.Auth.PAMOIDCIssuer.RefreshTokenExpiration = util.Duration(7 * 24 * time.Hour)
 	}
 }
 
