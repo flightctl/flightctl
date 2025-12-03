@@ -55,6 +55,7 @@ func createTestEnrollmentRequest(t *testing.T, name string, status *v1beta1.Enro
 	testStore := &TestStore{}
 	serviceHandler, ctx := newTestServiceHandler(t, testStore, nil)
 
+	testOrgId := uuid.New()
 	deviceStatus := v1beta1.NewDeviceStatus()
 	enrollmentRequest := v1beta1.EnrollmentRequest{
 		ApiVersion: "v1",
@@ -70,9 +71,8 @@ func createTestEnrollmentRequest(t *testing.T, name string, status *v1beta1.Enro
 		Status: status,
 	}
 
-	_, err := serviceHandler.store.EnrollmentRequest().Create(ctx, store.NullOrgId, &enrollmentRequest, nil)
+	_, err := serviceHandler.store.EnrollmentRequest().Create(ctx, testOrgId, &enrollmentRequest, nil)
 	require.NoError(err)
-	testOrgId := uuid.New()
 	return serviceHandler, ctx, testOrgId, enrollmentRequest
 }
 
