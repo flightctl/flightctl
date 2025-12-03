@@ -290,7 +290,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			harness := e2e.GetWorkerHarness()
 
 			const everyMinuteExpression = "* * * * *"
-			startGracePeriod := "1m"
+			const startGracePeriod v1beta1.Duration = "1m"
 
 			// function for generating a cron expression to execute in a specified number of minutes from the current time
 			inNMinutes := func(minutes int) string {
@@ -324,11 +324,11 @@ var _ = Describe("VM Agent behavior during updates", func() {
 				device.Spec.UpdatePolicy = &v1beta1.DeviceUpdatePolicySpec{
 					UpdateSchedule: &v1beta1.UpdateSchedule{
 						At:                 wontUpdatePolicy,
-						StartGraceDuration: &startGracePeriod,
+						StartGraceDuration: startGracePeriod,
 					},
 					DownloadSchedule: &v1beta1.UpdateSchedule{
 						At:                 wontUpdatePolicy,
-						StartGraceDuration: &startGracePeriod,
+						StartGraceDuration: startGracePeriod,
 					},
 				}
 			})

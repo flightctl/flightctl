@@ -132,15 +132,11 @@ func (s *schedule) Parse(log *log.PrefixLogger, updateSchedule *v1beta1.UpdateSc
 	s.interval = secondRun.Sub(nextRun)
 
 	// parse grace duration
-	if updateSchedule.StartGraceDuration != nil {
-		duration, err := time.ParseDuration(*updateSchedule.StartGraceDuration)
-		if err != nil {
-			return fmt.Errorf("invalid start grace duration: %w", err)
-		}
-		s.startGraceDuration = duration
-	} else {
-		s.startGraceDuration = 0
+	duration, err := time.ParseDuration(updateSchedule.StartGraceDuration)
+	if err != nil {
+		return fmt.Errorf("invalid start grace duration: %w", err)
 	}
+	s.startGraceDuration = duration
 
 	return nil
 }

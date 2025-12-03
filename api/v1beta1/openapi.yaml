@@ -4912,6 +4912,7 @@ components:
           $ref: '#/components/schemas/Duration'
       required:
         - at
+        - startGraceDuration
     TimeZone:
       type: string
       description: Time zone identifiers follow the IANA format AREA/LOCATION, where AREA represents a continent or ocean, and LOCATION specifies a particular site within that area, for example America/New_York, Europe/Paris. Only unambiguous 3-character time zones are supported ("GMT", "UTC").
@@ -5783,7 +5784,6 @@ components:
       type: string
       pattern: '^(?:[1-9]\d*)?\d[smh]$'
       description: 'The maximum duration allowed for the action to complete. The duration should be specified as a positive integer followed by a time unit. Supported time units are: `s` for seconds, `m` for minutes, `h` for hours.'
-      default: "0s"
 
     RolloutStrategy:
       type: string
