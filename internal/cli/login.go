@@ -524,7 +524,12 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 	}
 
 	// Auto-select organization if enabled and user has access to only one
-	if response, err := c.ListOrganizationsWithResponse(ctx, &v1beta1.ListOrganizationsParams{}); err == nil && response.StatusCode() == http.StatusOK && response.JSON200 != nil && len(response.JSON200.Items) == 1 {
+	if response, err := c.ListOrganizationsWithResponse(ctx, &v1beta1.ListOrganizationsParams{}); err == nil && response.StatusCode() == http.StatusOK && response.JSON200 != nil {
+
+		if len(response.JSON200.Items) == 0 {
+			return fmt.Errorf("no organizations found")
+		}
+
 		org := response.JSON200.Items[0]
 		if org.Metadata.Name != nil {
 			orgName := *org.Metadata.Name
