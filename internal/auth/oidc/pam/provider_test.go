@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
+	"errors"
 	"os/user"
 	"testing"
 	"time"
@@ -601,6 +602,215 @@ var _ = Describe("PAM Issuer Unit Tests", func() {
 				oauth2Err, ok := pamapi.IsOAuth2Error(err)
 				Expect(ok).To(BeTrue())
 				Expect(oauth2Err.Code).To(Equal(pamapi.InvalidGrant))
+			})
+		})
+	})
+
+	Context("Password Grant Flow Scenarios", func() {
+		Context("Scenario 1: Public client with password grant", func() {
+			BeforeEach(func() {
+				config := &config.PAMOIDCIssuer{
+					Issuer:       "https://test.example.com",
+					Scopes:       []string{"openid", "profile", "email", "offline_access"},
+					ClientID:     "public-client",
+					ClientSecret: "", // No secret = public client
+					RedirectURIs: []string{"https://example.com/callback"},
+					PAMService:   "other",
+				}
+
+				var err error
+				testProvider, err = NewPAMOIDCProviderWithAuthenticator(caClient, config, mockAuth)
+				Expect(err).ToNot(HaveOccurred())
+			})
+
+			It("should authenticate with valid credentials", func() {
+				tokenReq := &pamapi.TokenRequest{
+					GrantType: pamapi.Password,
+					Username:  lo.ToPtr("testuser"),
+					Password:  lo.ToPtr("testpassword"),
+					ClientId:  lo.ToPtr("public-client"),
+				}
+
+				response, err := testProvider.Token(ctx, tokenReq)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(response).ToNot(BeNil())
+				Expect(response.AccessToken).ToNot(BeEmpty())
+				Expect(response.TokenType).To(Equal(pamapi.Bearer))
+				Expect(response.ExpiresIn).ToNot(BeNil())
+			})
+
+			It("should return id_token when openid scope is requested", func() {
+				tokenReq := &pamapi.TokenRequest{
+					GrantType: pamapi.Password,
+					Username:  lo.ToPtr("testuser"),
+					Password:  lo.ToPtr("testpassword"),
+					ClientId:  lo.ToPtr("public-client"),
+					Scope:     lo.ToPtr("openid profile"),
+				}
+
+				response, err := testProvider.Token(ctx, tokenReq)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(response).ToNot(BeNil())
+				Expect(response.AccessToken).ToNot(BeEmpty())
+				Expect(response.IdToken).ToNot(BeNil())
+				Expect(*response.IdToken).ToNot(BeEmpty())
+			})
+
+			It("should return refresh_token when offline_access scope is requested", func() {
+				tokenReq := &pamapi.TokenRequest{
+					GrantType: pamapi.Password,
+					Username:  lo.ToPtr("testuser"),
+					Password:  lo.ToPtr("testpassword"),
+					ClientId:  lo.ToPtr("public-client"),
+					Scope:     lo.ToPtr("openid offline_access"),
+				}
+
+				response, err := testProvider.Token(ctx, tokenReq)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(response).ToNot(BeNil())
+				Expect(response.AccessToken).ToNot(BeEmpty())
+				Expect(response.RefreshToken).ToNot(BeNil())
+				Expect(*response.RefreshToken).ToNot(BeEmpty())
+			})
+
+			It("should not return refresh_token when offline_access scope is not requested", func() {
+				tokenReq := &pamapi.TokenRequest{
+					GrantType: pamapi.Password,
+					Username:  lo.ToPtr("testuser"),
+					Password:  lo.ToPtr("testpassword"),
+					ClientId:  lo.ToPtr("public-client"),
+					Scope:     lo.ToPtr("openid profile"),
+				}
+
+				response, err := testProvider.Token(ctx, tokenReq)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(response).ToNot(BeNil())
+				Expect(response.RefreshToken).To(BeNil())
+			})
+
+			It("should reject request without username", func() {
+				tokenReq := &pamapi.TokenRequest{
+					GrantType: pamapi.Password,
+					Password:  lo.ToPtr("testpassword"),
+					ClientId:  lo.ToPtr("public-client"),
+				}
+
+				_, err := testProvider.Token(ctx, tokenReq)
+				Expect(err).To(HaveOccurred())
+				oauth2Err, ok := pamapi.IsOAuth2Error(err)
+				Expect(ok).To(BeTrue())
+				Expect(oauth2Err.Code).To(Equal(pamapi.InvalidRequest))
+			})
+
+			It("should reject request without password", func() {
+				tokenReq := &pamapi.TokenRequest{
+					GrantType: pamapi.Password,
+					Username:  lo.ToPtr("testuser"),
+					ClientId:  lo.ToPtr("public-client"),
+				}
+
+				_, err := testProvider.Token(ctx, tokenReq)
+				Expect(err).To(HaveOccurred())
+				oauth2Err, ok := pamapi.IsOAuth2Error(err)
+				Expect(ok).To(BeTrue())
+				Expect(oauth2Err.Code).To(Equal(pamapi.InvalidRequest))
+			})
+
+			It("should reject request with invalid credentials", func() {
+				mockAuth.authenticateFunc = func(username, password string) error {
+					return errors.New("authentication failed")
+				}
+
+				tokenReq := &pamapi.TokenRequest{
+					GrantType: pamapi.Password,
+					Username:  lo.ToPtr("testuser"),
+					Password:  lo.ToPtr("wrongpassword"),
+					ClientId:  lo.ToPtr("public-client"),
+				}
+
+				_, err := testProvider.Token(ctx, tokenReq)
+				Expect(err).To(HaveOccurred())
+				oauth2Err, ok := pamapi.IsOAuth2Error(err)
+				Expect(ok).To(BeTrue())
+				Expect(oauth2Err.Code).To(Equal(pamapi.InvalidGrant))
+			})
+
+			It("should reject request with wrong client_id", func() {
+				tokenReq := &pamapi.TokenRequest{
+					GrantType: pamapi.Password,
+					Username:  lo.ToPtr("testuser"),
+					Password:  lo.ToPtr("testpassword"),
+					ClientId:  lo.ToPtr("wrong-client"),
+				}
+
+				_, err := testProvider.Token(ctx, tokenReq)
+				Expect(err).To(HaveOccurred())
+				oauth2Err, ok := pamapi.IsOAuth2Error(err)
+				Expect(ok).To(BeTrue())
+				Expect(oauth2Err.Code).To(Equal(pamapi.InvalidClient))
+			})
+		})
+
+		Context("Scenario 2: Confidential client with password grant", func() {
+			BeforeEach(func() {
+				config := &config.PAMOIDCIssuer{
+					Issuer:       "https://test.example.com",
+					Scopes:       []string{"openid", "profile", "email", "offline_access"},
+					ClientID:     "confidential-client",
+					ClientSecret: "super-secret-value",
+					RedirectURIs: []string{"https://example.com/callback"},
+					PAMService:   "other",
+				}
+
+				var err error
+				testProvider, err = NewPAMOIDCProviderWithAuthenticator(caClient, config, mockAuth)
+				Expect(err).ToNot(HaveOccurred())
+			})
+
+			It("should authenticate with valid credentials and client secret", func() {
+				tokenReq := &pamapi.TokenRequest{
+					GrantType:    pamapi.Password,
+					Username:     lo.ToPtr("testuser"),
+					Password:     lo.ToPtr("testpassword"),
+					ClientId:     lo.ToPtr("confidential-client"),
+					ClientSecret: lo.ToPtr("super-secret-value"),
+				}
+
+				response, err := testProvider.Token(ctx, tokenReq)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(response).ToNot(BeNil())
+				Expect(response.AccessToken).ToNot(BeEmpty())
+			})
+
+			It("should reject request with wrong client secret", func() {
+				tokenReq := &pamapi.TokenRequest{
+					GrantType:    pamapi.Password,
+					Username:     lo.ToPtr("testuser"),
+					Password:     lo.ToPtr("testpassword"),
+					ClientId:     lo.ToPtr("confidential-client"),
+					ClientSecret: lo.ToPtr("wrong-secret"),
+				}
+
+				_, err := testProvider.Token(ctx, tokenReq)
+				Expect(err).To(HaveOccurred())
+				oauth2Err, ok := pamapi.IsOAuth2Error(err)
+				Expect(ok).To(BeTrue())
+				Expect(oauth2Err.Code).To(Equal(pamapi.InvalidClient))
+			})
+
+			It("should reject request without client secret", func() {
+				tokenReq := &pamapi.TokenRequest{
+					GrantType: pamapi.Password,
+					Username:  lo.ToPtr("testuser"),
+					Password:  lo.ToPtr("testpassword"),
+					ClientId:  lo.ToPtr("confidential-client"),
+				}
+
+				_, err := testProvider.Token(ctx, tokenReq)
+				Expect(err).To(HaveOccurred())
+				oauth2Err, ok := pamapi.IsOAuth2Error(err)
+				Expect(ok).To(BeTrue())
+				Expect(oauth2Err.Code).To(Equal(pamapi.InvalidClient))
 			})
 		})
 	})
