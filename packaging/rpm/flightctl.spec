@@ -687,6 +687,7 @@ rm -rf /usr/share/sosreport
 
     # Handle permissions for scripts setting host config
     %attr(0755,root,root) %{_datadir}/flightctl/init_host.sh
+    %attr(0755,root,root) %{_datadir}/flightctl/init_certs.sh
     %attr(0755,root,root) %{_datadir}/flightctl/secrets.sh
     %attr(0755,root,root) %{_datadir}/flightctl/yaml_helpers.py
     %attr(0755,root,root) %{_datadir}/flightctl/generate-certificates.sh
