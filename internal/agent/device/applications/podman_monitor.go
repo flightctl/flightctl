@@ -69,9 +69,8 @@ func NewPodmanMonitor(
 	return &PodmanMonitor{
 		client: podman,
 		handlers: map[v1beta1.AppType]lifecycle.ActionHandler{
-			v1beta1.AppTypeCompose:   lifecycle.NewCompose(log, rw, podman),
-			v1beta1.AppTypeQuadlet:   lifecycle.NewQuadlet(log, rw, systemdManager, podman),
-			v1beta1.AppTypeContainer: lifecycle.NewQuadlet(log, rw, systemdManager, podman),
+			v1beta1.AppTypeCompose: lifecycle.NewCompose(log, rw, podman),
+			v1beta1.AppTypeQuadlet: lifecycle.NewQuadlet(log, rw, systemdManager, podman),
 		},
 		apps:                   make(map[string]Application),
 		lastEventTime:          bootTime,
@@ -404,18 +403,31 @@ func (m *PodmanMonitor) updateLastSuccessTime(t time.Time) {
 	m.lastActionsSuccessTime = t
 }
 
+func normalizeActionAppType(appType v1beta1.AppType) v1beta1.AppType {
+	// utilize the quadlet handler for containers
+	if appType == v1beta1.AppTypeContainer {
+		return v1beta1.AppTypeQuadlet
+	}
+	return appType
+}
+
 func (m *PodmanMonitor) ExecuteActions(ctx context.Context) error {
 	ctx = m.addBatchTimeToCtx(ctx)
 	actions := m.drainActions()
+
+	groupedActions := make(map[v1beta1.AppType][]*lifecycle.Action)
 	for i := range actions {
 		action := actions[i]
-		handler, ok := m.handlers[action.AppType]
+		appType := normalizeActionAppType(action.AppType)
+		_, ok := m.handlers[appType]
 		if !ok {
-			return fmt.Errorf("%w: no action handler registered", errors.ErrUnsupportedAppType)
+			return fmt.Errorf("%w: no action handler registered: %s", errors.ErrUnsupportedAppType, action.AppType)
 		}
-		if err := handler.Execute(ctx, &action); err != nil {
-			// this error should result in a failed status for the revision
-			// and not retried
+		groupedActions[appType] = append(groupedActions[appType], &action)
+	}
+
+	for appType, actions := range groupedActions {
+		if err := m.handlers[appType].Execute(ctx, actions...); err != nil {
 			return err
 		}
 	}

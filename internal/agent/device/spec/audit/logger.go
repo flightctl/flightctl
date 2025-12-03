@@ -43,7 +43,7 @@ func NewFileLogger(
 		return nil, fmt.Errorf("deviceID is required")
 	}
 	if agentVersion == "" {
-		return nil, fmt.Errorf("agentVersion is required")
+		agentVersion = "unknown"
 	}
 	if log == nil {
 		return nil, fmt.Errorf("logger is required")

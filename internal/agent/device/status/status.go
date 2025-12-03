@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"sync"
+	"time"
 
 	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
@@ -15,7 +16,8 @@ import (
 )
 
 const (
-	MaxMessageLength = 250
+	MaxMessageLength    = 250
+	statusUpdateTimeout = 60 * time.Second
 )
 
 var _ Manager = (*StatusManager)(nil)
@@ -144,19 +146,26 @@ func (m *StatusManager) ReloadCollect(ctx context.Context, _ *config.Config) err
 	return nil
 }
 
-func (m *StatusManager) update(ctx context.Context) {
-	if !reflect.DeepEqual(m.lastStatus, m.device.Status) {
-		if err := m.managementClient.UpdateDeviceStatus(ctx, m.deviceName, *m.device); err != nil {
-			m.log.Warnf("Failed to update device status: %v", err)
-		} else {
-			st, ok := deepcopy.Copy(m.device.Status).(*v1beta1.DeviceStatus)
-			if !ok {
-				m.log.Warn("Failed to deep copy device status")
-			} else {
-				m.lastStatus = st
-			}
-		}
+// update pushes the current device status to the management server.
+// Returns true if the status was sent or no changes require an update.
+// Returns false on failure; lastStatus is left unchanged to allow retry.
+func (m *StatusManager) update(ctx context.Context) bool {
+	if reflect.DeepEqual(m.lastStatus, m.device.Status) {
+		return true
 	}
+	ctx, cancel := context.WithTimeout(ctx, statusUpdateTimeout)
+	defer cancel()
+	if err := m.managementClient.UpdateDeviceStatus(ctx, m.deviceName, *m.device); err != nil {
+		m.log.Warnf("Failed to update device status: %v", err)
+		return false
+	}
+	st, ok := deepcopy.Copy(m.device.Status).(*v1beta1.DeviceStatus)
+	if !ok {
+		m.log.Warn("Failed to deep copy device status")
+		return false
+	}
+	m.lastStatus = st
+	return true
 }
 
 func (m *StatusManager) Sync(ctx context.Context) error {
@@ -172,7 +181,9 @@ func (m *StatusManager) Sync(ctx context.Context) error {
 		return err
 	}
 
-	m.update(ctx)
+	if !m.update(ctx) {
+		return fmt.Errorf("failed to push status update")
+	}
 	return nil
 }
 
@@ -193,7 +204,9 @@ func (m *StatusManager) UpdateCondition(ctx context.Context, condition v1beta1.C
 		return nil
 	}
 
-	m.update(ctx)
+	if !m.update(ctx) {
+		return fmt.Errorf("failed to push status update")
+	}
 
 	return nil
 }
@@ -220,7 +233,9 @@ func (m *StatusManager) Update(ctx context.Context, updateFuncs ...UpdateStatusF
 
 	// TODO: handle retries
 
-	m.update(ctx)
+	if !m.update(ctx) {
+		return nil, fmt.Errorf("failed to push status update")
+	}
 
 	return m.device.Status, nil
 }
