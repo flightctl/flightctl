@@ -167,18 +167,36 @@ func NewPAMOIDCProviderWithAuthenticator(caClient *fccrypto.CAClient, config *co
 	}, nil
 }
 
+// getAccessTokenExpiration returns the access token expiration duration from config
+func (s *PAMOIDCProvider) getAccessTokenExpiration() time.Duration {
+	if s.config == nil {
+		return time.Hour // fallback if config is nil
+	}
+	return time.Duration(s.config.AccessTokenExpiration)
+}
+
+// getRefreshTokenExpiration returns the refresh token expiration duration from config
+func (s *PAMOIDCProvider) getRefreshTokenExpiration() time.Duration {
+	if s.config == nil {
+		return 7 * 24 * time.Hour // fallback if config is nil
+	}
+	return time.Duration(s.config.RefreshTokenExpiration)
+}
+
 // Token implements OIDCProvider interface - handles OAuth2 token requests
 func (s *PAMOIDCProvider) Token(ctx context.Context, req *pamapi.TokenRequest) (*pamapi.TokenResponse, error) {
-	// Handle different grant types - only OIDC-compliant flows
+	// Handle different grant types
 	switch req.GrantType {
 	case pamapi.RefreshToken:
 		return s.handleRefreshTokenGrant(ctx, req)
 	case pamapi.AuthorizationCode:
 		return s.handleAuthorizationCodeGrant(ctx, req)
+	case pamapi.Password:
+		return s.handlePasswordGrant(ctx, req)
 	default:
 		return nil, &pamapi.OAuth2Error{
 			Code:             pamapi.UnsupportedGrantType,
-			ErrorDescription: lo.ToPtr("Unsupported grant_type. Supported values: authorization_code, refresh_token"),
+			ErrorDescription: lo.ToPtr("Unsupported grant_type. Supported values: authorization_code, refresh_token, password"),
 		}
 	}
 }
@@ -247,8 +265,9 @@ func (s *PAMOIDCProvider) handleRefreshTokenGrant(ctx context.Context, req *pama
 		Issuer:        s.config.Issuer,             // Set issuer
 		Scopes:        scopes,                      // Include scopes from refresh token
 	}
-	// Generate new access token with proper expiry (1 hour)
-	accessToken, err := s.jwtGenerator.GenerateTokenWithType(tokenGenerationRequest, time.Hour, TokenTypeAccess)
+	// Generate new access token with configurable expiry
+	accessTokenExpiration := s.getAccessTokenExpiration()
+	accessToken, err := s.jwtGenerator.GenerateTokenWithType(tokenGenerationRequest, accessTokenExpiration, TokenTypeAccess)
 	if err != nil {
 		s.log.Errorf("handleRefreshTokenGrant: server error when generating access token - %v", err)
 		return nil, &pamapi.OAuth2Error{
@@ -261,7 +280,7 @@ func (s *PAMOIDCProvider) handleRefreshTokenGrant(ctx context.Context, req *pama
 	tokenResponse := &pamapi.TokenResponse{
 		AccessToken: accessToken,
 		TokenType:   pamapi.Bearer,
-		ExpiresIn:   lo.ToPtr(int(time.Hour.Seconds())),
+		ExpiresIn:   lo.ToPtr(int(accessTokenExpiration.Seconds())),
 	}
 
 	// Generate id_token if openid scope was originally requested
@@ -271,7 +290,8 @@ func (s *PAMOIDCProvider) handleRefreshTokenGrant(ctx context.Context, req *pama
 
 	// Always issue a new refresh token when using refresh_token grant
 	// (if we have a refresh token, it means offline_access was originally granted)
-	refreshToken, err := s.jwtGenerator.GenerateTokenWithType(tokenGenerationRequest, 7*24*time.Hour, TokenTypeRefresh)
+	refreshTokenExpiration := s.getRefreshTokenExpiration()
+	refreshToken, err := s.jwtGenerator.GenerateTokenWithType(tokenGenerationRequest, refreshTokenExpiration, TokenTypeRefresh)
 	if err != nil {
 		s.log.Errorf("handleRefreshTokenGrant: server error when generating refresh token - %v", err)
 		return nil, &pamapi.OAuth2Error{
@@ -434,8 +454,9 @@ func (s *PAMOIDCProvider) handleAuthorizationCodeGrant(ctx context.Context, req 
 		Issuer:        s.config.Issuer,             // Set issuer
 		Scopes:        codeData.Scope,              // Include scopes from authorization request
 	}
-	// Generate access token with proper expiry (1 hour)
-	accessToken, err := s.jwtGenerator.GenerateTokenWithType(tokenGenerationRequest, time.Hour, TokenTypeAccess)
+	// Generate access token with configurable expiry
+	accessTokenExpiration := s.getAccessTokenExpiration()
+	accessToken, err := s.jwtGenerator.GenerateTokenWithType(tokenGenerationRequest, accessTokenExpiration, TokenTypeAccess)
 	if err != nil {
 		s.log.Errorf("handleAuthorizationCodeGrant: server error when generating access token - %v", err)
 		return nil, &pamapi.OAuth2Error{
@@ -448,7 +469,7 @@ func (s *PAMOIDCProvider) handleAuthorizationCodeGrant(ctx context.Context, req 
 	tokenResponse := &pamapi.TokenResponse{
 		AccessToken: accessToken,
 		TokenType:   pamapi.Bearer,
-		ExpiresIn:   lo.ToPtr(int(time.Hour.Seconds())),
+		ExpiresIn:   lo.ToPtr(int(accessTokenExpiration.Seconds())),
 	}
 
 	// Generate id_token if openid scope was requested
@@ -458,9 +479,149 @@ func (s *PAMOIDCProvider) handleAuthorizationCodeGrant(ctx context.Context, req 
 
 	// Only generate refresh token if offline_access was requested
 	if strings.Contains(codeData.Scope, ScopeOfflineAccess) {
-		refreshToken, err := s.jwtGenerator.GenerateTokenWithType(tokenGenerationRequest, 7*24*time.Hour, TokenTypeRefresh)
+		refreshTokenExpiration := s.getRefreshTokenExpiration()
+		refreshToken, err := s.jwtGenerator.GenerateTokenWithType(tokenGenerationRequest, refreshTokenExpiration, TokenTypeRefresh)
 		if err != nil {
 			s.log.Errorf("handleAuthorizationCodeGrant: server error when generating refresh token - %v", err)
+			return nil, &pamapi.OAuth2Error{
+				Code:             pamapi.ServerError,
+				ErrorDescription: lo.ToPtr("Failed to generate refresh token"),
+			}
+		}
+		tokenResponse.RefreshToken = lo.ToPtr(refreshToken)
+	}
+
+	return tokenResponse, nil
+}
+
+// handlePasswordGrant handles the password grant type (Resource Owner Password Credentials)
+// WARNING: This grant type is deprecated in OAuth 2.1 and should only be used for trusted first-party clients.
+// It does not support MFA and has limited brute force detection capabilities.
+func (s *PAMOIDCProvider) handlePasswordGrant(ctx context.Context, req *pamapi.TokenRequest) (*pamapi.TokenResponse, error) {
+	// Validate required fields for password grant
+	if req.Username == nil || *req.Username == "" {
+		s.log.Error("handlePasswordGrant: missing username")
+		return nil, &pamapi.OAuth2Error{
+			Code:             pamapi.InvalidRequest,
+			ErrorDescription: lo.ToPtr("Missing required parameter: username"),
+		}
+	}
+
+	if req.Password == nil || *req.Password == "" {
+		s.log.Error("handlePasswordGrant: missing password")
+		return nil, &pamapi.OAuth2Error{
+			Code:             pamapi.InvalidRequest,
+			ErrorDescription: lo.ToPtr("Missing required parameter: password"),
+		}
+	}
+
+	// Validate client ID if provided
+	if req.ClientId != nil && *req.ClientId != "" {
+		if s.config == nil || s.config.ClientID != *req.ClientId {
+			s.log.Errorf("handlePasswordGrant: invalid client ID - expected=%s, got=%s", s.config.ClientID, *req.ClientId)
+			return nil, &pamapi.OAuth2Error{
+				Code:             pamapi.InvalidClient,
+				ErrorDescription: lo.ToPtr("Invalid client_id"),
+			}
+		}
+
+		// Validate client authentication if client secret is configured
+		if s.config.ClientSecret != "" {
+			if req.ClientSecret == nil || *req.ClientSecret != s.config.ClientSecret {
+				s.log.Error("handlePasswordGrant: invalid client secret")
+				return nil, &pamapi.OAuth2Error{
+					Code:             pamapi.InvalidClient,
+					ErrorDescription: lo.ToPtr("Client authentication failed: invalid client_secret"),
+				}
+			}
+		}
+	}
+
+	// Authenticate with PAM
+	username := *req.Username
+	if err := s.authenticateWithPAM(username, *req.Password); err != nil {
+		s.log.Errorf("handlePasswordGrant: PAM authentication failed for user %s - %v", username, err)
+		return nil, &pamapi.OAuth2Error{
+			Code:             pamapi.InvalidGrant,
+			ErrorDescription: lo.ToPtr("Invalid username or password"),
+		}
+	}
+	s.log.Infof("handlePasswordGrant: PAM authentication successful for user %s", username)
+
+	// Get user information from NSS
+	systemUser, err := s.pamAuthenticator.LookupUser(username)
+	if err != nil {
+		s.log.Errorf("handlePasswordGrant: failed to lookup user - %v", err)
+		return nil, &pamapi.OAuth2Error{
+			Code:             pamapi.InvalidGrant,
+			ErrorDescription: lo.ToPtr("User lookup failed"),
+		}
+	}
+
+	// Get user groups for roles
+	groups, err := s.pamAuthenticator.GetUserGroups(systemUser)
+	if err != nil {
+		s.log.Errorf("handlePasswordGrant: failed to get user groups - %v", err)
+		return nil, &pamapi.OAuth2Error{
+			Code:             pamapi.ServerError,
+			ErrorDescription: lo.ToPtr("Failed to retrieve user groups"),
+		}
+	}
+
+	// Map groups to roles and extract organizations
+	roles := s.mapGroupsToRoles(groups)
+	s.log.Debugf("handlePasswordGrant: mapped groups to roles - %v", roles)
+	organizations := s.extractOrganizations(groups)
+	s.log.Debugf("handlePasswordGrant: extracted organizations - %v", organizations)
+
+	// Determine scopes - use requested scope or default
+	scopes := lo.FromPtrOr(req.Scope, DefaultScopes)
+
+	// Determine audience - use client ID if provided, otherwise use configured client ID
+	audience := s.config.ClientID
+	if req.ClientId != nil && *req.ClientId != "" {
+		audience = *req.ClientId
+	}
+
+	tokenGenerationRequest := authn.TokenGenerationRequest{
+		Username:      username,
+		UID:           username,
+		Organizations: organizations,
+		Roles:         roles,
+		Audience:      []string{audience},
+		Issuer:        s.config.Issuer,
+		Scopes:        scopes,
+	}
+
+	// Generate access token with configurable expiry
+	accessTokenExpiration := s.getAccessTokenExpiration()
+	accessToken, err := s.jwtGenerator.GenerateTokenWithType(tokenGenerationRequest, accessTokenExpiration, TokenTypeAccess)
+	if err != nil {
+		s.log.Errorf("handlePasswordGrant: server error when generating access token - %v", err)
+		return nil, &pamapi.OAuth2Error{
+			Code:             pamapi.ServerError,
+			ErrorDescription: lo.ToPtr("Failed to generate access token"),
+		}
+	}
+
+	// Create token response
+	tokenResponse := &pamapi.TokenResponse{
+		AccessToken: accessToken,
+		TokenType:   pamapi.Bearer,
+		ExpiresIn:   lo.ToPtr(int(accessTokenExpiration.Seconds())),
+	}
+
+	// Generate id_token if openid scope was requested
+	if strings.Contains(scopes, ScopeOpenID) {
+		tokenResponse.IdToken = lo.ToPtr(accessToken)
+	}
+
+	// Generate refresh token if offline_access scope was requested
+	if strings.Contains(scopes, ScopeOfflineAccess) {
+		refreshTokenExpiration := s.getRefreshTokenExpiration()
+		refreshToken, err := s.jwtGenerator.GenerateTokenWithType(tokenGenerationRequest, refreshTokenExpiration, TokenTypeRefresh)
+		if err != nil {
+			s.log.Errorf("handlePasswordGrant: server error when generating refresh token - %v", err)
 			return nil, &pamapi.OAuth2Error{
 				Code:             pamapi.ServerError,
 				ErrorDescription: lo.ToPtr("Failed to generate refresh token"),
@@ -827,8 +988,8 @@ func (s *PAMOIDCProvider) GetOpenIDConfiguration() (*pamapi.OpenIDConfiguration,
 	issuer := s.config.Issuer
 
 	// Response types and grant types are determined by implementation
-	responseTypes := []string{"code"}                             // Support authorization code flow
-	grantTypes := []string{"authorization_code", "refresh_token"} // Support OIDC-compliant flows
+	responseTypes := []string{"code"}                                         // Support authorization code flow
+	grantTypes := []string{"authorization_code", "refresh_token", "password"} // Support OAuth2 flows (including deprecated password grant)
 
 	scopes := []string{"openid", "profile", "email", "roles"}
 	if s.config != nil && len(s.config.Scopes) > 0 {
