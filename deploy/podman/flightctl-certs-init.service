@@ -7,7 +7,7 @@ Type=oneshot
 RemainAfterExit=true
 Restart=on-failure
 RestartSec=5s
-ExecStart=/bin/bash -c 'BASE_DOMAIN=$(python3 /usr/share/flightctl/yaml_helpers.py extract .global.baseDomain /etc/flightctl/service-config.yaml); /usr/share/flightctl/generate-certificates.sh --cert-dir /etc/flightctl/pki --api-san "$BASE_DOMAIN"'
+ExecStart=/usr/share/flightctl/init_certs.sh
 
 [Install]
 WantedBy=flightctl.target
