@@ -12,12 +12,12 @@ import (
 	"testing"
 
 	"github.com/flightctl/flightctl/api/v1beta1"
+	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/config/ca"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/crypto"
-	"github.com/flightctl/flightctl/internal/identity"
-	"github.com/flightctl/flightctl/internal/org/model"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -26,9 +26,6 @@ import (
 
 // A dummy callback manager that does nothing.
 type dummyCallbackManager struct{}
-
-func (c dummyCallbackManager) C(ctx context.Context, resourceKind v1beta1.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-}
 
 func (c dummyCallbackManager) EmitEvent(ctx context.Context, orgId uuid.UUID, event *v1beta1.Event) {
 }
@@ -40,11 +37,11 @@ func newTestServiceHandler(t *testing.T, s store.Store, caClient *crypto.CAClien
 		store:        s,
 		log:          logger,
 		ca:           caClient,
-		eventHandler: NewEventHandler(s, callbackManager, logger),
+		eventHandler: NewEventHandler(s, worker_client.WorkerClient(callbackManager), logger),
 	}
 	ctx := context.WithValue(context.Background(), consts.OrganizationIDCtxKey, store.NullOrgId)
-	mappedIdentity := identity.NewMappedIdentity("test", "test-uid", []*model.Organization{}, map[string][]string{}, false, nil)
-	ctx = context.WithValue(ctx, consts.MappedIdentityCtxKey, mappedIdentity)
+	identity := common.NewBaseIdentity("test", "test-uid", []common.ReportedOrganization{})
+	ctx = context.WithValue(ctx, consts.IdentityCtxKey, identity)
 	return handler, ctx
 }
 
