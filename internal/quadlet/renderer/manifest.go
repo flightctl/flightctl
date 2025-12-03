@@ -76,6 +76,7 @@ func servicesManifest(config *RendererConfig) []InstallAction {
 		{Action: ActionCopyFile, Source: "deploy/scripts/init_host.sh", Destination: filepath.Join(config.ReadOnlyConfigOutputDir, "init_host.sh"), Template: false, Mode: ExecutableFileMode},
 		{Action: ActionCopyFile, Source: "deploy/scripts/secrets.sh", Destination: filepath.Join(config.ReadOnlyConfigOutputDir, "secrets.sh"), Template: false, Mode: ExecutableFileMode},
 		{Action: ActionCopyFile, Source: "deploy/scripts/yaml_helpers.py", Destination: filepath.Join(config.ReadOnlyConfigOutputDir, "yaml_helpers.py"), Template: false, Mode: RegularFileMode},
+		{Action: ActionCopyFile, Source: "deploy/scripts/init_certs.sh", Destination: filepath.Join(config.ReadOnlyConfigOutputDir, "init_certs.sh"), Template: false, Mode: ExecutableFileMode},
 
 		// Standalone binary
 		{Action: ActionCopyFile, Source: "bin/flightctl-standalone", Destination: filepath.Join(config.BinOutputDir, "flightctl-standalone"), Template: false, Mode: ExecutableFileMode},
