@@ -104,6 +104,7 @@ rules:
       - get
       - list
       - create
+      - update
     apiGroups:
       - flightctl.io
     resources:
