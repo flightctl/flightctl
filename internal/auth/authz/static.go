@@ -38,7 +38,7 @@ var resourcePermissions = map[string]map[string][]string{
 		"enrollmentrequests":          {"get", "list"},
 		"enrollmentrequests/approval": {"update"},
 		"organizations":               {"get", "list"},
-		"certificatesigningrequests":  {"get", "list", "create"},
+		"certificatesigningrequests":  {"get", "list", "create", "update"},
 	},
 }
 
