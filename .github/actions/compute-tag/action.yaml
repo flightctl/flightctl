@@ -28,7 +28,7 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        TAG=$(git describe --tags --exclude latest 2>/dev/null || echo "v0.0.0-unknown")
+        TAG=$(./hack/current-version)
         echo "tag=$TAG" >> "$GITHUB_OUTPUT"
         echo "Computed tag: $TAG"
         
@@ -36,7 +36,7 @@ runs:
         HELM_TAG=$(echo "${TAG#v}" | sed 's/~/-/g')
         echo "helm_tag=${HELM_TAG}" >> "$GITHUB_OUTPUT"
         
-        SOURCE_GIT_TAG=$(git describe --tags --exclude latest 2>/dev/null || echo "v0.0.0-unknown")
+        SOURCE_GIT_TAG=$(./hack/current-version)
         if [ ! -d ".git" ]; then
           SOURCE_GIT_TREE_STATE=clean
         elif git diff --quiet; then
