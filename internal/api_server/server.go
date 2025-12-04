@@ -210,16 +210,14 @@ func (s *Server) Run(ctx context.Context) error {
 	}()
 	identityMappingMiddleware := fcmiddleware.NewIdentityMappingMiddleware(identityMapper, s.log)
 
-	// Create organization extraction and validation middlewares once
-	extractOrgMiddleware := fcmiddleware.ExtractOrgIDToCtx(fcmiddleware.QueryOrgIDExtractor, s.log)
-	validateOrgMiddleware := fcmiddleware.ValidateOrgMembership(s.log)
+	// Create organization extraction and validation middleware once
+	orgMiddleware := fcmiddleware.ExtractAndValidateOrg(fcmiddleware.QueryOrgIDExtractor, s.log)
 	userAgentMiddleware := fcmiddleware.UserAgentLogger(s.log)
 
 	authMiddewares := []func(http.Handler) http.Handler{
 		auth.CreateAuthNMiddleware(s.authN, s.log),
 		identityMappingMiddleware.MapIdentityToDB,
-		extractOrgMiddleware,
-		validateOrgMiddleware,
+		orgMiddleware,
 		auth.CreateAuthZMiddleware(s.authZ, s.log),
 	}
 
