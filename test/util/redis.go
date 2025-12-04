@@ -23,7 +23,7 @@ type QueueState struct {
 }
 
 // WaitForRedisReady waits for Redis to be ready after restart/start
-// ctx should be KIND, OCP (for kubernetes), or "podman"
+// ctx should be KIND, OCP (for kubernetes), or empty string (for podman)
 func WaitForRedisReady(ctx, namespace string, timeout time.Duration) bool {
 	if ctx == KIND || ctx == OCP {
 		return WaitForRedisPodReady(namespace, timeout)
@@ -39,24 +39,34 @@ func WaitForRedisReady(ctx, namespace string, timeout time.Duration) bool {
 }
 
 // VerifyRedisRecovery verifies that Redis and services have recovered after restart
-// ctx should be KIND, OCP (for kubernetes), or "podman"
+// ctx should be KIND, OCP (for kubernetes), or empty string (for podman)
 func VerifyRedisRecovery(ctx, namespace string) bool {
 	// Wait for Redis to be ready
+	GinkgoWriter.Printf("VerifyRedisRecovery: Waiting for Redis to be ready in namespace %s...\n", namespace)
 	if !WaitForRedisReady(ctx, namespace, 2*time.Minute) {
-		GinkgoWriter.Printf("VerifyRedisRecovery: Redis not ready yet\n")
+		GinkgoWriter.Printf("VerifyRedisRecovery: Redis not ready after 2 minutes in namespace %s\n", namespace)
+		// Try to get pod status for debugging
+		if ctx == KIND || ctx == OCP {
+			cmd := exec.Command("kubectl", "get", "pod", "-n", namespace, "-l", "flightctl.service=flightctl-kv", "-o", "wide")
+			output, _ := cmd.Output()
+			GinkgoWriter.Printf("VerifyRedisRecovery: Redis pod status:\n%s\n", string(output))
+		}
 		return false
 	}
+	GinkgoWriter.Printf("VerifyRedisRecovery: Redis is ready, verifying connection...\n")
 	// Verify connection
 	if !CanConnectToRedis(ctx) {
 		GinkgoWriter.Printf("VerifyRedisRecovery: Cannot connect to Redis\n")
 		return false
 	}
+	GinkgoWriter.Printf("VerifyRedisRecovery: Redis connection verified, checking queue state...\n")
 	// Verify queue is accessible (queue may not exist until tasks are queued, so just check accessibility)
 	queueState := CheckQueueState(ctx)
 	if !queueState.Accessible {
 		GinkgoWriter.Printf("VerifyRedisRecovery: Queue not accessible, state: %+v\n", queueState)
 		return false
 	}
+	GinkgoWriter.Printf("VerifyRedisRecovery: Queue is accessible, checking service health...\n")
 	// Verify services are healthy (worker is more critical than API for queue processing)
 	// Check worker health - it's the one that processes the queue
 	if !AreFlightCtlServicesHealthy(ctx) {
@@ -68,12 +78,14 @@ func VerifyRedisRecovery(ctx, namespace string) bool {
 }
 
 // IsRedisRunning checks if Redis is running
-// ctx should be KIND, OCP (for kubernetes), or "podman"
+// ctx should be KIND, OCP (for kubernetes), or empty string (for podman)
 func IsRedisRunning(ctx string) bool {
 	if ctx != KIND && ctx != OCP {
 		return IsRedisRunningPodman()
 	}
-	return IsRedisRunningKubernetes("flightctl-internal")
+	// Detect Redis namespace dynamically
+	namespace := detectRedisNamespace()
+	return IsRedisRunningKubernetes(namespace)
 }
 
 // IsRedisRunningPodman checks if Redis is running in podman mode
@@ -91,13 +103,24 @@ func IsRedisRunningKubernetes(namespace string) bool {
 	cmd := exec.Command("kubectl", "get", "pod", "-n", namespace, "-l", "flightctl.service=flightctl-kv", "-o", "jsonpath={.items[0].status.phase}")
 	output, err := cmd.Output()
 	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			GinkgoWriter.Printf("IsRedisRunningKubernetes: Failed to get Redis pod in namespace %s: %v, stderr: %s\n", namespace, err, string(exitErr.Stderr))
+		} else {
+			GinkgoWriter.Printf("IsRedisRunningKubernetes: Failed to get Redis pod in namespace %s: %v\n", namespace, err)
+		}
+		// Try to list all pods with the label to help debug
+		cmd = exec.Command("kubectl", "get", "pod", "-n", namespace, "-l", "flightctl.service=flightctl-kv", "-o", "name")
+		listOutput, _ := cmd.Output()
+		GinkgoWriter.Printf("IsRedisRunningKubernetes: Pods with label flightctl.service=flightctl-kv in namespace %s: %s\n", namespace, string(listOutput))
 		return false
 	}
-	return strings.TrimSpace(string(output)) == "Running"
+	phase := strings.TrimSpace(string(output))
+	GinkgoWriter.Printf("IsRedisRunningKubernetes: Redis pod phase in namespace %s: %s\n", namespace, phase)
+	return phase == "Running"
 }
 
 // RestartRedis restarts Redis based on context
-// ctx should be KIND, OCP (for kubernetes), or "podman"
+// ctx should be KIND, OCP (for kubernetes), or empty string (for podman)
 func RestartRedis(ctx, namespace string) error {
 	GinkgoWriter.Printf("Restarting Redis in %s context...\n", ctx)
 
@@ -136,7 +159,7 @@ func RestartRedisKubernetes(namespace string) error {
 }
 
 // StopRedis stops Redis based on context
-// ctx should be KIND, OCP (for kubernetes), or "podman"
+// ctx should be KIND, OCP (for kubernetes), or empty string (for podman)
 func StopRedis(ctx, namespace string) error {
 	GinkgoWriter.Printf("Stopping Redis in %s context...\n", ctx)
 
@@ -170,7 +193,7 @@ func StopRedisKubernetes(namespace string) error {
 }
 
 // StartRedis starts Redis based on context
-// ctx should be KIND, OCP (for kubernetes), or "podman"
+// ctx should be KIND, OCP (for kubernetes), or empty string (for podman)
 func StartRedis(ctx, namespace string) error {
 	GinkgoWriter.Printf("Starting Redis in %s context...\n", ctx)
 
@@ -206,33 +229,53 @@ func StartRedisKubernetes(namespace string) error {
 // WaitForRedisPodReady waits for Redis pod to be ready in kubernetes
 func WaitForRedisPodReady(namespace string, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
+	attempt := 0
 	for time.Now().Before(deadline) {
+		attempt++
 		cmd := exec.Command("kubectl", "get", "pod", "-n", namespace, "-l", "flightctl.service=flightctl-kv", "-o", "jsonpath={.items[0].status.phase}")
 		output, err := cmd.Output()
-		if err == nil && strings.TrimSpace(string(output)) == "Running" {
+		phase := strings.TrimSpace(string(output))
+		if err == nil && phase == "Running" {
 			// Also check ready condition
 			cmd = exec.Command("kubectl", "get", "pod", "-n", namespace, "-l", "flightctl.service=flightctl-kv", "-o", "jsonpath={.items[0].status.conditions[?(@.type=='Ready')].status}")
 			output, err = cmd.Output()
-			if err == nil && strings.TrimSpace(string(output)) == "True" {
+			readyStatus := strings.TrimSpace(string(output))
+			if err == nil && readyStatus == "True" {
+				GinkgoWriter.Printf("WaitForRedisPodReady: Redis pod is ready in namespace %s (attempt %d)\n", namespace, attempt)
 				return true
+			}
+			if attempt%10 == 0 { // Log every 10th attempt to avoid spam
+				GinkgoWriter.Printf("WaitForRedisPodReady: Redis pod phase is Running but not Ready yet (ready status: %s) in namespace %s\n", readyStatus, namespace)
+			}
+		} else {
+			if attempt%10 == 0 { // Log every 10th attempt to avoid spam
+				if err != nil {
+					GinkgoWriter.Printf("WaitForRedisPodReady: Error getting pod phase in namespace %s: %v\n", namespace, err)
+				} else {
+					GinkgoWriter.Printf("WaitForRedisPodReady: Redis pod phase is %s (not Running yet) in namespace %s\n", phase, namespace)
+				}
 			}
 		}
 		time.Sleep(POLLING)
 	}
+	// Log final state for debugging
+	cmd := exec.Command("kubectl", "get", "pod", "-n", namespace, "-l", "flightctl.service=flightctl-kv", "-o", "wide")
+	output, _ := cmd.Output()
+	GinkgoWriter.Printf("WaitForRedisPodReady: Timeout waiting for Redis pod in namespace %s. Final pod status:\n%s\n", namespace, string(output))
 	return false
 }
 
 // AreFlightCtlServicesHealthy checks if FlightCtl services are healthy
-// ctx should be KIND, OCP (for kubernetes), or "podman"
+// ctx should be KIND, OCP (for kubernetes), or empty string (for podman)
 func AreFlightCtlServicesHealthy(ctx string) bool {
 	if ctx != KIND && ctx != OCP {
 		return AreFlightCtlServicesHealthyPodman()
 	}
-	// In Kubernetes, API is in main namespace, worker is in internal namespace
+	// In Kubernetes, API is in main namespace, worker may be in same namespace or internal namespace
 	// Try to detect namespaces dynamically
 	mainNamespace := detectMainNamespace()
-	internalNamespace := "flightctl-internal"
-	return AreFlightCtlServicesHealthyKubernetes(mainNamespace, internalNamespace)
+	workerNamespace := detectWorkerNamespace(mainNamespace)
+	return AreFlightCtlServicesHealthyKubernetes(mainNamespace, workerNamespace)
 }
 
 // detectMainNamespace tries to find the namespace where flightctl-api is deployed
@@ -263,6 +306,104 @@ func detectMainNamespace() string {
 	return "flightctl"
 }
 
+// detectWorkerNamespace tries to find the namespace where flightctl-worker is deployed
+// mainNamespace can be provided to check the same namespace as API first (common on OpenShift)
+func detectWorkerNamespace(mainNamespace string) string {
+	// First, try to find it across all namespaces (most reliable)
+	cmd := exec.Command("kubectl", "get", "deployment", "flightctl-worker", "--all-namespaces", "-o", "jsonpath={.items[0].metadata.namespace}")
+	output, err := cmd.Output()
+	if err == nil && len(output) > 0 {
+		ns := strings.TrimSpace(string(output))
+		GinkgoWriter.Printf("detectWorkerNamespace: Found flightctl-worker in namespace: %s\n", ns)
+		return ns
+	}
+
+	// If not found across all namespaces, try common namespaces
+	// On OpenShift, worker might be in the same namespace as API, so check that first
+	namespaces := []string{}
+	if mainNamespace != "" {
+		// Check API namespace first (common on OpenShift)
+		namespaces = append(namespaces, mainNamespace)
+	}
+	// Then check other common namespaces
+	namespaces = append(namespaces, "flightctl-internal", "flightctl", "default", "flightctl-system")
+
+	for _, ns := range namespaces {
+		cmd := exec.Command("kubectl", "get", "deployment", "flightctl-worker", "-n", ns, "--ignore-not-found", "-o", "name")
+		output, err = cmd.Output()
+		if err == nil && strings.Contains(string(output), "flightctl-worker") {
+			GinkgoWriter.Printf("detectWorkerNamespace: Found flightctl-worker in namespace: %s\n", ns)
+			return ns
+		}
+	}
+
+	// Default fallback
+	GinkgoWriter.Printf("detectWorkerNamespace: Could not find flightctl-worker, using default: flightctl-internal\n")
+	return "flightctl-internal"
+}
+
+// DetectRedisNamespace tries to find the namespace where Redis (flightctl-kv) is deployed
+// This is exported so tests can use it to get the correct namespace
+func DetectRedisNamespace() string {
+	return detectRedisNamespace()
+}
+
+// detectRedisNamespace tries to find the namespace where Redis (flightctl-kv) is deployed
+func detectRedisNamespace() string {
+	// First, try to find pod across all namespaces (most reliable)
+	cmd := exec.Command("kubectl", "get", "pod", "--all-namespaces", "-l", "flightctl.service=flightctl-kv", "-o", "jsonpath={.items[0].metadata.namespace}")
+	output, err := cmd.Output()
+	if err == nil && len(output) > 0 {
+		ns := strings.TrimSpace(string(output))
+		if ns != "" {
+			GinkgoWriter.Printf("detectRedisNamespace: Found Redis pod in namespace: %s\n", ns)
+			return ns
+		}
+	}
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			GinkgoWriter.Printf("detectRedisNamespace: Error searching pods across all namespaces: %v, stderr: %s\n", err, string(exitErr.Stderr))
+		} else {
+			GinkgoWriter.Printf("detectRedisNamespace: Error searching pods across all namespaces: %v\n", err)
+		}
+	}
+
+	// Try to find deployment/statefulset as fallback (might exist even if pod doesn't)
+	cmd = exec.Command("kubectl", "get", "deployment,statefulset", "--all-namespaces", "-l", "flightctl.service=flightctl-kv", "-o", "jsonpath={.items[0].metadata.namespace}")
+	output, err = cmd.Output()
+	if err == nil && len(output) > 0 {
+		ns := strings.TrimSpace(string(output))
+		if ns != "" {
+			GinkgoWriter.Printf("detectRedisNamespace: Found Redis deployment/statefulset in namespace: %s\n", ns)
+			return ns
+		}
+	}
+
+	// If not found across all namespaces, try common namespaces
+	namespaces := []string{"flightctl-internal", "flightctl", "default", "flightctl-system"}
+
+	for _, ns := range namespaces {
+		// Try pod first
+		cmd := exec.Command("kubectl", "get", "pod", "-n", ns, "-l", "flightctl.service=flightctl-kv", "--ignore-not-found", "-o", "name")
+		output, err = cmd.Output()
+		if err == nil && strings.Contains(string(output), "flightctl-kv") {
+			GinkgoWriter.Printf("detectRedisNamespace: Found Redis pod in namespace: %s\n", ns)
+			return ns
+		}
+		// Try deployment/statefulset as fallback
+		cmd = exec.Command("kubectl", "get", "deployment,statefulset", "-n", ns, "-l", "flightctl.service=flightctl-kv", "--ignore-not-found", "-o", "name")
+		output, err = cmd.Output()
+		if err == nil && strings.Contains(string(output), "flightctl-kv") {
+			GinkgoWriter.Printf("detectRedisNamespace: Found Redis deployment/statefulset in namespace: %s\n", ns)
+			return ns
+		}
+	}
+
+	// Default fallback
+	GinkgoWriter.Printf("detectRedisNamespace: Could not find Redis pod or deployment, using default: flightctl-internal\n")
+	return "flightctl-internal"
+}
+
 // AreFlightCtlServicesHealthyPodman checks if FlightCtl services are healthy in podman mode
 func AreFlightCtlServicesHealthyPodman() bool {
 	// Check key services
@@ -282,16 +423,16 @@ func AreFlightCtlServicesHealthyPodman() bool {
 }
 
 // AreFlightCtlServicesHealthyKubernetes checks if FlightCtl services are healthy in kubernetes mode
-// mainNamespace is where flightctl-api is deployed, internalNamespace is where flightctl-worker is deployed
-func AreFlightCtlServicesHealthyKubernetes(mainNamespace, internalNamespace string) bool {
+// mainNamespace is where flightctl-api is deployed, workerNamespace is where flightctl-worker is deployed
+func AreFlightCtlServicesHealthyKubernetes(mainNamespace, workerNamespace string) bool {
 	// For Redis restart tests, worker is more critical than API since it processes the queue
-	// Check Worker in internal namespace first (most important for queue processing)
+	// Check Worker in worker namespace first (most important for queue processing)
 	workerDeployment := "flightctl-worker"
-	workerNamespace := internalNamespace
 	cmd := exec.Command("kubectl", "get", "deployment", workerDeployment, "-n", workerNamespace, "-o", "jsonpath={.status.readyReplicas}")
 	output, err := cmd.Output()
 	if err != nil {
 		GinkgoWriter.Printf("AreFlightCtlServicesHealthyKubernetes: Failed to get %s status in %s: %v\n", workerDeployment, workerNamespace, err)
+		//nolint:gosec // G204: workerNamespace and workerDeployment are detected from Kubernetes, not user input
 		cmd = exec.Command("kubectl", "get", "pods", "-n", workerNamespace, "-l", fmt.Sprintf("flightctl.service=%s", workerDeployment), "-o", "jsonpath={.items[*].status.phase}")
 		podOutput, _ := cmd.Output()
 		GinkgoWriter.Printf("AreFlightCtlServicesHealthyKubernetes: %s pods status in %s: %s\n", workerDeployment, workerNamespace, string(podOutput))
@@ -303,8 +444,10 @@ func AreFlightCtlServicesHealthyKubernetes(mainNamespace, internalNamespace stri
 		availableOutput, _ := cmd.Output()
 		cmd = exec.Command("kubectl", "get", "deployment", workerDeployment, "-n", workerNamespace, "-o", "jsonpath={.spec.replicas}")
 		desiredOutput, _ := cmd.Output()
+		//nolint:gosec // G204: workerNamespace and workerDeployment are detected from Kubernetes, not user input
 		cmd = exec.Command("kubectl", "get", "pods", "-n", workerNamespace, "-l", fmt.Sprintf("flightctl.service=%s", workerDeployment), "-o", "jsonpath={.items[*].status.phase}")
 		podOutput, _ := cmd.Output()
+		//nolint:gosec // G204: workerNamespace and workerDeployment are detected from Kubernetes, not user input
 		cmd = exec.Command("kubectl", "get", "pods", "-n", workerNamespace, "-l", fmt.Sprintf("flightctl.service=%s", workerDeployment), "-o", "jsonpath={.items[*].status.containerStatuses[0].restartCount}")
 		restartOutput, _ := cmd.Output()
 		GinkgoWriter.Printf("AreFlightCtlServicesHealthyKubernetes: %s not ready in %s - readyReplicas: %s, desired: %s, available: %s, pod phases: %s, restart counts: %s\n",
@@ -335,7 +478,7 @@ func AreFlightCtlServicesHealthyKubernetes(mainNamespace, internalNamespace stri
 }
 
 // GetRedisClient creates a Redis client connection
-// ctx should be KIND, OCP (for kubernetes), or "podman"
+// ctx should be KIND, OCP (for kubernetes), or empty string (for podman)
 func GetRedisClient(ctx string) *redis.Client {
 	// In Kubernetes mode, we can't directly connect to Redis on localhost
 	// Return nil and let the caller use kubectl exec instead
@@ -357,7 +500,7 @@ func GetRedisClient(ctx string) *redis.Client {
 }
 
 // GetRedisPassword gets Redis password from environment, Kubernetes secret, or default
-// ctx should be KIND, OCP (for kubernetes), or "podman"
+// ctx should be KIND, OCP (for kubernetes), or empty string (for podman)
 func GetRedisPassword(ctx string) string {
 	// Try to get from environment first
 	if pwd := os.Getenv("REDIS_PASSWORD"); pwd != "" {
@@ -366,14 +509,28 @@ func GetRedisPassword(ctx string) string {
 
 	// Try to get from Kubernetes secret if in Kubernetes mode
 	if ctx == KIND || ctx == OCP {
-		namespace := "flightctl-internal"
+		// Detect Redis namespace dynamically
+		namespace := detectRedisNamespace()
 		secretName := "flightctl-kv-secret" //nolint:gosec // G101: This is a secret name, not a credential
 		// Get the base64 encoded password from the secret and decode it
 		//nolint:gosec // G204: secretName and namespace are hardcoded constants, not user input
 		cmd := exec.Command("sh", "-c", fmt.Sprintf("kubectl get secret %s -n %s -o jsonpath={.data.password} | base64 -d", secretName, namespace))
 		output, err := cmd.Output()
 		if err == nil && len(output) > 0 {
-			return strings.TrimSpace(string(output))
+			password := strings.TrimSpace(string(output))
+			if password != "" {
+				GinkgoWriter.Printf("GetRedisPassword: Successfully retrieved password from secret %s in namespace %s\n", secretName, namespace)
+				return password
+			}
+		}
+		if err != nil {
+			if exitErr, ok := err.(*exec.ExitError); ok {
+				GinkgoWriter.Printf("GetRedisPassword: Failed to get password from secret %s in namespace %s: %v, stderr: %s\n", secretName, namespace, err, string(exitErr.Stderr))
+			} else {
+				GinkgoWriter.Printf("GetRedisPassword: Failed to get password from secret %s in namespace %s: %v\n", secretName, namespace, err)
+			}
+		} else {
+			GinkgoWriter.Printf("GetRedisPassword: Secret %s in namespace %s returned empty password\n", secretName, namespace)
 		}
 	}
 
@@ -382,11 +539,11 @@ func GetRedisPassword(ctx string) string {
 }
 
 // CanConnectToRedis checks if we can connect to Redis
-// ctx should be KIND, OCP (for kubernetes), or "podman"
+// ctx should be KIND, OCP (for kubernetes), or empty string (for podman)
 func CanConnectToRedis(ctx string) bool {
 	if ctx == KIND || ctx == OCP {
 		// In Kubernetes, check if we can exec into the Redis pod
-		namespace := "flightctl-internal"
+		namespace := detectRedisNamespace()
 		password := GetRedisPassword(ctx)
 		// Get pod name first
 		cmd := exec.Command("kubectl", "get", "pod", "-n", namespace, "-l", "flightctl.service=flightctl-kv", "-o", "jsonpath={.items[0].metadata.name}")
@@ -427,17 +584,17 @@ func CanConnectToRedis(ctx string) bool {
 }
 
 // CheckQueueState checks the state of Redis queues
-// ctx should be KIND, OCP (for kubernetes), or "podman"
+// ctx should be KIND, OCP (for kubernetes), or empty string (for podman)
 func CheckQueueState(ctx string) QueueState {
 	state := QueueState{
 		Accessible: false,
 	}
 
-	namespace := "flightctl-internal"
 	password := GetRedisPassword(ctx)
 
 	if ctx == KIND || ctx == OCP {
 		// Use kubectl exec for Kubernetes mode
+		namespace := detectRedisNamespace()
 		return CheckQueueStateKubernetes(namespace, password)
 	}
 
