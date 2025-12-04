@@ -1735,6 +1735,9 @@ func (a AuthStaticRoleAssignment) Validate(ctx context.Context) []error {
 		if role == "" {
 			allErrs = append(allErrs, fmt.Errorf("role at index %d cannot be empty", i))
 		}
+		if !slices.Contains(KnownExternalRoles, role) {
+			allErrs = append(allErrs, fmt.Errorf("role at index %d is not a valid role: %s", i, role))
+		}
 	}
 
 	return allErrs
