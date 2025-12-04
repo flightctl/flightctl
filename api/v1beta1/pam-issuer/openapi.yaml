@@ -284,7 +284,7 @@ components:
       properties:
         grant_type:
           type: string
-          enum: [refresh_token, authorization_code]
+          enum: [refresh_token, authorization_code, password]
           description: OAuth2 grant type.
         username:
           type: string
