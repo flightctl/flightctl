@@ -294,7 +294,7 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 			roleAssignment := api.AuthRoleAssignment{}
 			staticRoleAssignment := api.AuthStaticRoleAssignment{
 				Type:  api.AuthStaticRoleAssignmentTypeStatic,
-				Roles: []string{"viewer"},
+				Roles: []string{api.ExternalRoleViewer},
 			}
 			err = roleAssignment.FromAuthStaticRoleAssignment(staticRoleAssignment)
 			Expect(err).ToNot(HaveOccurred())
@@ -337,7 +337,7 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 			roleAssignment := api.AuthRoleAssignment{}
 			staticRoleAssignment := api.AuthStaticRoleAssignment{
 				Type:  api.AuthStaticRoleAssignmentTypeStatic,
-				Roles: []string{"viewer"},
+				Roles: []string{api.ExternalRoleViewer},
 			}
 			err = roleAssignment.FromAuthStaticRoleAssignment(staticRoleAssignment)
 			Expect(err).ToNot(HaveOccurred())
@@ -532,7 +532,7 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 			roleAssignment := api.AuthRoleAssignment{}
 			staticRoleAssignment := api.AuthStaticRoleAssignment{
 				Type:  api.AuthStaticRoleAssignmentTypeStatic,
-				Roles: []string{"viewer"},
+				Roles: []string{api.ExternalRoleViewer},
 			}
 			err = roleAssignment.FromAuthStaticRoleAssignment(staticRoleAssignment)
 			Expect(err).ToNot(HaveOccurred())
@@ -577,7 +577,7 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 			roleAssignment := api.AuthRoleAssignment{}
 			staticRoleAssignment := api.AuthStaticRoleAssignment{
 				Type:  api.AuthStaticRoleAssignmentTypeStatic,
-				Roles: []string{"viewer"},
+				Roles: []string{api.ExternalRoleViewer},
 			}
 			err = roleAssignment.FromAuthStaticRoleAssignment(staticRoleAssignment)
 			Expect(err).ToNot(HaveOccurred())
@@ -621,7 +621,7 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 			roleAssignment := api.AuthRoleAssignment{}
 			staticRoleAssignment := api.AuthStaticRoleAssignment{
 				Type:  api.AuthStaticRoleAssignmentTypeStatic,
-				Roles: []string{"viewer"},
+				Roles: []string{api.ExternalRoleViewer},
 			}
 			err = roleAssignment.FromAuthStaticRoleAssignment(staticRoleAssignment)
 			Expect(err).ToNot(HaveOccurred())
@@ -666,7 +666,7 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 			roleAssignment := api.AuthRoleAssignment{}
 			staticRoleAssignment := api.AuthStaticRoleAssignment{
 				Type:  api.AuthStaticRoleAssignmentTypeStatic,
-				Roles: []string{"viewer"},
+				Roles: []string{api.ExternalRoleViewer},
 			}
 			err = roleAssignment.FromAuthStaticRoleAssignment(staticRoleAssignment)
 			Expect(err).ToNot(HaveOccurred())
@@ -778,7 +778,7 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 			roleAssignment := api.AuthRoleAssignment{}
 			staticRoleAssignment := api.AuthStaticRoleAssignment{
 				Type:  api.AuthStaticRoleAssignmentTypeStatic,
-				Roles: []string{"viewer"},
+				Roles: []string{api.ExternalRoleViewer},
 			}
 			err := roleAssignment.FromAuthStaticRoleAssignment(staticRoleAssignment)
 			Expect(err).ToNot(HaveOccurred())
@@ -887,7 +887,7 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 			roleAssignment := api.AuthRoleAssignment{}
 			staticRoleAssignment := api.AuthStaticRoleAssignment{
 				Type:  api.AuthStaticRoleAssignmentTypeStatic,
-				Roles: []string{"viewer"},
+				Roles: []string{api.ExternalRoleViewer},
 			}
 			err := roleAssignment.FromAuthStaticRoleAssignment(staticRoleAssignment)
 			Expect(err).ToNot(HaveOccurred())
@@ -1065,7 +1065,7 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 			roleAssignment := api.AuthRoleAssignment{}
 			staticRoleAssignment := api.AuthStaticRoleAssignment{
 				Type:  api.AuthStaticRoleAssignmentTypeStatic,
-				Roles: []string{"viewer"},
+				Roles: []string{api.ExternalRoleViewer},
 			}
 			err := roleAssignment.FromAuthStaticRoleAssignment(staticRoleAssignment)
 			Expect(err).ToNot(HaveOccurred())
@@ -1124,7 +1124,7 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 			roleAssignment := api.AuthRoleAssignment{}
 			staticRoleAssignment := api.AuthStaticRoleAssignment{
 				Type:  api.AuthStaticRoleAssignmentTypeStatic,
-				Roles: []string{"viewer"},
+				Roles: []string{api.ExternalRoleViewer},
 			}
 			err := roleAssignment.FromAuthStaticRoleAssignment(staticRoleAssignment)
 			Expect(err).ToNot(HaveOccurred())
@@ -1184,7 +1184,7 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 			roleAssignment := api.AuthRoleAssignment{}
 			staticRoleAssignment := api.AuthStaticRoleAssignment{
 				Type:  api.AuthStaticRoleAssignmentTypeStatic,
-				Roles: []string{"viewer"},
+				Roles: []string{api.ExternalRoleViewer},
 			}
 			err := roleAssignment.FromAuthStaticRoleAssignment(staticRoleAssignment)
 			Expect(err).ToNot(HaveOccurred())
@@ -1250,7 +1250,7 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 			roleAssignment := api.AuthRoleAssignment{}
 			staticRoleAssignment := api.AuthStaticRoleAssignment{
 				Type:  api.AuthStaticRoleAssignmentTypeStatic,
-				Roles: []string{"viewer"},
+				Roles: []string{api.ExternalRoleViewer},
 			}
 			err := roleAssignment.FromAuthStaticRoleAssignment(staticRoleAssignment)
 			Expect(err).ToNot(HaveOccurred())
@@ -1327,7 +1327,7 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 			roleAssignment := api.AuthRoleAssignment{}
 			staticRoleAssignment := api.AuthStaticRoleAssignment{
 				Type:  api.AuthStaticRoleAssignmentTypeStatic,
-				Roles: []string{"viewer"},
+				Roles: []string{api.ExternalRoleViewer},
 			}
 			err := roleAssignment.FromAuthStaticRoleAssignment(staticRoleAssignment)
 			Expect(err).ToNot(HaveOccurred())
@@ -1377,7 +1377,7 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 			roleAssignment := api.AuthRoleAssignment{}
 			staticRoleAssignment := api.AuthStaticRoleAssignment{
 				Type:  api.AuthStaticRoleAssignmentTypeStatic,
-				Roles: []string{"viewer"},
+				Roles: []string{api.ExternalRoleViewer},
 			}
 			err := roleAssignment.FromAuthStaticRoleAssignment(staticRoleAssignment)
 			Expect(err).ToNot(HaveOccurred())
@@ -1434,7 +1434,7 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 			roleAssignment := api.AuthRoleAssignment{}
 			staticRoleAssignment := api.AuthStaticRoleAssignment{
 				Type:  api.AuthStaticRoleAssignmentTypeStatic,
-				Roles: []string{"viewer"},
+				Roles: []string{api.ExternalRoleViewer},
 			}
 			err := roleAssignment.FromAuthStaticRoleAssignment(staticRoleAssignment)
 			Expect(err).ToNot(HaveOccurred())
