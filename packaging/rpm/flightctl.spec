@@ -456,7 +456,11 @@ echo "Flight Control Observability Stack uninstalled."
     mkdir -p %{buildroot}/usr/lib/flightctl/custom-info.d
     mkdir -p %{buildroot}/usr/lib/flightctl/hooks.d/{afterupdating,beforeupdating,afterrebooting,beforerebooting}
     mkdir -p %{buildroot}/usr/lib/greenboot/check/required.d
+    mkdir -p %{buildroot}/usr/lib/greenboot/red.d
+    mkdir -p %{buildroot}/usr/share/flightctl/functions
+    install -m 0755 packaging/greenboot/functions.sh %{buildroot}/usr/share/flightctl/functions/greenboot.sh
     install -m 0755 packaging/greenboot/flightctl-agent-running-check.sh %{buildroot}/usr/lib/greenboot/check/required.d/20_check_flightctl_agent.sh
+    install -m 0755 packaging/greenboot/flightctl-agent-pre-rollback.sh %{buildroot}/usr/lib/greenboot/red.d/40_flightctl_agent_pre_rollback.sh
     cp bin/flightctl-agent %{buildroot}/usr/bin
     cp packaging/must-gather/flightctl-must-gather %{buildroot}/usr/bin
     cp packaging/hooks.d/afterupdating/00-default.yaml %{buildroot}/usr/lib/flightctl/hooks.d/afterupdating
@@ -626,7 +630,9 @@ fi
     /usr/lib/systemd/system/flightctl-agent.service
     /usr/lib/tmpfiles.d/flightctl.conf
     /usr/lib/tmpfiles.d/centos-buildinfo.conf
+    /usr/share/flightctl/functions/greenboot.sh
     /usr/lib/greenboot/check/required.d/20_check_flightctl_agent.sh
+    /usr/lib/greenboot/red.d/40_flightctl_agent_pre_rollback.sh
     /usr/share/sosreport/flightctl.py
 
 %post agent
