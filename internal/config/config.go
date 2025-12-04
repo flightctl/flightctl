@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -144,6 +145,12 @@ type PAMOIDCIssuer struct {
 	// SECURITY WARNING: This should only be enabled for testing or backward compatibility
 	// Default: false (PKCE required for public clients per OAuth 2.0 Security BCP)
 	AllowPublicClientWithoutPKCE bool `json:"allowPublicClientWithoutPKCE,omitempty"`
+	// AccessTokenExpiration is the expiration duration for access tokens and ID tokens
+	// Default: 1 hour
+	AccessTokenExpiration util.Duration `json:"accessTokenExpiration,omitempty"`
+	// RefreshTokenExpiration is the expiration duration for refresh tokens
+	// Default: 7 days
+	RefreshTokenExpiration util.Duration `json:"refreshTokenExpiration,omitempty"`
 }
 
 type metricsConfig struct {
@@ -598,6 +605,12 @@ func applyPAMOIDCIssuerDefaults(c *Config) {
 	if len(c.Auth.PAMOIDCIssuer.RedirectURIs) == 0 {
 		applyPAMOIDCIssuerRedirectURIDefaults(c)
 	}
+	if c.Auth.PAMOIDCIssuer.AccessTokenExpiration == 0 {
+		c.Auth.PAMOIDCIssuer.AccessTokenExpiration = util.Duration(1 * time.Hour)
+	}
+	if c.Auth.PAMOIDCIssuer.RefreshTokenExpiration == 0 {
+		c.Auth.PAMOIDCIssuer.RefreshTokenExpiration = util.Duration(7 * 24 * time.Hour)
+	}
 }
 
 func applyPAMOIDCIssuerRedirectURIDefaults(c *Config) {
@@ -710,13 +723,104 @@ func Validate(cfg *Config) error {
 			return fmt.Errorf("readinessPath and livenessPath must not be identical")
 		}
 	}
+
+	// Validate OIDC and OAuth2 provider role assignments
+	if cfg.Auth != nil {
+		if cfg.Auth.OIDC != nil {
+			if err := validateAuthProviderRoleAssignment(cfg.Auth.OIDC.RoleAssignment, string(api.Oidc)); err != nil {
+				return err
+			}
+		}
+		if cfg.Auth.OAuth2 != nil {
+			if err := validateAuthProviderRoleAssignment(cfg.Auth.OAuth2.RoleAssignment, string(api.Oauth2)); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func validateAuthProviderRoleAssignment(roleAssignment api.AuthRoleAssignment, providerType string) error {
+	discriminator, err := roleAssignment.Discriminator()
+	if err != nil {
+		// No role assignment configured, which is valid
+		return nil
+	}
+
+	if discriminator != string(api.AuthStaticRoleAssignmentTypeStatic) {
+		// Only validate static role assignments
+		return nil
+	}
+
+	staticAssignment, err := roleAssignment.AsAuthStaticRoleAssignment()
+	if err != nil {
+		return fmt.Errorf("%s provider: invalid static role assignment: %w", providerType, err)
+	}
+
+	// Validate that all roles are in KnownExternalRoles
+	for i, role := range staticAssignment.Roles {
+		if role == "" {
+			return fmt.Errorf("%s provider: role at index %d cannot be empty", providerType, i)
+		}
+		if !slices.Contains(api.KnownExternalRoles, role) {
+			return fmt.Errorf("%s provider: role at index %d is not a valid role: %s (must be one of: %v)", providerType, i, role, api.KnownExternalRoles)
+		}
+	}
+
 	return nil
 }
 
 func (cfg *Config) String() string {
-	contents, err := json.Marshal(cfg)
+	// Create a sanitized copy to avoid mutating the original config
+	sanitized := cfg.sanitizeForLogging()
+	contents, err := json.Marshal(sanitized)
 	if err != nil {
 		return "<error>"
 	}
 	return string(contents)
+}
+
+// sanitizeForLogging creates a copy of the config with sensitive fields redacted
+func (cfg *Config) sanitizeForLogging() *Config {
+	if cfg == nil {
+		return nil
+	}
+
+	// Create a deep copy by marshaling and unmarshaling
+	// This is safe because SecureString already handles redaction in MarshalJSON
+	cfgJSON, err := json.Marshal(cfg)
+	if err != nil {
+		return cfg
+	}
+
+	var sanitized Config
+	if err := json.Unmarshal(cfgJSON, &sanitized); err != nil {
+		return cfg
+	}
+
+	// Redact client secrets in all auth providers
+	if sanitized.Auth != nil {
+		if sanitized.Auth.OIDC != nil && sanitized.Auth.OIDC.ClientSecret != nil {
+			redacted := "[REDACTED]"
+			sanitized.Auth.OIDC.ClientSecret = &redacted
+		}
+		if sanitized.Auth.OAuth2 != nil && sanitized.Auth.OAuth2.ClientSecret != nil {
+			redacted := "[REDACTED]"
+			sanitized.Auth.OAuth2.ClientSecret = &redacted
+		}
+		if sanitized.Auth.OpenShift != nil && sanitized.Auth.OpenShift.ClientSecret != nil {
+			redacted := "[REDACTED]"
+			sanitized.Auth.OpenShift.ClientSecret = &redacted
+		}
+		if sanitized.Auth.AAP != nil && sanitized.Auth.AAP.ClientSecret != nil {
+			redacted := "[REDACTED]"
+			sanitized.Auth.AAP.ClientSecret = &redacted
+		}
+		if sanitized.Auth.PAMOIDCIssuer != nil && sanitized.Auth.PAMOIDCIssuer.ClientSecret != "" {
+			sanitized.Auth.PAMOIDCIssuer.ClientSecret = "[REDACTED]"
+		}
+	}
+
+	return &sanitized
 }

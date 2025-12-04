@@ -99,6 +99,8 @@ auth:
 | `redirectUris` | Allowed redirect URIs for OAuth2 authorization code flow | Based on service base URL |
 | `pamService` | PAM service name to use for authentication (must match `/etc/pam.d/<name>`) | `flightctl` |
 | `allowPublicClientWithoutPKCE` | Allow public clients to skip PKCE requirement. **Security Warning**: Only enable for testing | `false` |
+| `accessTokenExpiration` | Expiration duration for access tokens and ID tokens (e.g., `1h`, `30m`) | `1h` |
+| `refreshTokenExpiration` | Expiration duration for refresh tokens (e.g., `7d`, `168h`) | `7d` |
 
 ### Default Configuration
 
@@ -109,6 +111,8 @@ If the `pamOidcIssuer` section is present in the configuration file, the followi
 - **Client ID**: Defaults to `"flightctl-client"`
 - **Scopes**: Defaults to `["openid", "profile", "email", "roles"]`
 - **Redirect URIs**: Automatically configured based on the service's base UI URL or base URL
+- **Access Token Expiration**: Defaults to `1h`
+- **Refresh Token Expiration**: Defaults to `7d`
 
 ### Security Note
 
@@ -116,7 +120,7 @@ The `allowPublicClientWithoutPKCE` parameter should remain `false` (default) in 
 
 ### Token Expiration
 
-JWT tokens issued by the PAM issuer have a fixed expiration time of **1 hour**. This expiration time is currently not configurable.
+Token expiration times are configurable via `accessTokenExpiration` and `refreshTokenExpiration` parameters. By default, access tokens and ID tokens expire after **1 hour**, and refresh tokens expire after **7 days**.
 
 ## User Management
 
