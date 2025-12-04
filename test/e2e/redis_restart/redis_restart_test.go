@@ -80,7 +80,7 @@ var _ = Describe("Redis Restart Tests", func() {
 		}
 	})
 
-	It("should recover and continue processing tasks after Redis restart", Label("OCP-84786", "sanity"), func() {
+	It("should recover and continue processing tasks after Redis restart", Label("84786", "sanity"), func() {
 		By("verifying initial system state")
 		Eventually(func() bool {
 			return util.IsRedisRunning(context)
@@ -296,7 +296,7 @@ var _ = Describe("Redis Restart Tests", func() {
 		GinkgoWriter.Printf("✓ All OCP-84786 tests completed successfully\n")
 	})
 
-	It("should handle Redis stop and restart during active operations and maintain data consistency", Label("OCP-84787"), func() {
+	It("should handle Redis stop and restart during active operations and maintain data consistency", Label("84787"), func() {
 		By("verifying initial system state")
 		Eventually(func() bool {
 			return util.IsRedisRunning(context)
