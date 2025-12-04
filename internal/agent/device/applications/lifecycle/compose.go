@@ -138,17 +138,26 @@ func cleanPodmanResources(ctx context.Context, podman *client.Podman, labels []s
 	return nil
 }
 
-func (c *Compose) Execute(ctx context.Context, action *Action) error {
-	switch action.Type {
-	case ActionAdd:
-		return c.add(ctx, action)
-	case ActionRemove:
-		return c.remove(ctx, action)
-	case ActionUpdate:
-		return c.update(ctx, action)
-	default:
-		return fmt.Errorf("unsupported action type: %s", action.Type)
+func (c *Compose) Execute(ctx context.Context, actions ...*Action) error {
+	for _, action := range actions {
+		switch action.Type {
+		case ActionAdd:
+			if err := c.add(ctx, action); err != nil {
+				return err
+			}
+		case ActionRemove:
+			if err := c.remove(ctx, action); err != nil {
+				return err
+			}
+		case ActionUpdate:
+			if err := c.update(ctx, action); err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("unsupported action type: %s", action.Type)
+		}
 	}
+	return nil
 }
 
 // ensurePodmanVolumes creates and populates each image-backed volume in Podman.
