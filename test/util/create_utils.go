@@ -306,7 +306,7 @@ func ReturnTestAuthProvider(orgId uuid.UUID, name string, issuer string, labels 
 	roleAssignment := api.AuthRoleAssignment{}
 	staticRoleAssignment := api.AuthStaticRoleAssignment{
 		Type:  api.AuthStaticRoleAssignmentTypeStatic,
-		Roles: []string{"viewer"},
+		Roles: []string{api.ExternalRoleViewer},
 	}
 	if err := roleAssignment.FromAuthStaticRoleAssignment(staticRoleAssignment); err != nil {
 		panic(fmt.Sprintf("failed to create role assignment: %v", err))
@@ -436,7 +436,7 @@ func CreateTestAuthProviderWithDynamicOrg(ctx context.Context, authStore store.A
 	roleAssignment := api.AuthRoleAssignment{}
 	staticRoleAssignment := api.AuthStaticRoleAssignment{
 		Type:  api.AuthStaticRoleAssignmentTypeStatic,
-		Roles: []string{"viewer"},
+		Roles: []string{api.ExternalRoleViewer},
 	}
 	if err := roleAssignment.FromAuthStaticRoleAssignment(staticRoleAssignment); err != nil {
 		log.Fatalf("failed to create role assignment: %v", err)
@@ -487,7 +487,7 @@ func CreateTestAuthProviderWithPerUserOrg(ctx context.Context, authStore store.A
 	roleAssignment := api.AuthRoleAssignment{}
 	staticRoleAssignment := api.AuthStaticRoleAssignment{
 		Type:  api.AuthStaticRoleAssignmentTypeStatic,
-		Roles: []string{"viewer"},
+		Roles: []string{api.ExternalRoleViewer},
 	}
 	if err := roleAssignment.FromAuthStaticRoleAssignment(staticRoleAssignment); err != nil {
 		log.Fatalf("failed to create role assignment: %v", err)

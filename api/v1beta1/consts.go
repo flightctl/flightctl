@@ -117,6 +117,8 @@ const (
 	RoleInstaller = "installer" // Limited access for device installation
 )
 
+var KnownExternalRoles = []string{ExternalRoleAdmin, ExternalRoleOrgAdmin, ExternalRoleOperator, ExternalRoleViewer, ExternalRoleInstaller}
+
 type UpdateState string
 
 const (
