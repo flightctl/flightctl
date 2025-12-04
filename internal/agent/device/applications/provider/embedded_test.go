@@ -31,6 +31,9 @@ func setupTestEnv(t *testing.T) (*log.PrefixLogger, *client.Podman, fileio.ReadW
 	rw.SetRootdir(tmpDir)
 	podman := client.NewPodman(log, mockExec, rw, util.NewPollConfig())
 
+	// Create the systemd unit directory for target file copying
+	require.NoError(t, rw.MkdirAll(lifecycle.QuadletTargetPath, fileio.DefaultDirectoryPermissions))
+
 	return log, podman, rw
 }
 
@@ -162,7 +165,7 @@ Network=app-net.network
 			setupEmbeddedQuadletApp(t, rw, tt.appName, tt.files)
 
 			// Create embedded provider
-			provider, err := newEmbedded(logger, podman, rw, tt.appName, v1beta1.AppTypeQuadlet)
+			provider, err := newEmbedded(logger, podman, rw, tt.appName, v1beta1.AppTypeQuadlet, "2025-01-01T00:00:00Z", false)
 			require.NoError(t, err)
 
 			// Call Install
@@ -217,7 +220,7 @@ func TestEmbeddedProvider_Remove(t *testing.T) {
 			setupRealQuadletApp(t, rw, tt.appName, tt.files)
 
 			// Create embedded provider
-			provider, err := newEmbedded(logger, podman, rw, tt.appName, v1beta1.AppTypeQuadlet)
+			provider, err := newEmbedded(logger, podman, rw, tt.appName, v1beta1.AppTypeQuadlet, "2025-01-01T00:00:00Z", false)
 			require.NoError(t, err)
 
 			// Call Remove
@@ -333,7 +336,7 @@ func TestParseEmbeddedQuadlet(t *testing.T) {
 			// Call parseEmbeddedQuadlet
 			var providers []Provider
 			ctx := context.Background()
-			err := parseEmbeddedQuadlet(ctx, logger, podman, rw, &providers)
+			err := parseEmbeddedQuadlet(ctx, logger, podman, rw, &providers, "2025-01-01T00:00:00Z")
 			require.NoError(t, err)
 
 			// Verify count

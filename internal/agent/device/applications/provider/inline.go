@@ -27,6 +27,7 @@ func newInlineHandler(appType v1beta1.AppType, name string, rw fileio.ReadWriter
 		qb := &quadletHandler{
 			name:        name,
 			rw:          rw,
+			log:         l,
 			specVolumes: lo.FromPtr(spec.Volumes),
 		}
 		qb.volumeProvider = func() ([]*Volume, error) {
