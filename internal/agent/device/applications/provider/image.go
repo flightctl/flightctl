@@ -37,6 +37,7 @@ func newImageHandler(appType v1beta1.AppType, name string, rw fileio.ReadWriter,
 		qb := &quadletHandler{
 			name:        name,
 			rw:          rw,
+			log:         l,
 			specVolumes: lo.FromPtr(provider.Volumes),
 		}
 		qb.volumeProvider = func() ([]*Volume, error) {
@@ -55,6 +56,7 @@ func newImageHandler(appType v1beta1.AppType, name string, rw fileio.ReadWriter,
 		return &containerHandler{
 			name:   name,
 			rw:     rw,
+			log:    l,
 			podman: podman,
 			spec:   provider,
 		}, nil

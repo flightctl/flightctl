@@ -118,14 +118,16 @@ func TestManager(t *testing.T) {
 				{Content: quadlet1, Path: "test-app.container"},
 			}, v1beta1.AppTypeQuadlet),
 			setupMocks: func(mockExec *executer.MockExecuter, mockReadWriter *fileio.MockReadWriter, mockSystemdMgr *systemd.MockManager) {
-				// Set up quadlet file mocks
 				mockReadQuadletFiles(mockReadWriter, quadlet1)
+				appID := client.NewComposeID("quadlet-new")
+				target := appID + "-flightctl-quadlet-app.target"
+				services := []string{appID + "-test-app.service"}
 
 				gomock.InOrder(
-					// start new quadlet app
 					mockExecSystemdDaemonReload(mockSystemdMgr),
-					mockExecSystemdListUnitsWithResults(mockSystemdMgr, "test-app.service"),
-					mockExecSystemdStart(mockSystemdMgr, "test-app.service"),
+					mockExecSystemdListDependencies(mockSystemdMgr, appID, services),
+					mockExecSystemdListUnitsWithResults(mockSystemdMgr, services...),
+					mockSystemdMgr.EXPECT().Start(gomock.Any(), target).Return(nil),
 					mockExecPodmanEvents(mockExec),
 				)
 			},
@@ -138,22 +140,27 @@ func TestManager(t *testing.T) {
 			}, v1beta1.AppTypeQuadlet),
 			desired: &v1beta1.DeviceSpec{},
 			setupMocks: func(mockExec *executer.MockExecuter, mockReadWriter *fileio.MockReadWriter, mockSystemdMgr *systemd.MockManager) {
-				// Set up quadlet file mocks
 				mockReadQuadletFiles(mockReadWriter, quadlet1)
+				appID := client.NewComposeID("quadlet-remove")
+				target := appID + "-flightctl-quadlet-app.target"
+				services := []string{appID + "-test-app.service"}
 
 				gomock.InOrder(
 					// start current quadlet app (first AfterUpdate)
 					mockExecSystemdDaemonReload(mockSystemdMgr),
-					mockExecSystemdListUnitsWithResults(mockSystemdMgr, "test-app.service"),
-					mockExecSystemdStart(mockSystemdMgr, "test-app.service"),
+					mockExecSystemdListDependencies(mockSystemdMgr, appID, services),
+					mockExecSystemdListUnitsWithResults(mockSystemdMgr, services...),
+					mockSystemdMgr.EXPECT().Start(gomock.Any(), target).Return(nil),
 					mockExecPodmanEvents(mockExec),
 
 					// remove quadlet app (second AfterUpdate after syncProviders)
-					mockExecSystemdStop(mockSystemdMgr, "test-app.service"),
-					mockExecSystemdListUnits(mockSystemdMgr, "test-app.service"),
+					mockExecSystemdListDependencies(mockSystemdMgr, appID, services),
+					mockSystemdMgr.EXPECT().Stop(gomock.Any(), target).Return(nil),
+					mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), services).Return([]client.SystemDUnitListEntry{{Unit: services[0], LoadState: "loaded"}}, nil),
+					mockSystemdMgr.EXPECT().Stop(gomock.Any(), services[0]).Return(nil),
+					mockSystemdMgr.EXPECT().ResetFailed(gomock.Any(), services[0]).Return(nil),
 					mockExecSystemdDaemonReload(mockSystemdMgr),
 				)
-				// podman cleanup happens after systemd operations (not strictly ordered with above)
 				mockExecQuadletCleanup(mockExec, "quadlet-remove")
 			},
 		},
@@ -166,27 +173,33 @@ func TestManager(t *testing.T) {
 				{Content: quadlet2, Path: "test-app.container"},
 			}, v1beta1.AppTypeQuadlet),
 			setupMocks: func(mockExec *executer.MockExecuter, mockReadWriter *fileio.MockReadWriter, mockSystemdMgr *systemd.MockManager) {
-				// Set up quadlet file mocks - will return different content as needed
 				mockReadQuadletFiles(mockReadWriter, quadlet1)
 				mockReadQuadletFiles(mockReadWriter, quadlet2)
+				appID := client.NewComposeID("quadlet-update")
+				target := appID + "-flightctl-quadlet-app.target"
+				services := []string{appID + "-test-app.service"}
 
 				gomock.InOrder(
 					// start current quadlet app (first AfterUpdate)
 					mockExecSystemdDaemonReload(mockSystemdMgr),
-					mockExecSystemdListUnitsWithResults(mockSystemdMgr, "test-app.service"),
-					mockExecSystemdStart(mockSystemdMgr, "test-app.service"),
+					mockExecSystemdListDependencies(mockSystemdMgr, appID, services),
+					mockExecSystemdListUnitsWithResults(mockSystemdMgr, services...),
+					mockSystemdMgr.EXPECT().Start(gomock.Any(), target).Return(nil),
 					mockExecPodmanEvents(mockExec),
 
-					// update: stop current quadlet app, then start updated (second AfterUpdate)
-					mockExecSystemdStop(mockSystemdMgr, "test-app.service"),
-					mockExecSystemdListUnits(mockSystemdMgr, "test-app.service"),
+					// update: stop current quadlet app (remove phase)
+					mockExecSystemdListDependencies(mockSystemdMgr, appID, services),
+					mockSystemdMgr.EXPECT().Stop(gomock.Any(), target).Return(nil),
+					mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), services).Return([]client.SystemDUnitListEntry{{Unit: services[0], LoadState: "loaded"}}, nil),
+					mockSystemdMgr.EXPECT().Stop(gomock.Any(), services[0]).Return(nil),
+					mockSystemdMgr.EXPECT().ResetFailed(gomock.Any(), services[0]).Return(nil),
 
-					// start updated quadlet app (monitor already running, no new podman events command)
+					// start updated quadlet app (add phase after daemon reload)
 					mockExecSystemdDaemonReload(mockSystemdMgr),
-					mockExecSystemdListUnitsWithResults(mockSystemdMgr, "test-app.service"),
-					mockExecSystemdStart(mockSystemdMgr, "test-app.service"),
+					mockExecSystemdListDependencies(mockSystemdMgr, appID, services),
+					mockExecSystemdListUnitsWithResults(mockSystemdMgr, services...),
+					mockSystemdMgr.EXPECT().Start(gomock.Any(), target).Return(nil),
 				)
-				// podman cleanup happens during the update (not strictly ordered with above)
 				mockExecQuadletCleanup(mockExec, "quadlet-update")
 			},
 			wantAppNames: []string{"quadlet-update"},
@@ -481,35 +494,17 @@ func mockExecSystemdDaemonReload(mockSystemdMgr *systemd.MockManager) *gomock.Ca
 	return mockSystemdMgr.EXPECT().DaemonReload(gomock.Any()).Return(nil)
 }
 
-func mockExecSystemdStart(mockSystemdMgr *systemd.MockManager, services ...string) *gomock.Call {
-	// Convert services to []any for gomock matcher
-	args := make([]any, len(services))
-	for i, s := range services {
-		args[i] = s
-	}
-	return mockSystemdMgr.EXPECT().Start(gomock.Any(), args...).Return(nil)
-}
-
-func mockExecSystemdStop(mockSystemdMgr *systemd.MockManager, services ...string) *gomock.Call {
-	// Convert services to []any for gomock matcher
-	args := make([]any, len(services))
-	for i, s := range services {
-		args[i] = s
-	}
-	return mockSystemdMgr.EXPECT().Stop(gomock.Any(), args...).Return(nil)
-}
-
-func mockExecSystemdListUnits(mockSystemdMgr *systemd.MockManager, services ...string) *gomock.Call {
-	units := []client.SystemDUnitListEntry{}
-	return mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), services).Return(units, nil)
-}
-
 func mockExecSystemdListUnitsWithResults(mockSystemdMgr *systemd.MockManager, services ...string) *gomock.Call {
 	units := make([]client.SystemDUnitListEntry, len(services))
 	for i, svc := range services {
-		units[i] = client.SystemDUnitListEntry{Unit: svc}
+		units[i] = client.SystemDUnitListEntry{Unit: svc, LoadState: "loaded"}
 	}
 	return mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), services).Return(units, nil)
+}
+
+func mockExecSystemdListDependencies(mockSystemdMgr *systemd.MockManager, appID string, services []string) *gomock.Call {
+	target := appID + "-flightctl-quadlet-app.target"
+	return mockSystemdMgr.EXPECT().ListDependencies(gomock.Any(), target).Return(services, nil)
 }
 
 func mockExecPodmanVolumeList(mockExec *executer.MockExecuter, name string) *gomock.Call {
