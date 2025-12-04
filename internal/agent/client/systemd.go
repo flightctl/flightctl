@@ -190,6 +190,30 @@ func (s *Systemd) ShowByMatchPattern(ctx context.Context, matchPatterns []string
 	return units, nil
 }
 
+// ListDependencies returns the list of units that the specified unit depends on.
+// Uses `systemctl list-dependencies --plain` to get a flat list of dependencies.
+func (s *Systemd) ListDependencies(ctx context.Context, unit string) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, defaultSystemctlTimeout)
+	defer cancel()
+
+	args := []string{"list-dependencies", "--plain", "--no-pager", unit}
+	stdout, stderr, exitCode := s.exec.ExecuteWithContext(ctx, systemctlCommand, args...)
+	if exitCode != 0 {
+		return nil, fmt.Errorf("list-dependencies for %s: %w", unit, errors.FromStderr(stderr, exitCode))
+	}
+
+	var deps []string
+	lines := strings.Split(strings.TrimSpace(stdout), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || line == unit {
+			continue
+		}
+		deps = append(deps, line)
+	}
+	return deps, nil
+}
+
 // SystemdJob represents a systemd job from list-jobs
 type SystemdJob struct {
 	Job     string

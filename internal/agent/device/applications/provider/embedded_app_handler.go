@@ -28,8 +28,10 @@ var _ embeddedAppTypeHandler = (*embeddedQuadletBehavior)(nil)
 var _ embeddedAppTypeHandler = (*embeddedComposeBehavior)(nil)
 
 type embeddedQuadletBehavior struct {
-	name string
-	rw   fileio.ReadWriter
+	name      string
+	rw        fileio.ReadWriter
+	bootTime  string
+	installed bool
 }
 
 func (e *embeddedQuadletBehavior) Verify(ctx context.Context) error {
@@ -37,9 +39,6 @@ func (e *embeddedQuadletBehavior) Verify(ctx context.Context) error {
 }
 
 func (e *embeddedQuadletBehavior) Install(ctx context.Context) error {
-	// quadlet apps must be moved from their embedded location into the default
-	// systemd location. A symlink can't be used as the installed contents must be mutated
-	// to abide by flightctl's namespacing rules
 	if err := e.rw.CopyDir(e.embeddedPath(), e.AppPath(), fileio.WithFollowSymlinkWithinRoot()); err != nil {
 		return fmt.Errorf("copying embedded directory to real path: %w", err)
 	}
@@ -47,6 +46,12 @@ func (e *embeddedQuadletBehavior) Install(ctx context.Context) error {
 	if err := installQuadlet(e.rw, e.AppPath(), e.ID()); err != nil {
 		return fmt.Errorf("installing quadlet: %w", err)
 	}
+
+	markerPath := filepath.Join(e.AppPath(), embeddedQuadletMarkerFile)
+	if err := e.rw.WriteFile(markerPath, []byte(e.bootTime), fileio.DefaultFilePermissions); err != nil {
+		return fmt.Errorf("writing embedded marker: %w", err)
+	}
+
 	return nil
 }
 
@@ -68,7 +73,11 @@ func (e *embeddedQuadletBehavior) embeddedPath() string {
 func (e *embeddedQuadletBehavior) ID() string {
 	return client.NewComposeID(e.name)
 }
+
 func (e *embeddedQuadletBehavior) Volumes() ([]*Volume, error) {
+	if e.installed {
+		return extractQuadletVolumesFromDir(e.ID(), e.rw, e.AppPath())
+	}
 	return extractQuadletVolumesFromDir(e.ID(), e.rw, e.embeddedPath())
 }
 
