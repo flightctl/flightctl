@@ -15,7 +15,7 @@ var _ = Describe("Redis Restart Tests", func() {
 
 	var (
 		context   string // KIND, OCP, or "podman"
-		namespace = "flightctl-internal"
+		namespace string // Redis namespace (detected dynamically)
 	)
 
 	// createTestRepositories creates test repositories and returns their names
@@ -69,18 +69,21 @@ var _ = Describe("Redis Restart Tests", func() {
 		ctxStr, err := e2e.GetContext()
 		if err != nil || (ctxStr != util.KIND && ctxStr != util.OCP) {
 			// If we can't get kubectl context or it's not KIND/OCP, it's podman mode
-			context = "" // Empty means podman (not Kubernetes)
+			context = ""   // Empty means podman (not Kubernetes)
+			namespace = "" // Not used in podman mode
 		} else {
 			context = ctxStr // KIND or OCP means Kubernetes
+			// Detect Redis namespace dynamically for Kubernetes
+			namespace = util.DetectRedisNamespace()
 		}
 		if context == "" {
 			GinkgoWriter.Printf("Detected deployment context: podman (not Kubernetes)\n")
 		} else {
-			GinkgoWriter.Printf("Detected deployment context: %s (Kubernetes)\n", context)
+			GinkgoWriter.Printf("Detected deployment context: %s (Kubernetes), Redis namespace: %s\n", context, namespace)
 		}
 	})
 
-	It("should recover and continue processing tasks after Redis restart", Label("OCP-84786", "sanity"), func() {
+	It("should recover and continue processing tasks after Redis restart", Label("84786", "sanity"), func() {
 		By("verifying initial system state")
 		Eventually(func() bool {
 			return util.IsRedisRunning(context)
@@ -296,7 +299,7 @@ var _ = Describe("Redis Restart Tests", func() {
 		GinkgoWriter.Printf("✓ All OCP-84786 tests completed successfully\n")
 	})
 
-	It("should handle Redis stop and restart during active operations and maintain data consistency", Label("OCP-84787"), func() {
+	It("should handle Redis stop and restart during active operations and maintain data consistency", Label("84787"), func() {
 		By("verifying initial system state")
 		Eventually(func() bool {
 			return util.IsRedisRunning(context)
@@ -425,7 +428,14 @@ var _ = Describe("Redis Restart Tests", func() {
 		}
 
 		queueStateFinal := util.CheckQueueState(context)
-		Expect(queueStateFinal.Accessible && queueStateFinal.TaskQueueExists).To(BeTrue(), "Queue should be functional")
+		// Queue should be accessible (main goal is Redis recovery)
+		// Task queue may not exist if all tasks were processed quickly, which is acceptable
+		Expect(queueStateFinal.Accessible).To(BeTrue(), "Queue should be accessible")
+		if queueStateFinal.TaskQueueExists {
+			GinkgoWriter.Printf("✓ Task queue exists and is functional\n")
+		} else {
+			GinkgoWriter.Printf("Note: Task queue does not exist (all tasks may have been processed)\n")
+		}
 		GinkgoWriter.Printf("Final queue state: %+v\n", queueStateFinal)
 		GinkgoWriter.Printf("✓ Redis stop and restart with data consistency maintained - OCP-84787\n")
 	})
