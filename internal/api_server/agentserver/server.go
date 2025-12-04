@@ -5,11 +5,13 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"net/http"
 	"strings"
 	"time"
 
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	agent "github.com/flightctl/flightctl/api/v1beta1/agent"
 	server "github.com/flightctl/flightctl/internal/api/server/agent"
 	fcmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
@@ -20,6 +22,7 @@ import (
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
+	transportcommon "github.com/flightctl/flightctl/internal/transport"
 	transport "github.com/flightctl/flightctl/internal/transport/agent"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/queues"
@@ -123,7 +126,11 @@ func (s *AgentServer) GetGRPCServer() *AgentGrpcServer {
 }
 
 func oapiErrorHandler(w http.ResponseWriter, message string, statusCode int) {
-	http.Error(w, fmt.Sprintf("API Error: %s", message), statusCode)
+	if statusCode < 0 || statusCode > math.MaxInt32 {
+		statusCode = http.StatusInternalServerError
+	}
+	status := api.NewFailureStatus(int32(statusCode), http.StatusText(statusCode), fmt.Sprintf("API Error: %s", message)) // #nosec G115 -- statusCode validated above
+	transportcommon.SetResponse(w, nil, status)
 }
 
 func (s *AgentServer) Run(ctx context.Context) error {

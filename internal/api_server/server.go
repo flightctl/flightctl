@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"net/http"
 	"regexp"
@@ -82,7 +83,11 @@ func New(
 }
 
 func oapiErrorHandler(w http.ResponseWriter, message string, statusCode int) {
-	http.Error(w, fmt.Sprintf("API Error: %s", message), statusCode)
+	if statusCode < 0 || statusCode > math.MaxInt32 {
+		statusCode = http.StatusInternalServerError
+	}
+	status := api.NewFailureStatus(int32(statusCode), http.StatusText(statusCode), fmt.Sprintf("API Error: %s", message)) // #nosec G115 -- statusCode validated above
+	transport.SetResponse(w, nil, status)
 }
 
 // If we got back multiple errors of the format:

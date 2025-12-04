@@ -23,6 +23,7 @@ import (
 	"syscall"
 	"time"
 
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/auth/common"
@@ -31,6 +32,7 @@ import (
 	"github.com/flightctl/flightctl/internal/org/cache"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/transport"
 	fclog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
@@ -117,13 +119,29 @@ func createConditionalAuthMiddleware(
 						allowed, err := authZ.CheckPermission(r.Context(), alertsResource, getAction)
 						if err != nil {
 							logger.WithError(err).Error("Authorization check failed")
-							http.Error(w, "Authorization service unavailable", http.StatusServiceUnavailable)
+							transport.SetResponse(
+								w,
+								nil,
+								api.NewFailureStatus(
+									int32(http.StatusServiceUnavailable),
+									http.StatusText(http.StatusServiceUnavailable),
+									"Authorization service unavailable",
+								),
+							)
 							return
 						}
 
 						if !allowed {
 							logger.Warn("User denied access to alerts")
-							http.Error(w, "Forbidden", http.StatusForbidden)
+							transport.SetResponse(
+								w,
+								nil,
+								api.NewFailureStatus(
+									int32(http.StatusForbidden),
+									http.StatusText(http.StatusForbidden),
+									"Forbidden",
+								),
+							)
 							return
 						}
 
