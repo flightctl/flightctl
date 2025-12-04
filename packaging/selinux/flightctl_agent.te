@@ -156,6 +156,7 @@ sysnet_dns_name_resolve(flightctl_agent_t)
 allow flightctl_agent_t self:{ tcp_socket udp_socket netlink_route_socket } { create bind connect read write getattr setattr lock append sendto recvfrom listen accept };
 allow flightctl_agent_t self:unix_dgram_socket { create connect read write getattr };
 allow flightctl_agent_t kernel_t:unix_dgram_socket sendto;
+allow flightctl_agent_t kernel_t:unix_stream_socket connectto;
 
 # Netlink audit socket for namespace operations
 allow flightctl_agent_t self:netlink_audit_socket { create bind connect read write getattr setattr lock append sendto recvfrom nlmsg_relay };
