@@ -12,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/crypto/signer"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/identity"
+	"github.com/flightctl/flightctl/internal/transport"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/reqid"
@@ -25,11 +26,11 @@ func RequestSizeLimiter(maxURLLength int, maxNumHeaders int) func(http.Handler) 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if len(r.URL.String()) > maxURLLength {
-				http.Error(w, fmt.Sprintf("URL too long, exceeds %d characters", maxURLLength), http.StatusRequestURITooLong)
+				transport.SetResponse(w, nil, api.StatusRequestURITooLong(fmt.Sprintf("URL too long, exceeds %d characters", maxURLLength)))
 				return
 			}
 			if len(r.Header) > maxNumHeaders {
-				http.Error(w, fmt.Sprintf("Request has too many headers, exceeds %d", maxNumHeaders), http.StatusRequestHeaderFieldsTooLarge)
+				transport.SetResponse(w, nil, api.StatusRequestHeaderFieldsTooLarge(fmt.Sprintf("Request has too many headers, exceeds %d", maxNumHeaders)))
 				return
 			}
 
@@ -104,14 +105,14 @@ func ExtractAndValidateOrg(extractor OrgIDExtractor, logger logrus.FieldLogger) 
 
 			mappedIdentity, ok := contextutil.GetMappedIdentityFromContext(ctx)
 			if !ok {
-				http.Error(w, flterrors.ErrNoMappedIdentity.Error(), http.StatusInternalServerError)
+				transport.SetResponse(w, nil, api.StatusInternalServerError(flterrors.ErrNoMappedIdentity.Error()))
 				return
 			}
 
 			orgID, err := resolveOrgID(ctx, r, extractor, mappedIdentity)
 			if err != nil {
 				reqLogger.Debugf("ExtractAndValidateOrg: error resolving org: %v", err)
-				http.Error(w, err.Error(), statusForOrgError(err))
+				transport.SetResponse(w, nil, api.StatusForCode(statusForOrgError(err), err.Error()))
 				return
 			}
 

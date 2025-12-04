@@ -82,7 +82,7 @@ func New(
 }
 
 func oapiErrorHandler(w http.ResponseWriter, message string, statusCode int) {
-	http.Error(w, fmt.Sprintf("API Error: %s", message), statusCode)
+	transport.SetResponse(w, nil, api.StatusForCode(statusCode, fmt.Sprintf("API Error: %s", message)))
 }
 
 // If we got back multiple errors of the format:

@@ -11,6 +11,7 @@ import (
 	identitylib "github.com/flightctl/flightctl/internal/identity"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/transport"
 	"github.com/sirupsen/logrus"
 )
 
@@ -69,7 +70,7 @@ func (m *IdentityMappingMiddleware) MapIdentityToDB(next http.Handler) http.Hand
 		organizations, err := m.identityMapper.MapIdentityToDB(ctx, identity)
 		if err != nil {
 			m.log.Errorf("Failed to map identity to database objects: %v", err)
-			http.Error(w, fmt.Sprintf("Failed to map identity: %v", err), http.StatusInternalServerError)
+			transport.SetResponse(w, nil, v1beta1.StatusInternalServerError(fmt.Sprintf("Failed to map identity: %v", err)))
 			return
 		}
 		m.log.Debugf("Identity mapping middleware: successfully mapped identity %s to %d organizations", identity.GetUsername(), len(organizations))

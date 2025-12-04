@@ -7,12 +7,14 @@ import (
 	"net/http"
 	"time"
 
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/crypto"
 	fcsigner "github.com/flightctl/flightctl/internal/crypto/signer"
 	"github.com/flightctl/flightctl/internal/identity"
 	"github.com/flightctl/flightctl/internal/org"
+	"github.com/flightctl/flightctl/internal/transport"
 	"github.com/jellydator/ttlcache/v3"
 	"github.com/sirupsen/logrus"
 )
@@ -55,7 +57,7 @@ func (m *EnrollmentAuthMiddleware) AuthenticateEnrollment(next http.Handler) htt
 		// Check if TLS connection exists
 		if r.TLS == nil {
 			m.log.Debug("No TLS connection for enrollment authentication")
-			http.Error(w, "TLS connection required for enrollment authentication", http.StatusBadRequest)
+			transport.SetResponse(w, nil, api.StatusBadRequest("TLS connection required for enrollment authentication"))
 			return
 		}
 
@@ -91,7 +93,7 @@ func (m *EnrollmentAuthMiddleware) AuthenticateEnrollment(next http.Handler) htt
 
 		if signer == nil || signer.Name() != m.ca.Cfg.DeviceEnrollmentSignerName {
 			m.log.Warnf("unexpected client certificate signer: expected %q, got %q", m.ca.Cfg.DeviceEnrollmentSignerName, got)
-			http.Error(w, fmt.Sprintf("unexpected client certificate signer: expected %q, got %q", m.ca.Cfg.DeviceEnrollmentSignerName, got), http.StatusUnauthorized)
+			transport.SetResponse(w, nil, api.StatusUnauthorized(fmt.Sprintf("unexpected client certificate signer: expected %q, got %q", m.ca.Cfg.DeviceEnrollmentSignerName, got)))
 			return
 		}
 
@@ -99,14 +101,14 @@ func (m *EnrollmentAuthMiddleware) AuthenticateEnrollment(next http.Handler) htt
 		peerCertificate, err := m.ca.PeerCertificateFromCtx(ctx)
 		if err != nil {
 			m.log.Warnf("Enrollment certificate validation failed: %v", err)
-			http.Error(w, fmt.Sprintf("Certificate validation failed: %v", err), http.StatusUnauthorized)
+			transport.SetResponse(w, nil, api.StatusUnauthorized(fmt.Sprintf("Certificate validation failed: %v", err)))
 			return
 		}
 		//get org ID from certificate extension
 		orgID, present, err := fcsigner.GetOrgIDExtensionFromCert(peerCertificate)
 		if err != nil {
 			m.log.Errorf("Failed to extract organization ID from certificate: %v", err)
-			http.Error(w, fmt.Sprintf("Failed to extract organization ID: %v", err), http.StatusUnauthorized)
+			transport.SetResponse(w, nil, api.StatusUnauthorized(fmt.Sprintf("Failed to extract organization ID: %v", err)))
 			return
 		}
 		if !present {
