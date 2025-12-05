@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	api "github.com/flightctl/flightctl/api/v1beta1"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/util"
@@ -229,7 +230,13 @@ func (r *ResourceSync) SyncFleets(ctx context.Context, log logrus.FieldLogger, o
 func (r *ResourceSync) createOrUpdateMultiple(ctx context.Context, orgId uuid.UUID, resources ...*api.Fleet) error {
 	var errs []error
 	for _, resource := range resources {
-		_, status := r.serviceHandler.ReplaceFleet(ctx, orgId, *resource.Metadata.Name, *resource)
+		// Create a context where InternalRequestCtxKey is false so that ReplaceFleet
+		// treats this as an external API request and calls NilOutManagedObjectMetaProperties,
+		// which will nil out annotations. This ensures annotations are not updated by ResourceSync.
+		// Annotations are managed by the service (e.g., fleet-controller/templateVersion)
+		// and should not be overwritten when syncing from YAML.
+		externalCtx := context.WithValue(ctx, consts.InternalRequestCtxKey, false)
+		_, status := r.serviceHandler.ReplaceFleet(externalCtx, orgId, *resource.Metadata.Name, *resource)
 		if status.Code != http.StatusOK && status.Code != http.StatusCreated {
 			if status.Message == flterrors.ErrUpdatingResourceWithOwnerNotAllowed.Error() {
 				errs = append(errs, errors.New("one or more fleets are managed by a different resource"))
