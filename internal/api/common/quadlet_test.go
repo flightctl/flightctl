@@ -12,14 +12,18 @@ func TestParseQuadletSpec(t *testing.T) {
 	require := require.New(t)
 
 	tests := []struct {
-		name            string
-		data            string
-		wantType        QuadletType
-		wantImage       *string
-		wantMountImages []string
-		wantErr         bool
-		wantErrType     error
-		wantErrSubstr   string
+		name             string
+		data             string
+		wantType         QuadletType
+		wantImage        *string
+		wantMountImages  []string
+		wantVolumes      []string
+		wantMountVolumes []string
+		wantNetworks     []string
+		wantPods         []string
+		wantErr          bool
+		wantErrType      error
+		wantErrSubstr    string
 	}{
 		// Valid parsing tests
 		{
@@ -224,6 +228,126 @@ Mount=type=image,src=quay.io/containers/data:v1,destination=/data`,
 			wantImage:       lo.ToPtr("quay.io/podman/hello:latest"),
 			wantMountImages: []string{"quay.io/containers/data:v1"},
 		},
+		{
+			name: "container with volume reference",
+			data: `[Container]
+Image=quay.io/podman/hello:latest
+Volume=data.volume:/data`,
+			wantType:    QuadletTypeContainer,
+			wantImage:   lo.ToPtr("quay.io/podman/hello:latest"),
+			wantVolumes: []string{"data.volume"},
+		},
+		{
+			name: "container with multiple volume references",
+			data: `[Container]
+Image=quay.io/podman/hello:latest
+Volume=data.volume:/data
+Volume=logs.volume:/logs:ro`,
+			wantType:    QuadletTypeContainer,
+			wantImage:   lo.ToPtr("quay.io/podman/hello:latest"),
+			wantVolumes: []string{"data.volume", "logs.volume"},
+		},
+		{
+			name: "container with named volume (not a reference)",
+			data: `[Container]
+Image=quay.io/podman/hello:latest
+Volume=my-named-volume:/data`,
+			wantType:  QuadletTypeContainer,
+			wantImage: lo.ToPtr("quay.io/podman/hello:latest"),
+		},
+		{
+			name: "container with host path (not a reference)",
+			data: `[Container]
+Image=quay.io/podman/hello:latest
+Volume=/host/path:/container/path`,
+			wantType:  QuadletTypeContainer,
+			wantImage: lo.ToPtr("quay.io/podman/hello:latest"),
+		},
+		{
+			name: "container with network reference",
+			data: `[Container]
+Image=quay.io/podman/hello:latest
+Network=mynet.network`,
+			wantType:     QuadletTypeContainer,
+			wantImage:    lo.ToPtr("quay.io/podman/hello:latest"),
+			wantNetworks: []string{"mynet.network"},
+		},
+		{
+			name: "container with built-in network mode (not a reference)",
+			data: `[Container]
+Image=quay.io/podman/hello:latest
+Network=host`,
+			wantType:  QuadletTypeContainer,
+			wantImage: lo.ToPtr("quay.io/podman/hello:latest"),
+		},
+		{
+			name: "container with bridge network (not a reference)",
+			data: `[Container]
+Image=quay.io/podman/hello:latest
+Network=bridge`,
+			wantType:  QuadletTypeContainer,
+			wantImage: lo.ToPtr("quay.io/podman/hello:latest"),
+		},
+		{
+			name: "container with pod reference",
+			data: `[Container]
+Image=quay.io/podman/hello:latest
+Pod=mypod.pod`,
+			wantType:  QuadletTypeContainer,
+			wantImage: lo.ToPtr("quay.io/podman/hello:latest"),
+			wantPods:  []string{"mypod.pod"},
+		},
+		{
+			name: "container with volume mount reference",
+			data: `[Container]
+Image=quay.io/podman/hello:latest
+Mount=type=volume,source=cache.volume,destination=/cache`,
+			wantType:         QuadletTypeContainer,
+			wantImage:        lo.ToPtr("quay.io/podman/hello:latest"),
+			wantMountVolumes: []string{"cache.volume"},
+		},
+		{
+			name: "container with volume mount named volume (not a reference)",
+			data: `[Container]
+Image=quay.io/podman/hello:latest
+Mount=type=volume,source=my-cache,destination=/cache`,
+			wantType:  QuadletTypeContainer,
+			wantImage: lo.ToPtr("quay.io/podman/hello:latest"),
+		},
+		{
+			name: "container with all reference types",
+			data: `[Container]
+Image=myimage.image
+Volume=data.volume:/data
+Network=mynet.network
+Pod=mypod.pod
+Mount=type=image,source=extra.image,destination=/extra
+Mount=type=volume,source=cache.volume,destination=/cache`,
+			wantType:         QuadletTypeContainer,
+			wantImage:        lo.ToPtr("myimage.image"),
+			wantVolumes:      []string{"data.volume"},
+			wantNetworks:     []string{"mynet.network"},
+			wantPods:         []string{"mypod.pod"},
+			wantMountImages:  []string{"extra.image"},
+			wantMountVolumes: []string{"cache.volume"},
+		},
+		{
+			name: "pod with volume and network references",
+			data: `[Pod]
+PodName=my-pod
+Volume=shared.volume:/shared
+Network=backend.network`,
+			wantType:     QuadletTypePod,
+			wantVolumes:  []string{"shared.volume"},
+			wantNetworks: []string{"backend.network"},
+		},
+		{
+			name: "volume with image reference",
+			data: `[Volume]
+Image=myimage.image`,
+			wantType:  QuadletTypeVolume,
+			wantImage: lo.ToPtr("myimage.image"),
+		},
 	}
 
 	for _, tt := range tests {
@@ -253,6 +377,10 @@ Mount=type=image,src=quay.io/containers/data:v1,destination=/data`,
 			}
 
 			require.Equal(tt.wantMountImages, spec.MountImages)
+			require.Equal(tt.wantVolumes, spec.Volumes)
+			require.Equal(tt.wantMountVolumes, spec.MountVolumes)
+			require.Equal(tt.wantNetworks, spec.Networks)
+			require.Equal(tt.wantPods, spec.Pods)
 		})
 	}
 }

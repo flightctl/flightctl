@@ -807,12 +807,40 @@ func (a InlineApplicationProviderSpec) Validate(appType AppType, fleetTemplate b
 		pathErr = validation.ValidateComposePaths(paths)
 	case AppTypeQuadlet:
 		pathErr = validation.ValidateQuadletPaths(paths)
+		allErrs = append(allErrs, validateQuadletCrossReferences(a.Inline)...)
 	}
 	if pathErr != nil {
 		allErrs = append(allErrs, fmt.Errorf("spec.applications[].inline[].path: %w", pathErr))
 	}
 
 	return allErrs
+}
+
+func validateQuadletCrossReferences(inline []ApplicationContent) []error {
+	specs := make(map[string]*common.QuadletReferences)
+
+	var errs []error
+	for _, c := range inline {
+		if !quadlet.IsQuadletFile(c.Path) {
+			continue
+		}
+
+		decoded, err := c.DecodeContent()
+		if err != nil {
+			// decoding content is already checked as part of Validations. If this fails, don't reinclude it as an error
+			continue
+		}
+
+		spec, err := common.ParseQuadletReferences(decoded)
+		if err != nil {
+			// parsing is already checked as part of Validations. If this fails, don't reinclude it as an error
+			continue
+		}
+		specs[c.Path] = spec
+	}
+
+	errs = append(errs, validation.ValidateQuadletCrossReferences(specs)...)
+	return errs
 }
 
 func (c ApplicationContent) Validate(index int, appType AppType, fleetTemplate bool) []error {
@@ -865,6 +893,20 @@ func (c ApplicationContent) IsBase64() bool {
 
 func (c ApplicationContent) IsPlain() bool {
 	return c.ContentEncoding == nil || *c.ContentEncoding == EncodingPlain
+}
+
+func (c ApplicationContent) DecodeContent() ([]byte, error) {
+	content := lo.FromPtr(c.Content)
+	if content == "" {
+		return nil, nil
+	}
+
+	if c.IsBase64() {
+		return base64.StdEncoding.DecodeString(content)
+	} else if c.IsPlain() {
+		return []byte(content), nil
+	}
+	return nil, fmt.Errorf("unknown encoding type")
 }
 
 func ValidateApplicationContent(content []byte, appType AppType, path string) []error {
