@@ -95,6 +95,27 @@ func TestNewFileLogger(t *testing.T) {
 	}
 }
 
+func TestNewFileLogger_EmptyAgentVersionUsesUnknown(t *testing.T) {
+	require := require.New(t)
+
+	// Create temp directory for test
+	tempDir := t.TempDir()
+	readWriter := fileio.NewReadWriter(fileio.WithTestRootDir(tempDir))
+
+	config := NewDefaultAuditConfig()
+	logger := log.NewPrefixLogger("test")
+
+	// Empty agentVersion should use "unknown" fallback instead of failing
+	auditLogger, err := NewFileLogger(config, readWriter, "test-device", "", logger)
+	require.NoError(err)
+	require.NotNil(auditLogger)
+	require.Equal("unknown", auditLogger.agentVersion)
+
+	defer func() {
+		_ = auditLogger.Close()
+	}()
+}
+
 func TestFileLogger_LogEventApply(t *testing.T) {
 	require := require.New(t)
 	ctx := context.Background()

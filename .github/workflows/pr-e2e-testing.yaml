@@ -171,6 +171,18 @@ jobs:
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         run: df -h
 
+      - name: Cleanup Podman images
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        run: |
+          echo "::group::Remove local Podman images "
+          podman image rm -a || true
+          echo "::endgroup::"
+          
+          echo "::group::Show disk space after removing Podman images"
+          df -h
+          echo "::endgroup::"
+
+
       - name: Set permissions for APT before save
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         run: sudo mkdir -p /var/cache/apt /var/lib/apt && sudo chown -R runner:runner /var/cache/apt /var/lib/apt

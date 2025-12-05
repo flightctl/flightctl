@@ -1,5 +1,9 @@
 global:
   baseDomain:
+  # Certificate generation method - 'none' or 'builtin'
+  # - none: Do not generate certificates. User must provide certs in /etc/flightctl/pki/ or the service will fail to start.
+  # - builtin: Generate required certificates using openssl (default)
+  generateCertificates: builtin
   auth:
     type: oidc # oidc, aap, oauth2, or none
     insecureSkipTlsVerify: true
@@ -15,8 +19,9 @@ global:
       issuer:
       externalOidcAuthority:
       organizationAssignment:
-        type: static
-        organizationName: default
+        type: dynamic
+        claimPath:
+          - organizations
       usernameClaim:
         - preferred_username
       roleAssignment:
@@ -36,9 +41,6 @@ global:
         - email
         - roles
       pamService: flightctl
-  organizations:
-    # Enable IdP-provided organizations support
-    enabled: false
 
 db:
   # external: Set to "enabled" to use external PostgreSQL database

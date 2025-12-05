@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"reflect"
 	"regexp"
 	"slices"
@@ -1374,17 +1375,30 @@ func hasPathField(rawJSON []byte) bool {
 	return exists
 }
 
-func (a AuthProvider) Validate(ctx context.Context) []error {
+func (a *AuthProvider) Validate(ctx context.Context) []error {
 	allErrs := []error{}
 	allErrs = append(allErrs, validation.ValidateResourceName(a.Metadata.Name)...)
 	allErrs = append(allErrs, validation.ValidateLabels(a.Metadata.Labels)...)
 	allErrs = append(allErrs, validation.ValidateAnnotations(a.Metadata.Annotations)...)
-	allErrs = append(allErrs, a.Spec.Validate(ctx)...)
+	allErrs = append(allErrs, a.Spec.Validate(ctx, false)...)
 
 	return allErrs
 }
 
-func (o OIDCProviderSpec) Validate(ctx context.Context) []error {
+// ValidateUpdate ensures immutable fields are unchanged and required fields are not deleted for AuthProvider.
+func (a *AuthProvider) ValidateUpdate(ctx context.Context, oldObj *AuthProvider) []error {
+	allErrs := validateImmutableCoreFields(oldObj.Metadata.Name, a.Metadata.Name,
+		oldObj.ApiVersion, a.ApiVersion,
+		oldObj.Kind, a.Kind,
+		nil, nil) // AuthProvider doesn't have status
+
+	// Validate the new spec (receiver 'a' is the new object)
+	allErrs = append(allErrs, a.Spec.ValidateUpdate(ctx, &oldObj.Spec)...)
+
+	return allErrs
+}
+
+func (o *OIDCProviderSpec) Validate(ctx context.Context, isUpdate bool) []error {
 	allErrs := []error{}
 
 	if o.Issuer == "" {
@@ -1403,7 +1417,7 @@ func (o OIDCProviderSpec) Validate(ctx context.Context) []error {
 	return allErrs
 }
 
-func (o OAuth2ProviderSpec) Validate(ctx context.Context) []error {
+func (o *OAuth2ProviderSpec) Validate(ctx context.Context, isUpdate bool) []error {
 	allErrs := []error{}
 
 	if o.AuthorizationUrl == "" {
@@ -1418,6 +1432,23 @@ func (o OAuth2ProviderSpec) Validate(ctx context.Context) []error {
 	if o.ClientId == "" {
 		allErrs = append(allErrs, ErrClientIdRequired)
 	}
+
+	// Handle introspection field validation
+	if o.Introspection == nil {
+		if !isUpdate {
+			// During creation, try to infer introspection
+			introspection, err := InferOAuth2IntrospectionConfig(*o)
+			if err != nil {
+				allErrs = append(allErrs, fmt.Errorf("introspection field is required and could not be inferred: %w", err))
+			} else {
+				o.Introspection = introspection
+			}
+		} else {
+			// During update, introspection is required and cannot be nil
+			allErrs = append(allErrs, fmt.Errorf("introspection field is required for OAuth2 providers"))
+		}
+	}
+
 	// Validate organization assignment
 	allErrs = append(allErrs, o.OrganizationAssignment.Validate(ctx)...)
 
@@ -1427,7 +1458,7 @@ func (o OAuth2ProviderSpec) Validate(ctx context.Context) []error {
 	return allErrs
 }
 
-func (a AuthProviderSpec) Validate(ctx context.Context) []error {
+func (a *AuthProviderSpec) Validate(ctx context.Context, isUpdate bool) []error {
 	allErrs := []error{}
 
 	// Get the discriminator to determine which type of provider this is
@@ -1443,14 +1474,21 @@ func (a AuthProviderSpec) Validate(ctx context.Context) []error {
 		if err != nil {
 			allErrs = append(allErrs, fmt.Errorf("invalid OIDC provider spec: %w", err))
 		} else {
-			allErrs = append(allErrs, oidcSpec.Validate(ctx)...)
+			allErrs = append(allErrs, (&oidcSpec).Validate(ctx, isUpdate)...)
 		}
 	case string(Oauth2):
 		oauth2Spec, err := a.AsOAuth2ProviderSpec()
 		if err != nil {
 			allErrs = append(allErrs, fmt.Errorf("invalid OAuth2 provider spec: %w", err))
 		} else {
-			allErrs = append(allErrs, oauth2Spec.Validate(ctx)...)
+			allErrs = append(allErrs, (&oauth2Spec).Validate(ctx, isUpdate)...)
+			// Write back the mutated spec (with inferred introspection) to the union
+			// Only merge if not updating (to preserve user-provided values during updates)
+			if !isUpdate {
+				if mergeErr := a.MergeOAuth2ProviderSpec(oauth2Spec); mergeErr != nil {
+					allErrs = append(allErrs, fmt.Errorf("failed to update OAuth2 provider spec: %w", mergeErr))
+				}
+			}
 		}
 	case string(K8s):
 		allErrs = append(allErrs, ErrK8sProviderConfigOnly)
@@ -1459,6 +1497,52 @@ func (a AuthProviderSpec) Validate(ctx context.Context) []error {
 	default:
 		allErrs = append(allErrs, fmt.Errorf("unknown provider type: %s", discriminator))
 	}
+
+	return allErrs
+}
+
+// ValidateUpdate ensures required fields are not deleted for AuthProviderSpec.
+func (a *AuthProviderSpec) ValidateUpdate(ctx context.Context, oldSpec *AuthProviderSpec) []error {
+	allErrs := []error{}
+
+	// Check both old and new provider types for OAuth2 to validate introspection field
+	oldDiscriminator, oldErr := oldSpec.Discriminator()
+	if oldErr != nil {
+		allErrs = append(allErrs, fmt.Errorf("invalid old auth provider spec: %w", oldErr))
+		return allErrs
+	}
+
+	newDiscriminator, newErr := a.Discriminator()
+	if newErr != nil {
+		allErrs = append(allErrs, fmt.Errorf("invalid new auth provider spec: %w", newErr))
+		return allErrs
+	}
+
+	// If the old provider was OAuth2, check for introspection removal
+	if oldDiscriminator == string(Oauth2) {
+		oldOAuth2Spec, err := oldSpec.AsOAuth2ProviderSpec()
+		if err != nil {
+			allErrs = append(allErrs, fmt.Errorf("failed to parse old OAuth2 provider spec: %w", err))
+			return allErrs
+		}
+
+		// Check if new provider is also OAuth2
+		if newDiscriminator == string(Oauth2) {
+			newOAuth2Spec, err := a.AsOAuth2ProviderSpec()
+			if err != nil {
+				allErrs = append(allErrs, fmt.Errorf("invalid new OAuth2 provider spec: %w", err))
+				return allErrs
+			}
+
+			// Check if introspection is being removed
+			if oldOAuth2Spec.Introspection != nil && newOAuth2Spec.Introspection == nil {
+				allErrs = append(allErrs, fmt.Errorf("introspection field cannot be removed once set"))
+			}
+		}
+	}
+
+	// Run standard validation with isUpdate=true
+	allErrs = append(allErrs, a.Validate(ctx, true)...)
 
 	return allErrs
 }
@@ -1651,6 +1735,9 @@ func (a AuthStaticRoleAssignment) Validate(ctx context.Context) []error {
 		if role == "" {
 			allErrs = append(allErrs, fmt.Errorf("role at index %d cannot be empty", i))
 		}
+		if !slices.Contains(KnownExternalRoles, role) {
+			allErrs = append(allErrs, fmt.Errorf("role at index %d is not a valid role: %s", i, role))
+		}
 	}
 
 	return allErrs
@@ -1723,4 +1810,106 @@ func (s SystemdLoadStateType) Validate() error {
 		return fmt.Errorf("invalid systemd load state: %s", s)
 	}
 	return nil
+}
+
+// InferOAuth2IntrospectionConfig attempts to infer a sensible introspection configuration
+// based on the OAuth2 provider URLs. Returns an error if no introspection can be inferred.
+func InferOAuth2IntrospectionConfig(spec OAuth2ProviderSpec) (*OAuth2Introspection, error) {
+	// Check if this is a GitHub OAuth2 provider
+	if strings.Contains(strings.ToLower(spec.AuthorizationUrl), "github") ||
+		strings.Contains(strings.ToLower(spec.TokenUrl), "github") {
+		introspection := &OAuth2Introspection{}
+		githubSpec := GitHubIntrospectionSpec{
+			Type: Github,
+		}
+		// Set URL if it's GitHub Enterprise (not github.com)
+		if !strings.Contains(strings.ToLower(spec.AuthorizationUrl), "github.com") {
+			// Extract base URL from authorization URL for GitHub Enterprise
+			// e.g., https://github.enterprise.com/login/oauth/authorize -> https://api.github.enterprise.com
+			baseURL := extractGitHubEnterpriseBaseURL(spec.AuthorizationUrl)
+			if baseURL != "" {
+				githubSpec.Url = &baseURL
+			}
+		}
+		_ = introspection.FromGitHubIntrospectionSpec(githubSpec)
+		return introspection, nil
+	}
+
+	// Try to infer RFC 7662 introspection endpoint
+	// Common patterns: {tokenUrl}/introspect, {issuer}/introspect
+	introspectionURL := inferRFC7662IntrospectionURL(spec)
+	if introspectionURL != "" {
+		introspection := &OAuth2Introspection{}
+		rfc7662Spec := Rfc7662IntrospectionSpec{
+			Type: Rfc7662,
+			Url:  introspectionURL,
+		}
+		_ = introspection.FromRfc7662IntrospectionSpec(rfc7662Spec)
+		return introspection, nil
+	}
+
+	// No introspection could be inferred - reject
+	return nil, fmt.Errorf("could not infer introspection configuration from provided URLs (authorizationUrl: %s, tokenUrl: %s); please specify introspection field explicitly", spec.AuthorizationUrl, spec.TokenUrl)
+}
+
+// extractGitHubEnterpriseBaseURL extracts the API base URL for GitHub Enterprise
+// from an authorization URL like https://github.enterprise.com/login/oauth/authorize
+func extractGitHubEnterpriseBaseURL(authURL string) string {
+	// Try to parse the URL to extract the host
+	if idx := strings.Index(authURL, "://"); idx != -1 {
+		rest := authURL[idx+3:]
+		if endIdx := strings.Index(rest, "/"); endIdx != -1 {
+			host := rest[:endIdx]
+			// For GitHub Enterprise, the API is typically at {host}/api/v3
+			scheme := authURL[:idx]
+			return scheme + "://" + host + "/api/v3"
+		}
+	}
+	return ""
+}
+
+// inferRFC7662IntrospectionURL attempts to infer the RFC 7662 introspection endpoint URL
+// based on common OAuth2 provider patterns
+func inferRFC7662IntrospectionURL(spec OAuth2ProviderSpec) string {
+	// Pattern 1: {tokenUrl}/introspect (most common)
+	if spec.TokenUrl != "" {
+		if introspectURL := buildIntrospectionURL(spec.TokenUrl); introspectURL != "" {
+			return introspectURL
+		}
+	}
+
+	// Pattern 2: {issuer}/introspect
+	if spec.Issuer != nil && *spec.Issuer != "" {
+		if introspectURL := buildIntrospectionURL(*spec.Issuer); introspectURL != "" {
+			return introspectURL
+		}
+	}
+
+	return ""
+}
+
+// buildIntrospectionURL constructs an introspection URL from a base URL,
+// properly handling query parameters and URL components
+func buildIntrospectionURL(baseURL string) string {
+	parsedURL, err := url.Parse(baseURL)
+	if err != nil || parsedURL.Scheme == "" || parsedURL.Host == "" {
+		return ""
+	}
+
+	// Remove trailing slash from path
+	path := strings.TrimSuffix(parsedURL.Path, "/")
+
+	// Check if path ends with /token and replace with /introspect
+	if strings.HasSuffix(path, "/token") {
+		path = strings.TrimSuffix(path, "/token") + "/introspect"
+	} else {
+		// Otherwise append /introspect
+		path = path + "/introspect"
+	}
+
+	// Update the path in the parsed URL
+	parsedURL.Path = path
+
+	// Return the reassembled URL with all components preserved
+	return parsedURL.String()
 }

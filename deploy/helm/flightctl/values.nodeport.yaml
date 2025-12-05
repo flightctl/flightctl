@@ -1,0 +1,15 @@
+dev:
+  exposeServicesMethod: "nodePort"
+  nodePorts:
+    api: 3443
+    agent: 7443
+    ui: 9000
+    db: 5432
+    kv: 6379
+    alertmanager: 9093
+    alertmanagerProxy: 8443
+    cliArtifacts: 8090
+    telemetryGatewayOtlp: 4317
+    telemetryGatewayProm: 9464
+    gitserver: 3222
+    registry: 5000

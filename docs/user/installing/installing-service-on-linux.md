@@ -146,18 +146,51 @@ sudo podman secret inspect flightctl-postgresql-user-password --showsecret | jq 
 
 ## Certificate Management
 
-Certs are generated and stored in the `/etc/flightctl/pki` directory. These include:
+Certificates are automatically generated and stored in the `/etc/flightctl/pki` directory when services are first started. The certificate structure includes:
 
 ```bash
-/etc/flightctl/pki/ca.crt
-/etc/flightctl/pki/ca.key
-/etc/flightctl/pki/client-enrollment.crt
-/etc/flightctl/pki/client-enrollment.key
-/etc/flightctl/pki/server.crt
-/etc/flightctl/pki/server.key
+/etc/flightctl/pki/
+├── ca.crt                                # Root CA certificate
+├── ca.key                                # Root CA private key
+├── ca-bundle.crt                         # CA bundle (ca.crt + client-signer.crt)
+└── flightctl-api/
+    ├── server.crt                        # API server TLS certificate
+    ├── server.key                        # API server private key
+    ├── client-signer.crt                 # Client certificate signing CA
+    └── client-signer.key                 # Client signer private key
 ```
 
-The `server.crt` and `server.key` are self-signed and automatically generated unless otherwise specified.  To use custom certificates, replace (or populate before first starting the services) `server.crt` and `server.key` files.
+### Automatic Certificate Generation
+
+On first startup, certificates are automatically generated with the following behavior:
+
+- A self-signed root CA is created if not already present
+- An intermediate client-signer CA is generated for managing client certificates
+- The API server certificate is created with the configured `baseDomain` as a Subject Alternative Name (SAN)
+
+### Custom Certificates
+
+For production deployments or environments with existing PKI infrastructure, you can provide your own certificates instead of using automatically generated self-signed certificates.
+
+#### Using an existing Certificate Authority
+
+To use an existing CA instead of the automatically generated self-signed CA:
+
+```bash
+# BEFORE starting flightctl services, place your CA certificates
+sudo cp your-ca.crt /etc/flightctl/pki/ca.crt
+sudo cp your-ca.key /etc/flightctl/pki/ca.key
+sudo chown root:root /etc/flightctl/pki/ca.*
+sudo chmod 600 /etc/flightctl/pki/ca.key
+sudo chmod 644 /etc/flightctl/pki/ca.crt
+
+# Start services normally - they will use your CA for certificate generation
+sudo systemctl start flightctl.target
+```
+
+The services will detect the existing CA certificates and use them to generate the intermediate client-signer CA and server certificates.
+
+### Authentication Provider CA
 
 A custom CA certificate for use with configured authentication providers can be placed in the following location:
 

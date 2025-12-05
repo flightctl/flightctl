@@ -423,7 +423,7 @@ func (f *TableFormatter) printAuthConfigProvidersTable(w *tabwriter.Writer, auth
 		issuer := NoneString
 		enabled := NoneString
 		name := NoneString
-		isDefault := NoneString
+		isDefault := ""
 		if ap.Metadata.Name != nil {
 			name = *ap.Metadata.Name
 		}

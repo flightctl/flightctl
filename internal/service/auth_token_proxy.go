@@ -212,7 +212,7 @@ func (p *AuthTokenProxy) findProviderForToken(ctx context.Context, providerName 
 			Issuer:        aapSpec.ApiUrl,
 			TokenEndpoint: tokenUrl,
 			ClientId:      aapSpec.ClientId,
-			UseBasicAuth:  true, // AAP requires Basic Auth for client credentials
+			UseBasicAuth:  aapSpec.ClientSecret != nil && *aapSpec.ClientSecret != "", // AAP requires Basic Auth for client credentials
 		}, aapSpec.ClientId, clientSecret, api.StatusOK()
 
 	default:
@@ -335,11 +335,8 @@ func (p *AuthTokenProxy) proxyTokenRequest(ctx context.Context, providerConfig *
 	req.Header.Set("Accept", "application/json, application/x-www-form-urlencoded")
 
 	// For providers using Basic Auth (like AAP), set the Authorization header
+	// Only use Basic Auth if UseBasicAuth is true
 	if providerConfig.UseBasicAuth {
-		if clientSecret == "" {
-			p.authN.GetLogger().Errorf("Token proxy: provider requires Basic Auth but client_secret is not configured")
-			return nil, fmt.Errorf("provider requires Basic Auth but client_secret is not configured")
-		}
 		req.SetBasicAuth(clientId, clientSecret)
 		p.authN.GetLogger().Debugf("Token proxy: using Basic Auth with client_id=%s", clientId)
 	}

@@ -95,7 +95,7 @@ rules:
       - enrollmentrequests
       - organizations
   - verbs:
-      - post
+      - update  # API uses PUT for approval endpoint
     apiGroups:
       - flightctl.io
     resources:
@@ -104,6 +104,7 @@ rules:
       - get
       - list
       - create
+      - update
     apiGroups:
       - flightctl.io
     resources:
