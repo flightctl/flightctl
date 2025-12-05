@@ -1437,9 +1437,9 @@ Each schedule supports:
 
 | Parameter              | Description                                                                 |
 |------------------------|-----------------------------------------------------------------------------|
-| `at`                   | A [cron expression](https://man7.org/linux/man-pages/man5/crontab.5.html) specifying valid run times. |
-| `timeZone`             | (Optional) The time zone used to evaluate the schedule. Defaults to the device’s local system time zone. Must be a valid [IANA time zone](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones). |
-| `startGraceDuration`   | (Optional) A duration string that extends the allowed start time window after a schedule trigger. Follows the [Go duration format](https://pkg.go.dev/time#ParseDuration), such as `"1h"` or `"45m"`. |
+| `at`                   | (Required) A [cron expression](https://man7.org/linux/man-pages/man5/crontab.5.html) specifying valid run times. |
+| `timeZone`             | (Optional) The time zone used to evaluate the schedule. Defaults to the device's local system time zone. Must be a valid [IANA time zone](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones). |
+| `startGraceDuration`   | (Required) A duration string that extends the allowed start time window after a schedule trigger. Follows the [Go duration format](https://pkg.go.dev/time#ParseDuration), such as `"1h"` or `"45m"`. |
 
 The Flight Control agent evaluates these schedules during its control loop to determine whether each policy is currently allowed to proceed. While the device waits for the update window the device status will read `OutOfDate`. For more details please see [Device API Statuses](../references/device-api-statuses.md).
 
@@ -1469,5 +1469,5 @@ updatePolicy:
 ```
 
 > [!NOTE]
-> It’s best practice to define a `startGraceDuration` to allow for potential delays in agent execution. Without it, the update window may be missed.
+> The `startGraceDuration` field is required and allows for potential delays in agent execution. Without a sufficient grace period, the update window may be missed.
 > Once an update begins within the allowed window, there is no enforced timeout the update may continue running beyond the grace period.

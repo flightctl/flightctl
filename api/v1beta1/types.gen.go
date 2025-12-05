@@ -2736,7 +2736,7 @@ type UpdateSchedule struct {
 	At CronExpression `json:"at"`
 
 	// StartGraceDuration The maximum duration allowed for the action to complete. The duration should be specified as a positive integer followed by a time unit. Supported time units are: `s` for seconds, `m` for minutes, `h` for hours.
-	StartGraceDuration *Duration `json:"startGraceDuration,omitempty"`
+	StartGraceDuration Duration `json:"startGraceDuration"`
 
 	// TimeZone Time zone identifiers follow the IANA format AREA/LOCATION, where AREA represents a continent or ocean, and LOCATION specifies a particular site within that area, for example America/New_York, Europe/Paris. Only unambiguous 3-character time zones are supported ("GMT", "UTC").
 	TimeZone *TimeZone `json:"timeZone,omitempty"`
