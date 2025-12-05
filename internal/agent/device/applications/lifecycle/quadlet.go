@@ -222,7 +222,8 @@ func (q *Quadlet) cleanResources(ctx context.Context, action *Action) error {
 	// the labels applied to quadlets are only directly applied to that quadlet. They do not apply to
 	// any resources created indirectly. As an example, a container quadlet can create multiple volumes without referencing
 	// a volume quadlet. The label applied to the container will not be applied to the volumes, but since we are
-	// namespacing, we can remove any resources that are directly tied to our application
+	// namespacing, we can remove any resources that are directly tied to our application. Volumes that are not explicitly
+	// tracked by the API remain untouched.
 	labels := []string{
 		fmt.Sprintf("%s=%s", client.QuadletProjectLabelKey, action.ID),
 	}
@@ -234,27 +235,7 @@ func (q *Quadlet) cleanResources(ctx context.Context, action *Action) error {
 		errs = append(errs, fmt.Errorf("cleaning podman resources: %w", err))
 	}
 
-	// The agent currently doesn't distinguish between "stop for a graceful shutdown", and "remove application". Both elicit
-	// a "remove" operation. Most resources are fine to remove and recreate on startup, as they should be application specific,
-	// but volumes MUST survive restarts. Image backed volumes are removed to allow for updating to newer images if updated,
-	// and on restart, repopulating the volume from the already downloaded image is non-destructive. Artifact backed volumes
-	// follow the same pattern, they can be recreated from their source artifacts.
-	volumes, err := q.podman.ListVolumes(ctx, labels, filters)
-	if err != nil {
-		errs = append(errs, fmt.Errorf("listing volumes: %w", err))
-	}
-
 	volsToRemove := q.actionCache.volumes(action.ID)
-	for _, volume := range volumes {
-		driver, err := q.podman.InspectVolumeDriver(ctx, volume)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("inspecting volume %q: %w", volume, err))
-			continue
-		}
-		if driver == "image" {
-			volsToRemove = append(volsToRemove, volume)
-		}
-	}
 	if len(volsToRemove) > 0 {
 		if err := q.podman.RemoveVolumes(ctx, volsToRemove...); err != nil {
 			errs = append(errs, fmt.Errorf("removing volumes: %w", err))
@@ -406,10 +387,11 @@ func (q *Quadlet) ensureArtifactVolumes(ctx context.Context, action *Action) err
 		return nil
 	}
 	labels := []string{fmt.Sprintf("%s=%s", client.QuadletProjectLabelKey, action.ID)}
-	var artifactVolumes []string
+	var createdVolumes []string
+	var reclaimableVolumes []string
 	cleanup := func(err error) error {
-		if len(artifactVolumes) > 0 {
-			if removeErr := q.podman.RemoveVolumes(ctx, artifactVolumes...); removeErr != nil {
+		if len(createdVolumes) > 0 {
+			if removeErr := q.podman.RemoveVolumes(ctx, createdVolumes...); removeErr != nil {
 				err = fmt.Errorf("removing artifacts: %w: %w", removeErr, err)
 			}
 		}
@@ -425,6 +407,10 @@ func (q *Quadlet) ensureArtifactVolumes(ctx context.Context, action *Action) err
 		volumePath := ""
 		var err error
 		if q.podman.VolumeExists(ctx, volumeName) {
+			if volume.ReclaimPolicy == VolumeReclaimPolicyRetain {
+				q.log.Tracef("Volume %q already exists with retain policy, skipping re-extract", volumeName)
+				continue
+			}
 			q.log.Tracef("Volume %q already exists, updating contents", volumeName)
 			volumePath, err = q.podman.InspectVolumeMount(ctx, volumeName)
 			if err != nil {
@@ -441,17 +427,21 @@ func (q *Quadlet) ensureArtifactVolumes(ctx context.Context, action *Action) err
 			}
 		}
 
-		artifactVolumes = append(artifactVolumes, volumeName)
+		createdVolumes = append(createdVolumes, volumeName)
 
 		if _, err := q.podman.ExtractArtifact(ctx, volume.Reference, volumePath); err != nil {
 			return cleanup(fmt.Errorf("extracting artifact to volume %q: %w", volumeName, err))
 		}
 
+		if volume.ReclaimPolicy.DeleteOnRemoval() {
+			reclaimableVolumes = append(reclaimableVolumes, volumeName)
+		}
+
 		q.log.Infof("Creating artifact volume %q from artifact %q", volume.ID, volume.Reference)
 	}
 
-	if len(artifactVolumes) > 0 {
-		q.actionCache.addVolumes(action.ID, artifactVolumes)
+	if len(reclaimableVolumes) > 0 {
+		q.actionCache.addVolumes(action.ID, reclaimableVolumes)
 	}
 
 	return nil

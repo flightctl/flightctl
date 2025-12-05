@@ -577,7 +577,6 @@ func TestQuadlet_remove(t *testing.T) {
 				mockSystemdMgr.EXPECT().Stop(gomock.Any(), "app-list-fail-web.service").Return(nil)
 				mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), []string{"app-list-fail-web.service"}).Return(nil, fmt.Errorf("list failed"))
 
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume")).Return("[]", "", 0).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("stop")).Return("", "", 0).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("rm")).Return("", "", 0).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("ps")).Return("", "", 0).AnyTimes()
@@ -606,7 +605,6 @@ func TestQuadlet_remove(t *testing.T) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("rm")).Return("", "", 0).Times(1)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("ps")).Return("", "", 0).Times(1)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("network")).Return("", "", 0).Times(1)
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "ls")).Return("[]", "", 0).Times(1)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "rm", "app-with-artifact-vols-data")).Return("", "", 0).Times(1)
 			},
 			setupServices: func(q *Quadlet) {
@@ -634,9 +632,7 @@ func TestQuadlet_remove(t *testing.T) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("rm")).Return("", "", 0).Times(1)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("ps")).Return("", "", 0).Times(1)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("network")).Return("", "", 0).Times(1)
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "ls")).Return("[{\"Name\":\"app-mixed-vol-types-imagevol\"}]", "", 0).Times(1)
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "inspect", "app-mixed-vol-types-imagevol", "--format", "{{.Driver}}")).Return("image", "", 0).Times(1)
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "rm")).Return("", "", 0).AnyTimes()
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "rm", "app-mixed-vol-types-artifactvol")).Return("", "", 0).Times(1)
 			},
 			setupServices: func(q *Quadlet) {
 				q.actionCache.cache["app-mixed-vol-types"] = &actionCacheEntry{
@@ -653,6 +649,8 @@ func TestQuadlet_remove(t *testing.T) {
 				ID:   "app-cleanup-test",
 			},
 			setupMocks: func(mockSystemdMgr *systemd.MockManager, mockRW *fileio.MockReadWriter, mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "rm", "app-cleanup-test-vol1")).Return("", "", 0).Times(1)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "rm", "app-cleanup-test-vol2")).Return("", "", 0).Times(1)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", gomock.Any()).Return("[]", "", 0).AnyTimes()
 			},
 			setupServices: func(q *Quadlet) {
@@ -1226,7 +1224,7 @@ func TestQuadlet_ensureArtifactVolumes(t *testing.T) {
 				ID:   "app-123",
 				Name: "test-app",
 				Volumes: []Volume{
-					{ID: "vol1", Reference: "artifact:myartifact"},
+					{ID: "vol1", Reference: "artifact:myartifact", ReclaimPolicy: VolumeReclaimPolicyDelete},
 				},
 			},
 			setupMocks: func(mockExec *executer.MockExecuter) {
@@ -1241,13 +1239,49 @@ func TestQuadlet_ensureArtifactVolumes(t *testing.T) {
 			wantErr:             false,
 		},
 		{
+			name: "artifact volume with retain policy is not tracked",
+			action: &Action{
+				ID:   "app-123",
+				Name: "test-app",
+				Volumes: []Volume{
+					{ID: "vol1", Reference: "artifact:myartifact", ReclaimPolicy: VolumeReclaimPolicyRetain},
+				},
+			},
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("image", "exists", "artifact:myartifact")).Return("", "", 1)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "exists", "vol1")).Return("", "", 1)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("--version")).Return("podman version 5.5", "", 0)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "create", "vol1")).Return("", "", 0)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "inspect", "vol1")).Return("/var/lib/containers/storage/volumes/app-123-vol1/_data", "", 0)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("artifact", "extract", "artifact:myartifact")).Return("", "", 0)
+			},
+			wantArtifactVolumes: nil,
+			wantErr:             false,
+		},
+		{
+			name: "existing retain artifact volume is left untouched",
+			action: &Action{
+				ID:   "app-keep",
+				Name: "test-app",
+				Volumes: []Volume{
+					{ID: "vol1", Reference: "artifact:seed-data", ReclaimPolicy: VolumeReclaimPolicyRetain},
+				},
+			},
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("image", "exists", "artifact:seed-data")).Return("", "", 1)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume", "exists", "vol1")).Return("", "", 0)
+			},
+			wantArtifactVolumes: nil,
+			wantErr:             false,
+		},
+		{
 			name: "multiple artifact volumes",
 			action: &Action{
 				ID:   "app-456",
 				Name: "test-app",
 				Volumes: []Volume{
-					{ID: "vol1", Reference: "artifact:art1"},
-					{ID: "vol2", Reference: "artifact:art2"},
+					{ID: "vol1", Reference: "artifact:art1", ReclaimPolicy: VolumeReclaimPolicyDelete},
+					{ID: "vol2", Reference: "artifact:art2", ReclaimPolicy: VolumeReclaimPolicyDelete},
 				},
 			},
 			setupMocks: func(mockExec *executer.MockExecuter) {
@@ -1289,7 +1323,7 @@ func TestQuadlet_ensureArtifactVolumes(t *testing.T) {
 				Name: "test-app",
 				Volumes: []Volume{
 					{ID: "vol1", Reference: "docker.io/nginx:latest"},
-					{ID: "vol2", Reference: "artifact:mydata"},
+					{ID: "vol2", Reference: "artifact:mydata", ReclaimPolicy: VolumeReclaimPolicyDelete},
 					{ID: "vol3", Reference: "quay.io/myimage:v1"},
 				},
 			},

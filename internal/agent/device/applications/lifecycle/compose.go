@@ -58,8 +58,15 @@ func (c *Compose) remove(ctx context.Context, action *Action) error {
 		errs = append(errs, err)
 	}
 
+	var deleteCandidates []string
 	for _, vol := range action.Volumes {
-		if err := c.podman.RemoveVolumes(ctx, vol.ID); err != nil {
+		if vol.ID == "" || !vol.ReclaimPolicy.DeleteOnRemoval() {
+			continue
+		}
+		deleteCandidates = append(deleteCandidates, vol.ID)
+	}
+	if len(deleteCandidates) > 0 {
+		if err := c.podman.RemoveVolumes(ctx, deleteCandidates...); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -189,6 +196,10 @@ func (c *Compose) ensurePodmanVolume(
 	name := volume.ID
 	imageRef := volume.Reference
 	if c.podman.VolumeExists(ctx, name) {
+		if volume.ReclaimPolicy == VolumeReclaimPolicyRetain {
+			c.log.Tracef("Volume %q already exists with retain policy, skipping re-extract", name)
+			return nil
+		}
 		c.log.Tracef("Volume %q already exists, updating contents", name)
 		volumePath, err := c.podman.InspectVolumeMount(ctx, name)
 		if err != nil {
