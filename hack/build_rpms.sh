@@ -30,8 +30,12 @@ Examples:
 # Defaults and configuration
 ##############################################################################
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+CURRENT_VERSION_SCRIPT="${SCRIPT_DIR}/current-version"
+
 # Configuration file for mock roots
-MOCK_ROOTS_CONFIG="$(dirname "${BASH_SOURCE[0]}")/mock-roots.conf"
+MOCK_ROOTS_CONFIG="${SCRIPT_DIR}/mock-roots.conf"
 
 ROOT=""
 REBUILD_IMAGE=false
@@ -48,6 +52,35 @@ PACKIT_BUILDER_IMAGE="${PACKIT_BUILDER_IMAGE:-quay.io/flightctl-tests/packit-bui
 ##############################################################################
 # Helpers
 ##############################################################################
+
+current_version() {
+  local version=""
+  if [[ -x "${CURRENT_VERSION_SCRIPT}" ]]; then
+    version=$((cd "${REPO_ROOT}" && "${CURRENT_VERSION_SCRIPT}") 2>/dev/null || true)
+  fi
+  if [[ -z "${version}" ]]; then
+    version=$((cd "${REPO_ROOT}" && git describe --tags --exclude latest 2>/dev/null) || true)
+  fi
+  if [[ -z "${version}" ]]; then
+    version="v0.0.0-unknown"
+  fi
+  echo -n "${version}"
+}
+
+current_tree_state() {
+  (cd "${REPO_ROOT}" && ( ( [ ! -d ".git" ] || git diff --quiet ) && echo "clean" ) || echo "dirty")
+}
+
+current_commit() {
+  (cd "${REPO_ROOT}" && git rev-parse --short "HEAD^{commit}" 2>/dev/null) || echo "unknown"
+}
+
+ensure_version_env() {
+  SOURCE_GIT_TAG="${SOURCE_GIT_TAG:-$(current_version)}"
+  SOURCE_GIT_TREE_STATE="${SOURCE_GIT_TREE_STATE:-$(current_tree_state)}"
+  SOURCE_GIT_COMMIT="${SOURCE_GIT_COMMIT:-$(current_commit)}"
+  export SOURCE_GIT_TAG SOURCE_GIT_TREE_STATE SOURCE_GIT_COMMIT
+}
 
 usage() {
   echo "Usage: $0 [--root MOCK_ROOT] [--rebuild-image] [--pull] [--help]" >&2
@@ -353,10 +386,7 @@ run_build_in_container() {
   container_gocache="/root/.cache/go-build"
 
   # Get the repository root directory (parent of hack/)
-  local script_dir repo_root
-  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  repo_root="$(cd "${script_dir}/.." && pwd)"
-
+  local repo_root="${REPO_ROOT}"
   cd "${repo_root}"
 
   podman run --rm \
@@ -370,6 +400,9 @@ run_build_in_container() {
     -e GOMODCACHE="${container_gomodcache}" \
     -e GOCACHE="${container_gocache}" \
     -e GITHUB_ACTIONS \
+    -e SOURCE_GIT_TAG \
+    -e SOURCE_GIT_TREE_STATE \
+    -e SOURCE_GIT_COMMIT \
     -w /work \
     "${run_image}" \
     ./hack/build_rpms_packit.sh ${ROOT_OPTS[@]+"${ROOT_OPTS[@]}"}
@@ -382,6 +415,7 @@ run_build_in_container() {
 print_help_if_requested "$@"
 require_root
 parse_args "$@"
+ensure_version_env
 init_image_names "${PACKIT_BUILDER_IMAGE}"
 
 if [[ "${REBUILD_IMAGE}" == true ]]; then

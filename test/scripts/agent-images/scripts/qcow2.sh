@@ -5,8 +5,23 @@ SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
 OS_ID="${OS_ID:?OS_ID is required}"
 OUTPUT_DIR="${OUTPUT_DIR:-${ROOT_DIR}/bin/output/agent-qcow2-${OS_ID}}"
+CURRENT_VERSION_SCRIPT="${ROOT_DIR}/hack/current-version"
 
-TAG="${TAG:-$(git describe --tags --exclude latest 2>/dev/null || echo "v0.0.0-unknown")}"
+current_version() {
+  local version=""
+  if [[ -x "${CURRENT_VERSION_SCRIPT}" ]]; then
+    version=$((cd "${ROOT_DIR}" && "${CURRENT_VERSION_SCRIPT}") 2>/dev/null || true)
+  fi
+  if [[ -z "${version}" ]]; then
+    version=$((cd "${ROOT_DIR}" && git describe --tags --exclude latest 2>/dev/null) || true)
+  fi
+  if [[ -z "${version}" ]]; then
+    version="v0.0.0-unknown"
+  fi
+  echo -n "${version}"
+}
+
+TAG="${TAG:-$(current_version)}"
 IMAGE_REPO="${IMAGE_REPO:-quay.io/flightctl/flightctl-device}"
 BASE_IMAGE="${IMAGE_REPO}:base-${OS_ID}-${TAG}"
 

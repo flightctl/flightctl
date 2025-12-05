@@ -17,12 +17,27 @@ set -euo pipefail
 
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
+CURRENT_VERSION_SCRIPT="${ROOT_DIR}/hack/current-version"
+
+current_version() {
+  local version=""
+  if [[ -x "${CURRENT_VERSION_SCRIPT}" ]]; then
+    version=$((cd "${ROOT_DIR}" && "${CURRENT_VERSION_SCRIPT}") 2>/dev/null || true)
+  fi
+  if [[ -z "${version}" ]]; then
+    version=$((cd "${ROOT_DIR}" && git describe --tags --exclude latest 2>/dev/null) || true)
+  fi
+  if [[ -z "${version}" ]]; then
+    version="v0.0.0-unknown"
+  fi
+  echo -n "${version}"
+}
 
 # Separate paths for different outputs
 ARTIFACTS_OUTPUT_DIR="${ARTIFACTS_OUTPUT_DIR:-${ROOT_DIR}/bin/agent-artifacts}"
 
 OS_ID_ENV="${OS_ID:-}"
-SOURCE_GIT_TAG="${SOURCE_GIT_TAG:-$(git describe --tags --exclude latest 2>/dev/null || echo "v0.0.0-unknown")}"
+SOURCE_GIT_TAG="${SOURCE_GIT_TAG:-$(current_version)}"
 TAG="${TAG:-$SOURCE_GIT_TAG}"
 IMAGE_REPO="${IMAGE_REPO:-quay.io/flightctl/flightctl-device}"
 DO_PUSH=false
@@ -52,7 +67,7 @@ if [ -z "${OS_ID_ENV}" ]; then
 fi
 
 export OS_ID="${OS_ID_ENV}"
-export FLAVORS="${OS_ID}"
+export AGENT_OS_ID="${OS_ID}"
 
 # Set QCOW2 output directory now that OS_ID is available
 QCOW2_OUTPUT_DIR="${QCOW2_OUTPUT_DIR:-${ROOT_DIR}/bin/output/agent-qcow2-${OS_ID}}"

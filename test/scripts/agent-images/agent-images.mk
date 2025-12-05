@@ -12,7 +12,7 @@ endif
 
 bin/.e2e-agent-images: bin/.rpm bin/flightctl-agent
 	BUILD_TYPE=$(BUILD_TYPE) BREW_BUILD_URL=$(BREW_BUILD_URL) SOURCE_GIT_TAG=$(SOURCE_GIT_TAG) SOURCE_GIT_TREE_STATE=$(SOURCE_GIT_TREE_STATE) SOURCE_GIT_COMMIT=$(SOURCE_GIT_COMMIT) \
-		FLAVORS=$(AGENT_OS_ID) PUSH_IMAGES=$(AGENT_PUSH_IMAGES) ./test/scripts/agent-images/create_agent_images.sh
+		AGENT_OS_ID=$(AGENT_OS_ID) PUSH_IMAGES=$(AGENT_PUSH_IMAGES) ./test/scripts/agent-images/create_agent_images.sh
 	touch bin/.e2e-agent-images
 
 bin/.e2e-agent-certs:

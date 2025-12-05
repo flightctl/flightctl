@@ -4,15 +4,29 @@ set -euo pipefail
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
 BASE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+CURRENT_VERSION_SCRIPT="${ROOT_DIR}/hack/current-version"
+
+current_version() {
+  local version=""
+  if [[ -x "${CURRENT_VERSION_SCRIPT}" ]]; then
+    version=$((cd "${ROOT_DIR}" && "${CURRENT_VERSION_SCRIPT}") 2>/dev/null || true)
+  fi
+  if [[ -z "${version}" ]]; then
+    version=$((cd "${ROOT_DIR}" && git describe --tags --exclude latest 2>/dev/null) || true)
+  fi
+  if [[ -z "${version}" ]]; then
+    version="v0.0.0-unknown"
+  fi
+  echo -n "${version}"
+}
 
 IMAGE_REPO="${IMAGE_REPO:-quay.io/flightctl/flightctl-device}"
 CACHE_IMAGE_REPO="${CACHE_IMAGE_REPO:-quay.io/flightctl-tests/flightctl-device-cache}"
 APP_REPO="${APP_REPO:-quay.io/flightctl}"
-
-FLAVORS="${FLAVORS:-cs9-bootc}" # or cs10-bootc
+AGENT_OS_ID="${AGENT_OS_ID:-cs9-bootc}"
 VARIANTS="${VARIANTS:-v2 v3 v4 v5 v6 v7 v8 v9 v10}"
 
-SOURCE_GIT_TAG="${SOURCE_GIT_TAG:-$(git describe --tags --exclude latest 2>/dev/null || echo "v0.0.0-unknown")}"
+SOURCE_GIT_TAG="${SOURCE_GIT_TAG:-$(current_version)}"
 SOURCE_GIT_TREE_STATE="${SOURCE_GIT_TREE_STATE:-$( ( ( [ ! -d ".git/" ] || git diff --quiet ) && echo 'clean' ) || echo 'dirty' )}"
 SOURCE_GIT_COMMIT="${SOURCE_GIT_COMMIT:-$(git rev-parse --short "HEAD^{commit}" 2>/dev/null || echo "unknown")}"
 TAG="${TAG:-$SOURCE_GIT_TAG}"
@@ -91,7 +105,7 @@ echo "Build configuration:"
 echo "  BUILD_BASE: ${BUILD_BASE}"
 echo "  BUILD_VARIANTS: ${BUILD_VARIANTS}"
 echo "  BUILD_APPS: ${BUILD_APPS}"
-echo "  FLAVORS: ${FLAVORS}"
+echo "  AGENT_OS_ID: ${AGENT_OS_ID}"
 echo "  TAG: ${TAG}"
 echo "  IMAGE_REPO: ${IMAGE_REPO}"
 echo "  APP_REPO: ${APP_REPO}"
@@ -102,39 +116,38 @@ echo "  CACHE_TTL: ${CACHE_TTL}"
 
 cd "$ROOT_DIR"
 
-for flavor in ${FLAVORS}; do
-  flavor_conf="${BASE_DIR}/flavors/${flavor}.conf"
-  
-  if [ ! -f "${flavor_conf}" ]; then
-    echo "[ERROR] Flavor configuration not found: ${flavor_conf}" >&2
-    exit 1
-  fi
-  
-  # shellcheck source=/dev/null
-  source "${flavor_conf}"
-  : "${OS_ID:?OS_ID must be set in flavor conf}"
-  : "${DEVICE_BASE_IMAGE:?DEVICE_BASE_IMAGE must be set in flavor conf}"
+flavor_conf="${BASE_DIR}/flavors/${AGENT_OS_ID}.conf"
 
-  base_img_canonical="${IMAGE_REPO}:base-${OS_ID}-${TAG}"
-  base_img_plain="${IMAGE_REPO}:base"
-  base_img_os="${IMAGE_REPO}:base-${OS_ID}"
-  base_img_ver="${IMAGE_REPO}:base-${TAG}"
+if [ ! -f "${flavor_conf}" ]; then
+  echo "[ERROR] Flavor configuration not found: ${flavor_conf}" >&2
+  exit 1
+fi
 
-  variants_list="${VARIANTS}"
-  if [ -n "${ONLY_VARIANTS:-}" ]; then
-    variants_list="${ONLY_VARIANTS}"
-  fi
-  if [ -n "${EXCLUDE_VARIANTS:-}" ]; then
-    tmp=""
-    for v in ${variants_list}; do
-      skip=0
-      for ex in ${EXCLUDE_VARIANTS}; do
-        if [ "$v" = "$ex" ]; then skip=1; break; fi
-      done
-      [ $skip -eq 0 ] && tmp="${tmp} ${v}"
+# shellcheck source=/dev/null
+source "${flavor_conf}"
+: "${OS_ID:?OS_ID must be set in flavor conf}"
+: "${DEVICE_BASE_IMAGE:?DEVICE_BASE_IMAGE must be set in flavor conf}"
+
+base_img_canonical="${IMAGE_REPO}:base-${OS_ID}-${TAG}"
+base_img_plain="${IMAGE_REPO}:base"
+base_img_os="${IMAGE_REPO}:base-${OS_ID}"
+base_img_ver="${IMAGE_REPO}:base-${TAG}"
+
+variants_list="${VARIANTS}"
+if [ -n "${ONLY_VARIANTS:-}" ]; then
+  variants_list="${ONLY_VARIANTS}"
+fi
+if [ -n "${EXCLUDE_VARIANTS:-}" ]; then
+  tmp=""
+  for v in ${variants_list}; do
+    skip=0
+    for ex in ${EXCLUDE_VARIANTS}; do
+      if [ "$v" = "$ex" ]; then skip=1; break; fi
     done
-    variants_list="$(echo "${tmp}" | xargs -n999 echo)"
-  fi
+    [ $skip -eq 0 ] && tmp="${tmp} ${v}"
+  done
+  variants_list="$(echo "${tmp}" | xargs -n999 echo)"
+fi
 
   if [ "${BUILD_BASE}" = "true" ]; then
     echo -e "\033[32m[${OS_ID}] Building base ${base_img_canonical}\033[m"
@@ -206,7 +219,6 @@ for flavor in ${FLAVORS}; do
         -t "$v_img_ver" \
         "'"${BASE_DIR}"'" 2>&1 | prefix'
   fi
-done
 
 # Build apps if requested
 if [ "${BUILD_APPS}" = "true" ]; then

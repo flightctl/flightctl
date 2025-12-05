@@ -31,10 +31,7 @@ The build system supports multiple OS flavors defined in `flavors/` directory:
 ./scripts/build.sh --base
 
 # Build cs10-bootc images
-FLAVORS=cs10-bootc ./scripts/build.sh --base
-
-# Build both flavors
-FLAVORS="cs9-bootc cs10-bootc" ./scripts/build.sh --base --variants
+AGENT_OS_ID=cs10-bootc ./scripts/build.sh --base
 ```
 
 ### Image Tagging

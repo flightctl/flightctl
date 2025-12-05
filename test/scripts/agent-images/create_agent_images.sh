@@ -10,14 +10,28 @@ BUILD_TYPE=${BUILD_TYPE:-bootc}
 PARALLEL_JOBS="${PARALLEL_JOBS:-4}"
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+CURRENT_VERSION_SCRIPT="${ROOT_DIR}/hack/current-version"
 
 source "${SCRIPT_DIR}/../functions"
 
+current_version() {
+    local version=""
+    if [[ -x "${CURRENT_VERSION_SCRIPT}" ]]; then
+        version=$((cd "${ROOT_DIR}" && "${CURRENT_VERSION_SCRIPT}") 2>/dev/null || true)
+    fi
+    if [[ -z "${version}" ]]; then
+        version=$((cd "${ROOT_DIR}" && git describe --tags --exclude latest 2>/dev/null) || true)
+    fi
+    if [[ -z "${version}" ]]; then
+        version="v0.0.0-unknown"
+    fi
+    echo -n "${version}"
+}
+
 # Use same defaults as build.sh and build_and_qcow2.sh
-SOURCE_GIT_TAG="${SOURCE_GIT_TAG:-$(git describe --tags --exclude latest 2>/dev/null || echo "v0.0.0-unknown")}"
+SOURCE_GIT_TAG="${SOURCE_GIT_TAG:-$(current_version)}"
 TAG="${TAG:-$SOURCE_GIT_TAG}"
 IMAGE_REPO="${IMAGE_REPO:-quay.io/flightctl/flightctl-device}"
-FLAVORS="${FLAVORS:-cs9-bootc}"
 REGISTRY_ADDRESS="${REGISTRY_ADDRESS:-$(registry_address)}"
 REGISTRY_ENDPOINT="${REGISTRY_ENDPOINT:-$REGISTRY_ADDRESS}"
 
@@ -100,7 +114,7 @@ elif [ -n "${FLIGHTCTL_RPM:-}" ]; then
 
     # Append OS suffix if versioned
     if [ "${RPM_COPR_PACKAGE}" != "flightctl-agent" ]; then
-        OS_SUFFIX=$(get_os_suffix "${FLAVORS}")
+        OS_SUFFIX=$(get_os_suffix "${AGENT_OS_ID}")
         RPM_COPR_PACKAGE="${RPM_COPR_PACKAGE}${OS_SUFFIX}"
     fi
 
@@ -121,23 +135,24 @@ fi
 export PODMAN_BUILD_EXTRA_FLAGS
 export IMAGE_REPO
 export TAG
-export FLAVORS
-
 # Calculate registry endpoint for pushing (if not already set)
 export REGISTRY_ENDPOINT
 
-# Get OS_ID from first flavor
-first_flavor="${FLAVORS%% *}"
-case "${first_flavor}" in
+# Determine OS_ID strictly from AGENT_OS_ID (single source of truth)
+AGENT_OS_ID="${AGENT_OS_ID:-cs9-bootc}"
+case "${AGENT_OS_ID}" in
     cs9*)  OS_ID="cs9-bootc" ;;
     cs10*) OS_ID="cs10-bootc" ;;
-    *)     OS_ID="${first_flavor}" ;;
+    *)     OS_ID="${AGENT_OS_ID}" ;;
 esac
+
+# Export so downstream scripts see the selected flavor
+export AGENT_OS_ID
 export OS_ID
 
 build_base() {
     echo "Building base image with PODMAN_BUILD_EXTRA_FLAGS: ${PODMAN_BUILD_EXTRA_FLAGS}"
-    sudo "${SCRIPT_DIR}/scripts/build.sh" --base
+    sudo AGENT_OS_ID="${AGENT_OS_ID}" "${SCRIPT_DIR}/scripts/build.sh" --base
 }
 
 build_variants_and_qcow2() {

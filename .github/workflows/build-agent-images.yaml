@@ -47,11 +47,15 @@ jobs:
       - name: Build agent images for flavor
         env:
           TAG: ${{ inputs.tag }}
-          AGENT_IMAGE_OUTPUT: push
+          AGENT_IMAGE_OUTPUT: bundle
           AGENT_OS_ID: ${{ inputs.os_id }}
         run: |
           mkdir -p bin/rpm
-          touch bin/rpm/.rpm
+          # Validate that both agent and selinux RPMs are present from the download step
+          ls bin/rpm/flightctl-agent-*.rpm >/dev/null 2>&1
+          ls bin/rpm/flightctl-selinux-*.rpm >/dev/null 2>&1
+          # Mark RPMs as already provided so Makefile skips rebuilding them
+          touch bin/.rpm
           ls -la bin/rpm
           make -j4 e2e-agent-images
 
@@ -61,7 +65,7 @@ jobs:
           OS_ID: ${{ inputs.os_id }}
         run: |
           set -euo pipefail
-          LOG_DIR="artifacts/logs-${OS_ID}"
+          LOG_DIR="bin/agent-artifacts/os-${OS_ID}/logs"
           echo "::group::Variants+bundle output"
           if [ -f "${LOG_DIR}/variants.log" ]; then
             cat "${LOG_DIR}/variants.log"
@@ -90,7 +94,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: agent-qcow2-image-${{ inputs.os_id }}
-          path: bin/output/agent-qcow2-${{ inputs.os_id }}/qcow2/disk.qcow2
+          path: bin/output/qcow2/disk.qcow2
           compression-level: 0
           if-no-files-found: error
           retention-days: 1

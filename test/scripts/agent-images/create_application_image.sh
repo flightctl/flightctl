@@ -2,13 +2,28 @@
 set -ex
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+CURRENT_VERSION_SCRIPT="${ROOT_DIR}/hack/current-version"
 
 source "${SCRIPT_DIR}"/../functions
+
+current_version() {
+  local version=""
+  if [[ -x "${CURRENT_VERSION_SCRIPT}" ]]; then
+    version=$((cd "${ROOT_DIR}" && "${CURRENT_VERSION_SCRIPT}") 2>/dev/null || true)
+  fi
+  if [[ -z "${version}" ]]; then
+    version=$((cd "${ROOT_DIR}" && git describe --tags --exclude latest 2>/dev/null) || true)
+  fi
+  if [[ -z "${version}" ]]; then
+    version="v0.0.0-unknown"
+  fi
+  echo -n "${version}"
+}
 
 REGISTRY_ADDRESS="${REGISTRY_ADDRESS:-$(registry_address)}"
 REGISTRY_ENDPOINT="${REGISTRY_ENDPOINT:-$REGISTRY_ADDRESS}"
 APP_REPO="${APP_REPO:-quay.io/flightctl}"
-SOURCE_GIT_TAG="${SOURCE_GIT_TAG:-$(git describe --tags --exclude latest 2>/dev/null || echo "v0.0.0-unknown")}"
+SOURCE_GIT_TAG="${SOURCE_GIT_TAG:-$(current_version)}"
 TAG="${TAG:-$SOURCE_GIT_TAG}"
 
 cd "$ROOT_DIR"
