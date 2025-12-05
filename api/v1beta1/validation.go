@@ -18,7 +18,6 @@ import (
 
 	"github.com/flightctl/flightctl/internal/api/common"
 	"github.com/flightctl/flightctl/internal/contextutil"
-	"github.com/flightctl/flightctl/internal/quadlet"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/robfig/cron/v3"
@@ -785,6 +784,16 @@ func (a ApplicationProviderSpec) Validate() []error {
 func (a InlineApplicationProviderSpec) Validate(appType AppType, fleetTemplate bool) []error {
 	allErrs := []error{}
 
+	var appValidator applicationValidator
+	switch appType {
+	case AppTypeCompose:
+		appValidator = &composeValidator{paths: make(map[string]struct{})}
+	case AppTypeQuadlet:
+		appValidator = &quadletValidator{quadlets: make(map[string]*common.QuadletReferences)}
+	default:
+		appValidator = &unknownAppTypeValidator{appType}
+	}
+
 	seenPath := make(map[string]struct{}, len(a.Inline))
 	for i := range a.Inline {
 		path := a.Inline[i].Path
@@ -794,28 +803,14 @@ func (a InlineApplicationProviderSpec) Validate(appType AppType, fleetTemplate b
 		} else {
 			seenPath[path] = struct{}{}
 		}
-		allErrs = append(allErrs, a.Inline[i].Validate(i, appType, fleetTemplate)...)
+		allErrs = append(allErrs, a.Inline[i].Validate(i, appValidator, fleetTemplate)...)
 	}
 
-	paths := make([]string, 0, len(seenPath))
-	for path := range seenPath {
-		paths = append(paths, path)
-	}
-	var pathErr error
-	switch appType {
-	case AppTypeCompose:
-		pathErr = validation.ValidateComposePaths(paths)
-	case AppTypeQuadlet:
-		pathErr = validation.ValidateQuadletPaths(paths)
-	}
-	if pathErr != nil {
-		allErrs = append(allErrs, fmt.Errorf("spec.applications[].inline[].path: %w", pathErr))
-	}
-
+	allErrs = append(allErrs, appValidator.Validate()...)
 	return allErrs
 }
 
-func (c ApplicationContent) Validate(index int, appType AppType, fleetTemplate bool) []error {
+func (c ApplicationContent) Validate(index int, appValidator applicationValidator, fleetTemplate bool) []error {
 	var allErrs []error
 	pathPrefix := fmt.Sprintf("spec.applications[].inline[%d]", index)
 
@@ -854,7 +849,7 @@ func (c ApplicationContent) Validate(index int, appType AppType, fleetTemplate b
 	allErrs = append(allErrs, validation.ValidateString(&decodedStr, contentPath, 0, maxInlineLength, nil, "")...)
 	_, paramErrs = validateParametersInString(&decodedStr, contentPath, fleetTemplate)
 	allErrs = append(allErrs, paramErrs...)
-	allErrs = append(allErrs, ValidateApplicationContent(decodedBytes, appType, c.Path)...)
+	allErrs = append(allErrs, appValidator.ValidateContents(c.Path, decodedBytes)...)
 
 	return allErrs
 }
@@ -865,32 +860,6 @@ func (c ApplicationContent) IsBase64() bool {
 
 func (c ApplicationContent) IsPlain() bool {
 	return c.ContentEncoding == nil || *c.ContentEncoding == EncodingPlain
-}
-
-func ValidateApplicationContent(content []byte, appType AppType, path string) []error {
-	var allErrs []error
-	switch appType {
-	case AppTypeCompose:
-		composeSpec, err := common.ParseComposeSpec(content)
-		if err != nil {
-			return []error{fmt.Errorf("parse compose spec: %w", err)}
-		}
-		allErrs = append(allErrs, validation.ValidateComposeSpec(composeSpec)...)
-	case AppTypeQuadlet:
-		// Quadlet apps can come with misc files, so only validate that the quadlet files are defined correctly
-		if quadlet.IsQuadletFile(path) {
-			quadletSpec, err := common.ParseQuadletReferences(content)
-			if err != nil {
-				allErrs = append(allErrs, fmt.Errorf("parse quadlet spec %q: %w", path, err))
-			} else {
-				allErrs = append(allErrs, validation.ValidateQuadletSpec(quadletSpec, path)...)
-			}
-		}
-	default:
-		allErrs = append(allErrs, fmt.Errorf("unsupported application type: %s", appType))
-	}
-
-	return allErrs
 }
 
 func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []error {
