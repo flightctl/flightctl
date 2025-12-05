@@ -210,7 +210,7 @@ func TestStaticAuthZ_GetUserPermissions(t *testing.T) {
 			expectedPermissions: []v1beta1.Permission{
 				{
 					Resource:   "certificatesigningrequests",
-					Operations: []string{"create", "get", "list"},
+					Operations: []string{"create", "get", "list", "update"},
 				},
 				{
 					Resource:   "enrollmentrequests",
@@ -236,7 +236,7 @@ func TestStaticAuthZ_GetUserPermissions(t *testing.T) {
 				},
 				{
 					Resource:   "certificatesigningrequests",
-					Operations: []string{"create", "get", "list"},
+					Operations: []string{"create", "get", "list", "update"},
 				},
 				{
 					Resource:   "enrollmentrequests",

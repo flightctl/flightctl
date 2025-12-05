@@ -38,6 +38,7 @@ gen_require(`
     type usr_t;
     type node_t;
     type tpm_device_t, security_t;
+    type unconfined_service_t;
 
     attribute domain;
 ')
@@ -156,6 +157,7 @@ sysnet_dns_name_resolve(flightctl_agent_t)
 allow flightctl_agent_t self:{ tcp_socket udp_socket netlink_route_socket } { create bind connect read write getattr setattr lock append sendto recvfrom listen accept };
 allow flightctl_agent_t self:unix_dgram_socket { create connect read write getattr };
 allow flightctl_agent_t kernel_t:unix_dgram_socket sendto;
+allow flightctl_agent_t kernel_t:unix_stream_socket connectto;
 
 # Netlink audit socket for namespace operations
 allow flightctl_agent_t self:netlink_audit_socket { create bind connect read write getattr setattr lock append sendto recvfrom nlmsg_relay };
@@ -280,3 +282,9 @@ allow flightctl_agent_t rhsmcertd_log_t:dir write;
 allow flightctl_agent_t rhsmcertd_var_lib_t:dir { getattr search };
 allow flightctl_agent_t rhsmcertd_var_run_t:dir write;
 allow flightctl_agent_t usr_t:file write;
+
+# REMOVE this once https://github.com/bootc-dev/bootc/issues/1434 is fixed. We don't want to allow
+# it so as not to alter the behavior of bootc, but we can suppress the error as it has been
+# determined to be inoculous by the bootc maintainer.
+dontaudit unconfined_service_t self:capability2 mac_admin;
+
