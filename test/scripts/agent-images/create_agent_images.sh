@@ -7,6 +7,7 @@ set -ex
 
 
 BUILD_TYPE=${BUILD_TYPE:-bootc}
+PARALLEL_JOBS="${PARALLEL_JOBS:-4}"
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
@@ -17,6 +18,19 @@ SOURCE_GIT_TAG="${SOURCE_GIT_TAG:-$(git describe --tags --exclude latest 2>/dev/
 TAG="${TAG:-$SOURCE_GIT_TAG}"
 IMAGE_REPO="${IMAGE_REPO:-quay.io/flightctl/flightctl-device}"
 FLAVORS="${FLAVORS:-cs9-bootc}"
+REGISTRY_ADDRESS="${REGISTRY_ADDRESS:-$(registry_address)}"
+REGISTRY_ENDPOINT="${REGISTRY_ENDPOINT:-$REGISTRY_ADDRESS}"
+
+if ! [[ "${PARALLEL_JOBS}" =~ ^[0-9]+$ ]] || [ "${PARALLEL_JOBS}" -lt 1 ]; then
+    echo -e "\033[31mInvalid PARALLEL_JOBS=${PARALLEL_JOBS}, falling back to 1\033[m"
+    PARALLEL_JOBS=1
+fi
+
+if [ "${PARALLEL_JOBS}" -gt 8 ]; then
+    echo -e "\033[33mWarning: PARALLEL_JOBS=${PARALLEL_JOBS} may overwhelm the system\033[m"
+fi
+
+export JOBS="${PARALLEL_JOBS}"
 
 # Handle ACM detection - enable v7 variant and increase VM memory
 if is_acm_installed; then
@@ -33,6 +47,37 @@ get_os_suffix() {
         cs10*) echo ".el10" ;;
         *)     echo "" ;;
     esac
+}
+
+qcow_is_up_to_date() {
+    local os_id="$1"
+    local qcow_path="${ROOT_DIR}/bin/output/qcow2/disk.qcow2"
+    local touch_file="${ROOT_DIR}/bin/.e2e-agent-images"
+
+    [[ -f "${qcow_path}" ]] || return 1
+
+    if [[ -f "${touch_file}" && "${qcow_path}" -nt "${touch_file}" ]]; then
+        return 0
+    fi
+
+    local base_image="${IMAGE_REPO}:base-${os_id}-${TAG}"
+    local image_created
+    image_created=$(podman image inspect --format '{{.Created}}' "${base_image}" 2>/dev/null || true)
+    [[ -n "${image_created}" ]] || return 1
+
+    local image_ts qcow_ts
+    image_ts=$(date -d "${image_created}" +%s 2>/dev/null || echo 0)
+    qcow_ts=$(date -r "${qcow_path}" +%s 2>/dev/null || echo 0)
+
+    if [[ "${image_ts}" -eq 0 || "${qcow_ts}" -eq 0 ]]; then
+        return 1
+    fi
+
+    if [[ "${qcow_ts}" -ge "${image_ts}" ]]; then
+        return 0
+    fi
+
+    return 1
 }
 
 # Build extra flags for RPM source
@@ -79,9 +124,6 @@ export TAG
 export FLAVORS
 
 # Calculate registry endpoint for pushing (if not already set)
-if [ -z "${REGISTRY_ENDPOINT:-}" ]; then
-    REGISTRY_ENDPOINT=$(registry_address)
-fi
 export REGISTRY_ENDPOINT
 
 # Get OS_ID from first flavor
@@ -108,7 +150,13 @@ build_variants_and_qcow2() {
         PUSH_ARG="--push"
     fi
 
-    "${SCRIPT_DIR}/scripts/build_and_qcow2.sh" --os-id ${OS_ID} ${PUSH_ARG}
+    local skip_qcow="false"
+    if qcow_is_up_to_date "${OS_ID}"; then
+        echo -e "\033[32mqcow2 artifact for ${OS_ID} is up to date, skipping rebuild\033[m"
+        skip_qcow="true"
+    fi
+
+    SKIP_QCOW_BUILD="${skip_qcow}" "${SCRIPT_DIR}/scripts/build_and_qcow2.sh" --os-id ${OS_ID} ${PUSH_ARG}
 
     # Fix permissions on artifacts
     sudo chown -R "${USER}:$(id -gn ${USER})" "${ROOT_DIR}/artifacts" || true

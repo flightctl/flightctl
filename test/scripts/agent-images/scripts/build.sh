@@ -239,7 +239,7 @@ if [ "${BUILD_APPS}" = "true" ]; then
 
     echo -e "\033[32mBuilding app image ${app_img_canonical} (${app_name}, version ${version})\033[m"
 
-    podman build \
+    podman build ${PODMAN_BUILD_EXTRA_FLAGS} \
       --build-context "common=${BASE_DIR}/common" \
       --build-arg SOURCE_GIT_TAG="${SOURCE_GIT_TAG}" \
       --build-arg SOURCE_GIT_TREE_STATE="${SOURCE_GIT_TREE_STATE}" \

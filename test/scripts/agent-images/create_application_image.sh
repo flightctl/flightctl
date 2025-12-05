@@ -5,12 +5,30 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
 source "${SCRIPT_DIR}"/../functions
 
-REGISTRY_ADDRESS=$(registry_address)
+REGISTRY_ADDRESS="${REGISTRY_ADDRESS:-$(registry_address)}"
+REGISTRY_ENDPOINT="${REGISTRY_ENDPOINT:-$REGISTRY_ADDRESS}"
 APP_REPO="${APP_REPO:-quay.io/flightctl}"
 SOURCE_GIT_TAG="${SOURCE_GIT_TAG:-$(git describe --tags --exclude latest 2>/dev/null || echo "v0.0.0-unknown")}"
 TAG="${TAG:-$SOURCE_GIT_TAG}"
 
 cd "$ROOT_DIR"
+
+# Enable cache hints when running inside GitHub Actions to match upstream behavior
+if [ "${GITHUB_ACTIONS:-false}" = "true" ]; then
+  REGISTRY="${REGISTRY:-localhost}"
+  REGISTRY_OWNER_TESTS="${REGISTRY_OWNER_TESTS:-flightctl-tests}"
+  APP_CACHE_FLAGS="--cache-from=${REGISTRY}/${REGISTRY_OWNER_TESTS}/sleep-app"
+
+  if [ -n "${APP_CACHE_FLAGS}" ]; then
+    if [ -n "${PODMAN_BUILD_EXTRA_FLAGS:-}" ]; then
+      PODMAN_BUILD_EXTRA_FLAGS="${PODMAN_BUILD_EXTRA_FLAGS} ${APP_CACHE_FLAGS}"
+    else
+      PODMAN_BUILD_EXTRA_FLAGS="${APP_CACHE_FLAGS}"
+    fi
+  fi
+fi
+
+export PODMAN_BUILD_EXTRA_FLAGS
 
 # Build app images using the modular build.sh script
 echo -e "\033[32mBuilding app images using build.sh --apps\033[m"

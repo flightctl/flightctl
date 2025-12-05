@@ -26,6 +26,7 @@ SOURCE_GIT_TAG="${SOURCE_GIT_TAG:-$(git describe --tags --exclude latest 2>/dev/
 TAG="${TAG:-$SOURCE_GIT_TAG}"
 IMAGE_REPO="${IMAGE_REPO:-quay.io/flightctl/flightctl-device}"
 DO_PUSH=false
+SKIP_QCOW_BUILD="${SKIP_QCOW_BUILD:-false}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -93,26 +94,33 @@ sudo rm -f "${variants_log}" "${qcow2_log}"
 ) &
 VARIANTS_PID=$!
 
-(
-  set -euo pipefail
-  echo "Building qcow2 for ${OS_ID}"
-  OUTPUT_DIR="${QCOW2_OUTPUT_DIR}" "${SCRIPT_DIR}/qcow2.sh" 2>&1 | tee "${qcow2_log}"
-  sudo chown -R "$(id -un)":"$(id -gn)" "${QCOW2_OUTPUT_DIR}" || true
-  echo "endgroup"
-) &
-QCOW2_PID=$!
+QCOW2_PID=""
+if [ "${SKIP_QCOW_BUILD}" != "true" ]; then
+  (
+    set -euo pipefail
+    echo "Building qcow2 for ${OS_ID}"
+    OUTPUT_DIR="${QCOW2_OUTPUT_DIR}" "${SCRIPT_DIR}/qcow2.sh" 2>&1 | tee "${qcow2_log}"
+    sudo chown -R "$(id -un)":"$(id -gn)" "${QCOW2_OUTPUT_DIR}" || true
+    echo "endgroup"
+  ) &
+  QCOW2_PID=$!
+else
+  echo "Skipping qcow2 build for ${OS_ID} (SKIP_QCOW_BUILD=true)"
+fi
 
 variants_exit=0
 qcow2_exit=0
 wait "${VARIANTS_PID}" || variants_exit=$?
-wait "${QCOW2_PID}" || qcow2_exit=$?
+if [ -n "${QCOW2_PID}" ]; then
+  wait "${QCOW2_PID}" || qcow2_exit=$?
+fi
 
 if [ "${variants_exit}" -ne 0 ]; then
   echo "::error::Variants+bundle build failed with exit code ${variants_exit}"
   echo "The logs for the variants build are saved to ${variants_log}"
   exit "${variants_exit}"
 fi
-if [ "${qcow2_exit}" -ne 0 ]; then
+if [ -n "${QCOW2_PID}" ] && [ "${qcow2_exit}" -ne 0 ]; then
   echo "::error::QCOW2 build failed with exit code ${qcow2_exit}"
   echo "The logs for the qcow2 build are saved to ${qcow2_log}"
   exit "${qcow2_exit}"
