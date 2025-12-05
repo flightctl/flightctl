@@ -1380,12 +1380,25 @@ func (a *AuthProvider) Validate(ctx context.Context) []error {
 	allErrs = append(allErrs, validation.ValidateResourceName(a.Metadata.Name)...)
 	allErrs = append(allErrs, validation.ValidateLabels(a.Metadata.Labels)...)
 	allErrs = append(allErrs, validation.ValidateAnnotations(a.Metadata.Annotations)...)
-	allErrs = append(allErrs, a.Spec.Validate(ctx)...)
+	allErrs = append(allErrs, a.Spec.Validate(ctx, false)...)
 
 	return allErrs
 }
 
-func (o *OIDCProviderSpec) Validate(ctx context.Context) []error {
+// ValidateUpdate ensures immutable fields are unchanged and required fields are not deleted for AuthProvider.
+func (a *AuthProvider) ValidateUpdate(ctx context.Context, oldObj *AuthProvider) []error {
+	allErrs := validateImmutableCoreFields(oldObj.Metadata.Name, a.Metadata.Name,
+		oldObj.ApiVersion, a.ApiVersion,
+		oldObj.Kind, a.Kind,
+		nil, nil) // AuthProvider doesn't have status
+
+	// Validate the new spec (receiver 'a' is the new object)
+	allErrs = append(allErrs, a.Spec.ValidateUpdate(ctx, &oldObj.Spec)...)
+
+	return allErrs
+}
+
+func (o *OIDCProviderSpec) Validate(ctx context.Context, isUpdate bool) []error {
 	allErrs := []error{}
 
 	if o.Issuer == "" {
@@ -1404,7 +1417,7 @@ func (o *OIDCProviderSpec) Validate(ctx context.Context) []error {
 	return allErrs
 }
 
-func (o *OAuth2ProviderSpec) Validate(ctx context.Context) []error {
+func (o *OAuth2ProviderSpec) Validate(ctx context.Context, isUpdate bool) []error {
 	allErrs := []error{}
 
 	if o.AuthorizationUrl == "" {
@@ -1420,13 +1433,19 @@ func (o *OAuth2ProviderSpec) Validate(ctx context.Context) []error {
 		allErrs = append(allErrs, ErrClientIdRequired)
 	}
 
-	// Infer introspection configuration if not provided
+	// Handle introspection field validation
 	if o.Introspection == nil {
-		introspection, err := InferOAuth2IntrospectionConfig(*o)
-		if err != nil {
-			allErrs = append(allErrs, fmt.Errorf("introspection field is required and could not be inferred: %w", err))
+		if !isUpdate {
+			// During creation, try to infer introspection
+			introspection, err := InferOAuth2IntrospectionConfig(*o)
+			if err != nil {
+				allErrs = append(allErrs, fmt.Errorf("introspection field is required and could not be inferred: %w", err))
+			} else {
+				o.Introspection = introspection
+			}
 		} else {
-			o.Introspection = introspection
+			// During update, introspection is required and cannot be nil
+			allErrs = append(allErrs, fmt.Errorf("introspection field is required for OAuth2 providers"))
 		}
 	}
 
@@ -1439,7 +1458,7 @@ func (o *OAuth2ProviderSpec) Validate(ctx context.Context) []error {
 	return allErrs
 }
 
-func (a *AuthProviderSpec) Validate(ctx context.Context) []error {
+func (a *AuthProviderSpec) Validate(ctx context.Context, isUpdate bool) []error {
 	allErrs := []error{}
 
 	// Get the discriminator to determine which type of provider this is
@@ -1455,17 +1474,20 @@ func (a *AuthProviderSpec) Validate(ctx context.Context) []error {
 		if err != nil {
 			allErrs = append(allErrs, fmt.Errorf("invalid OIDC provider spec: %w", err))
 		} else {
-			allErrs = append(allErrs, (&oidcSpec).Validate(ctx)...)
+			allErrs = append(allErrs, (&oidcSpec).Validate(ctx, isUpdate)...)
 		}
 	case string(Oauth2):
 		oauth2Spec, err := a.AsOAuth2ProviderSpec()
 		if err != nil {
 			allErrs = append(allErrs, fmt.Errorf("invalid OAuth2 provider spec: %w", err))
 		} else {
-			allErrs = append(allErrs, (&oauth2Spec).Validate(ctx)...)
+			allErrs = append(allErrs, (&oauth2Spec).Validate(ctx, isUpdate)...)
 			// Write back the mutated spec (with inferred introspection) to the union
-			if mergeErr := a.MergeOAuth2ProviderSpec(oauth2Spec); mergeErr != nil {
-				allErrs = append(allErrs, fmt.Errorf("failed to update OAuth2 provider spec: %w", mergeErr))
+			// Only merge if not updating (to preserve user-provided values during updates)
+			if !isUpdate {
+				if mergeErr := a.MergeOAuth2ProviderSpec(oauth2Spec); mergeErr != nil {
+					allErrs = append(allErrs, fmt.Errorf("failed to update OAuth2 provider spec: %w", mergeErr))
+				}
 			}
 		}
 	case string(K8s):
@@ -1475,6 +1497,52 @@ func (a *AuthProviderSpec) Validate(ctx context.Context) []error {
 	default:
 		allErrs = append(allErrs, fmt.Errorf("unknown provider type: %s", discriminator))
 	}
+
+	return allErrs
+}
+
+// ValidateUpdate ensures required fields are not deleted for AuthProviderSpec.
+func (a *AuthProviderSpec) ValidateUpdate(ctx context.Context, oldSpec *AuthProviderSpec) []error {
+	allErrs := []error{}
+
+	// Check both old and new provider types for OAuth2 to validate introspection field
+	oldDiscriminator, oldErr := oldSpec.Discriminator()
+	if oldErr != nil {
+		allErrs = append(allErrs, fmt.Errorf("invalid old auth provider spec: %w", oldErr))
+		return allErrs
+	}
+
+	newDiscriminator, newErr := a.Discriminator()
+	if newErr != nil {
+		allErrs = append(allErrs, fmt.Errorf("invalid new auth provider spec: %w", newErr))
+		return allErrs
+	}
+
+	// If the old provider was OAuth2, check for introspection removal
+	if oldDiscriminator == string(Oauth2) {
+		oldOAuth2Spec, err := oldSpec.AsOAuth2ProviderSpec()
+		if err != nil {
+			allErrs = append(allErrs, fmt.Errorf("failed to parse old OAuth2 provider spec: %w", err))
+			return allErrs
+		}
+
+		// Check if new provider is also OAuth2
+		if newDiscriminator == string(Oauth2) {
+			newOAuth2Spec, err := a.AsOAuth2ProviderSpec()
+			if err != nil {
+				allErrs = append(allErrs, fmt.Errorf("invalid new OAuth2 provider spec: %w", err))
+				return allErrs
+			}
+
+			// Check if introspection is being removed
+			if oldOAuth2Spec.Introspection != nil && newOAuth2Spec.Introspection == nil {
+				allErrs = append(allErrs, fmt.Errorf("introspection field cannot be removed once set"))
+			}
+		}
+	}
+
+	// Run standard validation with isUpdate=true
+	allErrs = append(allErrs, a.Validate(ctx, true)...)
 
 	return allErrs
 }
@@ -1666,6 +1734,9 @@ func (a AuthStaticRoleAssignment) Validate(ctx context.Context) []error {
 	for i, role := range a.Roles {
 		if role == "" {
 			allErrs = append(allErrs, fmt.Errorf("role at index %d cannot be empty", i))
+		}
+		if !slices.Contains(KnownExternalRoles, role) {
+			allErrs = append(allErrs, fmt.Errorf("role at index %d is not a valid role: %s", i, role))
 		}
 	}
 

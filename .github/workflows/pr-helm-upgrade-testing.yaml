@@ -7,10 +7,6 @@ description: |
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-      - 'release-*'
   pull_request:
   merge_group:
 
@@ -229,10 +225,16 @@ jobs:
             --reuse-values \
             --debug --wait # for the deployment complete (including readiness probes passing)
 
+      - name: "[HEAD] Wait for API readiness after upgrade"
+        uses: ./.github/actions/wait-for-api-readiness
+        with:
+          base-domain: ${{ steps.get-ip.outputs.base-domain }}
+
       - name: "[HEAD] Check deployment"
         run: |
           helm list --all-namespaces
           kubectl get pods --all-namespaces
+
 
       - name: "[HEAD] Validate versions"
         env:
@@ -284,6 +286,11 @@ jobs:
             --namespace flightctl-external \
             --reuse-values \
             --debug --wait
+
+      - name: "[HEAD] Wait for API readiness after same-version upgrade"
+        uses: ./.github/actions/wait-for-api-readiness
+        with:
+          base-domain: ${{ steps.get-ip.outputs.base-domain }}
 
       - name: "[HEAD] Validate versions"
         env:

@@ -14,6 +14,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1beta1"
 	apiClient "github.com/flightctl/flightctl/internal/api/client"
+	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/cli/display"
 	"github.com/flightctl/flightctl/internal/cli/login"
 	"github.com/flightctl/flightctl/internal/client"
@@ -419,12 +420,16 @@ func (o *LoginOptions) validateTokenWithServer(ctx context.Context, token string
 	if err != nil {
 		return nil, fmt.Errorf("creating HTTP client: %w", err)
 	}
-
+	tokenEditor := apiClient.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
+		req.Header.Set(common.AuthHeader, fmt.Sprintf("Bearer %s", token))
+		return nil
+	})
 	// Create API client with just the HTTP client and organization, no auto-token injection
 	c, err := apiClient.NewClientWithResponses(
 		o.clientConfig.Service.Server,
 		apiClient.WithHTTPClient(httpClient),
 		client.WithOrganization(o.clientConfig.Organization),
+		tokenEditor,
 		client.WithUserAgentHeader("flightctl-cli"),
 	)
 	if err != nil {
@@ -524,7 +529,12 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 	}
 
 	// Auto-select organization if enabled and user has access to only one
-	if response, err := c.ListOrganizationsWithResponse(ctx, &v1beta1.ListOrganizationsParams{}); err == nil && response.StatusCode() == http.StatusOK && response.JSON200 != nil && len(response.JSON200.Items) == 1 {
+	if response, err := c.ListOrganizationsWithResponse(ctx, &v1beta1.ListOrganizationsParams{}); err == nil && response.StatusCode() == http.StatusOK && response.JSON200 != nil {
+
+		if len(response.JSON200.Items) == 0 {
+			return fmt.Errorf("no organizations found")
+		}
+
 		org := response.JSON200.Items[0]
 		if org.Metadata.Name != nil {
 			orgName := *org.Metadata.Name

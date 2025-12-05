@@ -22,7 +22,7 @@ const (
 )
 
 type ActionHandler interface {
-	Execute(ctx context.Context, action *Action) error
+	Execute(ctx context.Context, actions ...*Action) error
 }
 
 type Action struct {
