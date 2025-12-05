@@ -105,6 +105,7 @@ help:
 	@echo "    clean:           clean up all containers and volumes"
 	@echo "    clean-all:       full cleanup including containers and bin directory"
 	@echo "    rebuild-containers: force rebuild all containers"
+	@echo "    bundle-containers: bundle all flightctl containers into tar archive"
 	@echo "    cluster:         create a kind cluster and load the flightctl-server image"
 	@echo "    clean-cluster:   kill the kind cluster only"
 	@echo "    clean-quadlets:  clean up all systemd services and quadlet files"
@@ -324,7 +325,12 @@ clean-containers:
 
 build-containers: flightctl-api-container flightctl-pam-issuer-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container flightctl-userinfo-proxy-container flightctl-telemetry-gateway-container
 
-.PHONY: build-containers build-cli build-multiarch-clis
+bundle-containers:
+	test/scripts/agent-images/scripts/bundle.sh \
+		--image-pattern 'quay.io/flightctl/.*:$(SOURCE_GIT_TAG)' \
+		--output-path 'bin/flightctl-images-bundle.tar'
+
+.PHONY: build-containers bundle-containers build-cli build-multiarch-clis
 
 
 bin:
@@ -373,6 +379,7 @@ clean: clean-agent-vm clean-e2e-agent-images clean-quadlets clean-swtpm-certs
 	- rm -rf obj-*-linux-gnu
 	- rm -rf debian
 	- rm -rf .output/stamps
+	- rm -f bin/flightctl-images-bundle.tar
 # Qcow2 disk depends on the touch file
 bin/output/qcow2/disk.qcow2: bin/.e2e-agent-images
 

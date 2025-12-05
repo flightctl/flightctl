@@ -131,8 +131,11 @@ clean-quadlets-vm:
 	@sudo rm -f /var/lib/libvirt/images/quadlets-vm_src.qcow2 2>/dev/null || true
 	@echo "quadlets-vm cleanup completed"
 
-prepare-e2e-qcow-config: bin/output/qcow2/disk.qcow2
+bin/.e2e-agent-injected: bin/output/qcow2/disk.qcow2 bin/.e2e-agent-certs
 	QCOW=bin/output/qcow2/disk.qcow2 AGENT_DIR=bin/agent/etc/flightctl test/scripts/inject_agent_files_into_qcow.sh
+	touch bin/.e2e-agent-injected
+
+prepare-e2e-qcow-config: bin/.e2e-agent-injected
 
 prepare-e2e-test: RPM_MOCK_ROOT=centos-stream+epel-next-9-x86_64
 prepare-e2e-test: deploy-e2e-extras build-e2e-containers prepare-e2e-qcow-config
@@ -151,7 +154,7 @@ git-server-container: bin/e2e-certs/ca.pem
 		source test/scripts/functions && kind_load_image localhost/git-server:latest; \
 	fi
 
-# Build E2E agent images with proper caching
+# Build E2E agent images with proper caching (offline build – no cert generation)
 e2e-agent-images: bin/.e2e-agent-images
 	@echo "E2E agent images already built and up to date"
 
