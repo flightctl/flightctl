@@ -51,6 +51,7 @@ flightctl is the CLI for controlling the Flight Control service.
 Summary: Flight Control management agent
 
 Requires: flightctl-selinux = %{version}
+Requires: jq
 
 %description agent
 The flightctl-agent package provides the management agent for the Flight Control fleet management service.
