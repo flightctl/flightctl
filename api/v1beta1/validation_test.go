@@ -1249,6 +1249,20 @@ func TestValidateVolumeAppTypeCompatibility(t *testing.T) {
 	}
 }
 
+func TestValidateVolumeReclaimPolicy(t *testing.T) {
+	require := require.New(t)
+
+	t.Run("invalid reclaim policy value", func(t *testing.T) {
+		vol := createImageVolume(t, "data", "quay.io/test/image:v1")
+		policy := ApplicationVolumeReclaimPolicy("Recycle")
+		vol.ReclaimPolicy = &policy
+
+		errs := validateVolume(vol, "spec.applications[test].volumes[0]", false, AppTypeCompose)
+		require.Len(errs, 1)
+		require.Contains(errs[0].Error(), "reclaimPolicy")
+	})
+}
+
 func TestValidateResourceMonitor(t *testing.T) {
 	require := require.New(t)
 	tests := []struct {

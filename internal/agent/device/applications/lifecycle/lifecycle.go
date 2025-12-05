@@ -44,9 +44,21 @@ type Action struct {
 	Volumes []Volume
 }
 
+type VolumeReclaimPolicy string
+
+const (
+	VolumeReclaimPolicyRetain VolumeReclaimPolicy = "Retain"
+	VolumeReclaimPolicyDelete VolumeReclaimPolicy = "Delete"
+)
+
+func (p VolumeReclaimPolicy) DeleteOnRemoval() bool {
+	return p == VolumeReclaimPolicyDelete
+}
+
 type Volume struct {
-	ID        string
-	Reference string
+	ID            string
+	Reference     string
+	ReclaimPolicy VolumeReclaimPolicy
 }
 
 type contextKey string

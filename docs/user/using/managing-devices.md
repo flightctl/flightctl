@@ -1084,6 +1084,7 @@ spec:
           mount:
             path: "/app/config:ro"
         - name: logs # named volume mounted with no configuration
+          reclaimPolicy: Delete
           mount:
             path: "/app/logs"
         - name: ml-models # OCI artifact backed volume
@@ -1118,6 +1119,10 @@ Each volume definition includes:
 | `name` | Logical volume name. Must match the volume name referenced in the Compose file. |
 | `image.reference` | Fully qualified OCI artifact reference containing the volume contents. |
 | `image.pullPolicy` | (Optional) Defines pull behavior: `Always`, `IfNotPresent`, or `Never`. Defaults to `IfNotPresent` if not specified. |
+| `reclaimPolicy` | (Optional) Defines what happens to the managed volume when the application is removed: Delete or Retain. Defaults to Retain if not specified. |
+
+> [!NOTE]
+> Volumes created directly inside Compose or Quadlet manifests without a matching entry in the FlightCTL API are treated as user-managed and are always retained.
 
 > [!IMPORTANT]
 > In the Compose file, volumes must be declared as `external: true` to allow the agent to handle preparation and mounting.

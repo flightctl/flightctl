@@ -995,6 +995,14 @@ func ValidateContainerImageApplicationSpec(appName string, spec *ImageApplicatio
 func validateVolume(vol ApplicationVolume, path string, fleetTemplate bool, appType AppType) []error {
 	var errs []error
 
+	if vol.ReclaimPolicy != nil {
+		switch *vol.ReclaimPolicy {
+		case Retain, Delete:
+		default:
+			errs = append(errs, fmt.Errorf("%s.reclaimPolicy: unsupported value %q", path, *vol.ReclaimPolicy))
+		}
+	}
+
 	providerType, err := vol.Type()
 	if err != nil {
 		return []error{fmt.Errorf("invalid application volume provider: %w", err)}
