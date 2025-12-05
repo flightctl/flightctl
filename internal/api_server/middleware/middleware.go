@@ -10,6 +10,8 @@ import (
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/contextutil"
 	"github.com/flightctl/flightctl/internal/crypto/signer"
+	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/reqid"
@@ -77,7 +79,9 @@ func UserAgentLogger(logger logrus.FieldLogger) func(http.Handler) http.Handler 
 }
 
 // OrgIDExtractor extracts an organization ID from an HTTP request.
-type OrgIDExtractor func(context.Context, *http.Request) (uuid.UUID, error)
+// Returns (orgID, present, error) where present is true if the org ID was
+// explicitly specified in the request.
+type OrgIDExtractor func(context.Context, *http.Request) (uuid.UUID, bool, error)
 
 // QueryOrgIDExtractor is the default extractor that reads the org_id from the query string.
 var QueryOrgIDExtractor OrgIDExtractor = extractOrgIDFromRequestQuery
@@ -93,20 +97,29 @@ func ExtractOrgIDToCtx(extractor OrgIDExtractor, logger logrus.FieldLogger) func
 			ctx := r.Context()
 			reqLogger := log.WithReqIDFromCtx(ctx, logger)
 
-			orgID, err := extractor(ctx, r)
+			orgID, present, err := extractor(ctx, r)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
 			// Log the extracted organization ID
-			reqLogger.Debugf("ExtractOrgIDToCtx: extracted orgID=%s from request", orgID.String())
+			reqLogger.Debugf("ExtractOrgIDToCtx: extracted orgID=%s from request (present=%v)", orgID.String(), present)
 
-			// If no organization ID was found, use the user's first organization
-			if orgID == uuid.Nil {
+			// If no organization ID was explicitly provided, attempt to infer from user's organizations
+			if !present {
 				mappedIdentity, ok := contextutil.GetMappedIdentityFromContext(ctx)
-				if ok && len(mappedIdentity.GetOrganizations()) > 0 {
-					orgID = mappedIdentity.GetOrganizations()[0].ID
-					reqLogger.Debugf("ExtractOrgIDToCtx: extracted orgID=%s from mapped identity", orgID.String())
+				if ok {
+					switch len(mappedIdentity.GetOrganizations()) {
+					case 1:
+						orgID = mappedIdentity.GetOrganizations()[0].ID
+						reqLogger.Debugf("ExtractOrgIDToCtx: extracted orgID=%s from mapped identity", orgID.String())
+					case 0:
+						orgID = org.DefaultID
+						reqLogger.Debug("ExtractOrgIDToCtx: falling back to default orgID")
+					default:
+						http.Error(w, flterrors.ErrAmbiguousOrganization.Error(), http.StatusBadRequest)
+						return
+					}
 				}
 			}
 
@@ -167,36 +180,36 @@ func ValidateOrgMembership(logger logrus.FieldLogger) func(http.Handler) http.Ha
 	}
 }
 
-func extractOrgIDFromRequestQuery(ctx context.Context, r *http.Request) (uuid.UUID, error) {
+func extractOrgIDFromRequestQuery(ctx context.Context, r *http.Request) (uuid.UUID, bool, error) {
 	orgIDParam := r.URL.Query().Get(api.OrganizationIDQueryKey)
 	if orgIDParam == "" {
-		return uuid.Nil, nil
+		return uuid.Nil, false, nil
 	}
 
 	parsedID, err := uuid.Parse(orgIDParam)
 	if err != nil {
-		return uuid.Nil, fmt.Errorf("invalid %s parameter: %w", api.OrganizationIDQueryKey, err)
+		return uuid.Nil, false, flterrors.ErrInvalidOrgID
 	}
-	return parsedID, nil
+	return parsedID, true, nil
 }
 
 // extractOrgIDFromRequestCert extracts organization ID from the client certificate.
-// Returns the nil UUID if no organization ID is found in the certificate or if the
-// certificate doesn't contain an org ID extension.
-func extractOrgIDFromRequestCert(ctx context.Context, r *http.Request) (uuid.UUID, error) {
+// Returns (orgID, true, nil) if an org ID is found in the certificate.
+// Returns (uuid.Nil, false, error) if no certificate is found or has no org ID extension.
+func extractOrgIDFromRequestCert(ctx context.Context, r *http.Request) (uuid.UUID, bool, error) {
 	peerCertificate, err := signer.PeerCertificateFromCtx(ctx)
 	if err != nil {
-		return uuid.Nil, fmt.Errorf("failed to extract peer certificate from context: %w", err)
+		return uuid.Nil, false, fmt.Errorf("failed to extract peer certificate from context: %w", err)
 	}
 
 	orgID, present, err := signer.GetOrgIDExtensionFromCert(peerCertificate)
 	if err != nil {
-		return uuid.Nil, fmt.Errorf("failed to extract organization ID from certificate: %w", err)
+		return uuid.Nil, false, fmt.Errorf("failed to extract organization ID from certificate: %w", err)
 	}
 	if !present {
-		return uuid.Nil, fmt.Errorf("no organization ID found in certificate")
+		return uuid.Nil, false, fmt.Errorf("no organization ID found in certificate")
 	}
-	return orgID, nil
+	return orgID, true, nil
 }
 
 // SecurityHeaders adds security headers to all HTTP responses.

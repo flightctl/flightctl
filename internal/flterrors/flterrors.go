@@ -43,8 +43,10 @@ var (
 	ErrExtensionNotFound = errors.New("certificate extension not found")
 
 	// authentication/authorization
-	ErrInvalidTokenClaims = errors.New("invalid token claims")
-	ErrMissingTokenClaims = errors.New("missing required token claims")
+	ErrInvalidTokenClaims    = errors.New("invalid token claims")
+	ErrMissingTokenClaims    = errors.New("missing required token claims")
+	ErrAmbiguousOrganization = errors.New("user belongs to multiple organizations but no organization specified")
+	ErrInvalidOrgID          = errors.New("invalid organization ID format")
 
 	// authprovider
 	ErrDuplicateOIDCProvider   = errors.New("an OIDC auth provider with the same issuer and clientId already exists")
