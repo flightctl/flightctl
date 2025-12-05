@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/quadlet"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/samber/lo"
 )
@@ -63,6 +64,10 @@ func (b *quadletHandler) Install(ctx context.Context) error {
 }
 
 func (b *quadletHandler) Remove(ctx context.Context) error {
+	path := filepath.Join(lifecycle.QuadletTargetPath, quadlet.NamespaceResource(b.ID(), lifecycle.QuadletTargetName))
+	if err := b.rw.RemoveFile(path); err != nil {
+		return fmt.Errorf("removing quadlet target file: %w", err)
+	}
 	return nil
 }
 
@@ -145,7 +150,7 @@ func (b *containerHandler) Verify(ctx context.Context, path string) error {
 		}
 		switch volType {
 		// mount and image_mount are supported to allow creating volumes within containers. The regular image provider
-		// is not allowed as it does not specify where is should be mounted.
+		// is not allowed as it does not specify where it should be mounted.
 		case v1beta1.MountApplicationVolumeProviderType, v1beta1.ImageMountApplicationVolumeProviderType:
 			break
 		default:
@@ -167,6 +172,10 @@ func (b *containerHandler) Install(ctx context.Context) error {
 }
 
 func (b *containerHandler) Remove(ctx context.Context) error {
+	path := filepath.Join(lifecycle.QuadletTargetPath, quadlet.NamespaceResource(b.ID(), lifecycle.QuadletTargetName))
+	if err := b.rw.RemoveFile(path); err != nil {
+		return fmt.Errorf("removing container target file: %w", err)
+	}
 	return nil
 }
 

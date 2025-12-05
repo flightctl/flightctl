@@ -203,7 +203,7 @@ func TestSync(t *testing.T) {
 			podmanClient := client.NewPodman(log, mockExec, readWriter, testutil.NewPollConfig())
 			mockWatcher := spec.NewMockWatcher(ctrl)
 			consoleManager := console.NewManager(mockRouterService, deviceName, mockExec, mockWatcher, log)
-			appController := applications.NewController(podmanClient, mockAppManager, readWriter, log)
+			appController := applications.NewController(podmanClient, mockAppManager, readWriter, log, "2025-01-01T00:00:00Z")
 			statusManager := status.NewManager(deviceName, log)
 			statusManager.SetClient(mockManagementClient)
 			configController := config.NewController(readWriter, log)

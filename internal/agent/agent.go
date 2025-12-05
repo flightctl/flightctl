@@ -357,6 +357,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		applicationsManager,
 		deviceReadWriter,
 		a.log,
+		systemInfoManager.BootTime(),
 	)
 
 	// create agent

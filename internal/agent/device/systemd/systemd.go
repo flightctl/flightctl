@@ -33,6 +33,8 @@ type Manager interface {
 	ResetFailed(ctx context.Context, units ...string) error
 	// ListUnitsByMatchPattern lists systemd units matching the provided patterns.
 	ListUnitsByMatchPattern(ctx context.Context, matchPatterns []string) ([]client.SystemDUnitListEntry, error)
+	// ListDependencies returns the list of units that the specified unit depends on.
+	ListDependencies(ctx context.Context, unit string) ([]string, error)
 	// Logs returns the logs based on the specified options
 	Logs(ctx context.Context, options ...client.LogOptions) ([]string, error)
 	status.Exporter
@@ -95,6 +97,10 @@ func (m *manager) ResetFailed(ctx context.Context, units ...string) error {
 
 func (m *manager) ListUnitsByMatchPattern(ctx context.Context, matchPatterns []string) ([]client.SystemDUnitListEntry, error) {
 	return m.client.ListUnitsByMatchPattern(ctx, matchPatterns)
+}
+
+func (m *manager) ListDependencies(ctx context.Context, unit string) ([]string, error) {
+	return m.client.ListDependencies(ctx, unit)
 }
 
 func (m *manager) Logs(ctx context.Context, options ...client.LogOptions) ([]string, error) {

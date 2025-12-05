@@ -29,6 +29,7 @@ type manager struct {
 	podmanClient  *client.Podman
 	readWriter    fileio.ReadWriter
 	log           *log.PrefixLogger
+	bootTime      string
 
 	// cache of extracted nested OCI targets
 	ociTargetCache *provider.OCITargetCache
@@ -50,6 +51,7 @@ func NewManager(
 		podmanMonitor:  NewPodmanMonitor(log, podmanClient, systemdManager, bootTime, readWriter),
 		podmanClient:   podmanClient,
 		log:            log,
+		bootTime:       bootTime,
 		ociTargetCache: provider.NewOCITargetCache(),
 		appDataCache:   provider.NewAppDataCache(),
 	}
@@ -114,7 +116,7 @@ func (m *manager) BeforeUpdate(ctx context.Context, desired *v1beta1.DeviceSpec)
 		m.podmanMonitor.client,
 		m.readWriter,
 		desired,
-		provider.WithEmbedded(),
+		provider.WithEmbedded(m.bootTime),
 		provider.WithAppDataCache(m.appDataCache),
 	)
 	if err != nil {

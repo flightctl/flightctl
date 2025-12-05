@@ -19,6 +19,8 @@ import (
 const (
 	QuadletAppPath         = "/etc/containers/systemd"
 	EmbeddedQuadletAppPath = "/usr/local/etc/containers/systemd"
+	QuadletTargetPath      = "/etc/systemd/system/"
+	QuadletTargetName      = "flightctl.target"
 )
 
 var _ ActionHandler = (*Quadlet)(nil)
@@ -32,7 +34,6 @@ type Quadlet struct {
 }
 
 type actionCacheEntry struct {
-	services        []string
 	artifactVolumes []string
 }
 
@@ -44,28 +45,6 @@ func newActionCache() *actionCache {
 	return &actionCache{
 		cache: make(map[string]*actionCacheEntry),
 	}
-}
-
-func (a *actionCache) hasAction(actionID string) bool {
-	_, ok := a.cache[actionID]
-	return ok
-}
-
-func (a *actionCache) addServices(actionID string, services []string) {
-	entry, ok := a.cache[actionID]
-	if !ok {
-		entry = &actionCacheEntry{}
-		a.cache[actionID] = entry
-	}
-	entry.services = append(entry.services, services...)
-}
-
-func (a *actionCache) services(actionID string) []string {
-	entry, ok := a.cache[actionID]
-	if !ok {
-		return nil
-	}
-	return entry.services
 }
 
 func (a *actionCache) clearAction(actionID string) {
@@ -100,7 +79,6 @@ func NewQuadlet(log *log.PrefixLogger, rw fileio.ReadWriter, systemdManager syst
 }
 
 func isServiceLoaded(unitSet map[string]struct{}, service string) bool {
-	// report targets as loaded
 	if filepath.Ext(service) == ".target" {
 		return true
 	}
@@ -118,18 +96,10 @@ func (q *Quadlet) add(ctx context.Context, action *Action) error {
 	}
 	startTime := time.Now()
 
-	requiresActionCleanup := true
-	defer func() {
-		if requiresActionCleanup {
-			if err := q.cleanResources(ctx, action); err != nil {
-				q.log.Errorf("Failed to remove quadlet application %s after failing to add it: %v", appName, err)
-			}
-		}
-	}()
-
-	services, err := q.collectTargets(action.Path)
+	target := targetName(action.ID)
+	services, err := q.systemdManager.ListDependencies(ctx, target)
 	if err != nil {
-		return fmt.Errorf("collecting targets: %w", err)
+		return fmt.Errorf("listing dependencies: %w", err)
 	}
 
 	units, err := q.systemdManager.ListUnitsByMatchPattern(ctx, services)
@@ -139,7 +109,9 @@ func (q *Quadlet) add(ctx context.Context, action *Action) error {
 
 	unitSet := make(map[string]struct{})
 	for _, u := range units {
-		unitSet[u.Unit] = struct{}{}
+		if u.LoadState == string(v1beta1.SystemdLoadStateLoaded) {
+			unitSet[u.Unit] = struct{}{}
+		}
 	}
 
 	for _, service := range services {
@@ -157,30 +129,36 @@ func (q *Quadlet) add(ctx context.Context, action *Action) error {
 		}
 	}
 
+	requiresActionCleanup := true
+	defer func() {
+		if requiresActionCleanup {
+			if err := q.remove(ctx, action); err != nil {
+				q.log.Errorf("Failed to remove quadlet application %s after failing to add it: %v", appName, err)
+			}
+		}
+	}()
+
 	if err := q.ensureArtifactVolumes(ctx, action); err != nil {
 		return fmt.Errorf("ensuring artifact volumes: %w", err)
 	}
-
-	q.actionCache.addServices(action.ID, services)
-	if len(services) > 0 {
-		q.log.Debugf("Starting quadlet: %s services: %q", appName, strings.Join(services, ","))
-		if err := q.systemdManager.Start(ctx, services...); err != nil {
-			err = fmt.Errorf("starting units: %w", err)
-			for _, service := range services {
-				serviceLogs, serviceErr := q.systemdManager.Logs(ctx, client.WithLogUnit(service), client.WithLogSince(startTime))
-				if serviceErr != nil {
-					q.log.Errorf("Failed to gather service: %q logs: %v", service, serviceErr)
-					continue
-				}
-				if len(serviceLogs) > 0 {
-					q.log.Infof("Service: %q logs: %s", service, strings.Join(serviceLogs, "\n"))
-					err = fmt.Errorf("service: %q logs: %s: %w", service, strings.Join(serviceLogs, ","), err)
-				}
+	q.log.Debugf("Starting quadlet: %s target: %s", appName, target)
+	if err := q.systemdManager.Start(ctx, target); err != nil {
+		err = fmt.Errorf("starting target %s: %w", target, err)
+		for _, service := range services {
+			serviceLogs, serviceErr := q.systemdManager.Logs(ctx, client.WithLogUnit(service), client.WithLogSince(startTime))
+			if serviceErr != nil {
+				q.log.Errorf("Failed to gather service: %q logs: %v", service, serviceErr)
+				continue
 			}
-			return err
+			if len(serviceLogs) > 0 {
+				q.log.Infof("Service: %q logs: %s", service, strings.Join(serviceLogs, "\n"))
+				err = fmt.Errorf("service: %q logs: %s: %w", service, strings.Join(serviceLogs, ","), err)
+			}
 		}
-		q.systemdManager.AddExclusions(services...)
+		return err
 	}
+
+	q.systemdManager.AddExclusions(append(services, target)...)
 
 	requiresActionCleanup = false
 	q.log.Infof("Started quadlet application: %s", appName)
@@ -189,33 +167,39 @@ func (q *Quadlet) add(ctx context.Context, action *Action) error {
 
 func (q *Quadlet) remove(ctx context.Context, action *Action) error {
 	appName := action.Name
-	if !q.actionCache.hasAction(action.ID) {
-		return nil
+
+	target := targetName(action.ID)
+	services, err := q.systemdManager.ListDependencies(ctx, target)
+	if err != nil {
+		return fmt.Errorf("listing dependencies: %w", err)
 	}
 
-	services := q.actionCache.services(action.ID)
+	q.log.Debugf("Stopping quadlet: %s target: %s", appName, target)
+	// stopping the target will begin stopping the individual services, but it is not a synchronous operation.
+	if err := q.systemdManager.Stop(ctx, target); err != nil {
+		return fmt.Errorf("stopping target %s: %w", target, err)
+	}
+
 	if len(services) > 0 {
-		q.log.Debugf("Stopping quadlet: %s services: %q", appName, strings.Join(services, ","))
+		// stop and wait for all services to finish
+		q.log.Debugf("Stopping quadlet: %s services: %s", appName, strings.Join(services, ", "))
 		if err := q.systemdManager.Stop(ctx, services...); err != nil {
-			return fmt.Errorf("stopping units: %w", err)
+			return fmt.Errorf("stopping services: %w", err)
 		}
 		failedServices := q.getFailedServices(ctx, services)
 		if len(failedServices) > 0 {
-			q.log.Debugf("Resetting failed state for services: %q", strings.Join(failedServices, ","))
+			q.log.Debugf("Resetting failed state for services: %q", strings.Join(failedServices, ", "))
 			if resetErr := q.systemdManager.ResetFailed(ctx, failedServices...); resetErr != nil {
-				q.log.Warnf("Failed to reset-failed for services %q: %v", strings.Join(failedServices, ","), resetErr)
+				q.log.Warnf("Failed to reset-failed for services %q: %v", strings.Join(failedServices, ", "), resetErr)
 			}
 		}
-		q.systemdManager.RemoveExclusions(services...)
 	}
+	q.systemdManager.RemoveExclusions(append(services, target)...)
 
 	return q.cleanResources(ctx, action)
 }
 
 func (q *Quadlet) cleanResources(ctx context.Context, action *Action) error {
-	if !q.actionCache.hasAction(action.ID) {
-		return nil
-	}
 	defer q.actionCache.clearAction(action.ID)
 
 	q.log.Infof("Removed quadlet application: %s", action.Name)
@@ -310,81 +294,6 @@ func (q *Quadlet) Execute(ctx context.Context, actions ...*Action) error {
 	return nil
 }
 
-func (q *Quadlet) serviceName(file string, quadletSection string, defaultName string) (string, error) {
-	contents, err := q.rw.ReadFile(file)
-	if err != nil {
-		return "", fmt.Errorf("reading quadlet %s: %w", file, err)
-	}
-	unit, err := quadlet.NewUnit(contents)
-	if err != nil {
-		return "", fmt.Errorf("parsing quadlet %q: %w", file, err)
-	}
-
-	name, err := unit.Lookup(quadletSection, quadlet.ServiceNameKey)
-	if err != nil {
-		if errors.Is(err, quadlet.ErrKeyNotFound) {
-			return defaultName, nil
-		}
-		return "", fmt.Errorf("looking up %q: %w", quadletSection, err)
-	}
-	return name, nil
-}
-
-func (q *Quadlet) collectTargets(path string) ([]string, error) {
-	entries, err := q.rw.ReadDir(path)
-	if err != nil {
-		return nil, fmt.Errorf("reading directory: %w", err)
-	}
-
-	var services []string
-	var targets []string
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-
-		filename := entry.Name()
-		ext := filepath.Ext(filename)
-		baseName := strings.TrimSuffix(filename, ext)
-
-		var sectionName string
-		var defaultName string
-		switch ext {
-		case quadlet.ContainerExtension:
-			sectionName = quadlet.ContainerGroup
-			defaultName = fmt.Sprintf("%s.service", baseName)
-		case quadlet.PodExtension:
-			sectionName = quadlet.PodGroup
-			defaultName = fmt.Sprintf("%s-pod.service", baseName)
-		case quadlet.VolumeExtension:
-			sectionName = quadlet.VolumeGroup
-			defaultName = fmt.Sprintf("%s-volume.service", baseName)
-		case quadlet.NetworkExtension:
-			sectionName = quadlet.NetworkGroup
-			defaultName = fmt.Sprintf("%s-network.service", baseName)
-		case quadlet.ImageExtension:
-			sectionName = quadlet.ImageGroup
-			defaultName = fmt.Sprintf("%s-image.service", baseName)
-		case ".target":
-			targets = append(targets, filename)
-			continue
-		default:
-			continue
-		}
-
-		serviceName, err := q.serviceName(filepath.Join(path, entry.Name()), sectionName, defaultName)
-		if err != nil {
-			return nil, fmt.Errorf("getting %s service name: %w", filename, err)
-		}
-
-		services = append(services, serviceName)
-	}
-
-	// ensure that targets are processed first and services are
-	// secondary.
-	return append(targets, services...), nil
-}
-
 func (q *Quadlet) getFailedServices(ctx context.Context, services []string) []string {
 	units, err := q.systemdManager.ListUnitsByMatchPattern(ctx, services)
 	if err != nil {
@@ -455,4 +364,8 @@ func (q *Quadlet) ensureArtifactVolumes(ctx context.Context, action *Action) err
 	}
 
 	return nil
+}
+
+func targetName(appID string) string {
+	return quadlet.NamespaceResource(appID, QuadletTargetName)
 }
