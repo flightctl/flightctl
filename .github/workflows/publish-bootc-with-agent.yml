@@ -1,0 +1,248 @@
+name: Publish Bootc Image with Agent
+
+on:
+  schedule:
+    - cron: '30 10 * * *'  # Run daily at 10:30 UTC
+  workflow_dispatch:  # Allow manual triggering
+
+env:
+  QUAY_ORG: quay.io/flightctl
+  COPR_BASE_URL: https://download.copr.fedorainfracloud.org/results/@redhat-et/flightctl/fedora-42-x86_64
+  BOOTC_REPO: quay.io/fedora/fedora-bootc
+
+jobs:
+  build-bootc-image:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y podman skopeo jq
+
+      - name: Find latest flightctl-agent RPM from Copr
+        id: get-rpm
+        run: |
+          set -euo pipefail
+          
+          # Fetch repomd.xml to find primary.xml.gz location
+          echo "Fetching repository metadata..."
+          REPOMD_URL="${COPR_BASE_URL}/repodata/repomd.xml"
+          PRIMARY_XML_HREF=$(curl -sf "${REPOMD_URL}" | grep -oP 'href="([^"]*primary\.xml\.gz)"' | sed 's/href="\(.*\)"/\1/' || true)
+          
+          if [ -z "${PRIMARY_XML_HREF}" ]; then
+            echo "ERROR: Failed to find primary.xml.gz in repomd.xml"
+            exit 1
+          fi
+          
+          PRIMARY_XML_URL="${COPR_BASE_URL}/${PRIMARY_XML_HREF}"
+          echo "Found primary.xml at: ${PRIMARY_XML_URL}"
+          
+          # Download and parse primary.xml.gz to find latest flightctl-agent package
+          echo "Parsing package metadata..."
+          # Decompress XML and extract all flightctl-agent x86_64 packages
+          XML_CONTENT=$(curl -sf "${PRIMARY_XML_URL}" | gzip -dc)
+          
+          if [ -z "${XML_CONTENT}" ]; then
+            echo "ERROR: Failed to download or decompress primary.xml"
+            exit 1
+          fi
+          
+          # Extract all flightctl-agent x86_64 packages and build version list
+          # Find packages with <name>flightctl-agent</name> and <arch>x86_64</arch>
+          TEMP_FILE=$(mktemp)
+          XML_TEMP=$(mktemp)
+          
+          # Write XML to temp file to avoid pipe issues
+          echo "${XML_CONTENT}" > "${XML_TEMP}"
+          
+          # Extract package blocks for flightctl-agent x86_64 packages using Python
+          # Python is more reliable for XML parsing and is available on Ubuntu runners
+          printf '%s\n' \
+            'import sys' \
+            'import re' \
+            'xml_file = sys.argv[1]' \
+            'with open(xml_file, "r") as f:' \
+            '    xml_content = f.read()' \
+            'package_pattern = r'"'"'<package type="rpm">(.*?)</package>'"'"'' \
+            'packages = re.findall(package_pattern, xml_content, re.DOTALL)' \
+            'results = []' \
+            'for pkg in packages:' \
+            '    if '"'"'<name>flightctl-agent</name>'"'"' in pkg and '"'"'<arch>x86_64</arch>'"'"' in pkg:' \
+            '        ver_match = re.search(r'"'"'ver="([^"]*)"'"'"', pkg)' \
+            '        rel_match = re.search(r'"'"'rel="([^"]*)"'"'"', pkg)' \
+            '        loc_match = re.search(r'"'"'href="([^"]*flightctl-agent[^"]*\.rpm)"'"'"', pkg)' \
+            '        if ver_match and rel_match and loc_match:' \
+            '            ver = ver_match.group(1)' \
+            '            rel = rel_match.group(1)' \
+            '            loc = loc_match.group(1)' \
+            '            results.append(f"{ver}-{rel}|{loc}")' \
+            'for line in results:' \
+            '    print(line)' > /tmp/parse_rpm.py
+          
+          python3 /tmp/parse_rpm.py "${XML_TEMP}" > "${TEMP_FILE}"
+          
+          # Sort results by version (sort -V handles version sorting correctly, including 0.10.0 > 0.9.3)
+          sort -t'|' -k1 -V "${TEMP_FILE}" > "${TEMP_FILE}.sorted" && mv "${TEMP_FILE}.sorted" "${TEMP_FILE}"
+          rm -f "${XML_TEMP}" /tmp/parse_rpm.py
+          
+          if [ ! -s "${TEMP_FILE}" ]; then
+            echo "ERROR: No flightctl-agent x86_64 packages found in primary.xml"
+            rm -f "${TEMP_FILE}"
+            exit 1
+          fi
+          
+          echo "Found flightctl-agent packages:"
+          cat "${TEMP_FILE}"
+          
+          # Get the latest (last line after version sort)
+          LATEST_LINE=$(tail -n 1 "${TEMP_FILE}")
+          RPM_VERSION=$(echo "${LATEST_LINE}" | cut -d'|' -f1 | cut -d'-' -f1)
+          RPM_RELEASE=$(echo "${LATEST_LINE}" | cut -d'|' -f1 | sed 's/^[^-]*-//')
+          RPM_LOCATION=$(echo "${LATEST_LINE}" | cut -d'|' -f2)
+          rm -f "${TEMP_FILE}"
+          
+          if [ -z "${RPM_VERSION}" ] || [ -z "${RPM_RELEASE}" ] || [ -z "${RPM_LOCATION}" ]; then
+            echo "ERROR: Failed to extract RPM version, release, or location"
+            echo "Version: ${RPM_VERSION}"
+            echo "Release: ${RPM_RELEASE}"
+            echo "Location: ${RPM_LOCATION}"
+            exit 1
+          fi
+          
+          RPM_URL="${COPR_BASE_URL}/${RPM_LOCATION}"
+          AGENT_VERSION="${RPM_VERSION}-${RPM_RELEASE}"
+          
+          echo "Found flightctl-agent RPM:"
+          echo "  URL: ${RPM_URL}"
+          echo "  Version: ${AGENT_VERSION}"
+          echo "  Filename: $(basename ${RPM_LOCATION})"
+          
+          # Verify RPM URL is accessible
+          if ! curl -sf --head "${RPM_URL}" > /dev/null; then
+            echo "ERROR: RPM URL is not accessible: ${RPM_URL}"
+            exit 1
+          fi
+          
+          echo "rpm_url=${RPM_URL}" >> $GITHUB_OUTPUT
+          echo "rpm_filename=$(basename ${RPM_LOCATION})" >> $GITHUB_OUTPUT
+          echo "agent_version=${AGENT_VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Find latest Fedora 42 bootc image tag
+        id: get-bootc-tag
+        run: |
+          set -euo pipefail
+          
+          echo "Querying bootc image tags..."
+          # List all tags and filter for Fedora 42 patterns
+          ALL_TAGS=$(skopeo list-tags docker://${BOOTC_REPO} | jq -r '.Tags[]' || echo "")
+          
+          if [ -z "${ALL_TAGS}" ]; then
+            echo "ERROR: Failed to list tags from ${BOOTC_REPO}"
+            exit 1
+          fi
+          
+          # Filter for Fedora 42 tags (42, 42-x86_64, 42.*, etc.)
+          F42_TAGS=$(echo "${ALL_TAGS}" | grep -E '^(42|42-|42\.)' | sort -V || echo "")
+          
+          if [ -z "${F42_TAGS}" ]; then
+            echo "WARNING: No Fedora 42 tags found, trying alternative patterns..."
+            # Try broader patterns if exact match fails
+            F42_TAGS=$(echo "${ALL_TAGS}" | grep -E '^42' | sort -V || echo "")
+          fi
+          
+          if [ -z "${F42_TAGS}" ]; then
+            echo "ERROR: No Fedora 42 tags found in ${BOOTC_REPO}"
+            echo "Available tags:"
+            echo "${ALL_TAGS}" | head -n 20
+            exit 1
+          fi
+          
+          # Get the latest tag (last in version-sorted list)
+          # Prefer 42-x86_64 or specific version tags over just "42"
+          LATEST_TAG=$(echo "${F42_TAGS}" | grep -E '^(42-x86_64|42\.[0-9])' | sort -V | tail -n 1 || echo "${F42_TAGS}" | tail -n 1)
+          
+          echo "Found Fedora 42 bootc tags:"
+          echo "${F42_TAGS}" | tail -n 5
+          echo ""
+          echo "Latest tag: ${LATEST_TAG}"
+          
+          echo "bootc_tag=${LATEST_TAG}" >> $GITHUB_OUTPUT
+
+      - name: Print versions used
+        run: |
+          echo "================================================"
+          echo "Versions and Tags:"
+          echo "================================================"
+          echo "Bootc Base Image: ${BOOTC_REPO}:${{ steps.get-bootc-tag.outputs.bootc_tag }}"
+          echo "Agent RPM Version: ${{ steps.get-rpm.outputs.agent_version }}"
+          echo "Agent RPM URL: ${{ steps.get-rpm.outputs.rpm_url }}"
+          echo "Image Tag: f42-${{ steps.get-bootc-tag.outputs.bootc_tag }}-agent-${{ steps.get-rpm.outputs.agent_version }}"
+          echo "================================================"
+
+      - name: Create Containerfile
+        id: create-containerfile
+        run: |
+          BOOTC_TAG="${{ steps.get-bootc-tag.outputs.bootc_tag }}"
+          RPM_URL="${{ steps.get-rpm.outputs.rpm_url }}"
+          RPM_FILENAME="${{ steps.get-rpm.outputs.rpm_filename }}"
+          
+          cat <<EOF > Containerfile.bootc
+          FROM ${BOOTC_REPO}:${BOOTC_TAG}
+          
+          # Download and install the flightctl-agent RPM
+          RUN curl -f -o /tmp/${RPM_FILENAME} ${RPM_URL} && \\
+              rpm-ostree install /tmp/${RPM_FILENAME} && \\
+              rm -f /tmp/${RPM_FILENAME}
+          
+          # Enable the flightctl-agent service
+          RUN systemctl enable flightctl-agent.service
+          EOF   
+          
+          echo "Containerfile created:"
+          cat Containerfile.bootc
+
+      - name: Build bootc image
+        id: build-image
+        run: |
+          set -euo pipefail
+          
+          IMAGE_TAG="f42-${{ steps.get-bootc-tag.outputs.bootc_tag }}-agent-${{ steps.get-rpm.outputs.agent_version }}"
+          IMAGE_NAME="${QUAY_ORG}/flightctl-agent-bootc-f42"
+          
+          echo "Building image: ${IMAGE_NAME}:${IMAGE_TAG}"
+          
+          # Build the image with podman
+          podman build \
+            -f Containerfile.bootc \
+            -t "${IMAGE_NAME}:${IMAGE_TAG}" \
+            .
+          
+          echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
+          echo "image_name=${IMAGE_NAME}" >> $GITHUB_OUTPUT
+          
+          echo "Build completed successfully"
+          podman images "${IMAGE_NAME}:${IMAGE_TAG}"
+
+      - name: Login to Quay.io
+        uses: redhat-actions/podman-login@v1
+        with:
+          registry: quay.io
+          username: ${{ secrets.QUAY_FLIGHTCTL_INFRA_ROBOT_USERNAME }}
+          password: ${{ secrets.QUAY_FLIGHTCTL_INFRA_ROBOT_PASSWORD }}
+
+      - name: Push image to Quay.io
+        run: |
+          set -euo pipefail
+          
+          IMAGE_TAG="${{ steps.build-image.outputs.image_tag }}"
+          IMAGE_NAME="${{ steps.build-image.outputs.image_name }}"
+          
+          echo "Pushing ${IMAGE_NAME}:${IMAGE_TAG} to Quay.io..."
+          podman push "${IMAGE_NAME}:${IMAGE_TAG}"
+          
+          echo ""
+          echo "================================================"
+          echo "Image successfully pushed!"
+          echo "Image: ${IMAGE_NAME}:${IMAGE_TAG}"
+          echo "================================================"
+
