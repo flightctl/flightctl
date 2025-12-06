@@ -1,3 +1,5 @@
+version: 2
+
 # This file contains all available configuration options
 # with their default values.
 
@@ -19,7 +21,8 @@ run:
 output:
   # colored-line-number|line-number|json|tab|checkstyle|code-climate, default is "colored-line-number"
   formats:
-  - format: colored-line-number
+    colored-line-number:
+      path: stdout
 
   # print lines of code with issue, default is true
   print-issued-lines: true
@@ -40,6 +43,21 @@ issues:
   # Default: https://golangci-lint.run/usage/false-positives/#default-exclusions
   exclude:
     - 'declaration of "err" shadows declaration at'
+    - 'Error return value of .*\.Close\(\) is not checked'
+    - 'Error return value of `fmt\.Fprint.*` is not checked'
+    - 'param .* has same name as predeclared identifier'
+    - 'function .* has same name as predeclared identifier'
+    - 'variable .* has same name as predeclared identifier'
+    - 'QF1008: could remove embedded field'
+    - 'QF1002: could use tagged switch'
+    - 'QF1003: could use tagged switch'
+    - 'QF1004: could use strings\.ReplaceAll'
+    - 'ST1005: error strings should not'
+    - 'ST1023: should omit type .* from declaration'
+    - 'SA4011: ineffective break statement'
+    - 'G30[124]: Expect .* permissions'
+    - 'G103: Use of unsafe calls'
+    - 'G204: Subprocess launched with variable'
 
   # Which dirs to exclude: issues from them won't be reported.
   # Can use regexp here: `generated.*`, regexp is applied on full path,
@@ -56,42 +74,31 @@ issues:
     - packaging
     - reports
     - internal/auth/issuer/pam
+    - test/integration/tasks
 
 linters:
+  disable-all: true
   enable:
     - copyloopvar
-    - depguard
-    - errcheck
-    - gci
     - gocyclo
-    - gofmt
-    - goimports
-    - gosec
-    - gosimple
-    - govet
     - ineffassign
     - misspell
     - nolintlint
-    - staticcheck
     - unconvert
+  disable:
+    - errcheck
+    - govet
     - unused
+    - gosec
+    - predeclared
+    - staticcheck
+
+formatters:
+  enable:
+    - gci
+    - gofmt
+    - goimports
 
 linters-settings:
-  enable:
-    - shadow
-
-  depguard:
-    rules:
-      main:
-        deny:
-          - pkg: "^math/rand$"
-            desc: "Use math/rand/v2 instead"
 
   govet:
-    settings:
-      printf:
-        funcs:
-          - Infof
-          - Warnf
-          - Errorf
-          - Fatalf

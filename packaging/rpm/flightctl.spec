@@ -417,10 +417,24 @@ echo "Flightctl Observability Stack uninstalled."
 %build
     # if this is a buggy version of go we need to set GOPROXY as workaround
     # see https://github.com/golang/go/issues/61928
-    GOENVFILE=$(go env GOROOT)/go.env
-    if [[ ! -f "${GOENVFILE}" ]]; then
+    # When using GOTOOLCHAIN=auto, the downloaded toolchain may not have go.env
+    # or go env GOROOT might return empty while toolchain is downloading.
+    # In these cases, we'll set GOPROXY as a fallback.
+    set +e
+    GOROOT=$(go env GOROOT 2>/dev/null)
+    GOENVFILE=""
+    if [[ -n "${GOROOT}" ]] && [[ -f "${GOROOT}/go.env" ]]; then
+        GOENVFILE="${GOROOT}/go.env"
+    fi
+    set -e
+    # Set GOPROXY when go.env is missing (common with GOTOOLCHAIN=auto or when GOROOT is empty)
+    if [[ -z "${GOENVFILE}" ]] || [[ ! -f "${GOENVFILE}" ]]; then
         export GOPROXY='https://proxy.golang.org,direct'
     fi
+    # Enable checksum verification for toolchain downloads (required when GOTOOLCHAIN=auto)
+    # GOSUMDB might be set to 'off' in the build environment, which prevents toolchain downloads.
+    # Always set it to enable checksum verification for toolchain downloads.
+    export GOSUMDB='sum.golang.org'
 
     # Prefer values injected by Makefile/CI; fall back to RPM macros when unset
     SOURCE_GIT_TAG="%{?SOURCE_GIT_TAG:%{SOURCE_GIT_TAG}}%{!?SOURCE_GIT_TAG:%(echo "v%{version}" | tr '~' '-')}" \
