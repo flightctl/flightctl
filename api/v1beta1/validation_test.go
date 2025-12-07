@@ -1,6 +1,7 @@
 package v1beta1
 
 import (
+	"context"
 	"encoding/base64"
 	"strings"
 	"testing"
@@ -115,8 +116,9 @@ func TestValidateUpdateScheduleCron(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			schedule := UpdateSchedule{
-				At:       tt.schedule,
-				TimeZone: lo.ToPtr("America/New_York"),
+				At:                 tt.schedule,
+				TimeZone:           lo.ToPtr("America/New_York"),
+				StartGraceDuration: "30s",
 			}
 
 			errs := schedule.Validate()
@@ -187,8 +189,9 @@ func TestValidateUpdateScheduleTimeZone(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			schedule := UpdateSchedule{
-				At:       "* * * * *",
-				TimeZone: lo.ToPtr(tt.timeZone),
+				At:                 "* * * * *",
+				TimeZone:           lo.ToPtr(tt.timeZone),
+				StartGraceDuration: "30s",
 			}
 
 			errs := schedule.Validate()
@@ -296,7 +299,7 @@ func TestValidateScheduleAndGraceDuration(t *testing.T) {
 			require := require.New(t)
 			schedule := UpdateSchedule{
 				At:                 tt.cronExpression,
-				StartGraceDuration: lo.ToPtr(tt.duration),
+				StartGraceDuration: tt.duration,
 			}
 
 			errs := schedule.Validate()
@@ -1706,6 +1709,105 @@ ExecStart=/usr/bin/myapp`,
 			require.Len(errs, tt.wantErrCount, "expected %d errors, got %d: %v", tt.wantErrCount, len(errs), errs)
 			if tt.wantErrSubstr != "" && len(errs) > 0 {
 				require.Contains(errs[0].Error(), tt.wantErrSubstr)
+			}
+		})
+	}
+}
+
+func TestAuthStaticRoleAssignment_Validate(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+
+	tests := []struct {
+		name       string
+		assignment AuthStaticRoleAssignment
+		wantErrs   int
+		errSubstrs []string
+	}{
+		{
+			name: "empty roles list",
+			assignment: AuthStaticRoleAssignment{
+				Type:  AuthStaticRoleAssignmentTypeStatic,
+				Roles: []string{},
+			},
+			wantErrs:   1,
+			errSubstrs: []string{"at least one role is required"},
+		},
+		{
+			name: "invalid custom role",
+			assignment: AuthStaticRoleAssignment{
+				Type:  AuthStaticRoleAssignmentTypeStatic,
+				Roles: []string{ExternalRoleAdmin, ExternalRoleViewer, "custom-role"},
+			},
+			wantErrs:   1,
+			errSubstrs: []string{"is not a valid role"},
+		},
+		{
+			name: "valid known roles",
+			assignment: AuthStaticRoleAssignment{
+				Type:  AuthStaticRoleAssignmentTypeStatic,
+				Roles: []string{ExternalRoleAdmin, ExternalRoleViewer, ExternalRoleOperator},
+			},
+			wantErrs: 0,
+		},
+		{
+			name: "invalid role",
+			assignment: AuthStaticRoleAssignment{
+				Type:  AuthStaticRoleAssignmentTypeStatic,
+				Roles: []string{ExternalRoleAdmin, "invalid-role"},
+			},
+			wantErrs:   1,
+			errSubstrs: []string{"is not a valid role"},
+		},
+		{
+			name: "empty role string",
+			assignment: AuthStaticRoleAssignment{
+				Type:  AuthStaticRoleAssignmentTypeStatic,
+				Roles: []string{ExternalRoleAdmin, ""},
+			},
+			wantErrs:   2,
+			errSubstrs: []string{"cannot be empty", "is not a valid role"},
+		},
+		{
+			name: "all known external roles",
+			assignment: AuthStaticRoleAssignment{
+				Type:  AuthStaticRoleAssignmentTypeStatic,
+				Roles: []string{ExternalRoleAdmin, ExternalRoleOrgAdmin, ExternalRoleOperator, ExternalRoleViewer, ExternalRoleInstaller},
+			},
+			wantErrs: 0,
+		},
+		{
+			name: "multiple invalid roles",
+			assignment: AuthStaticRoleAssignment{
+				Type:  AuthStaticRoleAssignmentTypeStatic,
+				Roles: []string{"invalid-role-1", "invalid-role-2"},
+			},
+			wantErrs:   2,
+			errSubstrs: []string{"is not a valid role", "is not a valid role"},
+		},
+		{
+			name: "mix of valid and invalid roles",
+			assignment: AuthStaticRoleAssignment{
+				Type:  AuthStaticRoleAssignmentTypeStatic,
+				Roles: []string{ExternalRoleAdmin, "invalid-role", ExternalRoleViewer},
+			},
+			wantErrs:   1,
+			errSubstrs: []string{"is not a valid role"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			errs := tt.assignment.Validate(ctx)
+			require.Len(errs, tt.wantErrs, "expected %d errors, got %d: %v", tt.wantErrs, len(errs), errs)
+
+			if len(tt.errSubstrs) > 0 {
+				require.Equal(len(tt.errSubstrs), len(errs), "number of error substrings (%d) must match number of actual errors (%d)", len(tt.errSubstrs), len(errs))
+				for i, substr := range tt.errSubstrs {
+					if i < len(errs) {
+						require.Contains(errs[i].Error(), substr, "error at index %d should contain %q", i, substr)
+					}
+				}
 			}
 		})
 	}

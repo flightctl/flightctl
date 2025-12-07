@@ -116,6 +116,14 @@ app.kubernetes.io/version: {{ .Chart.AppVersion }}
   {{- end }}
 {{- end }}
 
+{{- define "flightctl.getOpenShiftProjectLabelFilter" }}
+  {{- if .Values.global.auth.openshift.projectLabelFilter }}
+    {{- printf .Values.global.auth.openshift.projectLabelFilter }}
+  {{- else }}
+    {{- printf "io.flightctl/instance=%s" .Release.Name }}
+  {{- end }}
+{{- end }}
+
 {{/*
 Get the OAuth client secret from values or lookup existing secret.
 Uses a cached value in .Values to ensure consistency across all template evaluations.

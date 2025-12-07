@@ -630,10 +630,8 @@ func (u UpdateSchedule) Validate() []error {
 		allErrs = append(allErrs, fmt.Errorf("invalid cron schedule: %s", err))
 	}
 
-	if u.StartGraceDuration != nil {
-		if err := validateGraceDuration(schedule, *u.StartGraceDuration); err != nil {
-			allErrs = append(allErrs, err)
-		}
+	if err := validateGraceDuration(schedule, u.StartGraceDuration); err != nil {
+		allErrs = append(allErrs, err)
 	}
 
 	return allErrs
@@ -1734,6 +1732,9 @@ func (a AuthStaticRoleAssignment) Validate(ctx context.Context) []error {
 	for i, role := range a.Roles {
 		if role == "" {
 			allErrs = append(allErrs, fmt.Errorf("role at index %d cannot be empty", i))
+		}
+		if !slices.Contains(KnownExternalRoles, role) {
+			allErrs = append(allErrs, fmt.Errorf("role at index %d is not a valid role: %s", i, role))
 		}
 	}
 
