@@ -98,7 +98,7 @@ var _ = Describe("Microshift cluster ACM enrollment tests", func() {
 				By("Upgrade to the microshift image, and add the pull-secret to the device")
 				nextRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
 				Expect(err).ToNot(HaveOccurred())
-				deviceImage := fmt.Sprintf("%s/flightctl-device:v7", harness.RegistryEndpoint())
+				deviceImage := util.NewDeviceImageReference(util.DeviceTags.V7).String()
 				var osImageSpec = v1beta1.DeviceOsSpec{
 					Image: deviceImage,
 				}
