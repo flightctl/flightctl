@@ -66,6 +66,9 @@ func initOAuth2Auth(cfg *config.Config, log logrus.FieldLogger) (common.AuthNMid
 	providerName := "oauth2"
 	metadata := api.ObjectMeta{
 		Name: &providerName,
+		Annotations: &map[string]string{
+			api.AuthProviderAnnotationCreatedBySuperAdmin: "true",
+		},
 	}
 
 	authNProvider, err := authn.NewOAuth2Auth(metadata, *cfg.Auth.OAuth2, getTlsConfig(cfg), log)
@@ -81,6 +84,9 @@ func initOIDCAuth(cfg *config.Config, log logrus.FieldLogger) (common.AuthNMiddl
 	providerName := "oidc"
 	metadata := api.ObjectMeta{
 		Name: &providerName,
+		Annotations: &map[string]string{
+			api.AuthProviderAnnotationCreatedBySuperAdmin: "true",
+		},
 	}
 
 	authNProvider, err := authn.NewOIDCAuth(metadata, *cfg.Auth.OIDC, getTlsConfig(cfg), log)

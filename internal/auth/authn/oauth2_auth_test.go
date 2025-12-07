@@ -57,7 +57,7 @@ func createBasicOAuth2Spec() api.OAuth2ProviderSpec {
 	}
 	_ = roleAssignment.FromAuthStaticRoleAssignment(staticRoleAssignment)
 
-	return api.OAuth2ProviderSpec{
+	spec := api.OAuth2ProviderSpec{
 		ProviderType:           api.Oauth2,
 		AuthorizationUrl:       "https://oauth2.example.com/authorize",
 		TokenUrl:               "https://oauth2.example.com/token",
@@ -68,6 +68,11 @@ func createBasicOAuth2Spec() api.OAuth2ProviderSpec {
 		OrganizationAssignment: assignment,
 		RoleAssignment:         roleAssignment,
 	}
+	// Set defaults for tests (validation would set these for API-created providers)
+	defaultUsernameClaim := []string{"preferred_username"}
+	spec.UsernameClaim = &defaultUsernameClaim
+	spec.Issuer = &spec.AuthorizationUrl
+	return spec
 }
 
 func TestOAuth2Auth_NewOAuth2Auth(t *testing.T) {
@@ -582,6 +587,193 @@ func TestOAuth2Auth_GetIdentity(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestOAuth2Auth_GetIdentity_FiltersFlightctlAdmin_NotCreatedBySuperAdmin(t *testing.T) {
+	// Create a test userinfo server that returns flightctl-admin role
+	userinfoServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authHeader := r.Header.Get("Authorization")
+		if !strings.HasPrefix(authHeader, "Bearer ") {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+
+		token := strings.TrimPrefix(authHeader, "Bearer ")
+		w.Header().Set("Content-Type", "application/json")
+
+		if token == "token-with-admin-role" {
+			// Return userinfo with flightctl-admin role in roles claim
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"sub":                "user-123",
+				"preferred_username": "testuser",
+				"email":              "testuser@example.com",
+				"roles": []interface{}{
+					api.ExternalRoleAdmin,
+					api.ExternalRoleViewer,
+					api.ExternalRoleOperator,
+				},
+			})
+		} else {
+			w.WriteHeader(http.StatusUnauthorized)
+		}
+	}))
+	defer userinfoServer.Close()
+
+	// Create OAuth2Auth with dynamic role mapping (NOT created by super admin - no annotation)
+	assignment := api.AuthOrganizationAssignment{}
+	staticAssignment := api.AuthStaticOrganizationAssignment{
+		Type:             api.AuthStaticOrganizationAssignmentTypeStatic,
+		OrganizationName: "test-org",
+	}
+	_ = assignment.FromAuthStaticOrganizationAssignment(staticAssignment)
+
+	roleAssignment := api.AuthRoleAssignment{}
+	dynamicRoleAssignment := api.AuthDynamicRoleAssignment{
+		Type:      api.AuthDynamicRoleAssignmentTypeDynamic,
+		ClaimPath: []string{"roles"},
+	}
+	_ = roleAssignment.FromAuthDynamicRoleAssignment(dynamicRoleAssignment)
+
+	spec := api.OAuth2ProviderSpec{
+		ProviderType:           api.Oauth2,
+		AuthorizationUrl:       "https://oauth2.example.com/authorize",
+		TokenUrl:               "https://oauth2.example.com/token",
+		UserinfoUrl:            userinfoServer.URL,
+		ClientId:               "test-client-id",
+		ClientSecret:           lo.ToPtr("test-client-secret"),
+		Enabled:                lo.ToPtr(true),
+		OrganizationAssignment: assignment,
+		RoleAssignment:         roleAssignment,
+	}
+	defaultUsernameClaim := []string{"preferred_username"}
+	spec.UsernameClaim = &defaultUsernameClaim
+	spec.Issuer = &spec.AuthorizationUrl
+
+	// Create metadata WITHOUT the createdBySuperAdmin annotation (simulating non-super-admin creation)
+	metadata := api.ObjectMeta{
+		Name: lo.ToPtr("test-oauth2-provider"),
+		// No annotations - not created by super admin
+	}
+
+	oauth2Auth, err := NewOAuth2Auth(metadata, spec, nil, logrus.New())
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	err = oauth2Auth.Start(ctx)
+	require.NoError(t, err)
+	defer oauth2Auth.Stop()
+
+	// Get identity with token that has flightctl-admin role in userinfo
+	identity, err := oauth2Auth.GetIdentity(ctx, "token-with-admin-role")
+	require.NoError(t, err)
+	require.NotNil(t, identity)
+
+	// Verify that the identity does NOT have super admin privileges
+	// Even though userinfo returned flightctl-admin, it should be filtered out
+	assert.False(t, identity.IsSuperAdmin(), "Identity should NOT have super admin privileges when AP was not created by super admin")
+
+	// Verify that other roles are still present
+	organizations := identity.GetOrganizations()
+	require.Len(t, organizations, 1, "Should have one organization")
+	assert.Equal(t, "test-org", organizations[0].Name)
+	// flightctl-admin should be filtered out, but other roles should be present
+	assert.NotContains(t, organizations[0].Roles, api.ExternalRoleAdmin, "flightctl-admin role should be filtered out")
+	assert.Contains(t, organizations[0].Roles, api.ExternalRoleViewer, "viewer role should be present")
+	assert.Contains(t, organizations[0].Roles, api.ExternalRoleOperator, "operator role should be present")
+}
+
+func TestOAuth2Auth_GetIdentity_AllowsFlightctlAdmin_CreatedBySuperAdmin(t *testing.T) {
+	// Create a test userinfo server that returns flightctl-admin role
+	userinfoServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authHeader := r.Header.Get("Authorization")
+		if !strings.HasPrefix(authHeader, "Bearer ") {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+
+		token := strings.TrimPrefix(authHeader, "Bearer ")
+		w.Header().Set("Content-Type", "application/json")
+
+		if token == "token-with-admin-role" {
+			// Return userinfo with flightctl-admin role in roles claim
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"sub":                "user-123",
+				"preferred_username": "adminuser",
+				"email":              "adminuser@example.com",
+				"roles": []interface{}{
+					api.ExternalRoleAdmin,
+					api.ExternalRoleViewer,
+				},
+			})
+		} else {
+			w.WriteHeader(http.StatusUnauthorized)
+		}
+	}))
+	defer userinfoServer.Close()
+
+	// Create OAuth2Auth with dynamic role mapping (created by super admin - with annotation)
+	assignment := api.AuthOrganizationAssignment{}
+	staticAssignment := api.AuthStaticOrganizationAssignment{
+		Type:             api.AuthStaticOrganizationAssignmentTypeStatic,
+		OrganizationName: "test-org",
+	}
+	_ = assignment.FromAuthStaticOrganizationAssignment(staticAssignment)
+
+	roleAssignment := api.AuthRoleAssignment{}
+	dynamicRoleAssignment := api.AuthDynamicRoleAssignment{
+		Type:      api.AuthDynamicRoleAssignmentTypeDynamic,
+		ClaimPath: []string{"roles"},
+	}
+	_ = roleAssignment.FromAuthDynamicRoleAssignment(dynamicRoleAssignment)
+
+	spec := api.OAuth2ProviderSpec{
+		ProviderType:           api.Oauth2,
+		AuthorizationUrl:       "https://oauth2.example.com/authorize",
+		TokenUrl:               "https://oauth2.example.com/token",
+		UserinfoUrl:            userinfoServer.URL,
+		ClientId:               "test-client-id",
+		ClientSecret:           lo.ToPtr("test-client-secret"),
+		Enabled:                lo.ToPtr(true),
+		OrganizationAssignment: assignment,
+		RoleAssignment:         roleAssignment,
+	}
+	defaultUsernameClaim := []string{"preferred_username"}
+	spec.UsernameClaim = &defaultUsernameClaim
+	spec.Issuer = &spec.AuthorizationUrl
+
+	// Create metadata WITH the createdBySuperAdmin annotation (simulating super-admin creation)
+	annotations := map[string]string{
+		api.AuthProviderAnnotationCreatedBySuperAdmin: "true",
+	}
+	metadata := api.ObjectMeta{
+		Name:        lo.ToPtr("test-oauth2-provider"),
+		Annotations: &annotations,
+	}
+
+	oauth2Auth, err := NewOAuth2Auth(metadata, spec, nil, logrus.New())
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	err = oauth2Auth.Start(ctx)
+	require.NoError(t, err)
+	defer oauth2Auth.Stop()
+
+	// Get identity with token that has flightctl-admin role in userinfo
+	identity, err := oauth2Auth.GetIdentity(ctx, "token-with-admin-role")
+	require.NoError(t, err)
+	require.NotNil(t, identity)
+
+	// Verify that the identity DOES have super admin privileges
+	// Since AP was created by super admin, flightctl-admin role should be allowed
+	assert.True(t, identity.IsSuperAdmin(), "Identity should have super admin privileges when AP was created by super admin")
+
+	// Verify that flightctl-admin role is converted to flightctl-org-admin in the organization
+	organizations := identity.GetOrganizations()
+	require.Len(t, organizations, 1, "Should have one organization")
+	assert.Equal(t, "test-org", organizations[0].Name)
+	// flightctl-admin is converted to flightctl-org-admin in BuildReportedOrganizations
+	assert.Contains(t, organizations[0].Roles, api.ExternalRoleOrgAdmin, "flightctl-org-admin role should be present (converted from flightctl-admin)")
+	assert.Contains(t, organizations[0].Roles, api.ExternalRoleViewer, "viewer role should be present")
 }
 
 func TestOAuth2Auth_IntrospectJWT_CacheLifecycle(t *testing.T) {

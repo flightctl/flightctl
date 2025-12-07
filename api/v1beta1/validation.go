@@ -17,8 +17,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/api/common"
-	"github.com/flightctl/flightctl/internal/consts"
-	"github.com/flightctl/flightctl/internal/identity"
+	"github.com/flightctl/flightctl/internal/contextutil"
 	"github.com/flightctl/flightctl/internal/quadlet"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/util/validation"
@@ -58,6 +57,7 @@ var (
 	ErrAapProviderConfigOnly                 = errors.New("aap provider type can only be created from configuration, not via API")
 	ErrDynamicOrgMappingAdminOnly            = errors.New("only flightctl-admin users are allowed to create auth providers with dynamic organization mapping")
 	ErrPerUserOrgMappingAdminOnly            = errors.New("only flightctl-admin users are allowed to create auth providers with per-user organization mapping")
+	ErrStaticRoleMappingAdminOnly            = errors.New("only flightctl-admin users are allowed to create static role mappings for flightctl-admin")
 )
 
 type Validator interface {
@@ -1431,20 +1431,9 @@ func (o *OAuth2ProviderSpec) Validate(ctx context.Context, isUpdate bool) []erro
 		allErrs = append(allErrs, ErrClientIdRequired)
 	}
 
-	// Handle introspection field validation
+	// Validate introspection field is present
 	if o.Introspection == nil {
-		if !isUpdate {
-			// During creation, try to infer introspection
-			introspection, err := InferOAuth2IntrospectionConfig(*o)
-			if err != nil {
-				allErrs = append(allErrs, fmt.Errorf("introspection field is required and could not be inferred: %w", err))
-			} else {
-				o.Introspection = introspection
-			}
-		} else {
-			// During update, introspection is required and cannot be nil
-			allErrs = append(allErrs, fmt.Errorf("introspection field is required for OAuth2 providers"))
-		}
+		allErrs = append(allErrs, fmt.Errorf("introspection field is required for OAuth2 providers"))
 	}
 
 	// Validate organization assignment
@@ -1480,13 +1469,6 @@ func (a *AuthProviderSpec) Validate(ctx context.Context, isUpdate bool) []error 
 			allErrs = append(allErrs, fmt.Errorf("invalid OAuth2 provider spec: %w", err))
 		} else {
 			allErrs = append(allErrs, (&oauth2Spec).Validate(ctx, isUpdate)...)
-			// Write back the mutated spec (with inferred introspection) to the union
-			// Only merge if not updating (to preserve user-provided values during updates)
-			if !isUpdate {
-				if mergeErr := a.MergeOAuth2ProviderSpec(oauth2Spec); mergeErr != nil {
-					allErrs = append(allErrs, fmt.Errorf("failed to update OAuth2 provider spec: %w", mergeErr))
-				}
-			}
 		}
 	case string(K8s):
 		allErrs = append(allErrs, ErrK8sProviderConfigOnly)
@@ -1592,16 +1574,9 @@ func (a AuthStaticOrganizationAssignment) Validate(ctx context.Context) []error 
 	}
 
 	// For non-admin users, validate that the static organization matches their current organization
-	// Access mapped identity directly from context
-	mappedIdentityVal := ctx.Value(consts.MappedIdentityCtxKey)
-	if mappedIdentityVal == nil {
-		allErrs = append(allErrs, ErrMappedIdentityNotFound)
-		return allErrs
-	}
-
-	mappedIdentity, ok := mappedIdentityVal.(*identity.MappedIdentity)
+	mappedIdentity, ok := contextutil.GetMappedIdentityFromContext(ctx)
 	if !ok {
-		allErrs = append(allErrs, ErrInvalidMappedIdentityType)
+		allErrs = append(allErrs, ErrMappedIdentityNotFound)
 		return allErrs
 	}
 
@@ -1640,16 +1615,9 @@ func (a AuthDynamicOrganizationAssignment) Validate(ctx context.Context) []error
 	}
 
 	// Only flightctl-admin is allowed to create auth providers with dynamic org mapping
-	// Access mapped identity directly from context
-	mappedIdentityVal := ctx.Value(consts.MappedIdentityCtxKey)
-	if mappedIdentityVal == nil {
-		allErrs = append(allErrs, ErrMappedIdentityNotFound)
-		return allErrs
-	}
-
-	mappedIdentity, ok := mappedIdentityVal.(*identity.MappedIdentity)
+	mappedIdentity, ok := contextutil.GetMappedIdentityFromContext(ctx)
 	if !ok {
-		allErrs = append(allErrs, ErrInvalidMappedIdentityType)
+		allErrs = append(allErrs, ErrMappedIdentityNotFound)
 		return allErrs
 	}
 
@@ -1668,16 +1636,9 @@ func (a AuthPerUserOrganizationAssignment) Validate(ctx context.Context) []error
 	// The organization name will be generated from the user's identity
 
 	// Only flightctl-admin is allowed to create auth providers with per-user org mapping
-	// Access mapped identity directly from context
-	mappedIdentityVal := ctx.Value(consts.MappedIdentityCtxKey)
-	if mappedIdentityVal == nil {
-		allErrs = append(allErrs, ErrMappedIdentityNotFound)
-		return allErrs
-	}
-
-	mappedIdentity, ok := mappedIdentityVal.(*identity.MappedIdentity)
+	mappedIdentity, ok := contextutil.GetMappedIdentityFromContext(ctx)
 	if !ok {
-		allErrs = append(allErrs, ErrInvalidMappedIdentityType)
+		allErrs = append(allErrs, ErrMappedIdentityNotFound)
 		return allErrs
 	}
 
@@ -1735,6 +1696,28 @@ func (a AuthStaticRoleAssignment) Validate(ctx context.Context) []error {
 		}
 		if !slices.Contains(KnownExternalRoles, role) {
 			allErrs = append(allErrs, fmt.Errorf("role at index %d is not a valid role: %s", i, role))
+		}
+	}
+
+	// Check if any role is flightctl-admin - only super admins can create static mappings for this role
+	hasAdminRole := false
+	for _, role := range a.Roles {
+		if role == ExternalRoleAdmin {
+			hasAdminRole = true
+			break
+		}
+	}
+
+	if hasAdminRole {
+		mappedIdentity, ok := contextutil.GetMappedIdentityFromContext(ctx)
+		if !ok {
+			allErrs = append(allErrs, ErrMappedIdentityNotFound)
+			return allErrs
+		}
+
+		// Only super admin users can create static role mappings for flightctl-admin
+		if !mappedIdentity.IsSuperAdmin() {
+			allErrs = append(allErrs, ErrStaticRoleMappingAdminOnly)
 		}
 	}
 
