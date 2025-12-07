@@ -21,6 +21,7 @@ import (
 	"github.com/jellydator/ttlcache/v3"
 	"github.com/lestrrat-go/jwx/v2/jwk"
 	"github.com/lestrrat-go/jwx/v2/jwt"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
 
@@ -60,22 +61,19 @@ func NewOAuth2Auth(metadata api.ObjectMeta, spec api.OAuth2ProviderSpec, tlsConf
 		return nil, fmt.Errorf("clientSecret is required")
 	}
 
-	// Apply defaults
-	if spec.UsernameClaim == nil || len(*spec.UsernameClaim) == 0 {
-		defaultUsernameClaim := []string{"preferred_username"}
-		spec.UsernameClaim = &defaultUsernameClaim
-	}
-
-	// Use authorizationUrl as issuer if issuer is not provided
-	if spec.Issuer == nil || *spec.Issuer == "" {
-		spec.Issuer = &spec.AuthorizationUrl
-	}
-
 	// Convert organization assignment to org config
 	orgConfig := convertOrganizationAssignmentToOrgConfig(spec.OrganizationAssignment)
 
-	// Create role extractor from role assignment
-	roleExtractor := NewRoleExtractor(spec.RoleAssignment, log)
+	// Check if AuthProvider was created by super admin
+	createdBySuperAdmin := false
+	if metadata.Annotations != nil {
+		if val, ok := (*metadata.Annotations)[api.AuthProviderAnnotationCreatedBySuperAdmin]; ok && val == "true" {
+			createdBySuperAdmin = true
+		}
+	}
+
+	// Create role extractor from role assignment with super admin flag
+	roleExtractor := NewRoleExtractor(spec.RoleAssignment, createdBySuperAdmin, log)
 
 	// Create stateless organization extractor
 	organizationExtractor := NewOrganizationExtractor(orgConfig)
@@ -292,6 +290,10 @@ func (o *OAuth2Auth) GetIdentity(ctx context.Context, token string) (common.Iden
 	}
 
 	// Extract username from the specified claim
+	// UsernameClaim should be set by validation, but handle nil case gracefully
+	if o.spec.UsernameClaim == nil || len(*o.spec.UsernameClaim) == 0 {
+		return nil, fmt.Errorf("usernameClaim is required but not set")
+	}
 	usernameClaim := *o.spec.UsernameClaim
 	username := o.extractClaimByPath(userInfo, usernameClaim)
 	if username == "" {
@@ -307,8 +309,14 @@ func (o *OAuth2Auth) GetIdentity(ctx context.Context, token string) (common.Iden
 	// Build ReportedOrganization with roles embedded
 	reportedOrganizations, isSuperAdmin := common.BuildReportedOrganizations(organizations, orgRoles, false)
 
+	// Get issuer (should be set by validation, but fallback to AuthorizationUrl if not)
+	issuer := lo.FromPtr(o.spec.Issuer)
+	if issuer == "" {
+		issuer = o.spec.AuthorizationUrl
+	}
+
 	// Create OAuth2 identity
-	oauth2Identity := common.NewBaseIdentityWithIssuer(username, username, reportedOrganizations, identity.NewIssuer(identity.AuthTypeOAuth2, *o.spec.Issuer))
+	oauth2Identity := common.NewBaseIdentityWithIssuer(username, username, reportedOrganizations, identity.NewIssuer(identity.AuthTypeOAuth2, issuer))
 	oauth2Identity.SetSuperAdmin(isSuperAdmin)
 
 	// Cache the identity

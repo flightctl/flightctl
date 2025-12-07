@@ -10,15 +10,17 @@ import (
 
 // RoleExtractor handles role extraction from claims based on role assignment configuration
 type RoleExtractor struct {
-	roleAssignment api.AuthRoleAssignment
-	log            logrus.FieldLogger
+	roleAssignment      api.AuthRoleAssignment
+	log                 logrus.FieldLogger
+	createdBySuperAdmin bool
 }
 
-// NewRoleExtractor creates a new role extractor with the given role assignment
-func NewRoleExtractor(roleAssignment api.AuthRoleAssignment, log logrus.FieldLogger) *RoleExtractor {
+// NewRoleExtractor creates a new role extractor with the given role assignment and super admin flag
+func NewRoleExtractor(roleAssignment api.AuthRoleAssignment, createdBySuperAdmin bool, log logrus.FieldLogger) *RoleExtractor {
 	return &RoleExtractor{
-		roleAssignment: roleAssignment,
-		log:            log,
+		roleAssignment:      roleAssignment,
+		log:                 log,
+		createdBySuperAdmin: createdBySuperAdmin,
 	}
 }
 
@@ -146,6 +148,25 @@ func (r *RoleExtractor) parseRolesWithSeparator(roles []interface{}, separator s
 		roleStr, ok := role.(string)
 		if !ok || roleStr == "" {
 			continue
+		}
+
+		// If AuthProvider was not created by super admin, filter out flightctl-admin role
+		if !r.createdBySuperAdmin {
+			// Check if role is flightctl-admin (either as global or org-scoped)
+			if roleStr == api.ExternalRoleAdmin {
+				// Global flightctl-admin role - skip it
+				r.log.Debugf("RoleExtractor: filtering out flightctl-admin role (AP not created by super admin)")
+				continue
+			}
+			// Check if org-scoped role contains flightctl-admin
+			if strings.Contains(roleStr, separator) {
+				parts := strings.SplitN(roleStr, separator, 2)
+				if len(parts) == 2 && parts[1] == api.ExternalRoleAdmin {
+					// Org-scoped flightctl-admin role - skip it
+					r.log.Debugf("RoleExtractor: filtering out org-scoped flightctl-admin role (AP not created by super admin)")
+					continue
+				}
+			}
 		}
 
 		// Check if role contains separator
