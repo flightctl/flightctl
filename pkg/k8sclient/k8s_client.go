@@ -21,7 +21,7 @@ type K8SClient interface {
 	GetSecret(ctx context.Context, namespace, name string) (*corev1.Secret, error)
 	PostCRD(ctx context.Context, crdGVK string, body []byte, opts ...Option) ([]byte, error)
 	ListRoleBindings(ctx context.Context, namespace string) (*rbacv1.RoleBindingList, error)
-	ListProjects(ctx context.Context, token string) ([]byte, error)
+	ListProjects(ctx context.Context, token string, opts ...ListProjectsOption) ([]byte, error)
 	ListRoleBindingsForUser(ctx context.Context, namespace, username string) ([]string, error)
 }
 
@@ -87,12 +87,30 @@ func (k *k8sClient) ListRoleBindings(ctx context.Context, namespace string) (*rb
 	return roleBindings, nil
 }
 
-func (k *k8sClient) ListProjects(ctx context.Context, token string) ([]byte, error) {
+func (k *k8sClient) ListProjects(ctx context.Context, token string, opts ...ListProjectsOption) ([]byte, error) {
 	req := k.clientset.RESTClient().Get().AbsPath("/apis/project.openshift.io/v1/projects")
 	if token != "" {
 		req.SetHeader("Authorization", fmt.Sprintf("Bearer %s", token))
 	}
+
+	// Apply options
+	for _, opt := range opts {
+		opt(req)
+	}
+
 	return req.DoRaw(ctx)
+}
+
+type ListProjectsOption func(*rest.Request)
+
+// WithLabelSelector adds a label selector to filter projects server-side
+// This is useful when the annotation filter corresponds to a label
+func WithLabelSelector(selector string) ListProjectsOption {
+	return func(req *rest.Request) {
+		if selector != "" {
+			req.Param("labelSelector", selector)
+		}
+	}
 }
 
 func (k *k8sClient) ListRoleBindingsForUser(ctx context.Context, namespace, username string) ([]string, error) {
