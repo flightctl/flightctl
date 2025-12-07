@@ -7178,6 +7178,9 @@ components:
         clusterControlPlaneUrl:
           type: string
           description: The OpenShift cluster control plane URL.
+        projectLabelFilter:
+          type: string
+          description: If specified, only projects with this label will be considered. The label selector should be in the format 'key' or 'key=value'. If only the key is provided, any project with that label (regardless of value) will be included. This enables server-side filtering for better performance.
       required:
         - providerType
     AapProviderSpec:

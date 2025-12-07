@@ -2204,6 +2204,9 @@ type OpenShiftProviderSpec struct {
 	// Issuer The OAuth2 issuer identifier (used for issuer identification in tokens).
 	Issuer *string `json:"issuer,omitempty"`
 
+	// ProjectLabelFilter If specified, only projects with this label will be considered. The label selector should be in the format 'key' or 'key=value'. If only the key is provided, any project with that label (regardless of value) will be included. This enables server-side filtering for better performance.
+	ProjectLabelFilter *string `json:"projectLabelFilter,omitempty"`
+
 	// ProviderType The type of authentication provider.
 	ProviderType OpenShiftProviderSpecProviderType `json:"providerType"`
 
