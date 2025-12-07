@@ -177,24 +177,6 @@ var _ = Describe("FleetSelector", func() {
 		Expect(found).To(BeTrue(), fmt.Sprintf("DeviceMultipleOwnersResolved event not found for device %s", deviceName))
 	}
 
-	// Helper function to validate InternalTaskFailed events
-	_ = func(events []api.Event, expectedTaskType string) {
-		found := false
-		for _, event := range events {
-			if event.Reason == api.EventReasonInternalTaskFailed {
-				Expect(event.Type).To(Equal(api.Warning))
-				Expect(event.Details).ToNot(BeNil())
-
-				details, err := event.Details.AsInternalTaskFailedDetails()
-				Expect(err).ToNot(HaveOccurred())
-				Expect(details.ErrorMessage).ToNot(BeEmpty())
-				found = true
-				break
-			}
-		}
-		Expect(found).To(BeTrue(), "InternalTaskFailed event not found")
-	}
-
 	Context("FleetSelector", func() {
 		It("Fleet selector with event validation", func() {
 			testutil.CreateTestFleet(ctx, fleetStore, orgId, "fleet", &map[string]string{"key": "value"}, nil)

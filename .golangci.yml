@@ -1,97 +1,114 @@
 # This file contains all available configuration options
 # with their default values.
-
+version: "2"
 # options for analysis running
 run:
   # default concurrency is a available CPU number
   concurrency: 4
-
   # timeout for analysis, e.g. 30s, 5m, default is 1m
   timeout: 10m
-
   # exit code when at least one issue was found, default is 1
   issues-exit-code: 1
-
   # include test files or not, default is true
   tests: true
 
 # output configuration options
 output:
-  # colored-line-number|line-number|json|tab|checkstyle|code-climate, default is "colored-line-number"
   formats:
-  - format: colored-line-number
-
-  # print lines of code with issue, default is true
-  print-issued-lines: true
-
-  # print linter name in the end of issue text, default is true
-  print-linter-name: true
-
-  # make issues output unique by line, default is true
-  uniq-by-line: true
-
-issues:
-  # List of regexps of issue texts to exclude.
-  #
-  # But independently of this option we use default exclude patterns,
-  # it can be disabled by `exclude-use-default: false`.
-  # To list all excluded by default patterns execute `golangci-lint run --help`
-  #
-  # Default: https://golangci-lint.run/usage/false-positives/#default-exclusions
-  exclude:
-    - 'declaration of "err" shadows declaration at'
-
-  # Which dirs to exclude: issues from them won't be reported.
-  # Can use regexp here: `generated.*`, regexp is applied on full path,
-  # including the path prefix if one is set.
-  # Default dirs are skipped independently of this option's value (see exclude-dirs-use-default).
-  # "/" will be replaced by current OS file path separator to properly work on Windows.
-  # Default: []
-  exclude-dirs:
-    - bin
-    - deploy
-    - docs
-    - examples
-    - hack
-    - packaging
-    - reports
-    - internal/auth/issuer/pam
+    text:
+      path: stdout
+      print-linter-name: true
+      print-issued-lines: true
+      colors: true
 
 linters:
   enable:
     - copyloopvar
     - depguard
     - errcheck
-    - gci
     - gocyclo
-    - gofmt
-    - goimports
     - gosec
-    - gosimple
-    - govet
-    - ineffassign
     - misspell
     - nolintlint
-    - staticcheck
     - unconvert
-    - unused
+  settings:
+    depguard:
+      rules:
+        main:
+          deny:
+            - pkg: ^math/rand$
+              desc: Use math/rand/v2 instead
+    govet:
+      enable:
+        - shadow
+      settings:
+        shadow:
+          strict: false
+        printf:
+          funcs:
+            # package-level logrus
+            - github.com/sirupsen/logrus.Infof
+            - github.com/sirupsen/logrus.Warnf
+            - github.com/sirupsen/logrus.Errorf
+            - github.com/sirupsen/logrus.Fatalf
 
-linters-settings:
-  enable:
-    - shadow
-
-  depguard:
+            # common chained usage
+            - (github.com/sirupsen/logrus.Entry).Infof
+            - (github.com/sirupsen/logrus.Entry).Warnf
+            - (github.com/sirupsen/logrus.Entry).Errorf
+            - (github.com/sirupsen/logrus.Entry).Fatalf
+    staticcheck:
+      dot-import-whitelist:
+        - "github.com/onsi/ginkgo/v2"
+        - "github.com/onsi/gomega"
+        - "github.com/onsi/gomega/gbytes"
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
     rules:
-      main:
-        deny:
-          - pkg: "^math/rand$"
-            desc: "Use math/rand/v2 instead"
-
-  govet:
-    settings:
-      printf:
-        funcs:
-          - Infof
-          - Warnf
-          - Errorf
-          - Fatalf
+      - path: (.+)\.go$
+        text: declaration of "(err|ctx)" shadows declaration at
+      - linters:
+          - staticcheck
+        text: '^QF1008:' # ignore "Omit embedded fields from selector expression"
+      - linters:
+          - staticcheck
+        text: '^QF1001:' # ignore "Apply De Morgan’s law"
+    paths:
+      - bin
+      - deploy
+      - docs
+      - examples
+      - hack
+      - packaging
+      - reports
+      - internal/auth/issuer/pam
+      - third_party$
+      - builtin$
+      - examples$
+issues:
+  # make issues output unique by line, default is true
+  uniq-by-line: true
+formatters:
+  enable:
+    - gci
+    - gofmt
+    - goimports
+  exclusions:
+    generated: lax
+    paths:
+      - bin
+      - deploy
+      - docs
+      - examples
+      - hack
+      - packaging
+      - reports
+      - internal/auth/issuer/pam
+      - third_party$
+      - builtin$
+      - examples$
