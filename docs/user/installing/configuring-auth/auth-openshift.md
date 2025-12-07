@@ -27,6 +27,16 @@ Flight Control automatically maps OpenShift projects to Flight Control organizat
 - Each OpenShift project becomes a Flight Control organization
 - Users inherit access to Flight Control organizations based on their OpenShift project membership
 
+### Project Filtering
+
+By default, Flight Control only considers OpenShift projects labeled with `io.flightctl/instance=<releaseName>`. To include a project, label it:
+
+```bash
+oc label namespace my-project io.flightctl/instance=my-release
+```
+
+Only projects with this label will be mapped to Flight Control organizations. You can customize the label selector via `global.auth.openshift.projectLabelFilter` in your Helm values.
+
 ## Authorization
 
 Flight Control uses RoleBindings from project namespaces to determine user permissions:

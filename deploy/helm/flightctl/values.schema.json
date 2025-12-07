@@ -153,7 +153,8 @@
                 "clientSecret": { "type": "string", "description": "OAuth client secret (leave empty for auto-generation)" },
                 "authorizationUrl": { "type": "string", "description": "OAuth authorization URL (leave empty to auto-detect from OpenShift cluster)" },
                 "tokenUrl": { "type": "string", "description": "OAuth token URL (leave empty to auto-detect from OpenShift cluster)" },
-                "issuer": { "type": "string", "description": "OAuth issuer URL (defaults to authorizationUrl if not specified)" }
+                "issuer": { "type": "string", "description": "OAuth issuer URL (defaults to authorizationUrl if not specified)" },
+                "projectLabelFilter": { "type": "string", "description": "Project label filter for OpenShift projects (leave empty to use default: io.flightctl/instance=<releaseName>)" }
               }
             }
           }

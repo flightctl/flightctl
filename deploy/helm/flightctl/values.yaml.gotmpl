@@ -83,6 +83,8 @@ global:
       tokenUrl: ""
       # -- OAuth issuer URL (defaults to authorizationUrl if not specified)
       issuer: ""
+      # -- Project label filter for OpenShift projects (leave empty to use default: io.flightctl/instance=<releaseName>)
+      projectLabelFilter: ""
   # -- How the Flight Control services should be exposed. Can be either 'auto', 'route', 'gateway' (experimental) or 'none'
   exposeServicesMethod: "auto"
   # -- Configuration for 'gateway' service exposure method
