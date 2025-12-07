@@ -34,7 +34,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			harness := e2e.GetWorkerHarness()
 
 			By("Verifying update to agent  with requested image")
-			device, newImageReference, err := harness.WaitForBootstrapAndUpdateToVersion(deviceId, ":v2")
+			device, newImageReference, err := harness.WaitForBootstrapAndUpdateToVersion(deviceId, util.DeviceTags.V2)
 			Expect(err).ToNot(HaveOccurred())
 
 			currentImage := device.Status.Os.Image
@@ -76,7 +76,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 
 			By("Verifying update to agent  with embedded application")
 
-			device, newImageReference, err := harness.WaitForBootstrapAndUpdateToVersion(deviceId, ":v4")
+			device, newImageReference, err := harness.WaitForBootstrapAndUpdateToVersion(deviceId, util.DeviceTags.V4)
 			Expect(err).ToNot(HaveOccurred())
 
 			currentImage := device.Status.Os.Image
@@ -120,7 +120,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 
 			GinkgoWriter.Printf("We expect podman containers with sleep infinity process to be present but not running 👌\n")
 
-			device, newImageReference, err = harness.WaitForBootstrapAndUpdateToVersion(deviceId, ":base")
+			device, newImageReference, err = harness.WaitForBootstrapAndUpdateToVersion(deviceId, util.DeviceTags.Base)
 			Expect(err).ToNot(HaveOccurred())
 
 			currentImage = device.Status.Os.Image
@@ -237,7 +237,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			Expect(err).NotTo(HaveOccurred())
 			initialImage := dev.Status.Os.Image
 			// The v8 image should contain a bad compose file
-			_, _, err = harness.WaitForBootstrapAndUpdateToVersion(deviceId, ":v8")
+			_, _, err = harness.WaitForBootstrapAndUpdateToVersion(deviceId, util.DeviceTags.V8)
 			Expect(err).ToNot(HaveOccurred())
 
 			harness.WaitForDeviceContents(deviceId, "device image should be updated to the new image", func(device *v1beta1.Device) bool {

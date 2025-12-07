@@ -192,32 +192,35 @@ func (h *Harness) EnsureDeviceContents(deviceId string, description string, cond
 	}, condition, timeout)
 }
 
-func (h *Harness) WaitForBootstrapAndUpdateToVersion(deviceId string, version string) (*v1beta1.Device, string, error) {
+func (h *Harness) WaitForBootstrapAndUpdateToVersion(deviceId string, version string) (*v1beta1.Device, util.ImageReference, error) {
+	var imageReference = util.ImageReference{}
 	// Check the device status right after bootstrap
 	response, err := h.GetDeviceWithStatusSystem(deviceId)
 	if err != nil {
-		return nil, "", err
+		return nil, imageReference, err
 	}
 	device := response.JSON200
 	if device.Status.Summary.Status != v1beta1.DeviceSummaryStatusOnline {
-		return nil, "", fmt.Errorf("device: %q is not online", deviceId)
+		return nil, imageReference, fmt.Errorf("device: %q is not online", deviceId)
 	}
-
-	var newImageReference string
 
 	err = h.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
 		currentImage := device.Status.Os.Image
 		logrus.Infof("current image for %s is %s", deviceId, currentImage)
-		repo, _ := h.parseImageReference(currentImage)
-		newImageReference = repo + version
-		device.Spec.Os = &v1beta1.DeviceOsSpec{Image: newImageReference}
+		imageReference, err = util.NewImageReferenceFromString(currentImage)
+		if err != nil {
+			logrus.Errorf("failed to parse image reference %s: %v", currentImage, err)
+			return
+		}
+		imageReference = imageReference.WithTag(version)
+		device.Spec.Os = &v1beta1.DeviceOsSpec{Image: imageReference.String()}
 		logrus.Infof("updating %s to image %s", deviceId, device.Spec.Os.Image)
 	})
 	if err != nil {
-		return nil, "", err
+		return nil, imageReference, err
 	}
 
-	return device, newImageReference, nil
+	return device, imageReference, nil
 }
 
 func (h *Harness) GetCurrentDeviceGeneration(deviceId string) (deviceRenderedVersionInt int64, err error) {
