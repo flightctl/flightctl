@@ -121,7 +121,6 @@ func NewSleepAppImageReference(tag string) ImageReference {
 	return NewImageReference(ImageRepo, ImageNames.SleepApp, tag)
 }
 
-
 func (r ImageReference) String() string {
 	// If tag is empty, return without ":"
 	if r.Tag == "" {

@@ -18,7 +18,6 @@ const (
 	inlineAppName = "my-app"
 )
 
-
 var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 	var (
 		deviceId string
