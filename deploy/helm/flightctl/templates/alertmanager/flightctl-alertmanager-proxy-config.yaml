@@ -63,6 +63,7 @@ data:
         issuer: {{ include "flightctl.getOpenShiftOAuthIssuer" . }}
         clientId: {{ include "flightctl.getOpenShiftOAuthClientId" . }}
         clientSecret: {{ include "flightctl.getOpenShiftOAuthClientSecret" . }}
+        projectLabelFilter: {{ include "flightctl.getOpenShiftProjectLabelFilter" . | quote }}
       {{- else if eq $effectiveAuthType "aap" }}
       aap:
         apiUrl: {{ .Values.global.auth.aap.apiUrl }}
