@@ -7,11 +7,9 @@
 SCRIPT_NAME=$(basename "$0")
 SCRIPT_PID=$$
 
-# Default configuration (used by scripts that source this file)
+# Default configuration
 DEFAULT_BASE_TIMEOUT=150
 DEFAULT_MAX_BOOT_ATTEMPTS=3
-# shellcheck disable=SC2034  # Used by flightctl-agent-running-check.sh
-DEFAULT_SUCCESS_DURATION=60
 
 #
 # Logging
@@ -74,51 +72,7 @@ get_wait_timeout() {
 }
 
 #
-# Service health check
-#
-
-# Verify flightctl-agent systemd service status.
-# Returns 0 if active, 1 if not active, exits if failed.
-verify_flightctl_agent_status() {
-    local failed active
-    failed=$(systemctl is-failed flightctl-agent.service 2>/dev/null || true)
-    active=$(systemctl is-active flightctl-agent.service 2>/dev/null || true)
-
-    if [ "$failed" = "failed" ]; then
-        log_error "flightctl-agent.service has entered failed state"
-        kill -TERM "$SCRIPT_PID"
-    fi
-
-    [ "$active" = "active" ]
-}
-
-# Wait for a command to succeed and remain stable.
-# Args: $1=timeout, $2=stability_duration, $@=command
-wait_for() {
-    local timeout=$1 stable=$2
-    shift 2
-
-    local start now stable_start
-    start=$(date +%s)
-
-    while true; do
-        if "$@"; then
-            stable_start=$(date +%s)
-            while true; do
-                sleep 1
-                [ $(($(date +%s) - stable_start)) -ge "$stable" ] && return 0
-                "$@" || break
-            done
-        fi
-
-        now=$(date +%s)
-        [ $((now - start)) -ge "$timeout" ] && return 1
-        sleep 1
-    done
-}
-
-#
-# Debug info collection
+# Debug info collection (used by pre-rollback script)
 #
 
 collect_debug_info() {
@@ -128,4 +82,3 @@ collect_debug_info() {
     log_info "Recent journal entries:"
     journalctl -u flightctl-agent.service -n 50 --no-pager 2>&1 || true
 }
-
