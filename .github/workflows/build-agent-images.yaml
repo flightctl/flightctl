@@ -138,9 +138,9 @@ jobs:
           set -euo pipefail
           
           {
-            echo "## :test_tube: Test Artifacts Ready"
+            echo "## :test_tube: Test Artifacts Ready (${OS_ID})"
             echo ""
-            echo "**Tag:** \`${TAG}\` | **OS:** \`${OS_ID}\` | [All artifacts](https://github.com/${{ github.repository }}/actions/runs/${RUN_ID}#artifacts)"
+            echo "**Tag:** \`${TAG}\` | [All artifacts](https://github.com/${{ github.repository }}/actions/runs/${RUN_ID}#artifacts)"
             echo ""
             
             if [ -n "$IMAGES" ] && [ "$IMAGES" != "Bundle inspection failed" ]; then

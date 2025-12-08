@@ -149,10 +149,7 @@ build-e2e-containers: git-server-container e2e-agent-images
 git-server-container: bin/e2e-certs/ca.pem
 	@echo "Building git-server container with Docker caching..."
 	test/scripts/prepare_git_server.sh
-	@if test/scripts/functions in_kind; then \
-		echo "Loading git-server into kind cluster..."; \
-		source test/scripts/functions && kind_load_image localhost/git-server:latest; \
-	fi
+	@bash -c 'source test/scripts/functions && in_kind && echo "Loading git-server into kind cluster..." && kind_load_image localhost/git-server:latest' || true
 
 # Build E2E agent images with proper caching (offline build – no cert generation)
 e2e-agent-images: bin/.e2e-agent-images

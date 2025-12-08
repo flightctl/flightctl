@@ -85,28 +85,8 @@ jobs:
           base-domain: ${{ steps.base-domain.outputs.base_domain }}
           additional-values-files: deploy/helm/flightctl/values.e2e.yaml
           auth-type: k8s
-
-      # ========== LOGIN TO FLIGHTCTL API ==========
-      - name: Login to FlightCtl API
-        run: |
-          set -euo pipefail
-          API_URL="https://api.${{ steps.base-domain.outputs.base_domain }}:3443"
-          
-          # Login with k8s service account token (same as deploy_with_helm.sh)
-          for i in {1..60}; do
-            TOKEN=$(kubectl -n flightctl-external create token flightctl-admin --duration=8h 2>/dev/null || true)
-            if [ -n "$TOKEN" ] && bin/flightctl login -k "$API_URL" --token "$TOKEN"; then
-              echo "Successfully logged in to FlightCtl API"
-              break
-            fi
-            echo "Login attempt $i/60, retrying..."
-            sleep 5
-          done
-
-      - name: Set organization
-        run: |
-          source test/scripts/functions
-          ensure_organization_set
+          kind-config: test/scripts/kind_cluster.yaml
+          display-summary: ${{ matrix.ginkgo_node == 1 }}
 
       # ========== DOWNLOAD E2E TEST ARTIFACTS ==========
       - name: Download test artifacts

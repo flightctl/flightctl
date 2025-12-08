@@ -28,6 +28,14 @@ inputs:
     description: 'Authentication type (empty for default, "k8s" for Kubernetes auth)'
     required: false
     default: ''
+  kind-config:
+    description: 'Path to kind cluster config file'
+    required: false
+    default: 'deploy/kind.yaml'
+  display-summary:
+    description: 'Whether to display deployment summary in GitHub step summary'
+    required: false
+    default: 'true'
 
 runs:
   using: "composite"
@@ -83,7 +91,7 @@ runs:
     # ========== INITIALIZE KIND CLUSTER ==========
     - name: Create kind cluster
       shell: bash
-      run: kind create cluster --config deploy/kind.yaml
+      run: kind create cluster --config ${{ inputs.kind-config }}
 
     # ========== LOAD IMAGES INTO KIND ==========
     - name: Load backend images into kind
@@ -106,32 +114,45 @@ runs:
 
     # ========== DEPLOY BACKEND ==========
     - name: Deploy FlightCtl backend with Helm
+      id: helm-deploy
       shell: bash
       env:
         BASE_DOMAIN: ${{ inputs.base-domain }}
         ADDITIONAL_VALUES_FILES: ${{ inputs.additional-values-files }}
         AUTH_TYPE: ${{ inputs.auth-type }}
+        NAMESPACE_EXTERNAL: ${{ inputs.namespace-external }}
+        NAMESPACE_INTERNAL: ${{ inputs.namespace-internal }}
       run: |
         set -euo pipefail
 
-        kubectl create namespace ${{ inputs.namespace-internal }}
+        kubectl create namespace "${NAMESPACE_INTERNAL}"
         ( kubectl get pods --all-namespaces -w | sed 's/^/[cluster] /' ) &
 
         # Build optional args
-        EXTRA_ARGS=()
-        for f in ${ADDITIONAL_VALUES_FILES}; do [ -f "$f" ] && EXTRA_ARGS+=(--values "$f"); done
-        [ -n "${AUTH_TYPE}" ] && EXTRA_ARGS+=(--set "global.auth.type=${AUTH_TYPE}")
+        EXTRA_ARGS=""
+        for f in ${ADDITIONAL_VALUES_FILES}; do [ -f "$f" ] && EXTRA_ARGS+=" --values $f"; done
+        [ -n "${AUTH_TYPE}" ] && EXTRA_ARGS+=" --set global.auth.type=${AUTH_TYPE}"
 
-        helm install flightctl artifacts/flightctl-chart.tgz \
-          --namespace ${{ inputs.namespace-external }} \
-          --create-namespace \
-          --values deploy/helm/flightctl/values.nodeport.yaml \
-          --set global.baseDomain="${BASE_DOMAIN}" \
-          --set global.internalNamespace=${{ inputs.namespace-internal }} \
-          --set ui.enabled=false \
-          "${EXTRA_ARGS[@]}" \
-          --wait \
-          --debug
+        # Build the helm command (without --debug for display)
+        HELM_CMD="helm install flightctl artifacts/flightctl-chart.tgz"
+        HELM_CMD+=" --namespace ${NAMESPACE_EXTERNAL}"
+        HELM_CMD+=" --create-namespace"
+        HELM_CMD+=" --values deploy/helm/flightctl/values.nodeport.yaml"
+        HELM_CMD+=' --set global.baseDomain="${BASE_DOMAIN}"'
+        HELM_CMD+=" --set global.internalNamespace=${NAMESPACE_INTERNAL}"
+        HELM_CMD+=" --set ui.enabled=false"
+        HELM_CMD+="${EXTRA_ARGS}"
+        HELM_CMD+=" --wait"
+
+        # Output command for summary (with literal ${BASE_DOMAIN} for local reproduction)
+        {
+          echo "helm_cmd<<EOF"
+          echo "${HELM_CMD}"
+          echo "EOF"
+        } >> "$GITHUB_OUTPUT"
+
+        # Execute with --debug for verbose output
+        eval "${HELM_CMD} --debug"
 
     - name: "Wait for API readiness"
       uses: ./.github/actions/wait-for-api-readiness
@@ -139,29 +160,23 @@ runs:
         base-domain: ${{ inputs.base-domain }}
 
     - name: Generate deployment summary
+      if: inputs.display-summary == 'true'
       shell: bash
       env:
         IMAGE_TAG: ${{ steps.compute-tags.outputs.git_tag }}
-        NAMESPACE_EXTERNAL: ${{ inputs.namespace-external }}
         NAMESPACE_INTERNAL: ${{ inputs.namespace-internal }}
-        ADDITIONAL_VALUES_FILES: ${{ inputs.additional-values-files }}
-        AUTH_TYPE: ${{ inputs.auth-type }}
+        KIND_CONFIG: ${{ inputs.kind-config }}
         RUN_ID: ${{ github.run_id }}
+        HELM_CMD: ${{ steps.helm-deploy.outputs.helm_cmd }}
       run: |
         set -euo pipefail
-        
-        # Build optional args for display
-        EXTRA_ARGS=""
-        for f in ${ADDITIONAL_VALUES_FILES}; do [ -f "$f" ] && EXTRA_ARGS+=" --values $f"; done
-        [ -n "${AUTH_TYPE}" ] && EXTRA_ARGS+=" --set global.auth.type=${AUTH_TYPE}"
         
         {
           echo "### :rocket: Deployment"
           echo ""
           echo "Backend deployed successfully to kind cluster."
           echo ""
-          echo "<details>"
-          echo "<summary><strong>Reproduce Locally</strong></summary>"
+          echo "#### Reproduce Locally"
           echo ""
           echo '```bash'
           echo "# Download artifacts"
@@ -170,22 +185,12 @@ runs:
           echo "gh run download ${RUN_ID} -n helm-chart-${IMAGE_TAG} -D artifacts"
           echo ""
           echo "# Create kind cluster and load images"
-          echo "kind create cluster --config deploy/kind.yaml"
+          echo "kind create cluster --config ${KIND_CONFIG}"
           echo "kind load image-archive bin/flightctl-images-bundle.tar"
           echo ""
           echo "# Deploy"
           echo 'source ./test/scripts/functions && export BASE_DOMAIN=$(get_ext_ip).nip.io'
           echo "kubectl create namespace ${NAMESPACE_INTERNAL}"
-          echo "helm install flightctl artifacts/flightctl-chart.tgz \\"
-          echo "  --namespace ${NAMESPACE_EXTERNAL} \\"
-          echo "  --create-namespace \\"
-          echo "  --values deploy/helm/flightctl/values.nodeport.yaml \\"
-          echo '  --set global.baseDomain="${BASE_DOMAIN}" \'
-          echo "  --set global.internalNamespace=${NAMESPACE_INTERNAL} \\"
-          echo "  --set ui.enabled=false${EXTRA_ARGS} \\"
-          echo "  --wait"
+          echo "${HELM_CMD}"
           echo '```'
-          echo ""
-          echo "</details>"
         } >> "$GITHUB_STEP_SUMMARY"
-

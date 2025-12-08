@@ -14,7 +14,11 @@ shift || true
 
 ARG_ENDPOINT=""
 TLS_VERIFY=false
-JOBS="${JOBS:-$(nproc)}"
+# Default to min(nproc, 4) to avoid overwhelming the system
+if [ -z "${JOBS:-}" ]; then
+  NPROC=$(nproc)
+  JOBS=$((NPROC < 4 ? NPROC : 4))
+fi
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
