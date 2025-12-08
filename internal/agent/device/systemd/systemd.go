@@ -102,32 +102,34 @@ func (m *manager) Logs(ctx context.Context, options ...client.LogOptions) ([]str
 }
 
 func (m *manager) Status(ctx context.Context, device *v1beta1.DeviceStatus, _ ...status.CollectorOpt) error {
-	var systemdUnits []v1beta1.SystemdUnitStatus
-	if len(m.patterns) > 0 {
-		units, err := m.client.ShowByMatchPattern(ctx, m.patterns)
-		if err != nil {
-			return err
-		}
-
-		systemdUnits = make([]v1beta1.SystemdUnitStatus, 0, len(units))
-		for _, unit := range units {
-			unitName := unit["Id"]
-			if _, excluded := m.excludedServices[unitName]; excluded {
-				m.log.Debugf("Excluding systemd unit from status report: %s", unitName)
-				continue
-			}
-			systemdUnits = append(systemdUnits, v1beta1.SystemdUnitStatus{
-				Unit:        unitName,
-				Description: unit["Description"],
-				EnableState: v1beta1.SystemdEnableStateType(unit["UnitFileState"]),
-				LoadState:   v1beta1.SystemdLoadStateType(unit["LoadState"]),
-				ActiveState: v1beta1.SystemdActiveStateType(unit["ActiveState"]),
-				SubState:    unit["SubState"],
-			})
-		}
+	if len(m.patterns) == 0 {
+		device.Systemd = &[]v1beta1.SystemdUnitStatus{}
+		return nil
 	}
 
-	device.Systemd = lo.ToPtr(systemdUnits)
+	units, err := m.client.ShowByMatchPattern(ctx, m.patterns)
+	if err != nil {
+		return err
+	}
+
+	systemdUnits := make([]v1beta1.SystemdUnitStatus, 0, len(units))
+	for _, unit := range units {
+		unitName := unit["Id"]
+		if _, excluded := m.excludedServices[unitName]; excluded {
+			m.log.Debugf("Excluding systemd unit from status report: %s", unitName)
+			continue
+		}
+		systemdUnits = append(systemdUnits, v1beta1.SystemdUnitStatus{
+			Unit:        unitName,
+			Description: unit["Description"],
+			EnableState: v1beta1.SystemdEnableStateType(unit["UnitFileState"]),
+			LoadState:   v1beta1.SystemdLoadStateType(unit["LoadState"]),
+			ActiveState: v1beta1.SystemdActiveStateType(unit["ActiveState"]),
+			SubState:    unit["SubState"],
+		})
+	}
+
+	device.Systemd = &systemdUnits
 	return nil
 }
 
