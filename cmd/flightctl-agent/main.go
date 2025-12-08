@@ -17,6 +17,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/applications/helm"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/systeminfo"
+	"github.com/flightctl/flightctl/internal/agent/health"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/version"
@@ -60,6 +61,13 @@ func main() {
 		command := NewHelmRenderCommand()
 		if err := command.Execute(); err != nil {
 			fmt.Fprintf(os.Stderr, "helm-render error: %v\n", err)
+			os.Exit(1)
+		}
+
+	case "health":
+		flag.CommandLine = flag.NewFlagSet("health", flag.ExitOnError)
+		command := NewHealthCommand()
+		if err := command.Execute(); err != nil {
 			os.Exit(1)
 		}
 	default:
@@ -150,12 +158,69 @@ func (s *systemInfoCmd) Execute() error {
 	return nil
 }
 
+type healthCmd struct {
+	timeout       time.Duration
+	serverURL     string
+	verbose       bool
+	greenbootMode bool
+}
+
+// NewHealthCommand creates a new health check command.
+func NewHealthCommand() *healthCmd {
+	fs := flag.NewFlagSet("health", flag.ExitOnError)
+	cmd := &healthCmd{}
+
+	fs.DurationVar(&cmd.timeout, "timeout", 30*time.Second, "Maximum time to wait for checks.")
+	fs.StringVar(&cmd.serverURL, "server", "", "Management server URL for connectivity check.")
+	fs.BoolVar(&cmd.verbose, "verbose", false, "Print detailed check results.")
+	fs.BoolVar(&cmd.greenbootMode, "greenboot", false, "Run in greenboot integration mode.")
+
+	if hasHelpFlag(os.Args[2:]) {
+		fmt.Println("Usage of health:")
+		fmt.Println("  Performs health checks on the flightctl-agent service.")
+		fmt.Println()
+		fmt.Println("Checks performed:")
+		fmt.Println("  - Service status (enabled/active) via D-Bus")
+		fmt.Println("  - Connectivity to management server (warning only)")
+		fmt.Println()
+		fmt.Println("Exit codes:")
+		fmt.Println("  0  All checks passed (connectivity warnings don't affect exit code)")
+		fmt.Println("  1  Service check failed")
+		fmt.Println()
+		fs.PrintDefaults()
+		os.Exit(0)
+	}
+
+	if err := fs.Parse(os.Args[2:]); err != nil {
+		fmt.Fprintf(os.Stderr, "error parsing flags: %v\n", err)
+		os.Exit(2)
+	}
+
+	return cmd
+}
+
+// Execute runs the health checks.
+func (h *healthCmd) Execute() error {
+	logger := log.NewPrefixLogger("health")
+
+	checker := health.New(
+		logger,
+		health.WithTimeout(h.timeout),
+		health.WithServerURL(h.serverURL),
+		health.WithVerbose(h.verbose),
+		health.WithGreenbootMode(h.greenbootMode),
+		health.WithOutput(os.Stdout),
+	)
+	return checker.Run(context.Background())
+}
+
 func printUsage() {
 	fmt.Printf("Usage of %s:\n", os.Args[0])
 	fmt.Println("commands:")
 	fmt.Println("  version      Display version information")
 	fmt.Println("  system-info  Display system information")
 	fmt.Println("  helm-render  Inject app labels into Helm-rendered manifests")
+	fmt.Println("  health       Perform health checks on agent configuration and state")
 	fmt.Println("")
 	fmt.Println("Run '<command> --help' for command-specific flags.")
 	fmt.Println("flags:")

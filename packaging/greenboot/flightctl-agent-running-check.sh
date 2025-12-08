@@ -23,10 +23,10 @@ print_boot_status
 # Get dynamic timeout based on boot counter
 WAIT_TIMEOUT=$(get_wait_timeout)
 
-# Wait for service to be active and stable
-if ! wait_for "$WAIT_TIMEOUT" "$DEFAULT_SUCCESS_DURATION" verify_flightctl_agent_status; then
-    log_error "flightctl-agent.service did not stabilize within ${WAIT_TIMEOUT}s"
+# Run health check via Go binary (D-Bus service check + connectivity warning)
+if ! flightctl-agent health --greenboot --timeout="${WAIT_TIMEOUT}s" --verbose; then
+    log_error "flightctl-agent health check failed"
     exit 1
 fi
 
-log_info "flightctl-agent.service is healthy"
+log_info "flightctl-agent is healthy"
