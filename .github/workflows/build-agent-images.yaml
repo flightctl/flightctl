@@ -57,7 +57,7 @@ jobs:
           # Mark RPMs as already provided so Makefile skips rebuilding them
           touch bin/.rpm
           ls -la bin/rpm
-          make -j4 e2e-agent-images
+          make e2e-agent-images
 
       - name: Print parallel build logs (per flavor)
         if: always()

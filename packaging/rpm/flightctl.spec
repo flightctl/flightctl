@@ -11,8 +11,8 @@
 Name:           flightctl
 # Version and Release are automatically updated by Packit during build
 # Do not manually change these values - they will be overwritten
-Version:        0.6.0
-Release:        1%{?dist}
+Version:        1.1.0~main~24~g4116b479
+Release:        1.20251208164904660558.decoupled.agent.image.builds.78.g4116b479%{?dist}
 Summary:        Flight Control service
 
 %gometa
@@ -20,7 +20,7 @@ Summary:        Flight Control service
 License:        Apache-2.0 AND BSD-2-Clause AND BSD-3-Clause AND ISC AND MIT
 URL:            %{gourl}
 
-Source0:        1%{?dist}
+Source0:        flightctl-1.1.0~main~24~g4116b479.tar.gz
 
 BuildRequires:  golang
 BuildRequires:  make
@@ -412,7 +412,7 @@ echo "Flightctl Observability Stack uninstalled."
 
 %prep
 %goprep -A
-%setup -q %{forgesetupargs}
+%setup -q %{forgesetupargs} -n flightctl-1.1.0~main~24~g4116b479
 
 %build
     # if this is a buggy version of go we need to set GOPROXY as workaround
@@ -778,6 +778,52 @@ fi
 # If contexts were managed via policy, no cleanup is needed here.
 
 %changelog
+* Mon Dec 8 2025 Super User - 1.1.0~main~24~g4116b479-1.20251208164904660558.decoupled.agent.image.builds.78.g4116b479
+- EDM-2477: fixes (Ilya Skornyakov)
+- EDM-2477: fixes (Ilya Skornyakov)
+- EDM-2760: multi-auth listing AP's without org filter NO-ISSUE: prevent non super-admins from setting static role = super admin , or by receiving it as a dynamic role value (Asaf Ben Natan)
+- EDM-2477: display artifacts output (Ilya Skornyakov)
+- EDM-2477: refactor ci (Ilya Skornyakov)
+- EDM-2689: Fix systemd unit in status when spec empty (Frank A. Zdarsky)
+- EDM-2761: support edit for AP EDM-2762: updating client secret does not refresh cache (Asaf Ben Natan)
+- EDM-2477: fixes (Ilya Skornyakov)
+- EDM-2477: gci (Ilya Skornyakov)
+- EDM-2477: single test image ref source (Ilya Skornyakov)
+- EDM-2743: helm - cleanup all temporary resources (#2163) (Ilya)
+- EDM-2698: added project filter for openshift (Asaf Ben Natan)
+- EDM-2477: fixes (Ilya Skornyakov)
+- NO-ISSUE: api: policy: make startGraceDuration required (Sam Batschelet)
+- EDM-2477: resolve conflict (Ilya Skornyakov)
+- EDM-2477: restructure test agent image files (Ilya Skornyakov)
+- EDM-2748: ResourceSync should not overwrite annotations (Avishay Traeger)
+- EDM-1332: Suppress bootc SELinux error (Ben Keith)
+- EDM-2744: SELinux - allow connections to kernel stream sockets (#2165) (Ben Keith)
+- EDM-2710: re-added password flow for the default quadlets deployment (Asaf Ben Natan)
+- EDM-2739: added validation for oauth2/oidc with static role assignment - only known external roles are allowed (Asaf Ben Natan)
+- EDM-2731: Allow cli-artifacts to be exposed by NodePorts (Celia Amador)
+- EDM-2732: cleanup flightctl-cert-generator job when succeeded (#2160) (Ilya)
+- EDM-2694: fixed alert manager proxy config (Asaf Ben Natan)
+- NO-ISSUE: agent: cleanup noisy logs (Sam Batschelet)
+- EDM-2402: Add opt out functionality for quadlet cert generation (Dakota Crowder)
+- EDM-2729: helm: fix nil ui port (Sam Batschelet)
+- NO-ISSUE: Fix version discovery (Ben Keith)
+- NO-ISSUE: Update current-version script (Ben Keith)
+- Revert "EDM-2648: flightctl version is not showing the client version in the …" (Ben Keith)
+- NO-ISSUE: add more info for openshift auth (Asaf Ben Natan)
+- NO-ISSUE: wokrflow - fix api readiness script (#2137) (Ilya)
+- NO-ISSUE: auto select first org (Noga Magen)
+- EDM-2716: fixed installer permissions (Asaf Ben Natan)
+- EDM-2454: Set device integrity status to Unsupported for non-TPM enrollments (#2133) (Andy Dalton)
+- EDM-2720: Use fallback for empty agent version in audit logger (Gal Elharar)
+- EDM-2628: Add additional context to version command when config file is missing (Dakota Crowder)
+- EDM-2712: Mount ca bundle in api container (Dakota Crowder)
+- EDM-2681/2696 Quadlet applications management fixes (#2114) (kkyrazis)
+- EDM-2711: client: add repository support (Sam Batschelet)
+- EDM-2723: agent/status: ensure timeout (Sam Batschelet)
+- EDM-2576: When logging in using CLI the default organization for a user is not shown (Noga Magen)
+- EDM-2576: When logging in using CLI the default organization for a user is not shown (Noga Magen)
+- EDM-2473: update test makefile deps (Ilya Skornyakov)
+
 * Wed Nov 26 2025 Dakota Crowder <dcrowder@redhat.com> - 1.0-1
 - Adding certificate generation service
 * Mon Nov 17 2025 Dakota Crowder <dcrowder@redhat.com> - 1.0-1

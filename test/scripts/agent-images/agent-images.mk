@@ -10,7 +10,7 @@ AGENT_BUNDLE := $(AGENT_BUNDLE_DIR)/agent-images-bundle-$(AGENT_OS_ID).tar
 # Build + bundle artifacts (no push)
 bin/.e2e-agent-images: | bin
 	@if [ ! -f "$(AGENT_BUNDLE)" ]; then \
-		$(MAKE) bin/.rpm bin/flightctl-agent; \
+		$(MAKE) bin/.rpm; \
 		BUILD_TYPE=$(BUILD_TYPE) BREW_BUILD_URL=$(BREW_BUILD_URL) SOURCE_GIT_TAG=$(SOURCE_GIT_TAG) SOURCE_GIT_TREE_STATE=$(SOURCE_GIT_TREE_STATE) SOURCE_GIT_COMMIT=$(SOURCE_GIT_COMMIT) \
 			AGENT_OS_ID=$(AGENT_OS_ID) PUSH_IMAGES=false ARTIFACTS_OUTPUT_DIR=$(AGENT_BUNDLE_DIR) $(ROOT_DIR)/test/scripts/agent-images/create_agent_images.sh; \
 	else \
