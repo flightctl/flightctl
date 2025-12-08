@@ -23,8 +23,8 @@ print_boot_status
 # Get dynamic timeout based on boot counter
 WAIT_TIMEOUT=$(get_wait_timeout)
 
-# Run health check via Go binary (D-Bus service check + connectivity warning)
-if ! flightctl-agent health --greenboot --timeout="${WAIT_TIMEOUT}s" --verbose; then
+# Run health check via Go binary (service check + connectivity warning)
+if ! flightctl-agent health --timeout="${WAIT_TIMEOUT}s" --verbose; then
     log_error "flightctl-agent health check failed"
     exit 1
 fi

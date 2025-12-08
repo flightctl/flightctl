@@ -6,142 +6,144 @@ package health
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 )
 
-// mockSystemdClient is a mock implementation of SystemdClient for testing.
-type mockSystemdClient struct {
-	enabled     bool
-	enabledErr  error
-	active      bool
-	activeErr   error
-	closeCalled bool
-}
-
-func (m *mockSystemdClient) Close() {
-	m.closeCalled = true
-}
-
-func (m *mockSystemdClient) IsServiceEnabled(_ context.Context, _ string) (bool, error) {
-	return m.enabled, m.enabledErr
-}
-
-func (m *mockSystemdClient) IsServiceActive(_ context.Context, _ string) (bool, error) {
-	return m.active, m.activeErr
-}
-
-func TestChecker_checkServiceStatus(t *testing.T) {
+func TestCheckServiceStatus(t *testing.T) {
 	require := require.New(t)
 
-	testCases := []struct {
-		name        string
-		mock        *mockSystemdClient
-		expectError bool
-		errorMsg    string
+	tests := []struct {
+		name         string
+		mockStdout   string
+		mockStderr   string
+		mockExitCode int
+		expectError  bool
+		errorMsg     string
 	}{
 		{
 			name: "service enabled and active",
-			mock: &mockSystemdClient{
-				enabled: true,
-				active:  true,
-			},
+			mockStdout: `Id=flightctl-agent.service
+Description=Flight Control Agent
+LoadState=loaded
+ActiveState=active
+SubState=running
+UnitFileState=enabled
+`,
+			expectError: false,
+		},
+		{
+			name: "service enabled and reloading",
+			mockStdout: `Id=flightctl-agent.service
+Description=Flight Control Agent
+LoadState=loaded
+ActiveState=reloading
+SubState=running
+UnitFileState=enabled
+`,
 			expectError: false,
 		},
 		{
 			name: "service not enabled - exits successfully",
-			mock: &mockSystemdClient{
-				enabled: false,
-				active:  false,
-			},
+			mockStdout: `Id=flightctl-agent.service
+Description=Flight Control Agent
+LoadState=loaded
+ActiveState=inactive
+SubState=dead
+UnitFileState=disabled
+`,
 			expectError: false,
 		},
 		{
-			name: "service enabled but not active",
-			mock: &mockSystemdClient{
-				enabled: true,
-				active:  false,
-			},
+			name: "service enabled but inactive",
+			mockStdout: `Id=flightctl-agent.service
+Description=Flight Control Agent
+LoadState=loaded
+ActiveState=inactive
+SubState=dead
+UnitFileState=enabled
+`,
 			expectError: true,
-			errorMsg:    "service is not active",
+			errorMsg:    "not active",
 		},
 		{
 			name: "service enabled but failed",
-			mock: &mockSystemdClient{
-				enabled:   true,
-				activeErr: fmt.Errorf("service %s has failed", serviceName),
-			},
+			mockStdout: `Id=flightctl-agent.service
+Description=Flight Control Agent
+LoadState=loaded
+ActiveState=failed
+SubState=failed
+UnitFileState=enabled
+`,
 			expectError: true,
 			errorMsg:    "has failed",
 		},
 		{
-			name: "error checking enabled status",
-			mock: &mockSystemdClient{
-				enabledErr: fmt.Errorf("D-Bus connection failed"),
-			},
+			name:         "systemctl command failure",
+			mockStderr:   "Failed to get properties: Connection refused",
+			mockExitCode: 1,
+			expectError:  true,
+			errorMsg:     "getting service status",
+		},
+		{
+			name:        "service not found",
+			mockStdout:  "",
 			expectError: true,
-			errorMsg:    "D-Bus connection failed",
+			errorMsg:    "not found",
 		},
 	}
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			execMock := executer.NewMockExecuter(ctrl)
 			logger := log.NewPrefixLogger("test")
 			output := &bytes.Buffer{}
 
+			systemdClient := client.NewSystemd(execMock)
 			checker := New(
 				logger,
 				WithVerbose(true),
 				WithOutput(output),
-				WithSystemdFactory(func(_ context.Context) (SystemdClient, error) {
-					return tc.mock, nil
-				}),
+				WithSystemdClient(systemdClient),
 			)
+
+			// Set up mock expectation for systemctl show
+			execMock.EXPECT().
+				ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "show", "--all", "--", serviceName).
+				Return(tt.mockStdout, tt.mockStderr, tt.mockExitCode)
 
 			err := checker.checkServiceStatus(context.Background())
 
-			if tc.expectError {
+			if tt.expectError {
 				require.Error(err)
-				require.Contains(err.Error(), tc.errorMsg)
+				require.Contains(err.Error(), tt.errorMsg)
 			} else {
 				require.NoError(err)
 			}
-			require.True(tc.mock.closeCalled, "Close() should be called")
 		})
 	}
 }
 
-func TestChecker_checkServiceStatus_FactoryError(t *testing.T) {
-	require := require.New(t)
-	logger := log.NewPrefixLogger("test")
-
-	checker := New(
-		logger,
-		WithSystemdFactory(func(_ context.Context) (SystemdClient, error) {
-			return nil, fmt.Errorf("failed to connect to D-Bus")
-		}),
-	)
-
-	err := checker.checkServiceStatus(context.Background())
-	require.Error(err)
-	require.Contains(err.Error(), "failed to connect to D-Bus")
-}
-
-func TestChecker_checkConnectivity(t *testing.T) {
+func TestCheckConnectivity(t *testing.T) {
 	require := require.New(t)
 
-	testCases := []struct {
-		name           string
-		serverURL      string
-		serverHandler  http.HandlerFunc
-		expectWarning  bool
+	tests := []struct {
+		name            string
+		serverURL       string
+		serverHandler   http.HandlerFunc
 		expectReachable bool
+		expectWarning   bool
 	}{
 		{
 			name:      "no server URL configured",
@@ -155,51 +157,55 @@ func TestChecker_checkConnectivity(t *testing.T) {
 			expectReachable: true,
 		},
 		{
-			name: "server returns error status",
+			name: "server returns error status - still reachable",
 			serverHandler: func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(http.StatusInternalServerError)
 			},
-			expectReachable: true, // Still reachable, just returns error
+			expectReachable: true,
 		},
 	}
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
 			logger := log.NewPrefixLogger("test")
 			output := &bytes.Buffer{}
+			execMock := executer.NewMockExecuter(ctrl)
 
-			serverURL := tc.serverURL
-			if tc.serverHandler != nil {
-				server := httptest.NewServer(tc.serverHandler)
+			serverURL := tt.serverURL
+			if tt.serverHandler != nil {
+				server := httptest.NewServer(tt.serverHandler)
 				defer server.Close()
 				serverURL = server.URL
 			}
 
-			// Use mock systemd to avoid D-Bus dependency
-			mockSystemd := &mockSystemdClient{enabled: true, active: true}
 			checker := New(
 				logger,
 				WithVerbose(true),
 				WithOutput(output),
 				WithServerURL(serverURL),
-				WithSystemdFactory(func(_ context.Context) (SystemdClient, error) {
-					return mockSystemd, nil
-				}),
+				WithSystemdClient(client.NewSystemd(execMock)),
 			)
 
 			checker.checkConnectivity(context.Background())
 
-			if tc.expectReachable {
+			if tt.expectReachable {
 				require.Contains(output.String(), "reachable")
 			}
 		})
 	}
 }
 
-func TestChecker_checkConnectivity_Unreachable(t *testing.T) {
+func TestCheckConnectivityUnreachable(t *testing.T) {
 	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
 	logger := log.NewPrefixLogger("test")
 	output := &bytes.Buffer{}
+	execMock := executer.NewMockExecuter(ctrl)
 
 	checker := New(
 		logger,
@@ -207,6 +213,7 @@ func TestChecker_checkConnectivity_Unreachable(t *testing.T) {
 		WithOutput(output),
 		WithServerURL("http://192.0.2.1:9999"), // Non-routable IP
 		WithTimeout(1*time.Second),
+		WithSystemdClient(client.NewSystemd(execMock)),
 	)
 
 	// This should warn but not fail
@@ -214,34 +221,46 @@ func TestChecker_checkConnectivity_Unreachable(t *testing.T) {
 	require.Contains(output.String(), "WARNING")
 }
 
-func TestChecker_Run(t *testing.T) {
+func TestRun(t *testing.T) {
 	require := require.New(t)
 
-	testCases := []struct {
-		name        string
-		mock        *mockSystemdClient
-		expectError bool
+	tests := []struct {
+		name         string
+		mockStdout   string
+		mockStderr   string
+		mockExitCode int
+		expectError  bool
 	}{
 		{
 			name: "all checks pass",
-			mock: &mockSystemdClient{
-				enabled: true,
-				active:  true,
-			},
+			mockStdout: `Id=flightctl-agent.service
+Description=Flight Control Agent
+LoadState=loaded
+ActiveState=active
+SubState=running
+UnitFileState=enabled
+`,
 			expectError: false,
 		},
 		{
 			name: "service check fails",
-			mock: &mockSystemdClient{
-				enabled:   true,
-				activeErr: fmt.Errorf("service has failed"),
-			},
+			mockStdout: `Id=flightctl-agent.service
+Description=Flight Control Agent
+LoadState=loaded
+ActiveState=failed
+SubState=failed
+UnitFileState=enabled
+`,
 			expectError: true,
 		},
 	}
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			execMock := executer.NewMockExecuter(ctrl)
 			logger := log.NewPrefixLogger("test")
 			output := &bytes.Buffer{}
 
@@ -249,14 +268,16 @@ func TestChecker_Run(t *testing.T) {
 				logger,
 				WithVerbose(true),
 				WithOutput(output),
-				WithSystemdFactory(func(_ context.Context) (SystemdClient, error) {
-					return tc.mock, nil
-				}),
+				WithSystemdClient(client.NewSystemd(execMock)),
 			)
+
+			execMock.EXPECT().
+				ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "show", "--all", "--", serviceName).
+				Return(tt.mockStdout, tt.mockStderr, tt.mockExitCode)
 
 			err := checker.Run(context.Background())
 
-			if tc.expectError {
+			if tt.expectError {
 				require.Error(err)
 			} else {
 				require.NoError(err)
@@ -266,7 +287,7 @@ func TestChecker_Run(t *testing.T) {
 	}
 }
 
-func TestNew_Defaults(t *testing.T) {
+func TestNewDefaults(t *testing.T) {
 	require := require.New(t)
 	logger := log.NewPrefixLogger("test")
 
@@ -274,16 +295,20 @@ func TestNew_Defaults(t *testing.T) {
 
 	require.Equal(30*time.Second, checker.timeout)
 	require.NotNil(checker.output)
-	require.NotNil(checker.systemdFactory)
+	require.NotNil(checker.systemd)
 	require.False(checker.verbose)
-	require.False(checker.greenbootMode)
 	require.Empty(checker.serverURL)
 }
 
-func TestNew_WithOptions(t *testing.T) {
+func TestNewWithOptions(t *testing.T) {
 	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
 	logger := log.NewPrefixLogger("test")
 	output := &bytes.Buffer{}
+	execMock := executer.NewMockExecuter(ctrl)
+	customSystemd := client.NewSystemd(execMock)
 
 	checker := New(
 		logger,
@@ -291,13 +316,12 @@ func TestNew_WithOptions(t *testing.T) {
 		WithVerbose(true),
 		WithOutput(output),
 		WithServerURL("https://example.com"),
-		WithGreenbootMode(true),
+		WithSystemdClient(customSystemd),
 	)
 
 	require.Equal(60*time.Second, checker.timeout)
 	require.True(checker.verbose)
 	require.Equal(output, checker.output)
 	require.Equal("https://example.com", checker.serverURL)
-	require.True(checker.greenbootMode)
+	require.Equal(customSystemd, checker.systemd)
 }
-
