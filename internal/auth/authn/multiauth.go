@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net/http"
+	"reflect"
 	"slices"
 	"sort"
 	"sync"
@@ -348,48 +349,41 @@ func (m *MultiAuth) getProviderKey(provider *api.AuthProvider) (AuthProviderCach
 //
 //nolint:gocyclo // Function complexity is acceptable for provider comparison
 func (m *MultiAuth) hasProviderChanged(existingMiddleware common.AuthNMiddleware, newProvider *api.AuthProvider) (bool, error) {
-	// Get the auth config from existing middleware
-	existingConfig := existingMiddleware.GetAuthConfig()
-	if existingConfig == nil || existingConfig.Providers == nil || len(*existingConfig.Providers) == 0 {
-		return true, nil // If we can't get config, assume changed
-	}
-
-	existingProvider := (*existingConfig.Providers)[0]
-
-	// Get existing provider discriminator
-	existingDiscriminator, err := existingProvider.Spec.Discriminator()
-	if err != nil {
-		return true, err
-	}
-
 	// Determine new provider type
 	newDiscriminator, err := newProvider.Spec.Discriminator()
 	if err != nil {
 		return true, err
 	}
 
-	// If types differ, provider has changed
-	if existingDiscriminator != newDiscriminator {
-		return true, nil
-	}
-
-	// Compare based on provider type
+	// Compare based on provider type using GetXXXSpec methods to access full specs including secrets
 	switch newDiscriminator {
 	case string(api.Oidc):
-		existingOidcSpec, err := existingProvider.Spec.AsOIDCProviderSpec()
-		if err != nil {
-			return true, err
+		// Get existing OIDC spec from middleware
+		existingOidcProvider, ok := existingMiddleware.(interface{ GetOIDCSpec() api.OIDCProviderSpec })
+		if !ok {
+			return true, nil // Middleware doesn't support OIDC, assume changed
 		}
+		existingOidcSpec := existingOidcProvider.GetOIDCSpec()
+
 		newOidcSpec, err := newProvider.Spec.AsOIDCProviderSpec()
 		if err != nil {
 			return true, err
 		}
 
-		// Compare relevant fields
+		// Compare all fields including client secret
 		if existingOidcSpec.Issuer != newOidcSpec.Issuer {
 			return true, nil
 		}
 		if existingOidcSpec.ClientId != newOidcSpec.ClientId {
+			return true, nil
+		}
+		if (existingOidcSpec.ClientSecret == nil) != (newOidcSpec.ClientSecret == nil) {
+			return true, nil
+		}
+		if existingOidcSpec.ClientSecret != nil && newOidcSpec.ClientSecret != nil && *existingOidcSpec.ClientSecret != *newOidcSpec.ClientSecret {
+			return true, nil
+		}
+		if existingOidcSpec.ProviderType != newOidcSpec.ProviderType {
 			return true, nil
 		}
 		if (existingOidcSpec.DisplayName == nil) != (newOidcSpec.DisplayName == nil) {
@@ -421,16 +415,19 @@ func (m *MultiAuth) hasProviderChanged(existingMiddleware common.AuthNMiddleware
 		}
 
 	case string(api.Oauth2):
-		existingOauth2Spec, err := existingProvider.Spec.AsOAuth2ProviderSpec()
-		if err != nil {
-			return true, err
+		// Get existing OAuth2 spec from middleware
+		existingOauth2Provider, ok := existingMiddleware.(interface{ GetOAuth2Spec() api.OAuth2ProviderSpec })
+		if !ok {
+			return true, nil // Middleware doesn't support OAuth2, assume changed
 		}
+		existingOauth2Spec := existingOauth2Provider.GetOAuth2Spec()
+
 		newOauth2Spec, err := newProvider.Spec.AsOAuth2ProviderSpec()
 		if err != nil {
 			return true, err
 		}
 
-		// Compare relevant fields
+		// Compare all fields including client secret
 		if (existingOauth2Spec.Issuer == nil) != (newOauth2Spec.Issuer == nil) {
 			return true, nil
 		}
@@ -447,6 +444,15 @@ func (m *MultiAuth) hasProviderChanged(existingMiddleware common.AuthNMiddleware
 			return true, nil
 		}
 		if existingOauth2Spec.ClientId != newOauth2Spec.ClientId {
+			return true, nil
+		}
+		if (existingOauth2Spec.ClientSecret == nil) != (newOauth2Spec.ClientSecret == nil) {
+			return true, nil
+		}
+		if existingOauth2Spec.ClientSecret != nil && newOauth2Spec.ClientSecret != nil && *existingOauth2Spec.ClientSecret != *newOauth2Spec.ClientSecret {
+			return true, nil
+		}
+		if existingOauth2Spec.ProviderType != newOauth2Spec.ProviderType {
 			return true, nil
 		}
 		if (existingOauth2Spec.DisplayName == nil) != (newOauth2Spec.DisplayName == nil) {
@@ -468,6 +474,10 @@ func (m *MultiAuth) hasProviderChanged(existingMiddleware common.AuthNMiddleware
 		if !equalScopes(existingOauth2Spec.Scopes, newOauth2Spec.Scopes) {
 			return true, nil
 		}
+		// Compare introspection
+		if !equalOAuth2Introspection(existingOauth2Spec.Introspection, newOauth2Spec.Introspection) {
+			return true, nil
+		}
 		// Compare organization assignment
 		if !equalOrganizationAssignments(existingOauth2Spec.OrganizationAssignment, newOauth2Spec.OrganizationAssignment) {
 			return true, nil
@@ -482,6 +492,18 @@ func (m *MultiAuth) hasProviderChanged(existingMiddleware common.AuthNMiddleware
 	}
 
 	return false, nil
+}
+
+// equalOAuth2Introspection compares two OAuth2Introspection values
+func equalOAuth2Introspection(a, b *api.OAuth2Introspection) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	// Use reflect.DeepEqual for union type comparison
+	return reflect.DeepEqual(a, b)
 }
 
 // equalScopes compares two scope arrays
