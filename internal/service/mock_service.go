@@ -753,6 +753,21 @@ func (mr *MockServiceMockRecorder) GetTemplateVersion(ctx, orgId, fleet, name an
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetTemplateVersion", reflect.TypeOf((*MockService)(nil).GetTemplateVersion), ctx, orgId, fleet, name)
 }
 
+// ListAllAuthProviders mocks base method.
+func (m *MockService) ListAllAuthProviders(ctx context.Context, params v1beta1.ListAuthProvidersParams) (*v1beta1.AuthProviderList, v1beta1.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListAllAuthProviders", ctx, params)
+	ret0, _ := ret[0].(*v1beta1.AuthProviderList)
+	ret1, _ := ret[1].(v1beta1.Status)
+	return ret0, ret1
+}
+
+// ListAllAuthProviders indicates an expected call of ListAllAuthProviders.
+func (mr *MockServiceMockRecorder) ListAllAuthProviders(ctx, params any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAllAuthProviders", reflect.TypeOf((*MockService)(nil).ListAllAuthProviders), ctx, params)
+}
+
 // ListAuthProviders mocks base method.
 func (m *MockService) ListAuthProviders(ctx context.Context, orgId uuid.UUID, params v1beta1.ListAuthProvidersParams) (*v1beta1.AuthProviderList, v1beta1.Status) {
 	m.ctrl.T.Helper()

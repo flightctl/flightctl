@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/identity"
 	"github.com/robfig/cron/v3"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
@@ -1714,18 +1716,27 @@ ExecStart=/usr/bin/myapp`,
 	}
 }
 
+// contextWithSuperAdmin creates a context with a super admin mapped identity
+func contextWithSuperAdmin(ctx context.Context) context.Context {
+	mappedIdentity := identity.NewMappedIdentity("admin", "admin-uid", nil, nil, true, nil)
+	return context.WithValue(ctx, consts.MappedIdentityCtxKey, mappedIdentity)
+}
+
 func TestAuthStaticRoleAssignment_Validate(t *testing.T) {
 	require := require.New(t)
-	ctx := context.Background()
+	baseCtx := context.Background()
+	superAdminCtx := contextWithSuperAdmin(baseCtx)
 
 	tests := []struct {
 		name       string
+		ctx        context.Context
 		assignment AuthStaticRoleAssignment
 		wantErrs   int
 		errSubstrs []string
 	}{
 		{
 			name: "empty roles list",
+			ctx:  baseCtx,
 			assignment: AuthStaticRoleAssignment{
 				Type:  AuthStaticRoleAssignmentTypeStatic,
 				Roles: []string{},
@@ -1735,6 +1746,7 @@ func TestAuthStaticRoleAssignment_Validate(t *testing.T) {
 		},
 		{
 			name: "invalid custom role",
+			ctx:  superAdminCtx,
 			assignment: AuthStaticRoleAssignment{
 				Type:  AuthStaticRoleAssignmentTypeStatic,
 				Roles: []string{ExternalRoleAdmin, ExternalRoleViewer, "custom-role"},
@@ -1744,6 +1756,7 @@ func TestAuthStaticRoleAssignment_Validate(t *testing.T) {
 		},
 		{
 			name: "valid known roles",
+			ctx:  superAdminCtx,
 			assignment: AuthStaticRoleAssignment{
 				Type:  AuthStaticRoleAssignmentTypeStatic,
 				Roles: []string{ExternalRoleAdmin, ExternalRoleViewer, ExternalRoleOperator},
@@ -1752,6 +1765,7 @@ func TestAuthStaticRoleAssignment_Validate(t *testing.T) {
 		},
 		{
 			name: "invalid role",
+			ctx:  superAdminCtx,
 			assignment: AuthStaticRoleAssignment{
 				Type:  AuthStaticRoleAssignmentTypeStatic,
 				Roles: []string{ExternalRoleAdmin, "invalid-role"},
@@ -1761,6 +1775,7 @@ func TestAuthStaticRoleAssignment_Validate(t *testing.T) {
 		},
 		{
 			name: "empty role string",
+			ctx:  superAdminCtx,
 			assignment: AuthStaticRoleAssignment{
 				Type:  AuthStaticRoleAssignmentTypeStatic,
 				Roles: []string{ExternalRoleAdmin, ""},
@@ -1770,6 +1785,7 @@ func TestAuthStaticRoleAssignment_Validate(t *testing.T) {
 		},
 		{
 			name: "all known external roles",
+			ctx:  superAdminCtx,
 			assignment: AuthStaticRoleAssignment{
 				Type:  AuthStaticRoleAssignmentTypeStatic,
 				Roles: []string{ExternalRoleAdmin, ExternalRoleOrgAdmin, ExternalRoleOperator, ExternalRoleViewer, ExternalRoleInstaller},
@@ -1778,6 +1794,7 @@ func TestAuthStaticRoleAssignment_Validate(t *testing.T) {
 		},
 		{
 			name: "multiple invalid roles",
+			ctx:  baseCtx,
 			assignment: AuthStaticRoleAssignment{
 				Type:  AuthStaticRoleAssignmentTypeStatic,
 				Roles: []string{"invalid-role-1", "invalid-role-2"},
@@ -1787,6 +1804,7 @@ func TestAuthStaticRoleAssignment_Validate(t *testing.T) {
 		},
 		{
 			name: "mix of valid and invalid roles",
+			ctx:  superAdminCtx,
 			assignment: AuthStaticRoleAssignment{
 				Type:  AuthStaticRoleAssignmentTypeStatic,
 				Roles: []string{ExternalRoleAdmin, "invalid-role", ExternalRoleViewer},
@@ -1798,7 +1816,7 @@ func TestAuthStaticRoleAssignment_Validate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			errs := tt.assignment.Validate(ctx)
+			errs := tt.assignment.Validate(tt.ctx)
 			require.Len(errs, tt.wantErrs, "expected %d errors, got %d: %v", tt.wantErrs, len(errs), errs)
 
 			if len(tt.errSubstrs) > 0 {
