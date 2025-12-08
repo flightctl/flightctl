@@ -76,16 +76,19 @@ jobs:
           TAG: ${{ steps.compute-tag.outputs.git_tag }}
         run: |
           set -euo pipefail
-          
           echo "::group::Creating images bundle"
-          echo "Getting list of loaded flightctl images with tag: $TAG"
-          mapfile -t loaded_images < <(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${TAG}")
-
-          echo "Creating bundle with ${#loaded_images[@]} images:"
-          printf '  %s\n' "${loaded_images[@]}"
-
           BUNDLE_FILE="flightctl-images-bundle.tar"
-          podman save --format docker-archive -o "${BUNDLE_FILE}" -m "${loaded_images[@]}"
+          if make -n bundle-images >/dev/null 2>&1; then
+            echo "Found make target bundle-images, using it"
+            make bundle-images
+          else
+            echo "bundle-images target not found, falling back to direct save"
+            echo "Getting list of loaded flightctl images with tag: $TAG"
+            mapfile -t loaded_images < <(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${TAG}")
+            echo "Creating bundle with ${#loaded_images[@]} images:"
+            printf '  %s\n' "${loaded_images[@]}"
+            podman save --format docker-archive -o "${BUNDLE_FILE}" -m "${loaded_images[@]}"
+          fi
 
           echo "Bundle created: $(ls -lh ${BUNDLE_FILE})"
           echo "bundle_file=$BUNDLE_FILE" >> "$GITHUB_OUTPUT"

@@ -3,19 +3,39 @@ bin/output/qcow2/disk.qcow2: bin/.e2e-agent-images
 # Environment variables for agent image builds
 AGENT_IMAGE_OUTPUT ?= push
 AGENT_OS_ID ?= cs9-bootc
+APP_BUNDLE := $(ROOT_DIR)/bin/app-images-bundle.tar
+AGENT_BUNDLE_DIR := $(ROOT_DIR)/bin/agent-artifacts
+AGENT_BUNDLE := $(AGENT_BUNDLE_DIR)/agent-images-bundle-$(AGENT_OS_ID).tar
 
-# Default to push, set to false only for bundle
-AGENT_PUSH_IMAGES = true
-ifeq ($(AGENT_IMAGE_OUTPUT),bundle)
-    AGENT_PUSH_IMAGES = false
-endif
-
-bin/.e2e-agent-images: bin/.rpm bin/flightctl-agent
-	BUILD_TYPE=$(BUILD_TYPE) BREW_BUILD_URL=$(BREW_BUILD_URL) SOURCE_GIT_TAG=$(SOURCE_GIT_TAG) SOURCE_GIT_TREE_STATE=$(SOURCE_GIT_TREE_STATE) SOURCE_GIT_COMMIT=$(SOURCE_GIT_COMMIT) \
-		AGENT_OS_ID=$(AGENT_OS_ID) PUSH_IMAGES=$(AGENT_PUSH_IMAGES) ./test/scripts/agent-images/create_agent_images.sh
-	SOURCE_GIT_TAG=$(SOURCE_GIT_TAG) SOURCE_GIT_TREE_STATE=$(SOURCE_GIT_TREE_STATE) SOURCE_GIT_COMMIT=$(SOURCE_GIT_COMMIT) \
-		PUSH_IMAGES=$(AGENT_PUSH_IMAGES) ./test/scripts/agent-images/create_application_image.sh
+# Build + bundle artifacts (no push)
+bin/.e2e-agent-images: | bin
+	@if [ ! -f "$(AGENT_BUNDLE)" ]; then \
+		$(MAKE) bin/.rpm bin/flightctl-agent; \
+		BUILD_TYPE=$(BUILD_TYPE) BREW_BUILD_URL=$(BREW_BUILD_URL) SOURCE_GIT_TAG=$(SOURCE_GIT_TAG) SOURCE_GIT_TREE_STATE=$(SOURCE_GIT_TREE_STATE) SOURCE_GIT_COMMIT=$(SOURCE_GIT_COMMIT) \
+			AGENT_OS_ID=$(AGENT_OS_ID) PUSH_IMAGES=false ARTIFACTS_OUTPUT_DIR=$(AGENT_BUNDLE_DIR) $(ROOT_DIR)/test/scripts/agent-images/create_agent_images.sh; \
+	else \
+		echo "Device bundle already exists at $(AGENT_BUNDLE)"; \
+	fi
+	@if [ ! -f "$(APP_BUNDLE)" ]; then \
+		SOURCE_GIT_TAG=$(SOURCE_GIT_TAG) SOURCE_GIT_TREE_STATE=$(SOURCE_GIT_TREE_STATE) SOURCE_GIT_COMMIT=$(SOURCE_GIT_COMMIT) \
+			PUSH_IMAGES=false $(ROOT_DIR)/test/scripts/agent-images/create_application_image.sh; \
+	else \
+		echo "App bundle already exists at $(APP_BUNDLE)"; \
+	fi
 	touch bin/.e2e-agent-images
+
+.PHONY: push-e2e-agent-images
+push-e2e-agent-images: e2e-agent-images
+	@if [ ! -f "$(AGENT_BUNDLE)" ]; then \
+		echo "Agent bundle not found at $(AGENT_BUNDLE). Run 'make e2e-agent-images' first."; \
+		exit 1; \
+	fi
+	$(ROOT_DIR)/test/scripts/agent-images/scripts/upload-images.sh "$(AGENT_BUNDLE)"
+	@if [ ! -f "$(APP_BUNDLE)" ]; then \
+		echo "App bundle not found at $(APP_BUNDLE). Run 'make e2e-agent-images' first."; \
+		exit 1; \
+	fi
+	$(ROOT_DIR)/test/scripts/agent-images/scripts/upload-images.sh "$(APP_BUNDLE)"
 
 bin/.e2e-agent-certs:
 	./test/scripts/agent-images/prepare_agent_config.sh

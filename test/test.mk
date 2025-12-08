@@ -138,7 +138,7 @@ bin/.e2e-agent-injected: bin/output/qcow2/disk.qcow2 bin/.e2e-agent-certs
 prepare-e2e-qcow-config: bin/.e2e-agent-injected
 
 prepare-e2e-test: RPM_MOCK_ROOT=centos-stream+epel-next-9-x86_64
-prepare-e2e-test: deploy-e2e-extras build-e2e-containers prepare-e2e-qcow-config
+prepare-e2e-test: deploy-e2e-extras build-e2e-containers push-e2e-agent-images prepare-e2e-qcow-config
 	./test/scripts/prepare_cli.sh
 
 # Build E2E containers with Docker caching
@@ -195,7 +195,7 @@ prepare-swtpm-certs:
 clean-swtpm-certs:
 	rm -rf $(TEMP_SWTPM_CERT_DIR)
 
-.PHONY: test run-test git-server-container
+.PHONY: test run-test git-server-container e2e-agent-images push-e2e-agent-images
 
 $(REPORTS):
 	-mkdir -p $(REPORTS)

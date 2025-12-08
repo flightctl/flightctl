@@ -65,7 +65,7 @@ jobs:
           OS_ID: ${{ inputs.os_id }}
         run: |
           set -euo pipefail
-          LOG_DIR="bin/agent-artifacts/os-${OS_ID}/logs"
+          LOG_DIR="bin/agent-artifacts/logs-${OS_ID}"
           echo "::group::Variants+bundle output"
           if [ -f "${LOG_DIR}/variants.log" ]; then
             cat "${LOG_DIR}/variants.log"
@@ -84,7 +84,7 @@ jobs:
       - name: Upload agent images bundle (per flavor)
         uses: actions/upload-artifact@v4
         with:
-          name: agent-images-bundle-${{ inputs.os_id }}
+          name: agent-images-bundle-${{ inputs.os_id }}-${{ inputs.tag }}
           path: bin/agent-artifacts/agent-images-bundle-${{ inputs.os_id }}.tar
           compression-level: 0
           if-no-files-found: error
@@ -93,7 +93,7 @@ jobs:
       - name: Upload qcow2 image (per flavor)
         uses: actions/upload-artifact@v4
         with:
-          name: agent-qcow2-image-${{ inputs.os_id }}
+          name: agent-qcow2-image-${{ inputs.os_id }}-${{ inputs.tag }}
           path: bin/output/qcow2/disk.qcow2
           compression-level: 0
           if-no-files-found: error

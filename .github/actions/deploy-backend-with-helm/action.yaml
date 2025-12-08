@@ -20,6 +20,14 @@ inputs:
     description: 'Internal namespace for FlightCtl backend components'
     required: false
     default: 'flightctl-internal'
+  additional-values-files:
+    description: 'Space-separated list of additional Helm values files to apply (paths relative to repo root)'
+    required: false
+    default: ''
+  auth-type:
+    description: 'Authentication type (empty for default, "k8s" for Kubernetes auth)'
+    required: false
+    default: ''
 
 runs:
   using: "composite"
@@ -44,13 +52,24 @@ runs:
           echo "git_tag=${{ steps.compute-tags-git.outputs.git_tag }}" >> "$GITHUB_OUTPUT"
         fi
 
-    # ========== DOWNLOAD ARTIFACTS ==========
-    - name: Download backend artifacts
+    # ========== DOWNLOAD BACKEND ARTIFACTS ==========
+    - name: Download backend images bundle
       uses: actions/download-artifact@v4
       with:
-        pattern: "*-${{ steps.compute-tags.outputs.git_tag }}"
+        name: flightctl-images-bundle-${{ steps.compute-tags.outputs.git_tag }}
         path: artifacts
-        merge-multiple: true
+
+    - name: Download helm chart
+      uses: actions/download-artifact@v4
+      with:
+        name: helm-chart-${{ steps.compute-tags.outputs.git_tag }}
+        path: artifacts
+
+    - name: Download CLI binary
+      uses: actions/download-artifact@v4
+      with:
+        name: flightctl-linux-amd64-${{ steps.compute-tags.outputs.git_tag }}
+        path: artifacts
 
     - name: Setup CLI binary
       shell: bash
@@ -90,6 +109,8 @@ runs:
       shell: bash
       env:
         BASE_DOMAIN: ${{ inputs.base-domain }}
+        ADDITIONAL_VALUES_FILES: ${{ inputs.additional-values-files }}
+        AUTH_TYPE: ${{ inputs.auth-type }}
       run: |
         set -euo pipefail
 
@@ -97,10 +118,30 @@ runs:
         echo "Base domain: ${BASE_DOMAIN}"
         echo "External namespace: ${{ inputs.namespace-external }}"
         echo "Internal namespace: ${{ inputs.namespace-internal }}"
+        echo "Additional values files: ${ADDITIONAL_VALUES_FILES}"
+        echo "Auth type: ${AUTH_TYPE:-<default>}"
 
         kubectl create namespace ${{ inputs.namespace-internal }}
 
         ( kubectl get pods --all-namespaces -w | sed 's/^/[cluster] /' ) &
+
+        # Build additional values file arguments
+        ADDITIONAL_VALUES_ARGS=""
+        for values_file in ${ADDITIONAL_VALUES_FILES}; do
+          if [ -f "${values_file}" ]; then
+            ADDITIONAL_VALUES_ARGS="${ADDITIONAL_VALUES_ARGS} --values ${values_file}"
+            echo "Adding values file: ${values_file}"
+          else
+            echo "Warning: Values file not found: ${values_file}"
+          fi
+        done
+
+        # Build auth type argument
+        AUTH_ARGS=""
+        if [ -n "${AUTH_TYPE}" ]; then
+          AUTH_ARGS="--set global.auth.type=${AUTH_TYPE}"
+          echo "Using auth type: ${AUTH_TYPE}"
+        fi
 
         helm install flightctl "artifacts/flightctl-chart.tgz" \
           --namespace ${{ inputs.namespace-external }} \
@@ -109,6 +150,8 @@ runs:
           --set global.baseDomain="${BASE_DOMAIN}" \
           --set global.internalNamespace="${{ inputs.namespace-internal }}" \
           --set ui.enabled=false \
+          ${ADDITIONAL_VALUES_ARGS} \
+          ${AUTH_ARGS} \
           --debug \
           --wait
 
