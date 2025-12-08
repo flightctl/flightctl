@@ -127,6 +127,7 @@ func (m *manager) normalizeActiveStateValue(val v1beta1.SystemdActiveStateType) 
 
 func (m *manager) Status(ctx context.Context, device *v1beta1.DeviceStatus, _ ...status.CollectorOpt) error {
 	if len(m.patterns) == 0 {
+		device.Systemd = nil
 		return nil
 	}
 

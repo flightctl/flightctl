@@ -119,7 +119,7 @@ jobs:
     with:
       os_id: ${{ matrix.os_id }}
       backend_type: ${{ matrix.backend_type }}
-      ginkgo_total_nodes: 4
+      ginkgo_total_nodes: 6
       ginkgo_label_filter: ${{ inputs.label_filter || 'sanity' }}
       tag: ${{ needs.compute-tag.outputs.tag }}
 
@@ -143,4 +143,4 @@ jobs:
           else
             echo "E2E tests failed or were cancelled"
             exit 1
-
+          fi

@@ -324,16 +324,15 @@ check_and_pull_image() {
 pull_images_if_needed() {
   local pulls_performed=0
 
-  # Check and pull base image
-  if check_and_pull_image "${BASE_IMAGE}"; then
-    pulls_performed=$((pulls_performed + 1))
-  fi
-
-  # Check and pull cache image if using mock root
+  # Check and pull cache image if using mock root, otherwise pull base image
   if [[ -n "$ROOT" ]]; then
     local root_image
     root_image="$(root_image_for "$ROOT")"
     if check_and_pull_image "${root_image}"; then
+      pulls_performed=$((pulls_performed + 1))
+    fi
+  else
+    if check_and_pull_image "${BASE_IMAGE}"; then
       pulls_performed=$((pulls_performed + 1))
     fi
   fi
@@ -392,7 +391,6 @@ run_build_in_container() {
   podman run --rm \
     --privileged \
     --network=host \
-    --pull=newer \
     -v "${repo_root}:/work:z" \
     -v "${host_gomodcache}:${container_gomodcache}" \
     -v "${host_gocache}:${container_gocache}" \
