@@ -119,7 +119,7 @@ func (m *manager) Status(ctx context.Context, device *v1beta1.DeviceStatus, _ ..
 			systemdUnits = append(systemdUnits, v1beta1.SystemdUnitStatus{
 				Unit:        unitName,
 				Description: unit["Description"],
-				EnableState: v1beta1.SystemdEnableStateType(unit["UnitFileİtate"]),
+				EnableState: v1beta1.SystemdEnableStateType(unit["UnitFileState"]),
 				LoadState:   v1beta1.SystemdLoadStateType(unit["LoadState"]),
 				ActiveState: v1beta1.SystemdActiveStateType(unit["ActiveState"]),
 				SubState:    unit["SubState"],
