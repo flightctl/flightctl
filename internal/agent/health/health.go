@@ -20,8 +20,8 @@ const (
 	serviceName = "flightctl-agent.service"
 )
 
-// Checker performs health checks on the agent.
-type Checker struct {
+// checker performs health checks on the agent.
+type checker struct {
 	log       *log.PrefixLogger
 	systemd   *client.Systemd
 	timeout   time.Duration
@@ -30,47 +30,47 @@ type Checker struct {
 	output    io.Writer
 }
 
-// Option is a functional option for configuring the Checker.
-type Option func(*Checker)
+// Option is a functional option for configuring the checker.
+type Option func(*checker)
 
 // WithTimeout sets the timeout for health checks.
 func WithTimeout(t time.Duration) Option {
-	return func(c *Checker) {
+	return func(c *checker) {
 		c.timeout = t
 	}
 }
 
 // WithServerURL sets the management server URL for connectivity check.
 func WithServerURL(url string) Option {
-	return func(c *Checker) {
+	return func(c *checker) {
 		c.serverURL = url
 	}
 }
 
 // WithVerbose enables verbose output.
 func WithVerbose(v bool) Option {
-	return func(c *Checker) {
+	return func(c *checker) {
 		c.verbose = v
 	}
 }
 
 // WithOutput sets the output writer for messages.
 func WithOutput(w io.Writer) Option {
-	return func(c *Checker) {
+	return func(c *checker) {
 		c.output = w
 	}
 }
 
 // WithSystemdClient sets a custom systemd client (for testing).
 func WithSystemdClient(systemd *client.Systemd) Option {
-	return func(c *Checker) {
+	return func(c *checker) {
 		c.systemd = systemd
 	}
 }
 
-// New creates a new health checker with the given options.
-func New(log *log.PrefixLogger, opts ...Option) *Checker {
-	c := &Checker{
+// NewChecker creates a new health checker with the given options.
+func NewChecker(log *log.PrefixLogger, opts ...Option) *checker {
+	c := &checker{
 		log:     log,
 		timeout: 30 * time.Second,
 		output:  os.Stdout,
@@ -86,7 +86,7 @@ func New(log *log.PrefixLogger, opts ...Option) *Checker {
 }
 
 // Run executes health checks and returns error if critical checks fail.
-func (c *Checker) Run(ctx context.Context) error {
+func (c *checker) Run(ctx context.Context) error {
 	if err := c.checkServiceStatus(ctx); err != nil {
 		c.printError("Service check failed: %v", err)
 		return err
@@ -100,7 +100,7 @@ func (c *Checker) Run(ctx context.Context) error {
 }
 
 // checkServiceStatus verifies the flightctl-agent service is enabled and active.
-func (c *Checker) checkServiceStatus(ctx context.Context) error {
+func (c *checker) checkServiceStatus(ctx context.Context) error {
 	c.printInfo("Checking %s status...", serviceName)
 
 	units, err := c.systemd.ShowByMatchPattern(ctx, []string{serviceName})
@@ -145,7 +145,7 @@ func (c *Checker) checkServiceStatus(ctx context.Context) error {
 
 // checkConnectivity tries to reach the management server.
 // This is a warning-only check - it never causes the health check to fail.
-func (c *Checker) checkConnectivity(ctx context.Context) {
+func (c *checker) checkConnectivity(ctx context.Context) {
 	if c.serverURL == "" {
 		c.printInfo("Connectivity check skipped (no server URL configured)")
 		return
@@ -176,19 +176,19 @@ func (c *Checker) checkConnectivity(ctx context.Context) {
 	c.printInfo("Server reachable (status: %d)", resp.StatusCode)
 }
 
-func (c *Checker) printInfo(format string, args ...any) {
+func (c *checker) printInfo(format string, args ...any) {
 	if c.output != nil && c.verbose {
 		fmt.Fprintf(c.output, "[health] "+format+"\n", args...)
 	}
 }
 
-func (c *Checker) printWarn(format string, args ...any) {
+func (c *checker) printWarn(format string, args ...any) {
 	if c.output != nil {
 		fmt.Fprintf(c.output, "[health] WARNING: "+format+"\n", args...)
 	}
 }
 
-func (c *Checker) printError(format string, args ...any) {
+func (c *checker) printError(format string, args ...any) {
 	if c.output != nil {
 		fmt.Fprintf(c.output, "[health] ERROR: "+format+"\n", args...)
 	}

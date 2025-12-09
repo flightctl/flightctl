@@ -111,7 +111,7 @@ UnitFileState=enabled
 			output := &bytes.Buffer{}
 
 			systemdClient := client.NewSystemd(execMock)
-			checker := New(
+			checker := NewChecker(
 				logger,
 				WithVerbose(true),
 				WithOutput(output),
@@ -181,7 +181,7 @@ func TestCheckConnectivity(t *testing.T) {
 				serverURL = server.URL
 			}
 
-			checker := New(
+			checker := NewChecker(
 				logger,
 				WithVerbose(true),
 				WithOutput(output),
@@ -207,7 +207,7 @@ func TestCheckConnectivityUnreachable(t *testing.T) {
 	output := &bytes.Buffer{}
 	execMock := executer.NewMockExecuter(ctrl)
 
-	checker := New(
+	checker := NewChecker(
 		logger,
 		WithVerbose(true),
 		WithOutput(output),
@@ -264,7 +264,7 @@ UnitFileState=enabled
 			logger := log.NewPrefixLogger("test")
 			output := &bytes.Buffer{}
 
-			checker := New(
+			checker := NewChecker(
 				logger,
 				WithVerbose(true),
 				WithOutput(output),
@@ -291,7 +291,7 @@ func TestNewDefaults(t *testing.T) {
 	require := require.New(t)
 	logger := log.NewPrefixLogger("test")
 
-	checker := New(logger)
+	checker := NewChecker(logger)
 
 	require.Equal(30*time.Second, checker.timeout)
 	require.NotNil(checker.output)
@@ -310,7 +310,7 @@ func TestNewWithOptions(t *testing.T) {
 	execMock := executer.NewMockExecuter(ctrl)
 	customSystemd := client.NewSystemd(execMock)
 
-	checker := New(
+	checker := NewChecker(
 		logger,
 		WithTimeout(60*time.Second),
 		WithVerbose(true),
