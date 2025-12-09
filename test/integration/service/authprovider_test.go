@@ -697,6 +697,103 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 			Expect(status.Code).To(Equal(int32(201)))
 			Expect(result).ToNot(BeNil())
 		})
+
+		It("should add createdBySuperAdmin annotation when created by super admin", func() {
+			provider := util.ReturnTestAuthProvider(store.NullOrgId, "super-admin-provider", "", nil)
+			adminCtx := createAdminContext()
+			result, status := suite.Handler.CreateAuthProvider(adminCtx, orgId, provider)
+			Expect(status.Code).To(Equal(int32(201)))
+			Expect(result).ToNot(BeNil())
+			Expect(result.Metadata.Annotations).ToNot(BeNil())
+			Expect(*result.Metadata.Annotations).To(HaveKey(api.AuthProviderAnnotationCreatedBySuperAdmin))
+			Expect((*result.Metadata.Annotations)[api.AuthProviderAnnotationCreatedBySuperAdmin]).To(Equal("true"))
+		})
+
+		It("should not add createdBySuperAdmin annotation when created by non-super admin", func() {
+			provider := util.ReturnTestAuthProvider(store.NullOrgId, "non-admin-provider", "", nil)
+			nonAdminCtx := createNonAdminContext()
+			result, status := suite.Handler.CreateAuthProvider(nonAdminCtx, orgId, provider)
+			Expect(status.Code).To(Equal(int32(201)))
+			Expect(result).ToNot(BeNil())
+			// Annotations should be nil or not contain the createdBySuperAdmin annotation
+			if result.Metadata.Annotations != nil {
+				Expect(*result.Metadata.Annotations).ToNot(HaveKey(api.AuthProviderAnnotationCreatedBySuperAdmin))
+			}
+		})
+
+		It("should reject static role mapping with flightctl-admin for non-super admin users", func() {
+			assignment := createTestOrganizationAssignment()
+			roleAssignment := api.AuthRoleAssignment{}
+			staticRoleAssignment := api.AuthStaticRoleAssignment{
+				Type:  api.AuthStaticRoleAssignmentTypeStatic,
+				Roles: []string{api.ExternalRoleAdmin, api.ExternalRoleViewer},
+			}
+			err := roleAssignment.FromAuthStaticRoleAssignment(staticRoleAssignment)
+			Expect(err).ToNot(HaveOccurred())
+
+			oidcSpec := api.OIDCProviderSpec{
+				ProviderType:           api.Oidc,
+				Issuer:                 "https://accounts.google.com",
+				ClientId:               "test-client-id-static-admin-non-admin",
+				ClientSecret:           lo.ToPtr("test-client-secret"),
+				Scopes:                 lo.ToPtr([]string{"openid", "profile", "email"}),
+				Enabled:                lo.ToPtr(true),
+				UsernameClaim:          lo.ToPtr([]string{"preferred_username"}),
+				RoleAssignment:         roleAssignment,
+				OrganizationAssignment: assignment,
+			}
+
+			provider := api.AuthProvider{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr("static-admin-non-admin-provider"),
+				},
+			}
+			err = provider.Spec.FromOIDCProviderSpec(oidcSpec)
+			Expect(err).ToNot(HaveOccurred())
+
+			nonAdminCtx := createNonAdminContext()
+			_, status := suite.Handler.CreateAuthProvider(nonAdminCtx, orgId, provider)
+			Expect(status.Code).To(Equal(int32(400)))
+			Expect(status.Message).To(ContainSubstring("only flightctl-admin users are allowed to create static role mappings for flightctl-admin"))
+		})
+
+		It("should allow static role mapping with flightctl-admin for super admin users", func() {
+			assignment := createTestOrganizationAssignment()
+			roleAssignment := api.AuthRoleAssignment{}
+			staticRoleAssignment := api.AuthStaticRoleAssignment{
+				Type:  api.AuthStaticRoleAssignmentTypeStatic,
+				Roles: []string{api.ExternalRoleAdmin, api.ExternalRoleViewer},
+			}
+			err := roleAssignment.FromAuthStaticRoleAssignment(staticRoleAssignment)
+			Expect(err).ToNot(HaveOccurred())
+
+			oidcSpec := api.OIDCProviderSpec{
+				ProviderType:           api.Oidc,
+				Issuer:                 "https://accounts.google.com",
+				ClientId:               "test-client-id-static-admin-admin",
+				ClientSecret:           lo.ToPtr("test-client-secret"),
+				Scopes:                 lo.ToPtr([]string{"openid", "profile", "email"}),
+				Enabled:                lo.ToPtr(true),
+				UsernameClaim:          lo.ToPtr([]string{"preferred_username"}),
+				RoleAssignment:         roleAssignment,
+				OrganizationAssignment: assignment,
+			}
+
+			provider := api.AuthProvider{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr("static-admin-admin-provider"),
+				},
+			}
+			err = provider.Spec.FromOIDCProviderSpec(oidcSpec)
+			Expect(err).ToNot(HaveOccurred())
+
+			adminCtx := createAdminContext()
+			result, status := suite.Handler.CreateAuthProvider(adminCtx, orgId, provider)
+			Expect(status.Code).To(Equal(int32(201)))
+			Expect(result).ToNot(BeNil())
+			Expect(result.Metadata.Annotations).ToNot(BeNil())
+			Expect(*result.Metadata.Annotations).To(HaveKey(api.AuthProviderAnnotationCreatedBySuperAdmin))
+		})
 	})
 
 	Context("AuthProvider pagination", func() {

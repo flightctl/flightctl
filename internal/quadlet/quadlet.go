@@ -179,13 +179,12 @@ func MountType(mount string) (string, error) {
 	return "volume", nil
 }
 
-// MountImage parses the Image from a mount if it exists
-func MountImage(mount string) (string, error) {
-	mountType, err := MountType(mount)
+func mountValue(mount string, mountType string) (string, error) {
+	t, err := MountType(mount)
 	if err != nil {
 		return "", err
 	}
-	if mountType != "image" {
+	if t != mountType {
 		return "", nil
 	}
 
@@ -208,14 +207,34 @@ func MountImage(mount string) (string, error) {
 	return "", nil
 }
 
+// MountImage parses the Image from a mount if it exists
+func MountImage(mount string) (string, error) {
+	return mountValue(mount, "image")
+}
+
+// MountVolume parses the Volume from a mount if it exists
+func MountVolume(mount string) (string, error) {
+	return mountValue(mount, "volume")
+}
+
 // IsImageReference returns true if the given string ends with the image quadlet extension.
 func IsImageReference(image string) bool {
-	return strings.HasSuffix(image, ImageExtension)
+	return IsQuadletReference(image, ImageExtension)
 }
 
 // IsBuildReference returns true if the given string ends with the build quadlet extension.
 func IsBuildReference(ref string) bool {
-	return strings.HasSuffix(ref, BuildExtension)
+	return IsQuadletReference(ref, BuildExtension)
+}
+
+// IsVolumeReference returns true if the given string ends with the volume quadlet extension.
+func IsVolumeReference(ref string) bool {
+	return IsQuadletReference(ref, VolumeExtension)
+}
+
+// IsQuadletReference returns true if the given reference matches the expected quadlet extension
+func IsQuadletReference(ref, expected string) bool {
+	return strings.HasSuffix(ref, expected)
 }
 
 // IsQuadletFile returns true if the given file path has a recognized quadlet extension.

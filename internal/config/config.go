@@ -556,6 +556,7 @@ func applyAuthDefaults(c *Config) error {
 	applyAuthProviderEnabledDefaults(c.Auth)
 	applyPAMOIDCIssuerDefaults(c)
 	applyOIDCClientDefaults(c)
+	applyOpenShiftDefaults(c)
 	if err := applyOAuth2Defaults(c); err != nil {
 		return err
 	}
@@ -659,6 +660,19 @@ func applyOIDCOrganizationAssignmentDefaults(oidc *api.OIDCProviderSpec) {
 			Type:             api.AuthStaticOrganizationAssignmentTypeStatic,
 		}
 		_ = oidc.OrganizationAssignment.FromAuthStaticOrganizationAssignment(staticAssignment)
+	}
+}
+
+func applyOpenShiftDefaults(c *Config) {
+	if c.Auth.OpenShift == nil {
+		return
+	}
+
+	// Use authorizationUrl as issuer if issuer is not provided
+	if c.Auth.OpenShift.Issuer == nil || *c.Auth.OpenShift.Issuer == "" {
+		if c.Auth.OpenShift.AuthorizationUrl != nil {
+			c.Auth.OpenShift.Issuer = c.Auth.OpenShift.AuthorizationUrl
+		}
 	}
 }
 
