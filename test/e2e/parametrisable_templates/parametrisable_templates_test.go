@@ -260,7 +260,6 @@ var _ = Describe("Template variables in the device configuraion", func() {
 				Expect(err).ToNot(HaveOccurred())
 
 				err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
-
 					(*device.Metadata.Labels)[revisionLabelKey] = branchTargetRevision
 					GinkgoWriter.Printf("Updating the device with label %s=%s\n", revisionLabelKey, branchTargetRevision)
 				})

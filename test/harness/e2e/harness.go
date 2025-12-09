@@ -74,6 +74,7 @@ import (
 	service "github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/test/harness/e2e/vm"
 	"github.com/flightctl/flightctl/test/util"
+	"github.com/google/go-cmp/cmp"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -528,15 +529,28 @@ func updateResourceWithRetries(updateFunc func() error) {
 
 func checkForResourceChange[T any](resource T, lastResource string) string {
 	yamlData, err := yaml.Marshal(resource)
-	yamlString := string(yamlData)
 	Expect(err).ToNot(HaveOccurred())
-	if yamlString != lastResource {
-		GinkgoWriter.Println("")
-		GinkgoWriter.Println("======================= Resource change ========================== ")
-		GinkgoWriter.Println(yamlString)
-		GinkgoWriter.Println("================================================================== ")
+
+	current := string(yamlData)
+
+	if lastResource != "" && current != lastResource {
+		var prev any
+		var curr any
+
+		err = yaml.Unmarshal([]byte(lastResource), &prev)
+		Expect(err).ToNot(HaveOccurred())
+		err = yaml.Unmarshal(yamlData, &curr)
+		Expect(err).ToNot(HaveOccurred())
+
+		if d := cmp.Diff(prev, curr); d != "" {
+			GinkgoWriter.Println("")
+			GinkgoWriter.Println("==================== Resource change  ==================")
+			GinkgoWriter.Println(d)
+			GinkgoWriter.Println("==================================================================")
+		}
 	}
-	return yamlString
+
+	return current
 }
 
 func ensureResourceContents[T any](id string, description string, fetch func(string) (T, error), condition func(T) bool, timeout string) {
@@ -556,8 +570,9 @@ func ensureResourceContents[T any](id string, description string, fetch func(str
 func waitForResourceContents[T any](id string, description string, fetch func(string) (T, error), condition func(T) bool, timeout string) {
 	lastResourcePrint := ""
 
+	logrus.Infof("Waiting for condition: %q to be met - polling every 2s, timeout=%s", description, timeout)
 	Eventually(func() error {
-		logrus.Infof("Waiting for condition: %q to be met", description)
+		logrus.Debugf("Waiting for condition: %q to be met", description)
 		resource, err := fetch(id)
 		Expect(err).NotTo(HaveOccurred())
 
