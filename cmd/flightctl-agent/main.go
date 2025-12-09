@@ -201,7 +201,7 @@ func NewHealthCommand() *healthCmd {
 func (h *healthCmd) Execute() error {
 	logger := log.NewPrefixLogger("health")
 
-	checker := health.New(
+	checker := health.NewChecker(
 		logger,
 		health.WithTimeout(h.timeout),
 		health.WithServerURL(h.serverURL),
