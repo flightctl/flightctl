@@ -25,7 +25,7 @@ gen_require(`
     type kernel_t, sysfs_t, ptmx_t, devpts_t, unlabeled_t, nsfs_t;
     type etc_t, tmp_t, home_root_t, root_t, fs_t, admin_home_t;
     type container_var_lib_t, container_runtime_t, container_file_t, container_ro_file_t, container_var_run_t;
-    type var_t, var_run_t, device_t, var_log_t;
+    type var_t, var_run_t, device_t, var_log_t, install_var_run_t;
     type sysctl_t, sysctl_irq_t;
     type systemd_unit_file_t, systemd_logind_t, systemd_userdbd_runtime_t;
     type tmpfs_t, cgroup_t;
@@ -233,6 +233,11 @@ allow flightctl_agent_t container_ro_file_t:file { open read getattr write };
 # Container runtime storage access
 allow flightctl_agent_t container_var_run_t:dir { read getattr write search remove_name rmdir };
 allow flightctl_agent_t container_var_run_t:file { read open getattr unlink };
+
+# install var run file management
+manage_files_pattern(flightctl_agent_t, install_var_run_t, install_var_run_t)
+manage_dirs_pattern(flightctl_agent_t, install_var_run_t, install_var_run_t)
+manage_lnk_files_pattern(flightctl_agent_t, install_var_run_t, install_var_run_t)
 
 # CGroup access for container management
 allow flightctl_agent_t cgroup_t:dir search;
