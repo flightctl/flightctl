@@ -159,9 +159,9 @@ func TestManager(t *testing.T) {
 					mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), services).Return([]client.SystemDUnitListEntry{{Unit: services[0], LoadState: "loaded"}}, nil),
 					mockSystemdMgr.EXPECT().Stop(gomock.Any(), services[0]).Return(nil),
 					mockSystemdMgr.EXPECT().ResetFailed(gomock.Any(), services[0]).Return(nil),
-					mockExecSystemdDaemonReload(mockSystemdMgr),
 				)
 				mockExecQuadletCleanup(mockExec, "quadlet-remove")
+				mockExecSystemdDaemonReload(mockSystemdMgr)
 			},
 		},
 		{
@@ -193,14 +193,15 @@ func TestManager(t *testing.T) {
 					mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), services).Return([]client.SystemDUnitListEntry{{Unit: services[0], LoadState: "loaded"}}, nil),
 					mockSystemdMgr.EXPECT().Stop(gomock.Any(), services[0]).Return(nil),
 					mockSystemdMgr.EXPECT().ResetFailed(gomock.Any(), services[0]).Return(nil),
-
+				)
+				mockExecQuadletCleanup(mockExec, "quadlet-update")
+				gomock.InOrder(
 					// start updated quadlet app (add phase after daemon reload)
 					mockExecSystemdDaemonReload(mockSystemdMgr),
 					mockExecSystemdListDependencies(mockSystemdMgr, appID, services),
 					mockExecSystemdListUnitsWithResults(mockSystemdMgr, services...),
 					mockSystemdMgr.EXPECT().Start(gomock.Any(), target).Return(nil),
 				)
-				mockExecQuadletCleanup(mockExec, "quadlet-update")
 			},
 			wantAppNames: []string{"quadlet-update"},
 		},
