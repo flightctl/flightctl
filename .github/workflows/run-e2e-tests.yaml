@@ -68,6 +68,7 @@ jobs:
         uses: ./.github/actions/setup-dependencies
         with:
           setup_kvm: yes
+          setup_general_dependencies: ''
 
       - name: Compute base domain
         id: base-domain

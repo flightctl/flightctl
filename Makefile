@@ -373,7 +373,7 @@ deb: bin/arm64 bin/amd64 bin/riscv64
 	ln -f -s packaging/debian debian
 	debuild -us -uc -b
 
-clean: clean-agent-vm clean-e2e-agent-images clean-e2e-images clean-quadlets clean-swtpm-certs
+clean: clean-agent-vm clean-e2e-agent-images clean-quadlets clean-swtpm-certs
 	- kind delete cluster
 	- rm -rf ~/.flightctl
 	- rm -rf $(shell uname -m)
@@ -391,18 +391,6 @@ clean-all: clean clean-containers
 clean-quadlets:
 	sudo deploy/scripts/clean_quadlets.sh
 
-# Clean up e2e test images (app and device) from both regular and root podman
-clean-e2e-images:
-	@echo "Cleaning e2e test images from regular podman context..."
-	- podman rmi $$(podman images --filter "label=io.flightctl.e2e.component=app" --format "{{.Repository}}:{{.Tag}}" 2>/dev/null) 2>/dev/null || true
-	- podman rmi $$(podman images --filter "label=io.flightctl.e2e.component=device" --format "{{.Repository}}:{{.Tag}}" 2>/dev/null) 2>/dev/null || true
-	@echo "Cleaning e2e test images from root podman context..."
-	- sudo podman rmi $$(sudo podman images --filter "label=io.flightctl.e2e.component=app" --format "{{.Repository}}:{{.Tag}}" 2>/dev/null) 2>/dev/null || true
-	- sudo podman rmi $$(sudo podman images --filter "label=io.flightctl.e2e.component=device" --format "{{.Repository}}:{{.Tag}}" 2>/dev/null) 2>/dev/null || true
-	@echo "Deleting e2e image archives..."
-	- rm -rf bin/agent-artifacts/ || true
-	- rm -f bin/app-images-bundle.tar || true
-	@echo "E2E image cleanup completed."
 
 .PHONY: tools flightctl-api-container flightctl-pam-issuer-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-userinfo-proxy-container flightctl-telemetry-gateway-container
 

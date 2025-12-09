@@ -6,6 +6,10 @@ inputs:
     description: 'Setup kvm in the VM'
     required: false
     default: ''
+  setup_general_dependencies:
+    description: 'Setup general dependencies (make, podman, protoc, etc)'
+    required: false
+    default: 'true'
 runs:
   using: "composite"
   steps:
@@ -22,8 +26,8 @@ runs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-          sudo apt update -y
-          sudo apt install -y libvirt-clients libvirt-daemon-system libvirt-daemon \
+          sudo apt update -y 
+          sudo apt install -y libvirt-dev libpam0g-dev libvirt-clients libvirt-daemon-system libvirt-daemon \
                               virtinst bridge-utils qemu-system-x86 qemu-kvm \
                               swtpm apparmor-utils
           sudo usermod -a -G kvm,libvirt,swtpm $USER
@@ -31,10 +35,11 @@ runs:
 
       - name: Install dependencies
         shell: bash
+        if: inputs.setup_general_dependencies != 'true'
         run: |
           echo "::group::Installing general dependencies"
           sudo apt update -y # fix broken repo cache
-          sudo apt install -y make python3-pip podman podman-compose libvirt-dev libpam0g-dev
+          sudo apt install -y make python3-pip podman podman-compose 
 
           curl -Lo protoc.zip "https://github.com/protocolbuffers/protobuf/releases/download/v3.14.0/protoc-3.14.0-linux-x86_64.zip"
           sudo unzip -q protoc.zip bin/protoc -d /usr/local

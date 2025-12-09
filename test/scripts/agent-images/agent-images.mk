@@ -51,5 +51,15 @@ clean-e2e-agent-images:
 	rm -rf bin/dnf-cache
 	rm -rf bin/osbuild-cache
 	rm -rf bin/rpm
+	rm -rf bin/.rpm
 	rm -rf bin/brew-rpm
-
+	@echo "Cleaning e2e test images from regular podman context..."
+	- podman rmi $$(podman images --filter "label=io.flightctl.e2e.component=app" --format "{{.Repository}}:{{.Tag}}" 2>/dev/null) 2>/dev/null || true
+	- podman rmi $$(podman images --filter "label=io.flightctl.e2e.component=device" --format "{{.Repository}}:{{.Tag}}" 2>/dev/null) 2>/dev/null || true
+	@echo "Cleaning e2e test images from root podman context..."
+	- sudo podman rmi $$(sudo podman images --filter "label=io.flightctl.e2e.component=app" --format "{{.Repository}}:{{.Tag}}" 2>/dev/null) 2>/dev/null || true
+	- sudo podman rmi $$(sudo podman images --filter "label=io.flightctl.e2e.component=device" --format "{{.Repository}}:{{.Tag}}" 2>/dev/null) 2>/dev/null || true
+	@echo "Deleting e2e image archives..."
+	- rm -rf bin/agent-artifacts/ || true
+	- rm -f bin/app-images-bundle.tar || true
+	@echo "E2E image cleanup completed."
