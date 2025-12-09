@@ -115,6 +115,10 @@ jobs:
         include:
           - os_id: cs9-bootc
             backend_type: helm
+            ginkgo_label_filter: sanity
+          - os_id: cs10-bootc
+            backend_type: helm
+            ginkgo_label_filter: sanity
     uses: ./.github/workflows/run-e2e-tests.yaml
     with:
       os_id: ${{ matrix.os_id }}
