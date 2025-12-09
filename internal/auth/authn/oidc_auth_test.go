@@ -42,7 +42,7 @@ func createTestOIDCAuth(jwksUri string) *OIDCAuth {
 		spec:          oidcSpec,
 		jwksUri:       jwksUri,
 		client:        &http.Client{Timeout: 5 * time.Second},
-		roleExtractor: NewRoleExtractor(roleAssignment, log),
+		roleExtractor: NewRoleExtractor(roleAssignment, false, log),
 		organizationExtractor: &OrganizationExtractor{
 			orgConfig: nil, // No org config for basic tests
 		},

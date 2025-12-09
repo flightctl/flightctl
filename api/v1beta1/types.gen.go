@@ -2204,6 +2204,9 @@ type OpenShiftProviderSpec struct {
 	// Issuer The OAuth2 issuer identifier (used for issuer identification in tokens).
 	Issuer *string `json:"issuer,omitempty"`
 
+	// ProjectLabelFilter If specified, only projects with this label will be considered. The label selector should be in the format 'key' or 'key=value'. If only the key is provided, any project with that label (regardless of value) will be included. This enables server-side filtering for better performance.
+	ProjectLabelFilter *string `json:"projectLabelFilter,omitempty"`
+
 	// ProviderType The type of authentication provider.
 	ProviderType OpenShiftProviderSpecProviderType `json:"providerType"`
 
@@ -2736,7 +2739,7 @@ type UpdateSchedule struct {
 	At CronExpression `json:"at"`
 
 	// StartGraceDuration The maximum duration allowed for the action to complete. The duration should be specified as a positive integer followed by a time unit. Supported time units are: `s` for seconds, `m` for minutes, `h` for hours.
-	StartGraceDuration *Duration `json:"startGraceDuration,omitempty"`
+	StartGraceDuration Duration `json:"startGraceDuration"`
 
 	// TimeZone Time zone identifiers follow the IANA format AREA/LOCATION, where AREA represents a continent or ocean, and LOCATION specifies a particular site within that area, for example America/New_York, Europe/Paris. Only unambiguous 3-character time zones are supported ("GMT", "UTC").
 	TimeZone *TimeZone `json:"timeZone,omitempty"`

@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net/http"
+	"reflect"
 	"slices"
 	"sort"
 	"sync"
@@ -12,7 +13,6 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/auth/common"
-	"github.com/flightctl/flightctl/internal/store"
 	"github.com/google/uuid"
 	"github.com/lestrrat-go/jwx/v2/jwt"
 	"github.com/samber/lo"
@@ -41,6 +41,7 @@ const (
 // AuthProviderService interface for auth provider operations
 type AuthProviderService interface {
 	ListAuthProviders(ctx context.Context, orgId uuid.UUID, params api.ListAuthProvidersParams) (*api.AuthProviderList, api.Status)
+	ListAllAuthProviders(ctx context.Context, params api.ListAuthProvidersParams) (*api.AuthProviderList, api.Status)
 	GetAuthProvider(ctx context.Context, orgId uuid.UUID, name string) (*api.AuthProvider, api.Status)
 	GetAuthProviderByIssuerAndClientId(ctx context.Context, orgId uuid.UUID, issuer string, clientId string) (*api.AuthProvider, api.Status)
 }
@@ -201,8 +202,8 @@ func (m *MultiAuth) periodicLoader(ctx context.Context) {
 // LoadAllAuthProviders reloads auth providers from the database with change detection
 func (m *MultiAuth) LoadAllAuthProviders(ctx context.Context) error {
 
-	// List all auth providers from database
-	providerList, status := m.authProviderService.ListAuthProviders(ctx, store.NullOrgId, api.ListAuthProvidersParams{})
+	// List all auth providers from database without org filtering
+	providerList, status := m.authProviderService.ListAllAuthProviders(ctx, api.ListAuthProvidersParams{})
 	if status.Code != http.StatusOK {
 		return fmt.Errorf("failed to list auth providers: %v", status)
 	}
@@ -238,7 +239,7 @@ func (m *MultiAuth) LoadAllAuthProviders(ctx context.Context) error {
 
 		if exists {
 			// Provider exists - check if it changed
-			changed, err := m.hasProviderChanged(existingMiddleware, provider)
+			changed, err := m.hasProviderChanged(existingMiddleware, provider, lo.FromPtr(provider.Metadata.Name))
 			if err != nil {
 				m.log.Warnf("Failed to check if provider %s changed: %v", lo.FromPtr(provider.Metadata.Name), err)
 				continue
@@ -347,90 +348,104 @@ func (m *MultiAuth) getProviderKey(provider *api.AuthProvider) (AuthProviderCach
 // hasProviderChanged checks if a provider's configuration has changed
 //
 //nolint:gocyclo // Function complexity is acceptable for provider comparison
-func (m *MultiAuth) hasProviderChanged(existingMiddleware common.AuthNMiddleware, newProvider *api.AuthProvider) (bool, error) {
-	// Get the auth config from existing middleware
-	existingConfig := existingMiddleware.GetAuthConfig()
-	if existingConfig == nil || existingConfig.Providers == nil || len(*existingConfig.Providers) == 0 {
-		return true, nil // If we can't get config, assume changed
-	}
-
-	existingProvider := (*existingConfig.Providers)[0]
-
-	// Get existing provider discriminator
-	existingDiscriminator, err := existingProvider.Spec.Discriminator()
-	if err != nil {
-		return true, err
-	}
-
+func (m *MultiAuth) hasProviderChanged(existingMiddleware common.AuthNMiddleware, newProvider *api.AuthProvider, providerName string) (bool, error) {
 	// Determine new provider type
 	newDiscriminator, err := newProvider.Spec.Discriminator()
 	if err != nil {
+		m.log.Debugf("Provider %s: changed (failed to get new discriminator: %v)", providerName, err)
 		return true, err
 	}
 
-	// If types differ, provider has changed
-	if existingDiscriminator != newDiscriminator {
-		return true, nil
-	}
-
-	// Compare based on provider type
+	// Compare based on provider type using GetXXXSpec methods to access full specs including secrets
 	switch newDiscriminator {
 	case string(api.Oidc):
-		existingOidcSpec, err := existingProvider.Spec.AsOIDCProviderSpec()
-		if err != nil {
-			return true, err
+		// Get existing OIDC spec from middleware
+		existingOidcProvider, ok := existingMiddleware.(interface{ GetOIDCSpec() api.OIDCProviderSpec })
+		if !ok {
+			return true, nil // Middleware doesn't support OIDC, assume changed
 		}
+		existingOidcSpec := existingOidcProvider.GetOIDCSpec()
+
 		newOidcSpec, err := newProvider.Spec.AsOIDCProviderSpec()
 		if err != nil {
 			return true, err
 		}
 
-		// Compare relevant fields
+		// Compare all fields including client secret
 		if existingOidcSpec.Issuer != newOidcSpec.Issuer {
+			m.log.Debugf("Provider %s: changed (OIDC Issuer: existing=%q, new=%q)", providerName, existingOidcSpec.Issuer, newOidcSpec.Issuer)
 			return true, nil
 		}
 		if existingOidcSpec.ClientId != newOidcSpec.ClientId {
+			m.log.Debugf("Provider %s: changed (OIDC ClientId: existing=%q, new=%q)", providerName, existingOidcSpec.ClientId, newOidcSpec.ClientId)
+			return true, nil
+		}
+		if (existingOidcSpec.ClientSecret == nil) != (newOidcSpec.ClientSecret == nil) {
+			m.log.Debugf("Provider %s: changed (OIDC ClientSecret)", providerName)
+			return true, nil
+		}
+		if existingOidcSpec.ClientSecret != nil && newOidcSpec.ClientSecret != nil && *existingOidcSpec.ClientSecret != *newOidcSpec.ClientSecret {
+			m.log.Debugf("Provider %s: changed (OIDC ClientSecret)", providerName)
+			return true, nil
+		}
+		if existingOidcSpec.ProviderType != newOidcSpec.ProviderType {
+			m.log.Debugf("Provider %s: changed (OIDC ProviderType: existing=%q, new=%q)", providerName, existingOidcSpec.ProviderType, newOidcSpec.ProviderType)
 			return true, nil
 		}
 		if (existingOidcSpec.DisplayName == nil) != (newOidcSpec.DisplayName == nil) {
+			m.log.Debugf("Provider %s: changed (OIDC DisplayName: existing=%q, new=%q)", providerName, existingOidcSpec.DisplayName, newOidcSpec.DisplayName)
 			return true, nil
 		}
-		if existingOidcSpec.DisplayName != nil && newOidcSpec.DisplayName != nil && *existingOidcSpec.DisplayName != *newOidcSpec.DisplayName {
+		// Normalize DisplayName comparison: treat nil and empty string as equivalent
+		existingDisplayName := lo.FromPtr(existingOidcSpec.DisplayName)
+		newDisplayName := lo.FromPtr(newOidcSpec.DisplayName)
+		if existingDisplayName != newDisplayName {
+			m.log.Debugf("Provider %s: changed (OIDC DisplayName: existing=%q, new=%q)", providerName, existingDisplayName, newDisplayName)
 			return true, nil
 		}
 		if (existingOidcSpec.Enabled == nil) != (newOidcSpec.Enabled == nil) {
+			m.log.Debugf("Provider %s: changed (OIDC Enabled nil mismatch: existing=%v, new=%v)", providerName, existingOidcSpec.Enabled == nil, newOidcSpec.Enabled == nil)
 			return true, nil
 		}
 		if existingOidcSpec.Enabled != nil && newOidcSpec.Enabled != nil && *existingOidcSpec.Enabled != *newOidcSpec.Enabled {
+			m.log.Debugf("Provider %s: changed (OIDC Enabled: existing=%v, new=%v)", providerName, *existingOidcSpec.Enabled, *newOidcSpec.Enabled)
 			return true, nil
 		}
+		// Compare UsernameClaim directly (defaults should be set in validation if needed)
 		if !equalStringSlices(existingOidcSpec.UsernameClaim, newOidcSpec.UsernameClaim) {
+			m.log.Debugf("Provider %s: changed (OIDC UsernameClaim: existing=%v, new=%v)", providerName, existingOidcSpec.UsernameClaim, newOidcSpec.UsernameClaim)
 			return true, nil
 		}
 		// Compare scopes
 		if !equalScopes(existingOidcSpec.Scopes, newOidcSpec.Scopes) {
+			m.log.Debugf("Provider %s: changed (OIDC Scopes: existing=%v, new=%v)", providerName, existingOidcSpec.Scopes, newOidcSpec.Scopes)
 			return true, nil
 		}
 		// Compare organization assignment
 		if !equalOrganizationAssignments(existingOidcSpec.OrganizationAssignment, newOidcSpec.OrganizationAssignment) {
+			m.log.Debugf("Provider %s: changed (OIDC OrganizationAssignment)", providerName)
 			return true, nil
 		}
 		// Compare role assignment
 		if !equalRoleAssignments(existingOidcSpec.RoleAssignment, newOidcSpec.RoleAssignment) {
+			m.log.Debugf("Provider %s: changed (OIDC RoleAssignment)", providerName)
 			return true, nil
 		}
 
 	case string(api.Oauth2):
-		existingOauth2Spec, err := existingProvider.Spec.AsOAuth2ProviderSpec()
-		if err != nil {
-			return true, err
+		// Get existing OAuth2 spec from middleware
+		existingOauth2Provider, ok := existingMiddleware.(interface{ GetOAuth2Spec() api.OAuth2ProviderSpec })
+		if !ok {
+			return true, nil // Middleware doesn't support OAuth2, assume changed
 		}
+		existingOauth2Spec := existingOauth2Provider.GetOAuth2Spec()
+
 		newOauth2Spec, err := newProvider.Spec.AsOAuth2ProviderSpec()
 		if err != nil {
 			return true, err
 		}
 
-		// Compare relevant fields
+		// Compare all fields including client secret
 		if (existingOauth2Spec.Issuer == nil) != (newOauth2Spec.Issuer == nil) {
 			return true, nil
 		}
@@ -438,15 +453,28 @@ func (m *MultiAuth) hasProviderChanged(existingMiddleware common.AuthNMiddleware
 			return true, nil
 		}
 		if existingOauth2Spec.AuthorizationUrl != newOauth2Spec.AuthorizationUrl {
+			m.log.Debugf("Provider %s: changed (OAuth2 AuthorizationUrl: existing=%q, new=%q)", providerName, existingOauth2Spec.AuthorizationUrl, newOauth2Spec.AuthorizationUrl)
 			return true, nil
 		}
 		if existingOauth2Spec.TokenUrl != newOauth2Spec.TokenUrl {
+			m.log.Debugf("Provider %s: changed (OAuth2 TokenUrl: existing=%q, new=%q)", providerName, existingOauth2Spec.TokenUrl, newOauth2Spec.TokenUrl)
 			return true, nil
 		}
 		if existingOauth2Spec.UserinfoUrl != newOauth2Spec.UserinfoUrl {
+			m.log.Debugf("Provider %s: changed (OAuth2 UserinfoUrl: existing=%q, new=%q)", providerName, existingOauth2Spec.UserinfoUrl, newOauth2Spec.UserinfoUrl)
 			return true, nil
 		}
 		if existingOauth2Spec.ClientId != newOauth2Spec.ClientId {
+			m.log.Debugf("Provider %s: changed (OAuth2 ClientId: existing=%q, new=%q)", providerName, existingOauth2Spec.ClientId, newOauth2Spec.ClientId)
+			return true, nil
+		}
+		if (existingOauth2Spec.ClientSecret == nil) != (newOauth2Spec.ClientSecret == nil) {
+			return true, nil
+		}
+		if existingOauth2Spec.ClientSecret != nil && newOauth2Spec.ClientSecret != nil && *existingOauth2Spec.ClientSecret != *newOauth2Spec.ClientSecret {
+			return true, nil
+		}
+		if existingOauth2Spec.ProviderType != newOauth2Spec.ProviderType {
 			return true, nil
 		}
 		if (existingOauth2Spec.DisplayName == nil) != (newOauth2Spec.DisplayName == nil) {
@@ -456,24 +484,35 @@ func (m *MultiAuth) hasProviderChanged(existingMiddleware common.AuthNMiddleware
 			return true, nil
 		}
 		if (existingOauth2Spec.Enabled == nil) != (newOauth2Spec.Enabled == nil) {
+			m.log.Debugf("Provider %s: changed (OAuth2 Enabled nil mismatch: existing=%v, new=%v)", providerName, existingOauth2Spec.Enabled == nil, newOauth2Spec.Enabled == nil)
 			return true, nil
 		}
 		if existingOauth2Spec.Enabled != nil && newOauth2Spec.Enabled != nil && *existingOauth2Spec.Enabled != *newOauth2Spec.Enabled {
+			m.log.Debugf("Provider %s: changed (OAuth2 Enabled: existing=%v, new=%v)", providerName, *existingOauth2Spec.Enabled, *newOauth2Spec.Enabled)
 			return true, nil
 		}
+		// Compare UsernameClaim directly (defaults are set in validation.go)
 		if !equalStringSlices(existingOauth2Spec.UsernameClaim, newOauth2Spec.UsernameClaim) {
+			m.log.Debugf("Provider %s: changed (OAuth2 UsernameClaim: existing=%v, new=%v)", providerName, existingOauth2Spec.UsernameClaim, newOauth2Spec.UsernameClaim)
 			return true, nil
 		}
 		// Compare scopes
 		if !equalScopes(existingOauth2Spec.Scopes, newOauth2Spec.Scopes) {
+			m.log.Debugf("Provider %s: changed (OAuth2 Scopes: existing=%v, new=%v)", providerName, existingOauth2Spec.Scopes, newOauth2Spec.Scopes)
+			return true, nil
+		}
+		// Compare introspection
+		if !equalOAuth2Introspection(existingOauth2Spec.Introspection, newOauth2Spec.Introspection) {
 			return true, nil
 		}
 		// Compare organization assignment
 		if !equalOrganizationAssignments(existingOauth2Spec.OrganizationAssignment, newOauth2Spec.OrganizationAssignment) {
+			m.log.Debugf("Provider %s: changed (OAuth2 OrganizationAssignment)", providerName)
 			return true, nil
 		}
 		// Compare role assignment
 		if !equalRoleAssignments(existingOauth2Spec.RoleAssignment, newOauth2Spec.RoleAssignment) {
+			m.log.Debugf("Provider %s: changed (OAuth2 RoleAssignment)", providerName)
 			return true, nil
 		}
 
@@ -482,6 +521,18 @@ func (m *MultiAuth) hasProviderChanged(existingMiddleware common.AuthNMiddleware
 	}
 
 	return false, nil
+}
+
+// equalOAuth2Introspection compares two OAuth2Introspection values
+func equalOAuth2Introspection(a, b *api.OAuth2Introspection) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	// Use reflect.DeepEqual for union type comparison
+	return reflect.DeepEqual(a, b)
 }
 
 // equalScopes compares two scope arrays
