@@ -54,17 +54,7 @@ PACKIT_BUILDER_IMAGE="${PACKIT_BUILDER_IMAGE:-quay.io/flightctl-tests/packit-bui
 ##############################################################################
 
 current_version() {
-  local version=""
-  if [[ -x "${CURRENT_VERSION_SCRIPT}" ]]; then
-    version=$((cd "${REPO_ROOT}" && "${CURRENT_VERSION_SCRIPT}") 2>/dev/null || true)
-  fi
-  if [[ -z "${version}" ]]; then
-    version=$((cd "${REPO_ROOT}" && git describe --tags --exclude latest 2>/dev/null) || true)
-  fi
-  if [[ -z "${version}" ]]; then
-    version="v0.0.0-unknown"
-  fi
-  echo -n "${version}"
+  (cd "${REPO_ROOT}" && "${CURRENT_VERSION_SCRIPT}")
 }
 
 current_tree_state() {

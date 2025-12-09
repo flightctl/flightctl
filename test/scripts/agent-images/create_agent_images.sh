@@ -15,17 +15,7 @@ CURRENT_VERSION_SCRIPT="${ROOT_DIR}/hack/current-version"
 source "${SCRIPT_DIR}/../functions"
 
 current_version() {
-    local version=""
-    if [[ -x "${CURRENT_VERSION_SCRIPT}" ]]; then
-        version=$((cd "${ROOT_DIR}" && "${CURRENT_VERSION_SCRIPT}") 2>/dev/null || true)
-    fi
-    if [[ -z "${version}" ]]; then
-        version=$((cd "${ROOT_DIR}" && git describe --tags --exclude latest 2>/dev/null) || true)
-    fi
-    if [[ -z "${version}" ]]; then
-        version="v0.0.0-unknown"
-    fi
-    echo -n "${version}"
+    (cd "${ROOT_DIR}" && "${CURRENT_VERSION_SCRIPT}")
 }
 
 # Use same defaults as build.sh and build_and_qcow2.sh
