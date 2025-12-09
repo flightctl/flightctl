@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/flightctl/flightctl/internal/api/common"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/identity"
 	"github.com/robfig/cron/v3"
@@ -1706,7 +1707,8 @@ ExecStart=/usr/bin/myapp`,
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			content := []byte(tt.content)
-			errs := ValidateApplicationContent(content, AppTypeQuadlet, tt.path)
+			validator := quadletValidator{quadlets: make(map[string]*common.QuadletReferences)}
+			errs := validator.ValidateContents(tt.path, content)
 
 			require.Len(errs, tt.wantErrCount, "expected %d errors, got %d: %v", tt.wantErrCount, len(errs), errs)
 			if tt.wantErrSubstr != "" && len(errs) > 0 {
