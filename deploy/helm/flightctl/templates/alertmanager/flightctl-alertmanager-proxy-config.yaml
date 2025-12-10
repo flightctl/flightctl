@@ -5,6 +5,9 @@ kind: ConfigMap
 metadata:
   name: flightctl-alertmanager-proxy-config
   namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-alertmanager-proxy
 data:
   config.yaml: |-
     database:
@@ -44,25 +47,23 @@ data:
       internalConfig:
         certStore: "/tmp/ca-certs"
     {{- $effectiveAuthType := include "flightctl.getEffectiveAuthType" . }}
-{{- if not (eq .Values.global.auth.type "none") }}
+{{- if not (eq $effectiveAuthType "none") }}
     auth:
-      insecureSkipTlsVerify: {{ default false .Values.global.auth.insecureSkipTlsVerify }}
-      {{- if and .Values.global.auth .Values.global.auth.caCert }}
-      caCert: {{ .Values.global.auth.caCert }}
-      {{- end }}
+      insecureSkipTlsVerify: {{ .Values.global.auth.insecureSkipTlsVerify }}
+      caCert: {{ ((.Values.global).auth).caCert | quote }}
       {{- if eq $effectiveAuthType "k8s" }}
       k8s:
         apiUrl: {{ .Values.global.auth.k8s.apiUrl }}
         rbacNs: {{ default .Release.Namespace .Values.global.auth.k8s.rbacNs }}
-      {{- else if eq .Values.global.auth.type "openshift"}}
+      {{- else if eq $effectiveAuthType "openshift"}}
       openshift:
-        clusterControlPlaneUrl: {{ .Values.global.auth.openshift.clusterControlPlaneUrl }}
+        clusterControlPlaneUrl: {{ default "https://kubernetes.default.svc" .Values.global.auth.openshift.clusterControlPlaneUrl }}
         authorizationUrl: {{ include "flightctl.getOpenShiftOAuthAuthorizationUrl" . }}
         tokenUrl: {{ include "flightctl.getOpenShiftOAuthTokenUrl" . }}
         issuer: {{ include "flightctl.getOpenShiftOAuthIssuer" . }}
         clientId: {{ include "flightctl.getOpenShiftOAuthClientId" . }}
         clientSecret: {{ include "flightctl.getOpenShiftOAuthClientSecret" . }}
-        rbacNs: {{ default .Release.Namespace .Values.global.auth.openshift.rbacNs }}
+        projectLabelFilter: {{ include "flightctl.getOpenShiftProjectLabelFilter" . | quote }}
       {{- else if eq $effectiveAuthType "aap" }}
       aap:
         apiUrl: {{ .Values.global.auth.aap.apiUrl }}
@@ -89,11 +90,11 @@ data:
     {{- end }}
     organizations:
       enabled: true
-    {{ if .Values.global.tracing }}
+    {{ if (default dict .Values.dev).tracing }}
     tracing:
         enabled: true
-        endpoint: {{ .Values.global.tracing.endpoint }}
-        insecure: {{ .Values.global.tracing.insecure }}
+        endpoint: {{ .Values.dev.tracing.endpoint }}
+        insecure: {{ .Values.dev.tracing.insecure }}
     {{ end }}
 {{- end }}
 

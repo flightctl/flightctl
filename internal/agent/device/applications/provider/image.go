@@ -237,6 +237,22 @@ func (p *imageProvider) Spec() *ApplicationSpec {
 	return p.spec
 }
 
+// ensureAppTypeFromImage validates that the declared app type in the spec matches the appType label on the image (if one exists)
+func ensureAppTypeFromImage(ctx context.Context, podman *client.Podman, declaredType v1beta1.AppType, image string) error {
+	discoveredType, err := typeFromImage(ctx, podman, image)
+	if err != nil {
+		// app labels aren't always required (container)
+		if errors.Is(err, errors.ErrAppLabel) {
+			return nil
+		}
+		return err
+	}
+	if discoveredType != declaredType {
+		return fmt.Errorf("%w: app type mismatch: declared %q discovered %q", errors.ErrAppLabel, declaredType, discoveredType)
+	}
+	return nil
+}
+
 // typeFromImage returns the app type from the OCI reference.
 func typeFromImage(ctx context.Context, podman *client.Podman, image string) (v1beta1.AppType, error) {
 	ociType, err := detectOCIType(ctx, podman, image)

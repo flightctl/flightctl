@@ -37,7 +37,7 @@ sudo podman exec -it my-bootc-container bash
 
 ## Provisioning Physical Devices
 
-After building an ISO disk image from an OS image (bootc) by using `bootc-image-builder` tool, the resulting image is a system similar to the RHEL ISOs available for download, except that your OS image content is embedded in the ISO disk image. You do not need to have access to the network during installation. You can install the resulting ISO disk image to a bare metal system. See [Building and Publishing OS Images and Disk Images](building-images.md#building-and-publishing-os-images-and-disk-images).
+After building an ISO disk image from an OS image (bootc) by using `bootc-image-builder` tool, the resulting image is a system similar to the RHEL ISOs available for download, except that your OS image content is embedded in the ISO disk image. You do not need to have access to the network during installation. You can install the resulting ISO disk image to a bare metal system. See [Building and Publishing OS Images and Disk Images](../building/building-images.md#building-and-publishing-os-images-and-disk-images).
 
 Prerequisites
 
@@ -53,7 +53,7 @@ For installing the ISO over the network, see the [RHEL documentation](https://do
 
 ## Provisioning on Red Hat OpenShift Virtualization
 
-You can provision a virtual machine on OpenShift Virtualization from a QCoW2 disk image hosted on an OCI container registry (see [Image Building for OpenShift Virtualization](building-images.md#red-hat-openshift-virtualization)).
+You can provision a virtual machine on OpenShift Virtualization from a QCoW2 disk image hosted on an OCI container registry (see [Image Building for OpenShift Virtualization](../building/building-images.md#red-hat-openshift-virtualization)).
 
 If your OS image does not already contain the agent enrollment configuration, you can inject this configuration through [`cloud-init`](https://cloudinit.readthedocs.io/en/latest/) user data at provisioning-time (late binding).
 
@@ -134,7 +134,7 @@ To create a virtual machine that has its primary disk populated from your QCoW2 
 
 ## Provisioning on VMware vSphere
 
-You can provision a virtual machine on VMware vSphere from a VMDK disk image (see [Image Building for VMware vSphere](building-images.md#vmware-vsphere)). See [this blog post](https://developers.redhat.com/articles/2024/07/15/integrating-vmdk-produced-image-mode-rhel-vsphere) for a detailed explanation integrating a VMDK produced from OS images into vSphere.
+You can provision a virtual machine on VMware vSphere from a VMDK disk image (see [Image Building for VMware vSphere](../building/building-images.md#vmware-vsphere)). See [this blog post](https://developers.redhat.com/articles/2024/07/15/integrating-vmdk-produced-image-mode-rhel-vsphere) for a detailed explanation integrating a VMDK produced from OS images into vSphere.
 
 If your OS image does not already contain the agent enrollment configuration, you can inject this configuration through [`cloud-init`](https://cloudinit.readthedocs.io/en/latest/) user data at provisioning-time (late binding).
 

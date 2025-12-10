@@ -82,10 +82,10 @@ func (n *publisher) getRenderedFromManagementAPIWithRetry(
 	if renderedVersion != "" {
 		params.KnownRenderedVersion = &renderedVersion
 	}
-	n.log.Infof("Getting rendered device with version: %s", renderedVersion)
 
 	resp, statusCode, err := n.managementClient.GetRenderedDevice(ctx, n.deviceName, params)
 	if err != nil {
+		n.log.Debugf("Failed to get rendered device spec: %v", err)
 		return false, fmt.Errorf("%w: %w", errors.ErrGettingDeviceSpec, err)
 	}
 
@@ -99,7 +99,7 @@ func (n *publisher) getRenderedFromManagementAPIWithRetry(
 		return true, nil
 
 	case http.StatusNoContent, http.StatusConflict:
-		// instead of treating it as an error indicate that no new content is available
+		// no new content available, spec unchanged
 		return true, errors.ErrNoContent
 
 	default:
@@ -128,6 +128,8 @@ func (n *publisher) pollAndPublish(ctx context.Context) {
 		n.log.Debug("Publisher is stopped, skipping poll")
 		return
 	}
+
+	n.log.Debugf("Polling management service for new rendered device spec: last known version: %s", n.lastKnownVersion)
 
 	newDesired := &v1beta1.Device{}
 

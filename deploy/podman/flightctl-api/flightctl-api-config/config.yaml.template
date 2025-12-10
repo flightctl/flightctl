@@ -28,8 +28,6 @@ service:
 kv:
   hostname: flightctl-kv
   port: 6379
-organizations:
-  enabled: {{if .global.organizations.enabled}}{{.global.organizations.enabled}}{{else}}false{{end}}
 auth:
   insecureSkipTlsVerify: {{.global.auth.insecureSkipTlsVerify}}
   {{if not .global.auth.insecureSkipTlsVerify}}caCert: /root/.flightctl/certs/auth/ca.crt{{end}}
@@ -38,7 +36,7 @@ auth:
     apiUrl: {{.global.auth.aap.apiUrl}}
     issuer: {{.global.auth.aap.issuer}}
     clientId: {{.global.auth.aap.clientId}}
-    clientSecret: {{.global.auth.aap.clientSecret}}
+    clientSecret: {{if .global.auth.aap.clientSecret}}{{.global.auth.aap.clientSecret}}{{end}}
     authorizationUrl: {{.global.auth.aap.authorizationUrl}}
     tokenUrl: {{.global.auth.aap.tokenUrl}}
     enabled: {{if .global.auth.aap.enabled}}{{.global.auth.aap.enabled}}{{else}}true{{end}}
@@ -57,11 +55,11 @@ auth:
     {{if .global.auth.pamOidcIssuer.enabled}}
     issuer: {{if .global.auth.pamOidcIssuer.issuer}}{{.global.auth.pamOidcIssuer.issuer}}{{else}}https://{{.global.baseDomain}}:8444/api/v1/auth{{end}}
     clientId: {{if .global.auth.pamOidcIssuer.clientId}}{{.global.auth.pamOidcIssuer.clientId}}{{else}}flightctl-client{{end}}
-    clientSecret: {{.global.auth.pamOidcIssuer.clientSecret}}
+    clientSecret: {{if .global.auth.pamOidcIssuer.clientSecret}}{{.global.auth.pamOidcIssuer.clientSecret}}{{end}}
     {{else}}
     issuer: {{.global.auth.oidc.issuer}}
     clientId: {{.global.auth.oidc.clientId}}
-    clientSecret: {{.global.auth.oidc.clientSecret}}
+    clientSecret: {{if .global.auth.oidc.clientSecret}}{{.global.auth.oidc.clientSecret}}{{end}}
     
     {{end}}
     usernameClaim:

@@ -80,8 +80,16 @@ func NewOIDCAuth(metadata api.ObjectMeta, spec api.OIDCProviderSpec, clientTlsCo
 	// Convert organization assignment to org config
 	orgConfig := convertOrganizationAssignmentToOrgConfig(spec.OrganizationAssignment)
 
-	// Create role extractor from role assignment
-	roleExtractor := NewRoleExtractor(spec.RoleAssignment)
+	// Check if AuthProvider was created by super admin
+	createdBySuperAdmin := false
+	if metadata.Annotations != nil {
+		if val, ok := (*metadata.Annotations)[api.AuthProviderAnnotationCreatedBySuperAdmin]; ok && val == "true" {
+			createdBySuperAdmin = true
+		}
+	}
+
+	// Create role extractor from role assignment with super admin flag
+	roleExtractor := NewRoleExtractor(spec.RoleAssignment, createdBySuperAdmin, log)
 
 	// Create identity cache with 10-minute TTL
 	// This caches validated identities to avoid repeated JWT validation
@@ -385,10 +393,7 @@ func (o *OIDCAuth) GetOIDCSpec() api.OIDCProviderSpec {
 }
 
 func (o *OIDCAuth) GetAuthConfig() *api.AuthConfig {
-	orgEnabled := false
-	if o.orgConfig != nil {
-		orgEnabled = o.orgConfig.Enabled
-	}
+	orgEnabled := true // Organizations are always enabled
 
 	provider := api.AuthProvider{
 		ApiVersion: api.AuthProviderAPIVersion,

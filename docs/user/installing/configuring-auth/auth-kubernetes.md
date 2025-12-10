@@ -76,6 +76,8 @@ Flight Control uses [Kubernetes RBAC authorization](https://kubernetes.io/docs/r
 - You create **RoleBindings** in the Flight Control namespace to grant users these roles
 - Flight Control checks RoleBindings to determine user permissions
 
+**Note:** Any role or organization configuration changes require users to log in again or wait approximately 5 minutes to receive updated assignments.
+
 ## API Endpoints
 
 API endpoints are documented in [Authentication resources](../../references/auth-resources.md). The resources and verbs in this document should be used for creating API objects **Role** or **ClusterRole**.

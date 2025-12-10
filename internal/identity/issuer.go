@@ -1,10 +1,11 @@
 package identity
 
 const (
-	AuthTypeK8s    = "k8s"
-	AuthTypeOIDC   = "OIDC"
-	AuthTypeOAuth2 = "OAuth2"
-	AuthTypeAAP    = "AAPGateway"
+	AuthTypeK8s       = "k8s"
+	AuthTypeOIDC      = "OIDC"
+	AuthTypeOAuth2    = "OAuth2"
+	AuthTypeAAP       = "AAPGateway"
+	AuthTypeOpenShift = "openshift"
 )
 
 // Issuer represents the source that produced an identity
@@ -50,4 +51,9 @@ func (i *Issuer) IsK8s() bool {
 // IsOAuth2 returns true if this is an OAuth2 issuer
 func (i *Issuer) IsOAuth2() bool {
 	return i.Type == AuthTypeOAuth2
+}
+
+// IsOpenShift returns true if this is an OpenShift issuer
+func (i *Issuer) IsOpenShift() bool {
+	return i.Type == AuthTypeOpenShift
 }

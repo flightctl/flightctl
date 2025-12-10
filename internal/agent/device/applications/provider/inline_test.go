@@ -33,7 +33,7 @@ func TestInlineProvider(t *testing.T) {
 			image: appImage,
 			spec: &v1beta1.ApplicationProviderSpec{
 				Name:    lo.ToPtr("app"),
-				AppType: lo.ToPtr(v1beta1.AppTypeCompose),
+				AppType: v1beta1.AppTypeCompose,
 				EnvVars: lo.ToPtr(map[string]string{
 					"FOO": "bar",
 					"BAZ": "qux",
@@ -51,7 +51,7 @@ func TestInlineProvider(t *testing.T) {
 			image: appImage,
 			spec: &v1beta1.ApplicationProviderSpec{
 				Name:    lo.ToPtr("app"),
-				AppType: lo.ToPtr(v1beta1.AppTypeCompose),
+				AppType: v1beta1.AppTypeCompose,
 			},
 			content: []v1beta1.ApplicationContent{
 				{
@@ -66,7 +66,7 @@ func TestInlineProvider(t *testing.T) {
 			image: appImage,
 			spec: &v1beta1.ApplicationProviderSpec{
 				Name:    lo.ToPtr("app"),
-				AppType: lo.ToPtr(v1beta1.AppTypeCompose),
+				AppType: v1beta1.AppTypeCompose,
 				EnvVars: lo.ToPtr(map[string]string{
 					"1NVALID": "bar",
 				}),
@@ -84,7 +84,7 @@ func TestInlineProvider(t *testing.T) {
 			image: appImage,
 			spec: &v1beta1.ApplicationProviderSpec{
 				Name:    lo.ToPtr("app"),
-				AppType: lo.ToPtr(v1beta1.AppTypeCompose),
+				AppType: v1beta1.AppTypeCompose,
 			},
 			content: []v1beta1.ApplicationContent{
 				{

@@ -7,6 +7,9 @@ kind: ConfigMap
 metadata:
   name: flightctl-alertmanager-config
   namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-alertmanager
 data:
   alertmanager.yml: |-
     global:
@@ -27,6 +30,7 @@ metadata:
   name: flightctl-alertmanager
   namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
   labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
     flightctl.service: flightctl-alertmanager
 spec:
   serviceName: flightctl-alertmanager
@@ -79,10 +83,10 @@ spec:
         name: flightctl-alertmanager-data
         labels:
           {{- with .Values.global.additionalPVCLabels }}
-          {{- toYaml . | nindent 4 }}
+          {{- toYaml . | nindent 10 }}
           {{- end }}
           {{- with .Values.alertmanager.additionalPVCLabels }}
-          {{- toYaml . | nindent 4 }}
+          {{- toYaml . | nindent 10 }}
           {{- end }}
       spec:
         {{- with .Values.global.storageClassName }}
@@ -101,17 +105,18 @@ metadata:
   name: flightctl-alertmanager
   namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
   labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
     flightctl.service: flightctl-alertmanager
 spec:
-  {{- if and (eq (include "flightctl.getServiceExposeMethod" .) "nodePort") .Values.global.nodePorts.alertmanager }}
+  {{- if and (eq (include "flightctl.getServiceExposeMethod" .) "nodePort") .Values.dev.nodePorts.alertmanager }}
   type: NodePort
   {{- end }}
   ports:
     - name: "9093"
       port: 9093
       targetPort: 9093
-      {{- if and (eq (include "flightctl.getServiceExposeMethod" .) "nodePort") .Values.global.nodePorts.alertmanager }}
-      nodePort: {{ .Values.global.nodePorts.alertmanager }}
+      {{- if and (eq (include "flightctl.getServiceExposeMethod" .) "nodePort") .Values.dev.nodePorts.alertmanager }}
+      nodePort: {{ .Values.dev.nodePorts.alertmanager }}
       {{- end }}
   selector:
     flightctl.service: flightctl-alertmanager

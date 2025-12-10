@@ -52,7 +52,9 @@ HTTPS
 i.e.
 infos
 IP
+jq
 JSON-encoded
+JSONL
 JWT
 Keycloak
 Klusterlet
@@ -63,6 +65,8 @@ lifecycle
 lifecycle-bound
 linux
 macOS
+must-gather
+sosreport
 metadata
 microservices
 MicroShift
@@ -227,8 +231,41 @@ corporate
 orgs
 LDAP
 SSO
+agent_version
 backend
+behaviour
+create_enrollmentrequest_duration_seconds
+create_certificate_signing_request_duration_seconds
+fleet_template_version
+gc
+get_enrollmentrequest_duration_seconds
+get_certificate_signing_request_duration_seconds
+get_rendered_device_spec_duration_seconds
+gibibytes
+goroutine
+Goroutine
+kibibytes
+loopback
+mebibytes
+mutex
+new_version
+old_version
+ORAS
+p95
+patch_device_status_duration_seconds
+pprof
+RFC3339
+RPC
+sos
+sudo
+ts
+update_device_status_duration_seconds
+v1.0.0
+P-256
+SHA-256
+config.yaml
  - docs/user/references/api-resources.md
+namespacing
 approvedBy
 creationTimestamp
 deletionTimestamp
@@ -312,7 +349,6 @@ values.yaml
 k8s
  - docs/user/using/provisioning-devices.md
 cloud-config.yaml
-config.yaml
 datastore
 disk.vmdk
 iso
@@ -435,3 +471,13 @@ PAM
 alice
 bob
 charlie
+ - docs/user/installing/configuring-auth/auth-oauth2.md
+GitHub
+github.com
+clientId
+JWKS
+CLI
+webserver
+ - docs/user/installing/configuring-auth/auth-oidc.md
+CLI
+webserver

@@ -4561,6 +4561,8 @@ components:
               description: The application name must be 1–253 characters long, start with a letter or number, and contain no whitespace.
             appType:
               $ref: '#/components/schemas/AppType'
+          required: 
+            - appType
         - oneOf:
             - $ref: '#/components/schemas/ImageApplicationProviderSpec'
             - $ref: '#/components/schemas/InlineApplicationProviderSpec'
@@ -4910,6 +4912,7 @@ components:
           $ref: '#/components/schemas/Duration'
       required:
         - at
+        - startGraceDuration
     TimeZone:
       type: string
       description: Time zone identifiers follow the IANA format AREA/LOCATION, where AREA represents a continent or ocean, and LOCATION specifies a particular site within that area, for example America/New_York, Europe/Paris. Only unambiguous 3-character time zones are supported ("GMT", "UTC").
@@ -5124,6 +5127,8 @@ components:
         - "generated"
         - "transient"
         - "bad"
+        - "unknown"
+        - ""
       x-enum-varnames:
         - "SystemdEnableStateEnabled"
         - "SystemdEnableStateEnabledRuntime"
@@ -5138,6 +5143,8 @@ components:
         - "SystemdEnableStateGenerated"
         - "SystemdEnableStateTransient"
         - "SystemdEnableStateBad"
+        - "SystemdEnableStateUnknown"
+        - "SystemdEnableStateEmpty"
     SystemdLoadStateType:
       type: string
       description: The load state of the unit file.
@@ -5149,6 +5156,7 @@ components:
         - "error"
         - "merged"
         - "masked"
+        - "unknown"
       x-enum-varnames:
         - "SystemdLoadStateStub"
         - "SystemdLoadStateLoaded"
@@ -5157,6 +5165,7 @@ components:
         - "SystemdLoadStateError"
         - "SystemdLoadStateMerged"
         - "SystemdLoadStateMasked"
+        - "SystemdLoadStateUnknown"
     SystemdActiveStateType:
       type: string
       description: The high-level unit activation state.
@@ -5169,6 +5178,7 @@ components:
         - "deactivating"
         - "maintenance"
         - "refreshing"
+        - "unknown"
       x-enum-varnames:
         - "SystemdActiveStateActive"
         - "SystemdActiveStateReloading"
@@ -5178,6 +5188,7 @@ components:
         - "SystemdActiveStateDeactivating"
         - "SystemdActiveStateMaintenance"
         - "SystemdActiveStateRefreshing"
+        - "SystemdActiveStateUnknown"
     DeviceApplicationStatus:
       type: object
       required:
@@ -5241,11 +5252,13 @@ components:
         - "Degraded"
         - "Error"
         - "Unknown"
+        - "NoApplications"
       x-enum-varnames:
         - "ApplicationsSummaryStatusHealthy"
         - "ApplicationsSummaryStatusDegraded"
         - "ApplicationsSummaryStatusError"
         - "ApplicationsSummaryStatusUnknown"
+        - "ApplicationsSummaryStatusNoApplications"
     ApplicationStatusType:
       type: string
       description: Status of a single application on the device.
@@ -5771,7 +5784,6 @@ components:
       type: string
       pattern: '^(?:[1-9]\d*)?\d[smh]$'
       description: 'The maximum duration allowed for the action to complete. The duration should be specified as a positive integer followed by a time unit. Supported time units are: `s` for seconds, `m` for minutes, `h` for hours.'
-      default: "0s"
 
     RolloutStrategy:
       type: string
@@ -7053,6 +7065,8 @@ components:
           default: ["preferred_username"]
         roleAssignment:
           $ref: '#/components/schemas/AuthRoleAssignment'
+        introspection:
+          $ref: '#/components/schemas/OAuth2Introspection'
       required:
         - providerType
         - authorizationUrl
@@ -7062,6 +7076,69 @@ components:
         - clientSecret
         - organizationAssignment
         - roleAssignment
+    OAuth2Introspection:
+      type: object
+      description: OAuth2Introspection defines the token introspection configuration.
+      oneOf:
+        - $ref: '#/components/schemas/Rfc7662IntrospectionSpec'
+        - $ref: '#/components/schemas/GitHubIntrospectionSpec'
+        - $ref: '#/components/schemas/JwtIntrospectionSpec'
+      discriminator:
+        propertyName: type
+        mapping:
+          rfc7662: '#/components/schemas/Rfc7662IntrospectionSpec'
+          github: '#/components/schemas/GitHubIntrospectionSpec'
+          jwt: '#/components/schemas/JwtIntrospectionSpec'
+    Rfc7662IntrospectionSpec:
+      type: object
+      description: Rfc7662IntrospectionSpec defines token introspection using RFC 7662 standard. Uses the OAuth2ProviderSpec clientId and clientSecret for authentication.
+      properties:
+        type:
+          type: string
+          enum: [rfc7662]
+          description: The introspection type.
+        url:
+          type: string
+          description: The RFC 7662 token introspection endpoint URL.
+      required:
+        - type
+        - url
+    GitHubIntrospectionSpec:
+      type: object
+      description: GitHubIntrospectionSpec defines token introspection using GitHub API (POST /applications/{client_id}/token). Uses the OAuth2ProviderSpec clientId and clientSecret for Basic Auth and URL path.
+      properties:
+        type:
+          type: string
+          enum: [github]
+          description: The introspection type.
+        url:
+          type: string
+          description: The GitHub API base URL. Defaults to https://api.github.com for GitHub.com, but can be customized for GitHub Enterprise Server.
+          default: https://api.github.com
+      required:
+        - type
+    JwtIntrospectionSpec:
+      type: object
+      description: JwtIntrospectionSpec defines token introspection using JWT validation with JWKS.
+      properties:
+        type:
+          type: string
+          enum: [jwt]
+          description: The introspection type.
+        jwksUrl:
+          type: string
+          description: The JWKS (JSON Web Key Set) endpoint URL for fetching public keys to validate JWT signatures.
+        issuer:
+          type: string
+          description: Expected issuer claim value in the JWT. If not specified, uses the OAuth2ProviderSpec issuer.
+        audience:
+          type: array
+          items:
+            type: string
+          description: Expected audience claim values in the JWT. If not specified, uses the OAuth2ProviderSpec clientId.
+      required:
+        - type
+        - jwksUrl
     OpenShiftProviderSpec:
       type: object
       description: OpenShiftProviderSpec describes an OpenShift OAuth provider configuration.
@@ -7101,6 +7178,9 @@ components:
         clusterControlPlaneUrl:
           type: string
           description: The OpenShift cluster control plane URL.
+        projectLabelFilter:
+          type: string
+          description: If specified, only projects with this label will be considered. The label selector should be in the format 'key' or 'key=value'. If only the key is provided, any project with that label (regardless of value) will be included. This enables server-side filtering for better performance.
       required:
         - providerType
     AapProviderSpec:

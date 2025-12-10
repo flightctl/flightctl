@@ -1,10 +1,14 @@
 package v1beta1
 
 import (
+	"context"
 	"encoding/base64"
 	"strings"
 	"testing"
 
+	"github.com/flightctl/flightctl/internal/api/common"
+	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/identity"
 	"github.com/robfig/cron/v3"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
@@ -115,8 +119,9 @@ func TestValidateUpdateScheduleCron(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			schedule := UpdateSchedule{
-				At:       tt.schedule,
-				TimeZone: lo.ToPtr("America/New_York"),
+				At:                 tt.schedule,
+				TimeZone:           lo.ToPtr("America/New_York"),
+				StartGraceDuration: "30s",
 			}
 
 			errs := schedule.Validate()
@@ -187,8 +192,9 @@ func TestValidateUpdateScheduleTimeZone(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			schedule := UpdateSchedule{
-				At:       "* * * * *",
-				TimeZone: lo.ToPtr(tt.timeZone),
+				At:                 "* * * * *",
+				TimeZone:           lo.ToPtr(tt.timeZone),
+				StartGraceDuration: "30s",
 			}
 
 			errs := schedule.Validate()
@@ -296,7 +302,7 @@ func TestValidateScheduleAndGraceDuration(t *testing.T) {
 			require := require.New(t)
 			schedule := UpdateSchedule{
 				At:                 tt.cronExpression,
-				StartGraceDuration: lo.ToPtr(tt.duration),
+				StartGraceDuration: tt.duration,
 			}
 
 			errs := schedule.Validate()
@@ -575,7 +581,7 @@ ContextDir=/tmp/build`
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			errs := tt.spec.Validate(lo.ToPtr(tt.appType), tt.fleetTemplate)
+			errs := tt.spec.Validate(tt.appType, tt.fleetTemplate)
 			if tt.expectErr {
 				require.NotEmpty(t, errs, "expected errors but got none")
 			} else {
@@ -1071,7 +1077,7 @@ func TestValidateApplications(t *testing.T) {
 func newTestApplication(require *require.Assertions, name string, appImage, volImage string, volumeNames ...string) ApplicationProviderSpec {
 	app := ApplicationProviderSpec{
 		Name:    lo.ToPtr(name),
-		AppType: lo.ToPtr(AppTypeCompose),
+		AppType: AppTypeCompose,
 	}
 
 	var volumes []ApplicationVolume
@@ -1100,7 +1106,7 @@ func newTestApplication(require *require.Assertions, name string, appImage, volI
 func newTestApplicationWithVolume(require *require.Assertions, name string, appType AppType, appImage string, volume ApplicationVolume) ApplicationProviderSpec {
 	app := ApplicationProviderSpec{
 		Name:    lo.ToPtr(name),
-		AppType: lo.ToPtr(appType),
+		AppType: appType,
 	}
 
 	volumes := []ApplicationVolume{volume}
@@ -1117,7 +1123,7 @@ func newTestApplicationWithVolume(require *require.Assertions, name string, appT
 func newTestApplicationWithPortsAndResources(require *require.Assertions, name string, appType AppType, appImage string, ports []string, resources *ApplicationResources) ApplicationProviderSpec {
 	app := ApplicationProviderSpec{
 		Name:    lo.ToPtr(name),
-		AppType: lo.ToPtr(appType),
+		AppType: appType,
 	}
 
 	var appPorts *[]ApplicationPort
@@ -1701,11 +1707,127 @@ ExecStart=/usr/bin/myapp`,
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			content := []byte(tt.content)
-			errs := ValidateApplicationContent(content, AppTypeQuadlet, tt.path)
+			validator := quadletValidator{quadlets: make(map[string]*common.QuadletReferences)}
+			errs := validator.ValidateContents(tt.path, content)
 
 			require.Len(errs, tt.wantErrCount, "expected %d errors, got %d: %v", tt.wantErrCount, len(errs), errs)
 			if tt.wantErrSubstr != "" && len(errs) > 0 {
 				require.Contains(errs[0].Error(), tt.wantErrSubstr)
+			}
+		})
+	}
+}
+
+// contextWithSuperAdmin creates a context with a super admin mapped identity
+func contextWithSuperAdmin(ctx context.Context) context.Context {
+	mappedIdentity := identity.NewMappedIdentity("admin", "admin-uid", nil, nil, true, nil)
+	return context.WithValue(ctx, consts.MappedIdentityCtxKey, mappedIdentity)
+}
+
+func TestAuthStaticRoleAssignment_Validate(t *testing.T) {
+	require := require.New(t)
+	baseCtx := context.Background()
+	superAdminCtx := contextWithSuperAdmin(baseCtx)
+
+	tests := []struct {
+		name       string
+		ctx        context.Context
+		assignment AuthStaticRoleAssignment
+		wantErrs   int
+		errSubstrs []string
+	}{
+		{
+			name: "empty roles list",
+			ctx:  baseCtx,
+			assignment: AuthStaticRoleAssignment{
+				Type:  AuthStaticRoleAssignmentTypeStatic,
+				Roles: []string{},
+			},
+			wantErrs:   1,
+			errSubstrs: []string{"at least one role is required"},
+		},
+		{
+			name: "invalid custom role",
+			ctx:  superAdminCtx,
+			assignment: AuthStaticRoleAssignment{
+				Type:  AuthStaticRoleAssignmentTypeStatic,
+				Roles: []string{ExternalRoleAdmin, ExternalRoleViewer, "custom-role"},
+			},
+			wantErrs:   1,
+			errSubstrs: []string{"is not a valid role"},
+		},
+		{
+			name: "valid known roles",
+			ctx:  superAdminCtx,
+			assignment: AuthStaticRoleAssignment{
+				Type:  AuthStaticRoleAssignmentTypeStatic,
+				Roles: []string{ExternalRoleAdmin, ExternalRoleViewer, ExternalRoleOperator},
+			},
+			wantErrs: 0,
+		},
+		{
+			name: "invalid role",
+			ctx:  superAdminCtx,
+			assignment: AuthStaticRoleAssignment{
+				Type:  AuthStaticRoleAssignmentTypeStatic,
+				Roles: []string{ExternalRoleAdmin, "invalid-role"},
+			},
+			wantErrs:   1,
+			errSubstrs: []string{"is not a valid role"},
+		},
+		{
+			name: "empty role string",
+			ctx:  superAdminCtx,
+			assignment: AuthStaticRoleAssignment{
+				Type:  AuthStaticRoleAssignmentTypeStatic,
+				Roles: []string{ExternalRoleAdmin, ""},
+			},
+			wantErrs:   2,
+			errSubstrs: []string{"cannot be empty", "is not a valid role"},
+		},
+		{
+			name: "all known external roles",
+			ctx:  superAdminCtx,
+			assignment: AuthStaticRoleAssignment{
+				Type:  AuthStaticRoleAssignmentTypeStatic,
+				Roles: []string{ExternalRoleAdmin, ExternalRoleOrgAdmin, ExternalRoleOperator, ExternalRoleViewer, ExternalRoleInstaller},
+			},
+			wantErrs: 0,
+		},
+		{
+			name: "multiple invalid roles",
+			ctx:  baseCtx,
+			assignment: AuthStaticRoleAssignment{
+				Type:  AuthStaticRoleAssignmentTypeStatic,
+				Roles: []string{"invalid-role-1", "invalid-role-2"},
+			},
+			wantErrs:   2,
+			errSubstrs: []string{"is not a valid role", "is not a valid role"},
+		},
+		{
+			name: "mix of valid and invalid roles",
+			ctx:  superAdminCtx,
+			assignment: AuthStaticRoleAssignment{
+				Type:  AuthStaticRoleAssignmentTypeStatic,
+				Roles: []string{ExternalRoleAdmin, "invalid-role", ExternalRoleViewer},
+			},
+			wantErrs:   1,
+			errSubstrs: []string{"is not a valid role"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			errs := tt.assignment.Validate(tt.ctx)
+			require.Len(errs, tt.wantErrs, "expected %d errors, got %d: %v", tt.wantErrs, len(errs), errs)
+
+			if len(tt.errSubstrs) > 0 {
+				require.Equal(len(tt.errSubstrs), len(errs), "number of error substrings (%d) must match number of actual errors (%d)", len(tt.errSubstrs), len(errs))
+				for i, substr := range tt.errSubstrs {
+					if i < len(errs) {
+						require.Contains(errs[i].Error(), substr, "error at index %d should contain %q", i, substr)
+					}
+				}
 			}
 		})
 	}

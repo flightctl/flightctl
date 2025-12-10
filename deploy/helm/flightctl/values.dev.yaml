@@ -1,39 +1,17 @@
 global:
   auth:
     type: "none"
-  tracing:
-    endpoint: jaeger-collector.flightctl-e2e.svc.cluster.local:4318
-    insecure: true
   internalNamespace: flightctl-internal
-  # storageClassName: standard
-  exposeServicesMethod: "nodePort"
-  nodePorts:
-    api: 3443
-    agent: 7443
-    db: 5432
-    kv: 6379
-    alertmanager: 9093
-    alertmanagerProxy: 8443
-    telemetryGatewayOtlp: 4317
-    telemetryGatewayProm: 9464
-    gitserver: 3222
-    registry: 5000
 
 api:
   image:
     image:  localhost/flightctl-api
     tag: latest
-  baseUIUrl: "http://localhost:9000"
   # Disable rate limiting for development
   rateLimit: null
   env:
     GORM_TRACE_ENFORCE_FATAL: "true"
     GORM_TRACE_INCLUDE_QUERY_VARIABLES: "true"
-  # Health probes configuration
-  probes:
-    enabled: true
-    readinessPath: /readyz
-    livenessPath: /healthz
 cliArtifacts:
   enabled: true
   image:
@@ -64,30 +42,35 @@ alertmanagerProxy:
   image:
     image: localhost/flightctl-alertmanager-proxy
     tag: latest
-prometheus:
-  enabled: true
 ui:
   enabled: false
 
-## @param dbSetup.wait.timeout Seconds to wait for database readiness before failing
-## @param dbSetup.wait.sleep Seconds to sleep between database connection attempts
-## @param dbSetup.migration.backoffLimit Number of retries for the migration Job on failure
-## @param dbSetup.migration.activeDeadlineSeconds Maximum runtime in seconds for the migration Job
 dbSetup:
   image:
     image: localhost/flightctl-db-setup
     tag: latest
-  wait:
-    timeout: 60
-    sleep: 2
-  migration:
-    backoffLimit: 3
-    activeDeadlineSeconds: 600
 
 telemetryGateway:
   image:
     image: localhost/flightctl-telemetry-gateway
     tag: latest
-  config:
-    listen: { device: "0.0.0.0:4317" }
-    export: { prometheus: "0.0.0.0:9464" }
+
+
+dev:
+  exposeServicesMethod: "nodePort"
+  nodePorts:
+    api: 3443
+    agent: 7443
+    ui: 9000
+    db: 5432
+    kv: 6379
+    alertmanager: 9093
+    alertmanagerProxy: 8443
+    cliArtifacts: 8090
+    telemetryGatewayOtlp: 4317
+    telemetryGatewayProm: 9464
+    gitserver: 3222
+    registry: 5000
+  tracing:
+    endpoint: jaeger-collector.flightctl-e2e.svc.cluster.local:4318
+    insecure: true

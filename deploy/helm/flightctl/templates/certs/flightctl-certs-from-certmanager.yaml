@@ -1,0 +1,282 @@
+{{- $certMethod := include "flightctl.getCertificateGenerationMethod" . }}
+{{- if eq $certMethod "cert-manager" }}
+
+{{- /* Check if user has provided their own flightctl-ca Certificate resource */ -}}
+{{- $existingFlightctlCA := lookup "cert-manager.io/v1" "Certificate" .Release.Namespace "flightctl-ca" -}}
+
+{{- if not $existingFlightctlCA }}
+---
+# Self-signed Issuer for flightctl-ca (only created if user hasn't provided flightctl-ca)
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: flightctl-selfsigned-issuer
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+spec:
+  selfSigned: {}
+
+---
+# FlightCtl CA Certificate (only created if user hasn't provided flightctl-ca)
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: flightctl-ca
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+spec:
+  isCA: true
+  commonName: flightctl-ca
+  secretName: flightctl-ca
+  duration: 87600h  # 10 years
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  issuerRef:
+    name: flightctl-selfsigned-issuer
+    kind: Issuer
+    group: cert-manager.io
+{{- end }}
+
+---
+# FlightCtl CA Issuer (for signing server certificates and intermediate CAs)
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: flightctl-ca-issuer
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+spec:
+  ca:
+    secretName: flightctl-ca
+
+---
+# Client-Signer CA Certificate (intermediate CA signed by flightctl-ca)
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: flightctl-client-signer-ca
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+spec:
+  isCA: true
+  commonName: flightctl-client-signer-ca
+  secretName: flightctl-client-signer-ca
+  duration: 87600h  # 10 years
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  issuerRef:
+    name: flightctl-ca-issuer
+    kind: Issuer
+    group: cert-manager.io
+
+---
+# API Server TLS Certificate
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: flightctl-api-server-tls
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+spec:
+  secretName: flightctl-api-server-tls
+  commonName: flightctl-api
+  duration: 17520h  # 2 years
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  usages:
+    - digital signature
+    - key encipherment
+    - server auth
+  dnsNames:
+    {{- $apiServerDNSSansResult := include "flightctl.getApiServerDNSSans" . | fromJson }}
+    {{- range $apiServerDNSSansResult.sans }}
+    - {{ . }}
+    {{- end }}
+  issuerRef:
+    name: flightctl-ca-issuer
+    kind: Issuer
+    group: cert-manager.io
+
+---
+# Telemetry Gateway Server TLS Certificate
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: flightctl-telemetry-gateway-server-tls
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+spec:
+  secretName: flightctl-telemetry-gateway-server-tls
+  commonName: flightctl-telemetry-gateway
+  duration: 17520h  # 2 years
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  usages:
+    - digital signature
+    - key encipherment
+    - server auth
+  dnsNames:
+    {{- $telemetryGatewayDNSSansResult := include "flightctl.getTelemetryGatewayDNSSans" . | fromJson }}
+    {{- range $telemetryGatewayDNSSansResult.sans }}
+    - {{ . }}
+    {{- end }}
+  issuerRef:
+    name: flightctl-ca-issuer
+    kind: Issuer
+    group: cert-manager.io
+
+---
+# Alertmanager Proxy Server TLS Certificate
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: flightctl-alertmanager-proxy-server-tls
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+spec:
+  secretName: flightctl-alertmanager-proxy-server-tls
+  commonName: flightctl-alertmanager-proxy
+  duration: 17520h  # 2 years
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  usages:
+    - digital signature
+    - key encipherment
+    - server auth
+  dnsNames:
+    {{- $alertmanagerProxyDNSSansResult := include "flightctl.getAlertmanagerProxyDNSSans" . | fromJson }}
+    {{- range $alertmanagerProxyDNSSansResult.sans }}
+    - {{ . }}
+    {{- end }}
+  issuerRef:
+    name: flightctl-ca-issuer
+    kind: Issuer
+    group: cert-manager.io
+
+---
+# Job to create CA Bundle ConfigMap after cert-manager issues certificates
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: flightctl-ca-bundle-creator-{{ .Release.Revision }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-ca-bundle-creator
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 10
+  template:
+    metadata:
+      labels:
+        {{- include "flightctl.standardLabels" . | nindent 8 }}
+        flightctl.service: flightctl-ca-bundle-creator
+    spec:
+      serviceAccountName: flightctl-ca-bundle-creator
+      restartPolicy: Never
+      containers:
+      - name: create-ca-bundle
+        image: "{{ .Values.clusterCli.image.image }}:{{ .Values.clusterCli.image.tag }}"
+        imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.clusterCli.image.pullPolicy }}
+        command:
+        - /bin/bash
+        - -c
+        - |
+          set -euo pipefail
+
+          NAMESPACE="{{ .Release.Namespace }}"
+          TIMEOUT=300  # 5 minutes
+          SLEEP=5
+
+          # Determine which CLI to use
+          if command -v oc &> /dev/null; then
+              K8S_CLI="oc"
+          elif command -v kubectl &> /dev/null; then
+              K8S_CLI="kubectl"
+          else
+              echo "Error: Neither 'oc' nor 'kubectl' found in PATH"
+              exit 1
+          fi
+
+          echo "Waiting for cert-manager to issue certificates..."
+          start=$(date +%s)
+
+          while true; do
+              elapsed=$(( $(date +%s) - start ))
+              if [ $elapsed -ge $TIMEOUT ]; then
+                  echo "Timeout waiting for certificates after ${TIMEOUT}s"
+                  exit 1
+              fi
+
+              # Check if both secrets exist and have tls.crt
+              FLIGHTCTL_CA_READY=false
+              CLIENT_SIGNER_CA_READY=false
+
+              if $K8S_CLI get secret -n "$NAMESPACE" flightctl-ca &>/dev/null; then
+                  if $K8S_CLI get secret -n "$NAMESPACE" flightctl-ca -o jsonpath='{.data.tls\.crt}' | base64 -d | openssl x509 -noout &>/dev/null; then
+                      FLIGHTCTL_CA_READY=true
+                  fi
+              fi
+
+              if $K8S_CLI get secret -n "$NAMESPACE" flightctl-client-signer-ca &>/dev/null; then
+                  if $K8S_CLI get secret -n "$NAMESPACE" flightctl-client-signer-ca -o jsonpath='{.data.tls\.crt}' | base64 -d | openssl x509 -noout &>/dev/null; then
+                      CLIENT_SIGNER_CA_READY=true
+                  fi
+              fi
+
+              if [ "$FLIGHTCTL_CA_READY" = true ] && [ "$CLIENT_SIGNER_CA_READY" = true ]; then
+                  echo "Both certificates are ready"
+                  break
+              fi
+
+              echo "Waiting for certificates... (${elapsed}s elapsed)"
+              sleep $SLEEP
+          done
+
+          # Extract certificates
+          echo "Creating CA bundle Secret..."
+          FLIGHTCTL_CA=$($K8S_CLI get secret -n "$NAMESPACE" flightctl-ca -o jsonpath='{.data.tls\.crt}' | base64 -d)
+          CLIENT_SIGNER_CA=$($K8S_CLI get secret -n "$NAMESPACE" flightctl-client-signer-ca -o jsonpath='{.data.tls\.crt}' | base64 -d)
+
+          # Create Secret (base64 encode the bundle data)
+          CA_BUNDLE_DATA=$(printf "%s\n%s" "${FLIGHTCTL_CA}" "${CLIENT_SIGNER_CA}" | base64 -w 0)
+
+          cat <<EOF | $K8S_CLI apply -f -
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: flightctl-ca-bundle
+            namespace: $NAMESPACE
+            labels:
+              {{- include "flightctl.standardLabels" . | nindent 14 }}
+          data:
+            ca-bundle.crt: $CA_BUNDLE_DATA
+          EOF
+
+          echo "CA bundle Secret created successfully"
+      {{- if .Values.global.imagePullSecretName }}
+      imagePullSecrets:
+      - name: {{ .Values.global.imagePullSecretName }}
+      {{- end }}
+
+{{- end }}

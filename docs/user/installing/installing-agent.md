@@ -22,6 +22,9 @@ The agent's configuration file `/etc/flightctl/config.yaml` takes the following 
 | `system-info-timeout`    | `Duration` | | The timeout for collecting system info. Default: `2m`. Maximum: `2m` |
 | `pull-timeout`           | `Duration` | | The timeout for pulling a single OCI target. Default: `10m` |
 | `log-level`              | `string` | | The level of logging: "panic", "fatal", "error", "warn"/"warning", "info", "debug", or "trace". Default: `info` |
+| `metrics-enabled`        | `boolean` | | Enable Prometheus metrics endpoint. See [Metrics Configuration](#metrics-configuration). Default: `false` |
+| `profiling-enabled`      | `boolean` | | Enable pprof profiling endpoint. See [Profiling Configuration](#profiling-configuration). Default: `false` |
+| `audit`                  | `Audit` | | Audit logging configuration. See [Audit Configuration](#audit-configuration). Default: enabled |
 | `tpm`                    | `TPM` | | TPM configuration for hardware-based device identity. See [TPM Configuration](#tpm-configuration). Default: TPM disabled |
 
 `Duration` values are strings of an integer value with appended unit of time ('s' for seconds, 'm' for minutes, or 'h' for hours). Examples: `30s`, `10m`, `24h`
@@ -29,6 +32,20 @@ The agent's configuration file `/etc/flightctl/config.yaml` takes the following 
 > [!NOTE]
 > The `/etc/flightctl/conf.d/` drop-in directory supports only a subset of the agent configuration. Currently supported keys include:
 > `log-level`, `system-info`, `system-info-custom`, and `system-info-timeout`.
+
+## Communication Timeouts
+
+The agent uses the following internal timeouts when communicating with the Flight Control service:
+
+| Operation | Timeout | Description |
+| --------- | ------- | ----------- |
+| Spec fetch (long-poll) | 4 minutes | The agent uses long-polling to fetch device specification updates. The server holds the connection open until a new specification is available or the timeout expires. |
+| Status update | 60 seconds | Timeout for pushing device status updates to the service. If the update times out, the agent retries on the next status sync interval. |
+
+These timeouts are not configurable. The spec fetch timeout is intentionally long to support efficient long-polling, while the status update timeout is shorter to ensure timely retries within the configured `status-update-interval`.
+
+> [!NOTE]
+> If a status update fails (including timeout), the agent preserves the pending status and automatically retries on the next sync cycle. This ensures status updates are eventually delivered even during transient network issues.
 
 ## Built-in system info collectors
 
@@ -137,6 +154,64 @@ status:
       fips: disabled
 ```
 
+## Audit Configuration
+
+The audit configuration controls whether the agent generates audit logs that track device specification changes and system state transitions. Audit logs are written to `/var/log/flightctl/audit.log` in JSONL format and are automatically rotated.
+
+### Audit Configuration Parameters
+
+The `audit` configuration object accepts the following parameter:
+
+| Parameter | Type | Required | Description |
+| --------- | ---- | :------: | ----------- |
+| `enabled` | `boolean` | | Enable audit logging. When true, the agent records specification transitions to the audit log. Default: `true` |
+
+### Example Audit Configuration
+
+Audit logging is enabled by default. To explicitly disable it:
+
+```yaml
+# /etc/flightctl/config.yaml
+[...]
+audit:
+  enabled: false
+
+spec-fetch-interval: 60s
+status-update-interval: 60s
+```
+
+For detailed information about audit logs, see [Device Observability](../using/device-observability.md#agent-audit-logs).
+
+## Metrics Configuration
+
+Metrics are **disabled by default**. To enable the Prometheus metrics endpoint (exposed on `127.0.0.1:15690`):
+
+```yaml
+# /etc/flightctl/config.yaml
+[...]
+metrics-enabled: true
+
+spec-fetch-interval: 60s
+status-update-interval: 60s
+```
+
+For detailed information about agent metrics, see [Device Observability](../using/device-observability.md#agent-metrics).
+
+## Profiling Configuration
+
+Profiling is **disabled by default**. To enable the pprof profiling endpoint (exposed on `127.0.0.1:15689`):
+
+```yaml
+# /etc/flightctl/config.yaml
+[...]
+profiling-enabled: true
+
+spec-fetch-interval: 60s
+status-update-interval: 60s
+```
+
+For detailed information about agent profiling, see [Device Observability](../using/device-observability.md#agent-profiling).
+
 ## TPM Configuration
 
 The Trusted Platform Module (TPM) configuration allows the agent to use hardware-based device identity and authentication. When enabled, the agent uses the TPM 2.0 module to generate and protect cryptographic keys, providing a hardware root-of-trust for device authentication.
@@ -183,7 +258,7 @@ When `device-path` is not specified or is empty, the agent automatically discove
 * **Permissions**: Agent must have read/write access to TPM device
 * **CA Certificates**: TPM manufacturer CA certificates must be installed on the Flight Control service
 
-For detailed information about TPM authentication architecture and certificate requirements, see [TPM Device Authentication](tpm-authentication.md).
+For detailed information about TPM authentication architecture and certificate requirements, see [TPM Device Authentication](configuring-device-attestation.md).
 
 ### TPM Troubleshooting
 
@@ -239,7 +314,7 @@ tpm:
 
 If enrollment fails with TPM-related errors:
 
-1. Check that TPM CA certificates are installed on the server (see [TPM Device Authentication](tpm-authentication.md#configuring-tpm-ca-certificates-in-flight-control-service))
+1. Check that TPM CA certificates are installed on the server (see [TPM Device Authentication](configuring-device-attestation.md#configuring-tpm-ca-certificates-in-flight-control-service))
 
 2. Verify the agent can generate CSR:
 

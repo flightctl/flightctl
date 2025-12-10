@@ -77,6 +77,10 @@ func CollectBaseOCITargets(
 			return nil, err
 		}
 
+		if providerSpec.AppType == "" {
+			return nil, fmt.Errorf("application type must be defined")
+		}
+
 		switch providerType {
 		case v1beta1.ImageApplicationProviderType:
 			imageSpec, err := providerSpec.AsImageApplicationProviderSpec()
@@ -86,7 +90,7 @@ func CollectBaseOCITargets(
 
 			ociType := dependency.OCITypeAuto
 			// a requirement of container types is that the image reference is a runnable image
-			if lo.FromPtr(providerSpec.AppType) == v1beta1.AppTypeContainer {
+			if providerSpec.AppType == v1beta1.AppTypeContainer {
 				ociType = dependency.OCITypeImage
 			}
 
@@ -111,13 +115,8 @@ func CollectBaseOCITargets(
 				return nil, fmt.Errorf("getting inline provider spec: %w", err)
 			}
 
-			appType := lo.FromPtr(providerSpec.AppType)
-			if appType == "" {
-				return nil, fmt.Errorf("appType is required for inline providers")
-			}
-
 			// Extract images from inline content based on app type
-			switch appType {
+			switch providerSpec.AppType {
 			case v1beta1.AppTypeCompose:
 				// Inline compose specs are already validated by the API
 				spec, err := client.ParseComposeFromSpec(inlineSpec.Inline)
@@ -143,7 +142,7 @@ func CollectBaseOCITargets(
 					targets = append(targets, extractQuadletTargets(quad, pullSecret)...)
 				}
 			default:
-				return nil, fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
+				return nil, fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, providerSpec.AppType)
 			}
 
 			// Add volume artifacts
@@ -327,17 +326,14 @@ func ExtractNestedTargetsFromImage(
 	}
 
 	// determine app type
-	appType := lo.FromPtr(appSpec.AppType)
-	if appType == "" {
-		appType, err = typeFromImage(ctx, podman, imageSpec.Image)
-		if err != nil {
-			return nil, fmt.Errorf("getting app type for app %s (%s): %w", appName, imageSpec.Image, err)
-		}
-	}
-
+	appType := appSpec.AppType
 	// Nothing nested in a container type
 	if appType == v1beta1.AppTypeContainer {
 		return &AppData{}, nil
+	}
+
+	if err := ensureAppTypeFromImage(ctx, podman, appType, imageSpec.Image); err != nil {
+		return nil, fmt.Errorf("ensuring app type: %w", err)
 	}
 
 	if appType != v1beta1.AppTypeCompose && appType != v1beta1.AppTypeQuadlet {
@@ -390,18 +386,16 @@ func FromDeviceSpec(
 		switch providerType {
 		case v1beta1.ImageApplicationProviderType:
 			// determine app type for image provider
-			appType := lo.FromPtr(providerSpec.AppType)
-			if appType == "" {
-				imageSpec, err := providerSpec.AsImageApplicationProviderSpec()
-				if err != nil {
-					return nil, fmt.Errorf("getting image provider spec: %w", err)
-				}
-				appType, err = typeFromImage(ctx, podman, imageSpec.Image)
-				if err != nil {
-					return nil, fmt.Errorf("getting app type for image %s: %w", imageSpec.Image, err)
-				}
+			imageSpec, err := providerSpec.AsImageApplicationProviderSpec()
+			if err != nil {
+				return nil, fmt.Errorf("getting image provider spec: %w", err)
 			}
-			imgProvider, err := newImage(log, podman, &providerSpec, readWriter, appType)
+
+			if err := ensureAppTypeFromImage(ctx, podman, providerSpec.AppType, imageSpec.Image); err != nil {
+				return nil, fmt.Errorf("ensuring app type: %w", err)
+			}
+
+			imgProvider, err := newImage(log, podman, &providerSpec, readWriter, providerSpec.AppType)
 			if err != nil {
 				return nil, err
 			}
@@ -819,6 +813,8 @@ func ensureQuadlet(readWriter fileio.ReadWriter, appPath string) error {
 			errs = append(errs, e...)
 		}
 	}
+
+	errs = append(errs, validation.ValidateQuadletCrossReferences(spec)...)
 
 	if len(errs) > 0 {
 		return fmt.Errorf("validating quadlets spec: %w", errors.Join(errs...))

@@ -57,18 +57,23 @@ func (mr *MockK8SClientMockRecorder) GetSecret(ctx, namespace, name any) *gomock
 }
 
 // ListProjects mocks base method.
-func (m *MockK8SClient) ListProjects(ctx context.Context, token string) ([]byte, error) {
+func (m *MockK8SClient) ListProjects(ctx context.Context, token string, opts ...ListProjectsOption) ([]byte, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListProjects", ctx, token)
+	varargs := []any{ctx, token}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "ListProjects", varargs...)
 	ret0, _ := ret[0].([]byte)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ListProjects indicates an expected call of ListProjects.
-func (mr *MockK8SClientMockRecorder) ListProjects(ctx, token any) *gomock.Call {
+func (mr *MockK8SClientMockRecorder) ListProjects(ctx, token any, opts ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListProjects", reflect.TypeOf((*MockK8SClient)(nil).ListProjects), ctx, token)
+	varargs := append([]any{ctx, token}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListProjects", reflect.TypeOf((*MockK8SClient)(nil).ListProjects), varargs...)
 }
 
 // ListRoleBindings mocks base method.

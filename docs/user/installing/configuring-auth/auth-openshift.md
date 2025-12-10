@@ -27,6 +27,16 @@ Flight Control automatically maps OpenShift projects to Flight Control organizat
 - Each OpenShift project becomes a Flight Control organization
 - Users inherit access to Flight Control organizations based on their OpenShift project membership
 
+### Project Filtering
+
+By default, Flight Control only considers OpenShift projects labeled with `io.flightctl/instance=<releaseName>`. To include a project, label it:
+
+```bash
+oc label namespace my-project io.flightctl/instance=my-release
+```
+
+Only projects with this label will be mapped to Flight Control organizations. You can customize the label selector via `global.auth.openshift.projectLabelFilter` in your Helm values.
+
 ## Authorization
 
 Flight Control uses RoleBindings from project namespaces to determine user permissions:
@@ -35,6 +45,8 @@ Flight Control uses RoleBindings from project namespaces to determine user permi
 2. Flight Control retrieves user's OpenShift projects
 3. For each project, Flight Control checks RoleBindings in the project namespace
 4. Permissions are mapped based on ClusterRoles bound to the user
+
+**Note:** Any role or organization configuration changes require users to log in again or wait approximately 5 minutes to receive updated assignments.
 
 ## Configuration
 
@@ -74,95 +86,50 @@ The CLI opens a browser for OpenShift authentication. Users log in with their Op
 
 ## Setting Up User Permissions
 
-### 1. Create RoleBinding in Project
+You can manage user roles directly using the OpenShift CLI (`oc`).
 
-Bind users to Flight Control ClusterRoles in your OpenShift project:
+### 1. Create or Use an Existing Project
 
-```yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: user-flightctl-operator
-  namespace: my-project  # Your OpenShift project
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: flightctl-operator
-subjects:
-  - kind: User
-    name: alice@example.com
-    apiGroup: rbac.authorization.k8s.io
+Create a new OpenShift project (which will be mapped to a Flight Control organization), or use an existing one:
+
+```bash
+oc new-project my-org
 ```
 
-### 2. User Accesses Flight Control
+### 2. Assign Roles to Users
 
-When the user logs into Flight Control:
+Use `oc adm policy add-role-to-user` to assign roles to users in your project:
 
-1. They authenticate via OpenShift OAuth
-2. Flight Control maps `my-project` to a Flight Control organization
-3. The user gets `flightctl-operator` permissions in that organization
+```bash
+# Required: Grant view permissions so the user has access to the project
+oc adm policy add-role-to-user view my-user -n my-org
 
-## Example Permissions Setup
+# Choose one of the following Flight Control roles based on the user's needs:
+# Grant Flight Control admin permissions
+oc adm policy add-role-to-user flightctl-admin my-user -n my-org
 
-### Admin User
+# Grant Flight Control operator permissions
+oc adm policy add-role-to-user flightctl-operator my-user -n my-org
 
-Grant full access to a project admin:
-
-```yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: admin-flightctl-admin
-  namespace: my-project
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: flightctl-admin
-subjects:
-  - kind: User
-    name: admin@example.com
-    apiGroup: rbac.authorization.k8s.io
+# Grant Flight Control viewer permissions
+oc adm policy add-role-to-user flightctl-viewer my-user -n my-org
 ```
 
-### Operator User
+**Note:** You may see a warning "User 'my-user' not found" when assigning roles to users that don't exist yet in OpenShift. This is expected and the role will still be added. The user will be able to use these permissions once they authenticate.
 
-Grant operational access:
+### 3. User Login
 
-```yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: ops-flightctl-operator
-  namespace: my-project
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: flightctl-operator
-subjects:
-  - kind: User
-    name: operator@example.com
-    apiGroup: rbac.authorization.k8s.io
+The user can then log in to OpenShift and Flight Control:
+
+```bash
+# Login to OpenShift
+oc login -u my-user -p <password> https://api.ocp.example.com:6443
+
+# Login to Flight Control using OpenShift token
+flightctl login https://flightctl.example.com -k --token=$(oc whoami -t)
 ```
 
-### Viewer User
-
-Grant read-only access:
-
-```yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: viewer-flightctl-viewer
-  namespace: my-project
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: flightctl-viewer
-subjects:
-  - kind: User
-    name: viewer@example.com
-    apiGroup: rbac.authorization.k8s.io
-```
+After login, the user will automatically have access to the Flight Control organization mapped from the OpenShift project, with the permissions granted by the assigned roles.
 
 ## Multi-Project Access
 

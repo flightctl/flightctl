@@ -40,15 +40,20 @@ func (m *MockActionHandler) EXPECT() *MockActionHandlerMockRecorder {
 }
 
 // Execute mocks base method.
-func (m *MockActionHandler) Execute(ctx context.Context, action *Action) error {
+func (m *MockActionHandler) Execute(ctx context.Context, actions ...*Action) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Execute", ctx, action)
+	varargs := []any{ctx}
+	for _, a := range actions {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "Execute", varargs...)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Execute indicates an expected call of Execute.
-func (mr *MockActionHandlerMockRecorder) Execute(ctx, action any) *gomock.Call {
+func (mr *MockActionHandlerMockRecorder) Execute(ctx any, actions ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Execute", reflect.TypeOf((*MockActionHandler)(nil).Execute), ctx, action)
+	varargs := append([]any{ctx}, actions...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Execute", reflect.TypeOf((*MockActionHandler)(nil).Execute), varargs...)
 }

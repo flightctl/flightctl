@@ -6,6 +6,7 @@ metadata:
   name: flightctl-plugin
   labels:
     {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-ui
 spec:
   backend:
     service:

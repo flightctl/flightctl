@@ -54,6 +54,8 @@ type PodmanContainerConfig struct {
 // ArtifactInspect represents the structure of artifact inspect output
 type ArtifactInspect struct {
 	Manifest ArtifactManifest `json:"Manifest"`
+	Name     string           `json:"Name"`
+	Digest   string           `json:"Digest"`
 }
 
 type ArtifactManifest struct {
@@ -263,62 +265,66 @@ func (p *Podman) ArtifactExists(ctx context.Context, artifact string) bool {
 	return exitCode == 0
 }
 
-// ArtifactDigest returns the digest of the specified artifact.
-func (p *Podman) ArtifactDigest(ctx context.Context, reference string) (string, error) {
+func (p *Podman) artifactInspect(ctx context.Context, reference string) (*ArtifactInspect, error) {
 	ctx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()
-
-	if err := p.EnsureArtifactSupport(ctx); err != nil {
-		return "", err
-	}
-
-	args := []string{"artifact", "inspect", "--format", "{{.Digest}}", reference}
-	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
-	if exitCode != 0 {
-		return "", fmt.Errorf("get artifact digest: %s: %w", reference, errors.FromStderr(stderr, exitCode))
-	}
-	digest := strings.TrimSpace(stdout)
-	if digest == "" {
-		return "", fmt.Errorf("artifact digest empty for %s", reference)
-	}
-	return digest, nil
-}
-
-// InspectArtifactAnnotations inspects an OCI artifact and returns its annotations map.
-func (p *Podman) InspectArtifactAnnotations(ctx context.Context, reference string) (map[string]string, error) {
-	ctx, cancel := context.WithTimeout(ctx, p.timeout)
-	defer cancel()
-
 	args := []string{"artifact", "inspect", reference}
 	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	if exitCode != 0 {
 		return nil, fmt.Errorf("artifact inspect: %w", errors.FromStderr(stderr, exitCode))
 	}
 
-	annotations, err := extractArtifactAnnotations(stdout)
+	var inspectResult ArtifactInspect
+	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &inspectResult); err != nil {
+		return nil, fmt.Errorf("unmarshal artifact inspect output: %w", err)
+	}
+
+	return &inspectResult, nil
+}
+
+// ArtifactDigest returns the digest of the specified artifact.
+func (p *Podman) ArtifactDigest(ctx context.Context, reference string) (string, error) {
+	if err := p.EnsureArtifactSupport(ctx); err != nil {
+		return "", err
+	}
+
+	inspect, err := p.artifactInspect(ctx, reference)
+	if err != nil {
+		return "", err
+	}
+
+	if inspect.Digest == "" {
+		return "", fmt.Errorf("artifact digest empty for %s", reference)
+	}
+
+	return inspect.Digest, nil
+}
+
+// InspectArtifactAnnotations inspects an OCI artifact and returns its annotations map.
+func (p *Podman) InspectArtifactAnnotations(ctx context.Context, reference string) (map[string]string, error) {
+	if err := p.EnsureArtifactSupport(ctx); err != nil {
+		return nil, err
+	}
+
+	inspect, err := p.artifactInspect(ctx, reference)
 	if err != nil {
 		return nil, err
 	}
 
-	return annotations, nil
+	return extractArtifactAnnotations(inspect), nil
 }
 
 // extractArtifactAnnotations parses the podman artifact inspect JSON output and extracts annotations
-func extractArtifactAnnotations(stdout string) (map[string]string, error) {
-	var inspectResult ArtifactInspect
-	if err := json.Unmarshal([]byte(stdout), &inspectResult); err != nil {
-		return nil, fmt.Errorf("unmarshal artifact inspect output: %w", err)
-	}
-
+func extractArtifactAnnotations(inspect *ArtifactInspect) map[string]string {
 	// Merge annotations from all layers in the manifest
 	annotations := make(map[string]string)
-	for _, layer := range inspectResult.Manifest.Layers {
+	for _, layer := range inspect.Manifest.Layers {
 		for key, value := range layer.Annotations {
 			annotations[key] = value
 		}
 	}
 
-	return annotations, nil
+	return annotations
 }
 
 // EventsSinceCmd returns a command to get podman events since the given time. After creating the command, it should be started with exec.Start().

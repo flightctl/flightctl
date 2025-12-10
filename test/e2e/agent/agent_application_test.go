@@ -59,7 +59,9 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 					Image: imageName,
 				}
 
-				var appSpec v1beta1.ApplicationProviderSpec
+				appSpec := v1beta1.ApplicationProviderSpec{
+					AppType: v1beta1.AppTypeCompose,
+				}
 				err := appSpec.FromImageApplicationProviderSpec(applicationConfig)
 				Expect(err).ToNot(HaveOccurred())
 
@@ -79,6 +81,10 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			WaitForApplicationRunningStatus(harness, deviceId, imageName)
 
 			By("Check the general device application status")
+			// Re-fetch the device to get the current status after the application is running
+			response, err = harness.GetDeviceWithStatusSystem(deviceId)
+			Expect(err).ToNot(HaveOccurred())
+			device = response.JSON200
 			Expect(device.Status.ApplicationsSummary.Status).To(Equal(v1beta1.ApplicationsSummaryStatusHealthy))
 
 			By("Check the containers are running in the device")
@@ -101,7 +107,9 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 					Image: imageName,
 				}
 
-				var appSpec v1beta1.ApplicationProviderSpec
+				appSpec := v1beta1.ApplicationProviderSpec{
+					AppType: v1beta1.AppTypeCompose,
+				}
 				err := appSpec.FromImageApplicationProviderSpec(applicationConfig)
 				Expect(err).ToNot(HaveOccurred())
 
@@ -163,7 +171,9 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 					Volumes: &[]v1beta1.ApplicationVolume{volumeConfig},
 				}
 
-				var appSpec v1beta1.ApplicationProviderSpec
+				appSpec := v1beta1.ApplicationProviderSpec{
+					AppType: v1beta1.AppTypeCompose,
+				}
 				err = appSpec.FromImageApplicationProviderSpec(appConfig)
 				Expect(err).ToNot(HaveOccurred())
 
@@ -190,7 +200,9 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 					Image: imageName,
 				}
 
-				var appSpec v1beta1.ApplicationProviderSpec
+				appSpec := v1beta1.ApplicationProviderSpec{
+					AppType: v1beta1.AppTypeCompose,
+				}
 				err := appSpec.FromImageApplicationProviderSpec(appConfig)
 				Expect(err).ToNot(HaveOccurred())
 

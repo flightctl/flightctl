@@ -2,6 +2,8 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: flightctl-admin
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
 rules:
   - verbs:
       - '*'
@@ -15,6 +17,8 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: flightctl-viewer
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
 rules:
   - verbs:
       - get
@@ -32,6 +36,8 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: flightctl-operator
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
 rules:
   - verbs:
       - get
@@ -77,6 +83,8 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: flightctl-installer
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
 rules:
   - verbs:
       - get
@@ -87,7 +95,7 @@ rules:
       - enrollmentrequests
       - organizations
   - verbs:
-      - post
+      - update  # API uses PUT for approval endpoint
     apiGroups:
       - flightctl.io
     resources:
@@ -96,6 +104,7 @@ rules:
       - get
       - list
       - create
+      - update
     apiGroups:
       - flightctl.io
     resources:

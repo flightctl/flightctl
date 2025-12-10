@@ -49,10 +49,6 @@ spec:
                 secretKeyRef:
                   name: {{ include "flightctl.dbAppUserSecret" . }}
                   key: user
-            {{- if eq .Values.global.auth.type "none" }}
-            - name: FLIGHTCTL_DISABLE_AUTH
-              value: "true"
-            {{- end }}
             {{- if .Values.api.env }}
             {{- range $key, $value := .Values.api.env }}
             - name: {{ $key }}
@@ -67,10 +63,10 @@ spec:
               name: agent-api
               protocol: TCP
             - containerPort: 15690
-              name: api-prom-target
+              name: metrics
               protocol: TCP
             - containerPort: 15691
-              name: db-prom-target
+              name: db-metrics
               protocol: TCP
           readinessProbe:
             httpGet:
@@ -93,49 +89,64 @@ spec:
             failureThreshold: 10
             successThreshold: 1
           volumeMounts:
-            - mountPath: /root/.flightctl/
-              name: flightctl-api-certs
             - mountPath: /root/.flightctl/config.yaml
               name: flightctl-api-config
               subPath: config.yaml
               readOnly: true
-            {{- if .Values.global.baseDomainTlsSecretName }}
-            - mountPath: /root/.flightctl/certs
-              name: flightctl-api-tls
-            {{- end}}
-            {{- if .Values.global.auth.k8s.externalApiToken}}
+            {{- if .Values.global.auth.k8s.externalApiTokenSecretName }}
             - mountPath: /var/flightctl/k8s
               name: flightctl-api-k8s-token
               readOnly: true
             {{- end}}
-            {{- if .Values.global.auth.openshift.externalApiToken}}
+            {{- if .Values.global.auth.openshift.externalApiTokenSecretName }}
             - mountPath: /var/flightctl/k8s
               name: flightctl-api-openshift-token
               readOnly: true
             {{- end}}
+            - mountPath: /root/.flightctl/certs/client-signer.crt
+              name: flightctl-client-signer
+              subPath: tls.crt
+              readOnly: true
+            - mountPath: /root/.flightctl/certs/client-signer.key
+              name: flightctl-client-signer
+              subPath: tls.key
+              readOnly: true
+            - mountPath: /root/.flightctl/certs/server.crt
+              name: flightctl-api-server-tls
+              subPath: tls.crt
+              readOnly: true
+            - mountPath: /root/.flightctl/certs/server.key
+              name: flightctl-api-server-tls
+              subPath: tls.key
+              readOnly: true
+            - mountPath: /root/.flightctl/certs/ca-bundle.crt
+              name: flightctl-ca-bundle
+              subPath: ca-bundle.crt
+              readOnly: true
             {{- include "flightctl.dbSslVolumeMounts" . | nindent 12 }}
 
       restartPolicy: Always
       volumes:
-        - name: flightctl-api-certs
-          persistentVolumeClaim:
-            claimName: flightctl-api-certs
         - name: flightctl-api-config
           configMap:
             name: flightctl-api-config
-        {{- if .Values.global.baseDomainTlsSecretName }}
-        - name: flightctl-api-tls
-          secret:
-            secretName: {{ .Values.global.baseDomainTlsSecretName }}
-        {{- end}}
-        {{- if .Values.global.auth.k8s.externalApiToken}}
+        {{- if .Values.global.auth.k8s.externalApiTokenSecretName }}
         - name: flightctl-api-k8s-token
           secret:
-            secretName: flightctl-api-k8s-token
+            secretName: {{ .Values.global.auth.k8s.externalApiTokenSecretName }}
         {{- end}}
-        {{- if .Values.global.auth.openshift.externalApiToken}}
+        {{- if .Values.global.auth.openshift.externalApiTokenSecretName }}
         - name: flightctl-api-openshift-token
           secret:
-            secretName: flightctl-api-openshift-token
+            secretName: {{ .Values.global.auth.openshift.externalApiTokenSecretName }}
         {{- end}}
+        - name: flightctl-client-signer
+          secret:
+            secretName: flightctl-client-signer-ca
+        - name: flightctl-api-server-tls
+          secret:
+            secretName: {{ default "flightctl-api-server-tls" .Values.global.baseDomainTlsSecretName }}
+        - name: flightctl-ca-bundle
+          secret:
+            secretName: flightctl-ca-bundle
         {{- include "flightctl.dbSslVolumes" . | nindent 8 }}

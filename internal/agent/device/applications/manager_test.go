@@ -65,20 +65,18 @@ func TestManager(t *testing.T) {
 			setupMocks: func(mockExec *executer.MockExecuter, mockReadWriter *fileio.MockReadWriter, mockSystemdMgr *systemd.MockManager) {
 				id := client.NewComposeID("app-remove")
 				gomock.InOrder(
-					// start current app
+					// start current app (first AfterUpdate)
 					mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil).AnyTimes(),
 					mockExecPodmanComposeUp(mockExec, "app-remove", true, true),
+					mockExecPodmanEvents(mockExec),
 
-					// remove current app
+					// remove current app (second AfterUpdate after syncProviders)
 					mockExecPodmanNetworkList(mockExec, "app-remove"),
 					mockExecPodmanPodList(mockExec, "app-remove"),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "stop", "--filter", "label=com.docker.compose.project="+id).Return("", "", 0),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "rm", "--filter", "label=com.docker.compose.project="+id).Return("", "", 0),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pod", "rm", "pod123").Return("", "", 0),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "network", "rm", "network123").Return("", "", 0),
-
-					// AfterUpdate call should NOT trigger podman events since there are no applications
-					// mockExecPodmanEvents(mockExec),
 				)
 			},
 		},
@@ -93,11 +91,12 @@ func TestManager(t *testing.T) {
 			setupMocks: func(mockExec *executer.MockExecuter, mockReadWriter *fileio.MockReadWriter, mockSystemdMgr *systemd.MockManager) {
 				id := client.NewComposeID("app-update")
 				gomock.InOrder(
-					// start current app
+					// start current app (first AfterUpdate)
 					mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil).AnyTimes(),
 					mockExecPodmanComposeUp(mockExec, "app-update", true, true),
+					mockExecPodmanEvents(mockExec),
 
-					// stop and remove current app
+					// stop and remove current app (second AfterUpdate after syncProviders)
 					mockExecPodmanNetworkList(mockExec, "app-update"),
 					mockExecPodmanPodList(mockExec, "app-update"),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "stop", "--filter", "label=com.docker.compose.project="+id).Return("", "", 0),
@@ -105,10 +104,9 @@ func TestManager(t *testing.T) {
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pod", "rm", "pod123").Return("", "", 0),
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "network", "rm", "network123").Return("", "", 0),
 
-					// start desired app
+					// start desired app (monitor already running, no new podman events command)
 					mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil).AnyTimes(),
 					mockExecPodmanComposeUp(mockExec, "app-update", true, true),
-					mockExecPodmanEvents(mockExec),
 				)
 			},
 			wantAppNames: []string{"app-update"},
@@ -126,6 +124,7 @@ func TestManager(t *testing.T) {
 				gomock.InOrder(
 					// start new quadlet app
 					mockExecSystemdDaemonReload(mockSystemdMgr),
+					mockExecSystemdListUnitsWithResults(mockSystemdMgr, "test-app.service"),
 					mockExecSystemdStart(mockSystemdMgr, "test-app.service"),
 					mockExecPodmanEvents(mockExec),
 				)
@@ -143,19 +142,19 @@ func TestManager(t *testing.T) {
 				mockReadQuadletFiles(mockReadWriter, quadlet1)
 
 				gomock.InOrder(
-					// start current quadlet app (Ensure call)
+					// start current quadlet app (first AfterUpdate)
 					mockExecSystemdDaemonReload(mockSystemdMgr),
+					mockExecSystemdListUnitsWithResults(mockSystemdMgr, "test-app.service"),
 					mockExecSystemdStart(mockSystemdMgr, "test-app.service"),
+					mockExecPodmanEvents(mockExec),
 
-					// remove quadlet app (syncProviders call)
+					// remove quadlet app (second AfterUpdate after syncProviders)
 					mockExecSystemdStop(mockSystemdMgr, "test-app.service"),
 					mockExecSystemdListUnits(mockSystemdMgr, "test-app.service"),
 					mockExecSystemdDaemonReload(mockSystemdMgr),
 				)
 				// podman cleanup happens after systemd operations (not strictly ordered with above)
 				mockExecQuadletCleanup(mockExec, "quadlet-remove")
-
-				// no podman events mock needed since no apps remain after removal
 			},
 		},
 		{
@@ -172,19 +171,20 @@ func TestManager(t *testing.T) {
 				mockReadQuadletFiles(mockReadWriter, quadlet2)
 
 				gomock.InOrder(
-					// start current quadlet app
+					// start current quadlet app (first AfterUpdate)
 					mockExecSystemdDaemonReload(mockSystemdMgr),
-					mockExecSystemdStart(mockSystemdMgr, "test-app.service"),
-
-					// stop current quadlet app
-					mockExecSystemdStop(mockSystemdMgr, "test-app.service"),
-					mockExecSystemdListUnits(mockSystemdMgr, "test-app.service"),
-					mockExecSystemdDaemonReload(mockSystemdMgr),
-
-					// start updated quadlet app
-					mockExecSystemdDaemonReload(mockSystemdMgr),
+					mockExecSystemdListUnitsWithResults(mockSystemdMgr, "test-app.service"),
 					mockExecSystemdStart(mockSystemdMgr, "test-app.service"),
 					mockExecPodmanEvents(mockExec),
+
+					// update: stop current quadlet app, then start updated (second AfterUpdate)
+					mockExecSystemdStop(mockSystemdMgr, "test-app.service"),
+					mockExecSystemdListUnits(mockSystemdMgr, "test-app.service"),
+
+					// start updated quadlet app (monitor already running, no new podman events command)
+					mockExecSystemdDaemonReload(mockSystemdMgr),
+					mockExecSystemdListUnitsWithResults(mockSystemdMgr, "test-app.service"),
+					mockExecSystemdStart(mockSystemdMgr, "test-app.service"),
 				)
 				// podman cleanup happens during the update (not strictly ordered with above)
 				mockExecQuadletCleanup(mockExec, "quadlet-update")
@@ -232,6 +232,10 @@ func TestManager(t *testing.T) {
 				err := manager.Ensure(ctx, provider)
 				require.NoError(err)
 			}
+
+			// execute actions to install the current applications before syncing
+			err = manager.AfterUpdate(ctx)
+			require.NoError(err)
 
 			desiredProviders, err := provider.FromDeviceSpec(ctx, log, mockPodmanClient, readWriter, tc.desired)
 			require.NoError(err)
@@ -424,7 +428,7 @@ func newTestDeviceWithApplicationType(t *testing.T, name string, details []testI
 	}
 
 	providerSpec := v1beta1.ApplicationProviderSpec{
-		AppType: lo.ToPtr(appType),
+		AppType: appType,
 		Name:    lo.ToPtr(name),
 	}
 	err := providerSpec.FromInlineApplicationProviderSpec(inline)
@@ -497,6 +501,14 @@ func mockExecSystemdStop(mockSystemdMgr *systemd.MockManager, services ...string
 
 func mockExecSystemdListUnits(mockSystemdMgr *systemd.MockManager, services ...string) *gomock.Call {
 	units := []client.SystemDUnitListEntry{}
+	return mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), services).Return(units, nil)
+}
+
+func mockExecSystemdListUnitsWithResults(mockSystemdMgr *systemd.MockManager, services ...string) *gomock.Call {
+	units := make([]client.SystemDUnitListEntry, len(services))
+	for i, svc := range services {
+		units[i] = client.SystemDUnitListEntry{Unit: svc}
+	}
 	return mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), services).Return(units, nil)
 }
 
@@ -753,7 +765,7 @@ func TestCollectOCITargetsErrorHandling(t *testing.T) {
 
 			providerSpec := v1beta1.ApplicationProviderSpec{
 				Name:    lo.ToPtr("test-app"),
-				AppType: lo.ToPtr(v1beta1.AppTypeCompose),
+				AppType: v1beta1.AppTypeCompose,
 			}
 			_ = providerSpec.FromImageApplicationProviderSpec(v1beta1.ImageApplicationProviderSpec{
 				Image: "quay.io/test/image:v1",

@@ -9,13 +9,13 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/auth/authn"
-	"github.com/google/uuid"
 )
 
 // cacheEntry holds a cached token endpoint with its expiration time
@@ -76,7 +76,7 @@ func NewAuthTokenProxy(authN *authn.MultiAuth) *AuthTokenProxy {
 
 // ProxyTokenRequest handles OAuth2 token exchange requests
 // Returns TokenResponse and HTTP status code (200 for success, 400 for errors per OAuth2 spec)
-func (p *AuthTokenProxy) ProxyTokenRequest(ctx context.Context, orgId uuid.UUID, providerName string, tokenReq *api.TokenRequest) (*api.TokenResponse, int) {
+func (p *AuthTokenProxy) ProxyTokenRequest(ctx context.Context, providerName string, tokenReq *api.TokenRequest) (*api.TokenResponse, int) {
 	// Validate grant type
 	if tokenReq.GrantType != api.AuthorizationCode && tokenReq.GrantType != api.RefreshToken {
 		return createErrorTokenResponse("unsupported_grant_type", "Only authorization_code and refresh_token grant types are supported"), http.StatusBadRequest
@@ -211,7 +211,7 @@ func (p *AuthTokenProxy) findProviderForToken(ctx context.Context, providerName 
 			Issuer:        aapSpec.ApiUrl,
 			TokenEndpoint: tokenUrl,
 			ClientId:      aapSpec.ClientId,
-			UseBasicAuth:  true, // AAP requires Basic Auth for client credentials
+			UseBasicAuth:  aapSpec.ClientSecret != nil && *aapSpec.ClientSecret != "", // AAP requires Basic Auth for client credentials
 		}, aapSpec.ClientId, clientSecret, api.StatusOK()
 
 	default:
@@ -331,13 +331,11 @@ func (p *AuthTokenProxy) proxyTokenRequest(ctx context.Context, providerConfig *
 	}
 
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json, application/x-www-form-urlencoded")
 
 	// For providers using Basic Auth (like AAP), set the Authorization header
+	// Only use Basic Auth if UseBasicAuth is true
 	if providerConfig.UseBasicAuth {
-		if clientSecret == "" {
-			p.authN.GetLogger().Errorf("Token proxy: provider requires Basic Auth but client_secret is not configured")
-			return nil, fmt.Errorf("provider requires Basic Auth but client_secret is not configured")
-		}
 		req.SetBasicAuth(clientId, clientSecret)
 		p.authN.GetLogger().Debugf("Token proxy: using Basic Auth with client_id=%s", clientId)
 	}
@@ -360,13 +358,54 @@ func (p *AuthTokenProxy) proxyTokenRequest(ctx context.Context, providerConfig *
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	p.authN.GetLogger().Debugf("Token proxy: response body: %s", string(bodyBytes))
+	p.authN.GetLogger().Debugf("Token proxy: response body: [REDACTED] (length: %d bytes)", len(bodyBytes))
 
-	// Parse response
+	// Parse response based on Content-Type
 	var tokenResp api.TokenResponse
-	if err := json.Unmarshal(bodyBytes, &tokenResp); err != nil {
-		p.authN.GetLogger().Errorf("Token proxy: failed to parse response (status %d): %v, body: %s", resp.StatusCode, err, string(bodyBytes))
-		return nil, fmt.Errorf("failed to parse token response (status %d): %w, body: %s", resp.StatusCode, err, string(bodyBytes))
+	contentType := resp.Header.Get("Content-Type")
+
+	if strings.Contains(contentType, "application/x-www-form-urlencoded") {
+		// Parse URL-encoded response (e.g., GitHub OAuth2)
+		values, err := url.ParseQuery(string(bodyBytes))
+		if err != nil {
+			p.authN.GetLogger().Errorf("Token proxy: failed to parse URL-encoded response (status %d): %v", resp.StatusCode, err)
+			return nil, fmt.Errorf("failed to parse URL-encoded token response (status %d): %w, body: <omitted>", resp.StatusCode, err)
+		}
+
+		// Map form fields to TokenResponse
+		if accessToken := values.Get("access_token"); accessToken != "" {
+			tokenResp.AccessToken = &accessToken
+		}
+		if tokenType := values.Get("token_type"); tokenType != "" {
+			tt := api.TokenResponseTokenType(tokenType)
+			tokenResp.TokenType = &tt
+		}
+		if refreshToken := values.Get("refresh_token"); refreshToken != "" {
+			tokenResp.RefreshToken = &refreshToken
+		}
+		if idToken := values.Get("id_token"); idToken != "" {
+			tokenResp.IdToken = &idToken
+		}
+		if expiresInStr := values.Get("expires_in"); expiresInStr != "" {
+			expiresIn, err := strconv.Atoi(expiresInStr)
+			if err != nil {
+				p.authN.GetLogger().Warnf("Token proxy: failed to parse expires_in value '%s': %v", expiresInStr, err)
+			} else {
+				tokenResp.ExpiresIn = &expiresIn
+			}
+		}
+		if errorCode := values.Get("error"); errorCode != "" {
+			tokenResp.Error = &errorCode
+		}
+		if errorDesc := values.Get("error_description"); errorDesc != "" {
+			tokenResp.ErrorDescription = &errorDesc
+		}
+	} else {
+		// Parse JSON response (default for most OIDC providers)
+		if err := json.Unmarshal(bodyBytes, &tokenResp); err != nil {
+			p.authN.GetLogger().Errorf("Token proxy: failed to parse JSON response (status %d): %v", resp.StatusCode, err)
+			return nil, fmt.Errorf("failed to parse JSON token response (status %d): %w, body: <omitted>", resp.StatusCode, err)
+		}
 	}
 
 	return &ProxyResult{

@@ -11,6 +11,8 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel/trace"
 	"gorm.io/driver/postgres"
@@ -37,7 +39,18 @@ func initDBWithUser(cfg *config.Config, log *logrus.Logger, user string, passwor
 		return nil, errors.New(errString)
 	}
 	dsn := createDSN(cfg, user, password)
-	dia = postgres.Open(dsn)
+	baseDia := postgres.Open(dsn)
+
+	// Wrap the dialector to intercept error translation
+	// postgres.Open returns *postgres.Dialector (pointer type)
+	if pgDialector, ok := baseDia.(*postgres.Dialector); ok {
+		dia = &constraintAwareDialector{Dialector: *pgDialector}
+		log.Debug("Successfully wrapped postgres dialector with constraint-aware translator")
+	} else {
+		// Fallback if not postgres dialector (shouldn't happen)
+		log.Warningf("Could not wrap dialector (type: %T), using default", baseDia)
+		dia = baseDia
+	}
 
 	newLogger := logger.New(
 		log,
@@ -50,7 +63,11 @@ func initDBWithUser(cfg *config.Config, log *logrus.Logger, user string, passwor
 		},
 	)
 
-	newDB, err := gorm.Open(dia, &gorm.Config{Logger: newLogger, TranslateError: true})
+	// TranslateError: true will use our wrapped dialector's Translate method
+	newDB, err := gorm.Open(dia, &gorm.Config{
+		Logger:         newLogger,
+		TranslateError: true,
+	})
 	if err != nil {
 		log.Fatalf("failed to connect database: %v", err)
 		return nil, err
@@ -198,4 +215,32 @@ func isBypassSpanCheck(ctx context.Context) bool {
 	val := ctx.Value(bypassSpanCheckKey{})
 	bypass, _ := val.(bool)
 	return bypass
+}
+
+// constraintAwareDialector wraps postgres.Dialector to intercept error translation
+// By embedding postgres.Dialector, all its methods are promoted to constraintAwareDialector
+// We only override Translate() to check for specific constraints
+type constraintAwareDialector struct {
+	postgres.Dialector
+}
+
+// Verify at compile-time that constraintAwareDialector implements gorm.Dialector
+var _ gorm.Dialector = (*constraintAwareDialector)(nil)
+
+// Translate intercepts PostgreSQL errors to check for specific authprovider constraints
+func (d *constraintAwareDialector) Translate(err error) error {
+	// Check for PostgreSQL-specific constraint violations first
+	if pgErr, ok := err.(*pgconn.PgError); ok {
+
+		// Check for specific authprovider constraints BEFORE default translation
+		switch pgErr.ConstraintName {
+		case ConstraintAuthProviderOIDCUnique:
+			return flterrors.ErrDuplicateOIDCProvider
+		case ConstraintAuthProviderOAuth2Unique:
+			return flterrors.ErrDuplicateOAuth2Provider
+		}
+	}
+
+	// Fall back to default postgres dialector translation for all other errors
+	return d.Dialector.Translate(err)
 }

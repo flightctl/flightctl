@@ -1,0 +1,95 @@
+{{- $certMethod := include "flightctl.getCertificateGenerationMethod" . }}
+{{- if eq $certMethod "builtin" }}
+
+{{- /* Get DNS SANs for API server and Telemetry Gateway */ -}}
+{{- $apiServerDNSSansResult := include "flightctl.getApiServerDNSSans" . | fromJson -}}
+{{- $apiServerDNSSans := $apiServerDNSSansResult.sans -}}
+{{- $telemetryGatewayDNSSansResult := include "flightctl.getTelemetryGatewayDNSSans" . | fromJson -}}
+{{- $telemetryGatewayDNSSans := $telemetryGatewayDNSSansResult.sans -}}
+{{- $alertmanagerProxyDNSSansResult := include "flightctl.getAlertmanagerProxyDNSSans" . | fromJson -}}
+{{- $alertmanagerProxyDNSSans := $alertmanagerProxyDNSSansResult.sans -}}
+
+---
+# ConfigMap containing the certificate generation script
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flightctl-cert-generator-script
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+data:
+  generate-certificates.sh: |
+{{ .Files.Get "scripts/generate-certificates.sh" | nindent 4 }}
+
+---
+# Job to generate certificates and create Kubernetes secrets
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: flightctl-cert-generator-{{ .Release.Revision }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-cert-generator
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        {{- include "flightctl.standardLabels" . | nindent 8 }}
+        flightctl.service: flightctl-cert-generator
+    spec:
+      serviceAccountName: flightctl-cert-generator
+      restartPolicy: Never
+      containers:
+      - name: cert-generator
+        image: "{{ .Values.clusterCli.image.image }}:{{ .Values.clusterCli.image.tag }}"
+        imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.clusterCli.image.pullPolicy }}
+        command:
+        - /bin/bash
+        - /scripts/generate-certificates.sh
+        - --cert-dir
+        - /tmp/certs
+        {{- range $apiServerDNSSans }}
+        - --api-san
+        - {{ . }}
+        {{- end }}
+        {{- range $telemetryGatewayDNSSans }}
+        - --telemetry-san
+        - {{ . }}
+        {{- end }}
+        {{- range $alertmanagerProxyDNSSans }}
+        - --alertmanager-proxy-san
+        - {{ . }}
+        {{- end }}
+        - --namespace
+        - {{ .Release.Namespace }}
+        - --create-k8s-secrets
+        volumeMounts:
+        - name: scripts
+          mountPath: /scripts
+          readOnly: true
+        - name: cert-workdir
+          mountPath: /tmp/certs
+      volumes:
+      - name: scripts
+        configMap:
+          name: flightctl-cert-generator-script
+          defaultMode: 0755
+      - name: cert-workdir
+        emptyDir: {}
+      {{- if .Values.global.imagePullSecretName }}
+      imagePullSecrets:
+      - name: {{ .Values.global.imagePullSecretName }}
+      {{- end }}
+
+{{- end }}

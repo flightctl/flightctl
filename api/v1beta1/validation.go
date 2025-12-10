@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"reflect"
 	"regexp"
 	"slices"
@@ -16,9 +17,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/api/common"
-	"github.com/flightctl/flightctl/internal/consts"
-	"github.com/flightctl/flightctl/internal/identity"
-	"github.com/flightctl/flightctl/internal/quadlet"
+	"github.com/flightctl/flightctl/internal/contextutil"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/robfig/cron/v3"
@@ -57,6 +56,7 @@ var (
 	ErrAapProviderConfigOnly                 = errors.New("aap provider type can only be created from configuration, not via API")
 	ErrDynamicOrgMappingAdminOnly            = errors.New("only flightctl-admin users are allowed to create auth providers with dynamic organization mapping")
 	ErrPerUserOrgMappingAdminOnly            = errors.New("only flightctl-admin users are allowed to create auth providers with per-user organization mapping")
+	ErrStaticRoleMappingAdminOnly            = errors.New("only flightctl-admin users are allowed to create static role mappings for flightctl-admin")
 )
 
 type Validator interface {
@@ -629,10 +629,8 @@ func (u UpdateSchedule) Validate() []error {
 		allErrs = append(allErrs, fmt.Errorf("invalid cron schedule: %s", err))
 	}
 
-	if u.StartGraceDuration != nil {
-		if err := validateGraceDuration(schedule, *u.StartGraceDuration); err != nil {
-			allErrs = append(allErrs, err)
-		}
+	if err := validateGraceDuration(schedule, u.StartGraceDuration); err != nil {
+		allErrs = append(allErrs, err)
 	}
 
 	return allErrs
@@ -783,9 +781,18 @@ func (a ApplicationProviderSpec) Validate() []error {
 	return allErrs
 }
 
-func (a InlineApplicationProviderSpec) Validate(appTypeRef *AppType, fleetTemplate bool) []error {
+func (a InlineApplicationProviderSpec) Validate(appType AppType, fleetTemplate bool) []error {
 	allErrs := []error{}
-	appType := lo.FromPtr(appTypeRef)
+
+	var appValidator applicationValidator
+	switch appType {
+	case AppTypeCompose:
+		appValidator = &composeValidator{paths: make(map[string]struct{})}
+	case AppTypeQuadlet:
+		appValidator = &quadletValidator{quadlets: make(map[string]*common.QuadletReferences)}
+	default:
+		appValidator = &unknownAppTypeValidator{appType}
+	}
 
 	seenPath := make(map[string]struct{}, len(a.Inline))
 	for i := range a.Inline {
@@ -796,28 +803,14 @@ func (a InlineApplicationProviderSpec) Validate(appTypeRef *AppType, fleetTempla
 		} else {
 			seenPath[path] = struct{}{}
 		}
-		allErrs = append(allErrs, a.Inline[i].Validate(i, appType, fleetTemplate)...)
+		allErrs = append(allErrs, a.Inline[i].Validate(i, appValidator, fleetTemplate)...)
 	}
 
-	paths := make([]string, 0, len(seenPath))
-	for path := range seenPath {
-		paths = append(paths, path)
-	}
-	var pathErr error
-	switch appType {
-	case AppTypeCompose:
-		pathErr = validation.ValidateComposePaths(paths)
-	case AppTypeQuadlet:
-		pathErr = validation.ValidateQuadletPaths(paths)
-	}
-	if pathErr != nil {
-		allErrs = append(allErrs, fmt.Errorf("spec.applications[].inline[].path: %w", pathErr))
-	}
-
+	allErrs = append(allErrs, appValidator.Validate()...)
 	return allErrs
 }
 
-func (c ApplicationContent) Validate(index int, appType AppType, fleetTemplate bool) []error {
+func (c ApplicationContent) Validate(index int, appValidator applicationValidator, fleetTemplate bool) []error {
 	var allErrs []error
 	pathPrefix := fmt.Sprintf("spec.applications[].inline[%d]", index)
 
@@ -856,7 +849,7 @@ func (c ApplicationContent) Validate(index int, appType AppType, fleetTemplate b
 	allErrs = append(allErrs, validation.ValidateString(&decodedStr, contentPath, 0, maxInlineLength, nil, "")...)
 	_, paramErrs = validateParametersInString(&decodedStr, contentPath, fleetTemplate)
 	allErrs = append(allErrs, paramErrs...)
-	allErrs = append(allErrs, ValidateApplicationContent(decodedBytes, appType, c.Path)...)
+	allErrs = append(allErrs, appValidator.ValidateContents(c.Path, decodedBytes)...)
 
 	return allErrs
 }
@@ -867,32 +860,6 @@ func (c ApplicationContent) IsBase64() bool {
 
 func (c ApplicationContent) IsPlain() bool {
 	return c.ContentEncoding == nil || *c.ContentEncoding == EncodingPlain
-}
-
-func ValidateApplicationContent(content []byte, appType AppType, path string) []error {
-	var allErrs []error
-	switch appType {
-	case AppTypeCompose:
-		composeSpec, err := common.ParseComposeSpec(content)
-		if err != nil {
-			return []error{fmt.Errorf("parse compose spec: %w", err)}
-		}
-		allErrs = append(allErrs, validation.ValidateComposeSpec(composeSpec)...)
-	case AppTypeQuadlet:
-		// Quadlet apps can come with misc files, so only validate that the quadlet files are defined correctly
-		if quadlet.IsQuadletFile(path) {
-			quadletSpec, err := common.ParseQuadletReferences(content)
-			if err != nil {
-				allErrs = append(allErrs, fmt.Errorf("parse quadlet spec %q: %w", path, err))
-			} else {
-				allErrs = append(allErrs, validation.ValidateQuadletSpec(quadletSpec, path)...)
-			}
-		}
-	default:
-		allErrs = append(allErrs, fmt.Errorf("unsupported application type: %s", appType))
-	}
-
-	return allErrs
 }
 
 func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []error {
@@ -919,6 +886,11 @@ func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []
 		}
 		seenAppNames[appName] = struct{}{}
 
+		if app.AppType == "" {
+			allErrs = append(allErrs, fmt.Errorf("app type must be defined for application: %s", appName))
+			continue
+		}
+
 		var volumes *[]ApplicationVolume
 		switch providerType {
 		case ImageApplicationProviderType:
@@ -931,14 +903,12 @@ func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []
 				allErrs = append(allErrs, fmt.Errorf("image reference cannot be empty when application name is not provided"))
 			}
 			allErrs = append(allErrs, validateOciImageReference(&provider.Image, fmt.Sprintf("spec.applications[%s].image", appName), fleetTemplate)...)
-
-			appType := lo.FromPtr(app.AppType)
-			if appType != AppTypeContainer {
+			if app.AppType != AppTypeContainer {
 				if provider.Ports != nil && len(*provider.Ports) > 0 {
-					allErrs = append(allErrs, fmt.Errorf("ports can only be defined for container applications, not %q", appType))
+					allErrs = append(allErrs, fmt.Errorf("ports can only be defined for container applications, not %q", app.AppType))
 				}
 				if provider.Resources != nil {
-					allErrs = append(allErrs, fmt.Errorf("resources can only be defined for container applications, not %q", appType))
+					allErrs = append(allErrs, fmt.Errorf("resources can only be defined for container applications, not %q", app.AppType))
 				}
 			} else {
 				allErrs = append(allErrs, ValidateContainerImageApplicationSpec(appName, &provider)...)
@@ -952,10 +922,7 @@ func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []
 				allErrs = append(allErrs, fmt.Errorf("invalid inline application provider: %w", err))
 				continue
 			}
-			if app.AppType == nil {
-				allErrs = append(allErrs, fmt.Errorf("inline application type cannot be empty"))
-			}
-			if lo.FromPtr(app.AppType) == AppTypeContainer {
+			if app.AppType == AppTypeContainer {
 				allErrs = append(allErrs, fmt.Errorf("inline application type must not be %q", AppTypeContainer))
 			}
 			allErrs = append(allErrs, provider.Validate(app.AppType, fleetTemplate)...)
@@ -977,7 +944,7 @@ func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []
 				seenVolumeNames[vol.Name] = struct{}{}
 
 				allErrs = append(allErrs, validation.ValidateString(&vol.Name, path+".name", 1, 253, validation.GenericNameRegexp, "")...)
-				allErrs = append(allErrs, validateVolume(vol, path, fleetTemplate, lo.FromPtr(app.AppType))...)
+				allErrs = append(allErrs, validateVolume(vol, path, fleetTemplate, app.AppType)...)
 			}
 		}
 	}
@@ -1375,17 +1342,30 @@ func hasPathField(rawJSON []byte) bool {
 	return exists
 }
 
-func (a AuthProvider) Validate(ctx context.Context) []error {
+func (a *AuthProvider) Validate(ctx context.Context) []error {
 	allErrs := []error{}
 	allErrs = append(allErrs, validation.ValidateResourceName(a.Metadata.Name)...)
 	allErrs = append(allErrs, validation.ValidateLabels(a.Metadata.Labels)...)
 	allErrs = append(allErrs, validation.ValidateAnnotations(a.Metadata.Annotations)...)
-	allErrs = append(allErrs, a.Spec.Validate(ctx)...)
+	allErrs = append(allErrs, a.Spec.Validate(ctx, false)...)
 
 	return allErrs
 }
 
-func (o OIDCProviderSpec) Validate(ctx context.Context) []error {
+// ValidateUpdate ensures immutable fields are unchanged and required fields are not deleted for AuthProvider.
+func (a *AuthProvider) ValidateUpdate(ctx context.Context, oldObj *AuthProvider) []error {
+	allErrs := validateImmutableCoreFields(oldObj.Metadata.Name, a.Metadata.Name,
+		oldObj.ApiVersion, a.ApiVersion,
+		oldObj.Kind, a.Kind,
+		nil, nil) // AuthProvider doesn't have status
+
+	// Validate the new spec (receiver 'a' is the new object)
+	allErrs = append(allErrs, a.Spec.ValidateUpdate(ctx, &oldObj.Spec)...)
+
+	return allErrs
+}
+
+func (o *OIDCProviderSpec) Validate(ctx context.Context, isUpdate bool) []error {
 	allErrs := []error{}
 
 	if o.Issuer == "" {
@@ -1404,7 +1384,7 @@ func (o OIDCProviderSpec) Validate(ctx context.Context) []error {
 	return allErrs
 }
 
-func (o OAuth2ProviderSpec) Validate(ctx context.Context) []error {
+func (o *OAuth2ProviderSpec) Validate(ctx context.Context, isUpdate bool) []error {
 	allErrs := []error{}
 
 	if o.AuthorizationUrl == "" {
@@ -1419,6 +1399,12 @@ func (o OAuth2ProviderSpec) Validate(ctx context.Context) []error {
 	if o.ClientId == "" {
 		allErrs = append(allErrs, ErrClientIdRequired)
 	}
+
+	// Validate introspection field is present
+	if o.Introspection == nil {
+		allErrs = append(allErrs, fmt.Errorf("introspection field is required for OAuth2 providers"))
+	}
+
 	// Validate organization assignment
 	allErrs = append(allErrs, o.OrganizationAssignment.Validate(ctx)...)
 
@@ -1428,7 +1414,7 @@ func (o OAuth2ProviderSpec) Validate(ctx context.Context) []error {
 	return allErrs
 }
 
-func (a AuthProviderSpec) Validate(ctx context.Context) []error {
+func (a *AuthProviderSpec) Validate(ctx context.Context, isUpdate bool) []error {
 	allErrs := []error{}
 
 	// Get the discriminator to determine which type of provider this is
@@ -1444,14 +1430,14 @@ func (a AuthProviderSpec) Validate(ctx context.Context) []error {
 		if err != nil {
 			allErrs = append(allErrs, fmt.Errorf("invalid OIDC provider spec: %w", err))
 		} else {
-			allErrs = append(allErrs, oidcSpec.Validate(ctx)...)
+			allErrs = append(allErrs, (&oidcSpec).Validate(ctx, isUpdate)...)
 		}
 	case string(Oauth2):
 		oauth2Spec, err := a.AsOAuth2ProviderSpec()
 		if err != nil {
 			allErrs = append(allErrs, fmt.Errorf("invalid OAuth2 provider spec: %w", err))
 		} else {
-			allErrs = append(allErrs, oauth2Spec.Validate(ctx)...)
+			allErrs = append(allErrs, (&oauth2Spec).Validate(ctx, isUpdate)...)
 		}
 	case string(K8s):
 		allErrs = append(allErrs, ErrK8sProviderConfigOnly)
@@ -1460,6 +1446,52 @@ func (a AuthProviderSpec) Validate(ctx context.Context) []error {
 	default:
 		allErrs = append(allErrs, fmt.Errorf("unknown provider type: %s", discriminator))
 	}
+
+	return allErrs
+}
+
+// ValidateUpdate ensures required fields are not deleted for AuthProviderSpec.
+func (a *AuthProviderSpec) ValidateUpdate(ctx context.Context, oldSpec *AuthProviderSpec) []error {
+	allErrs := []error{}
+
+	// Check both old and new provider types for OAuth2 to validate introspection field
+	oldDiscriminator, oldErr := oldSpec.Discriminator()
+	if oldErr != nil {
+		allErrs = append(allErrs, fmt.Errorf("invalid old auth provider spec: %w", oldErr))
+		return allErrs
+	}
+
+	newDiscriminator, newErr := a.Discriminator()
+	if newErr != nil {
+		allErrs = append(allErrs, fmt.Errorf("invalid new auth provider spec: %w", newErr))
+		return allErrs
+	}
+
+	// If the old provider was OAuth2, check for introspection removal
+	if oldDiscriminator == string(Oauth2) {
+		oldOAuth2Spec, err := oldSpec.AsOAuth2ProviderSpec()
+		if err != nil {
+			allErrs = append(allErrs, fmt.Errorf("failed to parse old OAuth2 provider spec: %w", err))
+			return allErrs
+		}
+
+		// Check if new provider is also OAuth2
+		if newDiscriminator == string(Oauth2) {
+			newOAuth2Spec, err := a.AsOAuth2ProviderSpec()
+			if err != nil {
+				allErrs = append(allErrs, fmt.Errorf("invalid new OAuth2 provider spec: %w", err))
+				return allErrs
+			}
+
+			// Check if introspection is being removed
+			if oldOAuth2Spec.Introspection != nil && newOAuth2Spec.Introspection == nil {
+				allErrs = append(allErrs, fmt.Errorf("introspection field cannot be removed once set"))
+			}
+		}
+	}
+
+	// Run standard validation with isUpdate=true
+	allErrs = append(allErrs, a.Validate(ctx, true)...)
 
 	return allErrs
 }
@@ -1511,16 +1543,9 @@ func (a AuthStaticOrganizationAssignment) Validate(ctx context.Context) []error 
 	}
 
 	// For non-admin users, validate that the static organization matches their current organization
-	// Access mapped identity directly from context
-	mappedIdentityVal := ctx.Value(consts.MappedIdentityCtxKey)
-	if mappedIdentityVal == nil {
-		allErrs = append(allErrs, ErrMappedIdentityNotFound)
-		return allErrs
-	}
-
-	mappedIdentity, ok := mappedIdentityVal.(*identity.MappedIdentity)
+	mappedIdentity, ok := contextutil.GetMappedIdentityFromContext(ctx)
 	if !ok {
-		allErrs = append(allErrs, ErrInvalidMappedIdentityType)
+		allErrs = append(allErrs, ErrMappedIdentityNotFound)
 		return allErrs
 	}
 
@@ -1559,16 +1584,9 @@ func (a AuthDynamicOrganizationAssignment) Validate(ctx context.Context) []error
 	}
 
 	// Only flightctl-admin is allowed to create auth providers with dynamic org mapping
-	// Access mapped identity directly from context
-	mappedIdentityVal := ctx.Value(consts.MappedIdentityCtxKey)
-	if mappedIdentityVal == nil {
-		allErrs = append(allErrs, ErrMappedIdentityNotFound)
-		return allErrs
-	}
-
-	mappedIdentity, ok := mappedIdentityVal.(*identity.MappedIdentity)
+	mappedIdentity, ok := contextutil.GetMappedIdentityFromContext(ctx)
 	if !ok {
-		allErrs = append(allErrs, ErrInvalidMappedIdentityType)
+		allErrs = append(allErrs, ErrMappedIdentityNotFound)
 		return allErrs
 	}
 
@@ -1587,16 +1605,9 @@ func (a AuthPerUserOrganizationAssignment) Validate(ctx context.Context) []error
 	// The organization name will be generated from the user's identity
 
 	// Only flightctl-admin is allowed to create auth providers with per-user org mapping
-	// Access mapped identity directly from context
-	mappedIdentityVal := ctx.Value(consts.MappedIdentityCtxKey)
-	if mappedIdentityVal == nil {
-		allErrs = append(allErrs, ErrMappedIdentityNotFound)
-		return allErrs
-	}
-
-	mappedIdentity, ok := mappedIdentityVal.(*identity.MappedIdentity)
+	mappedIdentity, ok := contextutil.GetMappedIdentityFromContext(ctx)
 	if !ok {
-		allErrs = append(allErrs, ErrInvalidMappedIdentityType)
+		allErrs = append(allErrs, ErrMappedIdentityNotFound)
 		return allErrs
 	}
 
@@ -1652,6 +1663,31 @@ func (a AuthStaticRoleAssignment) Validate(ctx context.Context) []error {
 		if role == "" {
 			allErrs = append(allErrs, fmt.Errorf("role at index %d cannot be empty", i))
 		}
+		if !slices.Contains(KnownExternalRoles, role) {
+			allErrs = append(allErrs, fmt.Errorf("role at index %d is not a valid role: %s", i, role))
+		}
+	}
+
+	// Check if any role is flightctl-admin - only super admins can create static mappings for this role
+	hasAdminRole := false
+	for _, role := range a.Roles {
+		if role == ExternalRoleAdmin {
+			hasAdminRole = true
+			break
+		}
+	}
+
+	if hasAdminRole {
+		mappedIdentity, ok := contextutil.GetMappedIdentityFromContext(ctx)
+		if !ok {
+			allErrs = append(allErrs, ErrMappedIdentityNotFound)
+			return allErrs
+		}
+
+		// Only super admin users can create static role mappings for flightctl-admin
+		if !mappedIdentity.IsSuperAdmin() {
+			allErrs = append(allErrs, ErrStaticRoleMappingAdminOnly)
+		}
 	}
 
 	return allErrs
@@ -1665,4 +1701,165 @@ func (a AuthDynamicRoleAssignment) Validate(ctx context.Context) []error {
 	}
 
 	return allErrs
+}
+
+func (s SystemdActiveStateType) Validate() error {
+	validStates := []SystemdActiveStateType{
+		SystemdActiveStateActivating,
+		SystemdActiveStateActive,
+		SystemdActiveStateDeactivating,
+		SystemdActiveStateFailed,
+		SystemdActiveStateInactive,
+		SystemdActiveStateMaintenance,
+		SystemdActiveStateRefreshing,
+		SystemdActiveStateReloading,
+		SystemdActiveStateUnknown,
+	}
+	if !slices.Contains(validStates, s) {
+		return fmt.Errorf("invalid systemd active state: %s", s)
+	}
+	return nil
+}
+
+func (s SystemdEnableStateType) Validate() error {
+	validStates := []SystemdEnableStateType{
+		SystemdEnableStateAlias,
+		SystemdEnableStateBad,
+		SystemdEnableStateDisabled,
+		SystemdEnableStateEmpty,
+		SystemdEnableStateEnabled,
+		SystemdEnableStateEnabledRuntime,
+		SystemdEnableStateGenerated,
+		SystemdEnableStateIndirect,
+		SystemdEnableStateLinked,
+		SystemdEnableStateLinkedRuntime,
+		SystemdEnableStateMasked,
+		SystemdEnableStateMaskedRuntime,
+		SystemdEnableStateStatic,
+		SystemdEnableStateTransient,
+		SystemdEnableStateUnknown,
+	}
+	if !slices.Contains(validStates, s) {
+		return fmt.Errorf("invalid systemd enable state: %s", s)
+	}
+	return nil
+}
+
+func (s SystemdLoadStateType) Validate() error {
+	validStates := []SystemdLoadStateType{
+		SystemdLoadStateBadSetting,
+		SystemdLoadStateError,
+		SystemdLoadStateLoaded,
+		SystemdLoadStateMasked,
+		SystemdLoadStateMerged,
+		SystemdLoadStateNotFound,
+		SystemdLoadStateStub,
+		SystemdLoadStateUnknown,
+	}
+	if !slices.Contains(validStates, s) {
+		return fmt.Errorf("invalid systemd load state: %s", s)
+	}
+	return nil
+}
+
+// InferOAuth2IntrospectionConfig attempts to infer a sensible introspection configuration
+// based on the OAuth2 provider URLs. Returns an error if no introspection can be inferred.
+func InferOAuth2IntrospectionConfig(spec OAuth2ProviderSpec) (*OAuth2Introspection, error) {
+	// Check if this is a GitHub OAuth2 provider
+	if strings.Contains(strings.ToLower(spec.AuthorizationUrl), "github") ||
+		strings.Contains(strings.ToLower(spec.TokenUrl), "github") {
+		introspection := &OAuth2Introspection{}
+		githubSpec := GitHubIntrospectionSpec{
+			Type: Github,
+		}
+		// Set URL if it's GitHub Enterprise (not github.com)
+		if !strings.Contains(strings.ToLower(spec.AuthorizationUrl), "github.com") {
+			// Extract base URL from authorization URL for GitHub Enterprise
+			// e.g., https://github.enterprise.com/login/oauth/authorize -> https://api.github.enterprise.com
+			baseURL := extractGitHubEnterpriseBaseURL(spec.AuthorizationUrl)
+			if baseURL != "" {
+				githubSpec.Url = &baseURL
+			}
+		}
+		_ = introspection.FromGitHubIntrospectionSpec(githubSpec)
+		return introspection, nil
+	}
+
+	// Try to infer RFC 7662 introspection endpoint
+	// Common patterns: {tokenUrl}/introspect, {issuer}/introspect
+	introspectionURL := inferRFC7662IntrospectionURL(spec)
+	if introspectionURL != "" {
+		introspection := &OAuth2Introspection{}
+		rfc7662Spec := Rfc7662IntrospectionSpec{
+			Type: Rfc7662,
+			Url:  introspectionURL,
+		}
+		_ = introspection.FromRfc7662IntrospectionSpec(rfc7662Spec)
+		return introspection, nil
+	}
+
+	// No introspection could be inferred - reject
+	return nil, fmt.Errorf("could not infer introspection configuration from provided URLs (authorizationUrl: %s, tokenUrl: %s); please specify introspection field explicitly", spec.AuthorizationUrl, spec.TokenUrl)
+}
+
+// extractGitHubEnterpriseBaseURL extracts the API base URL for GitHub Enterprise
+// from an authorization URL like https://github.enterprise.com/login/oauth/authorize
+func extractGitHubEnterpriseBaseURL(authURL string) string {
+	// Try to parse the URL to extract the host
+	if idx := strings.Index(authURL, "://"); idx != -1 {
+		rest := authURL[idx+3:]
+		if endIdx := strings.Index(rest, "/"); endIdx != -1 {
+			host := rest[:endIdx]
+			// For GitHub Enterprise, the API is typically at {host}/api/v3
+			scheme := authURL[:idx]
+			return scheme + "://" + host + "/api/v3"
+		}
+	}
+	return ""
+}
+
+// inferRFC7662IntrospectionURL attempts to infer the RFC 7662 introspection endpoint URL
+// based on common OAuth2 provider patterns
+func inferRFC7662IntrospectionURL(spec OAuth2ProviderSpec) string {
+	// Pattern 1: {tokenUrl}/introspect (most common)
+	if spec.TokenUrl != "" {
+		if introspectURL := buildIntrospectionURL(spec.TokenUrl); introspectURL != "" {
+			return introspectURL
+		}
+	}
+
+	// Pattern 2: {issuer}/introspect
+	if spec.Issuer != nil && *spec.Issuer != "" {
+		if introspectURL := buildIntrospectionURL(*spec.Issuer); introspectURL != "" {
+			return introspectURL
+		}
+	}
+
+	return ""
+}
+
+// buildIntrospectionURL constructs an introspection URL from a base URL,
+// properly handling query parameters and URL components
+func buildIntrospectionURL(baseURL string) string {
+	parsedURL, err := url.Parse(baseURL)
+	if err != nil || parsedURL.Scheme == "" || parsedURL.Host == "" {
+		return ""
+	}
+
+	// Remove trailing slash from path
+	path := strings.TrimSuffix(parsedURL.Path, "/")
+
+	// Check if path ends with /token and replace with /introspect
+	if strings.HasSuffix(path, "/token") {
+		path = strings.TrimSuffix(path, "/token") + "/introspect"
+	} else {
+		// Otherwise append /introspect
+		path = path + "/introspect"
+	}
+
+	// Update the path in the parsed URL
+	parsedURL.Path = path
+
+	// Return the reassembled URL with all components preserved
+	return parsedURL.String()
 }

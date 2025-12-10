@@ -1,0 +1,119 @@
+name: 'Deploy Backend with Helm'
+description: |
+  Complete deployment of FlightCtl backend to a kind cluster using Helm.
+  
+  Downloads artifacts (images, chart, CLI), creates kind cluster, loads images,
+  and deploys using helm.
+
+inputs:
+  tag:
+    description: 'Image tag for artifacts (if not provided, will be computed from git)'
+    required: false
+  base-domain:
+    description: 'Base domain for the deployment'
+    required: true
+  namespace-external:
+    description: 'External namespace for FlightCtl API components'
+    required: false
+    default: 'flightctl-external'
+  namespace-internal:
+    description: 'Internal namespace for FlightCtl backend components'
+    required: false
+    default: 'flightctl-internal'
+
+runs:
+  using: "composite"
+  steps:
+    # ========== COMPUTE TAGS IF NOT PROVIDED ==========
+    - name: Compute tags from git
+      id: compute-tags-git
+      if: inputs.tag == ''
+      uses: ./.github/actions/compute-tag
+
+    - name: Set git tag
+      id: compute-tags
+      shell: bash
+      run: |
+        set -euo pipefail
+        
+        if [ -n "${{ inputs.tag }}" ]; then
+          echo "Using provided tag: ${{ inputs.tag }}"
+          echo "git_tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+        else
+          echo "Using computed git_tag: ${{ steps.compute-tags-git.outputs.git_tag }}"
+          echo "git_tag=${{ steps.compute-tags-git.outputs.git_tag }}" >> "$GITHUB_OUTPUT"
+        fi
+
+    # ========== DOWNLOAD ARTIFACTS ==========
+    - name: Download backend artifacts
+      uses: actions/download-artifact@v4
+      with:
+        pattern: "*-${{ steps.compute-tags.outputs.git_tag }}"
+        path: artifacts
+        merge-multiple: true
+
+    - name: Setup CLI binary
+      shell: bash
+      run: |
+        set -euo pipefail
+        mkdir -p bin
+        mv artifacts/flightctl-linux-amd64 bin/flightctl
+        chmod +x bin/flightctl
+        echo "CLI binary ready at bin/flightctl"
+
+    # ========== INITIALIZE KIND CLUSTER ==========
+    - name: Create kind cluster
+      shell: bash
+      run: kind create cluster --config deploy/kind.yaml
+
+    # ========== LOAD IMAGES INTO KIND ==========
+    - name: Load backend images into kind
+      shell: bash
+      run: |
+        set -euo pipefail
+        echo "Loading backend service images into kind"
+        kind load image-archive artifacts/flightctl-images-bundle.tar
+        echo "Backend images loaded successfully"
+
+    - name: Clean up backend bundle files
+      shell: bash
+      run: |
+        set -euo pipefail
+        echo "::group::Cleaning up backend bundle files"
+        echo "Removing backend bundle (no longer needed after loading into kind)..."
+        rm artifacts/flightctl-images-bundle.tar
+        df -h
+        echo "::endgroup::"
+
+    # ========== DEPLOY BACKEND ==========
+    - name: Deploy FlightCtl backend with Helm
+      shell: bash
+      env:
+        BASE_DOMAIN: ${{ inputs.base-domain }}
+      run: |
+        set -euo pipefail
+
+        echo "Image tag: ${{ steps.compute-tags.outputs.git_tag }}"
+        echo "Base domain: ${BASE_DOMAIN}"
+        echo "External namespace: ${{ inputs.namespace-external }}"
+        echo "Internal namespace: ${{ inputs.namespace-internal }}"
+
+        kubectl create namespace ${{ inputs.namespace-internal }}
+
+        ( kubectl get pods --all-namespaces -w | sed 's/^/[cluster] /' ) &
+
+        helm install flightctl "artifacts/flightctl-chart.tgz" \
+          --namespace ${{ inputs.namespace-external }} \
+          --create-namespace \
+          --values deploy/helm/flightctl/values.nodeport.yaml \
+          --set global.baseDomain="${BASE_DOMAIN}" \
+          --set global.internalNamespace="${{ inputs.namespace-internal }}" \
+          --set ui.enabled=false \
+          --debug \
+          --wait
+
+    - name: "Wait for API readiness"
+      uses: ./.github/actions/wait-for-api-readiness
+      with:
+        base-domain: ${{ inputs.base-domain }}
+

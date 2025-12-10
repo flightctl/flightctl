@@ -628,6 +628,13 @@ func (t *TracedService) ListAuthProviders(ctx context.Context, orgId uuid.UUID, 
 	return resp, st
 }
 
+func (t *TracedService) ListAllAuthProviders(ctx context.Context, params api.ListAuthProvidersParams) (*api.AuthProviderList, api.Status) {
+	ctx, span := startSpan(ctx, "ListAllAuthProviders")
+	resp, st := t.inner.ListAllAuthProviders(ctx, params)
+	endSpan(span, st)
+	return resp, st
+}
+
 func (t *TracedService) GetAuthProvider(ctx context.Context, orgId uuid.UUID, name string) (*api.AuthProvider, api.Status) {
 	ctx, span := startSpan(ctx, "GetAuthProvider")
 	resp, st := t.inner.GetAuthProvider(ctx, orgId, name)

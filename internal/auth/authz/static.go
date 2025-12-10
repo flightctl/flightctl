@@ -35,9 +35,10 @@ var resourcePermissions = map[string]map[string][]string{
 		"*": {"get", "list"},
 	},
 	v1beta1.RoleInstaller: {
-		"devices":      {"get", "list"},
-		"fleets":       {"get", "list"},
-		"repositories": {"get", "list"},
+		"enrollmentrequests":          {"get", "list"},
+		"enrollmentrequests/approval": {"update"},
+		"organizations":               {"get", "list"},
+		"certificatesigningrequests":  {"get", "list", "create", "update"},
 	},
 }
 

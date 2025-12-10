@@ -68,6 +68,9 @@ const (
 	// The requestID related to an event
 	EventAnnotationRequestID = "event-controller/requestID"
 
+	// AuthProvider annotation indicating it was created by a super admin
+	AuthProviderAnnotationCreatedBySuperAdmin = "auth-provider/createdBySuperAdmin"
+
 	RepositoryAPIVersion = "v1beta1"
 	RepositoryKind       = "Repository"
 	RepositoryListKind   = "RepositoryList"
@@ -116,6 +119,8 @@ const (
 	RoleViewer    = "viewer"    // Read-only access to devices, fleets, resourcesyncs
 	RoleInstaller = "installer" // Limited access for device installation
 )
+
+var KnownExternalRoles = []string{ExternalRoleAdmin, ExternalRoleOrgAdmin, ExternalRoleOperator, ExternalRoleViewer, ExternalRoleInstaller}
 
 type UpdateState string
 
