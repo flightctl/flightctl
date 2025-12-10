@@ -112,7 +112,10 @@ jobs:
           IMAGES=$(skopeo list-tags docker-archive:"${BUNDLE_FILE}" 2>/dev/null | jq -r '.Tags[]' 2>/dev/null || \
                    podman load -q -i "${BUNDLE_FILE}" 2>&1 | grep -oE 'Loaded image.*' | sed 's/Loaded image: //' || \
                    echo "Unable to list images")
-          
+
+          # TODO: This fallback check is needed because backward compatibility checks will run this code
+          # from the main branch where this target does not exist yet. After the code is merged to main,
+          # this fallback should be removed.
           # Fallback: inspect the archive directly
           if [ "$IMAGES" = "Unable to list images" ] || [ -z "$IMAGES" ]; then
             IMAGES=$(tar -tf "${BUNDLE_FILE}" 2>/dev/null | grep -E 'manifest\.json|repositories' | head -1 | xargs -I{} tar -xOf "${BUNDLE_FILE}" {} 2>/dev/null | jq -r '.[].RepoTags[]? // keys[]?' 2>/dev/null | sort -u || echo "Bundle inspection failed")
