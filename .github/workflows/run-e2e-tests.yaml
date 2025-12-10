@@ -151,11 +151,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-go-
 
-      - name: Prebuild E2E tests
-        run: |
-          go install github.com/onsi/ginkgo/v2/ginkgo
-          ginkgo build --trace ./test/e2e/...
-
       - name: Run E2E Test Slice
         env:
           GINKGO_LABEL_FILTER: ${{ inputs.ginkgo_label_filter }}
