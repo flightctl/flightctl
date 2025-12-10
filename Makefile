@@ -29,28 +29,47 @@ CACHE_FLAGS_TEMPLATE := --cache-from=$(REGISTRY)/$(REGISTRY_OWNER)/%
 
 
 
-ROOT_DIR := $(or ${ROOT_DIR},$(shell dirname $(realpath $(firstword $(MAKEFILE_LIST)))))
+# Helper function to time variable evaluation
+# Usage: $(call TIME_EVAL,VAR_NAME,shell command)
+define TIME_EVAL
+$(shell START=$$(date +%s%N); \
+        RESULT=$$($(2)); \
+        END=$$(date +%s%N); \
+        ELAPSED=$$((END - START)); \
+        ELAPSED_MS=$$((ELAPSED / 1000000)); \
+        echo "[TIMING] $(1) evaluation took $${ELAPSED_MS}ms" >&2; \
+        echo "$$RESULT")
+endef
+
+# ROOT_DIR uses immediate evaluation (:=) so it's evaluated once at parse time
+ROOT_DIR := $(or ${ROOT_DIR},$(call TIME_EVAL,ROOT_DIR,dirname $(realpath $(firstword $(MAKEFILE_LIST)))))
 GOBASE=$(ROOT_DIR)
 GOBIN=$(ROOT_DIR)/bin/
-GO_BUILD_FLAGS := ${GO_BUILD_FLAGS}
-GO_FILES = $(shell find $(ROOT_DIR)/ -name "*.go" -not -path "$(ROOT_DIR)/bin" -not -path "$(ROOT_DIR)/packaging/*")
+# GO_BUILD_FLAGS captures environment value
+_GO_BUILD_FLAGS_ENV := ${GO_BUILD_FLAGS}
+# GO_FILES uses := (immediate evaluation) to avoid re-running find 11 times (once per reference)
+GO_FILES := $(call TIME_EVAL,GO_FILES,find $(ROOT_DIR)/ -name "*.go" -not -path "$(ROOT_DIR)/bin" -not -path "$(ROOT_DIR)/packaging/*")
 TIMEOUT ?= 30m
-GOOS = $(shell go env GOOS)
-GOARCH = $(shell go env GOARCH)
+# GOOS/GOARCH use := since they're cheap and used multiple times
+GOOS := $(call TIME_EVAL,GOOS,go env GOOS)
+GOARCH := $(call TIME_EVAL,GOARCH,go env GOARCH)
 
 VERBOSE ?= false
 
-SOURCE_GIT_TAG ?=$(shell $(ROOT_DIR)/hack/current-version)
-SOURCE_GIT_TREE_STATE ?=$(shell ( ( [ ! -d "$(ROOT_DIR)/.git/" ] || git -C $(ROOT_DIR) diff --quiet ) && echo 'clean' ) || echo 'dirty')
-SOURCE_GIT_COMMIT ?=$(shell git -C $(ROOT_DIR) rev-parse --short "HEAD^{commit}" 2>/dev/null || echo "unknown")
-BIN_TIMESTAMP ?=$(shell date +'%Y%m%d')
-SOURCE_GIT_TAG_NO_V = $(shell echo $(SOURCE_GIT_TAG) | sed 's/^v//')
-MAJOR = $(shell echo $(SOURCE_GIT_TAG_NO_V) | awk -F'[._~-]' '{print $$1}')
-MINOR = $(shell echo $(SOURCE_GIT_TAG_NO_V) | awk -F'[._~-]' '{print $$2}')
-PATCH = $(shell echo $(SOURCE_GIT_TAG_NO_V) | awk -F'[._~-]' '{print $$3}')
+# Git/version variables use deferred evaluation pattern:
+# Only evaluated on first reference, then cached (best of both worlds!)
+# Pattern: VAR = $(eval VAR := $$(shell-command))$(VAR)
+SOURCE_GIT_TAG ?= $(eval SOURCE_GIT_TAG := $$(call TIME_EVAL,SOURCE_GIT_TAG,$$(ROOT_DIR)/hack/current-version))$(SOURCE_GIT_TAG)
+SOURCE_GIT_TREE_STATE ?= $(eval SOURCE_GIT_TREE_STATE := $$(call TIME_EVAL,SOURCE_GIT_TREE_STATE,( ( [ ! -d "$$(ROOT_DIR)/.git/" ] || git -C $$(ROOT_DIR) diff --quiet ) && echo 'clean' ) || echo 'dirty'))$(SOURCE_GIT_TREE_STATE)
+SOURCE_GIT_COMMIT ?= $(eval SOURCE_GIT_COMMIT := $$(call TIME_EVAL,SOURCE_GIT_COMMIT,git -C $$(ROOT_DIR) rev-parse --short "HEAD^{commit}" 2>/dev/null || echo "unknown"))$(SOURCE_GIT_COMMIT)
+BIN_TIMESTAMP ?= $(eval BIN_TIMESTAMP := $$(call TIME_EVAL,BIN_TIMESTAMP,date +'%Y%m%d'))$(BIN_TIMESTAMP)
+SOURCE_GIT_TAG_NO_V = $(eval SOURCE_GIT_TAG_NO_V := $$(call TIME_EVAL,SOURCE_GIT_TAG_NO_V,echo $$(SOURCE_GIT_TAG) | sed 's/^v//'))$(SOURCE_GIT_TAG_NO_V)
+MAJOR = $(eval MAJOR := $$(call TIME_EVAL,MAJOR,echo $$(SOURCE_GIT_TAG_NO_V) | awk -F'[._~-]' '{print $$$$1}'))$(MAJOR)
+MINOR = $(eval MINOR := $$(call TIME_EVAL,MINOR,echo $$(SOURCE_GIT_TAG_NO_V) | awk -F'[._~-]' '{print $$$$2}'))$(MINOR)
+PATCH = $(eval PATCH := $$(call TIME_EVAL,PATCH,echo $$(SOURCE_GIT_TAG_NO_V) | awk -F'[._~-]' '{print $$$$3}'))$(PATCH)
 
 # If a FIPS-validated Go toolset is found, build in FIPS mode unless explicitly disabled by the user using DISABLE_FIPS="true"
-FIPS_VALIDATED_TOOLSET = $(shell go env GOVERSION | grep -q "Red Hat" && echo "true" || echo "false")
+FIPS_VALIDATED_TOOLSET = $(eval FIPS_VALIDATED_TOOLSET := $$(call TIME_EVAL,FIPS_VALIDATED_TOOLSET,go env GOVERSION | grep -q "Red Hat" && echo "true" || echo "false"))$(FIPS_VALIDATED_TOOLSET)
 GOENV = $(if $(filter true,$(DISABLE_FIPS)),CGO_ENABLED=0,$(if $(filter true,$(FIPS_VALIDATED_TOOLSET)),CGO_ENABLED=1 CGO_CFLAGS=-flto GOEXPERIMENT=strictfipsruntime,CGO_ENABLED=0))
 
 ifeq ($(DEBUG),true)
@@ -72,7 +91,8 @@ GO_LD_FLAGS = $(GC_FLAGS) -ldflags "\
 	-X github.com/flightctl/flightctl/pkg/version.gitTreeState=$(SOURCE_GIT_TREE_STATE) \
 	-X github.com/flightctl/flightctl/pkg/version.buildDate=$(BIN_TIMESTAMP) \
 	$(LD_FLAGS)"
-GO_BUILD_FLAGS += $(GO_LD_FLAGS)
+# Use lazy evaluation to defer expansion of GO_LD_FLAGS until actually used
+GO_BUILD_FLAGS = $(_GO_BUILD_FLAGS_ENV) $(GO_LD_FLAGS)
 
 # Removed .EXPORT_ALL_VARIABLES as it forces evaluation of all variables (even lazy ones)
 # causing massive slowdown. Export only what's needed explicitly above.
@@ -109,6 +129,7 @@ help:
 	@echo "    clean-cluster:   kill the kind cluster only"
 	@echo "    clean-quadlets:  clean up all systemd services and quadlet files"
 	@echo "    rpm/deb:         generate rpm or debian packages"
+	@echo "    show-vars:       display all timed variables and their evaluation times"
 	@echo ""
 	@echo "CI/CD Targets:"
 	@echo "    login:           login to container registry (requires REGISTRY_USER env var)"
@@ -129,6 +150,45 @@ help:
 .PHONY: publish
 publish: build-containers
 	hack/publish_containers.sh
+
+.PHONY: show-vars
+show-vars:
+	@echo "==================================================="
+	@echo "Evaluating all timed variables (check timing above)"
+	@echo "==================================================="
+	@echo ""
+	@echo "Build Environment:"
+	@echo "  ROOT_DIR:              $(ROOT_DIR)"
+	@echo "  GOBASE:                $(GOBASE)"
+	@echo "  GOBIN:                 $(GOBIN)"
+	@echo "  GOOS:                  $(GOOS)"
+	@echo "  GOARCH:                $(GOARCH)"
+	@echo "  TIMEOUT:               $(TIMEOUT)"
+	@echo ""
+	@echo "Git Information:"
+	@echo "  SOURCE_GIT_TAG:        $(SOURCE_GIT_TAG)"
+	@echo "  SOURCE_GIT_TREE_STATE: $(SOURCE_GIT_TREE_STATE)"
+	@echo "  SOURCE_GIT_COMMIT:     $(SOURCE_GIT_COMMIT)"
+	@echo "  BIN_TIMESTAMP:         $(BIN_TIMESTAMP)"
+	@echo ""
+	@echo "Version Components:"
+	@echo "  SOURCE_GIT_TAG_NO_V:   $(SOURCE_GIT_TAG_NO_V)"
+	@echo "  MAJOR:                 $(MAJOR)"
+	@echo "  MINOR:                 $(MINOR)"
+	@echo "  PATCH:                 $(PATCH)"
+	@echo ""
+	@echo "FIPS Configuration:"
+	@echo "  FIPS_VALIDATED_TOOLSET: $(FIPS_VALIDATED_TOOLSET)"
+	@echo "  GOENV:                 $(GOENV)"
+	@echo ""
+	@echo "Container Registry:"
+	@echo "  REGISTRY:              $(REGISTRY)"
+	@echo "  REGISTRY_OWNER:        $(REGISTRY_OWNER)"
+	@echo "  GITHUB_ACTIONS:        $(GITHUB_ACTIONS)"
+	@echo ""
+	@echo "Go Files Count:        $(words $(GO_FILES))"
+	@echo ""
+	@echo "==================================================="
 
 generate:
 	go generate -v $(shell go list ./... | grep -v -e api/grpc)
