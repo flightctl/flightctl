@@ -1,14 +1,11 @@
 package transport
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
 
 	api "github.com/flightctl/flightctl/api/v1beta1"
-	"github.com/flightctl/flightctl/internal/util"
-	"github.com/google/uuid"
 )
 
 // AuthToken handles OAuth2 token exchange requests
@@ -64,22 +61,13 @@ func (h *TransportHandler) AuthToken(w http.ResponseWriter, r *http.Request, pro
 	}
 
 	// Call auth token proxy to process the token request
-	orgId := getOrgIdFromContext(r.Context())
-	tokenResp, httpStatus := h.authTokenProxy.ProxyTokenRequest(r.Context(), orgId, providername, &tokenReq)
+	tokenResp, httpStatus := h.authTokenProxy.ProxyTokenRequest(r.Context(), providername, &tokenReq)
 
 	// OAuth2 token endpoint returns 200 for success, 400 for all errors
 	// Token response includes error fields for error cases
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(httpStatus)
 	_ = json.NewEncoder(w).Encode(tokenResp)
-}
-
-// getOrgIdFromContext extracts the organization ID from the context
-func getOrgIdFromContext(ctx context.Context) uuid.UUID {
-	if orgId, ok := util.GetOrgIdFromContext(ctx); ok {
-		return orgId
-	}
-	return uuid.Nil
 }
 
 // createTokenErrorResponse creates an OAuth2 error response

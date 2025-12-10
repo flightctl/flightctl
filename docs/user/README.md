@@ -80,6 +80,8 @@ Welcome to the Flight Control user documentation.
 * [API Resources](references/api-resources.md)
 * [Authentication Resources](references/auth-resources.md)
 * [Device Status Definitions](references/device-api-statuses.md)
+* [Certificate Architecture](references/certificate-architecture.md)
 * [Upgrade Compatibility Matrix](references/upgrade-compatibility.md)
 * [Alerts and Monitoring](references/alerts.md)
 * [Metrics Configuration](references/metrics.md)
+* [Security Guidelines](references/security-guidelines.md)

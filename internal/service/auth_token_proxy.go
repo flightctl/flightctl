@@ -16,7 +16,6 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/auth/authn"
-	"github.com/google/uuid"
 )
 
 // cacheEntry holds a cached token endpoint with its expiration time
@@ -77,7 +76,7 @@ func NewAuthTokenProxy(authN *authn.MultiAuth) *AuthTokenProxy {
 
 // ProxyTokenRequest handles OAuth2 token exchange requests
 // Returns TokenResponse and HTTP status code (200 for success, 400 for errors per OAuth2 spec)
-func (p *AuthTokenProxy) ProxyTokenRequest(ctx context.Context, orgId uuid.UUID, providerName string, tokenReq *api.TokenRequest) (*api.TokenResponse, int) {
+func (p *AuthTokenProxy) ProxyTokenRequest(ctx context.Context, providerName string, tokenReq *api.TokenRequest) (*api.TokenResponse, int) {
 	// Validate grant type
 	if tokenReq.GrantType != api.AuthorizationCode && tokenReq.GrantType != api.RefreshToken {
 		return createErrorTokenResponse("unsupported_grant_type", "Only authorization_code and refresh_token grant types are supported"), http.StatusBadRequest
