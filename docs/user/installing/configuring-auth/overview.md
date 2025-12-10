@@ -86,6 +86,8 @@ spec:
 EOF
 ```
 
+> **Note:** Organizations configured via `organizationAssignment` will not appear in Flight Control until a user actually logs in with that organization.
+
 **Managing Providers:**
 
 ```bash

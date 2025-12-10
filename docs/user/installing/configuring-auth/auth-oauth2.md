@@ -51,6 +51,8 @@ Configure how roles are assigned via `roleAssignment` in the AuthProvider:
     - Example: `["custom", "user_context", "roles"]` for `userinfo.custom.user_context.roles`
   - `separator`: Separator for org:role format (default: `":"`) - roles containing the separator are split into organization-scoped roles
 
+**Note:** Any role or organization configuration changes on the issuer side require users to log in again to receive updated assignments.
+
 ## Role Scoping
 
 Roles support organization scoping using the `:` separator:
@@ -144,6 +146,13 @@ Flight Control automatically infers introspection configuration for known provid
 If inference fails or you need a specific configuration, you must provide the `introspection` field explicitly.
 
 **Important:** Once the `introspection` field is set, it cannot be removed. You can update it to a different introspection method, but the field itself is required for all OAuth2 providers.
+
+### Redirect URLs
+
+Configure the following redirect URLs in both Flight Control and your OAuth2 provider:
+
+- `<UI_URL>/callback` - Web UI callback
+- `http://localhost:8080/callback` - CLI webserver callback (default port 8080)
 
 ### Dynamic Provider Management
 

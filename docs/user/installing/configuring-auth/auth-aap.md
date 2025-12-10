@@ -40,6 +40,8 @@ Flight Control uses role-based authorization with organization-scoped access:
 4. For each organization, Flight Control determines user permissions based on their roles
 5. Permissions are mapped based on the user's assigned roles
 
+**Note:** Any role or organization configuration changes require users to log in again or wait approximately 5 minutes to receive updated assignments.
+
 ## Configuration
 
 ### Static Configuration
