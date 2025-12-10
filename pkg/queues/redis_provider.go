@@ -410,14 +410,15 @@ func (r *redisProvider) AdvanceCheckpointAndCleanup(ctx context.Context) error {
 	cleanedCount := resultSlice[1].(int64)
 	message := resultSlice[2].(string)
 
-	if updated == -1 {
+	switch updated {
+	case -1:
 		// Checkpoint key is missing
 		return ErrCheckpointMissing
-	} else if updated == 1 {
+	case 1:
 		r.log.WithField("newCheckpoint", message).
 			WithField("cleanedTasks", cleanedCount).
 			Info("Advanced checkpoint and cleaned up completed tasks")
-	} else {
+	default:
 		r.log.WithField("reason", message).
 			Debug("Checkpoint not advanced")
 	}
@@ -843,7 +844,7 @@ func (r *redisQueue) Complete(ctx context.Context, entryID string, body []byte, 
 			Info("message processing failed, added to failed set with exponential backoff")
 	}
 	// Get originalEntryID and timestamp from message before deletion for in-flight cleanup
-	var trackingEntryID string = entryID // Default to current entry ID
+	var trackingEntryID = entryID // Default to current entry ID
 	var messageTimestamp float64
 	if msgs, xrErr := r.client.XRange(ctx, r.name, entryID, entryID).Result(); xrErr == nil && len(msgs) > 0 {
 		if originalID, ok := msgs[0].Values["originalEntryID"]; ok {

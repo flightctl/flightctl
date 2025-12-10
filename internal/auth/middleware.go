@@ -94,25 +94,25 @@ func CreateAuthZMiddleware(authZ AuthZMiddleware, log logrus.FieldLogger) func(h
 	return func(next http.Handler) http.Handler {
 		fn := func(w http.ResponseWriter, r *http.Request) {
 			var (
-				resource string
-				action   action
+				resource  string
+				reqAction action
 			)
 
 			// First, try to get metadata from the API metadata registry using existing Chi context
 			if metadata, found := server.GetEndpointMetadata(r); found {
 				if metadata.Resource != "" && metadata.Action != "" {
 					resource = metadata.Resource
-					action = stringToAction(metadata.Action)
+					reqAction = stringToAction(metadata.Action)
 				}
 			}
 
 			// Fallback to existing logic if no metadata found
-			if resource == "" || action == actionNil {
+			if resource == "" || reqAction == actionNil {
 				if r.URL.Path == "/api/version" {
 					resource = "version"
 					var ok bool
-					if action, ok = defaultActions[r.Method]; !ok {
-						action = actionNil
+					if reqAction, ok = defaultActions[r.Method]; !ok {
+						reqAction = actionNil
 					}
 				} else {
 					parts := strings.Split(r.URL.Path, "/")
@@ -127,11 +127,11 @@ func CreateAuthZMiddleware(authZ AuthZMiddleware, log logrus.FieldLogger) func(h
 					}
 
 					parts = parts[3:]
-					resource, action = extractResourceAndAction(parts, r.Method)
+					resource, reqAction = extractResourceAndAction(parts, r.Method)
 				}
 			}
 
-			if resource == resourceNil || action == actionNil {
+			if resource == resourceNil || reqAction == actionNil {
 				log.Errorf("Unable to extract resource and action from %s and %s", r.URL.Path, r.Method)
 				http.Error(w, errBadRequest, http.StatusBadRequest)
 				return
@@ -141,17 +141,17 @@ func CreateAuthZMiddleware(authZ AuthZMiddleware, log logrus.FieldLogger) func(h
 			ctx := context.WithValue(r.Context(), common.ContextKey("http_request"), r)
 
 			log.Debugf("AuthZMiddleware: checking authorization for path=%s, method=%s, resource=%s, action=%s",
-				r.URL.Path, r.Method, resource, action)
+				r.URL.Path, r.Method, resource, reqAction)
 
-			if !isAllowed(ctx, authZ, log, resource, action, w) {
+			if !isAllowed(ctx, authZ, log, resource, reqAction, w) {
 				// http.Error was called in isAllowed
 				log.Debugf("AuthZMiddleware: authorization denied for path=%s, method=%s, resource=%s, action=%s",
-					r.URL.Path, r.Method, resource, action)
+					r.URL.Path, r.Method, resource, reqAction)
 				return
 			}
 
 			log.Debugf("AuthZMiddleware: authorization granted for path=%s, method=%s, resource=%s, action=%s",
-				r.URL.Path, r.Method, resource, action)
+				r.URL.Path, r.Method, resource, reqAction)
 
 			// If authorized, proceed to the next handler
 			next.ServeHTTP(w, r)

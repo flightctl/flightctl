@@ -155,7 +155,7 @@ func TestPostBatchWithRetry_Success(t *testing.T) {
 
 	// Parse server URL to get hostname and port
 	hostname := "localhost"
-	port := uint(server.Listener.Addr().(*net.TCPAddr).Port) //nolint:gosec // safe conversion in test
+	port := uint(server.Listener.Addr().(*net.TCPAddr).Port)
 
 	client := NewAlertmanagerClient(hostname, port, logger, nil)
 
@@ -198,7 +198,7 @@ func TestPostBatchWithRetry_EventualSuccess(t *testing.T) {
 
 	// Parse server URL to get hostname and port
 	hostname := "localhost"
-	port := uint(server.Listener.Addr().(*net.TCPAddr).Port) //nolint:gosec // safe conversion in test
+	port := uint(server.Listener.Addr().(*net.TCPAddr).Port)
 
 	client := NewAlertmanagerClient(hostname, port, logger, nil)
 
@@ -247,7 +247,7 @@ func TestPostBatchWithRetry_NonRetryableError(t *testing.T) {
 
 	// Parse server URL to get hostname and port
 	hostname := "localhost"
-	port := uint(server.Listener.Addr().(*net.TCPAddr).Port) //nolint:gosec // safe conversion in test
+	port := uint(server.Listener.Addr().(*net.TCPAddr).Port)
 
 	client := NewAlertmanagerClient(hostname, port, logger, nil)
 

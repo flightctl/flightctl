@@ -349,13 +349,14 @@ func ComputeDeviceStatusChanges(ctx context.Context, oldDevice, newDevice *api.D
 	}
 
 	if hasStatusChanged(oldDevice, newDevice, api.DeviceSummaryStatusUnknown, func(d *api.Device) api.DeviceSummaryStatusType { return d.Status.Summary.Status }) {
-		if newDevice.Status.Summary.Status == api.DeviceSummaryStatusUnknown {
+		switch newDevice.Status.Summary.Status {
+		case api.DeviceSummaryStatusUnknown:
 			resourceUpdates = append(resourceUpdates, ResourceUpdate{Reason: api.EventReasonDeviceDisconnected, Details: lo.FromPtr(newDevice.Status.Summary.Info)})
-		} else if newDevice.Status.Summary.Status == api.DeviceSummaryStatusRebooting {
+		case api.DeviceSummaryStatusRebooting:
 			resourceUpdates = append(resourceUpdates, ResourceUpdate{Reason: api.EventReasonDeviceIsRebooting, Details: lo.FromPtr(newDevice.Status.Summary.Info)})
-		} else if newDevice.Status.Summary.Status == api.DeviceSummaryStatusOnline {
+		case api.DeviceSummaryStatusOnline:
 			resourceUpdates = append(resourceUpdates, ResourceUpdate{Reason: api.EventReasonDeviceConnected, Details: lo.FromPtr(newDevice.Status.Summary.Info)})
-		} else if newDevice.Status.Summary.Status == api.DeviceSummaryStatusConflictPaused {
+		case api.DeviceSummaryStatusConflictPaused:
 			resourceUpdates = append(resourceUpdates, ResourceUpdate{Reason: api.EventReasonDeviceConflictPaused, Details: lo.FromPtr(newDevice.Status.Summary.Info)})
 		}
 	}

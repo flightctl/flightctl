@@ -254,7 +254,7 @@ func (h *Harness) PrepareNextDeviceGeneration(deviceId string) (int64, error) {
 }
 
 var (
-	InvalidRenderedVersionErr = fmt.Errorf("invalid rendered version")
+	ErrInvalidRenderedVersion = fmt.Errorf("invalid rendered version")
 )
 
 func GetRenderedVersion(device *v1beta1.Device) (int, error) {
@@ -266,7 +266,7 @@ func GetRenderedVersion(device *v1beta1.Device) (int, error) {
 		return -1, fmt.Errorf("failed to convert current rendered version '%s': %w", device.Status.Config.RenderedVersion, err)
 	}
 	if version <= 0 {
-		return -1, fmt.Errorf("version: %d: %w", version, InvalidRenderedVersionErr)
+		return -1, fmt.Errorf("version: %d: %w", version, ErrInvalidRenderedVersion)
 	}
 	return version, nil
 }
@@ -283,7 +283,7 @@ func (h *Harness) GetCurrentDeviceRenderedVersion(deviceId string) (int, error) 
 					device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusUpToDate {
 					deviceRenderedVersion, renderedVersionError = GetRenderedVersion(device)
 					// try until we get a valid rendered version
-					return !errors.Is(renderedVersionError, InvalidRenderedVersionErr)
+					return !errors.Is(renderedVersionError, ErrInvalidRenderedVersion)
 				}
 			}
 			return false
@@ -374,7 +374,7 @@ func GetDeviceConfig[T any](device *v1beta1.Device, configType v1beta1.ConfigPro
 			}
 			if itemType == configType {
 				// Convert to the expected config type
-				config, err := asConfig(configItem)
+				config, err = asConfig(configItem)
 				if err != nil {
 					return config, fmt.Errorf("failed to convert config: %w", err)
 				}

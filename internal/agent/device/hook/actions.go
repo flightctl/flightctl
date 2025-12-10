@@ -209,13 +209,14 @@ func splitWithQuotes(s string) []string {
 			escaped = true
 
 		case (r == '"' || r == '\''):
-			if inQuote == 0 {
+			switch inQuote {
+			case 0:
 				inQuote = r          // start quote
 				current.WriteRune(r) // preserve opening unmatched quote
-			} else if inQuote == r {
+			case r:
 				current.WriteRune(r) // preserve closing quote
 				inQuote = 0          // quote closed
-			} else {
+			default:
 				current.WriteRune(r) // mismatched quote
 			}
 

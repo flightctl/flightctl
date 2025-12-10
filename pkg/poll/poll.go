@@ -16,7 +16,7 @@ var (
 
 // newRand creates a new random number generator with a time-based seed.
 func newRand() *rand.Rand {
-	seed := uint64(time.Now().UnixNano())    //nolint:gosec // G115: UnixNano always positive
+	seed := uint64(time.Now().UnixNano())
 	return rand.New(rand.NewPCG(seed, seed)) //nolint:gosec // G404: backoff jitter
 }
 

@@ -108,15 +108,15 @@ func (o *ApproveOptions) Run(ctx context.Context, args []string) error {
 	var response *http.Response
 	var getResponse *apiclient.GetCertificateSigningRequestResponse
 
-	switch {
-	case kind == EnrollmentRequestKind:
+	switch kind {
+	case EnrollmentRequestKind:
 		labels := util.LabelArrayToMap(o.ApproveLabels)
 		approval := api.EnrollmentRequestApproval{
 			Approved: true,
 			Labels:   &labels,
 		}
 		response, err = c.ApproveEnrollmentRequest(ctx, name, approval)
-	case kind == CertificateSigningRequestKind:
+	case CertificateSigningRequestKind:
 		getResponse, err = c.GetCertificateSigningRequestWithResponse(ctx, name)
 		if err != nil {
 			return fmt.Errorf("getting certificate signing request: %w", err)

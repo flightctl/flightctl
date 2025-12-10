@@ -126,9 +126,10 @@ func writeJSON(w http.ResponseWriter, statusCode int, data interface{}) {
 func writeError(w http.ResponseWriter, statusCode int, message string) {
 	// Map HTTP status codes to OAuth2 error codes
 	errorCode := pamapi.ServerError
-	if statusCode == http.StatusBadRequest {
+	switch statusCode {
+	case http.StatusBadRequest:
 		errorCode = pamapi.InvalidRequest
-	} else if statusCode == http.StatusUnauthorized {
+	case http.StatusUnauthorized:
 		errorCode = pamapi.InvalidClient
 	}
 

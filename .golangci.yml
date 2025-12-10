@@ -12,6 +12,10 @@ run:
   # include test files or not, default is true
   tests: true
 
+issues:
+  # make issues output unique by line, default is true
+  uniq-by-line: true
+
 # output configuration options
 output:
   formats:
@@ -46,13 +50,10 @@ linters:
           strict: false
         printf:
           funcs:
-            # package-level logrus
             - github.com/sirupsen/logrus.Infof
             - github.com/sirupsen/logrus.Warnf
             - github.com/sirupsen/logrus.Errorf
             - github.com/sirupsen/logrus.Fatalf
-
-            # common chained usage
             - (github.com/sirupsen/logrus.Entry).Infof
             - (github.com/sirupsen/logrus.Entry).Warnf
             - (github.com/sirupsen/logrus.Entry).Errorf
@@ -90,9 +91,7 @@ linters:
       - third_party$
       - builtin$
       - examples$
-issues:
-  # make issues output unique by line, default is true
-  uniq-by-line: true
+
 formatters:
   enable:
     - gci

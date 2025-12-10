@@ -8,7 +8,6 @@ import (
 	"github.com/flightctl/flightctl/test/e2e/resources"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	"github.com/flightctl/flightctl/test/util"
-	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -25,9 +24,9 @@ var _ = Describe("Basic Operations", Label("integration", "82220"), func() {
 			testID := harness.GetTestIDFromContext()
 
 			// Create unique YAML file for this test
-			uniqueYAML, err := testutil.CreateUniqueYAMLFile(fileName, testID)
+			uniqueYAML, err := util.CreateUniqueYAMLFile(fileName, testID)
 			Expect(err).ToNot(HaveOccurred())
-			defer testutil.CleanupTempYAMLFile(uniqueYAML)
+			defer util.CleanupTempYAMLFile(uniqueYAML)
 
 			name, err := extractResourceNameFromExampleFile(harness, uniqueYAML)
 			Expect(err).ShouldNot(HaveOccurred())

@@ -1055,9 +1055,6 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 	})
 
 	Context("Auth Provider Events", func() {
-		var (
-			orgId uuid.UUID
-		)
 
 		BeforeEach(func() {
 			orgId = uuid.New()

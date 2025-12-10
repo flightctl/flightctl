@@ -225,7 +225,7 @@ func GetGoTemplateFuncMap() template.FuncMap {
 	}
 
 	replace := func(old, new string, input any) string {
-		return strings.Replace(stringOrDefault(input), old, new, -1)
+		return strings.ReplaceAll(stringOrDefault(input), old, new)
 	}
 
 	getOrDefault := func(m *map[string]string, key string, defaultValue string) string {
