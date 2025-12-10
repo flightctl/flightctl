@@ -28,6 +28,28 @@ fi
 export API_ENDPOINT=https://$(get_endpoint_host flightctl-api-route)
 export REGISTRY_ENDPOINT=$(registry_address)
 
+# Build tests once and find compiled test files
+echo "Building tests..."
+"${GOBIN}/ginkgo" "build" "--race" "${GO_E2E_DIRS[@]}"
+
+# Find all compiled test files in the provided directories
+GO_E2E_TEST_FILES=()
+for dir in "${GO_E2E_DIRS[@]}"; do
+    # Convert Go ... pattern to actual directory
+    if [[ "$dir" == *"/..." ]]; then
+        dir="${dir%/...}"
+    fi
+    # Find .test files in this directory
+    while IFS= read -r -d '' test_file; do
+        GO_E2E_TEST_FILES+=("$test_file")
+    done < <(find "$dir" -name "*.test" -type f -print0 2>/dev/null)
+done
+
+echo "Found ${#GO_E2E_TEST_FILES[@]} compiled test file(s):"
+for test_file in "${GO_E2E_TEST_FILES[@]}"; do
+    echo "  - $test_file"
+done
+
 # Handle manual test splitting if enabled
 if [[ "${GINKGO_TOTAL_NODES}" -gt 1 ]]; then
     echo "Manual test splitting enabled: Node ${GINKGO_NODE} of ${GINKGO_TOTAL_NODES}"
@@ -36,7 +58,9 @@ if [[ "${GINKGO_TOTAL_NODES}" -gt 1 ]]; then
     echo "Generating list of all tests..."
     TEMP_TEST_LIST=$(mktemp)
 
-    # Build the base ginkgo command to discover tests
+    # Use the already found compiled test files (built above)
+
+    # Build the base ginkgo command to discover tests using compiled test files
     DISCOVER_CMD=("${GOBIN}/ginkgo" "run" "--dry-run" "--json-report" "discovery.json")
 
     if [[ -n "${GINKGO_FOCUS}" ]]; then
@@ -47,7 +71,7 @@ if [[ "${GINKGO_TOTAL_NODES}" -gt 1 ]]; then
         DISCOVER_CMD+=("--label-filter" "${GINKGO_LABEL_FILTER}")
     fi
 
-    DISCOVER_CMD+=("${GO_E2E_DIRS[@]}")
+    DISCOVER_CMD+=("${GO_E2E_TEST_FILES[@]}")
 
     # Run the discovery command and generate JSON report
     # We ignore the exit code because some test suites might have issues, but we still want to parse the JSON
@@ -102,6 +126,8 @@ if [[ "${GINKGO_TOTAL_NODES}" -gt 1 ]]; then
     rm -f "${TEMP_TEST_LIST}" "${NODE_TESTS}"
 fi
 
+# Tests are already built and test files are already found above
+
 # Build the ginkgo command using guard patterns for each flag
 CMD=("${GOBIN}/ginkgo" "run")
 
@@ -121,8 +147,9 @@ if [[ "${GINKGO_PROCS}" -gt 1 ]]; then
     CMD+=(--poll-progress-after=2m --poll-progress-interval=30s)
 fi
 
-# Add the test directories last
-CMD+=("${GO_E2E_DIRS[@]}")
+# Add the compiled test files to the command
+echo "Using compiled test files for execution"
+CMD+=("${GO_E2E_TEST_FILES[@]}")
 
 echo "Running e2e tests with ${GINKGO_PROCS} parallel processes..."
 echo "Output interceptor mode: ${GINKGO_OUTPUT_INTERCEPTOR_MODE} (dup=show all output, swap=clean output)"
