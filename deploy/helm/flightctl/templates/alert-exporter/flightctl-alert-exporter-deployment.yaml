@@ -31,7 +31,7 @@ spec:
       {{- include "flightctl.migrationWaitInitContainer" (dict "context" . "timeout" 600) | nindent 6 }}
       containers:
         - name: alert-exporter
-          image: "{{ .Values.alertExporter.image.image }}:{{ default .Chart.AppVersion .Values.alertExporter.image.tag }}"
+          image: "{{ .Values.alertExporter.image.repository }}:{{ default .Chart.AppVersion .Values.alertExporter.image.tag }}"
           imagePullPolicy: "{{ default .Values.global.imagePullPolicy .Values.alertExporter.image.pullPolicy }}"
           ports:
             - containerPort: 8081

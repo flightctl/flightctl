@@ -123,7 +123,7 @@ db:
     masterUserSecretName: ""
     image:
       # -- PostgreSQL container image
-      image: {{ .Images.db.Image }}
+      repository: {{ .Images.db.Image }}
       # -- PostgreSQL image tag
       tag: "{{ .Images.db.Tag }}"
       # -- Image pull policy for database container
@@ -163,7 +163,7 @@ db:
 kv:
   image:
     # -- Redis container image
-    image: {{ .Images.kv.Image }}
+    repository: {{ .Images.kv.Image }}
     # -- Redis image tag
     tag: "{{ .Images.kv.Tag}}"
     # -- Image pull policy for Redis container
@@ -186,7 +186,7 @@ alertmanager:
   enabled: true
   image:
     # -- Alertmanager container image
-    image: {{ .Images.alertmanager.Image }}
+    repository: {{ .Images.alertmanager.Image }}
     # -- Alertmanager image tag
     tag: "{{ .Images.alertmanager.Tag }}"
     # -- Image pull policy for Alertmanager container
@@ -201,7 +201,7 @@ alertmanager:
 api:
   image:
     # -- API server container image
-    image: {{ .Images.api.Image }}
+    repository: {{ .Images.api.Image }}
     # -- API server image tag (leave empty to use chart appVersion)
     tag: ""
     # -- Image pull policy for API server container
@@ -238,7 +238,7 @@ cliArtifacts:
   enabled: true
   image:
     # -- CLI artifacts container image
-    image: {{ .Images.cliArtifacts.Image }}
+    repository: {{ .Images.cliArtifacts.Image }}
     # -- CLI artifacts image tag
     tag: ""
     # -- Image pull policy for CLI artifacts container
@@ -250,7 +250,7 @@ cliArtifacts:
 worker:
   image:
     # -- Worker container image
-    image: {{ .Images.worker.Image }}
+    repository: {{ .Images.worker.Image }}
     # -- Worker image tag
     tag: ""
     # -- Image pull policy for worker container
@@ -262,7 +262,7 @@ worker:
 periodic:
   image:
     # -- Periodic container image
-    image: {{ .Images.periodic.Image }}
+    repository: {{ .Images.periodic.Image }}
     # -- Periodic image tag
     tag: ""
     # -- Image pull policy for periodic container
@@ -276,7 +276,7 @@ alertExporter:
   enabled: true
   image:
     # -- Alert exporter container image
-    image: {{ .Images.alertExporter.Image }}
+    repository: {{ .Images.alertExporter.Image }}
     # -- Alert exporter image tag
     tag: ""
     # -- Image pull policy for alert exporter container
@@ -288,7 +288,7 @@ alertmanagerProxy:
   enabled: true
   image:
     # -- Alertmanager proxy container image
-    image: {{ .Images.alertmanagerProxy.Image }}
+    repository: {{ .Images.alertmanagerProxy.Image }}
     # -- Alertmanager proxy image tag
     tag: ""
     # -- Image pull policy for Alertmanager proxy container
@@ -297,7 +297,7 @@ alertmanagerProxy:
 telemetryGateway:
   image:
     # -- Telemetry gateway container image
-    image: {{ .Images.telemetryGateway.Image }}
+    repository: {{ .Images.telemetryGateway.Image }}
     # -- Telemetry gateway image tag
     tag: ""
     # -- Image pull policy for Telemetry gateway container
@@ -310,9 +310,9 @@ ui:
   enabled: true
   image:
     # -- UI container image
-    image: {{ .Images.ui.Image }}
+    repository: {{ .Images.ui.Image }}
     # -- UI Plugin container image
-    pluginImage: {{ .Images.uiPlugin.Image }}
+    pluginRepository: {{ .Images.uiPlugin.Image }}
     # -- UI container image tag
     tag: ""
     # -- Image pull policy for UI container
@@ -329,7 +329,7 @@ ui:
 clusterCli:
   image:
     # -- Cluster CLI container image
-    image: {{ .Images.clusterCli.Image }}
+    repository: {{ .Images.clusterCli.Image }}
     # -- Cluster CLI image tag
     tag: "{{ .Images.clusterCli.Tag }}"
     # -- Image pull policy for cluster CLI container
@@ -339,7 +339,7 @@ clusterCli:
 dbSetup:
   image:
     # -- Database setup container image
-    image: {{ .Images.dbSetup.Image }}
+    repository: {{ .Images.dbSetup.Image }}
     # -- Database setup image tag
     tag: ""
     # -- Image pull policy for database setup container

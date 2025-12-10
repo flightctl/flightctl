@@ -23,7 +23,7 @@ spec:
     spec:
       containers:
         - name: container-reg
-          image: {{ .Values.registry.image }}
+          image: "{{ .Values.registry.image.repository }}:{{ .Values.registry.image.tag }}"
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 5000

@@ -54,7 +54,7 @@ spec:
       {{- if eq $ctx.Values.db.type "builtin" }}
       {{- if not $isDryRun }}
       - name: setup-database-users
-        image: "{{ $ctx.Values.dbSetup.image.image }}:{{ default $ctx.Chart.AppVersion $ctx.Values.dbSetup.image.tag }}"
+        image: "{{ $ctx.Values.dbSetup.image.repository }}:{{ default $ctx.Chart.AppVersion $ctx.Values.dbSetup.image.tag }}"
         imagePullPolicy: {{ default $ctx.Values.global.imagePullPolicy $ctx.Values.dbSetup.image.pullPolicy }}
         env:
         - name: DB_HOST
@@ -122,7 +122,7 @@ spec:
       {{- end }}
       containers:
       - name: run-migrations
-        image: "{{ $ctx.Values.dbSetup.image.image }}:{{ default $ctx.Chart.AppVersion $ctx.Values.dbSetup.image.tag }}"
+        image: "{{ $ctx.Values.dbSetup.image.repository }}:{{ default $ctx.Chart.AppVersion $ctx.Values.dbSetup.image.tag }}"
         imagePullPolicy: {{ default $ctx.Values.global.imagePullPolicy $ctx.Values.dbSetup.image.pullPolicy }}
         env:
         - name: HOME

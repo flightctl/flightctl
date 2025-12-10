@@ -123,7 +123,7 @@ db:
     masterUserSecretName: ""
     image:
       # -- PostgreSQL container image
-      image: quay.io/sclorg/postgresql-16-c9s
+      repository: quay.io/sclorg/postgresql-16-c9s
       # -- PostgreSQL image tag
       tag: "20250214"
       # -- Image pull policy for database container
@@ -163,7 +163,7 @@ db:
 kv:
   image:
     # -- Redis container image
-    image: quay.io/sclorg/redis-7-c9s
+    repository: quay.io/sclorg/redis-7-c9s
     # -- Redis image tag
     tag: "20250108"
     # -- Image pull policy for Redis container
@@ -186,7 +186,7 @@ alertmanager:
   enabled: true
   image:
     # -- Alertmanager container image
-    image: quay.io/prometheus/alertmanager
+    repository: quay.io/prometheus/alertmanager
     # -- Alertmanager image tag
     tag: "v0.28.1"
     # -- Image pull policy for Alertmanager container
@@ -201,7 +201,7 @@ alertmanager:
 api:
   image:
     # -- API server container image
-    image: quay.io/flightctl/flightctl-api
+    repository: quay.io/flightctl/flightctl-api
     # -- API server image tag (leave empty to use chart appVersion)
     tag: ""
     # -- Image pull policy for API server container
@@ -238,7 +238,7 @@ cliArtifacts:
   enabled: true
   image:
     # -- CLI artifacts container image
-    image: quay.io/flightctl/flightctl-cli-artifacts
+    repository: quay.io/flightctl/flightctl-cli-artifacts
     # -- CLI artifacts image tag
     tag: ""
     # -- Image pull policy for CLI artifacts container
@@ -250,7 +250,7 @@ cliArtifacts:
 worker:
   image:
     # -- Worker container image
-    image: quay.io/flightctl/flightctl-worker
+    repository: quay.io/flightctl/flightctl-worker
     # -- Worker image tag
     tag: ""
     # -- Image pull policy for worker container
@@ -262,7 +262,7 @@ worker:
 periodic:
   image:
     # -- Periodic container image
-    image: quay.io/flightctl/flightctl-periodic
+    repository: quay.io/flightctl/flightctl-periodic
     # -- Periodic image tag
     tag: ""
     # -- Image pull policy for periodic container
@@ -276,7 +276,7 @@ alertExporter:
   enabled: true
   image:
     # -- Alert exporter container image
-    image: quay.io/flightctl/flightctl-alert-exporter
+    repository: quay.io/flightctl/flightctl-alert-exporter
     # -- Alert exporter image tag
     tag: ""
     # -- Image pull policy for alert exporter container
@@ -288,7 +288,7 @@ alertmanagerProxy:
   enabled: true
   image:
     # -- Alertmanager proxy container image
-    image: quay.io/flightctl/flightctl-alertmanager-proxy
+    repository: quay.io/flightctl/flightctl-alertmanager-proxy
     # -- Alertmanager proxy image tag
     tag: ""
     # -- Image pull policy for Alertmanager proxy container
@@ -297,7 +297,7 @@ alertmanagerProxy:
 telemetryGateway:
   image:
     # -- Telemetry gateway container image
-    image: quay.io/flightctl/flightctl-telemetry-gateway
+    repository: quay.io/flightctl/flightctl-telemetry-gateway
     # -- Telemetry gateway image tag
     tag: ""
     # -- Image pull policy for Telemetry gateway container
@@ -310,9 +310,9 @@ ui:
   enabled: true
   image:
     # -- UI container image
-    image: quay.io/flightctl/flightctl-ui
+    repository: quay.io/flightctl/flightctl-ui
     # -- UI Plugin container image
-    pluginImage: quay.io/flightctl/flightctl-ocp-ui
+    pluginRepository: quay.io/flightctl/flightctl-ocp-ui
     # -- UI container image tag
     tag: ""
     # -- Image pull policy for UI container
@@ -329,7 +329,7 @@ ui:
 clusterCli:
   image:
     # -- Cluster CLI container image
-    image: quay.io/openshift/origin-cli
+    repository: quay.io/openshift/origin-cli
     # -- Cluster CLI image tag
     tag: "4.20.0"
     # -- Image pull policy for cluster CLI container
@@ -339,7 +339,7 @@ clusterCli:
 dbSetup:
   image:
     # -- Database setup container image
-    image: quay.io/flightctl/flightctl-db-setup
+    repository: quay.io/flightctl/flightctl-db-setup
     # -- Database setup image tag
     tag: ""
     # -- Image pull policy for database setup container

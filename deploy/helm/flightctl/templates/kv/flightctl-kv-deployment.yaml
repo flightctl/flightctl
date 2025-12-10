@@ -56,7 +56,7 @@ spec:
       {{- end }}
       containers:
         - name: flightctl-kv
-          image: {{ .Values.kv.image.image }}:{{ .Values.kv.image.tag }}
+          image: {{ .Values.kv.image.repository }}:{{ .Values.kv.image.tag }}
           imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.kv.image.pullPolicy }}
           ports:
             - name: kv

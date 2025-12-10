@@ -19,7 +19,7 @@ spec:
     spec:
       containers:
         - name: flightctl-prometheus
-          image: {{ .Values.prometheus.image }}
+          image: "{{ .Values.prometheus.image.repository }}:{{ .Values.prometheus.image.tag }}"
           ports:
             - containerPort: 9090
               name: service-api

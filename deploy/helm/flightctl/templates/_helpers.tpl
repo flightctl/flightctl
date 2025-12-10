@@ -330,7 +330,7 @@ Parameters:
 {{- $sleep := .sleep | default $context.Values.dbSetup.wait.sleep | default 2 | int }}
 {{- $connectionTimeout := .connectionTimeout | default $context.Values.dbSetup.wait.connectionTimeout | default 3 | int }}
 - name: wait-for-database-{{ $userType }}
-  image: "{{ $context.Values.dbSetup.image.image }}:{{ default $context.Chart.AppVersion $context.Values.dbSetup.image.tag }}"
+  image: "{{ $context.Values.dbSetup.image.repository }}:{{ default $context.Chart.AppVersion $context.Values.dbSetup.image.tag }}"
   imagePullPolicy: {{ default $context.Values.global.imagePullPolicy $context.Values.dbSetup.image.pullPolicy }}
   command:
   - /app/deploy/scripts/wait-for-database.sh
@@ -420,7 +420,7 @@ Parameters:
 {{- $ctx := .context }}
 {{- $timeout := .timeout | default 600 | int }}
 - name: wait-for-migration
-  image: "{{ $ctx.Values.clusterCli.image.image }}:{{ $ctx.Values.clusterCli.image.tag }}"
+  image: "{{ $ctx.Values.clusterCli.image.repository }}:{{ $ctx.Values.clusterCli.image.tag }}"
   imagePullPolicy: {{ default $ctx.Values.global.imagePullPolicy $ctx.Values.clusterCli.image.pullPolicy }}
   command:
   - /bin/bash

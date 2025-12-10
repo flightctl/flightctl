@@ -8,17 +8,23 @@ global:
   imagePullSecretName: ""
   internalNamespace: ""
 registry:
-  image: quay.io/flightctl/e2eregistry:2
+  image:
+    repository: quay.io/flightctl/e2eregistry
+    tag: "2"
   route: true
   hostName: ""
 gitserver:
-  image: quay.io/flightctl-tests/git-server:latest
+  image:
+    repository: quay.io/flightctl-tests/git-server
+    tag: "latest"
 prometheus:
-  image: quay.io/prometheus/prometheus:v2.54.1
+  image:
+    repository: quay.io/prometheus/prometheus
+    tag: "v2.54.1"
 jaeger:
   enabled: false
   image:
-    image: jaegertracing/all-in-one
+    repository: jaegertracing/all-in-one
     tag: "1.35"
     pullPolicy: ""
   storageType: memory

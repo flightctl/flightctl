@@ -51,7 +51,7 @@ spec:
       {{- end }}
       containers:
         - name: flightctl-alertmanager
-          image: "{{ .Values.alertmanager.image.image }}:{{ .Values.alertmanager.image.tag }}"
+          image: "{{ .Values.alertmanager.image.repository }}:{{ .Values.alertmanager.image.tag }}"
           imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.alertmanager.image.pullPolicy }}
           args:
             - "--config.file=/etc/alertmanager/alertmanager.yml"

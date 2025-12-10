@@ -29,7 +29,7 @@ spec:
         fsGroup: 10001
       containers:
       - name: jaeger-all-in-one
-        image: "{{ .Values.jaeger.image.image }}:{{ .Values.jaeger.image.tag }}"
+        image: "{{ .Values.jaeger.image.repository }}:{{ .Values.jaeger.image.tag }}"
         imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.jaeger.image.pullPolicy }}
         ports:
         - containerPort: 16686

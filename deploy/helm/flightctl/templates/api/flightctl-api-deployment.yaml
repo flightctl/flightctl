@@ -29,7 +29,7 @@ spec:
       {{- include "flightctl.migrationWaitInitContainer" (dict "context" . "timeout" 600) | nindent 6 }}
       containers:
         - name: flightctl-api
-          image: {{ .Values.api.image.image }}:{{ default .Chart.AppVersion .Values.api.image.tag }}
+          image: {{ .Values.api.image.repository }}:{{ default .Chart.AppVersion .Values.api.image.tag }}
           imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.api.image.pullPolicy }}
           env:
             - name: HOME

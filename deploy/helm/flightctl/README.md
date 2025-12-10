@@ -184,28 +184,28 @@ For more detailed configuration options, see the [Values](#values) section below
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| alertExporter | object | `{"enabled":true,"image":{"image":"quay.io/flightctl/flightctl-alert-exporter","pullPolicy":"","tag":""}}` | Alert Exporter Configuration |
+| alertExporter | object | `{"enabled":true,"image":{"pullPolicy":"","repository":"quay.io/flightctl/flightctl-alert-exporter","tag":""}}` | Alert Exporter Configuration |
 | alertExporter.enabled | bool | `true` | Enable alert exporter service |
-| alertExporter.image.image | string | `"quay.io/flightctl/flightctl-alert-exporter"` | Alert exporter container image |
 | alertExporter.image.pullPolicy | string | `""` | Image pull policy for alert exporter container |
+| alertExporter.image.repository | string | `"quay.io/flightctl/flightctl-alert-exporter"` | Alert exporter container image |
 | alertExporter.image.tag | string | `""` | Alert exporter image tag |
-| alertmanager | object | `{"additionalPVCLabels":null,"additionalRouteLabels":null,"enabled":true,"image":{"image":"quay.io/prometheus/alertmanager","pullPolicy":"","tag":"v0.28.1"}}` | Alertmanager Configuration |
+| alertmanager | object | `{"additionalPVCLabels":null,"additionalRouteLabels":null,"enabled":true,"image":{"pullPolicy":"","repository":"quay.io/prometheus/alertmanager","tag":"v0.28.1"}}` | Alertmanager Configuration |
 | alertmanager.additionalPVCLabels | string | `nil` | Additional labels for Alert Manager PVCs. |
 | alertmanager.additionalRouteLabels | string | `nil` | Additional labels for Alert Manager routes. |
 | alertmanager.enabled | bool | `true` | Enable Alertmanager for alert handling |
-| alertmanager.image.image | string | `"quay.io/prometheus/alertmanager"` | Alertmanager container image |
 | alertmanager.image.pullPolicy | string | `""` | Image pull policy for Alertmanager container |
+| alertmanager.image.repository | string | `"quay.io/prometheus/alertmanager"` | Alertmanager container image |
 | alertmanager.image.tag | string | `"v0.28.1"` | Alertmanager image tag |
-| alertmanagerProxy | object | `{"enabled":true,"image":{"image":"quay.io/flightctl/flightctl-alertmanager-proxy","pullPolicy":"","tag":""}}` | Alertmanager Proxy Configuration |
+| alertmanagerProxy | object | `{"enabled":true,"image":{"pullPolicy":"","repository":"quay.io/flightctl/flightctl-alertmanager-proxy","tag":""}}` | Alertmanager Proxy Configuration |
 | alertmanagerProxy.enabled | bool | `true` | Enable Alertmanager proxy service |
-| alertmanagerProxy.image.image | string | `"quay.io/flightctl/flightctl-alertmanager-proxy"` | Alertmanager proxy container image |
 | alertmanagerProxy.image.pullPolicy | string | `""` | Image pull policy for Alertmanager proxy container |
+| alertmanagerProxy.image.repository | string | `"quay.io/flightctl/flightctl-alertmanager-proxy"` | Alertmanager proxy container image |
 | alertmanagerProxy.image.tag | string | `""` | Alertmanager proxy image tag |
-| api | object | `{"additionalPVCLabels":null,"additionalRouteLabels":null,"image":{"image":"quay.io/flightctl/flightctl-api","pullPolicy":"","tag":""},"rateLimit":{"authRequests":20,"authWindow":"1h","enabled":true,"requests":300,"trustedProxies":["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16"],"window":"1m"}}` | API Server Configuration |
+| api | object | `{"additionalPVCLabels":null,"additionalRouteLabels":null,"image":{"pullPolicy":"","repository":"quay.io/flightctl/flightctl-api","tag":""},"rateLimit":{"authRequests":20,"authWindow":"1h","enabled":true,"requests":300,"trustedProxies":["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16"],"window":"1m"}}` | API Server Configuration |
 | api.additionalPVCLabels | string | `nil` | Additional labels for API PVCs. |
 | api.additionalRouteLabels | string | `nil` | Additional labels for API routes. |
-| api.image.image | string | `"quay.io/flightctl/flightctl-api"` | API server container image |
 | api.image.pullPolicy | string | `""` | Image pull policy for API server container |
+| api.image.repository | string | `"quay.io/flightctl/flightctl-api"` | API server container image |
 | api.image.tag | string | `""` | API server image tag (leave empty to use chart appVersion) |
 | api.rateLimit.authRequests | int | `20` | Maximum authentication requests per auth window Auth-specific rate limiting |
 | api.rateLimit.authWindow | string | `"1h"` | Time window for authentication rate limiting |
@@ -213,23 +213,23 @@ For more detailed configuration options, see the [Values](#values) section below
 | api.rateLimit.requests | int | `300` | Maximum requests per window for general API endpoints General API rate limiting |
 | api.rateLimit.trustedProxies | list | `["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16"]` | List of trusted proxy IP ranges that can set X-Forwarded-For headers Trusted proxies that can set X-Forwarded-For/X-Real-IP headers This should include your load balancer and UI proxy IPs |
 | api.rateLimit.window | string | `"1m"` | Time window for rate limiting (e.g., "1m", "1h") |
-| cliArtifacts | object | `{"additionalRouteLabels":null,"enabled":true,"image":{"image":"quay.io/flightctl/flightctl-cli-artifacts","pullPolicy":"","tag":""}}` | CLI Artifacts Configuration |
+| cliArtifacts | object | `{"additionalRouteLabels":null,"enabled":true,"image":{"pullPolicy":"","repository":"quay.io/flightctl/flightctl-cli-artifacts","tag":""}}` | CLI Artifacts Configuration |
 | cliArtifacts.additionalRouteLabels | string | `nil` | Additional labels for CLI Artifacts routes. |
 | cliArtifacts.enabled | bool | `true` | Enable CLI artifacts service |
-| cliArtifacts.image.image | string | `"quay.io/flightctl/flightctl-cli-artifacts"` | CLI artifacts container image |
 | cliArtifacts.image.pullPolicy | string | `""` | Image pull policy for CLI artifacts container |
+| cliArtifacts.image.repository | string | `"quay.io/flightctl/flightctl-cli-artifacts"` | CLI artifacts container image |
 | cliArtifacts.image.tag | string | `""` | CLI artifacts image tag |
-| clusterCli | object | `{"image":{"image":"quay.io/openshift/origin-cli","pullPolicy":"","tag":"4.20.0"}}` | Cluster CLI Configuration |
-| clusterCli.image.image | string | `"quay.io/openshift/origin-cli"` | Cluster CLI container image |
+| clusterCli | object | `{"image":{"pullPolicy":"","repository":"quay.io/openshift/origin-cli","tag":"4.20.0"}}` | Cluster CLI Configuration |
 | clusterCli.image.pullPolicy | string | `""` | Image pull policy for cluster CLI container |
+| clusterCli.image.repository | string | `"quay.io/openshift/origin-cli"` | Cluster CLI container image |
 | clusterCli.image.tag | string | `"4.20.0"` | Cluster CLI image tag |
-| db | object | `{"builtin":{"additionalPVCLabels":null,"applicationUserSecretName":"","fsGroup":"","image":{"image":"quay.io/sclorg/postgresql-16-c9s","pullPolicy":"","tag":"20250214"},"masterUserSecretName":"","maxConnections":200,"migrationUserSecretName":"","resources":{"requests":{"cpu":"512m","memory":"512Mi"}},"storage":{"size":"60Gi"}},"external":{"applicationUserSecretName":"","hostname":"","migrationUserSecretName":"","port":5432,"sslmode":"","tlsConfigMapName":"","tlsSecretName":""},"name":"flightctl","type":"builtin"}` | Database Configuration |
-| db.builtin | object | `{"additionalPVCLabels":null,"applicationUserSecretName":"","fsGroup":"","image":{"image":"quay.io/sclorg/postgresql-16-c9s","pullPolicy":"","tag":"20250214"},"masterUserSecretName":"","maxConnections":200,"migrationUserSecretName":"","resources":{"requests":{"cpu":"512m","memory":"512Mi"}},"storage":{"size":"60Gi"}}` | Settings for builtin DB |
+| db | object | `{"builtin":{"additionalPVCLabels":null,"applicationUserSecretName":"","fsGroup":"","image":{"pullPolicy":"","repository":"quay.io/sclorg/postgresql-16-c9s","tag":"20250214"},"masterUserSecretName":"","maxConnections":200,"migrationUserSecretName":"","resources":{"requests":{"cpu":"512m","memory":"512Mi"}},"storage":{"size":"60Gi"}},"external":{"applicationUserSecretName":"","hostname":"","migrationUserSecretName":"","port":5432,"sslmode":"","tlsConfigMapName":"","tlsSecretName":""},"name":"flightctl","type":"builtin"}` | Database Configuration |
+| db.builtin | object | `{"additionalPVCLabels":null,"applicationUserSecretName":"","fsGroup":"","image":{"pullPolicy":"","repository":"quay.io/sclorg/postgresql-16-c9s","tag":"20250214"},"masterUserSecretName":"","maxConnections":200,"migrationUserSecretName":"","resources":{"requests":{"cpu":"512m","memory":"512Mi"}},"storage":{"size":"60Gi"}}` | Settings for builtin DB |
 | db.builtin.additionalPVCLabels | string | `nil` | Additional labels for DB PVCs. |
 | db.builtin.applicationUserSecretName | string | `""` | Database application user secret name containing username/password. If not provided, the secret will be generated |
 | db.builtin.fsGroup | string | `""` | File system group ID for database pod security context |
-| db.builtin.image.image | string | `"quay.io/sclorg/postgresql-16-c9s"` | PostgreSQL container image |
 | db.builtin.image.pullPolicy | string | `""` | Image pull policy for database container |
+| db.builtin.image.repository | string | `"quay.io/sclorg/postgresql-16-c9s"` | PostgreSQL container image |
 | db.builtin.image.tag | string | `"20250214"` | PostgreSQL image tag |
 | db.builtin.masterUserSecretName | string | `""` | Database master/admin secret name containing username/password. If not provided, the secret will be generated |
 | db.builtin.maxConnections | int | `200` | Maximum number of database connections |
@@ -246,9 +246,9 @@ For more detailed configuration options, see the [Values](#values) section below
 | db.external.tlsSecretName | string | `""` | Secret containing client certificates (automatically mounted at /etc/ssl/postgres/) |
 | db.name | string | `"flightctl"` | Database name for Flight Control |
 | db.type | string | `"builtin"` | Type of database to use. Can be 'builtin' or 'external'. Only PostgreSQL DB is supported. |
-| dbSetup | object | `{"image":{"image":"quay.io/flightctl/flightctl-db-setup","pullPolicy":"","tag":""},"migration":{"activeDeadlineSeconds":0,"backoffLimit":2147483647},"wait":{"sleep":2,"timeout":60}}` | Database Setup Configuration |
-| dbSetup.image.image | string | `"quay.io/flightctl/flightctl-db-setup"` | Database setup container image |
+| dbSetup | object | `{"image":{"pullPolicy":"","repository":"quay.io/flightctl/flightctl-db-setup","tag":""},"migration":{"activeDeadlineSeconds":0,"backoffLimit":2147483647},"wait":{"sleep":2,"timeout":60}}` | Database Setup Configuration |
 | dbSetup.image.pullPolicy | string | `""` | Image pull policy for database setup container |
+| dbSetup.image.repository | string | `"quay.io/flightctl/flightctl-db-setup"` | Database setup container image |
 | dbSetup.image.tag | string | `""` | Database setup image tag |
 | dbSetup.migration.activeDeadlineSeconds | int | `0` | Maximum runtime in seconds for the migration Job (0 = no deadline) |
 | dbSetup.migration.backoffLimit | int | `2147483647` | Number of retries for the migration Job on failure  |
@@ -295,42 +295,42 @@ For more detailed configuration options, see the [Values](#values) section below
 | global.internalNamespace | string | `""` | A separate Namespace to which non-user-facing components should be deployed for increased security isolation. |
 | global.sshKnownHosts.data | string | `""` | SSH known hosts file content for Git repository host key verification. |
 | global.storageClassName | string | `""` | Storage class name for the PVCs. Keep empty to use the default storage class. |
-| kv | object | `{"fsGroup":"","image":{"image":"quay.io/sclorg/redis-7-c9s","pullPolicy":"","tag":"20250108"},"loglevel":"warning","maxmemory":"1gb","maxmemoryPolicy":"allkeys-lru","passwordSecretName":""}` | Key-Value Store Configuration |
+| kv | object | `{"fsGroup":"","image":{"pullPolicy":"","repository":"quay.io/sclorg/redis-7-c9s","tag":"20250108"},"loglevel":"warning","maxmemory":"1gb","maxmemoryPolicy":"allkeys-lru","passwordSecretName":""}` | Key-Value Store Configuration |
 | kv.fsGroup | string | `""` | File system group ID for Redis pod security context |
-| kv.image.image | string | `"quay.io/sclorg/redis-7-c9s"` | Redis container image |
 | kv.image.pullPolicy | string | `""` | Image pull policy for Redis container |
+| kv.image.repository | string | `"quay.io/sclorg/redis-7-c9s"` | Redis container image |
 | kv.image.tag | string | `"20250108"` | Redis image tag |
 | kv.loglevel | string | `"warning"` | Redis log level (debug, verbose, notice, warning) |
 | kv.maxmemory | string | `"1gb"` | Maximum memory usage for Redis |
 | kv.maxmemoryPolicy | string | `"allkeys-lru"` | Redis memory eviction policy |
 | kv.passwordSecretName | string | `""` | Secret containing password for Redis password (leave empty for auto-generation) |
-| periodic | object | `{"consumers":5,"image":{"image":"quay.io/flightctl/flightctl-periodic","pullPolicy":"","tag":""}}` | Periodic Configuration |
+| periodic | object | `{"consumers":5,"image":{"pullPolicy":"","repository":"quay.io/flightctl/flightctl-periodic","tag":""}}` | Periodic Configuration |
 | periodic.consumers | int | `5` | Number of periodic consumers |
-| periodic.image.image | string | `"quay.io/flightctl/flightctl-periodic"` | Periodic container image |
 | periodic.image.pullPolicy | string | `""` | Image pull policy for periodic container |
+| periodic.image.repository | string | `"quay.io/flightctl/flightctl-periodic"` | Periodic container image |
 | periodic.image.tag | string | `""` | Periodic image tag |
 | telemetryGateway.additionalRouteLabels | string | `nil` |  |
-| telemetryGateway.image.image | string | `"quay.io/flightctl/flightctl-telemetry-gateway"` | Telemetry gateway container image |
 | telemetryGateway.image.pullPolicy | string | `""` | Image pull policy for Telemetry gateway container |
+| telemetryGateway.image.repository | string | `"quay.io/flightctl/flightctl-telemetry-gateway"` | Telemetry gateway container image |
 | telemetryGateway.image.tag | string | `""` | Telemetry gateway image tag |
-| ui | object | `{"additionalRouteLabels":null,"auth":{"caCert":"","insecureSkipTlsVerify":false},"enabled":true,"image":{"image":"quay.io/flightctl/flightctl-ui","pluginImage":"quay.io/flightctl/flightctl-ocp-ui","pullPolicy":"","tag":""}}` | UI Configuration |
+| ui | object | `{"additionalRouteLabels":null,"auth":{"caCert":"","insecureSkipTlsVerify":false},"enabled":true,"image":{"pluginRepository":"quay.io/flightctl/flightctl-ocp-ui","pullPolicy":"","repository":"quay.io/flightctl/flightctl-ui","tag":""}}` | UI Configuration |
 | ui.additionalRouteLabels | string | `nil` | Additional labels for UI routes. |
 | ui.auth.caCert | string | `""` | A custom CA cert for Auth TLS. |
 | ui.auth.insecureSkipTlsVerify | bool | `false` | Set to true if auth TLS certificate validation should be skipped. |
 | ui.enabled | bool | `true` | Enable web UI deployment |
-| ui.image.image | string | `"quay.io/flightctl/flightctl-ui"` | UI container image |
-| ui.image.pluginImage | string | `"quay.io/flightctl/flightctl-ocp-ui"` | UI Plugin container image |
+| ui.image.pluginRepository | string | `"quay.io/flightctl/flightctl-ocp-ui"` | UI Plugin container image |
 | ui.image.pullPolicy | string | `""` | Image pull policy for UI container |
+| ui.image.repository | string | `"quay.io/flightctl/flightctl-ui"` | UI container image |
 | ui.image.tag | string | `""` | UI container image tag |
 | upgradeHooks | object | `{"databaseMigrationDryRun":true,"scaleDown":{"condition":"chart","deployments":["flightctl-periodic","flightctl-worker"],"timeoutSeconds":120}}` | Upgrade hooks |
 | upgradeHooks.databaseMigrationDryRun | bool | `true` | Enable pre-upgrade DB migration dry-run as a hook |
 | upgradeHooks.scaleDown.condition | string | `"chart"` | When to run pre-upgrade scale down job: "always", "never", or "chart" (default). "chart" runs only if helm.sh/chart changed. |
 | upgradeHooks.scaleDown.deployments | list | `["flightctl-periodic","flightctl-worker"]` | List of Deployments to scale down in order |
 | upgradeHooks.scaleDown.timeoutSeconds | int | `120` | Timeout in seconds to wait for rollout per Deployment |
-| worker | object | `{"clusterLevelSecretAccess":false,"image":{"image":"quay.io/flightctl/flightctl-worker","pullPolicy":"","tag":""}}` | Worker Configuration |
+| worker | object | `{"clusterLevelSecretAccess":false,"image":{"pullPolicy":"","repository":"quay.io/flightctl/flightctl-worker","tag":""}}` | Worker Configuration |
 | worker.clusterLevelSecretAccess | bool | `false` | Allow flightctl-worker to access secrets at the cluster level for embedding in device configs |
-| worker.image.image | string | `"quay.io/flightctl/flightctl-worker"` | Worker container image |
 | worker.image.pullPolicy | string | `""` | Image pull policy for worker container |
+| worker.image.repository | string | `"quay.io/flightctl/flightctl-worker"` | Worker container image |
 | worker.image.tag | string | `""` | Worker image tag |
 
 ## Environment-Specific Values Files

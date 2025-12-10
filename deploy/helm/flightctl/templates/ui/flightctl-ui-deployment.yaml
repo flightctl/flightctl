@@ -78,9 +78,9 @@ spec:
                 name: flightctl-ui
                 key: IS_RHEM
           {{- if eq $enableMulticlusterExtensions "true" }}
-          image: {{ .Values.ui.image.pluginImage }}:{{ default .Chart.AppVersion .Values.ui.image.tag }}
+          image: {{ .Values.ui.image.pluginRepository }}:{{ default .Chart.AppVersion .Values.ui.image.tag }}
           {{- else }}
-          image: {{ .Values.ui.image.image }}:{{ default .Chart.AppVersion .Values.ui.image.tag }}
+          image: {{ .Values.ui.image.repository }}:{{ default .Chart.AppVersion .Values.ui.image.tag }}
           {{- end }}
           imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.ui.image.pullPolicy }}
           name: flightctl-ui

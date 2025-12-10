@@ -220,7 +220,7 @@
               "type": "object",
               "additionalProperties": false,
               "properties": {
-                "image": { "type": "string", "description": "PostgreSQL container image" },
+                "repository": { "type": "string", "description": "PostgreSQL container image" },
                 "tag": { "type": "string", "description": "PostgreSQL image tag" },
                 "pullPolicy": { "type": "string", "description": "Image pull policy for database container" }
               }
@@ -284,7 +284,7 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "image": { "type": "string", "description": "Redis container image" },
+            "repository": { "type": "string", "description": "Redis container image" },
             "tag": { "type": "string", "description": "Redis image tag" },
             "pullPolicy": { "type": "string", "description": "Image pull policy for Redis container" }
           }
@@ -310,7 +310,7 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "image": { "type": "string", "description": "Alertmanager container image" },
+            "repository": { "type": "string", "description": "Alertmanager container image" },
             "tag": { "type": "string", "description": "Alertmanager image tag" },
             "pullPolicy": { "type": "string", "description": "Image pull policy for Alertmanager container" }
           }
@@ -336,7 +336,7 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "image": { "type": "string", "description": "API server container image" },
+            "repository": { "type": "string", "description": "API server container image" },
             "tag": { "type": "string", "description": "API server image tag (leave empty to use chart appVersion)" },
             "pullPolicy": { "type": "string", "description": "Image pull policy for API server container" }
           }
@@ -384,7 +384,7 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "image": { "type": "string", "description": "CLI artifacts container image" },
+            "repository": { "type": "string", "description": "CLI artifacts container image" },
             "tag": { "type": "string", "description": "CLI artifacts image tag" },
             "pullPolicy": { "type": "string", "description": "Image pull policy for CLI artifacts container" }
           }
@@ -405,7 +405,7 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "image": { "type": "string", "description": "Worker container image" },
+            "repository": { "type": "string", "description": "Worker container image" },
             "tag": { "type": "string", "description": "Worker image tag" },
             "pullPolicy": { "type": "string", "description": "Image pull policy for worker container" }
           }
@@ -429,7 +429,7 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "image": { "type": "string", "description": "Periodic container image" },
+            "repository": { "type": "string", "description": "Periodic container image" },
             "tag": { "type": "string", "description": "Periodic image tag" },
             "pullPolicy": { "type": "string", "description": "Image pull policy for periodic container" }
           }
@@ -451,7 +451,7 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "image": { "type": "string", "description": "Alert exporter container image" },
+            "repository": { "type": "string", "description": "Alert exporter container image" },
             "tag": { "type": "string", "description": "Alert exporter image tag" },
             "pullPolicy": { "type": "string", "description": "Image pull policy for alert exporter container" }
           }
@@ -472,7 +472,7 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "image": { "type": "string", "description": "Alertmanager proxy container image" },
+            "repository": { "type": "string", "description": "Alertmanager proxy container image" },
             "tag": { "type": "string", "description": "Alertmanager proxy image tag" },
             "pullPolicy": { "type": "string", "description": "Image pull policy for Alertmanager proxy container" }
           }
@@ -487,7 +487,7 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "image": { "type": "string", "description": "Telemetry gateway container image" },
+            "repository": { "type": "string", "description": "Telemetry gateway container image" },
             "tag": { "type": "string", "description": "Telemetry gateway image tag" },
             "pullPolicy": { "type": "string", "description": "Image pull policy for Telemetry gateway container" }
           }
@@ -509,8 +509,8 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "image": { "type": "string", "description": "UI container image" },
-            "pluginImage": { "type": "string", "description": "UI Plugin container image" },
+            "repository": { "type": "string", "description": "UI container image" },
+            "pluginRepository": { "type": "string", "description": "UI Plugin container image" },
             "tag": { "type": "string", "description": "UI container image tag" },
             "pullPolicy": { "type": "string", "description": "Image pull policy for UI container" }
           }
@@ -539,7 +539,7 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "image": { "type": "string", "description": "Cluster CLI container image" },
+            "repository": { "type": "string", "description": "Cluster CLI container image" },
             "tag": { "type": "string", "description": "Cluster CLI image tag" },
             "pullPolicy": { "type": "string", "description": "Image pull policy for cluster CLI container" }
           }
@@ -555,7 +555,7 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "image": { "type": "string", "description": "Database setup container image" },
+            "repository": { "type": "string", "description": "Database setup container image" },
             "tag": { "type": "string", "description": "Database setup image tag" },
             "pullPolicy": { "type": "string", "description": "Image pull policy for database setup container" }
           }

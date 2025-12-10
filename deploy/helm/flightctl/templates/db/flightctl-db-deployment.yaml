@@ -54,7 +54,7 @@ spec:
                   key: user
             - name: POSTGRESQL_MAX_CONNECTIONS
               value: {{ .Values.db.builtin.maxConnections | quote }}
-          image: {{ .Values.db.builtin.image.image }}:{{ .Values.db.builtin.image.tag }}
+          image: {{ .Values.db.builtin.image.repository }}:{{ .Values.db.builtin.image.tag }}
           imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.db.builtin.image.pullPolicy }}
           name: flightctl-db
           ports:

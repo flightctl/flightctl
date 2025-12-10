@@ -29,7 +29,7 @@ spec:
       {{- include "flightctl.migrationWaitInitContainer" (dict "context" . "timeout" 600) | nindent 6 }}
       containers:
         - name: periodic
-          image: {{ .Values.periodic.image.image }}:{{ default .Chart.AppVersion .Values.periodic.image.tag }}
+          image: {{ .Values.periodic.image.repository }}:{{ default .Chart.AppVersion .Values.periodic.image.tag }}
           imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.periodic.image.pullPolicy }}
           env:
             - name: HOME

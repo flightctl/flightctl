@@ -196,7 +196,7 @@ spec:
       restartPolicy: Never
       containers:
       - name: create-ca-bundle
-        image: "{{ .Values.clusterCli.image.image }}:{{ .Values.clusterCli.image.tag }}"
+        image: "{{ .Values.clusterCli.image.repository }}:{{ .Values.clusterCli.image.tag }}"
         imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.clusterCli.image.pullPolicy }}
         command:
         - /bin/bash

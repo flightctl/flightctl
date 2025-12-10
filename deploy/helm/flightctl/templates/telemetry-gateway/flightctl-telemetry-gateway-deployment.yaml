@@ -39,7 +39,7 @@ spec:
             secretKeyRef:
               name: {{ include "flightctl.dbAppUserSecret" . }}
               key: user
-        image: "{{ .Values.telemetryGateway.image.image }}:{{ default .Chart.AppVersion .Values.telemetryGateway.image.tag }}"
+        image: "{{ .Values.telemetryGateway.image.repository }}:{{ default .Chart.AppVersion .Values.telemetryGateway.image.tag }}"
         imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.telemetryGateway.image.pullPolicy }}
         name: telemetry-gateway
         ports:
