@@ -2,26 +2,11 @@
 set -ex
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
-CURRENT_VERSION_SCRIPT="${ROOT_DIR}/hack/current-version"
 
 source "${SCRIPT_DIR}"/../functions
 
-current_version() {
-  local version=""
-  if [[ -x "${CURRENT_VERSION_SCRIPT}" ]]; then
-    version=$((cd "${ROOT_DIR}" && "${CURRENT_VERSION_SCRIPT}") 2>/dev/null || true)
-  fi
-  if [[ -z "${version}" ]]; then
-    version=$((cd "${ROOT_DIR}" && git describe --tags --exclude latest 2>/dev/null) || true)
-  fi
-  if [[ -z "${version}" ]]; then
-    version="v0.0.0-unknown"
-  fi
-  echo -n "${version}"
-}
-
 # Use same defaults as create_agent_images.sh
-SOURCE_GIT_TAG="${SOURCE_GIT_TAG:-$(current_version)}"
+SOURCE_GIT_TAG="${SOURCE_GIT_TAG:-$(${ROOT_DIR}/hack/current-version)}"
 TAG="${TAG:-$SOURCE_GIT_TAG}"
 APP_REPO="${APP_REPO:-quay.io/flightctl}"
 REGISTRY_ADDRESS="${REGISTRY_ADDRESS:-$(registry_address)}"

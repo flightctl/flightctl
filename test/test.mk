@@ -152,7 +152,10 @@ git-server-container: bin/e2e-certs/ca.pem
 	@bash -c 'source test/scripts/functions && in_kind && echo "Loading git-server into kind cluster..." && kind_load_image localhost/git-server:latest' || true
 
 # Build E2E agent images with proper caching (offline build – no cert generation)
-e2e-agent-images: bin/.e2e-agent-images
+# Sentinel file includes AGENT_OS_ID to ensure rebuilds when OS changes
+E2E_AGENT_IMAGES_SENTINEL := $(ROOT_DIR)/bin/.e2e-agent-images-$(AGENT_OS_ID)
+
+e2e-agent-images: $(E2E_AGENT_IMAGES_SENTINEL)
 	@echo "E2E agent images already built and up to date"
 
 in-cluster-e2e-test: prepare-e2e-test

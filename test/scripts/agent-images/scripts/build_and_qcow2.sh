@@ -17,17 +17,12 @@ set -euo pipefail
 
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
-CURRENT_VERSION_SCRIPT="${ROOT_DIR}/hack/current-version"
-
-current_version() {
-  (cd "${ROOT_DIR}" && "${CURRENT_VERSION_SCRIPT}")
-}
 
 # Separate paths for different outputs
 ARTIFACTS_OUTPUT_DIR="${ARTIFACTS_OUTPUT_DIR:-${ROOT_DIR}/bin/agent-artifacts}"
 
 OS_ID_ENV="${OS_ID:-}"
-SOURCE_GIT_TAG="${SOURCE_GIT_TAG:-$(current_version)}"
+SOURCE_GIT_TAG="${SOURCE_GIT_TAG:-$(${ROOT_DIR}/hack/current-version)}"
 TAG="${TAG:-$SOURCE_GIT_TAG}"
 IMAGE_REPO="${IMAGE_REPO:-quay.io/flightctl/flightctl-device}"
 DO_PUSH=false
@@ -78,7 +73,7 @@ sudo rm -f "${variants_log}" "${qcow2_log}"
   echo "Building variants and creating bundle for ${OS_ID}"
   sudo -E "${SCRIPT_DIR}/build.sh" --variants 2>&1 | tee "${variants_log}"
 
-  echo "----------\nBundle variants\n----------"
+  printf '%s\n' "----------" "Bundle variants" "----------"
 
   sudo -E "${SCRIPT_DIR}/bundle.sh" \
     --filter "label=io.flightctl.e2e.component" \

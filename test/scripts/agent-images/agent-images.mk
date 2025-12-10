@@ -1,5 +1,3 @@
-bin/output/qcow2/disk.qcow2: bin/.e2e-agent-images
-
 # Environment variables for agent image builds
 AGENT_IMAGE_OUTPUT ?= push
 AGENT_OS_ID ?= cs9-bootc
@@ -7,8 +5,10 @@ APP_BUNDLE := $(ROOT_DIR)/bin/app-images-bundle.tar
 AGENT_BUNDLE_DIR := $(ROOT_DIR)/bin/agent-artifacts
 AGENT_BUNDLE := $(AGENT_BUNDLE_DIR)/agent-images-bundle-$(AGENT_OS_ID).tar
 
+bin/output/qcow2/disk.qcow2: $(E2E_AGENT_IMAGES_SENTINEL)
+
 # Build + bundle artifacts (no push)
-bin/.e2e-agent-images: | bin
+$(E2E_AGENT_IMAGES_SENTINEL): | bin
 	@if [ ! -f "$(AGENT_BUNDLE)" ]; then \
 		$(MAKE) bin/.rpm; \
 		BUILD_TYPE=$(BUILD_TYPE) BREW_BUILD_URL=$(BREW_BUILD_URL) SOURCE_GIT_TAG=$(SOURCE_GIT_TAG) SOURCE_GIT_TREE_STATE=$(SOURCE_GIT_TREE_STATE) SOURCE_GIT_COMMIT=$(SOURCE_GIT_COMMIT) \
@@ -22,7 +22,7 @@ bin/.e2e-agent-images: | bin
 	else \
 		echo "App bundle already exists at $(APP_BUNDLE)"; \
 	fi
-	touch bin/.e2e-agent-images
+	touch $(E2E_AGENT_IMAGES_SENTINEL)
 
 .PHONY: push-e2e-agent-images
 push-e2e-agent-images: e2e-agent-images
@@ -45,7 +45,7 @@ bin/.e2e-agent-certs:
 
 clean-e2e-agent-images:
 	sudo rm -f bin/output/qcow2/disk.qcow2
-	rm -f bin/.e2e-agent-images
+	rm -f bin/.e2e-agent-images-*
 	rm -f bin/.e2e-agent-certs
 	rm -f bin/.e2e-agent-injected
 	rm -rf bin/dnf-cache

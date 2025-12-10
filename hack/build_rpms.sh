@@ -32,7 +32,6 @@ Examples:
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-CURRENT_VERSION_SCRIPT="${SCRIPT_DIR}/current-version"
 
 # Configuration file for mock roots
 MOCK_ROOTS_CONFIG="${SCRIPT_DIR}/mock-roots.conf"
@@ -53,10 +52,6 @@ PACKIT_BUILDER_IMAGE="${PACKIT_BUILDER_IMAGE:-quay.io/flightctl-tests/packit-bui
 # Helpers
 ##############################################################################
 
-current_version() {
-  (cd "${REPO_ROOT}" && "${CURRENT_VERSION_SCRIPT}")
-}
-
 current_tree_state() {
   (cd "${REPO_ROOT}" && ( ( [ ! -d ".git" ] || git diff --quiet ) && echo "clean" ) || echo "dirty")
 }
@@ -66,7 +61,7 @@ current_commit() {
 }
 
 ensure_version_env() {
-  SOURCE_GIT_TAG="${SOURCE_GIT_TAG:-$(current_version)}"
+  SOURCE_GIT_TAG="${SOURCE_GIT_TAG:-$(${SCRIPT_DIR}/current-version)}"
   SOURCE_GIT_TREE_STATE="${SOURCE_GIT_TREE_STATE:-$(current_tree_state)}"
   SOURCE_GIT_COMMIT="${SOURCE_GIT_COMMIT:-$(current_commit)}"
   export SOURCE_GIT_TAG SOURCE_GIT_TREE_STATE SOURCE_GIT_COMMIT
@@ -314,8 +309,8 @@ check_and_pull_image() {
 pull_images_if_needed() {
   local pulls_performed=0
 
-  # Check and pull cache image if using mock root, otherwise pull base image
-  if [[ -n "$ROOT" ]]; then
+  # Check and pull cache image if using a known mock root, otherwise pull base image
+  if [[ -n "$ROOT" ]] && is_known_root "$ROOT"; then
     local root_image
     root_image="$(root_image_for "$ROOT")"
     if check_and_pull_image "${root_image}"; then

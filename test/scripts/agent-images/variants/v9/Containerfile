@@ -1,6 +1,6 @@
 # quay.io/flightctl/flightctl-device:v9
 #
-# Empty base image
+# Uses quay.io/flightctl/flightctl-device:base as the base image
 
 ARG BASE_IMAGE=quay.io/flightctl/flightctl-device:base
 

@@ -10,16 +10,11 @@ BUILD_TYPE=${BUILD_TYPE:-bootc}
 PARALLEL_JOBS="${PARALLEL_JOBS:-4}"
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
-CURRENT_VERSION_SCRIPT="${ROOT_DIR}/hack/current-version"
 
 source "${SCRIPT_DIR}/../functions"
 
-current_version() {
-    (cd "${ROOT_DIR}" && "${CURRENT_VERSION_SCRIPT}")
-}
-
 # Use same defaults as build.sh and build_and_qcow2.sh
-SOURCE_GIT_TAG="${SOURCE_GIT_TAG:-$(current_version)}"
+SOURCE_GIT_TAG="${SOURCE_GIT_TAG:-$(${ROOT_DIR}/hack/current-version)}"
 TAG="${TAG:-$SOURCE_GIT_TAG}"
 IMAGE_REPO="${IMAGE_REPO:-quay.io/flightctl/flightctl-device}"
 REGISTRY_ADDRESS="${REGISTRY_ADDRESS:-$(registry_address)}"
@@ -56,7 +51,7 @@ get_os_suffix() {
 qcow_is_up_to_date() {
     local os_id="$1"
     local qcow_path="${ROOT_DIR}/bin/output/qcow2/disk.qcow2"
-    local touch_file="${ROOT_DIR}/bin/.e2e-agent-images"
+    local touch_file="${ROOT_DIR}/bin/.e2e-agent-images-${os_id}"
 
     [[ -f "${qcow_path}" ]] || return 1
 
@@ -164,7 +159,7 @@ build_variants_and_qcow2() {
     SKIP_QCOW_BUILD="${skip_qcow}" "${SCRIPT_DIR}/scripts/build_and_qcow2.sh" --os-id ${OS_ID} ${PUSH_ARG}
 
     # Fix permissions on artifacts
-    sudo chown -R "${USER}:$(id -gn ${USER})" "${ROOT_DIR}/artifacts" || true
+    sudo chown -R "${USER}:$(id -gn "${USER}")" "${ROOT_DIR}/artifacts" || true
 
     # Move qcow2 to bin/output like original script
     OUTPUT_DIR="${OUTPUT_DIR:-${ROOT_DIR}/bin/output/agent-qcow2-${OS_ID}}"
@@ -182,7 +177,7 @@ build_variants_and_qcow2() {
         fi
 
         # Fix permissions on bin/output
-        sudo chown -R "${USER}:$(id -gn ${USER})" "${ROOT_DIR}/bin/output" || true
+        sudo chown -R "${USER}:$(id -gn "${USER}")" "${ROOT_DIR}/bin/output" || true
     fi
 }
 

@@ -15,6 +15,11 @@ ARG EPEL_NEXT=1
 # ---------- Stage: prebase ----------
 FROM ${DEVICE_BASE_IMAGE} AS prebase
 
+# Redeclare ARGs after FROM to make them available in this stage
+ARG SOURCE_GIT_TAG
+ARG SOURCE_GIT_COMMIT
+ARG ENABLE_CRB=0
+ARG EPEL_NEXT=1
 
 # Enable CRB (for CentOS Stream 10) if requested
 RUN if [ "${ENABLE_CRB}" = "1" ]; then \
@@ -67,6 +72,9 @@ LABEL org.opencontainers.image.revision="${SOURCE_GIT_COMMIT}"
 # ---------- Stage: base  ----------
 FROM prebase AS base
 
+# Redeclare ARGs after FROM to make them available in this stage
+ARG SOURCE_GIT_TAG
+ARG SOURCE_GIT_COMMIT
 
 # RPM source configuration (paths relative to {project root}/bin/)
 ARG RPM_DIR=rpm

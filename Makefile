@@ -381,9 +381,6 @@ clean: clean-agent-vm clean-e2e-agent-images clean-quadlets clean-swtpm-certs
 	- rm -rf debian
 	- rm -rf .output/stamps
 	- rm -f bin/flightctl-images-bundle.tar
-# Qcow2 disk depends on the touch file
-bin/output/qcow2/disk.qcow2: bin/.e2e-agent-images
-
 # Full cleanup including bin directory and all artifacts
 clean-all: clean clean-containers
 	- rm -rf bin

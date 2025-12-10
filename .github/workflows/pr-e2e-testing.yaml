@@ -65,11 +65,11 @@ jobs:
     uses: ./.github/workflows/build-images-and-charts.yaml
 
   build-flightctl-cli:
-    needs: build-images-and-charts
+    needs: [build-images-and-charts, compute-tag]
     if: needs.compute-tag.outputs.any_changed == 'true'
     runs-on: ubuntu-24.04
     outputs:
-      tag: ${{ needs.build-images-and-charts.outputs.git_tag }}
+      tag: ${{ needs.compute-tag.outputs.tag }}
     steps:
       - name: CLI built with backend job
         run: echo "CLI artifact produced by build-images-and-charts"
@@ -115,7 +115,6 @@ jobs:
         include:
           - os_id: cs9-bootc
             backend_type: helm
-            ginkgo_label_filter: sanity
     uses: ./.github/workflows/run-e2e-tests.yaml
     with:
       os_id: ${{ matrix.os_id }}

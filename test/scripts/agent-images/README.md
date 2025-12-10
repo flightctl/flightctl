@@ -8,6 +8,16 @@ directory.
 
 And can be triggered from the top-level makefile with: `make e2e-agent-images`
 
+The `AGENT_OS_ID` parameter controls which OS flavor to build:
+
+```bash
+# Build for default OS (cs9-bootc)
+make e2e-agent-images
+
+# Build for specific OS
+AGENT_OS_ID=cs10-bootc make e2e-agent-images
+```
+
 ## Build Process
 
 The script is a wrapper that delegates to the modular build system:
@@ -57,7 +67,7 @@ This allows selecting specific OS versions in deployment configurations.
 
 The build system now uses a modular structure:
 
-```
+```text
 agent-images/
 ├── base/                  # Base image Containerfile
 ├── variants/              # Variant-specific files
@@ -90,11 +100,53 @@ The `scripts/` directory contains modular build automation:
 
 Use `./scripts/build.sh --help` for detailed usage and options.
 
-| Name   | Image                         | Bootc Containers                 |
-|------  |-------------------------------|----------------------------------|
-| base   | `bin/output/qcow2/disk.qcow2` | ${IP}:5000/flightctl-device:base |
-| v2     | N/A                           | $(IP):5000/flightctl-device:v2   |
-| v3     | N/A                           | $(IP):5000/flightctl-device:v3   |
+### Image Tagging
+
+Each image is tagged with multiple tags for flexibility:
+
+| Tag Pattern               | Example                                             |
+|---------------------------|-----------------------------------------------------|
+| `<name>-${OS_ID}-${TAG}`  | `quay.io/flightctl/flightctl-device:base-cs9-bootc-v0.5.0` |
+| `<name>`                  | `quay.io/flightctl/flightctl-device:base`           |
+| `<name>-${OS_ID}`         | `quay.io/flightctl/flightctl-device:base-cs9-bootc` |
+| `<name>-${TAG}`           | `quay.io/flightctl/flightctl-device:base-v0.5.0`    |
+
+Where `<name>` is `base`, `v2`, `v3`, etc.
+
+### Build Outputs
+
+| Name   | QCOW2 Image                      | Container Image Tags                        |
+|--------|----------------------------------|---------------------------------------------|
+| base   | `bin/output/qcow2/disk.qcow2`    | `base`, `base-${OS_ID}`, `base-${TAG}`, `base-${OS_ID}-${TAG}` |
+| v2     | N/A                              | `v2`, `v2-${OS_ID}`, `v2-${TAG}`, `v2-${OS_ID}-${TAG}` |
+| v3     | N/A                              | `v3`, `v3-${OS_ID}`, `v3-${TAG}`, `v3-${OS_ID}-${TAG}` |
+
+> **Note:** `qcow2.sh` writes the disk image to `bin/output/agent-qcow2-${OS_ID}/qcow2/disk.qcow2`.
+> When using `create_agent_images.sh`, the image is moved to `bin/output/qcow2/disk.qcow2`.
+
+### Local Usage and Registry Remapping
+
+Images are built locally with the default repository prefix `quay.io/flightctl/flightctl-device`
+(configurable via `IMAGE_REPO`). For e2e testing, images are typically uploaded to a local
+registry and the `quay.io/flightctl` prefix is remapped to the local registry address.
+
+To configure registry remapping in a QCOW2 image, use `inject_agent_files_into_qcow.sh`:
+
+```bash
+./test/scripts/inject_agent_files_into_qcow.sh --registry-addr <host>:5000
+```
+
+This creates a containers registry config at `/etc/containers/registries.conf.d/flightctl-remap.conf`
+that remaps `quay.io/flightctl` to the local registry:
+
+```toml
+[[registry]]
+prefix = "quay.io/flightctl"
+location = "<host>:5000/flightctl"
+```
+
+With this config, when the agent pulls `quay.io/flightctl/flightctl-device:v2`, it will
+actually pull from `<host>:5000/flightctl/flightctl-device:v2`.
 
 ## Credentials
 

@@ -4,21 +4,6 @@ set -euo pipefail
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
 BASE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-CURRENT_VERSION_SCRIPT="${ROOT_DIR}/hack/current-version"
-
-current_version() {
-  local version=""
-  if [[ -x "${CURRENT_VERSION_SCRIPT}" ]]; then
-    version=$((cd "${ROOT_DIR}" && "${CURRENT_VERSION_SCRIPT}") 2>/dev/null || true)
-  fi
-  if [[ -z "${version}" ]]; then
-    version=$((cd "${ROOT_DIR}" && git describe --tags --exclude latest 2>/dev/null) || true)
-  fi
-  if [[ -z "${version}" ]]; then
-    version="v0.0.0-unknown"
-  fi
-  echo -n "${version}"
-}
 
 IMAGE_REPO="${IMAGE_REPO:-quay.io/flightctl/flightctl-device}"
 CACHE_IMAGE_REPO="${CACHE_IMAGE_REPO:-quay.io/flightctl-tests/flightctl-device-cache}"
@@ -26,7 +11,7 @@ APP_REPO="${APP_REPO:-quay.io/flightctl}"
 AGENT_OS_ID="${AGENT_OS_ID:-cs9-bootc}"
 VARIANTS="${VARIANTS:-v2 v3 v4 v5 v6 v7 v8 v9 v10}"
 
-SOURCE_GIT_TAG="${SOURCE_GIT_TAG:-$(current_version)}"
+SOURCE_GIT_TAG="${SOURCE_GIT_TAG:-$(${ROOT_DIR}/hack/current-version)}"
 SOURCE_GIT_TREE_STATE="${SOURCE_GIT_TREE_STATE:-$( ( ( [ ! -d ".git/" ] || git diff --quiet ) && echo 'clean' ) || echo 'dirty' )}"
 SOURCE_GIT_COMMIT="${SOURCE_GIT_COMMIT:-$(git rev-parse --short "HEAD^{commit}" 2>/dev/null || echo "unknown")}"
 TAG="${TAG:-$SOURCE_GIT_TAG}"

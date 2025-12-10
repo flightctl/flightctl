@@ -31,7 +31,6 @@ runs:
 
       - name: Install dependencies
         shell: bash
-        if: inputs.setup_general_dependencies != 'true'
         run: |
           echo "::group::Installing general dependencies"
           sudo apt update -y # fix broken repo cache
