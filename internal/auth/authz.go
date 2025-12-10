@@ -151,6 +151,11 @@ func (m *MultiAuthZ) CheckPermission(ctx context.Context, resource string, op st
 		m.log.Warnf("Identity in context has incorrect type: %T, returning 403", identityVal)
 		return false, nil
 	}
+	// Skip org validation for GET /api/v1/organizations (list organizations) endpoint
+	if resource == "organizations" && op == "list" {
+		m.log.Debug("GetOrgs endpoint, returning true")
+		return true, nil
+	}
 
 	// Check issuer type
 	issuer := ident.GetIssuer()
