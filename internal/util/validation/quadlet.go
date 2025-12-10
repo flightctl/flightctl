@@ -85,6 +85,55 @@ func ValidateQuadletSpec(spec *common.QuadletReferences, path string) []error {
 	return errs
 }
 
+// ValidateQuadletCrossReferences validates that all quadlet file references within an application
+// actually exist in the application's defined files. This ensures that quadlet files don't reference
+// other quadlet files that aren't part of the same application (since applications are namespaced).
+func ValidateQuadletCrossReferences(specs map[string]*common.QuadletReferences) []error {
+	var errs []error
+
+	for path, spec := range specs {
+		if spec.Image != nil && quadlet.IsImageReference(*spec.Image) {
+			if _, exists := specs[*spec.Image]; !exists {
+				errs = append(errs, fmt.Errorf("quadlet file %q references %q which is not defined in the application", path, *spec.Image))
+			}
+		}
+
+		for _, mountImage := range spec.MountImages {
+			if quadlet.IsImageReference(mountImage) {
+				if _, exists := specs[mountImage]; !exists {
+					errs = append(errs, fmt.Errorf("quadlet file %q references %q which is not defined in the application", path, mountImage))
+				}
+			}
+		}
+
+		for _, volume := range spec.Volumes {
+			if _, exists := specs[volume]; !exists {
+				errs = append(errs, fmt.Errorf("quadlet file %q references %q which is not defined in the application", path, volume))
+			}
+		}
+
+		for _, mountVolume := range spec.MountVolumes {
+			if _, exists := specs[mountVolume]; !exists {
+				errs = append(errs, fmt.Errorf("quadlet file %q references %q which is not defined in the application", path, mountVolume))
+			}
+		}
+
+		for _, network := range spec.Networks {
+			if _, exists := specs[network]; !exists {
+				errs = append(errs, fmt.Errorf("quadlet file %q references %q which is not defined in the application", path, network))
+			}
+		}
+
+		for _, pod := range spec.Pods {
+			if _, exists := specs[pod]; !exists {
+				errs = append(errs, fmt.Errorf("quadlet file %q references %q which is not defined in the application", path, pod))
+			}
+		}
+	}
+
+	return errs
+}
+
 // ValidateQuadletPaths validates a list of paths for inline quadlet applications
 func ValidateQuadletPaths(paths []string) error {
 	var errs []error

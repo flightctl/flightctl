@@ -1,6 +1,7 @@
 package validation
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/api/common"
@@ -422,6 +423,226 @@ func TestValidateQuadletPaths(t *testing.T) {
 				return
 			}
 			require.NoError(err)
+		})
+	}
+}
+
+func TestValidateQuadletCrossReferences(t *testing.T) {
+	require := require.New(t)
+
+	tests := []struct {
+		name          string
+		specs         map[string]*common.QuadletReferences
+		wantErrCount  int
+		wantErrSubstr string
+	}{
+		{
+			name: "all references exist",
+			specs: map[string]*common.QuadletReferences{
+				"app.container": {
+					Type:         common.QuadletTypeContainer,
+					Image:        lo.ToPtr("myimage.image"),
+					Volumes:      []string{"data.volume"},
+					Networks:     []string{"mynet.network"},
+					Pods:         []string{"mypod.pod"},
+					MountImages:  []string{"extra.image"},
+					MountVolumes: []string{"cache.volume"},
+				},
+				"myimage.image": {
+					Type:  common.QuadletTypeImage,
+					Image: lo.ToPtr("quay.io/podman/hello:latest"),
+				},
+				"data.volume": {
+					Type: common.QuadletTypeVolume,
+				},
+				"mynet.network": {
+					Type: common.QuadletTypeNetwork,
+				},
+				"mypod.pod": {
+					Type: common.QuadletTypePod,
+				},
+				"extra.image": {
+					Type:  common.QuadletTypeImage,
+					Image: lo.ToPtr("quay.io/containers/data:v1"),
+				},
+				"cache.volume": {
+					Type: common.QuadletTypeVolume,
+				},
+			},
+			wantErrCount: 0,
+		},
+		{
+			name: "missing image reference",
+			specs: map[string]*common.QuadletReferences{
+				"app.container": {
+					Type:  common.QuadletTypeContainer,
+					Image: lo.ToPtr("missing.image"),
+				},
+			},
+			wantErrCount:  1,
+			wantErrSubstr: `references "missing.image" which is not defined`,
+		},
+		{
+			name: "missing volume reference",
+			specs: map[string]*common.QuadletReferences{
+				"app.container": {
+					Type:    common.QuadletTypeContainer,
+					Volumes: []string{"missing.volume"},
+				},
+			},
+			wantErrCount:  1,
+			wantErrSubstr: `references "missing.volume" which is not defined`,
+		},
+		{
+			name: "missing network reference",
+			specs: map[string]*common.QuadletReferences{
+				"app.container": {
+					Type:     common.QuadletTypeContainer,
+					Networks: []string{"missing.network"},
+				},
+			},
+			wantErrCount:  1,
+			wantErrSubstr: `references "missing.network" which is not defined`,
+		},
+		{
+			name: "missing pod reference",
+			specs: map[string]*common.QuadletReferences{
+				"app.container": {
+					Type: common.QuadletTypeContainer,
+					Pods: []string{"missing.pod"},
+				},
+			},
+			wantErrCount:  1,
+			wantErrSubstr: `references "missing.pod" which is not defined`,
+		},
+		{
+			name: "missing mount image reference",
+			specs: map[string]*common.QuadletReferences{
+				"app.container": {
+					Type:        common.QuadletTypeContainer,
+					MountImages: []string{"missing.image"},
+				},
+			},
+			wantErrCount:  1,
+			wantErrSubstr: `references "missing.image" which is not defined`,
+		},
+		{
+			name: "missing mount volume reference",
+			specs: map[string]*common.QuadletReferences{
+				"app.container": {
+					Type:         common.QuadletTypeContainer,
+					MountVolumes: []string{"missing.volume"},
+				},
+			},
+			wantErrCount:  1,
+			wantErrSubstr: `references "missing.volume" which is not defined`,
+		},
+		{
+			name: "multiple missing references",
+			specs: map[string]*common.QuadletReferences{
+				"app.container": {
+					Type:     common.QuadletTypeContainer,
+					Image:    lo.ToPtr("missing.image"),
+					Volumes:  []string{"missing.volume"},
+					Networks: []string{"missing.network"},
+				},
+			},
+			wantErrCount: 3,
+		},
+		{
+			name: "OCI image reference - not validated as file reference",
+			specs: map[string]*common.QuadletReferences{
+				"app.container": {
+					Type:  common.QuadletTypeContainer,
+					Image: lo.ToPtr("quay.io/podman/hello:latest"),
+				},
+			},
+			wantErrCount: 0,
+		},
+		{
+			name: "pod with volume and network references",
+			specs: map[string]*common.QuadletReferences{
+				"mypod.pod": {
+					Type:     common.QuadletTypePod,
+					Volumes:  []string{"shared.volume"},
+					Networks: []string{"backend.network"},
+				},
+				"shared.volume": {
+					Type: common.QuadletTypeVolume,
+				},
+				"backend.network": {
+					Type: common.QuadletTypeNetwork,
+				},
+			},
+			wantErrCount: 0,
+		},
+		{
+			name: "pod with missing volume reference",
+			specs: map[string]*common.QuadletReferences{
+				"mypod.pod": {
+					Type:    common.QuadletTypePod,
+					Volumes: []string{"missing.volume"},
+				},
+			},
+			wantErrCount:  1,
+			wantErrSubstr: `references "missing.volume" which is not defined`,
+		},
+		{
+			name: "volume with image reference",
+			specs: map[string]*common.QuadletReferences{
+				"data.volume": {
+					Type:  common.QuadletTypeVolume,
+					Image: lo.ToPtr("myimage.image"),
+				},
+				"myimage.image": {
+					Type:  common.QuadletTypeImage,
+					Image: lo.ToPtr("quay.io/fedora/fedora:latest"),
+				},
+			},
+			wantErrCount: 0,
+		},
+		{
+			name: "volume with missing image reference",
+			specs: map[string]*common.QuadletReferences{
+				"data.volume": {
+					Type:  common.QuadletTypeVolume,
+					Image: lo.ToPtr("missing.image"),
+				},
+			},
+			wantErrCount:  1,
+			wantErrSubstr: `references "missing.image" which is not defined`,
+		},
+		{
+			name: "container with OCI image - non-quadlet files not in specs",
+			specs: map[string]*common.QuadletReferences{
+				"app.container": {
+					Type:  common.QuadletTypeContainer,
+					Image: lo.ToPtr("quay.io/podman/hello:latest"),
+				},
+			},
+			wantErrCount: 0,
+		},
+		{
+			name:         "empty specs map",
+			specs:        map[string]*common.QuadletReferences{},
+			wantErrCount: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			errs := ValidateQuadletCrossReferences(tt.specs)
+			require.Len(errs, tt.wantErrCount, "expected %d errors, got %d: %v", tt.wantErrCount, len(errs), errs)
+			if tt.wantErrSubstr != "" && len(errs) > 0 {
+				found := false
+				for _, err := range errs {
+					if strings.Contains(err.Error(), tt.wantErrSubstr) {
+						found = true
+						break
+					}
+				}
+				require.True(found, "expected error containing %q, got: %v", tt.wantErrSubstr, errs)
+			}
 		})
 	}
 }
