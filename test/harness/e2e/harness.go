@@ -569,8 +569,9 @@ func ensureResourceContents[T any](id string, description string, fetch func(str
 
 func waitForResourceContents[T any](id string, description string, fetch func(string) (T, error), condition func(T) bool, timeout string) {
 	lastResourcePrint := ""
+	pollingRate := "500ms"
 
-	logrus.Infof("Waiting for condition: %q to be met - polling every 2s, timeout=%s", description, timeout)
+	logrus.Infof("Waiting for condition: %q to be met - polling every %s, timeout=%s", description, pollingRate, timeout)
 	Eventually(func() error {
 		logrus.Debugf("Waiting for condition: %q to be met", description)
 		resource, err := fetch(id)
@@ -582,7 +583,7 @@ func waitForResourceContents[T any](id string, description string, fetch func(st
 			return nil
 		}
 		return fmt.Errorf("resource: %s not updated", id)
-	}, timeout, "2s").Should(BeNil())
+	}, timeout, pollingRate).Should(BeNil())
 }
 
 func (h *Harness) EnrollAndWaitForOnlineStatus(labels ...map[string]string) (string, *v1beta1.Device) {
