@@ -230,8 +230,13 @@ func ShouldValidateOrg(method, path string) bool {
 		return false
 	}
 
-	// Skip org validation for /api/v1/auth/validate endpoint
+	// Skip org validation for GET /api/v1/auth/validate endpoint
 	if method == http.MethodGet && normalizedPath == "/api/v1/auth/validate" {
+		return false
+	}
+
+	// Skip org validation for GET /api/v1/auth/userinfo endpoint
+	if method == http.MethodGet && normalizedPath == "/api/v1/auth/userinfo" {
 		return false
 	}
 
