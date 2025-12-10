@@ -16,6 +16,7 @@ type Controller struct {
 	readWriter fileio.ReadWriter
 	manager    Manager
 	log        *log.PrefixLogger
+	bootTime   string
 }
 
 func NewController(
@@ -23,12 +24,14 @@ func NewController(
 	manager Manager,
 	readWriter fileio.ReadWriter,
 	log *log.PrefixLogger,
+	bootTime string,
 ) *Controller {
 	return &Controller{
 		log:        log,
 		manager:    manager,
 		podman:     podman,
 		readWriter: readWriter,
+		bootTime:   bootTime,
 	}
 }
 
@@ -42,6 +45,7 @@ func (c *Controller) Sync(ctx context.Context, current, desired *v1beta1.DeviceS
 		c.podman,
 		c.readWriter,
 		current,
+		provider.WithInstalledEmbedded(),
 	)
 	if err != nil {
 		return fmt.Errorf("current app providers: %w", err)
@@ -53,7 +57,7 @@ func (c *Controller) Sync(ctx context.Context, current, desired *v1beta1.DeviceS
 		c.podman,
 		c.readWriter,
 		desired,
-		provider.WithEmbedded(),
+		provider.WithEmbedded(c.bootTime),
 	)
 	if err != nil {
 		return fmt.Errorf("desired app providers: %w", err)

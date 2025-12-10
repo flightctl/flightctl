@@ -19,12 +19,15 @@ type embeddedProvider struct {
 	handler    embeddedAppTypeHandler
 }
 
-func newEmbeddedHandler(appType v1beta1.AppType, name string, rw fileio.ReadWriter) (embeddedAppTypeHandler, error) {
+func newEmbeddedHandler(appType v1beta1.AppType, name string, rw fileio.ReadWriter, l *log.PrefixLogger, bootTime string, installed bool) (embeddedAppTypeHandler, error) {
 	switch appType {
 	case v1beta1.AppTypeQuadlet:
 		return &embeddedQuadletBehavior{
-			name: name,
-			rw:   rw,
+			name:      name,
+			rw:        rw,
+			log:       l,
+			bootTime:  bootTime,
+			installed: installed,
 		}, nil
 	case v1beta1.AppTypeCompose:
 		return &embeddedComposeBehavior{
@@ -36,8 +39,8 @@ func newEmbeddedHandler(appType v1beta1.AppType, name string, rw fileio.ReadWrit
 	}
 }
 
-func newEmbedded(log *log.PrefixLogger, podman *client.Podman, readWriter fileio.ReadWriter, name string, appType v1beta1.AppType) (Provider, error) {
-	handler, err := newEmbeddedHandler(appType, name, readWriter)
+func newEmbedded(log *log.PrefixLogger, podman *client.Podman, readWriter fileio.ReadWriter, name string, appType v1beta1.AppType, bootTime string, installed bool) (Provider, error) {
+	handler, err := newEmbeddedHandler(appType, name, readWriter, log, bootTime, installed)
 	if err != nil {
 		return nil, fmt.Errorf("constructing embedded app handler: %w", err)
 	}
@@ -66,6 +69,7 @@ func newEmbedded(log *log.PrefixLogger, podman *client.Podman, readWriter fileio
 			EnvVars:  make(map[string]string),
 			Volume:   volumeManager,
 			Path:     handler.AppPath(),
+			bootTime: bootTime,
 		},
 	}, nil
 }

@@ -8,6 +8,8 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/quadlet"
+	"github.com/flightctl/flightctl/pkg/log"
 )
 
 type embeddedAppTypeHandler interface {
@@ -28,8 +30,11 @@ var _ embeddedAppTypeHandler = (*embeddedQuadletBehavior)(nil)
 var _ embeddedAppTypeHandler = (*embeddedComposeBehavior)(nil)
 
 type embeddedQuadletBehavior struct {
-	name string
-	rw   fileio.ReadWriter
+	name      string
+	rw        fileio.ReadWriter
+	log       *log.PrefixLogger
+	bootTime  string
+	installed bool
 }
 
 func (e *embeddedQuadletBehavior) Verify(ctx context.Context) error {
@@ -37,20 +42,27 @@ func (e *embeddedQuadletBehavior) Verify(ctx context.Context) error {
 }
 
 func (e *embeddedQuadletBehavior) Install(ctx context.Context) error {
-	// quadlet apps must be moved from their embedded location into the default
-	// systemd location. A symlink can't be used as the installed contents must be mutated
-	// to abide by flightctl's namespacing rules
 	if err := e.rw.CopyDir(e.embeddedPath(), e.AppPath(), fileio.WithFollowSymlinkWithinRoot()); err != nil {
 		return fmt.Errorf("copying embedded directory to real path: %w", err)
 	}
 
-	if err := installQuadlet(e.rw, e.AppPath(), e.ID()); err != nil {
+	if err := installQuadlet(e.rw, e.log, e.AppPath(), e.ID()); err != nil {
 		return fmt.Errorf("installing quadlet: %w", err)
 	}
+
+	markerPath := filepath.Join(e.AppPath(), embeddedQuadletMarkerFile)
+	if err := e.rw.WriteFile(markerPath, []byte(e.bootTime), fileio.DefaultFilePermissions); err != nil {
+		return fmt.Errorf("writing embedded marker: %w", err)
+	}
+
 	return nil
 }
 
 func (e *embeddedQuadletBehavior) Remove(ctx context.Context) error {
+	path := filepath.Join(lifecycle.QuadletTargetPath, quadlet.NamespaceResource(e.ID(), lifecycle.QuadletTargetName))
+	if err := e.rw.RemoveFile(path); err != nil {
+		return fmt.Errorf("removing quadlet target file: %w", err)
+	}
 	if err := e.rw.RemoveAll(e.AppPath()); err != nil {
 		return fmt.Errorf("removing application: %w", err)
 	}
@@ -68,7 +80,11 @@ func (e *embeddedQuadletBehavior) embeddedPath() string {
 func (e *embeddedQuadletBehavior) ID() string {
 	return client.NewComposeID(e.name)
 }
+
 func (e *embeddedQuadletBehavior) Volumes() ([]*Volume, error) {
+	if e.installed {
+		return extractQuadletVolumesFromDir(e.ID(), e.rw, e.AppPath())
+	}
 	return extractQuadletVolumesFromDir(e.ID(), e.rw, e.embeddedPath())
 }
 
