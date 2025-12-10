@@ -476,3 +476,8 @@ GitHub
 github.com
 clientId
 JWKS
+CLI
+webserver
+ - docs/user/installing/configuring-auth/auth-oidc.md
+CLI
+webserver
