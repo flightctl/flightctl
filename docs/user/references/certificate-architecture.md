@@ -5,24 +5,24 @@ Flight Control uses X.509 certificates with mTLS for all agent-service communica
 ## Certificate Chain of Trust
 
 ```text
-FlightCtl Root CA (10yr)
-├── Server Certificates (2yr)
-└── Client-Signer CA (10yr, intermediate)
-    └── Client Certificates (7d - 1yr)
+FlightCtl Root CA
+├── Server Certificates
+└── Client-Signer CA
+    └── Client Certificates
 ```
 
 For TPM attestation certificates, see [Configuring Device Attestation](../installing/configuring-device-attestation.md).
 
 ## Certificate Matrix
 
-| Certificate        | Purpose            | Validity | Signed By               |
+| Certificate        | Purpose            | Validity (default) | Signed By               |
 | ------------------ | ------------------ | -------- | ----------------------- |
 | FlightCtl Root CA  | Root of trust      | 10 years | Auto generated (self-signed) |
 | Client-Signer CA   | Signs client certs | 10 years | Root CA          |
-| API Server         | API TLS            | 2 years  | Root CA          |
-| Telemetry Gateway  | Metrics TLS        | 2 years  | Root CA          |
-| Alertmanager Proxy | Alerts TLS         | 2 years  | Root CA          |
-| Enrollment         | Device enrollment  | 7 days   | Client-Signer CA |
+| API Server         | API TLS            | 1 year   | Root CA          |
+| Telemetry Gateway  | Metrics TLS        | 1 year   | Root CA          |
+| Alertmanager Proxy | Alerts TLS         | 1 year   | Root CA          |
+| Enrollment         | Device enrollment  | 1 year   | Client-Signer CA |
 | Device Management  | Device operations  | 1 year   | Client-Signer CA |
 
 ## File Locations
@@ -104,7 +104,7 @@ flightctl certificate request --signer=enrollment --expiration=30d --output=embe
 ## Certificate Rotation
 
 > [!IMPORTANT]
-> Certificates are **not** automatically rotated. Administrators must track expiration dates and manually renew certificates or re-enroll devices before they expire.
+> Certificates are **not** automatically rotated. Administrators must track expiration dates and manually renew server certificates before they expire. Device re-enrollment requires physical access to provision new enrollment credentials.
 
 ## Backup and Recovery
 
