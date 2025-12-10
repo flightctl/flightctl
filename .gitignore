@@ -10,7 +10,7 @@ flightctl-*.rpm
 *.tar
 /packaging/rpm/flightctl-*/
 **/*.test
-
+/devicesim-logs/
 # All temporary files should be created here
 /.output/
 
