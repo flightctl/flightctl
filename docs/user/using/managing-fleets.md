@@ -106,6 +106,66 @@ The following fields in device templates support placeholders (including within 
 | HTTP Config Provider | URL suffix, path |
 | Inline Config Provider | content, path |
 
+### Using Kubernetes Secrets
+
+In addition to the templating mechanism, you can also reference Kubernetes secrets in your device templates. This is useful for injecting sensitive information like passwords or certificates into your devices.
+
+To use a Kubernetes secret, you can use the `secretRef` field in your device template. The `secretRef` field has the following subfields:
+
+| Field       | Description                                                  |
+|-------------|--------------------------------------------------------------|
+| `name`      | The name of the Kubernetes secret.                           |
+| `namespace` | The namespace where the Kubernetes secret is located.        |
+| `mountPath` | The absolute path on the device where the secret should be mounted. |
+
+Here is an example of a device template that uses a `secretRef`:
+
+```yaml
+spec:
+  config:
+    - name: my-secret
+      secretRef:
+        name: my-secret-name
+        namespace: my-secret-namespace
+        mountPath: /etc/my-secret
+```
+
+#### RBAC Permissions
+
+For the Flight Control service to be able to access the Kubernetes secrets, the service account used by the Flight Control service needs the following RBAC permissions in the namespace where the secrets are stored:
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: flightctl-secret-reader
+  namespace: <secret-namespace>
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get"]
+```
+
+You also need to create a `RoleBinding` to grant these permissions to the Flight Control service account.
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: flightctl-secret-reader-binding
+  namespace: <secret-namespace>
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: flightctl-secret-reader
+subjects:
+- kind: ServiceAccount
+  name: <flightctl-service-account-name>
+  namespace: <flightctl-namespace>
+```
+
+Replace `<secret-namespace>`, `<flightctl-service-account-name>`, and `<flightctl-namespace>` with the appropriate values for your environment.
+
 ## Defining Rollout Policies
 
 You can define policies that govern how a change to a fleet's device template gets rolled out across devices of the fleet. This gives you control over
