@@ -154,7 +154,7 @@ jobs:
       - name: Prebuild E2E tests
         run: |
           go install github.com/onsi/ginkgo/v2/ginkgo
-          ginkgo build ./test/e2e/...
+          ginkgo build --trace ./test/e2e/...
 
       - name: Run E2E Test Slice
         env:
