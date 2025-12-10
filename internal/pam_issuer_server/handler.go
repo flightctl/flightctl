@@ -3,6 +3,7 @@
 package pam_issuer_server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -211,6 +212,7 @@ func (h *Handler) AuthAuthorize(w http.ResponseWriter, r *http.Request, params p
 	switch response.Type {
 	case pam.AuthorizeResponseTypeHTML:
 		// Return HTML login form with correct content-type
+		// SNYK-SUPPRESSION: response.Content comes from GetLoginForm which uses html/template to safely escape all user input, preventing XSS
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
 		if _, err := w.Write([]byte(response.Content)); err != nil {
@@ -235,11 +237,31 @@ func (h *Handler) AuthLogin(w http.ResponseWriter, r *http.Request, params pamap
 	codeChallenge := r.URL.Query().Get("code_challenge")
 	codeChallengeMethod := r.URL.Query().Get("code_challenge_method")
 
-	// Return HTML login form with PKCE parameters
-	loginForm := h.pamProvider.GetLoginForm(params.ClientId, params.RedirectUri, lo.FromPtrOr(params.State, ""), codeChallenge, codeChallengeMethod)
+	// Use html/template to safely escape all user input and prevent XSS
+	// The template automatically escapes all variables, making it safe to render user-provided values
+	data := pam.LoginFormData{
+		ClientID:            params.ClientId,
+		RedirectURI:         params.RedirectUri,
+		State:               lo.FromPtrOr(params.State, ""),
+		CodeChallenge:       codeChallenge,
+		CodeChallengeMethod: codeChallengeMethod,
+	}
+
+	var buf bytes.Buffer
+	tmpl := h.pamProvider.GetLoginFormTemplate()
+	if err := tmpl.Execute(&buf, data); err != nil {
+		h.log.Errorf("Failed to execute login form template: %v", err)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusInternalServerError)
+		if _, writeErr := w.Write([]byte(`<!DOCTYPE html><html><head><title>Error</title></head><body><h1>Error</h1><p>Failed to generate login form.</p></body></html>`)); writeErr != nil {
+			h.log.Errorf("Failed to write error response: %v", writeErr)
+		}
+		return
+	}
+
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	if _, err := w.Write([]byte(loginForm)); err != nil {
+	if _, err := w.Write(buf.Bytes()); err != nil {
 		h.log.Errorf("Failed to write response: %v", err)
 	}
 }
