@@ -227,6 +227,25 @@ func (s *GenericStore[P, M, A, AL]) updateResource(ctx context.Context, fromAPI 
 	if result.RowsAffected == 0 {
 		return true, flterrors.ErrNoRowsUpdated
 	}
+
+	// Merge preserved fields from existing into resource
+	// Fields that are nil in resource weren't included in the update (not in selectFields),
+	// so they're preserved from existing. Copy them to resource so the returned model
+	// accurately reflects the database state.
+	// However, don't preserve fields that are explicitly being unset via fieldsToUnset.
+	if resource.GetOwner() == nil && !lo.Contains(fieldsToUnset, "owner") {
+		resource.SetOwner(existing.GetOwner())
+	}
+	// Preserve annotations if they were nil (not updated)
+	// When fromAPI=true, annotations are set to nil in createOrUpdate to preserve existing ones
+	// When fromAPI=false, if annotations are nil, they weren't updated, so preserve from existing
+	if resource.GetAnnotations() == nil && !lo.Contains(fieldsToUnset, "annotations") {
+		resource.SetAnnotations(existing.GetAnnotations())
+	}
+	if resource.GetLabels() == nil && !lo.Contains(fieldsToUnset, "labels") {
+		resource.SetLabels(existing.GetLabels())
+	}
+
 	return false, nil
 }
 
