@@ -1568,6 +1568,21 @@ Image=quay.io/test/db:v1
 			expectError: false,
 		},
 		{
+			name: "duplicate container names detected",
+			files: map[string]string{
+				"app.container": `[Container]
+Image=quay.io/test/app:v1
+ContainerName=shared
+`,
+				"db.container": `[Container]
+Image=quay.io/test/db:v1
+ContainerName=shared
+`,
+			},
+			expectError:   true,
+			errorContains: "duplicate ContainerName",
+		},
+		{
 			name: "quadlet files in subdirectory (invalid)",
 			files: map[string]string{
 				"app1/app.container": `[Container]
