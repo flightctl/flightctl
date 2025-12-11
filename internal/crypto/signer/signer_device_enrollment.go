@@ -10,21 +10,21 @@ import (
 
 const DefaultEnrollmentCertExpirySeconds int32 = 60 * 60 * 24 * 7 // 7 days
 
-type SignerClientBootstrap struct {
+type SignerDeviceEnrollment struct {
 	name string
 	ca   CA
 }
 
-func NewClientBootstrap(CAClient CA) Signer {
+func NewDeviceEnrollment(CAClient CA) Signer {
 	cfg := CAClient.Config()
-	return &SignerClientBootstrap{name: cfg.ClientBootstrapSignerName, ca: CAClient}
+	return &SignerDeviceEnrollment{name: cfg.DeviceEnrollmentSignerName, ca: CAClient}
 }
 
-func (s *SignerClientBootstrap) Name() string {
+func (s *SignerDeviceEnrollment) Name() string {
 	return s.name
 }
 
-func (s *SignerClientBootstrap) Verify(ctx context.Context, request SignRequest) error {
+func (s *SignerDeviceEnrollment) Verify(ctx context.Context, request SignRequest) error {
 	// We are about to expose CreateCertificateSigningRequest to agents.
 	// Currently, there is no code in the agent that handles this flow for issuing bootstrap certificates.
 	// For safety, we do not allow client certificates (issued by the system) to request bootstrap certificates at this time.
@@ -37,7 +37,7 @@ func (s *SignerClientBootstrap) Verify(ctx context.Context, request SignRequest)
 	return nil
 }
 
-func (s *SignerClientBootstrap) Sign(ctx context.Context, request SignRequest) (*x509.Certificate, error) {
+func (s *SignerDeviceEnrollment) Sign(ctx context.Context, request SignRequest) (*x509.Certificate, error) {
 	cfg := s.ca.Config()
 
 	if request.ResourceName() == nil {

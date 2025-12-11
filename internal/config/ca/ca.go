@@ -26,7 +26,7 @@ type Config struct {
 	AdminCommonName                 string       `json:"adminCommonName,omitempty"`
 	ClientBootstrapCommonName       string       `json:"clientBootstrapCommonName,omitempty"`
 	ClientBootstrapCertName         string       `json:"clientBootstrapCertName,omitempty"`
-	ClientBootstrapSignerName       string       `json:"clientBootstrapSignerName,omitempty"`
+	DeviceEnrollmentSignerName      string       `json:"deviceEnrollmentSignerName,omitempty"`
 	ClientBootstrapCommonNamePrefix string       `json:"clientBootstrapCommonNamePrefix,omitempty"`
 	DeviceManagementSignerName      string       `json:"deviceManagementSignerName,omitempty"`
 	DeviceSvcClientSignerName       string       `json:"deviceSvcClientSignerName,omitempty"`
@@ -44,7 +44,7 @@ func NewDefault(tempDir string) *Config {
 		AdminCommonName:                 api.ExternalRoleAdmin,
 		ClientBootstrapCertName:         "client-enrollment",
 		ClientBootstrapCommonName:       "client-enrollment",
-		ClientBootstrapSignerName:       "flightctl.io/enrollment",
+		DeviceEnrollmentSignerName:      "flightctl.io/enrollment",
 		ClientBootstrapCommonNamePrefix: "client-enrollment-",
 		DeviceManagementSignerName:      "flightctl.io/device-enrollment",
 		DeviceSvcClientSignerName:       "flightctl.io/device-svc-client",

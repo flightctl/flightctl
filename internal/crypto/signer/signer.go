@@ -43,11 +43,11 @@ func NewCASigners(ca CA) *CASigners {
 	ret := &CASigners{
 		ca: ca,
 		signers: map[string]Signer{
-			cfg.ClientBootstrapSignerName: WithSignerNameValidation(
+			cfg.DeviceEnrollmentSignerName: WithSignerNameValidation(
 				WithCertificateReuse(
 					WithCSRValidation(
 						WithSignerNameExtension(
-							WithOrgIDExtension(NewClientBootstrap))(ca),
+							WithOrgIDExtension(NewDeviceEnrollment))(ca),
 					),
 				),
 			),

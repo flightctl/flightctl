@@ -41,8 +41,8 @@ func (s *SignerDeviceManagement) Verify(ctx context.Context, request SignRequest
 
 		// Enforce that if a client certificate was presented, it must be signed by the expected bootstrap signer.
 		// This ensures only bootstrap client certificates can be used to perform device enrollment.
-		if signer == nil || signer.Name() != cfg.ClientBootstrapSignerName {
-			return fmt.Errorf("unexpected client certificate signer: expected %q, got %q", cfg.ClientBootstrapSignerName, got)
+		if signer == nil || signer.Name() != cfg.DeviceEnrollmentSignerName {
+			return fmt.Errorf("unexpected client certificate signer: expected %q, got %q", cfg.DeviceEnrollmentSignerName, got)
 		}
 	}
 	return nil
