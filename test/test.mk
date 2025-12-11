@@ -115,7 +115,7 @@ _run_template_migration:
 	'
 
 deploy-e2e-extras: bin/.ssh/id_rsa.pub bin/e2e-certs/ca.pem git-server-container
-	test/scripts/deploy_e2e_extras_with_helm.sh
+	test/scripts/deploy_e2e_extra_with_helm.sh
 
 deploy-e2e-ocp-test-vm:
 	sudo --preserve-env=VM_DISK_SIZE_INC test/scripts/create_vm_libvirt.sh ${KUBECONFIG_PATH}

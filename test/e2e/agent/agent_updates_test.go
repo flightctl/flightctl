@@ -285,7 +285,7 @@ var _ = Describe("VM Agent behavior during updates", func() {
 				}, TIMEOUT)
 			*/
 		})
-		It("Should respect the spec's update schedule", Label("79220", "sanity"), func() {
+		It("Should respect the spec's update schedule", Label("79220", "sanity", "slow"), func() {
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 

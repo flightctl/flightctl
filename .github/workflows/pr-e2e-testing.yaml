@@ -106,6 +106,11 @@ jobs:
     needs: compute-tag
     if: needs.compute-tag.outputs.any_changed == 'true'
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - label_filter: 'sanity && !slow'
+          - label_filter: 'sanity && slow'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -113,9 +118,17 @@ jobs:
       - name: Setup dependencies
         uses: ./.github/actions/setup-dependencies
 
+      - name: Compute label filter hash
+        id: compute-hash
+        run: |
+          HASH=$(echo "${{ matrix.label_filter }}" | sha256sum | cut -c1-8)
+          echo "hash=${HASH}" >> "$GITHUB_OUTPUT"
+          echo "Label filter: ${{ matrix.label_filter }}"
+          echo "Hash: ${HASH}"
+
       - name: Run test discovery
         env:
-          GINKGO_LABEL_FILTER: ${{ inputs.label_filter || 'sanity' }}
+          GINKGO_LABEL_FILTER: ${{ matrix.label_filter }}
           DISCOVERY_ONLY: "true"
           DISCOVERY_PATH: discovery.json
         run: |
@@ -133,8 +146,8 @@ jobs:
 
           echo ""
           echo "=== Tests found ==="
-          TEST_COUNT=$(jq -r '[.[] | .SpecReports[]? | select(.LeafNodeLabels != null and (.LeafNodeLabels | contains(["sanity"])))] | length' discovery.json)
-          echo "Total sanity tests found: ${TEST_COUNT}"
+          TEST_COUNT=$(jq -r '[.[] | .SpecReports[]? | select(.LeafNodeLabels != null)] | length' discovery.json)
+          echo "Total tests found with filter '${{ matrix.label_filter }}': ${TEST_COUNT}"
 
           if [[ "${TEST_COUNT}" -eq 0 ]]; then
             echo "ERROR: No tests found in discovery! Check for compilation errors above."
@@ -144,7 +157,7 @@ jobs:
       - name: Upload discovery artifact
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-discovery-${{ needs.compute-tag.outputs.tag }}
+          name: e2e-discovery-${{ steps.compute-hash.outputs.hash }}-${{ needs.compute-tag.outputs.tag }}
           path: discovery.json
           retention-days: 1
 
@@ -162,12 +175,18 @@ jobs:
         include:
           - os_id: cs9-bootc
             backend_type: helm
+            label_filter: 'sanity && !slow'
+            ginkgo_total_nodes: 5
+          - os_id: cs9-bootc
+            backend_type: helm
+            ginkgo_total_nodes: 1
+            label_filter: 'sanity && slow'
     uses: ./.github/workflows/run-e2e-tests.yaml
     with:
       os_id: ${{ matrix.os_id }}
       backend_type: ${{ matrix.backend_type }}
-      ginkgo_total_nodes: 5
-      ginkgo_label_filter: ${{ inputs.label_filter || 'sanity' }}
+      ginkgo_total_nodes: ${{ matrix.ginkgo_total_nodes }}
+      ginkgo_label_filter: ${{ matrix.label_filter }}
       tag: ${{ needs.compute-tag.outputs.tag }}
 
   e2e:

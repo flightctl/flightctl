@@ -157,10 +157,18 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-go-
 
+      - name: Compute label filter hash
+        id: compute-hash
+        run: |
+          HASH=$(echo "${{ inputs.ginkgo_label_filter }}" | sha256sum | cut -c1-8)
+          echo "hash=${HASH}" >> "$GITHUB_OUTPUT"
+          echo "Label filter: ${{ inputs.ginkgo_label_filter }}"
+          echo "Hash: ${HASH}"
+
       - name: Download test discovery
         uses: actions/download-artifact@v4
         with:
-          name: e2e-discovery-${{ inputs.tag }}
+          name: e2e-discovery-${{ steps.compute-hash.outputs.hash }}-${{ inputs.tag }}
           path: .
 
       - name: Run E2E Test Slice

@@ -77,13 +77,14 @@ if [[ "${GINKGO_TOTAL_NODES}" -gt 1 ]]; then
         DISCOVERY_GENERATED=true
     fi
 
-    # Parse the JSON report to extract test names with sanity label
+    # Parse the JSON report to extract test names that would actually run
     # Use jq to extract just the LeafNodeText (test description) for focus patterns
     # Sort and deduplicate to ensure consistent distribution
+    # Filter for tests that would run (not skipped) and are actual test specs (LeafNodeType == "It")
     jq -r '
         .[] |
         .SpecReports[]? |
-        select(.LeafNodeLabels != null and (.LeafNodeLabels | contains(["sanity"]))) |
+        select(.LeafNodeType == "It" and .State != "skipped") |
         .LeafNodeText
     ' "${DISCOVERY_PATH}" | sort -u > "${TEMP_TEST_LIST}"
 
