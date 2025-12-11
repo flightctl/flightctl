@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Upload images from a bundle tar to a registry.
-# Usage: ./upload-images.sh bundle.tar [--registry-endpoint host:port] [--insecure] [--jobs N]
+# Usage: ./upload-images.sh bundle.tar [--registry-endpoint host:port] [--jobs N]
 #
 # If REGISTRY_ENDPOINT is not provided, it will be calculated using registry_address()
 
@@ -13,7 +13,6 @@ BUNDLE="${1:?bundle tar required}"
 shift || true
 
 ARG_ENDPOINT=""
-TLS_VERIFY=false
 # Default to min(nproc, 4) to avoid overwhelming the system
 if [ -z "${JOBS:-}" ]; then
   NPROC=$(nproc)
@@ -23,7 +22,6 @@ fi
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --registry-endpoint) ARG_ENDPOINT="$2"; shift 2 ;;
-    --insecure) TLS_VERIFY=false; shift ;;
     --jobs) JOBS="$2"; shift 2 ;;
     *) echo "unknown arg: $1"; exit 2 ;;
   esac
@@ -36,12 +34,9 @@ if [ -z "${REGISTRY_ENDPOINT}" ]; then
   echo "Using calculated registry address: ${REGISTRY_ENDPOINT}"
 fi
 
-TLS_FLAG="--dest-tls-verify=${TLS_VERIFY}"
-
 # Check registry availability
 echo "Checking registry availability at ${REGISTRY_ENDPOINT}..."
-CURL_ARGS="-f --connect-timeout 5"
-[[ "${TLS_VERIFY}" == "false" ]] && CURL_ARGS+=" --insecure"
+CURL_ARGS="-f --connect-timeout 5 --insecure"
 
 for i in {0..29}; do
   echo "Attempting connection... (${i}s/30s)"
@@ -83,7 +78,7 @@ cat "$pairs_file" | xargs -P "$JOBS" -I{} bash -c '
   retry=0
   while [[ $retry -lt $max_retries ]]; do
     set +euo pipefail
-    skopeo_output=$(skopeo copy --all '"$TLS_FLAG"' "$src" "$dst" 2>&1)
+    skopeo_output=$(skopeo copy --all --dest-tls-verify=false "$src" "$dst" 2>&1)
     skopeo_exit=$?
     echo "$skopeo_output" | awk -v p="$pfx" "{print p \$0}"
 

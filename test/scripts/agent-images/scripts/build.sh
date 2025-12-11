@@ -12,8 +12,8 @@ AGENT_OS_ID="${AGENT_OS_ID:-cs9-bootc}"
 VARIANTS="${VARIANTS:-v2 v3 v4 v5 v6 v7 v8 v9 v10}"
 
 SOURCE_GIT_TAG="${SOURCE_GIT_TAG:-$(${ROOT_DIR}/hack/current-version)}"
-SOURCE_GIT_TREE_STATE="${SOURCE_GIT_TREE_STATE:-$( ( ( [ ! -d ".git/" ] || git diff --quiet ) && echo 'clean' ) || echo 'dirty' )}"
-SOURCE_GIT_COMMIT="${SOURCE_GIT_COMMIT:-$(git rev-parse --short "HEAD^{commit}" 2>/dev/null || echo "unknown")}"
+SOURCE_GIT_TREE_STATE="${SOURCE_GIT_TREE_STATE:-$(cd "${ROOT_DIR}" && ( ( [ ! -d ".git" ] || git diff --quiet ) && echo "clean" ) || echo "dirty")}"
+SOURCE_GIT_COMMIT="${SOURCE_GIT_COMMIT:-$(cd "${ROOT_DIR}" && git rev-parse --short "HEAD^{commit}" 2>/dev/null) || echo "unknown"}"
 TAG="${TAG:-$SOURCE_GIT_TAG}"
 
 PODMAN_LOG_LEVEL="${PODMAN_LOG_LEVEL:-info}"
