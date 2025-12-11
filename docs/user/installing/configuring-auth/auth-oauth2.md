@@ -35,8 +35,11 @@ Configure how users are assigned to organizations via `organizationAssignment` i
   - `organizationNamePrefix`: Optional prefix for organization names
   - `organizationNameSuffix`: Optional suffix for organization names
 - **Per User** (`type: perUser`): Creates a separate organization for each user
+
   - `organizationNamePrefix`: Prefix for user-specific org name (default: `"user-org-"`)
   - `organizationNameSuffix`: Optional suffix for org name
+
+  **Important:** When choosing `organizationAssignment=perUser`, it's recommended to use `roleAssignment=static` with the `flightctl-org-admin` role. Since each user manages their own organization, `flightctl-org-admin` provides the appropriate permissions for managing organization resources. See below for details on role assignment.
 
 ### Role Assignment
 
@@ -311,14 +314,14 @@ spec:
   roleAssignment:
     type: static
     roles:
-      - flightctl-operator
+      - flightctl-org-admin
 EOF
 ```
 
 This configuration will:
 
 - Create a separate organization for each user (e.g., `user-org-alice`, `user-org-bob`)
-- Assign all users the `flightctl-operator` role in their personal organization
+- Assign all users the `flightctl-org-admin` role in their personal organization, giving them full administrative access to manage their organization's resources
 
 **Example with GitHub OAuth2:**
 
