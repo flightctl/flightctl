@@ -43,8 +43,11 @@ run_discovery() {
 
     DISCOVER_CMD+=("${GO_E2E_DIRS[@]}")
 
-    # We ignore the exit code because some test suites might have issues, but we still want to parse the JSON
-    "${DISCOVER_CMD[@]}" > /dev/null 2>&1 || true
+    # Run discovery - fail if ginkgo fails (compilation errors, etc.)
+    if ! "${DISCOVER_CMD[@]}"; then
+        echo "ERROR: Test discovery failed!"
+        exit 1
+    fi
     echo "Discovery saved to: ${DISCOVERY_PATH}"
 }
 

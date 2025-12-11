@@ -110,11 +110,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
+      - name: Setup dependencies
+        uses: ./.github/actions/setup-dependencies
 
       - name: Run test discovery
         env:
@@ -124,8 +121,25 @@ jobs:
         run: |
           mkdir -p reports
           test/scripts/run_e2e_tests.sh reports ./test/e2e/...
-          echo "Discovery completed:"
+
+      - name: Validate discovery results
+        run: |
+          echo "=== Discovery file info ==="
           ls -la discovery.json
+
+          echo ""
+          echo "=== Discovery content (formatted) ==="
+          jq '.' discovery.json
+
+          echo ""
+          echo "=== Tests found ==="
+          TEST_COUNT=$(jq -r '[.[] | .SpecReports[]? | select(.LeafNodeLabels != null and (.LeafNodeLabels | contains(["sanity"])))] | length' discovery.json)
+          echo "Total sanity tests found: ${TEST_COUNT}"
+
+          if [[ "${TEST_COUNT}" -eq 0 ]]; then
+            echo "ERROR: No tests found in discovery! Check for compilation errors above."
+            exit 1
+          fi
 
       - name: Upload discovery artifact
         uses: actions/upload-artifact@v4
