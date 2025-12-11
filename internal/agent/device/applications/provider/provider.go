@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -48,6 +49,8 @@ type ApplicationSpec struct {
 	EnvVars map[string]string
 	// Embedded is true if the application is embedded in the device
 	Embedded bool
+	// bootTime is used for embedded app comparison (unexported, works with reflect.DeepEqual)
+	bootTime string
 	// Volume manager.
 	Volume VolumeManager
 	// ImageProvider is the spec for the image provider
@@ -421,8 +424,14 @@ func FromDeviceSpec(
 		}
 	}
 
+	if cfg.installedEmbedded {
+		if err := discoverInstalledEmbeddedApps(ctx, log, podman, readWriter, &providers); err != nil {
+			log.Warnf("Failed to discover installed embedded apps: %v", err)
+		}
+	}
+
 	if cfg.embedded {
-		if err := parseEmbedded(ctx, log, podman, readWriter, &providers); err != nil {
+		if err := parseEmbedded(ctx, log, podman, readWriter, cfg.embeddedBootTime, &providers); err != nil {
 			return nil, err
 		}
 	}
@@ -438,7 +447,7 @@ func FromDeviceSpec(
 	return providers, nil
 }
 
-func discoverEmbeddedApplications(ctx context.Context, log *log.PrefixLogger, podman *client.Podman, readWriter fileio.ReadWriter, providers *[]Provider, basePath string, appType v1beta1.AppType, patterns []string) error {
+func discoverEmbeddedApplications(ctx context.Context, log *log.PrefixLogger, podman *client.Podman, readWriter fileio.ReadWriter, providers *[]Provider, basePath string, appType v1beta1.AppType, patterns []string, bootTime string) error {
 	elements, err := readWriter.ReadDir(basePath)
 	if err != nil {
 		return err
@@ -458,7 +467,7 @@ func discoverEmbeddedApplications(ctx context.Context, log *log.PrefixLogger, po
 			}
 			if len(files) > 0 {
 				log.Debugf("Discovered embedded %s application: %s", appType, name)
-				provider, err := newEmbedded(log, podman, readWriter, name, appType)
+				provider, err := newEmbedded(log, podman, readWriter, name, appType, bootTime, false)
 				if err != nil {
 					return err
 				}
@@ -470,24 +479,24 @@ func discoverEmbeddedApplications(ctx context.Context, log *log.PrefixLogger, po
 	return nil
 }
 
-func parseEmbeddedCompose(ctx context.Context, log *log.PrefixLogger, podman *client.Podman, readWriter fileio.ReadWriter, providers *[]Provider) error {
+func parseEmbeddedCompose(ctx context.Context, log *log.PrefixLogger, podman *client.Podman, readWriter fileio.ReadWriter, providers *[]Provider, bootTime string) error {
 	patterns := []string{"*.yml", "*.yaml"}
-	return discoverEmbeddedApplications(ctx, log, podman, readWriter, providers, lifecycle.EmbeddedComposeAppPath, v1beta1.AppTypeCompose, patterns)
+	return discoverEmbeddedApplications(ctx, log, podman, readWriter, providers, lifecycle.EmbeddedComposeAppPath, v1beta1.AppTypeCompose, patterns, bootTime)
 }
 
-func parseEmbeddedQuadlet(ctx context.Context, log *log.PrefixLogger, podman *client.Podman, readWriter fileio.ReadWriter, providers *[]Provider) error {
+func parseEmbeddedQuadlet(ctx context.Context, log *log.PrefixLogger, podman *client.Podman, readWriter fileio.ReadWriter, providers *[]Provider, bootTime string) error {
 	var patterns []string
 	for ext := range common.SupportedQuadletExtensions {
 		patterns = append(patterns, fmt.Sprintf("*%s", ext))
 	}
-	return discoverEmbeddedApplications(ctx, log, podman, readWriter, providers, lifecycle.EmbeddedQuadletAppPath, v1beta1.AppTypeQuadlet, patterns)
+	return discoverEmbeddedApplications(ctx, log, podman, readWriter, providers, lifecycle.EmbeddedQuadletAppPath, v1beta1.AppTypeQuadlet, patterns, bootTime)
 }
 
-func parseEmbedded(ctx context.Context, log *log.PrefixLogger, podman *client.Podman, readWriter fileio.ReadWriter, providers *[]Provider) error {
-	if err := parseEmbeddedCompose(ctx, log, podman, readWriter, providers); err != nil {
+func parseEmbedded(ctx context.Context, log *log.PrefixLogger, podman *client.Podman, readWriter fileio.ReadWriter, bootTime string, providers *[]Provider) error {
+	if err := parseEmbeddedCompose(ctx, log, podman, readWriter, providers, bootTime); err != nil {
 		return fmt.Errorf("parsing embedded compose: %w", err)
 	}
-	if err := parseEmbeddedQuadlet(ctx, log, podman, readWriter, providers); err != nil {
+	if err := parseEmbeddedQuadlet(ctx, log, podman, readWriter, providers, bootTime); err != nil {
 		return fmt.Errorf("parsing embedded quadlet: %w", err)
 	}
 
@@ -498,6 +507,56 @@ func parseEmbedded(ctx context.Context, log *log.PrefixLogger, podman *client.Po
 				return fmt.Errorf("verify embedded app %s: %w", p.Name(), err)
 			}
 		}
+	}
+
+	return nil
+}
+
+func discoverInstalledEmbeddedApps(
+	ctx context.Context,
+	log *log.PrefixLogger,
+	podman *client.Podman,
+	readWriter fileio.ReadWriter,
+	providers *[]Provider,
+) error {
+	entries, err := readWriter.ReadDir(lifecycle.QuadletAppPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("reading quadlet app path: %w", err)
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		appName := entry.Name()
+		appPath := filepath.Join(lifecycle.QuadletAppPath, appName)
+		markerPath := filepath.Join(appPath, embeddedQuadletMarkerFile)
+
+		markerExists, err := readWriter.PathExists(markerPath)
+		if err != nil {
+			return fmt.Errorf("checking %q exists: %w", markerPath, err)
+		}
+
+		if !markerExists {
+			continue
+		}
+
+		markerContent, err := readWriter.ReadFile(markerPath)
+		if err != nil {
+			return fmt.Errorf("reading %q: %w", markerPath, err)
+		}
+
+		storedBootTime := strings.TrimSpace(string(markerContent))
+
+		provider, err := newEmbedded(log, podman, readWriter, appName, v1beta1.AppTypeQuadlet, storedBootTime, true)
+		if err != nil {
+			return fmt.Errorf("parsing embedded quadlet app %s: %w", appName, err)
+		}
+		*providers = append(*providers, provider)
 	}
 
 	return nil
@@ -561,15 +620,24 @@ type Diff struct {
 type ParseOpt func(*parseConfig)
 
 type parseConfig struct {
-	embedded      bool
-	verify        bool
-	providerTypes map[v1beta1.ApplicationProviderType]struct{}
-	appDataCache  map[string]*AppData
+	embedded          bool
+	embeddedBootTime  string
+	verify            bool
+	providerTypes     map[v1beta1.ApplicationProviderType]struct{}
+	appDataCache      map[string]*AppData
+	installedEmbedded bool
 }
 
-func WithEmbedded() ParseOpt {
+func WithEmbedded(bootTime string) ParseOpt {
 	return func(c *parseConfig) {
 		c.embedded = true
+		c.embeddedBootTime = bootTime
+	}
+}
+
+func WithInstalledEmbedded() ParseOpt {
+	return func(c *parseConfig) {
+		c.installedEmbedded = true
 	}
 }
 

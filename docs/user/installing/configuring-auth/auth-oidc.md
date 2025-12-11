@@ -56,6 +56,8 @@ Configure how roles are assigned via `roleAssignment` in the AuthProvider:
     - Example: `["resource_access", "flightctl", "roles"]` for `userinfo.resource_access.flightctl.roles`
   - `separator`: Separator for org:role format (default: `":"`) - roles containing the separator are split into organization-scoped roles
 
+**Note:** Any role or organization configuration changes on the issuer side require users to log in again to receive updated assignments.
+
 ## Role Scoping
 
 Roles support organization scoping using the `:` separator:
@@ -90,6 +92,13 @@ Flight Control currently recognizes the following roles with defined permissions
 **Note:** Other role names can be assigned via AuthProvider configuration but will not have permissions unless they match these recognized roles.
 
 ## Configuration
+
+### Redirect URLs
+
+Configure the following redirect URLs in both Flight Control and your OIDC provider:
+
+- `<UI_URL>/callback` - Web UI callback
+- `http://localhost:8080/callback` - CLI webserver callback (default port 8080)
 
 ### Dynamic Provider Management
 
