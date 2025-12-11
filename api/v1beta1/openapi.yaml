@@ -4613,12 +4613,20 @@ components:
             name:
               type: string
               description: Unique name of the volume used within the application.
+            reclaimPolicy:
+              $ref: "#/components/schemas/ApplicationVolumeReclaimPolicy"
           required:
             - name
         - oneOf:
             - $ref: "#/components/schemas/ImageVolumeProviderSpec"
             - $ref: "#/components/schemas/MountVolumeProviderSpec"
             - $ref: "#/components/schemas/ImageMountVolumeProviderSpec"
+    ApplicationVolumeReclaimPolicy:
+      type: string
+      description: Defines how the agent handles a volume when the owning application is removed.
+      default: Retain
+      enum:
+        - Retain
     VolumeMount:
       type: object
       description: Mount configuration for a volume.
