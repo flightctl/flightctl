@@ -51,10 +51,10 @@ func NewCASigners(ca CA) *CASigners {
 					),
 				),
 			),
-			cfg.DeviceEnrollmentSignerName: WithSignerNameValidation(
+			cfg.DeviceManagementSignerName: WithSignerNameValidation(
 				WithCertificateReuse(
 					WithCSRValidation(
-						WithSignerNameExtension(WithOrgIDExtension(NewSignerDeviceEnrollment))(ca),
+						WithSignerNameExtension(WithOrgIDExtension(NewSignerDeviceManagement))(ca),
 					),
 				),
 			),

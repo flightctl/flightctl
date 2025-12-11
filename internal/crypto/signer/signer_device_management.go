@@ -6,27 +6,27 @@ import (
 	"fmt"
 )
 
-const signerDeviceEnrollmentExpiryDays int32 = 365
+const signerDeviceManagementExpiryDays int32 = 365
 
-type SignerDeviceEnrollment struct {
+type SignerDeviceManagement struct {
 	name string
 	ca   CA
 }
 
-func NewSignerDeviceEnrollment(CAClient CA) Signer {
+func NewSignerDeviceManagement(CAClient CA) Signer {
 	cfg := CAClient.Config()
-	return &SignerDeviceEnrollment{name: cfg.DeviceEnrollmentSignerName, ca: CAClient}
+	return &SignerDeviceManagement{name: cfg.DeviceManagementSignerName, ca: CAClient}
 }
 
-func (s *SignerDeviceEnrollment) RestrictedPrefix() string {
+func (s *SignerDeviceManagement) RestrictedPrefix() string {
 	return s.ca.Config().DeviceCommonNamePrefix
 }
 
-func (s *SignerDeviceEnrollment) Name() string {
+func (s *SignerDeviceManagement) Name() string {
 	return s.name
 }
 
-func (s *SignerDeviceEnrollment) Verify(ctx context.Context, request SignRequest) error {
+func (s *SignerDeviceManagement) Verify(ctx context.Context, request SignRequest) error {
 	cfg := s.ca.Config()
 
 	// Check if the client presented a peer certificate during the mTLS handshake.
@@ -48,7 +48,7 @@ func (s *SignerDeviceEnrollment) Verify(ctx context.Context, request SignRequest
 	return nil
 }
 
-func (s *SignerDeviceEnrollment) Sign(ctx context.Context, request SignRequest) (*x509.Certificate, error) {
+func (s *SignerDeviceManagement) Sign(ctx context.Context, request SignRequest) (*x509.Certificate, error) {
 	cfg := s.ca.Config()
 
 	if request.ResourceName() == nil {
@@ -74,7 +74,7 @@ func (s *SignerDeviceEnrollment) Sign(ctx context.Context, request SignRequest) 
 
 	x509CSR.Subject.CommonName = desired
 
-	expirySeconds := signerDeviceEnrollmentExpiryDays * 24 * 60 * 60
+	expirySeconds := signerDeviceManagementExpiryDays * 24 * 60 * 60
 	if request.ExpirationSeconds() != nil && *request.ExpirationSeconds() < expirySeconds {
 		expirySeconds = *request.ExpirationSeconds()
 	}

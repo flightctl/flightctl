@@ -28,7 +28,7 @@ type Config struct {
 	ClientBootstrapCertName         string       `json:"clientBootstrapCertName,omitempty"`
 	ClientBootstrapSignerName       string       `json:"clientBootstrapSignerName,omitempty"`
 	ClientBootstrapCommonNamePrefix string       `json:"clientBootstrapCommonNamePrefix,omitempty"`
-	DeviceEnrollmentSignerName      string       `json:"deviceEnrollmentSignerName,omitempty"`
+	DeviceManagementSignerName      string       `json:"deviceManagementSignerName,omitempty"`
 	DeviceSvcClientSignerName       string       `json:"deviceSvcClientSignerName,omitempty"`
 	ServerSvcSignerName             string       `json:"serverSvcSignerName,omitempty"`
 	ClientBootstrapValidityDays     int          `json:"clientBootStrapValidityDays,omitempty"`
@@ -46,7 +46,7 @@ func NewDefault(tempDir string) *Config {
 		ClientBootstrapCommonName:       "client-enrollment",
 		ClientBootstrapSignerName:       "flightctl.io/enrollment",
 		ClientBootstrapCommonNamePrefix: "client-enrollment-",
-		DeviceEnrollmentSignerName:      "flightctl.io/device-enrollment",
+		DeviceManagementSignerName:      "flightctl.io/device-enrollment",
 		DeviceSvcClientSignerName:       "flightctl.io/device-svc-client",
 		ServerSvcSignerName:             "flightctl.io/server-svc",
 		ClientBootstrapValidityDays:     365,
