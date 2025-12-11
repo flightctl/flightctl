@@ -29,7 +29,7 @@ The table below contains the routes, names, resource names, and verbs for Flight
 |`PATCH /api/v1/enrollmentrequests/{name}`|`PatchEnrollmentRequest`|`enrollmentrequests`|`patch`|
 |`DELETE /api/v1/enrollmentrequests/{name}`|`DeleteEnrollmentRequest`|`enrollmentrequests`|`delete`|
 |`GET /api/v1/enrollmentrequests/{name}/status`|`ReadEnrollmentRequestStatus`|`enrollmentrequests/status`|`get`|
-|`POST /api/v1/enrollmentrequests/{name}/approval`|`ApproveEnrollmentRequest`|`enrollmentrequests/approval`|`post`|
+|`PUT /api/v1/enrollmentrequests/{name}/approval`|`ApproveEnrollmentRequest`|`enrollmentrequests/approval`|`update`|
 |`PUT /api/v1/enrollmentrequests/{name}/status`|`ReplaceEnrollmentRequestStatus`|`enrollmentrequests/status`|`update`|
 |`POST /api/v1/fleets`|`CreateFleet`|`fleets`|`create`|
 |`GET /api/v1/fleets`|`ListFleets`|`fleets`|`list`|

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
@@ -305,7 +306,7 @@ func extractQuadletVolumes(appID string, quadlets map[string]*common.QuadletRefe
 		if quad.Type != common.QuadletTypeVolume || quad.Image == nil {
 			continue
 		}
-
+		name = strings.TrimPrefix(name, fmt.Sprintf("%s-", appID))
 		volumes = append(volumes, &Volume{
 			Name:      name,
 			ID:        quadlet.VolumeName(quad.Name, quadlet.NamespaceResource(appID, name)),

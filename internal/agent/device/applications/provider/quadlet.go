@@ -10,15 +10,26 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/api/common"
 	"github.com/flightctl/flightctl/internal/quadlet"
+	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/samber/lo"
 )
 
 const (
-	quadletDropInFile = "99-flightctl.conf"
+	quadletDropInFile         = "99-flightctl.conf"
+	embeddedQuadletMarkerFile = ".flightctl-embedded"
 )
+
+type quadletInstaller struct {
+	readWriter fileio.ReadWriter
+	logger     *log.PrefixLogger
+	path       string
+	appID      string
+}
 
 // installQuadlet prepares Podman quadlet files for use with flightctl by applying namespacing,
 // updating cross-references, and adding flightctl-specific overrides.
@@ -85,8 +96,18 @@ const (
 //	    myapp-.volume.d/
 //	      99-flightctl.conf      (flightctl overrides)
 //	    .env                     (preserved as-is)
-func installQuadlet(readWriter fileio.ReadWriter, path string, appID string) error {
-	entries, err := readWriter.ReadDir(path)
+func installQuadlet(readWriter fileio.ReadWriter, logger *log.PrefixLogger, path string, appID string) error {
+	q := &quadletInstaller{
+		readWriter: readWriter,
+		logger:     logger,
+		path:       path,
+		appID:      appID,
+	}
+	return q.install()
+}
+
+func (q *quadletInstaller) install() error {
+	entries, err := q.readWriter.ReadDir(q.path)
 	if err != nil {
 		return fmt.Errorf("reading directory: %w", err)
 	}
@@ -94,14 +115,15 @@ func installQuadlet(readWriter fileio.ReadWriter, path string, appID string) err
 	hasEnvFile := false
 	foundTypes := make(map[string]struct{})
 	quadletBasenames := make(map[string]struct{})
+	var serviceNames []string
 
-	// 1. apply namespacing rules by appending the supplied appID to the quadlet files
-	// and any drop in directories
+	// Collect service and quadlet names and namespace files and drop-in dirs
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			filename := entry.Name()
 
 			if filename == ".env" {
+				q.logger.Tracef("Found environment file for quadlet: %s", q.appID)
 				hasEnvFile = true
 				continue
 			}
@@ -109,43 +131,57 @@ func installQuadlet(readWriter fileio.ReadWriter, path string, appID string) err
 			ext := filepath.Ext(filename)
 			isQuadlet := quadlet.IsQuadletFile(filename)
 			if isQuadlet || ext == ".target" {
+				basename := strings.TrimSuffix(filename, ext)
+				basename = strings.TrimPrefix(basename, fmt.Sprintf("%s-", q.appID))
+				quadletBasenames[basename] = struct{}{}
 				if isQuadlet {
 					foundTypes[ext] = struct{}{}
+
+					defaultSvc, err := defaultServiceName(basename, ext)
+					if err != nil {
+						return err
+					}
+					svcName, err := q.getServiceName(filepath.Join(q.path, filename), ext, defaultSvc)
+					if err != nil {
+						return fmt.Errorf("getting service name for %s: %w", filename, err)
+					}
+					serviceNames = append(serviceNames, svcName)
+					quadletBasenames[strings.TrimSuffix(svcName, ".service")] = struct{}{}
 				}
 
-				basename := strings.TrimSuffix(filename, ext)
-				basename = strings.TrimPrefix(basename, fmt.Sprintf("%s-", appID))
-				quadletBasenames[basename] = struct{}{}
-
-				if err := namespaceQuadletFile(readWriter, path, appID, filename); err != nil {
+				if err := q.namespaceQuadletFile(filename); err != nil {
 					return fmt.Errorf("namespacing %s: %w", filename, err)
 				}
 			}
 		} else {
-			if err = namespaceDropInDirectory(readWriter, filepath.Join(path, entry.Name()), appID); err != nil {
+			if err = q.namespaceDropInDirectory(filepath.Join(q.path, entry.Name())); err != nil {
 				return fmt.Errorf("namespacing drop-in dir %s: %w", entry.Name(), err)
 			}
 		}
 	}
 
-	entries, err = readWriter.ReadDir(path)
+	// Create target file with collected service names
+	if err := q.createFlightctlTarget(serviceNames); err != nil {
+		return fmt.Errorf("creating flightctl target: %w", err)
+	}
+
+	entries, err = q.readWriter.ReadDir(q.path)
 	if err != nil {
 		return fmt.Errorf("re-reading directory: %w", err)
 	}
 
-	// 2. Update any required references in quadlet files or in drop-in .conf files
+	// Update any required references in quadlet files or in drop-in .conf files
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			filename := entry.Name()
 			ext := filepath.Ext(filename)
-			isQuadlet := quadlet.IsQuadletFile(filename)
-			if isQuadlet || ext == ".target" {
-				if err := updateQuadletReferences(readWriter, path, appID, filename, ext, quadletBasenames); err != nil {
+			if quadlet.IsQuadletFile(filename) || ext == ".target" {
+				if err := q.updateQuadletReferences(filename, ext, quadletBasenames); err != nil {
 					return fmt.Errorf("updating references in %s: %w", filename, err)
 				}
 			}
 		} else {
-			if err = updateDropInReferences(readWriter, filepath.Join(path, entry.Name()), appID, quadletBasenames); err != nil {
+			if err = q.updateDropInReferences(filepath.Join(q.path, entry.Name()), quadletBasenames); err != nil {
 				return fmt.Errorf("updating drop-in references: %w", err)
 			}
 		}
@@ -153,9 +189,14 @@ func installQuadlet(readWriter fileio.ReadWriter, path string, appID string) err
 
 	// For any quadlet types that were found, apply flightctl overrides
 	for ext := range foundTypes {
-		if err := createQuadletDropIn(readWriter, path, appID, ext, hasEnvFile); err != nil {
+		if err := q.createQuadletDropIn(ext, hasEnvFile); err != nil {
 			return fmt.Errorf("creating drop-in for %s: %w", ext, err)
 		}
+	}
+
+	// Copy the target file to the systemd unit directory
+	if err := q.copyTargetToSystemd(); err != nil {
+		return fmt.Errorf("copying target to systemd: %w", err)
 	}
 
 	return nil
@@ -172,36 +213,42 @@ func isNamespaced(name, appID string) bool {
 	return strings.HasPrefix(name, fmt.Sprintf("%s-", appID))
 }
 
+func (q *quadletInstaller) isNamespaced(name string) bool {
+	return isNamespaced(name, q.appID)
+}
+
 // namespaceQuadletFile renames a quadlet file to include the appID prefix if it doesn't already have it
-func namespaceQuadletFile(readWriter fileio.ReadWriter, dirPath, appID, filename string) error {
-	if isNamespaced(filename, appID) {
+func (q *quadletInstaller) namespaceQuadletFile(filename string) error {
+	if q.isNamespaced(filename) {
 		return nil
 	}
+	q.logger.Tracef("Namespacing quadlet file %s", filename)
 
-	oldPath := filepath.Join(dirPath, filename)
-	newPath := filepath.Join(dirPath, namespacedQuadlet(appID, filename))
+	oldPath := filepath.Join(q.path, filename)
+	newPath := filepath.Join(q.path, namespacedQuadlet(q.appID, filename))
 
-	if err := readWriter.CopyFile(oldPath, newPath); err != nil {
+	if err := q.readWriter.CopyFile(oldPath, newPath); err != nil {
 		return fmt.Errorf("copying file: %w", err)
 	}
 
-	if err := readWriter.RemoveFile(oldPath); err != nil {
+	if err := q.readWriter.RemoveFile(oldPath); err != nil {
 		return fmt.Errorf("removing original file: %w", err)
 	}
 
 	return nil
 }
 
-// namespaceDropInDirectories renames drop-in directories to match namespaced quadlet files
+// namespaceDropInDirectory renames drop-in directories to match namespaced quadlet files
 // For example: web.container.d/ -> myapp-web.container.d/
 // Also handles hierarchical drop-ins: foo-bar.container.d/, foo-.container.d/, container.d/ -> myapp-foo-bar.container.d/, myapp-foo-.container.d/, myapp-.container.d/
-func namespaceDropInDirectory(readWriter fileio.ReadWriter, dirPath, appID string) error {
+func (q *quadletInstaller) namespaceDropInDirectory(dirPath string) error {
 	dirname := filepath.Base(dirPath)
 
 	// ensure drop-in dir
 	if !strings.HasSuffix(dirname, ".d") {
 		return nil
 	}
+	q.logger.Tracef("Namespacing dropin directory: %s for app: %s", dirname, q.appID)
 
 	// Check if it's a quadlet drop-in directory (e.g., web.container.d, container.d, foo-.container.d)
 	baseName := strings.TrimSuffix(dirname, ".d")
@@ -218,26 +265,26 @@ func namespaceDropInDirectory(readWriter fileio.ReadWriter, dirPath, appID strin
 		return nil
 	}
 
-	if isNamespaced(dirname, appID) {
+	if q.isNamespaced(dirname) {
 		return nil
 	}
 
 	var newDirname string
 	if topLevelDropIn {
-		newDirname = namespacedQuadlet(appID, fmt.Sprintf(".%s", dirname))
+		newDirname = namespacedQuadlet(q.appID, fmt.Sprintf(".%s", dirname))
 	} else {
-		newDirname = namespacedQuadlet(appID, dirname)
+		newDirname = namespacedQuadlet(q.appID, dirname)
 	}
 
 	oldPath := dirPath
 	newPath := filepath.Join(filepath.Dir(dirPath), newDirname)
 
-	dropInEntries, err := readWriter.ReadDir(oldPath)
+	dropInEntries, err := q.readWriter.ReadDir(oldPath)
 	if err != nil {
 		return fmt.Errorf("reading drop-in directory %s: %w", oldPath, err)
 	}
 
-	if err = readWriter.MkdirAll(newPath, fileio.DefaultDirectoryPermissions); err != nil {
+	if err = q.readWriter.MkdirAll(newPath, fileio.DefaultDirectoryPermissions); err != nil {
 		return fmt.Errorf("creating new drop-in directory: %w", err)
 	}
 
@@ -249,12 +296,12 @@ func namespaceDropInDirectory(readWriter fileio.ReadWriter, dirPath, appID strin
 		oldFilePath := filepath.Join(oldPath, dropInEntry.Name())
 		newFilePath := filepath.Join(newPath, dropInEntry.Name())
 
-		if err = readWriter.CopyFile(oldFilePath, newFilePath); err != nil {
+		if err = q.readWriter.CopyFile(oldFilePath, newFilePath); err != nil {
 			return fmt.Errorf("copying %s: %w", oldFilePath, err)
 		}
 	}
 
-	if err = readWriter.RemoveAll(oldPath); err != nil {
+	if err = q.readWriter.RemoveAll(oldPath); err != nil {
 		return fmt.Errorf("removing old drop-in directory: %w", err)
 	}
 
@@ -262,33 +309,33 @@ func namespaceDropInDirectory(readWriter fileio.ReadWriter, dirPath, appID strin
 }
 
 // createQuadletDropIn creates a drop-in override directory and configuration file
-// for a specific quadlet type. It adds the project label and optionally the EnvironmentFile parameter.
-func createQuadletDropIn(readWriter fileio.ReadWriter, dirPath, appID, extension string, hasEnvFile bool) error {
-	// .image quadlets primarily allow for customization of pulling images. No drop-ins are required
-	// for them
-	if extension == quadlet.ImageExtension {
-		return nil
-	}
-
-	dropInDir := filepath.Join(dirPath, fmt.Sprintf("%s-%s.d", appID, extension))
-	if err := readWriter.MkdirAll(dropInDir, fileio.DefaultDirectoryPermissions); err != nil {
+// for a specific quadlet type. It adds the project label, PartOf directive, and optionally the EnvironmentFile parameter.
+func (q *quadletInstaller) createQuadletDropIn(extension string, hasEnvFile bool) error {
+	q.logger.Tracef("Creating drop-in for %s for app: %s", extension, q.appID)
+	dropInDir := filepath.Join(q.path, fmt.Sprintf("%s-%s.d", q.appID, extension))
+	if err := q.readWriter.MkdirAll(dropInDir, fileio.DefaultDirectoryPermissions); err != nil {
 		return fmt.Errorf("creating drop-in directory: %w", err)
 	}
 
 	sectionName := quadlet.Extensions[extension]
 
 	unit := quadlet.NewEmptyUnit()
-	// Pod quadlets don't have first class support for the LabelKey until v5.6
-	if extension == quadlet.PodExtension {
-		unit.Add(sectionName, quadlet.PodmanArgsKey, fmt.Sprintf("--label=%s=%s", client.QuadletProjectLabelKey, appID))
-	} else {
-		// add label for tracking quadlet events by app id
-		unit.Add(sectionName, quadlet.LabelKey, fmt.Sprintf("%s=%s", client.QuadletProjectLabelKey, appID))
+	unit.Add("Unit", "PartOf", quadlet.NamespaceResource(q.appID, lifecycle.QuadletTargetName))
+
+	// add label for tracking quadlet events by app id
+	switch extension {
+	case quadlet.ImageExtension:
+		// no labels for Image quadlets
+	case quadlet.PodExtension:
+		// Pod quadlets don't have first class support for the LabelKey until v5.6
+		unit.Add(sectionName, quadlet.PodmanArgsKey, fmt.Sprintf("--label=%s=%s", client.QuadletProjectLabelKey, q.appID))
+	default:
+		unit.Add(sectionName, quadlet.LabelKey, fmt.Sprintf("%s=%s", client.QuadletProjectLabelKey, q.appID))
 	}
 
 	// Only containers support environment files
 	if hasEnvFile && extension == quadlet.ContainerExtension {
-		unit.Add(sectionName, quadlet.EnvironmentFileKey, filepath.Join(dirPath, ".env"))
+		unit.Add(sectionName, quadlet.EnvironmentFileKey, filepath.Join(q.path, ".env"))
 	}
 
 	contents, err := unit.Write()
@@ -296,11 +343,88 @@ func createQuadletDropIn(readWriter fileio.ReadWriter, dirPath, appID, extension
 		return fmt.Errorf("serializing drop-in: %w", err)
 	}
 
-	if err := readWriter.WriteFile(filepath.Join(dropInDir, quadletDropInFile), contents, fileio.DefaultFilePermissions); err != nil {
+	if err := q.readWriter.WriteFile(filepath.Join(dropInDir, quadletDropInFile), contents, fileio.DefaultFilePermissions); err != nil {
 		return fmt.Errorf("writing drop-in file: %w", err)
 	}
 
 	return nil
+}
+
+func defaultServiceName(basename, ext string) (string, error) {
+	switch ext {
+	case quadlet.ContainerExtension:
+		return fmt.Sprintf("%s.service", basename), nil
+	case quadlet.PodExtension:
+		return fmt.Sprintf("%s-pod.service", basename), nil
+	case quadlet.VolumeExtension:
+		return fmt.Sprintf("%s-volume.service", basename), nil
+	case quadlet.NetworkExtension:
+		return fmt.Sprintf("%s-network.service", basename), nil
+	case quadlet.ImageExtension:
+		return fmt.Sprintf("%s-image.service", basename), nil
+	default:
+		return "", fmt.Errorf("%w: %s", common.ErrUnsupportedQuadletType, ext)
+	}
+}
+
+func (q *quadletInstaller) getServiceName(filePath, ext, defaultName string) (string, error) {
+	// currently only Pods (and Artifacts but those are unsupported) allow for specifying a custom service name
+	if ext != quadlet.PodExtension {
+		return defaultName, nil
+	}
+	q.logger.Tracef("Parsing service override for: %s for app: %s", filePath, q.appID)
+
+	// Read the contents of the Pod quadlet for a ServiceName override. If one exists, return that. Otherwise, return
+	// the default service name
+	contents, err := q.readWriter.ReadFile(filePath)
+	if err != nil {
+		return "", fmt.Errorf("reading file: %w", err)
+	}
+	unit, err := quadlet.NewUnit(contents)
+	if err != nil {
+		return "", fmt.Errorf("parsing quadlet: %w", err)
+	}
+	name, err := unit.Lookup(quadlet.PodGroup, quadlet.ServiceNameKey)
+	if err != nil {
+		if errors.Is(err, quadlet.ErrKeyNotFound) {
+			q.logger.Debugf("Quadlet service name not found for quadlet: %s app: %s. Defaulting to name: %s", q.appID, filePath, defaultName)
+			return defaultName, nil
+		}
+		return "", err
+	}
+	if filepath.Ext(name) == ".service" {
+		return name, nil
+	}
+	return fmt.Sprintf("%s.service", name), nil
+}
+
+func (q *quadletInstaller) createFlightctlTarget(serviceNames []string) error {
+	q.logger.Tracef("Creating flightctl target for app: %s", q.appID)
+	unit := quadlet.NewEmptyUnit()
+	for _, svc := range serviceNames {
+		unit.Add("Unit", "Wants", svc)
+		unit.Add("Unit", "After", svc)
+	}
+
+	contents, err := unit.Write()
+	if err != nil {
+		return fmt.Errorf("serializing target: %w", err)
+	}
+
+	targetPath := filepath.Join(q.path, quadlet.NamespaceResource(q.appID, lifecycle.QuadletTargetName))
+	return q.readWriter.WriteFile(targetPath, contents, fileio.DefaultFilePermissions)
+}
+
+func (q *quadletInstaller) copyTargetToSystemd() error {
+	q.logger.Tracef("Copying flightctl target to systemd path for app: %s", q.appID)
+	targetName := quadlet.NamespaceResource(q.appID, lifecycle.QuadletTargetName)
+	srcPath := filepath.Join(q.path, targetName)
+	dstPath := filepath.Join(lifecycle.QuadletTargetPath, targetName)
+	if err := q.readWriter.MkdirAll(lifecycle.QuadletTargetPath, fileio.DefaultDirectoryPermissions); err != nil {
+		return fmt.Errorf("creating target directory: %w", err)
+	}
+
+	return q.readWriter.CopyFile(srcPath, dstPath)
 }
 
 // prefixQuadletReference prefixes a quadlet filename reference with appID if it's not already prefixed
@@ -367,24 +491,24 @@ func namespaceNetworkName(value, appID string) string {
 
 // updateSystemdReference updates references in [Unit] and [Install] sections
 // It handles both direct quadlet references and service references generated by our quadlets
-func updateSystemdReference(value, appID string, quadletBasenames map[string]struct{}) string {
+func (q *quadletInstaller) updateSystemdReference(value string, quadletBasenames map[string]struct{}) string {
 	ext := filepath.Ext(value)
 	if ext == ".service" || ext == ".target" {
 		basename := strings.TrimSuffix(value, ext)
 		if _, exists := quadletBasenames[basename]; exists {
-			return namespacedQuadlet(appID, value)
+			return namespacedQuadlet(q.appID, value)
 		}
 		return value
 	}
 
-	return prefixQuadletReference(value, appID)
+	return prefixQuadletReference(value, q.appID)
 }
 
 // updateSpaceSeparatedReferences updates space-separated systemd references
-func updateSpaceSeparatedReferences(value, appID string, quadletBasenames map[string]struct{}) string {
+func (q *quadletInstaller) updateSpaceSeparatedReferences(value string, quadletBasenames map[string]struct{}) string {
 	parts := strings.Fields(value)
 	for i, part := range parts {
-		parts[i] = updateSystemdReference(part, appID, quadletBasenames)
+		parts[i] = q.updateSystemdReference(part, quadletBasenames)
 	}
 	return strings.Join(parts, " ")
 }
@@ -442,10 +566,10 @@ func updateVolumeValue(value, appID string) (string, error) {
 }
 
 // updateSystemdSection updates references in [Unit] or [Install] sections
-func updateSystemdSection(unit *quadlet.Unit, section string, appID string, quadletBasenames map[string]struct{}) error {
+func (q *quadletInstaller) updateSystemdSection(unit *quadlet.Unit, section string, quadletBasenames map[string]struct{}) error {
 	if unit.HasSection(section) {
 		return unit.TransformAll(section, func(_, value string) (string, error) {
-			return updateSpaceSeparatedReferences(value, appID, quadletBasenames), nil
+			return q.updateSpaceSeparatedReferences(value, quadletBasenames), nil
 		})
 	}
 	return nil
@@ -512,6 +636,12 @@ var quadletNamespaceRules = map[string][]struct {
 				return func(val string) (string, error) { return namespacedQuadlet(appID, val), nil }
 			},
 		},
+		{
+			key: quadlet.ServiceNameKey,
+			transform: func(appID string) quadlet.UnitEntryTransformFn {
+				return func(val string) (string, error) { return namespacedQuadlet(appID, val), nil }
+			},
+		},
 	},
 	quadlet.VolumeGroup: {
 		{
@@ -538,9 +668,13 @@ var quadletNamespaceRules = map[string][]struct {
 }
 
 // updateQuadletReferences updates cross-references within a quadlet file after it has been namespaced
-func updateQuadletReferences(readWriter fileio.ReadWriter, dirPath, appID, filename, extension string, quadletBasenames map[string]struct{}) error {
+func (q *quadletInstaller) updateQuadletReferences(filename, extension string, quadletBasenames map[string]struct{}) error {
+	return q.updateQuadletReferencesInDir(q.path, filename, extension, quadletBasenames)
+}
+
+func (q *quadletInstaller) updateQuadletReferencesInDir(dirPath, filename, extension string, quadletBasenames map[string]struct{}) error {
 	filePath := filepath.Join(dirPath, filename)
-	content, err := readWriter.ReadFile(filePath)
+	content, err := q.readWriter.ReadFile(filePath)
 	if err != nil {
 		return fmt.Errorf("reading file: %w", err)
 	}
@@ -550,10 +684,10 @@ func updateQuadletReferences(readWriter fileio.ReadWriter, dirPath, appID, filen
 		return fmt.Errorf("deserializing quadlet: %w", err)
 	}
 
-	if err := updateSystemdSection(unit, "Unit", appID, quadletBasenames); err != nil {
+	if err := q.updateSystemdSection(unit, "Unit", quadletBasenames); err != nil {
 		return fmt.Errorf("updating systemd Unit section: %w", err)
 	}
-	if err := updateSystemdSection(unit, "Install", appID, quadletBasenames); err != nil {
+	if err := q.updateSystemdSection(unit, "Install", quadletBasenames); err != nil {
 		return fmt.Errorf("updating systemd Install section: %w", err)
 	}
 
@@ -564,7 +698,7 @@ func updateQuadletReferences(readWriter fileio.ReadWriter, dirPath, appID, filen
 			if !unit.HasSection(section) {
 				continue
 			}
-			if err := unit.Transform(section, rule.key, rule.transform(appID)); err != nil {
+			if err := unit.Transform(section, rule.key, rule.transform(q.appID)); err != nil {
 				transformErrs = append(transformErrs, err)
 			}
 		}
@@ -578,7 +712,7 @@ func updateQuadletReferences(readWriter fileio.ReadWriter, dirPath, appID, filen
 		return fmt.Errorf("serializing sections: %w", err)
 	}
 
-	if err := readWriter.WriteFile(filePath, contents, fileio.DefaultFilePermissions); err != nil {
+	if err := q.readWriter.WriteFile(filePath, contents, fileio.DefaultFilePermissions); err != nil {
 		return fmt.Errorf("writing file: %w", err)
 	}
 
@@ -586,14 +720,14 @@ func updateQuadletReferences(readWriter fileio.ReadWriter, dirPath, appID, filen
 }
 
 // updateDropInReferences updates references within drop-in .conf files after drop-in directories have been namespaced
-func updateDropInReferences(readWriter fileio.ReadWriter, dirPath, appID string, quadletBasenames map[string]struct{}) error {
+func (q *quadletInstaller) updateDropInReferences(dirPath string, quadletBasenames map[string]struct{}) error {
 	dirname := filepath.Base(dirPath)
 
 	if !strings.HasSuffix(dirname, ".d") {
 		return nil
 	}
 
-	if !isNamespaced(dirname, appID) {
+	if !q.isNamespaced(dirname) {
 		return nil
 	}
 
@@ -605,7 +739,7 @@ func updateDropInReferences(readWriter fileio.ReadWriter, dirPath, appID string,
 	}
 
 	dropInPath := dirPath
-	confEntries, err := readWriter.ReadDir(dropInPath)
+	confEntries, err := q.readWriter.ReadDir(dropInPath)
 	if err != nil {
 		return fmt.Errorf("reading drop-in directory %s: %w", dropInPath, err)
 	}
@@ -620,7 +754,7 @@ func updateDropInReferences(readWriter fileio.ReadWriter, dirPath, appID string,
 			continue
 		}
 
-		if err = updateQuadletReferences(readWriter, dropInPath, appID, confFilename, ext, quadletBasenames); err != nil {
+		if err = q.updateQuadletReferencesInDir(dropInPath, confFilename, ext, quadletBasenames); err != nil {
 			return fmt.Errorf("updating drop-in: %w", err)
 		}
 	}

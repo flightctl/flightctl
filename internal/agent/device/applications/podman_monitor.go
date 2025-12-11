@@ -326,12 +326,20 @@ func (m *PodmanMonitor) Ensure(app Application) error {
 	return nil
 }
 
+// expects mutex to be held
+func (m *PodmanMonitor) canRemoveApp(app Application) bool {
+	_, ok := m.apps[app.ID()]
+	// embedded applications can adhere to slightly different lifecycles
+	// making it possible to remove an app that was never added.
+	return ok || app.IsEmbedded()
+}
+
 func (m *PodmanMonitor) Remove(app Application) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	appID := app.ID()
-	if _, ok := m.apps[appID]; !ok {
+	if !m.canRemoveApp(app) {
 		m.log.Errorf("Podman application not found: %s", app.Name())
 		// app is already removed
 		return nil
@@ -340,7 +348,6 @@ func (m *PodmanMonitor) Remove(app Application) error {
 	delete(m.apps, appID)
 	appName := app.Name()
 
-	// currently we don't support removing embedded applications
 	action := lifecycle.Action{
 		AppType: app.AppType(),
 		Type:    lifecycle.ActionRemove,
