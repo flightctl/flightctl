@@ -315,6 +315,8 @@ GroupBy
 MinAvailable
 MaxUnavailable
 MultipleOwners
+subfields
+namespaced
  - docs/user/building/building-images.md
 usr
 iso
@@ -481,5 +483,3 @@ webserver
  - docs/user/installing/configuring-auth/auth-oidc.md
 CLI
 webserver
-subfields
-namespaced
