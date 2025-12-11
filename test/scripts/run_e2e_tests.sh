@@ -58,8 +58,10 @@ if [[ -n "${DISCOVERY_ONLY}" ]]; then
     exit 0
 fi
 
-export API_ENDPOINT=https://$(get_endpoint_host flightctl-api-route)
-export REGISTRY_ENDPOINT=$(registry_address)
+API_ENDPOINT=https://$(get_endpoint_host flightctl-api-route)
+export API_ENDPOINT
+REGISTRY_ENDPOINT=$(registry_address)
+export REGISTRY_ENDPOINT
 
 # Handle manual test splitting if enabled
 if [[ "${GINKGO_TOTAL_NODES}" -gt 1 ]]; then
