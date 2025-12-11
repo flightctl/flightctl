@@ -16,7 +16,7 @@ on:
         description: "Total number of Ginkgo nodes"
         required: false
         type: number
-        default: 8
+        default: 4
       ginkgo_label_filter:
         description: "Ginkgo label filter"
         required: false
@@ -158,6 +158,15 @@ jobs:
           GINKGO_NODE: ${{ matrix.ginkgo_node }}
         run: |
           make run-e2e-test VERBOSE=true
+
+      # ========== UPLOAD TEST RESULTS ==========
+      - name: Upload JUnit Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-results-node-${{ matrix.ginkgo_node }}
+          path: reports/junit_e2e_test.xml
+          if-no-files-found: warn
 
       # ========== COLLECT LOGS ==========
       - name: Collect and Upload Logs
