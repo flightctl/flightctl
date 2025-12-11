@@ -192,7 +192,7 @@ func TestSync(t *testing.T) {
 			var rwFactory fileio.ReadWriterFactory = func(username v1beta1.Username) (fileio.ReadWriter, error) {
 				return readWriter, nil
 			}
-			consoleManager := console.NewManager(mockRouterService, deviceName, mockExec, mockWatcher, log)
+			consoleManager := console.NewManager(mockRouterService, deviceName, "root", mockExec, mockWatcher, log)
 			appController := applications.NewController(podmanFactory, nil, mockAppManager, rwFactory, log, "2025-01-01T00:00:00Z")
 			statusManager := status.NewManager(deviceName, log)
 			statusManager.SetClient(mockManagementClient)

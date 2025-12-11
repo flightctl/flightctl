@@ -58,6 +58,7 @@ Requires: shadow-utils
 # https://github.com/fedora-iot/greenboot-rs/issues/141
 Requires: greenboot >= 0.15.0
 Requires: greenboot < 0.16.0
+Requires: sudo
 
 %description agent
 The flightctl-agent package provides the management agent for the Flight Control fleet management service.
@@ -315,6 +316,9 @@ echo "Flight Control Observability Stack uninstalled."
 
     install -Dpm 0644 packaging/flightctl-services-install.conf %{buildroot}%{_sysconfdir}/flightctl/flightctl-services-install.conf
 
+    mkdir -p %{buildroot}%{_sysusersdir}
+    install -Dpm 0644 packaging/rpm/sysusers.d/flightctl.conf %{buildroot}%{_sysusersdir}/flightctl.conf
+
     # flightctl-services sub-package steps
     # Use the flightctl-standalone render quadlets command to generate quadlet files with the correct image tags.
     #
@@ -435,6 +439,7 @@ fi
     /usr/libexec/flightctl/configure-greenboot.sh
     /usr/lib/systemd/system/flightctl-configure-greenboot.service
     /usr/share/sosreport/flightctl.py
+    %{_sysusersdir}/flightctl.conf
 
 %post agent
 # Enable the greenboot configuration service (runs before greenboot-healthcheck.service)

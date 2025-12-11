@@ -379,6 +379,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	consoleManager := console.NewManager(
 		grpcClient,
 		deviceName,
+		console.ConsoleUser,
 		rootExecuter,
 		specManager.Watch(),
 		a.log,
