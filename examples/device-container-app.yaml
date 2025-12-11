@@ -1,0 +1,39 @@
+apiVersion: flightctl.io/v1beta1
+kind: Device
+metadata:
+  name: 444qgdhc7ht92g5k2mi9q926eld9nf25dvusrg9pqmkku75oqing
+spec:
+  applications:
+    - name: nginx-multi-port-server
+      appType: container
+      image: docker.io/library/nginx:alpine
+      envVars:
+        EXAMPLE: "simple example"
+      ports:
+        # exposes the host port 8081 to map to the container's port 80
+        - "8081:80"
+        # exposes the host port 8080 to map to the container's port 8080
+        - "8080:8080"
+      resources:
+        limits:
+          # Allocates half a CPU for the container
+          cpu: "0.5"
+          # limits the container to 256 Mebibytes of memory
+          memory: "256m"
+      volumes:
+        # An OCI artifact backed volume that will be mounted in the container at /etc/nginx/conf.d
+        - name: nginx-config
+          mount:
+            path: "/etc/nginx/conf.d"
+          image:
+            reference: quay.io/org/nginx-config-artifact:v1
+        # An OCI image backed volume that will be mounted in the container at /usr/share/nginx/html
+        - name: nginx-html
+          mount:
+            path: "/usr/share/nginx/html"
+          image:
+            reference: quay.io/org/nginx-html-artifact-image:v1
+        # A persistent, named volume that will be mounted in the container at /var/log/nginx
+        - name: nginx-logs
+          mount:
+            path: "/var/log/nginx"
