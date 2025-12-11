@@ -813,6 +813,9 @@ Flight Control supports the following Quadlet file types:
 | `.image`       | Manages a container image (ensures it's pulled and available)          |
 | `.pod`         | Defines a group of containers sharing resources                        |
 
+> [!IMPORTANT]
+> At least one workload file (`.container`) must be included in every quadlet application. Supporting files like `.volume`, `.network`, `.image`, and `.pod` can be used alongside container files but cannot be deployed alone.
+
 **Note**: The following Quadlet types are **not supported**:
 
 * `.build` - Building images from Containerfile (use prebuilt images instead)
