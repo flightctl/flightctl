@@ -322,9 +322,14 @@ func (h *Harness) WaitForDeviceNewRenderedVersion(deviceId string, newRenderedVe
 		func(device *v1beta1.Device) bool {
 			for _, condition := range device.Status.Conditions {
 				if condition.Type == "Updating" && condition.Reason == "Updated" && condition.Status == "False" &&
-					device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusUpToDate &&
-					device.Status.Config.RenderedVersion == strconv.Itoa(newRenderedVersionInt) {
-					return true
+					device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusUpToDate {
+					// Accept jumps where multiple renders happen quickly (e.g., concurrent fleet/device updates)
+					if v, err := strconv.Atoi(device.Status.Config.RenderedVersion); err == nil && v >= newRenderedVersionInt {
+						if v > newRenderedVersionInt {
+							logrus.Warnf("Device %s has rendered version %d, which is greater than %d", deviceId, v, newRenderedVersionInt)
+						}
+						return true
+					}
 				}
 			}
 			return false
