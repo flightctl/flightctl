@@ -30,6 +30,10 @@ const (
 	stopMonitorWaitDuration       = 5 * time.Second
 	quadletSystemdLabel           = "PODMAN_SYSTEMD_UNIT"
 	maxAppSummaryInfoLength       = 256
+
+	RestartPolicyNo    = "no"
+	RestartPolicyNever = "never"
+	RestartPolicyFalse = "false"
 )
 
 type PodmanMonitor struct {
@@ -300,20 +304,25 @@ func (m *PodmanMonitor) Has(id string) bool {
 	return false
 }
 
-// Ensures that and application is added to the monitor. if the application
+// Ensures that an application is added to the monitor. If the application
 // is added for the first time an Add action is queued to be executed by the
-// lifecycle manager. so additional adds for the same app will be idempotent.
+// lifecycle manager. If the application already exists but has workloads that
+// are not running (died, stopped, or removed), the monitor will queue a restart.
 func (m *PodmanMonitor) Ensure(app Application) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	appID := app.ID()
-	_, ok := m.apps[appID]
+	existingApp, ok := m.apps[appID]
 	if ok {
-		// app already exists
-		return nil
+		stoppedWorkloads := m.getStoppedWorkloads(existingApp)
+		if len(stoppedWorkloads) == 0 {
+			return nil
+		}
+		m.log.Warnf("Application %s has stopped workloads %v, queueing restart", existingApp.Name(), stoppedWorkloads)
+	} else {
+		m.apps[appID] = app
 	}
-	m.apps[appID] = app
 
 	appName := app.Name()
 	action := lifecycle.Action{
@@ -336,6 +345,27 @@ func (m *PodmanMonitor) canRemoveApp(app Application) bool {
 	// embedded applications can adhere to slightly different lifecycles
 	// making it possible to remove an app that was never added.
 	return ok || app.IsEmbedded()
+}
+
+// getStoppedWorkloads returns a list of workload names that have been stopped,
+// died, or removed and need to be restarted.
+func (m *PodmanMonitor) getStoppedWorkloads(app Application) []string {
+	var stopped []string
+	for _, workload := range app.Workloads() {
+		if isNoRestartPolicy(workload.RestartPolicy) {
+			continue
+		}
+		switch workload.Status {
+		case StatusDied, StatusDie, StatusStop, StatusRemove:
+			stopped = append(stopped, workload.Name)
+		}
+	}
+	return stopped
+}
+
+func isNoRestartPolicy(policy string) bool {
+	p := strings.ToLower(policy)
+	return p == RestartPolicyNo || p == RestartPolicyNever || p == RestartPolicyFalse
 }
 
 func (m *PodmanMonitor) Remove(app Application) error {
@@ -569,6 +599,13 @@ func appIDFromEvent(event *client.PodmanEvent) string {
 	return ""
 }
 
+func serviceNameFromEvent(event *client.PodmanEvent) string {
+	if serviceName, ok := event.Attributes[client.ComposeDockerServiceLabelKey]; ok {
+		return serviceName
+	}
+	return ""
+}
+
 func (m *PodmanMonitor) handleEvent(ctx context.Context, data []byte) {
 	var event client.PodmanEvent
 	if err := json.Unmarshal(data, &event); err != nil {
@@ -625,8 +662,7 @@ func (m *PodmanMonitor) updateContainerStatus(ctx context.Context, app Applicati
 }
 
 func isFinishedStatus(status StatusType) bool {
-	exitedStatuses := map[StatusType]struct {
-	}{
+	exitedStatuses := map[StatusType]struct{}{
 		StatusRemove: {},
 		StatusDie:    {},
 		StatusDied:   {},
@@ -635,29 +671,26 @@ func isFinishedStatus(status StatusType) bool {
 	return ok
 }
 
-func (m *PodmanMonitor) updateApplicationStatus(app Application, event *client.PodmanEvent, status StatusType, restarts int) {
+func (m *PodmanMonitor) updateApplicationStatus(app Application, event *client.PodmanEvent, serviceName string, status StatusType, restarts int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	container, exists := app.Workload(event.Name)
 	if exists {
-		// update existing container
 		container.Status = status
-		// restarts can only increase
 		if restarts > container.Restarts {
 			container.Restarts = restarts
 		}
-
 		return
 	}
 
-	// add new container
 	m.log.Debugf("Adding container: %s to app %s", event.Name, app.Name())
 	app.AddWorkload(&Workload{
-		ID:       event.ID,
-		Name:     event.Name,
-		Status:   status,
-		Restarts: restarts,
+		ID:          event.ID,
+		Name:        event.Name,
+		ServiceName: serviceName,
+		Status:      status,
+		Restarts:    restarts,
 	})
 }
 
@@ -695,10 +728,20 @@ func (m *PodmanMonitor) updateQuadletContainerStatus(ctx context.Context, app Ap
 	if isFinishedStatus(status) && event.ContainerExitCode == 0 {
 		status = StatusExited
 	}
-	m.updateApplicationStatus(app, event, status, restartCount)
+
+	if status == StatusRemove {
+		if removed := app.RemoveWorkload(event.Name); removed {
+			m.log.Debugf("Removed container: %s", event.Name)
+		}
+		return
+	}
+
+	m.updateApplicationStatus(app, event, "", status, restartCount)
 }
 
 func (m *PodmanMonitor) updateComposeContainerStatus(ctx context.Context, app Application, event *client.PodmanEvent) {
+	serviceName := serviceNameFromEvent(event)
+
 	inspectData, err := m.inspectContainer(ctx, event.ID)
 	if err != nil {
 		if errors.Is(err, errors.ErrNotFound) {
@@ -708,12 +751,9 @@ func (m *PodmanMonitor) updateComposeContainerStatus(ctx context.Context, app Ap
 		}
 	}
 
-	restarts, err := m.getContainerRestarts(inspectData)
-	if err != nil {
-		m.log.Errorf("Failed to get container restarts: %v", err)
-	}
+	restarts := getContainerRestarts(inspectData)
 
-	status := m.resolveStatus(event.Status, inspectData)
+	status := resolveStatus(event.Status, inspectData)
 	if status == StatusRemove {
 		m.mu.Lock()
 		defer m.mu.Unlock()
@@ -724,16 +764,7 @@ func (m *PodmanMonitor) updateComposeContainerStatus(ctx context.Context, app Ap
 		return
 	}
 
-	m.updateApplicationStatus(app, event, status, restarts)
-}
-
-func (m *PodmanMonitor) getContainerRestarts(inspectData []client.PodmanInspect) (int, error) {
-	var restarts int
-	if len(inspectData) > 0 {
-		restarts = inspectData[0].Restarts
-	}
-
-	return restarts, nil
+	m.updateApplicationStatus(app, event, serviceName, status, restarts)
 }
 
 func (m *PodmanMonitor) inspectContainer(ctx context.Context, containerID string) ([]client.PodmanInspect, error) {
@@ -749,7 +780,14 @@ func (m *PodmanMonitor) inspectContainer(ctx context.Context, containerID string
 	return inspectData, nil
 }
 
-func (m *PodmanMonitor) resolveStatus(status string, inspectData []client.PodmanInspect) StatusType {
+func getContainerRestarts(inspectData []client.PodmanInspect) int {
+	if len(inspectData) > 0 {
+		return inspectData[0].Restarts
+	}
+	return 0
+}
+
+func resolveStatus(status string, inspectData []client.PodmanInspect) StatusType {
 	initialStatus := StatusType(status)
 	// podman events don't properly event exited in the case where the container exits 0.
 	if initialStatus == StatusDie || initialStatus == StatusDied {

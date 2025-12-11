@@ -57,6 +57,98 @@ type ApplicationSpec struct {
 	ImageProvider *v1beta1.ImageApplicationProviderSpec
 	// InlineProvider is the spec for the inline provider
 	InlineProvider *v1beta1.InlineApplicationProviderSpec
+	// RestartPolicies maps service/container names to their restart policy
+	RestartPolicies map[string]string
+}
+
+// extractComposeRestartPolicies extracts restart policies from a compose spec.
+func extractComposeRestartPolicies(spec *common.ComposeSpec) map[string]string {
+	if spec == nil {
+		return nil
+	}
+	policies := make(map[string]string)
+	for name, svc := range spec.Services {
+		if svc.Restart != "" {
+			policies[name] = svc.Restart
+		}
+	}
+	if len(policies) == 0 {
+		return nil
+	}
+	return policies
+}
+
+// extractQuadletRestartPolicies extracts restart policies from quadlet units.
+// The key is the container name (filename), value is the [Service] Restart= value.
+func extractQuadletRestartPolicies(units map[string]*quadlet.Unit) map[string]string {
+	if len(units) == 0 {
+		return nil
+	}
+	policies := make(map[string]string)
+	for filename, unit := range units {
+		if filepath.Ext(filename) != quadlet.ContainerExtension {
+			continue
+		}
+		restart, err := unit.Lookup("Service", "Restart")
+		if err != nil {
+			continue
+		}
+		containerName := strings.TrimSuffix(filename, quadlet.ContainerExtension)
+		policies[containerName] = restart
+	}
+	if len(policies) == 0 {
+		return nil
+	}
+	return policies
+}
+
+// parseQuadletUnitsFromDir parses quadlet .container files from a directory.
+func parseQuadletUnitsFromDir(rw fileio.Reader, dir string) map[string]*quadlet.Unit {
+	entries, err := rw.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	units := make(map[string]*quadlet.Unit)
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		filename := entry.Name()
+		if filepath.Ext(filename) != quadlet.ContainerExtension {
+			continue
+		}
+		content, err := rw.ReadFile(filepath.Join(dir, filename))
+		if err != nil {
+			continue
+		}
+		unit, err := quadlet.NewUnit(content)
+		if err != nil {
+			continue
+		}
+		units[filename] = unit
+	}
+	return units
+}
+
+// parseQuadletUnitsFromInline parses quadlet units from inline content.
+func parseQuadletUnitsFromInline(contents []v1beta1.ApplicationContent) map[string]*quadlet.Unit {
+	units := make(map[string]*quadlet.Unit)
+	for _, c := range contents {
+		filename := c.Path
+		if filepath.Ext(filename) != quadlet.ContainerExtension {
+			continue
+		}
+		contentBytes, err := fileio.DecodeContent(lo.FromPtr(c.Content), c.ContentEncoding)
+		if err != nil {
+			continue
+		}
+		unit, err := quadlet.NewUnit(contentBytes)
+		if err != nil {
+			continue
+		}
+		units[filename] = unit
+	}
+	return units
 }
 
 // CollectBaseOCITargets collects only the base OCI targets (images and volumes) from the device spec

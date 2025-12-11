@@ -374,3 +374,17 @@ func (mr *MockApplicationMockRecorder) Workload(name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Workload", reflect.TypeOf((*MockApplication)(nil).Workload), name)
 }
+
+// Workloads mocks base method.
+func (m *MockApplication) Workloads() []Workload {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Workloads")
+	ret0, _ := ret[0].([]Workload)
+	return ret0
+}
+
+// Workloads indicates an expected call of Workloads.
+func (mr *MockApplicationMockRecorder) Workloads() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Workloads", reflect.TypeOf((*MockApplication)(nil).Workloads))
+}

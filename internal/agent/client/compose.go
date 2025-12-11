@@ -24,6 +24,7 @@ import (
 const (
 	ComposeOverrideFilename      = "99-compose-flightctl-agent.override.yaml"
 	ComposeDockerProjectLabelKey = "com.docker.compose.project"
+	ComposeDockerServiceLabelKey = "com.docker.compose.service"
 	defaultPodmanTimeout         = 10 * time.Minute
 )
 

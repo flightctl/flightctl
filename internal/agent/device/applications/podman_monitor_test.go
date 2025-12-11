@@ -206,8 +206,7 @@ func TestListenForEvents(t *testing.T) {
 			execMock := executer.NewMockExecuter(ctrl)
 
 			var testInspect []client.PodmanInspect
-			restartsPerContainer := 3
-			testInspect = append(testInspect, mockPodmanInspect(restartsPerContainer))
+			testInspect = append(testInspect, mockPodmanInspect(0))
 			inspectBytes, err := json.Marshal(testInspect)
 			require.NoError(err)
 
@@ -223,13 +222,13 @@ func TestListenForEvents(t *testing.T) {
 				require.NoError(err)
 			}
 
+			execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(string(inspectBytes), "", 0).Times(len(tc.events))
+
 			// create a pipe to simulate events being written to the monitor
 			reader, writer := io.Pipe()
 			defer reader.Close()
 
 			go podmanMonitor.listenForEvents(context.Background(), reader)
-
-			execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(string(inspectBytes), "", 0).Times(len(tc.events))
 
 			// simulate events being written to the pipe
 			go func() {
@@ -462,9 +461,10 @@ func newMockProvider(require *require.Assertions, name string, appType v1beta1.A
 }
 
 type mockProvider struct {
-	name    string
-	require *require.Assertions
-	appType v1beta1.AppType
+	name            string
+	require         *require.Assertions
+	appType         v1beta1.AppType
+	restartPolicies map[string]string
 }
 
 func (m *mockProvider) Name() string {
@@ -475,10 +475,11 @@ func (m *mockProvider) Spec() *provider.ApplicationSpec {
 	volManager, err := provider.NewVolumeManager(nil, m.name, v1beta1.AppTypeCompose, nil)
 	m.require.NoError(err)
 	return &provider.ApplicationSpec{
-		ID:      client.NewComposeID(m.name),
-		Name:    m.name,
-		Volume:  volManager,
-		AppType: m.appType,
+		ID:              client.NewComposeID(m.name),
+		Name:            m.name,
+		Volume:          volManager,
+		AppType:         m.appType,
+		RestartPolicies: m.restartPolicies,
 	}
 }
 
@@ -600,6 +601,267 @@ func TestPodmanMonitorMultipleAddRemoveCycles(t *testing.T) {
 	require.NoError(err)
 	require.False(podmanMonitor.isRunning()) // Stopped again
 	require.False(podmanMonitor.Has(app1ID))
+}
+
+func TestPodmanMonitorGetStoppedWorkloads(t *testing.T) {
+	require := require.New(t)
+
+	testCases := []struct {
+		name            string
+		workloads       []Workload
+		restartPolicies map[string]string
+		expectedStopped []string
+	}{
+		{
+			name:            "no workloads",
+			workloads:       []Workload{},
+			expectedStopped: nil,
+		},
+		{
+			name: "all running",
+			workloads: []Workload{
+				{Name: "container1", Status: StatusRunning},
+				{Name: "container2", Status: StatusRunning},
+			},
+			expectedStopped: nil,
+		},
+		{
+			name: "all exited successfully",
+			workloads: []Workload{
+				{Name: "init-container", Status: StatusExited},
+			},
+			expectedStopped: nil,
+		},
+		{
+			name: "mixed running and exited",
+			workloads: []Workload{
+				{Name: "init-container", Status: StatusExited},
+				{Name: "main-container", Status: StatusRunning},
+			},
+			expectedStopped: nil,
+		},
+		{
+			name: "one died",
+			workloads: []Workload{
+				{Name: "container1", Status: StatusRunning},
+				{Name: "container2", ServiceName: "service2", Status: StatusDied},
+			},
+			expectedStopped: []string{"container2"},
+		},
+		{
+			name: "all died",
+			workloads: []Workload{
+				{Name: "container1", ServiceName: "service1", Status: StatusDied},
+				{Name: "container2", ServiceName: "service2", Status: StatusDied},
+			},
+			expectedStopped: []string{"container1", "container2"},
+		},
+		{
+			name: "one stopped",
+			workloads: []Workload{
+				{Name: "container1", Status: StatusRunning},
+				{Name: "container2", ServiceName: "service2", Status: StatusStop},
+			},
+			expectedStopped: []string{"container2"},
+		},
+		{
+			name: "one removed",
+			workloads: []Workload{
+				{Name: "container1", Status: StatusRunning},
+				{Name: "container2", ServiceName: "service2", Status: StatusRemove},
+			},
+			expectedStopped: []string{"container2"},
+		},
+		{
+			name: "initializing",
+			workloads: []Workload{
+				{Name: "container1", Status: StatusInit},
+				{Name: "container2", Status: StatusCreated},
+			},
+			expectedStopped: nil,
+		},
+		{
+			name: "one die",
+			workloads: []Workload{
+				{Name: "container1", Status: StatusRunning},
+				{Name: "container2", ServiceName: "service2", Status: StatusDie},
+			},
+			expectedStopped: []string{"container2"},
+		},
+		{
+			name: "died with restart policy no (explicit)",
+			workloads: []Workload{
+				{Name: "container1", ServiceName: "service1", Status: StatusDied},
+			},
+			restartPolicies: map[string]string{"service1": "no"},
+			expectedStopped: nil,
+		},
+		{
+			name: "died with restart policy never",
+			workloads: []Workload{
+				{Name: "container1", ServiceName: "service1", Status: StatusDied},
+			},
+			restartPolicies: map[string]string{"service1": "never"},
+			expectedStopped: nil,
+		},
+		{
+			name: "died with restart policy false (YAML boolean)",
+			workloads: []Workload{
+				{Name: "container1", ServiceName: "service1", Status: StatusDied},
+			},
+			restartPolicies: map[string]string{"service1": "false"},
+			expectedStopped: nil,
+		},
+		{
+			name: "died with restart policy No (uppercase)",
+			workloads: []Workload{
+				{Name: "container1", ServiceName: "service1", Status: StatusDied},
+			},
+			restartPolicies: map[string]string{"service1": "No"},
+			expectedStopped: nil,
+		},
+		{
+			name: "died with restart policy always",
+			workloads: []Workload{
+				{Name: "container1", ServiceName: "service1", Status: StatusDied},
+			},
+			restartPolicies: map[string]string{"service1": "always"},
+			expectedStopped: []string{"container1"},
+		},
+		{
+			name: "died with restart policy on-failure",
+			workloads: []Workload{
+				{Name: "container1", ServiceName: "service1", Status: StatusDied},
+			},
+			restartPolicies: map[string]string{"service1": "on-failure"},
+			expectedStopped: []string{"container1"},
+		},
+		{
+			name: "mixed restart policies",
+			workloads: []Workload{
+				{Name: "container1", ServiceName: "service1", Status: StatusDied},
+				{Name: "container2", ServiceName: "service2", Status: StatusDied},
+				{Name: "container3", ServiceName: "service3", Status: StatusDied},
+			},
+			restartPolicies: map[string]string{
+				"service1": "always",
+				"service2": "no",
+				"service3": "on-failure",
+			},
+			expectedStopped: []string{"container1", "container3"},
+		},
+		{
+			name: "died with no restart policy specified (should restart)",
+			workloads: []Workload{
+				{Name: "container1", ServiceName: "service1", Status: StatusDied},
+			},
+			restartPolicies: nil,
+			expectedStopped: []string{"container1"},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			log := log.NewPrefixLogger("test")
+			tmpDir := t.TempDir()
+			readWriter := fileio.NewReadWriter()
+			readWriter.SetRootdir(tmpDir)
+			execMock := executer.NewMockExecuter(ctrl)
+
+			podman := client.NewPodman(log, execMock, readWriter, util.NewPollConfig())
+			systemdMgr := systemd.NewMockManager(ctrl)
+			podmanMonitor := NewPodmanMonitor(log, podman, systemdMgr, "", readWriter)
+
+			mockProv := &mockProvider{
+				name:            "test-app",
+				require:         require,
+				appType:         v1beta1.AppTypeCompose,
+				restartPolicies: tc.restartPolicies,
+			}
+			testApp := NewApplication(mockProv)
+			testApp.status.Status = v1beta1.ApplicationStatusPreparing
+			for i := range tc.workloads {
+				testApp.AddWorkload(&tc.workloads[i])
+			}
+
+			result := podmanMonitor.getStoppedWorkloads(testApp)
+			require.Equal(tc.expectedStopped, result)
+		})
+	}
+}
+
+func TestPodmanMonitorEnsureRestartsStoppedWorkloads(t *testing.T) {
+	require := require.New(t)
+
+	ctx := context.Background()
+	log := log.NewPrefixLogger("test")
+	log.SetLevel(logrus.DebugLevel)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockReadWriter := fileio.NewMockReadWriter(ctrl)
+	mockExec := executer.NewMockExecuter(ctrl)
+	mockPodmanClient := client.NewPodman(log, mockExec, mockReadWriter, util.NewPollConfig())
+
+	readWriter := fileio.NewReadWriter()
+	tmpDir := t.TempDir()
+	readWriter.SetRootdir(tmpDir)
+
+	mockExec.EXPECT().CommandContext(gomock.Any(), "podman", gomock.Any()).
+		DoAndReturn(func(ctx context.Context, name string, args ...string) *exec.Cmd {
+			now := time.Now().UnixNano()
+			return exec.CommandContext(ctx, "echo", fmt.Sprintf(`{"timeNano": %d}`, now)) //nolint:gosec
+		}).AnyTimes()
+
+	podmanMonitor := NewPodmanMonitor(log, mockPodmanClient, systemd.NewMockManager(ctrl), "", readWriter)
+
+	mockComposeHandler := lifecycle.NewMockActionHandler(ctrl)
+	var executedActions []*lifecycle.Action
+	mockComposeHandler.EXPECT().Execute(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, action *lifecycle.Action) error {
+			executedActions = append(executedActions, action)
+			return nil
+		}).AnyTimes()
+	podmanMonitor.handlers[v1beta1.AppTypeCompose] = mockComposeHandler
+
+	testApp := createTestApplication(require, "test-app", v1beta1.ApplicationStatusPreparing)
+	err := podmanMonitor.Ensure(testApp)
+	require.NoError(err)
+
+	err = podmanMonitor.ExecuteActions(ctx)
+	require.NoError(err)
+	require.Equal(1, len(executedActions), "should have one add action")
+	require.Equal(lifecycle.ActionAdd, executedActions[0].Type)
+
+	executedActions = nil
+
+	// simulate container running
+	existingApp, found := podmanMonitor.getByID(testApp.ID())
+	require.True(found)
+	existingApp.AddWorkload(&Workload{Name: "container1", Status: StatusRunning})
+
+	// ensure again - should not queue action since container is running
+	err = podmanMonitor.Ensure(testApp)
+	require.NoError(err)
+	err = podmanMonitor.ExecuteActions(ctx)
+	require.NoError(err)
+	require.Equal(0, len(executedActions), "should have no new actions when container is running")
+
+	// simulate manual stop (died with exit code 137)
+	workload, found := existingApp.Workload("container1")
+	require.True(found)
+	workload.Status = StatusDied
+
+	// ensure again - should queue restart action since container died
+	err = podmanMonitor.Ensure(testApp)
+	require.NoError(err)
+	err = podmanMonitor.ExecuteActions(ctx)
+	require.NoError(err)
+	require.Equal(1, len(executedActions), "should have one restart action")
+	require.Equal(lifecycle.ActionAdd, executedActions[0].Type)
 }
 
 func TestPodmanMonitorHandlerSelection(t *testing.T) {

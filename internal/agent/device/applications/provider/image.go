@@ -212,6 +212,19 @@ func (p *imageProvider) Install(ctx context.Context) error {
 	}
 	p.spec.Volume.AddVolumes(volumes)
 
+	// extract restart policies after installation
+	switch p.spec.AppType {
+	case v1beta1.AppTypeCompose:
+		composeSpec, err := client.ParseComposeSpecFromDir(p.readWriter, p.spec.Path)
+		if err != nil {
+			p.log.Warnf("Failed to parse compose spec from %s: %v", p.spec.Path, err)
+		} else {
+			p.spec.RestartPolicies = extractComposeRestartPolicies(composeSpec)
+		}
+	case v1beta1.AppTypeQuadlet, v1beta1.AppTypeContainer:
+		p.spec.RestartPolicies = extractQuadletRestartPolicies(parseQuadletUnitsFromDir(p.readWriter, p.spec.Path))
+	}
+
 	return p.handler.Install(ctx)
 }
 

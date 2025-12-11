@@ -61,12 +61,13 @@ func (m *manager) Ensure(ctx context.Context, provider provider.Provider) error 
 	appType := provider.Spec().AppType
 	switch appType {
 	case v1beta1.AppTypeCompose, v1beta1.AppTypeQuadlet, v1beta1.AppTypeContainer:
-		if m.podmanMonitor.Has(provider.Spec().ID) {
-			return nil
+		// skip install if app already exists
+		if !m.podmanMonitor.Has(provider.Spec().ID) {
+			if err := provider.Install(ctx); err != nil {
+				return fmt.Errorf("installing application: %w", err)
+			}
 		}
-		if err := provider.Install(ctx); err != nil {
-			return fmt.Errorf("installing application: %w", err)
-		}
+		// always call Ensure to check for stopped workloads that need restart
 		return m.podmanMonitor.Ensure(NewApplication(provider))
 	default:
 		return fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
