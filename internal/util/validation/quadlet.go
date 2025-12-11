@@ -143,6 +143,7 @@ func ValidateQuadletPaths(paths []string) error {
 	}
 
 	foundSupported := false
+	hasWorkloads := false
 
 	for _, path := range paths {
 		ext := filepath.Ext(path)
@@ -152,6 +153,7 @@ func ValidateQuadletPaths(paths []string) error {
 				errs = append(errs, fmt.Errorf("quadlet file must be at root level: %q", path))
 			}
 			foundSupported = true
+			hasWorkloads = hasWorkloads || quadlet.IsWorkload(path)
 			continue
 		}
 
@@ -163,6 +165,10 @@ func ValidateQuadletPaths(paths []string) error {
 
 	if !foundSupported {
 		errs = append(errs, fmt.Errorf("no supported quadlet types supplied"))
+	}
+
+	if !hasWorkloads {
+		errs = append(errs, fmt.Errorf("at least one quadlet workload must be supplied"))
 	}
 
 	if len(errs) > 0 {

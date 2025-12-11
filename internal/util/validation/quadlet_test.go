@@ -325,9 +325,10 @@ func TestValidateQuadletPaths(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:    "single volume file",
-			paths:   []string{"data.volume"},
-			wantErr: false,
+			name:          "single volume file",
+			paths:         []string{"data.volume"},
+			wantErr:       true,
+			wantErrSubstr: "at least one quadlet workload must be supplied",
 		},
 		{
 			name:    "multiple valid types",

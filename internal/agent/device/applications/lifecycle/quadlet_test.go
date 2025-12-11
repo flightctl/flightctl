@@ -46,6 +46,39 @@ func newMatcher(expected ...string) gomock.Matcher {
 	return &variadicMatcher{expected: expected}
 }
 
+// unorderedMatcher matches variadic string arguments in any order
+type unorderedMatcher struct {
+	expected []string
+}
+
+func (u *unorderedMatcher) Matches(x interface{}) bool {
+	args, ok := x.([]string)
+	if !ok {
+		return false
+	}
+	if len(args) != len(u.expected) {
+		return false
+	}
+	expectedSet := make(map[string]bool)
+	for _, s := range u.expected {
+		expectedSet[s] = true
+	}
+	for _, s := range args {
+		if !expectedSet[s] {
+			return false
+		}
+	}
+	return true
+}
+
+func (u *unorderedMatcher) String() string {
+	return fmt.Sprintf("unordered: %v", u.expected)
+}
+
+func newUnorderedMatcher(expected ...string) gomock.Matcher {
+	return &unorderedMatcher{expected: expected}
+}
+
 func TestQuadlet_Execute(t *testing.T) {
 	require := require.New(t)
 	testCases := []struct {
@@ -512,13 +545,13 @@ func TestQuadlet_remove(t *testing.T) {
 			setupMocks: func(mockSystemdMgr *systemd.MockManager, mockRW *fileio.MockReadWriter, mockExec *executer.MockExecuter) {
 				mockSystemdMgr.EXPECT().ListDependencies(gomock.Any(), "app-multi-flightctl-quadlet-app.target").Return([]string{"app-multi-web.service", "app-multi-db.service"}, nil)
 				mockSystemdMgr.EXPECT().Stop(gomock.Any(), "app-multi-flightctl-quadlet-app.target").Return(nil)
-				mockSystemdMgr.EXPECT().Stop(gomock.Any(), "app-multi-web.service", "app-multi-db.service").Return(nil)
+				mockSystemdMgr.EXPECT().Stop(gomock.Any(), newUnorderedMatcher("app-multi-web.service", "app-multi-db.service")).Return(nil)
 				units := []client.SystemDUnitListEntry{
 					{Unit: "app-multi-web.service", LoadState: "loaded", ActiveState: string(api.SystemdActiveStateFailed), SubState: "failed", Description: "Web service"},
 					{Unit: "app-multi-db.service", LoadState: "loaded", ActiveState: "inactive", SubState: "dead", Description: "DB service"},
 				}
-				mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), []string{"app-multi-web.service", "app-multi-db.service"}).Return(units, nil)
-				mockSystemdMgr.EXPECT().ResetFailed(gomock.Any(), "app-multi-web.service", "app-multi-db.service").Return(nil)
+				mockSystemdMgr.EXPECT().ListUnitsByMatchPattern(gomock.Any(), newUnorderedMatcher("app-multi-web.service", "app-multi-db.service")).Return(units, nil)
+				mockSystemdMgr.EXPECT().ResetFailed(gomock.Any(), newUnorderedMatcher("app-multi-web.service", "app-multi-db.service")).Return(nil)
 
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("volume")).Return("[]", "", 0).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", newMatcher("stop")).Return("", "", 0).AnyTimes()
