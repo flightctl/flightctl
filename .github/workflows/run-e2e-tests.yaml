@@ -181,13 +181,14 @@ jobs:
           make run-e2e-test VERBOSE=true
 
       # ========== UPLOAD TEST RESULTS ==========
-      - name: Upload JUnit Test Results
+      - name: Upload test report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: junit-results-node-${{ matrix.ginkgo_node }}
+          name: junit-results-${{ steps.compute-hash.outputs.hash }}-node-${{ matrix.ginkgo_node }}
           path: reports/junit_e2e_test.xml
           if-no-files-found: warn
+          overwrite: true
 
       # ========== COLLECT LOGS ==========
       - name: Collect and Upload Logs
