@@ -58,12 +58,6 @@ func (c *Compose) remove(ctx context.Context, action *Action) error {
 		errs = append(errs, err)
 	}
 
-	for _, vol := range action.Volumes {
-		if err := c.podman.RemoveVolumes(ctx, vol.ID); err != nil {
-			errs = append(errs, err)
-		}
-	}
-
 	if len(errs) > 0 {
 		return errors.Join(errs...)
 	}

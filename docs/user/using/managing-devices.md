@@ -1062,6 +1062,7 @@ spec:
           mount:
             path: "/app/config:ro"
         - name: logs # named volume mounted with no configuration
+          reclaimPolicy: Retain
           mount:
             path: "/app/logs"
         - name: ml-models # OCI artifact backed volume
@@ -1096,6 +1097,13 @@ Each volume definition includes:
 | `name` | Logical volume name. Must match the volume name referenced in the Compose file. |
 | `image.reference` | Fully qualified OCI artifact reference containing the volume contents. |
 | `image.pullPolicy` | (Optional) Defines pull behavior: `Always`, `IfNotPresent`, or `Never`. Defaults to `IfNotPresent` if not specified. |
+| `reclaimPolicy` | (Optional) Defines what happens to the managed volume when the application is removed. Only `Retain` is currently supported (meaning the volume is preserved). Defaults to `Retain` if not specified. |
+
+> [!IMPORTANT]
+> We recommend using image- or artifact-backed volumes only for static content such as configuration files, models, or other seed data. They get refreshed on every update, so any changes inside them are overwritten. If you need data to survive updates (databases, uploads, logs), use a mount-based volume instead.
+
+> [!NOTE]
+> Volumes created directly inside Compose or Quadlet manifests without a matching entry in the API are treated as user-managed and are always retained.
 
 > [!IMPORTANT]
 > In the Compose file, volumes must be declared as `external: true` to allow the agent to handle preparation and mounting.
