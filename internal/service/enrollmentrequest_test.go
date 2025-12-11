@@ -195,7 +195,7 @@ func TestApproveEnrollmentRequestUnsupportedIntegrity(t *testing.T) {
 			SignerCertName:   "flightctl-test-ca",
 			CertValidityDays: 365,
 		},
-		DeviceEnrollmentSignerName: "device-enrollment",
+		DeviceManagementSignerName: "device-enrollment",
 	}
 	caClient, _, err := crypto.EnsureCA(caConfig)
 	require.NoError(err)

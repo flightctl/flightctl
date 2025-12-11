@@ -166,7 +166,7 @@ func TestSignerChains(t *testing.T) {
 			build: func() (context.Context, SignRequest) {
 				fingerprint := "abcdef0123456789"
 				csr := makeCSR(t, fingerprint, orgID)
-				req, err := NewSignRequest(cfg.DeviceEnrollmentSignerName, *csr, WithResourceName(fingerprint))
+				req, err := NewSignRequest(cfg.DeviceManagementSignerName, *csr, WithResourceName(fingerprint))
 				if err != nil {
 					t.Fatalf("NewSignRequest: %v", err)
 				}
@@ -189,7 +189,7 @@ func TestSignerChains(t *testing.T) {
 			build: func() (context.Context, SignRequest) {
 				fingerprint := "abcdef0123456789"
 				csr := makeCSR(t, fingerprint, orgID)
-				req, err := NewSignRequest(cfg.DeviceEnrollmentSignerName, *csr, WithResourceName(fingerprint))
+				req, err := NewSignRequest(cfg.DeviceManagementSignerName, *csr, WithResourceName(fingerprint))
 				if err != nil {
 					t.Fatalf("NewSignRequest: %v", err)
 				}
@@ -207,7 +207,7 @@ func TestSignerChains(t *testing.T) {
 			build: func() (context.Context, SignRequest) {
 				fingerprint := "abcdef0123456789"
 				csr := makeCSR(t, fingerprint, orgID)
-				req, err := NewSignRequest(cfg.DeviceEnrollmentSignerName, *csr, WithResourceName(fingerprint))
+				req, err := NewSignRequest(cfg.DeviceManagementSignerName, *csr, WithResourceName(fingerprint))
 				if err != nil {
 					t.Fatalf("NewSignRequest: %v", err)
 				}
