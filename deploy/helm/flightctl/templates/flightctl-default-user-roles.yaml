@@ -1,7 +1,7 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: flightctl-admin-{{ .Release.Namespace }}
+  name: flightctl-admin
   labels:
     {{- include "flightctl.standardLabels" . | nindent 4 }}
 rules:
@@ -16,7 +16,7 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: flightctl-viewer-{{ .Release.Namespace }}
+  name: flightctl-viewer
   labels:
     {{- include "flightctl.standardLabels" . | nindent 4 }}
 rules:
@@ -35,7 +35,7 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: flightctl-operator-{{ .Release.Namespace }}
+  name: flightctl-operator
   labels:
     {{- include "flightctl.standardLabels" . | nindent 4 }}
 rules:
@@ -82,7 +82,7 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: flightctl-installer-{{ .Release.Namespace }}
+  name: flightctl-installer
   labels:
     {{- include "flightctl.standardLabels" . | nindent 4 }}
 rules:

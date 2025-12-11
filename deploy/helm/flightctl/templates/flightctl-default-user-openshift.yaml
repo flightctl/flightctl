@@ -22,7 +22,7 @@ metadata:
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: flightctl-admin-{{ .Release.Namespace }}
+  name: flightctl-admin
 subjects:
   - kind: ServiceAccount
     name: flightctl-admin

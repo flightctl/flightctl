@@ -16,12 +16,10 @@ Flight Control API server validates Kubernetes service account tokens by:
 
 Flight Control provides the following standard ClusterRoles out-of-the-box:
 
-- **`flightctl-admin-<namespace>`** - Full access to all Flight Control resources
-- **`flightctl-operator-<namespace>`** - CRUD operations on devices, fleets, resourcesyncs, repositories
-- **`flightctl-viewer-<namespace>`** - Read-only access to devices, fleets, resourcesyncs, organizations
-- **`flightctl-installer-<namespace>`** - Access to enrollmentrequests and certificate signing requests
-
-**Note:** ClusterRole names include a namespace suffix (e.g., `flightctl-admin-<namespace>`) to enable multi-release deployments in the same cluster. The `<namespace>` value matches your Helm release namespace. When creating RoleBindings, you must use the suffixed ClusterRole names.
+- **`flightctl-admin`** - Full access to all Flight Control resources
+- **`flightctl-operator`** - CRUD operations on devices, fleets, resourcesyncs, repositories
+- **`flightctl-viewer`** - Read-only access to devices, fleets, resourcesyncs, organizations
+- **`flightctl-installer`** - Access to enrollmentrequests and certificate signing requests
 
 ## Configuration
 
@@ -74,10 +72,9 @@ Flight Control uses [Kubernetes RBAC authorization](https://kubernetes.io/docs/r
 
 **How it works:**
 
-- Flight Control provides standard **ClusterRoles** with namespace-specific names (e.g., `flightctl-admin-<namespace>`, `flightctl-operator-<namespace>`)
+- Flight Control provides standard **ClusterRoles** (e.g., `flightctl-admin`, `flightctl-operator`)
 - You create **RoleBindings** in the Flight Control namespace to grant users these roles
 - Flight Control checks RoleBindings to determine user permissions
-- The namespace suffix enables multiple Flight Control deployments in the same cluster without name conflicts
 
 **Note:** Any role or organization configuration changes require users to log in again or wait approximately 5 minutes to receive updated assignments.
 
@@ -112,12 +109,11 @@ Or paste the token in the UI token field.
 
 ### Using flightctl-admin Service Account
 
-The deployment automatically creates a `flightctl-admin` service account (the service account name does not include the release suffix). To use it:
+The deployment automatically creates a `flightctl-admin` service account. To use it:
 
 ```bash
 # Create a token for the flightctl-admin service account
-# Replace <namespace> with your Flight Control namespace (typically matches your Helm release name)
-kubectl create token flightctl-admin -n <namespace>
+kubectl create token flightctl-admin -n flightctl
 
 # Login with the token
 flightctl login https://flightctl.example.com --token=<token>
@@ -127,14 +123,11 @@ flightctl login https://flightctl.example.com --token=<token>
 
 ```bash
 # Create a long-lived token (30 days)
-# Replace <namespace> with your Flight Control namespace
-TOKEN=$(kubectl create token flightctl-admin -n <namespace> --duration=720h)
+TOKEN=$(kubectl create token flightctl-admin -n flightctl --duration=720h)
 
 # Login
 flightctl login https://flightctl.example.com --token=$TOKEN
 ```
-
-**Note:** When creating RoleBindings for users or service accounts, remember to reference the namespace-specific ClusterRole names (e.g., `flightctl-admin-<namespace>`) in the RoleBinding's `roleRef.name` field.
 
 ## Related Documentation
 

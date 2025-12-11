@@ -1976,9 +1976,6 @@ type K8sProviderSpec struct {
 
 	// RoleAssignment AuthRoleAssignment defines how roles are assigned to users from this auth provider.
 	RoleAssignment AuthRoleAssignment `json:"roleAssignment"`
-
-	// RoleSuffix Optional suffix to strip from ClusterRole names when normalizing role names. Used for multi-release deployments where ClusterRoles have namespace-specific names (e.g., flightctl-admin-<namespace>).
-	RoleSuffix *string `json:"roleSuffix,omitempty"`
 }
 
 // K8sProviderSpecProviderType The type of authentication provider.
@@ -2212,9 +2209,6 @@ type OpenShiftProviderSpec struct {
 
 	// ProviderType The type of authentication provider.
 	ProviderType OpenShiftProviderSpecProviderType `json:"providerType"`
-
-	// RoleSuffix Optional suffix to strip from ClusterRole names when normalizing role names. Used for multi-release deployments where ClusterRoles have namespace-specific names (e.g., flightctl-admin-<namespace>).
-	RoleSuffix *string `json:"roleSuffix,omitempty"`
 
 	// Scopes List of OAuth2 scopes to request.
 	Scopes *[]string `json:"scopes,omitempty"`

@@ -78,7 +78,6 @@ data:
         k8s:
             apiUrl: {{ .Values.global.auth.k8s.apiUrl }}
             rbacNs: {{ default .Release.Namespace .Values.global.auth.k8s.rbacNs }}
-            roleSuffix: {{ .Release.Namespace }}
         {{- else if eq $effectiveAuthType "openshift" }}
         openshift:
             clusterControlPlaneUrl: {{ default "https://kubernetes.default.svc" .Values.global.auth.openshift.clusterControlPlaneUrl }}
@@ -88,7 +87,6 @@ data:
             clientId: {{ include "flightctl.getOpenShiftOAuthClientId" . }}
             clientSecret: {{ include "flightctl.getOpenShiftOAuthClientSecret" . }}
             projectLabelFilter: {{ include "flightctl.getOpenShiftProjectLabelFilter" . | quote }}
-            roleSuffix: {{ .Release.Namespace }}
         {{- else if eq $effectiveAuthType "aap"}}
         aap:
           apiUrl: {{ .Values.global.auth.aap.apiUrl }}
