@@ -15,6 +15,9 @@ GINKGO_OUTPUT_INTERCEPTOR_MODE=${GINKGO_OUTPUT_INTERCEPTOR_MODE:-"dup"}
 # Manual test splitting variables
 GINKGO_TOTAL_NODES=${GINKGO_TOTAL_NODES:-1}
 GINKGO_NODE=${GINKGO_NODE:-1}
+# Discovery control variables
+DISCOVERY_PATH=${DISCOVERY_PATH:-"discovery.json"}
+DISCOVERY_ONLY=${DISCOVERY_ONLY:-""}
 FOCUS_FLAG=""
 
 
@@ -25,19 +28,10 @@ if [ -z "$GOBIN" ]; then
     GOBIN=$(go env GOPATH)/bin
 fi
 
-export API_ENDPOINT=https://$(get_endpoint_host flightctl-api-route)
-export REGISTRY_ENDPOINT=$(registry_address)
-
-# Handle manual test splitting if enabled
-if [[ "${GINKGO_TOTAL_NODES}" -gt 1 ]]; then
-    echo "Manual test splitting enabled: Node ${GINKGO_NODE} of ${GINKGO_TOTAL_NODES}"
-
-    # Generate a list of all tests that would run
-    echo "Generating list of all tests..."
-    TEMP_TEST_LIST=$(mktemp)
-
-    # Build the base ginkgo command to discover tests
-    DISCOVER_CMD=("${GOBIN}/ginkgo" "run" "--dry-run" "--json-report" "discovery.json")
+# Run discovery and save to file
+run_discovery() {
+    echo "Running test discovery..."
+    DISCOVER_CMD=("${GOBIN}/ginkgo" "run" "--dry-run" "--json-report" "${DISCOVERY_PATH}")
 
     if [[ -n "${GINKGO_FOCUS}" ]]; then
         DISCOVER_CMD+=("--focus" "${GINKGO_FOCUS}")
@@ -49,9 +43,36 @@ if [[ "${GINKGO_TOTAL_NODES}" -gt 1 ]]; then
 
     DISCOVER_CMD+=("${GO_E2E_DIRS[@]}")
 
-    # Run the discovery command and generate JSON report
     # We ignore the exit code because some test suites might have issues, but we still want to parse the JSON
     "${DISCOVER_CMD[@]}" > /dev/null 2>&1 || true
+    echo "Discovery saved to: ${DISCOVERY_PATH}"
+}
+
+# Discovery-only mode: run discovery and exit (no cluster required)
+if [[ -n "${DISCOVERY_ONLY}" ]]; then
+    echo "Discovery-only mode enabled"
+    run_discovery
+    exit 0
+fi
+
+export API_ENDPOINT=https://$(get_endpoint_host flightctl-api-route)
+export REGISTRY_ENDPOINT=$(registry_address)
+
+# Handle manual test splitting if enabled
+if [[ "${GINKGO_TOTAL_NODES}" -gt 1 ]]; then
+    echo "Manual test splitting enabled: Node ${GINKGO_NODE} of ${GINKGO_TOTAL_NODES}"
+
+    TEMP_TEST_LIST=$(mktemp)
+    DISCOVERY_GENERATED=false
+
+    # Use existing discovery file or run discovery
+    if [[ -f "${DISCOVERY_PATH}" ]]; then
+        echo "Loading discovery from existing file: ${DISCOVERY_PATH}"
+    else
+        echo "Discovery file not found, running discovery..."
+        run_discovery
+        DISCOVERY_GENERATED=true
+    fi
 
     # Parse the JSON report to extract test names with sanity label
     # Use jq to extract just the LeafNodeText (test description) for focus patterns
@@ -61,10 +82,12 @@ if [[ "${GINKGO_TOTAL_NODES}" -gt 1 ]]; then
         .SpecReports[]? |
         select(.LeafNodeLabels != null and (.LeafNodeLabels | contains(["sanity"]))) |
         .LeafNodeText
-    ' discovery.json | sort -u > "${TEMP_TEST_LIST}"
+    ' "${DISCOVERY_PATH}" | sort -u > "${TEMP_TEST_LIST}"
 
-    # Clean up the JSON file
-    rm -f discovery.json
+    # Clean up the discovery file only if we generated it
+    if [[ "${DISCOVERY_GENERATED}" == "true" ]]; then
+        rm -f "${DISCOVERY_PATH}"
+    fi
 
     # Count total tests
     TOTAL_TESTS=$(wc -l < "${TEMP_TEST_LIST}")

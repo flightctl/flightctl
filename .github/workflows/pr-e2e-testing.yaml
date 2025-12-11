@@ -102,12 +102,45 @@ jobs:
       os_id: ${{ matrix.os_id }}
       tag: ${{ needs.compute-tag.outputs.tag }}
 
+  discover-e2e-tests:
+    needs: compute-tag
+    if: needs.compute-tag.outputs.any_changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run test discovery
+        env:
+          GINKGO_LABEL_FILTER: ${{ inputs.label_filter || 'sanity' }}
+          DISCOVERY_ONLY: "true"
+          DISCOVERY_PATH: discovery.json
+        run: |
+          mkdir -p reports
+          test/scripts/run_e2e_tests.sh reports ./test/e2e/...
+          echo "Discovery completed:"
+          ls -la discovery.json
+
+      - name: Upload discovery artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-discovery-${{ needs.compute-tag.outputs.tag }}
+          path: discovery.json
+          retention-days: 1
+
   e2e-tests:
     needs:
       - compute-tag
       - build-images-and-charts
       - build-flightctl-cli
       - build-agent-images-unified
+      - discover-e2e-tests
     if: needs.compute-tag.outputs.any_changed == 'true'
     strategy:
       fail-fast: false

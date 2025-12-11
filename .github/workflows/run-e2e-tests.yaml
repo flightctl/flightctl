@@ -87,6 +87,7 @@ jobs:
           auth-type: k8s
           kind-config: test/scripts/kind_cluster.yaml
           display-summary: ${{ matrix.ginkgo_node == 1 }}
+          wait: false
 
       # ========== DOWNLOAD E2E TEST ARTIFACTS ==========
       - name: Download test artifacts
@@ -128,6 +129,11 @@ jobs:
           df -h
 
       # ========== PREP E2E ENV ==========
+      - name: Wait for API readiness
+        uses: ./.github/actions/wait-for-api-readiness
+        with:
+          base-domain: ${{ steps.base-domain.outputs.base_domain }}
+
       - name: Prepare E2E environment
         env:
           AGENT_OS_ID: ${{ inputs.os_id }}
@@ -151,11 +157,18 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-go-
 
+      - name: Download test discovery
+        uses: actions/download-artifact@v4
+        with:
+          name: e2e-discovery-${{ inputs.tag }}
+          path: .
+
       - name: Run E2E Test Slice
         env:
           GINKGO_LABEL_FILTER: ${{ inputs.ginkgo_label_filter }}
           GINKGO_TOTAL_NODES: ${{ inputs.ginkgo_total_nodes }}
           GINKGO_NODE: ${{ matrix.ginkgo_node }}
+          DISCOVERY_PATH: discovery.json
         run: |
           make run-e2e-test VERBOSE=true
 
