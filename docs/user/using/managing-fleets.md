@@ -110,6 +110,8 @@ The following fields in device templates support placeholders (including within 
 
 In addition to the templating mechanism, you can also reference Kubernetes secrets in your device templates. This is useful for injecting sensitive information like passwords or certificates into your devices.
 
+> **Note:** When a Kubernetes secret referenced in a device template changes, a new template version is not created immediately. Instead, the secret change will be included in the next template version that gets created when you update the fleet's device template.
+
 To use a Kubernetes secret, you can use the `secretRef` field in your device template. The `secretRef` field has the following subfields:
 
 | Field       | Description                                                  |
@@ -205,6 +207,8 @@ subjects:
   name: <flightctl-service-account-name>
   namespace: <flightctl-namespace>
 ```
+
+> **Note:** Both the Role/ClusterRole and its corresponding RoleBinding/ClusterRoleBinding are required for authentication and authorization. The Role or ClusterRole defines the permissions, while the Binding grants those permissions to the service account. When deciding whether to centralize RBAC management, consider using `Role` and `RoleBinding` for namespace-scoped access (more secure, better isolation) and `ClusterRole` with `ClusterRoleBinding` for cluster-wide access or when accessing resources across multiple namespaces (more efficient for centralized management).
 
 **Best Practices for Cross-Namespace Access:**
 
