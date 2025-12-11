@@ -8,7 +8,7 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 )
 
-const DefaultDeviceEnrollmentExpirySeconds int32 = 60 * 60 * 24 * 7 // 7 days
+const DefaultDeviceEnrollmentExpirySeconds int32 = 60 * 60 * 24 * 365 // 1 year
 
 type SignerDeviceEnrollment struct {
 	name string
