@@ -7,17 +7,11 @@
 #
 
 ARG DEVICE_BASE_IMAGE=quay.io/centos-bootc/centos-bootc:stream9
-ARG SOURCE_GIT_TAG
-ARG SOURCE_GIT_TREE_STATE
-ARG SOURCE_GIT_COMMIT
 ARG ENABLE_CRB=0
 ARG EPEL_NEXT=1
 # ---------- Stage: prebase ----------
 FROM ${DEVICE_BASE_IMAGE} AS prebase
 
-# Redeclare ARGs after FROM to make them available in this stage
-ARG SOURCE_GIT_TAG
-ARG SOURCE_GIT_COMMIT
 ARG ENABLE_CRB=0
 ARG EPEL_NEXT=1
 
@@ -65,6 +59,8 @@ RUN echo -e '#!/bin/bash\necho "my site"' > /usr/lib/flightctl/custom-info.d/sit
     chmod 755 /usr/lib/flightctl/custom-info.d/*
 
 
+ARG SOURCE_GIT_TAG
+ARG SOURCE_GIT_COMMIT
 LABEL org.opencontainers.image.source="https://github.com/flightctl/flightctl"
 LABEL org.opencontainers.image.version="${SOURCE_GIT_TAG}"
 LABEL org.opencontainers.image.revision="${SOURCE_GIT_COMMIT}"
