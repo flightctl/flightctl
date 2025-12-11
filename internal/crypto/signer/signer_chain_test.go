@@ -140,7 +140,7 @@ func TestSignerChains(t *testing.T) {
 				subject := "foo"
 				csr := makeCSR(t, subject, orgID)
 				req, err := NewSignRequest(
-					cfg.ClientBootstrapSignerName,
+					cfg.DeviceEnrollmentSignerName,
 					*csr,
 					WithResourceName(subject),
 				)
@@ -196,7 +196,7 @@ func TestSignerChains(t *testing.T) {
 				// Simulate peer cert signed by bootstrap signer
 				peer := &x509.Certificate{}
 				// Inject signer name extension for bootstrap on the mock peer cert via ExtraExtensions
-				peer.ExtraExtensions = append(peer.ExtraExtensions, pkix.Extension{Id: OIDSignerName, Value: mustASN1(t, cfg.ClientBootstrapSignerName)})
+				peer.ExtraExtensions = append(peer.ExtraExtensions, pkix.Extension{Id: OIDSignerName, Value: mustASN1(t, cfg.DeviceEnrollmentSignerName)})
 				ctx := context.WithValue(withOrgCtx(orgID), consts.TLSPeerCertificateCtxKey, peer)
 				return ctx, req
 			},
