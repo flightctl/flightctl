@@ -1207,18 +1207,17 @@ var _ = Describe("cli login", func() {
 		ExpectCompletion(harness, []string{"get", util.EnrollmentRequest, erName[:1]}, erName)
 
 		By("Autocompletion: Scenario B (edit <resource>/<prefix> AND edit <resource> <prefix>)")
+		// Edit currently supports device, fleet, certificateSigningRequest, and repository — no enrollmentrequests.
 		// Slash
 		ExpectCompletion(harness, []string{"edit", fmt.Sprintf("%s/%s", util.Device, devName[:1])}, devName)
 		ExpectCompletion(harness, []string{"edit", fmt.Sprintf("%s/%s", util.Fleet, fleetName[:1])}, fleetName)
 		ExpectCompletion(harness, []string{"edit", fmt.Sprintf("%s/%s", util.CertificateSigningRequest, csrName[:1])}, csrName)
 		ExpectCompletion(harness, []string{"edit", fmt.Sprintf("%s/%s", util.Repository, repoName[:1])}, repoName)
-		ExpectCompletion(harness, []string{"edit", fmt.Sprintf("%s/%s", util.EnrollmentRequest, erName[:1])}, erName)
 		// Space
 		ExpectCompletion(harness, []string{"edit", util.Device, devName[:1]}, devName)
 		ExpectCompletion(harness, []string{"edit", util.Fleet, fleetName[:1]}, fleetName)
 		ExpectCompletion(harness, []string{"edit", util.CertificateSigningRequest, csrName[:1]}, csrName)
 		ExpectCompletion(harness, []string{"edit", util.Repository, repoName[:1]}, repoName)
-		ExpectCompletion(harness, []string{"edit", util.EnrollmentRequest, erName[:1]}, erName)
 
 		By("Autocompletion: Scenario C (approve csr/er <prefix> in both ways)")
 		// Slash
@@ -1228,13 +1227,12 @@ var _ = Describe("cli login", func() {
 		ExpectCompletion(harness, []string{"approve", util.CertificateSigningRequest, csrName[:1]}, csrName)
 		ExpectCompletion(harness, []string{"approve", util.EnrollmentRequest, erName[:1]}, erName)
 
-		By("Autocompletion: Scenario D (deny csr/er <prefix> in both ways)")
+		By("Autocompletion: Scenario D (deny csr <prefix> in both ways)")
+		// Deny only supports certificateSigningRequest, not enrollmentrequest.
 		// Slash
 		ExpectCompletion(harness, []string{"deny", fmt.Sprintf("%s/%s", util.CertificateSigningRequest, csrName[:1])}, csrName)
-		ExpectCompletion(harness, []string{"deny", fmt.Sprintf("%s/%s", util.EnrollmentRequest, erName[:1])}, erName)
 		// Space
 		ExpectCompletion(harness, []string{"deny", util.CertificateSigningRequest, csrName[:1]}, csrName)
-		ExpectCompletion(harness, []string{"deny", util.EnrollmentRequest, erName[:1]}, erName)
 
 		By("Autocompletion: Scenario E (decommission device <prefix> in both ways)")
 		// Slash
