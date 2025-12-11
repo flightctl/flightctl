@@ -47,12 +47,16 @@ jobs:
         uses: tj-actions/changed-files@v46
         with:
           since_last_remote_commit: 'true'
-          files_ignore: |
-            .spelling
-            README.md
-            docs/**
-            .github/**
-            examples/**
+          # Temporarily force always detect changes for e2e testing
+          files: |
+            **/*
+          # Original configuration (commented out for testing):
+          # files_ignore: |
+          #   .spelling
+          #   README.md
+          #   docs/**
+          #   .github/**
+          #   examples/**
 
       - name: Compute tag
         id: compute-tag
@@ -176,7 +180,7 @@ jobs:
           - os_id: cs9-bootc
             backend_type: helm
             label_filter: 'sanity && !slow'
-            ginkgo_total_nodes: 5
+            ginkgo_total_nodes: 4
           - os_id: cs9-bootc
             backend_type: helm
             ginkgo_total_nodes: 1
