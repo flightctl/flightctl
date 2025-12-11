@@ -435,7 +435,7 @@ func populateConditionTimestamps(newCSR, oldCSR *api.CertificateSigningRequest) 
 }
 
 func (h *ServiceHandler) validateAllowedSignersForCSRService(csr *api.CertificateSigningRequest) error {
-	if csr.Spec.SignerName == h.ca.Cfg.DeviceEnrollmentSignerName {
+	if csr.Spec.SignerName == h.ca.Cfg.DeviceManagementSignerName {
 		return fmt.Errorf("signer name %q is not allowed in CertificateSigningRequest service; use the EnrollmentRequest API instead", csr.Spec.SignerName)
 	}
 	return nil
