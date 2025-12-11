@@ -37,6 +37,7 @@ GO_FILES = $(shell find $(ROOT_DIR)/ -name "*.go" -not -path "$(ROOT_DIR)/bin" -
 TIMEOUT ?= 30m
 GOOS = $(shell go env GOOS)
 GOARCH = $(shell go env GOARCH)
+RPM_MOCK_ROOT_DEFAULT = centos-stream+epel-next-9-x86_64
 
 VERBOSE ?= false
 
@@ -338,8 +339,16 @@ bin:
 	mkdir -p bin
 
 # only trigger the rpm build when not built before or changes happened to the codebase
-bin/.rpm: $(shell find $(ROOT_DIR)/ -name "*.go" -not -path "$(ROOT_DIR)/packaging/*") packaging/rpm/flightctl.spec packaging/systemd/flightctl-agent.service hack/build_rpms.sh $(shell find $(ROOT_DIR)/packaging/selinux -type f) | bin
-	@sudo GOMODCACHE="$(shell go env GOMODCACHE)" GOCACHE="$(shell go env GOCACHE)" $(ROOT_DIR)/hack/build_rpms.sh $(if $(RPM_MOCK_ROOT),--root $(RPM_MOCK_ROOT),)
+bin/.rpm: $(shell find $(ROOT_DIR)/ -name "*.go" -not -path "$(ROOT_DIR)/packaging/*") \
+          packaging/rpm/flightctl.spec \
+          packaging/systemd/flightctl-agent.service \
+          hack/build_rpms.sh \
+          $(shell find $(ROOT_DIR)/packaging/selinux -type f) \
+          | bin
+	@sudo GOMODCACHE="$(shell go env GOMODCACHE)" \
+	     GOCACHE="$(shell go env GOCACHE)" \
+	     "$(ROOT_DIR)/hack/build_rpms.sh" \
+	     --root "$(if $(RPM_MOCK_ROOT),$(RPM_MOCK_ROOT),$(RPM_MOCK_ROOT_DEFAULT))"
 	@sudo chown -R $(shell id -u):$(shell id -g) bin/rpm/
 	touch bin/.rpm
 
