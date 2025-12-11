@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"os/user"
 	"strings"
 	"sync"
 	"testing"
@@ -76,6 +77,7 @@ func setupVars(t *testing.T) *vars {
 		controller: NewManager(
 			mockGrpcClient,
 			"mydevice",
+			lo.Must(user.Current()).Username,
 			executor,
 			mockWatcher,
 			logger),
@@ -207,9 +209,10 @@ func TestConsole(t *testing.T) {
 		sessionID := uuid.New().String()
 		consoleDef := deviceConsole(sessionID, sessionMetadata(t, "xterm", nil,
 			&v1beta1.DeviceCommand{
-				Command: "exit",
+				Command: "/bin/bash",
 				Args: []string{
-					"11",
+					"-c",
+					`exit 11`,
 				}},
 			false))
 
@@ -258,12 +261,10 @@ func TestConsole(t *testing.T) {
 		v := setupVars(t)
 		sessionID := uuid.New().String()
 		consoleDef := deviceConsole(sessionID, sessionMetadata(t, "xterm", nil, &v1beta1.DeviceCommand{
-			Command: "echo",
-			Args: []string{"stdout",
-				";",
-				"echo",
-				"stderr",
-				">&2",
+			Command: "/bin/bash",
+			Args: []string{
+				"-c",
+				`echo stdout; echo stderr >&2`,
 			},
 		}, false))
 
