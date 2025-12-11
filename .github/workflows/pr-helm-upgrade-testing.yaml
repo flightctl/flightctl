@@ -33,7 +33,7 @@ jobs:
         uses: actions/checkout@v5
       - name: Check if override label exists
         id: check_override
-        uses: ./.github/actions/check-admin-override
+        uses: ./.github/actions/check-reviewer-override
         with:
           label-name: 'breaking-helm-change-approved'
 
@@ -61,22 +61,23 @@ jobs:
             packaging/rpm/**
 
   build-baseline:
-    needs: [check-override, check-changes]
-    if: needs.check-override.outputs.override != 'true' && needs.check-changes.outputs.any_changed == 'true'
+    needs: [check-changes]
+    if: needs.check-changes.outputs.any_changed == 'true'
     uses: ./.github/workflows/build-images-and-charts.yaml
     with:
       repository: flightctl/flightctl
       ref: main
 
   build-pr:
-    needs: [check-override, check-changes]
-    if: needs.check-override.outputs.override != 'true' && needs.check-changes.outputs.any_changed == 'true'
+    needs: [check-changes]
+    if: needs.check-changes.outputs.any_changed == 'true'
     uses: ./.github/workflows/build-images-and-charts.yaml
 
   deploy-and-upgrade:
     runs-on: ubuntu-24.04
     needs: [check-override, check-changes, build-baseline, build-pr]
-    if: needs.check-override.outputs.override != 'true' && needs.check-changes.outputs.any_changed == 'true'
+    if: needs.check-changes.outputs.any_changed == 'true'
+    continue-on-error: ${{ needs.check-override.outputs.override == 'true' }}
     steps:
       - name: Checkout PR branch
         uses: actions/checkout@v5
@@ -316,16 +317,22 @@ jobs:
           namespace-internal: 'flightctl-internal'
           log-directory: 'upgrade-logs'
 
-  log-skip-message:
+  log-override-message:
     runs-on: ubuntu-24.04
-    needs: check-override
-    if: needs.check-override.outputs.override == 'true'
+    needs: [check-override, deploy-and-upgrade]
+    if: always() && needs.check-override.outputs.override == 'true'
     steps:
-      - name: Log helm upgrade test bypass
+      - name: Log helm upgrade test override status
+        env:
+          DEPLOY_RESULT: ${{ needs.deploy-and-upgrade.result }}
         run: |
-          echo "================================================"
-          echo "HELM UPGRADE TEST BYPASSED"
-          echo "================================================"
-          echo "The breaking-helm-change-approved label has been applied by an admin."
-          echo "Skipping Helm upgrade testing."
           echo ""
+          echo "================================================"
+          echo "HELM UPGRADE TEST - OVERRIDE ACTIVE"
+          echo "================================================"
+          echo ""
+          echo "The 'breaking-helm-change-approved' label is present."
+          echo "Test result: ${DEPLOY_RESULT}"
+          if [ "${DEPLOY_RESULT}" = "failure" ]; then
+            echo "Failures were detected but are being ignored due to the override label."
+          fi

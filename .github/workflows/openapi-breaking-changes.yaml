@@ -25,12 +25,11 @@ jobs:
 
       - name: Check if override label exists
         id: check_override
-        uses: ./.github/actions/check-admin-override
+        uses: ./.github/actions/check-reviewer-override
         with:
           label-name: 'breaking-change-approved'
 
       - name: Breaking Changes Check
-        if: ${{ steps.check_override.outputs.override != 'true' }}
         run: |
           echo "Checking for breaking API changes..."
           echo "================================================"
@@ -38,7 +37,6 @@ jobs:
 
       - name: Check breaking changes in main API
         id: breaking_main
-        if: ${{ steps.check_override.outputs.override != 'true' }}
         uses: oasdiff/oasdiff-action/breaking@main
         with:
           base: base-api/v1beta1/openapi.yaml
@@ -48,7 +46,6 @@ jobs:
 
       - name: Check breaking changes in agent API
         id: breaking_agent
-        if: ${{ steps.check_override.outputs.override != 'true' }}
         uses: oasdiff/oasdiff-action/breaking@main
         with:
           base: base-api/v1beta1/agent/openapi.yaml
@@ -73,10 +70,12 @@ jobs:
           exit 1
 
       - name: Log breaking changes override
-        if: ${{ steps.check_override.outputs.override == 'true' }}
+        if: ${{ steps.check_override.outputs.override == 'true' && (steps.breaking_main.outcome == 'failure' || steps.breaking_agent.outcome == 'failure') }}
         run: |
+          echo ""
           echo "================================================"
-          echo "BREAKING CHANGES CHECK BYPASSED"
+          echo "BREAKING CHANGES DETECTED - OVERRIDE ACTIVE"
           echo "================================================"
-          echo "The breaking-change-approved label has been applied by an admin."
-          echo "Skipping breaking changes validation."
+          echo ""
+          echo "Breaking changes were detected (see report above)."
+          echo "The 'breaking-change-approved' label is present, so the check will pass."
