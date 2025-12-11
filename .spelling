@@ -481,3 +481,5 @@ webserver
  - docs/user/installing/configuring-auth/auth-oidc.md
 CLI
 webserver
+subfields
+namespaced
