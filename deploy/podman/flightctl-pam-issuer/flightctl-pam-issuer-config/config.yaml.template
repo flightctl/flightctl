@@ -31,3 +31,6 @@ auth:
       - http://localhost:8080/callback
 {{- end}}
     pamService: {{if .global.auth.pamOidcIssuer.pamService}}{{.global.auth.pamOidcIssuer.pamService}}{{else}}flightctl{{end}}
+    allowPublicClientWithoutPKCE: {{if .global.auth.pamOidcIssuer.allowPublicClientWithoutPKCE}}{{.global.auth.pamOidcIssuer.allowPublicClientWithoutPKCE}}{{else}}false{{end}}
+    accessTokenExpiration: {{if .global.auth.pamOidcIssuer.accessTokenExpiration}}{{.global.auth.pamOidcIssuer.accessTokenExpiration}}{{else}}1h{{end}}
+    refreshTokenExpiration: {{if .global.auth.pamOidcIssuer.refreshTokenExpiration}}{{.global.auth.pamOidcIssuer.refreshTokenExpiration}}{{else}}168h{{end}}
