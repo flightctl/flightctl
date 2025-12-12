@@ -214,6 +214,35 @@ func IsPublicAuthEndpoint(path string) bool {
 	return false
 }
 
+// ShouldValidateOrg checks if org validation should be performed for the given method and path.
+// Returns false if org validation should be skipped, true otherwise.
+func ShouldValidateOrg(method, path string) bool {
+	// Skip org validation for public auth endpoints
+	if IsPublicAuthEndpoint(path) {
+		return false
+	}
+
+	// Normalize path by removing trailing slash
+	normalizedPath := strings.TrimSuffix(path, "/")
+
+	// Skip org validation for GET /api/v1/organizations endpoint
+	if method == http.MethodGet && normalizedPath == "/api/v1/organizations" {
+		return false
+	}
+
+	// Skip org validation for GET /api/v1/auth/validate endpoint
+	if method == http.MethodGet && normalizedPath == "/api/v1/auth/validate" {
+		return false
+	}
+
+	// Skip org validation for GET /api/v1/auth/userinfo endpoint
+	if method == http.MethodGet && normalizedPath == "/api/v1/auth/userinfo" {
+		return false
+	}
+
+	return true
+}
+
 // BuildReportedOrganizations creates ReportedOrganization list from organizations and their roles
 // It handles:
 // - Extracting global roles (from "*" key in orgRoles map)

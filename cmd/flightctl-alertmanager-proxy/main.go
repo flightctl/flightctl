@@ -99,39 +99,36 @@ func (p *AlertmanagerProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // createConditionalAuthMiddleware creates a middleware that conditionally applies authentication
 // and authorization based on the request path:
 // - /health and /api/v2/status: skip auth (just continue)
-// - all other endpoints: full auth chain (auth -> identity mapping -> org extract -> org validate -> authZ)
+// - all other endpoints: full auth chain (auth -> identity mapping -> org -> authZ)
 func createConditionalAuthMiddleware(
 	authN common.MultiAuthNMiddleware,
 	authZ auth.AuthZMiddleware,
 	identityMappingMiddleware *middleware.IdentityMappingMiddleware,
-	extractOrgMiddleware func(http.Handler) http.Handler,
-	validateOrgMiddleware func(http.Handler) http.Handler,
+	orgMiddleware func(http.Handler) http.Handler,
 	logger logrus.FieldLogger,
 ) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		// Pre-create the full auth chain once
 		fullAuthHandler := auth.CreateAuthNMiddleware(authN, logger)(
 			identityMappingMiddleware.MapIdentityToDB(
-				extractOrgMiddleware(
-					validateOrgMiddleware(
-						http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-							// Check if user has permission to access alerts
-							allowed, err := authZ.CheckPermission(r.Context(), alertsResource, getAction)
-							if err != nil {
-								logger.WithError(err).Error("Authorization check failed")
-								http.Error(w, "Authorization service unavailable", http.StatusServiceUnavailable)
-								return
-							}
+				orgMiddleware(
+					http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						// Check if user has permission to access alerts
+						allowed, err := authZ.CheckPermission(r.Context(), alertsResource, getAction)
+						if err != nil {
+							logger.WithError(err).Error("Authorization check failed")
+							http.Error(w, "Authorization service unavailable", http.StatusServiceUnavailable)
+							return
+						}
 
-							if !allowed {
-								logger.Warn("User denied access to alerts")
-								http.Error(w, "Forbidden", http.StatusForbidden)
-								return
-							}
+						if !allowed {
+							logger.Warn("User denied access to alerts")
+							http.Error(w, "Forbidden", http.StatusForbidden)
+							return
+						}
 
-							next.ServeHTTP(w, r)
-						}),
-					),
+						next.ServeHTTP(w, r)
+					}),
 				),
 			),
 		)
@@ -249,9 +246,8 @@ func main() {
 	defer identityMapper.Stop()
 	identityMappingMiddleware := middleware.NewIdentityMappingMiddleware(identityMapper, logger)
 
-	// Create organization extraction and validation middlewares
-	extractOrgMiddleware := middleware.ExtractOrgIDToCtx(middleware.QueryOrgIDExtractor, logger)
-	validateOrgMiddleware := middleware.ValidateOrgMembership(logger)
+	// Create organization extraction and validation middleware
+	orgMiddleware := middleware.ExtractAndValidateOrg(middleware.QueryOrgIDExtractor, logger)
 
 	// Create proxy
 	proxy, err := NewAlertmanagerProxy(cfg, logger)
@@ -264,8 +260,7 @@ func main() {
 		authN,
 		authZ,
 		identityMappingMiddleware,
-		extractOrgMiddleware,
-		validateOrgMiddleware,
+		orgMiddleware,
 		logger,
 	)
 

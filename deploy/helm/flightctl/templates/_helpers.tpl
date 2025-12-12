@@ -266,7 +266,7 @@ Usage: {{- $authType := include "flightctl.getEffectiveAuthType" . }}
   {{- $scheme := (include "flightctl.getHttpScheme" . )}}
   {{- $exposeMethod := (include "flightctl.getServiceExposeMethod" . )}}
   {{- if eq $exposeMethod "nodePort" }}
-    {{- printf "%s://flightctl-alertmanager-proxy:8443" $scheme }}
+    {{- printf "https://flightctl-alertmanager-proxy:8443" }}
   {{- else if eq $exposeMethod "gateway" }}
     {{- if and (eq $scheme "http") (not (eq (int .Values.global.gateway.ports.http) 80))}}
       {{- printf "%s://alertmanager-proxy.%s:%v" $scheme $baseDomain .Values.global.gateway.ports.http }}

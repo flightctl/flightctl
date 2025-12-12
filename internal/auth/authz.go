@@ -151,6 +151,11 @@ func (m *MultiAuthZ) CheckPermission(ctx context.Context, resource string, op st
 		m.log.Warnf("Identity in context has incorrect type: %T, returning 403", identityVal)
 		return false, nil
 	}
+	// Skip org validation for GET /api/v1/organizations (list organizations) endpoint
+	if resource == "organizations" && op == "list" {
+		m.log.Debug("GetOrgs endpoint, returning true")
+		return true, nil
+	}
 
 	// Check issuer type
 	issuer := ident.GetIssuer()
@@ -177,7 +182,7 @@ func (m *MultiAuthZ) CheckPermission(ctx context.Context, resource string, op st
 // checkPermissionOpenShift handles permission checks for OpenShift identities
 func (m *MultiAuthZ) checkPermissionOpenShift(ctx context.Context, ident common.Identity, resource string, op string) (bool, error) {
 	issuer := ident.GetIssuer()
-	m.log.Infof("Using OpenShift authZ for issuer: %s", issuer.String())
+	m.log.Debugf("Using OpenShift authZ for issuer: %s", issuer.String())
 
 	if m.openshiftAuthZCache == nil {
 		m.log.Warn("OpenShift issuer but OpenShift authZ not configured, returning 403")
@@ -222,7 +227,7 @@ func (m *MultiAuthZ) checkPermissionOpenShift(ctx context.Context, ident common.
 // checkPermissionK8s handles permission checks for K8s identities
 func (m *MultiAuthZ) checkPermissionK8s(ctx context.Context, ident common.Identity, resource string, op string) (bool, error) {
 	issuer := ident.GetIssuer()
-	m.log.Infof("Using K8s authZ for issuer: %s", issuer.String())
+	m.log.Debugf("Using K8s authZ for issuer: %s", issuer.String())
 
 	if m.k8sAuthZCache == nil {
 		m.log.Warn("K8s issuer but K8s authZ not configured, returning 403")
@@ -299,7 +304,7 @@ func (m *MultiAuthZ) GetUserPermissions(ctx context.Context) (*api.PermissionLis
 		return m.getUserPermissionsK8s(ctx, ident)
 	default:
 		// For OIDC, OAuth2, AAP and all other issuer types, use static authZ
-		m.log.Infof("Using static authZ for issuer type=%s (%s)", issuer.Type, issuer.String())
+		m.log.Debugf("Using static authZ for issuer type=%s (%s)", issuer.Type, issuer.String())
 		return m.getStaticAuthZ().GetUserPermissions(ctx)
 	}
 }
@@ -307,7 +312,7 @@ func (m *MultiAuthZ) GetUserPermissions(ctx context.Context) (*api.PermissionLis
 // getUserPermissionsOpenShift handles getting user permissions for OpenShift identities
 func (m *MultiAuthZ) getUserPermissionsOpenShift(ctx context.Context, ident common.Identity) (*api.PermissionList, error) {
 	issuer := ident.GetIssuer()
-	m.log.Infof("Using OpenShift authZ for issuer: %s", issuer.String())
+	m.log.Debugf("Using OpenShift authZ for issuer: %s", issuer.String())
 
 	if m.openshiftAuthZCache == nil {
 		m.log.Warn("OpenShift issuer but OpenShift authZ not configured")
@@ -352,7 +357,7 @@ func (m *MultiAuthZ) getUserPermissionsOpenShift(ctx context.Context, ident comm
 // getUserPermissionsK8s handles getting user permissions for K8s identities
 func (m *MultiAuthZ) getUserPermissionsK8s(ctx context.Context, ident common.Identity) (*api.PermissionList, error) {
 	issuer := ident.GetIssuer()
-	m.log.Infof("Using K8s authZ for issuer: %s", issuer.String())
+	m.log.Debugf("Using K8s authZ for issuer: %s", issuer.String())
 
 	if m.k8sAuthZCache == nil {
 		m.log.Warn("K8s issuer but K8s authZ not configured")

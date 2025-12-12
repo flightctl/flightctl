@@ -9,38 +9,41 @@ kubeadmConfigPatches:
 nodes:
 - role: control-plane
   extraPortMappings:
+  - containerPort: 3222 # local git server for E2E testing
+    hostPort: 3222
+    protocol: TCP  
   - containerPort: 3443 # flightctl API
     hostPort: 3443
     protocol: TCP
-  - containerPort: 8090 # flightctl CLI artifacts
-    hostPort: 8090
-    protocol: TCP
-  - containerPort: 7443 # flightctl agent endpoint API
-    hostPort: 7443
-    protocol: TCP
-  - containerPort: 5432 # postgresql DB
-    hostPort: 5432
-    protocol: TCP
-  - containerPort: 5000 # local registry for E2E testing
-    hostPort: 5000
-    protocol: TCP
-  - containerPort: 3222 # local git server for E2E testing
-    hostPort: 3222
-    protocol: TCP
-  - containerPort: 9090 # Prometheus server
-    hostPort: 9090
-    protocol: TCP
-  - containerPort: 8443 # alertmanager proxy
-    hostPort: 8443
-    protocol: TCP
+  - containerPort: 4317 # telemetry-gateway OTLP
+    hostPort: 4317
+    protocol: TCP    
   - containerPort: 4443 # gateway TLS
     hostPort: 4443
     protocol: TCP
   - containerPort: 4480 # gateway HTTP
     hostPort: 4480
     protocol: TCP
-  - containerPort: 4317 # telemetry-gateway OTLP
-    hostPort: 4317
+  - containerPort: 5000 # local registry for E2E testing
+    hostPort: 5000
+    protocol: TCP    
+  - containerPort: 5432 # postgresql DB
+    hostPort: 5432
+    protocol: TCP
+  - containerPort: 7443 # flightctl agent endpoint API
+    hostPort: 7443
+    protocol: TCP
+  - containerPort: 8090 # flightctl CLI artifacts
+    hostPort: 8090
+    protocol: TCP
+  - containerPort: 8443 # alertmanager proxy
+    hostPort: 8443
+    protocol: TCP
+  - containerPort: 9000 # flightctl UI
+    hostPort: 9000
+    protocol: TCP    
+  - containerPort: 9090 # Prometheus server
+    hostPort: 9090
     protocol: TCP
   - containerPort: 9464 # telemetry-gateway Prometheus
     hostPort: 9464

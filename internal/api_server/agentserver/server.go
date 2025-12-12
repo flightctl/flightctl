@@ -235,9 +235,8 @@ func (s *AgentServer) prepareHTTPHandler(ctx context.Context, serviceHandler ser
 	}()
 	identityMappingMiddleware := fcmiddleware.NewIdentityMappingMiddleware(identityMapper, s.log)
 
-	// Create organization extraction and validation middlewares once
-	extractOrgMiddleware := fcmiddleware.ExtractOrgIDToCtx(fcmiddleware.CertOrgIDExtractor, s.log)
-	validateOrgMiddleware := fcmiddleware.ValidateOrgMembership(s.log)
+	// Create organization extraction and validation middleware once
+	orgMiddleware := fcmiddleware.ExtractAndValidateOrg(fcmiddleware.CertOrgIDExtractor, s.log)
 
 	// Create authentication routing middleware once
 	authRoutingMiddleware := func(next http.Handler) http.Handler {
@@ -268,8 +267,7 @@ func (s *AgentServer) prepareHTTPHandler(ctx context.Context, serviceHandler ser
 	authMiddlewares := []func(http.Handler) http.Handler{
 		authRoutingMiddleware,
 		identityMappingMiddleware.MapIdentityToDB,
-		extractOrgMiddleware,
-		validateOrgMiddleware,
+		orgMiddleware,
 	}
 
 	// request size limits should come before logging to prevent DoS attacks from filling logs

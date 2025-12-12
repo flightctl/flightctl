@@ -343,5 +343,10 @@ func (o *OpenShiftAuth) getProjectsForUser(ctx context.Context, token string) ([
 
 // getRolesForUserInProject gets roles from RoleBindings in a project
 func (o *OpenShiftAuth) getRolesForUserInProject(ctx context.Context, project, username string) ([]string, error) {
-	return o.k8sClient.ListRoleBindingsForUser(ctx, project, username)
+	roles, err := o.k8sClient.ListRoleBindingsForUser(ctx, project, username)
+	if err != nil {
+		return nil, err
+	}
+	// Normalize role names by stripping release suffix if present
+	return normalizeRoleNames(roles, o.spec.RoleSuffix), nil
 }

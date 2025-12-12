@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
@@ -26,6 +27,8 @@ type Volume struct {
 	Reference string
 	// Available is true if the volume has been created
 	Available bool
+	// ReclaimPolicy controls how the volume is handled when the application is removed
+	ReclaimPolicy v1beta1.ApplicationVolumeReclaimPolicy
 }
 
 type volumeProvider func() ([]*Volume, error)
@@ -88,11 +91,13 @@ func NewVolumeManager(log *log.PrefixLogger, appName string, appType v1beta1.App
 			return nil, fmt.Errorf("%w: %s", errors.ErrUnsupportedVolumeType, volType)
 		}
 		volID := m.volumeID(v.Name)
+		policy := v.GetReclaimPolicy()
 		m.volumes[volID] = &Volume{
-			Name:      v.Name,
-			Reference: image.Reference,
-			ID:        volID,
-			Available: true, // TODO: event support is broken for volumes.  https://github.com/containers/podman/issues/26480
+			Name:          v.Name,
+			Reference:     image.Reference,
+			ID:            volID,
+			Available:     true, // TODO: event support is broken for volumes.  https://github.com/containers/podman/issues/26480
+			ReclaimPolicy: policy,
 		}
 	}
 	return m, nil
@@ -123,6 +128,9 @@ func (m *volumeManager) Get(id string) (*Volume, bool) {
 func (m *volumeManager) Add(volume *Volume) {
 	_, ok := m.volumes[volume.ID]
 	if !ok {
+		if volume.ReclaimPolicy == "" {
+			volume.ReclaimPolicy = v1beta1.Retain
+		}
 		m.volumes[volume.ID] = volume
 	}
 }
@@ -131,6 +139,9 @@ func (m *volumeManager) Update(volume *Volume) bool {
 	_, ok := m.volumes[volume.ID]
 	if !ok {
 		return false
+	}
+	if volume.ReclaimPolicy == "" {
+		volume.ReclaimPolicy = v1beta1.Retain
 	}
 	m.volumes[volume.ID] = volume
 	return true
@@ -209,6 +220,9 @@ func (m *volumeManager) AddVolumes(volumes []*Volume) {
 		vol := volume
 		if vol.ID == "" {
 			vol.ID = m.volumeID(volume.Name)
+		}
+		if vol.ReclaimPolicy == "" {
+			vol.ReclaimPolicy = v1beta1.Retain
 		}
 		vol.Available = true // TODO: event support is broken for volumes.  https://github.com/containers/podman/issues/26480
 		m.volumes[vol.ID] = vol
@@ -291,8 +305,9 @@ func ToLifecycleVolumes(volumes []*Volume) []lifecycle.Volume {
 	out := make([]lifecycle.Volume, len(volumes))
 	for i, vol := range volumes {
 		out[i] = lifecycle.Volume{
-			ID:        vol.ID,
-			Reference: vol.Reference,
+			ID:            vol.ID,
+			Reference:     vol.Reference,
+			ReclaimPolicy: vol.ReclaimPolicy,
 		}
 	}
 	return out
@@ -305,11 +320,12 @@ func extractQuadletVolumes(appID string, quadlets map[string]*common.QuadletRefe
 		if quad.Type != common.QuadletTypeVolume || quad.Image == nil {
 			continue
 		}
-
+		name = strings.TrimPrefix(name, fmt.Sprintf("%s-", appID))
 		volumes = append(volumes, &Volume{
-			Name:      name,
-			ID:        quadlet.VolumeName(quad.Name, quadlet.NamespaceResource(appID, name)),
-			Reference: *quad.Image,
+			Name:          name,
+			ID:            quadlet.VolumeName(quad.Name, quadlet.NamespaceResource(appID, name)),
+			Reference:     *quad.Image,
+			ReclaimPolicy: v1beta1.Retain,
 		})
 	}
 	return volumes

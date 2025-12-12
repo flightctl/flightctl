@@ -36,7 +36,8 @@ var (
 	ErrNoComposeServices = errors.New("no services found in compose spec")
 
 	// quadlet
-	ErrNoQuadletFile = errors.New("no quadlet file found")
+	ErrNoQuadletFile     = errors.New("no quadlet file found")
+	ErrNoQuadletWorkload = errors.New("no quadlet workloads found")
 
 	// application status
 	ErrUnknownApplicationStatus = errors.New("unknown application status")

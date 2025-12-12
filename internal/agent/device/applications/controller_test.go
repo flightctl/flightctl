@@ -499,7 +499,7 @@ func TestControllerSync(t *testing.T) {
 			mockAppManager := NewMockManager(ctrl)
 			podmanClient := client.NewPodman(log, mockExecuter, readWriter, util.NewPollConfig())
 
-			controller := NewController(podmanClient, mockAppManager, readWriter, log)
+			controller := NewController(podmanClient, mockAppManager, readWriter, log, "2025-01-01T00:00:00Z")
 
 			countainerMountDir := "/mount"
 			err = readWriter.MkdirAll(countainerMountDir, fileio.DefaultDirectoryPermissions)
