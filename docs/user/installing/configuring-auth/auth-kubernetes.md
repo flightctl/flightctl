@@ -21,7 +21,9 @@ Flight Control provides the following standard ClusterRoles out-of-the-box:
 - **`flightctl-viewer-<namespace>`** - Read-only access to devices, fleets, resourcesyncs, organizations
 - **`flightctl-installer-<namespace>`** - Access to enrollmentrequests and certificate signing requests
 
-**Note:** ClusterRole names include a namespace suffix (e.g., `flightctl-admin-<namespace>`) to enable multi-release deployments in the same cluster. The `<namespace>` value matches your Helm release namespace. When creating RoleBindings, you must use the suffixed ClusterRole names.
+**Note:** ClusterRole names include a namespace suffix (e.g., `flightctl-admin-<namespace>`). The `<namespace>` value matches your Helm release namespace. When creating RoleBindings, you must use the suffixed ClusterRole names.
+
+**Note:** Flight Control automatically creates a service account named `flightctl-admin` with the `flightctl-admin-<namespace>` role; to use other role types, create your own service account and bind it to the desired ClusterRole.
 
 ## Configuration
 
@@ -51,7 +53,7 @@ If your cluster is OpenShift, use [OpenShift Authentication](auth-openshift.md) 
 
 ### ACM Deployments
 
-If deploying on ACM (by global.target: acm), the k8s auth values are automatically calculated.
+If deploying on ACM (Advanced Cluster Management), use [OpenShift Authentication](auth-openshift.md) instead of Kubernetes authentication.
 
 ## Limitations
 
