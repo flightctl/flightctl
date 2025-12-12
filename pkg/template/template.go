@@ -20,6 +20,10 @@ func Render(inputFile string, templateFile string, outputFile string) error {
 		return fmt.Errorf("failed to parse YAML from %s: %w", inputFile, err)
 	}
 
+	return RenderWithData(data, templateFile, outputFile)
+}
+
+func RenderWithData(data interface{}, templateFile string, outputFile string) error {
 	tmpl, err := template.ParseFiles(templateFile)
 	if err != nil {
 		return fmt.Errorf("failed to parse template file %s: %w", templateFile, err)
