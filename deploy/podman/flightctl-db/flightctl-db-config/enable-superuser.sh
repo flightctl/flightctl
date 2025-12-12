@@ -39,7 +39,7 @@ else
     echo "POSTGRESQL_MASTER_USER not set, skipping superuser configuration"
 fi
 
-echo "Setting up FlightCtl database users for production deployment..."
+echo "Setting up Flight Control database users for production deployment..."
 
 # Get passwords from environment variables (set by podman secrets)
 : "${POSTGRESQL_PASSWORD:?POSTGRESQL_PASSWORD must be set}"
