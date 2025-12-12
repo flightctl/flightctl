@@ -1,15 +1,15 @@
 {{- if eq (include "flightctl.enableMulticlusterExtensions" .) "true" }}
-{{- $baseDomain := (include "flightctl.getBaseDomain" .) }}
-{{- $mceNamespace := .Values.global.multiclusterEngineNamespace | default "multicluster-engine" }}
+{{- $apiEndpoint := "https://flightctl-api.{{ .Release.Namespace }}.svc:3443" }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: flightctl-discovery
-  namespace: {{ $mceNamespace }}
+  namespace: {{ .Values.global.multiclusterEngineNamespace }}
   labels:
     {{- include "flightctl.standardLabels" . | nindent 4 }}
 data:
-  apiEndpoint: "https://api.{{ $baseDomain }}"
-  healthEndpoint: "https://api.{{ $baseDomain }}/healthz"
+  apiEndpoint: "{{ $apiEndpoint }}"
+  healthEndpoint: "{{ $apiEndpoint }}/healthz"
   namespace: "{{ .Release.Namespace }}"
+  caSecretName: flightctl-ca-bundle
 {{- end }}

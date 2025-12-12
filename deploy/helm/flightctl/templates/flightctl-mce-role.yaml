@@ -1,5 +1,4 @@
 {{- if eq (include "flightctl.enableMulticlusterExtensions" .) "true" }}
-{{- $mceNamespace := .Values.global.multiclusterEngineNamespace | default "multicluster-engine" }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -36,49 +35,42 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: managedcluster-import-controller-v2
-    namespace: {{ $mceNamespace }}
+    namespace: {{ .Values.global.multiclusterEngineNamespace }}
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: flightctl-discovery-writer
-  namespace: {{ $mceNamespace }}
+  name: flightctl-device-registration-ca
+  namespace: {{ .Release.Namespace }}
   labels:
     {{- include "flightctl.standardLabels" . | nindent 4 }}
 rules:
   - verbs:
       - get
-      - create
-      - update
-      - patch
+      - list
+      - watch
     apiGroups:
-      - ""
+      - ''
     resources:
-      - configmaps
+      - secrets
     resourceNames:
-      - flightctl-discovery
-  - verbs:
-      - create
-    apiGroups:
-      - ""
-    resources:
-      - configmaps
+      - flightctl-ca-bundle
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: flightctl-discovery-writer
-  namespace: {{ $mceNamespace }}
+  name: managedcluster-import-controller-flightctl-ca
+  namespace: {{ .Release.Namespace }}
   labels:
     {{- include "flightctl.standardLabels" . | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: flightctl-discovery-writer
+  name: flightctl-device-registration-ca
 subjects:
   - kind: ServiceAccount
-    name: flightctl-api
-    namespace: {{ .Release.Namespace }}
+    name: managedcluster-import-controller-v2
+    namespace: {{ .Values.global.multiclusterEngineNamespace }}
 {{- end }}
