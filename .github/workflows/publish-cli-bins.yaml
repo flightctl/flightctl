@@ -70,7 +70,7 @@ jobs:
           go-version: 1.24.6
 
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -111,19 +111,19 @@ jobs:
           fi
 
       - name: Save zip
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: flightctl-${{ matrix.os }}-${{ matrix.arch}}${{ matrix.zip }}
           path: flightctl-${{ matrix.os }}-${{ matrix.arch}}${{ matrix.zip }}
 
       - name: Save binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: flightctl-${{ matrix.os }}-${{ matrix.arch}}${{ matrix.ext }}
           path: flightctl-${{ matrix.os }}-${{ matrix.arch}}${{ matrix.ext }}
 
       - name: Save checksum
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           path: flightctl-${{ matrix.os }}-${{ matrix.arch}}-sha256.txt
           name: flightctl-${{ matrix.os }}-${{ matrix.arch}}-sha256.txt
@@ -199,7 +199,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Load binary archives
         uses: actions/download-artifact@v4
