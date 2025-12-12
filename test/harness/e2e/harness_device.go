@@ -13,7 +13,6 @@ import (
 	agentcfg "github.com/flightctl/flightctl/internal/agent/config"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/test/util"
-	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -103,22 +102,6 @@ func (h *Harness) UpdateDevice(deviceId string, updateFunction func(*v1beta1.Dev
 		logrus.Errorf("Unexpected http status code received: %d", resp.StatusCode())
 		logrus.Errorf("Unexpected http response: %s", string(resp.Body))
 		return fmt.Errorf("unexpected status code %d: %s", resp.StatusCode(), string(resp.Body))
-	}
-
-	logrus.Infof("Successfully updated device %s (status=%d)", deviceId, resp.StatusCode())
-
-	// Verify the update persisted by reading the device back
-	verifyResp, verifyErr := h.Client.GetDeviceWithResponse(h.Context, deviceId)
-	if verifyErr == nil && verifyResp.JSON200 != nil {
-		updatedDevice := verifyResp.JSON200
-		if updatedDevice.Spec != nil && updatedDevice.Spec.Config != nil {
-			logrus.Infof("Verified device %s has %d config providers after update", deviceId, len(*updatedDevice.Spec.Config))
-		} else {
-			logrus.Warnf("Device %s spec or config is nil/empty after update!", deviceId)
-		}
-		if updatedDevice.Metadata.Generation != nil {
-			logrus.Infof("Device %s generation after update: %d", deviceId, *updatedDevice.Metadata.Generation)
-		}
 	}
 
 	return nil
@@ -298,40 +281,12 @@ func (h *Harness) GetCurrentDeviceRenderedVersion(deviceId string) (int, error) 
 	logrus.Infof("Waiting for the device to be UpToDate")
 	h.WaitForDeviceContents(deviceId, "The device is UpToDate",
 		func(device *v1beta1.Device) bool {
-			// Log current device state for debugging
-			var updatingCondition *v1beta1.Condition
-			for i := range device.Status.Conditions {
-				if device.Status.Conditions[i].Type == "Updating" {
-					updatingCondition = &device.Status.Conditions[i]
-					break
-				}
-			}
-			if updatingCondition != nil {
-				logrus.Infof("Device %s: Updating condition - Status=%s, Reason=%s, Message=%s",
-					deviceId, updatingCondition.Status, updatingCondition.Reason, updatingCondition.Message)
-			} else {
-				logrus.Infof("Device %s: No Updating condition found", deviceId)
-			}
-			annotationVersion := "not set"
-			if device.Metadata.Annotations != nil {
-				if rv, ok := (*device.Metadata.Annotations)[v1beta1.DeviceAnnotationRenderedVersion]; ok {
-					annotationVersion = rv
-				}
-			}
-			logrus.Infof("Device %s: Updated.Status=%s, Config.RenderedVersion=%s, Annotation.RenderedVersion=%s",
-				deviceId, device.Status.Updated.Status, device.Status.Config.RenderedVersion, annotationVersion)
-
 			for _, condition := range device.Status.Conditions {
 				if condition.Type == "Updating" && condition.Reason == "Updated" && condition.Status == "False" &&
 					device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusUpToDate {
 					deviceRenderedVersion, renderedVersionError = GetRenderedVersion(device)
-					if errors.Is(renderedVersionError, InvalidRenderedVersionErr) && device.Status.Config.RenderedVersion == "0" {
-						logrus.Warnf("Device %s is UpToDate but rendered version is 0; using 0 as baseline", deviceId)
-						deviceRenderedVersion = 0
-						renderedVersionError = nil
-						return true
-					}
-					return renderedVersionError == nil
+					// try until we get a valid rendered version
+					return !errors.Is(renderedVersionError, InvalidRenderedVersionErr)
 				}
 			}
 			return false
@@ -352,14 +307,6 @@ func (h *Harness) PrepareNextDeviceVersion(deviceId string) (int, error) {
 }
 
 func (h *Harness) WaitForDeviceNewRenderedVersion(deviceId string, newRenderedVersionInt int) (err error) {
-	return h.waitForDeviceRenderedVersion(deviceId, newRenderedVersionInt, false)
-}
-
-func (h *Harness) WaitForDeviceNewRenderedVersionExactly(deviceId string, newRenderedVersionInt int) (err error) {
-	return h.waitForDeviceRenderedVersion(deviceId, newRenderedVersionInt, true)
-}
-
-func (h *Harness) waitForDeviceRenderedVersion(deviceId string, newRenderedVersionInt int, exactMatch bool) (err error) {
 	// Check that the device was already approved
 	Eventually(func() v1beta1.DeviceSummaryStatusType {
 		res, err := h.GetDeviceWithStatusSummary(deviceId)
@@ -376,19 +323,8 @@ func (h *Harness) waitForDeviceRenderedVersion(deviceId string, newRenderedVersi
 			for _, condition := range device.Status.Conditions {
 				if condition.Type == "Updating" && condition.Reason == "Updated" && condition.Status == "False" &&
 					device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusUpToDate {
-					v, parseErr := strconv.Atoi(device.Status.Config.RenderedVersion)
-					if parseErr != nil {
-						return false
-					}
-					if exactMatch {
-						// Exact match: fail immediately if version exceeded (slipped), otherwise wait for exact match
-						if v > newRenderedVersionInt {
-							Fail(fmt.Sprintf("Device %s rendered version %d exceeded expected %d (version slipped)", deviceId, v, newRenderedVersionInt))
-						}
-						return v == newRenderedVersionInt
-					}
 					// Accept jumps where multiple renders happen quickly (e.g., concurrent fleet/device updates)
-					if v >= newRenderedVersionInt {
+					if v, err := strconv.Atoi(device.Status.Config.RenderedVersion); err == nil && v >= newRenderedVersionInt {
 						if v > newRenderedVersionInt {
 							logrus.Warnf("Device %s has rendered version %d, which is greater than %d", deviceId, v, newRenderedVersionInt)
 						}
@@ -712,28 +648,6 @@ func (h *Harness) AddConfigToDeviceWithRetries(deviceId string, config v1beta1.C
 // UpdateDeviceConfigWithRetries updates the configuration of a device with retries using the provided harness and config specs.
 // It applies the provided configuration and waits for the device to reach the specified rendered version.
 func (h *Harness) UpdateDeviceConfigWithRetries(deviceId string, configs []v1beta1.ConfigProviderSpec, nextRenderedVersion int) error {
-	return h.updateDeviceConfigWithRetries(deviceId, configs, nextRenderedVersion, false)
-}
-
-// UpdateDeviceConfigWithRetriesExactly updates the configuration and waits for an exact version match.
-// It fails if the rendered version differs from the expected version.
-func (h *Harness) UpdateDeviceConfigWithRetriesExactly(deviceId string, configs []v1beta1.ConfigProviderSpec, nextRenderedVersion int) error {
-	return h.updateDeviceConfigWithRetries(deviceId, configs, nextRenderedVersion, true)
-}
-
-func (h *Harness) updateDeviceConfigWithRetries(deviceId string, configs []v1beta1.ConfigProviderSpec, nextRenderedVersion int, exactMatch bool) error {
-	// Log device state BEFORE update for debugging
-	beforeResp, beforeErr := h.Client.GetDeviceWithResponse(h.Context, deviceId)
-	if beforeErr == nil && beforeResp.JSON200 != nil {
-		beforeDevice := beforeResp.JSON200
-		beforeGen := "nil"
-		if beforeDevice.Metadata.Generation != nil {
-			beforeGen = strconv.FormatInt(*beforeDevice.Metadata.Generation, 10)
-		}
-		hasConfig := beforeDevice.Spec != nil && beforeDevice.Spec.Config != nil && len(*beforeDevice.Spec.Config) > 0
-		logrus.Infof("Device %s BEFORE update: generation=%s, hasConfig=%v", deviceId, beforeGen, hasConfig)
-	}
-
 	err := h.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
 		device.Spec.Config = &configs
 		logrus.WithFields(logrus.Fields{
@@ -743,29 +657,6 @@ func (h *Harness) updateDeviceConfigWithRetries(deviceId string, configs []v1bet
 	})
 	if err != nil {
 		return err
-	}
-
-	// Log device state AFTER update for debugging
-	afterResp, afterErr := h.Client.GetDeviceWithResponse(h.Context, deviceId)
-	if afterErr == nil && afterResp.JSON200 != nil {
-		afterDevice := afterResp.JSON200
-		afterGen := "nil"
-		if afterDevice.Metadata.Generation != nil {
-			afterGen = strconv.FormatInt(*afterDevice.Metadata.Generation, 10)
-		}
-		hasConfig := afterDevice.Spec != nil && afterDevice.Spec.Config != nil && len(*afterDevice.Spec.Config) > 0
-		annotationRenderedVersion := "not set"
-		if afterDevice.Metadata.Annotations != nil {
-			if rv, ok := (*afterDevice.Metadata.Annotations)[v1beta1.DeviceAnnotationRenderedVersion]; ok {
-				annotationRenderedVersion = rv
-			}
-		}
-		logrus.Infof("Device %s AFTER update: generation=%s, hasConfig=%v, annotationRenderedVersion=%s",
-			deviceId, afterGen, hasConfig, annotationRenderedVersion)
-	}
-
-	if exactMatch {
-		return h.WaitForDeviceNewRenderedVersionExactly(deviceId, nextRenderedVersion)
 	}
 	return h.WaitForDeviceNewRenderedVersion(deviceId, nextRenderedVersion)
 }
@@ -884,36 +775,49 @@ func (h *Harness) EnableTPMForDevice() error {
 // SetupDeviceWithTPM prepares a device VM with TPM functionality enabled.
 // This handles the complete TPM setup process in the correct order.
 func (h *Harness) SetupDeviceWithTPM(workerID int) error {
-	// 1. Setup VM from pool (revert snapshot, do not start agent yet)
-	if err := h.SetupVMFromPool(workerID); err != nil {
+	// 1. Setup VM from pool (includes agent start)
+	err := h.SetupVMFromPoolAndStartAgent(workerID)
+	if err != nil {
 		return fmt.Errorf("failed to setup VM: %w", err)
 	}
 
-	// 2. Wait for TPM hardware initialization
-	err := h.WaitForTPMInitialization()
+	// 2. Stop agent immediately to configure TPM first
+	err = h.StopFlightCtlAgent()
+	if err != nil {
+		return fmt.Errorf("failed to stop agent: %w", err)
+	}
+
+	// Clean CSR from non-TPM agent start to avoid device ID mismatch
+	_, err = h.VM.RunSSH([]string{"sudo", "rm", "-f", "/var/lib/flightctl/certs/agent.csr"}, nil)
+	if err != nil {
+		logrus.Warnf("Failed to clean stale CSR: %v", err)
+	}
+
+	// 3. Wait for TPM hardware initialization
+	err = h.WaitForTPMInitialization()
 	if err != nil {
 		return fmt.Errorf("TPM initialization failed: %w", err)
 	}
 
-	// 3. Verify TPM is functional
+	// 4. Verify TPM is functional
 	err = h.VerifyTPMFunctionality()
 	if err != nil {
 		return fmt.Errorf("TPM verification failed: %w", err)
 	}
 
-	// 4. Configure agent for TPM
+	// 5. Configure agent for TPM
 	err = h.EnableTPMForDevice()
 	if err != nil {
 		return fmt.Errorf("TPM configuration failed: %w", err)
 	}
 
-	// 5. Start agent with TPM configuration
+	// 6. Start agent with TPM configuration
 	err = h.StartFlightCtlAgent()
 	if err != nil {
 		return fmt.Errorf("failed to start agent with TPM: %w", err)
 	}
 
-	// 6. Brief wait for agent to initialize with TPM
+	// 7. Brief wait for agent to initialize with TPM
 	time.Sleep(10 * time.Second)
 
 	logrus.Info("Device TPM setup completed successfully")

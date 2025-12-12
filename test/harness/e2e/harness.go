@@ -1414,24 +1414,6 @@ func NewTestHarnessWithVMPool(ctx context.Context, workerID int) (*Harness, erro
 	return harness, nil
 }
 
-// ReloadClientFromConfig reloads the API client from the config file.
-// This is useful after login when the token has been updated on disk.
-func (h *Harness) ReloadClientFromConfig() error {
-	baseDir, err := client.DefaultFlightctlClientConfigPath()
-	if err != nil {
-		return fmt.Errorf("failed to get client config path: %w", err)
-	}
-
-	c, err := client.NewFromConfigFile(baseDir)
-	if err != nil {
-		return fmt.Errorf("failed to create client from config: %w", err)
-	}
-
-	h.Client = c
-	logrus.Info("Reloaded API client from config file")
-	return nil
-}
-
 // GetVMFromPool retrieves a VM from the pool for the given worker ID.
 // VMs are created on-demand if they don't already exist in the pool.
 func (h *Harness) GetVMFromPool(workerID int) (vm.TestVMInterface, error) {

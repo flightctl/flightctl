@@ -68,8 +68,6 @@ var _ = Describe("TPM Device Authentication", func() {
 		ctx      context.Context
 		harness  *e2e.Harness
 		workerID int
-
-		deviceID string
 	)
 
 	BeforeEach(func() {
@@ -94,8 +92,6 @@ var _ = Describe("TPM Device Authentication", func() {
 
 		// Login to API
 		login.LoginToAPIWithToken(harness)
-
-		deviceID = ""
 	})
 
 	AfterEach(func() {
@@ -110,27 +106,6 @@ var _ = Describe("TPM Device Authentication", func() {
 		// This ensures we have the test ID needed for resource cleanup
 		ctx := util.StartSpecTracerForGinkgo(suiteCtx)
 		harness.SetTestContext(ctx)
-
-		// Print agent logs on test failure for debugging
-		if CurrentSpecReport().Failed() {
-			GinkgoWriter.Println("==================== Agent Logs (test failed) ====================")
-			logs, err := harness.ReadPrimaryVMAgentLogs("", util.FLIGHTCTL_AGENT_SERVICE)
-			if err != nil {
-				GinkgoWriter.Printf("Failed to read agent logs: %v\n", err)
-			} else {
-				GinkgoWriter.Println(logs)
-			}
-			if deviceID != "" {
-				GinkgoWriter.Println("==================== Device YAML (test failed) ====================")
-				out, err := harness.CLIWithStdin("", "get", "device", deviceID, "-o", "yaml")
-				if err != nil {
-					GinkgoWriter.Printf("Failed to get device %s yaml: %v\n", deviceID, err)
-				}
-				GinkgoWriter.Println(out)
-				GinkgoWriter.Println("===================================================================")
-			}
-			GinkgoWriter.Println("==================================================================")
-		}
 
 		err := harness.CleanUpTestResources()
 		Expect(err).ToNot(HaveOccurred())
@@ -205,7 +180,6 @@ var _ = Describe("TPM Device Authentication", func() {
 
 			By("approving enrollment and waiting for device online")
 			deviceId, _ := harness.EnrollAndWaitForOnlineStatus()
-			deviceID = deviceId
 
 			By("checking TPM key persistence")
 			Eventually(func() error {

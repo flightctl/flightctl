@@ -147,9 +147,6 @@ func loginWithOpenshiftToken(harness *e2e.Harness) error {
 		return fmt.Errorf("failed to sign in with OpenShift token: %w", err)
 	}
 	if isLoginSuccessful(out) {
-		if err := harness.ReloadClientFromConfig(); err != nil {
-			return fmt.Errorf("failed to reload API client after login: %w", err)
-		}
 		return nil
 	}
 	return errors.New("failed to sign in with OpenShift token")
