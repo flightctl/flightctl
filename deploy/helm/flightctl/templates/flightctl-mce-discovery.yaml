@@ -1,0 +1,15 @@
+{{- if eq (include "flightctl.enableMulticlusterExtensions" .) "true" }}
+{{- $apiEndpoint := "https://flightctl-api.{{ .Release.Namespace }}.svc:3443" }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flightctl-discovery
+  namespace: {{ .Values.global.multiclusterEngineNamespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+data:
+  apiEndpoint: "{{ $apiEndpoint }}"
+  healthEndpoint: "{{ $apiEndpoint }}/healthz"
+  namespace: "{{ .Release.Namespace }}"
+  caSecretName: flightctl-ca-bundle
+{{- end }}
