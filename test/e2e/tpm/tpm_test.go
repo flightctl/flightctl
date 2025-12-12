@@ -107,6 +107,18 @@ var _ = Describe("TPM Device Authentication", func() {
 		ctx := util.StartSpecTracerForGinkgo(suiteCtx)
 		harness.SetTestContext(ctx)
 
+		// Print agent logs on test failure for debugging
+		if CurrentSpecReport().Failed() {
+			GinkgoWriter.Println("==================== Agent Logs (test failed) ====================")
+			logs, err := harness.ReadPrimaryVMAgentLogs("", util.FLIGHTCTL_AGENT_SERVICE)
+			if err != nil {
+				GinkgoWriter.Printf("Failed to read agent logs: %v\n", err)
+			} else {
+				GinkgoWriter.Println(logs)
+			}
+			GinkgoWriter.Println("==================================================================")
+		}
+
 		err := harness.CleanUpTestResources()
 		Expect(err).ToNot(HaveOccurred())
 
@@ -286,7 +298,7 @@ var _ = Describe("TPM Device Authentication", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Update device config and wait for it to be applied using TPM-signed communication
-			err = harness.UpdateDeviceConfigWithRetries(deviceId, []v1beta1.ConfigProviderSpec{testConfig}, newRenderedVersion)
+			err = harness.UpdateDeviceConfigWithRetriesExactly(deviceId, []v1beta1.ConfigProviderSpec{testConfig}, newRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Verify the configuration was actually applied to confirm TPM-signed communication worked

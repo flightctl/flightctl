@@ -13,6 +13,7 @@ import (
 	agentcfg "github.com/flightctl/flightctl/internal/agent/config"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/test/util"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -281,11 +282,33 @@ func (h *Harness) GetCurrentDeviceRenderedVersion(deviceId string) (int, error) 
 	logrus.Infof("Waiting for the device to be UpToDate")
 	h.WaitForDeviceContents(deviceId, "The device is UpToDate",
 		func(device *v1beta1.Device) bool {
+			// Log current device state for debugging
+			var updatingCondition *v1beta1.Condition
+			for i := range device.Status.Conditions {
+				if device.Status.Conditions[i].Type == "Updating" {
+					updatingCondition = &device.Status.Conditions[i]
+					break
+				}
+			}
+			if updatingCondition != nil {
+				logrus.Infof("Device %s: Updating condition - Status=%s, Reason=%s, Message=%s",
+					deviceId, updatingCondition.Status, updatingCondition.Reason, updatingCondition.Message)
+			} else {
+				logrus.Infof("Device %s: No Updating condition found", deviceId)
+			}
+			annotationVersion := "not set"
+			if device.Metadata.Annotations != nil {
+				if rv, ok := (*device.Metadata.Annotations)[v1beta1.DeviceAnnotationRenderedVersion]; ok {
+					annotationVersion = rv
+				}
+			}
+			logrus.Infof("Device %s: Updated.Status=%s, Config.RenderedVersion=%s, Annotation.RenderedVersion=%s",
+				deviceId, device.Status.Updated.Status, device.Status.Config.RenderedVersion, annotationVersion)
+
 			for _, condition := range device.Status.Conditions {
 				if condition.Type == "Updating" && condition.Reason == "Updated" && condition.Status == "False" &&
 					device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusUpToDate {
 					deviceRenderedVersion, renderedVersionError = GetRenderedVersion(device)
-					// try until we get a valid rendered version
 					return !errors.Is(renderedVersionError, InvalidRenderedVersionErr)
 				}
 			}
@@ -307,6 +330,14 @@ func (h *Harness) PrepareNextDeviceVersion(deviceId string) (int, error) {
 }
 
 func (h *Harness) WaitForDeviceNewRenderedVersion(deviceId string, newRenderedVersionInt int) (err error) {
+	return h.waitForDeviceRenderedVersion(deviceId, newRenderedVersionInt, false)
+}
+
+func (h *Harness) WaitForDeviceNewRenderedVersionExactly(deviceId string, newRenderedVersionInt int) (err error) {
+	return h.waitForDeviceRenderedVersion(deviceId, newRenderedVersionInt, true)
+}
+
+func (h *Harness) waitForDeviceRenderedVersion(deviceId string, newRenderedVersionInt int, exactMatch bool) (err error) {
 	// Check that the device was already approved
 	Eventually(func() v1beta1.DeviceSummaryStatusType {
 		res, err := h.GetDeviceWithStatusSummary(deviceId)
@@ -323,8 +354,19 @@ func (h *Harness) WaitForDeviceNewRenderedVersion(deviceId string, newRenderedVe
 			for _, condition := range device.Status.Conditions {
 				if condition.Type == "Updating" && condition.Reason == "Updated" && condition.Status == "False" &&
 					device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusUpToDate {
+					v, parseErr := strconv.Atoi(device.Status.Config.RenderedVersion)
+					if parseErr != nil {
+						return false
+					}
+					if exactMatch {
+						// Exact match: fail immediately if version exceeded (slipped), otherwise wait for exact match
+						if v > newRenderedVersionInt {
+							Fail(fmt.Sprintf("Device %s rendered version %d exceeded expected %d (version slipped)", deviceId, v, newRenderedVersionInt))
+						}
+						return v == newRenderedVersionInt
+					}
 					// Accept jumps where multiple renders happen quickly (e.g., concurrent fleet/device updates)
-					if v, err := strconv.Atoi(device.Status.Config.RenderedVersion); err == nil && v >= newRenderedVersionInt {
+					if v >= newRenderedVersionInt {
 						if v > newRenderedVersionInt {
 							logrus.Warnf("Device %s has rendered version %d, which is greater than %d", deviceId, v, newRenderedVersionInt)
 						}
@@ -648,6 +690,16 @@ func (h *Harness) AddConfigToDeviceWithRetries(deviceId string, config v1beta1.C
 // UpdateDeviceConfigWithRetries updates the configuration of a device with retries using the provided harness and config specs.
 // It applies the provided configuration and waits for the device to reach the specified rendered version.
 func (h *Harness) UpdateDeviceConfigWithRetries(deviceId string, configs []v1beta1.ConfigProviderSpec, nextRenderedVersion int) error {
+	return h.updateDeviceConfigWithRetries(deviceId, configs, nextRenderedVersion, false)
+}
+
+// UpdateDeviceConfigWithRetriesExactly updates the configuration and waits for an exact version match.
+// It fails if the rendered version differs from the expected version.
+func (h *Harness) UpdateDeviceConfigWithRetriesExactly(deviceId string, configs []v1beta1.ConfigProviderSpec, nextRenderedVersion int) error {
+	return h.updateDeviceConfigWithRetries(deviceId, configs, nextRenderedVersion, true)
+}
+
+func (h *Harness) updateDeviceConfigWithRetries(deviceId string, configs []v1beta1.ConfigProviderSpec, nextRenderedVersion int, exactMatch bool) error {
 	err := h.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
 		device.Spec.Config = &configs
 		logrus.WithFields(logrus.Fields{
@@ -657,6 +709,9 @@ func (h *Harness) UpdateDeviceConfigWithRetries(deviceId string, configs []v1bet
 	})
 	if err != nil {
 		return err
+	}
+	if exactMatch {
+		return h.WaitForDeviceNewRenderedVersionExactly(deviceId, nextRenderedVersion)
 	}
 	return h.WaitForDeviceNewRenderedVersion(deviceId, nextRenderedVersion)
 }
