@@ -88,7 +88,7 @@ if [[ "${GINKGO_TOTAL_NODES}" -gt 1 ]]; then
         .SpecReports[]? |
         select(.LeafNodeType == "It" and .State != "skipped") |
         .LeafNodeText
-    ' "${DISCOVERY_PATH}" | sort -u > "${TEMP_TEST_LIST}"
+    ' "${DISCOVERY_PATH}" | LC_ALL=C sort -u > "${TEMP_TEST_LIST}"
 
     # Clean up the discovery file only if we generated it
     if [[ "${DISCOVERY_GENERATED}" == "true" ]]; then

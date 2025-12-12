@@ -298,7 +298,7 @@ var _ = Describe("TPM Device Authentication", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Update device config and wait for it to be applied using TPM-signed communication
-			err = harness.UpdateDeviceConfigWithRetriesExactly(deviceId, []v1beta1.ConfigProviderSpec{testConfig}, newRenderedVersion)
+			err = harness.UpdateDeviceConfigWithRetries(deviceId, []v1beta1.ConfigProviderSpec{testConfig}, newRenderedVersion)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Verify the configuration was actually applied to confirm TPM-signed communication worked
