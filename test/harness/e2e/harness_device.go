@@ -309,7 +309,13 @@ func (h *Harness) GetCurrentDeviceRenderedVersion(deviceId string) (int, error) 
 				if condition.Type == "Updating" && condition.Reason == "Updated" && condition.Status == "False" &&
 					device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusUpToDate {
 					deviceRenderedVersion, renderedVersionError = GetRenderedVersion(device)
-					return !errors.Is(renderedVersionError, InvalidRenderedVersionErr)
+					if errors.Is(renderedVersionError, InvalidRenderedVersionErr) && device.Status.Config.RenderedVersion == "0" {
+						logrus.Warnf("Device %s is UpToDate but rendered version is 0; using 0 as baseline", deviceId)
+						deviceRenderedVersion = 0
+						renderedVersionError = nil
+						return true
+					}
+					return renderedVersionError == nil
 				}
 			}
 			return false
