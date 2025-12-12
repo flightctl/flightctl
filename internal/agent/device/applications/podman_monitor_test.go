@@ -21,6 +21,7 @@ import (
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/test/util"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -691,4 +692,259 @@ func TestPodmanMonitorHandlerSelection(t *testing.T) {
 
 	// Verify quadlet handler was NOT called
 	require.Equal(0, len(quadletActions), "Quadlet handler should not be called")
+}
+
+func TestPodmanMonitorStatusAggregation(t *testing.T) {
+	require := require.New(t)
+
+	testCases := []struct {
+		name           string
+		apps           []Application
+		workloads      map[string][]Workload
+		expectedStatus v1beta1.ApplicationsSummaryStatusType
+		expectedInfo   *string
+	}{
+		{
+			name:           "no apps returns NoApplications",
+			apps:           []Application{},
+			workloads:      map[string][]Workload{},
+			expectedStatus: v1beta1.ApplicationsSummaryStatusNoApplications,
+			expectedInfo:   nil,
+		},
+		{
+			name: "single healthy app returns Healthy",
+			apps: []Application{
+				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing),
+			},
+			workloads: map[string][]Workload{
+				"app1": {{Name: "container1", Status: StatusRunning}},
+			},
+			expectedStatus: v1beta1.ApplicationsSummaryStatusHealthy,
+			expectedInfo:   nil,
+		},
+		{
+			name: "single unknown app (no workloads) returns Degraded",
+			apps: []Application{
+				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing),
+			},
+			workloads:      map[string][]Workload{},
+			expectedStatus: v1beta1.ApplicationsSummaryStatusDegraded,
+			expectedInfo:   lo.ToPtr("Not started: app1"),
+		},
+		{
+			name: "two unknown apps returns Degraded with both names",
+			apps: []Application{
+				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing),
+				createTestApplication(require, "app2", v1beta1.ApplicationStatusPreparing),
+			},
+			workloads:      map[string][]Workload{},
+			expectedStatus: v1beta1.ApplicationsSummaryStatusDegraded,
+		},
+		{
+			name: "one healthy one unknown returns Degraded",
+			apps: []Application{
+				createTestApplication(require, "healthy-app", v1beta1.ApplicationStatusPreparing),
+				createTestApplication(require, "unknown-app", v1beta1.ApplicationStatusPreparing),
+			},
+			workloads: map[string][]Workload{
+				"healthy-app": {{Name: "container1", Status: StatusRunning}},
+			},
+			expectedStatus: v1beta1.ApplicationsSummaryStatusDegraded,
+		},
+		{
+			name: "two unknown one healthy returns Degraded",
+			apps: []Application{
+				createTestApplication(require, "unknown1", v1beta1.ApplicationStatusPreparing),
+				createTestApplication(require, "unknown2", v1beta1.ApplicationStatusPreparing),
+				createTestApplication(require, "healthy", v1beta1.ApplicationStatusPreparing),
+			},
+			workloads: map[string][]Workload{
+				"healthy": {{Name: "container1", Status: StatusRunning}},
+			},
+			expectedStatus: v1beta1.ApplicationsSummaryStatusDegraded,
+		},
+		{
+			name: "one healthy one error returns Error",
+			apps: []Application{
+				createTestApplication(require, "healthy-app", v1beta1.ApplicationStatusPreparing),
+				createTestApplication(require, "error-app", v1beta1.ApplicationStatusPreparing),
+			},
+			workloads: map[string][]Workload{
+				"healthy-app": {{Name: "container1", Status: StatusRunning}},
+				"error-app":   {{Name: "container1", Status: StatusDie}},
+			},
+			expectedStatus: v1beta1.ApplicationsSummaryStatusError,
+			expectedInfo:   nil,
+		},
+		{
+			name: "one unknown one error returns Error",
+			apps: []Application{
+				createTestApplication(require, "unknown-app", v1beta1.ApplicationStatusPreparing),
+				createTestApplication(require, "error-app", v1beta1.ApplicationStatusPreparing),
+			},
+			workloads: map[string][]Workload{
+				"error-app": {{Name: "container1", Status: StatusDie}},
+			},
+			expectedStatus: v1beta1.ApplicationsSummaryStatusError,
+			expectedInfo:   nil,
+		},
+		{
+			name: "all healthy returns Healthy",
+			apps: []Application{
+				createTestApplication(require, "app1", v1beta1.ApplicationStatusPreparing),
+				createTestApplication(require, "app2", v1beta1.ApplicationStatusPreparing),
+				createTestApplication(require, "app3", v1beta1.ApplicationStatusPreparing),
+			},
+			workloads: map[string][]Workload{
+				"app1": {{Name: "container1", Status: StatusRunning}},
+				"app2": {{Name: "container1", Status: StatusRunning}},
+				"app3": {{Name: "container1", Status: StatusRunning}},
+			},
+			expectedStatus: v1beta1.ApplicationsSummaryStatusHealthy,
+			expectedInfo:   nil,
+		},
+		{
+			name: "one degraded one healthy returns Degraded",
+			apps: []Application{
+				createTestApplication(require, "healthy-app", v1beta1.ApplicationStatusPreparing),
+				createTestApplication(require, "degraded-app", v1beta1.ApplicationStatusPreparing),
+			},
+			workloads: map[string][]Workload{
+				"healthy-app": {{Name: "container1", Status: StatusRunning}},
+				"degraded-app": {
+					{Name: "container1", Status: StatusRunning},
+					{Name: "container2", Status: StatusDie},
+				},
+			},
+			expectedStatus: v1beta1.ApplicationsSummaryStatusDegraded,
+			expectedInfo:   lo.ToPtr("degraded-app is in status Degraded"),
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			testLog := log.NewPrefixLogger("test")
+			testLog.SetLevel(logrus.DebugLevel)
+			tmpDir := t.TempDir()
+			rw := fileio.NewReadWriter()
+			rw.SetRootdir(tmpDir)
+			execMock := executer.NewMockExecuter(ctrl)
+
+			podman := client.NewPodman(testLog, execMock, rw, util.NewPollConfig())
+			systemdMgr := systemd.NewMockManager(ctrl)
+			podmanMonitor := NewPodmanMonitor(testLog, podman, systemdMgr, "", rw)
+
+			for _, app := range tc.apps {
+				podmanMonitor.apps[app.ID()] = app
+
+				if workloads, ok := tc.workloads[app.Name()]; ok {
+					for _, w := range workloads {
+						workload := w
+						app.AddWorkload(&workload)
+					}
+				}
+			}
+
+			statuses, summary, err := podmanMonitor.Status()
+			require.NoError(err)
+
+			require.Equal(tc.expectedStatus, summary.Status,
+				"expected summary status %s but got %s", tc.expectedStatus, summary.Status)
+
+			if tc.expectedInfo != nil {
+				require.NotNil(summary.Info, "expected Info to be set")
+				require.Equal(*tc.expectedInfo, *summary.Info,
+					"expected Info %q but got %q", *tc.expectedInfo, *summary.Info)
+			}
+
+			require.Equal(len(tc.apps), len(statuses),
+				"expected %d app statuses but got %d", len(tc.apps), len(statuses))
+		})
+	}
+}
+
+func TestBuildAppSummaryInfo(t *testing.T) {
+	require := require.New(t)
+
+	testCases := []struct {
+		name         string
+		erroredApps  []string
+		degradedApps []string
+		maxLen       int
+		expectedInfo *string
+	}{
+		{
+			name:         "no problems returns nil",
+			erroredApps:  []string{},
+			degradedApps: []string{},
+			maxLen:       256,
+			expectedInfo: nil,
+		},
+		{
+			name:         "single errored app",
+			erroredApps:  []string{"app1 is in status Error"},
+			degradedApps: []string{},
+			maxLen:       256,
+			expectedInfo: lo.ToPtr("app1 is in status Error"),
+		},
+		{
+			name:         "single degraded app",
+			erroredApps:  []string{},
+			degradedApps: []string{"app1 is in status Degraded"},
+			maxLen:       256,
+			expectedInfo: lo.ToPtr("app1 is in status Degraded"),
+		},
+		{
+			name:         "errors listed before degradations",
+			erroredApps:  []string{"error-app is in status Error"},
+			degradedApps: []string{"degraded-app is in status Degraded"},
+			maxLen:       256,
+			expectedInfo: lo.ToPtr("error-app is in status Error, degraded-app is in status Degraded"),
+		},
+		{
+			name:         "multiple errors and degradations",
+			erroredApps:  []string{"err1 is in status Error", "err2 is in status Error"},
+			degradedApps: []string{"deg1 is in status Degraded"},
+			maxLen:       256,
+			expectedInfo: lo.ToPtr("err1 is in status Error, err2 is in status Error, deg1 is in status Degraded"),
+		},
+		{
+			name:         "truncation when exceeding max length",
+			erroredApps:  []string{"very-long-app-name-1 is in status Error", "very-long-app-name-2 is in status Error"},
+			degradedApps: []string{"very-long-app-name-3 is in status Degraded"},
+			maxLen:       50,
+			expectedInfo: lo.ToPtr("very-long-app-name-1 is in status Error, very-l..."),
+		},
+		{
+			name:         "exact max length not truncated",
+			erroredApps:  []string{"app1"},
+			degradedApps: []string{},
+			maxLen:       4,
+			expectedInfo: lo.ToPtr("app1"),
+		},
+		{
+			name:         "one over max length gets truncated",
+			erroredApps:  []string{"app12"},
+			degradedApps: []string{},
+			maxLen:       4,
+			expectedInfo: lo.ToPtr("a..."),
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := buildAppSummaryInfo(tc.erroredApps, tc.degradedApps, tc.maxLen)
+
+			if tc.expectedInfo == nil {
+				require.Nil(result)
+			} else {
+				require.NotNil(result)
+				require.Equal(*tc.expectedInfo, *result)
+				require.LessOrEqual(len(*result), tc.maxLen, "result exceeds max length")
+			}
+		})
+	}
 }

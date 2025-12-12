@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -21,13 +22,14 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/pkg/log"
-	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
 
 const (
 	expectedPodmanSigTermExitCode = 1
 	stopMonitorWaitDuration       = 5 * time.Second
+	quadletSystemdLabel           = "PODMAN_SYSTEMD_UNIT"
+	maxAppSummaryInfoLength       = 256
 )
 
 type PodmanMonitor struct {
@@ -46,9 +48,10 @@ type PodmanMonitor struct {
 	apps    map[string]Application
 	actions []lifecycle.Action
 
-	handlers map[v1beta1.AppType]lifecycle.ActionHandler
-	client   *client.Podman
-	rw       fileio.ReadWriter
+	handlers       map[v1beta1.AppType]lifecycle.ActionHandler
+	client         *client.Podman
+	systemdManager systemd.Manager
+	rw             fileio.ReadWriter
 
 	log *log.PrefixLogger
 }
@@ -67,7 +70,8 @@ func NewPodmanMonitor(
 		startTime = time.Now()
 	}
 	return &PodmanMonitor{
-		client: podman,
+		client:         podman,
+		systemdManager: systemdManager,
 		handlers: map[v1beta1.AppType]lifecycle.ActionHandler{
 			v1beta1.AppTypeCompose: lifecycle.NewCompose(log, rw, podman),
 			v1beta1.AppTypeQuadlet: lifecycle.NewQuadlet(log, rw, systemdManager, podman),
@@ -473,7 +477,10 @@ func (m *PodmanMonitor) Status() ([]v1beta1.DeviceApplicationStatus, v1beta1.Dev
 	var errs []error
 	var summary v1beta1.DeviceApplicationsSummaryStatus
 	statuses := make([]v1beta1.DeviceApplicationStatus, 0, len(m.apps))
-	var unstarted []string
+
+	var erroredApps []string
+	var degradedApps []string
+
 	for _, app := range m.apps {
 		appStatus, appSummary, err := app.Status()
 		if err != nil {
@@ -483,27 +490,24 @@ func (m *PodmanMonitor) Status() ([]v1beta1.DeviceApplicationStatus, v1beta1.Dev
 		statuses = append(statuses, *appStatus)
 
 		// phases can get worse but not better
+		// Error > Degraded > Healthy
 		switch appSummary.Status {
 		case v1beta1.ApplicationsSummaryStatusError:
+			erroredApps = append(erroredApps, fmt.Sprintf("%s is in status %s", app.Name(), appSummary.Status))
 			summary.Status = v1beta1.ApplicationsSummaryStatusError
-			summary.Info = nil
 		case v1beta1.ApplicationsSummaryStatusDegraded:
-			// ensure we don't override Error status with Degraded
+			degradedApps = append(degradedApps, fmt.Sprintf("%s is in status %s", app.Name(), appSummary.Status))
 			if summary.Status != v1beta1.ApplicationsSummaryStatusError {
 				summary.Status = v1beta1.ApplicationsSummaryStatusDegraded
-				summary.Info = nil
-			}
-		case v1beta1.ApplicationsSummaryStatusHealthy:
-			// ensure we don't override Error or Degraded status with Healthy
-			if summary.Status != v1beta1.ApplicationsSummaryStatusError && summary.Status != v1beta1.ApplicationsSummaryStatusDegraded {
-				summary.Status = v1beta1.ApplicationsSummaryStatusHealthy
-				summary.Info = nil
 			}
 		case v1beta1.ApplicationsSummaryStatusUnknown:
-			unstarted = append(unstarted, app.Name())
+			degradedApps = append(degradedApps, fmt.Sprintf("Not started: %s", app.Name()))
 			if summary.Status != v1beta1.ApplicationsSummaryStatusError {
 				summary.Status = v1beta1.ApplicationsSummaryStatusDegraded
-				summary.Info = lo.ToPtr("Not started: " + strings.Join(unstarted, ", "))
+			}
+		case v1beta1.ApplicationsSummaryStatusHealthy:
+			if summary.Status != v1beta1.ApplicationsSummaryStatusError && summary.Status != v1beta1.ApplicationsSummaryStatusDegraded {
+				summary.Status = v1beta1.ApplicationsSummaryStatusHealthy
 			}
 		default:
 			errs = append(errs, fmt.Errorf("unknown application summary status: %s", appSummary.Status))
@@ -512,6 +516,8 @@ func (m *PodmanMonitor) Status() ([]v1beta1.DeviceApplicationStatus, v1beta1.Dev
 
 	if len(statuses) == 0 {
 		summary.Status = v1beta1.ApplicationsSummaryStatusNoApplications
+	} else {
+		summary.Info = buildAppSummaryInfo(erroredApps, degradedApps, maxAppSummaryInfoLength)
 	}
 
 	if len(errs) > 0 {
@@ -519,6 +525,18 @@ func (m *PodmanMonitor) Status() ([]v1beta1.DeviceApplicationStatus, v1beta1.Dev
 	}
 
 	return statuses, summary, nil
+}
+
+func buildAppSummaryInfo(erroredApps, degradedApps []string, maxLen int) *string {
+	if len(erroredApps) == 0 && len(degradedApps) == 0 {
+		return nil
+	}
+
+	info := strings.Join(append(erroredApps, degradedApps...), ", ")
+	if len(info) > maxLen {
+		info = fmt.Sprintf("%s...", info[:maxLen-3])
+	}
+	return &info
 }
 
 func (m *PodmanMonitor) listenForEvents(ctx context.Context, stdoutPipe io.ReadCloser) {
@@ -595,31 +613,31 @@ func (m *PodmanMonitor) updateAppStatus(ctx context.Context, app Application, ev
 }
 
 func (m *PodmanMonitor) updateContainerStatus(ctx context.Context, app Application, event *client.PodmanEvent) {
-	inspectData, err := m.inspectContainer(ctx, event.ID)
-	if err != nil {
-		if errors.Is(err, errors.ErrNotFound) {
-			m.log.Debugf("Container %s not found; likely removed during app restart", event.ID)
-		} else {
-			m.log.Errorf("Failed to inspect container: %v", err)
-		}
+	appType := normalizeActionAppType(app.AppType())
+	switch appType {
+	case v1beta1.AppTypeCompose:
+		m.updateComposeContainerStatus(ctx, app, event)
+	case v1beta1.AppTypeQuadlet:
+		m.updateQuadletContainerStatus(ctx, app, event)
+	default:
+		m.log.Errorf("Cannot update container status for unknown app type: %s", appType)
 	}
+}
 
-	restarts, err := m.getContainerRestarts(inspectData)
-	if err != nil {
-		m.log.Errorf("Failed to get container restarts: %v", err)
+func isFinishedStatus(status StatusType) bool {
+	exitedStatuses := map[StatusType]struct {
+	}{
+		StatusRemove: {},
+		StatusDie:    {},
+		StatusDied:   {},
 	}
+	_, ok := exitedStatuses[status]
+	return ok
+}
 
+func (m *PodmanMonitor) updateApplicationStatus(app Application, event *client.PodmanEvent, status StatusType, restarts int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
-	status := m.resolveStatus(event.Status, inspectData)
-	if status == StatusRemove {
-		// remove existing container
-		if removed := app.RemoveWorkload(event.Name); removed {
-			m.log.Debugf("Removed container: %s", event.Name)
-		}
-		return
-	}
 
 	container, exists := app.Workload(event.Name)
 	if exists {
@@ -641,6 +659,72 @@ func (m *PodmanMonitor) updateContainerStatus(ctx context.Context, app Applicati
 		Status:   status,
 		Restarts: restarts,
 	})
+}
+
+func (m *PodmanMonitor) updateQuadletContainerStatus(ctx context.Context, app Application, event *client.PodmanEvent) {
+	systemdUnit, ok := event.Attributes[quadletSystemdLabel]
+	if !ok {
+		m.log.Errorf("Could not find systemd unit label in event %v", event)
+		return
+	}
+	states, err := m.systemdManager.Show(ctx, systemdUnit, client.WithShowLoadState())
+	if err != nil || len(states) == 0 {
+		m.log.Errorf("Could not show systemd unit: %s state: %v", systemdUnit, err)
+		return
+	}
+	state := states[0]
+	if v1beta1.SystemdLoadStateType(state) == v1beta1.SystemdLoadStateNotFound {
+		// likely from event replay
+		m.log.Debugf("Received event for an unloaded unit file: %s. Skipping processing event.", systemdUnit)
+		return
+	}
+
+	restarts, err := m.systemdManager.Show(ctx, systemdUnit, client.WithShowRestarts())
+	if err != nil || len(restarts) == 0 {
+		m.log.Errorf("Could not show systemd unit: %s restarts: %v", systemdUnit, err)
+		// default to no restarts similar to how compose handles it.
+		restarts = []string{"0"}
+	}
+
+	restartCount, err := strconv.Atoi(restarts[0])
+	if err != nil {
+		m.log.Errorf("Could not parse systemd unit restarts: %v", err)
+	}
+
+	status := StatusType(event.Status)
+	if isFinishedStatus(status) && event.ContainerExitCode == 0 {
+		status = StatusExited
+	}
+	m.updateApplicationStatus(app, event, status, restartCount)
+}
+
+func (m *PodmanMonitor) updateComposeContainerStatus(ctx context.Context, app Application, event *client.PodmanEvent) {
+	inspectData, err := m.inspectContainer(ctx, event.ID)
+	if err != nil {
+		if errors.Is(err, errors.ErrNotFound) {
+			m.log.Debugf("Container %s not found; likely removed during app restart", event.ID)
+		} else {
+			m.log.Errorf("Failed to inspect container: %v", err)
+		}
+	}
+
+	restarts, err := m.getContainerRestarts(inspectData)
+	if err != nil {
+		m.log.Errorf("Failed to get container restarts: %v", err)
+	}
+
+	status := m.resolveStatus(event.Status, inspectData)
+	if status == StatusRemove {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		// remove existing container
+		if removed := app.RemoveWorkload(event.Name); removed {
+			m.log.Debugf("Removed container: %s", event.Name)
+		}
+		return
+	}
+
+	m.updateApplicationStatus(app, event, status, restarts)
 }
 
 func (m *PodmanMonitor) getContainerRestarts(inspectData []client.PodmanInspect) (int, error) {
