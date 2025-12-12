@@ -480,9 +480,22 @@ echo "Flightctl Observability Stack uninstalled."
     # always use hyphens (-) instead of tildes (~). To ensure valid image tags we need
     # to transform the version string by replacing tildes with hyphens.
     IMAGE_TAG=$(echo %{version} | tr '~' '-')
+
+    # Convert version to git tag format (add 'v' prefix) and check if it points at HEAD
+    GIT_TAG_VERSION="v${IMAGE_TAG}"
+
+    # If the version matches a git tag pointing at HEAD,
+    # it's a release and UI should use the same tag. Otherwise, it's a dev build and UI
+    # should keep its default tag (typically "latest").    
+    if git tag --points-at HEAD 2>/dev/null | grep -q "^${GIT_TAG_VERSION}$"; then
+        APPLY_UI_OVERRIDE="--apply-ui-tag-override"
+    else
+        APPLY_UI_OVERRIDE=""
+    fi
     bin/flightctl-standalone render quadlets \
         --config deploy/podman/images.yaml \
         --flightctl-services-tag-override "${IMAGE_TAG}" \
+        ${APPLY_UI_OVERRIDE} \
         --readonly-config-dir "%{buildroot}%{_datadir}/flightctl" \
         --writeable-config-dir "%{buildroot}%{_sysconfdir}/flightctl" \
         --quadlet-dir "%{buildroot}%{_datadir}/containers/systemd" \
