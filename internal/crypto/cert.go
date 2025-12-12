@@ -204,7 +204,7 @@ func (caClient *CAClient) MakeClientCertificate(ctx context.Context, certFile, k
 	}
 
 	signReq, err := signer.NewSignRequest(
-		caClient.Cfg.ClientBootstrapSignerName,
+		caClient.Cfg.DeviceEnrollmentSignerName,
 		*x509CSR,
 		signer.WithExpirationSeconds(expiry),
 		signer.WithResourceName(subjectName),

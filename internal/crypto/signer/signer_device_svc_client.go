@@ -33,8 +33,8 @@ func (s *SignerDeviceSvcClient) Verify(ctx context.Context, request SignRequest)
 		got = signer.Name()
 	}
 
-	if signer == nil || signer.Name() != cfg.DeviceEnrollmentSignerName {
-		return fmt.Errorf("unexpected client certificate signer: expected %q, got %q", cfg.DeviceEnrollmentSignerName, got)
+	if signer == nil || signer.Name() != cfg.DeviceManagementSignerName {
+		return fmt.Errorf("unexpected client certificate signer: expected %q, got %q", cfg.DeviceManagementSignerName, got)
 	}
 
 	peerCertificate, err := PeerCertificateFromCtx(ctx)

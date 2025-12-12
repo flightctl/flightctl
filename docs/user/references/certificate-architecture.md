@@ -8,7 +8,7 @@ Flight Control uses X.509 certificates with mTLS for all agent-service communica
 FlightCtl Root CA (10yr)
 ├── Server Certificates (2yr)
 └── Client-Signer CA (10yr, intermediate)
-    └── Client Certificates (7d - 1yr)
+    └── Client Certificates (1yr)
 ```
 
 For TPM attestation certificates, see [Configuring Device Attestation](../installing/configuring-device-attestation.md).
@@ -22,8 +22,9 @@ For TPM attestation certificates, see [Configuring Device Attestation](../instal
 | API Server         | API TLS            | 2 years  | Root CA          |
 | Telemetry Gateway  | Metrics TLS        | 2 years  | Root CA          |
 | Alertmanager Proxy | Alerts TLS         | 2 years  | Root CA          |
-| Enrollment         | Device enrollment  | 7 days   | Client-Signer CA |
+| Enrollment         | Device enrollment  | 1 year   | Client-Signer CA |
 | Device Management  | Device operations  | 1 year   | Client-Signer CA |
+| Device Services    | Device services    | 1 year   | Client-Signer CA |
 
 ## File Locations
 

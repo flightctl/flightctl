@@ -18,7 +18,7 @@ import (
 )
 
 // AgentAuthMiddleware handles certificate-based authentication for device agents
-// This middleware is specifically for device operations that use DeviceEnrollmentSignerName
+// This middleware is specifically for device operations that use DeviceManagementSignerName
 type AgentAuthMiddleware struct {
 	ca    *crypto.CAClient
 	log   logrus.FieldLogger
@@ -83,9 +83,9 @@ func (m *AgentAuthMiddleware) AuthenticateAgent(next http.Handler) http.Handler 
 		}
 
 		// Validate certificate signer using the same pattern as handler.go
-		if s := m.ca.PeerCertificateSignerFromCtx(ctx); s != nil && s.Name() != m.ca.Cfg.DeviceEnrollmentSignerName {
-			m.log.Warnf("unexpected client certificate signer: expected %q, got %q", m.ca.Cfg.DeviceEnrollmentSignerName, s.Name())
-			http.Error(w, fmt.Sprintf("unexpected client certificate signer: expected %q, got %q", m.ca.Cfg.DeviceEnrollmentSignerName, s.Name()), http.StatusUnauthorized)
+		if s := m.ca.PeerCertificateSignerFromCtx(ctx); s != nil && s.Name() != m.ca.Cfg.DeviceManagementSignerName {
+			m.log.Warnf("unexpected client certificate signer: expected %q, got %q", m.ca.Cfg.DeviceManagementSignerName, s.Name())
+			http.Error(w, fmt.Sprintf("unexpected client certificate signer: expected %q, got %q", m.ca.Cfg.DeviceManagementSignerName, s.Name()), http.StatusUnauthorized)
 			return
 		}
 
