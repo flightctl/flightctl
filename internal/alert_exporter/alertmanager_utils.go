@@ -319,7 +319,7 @@ func (a *AlertmanagerClient) calculateBackoff(attempt int) time.Duration {
 	if attempt > 10 {
 		attempt = 10
 	}
-	delay := a.baseDelay * time.Duration(1<<uint(attempt)) //nolint:gosec // attempt is capped at 10
+	delay := a.baseDelay * time.Duration(1<<uint(attempt))
 	if delay > a.maxDelay {
 		delay = a.maxDelay
 	}

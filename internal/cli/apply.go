@@ -109,8 +109,8 @@ func (o *ApplyOptions) Run(ctx context.Context, args []string) error {
 
 	errs := make([]error, 0)
 	for _, filename := range o.Filenames {
-		switch {
-		case filename == "-":
+		switch filename {
+		case "-":
 			errs = append(errs, applyFromReader(ctx, c, "<stdin>", os.Stdin, o.DryRun)...)
 		default:
 			expandedFilenames, err := expandIfFilePattern(filename)

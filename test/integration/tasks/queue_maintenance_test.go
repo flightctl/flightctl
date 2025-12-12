@@ -149,7 +149,7 @@ var _ = Describe("Queue Maintenance Integration Tests", func() {
 			Password: "adminpass",
 			DB:       0,
 		})
-		defer redisClient.Close()
+		defer func() { _ = redisClient.Close() }()
 
 		keys, err := redisClient.Keys(ctx, "*").Result()
 		if err == nil && len(keys) > 0 {
@@ -254,14 +254,14 @@ var _ = Describe("Queue Maintenance Integration Tests", func() {
 				// Setup expectations for ListEvents calls
 				mockService.EXPECT().ListEvents(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
 					func(ctx context.Context, orgId uuid.UUID, params api.ListEventsParams) (*api.EventList, api.Status) {
-						// Use the orgId parameter directly
-						if orgId == testOrg1ID {
+						switch orgId {
+						case testOrg1ID:
 							return createEventsForOrg(testOrg1Events, params.FieldSelector), api.Status{Code: 200}
-						} else if orgId == testOrg2ID {
+						case testOrg2ID:
 							return createEventsForOrg(testOrg2Events, params.FieldSelector), api.Status{Code: 200}
+						default:
+							return &api.EventList{Items: []api.Event{}}, api.Status{Code: 200}
 						}
-
-						return &api.EventList{Items: []api.Event{}}, api.Status{Code: 200}
 					}).AnyTimes() // Allow multiple calls for debugging
 
 				// Mock CreateEvent calls for any internal task events that might be emitted
@@ -281,7 +281,7 @@ var _ = Describe("Queue Maintenance Integration Tests", func() {
 					Password: "adminpass",
 					DB:       0,
 				})
-				defer redisClient.Close()
+				defer func() { _ = redisClient.Close() }()
 
 				// Check that the task-queue stream has the expected number of entries
 				Eventually(func() int64 {

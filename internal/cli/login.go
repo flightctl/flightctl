@@ -337,7 +337,7 @@ func (o *LoginOptions) getAuthProvider(ctx context.Context) (login.AuthProvider,
 	}
 
 	// Create web-based auth provider from config
-	var providerName string = lo.FromPtr((*o.authConfig.Providers)[0].Metadata.Name)
+	var providerName = lo.FromPtr((*o.authConfig.Providers)[0].Metadata.Name)
 	if o.authConfig.DefaultProvider != nil {
 		providerName = lo.FromPtr(o.authConfig.DefaultProvider)
 	}
@@ -448,9 +448,9 @@ func (o *LoginOptions) validateTokenWithServer(ctx context.Context, token string
 		if errorInfo.Type != TLSErrorUnknown && o.shouldOfferInsecurePrompt() && !o.InsecureSkipVerify {
 			if o.promptUseInsecure(errorInfo) {
 				o.enableInsecure()
-				c, cerr := client.NewFromConfig(o.clientConfig, o.ConfigFilePath, client.WithUserAgentHeader("flightctl-cli"))
+				insecureClient, cerr := client.NewFromConfig(o.clientConfig, o.ConfigFilePath, client.WithUserAgentHeader("flightctl-cli"))
 				if cerr == nil {
-					res, err = c.AuthValidateWithResponse(ctx, &v1beta1.AuthValidateParams{Authorization: &headerVal})
+					res, err = insecureClient.AuthValidateWithResponse(ctx, &v1beta1.AuthValidateParams{Authorization: &headerVal})
 				}
 			}
 		}

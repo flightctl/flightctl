@@ -183,9 +183,10 @@ func TestWorkerCollector_CounterValues(t *testing.T) {
 			assert.Len(t, mf.Metric, 2)
 			for _, m := range mf.Metric {
 				status := getLabelValue(m.Label, "status")
-				if status == "success" {
+				switch status {
+				case "success":
 					assert.Equal(t, 2.0, *m.Counter.Value)
-				} else if status == "retryable_failure" {
+				case "retryable_failure":
 					assert.Equal(t, 1.0, *m.Counter.Value)
 				}
 			}
@@ -194,9 +195,10 @@ func TestWorkerCollector_CounterValues(t *testing.T) {
 			assert.Len(t, mf.Metric, 2)
 			for _, m := range mf.Metric {
 				taskType := getLabelValue(m.Label, "task_type")
-				if taskType == "deviceRender" {
+				switch taskType {
+				case "deviceRender":
 					assert.Equal(t, 2.0, *m.Counter.Value)
-				} else if taskType == "fleetRollout" {
+				case "fleetRollout":
 					assert.Equal(t, 1.0, *m.Counter.Value)
 				}
 			}
