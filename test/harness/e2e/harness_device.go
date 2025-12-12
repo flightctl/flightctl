@@ -830,49 +830,36 @@ func (h *Harness) EnableTPMForDevice() error {
 // SetupDeviceWithTPM prepares a device VM with TPM functionality enabled.
 // This handles the complete TPM setup process in the correct order.
 func (h *Harness) SetupDeviceWithTPM(workerID int) error {
-	// 1. Setup VM from pool (includes agent start)
-	err := h.SetupVMFromPoolAndStartAgent(workerID)
-	if err != nil {
+	// 1. Setup VM from pool (revert snapshot, do not start agent yet)
+	if err := h.SetupVMFromPool(workerID); err != nil {
 		return fmt.Errorf("failed to setup VM: %w", err)
 	}
 
-	// 2. Stop agent immediately to configure TPM first
-	err = h.StopFlightCtlAgent()
-	if err != nil {
-		return fmt.Errorf("failed to stop agent: %w", err)
-	}
-
-	// Clean CSR from non-TPM agent start to avoid device ID mismatch
-	_, err = h.VM.RunSSH([]string{"sudo", "rm", "-f", "/var/lib/flightctl/certs/agent.csr"}, nil)
-	if err != nil {
-		logrus.Warnf("Failed to clean stale CSR: %v", err)
-	}
-
-	// 3. Wait for TPM hardware initialization
-	err = h.WaitForTPMInitialization()
+	// 2. Wait for TPM hardware initialization
+	err := h.WaitForTPMInitialization()
 	if err != nil {
 		return fmt.Errorf("TPM initialization failed: %w", err)
 	}
 
-	// 4. Verify TPM is functional
+	// 3. Verify TPM is functional
 	err = h.VerifyTPMFunctionality()
 	if err != nil {
 		return fmt.Errorf("TPM verification failed: %w", err)
 	}
 
-	// 5. Configure agent for TPM
+	// 4. Configure agent for TPM
 	err = h.EnableTPMForDevice()
 	if err != nil {
 		return fmt.Errorf("TPM configuration failed: %w", err)
 	}
 
-	// 6. Start agent with TPM configuration
+	// 5. Start agent with TPM configuration
 	err = h.StartFlightCtlAgent()
 	if err != nil {
 		return fmt.Errorf("failed to start agent with TPM: %w", err)
 	}
 
-	// 7. Brief wait for agent to initialize with TPM
+	// 6. Brief wait for agent to initialize with TPM
 	time.Sleep(10 * time.Second)
 
 	logrus.Info("Device TPM setup completed successfully")

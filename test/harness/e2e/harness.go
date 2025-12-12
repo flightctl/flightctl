@@ -1429,9 +1429,9 @@ func (h *Harness) GetVMFromPool(workerID int) (vm.TestVMInterface, error) {
 	return testVM, nil
 }
 
-// SetupVMFromPoolAndStartAgent sets up a VM from the pool, reverts to pristine snapshot,
-// and starts the agent. This is useful for tests that use the VM pool pattern.
-func (h *Harness) SetupVMFromPoolAndStartAgent(workerID int) error {
+// SetupVMFromPool sets up a VM from the pool and reverts it to the pristine snapshot.
+// It does not start the agent.
+func (h *Harness) SetupVMFromPool(workerID int) error {
 	// Get VM from pool (created on-demand if needed)
 	testVM, err := h.GetVMFromPool(workerID)
 	if err != nil {
@@ -1453,8 +1453,20 @@ func (h *Harness) SetupVMFromPoolAndStartAgent(workerID int) error {
 	if err != nil {
 		logrus.Warnf("Failed to clean stale CSR: %v", err)
 	}
+
 	// Print agent files right after snapshot revert - should be empty/version 0
 	printAgentFilesForVM(testVM, "After Snapshot Revert")
+
+	return nil
+}
+
+// SetupVMFromPoolAndStartAgent sets up a VM from the pool, reverts to pristine snapshot,
+// and starts the agent. This is useful for tests that use the VM pool pattern.
+func (h *Harness) SetupVMFromPoolAndStartAgent(workerID int) error {
+	if err := h.SetupVMFromPool(workerID); err != nil {
+		return err
+	}
+	testVM := h.VM
 
 	// Start the agent after snapshot revert
 	GinkgoWriter.Printf("🔄 Starting flightctl-agent after snapshot revert\n")
