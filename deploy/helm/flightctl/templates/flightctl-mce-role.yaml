@@ -1,4 +1,5 @@
 {{- if eq (include "flightctl.enableMulticlusterExtensions" .) "true" }}
+{{- $mceNamespace := .Values.global.multiclusterEngineNamespace | default "multicluster-engine" }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -35,5 +36,49 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: managedcluster-import-controller-v2
-    namespace: multicluster-engine
+    namespace: {{ $mceNamespace }}
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: flightctl-discovery-writer
+  namespace: {{ $mceNamespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+rules:
+  - verbs:
+      - get
+      - create
+      - update
+      - patch
+    apiGroups:
+      - ""
+    resources:
+      - configmaps
+    resourceNames:
+      - flightctl-discovery
+  - verbs:
+      - create
+    apiGroups:
+      - ""
+    resources:
+      - configmaps
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: flightctl-discovery-writer
+  namespace: {{ $mceNamespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: flightctl-discovery-writer
+subjects:
+  - kind: ServiceAccount
+    name: flightctl-api
+    namespace: {{ .Release.Namespace }}
 {{- end }}
