@@ -1,7 +1,11 @@
 package validation
 
 import (
+	"fmt"
 	"regexp"
+	"strings"
+
+	"k8s.io/apimachinery/pkg/util/validation/field"
 )
 
 const (
@@ -9,15 +13,38 @@ const (
 	dns1123LabelMaxLength int    = 63
 	DNS1123MaxLength      int    = 253
 	envVarNameFmt         string = `[A-Za-z_][A-Za-z0-9_]*`
+
+	// HostnameOrFQDNFmt validates a hostname or FQDN (Fully Qualified Domain Name).
+	// A hostname is a single DNS label, an FQDN is one or more labels separated by dots.
+	// Each label follows DNS rules: lowercase alphanumerics and hyphens, start and end with alphanumeric.
+	// The final label must start with a letter (to reject IP addresses like 192.168.1.1).
+	// Examples: "localhost", "my-host", "example.com", "api.example.com"
+	hostnameOrFQDNLastLabelFmt string = `[a-z]([-a-z0-9]*[a-z0-9])?`
+	HostnameOrFQDNFmt          string = `(` + Dns1123LabelFmt + `\.)*` + hostnameOrFQDNLastLabelFmt
 )
 
 var (
-	GenericNameRegexp = regexp.MustCompile("^" + Dns1123LabelFmt + "$")
-	EnvVarNameRegexp  = regexp.MustCompile("^" + envVarNameFmt + "$")
+	GenericNameRegexp    = regexp.MustCompile("^" + Dns1123LabelFmt + "$")
+	EnvVarNameRegexp     = regexp.MustCompile("^" + envVarNameFmt + "$")
+	HostnameOrFQDNRegexp = regexp.MustCompile("^" + HostnameOrFQDNFmt + "$")
 )
 
 func ValidateGenericName(name *string, path string) []error {
 	return ValidateString(name, path, 1, dns1123LabelMaxLength, GenericNameRegexp, Dns1123LabelFmt)
+}
+
+func ValidateHostnameOrFQDN(name *string, path string) []error {
+	errs := ValidateString(name, path, 1, DNS1123MaxLength, HostnameOrFQDNRegexp, HostnameOrFQDNFmt, "example.com")
+	if name == nil || *name == "" {
+		return errs
+	}
+	for _, label := range strings.Split(*name, ".") {
+		if len(label) > dns1123LabelMaxLength {
+			errs = append(errs, field.Invalid(fieldPathFor(path), label, fmt.Sprintf("must have at most %d characters", dns1123LabelMaxLength)))
+			break
+		}
+	}
+	return errs
 }
 
 const (
