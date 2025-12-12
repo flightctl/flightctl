@@ -2,6 +2,7 @@ package agent_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	testutil "github.com/flightctl/flightctl/test/util"
@@ -12,6 +13,8 @@ import (
 const TIMEOUT = "5m"
 const POLLING = "125ms"
 const LONGTIMEOUT = "10m"
+const TENMINTIMEOUT = 10 * time.Minute
+const TENSECTIMEOUT = 10 * time.Second
 
 // Define a type for messages.
 type Message string
