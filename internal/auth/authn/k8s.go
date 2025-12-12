@@ -181,6 +181,8 @@ func (o *K8sAuthN) GetIdentity(ctx context.Context, token string) (common.Identi
 			logrus.WithError(err).WithField("namespace", *o.spec.RbacNs).Warn("Failed to list role bindings")
 			roles = []string{}
 		}
+		// Normalize role names by stripping release suffix if present
+		roles = normalizeRoleNames(roles, o.spec.RoleSuffix)
 	}
 
 	logrus.WithFields(logrus.Fields{

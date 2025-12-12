@@ -126,9 +126,10 @@ Image=quay.io/test/data:latest`),
 			},
 			expectedVolumes: []Volume{
 				{
-					Name:      "data.volume",
-					ID:        "systemd-test-app-data",
-					Reference: "quay.io/test/data:latest",
+					Name:          "data.volume",
+					ID:            "systemd-test-app-data",
+					Reference:     "quay.io/test/data:latest",
+					ReclaimPolicy: v1beta1.Retain,
 				},
 			},
 			expectError: false,
@@ -150,14 +151,16 @@ Image=quay.io/test/cache:v2.0`),
 			},
 			expectedVolumes: []Volume{
 				{
-					Name:      "data.volume",
-					ID:        "systemd-myapp-data",
-					Reference: "quay.io/test/data:v1.0",
+					Name:          "data.volume",
+					ID:            "systemd-myapp-data",
+					Reference:     "quay.io/test/data:v1.0",
+					ReclaimPolicy: v1beta1.Retain,
 				},
 				{
-					Name:      "cache.volume",
-					ID:        "systemd-myapp-cache",
-					Reference: "quay.io/test/cache:v2.0",
+					Name:          "cache.volume",
+					ID:            "systemd-myapp-cache",
+					Reference:     "quay.io/test/cache:v2.0",
+					ReclaimPolicy: v1beta1.Retain,
 				},
 			},
 			expectError: false,
@@ -189,9 +192,10 @@ Device=/dev/sda1`),
 			},
 			expectedVolumes: []Volume{
 				{
-					Name:      "data.volume",
-					ID:        "systemd-mixed-app-data",
-					Reference: "quay.io/test/data:latest",
+					Name:          "data.volume",
+					ID:            "systemd-mixed-app-data",
+					Reference:     "quay.io/test/data:latest",
+					ReclaimPolicy: v1beta1.Retain,
 				},
 			},
 			expectError: false,
@@ -209,9 +213,10 @@ VolumeName=custom-storage-name`),
 			},
 			expectedVolumes: []Volume{
 				{
-					Name:      "storage.volume",
-					ID:        "custom-storage-name",
-					Reference: "quay.io/test/storage:latest",
+					Name:          "storage.volume",
+					ID:            "custom-storage-name",
+					Reference:     "quay.io/test/storage:latest",
+					ReclaimPolicy: v1beta1.Retain,
 				},
 			},
 			expectError: false,
@@ -263,6 +268,7 @@ Image=quay.io/test/app:latest`),
 				require.Equal(expectedVol.ID, volumes[i].ID)
 				require.Equal(expectedVol.Reference, volumes[i].Reference)
 				require.Equal(expectedVol.Available, volumes[i].Available)
+				require.Equal(expectedVol.ReclaimPolicy, volumes[i].ReclaimPolicy, "volume %q reclaim policy mismatch", expectedVol.Name)
 			}
 		})
 	}
@@ -287,9 +293,10 @@ Image=quay.io/test/data:latest`),
 			},
 			expectedVolumes: []Volume{
 				{
-					Name:      "data.volume",
-					ID:        "systemd-test-app-data",
-					Reference: "quay.io/test/data:latest",
+					Name:          "data.volume",
+					ID:            "systemd-test-app-data",
+					Reference:     "quay.io/test/data:latest",
+					ReclaimPolicy: v1beta1.Retain,
 				},
 			},
 			expectError: false,
@@ -305,14 +312,16 @@ Image=quay.io/test/cache:v2.0`),
 			},
 			expectedVolumes: []Volume{
 				{
-					Name:      "data.volume",
-					ID:        "systemd-myapp-data",
-					Reference: "quay.io/test/data:v1.0",
+					Name:          "data.volume",
+					ID:            "systemd-myapp-data",
+					Reference:     "quay.io/test/data:v1.0",
+					ReclaimPolicy: v1beta1.Retain,
 				},
 				{
-					Name:      "cache.volume",
-					ID:        "systemd-myapp-cache",
-					Reference: "quay.io/test/cache:v2.0",
+					Name:          "cache.volume",
+					ID:            "systemd-myapp-cache",
+					Reference:     "quay.io/test/cache:v2.0",
+					ReclaimPolicy: v1beta1.Retain,
 				},
 			},
 			expectError: false,
@@ -332,9 +341,10 @@ Device=/dev/sda1`),
 			},
 			expectedVolumes: []Volume{
 				{
-					Name:      "data.volume",
-					ID:        "systemd-mixed-app-data",
-					Reference: "quay.io/test/data:latest",
+					Name:          "data.volume",
+					ID:            "systemd-mixed-app-data",
+					Reference:     "quay.io/test/data:latest",
+					ReclaimPolicy: v1beta1.Retain,
 				},
 			},
 			expectError: false,
@@ -349,9 +359,10 @@ VolumeName=custom-storage-name`),
 			},
 			expectedVolumes: []Volume{
 				{
-					Name:      "storage.volume",
-					ID:        "custom-storage-name",
-					Reference: "quay.io/test/storage:latest",
+					Name:          "storage.volume",
+					ID:            "custom-storage-name",
+					Reference:     "quay.io/test/storage:latest",
+					ReclaimPolicy: v1beta1.Retain,
 				},
 			},
 			expectError: false,
@@ -423,6 +434,7 @@ Image=test`),
 				require.Equal(expectedVol.ID, volumes[i].ID)
 				require.Equal(expectedVol.Reference, volumes[i].Reference)
 				require.Equal(expectedVol.Available, volumes[i].Available)
+				require.Equal(expectedVol.ReclaimPolicy, volumes[i].ReclaimPolicy, "volume %q reclaim policy mismatch", expectedVol.Name)
 			}
 		})
 	}

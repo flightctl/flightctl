@@ -86,6 +86,21 @@ func (mr *MockManagerMockRecorder) EnsurePatterns(arg0 any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EnsurePatterns", reflect.TypeOf((*MockManager)(nil).EnsurePatterns), arg0)
 }
 
+// ListDependencies mocks base method.
+func (m *MockManager) ListDependencies(ctx context.Context, unit string) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListDependencies", ctx, unit)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListDependencies indicates an expected call of ListDependencies.
+func (mr *MockManagerMockRecorder) ListDependencies(ctx, unit any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDependencies", reflect.TypeOf((*MockManager)(nil).ListDependencies), ctx, unit)
+}
+
 // ListUnitsByMatchPattern mocks base method.
 func (m *MockManager) ListUnitsByMatchPattern(ctx context.Context, matchPatterns []string) ([]client.SystemDUnitListEntry, error) {
 	m.ctrl.T.Helper()
@@ -154,6 +169,26 @@ func (mr *MockManagerMockRecorder) ResetFailed(ctx any, units ...any) *gomock.Ca
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]any{ctx}, units...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResetFailed", reflect.TypeOf((*MockManager)(nil).ResetFailed), varargs...)
+}
+
+// Show mocks base method.
+func (m *MockManager) Show(ctx context.Context, unit string, options ...client.SystemdShowOptions) ([]string, error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, unit}
+	for _, a := range options {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "Show", varargs...)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Show indicates an expected call of Show.
+func (mr *MockManagerMockRecorder) Show(ctx, unit any, options ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, unit}, options...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Show", reflect.TypeOf((*MockManager)(nil).Show), varargs...)
 }
 
 // Start mocks base method.

@@ -17,29 +17,29 @@ dnf --version
 Install with dnf 4:
 
 ```bash
-dnf config-manager --add-repo https://rpm.flightctl.io/flightctl-epel.repo
-dnf install -y flightctl-services
+sudo dnf config-manager --add-repo https://rpm.flightctl.io/flightctl-epel.repo
+sudo dnf install -y flightctl-services
 ```
 
 Install with dnf 5:
 
 ```bash
 sudo dnf config-manager addrepo --from-repofile=https://rpm.flightctl.io/flightctl-epel.repo
-dnf install -y flightctl-services
+sudo dnf install -y flightctl-services
 ```
 
 ### Installing a specific version
 
 Search for available versions:
 
-```bashss
+```bash
 dnf list --showduplicates flightctl-services
 ```
 
 Install a specific version by appending the desired version to the package name:
 
 ```bash
-dnf install flightctl-services-0.9.4-1.fc42
+sudo dnf install flightctl-services-1.0.0
 ```
 
 ## Quickstart
@@ -67,7 +67,7 @@ sudo podman ps
 Once the UI service has spun up, find the automatically set baseDomain
 
 ```bash
-grep baseDomain /etc/flightctl/service-config.yaml
+grep baseDomain: /etc/flightctl/service-config.yaml
 ```
 
 And visit the UI at https://<baseDomain>
@@ -146,7 +146,7 @@ sudo podman secret inspect flightctl-postgresql-user-password --showsecret | jq 
 
 ## Certificate Management
 
-Certificates are automatically generated and stored in the `/etc/flightctl/pki` directory when services are first started. The certificate structure includes:
+Required certificates are stored in the `/etc/flightctl/pki` directory. The certificate structure includes:
 
 ```bash
 /etc/flightctl/pki/
@@ -160,21 +160,70 @@ Certificates are automatically generated and stored in the `/etc/flightctl/pki` 
     └── client-signer.key                 # Client signer private key
 ```
 
+For general info on the certificate architecture, see [Certificate Architecture](../references/certificate-architecture.md).
+
 ### Automatic Certificate Generation
 
-On first startup, certificates are automatically generated with the following behavior:
+When `global.generateCertificates` is set to `builtin` certificates are generated with the following behavior:
 
 - A self-signed root CA is created if not already present
 - An intermediate client-signer CA is generated for managing client certificates
 - The API server certificate is created with the configured `baseDomain` as a Subject Alternative Name (SAN)
 
+> [!WARNING]
+> Using builtin is a destructive action.  Doing so will result in previously issued certificates becoming unverifiable and devices must be re-enrolled.
+
 ### Custom Certificates
 
 For production deployments or environments with existing PKI infrastructure, you can provide your own certificates instead of using automatically generated self-signed certificates.
 
+#### Using all custom certificates
+
+To use fully custom certificates, **all**  of the certificates specified above must be supplied or services will fail to start.
+
+Ensure that the `global.generateCertificates` value in `service-config.yaml` is set to `none`
+
+```yaml
+global:
+  generateCertificates: none
+```
+
+Populate `/etc/flightctl/pki` with the following certificates:
+
+| File | Description |
+|------|-------------|
+| `ca.crt` | Root CA certificate |
+| `ca.key` | Root CA private key |
+| `flightctl-api/server.crt` | API server TLS certificate, signed by the root CA. **Must include a SAN** matching the API domain (must match the configured baseDomain) |
+| `flightctl-api/server.key` | API server private key |
+| `flightctl-api/client-signer.crt` | Intermediate CA for signing device/client certificates, signed by the root CA |
+| `flightctl-api/client-signer.key` | Client signer CA private key |
+| `ca-bundle.crt` | Concatenation of `ca.crt` + `client-signer.crt` |
+
+Start the Services
+
+```bash
+sudo systemctl start flightctl.target
+```
+
+> [!NOTE]
+> Services do not currently support automatic reloading of certificates and will need to be restarted to load new certificates.
+
 #### Using an existing Certificate Authority
 
 To use an existing CA instead of the automatically generated self-signed CA:
+
+Ensure that the `global.generateCertificates` value in `service-config.yaml` is set to `builtin`
+
+```yaml
+global:
+  generateCertificates: builtin
+```
+
+Place the existing CA key and cert files in the following locations, also ensuring they are readable:
+
+- `/etc/flightctl/pki/ca.crt`
+- `/etc/flightctl/pki/ca.key`
 
 ```bash
 # BEFORE starting flightctl services, place your CA certificates
@@ -183,12 +232,25 @@ sudo cp your-ca.key /etc/flightctl/pki/ca.key
 sudo chown root:root /etc/flightctl/pki/ca.*
 sudo chmod 600 /etc/flightctl/pki/ca.key
 sudo chmod 644 /etc/flightctl/pki/ca.crt
+```
 
-# Start services normally - they will use your CA for certificate generation
+Start the services:
+
+```bash
 sudo systemctl start flightctl.target
 ```
 
 The services will detect the existing CA certificates and use them to generate the intermediate client-signer CA and server certificates.
+
+Set the `global.generateCertificates` value to none to prevent rewriting certificates in the future.
+
+```yaml
+global:
+  generateCertificates: none
+```
+
+> [!WARNING]
+> Using builtin is a destructive action. Doing so will result in previously issued certificates becoming unverifiable and devices must be re-enrolled.
 
 ### Authentication Provider CA
 

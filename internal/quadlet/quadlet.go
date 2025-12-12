@@ -260,3 +260,8 @@ func VolumeName(volumeName *string, filename string) string {
 func NamespaceResource(id string, resource string) string {
 	return fmt.Sprintf("%s-%s", id, resource)
 }
+
+// IsWorkload returns true if a quadlet file is considered to be a workload
+func IsWorkload(quadlet string) bool {
+	return filepath.Ext(quadlet) == ContainerExtension
+}

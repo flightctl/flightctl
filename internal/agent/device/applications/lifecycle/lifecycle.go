@@ -45,8 +45,9 @@ type Action struct {
 }
 
 type Volume struct {
-	ID        string
-	Reference string
+	ID            string
+	Reference     string
+	ReclaimPolicy v1beta1.ApplicationVolumeReclaimPolicy
 }
 
 type contextKey string
