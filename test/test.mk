@@ -131,11 +131,14 @@ clean-quadlets-vm:
 	@sudo rm -f /var/lib/libvirt/images/quadlets-vm_src.qcow2 2>/dev/null || true
 	@echo "quadlets-vm cleanup completed"
 
-prepare-e2e-qcow-config: bin/output/qcow2/disk.qcow2
+bin/.e2e-agent-injected: bin/output/qcow2/disk.qcow2 bin/.e2e-agent-certs
 	QCOW=bin/output/qcow2/disk.qcow2 AGENT_DIR=bin/agent/etc/flightctl test/scripts/inject_agent_files_into_qcow.sh
+	touch bin/.e2e-agent-injected
+
+prepare-e2e-qcow-config: bin/.e2e-agent-injected
 
 prepare-e2e-test: RPM_MOCK_ROOT=centos-stream+epel-next-9-x86_64
-prepare-e2e-test: deploy-e2e-extras build-e2e-containers prepare-e2e-qcow-config
+prepare-e2e-test: deploy-e2e-extras build-e2e-containers push-e2e-agent-images prepare-e2e-qcow-config
 	./test/scripts/prepare_cli.sh
 
 # Build E2E containers with Docker caching
@@ -146,13 +149,13 @@ build-e2e-containers: git-server-container e2e-agent-images
 git-server-container: bin/e2e-certs/ca.pem
 	@echo "Building git-server container with Docker caching..."
 	test/scripts/prepare_git_server.sh
-	@if test/scripts/functions in_kind; then \
-		echo "Loading git-server into kind cluster..."; \
-		source test/scripts/functions && kind_load_image localhost/git-server:latest; \
-	fi
+	@bash -c 'source test/scripts/functions && in_kind && echo "Loading git-server into kind cluster..." && kind_load_image localhost/git-server:latest' || true
 
-# Build E2E agent images with proper caching
-e2e-agent-images: bin/.e2e-agent-images
+# Build E2E agent images with proper caching (offline build – no cert generation)
+# Sentinel file includes AGENT_OS_ID to ensure rebuilds when OS changes
+E2E_AGENT_IMAGES_SENTINEL := $(ROOT_DIR)/bin/.e2e-agent-images-$(AGENT_OS_ID)
+
+e2e-agent-images: $(E2E_AGENT_IMAGES_SENTINEL)
 	@echo "E2E agent images already built and up to date"
 
 in-cluster-e2e-test: prepare-e2e-test
@@ -192,7 +195,7 @@ prepare-swtpm-certs:
 clean-swtpm-certs:
 	rm -rf $(TEMP_SWTPM_CERT_DIR)
 
-.PHONY: test run-test git-server-container
+.PHONY: test run-test git-server-container e2e-agent-images push-e2e-agent-images
 
 $(REPORTS):
 	-mkdir -p $(REPORTS)

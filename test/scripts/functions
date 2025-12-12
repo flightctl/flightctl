@@ -142,18 +142,35 @@ function get_token() {
 
 function try_login() {
   # if we can list devices, we are good
-  bin/flightctl get devices && return 0
+  bin/flightctl get devices 2>/dev/null && return 0
   get_endpoints
   echo "Trying no-auth login"
-  if ! bin/flightctl login "${FLIGHTCTL_API_ENDPOINT}" --insecure-skip-tls-verify; then
+  if ! bin/flightctl login "${FLIGHTCTL_API_ENDPOINT}" --insecure-skip-tls-verify 2>/dev/null; then
     echo "Trying token login"
-    TOKEN=$(get_token)
-    if ! bin/flightctl login "${FLIGHTCTL_API_ENDPOINT}" --insecure-skip-tls-verify --token "${TOKEN}"; then
-      echo "Trying standalone login"
-      PASS=$(kubectl get secret keycloak-demouser-secret -n "${FLIGHTCTL_NS}" -o json | jq -r '.data.password' | base64 -d)
+    TOKEN=""
+    
+    # For kind clusters, use kubectl to create service account token
+    if in_kind; then
+      echo "Kind cluster detected, using kubectl to create token"
+      TOKEN=$(kubectl -n "${FLIGHTCTL_NS}" create token flightctl-admin --duration=8h 2>/dev/null || true)
+    else
+      # For OpenShift, use oc/KUBEADMIN_PASS
+      TOKEN=$(get_token 2>/dev/null || true)
+    fi
+    
+    if [ -n "${TOKEN}" ] && bin/flightctl login "${FLIGHTCTL_API_ENDPOINT}" --insecure-skip-tls-verify --token "${TOKEN}" 2>/dev/null; then
+      return 0
+    fi
+    
+    echo "Trying standalone login"
+    PASS=$(kubectl get secret keycloak-demouser-secret -n "${FLIGHTCTL_NS}" -o json 2>/dev/null | jq -r '.data.password' | base64 -d 2>/dev/null || true)
+    if [ -n "${PASS}" ]; then
       bin/flightctl login -k "${FLIGHTCTL_API_ENDPOINT}" -u demouser -p ${PASS} 2>/dev/null
       return 0
     fi
+    
+    echo "Warning: All login attempts failed" >&2
+    return 1
   fi
 }
 

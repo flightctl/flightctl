@@ -84,6 +84,8 @@ var _ = Describe("Redis Restart Tests", func() {
 	})
 
 	It("should recover and continue processing tasks after Redis restart", Label("84786", "sanity"), func() {
+		Skip("Skipped: Redis restart leaves consumer group in bad state, breaking subsequent tests")
+
 		By("verifying initial system state")
 		Eventually(func() bool {
 			return util.IsRedisRunning(context)

@@ -7,6 +7,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
+	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
@@ -16,11 +17,6 @@ const (
 	fileName      = "podman-compose.yaml"
 	inlineAppName = "my-app"
 )
-
-func sleepAppImageName(harness *e2e.Harness, tag string) string {
-	extIP := harness.RegistryEndpoint()
-	return fmt.Sprintf("%s/sleep-app:%s", extIP, tag)
-}
 
 var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 	var (
@@ -52,7 +48,7 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 			device = response.JSON200
 			Expect(device.Status.Summary.Status).To(Equal(v1beta1.DeviceSummaryStatusOnline))
 
-			imageName := sleepAppImageName(harness, "v1")
+			imageName := util.NewSleepAppImageReference(util.SleepAppTags.V1).String()
 
 			updateDevice(harness, deviceId, func(device *v1beta1.Device) {
 				var applicationConfig = v1beta1.ImageApplicationProviderSpec{
@@ -94,7 +90,7 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 
 			By("Update an application image tag")
 
-			imageName = sleepAppImageName(harness, "v2")
+			imageName = util.NewSleepAppImageReference(util.SleepAppTags.V2).String()
 
 			updateDevice(harness, deviceId, func(device *v1beta1.Device) {
 				applicationVars := map[string]string{
@@ -150,7 +146,7 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 
 			By("Update the application to include artifact volumes")
 
-			imageName := sleepAppImageName(harness, "v3")
+			imageName := util.NewSleepAppImageReference(util.SleepAppTags.V3).String()
 
 			updateDevice(harness, deviceId, func(device *v1beta1.Device) {
 				volumeConfig := v1beta1.ApplicationVolume{
@@ -193,7 +189,7 @@ var _ = Describe("VM Agent behaviour during the application lifecycle", func() {
 				"testvol")
 
 			By("downgrading to v2 we should not have the mount anymore")
-			imageName = sleepAppImageName(harness, "v2")
+			imageName = util.NewSleepAppImageReference(util.SleepAppTags.V2).String()
 
 			updateDevice(harness, deviceId, func(device *v1beta1.Device) {
 				appConfig := v1beta1.ImageApplicationProviderSpec{

@@ -37,5 +37,8 @@ insecure = true
 EOF
 fi
 
+# Set namespace for try_login to use correct service account
+export FLIGHTCTL_NS=flightctl-external
+
 # attempt login to flightctl
 try_login
