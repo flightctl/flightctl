@@ -5,12 +5,13 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/flightctl/flightctl/api/v1beta1"
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/consts"
 	identitylib "github.com/flightctl/flightctl/internal/identity"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/transport"
 	"github.com/sirupsen/logrus"
 )
 
@@ -23,20 +24,20 @@ type IdentityMappingMiddleware struct {
 
 // roleNameMap maps external role names to internal role constants
 var roleNameMap = map[string]string{
-	v1beta1.ExternalRoleAdmin:     v1beta1.RoleAdmin,
-	v1beta1.ExternalRoleOrgAdmin:  v1beta1.RoleOrgAdmin,
-	v1beta1.ExternalRoleOperator:  v1beta1.RoleOperator,
-	v1beta1.ExternalRoleViewer:    v1beta1.RoleViewer,
-	v1beta1.ExternalRoleInstaller: v1beta1.RoleInstaller,
+	api.ExternalRoleAdmin:     api.RoleAdmin,
+	api.ExternalRoleOrgAdmin:  api.RoleOrgAdmin,
+	api.ExternalRoleOperator:  api.RoleOperator,
+	api.ExternalRoleViewer:    api.RoleViewer,
+	api.ExternalRoleInstaller: api.RoleInstaller,
 }
 
 // internalRoles is a set of all internal role names for quick lookup
 var internalRoles = map[string]bool{
-	v1beta1.RoleAdmin:     true,
-	v1beta1.RoleOrgAdmin:  true,
-	v1beta1.RoleOperator:  true,
-	v1beta1.RoleViewer:    true,
-	v1beta1.RoleInstaller: true,
+	api.RoleAdmin:     true,
+	api.RoleOrgAdmin:  true,
+	api.RoleOperator:  true,
+	api.RoleViewer:    true,
+	api.RoleInstaller: true,
 }
 
 // NewIdentityMappingMiddleware creates a new identity mapping middleware
@@ -69,7 +70,7 @@ func (m *IdentityMappingMiddleware) MapIdentityToDB(next http.Handler) http.Hand
 		organizations, err := m.identityMapper.MapIdentityToDB(ctx, identity)
 		if err != nil {
 			m.log.Errorf("Failed to map identity to database objects: %v", err)
-			http.Error(w, fmt.Sprintf("Failed to map identity: %v", err), http.StatusInternalServerError)
+			transport.SetResponse(w, nil, api.StatusInternalServerError(fmt.Sprintf("Failed to map identity: %v", err)))
 			return
 		}
 		m.log.Debugf("Identity mapping middleware: successfully mapped identity %s to %d organizations", identity.GetUsername(), len(organizations))
@@ -112,7 +113,7 @@ func (m *IdentityMappingMiddleware) MapIdentityToDB(next http.Handler) http.Hand
 				// if the organization is not in the orgRoles map, add it with the org admin role
 				// note that roles reported by the IDP already contain the org admin role for super admin
 				if orgRoles[org.ID.String()] == nil {
-					orgRoles[org.ID.String()] = []string{v1beta1.RoleOrgAdmin}
+					orgRoles[org.ID.String()] = []string{api.RoleOrgAdmin}
 				}
 			}
 		}

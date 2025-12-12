@@ -3,13 +3,16 @@ package pam_issuer_server
 import (
 	"context"
 	"fmt"
+	"math"
 	"net"
 	"net/http"
 	"time"
 
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	pamapi "github.com/flightctl/flightctl/api/v1beta1/pam-issuer"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
+	"github.com/flightctl/flightctl/internal/transport"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	oapimiddleware "github.com/oapi-codegen/nethttp-middleware"
@@ -45,7 +48,11 @@ func New(
 }
 
 func oapiErrorHandler(w http.ResponseWriter, message string, statusCode int) {
-	http.Error(w, fmt.Sprintf("API Error: %s", message), statusCode)
+	if statusCode < 0 || statusCode > math.MaxInt32 {
+		statusCode = http.StatusInternalServerError
+	}
+	status := api.NewFailureStatus(int32(statusCode), http.StatusText(statusCode), fmt.Sprintf("API Error: %s", message)) // #nosec G115 -- statusCode validated above
+	transport.SetResponse(w, nil, status)
 }
 
 func (s *Server) Run(ctx context.Context) error {
