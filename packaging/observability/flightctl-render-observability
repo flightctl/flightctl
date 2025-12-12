@@ -1,12 +1,12 @@
 #!/bin/bash
 set -eo pipefail
 
-# FlightCtl Observability Configuration Renderer
+# Flight Control Observability Configuration Renderer
 # This script updates observability configuration from service-config.yaml
 # Use systemd targets to start/stop services: systemctl start flightctl-observability.target
 
-echo "FlightCtl Observability Configuration Renderer"
-echo "=============================================="
+echo "Flight Control Observability Configuration Renderer"
+echo "==================================================="
 echo
 
 # Check if running as root
@@ -153,13 +153,13 @@ setup_telemetry_gateway_certs() {
 }
 
 main() {
-    log "INFO" "Starting FlightCtl observability configuration rendering..."
+    log "INFO" "Starting Flight Control observability configuration rendering..."
     
     check_prerequisites
     render_observability_config
     render_telemetry_gateway_config
     
-    log "INFO" "FlightCtl observability configuration rendering completed successfully!"
+    log "INFO" "Flight Control observability configuration rendering completed successfully!"
     echo ""
     echo "Configuration has been updated. To start/restart services, use:"
     echo "  sudo systemctl start flightctl-observability.target      # Full stack"
@@ -173,7 +173,7 @@ main() {
 # Show usage if help is requested
 if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
     cat << EOF
-FlightCtl Observability Configuration Renderer
+Flight Control Observability Configuration Renderer
 
 USAGE:
     $0 [OPTIONS]

@@ -18,7 +18,7 @@ spec:
   selfSigned: {}
 
 ---
-# FlightCtl CA Certificate (only created if user hasn't provided flightctl-ca)
+# Flight Control CA Certificate (only created if user hasn't provided flightctl-ca)
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -42,7 +42,7 @@ spec:
 {{- end }}
 
 ---
-# FlightCtl CA Issuer (for signing server certificates and intermediate CAs)
+# Flight Control CA Issuer (for signing server certificates and intermediate CAs)
 apiVersion: cert-manager.io/v1
 kind: Issuer
 metadata:

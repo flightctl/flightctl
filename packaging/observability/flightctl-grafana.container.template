@@ -1,5 +1,5 @@
 [Unit]
-Description=FlightCtl Grafana Dashboard
+Description=Flight Control Grafana Dashboard
 After=flightctl-network.service flightctl-prometheus.service
 Wants=flightctl-network.service flightctl-prometheus.service
 PartOf=flightctl-observability.target

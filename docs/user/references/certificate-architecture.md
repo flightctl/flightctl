@@ -5,7 +5,7 @@ Flight Control uses X.509 certificates with mTLS for all agent-service communica
 ## Certificate Chain of Trust
 
 ```text
-FlightCtl Root CA (10yr)
+Flight Control Root CA (10yr)
 ├── Server Certificates (2yr)
 └── Client-Signer CA (10yr, intermediate)
     └── Client Certificates (7d - 1yr)
@@ -17,7 +17,7 @@ For TPM attestation certificates, see [Configuring Device Attestation](../instal
 
 | Certificate        | Purpose            | Validity | Signed By               |
 | ------------------ | ------------------ | -------- | ----------------------- |
-| FlightCtl Root CA  | Root of trust      | 10 years | Auto generated (self-signed) |
+| Flight Control Root CA  | Root of trust      | 10 years | Auto generated (self-signed) |
 | Client-Signer CA   | Signs client certs | 10 years | Root CA          |
 | API Server         | API TLS            | 2 years  | Root CA          |
 | Telemetry Gateway  | Metrics TLS        | 2 years  | Root CA          |

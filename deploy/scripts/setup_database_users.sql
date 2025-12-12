@@ -1,4 +1,4 @@
--- FlightCtl Database User Setup Script
+-- Flight Control Database User Setup Script
 -- This script creates the database users with appropriate permissions for production deployments
 -- Environment variables that must be set before running:
 --   ${DB_NAME} - Database name (default: flightctl)

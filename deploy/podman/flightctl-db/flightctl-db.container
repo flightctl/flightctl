@@ -1,5 +1,5 @@
 [Unit]
-Description=PostgreSQL Database for Flightctl
+Description=Flight Control Database service
 PartOf=flightctl.target
 
 [Container]

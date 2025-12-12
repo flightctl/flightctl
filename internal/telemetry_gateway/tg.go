@@ -112,7 +112,7 @@ func Run(ctx context.Context, cfg *config.Config, opts ...Option) error {
 	settings := otelcol.CollectorSettings{
 		BuildInfo: component.BuildInfo{
 			Command:     "flightctl-telemetry-gateway",
-			Description: "FlightCtl Telemetry Gateway",
+			Description: "Flight Control Telemetry Gateway",
 			Version:     version.Get().String(),
 		},
 		ConfigProviderSettings: otelcol.ConfigProviderSettings{
