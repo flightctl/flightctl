@@ -25,9 +25,19 @@ const (
 
 // PodmanInspect represents the overall structure of podman inspect output
 type PodmanInspect struct {
-	Restarts int                   `json:"RestartCount"`
-	State    PodmanContainerState  `json:"State"`
-	Config   PodmanContainerConfig `json:"Config"`
+	Restarts   int                   `json:"RestartCount"`
+	State      PodmanContainerState  `json:"State"`
+	Config     PodmanContainerConfig `json:"Config"`
+	HostConfig PodmanHostConfig      `json:"HostConfig"`
+}
+
+type PodmanHostConfig struct {
+	RestartPolicy PodmanRestartPolicy `json:"RestartPolicy"`
+}
+
+type PodmanRestartPolicy struct {
+	Name              string `json:"Name"`
+	MaximumRetryCount int    `json:"MaximumRetryCount"`
 }
 
 // ContainerState represents the container state part of the podman inspect output

@@ -17,6 +17,7 @@ type ComposeService struct {
 	Image         string   `json:"image"`
 	ContainerName string   `json:"container_name,omitempty"`
 	Volumes       []string `json:"volumes,omitempty"`
+	Restart       string   `json:"restart,omitempty"`
 }
 type ComposeVolume struct {
 	External bool `json:"external,omitempty"`
