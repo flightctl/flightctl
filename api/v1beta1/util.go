@@ -172,6 +172,13 @@ func (c ApplicationVolume) Type() (ApplicationVolumeProviderType, error) {
 	return "", fmt.Errorf("unable to determine application volume type: %+v", data)
 }
 
+func (c ApplicationVolume) GetReclaimPolicy() ApplicationVolumeReclaimPolicy {
+	if c.ReclaimPolicy == nil || *c.ReclaimPolicy == "" {
+		return Retain
+	}
+	return *c.ReclaimPolicy
+}
+
 func PercentageAsInt(p Percentage) (int, error) {
 	index := strings.Index(p, "%")
 	if index <= 0 || index != len(p)-1 {
