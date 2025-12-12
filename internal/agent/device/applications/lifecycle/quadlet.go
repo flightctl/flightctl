@@ -30,42 +30,6 @@ type Quadlet struct {
 	podman         *client.Podman
 	rw             fileio.ReadWriter
 	log            *log.PrefixLogger
-	actionCache    *actionCache
-}
-
-type actionCacheEntry struct {
-	artifactVolumes []string
-}
-
-type actionCache struct {
-	cache map[string]*actionCacheEntry
-}
-
-func newActionCache() *actionCache {
-	return &actionCache{
-		cache: make(map[string]*actionCacheEntry),
-	}
-}
-
-func (a *actionCache) clearAction(actionID string) {
-	delete(a.cache, actionID)
-}
-
-func (a *actionCache) addVolumes(actionID string, volumes []string) {
-	entry, ok := a.cache[actionID]
-	if !ok {
-		entry = &actionCacheEntry{}
-		a.cache[actionID] = entry
-	}
-	entry.artifactVolumes = append(entry.artifactVolumes, volumes...)
-}
-
-func (a *actionCache) volumes(actionID string) []string {
-	entry, ok := a.cache[actionID]
-	if !ok {
-		return nil
-	}
-	return entry.artifactVolumes
 }
 
 func NewQuadlet(log *log.PrefixLogger, rw fileio.ReadWriter, systemdManager systemd.Manager, podman *client.Podman) *Quadlet {
@@ -74,7 +38,6 @@ func NewQuadlet(log *log.PrefixLogger, rw fileio.ReadWriter, systemdManager syst
 		podman:         podman,
 		rw:             rw,
 		log:            log,
-		actionCache:    newActionCache(),
 	}
 }
 
@@ -221,13 +184,12 @@ func (q *Quadlet) remove(ctx context.Context, action *Action) error {
 }
 
 func (q *Quadlet) cleanResources(ctx context.Context, action *Action) error {
-	defer q.actionCache.clearAction(action.ID)
-
 	q.log.Infof("Removed quadlet application: %s", action.Name)
 	// the labels applied to quadlets are only directly applied to that quadlet. They do not apply to
 	// any resources created indirectly. As an example, a container quadlet can create multiple volumes without referencing
 	// a volume quadlet. The label applied to the container will not be applied to the volumes, but since we are
-	// namespacing, we can remove any resources that are directly tied to our application
+	// namespacing, we can remove any resources that are directly tied to our application. Volumes that are not explicitly
+	// tracked by the API remain untouched.
 	labels := []string{
 		fmt.Sprintf("%s=%s", client.QuadletProjectLabelKey, action.ID),
 	}
@@ -237,33 +199,6 @@ func (q *Quadlet) cleanResources(ctx context.Context, action *Action) error {
 	var errs []error
 	if err := cleanPodmanResources(ctx, q.podman, labels, filters); err != nil {
 		errs = append(errs, fmt.Errorf("cleaning podman resources: %w", err))
-	}
-
-	// The agent currently doesn't distinguish between "stop for a graceful shutdown", and "remove application". Both elicit
-	// a "remove" operation. Most resources are fine to remove and recreate on startup, as they should be application specific,
-	// but volumes MUST survive restarts. Image backed volumes are removed to allow for updating to newer images if updated,
-	// and on restart, repopulating the volume from the already downloaded image is non-destructive. Artifact backed volumes
-	// follow the same pattern, they can be recreated from their source artifacts.
-	volumes, err := q.podman.ListVolumes(ctx, labels, filters)
-	if err != nil {
-		errs = append(errs, fmt.Errorf("listing volumes: %w", err))
-	}
-
-	volsToRemove := q.actionCache.volumes(action.ID)
-	for _, volume := range volumes {
-		driver, err := q.podman.InspectVolumeDriver(ctx, volume)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("inspecting volume %q: %w", volume, err))
-			continue
-		}
-		if driver == "image" {
-			volsToRemove = append(volsToRemove, volume)
-		}
-	}
-	if len(volsToRemove) > 0 {
-		if err := q.podman.RemoveVolumes(ctx, volsToRemove...); err != nil {
-			errs = append(errs, fmt.Errorf("removing volumes: %w", err))
-		}
 	}
 	if len(errs) > 0 {
 		return errors.Join(errs...)
@@ -353,19 +288,14 @@ func (q *Quadlet) ensureArtifactVolumes(ctx context.Context, action *Action) err
 			if err != nil {
 				return cleanup(fmt.Errorf("creating volume %q: %w", volumeName, err))
 			}
+			artifactVolumes = append(artifactVolumes, volumeName)
 		}
-
-		artifactVolumes = append(artifactVolumes, volumeName)
 
 		if _, err := q.podman.ExtractArtifact(ctx, volume.Reference, volumePath); err != nil {
 			return cleanup(fmt.Errorf("extracting artifact to volume %q: %w", volumeName, err))
 		}
 
 		q.log.Infof("Creating artifact volume %q from artifact %q", volume.ID, volume.Reference)
-	}
-
-	if len(artifactVolumes) > 0 {
-		q.actionCache.addVolumes(action.ID, artifactVolumes)
 	}
 
 	return nil

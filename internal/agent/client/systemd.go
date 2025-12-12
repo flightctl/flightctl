@@ -254,3 +254,44 @@ func (s *Systemd) ListJobs(ctx context.Context) ([]SystemdJob, error) {
 
 	return jobs, nil
 }
+
+type systemdShowOpts struct {
+	args []string
+}
+
+type SystemdShowOptions func(*systemdShowOpts)
+
+func WithShowRestarts() SystemdShowOptions {
+	return func(opts *systemdShowOpts) {
+		opts.args = append(opts.args, "-p", "NRestarts", "--value")
+	}
+}
+
+func WithShowLoadState() SystemdShowOptions {
+	return func(opts *systemdShowOpts) {
+		opts.args = append(opts.args, "-p", "LoadState", "--value")
+	}
+}
+
+func (s *Systemd) Show(ctx context.Context, unit string, opts ...SystemdShowOptions) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, defaultSystemctlTimeout)
+	defer cancel()
+
+	showOpts := &systemdShowOpts{}
+	for _, opt := range opts {
+		opt(showOpts)
+	}
+
+	args := append([]string{"show", "--no-pager", unit}, showOpts.args...)
+	stdout, stderr, exitCode := s.exec.ExecuteWithContext(ctx, systemctlCommand, args...)
+	if exitCode != 0 {
+		return nil, fmt.Errorf("systemctl show: %w", errors.FromStderr(stderr, exitCode))
+	}
+
+	lines := strings.Split(strings.TrimSpace(stdout), "\n")
+	for i := range lines {
+		lines[i] = strings.TrimSpace(lines[i])
+	}
+
+	return lines, nil
+}

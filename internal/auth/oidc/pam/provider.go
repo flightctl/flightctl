@@ -3,14 +3,16 @@
 package pam
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	_ "embed"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"html"
+	"html/template"
 	"net/url"
 	"strings"
 	"sync"
@@ -23,6 +25,21 @@ import (
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
+
+//go:embed templates/login_form.html
+var loginFormTemplate string
+
+//go:embed templates/login_form_error.html
+var loginFormErrorHTML string
+
+// LoginFormData represents the data used to populate the login form template
+type LoginFormData struct {
+	ClientID            string
+	RedirectURI         string
+	State               string
+	CodeChallenge       string
+	CodeChallengeMethod string
+}
 
 // AuthorizationCodeData represents stored authorization code data
 type AuthorizationCodeData struct {
@@ -157,13 +174,16 @@ func NewPAMOIDCProviderWithAuthenticator(caClient *fccrypto.CAClient, config *co
 		}
 	}
 
+	loginFormTmpl := template.Must(template.New("loginForm").Parse(loginFormTemplate))
+
 	return &PAMOIDCProvider{
-		jwtGenerator:     jwtGen,
-		config:           config,
-		pamAuthenticator: pamAuth,
-		codeStore:        NewAuthorizationCodeStore(),
-		sessionStore:     NewSessionStore(),
-		log:              logrus.New(),
+		jwtGenerator:      jwtGen,
+		config:            config,
+		pamAuthenticator:  pamAuth,
+		codeStore:         NewAuthorizationCodeStore(),
+		sessionStore:      NewSessionStore(),
+		log:               logrus.New(),
+		loginFormTemplate: loginFormTmpl,
 	}, nil
 }
 
@@ -1180,178 +1200,27 @@ func (s *PAMOIDCProvider) extractSessionID(ctx context.Context, req *pamapi.Auth
 	return ""
 }
 
-// GetLoginForm returns the HTML for the login form
-func (s *PAMOIDCProvider) GetLoginForm(clientID, redirectURI, state, codeChallenge, codeChallengeMethod string) string {
-	// Escape all variables to prevent XSS attacks
-	escClientID := html.EscapeString(clientID)
-	escRedirectURI := html.EscapeString(redirectURI)
-	escState := html.EscapeString(state)
-	escCodeChallenge := html.EscapeString(codeChallenge)
-	escCodeChallengeMethod := html.EscapeString(codeChallengeMethod)
+// GetLoginFormTemplate returns the login form template for safe execution
+// The template uses html/template which automatically escapes all user input
+func (s *PAMOIDCProvider) GetLoginFormTemplate() *template.Template {
+	return s.loginFormTemplate
+}
 
-	return fmt.Sprintf(`
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Flight Control Login</title>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-        body { 
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            max-width: 400px; 
-            margin: 50px auto; 
-            padding: 20px;
-            background-color: #f5f5f5;
-        }
-        .login-container {
-            background: white;
-            padding: 30px;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-        .form-group { margin-bottom: 20px; }
-        label { 
-            display: block; 
-            margin-bottom: 8px; 
-            font-weight: 500;
-            color: #333;
-        }
-        input[type="text"], input[type="password"] { 
-            width: 100%%; 
-            padding: 12px; 
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            font-size: 16px;
-            box-sizing: border-box;
-        }
-        input[type="text"]:focus, input[type="password"]:focus {
-            outline: none;
-            border-color: #007bff;
-            box-shadow: 0 0 0 2px rgba(0,123,255,0.25);
-        }
-        button { 
-            background: #007bff; 
-            color: white; 
-            padding: 12px 24px; 
-            border: none; 
-            border-radius: 4px;
-            cursor: pointer; 
-            font-size: 16px;
-            width: 100%%;
-            transition: background-color 0.2s;
-        }
-        button:hover { background: #0056b3; }
-        button:active { background: #004085; }
-        .error { 
-            color: #dc3545; 
-            margin-top: 10px; 
-            padding: 8px;
-            background: #f8d7da;
-            border: 1px solid #f5c6cb;
-            border-radius: 4px;
-            display: none;
-        }
-        .header {
-            text-align: center;
-            margin-bottom: 30px;
-        }
-        .header h1 {
-            color: #333;
-            margin: 0;
-            font-size: 24px;
-        }
-        .header p {
-            color: #666;
-            margin: 5px 0 0 0;
-            font-size: 14px;
-        }
-    </style>
-    <script>
-        function handleSubmit(event) {
-            event.preventDefault();
-            const form = event.target;
-            const formData = new FormData(form);
-            
-            // Show loading state
-            const button = form.querySelector('button');
-            const originalText = button.textContent;
-            button.textContent = 'Logging in...';
-            button.disabled = true;
-            
-            // Convert FormData to URLSearchParams for application/x-www-form-urlencoded
-            const params = new URLSearchParams(formData);
-            
-            // Submit form data
-            fetch('/api/v1/auth/login', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded'
-                },
-                body: params
-            })
-            .then(response => {
-                // Read the response text for both success and error
-                return response.text().then(text => ({
-                    ok: response.ok,
-                    text: text
-                }));
-            })
-            .then(result => {
-                if (result.ok) {
-                    // Successful login - redirect to the URL
-                    window.location.href = result.text;
-                } else {
-                    // Failed login - show error message from server
-                    showError(result.text);
-                }
-            })
-            .catch(error => {
-                showError('Login failed. Please check your credentials.');
-            })
-            .finally(() => {
-                button.textContent = originalText;
-                button.disabled = false;
-            });
-        }
-        
-        function showError(message) {
-            const errorDiv = document.querySelector('.error');
-            errorDiv.textContent = message;
-            errorDiv.style.display = 'block';
-        }
-    </script>
-</head>
-<body>
-    <div class="login-container">
-        <div class="header">
-            <h1>Flight Control</h1>
-            <p>Please sign in to continue</p>
-        </div>
-        
-        <form onsubmit="handleSubmit(event)">
-            <input type="hidden" name="response_type" value="code">
-            <input type="hidden" name="client_id" value="%s">
-            <input type="hidden" name="redirect_uri" value="%s">
-            <input type="hidden" name="state" value="%s">
-            <input type="hidden" name="code_challenge" value="%s">
-            <input type="hidden" name="code_challenge_method" value="%s">
-            
-            <div class="form-group">
-                <label for="username">Username:</label>
-                <input type="text" id="username" name="username" required autocomplete="username">
-            </div>
-            
-            <div class="form-group">
-                <label for="password">Password:</label>
-                <input type="password" id="password" name="password" required autocomplete="current-password">
-            </div>
-            
-            <button type="submit">Sign In</button>
-            
-            <div class="error"></div>
-        </form>
-    </div>
-</body>
-</html>`, escClientID, escRedirectURI, escState, escCodeChallenge, escCodeChallengeMethod)
+// GetLoginForm returns the HTML for the login form
+// Uses html/template to safely escape user input and prevent XSS attacks
+func (s *PAMOIDCProvider) GetLoginForm(clientID, redirectURI, state, codeChallenge, codeChallengeMethod string) string {
+	data := LoginFormData{
+		ClientID:            clientID,
+		RedirectURI:         redirectURI,
+		State:               state,
+		CodeChallenge:       codeChallenge,
+		CodeChallengeMethod: codeChallengeMethod,
+	}
+
+	var buf bytes.Buffer
+	if err := s.loginFormTemplate.Execute(&buf, data); err != nil {
+		return loginFormErrorHTML
+	}
+
+	return buf.String()
 }
