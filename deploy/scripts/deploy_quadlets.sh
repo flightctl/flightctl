@@ -19,7 +19,7 @@ if ! "${CONFIG_READONLY_DIR}/init_host.sh"; then
     exit 1
 fi
 
-echo "Starting all FlightCtl services via target..."
+echo "Starting all Flight Control services via target..."
 start_service "flightctl.target"
 
 echo "Waiting for services to initialize..."
@@ -112,7 +112,7 @@ done
 
 echo "Deployment completed successfully!"
 echo ""
-echo "FlightCtl services are running:"
+echo "Flight Control services are running:"
 for service in ${ALL_SERVICES}; do
     # Extract a human-readable name from the service name
     service_name=$(echo "$service" | sed 's/flightctl-//g' | sed 's/\.service//g' | sed 's/-/ /g' | sed 's/\b\w/\u&/g')

@@ -88,7 +88,7 @@ BuildRequires: systemd-rpm-macros
 The flightctl-services package provides installation and setup of files for running containerized Flight Control services
 
 %package telemetry-gateway
-Summary: Telemetry Gateway for FlightCtl
+Summary: Telemetry Gateway for Flight Control
 Requires:       flightctl-services = %{version}-%{release}
 Requires:       podman
 Requires:       python3-pyyaml
@@ -97,12 +97,12 @@ Requires(post): python3-pyyaml gettext
 Requires:       selinux-policy-targeted
 
 %description telemetry-gateway
-This package provides the FlightCtl Telemetry Gateway for telemetry collection/forwarding.
+This package provides the Flight Control Telemetry Gateway for telemetry collection/forwarding.
 It runs in a Podman container managed by systemd and can be installed
-independently of core FlightCtl services. Includes certificate tooling for Podman/Kubernetes.
+independently of core Flight Control services. Includes certificate tooling for Podman/Kubernetes.
 
 %package observability
-Summary: Complete FlightCtl observability stack
+Summary: Complete Flight Control observability stack
 Requires:       flightctl-telemetry-gateway = %{version}-%{release}
 Requires:       flightctl-services = %{version}-%{release}
 Requires:       /usr/sbin/semanage
@@ -114,10 +114,10 @@ Requires(post): python3-pyyaml gettext
 Requires:       selinux-policy-targeted
 
 %description observability
-This package provides the complete FlightCtl Observability Stack, including
+This package provides the complete Flight Control Observability Stack, including
 Prometheus for metric storage, Grafana for visualization, and
 Telemetry Gateway for metric collection. All components run in Podman containers
-managed by systemd and can be installed independently without requiring core FlightCtl
+managed by systemd and can be installed independently without requiring core Flight Control
 services to be running. This package automatically includes the flightctl-telemetry-gateway package.
 
 %files telemetry-gateway
@@ -197,13 +197,13 @@ services to be running. This package automatically includes the flightctl-teleme
 
 %pre telemetry-gateway
 # This script runs BEFORE the files are installed onto the system.
-echo "Preparing to install FlightCtl Telemetry Gateway..."
-echo "Note: OpenTelemetry collector can be installed independently of other FlightCtl services."
+echo "Preparing to install Flight Control Telemetry Gateway..."
+echo "Note: OpenTelemetry collector can be installed independently of other Flight Control services."
 
 
 %post telemetry-gateway
 # This script runs AFTER the files have been installed onto the system.
-echo "Running post-install actions for FlightCtl Telemetry Gateway..."
+echo "Running post-install actions for Flight Control Telemetry Gateway..."
 
 # Create necessary directories on the host if they don't already exist.
 /usr/bin/mkdir -p /opt/flightctl-observability/templates
@@ -240,14 +240,14 @@ fi
 echo "Reloading systemd daemon..."
 /usr/bin/systemctl daemon-reload
 
-echo "FlightCtl Telemetry Gateway installed. Service is configured but not started."
+echo "Flight Control Telemetry Gateway installed. Service is configured but not started."
 echo "To render config: sudo flightctl-render-observability"
 echo "To start services: sudo systemctl start flightctl-telemetry-gateway.target"
 echo "For automatic startup: sudo systemctl enable flightctl-telemetry-gateway.target"
 
 
 %preun telemetry-gateway
-echo "Running pre-uninstall actions for FlightCtl Telemetry Gateway..."
+echo "Running pre-uninstall actions for Flight Control Telemetry Gateway..."
 # Stop and disable the target and services
 /usr/bin/systemctl stop flightctl-telemetry-gateway.target >/dev/null 2>&1 || :
 /usr/bin/systemctl disable flightctl-telemetry-gateway.target >/dev/null 2>&1 || :
@@ -256,7 +256,7 @@ echo "Running pre-uninstall actions for FlightCtl Telemetry Gateway..."
 
 
 %postun telemetry-gateway
-echo "Running post-uninstall actions for FlightCtl Telemetry Gateway..."
+echo "Running post-uninstall actions for Flight Control Telemetry Gateway..."
 # Clean up Podman container
 /usr/bin/podman rm -f flightctl-telemetry-gateway >/dev/null 2>&1 || :
 
@@ -282,18 +282,18 @@ fi
 /usr/sbin/restorecon -RvF /usr/bin/flightctl-render-observability >/dev/null 2>&1 || :
 
 /usr/bin/systemctl daemon-reload
-echo "FlightCtl Telemetry Gateway uninstalled."
+echo "Flight Control Telemetry Gateway uninstalled."
 
 
 %pre observability
 # This script runs BEFORE the files are installed onto the system.
-echo "Preparing to install FlightCtl Observability Stack..."
-echo "Note: Observability stack can be installed independently of other FlightCtl services."
+echo "Preparing to install Flight Control Observability Stack..."
+echo "Note: Observability stack can be installed independently of other Flight Control services."
 
 
 %post observability
 # This script runs AFTER the files have been installed onto the system.
-echo "Running post-install actions for Flightctl Observability Stack..."
+echo "Running post-install actions for Flight Control Observability Stack..."
 
 # Create necessary directories on the host if they don't already exist.
 /usr/bin/mkdir -p /etc/prometheus /var/lib/prometheus
@@ -335,7 +335,7 @@ chown 472:472 /var/lib/grafana
 
 # --- Process Configuration Templates (Initial Generation) ---
 # Call the basic config reloader script once during installation to generate initial config files.
-# Note: We use the basic reloader here because FlightCtl services aren't running yet during installation.
+# Note: We use the basic reloader here because Flight Control services aren't running yet during installation.
 echo "Generating initial configuration files..."
 CONFIG_FILE="/etc/flightctl/service-config.yaml"
 TEMPLATES_DIR="/opt/flightctl-observability/templates"
@@ -355,7 +355,7 @@ fi
 echo "Reloading systemd daemon..."
 /usr/bin/systemctl daemon-reload
 
-echo "Flightctl Observability Stack services installed. Services are configured but not started."
+echo "Flight Control Observability Stack services installed. Services are configured but not started."
 echo "To render config: sudo flightctl-render-observability"
 echo "To start services: sudo systemctl start flightctl-observability.target"
 echo "For automatic startup: sudo systemctl enable flightctl-observability.target"
@@ -364,7 +364,7 @@ echo "For automatic startup: sudo systemctl enable flightctl-observability.targe
 
 
 %preun observability
-echo "Running pre-uninstall actions for Flightctl Observability Stack..."
+echo "Running pre-uninstall actions for Flight Control Observability Stack..."
 # Stop and disable the target and all services
 /usr/bin/systemctl stop flightctl-observability.target >/dev/null 2>&1 || :
 /usr/bin/systemctl disable flightctl-observability.target >/dev/null 2>&1 || :
@@ -377,7 +377,7 @@ echo "Running pre-uninstall actions for Flightctl Observability Stack..."
 
 
 %postun observability
-echo "Running post-uninstall actions for Flightctl Observability Stack..."
+echo "Running post-uninstall actions for Flight Control Observability Stack..."
 # Clean up Podman containers associated with the services
 /usr/bin/podman rm -f flightctl-grafana >/dev/null 2>&1 || :
 /usr/bin/podman rm -f flightctl-userinfo-proxy >/dev/null 2>&1 || :
@@ -409,7 +409,7 @@ echo "Running post-uninstall actions for Flightctl Observability Stack..."
 
 
 /usr/bin/systemctl daemon-reload
-echo "Flightctl Observability Stack uninstalled."
+echo "Flight Control Observability Stack uninstalled."
 
 %prep
 %goprep -A
@@ -560,12 +560,12 @@ echo "Flightctl Observability Stack uninstalled."
     echo "$out"
 
     # Extract the parts after the colons
-    version=$(printf '%s\n' "$out" | sed -n 's/^Flightctl Agent Version:[[:space:]]*//p')
+    version=$(printf '%s\n' "$out" | sed -n 's/^Agent Version:[[:space:]]*//p')
     commit=$(printf '%s\n' "$out" | sed -n 's/^Git Commit:[[:space:]]*//p')
 
     # Fail if either is empty
     if [ -z "$version" ]; then
-        echo "ERROR: Flightctl Agent Version is empty"
+        echo "ERROR: Agent Version is empty"
         exit 1
     fi
 

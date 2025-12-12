@@ -160,7 +160,7 @@ func printAgentHelp() {
 
 func printVersion() {
 	versionInfo := version.Get()
-	fmt.Printf("Flightctl Agent Version: %s\n", versionInfo.String())
+	fmt.Printf("Agent Version: %s\n", versionInfo.String())
 	fmt.Printf("Git Commit: %s\n", versionInfo.GitCommit)
 }
 
