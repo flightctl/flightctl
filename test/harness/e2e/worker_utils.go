@@ -3,7 +3,9 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/onsi/ginkgo/v2"
@@ -74,4 +76,42 @@ func GinkgoBeforeSuite() {
 		_, _, err := SetupWorkerHarness()
 		gomega.Expect(err).ToNot(gomega.HaveOccurred())
 	})
+}
+
+// copyFile copies a file from source to destination, creating the destination directory if needed.
+func CopyFile(from, to string) error {
+	srcInfo, err := os.Stat(from)
+	if err != nil {
+		return fmt.Errorf("stat source file %s: %w", from, err)
+	}
+	if srcInfo.IsDir() {
+		return fmt.Errorf("source %s is a directory, not a file", from)
+	}
+
+	if err := os.MkdirAll(filepath.Dir(to), 0755); err != nil {
+		return fmt.Errorf("creating destination directory: %w", err)
+	}
+
+	r, err := os.Open(from)
+	if err != nil {
+		return fmt.Errorf("opening source file: %w", err)
+	}
+	defer r.Close()
+
+	w, err := os.Create(to)
+	if err != nil {
+		return fmt.Errorf("creating destination file: %w", err)
+	}
+	defer w.Close()
+
+	if _, err := io.Copy(w, r); err != nil {
+		return fmt.Errorf("copying file content: %w", err)
+	}
+
+	// Preserve file permissions
+	if err := os.Chmod(to, srcInfo.Mode()); err != nil {
+		return fmt.Errorf("setting destination file permissions: %w", err)
+	}
+
+	return nil
 }
