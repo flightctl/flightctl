@@ -4,10 +4,18 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/flightctl/flightctl/internal/api/common"
 	"github.com/flightctl/flightctl/internal/quadlet"
 )
+
+var quadletNameLabels = map[common.QuadletType]string{
+	common.QuadletTypeContainer: quadlet.ContainerNameKey,
+	common.QuadletTypeNetwork:   quadlet.NetworkNameKey,
+	common.QuadletTypePod:       quadlet.PodNameKey,
+	common.QuadletTypeVolume:    quadlet.VolumeNameKey,
+}
 
 func validateContainerImage(image string, path string) error {
 	if quadlet.IsBuildReference(image) {
@@ -176,4 +184,36 @@ func ValidateQuadletPaths(paths []string) error {
 	}
 
 	return nil
+}
+
+// ValidateQuadletNames ensures custom quadlet names are unique.
+func ValidateQuadletNames(specs map[string]*common.QuadletReferences) []error {
+	var errs []error
+	seen := make(map[string]string)
+
+	for path, spec := range specs {
+		if spec == nil || spec.Name == nil {
+			continue
+		}
+
+		label, ok := quadletNameLabels[spec.Type]
+		if !ok {
+			continue
+		}
+
+		name := strings.TrimSpace(*spec.Name)
+		if name == "" {
+			continue
+		}
+
+		key := fmt.Sprintf("%s:%s", label, name)
+		if prevPath, exists := seen[key]; exists {
+			errs = append(errs, fmt.Errorf("duplicate %s %q found in %s and %s", label, name, prevPath, path))
+			continue
+		}
+
+		seen[key] = path
+	}
+
+	return errs
 }
