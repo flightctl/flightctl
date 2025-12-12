@@ -887,6 +887,7 @@ func ensureQuadlet(readWriter fileio.ReadWriter, appPath string) error {
 		}
 	}
 
+	errs = append(errs, validation.ValidateQuadletNames(spec)...)
 	errs = append(errs, validation.ValidateQuadletCrossReferences(spec)...)
 
 	if len(errs) > 0 {

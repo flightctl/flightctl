@@ -159,13 +159,25 @@ func ParseQuadletReferences(data []byte) (*QuadletReferences, error) {
 		return nil, err
 	}
 
-	name, err := unit.Lookup(detectedSection, quadlet.VolumeNameKey)
-	if err != nil {
-		if !errors.Is(err, quadlet.ErrKeyNotFound) {
-			return nil, fmt.Errorf("finding volume name: %w", err)
+	nameKeys := map[QuadletType]struct {
+		key      string
+		errLabel string
+	}{
+		QuadletTypeContainer: {key: quadlet.ContainerNameKey, errLabel: "container name"},
+		QuadletTypeVolume:    {key: quadlet.VolumeNameKey, errLabel: "volume name"},
+		QuadletTypeNetwork:   {key: quadlet.NetworkNameKey, errLabel: "network name"},
+		QuadletTypePod:       {key: quadlet.PodNameKey, errLabel: "pod name"},
+	}
+
+	if nameKey, ok := nameKeys[spec.Type]; ok {
+		name, err := unit.Lookup(detectedSection, nameKey.key)
+		if err != nil {
+			if !errors.Is(err, quadlet.ErrKeyNotFound) {
+				return nil, fmt.Errorf("finding %s: %w", nameKey.errLabel, err)
+			}
+		} else {
+			spec.Name = &name
 		}
-	} else {
-		spec.Name = &name
 	}
 
 	return spec, nil
