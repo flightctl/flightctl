@@ -105,6 +105,22 @@ func (h *Harness) UpdateDevice(deviceId string, updateFunction func(*v1beta1.Dev
 		return fmt.Errorf("unexpected status code %d: %s", resp.StatusCode(), string(resp.Body))
 	}
 
+	logrus.Infof("Successfully updated device %s (status=%d)", deviceId, resp.StatusCode())
+
+	// Verify the update persisted by reading the device back
+	verifyResp, verifyErr := h.Client.GetDeviceWithResponse(h.Context, deviceId)
+	if verifyErr == nil && verifyResp.JSON200 != nil {
+		updatedDevice := verifyResp.JSON200
+		if updatedDevice.Spec != nil && updatedDevice.Spec.Config != nil {
+			logrus.Infof("Verified device %s has %d config providers after update", deviceId, len(*updatedDevice.Spec.Config))
+		} else {
+			logrus.Warnf("Device %s spec or config is nil/empty after update!", deviceId)
+		}
+		if updatedDevice.Metadata.Generation != nil {
+			logrus.Infof("Device %s generation after update: %d", deviceId, *updatedDevice.Metadata.Generation)
+		}
+	}
+
 	return nil
 }
 
@@ -706,6 +722,18 @@ func (h *Harness) UpdateDeviceConfigWithRetriesExactly(deviceId string, configs 
 }
 
 func (h *Harness) updateDeviceConfigWithRetries(deviceId string, configs []v1beta1.ConfigProviderSpec, nextRenderedVersion int, exactMatch bool) error {
+	// Log device state BEFORE update for debugging
+	beforeResp, beforeErr := h.Client.GetDeviceWithResponse(h.Context, deviceId)
+	if beforeErr == nil && beforeResp.JSON200 != nil {
+		beforeDevice := beforeResp.JSON200
+		beforeGen := "nil"
+		if beforeDevice.Metadata.Generation != nil {
+			beforeGen = strconv.FormatInt(*beforeDevice.Metadata.Generation, 10)
+		}
+		hasConfig := beforeDevice.Spec != nil && beforeDevice.Spec.Config != nil && len(*beforeDevice.Spec.Config) > 0
+		logrus.Infof("Device %s BEFORE update: generation=%s, hasConfig=%v", deviceId, beforeGen, hasConfig)
+	}
+
 	err := h.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
 		device.Spec.Config = &configs
 		logrus.WithFields(logrus.Fields{
@@ -716,6 +744,26 @@ func (h *Harness) updateDeviceConfigWithRetries(deviceId string, configs []v1bet
 	if err != nil {
 		return err
 	}
+
+	// Log device state AFTER update for debugging
+	afterResp, afterErr := h.Client.GetDeviceWithResponse(h.Context, deviceId)
+	if afterErr == nil && afterResp.JSON200 != nil {
+		afterDevice := afterResp.JSON200
+		afterGen := "nil"
+		if afterDevice.Metadata.Generation != nil {
+			afterGen = strconv.FormatInt(*afterDevice.Metadata.Generation, 10)
+		}
+		hasConfig := afterDevice.Spec != nil && afterDevice.Spec.Config != nil && len(*afterDevice.Spec.Config) > 0
+		annotationRenderedVersion := "not set"
+		if afterDevice.Metadata.Annotations != nil {
+			if rv, ok := (*afterDevice.Metadata.Annotations)[v1beta1.DeviceAnnotationRenderedVersion]; ok {
+				annotationRenderedVersion = rv
+			}
+		}
+		logrus.Infof("Device %s AFTER update: generation=%s, hasConfig=%v, annotationRenderedVersion=%s",
+			deviceId, afterGen, hasConfig, annotationRenderedVersion)
+	}
+
 	if exactMatch {
 		return h.WaitForDeviceNewRenderedVersionExactly(deviceId, nextRenderedVersion)
 	}
