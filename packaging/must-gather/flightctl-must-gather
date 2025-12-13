@@ -1,6 +1,25 @@
 #!/usr/bin/env bash
 
-set -x
+set -euo pipefail
+
+INCLUDE_SECRETS=false
+
+usage() {
+  cat <<'EOF'
+Usage: flightctl-must-gather [--include-secrets] [-h]
+
+  --include-secrets  Include sensitive files (specs unredacted, certs/keys, TPM blobs)
+  -h, --help         Show this help message and exit
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --include-secrets) INCLUDE_SECRETS=true; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "Unknown argument: $1" >&2; usage; exit 1 ;;
+  esac
+done
 
 # Check if the script is run as root
 if [ "$EUID" -ne 0 ]; then
@@ -18,43 +37,127 @@ if [[ ! $REPLY =~ ^[Yy]$ ]]; then
   exit 1
 fi
 
+if [[ "$INCLUDE_SECRETS" == true ]]; then
+  echo "WARNING: Sensitive data will be included in the archive."
+else
+  echo "Sensitive fields will be redacted. Use --include-secrets to capture the full contents."
+fi
+
+redact_json_file() {
+  local src="$1"
+  local dest="$2"
+
+  if [[ "$INCLUDE_SECRETS" == true ]]; then
+    cp "$src" "$dest" || {
+      echo "Warning: failed to copy $src; file will be skipped."
+      return 1
+    }
+    return
+  fi
+
+  jq '
+    walk(
+      if type == "object" then
+        (if has("inline") and (.inline | type == "array") then
+           .inline |= map(
+             if type == "object" and has("content") then
+               .content = "******"
+             else
+               .
+             end
+           )
+         else
+           .
+         end)
+        | (if has("envVars") and (.envVars | type == "object") then
+             .envVars |= with_entries(.value = "******")
+           else
+             .
+           end)
+      else
+        .
+      end
+    )
+  ' "$src" > "$dest" || {
+    echo "Warning: failed to redact $src. File will be skipped."
+    return 1
+  }
+}
+
+collect_spec_files() {
+  local spec_dir="/var/lib/flightctl"
+
+  if ! compgen -G "$spec_dir/*.json" > /dev/null; then
+    return
+  fi
+
+  local spec_files=( "$spec_dir"/*.json )
+
+  echo "### Flightctl Spec Files..."
+  for src in "${spec_files[@]}"; do
+    local dest="$temp_dir/$(basename "$src")"
+    if ! redact_json_file "$src" "$dest"; then
+      [[ "$INCLUDE_SECRETS" == true ]] || rm -f "$dest"
+    fi
+  done
+}
+
 echo "Collecting system information..."
 
 timestamp=$(date +"%Y%m%d-%H%M%S")
 temp_dir=$(mktemp -d)
+trap 'rm -rf "$temp_dir"' EXIT
 
 echo "### Collecting journal logs..."
-journalctl --since "24 hours ago" > "$temp_dir/journal.log"
+journalctl --since "24 hours ago" > "$temp_dir/journal.log" || {
+  echo "Warning: failed to collect journal logs; continuing." >&2
+  true
+}
 
-echo "### Flightctl Spec Files..."
-cp /var/lib/flightctl/*.json "$temp_dir/" 2>/dev/null || true
+collect_spec_files
 
 echo "### Flightctl Audit Log..."
 cp /var/log/flightctl/audit.log* "$temp_dir/" 2>/dev/null || true
 
 output_file="$temp_dir/system_info.txt"
+echo "### Writing system information..."
 
 echo "### System Information (uname -a) ###" > "$output_file"
-uname -a >> "$output_file"
+uname -a >> "$output_file" || {
+  echo "Warning: uname -a failed; continuing." >&2
+  true
+}
 echo "" >> "$output_file"
 
 echo "### Disk Usage (du -h /) ###" >> "$output_file"
-du -h / >> "$output_file"
+du -h / >> "$output_file" || {
+  echo "Warning: du -h / failed; continuing." >&2
+  true
+}
 echo "" >> "$output_file"
 
 echo "### flightctl agent version (flightctl-agent version) ###" >> "$output_file"
-flightctl-agent version >> "$output_file"
+flightctl-agent version >> "$output_file" || {
+  echo "Warning: flightctl-agent version failed; continuing." >&2
+  true
+}
+echo "" >> "$output_file"
 
 echo "### bootc version (bootc --version) ###" >> "$output_file"
-bootc --version >> "$output_file"
+bootc --version >> "$output_file" || {
+  echo "Warning: bootc --version failed; continuing." >&2
+  true
+}
 echo "" >> "$output_file"
 
 echo "### bootc status (bootc status) ###" >> "$output_file"
-bootc status >> "$output_file"
+bootc status >> "$output_file" || {
+  echo "Warning: bootc status failed; continuing." >&2
+  true
+}
 echo "" >> "$output_file"
 
+echo "### Creating must-gather archive..."
 tar -czf "must-gather-$timestamp.tgz" -C "$temp_dir" .
-
-rm -rf "$temp_dir"
 
 echo "must-gather-$timestamp.tgz created successfully."
