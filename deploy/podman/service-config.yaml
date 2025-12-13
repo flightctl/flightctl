@@ -1,8 +1,13 @@
 global:
+  # The base domain for the deployment, from which the service FQDNs are derived.
+  # If provided, must be a fully qualified domain name (FQDN) like "example.com" or a hostname that resolves via DNS.
+  # If not provided, defaults to the system's hostname FQDN ('hostname -f').
   baseDomain:
+
   # Certificate generation method - 'none' or 'builtin'
   # - none: Do not generate certificates. User must provide certs in /etc/flightctl/pki/ or the service will fail to start.
-  # - builtin: Generate required certificates using openssl (default)
+  # - builtin: Generate a self-signed CA cert in /etc/flightctl/pki/ca.{crt,key}, unless the user already provided that CA.
+  #            Generate the remaining certificates from the CA cert (default)
   generateCertificates: builtin
   auth:
     type: oidc # oidc, aap, oauth2, or none

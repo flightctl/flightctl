@@ -9,23 +9,22 @@ source "${SCRIPT_DIR}"/init_utils.sh
 
 SERVICE_CONFIG_FILE="/etc/flightctl/service-config.yaml"
 
-write_default_base_domain() {
-    # Write base domain to the config file
-    base_domain="$(ip route get 1.1.1.1 | grep -oP 'src \K\S+')"
-    echo "Setting base domain to: ${base_domain}"
-    sed -i "s/^\(\s*baseDomain\s*\):\s*.*$/\1: ${base_domain}/" "${SERVICE_CONFIG_FILE}"
-}
-
 main() {
     echo "Configuring Flight Control"
 
     ensure_secrets
 
-    base_domain=$(extract_value "baseDomain" "$SERVICE_CONFIG_FILE")
+    # Validate the base domain from config, or default to hostname FQDN
+    base_domain=$(extract_value "global.baseDomain" "$SERVICE_CONFIG_FILE")
     if [[ -z "$base_domain" ]]; then
-        write_default_base_domain
-    else
-        echo "Base domain already set to: $base_domain"
+        base_domain=$(hostname -f || hostname)
+        echo "global.baseDomain not set, defaulting to system hostname FQDN ($base_domain)"
+    fi
+
+    # Validate as hostname or FQDN: lowercase alphanumerics and hyphens, final label must start with letter
+    if ! [[ "$base_domain" =~ ^([a-z0-9]([-a-z0-9]*[a-z0-9])?\.)*[a-z]([-a-z0-9]*[a-z0-9])?$ ]]; then
+        echo "ERROR: global.baseDomain must be a valid hostname or FQDN (not an IP address)" 1>&2
+        exit 1
     fi
 
     echo "Configuration complete"
