@@ -51,7 +51,6 @@ jobs:
             .spelling
             README.md
             docs/**
-            .github/**
             examples/**
 
       - name: Compute tag
