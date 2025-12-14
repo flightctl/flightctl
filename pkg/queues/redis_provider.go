@@ -665,13 +665,13 @@ func (r *redisQueue) consumeOnce(ctx context.Context, handler ConsumeHandler) er
 				if attempt < maxRetries-1 {
 					r.log.WithError(err).WithField("attempt", attempt+1).Debug("consumer group not ready, retrying")
 					// Use exponential backoff for retries to allow group creation to propagate
-					// Start with 50ms and increase exponentially
-					delay := time.Duration(50*(1<<attempt)) * time.Millisecond
-					if delay > 500*time.Millisecond {
-						delay = 500 * time.Millisecond
+					infraRetryConfig := RetryConfig{
+						BaseDelay:    50 * time.Millisecond,
+						MaxDelay:     500 * time.Millisecond,
+						JitterFactor: 0.2,
 					}
-					jitter := (time.Duration(rand.IntN(100)) - 50) * time.Millisecond // +/-50ms jitter
-					time.Sleep(delay + jitter)
+					delay := calculateBackoff(attempt, infraRetryConfig)
+					time.Sleep(delay)
 					continue
 				}
 				// All retries exhausted, attempt to recreate the consumer group
