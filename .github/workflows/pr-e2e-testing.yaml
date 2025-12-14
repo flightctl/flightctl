@@ -47,16 +47,12 @@ jobs:
         uses: tj-actions/changed-files@v46
         with:
           since_last_remote_commit: 'true'
-          # Temporarily force always detect changes for e2e testing
-          files: |
-            **/*
-          # Original configuration (commented out for testing):
-          # files_ignore: |
-          #   .spelling
-          #   README.md
-          #   docs/**
-          #   .github/**
-          #   examples/**
+          files_ignore: |
+            .spelling
+            README.md
+            docs/**
+            .github/**
+            examples/**
 
       - name: Compute tag
         id: compute-tag
