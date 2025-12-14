@@ -125,7 +125,7 @@ jobs:
       - name: Compute label filter hash
         id: compute-hash
         run: |
-          HASH=$(echo "${{ matrix.label_filter }}" | sha256sum | cut -c1-8)
+          HASH=$(printf '%s' "${{ matrix.label_filter }}" | sha256sum | cut -c1-8)
           echo "hash=${HASH}" >> "$GITHUB_OUTPUT"
           echo "Label filter: ${{ matrix.label_filter }}"
           echo "Hash: ${HASH}"

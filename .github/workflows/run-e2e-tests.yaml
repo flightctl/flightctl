@@ -160,7 +160,7 @@ jobs:
       - name: Compute label filter hash
         id: compute-hash
         run: |
-          HASH=$(echo "${{ inputs.ginkgo_label_filter }}" | sha256sum | cut -c1-8)
+          HASH=$(printf '%s' "${{ inputs.ginkgo_label_filter }}" | sha256sum | cut -c1-8)
           echo "hash=${HASH}" >> "$GITHUB_OUTPUT"
           echo "Label filter: ${{ inputs.ginkgo_label_filter }}"
           echo "Hash: ${HASH}"
@@ -197,4 +197,4 @@ jobs:
         with:
           namespace-external: 'flightctl-external'
           namespace-internal: 'flightctl-internal'
-          log-directory: 'e2e-logs-node-${{ matrix.ginkgo_node }}'
+          log-directory: 'e2e-logs-${{ steps.compute-hash.outputs.hash }}-node-${{ matrix.ginkgo_node }}-logs'

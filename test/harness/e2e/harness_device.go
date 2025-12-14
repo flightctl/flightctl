@@ -320,6 +320,10 @@ func (h *Harness) WaitForDeviceNewRenderedVersion(deviceId string, newRenderedVe
 	UpdateRenderedVersionSuccessMessage := fmt.Sprintf("%s %d", util.UpdateRenderedVersionSuccess.String(), newRenderedVersionInt)
 	h.WaitForDeviceContents(deviceId, UpdateRenderedVersionSuccessMessage,
 		func(device *v1beta1.Device) bool {
+			if device == nil || device.Status == nil {
+				logrus.Warnf("Device %s or device status is nil, cannot check conditions", deviceId)
+				return false
+			}
 			for _, condition := range device.Status.Conditions {
 				if condition.Type == "Updating" && condition.Reason == "Updated" && condition.Status == "False" &&
 					device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusUpToDate {
