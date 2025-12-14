@@ -483,6 +483,24 @@ type redisQueue struct {
 	retryConfig  RetryConfig
 }
 
+// ensureConsumerGroup recreates the consumer group if it was lost (e.g., after Redis restart).
+func (r *redisQueue) ensureConsumerGroup(ctx context.Context) error {
+	// This is idempotent - no need to synchronize
+	err := r.client.XGroupCreateMkStream(ctx, r.name, r.groupName, "0").Err()
+	if err == nil {
+		r.log.Info("consumer group ensured (created)")
+		return nil
+	}
+
+	// BUSYGROUP means it already exists - treat as success
+	if strings.HasPrefix(err.Error(), "BUSYGROUP") {
+		r.log.Debug("consumer group already exists")
+		return nil
+	}
+
+	return fmt.Errorf("failed to create consumer group: %w", err)
+}
+
 // Helper functions for time bucket operations
 
 // RetryConfig holds configuration for exponential backoff retry logic
@@ -643,16 +661,27 @@ func (r *redisQueue) consumeOnce(ctx context.Context, handler ConsumeHandler) er
 		}
 		if err != nil {
 			// Check if this is a NOGROUP error (consumer group doesn't exist yet)
-			if strings.Contains(err.Error(), "NOGROUP") && attempt < maxRetries-1 {
-				r.log.WithError(err).WithField("attempt", attempt+1).Debug("consumer group not ready, retrying")
-				// Use exponential backoff for retries to allow group creation to propagate
-				// Start with 50ms and increase exponentially
-				delay := time.Duration(50*(1<<attempt)) * time.Millisecond
-				if delay > 500*time.Millisecond {
-					delay = 500 * time.Millisecond
+			if strings.Contains(err.Error(), "NOGROUP") {
+				if attempt < maxRetries-1 {
+					r.log.WithError(err).WithField("attempt", attempt+1).Debug("consumer group not ready, retrying")
+					// Use exponential backoff for retries to allow group creation to propagate
+					// Start with 50ms and increase exponentially
+					delay := time.Duration(50*(1<<attempt)) * time.Millisecond
+					if delay > 500*time.Millisecond {
+						delay = 500 * time.Millisecond
+					}
+					jitter := (time.Duration(rand.IntN(100)) - 50) * time.Millisecond // +/-50ms jitter
+					time.Sleep(delay + jitter)
+					continue
 				}
-				time.Sleep(delay)
-				continue
+				// All retries exhausted, attempt to recreate the consumer group
+				r.log.WithError(err).Info("consumer group not found after retries, attempting to recreate")
+				if createErr := r.ensureConsumerGroup(ctx); createErr != nil {
+					parentSpan.RecordError(createErr)
+					parentSpan.SetStatus(codes.Error, createErr.Error())
+					return createErr
+				}
+				return nil // Will read messages on next consume iteration
 			}
 			parentSpan.RecordError(err)
 			parentSpan.SetStatus(codes.Error, err.Error())
