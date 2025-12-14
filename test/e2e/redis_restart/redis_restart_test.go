@@ -115,6 +115,13 @@ var _ = Describe("Redis Restart Tests", func() {
 				return util.VerifyRedisRecovery(context, namespace)
 			}, TIMEOUT, LONG_POLLING).Should(BeTrue(), "Redis and services should recover after restart")
 
+			By("creating a resource after restart to force task queue initialization")
+			_ = createTestFleet(harness, "after-restart", testID)
+			Eventually(func() bool {
+				state := util.CheckQueueState(context)
+				return state.TaskQueueExists && state.HasConsumerGroup
+			}, TIMEOUT, POLLING).Should(BeTrue(), "Task queue stream and consumer group should exist after restart")
+
 			By("verifying resources continue processing after restart")
 			Eventually(func() bool {
 				// Verify all repositories
