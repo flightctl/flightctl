@@ -839,16 +839,7 @@ func (r *redisQueue) Complete(ctx context.Context, entryID string, body []byte, 
 		currentRetryCount := 0
 		if msgs, xrErr := r.client.XRange(ctx, r.name, entryID, entryID).Result(); xrErr == nil && len(msgs) > 0 {
 			if retryCountVal, ok := msgs[0].Values["retryCount"]; ok {
-				switch v := retryCountVal.(type) {
-				case int:
-					currentRetryCount = v
-				case int64:
-					currentRetryCount = int(v)
-				case string:
-					if count, parseErr := strconv.Atoi(v); parseErr == nil {
-						currentRetryCount = count
-					}
-				}
+				currentRetryCount = extractRetryCountFromValue(retryCountVal)
 			}
 		} else {
 			r.log.WithField("entryID", entryID).
@@ -925,6 +916,21 @@ func (r *redisQueue) Complete(ctx context.Context, entryID string, body []byte, 
 	// This ensures they act as barriers preventing checkpoint advancement past their timestamp
 
 	return nil
+}
+
+// extractRetryCountFromValue extracts retry count from a message value
+func extractRetryCountFromValue(retryCountVal interface{}) int {
+	switch v := retryCountVal.(type) {
+	case int:
+		return v
+	case int64:
+		return int(v)
+	case string:
+		if count, parseErr := strconv.Atoi(v); parseErr == nil {
+			return count
+		}
+	}
+	return 0
 }
 
 // addToInFlightTasks adds a message to the in-flight tasks tracking set
@@ -1129,16 +1135,7 @@ func (r *redisQueue) ProcessTimedOutMessages(ctx context.Context, timeout time.D
 		// Extract current retry count from message values
 		currentRetryCount := 0
 		if retryCountVal, ok := msgs[0].Values["retryCount"]; ok {
-			switch v := retryCountVal.(type) {
-			case int:
-				currentRetryCount = v
-			case int64:
-				currentRetryCount = int(v)
-			case string:
-				if count, parseErr := strconv.Atoi(v); parseErr == nil {
-					currentRetryCount = count
-				}
-			}
+			currentRetryCount = extractRetryCountFromValue(retryCountVal)
 		}
 
 		// Add to failed messages set with incremented retry count
