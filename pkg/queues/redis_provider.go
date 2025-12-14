@@ -198,11 +198,6 @@ func (r *redisProvider) newQueue(ctx context.Context, queueName string) (*redisQ
 	groupName := fmt.Sprintf("%s-group", queueName)
 	consumerName := fmt.Sprintf("%s-consumer-%s", queueName, r.processID)
 
-	// Ensure stream+group exist with passed context.
-	if err := r.client.XGroupCreateMkStream(ctx, queueName, groupName, "0").Err(); err != nil && !strings.Contains(err.Error(), "BUSYGROUP") {
-		return nil, fmt.Errorf("failed to create consumer group: %w", err)
-	}
-
 	queue := &redisQueue{
 		name:         queueName,
 		client:       r.client,
@@ -213,6 +208,10 @@ func (r *redisProvider) newQueue(ctx context.Context, queueName string) (*redisQ
 		processID:    r.processID,
 		retryConfig:  r.retryConfig,
 	}
+	if err := queue.ensureConsumerGroup(ctx); err != nil {
+		return nil, err
+	}
+
 	r.queues = append(r.queues, queue)
 	return queue, nil
 }
@@ -488,13 +487,19 @@ func (r *redisQueue) ensureConsumerGroup(ctx context.Context) error {
 	// This is idempotent - no need to synchronize
 	err := r.client.XGroupCreateMkStream(ctx, r.name, r.groupName, "0").Err()
 	if err == nil {
-		r.log.Info("consumer group ensured (created)")
+		r.log.WithFields(logrus.Fields{
+			"queueName": r.name,
+			"groupName": r.groupName,
+		}).Info("consumer group ensured")
 		return nil
 	}
 
 	// BUSYGROUP means it already exists - treat as success
-	if strings.HasPrefix(err.Error(), "BUSYGROUP") {
-		r.log.Debug("consumer group already exists")
+	if strings.Contains(err.Error(), "BUSYGROUP") {
+		r.log.WithFields(logrus.Fields{
+			"queueName": r.name,
+			"groupName": r.groupName,
+		}).Debug("consumer group already exists")
 		return nil
 	}
 
@@ -671,7 +676,13 @@ func (r *redisQueue) consumeOnce(ctx context.Context, handler ConsumeHandler) er
 						JitterFactor: 0.2,
 					}
 					delay := calculateBackoff(attempt, infraRetryConfig)
-					time.Sleep(delay)
+					timer := time.NewTimer(delay)
+					select {
+					case <-ctx.Done():
+						timer.Stop()
+						return nil
+					case <-timer.C:
+					}
 					continue
 				}
 				// All retries exhausted, attempt to recreate the consumer group
@@ -1015,12 +1026,23 @@ func (r *redisQueue) ProcessTimedOutMessages(ctx context.Context, timeout time.D
 	failedKey := fmt.Sprintf("failed_messages:%s", r.name)
 	timedOutCount := 0
 
+	if err := r.ensureConsumerGroup(ctx); err != nil {
+		return 0, err
+	}
+
 	// Get pending messages using XPENDING
 	pending, err := r.client.XPending(ctx, r.name, r.groupName).Result()
 	if err != nil {
-		return 0, fmt.Errorf("failed to get pending messages: %w", err)
+		if strings.Contains(err.Error(), "NOGROUP") {
+			if ensureErr := r.ensureConsumerGroup(ctx); ensureErr != nil {
+				return 0, ensureErr
+			}
+			pending, err = r.client.XPending(ctx, r.name, r.groupName).Result()
+		}
+		if err != nil {
+			return 0, fmt.Errorf("failed to get pending messages: %w", err)
+		}
 	}
-
 	if pending.Count == 0 {
 		return 0, nil // No pending messages
 	}
@@ -1035,7 +1057,22 @@ func (r *redisQueue) ProcessTimedOutMessages(ctx context.Context, timeout time.D
 		Idle:   timeout,
 	}).Result()
 	if err != nil {
-		return 0, fmt.Errorf("failed to get pending message details: %w", err)
+		if strings.Contains(err.Error(), "NOGROUP") {
+			if ensureErr := r.ensureConsumerGroup(ctx); ensureErr != nil {
+				return 0, ensureErr
+			}
+			pendingMsgs, err = r.client.XPendingExt(ctx, &redis.XPendingExtArgs{
+				Stream: r.name,
+				Group:  r.groupName,
+				Start:  "-",
+				End:    "+",
+				Count:  pending.Count,
+				Idle:   timeout,
+			}).Result()
+		}
+		if err != nil {
+			return 0, fmt.Errorf("failed to get pending message details: %w", err)
+		}
 	}
 
 	// Process each timed out pending message
