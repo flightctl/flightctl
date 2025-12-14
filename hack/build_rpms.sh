@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-HELP_TEXT="Build FlightCtl RPMs using packit in a containerized mock environment
+HELP_TEXT="Build Flight Control RPMs using packit in a containerized mock environment
 
 This script builds RPMs using packit inside a Podman container. Supports both
 local builds and mock chroot builds for different distributions.
