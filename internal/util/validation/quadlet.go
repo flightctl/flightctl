@@ -4,10 +4,18 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/flightctl/flightctl/internal/api/common"
 	"github.com/flightctl/flightctl/internal/quadlet"
 )
+
+var quadletNameLabels = map[common.QuadletType]string{
+	common.QuadletTypeContainer: quadlet.ContainerNameKey,
+	common.QuadletTypeNetwork:   quadlet.NetworkNameKey,
+	common.QuadletTypePod:       quadlet.PodNameKey,
+	common.QuadletTypeVolume:    quadlet.VolumeNameKey,
+}
 
 func validateContainerImage(image string, path string) error {
 	if quadlet.IsBuildReference(image) {
@@ -143,6 +151,7 @@ func ValidateQuadletPaths(paths []string) error {
 	}
 
 	foundSupported := false
+	hasWorkloads := false
 
 	for _, path := range paths {
 		ext := filepath.Ext(path)
@@ -152,6 +161,7 @@ func ValidateQuadletPaths(paths []string) error {
 				errs = append(errs, fmt.Errorf("quadlet file must be at root level: %q", path))
 			}
 			foundSupported = true
+			hasWorkloads = hasWorkloads || quadlet.IsWorkload(path)
 			continue
 		}
 
@@ -165,9 +175,45 @@ func ValidateQuadletPaths(paths []string) error {
 		errs = append(errs, fmt.Errorf("no supported quadlet types supplied"))
 	}
 
+	if !hasWorkloads {
+		errs = append(errs, fmt.Errorf("at least one quadlet workload must be supplied"))
+	}
+
 	if len(errs) > 0 {
 		return errors.Join(errs...)
 	}
 
 	return nil
+}
+
+// ValidateQuadletNames ensures custom quadlet names are unique.
+func ValidateQuadletNames(specs map[string]*common.QuadletReferences) []error {
+	var errs []error
+	seen := make(map[string]string)
+
+	for path, spec := range specs {
+		if spec == nil || spec.Name == nil {
+			continue
+		}
+
+		label, ok := quadletNameLabels[spec.Type]
+		if !ok {
+			continue
+		}
+
+		name := strings.TrimSpace(*spec.Name)
+		if name == "" {
+			continue
+		}
+
+		key := fmt.Sprintf("%s:%s", label, name)
+		if prevPath, exists := seen[key]; exists {
+			errs = append(errs, fmt.Errorf("duplicate %s %q found in %s and %s", label, name, prevPath, path))
+			continue
+		}
+
+		seen[key] = path
+	}
+
+	return errs
 }

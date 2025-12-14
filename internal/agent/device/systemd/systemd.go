@@ -37,6 +37,8 @@ type Manager interface {
 	ListDependencies(ctx context.Context, unit string) ([]string, error)
 	// Logs returns the logs based on the specified options
 	Logs(ctx context.Context, options ...client.LogOptions) ([]string, error)
+	// Show gets information about the specified unit
+	Show(ctx context.Context, unit string, options ...client.SystemdShowOptions) ([]string, error)
 	status.Exporter
 }
 
@@ -105,6 +107,10 @@ func (m *manager) ListDependencies(ctx context.Context, unit string) ([]string, 
 
 func (m *manager) Logs(ctx context.Context, options ...client.LogOptions) ([]string, error) {
 	return m.journalctl.Logs(ctx, options...)
+}
+
+func (m *manager) Show(ctx context.Context, unit string, options ...client.SystemdShowOptions) ([]string, error) {
+	return m.client.Show(ctx, unit, options...)
 }
 
 func (m *manager) normalizeEnabledStateValue(val v1beta1.SystemdEnableStateType) v1beta1.SystemdEnableStateType {

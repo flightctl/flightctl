@@ -21,6 +21,7 @@ func TestParseQuadletSpec(t *testing.T) {
 		wantMountVolumes []string
 		wantNetworks     []string
 		wantPods         []string
+		wantName         *string
 		wantErr          bool
 		wantErrType      error
 		wantErrSubstr    string
@@ -75,6 +76,7 @@ Image=quay.io/fedora/fedora:latest`,
 PodName=my-pod`,
 			wantType:  QuadletTypePod,
 			wantImage: nil,
+			wantName:  lo.ToPtr("my-pod"),
 		},
 		{
 			name: "valid container with unit section",
@@ -340,6 +342,7 @@ Network=backend.network`,
 			wantType:     QuadletTypePod,
 			wantVolumes:  []string{"shared.volume"},
 			wantNetworks: []string{"backend.network"},
+			wantName:     lo.ToPtr("my-pod"),
 		},
 		{
 			name: "volume with image reference",
@@ -347,6 +350,38 @@ Network=backend.network`,
 Image=myimage.image`,
 			wantType:  QuadletTypeVolume,
 			wantImage: lo.ToPtr("myimage.image"),
+		},
+		{
+			name: "container with custom name",
+			data: `[Container]
+Image=quay.io/app/myapp:v1
+ContainerName=my-container`,
+			wantType:        QuadletTypeContainer,
+			wantImage:       lo.ToPtr("quay.io/app/myapp:v1"),
+			wantMountImages: nil,
+			wantName:        lo.ToPtr("my-container"),
+		},
+		{
+			name: "volume with custom name",
+			data: `[Volume]
+VolumeName=data-store
+Driver=local`,
+			wantType: QuadletTypeVolume,
+			wantName: lo.ToPtr("data-store"),
+		},
+		{
+			name: "network with custom name",
+			data: `[Network]
+NetworkName=mesh-net`,
+			wantType: QuadletTypeNetwork,
+			wantName: lo.ToPtr("mesh-net"),
+		},
+		{
+			name: "pod with custom name",
+			data: `[Pod]
+PodName=pod-one`,
+			wantType: QuadletTypePod,
+			wantName: lo.ToPtr("pod-one"),
 		},
 	}
 
@@ -381,6 +416,12 @@ Image=myimage.image`,
 			require.Equal(tt.wantMountVolumes, spec.MountVolumes)
 			require.Equal(tt.wantNetworks, spec.Networks)
 			require.Equal(tt.wantPods, spec.Pods)
+			if tt.wantName != nil {
+				require.NotNil(spec.Name)
+				require.Equal(*tt.wantName, *spec.Name)
+			} else {
+				require.Nil(spec.Name)
+			}
 		})
 	}
 }

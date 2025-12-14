@@ -834,6 +834,7 @@ func ensureQuadlet(readWriter fileio.ReadWriter, appPath string) error {
 
 	// Track validation state
 	hasTopLevelQuadlets := false
+	hasWorkloads := false
 	var subdirectoriesWithQuadlets []string
 
 	// Check top-level files and subdirectories
@@ -853,6 +854,7 @@ func ensureQuadlet(readWriter fileio.ReadWriter, appPath string) error {
 			ext := filepath.Ext(entry.Name())
 			if _, ok := common.SupportedQuadletExtensions[ext]; ok {
 				hasTopLevelQuadlets = true
+				hasWorkloads = hasWorkloads || quadlet.IsWorkload(entry.Name())
 			}
 		}
 	}
@@ -868,6 +870,9 @@ func ensureQuadlet(readWriter fileio.ReadWriter, appPath string) error {
 	if !hasTopLevelQuadlets {
 		return fmt.Errorf("%w: no valid quadlet files found at top level", errors.ErrNoQuadletFile)
 	}
+	if !hasWorkloads {
+		return fmt.Errorf("%w: no valid quadlet workloads found at top level", errors.ErrNoQuadletWorkload)
+	}
 
 	// Parse and validate quadlet specifications
 	spec, err := client.ParseQuadletReferencesFromDir(readWriter, appPath)
@@ -882,6 +887,7 @@ func ensureQuadlet(readWriter fileio.ReadWriter, appPath string) error {
 		}
 	}
 
+	errs = append(errs, validation.ValidateQuadletNames(spec)...)
 	errs = append(errs, validation.ValidateQuadletCrossReferences(spec)...)
 
 	if len(errs) > 0 {

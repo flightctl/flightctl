@@ -171,6 +171,26 @@ func (mr *MockManagerMockRecorder) ResetFailed(ctx any, units ...any) *gomock.Ca
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResetFailed", reflect.TypeOf((*MockManager)(nil).ResetFailed), varargs...)
 }
 
+// Show mocks base method.
+func (m *MockManager) Show(ctx context.Context, unit string, options ...client.SystemdShowOptions) ([]string, error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, unit}
+	for _, a := range options {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "Show", varargs...)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Show indicates an expected call of Show.
+func (mr *MockManagerMockRecorder) Show(ctx, unit any, options ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, unit}, options...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Show", reflect.TypeOf((*MockManager)(nil).Show), varargs...)
+}
+
 // Start mocks base method.
 func (m *MockManager) Start(ctx context.Context, units ...string) error {
 	m.ctrl.T.Helper()

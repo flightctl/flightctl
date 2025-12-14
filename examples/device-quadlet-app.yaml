@@ -1,0 +1,92 @@
+apiVersion: flightctl.io/v1beta1
+kind: Device
+metadata:
+  name: test-device-all-image-types
+spec:
+  applications:
+    # An OCI artifact app package with an OCI artifact volume
+    - name: artifact-based-app
+      appType: quadlet
+      image: quay.io/org/quadlet-app-artifact:v1
+      envVars:
+        LOG_MESSAGE: "Artifact"
+      volumes:
+        - name: model-data
+          image:
+            reference: quay.io/org/model-artifact:v1
+
+    # An OCI Image app package with an OCI artifact volume
+    - name: image-based-app
+      appType: quadlet
+      image: quay.io/org/quadlet-app-image:v1
+      envVars:
+        LOG_MESSAGE: "Image"
+      volumes:
+        - name: model-data
+          image:
+            reference: quay.io/org/model-artifact:v1
+
+    # Inline Quadlet definition with an OCI artifact volume
+    - name: inline-app
+      appType: quadlet
+      envVars:
+        LOG_MESSAGE: "Inline"
+      inline:
+        # A Network quadlet file
+        - path: app.network
+          content: |
+            [Network]
+            Driver=bridge
+        # A Pod quadlet file that belongs to the Network quadlet
+        - path: app.pod
+          content: |
+            [Pod]
+            Network=app.network
+        # A container quadlet that belongs to the Pod quadlet
+        # This container references the Volume defined below in 'model-data' and will print the contents of model.txt
+        # prints 'Inline' on startup
+        # Also contains an example of an arbitrarily bound host mount
+        - path: app.container
+          content: |
+            [Container]
+            Image=quay.io/flightctl-tests/alpine:v1
+            Pod=app.pod
+            Volume=model-data:/mnt/model:ro
+            Volume=/etc/host/path:/mnt/container/path:ro,Z
+            Exec=sh -c "echo 'Primary container started.' && echo 'LOG_MESSAGE:' $LOG_MESSAGE && echo 'Model data:' && cat /mnt/model/model.txt && sleep infinity"
+
+            [Install]
+            WantedBy=default.target
+        # A simple volume quadlet
+        - path: data.volume
+          content: |
+            [Volume]
+            Driver=local
+        # An image backed volume quadlet
+        - path: sqlite.volume
+          content: |
+            [Volume]
+            Driver=image
+            Image=ghcr.io/homebrew/core/sqlite:3.50.2
+        # Simple image quadlet
+        - path: worker-image.image
+          content: |
+            [Image]
+            Image=quay.io/flightctl-tests/alpine:v1
+        # A secondary container quadlet that references the image quadlet, the pod quadlet, and the two volume quadlets
+        - path: worker.container
+          content: |
+            [Container]
+            Image=worker-image.image
+            Pod=app.pod
+            Volume=data.volume:/mnt/data
+            Volume=sqlite.volume:/mnt/sqlite:ro
+            Exec=sh -c "echo 'Worker container started.' && touch /mnt/data/worker-file-$(date +%%s) && echo 'Files in data volume:' && ls -l /mnt/data && echo 'Files in sqlite volume:' && ls -l /mnt/sqlite && sleep infinity"
+
+            [Install]
+            WantedBy=default.target
+      volumes:
+        # Defines an OCI artifact backed volume that is referenceable via `model-data`. See app.container
+        - name: model-data
+          image:
+            reference: quay.io/org/model-artifact:v1

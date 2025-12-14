@@ -325,9 +325,10 @@ func TestValidateQuadletPaths(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:    "single volume file",
-			paths:   []string{"data.volume"},
-			wantErr: false,
+			name:          "single volume file",
+			paths:         []string{"data.volume"},
+			wantErr:       true,
+			wantErrSubstr: "at least one quadlet workload must be supplied",
 		},
 		{
 			name:    "multiple valid types",
@@ -425,6 +426,28 @@ func TestValidateQuadletPaths(t *testing.T) {
 			require.NoError(err)
 		})
 	}
+}
+
+func TestValidateQuadletNames_SkipsEmptyNames(t *testing.T) {
+	require := require.New(t)
+
+	specs := map[string]*common.QuadletReferences{
+		"empty.container": {
+			Type: common.QuadletTypeContainer,
+			Name: lo.ToPtr(""),
+		},
+		"spaces.network": {
+			Type: common.QuadletTypeNetwork,
+			Name: lo.ToPtr("   "),
+		},
+		"valid.volume": {
+			Type: common.QuadletTypeVolume,
+			Name: lo.ToPtr("data"),
+		},
+	}
+
+	errs := ValidateQuadletNames(specs)
+	require.Empty(errs)
 }
 
 func TestValidateQuadletCrossReferences(t *testing.T) {

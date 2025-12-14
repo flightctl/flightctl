@@ -60,6 +60,7 @@ func (q *quadletValidator) Validate() []error {
 		errs = append(errs, fmt.Errorf("spec.applications[].inline[].path: %w", err))
 	}
 	errs = append(errs, validation.ValidateQuadletCrossReferences(q.quadlets)...)
+	errs = append(errs, validation.ValidateQuadletNames(q.quadlets)...)
 	return errs
 }
 

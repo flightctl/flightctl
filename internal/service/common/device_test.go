@@ -254,3 +254,67 @@ func TestUpdateServerSideDeviceStatus_PostRestoreState(t *testing.T) {
 		})
 	}
 }
+
+func TestUpdateServerSideApplicationStatus_PreservesDeviceStatus(t *testing.T) {
+	tests := []struct {
+		name                string
+		deviceSummaryStatus api.ApplicationsSummaryStatusType
+		deviceSummaryInfo   string
+		appStatus           api.ApplicationStatusType
+		expectedStatus      api.ApplicationsSummaryStatusType
+		expectedInfo        string
+	}{
+		{
+			name:                "Preserves Degraded status from device",
+			deviceSummaryStatus: api.ApplicationsSummaryStatusDegraded,
+			deviceSummaryInfo:   "app1 is in status Degraded",
+			appStatus:           api.ApplicationStatusRunning,
+			expectedStatus:      api.ApplicationsSummaryStatusDegraded,
+			expectedInfo:        "app1 is in status Degraded",
+		},
+		{
+			name:                "Preserves Error status from device",
+			deviceSummaryStatus: api.ApplicationsSummaryStatusError,
+			deviceSummaryInfo:   "app1 is in status Error",
+			appStatus:           api.ApplicationStatusError,
+			expectedStatus:      api.ApplicationsSummaryStatusError,
+			expectedInfo:        "app1 is in status Error",
+		},
+		{
+			name:                "Preserves Healthy status from device",
+			deviceSummaryStatus: api.ApplicationsSummaryStatusHealthy,
+			deviceSummaryInfo:   "",
+			appStatus:           api.ApplicationStatusRunning,
+			expectedStatus:      api.ApplicationsSummaryStatusHealthy,
+			expectedInfo:        "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			device := &api.Device{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr("test-device"),
+				},
+				Status: &api.DeviceStatus{
+					LastSeen: lo.ToPtr(time.Now()),
+					ApplicationsSummary: api.DeviceApplicationsSummaryStatus{
+						Status: tt.deviceSummaryStatus,
+						Info:   lo.ToPtr(tt.deviceSummaryInfo),
+					},
+					Applications: []api.DeviceApplicationStatus{
+						{Name: "app1", Status: tt.appStatus},
+					},
+				},
+			}
+
+			updateServerSideApplicationStatus(device)
+
+			assert.Equal(t, tt.expectedStatus, device.Status.ApplicationsSummary.Status, "Status should be preserved from device")
+			if tt.expectedInfo != "" {
+				assert.NotNil(t, device.Status.ApplicationsSummary.Info)
+				assert.Equal(t, tt.expectedInfo, *device.Status.ApplicationsSummary.Info, "Info should be preserved from device")
+			}
+		})
+	}
+}
