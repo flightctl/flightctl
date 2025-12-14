@@ -59,9 +59,6 @@ auth:
     tokenUrl: https://aap-gateway.example.com/o/token/
     clientId: your-client-id
     clientSecret: your-client-secret  # Optional
-    scopes:
-      - read
-      - write
     displayName: "AAP Provider"  # Optional
     enabled: true  # Optional, defaults to true
 ```
