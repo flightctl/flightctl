@@ -70,20 +70,34 @@ func newInline(log *log.PrefixLogger, podman *client.Podman, spec *v1beta1.Appli
 
 	volumeManager.AddVolumes(volumes)
 
+	var restartPolicies map[string]string
+	switch appType {
+	case v1beta1.AppTypeCompose:
+		composeSpec, err := client.ParseComposeFromSpec(provider.Inline)
+		if err != nil {
+			log.Warnf("Failed to parse compose spec: %v", err)
+		} else {
+			restartPolicies = extractComposeRestartPolicies(composeSpec)
+		}
+	case v1beta1.AppTypeQuadlet:
+		restartPolicies = extractQuadletRestartPolicies(parseQuadletUnitsFromInline(provider.Inline))
+	}
+
 	return &inlineProvider{
 		log:        log,
 		podman:     podman,
 		readWriter: readWriter,
 		handler:    handler,
 		spec: &ApplicationSpec{
-			Name:           appName,
-			AppType:        appType,
-			EnvVars:        lo.FromPtr(spec.EnvVars),
-			Embedded:       false,
-			InlineProvider: &provider,
-			Volume:         volumeManager,
-			Path:           handler.AppPath(),
-			ID:             handler.ID(),
+			Name:            appName,
+			AppType:         appType,
+			EnvVars:         lo.FromPtr(spec.EnvVars),
+			Embedded:        false,
+			InlineProvider:  &provider,
+			Volume:          volumeManager,
+			Path:            handler.AppPath(),
+			ID:              handler.ID(),
+			RestartPolicies: restartPolicies,
 		},
 	}, nil
 }

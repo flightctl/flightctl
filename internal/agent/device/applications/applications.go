@@ -75,6 +75,8 @@ type Application interface {
 	Path() string
 	// Workload returns a workload by name.
 	Workload(name string) (*Workload, bool)
+	// Workloads returns all workloads for the application.
+	Workloads() []Workload
 	// AddWorkload adds a workload to the application.
 	AddWorkload(Workload *Workload)
 	// RemoveWorkload removes a workload from the application.
@@ -91,19 +93,22 @@ type Application interface {
 
 // Workload represents an application workload tracked by a Monitor.
 type Workload struct {
-	ID       string
-	Image    string
-	Name     string
-	Status   StatusType
-	Restarts int
+	ID            string
+	Image         string
+	Name          string
+	ServiceName   string
+	Status        StatusType
+	Restarts      int
+	RestartPolicy string
 }
 
 type application struct {
-	id        string
-	path      string
-	workloads []Workload
-	volume    provider.VolumeManager
-	status    *v1beta1.DeviceApplicationStatus
+	id              string
+	path            string
+	workloads       []Workload
+	volume          provider.VolumeManager
+	status          *v1beta1.DeviceApplicationStatus
+	restartPolicies map[string]string
 }
 
 // NewApplication creates a new application from an application provider.
@@ -118,7 +123,8 @@ func NewApplication(provider provider.Provider) *application {
 			Embedded: spec.Embedded,
 			AppType:  spec.AppType,
 		},
-		volume: spec.Volume,
+		volume:          spec.Volume,
+		restartPolicies: spec.RestartPolicies,
 	}
 }
 
@@ -144,6 +150,9 @@ func (a *application) Workload(name string) (*Workload, bool) {
 }
 
 func (a *application) AddWorkload(workload *Workload) {
+	if workload.ServiceName != "" && a.restartPolicies != nil {
+		workload.RestartPolicy = a.restartPolicies[workload.ServiceName]
+	}
 	a.workloads = append(a.workloads, *workload)
 }
 
@@ -155,6 +164,10 @@ func (a *application) RemoveWorkload(name string) bool {
 		}
 	}
 	return false
+}
+
+func (a *application) Workloads() []Workload {
+	return a.workloads
 }
 
 func (a *application) Path() string {

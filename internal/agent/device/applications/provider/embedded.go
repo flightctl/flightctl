@@ -56,20 +56,34 @@ func newEmbedded(log *log.PrefixLogger, podman *client.Podman, readWriter fileio
 	}
 	volumeManager.AddVolumes(volumes)
 
+	var restartPolicies map[string]string
+	switch appType {
+	case v1beta1.AppTypeCompose:
+		composeSpec, err := client.ParseComposeSpecFromDir(readWriter, handler.AppPath())
+		if err != nil {
+			log.Warnf("Failed to parse compose spec from %s: %v", handler.AppPath(), err)
+		} else {
+			restartPolicies = extractComposeRestartPolicies(composeSpec)
+		}
+	case v1beta1.AppTypeQuadlet:
+		restartPolicies = extractQuadletRestartPolicies(parseQuadletUnitsFromDir(readWriter, handler.AppPath()))
+	}
+
 	return &embeddedProvider{
 		log:        log,
 		podman:     podman,
 		readWriter: readWriter,
 		handler:    handler,
 		spec: &ApplicationSpec{
-			Name:     name,
-			ID:       handler.ID(),
-			AppType:  appType,
-			Embedded: true,
-			EnvVars:  make(map[string]string),
-			Volume:   volumeManager,
-			Path:     handler.AppPath(),
-			bootTime: bootTime,
+			Name:            name,
+			ID:              handler.ID(),
+			AppType:         appType,
+			Embedded:        true,
+			EnvVars:         make(map[string]string),
+			Volume:          volumeManager,
+			Path:            handler.AppPath(),
+			bootTime:        bootTime,
+			RestartPolicies: restartPolicies,
 		},
 	}, nil
 }

@@ -624,6 +624,10 @@ The following table shows the application runtimes and formats supported by Flig
 
 ### Runtime: **Podman**
 
+### Application Self-Healing
+
+The Flight Control agent automatically monitors application workloads and restarts containers that have unexpectedly stopped, died, or been removed. When stopped workloads are detected during the agent's reconciliation loop, a restart action is queued. The agent uses exponential backoff between restart attempts to avoid overwhelming the system during persistent failures.
+
 | Specification                                                                                                      | Format            | Source / Delivery              |
 |--------------------------------------------------------------------------------------------------------------------|-------------------|--------------------------------|
 | Compose specification (via [`podman-compose`](https://github.com/containers/podman-compose))                       | OCI Image         | OCI registry                   |
