@@ -34,6 +34,7 @@ func NewRenderQuadletsCommand() *cobra.Command {
 	cmd.Flags().StringVar(&config.SystemdUnitOutputDir, "systemd-dir", config.SystemdUnitOutputDir, "Systemd unit output directory")
 	cmd.Flags().StringVar(&config.BinOutputDir, "bin-dir", config.BinOutputDir, "Binary output directory")
 	cmd.Flags().StringVar(&config.FlightctlServicesTagOverride, "flightctl-services-tag-override", "", "Override image tags for all FlightCtl services")
+	cmd.Flags().BoolVar(&config.FlightctlUiTagOverride, "flightctl-ui-tag-override", false, "Apply tag override to UI service")
 
 	_ = viper.BindPFlags(cmd.Flags())
 
