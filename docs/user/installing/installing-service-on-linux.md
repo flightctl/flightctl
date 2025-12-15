@@ -28,53 +28,31 @@ sudo dnf config-manager addrepo --from-repofile=https://rpm.flightctl.io/flightc
 sudo dnf install -y flightctl-services
 ```
 
-### Installing a specific version
+Flight Control services can be configured through a central configuration file located at `/etc/flightctl/service-config.yaml`.
 
-Search for available versions:
+To spin up services quickly for testing or development purposes, you can leave this file's defaults. This sets the base domain of the services to the host's fully qualified domain name (FQDN) (from `hostname -f`) and generates a self-signed certificate authority (CA) from which required certificates are issued.
 
-```bash
-dnf list --showduplicates flightctl-services
-```
+For a production environment, set the base domain (`global.baseDomain`) to your own fully qualified domain name (FQDN) and configure certificates from your own PKI (see [Custom Certificates](#custom-certificates)).
 
-Install a specific version by appending the desired version to the package name:
-
-```bash
-sudo dnf install flightctl-services-1.0.0
-```
-
-## Quickstart
-
-To spin up services quickly for testing or development purposes, services can be started and spun up without authentication and with self-signed certificates.
-
-Services can be started by running a single .target file that specifies all required Flight Control services
+You can then start the Flight Control services by running
 
 ```bash
 sudo systemctl start flightctl.target
 ```
 
-Services can be monitored by checking systemd units
+Monitor that all `systemd` services come up correctly by running
 
 ```bash
 sudo systemctl list-units flightctl-*.service
 ```
 
-Or podman
+or by checking the running containers with
 
 ```bash
 sudo podman ps
 ```
 
-Once the UI service has spun up, find the automatically set baseDomain
-
-```bash
-grep baseDomain: /etc/flightctl/service-config.yaml
-```
-
-And visit the UI at https://<baseDomain>
-
-## Configuring Services
-
-Service configuration is largely managed by a file installed at `/etc/flightctl/service-config.yaml`.  The service config file is a unified location to update configuration that is then propagated to underlying services.
+Once the UI service has spun up, visit the UI at `https://BASE_DOMAIN` (where `BASE_DOMAIN` is what you configured in `global.baseDomain` or your hostname FQDN).
 
 ## Helpful Commands
 

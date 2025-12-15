@@ -2,6 +2,7 @@ package validation
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/flightctl/flightctl/internal/config/standalone"
@@ -13,51 +14,30 @@ func ValidateStandaloneConfig(config *standalone.Config) []error {
 		return []error{fmt.Errorf("config cannot be nil")}
 	}
 
-	errs := field.ErrorList{}
+	allErrs := []error{}
 
-	errs = append(errs, validateGlobalConfig(&config.Global)...)
+	baseDomain := config.Global.BaseDomain
+	allErrs = append(allErrs, ValidateHostnameOrFQDN(&baseDomain, "global.baseDomain")...)
+	allErrs = append(allErrs, validateAuthType(config.Global.Auth, "global.auth")...)
 
-	return asErrors(errs)
+	return allErrs
 }
 
-func validateGlobalConfig(global *standalone.GlobalConfig) field.ErrorList {
-	errs := field.ErrorList{}
-	basePath := field.NewPath("global")
-
-	// baseDomain is required
-	if global.BaseDomain == "" {
-		errs = append(errs, field.Required(basePath.Child("baseDomain"), "baseDomain must be set"))
+func validateAuthType(authConfig standalone.AuthConfig, path string) []error {
+	validAuthTypes := []string{
+		standalone.AuthTypeOIDC,
+		standalone.AuthTypeAAP,
+		standalone.AuthTypeOAuth2,
+		standalone.AuthTypeNone,
 	}
 
-	errs = append(errs, validateAuthType(&global.Auth, basePath.Child("auth"))...)
-
-	return errs
-}
-
-func validateAuthType(authConfig *standalone.AuthConfig, basePath *field.Path) field.ErrorList {
 	errs := field.ErrorList{}
-
-	validAuthTypes := map[string]bool{
-		standalone.AuthTypeOIDC:   true,
-		standalone.AuthTypeAAP:    true,
-		standalone.AuthTypeOAuth2: true,
-		standalone.AuthTypeNone:   true,
-	}
 
 	if authConfig.Type == "" {
-		errs = append(errs, field.Required(basePath.Child("type"), "auth type must be set"))
-	} else if !validAuthTypes[authConfig.Type] {
-
-		keys := make([]string, 0, len(validAuthTypes))
-		for k := range validAuthTypes {
-			keys = append(keys, k)
-		}
-		errs = append(errs, field.Invalid(
-			basePath.Child("type"),
-			authConfig.Type,
-			"must be one of: "+strings.Join(keys, ", "),
-		))
+		errs = append(errs, field.Required(fieldPathFor(path+".type"), ""))
+	} else if !slices.Contains(validAuthTypes, authConfig.Type) {
+		errs = append(errs, field.Invalid(fieldPathFor(path+".type"), authConfig.Type, fmt.Sprintf("must be one of: %s", strings.Join(validAuthTypes, ", "))))
 	}
 
-	return errs
+	return asErrors(errs)
 }
