@@ -264,6 +264,7 @@ v1.0.0
 P-256
 SHA-256
 config.yaml
+FQDN
  - docs/user/references/api-resources.md
 namespacing
 approvedBy

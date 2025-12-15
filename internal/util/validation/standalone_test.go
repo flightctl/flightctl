@@ -27,7 +27,7 @@ func TestValidateStandaloneConfig_MissingBaseDomain(t *testing.T) {
 	errs := ValidateStandaloneConfig(config)
 	require.NotEmpty(t, errs)
 	assert.Contains(t, errs[0].Error(), "global.baseDomain")
-	assert.Contains(t, errs[0].Error(), "must be set")
+	assert.Contains(t, errs[0].Error(), "Required value")
 }
 
 func TestValidateStandaloneConfig_InvalidAuthType(t *testing.T) {
@@ -93,17 +93,141 @@ func TestValidateStandaloneConfig_InvalidAuthType(t *testing.T) {
 func TestValidateStandaloneConfig_MultipleErrors(t *testing.T) {
 	config := &standalone.Config{
 		Global: standalone.GlobalConfig{
-			BaseDomain: "", // Error 1: Missing baseDomain
+			BaseDomain: "", // Error 1 & 2: Missing baseDomain (Required + Invalid)
 			Auth: standalone.AuthConfig{
-				Type: "invalid", // Error 2: Invalid auth type
+				Type: "invalid", // Error 3: Invalid auth type
 			},
 		},
 	}
 
 	errs := ValidateStandaloneConfig(config)
-	assert.Len(t, errs, 2, "should have 2 validation errors")
+	assert.Len(t, errs, 3, "should have 3 validation errors (2 for empty baseDomain, 1 for invalid auth type)")
 
-	allErrors := errs[0].Error() + errs[1].Error()
+	allErrors := errs[0].Error() + errs[1].Error() + errs[2].Error()
 	assert.Contains(t, allErrors, "baseDomain")
-	assert.Contains(t, allErrors, "auth.type")
+	assert.Contains(t, allErrors, "auth")
+}
+
+func TestValidateFQDN(t *testing.T) {
+	testCases := []struct {
+		name    string
+		fqdn    string
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name:    "valid simple FQDN",
+			fqdn:    "example.com",
+			wantErr: false,
+		},
+		{
+			name:    "valid subdomain FQDN",
+			fqdn:    "api.example.com",
+			wantErr: false,
+		},
+		{
+			name:    "valid multi-level FQDN",
+			fqdn:    "my-api.services.example.com",
+			wantErr: false,
+		},
+		{
+			name:    "valid FQDN with numbers",
+			fqdn:    "api1.example2.com",
+			wantErr: false,
+		},
+		{
+			name:    "valid FQDN with hyphens",
+			fqdn:    "my-api-server.my-domain.com",
+			wantErr: false,
+		},
+		{
+			name:    "empty string",
+			fqdn:    "",
+			wantErr: true,
+			errMsg:  "Required value",
+		},
+		{
+			name:    "simple hostname without dot",
+			fqdn:    "localhost",
+			wantErr: false,
+		},
+		{
+			name:    "simple hostname with hyphen",
+			fqdn:    "my-host",
+			wantErr: false,
+		},
+		{
+			name:    "simple hostname with numbers",
+			fqdn:    "host123",
+			wantErr: false,
+		},
+		{
+			name:    "simple hostname alphanumeric",
+			fqdn:    "web01",
+			wantErr: false,
+		},
+		{
+			name:    "IPv4 address",
+			fqdn:    "192.168.1.1",
+			wantErr: true,
+			errMsg:  "Invalid value",
+		},
+		{
+			name:    "IPv6 address",
+			fqdn:    "2001:db8::1",
+			wantErr: true,
+			errMsg:  "Invalid value",
+		},
+		{
+			name:    "underscore in hostname",
+			fqdn:    "invalid_host.example.com",
+			wantErr: true,
+			errMsg:  "Invalid value",
+		},
+		{
+			name:    "starts with hyphen",
+			fqdn:    "-invalid.example.com",
+			wantErr: true,
+			errMsg:  "Invalid value",
+		},
+		{
+			name:    "ends with hyphen",
+			fqdn:    "invalid-.example.com",
+			wantErr: true,
+			errMsg:  "Invalid value",
+		},
+		{
+			name:    "ends with dot",
+			fqdn:    "example.com.",
+			wantErr: true,
+			errMsg:  "Invalid value",
+		},
+		{
+			name:    "double dot",
+			fqdn:    "example..com",
+			wantErr: true,
+			errMsg:  "Invalid value",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			config := &standalone.Config{
+				Global: standalone.GlobalConfig{
+					BaseDomain: tc.fqdn,
+					Auth: standalone.AuthConfig{
+						Type: standalone.AuthTypeNone,
+					},
+				},
+			}
+
+			errs := ValidateStandaloneConfig(config)
+			if tc.wantErr {
+				require.NotEmpty(t, errs, "expected validation error for FQDN: %s", tc.fqdn)
+				assert.Contains(t, errs[0].Error(), tc.errMsg)
+			} else {
+				assert.Empty(t, errs, "expected no validation error for FQDN: %s", tc.fqdn)
+			}
+		})
+	}
 }
