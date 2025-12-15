@@ -20,6 +20,7 @@ auth:
       - profile
       - email
       - roles
+      - offline_access
 {{- end}}
     redirectUris:
 {{- if .global.auth.pamOidcIssuer.redirectUris}}
