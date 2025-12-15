@@ -680,13 +680,8 @@ func (r *redisQueue) consumeOnce(ctx context.Context, handler ConsumeHandler) er
 					}
 					continue
 				}
-				// All retries exhausted, attempt to recreate the consumer group
-				r.log.WithError(err).Info("consumer group not found after retries, attempting to recreate")
-				if createErr := r.ensureConsumerGroup(ctx); createErr != nil {
-					parentSpan.RecordError(createErr)
-					parentSpan.SetStatus(codes.Error, createErr.Error())
-					return createErr
-				}
+				// All retries exhausted
+				r.log.WithError(err).Error("consumer group not found after retries")
 				return nil // Will read messages on next consume iteration
 			}
 			parentSpan.RecordError(err)
@@ -1016,19 +1011,6 @@ func (r *redisQueue) Close() {
 	}
 }
 
-// withConsumerGroup executes an operation and retries once if the consumer group doesn't exist
-func withConsumerGroup[T any](ctx context.Context, r *redisQueue, operation func() (T, error)) (T, error) {
-	result, err := operation()
-	if err != nil && strings.Contains(err.Error(), "NOGROUP") {
-		if ensureErr := r.ensureConsumerGroup(ctx); ensureErr != nil {
-			var zero T
-			return zero, ensureErr
-		}
-		return operation()
-	}
-	return result, err
-}
-
 // ProcessTimedOutMessages processes timed out pending messages and moves them to the failed messages set.
 // Note: Some pending messages may no longer exist in the stream (e.g., if they were already processed
 // and deleted by another process). In such cases, we acknowledge them to remove them from the pending list.
@@ -1040,32 +1022,35 @@ func (r *redisQueue) ProcessTimedOutMessages(ctx context.Context, timeout time.D
 	failedKey := fmt.Sprintf("failed_messages:%s", r.name)
 	timedOutCount := 0
 
-	if err := r.ensureConsumerGroup(ctx); err != nil {
-		return 0, err
-	}
-
-	pending, err := withConsumerGroup(ctx, r, func() (*redis.XPending, error) {
-		return r.client.XPending(ctx, r.name, r.groupName).Result()
-	})
-
+	// Get pending messages using XPENDING
+	pending, err := r.client.XPending(ctx, r.name, r.groupName).Result()
 	if err != nil {
-		return 0, fmt.Errorf("failed to get pending messages: %w", err)
+		if strings.Contains(err.Error(), "NOGROUP") {
+			r.log.Warnf("consumer group %s does not exist (lost?), recreating", r.groupName)
+			if errGroup := r.ensureConsumerGroup(ctx); errGroup != nil {
+				return 0, errGroup
+			}
+			// retry after recreation
+			pending, err = r.client.XPending(ctx, r.name, r.groupName).Result()
+		}
+		if err != nil {
+			return 0, fmt.Errorf("failed to get pending messages: %w", err)
+		}
 	}
 
 	if pending.Count == 0 {
-		return 0, nil
+		return 0, nil // No pending messages
 	}
 
-	pendingMsgs, err := withConsumerGroup(ctx, r, func() ([]redis.XPendingExt, error) {
-		return r.client.XPendingExt(ctx, &redis.XPendingExtArgs{
-			Stream: r.name,
-			Group:  r.groupName,
-			Start:  "-",
-			End:    "+",
-			Count:  pending.Count,
-			Idle:   timeout,
-		}).Result()
-	})
+	// Get detailed pending messages that have been idle for at least the timeout duration
+	pendingMsgs, err := r.client.XPendingExt(ctx, &redis.XPendingExtArgs{
+		Stream: r.name,
+		Group:  r.groupName,
+		Start:  "-",
+		End:    "+",
+		Count:  pending.Count,
+		Idle:   timeout,
+	}).Result()
 
 	if err != nil {
 		return 0, fmt.Errorf("failed to get pending message details: %w", err)
