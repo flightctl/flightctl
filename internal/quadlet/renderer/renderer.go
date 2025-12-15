@@ -47,6 +47,7 @@ type RendererConfig struct {
 	BinOutputDir             string `mapstructure:"bin-dir"`
 
 	FlightctlServicesTagOverride string `mapstructure:"flightctl-services-tag-override"`
+	FlightctlUiTagOverride       bool   `mapstructure:"flightctl-ui-tag-override"`
 
 	// Images
 	Api               ImageConfig `mapstructure:"api"`
@@ -248,8 +249,16 @@ func (config *RendererConfig) ApplyFlightctlServicesTagOverride(log logrus.Field
 	config.CliArtifacts.Tag = tag
 	config.AlertmanagerProxy.Tag = tag
 	config.PamIssuer.Tag = tag
-	config.Ui.Tag = tag
 	config.DbSetup.Tag = tag
+
+	if config.FlightctlUiTagOverride {
+		// For release builds, UI tag must be overridden
+		log.Infof("Applying tag override to UI service: %s", tag)
+		config.Ui.Tag = tag
+	} else {
+		// For development builds, UI tag is kept as defined in images.yaml
+		log.Infof("Skipping UI tag override (keeping value from images.yaml: %s)", config.Ui.Tag)
+	}
 }
 
 // RenderQuadlets orchestrates all installation operations
