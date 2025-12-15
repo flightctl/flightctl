@@ -628,10 +628,8 @@ The following table shows the application runtimes and formats supported by Flig
 |--------------------------------------------------------------------------------------------------------------------|-------------------|--------------------------------|
 | Compose specification (via [`podman-compose`](https://github.com/containers/podman-compose))                       | OCI Image         | OCI registry                   |
 | Compose specification (via [`podman-compose`](https://github.com/containers/podman-compose))                       | Unpackaged Inline | Inline in device specification |
-| Compose specification (via [`podman-compose`](https://github.com/containers/podman-compose))                       | Unpackaged        | Embedded in OS image           |
 | Quadlet specification (via [Podman Quadlet](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html)) | OCI Image         | OCI registry                   |
 | Quadlet specification (via [Podman Quadlet](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html)) | Unpackaged Inline | Inline in device specification |
-| Quadlet specification (via [Podman Quadlet](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html)) | Unpackaged        | Embedded in OS image           |
 | Simplified container specification                                                                                 | OCI Image         | OCI registry                   |
 
 > [!NOTE]
@@ -799,50 +797,6 @@ spec:
 > [!NOTE]
 > Inline compose applications can have at most two paths. The first should be named `podman-compose.yaml`, and the second (override) must be named `podman-compose.override.yaml`.
 
-### Embedding Applications in OS Images
-
-Applications can be embedded directly into OS images during image building. Embedded applications are automatically discovered by the Flight Control Agent at startup without requiring any device specification. This approach is ideal for applications that should be present on all devices using a particular OS image.
-
-#### Adding Embedded Applications During Image Building
-
-**Compose Applications:**
-
-To embed a Compose application, add the application files to `/usr/local/etc/compose/manifests/` during the image build process. Each application should be in its own subdirectory.
-
-```text
-/usr/local/etc/compose/manifests/
-├── app1/
-│   └── podman-compose.yaml
-├── app2/
-│   ├── podman-compose.yaml
-│   └── podman-compose.override.yaml
-└── app3/
-    └── podman-compose.yml
-```
-
-**Quadlet Applications:**
-
-To embed a Quadlet application, add the quadlet files to `/usr/local/etc/containers/systemd/` during the image build process. Each application should be in its own subdirectory.
-
-```text
-/usr/local/etc/containers/systemd/
-├── web-server/
-│   ├── nginx.container
-│   └── app-net.network
-└── database/
-    ├── postgres.container
-    └── db-data.volume
-```
-
-#### Discovery and Management
-
-The Flight Control Agent automatically discovers embedded applications at startup:
-
-* **Compose**: Scans `/usr/local/etc/compose/manifests/` for subdirectories containing compose files (`*.yaml` or `*.yml`)
-* **Quadlet**: Scans `/usr/local/etc/containers/systemd/` for subdirectories containing valid quadlet files. The agent automatically namespaces quadlet files to prevent conflicts between applications.
-
-The subdirectory name becomes the application name. Embedded applications appear in device status but do not require entries in the device specification. The agent manages their lifecycle (starting, monitoring) but cannot remove them as they are part of the OS image.
-
 ### Creating Quadlet Applications
 
 Quadlet applications use [Podman Quadlet](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html) to manage containers as native systemd services. This allows full integration with systemd's dependency management, restart policies, resource limits, and logging.
@@ -858,6 +812,9 @@ Flight Control supports the following Quadlet file types:
 | `.network`     | Defines a Podman network                                               |
 | `.image`       | Manages a container image (ensures it's pulled and available)          |
 | `.pod`         | Defines a group of containers sharing resources                        |
+
+> [!IMPORTANT]
+> At least one workload file (`.container`) must be included in every quadlet application. Supporting files like `.volume`, `.network`, `.image`, and `.pod` can be used alongside container files but cannot be deployed alone.
 
 **Note**: The following Quadlet types are **not supported**:
 
@@ -963,6 +920,27 @@ spec:
 
             [Service]
             Restart=always
+
+            [Install]
+            WantedBy=default.target
+```
+
+**Container with Host Mount Volume:**
+
+```yaml
+spec:
+  applications:
+    - name: nginx
+      appType: quadlet
+      inline:
+        - path: nginx.container
+          content: |
+            [Container]
+            Image=quay.io/library/nginx:v1.25
+            Volume=/etc/nginx/html:/usr/share/nginx/html:ro,Z
+
+            [Service]
+            Restart=on-failure
 
             [Install]
             WantedBy=default.target
@@ -1084,6 +1062,7 @@ spec:
           mount:
             path: "/app/config:ro"
         - name: logs # named volume mounted with no configuration
+          reclaimPolicy: Retain
           mount:
             path: "/app/logs"
         - name: ml-models # OCI artifact backed volume
@@ -1118,6 +1097,13 @@ Each volume definition includes:
 | `name` | Logical volume name. Must match the volume name referenced in the Compose file. |
 | `image.reference` | Fully qualified OCI artifact reference containing the volume contents. |
 | `image.pullPolicy` | (Optional) Defines pull behavior: `Always`, `IfNotPresent`, or `Never`. Defaults to `IfNotPresent` if not specified. |
+| `reclaimPolicy` | (Optional) Defines what happens to the managed volume when the application is removed. Only `Retain` is currently supported (meaning the volume is preserved). Defaults to `Retain` if not specified. |
+
+> [!IMPORTANT]
+> We recommend using image- or artifact-backed volumes only for static content such as configuration files, models, or other seed data. They get refreshed on every update, so any changes inside them are overwritten. If you need data to survive updates (databases, uploads, logs), use a mount-based volume instead.
+
+> [!NOTE]
+> Volumes created directly inside Compose or Quadlet manifests without a matching entry in the API are treated as user-managed and are always retained.
 
 > [!IMPORTANT]
 > In the Compose file, volumes must be declared as `external: true` to allow the agent to handle preparation and mounting.

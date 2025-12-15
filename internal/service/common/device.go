@@ -282,31 +282,13 @@ func updateServerSideApplicationStatus(device *api.Device) bool {
 		device.Status.ApplicationsSummary.Info = lo.ToPtr(DeviceStatusInfoRebooting)
 		return device.Status.ApplicationsSummary.Status != lastApplicationSummaryStatus
 	}
-
-	appErrors := []string{}
-	appDegradations := []string{}
-
-	for _, app := range device.Status.Applications {
-		switch app.Status {
-		case api.ApplicationStatusError:
-			appErrors = append(appErrors, fmt.Sprintf("%s is in status %s", app.Name, string(app.Status)))
-		case api.ApplicationStatusPreparing, api.ApplicationStatusStarting:
-			appDegradations = append(appDegradations, fmt.Sprintf("%s is in status %s", app.Name, string(app.Status)))
-		}
-	}
-
-	switch {
-	case len(device.Status.Applications) == 0:
+	if len(device.Status.Applications) == 0 {
 		device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusNoApplications
 		device.Status.ApplicationsSummary.Info = lo.ToPtr(ApplicationStatusInfoUndefined)
-	case len(appErrors) > 0:
-		device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusError
-		device.Status.ApplicationsSummary.Info = lo.ToPtr(strings.Join(appErrors, ", "))
-	case len(appDegradations) > 0:
-		device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusDegraded
-		device.Status.ApplicationsSummary.Info = lo.ToPtr(strings.Join(appDegradations, ", "))
-	default:
-		device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
+		return device.Status.ApplicationsSummary.Status != lastApplicationSummaryStatus
+	}
+	if device.Status.ApplicationsSummary.Status == api.ApplicationsSummaryStatusHealthy &&
+		device.Status.ApplicationsSummary.Info == nil {
 		device.Status.ApplicationsSummary.Info = lo.ToPtr(ApplicationStatusInfoHealthy)
 	}
 

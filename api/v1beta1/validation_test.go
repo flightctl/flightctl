@@ -591,6 +591,67 @@ ContextDir=/tmp/build`
 	}
 }
 
+func TestInlineApplicationProviderSpecValidateQuadletNames(t *testing.T) {
+	tests := []struct {
+		name       string
+		inline     []ApplicationContent
+		wantErr    bool
+		wantSubstr string
+	}{
+		{
+			name: "duplicate volume names",
+			inline: []ApplicationContent{
+				{
+					Path:    "test.volume",
+					Content: lo.ToPtr("[Volume]\nVolumeName=testdata\nDriver=local\n"),
+				},
+				{
+					Path:    "test2.volume",
+					Content: lo.ToPtr("[Volume]\nVolumeName=testdata\nDriver=local\n"),
+				},
+			},
+			wantErr:    true,
+			wantSubstr: `duplicate VolumeName "testdata"`,
+		},
+		{
+			name: "unique names across types",
+			inline: []ApplicationContent{
+				{
+					Path:    "app.container",
+					Content: lo.ToPtr("[Container]\nContainerName=shared\nImage=quay.io/podman/hello:latest\n"),
+				},
+				{
+					Path:    "net.network",
+					Content: lo.ToPtr("[Network]\nNetworkName=shared\n"),
+				},
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			spec := InlineApplicationProviderSpec{Inline: tt.inline}
+			errs := spec.Validate(AppTypeQuadlet, false)
+			if tt.wantErr {
+				require.NotEmpty(t, errs, "expected duplicate error, got none")
+				found := false
+				for _, err := range errs {
+					if strings.Contains(err.Error(), tt.wantSubstr) {
+						found = true
+						break
+					}
+				}
+				require.True(t, found, "expected error containing %q, got %v", tt.wantSubstr, errs)
+			} else {
+				for _, err := range errs {
+					require.NotContains(t, err.Error(), "duplicate", "unexpected duplicate error: %v", err)
+				}
+			}
+		})
+	}
+}
+
 func TestValidateAlertRules(t *testing.T) {
 	require := require.New(t)
 	tests := []struct {
@@ -1250,6 +1311,30 @@ func TestValidateVolumeAppTypeCompatibility(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestValidateVolumeReclaimPolicy(t *testing.T) {
+	require := require.New(t)
+
+	t.Run("delete reclaim policy unsupported", func(t *testing.T) {
+		vol := createImageVolume(t, "data", "quay.io/test/image:v1")
+		policy := ApplicationVolumeReclaimPolicy("Delete")
+		vol.ReclaimPolicy = &policy
+
+		errs := validateVolume(vol, "spec.applications[test].volumes[0]", false, AppTypeCompose)
+		require.NotEmpty(errs)
+		require.Contains(errs[0].Error(), "only \"Retain\" is supported")
+	})
+
+	t.Run("invalid reclaim policy value", func(t *testing.T) {
+		vol := createImageVolume(t, "data", "quay.io/test/image:v1")
+		policy := ApplicationVolumeReclaimPolicy("Recycle")
+		vol.ReclaimPolicy = &policy
+
+		errs := validateVolume(vol, "spec.applications[test].volumes[0]", false, AppTypeCompose)
+		require.Len(errs, 1)
+		require.Contains(errs[0].Error(), "reclaimPolicy")
+	})
 }
 
 func TestValidateResourceMonitor(t *testing.T) {

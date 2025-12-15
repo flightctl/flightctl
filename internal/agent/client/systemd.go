@@ -190,6 +190,30 @@ func (s *Systemd) ShowByMatchPattern(ctx context.Context, matchPatterns []string
 	return units, nil
 }
 
+// ListDependencies returns the list of units that the specified unit depends on.
+// Uses `systemctl list-dependencies --plain` to get a flat list of dependencies.
+func (s *Systemd) ListDependencies(ctx context.Context, unit string) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, defaultSystemctlTimeout)
+	defer cancel()
+
+	args := []string{"list-dependencies", "--plain", "--no-pager", unit}
+	stdout, stderr, exitCode := s.exec.ExecuteWithContext(ctx, systemctlCommand, args...)
+	if exitCode != 0 {
+		return nil, fmt.Errorf("list-dependencies for %s: %w", unit, errors.FromStderr(stderr, exitCode))
+	}
+
+	var deps []string
+	lines := strings.Split(strings.TrimSpace(stdout), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || line == unit {
+			continue
+		}
+		deps = append(deps, line)
+	}
+	return deps, nil
+}
+
 // SystemdJob represents a systemd job from list-jobs
 type SystemdJob struct {
 	Job     string
@@ -229,4 +253,45 @@ func (s *Systemd) ListJobs(ctx context.Context) ([]SystemdJob, error) {
 	}
 
 	return jobs, nil
+}
+
+type systemdShowOpts struct {
+	args []string
+}
+
+type SystemdShowOptions func(*systemdShowOpts)
+
+func WithShowRestarts() SystemdShowOptions {
+	return func(opts *systemdShowOpts) {
+		opts.args = append(opts.args, "-p", "NRestarts", "--value")
+	}
+}
+
+func WithShowLoadState() SystemdShowOptions {
+	return func(opts *systemdShowOpts) {
+		opts.args = append(opts.args, "-p", "LoadState", "--value")
+	}
+}
+
+func (s *Systemd) Show(ctx context.Context, unit string, opts ...SystemdShowOptions) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, defaultSystemctlTimeout)
+	defer cancel()
+
+	showOpts := &systemdShowOpts{}
+	for _, opt := range opts {
+		opt(showOpts)
+	}
+
+	args := append([]string{"show", "--no-pager", unit}, showOpts.args...)
+	stdout, stderr, exitCode := s.exec.ExecuteWithContext(ctx, systemctlCommand, args...)
+	if exitCode != 0 {
+		return nil, fmt.Errorf("systemctl show: %w", errors.FromStderr(stderr, exitCode))
+	}
+
+	lines := strings.Split(strings.TrimSpace(stdout), "\n")
+	for i := range lines {
+		lines[i] = strings.TrimSpace(lines[i])
+	}
+
+	return lines, nil
 }

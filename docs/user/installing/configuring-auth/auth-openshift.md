@@ -15,10 +15,14 @@ Flight Control API server integrates with OpenShift OAuth by:
 
 Flight Control provides the following standard ClusterRoles out-of-the-box:
 
-- **`flightctl-admin`** - Full access to all Flight Control resources
-- **`flightctl-operator`** - CRUD operations on devices, fleets, resourcesyncs, repositories
-- **`flightctl-viewer`** - Read-only access to devices, fleets, resourcesyncs, organizations
-- **`flightctl-installer`** - Access to enrollmentrequests and certificate signing requests
+- **`flightctl-admin-<namespace>`** - Full access to all Flight Control resources
+- **`flightctl-operator-<namespace>`** - CRUD operations on devices, fleets, resourcesyncs, repositories
+- **`flightctl-viewer-<namespace>`** - Read-only access to devices, fleets, resourcesyncs, organizations
+- **`flightctl-installer-<namespace>`** - Access to enrollmentrequests and certificate signing requests
+
+**Note:** ClusterRole names include a namespace suffix (e.g., `flightctl-admin-<namespace>`). The `<namespace>` value matches your Helm release namespace. When creating RoleBindings, you must use the suffixed ClusterRole names.
+
+**Note:** Flight Control automatically creates a service account named `flightctl-admin` with the `flightctl-admin-<namespace>` role; to use other role types, create your own service account and bind it to the desired ClusterRole.
 
 ## Organization Mapping
 
@@ -98,21 +102,28 @@ oc new-project my-org
 
 ### 2. Assign Roles to Users
 
-Use `oc adm policy add-role-to-user` to assign roles to users in your project:
+Use `oc adm policy add-role-to-user` to assign roles to users in your project. **Important:** You must use the namespace-specific ClusterRole names (e.g., `flightctl-admin-<namespace>`) where `<namespace>` is your Helm release namespace:
 
 ```bash
 # Required: Grant view permissions so the user has access to the project
 oc adm policy add-role-to-user view my-user -n my-org
 
 # Choose one of the following Flight Control roles based on the user's needs:
+# Replace <namespace> with your Helm release namespace (e.g., "flightctl" or "flightctl-prod")
 # Grant Flight Control admin permissions
-oc adm policy add-role-to-user flightctl-admin my-user -n my-org
+oc adm policy add-role-to-user flightctl-admin-<namespace> my-user -n my-org
 
 # Grant Flight Control operator permissions
-oc adm policy add-role-to-user flightctl-operator my-user -n my-org
+oc adm policy add-role-to-user flightctl-operator-<namespace> my-user -n my-org
 
 # Grant Flight Control viewer permissions
-oc adm policy add-role-to-user flightctl-viewer my-user -n my-org
+oc adm policy add-role-to-user flightctl-viewer-<namespace> my-user -n my-org
+```
+
+**Example:** If your Helm release namespace is `flightctl`, use:
+
+```bash
+oc adm policy add-role-to-user flightctl-admin-flightctl my-user -n my-org
 ```
 
 **Note:** You may see a warning "User 'my-user' not found" when assigning roles to users that don't exist yet in OpenShift. This is expected and the role will still be added. The user will be able to use these permissions once they authenticate.

@@ -1,5 +1,5 @@
 [Unit]
-Description=FlightCtl Telemetry Gateway Target
+Description=Flight Control Telemetry Gateway target
 Documentation=https://docs.flightctl.io/user/standalone-observability/
 Wants=flightctl-network.service flightctl-telemetry-gateway.service
 After=flightctl-network.service flightctl-telemetry-gateway.service

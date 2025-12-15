@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/quadlet"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/samber/lo"
 )
@@ -36,6 +37,7 @@ var _ appTypeHandler = (*containerHandler)(nil)
 type quadletHandler struct {
 	name           string
 	rw             fileio.ReadWriter
+	log            *log.PrefixLogger
 	volumeProvider volumeProvider
 	specVolumes    []v1beta1.ApplicationVolume
 }
@@ -56,13 +58,17 @@ func (b *quadletHandler) Verify(ctx context.Context, path string) error {
 }
 
 func (b *quadletHandler) Install(ctx context.Context) error {
-	if err := installQuadlet(b.rw, b.AppPath(), b.ID()); err != nil {
+	if err := installQuadlet(b.rw, b.log, b.AppPath(), b.ID()); err != nil {
 		return fmt.Errorf("installing quadlet: %w", err)
 	}
 	return nil
 }
 
 func (b *quadletHandler) Remove(ctx context.Context) error {
+	path := filepath.Join(lifecycle.QuadletTargetPath, quadlet.NamespaceResource(b.ID(), lifecycle.QuadletTargetName))
+	if err := b.rw.RemoveFile(path); err != nil {
+		return fmt.Errorf("removing quadlet target file: %w", err)
+	}
 	return nil
 }
 
@@ -128,6 +134,7 @@ func (b *composeHandler) Volumes() ([]*Volume, error) {
 type containerHandler struct {
 	name   string
 	rw     fileio.ReadWriter
+	log    *log.PrefixLogger
 	podman *client.Podman
 	spec   *v1beta1.ImageApplicationProviderSpec
 }
@@ -145,7 +152,7 @@ func (b *containerHandler) Verify(ctx context.Context, path string) error {
 		}
 		switch volType {
 		// mount and image_mount are supported to allow creating volumes within containers. The regular image provider
-		// is not allowed as it does not specify where is should be mounted.
+		// is not allowed as it does not specify where it should be mounted.
 		case v1beta1.MountApplicationVolumeProviderType, v1beta1.ImageMountApplicationVolumeProviderType:
 			break
 		default:
@@ -160,13 +167,17 @@ func (b *containerHandler) Install(ctx context.Context) error {
 		return fmt.Errorf("generating quadlet: %w", err)
 	}
 
-	if err := installQuadlet(b.rw, b.AppPath(), b.ID()); err != nil {
+	if err := installQuadlet(b.rw, b.log, b.AppPath(), b.ID()); err != nil {
 		return fmt.Errorf("installing container: %w", err)
 	}
 	return nil
 }
 
 func (b *containerHandler) Remove(ctx context.Context) error {
+	path := filepath.Join(lifecycle.QuadletTargetPath, quadlet.NamespaceResource(b.ID(), lifecycle.QuadletTargetName))
+	if err := b.rw.RemoveFile(path); err != nil {
+		return fmt.Errorf("removing container target file: %w", err)
+	}
 	return nil
 }
 

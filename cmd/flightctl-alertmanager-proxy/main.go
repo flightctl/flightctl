@@ -20,6 +20,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -34,6 +35,7 @@ import (
 	fclog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
@@ -74,6 +76,31 @@ func NewAlertmanagerProxy(cfg *config.Config, log logrus.FieldLogger) (*Alertman
 		proxy:  proxy,
 		target: target,
 	}, nil
+}
+
+// extractOrgIDFromFiltersQuery extracts organization ID from the filter query parameter.
+// It looks for filter parameters in the format "org_id=<uuid>".
+// Returns (orgID, true, nil) if found, (uuid.Nil, false, nil) if not found, or (uuid.Nil, false, error) on parse error.
+func extractOrgIDFromFiltersQuery(ctx context.Context, r *http.Request) (uuid.UUID, bool, error) {
+	filters := r.URL.Query()["filter"]
+
+	for _, filter := range filters {
+		parts := strings.SplitN(filter, "=", 2)
+		if len(parts) == 2 {
+			key := strings.TrimSpace(parts[0])
+			value := strings.TrimSpace(parts[1])
+
+			if key == "org_id" {
+				orgID, err := uuid.Parse(value)
+				if err != nil {
+					return uuid.Nil, false, fmt.Errorf("invalid org_id format in filter: %w", err)
+				}
+				return orgID, true, nil
+			}
+		}
+	}
+
+	return uuid.Nil, false, nil
 }
 
 func (p *AlertmanagerProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -247,7 +274,7 @@ func main() {
 	identityMappingMiddleware := middleware.NewIdentityMappingMiddleware(identityMapper, logger)
 
 	// Create organization extraction and validation middleware
-	orgMiddleware := middleware.ExtractAndValidateOrg(middleware.QueryOrgIDExtractor, logger)
+	orgMiddleware := middleware.ExtractAndValidateOrg(extractOrgIDFromFiltersQuery, logger)
 
 	// Create proxy
 	proxy, err := NewAlertmanagerProxy(cfg, logger)

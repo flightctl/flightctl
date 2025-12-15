@@ -8,6 +8,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -116,6 +117,159 @@ func TestPrefixQuadletReference(t *testing.T) {
 	}
 }
 
+func TestDefaultServiceName(t *testing.T) {
+	tests := []struct {
+		name        string
+		basename    string
+		ext         string
+		expected    string
+		expectError bool
+	}{
+		{
+			name:     "container extension",
+			basename: "web",
+			ext:      ".container",
+			expected: "web.service",
+		},
+		{
+			name:     "pod extension",
+			basename: "services",
+			ext:      ".pod",
+			expected: "services-pod.service",
+		},
+		{
+			name:     "volume extension",
+			basename: "data",
+			ext:      ".volume",
+			expected: "data-volume.service",
+		},
+		{
+			name:     "network extension",
+			basename: "app-net",
+			ext:      ".network",
+			expected: "app-net-network.service",
+		},
+		{
+			name:     "image extension",
+			basename: "base",
+			ext:      ".image",
+			expected: "base-image.service",
+		},
+		{
+			name:        "unknown extension",
+			basename:    "foo",
+			ext:         ".unknown",
+			expected:    "",
+			expectError: true,
+		},
+		{
+			name:        "empty extension",
+			basename:    "bar",
+			ext:         "",
+			expected:    "",
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := defaultServiceName(tt.basename, tt.ext)
+			if tt.expectError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			require.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestGetServiceName(t *testing.T) {
+	tests := []struct {
+		name        string
+		files       map[string][]byte
+		filePath    string
+		ext         string
+		defaultName string
+		expected    string
+		expectError bool
+	}{
+		{
+			name: "non-pod quadlet returns default",
+			files: map[string][]byte{
+				"web.container": []byte(`[Container]
+Image=nginx:latest
+`),
+			},
+			filePath:    "web.container",
+			ext:         ".container",
+			defaultName: "web.service",
+			expected:    "web.service",
+		},
+		{
+			name: "pod without ServiceName returns default",
+			files: map[string][]byte{
+				"services.pod": []byte(`[Pod]
+PodName=my-pod
+Network=app-net
+`),
+			},
+			filePath:    "services.pod",
+			ext:         ".pod",
+			defaultName: "services-pod.service",
+			expected:    "services-pod.service",
+		},
+		{
+			name: "pod with ServiceName returns custom name",
+			files: map[string][]byte{
+				"services.pod": []byte(`[Pod]
+PodName=my-pod
+ServiceName=my-custom-service.service
+Network=app-net
+`),
+			},
+			filePath:    "services.pod",
+			ext:         ".pod",
+			defaultName: "services-pod.service",
+			expected:    "my-custom-service.service",
+		},
+		{
+			name: "volume quadlet returns default",
+			files: map[string][]byte{
+				"data.volume": []byte(`[Volume]
+`),
+			},
+			filePath:    "data.volume",
+			ext:         ".volume",
+			defaultName: "data-volume.service",
+			expected:    "data-volume.service",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			rw := fileio.NewReadWriter()
+			rw.SetRootdir(tmpDir)
+
+			for filename, content := range tt.files {
+				err := rw.WriteFile(filename, content, fileio.DefaultFilePermissions)
+				require.NoError(t, err)
+			}
+
+			logger := log.NewPrefixLogger("test")
+			q := &quadletInstaller{readWriter: rw, logger: logger}
+			result, err := q.getServiceName(tt.filePath, tt.ext, tt.defaultName)
+			if tt.expectError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tt.expected, result)
+			}
+		})
+	}
+}
+
 func TestUpdateSystemdReference(t *testing.T) {
 	tests := []struct {
 		name             string
@@ -201,7 +355,8 @@ func TestUpdateSystemdReference(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := updateSystemdReference(tt.value, tt.appID, tt.quadletBasenames)
+			q := &quadletInstaller{appID: tt.appID}
+			result := q.updateSystemdReference(tt.value, tt.quadletBasenames)
 			require.Equal(t, tt.expected, result)
 		})
 	}
@@ -267,7 +422,8 @@ func TestUpdateSpaceSeparatedReferences(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := updateSpaceSeparatedReferences(tt.value, tt.appID, tt.quadletBasenames)
+			q := &quadletInstaller{appID: tt.appID}
+			result := q.updateSpaceSeparatedReferences(tt.value, tt.quadletBasenames)
 			require.Equal(t, tt.expected, result)
 		})
 	}
@@ -442,6 +598,7 @@ Image=nginx:latest
 			appID: "myapp",
 			expectedFiles: []string{
 				"myapp-web.container",
+				"myapp-flightctl-quadlet-app.target",
 				"myapp-.container.d/99-flightctl.conf",
 			},
 			expectedDropIns: map[string]bool{
@@ -452,9 +609,18 @@ Image=nginx:latest
 					require.Contains(t, string(content), "[Container]")
 					require.Contains(t, string(content), "nginx:latest")
 				},
+				"myapp-flightctl-quadlet-app.target": func(t *testing.T, content []byte) {
+					contentStr := string(content)
+					require.Contains(t, contentStr, "[Unit]")
+					require.Contains(t, contentStr, "Wants=myapp-web.service")
+					require.Contains(t, contentStr, "After=myapp-web.service")
+				},
 				"myapp-.container.d/99-flightctl.conf": func(t *testing.T, content []byte) {
-					require.Contains(t, string(content), "[Container]")
-					require.Contains(t, string(content), "io.flightctl.quadlet.project=myapp")
+					contentStr := string(content)
+					require.Contains(t, contentStr, "[Unit]")
+					require.Contains(t, contentStr, "PartOf=myapp-flightctl-quadlet-app.target")
+					require.Contains(t, contentStr, "[Container]")
+					require.Contains(t, contentStr, "io.flightctl.quadlet.project=myapp")
 				},
 			},
 		},
@@ -476,6 +642,7 @@ Network=app-net.network
 				"myapp-web.container",
 				"myapp-data.volume",
 				"myapp-app-net.network",
+				"myapp-flightctl-quadlet-app.target",
 				"myapp-.container.d/99-flightctl.conf",
 				"myapp-.volume.d/99-flightctl.conf",
 				"myapp-.network.d/99-flightctl.conf",
@@ -484,6 +651,12 @@ Network=app-net.network
 				"myapp-web.container": func(t *testing.T, content []byte) {
 					require.Contains(t, string(content), "myapp-data.volume:/data")
 					require.Contains(t, string(content), "myapp-app-net.network")
+				},
+				"myapp-flightctl-quadlet-app.target": func(t *testing.T, content []byte) {
+					contentStr := string(content)
+					require.Contains(t, contentStr, "Wants=myapp-web.service")
+					require.Contains(t, contentStr, "Wants=myapp-data-volume.service")
+					require.Contains(t, contentStr, "Wants=myapp-app-net-network.service")
 				},
 			},
 		},
@@ -498,13 +671,16 @@ Image=nginx:latest
 			appID: "myapp",
 			expectedFiles: []string{
 				"myapp-web.container",
+				"myapp-flightctl-quadlet-app.target",
 				".env",
 				"myapp-.container.d/99-flightctl.conf",
 			},
 			checkFileContents: map[string]func(*testing.T, []byte){
 				"myapp-.container.d/99-flightctl.conf": func(t *testing.T, content []byte) {
-					require.Contains(t, string(content), "EnvironmentFile")
-					require.Contains(t, string(content), ".env")
+					contentStr := string(content)
+					require.Contains(t, contentStr, "PartOf=myapp-flightctl-quadlet-app.target")
+					require.Contains(t, contentStr, "EnvironmentFile")
+					require.Contains(t, contentStr, ".env")
 				},
 			},
 		},
@@ -525,10 +701,16 @@ Image=postgres:latest
 			expectedFiles: []string{
 				"myapp-web.container",
 				"myapp-db.container",
+				"myapp-flightctl-quadlet-app.target",
 			},
 			checkFileContents: map[string]func(*testing.T, []byte){
 				"myapp-web.container": func(t *testing.T, content []byte) {
 					require.Contains(t, string(content), "myapp-db.container chronyd.service")
+				},
+				"myapp-flightctl-quadlet-app.target": func(t *testing.T, content []byte) {
+					contentStr := string(content)
+					require.Contains(t, contentStr, "Wants=myapp-web.service")
+					require.Contains(t, contentStr, "Wants=myapp-db.service")
 				},
 			},
 		},
@@ -546,10 +728,16 @@ Volume=myapp-data.volume:/data
 			expectedFiles: []string{
 				"myapp-web.container",
 				"myapp-data.volume",
+				"myapp-flightctl-quadlet-app.target",
 			},
 			checkFileContents: map[string]func(*testing.T, []byte){
 				"myapp-web.container": func(t *testing.T, content []byte) {
 					require.Contains(t, string(content), "myapp-data.volume:/data")
+				},
+				"myapp-flightctl-quadlet-app.target": func(t *testing.T, content []byte) {
+					contentStr := string(content)
+					require.Contains(t, contentStr, "Wants=myapp-web.service")
+					require.Contains(t, contentStr, "Wants=myapp-data-volume.service")
 				},
 			},
 		},
@@ -627,10 +815,12 @@ Image=vol-base.image
 				"myapp-config.image",
 				"myapp-vol-base.image",
 				"myapp-app-net.network",
+				"myapp-flightctl-quadlet-app.target",
 				".env",
 				"myapp-.container.d/99-flightctl.conf",
 				"myapp-.pod.d/99-flightctl.conf",
 				"myapp-.volume.d/99-flightctl.conf",
+				"myapp-.image.d/99-flightctl.conf",
 				"myapp-.network.d/99-flightctl.conf",
 			},
 			checkFileContents: map[string]func(*testing.T, []byte){
@@ -665,8 +855,25 @@ Image=vol-base.image
 				"myapp-cache-vol.volume": func(t *testing.T, content []byte) {
 					require.Contains(t, string(content), "myapp-vol-base.image")
 				},
+				"myapp-flightctl-quadlet-app.target": func(t *testing.T, content []byte) {
+					contentStr := string(content)
+					require.Contains(t, contentStr, "Wants=myapp-app.service")
+					require.Contains(t, contentStr, "Wants=myapp-db.service")
+					require.Contains(t, contentStr, "Wants=myapp-init.service")
+					require.Contains(t, contentStr, "Wants=myapp-services-pod.service")
+					require.Contains(t, contentStr, "Wants=myapp-data-volume.service")
+					require.Contains(t, contentStr, "Wants=myapp-logs-volume.service")
+					require.Contains(t, contentStr, "Wants=myapp-cache-volume.service")
+					require.Contains(t, contentStr, "Wants=myapp-shared-volume.service")
+					require.Contains(t, contentStr, "Wants=myapp-cache-vol-volume.service")
+					require.Contains(t, contentStr, "Wants=myapp-base-image.service")
+					require.Contains(t, contentStr, "Wants=myapp-config-image.service")
+					require.Contains(t, contentStr, "Wants=myapp-vol-base-image.service")
+					require.Contains(t, contentStr, "Wants=myapp-app-net-network.service")
+				},
 				"myapp-.container.d/99-flightctl.conf": func(t *testing.T, content []byte) {
 					contentStr := string(content)
+					require.Contains(t, contentStr, "PartOf=myapp-flightctl-quadlet-app.target")
 					require.Contains(t, contentStr, "io.flightctl.quadlet.project=myapp")
 					require.Contains(t, contentStr, "EnvironmentFile")
 					require.Contains(t, contentStr, ".env")
@@ -689,6 +896,7 @@ Network=backend.network
 			expectedFiles: []string{
 				"myapp-web.container",
 				"myapp-backend.network",
+				"myapp-flightctl-quadlet-app.target",
 				"myapp-web.container.d/10-custom.conf",
 				"myapp-.container.d/99-flightctl.conf",
 				"myapp-.network.d/99-flightctl.conf",
@@ -696,6 +904,11 @@ Network=backend.network
 			checkFileContents: map[string]func(*testing.T, []byte){
 				"myapp-web.container.d/10-custom.conf": func(t *testing.T, content []byte) {
 					require.Contains(t, string(content), "myapp-backend.network")
+				},
+				"myapp-flightctl-quadlet-app.target": func(t *testing.T, content []byte) {
+					contentStr := string(content)
+					require.Contains(t, contentStr, "Wants=myapp-web.service")
+					require.Contains(t, contentStr, "Wants=myapp-backend-network.service")
 				},
 			},
 		},
@@ -715,6 +928,7 @@ Volume=logs.volume:/logs
 			expectedFiles: []string{
 				"myapp-web.container",
 				"myapp-logs.volume",
+				"myapp-flightctl-quadlet-app.target",
 				"myapp-.container.d/05-base.conf",
 				"myapp-.container.d/99-flightctl.conf",
 				"myapp-.volume.d/99-flightctl.conf",
@@ -722,6 +936,11 @@ Volume=logs.volume:/logs
 			checkFileContents: map[string]func(*testing.T, []byte){
 				"myapp-.container.d/05-base.conf": func(t *testing.T, content []byte) {
 					require.Contains(t, string(content), "myapp-logs.volume:/logs")
+				},
+				"myapp-flightctl-quadlet-app.target": func(t *testing.T, content []byte) {
+					contentStr := string(content)
+					require.Contains(t, contentStr, "Wants=myapp-web.service")
+					require.Contains(t, contentStr, "Wants=myapp-logs-volume.service")
 				},
 			},
 		},
@@ -750,6 +969,7 @@ Volume=data.volume:/data
 				"myapp-foo-bar.container",
 				"myapp-foo-net.network",
 				"myapp-data.volume",
+				"myapp-flightctl-quadlet-app.target",
 				"myapp-.container.d/01-global.conf",
 				"myapp-foo-.container.d/02-foo.conf",
 				"myapp-foo-bar.container.d/03-specific.conf",
@@ -767,6 +987,16 @@ Volume=data.volume:/data
 				},
 				"myapp-foo-bar.container.d/03-specific.conf": func(t *testing.T, content []byte) {
 					require.Contains(t, string(content), "myapp-data.volume:/data")
+				},
+				"myapp-flightctl-quadlet-app.target": func(t *testing.T, content []byte) {
+					contentStr := string(content)
+					require.Contains(t, contentStr, "Wants=myapp-foo-bar.service")
+					require.Contains(t, contentStr, "Wants=myapp-foo-net-network.service")
+					require.Contains(t, contentStr, "Wants=myapp-data-volume.service")
+				},
+				"myapp-.container.d/99-flightctl.conf": func(t *testing.T, content []byte) {
+					contentStr := string(content)
+					require.Contains(t, contentStr, "PartOf=myapp-flightctl-quadlet-app.target")
 				},
 			},
 		},
@@ -809,7 +1039,11 @@ Image=init:latest
 				"myapp-data.volume",
 				"myapp-logs.volume",
 				"myapp-cache.volume",
+				"myapp-flightctl-quadlet-app.target",
 				"myapp-app.container.d/10-config.conf",
+				"myapp-.container.d/99-flightctl.conf",
+				"myapp-.network.d/99-flightctl.conf",
+				"myapp-.volume.d/99-flightctl.conf",
 			},
 			checkFileContents: map[string]func(*testing.T, []byte){
 				"myapp-app.container.d/10-config.conf": func(t *testing.T, content []byte) {
@@ -820,6 +1054,19 @@ Image=init:latest
 					require.Contains(t, contentStr, "myapp-data.volume:/data")
 					require.Contains(t, contentStr, "myapp-logs.volume:/logs")
 					require.Contains(t, contentStr, "source=myapp-cache.volume")
+				},
+				"myapp-flightctl-quadlet-app.target": func(t *testing.T, content []byte) {
+					contentStr := string(content)
+					require.Contains(t, contentStr, "Wants=myapp-app.service")
+					require.Contains(t, contentStr, "Wants=myapp-db.service")
+					require.Contains(t, contentStr, "Wants=myapp-init.service")
+					require.Contains(t, contentStr, "Wants=myapp-app-net-network.service")
+					require.Contains(t, contentStr, "Wants=myapp-data-volume.service")
+					require.Contains(t, contentStr, "Wants=myapp-logs-volume.service")
+					require.Contains(t, contentStr, "Wants=myapp-cache-volume.service")
+				},
+				"myapp-.container.d/99-flightctl.conf": func(t *testing.T, content []byte) {
+					require.Contains(t, string(content), "PartOf=myapp-flightctl-quadlet-app.target")
 				},
 			},
 		},
@@ -846,6 +1093,7 @@ WantedBy=multi-user.target
 				"myapp-web.container",
 				"myapp-db.container",
 				"myapp-app-services.target",
+				"myapp-flightctl-quadlet-app.target",
 				"myapp-.container.d/99-flightctl.conf",
 			},
 			checkFileContents: map[string]func(*testing.T, []byte){
@@ -857,6 +1105,14 @@ WantedBy=multi-user.target
 					// External system targets should NOT be namespaced
 					require.Contains(t, contentStr, "network.target")
 					require.Contains(t, contentStr, "multi-user.target")
+				},
+				"myapp-flightctl-quadlet-app.target": func(t *testing.T, content []byte) {
+					contentStr := string(content)
+					require.Contains(t, contentStr, "Wants=myapp-web.service")
+					require.Contains(t, contentStr, "Wants=myapp-db.service")
+				},
+				"myapp-.container.d/99-flightctl.conf": func(t *testing.T, content []byte) {
+					require.Contains(t, string(content), "PartOf=myapp-flightctl-quadlet-app.target")
 				},
 			},
 		},
@@ -883,6 +1139,7 @@ WantedBy=multi-user.target
 			expectedFiles: []string{
 				"myapp-web.container",
 				"myapp-app-services.target",
+				"myapp-flightctl-quadlet-app.target",
 				"myapp-.container.d/99-flightctl.conf",
 			},
 			checkFileContents: map[string]func(*testing.T, []byte){
@@ -896,6 +1153,13 @@ WantedBy=multi-user.target
 					contentStr := string(content)
 					// System target should NOT be namespaced
 					require.Contains(t, contentStr, "WantedBy=multi-user.target")
+				},
+				"myapp-flightctl-quadlet-app.target": func(t *testing.T, content []byte) {
+					contentStr := string(content)
+					require.Contains(t, contentStr, "Wants=myapp-web.service")
+				},
+				"myapp-.container.d/99-flightctl.conf": func(t *testing.T, content []byte) {
+					require.Contains(t, string(content), "PartOf=myapp-flightctl-quadlet-app.target")
 				},
 			},
 		},
@@ -929,6 +1193,7 @@ VolumeName=app-cache
 				"myapp-db.container",
 				"myapp-backend.network",
 				"myapp-cache.volume",
+				"myapp-flightctl-quadlet-app.target",
 				"myapp-.container.d/99-flightctl.conf",
 				"myapp-.network.d/99-flightctl.conf",
 				"myapp-.volume.d/99-flightctl.conf",
@@ -954,6 +1219,16 @@ VolumeName=app-cache
 				"myapp-cache.volume": func(t *testing.T, content []byte) {
 					require.Contains(t, string(content), "VolumeName=myapp-app-cache")
 				},
+				"myapp-flightctl-quadlet-app.target": func(t *testing.T, content []byte) {
+					contentStr := string(content)
+					require.Contains(t, contentStr, "Wants=myapp-web.service")
+					require.Contains(t, contentStr, "Wants=myapp-db.service")
+					require.Contains(t, contentStr, "Wants=myapp-backend-network.service")
+					require.Contains(t, contentStr, "Wants=myapp-cache-volume.service")
+				},
+				"myapp-.container.d/99-flightctl.conf": func(t *testing.T, content []byte) {
+					require.Contains(t, string(content), "PartOf=myapp-flightctl-quadlet-app.target")
+				},
 			},
 		},
 		{
@@ -977,6 +1252,7 @@ Network=none
 				"myapp-web.container",
 				"myapp-app.container",
 				"myapp-test.container",
+				"myapp-flightctl-quadlet-app.target",
 				"myapp-.container.d/99-flightctl.conf",
 			},
 			checkFileContents: map[string]func(*testing.T, []byte){
@@ -991,6 +1267,15 @@ Network=none
 				"myapp-test.container": func(t *testing.T, content []byte) {
 					require.Contains(t, string(content), "Network=none")
 					require.NotContains(t, string(content), "myapp-none")
+				},
+				"myapp-flightctl-quadlet-app.target": func(t *testing.T, content []byte) {
+					contentStr := string(content)
+					require.Contains(t, contentStr, "Wants=myapp-web.service")
+					require.Contains(t, contentStr, "Wants=myapp-app.service")
+					require.Contains(t, contentStr, "Wants=myapp-test.service")
+				},
+				"myapp-.container.d/99-flightctl.conf": func(t *testing.T, content []byte) {
+					require.Contains(t, string(content), "PartOf=myapp-flightctl-quadlet-app.target")
 				},
 			},
 		},
@@ -1010,6 +1295,7 @@ NetworkName=application-network
 			expectedFiles: []string{
 				"myapp-services.pod",
 				"myapp-app-net.network",
+				"myapp-flightctl-quadlet-app.target",
 				"myapp-.pod.d/99-flightctl.conf",
 				"myapp-.network.d/99-flightctl.conf",
 			},
@@ -1023,6 +1309,46 @@ NetworkName=application-network
 				"myapp-app-net.network": func(t *testing.T, content []byte) {
 					require.Contains(t, string(content), "NetworkName=myapp-application-network")
 				},
+				"myapp-flightctl-quadlet-app.target": func(t *testing.T, content []byte) {
+					contentStr := string(content)
+					require.Contains(t, contentStr, "Wants=myapp-services-pod.service")
+					require.Contains(t, contentStr, "Wants=myapp-app-net-network.service")
+				},
+				"myapp-.pod.d/99-flightctl.conf": func(t *testing.T, content []byte) {
+					require.Contains(t, string(content), "PartOf=myapp-flightctl-quadlet-app.target")
+				},
+			},
+		},
+		{
+			name: "pod with custom ServiceName",
+			files: map[string][]byte{
+				"services.pod": []byte(`[Pod]
+PodName=app-services-pod
+ServiceName=my-custom-service.service
+Network=app-net
+`),
+				"app-net.network": []byte(`[Network]
+`),
+			},
+			appID: "myapp",
+			expectedFiles: []string{
+				"myapp-services.pod",
+				"myapp-app-net.network",
+				"myapp-flightctl-quadlet-app.target",
+				"myapp-.pod.d/99-flightctl.conf",
+				"myapp-.network.d/99-flightctl.conf",
+			},
+			checkFileContents: map[string]func(*testing.T, []byte){
+				"myapp-services.pod": func(t *testing.T, content []byte) {
+					contentStr := string(content)
+					require.Contains(t, contentStr, "ServiceName=myapp-my-custom-service.service")
+				},
+				"myapp-flightctl-quadlet-app.target": func(t *testing.T, content []byte) {
+					contentStr := string(content)
+					require.Contains(t, contentStr, "Wants=myapp-my-custom-service.service")
+					require.Contains(t, contentStr, "After=myapp-my-custom-service.service")
+					require.Contains(t, contentStr, "Wants=myapp-app-net-network.service")
+				},
 			},
 		},
 	}
@@ -1032,6 +1358,10 @@ NetworkName=application-network
 			tmpDir := t.TempDir()
 			rw := fileio.NewReadWriter()
 			rw.SetRootdir(tmpDir)
+
+			// Create the systemd unit directory for target file copying
+			err := rw.MkdirAll(lifecycle.QuadletTargetPath, fileio.DefaultDirectoryPermissions)
+			require.NoError(t, err)
 
 			for filename, content := range tt.files {
 				// Create parent directory if file is in a subdirectory
@@ -1044,7 +1374,8 @@ NetworkName=application-network
 				require.NoError(t, err)
 			}
 
-			err := installQuadlet(rw, "/", tt.appID)
+			logger := log.NewPrefixLogger("test")
+			err = installQuadlet(rw, logger, "/", tt.appID)
 			require.NoError(t, err)
 
 			for _, expectedFile := range tt.expectedFiles {
@@ -1057,7 +1388,7 @@ NetworkName=application-network
 				}
 			}
 
-			err = installQuadlet(rw, "/", tt.appID)
+			err = installQuadlet(rw, logger, "/", tt.appID)
 			require.NoError(t, err, "second call to installQuadlet should succeed (idempotency)")
 
 			for _, expectedFile := range tt.expectedFiles {
@@ -1235,6 +1566,21 @@ Image=quay.io/test/db:v1
 `,
 			},
 			expectError: false,
+		},
+		{
+			name: "duplicate container names detected",
+			files: map[string]string{
+				"app.container": `[Container]
+Image=quay.io/test/app:v1
+ContainerName=shared
+`,
+				"db.container": `[Container]
+Image=quay.io/test/db:v1
+ContainerName=shared
+`,
+			},
+			expectError:   true,
+			errorContains: "duplicate ContainerName",
 		},
 		{
 			name: "quadlet files in subdirectory (invalid)",
