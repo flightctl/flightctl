@@ -58,14 +58,16 @@ EOF
         exit 1
     fi
 
-    echo "Updating service config file with new client id: $client_id"
-    # Tempfile here is necessary because we cannot directly modify the mounted config file in place
-    tmpfile=$(mktemp)
-    trap 'rm -f "$tmpfile" "$oauth_output_file"' EXIT
-    if ! sed -E "s|^([[:space:]]*oAuthApplicationClientId:).*|\1 $client_id|" "$SERVICE_CONFIG_FILE" > "$tmpfile"; then
-        echo "Error: Failed to update config file" >&2
+    echo "Saving AAP OAuth client_id: $client_id"
+    # Write client_id to /certs that is mounted from /etc/flightctl/pki on the host
+    client_id_file="${CERTS_SOURCE_PATH}/aap-client-id"
+    if echo "$client_id" > "$client_id_file"; then
+        echo "AAP OAuth client_id saved to $client_id_file"
+    else
+        echo "Error: Failed to write client_id to $client_id_file" >&2
         exit 1
     fi
-    cat "$tmpfile" > "$SERVICE_CONFIG_FILE"
+
+    rm -f "$oauth_output_file"
     echo "OAuth Application created successfully"
 }

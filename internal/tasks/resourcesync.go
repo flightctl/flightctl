@@ -234,7 +234,9 @@ func (r *ResourceSync) createOrUpdateMultiple(ctx context.Context, orgId uuid.UU
 		// which will nil out annotations. This ensures annotations are not updated by ResourceSync.
 		// Annotations are managed by the service (e.g., fleet-controller/templateVersion)
 		// and should not be overwritten when syncing from YAML.
+		// Set ResourceSyncRequestCtxKey to allow resource sync to update resources it owns.
 		externalCtx := context.WithValue(ctx, consts.InternalRequestCtxKey, false)
+		externalCtx = context.WithValue(externalCtx, consts.ResourceSyncRequestCtxKey, true)
 		updatedFleet, status := r.serviceHandler.ReplaceFleet(externalCtx, orgId, *resource.Metadata.Name, *resource)
 		if status.Code != http.StatusOK && status.Code != http.StatusCreated {
 			if status.Message == flterrors.ErrUpdatingResourceWithOwnerNotAllowed.Error() {

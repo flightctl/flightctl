@@ -481,9 +481,19 @@ echo "Flight Control Observability Stack uninstalled."
     # always use hyphens (-) instead of tildes (~). To ensure valid image tags we need
     # to transform the version string by replacing tildes with hyphens.
     IMAGE_TAG=$(echo %{version} | tr '~' '-')
+
+    # Check if IMAGE_TAG matches a release version pattern (x.x.x or x.x.x-rcX).
+    # Release versions match: 1.2.3 or 1.2.3-rc1
+    # Development builds have additional suffixes like: 1.2.3-main-79-g54721648
+    if echo "${IMAGE_TAG}" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-rc[0-9]+)?$'; then
+        APPLY_UI_OVERRIDE="--flightctl-ui-tag-override"
+    else
+        APPLY_UI_OVERRIDE=""
+    fi
     bin/flightctl-standalone render quadlets \
         --config deploy/podman/images.yaml \
         --flightctl-services-tag-override "${IMAGE_TAG}" \
+        ${APPLY_UI_OVERRIDE} \
         --readonly-config-dir "%{buildroot}%{_datadir}/flightctl" \
         --writeable-config-dir "%{buildroot}%{_sysconfdir}/flightctl" \
         --quadlet-dir "%{buildroot}%{_datadir}/containers/systemd" \
