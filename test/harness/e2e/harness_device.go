@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -13,6 +14,7 @@ import (
 	agentcfg "github.com/flightctl/flightctl/internal/agent/config"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/test/util"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -105,6 +107,39 @@ func (h *Harness) UpdateDevice(deviceId string, updateFunction func(*v1beta1.Dev
 	}
 
 	return nil
+}
+
+// IsDeviceUpdateObserved returns true if the device is updating or has already updated to the expected version.
+func IsDeviceUpdateObserved(device *v1beta1.Device, expectedVersion int) bool {
+	version, err := GetRenderedVersion(device)
+	if err != nil {
+		rendered := "<nil>"
+		if device != nil && device.Status != nil && device.Status.Config != (v1beta1.DeviceConfigStatus{}) {
+			rendered = device.Status.Config.RenderedVersion
+		}
+		GinkgoWriter.Printf("Failed to parse rendered version '%s': %v\n", rendered, err)
+		return false
+	}
+
+	if device == nil || device.Status == nil {
+		return false
+	}
+
+	// The update has already applied
+	if version == expectedVersion {
+		return true
+	}
+	cond := v1beta1.FindStatusCondition(device.Status.Conditions, v1beta1.ConditionTypeDeviceUpdating)
+	if cond == nil {
+		return false
+	}
+	// send another update if we're in this state
+	validReasons := []v1beta1.UpdateState{
+		v1beta1.UpdateStatePreparing,
+		v1beta1.UpdateStateReadyToUpdate,
+		v1beta1.UpdateStateApplyingUpdate,
+	}
+	return slices.Contains(validReasons, v1beta1.UpdateState(cond.Reason))
 }
 
 func (h *Harness) UpdateApplication(withRetries bool, deviceId string, appName string, appProvider any, envVars map[string]string) error {
@@ -225,6 +260,15 @@ func (h *Harness) GetCurrentDeviceGeneration(deviceId string) (deviceRenderedVer
 	logrus.Infof("Waiting for the device to be UpToDate")
 	h.WaitForDeviceContents(deviceId, "The device is UpToDate",
 		func(device *v1beta1.Device) bool {
+			if device == nil || device.Status == nil {
+				return false
+			}
+			if device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusUpToDate {
+				if device.Metadata.Generation != nil {
+					deviceGeneration = *device.Metadata.Generation
+				}
+				return true
+			}
 			for _, condition := range device.Status.Conditions {
 				if condition.Type == "Updating" && condition.Reason == "Updated" && condition.Status == "False" &&
 					device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusUpToDate {
@@ -278,6 +322,13 @@ func (h *Harness) GetCurrentDeviceRenderedVersion(deviceId string) (int, error) 
 	logrus.Infof("Waiting for the device to be UpToDate")
 	h.WaitForDeviceContents(deviceId, "The device is UpToDate",
 		func(device *v1beta1.Device) bool {
+			if device == nil || device.Status == nil {
+				return false
+			}
+			if device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusUpToDate {
+				deviceRenderedVersion, renderedVersionError = GetRenderedVersion(device)
+				return !errors.Is(renderedVersionError, InvalidRenderedVersionErr)
+			}
 			for _, condition := range device.Status.Conditions {
 				if condition.Type == "Updating" && condition.Reason == "Updated" && condition.Status == "False" &&
 					device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusUpToDate {
