@@ -176,8 +176,6 @@ Replace the following placeholders with the appropriate values for your environm
 
 #### RBAC Permissions for Cross-Namespace Access
 
-If Flight Control needs to access secrets across multiple namespaces, using a `ClusterRole` and `ClusterRoleBinding` is more efficient than creating a `Role` and `RoleBinding` in each namespace.
-
 A `ClusterRole` can grant access to cluster-scoped resources or to namespaced resources across all namespaces.
 
 ```yaml
