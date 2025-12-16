@@ -6,6 +6,7 @@ CERT_DIR=""
 API_SANS=()
 TELEMETRY_SANS=()
 ALERTMANAGER_PROXY_SANS=()
+PAM_ISSUER_SANS=()
 NAMESPACE=""
 CREATE_K8S_SECRETS="false"
 
@@ -21,6 +22,7 @@ Optional:
   --api-san <dns>               DNS SAN for flightctl-api (can be specified multiple times)
   --telemetry-san <dns>         DNS SAN for telemetry-gateway (can be specified multiple times)
   --alertmanager-proxy-san <dns> DNS SAN for alertmanager-proxy (can be specified multiple times)
+  --pam-issuer-san <dns>        DNS SAN for flightctl-pam-issuer (can be specified multiple times)
   --create-k8s-secrets          Create Kubernetes secrets using oc/kubectl
   --namespace <ns>              Kubernetes namespace (required if --create-k8s-secrets is set)
 EOF
@@ -44,6 +46,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --alertmanager-proxy-san)
             ALERTMANAGER_PROXY_SANS+=("$2")
+            shift 2
+            ;;
+        --pam-issuer-san)
+            PAM_ISSUER_SANS+=("$2")
             shift 2
             ;;
         --create-k8s-secrets)
@@ -75,9 +81,6 @@ if [[ "$CREATE_K8S_SECRETS" == "true" ]] && [[ -z "$NAMESPACE" ]]; then
     usage
 fi
 
-# Create certificate directory if it doesn't exist
-mkdir -p "$CERT_DIR" "$CERT_DIR/flightctl-api"
-
 # Helper function to generate SAN extension
 generate_san_config() {
     local sans=("$@")
@@ -90,7 +93,7 @@ generate_san_config() {
         else
             san_config="subjectAltName = DNS:${sans[0]}"
         fi
-        
+
         for ((i=1; i<${#sans[@]}; i++)); do
             if [[ ${sans[i]} =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
                 san_config="${san_config}, IP:${sans[i]}"
@@ -103,177 +106,225 @@ generate_san_config() {
     echo "$san_config"
 }
 
+# Helper function to generate self-signed root CA certificate
+generate_root_ca() {
+    local cn="$1"
+    local key_path="$2"
+    local cert_path="$3"
+
+    # Generate private key (ECDSA P-256)
+    openssl ecparam -name prime256v1 -genkey -noout -out "$key_path"
+    chmod 600 "$key_path"
+
+    # Generate self-signed certificate (10 years = 3650 days)
+    openssl req -new -x509 -sha256 -key "$key_path" -out "$cert_path" \
+        -days 3650 \
+        -subj "/CN=$cn" \
+        -addext "basicConstraints = critical, CA:TRUE" \
+        -addext "keyUsage = critical, digitalSignature, keyCertSign, cRLSign"
+}
+
+# Helper function to generate intermediate CA certificate
+generate_intermediate_ca() {
+    local cn="$1"
+    local key_path="$2"
+    local cert_path="$3"
+    local ca_cert="$4"
+    local ca_key="$5"
+
+    local csr_path="${cert_path%.crt}.csr"
+
+    # Generate private key (ECDSA P-256)
+    openssl ecparam -name prime256v1 -genkey -noout -out "$key_path"
+    chmod 600 "$key_path"
+
+    # Generate CSR
+    openssl req -new -sha256 -key "$key_path" -out "$csr_path" -subj "/CN=$cn"
+
+    # Sign with CA (10 years = 3650 days)
+    openssl x509 -req -sha256 -in "$csr_path" \
+        -CA "$ca_cert" -CAkey "$ca_key" -CAcreateserial \
+        -out "$cert_path" -days 3650 \
+        -extfile <(printf "basicConstraints = critical, CA:TRUE\nkeyUsage = critical, digitalSignature, keyCertSign, cRLSign")
+
+    rm -f "$csr_path"
+}
+
+# Helper function to generate server TLS certificate
+generate_server_cert() {
+    local cn="$1"
+    local key_path="$2"
+    local cert_path="$3"
+    local ca_cert="$4"
+    local ca_key="$5"
+    shift 5
+    local sans=("$@")
+
+    local csr_path="${cert_path%.crt}.csr"
+
+    # Generate private key (ECDSA P-256)
+    openssl ecparam -name prime256v1 -genkey -noout -out "$key_path"
+    chmod 600 "$key_path"
+
+    # Generate CSR
+    openssl req -new -sha256 -key "$key_path" -out "$csr_path" -subj "/CN=$cn"
+
+    # Build extension config
+    local ext_config="basicConstraints = CA:FALSE
+keyUsage = critical, digitalSignature, keyEncipherment
+extendedKeyUsage = serverAuth"
+
+    if [[ ${#sans[@]} -gt 0 ]]; then
+        local san_config=$(generate_san_config "${sans[@]}")
+        ext_config="${ext_config}
+${san_config}"
+    fi
+
+    # Sign with CA (2 years = 730 days)
+    openssl x509 -req -sha256 -in "$csr_path" \
+        -CA "$ca_cert" -CAkey "$ca_key" -CAcreateserial \
+        -out "$cert_path" -days 730 \
+        -extfile <(printf "%s" "$ext_config")
+
+    rm -f "$csr_path"
+}
+
 echo "=== Generating Flight Control Certificates in $CERT_DIR ==="
 
-# Step 1: Generate or use existing Flight Control CA (self-signed)
+# Create certificate directory if it doesn't exist
+
+# Step 1: Flight Control CA (self-signed root certificate)
+mkdir -p "$CERT_DIR"
+
 FLIGHTCTL_CA_KEY="$CERT_DIR/ca.key"
 FLIGHTCTL_CA_CERT="$CERT_DIR/ca.crt"
 
 if [[ -f "$FLIGHTCTL_CA_CERT" ]] && [[ -f "$FLIGHTCTL_CA_KEY" ]]; then
-    echo "[1/5] Using existing Flight Control CA certificate"
+    echo "[1/8] Skipped generation of Flight Control CA certificate (already exists)"
 else
-    echo "[1/5] Generating self-signed Flight Control CA certificate (10 years, ECDSA P-256)"
-
-    # Generate Flight Control CA private key (ECDSA P-256)
-    openssl ecparam -name prime256v1 -genkey -noout -out "$FLIGHTCTL_CA_KEY"
-
-    # Generate self-signed Flight Control CA certificate (10 years = 3650 days)
-    openssl req -new -x509 -sha256 -key "$FLIGHTCTL_CA_KEY" -out "$FLIGHTCTL_CA_CERT" \
-        -days 3650 \
-        -subj "/CN=flightctl-ca" \
-        -addext "basicConstraints = critical, CA:TRUE" \
-        -addext "keyUsage = critical, digitalSignature, keyCertSign, cRLSign"
-
-    echo "  ✓ Flight Control CA generated: $FLIGHTCTL_CA_CERT"
+    generate_root_ca "flightctl-ca" "$FLIGHTCTL_CA_KEY" "$FLIGHTCTL_CA_CERT"
+    echo "[1/8] Generated Flight Control CA certificate (10 years, ECDSA P-256)"
 fi
 
-# Step 2: Generate Client Signer CA (intermediate CA signed by Flight Control CA)
-echo "[2/5] Generating Client Signer CA - 10 years, ECDSA P-256"
+# Step 2: Client Signer CA (intermediate CA signed by Flight Control CA)
+mkdir -p "$CERT_DIR/flightctl-api"
 
 CLIENT_SIGNER_CA_KEY="$CERT_DIR/flightctl-api/client-signer.key"
 CLIENT_SIGNER_CA_CERT="$CERT_DIR/flightctl-api/client-signer.crt"
-CLIENT_SIGNER_CA_CSR="$CERT_DIR/flightctl-api/client-signer.csr"
 
-# Generate client-signer CA private key (ECDSA P-256)
-openssl ecparam -name prime256v1 -genkey -noout -out "$CLIENT_SIGNER_CA_KEY"
+if [[ -f "$CLIENT_SIGNER_CA_CERT" ]] && [[ -f "$CLIENT_SIGNER_CA_KEY" ]]; then
+    echo "[2/8] Skipped generation of Client Signer CA certificate (already exists)"
+else
+    generate_intermediate_ca "flightctl-client-signer-ca" \
+        "$CLIENT_SIGNER_CA_KEY" "$CLIENT_SIGNER_CA_CERT" \
+        "$FLIGHTCTL_CA_CERT" "$FLIGHTCTL_CA_KEY"
+    echo "[2/8] Generated Client Signer CA certificate (10 years, ECDSA P-256)"
+fi
 
-# Generate CSR for client-signer CA
-openssl req -new -sha256 -key "$CLIENT_SIGNER_CA_KEY" -out "$CLIENT_SIGNER_CA_CSR" \
-    -subj "/CN=flightctl-client-signer-ca"
+# Step 3: PAM Issuer Token Signer CA (intermediate CA signed by Flight Control CA)
+if [[ ${#PAM_ISSUER_SANS[@]} -gt 0 ]]; then
+    mkdir -p "$CERT_DIR/flightctl-pam-issuer"
 
-# Sign Client Signer CA with Flight Control CA (10 years = 3650 days)
-openssl x509 -req -sha256 -in "$CLIENT_SIGNER_CA_CSR" \
-    -CA "$FLIGHTCTL_CA_CERT" -CAkey "$FLIGHTCTL_CA_KEY" -CAcreateserial \
-    -out "$CLIENT_SIGNER_CA_CERT" -days 3650 \
-    -extfile <(printf "basicConstraints = critical, CA:TRUE\nkeyUsage = critical, digitalSignature, keyCertSign, cRLSign")
+    PAM_ISSUER_TOKEN_SIGNER_CA_KEY="$CERT_DIR/flightctl-pam-issuer/token-signer.key"
+    PAM_ISSUER_TOKEN_SIGNER_CA_CERT="$CERT_DIR/flightctl-pam-issuer/token-signer.crt"
 
-rm -f "$CLIENT_SIGNER_CA_CSR"
-echo "  ✓ Client Signer CA generated: $CLIENT_SIGNER_CA_CERT"
+    if [[ -f "$PAM_ISSUER_TOKEN_SIGNER_CA_CERT" ]] && [[ -f "$PAM_ISSUER_TOKEN_SIGNER_CA_KEY" ]]; then
+        echo "[3/8] Skipped generation of PAM Issuer Token Signer CA certificate (already exists)"
+    else
+        generate_intermediate_ca "flightctl-pam-issuer-token-signer-ca" \
+            "$PAM_ISSUER_TOKEN_SIGNER_CA_KEY" "$PAM_ISSUER_TOKEN_SIGNER_CA_CERT" \
+            "$FLIGHTCTL_CA_CERT" "$FLIGHTCTL_CA_KEY"
+        echo "[3/8] Generated PAM Issuer Token Signer CA certificate (10 years, ECDSA P-256)"
+    fi
+else
+    echo "[3/8] Skipped generation of PAM Issuer Token Signer CA certificate (no PAM Issuer SANs specified)"
+fi
 
-# Step 3: Generate API Server TLS certificate
-echo "[3/5] Generating API Server TLS certificate - 2 years, ECDSA P-256"
+# Step 4: API Server TLS certificate
+mkdir -p "$CERT_DIR/flightctl-api"
 
 API_SERVER_KEY="$CERT_DIR/flightctl-api/server.key"
 API_SERVER_CERT="$CERT_DIR/flightctl-api/server.crt"
-API_SERVER_CSR="$CERT_DIR/flightctl-api/server.csr"
 
-# Generate API server private key (ECDSA P-256)
-openssl ecparam -name prime256v1 -genkey -noout -out "$API_SERVER_KEY"
-
-# Generate CSR for API server
-openssl req -new -sha256 -key "$API_SERVER_KEY" -out "$API_SERVER_CSR" \
-    -subj "/CN=flightctl-api"
-
-# Build SAN configuration
-if [[ ${#API_SANS[@]} -gt 0 ]]; then
-    API_SAN_CONFIG=$(generate_san_config "${API_SANS[@]}")
-    echo "  API Server SANs: ${API_SANS[*]}"
+if [[ -f "$API_SERVER_CERT" ]] && [[ -f "$API_SERVER_KEY" ]]; then
+    echo "[4/8] Skipped generation of API Server TLS certificate (already exists)"
 else
-    API_SAN_CONFIG=""
-    echo "  Warning: No SANs specified for API server certificate"
+    generate_server_cert "flightctl-api" \
+        "$API_SERVER_KEY" "$API_SERVER_CERT" \
+        "$FLIGHTCTL_CA_CERT" "$FLIGHTCTL_CA_KEY" \
+        "${API_SANS[@]}"
+    echo "[4/8] Generated API Server TLS certificate (2 years, ECDSA P-256)"
 fi
 
-# Sign API server certificate with flightctl-ca (2 years = 730 days)
-EXT_CONFIG="basicConstraints = CA:FALSE
-keyUsage = critical, digitalSignature, keyEncipherment
-extendedKeyUsage = serverAuth"
+# Step 5: PAM Issuer Server TLS certificate
+if [[ ${#PAM_ISSUER_SANS[@]} -gt 0 ]]; then
+    mkdir -p "$CERT_DIR/flightctl-pam-issuer"
 
-if [[ -n "$API_SAN_CONFIG" ]]; then
-    EXT_CONFIG="${EXT_CONFIG}
-${API_SAN_CONFIG}"
+    PAM_ISSUER_SERVER_KEY="$CERT_DIR/flightctl-pam-issuer/server.key"
+    PAM_ISSUER_SERVER_CERT="$CERT_DIR/flightctl-pam-issuer/server.crt"
+
+    if [[ -f "$PAM_ISSUER_SERVER_CERT" ]] && [[ -f "$PAM_ISSUER_SERVER_KEY" ]]; then
+        echo "[5/8] Skipped generation of PAM Issuer Server TLS certificate (already exists)"
+    else
+        generate_server_cert "flightctl-pam-issuer" \
+            "$PAM_ISSUER_SERVER_KEY" "$PAM_ISSUER_SERVER_CERT" \
+            "$FLIGHTCTL_CA_CERT" "$FLIGHTCTL_CA_KEY" \
+            "${PAM_ISSUER_SANS[@]}"
+        echo "[5/8] Generated PAM Issuer Server TLS certificate (2 years, ECDSA P-256)"
+    fi
+else
+    echo "[5/8] Skipped generation of PAM Issuer Server TLS certificate (no PAM Issuer SANs specified)"
 fi
 
-openssl x509 -req -sha256 -in "$API_SERVER_CSR" \
-    -CA "$FLIGHTCTL_CA_CERT" -CAkey "$FLIGHTCTL_CA_KEY" -CAcreateserial \
-    -out "$API_SERVER_CERT" -days 730 \
-    -extfile <(printf "%s" "$EXT_CONFIG")
-
-rm -f "$API_SERVER_CSR"
-echo "  ✓ API Server TLS certificate generated: $API_SERVER_CERT"
-
-# Step 4: Generate Telemetry Gateway TLS certificate
+# Step 6: Telemetry Gateway TLS certificate
 if [[ ${#TELEMETRY_SANS[@]} -gt 0 ]]; then
-    echo "[4/5] Generating Telemetry Gateway TLS certificate - 2 years, ECDSA P-256"
-    
-    # Create telemetry gateway directory
     mkdir -p "$CERT_DIR/flightctl-telemetry-gateway"
 
     TELEMETRY_KEY="$CERT_DIR/flightctl-telemetry-gateway/server.key"
     TELEMETRY_CERT="$CERT_DIR/flightctl-telemetry-gateway/server.crt"
-    TELEMETRY_CSR="$CERT_DIR/flightctl-telemetry-gateway/server.csr"
 
-    # Generate telemetry gateway private key (ECDSA P-256)
-    openssl ecparam -name prime256v1 -genkey -noout -out "$TELEMETRY_KEY"
-
-    # Generate CSR for telemetry gateway
-    openssl req -new -sha256 -key "$TELEMETRY_KEY" -out "$TELEMETRY_CSR" \
-        -subj "/CN=flightctl-telemetry-gateway"
-
-    # Build SAN configuration
-    TELEMETRY_SAN_CONFIG=$(generate_san_config "${TELEMETRY_SANS[@]}")
-    echo "  Telemetry Gateway SANs: ${TELEMETRY_SANS[*]}"
-
-    # Sign telemetry gateway certificate with flightctl-ca (2 years = 730 days)
-    EXT_CONFIG="basicConstraints = CA:FALSE
-keyUsage = critical, digitalSignature, keyEncipherment
-extendedKeyUsage = serverAuth
-${TELEMETRY_SAN_CONFIG}"
-
-    openssl x509 -req -sha256 -in "$TELEMETRY_CSR" \
-        -CA "$FLIGHTCTL_CA_CERT" -CAkey "$FLIGHTCTL_CA_KEY" -CAcreateserial \
-        -out "$TELEMETRY_CERT" -days 730 \
-        -extfile <(printf "%s" "$EXT_CONFIG")
-
-    rm -f "$TELEMETRY_CSR"
-    echo "  ✓ Telemetry Gateway TLS certificate generated: $TELEMETRY_CERT"
+    if [[ -f "$TELEMETRY_CERT" ]] && [[ -f "$TELEMETRY_KEY" ]]; then
+        echo "[6/8] Skipped generation of Telemetry Gateway TLS certificate (already exists)"
+    else
+        generate_server_cert "flightctl-telemetry-gateway" \
+            "$TELEMETRY_KEY" "$TELEMETRY_CERT" \
+            "$FLIGHTCTL_CA_CERT" "$FLIGHTCTL_CA_KEY" \
+            "${TELEMETRY_SANS[@]}"
+        echo "[6/8] Generated Telemetry Gateway TLS certificate (2 years, ECDSA P-256)"
+    fi
 else
-    echo "[4/5] Skipping Telemetry Gateway TLS certificate (no SANs specified)"
+    echo "[6/8] Skipped generation of Telemetry Gateway TLS certificate (no SANs specified)"
 fi
 
-# Step 5: Generate Alertmanager Proxy TLS certificate
+# Step 7: Alertmanager Proxy TLS certificate
 if [[ ${#ALERTMANAGER_PROXY_SANS[@]} -gt 0 ]]; then
-    echo "[5/6] Generating Alertmanager Proxy TLS certificate - 2 years, ECDSA P-256"
-    
-    # Create alertmanager proxy directory
     mkdir -p "$CERT_DIR/flightctl-alertmanager-proxy"
 
     ALERTMANAGER_PROXY_KEY="$CERT_DIR/flightctl-alertmanager-proxy/server.key"
     ALERTMANAGER_PROXY_CERT="$CERT_DIR/flightctl-alertmanager-proxy/server.crt"
-    ALERTMANAGER_PROXY_CSR="$CERT_DIR/flightctl-alertmanager-proxy/server.csr"
 
-    # Generate alertmanager proxy private key (ECDSA P-256)
-    openssl ecparam -name prime256v1 -genkey -noout -out "$ALERTMANAGER_PROXY_KEY"
-
-    # Generate CSR for alertmanager proxy
-    openssl req -new -sha256 -key "$ALERTMANAGER_PROXY_KEY" -out "$ALERTMANAGER_PROXY_CSR" \
-        -subj "/CN=flightctl-alertmanager-proxy"
-
-    # Build SAN configuration
-    ALERTMANAGER_PROXY_SAN_CONFIG=$(generate_san_config "${ALERTMANAGER_PROXY_SANS[@]}")
-    echo "  Alertmanager Proxy SANs: ${ALERTMANAGER_PROXY_SANS[*]}"
-
-    # Sign alertmanager proxy certificate with flightctl-ca (2 years = 730 days)
-    EXT_CONFIG="basicConstraints = CA:FALSE
-keyUsage = critical, digitalSignature, keyEncipherment
-extendedKeyUsage = serverAuth
-${ALERTMANAGER_PROXY_SAN_CONFIG}"
-
-    openssl x509 -req -sha256 -in "$ALERTMANAGER_PROXY_CSR" \
-        -CA "$FLIGHTCTL_CA_CERT" -CAkey "$FLIGHTCTL_CA_KEY" -CAcreateserial \
-        -out "$ALERTMANAGER_PROXY_CERT" -days 730 \
-        -extfile <(printf "%s" "$EXT_CONFIG")
-
-    rm -f "$ALERTMANAGER_PROXY_CSR"
-    echo "  ✓ Alertmanager Proxy TLS certificate generated: $ALERTMANAGER_PROXY_CERT"
+    if [[ -f "$ALERTMANAGER_PROXY_CERT" ]] && [[ -f "$ALERTMANAGER_PROXY_KEY" ]]; then
+        echo "[7/8] Skipped generation of Alertmanager Proxy TLS certificate (already exists)"
+    else
+        generate_server_cert "flightctl-alertmanager-proxy" \
+            "$ALERTMANAGER_PROXY_KEY" "$ALERTMANAGER_PROXY_CERT" \
+            "$FLIGHTCTL_CA_CERT" "$FLIGHTCTL_CA_KEY" \
+            "${ALERTMANAGER_PROXY_SANS[@]}"
+        echo "[7/8] Generated Alertmanager Proxy TLS certificate (2 years, ECDSA P-256)"
+    fi
 else
-    echo "[5/6] Skipping Alertmanager Proxy TLS certificate (no SANs specified)"
+    echo "[7/8] Skipped generation of Alertmanager Proxy TLS certificate (no SANs specified)"
 fi
 
-# Step 5: Generate CA Bundle (contains both flightctl-ca and client-signer-ca)
-echo "[6/6] Generating CA Bundle (contains both flightctl-ca and client-signer-ca)"
+# Step 8: CA Bundle
 CA_BUNDLE="$CERT_DIR/ca-bundle.crt"
-cat "$FLIGHTCTL_CA_CERT" "$CLIENT_SIGNER_CA_CERT" > "$CA_BUNDLE"
-echo "  ✓ CA Bundle created: $CA_BUNDLE"
+
+if [[ ${#PAM_ISSUER_SANS[@]} -gt 0 ]]; then
+    cat "$FLIGHTCTL_CA_CERT" "$CLIENT_SIGNER_CA_CERT" "$PAM_ISSUER_TOKEN_SIGNER_CA_CERT" > "$CA_BUNDLE"
+else
+    cat "$FLIGHTCTL_CA_CERT" "$CLIENT_SIGNER_CA_CERT" > "$CA_BUNDLE"
+fi
+echo "[8/8] Generated CA Bundle"
 
 # Clean up serial files
 rm -f "$CERT_DIR"/*.srl
