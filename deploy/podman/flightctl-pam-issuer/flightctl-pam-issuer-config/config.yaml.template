@@ -35,3 +35,6 @@ auth:
     allowPublicClientWithoutPKCE: {{if .global.auth.pamOidcIssuer.allowPublicClientWithoutPKCE}}{{.global.auth.pamOidcIssuer.allowPublicClientWithoutPKCE}}{{else}}false{{end}}
     accessTokenExpiration: {{if .global.auth.pamOidcIssuer.accessTokenExpiration}}{{.global.auth.pamOidcIssuer.accessTokenExpiration}}{{else}}1h{{end}}
     refreshTokenExpiration: {{if .global.auth.pamOidcIssuer.refreshTokenExpiration}}{{.global.auth.pamOidcIssuer.refreshTokenExpiration}}{{else}}168h{{end}}
+    pendingSessionCookieMaxAge: {{if .global.auth.pamOidcIssuer.pendingSessionCookieMaxAge}}{{.global.auth.pamOidcIssuer.pendingSessionCookieMaxAge}}{{else}}10m{{end}}
+    authenticatedSessionCookieMaxAge: {{if .global.auth.pamOidcIssuer.authenticatedSessionCookieMaxAge}}{{.global.auth.pamOidcIssuer.authenticatedSessionCookieMaxAge}}{{else}}30m{{end}}
+    cookieHttpOnly: {{if .global.auth.pamOidcIssuer.cookieHttpOnly}}{{.global.auth.pamOidcIssuer.cookieHttpOnly}}{{else}}true{{end}}
