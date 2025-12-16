@@ -9,6 +9,7 @@ ContainerName=flightctl-ui
 Image={{ .Ui.Image }}:{{ .Ui.Tag }}
 Pull=newer
 Network=flightctl.network
+AddHost=%H:host-gateway
 EnvironmentFile=/etc/flightctl/flightctl-ui/env
 
 PublishPort=443:8080

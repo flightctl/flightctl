@@ -8,7 +8,7 @@ Wants=flightctl-db-wait.service
 ContainerName=flightctl-alertmanager
 Image={{ .Alertmanager.Image }}:{{ .Alertmanager.Tag }}
 Network=flightctl.network
-
+AddHost=%H:host-gateway
 # Run Alertmanager with the config file
 Exec=--config.file=/usr/local/etc/alertmanager/alertmanager.yml --storage.path=/var/lib/alertmanager
 

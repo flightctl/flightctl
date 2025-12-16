@@ -9,6 +9,7 @@ ContainerName=flightctl-cli-artifacts
 Image={{ .CliArtifacts.Image }}:{{ .CliArtifacts.Tag }}
 Pull=newer
 Network=flightctl.network
+AddHost=%H:host-gateway
 EnvironmentFile=/etc/flightctl/flightctl-cli-artifacts/env
 Volume=flightctl-cli-artifacts-certs:/app/certs:ro,z
 Volume=/etc/flightctl/flightctl-cli-artifacts/nginx.conf:/etc/nginx/nginx.conf:ro,z
