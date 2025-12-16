@@ -140,7 +140,7 @@ func TestSignerChains(t *testing.T) {
 				subject := "foo"
 				csr := makeCSR(t, subject, orgID)
 				req, err := NewSignRequest(
-					cfg.ClientBootstrapSignerName,
+					cfg.DeviceEnrollmentSignerName,
 					*csr,
 					WithResourceName(subject),
 				)
@@ -166,7 +166,7 @@ func TestSignerChains(t *testing.T) {
 			build: func() (context.Context, SignRequest) {
 				fingerprint := "abcdef0123456789"
 				csr := makeCSR(t, fingerprint, orgID)
-				req, err := NewSignRequest(cfg.DeviceEnrollmentSignerName, *csr, WithResourceName(fingerprint))
+				req, err := NewSignRequest(cfg.DeviceManagementSignerName, *csr, WithResourceName(fingerprint))
 				if err != nil {
 					t.Fatalf("NewSignRequest: %v", err)
 				}
@@ -189,14 +189,14 @@ func TestSignerChains(t *testing.T) {
 			build: func() (context.Context, SignRequest) {
 				fingerprint := "abcdef0123456789"
 				csr := makeCSR(t, fingerprint, orgID)
-				req, err := NewSignRequest(cfg.DeviceEnrollmentSignerName, *csr, WithResourceName(fingerprint))
+				req, err := NewSignRequest(cfg.DeviceManagementSignerName, *csr, WithResourceName(fingerprint))
 				if err != nil {
 					t.Fatalf("NewSignRequest: %v", err)
 				}
 				// Simulate peer cert signed by bootstrap signer
 				peer := &x509.Certificate{}
 				// Inject signer name extension for bootstrap on the mock peer cert via ExtraExtensions
-				peer.ExtraExtensions = append(peer.ExtraExtensions, pkix.Extension{Id: OIDSignerName, Value: mustASN1(t, cfg.ClientBootstrapSignerName)})
+				peer.ExtraExtensions = append(peer.ExtraExtensions, pkix.Extension{Id: OIDSignerName, Value: mustASN1(t, cfg.DeviceEnrollmentSignerName)})
 				ctx := context.WithValue(withOrgCtx(orgID), consts.TLSPeerCertificateCtxKey, peer)
 				return ctx, req
 			},
@@ -207,7 +207,7 @@ func TestSignerChains(t *testing.T) {
 			build: func() (context.Context, SignRequest) {
 				fingerprint := "abcdef0123456789"
 				csr := makeCSR(t, fingerprint, orgID)
-				req, err := NewSignRequest(cfg.DeviceEnrollmentSignerName, *csr, WithResourceName(fingerprint))
+				req, err := NewSignRequest(cfg.DeviceManagementSignerName, *csr, WithResourceName(fingerprint))
 				if err != nil {
 					t.Fatalf("NewSignRequest: %v", err)
 				}

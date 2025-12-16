@@ -386,7 +386,7 @@ func NewDefault(opts ...ConfigOption) *Config {
 			BaseUrl:                "https://localhost:3443",
 			BaseAgentEndpointUrl:   "https://localhost:7443",
 			ServerCertName:         "server",
-			ServerCertValidityDays: 365,
+			ServerCertValidityDays: 730,
 			LogLevel:               "info",
 			HttpReadTimeout:        util.Duration(5 * time.Minute),
 			HttpReadHeaderTimeout:  util.Duration(5 * time.Minute),

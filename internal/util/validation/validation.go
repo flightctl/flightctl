@@ -2,6 +2,7 @@ package validation
 
 import (
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"regexp"
@@ -15,6 +16,10 @@ import (
 	k8smetav1validation "k8s.io/apimachinery/pkg/apis/meta/v1/validation"
 	k8sutilvalidation "k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+)
+
+var (
+	ErrForbiddenDevicePath = errors.New("forbidden device path")
 )
 
 // ValidateResourceName validates that metadata.name is not empty and is a valid name in K8s.
@@ -164,6 +169,53 @@ func ValidateFileOrDirectoryPath(s *string, path string) []error {
 	}
 	cleanS := strings.TrimSuffix(*s, "/")
 	return ValidateFilePath(&cleanS, path)
+}
+
+// DenyForbiddenDevicePath validates that the given device path does not target
+// agent-managed or read-only directories/files that must not be written by config providers.
+// Denied paths:
+//   - /var/lib/flightctl (and all subpaths)
+//   - /usr/lib/flightctl (and all subpaths)
+//   - /etc/flightctl/certs (and all subpaths)
+//   - /etc/flightctl/config.yaml (file itself)
+//   - /etc/flightctl/config.yml (file itself)
+//
+// The check denies the exact file and the roots listed above and any subpath under those roots.
+func DenyForbiddenDevicePath(p string) error {
+	// Only single absolute Linux paths are allowed in rendered configs
+	if p == "" || !filepath.IsAbs(p) {
+		return fmt.Errorf("invalid device path (must be absolute): %q", p)
+	}
+	// Reject PATH-like lists which could alter semantics downstream
+	if strings.ContainsRune(p, ':') {
+		return fmt.Errorf("invalid device path (must not contain ':'): %q", p)
+	}
+	clean := filepath.Clean(p)
+
+	// Always-denied roots
+	deniedRoots := []string{
+		"/var/lib/flightctl",
+		"/usr/lib/flightctl",
+		"/etc/flightctl/certs",
+	}
+
+	for _, root := range deniedRoots {
+		if clean == root || strings.HasPrefix(clean, root+"/") {
+			return fmt.Errorf("%w: writing under %q is not allowed: %q", ErrForbiddenDevicePath, root, p)
+		}
+	}
+
+	deniedConfigFiles := []string{
+		filepath.Clean("/etc/flightctl/config.yaml"),
+		filepath.Clean("/etc/flightctl/config.yml"),
+	}
+	for _, deniedFile := range deniedConfigFiles {
+		if clean == deniedFile {
+			return fmt.Errorf("%w: writing agent config file is not allowed: %q", ErrForbiddenDevicePath, p)
+		}
+	}
+
+	return nil
 }
 
 func ValidateLinuxUserGroup(s *string, path string) []error {

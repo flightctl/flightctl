@@ -509,7 +509,7 @@ func newSignRequestFromEnrollment(cfg *ca.Config, er *api.EnrollmentRequest) (si
 		opts = append(opts, signer.WithResourceName(*er.Metadata.Name))
 	}
 
-	request, err := signer.NewSignRequestFromBytes(cfg.DeviceEnrollmentSignerName, csrData, opts...)
+	request, err := signer.NewSignRequestFromBytes(cfg.DeviceManagementSignerName, csrData, opts...)
 
 	if err != nil {
 		return nil, isTPM, err

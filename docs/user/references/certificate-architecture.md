@@ -5,10 +5,10 @@ Flight Control uses X.509 certificates with mTLS for all agent-service communica
 ## Certificate Chain of Trust
 
 ```text
-FlightCtl Root CA (10yr)
+Flight Control Root CA (10yr)
 ├── Server Certificates (2yr)
 └── Client-Signer CA (10yr, intermediate)
-    └── Client Certificates (7d - 1yr)
+    └── Client Certificates (1yr)
 ```
 
 For TPM attestation certificates, see [Configuring Device Attestation](../installing/configuring-device-attestation.md).
@@ -17,13 +17,14 @@ For TPM attestation certificates, see [Configuring Device Attestation](../instal
 
 | Certificate        | Purpose            | Validity | Signed By               |
 | ------------------ | ------------------ | -------- | ----------------------- |
-| FlightCtl Root CA  | Root of trust      | 10 years | Auto generated (self-signed) |
+| Flight Control Root CA  | Root of trust      | 10 years | Auto generated (self-signed) |
 | Client-Signer CA   | Signs client certs | 10 years | Root CA          |
-| API Server         | API TLS            | 2 years  | Root CA          |
-| Telemetry Gateway  | Metrics TLS        | 2 years  | Root CA          |
-| Alertmanager Proxy | Alerts TLS         | 2 years  | Root CA          |
-| Enrollment         | Device enrollment  | 7 days   | Client-Signer CA |
-| Device Management  | Device operations  | 1 year   | Client-Signer CA |
+| [API Server](../../../internal/crypto/signer/signer_server_svc.go)         | API TLS            | 2 years  | Root CA          |
+| [Telemetry Gateway](../../../internal/crypto/signer/signer_server_svc.go)  | Metrics TLS        | 2 years  | Root CA          |
+| [Alertmanager Proxy](../../../internal/crypto/signer/signer_server_svc.go) | Alerts TLS         | 2 years  | Root CA          |
+| [Device Enrollment](../../../internal/crypto/signer/signer_device_enrollment.go)         | Device enrollment  | 1 year   | Client-Signer CA |
+| [Device Management](../../../internal/crypto/signer/signer_device_management.go)  | Device operations  | 1 year   | Client-Signer CA |
+| [Device Services](../../../internal/crypto/signer/signer_device_svc_client.go)    | Device services    | 1 year   | Client-Signer CA |
 
 ## File Locations
 
