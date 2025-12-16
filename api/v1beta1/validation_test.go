@@ -1917,3 +1917,108 @@ func TestAuthStaticRoleAssignment_Validate(t *testing.T) {
 		})
 	}
 }
+
+func TestInlineConfigProviderSpec_Validate_ForbiddenPaths(t *testing.T) {
+	tests := []struct {
+		name    string
+		path    string
+		wantErr bool
+	}{
+		{"reject /var/lib/flightctl", "/var/lib/flightctl/data.txt", true},
+		{"reject /usr/lib/flightctl", "/usr/lib/flightctl/binary", true},
+		{"reject /etc/flightctl/certs", "/etc/flightctl/certs/ca.crt", true},
+		{"reject /etc/flightctl/config.yaml", "/etc/flightctl/config.yaml", true},
+		{"allow /etc/myapp", "/etc/myapp/config.txt", false},
+		{"allow /etc/flightctl custom", "/etc/flightctl/custom.txt", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			spec := InlineConfigProviderSpec{
+				Name:   "test-config",
+				Inline: []FileSpec{{Path: tt.path, Content: "test", Mode: lo.ToPtr(0644)}},
+			}
+
+			errs := spec.Validate(false)
+
+			if tt.wantErr {
+				require.NotEmpty(t, errs)
+			} else {
+				require.Empty(t, errs)
+			}
+		})
+	}
+}
+
+func TestHttpConfigProviderSpec_Validate_ForbiddenPaths(t *testing.T) {
+	tests := []struct {
+		name     string
+		filePath string
+		wantErr  bool
+	}{
+		{"reject /var/lib/flightctl", "/var/lib/flightctl/data.txt", true},
+		{"reject /etc/flightctl/certs", "/etc/flightctl/certs/key.pem", true},
+		{"allow /etc/myapp", "/etc/myapp/config.yaml", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			spec := HttpConfigProviderSpec{
+				Name: "test-http-config",
+				HttpRef: struct {
+					FilePath   string  `json:"filePath"`
+					Repository string  `json:"repository"`
+					Suffix     *string `json:"suffix,omitempty"`
+				}{
+					FilePath:   tt.filePath,
+					Repository: "test-repo",
+				},
+			}
+
+			errs := spec.Validate(false)
+
+			if tt.wantErr {
+				require.NotEmpty(t, errs)
+			} else {
+				require.Empty(t, errs)
+			}
+		})
+	}
+}
+
+func TestKubernetesSecretProviderSpec_Validate_ForbiddenPaths(t *testing.T) {
+	tests := []struct {
+		name      string
+		mountPath string
+		wantErr   bool
+	}{
+		{"reject /etc/flightctl/certs", "/etc/flightctl/certs", true},
+		{"reject /var/lib/flightctl", "/var/lib/flightctl/data", true},
+		{"allow /etc/myapp", "/etc/myapp/secrets", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			spec := KubernetesSecretProviderSpec{
+				Name: "test-k8s-config",
+				SecretRef: struct {
+					MountPath string `json:"mountPath"`
+					Name      string `json:"name"`
+					Namespace string `json:"namespace"`
+				}{
+					MountPath: tt.mountPath,
+					Name:      "test-secret",
+					Namespace: "default",
+				},
+			}
+
+			errs := spec.Validate(false)
+
+			if tt.wantErr {
+				require.NotEmpty(t, errs)
+			} else {
+				require.Empty(t, errs)
+			}
+		})
+	}
+}
