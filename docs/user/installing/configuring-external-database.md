@@ -461,8 +461,9 @@ db:
   external:
      hostname: "postgres.example.com"
      port: 5432
-     sslmode: "require"       # TLS/SSL connection mode. If verify-ca or verify-full, user has to create the DB ca.crt at /etc/flightctl/pki/db/ca.crt
-     useClientCertAuth: true  # If true, user has to create /etc/flightctl/pki/db/client.crt and /etc/flightctl/pki/db/client.key
+     sslmode: "require"       # TLS/SSL connection mode
+     tlsConfigMapName: ""     # ConfigMap containing CA certificate (automatically mounted at /etc/ssl/postgres/)
+     tlsSecretName: ""        # Secret containing client certificates (automatically mounted at /etc/ssl/postgres/)
 ```
 
 **TLS/SSL Modes:**
@@ -495,13 +496,12 @@ kubectl create secret generic postgres-client-certs \
 
 ```yaml
 db:
-  type: "external"
-  external:
-    hostname: "postgres.example.com"
-    sslmode: "verify-ca"
-    # Reference the certificate resources
-    sslConfigMap: "postgres-ca-cert"     # ConfigMap containing CA certificate
-    sslSecret: "postgres-client-certs"   # Secret containing client certificates
+  external: "enabled"
+  hostname: "postgres.example.com"
+  sslmode: "verify-ca"
+  # Reference the certificate resources
+  sslConfigMap: "postgres-ca-cert"     # ConfigMap containing CA certificate
+  sslSecret: "postgres-client-certs"   # Secret containing client certificates
 ```
 
 The certificates will be automatically mounted at `/etc/ssl/postgres/` in all database-connected services.
@@ -512,23 +512,26 @@ The certificates will be automatically mounted at `/etc/ssl/postgres/` in all da
 
 ```bash
 sudo mkdir -p /etc/flightctl/ssl/postgres
-sudo cp /path/to/ca-cert.pem /etc/flightctl/pki/db/ca.crt
-sudo cp /path/to/client-cert.pem /etc/flightctl/pki/db/client.crt
-sudo cp /path/to/client-key.pem /etc/flightctl/pki/db/client.key
-sudo chmod 600 /etc/flightctl/pki/db/*.key
-sudo chmod 644 /etc/flightctl/pki/db/*.crt
+sudo cp /path/to/ca-cert.pem /etc/flightctl/ssl/postgres/
+sudo cp /path/to/client-cert.pem /etc/flightctl/ssl/postgres/
+sudo cp /path/to/client-key.pem /etc/flightctl/ssl/postgres/
+sudo chmod 600 /etc/flightctl/ssl/postgres/*-key.pem
+sudo chmod 644 /etc/flightctl/ssl/postgres/*-cert.pem
 ```
 
 ##### Step 2: Update service-config.yaml
 
 ```yaml
 db:
-  type: "external"
-  external:
-    hostname: "postgres.example.com"
-    sslmode: "verify-ca"
-    useClientCertAuth: true
+  external: "enabled"
+  hostname: "postgres.example.com"
+  sslmode: "verify-ca"
+  sslcert: "/etc/ssl/postgres/client-cert.pem"
+  sslkey: "/etc/ssl/postgres/client-key.pem"
+  sslrootcert: "/etc/ssl/postgres/ca-cert.pem"
 ```
+
+**Note**: SSL certificates are automatically mounted in all Flight Control services when using the certificate paths above in your service-config.yaml.
 
 ### TLS/SSL Certificate Generation Example
 
@@ -585,6 +588,8 @@ PGPASSWORD=your_password psql \
 **Common TLS/SSL connection problems during deployment:**
 
 1. **Certificate not found errors**:
+   - Verify certificate paths match mounted locations (`/etc/ssl/postgres/`)
+   - Check that `sslConfigMap` and `sslSecret` are correctly referenced
    - Ensure certificates are properly mounted in all database-connected services
 
 2. **TLS/SSL verification failures**:
