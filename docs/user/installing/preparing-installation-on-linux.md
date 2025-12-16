@@ -35,7 +35,7 @@ graph TB
             API[API Server<br/>:3443 - User API<br/>:7443 - Agent API<br/>:15690 - Metrics<br/>:15691 - DB Metrics]
             WORKER[Worker Processes<br/>Background Tasks]
             PERIODIC[Periodic Tasks<br/>Scheduled Jobs]
-            UI[Web UI<br/>:8080/:9000]
+            UI[Web UI<br/>:8080/:9001]
             CLI_ARTIFACTS[CLI Artifacts<br/>:8090]
         end
 
@@ -67,7 +67,7 @@ graph TB
     %% User Communication Flow
     USERS -.->|"HTTPS<br/>Port 443"| LB_USER
     LB_USER --> API
-    USERS -.->|"HTTP/HTTPS<br/>Port 9000"| UI
+    USERS -.->|"HTTP/HTTPS<br/>Port 9001"| UI
     USERS -.->|"HTTP/HTTPS<br/>Port 8090"| CLI_ARTIFACTS
     USERS -.->|"HTTPS<br/>Port 8444"| AUTH
 
@@ -150,7 +150,7 @@ graph TB
 ### Web User Interface
 
 - **Port 8080** (TCP) - **HTTP/HTTPS** - Web UI (exposed via reverse proxy)
-- **Port 9000** (TCP) - **HTTP** - Web UI (development/nodePort deployments)
+- **Port 9001** (TCP) - **HTTP** - Web UI (development/nodePort deployments)
 
 ### Authentication Services
 
@@ -223,7 +223,7 @@ ACCEPT tcp port 7443 from any (agents can be on any network)
 
 ```text
 ACCEPT tcp port 3443 from trusted networks/users
-ACCEPT tcp port 9000 from trusted networks/users (UI - nodePort deployments)
+ACCEPT tcp port 9001 from trusted networks/users (UI - nodePort deployments)
 ACCEPT tcp port 8090 from trusted networks/users (CLI artifacts)
 ```
 
@@ -437,7 +437,7 @@ telnet api.flightctl.example.com 3443
 
 ### Development Environment
 
-- Uses NodePort services (ports 3443, 7443, 9000, 8444)
+- Uses NodePort services (ports 3443, 7443, 9001, 8444)
 - May expose internal services for debugging
 - Less restrictive firewall rules
 
@@ -460,7 +460,7 @@ telnet api.flightctl.example.com 3443
 | API Server | 3443  | HTTPS | External | Main API endpoint |
 | API Server | 7443  | HTTPS/mTLS | External | Agent endpoint |
 | Web UI | 8080  | HTTP/HTTPS | External | Web interface |
-| Web UI | 9000  | HTTP | External | Development UI |
+| Web UI | 9001  | HTTP | External | Development UI |
 | PostgreSQL | 5432  | TCP | Internal | Database |
 | Redis | 6379  | TCP | Internal | Key-value store |
 | Internal OIDC | 8444  | HTTPS | External | Authentication |

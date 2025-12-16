@@ -55,13 +55,12 @@ telemetryGateway:
     image: localhost/flightctl-telemetry-gateway
     tag: latest
 
-
 dev:
   exposeServicesMethod: "nodePort"
   nodePorts:
     api: 3443
     agent: 7443
-    ui: 9000
+    ui: 9001
     db: 5432
     kv: 6379
     alertmanager: 9093
