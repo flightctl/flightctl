@@ -45,6 +45,7 @@ global:
         - profile
         - email
         - roles
+        - offline_access
       pamService: flightctl
 
 db:

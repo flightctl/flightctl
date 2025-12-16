@@ -202,8 +202,11 @@ func oauth2RefreshTokenFlow(refreshToken string, getClient GetClientFunc) (AuthI
 		return ret, fmt.Errorf("failed to parse token expiration: %w", err)
 	}
 
+	idTokenString := getIdToken(accessData.ResponseData)
+
 	ret.AccessToken = accessData.AccessToken
 	ret.RefreshToken = accessData.RefreshToken // May be empty if not returned
+	ret.IdToken = idTokenString
 	ret.ExpiresIn = expiresIn
 
 	return ret, nil
