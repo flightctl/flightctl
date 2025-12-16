@@ -1,15 +1,25 @@
 database:
-  hostname: {{if eq .db.external "enabled"}}{{.db.hostname}}{{else}}flightctl-db{{end}}
+{{- if eq .db.type "external"}}
+  hostname: {{.db.external.hostname}}
   type: pgsql
-  port: {{if .db.port}}{{.db.port}}{{else}}5432{{end}}
-  name: {{if .db.name}}{{.db.name}}{{else}}flightctl{{end}}
-  user: {{if .db.user}}{{.db.user}}{{else}}admin{{end}}
-{{if eq .db.external "enabled"}}
-  {{if .db.sslmode}}sslmode: {{.db.sslmode}}{{end}}
-  {{if .db.sslcert}}sslcert: {{.db.sslcert}}{{end}}
-  {{if .db.sslkey}}sslkey: {{.db.sslkey}}{{end}}
-  {{if .db.sslrootcert}}sslrootcert: {{.db.sslrootcert}}{{end}}
-{{end}}
+  port: {{.db.external.port}}
+  name: {{.db.external.name}}
+  {{- if .db.external.sslmode}}
+  sslmode: {{.db.external.sslmode}}
+  {{- end}}
+  {{- if or (eq .db.external.sslmode "verify-full") (eq .db.external.sslmode "verify-ca") }}
+  sslrootcert: /root/.flightctl/certs/db/ca.crt
+  {{- end }}
+  {{- if .db.external.useClientCertAuth }}
+  sslcert: /root/.flightctl/certs/db/client.crt
+  sslkey: /root/.flightctl/certs/db/client.key
+  {{- end }}
+{{- else}}
+  hostname: flightctl-db
+  type: pgsql
+  port: 5432
+  name: flightctl
+{{- end}}
 kv:
   hostname: flightctl-kv
   port: 6379

@@ -34,11 +34,7 @@ var loginFormErrorHTML string
 
 // LoginFormData represents the data used to populate the login form template
 type LoginFormData struct {
-	ClientID            string
-	RedirectURI         string
-	State               string
-	CodeChallenge       string
-	CodeChallengeMethod string
+	SessionID string // Session ID - all other data is stored in the session
 }
 
 // AuthorizationCodeData represents stored authorization code data
@@ -201,6 +197,28 @@ func (s *PAMOIDCProvider) getRefreshTokenExpiration() time.Duration {
 		return 7 * 24 * time.Hour // fallback if config is nil
 	}
 	return time.Duration(s.config.RefreshTokenExpiration)
+}
+
+// getPendingSessionExpiration returns the pending session expiration duration from config
+func (s *PAMOIDCProvider) getPendingSessionExpiration() time.Duration {
+	if s.config == nil {
+		return 10 * time.Minute // fallback if config is nil
+	}
+	if s.config.PendingSessionCookieMaxAge == 0 {
+		return 10 * time.Minute // default: 10 minutes
+	}
+	return time.Duration(s.config.PendingSessionCookieMaxAge)
+}
+
+// getAuthenticatedSessionExpiration returns the authenticated session expiration duration from config
+func (s *PAMOIDCProvider) getAuthenticatedSessionExpiration() time.Duration {
+	if s.config == nil {
+		return 30 * time.Minute // fallback if config is nil
+	}
+	if s.config.AuthenticatedSessionCookieMaxAge == 0 {
+		return 30 * time.Minute // default: 30 minutes
+	}
+	return time.Duration(s.config.AuthenticatedSessionCookieMaxAge)
 }
 
 // Token implements OIDCProvider interface - handles OAuth2 token requests
@@ -734,32 +752,51 @@ func (s *PAMOIDCProvider) Authorize(ctx context.Context, req *pamapi.AuthAuthori
 
 	// Check if user is already authenticated via session
 	if sessionID == "" {
-		s.log.Debugf("Authorize: no session ID found, returning login form")
-		// User not authenticated, return embedded login form with PKCE parameters
-		loginForm := s.GetLoginForm(req.ClientId, req.RedirectUri, lo.FromPtrOr(req.State, ""), codeChallenge, string(codeChallengeMethod))
-		return &AuthorizeResponse{
-			Type:    AuthorizeResponseTypeHTML,
-			Content: loginForm,
-		}, nil
+		s.log.Debugf("Authorize: no session ID found, creating pending session and returning login form")
+		return s.createPendingSessionAndReturnLoginForm(req, codeChallenge, codeChallengeMethod)
 	}
 	state := lo.FromPtrOr(req.State, "")
 
 	// Check if session exists and is valid
 	sessionData, exists := s.IsUserAuthenticated(sessionID)
 	if !exists {
-		s.log.Debugf("Authorize: session not found or expired, returning login form")
-		// Session invalid or expired, return login form with PKCE parameters
-		loginForm := s.GetLoginForm(req.ClientId, req.RedirectUri, lo.FromPtrOr(req.State, ""), codeChallenge, string(codeChallengeMethod))
+		s.log.Debugf("Authorize: session not found or expired, creating new pending session and returning login form")
+		return s.createPendingSessionAndReturnLoginForm(req, codeChallenge, codeChallengeMethod)
+	}
+
+	// Check if user is actually logged in
+	if !sessionData.IsLoggedIn {
+		s.log.Debugf("Authorize: session exists but user not logged in, updating session and returning login form")
+		// Session exists but user hasn't authenticated yet
+		// Update session with any new parameters from request (in case they changed)
+		sessionData.ClientID = req.ClientId
+		sessionData.RedirectURI = req.RedirectUri
+		sessionData.State = state
+		if req.Scope != nil && *req.Scope != "" {
+			sessionData.Scope = *req.Scope // Update scope if provided
+		}
+		sessionData.CodeChallenge = codeChallenge
+		sessionData.CodeChallengeMethod = codeChallengeMethod
+		s.sessionStore.CreateSession(sessionID, sessionData) // Update the session
+
+		loginForm := s.GetLoginForm(sessionID)
 		return &AuthorizeResponse{
-			Type:    AuthorizeResponseTypeHTML,
-			Content: loginForm,
+			Type:      AuthorizeResponseTypeHTML,
+			Content:   loginForm,
+			SessionID: sessionID,
 		}, nil
 	}
+
+	// Update session with any new parameters (in case they changed)
 	sessionData.State = state
 	sessionData.CodeChallenge = codeChallenge
 	sessionData.CodeChallengeMethod = codeChallengeMethod
 	sessionData.ClientID = req.ClientId
 	sessionData.RedirectURI = req.RedirectUri
+	if req.Scope != nil && *req.Scope != "" {
+		sessionData.Scope = *req.Scope // Update scope if provided
+	}
+	s.sessionStore.CreateSession(sessionID, sessionData)
 
 	// User is authenticated, get username from session
 	username := sessionData.Username
@@ -773,8 +810,11 @@ func (s *PAMOIDCProvider) Authorize(ctx context.Context, req *pamapi.AuthAuthori
 	}
 	s.log.Debugf("Authorize: generated authorization code")
 
-	// Use the requested scope if provided, otherwise determine based on user's role/group membership
-	scopes := lo.FromPtrOr(req.Scope, s.determineUserScopes(username))
+	// Use scope from session (preserves original request), otherwise determine based on user's role/group membership
+	scopes := sessionData.Scope
+	if scopes == "" {
+		scopes = s.determineUserScopes(username)
+	}
 	s.log.Debugf("Authorize: determined scopes - %s", scopes)
 
 	// Store authorization code with expiration (10 minutes)
@@ -786,10 +826,10 @@ func (s *PAMOIDCProvider) Authorize(ctx context.Context, req *pamapi.AuthAuthori
 		Scope:               scopes,
 		State:               sessionData.State,
 		Username:            username,
-		ExpiresAt:           time.Now().Add(10 * time.Minute),
+		ExpiresAt:           time.Now().Add(s.getPendingSessionExpiration()),
 		CreatedAt:           time.Now(),
-		CodeChallenge:       codeChallenge,
-		CodeChallengeMethod: codeChallengeMethod,
+		CodeChallenge:       sessionData.CodeChallenge,
+		CodeChallengeMethod: sessionData.CodeChallengeMethod,
 	}
 
 	s.codeStore.StoreCode(codeData)
@@ -820,8 +860,15 @@ func (s *PAMOIDCProvider) Authorize(ctx context.Context, req *pamapi.AuthAuthori
 }
 
 // Login handles the login form submission
-func (s *PAMOIDCProvider) Login(ctx context.Context, username, password, clientID, redirectURI, state, codeChallenge, codeChallengeMethod string) (*LoginResult, error) {
+func (s *PAMOIDCProvider) Login(ctx context.Context, username, password, sessionID string) (*LoginResult, error) {
 	s.log.Debugf("Login: attempting authentication for user %s", username)
+
+	// Retrieve the pending session
+	sessionData, exists := s.sessionStore.GetSession(sessionID)
+	if !exists {
+		s.log.Warnf("Login: session not found or expired")
+		return nil, errors.New("invalid_request")
+	}
 
 	// Validate credentials with PAM/NSS
 	s.log.Debugf("Login: calling PAM authentication for user %s", username)
@@ -831,31 +878,31 @@ func (s *PAMOIDCProvider) Login(ctx context.Context, username, password, clientI
 	}
 	s.log.Infof("Login: PAM authentication successful for user %s", username)
 
-	// User is authenticated, create session (step 2: stored in cookie for subsequent authorize call)
-	sessionID, err := generateSessionID()
-	if err != nil {
-		s.log.Errorf("Login: failed to generate session ID for user %s - %v", username, err)
-		return nil, errors.New("server_error")
-	}
-	s.log.Debugf("Login: generated session ID for user %s", username)
+	// Update the existing session to mark user as logged in
+	sessionData.Username = username
+	sessionData.IsLoggedIn = true
+	sessionData.LoginTime = time.Now()
+	sessionData.ExpiresAt = time.Now().Add(s.getAuthenticatedSessionExpiration())
 
-	// Create user session with PKCE parameters
-	// SECURITY: Store PKCE parameters in session so they persist through the redirect
-	s.CreateUserSession(sessionID, username, clientID, redirectURI, state, codeChallenge, codeChallengeMethod)
-	s.log.Debugf("Login: created user session for %s", username)
+	// Update the session
+	s.sessionStore.CreateSession(sessionID, sessionData)
+	s.log.Debugf("Login: updated session for %s", username)
 
 	// Redirect back to authorization endpoint
-	// Include all PKCE parameters in the authorization URL
+	// All parameters are already in the session, so we just need the basic authorize URL
 	authURL := fmt.Sprintf("/api/v1/auth/authorize?response_type=code&client_id=%s&redirect_uri=%s",
-		url.QueryEscape(clientID), url.QueryEscape(redirectURI))
-	if state != "" {
-		authURL += fmt.Sprintf("&state=%s", url.QueryEscape(state))
+		url.QueryEscape(sessionData.ClientID), url.QueryEscape(sessionData.RedirectURI))
+	if sessionData.State != "" {
+		authURL += fmt.Sprintf("&state=%s", url.QueryEscape(sessionData.State))
 	}
-	if codeChallenge != "" {
-		authURL += fmt.Sprintf("&code_challenge=%s", url.QueryEscape(codeChallenge))
+	if sessionData.Scope != "" {
+		authURL += fmt.Sprintf("&scope=%s", url.QueryEscape(sessionData.Scope))
 	}
-	if codeChallengeMethod != "" {
-		authURL += fmt.Sprintf("&code_challenge_method=%s", url.QueryEscape(codeChallengeMethod))
+	if sessionData.CodeChallenge != "" {
+		authURL += fmt.Sprintf("&code_challenge=%s", url.QueryEscape(sessionData.CodeChallenge))
+	}
+	if sessionData.CodeChallengeMethod != "" {
+		authURL += fmt.Sprintf("&code_challenge_method=%s", url.QueryEscape(string(sessionData.CodeChallengeMethod)))
 	}
 
 	s.log.Debugf("Login: returning redirect for user %s", username)
@@ -868,10 +915,12 @@ func (s *PAMOIDCProvider) Login(ctx context.Context, username, password, clientI
 // SessionData represents user session information
 type SessionData struct {
 	Username            string
+	IsLoggedIn          bool // Indicates if user has authenticated
 	LoginTime           time.Time
 	ExpiresAt           time.Time
 	ClientID            string
 	RedirectURI         string
+	Scope               string // OAuth2 scope from authorization request
 	State               string
 	CodeChallenge       string                                        // PKCE code challenge
 	CodeChallengeMethod pamapi.AuthAuthorizeParamsCodeChallengeMethod // PKCE code challenge method
@@ -1174,14 +1223,51 @@ func (s *PAMOIDCProvider) IsUserAuthenticated(sessionID string) (*SessionData, b
 	return s.sessionStore.GetSession(sessionID)
 }
 
+// createPendingSessionAndReturnLoginForm creates a pending session with authorization parameters
+// and returns a login form response. Used when user is not authenticated or session is invalid.
+func (s *PAMOIDCProvider) createPendingSessionAndReturnLoginForm(req *pamapi.AuthAuthorizeParams, codeChallenge string, codeChallengeMethod pamapi.AuthAuthorizeParamsCodeChallengeMethod) (*AuthorizeResponse, error) {
+	// Generate a session ID for this pending authorization request
+	pendingSessionID, err := generateSessionID()
+	if err != nil {
+		s.log.Errorf("Authorize: failed to generate session ID - %v", err)
+		return nil, errors.New("server_error")
+	}
+
+	// Create a pending session with all authorization parameters
+	// This session will be updated after successful login
+	pendingSession := &SessionData{
+		Username:            "", // Not logged in yet
+		IsLoggedIn:          false,
+		LoginTime:           time.Time{}, // Not logged in yet
+		ExpiresAt:           time.Now().Add(s.getPendingSessionExpiration()),
+		ClientID:            req.ClientId,
+		RedirectURI:         req.RedirectUri,
+		Scope:               lo.FromPtrOr(req.Scope, ""),
+		State:               lo.FromPtrOr(req.State, ""),
+		CodeChallenge:       codeChallenge,
+		CodeChallengeMethod: codeChallengeMethod,
+	}
+	s.sessionStore.CreateSession(pendingSessionID, pendingSession)
+
+	// Return login form - session ID will be set as cookie by the handler
+	loginForm := s.GetLoginForm(pendingSessionID)
+	return &AuthorizeResponse{
+		Type:      AuthorizeResponseTypeHTML,
+		Content:   loginForm,
+		SessionID: pendingSessionID,
+	}, nil
+}
+
 // CreateUserSession creates a new user session
-func (s *PAMOIDCProvider) CreateUserSession(sessionID string, username, clientID, redirectURI, state, codeChallenge, codeChallengeMethod string) {
+func (s *PAMOIDCProvider) CreateUserSession(sessionID string, username, clientID, redirectURI, state, scope, codeChallenge, codeChallengeMethod string) {
 	sessionData := &SessionData{
 		Username:            username,
+		IsLoggedIn:          true,
 		LoginTime:           time.Now(),
-		ExpiresAt:           time.Now().Add(30 * time.Minute), // 30 minute session
+		ExpiresAt:           time.Now().Add(s.getAuthenticatedSessionExpiration()),
 		ClientID:            clientID,
 		RedirectURI:         redirectURI,
+		Scope:               scope,
 		State:               state,
 		CodeChallenge:       codeChallenge,
 		CodeChallengeMethod: pamapi.AuthAuthorizeParamsCodeChallengeMethod(codeChallengeMethod),
@@ -1208,13 +1294,10 @@ func (s *PAMOIDCProvider) GetLoginFormTemplate() *template.Template {
 
 // GetLoginForm returns the HTML for the login form
 // Uses html/template to safely escape user input and prevent XSS attacks
-func (s *PAMOIDCProvider) GetLoginForm(clientID, redirectURI, state, codeChallenge, codeChallengeMethod string) string {
+// All authorization parameters are stored in the session, only sessionID is needed
+func (s *PAMOIDCProvider) GetLoginForm(sessionID string) string {
 	data := LoginFormData{
-		ClientID:            clientID,
-		RedirectURI:         redirectURI,
-		State:               state,
-		CodeChallenge:       codeChallenge,
-		CodeChallengeMethod: codeChallengeMethod,
+		SessionID: sessionID,
 	}
 
 	var buf bytes.Buffer
@@ -1223,4 +1306,32 @@ func (s *PAMOIDCProvider) GetLoginForm(clientID, redirectURI, state, codeChallen
 	}
 
 	return buf.String()
+}
+
+// CreatePendingSessionAndGetLoginForm creates a pending session with the provided parameters
+// and returns the login form HTML. This is used for endpoints that don't go through Authorize.
+func (s *PAMOIDCProvider) CreatePendingSessionAndGetLoginForm(clientID, redirectURI, state, scope, codeChallenge, codeChallengeMethod string) (string, string, error) {
+	// Generate a session ID for this pending authorization request
+	sessionID, err := generateSessionID()
+	if err != nil {
+		return "", "", fmt.Errorf("failed to generate session ID: %w", err)
+	}
+
+	// Create a pending session with all authorization parameters
+	pendingSession := &SessionData{
+		Username:            "",
+		IsLoggedIn:          false,
+		LoginTime:           time.Time{},
+		ExpiresAt:           time.Now().Add(s.getPendingSessionExpiration()),
+		ClientID:            clientID,
+		RedirectURI:         redirectURI,
+		Scope:               scope,
+		State:               state,
+		CodeChallenge:       codeChallenge,
+		CodeChallengeMethod: pamapi.AuthAuthorizeParamsCodeChallengeMethod(codeChallengeMethod),
+	}
+	s.sessionStore.CreateSession(sessionID, pendingSession)
+
+	loginForm := s.GetLoginForm(sessionID)
+	return loginForm, sessionID, nil
 }

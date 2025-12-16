@@ -131,6 +131,22 @@ paths:
           schema:
             type: string
           description: OAuth2 state parameter.
+        - name: scope
+          in: query
+          schema:
+            type: string
+          description: OAuth2 scope.
+        - name: code_challenge
+          in: query
+          schema:
+            type: string
+          description: PKCE code challenge.
+        - name: code_challenge_method
+          in: query
+          schema:
+            type: string
+            enum: [S256]
+          description: PKCE code challenge method (only S256 supported).
       responses:
         "200":
           description: Login form HTML
@@ -147,7 +163,8 @@ paths:
     post:
       tags:
         - authentication
-      description: Process login form submission.
+      description: |
+        Process login form submission. The session_id is provided via a cookie (set when the login form is returned).
       operationId: authLoginPost
       requestBody:
         required: true
@@ -156,34 +173,38 @@ paths:
             schema:
               type: object
               properties:
-                client_id:
-                  type: string
-                redirect_uri:
-                  type: string
-                state:
-                  type: string
                 username:
                   type: string
+                  description: Username for authentication
                 password:
                   type: string
+                  description: Password for authentication
+                  writeOnly: true
               required:
                 - username
                 - password
       responses:
-        "302":
-          description: Redirect to authorization endpoint with session
+        "200":
+          description: Successful login - returns redirect URL to authorization endpoint
+          content:
+            text/plain:
+              schema:
+                type: string
+                description: Redirect URL to /api/v1/auth/authorize with all parameters
         "400":
-          description: Bad request
+          description: Bad request (missing required fields or invalid session)
           content:
-            application/json:
+            text/plain:
               schema:
-                $ref: '#/components/schemas/OAuth2Error'
+                type: string
+                description: Error message
         "401":
-          description: Authentication failed
+          description: Authentication failed (invalid credentials)
           content:
-            application/json:
+            text/plain:
               schema:
-                $ref: '#/components/schemas/OAuth2Error'
+                type: string
+                description: Error message
   /api/v1/auth/token:
     post:
       tags:
