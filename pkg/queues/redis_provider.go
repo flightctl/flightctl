@@ -197,22 +197,25 @@ func (r *redisProvider) newQueue(ctx context.Context, queueName string) (*redisQ
 	// Create consumer group name and consumer name
 	groupName := fmt.Sprintf("%s-group", queueName)
 	consumerName := fmt.Sprintf("%s-consumer-%s", queueName, r.processID)
-
-	// Ensure stream+group exist with passed context.
-	if err := r.client.XGroupCreateMkStream(ctx, queueName, groupName, "0").Err(); err != nil && !strings.Contains(err.Error(), "BUSYGROUP") {
-		return nil, fmt.Errorf("failed to create consumer group: %w", err)
-	}
+	ql := r.log.WithFields(logrus.Fields{
+		"consumerName":  consumerName,
+		"consumerGroup": groupName,
+	})
 
 	queue := &redisQueue{
 		name:         queueName,
 		client:       r.client,
 		groupName:    groupName,
 		consumerName: consumerName,
-		log:          r.log,
+		log:          ql,
 		wg:           r.wg,
 		processID:    r.processID,
 		retryConfig:  r.retryConfig,
 	}
+	if err := queue.ensureConsumerGroup(ctx); err != nil {
+		return nil, err
+	}
+
 	r.queues = append(r.queues, queue)
 	return queue, nil
 }
@@ -483,22 +486,19 @@ type redisQueue struct {
 	retryConfig  RetryConfig
 }
 
-// ensureConsumerGroup recreates the consumer group if it was lost (e.g., after Redis restart).
+// ensureConsumerGroup creates the consumer group or recreates if it was lost (e.g., after Redis restart).
 func (r *redisQueue) ensureConsumerGroup(ctx context.Context) error {
 	// This is idempotent - no need to synchronize
-	err := r.client.XGroupCreateMkStream(ctx, r.name, r.groupName, "0").Err()
-	if err == nil {
-		r.log.Info("consumer group ensured (created)")
-		return nil
+	if err := r.client.XGroupCreateMkStream(ctx, r.name, r.groupName, "0").Err(); err != nil {
+		// BUSYGROUP means it already exists - treat as success
+		if strings.Contains(err.Error(), "BUSYGROUP") {
+			r.log.Info("consumer group already exists")
+			return nil
+		}
+		return fmt.Errorf("failed to create consumer group: %w", err)
 	}
-
-	// BUSYGROUP means it already exists - treat as success
-	if strings.HasPrefix(err.Error(), "BUSYGROUP") {
-		r.log.Debug("consumer group already exists")
-		return nil
-	}
-
-	return fmt.Errorf("failed to create consumer group: %w", err)
+	r.log.Info("consumer group ensured")
+	return nil
 }
 
 // Helper functions for time bucket operations
@@ -671,16 +671,17 @@ func (r *redisQueue) consumeOnce(ctx context.Context, handler ConsumeHandler) er
 						JitterFactor: 0.2,
 					}
 					delay := calculateBackoff(attempt, infraRetryConfig)
-					time.Sleep(delay)
+					timer := time.NewTimer(delay)
+					select {
+					case <-ctx.Done():
+						timer.Stop()
+						return nil
+					case <-timer.C:
+					}
 					continue
 				}
-				// All retries exhausted, attempt to recreate the consumer group
-				r.log.WithError(err).Info("consumer group not found after retries, attempting to recreate")
-				if createErr := r.ensureConsumerGroup(ctx); createErr != nil {
-					parentSpan.RecordError(createErr)
-					parentSpan.SetStatus(codes.Error, createErr.Error())
-					return createErr
-				}
+				// All retries exhausted
+				r.log.WithError(err).Error("consumer group not found after retries")
 				return nil // Will read messages on next consume iteration
 			}
 			parentSpan.RecordError(err)
@@ -828,16 +829,7 @@ func (r *redisQueue) Complete(ctx context.Context, entryID string, body []byte, 
 		currentRetryCount := 0
 		if msgs, xrErr := r.client.XRange(ctx, r.name, entryID, entryID).Result(); xrErr == nil && len(msgs) > 0 {
 			if retryCountVal, ok := msgs[0].Values["retryCount"]; ok {
-				switch v := retryCountVal.(type) {
-				case int:
-					currentRetryCount = v
-				case int64:
-					currentRetryCount = int(v)
-				case string:
-					if count, parseErr := strconv.Atoi(v); parseErr == nil {
-						currentRetryCount = count
-					}
-				}
+				currentRetryCount = extractRetryCountFromValue(retryCountVal)
 			}
 		} else {
 			r.log.WithField("entryID", entryID).
@@ -914,6 +906,21 @@ func (r *redisQueue) Complete(ctx context.Context, entryID string, body []byte, 
 	// This ensures they act as barriers preventing checkpoint advancement past their timestamp
 
 	return nil
+}
+
+// extractRetryCountFromValue extracts retry count from a message value
+func extractRetryCountFromValue(retryCountVal interface{}) int {
+	switch v := retryCountVal.(type) {
+	case int:
+		return v
+	case int64:
+		return int(v)
+	case string:
+		if count, parseErr := strconv.Atoi(v); parseErr == nil {
+			return count
+		}
+	}
+	return 0
 }
 
 // addToInFlightTasks adds a message to the in-flight tasks tracking set
@@ -1018,7 +1025,17 @@ func (r *redisQueue) ProcessTimedOutMessages(ctx context.Context, timeout time.D
 	// Get pending messages using XPENDING
 	pending, err := r.client.XPending(ctx, r.name, r.groupName).Result()
 	if err != nil {
-		return 0, fmt.Errorf("failed to get pending messages: %w", err)
+		if strings.Contains(err.Error(), "NOGROUP") {
+			r.log.Warnf("consumer group %s does not exist (lost?), recreating", r.groupName)
+			if errGroup := r.ensureConsumerGroup(ctx); errGroup != nil {
+				return 0, errGroup
+			}
+			// retry after recreation
+			pending, err = r.client.XPending(ctx, r.name, r.groupName).Result()
+		}
+		if err != nil {
+			return 0, fmt.Errorf("failed to get pending messages: %w", err)
+		}
 	}
 
 	if pending.Count == 0 {
@@ -1034,6 +1051,7 @@ func (r *redisQueue) ProcessTimedOutMessages(ctx context.Context, timeout time.D
 		Count:  pending.Count,
 		Idle:   timeout,
 	}).Result()
+
 	if err != nil {
 		return 0, fmt.Errorf("failed to get pending message details: %w", err)
 	}
@@ -1092,16 +1110,7 @@ func (r *redisQueue) ProcessTimedOutMessages(ctx context.Context, timeout time.D
 		// Extract current retry count from message values
 		currentRetryCount := 0
 		if retryCountVal, ok := msgs[0].Values["retryCount"]; ok {
-			switch v := retryCountVal.(type) {
-			case int:
-				currentRetryCount = v
-			case int64:
-				currentRetryCount = int(v)
-			case string:
-				if count, parseErr := strconv.Atoi(v); parseErr == nil {
-					currentRetryCount = count
-				}
-			}
+			currentRetryCount = extractRetryCountFromValue(retryCountVal)
 		}
 
 		// Add to failed messages set with incremented retry count
