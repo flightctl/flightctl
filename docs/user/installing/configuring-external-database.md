@@ -457,13 +457,13 @@ Configure TLS/SSL connection parameters in your deployment configuration:
 
 ```yaml
 db:
-  external: "enabled"
-  hostname: "postgres.example.com"
-  port: 5432
-  sslmode: "require"           # TLS/SSL connection mode
-  sslcert: "/etc/ssl/postgres/client-cert.pem"    # Client certificate path
-  sslkey: "/etc/ssl/postgres/client-key.pem"      # Client private key path
-  sslrootcert: "/etc/ssl/postgres/ca-cert.pem"    # CA certificate path
+  type: "external"
+  external:
+     hostname: "postgres.example.com"
+     port: 5432
+     sslmode: "require"       # TLS/SSL connection mode
+     tlsConfigMapName: ""     # ConfigMap containing CA certificate (automatically mounted at /etc/ssl/postgres/)
+     tlsSecretName: ""        # Secret containing client certificates (automatically mounted at /etc/ssl/postgres/)
 ```
 
 **TLS/SSL Modes:**
