@@ -9,6 +9,7 @@ ContainerName=flightctl-api
 Image={{ .Api.Image }}:{{ .Api.Tag }}
 Pull=newer
 Network=flightctl.network
+AddHost=%H:host-gateway
 EnvironmentFile=/etc/flightctl/flightctl-api/env
 Secret=flightctl-postgresql-user-password,type=env,target=DB_PASSWORD
 Secret=flightctl-kv-password,type=env,target=KV_PASSWORD

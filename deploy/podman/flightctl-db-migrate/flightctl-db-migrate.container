@@ -8,6 +8,7 @@ Wants=flightctl-db-wait.service flightctl-db-users-init.service
 ContainerName=flightctl-db-migrate
 Image={{ .DbSetup.Image }}:{{ .DbSetup.Tag }}
 Network=flightctl.network
+AddHost=%H:host-gateway
 AutoUpdate=none
 Environment=DB_MIGRATION_USER=flightctl_migrator
 Secret=flightctl-postgresql-migrator-password,type=env,target=DB_PASSWORD
