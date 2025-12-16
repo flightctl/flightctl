@@ -151,6 +151,15 @@ type PAMOIDCIssuer struct {
 	// RefreshTokenExpiration is the expiration duration for refresh tokens
 	// Default: 7 days
 	RefreshTokenExpiration util.Duration `json:"refreshTokenExpiration,omitempty"`
+	// PendingSessionCookieMaxAge is the MaxAge duration for pending session cookies
+	// Default: 10 minutes
+	PendingSessionCookieMaxAge util.Duration `json:"pendingSessionCookieMaxAge,omitempty"`
+	// AuthenticatedSessionCookieMaxAge is the MaxAge duration for authenticated session cookies
+	// Default: 30 minutes
+	AuthenticatedSessionCookieMaxAge util.Duration `json:"authenticatedSessionCookieMaxAge,omitempty"`
+	// CookieHttpOnly controls whether cookies are set with HttpOnly flag
+	// Default: true (nil means use default)
+	CookieHttpOnly *bool `json:"cookieHttpOnly,omitempty"`
 }
 
 type metricsConfig struct {
@@ -611,6 +620,16 @@ func applyPAMOIDCIssuerDefaults(c *Config) {
 	}
 	if c.Auth.PAMOIDCIssuer.RefreshTokenExpiration == 0 {
 		c.Auth.PAMOIDCIssuer.RefreshTokenExpiration = util.Duration(7 * 24 * time.Hour)
+	}
+	if c.Auth.PAMOIDCIssuer.PendingSessionCookieMaxAge == 0 {
+		c.Auth.PAMOIDCIssuer.PendingSessionCookieMaxAge = util.Duration(10 * time.Minute)
+	}
+	if c.Auth.PAMOIDCIssuer.AuthenticatedSessionCookieMaxAge == 0 {
+		c.Auth.PAMOIDCIssuer.AuthenticatedSessionCookieMaxAge = util.Duration(30 * time.Minute)
+	}
+	if c.Auth.PAMOIDCIssuer.CookieHttpOnly == nil {
+		httpOnly := true
+		c.Auth.PAMOIDCIssuer.CookieHttpOnly = &httpOnly
 	}
 }
 
