@@ -53,6 +53,11 @@ const (
 	AuthAuthorizeParamsCodeChallengeMethodS256 AuthAuthorizeParamsCodeChallengeMethod = "S256"
 )
 
+// Defines values for AuthLoginParamsCodeChallengeMethod.
+const (
+	S256 AuthLoginParamsCodeChallengeMethod = "S256"
+)
+
 // JWKSResponse JSON Web Key Set
 type JWKSResponse struct {
 	Keys *[]struct {
@@ -269,15 +274,27 @@ type AuthLoginParams struct {
 
 	// State OAuth2 state parameter.
 	State *string `form:"state,omitempty" json:"state,omitempty"`
+
+	// Scope OAuth2 scope.
+	Scope *string `form:"scope,omitempty" json:"scope,omitempty"`
+
+	// CodeChallenge PKCE code challenge.
+	CodeChallenge *string `form:"code_challenge,omitempty" json:"code_challenge,omitempty"`
+
+	// CodeChallengeMethod PKCE code challenge method (only S256 supported).
+	CodeChallengeMethod *AuthLoginParamsCodeChallengeMethod `form:"code_challenge_method,omitempty" json:"code_challenge_method,omitempty"`
 }
+
+// AuthLoginParamsCodeChallengeMethod defines parameters for AuthLogin.
+type AuthLoginParamsCodeChallengeMethod string
 
 // AuthLoginPostFormdataBody defines parameters for AuthLoginPost.
 type AuthLoginPostFormdataBody struct {
-	ClientId    *string `form:"client_id,omitempty" json:"client_id,omitempty"`
-	Password    string  `form:"password" json:"password"`
-	RedirectUri *string `form:"redirect_uri,omitempty" json:"redirect_uri,omitempty"`
-	State       *string `form:"state,omitempty" json:"state,omitempty"`
-	Username    string  `form:"username" json:"username"`
+	// Password Password for authentication
+	Password *string `form:"password,omitempty" json:"password,omitempty"`
+
+	// Username Username for authentication
+	Username string `form:"username" json:"username"`
 }
 
 // AuthLoginPostFormdataRequestBody defines body for AuthLoginPost for application/x-www-form-urlencoded ContentType.
