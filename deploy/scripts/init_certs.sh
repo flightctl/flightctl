@@ -85,6 +85,17 @@ alertmanager_proxy_sans=(
 )
 alertmanager_proxy_sans+=("${host_ips[@]}")
 
+# PAM Issuer certificate SANs
+pam_issuer_sans=(
+    "pam-issuer.$base_domain"
+    "$base_domain"
+    "$hostname_short"
+    "$hostname_fqdn"
+    "flightctl-pam-issuer"
+    "localhost"
+)
+pam_issuer_sans+=("${host_ips[@]}")
+
 # Build the certificate generation command
 cert_gen_args=("--cert-dir" "$CERT_DIR")
 
@@ -98,6 +109,10 @@ done
 
 for san in "${alertmanager_proxy_sans[@]}"; do
     cert_gen_args+=("--alertmanager-proxy-san" "$san")
+done
+
+for san in "${pam_issuer_sans[@]}"; do
+    cert_gen_args+=("--pam-issuer-san" "$san")
 done
 
 # Generate certificates
