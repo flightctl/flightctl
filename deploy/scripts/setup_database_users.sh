@@ -2,7 +2,7 @@
 
 set -eo pipefail
 
-# FlightCtl Database User Setup Script
+# Flight Control Database User Setup Script
 # This script creates the database users with appropriate permissions for production deployments
 
 # Configuration variables
@@ -107,7 +107,7 @@ if ! execute_sql_command "SELECT 1" >/dev/null 2>&1; then
     exit 1
 fi
 
-echo "Setting up FlightCtl database users..."
+echo "Setting up Flight Control database users..."
 
 # Find the SQL file relative to this script
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"

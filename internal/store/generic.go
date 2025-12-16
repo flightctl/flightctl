@@ -7,6 +7,7 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1beta1"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
@@ -180,9 +181,18 @@ func (s *GenericStore[P, M, A, AL]) createResource(ctx context.Context, resource
 func (s *GenericStore[P, M, A, AL]) updateResource(ctx context.Context, fromAPI bool, existing, resource P, fieldsToUnset []string) (bool, error) {
 	hasOwner := len(lo.FromPtr(existing.GetOwner())) != 0
 
+	// TODO: Move ownership validation checks to the service layer. The store layer should
+	// focus on data access, while authorization and business rules belong in the service layer.
+	// This allows resource sync to update resources it owns, but ideally this should be
+	// handled in service.ReplaceFleet() by checking ownership before calling the store.
+	allowResourceSyncUpdate := false
+	if rs, ok := ctx.Value(consts.ResourceSyncRequestCtxKey).(bool); ok && rs {
+		allowResourceSyncUpdate = true
+	}
+
 	sameSpec := resource.HasSameSpecAs(existing)
 	if !sameSpec {
-		if fromAPI && hasOwner {
+		if fromAPI && hasOwner && !allowResourceSyncUpdate {
 			// Don't let the user update the spec if it has an owner
 			return false, flterrors.ErrUpdatingResourceWithOwnerNotAllowed
 		}
@@ -192,7 +202,7 @@ func (s *GenericStore[P, M, A, AL]) updateResource(ctx context.Context, fromAPI 
 	}
 
 	// Don't let the user update a fleet's labels if it has an owner
-	if fromAPI && hasOwner && resource.GetKind() == api.FleetKind {
+	if fromAPI && hasOwner && !allowResourceSyncUpdate && resource.GetKind() == api.FleetKind {
 		sameLabels := reflect.DeepEqual(existing.GetLabels(), resource.GetLabels())
 		if !sameLabels {
 			return false, flterrors.ErrUpdatingResourceWithOwnerNotAllowed

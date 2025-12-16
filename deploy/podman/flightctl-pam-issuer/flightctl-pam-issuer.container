@@ -11,10 +11,10 @@ Pull=newer
 Network=flightctl.network
 
 PublishPort=8444:8444
-Volume=/etc/flightctl/pki/flightctl-api/server.crt:/root/.flightctl/certs/server.crt:ro,z
-Volume=/etc/flightctl/pki/flightctl-api/server.key:/root/.flightctl/certs/server.key:ro,z
-Volume=/etc/flightctl/pki/flightctl-api/client-signer.crt:/root/.flightctl/certs/client-signer.crt:ro,z
-Volume=/etc/flightctl/pki/flightctl-api/client-signer.key:/root/.flightctl/certs/client-signer.key:ro,z
+Volume=/etc/flightctl/pki/flightctl-pam-issuer/server.crt:/root/.flightctl/certs/server.crt:ro,z
+Volume=/etc/flightctl/pki/flightctl-pam-issuer/server.key:/root/.flightctl/certs/server.key:ro,z
+Volume=/etc/flightctl/pki/flightctl-pam-issuer/token-signer.crt:/root/.flightctl/certs/client-signer.crt:ro,z
+Volume=/etc/flightctl/pki/flightctl-pam-issuer/token-signer.key:/root/.flightctl/certs/client-signer.key:ro,z
 Volume=flightctl-pam-issuer-etc:/etc:rw
 Volume=/etc/flightctl/flightctl-pam-issuer/config.yaml:/root/.flightctl/config.yaml:ro,z
 

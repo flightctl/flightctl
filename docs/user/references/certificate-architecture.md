@@ -5,25 +5,31 @@ Flight Control uses X.509 certificates with mTLS for all agent-service communica
 ## Certificate Chain of Trust
 
 ```text
-FlightCtl Root CA (10yr)
+Flight Control Root CA (10yr)
 ├── Server Certificates (2yr)
-└── Client-Signer CA (10yr, intermediate)
-    └── Client Certificates (7d - 1yr)
+├── Client-Signer CA (10yr, intermediate)
+│   └── Client Certificates (7d - 1yr)
+└── PAM Issuer Token Signer CA (10yr, intermediate)
 ```
 
 For TPM attestation certificates, see [Configuring Device Attestation](../installing/configuring-device-attestation.md).
 
 ## Certificate Matrix
 
-| Certificate        | Purpose            | Validity | Signed By               |
-| ------------------ | ------------------ | -------- | ----------------------- |
-| FlightCtl Root CA  | Root of trust      | 10 years | Auto generated (self-signed) |
-| Client-Signer CA   | Signs client certs | 10 years | Root CA          |
-| API Server         | API TLS            | 2 years  | Root CA          |
-| Telemetry Gateway  | Metrics TLS        | 2 years  | Root CA          |
-| Alertmanager Proxy | Alerts TLS         | 2 years  | Root CA          |
-| Enrollment         | Device enrollment  | 7 days   | Client-Signer CA |
-| Device Management  | Device operations  | 1 year   | Client-Signer CA |
+| Certificate                   | Purpose                  | Validity | Signed By                |
+| ----------------------------- | ------------------------ | -------- | ------------------------ |
+| Flight Control Root CA        | Root of trust            | 10 years | Auto generated (self-signed) |
+| Client-Signer CA              | Signs client certs       | 10 years | Root CA                  |
+| [API Server](../../../internal/crypto/signer/signer_server_svc.go) | API TLS                  | 2 years  | Root CA                  |
+| [Telemetry Gateway](../../../internal/crypto/signer/signer_server_svc.go)             | Metrics TLS              | 2 years  | Root CA                  |
+| [Alertmanager Proxy](../../../internal/crypto/signer/signer_server_svc.go)            | Alerts TLS               | 2 years  | Root CA                  |
+| [Device Enrollment](../../../internal/crypto/signer/signer_device_enrollment.go)                    | Device enrollment        | 7 days   | Client-Signer CA         |
+| [Device Management](../../../internal/crypto/signer/signer_device_management.go)             | Device operations        | 1 year   | Client-Signer CA         |
+| [Device Services](../../../internal/crypto/signer/signer_device_svc_client.go)    | Device services    | 1 year   | Client-Signer CA |
+| PAM Issuer Token Signer CA *  | Signs JWT tokens         | 10 years | Root CA                  |
+| PAM Issuer Server *           | PAM Issuer TLS           | 2 years  | Root CA                  |
+
+\* on Linux only
 
 ## File Locations
 
@@ -40,17 +46,21 @@ For TPM attestation certificates, see [Configuring Device Attestation](../instal
 
 Generation controlled by `global.generateCertificates` in Helm `values.yaml`: `auto`, `cert-manager`, `builtin`, or `none`
 
-### Standalone Linux
+### Linux
 
-| Path                                                  | Contents                |
-| ----------------------------------------------------- | ----------------------- |
-| `/etc/flightctl/pki/ca.crt`                         | Root CA                 |
-| `/etc/flightctl/pki/ca.key`                         | Root CA key             |
-| `/etc/flightctl/pki/ca-bundle.crt`                  | CA bundle               |
-| `/etc/flightctl/pki/flightctl-api/client-signer.crt`| Client-Signer CA        |
-| `/etc/flightctl/pki/flightctl-api/client-signer.key`| Client-Signer CA key    |
-| `/etc/flightctl/pki/flightctl-api/server.crt`       | API server cert         |
-| `/etc/flightctl/pki/flightctl-api/server.key`       | API server key          |
+| Path                                                      | Contents                        |
+| --------------------------------------------------------- | ------------------------------- |
+| `/etc/flightctl/pki/ca.crt`                             | Root CA                         |
+| `/etc/flightctl/pki/ca.key`                             | Root CA key                     |
+| `/etc/flightctl/pki/ca-bundle.crt`                      | CA bundle                       |
+| `/etc/flightctl/pki/flightctl-api/client-signer.crt`    | Client-Signer CA                |
+| `/etc/flightctl/pki/flightctl-api/client-signer.key`    | Client-Signer CA key            |
+| `/etc/flightctl/pki/flightctl-api/server.crt`           | API server cert                 |
+| `/etc/flightctl/pki/flightctl-api/server.key`           | API server key                  |
+| `/etc/flightctl/pki/flightctl-pam-issuer/token-signer.crt` | PAM Issuer Token Signer CA   |
+| `/etc/flightctl/pki/flightctl-pam-issuer/token-signer.key` | PAM Issuer Token Signer CA key |
+| `/etc/flightctl/pki/flightctl-pam-issuer/server.crt`   | PAM Issuer server cert          |
+| `/etc/flightctl/pki/flightctl-pam-issuer/server.key`   | PAM Issuer server key           |
 
 > [!NOTE]
 > In standalone deployments, the API server certificate is shared across services. The telemetry gateway uses a separate installation process; see [Standalone Observability](../using/standalone-observability.md) for details.

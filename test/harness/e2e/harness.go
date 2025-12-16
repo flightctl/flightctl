@@ -2351,7 +2351,7 @@ func (h *Harness) GetAgentVersion() (string, error) {
 	}
 
 	output := stdout.String()
-	versionPrefix := "Flightctl Agent Version:"
+	versionPrefix := "Agent Version:"
 	if !strings.Contains(output, versionPrefix) {
 		return "", fmt.Errorf("agent version not found in output: %s", output)
 	}

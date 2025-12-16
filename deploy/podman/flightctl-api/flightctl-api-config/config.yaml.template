@@ -82,6 +82,7 @@ auth:
       - profile
       - email
       - roles
+      - offline_access
 {{- end}}
     organizationAssignment:
       type: {{if .global.auth.oidc.organizationAssignment.type}}{{.global.auth.oidc.organizationAssignment.type}}{{else}}static{{end}}
