@@ -191,10 +191,10 @@ func (n *publisher) pollAndPublish(ctx context.Context) {
 
 	// Update if new version is greater, or if either version is empty/invalid
 	if newVersionInt > lastVersionInt {
-		n.log.Infof("Version updated from '%s' to '%s'", n.lastKnownVersion, newVersion)
+		n.log.Infof("New spec version received: %s -> %s", n.lastKnownVersion, newVersion)
 		n.lastKnownVersion = newVersion
 	} else {
-		n.log.Debugf("Version not updated (new: %d, last: %d), keeping: '%s'", newVersionInt, lastVersionInt, n.lastKnownVersion)
+		n.log.Warnf("Received spec version %s is not greater than last known version %s, skipping...", newVersion, n.lastKnownVersion)
 	}
 
 	// notify all watchers of the new device spec

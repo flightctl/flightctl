@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"strings"
@@ -104,6 +105,9 @@ var (
 
 // TODO: tighten up the retryable errors ideally all retryable errors should be explicitly defined
 func IsRetryable(err error) bool {
+	if err == nil {
+		return false
+	}
 	var dnsErr *net.DNSError
 	switch {
 	case errors.As(err, &dnsErr):
@@ -132,6 +136,11 @@ func IsRetryable(err error) bool {
 		return true
 	case errors.Is(err, syscall.ECONNRESET):
 		// connection reset by peer is a transient network error
+		return true
+	case errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF):
+		return true
+	case strings.Contains(err.Error(), "unexpected EOF"):
+		// HTTP client wraps EOF errors from broken connections
 		return true
 	case errors.Is(err, ErrNoRetry):
 		return false
@@ -194,6 +203,7 @@ func FromStderr(stderr string, exitCode int) error {
 		"unable to resolve host": ErrNetwork,
 		"network is unreachable": ErrNetwork,
 		"i/o timeout":            ErrNetwork,
+		"unexpected EOF":         ErrNetwork,
 		// context
 		"context canceled":          context.Canceled,
 		"context deadline exceeded": context.DeadlineExceeded,
