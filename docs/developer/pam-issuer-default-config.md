@@ -276,7 +276,7 @@ This will:
 
 1. **Token Validation**: Validates all tokens against registered OIDC providers
 2. **JWKS Caching**: Caches public keys from OIDC providers
-3. **Role Mapping**: Maps OIDC claims to FlightCtl roles
+3. **Role Mapping**: Maps OIDC claims to Flight Control roles
 4. **Organization Assignment**: Supports static or claim-based organization assignment
 
 ## Troubleshooting
@@ -608,7 +608,7 @@ This will:
 
 1. **Token Validation**: Validates all tokens against registered OIDC providers
 2. **JWKS Caching**: Caches public keys from OIDC providers
-3. **Role Mapping**: Maps OIDC claims to FlightCtl roles
+3. **Role Mapping**: Maps OIDC claims to Flight Control roles
 4. **Organization Assignment**: Supports static or claim-based organization assignment
 
 ## Troubleshooting

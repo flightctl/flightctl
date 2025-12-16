@@ -9,6 +9,7 @@ ContainerName=flightctl-worker
 Image={{ .Worker.Image }}:{{ .Worker.Tag }}
 Pull=newer
 Network=flightctl.network
+AddHost=%H:host-gateway
 Environment=HOME=/root
 Secret=flightctl-postgresql-user-password,type=env,target=DB_PASSWORD
 Secret=flightctl-kv-password,type=env,target=KV_PASSWORD

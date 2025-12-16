@@ -106,7 +106,7 @@ CREATE EVENT TRIGGER grant_app_permissions_trigger
     EXECUTE FUNCTION grant_app_permissions();
 ```
 
-**Important**: The automatic permission management functions and event trigger above ensure that `flightctl_app` user automatically receives proper permissions on all tables and sequences created by the migration process. This replicates the same automatic permission handling that FlightCtl provides for internal databases.
+**Important**: The automatic permission management functions and event trigger above ensure that `flightctl_app` user automatically receives proper permissions on all tables and sequences created by the migration process. This replicates the same automatic permission handling that Flight Control provides for internal databases.
 
 ### 2. Configure SSL (Recommended)
 

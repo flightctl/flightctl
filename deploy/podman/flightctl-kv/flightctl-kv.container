@@ -6,6 +6,7 @@ PartOf=flightctl.target
 ContainerName=flightctl-kv
 Image={{ .Kv.Image }}:{{ .Kv.Tag }}
 Network=flightctl.network
+AddHost=%H:host-gateway
 Exec=/bin/sh -c 'redis-server /usr/local/etc/redis/redis.conf --requirepass $${KV_PASSWORD}'
 Secret=flightctl-kv-password,type=env,target=KV_PASSWORD
 Volume=/usr/share/flightctl/flightctl-kv/redis.conf:/usr/local/etc/redis/redis.conf

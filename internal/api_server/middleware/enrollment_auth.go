@@ -89,9 +89,9 @@ func (m *EnrollmentAuthMiddleware) AuthenticateEnrollment(next http.Handler) htt
 			got = signer.Name()
 		}
 
-		if signer == nil || signer.Name() != m.ca.Cfg.ClientBootstrapSignerName {
-			m.log.Warnf("unexpected client certificate signer: expected %q, got %q", m.ca.Cfg.ClientBootstrapSignerName, got)
-			http.Error(w, fmt.Sprintf("unexpected client certificate signer: expected %q, got %q", m.ca.Cfg.ClientBootstrapSignerName, got), http.StatusUnauthorized)
+		if signer == nil || signer.Name() != m.ca.Cfg.DeviceEnrollmentSignerName {
+			m.log.Warnf("unexpected client certificate signer: expected %q, got %q", m.ca.Cfg.DeviceEnrollmentSignerName, got)
+			http.Error(w, fmt.Sprintf("unexpected client certificate signer: expected %q, got %q", m.ca.Cfg.DeviceEnrollmentSignerName, got), http.StatusUnauthorized)
 			return
 		}
 
