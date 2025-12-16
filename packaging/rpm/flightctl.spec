@@ -656,6 +656,10 @@ rm -rf /usr/share/sosreport
     # Files mounted to system config
     %dir %{_sysconfdir}/flightctl
     %dir %{_sysconfdir}/flightctl/pki
+    %dir %{_sysconfdir}/flightctl/pki/flightctl-api
+    %dir %{_sysconfdir}/flightctl/pki/flightctl-alertmanager-proxy
+    %dir %{_sysconfdir}/flightctl/pki/flightctl-pam-issuer
+    %dir %{_sysconfdir}/flightctl/pki/db
     %dir %{_sysconfdir}/flightctl/flightctl-api
     %dir %{_sysconfdir}/flightctl/flightctl-ui
     %dir %{_sysconfdir}/flightctl/flightctl-cli-artifacts

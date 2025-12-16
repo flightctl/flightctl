@@ -16,6 +16,7 @@ Secret=flightctl-kv-password,type=env,target=KV_PASSWORD
 Environment=DB_USER=flightctl_app
 Volume=/etc/flightctl/flightctl-worker/config.yaml:/root/.flightctl/config.yaml:ro,z
 Volume=/etc/flightctl/ssh:/etc/flightctl/ssh:ro,z
+Volume=/etc/flightctl/pki/db:/root/.flightctl/certs/db:ro,z
 
 [Service]
 Restart=always
