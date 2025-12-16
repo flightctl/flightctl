@@ -114,7 +114,7 @@ function get_endpoint_host() {
             echo "agent-api.${IP}.nip.io:7443"
             ;;
         flightctl-ui)
-            echo "ui.${IP}.nip.io:9000"
+            echo "ui.${IP}.nip.io:9001"
             ;;
         *)
             echo "Unable to find endpoint for ${name}" >&2
