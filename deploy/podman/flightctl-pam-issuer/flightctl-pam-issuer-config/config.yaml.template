@@ -2,6 +2,16 @@ service:
   baseUrl: https://{{.global.baseDomain}}:3443/
   baseAgentEndpointUrl: https://{{.global.baseDomain}}:7443/
   baseUIUrl: https://{{.global.baseDomain}}:443
+  rateLimit:
+    enabled: {{.service.rateLimit.enabled}}
+    requests: {{if .service.rateLimit.requests}}{{.service.rateLimit.requests}}{{else}}300{{end}}
+    window: {{if .service.rateLimit.window}}{{.service.rateLimit.window}}{{else}}1m{{end}}
+    {{if .service.rateLimit.trustedProxies}}
+    trustedProxies:
+{{- range .service.rateLimit.trustedProxies}}
+      - {{.}}
+{{- end}}
+    {{end}}
 auth:
   pamOidcIssuer:
     address: ":8444"
