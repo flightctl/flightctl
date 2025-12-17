@@ -5,15 +5,21 @@ package pam
 import (
 	"bytes"
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/hkdf"
 	"crypto/rand"
 	"crypto/sha256"
 	_ "embed"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
+	"io"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -33,8 +39,27 @@ var loginFormTemplate string
 var loginFormErrorHTML string
 
 // LoginFormData represents the data used to populate the login form template
+// Currently empty as all authorization parameters are stored in encrypted cookie
 type LoginFormData struct {
-	SessionID string // Session ID - all other data is stored in the session
+}
+
+// EncryptedAuthData represents encrypted authorization/session data stored in cookie
+// When IsLoggedIn is false (or Username is empty), it represents a pending authorization request
+// When IsLoggedIn is true and Username is set, it represents an authenticated session
+type EncryptedAuthData struct {
+	// Common fields for both pending auth and authenticated sessions
+	ClientID            string
+	RedirectURI         string
+	Scope               string
+	State               string
+	CodeChallenge       string
+	CodeChallengeMethod string
+	ExpiresAt           int64 // Unix timestamp
+
+	// Session-specific fields (only set when IsLoggedIn is true)
+	Username   string
+	IsLoggedIn bool
+	LoginTime  int64 // Unix timestamp (only set when IsLoggedIn is true)
 }
 
 // AuthorizationCodeData represents stored authorization code data
@@ -112,16 +137,6 @@ func (s *AuthorizationCodeStore) CleanupExpiredCodes() {
 	})
 }
 
-// generateSessionID generates a cryptographically secure session ID
-// Used for tracking authenticated browser sessions (stored in cookies)
-func generateSessionID() (string, error) {
-	bytes := make([]byte, 32) // 256 bits of entropy
-	if _, err := rand.Read(bytes); err != nil {
-		return "", fmt.Errorf("failed to generate random bytes: %w", err)
-	}
-	return hex.EncodeToString(bytes), nil
-}
-
 // generateAuthorizationCode generates a cryptographically secure OAuth2 authorization code
 // Used in the authorization code flow, exchanged for access tokens at the /token endpoint
 func generateAuthorizationCode() (string, error) {
@@ -148,6 +163,127 @@ func verifyPKCEChallenge(codeVerifier, codeChallenge string, codeChallengeMethod
 	return computedChallenge == codeChallenge
 }
 
+// deriveCookieEncryptionKey derives a 32-byte AES-256 key from the CA private key
+func deriveCookieEncryptionKey(caClient *fccrypto.CAClient) ([]byte, error) {
+	// Get CA private key file path
+	caConfig := caClient.Config()
+	if caConfig == nil || caConfig.InternalConfig == nil {
+		return nil, fmt.Errorf("CA configuration not available")
+	}
+
+	caKeyFile := fccrypto.CertStorePath(caConfig.InternalConfig.KeyFile, caConfig.InternalConfig.CertStore)
+	keyBytes, err := os.ReadFile(caKeyFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read CA key file: %w", err)
+	}
+
+	// Use HKDF to derive a symmetric key from CA key
+	// Salt: "flightctl-cookie-encryption" (application-specific)
+	// Info: empty (no additional context needed)
+	// KeyLength: 32 bytes for AES-256
+	key, err := hkdf.Key(sha256.New, keyBytes, []byte("flightctl-cookie-encryption"), "", 32)
+	if err != nil {
+		return nil, fmt.Errorf("failed to derive key: %w", err)
+	}
+
+	return key, nil
+}
+
+// EncryptCookieData encrypts the auth data using AES-256-GCM
+// This is used to store authorization parameters (pending or authenticated) in a secure cookie
+func (s *PAMOIDCProvider) EncryptCookieData(data *EncryptedAuthData) (string, error) {
+	// Marshal to JSON
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal data: %w", err)
+	}
+
+	// Create AES cipher
+	block, err := aes.NewCipher(s.cookieKey)
+	if err != nil {
+		return "", fmt.Errorf("failed to create cipher: %w", err)
+	}
+
+	// Create GCM
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", fmt.Errorf("failed to create GCM: %w", err)
+	}
+
+	// Generate random nonce
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return "", fmt.Errorf("failed to generate nonce: %w", err)
+	}
+
+	// Encrypt
+	ciphertext := gcm.Seal(nonce, nonce, jsonData, nil)
+
+	// Encode to base64 for cookie
+	return base64.URLEncoding.EncodeToString(ciphertext), nil
+}
+
+// DecryptCookieData decrypts the auth data from cookie
+// Returns the decrypted data which may represent either a pending auth request or authenticated session
+func (s *PAMOIDCProvider) DecryptCookieData(encrypted string) (*EncryptedAuthData, error) {
+	// Decode from base64
+	ciphertext, err := base64.URLEncoding.DecodeString(encrypted)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode base64: %w", err)
+	}
+
+	// Create AES cipher
+	block, err := aes.NewCipher(s.cookieKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create cipher: %w", err)
+	}
+
+	// Create GCM
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create GCM: %w", err)
+	}
+
+	// Extract nonce
+	nonceSize := gcm.NonceSize()
+	if len(ciphertext) < nonceSize {
+		return nil, fmt.Errorf("ciphertext too short")
+	}
+
+	nonce, ciphertext := ciphertext[:nonceSize], ciphertext[nonceSize:]
+
+	// Decrypt
+	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decrypt: %w", err)
+	}
+
+	// Unmarshal JSON
+	var data EncryptedAuthData
+	if err := json.Unmarshal(plaintext, &data); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal data: %w", err)
+	}
+
+	// Check expiration
+	if time.Now().Unix() > data.ExpiresAt {
+		return nil, fmt.Errorf("cookie expired")
+	}
+
+	return &data, nil
+}
+
+// EncryptSessionData is a convenience method that encrypts session data
+// It's an alias for EncryptCookieData but with a clearer name for session data
+func (s *PAMOIDCProvider) EncryptSessionData(data *EncryptedAuthData) (string, error) {
+	return s.EncryptCookieData(data)
+}
+
+// DecryptSessionData is a convenience method that decrypts session data
+// It's an alias for DecryptCookieData but with a clearer name for session data
+func (s *PAMOIDCProvider) DecryptSessionData(encrypted string) (*EncryptedAuthData, error) {
+	return s.DecryptCookieData(encrypted)
+}
+
 // PAMOIDCProvider handles OIDC-compliant authentication flows using PAM/NSS
 
 // NewPAMOIDCProvider creates a new PAM-based OIDC provider
@@ -160,6 +296,12 @@ func NewPAMOIDCProviderWithAuthenticator(caClient *fccrypto.CAClient, config *co
 	jwtGen, err := authn.NewJWTGenerator(caClient)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create JWT generator: %w", err)
+	}
+
+	// Derive cookie encryption key from CA key
+	cookieKey, err := deriveCookieEncryptionKey(caClient)
+	if err != nil {
+		return nil, fmt.Errorf("failed to derive cookie encryption key: %w", err)
 	}
 
 	// Create default authenticator if none provided
@@ -177,9 +319,9 @@ func NewPAMOIDCProviderWithAuthenticator(caClient *fccrypto.CAClient, config *co
 		config:            config,
 		pamAuthenticator:  pamAuth,
 		codeStore:         NewAuthorizationCodeStore(),
-		sessionStore:      NewSessionStore(),
 		log:               logrus.New(),
 		loginFormTemplate: loginFormTmpl,
+		cookieKey:         cookieKey,
 	}, nil
 }
 
@@ -199,26 +341,38 @@ func (s *PAMOIDCProvider) getRefreshTokenExpiration() time.Duration {
 	return time.Duration(s.config.RefreshTokenExpiration)
 }
 
-// getPendingSessionExpiration returns the pending session expiration duration from config
-func (s *PAMOIDCProvider) getPendingSessionExpiration() time.Duration {
+// getPendingAuthExpiration returns the pending auth cookie expiration duration from config
+func (s *PAMOIDCProvider) getPendingAuthExpiration() time.Duration {
 	if s.config == nil {
 		return 10 * time.Minute // fallback if config is nil
 	}
 	if s.config.PendingSessionCookieMaxAge == 0 {
-		return 10 * time.Minute // default: 10 minutes
+		return 10 * time.Minute // default if not configured
 	}
 	return time.Duration(s.config.PendingSessionCookieMaxAge)
 }
 
-// getAuthenticatedSessionExpiration returns the authenticated session expiration duration from config
-func (s *PAMOIDCProvider) getAuthenticatedSessionExpiration() time.Duration {
+// getSessionExpiration returns the session cookie expiration duration from config
+func (s *PAMOIDCProvider) getSessionExpiration() time.Duration {
 	if s.config == nil {
 		return 30 * time.Minute // fallback if config is nil
 	}
 	if s.config.AuthenticatedSessionCookieMaxAge == 0 {
-		return 30 * time.Minute // default: 30 minutes
+		return 30 * time.Minute // default if not configured
 	}
 	return time.Duration(s.config.AuthenticatedSessionCookieMaxAge)
+}
+
+// GetPendingAuthExpiration returns the pending auth cookie expiration duration from config
+// This is a public method for use by handlers
+func (s *PAMOIDCProvider) GetPendingAuthExpiration() time.Duration {
+	return s.getPendingAuthExpiration()
+}
+
+// GetSessionExpiration returns the session cookie expiration duration from config
+// This is a public method for use by handlers
+func (s *PAMOIDCProvider) GetSessionExpiration() time.Duration {
+	return s.getSessionExpiration()
 }
 
 // Token implements OIDCProvider interface - handles OAuth2 token requests
@@ -746,60 +900,46 @@ func (s *PAMOIDCProvider) Authorize(ctx context.Context, req *pamapi.AuthAuthori
 	// 4. Server validates with PAM and generates authorization code
 	// 5. Server redirects back to client with code
 
-	// Extract session ID from request context
-	sessionID := s.extractSessionID(ctx, req)
-	s.log.Debugf("Authorize: extracted session ID")
+	// Extract encrypted session cookie from request context
+	encryptedSessionCookie := s.extractSessionCookie(ctx, req)
+	s.log.Debugf("Authorize: extracted session cookie")
 
 	// Check if user is already authenticated via session
-	if sessionID == "" {
-		s.log.Debugf("Authorize: no session ID found, creating pending session and returning login form")
-		return s.createPendingSessionAndReturnLoginForm(req, codeChallenge, codeChallengeMethod)
+	if encryptedSessionCookie == "" {
+		s.log.Debugf("Authorize: no session cookie found, creating encrypted cookie and returning login form")
+		return s.createEncryptedCookieAndReturnLoginForm(req, codeChallenge, codeChallengeMethod)
 	}
-	state := lo.FromPtrOr(req.State, "")
 
-	// Check if session exists and is valid
-	sessionData, exists := s.IsUserAuthenticated(sessionID)
+	// Decrypt and validate session cookie
+	authData, exists := s.IsUserAuthenticated(encryptedSessionCookie)
 	if !exists {
-		s.log.Debugf("Authorize: session not found or expired, creating new pending session and returning login form")
-		return s.createPendingSessionAndReturnLoginForm(req, codeChallenge, codeChallengeMethod)
+		s.log.Debugf("Authorize: session cookie invalid or expired, creating encrypted cookie and returning login form")
+		return s.createEncryptedCookieAndReturnLoginForm(req, codeChallenge, codeChallengeMethod)
 	}
 
-	// Check if user is actually logged in
-	if !sessionData.IsLoggedIn {
-		s.log.Debugf("Authorize: session exists but user not logged in, updating session and returning login form")
-		// Session exists but user hasn't authenticated yet
-		// Update session with any new parameters from request (in case they changed)
-		sessionData.ClientID = req.ClientId
-		sessionData.RedirectURI = req.RedirectUri
-		sessionData.State = state
-		if req.Scope != nil && *req.Scope != "" {
-			sessionData.Scope = *req.Scope // Update scope if provided
-		}
-		sessionData.CodeChallenge = codeChallenge
-		sessionData.CodeChallengeMethod = codeChallengeMethod
-		s.sessionStore.CreateSession(sessionID, sessionData) // Update the session
-
-		loginForm := s.GetLoginForm(sessionID)
-		return &AuthorizeResponse{
-			Type:      AuthorizeResponseTypeHTML,
-			Content:   loginForm,
-			SessionID: sessionID,
-		}, nil
+	// Check if user is actually logged in (should always be true now, but check for safety)
+	if !authData.IsLoggedIn {
+		s.log.Debugf("Authorize: session exists but user not logged in, creating encrypted cookie and returning login form")
+		return s.createEncryptedCookieAndReturnLoginForm(req, codeChallenge, codeChallengeMethod)
 	}
 
 	// Update session with any new parameters (in case they changed)
-	sessionData.State = state
-	sessionData.CodeChallenge = codeChallenge
-	sessionData.CodeChallengeMethod = codeChallengeMethod
-	sessionData.ClientID = req.ClientId
-	sessionData.RedirectURI = req.RedirectUri
+	state := lo.FromPtrOr(req.State, "")
+	updatedScope := authData.Scope
 	if req.Scope != nil && *req.Scope != "" {
-		sessionData.Scope = *req.Scope // Update scope if provided
+		updatedScope = *req.Scope // Update scope if provided
 	}
-	s.sessionStore.CreateSession(sessionID, sessionData)
+
+	// Update authData with new parameters for use in authorization code generation
+	authData.State = state
+	authData.CodeChallenge = codeChallenge
+	authData.CodeChallengeMethod = string(codeChallengeMethod)
+	authData.ClientID = req.ClientId
+	authData.RedirectURI = req.RedirectUri
+	authData.Scope = updatedScope
 
 	// User is authenticated, get username from session
-	username := sessionData.Username
+	username := authData.Username
 	s.log.Infof("Authorize: user authenticated via session - username=%s", username)
 
 	// Generate OAuth2 authorization code (step 4: used to exchange for access token)
@@ -811,7 +951,7 @@ func (s *PAMOIDCProvider) Authorize(ctx context.Context, req *pamapi.AuthAuthori
 	s.log.Debugf("Authorize: generated authorization code")
 
 	// Use scope from session (preserves original request), otherwise determine based on user's role/group membership
-	scopes := sessionData.Scope
+	scopes := authData.Scope
 	if scopes == "" {
 		scopes = s.determineUserScopes(username)
 	}
@@ -821,23 +961,23 @@ func (s *PAMOIDCProvider) Authorize(ctx context.Context, req *pamapi.AuthAuthori
 	// Use values from session (which were validated above) to prevent parameter tampering
 	codeData := &AuthorizationCodeData{
 		Code:                authCode,
-		ClientID:            sessionData.ClientID,
-		RedirectURI:         sessionData.RedirectURI,
+		ClientID:            authData.ClientID,
+		RedirectURI:         authData.RedirectURI,
 		Scope:               scopes,
-		State:               sessionData.State,
+		State:               authData.State,
 		Username:            username,
-		ExpiresAt:           time.Now().Add(s.getPendingSessionExpiration()),
+		ExpiresAt:           time.Now().Add(10 * time.Minute),
 		CreatedAt:           time.Now(),
-		CodeChallenge:       sessionData.CodeChallenge,
-		CodeChallengeMethod: sessionData.CodeChallengeMethod,
+		CodeChallenge:       authData.CodeChallenge,
+		CodeChallengeMethod: pamapi.AuthAuthorizeParamsCodeChallengeMethod(authData.CodeChallengeMethod),
 	}
 
 	s.codeStore.StoreCode(codeData)
 	s.log.Debugf("Authorize: stored authorization code for user - %s", username)
 
 	// Build redirect URL with authorization code
-	// Use sessionData.RedirectURI (already validated above) instead of req.RedirectUri
-	parsed, err := url.Parse(sessionData.RedirectURI)
+	// Use authData.RedirectURI (already validated above) instead of req.RedirectUri
+	parsed, err := url.Parse(authData.RedirectURI)
 	if err != nil {
 		s.log.Errorf("Authorize: failed to parse redirect URI - %v", err)
 		return nil, fmt.Errorf("invalid redirect URI: %w", err)
@@ -845,9 +985,9 @@ func (s *PAMOIDCProvider) Authorize(ctx context.Context, req *pamapi.AuthAuthori
 
 	values := parsed.Query()
 	values.Set("code", authCode)
-	// Use sessionData.State (already validated above) instead of req.State
-	if sessionData.State != "" {
-		values.Set("state", sessionData.State)
+	// Use authData.State (already validated above) instead of req.State
+	if authData.State != "" {
+		values.Set("state", authData.State)
 	}
 	parsed.RawQuery = values.Encode()
 	redirectURL := parsed.String()
@@ -860,13 +1000,14 @@ func (s *PAMOIDCProvider) Authorize(ctx context.Context, req *pamapi.AuthAuthori
 }
 
 // Login handles the login form submission
-func (s *PAMOIDCProvider) Login(ctx context.Context, username, password, sessionID string) (*LoginResult, error) {
+// encryptedCookie contains the encrypted authorization request parameters
+func (s *PAMOIDCProvider) Login(ctx context.Context, username, password, encryptedCookie string) (*LoginResult, error) {
 	s.log.Debugf("Login: attempting authentication for user %s", username)
 
-	// Retrieve the pending session
-	sessionData, exists := s.sessionStore.GetSession(sessionID)
-	if !exists {
-		s.log.Warnf("Login: session not found or expired")
+	// Decrypt cookie to get authorization parameters
+	pendingReq, err := s.DecryptCookieData(encryptedCookie)
+	if err != nil {
+		s.log.Warnf("Login: failed to decrypt cookie - %v", err)
 		return nil, errors.New("invalid_request")
 	}
 
@@ -878,116 +1019,35 @@ func (s *PAMOIDCProvider) Login(ctx context.Context, username, password, session
 	}
 	s.log.Infof("Login: PAM authentication successful for user %s", username)
 
-	// Update the existing session to mark user as logged in
-	sessionData.Username = username
-	sessionData.IsLoggedIn = true
-	sessionData.LoginTime = time.Now()
-	sessionData.ExpiresAt = time.Now().Add(s.getAuthenticatedSessionExpiration())
+	// User is authenticated, create encrypted session cookie
+	encryptedSessionCookie, err := s.CreateUserSession(username, pendingReq)
+	if err != nil {
+		s.log.Errorf("Login: failed to create encrypted session cookie for user %s - %v", username, err)
+		return nil, errors.New("server_error")
+	}
+	s.log.Debugf("Login: created encrypted session cookie for %s", username)
 
-	// Update the session
-	s.sessionStore.CreateSession(sessionID, sessionData)
-	s.log.Debugf("Login: updated session for %s", username)
-
-	// Redirect back to authorization endpoint
-	// All parameters are already in the session, so we just need the basic authorize URL
+	// Redirect back to authorization endpoint with all parameters
 	authURL := fmt.Sprintf("/api/v1/auth/authorize?response_type=code&client_id=%s&redirect_uri=%s",
-		url.QueryEscape(sessionData.ClientID), url.QueryEscape(sessionData.RedirectURI))
-	if sessionData.State != "" {
-		authURL += fmt.Sprintf("&state=%s", url.QueryEscape(sessionData.State))
+		url.QueryEscape(pendingReq.ClientID), url.QueryEscape(pendingReq.RedirectURI))
+	if pendingReq.State != "" {
+		authURL += fmt.Sprintf("&state=%s", url.QueryEscape(pendingReq.State))
 	}
-	if sessionData.Scope != "" {
-		authURL += fmt.Sprintf("&scope=%s", url.QueryEscape(sessionData.Scope))
+	if pendingReq.Scope != "" {
+		authURL += fmt.Sprintf("&scope=%s", url.QueryEscape(pendingReq.Scope))
 	}
-	if sessionData.CodeChallenge != "" {
-		authURL += fmt.Sprintf("&code_challenge=%s", url.QueryEscape(sessionData.CodeChallenge))
+	if pendingReq.CodeChallenge != "" {
+		authURL += fmt.Sprintf("&code_challenge=%s", url.QueryEscape(pendingReq.CodeChallenge))
 	}
-	if sessionData.CodeChallengeMethod != "" {
-		authURL += fmt.Sprintf("&code_challenge_method=%s", url.QueryEscape(string(sessionData.CodeChallengeMethod)))
+	if pendingReq.CodeChallengeMethod != "" {
+		authURL += fmt.Sprintf("&code_challenge_method=%s", url.QueryEscape(pendingReq.CodeChallengeMethod))
 	}
 
 	s.log.Debugf("Login: returning redirect for user %s", username)
 	return &LoginResult{
 		RedirectURL: authURL,
-		SessionID:   sessionID,
+		SessionID:   encryptedSessionCookie, // Encrypted session cookie value
 	}, nil
-}
-
-// SessionData represents user session information
-type SessionData struct {
-	Username            string
-	IsLoggedIn          bool // Indicates if user has authenticated
-	LoginTime           time.Time
-	ExpiresAt           time.Time
-	ClientID            string
-	RedirectURI         string
-	Scope               string // OAuth2 scope from authorization request
-	State               string
-	CodeChallenge       string                                        // PKCE code challenge
-	CodeChallengeMethod pamapi.AuthAuthorizeParamsCodeChallengeMethod // PKCE code challenge method
-}
-
-// SessionStore manages user sessions
-type SessionStore struct {
-	sessions sync.Map
-}
-
-// NewSessionStore creates a new session store
-func NewSessionStore() *SessionStore {
-	return &SessionStore{}
-}
-
-// CreateSession creates a new user session
-func (s *SessionStore) CreateSession(sessionID string, data *SessionData) {
-	s.sessions.Store(sessionID, data)
-}
-
-// GetSession retrieves a session by ID
-func (s *SessionStore) GetSession(sessionID string) (*SessionData, bool) {
-	value, exists := s.sessions.Load(sessionID)
-	if !exists {
-		return nil, false
-	}
-
-	sessionData, ok := value.(*SessionData)
-	if !ok {
-		s.sessions.Delete(sessionID)
-		return nil, false
-	}
-
-	// Check if session has expired
-	if time.Now().After(sessionData.ExpiresAt) {
-		s.sessions.Delete(sessionID)
-		return nil, false
-	}
-
-	return sessionData, true
-}
-
-// DeleteSession removes a session
-func (s *SessionStore) DeleteSession(sessionID string) {
-	s.sessions.Delete(sessionID)
-}
-
-// CleanupExpiredSessions removes expired sessions
-func (s *SessionStore) CleanupExpiredSessions() {
-	now := time.Now()
-	s.sessions.Range(func(key, value interface{}) bool {
-		sessionID, ok := key.(string)
-		if !ok {
-			return true
-		}
-
-		sessionData, ok := value.(*SessionData)
-		if !ok {
-			s.sessions.Delete(sessionID)
-			return true
-		}
-
-		if now.After(sessionData.ExpiresAt) {
-			s.sessions.Delete(sessionID)
-		}
-		return true
-	})
 }
 
 // authenticateWithPAM authenticates a user using PAM/NSS
@@ -1213,70 +1273,50 @@ func (s *PAMOIDCProvider) CleanupExpiredCodes() {
 	s.codeStore.CleanupExpiredCodes()
 }
 
-// CleanupExpiredSessions removes expired sessions
-func (s *PAMOIDCProvider) CleanupExpiredSessions() {
-	s.sessionStore.CleanupExpiredSessions()
-}
+// IsUserAuthenticated checks if a user is authenticated via encrypted session cookie
+// Returns the decrypted auth data if valid, or nil if invalid/expired
+func (s *PAMOIDCProvider) IsUserAuthenticated(encryptedCookie string) (*EncryptedAuthData, bool) {
+	if encryptedCookie == "" {
+		return nil, false
+	}
 
-// IsUserAuthenticated checks if a user is authenticated via session
-func (s *PAMOIDCProvider) IsUserAuthenticated(sessionID string) (*SessionData, bool) {
-	return s.sessionStore.GetSession(sessionID)
-}
-
-// createPendingSessionAndReturnLoginForm creates a pending session with authorization parameters
-// and returns a login form response. Used when user is not authenticated or session is invalid.
-func (s *PAMOIDCProvider) createPendingSessionAndReturnLoginForm(req *pamapi.AuthAuthorizeParams, codeChallenge string, codeChallengeMethod pamapi.AuthAuthorizeParamsCodeChallengeMethod) (*AuthorizeResponse, error) {
-	// Generate a session ID for this pending authorization request
-	pendingSessionID, err := generateSessionID()
+	encryptedData, err := s.DecryptSessionData(encryptedCookie)
 	if err != nil {
-		s.log.Errorf("Authorize: failed to generate session ID - %v", err)
-		return nil, errors.New("server_error")
+		s.log.Debugf("IsUserAuthenticated: failed to decrypt session cookie - %v", err)
+		return nil, false
 	}
 
-	// Create a pending session with all authorization parameters
-	// This session will be updated after successful login
-	pendingSession := &SessionData{
-		Username:            "", // Not logged in yet
-		IsLoggedIn:          false,
-		LoginTime:           time.Time{}, // Not logged in yet
-		ExpiresAt:           time.Now().Add(s.getPendingSessionExpiration()),
-		ClientID:            req.ClientId,
-		RedirectURI:         req.RedirectUri,
-		Scope:               lo.FromPtrOr(req.Scope, ""),
-		State:               lo.FromPtrOr(req.State, ""),
-		CodeChallenge:       codeChallenge,
-		CodeChallengeMethod: codeChallengeMethod,
-	}
-	s.sessionStore.CreateSession(pendingSessionID, pendingSession)
-
-	// Return login form - session ID will be set as cookie by the handler
-	loginForm := s.GetLoginForm(pendingSessionID)
-	return &AuthorizeResponse{
-		Type:      AuthorizeResponseTypeHTML,
-		Content:   loginForm,
-		SessionID: pendingSessionID,
-	}, nil
+	return encryptedData, true
 }
 
-// CreateUserSession creates a new user session
-func (s *PAMOIDCProvider) CreateUserSession(sessionID string, username, clientID, redirectURI, state, scope, codeChallenge, codeChallengeMethod string) {
-	sessionData := &SessionData{
+// CreateUserSession creates a new encrypted session cookie from pending auth data
+// Returns the encrypted cookie value to be set in the client's browser
+func (s *PAMOIDCProvider) CreateUserSession(username string, pendingReq *EncryptedAuthData) (string, error) {
+	now := time.Now()
+	sessionExpiration := s.getSessionExpiration()
+	encryptedData := &EncryptedAuthData{
+		ClientID:            pendingReq.ClientID,
+		RedirectURI:         pendingReq.RedirectURI,
+		Scope:               pendingReq.Scope,
+		State:               pendingReq.State,
+		CodeChallenge:       pendingReq.CodeChallenge,
+		CodeChallengeMethod: pendingReq.CodeChallengeMethod,
+		ExpiresAt:           now.Add(sessionExpiration).Unix(),
 		Username:            username,
 		IsLoggedIn:          true,
-		LoginTime:           time.Now(),
-		ExpiresAt:           time.Now().Add(s.getAuthenticatedSessionExpiration()),
-		ClientID:            clientID,
-		RedirectURI:         redirectURI,
-		Scope:               scope,
-		State:               state,
-		CodeChallenge:       codeChallenge,
-		CodeChallengeMethod: pamapi.AuthAuthorizeParamsCodeChallengeMethod(codeChallengeMethod),
+		LoginTime:           now.Unix(),
 	}
-	s.sessionStore.CreateSession(sessionID, sessionData)
+
+	encryptedCookie, err := s.EncryptSessionData(encryptedData)
+	if err != nil {
+		return "", fmt.Errorf("failed to encrypt session data: %w", err)
+	}
+
+	return encryptedCookie, nil
 }
 
-// extractSessionID extracts session ID from request context
-func (s *PAMOIDCProvider) extractSessionID(ctx context.Context, req *pamapi.AuthAuthorizeParams) string {
+// extractSessionCookie extracts encrypted session cookie from request context
+func (s *PAMOIDCProvider) extractSessionCookie(ctx context.Context, req *pamapi.AuthAuthorizeParams) string {
 	// Check for session cookie in context (standard OAuth2/OIDC session management)
 	if sessionCookie, ok := ctx.Value(SessionCookieCtxKey).(string); ok && sessionCookie != "" {
 		return sessionCookie
@@ -1292,46 +1332,48 @@ func (s *PAMOIDCProvider) GetLoginFormTemplate() *template.Template {
 	return s.loginFormTemplate
 }
 
-// GetLoginForm returns the HTML for the login form
-// Uses html/template to safely escape user input and prevent XSS attacks
-// All authorization parameters are stored in the session, only sessionID is needed
-func (s *PAMOIDCProvider) GetLoginForm(sessionID string) string {
-	data := LoginFormData{
-		SessionID: sessionID,
+// createEncryptedCookieAndReturnLoginForm creates an encrypted cookie with authorization parameters
+// and returns a login form response. Used when user is not authenticated or session is invalid.
+func (s *PAMOIDCProvider) createEncryptedCookieAndReturnLoginForm(req *pamapi.AuthAuthorizeParams, codeChallenge string, codeChallengeMethod pamapi.AuthAuthorizeParamsCodeChallengeMethod) (*AuthorizeResponse, error) {
+	// Create pending auth request data (IsLoggedIn is false, Username is empty)
+	pendingAuthExpiration := s.getPendingAuthExpiration()
+	pendingReq := &EncryptedAuthData{
+		ClientID:            req.ClientId,
+		RedirectURI:         req.RedirectUri,
+		Scope:               lo.FromPtrOr(req.Scope, ""),
+		State:               lo.FromPtrOr(req.State, ""),
+		CodeChallenge:       codeChallenge,
+		CodeChallengeMethod: string(codeChallengeMethod),
+		ExpiresAt:           time.Now().Add(pendingAuthExpiration).Unix(),
+		Username:            "", // Empty for pending auth
+		IsLoggedIn:          false,
+		LoginTime:           0, // Not set for pending auth
 	}
 
+	// Encrypt and encode as cookie value
+	encryptedCookie, err := s.EncryptCookieData(pendingReq)
+	if err != nil {
+		s.log.Errorf("Authorize: failed to encrypt cookie data - %v", err)
+		return nil, errors.New("server_error")
+	}
+
+	// Return login form - cookie will be set by handler
+	loginForm := s.GetLoginForm()
+	return &AuthorizeResponse{
+		Type:      AuthorizeResponseTypeHTML,
+		Content:   loginForm,
+		SessionID: encryptedCookie, // Reuse SessionID field to pass encrypted cookie value
+	}, nil
+}
+
+// GetLoginForm returns the HTML for the login form
+// Uses html/template to safely escape user input and prevent XSS attacks
+// All authorization parameters are stored in encrypted cookie, form doesn't need them
+func (s *PAMOIDCProvider) GetLoginForm() string {
 	var buf bytes.Buffer
-	if err := s.loginFormTemplate.Execute(&buf, data); err != nil {
+	if err := s.loginFormTemplate.Execute(&buf, LoginFormData{}); err != nil {
 		return loginFormErrorHTML
 	}
 
 	return buf.String()
-}
-
-// CreatePendingSessionAndGetLoginForm creates a pending session with the provided parameters
-// and returns the login form HTML. This is used for endpoints that don't go through Authorize.
-func (s *PAMOIDCProvider) CreatePendingSessionAndGetLoginForm(clientID, redirectURI, state, scope, codeChallenge, codeChallengeMethod string) (string, string, error) {
-	// Generate a session ID for this pending authorization request
-	sessionID, err := generateSessionID()
-	if err != nil {
-		return "", "", fmt.Errorf("failed to generate session ID: %w", err)
-	}
-
-	// Create a pending session with all authorization parameters
-	pendingSession := &SessionData{
-		Username:            "",
-		IsLoggedIn:          false,
-		LoginTime:           time.Time{},
-		ExpiresAt:           time.Now().Add(s.getPendingSessionExpiration()),
-		ClientID:            clientID,
-		RedirectURI:         redirectURI,
-		Scope:               scope,
-		State:               state,
-		CodeChallenge:       codeChallenge,
-		CodeChallengeMethod: pamapi.AuthAuthorizeParamsCodeChallengeMethod(codeChallengeMethod),
-	}
-	s.sessionStore.CreateSession(sessionID, pendingSession)
-
-	loginForm := s.GetLoginForm(sessionID)
-	return loginForm, sessionID, nil
 }

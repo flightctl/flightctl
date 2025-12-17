@@ -20,9 +20,9 @@ type PAMOIDCProvider struct {
 	config            *config.PAMOIDCIssuer
 	pamAuthenticator  Authenticator
 	codeStore         *AuthorizationCodeStore
-	sessionStore      *SessionStore
 	log               Logger
 	loginFormTemplate *template.Template
+	cookieKey         []byte // AES-256 key for encrypting pending auth cookies
 }
 
 // Authenticator interface for PAM authentication and NSS user lookup

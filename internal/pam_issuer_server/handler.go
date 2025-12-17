@@ -86,7 +86,6 @@ func (h *Handler) Run(ctx context.Context) error {
 			select {
 			case <-ticker.C:
 				h.pamProvider.CleanupExpiredCodes()
-				h.pamProvider.CleanupExpiredSessions()
 			case <-childCtx.Done():
 				return
 			}
@@ -155,43 +154,11 @@ func writeOAuth2Error(w http.ResponseWriter, errorCode pamapi.OAuth2ErrorError, 
 	writeJSON(w, statusCode, oauth2Error)
 }
 
-// Helper function to get cookie HttpOnly value from config
-func (h *Handler) getCookieHttpOnly() bool {
-	if h.cfg.Auth == nil || h.cfg.Auth.PAMOIDCIssuer == nil {
-		return true // default
-	}
-	if h.cfg.Auth.PAMOIDCIssuer.CookieHttpOnly == nil {
-		return true // default
-	}
-	return *h.cfg.Auth.PAMOIDCIssuer.CookieHttpOnly
-}
-
-// Helper function to get pending session cookie MaxAge from config (returns seconds for http.Cookie)
-func (h *Handler) getPendingSessionCookieMaxAge() int {
-	if h.cfg.Auth == nil || h.cfg.Auth.PAMOIDCIssuer == nil {
-		return 600 // default: 10 minutes
-	}
-	if h.cfg.Auth.PAMOIDCIssuer.PendingSessionCookieMaxAge == 0 {
-		return 600 // default: 10 minutes
-	}
-	return int(time.Duration(h.cfg.Auth.PAMOIDCIssuer.PendingSessionCookieMaxAge).Seconds())
-}
-
-// Helper function to get authenticated session cookie MaxAge from config (returns seconds for http.Cookie)
-func (h *Handler) getAuthenticatedSessionCookieMaxAge() int {
-	if h.cfg.Auth == nil || h.cfg.Auth.PAMOIDCIssuer == nil {
-		return 1800 // default: 30 minutes
-	}
-	if h.cfg.Auth.PAMOIDCIssuer.AuthenticatedSessionCookieMaxAge == 0 {
-		return 1800 // default: 30 minutes
-	}
-	return int(time.Duration(h.cfg.Auth.PAMOIDCIssuer.AuthenticatedSessionCookieMaxAge).Seconds())
-}
-
 // extractSessionContext extracts session information from HTTP request and adds it to context
 func (h *Handler) extractSessionContext(ctx context.Context, r *http.Request) context.Context {
-	// Extract session cookie (standard method for OAuth2/OIDC session management)
-	if cookie, err := r.Cookie("session_id"); err == nil && cookie.Value != "" {
+	// Extract auth cookie (standard method for OAuth2/OIDC session management)
+	// This cookie can contain either pending auth or authenticated session data
+	if cookie, err := r.Cookie(pam.CookieNameAuth); err == nil && cookie.Value != "" {
 		ctx = context.WithValue(ctx, pam.SessionCookieCtxKey, cookie.Value)
 	}
 
@@ -243,14 +210,15 @@ func (h *Handler) AuthAuthorize(w http.ResponseWriter, r *http.Request, params p
 	// OIDC spec: authorization endpoint returns HTML (login form) or redirect
 	switch response.Type {
 	case pam.AuthorizeResponseTypeHTML:
-		// Set session cookie if a pending session was created
+		// Set encrypted cookie if pending auth was created
 		if response.SessionID != "" {
+			pendingAuthExpiration := h.pamProvider.GetPendingAuthExpiration()
 			cookie := &http.Cookie{
-				Name:     "session_id",
-				Value:    response.SessionID,
+				Name:     pam.CookieNameAuth,
+				Value:    response.SessionID, // This is the encrypted cookie value
 				Path:     "/",
-				MaxAge:   h.getPendingSessionCookieMaxAge(),
-				HttpOnly: h.getCookieHttpOnly(),
+				MaxAge:   int(pendingAuthExpiration.Seconds()),
+				HttpOnly: true,
 				Secure:   true,
 				SameSite: http.SameSiteLaxMode,
 			}
@@ -278,24 +246,33 @@ func (h *Handler) AuthAuthorize(w http.ResponseWriter, r *http.Request, params p
 // AuthLogin handles GET request to login form
 // (GET /api/v1/auth/login)
 func (h *Handler) AuthLogin(w http.ResponseWriter, r *http.Request, params pamapi.AuthLoginParams) {
-	// Convert CodeChallengeMethod from custom type to string
+	// Extract parameters from generated params (standardized with authorize endpoint)
+	codeChallenge := lo.FromPtrOr(params.CodeChallenge, "")
 	codeChallengeMethod := ""
 	if params.CodeChallengeMethod != nil {
 		codeChallengeMethod = string(*params.CodeChallengeMethod)
 	}
+	scope := lo.FromPtrOr(params.Scope, "")
 
-	// Create a pending session and get the login form
-	// All authorization parameters are stored in the session
-	loginForm, sessionID, err := h.pamProvider.CreatePendingSessionAndGetLoginForm(
-		params.ClientId,
-		params.RedirectUri,
-		lo.FromPtrOr(params.State, ""),
-		lo.FromPtrOr(params.Scope, ""),
-		lo.FromPtrOr(params.CodeChallenge, ""),
-		codeChallengeMethod,
-	)
+	// Create pending auth request (IsLoggedIn is false, Username is empty)
+	pendingAuthExpiration := h.pamProvider.GetPendingAuthExpiration()
+	pendingReq := &pam.EncryptedAuthData{
+		ClientID:            params.ClientId,
+		RedirectURI:         params.RedirectUri,
+		Scope:               scope,
+		State:               lo.FromPtrOr(params.State, ""),
+		CodeChallenge:       codeChallenge,
+		CodeChallengeMethod: codeChallengeMethod,
+		ExpiresAt:           time.Now().Add(pendingAuthExpiration).Unix(),
+		Username:            "", // Empty for pending auth
+		IsLoggedIn:          false,
+		LoginTime:           0, // Not set for pending auth
+	}
+
+	// Encrypt and create cookie
+	encryptedCookie, err := h.pamProvider.EncryptCookieData(pendingReq)
 	if err != nil {
-		h.log.Errorf("Failed to create pending session: %v", err)
+		h.log.Errorf("Failed to encrypt cookie data: %v", err)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusInternalServerError)
 		if _, writeErr := w.Write([]byte(`<!DOCTYPE html><html><head><title>Error</title></head><body><h1>Error</h1><p>Failed to generate login form.</p></body></html>`)); writeErr != nil {
@@ -304,17 +281,20 @@ func (h *Handler) AuthLogin(w http.ResponseWriter, r *http.Request, params pamap
 		return
 	}
 
-	// Set session cookie
+	// Set encrypted cookie
 	cookie := &http.Cookie{
-		Name:     "session_id",
-		Value:    sessionID,
+		Name:     pam.CookieNameAuth,
+		Value:    encryptedCookie,
 		Path:     "/",
-		MaxAge:   h.getPendingSessionCookieMaxAge(),
-		HttpOnly: h.getCookieHttpOnly(),
+		MaxAge:   int(pendingAuthExpiration.Seconds()),
+		HttpOnly: true,
 		Secure:   true,
 		SameSite: http.SameSiteLaxMode,
 	}
 	http.SetCookie(w, cookie)
+
+	// Get login form (no parameters needed - they're in the cookie)
+	loginForm := h.pamProvider.GetLoginForm()
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
@@ -337,25 +317,25 @@ func (h *Handler) AuthLoginPost(w http.ResponseWriter, r *http.Request) {
 	username := r.FormValue("username")
 	password := r.FormValue("password")
 
-	// Extract session ID from cookie (set when login form was returned)
-	sessionID := ""
-	if cookie, err := r.Cookie("session_id"); err == nil && cookie.Value != "" {
-		sessionID = cookie.Value
+	// Extract encrypted cookie (set when login form was returned)
+	encryptedCookie := ""
+	if cookie, err := r.Cookie(pam.CookieNameAuth); err == nil && cookie.Value != "" {
+		encryptedCookie = cookie.Value
 	}
 
-	h.log.Infof("Login request - username=%s, sessionID=%s", username, sessionID)
+	h.log.Infof("Login request - username=%s", username)
 
 	// Validate required fields
-	if username == "" || password == "" || sessionID == "" {
-		h.log.Warnf("Missing required fields - username=%v, hasPassword=%v, sessionID=%v",
-			username != "", password != "", sessionID != "")
+	if username == "" || password == "" || encryptedCookie == "" {
+		h.log.Warnf("Missing required fields - username=%v, hasPassword=%v, hasEncryptedCookie=%v",
+			username != "", password != "", encryptedCookie != "")
 		writeError(w, http.StatusBadRequest, "Missing required fields")
 		return
 	}
 
-	// Call PAM provider's Login method with session ID
-	// All authorization parameters are stored in the session
-	loginResult, err := h.pamProvider.Login(r.Context(), username, password, sessionID)
+	// Call PAM provider's Login method with encrypted cookie
+	// All authorization parameters are stored in the encrypted cookie
+	loginResult, err := h.pamProvider.Login(r.Context(), username, password, encryptedCookie)
 	if err != nil {
 		h.log.Errorf("Login failed for user %s: %v", username, err)
 		// Return just the error message for the JavaScript to display
@@ -367,13 +347,15 @@ func (h *Handler) AuthLoginPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Set secure HTTP-only cookie with session ID
+	// Set secure HTTP-only cookie with encrypted session data
+	// This replaces the pending auth cookie with the authenticated session cookie
+	sessionExpiration := h.pamProvider.GetSessionExpiration()
 	cookie := &http.Cookie{
-		Name:     "session_id",
-		Value:    loginResult.SessionID,
+		Name:     pam.CookieNameAuth,
+		Value:    loginResult.SessionID, // This is the encrypted session cookie value
 		Path:     "/",
-		MaxAge:   h.getAuthenticatedSessionCookieMaxAge(),
-		HttpOnly: h.getCookieHttpOnly(),
+		MaxAge:   int(sessionExpiration.Seconds()),
+		HttpOnly: true,
 		Secure:   true,
 		SameSite: http.SameSiteLaxMode,
 	}
