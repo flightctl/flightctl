@@ -42,8 +42,8 @@ type OIDCIssuer interface {
 	Authorize(ctx context.Context, req *pamapi.AuthAuthorizeParams) (*AuthorizeResponse, error)
 
 	// Login handles the login form submission (browser-based)
-	// sessionID identifies the pending session containing all authorization parameters
-	Login(ctx context.Context, username, password, sessionID string) (*LoginResult, error)
+	// encryptedCookie contains the encrypted authorization request parameters
+	Login(ctx context.Context, username, password, encryptedCookie string) (*LoginResult, error)
 
 	// Discovery and Configuration (system errors only)
 	GetOpenIDConfiguration() (*pamapi.OpenIDConfiguration, error)
