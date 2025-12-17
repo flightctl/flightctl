@@ -9,9 +9,10 @@ Image={{ .DbSetup.Image }}:{{ .DbSetup.Tag }}
 Network=flightctl.network
 AutoUpdate=none
 Environment=DB_USER=flightctl_app
-Environment=SERVICE_CONFIG_PATH=/etc/flightctl/service-config.yaml
+Environment=SERVICE_CONFIG_PATH=/etc/flightctl/config.yaml
 Secret=flightctl-postgresql-user-password,type=env,target=DB_PASSWORD
-Volume=/etc/flightctl/service-config.yaml:/etc/flightctl/service-config.yaml:ro,z
+Volume=/etc/flightctl/flightctl-db-migrate/config.yaml:/etc/flightctl/config.yaml:ro,z
+Volume=/etc/flightctl/pki/db:/root/.flightctl/certs/db:ro,z
 Exec=/app/deploy/scripts/wait-for-database.sh --timeout=60 --sleep=1
 
 [Service]
@@ -19,8 +20,7 @@ Type=oneshot
 RemainAfterExit=yes
 Restart=on-failure
 RestartSec=1
+ExecStartPre=/usr/bin/flightctl-standalone render template --input-file /usr/share/flightctl/flightctl-db-migrate/config.yaml.template --output-file /etc/flightctl/flightctl-db-migrate/config.yaml
 
 [Install]
 WantedBy=flightctl.target
-
-
