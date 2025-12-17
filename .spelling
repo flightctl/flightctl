@@ -316,6 +316,8 @@ GroupBy
 MinAvailable
 MaxUnavailable
 MultipleOwners
+subfields
+namespaced
  - docs/user/building/building-images.md
 usr
 iso
