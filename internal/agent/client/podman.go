@@ -854,20 +854,26 @@ func SanitizePodmanLabel(name string) string {
 
 func retryWithBackoff(ctx context.Context, log *log.PrefixLogger, backoff poll.Config, operation func(context.Context) (string, error)) (string, error) {
 	var result string
+	var retriableErr error
 	err := poll.BackoffWithContext(ctx, backoff, func(ctx context.Context) (bool, error) {
 		var err error
+		retriableErr = nil
 		result, err = operation(ctx)
 		if err != nil {
 			if !errors.IsRetryable(err) {
 				log.Error(err)
 				return false, err
 			}
+			retriableErr = err
 			log.Warnf("A retriable error occurred: %s", err)
 			return false, nil
 		}
 		return true, nil
 	})
 	if err != nil {
+		if retriableErr != nil {
+			err = fmt.Errorf("%w: %w", retriableErr, err)
+		}
 		return "", err
 	}
 	return result, nil

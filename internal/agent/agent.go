@@ -257,6 +257,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		deviceReadWriter,
 		a.config.PullTimeout,
 		resourceManager,
+		pollBackoff,
 	)
 
 	// create status manager
