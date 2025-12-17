@@ -30,6 +30,9 @@ The agent's configuration file `/etc/flightctl/config.yaml` takes the following 
 `Duration` values are strings of an integer value with appended unit of time ('s' for seconds, 'm' for minutes, or 'h' for hours). Examples: `30s`, `10m`, `24h`
 
 > [!NOTE]
+> The agent identifies new device configurations before applying them. Updates are typically applied on the next `spec-fetch-interval` sync cycle (not immediately). If several updates arrive between sync cycles, the agent may skip intermediate versions and apply only the latest one.
+
+> [!NOTE]
 > The `/etc/flightctl/conf.d/` drop-in directory supports only a subset of the agent configuration. Currently supported keys include:
 > `log-level`, `system-info`, `system-info-custom`, and `system-info-timeout`.
 
