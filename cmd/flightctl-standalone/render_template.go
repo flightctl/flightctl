@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"strings"
@@ -80,12 +81,12 @@ func (o *RenderTemplateOptions) completeConfig(data map[string]interface{}) erro
 	// Default baseDomain if empty
 	baseDomain, _ := global["baseDomain"].(string)
 	if baseDomain == "" {
-		hostname, err := o.getHostnameFQDN()
+		hostname, err := o.getHostnameOrDefaultIP()
 		if err != nil {
-			return fmt.Errorf("failed to get hostname for baseDomain default: %w", err)
+			return fmt.Errorf("failed to get hostname or default IP for baseDomain default: %w", err)
 		}
 		global["baseDomain"] = hostname
-		fmt.Fprintf(os.Stderr, "global.baseDomain not set, defaulting to system hostname FQDN (%s)\n", hostname)
+		fmt.Fprintf(os.Stderr, "global.baseDomain not set, defaulting to %s\n", hostname)
 	}
 
 	// Inject AAP OAuth client_id if file exists
@@ -124,30 +125,33 @@ func (o *RenderTemplateOptions) completeConfig(data map[string]interface{}) erro
 	return nil
 }
 
-func (o *RenderTemplateOptions) getHostnameFQDN() (string, error) {
-	// Try "hostname -f" first for FQDN
-	cmd := exec.Command("hostname", "-f")
+func (o *RenderTemplateOptions) getHostnameOrDefaultIP() (string, error) {
+	// Try "hostname" (short name)
+	cmd := exec.Command("hostname")
 	output, err := cmd.Output()
 	if err == nil && len(output) > 0 {
 		hostname := strings.TrimSpace(string(output))
-		if hostname != "" {
+		// Return hostname if it's not empty and not "localhost"
+		if hostname != "" && hostname != "localhost" {
 			return hostname, nil
 		}
 	}
 
-	// Fallback to "hostname" (short name)
-	cmd = exec.Command("hostname")
-	output, err = cmd.Output()
+	// Fallback to default outbound IP address
+	return o.getDefaultIP()
+}
+
+func (o *RenderTemplateOptions) getDefaultIP() (string, error) {
+	// Use net.Dial to determine which local address would be used for outbound connections
+	// This doesn't actually send any data, just determines routing
+	conn, err := net.Dial("udp", "1.1.1.1:80")
 	if err != nil {
-		return "", fmt.Errorf("failed to execute hostname command: %w", err)
+		return "", fmt.Errorf("failed to determine default IP address: %w", err)
 	}
+	defer conn.Close()
 
-	hostname := strings.TrimSpace(string(output))
-	if hostname == "" {
-		return "", fmt.Errorf("hostname command returned empty value")
-	}
-
-	return hostname, nil
+	localAddr := conn.LocalAddr().(*net.UDPAddr)
+	return localAddr.IP.String(), nil
 }
 
 func (o *RenderTemplateOptions) validateConfig(data map[string]interface{}) error {

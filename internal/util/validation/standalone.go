@@ -17,7 +17,7 @@ func ValidateStandaloneConfig(config *standalone.Config) []error {
 	allErrs := []error{}
 
 	baseDomain := config.Global.BaseDomain
-	allErrs = append(allErrs, ValidateHostnameOrFQDN(&baseDomain, "global.baseDomain")...)
+	allErrs = append(allErrs, ValidateIPOrHostnameOrFQDN(&baseDomain, "global.baseDomain")...)
 	allErrs = append(allErrs, validateAuthType(config.Global.Auth, "global.auth")...)
 
 	return allErrs
