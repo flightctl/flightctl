@@ -106,6 +106,113 @@ The following fields in device templates support placeholders (including within 
 | HTTP Config Provider | URL suffix, path |
 | Inline Config Provider | content, path |
 
+### Using Kubernetes Secrets
+
+In addition to the templating mechanism, you can also reference Kubernetes secrets in your device templates. This is useful for injecting sensitive information like passwords or certificates into your devices.
+
+Note: When a Kubernetes secret referenced in a device template changes, a new template version is not created immediately. Instead, the secret change will be included in the next template version that gets created when you update the fleet's device template.
+
+To use a Kubernetes secret, you can use the `secretRef` field in your device template. The `secretRef` field has the following subfields:
+
+| Field       | Description                                                  |
+|-------------|--------------------------------------------------------------|
+| `name`      | The name of the Kubernetes secret.                           |
+| `namespace` | The namespace where the Kubernetes secret is located.        |
+| `mountPath` | The absolute path on the device where the secret should be mounted. |
+
+Here is an example of a device template that uses a `secretRef`:
+
+```yaml
+spec:
+  config:
+    - name: my-secret
+      secretRef:
+        name: my-secret-name
+        namespace: my-secret-namespace
+        mountPath: /etc/my-secret
+```
+
+#### RBAC Permissions for Single-Namespace Access
+
+For the Flight Control service to be able to access the Kubernetes secrets, the service account used by the Flight Control service needs the following RBAC permissions in the namespace where the secrets are stored. The following example shows how to grant read-only access to secrets within a single namespace.
+
+Create a `Role` to define the permissions:
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: flightctl-secret-reader
+  namespace: <secret-namespace>
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get"]
+```
+
+Then, create a `RoleBinding` to grant these permissions to the Flight Control service account:
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: flightctl-secret-reader-binding
+  namespace: <secret-namespace>
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: flightctl-secret-reader
+subjects:
+- kind: ServiceAccount
+  name: <flightctl-service-account-name>
+  namespace: <flightctl-namespace>
+```
+
+Replace the following placeholders with the appropriate values for your environment:
+
+* `<secret-namespace>`: The namespace where your secrets are stored.
+* `<flightctl-service-account-name>`: The name of the Flight Control service account (typically found in the Flight Control deployment or Helm values).
+* `<flightctl-namespace>`: The namespace where Flight Control is deployed.
+
+#### RBAC Permissions for Cross-Namespace Access
+
+A `ClusterRole` can grant access to cluster-scoped resources or to namespaced resources across all namespaces.
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: flightctl-secret-reader
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get"]
+```
+
+A `ClusterRoleBinding` grants the permissions defined in a `ClusterRole` to a user or set of users.
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: flightctl-secret-reader-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: flightctl-secret-reader
+subjects:
+- kind: ServiceAccount
+  name: <flightctl-service-account-name>
+  namespace: <flightctl-namespace>
+```
+
+Note: Both the Role/ClusterRole and its corresponding RoleBinding/ClusterRoleBinding are required for authentication and authorization. The Role or ClusterRole defines the permissions, while the Binding grants those permissions to the service account. When deciding whether to centralize RBAC management, consider using `Role` and `RoleBinding` for namespace-scoped access (more secure, better isolation) and `ClusterRole` with `ClusterRoleBinding` for cluster-wide access or when accessing resources across multiple namespaces (more efficient for centralized management).
+
+**Best Practices for Cross-Namespace Access:**
+
+* **Minimize Permissions**: The `ClusterRole` example above grants permission to read secrets in *all* namespaces. If you only need access to a few specific namespaces, it is more secure to create a `Role` and `RoleBinding` in each of those namespaces.
+* **Service Account Namespace**: The service account must be specified with the namespace where it is deployed (`<flightctl-namespace>`). This service account can then be granted permissions in other namespaces via `RoleBinding` or across the cluster via `ClusterRoleBinding`.
+
 ## Defining Rollout Policies
 
 You can define policies that govern how a change to a fleet's device template gets rolled out across devices of the fleet. This gives you control over
