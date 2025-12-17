@@ -239,7 +239,7 @@ func TestEnsureScheduled(t *testing.T) {
 			podman := client.NewPodman(log, mockExec, rw, poll.Config{})
 
 			timeout := util.Duration(5 * time.Second)
-			manager := NewPrefetchManager(log, podman, client.NewSkopeo(log, mockExec, rw), rw, timeout, mockResourceManager)
+			manager := NewPrefetchManager(log, podman, client.NewSkopeo(log, mockExec, rw), rw, timeout, mockResourceManager, poll.Config{})
 
 			// register a collector that returns the test targets
 			manager.RegisterOCICollector(newTestOCICollector(func(ctx context.Context, current, desired *v1beta1.DeviceSpec) (*OCICollection, error) {
@@ -320,7 +320,7 @@ func TestIsReady(t *testing.T) {
 			podman := client.NewPodman(log, mockExec, rw, poll.Config{})
 
 			timeout := util.Duration(5 * time.Second)
-			manager := NewPrefetchManager(log, podman, client.NewSkopeo(log, mockExec, rw), rw, timeout, mockResourceManager)
+			manager := NewPrefetchManager(log, podman, client.NewSkopeo(log, mockExec, rw), rw, timeout, mockResourceManager, poll.Config{})
 
 			for _, image := range tt.scheduledImages {
 				state := tt.imageStates[image]
@@ -370,7 +370,7 @@ func TestStatus(t *testing.T) {
 	podman := client.NewPodman(log, mockExec, rw, poll.Config{})
 
 	timeout := util.Duration(5 * time.Second)
-	manager := NewPrefetchManager(log, podman, client.NewSkopeo(log, mockExec, rw), rw, timeout, mockResourceManager)
+	manager := NewPrefetchManager(log, podman, client.NewSkopeo(log, mockExec, rw), rw, timeout, mockResourceManager, poll.Config{})
 
 	targets := []OCIPullTarget{
 		{
@@ -719,7 +719,7 @@ func TestBeforeUpdate(t *testing.T) {
 			podman := client.NewPodman(log, mockExec, rw, poll.Config{})
 
 			timeout := util.Duration(5 * time.Second)
-			manager := NewPrefetchManager(log, podman, client.NewSkopeo(log, mockExec, rw), rw, timeout, mockResourceManager)
+			manager := NewPrefetchManager(log, podman, client.NewSkopeo(log, mockExec, rw), rw, timeout, mockResourceManager, poll.Config{})
 
 			// Register collectors
 			for _, collector := range tt.collectors {
@@ -777,10 +777,21 @@ func TestStatusMessage(t *testing.T) {
 				m.tasks = map[string]*prefetchTask{
 					"image1": {done: true, err: nil},
 					"image2": {done: false, err: nil},
-					"image3": {done: true, err: errors.ErrNetwork},
+					"image3": {done: false, err: nil},
 				}
 			},
 			expected: "1/3 images complete, pending: image2, image3",
+		},
+		{
+			name: "some images retrying with reason",
+			setupManager: func(m *prefetchManager) {
+				m.tasks = map[string]*prefetchTask{
+					"image1": {done: true, err: nil},
+					"image2": {done: false, err: nil},
+					"image3": {done: false, err: errors.ErrNetwork},
+				}
+			},
+			expected: "1/3 images complete, retrying: image3: network, and 1 more pending",
 		},
 		{
 			name: "many images pending",
@@ -840,7 +851,7 @@ func TestPullSecretCleanup(t *testing.T) {
 	rw := fileio.NewReadWriter()
 	podman := client.NewPodman(log, mockExec, rw, poll.Config{})
 	timeout := util.Duration(5 * time.Second)
-	manager := NewPrefetchManager(log, podman, client.NewSkopeo(log, mockExec, rw), rw, timeout, mockResourceManager)
+	manager := NewPrefetchManager(log, podman, client.NewSkopeo(log, mockExec, rw), rw, timeout, mockResourceManager, poll.Config{})
 
 	// simulate the complete lifecycle of pull secret cleanup
 	var cleanupCalls []string
@@ -1134,7 +1145,7 @@ func TestSetResultAfterCleanup(t *testing.T) {
 	skopeoClient := client.NewSkopeo(logger, mockExec, readWriter)
 	pullTimeout := util.Duration(5 * time.Minute)
 
-	pm := NewPrefetchManager(logger, podmanClient, skopeoClient, readWriter, pullTimeout, mockResourceManager)
+	pm := NewPrefetchManager(logger, podmanClient, skopeoClient, readWriter, pullTimeout, mockResourceManager, poll.Config{})
 
 	testImage := "quay.io/test/image:latest"
 	pm.tasks[testImage] = &prefetchTask{
