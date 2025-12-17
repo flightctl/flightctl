@@ -49,6 +49,20 @@ Validates tokens via AAP Gateway API. Auto-maps AAP organizations to Flight Cont
 
 ## Managing Authentication Providers
 
+### Managing Providers via the Flight Control UI
+
+Users with administrative permissions can use the Flight Control UI to manage dynamic OIDC Providers.
+
+1. **Access Settings**: Click the **Settings** button (⚙️) in the navigation bar. This button is only visible to users with administrative permissions.
+
+2. **Navigate to Authentication Providers**: The Settings button takes you to the Authentication Providers page, where you can view all configured providers.
+
+3. **Add a New Provider**: Click the **Add authentication provider** button to open the provider creation form.
+
+4. **Edit an existing Provider**: Click the **Edit** button from the menu actions of a specific provider.
+
+### Managing Providers via the Flight Control API/CLI
+
 > **Note:** The examples below use the Flight Control CLI. See [Using the CLI](../../using/cli/overview.md) and [Logging in to the Service](../../using/cli/logging-in.md) for more information.
 
 Flight Control supports two types of authentication provider configuration:
