@@ -9,6 +9,15 @@ import (
 // SessionCookieCtxKey is the context key for storing session cookies
 const SessionCookieCtxKey common.ContextKey = "session_cookie"
 
+// Cookie names
+const (
+	// CookieNameAuth is the name of the cookie storing encrypted authorization/session data
+	// The cookie contains EncryptedAuthData which can represent either:
+	// - Pending authorization requests (IsLoggedIn = false)
+	// - Authenticated sessions (IsLoggedIn = true)
+	CookieNameAuth = "auth"
+)
+
 // OAuth2 Scopes
 const (
 	// ScopeOfflineAccess is the OAuth2 scope for requesting refresh tokens
