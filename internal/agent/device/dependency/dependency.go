@@ -17,11 +17,11 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/poll"
 )
 
 const (
-	queueNextItemAfter = 5 * time.Second
-	maxQueueSize       = 10
+	maxQueueSize = 10
 )
 
 const (
@@ -85,8 +85,9 @@ type OCICollection struct {
 
 // PrefetchStatus provides the current status of prefetch operations
 type PrefetchStatus struct {
-	TotalImages   int
-	PendingImages []string
+	TotalImages    int
+	PendingImages  []string
+	RetryingImages []string
 }
 
 var _ PrefetchManager = (*prefetchManager)(nil)
@@ -118,6 +119,7 @@ type prefetchManager struct {
 	// pullTimeout is the duration that each target will wait unless it
 	// encounters an error
 	pullTimeout time.Duration
+	pollConfig  *poll.Config
 
 	mu         sync.Mutex
 	tasks      map[string]*prefetchTask
@@ -143,6 +145,7 @@ func NewPrefetchManager(
 	readWriter fileio.ReadWriter,
 	pullTimeout util.Duration,
 	resourceManager resource.Manager,
+	pollConfig poll.Config,
 ) *prefetchManager {
 	return &prefetchManager{
 		log:             log,
@@ -150,6 +153,7 @@ func NewPrefetchManager(
 		skopeoClient:    skopeoClient,
 		readWriter:      readWriter,
 		pullTimeout:     time.Duration(pullTimeout),
+		pollConfig:      &pollConfig,
 		resourceManager: resourceManager,
 		tasks:           make(map[string]*prefetchTask),
 		queue:           make(chan string, maxQueueSize),
@@ -281,16 +285,17 @@ func (m *prefetchManager) checkReady(ctx context.Context) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		if !task.done {
-			pending = append(pending, fmt.Sprintf("%s in progress", image))
-			continue
-		}
 		if task.err != nil {
 			if errors.IsRetryable(task.err) {
 				pending = append(pending, fmt.Sprintf("%s retrying: %v", image, task.err))
 			} else {
 				return task.err
 			}
+			continue
+		}
+		if !task.done {
+			pending = append(pending, fmt.Sprintf("%s in progress", image))
+			continue
 		}
 	}
 
@@ -321,6 +326,7 @@ func (m *prefetchManager) processTarget(ctx context.Context, target string) {
 	// these operations are intentionally serial.  consider whether the
 	// networking and disk I/O overhead of async pulls would be worth changing
 	// before we do.
+	retries := 0
 	for {
 		if ctx.Err() != nil {
 			m.setResult(target, fmt.Errorf("pulling oci target %s: %w", target, ctx.Err()))
@@ -329,6 +335,10 @@ func (m *prefetchManager) processTarget(ctx context.Context, target string) {
 		}
 		if err := m.pull(ctx, target, task); err != nil {
 			if errors.IsRetryable(err) {
+				retries++
+				m.log.Warnf("Retrying prefetch for %s (attempt %d): %v", target, retries+1, err)
+				m.setError(target, err)
+
 				// cleanup file system from partial layer pulls
 				if err := m.cleanupPartialLayers(ctx); err != nil {
 					m.log.Warnf("cleanup failed: %v", err)
@@ -337,7 +347,7 @@ func (m *prefetchManager) processTarget(ctx context.Context, target string) {
 				}
 
 				select {
-				case <-time.After(queueNextItemAfter):
+				case <-time.After(poll.CalculateBackoffDelay(m.pollConfig, retries)):
 					continue
 				case <-ctx.Done():
 					m.log.Warnf("Prefetch loop canceled while waiting to retry: %v", ctx.Err())
@@ -401,6 +411,17 @@ func (m *prefetchManager) setResult(image string, err error) {
 	}
 	task.err = err
 	task.done = true
+}
+
+func (m *prefetchManager) setError(target string, err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	task, ok := m.tasks[target]
+	if !ok {
+		m.log.Debugf("Task for %s no longer exists, skipping error update", target)
+		return
+	}
+	task.err = err
 }
 
 func (m *prefetchManager) Schedule(ctx context.Context, targets []OCIPullTarget) error {
@@ -621,21 +642,32 @@ func (m *prefetchManager) cleanupPartialLayers(ctx context.Context) error {
 func (m *prefetchManager) StatusMessage(ctx context.Context) string {
 	status := m.status(ctx)
 	pending := status.PendingImages
+	retrying := status.RetryingImages
 	total := status.TotalImages
-	completed := total - len(pending)
+	completed := total - len(pending) - len(retrying)
 
 	switch {
 	case total == 0:
 		return "No images to prefetch"
-	case len(pending) == 0:
+	case completed == total:
 		return fmt.Sprintf("All %d images ready", total)
+	case len(retrying) > 0:
+		displayRetrying := retrying
+		if len(retrying) > 3 {
+			displayRetrying = retrying[:3]
+		}
+		retryingStr := strings.Join(displayRetrying, ", ")
+		remaining := len(retrying) - len(displayRetrying) + len(pending)
+		if remaining > 0 {
+			return fmt.Sprintf("%d/%d images complete, retrying: %s, and %d more pending",
+				completed, total, retryingStr, remaining)
+		}
+		return fmt.Sprintf("%d/%d images complete, retrying: %s", completed, total, retryingStr)
 	case len(pending) <= 3:
 		return fmt.Sprintf("%d/%d images complete, pending: %s", completed, total, strings.Join(pending, ", "))
 	default:
-		return fmt.Sprintf(
-			"%d/%d images complete, pending: %s and %d more",
-			completed, total, strings.Join(pending[:3], ", "), len(pending)-3,
-		)
+		return fmt.Sprintf("%d/%d images complete, pending: %s and %d more",
+			completed, total, strings.Join(pending[:3], ", "), len(pending)-3)
 	}
 }
 
@@ -644,22 +676,25 @@ func (m *prefetchManager) status(ctx context.Context) PrefetchStatus {
 	defer m.mu.Unlock()
 
 	var pendingImages []string
+	var retryingImages []string
 	for image, task := range m.tasks {
 		if ctx.Err() != nil {
 			return PrefetchStatus{}
 		}
-		if !task.done {
-			pendingImages = append(pendingImages, image)
-		} else if errors.IsRetryable(task.err) {
+		if errors.IsRetryable(task.err) {
+			retryingImages = append(retryingImages, fmt.Sprintf("%s: %s", image, log.Truncate(errors.Reason(task.err), 100)))
+		} else if !task.done {
 			pendingImages = append(pendingImages, image)
 		}
 	}
 
 	// sort for consistent ordering
 	slices.Sort(pendingImages)
+	slices.Sort(retryingImages)
 
 	return PrefetchStatus{
-		TotalImages:   len(m.tasks),
-		PendingImages: pendingImages,
+		TotalImages:    len(m.tasks),
+		PendingImages:  pendingImages,
+		RetryingImages: retryingImages,
 	}
 }
