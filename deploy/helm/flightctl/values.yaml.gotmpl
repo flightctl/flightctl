@@ -140,7 +140,7 @@ db:
         # -- CPU resource requests for database pod
         cpu: "512m"
         # -- Memory resource requests for database pod
-        memory: "512Mi" 
+        memory: "512Mi"
     # -- File system group ID for database pod security context
     fsGroup: ""
     # -- Additional labels for DB PVCs.
@@ -247,6 +247,10 @@ cliArtifacts:
     pullPolicy: ""
   # -- Additional labels for CLI Artifacts routes.
   additionalRouteLabels: null
+  # -- CLI Artifacts service routing in case a different from .global behavior is required, for example when RHEM is installed on hosts like RHEL.
+  route:
+    host: ""
+
 
 # -- Worker Configuration
 worker:
@@ -295,7 +299,7 @@ alertmanagerProxy:
     tag: ""
     # -- Image pull policy for Alertmanager proxy container
     pullPolicy: ""
-  
+
 telemetryGateway:
   image:
     # -- Telemetry gateway container image
@@ -355,7 +359,7 @@ dbSetup:
     # Default sleep interval between connection attempts
     sleep: 2
   migration:
-    # -- Number of retries for the migration Job on failure 
+    # -- Number of retries for the migration Job on failure
     backoffLimit: 2147483647
     # -- Maximum runtime in seconds for the migration Job (0 = no deadline)
     activeDeadlineSeconds: 0

@@ -213,12 +213,13 @@ For more detailed configuration options, see the [Values](#values) section below
 | api.rateLimit.requests | int | `300` | Maximum requests per window for general API endpoints General API rate limiting |
 | api.rateLimit.trustedProxies | list | `["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16"]` | List of trusted proxy IP ranges that can set X-Forwarded-For headers Trusted proxies that can set X-Forwarded-For/X-Real-IP headers This should include your load balancer and UI proxy IPs |
 | api.rateLimit.window | string | `"1m"` | Time window for rate limiting (e.g., "1m", "1h") |
-| cliArtifacts | object | `{"additionalRouteLabels":null,"enabled":true,"image":{"image":"quay.io/flightctl/flightctl-cli-artifacts","pullPolicy":"","tag":""}}` | CLI Artifacts Configuration |
+| cliArtifacts | object | `{"additionalRouteLabels":null,"enabled":true,"image":{"image":"quay.io/flightctl/flightctl-cli-artifacts","pullPolicy":"","tag":""},"route":{"host":""}}` | CLI Artifacts Configuration |
 | cliArtifacts.additionalRouteLabels | string | `nil` | Additional labels for CLI Artifacts routes. |
 | cliArtifacts.enabled | bool | `true` | Enable CLI artifacts service |
 | cliArtifacts.image.image | string | `"quay.io/flightctl/flightctl-cli-artifacts"` | CLI artifacts container image |
 | cliArtifacts.image.pullPolicy | string | `""` | Image pull policy for CLI artifacts container |
 | cliArtifacts.image.tag | string | `""` | CLI artifacts image tag |
+| cliArtifacts.route | object | `{"host":""}` | CLI Artifacts service routing in case a different from .global behavior is required, for example when RHEM is installed on hosts like RHEL. |
 | clusterCli | object | `{"image":{"image":"quay.io/openshift/origin-cli","pullPolicy":"","tag":"4.20.0"}}` | Cluster CLI Configuration |
 | clusterCli.image.image | string | `"quay.io/openshift/origin-cli"` | Cluster CLI container image |
 | clusterCli.image.pullPolicy | string | `""` | Image pull policy for cluster CLI container |
@@ -251,7 +252,7 @@ For more detailed configuration options, see the [Values](#values) section below
 | dbSetup.image.pullPolicy | string | `""` | Image pull policy for database setup container |
 | dbSetup.image.tag | string | `""` | Database setup image tag |
 | dbSetup.migration.activeDeadlineSeconds | int | `0` | Maximum runtime in seconds for the migration Job (0 = no deadline) |
-| dbSetup.migration.backoffLimit | int | `2147483647` | Number of retries for the migration Job on failure  |
+| dbSetup.migration.backoffLimit | int | `2147483647` | Number of retries for the migration Job on failure |
 | dbSetup.wait.sleep | int | `2` | Seconds to sleep between database connection attempts Default sleep interval between connection attempts |
 | dbSetup.wait.timeout | int | `60` | Seconds to wait for database readiness before failing Default timeout for database wait (can be overridden per deployment) |
 | global.additionalPVCLabels | string | `nil` | Additional labels for PVCs. |

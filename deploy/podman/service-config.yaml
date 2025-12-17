@@ -105,3 +105,10 @@ observability:
     image:
     upstream_url:
     skip_tls_verify:
+
+cliArtifacts:
+  # CLI Artifacts service routing in case a different from .global behavior is required,
+  # for example when RHEM is installed on hosts like RHEL/OCP-Virt.
+  route:
+    host: ""
+

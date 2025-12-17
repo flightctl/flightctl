@@ -34,6 +34,6 @@ spec:
               protocol: TCP
           env:
             - name: CLI_ARTIFACTS_BASE_URL
-              value: {{ include "flightctl.getCliArtifactsUrl" . }}
+              value: {{ if .Values.cliArtifacts.route.host }}{{ .Values.cliArtifacts.route.host }}{{ else }}{{ include "flightctl.getCliArtifactsUrl" . }}{{ end }}
       restartPolicy: Always
 {{- end }}
