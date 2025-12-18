@@ -251,7 +251,6 @@ cliArtifacts:
   route:
     host: ""
 
-
 # -- Worker Configuration
 worker:
   image:
