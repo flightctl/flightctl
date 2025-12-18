@@ -23,7 +23,7 @@ gen_require(`
     type install_t, install_exec_t;
     type hostname_t, hostname_exec_t;
     type kernel_t, sysfs_t, ptmx_t, devpts_t, unlabeled_t, nsfs_t;
-    type etc_t, tmp_t, home_root_t, root_t, fs_t, admin_home_t;
+    type etc_t, hostname_etc_t, tmp_t, home_root_t, root_t, fs_t, admin_home_t;
     type container_var_lib_t, container_runtime_t, container_file_t, container_ro_file_t, container_var_run_t;
     type var_t, var_run_t, device_t, var_log_t, install_var_run_t;
     type sysctl_t, sysctl_irq_t;
@@ -66,6 +66,9 @@ files_manage_var_dirs(flightctl_agent_t)
 manage_dirs_pattern(flightctl_agent_t, etc_t, etc_t)
 manage_files_pattern(flightctl_agent_t, etc_t, etc_t)
 manage_lnk_files_pattern(flightctl_agent_t, etc_t, etc_t)
+
+manage_files_pattern(flightctl_agent_t, hostname_etc_t, etc_t)
+manage_lnk_files_pattern(flightctl_agent_t, hostname_etc_t, etc_t)
 
 manage_dirs_pattern(flightctl_agent_t, bin_t, bin_t)
 manage_files_pattern(flightctl_agent_t, bin_t, bin_t)
