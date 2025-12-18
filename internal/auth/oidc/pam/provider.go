@@ -35,12 +35,22 @@ import (
 //go:embed templates/login_form.html
 var loginFormTemplate string
 
-//go:embed templates/login_form_error.html
-var loginFormErrorHTML string
-
 // LoginFormData represents the data used to populate the login form template
-// Currently empty as all authorization parameters are stored in encrypted cookie
 type LoginFormData struct {
+	// IssuerName is the display name for the issuer
+	IssuerName string
+	// LogoLight is the URL or data URI for the logo image in light theme
+	LogoLight string
+	// LogoDark is the URL or data URI for the logo image in dark theme
+	LogoDark string
+	// LightPrimaryColor is the primary color for light theme
+	LightPrimaryColor string
+	// LightSecondaryColor is the secondary color for light theme
+	LightSecondaryColor string
+	// DarkPrimaryColor is the primary color for dark theme
+	DarkPrimaryColor string
+	// DarkSecondaryColor is the secondary color for dark theme
+	DarkSecondaryColor string
 }
 
 // EncryptedAuthData represents encrypted authorization/session data stored in cookie
@@ -1366,14 +1376,62 @@ func (s *PAMOIDCProvider) createEncryptedCookieAndReturnLoginForm(req *pamapi.Au
 	}, nil
 }
 
+// getBrandingData returns the branding data with defaults and config overrides
+func (s *PAMOIDCProvider) getBrandingData() LoginFormData {
+	// Prepare branding data with defaults
+	branding := LoginFormData{
+		IssuerName:          "Flight Control",
+		LogoLight:           "",
+		LogoDark:            "",
+		LightPrimaryColor:   "#007bff",
+		LightSecondaryColor: "#666",
+		DarkPrimaryColor:    "#4a9eff",
+		DarkSecondaryColor:  "#b0b0b0",
+	}
+
+	// Override with config values if available
+	if s.config != nil && s.config.Branding != nil {
+		if s.config.Branding.IssuerName != "" {
+			branding.IssuerName = s.config.Branding.IssuerName
+		}
+		if s.config.Branding.LogoLight != "" {
+			branding.LogoLight = s.config.Branding.LogoLight
+		}
+		if s.config.Branding.LogoDark != "" {
+			branding.LogoDark = s.config.Branding.LogoDark
+		}
+		if s.config.Branding.LightPrimaryColor != "" {
+			branding.LightPrimaryColor = s.config.Branding.LightPrimaryColor
+		}
+		if s.config.Branding.LightSecondaryColor != "" {
+			branding.LightSecondaryColor = s.config.Branding.LightSecondaryColor
+		}
+		if s.config.Branding.DarkPrimaryColor != "" {
+			branding.DarkPrimaryColor = s.config.Branding.DarkPrimaryColor
+		}
+		if s.config.Branding.DarkSecondaryColor != "" {
+			branding.DarkSecondaryColor = s.config.Branding.DarkSecondaryColor
+		}
+	}
+
+	return branding
+}
+
 // GetLoginForm returns the HTML for the login form
 // Uses html/template to safely escape user input and prevent XSS attacks
 // All authorization parameters are stored in encrypted cookie, form doesn't need them
 func (s *PAMOIDCProvider) GetLoginForm() string {
+	branding := s.getBrandingData()
+
 	var buf bytes.Buffer
-	if err := s.loginFormTemplate.Execute(&buf, LoginFormData{}); err != nil {
-		return loginFormErrorHTML
+	if err := s.loginFormTemplate.Execute(&buf, branding); err != nil {
+		return s.GetLoginFormError()
 	}
 
 	return buf.String()
+}
+
+// GetLoginFormError returns a plain text error message
+func (s *PAMOIDCProvider) GetLoginFormError() string {
+	return "Failed to generate login form. Please try again later."
 }

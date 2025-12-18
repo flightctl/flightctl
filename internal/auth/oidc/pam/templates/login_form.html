@@ -1,45 +1,76 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Flight Control Login</title>
+    <title>{{.IssuerName}} Login</title>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
+    <style id="dynamic-colors">
+        :root {
+            --bg-color: #f5f5f5;
+            --container-bg: white;
+            --text-color: #333;
+            --text-secondary: {{.LightSecondaryColor}};
+            --border-color: #ddd;
+            --input-focus-border: {{.LightPrimaryColor}};
+            --button-bg: {{.LightPrimaryColor}};
+            --error-color: #dc3545;
+            --error-bg: #f8d7da;
+            --error-border: #f5c6cb;
+        }
+        [data-theme="dark"] {
+            --bg-color: #1a1a1a;
+            --container-bg: #2d2d2d;
+            --text-color: #e0e0e0;
+            --text-secondary: {{.DarkSecondaryColor}};
+            --border-color: #444;
+            --input-focus-border: {{.DarkPrimaryColor}};
+            --button-bg: {{.DarkPrimaryColor}};
+            --error-color: #ff6b6b;
+            --error-bg: #3d2525;
+            --error-border: #5a3535;
+        }
         body { 
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             max-width: 400px; 
             margin: 50px auto; 
             padding: 20px;
-            background-color: #f5f5f5;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            transition: background-color 0.3s, color 0.3s;
+            position: relative;
         }
         .login-container {
-            background: white;
+            background: var(--container-bg);
             padding: 30px;
             border-radius: 8px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            transition: background-color 0.3s;
         }
         .form-group { margin-bottom: 20px; }
         label { 
             display: block; 
             margin-bottom: 8px; 
             font-weight: 500;
-            color: #333;
+            color: var(--text-color);
         }
         input[type="text"], input[type="password"] { 
             width: 100%; 
             padding: 12px; 
-            border: 1px solid #ddd;
+            border: 1px solid var(--border-color);
             border-radius: 4px;
             font-size: 16px;
             box-sizing: border-box;
+            background-color: var(--container-bg);
+            color: var(--text-color);
+            transition: border-color 0.2s, box-shadow 0.2s;
         }
         input[type="text"]:focus, input[type="password"]:focus {
             outline: none;
-            border-color: #007bff;
-            box-shadow: 0 0 0 2px rgba(0,123,255,0.25);
+            border-color: var(--input-focus-border);
+            box-shadow: 0 0 0 2px var(--input-focus-shadow);
         }
         button { 
-            background: #007bff; 
+            background: var(--button-bg); 
             color: white; 
             padding: 12px 24px; 
             border: none; 
@@ -49,14 +80,14 @@
             width: 100%;
             transition: background-color 0.2s;
         }
-        button:hover { background: #0056b3; }
-        button:active { background: #004085; }
+        button:hover { background: var(--button-hover); }
+        button:active { background: var(--button-active); }
         .error { 
-            color: #dc3545; 
+            color: var(--error-color); 
             margin-top: 10px; 
             padding: 8px;
-            background: #f8d7da;
-            border: 1px solid #f5c6cb;
+            background: var(--error-bg);
+            border: 1px solid var(--error-border);
             border-radius: 4px;
             display: none;
         }
@@ -65,17 +96,217 @@
             margin-bottom: 30px;
         }
         .header h1 {
-            color: #333;
+            color: var(--text-color);
             margin: 0;
             font-size: 24px;
         }
         .header p {
-            color: #666;
+            color: var(--text-secondary);
             margin: 5px 0 0 0;
             font-size: 14px;
         }
+        .logo {
+            max-width: 120px;
+            max-height: 60px;
+            margin-bottom: 20px;
+            display: block;
+            margin-left: auto;
+            margin-right: auto;
+        }
+        .theme-selector {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+        }
+        .theme-selector select {
+            padding: 6px 12px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            background-color: var(--container-bg);
+            color: var(--text-color);
+            font-size: 14px;
+            cursor: pointer;
+            transition: border-color 0.2s;
+        }
+        .theme-selector select:hover {
+            border-color: var(--input-focus-border);
+        }
+        .theme-selector select:focus {
+            outline: none;
+            border-color: var(--input-focus-border);
+            box-shadow: 0 0 0 2px var(--input-focus-shadow);
+        }
     </style>
     <script>
+        // Color utilities
+        function hexToRgb(hex) {
+            const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+            return result ? {
+                r: parseInt(result[1], 16),
+                g: parseInt(result[2], 16),
+                b: parseInt(result[3], 16)
+            } : null;
+        }
+        
+        function rgbToRgba(rgb, alpha) {
+            return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})`;
+        }
+        
+        function darkenColor(hex, percent) {
+            const rgb = hexToRgb(hex);
+            if (!rgb) return hex;
+            const factor = 1 - (percent / 100);
+            return `rgb(${Math.round(rgb.r * factor)}, ${Math.round(rgb.g * factor)}, ${Math.round(rgb.b * factor)})`;
+        }
+        
+        function setColorVariables() {
+            const root = document.documentElement;
+            const lightPrimary = {{printf "%q" .LightPrimaryColor}};
+            const darkPrimary = {{printf "%q" .DarkPrimaryColor}};
+            
+            // Light theme colors
+            const lightRgb = hexToRgb(lightPrimary);
+            if (lightRgb) {
+                root.style.setProperty('--input-focus-shadow-light', rgbToRgba(lightRgb, 0.25));
+                root.style.setProperty('--button-hover-light', darkenColor(lightPrimary, 15));
+                root.style.setProperty('--button-active-light', darkenColor(lightPrimary, 25));
+            }
+            
+            // Dark theme colors
+            const darkRgb = hexToRgb(darkPrimary);
+            if (darkRgb) {
+                root.style.setProperty('--input-focus-shadow-dark', rgbToRgba(darkRgb, 0.3));
+                root.style.setProperty('--button-hover-dark', darkenColor(darkPrimary, 15));
+                root.style.setProperty('--button-active-dark', darkenColor(darkPrimary, 25));
+            }
+        }
+        
+        // Theme management
+        const THEME_STORAGE_KEY = 'flightctl-theme';
+        
+        // System theme preference listener - single reusable reference
+        const systemThemeMediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+        let systemThemeHandler = null;
+        
+        function getStoredTheme() {
+            return localStorage.getItem(THEME_STORAGE_KEY) || 'system';
+        }
+        
+        function setStoredTheme(theme) {
+            localStorage.setItem(THEME_STORAGE_KEY, theme);
+        }
+        
+        function setupSystemThemeListener() {
+            // Remove existing listener if present
+            if (systemThemeHandler) {
+                systemThemeMediaQuery.removeEventListener('change', systemThemeHandler);
+                systemThemeHandler = null;
+            }
+            
+            // Only add listener if current theme is 'system'
+            if (getStoredTheme() === 'system') {
+                systemThemeHandler = (e) => {
+                    if (getStoredTheme() === 'system') {
+                        applyTheme('system');
+                    }
+                };
+                systemThemeMediaQuery.addEventListener('change', systemThemeHandler);
+            }
+        }
+        
+        function removeSystemThemeListener() {
+            if (systemThemeHandler) {
+                systemThemeMediaQuery.removeEventListener('change', systemThemeHandler);
+                systemThemeHandler = null;
+            }
+        }
+        
+        function resolveTheme(theme) {
+            // Translate 'system' to 'dark' or 'light' based on system preference
+            if (theme === 'system') {
+                const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+                return prefersDark ? 'dark' : 'light';
+            }
+            return theme;
+        }
+        
+        function updateLogo(theme) {
+            const logoImg = document.getElementById('logo-img');
+            if (!logoImg) return;
+            
+            const logoLight = "{{.LogoLight}}";
+            const logoDark = "{{.LogoDark}}";
+            
+            // Resolve system theme to actual theme
+            const actualTheme = resolveTheme(theme);
+            
+            let logoUrl = '';
+            if (actualTheme === 'dark' && logoDark && logoDark.trim() !== '') {
+                logoUrl = logoDark;
+            } else if (actualTheme === 'light' && logoLight && logoLight.trim() !== '') {
+                logoUrl = logoLight;
+            } else if (logoLight && logoLight.trim() !== '') {
+                logoUrl = logoLight; // fallback to light
+            }
+            
+            if (logoUrl && logoUrl.trim() !== '') {
+                logoImg.src = logoUrl;
+            }
+        }
+        
+        function applyTheme(theme) {
+            // Resolve system theme to actual theme
+            const actualTheme = resolveTheme(theme);
+            
+            const root = document.documentElement;
+            root.setAttribute('data-theme', actualTheme);
+            
+            if (actualTheme === 'dark') {
+                root.style.setProperty('--input-focus-shadow', 'var(--input-focus-shadow-dark)');
+                root.style.setProperty('--button-hover', 'var(--button-hover-dark)');
+                root.style.setProperty('--button-active', 'var(--button-active-dark)');
+            } else {
+                root.style.setProperty('--input-focus-shadow', 'var(--input-focus-shadow-light)');
+                root.style.setProperty('--button-hover', 'var(--button-hover-light)');
+                root.style.setProperty('--button-active', 'var(--button-active-light)');
+            }
+            
+            updateLogo(theme);
+        }
+        
+        // Initialize theme on page load
+        function initializeTheme() {
+            setColorVariables();
+            const theme = getStoredTheme();
+            const themeSelect = document.getElementById('theme-select');
+            if (themeSelect) {
+                themeSelect.value = theme;
+            }
+            // Apply theme immediately (which includes logo update based on actual theme)
+            applyTheme(theme);
+            
+            // Setup system theme listener if needed
+            setupSystemThemeListener();
+        }
+        
+        // Run initialization when DOM is ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initializeTheme);
+        } else {
+            // DOM is already ready
+            initializeTheme();
+        }
+        
+        // Handle theme selector change
+        function handleThemeChange(event) {
+            const theme = event.target.value;
+            setStoredTheme(theme);
+            applyTheme(theme);
+            
+            // Update system preference listener
+            setupSystemThemeListener();
+        }
+        
         function handleSubmit(event) {
             event.preventDefault();
             const form = event.target;
@@ -131,9 +362,19 @@
     </script>
 </head>
 <body>
+    <div class="theme-selector">
+        <select id="theme-select" onchange="handleThemeChange(event)">
+            <option value="system">System</option>
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+        </select>
+    </div>
     <div class="login-container">
         <div class="header">
-            <h1>Flight Control</h1>
+            {{if or .LogoLight .LogoDark}}
+            <img id="logo-img" src="{{.LogoLight}}" alt="{{.IssuerName}}" class="logo">
+            {{end}}
+            <h1>{{.IssuerName}}</h1>
             <p>Please sign in to continue</p>
         </div>
         
