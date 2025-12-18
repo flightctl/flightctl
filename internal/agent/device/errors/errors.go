@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"strings"
@@ -102,8 +103,49 @@ var (
 	ErrCriticalResourceAlert = errors.New("critical resource alert")
 )
 
+type stderrError struct {
+	wrapped error
+	reason  string
+	code    int
+	stderr  string
+}
+
+func (e *stderrError) Error() string {
+	return fmt.Sprintf("%s: code: %d: %s", e.wrapped.Error(), e.code, e.stderr)
+}
+
+func (e *stderrError) Unwrap() error {
+	return e.wrapped
+}
+
+func (e *stderrError) Reason() string {
+	return e.reason
+}
+
+type reasoner interface {
+	Reason() string
+}
+
+// Reason extracts the underlying reason from any error if it implements a Reason method
+// If no Reason method is detected, Error is returned
+func Reason(err error) string {
+	if err == nil {
+		return ""
+	}
+
+	var r reasoner
+	if errors.As(err, &r) {
+		return r.Reason()
+	}
+
+	return err.Error()
+}
+
 // TODO: tighten up the retryable errors ideally all retryable errors should be explicitly defined
 func IsRetryable(err error) bool {
+	if err == nil {
+		return false
+	}
 	var dnsErr *net.DNSError
 	switch {
 	case errors.As(err, &dnsErr):
@@ -132,6 +174,11 @@ func IsRetryable(err error) bool {
 		return true
 	case errors.Is(err, syscall.ECONNRESET):
 		// connection reset by peer is a transient network error
+		return true
+	case errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF):
+		return true
+	case strings.Contains(err.Error(), "unexpected EOF"):
+		// HTTP client wraps EOF errors from broken connections
 		return true
 	case errors.Is(err, ErrNoRetry):
 		return false
@@ -194,6 +241,7 @@ func FromStderr(stderr string, exitCode int) error {
 		"unable to resolve host": ErrNetwork,
 		"network is unreachable": ErrNetwork,
 		"i/o timeout":            ErrNetwork,
+		"unexpected EOF":         ErrNetwork,
 		// context
 		"context canceled":          context.Canceled,
 		"context deadline exceeded": context.DeadlineExceeded,
@@ -204,7 +252,12 @@ func FromStderr(stderr string, exitCode int) error {
 	}
 	for check, err := range errMap {
 		if strings.Contains(stderr, check) {
-			return fmt.Errorf("%w: code: %d: %s", err, exitCode, stderr)
+			return &stderrError{
+				wrapped: err,
+				reason:  check,
+				code:    exitCode,
+				stderr:  stderr,
+			}
 		}
 	}
 	return fmt.Errorf("code: %d: %s", exitCode, stderr)

@@ -65,7 +65,7 @@ There are no special prerequisites for using PAM authentication. The PAM issuer 
 
 ## Configuration
 
-The PAM issuer is configured in the Flight Control configuration file (typically `~/.flightctl/config.yaml` or `/etc/flightctl/config.yaml`). The configuration is located under the `auth.pamOidcIssuer` section.
+The PAM issuer is configured in the Flight Control configuration file (`/etc/flightctl/service-config.yaml`). The configuration is located under the `auth.pamOidcIssuer` section.
 
 ### Configuration Options
 

@@ -7,9 +7,9 @@ set -euo pipefail
 # Environment variables override values from the YAML file.
 
 # Set default values for DB_* variables
-: "${DB_HOST:=flightctl-db}"
-: "${DB_PORT:=5432}"
-: "${DB_NAME:=flightctl}"
+: "${DB_HOST:=}"
+: "${DB_PORT:=}"
+: "${DB_NAME:=}"
 : "${DB_USER:=}"
 : "${DB_PASSWORD:=}"
 : "${DB_SSL_MODE:=}"
@@ -80,46 +80,25 @@ if [ -n "${SERVICE_CONFIG_PATH:-}" ]; then
     else
         echo "Loading database configuration from: $SERVICE_CONFIG_PATH"
 
-        # Check if external database is enabled
-        yaml_external=$(sed -n '/^db:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_PATH" | sed -n 's/^[[:space:]]*external:[[:space:]]*[\"'\'']*\([^\"'\''[:space:]]*\)[\"'\'']*.*$/\1/p' | head -1)
+        db_block=$(sed -n '/^database:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_PATH")
 
-        if [ "$yaml_external" = "enabled" ]; then
-            echo "External database mode detected"
-        else
-            echo "Internal database mode"
-        fi
+        # Read database configuration from YAML
+        yaml_host=$(echo "$db_block" | sed -n 's/^[[:space:]]*hostname:[[:space:]]*["'\'']*\([^"'\'']*\)["'\'']*/\1/p' | head -1)
+        yaml_port=$(echo "$db_block" | sed -n 's/^[[:space:]]*port:[[:space:]]*["'\'']*\([^"'\'']*\)["'\'']*/\1/p' | head -1)
+        yaml_name=$(echo "$db_block" | sed -n 's/^[[:space:]]*name:[[:space:]]*["'\'']*\([^"'\'']*\)["'\'']*/\1/p' | head -1)
+        yaml_user=$(echo "$db_block" | sed -n 's/^[[:space:]]*user:[[:space:]]*["'\'']*\([^"'\'']*\)["'\'']*/\1/p' | head -1)
 
-        # Read database configuration from YAML for both internal and external databases
-        # Environment variables will take precedence if they are already set
-        yaml_host=$(sed -n '/^db:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_PATH" | sed -n 's/^[[:space:]]*hostname:[[:space:]]*[\"'\'']*\([^\"'\''[:space:]]*\)[\"'\'']*.*$/\1/p' | head -1)
-        yaml_port=$(sed -n '/^db:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_PATH" | sed -n 's/^[[:space:]]*port:[[:space:]]*\([^[:space:]]*\).*$/\1/p' | head -1)
-        yaml_name=$(sed -n '/^db:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_PATH" | sed -n 's/^[[:space:]]*name:[[:space:]]*[\"'\'']*\([^\"'\''[:space:]]*\)[\"'\'']*.*$/\1/p' | head -1)
-        yaml_user=$(sed -n '/^db:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_PATH" | sed -n 's/^[[:space:]]*user:[[:space:]]*[\"'\'']*\([^\"'\''[:space:]]*\)[\"'\'']*.*$/\1/p' | head -1)
-        yaml_password=$(sed -n '/^db:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_PATH" | sed -n 's/^[[:space:]]*userPassword:[[:space:]]*[\"'\'']*\([^\"'\''[:space:]]*\)[\"'\'']*.*$/\1/p' | head -1)
-
-        # For external database, prefer YAML config over defaults
-        # For internal database, use defaults if YAML values are not set
-        if [ "$yaml_external" = "enabled" ]; then
-            # External database: use YAML values, fall back to defaults only if YAML is empty
-            [ -n "$yaml_host" ] && DB_HOST="$yaml_host"
-            [ -n "$yaml_port" ] && DB_PORT="$yaml_port"
-            [ -n "$yaml_name" ] && DB_NAME="$yaml_name"
-            [ -n "$yaml_user" ] && DB_USER="$yaml_user"
-            [ -n "$yaml_password" ] && DB_PASSWORD="$yaml_password"
-        else
-            # Internal database: use config file values only if environment variables are not already set
-            [ -z "$DB_HOST" ] && [ -n "$yaml_host" ] && DB_HOST="$yaml_host"
-            [ -z "$DB_PORT" ] && [ -n "$yaml_port" ] && DB_PORT="$yaml_port"
-            [ -z "$DB_NAME" ] && [ -n "$yaml_name" ] && DB_NAME="$yaml_name"
-            [ -z "$DB_USER" ] && [ -n "$yaml_user" ] && DB_USER="$yaml_user"
-            [ -z "$DB_PASSWORD" ] && [ -n "$yaml_password" ] && DB_PASSWORD="$yaml_password"
-        fi
+        [ -z "$DB_HOST" ] && [ -n "$yaml_host" ] && DB_HOST="$yaml_host"
+        [ -z "$DB_PORT" ] && [ -n "$yaml_port" ] && DB_PORT="$yaml_port"
+        [ -z "$DB_NAME" ] && [ -n "$yaml_name" ] && DB_NAME="$yaml_name"
+        [ -z "$DB_USER" ] && [ -n "$yaml_user" ] && DB_USER="$yaml_user"
 
         # Read SSL configuration from YAML
-        yaml_ssl_mode=$(sed -n '/^db:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_PATH" | sed -n 's/^[[:space:]]*sslmode:[[:space:]]*[\"'\'']*\([^\"'\''[:space:]]*\)[\"'\'']*.*$/\1/p' | head -1)
-        yaml_ssl_cert=$(sed -n '/^db:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_PATH" | sed -n 's/^[[:space:]]*sslcert:[[:space:]]*[\"'\'']*\([^\"'\''[:space:]]*\)[\"'\'']*.*$/\1/p' | head -1)
-        yaml_ssl_key=$(sed -n '/^db:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_PATH" | sed -n 's/^[[:space:]]*sslkey:[[:space:]]*[\"'\'']*\([^\"'\''[:space:]]*\)[\"'\'']*.*$/\1/p' | head -1)
-        yaml_ssl_root_cert=$(sed -n '/^db:/,/^[^[:space:]]/p' "$SERVICE_CONFIG_PATH" | sed -n 's/^[[:space:]]*sslrootcert:[[:space:]]*[\"'\'']*\([^\"'\''[:space:]]*\)[\"'\'']*.*$/\1/p' | head -1)
+        # Environment variables will take precedence if they are already set
+        yaml_ssl_mode=$(echo "$db_block" | sed -n 's/^[[:space:]]*sslmode:[[:space:]]*["'\'']*\([^"'\'']*\)["'\'']*/\1/p' | head -1)
+        yaml_ssl_cert=$(echo "$db_block" | sed -n 's/^[[:space:]]*sslcert:[[:space:]]*["'\'']*\([^"'\'']*\)["'\'']*/\1/p' | head -1)
+        yaml_ssl_key=$(echo "$db_block" | sed -n 's/^[[:space:]]*sslkey:[[:space:]]*["'\'']*\([^"'\'']*\)["'\'']*/\1/p' | head -1)
+        yaml_ssl_root_cert=$(echo "$db_block" | sed -n 's/^[[:space:]]*sslrootcert:[[:space:]]*["'\'']*\([^"'\'']*\)["'\'']*/\1/p' | head -1)
 
         # Use SSL config from file only if environment variables are not already set
         [ -z "$DB_SSL_MODE" ] && [ -n "$yaml_ssl_mode" ] && DB_SSL_MODE="$yaml_ssl_mode"

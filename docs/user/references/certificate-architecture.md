@@ -23,7 +23,7 @@ For TPM attestation certificates, see [Configuring Device Attestation](../instal
 | [API Server](../../../internal/crypto/signer/signer_server_svc.go) | API TLS                  | 2 years  | Root CA                  |
 | [Telemetry Gateway](../../../internal/crypto/signer/signer_server_svc.go)             | Metrics TLS              | 2 years  | Root CA                  |
 | [Alertmanager Proxy](../../../internal/crypto/signer/signer_server_svc.go)            | Alerts TLS               | 2 years  | Root CA                  |
-| [Device Enrollment](../../../internal/crypto/signer/signer_device_enrollment.go)                    | Device enrollment        | 7 days   | Client-Signer CA         |
+| [Device Enrollment](../../../internal/crypto/signer/signer_device_enrollment.go)                    | Device enrollment        | 1 year   | Client-Signer CA         |
 | [Device Management](../../../internal/crypto/signer/signer_device_management.go)             | Device operations        | 1 year   | Client-Signer CA         |
 | [Device Services](../../../internal/crypto/signer/signer_device_svc_client.go)    | Device services    | 1 year   | Client-Signer CA |
 | PAM Issuer Token Signer CA *  | Signs JWT tokens         | 10 years | Root CA                  |

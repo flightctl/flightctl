@@ -272,16 +272,15 @@ Edit `/etc/flightctl/service-config.yaml` and add or update the `db:` section:
 
 ```yaml
 db:
-  external: "enabled"
-  hostname: "your-postgres-hostname.example.com"
-  port: 5432
-  name: flightctl
-  user: flightctl_app
-  migrationUser: flightctl_migrator
+  type: "external"
+  external:
+    hostname: "your-postgres-hostname.example.com"
+    port: 5432
+    name: flightctl
   # Note: Passwords are managed through Podman secrets, not YAML config
 ```
 
-**Note**: The `service-config.yaml` file is always required for quadlet deployments (for baseDomain, auth settings, etc.). For internal database deployments, the `db:` section can be omitted entirely or set to `external: "disabled"`. **Passwords are never stored in YAML files** - they are managed through Podman secrets for security.
+**Note**: The `service-config.yaml` file is always required for quadlet deployments (for baseDomain, auth settings, etc.). For internal database deployments, the `db:` section can be omitted entirely (defaults to `type: "builtin"`). **Passwords are never stored in YAML files** - they are managed through Podman secrets for security.
 
 #### 2. Set up secrets
 
@@ -298,7 +297,7 @@ After RPM installation, configure and deploy Flight Control with external databa
 ```bash
 # 1. Configure external database connection
 sudo vi /etc/flightctl/service-config.yaml
-# Set: external: "enabled" and your database connection details
+# Set: type: "external" and configure the external: block with your database details
 
 # 2. Disable internal database services (they conflict with external database)
 sudo systemctl mask flightctl-db.service flightctl-db-users-init.service
@@ -395,7 +394,7 @@ sudo systemctl status flightctl-db-migrate.service
 
    **Common Causes**:
    - **Network connectivity**: Verify firewall rules and network routing to external database
-   - **Authentication**: Check usernames and passwords in service-config.yaml
+   - **Authentication**: Check Podman secrets and usernames in service-config.yaml
    - **SSL configuration**: Verify SSL certificates and connection parameters
    - **Database permissions**: Ensure migration user has sufficient privileges
 
