@@ -9,7 +9,7 @@ ContainerName=flightctl-pam-issuer
 Image={{ .PamIssuer.Image }}:{{ .PamIssuer.Tag }}
 Pull=newer
 Network=flightctl.network
-
+AddHost=%H:host-gateway
 PublishPort=8444:8444
 Volume=/etc/flightctl/pki/flightctl-pam-issuer/server.crt:/root/.flightctl/certs/server.crt:ro,z
 Volume=/etc/flightctl/pki/flightctl-pam-issuer/server.key:/root/.flightctl/certs/server.key:ro,z

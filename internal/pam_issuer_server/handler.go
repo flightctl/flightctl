@@ -3,7 +3,6 @@
 package pam_issuer_server
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -87,7 +86,6 @@ func (h *Handler) Run(ctx context.Context) error {
 			select {
 			case <-ticker.C:
 				h.pamProvider.CleanupExpiredCodes()
-				h.pamProvider.CleanupExpiredSessions()
 			case <-childCtx.Done():
 				return
 			}
@@ -158,8 +156,9 @@ func writeOAuth2Error(w http.ResponseWriter, errorCode pamapi.OAuth2ErrorError, 
 
 // extractSessionContext extracts session information from HTTP request and adds it to context
 func (h *Handler) extractSessionContext(ctx context.Context, r *http.Request) context.Context {
-	// Extract session cookie (standard method for OAuth2/OIDC session management)
-	if cookie, err := r.Cookie("session_id"); err == nil && cookie.Value != "" {
+	// Extract auth cookie (standard method for OAuth2/OIDC session management)
+	// This cookie can contain either pending auth or authenticated session data
+	if cookie, err := r.Cookie(pam.CookieNameAuth); err == nil && cookie.Value != "" {
 		ctx = context.WithValue(ctx, pam.SessionCookieCtxKey, cookie.Value)
 	}
 
@@ -211,6 +210,20 @@ func (h *Handler) AuthAuthorize(w http.ResponseWriter, r *http.Request, params p
 	// OIDC spec: authorization endpoint returns HTML (login form) or redirect
 	switch response.Type {
 	case pam.AuthorizeResponseTypeHTML:
+		// Set encrypted cookie if pending auth was created
+		if response.SessionID != "" {
+			pendingAuthExpiration := h.pamProvider.GetPendingAuthExpiration()
+			cookie := &http.Cookie{
+				Name:     pam.CookieNameAuth,
+				Value:    response.SessionID, // This is the encrypted cookie value
+				Path:     "/",
+				MaxAge:   int(pendingAuthExpiration.Seconds()),
+				HttpOnly: true,
+				Secure:   true,
+				SameSite: http.SameSiteLaxMode,
+			}
+			http.SetCookie(w, cookie)
+		}
 		// Return HTML login form with correct content-type
 		// SNYK-SUPPRESSION: response.Content comes from GetLoginForm which uses html/template to safely escape all user input, preventing XSS
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -233,24 +246,33 @@ func (h *Handler) AuthAuthorize(w http.ResponseWriter, r *http.Request, params p
 // AuthLogin handles GET request to login form
 // (GET /api/v1/auth/login)
 func (h *Handler) AuthLogin(w http.ResponseWriter, r *http.Request, params pamapi.AuthLoginParams) {
-	// Extract PKCE parameters from query string if present
-	codeChallenge := r.URL.Query().Get("code_challenge")
-	codeChallengeMethod := r.URL.Query().Get("code_challenge_method")
+	// Extract parameters from generated params (standardized with authorize endpoint)
+	codeChallenge := lo.FromPtrOr(params.CodeChallenge, "")
+	codeChallengeMethod := ""
+	if params.CodeChallengeMethod != nil {
+		codeChallengeMethod = string(*params.CodeChallengeMethod)
+	}
+	scope := lo.FromPtrOr(params.Scope, "")
 
-	// Use html/template to safely escape all user input and prevent XSS
-	// The template automatically escapes all variables, making it safe to render user-provided values
-	data := pam.LoginFormData{
+	// Create pending auth request (IsLoggedIn is false, Username is empty)
+	pendingAuthExpiration := h.pamProvider.GetPendingAuthExpiration()
+	pendingReq := &pam.EncryptedAuthData{
 		ClientID:            params.ClientId,
 		RedirectURI:         params.RedirectUri,
+		Scope:               scope,
 		State:               lo.FromPtrOr(params.State, ""),
 		CodeChallenge:       codeChallenge,
 		CodeChallengeMethod: codeChallengeMethod,
+		ExpiresAt:           time.Now().Add(pendingAuthExpiration).Unix(),
+		Username:            "", // Empty for pending auth
+		IsLoggedIn:          false,
+		LoginTime:           0, // Not set for pending auth
 	}
 
-	var buf bytes.Buffer
-	tmpl := h.pamProvider.GetLoginFormTemplate()
-	if err := tmpl.Execute(&buf, data); err != nil {
-		h.log.Errorf("Failed to execute login form template: %v", err)
+	// Encrypt and create cookie
+	encryptedCookie, err := h.pamProvider.EncryptCookieData(pendingReq)
+	if err != nil {
+		h.log.Errorf("Failed to encrypt cookie data: %v", err)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusInternalServerError)
 		if _, writeErr := w.Write([]byte(`<!DOCTYPE html><html><head><title>Error</title></head><body><h1>Error</h1><p>Failed to generate login form.</p></body></html>`)); writeErr != nil {
@@ -259,9 +281,24 @@ func (h *Handler) AuthLogin(w http.ResponseWriter, r *http.Request, params pamap
 		return
 	}
 
+	// Set encrypted cookie
+	cookie := &http.Cookie{
+		Name:     pam.CookieNameAuth,
+		Value:    encryptedCookie,
+		Path:     "/",
+		MaxAge:   int(pendingAuthExpiration.Seconds()),
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+	}
+	http.SetCookie(w, cookie)
+
+	// Get login form (no parameters needed - they're in the cookie)
+	loginForm := h.pamProvider.GetLoginForm()
+
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	if _, err := w.Write(buf.Bytes()); err != nil {
+	if _, err := w.Write([]byte(loginForm)); err != nil {
 		h.log.Errorf("Failed to write response: %v", err)
 	}
 }
@@ -279,24 +316,26 @@ func (h *Handler) AuthLoginPost(w http.ResponseWriter, r *http.Request) {
 	// Extract required fields from form
 	username := r.FormValue("username")
 	password := r.FormValue("password")
-	clientID := r.FormValue("client_id")
-	redirectURI := r.FormValue("redirect_uri")
-	state := r.FormValue("state")
-	codeChallenge := r.FormValue("code_challenge")
-	codeChallengeMethod := r.FormValue("code_challenge_method")
 
-	h.log.Infof("Login request - username=%s, clientID=%s, redirectURI=%s", username, clientID, redirectURI)
+	// Extract encrypted cookie (set when login form was returned)
+	encryptedCookie := ""
+	if cookie, err := r.Cookie(pam.CookieNameAuth); err == nil && cookie.Value != "" {
+		encryptedCookie = cookie.Value
+	}
+
+	h.log.Infof("Login request - username=%s", username)
 
 	// Validate required fields
-	if username == "" || password == "" || clientID == "" || redirectURI == "" {
-		h.log.Warnf("Missing required fields - username=%v, hasPassword=%v, clientID=%v, redirectURI=%v",
-			username != "", password != "", clientID != "", redirectURI != "")
+	if username == "" || password == "" || encryptedCookie == "" {
+		h.log.Warnf("Missing required fields - username=%v, hasPassword=%v, hasEncryptedCookie=%v",
+			username != "", password != "", encryptedCookie != "")
 		writeError(w, http.StatusBadRequest, "Missing required fields")
 		return
 	}
 
-	// Call PAM provider's Login method with PKCE parameters
-	loginResult, err := h.pamProvider.Login(r.Context(), username, password, clientID, redirectURI, state, codeChallenge, codeChallengeMethod)
+	// Call PAM provider's Login method with encrypted cookie
+	// All authorization parameters are stored in the encrypted cookie
+	loginResult, err := h.pamProvider.Login(r.Context(), username, password, encryptedCookie)
 	if err != nil {
 		h.log.Errorf("Login failed for user %s: %v", username, err)
 		// Return just the error message for the JavaScript to display
@@ -308,12 +347,14 @@ func (h *Handler) AuthLoginPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Set secure HTTP-only cookie with session ID
+	// Set secure HTTP-only cookie with encrypted session data
+	// This replaces the pending auth cookie with the authenticated session cookie
+	sessionExpiration := h.pamProvider.GetSessionExpiration()
 	cookie := &http.Cookie{
-		Name:     "session_id",
-		Value:    loginResult.SessionID,
+		Name:     pam.CookieNameAuth,
+		Value:    loginResult.SessionID, // This is the encrypted session cookie value
 		Path:     "/",
-		MaxAge:   1800, // 30 minutes (matches session expiration)
+		MaxAge:   int(sessionExpiration.Seconds()),
 		HttpOnly: true,
 		Secure:   true,
 		SameSite: http.SameSiteLaxMode,

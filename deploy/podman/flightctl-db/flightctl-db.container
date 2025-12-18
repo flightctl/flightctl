@@ -8,6 +8,7 @@ Environment=POSTGRESQL_DATABASE=flightctl POSTGRESQL_USER=flightctl_app POSTGRES
 Environment=POSTGRESQL_MAX_CONNECTIONS=200
 Image={{ .Db.Image }}:{{ .Db.Tag }}
 Network=flightctl.network
+AddHost=%H:host-gateway
 Volume=flightctl-db:/var/lib/pgsql/data:Z
 Secret=flightctl-postgresql-password,type=env,target=PGPASSWORD
 Secret=flightctl-postgresql-master-password,type=env,target=POSTGRESQL_MASTER_PASSWORD

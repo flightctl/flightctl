@@ -16,8 +16,9 @@ const (
 
 // AuthorizeResponse wraps the authorize endpoint response with metadata
 type AuthorizeResponse struct {
-	Type    AuthorizeResponseType
-	Content string
+	Type      AuthorizeResponseType
+	Content   string
+	SessionID string // Session ID to set as cookie (for pending sessions)
 }
 
 // LoginResult contains the result of a successful login
@@ -41,7 +42,8 @@ type OIDCIssuer interface {
 	Authorize(ctx context.Context, req *pamapi.AuthAuthorizeParams) (*AuthorizeResponse, error)
 
 	// Login handles the login form submission (browser-based)
-	Login(ctx context.Context, username, password, clientID, redirectURI, state, codeChallenge, codeChallengeMethod string) (*LoginResult, error)
+	// encryptedCookie contains the encrypted authorization request parameters
+	Login(ctx context.Context, username, password, encryptedCookie string) (*LoginResult, error)
 
 	// Discovery and Configuration (system errors only)
 	GetOpenIDConfiguration() (*pamapi.OpenIDConfiguration, error)

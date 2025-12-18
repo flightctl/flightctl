@@ -15,8 +15,6 @@ import (
 	"github.com/samber/lo"
 )
 
-const DefaultEnrollmentCertExpirySeconds int32 = 60 * 60 * 24 * 7 // 7 days
-
 // nowFunc allows overriding for unit tests
 var nowFunc = time.Now
 

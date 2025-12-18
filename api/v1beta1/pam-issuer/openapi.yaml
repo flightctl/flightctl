@@ -31,6 +31,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/OpenIDConfiguration'
+        "429":
+          description: Too many requests - rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuth2Error'
   /api/v1/auth/authorize:
     get:
       tags:
@@ -72,6 +78,8 @@ paths:
           in: query
           schema:
             type: string
+            minLength: 43
+            maxLength: 128
           description: PKCE code challenge.
         - name: code_challenge_method
           in: query
@@ -96,6 +104,12 @@ paths:
                 $ref: '#/components/schemas/OAuth2Error'
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuth2Error'
+        "429":
+          description: Too many requests - rate limit exceeded
           content:
             application/json:
               schema:
@@ -131,6 +145,24 @@ paths:
           schema:
             type: string
           description: OAuth2 state parameter.
+        - name: scope
+          in: query
+          schema:
+            type: string
+          description: OAuth2 scope.
+        - name: code_challenge
+          in: query
+          schema:
+            type: string
+            minLength: 43
+            maxLength: 128
+          description: PKCE code challenge.
+        - name: code_challenge_method
+          in: query
+          schema:
+            type: string
+            enum: [S256]
+          description: PKCE code challenge method (only S256 supported).
       responses:
         "200":
           description: Login form HTML
@@ -144,10 +176,16 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/OAuth2Error'
+        "429":
+          description: Too many requests - rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuth2Error'
     post:
       tags:
         - authentication
-      description: Process login form submission.
+      description: Process login form submission. Authorization parameters (client_id, redirect_uri, state, etc.) are stored in an encrypted cookie set when the login form was displayed.
       operationId: authLoginPost
       requestBody:
         required: true
@@ -156,30 +194,40 @@ paths:
             schema:
               type: object
               properties:
-                client_id:
-                  type: string
-                redirect_uri:
-                  type: string
-                state:
-                  type: string
                 username:
                   type: string
+                  description: Username for authentication
                 password:
                   type: string
+                  description: Password for authentication
+                  writeOnly: true
               required:
                 - username
                 - password
       responses:
-        "302":
-          description: Redirect to authorization endpoint with session
-        "400":
-          description: Bad request
+        "200":
+          description: Successful login - returns redirect URL to authorization endpoint
           content:
-            application/json:
+            text/plain:
               schema:
-                $ref: '#/components/schemas/OAuth2Error'
+                type: string
+                description: Redirect URL to /api/v1/auth/authorize with all parameters
+        "400":
+          description: Bad request (missing required fields or invalid session)
+          content:
+            text/plain:
+              schema:
+                type: string
+                description: Error message
         "401":
-          description: Authentication failed
+          description: Authentication failed (invalid credentials)
+          content:
+            text/plain:
+              schema:
+                type: string
+                description: Error message
+        "429":
+          description: Too many requests - rate limit exceeded
           content:
             application/json:
               schema:
@@ -218,6 +266,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/OAuth2Error'
+        "429":
+          description: Too many requests - rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuth2Error'
   /api/v1/auth/userinfo:
     get:
       tags:
@@ -239,6 +293,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/OAuth2Error'
+        "429":
+          description: Too many requests - rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuth2Error'
   /api/v1/auth/jwks:
     get:
       tags:
@@ -252,6 +312,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/JWKSResponse'
+        "429":
+          description: Too many requests - rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuth2Error'
 components:
   securitySchemes:
     bearerAuth:
@@ -319,6 +385,8 @@ components:
         code_verifier:
           type: string
           nullable: true
+          minLength: 43
+          maxLength: 128
           description: PKCE code verifier.
         redirect_uri:
           type: string

@@ -52,7 +52,13 @@ or by checking the running containers with
 sudo podman ps
 ```
 
-Once the UI service has spun up, visit the UI at `https://BASE_DOMAIN` (where `BASE_DOMAIN` is what you configured in `global.baseDomain` or your hostname FQDN).
+## Configure Authentication
+
+Before accessing Flight Control (via the UI or CLI), you need to configure authentication for the service. By default, the deployment includes an OIDC provider called [PAM Issuer](configuring-auth/auth-pam.md).
+
+See the [Authentication Overview](configuring-auth/overview.md) for detailed information about available authentication methods and how to configure them for your deployment.
+
+Once authentication is configured, you can access the UI at `https://BASE_DOMAIN` (where `BASE_DOMAIN` is what you configured in `global.baseDomain` or your hostname FQDN).
 
 ## Helpful Commands
 

@@ -8,12 +8,13 @@ Wants=flightctl-db-wait.service flightctl-db-users-init.service
 ContainerName=flightctl-db-migrate
 Image={{ .DbSetup.Image }}:{{ .DbSetup.Tag }}
 Network=flightctl.network
+AddHost=%H:host-gateway
 AutoUpdate=none
 Environment=DB_MIGRATION_USER=flightctl_migrator
 Secret=flightctl-postgresql-migrator-password,type=env,target=DB_PASSWORD
 Secret=flightctl-postgresql-migrator-password,type=env,target=DB_MIGRATION_PASSWORD
 Volume=/etc/flightctl/flightctl-db-migrate/config.yaml:/root/.flightctl/config.yaml:ro,z
-Volume=/etc/flightctl/service-config.yaml:/etc/flightctl/service-config.yaml:ro,z
+Volume=/etc/flightctl/pki/db:/root/.flightctl/certs/db:ro,z
 Exec=/usr/local/bin/flightctl-db-migrate
 
 [Service]
@@ -22,8 +23,6 @@ RemainAfterExit=yes
 Restart=on-failure
 RestartSec=30
 TimeoutStartSec=10m
-
-ExecStartPre=/usr/bin/flightctl-standalone render template --input-file /usr/share/flightctl/flightctl-db-migrate/config.yaml.template --output-file /etc/flightctl/flightctl-db-migrate/config.yaml
 
 [Install]
 WantedBy=flightctl.target
