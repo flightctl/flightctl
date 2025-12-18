@@ -9,7 +9,6 @@ This document describes how to use Flight Control's PAM Issuer, a built-in OpenI
 - [Prerequisites](#prerequisites)
 - [User Management](#user-management)
   - [Adding Users to PAM Issuer](#adding-users-to-pam-issuer)
-  - [Using Host System Users (Advanced)](#using-host-system-users-advanced)
 - [Security Considerations](#security-considerations)
 
 ## Overview
@@ -43,7 +42,6 @@ This architecture provides a complete, self-contained authentication solution wh
 3. **Linux PAM**
    - Validates user credentials
    - Manages password policies
-   - Can be extended with additional PAM modules (LDAP, SSSD, etc.)
 
 ### Authentication Flow
 
@@ -359,32 +357,6 @@ This shows that `alice` belongs to:
 
 - The `engineering` organization (via `org-engineering`)
 - The `flightctl-operator` role within the `engineering` organization (via `engineering.flightctl-operator`)
-
-### Using Host System Users (Advanced)
-
-If you prefer to use your host system's existing users instead of managing users within the PAM issuer container, you can configure System Security Services Daemon (SSSD) integration.
-
-**Requirements:**
-
-1. **Mount the SSSD pipe** - The SSSD communication pipe must be mounted from the host into the PAM issuer container. Add the following line to the `[Container]` section of the `/etc/containers/systemd/flightctl-pam-issuer.container` file:
-
-```text
-Volume=/var/lib/sss/pipes:/var/lib/sss/pipes:rw
-```
-
-1. **Configure the host SSSD service** - Ensure that your host's SSSD configuration (`/etc/sssd/sssd.conf`) and NSSwitch (`/etc/nsswitch.conf`) include the `files` provider. This allows PAM to authenticate against both local user files and SSSD-managed users.
-
-1. **Configure the container NSSwitch** - The PAM issuer container's `/etc/nsswitch.conf` must also include the `files` provider.
-
-Example `/etc/nsswitch.conf` configuration (both host and container):
-
-```text
-passwd:     files sss
-shadow:     files sss
-group:      files sss
-```
-
-Consult your system's SSSD documentation for detailed configuration steps specific to your environment.
 
 ## Security Considerations
 
