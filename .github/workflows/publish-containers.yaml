@@ -1,17 +1,16 @@
 
-name: Push to main
+name: Push to lab
 
 on:
   push:
     branches:
-      - main
-      - 'release-*'
+      - lab
     tags:
       - '*'
 
 env:
-  QUAY_ORG: quay.io/flightctl
-  QUAY_CHARTS: quay.io/flightctl/charts
+  QUAY_ORG: quay.io/flightctl-lab
+  QUAY_CHARTS: quay.io/flightctl-lab/charts
   # Enable BuildKit for cache mounts
   DOCKER_BUILDKIT: 1
   BUILDKIT_PROGRESS: plain
@@ -50,9 +49,9 @@ jobs:
             # image tags should not have the leading v, and we tag rcs with ~rc1..rcX for rpm version ordering
             version=$(echo "${version#v}" | sed 's/~/-/g')
 
-            # if the branch is main, we tag the image as latest, otherwise release-0.x
-            if ${{ github.ref_name == 'main' }}; then
-              latest_tag="latest"
+            # if the branch is lab, we tag the image as lab, otherwise use branch name
+            if ${{ github.ref_name == 'lab' }}; then
+              latest_tag="lab"
             else
               latest_tag="${{ github.ref_name }}"
             fi
@@ -100,8 +99,8 @@ jobs:
 
       - name: Login helm
         env:
-          PASSWORD: ${{ secrets.QUAY_FLIGHTCTL_INFRA_ROBOT_PASSWORD }}
-          USER: ${{ secrets.QUAY_FLIGHTCTL_INFRA_ROBOT_USERNAME }}
+          PASSWORD: ${{ secrets.QUAY_FLIGHTCTL_LAB_ROBOT_PASSWORD }}
+          USER: ${{ secrets.QUAY_FLIGHTCTL_LAB_ROBOT_USERNAME }}
         run:
           helm registry login quay.io -u ${USER} -p ${PASSWORD}
 
@@ -207,5 +206,5 @@ jobs:
           image: ${{ steps.build.outputs.image }}
           tags: ${{ steps.build.outputs.tags }}
           registry: ${{ env.QUAY_ORG }}
-          username: ${{ secrets.QUAY_FLIGHTCTL_INFRA_ROBOT_USERNAME }}
-          password: ${{ secrets.QUAY_FLIGHTCTL_INFRA_ROBOT_PASSWORD }}
+          username: ${{ secrets.QUAY_FLIGHTCTL_LAB_ROBOT_USERNAME }}
+          password: ${{ secrets.QUAY_FLIGHTCTL_LAB_ROBOT_PASSWORD }}
