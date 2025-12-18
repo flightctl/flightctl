@@ -56,7 +56,7 @@ func DefaultCertificateOptions() *CertificateOptions {
 	return &CertificateOptions{
 		GlobalOptions: DefaultGlobalOptions(),
 		Name:          "",
-		Expiration:    "7d",
+		Expiration:    "365d",
 		Output:        "embedded",
 		OutputDir:     ".",
 		EncryptKey:    false,
