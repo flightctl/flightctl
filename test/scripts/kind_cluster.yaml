@@ -39,8 +39,8 @@ nodes:
   - containerPort: 8443 # alertmanager proxy
     hostPort: 8443
     protocol: TCP
-  - containerPort: 9000 # flightctl UI
-    hostPort: 9000
+  - containerPort: 9001 # flightctl UI
+    hostPort: 9001
     protocol: TCP    
   - containerPort: 9090 # Prometheus server
     hostPort: 9090
