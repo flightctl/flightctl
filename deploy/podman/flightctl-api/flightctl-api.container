@@ -7,7 +7,7 @@ Wants=flightctl-db-wait.service flightctl-db-migrate.service flightctl-kv.servic
 [Container]
 ContainerName=flightctl-api
 Image={{ .Api.Image }}:{{ .Api.Tag }}
-Pull=newer
+Pull=missing
 Network=flightctl.network
 AddHost=%H:host-gateway
 EnvironmentFile=/etc/flightctl/flightctl-api/env
