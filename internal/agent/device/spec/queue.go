@@ -100,7 +100,7 @@ func (m *queueManager) Add(ctx context.Context, device *v1beta1.Device) {
 
 	state := m.getOrCreateRequeueState(ctx, proposedVersion)
 	if m.shouldEnforceDelay(state) {
-		m.log.Debugf("Enforcing delay for version: %d", proposedVersion)
+		m.log.Debugf("Enforcing resync delay for version: %d", proposedVersion)
 	}
 
 	if m.hasExceededMaxRetries(state, proposedVersion) {
@@ -125,12 +125,12 @@ func (m *queueManager) Next(ctx context.Context) (*v1beta1.Device, bool) {
 	}
 	version := item.Version
 
-	m.log.Debugf("Evaluating template version: %d", version)
+	m.log.Tracef("Evaluating template version: %d", version)
 	now := time.Now()
 	requeue := m.getOrCreateRequeueState(ctx, version)
 	if now.Before(requeue.nextAvailable) {
 		m.queue.Add(item)
-		m.log.Debugf("Template version %d requeue is currently in backoff. Available after: %s", version, requeue.nextAvailable.Format(time.RFC3339Nano))
+		m.log.Tracef("Template version %d requeue is currently in backoff. Available after: %s", version, requeue.nextAvailable.Format(time.RFC3339Nano))
 		return nil, false
 	}
 

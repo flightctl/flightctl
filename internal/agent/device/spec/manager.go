@@ -15,9 +15,8 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
 	"github.com/flightctl/flightctl/internal/agent/device/spec/audit"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
-	"k8s.io/apimachinery/pkg/util/wait"
+	"github.com/flightctl/flightctl/pkg/poll"
 )
 
 var _ Manager = (*manager)(nil)
@@ -52,8 +51,7 @@ func NewManager(
 	policyManager policy.Manager,
 	deviceReadWriter fileio.ReadWriter,
 	osClient os.Client,
-	fetchInterval util.Duration,
-	backoff wait.Backoff,
+	pollConfig poll.Config,
 	deviceNotFoundHandler func() error,
 	auditLogger audit.Logger,
 	log *log.PrefixLogger,
@@ -87,7 +85,7 @@ func NewManager(
 		lastKnownVersion = desired.Version()
 	}
 
-	pub := newPublisher(deviceName, time.Duration(fetchInterval), backoff, lastKnownVersion, deviceNotFoundHandler, log)
+	pub := newPublisher(deviceName, pollConfig, lastKnownVersion, deviceNotFoundHandler, log)
 	m.publisher = pub
 	m.watcher = pub.Watch()
 
@@ -422,7 +420,7 @@ func (s *manager) GetDesired(ctx context.Context) (*v1beta1.Device, bool, error)
 		if readErr != nil {
 			return nil, false, readErr
 		}
-		s.log.Debugf("Requeuing current desired spec from disk version: %s", desired.Version())
+		s.log.Tracef("Requeuing current desired spec from disk version: %s", desired.Version())
 		s.queue.Add(ctx, desired)
 	}
 

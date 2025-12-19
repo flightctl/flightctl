@@ -7,9 +7,13 @@ import (
 	"github.com/flightctl/flightctl/internal/util"
 )
 
+const (
+	// specSyncInterval is how frequently we check for pending spec changes.
+	specSyncInterval = 1 * time.Second
+)
+
 type Engine struct {
-	fetchSpecInterval  util.Duration
-	fetchSpecFn        func(context.Context)
+	syncSpecFn         func(context.Context)
 	pushStatusInterval util.Duration
 	pushStatusFn       func(context.Context)
 
@@ -20,14 +24,12 @@ type Engine struct {
 
 // NewEngine creates a new device engine.
 func NewEngine(
-	fetchSpecInterval util.Duration,
-	fetchSpecFn func(context.Context),
+	syncSpecFn func(context.Context),
 	pushStatusInterval util.Duration,
 	pushStatusFn func(context.Context),
 ) *Engine {
 	return &Engine{
-		fetchSpecInterval:  fetchSpecInterval,
-		fetchSpecFn:        fetchSpecFn,
+		syncSpecFn:         syncSpecFn,
 		pushStatusInterval: pushStatusInterval,
 		pushStatusFn:       pushStatusFn,
 		clock:              &realClock{},
@@ -35,61 +37,32 @@ func NewEngine(
 	}
 }
 
-func (e *Engine) calculateTickerInterval() time.Duration {
-	var minInterval util.Duration
-	if e.pushStatusInterval < e.fetchSpecInterval {
-		minInterval = e.pushStatusInterval
-	} else {
-		minInterval = e.fetchSpecInterval
-	}
-
-	if minInterval <= 0 {
-		// default to 1 second
-		minInterval = util.Duration(1 * time.Second)
-	}
-
-	// return half of the min interval
-	return time.Duration(minInterval / 2)
-}
-
-func (e *Engine) next(interval util.Duration, lastSync time.Time, now time.Time) bool {
-	return now.Sub(lastSync) >= time.Duration(interval)
-}
-
 func (e *Engine) Run(ctx context.Context) error {
-	// track the last time the spec and status were synced to ensure even distribution
-	var lastSpecSync, lastStatusSync time.Time
+	specTicker := e.clock.NewTicker(specSyncInterval)
+	defer specTicker.Stop()
 
-	tickerInterval := e.calculateTickerInterval()
-	timeTicker := e.clock.NewTicker(tickerInterval)
-	defer timeTicker.Stop()
+	statusTicker := e.clock.NewTicker(time.Duration(e.pushStatusInterval))
+	defer statusTicker.Stop()
 
-	// fire first spec sync immediately
-	now := e.clock.Now()
-	e.fetchSpecFn(ctx)
-	lastSpecSync = now
+	// sync immediately on startup
+	e.syncSpecFn(ctx)
+	e.pushStatusFn(ctx)
 
 	close(e.startedCh)
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
-		case now := <-timeTicker.C():
-			if now.IsZero() {
-				// clock was stopped
+		case t := <-specTicker.C():
+			if t.IsZero() {
 				return nil
 			}
-			// spec
-			if e.next(e.fetchSpecInterval, lastSpecSync, now) {
-				lastSpecSync = now
-				e.fetchSpecFn(ctx)
+			e.syncSpecFn(ctx)
+		case t := <-statusTicker.C():
+			if t.IsZero() {
+				return nil
 			}
-
-			// status
-			if e.next(e.pushStatusInterval, lastStatusSync, now) {
-				lastStatusSync = now
-				e.pushStatusFn(ctx)
-			}
+			e.pushStatusFn(ctx)
 		}
 	}
 }
