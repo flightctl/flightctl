@@ -6,6 +6,7 @@ Wants=network-online.target
 [Container]
 ContainerName=flightctl-alertmanager
 Image=quay.io/prometheus/alertmanager:v0.28.1
+Pull=missing
 
 # Run Alertmanager with the config file
 Exec=--config.file=/usr/local/etc/alertmanager/alertmanager.yml --storage.path=/var/lib/alertmanager
