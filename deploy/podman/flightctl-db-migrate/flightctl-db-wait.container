@@ -6,6 +6,7 @@ After=flightctl-db.service
 [Container]
 ContainerName=flightctl-db-wait
 Image={{ .DbSetup.Image }}:{{ .DbSetup.Tag }}
+Pull=missing
 Network=flightctl.network
 AutoUpdate=none
 Environment=DB_USER=flightctl_app

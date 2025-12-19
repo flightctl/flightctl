@@ -7,7 +7,7 @@ PartOf=flightctl.target
 [Container]
 ContainerName=flightctl-cli-artifacts
 Image={{ .CliArtifacts.Image }}:{{ .CliArtifacts.Tag }}
-Pull=newer
+Pull=missing
 Network=flightctl.network
 AddHost=%H:host-gateway
 EnvironmentFile=/etc/flightctl/flightctl-cli-artifacts/env
