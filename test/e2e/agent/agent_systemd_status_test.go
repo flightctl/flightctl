@@ -179,26 +179,27 @@ var _ = Describe("VM Agent behavior during updates", func() {
 			initialVersion, err := harness.GetCurrentDeviceRenderedVersion(deviceId)
 			Expect(err).NotTo(HaveOccurred())
 
-			By("Setting up extra dependencies for future device spec applications")
-			err = harness.ReplaceRepository(spec, repoMetadata)
-			Expect(err).NotTo(HaveOccurred())
-			// clean up the repository when we're done with it
-			defer func() {
-				err := harness.DeleteRepository(*repoMetadata.Name)
-				if err != nil {
-					GinkgoWriter.Printf("Failed to delete repository %s: %v\n", *repoMetadata.Name, err)
-				}
-			}()
-
-			// Add more factories here if desired. The first spec applied will add a repo spec
-			// and the second a simple inline spec.
+			// Add more factories here if desired. We apply two inline specs to exercise sequential updates
+			// without relying on external repositories (works in disconnected environments).
 			type providerFactory = func(providerSpec *v1beta1.ConfigProviderSpec) error
 			configFactories := []providerFactory{
 				func(providerSpec *v1beta1.ConfigProviderSpec) error {
-					return providerSpec.FromHttpConfigProviderSpec(flightDemosHttpRepoConfig)
+					cfg := newInlineConfigForPath(
+						"inline-config-one",
+						"/etc/motd",
+						fmt.Sprintf("This system is managed by flightctl. update %d", initialVersion+1),
+					)
+					*providerSpec = cfg
+					return nil
 				},
 				func(providerSpec *v1beta1.ConfigProviderSpec) error {
-					return providerSpec.FromInlineConfigProviderSpec(validInlineConfig)
+					cfg := newInlineConfigForPath(
+						"inline-config-two",
+						"/etc/motd-2",
+						fmt.Sprintf("Second inline config update %d", initialVersion+2),
+					)
+					*providerSpec = cfg
+					return nil
 				},
 			}
 
@@ -664,19 +665,6 @@ services:
 
 	})
 })
-
-var flightDemosHttpRepoConfig = v1beta1.HttpConfigProviderSpec{
-	HttpRef: struct {
-		FilePath   string  `json:"filePath"`
-		Repository string  `json:"repository"`
-		Suffix     *string `json:"suffix,omitempty"`
-	}{
-		FilePath:   "/etc/config",
-		Repository: validRepoName,
-		Suffix:     nil,
-	},
-	Name: "flightctl-demos-cfg",
-}
 
 func newInlineConfigVersion(version int) v1beta1.ConfigProviderSpec {
 	configCopy := inlineConfig
