@@ -15,14 +15,21 @@ const (
 	ApplicationRunningStatus = "status: Running"
 )
 
-// WaitForApplicationRunningStatus waits for a specific application on a device to reach the "Running" status within a timeout.
+// WaitForApplicationRunningStatus waits for a specific application on a device to reach the "Running" status with all
+// expected workloads running within a timeout.
 func WaitForApplicationRunningStatus(h *e2e.Harness, deviceId string, applicationImage string) {
 	GinkgoWriter.Printf("Waiting for the application ready status\n")
 	h.WaitForDeviceContents(deviceId, ApplicationRunningStatus,
 		func(device *v1beta1.Device) bool {
 			for _, application := range device.Status.Applications {
 				if application.Name == applicationImage && application.Status == v1beta1.ApplicationStatusRunning {
-					return true
+					// ready indicates the number of workloads that are currently running compared to the number of expected
+					// workloads. Checks to see if "1/1" or "2/3" containers are ready
+					parts := strings.Split(application.Ready, "/")
+					if len(parts) != 2 {
+						return false
+					}
+					return parts[0] == parts[1]
 				}
 			}
 			return false
