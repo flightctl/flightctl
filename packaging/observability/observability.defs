@@ -23,7 +23,7 @@ GRAFANA_PUBLISHED_PORT         | .observability.grafana.published_port          
 
 PROMETHEUS_IMAGE               | .observability.prometheus.image                            | docker.io/prom/prometheus:latest             | flightctl-prometheus.container.template       | /etc/containers/systemd/flightctl-prometheus.container
 
-USERINFO_PROXY_IMAGE           | .observability.userinfo_proxy.image                        | quay.io/flightctl/flightctl-userinfo-proxy:latest | flightctl-userinfo-proxy.container.template   | /etc/containers/systemd/flightctl-userinfo-proxy.container
+USERINFO_PROXY_IMAGE           | .observability.userinfo_proxy.image                        | quay.io/flightctl-lab/flightctl-userinfo-proxy:latest | flightctl-userinfo-proxy.container.template   | /etc/containers/systemd/flightctl-userinfo-proxy.container
 USERINFO_UPSTREAM_URL          | .observability.userinfo_proxy.upstream_url                 |                                              | flightctl-userinfo-proxy.container.template   | /etc/containers/systemd/flightctl-userinfo-proxy.container
 USERINFO_SKIP_TLS_VERIFY       | .observability.userinfo_proxy.skip_tls_verify              | false                                        | flightctl-userinfo-proxy.container.template   | /etc/containers/systemd/flightctl-userinfo-proxy.container
 

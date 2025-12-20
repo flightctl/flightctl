@@ -1,29 +1,29 @@
 api:
-  image: quay.io/flightctl/flightctl-api
+  image: quay.io/flightctl-lab/flightctl-api
   tag: latest
 periodic:
-  image: quay.io/flightctl/flightctl-periodic
+  image: quay.io/flightctl-lab/flightctl-periodic
   tag: latest
 worker:
-  image: quay.io/flightctl/flightctl-worker
+  image: quay.io/flightctl-lab/flightctl-worker
   tag: latest
 alert-exporter:
-  image: quay.io/flightctl/flightctl-alert-exporter
+  image: quay.io/flightctl-lab/flightctl-alert-exporter
   tag: latest
 cli-artifacts:
-  image: quay.io/flightctl/flightctl-cli-artifacts
+  image: quay.io/flightctl-lab/flightctl-cli-artifacts
   tag: latest
 alertmanager-proxy:
-  image: quay.io/flightctl/flightctl-alertmanager-proxy
+  image: quay.io/flightctl-lab/flightctl-alertmanager-proxy
   tag: latest
 pam-issuer:
-  image: quay.io/flightctl/flightctl-pam-issuer
+  image: quay.io/flightctl-lab/flightctl-pam-issuer
   tag: latest
 ui:
-  image: quay.io/flightctl/flightctl-ui
+  image: quay.io/flightctl-lab/flightctl-ui
   tag: latest
 db-setup:
-  image: quay.io/flightctl/flightctl-db-setup
+  image: quay.io/flightctl-lab/flightctl-db-setup
   tag: latest
 db:
   image: quay.io/sclorg/postgresql-16-c9s
