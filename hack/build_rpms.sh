@@ -368,6 +368,7 @@ run_build_in_container() {
     -e GOPATH="${container_gopath}" \
     -e GOMODCACHE="${container_gomodcache}" \
     -e GOCACHE="${container_gocache}" \
+    -e GOTOOLCHAIN=auto \
     -e GITHUB_ACTIONS \
     -w /work \
     "${run_image}" \
