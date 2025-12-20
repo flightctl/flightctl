@@ -289,7 +289,7 @@ func (f FleetRolloutsLogic) getDeviceApps(device *api.Device, templateVersion *a
 		}
 		switch appType {
 		case api.ImageApplicationProviderType:
-			newAppItem, errs = f.replaceEnvVarValueParameters(device, appItem)
+			newAppItem, errs = f.replaceImageApplicationParameters(device, appItem)
 		case api.InlineApplicationProviderType:
 			newAppItem, errs = f.replaceInlineApplicationParameters(device, appItem)
 		default:
@@ -309,30 +309,139 @@ func (f FleetRolloutsLogic) getDeviceApps(device *api.Device, templateVersion *a
 	return &deviceApps, nil
 }
 
-func (f FleetRolloutsLogic) replaceEnvVarValueParameters(device *api.Device, app api.ApplicationProviderSpec) (*api.ApplicationProviderSpec, []error) {
-	if app.EnvVars == nil {
-		return &app, nil
+func replaceEnvVars(device *api.Device, app *api.ApplicationProviderSpec) []error {
+	var errs []error
+	if app.EnvVars != nil {
+		origEnvVars := *app.EnvVars
+		newEnvVars := make(map[string]string, len(origEnvVars))
+		for k, v := range origEnvVars {
+			newValue, err := replaceParametersInString(v, device)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("failed replacing parameters in env var %s: %w", k, err))
+				continue
+			}
+			newEnvVars[k] = newValue
+		}
+		app.EnvVars = &newEnvVars
+	}
+	return errs
+}
+
+func (f FleetRolloutsLogic) replaceImageApplicationParameters(device *api.Device, app api.ApplicationProviderSpec) (*api.ApplicationProviderSpec, []error) {
+	appName := lo.FromPtr(app.Name)
+	imageSpec, err := app.AsImageApplicationProviderSpec()
+	if err != nil {
+		return nil, []error{fmt.Errorf("failed to convert to image application provider: %w", err)}
 	}
 
-	origEnvVars := *app.EnvVars
 	var errs []error
-	newEnvVars := make(map[string]string, len(origEnvVars))
-	for k, v := range origEnvVars {
-		newValue, err := replaceParametersInString(v, device)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("failed replacing parameters in env var %s: %w", k, err))
-			continue
+
+	imageSpec.Image, err = replaceParametersInString(imageSpec.Image, device)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("failed replacing parameters in image for app %s: %w", appName, err))
+	}
+
+	errs = append(errs, replaceEnvVars(device, &app)...)
+
+	if imageSpec.Volumes != nil {
+		newVolumes, volErrs := f.replaceVolumeParameters(device, appName, *imageSpec.Volumes)
+		errs = append(errs, volErrs...)
+		if len(volErrs) == 0 {
+			imageSpec.Volumes = &newVolumes
 		}
-		newEnvVars[k] = newValue
 	}
 
 	if len(errs) > 0 {
 		return nil, errs
 	}
 
-	app.EnvVars = &newEnvVars
+	newItem := api.ApplicationProviderSpec{
+		Name:    app.Name,
+		EnvVars: app.EnvVars,
+		AppType: app.AppType,
+	}
+	err = newItem.FromImageApplicationProviderSpec(imageSpec)
+	if err != nil {
+		return nil, []error{fmt.Errorf("failed converting image application: %w", err)}
+	}
 
-	return &app, nil
+	return &newItem, nil
+}
+
+func (f FleetRolloutsLogic) replaceVolumeParameters(device *api.Device, appName string, volumes []api.ApplicationVolume) ([]api.ApplicationVolume, []error) {
+	var errs []error
+	newVolumes := make([]api.ApplicationVolume, 0, len(volumes))
+
+	for volIndex, vol := range volumes {
+		volType, err := vol.Type()
+		if err != nil {
+			errs = append(errs, fmt.Errorf("failed getting volume type for volume %d in app %s: %w", volIndex, appName, err))
+			continue
+		}
+
+		newVol := api.ApplicationVolume{
+			Name:          vol.Name,
+			ReclaimPolicy: vol.ReclaimPolicy,
+		}
+
+		switch volType {
+		case api.ImageApplicationVolumeProviderType:
+			imgSpec, err := vol.AsImageVolumeProviderSpec()
+			if err != nil {
+				errs = append(errs, fmt.Errorf("failed getting image volume spec for volume %d in app %s: %w", volIndex, appName, err))
+				continue
+			}
+
+			imgSpec.Image.Reference, err = replaceParametersInString(imgSpec.Image.Reference, device)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("failed replacing parameters in image reference for volume %d in app %s: %w", volIndex, appName, err))
+				continue
+			}
+
+			if err := newVol.FromImageVolumeProviderSpec(imgSpec); err != nil {
+				errs = append(errs, fmt.Errorf("failed converting image volume spec for volume %d in app %s: %w", volIndex, appName, err))
+				continue
+			}
+
+		case api.ImageMountApplicationVolumeProviderType:
+			imgMountSpec, err := vol.AsImageMountVolumeProviderSpec()
+			if err != nil {
+				errs = append(errs, fmt.Errorf("failed getting image mount volume spec for volume %d in app %s: %w", volIndex, appName, err))
+				continue
+			}
+
+			imgMountSpec.Image.Reference, err = replaceParametersInString(imgMountSpec.Image.Reference, device)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("failed replacing parameters in image reference for volume %d in app %s: %w", volIndex, appName, err))
+				continue
+			}
+
+			if err := newVol.FromImageMountVolumeProviderSpec(imgMountSpec); err != nil {
+				errs = append(errs, fmt.Errorf("failed converting image mount volume spec for volume %d in app %s: %w", volIndex, appName, err))
+				continue
+			}
+
+		case api.MountApplicationVolumeProviderType:
+			mountSpec, err := vol.AsMountVolumeProviderSpec()
+			if err != nil {
+				errs = append(errs, fmt.Errorf("failed getting mount volume spec for volume %d in app %s: %w", volIndex, appName, err))
+				continue
+			}
+
+			if err := newVol.FromMountVolumeProviderSpec(mountSpec); err != nil {
+				errs = append(errs, fmt.Errorf("failed converting mount volume spec for volume %d in app %s: %w", volIndex, appName, err))
+				continue
+			}
+
+		default:
+			errs = append(errs, fmt.Errorf("unsupported volume type %s for volume %d in app %s", volType, volIndex, appName))
+			continue
+		}
+
+		newVolumes = append(newVolumes, newVol)
+	}
+
+	return newVolumes, errs
 }
 
 func (f FleetRolloutsLogic) getDeviceConfig(device *api.Device, templateVersion *api.TemplateVersion) (*[]api.ConfigProviderSpec, []error) {
@@ -539,6 +648,16 @@ func (f FleetRolloutsLogic) replaceInlineApplicationParameters(device *api.Devic
 			inlineSpec.Inline[fileIndex].Content = &contentsReplaced
 		} else {
 			inlineSpec.Inline[fileIndex].Content = &contentsReplaced
+		}
+	}
+
+	errs = append(errs, replaceEnvVars(device, &item)...)
+
+	if inlineSpec.Volumes != nil {
+		newVolumes, volErrs := f.replaceVolumeParameters(device, appName, *inlineSpec.Volumes)
+		errs = append(errs, volErrs...)
+		if len(volErrs) == 0 {
+			inlineSpec.Volumes = &newVolumes
 		}
 	}
 

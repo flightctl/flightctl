@@ -858,7 +858,7 @@ func (c ApplicationContent) Validate(index int, appValidator applicationValidato
 	allErrs = append(allErrs, validation.ValidateString(&decodedStr, contentPath, 0, maxInlineLength, nil, "")...)
 	_, paramErrs = validateParametersInString(&decodedStr, contentPath, fleetTemplate)
 	allErrs = append(allErrs, paramErrs...)
-	allErrs = append(allErrs, appValidator.ValidateContents(c.Path, decodedBytes)...)
+	allErrs = append(allErrs, appValidator.ValidateContents(c.Path, decodedBytes, fleetTemplate)...)
 
 	return allErrs
 }
