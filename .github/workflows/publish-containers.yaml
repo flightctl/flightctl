@@ -52,6 +52,8 @@ jobs:
             # if the branch is lab, we tag the image as lab, otherwise use branch name
             if ${{ github.ref_name == 'lab' }}; then
               latest_tag="lab"
+              # Add .lab suffix to version for lab branch to match RPM versioning
+              version="${version}.lab"
             else
               latest_tag="${{ github.ref_name }}"
             fi
