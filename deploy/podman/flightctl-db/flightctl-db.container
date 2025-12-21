@@ -7,6 +7,7 @@ ContainerName=flightctl-db
 Environment=POSTGRESQL_DATABASE=flightctl POSTGRESQL_USER=flightctl_app POSTGRESQL_MASTER_USER=admin
 Environment=POSTGRESQL_MAX_CONNECTIONS=200
 Image={{ .Db.Image }}:{{ .Db.Tag }}
+Pull=missing
 Network=flightctl.network
 AddHost=%H:host-gateway
 Volume=flightctl-db:/var/lib/pgsql/data:Z

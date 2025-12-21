@@ -369,3 +369,240 @@ func TestFleetRolloutsLogic_DelayDeviceRenderPropagationThroughContext(t *testin
 		})
 	}
 }
+
+func createTestDeviceWithLabels(name string, owner string, labels map[string]string) *api.Device {
+	deviceName := name
+	ownerName := owner
+	return &api.Device{
+		Metadata: api.ObjectMeta{
+			Name:   &deviceName,
+			Owner:  &ownerName,
+			Labels: &labels,
+		},
+		Spec: &api.DeviceSpec{
+			Os: &api.DeviceOsSpec{
+				Image: "old-image:latest",
+			},
+		},
+		Status: &api.DeviceStatus{
+			Conditions: []api.Condition{},
+		},
+	}
+}
+
+func TestFleetRolloutsLogic_ReplaceImageApplicationParameters(t *testing.T) {
+	tests := []struct {
+		name          string
+		device        *api.Device
+		appSpec       api.ImageApplicationProviderSpec
+		envVars       *map[string]string
+		expectedImage string
+		expectedEnv   map[string]string
+		expectError   bool
+	}{
+		{
+			name:   "replaces template in image tag",
+			device: createTestDeviceWithLabels("mydevice", "fleet/test", map[string]string{"version": "v1.0"}),
+			appSpec: api.ImageApplicationProviderSpec{
+				Image: "quay.io/test/app:{{ index .metadata.labels \"version\" }}",
+			},
+			expectedImage: "quay.io/test/app:v1.0",
+			expectError:   false,
+		},
+		{
+			name:   "replaces device name in image tag",
+			device: createTestDeviceWithLabels("mydevice-123", "fleet/test", map[string]string{}),
+			appSpec: api.ImageApplicationProviderSpec{
+				Image: "quay.io/test/app:{{ .metadata.name }}",
+			},
+			expectedImage: "quay.io/test/app:mydevice-123",
+			expectError:   false,
+		},
+		{
+			name:   "replaces template in envVars",
+			device: createTestDeviceWithLabels("mydevice", "fleet/test", map[string]string{"env": "prod"}),
+			appSpec: api.ImageApplicationProviderSpec{
+				Image: "quay.io/test/app:latest",
+			},
+			envVars:       &map[string]string{"MY_ENV": "{{ index .metadata.labels \"env\" }}"},
+			expectedImage: "quay.io/test/app:latest",
+			expectedEnv:   map[string]string{"MY_ENV": "prod"},
+			expectError:   false,
+		},
+		{
+			name:   "missing label results in empty string",
+			device: createTestDeviceWithLabels("mydevice", "fleet/test", map[string]string{}),
+			appSpec: api.ImageApplicationProviderSpec{
+				Image: "quay.io/test/app:{{ index .metadata.labels \"missing\" }}",
+			},
+			expectedImage: "quay.io/test/app:",
+			expectError:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			log := logrus.New()
+			logic := FleetRolloutsLogic{log: log}
+
+			app := api.ApplicationProviderSpec{
+				Name:    lo.ToPtr("test-app"),
+				AppType: api.AppTypeCompose,
+				EnvVars: tt.envVars,
+			}
+			err := app.FromImageApplicationProviderSpec(tt.appSpec)
+			require.NoError(t, err)
+
+			result, errs := logic.replaceImageApplicationParameters(tt.device, app)
+
+			if tt.expectError {
+				assert.NotEmpty(t, errs)
+				return
+			}
+
+			require.Empty(t, errs)
+			require.NotNil(t, result)
+
+			imgSpec, err := result.AsImageApplicationProviderSpec()
+			require.NoError(t, err)
+			assert.Equal(t, tt.expectedImage, imgSpec.Image)
+
+			if tt.expectedEnv != nil {
+				require.NotNil(t, result.EnvVars)
+				for k, v := range tt.expectedEnv {
+					assert.Equal(t, v, (*result.EnvVars)[k])
+				}
+			}
+		})
+	}
+}
+
+func TestFleetRolloutsLogic_ReplaceInlineApplicationParameters(t *testing.T) {
+	tests := []struct {
+		name            string
+		device          *api.Device
+		appSpec         api.InlineApplicationProviderSpec
+		envVars         *map[string]string
+		expectedPath    string
+		expectedContent string
+		expectedEnv     map[string]string
+		expectError     bool
+	}{
+		{
+			name:   "replaces template in path",
+			device: createTestDeviceWithLabels("mydevice", "fleet/test", map[string]string{}),
+			appSpec: api.InlineApplicationProviderSpec{
+				Inline: []api.ApplicationContent{
+					{
+						Path:    "/etc/{{ .metadata.name }}.conf",
+						Content: lo.ToPtr("static content"),
+					},
+				},
+			},
+			expectedPath:    "/etc/mydevice.conf",
+			expectedContent: "static content",
+			expectError:     false,
+		},
+		{
+			name:   "replaces template in content",
+			device: createTestDeviceWithLabels("mydevice", "fleet/test", map[string]string{"version": "2.0"}),
+			appSpec: api.InlineApplicationProviderSpec{
+				Inline: []api.ApplicationContent{
+					{
+						Path:    "/etc/app.conf",
+						Content: lo.ToPtr("version={{ index .metadata.labels \"version\" }}"),
+					},
+				},
+			},
+			expectedPath:    "/etc/app.conf",
+			expectedContent: "version=2.0",
+			expectError:     false,
+		},
+		{
+			name:   "replaces templates in both path and content",
+			device: createTestDeviceWithLabels("mydevice", "fleet/test", map[string]string{"env": "prod"}),
+			appSpec: api.InlineApplicationProviderSpec{
+				Inline: []api.ApplicationContent{
+					{
+						Path:    "/etc/{{ .metadata.name }}/config",
+						Content: lo.ToPtr("environment={{ index .metadata.labels \"env\" }}"),
+					},
+				},
+			},
+			expectedPath:    "/etc/mydevice/config",
+			expectedContent: "environment=prod",
+			expectError:     false,
+		},
+		{
+			name:   "replaces template in envVars",
+			device: createTestDeviceWithLabels("mydevice", "fleet/test", map[string]string{"region": "us-east"}),
+			appSpec: api.InlineApplicationProviderSpec{
+				Inline: []api.ApplicationContent{
+					{
+						Path:    "/etc/app.conf",
+						Content: lo.ToPtr("config"),
+					},
+				},
+			},
+			envVars:         &map[string]string{"REGION": "{{ index .metadata.labels \"region\" }}"},
+			expectedPath:    "/etc/app.conf",
+			expectedContent: "config",
+			expectedEnv:     map[string]string{"REGION": "us-east"},
+			expectError:     false,
+		},
+		{
+			name:   "missing label in content results in empty string",
+			device: createTestDeviceWithLabels("mydevice", "fleet/test", map[string]string{}),
+			appSpec: api.InlineApplicationProviderSpec{
+				Inline: []api.ApplicationContent{
+					{
+						Path:    "/etc/app.conf",
+						Content: lo.ToPtr("version={{ index .metadata.labels \"missing\" }}"),
+					},
+				},
+			},
+			expectedPath:    "/etc/app.conf",
+			expectedContent: "version=",
+			expectError:     false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			log := logrus.New()
+			logic := FleetRolloutsLogic{log: log}
+
+			app := api.ApplicationProviderSpec{
+				Name:    lo.ToPtr("test-app"),
+				AppType: api.AppTypeQuadlet,
+				EnvVars: tt.envVars,
+			}
+			err := app.FromInlineApplicationProviderSpec(tt.appSpec)
+			require.NoError(t, err)
+
+			result, errs := logic.replaceInlineApplicationParameters(tt.device, app)
+
+			if tt.expectError {
+				assert.NotEmpty(t, errs)
+				return
+			}
+
+			require.Empty(t, errs)
+			require.NotNil(t, result)
+
+			inlineSpec, err := result.AsInlineApplicationProviderSpec()
+			require.NoError(t, err)
+			require.Len(t, inlineSpec.Inline, 1)
+			assert.Equal(t, tt.expectedPath, inlineSpec.Inline[0].Path)
+			require.NotNil(t, inlineSpec.Inline[0].Content)
+			assert.Equal(t, tt.expectedContent, *inlineSpec.Inline[0].Content)
+
+			if tt.expectedEnv != nil {
+				require.NotNil(t, result.EnvVars)
+				for k, v := range tt.expectedEnv {
+					assert.Equal(t, v, (*result.EnvVars)[k])
+				}
+			}
+		})
+	}
+}

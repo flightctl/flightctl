@@ -19,7 +19,7 @@ Flight Control API server supports the following authentication methods:
 
 #### 1. OIDC (OpenID Connect)
 
-Standard OpenID Connect protocol. Works with any OIDC-compliant provider (Azure AD, Okta, Keycloak, Google, etc.). Supports dynamic provider configuration, flexible organization and role mapping, and multiple simultaneous providers.
+Standard OpenID Connect protocol. Works with any OIDC-compliant provider. Supports dynamic provider configuration, flexible organization and role mapping, and multiple simultaneous providers.
 
 → [OIDC Authentication Documentation](auth-oidc.md)
 

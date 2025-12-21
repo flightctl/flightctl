@@ -6,7 +6,7 @@ PartOf=flightctl-telemetry-gateway.target flightctl-observability.target
 
 [Container]
 Image=${TELEMETRY_GATEWAY_IMAGE}
-Pull=newer
+Pull=missing
 
 ContainerName=flightctl-telemetry-gateway
 
