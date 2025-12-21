@@ -40,3 +40,15 @@ imagebuilder-api:
 imagebuilder-worker:
   image: flightctl-imagebuilder-worker
   tag: latest
+grafana:
+  image: docker.io/grafana/grafana
+  tag: latest
+prometheus:
+  image: docker.io/prom/prometheus
+  tag: v2.13.1
+telemetry-gateway:
+  image: flightctl-telemetry-gateway
+  tag: latest
+userinfo-proxy:
+  image: flightctl-userinfo-proxy
+  tag: latest

@@ -5,14 +5,17 @@ Wants=flightctl-network.service
 PartOf=flightctl-observability.target
 
 [Container]
-Image=${PROMETHEUS_IMAGE}
-Pull=missing
 ContainerName=flightctl-prometheus
+Image={{ .Prometheus.Image }}:{{ .Prometheus.Tag }}
+Pull=missing
 
-Volume=/etc/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro,z
+Network=flightctl.network
+AddHost=%H:host-gateway
+
+Volume=/etc/flightctl/flightctl-prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro,z
+Volume=/etc/flightctl/pki/flightctl-prometheus/server.crt:/root/.flightctl/certs/server.crt:ro,z
+Volume=/etc/flightctl/pki/flightctl-prometheus/server.key:/root/.flightctl/certs/server.key:ro,z
 Volume=/var/lib/prometheus:/prometheus:rw,z
-
-Network=flightctl
 
 [Service]
 Restart=on-failure
