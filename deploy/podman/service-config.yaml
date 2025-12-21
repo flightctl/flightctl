@@ -65,43 +65,28 @@ service:
     authWindow: 1h
     trustedProxies: []
 
-observability:
-  grafana:
-    image:
-    published_port:
+grafana:
+  oauth:
+    enabled:
+    providerType:
+    authUrl:
+    tokenUrl:
+    apiUrl:
+    scopes:
+    clientId:
+  localAdminUser:
+  localAdminPassword:
+  rootUrl:
+  insecureSkipTlsVerify:
+  protocol:
+  allowedUnsignedPlugins:
 
-    oauth:
-      enabled:
+prometheus:
 
-      provider_type:
+telemetryGateway:
+  forward:
+    endpoint:
 
-      auth_url:
-      token_url:
-      api_url:
-      scopes:
-
-      client_id:
-
-    local_admin_user:
-    local_admin_password:
-    root_url:
-
-  prometheus:
-    image:
-
-  telemetry_gateway:
-    image:
-    prometheus_port:
-    grpc_port:
-    config:
-      telemetryGateway:
-        export:
-          prometheus:
-        forward:
-          endpoint:
-
-
-  userinfo_proxy:
-    image:
-    upstream_url:
-    skip_tls_verify:
+userinfoProxy:
+  upstreamUrl:
+  insecureSkipTlsVerify:

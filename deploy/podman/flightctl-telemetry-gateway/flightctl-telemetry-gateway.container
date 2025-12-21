@@ -5,27 +5,34 @@ Wants=flightctl-network.service
 PartOf=flightctl-telemetry-gateway.target flightctl-observability.target
 
 [Container]
-Image=${TELEMETRY_GATEWAY_IMAGE}
+Image={{ .TelemetryGateway.Image }}:{{ .TelemetryGateway.Tag }}
 Pull=missing
 
 ContainerName=flightctl-telemetry-gateway
 
 Volume=/etc/flightctl/telemetry-gateway/config.yaml:/root/.flightctl/config.yaml:ro,z
 
-PublishPort=${TELEMETRY_GATEWAY_GRPC_PORT}:4317/tcp
-PublishPort=${TELEMETRY_GATEWAY_PROMETHEUS_PORT}:9464/tcp
+PublishPort=4317:4317/tcp
+PublishPort=9464:9464/tcp
 
-Network=flightctl
+Network=flightctl.network
+AddHost=%H:host-gateway
+
 Secret=flightctl-ca-secret,target=/etc/telemetry-gateway/certs/ca.crt
 Secret=telemetry-gateway-tls,target=/etc/telemetry-gateway/certs/server.crt
 Secret=telemetry-gateway-tls-key,target=/etc/telemetry-gateway/certs/server.key
 
-${TELEMETRY_GATEWAY_FORWARD_CA_VOLUME}
-${TELEMETRY_GATEWAY_FORWARD_CERT_VOLUME}
-${TELEMETRY_GATEWAY_FORWARD_KEY_VOLUME}
+Volume=/etc/flightctl/pki/flightctl-telemetry-gateway/server.crt:/root/.flightctl/certs/server.crt:ro,z
+Volume=/etc/flightctl/pki/flightctl-telemetry-gateway/server.key:/root/.flightctl/certs/server.key:ro,z
+Volume=/etc/flightctl/pki/ca-bundle.crt:/root/.flightctl/certs/ca-bundle.crt:ro,z
+Volume=/etc/flightctl/pki/db:/root/.flightctl/certs/db:ro,z
+{{- if .telemetryGateway.forward.endpoint }}
+Volume=/etc/flightctl/telemetry-gateway/forward:/etc/flightctl/telemetry-gateway/forward:ro,z
+{{- end }}
 
 [Service]
 Restart=on-failure
+ExecStartPre=/usr/bin/flightctl-standalone render template --input-file /usr/share/flightctl/flightctl-telemetry-gateway/config.yaml.template --output-file /etc/flightctl/telemetry-gateway/config.yaml
 
 [Install]
 WantedBy=multi-user.target
