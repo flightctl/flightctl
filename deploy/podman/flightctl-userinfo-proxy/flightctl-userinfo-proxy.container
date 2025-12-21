@@ -5,18 +5,18 @@ Wants=flightctl-network.service
 PartOf=flightctl-observability.target
 
 [Container]
-Image=${USERINFO_PROXY_IMAGE}
+Image={{ .UserinfoProxy.Image }}:{{ .UserinfoProxy.Tag }}
 Pull=missing
 
 ContainerName=flightctl-userinfo-proxy
 
 # Network configuration
-Network=flightctl
+Network=flightctl.network
 
 # Environment variables for configuration
 Environment=USERINFO_LISTEN_PORT=8080
-Environment=USERINFO_UPSTREAM_URL=${USERINFO_UPSTREAM_URL}
-Environment=USERINFO_SKIP_TLS_VERIFY=${USERINFO_SKIP_TLS_VERIFY}
+Environment=USERINFO_UPSTREAM_URL={{.userinfoProxy.upstreamUrl}}
+Environment=USERINFO_SKIP_TLS_VERIFY={{if .userinfoProxy.insecureSkipTlsVerify}}{{.userinfoProxy.insecureSkipTlsVerify}}{{else}}false{{end}}
 
 # Security
 User=1001:1001

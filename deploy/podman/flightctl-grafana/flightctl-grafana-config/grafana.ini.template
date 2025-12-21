@@ -2,12 +2,12 @@
 [server]
 http_port = 3000
 # http_addr = 0.0.0.0 # Default
-root_url = ${GRAFANA_ROOT_URL}
+root_url = {{if .grafana.protocol}}{{.grafana.protocol}}{{else}}http{{end}}://{{.global.baseDomain}}:3000
 
 # HTTPS Configuration
-protocol = ${GRAFANA_PROTOCOL}
-cert_file = ${GRAFANA_CERT_FILE}
-cert_key = ${GRAFANA_CERT_KEY}
+protocol = {{if .grafana.protocol}}{{.grafana.protocol}}{{else}}http{{end}}
+cert_file = /etc/grafana/certs/server.crt
+cert_key = /etc/grafana/certs/server.key
 
 [paths]
 data = /var/lib/grafana
@@ -28,8 +28,8 @@ enabled = true
 default_theme = dark
 
 [security]
-admin_user = ${GRAFANA_LOCAL_ADMIN_USER}
-admin_password = ${GRAFANA_LOCAL_ADMIN_PASSWORD}
+admin_user = {{if .grafana.localAdminUser}}{{.grafana.localAdminUser}}{{else}}admin{{end}}
+admin_password = {{if .grafana.localAdminPassword}}{{.grafana.localAdminPassword}}{{else}}defaultadmin{{end}}
 
 
 [session]
@@ -40,20 +40,20 @@ provider = file
 enabled = true
 
 [auth]
-disable_login_form = ${GRAFANA_OAUTH_ENABLED}
+disable_login_form = {{if .grafana.oauth.enabled}}{{.grafana.oauth.enabled}}{{else}}false{{end}}
 
 
 [auth.generic_oauth]
-enabled = ${GRAFANA_OAUTH_ENABLED}
+enabled = {{if .grafana.oauth.enabled}}{{.grafana.oauth.enabled}}{{else}}false{{end}}
 name = Flightctl SSO
 allow_sign_up = true
-client_id = ${GRAFANA_OAUTH_CLIENT_ID}
-auth_url = ${GRAFANA_OAUTH_AUTH_URL}
-token_url = ${GRAFANA_OAUTH_TOKEN_URL}
-api_url = ${GRAFANA_OAUTH_API_URL}
-scopes = ${GRAFANA_OAUTH_SCOPES}
+client_id = {{.grafana.oauth.clientId}}
+auth_url = {{.grafana.oauth.authUrl}}
+token_url = {{.grafana.oauth.tokenUrl}}
+api_url = {{.grafana.oauth.apiUrl}}
+scopes = {{if .grafana.oauth.scopes}}{{.grafana.oauth.scopes}}{{else}}read{{end}}
 role_attribute_path = (contains(roles[*], 'grafana-admin') || contains(roles[*], 'Admin')) && 'Admin' ||  (contains(roles[*], 'grafana-editor') || contains(roles[*], 'Editor')) && 'Editor' ||  'Viewer'
-tls_skip_verify_insecure = ${GRAFANA_TLS_SKIP_VERIFY}
+tls_skip_verify_insecure = {{if .grafana.insecureSkipTlsVerify}}{{.grafana.insecureSkipTlsVerify}}{{else}}false{{end}}
 
 [plugins]
-allow_loading_unsigned_plugins = ${GRAFANA_ALLOWED_UNSIGNED_PLUGINS}
+allow_loading_unsigned_plugins = {{.grafana.allowedUnsignedPlugins}}
