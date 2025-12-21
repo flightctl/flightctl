@@ -7,7 +7,7 @@ Wants=flightctl-alertmanager.service flightctl-db-wait.service flightctl-db-migr
 [Container]
 ContainerName=flightctl-alertmanager-proxy
 Image={{ .AlertmanagerProxy.Image }}:{{ .AlertmanagerProxy.Tag }}
-Pull=newer
+Pull=missing
 Network=flightctl.network
 AddHost=%H:host-gateway
 PublishPort=8443:8443

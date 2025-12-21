@@ -87,6 +87,8 @@ auth:
     allowPublicClientWithoutPKCE: false                # SECURITY: Allow public clients without PKCE (not recommended)
     accessTokenExpiration: "1h"                         # Expiration duration for access tokens and ID tokens (default: "1h")
     refreshTokenExpiration: "168h"                     # Expiration duration for refresh tokens (default: "168h", equivalent to 7 days)
+    pendingSessionCookieMaxAge: "10m"                  # MaxAge duration for pending session cookies (default: "10m")
+    authenticatedSessionCookieMaxAge: "30m"            # MaxAge duration for authenticated session cookies (default: "30m")
 ```
 
 ### Configuration Parameters
@@ -103,6 +105,8 @@ auth:
 | `allowPublicClientWithoutPKCE` | Allow public clients to skip PKCE requirement. **Security Warning**: Only enable for testing | `false` |
 | `accessTokenExpiration` | Expiration duration for access tokens and ID tokens (e.g., `1h`, `30m`) | `1h` |
 | `refreshTokenExpiration` | Expiration duration for refresh tokens (e.g., `168h`, `720h`) | `168h` |
+| `pendingSessionCookieMaxAge` | MaxAge duration for pending session cookies (e.g., `10m`, `15m`) | `10m` |
+| `authenticatedSessionCookieMaxAge` | MaxAge duration for authenticated session cookies (e.g., `30m`, `1h`) | `30m` |
 
 ### Default Configuration
 
@@ -115,6 +119,8 @@ If the `pamOidcIssuer` section is present in the configuration file, the followi
 - **Redirect URIs**: Automatically configured based on the service's base UI URL or base URL
 - **Access Token Expiration**: Defaults to `1h`
 - **Refresh Token Expiration**: Defaults to `168h` (7 days)
+- **Pending Session Cookie MaxAge**: Defaults to `10m` (10 minutes)
+- **Authenticated Session Cookie MaxAge**: Defaults to `30m` (30 minutes)
 
 ### Security Note
 

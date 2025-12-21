@@ -474,6 +474,7 @@ PAM
 alice
 bob
 charlie
+MaxAge
  - docs/user/installing/configuring-auth/auth-oauth2.md
 GitHub
 github.com

@@ -747,7 +747,7 @@ func extractAppDataFromOCITarget(
 		}
 
 		// validate the compose spec
-		if errs := validation.ValidateComposeSpec(spec); len(errs) > 0 {
+		if errs := validation.ValidateComposeSpec(spec, false); len(errs) > 0 {
 			if rmErr := cleanupFn(); rmErr != nil {
 				return nil, fmt.Errorf("validating compose spec for app %s (%s): %w (cleanup failed: %v)", appName, imageRef, errors.Join(errs...), rmErr)
 			}
@@ -779,7 +779,7 @@ func extractAppDataFromOCITarget(
 		// validate all quadlets before extracting targets
 		var validationErrs []error
 		for quadletPath, quad := range spec {
-			if errs := validation.ValidateQuadletSpec(quad, quadletPath); len(errs) > 0 {
+			if errs := validation.ValidateQuadletSpec(quad, quadletPath, false); len(errs) > 0 {
 				validationErrs = append(validationErrs, errs...)
 			}
 		}
@@ -818,7 +818,7 @@ func ensureCompose(readWriter fileio.ReadWriter, appPath string) error {
 		return fmt.Errorf("parsing compose spec: %w", err)
 	}
 
-	if errs := validation.ValidateComposeSpec(spec); len(errs) > 0 {
+	if errs := validation.ValidateComposeSpec(spec, false); len(errs) > 0 {
 		return fmt.Errorf("validating compose spec: %w", errors.Join(errs...))
 	}
 
@@ -882,7 +882,7 @@ func ensureQuadlet(readWriter fileio.ReadWriter, appPath string) error {
 
 	var errs []error
 	for path, quad := range spec {
-		if e := validation.ValidateQuadletSpec(quad, path); len(e) > 0 {
+		if e := validation.ValidateQuadletSpec(quad, path, false); len(e) > 0 {
 			errs = append(errs, e...)
 		}
 	}

@@ -6,7 +6,7 @@ PartOf=flightctl-observability.target
 
 [Container]
 Image=${GRAFANA_IMAGE}
-Pull=newer
+Pull=missing
 ContainerName=flightctl-grafana
 PublishPort=${GRAFANA_PUBLISHED_PORT}:3000
 
