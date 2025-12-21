@@ -5,32 +5,34 @@ Wants=flightctl-network.service flightctl-prometheus.service
 PartOf=flightctl-observability.target
 
 [Container]
-Image=${GRAFANA_IMAGE}
-Pull=missing
 ContainerName=flightctl-grafana
-PublishPort=${GRAFANA_PUBLISHED_PORT}:3000
+Image={{ .Grafana.Image }}:{{ .Grafana.Tag }}
+Pull=missing
+PublishPort=3000:3000
+
+Network=flightctl.network
+AddHost=%H:host-gateway
 
 # Volume for Grafana's primary data (database, compiled assets, plugins)
 Volume=/var/lib/grafana:/var/lib/grafana:rw,z
 
 # Mount custom grafana.ini file
-Volume=/etc/grafana/grafana.ini:/etc/grafana/grafana.ini:ro,z
+Volume=/etc/flightctl/flightctl-grafana/grafana.ini:/etc/grafana/grafana.ini:ro,z
 
 # Mount directory for data source provisioning
-Volume=/etc/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro,z
+Volume=/etc/flightctl/flightctl-grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro,z
 
 # Mount directory for TLS certificates (if using HTTPS)
-Volume=/etc/grafana/certs:/etc/grafana/certs:ro,z
+Volume=/etc/flightctl/pki/flightctl-grafana:/etc/grafana/certs:ro,z
 
 # Downstream grafana image expects this
-Volume=/etc/grafana/provisioning/alerting:/etc/grafana/provisioning/alerting:ro,z
-
-Network=flightctl
+Volume=/etc/flightctl/flightctl-grafana/provisioning/alerting:/etc/grafana/provisioning/alerting:ro,z
 
 [Service]
 Restart=on-failure
-ExecStartPre=mkdir -p /var/lib/grafana /etc/grafana /etc/grafana/provisioning /etc/grafana/provisioning/datasources /etc/grafana/certs
-ExecStartPre=/bin/sh -c 'chown -R "$(podman image inspect ${GRAFANA_IMAGE} | jq -r .[0].Config.User)" /var/lib/grafana || true'
+ExecStartPre=mkdir -p /var/lib/grafana /etc/flightctl/flightctl-grafana /etc/flightctl/flightctl-grafana/provisioning /etc/flightctl/flightctl-grafana/provisioning/datasources /etc/flightctl/pki/flightctl-grafana
+ExecStartPre=/usr/bin/flightctl-standalone render template --input-file /usr/share/flightctl/flightctl-grafana/grafana.ini.template --output-file /etc/flightctl/flightctl-grafana/grafana.ini
+ExecStartPre=/bin/sh -c 'chown -R "$(podman image inspect {{ .Grafana.Image }}:{{ .Grafana.Tag }} | jq -r .[0].Config.User)" /var/lib/grafana || true'
 
 [Install]
 WantedBy=multi-user.target
