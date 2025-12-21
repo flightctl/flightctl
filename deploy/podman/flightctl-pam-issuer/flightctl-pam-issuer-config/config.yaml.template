@@ -48,3 +48,27 @@ auth:
     pendingSessionCookieMaxAge: {{if .global.auth.pamOidcIssuer.pendingSessionCookieMaxAge}}{{.global.auth.pamOidcIssuer.pendingSessionCookieMaxAge}}{{else}}10m{{end}}
     authenticatedSessionCookieMaxAge: {{if .global.auth.pamOidcIssuer.authenticatedSessionCookieMaxAge}}{{.global.auth.pamOidcIssuer.authenticatedSessionCookieMaxAge}}{{else}}30m{{end}}
     cookieHttpOnly: {{if .global.auth.pamOidcIssuer.cookieHttpOnly}}{{.global.auth.pamOidcIssuer.cookieHttpOnly}}{{else}}true{{end}}
+    {{if .global.auth.pamOidcIssuer.branding}}
+    branding:
+      {{if .global.auth.pamOidcIssuer.branding.issuerName}}
+      issuerName: {{.global.auth.pamOidcIssuer.branding.issuerName}}
+      {{end}}
+      {{if .global.auth.pamOidcIssuer.branding.logoLight}}
+      logoLight: {{.global.auth.pamOidcIssuer.branding.logoLight}}
+      {{end}}
+      {{if .global.auth.pamOidcIssuer.branding.logoDark}}
+      logoDark: {{.global.auth.pamOidcIssuer.branding.logoDark}}
+      {{end}}
+      {{if .global.auth.pamOidcIssuer.branding.lightPrimaryColor}}
+      lightPrimaryColor: {{.global.auth.pamOidcIssuer.branding.lightPrimaryColor}}
+      {{end}}
+      {{if .global.auth.pamOidcIssuer.branding.lightSecondaryColor}}
+      lightSecondaryColor: {{.global.auth.pamOidcIssuer.branding.lightSecondaryColor}}
+      {{end}}
+      {{if .global.auth.pamOidcIssuer.branding.darkPrimaryColor}}
+      darkPrimaryColor: {{.global.auth.pamOidcIssuer.branding.darkPrimaryColor}}
+      {{end}}
+      {{if .global.auth.pamOidcIssuer.branding.darkSecondaryColor}}
+      darkSecondaryColor: {{.global.auth.pamOidcIssuer.branding.darkSecondaryColor}}
+      {{end}}
+    {{end}}

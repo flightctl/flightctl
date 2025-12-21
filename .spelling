@@ -474,6 +474,10 @@ PAM
 alice
 bob
 charlie
+base64
+URI
+light/dark/system
+dropdown
  - docs/user/installing/configuring-auth/auth-oauth2.md
 GitHub
 github.com

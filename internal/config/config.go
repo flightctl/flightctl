@@ -1,6 +1,8 @@
 package config
 
 import (
+	_ "embed"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -19,6 +21,12 @@ import (
 const (
 	appName = "flightctl"
 )
+
+//go:embed assets/logo-light.png
+var defaultLogoLight []byte
+
+//go:embed assets/logo-dark.png
+var defaultLogoDark []byte
 
 type Config struct {
 	Database         *dbConfig               `json:"database,omitempty"`
@@ -160,6 +168,28 @@ type PAMOIDCIssuer struct {
 	// CookieHttpOnly controls whether cookies are set with HttpOnly flag
 	// Default: true (nil means use default)
 	CookieHttpOnly *bool `json:"cookieHttpOnly,omitempty"`
+	// Branding contains branding configuration for the login form
+	Branding *Branding `json:"branding,omitempty"`
+}
+
+// Branding represents branding configuration for the PAM OIDC issuer login form
+type Branding struct {
+	// IssuerName is the display name for the issuer (default: "Flight Control")
+	IssuerName string `json:"issuerName,omitempty"`
+	// LogoLight is the URL or data URI for the logo image in light theme
+	// If empty, will load from static file "internal/config/assets/logo-light.png"
+	LogoLight string `json:"logoLight,omitempty"`
+	// LogoDark is the URL or data URI for the logo image in dark theme
+	// If empty, will load from static file "internal/config/assets/logo-dark.png"
+	LogoDark string `json:"logoDark,omitempty"`
+	// LightPrimaryColor is the primary color for light theme (default: "#007bff")
+	LightPrimaryColor string `json:"lightPrimaryColor,omitempty"`
+	// LightSecondaryColor is the secondary color for light theme (default: "#666")
+	LightSecondaryColor string `json:"lightSecondaryColor,omitempty"`
+	// DarkPrimaryColor is the primary color for dark theme (default: "#4a9eff")
+	DarkPrimaryColor string `json:"darkPrimaryColor,omitempty"`
+	// DarkSecondaryColor is the secondary color for dark theme (default: "#b0b0b0")
+	DarkSecondaryColor string `json:"darkSecondaryColor,omitempty"`
 }
 
 type metricsConfig struct {
@@ -630,6 +660,38 @@ func applyPAMOIDCIssuerDefaults(c *Config) {
 	if c.Auth.PAMOIDCIssuer.CookieHttpOnly == nil {
 		httpOnly := true
 		c.Auth.PAMOIDCIssuer.CookieHttpOnly = &httpOnly
+	}
+
+	// Create default branding if not provided
+	if c.Auth.PAMOIDCIssuer.Branding == nil {
+		c.Auth.PAMOIDCIssuer.Branding = &Branding{}
+	}
+	// Set defaults for any missing fields
+	if c.Auth.PAMOIDCIssuer.Branding.IssuerName == "" {
+		c.Auth.PAMOIDCIssuer.Branding.IssuerName = "Flight Control"
+	}
+	if c.Auth.PAMOIDCIssuer.Branding.LightPrimaryColor == "" {
+		c.Auth.PAMOIDCIssuer.Branding.LightPrimaryColor = "#007bff"
+	}
+	if c.Auth.PAMOIDCIssuer.Branding.LightSecondaryColor == "" {
+		c.Auth.PAMOIDCIssuer.Branding.LightSecondaryColor = "#666"
+	}
+	if c.Auth.PAMOIDCIssuer.Branding.DarkPrimaryColor == "" {
+		c.Auth.PAMOIDCIssuer.Branding.DarkPrimaryColor = "#4a9eff"
+	}
+	if c.Auth.PAMOIDCIssuer.Branding.DarkSecondaryColor == "" {
+		c.Auth.PAMOIDCIssuer.Branding.DarkSecondaryColor = "#b0b0b0"
+	}
+	// Load light logo if not set - use embedded logo
+	if c.Auth.PAMOIDCIssuer.Branding.LogoLight == "" && len(defaultLogoLight) > 0 {
+		encoded := base64.StdEncoding.EncodeToString(defaultLogoLight)
+		c.Auth.PAMOIDCIssuer.Branding.LogoLight = fmt.Sprintf("data:image/png;base64,%s", encoded)
+	}
+
+	// Load dark logo if not set - use embedded logo
+	if c.Auth.PAMOIDCIssuer.Branding.LogoDark == "" && len(defaultLogoDark) > 0 {
+		encoded := base64.StdEncoding.EncodeToString(defaultLogoDark)
+		c.Auth.PAMOIDCIssuer.Branding.LogoDark = fmt.Sprintf("data:image/png;base64,%s", encoded)
 	}
 }
 

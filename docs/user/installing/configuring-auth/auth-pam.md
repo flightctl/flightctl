@@ -87,6 +87,14 @@ auth:
     allowPublicClientWithoutPKCE: false                # SECURITY: Allow public clients without PKCE (not recommended)
     accessTokenExpiration: "1h"                         # Expiration duration for access tokens and ID tokens (default: "1h")
     refreshTokenExpiration: "168h"                     # Expiration duration for refresh tokens (default: "168h", equivalent to 7 days)
+    branding:                                           # Branding configuration for the login form
+      issuerName: "Flight Control"                     # Display name for the issuer (default: "Flight Control")
+      logoLight: ""                                     # Logo for light theme (URL or base64 data URI). If empty, uses default logo
+      logoDark: ""                                      # Logo for dark theme (URL or base64 data URI). If empty, uses default logo
+      lightPrimaryColor: "#007bff"                      # Primary color for light theme (default: "#007bff")
+      lightSecondaryColor: "#666"                       # Secondary color for light theme (default: "#666")
+      darkPrimaryColor: "#4a9eff"                       # Primary color for dark theme (default: "#4a9eff")
+      darkSecondaryColor: "#b0b0b0"                     # Secondary color for dark theme (default: "#b0b0b0")
 ```
 
 ### Configuration Parameters
@@ -103,6 +111,14 @@ auth:
 | `allowPublicClientWithoutPKCE` | Allow public clients to skip PKCE requirement. **Security Warning**: Only enable for testing | `false` |
 | `accessTokenExpiration` | Expiration duration for access tokens and ID tokens (e.g., `1h`, `30m`) | `1h` |
 | `refreshTokenExpiration` | Expiration duration for refresh tokens (e.g., `168h`, `720h`) | `168h` |
+| `branding` | Branding configuration for the login form | See defaults below |
+| `branding.issuerName` | Display name shown on the login form | `"Flight Control"` |
+| `branding.logoLight` | Logo image for light theme (URL or base64 data URI). If empty, uses default embedded logo | Empty (uses default) |
+| `branding.logoDark` | Logo image for dark theme (URL or base64 data URI). If empty, uses default embedded logo | Empty (uses default) |
+| `branding.lightPrimaryColor` | Primary color for light theme (hex color code) | `"#007bff"` |
+| `branding.lightSecondaryColor` | Secondary color for light theme (hex color code) | `"#666"` |
+| `branding.darkPrimaryColor` | Primary color for dark theme (hex color code) | `"#4a9eff"` |
+| `branding.darkSecondaryColor` | Secondary color for dark theme (hex color code) | `"#b0b0b0"` |
 
 ### Default Configuration
 
@@ -115,6 +131,7 @@ If the `pamOidcIssuer` section is present in the configuration file, the followi
 - **Redirect URIs**: Automatically configured based on the service's base UI URL or base URL
 - **Access Token Expiration**: Defaults to `1h`
 - **Refresh Token Expiration**: Defaults to `168h` (7 days)
+- **Branding**: Defaults include issuer name "Flight Control", default logos, and standard color scheme. Users can select light/dark/system theme via dropdown on the login page.
 
 ### Security Note
 
