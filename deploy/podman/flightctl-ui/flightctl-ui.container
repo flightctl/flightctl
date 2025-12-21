@@ -7,7 +7,7 @@ Wants=flightctl-ui-init.service
 [Container]
 ContainerName=flightctl-ui
 Image={{ .Ui.Image }}:{{ .Ui.Tag }}
-Pull=newer
+Pull=missing
 Network=flightctl.network
 AddHost=%H:host-gateway
 EnvironmentFile=/etc/flightctl/flightctl-ui/env

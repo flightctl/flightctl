@@ -5,8 +5,9 @@ After=flightctl-api.service flightctl-certs-init.service
 Wants=flightctl-api.service flightctl-certs-init.service
 
 [Container]
-Image=registry.access.redhat.com/ubi9/ubi-minimal:9.7-1763362218
 ContainerName=flightctl-ui-init
+Image=registry.access.redhat.com/ubi9/ubi-minimal:9.7-1763362218
+Pull=missing
 Volume=/usr/share/flightctl/init_utils.sh:/utils/init_utils.sh:ro,z
 Volume=/usr/share/flightctl/flightctl-ui/init.sh:/config-source/init.sh:ro,Z
 Volume=/etc/flightctl/pki:/certs-source:ro,z
