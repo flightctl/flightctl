@@ -91,6 +91,21 @@ func applyAuthProviderDefaults(spec *api.AuthProviderSpec) error {
 	return nil
 }
 
+// handleSuperAdminAnnotation checks if the request is from a super admin and sets the annotation if needed.
+// Returns true if the auth provider was created by a super admin, false otherwise.
+func (h *ServiceHandler) handleSuperAdminAnnotation(ctx context.Context, authProvider *api.AuthProvider) bool {
+	mappedIdentity, ok := contextutil.GetMappedIdentityFromContext(ctx)
+	createdBySuperAdmin := ok && mappedIdentity.IsSuperAdmin()
+
+	if createdBySuperAdmin {
+		// Clear user-provided annotations and set our annotation
+		authProvider.Metadata.Annotations = lo.ToPtr(map[string]string{
+			api.AuthProviderAnnotationCreatedBySuperAdmin: "true",
+		})
+	}
+	return createdBySuperAdmin
+}
+
 func (h *ServiceHandler) CreateAuthProvider(ctx context.Context, orgId uuid.UUID, authProvider api.AuthProvider) (*api.AuthProvider, api.Status) {
 
 	// don't set fields that are managed by the service
@@ -106,15 +121,10 @@ func (h *ServiceHandler) CreateAuthProvider(ctx context.Context, orgId uuid.UUID
 	}
 
 	// Check if created by super admin and prepare annotations
-	mappedIdentity, ok := contextutil.GetMappedIdentityFromContext(ctx)
-	createdBySuperAdmin := ok && mappedIdentity.IsSuperAdmin()
+	createdBySuperAdmin := h.handleSuperAdminAnnotation(ctx, &authProvider)
 
-	// Clear user-provided annotations and set our annotation if needed
+	// Use fromAPI=false to preserve annotations when created by super admin
 	if createdBySuperAdmin {
-		authProvider.Metadata.Annotations = lo.ToPtr(map[string]string{
-			api.AuthProviderAnnotationCreatedBySuperAdmin: "true",
-		})
-		// Use fromAPI=false to preserve annotations
 		result, err := h.store.AuthProvider().CreateWithFromAPI(ctx, orgId, &authProvider, false, h.callbackAuthProviderUpdated)
 		return result, StoreErrorToApiStatus(err, true, api.AuthProviderKind, authProvider.Metadata.Name)
 	}
@@ -181,6 +191,14 @@ func (h *ServiceHandler) ReplaceAuthProvider(ctx context.Context, orgId uuid.UUI
 		NilOutManagedObjectMetaProperties(&authProvider.Metadata)
 	}
 
+	// Validate name early for both create and update paths
+	if authProvider.Metadata.Name == nil {
+		return nil, api.StatusBadRequest("metadata.name is required")
+	}
+	if name != *authProvider.Metadata.Name {
+		return nil, api.StatusBadRequest("resource name specified in metadata does not match name in path")
+	}
+
 	// Get the existing resource to perform update validation
 	currentObj, err := h.store.AuthProvider().Get(ctx, orgId, name)
 	if err == nil {
@@ -189,20 +207,8 @@ func (h *ServiceHandler) ReplaceAuthProvider(ctx context.Context, orgId uuid.UUI
 			return nil, api.StatusBadRequest(sanitizeSchemaError(errors.Join(errs...)))
 		}
 	} else {
-		// Resource doesn't exist, apply defaults and validate creation
-		if err := applyAuthProviderDefaults(&authProvider.Spec); err != nil {
-			return nil, api.StatusBadRequest(sanitizeSchemaError(err))
-		}
-		if errs := authProvider.Validate(ctx); len(errs) > 0 {
-			return nil, api.StatusBadRequest(sanitizeSchemaError(errors.Join(errs...)))
-		}
-	}
-
-	if authProvider.Metadata.Name == nil {
-		return nil, api.StatusBadRequest("metadata.name is required")
-	}
-	if name != *authProvider.Metadata.Name {
-		return nil, api.StatusBadRequest("resource name specified in metadata does not match name in path")
+		// Resource doesn't exist, delegate to CreateAuthProvider which handles all creation logic
+		return h.CreateAuthProvider(ctx, orgId, authProvider)
 	}
 
 	result, created, err := h.store.AuthProvider().CreateOrUpdate(ctx, orgId, &authProvider, h.callbackAuthProviderUpdated)

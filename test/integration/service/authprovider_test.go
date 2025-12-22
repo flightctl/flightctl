@@ -721,6 +721,58 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 			}
 		})
 
+		It("should add createdBySuperAdmin annotation when created via ReplaceAuthProvider by super admin", func() {
+			provider := util.ReturnTestAuthProvider(store.NullOrgId, "replace-super-admin-provider", "", nil)
+			adminCtx := createAdminContext()
+			result, status := suite.Handler.ReplaceAuthProvider(adminCtx, orgId, "replace-super-admin-provider", provider)
+			Expect(status.Code).To(Equal(int32(201))) // 201 because it's a create
+			Expect(result).ToNot(BeNil())
+			Expect(result.Metadata.Annotations).ToNot(BeNil())
+			Expect(*result.Metadata.Annotations).To(HaveKey(api.AuthProviderAnnotationCreatedBySuperAdmin))
+			Expect((*result.Metadata.Annotations)[api.AuthProviderAnnotationCreatedBySuperAdmin]).To(Equal("true"))
+		})
+
+		It("should not add createdBySuperAdmin annotation when created via ReplaceAuthProvider by non-super admin", func() {
+			provider := util.ReturnTestAuthProvider(store.NullOrgId, "replace-non-admin-provider", "", nil)
+			nonAdminCtx := createNonAdminContext()
+			result, status := suite.Handler.ReplaceAuthProvider(nonAdminCtx, orgId, "replace-non-admin-provider", provider)
+			Expect(status.Code).To(Equal(int32(201))) // 201 because it's a create
+			Expect(result).ToNot(BeNil())
+			// Annotations should be nil or not contain the createdBySuperAdmin annotation
+			if result.Metadata.Annotations != nil {
+				Expect(*result.Metadata.Annotations).ToNot(HaveKey(api.AuthProviderAnnotationCreatedBySuperAdmin))
+			}
+		})
+
+		It("should not add createdBySuperAdmin annotation when updating via ReplaceAuthProvider", func() {
+			// First create a provider without the annotation
+			provider := util.ReturnTestAuthProvider(store.NullOrgId, "replace-update-provider", "", nil)
+			nonAdminCtx := createNonAdminContext()
+			_, status := suite.Handler.CreateAuthProvider(nonAdminCtx, orgId, provider)
+			Expect(status.Code).To(Equal(int32(201)))
+
+			// Fetch the created provider
+			fetched, status := suite.Handler.GetAuthProvider(suite.Ctx, orgId, "replace-update-provider")
+			Expect(status.Code).To(Equal(int32(200)))
+			Expect(fetched).ToNot(BeNil())
+
+			// Update via ReplaceAuthProvider with super admin context
+			oidcSpec, err := fetched.Spec.AsOIDCProviderSpec()
+			Expect(err).ToNot(HaveOccurred())
+			oidcSpec.ClientId = "updated-client-id"
+			err = fetched.Spec.FromOIDCProviderSpec(oidcSpec)
+			Expect(err).ToNot(HaveOccurred())
+
+			adminCtx := createAdminContext()
+			result, status := suite.Handler.ReplaceAuthProvider(adminCtx, orgId, "replace-update-provider", *fetched)
+			Expect(status.Code).To(Equal(int32(200))) // 200 because it's an update
+			Expect(result).ToNot(BeNil())
+			// Should not have the annotation since this is an update, not a create
+			if result.Metadata.Annotations != nil {
+				Expect(*result.Metadata.Annotations).ToNot(HaveKey(api.AuthProviderAnnotationCreatedBySuperAdmin))
+			}
+		})
+
 		It("should reject static role mapping with flightctl-admin for non-super admin users", func() {
 			assignment := createTestOrganizationAssignment()
 			roleAssignment := api.AuthRoleAssignment{}
