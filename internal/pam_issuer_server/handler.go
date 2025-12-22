@@ -326,10 +326,17 @@ func (h *Handler) AuthLoginPost(w http.ResponseWriter, r *http.Request) {
 	h.log.Infof("Login request - username=%s", username)
 
 	// Validate required fields
-	if username == "" || password == "" || encryptedCookie == "" {
-		h.log.Warnf("Missing required fields - username=%v, hasPassword=%v, hasEncryptedCookie=%v",
-			username != "", password != "", encryptedCookie != "")
+	if username == "" || password == "" {
+		h.log.Warnf("Missing required fields - username=%v, hasPassword=%v",
+			username != "", password != "")
 		writeError(w, http.StatusBadRequest, "Missing required fields")
+		return
+	}
+
+	// If encrypted cookie is missing, return error
+	if encryptedCookie == "" {
+		h.log.Warnf("Missing encrypted cookie - login expired")
+		writeError(w, http.StatusBadRequest, "Your login session has expired. Please refresh the page and try again.")
 		return
 	}
 

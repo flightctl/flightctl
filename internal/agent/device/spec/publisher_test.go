@@ -10,9 +10,9 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/poll"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
-	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 type vars struct {
@@ -47,14 +47,11 @@ func setupWithInitialVersion(t *testing.T, initialVersion string) *vars {
 	}
 
 	n := &publisher{
-		managementClient: mockClient,
-		deviceName:       deviceName,
-		log:              log.NewPrefixLogger(""),
-		interval:         time.Second,
-		lastKnownVersion: initialVersion,
-		backoff: wait.Backoff{
-			Steps: 1,
-		},
+		managementClient:      mockClient,
+		deviceName:            deviceName,
+		log:                   log.NewPrefixLogger(""),
+		lastKnownVersion:      initialVersion,
+		pollConfig:            poll.NewConfig(time.Second, 1.5),
 		deviceNotFoundHandler: deviceNotFoundHandler,
 	}
 
@@ -188,7 +185,13 @@ func TestDevicePublisher_pollAndNotify(t *testing.T) {
 func TestDevicePublisher_Run(t *testing.T) {
 	t.Run("stops when context is canceled", func(tt *testing.T) {
 		v := setup(tt)
-		defer v.cancel()
+		defer v.ctrl.Finish()
+
+		// short minDelay for testing
+		v.notifier.minDelay = 10 * time.Millisecond
+
+		v.mockClient.EXPECT().GetRenderedDevice(gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(nil, http.StatusNoContent, nil).AnyTimes()
 
 		ctx, cancel := context.WithCancel(context.Background())
 
@@ -200,7 +203,7 @@ func TestDevicePublisher_Run(t *testing.T) {
 		}()
 
 		// Wait a short time to ensure it's started
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(20 * time.Millisecond)
 
 		// Cancel the context to stop the publisher
 		cancel()
@@ -287,13 +290,10 @@ func TestDevicePublisher_DeviceNotFoundHandling(t *testing.T) {
 			}
 
 			publisher := &publisher{
-				managementClient: v.mockClient,
-				deviceName:       v.deviceName,
-				log:              log.NewPrefixLogger(""),
-				interval:         time.Second,
-				backoff: wait.Backoff{
-					Steps: 1,
-				},
+				managementClient:      v.mockClient,
+				deviceName:            v.deviceName,
+				log:                   log.NewPrefixLogger(""),
+				pollConfig:            poll.NewConfig(time.Second, 1.5),
 				deviceNotFoundHandler: deviceNotFoundHandler,
 			}
 
@@ -492,9 +492,11 @@ func TestVersionComparisonWithRealAPI(t *testing.T) {
 }
 
 func TestNewWithInitialVersion(t *testing.T) {
+	pollCfg := poll.NewConfig(time.Second, 1.5)
+
 	t.Run("creates publisher with initial version", func(t *testing.T) {
 		initialVersion := "42"
-		p := newPublisher("test-device", time.Second, wait.Backoff{}, initialVersion, nil, log.NewPrefixLogger(""))
+		p := newPublisher("test-device", pollCfg, initialVersion, nil, log.NewPrefixLogger(""))
 
 		publisher, ok := p.(*publisher)
 		require.True(t, ok)
@@ -503,7 +505,7 @@ func TestNewWithInitialVersion(t *testing.T) {
 
 	t.Run("creates publisher with empty initial version", func(t *testing.T) {
 		initialVersion := ""
-		p := newPublisher("test-device", time.Second, wait.Backoff{}, initialVersion, nil, log.NewPrefixLogger(""))
+		p := newPublisher("test-device", pollCfg, initialVersion, nil, log.NewPrefixLogger(""))
 
 		publisher, ok := p.(*publisher)
 		require.True(t, ok)
