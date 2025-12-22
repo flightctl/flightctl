@@ -57,13 +57,19 @@ func ValidateComposePaths(paths []string) error {
 	return nil
 }
 
-// ValidateComposeSpec verifies the ComposeSpec for common issues.
-func ValidateComposeSpec(spec *common.ComposeSpec, fleetTemplate bool) []error {
+// ValidateComposeSpec verifies the ComposeSpec for common issues. Images are validated with strict reference checking
+// unless overwritten with a SpecValidatorOpts
+func ValidateComposeSpec(spec *common.ComposeSpec, opts ...SpecValidatorOpts) []error {
+	validatorOpts := &specValidatorOpts{
+		imageValidationFn: ValidateOciImageReferenceStrict,
+	}
+	for _, opt := range opts {
+		opt(validatorOpts)
+	}
 	services := spec.Services
 	if len(services) == 0 {
 		return []error{fmt.Errorf("compose spec has no services")}
 	}
-
 	var errs []error
 	for name, service := range spec.Services {
 		containerName := service.ContainerName
@@ -74,7 +80,7 @@ func ValidateComposeSpec(spec *common.ComposeSpec, fleetTemplate bool) []error {
 		if image == "" {
 			errs = append(errs, fmt.Errorf("service %s is missing an image", name))
 		}
-		if err := ValidateOCIReferenceStrict(&image, "services."+name+".image", fleetTemplate); err != nil {
+		if err := validatorOpts.imageValidationFn(&image, "services."+name+".image"); err != nil {
 			errs = append(errs, err...)
 		}
 	}
