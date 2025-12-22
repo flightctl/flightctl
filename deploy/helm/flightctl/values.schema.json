@@ -577,7 +577,8 @@
           "additionalProperties": false,
           "properties": {
             "backoffLimit": { "type": "integer", "description": "Number of retries for the migration Job on failure" },
-            "activeDeadlineSeconds": { "type": "integer", "description": "Maximum runtime in seconds for the migration Job (0 = no deadline)" }
+            "activeDeadlineSeconds": { "type": "integer", "description": "Maximum runtime in seconds for the migration Job (0 = no deadline)" },
+            "ttlSecondsAfterFinished": { "type": "integer", "description": "TTL in seconds for completed/failed migration Jobs before automatic deletion (0 = no TTL)" }
           }
         }
       }
