@@ -63,14 +63,6 @@ api_sans=(
 )
 api_sans+=("${host_ips[@]}")
 
-# Custom route for CLI Artifacts
-custom_route=$(python3 "$YAML_HELPER" extract .cliArtifacts.route.host "$CONFIG_FILE")
-if [[ -n "$custom_route" ]]; then
-  # fetch host+domain only
-  hostname=${custom_route#*://}; hostname=${hostname%%[/:]*}
-  api_sans+=("hostname")
-fi
-
 # Telemetry certificate SANs
 telemetry_sans=(
     "telemetry.$base_domain"
