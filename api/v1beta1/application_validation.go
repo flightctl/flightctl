@@ -23,13 +23,28 @@ type composeValidator struct {
 	paths map[string]struct{}
 }
 
+// fleets require additional processing to ensure templates are defined appropriately
+func specImageValidationFn(fleetTemplate bool) validation.ImageValidationFn {
+	return func(imageRef *string, path string) []error {
+		containsParams, paramErrs := validateParametersInString(imageRef, path, fleetTemplate)
+		allErrs := append([]error{}, paramErrs...)
+
+		if !containsParams {
+			allErrs = append(allErrs, validation.ValidateOciImageReferenceStrict(imageRef, path)...)
+		} else {
+			allErrs = append(allErrs, validation.ValidateOciImageReferenceWithTemplates(imageRef, path)...)
+		}
+		return allErrs
+	}
+}
+
 func (c *composeValidator) ValidateContents(path string, content []byte, fleetTemplate bool) []error {
 	c.paths[path] = struct{}{}
 	composeSpec, err := common.ParseComposeSpec(content)
 	if err != nil {
 		return []error{fmt.Errorf("parse compose spec: %w", err)}
 	}
-	return validation.ValidateComposeSpec(composeSpec, fleetTemplate)
+	return validation.ValidateComposeSpec(composeSpec, validation.WithSpecImageValidator(specImageValidationFn(fleetTemplate)))
 }
 func (c *composeValidator) Validate() []error {
 	if err := validation.ValidateComposePaths(slices.Collect(maps.Keys(c.paths))); err != nil {
@@ -50,7 +65,8 @@ func (q *quadletValidator) ValidateContents(path string, content []byte, fleetTe
 			return []error{fmt.Errorf("parse quadlet spec %q: %w", path, err)}
 		}
 		q.quadlets[path] = quadletSpec
-		return validation.ValidateQuadletSpec(quadletSpec, path, fleetTemplate)
+
+		return validation.ValidateQuadletSpec(quadletSpec, path, validation.WithSpecImageValidator(specImageValidationFn(fleetTemplate)))
 	}
 	return nil
 }
