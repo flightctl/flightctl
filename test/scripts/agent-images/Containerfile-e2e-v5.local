@@ -1,9 +1,0 @@
-# localhost:5000/flightctl-device:v5
-#     $(IP):5000/flightctl-device:v5
-#
-# Image built on top of our E2E base image which also includes an embedded
-# compose application with 3 sleep containers
-
-FROM localhost:5000/flightctl-device:base
-
-COPY ./test/scripts/agent-images/test-podman-compose-sleep-work.yaml  /usr/local/etc/compose/manifests/embedded-demo-app/podman-compose.yaml

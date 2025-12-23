@@ -1,0 +1,15 @@
+# MicroShift repository configuration for testing
+# These repositories provide the required packages for MicroShift installation
+# in the e2e test environment
+
+[rhocp]
+baseurl=https://rhsm-pulp.corp.redhat.com/content/dist/layered/rhel9/$basearch/rhocp/4.15/os/
+enabled=1
+gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-redhat-release
+
+[fast-datapath]
+baseurl=https://rhsm-pulp.corp.redhat.com/content/dist/layered/rhel9/$basearch/fast-datapath/os/
+enabled=1
+gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-redhat-release

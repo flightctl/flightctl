@@ -1,0 +1,128 @@
+# syntax=docker/dockerfile:1.6
+#
+# Multi-stage base image build for flightctl device images.
+# Targets:
+#   - prebase: bootc base with repos, tooling, users, services (no flightctl RPMs)
+#   - base:    final base image starting from prebase and layering flightctl RPMs
+#
+
+ARG DEVICE_BASE_IMAGE=quay.io/centos-bootc/centos-bootc:stream9
+ARG ENABLE_CRB=0
+ARG EPEL_NEXT=1
+# ---------- Stage: prebase ----------
+FROM ${DEVICE_BASE_IMAGE} AS prebase
+
+ARG ENABLE_CRB=0
+ARG EPEL_NEXT=1
+
+# Enable CRB (for CentOS Stream 10) if requested
+RUN if [ "${ENABLE_CRB}" = "1" ]; then \
+      dnf -y install dnf-plugins-core && \
+      dnf config-manager --set-enabled crb ; \
+    fi
+
+# Enable EPEL repos
+RUN --mount=type=cache,target=/var/cache/dnf \
+    --mount=type=cache,target=/var/lib/dnf \
+    sh -exc '\
+      pkgs="epel-release"; \
+      if [ "${EPEL_NEXT}" = "1" ]; then pkgs="$pkgs epel-next-release"; fi; \
+      dnf install -y $pkgs \
+    '
+
+# Utilities used by tests
+RUN --mount=type=cache,target=/var/cache/dnf \
+    --mount=type=cache,target=/var/lib/dnf \
+    dnf install -y python-dotenv
+
+# Base services and tooling that don't depend on our RPMs
+RUN --mount=type=cache,target=/var/cache/dnf \
+    --mount=type=cache,target=/var/lib/dnf \
+    dnf install -y greenboot greenboot-default-health-checks podman-compose && \
+    dnf install -y firewalld && \
+    systemctl enable firewalld.service && \
+    systemctl enable podman.service
+
+# Create test user
+RUN useradd -ms /bin/bash user && \
+    echo "user:user" | chpasswd && \
+    echo "user ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+
+# Create flightctl custom info directory
+RUN mkdir -p /usr/lib/flightctl/custom-info.d && \
+    chmod 755 /usr/lib/flightctl/custom-info.d
+
+# Add custom system info collectors
+RUN echo -e '#!/bin/bash\necho "my site"' > /usr/lib/flightctl/custom-info.d/siteName && \
+    echo -e '#!/bin/bash\necho ""' > /usr/lib/flightctl/custom-info.d/emptyValue && \
+    echo -e '#!/bin/bash\necho "no-show"' > /usr/lib/flightctl/custom-info.d/keyNotShown && \
+    chmod 755 /usr/lib/flightctl/custom-info.d/*
+
+
+ARG SOURCE_GIT_TAG
+ARG SOURCE_GIT_COMMIT
+LABEL org.opencontainers.image.source="https://github.com/flightctl/flightctl"
+LABEL org.opencontainers.image.version="${SOURCE_GIT_TAG}"
+LABEL org.opencontainers.image.revision="${SOURCE_GIT_COMMIT}"
+
+# ---------- Stage: base  ----------
+FROM prebase AS base
+
+# Redeclare ARGs after FROM to make them available in this stage
+ARG SOURCE_GIT_TAG
+ARG SOURCE_GIT_COMMIT
+
+# RPM source configuration (paths relative to {project root}/bin/)
+ARG RPM_DIR=rpm
+ARG RPM_COPR_REPO=
+ARG RPM_COPR_PACKAGE=flightctl-agent
+
+# Optional: CA trust, agent config and certs
+ARG TRUST_CA_FROM=
+ARG AGENT_CONFIG_FROM=
+ARG AGENT_CERTS_FROM=
+
+COPY --from=variant-context flightctl-e2e.tmpfiles.conf /usr/lib/tmpfiles.d/flightctl-e2e.tmpfiles.conf
+
+# Install CA trust, agent config and certs if provided
+RUN --mount=type=bind,from=project-bin,source=.,target=/build-context \
+    sh -exc '\
+      if [ -n "${TRUST_CA_FROM}" ]; then \
+        echo "Installing custom CA certificate from ${TRUST_CA_FROM}"; \
+        cp "/build-context/${TRUST_CA_FROM}" /etc/pki/ca-trust/source/anchors/; \
+        update-ca-trust; \
+      fi; \
+      if [ -n "${AGENT_CONFIG_FROM}" ]; then \
+        echo "Installing agent config from ${AGENT_CONFIG_FROM}"; \
+        mkdir -p /etc/flightctl; \
+        cp "/build-context/${AGENT_CONFIG_FROM}" /etc/flightctl/config.yaml; \
+      fi; \
+      if [ -n "${AGENT_CERTS_FROM}" ]; then \
+        echo "Installing agent certificates from ${AGENT_CERTS_FROM}"; \
+        mkdir -p /etc/flightctl/certs; \
+        cp "/build-context/${AGENT_CERTS_FROM}"/* /etc/flightctl/certs/; \
+      fi'
+
+# Install flightctl RPMs (from COPR or local files)
+RUN --mount=type=bind,from=project-bin,source=.,target=/build-context \
+    --mount=type=cache,target=/var/cache/dnf \
+    --mount=type=cache,target=/var/lib/dnf \
+    sh -exc '\
+      mkdir -p /tmp/rpms; \
+      if [ -n "${RPM_COPR_REPO}" ]; then \
+        echo "Installing from COPR: ${RPM_COPR_REPO}, package: ${RPM_COPR_PACKAGE}"; \
+        dnf copr -y enable ${RPM_COPR_REPO}; \
+        dnf install -y ${RPM_COPR_PACKAGE}; \
+      else \
+        echo "Installing local RPMs from ${RPM_DIR}"; \
+        cp /build-context/${RPM_DIR}/flightctl-agent-*.rpm \
+           /build-context/${RPM_DIR}/flightctl-selinux-*.rpm /tmp/rpms/; \
+        ls -l /tmp/rpms; \
+        dnf install -y /tmp/rpms/*.rpm; \
+        rm -rf /tmp/rpms; \
+      fi; \
+      systemctl enable flightctl-agent.service'
+
+LABEL org.opencontainers.image.source="https://github.com/flightctl/flightctl"
+LABEL org.opencontainers.image.version="${SOURCE_GIT_TAG}"
+LABEL org.opencontainers.image.revision="${SOURCE_GIT_COMMIT}"

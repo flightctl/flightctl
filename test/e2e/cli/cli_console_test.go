@@ -77,7 +77,7 @@ var _ = Describe("CLI - device console", func() {
 		const expectedRenderedVersion = 2 + sessionsToOpen*2
 
 		// kick off an update
-		device, _, err := harness.WaitForBootstrapAndUpdateToVersion(deviceID, ":v4")
+		device, _, err := harness.WaitForBootstrapAndUpdateToVersion(deviceID, util.DeviceTags.V4)
 		Expect(err).ToNot(HaveOccurred())
 		Eventually(resources.GetJSONByName[*v1beta1.Device]).
 			WithArguments(harness, resources.Devices, deviceID).
@@ -183,7 +183,7 @@ var _ = Describe("CLI - device console", func() {
 		harness := e2e.GetWorkerHarness()
 
 		const disruptionTime = 1 * time.Minute
-		_, _, err := harness.WaitForBootstrapAndUpdateToVersion(deviceID, ":v4")
+		_, _, err := harness.WaitForBootstrapAndUpdateToVersion(deviceID, util.DeviceTags.V4)
 		Expect(err).ToNot(HaveOccurred())
 
 		Eventually(resources.GetJSONByName[*v1beta1.Device]).
@@ -225,7 +225,7 @@ var _ = Describe("CLI - device console", func() {
 		err := harness.SimulateNetworkFailure()
 		Expect(err).ToNot(HaveOccurred())
 
-		_, _, err = harness.WaitForBootstrapAndUpdateToVersion(deviceID, ":v4")
+		_, _, err = harness.WaitForBootstrapAndUpdateToVersion(deviceID, util.DeviceTags.V4)
 		Expect(err).ToNot(HaveOccurred())
 
 		GinkgoWriter.Printf("Waiting for image pull activity\n")

@@ -76,20 +76,43 @@ jobs:
           TAG: ${{ steps.compute-tag.outputs.git_tag }}
         run: |
           set -euo pipefail
-          
           echo "::group::Creating images bundle"
-          echo "Getting list of loaded flightctl images with tag: $TAG"
-          mapfile -t loaded_images < <(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${TAG}")
-
-          echo "Creating bundle with ${#loaded_images[@]} images:"
-          printf '  %s\n' "${loaded_images[@]}"
-
           BUNDLE_FILE="flightctl-images-bundle.tar"
-          podman save --format docker-archive -o "${BUNDLE_FILE}" -m "${loaded_images[@]}"
+          if make -n bundle-images >/dev/null 2>&1; then
+            echo "Found make target bundle-images, using it"
+            make bundle-images
+          else
+            echo "bundle-images target not found, falling back to direct save"
+            echo "Getting list of loaded flightctl images with tag: $TAG"
+            mapfile -t loaded_images < <(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${TAG}")
+            echo "Creating bundle with ${#loaded_images[@]} images:"
+            printf '  %s\n' "${loaded_images[@]}"
+            podman save --format docker-archive -o "${BUNDLE_FILE}" -m "${loaded_images[@]}"
+          fi
 
           echo "Bundle created: $(ls -lh ${BUNDLE_FILE})"
           echo "bundle_file=$BUNDLE_FILE" >> "$GITHUB_OUTPUT"
           echo "::endgroup::"
+
+      - name: List bundled images
+        id: list-images
+        env:
+          TAG: ${{ steps.compute-tag.outputs.git_tag }}
+          BUNDLE_FILE: ${{ steps.bundle-images.outputs.bundle_file }}
+        run: |
+          set -euo pipefail
+          echo "::group::Listing images in bundle"
+          IMAGES=$(podman images --format "{{.Repository}}:{{.Tag}}" | grep "quay\.io/flightctl/flightctl-.*:${TAG}" | sort)
+          echo "$IMAGES"
+          echo "::endgroup::"
+          
+          # Save for summary
+          {
+            echo "images<<EOF"
+            echo "$IMAGES"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+          echo "count=$(echo "$IMAGES" | wc -l)" >> "$GITHUB_OUTPUT"
 
       - name: Upload images bundle
         uses: actions/upload-artifact@v4
@@ -99,6 +122,28 @@ jobs:
           compression-level: 1
           if-no-files-found: error
           retention-days: 1
+
+      - name: Generate build summary
+        env:
+          IMAGE_TAG: ${{ steps.compute-tag.outputs.git_tag }}
+          RUN_ID: ${{ github.run_id }}
+          IMAGES: ${{ steps.list-images.outputs.images }}
+          IMAGE_COUNT: ${{ steps.list-images.outputs.count }}
+        run: |
+          set -euo pipefail
+          
+          {
+            echo "## :gear: Services Ready for Deployment"
+            echo ""
+            echo "**Tag:** \`${IMAGE_TAG}\` | [All artifacts](https://github.com/${{ github.repository }}/actions/runs/${RUN_ID}#artifacts)"
+            echo ""
+            echo "<details>"
+            echo "<summary><strong>Container Images (${IMAGE_COUNT})</strong></summary>"
+            echo ""
+            echo "$IMAGES" | sed 's/^/- `/' | sed 's/$/`/'
+            echo ""
+            echo "</details>"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Save Go cache
         uses: actions/cache/save@v4

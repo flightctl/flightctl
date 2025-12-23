@@ -105,7 +105,9 @@ help:
 	@echo "                     (includes proper startup ordering: DB -> KV -> other services)"
 	@echo "    clean:           clean up all containers and volumes"
 	@echo "    clean-all:       full cleanup including containers and bin directory"
+	@echo "    clean-e2e-images: clean up e2e test images (app and device) from both regular and root podman"
 	@echo "    rebuild-containers: force rebuild all containers"
+	@echo "    bundle-containers: bundle all flightctl containers into tar archive"
 	@echo "    cluster:         create a kind cluster and load the flightctl-server image"
 	@echo "    clean-cluster:   kill the kind cluster only"
 	@echo "    clean-quadlets:  clean up all systemd services and quadlet files"
@@ -325,15 +327,28 @@ clean-containers:
 
 build-containers: flightctl-api-container flightctl-pam-issuer-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container flightctl-userinfo-proxy-container flightctl-telemetry-gateway-container
 
-.PHONY: build-containers build-cli build-multiarch-clis
+bundle-containers:
+	test/scripts/agent-images/scripts/bundle.sh \
+		--image-pattern 'quay.io/flightctl/.*:$(SOURCE_GIT_TAG)' \
+		--output-path 'bin/flightctl-images-bundle.tar'
+
+.PHONY: build-containers bundle-containers build-cli build-multiarch-clis
 
 
 bin:
 	mkdir -p bin
 
 # only trigger the rpm build when not built before or changes happened to the codebase
-bin/.rpm: bin $(shell find $(ROOT_DIR)/ -name "*.go" -not -path "$(ROOT_DIR)/packaging/*") packaging/rpm/flightctl.spec packaging/systemd/flightctl-agent.service hack/build_rpms.sh $(shell find $(ROOT_DIR)/packaging/selinux -type f)
-	@sudo GOMODCACHE="$(shell go env GOMODCACHE)" GOCACHE="$(shell go env GOCACHE)" $(ROOT_DIR)/hack/build_rpms.sh --root $(if $(RPM_MOCK_ROOT),$(RPM_MOCK_ROOT),$(RPM_MOCK_ROOT_DEFAULT))
+bin/.rpm: $(shell find $(ROOT_DIR)/ -name "*.go" -not -path "$(ROOT_DIR)/packaging/*") \
+          packaging/rpm/flightctl.spec \
+          packaging/systemd/flightctl-agent.service \
+          hack/build_rpms.sh \
+          $(shell find $(ROOT_DIR)/packaging/selinux -type f) \
+          | bin
+	@sudo GOMODCACHE="$(shell go env GOMODCACHE)" \
+	     GOCACHE="$(shell go env GOCACHE)" \
+	     "$(ROOT_DIR)/hack/build_rpms.sh" \
+	     --root "$(if $(RPM_MOCK_ROOT),$(RPM_MOCK_ROOT),$(RPM_MOCK_ROOT_DEFAULT))"
 	@sudo chown -R $(shell id -u):$(shell id -g) bin/rpm/
 	touch bin/.rpm
 
@@ -374,15 +389,14 @@ clean: clean-agent-vm clean-e2e-agent-images clean-quadlets clean-swtpm-certs
 	- rm -rf obj-*-linux-gnu
 	- rm -rf debian
 	- rm -rf .output/stamps
-# Qcow2 disk depends on the touch file
-bin/output/qcow2/disk.qcow2: bin/.e2e-agent-images
-
+	- rm -f bin/flightctl-images-bundle.tar
 # Full cleanup including bin directory and all artifacts
 clean-all: clean clean-containers
 	- rm -rf bin
 
 clean-quadlets:
 	sudo deploy/scripts/clean_quadlets.sh
+
 
 .PHONY: tools flightctl-api-container flightctl-pam-issuer-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-userinfo-proxy-container flightctl-telemetry-gateway-container
 
