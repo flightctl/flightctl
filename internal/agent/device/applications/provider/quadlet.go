@@ -8,7 +8,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/flightctl/flightctl/api/v1beta1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
@@ -845,6 +845,15 @@ func generateQuadlet(ctx context.Context, podman *client.Podman, rw fileio.ReadW
 	// namespacing should occur after the quadlet has been generated so it is fine to default to a basic container name
 	if err := rw.WriteFile(filepath.Join(dir, "app.container"), contents, fileio.DefaultFilePermissions); err != nil {
 		return fmt.Errorf("writing container quadlet: %w", err)
+	}
+	return nil
+}
+
+func ensureMinQuadletPodmanVersion(version *client.PodmanVersion) error {
+	// quadlet install utilizes dropins to add labels and environment files to the generated quadlets
+	// dropin support wasn't added until v5.0.0
+	if !version.GreaterOrEqual(5, 0) {
+		return fmt.Errorf("podman version 5.0 or higher required, got %d.%d", version.Major, version.Minor)
 	}
 	return nil
 }

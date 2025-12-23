@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1beta1"
+	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
@@ -81,6 +81,7 @@ var eventReasons = map[api.EventReason]struct{}{
 	api.EventReasonFleetRolloutDeviceSelected:  {},
 	api.EventReasonFleetRolloutBatchDispatched: {},
 	api.EventReasonDeviceConflictResolved:      {},
+	api.EventReasonDeviceDecommissioned:        {},
 }
 
 func shouldEmitEvent(reason api.EventReason) bool {

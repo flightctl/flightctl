@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/flightctl/flightctl/api/v1beta1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/util"
@@ -179,7 +179,7 @@ func expectExecCalls(mockExecuter *executer.MockExecuter, expectedCommands []com
 	if len(expectedCommands) > 0 {
 		calls := make([]any, len(expectedCommands))
 		for i, e := range expectedCommands {
-			calls[i] = mockExecuter.EXPECT().ExecuteWithContextFromDir(gomock.Any(), "", e.command, e.args).DoAndReturn(
+			calls[i] = mockExecuter.EXPECT().ExecuteWithContextFromDir(gomock.Any(), "", e.command, e.args, gomock.Any()).DoAndReturn(
 				func(ctx context.Context, workingDir, command string, args []string, env ...string) (string, string, int) {
 					return "", "", 0
 				}).Return("", "", 0).Times(1)

@@ -56,7 +56,7 @@ kubectl create namespace flightctl-e2e      --context kind-kind 2>/dev/null || t
 # if we are only deploying the database, we don't need inject the server container
 if [ -z "$ONLY_DB" ]; then
 
-  for suffix in periodic api worker alert-exporter alertmanager-proxy cli-artifacts db-setup telemetry-gateway ; do
+  for suffix in periodic api worker alert-exporter alertmanager-proxy cli-artifacts db-setup telemetry-gateway imagebuilder-api imagebuilder-worker ; do
     kind_load_image localhost/flightctl-${suffix}:latest
   done
 
@@ -114,21 +114,19 @@ fi
 
 kubectl rollout status deployment flightctl-api -n flightctl-external -w --timeout=300s
 
-LOGGED_IN=false
+# Set namespace for try_login to use correct service account
+export FLIGHTCTL_NS=flightctl-external
 
 # attempt to login, it could take some time for API to be stable
 for i in {1..60}; do
-  TOKEN=$(kubectl -n flightctl-external create token flightctl-admin --duration=8h --context kind-kind 2>/dev/null || true)
-  if [ -n "$TOKEN" ] && ./bin/flightctl login -k https://api.${IP}.nip.io:${API_PORT} --token "$TOKEN"; then
-    LOGGED_IN=true
+  if try_login; then
     break
+  fi
+  if [ $i -eq 60 ]; then
+    echo "Failed to login to the API after 60 attempts"
+    exit 1
   fi
   sleep 5
 done
-
-if [[ "${LOGGED_IN}" == "false" ]]; then
-  echo "Failed to login to the API"
-  exit 1
-fi
 
 ensure_organization_set

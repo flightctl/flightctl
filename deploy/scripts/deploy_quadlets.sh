@@ -9,7 +9,6 @@ source "${SCRIPT_DIR}"/shared.sh
 echo "Starting Deployment"
 
 # Render quadlet files
-make build-standalone
 bin/flightctl-standalone render quadlets --config deploy/podman/local-images.yaml
 
 echo "Ensuring secrets are available..."

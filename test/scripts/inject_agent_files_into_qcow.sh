@@ -9,18 +9,23 @@ set -euo pipefail
 #   QCOW          - path to qcow2 (default: bin/output/qcow2/disk.qcow2)
 #   AGENT_DIR     - local dir with config.yaml and certs/ (default: bin/agent/etc/flightctl)
 #   MOUNT_DIR     - temporary mount point (default: /mnt/qcow)
-#   REGISTRY_ADDR - host:port of your registry for CA install (default: <host LAN IP>:5000)
+#   REGISTRY_ADDRESS - host:port of your registry for CA install (default: auto-detected via registry_address)
 #   E2E_CA        - path to CA certificate for your registry (default: bin/e2e-certs/pki/CA/ca.crt)
+#   SOURCE_REPO   - remote repo prefix to remap (fixed: quay.io/flightctl)
 #
 # Usage:
 #   ./inject_agent_files_into_qcow.sh [--qcow PATH] [--agent-dir PATH] [--mount-dir PATH] \
-#                                     [--registry-addr HOST:PORT] [--e2e-ca PATH]
+#                                     [--registry-address HOST:PORT] [--e2e-ca PATH]
+
+SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
+source "${SCRIPT_DIR}"/functions
 
 QCOW="${QCOW:-bin/output/qcow2/disk.qcow2}"
 AGENT_DIR="${AGENT_DIR:-bin/agent/etc/flightctl}"
 MOUNT_DIR="${MOUNT_DIR:-/mnt/qcow}"
-REGISTRY_ADDR="${REGISTRY_ADDR:-}"
+REGISTRY_ADDRESS="${REGISTRY_ADDRESS:-}"
 E2E_CA="${E2E_CA:-bin/e2e-certs/pki/CA/ca.crt}"
+SOURCE_REPO="quay.io/flightctl"
 
 log()   { echo "[info] $*"; }
 dbg()   { echo "[debug] $*"; }
@@ -31,7 +36,7 @@ while [[ $# -gt 0 ]]; do
     --qcow) QCOW="$2"; shift 2 ;;
     --agent-dir) AGENT_DIR="$2"; shift 2 ;;
     --mount-dir) MOUNT_DIR="$2"; shift 2 ;;
-    --registry-addr) REGISTRY_ADDR="$2"; shift 2 ;;
+    --registry-address) REGISTRY_ADDRESS="$2"; shift 2 ;;
     --e2e-ca) E2E_CA="$2"; shift 2 ;;
     -h|--help) sed -n '1,100p' "$0"; exit 0 ;;
     *) fail "Unknown argument: $1" ;;
@@ -42,26 +47,28 @@ done
 [[ -d "$AGENT_DIR" ]] || fail "Missing dir: $AGENT_DIR"
 [[ -f "$AGENT_DIR/config.yaml" ]] || fail "Missing $AGENT_DIR/config.yaml"
 
-# Default REGISTRY_ADDR if not provided
-if [[ -z "$REGISTRY_ADDR" ]]; then
-  if command -v ip >/dev/null 2>&1; then
-    HOST_IP="$(ip route get 1.1.1.1 2>/dev/null | awk '/src/ {for (i=1;i<=NF;i++) if ($i=="src") {print $(i+1); exit}}')"
-  else
-    HOST_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
-  fi
-  [[ -n "${HOST_IP:-}" ]] || fail "Could not determine host IP for default REGISTRY_ADDR"
-  REGISTRY_ADDR="${HOST_IP}:5000"
+# Default REGISTRY_ADDRESS if not provided - use registry_address function for consistency
+if [[ -z "$REGISTRY_ADDRESS" ]]; then
+  REGISTRY_ADDRESS="$(registry_address)"
+  [[ -n "$REGISTRY_ADDRESS" ]] || fail "Could not determine REGISTRY_ADDRESS using registry_address function"
 fi
 
 # CA install directory must match the host:port of the registry
-REG_TLS_HOSTPORT="$REGISTRY_ADDR"
+REG_TLS_HOSTPORT="$REGISTRY_ADDRESS"
+
+SOURCE_REPO="${SOURCE_REPO%/}"
+if [[ "$SOURCE_REPO" != */* ]]; then
+  fail "SOURCE_REPO must include registry and namespace (e.g. quay.io/flightctl)"
+fi
+SOURCE_REPO_PATH="${SOURCE_REPO#*/}"
 
 log "QCOW=$QCOW"
 log "AGENT_DIR=$AGENT_DIR"
 log "MOUNT_DIR=$MOUNT_DIR"
-log "REGISTRY_ADDR=$REGISTRY_ADDR"
+log "REGISTRY_ADDRESS=$REGISTRY_ADDRESS"
 log "E2E_CA=$E2E_CA"
 log "REG_TLS_HOSTPORT=$REG_TLS_HOSTPORT"
+log "SOURCE_REPO=$SOURCE_REPO"
 
 sudo modprobe nbd max_part=16 || true
 
@@ -165,14 +172,31 @@ inject_registry_ca() {
   fi
 }
 
+write_registry_remap() {
+  local base="$1"
+  local config_dir="$base/containers/registries.conf.d"
+  local remap_file="$config_dir/flightctl-remap.conf"
+  local dest="${REG_TLS_HOSTPORT}/${SOURCE_REPO_PATH}"
+  log "Configuring registry remap $remap_file ($SOURCE_REPO -> $dest)"
+  sudo install -d "$config_dir"
+  sudo tee "$remap_file" >/dev/null <<EOF
+[[registry]]
+prefix = "${SOURCE_REPO}"
+location = "${dest}"
+EOF
+  sudo chown root:root "$remap_file"
+}
+
 # Write to deployment etc so it appears at guest /etc
 copy_into "$DEPLOY_ETC"
 inject_registry_ca "$DEPLOY_ETC"
+write_registry_remap "$DEPLOY_ETC"
 
 # Also mirror to on-disk etc so it shows under guest /sysroot/etc
 if [[ "$SYSROOT_ETC" != "$DEPLOY_ETC" ]]; then
   copy_into "$SYSROOT_ETC"
   inject_registry_ca "$SYSROOT_ETC"
+  write_registry_remap "$SYSROOT_ETC"
 fi
 
 sync

@@ -23,6 +23,13 @@ const (
 	defaultPullLogInterval = 30 * time.Second
 )
 
+const (
+	noSuchImageErrorSubstring      = "no such image"
+	noSuchArtifactErrorSubstring   = "no such artifact"
+	imageNotKnownErrorSubstring    = "image not known"
+	artifactNotKnownErrorSubstring = "artifact not known"
+)
+
 // PodmanInspect represents the overall structure of podman inspect output
 type PodmanInspect struct {
 	Restarts int                   `json:"RestartCount"`
@@ -312,6 +319,113 @@ func (p *Podman) InspectArtifactAnnotations(ctx context.Context, reference strin
 	}
 
 	return extractArtifactAnnotations(inspect), nil
+}
+
+// ListImages returns a list of all container images stored on the device.
+// Returns image references in the format "repository:tag" or image ID for untagged images.
+func (p *Podman) ListImages(ctx context.Context) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, p.timeout)
+	defer cancel()
+
+	// Use a format that handles both tagged and untagged images
+	// For tagged images: "repository:tag"
+	// For untagged images: use the image ID (short format)
+	// Note: When Repository is the string "<none>" (not empty), we need to check for it explicitly
+	args := []string{"image", "ls", "--format", "{{if and .Repository (ne .Repository \"<none>\")}}{{.Repository}}:{{.Tag}}{{else}}{{.ID}}{{end}}"}
+	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
+	if exitCode != 0 {
+		return nil, fmt.Errorf("list images: %w", errors.FromStderr(stderr, exitCode))
+	}
+
+	lines := strings.Split(strings.TrimSpace(stdout), "\n")
+	imagesSeen := make(map[string]struct{})
+	images := make([]string, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if _, ok := imagesSeen[line]; !ok {
+			imagesSeen[line] = struct{}{}
+			images = append(images, line)
+		}
+	}
+
+	return images, nil
+}
+
+// ListArtifacts returns a list of all OCI artifacts stored on the device.
+func (p *Podman) ListArtifacts(ctx context.Context) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, p.timeout)
+	defer cancel()
+
+	if err := p.EnsureArtifactSupport(ctx); err != nil {
+		return nil, err
+	}
+
+	args := []string{"artifact", "ls", "--format", "{{.Name}}"}
+	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
+	if exitCode != 0 {
+		return nil, fmt.Errorf("list artifacts: %w", errors.FromStderr(stderr, exitCode))
+	}
+
+	lines := strings.Split(strings.TrimSpace(stdout), "\n")
+	artifactsSeen := make(map[string]struct{})
+	artifacts := make([]string, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if _, ok := artifactsSeen[line]; !ok {
+			artifactsSeen[line] = struct{}{}
+			artifacts = append(artifacts, line)
+		}
+	}
+
+	return artifacts, nil
+}
+
+// RemoveImage removes the specified container image from Podman.
+// Returns an error if the removal fails. Handles non-existent images gracefully.
+func (p *Podman) RemoveImage(ctx context.Context, image string) error {
+	ctx, cancel := context.WithTimeout(ctx, p.timeout)
+	defer cancel()
+
+	args := []string{"image", "rm", image}
+	_, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
+	if exitCode != 0 {
+		// Check if error is due to image not existing
+		if strings.Contains(stderr, noSuchImageErrorSubstring) || strings.Contains(stderr, imageNotKnownErrorSubstring) {
+			// Image doesn't exist - this is acceptable, return nil
+			return nil
+		}
+		return fmt.Errorf("remove image %s: %w", image, errors.FromStderr(stderr, exitCode))
+	}
+	return nil
+}
+
+// RemoveArtifact removes the specified OCI artifact from Podman.
+// Returns an error if the removal fails. Handles non-existent artifacts gracefully.
+func (p *Podman) RemoveArtifact(ctx context.Context, artifact string) error {
+	ctx, cancel := context.WithTimeout(ctx, p.timeout)
+	defer cancel()
+
+	if err := p.EnsureArtifactSupport(ctx); err != nil {
+		return err
+	}
+
+	args := []string{"artifact", "rm", artifact}
+	_, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
+	if exitCode != 0 {
+		// Check if error is due to artifact not existing
+		if strings.Contains(stderr, noSuchArtifactErrorSubstring) || strings.Contains(stderr, artifactNotKnownErrorSubstring) {
+			// Artifact doesn't exist - this is acceptable, return nil
+			return nil
+		}
+		return fmt.Errorf("remove artifact %s: %w", artifact, errors.FromStderr(stderr, exitCode))
+	}
+	return nil
 }
 
 // extractArtifactAnnotations parses the podman artifact inspect JSON output and extracts annotations

@@ -26,8 +26,11 @@ case $IMAGE in
     telemetry-gateway)
         NAMESPACE=flightctl-external
         ;;
+    imagebuilder-worker)
+        NAMESPACE=flightctl-internal
+        ;;
 
-    *) echo "Usage: $0 <api|worker|periodic|alert-exporter|alertmanager-proxy|telemetry-gateway>"
+    *) echo "Usage: $0 <api|worker|periodic|alert-exporter|alertmanager-proxy|telemetry-gateway|imagebuilder-worker>"
        exit 1
 esac
 

@@ -1,9 +1,10 @@
 name: "Helm upgrade test"
 description: |
-  Tests Helm upgrade path from main branch to PR changes.
-  Builds images/charts for both main (baseline) and PR branch in parallel,
+  Tests Helm upgrade path from target branch to PR changes.
+  Builds images/charts for both target branch (baseline) and PR branch in parallel,
   deploys baseline to kind cluster, runs smoke tests, then upgrades to PR version
-  and verifies resources are preserved. 
+  and verifies resources are preserved. For PRs targeting release branches,
+  uses that release branch as baseline instead of main. 
 
 on:
   workflow_dispatch:
@@ -33,7 +34,7 @@ jobs:
         uses: actions/checkout@v5
       - name: Check if override label exists
         id: check_override
-        uses: ./.github/actions/check-admin-override
+        uses: ./.github/actions/check-reviewer-override
         with:
           label-name: 'breaking-helm-change-approved'
 
@@ -61,22 +62,23 @@ jobs:
             packaging/rpm/**
 
   build-baseline:
-    needs: [check-override, check-changes]
-    if: needs.check-override.outputs.override != 'true' && needs.check-changes.outputs.any_changed == 'true'
+    needs: [check-changes]
+    if: needs.check-changes.outputs.any_changed == 'true'
     uses: ./.github/workflows/build-images-and-charts.yaml
     with:
       repository: flightctl/flightctl
-      ref: main
+      ref: ${{ github.base_ref || 'main' }}
 
   build-pr:
-    needs: [check-override, check-changes]
-    if: needs.check-override.outputs.override != 'true' && needs.check-changes.outputs.any_changed == 'true'
+    needs: [check-changes]
+    if: needs.check-changes.outputs.any_changed == 'true'
     uses: ./.github/workflows/build-images-and-charts.yaml
 
   deploy-and-upgrade:
     runs-on: ubuntu-24.04
     needs: [check-override, check-changes, build-baseline, build-pr]
-    if: needs.check-override.outputs.override != 'true' && needs.check-changes.outputs.any_changed == 'true'
+    if: needs.check-changes.outputs.any_changed == 'true'
+    continue-on-error: ${{ needs.check-override.outputs.override == 'true' }}
     steps:
       - name: Checkout PR branch
         uses: actions/checkout@v5
@@ -114,7 +116,7 @@ jobs:
           echo "Helm plugins after installation:"
           helm plugin list
 
-      # ========== DEPLOY BASELINE (main branch) ==========
+      # ========== DEPLOY BASELINE (target branch) ==========
       - name: Get base domain
         id: get-ip
         run: |
@@ -316,16 +318,33 @@ jobs:
           namespace-internal: 'flightctl-internal'
           log-directory: 'upgrade-logs'
 
-  log-skip-message:
-    runs-on: ubuntu-24.04
-    needs: check-override
-    if: needs.check-override.outputs.override == 'true'
-    steps:
-      - name: Log helm upgrade test bypass
+      - name: Finalize
+        if: always()
+        env:
+          OVERRIDE: ${{ needs.check-override.outputs.override }}
         run: |
-          echo "================================================"
-          echo "HELM UPGRADE TEST BYPASSED"
-          echo "================================================"
-          echo "The breaking-helm-change-approved label has been applied by an admin."
-          echo "Skipping Helm upgrade testing."
+          if [ "${OVERRIDE}" = "true" ]; then
+            echo "Override active - job passes regardless of previous failures"
+            exit 0
+          fi
+
+  status:
+    runs-on: ubuntu-24.04
+    needs: [check-override, deploy-and-upgrade]
+    if: always() && needs.check-override.outputs.override == 'true'
+    steps:
+      - name: Log helm upgrade test override status
+        env:
+          DEPLOY_RESULT: ${{ needs.deploy-and-upgrade.result }}
+        run: |
           echo ""
+          echo "================================================"
+          echo "HELM UPGRADE TEST - OVERRIDE ACTIVE"
+          echo "================================================"
+          echo ""
+          echo "The 'breaking-helm-change-approved' label is present."
+          echo "Test result: ${DEPLOY_RESULT}"
+          if [ "${DEPLOY_RESULT}" = "failure" ]; then
+            echo "Failures were detected but are being ignored due to the override label."
+          fi
+          exit 0

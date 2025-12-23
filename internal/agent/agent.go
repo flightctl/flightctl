@@ -15,6 +15,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
+	imagepruning "github.com/flightctl/flightctl/internal/agent/device/image_pruning"
 	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/os"
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
@@ -319,15 +320,12 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 
 	// Initialize certificate manager
-	certManager, err := certmanager.NewManager(
+	certManager, err := certmanager.NewAgentCertManager(
 		ctx, a.log,
-		certmanager.WithBuiltins(
-			deviceName,
-			bootstrap.ManagementClient(),
-			deviceReadWriter,
-			a.config,
-			identity.NewExportableFactory(tpmClient, a.log),
-		),
+		a.config, deviceName,
+		bootstrap.ManagementClient(),
+		deviceReadWriter,
+		identity.NewExportableFactory(tpmClient, a.log),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to initialize certificate manager: %w", err)
@@ -360,6 +358,16 @@ func (a *Agent) Run(ctx context.Context) error {
 		systemInfoManager.BootTime(),
 	)
 
+	// create image pruning manager
+	pruningManager := imagepruning.New(
+		podmanClient,
+		specManager,
+		deviceReadWriter,
+		a.log,
+		a.config.ImagePruning,
+		a.config.DataDir,
+	)
+
 	// create agent
 	agent := device.NewAgent(
 		deviceName,
@@ -380,6 +388,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		osClient,
 		podmanClient,
 		prefetchManager,
+		pruningManager,
 		backoff,
 		a.log,
 	)
@@ -389,6 +398,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	reloadManager.Register(systemInfoManager.ReloadConfig)
 	reloadManager.Register(statusManager.ReloadCollect)
 	reloadManager.Register(certManager.Sync)
+	reloadManager.Register(pruningManager.ReloadConfig)
 
 	// agent is serial by default. only a small number of operations run async.
 	// device reconciliation, status updates, and spec application happen serially.

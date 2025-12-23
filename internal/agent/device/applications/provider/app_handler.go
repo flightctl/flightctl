@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/flightctl/flightctl/api/v1beta1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
@@ -40,12 +40,22 @@ type quadletHandler struct {
 	log            *log.PrefixLogger
 	volumeProvider volumeProvider
 	specVolumes    []v1beta1.ApplicationVolume
+	podman         *client.Podman
 }
 
 func (b *quadletHandler) Verify(ctx context.Context, path string) error {
 	if err := ensureDependenciesFromAppType([]string{"podman"}); err != nil {
 		return fmt.Errorf("ensuring dependencies: %w", err)
 	}
+
+	version, err := b.podman.Version(ctx)
+	if err != nil {
+		return fmt.Errorf("podman version: %w", err)
+	}
+	if err := ensureMinQuadletPodmanVersion(version); err != nil {
+		return fmt.Errorf("quadlet app type: %w", err)
+	}
+
 	if err := ensureQuadlet(b.rw, path); err != nil {
 		return fmt.Errorf("ensuring quadlet: %w", err)
 	}
@@ -144,6 +154,15 @@ func (b *containerHandler) Verify(ctx context.Context, path string) error {
 	if err := ensureDependenciesFromAppType([]string{"podman"}); err != nil {
 		errs = append(errs, fmt.Errorf("ensuring dependencies: %w", err))
 	}
+
+	version, err := b.podman.Version(ctx)
+	if err != nil {
+		return fmt.Errorf("podman version: %w", err)
+	}
+	if err := ensureMinQuadletPodmanVersion(version); err != nil {
+		return fmt.Errorf("container app type: %w", err)
+	}
+
 	for _, vol := range lo.FromPtr(b.spec.Volumes) {
 		volType, err := vol.Type()
 		if err != nil {

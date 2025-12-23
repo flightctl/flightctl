@@ -15,8 +15,8 @@ nodes:
   - containerPort: 7443 # flightctl agent endpoint API
     hostPort: 7443
     protocol: TCP
-  - containerPort: 9000 # ui
-    hostPort: 9000
+  - containerPort: 9001 # ui
+    hostPort: 9001
     protocol: TCP
   - containerPort: 8090 # cli artifacts
     hostPort: 8090
@@ -29,4 +29,7 @@ nodes:
     protocol: TCP
   - containerPort: 9464 # telemetry-gateway Prometheus
     hostPort: 9464
+    protocol: TCP
+  - containerPort: 8445 # imagebuilder API
+    hostPort: 8445
     protocol: TCP

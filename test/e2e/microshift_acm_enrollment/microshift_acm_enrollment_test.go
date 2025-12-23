@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1beta1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	"github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
@@ -75,7 +75,7 @@ var _ = Describe("Microshift cluster ACM enrollment tests", func() {
 				httpRepoSpec := v1beta1.HttpRepoSpec{
 					HttpConfig: httpRepoConfig,
 
-					Type: v1beta1.Http,
+					Type: v1beta1.RepoSpecTypeHttp,
 
 					Url: httpRepoUrl,
 
@@ -98,7 +98,7 @@ var _ = Describe("Microshift cluster ACM enrollment tests", func() {
 				By("Upgrade to the microshift image, and add the pull-secret to the device")
 				nextRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
 				Expect(err).ToNot(HaveOccurred())
-				deviceImage := fmt.Sprintf("%s/flightctl-device:v7", harness.RegistryEndpoint())
+				deviceImage := util.NewDeviceImageReference(util.DeviceTags.V7).String()
 				var osImageSpec = v1beta1.DeviceOsSpec{
 					Image: deviceImage,
 				}

@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1beta1"
+	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/cli/login"
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"

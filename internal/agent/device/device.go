@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1beta1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	agent_config "github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/internal/agent/device/applications"
@@ -15,6 +15,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
+	imagepruning "github.com/flightctl/flightctl/internal/agent/device/image_pruning"
 	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/os"
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
@@ -47,6 +48,7 @@ type Agent struct {
 	osClient               os.Client
 	podmanClient           *client.Podman
 	prefetchManager        dependency.PrefetchManager
+	pruningManager         imagepruning.Manager
 
 	statusUpdateInterval util.Duration
 
@@ -74,6 +76,7 @@ func NewAgent(
 	osClient os.Client,
 	podmanClient *client.Podman,
 	prefetchManager dependency.PrefetchManager,
+	pruningManager imagepruning.Manager,
 	backoff wait.Backoff,
 	log *log.PrefixLogger,
 ) *Agent {
@@ -96,6 +99,7 @@ func NewAgent(
 		osClient:               osClient,
 		podmanClient:           podmanClient,
 		prefetchManager:        prefetchManager,
+		pruningManager:         pruningManager,
 		backoff:                backoff,
 		log:                    log,
 	}
@@ -208,23 +212,33 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 
 	// skip status update if the device is in a steady state and not upgrading.
 	// also ensures previous failed status is not overwritten.
-	if !a.specManager.IsUpgrading() {
-		a.log.Debug("No upgrade in progress, skipping status update")
-		return
-	}
-
-	// reconciliation is a success, upgrade the current spec
-	if err := a.specManager.Upgrade(ctx); err != nil {
-		if errors.IsContext(err) {
-			a.log.Debugf("Sync is shutting down : %v", err)
+	if a.specManager.IsUpgrading() {
+		// reconciliation is a success, upgrade the current spec
+		// This updates the spec files to reflect that all managers have successfully applied the changes
+		if err := a.specManager.Upgrade(ctx); err != nil {
+			if errors.IsContext(err) {
+				a.log.Debugf("Sync is shutting down : %v", err)
+				return
+			}
+			a.log.Errorf("Failed to upgrade spec: %v", err)
 			return
 		}
-		a.log.Errorf("Failed to upgrade spec: %v", err)
-		return
+		if err := a.updatedStatus(ctx, desired); err != nil {
+			a.log.Warnf("Failed updating status: %v", err)
+		}
+	} else {
+		a.log.Debug("No upgrade in progress, skipping status update")
+		if !a.pruningManager.PrunePending() {
+			return
+		}
 	}
 
-	if err := a.updatedStatus(ctx, desired); err != nil {
-		a.log.Warnf("Failed updating status: %v", err)
+	// execute pruning after successful spec application and update
+	// All managers have read and applied the spec changes, and the spec files have been updated
+	// Pruning errors are logged but don't block reconciliation
+	if err := a.pruningManager.Prune(ctx); err != nil {
+		a.log.Warnf("Pruning completed with errors: %v", err)
+		// Don't return error - pruning failures must not block reconciliation
 	}
 }
 
@@ -325,6 +339,16 @@ func (a *Agent) beforeUpdate(ctx context.Context, current, desired *v1beta1.Devi
 	a.prefetchManager.RegisterOCICollector(a.appManager)
 	if a.specManager.IsOSUpdate() {
 		a.prefetchManager.RegisterOCICollector(a.osManager)
+	}
+
+	// Record image/artifact references before upgrade starts
+	// This captures the "before" state so we can determine what to prune after upgrade
+	// This has to run before prefetch manager since it may return retryable error if targets are not ready
+	if a.specManager.IsUpgrading() {
+		if err := a.pruningManager.RecordReferences(ctx, current, desired); err != nil {
+			a.log.Warnf("Failed to record image/artifact references before upgrade: %v", err)
+			// Don't return error - reference recording failures must not block reconciliation
+		}
 	}
 
 	if err := a.prefetchManager.BeforeUpdate(ctx, current.Spec, desired.Spec); err != nil {

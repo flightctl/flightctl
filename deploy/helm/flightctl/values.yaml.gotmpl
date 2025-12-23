@@ -296,6 +296,42 @@ alertmanagerProxy:
     # -- Image pull policy for Alertmanager proxy container
     pullPolicy: ""
   
+# -- ImageBuilder API Configuration
+imageBuilderApi:
+  # -- Enable imagebuilder API service
+  enabled: true
+  image:
+    # -- ImageBuilder API container image
+    image: {{ .Images.imageBuilderApi.Image }}
+    # -- ImageBuilder API image tag
+    tag: ""
+    # -- Image pull policy for ImageBuilder API container
+    pullPolicy: ""
+
+# -- ImageBuilder Worker Configuration
+imageBuilderWorker:
+  # -- Enable imagebuilder worker service
+  enabled: true
+  # -- Number of worker replicas
+  replicas: 1
+  image:
+    # -- ImageBuilder Worker container image
+    image: {{ .Images.imageBuilderWorker.Image }}
+    # -- ImageBuilder Worker image tag
+    tag: ""
+    # -- Image pull policy for ImageBuilder Worker container
+    pullPolicy: ""
+  # -- Log level for the imagebuilder worker
+  logLevel: info
+  # -- Maximum number of concurrent image builds
+  maxConcurrentBuilds: 2
+  # -- Default TTL for image build resources
+  defaultTTL: 168h
+  # -- Enable privileged mode for container-in-container builds
+  privileged: false
+  # -- Resource requests and limits
+  resources: {}
+
 telemetryGateway:
   image:
     # -- Telemetry gateway container image

@@ -12,10 +12,11 @@ import (
 	"testing"
 
 	"github.com/ccoveille/go-safecast"
-	"github.com/flightctl/flightctl/api/v1beta1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/device/certmanager/provider"
 	"github.com/flightctl/flightctl/internal/crypto/signer"
 	"github.com/flightctl/flightctl/internal/org"
+	"github.com/flightctl/flightctl/pkg/certmanager"
 	fccrypto "github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/flightctl/flightctl/test/harness"
@@ -210,19 +211,19 @@ var _ = Describe("Device Agent behavior", func() {
 				storageRaw, err := json.Marshal(storageCfg)
 				Expect(err).ToNot(HaveOccurred())
 
-				certcfg := provider.CertificateConfig{
+				certcfg := certmanager.CertificateConfig{
 					Name: certCNPrefix,
-					Provisioner: provider.ProvisionerConfig{
+					Provisioner: certmanager.ProvisionerConfig{
 						Type:   provider.ProvisionerTypeCSR,
 						Config: csrRaw,
 					},
-					Storage: provider.StorageConfig{
+					Storage: certmanager.StorageConfig{
 						Type:   provider.StorageTypeFilesystem,
 						Config: storageRaw,
 					},
 				}
 
-				cfgBytes, err := yaml.Marshal([]provider.CertificateConfig{certcfg})
+				cfgBytes, err := yaml.Marshal([]certmanager.CertificateConfig{certcfg})
 				Expect(err).ToNot(HaveOccurred())
 
 				certsYaml := filepath.Join(h.TestDirPath, "etc", "flightctl", "certs.yaml")

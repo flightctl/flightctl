@@ -1,9 +1,0 @@
-# localhost:5000/flightctl-device:v8
-#     $(IP):5000/flightctl-device:v8
-#
-# Image built on top of our E2E base image which also includes an embedded
-# compose application which will fail to launch
-
-FROM localhost:5000/flightctl-device:base
-
-COPY ./test/scripts/agent-images/test-podman-compose-invalid.yaml  /usr/local/etc/compose/manifests/embedded-demo-app/podman-compose.yaml

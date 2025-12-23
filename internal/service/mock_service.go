@@ -14,7 +14,7 @@ import (
 	reflect "reflect"
 	time "time"
 
-	v1beta1 "github.com/flightctl/flightctl/api/v1beta1"
+	v1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
 	store "github.com/flightctl/flightctl/internal/store"
 	selector "github.com/flightctl/flightctl/internal/store/selector"
 	uuid "github.com/google/uuid"

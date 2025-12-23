@@ -68,12 +68,13 @@ import (
 	"time"
 
 	"github.com/creack/pty"
-	"github.com/flightctl/flightctl/api/v1beta1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/client"
 	service "github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/test/harness/e2e/vm"
 	"github.com/flightctl/flightctl/test/util"
+	"github.com/google/go-cmp/cmp"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -528,15 +529,28 @@ func updateResourceWithRetries(updateFunc func() error) {
 
 func checkForResourceChange[T any](resource T, lastResource string) string {
 	yamlData, err := yaml.Marshal(resource)
-	yamlString := string(yamlData)
 	Expect(err).ToNot(HaveOccurred())
-	if yamlString != lastResource {
-		GinkgoWriter.Println("")
-		GinkgoWriter.Println("======================= Resource change ========================== ")
-		GinkgoWriter.Println(yamlString)
-		GinkgoWriter.Println("================================================================== ")
+
+	current := string(yamlData)
+
+	if lastResource != "" && current != lastResource {
+		var prev any
+		var curr any
+
+		err = yaml.Unmarshal([]byte(lastResource), &prev)
+		Expect(err).ToNot(HaveOccurred())
+		err = yaml.Unmarshal(yamlData, &curr)
+		Expect(err).ToNot(HaveOccurred())
+
+		if d := cmp.Diff(prev, curr); d != "" {
+			GinkgoWriter.Println("")
+			GinkgoWriter.Println("==================== Resource change  ==================")
+			GinkgoWriter.Println(d)
+			GinkgoWriter.Println("==================================================================")
+		}
 	}
-	return yamlString
+
+	return current
 }
 
 func ensureResourceContents[T any](id string, description string, fetch func(string) (T, error), condition func(T) bool, timeout string) {
@@ -555,9 +569,11 @@ func ensureResourceContents[T any](id string, description string, fetch func(str
 
 func waitForResourceContents[T any](id string, description string, fetch func(string) (T, error), condition func(T) bool, timeout string) {
 	lastResourcePrint := ""
+	pollingRate := "500ms"
 
+	logrus.Infof("Waiting for condition: %q to be met - polling every %s, timeout=%s", description, pollingRate, timeout)
 	Eventually(func() error {
-		logrus.Infof("Waiting for condition: %q to be met", description)
+		logrus.Debugf("Waiting for condition: %q to be met", description)
 		resource, err := fetch(id)
 		Expect(err).NotTo(HaveOccurred())
 
@@ -567,7 +583,7 @@ func waitForResourceContents[T any](id string, description string, fetch func(st
 			return nil
 		}
 		return fmt.Errorf("resource: %s not updated", id)
-	}, timeout, "2s").Should(BeNil())
+	}, timeout, pollingRate).Should(BeNil())
 }
 
 func (h *Harness) EnrollAndWaitForOnlineStatus(labels ...map[string]string) (string, *v1beta1.Device) {
@@ -609,19 +625,6 @@ func (h *Harness) TestEnrollmentApproval(labels ...map[string]string) *v1beta1.E
 		Approved: true,
 		Labels:   &mergedLabels,
 	}
-}
-
-func (h *Harness) parseImageReference(image string) (string, string) {
-	// Split the image string by the colon to separate the repository and the tag.
-	parts := strings.Split(image, ":")
-
-	// The tag is the last part after the last colon.
-	tag := parts[len(parts)-1]
-
-	// The repository is composed of all parts before the last colon, joined back together with colons.
-	repo := strings.Join(parts[:len(parts)-1], ":")
-
-	return repo, tag
 }
 
 func (h *Harness) CleanUpAllTestResources() error {
@@ -1426,9 +1429,9 @@ func (h *Harness) GetVMFromPool(workerID int) (vm.TestVMInterface, error) {
 	return testVM, nil
 }
 
-// SetupVMFromPoolAndStartAgent sets up a VM from the pool, reverts to pristine snapshot,
-// and starts the agent. This is useful for tests that use the VM pool pattern.
-func (h *Harness) SetupVMFromPoolAndStartAgent(workerID int) error {
+// SetupVMFromPool sets up a VM from the pool and reverts it to the pristine snapshot.
+// It does not start the agent.
+func (h *Harness) SetupVMFromPool(workerID int) error {
 	// Get VM from pool (created on-demand if needed)
 	testVM, err := h.GetVMFromPool(workerID)
 	if err != nil {
@@ -1450,8 +1453,20 @@ func (h *Harness) SetupVMFromPoolAndStartAgent(workerID int) error {
 	if err != nil {
 		logrus.Warnf("Failed to clean stale CSR: %v", err)
 	}
+
 	// Print agent files right after snapshot revert - should be empty/version 0
 	printAgentFilesForVM(testVM, "After Snapshot Revert")
+
+	return nil
+}
+
+// SetupVMFromPoolAndStartAgent sets up a VM from the pool, reverts to pristine snapshot,
+// and starts the agent. This is useful for tests that use the VM pool pattern.
+func (h *Harness) SetupVMFromPoolAndStartAgent(workerID int) error {
+	if err := h.SetupVMFromPool(workerID); err != nil {
+		return err
+	}
+	testVM := h.VM
 
 	// Start the agent after snapshot revert
 	GinkgoWriter.Printf("🔄 Starting flightctl-agent after snapshot revert\n")

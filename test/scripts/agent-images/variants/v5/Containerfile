@@ -1,0 +1,11 @@
+# quay.io/flightctl/flightctl-device:v5
+#
+# Image built on top of base image which includes an embedded
+# compose application with 3 sleep containers
+
+ARG BASE_IMAGE=quay.io/flightctl/flightctl-device:base
+
+FROM ${BASE_IMAGE}
+
+COPY --from=common test-podman-compose-sleep-work.yaml /usr/local/etc/compose/manifests/embedded-demo-app/podman-compose.yaml
+

@@ -9,7 +9,8 @@ import (
 	"slices"
 	"strings"
 
-	api "github.com/flightctl/flightctl/api/v1beta1"
+	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	imagebuilderapi "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/cli/display"
 	"github.com/flightctl/flightctl/internal/util"
@@ -356,11 +357,6 @@ func (o *GetOptions) validateLastSeen(kind ResourceKind, names []string) error {
 }
 
 func (o *GetOptions) Run(ctx context.Context, args []string) error {
-	clientWithResponses, err := o.BuildClient()
-	if err != nil {
-		return fmt.Errorf("creating client: %w", err)
-	}
-
 	kind, names, err := parseAndValidateKindNameFromArgs(args)
 	if err != nil {
 		return err
@@ -368,9 +364,15 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error {
 
 	formatter := display.NewFormatter(display.OutputFormat(o.Output))
 
+	// Create resource fetchers based on kind
+	listFetcher, singleFetcher, err := o.createFetchers(ctx, kind)
+	if err != nil {
+		return err
+	}
+
 	// Handle list case (no specific names)
 	if len(names) == 0 {
-		if err := o.handleList(ctx, formatter, clientWithResponses, kind); err != nil {
+		if err := o.handleList(ctx, formatter, kind, listFetcher); err != nil {
 			return fmt.Errorf("listing %s: %w", kind.ToPlural(), err)
 		}
 		return nil
@@ -378,25 +380,138 @@ func (o *GetOptions) Run(ctx context.Context, args []string) error {
 
 	// Handle single or multiple names case
 	if len(names) == 1 {
-		return o.handleSingle(ctx, formatter, clientWithResponses, kind, names[0])
+		return o.handleSingle(ctx, formatter, kind, names[0], singleFetcher)
 	}
-	return o.handleMultiple(ctx, formatter, clientWithResponses, kind, names)
+	return o.handleMultiple(ctx, formatter, kind, names, listFetcher)
+}
+
+// ListFetcher fetches a list of resources and returns the validated response.
+type ListFetcher func() (interface{}, error)
+
+// SingleFetcher fetches a single resource by name and returns the validated response.
+type SingleFetcher func(name string) (interface{}, error)
+
+// createFetchers returns the appropriate list and single fetchers based on the resource kind.
+func (o *GetOptions) createFetchers(ctx context.Context, kind ResourceKind) (ListFetcher, SingleFetcher, error) {
+	if kind == ImageBuildKind || kind == ImageExportKind {
+		return o.createImageBuilderFetchers(ctx, kind)
+	}
+	return o.createMainAPIFetchers(ctx, kind)
+}
+
+func (o *GetOptions) createMainAPIFetchers(ctx context.Context, kind ResourceKind) (ListFetcher, SingleFetcher, error) {
+	c, err := o.BuildClient()
+	if err != nil {
+		return nil, nil, fmt.Errorf("creating client: %w", err)
+	}
+
+	listFetcher := func() (interface{}, error) {
+		response, err := o.getResourceList(ctx, c, kind)
+		if err != nil {
+			return nil, err
+		}
+		if err := validateResponse(response); err != nil {
+			return nil, err
+		}
+		return response, nil
+	}
+
+	singleFetcher := func(name string) (interface{}, error) {
+		response, err := o.getSingleResource(ctx, c, kind, name)
+		if err != nil {
+			return nil, err
+		}
+		if err := validateResponse(response); err != nil {
+			return nil, err
+		}
+		return response, nil
+	}
+
+	return listFetcher, singleFetcher, nil
+}
+
+func (o *GetOptions) createImageBuilderFetchers(ctx context.Context, kind ResourceKind) (ListFetcher, SingleFetcher, error) {
+	c, err := o.BuildImageBuilderClient()
+	if err != nil {
+		return nil, nil, fmt.Errorf("creating imagebuilder client: %w", err)
+	}
+
+	var listFetcher ListFetcher
+	var singleFetcher SingleFetcher
+
+	switch kind {
+	case ImageBuildKind:
+		listFetcher = func() (interface{}, error) {
+			params := &imagebuilderapi.ListImageBuildsParams{
+				LabelSelector: util.ToPtrWithNilDefault(o.LabelSelector),
+				FieldSelector: util.ToPtrWithNilDefault(o.FieldSelector),
+				Limit:         util.ToPtrWithNilDefault(o.Limit),
+				Continue:      util.ToPtrWithNilDefault(o.Continue),
+			}
+			response, err := c.ListImageBuildsWithResponse(ctx, params)
+			if err != nil {
+				return nil, err
+			}
+			if err := validateImageBuilderResponse(response); err != nil {
+				return nil, err
+			}
+			return response, nil
+		}
+		singleFetcher = func(name string) (interface{}, error) {
+			response, err := c.GetImageBuildWithResponse(ctx, name)
+			if err != nil {
+				return nil, err
+			}
+			if err := validateImageBuilderResponse(response); err != nil {
+				return nil, err
+			}
+			return response, nil
+		}
+	case ImageExportKind:
+		listFetcher = func() (interface{}, error) {
+			params := &imagebuilderapi.ListImageExportsParams{
+				LabelSelector: util.ToPtrWithNilDefault(o.LabelSelector),
+				FieldSelector: util.ToPtrWithNilDefault(o.FieldSelector),
+				Limit:         util.ToPtrWithNilDefault(o.Limit),
+				Continue:      util.ToPtrWithNilDefault(o.Continue),
+			}
+			response, err := c.ListImageExportsWithResponse(ctx, params)
+			if err != nil {
+				return nil, err
+			}
+			if err := validateImageBuilderResponse(response); err != nil {
+				return nil, err
+			}
+			return response, nil
+		}
+		singleFetcher = func(name string) (interface{}, error) {
+			response, err := c.GetImageExportWithResponse(ctx, name)
+			if err != nil {
+				return nil, err
+			}
+			if err := validateImageBuilderResponse(response); err != nil {
+				return nil, err
+			}
+			return response, nil
+		}
+	default:
+		return nil, nil, fmt.Errorf("unsupported image builder kind: %s", kind)
+	}
+
+	return listFetcher, singleFetcher, nil
 }
 
 // handleSingle fetches and displays a single resource.
-func (o *GetOptions) handleSingle(ctx context.Context, formatter display.OutputFormatter, c *apiclient.ClientWithResponses, kind ResourceKind, name string) error {
-	response, err := o.getSingleResource(ctx, c, kind, name)
+func (o *GetOptions) handleSingle(ctx context.Context, formatter display.OutputFormatter, kind ResourceKind, name string, fetcher SingleFetcher) error {
+	response, err := fetcher(name)
 	if err != nil {
-		return err
-	}
-	if err := validateResponse(response); err != nil {
 		return err
 	}
 	return o.displayResponse(formatter, response, kind, name)
 }
 
 // handleMultiple fetches and displays multiple resources using field selector with IN operator.
-func (o *GetOptions) handleMultiple(ctx context.Context, formatter display.OutputFormatter, c *apiclient.ClientWithResponses, kind ResourceKind, names []string) error {
+func (o *GetOptions) handleMultiple(ctx context.Context, formatter display.OutputFormatter, kind ResourceKind, names []string, listFetcher ListFetcher) error {
 	// Construct field selector: metadata.name in (name1,name2,name3)
 	fieldSelector := fmt.Sprintf("metadata.name in (%s)", strings.Join(names, ","))
 
@@ -405,7 +520,7 @@ func (o *GetOptions) handleMultiple(ctx context.Context, formatter display.Outpu
 	o.FieldSelector = fieldSelector
 	defer func() { o.FieldSelector = originalFieldSelector }()
 
-	return o.handleList(ctx, formatter, c, kind)
+	return o.handleList(ctx, formatter, kind, listFetcher)
 }
 
 func (o *GetOptions) getSingleResource(ctx context.Context, c *apiclient.ClientWithResponses, kind ResourceKind, name string) (interface{}, error) {
@@ -434,8 +549,38 @@ func (o *GetOptions) getSingleResource(ctx context.Context, c *apiclient.ClientW
 func (o *GetOptions) handleList(
 	ctx context.Context,
 	formatter display.OutputFormatter,
-	c *apiclient.ClientWithResponses,
 	kind ResourceKind,
+	fetcher ListFetcher,
+) error {
+	// Device summary requires special handling after batching
+	var postBatchFn func() error
+	if o.Summary && kind == DeviceKind {
+		originalSummary := o.Summary
+		o.Summary = false // Disable summary during batching
+		postBatchFn = func() error {
+			o.Continue = ""
+			o.Limit = 0
+			o.SummaryOnly = true
+			o.Summary = originalSummary
+			response, err := fetcher()
+			if err != nil {
+				return err
+			}
+			return o.displayResponse(formatter, response, kind, "")
+		}
+	}
+
+	return o.handleListWithFetcher(formatter, kind, fetcher, postBatchFn)
+}
+
+// handleListWithFetcher handles list operations with batching support using a generic fetcher.
+// The fetcher function is responsible for making the API call and validating the response.
+// The optional postBatchFn is called after batching completes (used for device summary).
+func (o *GetOptions) handleListWithFetcher(
+	formatter display.OutputFormatter,
+	kind ResourceKind,
+	fetcher ListFetcher,
+	postBatchFn func() error,
 ) error {
 	// Batching is only supported for table output
 	isTableOutput := o.Output == ""
@@ -444,21 +589,15 @@ func (o *GetOptions) handleList(
 		(requestedLimit == 0 || requestedLimit > maxRequestLimit)
 
 	if !needsBatching {
-		_, err := o.listOnce(ctx, formatter, c, kind)
-		return err
+		response, err := fetcher()
+		if err != nil {
+			return err
+		}
+		return o.displayResponse(formatter, response, kind, "")
 	}
 
-	return o.handleListBatching(ctx, formatter, c, kind, requestedLimit)
-}
-
-// handleList fetches and displays a list of resources, optionally processing the list in batches
-func (o *GetOptions) handleListBatching(ctx context.Context, formatter display.OutputFormatter, c *apiclient.ClientWithResponses, kind ResourceKind, requestedLimit int32) error {
 	var printedCount int32 = 0
 	o.Limit = 0 // Request server-side maximum (0 == capped)
-	summary := o.Summary
-	if kind == DeviceKind {
-		o.Summary = false // Disable summary for device batching, will be handled in the final output
-	}
 
 	for {
 		remaining := requestedLimit - printedCount
@@ -467,8 +606,12 @@ func (o *GetOptions) handleListBatching(ctx context.Context, formatter display.O
 			o.Limit = remaining
 		}
 
-		response, err := o.listOnce(ctx, formatter, c, kind)
+		response, err := fetcher()
 		if err != nil {
+			return err
+		}
+
+		if err := o.displayResponse(formatter, response, kind, ""); err != nil {
 			return err
 		}
 
@@ -491,26 +634,11 @@ func (o *GetOptions) handleListBatching(ctx context.Context, formatter display.O
 		o.Continue = *listMetadata.Continue
 	}
 
-	if summary && kind == DeviceKind {
-		o.Continue = ""      // Reset continue for summary output
-		o.Limit = 0          // Reset limit for summary output
-		o.SummaryOnly = true // Re-enable summary-only for the final output
-		_, err := o.listOnce(ctx, formatter, c, DeviceKind)
-		return err
+	if postBatchFn != nil {
+		return postBatchFn()
 	}
 
 	return nil
-}
-
-func (o *GetOptions) listOnce(ctx context.Context, formatter display.OutputFormatter, c *apiclient.ClientWithResponses, kind ResourceKind) (interface{}, error) {
-	response, err := o.getResourceList(ctx, c, kind)
-	if err != nil {
-		return nil, err
-	}
-	if err := validateResponse(response); err != nil {
-		return response, err
-	}
-	return response, o.displayResponse(formatter, response, kind, "")
 }
 
 func (o *GetOptions) getResourceList(ctx context.Context, c *apiclient.ClientWithResponses, kind ResourceKind) (interface{}, error) {
@@ -628,20 +756,20 @@ func (o *GetOptions) displayResponse(formatter display.OutputFormatter, response
 	return formatter.Format(response, options)
 }
 
+// listMeta contains pagination metadata extracted from list responses.
+// It's a generic version that works with both api.ListMeta and imagebuilderapi.ListMeta.
+type listMeta struct {
+	Continue *string
+}
+
 // getListMetadata extracts the ListMeta and the number of items from a list response.
-func getListMetadata(response interface{}) (*api.ListMeta, int, error) {
+// It works with any list response type that has Metadata.Continue and Items fields.
+func getListMetadata(response interface{}) (*listMeta, int, error) {
 	json200, err := ExtractJSON200(response)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	// Retrieve metadata
-	listMeta, err := responseField[api.ListMeta](json200, "Metadata")
-	if err != nil {
-		return nil, 0, err
-	}
-
-	// Determine number of items via reflection
 	v := reflect.ValueOf(json200)
 	if v.Kind() == reflect.Ptr {
 		if v.IsNil() {
@@ -650,10 +778,24 @@ func getListMetadata(response interface{}) (*api.ListMeta, int, error) {
 		v = v.Elem()
 	}
 
+	// Extract Continue from Metadata field using reflection
+	metadataField := v.FieldByName("Metadata")
+	if !metadataField.IsValid() {
+		return nil, 0, fmt.Errorf("metadata field not found in response")
+	}
+
+	var continueToken *string
+	continueField := metadataField.FieldByName("Continue")
+	if continueField.IsValid() && !continueField.IsNil() {
+		val := continueField.Elem().String()
+		continueToken = &val
+	}
+
+	// Determine number of items
 	itemsField := v.FieldByName("Items")
 	if !itemsField.IsValid() || itemsField.Kind() != reflect.Slice {
 		return nil, 0, fmt.Errorf("items field not found or not a slice")
 	}
 
-	return &listMeta, itemsField.Len(), nil
+	return &listMeta{Continue: continueToken}, itemsField.Len(), nil
 }

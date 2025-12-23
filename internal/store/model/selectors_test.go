@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1beta1"
+	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/store/selector"
 )
 
@@ -25,6 +25,8 @@ func TestModelSchemaSelectors(t *testing.T) {
 		{"spec", &api.FleetSpec{}, fleetSpecSelectors},
 		{"spec", &api.ResourceSyncSpec{}, resourceSyncSpecSelectors},
 		{"spec", &api.GenericRepoSpec{}, repositorySpecSelectors},
+		// OCI repos support common selectors plus OCI-specific ones
+		{"spec", &api.OciRepoSpec{}, ociRepositorySpecSelectors},
 	}
 
 	for _, test := range testSelectors {

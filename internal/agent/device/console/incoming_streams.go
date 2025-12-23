@@ -7,8 +7,8 @@ import (
 	"io"
 	"sync"
 
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
-	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/pkg/log"
 )
 

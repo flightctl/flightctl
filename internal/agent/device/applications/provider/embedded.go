@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/flightctl/flightctl/api/v1beta1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -19,7 +19,7 @@ type embeddedProvider struct {
 	handler    embeddedAppTypeHandler
 }
 
-func newEmbeddedHandler(appType v1beta1.AppType, name string, rw fileio.ReadWriter, l *log.PrefixLogger, bootTime string, installed bool) (embeddedAppTypeHandler, error) {
+func newEmbeddedHandler(appType v1beta1.AppType, name string, rw fileio.ReadWriter, l *log.PrefixLogger, podman *client.Podman, bootTime string, installed bool) (embeddedAppTypeHandler, error) {
 	switch appType {
 	case v1beta1.AppTypeQuadlet:
 		return &embeddedQuadletBehavior{
@@ -28,6 +28,7 @@ func newEmbeddedHandler(appType v1beta1.AppType, name string, rw fileio.ReadWrit
 			log:       l,
 			bootTime:  bootTime,
 			installed: installed,
+			podman:    podman,
 		}, nil
 	case v1beta1.AppTypeCompose:
 		return &embeddedComposeBehavior{
@@ -40,7 +41,7 @@ func newEmbeddedHandler(appType v1beta1.AppType, name string, rw fileio.ReadWrit
 }
 
 func newEmbedded(log *log.PrefixLogger, podman *client.Podman, readWriter fileio.ReadWriter, name string, appType v1beta1.AppType, bootTime string, installed bool) (Provider, error) {
-	handler, err := newEmbeddedHandler(appType, name, readWriter, log, bootTime, installed)
+	handler, err := newEmbeddedHandler(appType, name, readWriter, log, podman, bootTime, installed)
 	if err != nil {
 		return nil, fmt.Errorf("constructing embedded app handler: %w", err)
 	}

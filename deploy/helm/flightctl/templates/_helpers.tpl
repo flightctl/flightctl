@@ -600,3 +600,89 @@ Usage: {{- $result := include "flightctl.getAlertmanagerProxyDNSSans" . | fromJs
   {{- $sans = append $sans (printf "flightctl-alertmanager-proxy.%s.svc.cluster.local" .Release.Namespace) }}
   {{- dict "sans" $sans | toJson -}}
 {{- end }}
+
+{{- /*
+Get DNS SANs for imagebuilder-api server certificate
+Usage: {{- $result := include "flightctl.getImagebuilderApiDNSSans" . | fromJson }}{{ $imagebuilderApiDNSSans := $result.sans }}
+*/}}
+{{- define "flightctl.getImagebuilderApiDNSSans" }}
+  {{- $sans := list }}
+  {{- $baseDomain := include "flightctl.getBaseDomain" . }}
+  {{- $sans = append $sans (printf "imagebuilder-api.%s" $baseDomain) }}
+  {{- $sans = append $sans "flightctl-imagebuilder-api" }}
+  {{- $sans = append $sans (printf "flightctl-imagebuilder-api.%s" .Release.Namespace) }}
+  {{- $sans = append $sans (printf "flightctl-imagebuilder-api.%s.svc.cluster.local" .Release.Namespace) }}
+  {{- dict "sans" $sans | toJson -}}
+{{- end }}
+
+{{- /*
+Auth configuration block helper.
+Outputs the auth configuration section for service config files.
+Usage: {{- include "flightctl.authConfig" . | nindent 4 }}
+*/}}
+{{- define "flightctl.authConfig" }}
+{{- $effectiveAuthType := include "flightctl.getEffectiveAuthType" . }}
+{{- if not (eq $effectiveAuthType "none") }}
+auth:
+    insecureSkipTlsVerify: {{ .Values.global.auth.insecureSkipTlsVerify }}
+    caCert: {{ include "flightctl.getAuthCaCrt" . | quote }}
+    {{- if eq $effectiveAuthType "k8s" }}
+    k8s:
+        apiUrl: {{ .Values.global.auth.k8s.apiUrl }}
+        rbacNs: {{ default .Release.Namespace .Values.global.auth.k8s.rbacNs }}
+        roleSuffix: {{ .Release.Namespace }}
+    {{- else if eq $effectiveAuthType "openshift" }}
+    openshift:
+        clusterControlPlaneUrl: {{ default "https://kubernetes.default.svc" .Values.global.auth.openshift.clusterControlPlaneUrl }}
+        authorizationUrl: {{ include "flightctl.getOpenShiftOAuthAuthorizationUrl" . }}
+        tokenUrl: {{ include "flightctl.getOpenShiftOAuthTokenUrl" . }}
+        issuer: {{ include "flightctl.getOpenShiftOAuthIssuer" . }}
+        clientId: {{ include "flightctl.getOpenShiftOAuthClientId" . }}
+        clientSecret: {{ include "flightctl.getOpenShiftOAuthClientSecret" . }}
+        projectLabelFilter: {{ include "flightctl.getOpenShiftProjectLabelFilter" . | quote }}
+        roleSuffix: {{ .Release.Namespace }}
+    {{- else if eq $effectiveAuthType "aap" }}
+    aap:
+        apiUrl: {{ .Values.global.auth.aap.apiUrl }}
+        externalApiUrl: {{ .Values.global.auth.aap.externalApiUrl }}
+    {{- else }}
+    oidc:
+        oidcAuthority: {{ .Values.global.auth.oidc.issuer }}
+        clientId: {{ .Values.global.auth.oidc.clientId }}
+        {{- if .Values.global.auth.oidc.enabled }}
+        enabled: {{ .Values.global.auth.oidc.enabled }}
+        {{- end }}
+        issuer: {{ .Values.global.auth.oidc.issuer }}
+        externalOidcAuthority: {{ include "flightctl.getOidcAuthorityUrl" . }}
+        {{- if .Values.global.auth.oidc.organizationAssignment }}
+        organizationAssignment: {{ .Values.global.auth.oidc.organizationAssignment | toYaml | nindent 12 }}
+        {{- end }}
+        {{- if .Values.global.auth.oidc.usernameClaim }}
+        usernameClaim: {{ .Values.global.auth.oidc.usernameClaim | toYaml | nindent 12 }}
+        {{- end }}
+        {{- if .Values.global.auth.oidc.roleAssignment }}
+        roleAssignment: {{ .Values.global.auth.oidc.roleAssignment | toYaml | nindent 12 }}
+        {{- end }}
+    {{- end }}
+{{- end }}
+{{- end }}
+
+{{- define "flightctl.getAuthCaCrt" }}
+  {{- $caCrt := "" }}
+  {{- if .Values.global.auth.caCert }}
+    {{- $caCrt = .Values.global.auth.caCert }}
+  {{- else }}
+    {{- $isOpenShift := (include "flightctl.enableOpenShiftExtensions" . )}}
+    {{- if eq $isOpenShift "true"}}
+      {{- /* For OpenShift deployments, try to lookup the ingress CA cert */}}
+      {{- $authType := include "flightctl.getEffectiveAuthType" . }}
+      {{- if eq $authType "openshift" }}
+        {{- $ingressCM := (lookup "v1" "ConfigMap" "openshift-config-managed" "default-ingress-cert") }}
+        {{- if and $ingressCM (index $ingressCM.data "ca-bundle.crt") }}
+          {{- $caCrt = index $ingressCM.data "ca-bundle.crt" }}
+        {{- end }}
+      {{- end }}
+    {{- end }}
+  {{- end }}
+  {{- $caCrt }}
+{{- end }}

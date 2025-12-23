@@ -2,15 +2,17 @@ package parametrisabletemplates
 
 import (
 	"fmt"
+	"strings"
+	"time"
 
-	"github.com/flightctl/flightctl/api/v1beta1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("Template variables in the device configuraion", func() {
+var _ = Describe("Template variables in the device configuration", func() {
 	var (
 		deviceId string
 		testID   string
@@ -24,7 +26,7 @@ var _ = Describe("Template variables in the device configuraion", func() {
 	})
 
 	Context("parametrisable_templates", func() {
-		It(`Verifies that Flightctl fleet resource supports parametrisable device
+		It(`Verifies that Flightctl fleet resource supports parameterizable device
 		    templates to configure items that are specific to an individual device
 			or a group of devices selected by labels`, Label("75486"), func() {
 			// Get harness directly - no shared package-level variable
@@ -113,6 +115,30 @@ var _ = Describe("Template variables in the device configuraion", func() {
 					func(device *v1beta1.Device) bool {
 						return device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusOutOfDate
 					}, testutil.TIMEOUT_5M)
+
+				By("Verify fleet controller error annotation is set")
+				Eventually(func() error {
+					resp, err := harness.Client.GetDeviceStatusWithResponse(harness.Context, deviceId)
+					if err != nil {
+						return err
+					}
+					device := resp.JSON200
+					if device.Status.Updated.Status != v1beta1.DeviceUpdatedStatusOutOfDate {
+						return fmt.Errorf("device status is not OutOfDate")
+					}
+					if device.Metadata.Annotations == nil {
+						return fmt.Errorf("device annotations are nil")
+					}
+					errorAnnotation, exists := (*device.Metadata.Annotations)["fleet-controller/lastRolloutError"]
+					if !exists || errorAnnotation == "" {
+						return fmt.Errorf("fleet-controller/lastRolloutError annotation not set")
+					}
+					if !strings.Contains(errorAnnotation, "no entry for key \"team\"") {
+						return fmt.Errorf("fleet-controller/lastRolloutError annotation does not contain expected error message")
+					}
+					return nil
+				}, 30*time.Second, 1*time.Second).Should(BeNil(), "Fleet controller error annotation should be set with correct error message")
+
 				resp, err := harness.Client.GetDeviceStatusWithResponse(harness.Context, deviceId)
 				Expect(err).ToNot(HaveOccurred())
 				device := resp.JSON200
@@ -195,7 +221,7 @@ var _ = Describe("Template variables in the device configuraion", func() {
 				configProviderSpec := []v1beta1.ConfigProviderSpec{gitConfigProviderSpec, inlineConfigProviderSpec, httpConfigProviderSpec}
 
 				GinkgoWriter.Printf("this is the configProviderSpec %s\n", configProviderSpec)
-				deviceImage := fmt.Sprintf("%s/flightctl-device:{{ .metadata.labels.alias }}", harness.RegistryEndpoint())
+				deviceImage := fmt.Sprintf("%s:{{ .metadata.labels.alias }}", testutil.NewDeviceImageReference("").String())
 
 				var osImageSpec = v1beta1.DeviceOsSpec{
 					Image: deviceImage,
@@ -260,7 +286,6 @@ var _ = Describe("Template variables in the device configuraion", func() {
 				Expect(err).ToNot(HaveOccurred())
 
 				err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
-
 					(*device.Metadata.Labels)[revisionLabelKey] = branchTargetRevision
 					GinkgoWriter.Printf("Updating the device with label %s=%s\n", revisionLabelKey, branchTargetRevision)
 				})
@@ -391,7 +416,7 @@ var deviceSpec v1beta1.DeviceSpec
 var gitRepositorySpec v1beta1.RepositorySpec
 var _ = gitRepositorySpec.FromGenericRepoSpec(v1beta1.GenericRepoSpec{
 	Url:  repoTestUrl,
-	Type: v1beta1.Git,
+	Type: v1beta1.RepoSpecTypeGit,
 })
 
 var gitMetadata = v1beta1.ObjectMeta{
@@ -400,7 +425,7 @@ var gitMetadata = v1beta1.ObjectMeta{
 }
 
 var httpRepoSpec = v1beta1.HttpRepoSpec{
-	Type: v1beta1.Http,
+	Type: v1beta1.RepoSpecTypeHttp,
 	Url:  repoTestUrl,
 }
 

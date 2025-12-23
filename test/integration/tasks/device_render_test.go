@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1beta1"
+	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/kvstore"
@@ -207,7 +207,7 @@ var _ = Describe("DeviceRender", func() {
 			repoSpec := api.RepositorySpec{}
 			err := repoSpec.FromGenericRepoSpec(api.GenericRepoSpec{
 				Url:  "https://github.com/flightctl/flightctl-demos",
-				Type: api.Git,
+				Type: api.RepoSpecTypeGit,
 			})
 			Expect(err).ToNot(HaveOccurred())
 
@@ -347,7 +347,7 @@ var _ = Describe("DeviceRender", func() {
 			repoSpec := api.RepositorySpec{}
 			err := repoSpec.FromGenericRepoSpec(api.GenericRepoSpec{
 				Url:  "https://github.com/flightctl/flightctl-demos",
-				Type: api.Git,
+				Type: api.RepoSpecTypeGit,
 			})
 			Expect(err).ToNot(HaveOccurred())
 

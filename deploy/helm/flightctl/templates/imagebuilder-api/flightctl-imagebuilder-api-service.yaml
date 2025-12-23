@@ -1,0 +1,24 @@
+{{- if and .Values.imageBuilderApi .Values.imageBuilderApi.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-imagebuilder-api
+  name: flightctl-imagebuilder-api
+  namespace: {{ .Release.Namespace }}
+spec:
+  {{- if and (eq (include "flightctl.getServiceExposeMethod" .) "nodePort") .Values.dev.nodePorts.imagebuilderApi }}
+  type: NodePort
+  {{- end }}
+  ports:
+    - name: https
+      port: 8445
+      protocol: TCP
+      targetPort: 8445
+      {{- if and (eq (include "flightctl.getServiceExposeMethod" .) "nodePort") .Values.dev.nodePorts.imagebuilderApi }}
+      nodePort: {{ .Values.dev.nodePorts.imagebuilderApi }}
+      {{- end }}
+  selector:
+    flightctl.service: flightctl-imagebuilder-api
+{{- end }}

@@ -1,216 +1,193 @@
 #!/usr/bin/env bash
 set -ex
 
+# Wrapper script that handles RPM source detection and calls build.sh and build_and_qcow2.sh
+# Behavior matches create_agent_images.sh but uses build.sh and build_and_qcow2.sh internally
+# Note: all images are built as root, to use in a non-root context, import with podman load -i bin/agent-images/agent-images-bundle-cs9-bootc.tar
+
+
 BUILD_TYPE=${BUILD_TYPE:-bootc}
-PARALLEL_JOBS=${PARALLEL_JOBS:-4}
+PARALLEL_JOBS="${PARALLEL_JOBS:-4}"
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
+ROOT_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
-source "${SCRIPT_DIR}"/../functions
+source "${SCRIPT_DIR}/../functions"
 
-REGISTRY_ADDRESS=$(registry_address)
-IMAGE_LIST="base v2 v3 v4 v5 v6 v8 v9 v10"
+# Use same defaults as build.sh and build_and_qcow2.sh
+SOURCE_GIT_TAG="${SOURCE_GIT_TAG:-$(${ROOT_DIR}/hack/current-version)}"
+TAG="${TAG:-$SOURCE_GIT_TAG}"
+IMAGE_REPO="${IMAGE_REPO:-quay.io/flightctl/flightctl-device}"
+REGISTRY_ADDRESS="${REGISTRY_ADDRESS:-$(registry_address)}"
+REGISTRY_ENDPOINT="${REGISTRY_ENDPOINT:-$REGISTRY_ADDRESS}"
 
-if is_acm_installed; then
-    IMAGE_LIST="${IMAGE_LIST} v7"
-    sed -i 's|<memory unit="MiB">512</memory>|<memory unit="MiB">2048</memory>|' test/harness/e2e/vm/domain-template.xml # increate the memory only for microshift cluster registration test
-    echo "IMAGE_LIST=${IMAGE_LIST}"
+if ! [[ "${PARALLEL_JOBS}" =~ ^[0-9]+$ ]] || [ "${PARALLEL_JOBS}" -lt 1 ]; then
+    echo -e "\033[31mInvalid PARALLEL_JOBS=${PARALLEL_JOBS}, falling back to 1\033[m"
+    PARALLEL_JOBS=1
 fi
 
-# if BREW_BUILD_URL is provided, download RPMs from brew registry to bin/brew-rpm
+if [ "${PARALLEL_JOBS}" -gt 8 ]; then
+    echo -e "\033[33mWarning: PARALLEL_JOBS=${PARALLEL_JOBS} may overwhelm the system\033[m"
+fi
+
+export JOBS="${PARALLEL_JOBS}"
+
+# Handle ACM detection - enable v7 variant and increase VM memory
+if is_acm_installed; then
+    export EXCLUDE_VARIANTS=""
+    sed -i 's|<memory unit="MiB">512</memory>|<memory unit="MiB">2048</memory>|' test/harness/e2e/vm/domain-template.xml
+    echo "ACM detected, enabling v7 variant"
+fi
+
+# Determine OS suffix based on flavor
+get_os_suffix() {
+    local flavor="${1:-cs9-bootc}"
+    case "${flavor}" in
+        cs9*)  echo ".el9" ;;
+        cs10*) echo ".el10" ;;
+        *)     echo "" ;;
+    esac
+}
+
+qcow_is_up_to_date() {
+    local os_id="$1"
+    local qcow_path="${ROOT_DIR}/bin/output/qcow2/disk.qcow2"
+    local touch_file="${ROOT_DIR}/bin/.e2e-agent-images-${os_id}"
+
+    [[ -f "${qcow_path}" ]] || return 1
+
+    if [[ -f "${touch_file}" && "${qcow_path}" -nt "${touch_file}" ]]; then
+        return 0
+    fi
+
+    local base_image="${IMAGE_REPO}:base-${os_id}-${TAG}"
+    local image_created
+    image_created=$(podman image inspect --format '{{.Created}}' "${base_image}" 2>/dev/null || true)
+    [[ -n "${image_created}" ]] || return 1
+
+    local image_ts qcow_ts
+    image_ts=$(date -d "${image_created}" +%s 2>/dev/null || echo 0)
+    qcow_ts=$(date -r "${qcow_path}" +%s 2>/dev/null || echo 0)
+
+    if [[ "${image_ts}" -eq 0 || "${qcow_ts}" -eq 0 ]]; then
+        return 1
+    fi
+
+    if [[ "${qcow_ts}" -ge "${image_ts}" ]]; then
+        return 0
+    fi
+
+    return 1
+}
+
+# Build extra flags for RPM source
+BUILD_ARGS=""
+
 if [ -n "${BREW_BUILD_URL:-}" ]; then
     echo "Using BREW_BUILD_URL=${BREW_BUILD_URL} for brew registry RPMs"
 
-    # Download required RPMs using shared function
-    if ! download_brew_rpms "bin/brew-rpm" "${BREW_BUILD_URL}" "flightctl-agent-*" "flightctl-selinux*"; then
+    if ! download_brew_rpms "${ROOT_DIR}/bin/brew-rpm" "${BREW_BUILD_URL}" "flightctl-agent-*" "flightctl-selinux*"; then
         exit 1
     fi
 
-    BUILD_ARGS="--build-arg=BREW_BUILD_URL=${BREW_BUILD_URL}"
+    BUILD_ARGS="--build-arg RPM_DIR=brew-rpm"
+
 elif [ -n "${FLIGHTCTL_RPM:-}" ]; then
-    echo "Using FLIGHTCTL_RPM=${FLIGHTCTL_RPM} for custom RPM"
-    RPM_COPR=$(copr_repo)
-    RPM_PACKAGE=$(package_agent)
-    # if the package reference includes version, we need to append the system variant, always el9 for our images
-    if [[ "${RPM_PACKAGE}" != "flightctl-agent" ]]; then
-        RPM_PACKAGE="${RPM_PACKAGE}.el9"
+    echo "Using FLIGHTCTL_RPM=${FLIGHTCTL_RPM} for COPR RPM"
+
+    RPM_COPR_REPO=$(copr_repo)
+    RPM_COPR_PACKAGE=$(package_agent)
+
+    # Append OS suffix if versioned
+    if [ "${RPM_COPR_PACKAGE}" != "flightctl-agent" ]; then
+        OS_SUFFIX=$(get_os_suffix "${AGENT_OS_ID}")
+        RPM_COPR_PACKAGE="${RPM_COPR_PACKAGE}${OS_SUFFIX}"
     fi
-    BUILD_ARGS="--build-arg=FLIGHTCTL_RPM=${FLIGHTCTL_RPM}"
-    BUILD_ARGS="${BUILD_ARGS} --build-arg=RPM_COPR=${RPM_COPR}"
-    BUILD_ARGS="${BUILD_ARGS} --build-arg=RPM_PACKAGE=${RPM_PACKAGE}"
+
+    BUILD_ARGS="--build-arg RPM_COPR_REPO=${RPM_COPR_REPO}"
+    BUILD_ARGS="${BUILD_ARGS} --build-arg RPM_COPR_PACKAGE=${RPM_COPR_PACKAGE}"
+
 else
     echo "No BREW_BUILD_URL or FLIGHTCTL_RPM provided, using local RPMs only"
-    BUILD_ARGS=""
 fi
 
-build_single_image() {
-    local img="$1"
-    containerfile_path="${SCRIPT_DIR}/Containerfile-e2e-${img}.local"
-    container_name="localhost:5000/flightctl-device:${img}"
+# Merge with any existing PODMAN_BUILD_EXTRA_FLAGS
+if [ -n "${PODMAN_BUILD_EXTRA_FLAGS:-}" ]; then
+    PODMAN_BUILD_EXTRA_FLAGS="${PODMAN_BUILD_EXTRA_FLAGS} ${BUILD_ARGS}"
+else
+    PODMAN_BUILD_EXTRA_FLAGS="${BUILD_ARGS}"
+fi
 
-    if [ "$BUILD_TYPE" = "regular" ]; then
-        # create a temporary directory and cleanup on exit
-        tmpdir=$(mktemp -d)
-        trap 'rm -rf "$tmpdir"' RETURN
-        cp "${containerfile_path}" "$tmpdir/Containerfile"
-        printf '\nCMD ["/usr/bin/flightctl-agent"]\n' >> "$tmpdir/Containerfile"
-        containerfile_path="$tmpdir/Containerfile"
-        container_name="localhost:5000/flightctl-device-no-bootc:${img}"
-    fi
+export PODMAN_BUILD_EXTRA_FLAGS
+export IMAGE_REPO
+export TAG
+# Calculate registry endpoint for pushing (if not already set)
+export REGISTRY_ENDPOINT
 
-    FINAL_REF="${REGISTRY_ADDRESS}/$(basename "${container_name}")"
+# Determine OS_ID strictly from AGENT_OS_ID (single source of truth)
+AGENT_OS_ID="${AGENT_OS_ID:-cs9-bootc}"
+case "${AGENT_OS_ID}" in
+    cs9*)  OS_ID="cs9-bootc" ;;
+    cs10*) OS_ID="cs10-bootc" ;;
+    *)     OS_ID="${AGENT_OS_ID}" ;;
+esac
 
-    echo -e "\033[32mCreating image ${FINAL_REF} with BUILD_TYPE=${BUILD_TYPE} \033[m"
+# Export so downstream scripts see the selected flavor
+export AGENT_OS_ID
+export OS_ID
 
-    # apply image specific args here
-    local args="$BUILD_ARGS"
-    if [ "$img" = "base" ]; then
-      args="${args:+${args} }--build-arg=REGISTRY_ADDRESS=${REGISTRY_ADDRESS}"
-    fi
-
-    # Add standard build arguments for caching and versioning
-    args="${args:+${args} }--build-arg=SOURCE_GIT_TAG=${SOURCE_GIT_TAG:-$("${SCRIPT_DIR}/../../../hack/current-version")}"
-    args="${args:+${args} }--build-arg=SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE:-$( ( ( [ ! -d ".git/" ] || git diff --quiet ) && echo 'clean' ) || echo 'dirty' )}"
-    args="${args:+${args} }--build-arg=SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT:-$(git rev-parse --short "HEAD^{commit}" 2>/dev/null || echo "unknown")}"
-
-    # Use GitHub Actions cache when GITHUB_ACTIONS=true, otherwise no caching
-    if [ "${GITHUB_ACTIONS:-false}" = "true" ]; then
-        REGISTRY="${REGISTRY:-localhost}"
-        REGISTRY_OWNER_TESTS="${REGISTRY_OWNER_TESTS:-flightctl-tests}"
-        CACHE_FLAGS=("--cache-from=${REGISTRY}/${REGISTRY_OWNER_TESTS}/flightctl-device")
-    else
-        CACHE_FLAGS=()
-    fi
-
-    podman build ${args:+${args}} "${CACHE_FLAGS[@]}" -f "${containerfile_path}" -t "${container_name}" .
-    podman tag "${container_name}" "${FINAL_REF}"
-    podman push "${FINAL_REF}"
+build_base() {
+    echo "Building base image with PODMAN_BUILD_EXTRA_FLAGS: ${PODMAN_BUILD_EXTRA_FLAGS}"
+    sudo AGENT_OS_ID="${AGENT_OS_ID}" "${SCRIPT_DIR}/scripts/build.sh" --base
 }
 
-build_images() {
-    # Validate PARALLEL_JOBS parameter
-    if ! [[ "$PARALLEL_JOBS" =~ ^[0-9]+$ ]] || [ "$PARALLEL_JOBS" -lt 1 ]; then
-        echo -e "\033[31mError: PARALLEL_JOBS must be a positive integer, got: $PARALLEL_JOBS\033[m"
-        echo -e "\033[33mFalling back to PARALLEL_JOBS=1\033[m"
-        PARALLEL_JOBS=1
+build_variants_and_qcow2() {
+    echo "Building variants, bundle, and qcow2 for OS_ID=${OS_ID}"
+    echo "Registry endpoint for push: ${REGISTRY_ENDPOINT}"
+
+    # Only push if PUSH_IMAGES is set to true
+    PUSH_ARG=""
+    if [ "${PUSH_IMAGES:-false}" = "true" ]; then
+        PUSH_ARG="--push"
     fi
 
-    # Warn if PARALLEL_JOBS is set too high
-    if [ "$PARALLEL_JOBS" -gt 8 ]; then
-        echo -e "\033[33mWarning: PARALLEL_JOBS is set to $PARALLEL_JOBS, which may overwhelm the system\033[m"
-        echo -e "\033[33mConsider using a lower value (1-8) for better performance\033[m"
+    local skip_qcow="false"
+    if qcow_is_up_to_date "${OS_ID}"; then
+        echo -e "\033[32mqcow2 artifact for ${OS_ID} is up to date, skipping rebuild\033[m"
+        skip_qcow="true"
     fi
 
-    echo -e "\033[33mUsing PARALLEL_JOBS=$PARALLEL_JOBS for parallel image builds\033[m"
+    SKIP_QCOW_BUILD="${skip_qcow}" "${SCRIPT_DIR}/scripts/build_and_qcow2.sh" --os-id ${OS_ID} ${PUSH_ARG}
 
-    # Build base image first (required by others)
-    echo -e "\033[33mBuilding base image first...\033[m"
-    build_single_image "base"
+    # Fix permissions on artifacts
+    sudo chown -R "${USER}:$(id -gn "${USER}")" "${ROOT_DIR}/artifacts" || true
 
-    # Build remaining images in parallel
-    local other_images=$(echo $IMAGE_LIST | sed 's/base//')
-    if [ -n "$other_images" ]; then
-        echo -e "\033[33mBuilding remaining images in parallel (max $PARALLEL_JOBS jobs)...\033[m"
-        local job_count=0
-        for img in $other_images; do
-            while [ $job_count -ge $PARALLEL_JOBS ]; do
-                wait -n  # Wait for any job to complete
-                job_count=$((job_count - 1))
-            done
-            build_single_image "$img" &
-            job_count=$((job_count + 1))
-        done
-        wait  # Wait for all remaining jobs to complete
-    fi
-}
+    # Move qcow2 to bin/output like original script
+    OUTPUT_DIR="${OUTPUT_DIR:-${ROOT_DIR}/bin/output/agent-qcow2-${OS_ID}}"
+    QCOW_SRC="${ROOT_DIR}/bin/output/agent-qcow2-${OS_ID}/qcow2/disk.qcow2"
+    QCOW_DST="${ROOT_DIR}/bin/output/qcow2/disk.qcow2"
+    if [ -f "${QCOW_SRC}" ]; then
+        mkdir -p "${ROOT_DIR}/bin/output/qcow2"
+        mv "${QCOW_SRC}" "${QCOW_DST}"
+        echo "Moved qcow2 to ${QCOW_DST}"
 
-build_qcow2_image() {
-    echo -e "\033[32mProducing qcow2 image for ${REGISTRY_ADDRESS}/flightctl-device:base \033[m"
-
-    mkdir -p bin/output
-
-    # Check if qcow2 is already up to date
-    # Also check if the touch file is newer than the qcow2 (indicating a forced rebuild)
-    if [[ -f bin/output/qcow2/disk.qcow2 ]] && [[ -f bin/.e2e-agent-images ]]; then
-        TOUCH_FILE_DATE=$(date -u -r bin/.e2e-agent-images "+%Y-%m-%d %H:%M:%S")
-        QCOW_FILE_DATE=$(date -u -r bin/output/qcow2/disk.qcow2 "+%Y-%m-%d %H:%M:%S")
-
-        # Convert to timestamps for comparison
-        TOUCH_TIMESTAMP=$(date -d "${TOUCH_FILE_DATE}" +%s 2>/dev/null || echo "0")
-        QCOW_FILE_TIMESTAMP=$(date -d "${QCOW_FILE_DATE}" +%s 2>/dev/null || echo "0")
-
-        # If qcow2 is newer than the touch file, we can skip rebuilding
-        if [[ ${QCOW_FILE_TIMESTAMP} -gt ${TOUCH_TIMESTAMP} ]]; then
-            echo -e "\033[32mqcow2 is newer than touch file, skipping rebuild (touch: ${TOUCH_FILE_DATE}, qcow2: ${QCOW_FILE_DATE})\033[m"
-            return
+        # Resize disk for ACM if installed
+        if is_acm_installed; then
+            echo "ACM detected, resizing qcow2 disk +5G"
+            sudo qemu-img resize "${QCOW_DST}" +5G
         fi
+
+        # Fix permissions on bin/output
+        sudo chown -R "${USER}:$(id -gn "${USER}")" "${ROOT_DIR}/bin/output" || true
     fi
-
-    if [[ -f bin/output/qcow2/disk.qcow2 ]]; then
-        # Get container image ID and creation date
-        CONTAINER_ID=$(podman images --format "table {{.ID}}" --noheading ${REGISTRY_ADDRESS}/flightctl-device:base 2>/dev/null | head -1)
-        if [[ -n "${CONTAINER_ID}" ]]; then
-            CONTAINER_CREATE_DATE=$(podman inspect -f '{{.Created}}' ${CONTAINER_ID} 2>/dev/null || echo "")
-            if [[ -n "${CONTAINER_CREATE_DATE}" ]]; then
-                QCOW_CREATE_DATE=$(date -u -r bin/output/qcow2/disk.qcow2 "+%Y-%m-%d %H:%M:%S")
-
-                # Convert dates to timestamps for proper comparison
-                # Handle the container date format: "2025-07-30 16:40:33.146810998 +0000 UTC"
-                CONTAINER_DATE_CLEAN=$(echo "${CONTAINER_CREATE_DATE}" | sed 's/\.[0-9]* +0000 UTC//')
-                CONTAINER_TIMESTAMP=$(date -d "${CONTAINER_DATE_CLEAN}" +%s 2>/dev/null || echo "0")
-                QCOW_TIMESTAMP=$(date -d "${QCOW_CREATE_DATE}" +%s 2>/dev/null || echo "0")
-
-                if [[ ${QCOW_TIMESTAMP} -gt ${CONTAINER_TIMESTAMP} ]]; then
-                    echo -e "\033[32mqcow2 is already up to date with the container (container: ${CONTAINER_CREATE_DATE}, qcow2: ${QCOW_CREATE_DATE})\033[m"
-                    return
-                else
-                    echo -e "\033[33mqcow2 is older than container, rebuilding (container: ${CONTAINER_CREATE_DATE}, qcow2: ${QCOW_CREATE_DATE})\033[m"
-                fi
-            else
-                echo -e "\033[33mCould not get container creation date, rebuilding\033[m"
-            fi
-        else
-            echo -e "\033[33mContainer image not found, rebuilding\033[m"
-        fi
-    else
-        echo -e "\033[33mqcow2 file not found, building\033[m"
-    fi
-
-    # Pull the image and build the qcow2
-    echo -e "\033[32mPulling ${REGISTRY_ADDRESS}/flightctl-device:base to /var/lib/containers/storage\033[m"
-    sudo podman pull "${REGISTRY_ADDRESS}/flightctl-device:base"
-    echo -e "\033[32m Producing qcow image for ${REGISTRY_ADDRESS}/flightctl-device:base \033[m"
-
-    # Create cache directories if they don't exist
-    mkdir -p "$(pwd)/bin/dnf-cache"
-    mkdir -p "$(pwd)/bin/osbuild-cache"
-
-    sudo podman run --rm \
-                    -it \
-                    --privileged \
-                    --pull=newer \
-                    --security-opt label=type:unconfined_t \
-                    -v "$(pwd)"/bin/output:/output \
-                    -v "$(pwd)"/bin/dnf-cache:/var/cache/dnf:Z \
-                    -v "$(pwd)"/bin/osbuild-cache:/var/cache/osbuild:Z \
-                    -v /var/lib/containers/storage:/var/lib/containers/storage \
-                    quay.io/centos-bootc/bootc-image-builder:latest \
-                    build \
-                    --type qcow2 \
-                    "${REGISTRY_ADDRESS}/flightctl-device:base"
-    if is_acm_installed; then
-        sudo qemu-img resize "$(pwd)"/bin/output/qcow2/disk.qcow2 +5G # increasing disk size for microshift registration to acm test only
-    fi
-    # Reset the owner to the user running make
-    sudo chown -R "${USER}:$(id -gn ${USER})" "$(pwd)"/bin/output
 }
 
 case "$BUILD_TYPE" in
     regular)
-        build_images
+        build_base
         ;;
     bootc)
-        build_images
-        build_qcow2_image
+        build_base
+        build_variants_and_qcow2
         ;;
     *)
         echo "Unknown BUILD_TYPE: $BUILD_TYPE"

@@ -8,6 +8,8 @@
 {{- $telemetryGatewayDNSSans := $telemetryGatewayDNSSansResult.sans -}}
 {{- $alertmanagerProxyDNSSansResult := include "flightctl.getAlertmanagerProxyDNSSans" . | fromJson -}}
 {{- $alertmanagerProxyDNSSans := $alertmanagerProxyDNSSansResult.sans -}}
+{{- $imagebuilderApiDNSSansResult := include "flightctl.getImagebuilderApiDNSSans" . | fromJson -}}
+{{- $imagebuilderApiDNSSans := $imagebuilderApiDNSSansResult.sans -}}
 
 ---
 # ConfigMap containing the certificate generation script
@@ -71,8 +73,16 @@ spec:
         - --alertmanager-proxy-san
         - {{ . }}
         {{- end }}
+        {{- range $imagebuilderApiDNSSans }}
+        - --imagebuilder-api-san
+        - {{ . }}
+        {{- end }}
         - --namespace
         - {{ .Release.Namespace }}
+        {{- if and .Values.global.internalNamespace (ne .Values.global.internalNamespace .Release.Namespace) }}
+        - --internal-namespace
+        - {{ .Values.global.internalNamespace }}
+        {{- end }}
         - --create-k8s-secrets
         volumeMounts:
         - name: scripts

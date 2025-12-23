@@ -343,6 +343,114 @@ func TestProcessInstallManifest(t *testing.T) {
 				verifyFileContent(t, destPath, "nested content")
 			},
 		},
+		{
+			name: "copy binary found in first directory",
+			setup: func(t *testing.T, sourceDir string, config *RendererConfig) []InstallAction {
+				binDir1 := filepath.Join(sourceDir, "bin1")
+				binDir2 := filepath.Join(sourceDir, "bin2")
+				err := os.MkdirAll(binDir1, 0755)
+				require.NoError(t, err)
+				err = os.MkdirAll(binDir2, 0755)
+				require.NoError(t, err)
+
+				createTempFile(t, binDir1, "my-binary", "binary content from dir1")
+				createTempFile(t, binDir2, "my-binary", "binary content from dir2")
+
+				config.BinSourceDirs = []string{binDir1, binDir2}
+
+				return []InstallAction{
+					{
+						Action:      ActionCopyBinary,
+						Source:      "my-binary",
+						Destination: filepath.Join(config.BinOutputDir, "my-binary"),
+						Template:    false,
+						Mode:        ExecutableFileMode,
+					},
+				}
+			},
+			verify: func(t *testing.T, config *RendererConfig) {
+				destPath := filepath.Join(config.BinOutputDir, "my-binary")
+				verifyFileExists(t, destPath)
+				verifyFileContent(t, destPath, "binary content from dir1")
+				verifyFileMode(t, destPath, ExecutableFileMode)
+			},
+		},
+		{
+			name: "copy binary found in second directory",
+			setup: func(t *testing.T, sourceDir string, config *RendererConfig) []InstallAction {
+				binDir1 := filepath.Join(sourceDir, "bin1")
+				binDir2 := filepath.Join(sourceDir, "bin2")
+				err := os.MkdirAll(binDir1, 0755)
+				require.NoError(t, err)
+				err = os.MkdirAll(binDir2, 0755)
+				require.NoError(t, err)
+
+				createTempFile(t, binDir2, "my-binary", "binary content from dir2")
+
+				config.BinSourceDirs = []string{binDir1, binDir2}
+
+				return []InstallAction{
+					{
+						Action:      ActionCopyBinary,
+						Source:      "my-binary",
+						Destination: filepath.Join(config.BinOutputDir, "my-binary"),
+						Template:    false,
+						Mode:        ExecutableFileMode,
+					},
+				}
+			},
+			verify: func(t *testing.T, config *RendererConfig) {
+				destPath := filepath.Join(config.BinOutputDir, "my-binary")
+				verifyFileExists(t, destPath)
+				verifyFileContent(t, destPath, "binary content from dir2")
+				verifyFileMode(t, destPath, ExecutableFileMode)
+			},
+		},
+		{
+			name: "copy binary not found in any directory",
+			setup: func(t *testing.T, sourceDir string, config *RendererConfig) []InstallAction {
+				binDir1 := filepath.Join(sourceDir, "bin1")
+				binDir2 := filepath.Join(sourceDir, "bin2")
+				err := os.MkdirAll(binDir1, 0755)
+				require.NoError(t, err)
+				err = os.MkdirAll(binDir2, 0755)
+				require.NoError(t, err)
+
+				config.BinSourceDirs = []string{binDir1, binDir2}
+
+				return []InstallAction{
+					{
+						Action:      ActionCopyBinary,
+						Source:      "nonexistent-binary",
+						Destination: filepath.Join(config.BinOutputDir, "nonexistent-binary"),
+						Template:    false,
+						Mode:        ExecutableFileMode,
+					},
+				}
+			},
+			verify:         func(t *testing.T, config *RendererConfig) {},
+			expectError:    true,
+			errorSubstring: "not found in directories",
+		},
+		{
+			name: "copy binary with empty source dirs",
+			setup: func(t *testing.T, sourceDir string, config *RendererConfig) []InstallAction {
+				config.BinSourceDirs = []string{}
+
+				return []InstallAction{
+					{
+						Action:      ActionCopyBinary,
+						Source:      "my-binary",
+						Destination: filepath.Join(config.BinOutputDir, "my-binary"),
+						Template:    false,
+						Mode:        ExecutableFileMode,
+					},
+				}
+			},
+			verify:         func(t *testing.T, config *RendererConfig) {},
+			expectError:    true,
+			errorSubstring: "not found in directories",
+		},
 	}
 
 	for _, tt := range tests {

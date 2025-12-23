@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	pamapi "github.com/flightctl/flightctl/api/v1beta1/pam-issuer"
+	pamapi "github.com/flightctl/flightctl/api/pam-issuer/v1beta1"
 	"github.com/flightctl/flightctl/internal/auth/oidc/pam"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"

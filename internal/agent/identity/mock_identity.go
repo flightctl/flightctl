@@ -13,8 +13,8 @@ import (
 	context "context"
 	reflect "reflect"
 
+	v1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
-	v1beta1 "github.com/flightctl/flightctl/api/v1beta1"
 	client "github.com/flightctl/flightctl/internal/agent/client"
 	client0 "github.com/flightctl/flightctl/internal/client"
 	gomock "go.uber.org/mock/gomock"

@@ -16,6 +16,7 @@ type ActionType int
 const (
 	ActionCopyFile ActionType = iota
 	ActionCopyDir
+	ActionCopyBinary
 	ActionCreateEmptyFile
 	ActionCreateEmptyDir
 )
@@ -46,22 +47,27 @@ type RendererConfig struct {
 	SystemdUnitOutputDir     string `mapstructure:"systemd-dir"`
 	BinOutputDir             string `mapstructure:"bin-dir"`
 
+	// Source directories for binary search
+	BinSourceDirs []string `mapstructure:"bin-source-dirs"`
+
 	FlightctlServicesTagOverride string `mapstructure:"flightctl-services-tag-override"`
 	FlightctlUiTagOverride       bool   `mapstructure:"flightctl-ui-tag-override"`
 
 	// Images
-	Api               ImageConfig `mapstructure:"api"`
-	Periodic          ImageConfig `mapstructure:"periodic"`
-	Worker            ImageConfig `mapstructure:"worker"`
-	AlertExporter     ImageConfig `mapstructure:"alert-exporter"`
-	CliArtifacts      ImageConfig `mapstructure:"cli-artifacts"`
-	AlertmanagerProxy ImageConfig `mapstructure:"alertmanager-proxy"`
-	PamIssuer         ImageConfig `mapstructure:"pam-issuer"`
-	Ui                ImageConfig `mapstructure:"ui"`
-	DbSetup           ImageConfig `mapstructure:"db-setup"`
-	Db                ImageConfig `mapstructure:"db"`
-	Kv                ImageConfig `mapstructure:"kv"`
-	Alertmanager      ImageConfig `mapstructure:"alertmanager"`
+	Api                ImageConfig `mapstructure:"api"`
+	Periodic           ImageConfig `mapstructure:"periodic"`
+	Worker             ImageConfig `mapstructure:"worker"`
+	AlertExporter      ImageConfig `mapstructure:"alert-exporter"`
+	CliArtifacts       ImageConfig `mapstructure:"cli-artifacts"`
+	AlertmanagerProxy  ImageConfig `mapstructure:"alertmanager-proxy"`
+	PamIssuer          ImageConfig `mapstructure:"pam-issuer"`
+	Ui                 ImageConfig `mapstructure:"ui"`
+	DbSetup            ImageConfig `mapstructure:"db-setup"`
+	Db                 ImageConfig `mapstructure:"db"`
+	Kv                 ImageConfig `mapstructure:"kv"`
+	Alertmanager       ImageConfig `mapstructure:"alertmanager"`
+	ImagebuilderApi    ImageConfig `mapstructure:"imagebuilder-api"`
+	ImagebuilderWorker ImageConfig `mapstructure:"imagebuilder-worker"`
 }
 
 func NewRendererConfig() *RendererConfig {
@@ -72,6 +78,16 @@ func NewRendererConfig() *RendererConfig {
 		SystemdUnitOutputDir:     "/usr/lib/systemd/system",
 		BinOutputDir:             "/usr/bin",
 	}
+}
+
+func findBinarySource(binaryName string, searchDirs []string) (string, error) {
+	for _, dir := range searchDirs {
+		path := filepath.Join(dir, binaryName)
+		if _, err := os.Stat(path); err == nil {
+			return path, nil
+		}
+	}
+	return "", fmt.Errorf("binary %q not found in directories: %v", binaryName, searchDirs)
 }
 
 func processInstallManifest(manifest []InstallAction, config *RendererConfig, log logrus.FieldLogger) error {
@@ -88,6 +104,16 @@ func processInstallManifest(manifest []InstallAction, config *RendererConfig, lo
 				return fmt.Errorf("failed to copy directory %s to %s: %w", action.Source, action.Destination, err)
 			}
 			log.Infof("Copied directory: %s -> %s", action.Source, action.Destination)
+
+		case ActionCopyBinary:
+			sourcePath, err := findBinarySource(action.Source, config.BinSourceDirs)
+			if err != nil {
+				return fmt.Errorf("failed to find binary %s: %w", action.Source, err)
+			}
+			if err := processFile(sourcePath, action.Destination, action.Template, action.Mode, config); err != nil {
+				return fmt.Errorf("failed to process binary %s: %w", action.Source, err)
+			}
+			log.Infof("Processed binary: %s -> %s (found at %s)", action.Source, action.Destination, sourcePath)
 
 		case ActionCreateEmptyFile:
 			if err := createEmptyFile(action.Destination, action.Mode, log); err != nil {

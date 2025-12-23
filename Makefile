@@ -105,7 +105,9 @@ help:
 	@echo "                     (includes proper startup ordering: DB -> KV -> other services)"
 	@echo "    clean:           clean up all containers and volumes"
 	@echo "    clean-all:       full cleanup including containers and bin directory"
+	@echo "    clean-e2e-images: clean up e2e test images (app and device) from both regular and root podman"
 	@echo "    rebuild-containers: force rebuild all containers"
+	@echo "    bundle-containers: bundle all flightctl containers into tar archive"
 	@echo "    cluster:         create a kind cluster and load the flightctl-server image"
 	@echo "    clean-cluster:   kill the kind cluster only"
 	@echo "    clean-quadlets:  clean up all systemd services and quadlet files"
@@ -197,6 +199,12 @@ build-userinfo-proxy: bin
 build-telemetry-gateway: bin
 	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-telemetry-gateway
 
+build-imagebuilder-api: bin
+	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-imagebuilder-api
+
+build-imagebuilder-worker: bin
+	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-imagebuilder-worker
+
 build-devicesimulator: bin
 	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/devicesimulator
 
@@ -275,7 +283,21 @@ flightctl-telemetry-gateway-container: Containerfile.telemetry-gateway go.mod go
 		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
 		-f Containerfile.telemetry-gateway -t flightctl-telemetry-gateway:latest -t quay.io/flightctl/flightctl-telemetry-gateway:$(SOURCE_GIT_TAG)
 
-.PHONY: flightctl-api-container flightctl-pam-issuer-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container flightctl-userinfo-proxy-container flightctl-telemetry-gateway-container
+flightctl-imagebuilder-api-container: Containerfile.imagebuilder-api go.mod go.sum $(GO_FILES)
+	podman build $(call CACHE_FLAGS_FOR_IMAGE,flightctl-imagebuilder-api) \
+		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
+		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
+		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
+		-f Containerfile.imagebuilder-api -t flightctl-imagebuilder-api:latest -t quay.io/flightctl/flightctl-imagebuilder-api:$(SOURCE_GIT_TAG)
+
+flightctl-imagebuilder-worker-container: Containerfile.imagebuilder-worker go.mod go.sum $(GO_FILES)
+	podman build $(call CACHE_FLAGS_FOR_IMAGE,flightctl-imagebuilder-worker) \
+		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
+		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
+		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
+		-f Containerfile.imagebuilder-worker -t flightctl-imagebuilder-worker:latest -t quay.io/flightctl/flightctl-imagebuilder-worker:$(SOURCE_GIT_TAG)
+
+.PHONY: flightctl-api-container flightctl-pam-issuer-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container flightctl-userinfo-proxy-container flightctl-telemetry-gateway-container flightctl-imagebuilder-api-container flightctl-imagebuilder-worker-container
 
 # --- Registry Operations ---
 # The login target expects REGISTRY_USER via environment variable and
@@ -302,6 +324,7 @@ push-containers: login
 	podman push flightctl-cli-artifacts:latest
 	podman push flightctl-userinfo-proxy:latest
 	podman push flightctl-telemetry-gateway:latest
+	podman push flightctl-imagebuilder-api:latest
 
 # A convenience target to run the full CI process.
 ci-build: build-containers push-containers
@@ -322,24 +345,39 @@ clean-containers:
 	- podman rmi flightctl-cli-artifacts:latest || true
 	- podman rmi flightctl-userinfo-proxy:latest || true
 	- podman rmi flightctl-telemetry-gateway:latest || true
+	- podman rmi flightctl-imagebuilder-api:latest || true
+	- podman rmi flightctl-imagebuilder-worker:latest || true
 
-build-containers: flightctl-api-container flightctl-pam-issuer-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container flightctl-userinfo-proxy-container flightctl-telemetry-gateway-container
+build-containers: flightctl-api-container flightctl-pam-issuer-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container flightctl-userinfo-proxy-container flightctl-telemetry-gateway-container flightctl-imagebuilder-api-container flightctl-imagebuilder-worker-container
 
-.PHONY: build-containers build-cli build-multiarch-clis
+bundle-containers:
+	test/scripts/agent-images/scripts/bundle.sh \
+		--image-pattern 'quay.io/flightctl/.*:$(SOURCE_GIT_TAG)' \
+		--output-path 'bin/flightctl-images-bundle.tar'
+
+.PHONY: build-containers bundle-containers build-cli build-multiarch-clis
 
 
 bin:
 	mkdir -p bin
 
 # only trigger the rpm build when not built before or changes happened to the codebase
-bin/.rpm: bin $(shell find $(ROOT_DIR)/ -name "*.go" -not -path "$(ROOT_DIR)/packaging/*") packaging/rpm/flightctl.spec packaging/systemd/flightctl-agent.service hack/build_rpms.sh $(shell find $(ROOT_DIR)/packaging/selinux -type f)
-	@sudo GOMODCACHE="$(shell go env GOMODCACHE)" GOCACHE="$(shell go env GOCACHE)" $(ROOT_DIR)/hack/build_rpms.sh --root $(if $(RPM_MOCK_ROOT),$(RPM_MOCK_ROOT),$(RPM_MOCK_ROOT_DEFAULT))
+bin/.rpm: $(shell find $(ROOT_DIR)/ -name "*.go" -not -path "$(ROOT_DIR)/packaging/*") \
+          packaging/rpm/flightctl.spec \
+          packaging/systemd/flightctl-agent.service \
+          hack/build_rpms.sh \
+          $(shell find $(ROOT_DIR)/packaging/selinux -type f) \
+          | bin
+	@sudo GOMODCACHE="$(shell go env GOMODCACHE)" \
+	     GOCACHE="$(shell go env GOCACHE)" \
+	     "$(ROOT_DIR)/hack/build_rpms.sh" \
+	     --root "$(if $(RPM_MOCK_ROOT),$(RPM_MOCK_ROOT),$(RPM_MOCK_ROOT_DEFAULT))"
 	@sudo chown -R $(shell id -u):$(shell id -g) bin/rpm/
 	touch bin/.rpm
 
 rpm: bin/.rpm
 
-.PHONY: rpm build build-api build-pam-issuer build-periodic build-worker build-alert-exporter build-alertmanager-proxy build-userinfo-proxy build-standalone
+.PHONY: rpm build build-api build-pam-issuer build-periodic build-worker build-alert-exporter build-alertmanager-proxy build-userinfo-proxy build-standalone build-imagebuilder-api build-imagebuilder-worker
 
 # cross-building for deb pkg
 bin/amd64:
@@ -374,15 +412,14 @@ clean: clean-agent-vm clean-e2e-agent-images clean-quadlets clean-swtpm-certs
 	- rm -rf obj-*-linux-gnu
 	- rm -rf debian
 	- rm -rf .output/stamps
-# Qcow2 disk depends on the touch file
-bin/output/qcow2/disk.qcow2: bin/.e2e-agent-images
-
+	- rm -f bin/flightctl-images-bundle.tar
 # Full cleanup including bin directory and all artifacts
 clean-all: clean clean-containers
 	- rm -rf bin
 
 clean-quadlets:
 	sudo deploy/scripts/clean_quadlets.sh
+
 
 .PHONY: tools flightctl-api-container flightctl-pam-issuer-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-userinfo-proxy-container flightctl-telemetry-gateway-container
 
@@ -421,10 +458,12 @@ rpmlint-ci:
 check-rpmlint:
 	@command -v rpmlint > /dev/null || (echo "rpmlint not found. Install with: sudo apt-get install rpmlint (Ubuntu/Debian) or sudo dnf install rpmlint (Fedora/RHEL)" && exit 1)
 
-.output/stamps/lint-openapi: api/v1beta1/openapi.yaml .spectral.yaml
+.output/stamps/lint-openapi: api/core/v1beta1/openapi.yaml  api/imagebuilder/v1beta1/openapi.yaml .spectral.yaml
 	@mkdir -p .output/stamps
-	@echo "Linting OpenAPI spec"
-	podman run --rm -it -v $(shell pwd):/workdir:Z docker.io/stoplight/spectral:6.14.2 lint --ruleset=/workdir/.spectral.yaml --fail-severity=warn /workdir/api/v1beta1/openapi.yaml
+	@echo "Linting OpenAPI specs"
+	podman run --rm -it -v $(shell pwd):/workdir:Z docker.io/stoplight/spectral:6.14.2 lint --ruleset=/workdir/.spectral.yaml --fail-severity=warn \
+		/workdir/api/core/v1beta1/openapi.yaml \
+		/workdir/api/imagebuilder/v1beta1/openapi.yaml
 	@touch .output/stamps/lint-openapi
 
 .PHONY: lint-openapi

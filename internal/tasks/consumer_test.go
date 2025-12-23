@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	api "github.com/flightctl/flightctl/api/v1beta1"
+	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
@@ -302,6 +302,11 @@ func TestShouldRenderDevice(t *testing.T) {
 			name:     "RepositoryEvent",
 			event:    createTestEvent(api.RepositoryKind, api.EventReasonResourceUpdated, "repo1"),
 			expected: false,
+		},
+		{
+			name:     "DeviceDecommissioned",
+			event:    createTestEvent(api.DeviceKind, api.EventReasonDeviceDecommissioned, "device1"),
+			expected: true,
 		},
 	}
 

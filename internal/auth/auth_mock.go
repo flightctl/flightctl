@@ -13,7 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
-	api "github.com/flightctl/flightctl/api/v1beta1"
+	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	gomock "go.uber.org/mock/gomock"
 )
 

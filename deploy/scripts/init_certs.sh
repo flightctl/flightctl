@@ -118,6 +118,17 @@ cli_artifacts_sans=(
 )
 cli_artifacts_sans+=("${host_ips[@]}")
 
+# ImageBuilder API certificate SANs
+imagebuilder_api_sans=(
+    "imagebuilder-api.$base_domain"
+    "$base_domain"
+    "$hostname_short"
+    "$hostname_fqdn"
+    "flightctl-imagebuilder-api"
+    "localhost"
+)
+imagebuilder_api_sans+=("${host_ips[@]}")
+
 # Build the certificate generation command
 cert_gen_args=("--cert-dir" "$CERT_DIR")
 
@@ -143,6 +154,10 @@ done
 
 for san in "${cli_artifacts_sans[@]}"; do
     cert_gen_args+=("--cli-artifacts-san" "$san")
+done
+
+for san in "${imagebuilder_api_sans[@]}"; do
+    cert_gen_args+=("--imagebuilder-api-san" "$san")
 done
 
 # Generate certificates

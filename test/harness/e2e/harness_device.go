@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/flightctl/flightctl/api/v1beta1"
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	agentcfg "github.com/flightctl/flightctl/internal/agent/config"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/test/util"
@@ -227,32 +227,35 @@ func (h *Harness) EnsureDeviceContents(deviceId string, description string, cond
 	}, condition, timeout)
 }
 
-func (h *Harness) WaitForBootstrapAndUpdateToVersion(deviceId string, version string) (*v1beta1.Device, string, error) {
+func (h *Harness) WaitForBootstrapAndUpdateToVersion(deviceId string, version string) (*v1beta1.Device, util.ImageReference, error) {
+	var imageReference = util.ImageReference{}
 	// Check the device status right after bootstrap
 	response, err := h.GetDeviceWithStatusSystem(deviceId)
 	if err != nil {
-		return nil, "", err
+		return nil, imageReference, err
 	}
 	device := response.JSON200
 	if device.Status.Summary.Status != v1beta1.DeviceSummaryStatusOnline {
-		return nil, "", fmt.Errorf("device: %q is not online", deviceId)
+		return nil, imageReference, fmt.Errorf("device: %q is not online", deviceId)
 	}
-
-	var newImageReference string
 
 	err = h.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
 		currentImage := device.Status.Os.Image
 		logrus.Infof("current image for %s is %s", deviceId, currentImage)
-		repo, _ := h.parseImageReference(currentImage)
-		newImageReference = repo + version
-		device.Spec.Os = &v1beta1.DeviceOsSpec{Image: newImageReference}
+		imageReference, err = util.NewImageReferenceFromString(currentImage)
+		if err != nil {
+			logrus.Errorf("failed to parse image reference %s: %v", currentImage, err)
+			return
+		}
+		imageReference = imageReference.WithTag(version)
+		device.Spec.Os = &v1beta1.DeviceOsSpec{Image: imageReference.String()}
 		logrus.Infof("updating %s to image %s", deviceId, device.Spec.Os.Image)
 	})
 	if err != nil {
-		return nil, "", err
+		return nil, imageReference, err
 	}
 
-	return device, newImageReference, nil
+	return device, imageReference, nil
 }
 
 func (h *Harness) GetCurrentDeviceGeneration(deviceId string) (deviceRenderedVersionInt int64, err error) {
@@ -368,11 +371,20 @@ func (h *Harness) WaitForDeviceNewRenderedVersion(deviceId string, newRenderedVe
 	UpdateRenderedVersionSuccessMessage := fmt.Sprintf("%s %d", util.UpdateRenderedVersionSuccess.String(), newRenderedVersionInt)
 	h.WaitForDeviceContents(deviceId, UpdateRenderedVersionSuccessMessage,
 		func(device *v1beta1.Device) bool {
+			if device == nil || device.Status == nil {
+				logrus.Warnf("Device %s or device status is nil, cannot check conditions", deviceId)
+				return false
+			}
 			for _, condition := range device.Status.Conditions {
 				if condition.Type == "Updating" && condition.Reason == "Updated" && condition.Status == "False" &&
-					device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusUpToDate &&
-					device.Status.Config.RenderedVersion == strconv.Itoa(newRenderedVersionInt) {
-					return true
+					device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusUpToDate {
+					// Accept jumps where multiple renders happen quickly (e.g., concurrent fleet/device updates)
+					if v, err := strconv.Atoi(device.Status.Config.RenderedVersion); err == nil && v >= newRenderedVersionInt {
+						if v > newRenderedVersionInt {
+							logrus.Warnf("Device %s has rendered version %d, which is greater than %d", deviceId, v, newRenderedVersionInt)
+						}
+						return true
+					}
 				}
 			}
 			return false
@@ -818,16 +830,10 @@ func (h *Harness) EnableTPMForDevice() error {
 // SetupDeviceWithTPM prepares a device VM with TPM functionality enabled.
 // This handles the complete TPM setup process in the correct order.
 func (h *Harness) SetupDeviceWithTPM(workerID int) error {
-	// 1. Setup VM from pool (includes agent start)
-	err := h.SetupVMFromPoolAndStartAgent(workerID)
+	// Setup VM from pool without starting agent
+	err := h.SetupVMFromPool(workerID)
 	if err != nil {
 		return fmt.Errorf("failed to setup VM: %w", err)
-	}
-
-	// 2. Stop agent immediately to configure TPM first
-	err = h.StopFlightCtlAgent()
-	if err != nil {
-		return fmt.Errorf("failed to stop agent: %w", err)
 	}
 
 	// Clean CSR from non-TPM agent start to avoid device ID mismatch
@@ -836,31 +842,31 @@ func (h *Harness) SetupDeviceWithTPM(workerID int) error {
 		logrus.Warnf("Failed to clean stale CSR: %v", err)
 	}
 
-	// 3. Wait for TPM hardware initialization
+	// Wait for TPM hardware initialization
 	err = h.WaitForTPMInitialization()
 	if err != nil {
 		return fmt.Errorf("TPM initialization failed: %w", err)
 	}
 
-	// 4. Verify TPM is functional
+	// Verify TPM is functional
 	err = h.VerifyTPMFunctionality()
 	if err != nil {
 		return fmt.Errorf("TPM verification failed: %w", err)
 	}
 
-	// 5. Configure agent for TPM
+	// Configure agent for TPM
 	err = h.EnableTPMForDevice()
 	if err != nil {
 		return fmt.Errorf("TPM configuration failed: %w", err)
 	}
 
-	// 6. Start agent with TPM configuration
+	// Start agent with TPM configuration
 	err = h.StartFlightCtlAgent()
 	if err != nil {
 		return fmt.Errorf("failed to start agent with TPM: %w", err)
 	}
 
-	// 7. Brief wait for agent to initialize with TPM
+	// Brief wait for agent to initialize with TPM
 	time.Sleep(10 * time.Second)
 
 	logrus.Info("Device TPM setup completed successfully")

@@ -55,13 +55,22 @@ telemetryGateway:
     image: localhost/flightctl-telemetry-gateway
     tag: latest
 
+imageBuilderApi:
+  image:
+    image: localhost/flightctl-imagebuilder-api
+    tag: latest
+
+imageBuilderWorker:
+  image:
+    image: localhost/flightctl-imagebuilder-worker
+    tag: latest
 
 dev:
   exposeServicesMethod: "nodePort"
   nodePorts:
     api: 3443
     agent: 7443
-    ui: 9000
+    ui: 9001
     db: 5432
     kv: 6379
     alertmanager: 9093
@@ -71,6 +80,7 @@ dev:
     telemetryGatewayProm: 9464
     gitserver: 3222
     registry: 5000
+    imagebuilderApi: 8445
   tracing:
     endpoint: jaeger-collector.flightctl-e2e.svc.cluster.local:4318
     insecure: true

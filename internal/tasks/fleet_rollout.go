@@ -9,7 +9,7 @@ import (
 	"strings"
 	"text/template"
 
-	api "github.com/flightctl/flightctl/api/v1beta1"
+	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/rollout"
 	"github.com/flightctl/flightctl/internal/service"

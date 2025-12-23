@@ -11,7 +11,7 @@ import (
 	"slices"
 	"strings"
 
-	api "github.com/flightctl/flightctl/api/v1beta1"
+	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/org"
 )
@@ -30,6 +30,8 @@ const (
 	EventKind                     ResourceKind = "event"
 	AuthProviderKind              ResourceKind = "authprovider"
 	FleetKind                     ResourceKind = "fleet"
+	ImageBuildKind                ResourceKind = "imagebuild"
+	ImageExportKind               ResourceKind = "imageexport"
 	OrganizationKind              ResourceKind = "organization"
 	RepositoryKind                ResourceKind = "repository"
 	ResourceSyncKind              ResourceKind = "resourcesync"
@@ -66,6 +68,8 @@ var (
 		EventKind:                     {},
 		AuthProviderKind:              {},
 		FleetKind:                     {},
+		ImageBuildKind:                {},
+		ImageExportKind:               {},
 		OrganizationKind:              {},
 		RepositoryKind:                {},
 		ResourceSyncKind:              {},
@@ -81,6 +85,8 @@ var (
 		"events":                     EventKind,
 		"authproviders":              AuthProviderKind,
 		"fleets":                     FleetKind,
+		"imagebuilds":                ImageBuildKind,
+		"imageexports":               ImageExportKind,
 		"organizations":              OrganizationKind,
 		"repositories":               RepositoryKind,
 		"resourcesyncs":              ResourceSyncKind,
@@ -94,6 +100,8 @@ var (
 		EventKind:                     "events",
 		AuthProviderKind:              "authproviders",
 		FleetKind:                     "fleets",
+		ImageBuildKind:                "imagebuilds",
+		ImageExportKind:               "imageexports",
 		OrganizationKind:              "organizations",
 		RepositoryKind:                "repositories",
 		ResourceSyncKind:              "resourcesyncs",
@@ -107,6 +115,8 @@ var (
 		"ev":   EventKind,
 		"ap":   AuthProviderKind,
 		"flt":  FleetKind,
+		"ib":   ImageBuildKind,
+		"ie":   ImageExportKind,
 		"org":  OrganizationKind,
 		"repo": RepositoryKind,
 		"rs":   ResourceSyncKind,
@@ -372,6 +382,31 @@ func validateResponse(response interface{}) error {
 	}
 
 	if httpResponse.StatusCode != http.StatusOK && httpResponse.StatusCode != http.StatusNoContent {
+		if strings.Contains(httpResponse.Header.Get("Content-Type"), "json") {
+			var dest api.Status
+			if err := json.Unmarshal(responseBody, &dest); err != nil {
+				return fmt.Errorf("unmarshalling error: %w", err)
+			}
+			return fmt.Errorf("response status: %d, message: %s", httpResponse.StatusCode, dest.Message)
+		}
+		return fmt.Errorf("response status: %d", httpResponse.StatusCode)
+	}
+	return nil
+}
+
+// validateImageBuilderResponse validates an imagebuilder HTTP response and returns an error if the status is not OK.
+func validateImageBuilderResponse(response interface{}) error {
+	httpResponse, err := responseField[*http.Response](response, "HTTPResponse")
+	if err != nil {
+		return err
+	}
+
+	responseBody, err := responseField[[]byte](response, "Body")
+	if err != nil {
+		return err
+	}
+
+	if httpResponse.StatusCode != http.StatusOK && httpResponse.StatusCode != http.StatusCreated && httpResponse.StatusCode != http.StatusNoContent {
 		if strings.Contains(httpResponse.Header.Get("Content-Type"), "json") {
 			var dest api.Status
 			if err := json.Unmarshal(responseBody, &dest); err != nil {

@@ -464,6 +464,7 @@ rules:
       functionOptions:
         values:
         - '#/components/schemas/Status'
+        - '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
 
   # Components
   ## Component formatting and descriptions
@@ -513,6 +514,7 @@ overrides:
       - "**#/paths/~1api~1v1~1events"
       - "**#/paths/~1api~1v1~1enrollmentconfig"
       - "**#/paths/~1api~1v1~1organizations"
+      - "**#/paths/~1api~1v1~1imagepipelines"
     rules:
       collection-verbs-required: off
   # OIDC spec endpoints must follow OIDC specification standards
@@ -542,3 +544,9 @@ overrides:
       - "**#/components/schemas/AuthProviderSpec"
     rules:
       properties-description-required: off
+  # ImageBuilder API doesn't require PUT/PATCH verbs
+  - files:
+      - "**#/paths/~1api~1v1~1imagebuilds~1%7Bname%7D"
+      - "**#/paths/~1api~1v1~1imageexports~1%7Bname%7D"
+    rules:
+      resource-verbs-required: off

@@ -1,5 +1,6 @@
 {{ if .Values.ui.enabled }}
 {{ $enableMulticlusterExtensions := (include "flightctl.enableMulticlusterExtensions" .)}}
+{{ $caCrt := default (include "flightctl.getAuthCaCrt" .) .Values.ui.auth.caCert }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -91,7 +92,7 @@ spec:
             - mountPath: /app/certs/ca.crt
               name: ca-bundle
               subPath: ca-bundle.crt
-            {{- if or ((.Values.global).auth).caCert .Values.ui.auth.caCert }}
+            {{- if $caCrt }}
             - mountPath: /app/certs/ca_auth.crt
               name: flightctl-ui-certs
               subPath: ca_auth.crt
@@ -105,7 +106,7 @@ spec:
         - name: ca-bundle
           secret:
             secretName: flightctl-ca-bundle
-        {{- if or ((.Values.global).auth).caCert .Values.ui.auth.caCert }}
+        {{- if $caCrt }}
         - name: flightctl-ui-certs
           secret:
             secretName: flightctl-ui-certs

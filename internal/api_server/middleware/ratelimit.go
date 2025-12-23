@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1beta1"
+	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/httprate"
 )

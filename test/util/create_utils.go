@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	api "github.com/flightctl/flightctl/api/v1beta1"
+	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
@@ -183,7 +183,8 @@ func CreateRepositories(ctx context.Context, numRepositories int, storeInst stor
 	for i := 1; i <= numRepositories; i++ {
 		spec := api.RepositorySpec{}
 		err := spec.FromGenericRepoSpec(api.GenericRepoSpec{
-			Url: "myrepo",
+			Url:  "myrepo",
+			Type: api.RepoSpecTypeGit,
 		})
 		if err != nil {
 			return err

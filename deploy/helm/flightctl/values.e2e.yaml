@@ -1,0 +1,32 @@
+global:
+  auth:
+    type: "none"
+  internalNamespace: flightctl-internal
+
+api:
+  # Disable rate limiting for development
+  rateLimit: null
+  env:
+    GORM_TRACE_ENFORCE_FATAL: "true"
+    GORM_TRACE_INCLUDE_QUERY_VARIABLES: "true"
+cliArtifacts:
+  enabled: true
+worker:
+  env:
+    GORM_TRACE_ENFORCE_FATAL: "true"
+    GORM_TRACE_INCLUDE_QUERY_VARIABLES: "true"
+periodic:
+  env:
+    GORM_TRACE_ENFORCE_FATAL: "true"
+    GORM_TRACE_INCLUDE_QUERY_VARIABLES: "true"
+alertExporter:
+  env:
+    GORM_TRACE_ENFORCE_FATAL: "true"
+    GORM_TRACE_INCLUDE_QUERY_VARIABLES: "true"
+ui:
+  enabled: false
+
+dev:
+  tracing:
+    endpoint: jaeger-collector.flightctl-e2e.svc.cluster.local:4318
+    insecure: true

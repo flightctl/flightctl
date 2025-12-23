@@ -1,0 +1,30 @@
+# quay.io/flightctl/flightctl-device:v7
+#
+# Image built on top of base image which includes microshift
+
+ARG BASE_IMAGE=quay.io/flightctl/flightctl-device:base
+
+FROM ${BASE_IMAGE}
+
+ADD --from=variant-context etc etc
+
+# Use BuildKit cache mounts for dnf package caching
+RUN --mount=type=cache,target=/var/cache/dnf \
+    --mount=type=cache,target=/var/lib/dnf \
+    dnf install -y microshift && \
+    systemctl enable microshift.service
+
+# Create the required directory structure in /var/crio instead of /opt/crio
+RUN mkdir -p /var/crio && \
+    rm -rf /opt && ln -s /var /opt && \
+    ln -snf /run /var/run
+
+RUN firewall-offline-cmd --zone=public --add-port=22/tcp && \
+    firewall-offline-cmd --zone=trusted --add-source=10.42.0.0/16 && \
+    firewall-offline-cmd --zone=trusted --add-source=169.254.169.1 && \
+    firewall-offline-cmd --zone=trusted --add-source=fd01::/48 && \
+    \
+    firewall-offline-cmd --zone=public --add-port=80/tcp && \
+    firewall-offline-cmd --zone=public --add-port=443/tcp && \
+    firewall-offline-cmd --zone=public --add-port=30000-32767/tcp && \
+    firewall-offline-cmd --zone=public --add-port=30000-32767/udp

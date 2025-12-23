@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	api "github.com/flightctl/flightctl/api/v1beta1"
+	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	. "github.com/onsi/ginkgo/v2"
 	"sigs.k8s.io/yaml"
@@ -103,7 +103,7 @@ func CreateRepository(harness *e2e.Harness, name string, url string, labels *map
 	spec := api.RepositorySpec{}
 	specError := spec.FromGenericRepoSpec(api.GenericRepoSpec{
 		Url:  url,
-		Type: api.Git,
+		Type: api.RepoSpecTypeGit,
 	})
 	if specError != nil {
 		return nil, specError

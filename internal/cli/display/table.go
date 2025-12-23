@@ -7,8 +7,10 @@ import (
 	"time"
 
 	"github.com/dustin/go-humanize"
-	api "github.com/flightctl/flightctl/api/v1beta1"
+	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	imagebuilderapi "github.com/flightctl/flightctl/api/imagebuilder/v1beta1"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
+	imagebuilderclient "github.com/flightctl/flightctl/internal/api/imagebuilder/client"
 	"github.com/flightctl/flightctl/internal/util"
 )
 
@@ -76,6 +78,10 @@ func (f *TableFormatter) formatList(w *tabwriter.Writer, data interface{}, optio
 		return f.printEventsTable(w, data.(*apiclient.ListEventsResponse).JSON200.Items...)
 	case strings.EqualFold(options.Kind, api.AuthProviderKind):
 		return f.printAuthProvidersTable(w, data.(*apiclient.ListAuthProvidersResponse).JSON200.Items...)
+	case strings.EqualFold(options.Kind, imagebuilderapi.ImageBuildKind):
+		return f.printImageBuildsTable(w, data.(*imagebuilderclient.ListImageBuildsResponse).JSON200.Items...)
+	case strings.EqualFold(options.Kind, imagebuilderapi.ImageExportKind):
+		return f.printImageExportsTable(w, data.(*imagebuilderclient.ListImageExportsResponse).JSON200.Items...)
 	case strings.EqualFold(options.Kind, api.AuthConfigKind):
 		// Special case for AuthConfig which contains providers
 		authConfig := data.(*api.AuthConfig)
@@ -128,6 +134,10 @@ func (f *TableFormatter) formatSingle(w *tabwriter.Writer, data interface{}, opt
 		return f.printCSRTable(w, *data.(*apiclient.GetCertificateSigningRequestResponse).JSON200)
 	case strings.EqualFold(options.Kind, api.AuthProviderKind):
 		return f.printAuthProvidersTable(w, *data.(*apiclient.GetAuthProviderResponse).JSON200)
+	case strings.EqualFold(options.Kind, imagebuilderapi.ImageBuildKind):
+		return f.printImageBuildsTable(w, *data.(*imagebuilderclient.GetImageBuildResponse).JSON200)
+	case strings.EqualFold(options.Kind, imagebuilderapi.ImageExportKind):
+		return f.printImageExportsTable(w, *data.(*imagebuilderclient.GetImageExportResponse).JSON200)
 	default:
 		return fmt.Errorf("unknown resource type %s", options.Kind)
 	}
@@ -578,6 +588,87 @@ func (f *TableFormatter) printAuthProvidersTable(w *tabwriter.Writer, authProvid
 		}
 
 		f.printTableRowLn(w, name, providerType, issuer, clientId, enabled)
+	}
+	return nil
+}
+
+func (f *TableFormatter) printImageBuildsTable(w *tabwriter.Writer, imageBuilds ...imagebuilderapi.ImageBuild) error {
+	f.printHeaderRowLn(w, "NAME", "PHASE", "INPUT", "OUTPUT", "AGE")
+	for _, ib := range imageBuilds {
+		name := NoneString
+		if ib.Metadata.Name != nil {
+			name = *ib.Metadata.Name
+		}
+
+		phase := NoneString
+		if ib.Status != nil && ib.Status.Conditions != nil {
+			for _, cond := range *ib.Status.Conditions {
+				if cond.Type == imagebuilderapi.ImageBuildConditionTypeReady {
+					phase = cond.Reason
+					break
+				}
+			}
+		}
+
+		source := fmt.Sprintf("%s/%s:%s", ib.Spec.Source.Repository, ib.Spec.Source.ImageName, ib.Spec.Source.ImageTag)
+		destination := fmt.Sprintf("%s/%s:%s", ib.Spec.Destination.Repository, ib.Spec.Destination.ImageName, ib.Spec.Destination.Tag)
+
+		age := NoneString
+		if ib.Metadata.CreationTimestamp != nil {
+			age = humanize.Time(*ib.Metadata.CreationTimestamp)
+		}
+
+		f.printTableRowLn(w, name, phase, source, destination, age)
+	}
+	return nil
+}
+
+func (f *TableFormatter) printImageExportsTable(w *tabwriter.Writer, imageExports ...imagebuilderapi.ImageExport) error {
+	f.printHeaderRowLn(w, "NAME", "PHASE", "SOURCE", "OUTPUT", "FORMAT", "AGE")
+	for _, ie := range imageExports {
+		name := NoneString
+		if ie.Metadata.Name != nil {
+			name = *ie.Metadata.Name
+		}
+
+		phase := NoneString
+		if ie.Status != nil && ie.Status.Conditions != nil {
+			for _, cond := range *ie.Status.Conditions {
+				if cond.Type == imagebuilderapi.ImageExportConditionTypeReady {
+					phase = cond.Reason
+					break
+				}
+			}
+		}
+
+		source := NoneString
+		discriminator, err := ie.Spec.Source.Discriminator()
+		if err == nil {
+			switch discriminator {
+			case string(imagebuilderapi.ImageExportSourceTypeImageBuild):
+				if buildSource, err := ie.Spec.Source.AsImageBuildRefSource(); err == nil {
+					source = fmt.Sprintf("imagebuild/%s", buildSource.ImageBuildRef)
+				}
+			case string(imagebuilderapi.ImageExportSourceTypeImageReference):
+				if refSource, err := ie.Spec.Source.AsImageReferenceSource(); err == nil {
+					source = fmt.Sprintf("%s/%s:%s", refSource.Repository, refSource.ImageName, refSource.ImageTag)
+				}
+			}
+		}
+
+		output := fmt.Sprintf("%s/%s:%s", ie.Spec.Destination.Repository, ie.Spec.Destination.ImageName, ie.Spec.Destination.Tag)
+
+		format := NoneString
+		if ie.Spec.Format != "" {
+			format = string(ie.Spec.Format)
+		}
+
+		age := NoneString
+		if ie.Metadata.CreationTimestamp != nil {
+			age = humanize.Time(*ie.Metadata.CreationTimestamp)
+		}
+
+		f.printTableRowLn(w, name, phase, source, output, format, age)
 	}
 	return nil
 }

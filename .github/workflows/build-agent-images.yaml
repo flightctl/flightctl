@@ -1,0 +1,181 @@
+name: "Build Agent Images"
+
+on:
+  workflow_call:
+    inputs:
+      rpm_suffix:
+        description: "RPM artifact suffix (root, e.g., centos-stream+epel-next-9-x86_64, epel-10-x86_64)"
+        required: true
+        type: string
+      os_id:
+        description: "Agent Image OS ID (cs9-bootc / cs10-bootc)"
+        required: true
+        type: string
+      tag:
+        description: "Image tag"
+        required: true
+        type: string
+jobs:
+  build-agent-images:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Restore bootc-image-builder cache
+        id: cache-bootc-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            bin/dnf-cache
+            bin/osbuild-cache
+            dnf-cache
+            osbuild-cache
+          key: ${{ runner.os }}-bootc-cache-e2e-unified-${{ hashFiles('test/scripts/agent-images/base/Containerfile') }}
+          restore-keys: |
+            ${{ runner.os }}-bootc-cache-e2e-
+            
+      - name: Download RPM artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: rpms-${{ inputs.rpm_suffix }}
+          path: bin/rpm
+
+      - name: Build agent images for flavor
+        env:
+          TAG: ${{ inputs.tag }}
+          AGENT_IMAGE_OUTPUT: bundle
+          AGENT_OS_ID: ${{ inputs.os_id }}
+        run: |
+          mkdir -p bin/rpm
+          # Validate that both agent and selinux RPMs are present from the download step
+          ls bin/rpm/flightctl-agent-*.rpm >/dev/null 2>&1
+          ls bin/rpm/flightctl-selinux-*.rpm >/dev/null 2>&1
+          # Mark RPMs as already provided so Makefile skips rebuilding them
+          touch bin/.rpm
+          ls -la bin/rpm
+          make e2e-agent-images
+
+      - name: Print parallel build logs (per flavor)
+        if: always()
+        env:
+          OS_ID: ${{ inputs.os_id }}
+        run: |
+          set -euo pipefail
+          LOG_DIR="bin/agent-artifacts/logs-${OS_ID}"
+          echo "::group::Variants+bundle output"
+          if [ -f "${LOG_DIR}/variants.log" ]; then
+            cat "${LOG_DIR}/variants.log"
+          else
+            echo "No variants.log found at ${LOG_DIR}/variants.log"
+          fi
+          echo "::endgroup::"
+          echo "::group::QCOW2 output"
+          if [ -f "${LOG_DIR}/qcow2.log" ]; then
+            cat "${LOG_DIR}/qcow2.log"
+          else
+            echo "No qcow2.log found at ${LOG_DIR}/qcow2.log"
+          fi
+          echo "::endgroup::"
+
+      - name: Upload agent images bundle (per flavor)
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-images-bundle-${{ inputs.os_id }}-${{ inputs.tag }}
+          path: bin/agent-artifacts/agent-images-bundle-${{ inputs.os_id }}.tar
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload qcow2 image (per flavor)
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-qcow2-image-${{ inputs.os_id }}-${{ inputs.tag }}
+          path: bin/output/qcow2/disk.qcow2
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: List bundled agent images
+        id: list-agent-images
+        env:
+          OS_ID: ${{ inputs.os_id }}
+        run: |
+          set -euo pipefail
+          BUNDLE_FILE="bin/agent-artifacts/agent-images-bundle-${OS_ID}.tar"
+          echo "::group::Listing images in agent bundle"
+          
+          # Extract image names from the bundle manifest
+          IMAGES=$(skopeo list-tags docker-archive:"${BUNDLE_FILE}" 2>/dev/null | jq -r '.Tags[]' 2>/dev/null || \
+                   podman load -q -i "${BUNDLE_FILE}" 2>&1 | grep -oE 'Loaded image.*' | sed 's/Loaded image: //' || \
+                   echo "Unable to list images")
+
+          # TODO: This fallback check is needed because backward compatibility checks will run this code
+          # from the main branch where this target does not exist yet. After the code is merged to main,
+          # this fallback should be removed.
+          # Fallback: inspect the archive directly
+          if [ "$IMAGES" = "Unable to list images" ] || [ -z "$IMAGES" ]; then
+            IMAGES=$(tar -tf "${BUNDLE_FILE}" 2>/dev/null | grep -E 'manifest\.json|repositories' | head -1 | xargs -I{} tar -xOf "${BUNDLE_FILE}" {} 2>/dev/null | jq -r '.[].RepoTags[]? // keys[]?' 2>/dev/null | sort -u || echo "Bundle inspection failed")
+          fi
+          
+          echo "$IMAGES"
+          echo "::endgroup::"
+          
+          # Save for summary
+          {
+            echo "images<<EOF"
+            echo "$IMAGES"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Generate test artifacts summary
+        env:
+          TAG: ${{ inputs.tag }}
+          OS_ID: ${{ inputs.os_id }}
+          RUN_ID: ${{ github.run_id }}
+          IMAGES: ${{ steps.list-agent-images.outputs.images }}
+        run: |
+          set -euo pipefail
+          
+          {
+            echo "## :test_tube: Test Artifacts Ready (${OS_ID})"
+            echo ""
+            echo "**Tag:** \`${TAG}\` | [All artifacts](https://github.com/${{ github.repository }}/actions/runs/${RUN_ID}#artifacts)"
+            echo ""
+            
+            if [ -n "$IMAGES" ] && [ "$IMAGES" != "Bundle inspection failed" ]; then
+              echo "<details>"
+              echo "<summary><strong>Container Images in Bundle</strong></summary>"
+              echo ""
+              echo "$IMAGES" | grep -v '^$' | sed 's/^/- `/' | sed 's/$/`/'
+              echo ""
+              echo "</details>"
+              echo ""
+            fi
+            
+            echo "<details>"
+            echo "<summary><strong>Download & Use Locally</strong></summary>"
+            echo ""
+            echo '```bash'
+            echo "# Download artifacts"
+            echo "mkdir -p bin/agent-artifacts bin/output/qcow2"
+            echo "gh run download ${RUN_ID} -n agent-images-bundle-${OS_ID}-${TAG} -D bin/agent-artifacts"
+            echo "gh run download ${RUN_ID} -n agent-qcow2-image-${OS_ID}-${TAG} -D bin/output/qcow2"
+            echo ""
+            echo "# Run e2e tests"
+            echo "AGENT_OS_ID=${OS_ID} make prepare-e2e-test run-e2e-test"
+            echo '```'
+            echo ""
+            echo "</details>"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Save caches
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            bin/dnf-cache
+            bin/osbuild-cache
+          key: ${{ runner.os }}-bootc-cache-e2e-unified-${{ hashFiles('test/scripts/agent-images/base/Containerfile') }}

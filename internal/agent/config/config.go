@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"sort"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/agent/client"
@@ -16,6 +17,7 @@ import (
 	baseclient "github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"sigs.k8s.io/yaml"
 )
@@ -136,6 +138,9 @@ type Config struct {
 	// ProfilingEnabled turns on the loopback-only pprof server for local debugging.
 	ProfilingEnabled bool `json:"profiling-enabled,omitempty"`
 
+	// ImagePruning holds all image/artifact pruning-related configuration
+	ImagePruning ImagePruning `json:"image-pruning,omitempty"`
+
 	readWriter fileio.ReadWriter
 }
 
@@ -148,6 +153,12 @@ type TPM struct {
 	AuthEnabled bool `json:"auth-enabled,omitempty"`
 	// StorageFilePath specifies the file path for TPM key storage.
 	StorageFilePath string `json:"storage-file-path,omitempty"`
+}
+
+type ImagePruning struct {
+	// Enabled controls whether automatic pruning is enabled.
+	// Default: false
+	Enabled *bool `json:"enabled,omitempty"`
 }
 
 // DefaultSystemInfo defines the list of system information keys that are included
@@ -188,6 +199,9 @@ func NewDefault() *Config {
 			StorageFilePath: filepath.Join(DefaultDataDir, DefaultTPMKeyFile),
 		},
 		AuditLog: *audit.NewDefaultAuditConfig(),
+		ImagePruning: ImagePruning{
+			Enabled: lo.ToPtr(false),
+		},
 	}
 
 	if value := os.Getenv(TestRootDirEnvKey); value != "" {
@@ -380,13 +394,21 @@ func (cfg *Config) LoadWithOverrides(configFile string) error {
 		return err
 	}
 
+	// Sort entries lexically to ensure deterministic order
+	var yamlFiles []string
 	re := regexp.MustCompile(`^.*\.ya?ml$`)
 	for _, entry := range entries {
 		if entry.IsDir() || !re.MatchString(entry.Name()) {
 			continue
 		}
+		yamlFiles = append(yamlFiles, entry.Name())
+	}
+	sort.Strings(yamlFiles)
+
+	// Apply drop-ins in order (later files override earlier ones)
+	for _, filename := range yamlFiles {
 		overrideCfg := &Config{}
-		overridePath := filepath.Join(confSubdir, entry.Name())
+		overridePath := filepath.Join(confSubdir, filename)
 		contents, err := cfg.readWriter.ReadFile(overridePath)
 		if err != nil {
 			return fmt.Errorf("reading override config %s: %w", overridePath, err)
@@ -425,6 +447,13 @@ func mergeConfigs(base, override *Config) {
 	// instrumentation
 	overrideIfNotEmpty(&base.MetricsEnabled, override.MetricsEnabled)
 	overrideIfNotEmpty(&base.ProfilingEnabled, override.ProfilingEnabled)
+
+	// pruning
+	// Always override pruning config from dropins when present.
+	// Since dropins are meant to override base config, we always apply the value.
+	// Note: This means a dropin without a pruning section won't change the base value,
+	// but a dropin with image-pruning.enabled: false will override to false.
+	overrideIfNotEmpty(&base.ImagePruning.Enabled, override.ImagePruning.Enabled)
 
 	for k, v := range override.DefaultLabels {
 		base.DefaultLabels[k] = v
