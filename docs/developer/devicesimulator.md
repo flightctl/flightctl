@@ -17,7 +17,6 @@ Copy the necessary setup files to run a `devicesimulator`.
 
 Changes to the configuration of all launched agents can be made in `~/.flightctl/agent.yaml`
 Some key options available for tuning:
-- `spec-fetch-interval` - How often the agent fetches desired state from the API. Higher intervals reduce server load.
 - `status-update-interval` - How often the agent reports its status to the API. Higher intervals reduce server load.
 
 See [Installing the Agent](../user/installing/installing-agent.md) for all available options.
@@ -110,7 +109,6 @@ The simulator uses an agent configuration template (`~/.flightctl/agent.yaml` by
 
 Key configuration parameters that affect simulator performance:
 
-- `spec-fetch-interval`: How often agents check for spec updates (default from template)
 - `status-update-interval`: How often agents report status (default from template)
 - `log-level`: The simulator propagates its `--log-level` to agents unless `log-level` is explicitly set in the agent template,
 in which case the agent configuration takes precedence.
@@ -157,8 +155,7 @@ It is possible to run 10k devices on a single instance running the flightctl ser
 
 3. **Tune Agent Intervals**: Increase intervals in `~/.flightctl/agent.yaml` to reduce API load:
    ```yaml
-   spec-fetch-interval: 60s    
-   status-update-interval: 60s 
+   status-update-interval: 60s
    ```
 
 4. **Optimize Logging**: Use higher log levels to reduce I/O overhead:
@@ -352,9 +349,9 @@ bin/devicesimulator --count=20000 --source-ips=10.0.1.100,10.0.1.101 --initial-d
 
 #### High Resource Usage
 - **Symptom**: High CPU/memory usage during simulation
-- **Solution**: 
+- **Solution**:
   - Reduce `--max-concurrency` to limit parallel device creation
-  - Increase agent intervals (`spec-fetch-interval`, `status-update-interval`) in agent config
+  - Increase `status-update-interval` in agent config
   - Use higher log levels (`--log-level=error` or `--log-level=fatal`)
 
 #### Connection Limits

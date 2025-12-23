@@ -13,11 +13,15 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/poll"
 	"github.com/flightctl/flightctl/pkg/ring_buffer"
-	"k8s.io/apimachinery/pkg/util/wait"
 )
 
-const longPollTimeout = 4 * time.Minute
+const (
+	longPollTimeout = 4 * time.Minute
+	// minPollDelay is the minimum delay between polls to prevent hot-looping
+	minPollDelay = 5 * time.Second
+)
 
 // watcher wraps a ring buffer to implement the Watcher interface
 type watcher struct {
@@ -49,24 +53,22 @@ type publisher struct {
 	deviceName            string
 	watchers              []*watcher
 	lastKnownVersion      string
-	interval              time.Duration
 	stopped               atomic.Bool
 	log                   *log.PrefixLogger
-	backoff               wait.Backoff
+	pollConfig            poll.Config
 	deviceNotFoundHandler func() error
+	minDelay              time.Duration
 	mu                    sync.Mutex
 }
 
 func newPublisher(deviceName string,
-	interval time.Duration,
-	backoff wait.Backoff,
+	pollConfig poll.Config,
 	lastKnownVersion string,
 	deviceNotFoundHandler func() error,
 	log *log.PrefixLogger) Publisher {
 	return &publisher{
 		deviceName:            deviceName,
-		interval:              interval,
-		backoff:               backoff,
+		pollConfig:            pollConfig,
 		lastKnownVersion:      lastKnownVersion,
 		deviceNotFoundHandler: deviceNotFoundHandler,
 		log:                   log,
@@ -137,7 +139,7 @@ func (n *publisher) pollAndPublish(ctx context.Context) {
 	startTime := time.Now()
 	ctx, cancel = context.WithTimeout(ctx, longPollTimeout)
 	defer cancel()
-	err := wait.ExponentialBackoff(n.backoff, func() (bool, error) {
+	err := poll.BackoffWithContext(ctx, n.pollConfig, func(ctx context.Context) (bool, error) {
 		return n.getRenderedFromManagementAPIWithRetry(ctx, n.lastKnownVersion, newDesired)
 	})
 
@@ -207,16 +209,32 @@ func (n *publisher) pollAndPublish(ctx context.Context) {
 
 func (n *publisher) Run(ctx context.Context) {
 	defer n.stop()
-	n.log.Debug("Starting publisher")
-	ticker := time.NewTicker(n.interval)
-	defer ticker.Stop()
+	n.log.Debug("Starting publisher with continuous long-polling")
+
+	minDelay := n.minDelay
+	if minDelay == 0 {
+		minDelay = minPollDelay
+	}
+
 	for {
-		select {
-		case <-ctx.Done():
+		if ctx.Err() != nil {
 			n.log.Debug("Publisher context done")
 			return
-		case <-ticker.C:
-			n.pollAndPublish(ctx)
+		}
+
+		startTime := time.Now()
+		n.pollAndPublish(ctx)
+
+		elapsed := time.Since(startTime)
+		if elapsed < minDelay {
+			delay := minDelay - elapsed
+			n.log.Debugf("Poll completed quickly, waiting %v before next poll", delay)
+			select {
+			case <-ctx.Done():
+				n.log.Debug("Publisher context done during delay")
+				return
+			case <-time.After(delay):
+			}
 		}
 	}
 }

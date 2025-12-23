@@ -48,7 +48,6 @@ type Agent struct {
 	podmanClient           *client.Podman
 	prefetchManager        dependency.PrefetchManager
 
-	fetchSpecInterval    util.Duration
 	statusUpdateInterval util.Duration
 
 	backoff wait.Backoff
@@ -63,7 +62,6 @@ func NewAgent(
 	specManager spec.Manager,
 	appManager applications.Manager,
 	systemdManager systemd.Manager,
-	fetchSpecInterval util.Duration,
 	statusUpdateInterval util.Duration,
 	hookManager hook.Manager,
 	osManager os.Manager,
@@ -90,7 +88,6 @@ func NewAgent(
 		lifecycleManager:       lifecycleManager,
 		appManager:             appManager,
 		systemdManager:         systemdManager,
-		fetchSpecInterval:      fetchSpecInterval,
 		statusUpdateInterval:   statusUpdateInterval,
 		applicationsController: applicationsController,
 		configController:       configController,
@@ -108,7 +105,6 @@ func NewAgent(
 func (a *Agent) Run(ctx context.Context) error {
 	// orchestrates periodic fetching of device specs and pushing status updates
 	engine := NewEngine(
-		a.fetchSpecInterval,
 		a.syncDeviceSpec,
 		a.statusUpdateInterval,
 		a.statusUpdate,
@@ -137,10 +133,10 @@ func (a *Agent) sync(ctx context.Context, current, desired *v1beta1.Device) erro
 
 func (a *Agent) syncDeviceSpec(ctx context.Context) {
 	startTime := time.Now()
-	a.log.Debug("Starting sync of device spec")
+	a.log.Trace("Starting sync of device spec")
 	defer func() {
 		duration := time.Since(startTime)
-		a.log.Debugf("Completed sync of device spec in %v", duration)
+		a.log.Tracef("Completed sync of device spec in %v", duration)
 	}()
 
 	desired, requeue, err := a.specManager.GetDesired(ctx)
@@ -149,9 +145,11 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 		return
 	}
 	if requeue {
-		a.log.Debug("Requeueing spec")
+		a.log.Trace("Requeueing spec")
 		return
 	}
+
+	a.log.Debugf("Reconciling spec version %s", desired.Version())
 
 	current, err := a.specManager.Read(spec.Current)
 	if err != nil {
@@ -289,10 +287,10 @@ func (a *Agent) updatedStatus(ctx context.Context, desired *v1beta1.Device) erro
 
 func (a *Agent) statusUpdate(ctx context.Context) {
 	startTime := time.Now()
-	a.log.Debug("Started collecting device status")
+	a.log.Trace("Started collecting device status")
 	defer func() {
 		duration := time.Since(startTime)
-		a.log.Debugf("Completed pushing device status in: %v", duration)
+		a.log.Tracef("Completed pushing device status in: %v", duration)
 	}()
 
 	if err := a.statusManager.Sync(ctx); err != nil {
