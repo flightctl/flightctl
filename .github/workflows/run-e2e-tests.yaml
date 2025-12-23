@@ -171,6 +171,9 @@ jobs:
           name: e2e-discovery-${{ steps.compute-hash.outputs.hash }}-${{ inputs.tag }}
           path: .
 
+      - name: Check disk space
+        run: df -h
+
       - name: Run E2E Test Slice
         env:
           GINKGO_LABEL_FILTER: ${{ inputs.ginkgo_label_filter }}
