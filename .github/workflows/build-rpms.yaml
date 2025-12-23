@@ -1,0 +1,47 @@
+name: "Build RPMs"
+
+on:
+  workflow_call:
+    inputs:
+      root:
+        description: "Mock root configuration"
+        required: true
+        type: string
+
+jobs:
+  build-rpms:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Restore Go modules cache
+        id: cache-go-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+      - name: Build RPMs
+        run: |
+          RPM_MOCK_ROOT="${{ inputs.root }}" make rpm
+      - name: Upload RPM artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpms-${{ inputs.root }}
+          path: bin/rpm/*.rpm
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+      - name: Save Go modules cache
+        if: ${{ always() }}
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}

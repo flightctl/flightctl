@@ -1,0 +1,11 @@
+- name: otel
+  provisioner:
+    type: csr
+    config:
+      signer: "flightctl.io/device-svc-client"
+      common-name: "otel-{{.DEVICE_ID}}"
+  storage:
+    type: filesystem
+    config:
+      cert-path: "/etc/otelcol/certs/otel.crt"
+      key-path:  "/etc/otelcol/certs/otel.key"

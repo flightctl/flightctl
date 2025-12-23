@@ -1,0 +1,18 @@
+# quay.io/flightctl/flightctl-device:v9
+#
+# Uses quay.io/flightctl/flightctl-device:base as the base image
+
+ARG BASE_IMAGE=quay.io/flightctl/flightctl-device:base
+
+FROM ${BASE_IMAGE}
+
+COPY --from=variant-context infinite.sh /usr/lib/flightctl/custom-info.d/infinite
+RUN chmod 755 /usr/lib/flightctl/custom-info.d/infinite
+
+# Drop-in configuration file
+RUN mkdir -p /etc/flightctl/conf.d
+COPY --from=variant-context 10-system-info.yaml /etc/flightctl/conf.d/10-system-info.yaml
+
+WORKDIR /
+
+

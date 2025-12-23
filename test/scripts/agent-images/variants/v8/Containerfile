@@ -1,0 +1,10 @@
+# quay.io/flightctl/flightctl-device:v8
+#
+# Image built on top of base image which includes an embedded
+# compose application which will fail to launch
+
+ARG BASE_IMAGE=quay.io/flightctl/flightctl-device:base
+
+FROM ${BASE_IMAGE}
+
+COPY --from=variant-context test-podman-compose-invalid.yaml /usr/local/etc/compose/manifests/embedded-demo-app/podman-compose.yaml

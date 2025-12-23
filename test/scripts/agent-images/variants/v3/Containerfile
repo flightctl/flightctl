@@ -1,0 +1,13 @@
+# quay.io/flightctl/flightctl-device:v3
+#
+# Image built on top of base image which includes one dummy service:
+#
+# * test-e2e-another-dummy which runs sleep 3600 for 1h
+
+ARG BASE_IMAGE=quay.io/flightctl/flightctl-device:base
+
+FROM ${BASE_IMAGE}
+
+COPY --from=variant-context test-e2e-another-dummy.service /etc/systemd/system/
+
+RUN systemctl enable test-e2e-another-dummy.service

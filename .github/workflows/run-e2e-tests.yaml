@@ -1,0 +1,200 @@
+name: "Run E2E Tests"
+
+on:
+  workflow_call:
+    inputs:
+      os_id:
+        description: "OS identifier for agent (e.g., cs9-bootc, cs10-bootc)"
+        required: true
+        type: string
+      backend_type:
+        description: "Backend deployment type (helm)"
+        required: false
+        type: string
+        default: "helm"
+      ginkgo_total_nodes:
+        description: "Total number of Ginkgo nodes"
+        required: false
+        type: number
+        default: 4
+      ginkgo_label_filter:
+        description: "Ginkgo label filter"
+        required: false
+        type: string
+        default: "sanity"
+      tag:
+        description: "Image tag"
+        required: true
+        type: string
+
+jobs:
+  generate-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      nodes: ${{ steps.generate.outputs.nodes }}
+    steps:
+      - name: Generate node matrix
+        id: generate
+        run: |
+          nodes=$(seq 1 ${{ inputs.ginkgo_total_nodes }} | jq -R . | jq -s -c .)
+          echo "nodes=${nodes}" >> "$GITHUB_OUTPUT"
+          echo "Generated nodes matrix: ${nodes}"
+
+  e2e-test:
+    runs-on: ubuntu-24.04
+    needs: generate-matrix
+    strategy:
+      fail-fast: false
+      matrix:
+        ginkgo_node: ${{ fromJson(needs.generate-matrix.outputs.nodes) }}
+    env:
+      DOCKER_BUILDKIT: 1
+      BUILDKIT_PROGRESS: plain
+    steps:
+      # ========== PREPARE ENVIRONMENT ==========
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android >/dev/null 2>&1 &
+          echo "Started background removal of /usr/local/lib/android (PID: $!)"
+          df -h
+
+      # ========== SETUP DEPENDENCIES ==========
+      - name: Setup dependencies (KVM, libvirt, etc)
+        uses: ./.github/actions/setup-dependencies
+        with:
+          setup_kvm: yes
+
+      - name: Compute base domain
+        id: base-domain
+        run: |
+          IP=$(ip route get 1.1.1.1 | grep -oP 'src \K\S+')
+          echo "ip=${IP}" >> "$GITHUB_OUTPUT"
+          echo "base_domain=${IP}.nip.io" >> "$GITHUB_OUTPUT"
+          echo "Computed base domain: ${IP}.nip.io"
+
+      # ========== DEPLOY BACKEND WITH HELM ==========
+      - name: Deploy backend with Helm
+        uses: ./.github/actions/deploy-backend-with-helm
+        with:
+          tag: ${{ inputs.tag }}
+          base-domain: ${{ steps.base-domain.outputs.base_domain }}
+          additional-values-files: deploy/helm/flightctl/values.e2e.yaml
+          auth-type: k8s
+          kind-config: test/scripts/kind_cluster.yaml
+          display-summary: ${{ matrix.ginkgo_node == 1 }}
+          wait: false
+
+      # ========== DOWNLOAD E2E TEST ARTIFACTS ==========
+      - name: Download test artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: agent-*-${{ inputs.os_id }}-${{ inputs.tag }}
+          path: test-artifacts
+          merge-multiple: true
+
+      - name: Stage test artifacts
+        run: |
+          set -euo pipefail
+          echo "Downloaded test artifacts:"
+          tree test-artifacts
+
+          # Stage agent bundle
+          mkdir -p bin/agent-artifacts
+          if [ ! -f "test-artifacts/agent-images-bundle-${{ inputs.os_id }}.tar" ]; then
+            echo "ERROR: Agent bundle not found"
+            exit 1
+          fi
+          mv "test-artifacts/agent-images-bundle-${{ inputs.os_id }}.tar" bin/agent-artifacts/
+          echo "✓ Agent bundle: bin/agent-artifacts/agent-images-bundle-${{ inputs.os_id }}.tar"
+
+          # Stage qcow2
+          mkdir -p bin/output/qcow2
+          if [ ! -f "test-artifacts/disk.qcow2" ]; then
+            echo "ERROR: QCOW2 image not found"
+            exit 1
+          fi
+          mv "test-artifacts/disk.qcow2" bin/output/qcow2/
+          echo "✓ QCOW2 image: bin/output/qcow2/disk.qcow2"
+
+          # Cleanup
+          rm -rf test-artifacts
+
+          echo "Staged artifacts:"
+          tree bin
+          df -h
+
+      # ========== PREP E2E ENV ==========
+      - name: Wait for API readiness
+        uses: ./.github/actions/wait-for-api-readiness
+        with:
+          base-domain: ${{ steps.base-domain.outputs.base_domain }}
+
+      - name: Prepare E2E environment
+        env:
+          AGENT_OS_ID: ${{ inputs.os_id }}
+        run: |
+          # prepare-e2e-test handles the full dependency chain:
+          #   - deploy-e2e-extras (registry)
+          #   - build-e2e-containers
+          #   - push-e2e-agent-images (detects existing bundles, won't rebuild)
+          #   - prepare-e2e-qcow-config -> bin/.e2e-agent-injected -> bin/.e2e-agent-certs
+          # All dependencies are resolved automatically by Make
+          make prepare-e2e-test
+
+      # ========== RUN E2E TESTS ==========
+      - name: Restore Go cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Compute label filter hash
+        id: compute-hash
+        run: |
+          HASH=$(printf '%s' "${{ inputs.ginkgo_label_filter }}" | sha256sum | cut -c1-8)
+          echo "hash=${HASH}" >> "$GITHUB_OUTPUT"
+          echo "Label filter: ${{ inputs.ginkgo_label_filter }}"
+          echo "Hash: ${HASH}"
+
+      - name: Download test discovery
+        uses: actions/download-artifact@v4
+        with:
+          name: e2e-discovery-${{ steps.compute-hash.outputs.hash }}-${{ inputs.tag }}
+          path: .
+
+      - name: Run E2E Test Slice
+        env:
+          GINKGO_LABEL_FILTER: ${{ inputs.ginkgo_label_filter }}
+          GINKGO_TOTAL_NODES: ${{ inputs.ginkgo_total_nodes }}
+          GINKGO_NODE: ${{ matrix.ginkgo_node }}
+          DISCOVERY_PATH: discovery.json
+        run: |
+          make run-e2e-test VERBOSE=true
+
+      # ========== UPLOAD TEST RESULTS ==========
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-results-${{ steps.compute-hash.outputs.hash }}-node-${{ matrix.ginkgo_node }}
+          path: reports/junit_e2e_test.xml
+          if-no-files-found: warn
+          overwrite: true
+
+      # ========== COLLECT LOGS ==========
+      - name: Collect and Upload Logs
+        if: always()
+        uses: ./.github/actions/collect-logs
+        with:
+          namespace-external: 'flightctl-external'
+          namespace-internal: 'flightctl-internal'
+          log-directory: 'e2e-logs-${{ steps.compute-hash.outputs.hash }}-node-${{ matrix.ginkgo_node }}-logs'
