@@ -183,6 +183,10 @@ jobs:
         run: |
           make run-e2e-test VERBOSE=true
 
+      - name: Check disk space after E2E tests
+        if: always()
+        run: df -h
+
       # ========== UPLOAD TEST RESULTS ==========
       - name: Upload test report
         if: always()
