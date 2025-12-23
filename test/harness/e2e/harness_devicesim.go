@@ -20,15 +20,6 @@ import (
 // when no explicit value is provided.
 const defaultAgentInterval = 2 * time.Second
 
-// appendError appends a new error to an existing error chain, handling nil cases.
-func appendError(existing error, format string, args ...interface{}) error {
-	newErr := fmt.Errorf(format, args...)
-	if existing == nil {
-		return newErr
-	}
-	return fmt.Errorf("%v; %w", existing, newErr)
-}
-
 // EnsureDeviceSimulatorBinary returns the path to the devicesimulator binary, building it if missing.
 func (h *Harness) EnsureDeviceSimulatorBinary() (string, error) {
 	// Compute the expected path under the repo top-level bin directory
@@ -126,7 +117,7 @@ func (h *Harness) StopDeviceSimulator(cmd *exec.Cmd, timeout time.Duration) erro
 	}
 
 	// After stopping the simulator, delete resources created by it (best-effort)
-	if _, _, delErr := h.DeleteAllResourcesFound(); delErr != nil {
+	if delErr := h.CleanUpAllTestResources(); delErr != nil {
 		logrus.Errorf("error deleting resources after stopping simulator: %v", delErr)
 	}
 
@@ -224,85 +215,6 @@ func (h *Harness) SetupDeviceSimulatorAgentConfig(specFetch time.Duration, statu
 
 	logrus.Infof("device simulator agent config prepared at %s; certs in %s", destConfigPath, destCertsDir)
 	return destConfigPath, nil
-}
-
-// DeleteAllResourcesFound deletes only fleets and devices created by the current test (identified by test-id label).
-// Returns the names of deleted fleets and IDs of deleted devices, in order processed.
-// Partial results are returned even if an error occurs during deletion.
-func (h *Harness) DeleteAllResourcesFound() ([]string, []string, error) {
-	testID := h.GetTestIDFromContext()
-	logrus.Infof("Deleting test resources with test-id: %s", testID)
-
-	var deletedFleets []string
-	var deletedDevices []string
-	var deleteErr error
-
-	// Delete fleets first so they stop selecting devices
-	// Only get fleets with the test-id label
-	fleetsOut, err := h.CLI("get", util.Fleet, "-l", fmt.Sprintf("test-id=%s", testID), "-o", "name")
-	if err != nil {
-		// If no fleets found, that's fine
-		logrus.Debugf("No fleets found with test-id %s: %v", testID, err)
-	} else {
-		fleetsOut = strings.TrimSpace(fleetsOut)
-		if fleetsOut != "" {
-			// Parse fleet names from the output
-			// Output format: "fleet/name1\nfleet/name2\n..."
-			for _, line := range strings.Split(fleetsOut, "\n") {
-				name := strings.TrimSpace(line)
-				if name == "" {
-					continue
-				}
-				// Extract just the name part from "fleet/name"
-				name = strings.TrimPrefix(name, "fleet/")
-				if _, err := h.ManageResource("delete", "fleet/"+name); err != nil {
-					deleteErr = appendError(deleteErr, "deleting fleet %s: %w", name, err)
-					logrus.Warnf("failed to delete fleet %s: %v", name, err)
-					continue // Continue with remaining fleets
-				}
-				deletedFleets = append(deletedFleets, name)
-			}
-		}
-	}
-
-	// Then delete devices with the test-id label
-	devicesOut, err := h.CLI("get", util.Device, "-l", fmt.Sprintf("test-id=%s", testID), "-o", "name")
-	if err != nil {
-		if deleteErr != nil {
-			return deletedFleets, deletedDevices, fmt.Errorf("fleet deletion errors: %w; listing devices: %w", deleteErr, err)
-		}
-		// If no devices found, that's fine
-		logrus.Debugf("No devices found with test-id %s: %v", testID, err)
-		return deletedFleets, deletedDevices, deleteErr
-	}
-
-	devicesOut = strings.TrimSpace(devicesOut)
-	if devicesOut != "" {
-		// Parse device names from the output
-		// Output format: "device/name1\ndevice/name2\n..."
-		for _, line := range strings.Split(devicesOut, "\n") {
-			id := strings.TrimSpace(line)
-			if id == "" {
-				continue
-			}
-			// Extract just the name part from "device/name"
-			id = strings.TrimPrefix(id, "device/")
-			if _, err := h.ManageResource("delete", "device/"+id); err != nil {
-				deleteErr = appendError(deleteErr, "deleting device %s: %w", id, err)
-				logrus.Warnf("failed to delete device %s: %v", id, err)
-				continue // Continue with remaining devices
-			}
-			deletedDevices = append(deletedDevices, id)
-		}
-	}
-
-	if len(deletedFleets) > 0 || len(deletedDevices) > 0 {
-		logrus.Infof("Deleted %d fleets and %d devices with test-id %s", len(deletedFleets), len(deletedDevices), testID)
-	} else {
-		logrus.Debugf("No test resources found to delete with test-id %s", testID)
-	}
-
-	return deletedFleets, deletedDevices, deleteErr
 }
 
 // GenerateFleetYAMLsForSimulator returns a multi-document Fleet YAML string with
