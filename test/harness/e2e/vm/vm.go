@@ -17,9 +17,9 @@ const sshWaitTimeout time.Duration = 60 * time.Second
 type TestVM struct {
 	TestDir        string
 	VMName         string
-	LibvirtUri     string //linux only
+	LibvirtUri     string // linux only
 	DiskImagePath  string
-	VMUser         string //user to use when connecting to the VM
+	VMUser         string // user to use when connecting to the VM
 	CloudInitDir   string
 	NoCredentials  bool
 	CloudInitData  bool
@@ -180,11 +180,12 @@ func (v *TestVM) JournalLogs(opts JournalOpts) (string, error) {
 // GetServiceLogs returns the logs from the specified service using journalctl.
 // This method uses the systemd invocation ID to get logs from the latest service invocation.
 func (v *TestVM) GetServiceLogs(serviceName string) (string, error) {
+	cmd := fmt.Sprintf("journalctl _SYSTEMD_INVOCATION_ID=$(systemctl show -p InvocationID --value %s.service) --no-pager", serviceName)
 	args := []string{
 		"sudo",
-		"journalctl",
-		fmt.Sprintf("_SYSTEMD_INVOCATION_ID=$(systemctl show -p InvocationID --value %s.service)", serviceName),
-		"--no-pager",
+		"bash",
+		"-c",
+		cmd,
 	}
 
 	logrus.Infof("Reading service logs for %s with command: %s", serviceName, strings.Join(args, " "))
