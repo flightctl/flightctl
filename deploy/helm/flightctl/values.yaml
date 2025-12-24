@@ -359,6 +359,8 @@ dbSetup:
     backoffLimit: 2147483647
     # -- Maximum runtime in seconds for the migration Job (0 = no deadline)
     activeDeadlineSeconds: 0
+    # -- TTL in seconds for completed/failed migration Jobs before automatic deletion (0 = no TTL)
+    ttlSecondsAfterFinished: 0
 
 # -- Upgrade hooks
 upgradeHooks:
