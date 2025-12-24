@@ -552,10 +552,14 @@ func (m *prefetchManager) cleanupStaleTasks(seenTargets map[string]struct{}) {
 }
 
 func (m *prefetchManager) Cleanup() {
-	m.log.Debug("Prefetch cleanup: canceling active task and draining queue")
-
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	if len(m.tasks) == 0 {
+		return
+	}
+
+	m.log.Debugf("Prefetch cleanup: canceling %d active tasks", len(m.tasks))
 
 	for _, task := range m.tasks {
 		if task.cancelFn != nil {

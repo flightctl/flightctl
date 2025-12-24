@@ -96,15 +96,21 @@ Here are some examples of what you can do with placeholders in device templates:
 
 * You can label devices by their deployment stage (say, `stage: testing` and `stage: production`) and then use the label with the key `stage` as placeholder when referencing the OS image to use (say, `quay.io/myorg/myimage:latest-{{ .metadata.labels.stage }}`) or when referencing a folder with configuration in a Git repository.
 * You can label devices by deployment site (say, `site: factory-berlin` and `site: factory-madrid`) and then use the label with the key `site` as parameter when referencing the secret with network access credentials in Kubernetes.
+* You can label devices by application version (say, `app-version: 1.2.3`) and then use the label to specify the container image for an application (say, `quay.io/myorg/myapp:{{ .metadata.labels.app-version }}` using the `index` function as `quay.io/myorg/myapp:{{ index .metadata.labels "app-version" }}`).
+* You can use the device name to create unique application configurations by templating the inline application content or path with `{{ .metadata.name }}`.
 
 The following fields in device templates support placeholders (including within values, unless otherwise noted):
 
-| Field | Placeholders supported in |
-| ----- | ------------------------- |
-| OS Image | repository name, image name, image tag |
-| Git Config Provider | targetRevision, path |
-| HTTP Config Provider | URL suffix, path |
-| Inline Config Provider | content, path |
+| Field                             | Placeholders supported in              |
+|-----------------------------------|----------------------------------------|
+| OS Image                          | repository name, image name, image tag |
+| Git Config Provider               | targetRevision, path                   |
+| HTTP Config Provider              | URL suffix, path                       |
+| Inline Config Provider            | content, path                          |
+| Image Application Provider        | image tag                              |
+| Inline Application Provider       | content, path                          |
+| Application Environment Variables | values                                 |
+| Application Volumes               | image tag                              |
 
 ### Using Kubernetes Secrets
 

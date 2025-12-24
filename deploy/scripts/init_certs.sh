@@ -96,6 +96,28 @@ pam_issuer_sans=(
 )
 pam_issuer_sans+=("${host_ips[@]}")
 
+# UI certificate SANs
+ui_sans=(
+    "ui.$base_domain"
+    "$base_domain"
+    "$hostname_short"
+    "$hostname_fqdn"
+    "flightctl-ui"
+    "localhost"
+)
+ui_sans+=("${host_ips[@]}")
+
+# CLI Artifacts certificate SANs
+cli_artifacts_sans=(
+    "cli-artifacts.$base_domain"
+    "$base_domain"
+    "$hostname_short"
+    "$hostname_fqdn"
+    "flightctl-cli-artifacts"
+    "localhost"
+)
+cli_artifacts_sans+=("${host_ips[@]}")
+
 # Build the certificate generation command
 cert_gen_args=("--cert-dir" "$CERT_DIR")
 
@@ -113,6 +135,14 @@ done
 
 for san in "${pam_issuer_sans[@]}"; do
     cert_gen_args+=("--pam-issuer-san" "$san")
+done
+
+for san in "${ui_sans[@]}"; do
+    cert_gen_args+=("--ui-san" "$san")
+done
+
+for san in "${cli_artifacts_sans[@]}"; do
+    cert_gen_args+=("--cli-artifacts-san" "$san")
 done
 
 # Generate certificates

@@ -154,6 +154,14 @@ flightctl get devices --org project-a
 flightctl get devices --org project-b
 ```
 
+## Troubleshooting
+
+**Error: no organizations found**  
+Make sure the user has a RoleBinding attached to the **view** role in at least one organization (namespace) and that the namespace has the right label.
+
+**403 error when performing actions on flightctl resources**  
+Make sure the user has a RoleBinding attached to a role with the right permission in the organization's namespace.
+
 ## Related Documentation
 
 - [Authentication Overview](overview.md) - Overview of all authentication methods

@@ -427,3 +427,12 @@ func asErrors(errs field.ErrorList) []error {
 	}
 	return agg.Errors()
 }
+
+// ValidateOCIReferenceStrict validates the supplied image depending on the source of the validation
+// If it's a fleet, template validation will occur, but for devices, strict reference checking is applied
+func ValidateOCIReferenceStrict(s *string, path string, fleetTemplate bool) []error {
+	if fleetTemplate {
+		return ValidateOciImageReferenceWithTemplates(s, path)
+	}
+	return ValidateOciImageReferenceStrict(s, path)
+}

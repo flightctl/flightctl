@@ -38,6 +38,8 @@ import (
 const (
 	// TestRootDirEnvKey is the environment variable key used to set the file system root when testing.
 	TestRootDirEnvKey = "FLIGHTCTL_TEST_ROOT_DIR"
+
+	http2ReadIdleTimeout = 45 * time.Second
 )
 
 // HTTPClientOption is a functional option for configuring HTTP client behavior.
@@ -375,11 +377,13 @@ func NewHTTPClientFromConfig(config *Config) (*http.Client, error) {
 	}
 
 	// Configure HTTP/2
-	err = http2.ConfigureTransport(transport)
+	t2, err := http2.ConfigureTransports(transport)
 	if err != nil {
 		return nil, fmt.Errorf("NewHTTPClientFromConfig: configuring HTTP/2 transport: %w", err)
 	}
-
+	if t2 != nil {
+		t2.ReadIdleTimeout = http2ReadIdleTimeout
+	}
 	httpClient := &http.Client{
 		Transport: transport,
 	}

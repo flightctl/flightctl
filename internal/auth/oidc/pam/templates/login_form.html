@@ -111,7 +111,19 @@
                     window.location.href = result.text;
                 } else {
                     // Failed login - show error message from server
-                    showError(result.text);
+                    // Try to parse as JSON first (OAuth2Error format), otherwise use plain text
+                    let errorMessage = result.text;
+                    try {
+                        const errorJson = JSON.parse(result.text);
+                        if (errorJson.error_description) {
+                            errorMessage = errorJson.error_description;
+                        } else if (errorJson.error) {
+                            errorMessage = errorJson.error;
+                        }
+                    } catch (e) {
+                        // Not JSON, use text as-is
+                    }
+                    showError(errorMessage);
                 }
             })
             .catch(error => {

@@ -14,7 +14,7 @@ The agent's configuration file `/etc/flightctl/config.yaml` takes the following 
 | Parameter | Type | Required | Description|
 | --------- | ---- | :------: |------------|
 | `enrollment-service`     | `EnrollmentService` | Y | Connection details for the device owner's Flight Control service used by the agent to enroll the device. |
-| `spec-fetch-interval`    | `Duration` | | Interval in which the agent polls the service for updates to its device specification. Default: `60s` |
+| `spec-fetch-interval`    | `Duration` | | **Deprecated**: This parameter is no longer used. The agent now uses long-polling to receive specification updates immediately when available. |
 | `status-update-interval` | `Duration` | | Interval in which the agent reports its device status under normal conditions. The agent immediately sends status reports on major events related to the health of the system and application workloads as well as on the progress during a system update. Default: `60s` |
 | `default-labels`         | `object` (`string`) | | Labels (`key: value`-pairs) that the agent requests for the device during enrollment. Default: `{}` |
 | `system-info`            | `array` (`string`) | | System info that the agent shall include in status updates from built-in collectors. See [Built-in system info collectors](#built-in-system-info-collectors). Default: `["hostname", "kernel", "distroName", "distroVersion", "productName", "productUuid", "productSerial", "netInterfaceDefault", "netIpDefault", "netMacDefault"]` |
@@ -176,7 +176,6 @@ Audit logging is enabled by default. To explicitly disable it:
 audit:
   enabled: false
 
-spec-fetch-interval: 60s
 status-update-interval: 60s
 ```
 
@@ -191,7 +190,6 @@ Metrics are **disabled by default**. To enable the Prometheus metrics endpoint (
 [...]
 metrics-enabled: true
 
-spec-fetch-interval: 60s
 status-update-interval: 60s
 ```
 
@@ -206,7 +204,6 @@ Profiling is **disabled by default**. To enable the pprof profiling endpoint (ex
 [...]
 profiling-enabled: true
 
-spec-fetch-interval: 60s
 status-update-interval: 60s
 ```
 
@@ -238,7 +235,6 @@ tpm:
   auth-enabled: false
   storage-file-path: /var/lib/flightctl/tpm-blob.yaml
 
-spec-fetch-interval: 60s
 status-update-interval: 60s
 ```
 

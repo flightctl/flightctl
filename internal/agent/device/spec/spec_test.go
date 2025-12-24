@@ -17,9 +17,9 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/spec/audit"
 	"github.com/flightctl/flightctl/internal/container"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/poll"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
-	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 func TestBootstrapCheckRollback(t *testing.T) {
@@ -826,7 +826,7 @@ func TestRollback(t *testing.T) {
 			readWriter.SetRootdir(tmpDir)
 			log := log.NewPrefixLogger("test")
 			mockPolicyManager := policy.NewMockManager(ctrl)
-			pub := newPublisher("testDevice", 10*time.Millisecond, wait.Backoff{}, "0", nil, log)
+			pub := newPublisher("testDevice", poll.NewConfig(10*time.Millisecond, 1.5), "0", nil, log)
 			cache := newCache(log)
 			queue := newQueueManager(
 				defaultSpecQueueMaxSize,

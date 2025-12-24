@@ -13,7 +13,8 @@ import (
 type applicationValidator interface {
 	// ValidateContents returns any errors for the supplied individual contents. It is expected for a caller
 	// to validate the contents before validating the application so that the validator can build state.
-	ValidateContents(path string, contents []byte) []error
+	// When fleetTemplate is true, template expressions like {{ .metadata.labels.x }} are allowed in image references.
+	ValidateContents(path string, contents []byte, fleetTemplate bool) []error
 	// Validate returns any errors for the application evaluated as a whole.
 	Validate() []error
 }
@@ -22,13 +23,13 @@ type composeValidator struct {
 	paths map[string]struct{}
 }
 
-func (c *composeValidator) ValidateContents(path string, content []byte) []error {
+func (c *composeValidator) ValidateContents(path string, content []byte, fleetTemplate bool) []error {
 	c.paths[path] = struct{}{}
 	composeSpec, err := common.ParseComposeSpec(content)
 	if err != nil {
 		return []error{fmt.Errorf("parse compose spec: %w", err)}
 	}
-	return validation.ValidateComposeSpec(composeSpec)
+	return validation.ValidateComposeSpec(composeSpec, fleetTemplate)
 }
 func (c *composeValidator) Validate() []error {
 	if err := validation.ValidateComposePaths(slices.Collect(maps.Keys(c.paths))); err != nil {
@@ -41,7 +42,7 @@ type quadletValidator struct {
 	quadlets map[string]*common.QuadletReferences
 }
 
-func (q *quadletValidator) ValidateContents(path string, content []byte) []error {
+func (q *quadletValidator) ValidateContents(path string, content []byte, fleetTemplate bool) []error {
 	// Quadlet apps can come with misc files, so only validate that the quadlet files are defined correctly
 	if quadlet.IsQuadletFile(path) {
 		quadletSpec, err := common.ParseQuadletReferences(content)
@@ -49,7 +50,7 @@ func (q *quadletValidator) ValidateContents(path string, content []byte) []error
 			return []error{fmt.Errorf("parse quadlet spec %q: %w", path, err)}
 		}
 		q.quadlets[path] = quadletSpec
-		return validation.ValidateQuadletSpec(quadletSpec, path)
+		return validation.ValidateQuadletSpec(quadletSpec, path, fleetTemplate)
 	}
 	return nil
 }
@@ -68,7 +69,7 @@ type unknownAppTypeValidator struct {
 	appType AppType
 }
 
-func (u *unknownAppTypeValidator) ValidateContents(path string, content []byte) []error {
+func (u *unknownAppTypeValidator) ValidateContents(path string, content []byte, fleetTemplate bool) []error {
 	return nil
 }
 

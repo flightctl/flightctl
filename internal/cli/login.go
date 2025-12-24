@@ -518,10 +518,6 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 		token = authInfo.IdToken
 	}
 
-	err = o.clientConfig.Persist(o.ConfigFilePath)
-	if err != nil {
-		return fmt.Errorf("persisting client config to %s: %w", o.ConfigFilePath, err)
-	}
 	// Validate token with API server (handles TLS prompt/retry)
 	c, err := o.validateTokenWithServer(ctx, token)
 	if err != nil {

@@ -57,8 +57,8 @@ func ValidateComposePaths(paths []string) error {
 	return nil
 }
 
-// ValidateComposeSpec verifies the ComposeSpec for common issues
-func ValidateComposeSpec(spec *common.ComposeSpec) []error {
+// ValidateComposeSpec verifies the ComposeSpec for common issues.
+func ValidateComposeSpec(spec *common.ComposeSpec, fleetTemplate bool) []error {
 	services := spec.Services
 	if len(services) == 0 {
 		return []error{fmt.Errorf("compose spec has no services")}
@@ -74,7 +74,7 @@ func ValidateComposeSpec(spec *common.ComposeSpec) []error {
 		if image == "" {
 			errs = append(errs, fmt.Errorf("service %s is missing an image", name))
 		}
-		if err := ValidateOciImageReferenceStrict(&image, "services."+name+".image"); err != nil {
+		if err := ValidateOCIReferenceStrict(&image, "services."+name+".image", fleetTemplate); err != nil {
 			errs = append(errs, err...)
 		}
 	}

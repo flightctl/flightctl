@@ -300,7 +300,7 @@ func TestValidateQuadletReferences(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			errs := ValidateQuadletSpec(tt.spec, tt.path)
+			errs := ValidateQuadletSpec(tt.spec, tt.path, false)
 			require.Len(errs, tt.wantErrCount, "expected %d errors, got %d: %v", tt.wantErrCount, len(errs), errs)
 			if tt.wantErrSubstr != "" && len(errs) > 0 {
 				require.Contains(errs[0].Error(), tt.wantErrSubstr)

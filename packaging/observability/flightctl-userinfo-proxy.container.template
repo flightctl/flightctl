@@ -6,7 +6,7 @@ PartOf=flightctl-observability.target
 
 [Container]
 Image=${USERINFO_PROXY_IMAGE}
-Pull=newer
+Pull=missing
 
 ContainerName=flightctl-userinfo-proxy
 

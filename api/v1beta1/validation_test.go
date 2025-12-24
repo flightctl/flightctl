@@ -1793,7 +1793,7 @@ ExecStart=/usr/bin/myapp`,
 		t.Run(tt.name, func(t *testing.T) {
 			content := []byte(tt.content)
 			validator := quadletValidator{quadlets: make(map[string]*common.QuadletReferences)}
-			errs := validator.ValidateContents(tt.path, content)
+			errs := validator.ValidateContents(tt.path, content, false)
 
 			require.Len(errs, tt.wantErrCount, "expected %d errors, got %d: %v", tt.wantErrCount, len(errs), errs)
 			if tt.wantErrSubstr != "" && len(errs) > 0 {

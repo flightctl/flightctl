@@ -10,42 +10,34 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type testTaskType string
-
-const (
-	fetchSpec  testTaskType = "FetchSpec"
-	pushStatus testTaskType = "PushStatus"
-)
-
-func TestEngineDistribution(t *testing.T) {
+func TestEngineRun(t *testing.T) {
 	require := require.New(t)
 
 	startTime := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 	mockClock := newMockClock(startTime)
 
 	var (
-		mu     sync.Mutex
-		events []testTaskType
+		mu          sync.Mutex
+		specCount   int
+		statusCount int
 	)
 
-	fetchSpecFn := func(ctx context.Context) {
+	syncSpecFn := func(ctx context.Context) {
 		mu.Lock()
 		defer mu.Unlock()
-		events = append(events, fetchSpec)
+		specCount++
 	}
 	pushStatusFn := func(ctx context.Context) {
 		mu.Lock()
 		defer mu.Unlock()
-		events = append(events, pushStatus)
+		statusCount++
 	}
 
 	startCh := make(chan struct{})
-	fetchSpecInterval := 100 * time.Millisecond
-	fetchStatusInterval := 100 * time.Millisecond
+	statusInterval := 60 * time.Second // Status every 60s
 	engine := Engine{
-		fetchSpecInterval:  util.Duration(fetchSpecInterval),
-		fetchSpecFn:        fetchSpecFn,
-		pushStatusInterval: util.Duration(fetchStatusInterval),
+		syncSpecFn:         syncSpecFn,
+		pushStatusInterval: util.Duration(statusInterval),
 		pushStatusFn:       pushStatusFn,
 		clock:              mockClock,
 		startedCh:          startCh,
@@ -59,18 +51,35 @@ func TestEngineDistribution(t *testing.T) {
 	}()
 	<-startCh // wait for ticker to start
 
-	// simulate time passing 1000 intervals of 100ms
-	for i := 0; i < 1000; i++ {
-		// advance time +100 ms,
-		mockClock.Advance(100 * time.Millisecond)
+	//initial sync happens immediately
+	time.Sleep(10 * time.Millisecond) // give goroutine time to process tick
+	mu.Lock()
+	require.Equal(1, specCount, "initial spec sync should happen")
+	require.Equal(1, statusCount, "initial status push should happen")
+	mu.Unlock()
+
+	for i := 0; i < 5; i++ {
+		mockClock.Advance(1 * time.Second)
+		time.Sleep(10 * time.Millisecond)
 	}
 
-	cancel()
 	mu.Lock()
-	defer mu.Unlock()
-	for i := 1; i < len(events); i++ {
-		require.NotEqual(events[i], events[i-1], "sequence must alternate")
+	require.Equal(6, specCount, "spec should sync 5 more times (every 1s)")
+	require.Equal(1, statusCount, "status should not push yet (60s interval)")
+	mu.Unlock()
+
+	for i := 0; i < 55; i++ {
+		mockClock.Advance(1 * time.Second)
+		time.Sleep(1 * time.Millisecond)
 	}
+	time.Sleep(10 * time.Millisecond)
+
+	mu.Lock()
+	require.Equal(61, specCount, "spec should sync 55 more times")
+	require.Equal(2, statusCount, "status should push at 60s")
+	mu.Unlock()
+
+	cancel()
 }
 
 type mockClock struct {

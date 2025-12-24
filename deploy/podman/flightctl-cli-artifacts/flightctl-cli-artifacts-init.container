@@ -1,12 +1,13 @@
 [Unit]
 Description=Flight Control CLI Artifacts Certificates Initialization
 PartOf=flightctl.target
-After=flightctl-api.service flightctl-certs-init.service
-Wants=flightctl-api.service flightctl-certs-init.service
+After=flightctl-certs-init.service
+Wants=flightctl-certs-init.service
 
 [Container]
 Image=registry.access.redhat.com/ubi9/ubi-minimal:9.7-1763362218
 ContainerName=flightctl-cli-artifacts-init
+Pull=missing
 Volume=/usr/share/flightctl/init_utils.sh:/utils/init_utils.sh:ro,z
 Volume=/usr/share/flightctl/flightctl-cli-artifacts/init.sh:/config-source/init.sh:ro,z
 Volume=/usr/share/flightctl/flightctl-cli-artifacts:/config-source:ro,z

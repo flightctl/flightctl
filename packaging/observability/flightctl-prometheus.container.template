@@ -6,7 +6,7 @@ PartOf=flightctl-observability.target
 
 [Container]
 Image=${PROMETHEUS_IMAGE}
-Pull=newer
+Pull=missing
 ContainerName=flightctl-prometheus
 
 Volume=/etc/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro,z

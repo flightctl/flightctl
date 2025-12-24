@@ -18,6 +18,8 @@ The agent reconciles `Device.Spec` from control plane, reports resource usage, m
 
 ### Key Components
 - **Bootstrap**: Initialization phase before reconciliation - only used in agent.go setup
+- **Publisher**: Async long-polling for specs (4min timeout, 5s min delay between polls)
+- **Engine**: Checks priority queue for new specs every 1s, pushes status on interval
 - **Priority Queue**: Version reconciliation with cache/policy dependencies
 - **FileIO Module**: ALL disk operations (enables testing/simulation)
 - **Managers**: `agent/device/<namespace>` mirrors spec keys (e.g., applications/, config/, os/)

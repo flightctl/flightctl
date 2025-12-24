@@ -13,15 +13,7 @@ Flight Control API server implements standard OpenID Connect authentication. It 
 
 ## OIDC Providers
 
-Flight Control works with any OIDC-compliant provider, including:
-
-- Azure AD / Microsoft Entra ID
-- Okta
-- Keycloak
-- Google
-- Auth0
-- And any other OIDC-compliant provider
-
+Flight Control works with any OIDC-compliant provider.
 For standalone deployments, [PAM Issuer](auth-pam.md) is bundled as a default OIDC provider.
 
 ## Organization and Role Mapping
@@ -274,7 +266,7 @@ flightctl delete ap my-oidc-provider
 
 ## When to Use OIDC Authentication
 
-- ✅ Production deployments with corporate SSO (Azure AD, Okta, etc.)
+- ✅ Production deployments with corporate SSO.
 - ✅ Development and testing environments
 - ✅ Multiple identity sources
 - ✅ Need flexible organization and role mapping
