@@ -114,7 +114,7 @@ _run_template_migration:
     test/scripts/run_migration.sh \
 	'
 
-deploy-e2e-extras: bin/.ssh/id_rsa.pub bin/e2e-certs/ca.pem git-server-container
+deploy-e2e-extras: bin/.ssh/id_rsa.pub bin/e2e-certs/ca.pem
 	test/scripts/deploy_e2e_extras_with_helm.sh
 
 deploy-e2e-ocp-test-vm:
@@ -142,7 +142,7 @@ prepare-e2e-test: deploy-e2e-extras build-e2e-containers push-e2e-agent-images p
 	./test/scripts/prepare_cli.sh
 
 # Build E2E containers with Docker caching
-build-e2e-containers: git-server-container e2e-agent-images
+build-e2e-containers: e2e-agent-images
 	@echo "Building E2E containers with Docker caching..."
 
 # Ensure git-server container is built with proper caching
