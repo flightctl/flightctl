@@ -1,0 +1,10 @@
+# quay.io/flightctl/flightctl-device:v6
+#
+# Image built on top of base image which includes an embedded
+# hook that will trigger sshd reload after each configuration update
+
+ARG BASE_IMAGE=quay.io/flightctl/flightctl-device:base
+
+FROM ${BASE_IMAGE}
+
+COPY --from=variant-context sshd-hook.yaml /usr/lib/flightctl/hooks.d/afterupdating/sshd-hook.yaml

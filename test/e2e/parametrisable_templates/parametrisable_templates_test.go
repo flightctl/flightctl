@@ -195,7 +195,7 @@ var _ = Describe("Template variables in the device configuraion", func() {
 				configProviderSpec := []v1beta1.ConfigProviderSpec{gitConfigProviderSpec, inlineConfigProviderSpec, httpConfigProviderSpec}
 
 				GinkgoWriter.Printf("this is the configProviderSpec %s\n", configProviderSpec)
-				deviceImage := fmt.Sprintf("%s/flightctl-device:{{ .metadata.labels.alias }}", harness.RegistryEndpoint())
+				deviceImage := fmt.Sprintf("%s:{{ .metadata.labels.alias }}", testutil.NewDeviceImageReference("").String())
 
 				var osImageSpec = v1beta1.DeviceOsSpec{
 					Image: deviceImage,
@@ -260,7 +260,6 @@ var _ = Describe("Template variables in the device configuraion", func() {
 				Expect(err).ToNot(HaveOccurred())
 
 				err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
-
 					(*device.Metadata.Labels)[revisionLabelKey] = branchTargetRevision
 					GinkgoWriter.Printf("Updating the device with label %s=%s\n", revisionLabelKey, branchTargetRevision)
 				})

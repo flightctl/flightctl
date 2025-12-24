@@ -11,6 +11,7 @@ set -euo pipefail
 #   MOUNT_DIR     - temporary mount point (default: /mnt/qcow)
 #   REGISTRY_ADDR - host:port of your registry for CA install (default: <host LAN IP>:5000)
 #   E2E_CA        - path to CA certificate for your registry (default: bin/e2e-certs/pki/CA/ca.crt)
+#   SOURCE_REPO   - remote repo prefix to remap (fixed: quay.io/flightctl)
 #
 # Usage:
 #   ./inject_agent_files_into_qcow.sh [--qcow PATH] [--agent-dir PATH] [--mount-dir PATH] \
@@ -21,6 +22,7 @@ AGENT_DIR="${AGENT_DIR:-bin/agent/etc/flightctl}"
 MOUNT_DIR="${MOUNT_DIR:-/mnt/qcow}"
 REGISTRY_ADDR="${REGISTRY_ADDR:-}"
 E2E_CA="${E2E_CA:-bin/e2e-certs/pki/CA/ca.crt}"
+SOURCE_REPO="quay.io/flightctl"
 
 log()   { echo "[info] $*"; }
 dbg()   { echo "[debug] $*"; }
@@ -56,12 +58,19 @@ fi
 # CA install directory must match the host:port of the registry
 REG_TLS_HOSTPORT="$REGISTRY_ADDR"
 
+SOURCE_REPO="${SOURCE_REPO%/}"
+if [[ "$SOURCE_REPO" != */* ]]; then
+  fail "SOURCE_REPO must include registry and namespace (e.g. quay.io/flightctl)"
+fi
+SOURCE_REPO_PATH="${SOURCE_REPO#*/}"
+
 log "QCOW=$QCOW"
 log "AGENT_DIR=$AGENT_DIR"
 log "MOUNT_DIR=$MOUNT_DIR"
 log "REGISTRY_ADDR=$REGISTRY_ADDR"
 log "E2E_CA=$E2E_CA"
 log "REG_TLS_HOSTPORT=$REG_TLS_HOSTPORT"
+log "SOURCE_REPO=$SOURCE_REPO"
 
 sudo modprobe nbd max_part=16 || true
 
@@ -165,14 +174,31 @@ inject_registry_ca() {
   fi
 }
 
+write_registry_remap() {
+  local base="$1"
+  local config_dir="$base/containers/registries.conf.d"
+  local remap_file="$config_dir/flightctl-remap.conf"
+  local dest="${REG_TLS_HOSTPORT}/${SOURCE_REPO_PATH}"
+  log "Configuring registry remap $remap_file ($SOURCE_REPO -> $dest)"
+  sudo install -d "$config_dir"
+  sudo tee "$remap_file" >/dev/null <<EOF
+[[registry]]
+prefix = "${SOURCE_REPO}"
+location = "${dest}"
+EOF
+  sudo chown root:root "$remap_file"
+}
+
 # Write to deployment etc so it appears at guest /etc
 copy_into "$DEPLOY_ETC"
 inject_registry_ca "$DEPLOY_ETC"
+write_registry_remap "$DEPLOY_ETC"
 
 # Also mirror to on-disk etc so it shows under guest /sysroot/etc
 if [[ "$SYSROOT_ETC" != "$DEPLOY_ETC" ]]; then
   copy_into "$SYSROOT_ETC"
   inject_registry_ca "$SYSROOT_ETC"
+  write_registry_remap "$SYSROOT_ETC"
 fi
 
 sync

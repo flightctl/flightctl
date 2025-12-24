@@ -3,6 +3,11 @@ set -eo pipefail
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 source "${SCRIPT_DIR}"/functions
 
+if [[ -x "bin/flightctl" ]]; then
+    echo -e "\e[32mCLI already exists at bin/flightctl, skipping build\e[0m"
+    exit 0
+fi
+
 if [[ -n "${BREW_BUILD_URL:-}" ]]; then
     echo -e "\e[32mInstalling the CLI from brew registry BREW_BUILD_URL: ${BREW_BUILD_URL}\e[0m"
 

@@ -1,0 +1,68 @@
+name: "Build Agent Images from RPMs"
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  compute-tag:
+    runs-on: ubuntu-24.04
+    outputs:
+      git_tag: ${{ steps.compute-tag.outputs.git_tag }}
+      any_changed: ${{ steps.changed-files.outputs.any_changed }}
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Get changed files
+        id: changed-files
+        uses: tj-actions/changed-files@v46
+        with:
+          since_last_remote_commit: 'true'
+          files_ignore: |
+            .spelling
+            README.md
+            docs/**
+            .github/**
+            examples/**
+
+      - name: Compute tag
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        id: compute-tag
+        uses: ./.github/actions/compute-tag
+
+  build-rpms:
+    needs: compute-tag
+    if: ${{ needs.compute-tag.outputs.any_changed == 'true' }}
+    strategy:
+      matrix:
+        include:
+          - os_id: cs9-bootc
+            rpm_mock_root: centos-stream+epel-next-9-x86_64
+          - os_id: cs10-bootc
+            rpm_mock_root: epel-10-x86_64
+    uses: ./.github/workflows/build-rpms.yaml
+    with:
+      root: ${{ matrix.rpm_mock_root }}
+
+  build-agent-images:
+    needs: [compute-tag, build-rpms]
+    if: ${{ needs.compute-tag.outputs.any_changed == 'true' }}
+    strategy:
+      matrix:
+        include:
+          - os_id: cs9-bootc
+            rpm_suffix: centos-stream+epel-next-9-x86_64
+          - os_id: cs10-bootc
+            rpm_suffix: epel-10-x86_64
+    uses: ./.github/workflows/build-agent-images.yaml
+    with:
+      rpm_suffix: ${{ matrix.rpm_suffix }}
+      os_id: ${{ matrix.os_id }}
+      tag: ${{ needs.compute-tag.outputs.git_tag }}

@@ -1,31 +1,37 @@
 #!/usr/bin/env bash
 set -ex
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
+ROOT_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
 source "${SCRIPT_DIR}"/../functions
 
-REGISTRY_ADDRESS=$(registry_address)
-IMAGE_LIST=$(ls $SCRIPT_DIR | grep Containerfile-sleep-app | cut -d '-' -f 4)
+# Use same defaults as create_agent_images.sh
+SOURCE_GIT_TAG="${SOURCE_GIT_TAG:-$(${ROOT_DIR}/hack/current-version)}"
+TAG="${TAG:-$SOURCE_GIT_TAG}"
+APP_REPO="${APP_REPO:-quay.io/flightctl}"
+REGISTRY_ADDRESS="${REGISTRY_ADDRESS:-$(registry_address)}"
 
+# Export variables for downstream scripts
+export APP_REPO
+export TAG
+export REGISTRY_ADDRESS
 
-for img in $IMAGE_LIST; do
-   FINAL_REF="${REGISTRY_ADDRESS}/sleep-app:${img}"
-   echo -e "\033[32mCreating image ${FINAL_REF} \033[m"
-   # Use GitHub Actions cache when GITHUB_ACTIONS=true, otherwise no caching
-   if [ "${GITHUB_ACTIONS:-false}" = "true" ]; then
-       REGISTRY="${REGISTRY:-localhost}"
-       REGISTRY_OWNER_TESTS="${REGISTRY_OWNER_TESTS:-flightctl-tests}"
-       CACHE_FLAGS=("--cache-from=${REGISTRY}/${REGISTRY_OWNER_TESTS}/sleep-app")
-   else
-       CACHE_FLAGS=()
-   fi
+cd "$ROOT_DIR"
 
-   podman build "${CACHE_FLAGS[@]}" \
-   	--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG:-$("${SCRIPT_DIR}/../../../hack/current-version")} \
-   	--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE:-$( ( ( [ ! -d ".git/" ] || git diff --quiet ) && echo 'clean' ) || echo 'dirty' )} \
-   	--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT:-$(git rev-parse --short "HEAD^{commit}" 2>/dev/null || echo "unknown")} \
-   	-f "${SCRIPT_DIR}"/Containerfile-sleep-app-"${img}" -t localhost:5000/sleep-app:${img} .
-   podman tag "localhost:5000/sleep-app:${img}" "${FINAL_REF}"
-   podman push "${FINAL_REF}"
-done
+# Build app images using the modular build.sh script
+echo -e "\033[32mBuilding app images using build.sh --apps\033[m"
+"${SCRIPT_DIR}/scripts/build.sh" --apps
+
+# Create bundle tar using the modular bundle.sh script
+echo -e "\033[32mBundling app images\033[m"
+BUNDLE_TAR="${ROOT_DIR}/bin/app-images-bundle.tar"
+"${SCRIPT_DIR}/scripts/bundle.sh" --filter "label=io.flightctl.e2e.component=app" --filter "reference=${APP_REPO}/sleep-app:*" --output-path "${BUNDLE_TAR}"
+
+# Push images if requested using the modular upload-images.sh script
+if [ "${PUSH_IMAGES:-false}" = "true" ]; then
+  echo -e "\033[32mPushing app images to registry\033[m"
+  "${SCRIPT_DIR}/scripts/upload-images.sh" "${BUNDLE_TAR}"
+else
+  echo -e "\033[33mSkipping push (PUSH_IMAGES=${PUSH_IMAGES:-false})\033[m"
+fi
 
