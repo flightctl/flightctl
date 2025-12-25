@@ -1,7 +1,7 @@
-name: 'Check Admin Override Label'
+name: 'Check Reviewer Override Label'
 description: |
   Checks if a specified override label exists on a pull request and validates
-  that it was added by a repository admin or maintainer.
+  that it was added by someone who has approved the PR.
 
 inputs:
   label-name:
@@ -23,19 +23,17 @@ runs:
         script: |
           const labelName = '${{ inputs.label-name }}';
           
-          // Get PR number - handle different event types
+          // Get PR number - only supports pull_request events
           let prNumber = null;
           if (context.payload.pull_request?.number) {
             prNumber = context.payload.pull_request.number;
-          } else if (context.issue?.number) {
-            prNumber = context.issue.number;
           } else if (context.eventName === 'merge_group') {
             // merge_group events don't have PR context
             console.log('merge_group event - no PR context available');
             core.setOutput('override', 'false');
             return;
           } else {
-            console.log('No PR number found in context');
+            console.log('No PR number found in context - this action only supports pull_request events');
             core.setOutput('override', 'false');
             return;
           }
@@ -55,24 +53,32 @@ runs:
             core.setOutput('override', 'false');
             return;
           }
-
+          
           const labelExists = labels.includes(labelName);
+          console.log(`Looking for label: ${labelName}`);
+
           if (!labelExists) {
             console.log(`Label '${labelName}' not found on PR`);
             core.setOutput('override', 'false');
             return;
           }
 
-          console.log(`Override label '${labelName}' found, verifying admin status...`);
+          console.log(`Override label '${labelName}' found, verifying PR approval...`);
 
-          // Verify the label was added by an admin
-          const { data: events } = await github.rest.issues.listEvents({
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            issue_number: prNumber
-          });
-          
-          let hasOverride = false;
+          // Get the person who added the label
+          let events;
+          try {
+            const response = await github.rest.issues.listEvents({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber
+            });
+            events = response.data;
+          } catch (error) {
+            console.log(`Error fetching events: ${error.message}`);
+            core.setOutput('override', 'false');
+            return;
+          }
 
           const labelEvents = events.filter(e =>
             e.event === 'labeled' &&
@@ -80,34 +86,42 @@ runs:
             e.label.name === labelName
           );
 
-          if (labelEvents.length > 0) {
-            const lastLabelEvent = labelEvents[labelEvents.length - 1];
-            console.log(`Label added by: ${lastLabelEvent.actor.login}`);
-
-            // Check if user has admin permissions
-            try {
-              const { data: perm } = await github.rest.repos.getCollaboratorPermissionLevel({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                username: lastLabelEvent.actor.login
-              });
-
-              const isAdmin = perm.permission === 'admin' || perm.permission === 'maintain';
-              if (!isAdmin) {
-                console.log(`User ${lastLabelEvent.actor.login} does not have admin/maintain permissions (has: ${perm.permission})`);
-                hasOverride = false;
-              } else {
-                console.log(`Override approved by admin: ${lastLabelEvent.actor.login}`);
-                hasOverride = true;
-              }
-            } catch (error) {
-              console.log(`Error checking permissions: ${error.message}`);
-              hasOverride = false;
-            }
-          } else {
+          if (labelEvents.length === 0) {
             console.log('Could not find label event history');
+            core.setOutput('override', 'false');
+            return;
+          }
+
+          const lastLabelEvent = labelEvents[labelEvents.length - 1];
+          const labelAdder = lastLabelEvent.actor.login;
+          console.log(`Label added by: ${labelAdder}`);
+
+          // Check if the label adder has approved the PR
+          let hasOverride = false;
+          try {
+            const { data: reviews } = await github.rest.pulls.listReviews({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber
+            });
+
+            const hasApproved = reviews.some(review => 
+              review.user.login === labelAdder && 
+              review.state === 'APPROVED'
+            );
+
+            if (hasApproved) {
+              console.log(`Override approved: ${labelAdder} has approved this PR`);
+              hasOverride = true;
+            } else {
+              console.log(`User ${labelAdder} has not approved this PR`);
+            }
+          } catch (error) {
+            console.log(`Error checking PR reviews: ${error.message}`);
+            // If we can't check reviews, fail safe
             hasOverride = false;
           }
 
           core.setOutput('override', hasOverride.toString());
           console.log(`Final override status: ${hasOverride}`);
+

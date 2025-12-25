@@ -25,7 +25,7 @@ jobs:
 
       - name: Check if override label exists
         id: check_override
-        uses: ./.github/actions/check-admin-override
+        uses: ./.github/actions/check-reviewer-override
         with:
           label-name: 'breaking-change-approved'
 
