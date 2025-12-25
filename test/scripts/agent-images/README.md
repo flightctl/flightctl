@@ -133,7 +133,7 @@ registry and the `quay.io/flightctl` prefix is remapped to the local registry ad
 To configure registry remapping in a QCOW2 image, use `inject_agent_files_into_qcow.sh`:
 
 ```bash
-./test/scripts/inject_agent_files_into_qcow.sh --registry-addr <host>:5000
+./test/scripts/inject_agent_files_into_qcow.sh --registry-address <host>:5000
 ```
 
 This creates a containers registry config at `/etc/containers/registries.conf.d/flightctl-remap.conf`
