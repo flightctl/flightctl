@@ -112,7 +112,7 @@ ssh -i ${SSH_PRIVATE_KEY_PATH} -o StrictHostKeyChecking=no -o UserKnownHostsFile
   # Install necessary packages
   sudo dnf install -y epel-release libvirt libvirt-client virt-install pam-devel swtpm wget \
                     make golang git \
-                    podman qemu-kvm sshpass
+                    podman qemu-kvm sshpass skopeo
   sudo dnf --enablerepo=crb install -y libvirt-devel
 
   # Install OpenShift client
