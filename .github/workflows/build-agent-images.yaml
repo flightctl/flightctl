@@ -41,7 +41,7 @@ jobs:
       - name: Download RPM artifacts
         uses: actions/download-artifact@v4
         with:
-          name: rpms-${{ inputs.rpm_suffix }}
+          name: rpms-${{ inputs.rpm_suffix }}-agent
           path: bin/rpm
 
       - name: Build agent images for flavor

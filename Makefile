@@ -111,7 +111,9 @@ help:
 	@echo "    cluster:         create a kind cluster and load the flightctl-server image"
 	@echo "    clean-cluster:   kill the kind cluster only"
 	@echo "    clean-quadlets:  clean up all systemd services and quadlet files"
-	@echo "    rpm/deb:         generate rpm or debian packages"
+	@echo "    rpm:             generate all rpm packages"
+	@echo "    rpm-agent:       generate only agent+selinux rpm packages (faster)"
+	@echo "    deb:             generate debian packages"
 	@echo ""
 	@echo "CI/CD Targets:"
 	@echo "    login:           login to container registry (requires REGISTRY_USER env var)"
@@ -354,7 +356,17 @@ bin/.rpm: $(shell find $(ROOT_DIR)/ -name "*.go" -not -path "$(ROOT_DIR)/packagi
 
 rpm: bin/.rpm
 
-.PHONY: rpm build build-api build-pam-issuer build-periodic build-worker build-alert-exporter build-alertmanager-proxy build-userinfo-proxy build-standalone
+# Build only agent+selinux RPMs (faster build for development)
+.PHONY: rpm-agent
+rpm-agent: | bin
+	@sudo GOMODCACHE="$(shell go env GOMODCACHE)" \
+	     GOCACHE="$(shell go env GOCACHE)" \
+	     "$(ROOT_DIR)/hack/build_rpms.sh" \
+	     --agent-only \
+	     --root "$(if $(RPM_MOCK_ROOT),$(RPM_MOCK_ROOT),$(RPM_MOCK_ROOT_DEFAULT))"
+	@sudo chown -R $(shell id -u):$(shell id -g) bin/rpm/
+
+.PHONY: rpm rpm-agent build build-api build-pam-issuer build-periodic build-worker build-alert-exporter build-alertmanager-proxy build-userinfo-proxy build-standalone
 
 # cross-building for deb pkg
 bin/amd64:

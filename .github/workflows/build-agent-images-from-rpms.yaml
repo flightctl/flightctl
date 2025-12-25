@@ -50,6 +50,7 @@ jobs:
     uses: ./.github/workflows/build-rpms.yaml
     with:
       root: ${{ matrix.rpm_mock_root }}
+      agentOnly: true
 
   build-agent-images:
     needs: [compute-tag, build-rpms]

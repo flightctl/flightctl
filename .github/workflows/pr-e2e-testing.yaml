@@ -84,6 +84,7 @@ jobs:
     uses: ./.github/workflows/build-rpms.yaml
     with:
       root: ${{ matrix.root }}
+      agentOnly: true
 
   build-agent-images-unified:
     needs: [compute-tag, build-rpms]

@@ -8,6 +8,15 @@
 %global selinuxtype targeted
 %define selinux_policyver 3.14.3-67
 
+# =============================================================================
+# Conditional build: --with agent_only
+# =============================================================================
+# Usage:
+#   rpmbuild ...                       # Build all packages (default)
+#   rpmbuild --with agent_only ...     # Build only flightctl-agent + flightctl-selinux
+# =============================================================================
+%bcond_with agent_only
+
 Name:           flightctl
 # Version and Release are automatically updated by Packit during build
 # Do not manually change these values - they will be overwritten
@@ -40,11 +49,13 @@ Requires: openssl
 # Main package is empty and not created.
 
 # cli sub-package
+%if %{without agent_only}
 %package cli
 Summary: Flight Control CLI
 Recommends: bash-completion
 %description cli
 flightctl is the CLI for controlling the Flight Control service.
+%endif
 
 # agent sub-package
 %package agent
@@ -76,6 +87,7 @@ Requires: container-selinux
 The flightctl-selinux package provides the SELinux policy modules required by the Flight Control management agent.
 
 # services sub-package
+%if %{without agent_only}
 %package services
 Summary: Flight Control services
 Requires: bash
@@ -119,7 +131,9 @@ Prometheus for metric storage, Grafana for visualization, and
 Telemetry Gateway for metric collection. All components run in Podman containers
 managed by systemd and can be installed independently without requiring core Flight Control
 services to be running. This package automatically includes the flightctl-telemetry-gateway package.
+%endif
 
+%if %{without agent_only}
 %files telemetry-gateway
 # Telemetry Gateway specific files
 /opt/flightctl-observability/templates/flightctl-telemetry-gateway.container.template
@@ -193,7 +207,6 @@ services to be running. This package automatically includes the flightctl-teleme
 %dir /etc/flightctl
 %dir /etc/flightctl/scripts
 %dir /etc/flightctl/definitions
-
 
 %pre telemetry-gateway
 # This script runs BEFORE the files are installed onto the system.
@@ -410,6 +423,7 @@ echo "Running post-uninstall actions for Flight Control Observability Stack..."
 
 /usr/bin/systemctl daemon-reload
 echo "Flight Control Observability Stack uninstalled."
+%endif
 
 %prep
 %goprep -A
@@ -424,29 +438,47 @@ echo "Flight Control Observability Stack uninstalled."
     fi
 
     # Prefer values injected by Makefile/CI; fall back to RPM macros when unset
-    SOURCE_GIT_TAG="%{?SOURCE_GIT_TAG:%{SOURCE_GIT_TAG}}%{!?SOURCE_GIT_TAG:%(echo "v%{version}" | tr '~' '-')}" \
-    SOURCE_GIT_TREE_STATE="%{?SOURCE_GIT_TREE_STATE:%{SOURCE_GIT_TREE_STATE}}%{!?SOURCE_GIT_TREE_STATE:clean}" \
-    SOURCE_GIT_COMMIT="%{?SOURCE_GIT_COMMIT:%{SOURCE_GIT_COMMIT}}%{!?SOURCE_GIT_COMMIT:%(
+    # Export version info so it's available to make commands
+    export SOURCE_GIT_TAG="%{?SOURCE_GIT_TAG:%{SOURCE_GIT_TAG}}%{!?SOURCE_GIT_TAG:%(echo "v%{version}" | tr '~' '-')}"
+    export SOURCE_GIT_TREE_STATE="%{?SOURCE_GIT_TREE_STATE:%{SOURCE_GIT_TREE_STATE}}%{!?SOURCE_GIT_TREE_STATE:clean}"
+    export SOURCE_GIT_COMMIT="%{?SOURCE_GIT_COMMIT:%{SOURCE_GIT_COMMIT}}%{!?SOURCE_GIT_COMMIT:%(
         commit=$(git rev-parse --short HEAD 2>/dev/null);
         if [ -z "$commit" ]; then
             commit=$(echo %{version} | grep -o '[-~]g[0-9a-f]*' | sed 's/[-~]g//');
         fi;
         echo "${commit:-unknown}";
-    )}" \
+    )}"
+
+%if %{with agent_only}
+    # Build only agent binary (for --with agent_only)
+    %if 0%{?rhel} == 9
+        %make_build build-agent
+    %else
+        DISABLE_FIPS="true" %make_build build-agent
+    %endif
+%else
+    # Build all binaries (default)
     %if 0%{?rhel} == 9
         %make_build build-cli build-agent build-restore build-standalone
     %else
         DISABLE_FIPS="true" %make_build build-cli build-agent build-restore build-standalone
     %endif
+%endif
 
-    # SELinux modules build
+    # SELinux modules build (always needed for agent)
     %make_build --directory packaging/selinux
 
 %install
     mkdir -p %{buildroot}/usr/bin
     mkdir -p %{buildroot}/etc/flightctl
+
+    # --- CLI installation (skipped with --with agent_only) ---
+%if %{without agent_only}
     cp bin/flightctl %{buildroot}/usr/bin
     cp bin/flightctl-restore %{buildroot}/usr/bin
+%endif
+
+    # --- Agent installation (always built) ---
     mkdir -p %{buildroot}/usr/lib/systemd/system
     mkdir -p %{buildroot}/usr/lib/tmpfiles.d
     mkdir -p %{buildroot}/usr/lib/flightctl/custom-info.d
@@ -462,15 +494,27 @@ echo "Flight Control Observability Stack uninstalled."
     echo "d /var/roothome 0755 root root -" >> %{buildroot}/usr/lib/tmpfiles.d/centos-buildinfo.conf
     echo "d /var/roothome/buildinfo 0755 root root -" >> %{buildroot}/usr/lib/tmpfiles.d/centos-buildinfo.conf
     echo "d /var/roothome/buildinfo/content_manifests 0755 root root -" >> %{buildroot}/usr/lib/tmpfiles.d/centos-buildinfo.conf
+
+    # --- CLI shell completions (skipped with --with agent_only) ---
+%if %{without agent_only}
     bin/flightctl completion bash > flightctl-completion.bash
     install -Dpm 0644 flightctl-completion.bash -t %{buildroot}/%{_datadir}/bash-completion/completions
     bin/flightctl completion fish > flightctl-completion.fish
     install -Dpm 0644 flightctl-completion.fish -t %{buildroot}/%{_datadir}/fish/vendor_completions.d/
     bin/flightctl completion zsh > _flightctl-completion
     install -Dpm 0644 _flightctl-completion -t %{buildroot}/%{_datadir}/zsh/site-functions/
+%endif
+
+    # --- SELinux modules (always needed for agent) ---
     install -d %{buildroot}%{_datadir}/selinux/packages/%{selinuxtype}
     install -m644 packaging/selinux/*.bz2 %{buildroot}%{_datadir}/selinux/packages/%{selinuxtype}
 
+    # --- SOS report plugin (needed for agent) ---
+    mkdir -p %{buildroot}/usr/share/sosreport
+    cp packaging/sosreport/sos/report/plugins/flightctl.py %{buildroot}/usr/share/sosreport
+
+    # --- Services and Observability installation (skipped with --with agent_only) ---
+%if %{without agent_only}
     install -Dpm 0644 packaging/flightctl-services-install.conf %{buildroot}%{_sysconfdir}/flightctl/flightctl-services-install.conf
 
     # flightctl-services sub-package steps
@@ -506,10 +550,6 @@ echo "Flight Control Observability Stack uninstalled."
     # Copy generate-certificates.sh script
     mkdir -p %{buildroot}%{_datadir}/flightctl
     install -m 0755 deploy/helm/flightctl/scripts/generate-certificates.sh %{buildroot}%{_datadir}/flightctl/generate-certificates.sh
-
-    # Copy sos report flightctl plugin
-    mkdir -p %{buildroot}/usr/share/sosreport
-    cp packaging/sosreport/sos/report/plugins/flightctl.py %{buildroot}/usr/share/sosreport
 
     # install observability
      # Create target directories within the build root (where files are staged for RPM)
@@ -562,6 +602,7 @@ echo "Flight Control Observability Stack uninstalled."
      # Install systemd targets for service grouping
      install -m 0644 packaging/observability/flightctl-telemetry-gateway.target %{buildroot}/usr/lib/systemd/system/
      install -m 0644 packaging/observability/flightctl-observability.target %{buildroot}/usr/lib/systemd/system/
+%endif
 
 %check
     %{buildroot}%{_bindir}/flightctl-agent version
@@ -605,6 +646,7 @@ fi
 # File listings
 # No %%files section for the main package, so it won't be built
 
+%if %{without agent_only}
 %files cli
     %{_bindir}/flightctl
     %{_bindir}/flightctl-restore
@@ -612,6 +654,7 @@ fi
     %{_datadir}/bash-completion/completions/flightctl-completion.bash
     %{_datadir}/fish/vendor_completions.d/flightctl-completion.fish
     %{_datadir}/zsh/site-functions/_flightctl-completion
+%endif
 
 %files agent
     %license LICENSE
@@ -651,6 +694,7 @@ rm -rf /usr/share/sosreport
 %files selinux
 %{_datadir}/selinux/packages/%{selinuxtype}/flightctl_agent.pp.bz2
 
+%if %{without agent_only}
 %files services
     %defattr(0644,root,root,-)
     # Files mounted to system config
@@ -797,8 +841,11 @@ fi
 %systemd_postun %{flightctl_target}
 
 # If contexts were managed via policy, no cleanup is needed here.
+%endif
 
 %changelog
+* Wed Dec 24 2025 Asaf Ben Natan <abennata@redhat.com> - 1.1
+- fixed RPM go cache, added agent-only option
 * Wed Nov 26 2025 Dakota Crowder <dcrowder@redhat.com> - 1.0-1
 - Adding certificate generation service
 * Mon Nov 17 2025 Dakota Crowder <dcrowder@redhat.com> - 1.0-1

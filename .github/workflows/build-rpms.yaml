@@ -7,6 +7,11 @@ on:
         description: "Mock root configuration"
         required: true
         type: string
+      agentOnly:
+        description: "Build only agent and selinux packages"
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   build-rpms:
@@ -28,11 +33,15 @@ jobs:
             ${{ runner.os }}-go-
       - name: Build RPMs
         run: |
-          RPM_MOCK_ROOT="${{ inputs.root }}" make rpm
+          if [[ "${{ inputs.agentOnly }}" == "true" ]]; then
+            RPM_MOCK_ROOT="${{ inputs.root }}" make rpm-agent
+          else
+            RPM_MOCK_ROOT="${{ inputs.root }}" make rpm
+          fi
       - name: Upload RPM artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: rpms-${{ inputs.root }}
+          name: rpms-${{ inputs.root }}${{ inputs.agentOnly && '-agent' || '' }}
           path: bin/rpm/*.rpm
           compression-level: 0
           if-no-files-found: error
