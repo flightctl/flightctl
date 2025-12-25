@@ -3,6 +3,7 @@ package v1beta1
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 )
 
 // oapi-codegen generates AsGitHttpRepoSpec function but the generated function
@@ -28,6 +29,28 @@ func (t RepositorySpec) GetHttpRepoSpec() (HttpRepoSpec, error) {
 
 func (t RepositorySpec) GetSshRepoSpec() (SshRepoSpec, error) {
 	var body SshRepoSpec
+	if err := t.getRepoSpec(&body); err != nil {
+		return body, err
+	}
+	// Validate that sshConfig is actually present (not just an empty struct from decoding GenericRepoSpec)
+	if body.SshConfig.SshPrivateKey == nil && body.SshConfig.PrivateKeyPassphrase == nil && body.SshConfig.SkipServerVerification == nil {
+		return body, errors.New("not an SSH repository spec: sshConfig is empty")
+	}
+	return body, nil
+}
+
+// FromSshRepoSpec overwrites the union data with the provided SshRepoSpec.
+// SshRepoSpec is a structural variant of GenericRepoSpec (both use type: git),
+// distinguished by the presence of sshConfig.
+func (t *RepositorySpec) FromSshRepoSpec(v SshRepoSpec) error {
+	v.Type = Git // SSH repos use type: git
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+func (t RepositorySpec) GetOciRepoSpec() (OciRepoSpec, error) {
+	var body OciRepoSpec
 	err := t.getRepoSpec(&body)
 	return body, err
 }

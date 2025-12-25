@@ -21,12 +21,19 @@ const (
 	// Examples: "localhost", "my-host", "example.com", "api.example.com"
 	hostnameOrFQDNLastLabelFmt string = `[a-z]([-a-z0-9]*[a-z0-9])?`
 	HostnameOrFQDNFmt          string = `(` + Dns1123LabelFmt + `\.)*` + hostnameOrFQDNLastLabelFmt
+
+	// HostnameOrFQDNWithOptionalPortFmt extends HostnameOrFQDNFmt with an optional port suffix.
+	// Examples: "localhost", "quay.io", "registry.example.com:5000"
+	portFmt                           string = `:[0-9]{1,5}`
+	HostnameOrFQDNWithOptionalPortFmt string = HostnameOrFQDNFmt + `(` + portFmt + `)?`
+	HostnameOrFQDNWithOptionalPortMax int    = DNS1123MaxLength + 6 // +6 for ":65535"
 )
 
 var (
-	GenericNameRegexp    = regexp.MustCompile("^" + Dns1123LabelFmt + "$")
-	EnvVarNameRegexp     = regexp.MustCompile("^" + envVarNameFmt + "$")
-	HostnameOrFQDNRegexp = regexp.MustCompile("^" + HostnameOrFQDNFmt + "$")
+	GenericNameRegexp                    = regexp.MustCompile("^" + Dns1123LabelFmt + "$")
+	EnvVarNameRegexp                     = regexp.MustCompile("^" + envVarNameFmt + "$")
+	HostnameOrFQDNRegexp                 = regexp.MustCompile("^" + HostnameOrFQDNFmt + "$")
+	HostnameOrFQDNWithOptionalPortRegexp = regexp.MustCompile("^" + HostnameOrFQDNWithOptionalPortFmt + "$")
 )
 
 func ValidateGenericName(name *string, path string) []error {
@@ -39,6 +46,27 @@ func ValidateHostnameOrFQDN(name *string, path string) []error {
 		return errs
 	}
 	for _, label := range strings.Split(*name, ".") {
+		if len(label) > dns1123LabelMaxLength {
+			errs = append(errs, field.Invalid(fieldPathFor(path), label, fmt.Sprintf("must have at most %d characters", dns1123LabelMaxLength)))
+			break
+		}
+	}
+	return errs
+}
+
+// ValidateHostnameOrFQDNWithOptionalPort validates a hostname or FQDN with an optional port suffix.
+// Examples: "localhost", "quay.io", "registry.example.com:5000"
+func ValidateHostnameOrFQDNWithOptionalPort(name *string, path string) []error {
+	errs := ValidateString(name, path, 1, HostnameOrFQDNWithOptionalPortMax, HostnameOrFQDNWithOptionalPortRegexp, HostnameOrFQDNWithOptionalPortFmt, "quay.io", "registry.example.com:5000")
+	if name == nil || *name == "" {
+		return errs
+	}
+	// Strip port before validating label lengths
+	host := *name
+	if idx := strings.LastIndex(host, ":"); idx != -1 {
+		host = host[:idx]
+	}
+	for _, label := range strings.Split(host, ".") {
 		if len(label) > dns1123LabelMaxLength {
 			errs = append(errs, field.Invalid(fieldPathFor(path), label, fmt.Sprintf("must have at most %d characters", dns1123LabelMaxLength)))
 			break

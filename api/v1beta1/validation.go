@@ -654,28 +654,55 @@ func (r *Repository) Validate() []error {
 	allErrs = append(allErrs, validation.ValidateLabels(r.Metadata.Labels)...)
 	allErrs = append(allErrs, validation.ValidateAnnotations(r.Metadata.Annotations)...)
 
-	// Validate GenericRepoSpec
-	genericRepoSpec, genericErr := r.Spec.GetGenericRepoSpec()
-	if genericErr == nil {
-		allErrs = append(allErrs, validation.ValidateString(&genericRepoSpec.Url, "spec.url", 1, 2048, nil, "")...)
+	specType, err := r.Spec.Discriminator()
+	if err != nil {
+		allErrs = append(allErrs, fmt.Errorf("invalid repository spec: %w", err))
+		return allErrs
 	}
 
-	// Validate HttpRepoSpec
-	httpRepoSpec, httpErr := r.Spec.GetHttpRepoSpec()
-	if httpErr == nil {
+	switch specType {
+	case string(Oci):
+		ociRepoSpec, err := r.Spec.GetOciRepoSpec()
+		if err != nil {
+			allErrs = append(allErrs, fmt.Errorf("invalid OCI repository spec: %w", err))
+			return allErrs
+		}
+		allErrs = append(allErrs, validation.ValidateHostnameOrFQDNWithOptionalPort(&ociRepoSpec.Registry, "spec.registry")...)
+		if ociRepoSpec.OciAuth != nil {
+			dockerAuth, err := ociRepoSpec.OciAuth.AsDockerAuth()
+			if err != nil {
+				allErrs = append(allErrs, fmt.Errorf("invalid OCI auth config: %w", err))
+			} else {
+				allErrs = append(allErrs, validation.ValidateString(&dockerAuth.Username, "spec.ociAuth.username", 1, 256, nil, "")...)
+				allErrs = append(allErrs, validation.ValidateString(&dockerAuth.Password, "spec.ociAuth.password", 1, 8192, nil, "")...)
+			}
+		}
+		if ociRepoSpec.CaCrt != nil {
+			allErrs = append(allErrs, validation.ValidateBase64Field(*ociRepoSpec.CaCrt, "spec.ca.crt", maxBase64CertificateLength)...)
+		}
+	case string(Http):
+		httpRepoSpec, err := r.Spec.GetHttpRepoSpec()
+		if err != nil {
+			allErrs = append(allErrs, fmt.Errorf("invalid HTTP repository spec: %w", err))
+			return allErrs
+		}
 		allErrs = append(allErrs, validation.ValidateString(&httpRepoSpec.Url, "spec.url", 1, 2048, nil, "")...)
 		allErrs = append(allErrs, validateHttpConfig(&httpRepoSpec.HttpConfig)...)
-	}
-
-	// Validate SshRepoSpec
-	sshRepoSpec, sshErr := r.Spec.GetSshRepoSpec()
-	if sshErr == nil {
-		allErrs = append(allErrs, validation.ValidateString(&sshRepoSpec.Url, "spec.url", 1, 2048, nil, "")...)
-		allErrs = append(allErrs, validateSshConfig(&sshRepoSpec.SshConfig)...)
-	}
-
-	if genericErr != nil && httpErr != nil && sshErr != nil {
-		allErrs = append(allErrs, fmt.Errorf("invalid repository type: no valid spec found"))
+	case string(Git):
+		sshRepoSpec, sshErr := r.Spec.GetSshRepoSpec()
+		if sshErr == nil {
+			allErrs = append(allErrs, validation.ValidateString(&sshRepoSpec.Url, "spec.url", 1, 2048, nil, "")...)
+			allErrs = append(allErrs, validateSshConfig(&sshRepoSpec.SshConfig)...)
+			return allErrs
+		}
+		genericRepoSpec, err := r.Spec.GetGenericRepoSpec()
+		if err != nil {
+			allErrs = append(allErrs, fmt.Errorf("invalid Git repository spec: %w", err))
+			return allErrs
+		}
+		allErrs = append(allErrs, validation.ValidateString(&genericRepoSpec.Url, "spec.url", 1, 2048, nil, "")...)
+	default:
+		allErrs = append(allErrs, fmt.Errorf("unknown repository type: %s", specType))
 	}
 
 	return allErrs

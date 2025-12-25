@@ -473,3 +473,127 @@ func TestApplicationVolumeType(t *testing.T) {
 		})
 	}
 }
+
+func TestRepositoryHideSensitiveData(t *testing.T) {
+	tests := []struct {
+		name            string
+		setupRepository func() *Repository
+		checkHidden     func(t *testing.T, repo *Repository)
+	}{
+		{
+			name: "OCI repository hides password",
+			setupRepository: func() *Repository {
+				spec := RepositorySpec{}
+				err := spec.FromOciRepoSpec(OciRepoSpec{
+					Registry: "quay.io/myrepo",
+					Type:     Oci,
+					OciAuth:  newOciAuth("myuser", "mysecretpassword"),
+				})
+				if err != nil {
+					panic(err)
+				}
+				return &Repository{
+					Metadata: ObjectMeta{Name: lo.ToPtr("oci-repo")},
+					Spec:     spec,
+				}
+			},
+			checkHidden: func(t *testing.T, repo *Repository) {
+				ociSpec, err := repo.Spec.GetOciRepoSpec()
+				require.NoError(t, err)
+				assert.Equal(t, "quay.io/myrepo", ociSpec.Registry)
+				require.NotNil(t, ociSpec.OciAuth)
+				dockerAuth, err := ociSpec.OciAuth.AsDockerAuth()
+				require.NoError(t, err)
+				assert.Equal(t, "myuser", dockerAuth.Username)
+				assert.Equal(t, "*****", dockerAuth.Password)
+			},
+		},
+		{
+			name: "HTTP repository hides password",
+			setupRepository: func() *Repository {
+				spec := RepositorySpec{}
+				err := spec.FromHttpRepoSpec(HttpRepoSpec{
+					Url:  "https://example.com/repo",
+					Type: Http,
+					HttpConfig: HttpConfig{
+						Username: lo.ToPtr("httpuser"),
+						Password: lo.ToPtr("httppassword"),
+					},
+				})
+				if err != nil {
+					panic(err)
+				}
+				return &Repository{
+					Metadata: ObjectMeta{Name: lo.ToPtr("http-repo")},
+					Spec:     spec,
+				}
+			},
+			checkHidden: func(t *testing.T, repo *Repository) {
+				httpSpec, err := repo.Spec.GetHttpRepoSpec()
+				require.NoError(t, err)
+				assert.Equal(t, "https://example.com/repo", httpSpec.Url)
+				assert.Equal(t, "httpuser", *httpSpec.HttpConfig.Username)
+				assert.Equal(t, "*****", *httpSpec.HttpConfig.Password)
+			},
+		},
+		{
+			name: "SSH repository hides private key",
+			setupRepository: func() *Repository {
+				spec := RepositorySpec{}
+				err := spec.FromSshRepoSpec(SshRepoSpec{
+					Url:  "git@github.com:org/repo.git",
+					Type: Git,
+					SshConfig: SshConfig{
+						SshPrivateKey:        lo.ToPtr("-----BEGIN RSA PRIVATE KEY-----"),
+						PrivateKeyPassphrase: lo.ToPtr("keypassphrase"),
+					},
+				})
+				if err != nil {
+					panic(err)
+				}
+				return &Repository{
+					Metadata: ObjectMeta{Name: lo.ToPtr("ssh-repo")},
+					Spec:     spec,
+				}
+			},
+			checkHidden: func(t *testing.T, repo *Repository) {
+				sshSpec, err := repo.Spec.GetSshRepoSpec()
+				require.NoError(t, err)
+				assert.Equal(t, "git@github.com:org/repo.git", sshSpec.Url)
+				assert.Equal(t, "*****", *sshSpec.SshConfig.SshPrivateKey)
+				assert.Equal(t, "*****", *sshSpec.SshConfig.PrivateKeyPassphrase)
+			},
+		},
+		{
+			name: "Generic repository has no sensitive data",
+			setupRepository: func() *Repository {
+				spec := RepositorySpec{}
+				err := spec.FromGenericRepoSpec(GenericRepoSpec{
+					Url:  "https://github.com/org/repo",
+					Type: Git,
+				})
+				if err != nil {
+					panic(err)
+				}
+				return &Repository{
+					Metadata: ObjectMeta{Name: lo.ToPtr("generic-repo")},
+					Spec:     spec,
+				}
+			},
+			checkHidden: func(t *testing.T, repo *Repository) {
+				genericSpec, err := repo.Spec.GetGenericRepoSpec()
+				require.NoError(t, err)
+				assert.Equal(t, "https://github.com/org/repo", genericSpec.Url)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := tt.setupRepository()
+			err := repo.HideSensitiveData()
+			require.NoError(t, err)
+			tt.checkHidden(t, repo)
+		})
+	}
+}

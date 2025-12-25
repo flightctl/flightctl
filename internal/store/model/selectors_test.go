@@ -17,6 +17,17 @@ type selectorTest struct {
 	Selectors     selectorToTypeMap
 }
 
+// combineSelectorMaps merges multiple selector maps into one
+func combineSelectorMaps(maps ...selectorToTypeMap) selectorToTypeMap {
+	result := make(selectorToTypeMap)
+	for _, m := range maps {
+		for k, v := range m {
+			result[k] = v
+		}
+	}
+	return result
+}
+
 func TestModelSchemaSelectors(t *testing.T) {
 	testSelectors := []selectorTest{
 		{"status", &api.DeviceStatus{}, deviceStatusSelectors},
@@ -25,6 +36,8 @@ func TestModelSchemaSelectors(t *testing.T) {
 		{"spec", &api.FleetSpec{}, fleetSpecSelectors},
 		{"spec", &api.ResourceSyncSpec{}, resourceSyncSpecSelectors},
 		{"spec", &api.GenericRepoSpec{}, repositorySpecSelectors},
+		// OCI repos support common selectors plus OCI-specific ones
+		{"spec", &api.OciRepoSpec{}, combineSelectorMaps(repositorySpecSelectors, ociRepositorySpecSelectors)},
 	}
 
 	for _, test := range testSelectors {
