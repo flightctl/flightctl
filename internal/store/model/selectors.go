@@ -34,6 +34,10 @@ var (
 		selector.NewSelectorName("spec.type"): selector.String,
 		selector.NewSelectorName("spec.url"):  selector.String,
 	}
+	// OCI-specific selectors (only fields unique to OciRepoSpec)
+	ociRepositorySpecSelectors = selectorToTypeMap{
+		selector.NewSelectorName("spec.accessMode"): selector.String,
+	}
 	certificateSigningRequestStatusSelectors = selectorToTypeMap{
 		selector.NewSelectorName("status.certificate"): selector.String,
 	}
@@ -127,12 +131,20 @@ func (m *Repository) ResolveSelector(name selector.SelectorName) (*selector.Sele
 	if typ, exists := repositorySpecSelectors[name]; exists {
 		return makeJSONBSelectorField(name, typ)
 	}
+	// Also check OCI-specific selectors
+	if typ, exists := ociRepositorySpecSelectors[name]; exists {
+		return makeJSONBSelectorField(name, typ)
+	}
 	return nil, fmt.Errorf("unable to resolve selector for repository")
 }
 
 func (m *Repository) ListSelectors() selector.SelectorNameSet {
-	keys := make([]selector.SelectorName, 0, len(repositorySpecSelectors))
+	// Combine both common and OCI-specific selectors
+	keys := make([]selector.SelectorName, 0, len(repositorySpecSelectors)+len(ociRepositorySpecSelectors))
 	for sn := range repositorySpecSelectors {
+		keys = append(keys, sn)
+	}
+	for sn := range ociRepositorySpecSelectors {
 		keys = append(keys, sn)
 	}
 	return selector.NewSelectorFieldNameSet().Add(keys...)

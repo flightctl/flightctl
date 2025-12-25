@@ -376,28 +376,44 @@ func (r *Repository) HideSensitiveData() error {
 	}
 	spec := r.Spec
 
-	_, err := spec.GetGenericRepoSpec()
-	if err != nil {
-		gitHttpSpec, err := spec.GetHttpRepoSpec()
-		if err == nil {
-			hideValue(gitHttpSpec.HttpConfig.Password)
-			hideValue(gitHttpSpec.HttpConfig.TlsKey)
-			hideValue(gitHttpSpec.HttpConfig.TlsCrt)
-			if err := spec.FromHttpRepoSpec(gitHttpSpec); err != nil {
-				return err
-			}
-
-		} else {
-			gitSshRepoSpec, err := spec.GetSshRepoSpec()
-			if err == nil {
-				hideValue(gitSshRepoSpec.SshConfig.SshPrivateKey)
-				hideValue(gitSshRepoSpec.SshConfig.PrivateKeyPassphrase)
-				if err := spec.FromSshRepoSpec(gitSshRepoSpec); err != nil {
-					return err
-				}
-			}
+	// Try OCI spec first
+	ociRepoSpec, err := spec.GetOciRepoSpec()
+	if err == nil {
+		hideValue(ociRepoSpec.Password)
+		if err := spec.FromOciRepoSpec(ociRepoSpec); err != nil {
+			return err
 		}
+		r.Spec = spec
+		return nil
 	}
+
+	// Try HTTP spec
+	gitHttpSpec, err := spec.GetHttpRepoSpec()
+	if err == nil {
+		hideValue(gitHttpSpec.HttpConfig.Password)
+		hideValue(gitHttpSpec.HttpConfig.Token)
+		hideValue(gitHttpSpec.HttpConfig.TlsKey)
+		hideValue(gitHttpSpec.HttpConfig.TlsCrt)
+		if err := spec.FromHttpRepoSpec(gitHttpSpec); err != nil {
+			return err
+		}
+		r.Spec = spec
+		return nil
+	}
+
+	// Try SSH spec
+	gitSshRepoSpec, err := spec.GetSshRepoSpec()
+	if err == nil {
+		hideValue(gitSshRepoSpec.SshConfig.SshPrivateKey)
+		hideValue(gitSshRepoSpec.SshConfig.PrivateKeyPassphrase)
+		if err := spec.FromSshRepoSpec(gitSshRepoSpec); err != nil {
+			return err
+		}
+		r.Spec = spec
+		return nil
+	}
+
+	// GenericRepoSpec has no sensitive data
 	r.Spec = spec
 	return nil
 }
