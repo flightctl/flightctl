@@ -14,7 +14,8 @@
     <!-- this oddly specific CPU model is used because it works well with github CI and locally,
          it limits the feature set exposure of the CPU, avoiding a kernel crash at boot when
          secureboot is enabled -->
-    <model>Opteron_G4</model>
+    <!-- Note: for CentOS Stream 10, we need a x64 v3 CPU model -->
+    <model>Haswell-noTSX-IBRS</model>
   </cpu>
   <on_poweroff>destroy</on_poweroff>
   <on_reboot>restart</on_reboot>
