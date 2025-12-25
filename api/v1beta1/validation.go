@@ -674,7 +674,23 @@ func (r *Repository) Validate() []error {
 		allErrs = append(allErrs, validateSshConfig(&sshRepoSpec.SshConfig)...)
 	}
 
-	if genericErr != nil && httpErr != nil && sshErr != nil {
+	// Validate OciRepoSpec
+	ociRepoSpec, ociErr := r.Spec.GetOciRepoSpec()
+	if ociErr == nil {
+		allErrs = append(allErrs, validation.ValidateString(&ociRepoSpec.Url, "spec.url", 1, 2048, nil, "")...)
+		// Both username and password must be provided together
+		if (ociRepoSpec.Username != nil && ociRepoSpec.Password == nil) || (ociRepoSpec.Username == nil && ociRepoSpec.Password != nil) {
+			allErrs = append(allErrs, fmt.Errorf("both username and password must be provided together for OCI registry credentials"))
+		}
+		if ociRepoSpec.Username != nil {
+			allErrs = append(allErrs, validation.ValidateString(ociRepoSpec.Username, "spec.username", 1, 256, nil, "")...)
+		}
+		if ociRepoSpec.Password != nil {
+			allErrs = append(allErrs, validation.ValidateString(ociRepoSpec.Password, "spec.password", 1, 8192, nil, "")...)
+		}
+	}
+
+	if genericErr != nil && httpErr != nil && sshErr != nil && ociErr != nil {
 		allErrs = append(allErrs, fmt.Errorf("invalid repository type: no valid spec found"))
 	}
 

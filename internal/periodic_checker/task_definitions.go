@@ -77,7 +77,7 @@ func createTaskContext(ctx context.Context, taskType PeriodicTaskType) context.C
 
 func (e *RepositoryTesterExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgId uuid.UUID) {
 	taskCtx := createTaskContext(ctx, PeriodicTaskTypeRepositoryTester)
-	repoTester := tasks.NewRepoTester(e.log, e.serviceHandler)
+	repoTester := tasks.NewRepoTester(e.log, e.serviceHandler, nil)
 	repoTester.TestRepositories(taskCtx, orgId)
 }
 

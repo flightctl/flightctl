@@ -11,6 +11,7 @@ import (
 	"encoding/pem"
 	"log"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -135,4 +136,189 @@ func TestSSHRepo(t *testing.T) {
 	err = repotester.TestAccess(&api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("name")}, Spec: spec})
 
 	require.NoError(err)
+}
+
+func TestOciRepoOpenRegistry(t *testing.T) {
+	require := require.New(t)
+
+	// Create a mock OCI registry that doesn't require auth
+	mock := &MockOciRegistry{
+		RequireAuth: false,
+	}
+	server := httptest.NewServer(mock.Handler())
+	defer server.Close()
+
+	repotester := tasks.OciRepoTester{}
+
+	spec := api.RepositorySpec{}
+	err := spec.FromOciRepoSpec(api.OciRepoSpec{
+		Url:  server.URL,
+		Type: "oci",
+	})
+	require.NoError(err)
+
+	err = repotester.TestAccess(&api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("test-oci-repo")}, Spec: spec})
+	require.NoError(err)
+}
+
+func TestOciRepoWithValidCredentials(t *testing.T) {
+	require := require.New(t)
+
+	// Create a mock OCI registry that requires auth
+	mock := &MockOciRegistry{
+		RequireAuth:   true,
+		ValidUsername: "testuser",
+		ValidPassword: "testpass",
+		ServiceName:   "test-registry",
+		AuthToken:     "authenticated-token-12345",
+	}
+	server := httptest.NewServer(mock.Handler())
+	defer server.Close()
+	mock.AuthServerURL = server.URL
+
+	repotester := tasks.OciRepoTester{}
+
+	spec := api.RepositorySpec{}
+	err := spec.FromOciRepoSpec(api.OciRepoSpec{
+		Url:      server.URL,
+		Type:     "oci",
+		Username: lo.ToPtr("testuser"),
+		Password: lo.ToPtr("testpass"),
+	})
+	require.NoError(err)
+
+	err = repotester.TestAccess(&api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("test-oci-repo")}, Spec: spec})
+	require.NoError(err)
+}
+
+func TestOciRepoWithInvalidCredentials(t *testing.T) {
+	require := require.New(t)
+
+	// Create a mock OCI registry that requires auth
+	mock := &MockOciRegistry{
+		RequireAuth:   true,
+		ValidUsername: "testuser",
+		ValidPassword: "testpass",
+		ServiceName:   "test-registry",
+		AuthToken:     "authenticated-token-12345",
+	}
+	server := httptest.NewServer(mock.Handler())
+	defer server.Close()
+	mock.AuthServerURL = server.URL
+
+	repotester := tasks.OciRepoTester{}
+
+	spec := api.RepositorySpec{}
+	err := spec.FromOciRepoSpec(api.OciRepoSpec{
+		Url:      server.URL,
+		Type:     "oci",
+		Username: lo.ToPtr("wronguser"),
+		Password: lo.ToPtr("wrongpass"),
+	})
+	require.NoError(err)
+
+	err = repotester.TestAccess(&api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("test-oci-repo")}, Spec: spec})
+	require.Error(err)
+	require.Contains(err.Error(), "invalid credentials")
+}
+
+func TestOciRepoAnonymousAccess(t *testing.T) {
+	require := require.New(t)
+
+	// Create a mock OCI registry that allows anonymous token exchange with scope
+	mock := &MockOciRegistry{
+		RequireAuth:     true,
+		ServiceName:     "test-registry",
+		AnonymousToken:  "anonymous-token-12345",
+		ReturnTokenName: "access_token", // Test access_token field
+	}
+	server := httptest.NewServer(mock.Handler())
+	defer server.Close()
+	mock.AuthServerURL = server.URL
+
+	repotester := tasks.OciRepoTester{}
+
+	spec := api.RepositorySpec{}
+	err := spec.FromOciRepoSpec(api.OciRepoSpec{
+		Url:  server.URL,
+		Type: "oci",
+	})
+	require.NoError(err)
+
+	err = repotester.TestAccess(&api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("test-oci-repo")}, Spec: spec})
+	require.NoError(err)
+}
+
+func TestOciRepoMixedAuthRegistry(t *testing.T) {
+	require := require.New(t)
+
+	// Create a mock OCI registry that supports both authenticated and anonymous access
+	mock := &MockOciRegistry{
+		RequireAuth:    true,
+		ValidUsername:  "testuser",
+		ValidPassword:  "testpass",
+		ServiceName:    "test-registry",
+		AuthToken:      "authenticated-token-12345",
+		AnonymousToken: "anonymous-token-67890",
+	}
+	server := httptest.NewServer(mock.Handler())
+	defer server.Close()
+	mock.AuthServerURL = server.URL
+
+	repotester := tasks.OciRepoTester{}
+
+	// Test with credentials - should get auth token
+	spec := api.RepositorySpec{}
+	err := spec.FromOciRepoSpec(api.OciRepoSpec{
+		Url:      server.URL,
+		Type:     "oci",
+		Username: lo.ToPtr("testuser"),
+		Password: lo.ToPtr("testpass"),
+	})
+	require.NoError(err)
+
+	err = repotester.TestAccess(&api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("test-oci-repo")}, Spec: spec})
+	require.NoError(err)
+
+	// Test without credentials - should get anonymous token via scope
+	specAnon := api.RepositorySpec{}
+	err = specAnon.FromOciRepoSpec(api.OciRepoSpec{
+		Url:  server.URL,
+		Type: "oci",
+	})
+	require.NoError(err)
+
+	err = repotester.TestAccess(&api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("test-oci-repo-anon")}, Spec: specAnon})
+	require.NoError(err)
+
+	// Test with invalid credentials - should fail even though anonymous access is available
+	specInvalid := api.RepositorySpec{}
+	err = specInvalid.FromOciRepoSpec(api.OciRepoSpec{
+		Url:      server.URL,
+		Type:     "oci",
+		Username: lo.ToPtr("wronguser"),
+		Password: lo.ToPtr("wrongpass"),
+	})
+	require.NoError(err)
+
+	err = repotester.TestAccess(&api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("test-oci-repo-invalid")}, Spec: specInvalid})
+	require.Error(err)
+	require.Contains(err.Error(), "invalid credentials")
+}
+
+func TestOciRepoInvalidURL(t *testing.T) {
+	require := require.New(t)
+
+	repotester := tasks.OciRepoTester{}
+
+	spec := api.RepositorySpec{}
+	err := spec.FromOciRepoSpec(api.OciRepoSpec{
+		Url:  "http://localhost:99999", // Invalid port/unreachable
+		Type: "oci",
+	})
+	require.NoError(err)
+
+	err = repotester.TestAccess(&api.Repository{Metadata: api.ObjectMeta{Name: lo.ToPtr("test-oci-repo")}, Spec: spec})
+	require.Error(err)
+	require.Contains(err.Error(), "failed to connect")
 }

@@ -4317,13 +4317,47 @@ components:
       required:
         - url
         - type
+    OciRepoSpec:
+      type: object
+      description: OCI container registry specification.
+      additionalProperties: false
+      properties:
+        url:
+          type: string
+          description: 'The OCI registry URL (e.g., quay.io, registry.redhat.io).'
+        type:
+          $ref: "#/components/schemas/RepoSpecType"
+        accessMode:
+          type: string
+          description: 'Access mode for the registry: "Read" for read-only (pull), "ReadWrite" for read-write (pull and push).'
+          enum:
+            - Read
+            - ReadWrite
+          default: Read
+        username:
+          type: string
+          description: The username for registry authentication.
+        password:
+          type: string
+          description: The password or token for registry authentication.
+          format: password
+      required:
+        - url
+        - type
     RepositorySpec:
       type: object
       description: RepositorySpec describes a configuration repository.
+      discriminator:
+        propertyName: type
+        mapping:
+          git: "#/components/schemas/GenericRepoSpec"
+          http: "#/components/schemas/HttpRepoSpec"
+          oci: "#/components/schemas/OciRepoSpec"
       oneOf:
         - $ref: "#/components/schemas/GenericRepoSpec"
         - $ref: "#/components/schemas/HttpRepoSpec"
         - $ref: "#/components/schemas/SshRepoSpec"
+        - $ref: "#/components/schemas/OciRepoSpec"
     RepositoryStatus:
       type: object
       description: RepositoryStatus represents information about the status of a repository.
@@ -4363,6 +4397,7 @@ components:
       enum:
         - git
         - http
+        - oci
     Device:
       type: object
       properties:

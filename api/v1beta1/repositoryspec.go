@@ -32,6 +32,12 @@ func (t RepositorySpec) GetSshRepoSpec() (SshRepoSpec, error) {
 	return body, err
 }
 
+func (t RepositorySpec) GetOciRepoSpec() (OciRepoSpec, error) {
+	var body OciRepoSpec
+	err := t.getRepoSpec(&body)
+	return body, err
+}
+
 // loose decoder is fine here as all repo specs have `repo` field
 func (t RepositorySpec) GetRepoURL() (string, error) {
 	genericRepo, err := t.AsGenericRepoSpec()

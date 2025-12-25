@@ -245,3 +245,145 @@ func TestRepoTester_SetAccessCondition(t *testing.T) {
 	err = setAccessCondition(ctx, orgId, repo, err, serviceHandler)
 	require.NoError(err)
 }
+
+func testOciRepositoryPatch(require *require.Assertions, patch api.PatchRequest) (*api.Repository, api.Repository, api.Status) {
+	spec := api.RepositorySpec{}
+	err := spec.FromOciRepoSpec(api.OciRepoSpec{
+		Url:      "quay.io/myorg",
+		Type:     "oci",
+		Username: lo.ToPtr("myuser"),
+		Password: lo.ToPtr("mypassword"),
+	})
+	require.NoError(err)
+	repository := api.Repository{
+		ApiVersion: "v1",
+		Kind:       "Repository",
+		Metadata: api.ObjectMeta{
+			Name:   lo.ToPtr("oci-repo"),
+			Labels: &map[string]string{"type": "oci"},
+		},
+		Spec: spec,
+	}
+
+	ts := &TestStore{}
+	wc := &DummyWorkerClient{}
+	serviceHandler := ServiceHandler{
+		eventHandler: NewEventHandler(ts, wc, logrus.New()),
+		store:        ts,
+		workerClient: wc,
+		log:          logrus.New(),
+	}
+	ctx := context.Background()
+	_, err = serviceHandler.store.Repository().Create(ctx, store.NullOrgId, &repository, nil)
+	require.NoError(err)
+	resp, status := serviceHandler.PatchRepository(ctx, store.NullOrgId, "oci-repo", patch)
+	require.NotEqual(statusFailedCode, status.Code)
+	return resp, repository, status
+}
+
+func TestOciRepositoryPatchLabels(t *testing.T) {
+	require := require.New(t)
+	addLabels := map[string]string{"type": "oci", "env": "prod"}
+	var value interface{} = "prod"
+	pr := api.PatchRequest{
+		{Op: "add", Path: "/metadata/labels/env", Value: &value},
+	}
+
+	resp, orig, status := testOciRepositoryPatch(require, pr)
+	orig.Metadata.Labels = &addLabels
+	require.Equal(statusSuccessCode, status.Code)
+	require.Equal(orig, *resp)
+}
+
+func TestOciRepositoryCreate(t *testing.T) {
+	require := require.New(t)
+
+	ts := &TestStore{}
+	wc := &DummyWorkerClient{}
+	serviceHandler := ServiceHandler{
+		eventHandler: NewEventHandler(ts, wc, logrus.New()),
+		store:        ts,
+		workerClient: wc,
+		log:          logrus.New(),
+	}
+	ctx := context.Background()
+
+	// Test creating OCI repository with credentials
+	spec := api.RepositorySpec{}
+	err := spec.FromOciRepoSpec(api.OciRepoSpec{
+		Url:      "quay.io/myorg",
+		Type:     "oci",
+		Username: lo.ToPtr("myuser"),
+		Password: lo.ToPtr("mypassword"),
+	})
+	require.NoError(err)
+
+	repository := api.Repository{
+		ApiVersion: "v1",
+		Kind:       "Repository",
+		Metadata: api.ObjectMeta{
+			Name: lo.ToPtr("test-oci-repo"),
+		},
+		Spec: spec,
+	}
+
+	resp, status := serviceHandler.CreateRepository(ctx, store.NullOrgId, repository)
+	require.Equal(int32(201), status.Code)
+	require.NotNil(resp)
+	require.Equal("test-oci-repo", *resp.Metadata.Name)
+
+	// Verify we can retrieve it
+	retrieved, err := serviceHandler.store.Repository().Get(ctx, store.NullOrgId, "test-oci-repo")
+	require.NoError(err)
+	require.NotNil(retrieved)
+
+	// Verify the OCI spec is preserved
+	ociSpec, err := retrieved.Spec.GetOciRepoSpec()
+	require.NoError(err)
+	require.Equal("quay.io/myorg", ociSpec.Url)
+	require.Equal(api.Oci, ociSpec.Type)
+	require.Equal("myuser", *ociSpec.Username)
+	require.Equal("mypassword", *ociSpec.Password)
+}
+
+func TestOciRepositoryCreateWithoutCredentials(t *testing.T) {
+	require := require.New(t)
+
+	ts := &TestStore{}
+	wc := &DummyWorkerClient{}
+	serviceHandler := ServiceHandler{
+		eventHandler: NewEventHandler(ts, wc, logrus.New()),
+		store:        ts,
+		workerClient: wc,
+		log:          logrus.New(),
+	}
+	ctx := context.Background()
+
+	// Test creating OCI repository without credentials (public registry)
+	spec := api.RepositorySpec{}
+	err := spec.FromOciRepoSpec(api.OciRepoSpec{
+		Url:  "registry.redhat.io",
+		Type: "oci",
+	})
+	require.NoError(err)
+
+	repository := api.Repository{
+		ApiVersion: "v1",
+		Kind:       "Repository",
+		Metadata: api.ObjectMeta{
+			Name: lo.ToPtr("public-oci-repo"),
+		},
+		Spec: spec,
+	}
+
+	resp, status := serviceHandler.CreateRepository(ctx, store.NullOrgId, repository)
+	require.Equal(int32(201), status.Code)
+	require.NotNil(resp)
+
+	// Verify the OCI spec without credentials
+	ociSpec, err := resp.Spec.GetOciRepoSpec()
+	require.NoError(err)
+	require.Equal("registry.redhat.io", ociSpec.Url)
+	require.Nil(ociSpec.Username)
+	require.Nil(ociSpec.Password)
+}
