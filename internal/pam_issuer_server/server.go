@@ -13,6 +13,7 @@ import (
 	fcmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
+	insthttp "github.com/flightctl/flightctl/internal/instrumentation/http"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/httprate"
@@ -162,7 +163,11 @@ func (s *Server) Run(ctx context.Context) error {
 	pamapi.HandlerFromMux(handler, router)
 
 	// Wrap with OpenTelemetry
-	httpHandler := otelhttp.NewHandler(router, "pam-issuer")
+	routeAttrFn := insthttp.RouteMetricAttributes(router)
+	httpHandler := otelhttp.NewHandler(router, "pam-issuer",
+		otelhttp.WithSpanNameFormatter(insthttp.RouteSpanNameFormatter(router)),
+		otelhttp.WithMetricAttributesFn(insthttp.WithComponentAttribute(routeAttrFn, "pam-issuer")),
+	)
 
 	httpServer := &http.Server{
 		Addr:              s.listener.Addr().String(),
