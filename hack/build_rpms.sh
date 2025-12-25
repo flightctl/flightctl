@@ -7,10 +7,12 @@ This script builds RPMs using packit inside a Podman container. Supports both
 local builds and mock chroot builds for different distributions.
 
 Usage:
-  sudo ./hack/build_rpms.sh [--root MOCK_ROOT] [--rebuild-image] [--pull] [--help]
+  sudo ./hack/build_rpms.sh [--root MOCK_ROOT] [--agent-only] [--rebuild-image] [--pull] [--help]
 
 Options:
   --root MOCK_ROOT    Use specific mock chroot (enables in-mock build with logs)
+  --agent-only        Build only flightctl-agent and flightctl-selinux packages
+                      (skips cli, services, observability - much faster build)
   --rebuild-image     Rebuild the packit base image and cache images only
                       (with --root only that root's cache image is rebuilt)
                       Does not build RPMs - exits after rebuilding images
@@ -18,8 +20,10 @@ Options:
   --help              Show this help message
 
 Examples:
-  sudo ./hack/build_rpms.sh                                               # Local build
+  sudo ./hack/build_rpms.sh                                               # Local build (all packages)
+  sudo ./hack/build_rpms.sh --agent-only                                  # Local build (agent+selinux only)
   sudo ./hack/build_rpms.sh --root centos-stream+epel-next-9-x86_64       # CentOS Stream 9
+  sudo ./hack/build_rpms.sh --agent-only --root centos-stream+epel-next-9-x86_64  # Agent-only for CS9
   sudo ./hack/build_rpms.sh --root epel-10-x86_64                         # RHEL 10 / Fedora 43
   sudo ./hack/build_rpms.sh --pull                                        # Local build with forced image pull
   sudo ./hack/build_rpms.sh --rebuild-image                               # Rebuild base + all cache images
@@ -39,7 +43,9 @@ MOCK_ROOTS_CONFIG="${SCRIPT_DIR}/mock-roots.conf"
 ROOT=""
 REBUILD_IMAGE=false
 PULL_IMAGES=false
+AGENT_ONLY=false
 ROOT_OPTS=()
+AGENT_ONLY_OPTS=()
 
 # Array to track built images for summary
 BUILT_IMAGES=()
@@ -100,6 +106,11 @@ parse_args() {
         else
           usage
         fi
+        ;;
+      --agent-only)
+        AGENT_ONLY=true
+        AGENT_ONLY_OPTS=(--agent-only)
+        shift
         ;;
       --rebuild-image)
         REBUILD_IMAGE=true
@@ -357,6 +368,11 @@ run_build_in_container() {
   else
     echo "Local packit build (no mock root)"
   fi
+  if [[ "${AGENT_ONLY}" == true ]]; then
+    echo "Build mode: agent+selinux only (--agent-only)"
+  else
+    echo "Build mode: all packages"
+  fi
 
   # Reuse Go build/module caches from the host to speed up builds
   local host_gomodcache host_gocache
@@ -388,7 +404,7 @@ run_build_in_container() {
     -e SOURCE_GIT_COMMIT \
     -w /work \
     "${run_image}" \
-    ./hack/build_rpms_packit.sh ${ROOT_OPTS[@]+"${ROOT_OPTS[@]}"}
+    ./hack/build_rpms_packit.sh ${ROOT_OPTS[@]+"${ROOT_OPTS[@]}"} ${AGENT_ONLY_OPTS[@]+"${AGENT_ONLY_OPTS[@]}"}
 }
 
 ##############################################################################

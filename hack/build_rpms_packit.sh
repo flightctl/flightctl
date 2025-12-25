@@ -2,14 +2,29 @@
 set -e
 
 ROOT=""
+AGENT_ONLY=false
 PACKIT_OUTPUT_DIR="$(uname -m)"
 TAIL_PID=""
 
-if [[ "${1-}" == "--root" && -n "${2-}" ]]; then
-  ROOT="$2"
-  PACKIT_OUTPUT_DIR="mock-${ROOT}"
-  shift 2
-fi
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --root)
+      ROOT="$2"
+      PACKIT_OUTPUT_DIR="mock-${ROOT}"
+      shift 2
+      ;;
+    --agent-only)
+      AGENT_ONLY=true
+      echo "Building agent+selinux packages only (--with agent_only)"
+      shift
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      exit 1
+      ;;
+  esac
+done
 
 cleanup() {
   # Restore original spec
@@ -38,6 +53,14 @@ prepare_workspace() {
 
   # Save the spec as packit will modify it locally to inject versioning
   cp packaging/rpm/flightctl.spec /tmp
+
+  # If agent-only mode, modify the spec to enable the bcond
+  if [[ "$AGENT_ONLY" == true ]]; then
+    echo "Enabling agent_only bcond in spec file..."
+    # Change %bcond_with agent_only to %bcond_without agent_only
+    # This makes --with agent_only the default (enabled)
+    sed -i 's/^%bcond_with agent_only$/%bcond_without agent_only/' packaging/rpm/flightctl.spec
+  fi
 }
 
 run_mock_build() {
