@@ -50,6 +50,7 @@ jobs:
     env:
       DOCKER_BUILDKIT: 1
       BUILDKIT_PROGRESS: plain
+      FLIGHTCTL_NS: flightctl-external
     steps:
       # ========== PREPARE ENVIRONMENT ==========
       - name: Checkout
