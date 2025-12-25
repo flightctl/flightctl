@@ -171,6 +171,9 @@ jobs:
           name: e2e-discovery-${{ steps.compute-hash.outputs.hash }}-${{ inputs.tag }}
           path: .
 
+      - name: Check disk space
+        run: df -h
+
       - name: Run E2E Test Slice
         env:
           GINKGO_LABEL_FILTER: ${{ inputs.ginkgo_label_filter }}
@@ -178,7 +181,18 @@ jobs:
           GINKGO_NODE: ${{ matrix.ginkgo_node }}
           DISCOVERY_PATH: discovery.json
         run: |
-          make run-e2e-test VERBOSE=true
+          if [[ "${{ runner.debug }}" == "1" ]]; then
+            echo "🐛 Debug mode enabled"
+            export DEBUG_VM_CONSOLE=1
+            export VERBOSE=true
+          else
+            echo "Debug mode disabled"
+          fi
+          make -e run-e2e-test
+
+      - name: Check disk space after E2E tests
+        if: always()
+        run: df -h
 
       # ========== UPLOAD TEST RESULTS ==========
       - name: Upload test report
