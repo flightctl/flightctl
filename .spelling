@@ -19,6 +19,7 @@ bootloader
 ca.crt
 CentOS
 checksum
+checksums
 cleanup
 CLI
 ClickOps
