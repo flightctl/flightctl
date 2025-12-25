@@ -327,11 +327,11 @@ var _ = Describe("cli events operation", func() {
 
 			By("Checking that error event is shown")
 			Eventually(func() string {
-				out, err := harness.RunGetEvents(fieldSelector, fmt.Sprintf("involvedObject.name=%s,type=Warning,reason=%s", deviceName, util.DeviceSpecInvalid))
+				eventsOut, err := harness.RunGetEvents(fieldSelector, fmt.Sprintf("involvedObject.name=%s,type=Warning,reason=%s", deviceName, util.DeviceSpecInvalid))
 				if err != nil {
 					return ""
 				}
-				return out
+				return eventsOut
 			}, "30s", "2s").Should(ContainSubstring("Device specification is invalid"))
 
 			// Verify the specific error message

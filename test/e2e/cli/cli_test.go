@@ -900,8 +900,8 @@ var _ = Describe("cli login", func() {
 		devName := *device.Metadata.Name
 		devicePath := "device/" + devName
 
-		newTestKey := "e2e-prelabel"
-		newTestValue := "ok"
+		prelabelKey := "e2e-prelabel"
+		prelabelValue := "ok"
 
 		By("patching the device once via API to ensure it is reachable")
 		Eventually(func() error {
@@ -909,7 +909,7 @@ var _ = Describe("cli login", func() {
 				if d.Metadata.Labels == nil {
 					d.Metadata.Labels = &map[string]string{}
 				}
-				(*d.Metadata.Labels)[newTestKey] = newTestValue
+				(*d.Metadata.Labels)[prelabelKey] = prelabelValue
 			})
 		}).Should(BeNil(), "failed to update device preliminarily")
 

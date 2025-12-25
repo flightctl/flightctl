@@ -160,7 +160,7 @@ func LoginAsNonAdmin(harness *e2e.Harness, user string, password string, k8sCont
 	cmd := exec.Command("bash", "-c", loginCommand)
 	err := cmd.Run()
 	if err != nil {
-		return fmt.Errorf("Failed to login to Kubernetes cluster as non-admin: %v", err)
+		return fmt.Errorf("failed to login to Kubernetes cluster as non-admin: %v", err)
 	} else {
 		logrus.Infof("✅ Logged in to Kubernetes cluster as non-admin: %s", user)
 	}
@@ -168,7 +168,7 @@ func LoginAsNonAdmin(harness *e2e.Harness, user string, password string, k8sCont
 	method := LoginToAPIWithToken(harness)
 	Expect(method).ToNot(Equal(AuthDisabled))
 	if method == AuthDisabled {
-		return errors.New("Login is disabled")
+		return errors.New("login is disabled")
 	}
 	return nil
 }

@@ -23,7 +23,6 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
 	apiClient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/client"
-	baseclient "github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/experimental"
 	"github.com/flightctl/flightctl/internal/util"
@@ -257,7 +256,7 @@ func reportVersion(versionFormat *string) error {
 	default:
 		// There is a bug in the program if we hit this case.
 		// However, we follow a policy of never panicking.
-		return fmt.Errorf("VersionOptions were not validated: --output=%q should have been rejected\n", *versionFormat)
+		return fmt.Errorf("VersionOptions were not validated: --output=%q should have been rejected", *versionFormat)
 	}
 	return nil
 }
@@ -415,7 +414,7 @@ func createAgents(agentCfg createAgentsConfig) ([]*agent.Agent, []string) {
 			// Assign source IP if provided (round-robin distribution)
 			sourceIP := agentCfg.parsedSourceIPs[i%len(agentCfg.parsedSourceIPs)]
 			// Create dialer with source IP, using same defaults as the default http dialer (30s timeout/keepalive)
-			cfg.ManagementService.Config.AddHTTPOptions(baseclient.WithDialer(&net.Dialer{
+			cfg.ManagementService.Config.AddHTTPOptions(client.WithDialer(&net.Dialer{
 				LocalAddr: &net.TCPAddr{IP: sourceIP},
 				Timeout:   30 * time.Second,
 				KeepAlive: 30 * time.Second,
@@ -430,7 +429,7 @@ func createAgents(agentCfg createAgentsConfig) ([]*agent.Agent, []string) {
 		// As the expected concurrency level is relatively low (compared to the total number of running agents), we're
 		// not as concerned with ephemeral port exhaustion and can just use the default option of letting the OS choose.
 		cfg.EnrollmentService.Config.AddHTTPOptions(
-			baseclient.WithMaxIdleConnsPerHost(agentCfg.maxConcurrency),
+			client.WithMaxIdleConnsPerHost(agentCfg.maxConcurrency),
 			enrollmentTransport,
 		)
 

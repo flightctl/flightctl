@@ -77,7 +77,6 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
-	"github.com/onsi/gomega"
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
 	"k8s.io/client-go/kubernetes"
@@ -761,15 +760,15 @@ func (h *Harness) cleanUpEnrollmentRequests(testID string) error {
 // Generic function to read and unmarshal YAML into the given target type
 func getYamlResourceByFile[T any](yamlFile string) T {
 	if yamlFile == "" {
-		gomega.Expect(fmt.Errorf("yaml file path cannot be empty")).ToNot(gomega.HaveOccurred())
+		Expect(fmt.Errorf("yaml file path cannot be empty")).ToNot(HaveOccurred())
 	}
 
 	fileBytes, err := os.ReadFile(yamlFile)
-	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "failed to read yaml file %s: %v", yamlFile, err)
+	Expect(err).ToNot(HaveOccurred(), "failed to read yaml file %s: %v", yamlFile, err)
 
 	var resource T
 	err = yaml.Unmarshal(fileBytes, &resource)
-	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "failed to unmarshal yaml file %s: %v", yamlFile, err)
+	Expect(err).ToNot(HaveOccurred(), "failed to unmarshal yaml file %s: %v", yamlFile, err)
 
 	return resource
 }
@@ -2150,7 +2149,7 @@ func (h *Harness) CreateResource(resourceType string) (string, string, []byte, e
 		return applyOutput, *resourceName, resourceData, nil
 	} else {
 		GinkgoWriter.Printf("Apply output: %s\n", applyOutput)
-		return applyOutput, "", nil, fmt.Errorf("Failed to create a %s", resourceType)
+		return applyOutput, "", nil, fmt.Errorf("failed to create a %s", resourceType)
 	}
 }
 

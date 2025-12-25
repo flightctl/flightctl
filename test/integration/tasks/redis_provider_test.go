@@ -24,7 +24,7 @@ func waitForRedisConsumerGroupReady(ctx context.Context, queueName string, timeo
 		Password: "adminpass",
 		DB:       0,
 	})
-	defer redisClient.Close()
+	defer func() { _ = redisClient.Close() }()
 
 	groupName := queueName + "-group"
 	deadline := time.Now().Add(timeout)
@@ -50,7 +50,7 @@ func waitForRedisFailedMessagesState(ctx context.Context, queueName string, expe
 		Password: "adminpass",
 		DB:       0,
 	})
-	defer redisClient.Close()
+	defer func() { _ = redisClient.Close() }()
 
 	failedSetKey := "failed_messages:" + queueName
 	deadline := time.Now().Add(timeout)
@@ -71,7 +71,7 @@ func waitForRedisInFlightTasksState(ctx context.Context, queueName string, expec
 		Password: "adminpass",
 		DB:       0,
 	})
-	defer redisClient.Close()
+	defer func() { _ = redisClient.Close() }()
 
 	deadline := time.Now().Add(timeout)
 
@@ -1310,9 +1310,10 @@ var _ = Describe("Redis Provider Integration Tests", FlakeAttempts(5), func() {
 				message := string(payload)
 				err := consumer.Complete(ctx, entryID, payload, nil)
 
-				if message == "future message" {
+				switch message {
+				case "future message":
 					atomic.StoreInt32(&messageProcessed, 1)
-				} else if message == "past message" {
+				case "past message":
 					atomic.StoreInt32(&pastMessageProcessed, 1)
 				}
 				return err
@@ -1357,9 +1358,10 @@ var _ = Describe("Redis Provider Integration Tests", FlakeAttempts(5), func() {
 				message := string(payload)
 				err := consumer.Complete(ctx, entryID, payload, nil)
 
-				if message == "future message" {
+				switch message {
+				case "future message":
 					atomic.StoreInt32(&messageProcessed, 1)
-				} else if message == "past message" {
+				case "past message":
 					atomic.StoreInt32(&pastMessageProcessed, 1)
 				}
 				return err

@@ -11,7 +11,6 @@ import (
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
-	"github.com/flightctl/flightctl/test/util"
 	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
@@ -41,7 +40,7 @@ var _ = Describe("enrollmentRequestStore create", func() {
 		err := testutil.CreateTestOrganization(ctx, storeInst, orgId)
 		Expect(err).ToNot(HaveOccurred())
 
-		util.CreateTestEnrolmentRequests(numEnrollmentRequests, ctx, storeInst, orgId)
+		testutil.CreateTestEnrolmentRequests(numEnrollmentRequests, ctx, storeInst, orgId)
 	})
 
 	AfterEach(func() {

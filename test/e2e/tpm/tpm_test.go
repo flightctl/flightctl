@@ -99,7 +99,7 @@ var _ = Describe("TPM Device Authentication", func() {
 		GinkgoWriter.Printf("🔄 [AfterEach] Worker %d: Cleaning up test resources\n", workerID)
 
 		// Get the harness and context directly - no shared variables needed
-		harness := e2e.GetWorkerHarness()
+		harness = e2e.GetWorkerHarness()
 		suiteCtx := e2e.GetWorkerContext()
 
 		// Create test-specific context for cleanup (same as BeforeEach does)

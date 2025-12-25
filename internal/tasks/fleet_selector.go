@@ -50,10 +50,10 @@ func fleetSelectorMatching(ctx context.Context, orgId uuid.UUID, event api.Event
 
 	var err error
 
-	switch {
-	case event.InvolvedObject.Kind == api.DeviceKind:
+	switch event.InvolvedObject.Kind {
+	case api.DeviceKind:
 		err = logic.DeviceLabelsUpdated(ctx)
-	case event.InvolvedObject.Kind == api.FleetKind:
+	case api.FleetKind:
 		err = logic.FleetSelectorUpdated(ctx)
 	default:
 		err = fmt.Errorf("FleetSelectorMatching called with unexpected kind %s and op %s", event.InvolvedObject.Kind, event.Reason)
