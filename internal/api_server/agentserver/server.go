@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	api "github.com/flightctl/flightctl/api/v1beta1"
 	agent "github.com/flightctl/flightctl/api/v1beta1/agent"
 	server "github.com/flightctl/flightctl/internal/api/server/agent"
 	fcmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
@@ -20,6 +21,7 @@ import (
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store"
+	transportcommon "github.com/flightctl/flightctl/internal/transport"
 	transport "github.com/flightctl/flightctl/internal/transport/agent"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/queues"
@@ -123,7 +125,7 @@ func (s *AgentServer) GetGRPCServer() *AgentGrpcServer {
 }
 
 func oapiErrorHandler(w http.ResponseWriter, message string, statusCode int) {
-	http.Error(w, fmt.Sprintf("API Error: %s", message), statusCode)
+	transportcommon.SetResponse(w, nil, api.StatusForCode(statusCode, fmt.Sprintf("API Error: %s", message)))
 }
 
 func (s *AgentServer) Run(ctx context.Context) error {

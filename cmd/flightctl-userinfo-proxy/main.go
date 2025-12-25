@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	api "github.com/flightctl/flightctl/api/v1beta1"
+	"github.com/flightctl/flightctl/internal/transport"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/sirupsen/logrus"
 )
@@ -120,14 +122,14 @@ func makeUserInfoHandler(config *Config, log *logrus.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Only allow GET requests
 		if r.Method != http.MethodGet {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			transport.SetResponse(w, nil, api.StatusMethodNotAllowed("Method not allowed"))
 			return
 		}
 
 		// Extract Authorization header
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" {
-			http.Error(w, "Authorization header required", http.StatusUnauthorized)
+			transport.SetResponse(w, nil, api.StatusUnauthorized("Authorization header required"))
 			return
 		}
 
@@ -135,7 +137,7 @@ func makeUserInfoHandler(config *Config, log *logrus.Logger) http.HandlerFunc {
 		aapResp, err := proxyToUpstream(config, authHeader)
 		if err != nil {
 			log.Printf("Error proxying to upstream AAP: %v", err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			transport.SetResponse(w, nil, api.StatusInternalServerError("Internal server error"))
 			return
 		}
 
@@ -143,7 +145,7 @@ func makeUserInfoHandler(config *Config, log *logrus.Logger) http.HandlerFunc {
 		userInfo, err := transformToUserInfo(aapResp)
 		if err != nil {
 			log.Printf("Error transforming response: %v", err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			transport.SetResponse(w, nil, api.StatusInternalServerError("Internal server error"))
 			return
 		}
 
