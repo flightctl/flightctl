@@ -207,7 +207,7 @@ var _ = Describe("DeviceRender", func() {
 			repoSpec := api.RepositorySpec{}
 			err := repoSpec.FromGenericRepoSpec(api.GenericRepoSpec{
 				Url:  "https://github.com/flightctl/flightctl-demos",
-				Type: api.Git,
+				Type: api.RepoSpecTypeGit,
 			})
 			Expect(err).ToNot(HaveOccurred())
 
@@ -347,7 +347,7 @@ var _ = Describe("DeviceRender", func() {
 			repoSpec := api.RepositorySpec{}
 			err := repoSpec.FromGenericRepoSpec(api.GenericRepoSpec{
 				Url:  "https://github.com/flightctl/flightctl-demos",
-				Type: api.Git,
+				Type: api.RepoSpecTypeGit,
 			})
 			Expect(err).ToNot(HaveOccurred())
 

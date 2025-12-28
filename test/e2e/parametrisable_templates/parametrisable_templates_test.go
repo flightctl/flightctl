@@ -390,7 +390,7 @@ var deviceSpec v1beta1.DeviceSpec
 var gitRepositorySpec v1beta1.RepositorySpec
 var _ = gitRepositorySpec.FromGenericRepoSpec(v1beta1.GenericRepoSpec{
 	Url:  repoTestUrl,
-	Type: v1beta1.Git,
+	Type: v1beta1.RepoSpecTypeGit,
 })
 
 var gitMetadata = v1beta1.ObjectMeta{
@@ -399,7 +399,7 @@ var gitMetadata = v1beta1.ObjectMeta{
 }
 
 var httpRepoSpec = v1beta1.HttpRepoSpec{
-	Type: v1beta1.Http,
+	Type: v1beta1.RepoSpecTypeHttp,
 	Url:  repoTestUrl,
 }
 

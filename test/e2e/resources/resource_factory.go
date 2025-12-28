@@ -103,7 +103,7 @@ func CreateRepository(harness *e2e.Harness, name string, url string, labels *map
 	spec := api.RepositorySpec{}
 	specError := spec.FromGenericRepoSpec(api.GenericRepoSpec{
 		Url:  url,
-		Type: api.Git,
+		Type: api.RepoSpecTypeGit,
 	})
 	if specError != nil {
 		return nil, specError

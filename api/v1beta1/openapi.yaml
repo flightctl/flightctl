@@ -4317,13 +4317,86 @@ components:
       required:
         - url
         - type
+    OciAuthType:
+      type: string
+      description: The type of authentication for OCI registries.
+      enum:
+        - docker
+    DockerAuth:
+      type: object
+      description: Docker-style authentication for OCI registries.
+      additionalProperties: false
+      properties:
+        authType:
+          $ref: "#/components/schemas/OciAuthType"
+        username:
+          type: string
+          description: The username for registry authentication.
+        password:
+          type: string
+          description: The password or token for registry authentication.
+          format: password
+      required:
+        - authType
+        - username
+        - password
+    OciAuth:
+      type: object
+      description: Authentication for OCI registries.
+      discriminator:
+        propertyName: authType
+        mapping:
+          docker: "#/components/schemas/DockerAuth"
+      oneOf:
+        - $ref: "#/components/schemas/DockerAuth"
+    OciRepoSpec:
+      type: object
+      description: OCI container registry specification.
+      additionalProperties: false
+      properties:
+        registry:
+          type: string
+          description: 'The OCI registry hostname, FQDN, or IP address with optional port (e.g., quay.io, registry.redhat.io, myregistry.com:5000, 192.168.1.1:5000, [::1]:5000).'
+        scheme:
+          type: string
+          description: 'URL scheme for connecting to the registry.'
+          enum:
+            - http
+            - https
+          default: https
+        type:
+          $ref: "#/components/schemas/RepoSpecType"
+        accessMode:
+          type: string
+          description: 'Access mode for the registry: "Read" for read-only (pull), "ReadWrite" for read-write (pull and push).'
+          enum:
+            - Read
+            - ReadWrite
+          default: Read
+        ociAuth:
+          $ref: "#/components/schemas/OciAuth"
+        ca.crt:
+          type: string
+          description: Base64 encoded root CA.
+        skipServerVerification:
+          type: boolean
+          description: Skip remote server verification.
+      required:
+        - registry
+        - type
     RepositorySpec:
       type: object
       description: RepositorySpec describes a configuration repository.
+      discriminator:
+        propertyName: type
+        mapping:
+          git: "#/components/schemas/GenericRepoSpec"
+          http: "#/components/schemas/HttpRepoSpec"
+          oci: "#/components/schemas/OciRepoSpec"
       oneOf:
         - $ref: "#/components/schemas/GenericRepoSpec"
         - $ref: "#/components/schemas/HttpRepoSpec"
-        - $ref: "#/components/schemas/SshRepoSpec"
+        - $ref: "#/components/schemas/OciRepoSpec"
     RepositoryStatus:
       type: object
       description: RepositoryStatus represents information about the status of a repository.
@@ -4363,6 +4436,7 @@ components:
       enum:
         - git
         - http
+        - oci
     Device:
       type: object
       properties:

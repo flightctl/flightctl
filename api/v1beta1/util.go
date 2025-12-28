@@ -375,31 +375,60 @@ func (r *Repository) HideSensitiveData() error {
 		return nil
 	}
 	spec := r.Spec
-
-	_, err := spec.GetGenericRepoSpec()
+	specType, err := spec.Discriminator()
 	if err != nil {
-		gitHttpSpec, err := spec.GetHttpRepoSpec()
-		if err == nil {
-			hideValue(gitHttpSpec.HttpConfig.Password)
-			hideValue(gitHttpSpec.HttpConfig.TlsKey)
-			hideValue(gitHttpSpec.HttpConfig.TlsCrt)
-			if err := spec.FromHttpRepoSpec(gitHttpSpec); err != nil {
-				return err
-			}
-
-		} else {
-			gitSshRepoSpec, err := spec.GetSshRepoSpec()
+		return err
+	}
+	switch specType {
+	case string(RepoSpecTypeOci):
+		oci, err := spec.AsOciRepoSpec()
+		if err != nil {
+			return err
+		}
+		if oci.OciAuth != nil {
+			dockerAuth, err := oci.OciAuth.AsDockerAuth()
 			if err == nil {
-				hideValue(gitSshRepoSpec.SshConfig.SshPrivateKey)
-				hideValue(gitSshRepoSpec.SshConfig.PrivateKeyPassphrase)
-				if err := spec.FromSshRepoSpec(gitSshRepoSpec); err != nil {
+				hideValue(&dockerAuth.Password)
+				if err := oci.OciAuth.FromDockerAuth(dockerAuth); err != nil {
 					return err
 				}
 			}
 		}
+		if err := spec.FromOciRepoSpec(oci); err != nil {
+			return err
+		}
+		r.Spec = spec
+		return nil
+	case string(RepoSpecTypeHttp):
+		http, err := spec.AsHttpRepoSpec()
+		if err != nil {
+			return err
+		}
+		hideValue(http.HttpConfig.Password)
+		hideValue(http.HttpConfig.Token)
+		hideValue(http.HttpConfig.TlsKey)
+		hideValue(http.HttpConfig.TlsCrt)
+		if err := spec.FromHttpRepoSpec(http); err != nil {
+			return err
+		}
+		r.Spec = spec
+		return nil
+	case string(RepoSpecTypeGit):
+		ssh, err := spec.GetSshRepoSpec()
+		if err != nil {
+			// Not an SSH repo spec (plain GenericRepoSpec), nothing to hide
+			return nil
+		}
+		hideValue(ssh.SshConfig.SshPrivateKey)
+		hideValue(ssh.SshConfig.PrivateKeyPassphrase)
+		if err := spec.FromSshRepoSpec(ssh); err != nil {
+			return err
+		}
+		r.Spec = spec
+		return nil
+	default:
+		return fmt.Errorf("unknown repository type: %s", specType)
 	}
-	r.Spec = spec
-	return nil
 }
 
 func (r *RepositoryList) HideSensitiveData() error {
