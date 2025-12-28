@@ -30,9 +30,9 @@ sudo dnf install -y flightctl-services
 
 Flight Control services can be configured through a central configuration file located at `/etc/flightctl/service-config.yaml`.
 
-To spin up services quickly for testing or development purposes, you can leave this file's defaults. This sets the base domain of the services to the host's fully qualified domain name (FQDN) (from `hostname -f`) and generates a self-signed certificate authority (CA) from which required certificates are issued.
-
 For a production environment, set the base domain (`global.baseDomain`) to your own fully qualified domain name (FQDN) and configure certificates from your own PKI (see [Custom Certificates](#custom-certificates)).
+
+To spin up services quickly for testing or development purposes, you may leave this file's defaults. This sets the base domain of the services to the host's `hostname` and generates a self-signed certificate authority (CA) from which required certificates are issued.
 
 You can then start the Flight Control services by running
 

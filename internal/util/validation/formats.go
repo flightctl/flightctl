@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 
+	k8sutilvalidation "k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 )
 
@@ -45,6 +46,24 @@ func ValidateHostnameOrFQDN(name *string, path string) []error {
 		}
 	}
 	return errs
+}
+
+func ValidateIPOrHostnameOrFQDN(name *string, path string) []error {
+	if name == nil || *name == "" {
+		return []error{field.Required(fieldPathFor(path), "")}
+	}
+
+	ipErrs := k8sutilvalidation.IsValidIP(fieldPathFor(path), *name)
+	if len(ipErrs) == 0 {
+		return []error{}
+	}
+
+	hostnameErrs := ValidateHostnameOrFQDN(name, path)
+	if len(hostnameErrs) == 0 {
+		return []error{}
+	}
+
+	return []error{field.Invalid(fieldPathFor(path), *name, "must be a valid IP address or a valid hostname/FQDN (e.g., 192.168.1.1 or example.com)")}
 }
 
 const (

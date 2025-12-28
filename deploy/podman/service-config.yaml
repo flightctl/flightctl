@@ -1,7 +1,9 @@
 global:
-  # The base domain for the deployment, from which the service FQDNs are derived.
-  # If provided, must be a fully qualified domain name (FQDN) like "example.com" or a hostname that resolves via DNS.
-  # If not provided, defaults to the system's hostname FQDN ('hostname -f').
+  # The base domain for the deployment. Set this to a fully qualified domain name (FQDN)
+  # that resolves via DNS to the host's IP address. For testing, you may use the system's
+  # hostame or IP address, but this is not recommended for production use.
+  # If left empty, defaults to the output of the `hostname` command and if that is not set
+  # (i.e. it returns localhost), then defaults to the default IP address of the host.
   baseDomain:
 
   # Certificate generation method - 'none' or 'builtin'
