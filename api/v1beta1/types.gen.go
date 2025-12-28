@@ -355,6 +355,23 @@ const (
 	Oidc OIDCProviderSpecProviderType = "oidc"
 )
 
+// Defines values for OciAuthType.
+const (
+	Docker OciAuthType = "docker"
+)
+
+// Defines values for OciRepoSpecAccessMode.
+const (
+	Read      OciRepoSpecAccessMode = "Read"
+	ReadWrite OciRepoSpecAccessMode = "ReadWrite"
+)
+
+// Defines values for OciRepoSpecScheme.
+const (
+	OciRepoSpecSchemeHttp  OciRepoSpecScheme = "http"
+	OciRepoSpecSchemeHttps OciRepoSpecScheme = "https"
+)
+
 // Defines values for OpenShiftProviderSpecProviderType.
 const (
 	Openshift OpenShiftProviderSpecProviderType = "openshift"
@@ -375,8 +392,9 @@ const (
 
 // Defines values for RepoSpecType.
 const (
-	Git  RepoSpecType = "git"
-	Http RepoSpecType = "http"
+	RepoSpecTypeGit  RepoSpecType = "git"
+	RepoSpecTypeHttp RepoSpecType = "http"
+	RepoSpecTypeOci  RepoSpecType = "oci"
 )
 
 // Defines values for ResourceAlertSeverityType.
@@ -1309,6 +1327,18 @@ type DisruptionBudget struct {
 	MinAvailable *int `json:"minAvailable,omitempty"`
 }
 
+// DockerAuth Docker-style authentication for OCI registries.
+type DockerAuth struct {
+	// AuthType The type of authentication for OCI registries.
+	AuthType OciAuthType `json:"authType"`
+
+	// Password The password or token for registry authentication.
+	Password string `json:"password"`
+
+	// Username The username for registry authentication.
+	Username string `json:"username"`
+}
+
 // Duration The maximum duration allowed for the action to complete. The duration should be specified as a positive integer followed by a time unit. Supported time units are: `s` for seconds, `m` for minutes, `h` for hours.
 type Duration = string
 
@@ -2194,6 +2224,44 @@ type ObjectReference struct {
 	// Name The name of the referenced object.
 	Name string `json:"name"`
 }
+
+// OciAuth Authentication for OCI registries.
+type OciAuth struct {
+	union json.RawMessage
+}
+
+// OciAuthType The type of authentication for OCI registries.
+type OciAuthType string
+
+// OciRepoSpec OCI container registry specification.
+type OciRepoSpec struct {
+	// AccessMode Access mode for the registry: "Read" for read-only (pull), "ReadWrite" for read-write (pull and push).
+	AccessMode *OciRepoSpecAccessMode `json:"accessMode,omitempty"`
+
+	// CaCrt Base64 encoded root CA.
+	CaCrt *string `json:"ca.crt,omitempty"`
+
+	// OciAuth Authentication for OCI registries.
+	OciAuth *OciAuth `json:"ociAuth,omitempty"`
+
+	// Registry The OCI registry hostname, FQDN, or IP address with optional port (e.g., quay.io, registry.redhat.io, myregistry.com:5000, 192.168.1.1:5000, [::1]:5000).
+	Registry string `json:"registry"`
+
+	// Scheme URL scheme for connecting to the registry.
+	Scheme *OciRepoSpecScheme `json:"scheme,omitempty"`
+
+	// SkipServerVerification Skip remote server verification.
+	SkipServerVerification *bool `json:"skipServerVerification,omitempty"`
+
+	// Type RepoSpecType is the type of the repository.
+	Type RepoSpecType `json:"type"`
+}
+
+// OciRepoSpecAccessMode Access mode for the registry: "Read" for read-only (pull), "ReadWrite" for read-write (pull and push).
+type OciRepoSpecAccessMode string
+
+// OciRepoSpecScheme URL scheme for connecting to the registry.
+type OciRepoSpecScheme string
 
 // OpenShiftProviderSpec OpenShiftProviderSpec describes an OpenShift OAuth provider configuration.
 type OpenShiftProviderSpec struct {
@@ -4846,6 +4914,65 @@ func (t *OAuth2Introspection) UnmarshalJSON(b []byte) error {
 	return err
 }
 
+// AsDockerAuth returns the union data inside the OciAuth as a DockerAuth
+func (t OciAuth) AsDockerAuth() (DockerAuth, error) {
+	var body DockerAuth
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromDockerAuth overwrites any union data inside the OciAuth as the provided DockerAuth
+func (t *OciAuth) FromDockerAuth(v DockerAuth) error {
+	v.AuthType = "docker"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeDockerAuth performs a merge with any union data inside the OciAuth, using the provided DockerAuth
+func (t *OciAuth) MergeDockerAuth(v DockerAuth) error {
+	v.AuthType = "docker"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t OciAuth) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"authType"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t OciAuth) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "docker":
+		return t.AsDockerAuth()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t OciAuth) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *OciAuth) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
 // AsGenericRepoSpec returns the union data inside the RepositorySpec as a GenericRepoSpec
 func (t RepositorySpec) AsGenericRepoSpec() (GenericRepoSpec, error) {
 	var body GenericRepoSpec
@@ -4855,6 +4982,7 @@ func (t RepositorySpec) AsGenericRepoSpec() (GenericRepoSpec, error) {
 
 // FromGenericRepoSpec overwrites any union data inside the RepositorySpec as the provided GenericRepoSpec
 func (t *RepositorySpec) FromGenericRepoSpec(v GenericRepoSpec) error {
+	v.Type = "git"
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
@@ -4862,6 +4990,7 @@ func (t *RepositorySpec) FromGenericRepoSpec(v GenericRepoSpec) error {
 
 // MergeGenericRepoSpec performs a merge with any union data inside the RepositorySpec, using the provided GenericRepoSpec
 func (t *RepositorySpec) MergeGenericRepoSpec(v GenericRepoSpec) error {
+	v.Type = "git"
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -4881,6 +5010,7 @@ func (t RepositorySpec) AsHttpRepoSpec() (HttpRepoSpec, error) {
 
 // FromHttpRepoSpec overwrites any union data inside the RepositorySpec as the provided HttpRepoSpec
 func (t *RepositorySpec) FromHttpRepoSpec(v HttpRepoSpec) error {
+	v.Type = "http"
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
@@ -4888,6 +5018,7 @@ func (t *RepositorySpec) FromHttpRepoSpec(v HttpRepoSpec) error {
 
 // MergeHttpRepoSpec performs a merge with any union data inside the RepositorySpec, using the provided HttpRepoSpec
 func (t *RepositorySpec) MergeHttpRepoSpec(v HttpRepoSpec) error {
+	v.Type = "http"
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -4898,22 +5029,24 @@ func (t *RepositorySpec) MergeHttpRepoSpec(v HttpRepoSpec) error {
 	return err
 }
 
-// AsSshRepoSpec returns the union data inside the RepositorySpec as a SshRepoSpec
-func (t RepositorySpec) AsSshRepoSpec() (SshRepoSpec, error) {
-	var body SshRepoSpec
+// AsOciRepoSpec returns the union data inside the RepositorySpec as a OciRepoSpec
+func (t RepositorySpec) AsOciRepoSpec() (OciRepoSpec, error) {
+	var body OciRepoSpec
 	err := json.Unmarshal(t.union, &body)
 	return body, err
 }
 
-// FromSshRepoSpec overwrites any union data inside the RepositorySpec as the provided SshRepoSpec
-func (t *RepositorySpec) FromSshRepoSpec(v SshRepoSpec) error {
+// FromOciRepoSpec overwrites any union data inside the RepositorySpec as the provided OciRepoSpec
+func (t *RepositorySpec) FromOciRepoSpec(v OciRepoSpec) error {
+	v.Type = "oci"
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
 }
 
-// MergeSshRepoSpec performs a merge with any union data inside the RepositorySpec, using the provided SshRepoSpec
-func (t *RepositorySpec) MergeSshRepoSpec(v SshRepoSpec) error {
+// MergeOciRepoSpec performs a merge with any union data inside the RepositorySpec, using the provided OciRepoSpec
+func (t *RepositorySpec) MergeOciRepoSpec(v OciRepoSpec) error {
+	v.Type = "oci"
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -4922,6 +5055,31 @@ func (t *RepositorySpec) MergeSshRepoSpec(v SshRepoSpec) error {
 	merged, err := runtime.JSONMerge(t.union, b)
 	t.union = merged
 	return err
+}
+
+func (t RepositorySpec) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"type"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t RepositorySpec) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "git":
+		return t.AsGenericRepoSpec()
+	case "http":
+		return t.AsHttpRepoSpec()
+	case "oci":
+		return t.AsOciRepoSpec()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
 }
 
 func (t RepositorySpec) MarshalJSON() ([]byte, error) {

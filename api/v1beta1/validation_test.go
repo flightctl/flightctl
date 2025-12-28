@@ -2022,3 +2022,149 @@ func TestKubernetesSecretProviderSpec_Validate_ForbiddenPaths(t *testing.T) {
 		})
 	}
 }
+
+func newOciAuth(username, password string) *OciAuth {
+	auth := &OciAuth{}
+	_ = auth.FromDockerAuth(DockerAuth{
+		Username: username,
+		Password: password,
+	})
+	return auth
+}
+
+func TestRepository_Validate_OciRepoSpec(t *testing.T) {
+	tests := []struct {
+		name    string
+		spec    OciRepoSpec
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "valid OCI repo with credentials",
+			spec: OciRepoSpec{
+				Registry: "quay.io",
+				Type:     "oci",
+				OciAuth:  newOciAuth("myuser", "mypassword"),
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid OCI repo without credentials (public registry)",
+			spec: OciRepoSpec{
+				Registry: "registry.redhat.io",
+				Type:     "oci",
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid - empty URL",
+			spec: OciRepoSpec{
+				Registry: "",
+				Type:     "oci",
+			},
+			wantErr: true,
+			errMsg:  "spec.registry",
+		},
+		{
+			name: "invalid - empty username in auth",
+			spec: OciRepoSpec{
+				Registry: "quay.io",
+				Type:     "oci",
+				OciAuth:  newOciAuth("", "mypassword"),
+			},
+			wantErr: true,
+			errMsg:  "spec.ociAuth.username",
+		},
+		{
+			name: "invalid - empty password in auth",
+			spec: OciRepoSpec{
+				Registry: "quay.io",
+				Type:     "oci",
+				OciAuth:  newOciAuth("myuser", ""),
+			},
+			wantErr: true,
+			errMsg:  "spec.ociAuth.password",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repoSpec := RepositorySpec{}
+			err := repoSpec.FromOciRepoSpec(tt.spec)
+			require.NoError(t, err)
+
+			repo := Repository{
+				ApiVersion: "v1",
+				Kind:       "Repository",
+				Metadata: ObjectMeta{
+					Name: lo.ToPtr("test-oci-repo"),
+				},
+				Spec: repoSpec,
+			}
+
+			errs := repo.Validate()
+
+			if tt.wantErr {
+				require.NotEmpty(t, errs, "expected validation error")
+				if tt.errMsg != "" {
+					found := false
+					for _, e := range errs {
+						if strings.Contains(e.Error(), tt.errMsg) {
+							found = true
+							break
+						}
+					}
+					require.True(t, found, "expected error containing %q, got %v", tt.errMsg, errs)
+				}
+			} else {
+				require.Empty(t, errs, "unexpected validation errors: %v", errs)
+			}
+		})
+	}
+}
+
+func TestRepository_Validate_BackwardCompatibility(t *testing.T) {
+	// Ensure existing git repository specs still work
+	t.Run("GenericRepoSpec still works", func(t *testing.T) {
+		repoSpec := RepositorySpec{}
+		err := repoSpec.FromGenericRepoSpec(GenericRepoSpec{
+			Url:  "https://github.com/example/repo.git",
+			Type: RepoSpecTypeGit,
+		})
+		require.NoError(t, err)
+
+		repo := Repository{
+			ApiVersion: "v1",
+			Kind:       "Repository",
+			Metadata: ObjectMeta{
+				Name: lo.ToPtr("test-git-repo"),
+			},
+			Spec: repoSpec,
+		}
+
+		errs := repo.Validate()
+		require.Empty(t, errs, "GenericRepoSpec should validate successfully")
+	})
+
+	t.Run("HttpRepoSpec still works", func(t *testing.T) {
+		repoSpec := RepositorySpec{}
+		err := repoSpec.FromHttpRepoSpec(HttpRepoSpec{
+			Url:        "https://example.com/config",
+			Type:       RepoSpecTypeHttp,
+			HttpConfig: HttpConfig{},
+		})
+		require.NoError(t, err)
+
+		repo := Repository{
+			ApiVersion: "v1",
+			Kind:       "Repository",
+			Metadata: ObjectMeta{
+				Name: lo.ToPtr("test-http-repo"),
+			},
+			Spec: repoSpec,
+		}
+
+		errs := repo.Validate()
+		require.Empty(t, errs, "HttpRepoSpec should validate successfully")
+	})
+}

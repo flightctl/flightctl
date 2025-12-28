@@ -20,6 +20,15 @@ import (
 	"gorm.io/gorm"
 )
 
+func newOciAuth(username, password string) *api.OciAuth {
+	auth := &api.OciAuth{}
+	_ = auth.FromDockerAuth(api.DockerAuth{
+		Username: username,
+		Password: password,
+	})
+	return auth
+}
+
 var _ = Describe("RepositoryStore create", func() {
 	var (
 		log                 *logrus.Logger
@@ -328,6 +337,283 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(orgIds).To(HaveKey(otherOrgId.String()))
 			Expect(orgIds[orgId.String()]).To(Equal(int64(4)))      // Original org has 4 repositories
 			Expect(orgIds[otherOrgId.String()]).To(Equal(int64(2))) // Other org has 2 repositories
+		})
+
+		It("Create OCI repository with credentials", func() {
+			spec := api.RepositorySpec{}
+			accessMode := api.ReadWrite
+			err := spec.FromOciRepoSpec(api.OciRepoSpec{
+				Registry:   "quay.io",
+				Type:       "oci",
+				AccessMode: &accessMode,
+				OciAuth:    newOciAuth("myuser", "mypassword"),
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			repository := api.Repository{
+				Metadata: api.ObjectMeta{
+					Name:   lo.ToPtr("oci-repo-rw"),
+					Labels: &map[string]string{"type": "oci"},
+				},
+				Spec:   spec,
+				Status: nil,
+			}
+
+			repo, err := storeInst.Repository().Create(ctx, orgId, &repository, eventCallback)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(eventCallbackCalled).To(BeTrue())
+			Expect(repo.ApiVersion).To(Equal(model.RepositoryAPIVersion()))
+			Expect(repo.Kind).To(Equal(api.RepositoryKind))
+
+			// Verify OCI spec is preserved
+			ociSpec, err := repo.Spec.GetOciRepoSpec()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(ociSpec.Registry).To(Equal("quay.io"))
+			Expect(ociSpec.Type).To(Equal(api.RepoSpecTypeOci))
+			Expect(*ociSpec.AccessMode).To(Equal(api.ReadWrite))
+			Expect(ociSpec.OciAuth).ToNot(BeNil())
+			dockerAuth, err := ociSpec.OciAuth.AsDockerAuth()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(dockerAuth.Username).To(Equal("myuser"))
+			Expect(dockerAuth.Password).To(Equal("mypassword"))
+		})
+
+		It("Create OCI repository without credentials (public registry)", func() {
+			spec := api.RepositorySpec{}
+			accessMode := api.Read
+			err := spec.FromOciRepoSpec(api.OciRepoSpec{
+				Registry:   "registry.redhat.io",
+				Type:       "oci",
+				AccessMode: &accessMode,
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			repository := api.Repository{
+				Metadata: api.ObjectMeta{
+					Name:   lo.ToPtr("oci-repo-public"),
+					Labels: &map[string]string{"type": "oci"},
+				},
+				Spec:   spec,
+				Status: nil,
+			}
+
+			repo, err := storeInst.Repository().Create(ctx, orgId, &repository, eventCallback)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(eventCallbackCalled).To(BeTrue())
+
+			// Verify OCI spec without credentials
+			ociSpec, err := repo.Spec.GetOciRepoSpec()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(ociSpec.Registry).To(Equal("registry.redhat.io"))
+			Expect(*ociSpec.AccessMode).To(Equal(api.Read))
+			Expect(ociSpec.OciAuth).To(BeNil())
+		})
+
+		It("List OCI repositories by accessMode using FieldSelector", func() {
+			// Create OCI repositories with different access modes
+			specRw := api.RepositorySpec{}
+			accessModeRw := api.ReadWrite
+			err := specRw.FromOciRepoSpec(api.OciRepoSpec{
+				Registry:   "quay.io",
+				Type:       "oci",
+				AccessMode: &accessModeRw,
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			repoRw := api.Repository{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr("oci-output-registry"),
+				},
+				Spec: specRw,
+			}
+			_, err = storeInst.Repository().Create(ctx, orgId, &repoRw, eventCallback)
+			Expect(err).ToNot(HaveOccurred())
+
+			specR := api.RepositorySpec{}
+			accessModeR := api.Read
+			err = specR.FromOciRepoSpec(api.OciRepoSpec{
+				Registry:   "registry.redhat.io",
+				Type:       "oci",
+				AccessMode: &accessModeR,
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			repoR := api.Repository{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr("oci-input-registry"),
+				},
+				Spec: specR,
+			}
+			_, err = storeInst.Repository().Create(ctx, orgId, &repoR, eventCallback)
+			Expect(err).ToNot(HaveOccurred())
+
+			// List only read-write repositories
+			listParams := store.ListParams{
+				Limit:         1000,
+				FieldSelector: selector.NewFieldSelectorFromMapOrDie(map[string]string{"spec.accessMode": "ReadWrite"}),
+			}
+			repositories, err := storeInst.Repository().List(ctx, orgId, listParams)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(repositories.Items)).To(Equal(1))
+			Expect(*repositories.Items[0].Metadata.Name).To(Equal("oci-output-registry"))
+
+			// Verify the returned repository has correct OCI spec
+			ociSpec, err := repositories.Items[0].Spec.GetOciRepoSpec()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(ociSpec.Registry).To(Equal("quay.io"))
+			Expect(ociSpec.Type).To(Equal(api.RepoSpecTypeOci))
+			Expect(*ociSpec.AccessMode).To(Equal(api.ReadWrite))
+
+			// List only read-only repositories
+			listParams.FieldSelector = selector.NewFieldSelectorFromMapOrDie(map[string]string{"spec.accessMode": "Read"})
+			repositories, err = storeInst.Repository().List(ctx, orgId, listParams)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(repositories.Items)).To(Equal(1))
+			Expect(*repositories.Items[0].Metadata.Name).To(Equal("oci-input-registry"))
+
+			// Verify the returned repository has correct OCI spec
+			ociSpec, err = repositories.Items[0].Spec.GetOciRepoSpec()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(ociSpec.Registry).To(Equal("registry.redhat.io"))
+			Expect(ociSpec.Type).To(Equal(api.RepoSpecTypeOci))
+			Expect(*ociSpec.AccessMode).To(Equal(api.Read))
+		})
+
+		It("Get OCI repository and verify accessMode field", func() {
+			// Create an OCI repository with ReadWrite access mode
+			spec := api.RepositorySpec{}
+			accessMode := api.ReadWrite
+			err := spec.FromOciRepoSpec(api.OciRepoSpec{
+				Registry:   "quay.io",
+				Type:       "oci",
+				AccessMode: &accessMode,
+				OciAuth:    newOciAuth("testuser", "testpass"),
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			repository := api.Repository{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr("oci-get-test"),
+				},
+				Spec: spec,
+			}
+			_, err = storeInst.Repository().Create(ctx, orgId, &repository, eventCallback)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Get the repository by name
+			repo, err := storeInst.Repository().Get(ctx, orgId, "oci-get-test")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(*repo.Metadata.Name).To(Equal("oci-get-test"))
+
+			// Verify OCI spec fields including accessMode
+			ociSpec, err := repo.Spec.GetOciRepoSpec()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(ociSpec.Registry).To(Equal("quay.io"))
+			Expect(ociSpec.Type).To(Equal(api.RepoSpecTypeOci))
+			Expect(*ociSpec.AccessMode).To(Equal(api.ReadWrite))
+			Expect(ociSpec.OciAuth).ToNot(BeNil())
+			dockerAuth, err := ociSpec.OciAuth.AsDockerAuth()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(dockerAuth.Username).To(Equal("testuser"))
+			Expect(dockerAuth.Password).To(Equal("testpass"))
+		})
+
+		It("List OCI repositories with combined type and accessMode FieldSelector", func() {
+			// Create an OCI repository with Read access
+			specOciRead := api.RepositorySpec{}
+			accessModeR := api.Read
+			err := specOciRead.FromOciRepoSpec(api.OciRepoSpec{
+				Registry:   "docker.io",
+				Type:       "oci",
+				AccessMode: &accessModeR,
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			repoOciRead := api.Repository{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr("oci-combined-read"),
+				},
+				Spec: specOciRead,
+			}
+			_, err = storeInst.Repository().Create(ctx, orgId, &repoOciRead, eventCallback)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Create an OCI repository with ReadWrite access
+			specOciRw := api.RepositorySpec{}
+			accessModeRw := api.ReadWrite
+			err = specOciRw.FromOciRepoSpec(api.OciRepoSpec{
+				Registry:   "gcr.io",
+				Type:       "oci",
+				AccessMode: &accessModeRw,
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			repoOciRw := api.Repository{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr("oci-combined-rw"),
+				},
+				Spec: specOciRw,
+			}
+			_, err = storeInst.Repository().Create(ctx, orgId, &repoOciRw, eventCallback)
+			Expect(err).ToNot(HaveOccurred())
+
+			// List with combined filter: type=oci AND accessMode=ReadWrite
+			listParams := store.ListParams{
+				Limit: 1000,
+				FieldSelector: selector.NewFieldSelectorFromMapOrDie(map[string]string{
+					"spec.type":       "oci",
+					"spec.accessMode": "ReadWrite",
+				}),
+			}
+			repositories, err := storeInst.Repository().List(ctx, orgId, listParams)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(repositories.Items)).To(Equal(1))
+			Expect(*repositories.Items[0].Metadata.Name).To(Equal("oci-combined-rw"))
+
+			// List with combined filter: type=oci AND accessMode=Read
+			listParams.FieldSelector = selector.NewFieldSelectorFromMapOrDie(map[string]string{
+				"spec.type":       "oci",
+				"spec.accessMode": "Read",
+			})
+			repositories, err = storeInst.Repository().List(ctx, orgId, listParams)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(repositories.Items)).To(Equal(1))
+			Expect(*repositories.Items[0].Metadata.Name).To(Equal("oci-combined-read"))
+		})
+
+		It("List repositories by type using FieldSelector", func() {
+			// Create an OCI repository
+			spec := api.RepositorySpec{}
+			err := spec.FromOciRepoSpec(api.OciRepoSpec{
+				Registry: "quay.io",
+				Type:     "oci",
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			repository := api.Repository{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr("oci-type-test"),
+				},
+				Spec: spec,
+			}
+			_, err = storeInst.Repository().Create(ctx, orgId, &repository, eventCallback)
+			Expect(err).ToNot(HaveOccurred())
+
+			// List only OCI type repositories
+			listParams := store.ListParams{
+				Limit:         1000,
+				FieldSelector: selector.NewFieldSelectorFromMapOrDie(map[string]string{"spec.type": "oci"}),
+			}
+			repositories, err := storeInst.Repository().List(ctx, orgId, listParams)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(repositories.Items)).To(Equal(1))
+			Expect(*repositories.Items[0].Metadata.Name).To(Equal("oci-type-test"))
+
+			// List only git type repositories (existing ones from BeforeEach)
+			listParams.FieldSelector = selector.NewFieldSelectorFromMapOrDie(map[string]string{"spec.type": "git"})
+			repositories, err = storeInst.Repository().List(ctx, orgId, listParams)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(repositories.Items)).To(Equal(numRepositories)) // Original git repos
 		})
 
 	})
