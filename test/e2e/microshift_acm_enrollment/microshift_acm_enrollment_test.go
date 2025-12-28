@@ -75,7 +75,7 @@ var _ = Describe("Microshift cluster ACM enrollment tests", func() {
 				httpRepoSpec := v1beta1.HttpRepoSpec{
 					HttpConfig: httpRepoConfig,
 
-					Type: v1beta1.Http,
+					Type: v1beta1.RepoSpecTypeHttp,
 
 					Url: httpRepoUrl,
 

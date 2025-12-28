@@ -258,7 +258,7 @@ func TestRepoTester_SetAccessCondition(t *testing.T) {
 func testOciRepositoryPatch(require *require.Assertions, patch api.PatchRequest) (*api.Repository, api.Repository, api.Status) {
 	spec := api.RepositorySpec{}
 	err := spec.FromOciRepoSpec(api.OciRepoSpec{
-		Registry: "quay.io/myorg",
+		Registry: "quay.io",
 		Type:     "oci",
 		OciAuth:  newOciAuth("myuser", "mypassword"),
 	})
@@ -319,7 +319,7 @@ func TestOciRepositoryCreate(t *testing.T) {
 	// Test creating OCI repository with credentials
 	spec := api.RepositorySpec{}
 	err := spec.FromOciRepoSpec(api.OciRepoSpec{
-		Registry: "quay.io/myorg",
+		Registry: "quay.io",
 		Type:     "oci",
 		OciAuth:  newOciAuth("myuser", "mypassword"),
 	})
@@ -347,8 +347,8 @@ func TestOciRepositoryCreate(t *testing.T) {
 	// Verify the OCI spec is preserved
 	ociSpec, err := retrieved.Spec.GetOciRepoSpec()
 	require.NoError(err)
-	require.Equal("quay.io/myorg", ociSpec.Registry)
-	require.Equal(api.Oci, ociSpec.Type)
+	require.Equal("quay.io", ociSpec.Registry)
+	require.Equal(api.RepoSpecTypeOci, ociSpec.Type)
 	require.NotNil(ociSpec.OciAuth)
 	dockerAuth, err := ociSpec.OciAuth.AsDockerAuth()
 	require.NoError(err)

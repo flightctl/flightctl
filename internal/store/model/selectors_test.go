@@ -37,7 +37,7 @@ func TestModelSchemaSelectors(t *testing.T) {
 		{"spec", &api.ResourceSyncSpec{}, resourceSyncSpecSelectors},
 		{"spec", &api.GenericRepoSpec{}, repositorySpecSelectors},
 		// OCI repos support common selectors plus OCI-specific ones
-		{"spec", &api.OciRepoSpec{}, combineSelectorMaps(repositorySpecSelectors, ociRepositorySpecSelectors)},
+		{"spec", &api.OciRepoSpec{}, ociRepositorySpecSelectors},
 	}
 
 	for _, test := range testSelectors {

@@ -65,11 +65,11 @@ func DefaultRepoTesterMapping(repository *api.Repository) TypeSpecificRepoTester
 		return nil
 	}
 	switch api.RepoSpecType(specType) {
-	case api.Oci:
+	case api.RepoSpecTypeOci:
 		return ociRepoTester
-	case api.Http:
+	case api.RepoSpecTypeHttp:
 		return httpRepoTester
-	case api.Git:
+	case api.RepoSpecTypeGit:
 		return gitRepoTester
 	default:
 		return nil
@@ -204,15 +204,14 @@ func (r *OciRepoTester) TestAccess(repository *api.Repository) error {
 		return fmt.Errorf("failed to get OCI repo spec: %w", err)
 	}
 
-	// Build the OCI registry v2 API URL
-	registryURL := ociSpec.Registry
-	if !strings.HasPrefix(registryURL, "http://") && !strings.HasPrefix(registryURL, "https://") {
-		registryURL = "https://" + registryURL
+	// Build the OCI registry v2 API URL from hostname/FQDN
+	scheme := "https"
+	if ociSpec.Scheme != nil {
+		scheme = string(*ociSpec.Scheme)
 	}
-
-	baseURL, err := url.Parse(registryURL)
-	if err != nil {
-		return fmt.Errorf("failed to parse registry URL: %w", err)
+	baseURL := &url.URL{
+		Scheme: scheme,
+		Host:   ociSpec.Registry,
 	}
 	v2URL := baseURL.JoinPath("/v2/").String()
 

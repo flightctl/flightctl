@@ -43,7 +43,7 @@ func (t RepositorySpec) GetSshRepoSpec() (SshRepoSpec, error) {
 // SshRepoSpec is a structural variant of GenericRepoSpec (both use type: git),
 // distinguished by the presence of sshConfig.
 func (t *RepositorySpec) FromSshRepoSpec(v SshRepoSpec) error {
-	v.Type = Git // SSH repos use type: git
+	v.Type = RepoSpecTypeGit // SSH repos use type: git
 	b, err := json.Marshal(v)
 	t.union = b
 	return err

@@ -2129,7 +2129,7 @@ func TestRepository_Validate_BackwardCompatibility(t *testing.T) {
 		repoSpec := RepositorySpec{}
 		err := repoSpec.FromGenericRepoSpec(GenericRepoSpec{
 			Url:  "https://github.com/example/repo.git",
-			Type: Git,
+			Type: RepoSpecTypeGit,
 		})
 		require.NoError(t, err)
 
@@ -2150,7 +2150,7 @@ func TestRepository_Validate_BackwardCompatibility(t *testing.T) {
 		repoSpec := RepositorySpec{}
 		err := repoSpec.FromHttpRepoSpec(HttpRepoSpec{
 			Url:        "https://example.com/config",
-			Type:       Http,
+			Type:       RepoSpecTypeHttp,
 			HttpConfig: HttpConfig{},
 		})
 		require.NoError(t, err)

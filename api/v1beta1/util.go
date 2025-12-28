@@ -380,7 +380,7 @@ func (r *Repository) HideSensitiveData() error {
 		return err
 	}
 	switch specType {
-	case string(Oci):
+	case string(RepoSpecTypeOci):
 		oci, err := spec.AsOciRepoSpec()
 		if err != nil {
 			return err
@@ -399,7 +399,7 @@ func (r *Repository) HideSensitiveData() error {
 		}
 		r.Spec = spec
 		return nil
-	case string(Http):
+	case string(RepoSpecTypeHttp):
 		http, err := spec.AsHttpRepoSpec()
 		if err != nil {
 			return err
@@ -413,7 +413,7 @@ func (r *Repository) HideSensitiveData() error {
 		}
 		r.Spec = spec
 		return nil
-	case string(Git):
+	case string(RepoSpecTypeGit):
 		ssh, err := spec.GetSshRepoSpec()
 		if err != nil {
 			// Not an SSH repo spec (plain GenericRepoSpec), nothing to hide

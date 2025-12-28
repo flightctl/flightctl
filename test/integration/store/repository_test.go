@@ -343,7 +343,7 @@ var _ = Describe("RepositoryStore create", func() {
 			spec := api.RepositorySpec{}
 			accessMode := api.ReadWrite
 			err := spec.FromOciRepoSpec(api.OciRepoSpec{
-				Registry:   "quay.io/myorg",
+				Registry:   "quay.io",
 				Type:       "oci",
 				AccessMode: &accessMode,
 				OciAuth:    newOciAuth("myuser", "mypassword"),
@@ -368,8 +368,8 @@ var _ = Describe("RepositoryStore create", func() {
 			// Verify OCI spec is preserved
 			ociSpec, err := repo.Spec.GetOciRepoSpec()
 			Expect(err).ToNot(HaveOccurred())
-			Expect(ociSpec.Registry).To(Equal("quay.io/myorg"))
-			Expect(ociSpec.Type).To(Equal(api.Oci))
+			Expect(ociSpec.Registry).To(Equal("quay.io"))
+			Expect(ociSpec.Type).To(Equal(api.RepoSpecTypeOci))
 			Expect(*ociSpec.AccessMode).To(Equal(api.ReadWrite))
 			Expect(ociSpec.OciAuth).ToNot(BeNil())
 			dockerAuth, err := ociSpec.OciAuth.AsDockerAuth()
@@ -414,7 +414,7 @@ var _ = Describe("RepositoryStore create", func() {
 			specRw := api.RepositorySpec{}
 			accessModeRw := api.ReadWrite
 			err := specRw.FromOciRepoSpec(api.OciRepoSpec{
-				Registry:   "quay.io/output",
+				Registry:   "quay.io",
 				Type:       "oci",
 				AccessMode: &accessModeRw,
 			})
@@ -460,8 +460,8 @@ var _ = Describe("RepositoryStore create", func() {
 			// Verify the returned repository has correct OCI spec
 			ociSpec, err := repositories.Items[0].Spec.GetOciRepoSpec()
 			Expect(err).ToNot(HaveOccurred())
-			Expect(ociSpec.Registry).To(Equal("quay.io/output"))
-			Expect(ociSpec.Type).To(Equal(api.Oci))
+			Expect(ociSpec.Registry).To(Equal("quay.io"))
+			Expect(ociSpec.Type).To(Equal(api.RepoSpecTypeOci))
 			Expect(*ociSpec.AccessMode).To(Equal(api.ReadWrite))
 
 			// List only read-only repositories
@@ -475,7 +475,7 @@ var _ = Describe("RepositoryStore create", func() {
 			ociSpec, err = repositories.Items[0].Spec.GetOciRepoSpec()
 			Expect(err).ToNot(HaveOccurred())
 			Expect(ociSpec.Registry).To(Equal("registry.redhat.io"))
-			Expect(ociSpec.Type).To(Equal(api.Oci))
+			Expect(ociSpec.Type).To(Equal(api.RepoSpecTypeOci))
 			Expect(*ociSpec.AccessMode).To(Equal(api.Read))
 		})
 
@@ -484,7 +484,7 @@ var _ = Describe("RepositoryStore create", func() {
 			spec := api.RepositorySpec{}
 			accessMode := api.ReadWrite
 			err := spec.FromOciRepoSpec(api.OciRepoSpec{
-				Registry:   "quay.io/myproject",
+				Registry:   "quay.io",
 				Type:       "oci",
 				AccessMode: &accessMode,
 				OciAuth:    newOciAuth("testuser", "testpass"),
@@ -508,8 +508,8 @@ var _ = Describe("RepositoryStore create", func() {
 			// Verify OCI spec fields including accessMode
 			ociSpec, err := repo.Spec.GetOciRepoSpec()
 			Expect(err).ToNot(HaveOccurred())
-			Expect(ociSpec.Registry).To(Equal("quay.io/myproject"))
-			Expect(ociSpec.Type).To(Equal(api.Oci))
+			Expect(ociSpec.Registry).To(Equal("quay.io"))
+			Expect(ociSpec.Type).To(Equal(api.RepoSpecTypeOci))
 			Expect(*ociSpec.AccessMode).To(Equal(api.ReadWrite))
 			Expect(ociSpec.OciAuth).ToNot(BeNil())
 			dockerAuth, err := ociSpec.OciAuth.AsDockerAuth()
@@ -523,7 +523,7 @@ var _ = Describe("RepositoryStore create", func() {
 			specOciRead := api.RepositorySpec{}
 			accessModeR := api.Read
 			err := specOciRead.FromOciRepoSpec(api.OciRepoSpec{
-				Registry:   "docker.io/library",
+				Registry:   "docker.io",
 				Type:       "oci",
 				AccessMode: &accessModeR,
 			})
@@ -542,7 +542,7 @@ var _ = Describe("RepositoryStore create", func() {
 			specOciRw := api.RepositorySpec{}
 			accessModeRw := api.ReadWrite
 			err = specOciRw.FromOciRepoSpec(api.OciRepoSpec{
-				Registry:   "gcr.io/myproject",
+				Registry:   "gcr.io",
 				Type:       "oci",
 				AccessMode: &accessModeRw,
 			})
@@ -585,7 +585,7 @@ var _ = Describe("RepositoryStore create", func() {
 			// Create an OCI repository
 			spec := api.RepositorySpec{}
 			err := spec.FromOciRepoSpec(api.OciRepoSpec{
-				Registry: "quay.io/test",
+				Registry: "quay.io",
 				Type:     "oci",
 			})
 			Expect(err).ToNot(HaveOccurred())

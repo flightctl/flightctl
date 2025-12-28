@@ -366,6 +366,12 @@ const (
 	ReadWrite OciRepoSpecAccessMode = "ReadWrite"
 )
 
+// Defines values for OciRepoSpecScheme.
+const (
+	OciRepoSpecSchemeHttp  OciRepoSpecScheme = "http"
+	OciRepoSpecSchemeHttps OciRepoSpecScheme = "https"
+)
+
 // Defines values for OpenShiftProviderSpecProviderType.
 const (
 	Openshift OpenShiftProviderSpecProviderType = "openshift"
@@ -386,9 +392,9 @@ const (
 
 // Defines values for RepoSpecType.
 const (
-	Git  RepoSpecType = "git"
-	Http RepoSpecType = "http"
-	Oci  RepoSpecType = "oci"
+	RepoSpecTypeGit  RepoSpecType = "git"
+	RepoSpecTypeHttp RepoSpecType = "http"
+	RepoSpecTypeOci  RepoSpecType = "oci"
 )
 
 // Defines values for ResourceAlertSeverityType.
@@ -2238,8 +2244,11 @@ type OciRepoSpec struct {
 	// OciAuth Authentication for OCI registries.
 	OciAuth *OciAuth `json:"ociAuth,omitempty"`
 
-	// Registry The OCI registry hostname or FQDN with optional port (e.g., quay.io, registry.redhat.io, myregistry.com:5000).
+	// Registry The OCI registry hostname, FQDN, or IP address with optional port (e.g., quay.io, registry.redhat.io, myregistry.com:5000, 192.168.1.1:5000, [::1]:5000).
 	Registry string `json:"registry"`
+
+	// Scheme URL scheme for connecting to the registry.
+	Scheme *OciRepoSpecScheme `json:"scheme,omitempty"`
 
 	// SkipServerVerification Skip remote server verification.
 	SkipServerVerification *bool `json:"skipServerVerification,omitempty"`
@@ -2250,6 +2259,9 @@ type OciRepoSpec struct {
 
 // OciRepoSpecAccessMode Access mode for the registry: "Read" for read-only (pull), "ReadWrite" for read-write (pull and push).
 type OciRepoSpecAccessMode string
+
+// OciRepoSpecScheme URL scheme for connecting to the registry.
+type OciRepoSpecScheme string
 
 // OpenShiftProviderSpec OpenShiftProviderSpec describes an OpenShift OAuth provider configuration.
 type OpenShiftProviderSpec struct {

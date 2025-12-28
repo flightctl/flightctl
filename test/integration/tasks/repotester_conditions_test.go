@@ -64,10 +64,11 @@ func createRepository(ctx context.Context, repostore store.Repository, log *logr
 	return repo, err
 }
 
-func createOciRepository(ctx context.Context, repostore store.Repository, orgId uuid.UUID, name string, url string, username, password *string) (*api.Repository, error) {
+func createOciRepository(ctx context.Context, repostore store.Repository, orgId uuid.UUID, name string, registry string, scheme *api.OciRepoSpecScheme, username, password *string) (*api.Repository, error) {
 	ociSpec := api.OciRepoSpec{
-		Registry: url,
+		Registry: registry,
 		Type:     "oci",
+		Scheme:   scheme,
 	}
 	if username != nil && password != nil {
 		auth := &api.OciAuth{}
@@ -192,7 +193,7 @@ var _ = Describe("RepoTester", func() {
 			mock.AuthServerURL = server.URL
 
 			// Create OCI repository pointing to mock server
-			_, err := createOciRepository(ctx, stores.Repository(), orgId, "oci-accessible", server.URL, nil, nil)
+			_, err := createOciRepository(ctx, stores.Repository(), orgId, "oci-accessible", registryHost(server.URL), lo.ToPtr(api.OciRepoSpecSchemeHttp), nil, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Create a new repotester without mock (uses real OciRepoTester)
@@ -220,7 +221,7 @@ var _ = Describe("RepoTester", func() {
 			mock.AuthServerURL = server.URL
 
 			// Create OCI repository pointing to mock server
-			_, err := createOciRepository(ctx, stores.Repository(), orgId, "oci-not-accessible", server.URL, nil, nil)
+			_, err := createOciRepository(ctx, stores.Repository(), orgId, "oci-not-accessible", registryHost(server.URL), lo.ToPtr(api.OciRepoSpecSchemeHttp), nil, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Create a new repotester without mock (uses real OciRepoTester)

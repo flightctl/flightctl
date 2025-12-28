@@ -661,13 +661,13 @@ func (r *Repository) Validate() []error {
 	}
 
 	switch specType {
-	case string(Oci):
+	case string(RepoSpecTypeOci):
 		ociRepoSpec, err := r.Spec.GetOciRepoSpec()
 		if err != nil {
 			allErrs = append(allErrs, fmt.Errorf("invalid OCI repository spec: %w", err))
 			return allErrs
 		}
-		allErrs = append(allErrs, validation.ValidateHostnameOrFQDNWithOptionalPort(&ociRepoSpec.Registry, "spec.registry")...)
+		allErrs = append(allErrs, validation.ValidateHostIPOrFQDNWithOptionalPort(&ociRepoSpec.Registry, "spec.registry")...)
 		if ociRepoSpec.OciAuth != nil {
 			dockerAuth, err := ociRepoSpec.OciAuth.AsDockerAuth()
 			if err != nil {
@@ -680,7 +680,7 @@ func (r *Repository) Validate() []error {
 		if ociRepoSpec.CaCrt != nil {
 			allErrs = append(allErrs, validation.ValidateBase64Field(*ociRepoSpec.CaCrt, "spec.ca.crt", maxBase64CertificateLength)...)
 		}
-	case string(Http):
+	case string(RepoSpecTypeHttp):
 		httpRepoSpec, err := r.Spec.GetHttpRepoSpec()
 		if err != nil {
 			allErrs = append(allErrs, fmt.Errorf("invalid HTTP repository spec: %w", err))
@@ -688,7 +688,7 @@ func (r *Repository) Validate() []error {
 		}
 		allErrs = append(allErrs, validation.ValidateString(&httpRepoSpec.Url, "spec.url", 1, 2048, nil, "")...)
 		allErrs = append(allErrs, validateHttpConfig(&httpRepoSpec.HttpConfig)...)
-	case string(Git):
+	case string(RepoSpecTypeGit):
 		sshRepoSpec, sshErr := r.Spec.GetSshRepoSpec()
 		if sshErr == nil {
 			allErrs = append(allErrs, validation.ValidateString(&sshRepoSpec.Url, "spec.url", 1, 2048, nil, "")...)
