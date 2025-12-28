@@ -4387,15 +4387,10 @@ components:
     RepositorySpec:
       type: object
       description: RepositorySpec describes a configuration repository.
-      discriminator:
-        propertyName: type
-        mapping:
-          git: "#/components/schemas/GenericRepoSpec"
-          http: "#/components/schemas/HttpRepoSpec"
-          oci: "#/components/schemas/OciRepoSpec"
       oneOf:
         - $ref: "#/components/schemas/GenericRepoSpec"
         - $ref: "#/components/schemas/HttpRepoSpec"
+        - $ref: "#/components/schemas/SshRepoSpec"
         - $ref: "#/components/schemas/OciRepoSpec"
     RepositoryStatus:
       type: object

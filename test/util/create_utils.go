@@ -183,7 +183,8 @@ func CreateRepositories(ctx context.Context, numRepositories int, storeInst stor
 	for i := 1; i <= numRepositories; i++ {
 		spec := api.RepositorySpec{}
 		err := spec.FromGenericRepoSpec(api.GenericRepoSpec{
-			Url: "myrepo",
+			Url:  "myrepo",
+			Type: api.RepoSpecTypeGit,
 		})
 		if err != nil {
 			return err
