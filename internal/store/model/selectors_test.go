@@ -17,17 +17,6 @@ type selectorTest struct {
 	Selectors     selectorToTypeMap
 }
 
-// combineSelectorMaps merges multiple selector maps into one
-func combineSelectorMaps(maps ...selectorToTypeMap) selectorToTypeMap {
-	result := make(selectorToTypeMap)
-	for _, m := range maps {
-		for k, v := range m {
-			result[k] = v
-		}
-	}
-	return result
-}
-
 func TestModelSchemaSelectors(t *testing.T) {
 	testSelectors := []selectorTest{
 		{"status", &api.DeviceStatus{}, deviceStatusSelectors},
