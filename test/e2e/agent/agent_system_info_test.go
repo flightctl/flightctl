@@ -35,7 +35,7 @@ var _ = Describe("Agent System Info", func() {
 		// No need to cleanup here as it's handled by the suite
 	})
 
-	It("should show default system infos in the systemInfo status after enrollment and update it", Label("81787", "sanity"), func() {
+	It("should show default system infos in the systemInfo status after enrollment and update it", Label("81787", "sanity", "agent"), func() {
 		// Get harness directly - no shared package-level variable
 		harness := e2e.GetWorkerHarness()
 
