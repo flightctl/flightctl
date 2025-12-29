@@ -1,0 +1,28 @@
+FROM {{.RegistryURL}}/{{.ImageName}}:{{.ImageTag}}
+
+# Add Flight Control repository and install agent
+RUN dnf -y config-manager --add-repo https://rpm.flightctl.io/flightctl-epel.repo && \
+    dnf install -y flightctl-agent && \
+    dnf clean all
+
+# Enable Flight Control agent service
+RUN systemctl enable flightctl-agent.service
+
+# Install VM and cloud tools (needed for both early and late binding)
+# afterburn provides cloud metadata support, open-vm-tools for VMware guest tools
+RUN dnf install -y afterburn open-vm-tools && dnf clean all
+
+RUN systemctl enable vmtoolsd.service
+
+{{if .EarlyBinding}}
+# Early binding: embed agent config with enrollment credentials
+RUN mkdir -p $(dirname {{.AgentConfigDestPath}}) && \
+    cat > {{.AgentConfigDestPath}} <<'{{.HeredocDelimiter}}'
+{{.AgentConfig}}
+{{.HeredocDelimiter}}
+RUN chmod 600 {{.AgentConfigDestPath}}
+{{else}}
+# Late binding: install boot provisioning dependencies
+# Ignition is used for QCOW2/ISO formats
+RUN dnf install -y ignition && dnf clean all
+{{end}}

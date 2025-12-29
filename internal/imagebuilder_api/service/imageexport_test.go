@@ -80,7 +80,7 @@ func TestCreateImageExport(t *testing.T) {
 	orgId := uuid.New()
 
 	imageExport := newValidImageExport("test-export")
-	result, status := svc.Create(ctx, orgId, imageExport)
+	result, status := svc.Create(ctx, orgId, imageExport, false)
 
 	require.Equal(int32(http.StatusCreated), statusCode(status))
 	require.NotNil(result)
@@ -96,11 +96,11 @@ func TestCreateImageExportDuplicate(t *testing.T) {
 	imageExport := newValidImageExport("duplicate-test")
 
 	// First create should succeed
-	_, status := svc.Create(ctx, orgId, imageExport)
+	_, status := svc.Create(ctx, orgId, imageExport, false)
 	require.Equal(int32(http.StatusCreated), statusCode(status))
 
 	// Second create should fail with conflict
-	_, status = svc.Create(ctx, orgId, imageExport)
+	_, status = svc.Create(ctx, orgId, imageExport, false)
 	require.Equal(int32(http.StatusConflict), statusCode(status))
 }
 
@@ -113,7 +113,7 @@ func TestCreateImageExportMissingDestinationRepository(t *testing.T) {
 	imageExport := newValidImageExport("test")
 	imageExport.Spec.Destination.Repository = ""
 
-	_, status := svc.Create(ctx, orgId, imageExport)
+	_, status := svc.Create(ctx, orgId, imageExport, false)
 	require.Equal(int32(http.StatusBadRequest), statusCode(status))
 }
 
@@ -126,7 +126,7 @@ func TestCreateImageExportMissingFormats(t *testing.T) {
 	imageExport := newValidImageExport("test")
 	imageExport.Spec.Format = ""
 
-	_, status := svc.Create(ctx, orgId, imageExport)
+	_, status := svc.Create(ctx, orgId, imageExport, false)
 	require.Equal(int32(http.StatusBadRequest), statusCode(status))
 }
 
@@ -143,7 +143,7 @@ func TestCreateImageExportWithImageBuildRef(t *testing.T) {
 
 	// Now create the ImageExport referencing it
 	imageExport := newImageExportWithImageBuildSource("test-export", "my-build")
-	result, status := svc.Create(ctx, orgId, imageExport)
+	result, status := svc.Create(ctx, orgId, imageExport, false)
 
 	require.Equal(int32(http.StatusCreated), statusCode(status))
 	require.NotNil(result)
@@ -157,7 +157,7 @@ func TestCreateImageExportWithNonexistentImageBuildRef(t *testing.T) {
 
 	// Create ImageExport referencing non-existent ImageBuild
 	imageExport := newImageExportWithImageBuildSource("test-export", "nonexistent-build")
-	_, status := svc.Create(ctx, orgId, imageExport)
+	_, status := svc.Create(ctx, orgId, imageExport, false)
 
 	require.Equal(int32(http.StatusBadRequest), statusCode(status))
 	require.Contains(status.Message, "not found")
@@ -171,7 +171,7 @@ func TestGetImageExport(t *testing.T) {
 
 	// Create first
 	imageExport := newValidImageExport("get-test")
-	_, status := svc.Create(ctx, orgId, imageExport)
+	_, status := svc.Create(ctx, orgId, imageExport, false)
 	require.Equal(int32(http.StatusCreated), statusCode(status))
 
 	// Get it back
@@ -200,7 +200,7 @@ func TestListImageExports(t *testing.T) {
 	// Create multiple
 	for i := 0; i < 3; i++ {
 		imageExport := newValidImageExport(string(rune('a'+i)) + "-export")
-		_, status := svc.Create(ctx, orgId, imageExport)
+		_, status := svc.Create(ctx, orgId, imageExport, false)
 		require.Equal(int32(http.StatusCreated), statusCode(status))
 	}
 
@@ -220,7 +220,7 @@ func TestListImageExportsWithLimit(t *testing.T) {
 	// Create multiple
 	for i := 0; i < 5; i++ {
 		imageExport := newValidImageExport(string(rune('a'+i)) + "-export")
-		_, status := svc.Create(ctx, orgId, imageExport)
+		_, status := svc.Create(ctx, orgId, imageExport, false)
 		require.Equal(int32(http.StatusCreated), statusCode(status))
 	}
 
@@ -240,7 +240,7 @@ func TestDeleteImageExport(t *testing.T) {
 
 	// Create first
 	imageExport := newValidImageExport("delete-test")
-	_, status := svc.Create(ctx, orgId, imageExport)
+	_, status := svc.Create(ctx, orgId, imageExport, false)
 	require.Equal(int32(http.StatusCreated), statusCode(status))
 
 	// Delete it
@@ -270,7 +270,7 @@ func TestUpdateImageExportStatus(t *testing.T) {
 
 	// Create first
 	imageExport := newValidImageExport("status-test")
-	_, status := svc.Create(ctx, orgId, imageExport)
+	_, status := svc.Create(ctx, orgId, imageExport, false)
 	require.Equal(int32(http.StatusCreated), statusCode(status))
 
 	// Update status with condition

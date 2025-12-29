@@ -1,6 +1,8 @@
 REPORTS ?= $(ROOT_DIR)/reports
 
 GO_TEST_FORMAT = pkgname
+# Integration tests use standard-verbose format by default to stream output in real-time
+GO_INTEGRATION_TEST_FORMAT ?= standard-verbose
 GO_TESTING_FLAGS= -count=1 -race $(GO_BUILD_FLAGS)
 
 GO_UNITTEST_DIRS 		= ./internal/... ./api/... ./pkg/...
@@ -15,13 +17,14 @@ ENV_TRACE_FLAGS = TRACE_TESTS=false GORM_TRACE_ENFORCE_FATAL=true GORM_TRACE_INC
 
 ifeq ($(VERBOSE), true)
 	GO_TEST_FORMAT=standard-verbose
+	GO_INTEGRATION_TEST_FORMAT=standard-verbose
 	GO_UNITTEST_FLAGS += -v
 	GO_INTEGRATIONTEST_FLAGS += -v
 	ENV_TRACE_FLAGS += LOG_LEVEL=debug
 endif
 
 GO_TEST_FLAGS := 			 --format=$(GO_TEST_FORMAT) --junitfile $(REPORTS)/junit_unit_test.xml $(GOTEST_PUBLISH_FLAGS)
-GO_TEST_INTEGRATION_FLAGS := --format=$(GO_TEST_FORMAT) --junitfile $(REPORTS)/junit_integration_test.xml $(GOTEST_PUBLISH_FLAGS)
+GO_TEST_INTEGRATION_FLAGS := --format=$(GO_INTEGRATION_TEST_FORMAT) --junitfile $(REPORTS)/junit_integration_test.xml $(GOTEST_PUBLISH_FLAGS)
 KUBECONFIG_PATH = '/home/kni/clusterconfigs/auth/kubeconfig'
 TEMP_SWTPM_CERT_DIR := bin/tmp/swtpm-certs
 
