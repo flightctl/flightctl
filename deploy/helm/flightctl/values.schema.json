@@ -483,6 +483,23 @@
         }
       }
     },
+    "imageBuilderApi": {
+      "type": "object",
+      "description": "ImageBuilder API configuration",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "description": "Enable ImageBuilder API service" },
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "image": { "type": "string", "description": "ImageBuilder API container image" },
+            "tag": { "type": "string", "description": "ImageBuilder API image tag" },
+            "pullPolicy": { "type": "string", "description": "Image pull policy for ImageBuilder API container" }
+          }
+        }
+      }
+    },
     "telemetryGateway": {
       "type": "object",
       "additionalProperties": false,

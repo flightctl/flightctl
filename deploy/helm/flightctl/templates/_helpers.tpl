@@ -600,3 +600,17 @@ Usage: {{- $result := include "flightctl.getAlertmanagerProxyDNSSans" . | fromJs
   {{- $sans = append $sans (printf "flightctl-alertmanager-proxy.%s.svc.cluster.local" .Release.Namespace) }}
   {{- dict "sans" $sans | toJson -}}
 {{- end }}
+
+{{- /*
+Get DNS SANs for imagebuilder-api server certificate
+Usage: {{- $result := include "flightctl.getImagebuilderApiDNSSans" . | fromJson }}{{ $imagebuilderApiDNSSans := $result.sans }}
+*/}}
+{{- define "flightctl.getImagebuilderApiDNSSans" }}
+  {{- $sans := list }}
+  {{- $baseDomain := include "flightctl.getBaseDomain" . }}
+  {{- $sans = append $sans (printf "imagebuilder-api.%s" $baseDomain) }}
+  {{- $sans = append $sans "flightctl-imagebuilder-api" }}
+  {{- $sans = append $sans (printf "flightctl-imagebuilder-api.%s" .Release.Namespace) }}
+  {{- $sans = append $sans (printf "flightctl-imagebuilder-api.%s.svc.cluster.local" .Release.Namespace) }}
+  {{- dict "sans" $sans | toJson -}}
+{{- end }}

@@ -62,6 +62,7 @@ type RendererConfig struct {
 	Db                ImageConfig `mapstructure:"db"`
 	Kv                ImageConfig `mapstructure:"kv"`
 	Alertmanager      ImageConfig `mapstructure:"alertmanager"`
+	ImagebuilderApi   ImageConfig `mapstructure:"imagebuilder-api"`
 }
 
 func NewRendererConfig() *RendererConfig {

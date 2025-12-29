@@ -9,6 +9,7 @@ ALERTMANAGER_PROXY_SANS=()
 PAM_ISSUER_SANS=()
 UI_SANS=()
 CLI_ARTIFACTS_SANS=()
+IMAGEBUILDER_API_SANS=()
 NAMESPACE=""
 CREATE_K8S_SECRETS="false"
 
@@ -27,6 +28,7 @@ Optional:
   --pam-issuer-san <dns>        DNS SAN for flightctl-pam-issuer (can be specified multiple times)
   --ui-san <dns>                DNS SAN for flightctl-ui (can be specified multiple times)
   --cli-artifacts-san <dns>     DNS SAN for flightctl-cli-artifacts (can be specified multiple times)
+  --imagebuilder-api-san <dns>  DNS SAN for flightctl-imagebuilder-api (can be specified multiple times)
   --create-k8s-secrets          Create Kubernetes secrets using oc/kubectl
   --namespace <ns>              Kubernetes namespace (required if --create-k8s-secrets is set)
 EOF
@@ -62,6 +64,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --cli-artifacts-san)
             CLI_ARTIFACTS_SANS+=("$2")
+            shift 2
+            ;;
+        --imagebuilder-api-san)
+            IMAGEBUILDER_API_SANS+=("$2")
             shift 2
             ;;
         --create-k8s-secrets)
@@ -368,7 +374,27 @@ else
     echo "[9/10] Skipped generation of CLI Artifacts TLS certificate (no SANs specified)"
 fi
 
-# Step 10: CA Bundle
+# Step 10: ImageBuilder API TLS certificate
+if [[ ${#IMAGEBUILDER_API_SANS[@]} -gt 0 ]]; then
+    mkdir -p "$CERT_DIR/flightctl-imagebuilder-api"
+
+    IMAGEBUILDER_API_KEY="$CERT_DIR/flightctl-imagebuilder-api/server.key"
+    IMAGEBUILDER_API_CERT="$CERT_DIR/flightctl-imagebuilder-api/server.crt"
+
+    if [[ -f "$IMAGEBUILDER_API_CERT" ]] && [[ -f "$IMAGEBUILDER_API_KEY" ]]; then
+        echo "[10/11] Skipped generation of ImageBuilder API TLS certificate (already exists)"
+    else
+        generate_server_cert "flightctl-imagebuilder-api" \
+            "$IMAGEBUILDER_API_KEY" "$IMAGEBUILDER_API_CERT" \
+            "$FLIGHTCTL_CA_CERT" "$FLIGHTCTL_CA_KEY" \
+            "${IMAGEBUILDER_API_SANS[@]}"
+        echo "[10/11] Generated ImageBuilder API TLS certificate (2 years, ECDSA P-256)"
+    fi
+else
+    echo "[10/11] Skipped generation of ImageBuilder API TLS certificate (no SANs specified)"
+fi
+
+# Step 11: CA Bundle
 CA_BUNDLE="$CERT_DIR/ca-bundle.crt"
 
 if [[ ${#PAM_ISSUER_SANS[@]} -gt 0 ]]; then
@@ -376,7 +402,7 @@ if [[ ${#PAM_ISSUER_SANS[@]} -gt 0 ]]; then
 else
     cat "$FLIGHTCTL_CA_CERT" "$CLIENT_SIGNER_CA_CERT" > "$CA_BUNDLE"
 fi
-echo "[10/10] Generated CA Bundle"
+echo "[11/11] Generated CA Bundle"
 
 # Clean up serial files
 rm -f "$CERT_DIR"/*.srl
@@ -444,6 +470,16 @@ if [[ "$CREATE_K8S_SECRETS" == "true" ]]; then
             --namespace="$NAMESPACE" \
             --cert="$ALERTMANAGER_PROXY_CERT" \
             --key="$ALERTMANAGER_PROXY_KEY" \
+            --dry-run=client -o yaml | $K8S_CLI apply -f -
+    fi
+
+    # Create flightctl-imagebuilder-api-server-tls secret (only if certificate was generated)
+    if [[ ${#IMAGEBUILDER_API_SANS[@]} -gt 0 ]]; then
+        echo "Creating secret: flightctl-imagebuilder-api-server-tls"
+        $K8S_CLI create secret tls flightctl-imagebuilder-api-server-tls \
+            --namespace="$NAMESPACE" \
+            --cert="$IMAGEBUILDER_API_CERT" \
+            --key="$IMAGEBUILDER_API_KEY" \
             --dry-run=client -o yaml | $K8S_CLI apply -f -
     fi
 

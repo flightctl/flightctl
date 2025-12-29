@@ -1,0 +1,51 @@
+{{- if and .Values.imageBuilderApi .Values.imageBuilderApi.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flightctl-imagebuilder-api-config
+  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: flightctl-imagebuilder-api
+data:
+  config.yaml: |-
+    database:
+        hostname: {{ include "flightctl.dbHostname" . }}
+        type: "pgsql"
+        port: {{ include "flightctl.dbPort" . | int }}
+        name: {{ .Values.db.name }}
+        {{- if eq .Values.db.type "external" }}
+        {{- if .Values.db.external.sslmode }}
+        sslmode: {{ .Values.db.external.sslmode | quote }}
+        {{- end }}
+        {{- if .Values.db.external.tlsConfigMapName }}
+        sslrootcert: /etc/ssl/postgres/ca-cert.pem
+        {{- end }}
+        {{- if .Values.db.external.tlsSecretName }}
+        sslkey: /etc/ssl/postgres/client-key.pem
+        sslcert: /etc/ssl/postgres/client-cert.pem
+        {{- end }}
+        {{- end }}
+    ca:
+        caCertFile: /root/.flightctl/certs/ca-bundle.crt
+    imageBuilderService:
+        address: ":8445"
+        logLevel: info
+        tlsCertFile: /root/.flightctl/certs/server.crt
+        tlsKeyFile: /root/.flightctl/certs/server.key
+    kv:
+        hostname: flightctl-kv.{{ default .Release.Namespace .Values.global.internalNamespace }}.svc.cluster.local
+        port: 6379
+    metrics:
+        enabled: true
+        address: ":8080"
+        systemCollector:
+            enabled: true
+            tickerInterval: 5s
+    {{ if (default dict .Values.dev).tracing }}
+    tracing:
+        enabled: true
+        endpoint: {{ .Values.dev.tracing.endpoint }}
+        insecure: {{ .Values.dev.tracing.insecure }}
+    {{ end }}
+{{- end }}

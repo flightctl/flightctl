@@ -136,7 +136,17 @@ func (c *Config) Equal(c2 *Config) bool {
 	if c == nil || c2 == nil {
 		return false
 	}
-	return c.Service.Equal(&c2.Service) && c.AuthInfo.Equal(&c2.AuthInfo)
+	// Compare ImageBuilderService pointer field
+	if c.ImageBuilderService == nil && c2.ImageBuilderService == nil {
+		// Both nil, continue with other fields
+	} else if c.ImageBuilderService == nil || c2.ImageBuilderService == nil {
+		// One nil, one not nil => not equal
+		return false
+	} else if !c.ImageBuilderService.Equal(c2.ImageBuilderService) {
+		// Both non-nil, use Equal method
+		return false
+	}
+	return c.Service.Equal(&c2.Service) && c.AuthInfo.Equal(&c2.AuthInfo) && c.Organization == c2.Organization
 }
 
 func (s *Service) Equal(s2 *Service) bool {
@@ -202,7 +212,7 @@ func (c *Config) DeepCopy() *Config {
 	if c == nil {
 		return nil
 	}
-	return &Config{
+	copied := &Config{
 		Service:      *c.Service.DeepCopy(),
 		AuthInfo:     *c.AuthInfo.DeepCopy(),
 		Organization: c.Organization,
@@ -210,6 +220,10 @@ func (c *Config) DeepCopy() *Config {
 		baseDir:      c.baseDir,
 		testRootDir:  c.testRootDir,
 	}
+	if c.ImageBuilderService != nil {
+		copied.ImageBuilderService = c.ImageBuilderService.DeepCopy()
+	}
+	return copied
 }
 
 func (s *Service) DeepCopy() *Service {

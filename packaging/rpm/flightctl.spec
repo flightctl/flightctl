@@ -33,7 +33,7 @@ Requires: openssl
 %global flightctl_target flightctl.target
 
 # --- Restart these on upgrade  ---
-%global flightctl_services_restart flightctl-api.service flightctl-ui.service flightctl-worker.service flightctl-alertmanager.service flightctl-alert-exporter.service flightctl-alertmanager-proxy.service flightctl-cli-artifacts.service flightctl-periodic.service flightctl-db-migrate.service flightctl-db-wait.service
+%global flightctl_services_restart flightctl-api.service flightctl-ui.service flightctl-worker.service flightctl-alertmanager.service flightctl-alert-exporter.service flightctl-alertmanager-proxy.service flightctl-cli-artifacts.service flightctl-periodic.service flightctl-db-migrate.service flightctl-db-wait.service flightctl-imagebuilder-api.service
 
 
 %description
@@ -659,6 +659,7 @@ rm -rf /usr/share/sosreport
     %dir %{_sysconfdir}/flightctl/pki/flightctl-api
     %dir %{_sysconfdir}/flightctl/pki/flightctl-alertmanager-proxy
     %dir %{_sysconfdir}/flightctl/pki/flightctl-pam-issuer
+    %dir %{_sysconfdir}/flightctl/pki/flightctl-imagebuilder-api
     %dir %{_sysconfdir}/flightctl/pki/db
     %dir %{_sysconfdir}/flightctl/flightctl-api
     %dir %{_sysconfdir}/flightctl/flightctl-ui
@@ -666,6 +667,7 @@ rm -rf /usr/share/sosreport
     %dir %{_sysconfdir}/flightctl/flightctl-alertmanager-proxy
     %dir %{_sysconfdir}/flightctl/flightctl-pam-issuer
     %dir %{_sysconfdir}/flightctl/flightctl-db-migrate
+    %dir %{_sysconfdir}/flightctl/flightctl-imagebuilder-api
     %dir %{_sysconfdir}/flightctl/ssh
     %config(noreplace) %{_sysconfdir}/flightctl/service-config.yaml
     %config(noreplace) %{_sysconfdir}/flightctl/flightctl-services-install.conf
@@ -684,6 +686,7 @@ rm -rf /usr/share/sosreport
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-periodic
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-worker
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-db-migrate
+    %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-imagebuilder-api
     %{_datadir}/flightctl/flightctl-api/config.yaml.template
     %{_datadir}/flightctl/flightctl-api/env.template
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-api/init.sh
@@ -705,6 +708,7 @@ rm -rf /usr/share/sosreport
     %{_datadir}/flightctl/flightctl-periodic/config.yaml.template
     %{_datadir}/flightctl/flightctl-worker/config.yaml.template
     %{_datadir}/flightctl/flightctl-db-migrate/config.yaml.template
+    %{_datadir}/flightctl/flightctl-imagebuilder-api/config.yaml.template
 
     # Handle permissions for scripts setting host config
     %attr(0755,root,root) %{_datadir}/flightctl/init_host.sh
