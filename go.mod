@@ -25,7 +25,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.1.0
-	github.com/jellydator/ttlcache/v3 v3.3.0
+	github.com/jellydator/ttlcache/v3 v3.4.0
 	github.com/lestrrat-go/jwx/v2 v2.1.0
 	github.com/mackerelio/go-osstat v0.2.5
 	github.com/mohae/deepcopy v0.0.0-20170929034955-c48cc78d4826
