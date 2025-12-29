@@ -243,21 +243,25 @@ Usage: {{- $authType := include "flightctl.getEffectiveAuthType" . }}
 {{- end }}
 
 {{- define "flightctl.getCliArtifactsUrl" }}
-  {{- $baseDomain := (include "flightctl.getBaseDomain" . )}}
-  {{- $scheme := (include "flightctl.getHttpScheme" . )}}
-  {{- $exposeMethod := (include "flightctl.getServiceExposeMethod" . )}}
-  {{- if eq $exposeMethod "nodePort" }}
-    {{- printf "%s://%s:%v" $scheme $baseDomain .Values.dev.nodePorts.cliArtifacts }}
-  {{- else if eq $exposeMethod "gateway" }}
-    {{- if and (eq $scheme "http") (not (eq (int .Values.global.gateway.ports.http) 80))}}
-      {{- printf "%s://cli-artifacts.%s:%v" $scheme $baseDomain .Values.global.gateway.ports.http }}
-    {{- else if and (eq $scheme "https") (not (eq (int .Values.global.gateway.ports.tls) 443))}}
-      {{- printf "%s://cli-artifacts.%s:%v" $scheme $baseDomain .Values.global.gateway.ports.tls }}
+  {{- if and .Values.cliArtifacts .Values.cliArtifacts.route .Values.cliArtifacts.route.host }}
+    {{- print .Values.cliArtifacts.route.host }}
+  {{- else }}
+    {{- $baseDomain := (include "flightctl.getBaseDomain" . )}}
+    {{- $scheme := (include "flightctl.getHttpScheme" . )}}
+    {{- $exposeMethod := (include "flightctl.getServiceExposeMethod" . )}}
+    {{- if eq $exposeMethod "nodePort" }}
+      {{- printf "%s://%s:%v" $scheme $baseDomain .Values.dev.nodePorts.cliArtifacts }}
+    {{- else if eq $exposeMethod "gateway" }}
+      {{- if and (eq $scheme "http") (not (eq (int .Values.global.gateway.ports.http) 80))}}
+        {{- printf "%s://cli-artifacts.%s:%v" $scheme $baseDomain .Values.global.gateway.ports.http }}
+      {{- else if and (eq $scheme "https") (not (eq (int .Values.global.gateway.ports.tls) 443))}}
+        {{- printf "%s://cli-artifacts.%s:%v" $scheme $baseDomain .Values.global.gateway.ports.tls }}
+      {{- else }}
+        {{- printf "%s://cli-artifacts.%s" $scheme $baseDomain }}
+      {{- end }}
     {{- else }}
       {{- printf "%s://cli-artifacts.%s" $scheme $baseDomain }}
     {{- end }}
-  {{- else }}
-    {{- printf "%s://cli-artifacts.%s" $scheme $baseDomain }}
   {{- end }}
 {{- end }}
 
@@ -445,7 +449,7 @@ Parameters:
 
       # Find job by label selector
       JOB=$(kubectl get jobs -n "$NS" -l "$LABEL_SELECTOR" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
-      
+
       # Check if job exists
       if [ -n "$JOB" ]; then
         # Check for parallel execution (dangerous even with idempotent migrations)

@@ -397,6 +397,14 @@
           "type": ["object", "null"],
           "description": "Additional labels for CLI Artifacts routes.",
           "additionalProperties": { "type": "string" }
+        },
+        "route": {
+          "type": ["object", "null"],
+          "description": "CLI Artifacts service routing in case a different from .global behavior is required, for example when RHEM is installed on hosts like RHEL/OCP-Virt.",
+          "additionalProperties": { "type": "string" },
+          "properties": {
+            "host": { "type": "string", "description": "CLI Artifacts Fully Qualified Domain Name" }
+          }
         }
       }
     },
