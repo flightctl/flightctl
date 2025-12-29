@@ -30,7 +30,7 @@ jobs:
       override: ${{ steps.check_override.outputs.override }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
       - name: Check if override label exists
         id: check_override
         uses: ./.github/actions/check-reviewer-override
@@ -43,7 +43,7 @@ jobs:
       any_changed: ${{ steps.changed-files.outputs.any_changed }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
           fetch-tags: true
@@ -80,7 +80,7 @@ jobs:
     continue-on-error: ${{ needs.check-override.outputs.override == 'true' }}
     steps:
       - name: Checkout PR branch
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
           fetch-tags: true
