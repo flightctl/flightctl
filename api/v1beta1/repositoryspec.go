@@ -4,7 +4,22 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 )
+
+// Discriminator returns the value of the type discriminator field.
+func (t RepositorySpec) Discriminator() (string, error) {
+	var disc struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(t.union, &disc); err != nil {
+		return "", fmt.Errorf("failed to unmarshal discriminator: %w", err)
+	}
+	if disc.Type == "" {
+		return "", errors.New("discriminator field 'type' is missing or empty")
+	}
+	return disc.Type, nil
+}
 
 // oapi-codegen generates AsGitHttpRepoSpec function but the generated function
 // is not using strict decoder.
@@ -37,16 +52,6 @@ func (t RepositorySpec) GetSshRepoSpec() (SshRepoSpec, error) {
 		return body, errors.New("not an SSH repository spec: sshConfig is empty")
 	}
 	return body, nil
-}
-
-// FromSshRepoSpec overwrites the union data with the provided SshRepoSpec.
-// SshRepoSpec is a structural variant of GenericRepoSpec (both use type: git),
-// distinguished by the presence of sshConfig.
-func (t *RepositorySpec) FromSshRepoSpec(v SshRepoSpec) error {
-	v.Type = RepoSpecTypeGit // SSH repos use type: git
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
 }
 
 func (t RepositorySpec) GetOciRepoSpec() (OciRepoSpec, error) {
