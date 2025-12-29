@@ -24,6 +24,7 @@ type Config struct {
 	Database            *dbConfig                  `json:"database,omitempty"`
 	Service             *svcConfig                 `json:"service,omitempty"`
 	ImageBuilderService *imageBuilderServiceConfig `json:"imageBuilderService,omitempty"`
+	ImageBuilderWorker  *imageBuilderWorkerConfig  `json:"imageBuilderWorker,omitempty"`
 	KV                  *kvConfig                  `json:"kv,omitempty"`
 	Alertmanager        *alertmanagerConfig        `json:"alertmanager,omitempty"`
 	Auth                *authConfig                `json:"auth,omitempty"`
@@ -116,6 +117,25 @@ type imageBuilderServiceConfig struct {
 	HttpMaxRequestSize    int              `json:"httpMaxRequestSize,omitempty"`
 	RateLimit             *RateLimitConfig `json:"rateLimit,omitempty"`
 	HealthChecks          *HealthChecks    `json:"healthChecks,omitempty"`
+}
+
+type imageBuilderWorkerConfig struct {
+	LogLevel            string        `json:"logLevel,omitempty"`
+	MaxConcurrentBuilds int           `json:"maxConcurrentBuilds,omitempty"`
+	BuildTimeout        util.Duration `json:"buildTimeout,omitempty"`
+	LogRetention        util.Duration `json:"logRetention,omitempty"`
+	DefaultTTL          util.Duration `json:"defaultTTL,omitempty"`
+}
+
+// NewDefaultImageBuilderWorkerConfig returns a default ImageBuilder worker configuration
+func NewDefaultImageBuilderWorkerConfig() *imageBuilderWorkerConfig {
+	return &imageBuilderWorkerConfig{
+		LogLevel:            "info",
+		MaxConcurrentBuilds: 2,
+		BuildTimeout:        util.Duration(30 * time.Minute),
+		LogRetention:        util.Duration(7 * 24 * time.Hour),
+		DefaultTTL:          util.Duration(7 * 24 * time.Hour),
+	}
 }
 
 // NewDefaultImageBuilderServiceConfig returns a default ImageBuilder service configuration
@@ -454,6 +474,7 @@ func NewDefault(opts ...ConfigOption) *Config {
 			// Rate limiting is disabled by default - set RateLimit to enable
 		},
 		ImageBuilderService: NewDefaultImageBuilderServiceConfig(),
+		ImageBuilderWorker:  NewDefaultImageBuilderWorkerConfig(),
 		KV: &kvConfig{
 			Hostname: "localhost",
 			Port:     6379,

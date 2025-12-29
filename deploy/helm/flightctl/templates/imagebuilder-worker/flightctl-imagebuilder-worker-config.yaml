@@ -1,0 +1,38 @@
+{{- if and .Values.imageBuilderWorker .Values.imageBuilderWorker.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    flightctl.service: flightctl-imagebuilder-worker
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+  name: flightctl-imagebuilder-worker-config
+  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+data:
+  config.yaml: |-
+    database:
+        hostname: {{ include "flightctl.dbHostname" . }}
+        type: "pgsql"
+        port: {{ include "flightctl.dbPort" . | int }}
+        name: {{ .Values.db.name }}
+        {{- if eq .Values.db.type "external" }}
+        {{- if .Values.db.external.sslmode }}
+        sslmode: {{ .Values.db.external.sslmode | quote }}
+        {{- end }}
+        {{- if .Values.db.external.tlsConfigMapName }}
+        sslrootcert: /etc/ssl/postgres/ca-cert.pem
+        {{- end }}
+        {{- if .Values.db.external.tlsSecretName }}
+        sslkey: /etc/ssl/postgres/client-key.pem
+        sslcert: /etc/ssl/postgres/client-cert.pem
+        {{- end }}
+        {{- end }}
+    kv:
+        hostname: flightctl-kv.{{ default .Release.Namespace .Values.global.internalNamespace }}.svc.cluster.local
+        port: 6379
+    imageBuilderWorker:
+        logLevel: {{ default "info" .Values.imageBuilderWorker.logLevel }}
+        maxConcurrentBuilds: {{ default 2 .Values.imageBuilderWorker.maxConcurrentBuilds }}
+        buildTimeout: {{ default "30m" .Values.imageBuilderWorker.buildTimeout }}
+        logRetention: {{ default "168h" .Values.imageBuilderWorker.logRetention }}
+        defaultTTL: {{ default "168h" .Values.imageBuilderWorker.defaultTTL }}
+{{- end }}

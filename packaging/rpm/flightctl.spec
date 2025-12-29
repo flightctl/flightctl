@@ -668,6 +668,7 @@ rm -rf /usr/share/sosreport
     %dir %{_sysconfdir}/flightctl/flightctl-pam-issuer
     %dir %{_sysconfdir}/flightctl/flightctl-db-migrate
     %dir %{_sysconfdir}/flightctl/flightctl-imagebuilder-api
+    %dir %{_sysconfdir}/flightctl/flightctl-imagebuilder-worker
     %dir %{_sysconfdir}/flightctl/ssh
     %config(noreplace) %{_sysconfdir}/flightctl/service-config.yaml
     %config(noreplace) %{_sysconfdir}/flightctl/flightctl-services-install.conf
@@ -687,6 +688,7 @@ rm -rf /usr/share/sosreport
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-worker
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-db-migrate
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-imagebuilder-api
+    %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-imagebuilder-worker
     %{_datadir}/flightctl/flightctl-api/config.yaml.template
     %{_datadir}/flightctl/flightctl-api/env.template
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-api/init.sh
@@ -709,6 +711,7 @@ rm -rf /usr/share/sosreport
     %{_datadir}/flightctl/flightctl-worker/config.yaml.template
     %{_datadir}/flightctl/flightctl-db-migrate/config.yaml.template
     %{_datadir}/flightctl/flightctl-imagebuilder-api/config.yaml.template
+    %{_datadir}/flightctl/flightctl-imagebuilder-worker/config.yaml.template
 
     # Handle permissions for scripts setting host config
     %attr(0755,root,root) %{_datadir}/flightctl/init_host.sh

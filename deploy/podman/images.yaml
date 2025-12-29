@@ -37,3 +37,6 @@ alertmanager:
 imagebuilder-api:
   image: quay.io/flightctl/flightctl-imagebuilder-api
   tag: latest
+imagebuilder-worker:
+  image: quay.io/flightctl/flightctl-imagebuilder-worker
+  tag: latest

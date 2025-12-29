@@ -500,6 +500,31 @@
         }
       }
     },
+    "imageBuilderWorker": {
+      "type": "object",
+      "description": "ImageBuilder Worker configuration",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "description": "Enable ImageBuilder Worker service" },
+        "replicas": { "type": "integer", "description": "Number of replicas for ImageBuilder Worker" },
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "image": { "type": "string", "description": "ImageBuilder Worker container image" },
+            "tag": { "type": "string", "description": "ImageBuilder Worker image tag" },
+            "pullPolicy": { "type": "string", "description": "Image pull policy for ImageBuilder Worker container" }
+          }
+        },
+        "logLevel": { "type": "string", "description": "Log level for ImageBuilder Worker" },
+        "maxConcurrentBuilds": { "type": "integer", "description": "Maximum concurrent builds" },
+        "buildTimeout": { "type": "string", "description": "Build timeout duration" },
+        "logRetention": { "type": "string", "description": "Log retention duration" },
+        "defaultTTL": { "type": "string", "description": "Default TTL for build resources" },
+        "privileged": { "type": "boolean", "description": "Enable privileged mode for container-in-container builds" },
+        "resources": { "type": "object", "description": "Resource requests and limits" }
+      }
+    },
     "telemetryGateway": {
       "type": "object",
       "additionalProperties": false,
