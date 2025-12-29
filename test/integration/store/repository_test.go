@@ -616,5 +616,519 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(len(repositories.Items)).To(Equal(numRepositories)) // Original git repos
 		})
 
+		// SSH Repository CRUD tests
+		It("Create SSH repository with credentials", func() {
+			spec := api.RepositorySpec{}
+			privateKey := "c3NoLXJzYSBBQUFBQjNOemFDMXljMkVBQUFBREFRQUJBQUFCZ1FDN2..." // base64 encoded
+			passphrase := "mysecretpassphrase"
+			err := spec.FromSshRepoSpec(api.SshRepoSpec{
+				Url:  "git@github.com:flightctl/flightctl.git",
+				Type: api.RepoSpecTypeGit,
+				SshConfig: api.SshConfig{
+					SshPrivateKey:        &privateKey,
+					PrivateKeyPassphrase: &passphrase,
+				},
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			repository := api.Repository{
+				Metadata: api.ObjectMeta{
+					Name:   lo.ToPtr("ssh-repo-with-creds"),
+					Labels: &map[string]string{"type": "ssh"},
+				},
+				Spec:   spec,
+				Status: nil,
+			}
+
+			repo, err := storeInst.Repository().Create(ctx, orgId, &repository, eventCallback)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(eventCallbackCalled).To(BeTrue())
+			Expect(repo.ApiVersion).To(Equal(model.RepositoryAPIVersion()))
+			Expect(repo.Kind).To(Equal(api.RepositoryKind))
+
+			// Verify SSH spec is preserved
+			sshSpec, err := repo.Spec.GetSshRepoSpec()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(sshSpec.Url).To(Equal("git@github.com:flightctl/flightctl.git"))
+			Expect(sshSpec.Type).To(Equal(api.RepoSpecTypeGit))
+			Expect(sshSpec.SshConfig.SshPrivateKey).ToNot(BeNil())
+			Expect(*sshSpec.SshConfig.SshPrivateKey).To(Equal(privateKey))
+			Expect(sshSpec.SshConfig.PrivateKeyPassphrase).ToNot(BeNil())
+			Expect(*sshSpec.SshConfig.PrivateKeyPassphrase).To(Equal(passphrase))
+		})
+
+		It("Create SSH repository without passphrase", func() {
+			spec := api.RepositorySpec{}
+			privateKey := "c3NoLXJzYSBBQUFBQjNOemFDMXljMkVBQUFBREFRQUJBQUFCZ1FDN2..." // base64 encoded
+			err := spec.FromSshRepoSpec(api.SshRepoSpec{
+				Url:  "git@gitlab.com:myorg/myrepo.git",
+				Type: api.RepoSpecTypeGit,
+				SshConfig: api.SshConfig{
+					SshPrivateKey: &privateKey,
+				},
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			repository := api.Repository{
+				Metadata: api.ObjectMeta{
+					Name:   lo.ToPtr("ssh-repo-no-passphrase"),
+					Labels: &map[string]string{"type": "ssh"},
+				},
+				Spec:   spec,
+				Status: nil,
+			}
+
+			repo, err := storeInst.Repository().Create(ctx, orgId, &repository, eventCallback)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(eventCallbackCalled).To(BeTrue())
+
+			// Verify SSH spec without passphrase
+			sshSpec, err := repo.Spec.GetSshRepoSpec()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(sshSpec.Url).To(Equal("git@gitlab.com:myorg/myrepo.git"))
+			Expect(sshSpec.SshConfig.SshPrivateKey).ToNot(BeNil())
+			Expect(*sshSpec.SshConfig.SshPrivateKey).To(Equal(privateKey))
+			Expect(sshSpec.SshConfig.PrivateKeyPassphrase).To(BeNil())
+		})
+
+		It("Get SSH repository and verify fields", func() {
+			spec := api.RepositorySpec{}
+			privateKey := "c3NoLXJzYSBBQUFBQjNOemFDMXljMkVB..." // base64 encoded
+			passphrase := "testpass"
+			err := spec.FromSshRepoSpec(api.SshRepoSpec{
+				Url:  "git@github.com:testorg/testrepo.git",
+				Type: api.RepoSpecTypeGit,
+				SshConfig: api.SshConfig{
+					SshPrivateKey:        &privateKey,
+					PrivateKeyPassphrase: &passphrase,
+				},
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			repository := api.Repository{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr("ssh-get-test"),
+				},
+				Spec: spec,
+			}
+			_, err = storeInst.Repository().Create(ctx, orgId, &repository, eventCallback)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Get the repository by name
+			repo, err := storeInst.Repository().Get(ctx, orgId, "ssh-get-test")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(*repo.Metadata.Name).To(Equal("ssh-get-test"))
+
+			// Verify SSH spec fields
+			sshSpec, err := repo.Spec.GetSshRepoSpec()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(sshSpec.Url).To(Equal("git@github.com:testorg/testrepo.git"))
+			Expect(sshSpec.Type).To(Equal(api.RepoSpecTypeGit))
+			Expect(sshSpec.SshConfig.SshPrivateKey).ToNot(BeNil())
+			Expect(*sshSpec.SshConfig.SshPrivateKey).To(Equal(privateKey))
+			Expect(sshSpec.SshConfig.PrivateKeyPassphrase).ToNot(BeNil())
+			Expect(*sshSpec.SshConfig.PrivateKeyPassphrase).To(Equal(passphrase))
+		})
+
+		It("Update SSH repository", func() {
+			// Create initial SSH repository
+			spec := api.RepositorySpec{}
+			privateKey := "c3NoLXJzYSBBQUFBQjNOemFDMXljMkVB..." // base64 encoded
+			err := spec.FromSshRepoSpec(api.SshRepoSpec{
+				Url:  "git@github.com:original/repo.git",
+				Type: api.RepoSpecTypeGit,
+				SshConfig: api.SshConfig{
+					SshPrivateKey: &privateKey,
+				},
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			repository := api.Repository{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr("ssh-update-test"),
+				},
+				Spec: spec,
+			}
+			_, created, err := storeInst.Repository().CreateOrUpdate(ctx, orgId, &repository, eventCallback)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(created).To(BeTrue())
+
+			// Update with new values
+			newPrivateKey := "bmV3LXByaXZhdGUta2V5LWNvbnRlbnQ=" // base64 encoded
+			newPassphrase := "newpassphrase"
+			err = spec.FromSshRepoSpec(api.SshRepoSpec{
+				Url:  "git@github.com:updated/repo.git",
+				Type: api.RepoSpecTypeGit,
+				SshConfig: api.SshConfig{
+					SshPrivateKey:        &newPrivateKey,
+					PrivateKeyPassphrase: &newPassphrase,
+				},
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			repository.Spec = spec
+			repo, created, err := storeInst.Repository().CreateOrUpdate(ctx, orgId, &repository, eventCallback)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(created).To(BeFalse())
+
+			// Verify updated values
+			sshSpec, err := repo.Spec.GetSshRepoSpec()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(sshSpec.Url).To(Equal("git@github.com:updated/repo.git"))
+			Expect(sshSpec.SshConfig.SshPrivateKey).ToNot(BeNil())
+			Expect(*sshSpec.SshConfig.SshPrivateKey).To(Equal(newPrivateKey))
+			Expect(sshSpec.SshConfig.PrivateKeyPassphrase).ToNot(BeNil())
+			Expect(*sshSpec.SshConfig.PrivateKeyPassphrase).To(Equal(newPassphrase))
+		})
+
+		It("Delete SSH repository", func() {
+			// Create SSH repository
+			spec := api.RepositorySpec{}
+			privateKey := "c3NoLXJzYSBBQUFBQjNOemFDMXljMkVB..."
+			err := spec.FromSshRepoSpec(api.SshRepoSpec{
+				Url:  "git@github.com:delete/repo.git",
+				Type: api.RepoSpecTypeGit,
+				SshConfig: api.SshConfig{
+					SshPrivateKey: &privateKey,
+				},
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			repository := api.Repository{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr("ssh-delete-test"),
+				},
+				Spec: spec,
+			}
+			_, err = storeInst.Repository().Create(ctx, orgId, &repository, eventCallback)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Verify it exists
+			_, err = storeInst.Repository().Get(ctx, orgId, "ssh-delete-test")
+			Expect(err).ToNot(HaveOccurred())
+
+			// Delete the repository
+			eventCallbackCalled = false
+			err = storeInst.Repository().Delete(ctx, orgId, "ssh-delete-test", eventCallback)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(eventCallbackCalled).To(BeTrue())
+
+			// Verify it no longer exists
+			_, err = storeInst.Repository().Get(ctx, orgId, "ssh-delete-test")
+			Expect(err).To(HaveOccurred())
+			Expect(err).Should(MatchError(flterrors.ErrResourceNotFound))
+		})
+
+		// HTTP Repository CRUD tests
+		It("Create HTTP repository with credentials", func() {
+			spec := api.RepositorySpec{}
+			username := "httpuser"
+			password := "httppassword"
+			err := spec.FromHttpRepoSpec(api.HttpRepoSpec{
+				Url:  "https://github.com/flightctl/flightctl.git",
+				Type: api.RepoSpecTypeHttp,
+				HttpConfig: api.HttpConfig{
+					Username: &username,
+					Password: &password,
+				},
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			repository := api.Repository{
+				Metadata: api.ObjectMeta{
+					Name:   lo.ToPtr("http-repo-with-creds"),
+					Labels: &map[string]string{"type": "http"},
+				},
+				Spec:   spec,
+				Status: nil,
+			}
+
+			repo, err := storeInst.Repository().Create(ctx, orgId, &repository, eventCallback)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(eventCallbackCalled).To(BeTrue())
+			Expect(repo.ApiVersion).To(Equal(model.RepositoryAPIVersion()))
+			Expect(repo.Kind).To(Equal(api.RepositoryKind))
+
+			// Verify HTTP spec is preserved
+			httpSpec, err := repo.Spec.GetHttpRepoSpec()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(httpSpec.Url).To(Equal("https://github.com/flightctl/flightctl.git"))
+			Expect(httpSpec.Type).To(Equal(api.RepoSpecTypeHttp))
+			Expect(httpSpec.HttpConfig.Username).ToNot(BeNil())
+			Expect(*httpSpec.HttpConfig.Username).To(Equal(username))
+			Expect(httpSpec.HttpConfig.Password).ToNot(BeNil())
+			Expect(*httpSpec.HttpConfig.Password).To(Equal(password))
+		})
+
+		It("Create HTTP repository with token", func() {
+			spec := api.RepositorySpec{}
+			token := "ghp_1234567890abcdef"
+			err := spec.FromHttpRepoSpec(api.HttpRepoSpec{
+				Url:  "https://github.com/flightctl/flightctl.git",
+				Type: api.RepoSpecTypeHttp,
+				HttpConfig: api.HttpConfig{
+					Token: &token,
+				},
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			repository := api.Repository{
+				Metadata: api.ObjectMeta{
+					Name:   lo.ToPtr("http-repo-with-token"),
+					Labels: &map[string]string{"type": "http"},
+				},
+				Spec:   spec,
+				Status: nil,
+			}
+
+			repo, err := storeInst.Repository().Create(ctx, orgId, &repository, eventCallback)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(eventCallbackCalled).To(BeTrue())
+
+			// Verify HTTP spec with token
+			httpSpec, err := repo.Spec.GetHttpRepoSpec()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(httpSpec.Url).To(Equal("https://github.com/flightctl/flightctl.git"))
+			Expect(httpSpec.HttpConfig.Token).ToNot(BeNil())
+			Expect(*httpSpec.HttpConfig.Token).To(Equal(token))
+			Expect(httpSpec.HttpConfig.Username).To(BeNil())
+			Expect(httpSpec.HttpConfig.Password).To(BeNil())
+		})
+
+		It("Create HTTP repository with TLS config", func() {
+			spec := api.RepositorySpec{}
+			caCrt := "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0t..." // base64 encoded
+			tlsCrt := "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0t..."
+			tlsKey := "LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0t..."
+			err := spec.FromHttpRepoSpec(api.HttpRepoSpec{
+				Url:  "https://private.git.server/repo.git",
+				Type: api.RepoSpecTypeHttp,
+				HttpConfig: api.HttpConfig{
+					CaCrt:  &caCrt,
+					TlsCrt: &tlsCrt,
+					TlsKey: &tlsKey,
+				},
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			repository := api.Repository{
+				Metadata: api.ObjectMeta{
+					Name:   lo.ToPtr("http-repo-with-tls"),
+					Labels: &map[string]string{"type": "http"},
+				},
+				Spec:   spec,
+				Status: nil,
+			}
+
+			repo, err := storeInst.Repository().Create(ctx, orgId, &repository, eventCallback)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(eventCallbackCalled).To(BeTrue())
+
+			// Verify HTTP spec with TLS config
+			httpSpec, err := repo.Spec.GetHttpRepoSpec()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(httpSpec.Url).To(Equal("https://private.git.server/repo.git"))
+			Expect(httpSpec.HttpConfig.CaCrt).ToNot(BeNil())
+			Expect(*httpSpec.HttpConfig.CaCrt).To(Equal(caCrt))
+			Expect(httpSpec.HttpConfig.TlsCrt).ToNot(BeNil())
+			Expect(*httpSpec.HttpConfig.TlsCrt).To(Equal(tlsCrt))
+			Expect(httpSpec.HttpConfig.TlsKey).ToNot(BeNil())
+			Expect(*httpSpec.HttpConfig.TlsKey).To(Equal(tlsKey))
+		})
+
+		It("Create HTTP repository with skipServerVerification", func() {
+			spec := api.RepositorySpec{}
+			skipVerify := true
+			err := spec.FromHttpRepoSpec(api.HttpRepoSpec{
+				Url:  "https://insecure.git.server/repo.git",
+				Type: api.RepoSpecTypeHttp,
+				HttpConfig: api.HttpConfig{
+					SkipServerVerification: &skipVerify,
+				},
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			repository := api.Repository{
+				Metadata: api.ObjectMeta{
+					Name:   lo.ToPtr("http-repo-skip-verify"),
+					Labels: &map[string]string{"type": "http"},
+				},
+				Spec:   spec,
+				Status: nil,
+			}
+
+			repo, err := storeInst.Repository().Create(ctx, orgId, &repository, eventCallback)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(eventCallbackCalled).To(BeTrue())
+
+			// Verify HTTP spec with skipServerVerification
+			httpSpec, err := repo.Spec.GetHttpRepoSpec()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(httpSpec.Url).To(Equal("https://insecure.git.server/repo.git"))
+			Expect(httpSpec.HttpConfig.SkipServerVerification).ToNot(BeNil())
+			Expect(*httpSpec.HttpConfig.SkipServerVerification).To(BeTrue())
+		})
+
+		It("Get HTTP repository and verify fields", func() {
+			spec := api.RepositorySpec{}
+			username := "testuser"
+			password := "testpass"
+			validationSuffix := "/info/refs?service=git-upload-pack"
+			err := spec.FromHttpRepoSpec(api.HttpRepoSpec{
+				Url:              "https://github.com/testorg/testrepo.git",
+				Type:             api.RepoSpecTypeHttp,
+				ValidationSuffix: &validationSuffix,
+				HttpConfig: api.HttpConfig{
+					Username: &username,
+					Password: &password,
+				},
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			repository := api.Repository{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr("http-get-test"),
+				},
+				Spec: spec,
+			}
+			_, err = storeInst.Repository().Create(ctx, orgId, &repository, eventCallback)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Get the repository by name
+			repo, err := storeInst.Repository().Get(ctx, orgId, "http-get-test")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(*repo.Metadata.Name).To(Equal("http-get-test"))
+
+			// Verify HTTP spec fields
+			httpSpec, err := repo.Spec.GetHttpRepoSpec()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(httpSpec.Url).To(Equal("https://github.com/testorg/testrepo.git"))
+			Expect(httpSpec.Type).To(Equal(api.RepoSpecTypeHttp))
+			Expect(httpSpec.ValidationSuffix).ToNot(BeNil())
+			Expect(*httpSpec.ValidationSuffix).To(Equal(validationSuffix))
+			Expect(httpSpec.HttpConfig.Username).ToNot(BeNil())
+			Expect(*httpSpec.HttpConfig.Username).To(Equal(username))
+			Expect(httpSpec.HttpConfig.Password).ToNot(BeNil())
+			Expect(*httpSpec.HttpConfig.Password).To(Equal(password))
+		})
+
+		It("Update HTTP repository", func() {
+			// Create initial HTTP repository
+			spec := api.RepositorySpec{}
+			token := "original-token"
+			err := spec.FromHttpRepoSpec(api.HttpRepoSpec{
+				Url:  "https://github.com/original/repo.git",
+				Type: api.RepoSpecTypeHttp,
+				HttpConfig: api.HttpConfig{
+					Token: &token,
+				},
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			repository := api.Repository{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr("http-update-test"),
+				},
+				Spec: spec,
+			}
+			_, created, err := storeInst.Repository().CreateOrUpdate(ctx, orgId, &repository, eventCallback)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(created).To(BeTrue())
+
+			// Update with new values
+			newToken := "new-updated-token"
+			err = spec.FromHttpRepoSpec(api.HttpRepoSpec{
+				Url:  "https://github.com/updated/repo.git",
+				Type: api.RepoSpecTypeHttp,
+				HttpConfig: api.HttpConfig{
+					Token: &newToken,
+				},
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			repository.Spec = spec
+			repo, created, err := storeInst.Repository().CreateOrUpdate(ctx, orgId, &repository, eventCallback)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(created).To(BeFalse())
+
+			// Verify updated values
+			httpSpec, err := repo.Spec.GetHttpRepoSpec()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(httpSpec.Url).To(Equal("https://github.com/updated/repo.git"))
+			Expect(httpSpec.HttpConfig.Token).ToNot(BeNil())
+			Expect(*httpSpec.HttpConfig.Token).To(Equal(newToken))
+		})
+
+		It("Delete HTTP repository", func() {
+			// Create HTTP repository
+			spec := api.RepositorySpec{}
+			token := "delete-test-token"
+			err := spec.FromHttpRepoSpec(api.HttpRepoSpec{
+				Url:  "https://github.com/delete/repo.git",
+				Type: api.RepoSpecTypeHttp,
+				HttpConfig: api.HttpConfig{
+					Token: &token,
+				},
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			repository := api.Repository{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr("http-delete-test"),
+				},
+				Spec: spec,
+			}
+			_, err = storeInst.Repository().Create(ctx, orgId, &repository, eventCallback)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Verify it exists
+			_, err = storeInst.Repository().Get(ctx, orgId, "http-delete-test")
+			Expect(err).ToNot(HaveOccurred())
+
+			// Delete the repository
+			eventCallbackCalled = false
+			err = storeInst.Repository().Delete(ctx, orgId, "http-delete-test", eventCallback)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(eventCallbackCalled).To(BeTrue())
+
+			// Verify it no longer exists
+			_, err = storeInst.Repository().Get(ctx, orgId, "http-delete-test")
+			Expect(err).To(HaveOccurred())
+			Expect(err).Should(MatchError(flterrors.ErrResourceNotFound))
+		})
+
+		It("List HTTP repositories by type using FieldSelector", func() {
+			// Create an HTTP repository
+			spec := api.RepositorySpec{}
+			token := "list-test-token"
+			err := spec.FromHttpRepoSpec(api.HttpRepoSpec{
+				Url:  "https://github.com/list-test/repo.git",
+				Type: api.RepoSpecTypeHttp,
+				HttpConfig: api.HttpConfig{
+					Token: &token,
+				},
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			repository := api.Repository{
+				Metadata: api.ObjectMeta{
+					Name: lo.ToPtr("http-list-test"),
+				},
+				Spec: spec,
+			}
+			_, err = storeInst.Repository().Create(ctx, orgId, &repository, eventCallback)
+			Expect(err).ToNot(HaveOccurred())
+
+			// List only HTTP type repositories
+			listParams := store.ListParams{
+				Limit:         1000,
+				FieldSelector: selector.NewFieldSelectorFromMapOrDie(map[string]string{"spec.type": "http"}),
+			}
+			repositories, err := storeInst.Repository().List(ctx, orgId, listParams)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(repositories.Items)).To(Equal(1))
+			Expect(*repositories.Items[0].Metadata.Name).To(Equal("http-list-test"))
+		})
+
 	})
 })

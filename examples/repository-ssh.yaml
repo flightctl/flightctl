@@ -1,0 +1,11 @@
+apiVersion: flightctl.io/v1beta1
+kind: Repository
+metadata:
+  name: flightctl-ssh
+spec:
+  url: ssh://git@github.com/flightctl/flightctl.git
+  type: git
+  sshConfig:
+    sshPrivateKey: "LS0tLS1CRUdJTiBPUEVOU1NIIFBSSVZBVEUgS0VZLS0tLS0K"
+    privateKeyPassphrase: "testpassphrase"
+    skipServerVerification: true
