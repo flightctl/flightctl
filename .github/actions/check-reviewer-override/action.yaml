@@ -1,0 +1,67 @@
+name: 'Check Reviewer Override Label'
+description: |
+  Checks if a specified override label exists on a pull request.
+
+inputs:
+  label-name:
+    description: 'Name of the label to check for override'
+    required: true
+
+outputs:
+  override:
+    description: 'Whether the override is active (true/false)'
+    value: ${{ steps.check_override.outputs.override }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Check if override label exists
+      id: check_override
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const labelName = '${{ inputs.label-name }}';
+          
+          // Get PR number - only supports pull_request events
+          let prNumber = null;
+          if (context.payload.pull_request?.number) {
+            prNumber = context.payload.pull_request.number;
+          } else if (context.eventName === 'merge_group') {
+            // merge_group events don't have PR context
+            console.log('merge_group event - no PR context available');
+            core.setOutput('override', 'false');
+            return;
+          } else {
+            console.log('No PR number found in context - this action only supports pull_request events');
+            core.setOutput('override', 'false');
+            return;
+          }
+
+          // Fetch labels from API
+          let labels = [];
+          try {
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber
+            });
+            labels = pr.labels.map(l => l.name);
+            console.log(`PR #${prNumber} labels: ${labels.join(', ')}`);
+          } catch (error) {
+            console.log(`Error fetching PR: ${error.message}`);
+            core.setOutput('override', 'false');
+            return;
+          }
+          
+          const labelExists = labels.includes(labelName);
+          console.log(`Looking for label: ${labelName}`);
+
+          if (!labelExists) {
+            console.log(`Label '${labelName}' not found on PR`);
+            core.setOutput('override', 'false');
+            return;
+          }
+
+          console.log(`Override label '${labelName}' found, override is active`);
+          core.setOutput('override', 'true');
+
