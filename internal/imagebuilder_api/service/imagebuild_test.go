@@ -17,10 +17,10 @@ func statusCode(status v1beta1.Status) int32 {
 	return status.Code
 }
 
-func newTestService() (ImageBuildService, *TestStore) {
-	testStore := NewTestStore()
-	svc := NewImageBuildService(testStore, log.InitLogs())
-	return svc, testStore
+func newTestImageBuildService() (ImageBuildService, *DummyImageBuildStore) {
+	imageBuildStore := NewDummyImageBuildStore()
+	svc := NewImageBuildService(imageBuildStore, log.InitLogs())
+	return svc, imageBuildStore
 }
 
 func newValidImageBuild(name string) api.ImageBuild {
@@ -47,7 +47,7 @@ func newValidImageBuild(name string) api.ImageBuild {
 
 func TestCreateImageBuild(t *testing.T) {
 	require := require.New(t)
-	svc, _ := newTestService()
+	svc, _ := newTestImageBuildService()
 	ctx := context.Background()
 	orgId := uuid.New()
 
@@ -61,7 +61,7 @@ func TestCreateImageBuild(t *testing.T) {
 
 func TestCreateImageBuildDuplicate(t *testing.T) {
 	require := require.New(t)
-	svc, _ := newTestService()
+	svc, _ := newTestImageBuildService()
 	ctx := context.Background()
 	orgId := uuid.New()
 
@@ -78,7 +78,7 @@ func TestCreateImageBuildDuplicate(t *testing.T) {
 
 func TestCreateImageBuildMissingInputRegistry(t *testing.T) {
 	require := require.New(t)
-	svc, _ := newTestService()
+	svc, _ := newTestImageBuildService()
 	ctx := context.Background()
 	orgId := uuid.New()
 
@@ -104,7 +104,7 @@ func TestCreateImageBuildMissingInputRegistry(t *testing.T) {
 
 func TestGetImageBuild(t *testing.T) {
 	require := require.New(t)
-	svc, _ := newTestService()
+	svc, _ := newTestImageBuildService()
 	ctx := context.Background()
 	orgId := uuid.New()
 
@@ -122,7 +122,7 @@ func TestGetImageBuild(t *testing.T) {
 
 func TestGetImageBuildNotFound(t *testing.T) {
 	require := require.New(t)
-	svc, _ := newTestService()
+	svc, _ := newTestImageBuildService()
 	ctx := context.Background()
 	orgId := uuid.New()
 
@@ -132,7 +132,7 @@ func TestGetImageBuildNotFound(t *testing.T) {
 
 func TestListImageBuilds(t *testing.T) {
 	require := require.New(t)
-	svc, _ := newTestService()
+	svc, _ := newTestImageBuildService()
 	ctx := context.Background()
 	orgId := uuid.New()
 
@@ -152,7 +152,7 @@ func TestListImageBuilds(t *testing.T) {
 
 func TestListImageBuildsWithLimit(t *testing.T) {
 	require := require.New(t)
-	svc, _ := newTestService()
+	svc, _ := newTestImageBuildService()
 	ctx := context.Background()
 	orgId := uuid.New()
 
@@ -173,7 +173,7 @@ func TestListImageBuildsWithLimit(t *testing.T) {
 
 func TestDeleteImageBuild(t *testing.T) {
 	require := require.New(t)
-	svc, _ := newTestService()
+	svc, _ := newTestImageBuildService()
 	ctx := context.Background()
 	orgId := uuid.New()
 
@@ -193,7 +193,7 @@ func TestDeleteImageBuild(t *testing.T) {
 
 func TestDeleteImageBuildNotFound(t *testing.T) {
 	require := require.New(t)
-	svc, _ := newTestService()
+	svc, _ := newTestImageBuildService()
 	ctx := context.Background()
 	orgId := uuid.New()
 
@@ -203,7 +203,7 @@ func TestDeleteImageBuildNotFound(t *testing.T) {
 
 func TestUpdateStatus(t *testing.T) {
 	require := require.New(t)
-	svc, _ := newTestService()
+	svc, _ := newTestImageBuildService()
 	ctx := context.Background()
 	orgId := uuid.New()
 

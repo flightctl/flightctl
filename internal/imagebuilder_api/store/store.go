@@ -10,6 +10,7 @@ import (
 // Store is the imagebuilder-specific store interface
 type Store interface {
 	ImageBuild() ImageBuildStore
+	ImageExport() ImageExportStore
 	RunMigrations(ctx context.Context) error
 	Ping() error
 	Close() error
@@ -17,17 +18,19 @@ type Store interface {
 
 // storeImpl is the concrete implementation of the imagebuilder Store interface
 type storeImpl struct {
-	imageBuild ImageBuildStore
-	db         *gorm.DB
-	log        logrus.FieldLogger
+	imageBuild  ImageBuildStore
+	imageExport ImageExportStore
+	db          *gorm.DB
+	log         logrus.FieldLogger
 }
 
 // NewStore creates a new imagebuilder store
 func NewStore(db *gorm.DB, log logrus.FieldLogger) Store {
 	return &storeImpl{
-		imageBuild: NewImageBuildStore(db, log),
-		db:         db,
-		log:        log,
+		imageBuild:  NewImageBuildStore(db, log),
+		imageExport: NewImageExportStore(db, log),
+		db:          db,
+		log:         log,
 	}
 }
 
@@ -36,9 +39,17 @@ func (s *storeImpl) ImageBuild() ImageBuildStore {
 	return s.imageBuild
 }
 
+// ImageExport returns the ImageExport store
+func (s *storeImpl) ImageExport() ImageExportStore {
+	return s.imageExport
+}
+
 // RunMigrations runs the imagebuilder-specific migrations
 func (s *storeImpl) RunMigrations(ctx context.Context) error {
-	return s.imageBuild.InitialMigration(ctx)
+	if err := s.imageBuild.InitialMigration(ctx); err != nil {
+		return err
+	}
+	return s.imageExport.InitialMigration(ctx)
 }
 
 // Ping checks database connectivity

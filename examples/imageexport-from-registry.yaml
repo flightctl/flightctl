@@ -1,0 +1,22 @@
+apiVersion: flightctl.io/v1beta1
+kind: ImageExport
+metadata:
+  name: my-edge-export-from-registry
+  labels:
+    environment: staging
+    team: edge-platform
+spec:
+  # Source directly from a repository (not from an ImageBuild)
+  source:
+    type: imageReference
+    repository: my-source-registry
+    imageName: rhel-edge-base
+    imageTag: "9.4"
+  # Destination defines where to push the exported images
+  destination:
+    repository: my-export-registry
+    imageName: rhel-edge-exported
+    tag: v2.0.0
+  # Format to export the image to
+  format: vmdk
+  tagSuffix: "-vmware"

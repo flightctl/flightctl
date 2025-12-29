@@ -27,12 +27,12 @@ type ImageBuildService interface {
 
 // imageBuildService is the concrete implementation of ImageBuildService
 type imageBuildService struct {
-	store store.Store
+	store store.ImageBuildStore
 	log   logrus.FieldLogger
 }
 
 // NewImageBuildService creates a new ImageBuildService
-func NewImageBuildService(s store.Store, log logrus.FieldLogger) ImageBuildService {
+func NewImageBuildService(s store.ImageBuildStore, log logrus.FieldLogger) ImageBuildService {
 	return &imageBuildService{
 		store: s,
 		log:   log,
@@ -49,12 +49,12 @@ func (s *imageBuildService) Create(ctx context.Context, orgId uuid.UUID, imageBu
 		return nil, StatusBadRequest(errors.Join(errs...).Error())
 	}
 
-	result, err := s.store.ImageBuild().Create(ctx, orgId, &imageBuild)
+	result, err := s.store.Create(ctx, orgId, &imageBuild)
 	return result, StoreErrorToApiStatus(err, true, ImageBuildKind, imageBuild.Metadata.Name)
 }
 
 func (s *imageBuildService) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageBuild, v1beta1.Status) {
-	result, err := s.store.ImageBuild().Get(ctx, orgId, name)
+	result, err := s.store.Get(ctx, orgId, name)
 	return result, StoreErrorToApiStatus(err, false, ImageBuildKind, &name)
 }
 
@@ -64,7 +64,7 @@ func (s *imageBuildService) List(ctx context.Context, orgId uuid.UUID, params ap
 		return nil, status
 	}
 
-	result, err := s.store.ImageBuild().List(ctx, orgId, *listParams)
+	result, err := s.store.List(ctx, orgId, *listParams)
 	if err == nil {
 		return result, StatusOK()
 	}
@@ -79,18 +79,18 @@ func (s *imageBuildService) List(ctx context.Context, orgId uuid.UUID, params ap
 }
 
 func (s *imageBuildService) Delete(ctx context.Context, orgId uuid.UUID, name string) v1beta1.Status {
-	err := s.store.ImageBuild().Delete(ctx, orgId, name)
+	err := s.store.Delete(ctx, orgId, name)
 	return StoreErrorToApiStatus(err, false, ImageBuildKind, &name)
 }
 
 // Internal methods (not exposed via API)
 
 func (s *imageBuildService) UpdateStatus(ctx context.Context, orgId uuid.UUID, imageBuild *api.ImageBuild) (*api.ImageBuild, error) {
-	return s.store.ImageBuild().UpdateStatus(ctx, orgId, imageBuild)
+	return s.store.UpdateStatus(ctx, orgId, imageBuild)
 }
 
 func (s *imageBuildService) UpdateLastSeen(ctx context.Context, orgId uuid.UUID, name string, timestamp time.Time) error {
-	return s.store.ImageBuild().UpdateLastSeen(ctx, orgId, name, timestamp)
+	return s.store.UpdateLastSeen(ctx, orgId, name, timestamp)
 }
 
 // validate performs validation on an ImageBuild resource

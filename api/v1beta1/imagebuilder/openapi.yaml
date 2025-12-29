@@ -17,6 +17,8 @@ servers:
 tags:
   - name: imagebuild
     description: Operations on ImageBuild resources.
+  - name: imageexport
+    description: Operations on ImageExport resources.
 # Note: Security is handled by Chi middleware (auth.CreateAuthNMiddleware), not OpenAPI validation
 # The securitySchemes are defined in components for documentation purposes
 paths:
@@ -172,6 +174,176 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ImageBuild'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+  /api/v1/imageexports:
+    get:
+      tags:
+        - imageexport
+      description: List ImageExport resources.
+      operationId: listImageExports
+      parameters:
+        - name: labelSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their labels.
+          schema:
+            type: string
+        - name: fieldSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their fields.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          description: The maximum number of results returned in the list response.
+          schema:
+            type: integer
+            format: int32
+        - name: continue
+          in: query
+          description: An optional parameter to query more results from the server.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImageExportList'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+    post:
+      tags:
+        - imageexport
+      description: Create an ImageExport resource.
+      operationId: createImageExport
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImageExport'
+        required: true
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImageExport'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+  /api/v1/imageexports/{name}:
+    get:
+      tags:
+        - imageexport
+      description: Get an ImageExport resource.
+      operationId: getImageExport
+      parameters:
+        - name: name
+          in: path
+          description: The name of the ImageExport resource.
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImageExport'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+    delete:
+      tags:
+        - imageexport
+      description: Delete an ImageExport resource.
+      operationId: deleteImageExport
+      parameters:
+        - name: name
+          in: path
+          description: The name of the ImageExport resource.
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImageExport'
         "401":
           description: Unauthorized
           content:
@@ -392,3 +564,228 @@ components:
         - ImageBuildPhasePushing
         - ImageBuildPhaseComplete
         - ImageBuildPhaseFailed
+
+    # ImageExport schemas
+    ImageExport:
+      type: object
+      description: ImageExport represents an export request to convert and push images to different formats.
+      properties:
+        apiVersion:
+          type: string
+          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+        kind:
+          type: string
+          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
+        metadata:
+          $ref: '../openapi.yaml#/components/schemas/ObjectMeta'
+        spec:
+          $ref: '#/components/schemas/ImageExportSpec'
+        status:
+          $ref: '#/components/schemas/ImageExportStatus'
+      required:
+        - apiVersion
+        - kind
+        - metadata
+        - spec
+
+    ImageExportList:
+      type: object
+      description: ImageExportList is a list of ImageExport resources.
+      properties:
+        apiVersion:
+          type: string
+          description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.'
+        kind:
+          type: string
+          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
+        metadata:
+          $ref: '../openapi.yaml#/components/schemas/ListMeta'
+        items:
+          type: array
+          description: 'List of ImageExport resources.'
+          items:
+            $ref: '#/components/schemas/ImageExport'
+      required:
+        - apiVersion
+        - kind
+        - metadata
+        - items
+
+    ImageExportSpec:
+      type: object
+      description: ImageExportSpec describes the specification for an image export.
+      properties:
+        source:
+          $ref: '#/components/schemas/ImageExportSource'
+        destination:
+          $ref: '#/components/schemas/ImageExportDestination'
+        format:
+          $ref: '#/components/schemas/ExportFormatType'
+        tagSuffix:
+          type: string
+          description: Optional suffix to append to the output tag for this format.
+      required:
+        - source
+        - destination
+        - format
+
+    ImageExportSource:
+      description: ImageExportSource specifies the source image for the export.
+      oneOf:
+        - $ref: '#/components/schemas/ImageBuildRefSource'
+        - $ref: '#/components/schemas/ImageReferenceSource'
+      discriminator:
+        propertyName: type
+        mapping:
+          imageBuild: '#/components/schemas/ImageBuildRefSource'
+          imageReference: '#/components/schemas/ImageReferenceSource'
+
+    ImageBuildRefSource:
+      type: object
+      description: ImageBuildRefSource specifies a source image from an ImageBuild resource.
+      required:
+        - type
+        - imageBuildRef
+      properties:
+        type:
+          type: string
+          enum: [imageBuild]
+          description: The type of source.
+        imageBuildRef:
+          type: string
+          description: The name of the ImageBuild resource to use as source.
+
+    ImageReferenceSource:
+      type: object
+      description: ImageReferenceSource specifies a source image from a repository.
+      required:
+        - type
+        - repository
+        - imageName
+        - imageTag
+      properties:
+        type:
+          type: string
+          enum: [imageReference]
+          description: The type of source.
+        repository:
+          type: string
+          description: The name of the Repository resource containing the source image.
+        imageName:
+          type: string
+          description: The name of the source image.
+        imageTag:
+          type: string
+          description: The tag of the source image.
+
+    ImageExportSourceType:
+      type: string
+      description: The type of source for the image export.
+      enum:
+        - imageBuild
+        - imageReference
+      x-enum-varnames:
+        - ImageExportSourceTypeImageBuild
+        - ImageExportSourceTypeImageReference
+
+    ImageExportDestination:
+      type: object
+      description: ImageExportDestination specifies the destination for the exported images.
+      properties:
+        repository:
+          type: string
+          description: The name of the Repository resource to push the exported images to.
+        imageName:
+          type: string
+          description: The name of the destination image.
+        tag:
+          type: string
+          description: The base tag for the destination images.
+      required:
+        - repository
+        - imageName
+        - tag
+    ExportFormatType:
+      type: string
+      description: The type of format to export the image to.
+      enum:
+        - vmdk
+        - qcow2
+        - iso
+      x-enum-varnames:
+        - ExportFormatTypeVMDK
+        - ExportFormatTypeQCOW2
+        - ExportFormatTypeISO
+
+    ImageExportStatus:
+      type: object
+      description: ImageExportStatus represents the current status of an ImageExport.
+      properties:
+        conditions:
+          type: array
+          description: Current conditions of the ImageExport.
+          items:
+            $ref: '../openapi.yaml#/components/schemas/Condition'
+        phase:
+          $ref: '#/components/schemas/ImageExportPhase'
+        format:
+          $ref: '#/components/schemas/ExportFormatType'
+        tagSuffix:
+          type: string
+          description: Optional suffix to append to the output tag for this format.
+        manifestDigest:
+          type: string
+          description: The digest of the exported image manifest for this format.
+        startedAt:
+          type: string
+          format: date-time
+          description: The time the export started.
+        completedAt:
+          type: string
+          format: date-time
+          description: The time the export completed.
+        lastSeen:
+          type: string
+          format: date-time
+          description: The last time the export was seen (heartbeat).
+        nextRetryAt:
+          type: string
+          format: date-time
+          description: The next time to retry the export (for delayed processing).
+        error:
+          type: string
+          description: Error message if the export failed.
+
+    ImageExportPhase:
+      type: string
+      description: The overall phase of the image export process.
+      enum:
+        - queued
+        - waiting
+        - converting
+        - pushing
+        - complete
+        - failed
+      x-enum-varnames:
+        - ImageExportPhaseQueued
+        - ImageExportPhaseWaiting
+        - ImageExportPhaseConverting
+        - ImageExportPhasePushing
+        - ImageExportPhaseComplete
+        - ImageExportPhaseFailed
+
+    ImageExportFormatPhase:
+      type: string
+      description: The phase of a single format conversion.
+      enum:
+        - queued
+        - converting
+        - pushing
+        - complete
+        - failed
+      x-enum-varnames:
+        - ImageExportFormatPhaseQueued
+        - ImageExportFormatPhaseConverting
+        - ImageExportFormatPhasePushing
+        - ImageExportFormatPhaseComplete
+        - ImageExportFormatPhaseFailed

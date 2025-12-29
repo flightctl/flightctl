@@ -67,9 +67,56 @@ func (h *TransportHandler) GetImageBuild(w http.ResponseWriter, r *http.Request,
 	SetResponse(w, body, status)
 }
 
+// ReplaceImageBuild handles PUT /api/v1/imagebuilds/{name}
+// ImageBuild is immutable, so this just calls Create with the name from the path.
+// If the resource already exists, Create will return a conflict error.
+func (h *TransportHandler) ReplaceImageBuild(w http.ResponseWriter, r *http.Request, name string) {
+	var imageBuild api.ImageBuild
+	if err := json.NewDecoder(r.Body).Decode(&imageBuild); err != nil {
+		SetParseFailureResponse(w, err)
+		return
+	}
+
+	// Set the name from the path parameter
+	imageBuild.Metadata.Name = &name
+
+	body, status := h.service.ImageBuild().Create(r.Context(), OrgIDFromContext(r.Context()), imageBuild)
+	SetResponse(w, body, status)
+}
+
 // DeleteImageBuild handles DELETE /api/v1/imagebuilds/{name}
 func (h *TransportHandler) DeleteImageBuild(w http.ResponseWriter, r *http.Request, name string) {
 	status := h.service.ImageBuild().Delete(r.Context(), OrgIDFromContext(r.Context()), name)
+	SetResponse(w, nil, status)
+}
+
+// ListImageExports handles GET /api/v1/imageexports
+func (h *TransportHandler) ListImageExports(w http.ResponseWriter, r *http.Request, params api.ListImageExportsParams) {
+	body, status := h.service.ImageExport().List(r.Context(), OrgIDFromContext(r.Context()), params)
+	SetResponse(w, body, status)
+}
+
+// CreateImageExport handles POST /api/v1/imageexports
+func (h *TransportHandler) CreateImageExport(w http.ResponseWriter, r *http.Request) {
+	var imageExport api.ImageExport
+	if err := json.NewDecoder(r.Body).Decode(&imageExport); err != nil {
+		SetParseFailureResponse(w, err)
+		return
+	}
+
+	body, status := h.service.ImageExport().Create(r.Context(), OrgIDFromContext(r.Context()), imageExport)
+	SetResponse(w, body, status)
+}
+
+// GetImageExport handles GET /api/v1/imageexports/{name}
+func (h *TransportHandler) GetImageExport(w http.ResponseWriter, r *http.Request, name string) {
+	body, status := h.service.ImageExport().Get(r.Context(), OrgIDFromContext(r.Context()), name)
+	SetResponse(w, body, status)
+}
+
+// DeleteImageExport handles DELETE /api/v1/imageexports/{name}
+func (h *TransportHandler) DeleteImageExport(w http.ResponseWriter, r *http.Request, name string) {
+	status := h.service.ImageExport().Delete(r.Context(), OrgIDFromContext(r.Context()), name)
 	SetResponse(w, nil, status)
 }
 
