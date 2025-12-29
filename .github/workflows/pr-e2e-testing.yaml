@@ -13,6 +13,7 @@ on:
       - main
       - 'release-*'
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
   merge_group:
 
 permissions:
@@ -60,12 +61,16 @@ jobs:
 
   build-images-and-charts:
     needs: compute-tag
-    if: needs.compute-tag.outputs.any_changed == 'true'
+    if: |
+      needs.compute-tag.outputs.any_changed == 'true' &&
+      (github.event_name != 'pull_request' || startsWith(github.base_ref, 'release-') || contains(github.event.pull_request.labels.*.name, 'run-e2e'))
     uses: ./.github/workflows/build-images-and-charts.yaml
 
   build-flightctl-cli:
-    needs: [ build-images-and-charts, compute-tag ]
-    if: needs.compute-tag.outputs.any_changed == 'true'
+    needs: [build-images-and-charts, compute-tag]
+    if: |
+      needs.compute-tag.outputs.any_changed == 'true' &&
+      (github.event_name != 'pull_request' || startsWith(github.base_ref, 'release-') || contains(github.event.pull_request.labels.*.name, 'run-e2e'))
     runs-on: ubuntu-24.04
     outputs:
       tag: ${{ needs.compute-tag.outputs.tag }}
@@ -75,7 +80,9 @@ jobs:
 
   build-rpms:
     needs: compute-tag
-    if: needs.compute-tag.outputs.any_changed == 'true'
+    if: |
+      needs.compute-tag.outputs.any_changed == 'true' &&
+      (github.event_name != 'pull_request' || startsWith(github.base_ref, 'release-') || contains(github.event.pull_request.labels.*.name, 'run-e2e'))
     strategy:
       matrix:
         include:
@@ -86,8 +93,10 @@ jobs:
       root: ${{ matrix.root }}
 
   build-agent-images-unified:
-    needs: [ compute-tag, build-rpms ]
-    if: needs.compute-tag.outputs.any_changed == 'true'
+    needs: [compute-tag, build-rpms]
+    if: |
+      needs.compute-tag.outputs.any_changed == 'true' &&
+      (github.event_name != 'pull_request' || startsWith(github.base_ref, 'release-') || contains(github.event.pull_request.labels.*.name, 'run-e2e'))
     strategy:
       matrix:
         include:
@@ -103,7 +112,9 @@ jobs:
 
   discover-e2e-tests:
     needs: compute-tag
-    if: needs.compute-tag.outputs.any_changed == 'true'
+    if: |
+      needs.compute-tag.outputs.any_changed == 'true' &&
+      (github.event_name != 'pull_request' || startsWith(github.base_ref, 'release-') || contains(github.event.pull_request.labels.*.name, 'run-e2e'))
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -168,7 +179,9 @@ jobs:
       - build-flightctl-cli
       - build-agent-images-unified
       - discover-e2e-tests
-    if: needs.compute-tag.outputs.any_changed == 'true'
+    if: |
+      needs.compute-tag.outputs.any_changed == 'true' &&
+      (github.event_name != 'pull_request' || startsWith(github.base_ref, 'release-') || contains(github.event.pull_request.labels.*.name, 'run-e2e'))
     strategy:
       fail-fast: false
       matrix:
@@ -199,16 +212,24 @@ jobs:
     if: always()
     steps:
       - name: Check E2E Test Results
+        env:
+          HAS_RUN_E2E_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'run-e2e') }}
         run: |
           if [[ "${{ needs.compute-tag.outputs.any_changed }}" != "true" ]]; then
             echo "E2E tests were skipped (docs-only or ignored paths)"
+            exit 0
+          fi
+          # PRs targeting main skip e2e unless 'run-e2e' label is present
+          if [[ "${{ github.event_name }}" == "pull_request" && ! "${{ github.base_ref }}" =~ ^release- && "${HAS_RUN_E2E_LABEL}" != "true" ]]; then
+            echo "E2E tests skipped for PRs targeting main (will run in merge queue)"
+            echo "To run e2e tests on this PR, add the 'run-e2e' label"
             exit 0
           fi
           if [[ "${{ needs.e2e-tests.result }}" == "success" ]]; then
             echo "All E2E tests passed!"
             exit 0
           elif [[ "${{ needs.e2e-tests.result }}" == "skipped" ]]; then
-            echo "E2E tests were skipped (docs-only changes)"
+            echo "E2E tests were skipped"
             exit 0
           else
             echo "E2E tests failed or were cancelled"
