@@ -60,6 +60,11 @@ imageBuilderApi:
     image: localhost/flightctl-imagebuilder-api
     tag: latest
 
+imageBuilderWorker:
+  image:
+    image: localhost/flightctl-imagebuilder-worker
+    tag: latest
+
 dev:
   exposeServicesMethod: "nodePort"
   nodePorts:

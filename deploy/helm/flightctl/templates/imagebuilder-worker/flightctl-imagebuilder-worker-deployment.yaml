@@ -1,0 +1,72 @@
+{{- if and .Values.imageBuilderWorker .Values.imageBuilderWorker.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    flightctl.service: flightctl-imagebuilder-worker
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+  name: flightctl-imagebuilder-worker
+  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+spec:
+  replicas: {{ default 1 .Values.imageBuilderWorker.replicas }}
+  selector:
+    matchLabels:
+      flightctl.service: flightctl-imagebuilder-worker
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        flightctl.service: flightctl-imagebuilder-worker
+        {{- include "flightctl.standardLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: flightctl-imagebuilder-worker
+      {{- if .Values.global.imagePullSecretName }}
+      imagePullSecrets:
+        - name: {{ .Values.global.imagePullSecretName }}
+      {{- end }}
+      initContainers:
+      {{- include "flightctl.databaseWaitInitContainer" (dict "context" . "userType" "app") | nindent 6 }}
+      {{- include "flightctl.migrationWaitInitContainer" (dict "context" . "timeout" 600) | nindent 6 }}
+      containers:
+        - name: flightctl-imagebuilder-worker
+          image: {{ .Values.imageBuilderWorker.image.image }}:{{ default .Chart.AppVersion .Values.imageBuilderWorker.image.tag }}
+          imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.imageBuilderWorker.image.pullPolicy }}
+          env:
+            - name: HOME
+              value: "/root"
+            - name: KV_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default "flightctl-kv-secret" .Values.kv.passwordSecretName }}
+                  key: password
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "flightctl.dbAppUserSecret" . }}
+                  key: userPassword
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "flightctl.dbAppUserSecret" . }}
+                  key: user
+          volumeMounts:
+            - mountPath: /root/.flightctl/config.yaml
+              name: flightctl-imagebuilder-worker-config
+              subPath: config.yaml
+              readOnly: true
+            {{- include "flightctl.dbSslVolumeMounts" . | nindent 12 }}
+          {{- with .Values.imageBuilderWorker.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            # Required for container-in-container builds
+            privileged: {{ default false .Values.imageBuilderWorker.privileged }}
+      restartPolicy: Always
+      volumes:
+        - name: flightctl-imagebuilder-worker-config
+          configMap:
+            name: flightctl-imagebuilder-worker-config
+        {{- include "flightctl.dbSslVolumes" . | nindent 8 }}
+{{- end }}

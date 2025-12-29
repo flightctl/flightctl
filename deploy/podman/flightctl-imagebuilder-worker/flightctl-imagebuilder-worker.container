@@ -1,0 +1,30 @@
+[Unit]
+Description=Flight Control ImageBuilder Worker service
+PartOf=flightctl.target
+After=flightctl-db-wait.service flightctl-db-migrate.service flightctl-kv.service
+Wants=flightctl-db-wait.service flightctl-db-migrate.service flightctl-kv.service
+
+[Container]
+ContainerName=flightctl-imagebuilder-worker
+Image={{ .ImagebuilderWorker.Image }}:{{ .ImagebuilderWorker.Tag }}
+Pull=missing
+Network=flightctl.network
+AddHost=%H:host-gateway
+Environment=HOME=/root
+Secret=flightctl-postgresql-user-password,type=env,target=DB_PASSWORD
+Secret=flightctl-kv-password,type=env,target=KV_PASSWORD
+Environment=DB_USER=flightctl_app
+Volume=/etc/flightctl/flightctl-imagebuilder-worker/config.yaml:/root/.flightctl/config.yaml:ro,z
+Volume=/etc/flightctl/pki/db:/root/.flightctl/certs/db:ro,z
+# For container-in-container builds (E5)
+SecurityLabelDisable=true
+AddCapability=SYS_ADMIN
+
+[Service]
+Restart=always
+RestartSec=30
+
+ExecStartPre=/usr/bin/flightctl-standalone render template --input-file /usr/share/flightctl/flightctl-imagebuilder-worker/config.yaml.template --output-file /etc/flightctl/flightctl-imagebuilder-worker/config.yaml
+
+[Install]
+WantedBy=flightctl.target

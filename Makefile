@@ -202,6 +202,9 @@ build-telemetry-gateway: bin
 build-imagebuilder-api: bin
 	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-imagebuilder-api
 
+build-imagebuilder-worker: bin
+	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-imagebuilder-worker
+
 build-devicesimulator: bin
 	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/devicesimulator
 
@@ -287,7 +290,14 @@ flightctl-imagebuilder-api-container: Containerfile.imagebuilder-api go.mod go.s
 		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
 		-f Containerfile.imagebuilder-api -t flightctl-imagebuilder-api:latest -t quay.io/flightctl/flightctl-imagebuilder-api:$(SOURCE_GIT_TAG)
 
-.PHONY: flightctl-api-container flightctl-pam-issuer-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container flightctl-userinfo-proxy-container flightctl-telemetry-gateway-container flightctl-imagebuilder-api-container
+flightctl-imagebuilder-worker-container: Containerfile.imagebuilder-worker go.mod go.sum $(GO_FILES)
+	podman build $(call CACHE_FLAGS_FOR_IMAGE,flightctl-imagebuilder-worker) \
+		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
+		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
+		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
+		-f Containerfile.imagebuilder-worker -t flightctl-imagebuilder-worker:latest -t quay.io/flightctl/flightctl-imagebuilder-worker:$(SOURCE_GIT_TAG)
+
+.PHONY: flightctl-api-container flightctl-pam-issuer-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container flightctl-userinfo-proxy-container flightctl-telemetry-gateway-container flightctl-imagebuilder-api-container flightctl-imagebuilder-worker-container
 
 # --- Registry Operations ---
 # The login target expects REGISTRY_USER via environment variable and
@@ -336,8 +346,9 @@ clean-containers:
 	- podman rmi flightctl-userinfo-proxy:latest || true
 	- podman rmi flightctl-telemetry-gateway:latest || true
 	- podman rmi flightctl-imagebuilder-api:latest || true
+	- podman rmi flightctl-imagebuilder-worker:latest || true
 
-build-containers: flightctl-api-container flightctl-pam-issuer-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container flightctl-userinfo-proxy-container flightctl-telemetry-gateway-container flightctl-imagebuilder-api-container
+build-containers: flightctl-api-container flightctl-pam-issuer-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container flightctl-userinfo-proxy-container flightctl-telemetry-gateway-container flightctl-imagebuilder-api-container flightctl-imagebuilder-worker-container
 
 bundle-containers:
 	test/scripts/agent-images/scripts/bundle.sh \
@@ -366,7 +377,7 @@ bin/.rpm: $(shell find $(ROOT_DIR)/ -name "*.go" -not -path "$(ROOT_DIR)/packagi
 
 rpm: bin/.rpm
 
-.PHONY: rpm build build-api build-pam-issuer build-periodic build-worker build-alert-exporter build-alertmanager-proxy build-userinfo-proxy build-standalone build-imagebuilder-api
+.PHONY: rpm build build-api build-pam-issuer build-periodic build-worker build-alert-exporter build-alertmanager-proxy build-userinfo-proxy build-standalone build-imagebuilder-api build-imagebuilder-worker
 
 # cross-building for deb pkg
 bin/amd64:

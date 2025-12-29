@@ -66,6 +66,10 @@ func servicesManifest(config *RendererConfig) []InstallAction {
 		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-imagebuilder-api/flightctl-imagebuilder-api.container", Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl-imagebuilder-api.container"), Template: true, Mode: RegularFileMode},
 		{Action: ActionCopyDir, Source: "deploy/podman/flightctl-imagebuilder-api/flightctl-imagebuilder-api-config/", Destination: filepath.Join(config.ReadOnlyConfigOutputDir, "flightctl-imagebuilder-api/"), Template: false, Mode: RegularFileMode},
 
+		// ImageBuilder Worker service
+		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-imagebuilder-worker/flightctl-imagebuilder-worker.container", Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl-imagebuilder-worker.container"), Template: true, Mode: RegularFileMode},
+		{Action: ActionCopyDir, Source: "deploy/podman/flightctl-imagebuilder-worker/flightctl-imagebuilder-worker-config/", Destination: filepath.Join(config.ReadOnlyConfigOutputDir, "flightctl-imagebuilder-worker/"), Template: false, Mode: RegularFileMode},
+
 		// Certs init service
 		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-certs-init.service", Destination: filepath.Join(config.SystemdUnitOutputDir, "flightctl-certs-init.service"), Template: false, Mode: RegularFileMode},
 		{Action: ActionCopyFile, Source: "deploy/helm/flightctl/scripts/generate-certificates.sh", Destination: filepath.Join(config.ReadOnlyConfigOutputDir, "generate-certificates.sh"), Template: false, Mode: ExecutableFileMode},
@@ -105,5 +109,6 @@ func servicesManifest(config *RendererConfig) []InstallAction {
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-pam-issuer"), Mode: ExecutableFileMode},
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-db-migrate"), Mode: ExecutableFileMode},
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-imagebuilder-api"), Mode: ExecutableFileMode},
+		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-imagebuilder-worker"), Mode: ExecutableFileMode},
 	}
 }

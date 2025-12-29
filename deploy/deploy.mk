@@ -44,7 +44,7 @@ redeploy-telemetry-gateway: flightctl-telemetry-gateway-container
 	test/scripts/redeploy.sh telemetry-gateway
 
 ifndef SKIP_BUILD
-deploy-helm: flightctl-api-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-imagebuilder-api-container flightctl-multiarch-cli-container flightctl-telemetry-gateway-container
+deploy-helm: flightctl-api-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-imagebuilder-api-container flightctl-imagebuilder-worker-container flightctl-multiarch-cli-container flightctl-telemetry-gateway-container
 endif
 deploy-helm:
 	kubectl config set-context kind-kind
@@ -83,6 +83,7 @@ ifndef SKIP_BUILD
 	podman save flightctl-alertmanager-proxy:latest | sudo podman load
 	podman save flightctl-pam-issuer:latest | sudo podman load
 	podman save flightctl-imagebuilder-api:latest | sudo podman load
+	podman save flightctl-imagebuilder-worker:latest | sudo podman load
 endif
 	$(MAKE) build-standalone
 	sudo -E deploy/scripts/deploy_quadlets.sh

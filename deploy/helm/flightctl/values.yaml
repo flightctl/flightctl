@@ -308,6 +308,34 @@ imageBuilderApi:
     # -- Image pull policy for ImageBuilder API container
     pullPolicy: ""
 
+# -- ImageBuilder Worker Configuration
+imageBuilderWorker:
+  # -- Enable imagebuilder worker service
+  enabled: true
+  # -- Number of worker replicas
+  replicas: 1
+  image:
+    # -- ImageBuilder Worker container image
+    image: quay.io/flightctl/flightctl-imagebuilder-worker
+    # -- ImageBuilder Worker image tag
+    tag: ""
+    # -- Image pull policy for ImageBuilder Worker container
+    pullPolicy: ""
+  # -- Log level for the imagebuilder worker
+  logLevel: info
+  # -- Maximum number of concurrent image builds
+  maxConcurrentBuilds: 2
+  # -- Timeout for individual image builds
+  buildTimeout: 30m
+  # -- Retention period for build logs
+  logRetention: 168h
+  # -- Default TTL for image build resources
+  defaultTTL: 168h
+  # -- Enable privileged mode for container-in-container builds
+  privileged: false
+  # -- Resource requests and limits
+  resources: {}
+
 telemetryGateway:
   image:
     # -- Telemetry gateway container image

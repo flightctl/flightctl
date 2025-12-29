@@ -1,0 +1,31 @@
+database:
+{{- if eq .db.type "external"}}
+  hostname: {{.db.external.hostname}}
+  type: pgsql
+  port: {{.db.external.port}}
+  name: {{.db.external.name}}
+  {{- if .db.external.sslmode}}
+  sslmode: {{.db.external.sslmode}}
+  {{- end}}
+  {{- if or (eq .db.external.sslmode "verify-full") (eq .db.external.sslmode "verify-ca") }}
+  sslrootcert: /root/.flightctl/certs/db/ca.crt
+  {{- end }}
+  {{- if .db.external.useClientCertAuth }}
+  sslcert: /root/.flightctl/certs/db/client.crt
+  sslkey: /root/.flightctl/certs/db/client.key
+  {{- end }}
+{{- else}}
+  hostname: flightctl-db
+  type: pgsql
+  port: 5432
+  name: flightctl
+{{- end}}
+kv:
+  hostname: flightctl-kv
+  port: 6379
+imageBuilderWorker:
+  logLevel: {{if .imagebuilderWorker.logLevel}}{{.imagebuilderWorker.logLevel}}{{else}}info{{end}}
+  maxConcurrentBuilds: {{if .imagebuilderWorker.maxConcurrentBuilds}}{{.imagebuilderWorker.maxConcurrentBuilds}}{{else}}2{{end}}
+  buildTimeout: {{if .imagebuilderWorker.buildTimeout}}{{.imagebuilderWorker.buildTimeout}}{{else}}30m{{end}}
+  logRetention: {{if .imagebuilderWorker.logRetention}}{{.imagebuilderWorker.logRetention}}{{else}}168h{{end}}
+  defaultTTL: {{if .imagebuilderWorker.defaultTTL}}{{.imagebuilderWorker.defaultTTL}}{{else}}168h{{end}}
