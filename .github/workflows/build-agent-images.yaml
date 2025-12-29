@@ -82,7 +82,7 @@ jobs:
           echo "::endgroup::"
 
       - name: Upload agent images bundle (per flavor)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: agent-images-bundle-${{ inputs.os_id }}-${{ inputs.tag }}
           path: bin/agent-artifacts/agent-images-bundle-${{ inputs.os_id }}.tar
@@ -91,7 +91,7 @@ jobs:
           retention-days: 1
 
       - name: Upload qcow2 image (per flavor)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: agent-qcow2-image-${{ inputs.os_id }}-${{ inputs.tag }}
           path: bin/output/qcow2/disk.qcow2

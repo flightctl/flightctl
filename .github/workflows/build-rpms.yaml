@@ -30,7 +30,7 @@ jobs:
         run: |
           RPM_MOCK_ROOT="${{ inputs.root }}" make rpm
       - name: Upload RPM artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: rpms-${{ inputs.root }}
           path: bin/rpm/*.rpm
