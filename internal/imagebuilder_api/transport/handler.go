@@ -90,6 +90,18 @@ func (h *TransportHandler) DeleteImageBuild(w http.ResponseWriter, r *http.Reque
 	SetResponse(w, nil, status)
 }
 
+// CreateImagePipeline handles POST /api/v1/imagepipelines
+func (h *TransportHandler) CreateImagePipeline(w http.ResponseWriter, r *http.Request) {
+	var req api.ImagePipelineRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		SetParseFailureResponse(w, err)
+		return
+	}
+
+	body, status := h.service.ImagePipeline().Create(r.Context(), OrgIDFromContext(r.Context()), req)
+	SetResponse(w, body, status)
+}
+
 // ListImageExports handles GET /api/v1/imageexports
 func (h *TransportHandler) ListImageExports(w http.ResponseWriter, r *http.Request, params api.ListImageExportsParams) {
 	body, status := h.service.ImageExport().List(r.Context(), OrgIDFromContext(r.Context()), params)
