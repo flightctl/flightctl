@@ -2,6 +2,8 @@ package parametrisabletemplates
 
 import (
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
@@ -10,7 +12,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("Template variables in the device configuraion", func() {
+var _ = Describe("Template variables in the device configuration", func() {
 	var (
 		deviceId string
 		testID   string
@@ -24,7 +26,7 @@ var _ = Describe("Template variables in the device configuraion", func() {
 	})
 
 	Context("parametrisable_templates", func() {
-		It(`Verifies that Flightctl fleet resource supports parametrisable device
+		It(`Verifies that Flightctl fleet resource supports parameterizable device
 		    templates to configure items that are specific to an individual device
 			or a group of devices selected by labels`, Label("75486"), func() {
 			// Get harness directly - no shared package-level variable
@@ -113,6 +115,30 @@ var _ = Describe("Template variables in the device configuraion", func() {
 					func(device *v1beta1.Device) bool {
 						return device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusOutOfDate
 					}, testutil.TIMEOUT_5M)
+
+				By("Verify fleet controller error annotation is set")
+				Eventually(func() error {
+					resp, err := harness.Client.GetDeviceStatusWithResponse(harness.Context, deviceId)
+					if err != nil {
+						return err
+					}
+					device := resp.JSON200
+					if device.Status.Updated.Status != v1beta1.DeviceUpdatedStatusOutOfDate {
+						return fmt.Errorf("device status is not OutOfDate")
+					}
+					if device.Metadata.Annotations == nil {
+						return fmt.Errorf("device annotations are nil")
+					}
+					errorAnnotation, exists := (*device.Metadata.Annotations)["fleet-controller/lastRolloutError"]
+					if !exists || errorAnnotation == "" {
+						return fmt.Errorf("fleet-controller/lastRolloutError annotation not set")
+					}
+					if !strings.Contains(errorAnnotation, "no entry for key \"team\"") {
+						return fmt.Errorf("fleet-controller/lastRolloutError annotation does not contain expected error message")
+					}
+					return nil
+				}, 30*time.Second, 1*time.Second).Should(BeNil(), "Fleet controller error annotation should be set with correct error message")
+
 				resp, err := harness.Client.GetDeviceStatusWithResponse(harness.Context, deviceId)
 				Expect(err).ToNot(HaveOccurred())
 				device := resp.JSON200
