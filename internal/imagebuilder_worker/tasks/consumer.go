@@ -6,10 +6,13 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
 	imagebuilderstore "github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/service"
+	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel/attribute"
@@ -42,7 +45,7 @@ type Job struct {
 }
 
 // dispatchTasks handles incoming jobs from the queue and routes them to appropriate handlers
-func dispatchTasks(store imagebuilderstore.Store, kvStore kvstore.KVStore, log logrus.FieldLogger) queues.ConsumeHandler {
+func dispatchTasks(store imagebuilderstore.Store, mainStore store.Store, kvStore kvstore.KVStore, serviceHandler *service.ServiceHandler, cfg *config.Config, log logrus.FieldLogger) queues.ConsumeHandler {
 	return func(ctx context.Context, payload []byte, entryID string, consumer queues.QueueConsumer, log logrus.FieldLogger) error {
 		startTime := time.Now()
 
@@ -77,7 +80,7 @@ func dispatchTasks(store imagebuilderstore.Store, kvStore kvstore.KVStore, log l
 		var processingErr error
 		switch job.Type {
 		case TaskTypeImageBuild:
-			processingErr = processImageBuild(ctx, store, kvStore, job, log)
+			processingErr = processImageBuild(ctx, store, mainStore, kvStore, serviceHandler, cfg, job, log)
 
 		case TaskTypeImageExport:
 			processingErr = processImageExport(ctx, store, kvStore, job, log)
@@ -121,10 +124,13 @@ func LaunchConsumers(
 	ctx context.Context,
 	queuesProvider queues.Provider,
 	store imagebuilderstore.Store,
+	mainStore store.Store,
 	kvStore kvstore.KVStore,
-	maxConcurrentBuilds int,
+	serviceHandler *service.ServiceHandler,
+	cfg *config.Config,
 	log logrus.FieldLogger,
 ) error {
+	maxConcurrentBuilds := cfg.ImageBuilderWorker.MaxConcurrentBuilds
 	log.Infof("Launching %d imagebuild queue consumers", maxConcurrentBuilds)
 
 	for i := 0; i < maxConcurrentBuilds; i++ {
@@ -132,7 +138,7 @@ func LaunchConsumers(
 		if err != nil {
 			return fmt.Errorf("failed to create queue consumer %d: %w", i, err)
 		}
-		if err = consumer.Consume(ctx, dispatchTasks(store, kvStore, log)); err != nil {
+		if err = consumer.Consume(ctx, dispatchTasks(store, mainStore, kvStore, serviceHandler, cfg, log)); err != nil {
 			return fmt.Errorf("failed to start consumer %d: %w", i, err)
 		}
 	}
