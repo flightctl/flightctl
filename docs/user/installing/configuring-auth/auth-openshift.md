@@ -50,7 +50,7 @@ Flight Control uses RoleBindings from project namespaces to determine user permi
 3. For each project, Flight Control checks RoleBindings in the project namespace
 4. Permissions are mapped based on ClusterRoles bound to the user
 
-**Note:** Any role or organization configuration changes require users to log in again or wait approximately 5 minutes to receive updated assignments.
+**Note:** Any role or organization configuration changes require users to log in again (with a different token if you logged using an Openshift token) or wait approximately 5 minutes to receive updated assignments.
 
 ## Configuration
 
