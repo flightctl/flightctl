@@ -254,9 +254,9 @@ func (s *AgentTransportHandler) CreateCertificateSigningRequest(w http.ResponseW
 	// auto approve for DeviceSvcClientSignerName if it pass the signer verification we're good
 	// if tpm verification explicitly fails, a manual approval is required
 	if csr.Spec.SignerName == s.ca.Cfg.DeviceSvcClientSignerName && !failedTPMVerification {
-		if _, status := s.autoApprove(ctx, csr); status.Code != http.StatusOK {
-			status := api.StatusInternalServerError(http.StatusText(http.StatusInternalServerError))
-			transport.SetResponse(w, status, status)
+		if _, approvalStatus := s.autoApprove(ctx, csr); approvalStatus.Code != http.StatusOK {
+			errorStatus := api.StatusInternalServerError(http.StatusText(http.StatusInternalServerError))
+			transport.SetResponse(w, errorStatus, errorStatus)
 			return
 		}
 	}
@@ -293,8 +293,8 @@ func (s *AgentTransportHandler) GetCertificateSigningRequest(w http.ResponseWrit
 	// Check that the CSR belongs to the requesting device
 	expectedOwner := util.SetResourceOwner(api.DeviceKind, fingerprint)
 	if csr.Metadata.Owner == nil || *csr.Metadata.Owner != *expectedOwner {
-		status := api.StatusUnauthorized(http.StatusText(http.StatusUnauthorized))
-		transport.SetResponse(w, status, status)
+		unauthorizedStatus := api.StatusUnauthorized(http.StatusText(http.StatusUnauthorized))
+		transport.SetResponse(w, unauthorizedStatus, unauthorizedStatus)
 		return
 	}
 

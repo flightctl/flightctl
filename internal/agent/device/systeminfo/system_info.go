@@ -693,11 +693,11 @@ var SupportedInfoKeys = map[string]func(info *Info) string{
 // system commands and reads files to gather information about the system.
 // It returns a map of key-value pairs representing the system information.
 func getSystemInfoMap(ctx context.Context, log *log.PrefixLogger, info *Info, infoKeys []string, collectors map[string]CollectorFn) infoMap {
-	infoMap := make(infoMap, len(infoKeys)+len(collectors))
+	resultMap := make(infoMap, len(infoKeys)+len(collectors))
 
 	for _, key := range infoKeys {
 		if ctx.Err() != nil {
-			return infoMap
+			return resultMap
 		}
 
 		formatFn, exists := SupportedInfoKeys[key]
@@ -709,23 +709,23 @@ func getSystemInfoMap(ctx context.Context, log *log.PrefixLogger, info *Info, in
 		if val == "" {
 			log.Debugf("SystemInfo key returned an empty value: %s", key)
 		}
-		infoMap[key] = val
+		resultMap[key] = val
 	}
 
 	for key, collectorfn := range collectors {
-		_, alreadyExists := infoMap[key]
+		_, alreadyExists := resultMap[key]
 		if alreadyExists {
-			log.Warnf("SystemInfo collector already populated: %s is %s", key, infoMap[key])
+			log.Warnf("SystemInfo collector already populated: %s is %s", key, resultMap[key])
 		} else {
 			val := collectorfn(ctx)
 			trimmed := strings.TrimSpace(val)
 			reg, _ := regexp.Compile("[^a-zA-Z0-9]+")
 			sanitizedval := reg.ReplaceAllString(trimmed, "")
-			infoMap[key] = sanitizedval
+			resultMap[key] = sanitizedval
 		}
 	}
 
-	return infoMap
+	return resultMap
 }
 
 // getCustomInfoMap collects custom information from the system It executes

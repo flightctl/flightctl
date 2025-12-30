@@ -32,8 +32,8 @@ import (
 
 func fleetValidate(ctx context.Context, orgId uuid.UUID, event api.Event, serviceHandler service.Service, k8sClient k8sclient.K8SClient, log logrus.FieldLogger) error {
 	logic := NewFleetValidateLogic(log, serviceHandler, k8sClient, orgId, event)
-	switch {
-	case event.InvolvedObject.Kind == api.FleetKind:
+	switch event.InvolvedObject.Kind {
+	case api.FleetKind:
 		err := logic.CreateNewTemplateVersionIfFleetValid(ctx)
 		if err != nil {
 			log.Errorf("failed validating fleet %s/%s: %v", orgId, event.InvolvedObject.Name, err)

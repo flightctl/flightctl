@@ -183,15 +183,16 @@ func TestOAuth2Auth_IntrospectRFC7662(t *testing.T) {
 		token := r.FormValue("token")
 
 		w.Header().Set("Content-Type", "application/json")
-		if token == "valid-token" {
+		switch token {
+		case "valid-token":
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"active": true,
 			})
-		} else if token == "invalid-token" {
+		case "invalid-token":
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"active": false,
 			})
-		} else {
+		default:
 			w.WriteHeader(http.StatusBadRequest)
 		}
 	}))
@@ -268,15 +269,16 @@ func TestOAuth2Auth_IntrospectGitHub(t *testing.T) {
 		assert.NoError(t, err)
 		token := reqBody["access_token"]
 
-		if token == "valid-token" {
+		switch token {
+		case "valid-token":
 			w.WriteHeader(http.StatusOK)
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"id":    123,
 				"token": token,
 			})
-		} else if token == "invalid-token" {
+		case "invalid-token":
 			w.WriteHeader(http.StatusNotFound)
-		} else {
+		default:
 			w.WriteHeader(http.StatusBadRequest)
 		}
 	}))
