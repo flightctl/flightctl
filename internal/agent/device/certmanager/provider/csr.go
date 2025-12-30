@@ -1,21 +1,24 @@
-package provisioner
+package provider
 
 import (
 	"bytes"
 	"context"
-	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"text/template"
 
 	api "github.com/flightctl/flightctl/api/v1beta1"
-	"github.com/flightctl/flightctl/internal/agent/device/certmanager/provider"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/identity"
 	agentapi "github.com/flightctl/flightctl/internal/api/client/agent"
+	"github.com/flightctl/flightctl/pkg/certmanager"
 	fccrypto "github.com/flightctl/flightctl/pkg/crypto"
 	"github.com/google/uuid"
+)
+
+const (
+	ProvisionerTypeCSR certmanager.ProvisionerType = "csr"
 )
 
 // csrClient is the minimal management client surface required by the CSR provisioner.
@@ -75,13 +78,13 @@ func NewCSRProvisioner(deviceName string, csrClient csrClient, identityProvider 
 // On first call, it generates a private key and submits a CSR to the server.
 // On subsequent calls, it checks the CSR status and returns the certificate when approved.
 // Returns ready=true when certificate is available, ready=false when still processing.
-func (p *CSRProvisioner) Provision(ctx context.Context) (bool, *x509.Certificate, []byte, error) {
+func (p *CSRProvisioner) Provision(ctx context.Context, _ certmanager.ProvisionRequest) (*certmanager.ProvisionResult, error) {
 	if p.csrName != "" {
 		return p.check(ctx)
 	}
 
 	if p.cfg.CommonName == "" {
-		return false, nil, nil, fmt.Errorf("commonName must be set")
+		return nil, fmt.Errorf("commonName must be set")
 	}
 
 	// Generate unique CSR object name for Kubernetes resource
@@ -90,11 +93,11 @@ func (p *CSRProvisioner) Provision(ctx context.Context) (bool, *x509.Certificate
 	// Generate private key and CSR using the configured CommonName (without suffix)
 	id, err := p.identityProvider.NewExportable(p.cfg.CommonName)
 	if err != nil {
-		return false, nil, nil, fmt.Errorf("new identity: %w", err)
+		return nil, fmt.Errorf("new identity: %w", err)
 	}
 	csr, err := id.CSR()
 	if err != nil {
-		return false, nil, nil, fmt.Errorf("create CSR: %w", err)
+		return nil, fmt.Errorf("create CSR: %w", err)
 	}
 
 	p.identity = id
@@ -123,39 +126,39 @@ func (p *CSRProvisioner) Provision(ctx context.Context) (bool, *x509.Certificate
 	}
 	_, statusCode, err := p.csrClient.CreateCertificateSigningRequest(ctx, req)
 	if err != nil {
-		return false, nil, nil, fmt.Errorf("create csr: %w", err)
+		return nil, fmt.Errorf("create csr: %w", err)
 	}
 
 	switch statusCode {
 	case http.StatusOK, http.StatusCreated:
-		return false, nil, nil, nil
+		return &certmanager.ProvisionResult{Ready: false}, nil
 	default:
-		return false, nil, nil, fmt.Errorf("%w: unexpected status code %d", errors.ErrCreateCertificateSigningRequest, statusCode)
+		return nil, fmt.Errorf("%w: unexpected status code %d", errors.ErrCreateCertificateSigningRequest, statusCode)
 	}
 }
 
 // check polls the management server for CSR status and returns the certificate when ready.
 // It handles the different CSR states: pending, approved, denied, or failed.
-func (p *CSRProvisioner) check(ctx context.Context) (bool, *x509.Certificate, []byte, error) {
+func (p *CSRProvisioner) check(ctx context.Context) (*certmanager.ProvisionResult, error) {
 	if p.csrName == "" {
-		return false, nil, nil, fmt.Errorf("no CSR name recorded")
+		return nil, fmt.Errorf("no CSR name recorded")
 	}
 	if p.identity == nil {
-		return false, nil, nil, fmt.Errorf("no identity generated")
+		return nil, fmt.Errorf("no identity generated")
 	}
 
 	csr, statusCode, err := p.csrClient.GetCertificateSigningRequest(ctx, p.csrName)
 	if err != nil {
-		return false, nil, nil, fmt.Errorf("get csr: %w", err)
+		return nil, fmt.Errorf("get csr: %w", err)
 	}
 	if statusCode != http.StatusOK {
-		return false, nil, nil, fmt.Errorf("unexpected status code %d while fetching CSR %q", statusCode, p.csrName)
+		return nil, fmt.Errorf("unexpected status code %d while fetching CSR %q", statusCode, p.csrName)
 	}
 	if csr == nil {
-		return false, nil, nil, fmt.Errorf("received nil CSR object for %q", p.csrName)
+		return nil, fmt.Errorf("received nil CSR object for %q", p.csrName)
 	}
 	if csr.Status == nil {
-		return false, nil, nil, nil // Not ready yet, wait for status to be populated
+		return &certmanager.ProvisionResult{Ready: false}, nil // Not ready yet, wait for status to be populated
 	}
 
 	if api.IsStatusConditionTrue(csr.Status.Conditions, api.ConditionTypeCertificateSigningRequestApproved) && csr.Status.Certificate != nil {
@@ -163,23 +166,23 @@ func (p *CSRProvisioner) check(ctx context.Context) (bool, *x509.Certificate, []
 
 		cert, err := fccrypto.ParsePEMCertificate(certPEM)
 		if err != nil {
-			return false, nil, nil, fmt.Errorf("failed to parse CSR PEM certificate: %w", err)
+			return nil, fmt.Errorf("failed to parse CSR PEM certificate: %w", err)
 		}
 
 		keyPEM, err := p.identity.KeyPEM()
 		if err != nil {
-			return false, nil, nil, fmt.Errorf("key pem: %w", err)
+			return nil, fmt.Errorf("key pem: %w", err)
 		}
 
-		return true, cert, keyPEM, nil
+		return &certmanager.ProvisionResult{Ready: true, Cert: cert, Key: keyPEM}, nil
 	}
 
 	if api.IsStatusConditionTrue(csr.Status.Conditions, api.ConditionTypeCertificateSigningRequestDenied) ||
 		api.IsStatusConditionTrue(csr.Status.Conditions, api.ConditionTypeCertificateSigningRequestFailed) {
-		return false, nil, nil, fmt.Errorf("csr %q was denied or failed", p.csrName)
+		return nil, fmt.Errorf("csr %q was denied or failed", p.csrName)
 	}
 
-	return false, nil, nil, nil // still pending
+	return &certmanager.ProvisionResult{Ready: false}, nil // still pending
 }
 
 // CSRProvisionerFactory implements ProvisionerFactory for CSR-based provisioners.
@@ -204,12 +207,12 @@ func NewCSRProvisionerFactory(deviceName string, managementClient csrClient, ide
 
 // Type returns the provisioner type string used as map key in the certificate manager.
 func (f *CSRProvisionerFactory) Type() string {
-	return string(provider.ProvisionerTypeCSR)
+	return string(ProvisionerTypeCSR)
 }
 
 // New creates a new CSRProvisioner based on the provided certificate config.
 // It decodes the CSR-specific configuration and performs common name substitution.
-func (f *CSRProvisionerFactory) New(log provider.Logger, cc provider.CertificateConfig) (provider.ProvisionerProvider, error) {
+func (f *CSRProvisionerFactory) New(log certmanager.Logger, cc certmanager.CertificateConfig) (certmanager.ProvisionerProvider, error) {
 	prov := cc.Provisioner
 
 	var csrConfig CSRProvisionerConfig
@@ -249,10 +252,10 @@ func (f *CSRProvisionerFactory) New(log provider.Logger, cc provider.Certificate
 
 // Validate checks whether the provided config is valid for a CSR provisioner.
 // It ensures required fields are present and the configuration is properly formatted.
-func (f *CSRProvisionerFactory) Validate(log provider.Logger, cc provider.CertificateConfig) error {
+func (f *CSRProvisionerFactory) Validate(log certmanager.Logger, cc certmanager.CertificateConfig) error {
 	prov := cc.Provisioner
 
-	if prov.Type != provider.ProvisionerTypeCSR {
+	if prov.Type != ProvisionerTypeCSR {
 		return fmt.Errorf("not a CSR provisioner")
 	}
 

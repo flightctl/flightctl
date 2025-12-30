@@ -319,15 +319,12 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 
 	// Initialize certificate manager
-	certManager, err := certmanager.NewManager(
+	certManager, err := certmanager.NewAgentCertManager(
 		ctx, a.log,
-		certmanager.WithBuiltins(
-			deviceName,
-			bootstrap.ManagementClient(),
-			deviceReadWriter,
-			a.config,
-			identity.NewExportableFactory(tpmClient, a.log),
-		),
+		a.config, deviceName,
+		bootstrap.ManagementClient(),
+		deviceReadWriter,
+		identity.NewExportableFactory(tpmClient, a.log),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to initialize certificate manager: %w", err)
