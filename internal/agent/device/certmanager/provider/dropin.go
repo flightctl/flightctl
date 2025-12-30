@@ -1,4 +1,4 @@
-package config
+package provider
 
 import (
 	"errors"
@@ -8,8 +8,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/flightctl/flightctl/internal/agent/device/certmanager/provider"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/pkg/certmanager"
 	"sigs.k8s.io/yaml"
 )
 
@@ -41,12 +41,12 @@ func (p *DropInConfigProvider) Name() string { return fmt.Sprintf("dropin[%s]", 
 
 // GetCertificateConfigs loads the base YAML (optional) and merges drop-ins from
 // "<basename>.d/" (e.g., /etc/flightctl/certs.d/). Drop-ins override base by Name.
-func (p *DropInConfigProvider) GetCertificateConfigs() ([]provider.CertificateConfig, error) {
+func (p *DropInConfigProvider) GetCertificateConfigs() ([]certmanager.CertificateConfig, error) {
 	if strings.TrimSpace(p.basePath) == "" {
 		return nil, nil
 	}
 
-	byName := make(map[string]provider.CertificateConfig)
+	byName := make(map[string]certmanager.CertificateConfig)
 
 	// Base (optional, YAML only)
 	if baseCfgs, err := readYAMLConfigsFile(p.readWriter, p.basePath); err == nil {
@@ -95,7 +95,7 @@ func (p *DropInConfigProvider) GetCertificateConfigs() ([]provider.CertificateCo
 	}
 	sort.Strings(names)
 
-	out := make([]provider.CertificateConfig, 0, len(names))
+	out := make([]certmanager.CertificateConfig, 0, len(names))
 	for _, n := range names {
 		out = append(out, byName[n])
 	}
@@ -113,22 +113,22 @@ func hasYAMLExt(name string) bool {
 }
 
 // readYAMLConfigsFile accepts either a YAML list ([]CertificateConfig) or a single object.
-func readYAMLConfigsFile(rw fileio.ReadWriter, path string) ([]provider.CertificateConfig, error) {
+func readYAMLConfigsFile(rw fileio.ReadWriter, path string) ([]certmanager.CertificateConfig, error) {
 	data, err := rw.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
 
 	// Try list first
-	var list []provider.CertificateConfig
+	var list []certmanager.CertificateConfig
 	if err := yaml.Unmarshal(data, &list); err == nil {
 		return list, nil
 	}
 
 	// Try single object
-	var single provider.CertificateConfig
+	var single certmanager.CertificateConfig
 	if err := yaml.Unmarshal(data, &single); err == nil {
-		return []provider.CertificateConfig{single}, nil
+		return []certmanager.CertificateConfig{single}, nil
 	}
 
 	return nil, fmt.Errorf("invalid YAML config: %s", path)
