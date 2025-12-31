@@ -303,6 +303,11 @@ func TestShouldRenderDevice(t *testing.T) {
 			event:    createTestEvent(api.RepositoryKind, api.EventReasonResourceUpdated, "repo1"),
 			expected: false,
 		},
+		{
+			name:     "DeviceDecommissioned",
+			event:    createTestEvent(api.DeviceKind, api.EventReasonDeviceDecommissioned, "device1"),
+			expected: true,
+		},
 	}
 
 	for _, tt := range tests {

@@ -81,6 +81,7 @@ var eventReasons = map[api.EventReason]struct{}{
 	api.EventReasonFleetRolloutDeviceSelected:  {},
 	api.EventReasonFleetRolloutBatchDispatched: {},
 	api.EventReasonDeviceConflictResolved:      {},
+	api.EventReasonDeviceDecommissioned:        {},
 }
 
 func shouldEmitEvent(reason api.EventReason) bool {

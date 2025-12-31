@@ -245,7 +245,8 @@ func shouldRenderDevice(ctx context.Context, event api.Event, log logrus.FieldLo
 
 	if lo.Contains([]api.EventReason{api.EventReasonReferencedRepositoryUpdated,
 		api.EventReasonResourceCreated,
-		api.EventReasonFleetRolloutDeviceSelected, api.EventReasonDeviceConflictResolved}, event.Reason) {
+		api.EventReasonFleetRolloutDeviceSelected, api.EventReasonDeviceConflictResolved,
+		api.EventReasonDeviceDecommissioned}, event.Reason) {
 		return true
 	}
 
