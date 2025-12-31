@@ -47,9 +47,10 @@ type HTTPClientOption func(*http.Client) error
 
 // Config holds the information needed to connect to a Flight Control API server
 type Config struct {
-	Service      Service  `json:"service"`
-	AuthInfo     AuthInfo `json:"authentication"`
-	Organization string   `json:"organization,omitempty"`
+	Service             Service  `json:"service"`
+	ImageBuilderService *Service `json:"imageBuilderService,omitempty"`
+	AuthInfo            AuthInfo `json:"authentication"`
+	Organization        string   `json:"organization,omitempty"`
 
 	// HTTPOptions contains HTTP client configuration options
 	HTTPOptions []HTTPClientOption `json:"-"`
@@ -359,6 +360,14 @@ func NewFromConfigFile(filename string, opts ...client.ClientOption) (*client.Cl
 		return nil, err
 	}
 	return NewFromConfig(config, filename, opts...)
+}
+
+// GetImageBuilderServer returns the imagebuilder server URL if configured, empty string otherwise.
+func (c *Config) GetImageBuilderServer() string {
+	if c.ImageBuilderService != nil && c.ImageBuilderService.Server != "" {
+		return c.ImageBuilderService.Server
+	}
+	return ""
 }
 
 // NewHTTPClientFromConfig returns a new HTTP Client from the given config.

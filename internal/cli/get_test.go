@@ -171,9 +171,21 @@ func TestHandleListBatching(t *testing.T) {
 			opts.Output = testCase.output
 			opts.Limit = testCase.limit
 
+			ctx := context.Background()
+			fetcher := func() (interface{}, error) {
+				response, err := opts.getResourceList(ctx, clientWithResponses, DeviceKind)
+				if err != nil {
+					return nil, err
+				}
+				if err := validateResponse(response); err != nil {
+					return nil, err
+				}
+				return response, nil
+			}
+
 			// Capture stdout to avoid polluting test output
 			_ = captureStdout(t, func() {
-				err := opts.handleList(context.Background(), display.NewFormatter(display.OutputFormat(opts.Output)), clientWithResponses, DeviceKind)
+				err := opts.handleList(ctx, display.NewFormatter(display.OutputFormat(opts.Output)), DeviceKind, fetcher)
 				if err != nil {
 					t.Fatalf("handleList returned unexpected error: %v", err)
 				}

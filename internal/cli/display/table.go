@@ -8,7 +8,9 @@ import (
 
 	"github.com/dustin/go-humanize"
 	api "github.com/flightctl/flightctl/api/v1beta1"
+	imagebuilderapi "github.com/flightctl/flightctl/api/v1beta1/imagebuilder"
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
+	imagebuilderclient "github.com/flightctl/flightctl/internal/api/imagebuilder/client"
 	"github.com/flightctl/flightctl/internal/util"
 )
 
@@ -76,6 +78,8 @@ func (f *TableFormatter) formatList(w *tabwriter.Writer, data interface{}, optio
 		return f.printEventsTable(w, data.(*apiclient.ListEventsResponse).JSON200.Items...)
 	case strings.EqualFold(options.Kind, api.AuthProviderKind):
 		return f.printAuthProvidersTable(w, data.(*apiclient.ListAuthProvidersResponse).JSON200.Items...)
+	case strings.EqualFold(options.Kind, imagebuilderapi.ImageBuildKind):
+		return f.printImageBuildsTable(w, data.(*imagebuilderclient.ListImageBuildsResponse).JSON200.Items...)
 	case strings.EqualFold(options.Kind, api.AuthConfigKind):
 		// Special case for AuthConfig which contains providers
 		authConfig := data.(*api.AuthConfig)
@@ -128,6 +132,8 @@ func (f *TableFormatter) formatSingle(w *tabwriter.Writer, data interface{}, opt
 		return f.printCSRTable(w, *data.(*apiclient.GetCertificateSigningRequestResponse).JSON200)
 	case strings.EqualFold(options.Kind, api.AuthProviderKind):
 		return f.printAuthProvidersTable(w, *data.(*apiclient.GetAuthProviderResponse).JSON200)
+	case strings.EqualFold(options.Kind, imagebuilderapi.ImageBuildKind):
+		return f.printImageBuildsTable(w, *data.(*imagebuilderclient.GetImageBuildResponse).JSON200)
 	default:
 		return fmt.Errorf("unknown resource type %s", options.Kind)
 	}
@@ -578,6 +584,32 @@ func (f *TableFormatter) printAuthProvidersTable(w *tabwriter.Writer, authProvid
 		}
 
 		f.printTableRowLn(w, name, providerType, issuer, clientId, enabled)
+	}
+	return nil
+}
+
+func (f *TableFormatter) printImageBuildsTable(w *tabwriter.Writer, imageBuilds ...imagebuilderapi.ImageBuild) error {
+	f.printHeaderRowLn(w, "NAME", "PHASE", "INPUT", "OUTPUT", "AGE")
+	for _, ib := range imageBuilds {
+		name := NoneString
+		if ib.Metadata.Name != nil {
+			name = *ib.Metadata.Name
+		}
+
+		phase := NoneString
+		if ib.Status != nil && ib.Status.Phase != nil {
+			phase = string(*ib.Status.Phase)
+		}
+
+		source := fmt.Sprintf("%s/%s:%s", ib.Spec.Source.Repository, ib.Spec.Source.ImageName, ib.Spec.Source.ImageTag)
+		destination := fmt.Sprintf("%s/%s:%s", ib.Spec.Destination.Repository, ib.Spec.Destination.ImageName, ib.Spec.Destination.Tag)
+
+		age := NoneString
+		if ib.Metadata.CreationTimestamp != nil {
+			age = humanize.Time(*ib.Metadata.CreationTimestamp)
+		}
+
+		f.printTableRowLn(w, name, phase, source, destination, age)
 	}
 	return nil
 }

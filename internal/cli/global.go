@@ -5,12 +5,17 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 	"time"
 
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
+	imagebuilderclient "github.com/flightctl/flightctl/internal/api/imagebuilder/client"
+	"github.com/flightctl/flightctl/internal/auth/common"
 	client "github.com/flightctl/flightctl/internal/client"
+	"github.com/flightctl/flightctl/pkg/reqid"
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
@@ -94,6 +99,53 @@ func (o *GlobalOptions) ValidateCmd(args []string) error {
 func (o *GlobalOptions) BuildClient() (*apiclient.ClientWithResponses, error) {
 	organization := o.GetEffectiveOrganization()
 	return client.NewFromConfigFile(o.ConfigFilePath, client.WithOrganization(organization), client.WithUserAgentHeader("flightctl-cli"))
+}
+
+// BuildImageBuilderClient constructs an ImageBuilder API client using configuration
+// derived from the global options. Returns an error if the imagebuilder service
+// is not configured.
+func (o *GlobalOptions) BuildImageBuilderClient() (*imagebuilderclient.ClientWithResponses, error) {
+	config, err := client.ParseConfigFile(o.ConfigFilePath)
+	if err != nil {
+		return nil, err
+	}
+
+	imageBuilderServer := config.GetImageBuilderServer()
+	if imageBuilderServer == "" {
+		return nil, fmt.Errorf("imagebuilder service is not configured. Please configure 'imageBuilderService.server' in your client config")
+	}
+
+	httpClient, err := client.NewHTTPClientFromConfig(config)
+	if err != nil {
+		return nil, fmt.Errorf("creating HTTP client: %w", err)
+	}
+
+	ref := imagebuilderclient.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
+		req.Header.Set(middleware.RequestIDHeader, reqid.NextRequestID())
+		accessToken := client.GetAccessToken(config, o.ConfigFilePath)
+		if accessToken != "" {
+			req.Header.Set(common.AuthHeader, fmt.Sprintf("Bearer %s", accessToken))
+		}
+		return nil
+	})
+
+	organization := o.GetEffectiveOrganization()
+	orgEditor := imagebuilderclient.WithRequestEditorFn(func(ctx context.Context, req *http.Request) error {
+		if organization == "" {
+			return nil
+		}
+		q := req.URL.Query()
+		q.Set("org_id", organization)
+		req.URL.RawQuery = q.Encode()
+		return nil
+	})
+
+	return imagebuilderclient.NewClientWithResponses(
+		imageBuilderServer,
+		imagebuilderclient.WithHTTPClient(httpClient),
+		ref,
+		orgEditor,
+	)
 }
 
 // GetEffectiveOrganization returns the organization ID to use for API requests.
