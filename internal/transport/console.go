@@ -50,6 +50,15 @@ func (h *WebsocketHandler) HandleDeviceConsole(w http.ResponseWriter, r *http.Re
 		case errors.Is(err, flterrors.ErrResourceNotFound):
 			h.log.Errorf("console requested for unknown device: %s", deviceName)
 			http.Error(w, "Device not found", http.StatusNotFound)
+		case errors.Is(err, flterrors.ErrDecommission):
+			h.log.Errorf("console requested for decommissioned device: %s", deviceName)
+			http.Error(w, "Device is decommissioned", http.StatusConflict)
+		case errors.Is(err, flterrors.ErrDeviceAwaitingReconnect):
+			h.log.Errorf("console requested for device awaiting reconnect: %s", deviceName)
+			http.Error(w, "Device is awaiting reconnection after restore", http.StatusConflict)
+		case errors.Is(err, flterrors.ErrDeviceConflictPaused):
+			h.log.Errorf("console requested for conflict paused device: %s", deviceName)
+			http.Error(w, "Device is paused due to conflicts", http.StatusConflict)
 		default:
 			h.log.Errorf("There was an error retrieving DB from database during console request: %v", err)
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
