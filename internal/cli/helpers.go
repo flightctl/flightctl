@@ -31,6 +31,7 @@ const (
 	AuthProviderKind              ResourceKind = "authprovider"
 	FleetKind                     ResourceKind = "fleet"
 	ImageBuildKind                ResourceKind = "imagebuild"
+	ImageExportKind               ResourceKind = "imageexport"
 	OrganizationKind              ResourceKind = "organization"
 	RepositoryKind                ResourceKind = "repository"
 	ResourceSyncKind              ResourceKind = "resourcesync"
@@ -68,6 +69,7 @@ var (
 		AuthProviderKind:              {},
 		FleetKind:                     {},
 		ImageBuildKind:                {},
+		ImageExportKind:               {},
 		OrganizationKind:              {},
 		RepositoryKind:                {},
 		ResourceSyncKind:              {},
@@ -84,6 +86,7 @@ var (
 		"authproviders":              AuthProviderKind,
 		"fleets":                     FleetKind,
 		"imagebuilds":                ImageBuildKind,
+		"imageexports":               ImageExportKind,
 		"organizations":              OrganizationKind,
 		"repositories":               RepositoryKind,
 		"resourcesyncs":              ResourceSyncKind,
@@ -98,6 +101,7 @@ var (
 		AuthProviderKind:              "authproviders",
 		FleetKind:                     "fleets",
 		ImageBuildKind:                "imagebuilds",
+		ImageExportKind:               "imageexports",
 		OrganizationKind:              "organizations",
 		RepositoryKind:                "repositories",
 		ResourceSyncKind:              "resourcesyncs",
@@ -112,6 +116,7 @@ var (
 		"ap":   AuthProviderKind,
 		"flt":  FleetKind,
 		"ib":   ImageBuildKind,
+		"ie":   ImageExportKind,
 		"org":  OrganizationKind,
 		"repo": RepositoryKind,
 		"rs":   ResourceSyncKind,
