@@ -23,10 +23,12 @@ var (
 	ErrAnnotationSelectorParseFailed       = errors.New("failed to parse annotation selector")
 
 	// devices
-	ErrTemplateVersionIsNil   = errors.New("spec.templateVersion not set")
-	ErrInvalidTemplateVersion = errors.New("device's templateVersion is not valid")
-	ErrNoRenderedVersion      = errors.New("no rendered version for device")
-	ErrDecommission           = errors.New("decommissioned device cannot be created or updated")
+	ErrTemplateVersionIsNil    = errors.New("spec.templateVersion not set")
+	ErrInvalidTemplateVersion  = errors.New("device's templateVersion is not valid")
+	ErrNoRenderedVersion       = errors.New("no rendered version for device")
+	ErrDecommission            = errors.New("decommissioned device cannot be created or updated")
+	ErrDeviceAwaitingReconnect = errors.New("device is awaiting reconnection after restore")
+	ErrDeviceConflictPaused    = errors.New("device is paused due to conflicts")
 
 	// csr
 	ErrInvalidPEMBlock = errors.New("not a valid PEM block")

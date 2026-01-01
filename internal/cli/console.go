@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
+	"strings"
 	"sync/atomic"
 
 	api "github.com/flightctl/flightctl/api/v1beta1"
@@ -351,14 +353,39 @@ func (o *ConsoleOptions) connectViaWS(ctx context.Context, config *client.Config
 }
 
 func (o *ConsoleOptions) emitUpgradeFailureError(ctx context.Context, name string, origErr error) {
+	// Try to parse error message for HTTP status code and message
+	// Format: "websocket: bad handshake (409 Conflict): Device is decommissioned"
+	errStr := origErr.Error()
+	if strings.Contains(errStr, "bad handshake") {
+		// Extract status code and message from error string
+		re, err := regexp.Compile(`\((\d+)\s+([^)]+)\):\s*(.+)`)
+		if err == nil {
+			matches := re.FindStringSubmatch(errStr)
+			if len(matches) == 4 {
+				statusCode := matches[1]
+				statusText := matches[2]
+				message := matches[3]
+				// For known status codes, display a clean error message
+				if statusCode == "409" || statusCode == "401" || statusCode == "403" || statusCode == "404" || statusCode == "503" {
+					fmt.Fprintf(os.Stderr, "Error for device %s: %s\n", name, message)
+					return
+				}
+				// For other status codes, still show a cleaner message
+				fmt.Fprintf(os.Stderr, "Error for device %s (%s %s): %s\n", name, statusCode, statusText, message)
+				return
+			}
+		}
+	}
+
+	// Fallback: try to get device to extract better error message
 	c, err := o.BuildClient()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error creating client: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Error for device %s: %v\n", name, origErr)
 		return
 	}
 	response, err := c.GetDeviceWithResponse(ctx, name)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error getting device %s: %v\n", name, err)
+		fmt.Fprintf(os.Stderr, "Error for device %s: %v\n", name, origErr)
 		return
 	}
 	if response != nil && response.StatusCode() != http.StatusOK {
@@ -378,7 +405,7 @@ func (o *ConsoleOptions) emitUpgradeFailureError(ctx context.Context, name strin
 			return
 		}
 	}
-	fmt.Fprintf(os.Stderr, "Unexpected error for device %s: %v\n", name, origErr)
+	fmt.Fprintf(os.Stderr, "Error for device %s: %v\n", name, origErr)
 }
 
 func (o *ConsoleOptions) analyzeResponseAndExit(ctx context.Context, name string, err error) {
