@@ -171,6 +171,37 @@ spec:
     group: cert-manager.io
 
 ---
+# ImageBuilder API Server TLS Certificate
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: flightctl-imagebuilder-api-server-tls
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+spec:
+  secretName: flightctl-imagebuilder-api-server-tls
+  commonName: flightctl-imagebuilder-api
+  duration: 17520h  # 2 years
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  usages:
+    - digital signature
+    - key encipherment
+    - server auth
+  dnsNames:
+    {{- $imagebuilderApiDNSSansResult := include "flightctl.getImagebuilderApiDNSSans" . | fromJson }}
+    {{- range $imagebuilderApiDNSSansResult.sans }}
+    - {{ . }}
+    {{- end }}
+  issuerRef:
+    name: flightctl-ca-issuer
+    kind: Issuer
+    group: cert-manager.io
+
+---
 # Job to create CA Bundle ConfigMap after cert-manager issues certificates
 apiVersion: batch/v1
 kind: Job

@@ -1,0 +1,101 @@
+{{- if and .Values.imageBuilderApi .Values.imageBuilderApi.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    flightctl.service: flightctl-imagebuilder-api
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+  name: flightctl-imagebuilder-api
+  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      flightctl.service: flightctl-imagebuilder-api
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        flightctl.service: flightctl-imagebuilder-api
+        {{- include "flightctl.standardLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: flightctl-imagebuilder-api
+      {{- if .Values.global.imagePullSecretName }}
+      imagePullSecrets:
+        - name: {{ .Values.global.imagePullSecretName }}
+      {{- end }}
+      initContainers:
+      {{- include "flightctl.databaseWaitInitContainer" (dict "context" . "userType" "app") | nindent 6 }}
+      {{- include "flightctl.migrationWaitInitContainer" (dict "context" . "timeout" 600) | nindent 6 }}
+      containers:
+        - name: flightctl-imagebuilder-api
+          image: {{ .Values.imageBuilderApi.image.image }}:{{ default .Chart.AppVersion .Values.imageBuilderApi.image.tag }}
+          imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.imageBuilderApi.image.pullPolicy }}
+          ports:
+            - containerPort: 8445
+              name: https
+              protocol: TCP
+          env:
+            - name: HOME
+              value: "/root"
+            - name: KV_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default "flightctl-kv-secret" .Values.kv.passwordSecretName }}
+                  key: password
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "flightctl.dbAppUserSecret" . }}
+                  key: userPassword
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "flightctl.dbAppUserSecret" . }}
+                  key: user
+          volumeMounts:
+            - mountPath: /root/.flightctl/config.yaml
+              name: flightctl-imagebuilder-api-config
+              subPath: config.yaml
+              readOnly: true
+            - mountPath: /root/.flightctl/certs/server.crt
+              name: flightctl-imagebuilder-api-server-tls
+              subPath: tls.crt
+              readOnly: true
+            - mountPath: /root/.flightctl/certs/server.key
+              name: flightctl-imagebuilder-api-server-tls
+              subPath: tls.key
+              readOnly: true
+            - mountPath: /root/.flightctl/certs/ca-bundle.crt
+              name: flightctl-ca-bundle
+              subPath: ca-bundle.crt
+              readOnly: true
+            {{- include "flightctl.dbSslVolumeMounts" . | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8445
+              scheme: HTTPS
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8445
+              scheme: HTTPS
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      restartPolicy: Always
+      volumes:
+        - name: flightctl-imagebuilder-api-config
+          configMap:
+            name: flightctl-imagebuilder-api-config
+        - name: flightctl-imagebuilder-api-server-tls
+          secret:
+            secretName: flightctl-imagebuilder-api-server-tls
+        - name: flightctl-ca-bundle
+          secret:
+            secretName: flightctl-ca-bundle
+        {{- include "flightctl.dbSslVolumes" . | nindent 8 }}
+{{- end }}

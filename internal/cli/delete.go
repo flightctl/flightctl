@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
+	imagebuilderclient "github.com/flightctl/flightctl/internal/api/imagebuilder/client"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -95,14 +96,19 @@ func (o *DeleteOptions) Validate(args []string) error {
 }
 
 func (o *DeleteOptions) Run(ctx context.Context, args []string) error {
-	c, err := o.BuildClient()
-	if err != nil {
-		return fmt.Errorf("creating client: %w", err)
-	}
-
 	kind, name, err := parseAndValidateKindName(args[0])
 	if err != nil {
 		return err
+	}
+
+	// ImageBuild resources use a separate API server
+	if kind == ImageBuildKind {
+		return o.runImageBuildDelete(ctx, args, kind, name)
+	}
+
+	c, err := o.BuildClient()
+	if err != nil {
+		return fmt.Errorf("creating client: %w", err)
 	}
 
 	if len(args) == 1 {
@@ -120,6 +126,50 @@ func (o *DeleteOptions) Run(ctx context.Context, args []string) error {
 	names := args[1:]
 
 	return o.deleteMultiple(ctx, c, kind, names)
+}
+
+func (o *DeleteOptions) runImageBuildDelete(ctx context.Context, args []string, kind ResourceKind, name string) error {
+	ibClient, err := o.BuildImageBuilderClient()
+	if err != nil {
+		return fmt.Errorf("creating imagebuilder client: %w", err)
+	}
+
+	if len(args) == 1 {
+		response, err := ibClient.DeleteImageBuildWithResponse(ctx, name)
+		if err != nil {
+			return err
+		}
+		if err := processDeletionReponse(response, nil, kind, name); err != nil {
+			return err
+		}
+		fmt.Printf("Deletion request for %s \"%s\" completed\n", kind, name)
+		return nil
+	}
+
+	names := args[1:]
+	return o.deleteMultipleImageBuilds(ctx, ibClient, kind, names)
+}
+
+func (o *DeleteOptions) deleteMultipleImageBuilds(ctx context.Context, c *imagebuilderclient.ClientWithResponses, kind ResourceKind, names []string) error {
+	var errorCount int
+
+	for _, name := range names {
+		response, deleteErr := c.DeleteImageBuildWithResponse(ctx, name)
+
+		processErr := processDeletionReponse(response, deleteErr, kind, name)
+		if processErr != nil {
+			fmt.Printf("Error: %v\n", processErr)
+			errorCount++
+		} else {
+			fmt.Printf("Deletion request for %s \"%s\" completed\n", kind, name)
+		}
+	}
+
+	if errorCount > 0 {
+		return fmt.Errorf("failed to delete %d %s(s)", errorCount, kind)
+	}
+
+	return nil
 }
 
 func (o *DeleteOptions) deleteMultiple(ctx context.Context, c *apiclient.ClientWithResponses, kind ResourceKind, names []string) error {

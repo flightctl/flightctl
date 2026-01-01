@@ -23,6 +23,7 @@ Wants=flightctl-ui.service
 Wants=flightctl-cli-artifacts-init.service
 Wants=flightctl-cli-artifacts.service
 Wants=flightctl-certs-init.service
+Wants=flightctl-imagebuilder-api.service
 
 After=network.target
 After=flightctl-network.service
@@ -42,6 +43,7 @@ After=flightctl-ui.service
 After=flightctl-cli-artifacts-init.service
 After=flightctl-cli-artifacts.service
 After=flightctl-certs-init.service
+After=flightctl-imagebuilder-api.service
 
 [Install]
 WantedBy=multi-user.target

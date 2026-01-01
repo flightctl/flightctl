@@ -34,3 +34,6 @@ kv:
 alertmanager:
   image: quay.io/prometheus/alertmanager
   tag: v0.28.1
+imagebuilder-api:
+  image: flightctl-imagebuilder-api
+  tag: latest

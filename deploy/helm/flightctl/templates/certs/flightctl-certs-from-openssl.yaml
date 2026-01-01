@@ -8,6 +8,8 @@
 {{- $telemetryGatewayDNSSans := $telemetryGatewayDNSSansResult.sans -}}
 {{- $alertmanagerProxyDNSSansResult := include "flightctl.getAlertmanagerProxyDNSSans" . | fromJson -}}
 {{- $alertmanagerProxyDNSSans := $alertmanagerProxyDNSSansResult.sans -}}
+{{- $imagebuilderApiDNSSansResult := include "flightctl.getImagebuilderApiDNSSans" . | fromJson -}}
+{{- $imagebuilderApiDNSSans := $imagebuilderApiDNSSansResult.sans -}}
 
 ---
 # ConfigMap containing the certificate generation script
@@ -69,6 +71,10 @@ spec:
         {{- end }}
         {{- range $alertmanagerProxyDNSSans }}
         - --alertmanager-proxy-san
+        - {{ . }}
+        {{- end }}
+        {{- range $imagebuilderApiDNSSans }}
+        - --imagebuilder-api-san
         - {{ . }}
         {{- end }}
         - --namespace

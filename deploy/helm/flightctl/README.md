@@ -296,6 +296,11 @@ For more detailed configuration options, see the [Values](#values) section below
 | global.multiclusterEngineNamespace | string | `"multicluster-engine"` | Namespace where MultiCluster Engine is installed. Used for creating discovery ConfigMap and RBAC bindings. |
 | global.sshKnownHosts.data | string | `""` | SSH known hosts file content for Git repository host key verification. |
 | global.storageClassName | string | `""` | Storage class name for the PVCs. Keep empty to use the default storage class. |
+| imageBuilderApi | object | `{"enabled":true,"image":{"image":"quay.io/flightctl/flightctl-imagebuilder-api","pullPolicy":"","tag":""}}` | ImageBuilder API Configuration |
+| imageBuilderApi.enabled | bool | `true` | Enable imagebuilder API service |
+| imageBuilderApi.image.image | string | `"quay.io/flightctl/flightctl-imagebuilder-api"` | ImageBuilder API container image |
+| imageBuilderApi.image.pullPolicy | string | `""` | Image pull policy for ImageBuilder API container |
+| imageBuilderApi.image.tag | string | `""` | ImageBuilder API image tag |
 | kv | object | `{"fsGroup":"","image":{"image":"quay.io/sclorg/redis-7-c9s","pullPolicy":"","tag":"20250108"},"loglevel":"warning","maxmemory":"1gb","maxmemoryPolicy":"allkeys-lru","passwordSecretName":""}` | Key-Value Store Configuration |
 | kv.fsGroup | string | `""` | File system group ID for Redis pod security context |
 | kv.image.image | string | `"quay.io/sclorg/redis-7-c9s"` | Redis container image |

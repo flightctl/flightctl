@@ -549,6 +549,13 @@ func (o *LoginOptions) Run(ctx context.Context, args []string) error {
 		}
 	}
 
+	// Set imagebuilder service URL based on the main API server
+	imageBuilderService, err := deriveImageBuilderService(o.clientConfig.Service)
+	if err != nil {
+		return fmt.Errorf("deriving imagebuilder service: %w", err)
+	}
+	o.clientConfig.ImageBuilderService = imageBuilderService
+
 	if err := o.clientConfig.Persist(o.ConfigFilePath); err != nil {
 		return fmt.Errorf("persisting client config: %w", err)
 	}
@@ -769,4 +776,28 @@ func (o *LoginOptions) validateURLFormat(urlStr string) error {
 	}
 
 	return nil
+}
+
+// deriveImageBuilderService derives the imagebuilder service configuration from the main API service.
+// The imagebuilder service runs on the same host as the main API but on port 8445.
+func deriveImageBuilderService(mainService client.Service) (*client.Service, error) {
+	const defaultImageBuilderPort = "8445"
+
+	parsedUrl, err := url.Parse(mainService.Server)
+	if err != nil {
+		return nil, fmt.Errorf("parsing main service URL %q: %w", mainService.Server, err)
+	}
+
+	hostname := parsedUrl.Hostname()
+
+	// Build the imagebuilder URL using the same host but with the imagebuilder port
+	imageBuilderURL := parsedUrl.Scheme + "://" + hostname + ":" + defaultImageBuilderPort
+
+	return &client.Service{
+		Server:                   imageBuilderURL,
+		TLSServerName:            mainService.TLSServerName,
+		CertificateAuthority:     mainService.CertificateAuthority,
+		CertificateAuthorityData: mainService.CertificateAuthorityData,
+		InsecureSkipVerify:       mainService.InsecureSkipVerify,
+	}, nil
 }

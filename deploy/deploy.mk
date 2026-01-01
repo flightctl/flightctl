@@ -74,6 +74,7 @@ ifndef SKIP_BUILD
 	podman save flightctl-cli-artifacts:latest | sudo podman load
 	podman save flightctl-alertmanager-proxy:latest | sudo podman load
 	podman save flightctl-pam-issuer:latest | sudo podman load
+	podman save flightctl-imagebuilder-api:latest | sudo podman load
 endif
 	sudo -E deploy/scripts/deploy_quadlets.sh
 

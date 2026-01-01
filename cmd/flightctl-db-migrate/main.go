@@ -6,12 +6,19 @@ import (
 	"flag"
 
 	"github.com/flightctl/flightctl/internal/config"
+	imagebuilderstore "github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
+
+// runImageBuildMigrations runs migrations for the ImageBuild store
+func runImageBuildMigrations(ctx context.Context, db *gorm.DB, log logrus.FieldLogger) error {
+	imageBuildStore := imagebuilderstore.NewStore(db, log.WithField("pkg", "imagebuild-migration"))
+	return imageBuildStore.RunMigrations(ctx)
+}
 
 // errDryRunComplete signals that migrations validated successfully in dry-run mode.
 var errDryRunComplete = errors.New("dry-run complete")
@@ -79,6 +86,15 @@ func main() {
 		})).RunMigrations(ctx); err != nil {
 			return err // rollback
 		}
+
+		// Run ImageBuild migrations (separate store for imagebuilder-api)
+		if err = runImageBuildMigrations(ctx, tx, log.WithFields(logrus.Fields{
+			"pkg":     "imagebuild-migration-tx",
+			"dry_run": *dryRun,
+		})); err != nil {
+			return err // rollback
+		}
+
 		if *dryRun {
 			return errDryRunComplete // rollback but indicate success
 		}

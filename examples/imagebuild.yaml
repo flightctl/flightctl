@@ -1,0 +1,23 @@
+apiVersion: flightctl.io/v1beta1
+kind: ImageBuild
+metadata:
+  name: my-edge-image-build-2
+  labels:
+    environment: production
+    team: edge-platform
+spec:
+  # Source defines the source image to build from
+  source:
+    repository: my-source-registry
+    imageName: rhel-edge-base
+    imageTag: "9.4"
+  # Destination defines where to push the built image
+  destination:
+    repository: my-output-registry
+    imageName: rhel-edge-custom
+    tag: v1.0.0
+  # Binding configuration for device enrollment
+  # Use 'early' with certName to embed certificate in image, or 'late' for first-boot binding
+  binding:
+    type: early
+    certName: my-enrollment-certificate

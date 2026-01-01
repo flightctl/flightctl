@@ -36,3 +36,12 @@ func NewServiceHandler(store store.Store, workerClient worker_client.WorkerClien
 		agentGate:     semaphore.NewWeighted(MaxConcurrentAgents),
 	}
 }
+
+// NewAuthProviderServiceHandler creates a minimal ServiceHandler that only supports
+// AuthProviderService operations (ListAuthProviders, ListAllAuthProviders, GetAuthProvider, etc.)
+func NewAuthProviderServiceHandler(store store.Store, log logrus.FieldLogger) *ServiceHandler {
+	return &ServiceHandler{
+		store: store,
+		log:   log,
+	}
+}

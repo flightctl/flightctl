@@ -47,9 +47,10 @@ type HTTPClientOption func(*http.Client) error
 
 // Config holds the information needed to connect to a Flight Control API server
 type Config struct {
-	Service      Service  `json:"service"`
-	AuthInfo     AuthInfo `json:"authentication"`
-	Organization string   `json:"organization,omitempty"`
+	Service             Service  `json:"service"`
+	ImageBuilderService *Service `json:"imageBuilderService,omitempty"`
+	AuthInfo            AuthInfo `json:"authentication"`
+	Organization        string   `json:"organization,omitempty"`
 
 	// HTTPOptions contains HTTP client configuration options
 	HTTPOptions []HTTPClientOption `json:"-"`
@@ -136,7 +137,17 @@ func (c *Config) Equal(c2 *Config) bool {
 	if c == nil || c2 == nil {
 		return false
 	}
-	return c.Service.Equal(&c2.Service) && c.AuthInfo.Equal(&c2.AuthInfo)
+	// Compare ImageBuilderService pointer field
+	if c.ImageBuilderService == nil && c2.ImageBuilderService == nil {
+		// Both nil, continue with other fields
+	} else if c.ImageBuilderService == nil || c2.ImageBuilderService == nil {
+		// One nil, one not nil => not equal
+		return false
+	} else if !c.ImageBuilderService.Equal(c2.ImageBuilderService) {
+		// Both non-nil, use Equal method
+		return false
+	}
+	return c.Service.Equal(&c2.Service) && c.AuthInfo.Equal(&c2.AuthInfo) && c.Organization == c2.Organization
 }
 
 func (s *Service) Equal(s2 *Service) bool {
@@ -202,7 +213,7 @@ func (c *Config) DeepCopy() *Config {
 	if c == nil {
 		return nil
 	}
-	return &Config{
+	copied := &Config{
 		Service:      *c.Service.DeepCopy(),
 		AuthInfo:     *c.AuthInfo.DeepCopy(),
 		Organization: c.Organization,
@@ -210,6 +221,10 @@ func (c *Config) DeepCopy() *Config {
 		baseDir:      c.baseDir,
 		testRootDir:  c.testRootDir,
 	}
+	if c.ImageBuilderService != nil {
+		copied.ImageBuilderService = c.ImageBuilderService.DeepCopy()
+	}
+	return copied
 }
 
 func (s *Service) DeepCopy() *Service {
@@ -345,6 +360,14 @@ func NewFromConfigFile(filename string, opts ...client.ClientOption) (*client.Cl
 		return nil, err
 	}
 	return NewFromConfig(config, filename, opts...)
+}
+
+// GetImageBuilderServer returns the imagebuilder server URL if configured, empty string otherwise.
+func (c *Config) GetImageBuilderServer() string {
+	if c.ImageBuilderService != nil && c.ImageBuilderService.Server != "" {
+		return c.ImageBuilderService.Server
+	}
+	return ""
 }
 
 // NewHTTPClientFromConfig returns a new HTTP Client from the given config.

@@ -21,18 +21,19 @@ const (
 )
 
 type Config struct {
-	Database         *dbConfig               `json:"database,omitempty"`
-	Service          *svcConfig              `json:"service,omitempty"`
-	KV               *kvConfig               `json:"kv,omitempty"`
-	Alertmanager     *alertmanagerConfig     `json:"alertmanager,omitempty"`
-	Auth             *authConfig             `json:"auth,omitempty"`
-	Metrics          *metricsConfig          `json:"metrics,omitempty"`
-	CA               *ca.Config              `json:"ca,omitempty"`
-	Tracing          *tracingConfig          `json:"tracing,omitempty"`
-	GitOps           *gitOpsConfig           `json:"gitOps,omitempty"`
-	Periodic         *periodicConfig         `json:"periodic,omitempty"`
-	Organizations    *organizationsConfig    `json:"organizations,omitempty"`
-	TelemetryGateway *telemetryGatewayConfig `json:"telemetrygateway,omitempty"`
+	Database            *dbConfig                  `json:"database,omitempty"`
+	Service             *svcConfig                 `json:"service,omitempty"`
+	ImageBuilderService *imageBuilderServiceConfig `json:"imageBuilderService,omitempty"`
+	KV                  *kvConfig                  `json:"kv,omitempty"`
+	Alertmanager        *alertmanagerConfig        `json:"alertmanager,omitempty"`
+	Auth                *authConfig                `json:"auth,omitempty"`
+	Metrics             *metricsConfig             `json:"metrics,omitempty"`
+	CA                  *ca.Config                 `json:"ca,omitempty"`
+	Tracing             *tracingConfig             `json:"tracing,omitempty"`
+	GitOps              *gitOpsConfig              `json:"gitOps,omitempty"`
+	Periodic            *periodicConfig            `json:"periodic,omitempty"`
+	Organizations       *organizationsConfig       `json:"organizations,omitempty"`
+	TelemetryGateway    *telemetryGatewayConfig    `json:"telemetrygateway,omitempty"`
 }
 
 type RateLimitConfig struct {
@@ -89,14 +90,53 @@ type svcConfig struct {
 	RenderedWaitTimeout    util.Duration    `json:"renderedWaitTimeout,omitempty"`
 	RateLimit              *RateLimitConfig `json:"rateLimit,omitempty"`
 	TPMCAPaths             []string         `json:"tpmCAPaths,omitempty"`
-	HealthChecks           *healthChecks    `json:"healthChecks,omitempty"`
+	HealthChecks           *HealthChecks    `json:"healthChecks,omitempty"`
 }
 
-type healthChecks struct {
+// HealthChecks holds health check endpoint configuration.
+type HealthChecks struct {
 	Enabled          bool          `json:"enabled,omitempty"`
 	ReadinessPath    string        `json:"readinessPath,omitempty"`
 	LivenessPath     string        `json:"livenessPath,omitempty"`
 	ReadinessTimeout util.Duration `json:"readinessTimeout,omitempty"`
+}
+
+type imageBuilderServiceConfig struct {
+	Address               string           `json:"address,omitempty"`
+	LogLevel              string           `json:"logLevel,omitempty"`
+	TLSCertFile           string           `json:"tlsCertFile,omitempty"`
+	TLSKeyFile            string           `json:"tlsKeyFile,omitempty"`
+	InsecureSkipTlsVerify bool             `json:"insecureSkipTlsVerify,omitempty"`
+	HttpReadTimeout       util.Duration    `json:"httpReadTimeout,omitempty"`
+	HttpReadHeaderTimeout util.Duration    `json:"httpReadHeaderTimeout,omitempty"`
+	HttpWriteTimeout      util.Duration    `json:"httpWriteTimeout,omitempty"`
+	HttpIdleTimeout       util.Duration    `json:"httpIdleTimeout,omitempty"`
+	HttpMaxNumHeaders     int              `json:"httpMaxNumHeaders,omitempty"`
+	HttpMaxUrlLength      int              `json:"httpMaxUrlLength,omitempty"`
+	HttpMaxRequestSize    int              `json:"httpMaxRequestSize,omitempty"`
+	RateLimit             *RateLimitConfig `json:"rateLimit,omitempty"`
+	HealthChecks          *HealthChecks    `json:"healthChecks,omitempty"`
+}
+
+// NewDefaultImageBuilderServiceConfig returns a default ImageBuilder service configuration
+func NewDefaultImageBuilderServiceConfig() *imageBuilderServiceConfig {
+	return &imageBuilderServiceConfig{
+		Address:               ":8445",
+		LogLevel:              "info",
+		HttpReadTimeout:       util.Duration(5 * time.Minute),
+		HttpReadHeaderTimeout: util.Duration(5 * time.Minute),
+		HttpWriteTimeout:      util.Duration(5 * time.Minute),
+		HttpIdleTimeout:       util.Duration(5 * time.Minute),
+		HttpMaxNumHeaders:     32,
+		HttpMaxUrlLength:      2000,
+		HttpMaxRequestSize:    50 * 1024 * 1024, // 50MB
+		HealthChecks: &HealthChecks{
+			Enabled:          true,
+			ReadinessPath:    "/readyz",
+			LivenessPath:     "/healthz",
+			ReadinessTimeout: util.Duration(2 * time.Second),
+		},
+	}
 }
 
 type kvConfig struct {
@@ -405,7 +445,7 @@ func NewDefault(opts ...ConfigOption) *Config {
 			EventRetentionPeriod:   util.Duration(7 * 24 * time.Hour), // 1 week
 			AlertPollingInterval:   util.Duration(1 * time.Minute),
 			RenderedWaitTimeout:    util.Duration(2 * time.Minute),
-			HealthChecks: &healthChecks{
+			HealthChecks: &HealthChecks{
 				Enabled:          true,
 				ReadinessPath:    "/readyz",
 				LivenessPath:     "/healthz",
@@ -413,6 +453,7 @@ func NewDefault(opts ...ConfigOption) *Config {
 			},
 			// Rate limiting is disabled by default - set RateLimit to enable
 		},
+		ImageBuilderService: NewDefaultImageBuilderServiceConfig(),
 		KV: &kvConfig{
 			Hostname: "localhost",
 			Port:     6379,
@@ -747,6 +788,28 @@ func Validate(cfg *Config) error {
 		}
 		if hc.ReadinessPath == hc.LivenessPath {
 			return fmt.Errorf("readinessPath and livenessPath must not be identical")
+		}
+	}
+
+	if cfg.ImageBuilderService != nil && cfg.ImageBuilderService.HealthChecks != nil && cfg.ImageBuilderService.HealthChecks.Enabled {
+		hc := cfg.ImageBuilderService.HealthChecks
+		if strings.TrimSpace(hc.ReadinessPath) == "" {
+			return fmt.Errorf("imageBuilderService.healthChecks.readinessPath must be non-empty")
+		}
+		if !strings.HasPrefix(hc.ReadinessPath, "/") {
+			return fmt.Errorf("imageBuilderService.healthChecks.readinessPath must start with '/'")
+		}
+		if strings.TrimSpace(hc.LivenessPath) == "" {
+			return fmt.Errorf("imageBuilderService.healthChecks.livenessPath must be non-empty")
+		}
+		if !strings.HasPrefix(hc.LivenessPath, "/") {
+			return fmt.Errorf("imageBuilderService.healthChecks.livenessPath must start with '/'")
+		}
+		if hc.ReadinessTimeout <= 0 {
+			return fmt.Errorf("imageBuilderService.healthChecks.readinessTimeout must be greater than 0")
+		}
+		if hc.ReadinessPath == hc.LivenessPath {
+			return fmt.Errorf("imageBuilderService.healthChecks.readinessPath and livenessPath must not be identical")
 		}
 	}
 
