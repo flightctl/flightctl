@@ -1685,6 +1685,7 @@ func TestValidateApplicationContentQuadlet(t *testing.T) {
 		name          string
 		content       string
 		path          string
+		fleetTemplate bool
 		wantErrCount  int
 		wantErrSubstr string
 	}{
@@ -1787,13 +1788,95 @@ ExecStart=/usr/bin/myapp`,
 			path:         "conf.json",
 			wantErrCount: 0,
 		},
+		{
+			name: "valid container quadlet with templated image tag - fleet template enabled",
+			content: `[Container]
+Image=quay.io/flightctl-tests/alpine:{{ .metadata.labels.version }}
+PublishPort=8080:80`,
+			path:          "test.container",
+			fleetTemplate: true,
+			wantErrCount:  0,
+		},
+		{
+			name: "invalid container quadlet with templated image tag - fleet template disabled",
+			content: `[Container]
+Image=quay.io/flightctl-tests/alpine:{{ .metadata.labels.version }}
+PublishPort=8080:80`,
+			path:          "test.container",
+			fleetTemplate: false,
+			wantErrCount:  1,
+			wantErrSubstr: "container.image",
+		},
+		{
+			name: "valid image quadlet with templated tag - fleet template enabled",
+			content: `[Image]
+Image=quay.io/fedora/fedora:{{ .metadata.labels.fedora_version }}`,
+			path:          "test.image",
+			fleetTemplate: true,
+			wantErrCount:  0,
+		},
+		{
+			name: "invalid image quadlet with templated tag - fleet template disabled",
+			content: `[Image]
+Image=quay.io/fedora/fedora:{{ .metadata.labels.fedora_version }}`,
+			path:          "test.image",
+			fleetTemplate: false,
+			wantErrCount:  1,
+			wantErrSubstr: "image.image",
+		},
+		{
+			name: "valid volume quadlet with templated image - fleet template enabled",
+			content: `[Volume]
+Image=quay.io/containers/volume:{{ .metadata.labels.vol_version }}`,
+			path:          "test.volume",
+			fleetTemplate: true,
+			wantErrCount:  0,
+		},
+		{
+			name: "invalid template expression - bad field access",
+			content: `[Container]
+Image=quay.io/flightctl-tests/alpine:{{ .metadata.annotations.key }}
+PublishPort=8080:80`,
+			path:          "test.container",
+			fleetTemplate: true,
+			wantErrCount:  1,
+			wantErrSubstr: "annotations",
+		},
+		{
+			name: "valid template with upper function",
+			content: `[Container]
+Image=quay.io/flightctl-tests/alpine:{{ upper .metadata.labels.version }}
+PublishPort=8080:80`,
+			path:          "test.container",
+			fleetTemplate: true,
+			wantErrCount:  0,
+		},
+		{
+			name: "valid template with lower function",
+			content: `[Container]
+Image=quay.io/flightctl-tests/alpine:{{ lower .metadata.labels.version }}
+PublishPort=8080:80`,
+			path:          "test.container",
+			fleetTemplate: true,
+			wantErrCount:  0,
+		},
+		{
+			name: "invalid template with unsupported function",
+			content: `[Container]
+Image=quay.io/flightctl-tests/alpine:{{ badfunction .metadata.labels.version }}
+PublishPort=8080:80`,
+			path:          "test.container",
+			fleetTemplate: true,
+			wantErrCount:  1,
+			wantErrSubstr: "badfunction",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			content := []byte(tt.content)
 			validator := quadletValidator{quadlets: make(map[string]*common.QuadletReferences)}
-			errs := validator.ValidateContents(tt.path, content, false)
+			errs := validator.ValidateContents(tt.path, content, tt.fleetTemplate)
 
 			require.Len(errs, tt.wantErrCount, "expected %d errors, got %d: %v", tt.wantErrCount, len(errs), errs)
 			if tt.wantErrSubstr != "" && len(errs) > 0 {
