@@ -76,6 +76,7 @@ ifndef SKIP_BUILD
 	podman save flightctl-pam-issuer:latest | sudo podman load
 	podman save flightctl-imagebuilder-api:latest | sudo podman load
 endif
+	$(MAKE) build-standalone
 	sudo -E deploy/scripts/deploy_quadlets.sh
 
 kill-db:
