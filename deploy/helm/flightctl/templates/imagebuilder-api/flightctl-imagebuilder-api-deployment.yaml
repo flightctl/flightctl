@@ -6,7 +6,7 @@ metadata:
     flightctl.service: flightctl-imagebuilder-api
     {{- include "flightctl.standardLabels" . | nindent 4 }}
   name: flightctl-imagebuilder-api
-  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+  namespace: {{ .Release.Namespace }}
 spec:
   replicas: 1
   selector:
