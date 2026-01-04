@@ -163,6 +163,11 @@ subjects:
 - kind: ServiceAccount
   name: flightctl-alertmanager-proxy
   namespace: {{ .Release.Namespace }}
+{{- if and .Values.imageBuilderApi .Values.imageBuilderApi.enabled }}
+- kind: ServiceAccount
+  name: flightctl-imagebuilder-api
+  namespace: {{ .Release.Namespace }}
+{{- end }}
 roleRef:
   kind: Role
   name: flightctl-job-status-reader
@@ -195,6 +200,11 @@ subjects:
 - kind: ServiceAccount
   name: flightctl-alertmanager-proxy
   namespace: {{ .Release.Namespace }}
+{{- if and .Values.imageBuilderApi .Values.imageBuilderApi.enabled }}
+- kind: ServiceAccount
+  name: flightctl-imagebuilder-api
+  namespace: {{ .Release.Namespace }}
+{{- end }}
 roleRef:
   kind: Role
   name: flightctl-db-app-access

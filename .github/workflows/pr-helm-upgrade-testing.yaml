@@ -317,7 +317,17 @@ jobs:
           namespace-internal: 'flightctl-internal'
           log-directory: 'upgrade-logs'
 
-  log-override-message:
+      - name: Finalize
+        if: always()
+        env:
+          OVERRIDE: ${{ needs.check-override.outputs.override }}
+        run: |
+          if [ "${OVERRIDE}" = "true" ]; then
+            echo "Override active - job passes regardless of previous failures"
+            exit 0
+          fi
+
+  status:
     runs-on: ubuntu-24.04
     needs: [check-override, deploy-and-upgrade]
     if: always() && needs.check-override.outputs.override == 'true'
@@ -336,3 +346,4 @@ jobs:
           if [ "${DEPLOY_RESULT}" = "failure" ]; then
             echo "Failures were detected but are being ignored due to the override label."
           fi
+          exit 0

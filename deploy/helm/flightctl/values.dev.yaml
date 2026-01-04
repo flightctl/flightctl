@@ -55,6 +55,11 @@ telemetryGateway:
     image: localhost/flightctl-telemetry-gateway
     tag: latest
 
+imageBuilderApi:
+  image:
+    image: localhost/flightctl-imagebuilder-api
+    tag: latest
+
 dev:
   exposeServicesMethod: "nodePort"
   nodePorts:

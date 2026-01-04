@@ -6,7 +6,7 @@ metadata:
     {{- include "flightctl.standardLabels" . | nindent 4 }}
     flightctl.service: flightctl-imagebuilder-api
   name: flightctl-imagebuilder-api
-  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+  namespace: {{ .Release.Namespace }}
 spec:
   ports:
     - name: https

@@ -3,7 +3,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: flightctl-imagebuilder-api-config
-  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+  namespace: {{ .Release.Namespace }}
   labels:
     {{- include "flightctl.standardLabels" . | nindent 4 }}
     flightctl.service: flightctl-imagebuilder-api
@@ -33,9 +33,15 @@ data:
         logLevel: info
         tlsCertFile: /root/.flightctl/certs/server.crt
         tlsKeyFile: /root/.flightctl/certs/server.key
+        healthChecks:
+            enabled: true
+            readinessPath: "/readyz"
+            livenessPath: "/healthz"
+            readinessTimeout: 2s
     kv:
         hostname: flightctl-kv.{{ default .Release.Namespace .Values.global.internalNamespace }}.svc.cluster.local
         port: 6379
+    {{- include "flightctl.authConfig" . | nindent 4 }}
     metrics:
         enabled: true
         address: ":8080"
