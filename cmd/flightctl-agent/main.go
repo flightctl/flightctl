@@ -159,9 +159,8 @@ func (s *systemInfoCmd) Execute() error {
 }
 
 type healthCmd struct {
-	timeout   time.Duration
-	serverURL string
-	verbose   bool
+	timeout time.Duration
+	verbose bool
 }
 
 // NewHealthCommand creates a new health check command.
@@ -170,7 +169,6 @@ func NewHealthCommand() *healthCmd {
 	cmd := &healthCmd{}
 
 	fs.DurationVar(&cmd.timeout, "timeout", 30*time.Second, "Maximum time to wait for checks.")
-	fs.StringVar(&cmd.serverURL, "server", "", "Management server URL for connectivity check.")
 	fs.BoolVar(&cmd.verbose, "verbose", false, "Print detailed check results.")
 
 	if hasHelpFlag(os.Args[2:]) {
@@ -178,11 +176,11 @@ func NewHealthCommand() *healthCmd {
 		fmt.Println("  Performs health checks on the flightctl-agent service.")
 		fmt.Println()
 		fmt.Println("Checks performed:")
-		fmt.Println("  - Service status (enabled/active) via D-Bus")
-		fmt.Println("  - Connectivity to management server (warning only)")
+		fmt.Println("  - Service status (enabled/active)")
+		fmt.Println("  - Reports agent's self-reported connectivity status (informational)")
 		fmt.Println()
 		fmt.Println("Exit codes:")
-		fmt.Println("  0  All checks passed (connectivity warnings don't affect exit code)")
+		fmt.Println("  0  Service is active")
 		fmt.Println("  1  Service check failed")
 		fmt.Println()
 		fs.PrintDefaults()
@@ -204,7 +202,6 @@ func (h *healthCmd) Execute() error {
 	checker := health.NewChecker(
 		logger,
 		health.WithTimeout(h.timeout),
-		health.WithServerURL(h.serverURL),
 		health.WithVerbose(h.verbose),
 		health.WithOutput(os.Stdout),
 	)

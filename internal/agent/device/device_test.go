@@ -310,6 +310,7 @@ func TestRollbackDevice(t *testing.T) {
 				policyManager,
 				readWriter,
 				mockOSClient,
+				nil, // systemdClient not needed in tests
 				poll.NewConfig(time.Second, 1.5),
 				func() error { return nil },
 				mockAuditLogger,

@@ -11,6 +11,10 @@ SCRIPT_PID=$$
 DEFAULT_BASE_TIMEOUT=150
 DEFAULT_MAX_BOOT_ATTEMPTS=3
 
+# Configuration environment variables (set in /etc/greenboot/greenboot.conf):
+#   FLIGHTCTL_WAIT_TIMEOUT_SEC  - Base timeout in seconds (default: 150)
+#   GREENBOOT_MAX_BOOT_ATTEMPTS - Max boots before rollback (default: 3)
+
 #
 # Logging
 #

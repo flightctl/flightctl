@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -365,7 +364,7 @@ func (m *LifecycleManager) writeQRBanner(message, url string) error {
 		return fmt.Errorf("failed to write banner to disk: %w", err)
 	}
 
-	if err := m.sdNotify(); err != nil {
+	if err := m.systemdClient.SdNotify("READY=1"); err != nil {
 		m.log.Warnf("Failed to notify systemd: %v", err)
 	}
 
@@ -429,29 +428,5 @@ func (m *LifecycleManager) enrollmentRequest(ctx context.Context, deviceStatus *
 		return fmt.Errorf("creating enrollment request: %w", err)
 	}
 
-	return nil
-}
-
-func (m *LifecycleManager) sdNotify() error {
-	socketAddr := &net.UnixAddr{
-		Name: os.Getenv("NOTIFY_SOCKET"),
-		Net:  "unixgram",
-	}
-
-	// NOTIFY_SOCKET not set
-	if socketAddr.Name == "" {
-		m.log.Warning("NOTIFY_SOCKET not set, skipping systemd notification")
-		return nil
-	}
-	conn, err := net.DialUnix(socketAddr.Net, nil, socketAddr)
-	if err != nil {
-		return fmt.Errorf("failed to connect to systemd: %w", err)
-	}
-	defer conn.Close()
-
-	_, err = conn.Write([]byte("READY=1\n"))
-	if err != nil {
-		return fmt.Errorf("failed to write to systemd: %w", err)
-	}
 	return nil
 }

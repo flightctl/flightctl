@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
+	"os"
 	"strings"
 	"time"
 
@@ -24,6 +26,8 @@ var (
 func NewSystemd(exec executer.Executer) *Systemd {
 	return &Systemd{
 		exec: exec,
+		// Capture NOTIFY_SOCKET early, before bootstrap unsets it
+		notifySocket: os.Getenv("NOTIFY_SOCKET"),
 	}
 }
 
@@ -41,6 +45,8 @@ type Systemd struct {
 	exec executer.Executer
 	// If true, the `--user` flag will be included in all systemctl invocations.
 	isUserInstance bool
+	// notifySocket captures NOTIFY_SOCKET early, before bootstrap unsets it
+	notifySocket string
 }
 
 func (s *Systemd) createArgs(args ...string) (string, []string) {
@@ -316,4 +322,34 @@ func (s *Systemd) Show(ctx context.Context, unit string, opts ...SystemdShowOpti
 	}
 
 	return lines, nil
+}
+
+// SdNotify sends notification messages to systemd via the NOTIFY_SOCKET.
+// The socket path is captured when NewSystemd is called, before bootstrap unsets it.
+func (s *Systemd) SdNotify(messages ...string) error {
+	if s.notifySocket == "" {
+		return nil // Not running under systemd with Type=notify
+	}
+
+	socketAddr := &net.UnixAddr{
+		Name: s.notifySocket,
+		Net:  "unixgram",
+	}
+
+	conn, err := net.DialUnix(socketAddr.Net, nil, socketAddr)
+	if err != nil {
+		return fmt.Errorf("failed to connect to systemd socket %q: %w", s.notifySocket, err)
+	}
+	defer conn.Close()
+
+	payload := strings.Join(messages, "\n") + "\n"
+	n, err := conn.Write([]byte(payload))
+	if err != nil {
+		return fmt.Errorf("failed to write to systemd socket: %w", err)
+	}
+	if n != len(payload) {
+		return fmt.Errorf("incomplete write to systemd: wrote %d of %d bytes", n, len(payload))
+	}
+
+	return nil
 }

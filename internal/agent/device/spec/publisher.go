@@ -50,6 +50,7 @@ type Publisher interface {
 
 type publisher struct {
 	managementClient      client.Management
+	systemdClient         *client.Systemd
 	deviceName            string
 	watchers              []*watcher
 	lastKnownVersion      string
@@ -62,12 +63,14 @@ type publisher struct {
 }
 
 func newPublisher(deviceName string,
+	systemdClient *client.Systemd,
 	pollConfig poll.Config,
 	lastKnownVersion string,
 	deviceNotFoundHandler func() error,
 	log *log.PrefixLogger) Publisher {
 	return &publisher{
 		deviceName:            deviceName,
+		systemdClient:         systemdClient,
 		pollConfig:            pollConfig,
 		lastKnownVersion:      lastKnownVersion,
 		deviceNotFoundHandler: deviceNotFoundHandler,
@@ -152,6 +155,7 @@ func (n *publisher) pollAndPublish(ctx context.Context) {
 		// Check for device not found error - handle certificate wiping and restart
 		if errors.Is(err, client.ErrDeviceNotFound) {
 			n.log.Warn("Device not found on management server")
+			n.notifyConnectivityStatus("Disconnected: device not found")
 			if n.deviceNotFoundHandler != nil {
 				if handlerErr := n.deviceNotFoundHandler(); handlerErr != nil {
 					n.log.Warnf("Failed to handle device not found: %v", handlerErr)
@@ -163,12 +167,18 @@ func (n *publisher) pollAndPublish(ctx context.Context) {
 		}
 
 		if errors.Is(err, errors.ErrNoContent) || errors.IsTimeoutError(err) {
+			// Server was reachable, just no new content
 			n.log.Debug("No new template version from management service")
+			n.notifyConnectivityStatus("Connected")
 			return
 		}
 		n.log.Errorf("Received non-retryable error from management service: %v", err)
+		n.notifyConnectivityStatus(fmt.Sprintf("Disconnected: %v", err))
 		return
 	}
+
+	// Successfully received new spec - server is reachable
+	n.notifyConnectivityStatus("Connected")
 
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -245,5 +255,16 @@ func (n *publisher) stop() {
 	n.stopped.Store(true)
 	for _, w := range n.watchers {
 		w.buffer.Stop()
+	}
+}
+
+// notifyConnectivityStatus reports the agent's connectivity status to systemd.
+// This is visible via `systemctl status flightctl-agent` as StatusText.
+func (n *publisher) notifyConnectivityStatus(status string) {
+	if n.systemdClient == nil {
+		return
+	}
+	if err := n.systemdClient.SdNotify(fmt.Sprintf("STATUS=%s", status)); err != nil {
+		n.log.Debugf("Failed to notify systemd of connectivity status: %v", err)
 	}
 }

@@ -6,8 +6,6 @@ package health
 import (
 	"bytes"
 	"context"
-	"net/http"
-	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -37,6 +35,18 @@ LoadState=loaded
 ActiveState=active
 SubState=running
 UnitFileState=enabled
+`,
+			expectError: false,
+		},
+		{
+			name: "service enabled and active with status text",
+			mockStdout: `Id=flightctl-agent.service
+Description=Flight Control Agent
+LoadState=loaded
+ActiveState=active
+SubState=running
+UnitFileState=enabled
+StatusText=Connected to server
 `,
 			expectError: false,
 		},
@@ -135,90 +145,46 @@ UnitFileState=enabled
 	}
 }
 
-func TestCheckConnectivity(t *testing.T) {
+func TestReportConnectivityStatus(t *testing.T) {
 	require := require.New(t)
 
 	tests := []struct {
-		name            string
-		serverURL       string
-		serverHandler   http.HandlerFunc
-		expectReachable bool
-		expectWarning   bool
+		name           string
+		props          map[string]string
+		expectedOutput string
 	}{
 		{
-			name:      "no server URL configured",
-			serverURL: "",
+			name:           "status text present",
+			props:          map[string]string{"StatusText": "Connected to server"},
+			expectedOutput: "Agent status: Connected to server",
 		},
 		{
-			name: "server reachable",
-			serverHandler: func(w http.ResponseWriter, _ *http.Request) {
-				w.WriteHeader(http.StatusOK)
-			},
-			expectReachable: true,
+			name:           "status text empty",
+			props:          map[string]string{"StatusText": ""},
+			expectedOutput: "unknown (agent has not reported status)",
 		},
 		{
-			name: "server returns error status - still reachable",
-			serverHandler: func(w http.ResponseWriter, _ *http.Request) {
-				w.WriteHeader(http.StatusInternalServerError)
-			},
-			expectReachable: true,
+			name:           "status text missing",
+			props:          map[string]string{},
+			expectedOutput: "unknown (agent has not reported status)",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctrl := gomock.NewController(t)
-			defer ctrl.Finish()
-
 			logger := log.NewPrefixLogger("test")
 			output := &bytes.Buffer{}
-			execMock := executer.NewMockExecuter(ctrl)
-
-			serverURL := tt.serverURL
-			if tt.serverHandler != nil {
-				server := httptest.NewServer(tt.serverHandler)
-				defer server.Close()
-				serverURL = server.URL
-			}
 
 			checker := NewChecker(
 				logger,
 				WithVerbose(true),
 				WithOutput(output),
-				WithServerURL(serverURL),
-				WithSystemdClient(client.NewSystemd(execMock)),
 			)
 
-			checker.checkConnectivity(context.Background())
-
-			if tt.expectReachable {
-				require.Contains(output.String(), "reachable")
-			}
+			checker.reportConnectivityStatus(tt.props)
+			require.Contains(output.String(), tt.expectedOutput)
 		})
 	}
-}
-
-func TestCheckConnectivityUnreachable(t *testing.T) {
-	require := require.New(t)
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	logger := log.NewPrefixLogger("test")
-	output := &bytes.Buffer{}
-	execMock := executer.NewMockExecuter(ctrl)
-
-	checker := NewChecker(
-		logger,
-		WithVerbose(true),
-		WithOutput(output),
-		WithServerURL("http://192.0.2.1:9999"), // Non-routable IP
-		WithTimeout(1*time.Second),
-		WithSystemdClient(client.NewSystemd(execMock)),
-	)
-
-	// This should warn but not fail
-	checker.checkConnectivity(context.Background())
-	require.Contains(output.String(), "WARNING")
 }
 
 func TestRun(t *testing.T) {
@@ -297,7 +263,6 @@ func TestNewDefaults(t *testing.T) {
 	require.NotNil(checker.output)
 	require.NotNil(checker.systemd)
 	require.False(checker.verbose)
-	require.Empty(checker.serverURL)
 }
 
 func TestNewWithOptions(t *testing.T) {
@@ -315,13 +280,11 @@ func TestNewWithOptions(t *testing.T) {
 		WithTimeout(60*time.Second),
 		WithVerbose(true),
 		WithOutput(output),
-		WithServerURL("https://example.com"),
 		WithSystemdClient(customSystemd),
 	)
 
 	require.Equal(60*time.Second, checker.timeout)
 	require.True(checker.verbose)
 	require.Equal(output, checker.output)
-	require.Equal("https://example.com", checker.serverURL)
 	require.Equal(customSystemd, checker.systemd)
 }
