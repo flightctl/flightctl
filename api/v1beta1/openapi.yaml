@@ -6330,17 +6330,15 @@ components:
         - code
         - reason
         - message
-    Condition:
+    ConditionBase:
+      type: object
+      description: Base condition structure following Kubernetes API conventions. Use with allOf to add a specific type enum.
       required:
-        - type
         - status
         - lastTransitionTime
         - reason
         - message
-      type: object
       properties:
-        type:
-          $ref: '#/components/schemas/ConditionType'
         status:
           $ref: '#/components/schemas/ConditionStatus'
         observedGeneration:
@@ -6357,7 +6355,16 @@ components:
         reason:
           type: string
           description: A (brief) reason for the condition's last transition.
+    Condition:
       description: Condition contains details for one aspect of the current state of this API Resource.
+      allOf:
+        - $ref: '#/components/schemas/ConditionBase'
+        - type: object
+          required:
+            - type
+          properties:
+            type:
+              $ref: '#/components/schemas/ConditionType'
     ConditionType:
       type: string
       description: Type of condition in CamelCase.

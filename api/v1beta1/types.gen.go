@@ -861,7 +861,7 @@ type CertificateSigningRequestStatus struct {
 	Conditions []Condition `json:"conditions"`
 }
 
-// Condition Condition contains details for one aspect of the current state of this API Resource.
+// Condition defines model for Condition.
 type Condition struct {
 	// LastTransitionTime The last time the condition transitioned from one status to another.
 	LastTransitionTime time.Time `json:"lastTransitionTime"`
@@ -880,6 +880,24 @@ type Condition struct {
 
 	// Type Type of condition in CamelCase.
 	Type ConditionType `json:"type"`
+}
+
+// ConditionBase Base condition structure following Kubernetes API conventions. Use with allOf to add a specific type enum.
+type ConditionBase struct {
+	// LastTransitionTime The last time the condition transitioned from one status to another.
+	LastTransitionTime time.Time `json:"lastTransitionTime"`
+
+	// Message Human readable message indicating details about last transition.
+	Message string `json:"message"`
+
+	// ObservedGeneration The .metadata.generation that the condition was set based upon.
+	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
+
+	// Reason A (brief) reason for the condition's last transition.
+	Reason string `json:"reason"`
+
+	// Status Status of the condition, one of True, False, Unknown.
+	Status ConditionStatus `json:"status"`
 }
 
 // ConditionStatus Status of the condition, one of True, False, Unknown.

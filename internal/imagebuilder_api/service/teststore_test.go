@@ -8,44 +8,20 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1beta1/imagebuilder"
 	"github.com/flightctl/flightctl/internal/flterrors"
-	"github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	flightctlstore "github.com/flightctl/flightctl/internal/store"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 )
 
-// TestStore is a mock implementation of store.Store for testing
-type TestStore struct {
-	imageBuild *DummyImageBuildStore
-}
-
-func NewTestStore() *TestStore {
-	return &TestStore{
-		imageBuild: &DummyImageBuildStore{
-			imageBuilds: &[]api.ImageBuild{},
-		},
-	}
-}
-
-func (s *TestStore) ImageBuild() store.ImageBuildStore {
-	return s.imageBuild
-}
-
-func (s *TestStore) RunMigrations(ctx context.Context) error {
-	return nil
-}
-
-func (s *TestStore) Ping() error {
-	return nil
-}
-
-func (s *TestStore) Close() error {
-	return nil
-}
-
 // DummyImageBuildStore is a mock implementation of store.ImageBuildStore
 type DummyImageBuildStore struct {
 	imageBuilds *[]api.ImageBuild
+}
+
+func NewDummyImageBuildStore() *DummyImageBuildStore {
+	return &DummyImageBuildStore{
+		imageBuilds: &[]api.ImageBuild{},
+	}
 }
 
 func (s *DummyImageBuildStore) Create(ctx context.Context, orgId uuid.UUID, imageBuild *api.ImageBuild) (*api.ImageBuild, error) {
@@ -129,6 +105,146 @@ func (s *DummyImageBuildStore) UpdateLastSeen(ctx context.Context, orgId uuid.UU
 }
 
 func (s *DummyImageBuildStore) InitialMigration(ctx context.Context) error {
+	return nil
+}
+
+// DummyImageExportStore is a mock implementation of store.ImageExportStore
+type DummyImageExportStore struct {
+	imageExports *[]api.ImageExport
+	nextRetryAt  map[string]*time.Time // tracks nextRetryAt by name since it's not in API struct
+}
+
+func NewDummyImageExportStore() *DummyImageExportStore {
+	return &DummyImageExportStore{
+		imageExports: &[]api.ImageExport{},
+		nextRetryAt:  make(map[string]*time.Time),
+	}
+}
+
+func (s *DummyImageExportStore) Create(ctx context.Context, orgId uuid.UUID, imageExport *api.ImageExport) (*api.ImageExport, error) {
+	// Check for duplicate
+	for _, ie := range *s.imageExports {
+		if lo.FromPtr(ie.Metadata.Name) == lo.FromPtr(imageExport.Metadata.Name) {
+			return nil, flterrors.ErrDuplicateName
+		}
+	}
+
+	var created api.ImageExport
+	deepCopy(imageExport, &created)
+	now := time.Now()
+	created.Metadata.CreationTimestamp = &now
+	*s.imageExports = append(*s.imageExports, created)
+	return &created, nil
+}
+
+func (s *DummyImageExportStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*api.ImageExport, error) {
+	for _, ie := range *s.imageExports {
+		if lo.FromPtr(ie.Metadata.Name) == name {
+			var result api.ImageExport
+			deepCopy(ie, &result)
+			return &result, nil
+		}
+	}
+	return nil, flterrors.ErrResourceNotFound
+}
+
+func (s *DummyImageExportStore) List(ctx context.Context, orgId uuid.UUID, listParams flightctlstore.ListParams) (*api.ImageExportList, error) {
+	items := make([]api.ImageExport, len(*s.imageExports))
+	for i, ie := range *s.imageExports {
+		deepCopy(ie, &items[i])
+	}
+
+	// Apply limit if specified
+	if listParams.Limit > 0 && len(items) > listParams.Limit {
+		items = items[:listParams.Limit]
+	}
+
+	return &api.ImageExportList{
+		ApiVersion: api.ImageExportAPIVersion,
+		Kind:       api.ImageExportListKind,
+		Items:      items,
+	}, nil
+}
+
+func (s *DummyImageExportStore) Delete(ctx context.Context, orgId uuid.UUID, name string) error {
+	for i, ie := range *s.imageExports {
+		if lo.FromPtr(ie.Metadata.Name) == name {
+			*s.imageExports = append((*s.imageExports)[:i], (*s.imageExports)[i+1:]...)
+			return nil
+		}
+	}
+	return flterrors.ErrResourceNotFound
+}
+
+func (s *DummyImageExportStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, imageExport *api.ImageExport) (*api.ImageExport, error) {
+	for i, ie := range *s.imageExports {
+		if lo.FromPtr(ie.Metadata.Name) == lo.FromPtr(imageExport.Metadata.Name) {
+			(*s.imageExports)[i].Status = imageExport.Status
+			var result api.ImageExport
+			deepCopy((*s.imageExports)[i], &result)
+			return &result, nil
+		}
+	}
+	return nil, flterrors.ErrResourceNotFound
+}
+
+func (s *DummyImageExportStore) UpdateNextRetryAt(ctx context.Context, orgId uuid.UUID, name string, timestamp time.Time) error {
+	for _, ie := range *s.imageExports {
+		if lo.FromPtr(ie.Metadata.Name) == name {
+			s.nextRetryAt[name] = &timestamp
+			return nil
+		}
+	}
+	return flterrors.ErrResourceNotFound
+}
+
+func (s *DummyImageExportStore) UpdateLastSeen(ctx context.Context, orgId uuid.UUID, name string, timestamp time.Time) error {
+	for i, ie := range *s.imageExports {
+		if lo.FromPtr(ie.Metadata.Name) == name {
+			if (*s.imageExports)[i].Status == nil {
+				(*s.imageExports)[i].Status = &api.ImageExportStatus{}
+			}
+			(*s.imageExports)[i].Status.LastSeen = &timestamp
+			return nil
+		}
+	}
+	return flterrors.ErrResourceNotFound
+}
+
+func (s *DummyImageExportStore) ListPendingRetry(ctx context.Context, orgId uuid.UUID, beforeTime time.Time) (*api.ImageExportList, error) {
+	var items []api.ImageExport
+	for _, ie := range *s.imageExports {
+		name := lo.FromPtr(ie.Metadata.Name)
+		nextRetry := s.nextRetryAt[name]
+		if nextRetry != nil && nextRetry.Before(beforeTime) {
+			// Check condition reason to determine if terminal
+			isTerminal := false
+			if ie.Status != nil && ie.Status.Conditions != nil {
+				for _, cond := range *ie.Status.Conditions {
+					if cond.Type == api.ImageExportConditionTypeReady {
+						if cond.Reason == string(api.ImageExportConditionReasonCompleted) ||
+							cond.Reason == string(api.ImageExportConditionReasonFailed) {
+							isTerminal = true
+						}
+						break
+					}
+				}
+			}
+			if !isTerminal {
+				var item api.ImageExport
+				deepCopy(ie, &item)
+				items = append(items, item)
+			}
+		}
+	}
+	return &api.ImageExportList{
+		ApiVersion: api.ImageExportAPIVersion,
+		Kind:       api.ImageExportListKind,
+		Items:      items,
+	}, nil
+}
+
+func (s *DummyImageExportStore) InitialMigration(ctx context.Context) error {
 	return nil
 }
 

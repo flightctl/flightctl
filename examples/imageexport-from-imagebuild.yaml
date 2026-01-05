@@ -1,0 +1,20 @@
+apiVersion: flightctl.io/v1beta1
+kind: ImageExport
+metadata:
+  name: my-edge-export-from-build
+  labels:
+    environment: production
+    team: edge-platform
+spec:
+  # Source from an existing ImageBuild resource
+  source:
+    type: imageBuild
+    imageBuildRef: my-edge-image-build-2
+  # Destination defines where to push the exported images
+  destination:
+    repository: my-export-registry
+    imageName: rhel-edge-exported
+    tag: v1.0.0
+  # Format to export the image to
+  format: qcow2
+  tagSuffix: "-qcow2"

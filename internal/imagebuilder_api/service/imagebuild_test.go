@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/flightctl/flightctl/api/v1beta1"
 	api "github.com/flightctl/flightctl/api/v1beta1/imagebuilder"
@@ -17,10 +18,10 @@ func statusCode(status v1beta1.Status) int32 {
 	return status.Code
 }
 
-func newTestService() (ImageBuildService, *TestStore) {
-	testStore := NewTestStore()
-	svc := NewImageBuildService(testStore, log.InitLogs())
-	return svc, testStore
+func newTestImageBuildService() (ImageBuildService, *DummyImageBuildStore) {
+	imageBuildStore := NewDummyImageBuildStore()
+	svc := NewImageBuildService(imageBuildStore, log.InitLogs())
+	return svc, imageBuildStore
 }
 
 func newValidImageBuild(name string) api.ImageBuild {
@@ -47,7 +48,7 @@ func newValidImageBuild(name string) api.ImageBuild {
 
 func TestCreateImageBuild(t *testing.T) {
 	require := require.New(t)
-	svc, _ := newTestService()
+	svc, _ := newTestImageBuildService()
 	ctx := context.Background()
 	orgId := uuid.New()
 
@@ -61,7 +62,7 @@ func TestCreateImageBuild(t *testing.T) {
 
 func TestCreateImageBuildDuplicate(t *testing.T) {
 	require := require.New(t)
-	svc, _ := newTestService()
+	svc, _ := newTestImageBuildService()
 	ctx := context.Background()
 	orgId := uuid.New()
 
@@ -78,7 +79,7 @@ func TestCreateImageBuildDuplicate(t *testing.T) {
 
 func TestCreateImageBuildMissingInputRegistry(t *testing.T) {
 	require := require.New(t)
-	svc, _ := newTestService()
+	svc, _ := newTestImageBuildService()
 	ctx := context.Background()
 	orgId := uuid.New()
 
@@ -104,7 +105,7 @@ func TestCreateImageBuildMissingInputRegistry(t *testing.T) {
 
 func TestGetImageBuild(t *testing.T) {
 	require := require.New(t)
-	svc, _ := newTestService()
+	svc, _ := newTestImageBuildService()
 	ctx := context.Background()
 	orgId := uuid.New()
 
@@ -122,7 +123,7 @@ func TestGetImageBuild(t *testing.T) {
 
 func TestGetImageBuildNotFound(t *testing.T) {
 	require := require.New(t)
-	svc, _ := newTestService()
+	svc, _ := newTestImageBuildService()
 	ctx := context.Background()
 	orgId := uuid.New()
 
@@ -132,7 +133,7 @@ func TestGetImageBuildNotFound(t *testing.T) {
 
 func TestListImageBuilds(t *testing.T) {
 	require := require.New(t)
-	svc, _ := newTestService()
+	svc, _ := newTestImageBuildService()
 	ctx := context.Background()
 	orgId := uuid.New()
 
@@ -152,7 +153,7 @@ func TestListImageBuilds(t *testing.T) {
 
 func TestListImageBuildsWithLimit(t *testing.T) {
 	require := require.New(t)
-	svc, _ := newTestService()
+	svc, _ := newTestImageBuildService()
 	ctx := context.Background()
 	orgId := uuid.New()
 
@@ -173,7 +174,7 @@ func TestListImageBuildsWithLimit(t *testing.T) {
 
 func TestDeleteImageBuild(t *testing.T) {
 	require := require.New(t)
-	svc, _ := newTestService()
+	svc, _ := newTestImageBuildService()
 	ctx := context.Background()
 	orgId := uuid.New()
 
@@ -193,7 +194,7 @@ func TestDeleteImageBuild(t *testing.T) {
 
 func TestDeleteImageBuildNotFound(t *testing.T) {
 	require := require.New(t)
-	svc, _ := newTestService()
+	svc, _ := newTestImageBuildService()
 	ctx := context.Background()
 	orgId := uuid.New()
 
@@ -203,7 +204,7 @@ func TestDeleteImageBuildNotFound(t *testing.T) {
 
 func TestUpdateStatus(t *testing.T) {
 	require := require.New(t)
-	svc, _ := newTestService()
+	svc, _ := newTestImageBuildService()
 	ctx := context.Background()
 	orgId := uuid.New()
 
@@ -212,14 +213,25 @@ func TestUpdateStatus(t *testing.T) {
 	_, status := svc.Create(ctx, orgId, imageBuild)
 	require.Equal(int32(http.StatusCreated), statusCode(status))
 
-	// Update status
-	phase := api.ImageBuildPhaseBuilding
+	// Update status with condition
+	now := time.Now()
 	imageBuild.Status = &api.ImageBuildStatus{
-		Phase: &phase,
+		Conditions: &[]api.ImageBuildCondition{
+			{
+				Type:               api.ImageBuildConditionTypeReady,
+				Status:             v1beta1.ConditionStatusUnknown,
+				Reason:             string(api.ImageBuildConditionReasonBuilding),
+				Message:            "Build in progress",
+				LastTransitionTime: now,
+			},
+		},
 	}
 	result, err := svc.UpdateStatus(ctx, orgId, &imageBuild)
 	require.NoError(err)
 	require.NotNil(result)
 	require.NotNil(result.Status)
-	require.Equal(api.ImageBuildPhaseBuilding, lo.FromPtr(result.Status.Phase))
+	require.NotNil(result.Status.Conditions)
+	require.Len(*result.Status.Conditions, 1)
+	require.Equal(api.ImageBuildConditionTypeReady, (*result.Status.Conditions)[0].Type)
+	require.Equal(string(api.ImageBuildConditionReasonBuilding), (*result.Status.Conditions)[0].Reason)
 }

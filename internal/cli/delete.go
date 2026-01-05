@@ -101,9 +101,12 @@ func (o *DeleteOptions) Run(ctx context.Context, args []string) error {
 		return err
 	}
 
-	// ImageBuild resources use a separate API server
+	// ImageBuild and ImageExport resources use a separate API server
 	if kind == ImageBuildKind {
 		return o.runImageBuildDelete(ctx, args, kind, name)
+	}
+	if kind == ImageExportKind {
+		return o.runImageExportDelete(ctx, args, kind, name)
 	}
 
 	c, err := o.BuildClient()
@@ -155,6 +158,50 @@ func (o *DeleteOptions) deleteMultipleImageBuilds(ctx context.Context, c *imageb
 
 	for _, name := range names {
 		response, deleteErr := c.DeleteImageBuildWithResponse(ctx, name)
+
+		processErr := processDeletionReponse(response, deleteErr, kind, name)
+		if processErr != nil {
+			fmt.Printf("Error: %v\n", processErr)
+			errorCount++
+		} else {
+			fmt.Printf("Deletion request for %s \"%s\" completed\n", kind, name)
+		}
+	}
+
+	if errorCount > 0 {
+		return fmt.Errorf("failed to delete %d %s(s)", errorCount, kind)
+	}
+
+	return nil
+}
+
+func (o *DeleteOptions) runImageExportDelete(ctx context.Context, args []string, kind ResourceKind, name string) error {
+	ibClient, err := o.BuildImageBuilderClient()
+	if err != nil {
+		return fmt.Errorf("creating imagebuilder client: %w", err)
+	}
+
+	if len(args) == 1 {
+		response, err := ibClient.DeleteImageExportWithResponse(ctx, name)
+		if err != nil {
+			return err
+		}
+		if err := processDeletionReponse(response, nil, kind, name); err != nil {
+			return err
+		}
+		fmt.Printf("Deletion request for %s \"%s\" completed\n", kind, name)
+		return nil
+	}
+
+	names := args[1:]
+	return o.deleteMultipleImageExports(ctx, ibClient, kind, names)
+}
+
+func (o *DeleteOptions) deleteMultipleImageExports(ctx context.Context, c *imagebuilderclient.ClientWithResponses, kind ResourceKind, names []string) error {
+	var errorCount int
+
+	for _, name := range names {
+		response, deleteErr := c.DeleteImageExportWithResponse(ctx, name)
 
 		processErr := processDeletionReponse(response, deleteErr, kind, name)
 		if processErr != nil {

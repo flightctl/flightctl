@@ -80,6 +80,8 @@ func (f *TableFormatter) formatList(w *tabwriter.Writer, data interface{}, optio
 		return f.printAuthProvidersTable(w, data.(*apiclient.ListAuthProvidersResponse).JSON200.Items...)
 	case strings.EqualFold(options.Kind, imagebuilderapi.ImageBuildKind):
 		return f.printImageBuildsTable(w, data.(*imagebuilderclient.ListImageBuildsResponse).JSON200.Items...)
+	case strings.EqualFold(options.Kind, imagebuilderapi.ImageExportKind):
+		return f.printImageExportsTable(w, data.(*imagebuilderclient.ListImageExportsResponse).JSON200.Items...)
 	case strings.EqualFold(options.Kind, api.AuthConfigKind):
 		// Special case for AuthConfig which contains providers
 		authConfig := data.(*api.AuthConfig)
@@ -134,6 +136,8 @@ func (f *TableFormatter) formatSingle(w *tabwriter.Writer, data interface{}, opt
 		return f.printAuthProvidersTable(w, *data.(*apiclient.GetAuthProviderResponse).JSON200)
 	case strings.EqualFold(options.Kind, imagebuilderapi.ImageBuildKind):
 		return f.printImageBuildsTable(w, *data.(*imagebuilderclient.GetImageBuildResponse).JSON200)
+	case strings.EqualFold(options.Kind, imagebuilderapi.ImageExportKind):
+		return f.printImageExportsTable(w, *data.(*imagebuilderclient.GetImageExportResponse).JSON200)
 	default:
 		return fmt.Errorf("unknown resource type %s", options.Kind)
 	}
@@ -597,8 +601,13 @@ func (f *TableFormatter) printImageBuildsTable(w *tabwriter.Writer, imageBuilds 
 		}
 
 		phase := NoneString
-		if ib.Status != nil && ib.Status.Phase != nil {
-			phase = string(*ib.Status.Phase)
+		if ib.Status != nil && ib.Status.Conditions != nil {
+			for _, cond := range *ib.Status.Conditions {
+				if cond.Type == imagebuilderapi.ImageBuildConditionTypeReady {
+					phase = cond.Reason
+					break
+				}
+			}
 		}
 
 		source := fmt.Sprintf("%s/%s:%s", ib.Spec.Source.Repository, ib.Spec.Source.ImageName, ib.Spec.Source.ImageTag)
@@ -610,6 +619,56 @@ func (f *TableFormatter) printImageBuildsTable(w *tabwriter.Writer, imageBuilds 
 		}
 
 		f.printTableRowLn(w, name, phase, source, destination, age)
+	}
+	return nil
+}
+
+func (f *TableFormatter) printImageExportsTable(w *tabwriter.Writer, imageExports ...imagebuilderapi.ImageExport) error {
+	f.printHeaderRowLn(w, "NAME", "PHASE", "SOURCE", "OUTPUT", "FORMAT", "AGE")
+	for _, ie := range imageExports {
+		name := NoneString
+		if ie.Metadata.Name != nil {
+			name = *ie.Metadata.Name
+		}
+
+		phase := NoneString
+		if ie.Status != nil && ie.Status.Conditions != nil {
+			for _, cond := range *ie.Status.Conditions {
+				if cond.Type == imagebuilderapi.ImageExportConditionTypeReady {
+					phase = cond.Reason
+					break
+				}
+			}
+		}
+
+		source := NoneString
+		discriminator, err := ie.Spec.Source.Discriminator()
+		if err == nil {
+			switch discriminator {
+			case string(imagebuilderapi.ImageExportSourceTypeImageBuild):
+				if buildSource, err := ie.Spec.Source.AsImageBuildRefSource(); err == nil {
+					source = fmt.Sprintf("imagebuild/%s", buildSource.ImageBuildRef)
+				}
+			case string(imagebuilderapi.ImageExportSourceTypeImageReference):
+				if refSource, err := ie.Spec.Source.AsImageReferenceSource(); err == nil {
+					source = fmt.Sprintf("%s/%s:%s", refSource.Repository, refSource.ImageName, refSource.ImageTag)
+				}
+			}
+		}
+
+		output := fmt.Sprintf("%s/%s:%s", ie.Spec.Destination.Repository, ie.Spec.Destination.ImageName, ie.Spec.Destination.Tag)
+
+		format := NoneString
+		if ie.Spec.Format != "" {
+			format = string(ie.Spec.Format)
+		}
+
+		age := NoneString
+		if ie.Metadata.CreationTimestamp != nil {
+			age = humanize.Time(*ie.Metadata.CreationTimestamp)
+		}
+
+		f.printTableRowLn(w, name, phase, source, output, format, age)
 	}
 	return nil
 }

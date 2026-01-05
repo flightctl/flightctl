@@ -275,6 +275,12 @@ func applyResourceByKind(ctx context.Context, client *apiclient.ClientWithRespon
 		// ImageBuild is immutable, so apply always uses create. If the resource exists, it will return a conflict error.
 		response, err := ibClient.CreateImageBuildWithBodyWithResponse(ctx, "application/json", bytes.NewReader(buf))
 		return extractApplyResult(response, err)
+	case ImageExportKind:
+		if ibClient == nil {
+			return applyResult{err: fmt.Errorf("imagebuilder service is not configured. Please configure 'imageBuilderService.server' in your client config")}
+		}
+		response, err := ibClient.CreateImageExportWithBodyWithResponse(ctx, "application/json", bytes.NewReader(buf))
+		return extractApplyResult(response, err)
 	default:
 		return applyResult{err: fmt.Errorf("skipping resource of unknown kind %q", kind)}
 	}
@@ -306,6 +312,8 @@ func extractApplyResult(response interface{}, err error) applyResult {
 	case *apiclient.ReplaceAuthProviderResponse:
 		return applyResult{httpResponse: r.HTTPResponse, message: string(r.Body)}
 	case *imagebuilderclient.CreateImageBuildResponse:
+		return applyResult{httpResponse: r.HTTPResponse, message: string(r.Body)}
+	case *imagebuilderclient.CreateImageExportResponse:
 		return applyResult{httpResponse: r.HTTPResponse, message: string(r.Body)}
 	default:
 		return applyResult{}

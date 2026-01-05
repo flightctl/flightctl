@@ -393,8 +393,8 @@ type SingleFetcher func(name string) (interface{}, error)
 
 // createFetchers returns the appropriate list and single fetchers based on the resource kind.
 func (o *GetOptions) createFetchers(ctx context.Context, kind ResourceKind) (ListFetcher, SingleFetcher, error) {
-	if kind == ImageBuildKind {
-		return o.createImageBuildFetchers(ctx)
+	if kind == ImageBuildKind || kind == ImageExportKind {
+		return o.createImageBuilderFetchers(ctx, kind)
 	}
 	return o.createMainAPIFetchers(ctx, kind)
 }
@@ -430,38 +430,72 @@ func (o *GetOptions) createMainAPIFetchers(ctx context.Context, kind ResourceKin
 	return listFetcher, singleFetcher, nil
 }
 
-func (o *GetOptions) createImageBuildFetchers(ctx context.Context) (ListFetcher, SingleFetcher, error) {
+func (o *GetOptions) createImageBuilderFetchers(ctx context.Context, kind ResourceKind) (ListFetcher, SingleFetcher, error) {
 	c, err := o.BuildImageBuilderClient()
 	if err != nil {
 		return nil, nil, fmt.Errorf("creating imagebuilder client: %w", err)
 	}
 
-	listFetcher := func() (interface{}, error) {
-		params := &imagebuilderapi.ListImageBuildsParams{
-			LabelSelector: util.ToPtrWithNilDefault(o.LabelSelector),
-			FieldSelector: util.ToPtrWithNilDefault(o.FieldSelector),
-			Limit:         util.ToPtrWithNilDefault(o.Limit),
-			Continue:      util.ToPtrWithNilDefault(o.Continue),
-		}
-		response, err := c.ListImageBuildsWithResponse(ctx, params)
-		if err != nil {
-			return nil, err
-		}
-		if err := validateImageBuilderResponse(response); err != nil {
-			return nil, err
-		}
-		return response, nil
-	}
+	var listFetcher ListFetcher
+	var singleFetcher SingleFetcher
 
-	singleFetcher := func(name string) (interface{}, error) {
-		response, err := c.GetImageBuildWithResponse(ctx, name)
-		if err != nil {
-			return nil, err
+	switch kind {
+	case ImageBuildKind:
+		listFetcher = func() (interface{}, error) {
+			params := &imagebuilderapi.ListImageBuildsParams{
+				LabelSelector: util.ToPtrWithNilDefault(o.LabelSelector),
+				FieldSelector: util.ToPtrWithNilDefault(o.FieldSelector),
+				Limit:         util.ToPtrWithNilDefault(o.Limit),
+				Continue:      util.ToPtrWithNilDefault(o.Continue),
+			}
+			response, err := c.ListImageBuildsWithResponse(ctx, params)
+			if err != nil {
+				return nil, err
+			}
+			if err := validateImageBuilderResponse(response); err != nil {
+				return nil, err
+			}
+			return response, nil
 		}
-		if err := validateImageBuilderResponse(response); err != nil {
-			return nil, err
+		singleFetcher = func(name string) (interface{}, error) {
+			response, err := c.GetImageBuildWithResponse(ctx, name)
+			if err != nil {
+				return nil, err
+			}
+			if err := validateImageBuilderResponse(response); err != nil {
+				return nil, err
+			}
+			return response, nil
 		}
-		return response, nil
+	case ImageExportKind:
+		listFetcher = func() (interface{}, error) {
+			params := &imagebuilderapi.ListImageExportsParams{
+				LabelSelector: util.ToPtrWithNilDefault(o.LabelSelector),
+				FieldSelector: util.ToPtrWithNilDefault(o.FieldSelector),
+				Limit:         util.ToPtrWithNilDefault(o.Limit),
+				Continue:      util.ToPtrWithNilDefault(o.Continue),
+			}
+			response, err := c.ListImageExportsWithResponse(ctx, params)
+			if err != nil {
+				return nil, err
+			}
+			if err := validateImageBuilderResponse(response); err != nil {
+				return nil, err
+			}
+			return response, nil
+		}
+		singleFetcher = func(name string) (interface{}, error) {
+			response, err := c.GetImageExportWithResponse(ctx, name)
+			if err != nil {
+				return nil, err
+			}
+			if err := validateImageBuilderResponse(response); err != nil {
+				return nil, err
+			}
+			return response, nil
+		}
+	default:
+		return nil, nil, fmt.Errorf("unsupported image builder kind: %s", kind)
 	}
 
 	return listFetcher, singleFetcher, nil
