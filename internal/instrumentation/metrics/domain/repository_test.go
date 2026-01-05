@@ -6,7 +6,7 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1beta1"
-	"github.com/flightctl/flightctl/internal/config"
+	apiconfig "github.com/flightctl/flightctl/internal/config/api"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
@@ -100,7 +100,7 @@ func TestRepositoryCollector(t *testing.T) {
 	defer cancel()
 
 	// Create collector with 1ms interval for fast testing
-	config := config.NewDefault()
+	config := apiconfig.NewDefault()
 	collector := NewRepositoryCollector(ctx, mockStore, log, config)
 
 	// Wait a bit for the collector to start and collect metrics
@@ -137,7 +137,7 @@ func TestRepositoryCollectorWithError(t *testing.T) {
 	// Test with error
 	mockStore := &MockRepositoryStore{count: 0, err: assert.AnError}
 	log := logrus.New()
-	config := config.NewDefault()
+	config := apiconfig.NewDefault()
 	collector := NewRepositoryCollector(ctx, mockStore, log, config)
 
 	// Test that the collector handles errors gracefully
@@ -159,7 +159,7 @@ func TestRepositoryCollectorWithEmptyResults(t *testing.T) {
 	defer cancel()
 
 	// Create collector
-	config := config.NewDefault()
+	config := apiconfig.NewDefault()
 	collector := NewRepositoryCollector(ctx, mockStore, log, config)
 
 	// Wait a bit for the collector to start and collect metrics
@@ -196,7 +196,7 @@ func TestRepositoryCollectorUpdateRepositoryMetricsWithEmptyResults(t *testing.T
 	defer cancel()
 
 	// Create collector
-	config := config.NewDefault()
+	config := apiconfig.NewDefault()
 	collector := NewRepositoryCollector(ctx, mockStore, log, config)
 
 	// Call updateRepositoryMetrics directly

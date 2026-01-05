@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	api "github.com/flightctl/flightctl/api/v1beta1"
-	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/config/common"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -12,22 +12,22 @@ func TestCreateDSN(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		setupCfg func() *config.Config
+		setupCfg func() *common.DatabaseConfig
 		user     string
 		password api.SecureString
 		expected string
 	}{
 		{
 			name: "basic DSN without database name",
-			setupCfg: func() *config.Config {
-				cfg := config.NewDefault()
-				cfg.Database.Hostname = "localhost"
-				cfg.Database.Port = 5432
-				cfg.Database.Name = ""
-				cfg.Database.SSLMode = ""
-				cfg.Database.SSLCert = ""
-				cfg.Database.SSLKey = ""
-				cfg.Database.SSLRootCert = ""
+			setupCfg: func() *common.DatabaseConfig {
+				cfg := common.NewDefaultDatabase()
+				cfg.Hostname = "localhost"
+				cfg.Port = 5432
+				cfg.Name = ""
+				cfg.SSLMode = ""
+				cfg.SSLCert = ""
+				cfg.SSLKey = ""
+				cfg.SSLRootCert = ""
 				return cfg
 			},
 			user:     "testuser",
@@ -36,15 +36,15 @@ func TestCreateDSN(t *testing.T) {
 		},
 		{
 			name: "DSN with database name",
-			setupCfg: func() *config.Config {
-				cfg := config.NewDefault()
-				cfg.Database.Hostname = "localhost"
-				cfg.Database.Port = 5432
-				cfg.Database.Name = "testdb"
-				cfg.Database.SSLMode = ""
-				cfg.Database.SSLCert = ""
-				cfg.Database.SSLKey = ""
-				cfg.Database.SSLRootCert = ""
+			setupCfg: func() *common.DatabaseConfig {
+				cfg := common.NewDefaultDatabase()
+				cfg.Hostname = "localhost"
+				cfg.Port = 5432
+				cfg.Name = "testdb"
+				cfg.SSLMode = ""
+				cfg.SSLCert = ""
+				cfg.SSLKey = ""
+				cfg.SSLRootCert = ""
 				return cfg
 			},
 			user:     "testuser",
@@ -53,15 +53,15 @@ func TestCreateDSN(t *testing.T) {
 		},
 		{
 			name: "DSN with SSL mode",
-			setupCfg: func() *config.Config {
-				cfg := config.NewDefault()
-				cfg.Database.Hostname = "localhost"
-				cfg.Database.Port = 5432
-				cfg.Database.Name = "testdb"
-				cfg.Database.SSLMode = "require"
-				cfg.Database.SSLCert = ""
-				cfg.Database.SSLKey = ""
-				cfg.Database.SSLRootCert = ""
+			setupCfg: func() *common.DatabaseConfig {
+				cfg := common.NewDefaultDatabase()
+				cfg.Hostname = "localhost"
+				cfg.Port = 5432
+				cfg.Name = "testdb"
+				cfg.SSLMode = "require"
+				cfg.SSLCert = ""
+				cfg.SSLKey = ""
+				cfg.SSLRootCert = ""
 				return cfg
 			},
 			user:     "testuser",
@@ -70,15 +70,15 @@ func TestCreateDSN(t *testing.T) {
 		},
 		{
 			name: "DSN with all SSL parameters",
-			setupCfg: func() *config.Config {
-				cfg := config.NewDefault()
-				cfg.Database.Hostname = "localhost"
-				cfg.Database.Port = 5432
-				cfg.Database.Name = "testdb"
-				cfg.Database.SSLMode = "verify-full"
-				cfg.Database.SSLCert = "/path/to/client.crt"
-				cfg.Database.SSLKey = "/path/to/client.key"
-				cfg.Database.SSLRootCert = "/path/to/ca.crt"
+			setupCfg: func() *common.DatabaseConfig {
+				cfg := common.NewDefaultDatabase()
+				cfg.Hostname = "localhost"
+				cfg.Port = 5432
+				cfg.Name = "testdb"
+				cfg.SSLMode = "verify-full"
+				cfg.SSLCert = "/path/to/client.crt"
+				cfg.SSLKey = "/path/to/client.key"
+				cfg.SSLRootCert = "/path/to/ca.crt"
 				return cfg
 			},
 			user:     "testuser",
@@ -87,15 +87,15 @@ func TestCreateDSN(t *testing.T) {
 		},
 		{
 			name: "DSN with partial SSL parameters",
-			setupCfg: func() *config.Config {
-				cfg := config.NewDefault()
-				cfg.Database.Hostname = "localhost"
-				cfg.Database.Port = 5432
-				cfg.Database.Name = ""
-				cfg.Database.SSLMode = "require"
-				cfg.Database.SSLCert = ""
-				cfg.Database.SSLKey = ""
-				cfg.Database.SSLRootCert = "/path/to/ca.crt"
+			setupCfg: func() *common.DatabaseConfig {
+				cfg := common.NewDefaultDatabase()
+				cfg.Hostname = "localhost"
+				cfg.Port = 5432
+				cfg.Name = ""
+				cfg.SSLMode = "require"
+				cfg.SSLCert = ""
+				cfg.SSLKey = ""
+				cfg.SSLRootCert = "/path/to/ca.crt"
 				return cfg
 			},
 			user:     "testuser",
@@ -104,15 +104,15 @@ func TestCreateDSN(t *testing.T) {
 		},
 		{
 			name: "DSN with empty SSL parameters (should be ignored)",
-			setupCfg: func() *config.Config {
-				cfg := config.NewDefault()
-				cfg.Database.Hostname = "localhost"
-				cfg.Database.Port = 5432
-				cfg.Database.Name = "testdb"
-				cfg.Database.SSLMode = ""
-				cfg.Database.SSLCert = ""
-				cfg.Database.SSLKey = ""
-				cfg.Database.SSLRootCert = ""
+			setupCfg: func() *common.DatabaseConfig {
+				cfg := common.NewDefaultDatabase()
+				cfg.Hostname = "localhost"
+				cfg.Port = 5432
+				cfg.Name = "testdb"
+				cfg.SSLMode = ""
+				cfg.SSLCert = ""
+				cfg.SSLKey = ""
+				cfg.SSLRootCert = ""
 				return cfg
 			},
 			user:     "testuser",
@@ -124,7 +124,7 @@ func TestCreateDSN(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := tt.setupCfg()
-			result := createDSN(cfg, tt.user, tt.password)
+			result := cfg.CreateDSN(tt.user, tt.password)
 			assert.Equal(t, tt.expected, result)
 		})
 	}

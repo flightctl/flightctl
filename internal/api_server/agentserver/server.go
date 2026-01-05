@@ -13,7 +13,7 @@ import (
 	agent "github.com/flightctl/flightctl/api/v1beta1/agent"
 	server "github.com/flightctl/flightctl/internal/api/server/agent"
 	fcmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
-	"github.com/flightctl/flightctl/internal/config"
+	apiconfig "github.com/flightctl/flightctl/internal/config/api"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/healthchecker"
@@ -38,7 +38,7 @@ const (
 
 type AgentServer struct {
 	log             logrus.FieldLogger
-	cfg             *config.Config
+	cfg             *apiconfig.Config
 	store           store.Store
 	ca              *crypto.CAClient
 	listener        net.Listener
@@ -53,7 +53,7 @@ type AgentServer struct {
 func New(
 	ctx context.Context,
 	log logrus.FieldLogger,
-	cfg *config.Config,
+	cfg *apiconfig.Config,
 	st store.Store,
 	ca *crypto.CAClient,
 	listener net.Listener,

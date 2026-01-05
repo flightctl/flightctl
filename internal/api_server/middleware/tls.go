@@ -7,8 +7,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/flightctl/flightctl/internal/config"
+	apiconfig "github.com/flightctl/flightctl/internal/config/api"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -16,19 +17,49 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func NewHTTPServer(router http.Handler, log logrus.FieldLogger, address string, cfg *config.Config) *http.Server {
-	return &http.Server{
-		Addr:              address,
-		Handler:           router,
-		ReadTimeout:       time.Duration(cfg.Service.HttpReadTimeout),
-		ReadHeaderTimeout: time.Duration(cfg.Service.HttpReadHeaderTimeout),
-		WriteTimeout:      time.Duration(cfg.Service.HttpWriteTimeout),
-		IdleTimeout:       time.Duration(cfg.Service.HttpIdleTimeout),
-		MaxHeaderBytes:    cfg.Service.HttpMaxHeaderBytes,
+// HTTPServerConfig provides HTTP server timeouts and limits configuration.
+type HTTPServerConfig struct {
+	HttpReadTimeout       util.Duration
+	HttpReadHeaderTimeout util.Duration
+	HttpWriteTimeout      util.Duration
+	HttpIdleTimeout       util.Duration
+	HttpMaxHeaderBytes    int
+}
+
+// DefaultHTTPServerConfig returns default HTTP server configuration.
+func DefaultHTTPServerConfig() *HTTPServerConfig {
+	return &HTTPServerConfig{
+		HttpReadTimeout:       util.Duration(5 * time.Minute),
+		HttpReadHeaderTimeout: util.Duration(5 * time.Minute),
+		HttpWriteTimeout:      util.Duration(5 * time.Minute),
+		HttpIdleTimeout:       util.Duration(5 * time.Minute),
+		HttpMaxHeaderBytes:    32 * 1024, // 32KB
 	}
 }
 
-func NewHTTPServerWithTLSContext(router http.Handler, log logrus.FieldLogger, address string, cfg *config.Config) *http.Server {
+func NewHTTPServer(router http.Handler, log logrus.FieldLogger, address string, cfg *apiconfig.Config) *http.Server {
+	return NewHTTPServerWithConfig(router, log, address, &HTTPServerConfig{
+		HttpReadTimeout:       cfg.Service.HttpReadTimeout,
+		HttpReadHeaderTimeout: cfg.Service.HttpReadHeaderTimeout,
+		HttpWriteTimeout:      cfg.Service.HttpWriteTimeout,
+		HttpIdleTimeout:       cfg.Service.HttpIdleTimeout,
+		HttpMaxHeaderBytes:    cfg.Service.HttpMaxHeaderBytes,
+	})
+}
+
+func NewHTTPServerWithConfig(router http.Handler, log logrus.FieldLogger, address string, cfg *HTTPServerConfig) *http.Server {
+	return &http.Server{
+		Addr:              address,
+		Handler:           router,
+		ReadTimeout:       time.Duration(cfg.HttpReadTimeout),
+		ReadHeaderTimeout: time.Duration(cfg.HttpReadHeaderTimeout),
+		WriteTimeout:      time.Duration(cfg.HttpWriteTimeout),
+		IdleTimeout:       time.Duration(cfg.HttpIdleTimeout),
+		MaxHeaderBytes:    cfg.HttpMaxHeaderBytes,
+	}
+}
+
+func NewHTTPServerWithTLSContext(router http.Handler, log logrus.FieldLogger, address string, cfg *apiconfig.Config) *http.Server {
 	server := NewHTTPServer(router, log, address, cfg)
 	server.ConnContext = func(ctx context.Context, c net.Conn) context.Context {
 		tc := c.(*tls.Conn)

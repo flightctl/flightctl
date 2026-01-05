@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/config/common"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -20,15 +20,15 @@ const (
 )
 
 // InitDBFunc is a function that initializes a database connection
-type InitDBFunc func(cfg *config.Config, log *logrus.Logger) (*gorm.DB, error)
+type InitDBFunc func(dbCfg *common.DatabaseConfig, tracingCfg *common.TracingConfig, log *logrus.Logger) (*gorm.DB, error)
 
 // CreateTestDB creates a temporary test database and returns the config, db name, and gorm.DB connection.
 // The caller is responsible for running migrations and creating the appropriate store.
-func CreateTestDB(ctx context.Context, log *logrus.Logger, prefix string, initDB InitDBFunc) (*config.Config, string, *gorm.DB) {
+func CreateTestDB(ctx context.Context, log *logrus.Logger, prefix string, initDB InitDBFunc) (*common.DatabaseConfig, string, *gorm.DB) {
 	ctx, span := tracing.StartSpan(ctx, "flightctl/store/testutil", "CreateTestDB")
 	defer span.End()
 
-	cfg := config.NewDefault()
+	dbCfg := common.NewDefaultDatabase()
 	randomDBName := generateRandomDBName(prefix)
 	log.Debugf("Test DB name: %s", randomDBName)
 
@@ -44,12 +44,12 @@ func CreateTestDB(ctx context.Context, log *logrus.Logger, prefix string, initDB
 
 	switch strategy {
 	case StrategyTemplate:
-		gormDb, err = setupTemplateStrategy(ctx, cfg, randomDBName, log, initDB)
+		gormDb, err = setupTemplateStrategy(ctx, dbCfg, randomDBName, log, initDB)
 		if err != nil {
 			log.Fatal(err)
 		}
 	case StrategyLocal:
-		gormDb, err = setupLocalStrategy(ctx, cfg, randomDBName, log, initDB)
+		gormDb, err = setupLocalStrategy(ctx, dbCfg, randomDBName, log, initDB)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -57,16 +57,16 @@ func CreateTestDB(ctx context.Context, log *logrus.Logger, prefix string, initDB
 		log.Fatalf("unknown database initialization strategy: %s (valid: %s, %s)", strategy, StrategyLocal, StrategyTemplate)
 	}
 
-	cfg.Database.Name = randomDBName
-	return cfg, randomDBName, gormDb
+	dbCfg.Name = randomDBName
+	return dbCfg, randomDBName, gormDb
 }
 
 // DeleteTestDB drops the test database
-func DeleteTestDB(ctx context.Context, log *logrus.Logger, cfg *config.Config, db *gorm.DB, dbName string, initDB InitDBFunc) {
+func DeleteTestDB(ctx context.Context, log *logrus.Logger, dbCfg *common.DatabaseConfig, db *gorm.DB, dbName string, initDB InitDBFunc) {
 	CloseDB(db)
 
-	cfg.Database.Name = "flightctl"
-	adminDB, err := initDB(cfg, log)
+	dbCfg.Name = "flightctl"
+	adminDB, err := initDB(dbCfg, nil, log)
 	if err != nil {
 		log.Fatalf("initializing data store: %v", err)
 	}
@@ -97,15 +97,15 @@ func generateRandomDBName(prefix string) string {
 	return fmt.Sprintf("_%s_%s", prefix, strings.ReplaceAll(uuid.New().String(), "-", "_"))
 }
 
-func setupTemplateStrategy(ctx context.Context, cfg *config.Config, dbName string, log *logrus.Logger, initDB InitDBFunc) (*gorm.DB, error) {
-	originalName := cfg.Database.Name
-	cfg.Database.Name = "postgres"
-	adminDB, err := initDB(cfg, log)
+func setupTemplateStrategy(ctx context.Context, dbCfg *common.DatabaseConfig, dbName string, log *logrus.Logger, initDB InitDBFunc) (*gorm.DB, error) {
+	originalName := dbCfg.Name
+	dbCfg.Name = "postgres"
+	adminDB, err := initDB(dbCfg, nil, log)
 	if err != nil {
 		return nil, fmt.Errorf("initializing data store: %w", err)
 	}
 	defer CloseDB(adminDB)
-	cfg.Database.Name = originalName
+	dbCfg.Name = originalName
 
 	templateDB := os.Getenv("FLIGHTCTL_TEST_TEMPLATE_DB")
 	if templateDB == "" {
@@ -118,8 +118,8 @@ func setupTemplateStrategy(ctx context.Context, cfg *config.Config, dbName strin
 		return nil, fmt.Errorf("creating database from template: %w", res.Error)
 	}
 
-	cfg.Database.Name = dbName
-	gormDb, err := initDB(cfg, log)
+	dbCfg.Name = dbName
+	gormDb, err := initDB(dbCfg, nil, log)
 	if err != nil {
 		return nil, fmt.Errorf("initializing data store: %w", err)
 	}
@@ -127,8 +127,8 @@ func setupTemplateStrategy(ctx context.Context, cfg *config.Config, dbName strin
 	return gormDb, nil
 }
 
-func setupLocalStrategy(ctx context.Context, cfg *config.Config, dbName string, log *logrus.Logger, initDB InitDBFunc) (*gorm.DB, error) {
-	dbTemp, err := initDB(cfg, log)
+func setupLocalStrategy(ctx context.Context, dbCfg *common.DatabaseConfig, dbName string, log *logrus.Logger, initDB InitDBFunc) (*gorm.DB, error) {
+	dbTemp, err := initDB(dbCfg, nil, log)
 	if err != nil {
 		return nil, fmt.Errorf("initializing data store: %w", err)
 	}
@@ -140,8 +140,8 @@ func setupLocalStrategy(ctx context.Context, cfg *config.Config, dbName string, 
 		return nil, fmt.Errorf("creating empty database: %w", res.Error)
 	}
 
-	cfg.Database.Name = dbName
-	gormDb, err := initDB(cfg, log)
+	dbCfg.Name = dbName
+	gormDb, err := initDB(dbCfg, nil, log)
 	if err != nil {
 		return nil, fmt.Errorf("initializing data store: %w", err)
 	}

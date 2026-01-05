@@ -1,7 +1,7 @@
 package alert_exporter
 
 import (
-	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/config/common"
 	"github.com/sirupsen/logrus"
 )
 
@@ -10,10 +10,10 @@ type AlertSender struct {
 	alertmanagerClient *AlertmanagerClient
 }
 
-func NewAlertSender(log *logrus.Logger, hostname string, port uint, cfg *config.Config) *AlertSender {
+func NewAlertSender(log *logrus.Logger, cfg *common.AlertmanagerConfig) *AlertSender {
 	return &AlertSender{
 		log:                log,
-		alertmanagerClient: NewAlertmanagerClient(hostname, port, log, cfg),
+		alertmanagerClient: NewAlertmanagerClient(cfg.Hostname, cfg.Port, log, cfg),
 	}
 }
 

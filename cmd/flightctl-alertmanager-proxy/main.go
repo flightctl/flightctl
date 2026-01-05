@@ -27,7 +27,7 @@ import (
 	"github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/auth/common"
-	"github.com/flightctl/flightctl/internal/config"
+	alertmanagerproxyconfig "github.com/flightctl/flightctl/internal/config/alertmanagerproxy"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/org/cache"
 	"github.com/flightctl/flightctl/internal/service"
@@ -51,12 +51,12 @@ const (
 
 type AlertmanagerProxy struct {
 	log    logrus.FieldLogger
-	cfg    *config.Config
+	cfg    *alertmanagerproxyconfig.Config
 	proxy  *httputil.ReverseProxy
 	target *url.URL
 }
 
-func NewAlertmanagerProxy(cfg *config.Config, log logrus.FieldLogger) (*AlertmanagerProxy, error) {
+func NewAlertmanagerProxy(cfg *alertmanagerproxyconfig.Config, log logrus.FieldLogger) (*AlertmanagerProxy, error) {
 	// Get alertmanager URL from environment or use default
 	alertmanagerURL := os.Getenv("ALERTMANAGER_URL")
 	if alertmanagerURL == "" {
@@ -177,18 +177,18 @@ func main() {
 	ctx := context.Background()
 
 	// Load configuration
-	cfg, err := config.LoadOrGenerate(config.ConfigFile())
+	cfg, err := alertmanagerproxyconfig.LoadOrGenerate(alertmanagerproxyconfig.ConfigFile())
 	if err != nil {
 		logger := fclog.InitLogs()
 		logger.Fatalf("Failed to load configuration: %v", err)
 	}
 
 	// Initialize logging with level from config
-	logger := fclog.InitLogs(cfg.Service.LogLevel)
+	logger := fclog.InitLogs(cfg.LogLevel())
 	logger.Println("Starting Alertmanager Proxy service")
 	defer logger.Println("Alertmanager Proxy service stopped")
 
-	serverCerts, err := config.LoadServerCertificates(cfg, logger)
+	serverCerts, err := alertmanagerproxyconfig.LoadServerCertificates(cfg, logger)
 	if err != nil {
 		logger.Fatalf("loading server certificates: %v", err)
 	}
@@ -208,7 +208,7 @@ func main() {
 		MinVersion:   tls.VersionTLS13,
 	}
 
-	tracerShutdown := tracing.InitTracer(logger, cfg, "flightctl-alertmanager-proxy")
+	tracerShutdown := tracing.InitTracer(logger, cfg.TracingConfig(), "flightctl-alertmanager-proxy")
 	defer func() {
 		if err := tracerShutdown(ctx); err != nil {
 			logger.Fatalf("Failed to shut down tracer: %v", err)
@@ -216,7 +216,7 @@ func main() {
 	}()
 
 	// Initialize data store
-	db, err := store.InitDB(cfg, logger)
+	db, err := store.InitDB(cfg.DatabaseConfig(), cfg.TracingConfig(), logger)
 	if err != nil {
 		logger.Fatalf("Initializing data store: %v", err)
 	}
@@ -240,7 +240,7 @@ func main() {
 	serviceHandler := service.WrapWithTracing(baseServiceHandler)
 
 	// Initialize auth system
-	authN, err := auth.InitMultiAuth(cfg, logger, serviceHandler)
+	authN, err := auth.InitMultiAuth(cfg.Auth, logger, serviceHandler)
 	if err != nil {
 		logger.Fatalf("Failed to initialize auth: %v", err)
 	}
@@ -253,7 +253,7 @@ func main() {
 		cancel() // Trigger coordinated shutdown if auth loader exits
 	}()
 
-	authZ, err := auth.InitMultiAuthZ(cfg, logger)
+	authZ, err := auth.InitMultiAuthZ(cfg.Auth, logger)
 	if err != nil {
 		logger.Fatalf("Failed to initialize authZ: %v", err)
 	}
@@ -339,7 +339,7 @@ func main() {
 	// Wrap router with OpenTelemetry handler to enable tracing spans
 	handler := otelhttp.NewHandler(router, "alertmanager-proxy-http-server")
 	// Create HTTPS server using FlightControl's TLS middleware
-	server := middleware.NewHTTPServer(handler, logger, proxyPort, cfg)
+	server := middleware.NewHTTPServerWithConfig(handler, logger, proxyPort, middleware.DefaultHTTPServerConfig())
 
 	// Create TLS listener
 	listener, err := middleware.NewTLSListener(proxyPort, tlsConfig)

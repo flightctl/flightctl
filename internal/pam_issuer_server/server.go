@@ -11,7 +11,7 @@ import (
 
 	pamapi "github.com/flightctl/flightctl/api/v1beta1/pam-issuer"
 	fcmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
-	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/config/pamissuer"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -27,7 +27,7 @@ const (
 
 type Server struct {
 	log      logrus.FieldLogger
-	cfg      *config.Config
+	cfg      *pamissuer.Config
 	ca       *crypto.CAClient
 	listener net.Listener
 	handler  *Handler
@@ -36,7 +36,7 @@ type Server struct {
 // New returns a new instance of a PAM issuer server.
 func New(
 	log logrus.FieldLogger,
-	cfg *config.Config,
+	cfg *pamissuer.Config,
 	ca *crypto.CAClient,
 	listener net.Listener,
 ) *Server {

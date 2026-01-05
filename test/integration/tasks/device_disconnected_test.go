@@ -6,7 +6,7 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1beta1"
-	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/config/common"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
@@ -32,7 +32,7 @@ var _ = Describe("DeviceDisconnected", func() {
 		deviceStore      store.Device
 		storeInst        store.Store
 		serviceHandler   service.Service
-		cfg              *config.Config
+		cfg              *common.DatabaseConfig
 		dbName           string
 		db               *gorm.DB
 		workerClient     *worker_client.MockWorkerClient

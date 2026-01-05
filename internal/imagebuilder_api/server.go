@@ -13,7 +13,7 @@ import (
 	fcmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/auth/authn"
-	"github.com/flightctl/flightctl/internal/config"
+	imagebuilderconfig "github.com/flightctl/flightctl/internal/config/imagebuilderapi"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/api/server"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/service"
 	imagebuilderstore "github.com/flightctl/flightctl/internal/imagebuilder_api/store"
@@ -36,7 +36,7 @@ const (
 // Server represents the ImageBuilder API server
 type Server struct {
 	log               logrus.FieldLogger
-	cfg               *config.Config
+	cfg               *imagebuilderconfig.Config
 	imageBuilderStore imagebuilderstore.Store
 	mainStore         store.Store
 	kvStore           kvstore.KVStore
@@ -49,7 +49,7 @@ type Server struct {
 // New returns a new instance of an ImageBuilder API server.
 func New(
 	log logrus.FieldLogger,
-	cfg *config.Config,
+	cfg *imagebuilderconfig.Config,
 	imageBuilderStore imagebuilderstore.Store,
 	mainStore store.Store,
 	kvStore kvstore.KVStore,
@@ -90,7 +90,7 @@ func (s *Server) Run(ctx context.Context) error {
 	authProviderService := internalservice.NewAuthProviderServiceHandler(s.mainStore, s.log)
 
 	// Initialize auth (same as api_server)
-	authN, err := auth.InitMultiAuth(s.cfg, s.log, authProviderService)
+	authN, err := auth.InitMultiAuth(s.cfg.Auth, s.log, authProviderService)
 	if err != nil {
 		return fmt.Errorf("failed initializing auth: %w", err)
 	}
@@ -112,7 +112,7 @@ func (s *Server) Run(ctx context.Context) error {
 		s.log.Warn("Auth provider loader stopped unexpectedly")
 	}()
 
-	s.authZ, err = auth.InitMultiAuthZ(s.cfg, s.log)
+	s.authZ, err = auth.InitMultiAuthZ(s.cfg.Auth, s.log)
 	if err != nil {
 		return fmt.Errorf("failed initializing authZ: %w", err)
 	}

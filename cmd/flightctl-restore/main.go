@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/flightctl/flightctl/internal/config"
+	restoreconfig "github.com/flightctl/flightctl/internal/config/restore"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/org/cache"
@@ -64,17 +64,17 @@ func runRestore(ctx context.Context) error {
 	// Bypass span check for restore operations
 	ctx = store.WithBypassSpanCheck(ctx)
 
-	cfg, err := config.LoadOrGenerate(config.ConfigFile())
+	cfg, err := restoreconfig.LoadOrGenerate(restoreconfig.ConfigFile())
 	if err != nil {
 		log.InitLogs().Fatalf("reading configuration: %v", err)
 	}
 
-	log := log.InitLogs(cfg.Service.LogLevel)
+	log := log.InitLogs(cfg.LogLevel())
 	log.Println("Starting Flight Control restore preparation")
 	defer log.Println("Flight Control restore preparation completed")
 	log.Printf("Using config: %s", cfg)
 
-	tracerShutdown := tracing.InitTracer(log, cfg, "flightctl-restore")
+	tracerShutdown := tracing.InitTracer(log, cfg.TracingConfig(), "flightctl-restore")
 	defer func() {
 		if err := tracerShutdown(ctx); err != nil {
 			log.Fatalf("failed to shut down tracer: %v", err)
@@ -82,7 +82,7 @@ func runRestore(ctx context.Context) error {
 	}()
 
 	log.Println("Initializing database connection for restore operations")
-	db, err := store.InitDB(cfg, log)
+	db, err := store.InitDB(cfg.DatabaseConfig(), cfg.TracingConfig(), log)
 	if err != nil {
 		log.Fatalf("initializing database: %v", err)
 	}

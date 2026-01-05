@@ -6,7 +6,7 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1beta1"
-	"github.com/flightctl/flightctl/internal/config"
+	apiconfig "github.com/flightctl/flightctl/internal/config/api"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
@@ -203,7 +203,7 @@ func TestFleetCollector(t *testing.T) {
 	defer cancel()
 
 	// Create collector with 1ms interval for fast testing
-	config := config.NewDefault()
+	config := apiconfig.NewDefault()
 	collector := NewFleetCollector(ctx, mockStore, log, config)
 
 	// Wait a bit for the collector to start and collect metrics
@@ -277,7 +277,7 @@ func TestFleetCollectorWithErrors(t *testing.T) {
 		fleetStore: mockFleetStore,
 	}
 
-	config := config.NewDefault()
+	config := apiconfig.NewDefault()
 	collector := NewFleetCollector(ctx, mockStore, log, config)
 
 	// Test Collect with errors - should not panic
@@ -312,7 +312,7 @@ func TestFleetCollectorWithEmptyResults(t *testing.T) {
 	defer cancel()
 
 	// Create collector
-	config := config.NewDefault()
+	config := apiconfig.NewDefault()
 	collector := NewFleetCollector(ctx, mockStore, log, config)
 
 	// Wait a bit for the collector to start and collect metrics
@@ -357,7 +357,7 @@ func TestFleetCollectorUpdateFleetMetricsWithEmptyResults(t *testing.T) {
 	defer cancel()
 
 	// Create collector
-	config := config.NewDefault()
+	config := apiconfig.NewDefault()
 	collector := NewFleetCollector(ctx, mockStore, log, config)
 
 	// Call updateFleetMetrics directly

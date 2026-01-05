@@ -4,7 +4,7 @@ import (
 	"context"
 	"os"
 
-	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/config/common"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
@@ -35,27 +35,27 @@ func generateUniqueTestID() string {
 }
 
 func InitTracerForTests() func(context.Context) error {
-	var opts []config.ConfigOption
+	tracingCfg := common.NewDefaultTracingConfig()
 	if value := os.Getenv("TRACE_TESTS"); value == "true" {
-		opts = append(opts, config.WithTracingEnabled())
+		tracingCfg.Enabled = true
 	}
 
 	return tracing.InitTracer(
 		flightlog.InitLogs(),
-		config.NewDefault(opts...),
+		tracingCfg,
 		"flightctl-tests",
 	)
 }
 
 func InitSuiteTracerForGinkgo(description string) context.Context {
-	var opts []config.ConfigOption
+	tracingCfg := common.NewDefaultTracingConfig()
 	if value := os.Getenv("TRACE_TESTS"); value == "true" {
-		opts = append(opts, config.WithTracingEnabled())
+		tracingCfg.Enabled = true
 	}
 
 	s := tracing.InitTracer(
 		flightlog.InitLogs(),
-		config.NewDefault(opts...),
+		tracingCfg,
 		"flightctl-tests",
 	)
 

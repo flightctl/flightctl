@@ -4,7 +4,7 @@ import (
 	"context"
 
 	api "github.com/flightctl/flightctl/api/v1beta1"
-	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/config/common"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
@@ -28,7 +28,7 @@ var _ = Describe("RepoUpdate", func() {
 		orgId          uuid.UUID
 		storeInst      store.Store
 		serviceHandler service.Service
-		cfg            *config.Config
+		cfg            *common.DatabaseConfig
 		dbName         string
 		workerClient   *worker_client.MockWorkerClient
 		ctrl           *gomock.Controller

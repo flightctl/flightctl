@@ -7,7 +7,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/flightctl/flightctl/internal/config"
+	workercfg "github.com/flightctl/flightctl/internal/config/worker"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/worker"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/org/cache"
@@ -22,7 +22,7 @@ import (
 )
 
 type Server struct {
-	cfg            *config.Config
+	cfg            *workercfg.Config
 	log            logrus.FieldLogger
 	store          store.Store
 	queuesProvider queues.Provider
@@ -32,7 +32,7 @@ type Server struct {
 
 // New returns a new instance of a flightctl server.
 func New(
-	cfg *config.Config,
+	cfg *workercfg.Config,
 	log logrus.FieldLogger,
 	store store.Store,
 	queuesProvider queues.Provider,

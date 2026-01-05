@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/config/common"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	periodic "github.com/flightctl/flightctl/internal/periodic_checker"
@@ -90,7 +90,7 @@ var _ = Describe("Periodic", func() {
 		queuesProvider           queues.Provider
 		serviceHandler           service.Service
 		storeInst                store.Store
-		cfg                      *config.Config
+		cfg                      *common.DatabaseConfig
 		dbName                   string
 		workerClient             worker_client.WorkerClient
 		orgId                    uuid.UUID

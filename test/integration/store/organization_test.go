@@ -3,7 +3,7 @@ package store_test
 import (
 	"context"
 
-	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/config/common"
 	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
@@ -21,7 +21,7 @@ var _ = Describe("OrganizationStore Integration Tests", func() {
 		log       *logrus.Logger
 		ctx       context.Context
 		storeInst store.Store
-		cfg       *config.Config
+		cfg       *common.DatabaseConfig
 		dbName    string
 	)
 

@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/config/common"
 	"github.com/mackerelio/go-osstat/cpu"
 	"github.com/mackerelio/go-osstat/memory"
 	"github.com/prometheus/client_golang/prometheus"
@@ -26,8 +26,11 @@ type SystemCollector struct {
 	tickerInterval time.Duration
 }
 
-func NewSystemCollector(ctx context.Context, cfg *config.Config) *SystemCollector {
-	interval := cfg.Metrics.SystemCollector.TickerInterval
+func NewSystemCollector(ctx context.Context, metricsCfg *common.MetricsConfig) *SystemCollector {
+	if metricsCfg == nil || metricsCfg.SystemCollector == nil {
+		return nil
+	}
+	interval := metricsCfg.SystemCollector.TickerInterval
 
 	c, cancel := context.WithCancel(ctx)
 	collector := &SystemCollector{

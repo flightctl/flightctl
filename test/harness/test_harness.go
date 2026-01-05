@@ -18,6 +18,8 @@ import (
 	"github.com/flightctl/flightctl/internal/auth/common"
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/internal/config"
+	apiconfig "github.com/flightctl/flightctl/internal/config/api"
+	workercfg "github.com/flightctl/flightctl/internal/config/worker"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/identity"
 	"github.com/flightctl/flightctl/internal/kvstore"
@@ -137,11 +139,11 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 		return nil, fmt.Errorf("NewTestHarness failed adding mock route table: %w", err)
 	}
 
-	serverCfg := *config.NewDefault()
+	serverCfg := *apiconfig.NewDefault()
 	serverLog := log.InitLogs("debug")
 	serverLog.SetOutput(os.Stdout)
 
-	// create store
+	// create store - use the same apiconfig for the store creation
 	store, dbName, err := testutil.NewTestStore(ctx, serverCfg, serverLog)
 	if err != nil {
 		return nil, fmt.Errorf("NewTestHarness: %w", err)
@@ -171,7 +173,13 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 
 	ctrl := gomock.NewController(GinkgoT())
 	mockK8sClient := k8sclient.NewMockK8SClient(ctrl)
-	workerServer := workerserver.New(&serverCfg, serverLog, store, provider, mockK8sClient, nil)
+
+	// Create worker config directly from test values
+	workerConfig := workercfg.NewDefault()
+	workerConfig.Database = serverCfg.DatabaseConfig()
+	workerConfig.KV = serverCfg.KVConfig()
+	workerConfig.Service.RenderedWaitTimeout = serverCfg.Service.RenderedWaitTimeout
+	workerServer := workerserver.New(workerConfig, serverLog, store, provider, mockK8sClient, nil)
 
 	agentServer, agentListener, err := testutil.NewTestAgentServer(ctx, serverLog, &serverCfg, store, ca, serverCerts, provider)
 	if err != nil {

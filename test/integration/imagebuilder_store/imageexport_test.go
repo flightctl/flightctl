@@ -7,7 +7,7 @@ import (
 
 	v1beta1 "github.com/flightctl/flightctl/api/v1beta1"
 	api "github.com/flightctl/flightctl/api/v1beta1/imagebuilder"
-	"github.com/flightctl/flightctl/internal/config"
+	common "github.com/flightctl/flightctl/internal/config/common"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	flightctlstore "github.com/flightctl/flightctl/internal/store"
@@ -56,7 +56,7 @@ var _ = Describe("ImageExportStore", func() {
 		orgId         uuid.UUID
 		storeInst     store.Store
 		mainStoreInst flightctlstore.Store
-		cfg           *config.Config
+		dbCfg         *common.DatabaseConfig
 		dbName        string
 		db            *gorm.DB
 	)
@@ -66,7 +66,7 @@ var _ = Describe("ImageExportStore", func() {
 		log = flightlog.InitLogs()
 
 		// Use main store's PrepareDBForUnitTests which includes organizations table
-		mainStoreInst, cfg, dbName, db = flightctlstore.PrepareDBForUnitTests(ctx, log)
+		mainStoreInst, dbCfg, dbName, db = flightctlstore.PrepareDBForUnitTests(ctx, log)
 
 		// Create imagebuilder store on the same db connection
 		storeInst = store.NewStore(db, log.WithField("pkg", "imagebuilder-store"))
@@ -86,7 +86,7 @@ var _ = Describe("ImageExportStore", func() {
 	})
 
 	AfterEach(func() {
-		flightctlstore.DeleteTestDB(ctx, log, cfg, mainStoreInst, dbName)
+		flightctlstore.DeleteTestDB(ctx, log, dbCfg, mainStoreInst, dbName)
 	})
 
 	Context("Create", func() {

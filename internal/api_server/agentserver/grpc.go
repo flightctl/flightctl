@@ -9,7 +9,7 @@ import (
 
 	pb "github.com/flightctl/flightctl/api/grpc/v1"
 	"github.com/flightctl/flightctl/internal/api_server/middleware"
-	"github.com/flightctl/flightctl/internal/config"
+	apiconfig "github.com/flightctl/flightctl/internal/config/api"
 	"github.com/flightctl/flightctl/internal/console"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/service"
@@ -28,7 +28,7 @@ type AgentGrpcServer struct {
 	pb.UnimplementedRouterServiceServer
 	pb.UnimplementedEnrollmentServer
 	log            logrus.FieldLogger
-	cfg            *config.Config
+	cfg            *apiconfig.Config
 	service        service.Service
 	pendingStreams *sync.Map
 	server         *grpc.Server
@@ -37,7 +37,7 @@ type AgentGrpcServer struct {
 // New returns a new instance of a flightctl server.
 func NewAgentGrpcServer(
 	log logrus.FieldLogger,
-	cfg *config.Config,
+	cfg *apiconfig.Config,
 	svc service.Service,
 ) *AgentGrpcServer {
 	agentServer := &AgentGrpcServer{

@@ -8,8 +8,8 @@ import (
 	"strings"
 
 	api "github.com/flightctl/flightctl/api/v1beta1"
-	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/config/ca"
+	"github.com/flightctl/flightctl/internal/config/common"
 	"github.com/flightctl/flightctl/internal/consts"
 	icrypto "github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/identity"
@@ -53,7 +53,7 @@ var _ = Describe("EnrollmentRequest store restore operations", func() {
 		ctx            context.Context
 		orgId          uuid.UUID
 		storeInst      store.Store
-		cfg            *config.Config
+		cfg            *common.DatabaseConfig
 		dbName         string
 		serviceHandler service.Service
 		ctrl           *gomock.Controller

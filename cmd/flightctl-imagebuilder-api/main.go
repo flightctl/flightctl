@@ -7,7 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/flightctl/flightctl/internal/config"
+	imagebuilderconfig "github.com/flightctl/flightctl/internal/config/imagebuilderapi"
 	imagebuilderapi "github.com/flightctl/flightctl/internal/imagebuilder_api"
 	imagebuilderstore "github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
@@ -22,17 +22,17 @@ import (
 func main() {
 	ctx := context.Background()
 
-	cfg, err := config.LoadOrGenerate(config.ConfigFile())
+	cfg, err := imagebuilderconfig.LoadOrGenerate(imagebuilderconfig.ConfigFile())
 	if err != nil {
 		log.InitLogs().Fatalf("reading configuration: %v", err)
 	}
 
-	log := log.InitLogs(cfg.ImageBuilderService.LogLevel)
+	log := log.InitLogs(cfg.LogLevel())
 	log.Println("Starting ImageBuilder API service")
 	defer log.Println("ImageBuilder API service stopped")
 	log.Printf("Using config: %s", cfg)
 
-	tracerShutdown := tracing.InitTracer(log, cfg, "flightctl-imagebuilder-api")
+	tracerShutdown := tracing.InitTracer(log, cfg.TracingConfig(), "flightctl-imagebuilder-api")
 	defer func() {
 		if err := tracerShutdown(ctx); err != nil {
 			log.Fatalf("failed to shut down tracer: %v", err)
@@ -40,7 +40,7 @@ func main() {
 	}()
 
 	log.Println("Initializing data store")
-	db, err := store.InitDB(cfg, log)
+	db, err := store.InitDB(cfg.DatabaseConfig(), cfg.TracingConfig(), log)
 	if err != nil {
 		log.Fatalf("initializing data store: %v", err)
 	}

@@ -13,7 +13,7 @@ import (
 
 	pamapi "github.com/flightctl/flightctl/api/v1beta1/pam-issuer"
 	"github.com/flightctl/flightctl/internal/auth/oidc/pam"
-	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/config/pamissuer"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -22,7 +22,7 @@ import (
 // Handler implements the PAM issuer API handlers
 type Handler struct {
 	log         logrus.FieldLogger
-	cfg         *config.Config
+	cfg         *pamissuer.Config
 	pamProvider *pam.PAMOIDCProvider
 	cancel      context.CancelFunc
 	wg          sync.WaitGroup
@@ -35,14 +35,14 @@ type Handler struct {
 // NewHandler creates a new PAM issuer handler
 func NewHandler(
 	log logrus.FieldLogger,
-	cfg *config.Config,
+	cfg *pamissuer.Config,
 	ca *crypto.CAClient,
 ) (*Handler, error) {
-	if cfg.Auth == nil || cfg.Auth.PAMOIDCIssuer == nil {
+	if cfg.PAMOIDCIssuer == nil {
 		return nil, fmt.Errorf("PAM OIDC issuer not configured")
 	}
 
-	pamProvider, err := pam.NewPAMOIDCProvider(ca, cfg.Auth.PAMOIDCIssuer)
+	pamProvider, err := pam.NewPAMOIDCProvider(ca, cfg.PAMOIDCIssuer)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create PAM OIDC provider: %w", err)
 	}

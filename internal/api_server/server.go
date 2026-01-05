@@ -15,7 +15,7 @@ import (
 	fcmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/auth/authn"
-	"github.com/flightctl/flightctl/internal/config"
+	apiconfig "github.com/flightctl/flightctl/internal/config/api"
 	"github.com/flightctl/flightctl/internal/console"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/kvstore"
@@ -50,7 +50,7 @@ const (
 
 type Server struct {
 	log                logrus.FieldLogger
-	cfg                *config.Config
+	cfg                *apiconfig.Config
 	store              store.Store
 	ca                 *crypto.CAClient
 	listener           net.Listener
@@ -63,7 +63,7 @@ type Server struct {
 // New returns a new instance of a flightctl server.
 func New(
 	log logrus.FieldLogger,
-	cfg *config.Config,
+	cfg *apiconfig.Config,
 	st store.Store,
 	ca *crypto.CAClient,
 	listener net.Listener,
@@ -170,7 +170,7 @@ func (s *Server) Run(ctx context.Context) error {
 	serviceHandler := service.WrapWithTracing(baseServiceHandler)
 
 	// Initialize auth with traced service handler for OIDC provider access
-	authN, err := auth.InitMultiAuth(s.cfg, s.log, serviceHandler)
+	authN, err := auth.InitMultiAuth(s.cfg.Auth, s.log, serviceHandler)
 	if err != nil {
 		return fmt.Errorf("failed initializing auth: %w", err)
 	}
@@ -189,7 +189,7 @@ func (s *Server) Run(ctx context.Context) error {
 		s.log.Warn("Auth provider loader stopped unexpectedly")
 	}()
 
-	s.authZ, err = auth.InitMultiAuthZ(s.cfg, s.log)
+	s.authZ, err = auth.InitMultiAuthZ(s.cfg.Auth, s.log)
 	if err != nil {
 		return fmt.Errorf("failed initializing authZ: %w", err)
 	}

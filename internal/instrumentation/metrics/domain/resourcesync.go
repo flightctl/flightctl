@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/flightctl/flightctl/internal/config"
+	apiconfig "github.com/flightctl/flightctl/internal/config/api"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
@@ -20,11 +20,11 @@ type ResourceSyncCollector struct {
 	mu             sync.RWMutex
 	ctx            context.Context
 	tickerInterval time.Duration
-	cfg            *config.Config
+	cfg            *apiconfig.Config
 }
 
 // NewResourceSyncCollector creates a ResourceSyncCollector.
-func NewResourceSyncCollector(ctx context.Context, store store.Store, log logrus.FieldLogger, cfg *config.Config) *ResourceSyncCollector {
+func NewResourceSyncCollector(ctx context.Context, store store.Store, log logrus.FieldLogger, cfg *apiconfig.Config) *ResourceSyncCollector {
 	interval := cfg.Metrics.ResourceSyncCollector.TickerInterval
 
 	collector := &ResourceSyncCollector{

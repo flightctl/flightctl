@@ -7,7 +7,7 @@ import (
 	api "github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/auth"
 	"github.com/flightctl/flightctl/internal/auth/authn"
-	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/config/common"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/identity"
 	"github.com/flightctl/flightctl/internal/service"
@@ -57,15 +57,12 @@ var _ = Describe("Auth Config Integration Tests", func() {
 		// Create service handler (it implements AuthProviderService interface)
 		serviceHandler = service.NewServiceHandler(testStore, nil, nil, nil, log, "", "", []string{})
 
-		// Create a config with static OIDC provider to test production initialization path
-		cfg := config.NewDefault(
-			config.WithOIDCAuth("https://static-oidc.example.com", "", true),
-		)
-		cfg.Service.BaseUrl = "https://localhost:3443"
+		// Create an auth config with static OIDC provider to test production initialization path
+		authCfg := common.NewAuthWithOIDC("https://static-oidc.example.com", "", true)
 
 		// Initialize MultiAuth using production code path
 		var err error
-		authN, err := auth.InitMultiAuth(cfg, log, serviceHandler)
+		authN, err := auth.InitMultiAuth(authCfg, log, serviceHandler)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(authN).ToNot(BeNil(), "Expected auth instance")
 		multiAuth = authN
@@ -112,14 +109,11 @@ var _ = Describe("Auth Config Integration Tests", func() {
 		It("should support multiple static providers of different types via service handler", func() {
 			// Re-initialize with OIDC + AAP static provider types
 			// Note: K8s auth requires in-cluster env vars or token file, so we test only OIDC + AAP
-			cfg := config.NewDefault(
-				config.WithOIDCAuth("https://static-oidc.example.com", "", true),
-				config.WithAAPAuth("https://aap-gateway.example.com", "https://aap-gateway.example.com"),
-			)
-			cfg.Service.BaseUrl = "https://localhost:3443"
+			authCfg := common.NewAuthWithOIDC("https://static-oidc.example.com", "", true).
+				WithAAP("https://aap-gateway.example.com", true)
 
 			log := util.InitLogsWithDebug()
-			authN, err := auth.InitMultiAuth(cfg, log, serviceHandler)
+			authN, err := auth.InitMultiAuth(authCfg, log, serviceHandler)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(authN).ToNot(BeNil())
 			multiAuthWithAll := authN

@@ -9,7 +9,8 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1beta1"
-	"github.com/flightctl/flightctl/internal/config"
+	apiconfig "github.com/flightctl/flightctl/internal/config/api"
+	"github.com/flightctl/flightctl/internal/config/common"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/assert"
@@ -21,8 +22,8 @@ import (
 // while other APIs use the higher rate limit from the config
 func TestServerRateLimitConfiguration(t *testing.T) {
 	// Create a config with a higher rate limit for general APIs and configurable auth rate limit
-	cfg := config.NewDefault()
-	cfg.Service.RateLimit = &config.RateLimitConfig{
+	cfg := apiconfig.NewDefault()
+	cfg.Service.RateLimit = &common.RateLimitConfig{
 		Requests:     60, // 60 requests per minute for general APIs
 		Window:       util.Duration(time.Minute),
 		AuthRequests: 10, // 10 requests per hour for auth endpoint
@@ -201,7 +202,7 @@ func TestServerRateLimitConfiguration(t *testing.T) {
 }
 
 func TestRateLimitMiddlewareNoConfig(t *testing.T) {
-	cfg := config.NewDefault()
+	cfg := apiconfig.NewDefault()
 	cfg.Service.RateLimit = nil // No rate limit config
 	router := chi.NewRouter()
 	InstallRateLimiter(router, RateLimitOptions{
@@ -229,8 +230,8 @@ func TestRateLimitMiddlewareNoConfig(t *testing.T) {
 }
 
 func TestRateLimitMiddlewareWithConfig(t *testing.T) {
-	cfg := config.NewDefault()
-	cfg.Service.RateLimit = &config.RateLimitConfig{
+	cfg := apiconfig.NewDefault()
+	cfg.Service.RateLimit = &common.RateLimitConfig{
 		Requests: 100,
 		Window:   util.Duration(5 * time.Minute),
 	}
@@ -259,8 +260,8 @@ func TestRateLimitMiddlewareWithConfig(t *testing.T) {
 func TestLoginRateLimitMiddlewareWithConfig(t *testing.T) {
 	// Test that the middleware works with different configurations
 	t.Run("with auth-specific config", func(t *testing.T) {
-		cfg := config.NewDefault()
-		cfg.Service.RateLimit = &config.RateLimitConfig{
+		cfg := apiconfig.NewDefault()
+		cfg.Service.RateLimit = &common.RateLimitConfig{
 			Requests:     60,
 			Window:       util.Duration(time.Minute),
 			AuthRequests: 3,
@@ -298,8 +299,8 @@ func TestLoginRateLimitMiddlewareWithConfig(t *testing.T) {
 	})
 
 	t.Run("fallback to general config", func(t *testing.T) {
-		cfg := config.NewDefault()
-		cfg.Service.RateLimit = &config.RateLimitConfig{
+		cfg := apiconfig.NewDefault()
+		cfg.Service.RateLimit = &common.RateLimitConfig{
 			Requests: 5,
 			Window:   util.Duration(30 * time.Second),
 			// No auth-specific config
@@ -338,8 +339,8 @@ func TestLoginRateLimitMiddlewareWithConfig(t *testing.T) {
 
 func TestRateLimitWithXForwardedFor(t *testing.T) {
 	// Test that rate limiting works correctly with X-Forwarded-For headers
-	cfg := config.NewDefault()
-	cfg.Service.RateLimit = &config.RateLimitConfig{
+	cfg := apiconfig.NewDefault()
+	cfg.Service.RateLimit = &common.RateLimitConfig{
 		Requests: 3,
 		Window:   util.Duration(30 * time.Second),
 	}
@@ -441,8 +442,8 @@ func TestRateLimitWithXForwardedFor(t *testing.T) {
 
 func TestRateLimitWithTrustedProxies(t *testing.T) {
 	// Test that rate limiting works correctly with trusted proxy validation
-	cfg := config.NewDefault()
-	cfg.Service.RateLimit = &config.RateLimitConfig{
+	cfg := apiconfig.NewDefault()
+	cfg.Service.RateLimit = &common.RateLimitConfig{
 		Requests: 3,
 		Window:   util.Duration(30 * time.Second),
 	}
@@ -505,8 +506,8 @@ func TestRateLimitWithTrustedProxies(t *testing.T) {
 
 	// Test with no trusted proxies configured
 	t.Run("no trusted proxies ignores all headers", func(t *testing.T) {
-		cfgNoProxies := config.NewDefault()
-		cfgNoProxies.Service.RateLimit = &config.RateLimitConfig{
+		cfgNoProxies := apiconfig.NewDefault()
+		cfgNoProxies.Service.RateLimit = &common.RateLimitConfig{
 			Requests: 3,
 			Window:   util.Duration(30 * time.Second),
 			// No trusted proxies configured
@@ -546,8 +547,8 @@ func TestRateLimitWithTrustedProxies(t *testing.T) {
 
 	// Test CIDR network support
 	t.Run("CIDR network support", func(t *testing.T) {
-		cfgCIDR := config.NewDefault()
-		cfgCIDR.Service.RateLimit = &config.RateLimitConfig{
+		cfgCIDR := apiconfig.NewDefault()
+		cfgCIDR.Service.RateLimit = &common.RateLimitConfig{
 			Requests: 3,
 			Window:   util.Duration(30 * time.Second),
 		}

@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
@@ -33,13 +32,12 @@ type WorkerCollector struct {
 	lastSuccessfulTaskGauge prometheus.Gauge
 
 	log            logrus.FieldLogger
-	cfg            *config.Config
 	ctx            context.Context
 	queuesProvider queues.Provider
 }
 
 // NewWorkerCollector creates a WorkerCollector.
-func NewWorkerCollector(ctx context.Context, log logrus.FieldLogger, cfg *config.Config, queuesProvider queues.Provider) *WorkerCollector {
+func NewWorkerCollector(ctx context.Context, log logrus.FieldLogger, queuesProvider queues.Provider) *WorkerCollector {
 	collector := &WorkerCollector{
 		// Message processing metrics
 		messagesInProgressGauge: prometheus.NewGauge(prometheus.GaugeOpts{
@@ -100,7 +98,6 @@ func NewWorkerCollector(ctx context.Context, log logrus.FieldLogger, cfg *config
 		}),
 
 		log:            log,
-		cfg:            cfg,
 		ctx:            ctx,
 		queuesProvider: queuesProvider,
 	}

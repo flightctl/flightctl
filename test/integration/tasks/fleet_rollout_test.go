@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	api "github.com/flightctl/flightctl/api/v1beta1"
-	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/config/common"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
@@ -51,7 +51,7 @@ var _ = Describe("FleetRollout", func() {
 		tvStore           store.TemplateVersion
 		storeInst         store.Store
 		serviceHandler    service.Service
-		cfg               *config.Config
+		cfg               *common.DatabaseConfig
 		db                *gorm.DB
 		dbName            string
 		numDevices        int

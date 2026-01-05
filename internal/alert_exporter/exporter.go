@@ -36,7 +36,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/flightctl/flightctl/internal/config"
+	alertexportercfg "github.com/flightctl/flightctl/internal/config/alertexporter"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/sirupsen/logrus"
@@ -83,10 +83,10 @@ func NewAlertKey(org string, kind string, name string) AlertKey {
 type AlertExporter struct {
 	log     *logrus.Logger
 	handler service.Service
-	config  *config.Config
+	config  *alertexportercfg.Config
 }
 
-func NewAlertExporter(log *logrus.Logger, handler service.Service, config *config.Config) *AlertExporter {
+func NewAlertExporter(log *logrus.Logger, handler service.Service, config *alertexportercfg.Config) *AlertExporter {
 	return &AlertExporter{
 		log:     log,
 		handler: handler,
@@ -110,7 +110,7 @@ func (a *AlertExporter) Poll(ctx context.Context) error {
 
 	checkpointManager := NewCheckpointManager(a.log, a.handler)
 	eventProcessor := NewEventProcessor(a.log, a.handler)
-	alertSender := NewAlertSender(a.log, a.config.Alertmanager.Hostname, a.config.Alertmanager.Port, a.config)
+	alertSender := NewAlertSender(a.log, a.config.Alertmanager)
 
 	ticker := time.NewTicker(time.Duration(a.config.Service.AlertPollingInterval))
 	defer ticker.Stop()

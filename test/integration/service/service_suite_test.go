@@ -6,8 +6,8 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1beta1"
-	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/config/ca"
+	"github.com/flightctl/flightctl/internal/config/common"
 	"github.com/flightctl/flightctl/internal/consts"
 	icrypto "github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/identity"
@@ -49,7 +49,7 @@ type ServiceTestSuite struct {
 	OrgID   uuid.UUID
 
 	// Private implementation details – not needed by tests
-	cfg               *config.Config
+	cfg               *common.DatabaseConfig
 	dbName            string
 	db                *gorm.DB
 	ctrl              *gomock.Controller

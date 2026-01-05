@@ -21,7 +21,7 @@ import (
 	apiserver "github.com/flightctl/flightctl/internal/api_server"
 	"github.com/flightctl/flightctl/internal/api_server/agentserver"
 	"github.com/flightctl/flightctl/internal/api_server/middleware"
-	"github.com/flightctl/flightctl/internal/config"
+	apiconfig "github.com/flightctl/flightctl/internal/config/api"
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/internal/store"
@@ -216,7 +216,7 @@ func IsAcmInstalled() (bool, bool, error) {
 }
 
 // NewTestApiServer creates a new test server and returns the server and the listener listening on localhost's next available port.
-func NewTestApiServer(log logrus.FieldLogger, cfg *config.Config, store store.Store, ca *crypto.CAClient, serverCerts *crypto.TLSCertificateConfig, queuesProvider queues.Provider) (*apiserver.Server, net.Listener, error) {
+func NewTestApiServer(log logrus.FieldLogger, cfg *apiconfig.Config, store store.Store, ca *crypto.CAClient, serverCerts *crypto.TLSCertificateConfig, queuesProvider queues.Provider) (*apiserver.Server, net.Listener, error) {
 
 	// create a listener using the next available port
 	tlsConfig, _, err := crypto.TLSConfigForServer(ca.GetCABundleX509(), serverCerts)
@@ -234,7 +234,7 @@ func NewTestApiServer(log logrus.FieldLogger, cfg *config.Config, store store.St
 }
 
 // NewTestAgentServer creates a new test server and returns the server and the listener listening on localhost's next available port.
-func NewTestAgentServer(ctx context.Context, log logrus.FieldLogger, cfg *config.Config, store store.Store, ca *crypto.CAClient, serverCerts *crypto.TLSCertificateConfig, queuesProvider queues.Provider) (*agentserver.AgentServer, net.Listener, error) {
+func NewTestAgentServer(ctx context.Context, log logrus.FieldLogger, cfg *apiconfig.Config, store store.Store, ca *crypto.CAClient, serverCerts *crypto.TLSCertificateConfig, queuesProvider queues.Provider) (*agentserver.AgentServer, net.Listener, error) {
 	// create a listener using the next available port
 	_, tlsConfig, err := crypto.TLSConfigForServer(ca.GetCABundleX509(), serverCerts)
 	if err != nil {
@@ -256,9 +256,9 @@ func NewTestAgentServer(ctx context.Context, log logrus.FieldLogger, cfg *config
 }
 
 // NewTestStore creates a new test store and returns the store and the database name.
-func NewTestStore(ctx context.Context, cfg config.Config, log *logrus.Logger) (store.Store, string, error) {
+func NewTestStore(ctx context.Context, cfg apiconfig.Config, log *logrus.Logger) (store.Store, string, error) {
 	// cfg.Database.Name = ""
-	dbTemp, err := store.InitDB(&cfg, log)
+	dbTemp, err := store.InitDB(cfg.DatabaseConfig(), cfg.TracingConfig(), log)
 	if err != nil {
 		return nil, "", fmt.Errorf("NewTestStore: error initializing test DB: %w", err)
 	}
@@ -272,7 +272,7 @@ func NewTestStore(ctx context.Context, cfg config.Config, log *logrus.Logger) (s
 	}
 
 	cfg.Database.Name = randomDBName
-	db, err := store.InitDB(&cfg, log)
+	db, err := store.InitDB(cfg.DatabaseConfig(), cfg.TracingConfig(), log)
 	if err != nil {
 		return nil, "", fmt.Errorf("NewTestStore: initializing test db %s: %w", randomDBName, err)
 	}
@@ -287,10 +287,10 @@ func NewTestStore(ctx context.Context, cfg config.Config, log *logrus.Logger) (s
 }
 
 // NewTestCerts creates new test certificates in the service certstore and returns the CA, server certificate, and enrollment certificate.
-func NewTestCerts(cfg *config.Config) (*crypto.CAClient, *crypto.TLSCertificateConfig, *crypto.TLSCertificateConfig, error) {
+func NewTestCerts(cfg *apiconfig.Config) (*crypto.CAClient, *crypto.TLSCertificateConfig, *crypto.TLSCertificateConfig, error) {
 	ctx := context.Background()
 
-	ca, _, err := crypto.EnsureCA(cfg.CA)
+	ca, _, err := crypto.EnsureCA(cfg.CAConfig())
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("NewTestCerts: Ensuring CA: %w", err)
 	}

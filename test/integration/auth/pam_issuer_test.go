@@ -7,8 +7,8 @@ import (
 
 	pamapi "github.com/flightctl/flightctl/api/v1beta1/pam-issuer"
 	"github.com/flightctl/flightctl/internal/auth/oidc/pam"
-	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/config/ca"
+	"github.com/flightctl/flightctl/internal/config/pamissuer"
 	fccrypto "github.com/flightctl/flightctl/internal/crypto"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -32,7 +32,7 @@ var _ = Describe("PAM Issuer Integration Tests", func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		// Create PAM issuer with real components (no mocks for integration test)
-		config := &config.PAMOIDCIssuer{
+		pamCfg := &pamissuer.PAMOIDCIssuer{
 			Issuer:       "https://test.example.com",
 			Scopes:       []string{"openid", "profile", "email"},
 			ClientID:     "test-client",
@@ -41,7 +41,7 @@ var _ = Describe("PAM Issuer Integration Tests", func() {
 			PAMService:   "other", // Use 'other' PAM service for authentication
 		}
 
-		provider, err = pam.NewPAMOIDCProvider(caClient, config)
+		provider, err = pam.NewPAMOIDCProvider(caClient, pamCfg)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(provider).ToNot(BeNil())
 	})

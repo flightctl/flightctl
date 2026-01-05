@@ -10,7 +10,7 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1beta1"
-	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/config/common"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/sirupsen/logrus"
@@ -22,23 +22,25 @@ import (
 	"gorm.io/plugin/prometheus"
 )
 
-func InitDB(cfg *config.Config, log *logrus.Logger) (*gorm.DB, error) {
-	return initDBWithUser(cfg, log, cfg.Database.User, cfg.Database.Password)
+// InitDB initializes a database connection using the application user credentials.
+func InitDB(dbCfg *common.DatabaseConfig, tracingCfg *common.TracingConfig, log *logrus.Logger) (*gorm.DB, error) {
+	return initDBWithUser(dbCfg, tracingCfg, log, dbCfg.User, dbCfg.Password)
 }
 
-func InitMigrationDB(cfg *config.Config, log *logrus.Logger) (*gorm.DB, error) {
-	return initDBWithUser(cfg, log, cfg.Database.MigrationUser, cfg.Database.MigrationPassword)
+// InitMigrationDB initializes a database connection using migration user credentials.
+func InitMigrationDB(dbCfg *common.DatabaseConfig, tracingCfg *common.TracingConfig, log *logrus.Logger) (*gorm.DB, error) {
+	return initDBWithUser(dbCfg, tracingCfg, log, dbCfg.MigrationUser, dbCfg.MigrationPassword)
 }
 
-func initDBWithUser(cfg *config.Config, log *logrus.Logger, user string, password api.SecureString) (*gorm.DB, error) {
+func initDBWithUser(dbCfg *common.DatabaseConfig, tracingCfg *common.TracingConfig, log *logrus.Logger, user string, password api.SecureString) (*gorm.DB, error) {
 	var dia gorm.Dialector
 
-	if cfg.Database.Type != "pgsql" {
-		errString := fmt.Sprintf("failed to connect database %s: only PostgreSQL is supported", cfg.Database.Type)
+	if dbCfg.Type != "pgsql" {
+		errString := fmt.Sprintf("failed to connect database %s: only PostgreSQL is supported", dbCfg.Type)
 		log.Fatal(errString)
 		return nil, errors.New(errString)
 	}
-	dsn := createDSN(cfg, user, password)
+	dsn := dbCfg.CreateDSN(user, password)
 	baseDia := postgres.Open(dsn)
 
 	// Wrap the dialector to intercept error translation
@@ -75,7 +77,7 @@ func initDBWithUser(cfg *config.Config, log *logrus.Logger, user string, passwor
 
 	// TODO: Make exposing DB metrics optional
 	err = newDB.Use(prometheus.New(prometheus.Config{
-		DBName:          cfg.Database.Name,
+		DBName:          dbCfg.Name,
 		RefreshInterval: 5,
 		StartServer:     true,
 		HTTPServerPort:  15691,
@@ -101,7 +103,7 @@ func initDBWithUser(cfg *config.Config, log *logrus.Logger, user string, passwor
 		log.Debugf("PostgreSQL server_version: %s", serverVersion)
 	}
 
-	if cfg.Tracing != nil && cfg.Tracing.Enabled {
+	if tracingCfg != nil && tracingCfg.Enabled {
 		if err = newDB.Use(NewTraceContextEnforcer()); err != nil {
 			log.Fatalf("failed to register OpenTelemetry GORM plugin: %v", err)
 			return nil, err
@@ -122,34 +124,6 @@ func initDBWithUser(cfg *config.Config, log *logrus.Logger, user string, passwor
 	}
 
 	return newDB, nil
-}
-
-func createDSN(cfg *config.Config, user string, password api.SecureString) string {
-	dsn := fmt.Sprintf("host=%s user=%s password=%s port=%d",
-		cfg.Database.Hostname,
-		user,
-		password.Value(),
-		cfg.Database.Port,
-	)
-	if cfg.Database.Name != "" {
-		dsn = fmt.Sprintf("%s dbname=%s", dsn, cfg.Database.Name)
-	}
-
-	// Add SSL parameters if they are configured
-	if cfg.Database.SSLMode != "" {
-		dsn = fmt.Sprintf("%s sslmode=%s", dsn, cfg.Database.SSLMode)
-	}
-	if cfg.Database.SSLCert != "" {
-		dsn = fmt.Sprintf("%s sslcert=%s", dsn, cfg.Database.SSLCert)
-	}
-	if cfg.Database.SSLKey != "" {
-		dsn = fmt.Sprintf("%s sslkey=%s", dsn, cfg.Database.SSLKey)
-	}
-	if cfg.Database.SSLRootCert != "" {
-		dsn = fmt.Sprintf("%s sslrootcert=%s", dsn, cfg.Database.SSLRootCert)
-	}
-
-	return dsn
 }
 
 type bypassSpanCheckKey struct{}

@@ -13,8 +13,8 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1beta1"
 	pamapi "github.com/flightctl/flightctl/api/v1beta1/pam-issuer"
-	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/config/ca"
+	"github.com/flightctl/flightctl/internal/config/pamissuer"
 	fccrypto "github.com/flightctl/flightctl/internal/crypto"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -98,7 +98,7 @@ var _ = Describe("PAM Issuer Unit Tests", func() {
 	Context("PKCE Authorization Flow Scenarios", func() {
 		Context("Scenario 1: Public client with PKCE (required)", func() {
 			BeforeEach(func() {
-				config := &config.PAMOIDCIssuer{
+				config := &pamissuer.PAMOIDCIssuer{
 					Issuer:       "https://test.example.com",
 					Scopes:       []string{"openid", "profile", "email"},
 					ClientID:     "public-client",
@@ -265,7 +265,7 @@ var _ = Describe("PAM Issuer Unit Tests", func() {
 
 		Context("Scenario 2: Public client without PKCE (explicitly allowed by config)", func() {
 			BeforeEach(func() {
-				config := &config.PAMOIDCIssuer{
+				config := &pamissuer.PAMOIDCIssuer{
 					Issuer:                       "https://test.example.com",
 					Scopes:                       []string{"openid", "profile", "email"},
 					ClientID:                     "public-client-no-pkce",
@@ -316,7 +316,7 @@ var _ = Describe("PAM Issuer Unit Tests", func() {
 
 		Context("Scenario 3: Confidential client without PKCE (secret-based auth)", func() {
 			BeforeEach(func() {
-				config := &config.PAMOIDCIssuer{
+				config := &pamissuer.PAMOIDCIssuer{
 					Issuer:       "https://test.example.com",
 					Scopes:       []string{"openid", "profile", "email"},
 					ClientID:     "confidential-client",
@@ -432,7 +432,7 @@ var _ = Describe("PAM Issuer Unit Tests", func() {
 
 		Context("Scenario 4: Confidential client with PKCE (extra security)", func() {
 			BeforeEach(func() {
-				config := &config.PAMOIDCIssuer{
+				config := &pamissuer.PAMOIDCIssuer{
 					Issuer:       "https://test.example.com",
 					Scopes:       []string{"openid", "profile", "email"},
 					ClientID:     "confidential-client-pkce",
@@ -609,7 +609,7 @@ var _ = Describe("PAM Issuer Unit Tests", func() {
 	Context("Password Grant Flow Scenarios", func() {
 		Context("Scenario 1: Public client with password grant", func() {
 			BeforeEach(func() {
-				config := &config.PAMOIDCIssuer{
+				config := &pamissuer.PAMOIDCIssuer{
 					Issuer:       "https://test.example.com",
 					Scopes:       []string{"openid", "profile", "email", "offline_access"},
 					ClientID:     "public-client",
@@ -753,7 +753,7 @@ var _ = Describe("PAM Issuer Unit Tests", func() {
 
 		Context("Scenario 2: Confidential client with password grant", func() {
 			BeforeEach(func() {
-				config := &config.PAMOIDCIssuer{
+				config := &pamissuer.PAMOIDCIssuer{
 					Issuer:       "https://test.example.com",
 					Scopes:       []string{"openid", "profile", "email", "offline_access"},
 					ClientID:     "confidential-client",
