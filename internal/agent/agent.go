@@ -240,6 +240,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		policyManager,
 		rootReadWriter,
 		osClient,
+		systemdClient,
 		pollBackoff,
 		deviceNotFoundHandler,
 		auditLogger,

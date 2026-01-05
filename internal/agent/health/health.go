@@ -4,10 +4,8 @@ package health
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"time"
 
@@ -22,12 +20,11 @@ const (
 
 // checker performs health checks on the agent.
 type checker struct {
-	log       *log.PrefixLogger
-	systemd   *client.Systemd
-	timeout   time.Duration
-	serverURL string
-	verbose   bool
-	output    io.Writer
+	log     *log.PrefixLogger
+	systemd *client.Systemd
+	timeout time.Duration
+	verbose bool
+	output  io.Writer
 }
 
 // Option is a functional option for configuring the checker.
@@ -37,13 +34,6 @@ type Option func(*checker)
 func WithTimeout(t time.Duration) Option {
 	return func(c *checker) {
 		c.timeout = t
-	}
-}
-
-// WithServerURL sets the management server URL for connectivity check.
-func WithServerURL(url string) Option {
-	return func(c *checker) {
-		c.serverURL = url
 	}
 }
 
@@ -92,14 +82,12 @@ func (c *checker) Run(ctx context.Context) error {
 		return err
 	}
 
-	// Check connectivity (warn only, never fail)
-	c.checkConnectivity(ctx)
-
 	c.printInfo("All health checks passed")
 	return nil
 }
 
 // checkServiceStatus verifies the flightctl-agent service is enabled and active.
+// It also reports the agent's connectivity status (from StatusText) for informational purposes.
 func (c *checker) checkServiceStatus(ctx context.Context) error {
 	c.printInfo("Checking %s status...", serviceName)
 
@@ -140,51 +128,29 @@ func (c *checker) checkServiceStatus(ctx context.Context) error {
 	}
 
 	c.printInfo("Service is active")
+
+	// Report connectivity status from agent's sd_notify(STATUS=...)
+	// This is informational only - connectivity issues don't affect rollback decisions
+	c.reportConnectivityStatus(props)
+
 	return nil
 }
 
-// checkConnectivity tries to reach the management server.
-// This is a warning-only check - it never causes the health check to fail.
-func (c *checker) checkConnectivity(ctx context.Context) {
-	if c.serverURL == "" {
-		c.printInfo("Connectivity check skipped (no server URL configured)")
+// reportConnectivityStatus reads and logs the agent's self-reported connectivity status.
+// The agent reports its status via sd_notify(STATUS=...), which is visible in StatusText.
+// This is informational only and does not affect the health check result.
+func (c *checker) reportConnectivityStatus(props map[string]string) {
+	statusText, ok := props["StatusText"]
+	if !ok || statusText == "" {
+		c.printInfo("Connectivity: unknown (agent has not reported status)")
 		return
 	}
-
-	c.printInfo("Checking connectivity to %s...", c.serverURL)
-
-	httpClient := &http.Client{
-		Timeout: 10 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
-		},
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.serverURL, nil)
-	if err != nil {
-		c.printWarn("Cannot reach server: %v", err)
-		return
-	}
-
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		c.printWarn("Cannot reach server: %v", err)
-		return
-	}
-	defer resp.Body.Close()
-
-	c.printInfo("Server reachable (status: %d)", resp.StatusCode)
+	c.printInfo("Agent status: %s", statusText)
 }
 
 func (c *checker) printInfo(format string, args ...any) {
 	if c.output != nil && c.verbose {
 		fmt.Fprintf(c.output, "[health] "+format+"\n", args...)
-	}
-}
-
-func (c *checker) printWarn(format string, args ...any) {
-	if c.output != nil {
-		fmt.Fprintf(c.output, "[health] WARNING: "+format+"\n", args...)
 	}
 }
 
