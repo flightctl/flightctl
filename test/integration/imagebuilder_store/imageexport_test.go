@@ -223,16 +223,26 @@ var _ = Describe("ImageExportStore", func() {
 			_, err := storeInst.ImageExport().Create(ctx, orgId, imageExport)
 			Expect(err).ToNot(HaveOccurred())
 
-			phase := api.ImageExportPhaseConverting
 			imageExport.Status = &api.ImageExportStatus{
-				Phase: &phase,
+				Conditions: &[]api.ImageExportCondition{
+					{
+						Type:    api.ImageExportConditionTypeReady,
+						Status:  v1beta1.ConditionStatusUnknown,
+						Reason:  string(api.ImageExportConditionReasonConverting),
+						Message: "Export in progress",
+					},
+				},
 			}
 
 			result, err := storeInst.ImageExport().UpdateStatus(ctx, orgId, imageExport)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(result).ToNot(BeNil())
 			Expect(result.Status).ToNot(BeNil())
-			Expect(lo.FromPtr(result.Status.Phase)).To(Equal(api.ImageExportPhaseConverting))
+			Expect(len(*result.Status.Conditions)).To(Equal(1))
+			Expect((*result.Status.Conditions)[0].Type).To(Equal(api.ImageExportConditionTypeReady))
+			Expect((*result.Status.Conditions)[0].Status).To(Equal(v1beta1.ConditionStatusUnknown))
+			Expect((*result.Status.Conditions)[0].Reason).To(Equal(string(api.ImageExportConditionReasonConverting)))
+			Expect((*result.Status.Conditions)[0].Message).To(Equal("Export in progress"))
 		})
 
 		It("should return not found when updating status of non-existent ImageExport", func() {
@@ -268,72 +278,4 @@ var _ = Describe("ImageExportStore", func() {
 		})
 	})
 
-	Context("UpdateNextRetryAt", func() {
-		It("should update nextRetryAt timestamp", func() {
-			imageExport := newTestImageExport("nextretry-test")
-			_, err := storeInst.ImageExport().Create(ctx, orgId, imageExport)
-			Expect(err).ToNot(HaveOccurred())
-
-			future := time.Now().Add(time.Hour).UTC()
-			err = storeInst.ImageExport().UpdateNextRetryAt(ctx, orgId, "nextretry-test", future)
-			Expect(err).ToNot(HaveOccurred())
-
-			result, err := storeInst.ImageExport().Get(ctx, orgId, "nextretry-test")
-			Expect(err).ToNot(HaveOccurred())
-			Expect(result.Status).ToNot(BeNil())
-			Expect(result.Status.NextRetryAt).ToNot(BeNil())
-		})
-
-		It("should return not found for non-existent ImageExport", func() {
-			err := storeInst.ImageExport().UpdateNextRetryAt(ctx, orgId, "nonexistent", time.Now())
-			Expect(err).To(HaveOccurred())
-			Expect(err).To(MatchError(flterrors.ErrResourceNotFound))
-		})
-	})
-
-	Context("ListPendingRetry", func() {
-		It("should list exports pending retry", func() {
-			// Create an export with nextRetryAt in the past and non-terminal phase
-			imageExport := newTestImageExport("pending-retry-test")
-			_, err := storeInst.ImageExport().Create(ctx, orgId, imageExport)
-			Expect(err).ToNot(HaveOccurred())
-
-			// Set status with phase and nextRetryAt
-			phase := api.ImageExportPhaseQueued
-			pastTime := time.Now().Add(-time.Hour).UTC()
-			imageExport.Status = &api.ImageExportStatus{
-				Phase:       &phase,
-				NextRetryAt: &pastTime,
-			}
-			_, err = storeInst.ImageExport().UpdateStatus(ctx, orgId, imageExport)
-			Expect(err).ToNot(HaveOccurred())
-
-			// List pending retry
-			result, err := storeInst.ImageExport().ListPendingRetry(ctx, orgId, time.Now())
-			Expect(err).ToNot(HaveOccurred())
-			Expect(result).ToNot(BeNil())
-			Expect(result.Items).To(HaveLen(1))
-		})
-
-		It("should not list completed exports", func() {
-			imageExport := newTestImageExport("completed-test")
-			_, err := storeInst.ImageExport().Create(ctx, orgId, imageExport)
-			Expect(err).ToNot(HaveOccurred())
-
-			// Set status as complete with nextRetryAt in the past
-			phase := api.ImageExportPhaseComplete
-			pastTime := time.Now().Add(-time.Hour).UTC()
-			imageExport.Status = &api.ImageExportStatus{
-				Phase:       &phase,
-				NextRetryAt: &pastTime,
-			}
-			_, err = storeInst.ImageExport().UpdateStatus(ctx, orgId, imageExport)
-			Expect(err).ToNot(HaveOccurred())
-
-			// List pending retry - should not include completed
-			result, err := storeInst.ImageExport().ListPendingRetry(ctx, orgId, time.Now())
-			Expect(err).ToNot(HaveOccurred())
-			Expect(result.Items).To(HaveLen(0))
-		})
-	})
 })

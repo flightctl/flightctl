@@ -69,8 +69,20 @@ paths:
             application/json:
               schema:
                 $ref: '../openapi.yaml#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
         "429":
           description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
           content:
             application/json:
               schema:
@@ -105,6 +117,12 @@ paths:
             application/json:
               schema:
                 $ref: '../openapi.yaml#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
         "409":
           description: Conflict
           content:
@@ -113,6 +131,12 @@ paths:
                 $ref: '../openapi.yaml#/components/schemas/Status'
         "429":
           description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
           content:
             application/json:
               schema:
@@ -143,6 +167,12 @@ paths:
             application/json:
               schema:
                 $ref: '../openapi.yaml#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
         "404":
           description: Not Found
           content:
@@ -151,6 +181,12 @@ paths:
                 $ref: '../openapi.yaml#/components/schemas/Status'
         "429":
           description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
           content:
             application/json:
               schema:
@@ -180,6 +216,12 @@ paths:
             application/json:
               schema:
                 $ref: '../openapi.yaml#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
         "404":
           description: Not Found
           content:
@@ -188,6 +230,12 @@ paths:
                 $ref: '../openapi.yaml#/components/schemas/Status'
         "429":
           description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
           content:
             application/json:
               schema:
@@ -239,8 +287,20 @@ paths:
             application/json:
               schema:
                 $ref: '../openapi.yaml#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
         "429":
           description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
           content:
             application/json:
               schema:
@@ -275,6 +335,12 @@ paths:
             application/json:
               schema:
                 $ref: '../openapi.yaml#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
         "409":
           description: Conflict
           content:
@@ -283,6 +349,12 @@ paths:
                 $ref: '../openapi.yaml#/components/schemas/Status'
         "429":
           description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
           content:
             application/json:
               schema:
@@ -313,6 +385,12 @@ paths:
             application/json:
               schema:
                 $ref: '../openapi.yaml#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
         "404":
           description: Not Found
           content:
@@ -321,6 +399,12 @@ paths:
                 $ref: '../openapi.yaml#/components/schemas/Status'
         "429":
           description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
           content:
             application/json:
               schema:
@@ -350,6 +434,12 @@ paths:
             application/json:
               schema:
                 $ref: '../openapi.yaml#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
         "404":
           description: Not Found
           content:
@@ -358,6 +448,12 @@ paths:
                 $ref: '../openapi.yaml#/components/schemas/Status'
         "429":
           description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '../openapi.yaml#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
           content:
             application/json:
               schema:
@@ -520,9 +616,7 @@ components:
           type: array
           description: Current conditions of the ImageBuild.
           items:
-            $ref: '../openapi.yaml#/components/schemas/Condition'
-        phase:
-          $ref: '#/components/schemas/ImageBuildPhase'
+            $ref: '#/components/schemas/ImageBuildCondition'
         imageReference:
           type: string
           description: The full image reference of the built image (e.g., quay.io/org/imagename:tag).
@@ -532,39 +626,43 @@ components:
         manifestDigest:
           type: string
           description: The digest of the built image manifest.
-
-        startedAt:
-          type: string
-          format: date-time
-          description: The time the build started.
-        completedAt:
-          type: string
-          format: date-time
-          description: The time the build completed.
         lastSeen:
           type: string
           format: date-time
           description: The last time the build was seen (heartbeat).
-        error:
-          type: string
-          description: Error message if the build failed.
 
-    ImageBuildPhase:
+    ImageBuildCondition:
+      description: Condition for ImageBuild resources.
+      allOf:
+        - $ref: '../openapi.yaml#/components/schemas/ConditionBase'
+        - type: object
+          required:
+            - type
+          properties:
+            type:
+              $ref: '#/components/schemas/ImageBuildConditionType'
+    ImageBuildConditionType:
       type: string
-      description: The phase of the image build process.
+      description: Type of ImageBuild condition.
       enum:
-        - queued
-        - building
-        - pushing
-        - complete
-        - failed
+        - Ready
       x-enum-varnames:
-        - ImageBuildPhaseQueued
-        - ImageBuildPhaseBuilding
-        - ImageBuildPhasePushing
-        - ImageBuildPhaseComplete
-        - ImageBuildPhaseFailed
-
+        - ImageBuildConditionTypeReady
+    ImageBuildConditionReason:
+      type: string
+      description: Reason for the ImageBuild Ready condition.
+      enum:
+        - Pending
+        - Building
+        - Pushing
+        - Completed
+        - Failed
+      x-enum-varnames:
+        - ImageBuildConditionReasonPending
+        - ImageBuildConditionReasonBuilding
+        - ImageBuildConditionReasonPushing
+        - ImageBuildConditionReasonCompleted
+        - ImageBuildConditionReasonFailed
     # ImageExport schemas
     ImageExport:
       type: object
@@ -725,54 +823,47 @@ components:
           type: array
           description: Current conditions of the ImageExport.
           items:
-            $ref: '../openapi.yaml#/components/schemas/Condition'
-        phase:
-          $ref: '#/components/schemas/ImageExportPhase'
-        format:
-          $ref: '#/components/schemas/ExportFormatType'
-        tagSuffix:
-          type: string
-          description: Optional suffix to append to the output tag for this format.
+            $ref: '#/components/schemas/ImageExportCondition'
         manifestDigest:
           type: string
           description: The digest of the exported image manifest for this format.
-        startedAt:
-          type: string
-          format: date-time
-          description: The time the export started.
-        completedAt:
-          type: string
-          format: date-time
-          description: The time the export completed.
         lastSeen:
           type: string
           format: date-time
           description: The last time the export was seen (heartbeat).
-        nextRetryAt:
-          type: string
-          format: date-time
-          description: The next time to retry the export (for delayed processing).
-        error:
-          type: string
-          description: Error message if the export failed.
 
-    ImageExportPhase:
+    ImageExportCondition:
+      description: Condition for ImageExport resources.
+      allOf:
+        - $ref: '../openapi.yaml#/components/schemas/ConditionBase'
+        - type: object
+          required:
+            - type
+          properties:
+            type:
+              $ref: '#/components/schemas/ImageExportConditionType'
+    ImageExportConditionType:
       type: string
-      description: The overall phase of the image export process.
+      description: Type of ImageExport condition.
       enum:
-        - queued
-        - waiting
-        - converting
-        - pushing
-        - complete
-        - failed
+        - Ready
       x-enum-varnames:
-        - ImageExportPhaseQueued
-        - ImageExportPhaseWaiting
-        - ImageExportPhaseConverting
-        - ImageExportPhasePushing
-        - ImageExportPhaseComplete
-        - ImageExportPhaseFailed
+        - ImageExportConditionTypeReady
+    ImageExportConditionReason:
+      type: string
+      description: Reason for the ImageExport Ready condition.
+      enum:
+        - Pending
+        - Converting
+        - Pushing
+        - Completed
+        - Failed
+      x-enum-varnames:
+        - ImageExportConditionReasonPending
+        - ImageExportConditionReasonConverting
+        - ImageExportConditionReasonPushing
+        - ImageExportConditionReasonCompleted
+        - ImageExportConditionReasonFailed
 
     ImageExportFormatPhase:
       type: string

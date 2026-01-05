@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/flightctl/flightctl/api/v1beta1"
 	api "github.com/flightctl/flightctl/api/v1beta1/imagebuilder"
@@ -272,14 +273,25 @@ func TestUpdateImageExportStatus(t *testing.T) {
 	_, status := svc.Create(ctx, orgId, imageExport)
 	require.Equal(int32(http.StatusCreated), statusCode(status))
 
-	// Update status
-	phase := api.ImageExportPhaseConverting
+	// Update status with condition
+	now := time.Now()
 	imageExport.Status = &api.ImageExportStatus{
-		Phase: &phase,
+		Conditions: &[]api.ImageExportCondition{
+			{
+				Type:               api.ImageExportConditionTypeReady,
+				Status:             v1beta1.ConditionStatusUnknown,
+				Reason:             string(api.ImageExportConditionReasonConverting),
+				Message:            "Converting in progress",
+				LastTransitionTime: now,
+			},
+		},
 	}
 	result, err := svc.UpdateStatus(ctx, orgId, &imageExport)
 	require.NoError(err)
 	require.NotNil(result)
 	require.NotNil(result.Status)
-	require.Equal(api.ImageExportPhaseConverting, lo.FromPtr(result.Status.Phase))
+	require.NotNil(result.Status.Conditions)
+	require.Len(*result.Status.Conditions, 1)
+	require.Equal(api.ImageExportConditionTypeReady, (*result.Status.Conditions)[0].Type)
+	require.Equal(string(api.ImageExportConditionReasonConverting), (*result.Status.Conditions)[0].Reason)
 }

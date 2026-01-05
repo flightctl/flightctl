@@ -111,11 +111,13 @@ func (s *DummyImageBuildStore) InitialMigration(ctx context.Context) error {
 // DummyImageExportStore is a mock implementation of store.ImageExportStore
 type DummyImageExportStore struct {
 	imageExports *[]api.ImageExport
+	nextRetryAt  map[string]*time.Time // tracks nextRetryAt by name since it's not in API struct
 }
 
 func NewDummyImageExportStore() *DummyImageExportStore {
 	return &DummyImageExportStore{
 		imageExports: &[]api.ImageExport{},
+		nextRetryAt:  make(map[string]*time.Time),
 	}
 }
 
@@ -187,12 +189,9 @@ func (s *DummyImageExportStore) UpdateStatus(ctx context.Context, orgId uuid.UUI
 }
 
 func (s *DummyImageExportStore) UpdateNextRetryAt(ctx context.Context, orgId uuid.UUID, name string, timestamp time.Time) error {
-	for i, ie := range *s.imageExports {
+	for _, ie := range *s.imageExports {
 		if lo.FromPtr(ie.Metadata.Name) == name {
-			if (*s.imageExports)[i].Status == nil {
-				(*s.imageExports)[i].Status = &api.ImageExportStatus{}
-			}
-			(*s.imageExports)[i].Status.NextRetryAt = &timestamp
+			s.nextRetryAt[name] = &timestamp
 			return nil
 		}
 	}
@@ -215,8 +214,23 @@ func (s *DummyImageExportStore) UpdateLastSeen(ctx context.Context, orgId uuid.U
 func (s *DummyImageExportStore) ListPendingRetry(ctx context.Context, orgId uuid.UUID, beforeTime time.Time) (*api.ImageExportList, error) {
 	var items []api.ImageExport
 	for _, ie := range *s.imageExports {
-		if ie.Status != nil && ie.Status.NextRetryAt != nil && ie.Status.NextRetryAt.Before(beforeTime) {
-			if ie.Status.Phase != nil && *ie.Status.Phase != api.ImageExportPhaseComplete && *ie.Status.Phase != api.ImageExportPhaseFailed {
+		name := lo.FromPtr(ie.Metadata.Name)
+		nextRetry := s.nextRetryAt[name]
+		if nextRetry != nil && nextRetry.Before(beforeTime) {
+			// Check condition reason to determine if terminal
+			isTerminal := false
+			if ie.Status != nil && ie.Status.Conditions != nil {
+				for _, cond := range *ie.Status.Conditions {
+					if cond.Type == api.ImageExportConditionTypeReady {
+						if cond.Reason == string(api.ImageExportConditionReasonCompleted) ||
+							cond.Reason == string(api.ImageExportConditionReasonFailed) {
+							isTerminal = true
+						}
+						break
+					}
+				}
+			}
+			if !isTerminal {
 				var item api.ImageExport
 				deepCopy(ie, &item)
 				items = append(items, item)

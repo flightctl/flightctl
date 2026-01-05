@@ -601,8 +601,13 @@ func (f *TableFormatter) printImageBuildsTable(w *tabwriter.Writer, imageBuilds 
 		}
 
 		phase := NoneString
-		if ib.Status != nil && ib.Status.Phase != nil {
-			phase = string(*ib.Status.Phase)
+		if ib.Status != nil && ib.Status.Conditions != nil {
+			for _, cond := range *ib.Status.Conditions {
+				if cond.Type == imagebuilderapi.ImageBuildConditionTypeReady {
+					phase = cond.Reason
+					break
+				}
+			}
 		}
 
 		source := fmt.Sprintf("%s/%s:%s", ib.Spec.Source.Repository, ib.Spec.Source.ImageName, ib.Spec.Source.ImageTag)
@@ -627,8 +632,13 @@ func (f *TableFormatter) printImageExportsTable(w *tabwriter.Writer, imageExport
 		}
 
 		phase := NoneString
-		if ie.Status != nil && ie.Status.Phase != nil {
-			phase = string(*ie.Status.Phase)
+		if ie.Status != nil && ie.Status.Conditions != nil {
+			for _, cond := range *ie.Status.Conditions {
+				if cond.Type == imagebuilderapi.ImageExportConditionTypeReady {
+					phase = cond.Reason
+					break
+				}
+			}
 		}
 
 		source := NoneString

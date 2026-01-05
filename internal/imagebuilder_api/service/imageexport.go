@@ -23,9 +23,7 @@ type ImageExportService interface {
 	Delete(ctx context.Context, orgId uuid.UUID, name string) v1beta1.Status
 	// Internal methods (not exposed via API)
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, imageExport *api.ImageExport) (*api.ImageExport, error)
-	UpdateNextRetryAt(ctx context.Context, orgId uuid.UUID, name string, timestamp time.Time) error
 	UpdateLastSeen(ctx context.Context, orgId uuid.UUID, name string, timestamp time.Time) error
-	ListPendingRetry(ctx context.Context, orgId uuid.UUID, beforeTime time.Time) (*api.ImageExportList, error)
 }
 
 // imageExportService is the concrete implementation of ImageExportService
@@ -94,16 +92,8 @@ func (s *imageExportService) UpdateStatus(ctx context.Context, orgId uuid.UUID, 
 	return s.imageExportStore.UpdateStatus(ctx, orgId, imageExport)
 }
 
-func (s *imageExportService) UpdateNextRetryAt(ctx context.Context, orgId uuid.UUID, name string, timestamp time.Time) error {
-	return s.imageExportStore.UpdateNextRetryAt(ctx, orgId, name, timestamp)
-}
-
 func (s *imageExportService) UpdateLastSeen(ctx context.Context, orgId uuid.UUID, name string, timestamp time.Time) error {
 	return s.imageExportStore.UpdateLastSeen(ctx, orgId, name, timestamp)
-}
-
-func (s *imageExportService) ListPendingRetry(ctx context.Context, orgId uuid.UUID, beforeTime time.Time) (*api.ImageExportList, error) {
-	return s.imageExportStore.ListPendingRetry(ctx, orgId, beforeTime)
 }
 
 // validate performs validation on an ImageExport resource

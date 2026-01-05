@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/flightctl/flightctl/api/v1beta1"
 	api "github.com/flightctl/flightctl/api/v1beta1/imagebuilder"
@@ -212,14 +213,25 @@ func TestUpdateStatus(t *testing.T) {
 	_, status := svc.Create(ctx, orgId, imageBuild)
 	require.Equal(int32(http.StatusCreated), statusCode(status))
 
-	// Update status
-	phase := api.ImageBuildPhaseBuilding
+	// Update status with condition
+	now := time.Now()
 	imageBuild.Status = &api.ImageBuildStatus{
-		Phase: &phase,
+		Conditions: &[]api.ImageBuildCondition{
+			{
+				Type:               api.ImageBuildConditionTypeReady,
+				Status:             v1beta1.ConditionStatusUnknown,
+				Reason:             string(api.ImageBuildConditionReasonBuilding),
+				Message:            "Build in progress",
+				LastTransitionTime: now,
+			},
+		},
 	}
 	result, err := svc.UpdateStatus(ctx, orgId, &imageBuild)
 	require.NoError(err)
 	require.NotNil(result)
 	require.NotNil(result.Status)
-	require.Equal(api.ImageBuildPhaseBuilding, lo.FromPtr(result.Status.Phase))
+	require.NotNil(result.Status.Conditions)
+	require.Len(*result.Status.Conditions, 1)
+	require.Equal(api.ImageBuildConditionTypeReady, (*result.Status.Conditions)[0].Type)
+	require.Equal(string(api.ImageBuildConditionReasonBuilding), (*result.Status.Conditions)[0].Reason)
 }

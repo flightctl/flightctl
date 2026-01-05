@@ -30,18 +30,37 @@ const (
 	ExportFormatTypeVMDK  ExportFormatType = "vmdk"
 )
 
-// Defines values for ImageBuildPhase.
+// Defines values for ImageBuildConditionReason.
 const (
-	ImageBuildPhaseBuilding ImageBuildPhase = "building"
-	ImageBuildPhaseComplete ImageBuildPhase = "complete"
-	ImageBuildPhaseFailed   ImageBuildPhase = "failed"
-	ImageBuildPhasePushing  ImageBuildPhase = "pushing"
-	ImageBuildPhaseQueued   ImageBuildPhase = "queued"
+	ImageBuildConditionReasonBuilding  ImageBuildConditionReason = "Building"
+	ImageBuildConditionReasonCompleted ImageBuildConditionReason = "Completed"
+	ImageBuildConditionReasonFailed    ImageBuildConditionReason = "Failed"
+	ImageBuildConditionReasonPending   ImageBuildConditionReason = "Pending"
+	ImageBuildConditionReasonPushing   ImageBuildConditionReason = "Pushing"
+)
+
+// Defines values for ImageBuildConditionType.
+const (
+	ImageBuildConditionTypeReady ImageBuildConditionType = "Ready"
 )
 
 // Defines values for ImageBuildRefSourceType.
 const (
 	ImageBuildRefSourceTypeImageBuild ImageBuildRefSourceType = "imageBuild"
+)
+
+// Defines values for ImageExportConditionReason.
+const (
+	ImageExportConditionReasonCompleted  ImageExportConditionReason = "Completed"
+	ImageExportConditionReasonConverting ImageExportConditionReason = "Converting"
+	ImageExportConditionReasonFailed     ImageExportConditionReason = "Failed"
+	ImageExportConditionReasonPending    ImageExportConditionReason = "Pending"
+	ImageExportConditionReasonPushing    ImageExportConditionReason = "Pushing"
+)
+
+// Defines values for ImageExportConditionType.
+const (
+	ImageExportConditionTypeReady ImageExportConditionType = "Ready"
 )
 
 // Defines values for ImageExportFormatPhase.
@@ -51,16 +70,6 @@ const (
 	ImageExportFormatPhaseFailed     ImageExportFormatPhase = "failed"
 	ImageExportFormatPhasePushing    ImageExportFormatPhase = "pushing"
 	ImageExportFormatPhaseQueued     ImageExportFormatPhase = "queued"
-)
-
-// Defines values for ImageExportPhase.
-const (
-	ImageExportPhaseComplete   ImageExportPhase = "complete"
-	ImageExportPhaseConverting ImageExportPhase = "converting"
-	ImageExportPhaseFailed     ImageExportPhase = "failed"
-	ImageExportPhasePushing    ImageExportPhase = "pushing"
-	ImageExportPhaseQueued     ImageExportPhase = "queued"
-	ImageExportPhaseWaiting    ImageExportPhase = "waiting"
 )
 
 // Defines values for ImageExportSourceType.
@@ -120,6 +129,33 @@ type ImageBuildBinding struct {
 	union json.RawMessage
 }
 
+// ImageBuildCondition defines model for ImageBuildCondition.
+type ImageBuildCondition struct {
+	// LastTransitionTime The last time the condition transitioned from one status to another.
+	LastTransitionTime time.Time `json:"lastTransitionTime"`
+
+	// Message Human readable message indicating details about last transition.
+	Message string `json:"message"`
+
+	// ObservedGeneration The .metadata.generation that the condition was set based upon.
+	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
+
+	// Reason A (brief) reason for the condition's last transition.
+	Reason string `json:"reason"`
+
+	// Status Status of the condition, one of True, False, Unknown.
+	Status externalRef0.ConditionStatus `json:"status"`
+
+	// Type Type of ImageBuild condition.
+	Type ImageBuildConditionType `json:"type"`
+}
+
+// ImageBuildConditionReason Reason for the ImageBuild Ready condition.
+type ImageBuildConditionReason string
+
+// ImageBuildConditionType Type of ImageBuild condition.
+type ImageBuildConditionType string
+
 // ImageBuildDestination ImageBuildDestination specifies the destination for the built image.
 type ImageBuildDestination struct {
 	// ImageName The name of the output image.
@@ -146,9 +182,6 @@ type ImageBuildList struct {
 	// Metadata ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
 	Metadata externalRef0.ListMeta `json:"metadata"`
 }
-
-// ImageBuildPhase The phase of the image build process.
-type ImageBuildPhase string
 
 // ImageBuildRefSource ImageBuildRefSource specifies a source image from an ImageBuild resource.
 type ImageBuildRefSource struct {
@@ -191,14 +224,8 @@ type ImageBuildStatus struct {
 	// Architecture The architecture of the built image.
 	Architecture *string `json:"architecture,omitempty"`
 
-	// CompletedAt The time the build completed.
-	CompletedAt *time.Time `json:"completedAt,omitempty"`
-
 	// Conditions Current conditions of the ImageBuild.
-	Conditions *[]externalRef0.Condition `json:"conditions,omitempty"`
-
-	// Error Error message if the build failed.
-	Error *string `json:"error,omitempty"`
+	Conditions *[]ImageBuildCondition `json:"conditions,omitempty"`
 
 	// ImageReference The full image reference of the built image (e.g., quay.io/org/imagename:tag).
 	ImageReference *string `json:"imageReference,omitempty"`
@@ -208,12 +235,6 @@ type ImageBuildStatus struct {
 
 	// ManifestDigest The digest of the built image manifest.
 	ManifestDigest *string `json:"manifestDigest,omitempty"`
-
-	// Phase The phase of the image build process.
-	Phase *ImageBuildPhase `json:"phase,omitempty"`
-
-	// StartedAt The time the build started.
-	StartedAt *time.Time `json:"startedAt,omitempty"`
 }
 
 // ImageExport ImageExport represents an export request to convert and push images to different formats.
@@ -233,6 +254,33 @@ type ImageExport struct {
 	// Status ImageExportStatus represents the current status of an ImageExport.
 	Status *ImageExportStatus `json:"status,omitempty"`
 }
+
+// ImageExportCondition defines model for ImageExportCondition.
+type ImageExportCondition struct {
+	// LastTransitionTime The last time the condition transitioned from one status to another.
+	LastTransitionTime time.Time `json:"lastTransitionTime"`
+
+	// Message Human readable message indicating details about last transition.
+	Message string `json:"message"`
+
+	// ObservedGeneration The .metadata.generation that the condition was set based upon.
+	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
+
+	// Reason A (brief) reason for the condition's last transition.
+	Reason string `json:"reason"`
+
+	// Status Status of the condition, one of True, False, Unknown.
+	Status externalRef0.ConditionStatus `json:"status"`
+
+	// Type Type of ImageExport condition.
+	Type ImageExportConditionType `json:"type"`
+}
+
+// ImageExportConditionReason Reason for the ImageExport Ready condition.
+type ImageExportConditionReason string
+
+// ImageExportConditionType Type of ImageExport condition.
+type ImageExportConditionType string
 
 // ImageExportDestination ImageExportDestination specifies the destination for the exported images.
 type ImageExportDestination struct {
@@ -264,9 +312,6 @@ type ImageExportList struct {
 	Metadata externalRef0.ListMeta `json:"metadata"`
 }
 
-// ImageExportPhase The overall phase of the image export process.
-type ImageExportPhase string
-
 // ImageExportSource ImageExportSource specifies the source image for the export.
 type ImageExportSource struct {
 	union json.RawMessage
@@ -292,35 +337,14 @@ type ImageExportSpec struct {
 
 // ImageExportStatus ImageExportStatus represents the current status of an ImageExport.
 type ImageExportStatus struct {
-	// CompletedAt The time the export completed.
-	CompletedAt *time.Time `json:"completedAt,omitempty"`
-
 	// Conditions Current conditions of the ImageExport.
-	Conditions *[]externalRef0.Condition `json:"conditions,omitempty"`
-
-	// Error Error message if the export failed.
-	Error *string `json:"error,omitempty"`
-
-	// Format The type of format to export the image to.
-	Format *ExportFormatType `json:"format,omitempty"`
+	Conditions *[]ImageExportCondition `json:"conditions,omitempty"`
 
 	// LastSeen The last time the export was seen (heartbeat).
 	LastSeen *time.Time `json:"lastSeen,omitempty"`
 
 	// ManifestDigest The digest of the exported image manifest for this format.
 	ManifestDigest *string `json:"manifestDigest,omitempty"`
-
-	// NextRetryAt The next time to retry the export (for delayed processing).
-	NextRetryAt *time.Time `json:"nextRetryAt,omitempty"`
-
-	// Phase The overall phase of the image export process.
-	Phase *ImageExportPhase `json:"phase,omitempty"`
-
-	// StartedAt The time the export started.
-	StartedAt *time.Time `json:"startedAt,omitempty"`
-
-	// TagSuffix Optional suffix to append to the output tag for this format.
-	TagSuffix *string `json:"tagSuffix,omitempty"`
 }
 
 // ImageReferenceSource ImageReferenceSource specifies a source image from a repository.

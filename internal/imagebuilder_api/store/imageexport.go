@@ -22,9 +22,7 @@ type ImageExportStore interface {
 	List(ctx context.Context, orgId uuid.UUID, listParams flightctlstore.ListParams) (*api.ImageExportList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string) error
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, imageExport *api.ImageExport) (*api.ImageExport, error)
-	UpdateNextRetryAt(ctx context.Context, orgId uuid.UUID, name string, timestamp time.Time) error
 	UpdateLastSeen(ctx context.Context, orgId uuid.UUID, name string, timestamp time.Time) error
-	ListPendingRetry(ctx context.Context, orgId uuid.UUID, beforeTime time.Time) (*api.ImageExportList, error)
 	InitialMigration(ctx context.Context) error
 }
 
@@ -185,20 +183,6 @@ func (s *imageExportStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, im
 	return updated[0].ToApiResource()
 }
 
-// UpdateNextRetryAt updates the next retry timestamp for delayed processing
-func (s *imageExportStore) UpdateNextRetryAt(ctx context.Context, orgId uuid.UUID, name string, timestamp time.Time) error {
-	result := s.db.WithContext(ctx).Model(&ImageExport{}).
-		Where("org_id = ? AND name = ?", orgId, name).
-		Update("status", gorm.Expr("jsonb_set(COALESCE(status, '{}'), '{nextRetryAt}', to_jsonb(?::text))", timestamp.Format(time.RFC3339)))
-	if result.Error != nil {
-		return flightctlstore.ErrorFromGormError(result.Error)
-	}
-	if result.RowsAffected == 0 {
-		return flterrors.ErrResourceNotFound
-	}
-	return nil
-}
-
 // UpdateLastSeen updates the last seen timestamp of an ImageExport resource
 func (s *imageExportStore) UpdateLastSeen(ctx context.Context, orgId uuid.UUID, name string, timestamp time.Time) error {
 	result := s.db.WithContext(ctx).Model(&ImageExport{}).
@@ -211,26 +195,4 @@ func (s *imageExportStore) UpdateLastSeen(ctx context.Context, orgId uuid.UUID, 
 		return flterrors.ErrResourceNotFound
 	}
 	return nil
-}
-
-// ListPendingRetry retrieves ImageExport resources that are ready for retry
-func (s *imageExportStore) ListPendingRetry(ctx context.Context, orgId uuid.UUID, beforeTime time.Time) (*api.ImageExportList, error) {
-	var models []ImageExport
-
-	// Query for exports where nextRetryAt is before the given time
-	// and the phase is not terminal (complete or failed)
-	result := s.db.WithContext(ctx).
-		Where("org_id = ?", orgId).
-		Where("(status->>'nextRetryAt')::timestamp <= ?", beforeTime).
-		Where("status->>'phase' NOT IN (?, ?)", api.ImageExportPhaseComplete, api.ImageExportPhaseFailed).
-		Find(&models)
-	if result.Error != nil {
-		return nil, flightctlstore.ErrorFromGormError(result.Error)
-	}
-
-	list, err := ImageExportsToApiResource(models, nil, nil)
-	if err != nil {
-		return nil, err
-	}
-	return &list, nil
 }

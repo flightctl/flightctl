@@ -728,7 +728,9 @@ type ListImageBuildsResponse struct {
 	JSON200      *ImageBuildList
 	JSON400      *externalRef0.Status
 	JSON401      *externalRef0.Status
+	JSON403      *externalRef0.Status
 	JSON429      *externalRef0.Status
+	JSON503      *externalRef0.Status
 }
 
 // Status returns HTTPResponse.Status
@@ -753,8 +755,10 @@ type CreateImageBuildResponse struct {
 	JSON201      *ImageBuild
 	JSON400      *externalRef0.Status
 	JSON401      *externalRef0.Status
+	JSON403      *externalRef0.Status
 	JSON409      *externalRef0.Status
 	JSON429      *externalRef0.Status
+	JSON503      *externalRef0.Status
 }
 
 // Status returns HTTPResponse.Status
@@ -778,8 +782,10 @@ type DeleteImageBuildResponse struct {
 	HTTPResponse *http.Response
 	JSON200      *ImageBuild
 	JSON401      *externalRef0.Status
+	JSON403      *externalRef0.Status
 	JSON404      *externalRef0.Status
 	JSON429      *externalRef0.Status
+	JSON503      *externalRef0.Status
 }
 
 // Status returns HTTPResponse.Status
@@ -803,8 +809,10 @@ type GetImageBuildResponse struct {
 	HTTPResponse *http.Response
 	JSON200      *ImageBuild
 	JSON401      *externalRef0.Status
+	JSON403      *externalRef0.Status
 	JSON404      *externalRef0.Status
 	JSON429      *externalRef0.Status
+	JSON503      *externalRef0.Status
 }
 
 // Status returns HTTPResponse.Status
@@ -829,7 +837,9 @@ type ListImageExportsResponse struct {
 	JSON200      *ImageExportList
 	JSON400      *externalRef0.Status
 	JSON401      *externalRef0.Status
+	JSON403      *externalRef0.Status
 	JSON429      *externalRef0.Status
+	JSON503      *externalRef0.Status
 }
 
 // Status returns HTTPResponse.Status
@@ -854,8 +864,10 @@ type CreateImageExportResponse struct {
 	JSON201      *ImageExport
 	JSON400      *externalRef0.Status
 	JSON401      *externalRef0.Status
+	JSON403      *externalRef0.Status
 	JSON409      *externalRef0.Status
 	JSON429      *externalRef0.Status
+	JSON503      *externalRef0.Status
 }
 
 // Status returns HTTPResponse.Status
@@ -879,8 +891,10 @@ type DeleteImageExportResponse struct {
 	HTTPResponse *http.Response
 	JSON200      *ImageExport
 	JSON401      *externalRef0.Status
+	JSON403      *externalRef0.Status
 	JSON404      *externalRef0.Status
 	JSON429      *externalRef0.Status
+	JSON503      *externalRef0.Status
 }
 
 // Status returns HTTPResponse.Status
@@ -904,8 +918,10 @@ type GetImageExportResponse struct {
 	HTTPResponse *http.Response
 	JSON200      *ImageExport
 	JSON401      *externalRef0.Status
+	JSON403      *externalRef0.Status
 	JSON404      *externalRef0.Status
 	JSON429      *externalRef0.Status
+	JSON503      *externalRef0.Status
 }
 
 // Status returns HTTPResponse.Status
@@ -1047,12 +1063,26 @@ func ParseListImageBuildsResponse(rsp *http.Response) (*ListImageBuildsResponse,
 		}
 		response.JSON401 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
 		var dest externalRef0.Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
 
 	}
 
@@ -1094,6 +1124,13 @@ func ParseCreateImageBuildResponse(rsp *http.Response) (*CreateImageBuildRespons
 		}
 		response.JSON401 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
 		var dest externalRef0.Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -1107,6 +1144,13 @@ func ParseCreateImageBuildResponse(rsp *http.Response) (*CreateImageBuildRespons
 			return nil, err
 		}
 		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
 
 	}
 
@@ -1141,6 +1185,13 @@ func ParseDeleteImageBuildResponse(rsp *http.Response) (*DeleteImageBuildRespons
 		}
 		response.JSON401 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
 		var dest externalRef0.Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -1154,6 +1205,13 @@ func ParseDeleteImageBuildResponse(rsp *http.Response) (*DeleteImageBuildRespons
 			return nil, err
 		}
 		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
 
 	}
 
@@ -1188,6 +1246,13 @@ func ParseGetImageBuildResponse(rsp *http.Response) (*GetImageBuildResponse, err
 		}
 		response.JSON401 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
 		var dest externalRef0.Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -1201,6 +1266,13 @@ func ParseGetImageBuildResponse(rsp *http.Response) (*GetImageBuildResponse, err
 			return nil, err
 		}
 		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
 
 	}
 
@@ -1242,12 +1314,26 @@ func ParseListImageExportsResponse(rsp *http.Response) (*ListImageExportsRespons
 		}
 		response.JSON401 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
 		var dest externalRef0.Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
 
 	}
 
@@ -1289,6 +1375,13 @@ func ParseCreateImageExportResponse(rsp *http.Response) (*CreateImageExportRespo
 		}
 		response.JSON401 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
 		var dest externalRef0.Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -1302,6 +1395,13 @@ func ParseCreateImageExportResponse(rsp *http.Response) (*CreateImageExportRespo
 			return nil, err
 		}
 		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
 
 	}
 
@@ -1336,6 +1436,13 @@ func ParseDeleteImageExportResponse(rsp *http.Response) (*DeleteImageExportRespo
 		}
 		response.JSON401 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
 		var dest externalRef0.Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -1349,6 +1456,13 @@ func ParseDeleteImageExportResponse(rsp *http.Response) (*DeleteImageExportRespo
 			return nil, err
 		}
 		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
 
 	}
 
@@ -1383,6 +1497,13 @@ func ParseGetImageExportResponse(rsp *http.Response) (*GetImageExportResponse, e
 		}
 		response.JSON401 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
 		var dest externalRef0.Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -1396,6 +1517,13 @@ func ParseGetImageExportResponse(rsp *http.Response) (*GetImageExportResponse, e
 			return nil, err
 		}
 		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest externalRef0.Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
 
 	}
 

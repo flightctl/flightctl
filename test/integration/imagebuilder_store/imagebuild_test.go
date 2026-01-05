@@ -232,16 +232,26 @@ var _ = Describe("ImageBuildStore", func() {
 			_, err := storeInst.ImageBuild().Create(ctx, orgId, imageBuild)
 			Expect(err).ToNot(HaveOccurred())
 
-			phase := api.ImageBuildPhaseBuilding
 			imageBuild.Status = &api.ImageBuildStatus{
-				Phase: &phase,
+				Conditions: &[]api.ImageBuildCondition{
+					{
+						Type:    api.ImageBuildConditionTypeReady,
+						Status:  v1beta1.ConditionStatusUnknown,
+						Reason:  string(api.ImageBuildConditionReasonBuilding),
+						Message: "Build in progress",
+					},
+				},
 			}
 
 			result, err := storeInst.ImageBuild().UpdateStatus(ctx, orgId, imageBuild)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(result).ToNot(BeNil())
 			Expect(result.Status).ToNot(BeNil())
-			Expect(lo.FromPtr(result.Status.Phase)).To(Equal(api.ImageBuildPhaseBuilding))
+			Expect(len(*result.Status.Conditions)).To(Equal(1))
+			Expect((*result.Status.Conditions)[0].Type).To(Equal(api.ImageBuildConditionTypeReady))
+			Expect((*result.Status.Conditions)[0].Status).To(Equal(v1beta1.ConditionStatusUnknown))
+			Expect((*result.Status.Conditions)[0].Reason).To(Equal(string(api.ImageBuildConditionReasonBuilding)))
+			Expect((*result.Status.Conditions)[0].Message).To(Equal("Build in progress"))
 		})
 
 		It("should return not found when updating status of non-existent ImageBuild", func() {
