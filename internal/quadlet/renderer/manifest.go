@@ -83,7 +83,7 @@ func servicesManifest(config *RendererConfig) []InstallAction {
 		{Action: ActionCopyFile, Source: "deploy/scripts/init_certs.sh", Destination: filepath.Join(config.ReadOnlyConfigOutputDir, "init_certs.sh"), Template: false, Mode: ExecutableFileMode},
 
 		// Standalone binary
-		{Action: ActionCopyFile, Source: "bin/flightctl-standalone", Destination: filepath.Join(config.BinOutputDir, "flightctl-standalone"), Template: false, Mode: ExecutableFileMode},
+		{Action: ActionCopyBinary, Source: "flightctl-standalone", Destination: filepath.Join(config.BinOutputDir, "flightctl-standalone"), Template: false, Mode: ExecutableFileMode},
 
 		// Empty files
 		{Action: ActionCreateEmptyFile, Destination: filepath.Join(config.WriteableConfigOutputDir, "ssh", "known_hosts"), Mode: RegularFileMode},
