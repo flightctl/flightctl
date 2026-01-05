@@ -449,6 +449,7 @@ echo "Flight Control Observability Stack uninstalled."
 %install
     mkdir -p %{buildroot}/usr/bin
     mkdir -p %{buildroot}/etc/flightctl
+    mkdir -p %{buildroot}/etc/flightctl/hooks.d
     cp bin/flightctl %{buildroot}/usr/bin
     cp bin/flightctl-restore %{buildroot}/usr/bin
     mkdir -p %{buildroot}/usr/lib/systemd/system
@@ -620,6 +621,8 @@ fi
 %files agent
     %license LICENSE
     %dir /etc/flightctl
+    %dir /etc/flightctl/hooks.d
+    %dir /usr/lib/flightctl/custom-info.d
     %{_bindir}/flightctl-agent
     %{_bindir}/flightctl-must-gather
     /usr/lib/flightctl/hooks.d/afterupdating/00-default.yaml
