@@ -36,6 +36,9 @@ spec:
   {{- if gt ($ctx.Values.dbSetup.migration.activeDeadlineSeconds | int) 0 }}
   activeDeadlineSeconds: {{ $ctx.Values.dbSetup.migration.activeDeadlineSeconds | int }}
   {{- end }}
+  {{- if gt ($ctx.Values.dbSetup.migration.ttlSecondsAfterFinished | int) 0 }}
+  ttlSecondsAfterFinished: {{ $ctx.Values.dbSetup.migration.ttlSecondsAfterFinished | int }}
+  {{- end }}
   completions: 1
   parallelism: 1
   template:
