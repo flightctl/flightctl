@@ -167,3 +167,7 @@ func (u *Unit) Add(section string, key string, value string) *Unit {
 	})
 	return u
 }
+
+func (u *Unit) GetImage() (string, error) {
+	return u.Lookup(ContainerGroup, ImageKey)
+}

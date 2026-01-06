@@ -71,11 +71,11 @@ type RendererConfig struct {
 
 func NewRendererConfig() *RendererConfig {
 	return &RendererConfig{
-		ReadOnlyConfigOutputDir:  "/usr/share/flightctl",
-		WriteableConfigOutputDir: "/etc/flightctl",
-		QuadletFilesOutputDir:    "/usr/share/containers/systemd",
-		SystemdUnitOutputDir:     "/usr/lib/systemd/system",
-		BinOutputDir:             "/usr/bin",
+		ReadOnlyConfigOutputDir:  DefaultReadOnlyConfigDir,
+		WriteableConfigOutputDir: DefaultWriteableConfigDir,
+		QuadletFilesOutputDir:    DefaultQuadletDir,
+		SystemdUnitOutputDir:     DefaultSystemdUnitDir,
+		BinOutputDir:             DefaultBinDir,
 	}
 }
 

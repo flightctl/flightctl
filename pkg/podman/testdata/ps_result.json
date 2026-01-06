@@ -1,0 +1,133 @@
+[
+  {
+    "AutoRemove": true,
+    "Command": [
+      "/bin/sh",
+      "-c",
+      "./flightctl-api"
+    ],
+    "CreatedAt": "2 minutes ago",
+    "CIDFile": "/run/flightctl-api.cid",
+    "Exited": false,
+    "ExitedAt": -62135596800,
+    "ExitCode": 0,
+    "ExposedPorts": null,
+    "Id": "300a734d0a3d66cfee538e3ad79a7cb8ec0e1807e1851a1e11140628b5f40c42",
+    "Image": "localhost/flightctl-api:latest",
+    "ImageID": "acc675ede1b98d6398facad9c7258d3d99cf11a0326f4e7460e9155ed176ef1e",
+    "IsInfra": false,
+    "Labels": {
+      "PODMAN_SYSTEMD_UNIT": "flightctl-api.service",
+      "architecture": "x86_64",
+      "build-date": "2025-11-12T16:39:14Z",
+      "com.redhat.component": "flightctl-api-container",
+      "com.redhat.license_terms": "https://www.redhat.com/en/about/red-hat-end-user-license-agreements#UBI",
+      "cpe": "cpe:/a:redhat:enterprise_linux:9::appstream",
+      "description": "Flight Control Edge management API server",
+      "distribution-scope": "public",
+      "io.buildah.version": "1.40.1",
+      "io.k8s.description": "Flight Control Edge management API server",
+      "io.k8s.display-name": "Flight Control API Server",
+      "io.openshift.expose-services": "",
+      "maintainer": "Red Hat, Inc.",
+      "name": "flightctl-api",
+      "org.opencontainers.image.revision": "6c67d821194848bd86e453329d99c88c8a1d792d",
+      "release": "1762965531",
+      "summary": "Flight Control Edge management API server",
+      "url": "https://catalog.redhat.com/en/search?searchType=containers",
+      "vcs-ref": "6c67d821194848bd86e453329d99c88c8a1d792d",
+      "vcs-type": "git",
+      "vendor": "Red Hat, Inc.",
+      "version": "9.7"
+    },
+    "Mounts": [
+      "/root/.flightctl/certs/db",
+      "/root/.flightctl/certs/server.crt",
+      "/root/.flightctl/certs/server.key",
+      "/root/.flightctl/certs/client-signer.crt",
+      "/root/.flightctl/certs/client-signer.key",
+      "/root/.flightctl/certs/ca-bundle.crt",
+      "/root/.flightctl/config.yaml"
+    ],
+    "Names": [
+      "flightctl-api"
+    ],
+    "Namespaces": {},
+    "Networks": [
+      "flightctl"
+    ],
+    "Pid": 434123,
+    "Pod": "",
+    "PodName": "",
+    "Ports": [
+      {
+        "host_ip": "",
+        "container_port": 3443,
+        "host_port": 3443,
+        "range": 1,
+        "protocol": "tcp"
+      },
+      {
+        "host_ip": "",
+        "container_port": 7443,
+        "host_port": 7443,
+        "range": 1,
+        "protocol": "tcp"
+      }
+    ],
+    "Restarts": 0,
+    "Size": null,
+    "StartedAt": 1767888462,
+    "State": "running",
+    "Status": "Up 2 minutes",
+    "Created": 1767888462
+  },
+  {
+    "AutoRemove": true,
+    "Command": [
+      "--config.file=/usr/local/etc/alertmanager/alertmanager.yml",
+      "--storage.path=/var/lib/alertmanager"
+    ],
+    "CreatedAt": "2 minutes ago",
+    "CIDFile": "/run/flightctl-alertmanager.cid",
+    "Exited": false,
+    "ExitedAt": -62135596800,
+    "ExitCode": 0,
+    "ExposedPorts": {
+      "9093": [
+        "tcp"
+      ]
+    },
+    "Id": "a40112b4ab01f7671e9ad9e214cb1af2e4d338c17523e3445e7573607e0a38a8",
+    "Image": "quay.io/prometheus/alertmanager:v0.28.1",
+    "ImageID": "91c01b3cec9b5b3071454a5bf13814e64127ed1601b9afd3b932559945fc9a5e",
+    "IsInfra": false,
+    "Labels": {
+      "PODMAN_SYSTEMD_UNIT": "flightctl-alertmanager.service",
+      "maintainer": "The Prometheus Authors <prometheus-developers@googlegroups.com>",
+      "org.opencontainers.image.source": "https://github.com/prometheus/alertmanager"
+    },
+    "Mounts": [
+      "/usr/local/etc/alertmanager/alertmanager.yml",
+      "/alertmanager",
+      "/var/lib/alertmanager"
+    ],
+    "Names": [
+      "flightctl-alertmanager"
+    ],
+    "Namespaces": {},
+    "Networks": [
+      "flightctl"
+    ],
+    "Pid": 434274,
+    "Pod": "",
+    "PodName": "",
+    "Ports": null,
+    "Restarts": 0,
+    "Size": null,
+    "StartedAt": 1767888463,
+    "State": "running",
+    "Status": "Up 2 minutes",
+    "Created": 1767888462
+  }
+]
