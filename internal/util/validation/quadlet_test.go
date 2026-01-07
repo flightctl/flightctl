@@ -300,7 +300,7 @@ func TestValidateQuadletReferences(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			errs := ValidateQuadletSpec(tt.spec, tt.path, false)
+			errs := ValidateQuadletSpec(tt.spec, tt.path)
 			require.Len(errs, tt.wantErrCount, "expected %d errors, got %d: %v", tt.wantErrCount, len(errs), errs)
 			if tt.wantErrSubstr != "" && len(errs) > 0 {
 				require.Contains(errs[0].Error(), tt.wantErrSubstr)
@@ -448,6 +448,93 @@ func TestValidateQuadletNames_SkipsEmptyNames(t *testing.T) {
 
 	errs := ValidateQuadletNames(specs)
 	require.Empty(errs)
+}
+
+func TestValidateQuadletSpecWithCustomImageValidator(t *testing.T) {
+	require := require.New(t)
+
+	permissiveImageValidator := func(s *string, path string) []error {
+		return nil
+	}
+
+	tests := []struct {
+		name         string
+		path         string
+		spec         *common.QuadletReferences
+		wantErrCount int
+	}{
+		{
+			name: "container with short image reference passes with permissive validator",
+			path: "app.container",
+			spec: &common.QuadletReferences{
+				Type:  common.QuadletTypeContainer,
+				Image: lo.ToPtr("nginx:latest"),
+			},
+			wantErrCount: 0,
+		},
+		{
+			name: "container with unqualified image passes with permissive validator",
+			path: "app.container",
+			spec: &common.QuadletReferences{
+				Type:  common.QuadletTypeContainer,
+				Image: lo.ToPtr("alpine"),
+			},
+			wantErrCount: 0,
+		},
+		{
+			name: "volume with short image reference passes with permissive validator",
+			path: "data.volume",
+			spec: &common.QuadletReferences{
+				Type:  common.QuadletTypeVolume,
+				Image: lo.ToPtr("busybox:latest"),
+			},
+			wantErrCount: 0,
+		},
+		{
+			name: "image quadlet with short reference passes with permissive validator",
+			path: "myimage.image",
+			spec: &common.QuadletReferences{
+				Type:  common.QuadletTypeImage,
+				Image: lo.ToPtr("fedora"),
+			},
+			wantErrCount: 0,
+		},
+		{
+			name: "container with short mount image passes with permissive validator",
+			path: "app.container",
+			spec: &common.QuadletReferences{
+				Type:        common.QuadletTypeContainer,
+				Image:       lo.ToPtr("nginx"),
+				MountImages: []string{"alpine:latest"},
+			},
+			wantErrCount: 0,
+		},
+		{
+			name: "build reference still fails even with permissive validator",
+			path: "app.container",
+			spec: &common.QuadletReferences{
+				Type:  common.QuadletTypeContainer,
+				Image: lo.ToPtr("my-app.build"),
+			},
+			wantErrCount: 1,
+		},
+		{
+			name: "missing image still fails even with permissive validator",
+			path: "app.container",
+			spec: &common.QuadletReferences{
+				Type:  common.QuadletTypeContainer,
+				Image: nil,
+			},
+			wantErrCount: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			errs := ValidateQuadletSpec(tt.spec, tt.path, WithSpecImageValidator(permissiveImageValidator))
+			require.Len(errs, tt.wantErrCount, "expected %d errors, got %d: %v", tt.wantErrCount, len(errs), errs)
+		})
+	}
 }
 
 func TestValidateQuadletCrossReferences(t *testing.T) {

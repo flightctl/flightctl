@@ -17,19 +17,41 @@ var quadletNameLabels = map[common.QuadletType]string{
 	common.QuadletTypeVolume:    quadlet.VolumeNameKey,
 }
 
-func validateContainerImage(image string, path string, fleetTemplate bool) error {
+// ImageValidationFn defines a function for validating an image reference defined in an application's spec
+type ImageValidationFn func(*string, string) []error
+
+type specValidatorOpts struct {
+	imageValidationFn ImageValidationFn
+}
+
+type SpecValidatorOpts func(*specValidatorOpts)
+
+func WithSpecImageValidator(fn ImageValidationFn) SpecValidatorOpts {
+	return func(opts *specValidatorOpts) {
+		opts.imageValidationFn = fn
+	}
+}
+
+func validateContainerImage(image string, path string, validateFn ImageValidationFn) error {
 	if quadlet.IsBuildReference(image) {
 		return fmt.Errorf(".build quadlet types are unsupported: %s", image)
 	}
 	if !quadlet.IsImageReference(image) {
-		return errors.Join(ValidateOCIReferenceStrict(&image, path, fleetTemplate)...)
+		return errors.Join(validateFn(&image, path)...)
 	}
 	return nil
 }
 
-// ValidateQuadletSpec verifies the QuadletSpec for common issues.
-// When fleetTemplate is true, template expressions like {{ .metadata.labels.x }} are allowed in image references.
-func ValidateQuadletSpec(spec *common.QuadletReferences, path string, fleetTemplate bool) []error {
+// ValidateQuadletSpec verifies the Quadlet spec for common issues. Images are validated with strict reference checking
+// unless overwritten with a SpecValidatorOpts
+func ValidateQuadletSpec(spec *common.QuadletReferences, path string, opts ...SpecValidatorOpts) []error {
+	validateOpts := &specValidatorOpts{
+		imageValidationFn: ValidateOciImageReferenceStrict,
+	}
+	for _, opt := range opts {
+		opt(validateOpts)
+	}
+
 	var errs []error
 
 	typeToExtension := map[common.QuadletType]string{
@@ -54,13 +76,13 @@ func ValidateQuadletSpec(spec *common.QuadletReferences, path string, fleetTempl
 		if spec.Image == nil {
 			errs = append(errs, fmt.Errorf(".container quadlet must have an Image key"))
 		} else {
-			if err := validateContainerImage(*spec.Image, "container.image", fleetTemplate); err != nil {
+			if err := validateContainerImage(*spec.Image, "container.image", validateOpts.imageValidationFn); err != nil {
 				errs = append(errs, err)
 			}
 		}
 
 		for _, mountImage := range spec.MountImages {
-			if err := validateContainerImage(mountImage, "container.mount.image", fleetTemplate); err != nil {
+			if err := validateContainerImage(mountImage, "container.mount.image", validateOpts.imageValidationFn); err != nil {
 				errs = append(errs, err)
 			}
 		}
@@ -69,7 +91,7 @@ func ValidateQuadletSpec(spec *common.QuadletReferences, path string, fleetTempl
 		if spec.Image != nil {
 			image := *spec.Image
 			if !quadlet.IsImageReference(image) {
-				if err := ValidateOCIReferenceStrict(&image, "volume.image", fleetTemplate); err != nil {
+				if err := validateOpts.imageValidationFn(&image, "volume.image"); err != nil {
 					errs = append(errs, err...)
 				}
 			}
@@ -79,7 +101,7 @@ func ValidateQuadletSpec(spec *common.QuadletReferences, path string, fleetTempl
 		if spec.Image == nil {
 			errs = append(errs, fmt.Errorf(".image quadlet must have an Image key"))
 		} else {
-			if err := ValidateOCIReferenceStrict(spec.Image, "image.image", fleetTemplate); err != nil {
+			if err := validateOpts.imageValidationFn(spec.Image, "image.image"); err != nil {
 				errs = append(errs, err...)
 			}
 		}
