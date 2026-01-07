@@ -86,11 +86,12 @@ func (s *Server) Run(ctx context.Context) error {
 		ErrorHandler: oapiErrorHandler,
 	}
 
-	// Create auth provider service for dynamic provider loading
+	// Create auth provider service for dynamic provider loading and wrap with tracing (same as api_server)
 	authProviderService := internalservice.NewAuthProviderServiceHandler(s.mainStore, s.log)
+	tracedAuthProviderService := internalservice.WrapWithTracing(authProviderService)
 
 	// Initialize auth (same as api_server)
-	authN, err := auth.InitMultiAuth(s.cfg, s.log, authProviderService)
+	authN, err := auth.InitMultiAuth(s.cfg, s.log, tracedAuthProviderService)
 	if err != nil {
 		return fmt.Errorf("failed initializing auth: %w", err)
 	}
