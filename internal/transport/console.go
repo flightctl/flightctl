@@ -2,14 +2,12 @@ package transport
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"sync"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1beta1"
-	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
 )
@@ -43,26 +41,9 @@ func (h *WebsocketHandler) HandleDeviceConsole(w http.ResponseWriter, r *http.Re
 		http.Error(w, "protocols injection error", http.StatusInternalServerError)
 		return
 	}
-	consoleSession, err := h.consoleSessionManager.StartSession(r.Context(), orgId, deviceName, metadata)
-	// check for errors
-	if err != nil {
-		switch {
-		case errors.Is(err, flterrors.ErrResourceNotFound):
-			h.log.Errorf("console requested for unknown device: %s", deviceName)
-			http.Error(w, "Device not found", http.StatusNotFound)
-		case errors.Is(err, flterrors.ErrDecommission):
-			h.log.Errorf("console requested for decommissioned device: %s", deviceName)
-			http.Error(w, "Device is decommissioned", http.StatusConflict)
-		case errors.Is(err, flterrors.ErrDeviceAwaitingReconnect):
-			h.log.Errorf("console requested for device awaiting reconnect: %s", deviceName)
-			http.Error(w, "Device is awaiting reconnection after restore", http.StatusConflict)
-		case errors.Is(err, flterrors.ErrDeviceConflictPaused):
-			h.log.Errorf("console requested for conflict paused device: %s", deviceName)
-			http.Error(w, "Device is paused due to conflicts", http.StatusConflict)
-		default:
-			h.log.Errorf("There was an error retrieving DB from database during console request: %v", err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
-		}
+	consoleSession, status := h.consoleSessionManager.StartSession(r.Context(), orgId, deviceName, metadata)
+	if status.Code != http.StatusOK {
+		http.Error(w, status.Message, int(status.Code))
 		return
 	}
 
@@ -182,8 +163,8 @@ func (h *WebsocketHandler) HandleDeviceConsole(w http.ResponseWriter, r *http.Re
 
 	wg.Wait()
 	h.log.Infof("Ending console session %s to device %s", consoleSession.UUID, deviceName)
-	err = h.consoleSessionManager.CloseSession(r.Context(), consoleSession)
-	if err != nil {
-		h.log.Errorf("Error closing console session %s for device %s: %v", consoleSession.UUID, deviceName, err)
+	status = h.consoleSessionManager.CloseSession(r.Context(), consoleSession)
+	if status.Code != http.StatusOK {
+		h.log.Errorf("Error closing console session %s for device %s: %v", consoleSession.UUID, deviceName, status.Message)
 	}
 }
